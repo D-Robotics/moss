@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * TUI utility functions — tested from the user's perspective:
- * what does the user see in the footer, status bar, session list, queue, etc.
+ * what does the user see in the footer, status bar, and session list.
+ * The queued-input model tests were removed with the dead module (v0.14-S3).
  */
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -12,19 +13,8 @@ import {
   footerHint,
   statusLine,
   formatTuiSessions,
-  formatQueueWait,
-  queueItemMeta,
-  queuePausedSubmissionMessage,
-  shouldDrainQueue,
-  SerialQueueDrain,
-  stopRequestedMessage,
-  queueResumedMessage,
-  isQueueControlCommand,
-  isImmediateGoalCommand,
-  isLocalShellLine,
   runLocalShellCommand,
   sanitizeRenderableText,
-  dropLastQueuedInput,
   promptCacheModeLabel,
 } from '../dist/cli/tui-utils.js';
 
@@ -122,179 +112,7 @@ assert.equal(promptCacheModeLabel({ config: { promptCacheDebug: true } }), 'cach
   assert.ok(rendered.includes('of 15'), 'shows total count when list is truncated');
 }
 
-// ─── formatQueueWait ────────────────────────────────────────────────────────
-
-assert.equal(formatQueueWait(undefined), null, 'no enqueuedAt → null');
-assert.equal(formatQueueWait(Date.now() - 500), '<1s', 'sub-second wait → <1s');
-assert.equal(formatQueueWait(Date.now() - 30000), '30s', '30 second wait');
-assert.equal(formatQueueWait(Date.now() - 90000), '1m', '90 second wait → 1m');
-assert.equal(formatQueueWait(Date.now() - 3700000), '1h', 'hour-long wait → 1h');
-
-// ─── queueItemMeta ──────────────────────────────────────────────────────────
-
-{
-  const item = { raw: 'hello world', message: 'hello world', enqueuedAt: Date.now() - 5000 };
-  const meta = queueItemMeta(item);
-  assert.ok(meta.includes('prompt'), 'plain text is labelled as a prompt');
-  assert.ok(meta.includes('waiting'), 'shows wait time');
-  assert.ok(meta.includes('1 line'), 'shows line count');
-}
-
-{
-  const item = { raw: '/compact', message: '/compact', enqueuedAt: undefined };
-  const meta = queueItemMeta(item);
-  assert.ok(meta.includes('command'), 'slash message is labelled as a command');
-}
-
-{
-  const item = { raw: '!ls -la', message: '!ls -la', enqueuedAt: undefined };
-  const meta = queueItemMeta(item);
-  assert.ok(meta.includes('local shell'), 'shell line is labelled as local shell');
-}
-
-// ─── shouldDrainQueue ───────────────────────────────────────────────────────
-
-assert.equal(
-  shouldDrainQueue({
-    busy: false,
-    approvalActive: false,
-    pausedAfterCancel: false,
-    queueLength: 1,
-  }),
-  true,
-  'drains when idle with items'
-);
-assert.equal(
-  shouldDrainQueue({ busy: true, approvalActive: false, pausedAfterCancel: false, queueLength: 1 }),
-  false,
-  'does not drain while busy'
-);
-assert.equal(
-  shouldDrainQueue({ busy: false, approvalActive: true, pausedAfterCancel: false, queueLength: 1 }),
-  false,
-  'does not drain during approval'
-);
-assert.equal(
-  shouldDrainQueue({ busy: false, approvalActive: false, pausedAfterCancel: true, queueLength: 1 }),
-  false,
-  'does not drain when paused after cancel'
-);
-assert.equal(
-  shouldDrainQueue({
-    busy: false,
-    approvalActive: false,
-    pausedAfterCancel: false,
-    queueLength: 0,
-  }),
-  false,
-  'does not drain with empty queue'
-);
-
-// ─── SerialQueueDrain ──────────────────────────────────────────────────────
-
-{
-  const drain = new SerialQueueDrain();
-  let releaseFirst;
-  const firstGate = new Promise((resolve) => {
-    releaseFirst = resolve;
-  });
-  const order = [];
-  const first = drain.run(async () => {
-    order.push('first-start');
-    await firstGate;
-    order.push('first-end');
-  });
-  await Promise.resolve();
-  const secondAccepted = await drain.run(async () => {
-    order.push('second-start');
-  });
-  assert.equal(
-    secondAccepted,
-    false,
-    'a second queue item cannot start while the first is pending'
-  );
-  assert.deepEqual(order, ['first-start']);
-  releaseFirst();
-  await first;
-  assert.equal(
-    await drain.run(async () => {
-      order.push('second-start');
-    }),
-    true
-  );
-  assert.deepEqual(order, ['first-start', 'first-end', 'second-start']);
-}
-
-// ─── stopRequestedMessage / queueResumedMessage ──────────────────────────────
-
-{
-  const msg = stopRequestedMessage(0);
-  assert.ok(
-    msg.toLowerCase().includes('stopping'),
-    'stop request reports that cancellation is still in progress'
-  );
-  assert.ok(
-    !msg.includes('Run stopped.'),
-    'stop request does not claim completion before the run exits'
-  );
-}
-
-{
-  const msg = stopRequestedMessage(3);
-  assert.ok(msg.includes('3 queued'), 'stop message shows queue length');
-  assert.ok(msg.includes('/queue drop'), 'stop message shows how to discard queued prompts');
-  // Regression: stop must NOT freeze the queue. The next queued prompt auto-drains,
-  // so the message must not claim the queue is "paused" or offer "/queue resume".
-  assert.ok(
-    !msg.toLowerCase().includes('paus'),
-    'stop message does not say the queue is paused (it auto-drains)'
-  );
-  assert.ok(
-    !msg.includes('/queue resume'),
-    'stop message does not offer resume (queue is not paused)'
-  );
-}
-
-{
-  const msg = queueResumedMessage(2);
-  assert.ok(msg.includes('2 item'), 'resume message shows queue length');
-}
-
-assert.ok(queueResumedMessage(0).includes('resumed'), 'resume message confirms resumption');
-assert.match(
-  queuePausedSubmissionMessage(2, 'fix the parser'),
-  /remains paused until \/queue resume/,
-  'submitting while paused does not claim or trigger an implicit resume'
-);
-
-// ─── isQueueControlCommand ──────────────────────────────────────────────────
-
-assert.equal(isQueueControlCommand('/queue'), true);
-assert.equal(isQueueControlCommand('/queue pause'), true);
-assert.equal(isQueueControlCommand('/queue resume'), true);
-assert.equal(isQueueControlCommand('/queue clear'), true);
-assert.equal(isQueueControlCommand('/queue drop'), true);
-assert.equal(isQueueControlCommand('/clearqueue'), true);
-assert.equal(isQueueControlCommand('/model'), false, 'model command is not a queue command');
-assert.equal(isQueueControlCommand('hello'), false, 'plain text is not a queue command');
-
-// ─── isImmediateGoalCommand ─────────────────────────────────────────────────
-
-assert.equal(isImmediateGoalCommand('/goal clear'), true);
-assert.equal(isImmediateGoalCommand('/goal pause'), true);
-assert.equal(isImmediateGoalCommand('/goal complete'), true);
-assert.equal(isImmediateGoalCommand('/goal complete fix the bug'), true);
-assert.equal(isImmediateGoalCommand('/goal block waiting for review'), true);
-assert.equal(isImmediateGoalCommand('/goal'), false, 'bare /goal is not immediate');
-assert.equal(isImmediateGoalCommand('/goal set objective'), false, 'goal set is not immediate');
-
-// ─── isLocalShellLine ───────────────────────────────────────────────────────
-
-assert.equal(isLocalShellLine('!ls -la'), true, '! prefix marks shell command');
-assert.equal(isLocalShellLine('!echo hello'), true);
-assert.equal(isLocalShellLine('!'), false, 'bare ! is not a shell command');
-assert.equal(isLocalShellLine('hello'), false, 'regular text is not a shell command');
-assert.equal(isLocalShellLine('/command'), false, 'slash command is not a shell command');
+// ─── runLocalShellCommand abort kills background children ────────────────────
 
 if (process.platform !== 'win32') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-local-shell-abort-'));
@@ -330,25 +148,6 @@ if (process.platform !== 'win32') {
   }
   assert.equal(childAlive, false, 'aborting local shell kills its background child process');
   fs.rmSync(dir, { recursive: true, force: true });
-}
-
-// ─── dropLastQueuedInput ────────────────────────────────────────────────────
-
-{
-  const result = dropLastQueuedInput([]);
-  assert.deepEqual(result.next, []);
-  assert.equal(result.dropped, undefined, 'empty queue drops nothing');
-}
-
-{
-  const items = [
-    { raw: 'a', message: 'a' },
-    { raw: 'b', message: 'b' },
-  ];
-  const result = dropLastQueuedInput(items);
-  assert.equal(result.next.length, 1);
-  assert.equal(result.dropped.raw, 'b', 'drops the last item');
-  assert.equal(result.next[0].raw, 'a', 'keeps earlier items');
 }
 
 // ─── sanitizeRenderableText ──────────────────────────────────────────────────

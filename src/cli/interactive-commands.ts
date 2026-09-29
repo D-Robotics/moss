@@ -32,16 +32,8 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         description: 'compact and focus the summary on the given instructions',
         hidden: true,
       },
-      {
-        command: '/steer <constraint>',
-        description:
-          'change the active task at its next safe model/tool boundary; unlike a normal prompt, this does not queue a separate task',
-      },
-      {
-        command: '/queue pause',
-        description: 'pause queued prompts after the current item; use /queue resume to continue',
-        hidden: true,
-      },
+      // /steer and /queue are intentionally NOT listed: they have no handler in
+      // this REPL. They return with the TUI control plane (v0.18).
       {
         command: '/loop <goal>',
         description:
@@ -79,16 +71,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
     rows: [
       {
         command: '/sessions',
-        description: 'list saved conversations (use /resume to switch into one)',
+        description:
+          'list saved conversations (continue one from the shell with `moss resume --last`)',
       },
-      {
-        command: '/history [filter]',
-        description: "list this session's prompt history (newest first); optional substring filter",
-      },
-      {
-        command: '/resume [key|--last]',
-        description: 'switch this session to a saved conversation (no arg opens a picker)',
-      },
+      // /history and the in-REPL /resume are intentionally NOT listed: they have
+      // no handler in this REPL. /resume returns with TUI resume replay (v0.17).
       {
         command: '/doctor',
         description: 'health-check model, egress, and config in this session',
@@ -125,15 +112,12 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
     title: 'Control',
     rows: [
       { command: '/stop', description: 'stop the active run', hidden: true },
-      {
-        command: '/clear',
-        description: 'start a new conversation — clears the context window (aliases: /new, /reset)',
-        aliases: ['/new', '/reset'],
-      },
-      // De-surfaced (still dispatch for back-compat): /queue (niche in-memory prompt
-      // queue), /thinking (a display toggle — mainstream uses a keybind), /detail (a
-      // display setting), /version (shown by /status and /doctor), /upgrade (updates
-      // are out-of-band via the package installer).
+      // /clear is intentionally NOT listed: it does not clear the context
+      // window in this REPL (the honest handler just points at Ctrl+L).
+      // De-surfaced (still dispatch for back-compat): /thinking (a display
+      // toggle — mainstream uses a keybind), /detail (a display setting),
+      // /version (shown by /status and /doctor), /upgrade (updates are
+      // out-of-band via the package installer).
       { command: '/init', description: 'create an AGENTS.md project memory file', hidden: true },
       { command: '/help', description: 'show this command reference' },
       { command: '/quit', description: 'exit Moss', hidden: true },

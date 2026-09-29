@@ -507,6 +507,24 @@ export const COMMANDS: Record<string, CommandConfig> = {
 };
 
 /**
+ * Subcommands that parse as commands (KNOWN_COMMANDS in args.ts) but have no
+ * implementation in this build — subsystems removed before v0.14. Dispatching
+ * one must hard-fail instead of silently falling through to chat.
+ */
+export const UNIMPLEMENTED_COMMANDS: readonly string[] = [
+  'update',
+  'mcp',
+  'plugins',
+  'migrate',
+  'web',
+  'agent',
+];
+
+export function isUnimplementedCommand(commandName: string | undefined): boolean {
+  return !!commandName && UNIMPLEMENTED_COMMANDS.includes(commandName);
+}
+
+/**
  * Returns the CliPhase needed to dispatch the given command.
  * Returns CliPhase.AgentReady if the command is not in the table
  * (means it's a chat/interactive command).

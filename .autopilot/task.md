@@ -25,7 +25,7 @@
 
 ## 3. 改动范围与禁区
 
-- 允许改：src/**、test/**（新增为主）、scripts/**、eslint.config.mjs、package.json、AGENTS.md、docs/superpowers/plans/2026-09-30-moss-v014-v020-roadmap.md（仅追加"执行记录"）
+- 允许改：src/**、test/**（新增为主）、scripts/\*\*、eslint.config.mjs、package.json、AGENTS.md、docs/superpowers/plans/2026-09-30-moss-v014-v020-roadmap.md（仅追加"执行记录"）
 - 禁改：见 `no-touch.txt`（bench/tasks/、examples/、cli-headless-json-contract spec、历史规划文档）
 - 契约冻结：`CONTRACT_PATHS="test/cli-headless-json-contract.spec.mjs"`
 - SDK 快照（test/sdk-contract.spec.mjs）不冻结但受 semver 纪律：只能随"故意的公共面变更"同 commit 更新，禁止为绿灯单独改快照
@@ -53,7 +53,7 @@
 ## 5. 风险与不确定
 
 - SWE-bench 官方镜像为 x86_64，arm64+colima 下 QEMU 仿真慢/盘大 → 验证方式：先 1 实例端到端测单实例成本，再定子集规模（≥50，若环境不可行如实记录口径调整）；roadmap 已有 50 实例回退预案
-- 三臂 A/B 由并行会话在主仓进行（12:29 起跑）→ 收数以 bench/results/ab-model-routing-*.json 出现为准备；不影响 worktree 实施
+- 三臂 A/B 由并行会话在主仓进行（12:29 起跑）→ 收数以 bench/results/ab-model-routing-\*.json 出现为准备；不影响 worktree 实施
 - goal 引擎榜单 delta 可能不达 +3pt → 按路线图预案：引擎按数据定默认开关，归因后仍不达则发版标注"效率门未过"，0.16 从错误分析要增量
 - RUNNER=self 偏离协议的 relay 全新会话模型 → 结构性补偿：每棒从磁盘读态、上下文 65% 即收尾、gate/绿 tag 纪律不变
 - ink 依赖与 Node 22.16/24 兼容性 → 0.17 首日 spike，失败则仲裁记录换方案（blessed 已排除）

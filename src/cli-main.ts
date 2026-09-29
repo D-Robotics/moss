@@ -68,6 +68,7 @@ import type {
 import {
   CliPhase,
   getPhaseForCommand,
+  isUnimplementedCommand,
   getCommandConfig,
   type CommandContext,
 } from './cli/command-dispatcher.js';
@@ -249,6 +250,15 @@ async function main() {
   // Determine the initialization phase needed for this command
   const requiredPhase = getPhaseForCommand(parsedArgs.command);
   const commandConfig = getCommandConfig(parsedArgs.command);
+
+  // Known-but-unimplemented subcommands must hard-fail instead of silently
+  // falling through into chat.
+  if (isUnimplementedCommand(parsedArgs.command)) {
+    console.error(
+      `moss: "${parsedArgs.command}" is not implemented in this build — the subsystem was removed. Run "moss --help" for available commands.`
+    );
+    process.exit(ExitCode.USAGE);
+  }
 
   // CliPhase.None: no initialization needed (e.g., setup, --help, --version)
   if (requiredPhase === CliPhase.None && commandConfig) {

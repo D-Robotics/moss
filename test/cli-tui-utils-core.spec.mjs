@@ -1,20 +1,9 @@
 #!/usr/bin/env node
 /**
- * Characterization tests for cli/tui-utils.ts core pure helpers (queue,
- * sanitizing, truncation) ahead of the tui-utils.ts split (cleanup plan
- * Task 6.2). Existing specs cover rendering paths; these lock the pure
- * function surface. Assertions are probe-observed against dist/ on
- * 2026-09-28 — they lock CURRENT behavior, not intended behavior.
- *
- * Probe findings that differ from the plan skeleton:
- *   - sanitizeTextForTerminal requires the { breakLongTokens } option
- *     (calling it without options throws TypeError).
- *   - queueItemKind takes QueuedInput { raw, message } — the skeleton's
- *     { kind, text } shape throws (raw is undefined).
- *   - dropLastQueuedInput returns { next, dropped } — not { items }.
- *   - OSC sequences are only partially stripped: "\u001b]" matches the
- *     two-char escape class in ANSI_RE, so ESC] and the BEL are removed
- *     but the payload text survives.
+ * Characterization tests for cli/tui-utils.ts core pure helpers (sanitizing,
+ * truncation, append limit, resume replay). The queued-input model that used
+ * to live here was dead code and was removed in v0.14-S3; its tests went with
+ * it. Assertions lock CURRENT behavior against dist/, not intended behavior.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -22,22 +11,10 @@ import { test } from 'node:test';
 import {
   appendLimited,
   buildResumeReplay,
-  dropLastQueuedInput,
-  formatQueueWait,
-  isImmediateGoalCommand,
-  isQueueControlCommand,
-  LOCAL_SHELL_OUTPUT_LIMIT,
-  MAX_INPUT_HISTORY,
-  queueItemKind,
-  queueItemMeta,
-  queuePausedSubmissionMessage,
-  queueResumedMessage,
   resumedToolLines,
   sanitizeTextForTerminal,
-  SerialQueueDrain,
-  shouldDrainQueue,
-  stopRequestedMessage,
   truncateTerminalText,
+  LOCAL_SHELL_OUTPUT_LIMIT,
 } from '../dist/cli/tui-utils.js';
 
 // ─── sanitizeTextForTerminal ─────────────────────────────────────────────────
@@ -114,138 +91,12 @@ test('truncateTerminalText cuts to width with an ellipsis (characterization)', (
   assert.equal(truncateTerminalText('中文中', 2), '…');
 });
 
-// ─── queueItemKind ───────────────────────────────────────────────────────────
-
-test('queueItemKind classifies by raw bang line, then /command, then prompt (characterization)', () => {
-  assert.equal(queueItemKind({ raw: '!ls -la', message: '!ls -la' }), 'local shell');
-  assert.equal(queueItemKind({ raw: '!', message: '!' }), 'prompt', 'a bare ! is a prompt');
-  assert.equal(queueItemKind({ raw: '/help', message: '/help' }), 'command');
-  assert.equal(queueItemKind({ raw: 'hello world', message: 'hello world' }), 'prompt');
-});
-
-// ─── dropLastQueuedInput ─────────────────────────────────────────────────────
-
-test('dropLastQueuedInput returns { next, dropped } (characterization)', () => {
-  const items = [
-    { raw: 'a', message: 'a' },
-    { raw: 'b', message: 'b' },
-  ];
-  assert.deepEqual(dropLastQueuedInput(items), {
-    next: [{ raw: 'a', message: 'a' }],
-    dropped: { raw: 'b', message: 'b' },
-  });
-  assert.deepEqual(dropLastQueuedInput([{ raw: 'a', message: 'a' }]), {
-    next: [],
-    dropped: { raw: 'a', message: 'a' },
-  });
-  assert.deepEqual(dropLastQueuedInput([]), { next: [] }, 'empty queue: no dropped key');
-});
-
-// ─── shouldDrainQueue ────────────────────────────────────────────────────────
-
-test('shouldDrainQueue drains only when idle, unpaused, and queued (characterization)', () => {
-  const base = { busy: false, approvalActive: false, pausedAfterCancel: false, queueLength: 2 };
-  assert.equal(shouldDrainQueue(base), true);
-  assert.equal(shouldDrainQueue({ ...base, busy: true }), false);
-  assert.equal(shouldDrainQueue({ ...base, approvalActive: true }), false);
-  assert.equal(shouldDrainQueue({ ...base, pausedAfterCancel: true }), false);
-  assert.equal(shouldDrainQueue({ ...base, queueLength: 0 }), false);
-});
-
-// ─── formatQueueWait ─────────────────────────────────────────────────────────
-
-test('formatQueueWait buckets elapsed time with an explicit now (characterization)', () => {
-  assert.equal(formatQueueWait(undefined, 1500), null);
-  assert.equal(formatQueueWait(Number.NaN, 1500), null);
-  assert.equal(formatQueueWait(1000, 1500), '<1s');
-  assert.equal(formatQueueWait(1000, 61_000), '1m', '60s exactly moves to the minutes bucket');
-  assert.equal(formatQueueWait(1000, 120_000), '1m');
-  assert.equal(formatQueueWait(1000, 7_200_000), '1h');
-  assert.equal(formatQueueWait(2000, 1000), '<1s', 'negative wait clamps to zero');
-});
-
-// ─── queue messages ──────────────────────────────────────────────────────────
-
-test('queue status messages pluralize and embed the queue length (characterization)', () => {
-  assert.equal(stopRequestedMessage(0), 'Stopping current run…');
-  assert.equal(
-    stopRequestedMessage(1),
-    'Stopping current run… 1 queued prompt will run next — /queue drop to discard the next, /queue clear to discard all.'
-  );
-  assert.equal(
-    stopRequestedMessage(2),
-    'Stopping current run… 2 queued prompts will run next — /queue drop to discard the next, /queue clear to discard all.'
-  );
-  assert.equal(queueResumedMessage(0), 'Queue resumed.');
-  assert.equal(queueResumedMessage(2), 'Queue resumed (2 items waiting).');
-  assert.equal(
-    queuePausedSubmissionMessage(3, 'do the thing'),
-    'Queued #3; queue remains paused until /queue resume: do the thing'
-  );
-});
-
-// ─── queue command predicates ────────────────────────────────────────────────
-
-test('isQueueControlCommand and isImmediateGoalCommand match exact command forms (characterization)', () => {
-  assert.equal(isQueueControlCommand('/queue'), true);
-  assert.equal(isQueueControlCommand('/queue drop'), true);
-  assert.equal(isQueueControlCommand('/queue bogus'), false);
-  assert.equal(isQueueControlCommand('hello'), false);
-  assert.equal(isImmediateGoalCommand('/goal clear'), true);
-  assert.equal(isImmediateGoalCommand('/goal pause'), true);
-  assert.equal(isImmediateGoalCommand('/goal complete'), true);
-  assert.equal(isImmediateGoalCommand('/goal complete now'), true);
-  assert.equal(isImmediateGoalCommand('/goal block x'), true);
-  assert.equal(isImmediateGoalCommand('/goal other'), false);
-});
-
-// ─── queueItemMeta ───────────────────────────────────────────────────────────
-
-test('queueItemMeta renders kind, wait, line/char counts, and attachments (characterization)', () => {
-  assert.equal(
-    queueItemMeta({ raw: 'hi', message: 'hi', enqueuedAt: 1000 }, 1500),
-    'prompt · waiting <1s · 1 line · 2 chars'
-  );
-  assert.equal(
-    queueItemMeta(
-      { raw: 'x', message: 'a\nb\nc', enqueuedAt: 1000, attachments: [{}, {}] },
-      61_000
-    ),
-    'prompt · waiting 1m · 3 lines · 5 chars · 2 attachments'
-  );
-  assert.equal(
-    queueItemMeta({ raw: 'hi', message: 'hi' }, 1500),
-    'prompt · 1 line · 2 chars',
-    'no enqueuedAt: no waiting segment'
-  );
-});
-
-// ─── SerialQueueDrain ────────────────────────────────────────────────────────
-
-test('SerialQueueDrain serializes runs and rejects concurrent re-entry (characterization)', async () => {
-  const queue = new SerialQueueDrain();
-  const order = [];
-  const first = queue.run(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    order.push('first');
-  });
-  const second = await queue.run(async () => {
-    order.push('second');
-  });
-  const firstResult = await first;
-  assert.equal(second, false, 'concurrent run is refused with false');
-  assert.equal(firstResult, true, 'the accepted run resolves true');
-  assert.deepEqual(order, ['first'], 'second task never ran');
-  assert.equal(queue.isRunning(), false);
-});
-
-// ─── appendLimited & constants ───────────────────────────────────────────────
+// ─── appendLimited ───────────────────────────────────────────────────────────
 
 test('appendLimited keeps the tail of the output within the limit (characterization)', () => {
   assert.equal(appendLimited('abc', 'de', 10), 'abcde');
   assert.equal(appendLimited('abcdef', 'ghijk', 4), 'hijk');
   assert.equal(LOCAL_SHELL_OUTPUT_LIMIT, 40_000);
-  assert.equal(MAX_INPUT_HISTORY, 100);
 });
 
 // ─── resume replay ───────────────────────────────────────────────────────────
