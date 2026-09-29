@@ -53,6 +53,8 @@ import {
   createModelDefFromMossConfig,
 } from './moss-agent-loop-adapter.js';
 import { createStreamFunctionFromLlmProvider } from '../llm/llm-provider-stream-adapter.js';
+import { runBestOfNFix, describeBestOfNOutcome } from '../loop/best-of-n-fix.js';
+import { runProcess } from '../../utils/run-process.js';
 import {
   ToolHookRegistry,
   createSecretSanitizerHook,
@@ -631,6 +633,63 @@ export class MossAgent {
     };
   }
 
+  /** v0.10 W2: host side of the best-of-n engine — spawn fixer sub-agents
+   *  through the same runner fan_out uses, gate each on the recorded verify. */
+  private async runBestOfNEscalation(
+    toolCtx: ToolContext,
+    workspaceDir: string,
+    n: number,
+    failing: { command: string; outputTail: string },
+    abortSignal: AbortSignal
+  ): Promise<{ fixed: boolean; message: string }> {
+    const shell = process.platform === 'win32' ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
+    const shellArgs =
+      process.platform === 'win32' ? ['/c', failing.command] : ['-c', failing.command];
+    const runVerify = async () => {
+      try {
+        const result = await runProcess(shell, {
+          args: shellArgs,
+          cwd: workspaceDir,
+          timeout: 180_000,
+          ...(abortSignal.aborted ? { signal: abortSignal } : {}),
+        });
+        const output = `${result.stdout ?? ''}
+${result.stderr ?? ''}`.trim();
+        return { pass: result.exitCode === 0, outputTail: output.slice(-600) };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { pass: false, outputTail: `verify command crashed: ${message}`.slice(-600) };
+      }
+    };
+    const spawn = toolCtx.spawnSubagent;
+    if (!spawn) {
+      return {
+        fixed: false,
+        message:
+          '[System] best-of-n fix engine unavailable (sub-agent spawning not configured in this host). Continue fixing directly.',
+      };
+    }
+    const result = await runBestOfNFix({
+      n,
+      failingCommand: failing.command,
+      failingOutputTail: failing.outputTail,
+      abortSignal,
+      spawnCandidate: async (task) => {
+        const spawned = await spawn({
+          task,
+          scope: 'full',
+          mode: 'single',
+          maxTurns: 12,
+          timeoutMs: 300_000,
+          abortSignal,
+        });
+        return { success: Boolean(spawned.success), summary: spawned.summary ?? '' };
+      },
+      runVerify,
+    });
+    return { fixed: result.fixed, message: describeBestOfNOutcome(result) };
+  }
+
   /** Rewind persisted LLM context while retaining the visual transcript. */
   async rewindConversation(
     sessionKey: string,
@@ -1015,6 +1074,18 @@ export class MossAgent {
       topP,
       reasoning: runReasoning,
       ...(this.config.budget ? { budget: this.config.budget } : {}),
+      ...(this.config.bestOfN && this.config.bestOfN >= 2
+        ? {
+            bestOfNFix: (failing: { command: string; outputTail: string }) =>
+              this.runBestOfNEscalation(
+                toolCtx,
+                workspaceDir,
+                this.config.bestOfN!,
+                failing,
+                abortSignal
+              ),
+          }
+        : {}),
       maxLLMRetries: Math.max(0, Math.floor(this.config.maxLLMRetries ?? 2)),
       maxTurns,
       ...(options?.maxToolCalls !== undefined ? { maxToolCalls: options.maxToolCalls } : {}),

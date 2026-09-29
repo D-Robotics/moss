@@ -196,6 +196,12 @@ export interface AgentLoopLlmUsage {
   turnGapMs?: number;
 }
 
+/** Host-provided best-of-n fix escalation (v0.10 W2). Presence enables it. */
+export type BestOfNFixFn = (failing: {
+  command: string;
+  outputTail: string;
+}) => Promise<{ fixed: boolean; message: string }>;
+
 export interface AgentLoopParams
   extends
     AgentLoopIdentity,
@@ -206,4 +212,5 @@ export interface AgentLoopParams
     AgentLoopExtensions,
     AgentLoopDeps {
   budget?: RunBudget;
+  bestOfNFix?: BestOfNFixFn;
 }

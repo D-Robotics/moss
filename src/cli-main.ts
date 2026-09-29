@@ -534,6 +534,7 @@ async function main() {
   // the unattended/overnight ceiling (tokens / tool calls / turns / wall ms).
   const runBudget = resolvedConfig.budget;
   const hasRunBudget = Boolean(runBudget);
+  const bestOfN = resolvedConfig.bestOfN;
 
   const agent = new MossAgent({
     llmProvider: cliLlmProvider,
@@ -546,6 +547,7 @@ async function main() {
     // unconstrained by explicit host choice.
     ...(safetyMode === 'full-access' ? {} : { execWriteRoots: [workspace] }),
     ...(hasRunBudget ? { budget: runBudget } : {}),
+    ...(bestOfN ? { bestOfN } : {}),
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
     baseSystemPrompt: resolveSoulIdentity({

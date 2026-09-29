@@ -343,6 +343,41 @@ export function runAgentLoop(
             state.pendingMessages.push(msg);
           }
 
+          // v0.10 W2: verification-gated best-of-n escalation. Two consecutive
+          // failures of the SAME verification command = the loop is stuck in a
+          // contaminated context; hand the failing state to independent fixer
+          // sub-agents (host-provided engine), once per run.
+          if (
+            params.bestOfNFix &&
+            !state.bestOfNEscalated &&
+            state.failingVerifyStreak &&
+            state.failingVerifyStreak.count >= 2 &&
+            !abortSignal.aborted
+          ) {
+            state.bestOfNEscalated = true;
+            const streak = state.failingVerifyStreak;
+            log.warn('best-of-n fix escalation', {
+              command: streak.command,
+              consecutiveFailures: streak.count,
+            });
+            try {
+              const outcome = await params.bestOfNFix({
+                command: streak.command,
+                outputTail: streak.outputTail,
+              });
+              state.failingVerifyStreak = undefined;
+              state.pendingMessages.push(buildCorrectionMessage(outcome.message));
+            } catch (err) {
+              state.pendingMessages.push(
+                buildCorrectionMessage(
+                  `[System] best-of-n fix engine crashed: ${
+                    err instanceof Error ? err.message : String(err)
+                  }. Continue fixing directly; do not claim success without a green verification.`
+                )
+              );
+            }
+          }
+
           if (getSteeringMessages) {
             const steeringMessages = await getSteeringMessages();
             if (steeringMessages.length > 0) state.pendingMessages.push(...steeringMessages);

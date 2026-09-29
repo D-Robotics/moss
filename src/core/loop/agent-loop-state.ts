@@ -60,6 +60,12 @@ export interface AgentLoopMutableState {
   /** Cumulative tokens (in+out+cache) for the run-budget guardrail. */
   budgetTokensUsed: number;
 
+  /** Consecutive failures of the SAME verification command (W2 best-of-n trigger). */
+  failingVerifyStreak: { command: string; outputTail: string; count: number } | undefined;
+
+  /** One best-of-n escalation per run. */
+  bestOfNEscalated: boolean;
+
   /** Timestamp of the previous LLM turn's end / last tool activity (turn-gap telemetry). */
   lastLlmActivityMs: number | undefined;
 }
@@ -109,6 +115,8 @@ export function createInitialLoopState(): AgentLoopMutableState {
     lastReportedPromptTokens: 0,
     lastReportedMessageCount: 0,
     budgetTokensUsed: 0,
+    failingVerifyStreak: undefined,
+    bestOfNEscalated: false,
     lastLlmActivityMs: undefined,
   };
 }

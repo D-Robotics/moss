@@ -10,6 +10,7 @@ import {
 } from '../tools/execute-tool-call.js';
 import { maybeSuppressRedundantWebFetchAfterOpenUrl } from '../tools/open-url-web-fetch-guard.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
+import type { AgentLoopMutableState } from './agent-loop-state.js';
 import type { Message, ContentBlock } from '../session/session-jsonl.js';
 import type { Tool, ToolContext, ToolResultOutcome } from '../tools/tool-types.js';
 import type { ToolHookRegistry } from '../tools/tool-hooks.js';
@@ -66,6 +67,7 @@ export interface ExecuteAgentLoopToolCallsParams {
   parallelSafeTools: Set<string>;
   loadToolsMetaName?: string;
   toolLoopGuard: ToolLoopGuardState;
+  state: AgentLoopMutableState;
   maxToolCalls?: number;
   metrics: AgentLoopToolExecutionMetrics;
   evaluateSteering: () => Message[];
@@ -87,6 +89,7 @@ interface OutcomeRecordingContext {
   push: (event: MiniAgentEvent) => void;
   toolLoopGuard: ToolLoopGuardState;
   metrics: AgentLoopToolExecutionMetrics;
+  state: AgentLoopMutableState;
 }
 
 type ToolCallRef = { id: string; name: string; input: Record<string, unknown> };
@@ -237,6 +240,7 @@ function recordToolOutcome(
   }
 
   recordToolLoopOutcome(ctx.toolLoopGuard, call.name, isError, result, call.input);
+  recordFailingVerifyStreak(ctx.state, call.name, call.input, result, isError);
 
   const truncatedResult = truncateToolOutput(call.name, result);
   const preview =
@@ -291,6 +295,7 @@ export async function executeAgentLoopToolCalls(
     runId,
     sessionKey,
     turnIndex,
+    state,
     currentMessages,
     assistantContent,
     toolCalls,
@@ -335,6 +340,7 @@ export async function executeAgentLoopToolCalls(
     push,
     toolLoopGuard,
     metrics,
+    state,
   };
 
   const toolsForRun = resolveToolsForRun();
@@ -559,4 +565,52 @@ export async function executeAgentLoopToolCalls(
     pendingMessages:
       steeringMessages && steeringMessages.length > 0 ? steeringMessages : newSteering,
   };
+}
+
+// ── best-of-n trigger telemetry (v0.10 W2) ──────────────────────────────────
+
+const TEST_COMMAND_RE =
+  /(?:npm\s+(?:run\s+)?test|node\s+--test|node\s+\S*test\S*\.(?:mjs|js|ts)|jest|vitest|pytest|go\s+test|cargo\s+test)/i;
+
+function effectiveVerifyCommand(name: string, input: Record<string, unknown>): string | null {
+  if (name === 'run_tests') {
+    const file = typeof input.file === 'string' && input.file.trim() ? input.file.trim() : '';
+    if (file) return `node --test ${file}`;
+    const cmd =
+      typeof input.command === 'string' && input.command.trim() ? input.command.trim() : '';
+    return cmd || 'npm test';
+  }
+  if (name === 'exec') {
+    const cmd = typeof input.command === 'string' ? input.command : '';
+    return TEST_COMMAND_RE.test(cmd) ? cmd : null;
+  }
+  return null;
+}
+
+/**
+ * Track consecutive failures of the same verification command. The streak
+ * drives the best-of-n escalation (2 consecutive failures = stuck); a pass
+ * or a different command resets it.
+ */
+export function recordFailingVerifyStreak(
+  state: AgentLoopMutableState,
+  toolName: string,
+  input: Record<string, unknown>,
+  result: string,
+  isError: boolean
+): void {
+  const command = effectiveVerifyCommand(toolName, input);
+  if (!command) return;
+  const looksFailing =
+    isError || /\b(?:FAIL|failing|tests?\s+failed|exit[_ ]code:?\s*[1-9]|✖|not ok\b)/i.test(result);
+  const outputTail = result.slice(-2_000);
+  if (looksFailing) {
+    const streak = state.failingVerifyStreak;
+    state.failingVerifyStreak =
+      streak && streak.command === command
+        ? { command, outputTail, count: streak.count + 1 }
+        : { command, outputTail, count: 1 };
+  } else {
+    state.failingVerifyStreak = undefined;
+  }
 }

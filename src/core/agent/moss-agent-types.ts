@@ -113,6 +113,9 @@ export interface MossAgentConfig
   /** Unattended-run guardrails (v0.9 W3): token/tool-call/turn/wall-ms ceilings. */
   budget?: { maxTokens?: number; maxToolCalls?: number; maxTurns?: number; maxWallMs?: number };
 
+  /** v0.10 W2: verification-gated best-of-n fix candidates (>=2 enables). */
+  bestOfN?: number;
+
   maxAgentTurns?: number;
 
   hooks?: AgentHooks;

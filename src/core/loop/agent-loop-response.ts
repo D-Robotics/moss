@@ -399,6 +399,7 @@ export async function processLlmResponse(
     assistantBuffer.shift();
   }
   const toolExecution = await executeAgentLoopToolCalls({
+    state,
     runId,
     sessionKey,
     turnIndex: state.turns,

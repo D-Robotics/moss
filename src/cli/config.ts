@@ -131,6 +131,8 @@ export interface AgentRuntimeConfig {
     maxTurns?: number;
     maxWallMs?: number;
   };
+  /** v0.10 W2: >=2 enables the verification-gated best-of-n fix engine. */
+  bestOfN?: number;
   /** Max output tokens per LLM response. If unset, moss derives a default from
    * the probed context window (contextTokens/4, capped to 32k) — NOT a hardcoded
    * 4096, which truncated long answers on modern large-output models. */
@@ -635,6 +637,8 @@ export interface ResolvedCliConfig {
   contextTokensSource: string;
   /** Unattended-run guardrails (config agent.budget + MOSS_BUDGET_* env). */
   budget?: { maxTokens?: number; maxToolCalls?: number; maxTurns?: number; maxWallMs?: number };
+  /** v0.10 W2 best-of-n (config agent.bestOfN + MOSS_BEST_OF_N env). */
+  bestOfN?: number;
   /** Max output tokens per LLM response. undefined → runtime derives from contextTokens. */
   maxOutputTokens?: number;
   compactionSettings: Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>;
@@ -1052,6 +1056,13 @@ export function resolveCliConfig(
     envBudgetNum('MOSS_BUDGET_MAX_TURNS') ?? activeConfig.agent?.budget?.maxTurns;
   const budgetMaxWallMs =
     envBudgetNum('MOSS_BUDGET_MAX_WALL_MS') ?? activeConfig.agent?.budget?.maxWallMs;
+  const envBestOfN = envBudgetNum('MOSS_BEST_OF_N');
+  const bestOfN =
+    envBestOfN !== undefined && envBestOfN >= 2
+      ? Math.min(5, envBestOfN)
+      : activeConfig.agent?.bestOfN && activeConfig.agent.bestOfN >= 2
+        ? Math.min(5, activeConfig.agent.bestOfN)
+        : undefined;
   const runBudget =
     budgetMaxTokens !== undefined ||
     budgetMaxToolCalls !== undefined ||
@@ -1118,6 +1129,7 @@ export function resolveCliConfig(
     ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
     compactionSettings,
     ...(runBudget ? { budget: runBudget } : {}),
+    ...(bestOfN !== undefined ? { bestOfN } : {}),
     compactionSettingsSource,
     configPath: configPaths?.configPath ?? resolveConfigPath(undefined, env),
     projectConfigPath: configPaths?.projectConfigPath,
