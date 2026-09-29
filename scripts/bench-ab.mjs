@@ -10,9 +10,19 @@ import path from 'node:path';
 import process from 'node:process';
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const engine = process.argv[2];
-const samplesIdx = process.argv.indexOf('--samples');
-const samples = samplesIdx >= 0 ? Number(process.argv[samplesIdx + 1]) : 3;
+const USAGE = `Usage: npm run bench:ab -- <engine> [--samples <n>]
+  engine: ${Object.keys({
+    'best-of-n': 1,
+    'reasoning-high': 1,
+  }).join(' | ')}
+  Runs the hard tier twice (engine OFF on clean env, engine ON via env),
+  aggregates deltas, and recommends default-off unless the hard score gains
+  >= +5pt (outside-noise rule).`;
+const argv = process.argv.slice(2);
+const helpFlag = argv.includes('--help') || argv.includes('-h');
+const engine = argv.find((a) => !a.startsWith('-'));
+const samplesIdx = argv.indexOf('--samples');
+const samples = samplesIdx >= 0 ? Number(argv[samplesIdx + 1]) : 3;
 
 const ENGINE_ENV = {
   'best-of-n': { on: { MOSS_BEST_OF_N: '3' }, off: {} },
@@ -21,8 +31,13 @@ const ENGINE_ENV = {
     off: { MOSS_REASONING_BUDGET: 'off' },
   },
 };
+if (helpFlag) {
+  console.log(USAGE);
+  process.exit(0);
+}
 if (!ENGINE_ENV[engine]) {
-  console.error(`unknown engine: ${engine} (use: ${Object.keys(ENGINE_ENV).join(' | ')})`);
+  console.error(USAGE);
+  console.error(`unknown engine: ${engine ?? '(none)'}`);
   process.exit(2);
 }
 

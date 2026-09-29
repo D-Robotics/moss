@@ -10,9 +10,19 @@ import process from 'node:process';
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
 const resultsRoot = path.join(root, 'bench', 'results');
-const labels = process.argv.slice(2);
+const USAGE =
+  'Usage: npm run bench:noise -- <label1> <label2> [...more]\n' +
+  'Aggregates same-SHA repeat runs into bench/results/noise-band.json.\n' +
+  'Rule: maxDropPerTask = the largest per-task pass-rate gap observed between\n' +
+  'any two runs — a future drop larger than this is treated as a real regression.';
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+const labels = argv;
 if (labels.length < 2) {
-  console.error('Usage: node scripts/bench-noise.mjs <label1> <label2> [...more]');
+  console.error(USAGE);
   process.exit(2);
 }
 const summaries = labels.map((label) => {
