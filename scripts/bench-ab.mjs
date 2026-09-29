@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
-const repoRoot = path.dirname(new URL(import.meta.url).pathname);
+const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const engine = process.argv[2];
 const samplesIdx = process.argv.indexOf('--samples');
 const samples = samplesIdx >= 0 ? Number(process.argv[samplesIdx + 1]) : 3;
