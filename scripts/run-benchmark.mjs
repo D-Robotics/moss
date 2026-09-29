@@ -39,6 +39,8 @@ function usage() {
     '  --base-url <url>     Override the provider base URL',
     '  --label <name>       Result directory name (default run-<timestamp>)',
     '  --baseline <name>    Compare against a prior run (label or results path).',
+    '  --capability-gate <name>  Release gate: hard-tier score must beat the named',
+    '                       baseline run by >=10 points; exit 1 otherwise.',
     '                       Reads bench/results/noise-band.json when present; exit 1',
     '                       if any task pass-rate drops beyond the noise band.',
     '  --keep               Keep temporary workspaces/config for debugging',
@@ -58,6 +60,7 @@ function parseArgs(argv) {
     label: undefined,
     keep: false,
     baseline: undefined,
+    capabilityGate: undefined,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -69,6 +72,7 @@ function parseArgs(argv) {
     if (arg === '--samples') out.samples = Number(next());
     else if (arg === '--task') out.taskFilters.push(next());
     else if (arg === '--baseline') out.baseline = next();
+    else if (arg === '--capability-gate') out.capabilityGate = next();
     else if (arg === '--temperature') {
       out.temperature = next() === 'none' ? undefined : Number(next());
     } else if (arg === '--model') out.model = next();
@@ -478,6 +482,32 @@ async function main() {
     );
   }
   console.log(`report: ${path.join(runDir, 'summary.json')}`);
+
+  if (args.capabilityGate) {
+    const resultsRoot = path.join(repoRoot, 'bench', 'results');
+    const gatePath = path.isAbsolute(args.capabilityGate)
+      ? args.capabilityGate
+      : fs.existsSync(path.join(resultsRoot, args.capabilityGate, 'summary.json'))
+        ? path.join(resultsRoot, args.capabilityGate, 'summary.json')
+        : args.capabilityGate;
+    const base = JSON.parse(fs.readFileSync(gatePath, 'utf8'));
+    const baseHard = base.capability?.hardScore;
+    const curHard = capability.hardScore;
+    console.log(`\n===== capability gate (vs ${path.basename(path.dirname(gatePath))}) =====`);
+    if (typeof baseHard !== 'number' || curHard === null) {
+      console.error('[bench] capability gate: missing hard-tier scores on one side — BLOCKED');
+      process.exit(1);
+    }
+    const delta = curHard - baseHard;
+    const okGate = delta >= 10;
+    console.log(
+      `hard score: ${baseHard} -> ${curHard} (delta ${delta.toFixed(1)}pt, need >= +10) — ${okGate ? 'PASS' : 'BLOCKED'}`
+    );
+    if (!okGate) {
+      console.error('[bench] capability gate failed: improvement below +10pt');
+      process.exit(1);
+    }
+  }
 
   if (args.baseline) {
     const resultsRoot = path.join(repoRoot, 'bench', 'results');
