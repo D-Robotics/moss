@@ -333,6 +333,8 @@ interface FanOutSubagentsInput {
   tasks: FanOutTaskInput[];
   maxTurns?: number;
   timeoutMs?: number;
+  /** v0.10 W3: append an independent reviewer per implementation task. */
+  cross_review?: boolean;
 }
 
 const MAX_FAN_OUT_TASKS = 8; // was 6; user requested ≤8 sub-agents
@@ -422,6 +424,44 @@ export function defaultMaxTurnsForScope(scope: FanOutScope): number {
   }
 }
 
+
+// ── v0.10 W3: cross-review fleet mode + machine-checkable evidence gate ─────
+
+const EVIDENCE_RE =
+  /(?:`[^`]{3,}`)|(?:[\w./-]+\.(?:ts|js|mjs|cjs|tsx|jsx|py|go|rs|java|md|json))|(?:\b(?:npm|node|pnpm|yarn|python|pytest|jest|vitest|go|cargo)\b[ \t]+\S)/;
+
+/** A child summary counts as evidence-backed only if it cites something
+ *  concrete (inline code, a file path, or a command). Prose-only summaries
+ *  are surfaced as UNVERIFIED — machine-checked, not vibes. */
+export function summaryHasEvidence(summary: string): boolean {
+  return EVIDENCE_RE.test(summary ?? '');
+}
+
+export function buildReviewerTask(task: FanOutTaskInput): {
+  task: string;
+  scope: FanOutScope;
+  writePaths: string[];
+} {
+  return {
+    task: [
+      `Independent review of a completed implementation task. The implementer worked on:`,
+      '',
+      task.task,
+      '',
+      'Your job (READ-ONLY — do not fix anything yourself):',
+      '1. Re-run the verification command(s) the task specifies and observe the real output.',
+      '2. Check the implementation against the acceptance criteria stated in the task.',
+      '3. Verdict line FIRST in your reply, exactly one of:',
+      '   VERDICT: PASS',
+      '   VERDICT: FAIL — <one-line reason>',
+      '4. Then evidence: the commands you ran and the key output lines you observed.',
+      'Do not trust the implementer summary; verify against the workspace.',
+    ].join('\n'),
+    scope: 'verify',
+    writePaths: [],
+  };
+}
+
 export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
   name: 'fan_out_subagents',
   description: [
@@ -433,6 +473,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
       'fix/implement/refactor → full; verify/test-only → verify; plan-only → plan. ' +
       'You may still set scope explicitly. Put acceptance criteria + verification commands in implementation tasks. ' +
       'Empty child output is FAILED. For a single task, use create_subagent instead.',
+    'cross_review=true (v0.10 W3) appends one INDEPENDENT read-only reviewer per implementation task: the reviewer re-runs the verification commands and emits a VERDICT: PASS/FAIL line with evidence. Outputs without a VERDICT are marked UNVERIFIED; implementer summaries without concrete evidence (paths/commands/code) are marked UNVERIFIED too.',
     'Do not use for quick usage/config/help questions, "answer in N lines" requests, or simple UX impressions;',
     'answer directly or do at most one targeted file read in those cases.',
   ].join(' '),
@@ -514,17 +555,36 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
       return 'Error: fan_out_subagents needs at least 2 tasks; use create_subagent for a single task.';
     }
 
+    // W3 cross-review: append one independent reviewer per implementation
+    // (non-explore) task; reviewers run in the same concurrent batch.
+    const effectiveTasks = [...tasks].slice(0, MAX_FAN_OUT_TASKS);
+    const reviewedLabelSet = new Set<string>();
+    if (input.cross_review === true) {
+      for (const t of tasks) {
+        const scope = inferFanOutScopeWithExploreDefault(t.task, t.scope);
+        if (scope === 'explore') continue;
+        const reviewer = buildReviewerTask(t);
+        effectiveTasks.push({
+          task: reviewer.task,
+          scope: reviewer.scope,
+          ...(reviewer.writePaths.length > 0 ? { writePaths: reviewer.writePaths } : {}),
+          label: `review:${t.label ?? t.task.slice(0, 24)}`,
+        } as FanOutTaskInput);
+        reviewedLabelSet.add(String(t.label ?? t.task.slice(0, 24)));
+      }
+    }
+
     const maxTurns = input.maxTurns ?? DEFAULT_FAN_OUT_MAX_TURNS;
     const timeoutMs = resolveSubagentTimeoutMs(input.timeoutMs);
-    const labelFor = (i: number) => String(tasks[i].label ?? `task ${i + 1}`).slice(0, 40);
-    const experts = tasks.map((task) =>
+    const labelFor = (i: number) => String(effectiveTasks[i].label ?? `task ${i + 1}`).slice(0, 40);
+    const experts = effectiveTasks.map((task) =>
       task.expert ? ctx.resolveSubagentExpert?.(task.expert) : undefined
     );
     const unknownExpertIndex = tasks.findIndex((task, index) => task.expert && !experts[index]);
     if (unknownExpertIndex >= 0) {
       return `Error: unknown or unavailable sub-agent expert: ${tasks[unknownExpertIndex].expert}`;
     }
-    const resolvedScopes = tasks.map(
+    const resolvedScopes = effectiveTasks.map(
       (task, index) =>
         experts[index]?.scope ?? inferFanOutScopeWithExploreDefault(task.task, task.scope)
     );
@@ -537,7 +597,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     }
 
     const settled = await Promise.allSettled(
-      tasks.map((t, i) =>
+      effectiveTasks.map((t, i) =>
         ctx.spawnSubagent!({
           task: t.task,
           ...(t.writePaths ? { writePaths: t.writePaths } : {}),
@@ -547,7 +607,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           ...(experts[i]?.allowedTools ? { allowedTools: experts[i].allowedTools } : {}),
           ...(experts[i] ? { expertPrompt: experts[i].instructions } : {}),
           mode: 'fan-out',
-          tasks: tasks.map((item, taskIndex) => ({
+          tasks: effectiveTasks.map((item, taskIndex) => ({
             task: item.task,
             scope: resolvedScopes[taskIndex],
             ...(item.writePaths ? { writePaths: item.writePaths } : {}),
@@ -566,7 +626,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
       const label = labelFor(i);
       const taskIdx = i + 1;
       const scope = resolvedScopes[i]!;
-      const taskText = tasks[i]!.task.trim();
+      const taskText = effectiveTasks[i]!.task.trim();
       if (s.status === 'fulfilled' && s.value) {
         const r = s.value;
         const childOk = normalizeSubagentSuccess(r.success, r.summary);
@@ -578,8 +638,14 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           !childOk && isEmptySubagentSummary(r.summary)
             ? '\n(empty output treated as failure — do not invent success)'
             : '';
+        const evidenceOk = childOk && summaryHasEvidence(summary);
+        const verdictNote = label.startsWith('review:')
+          ? /VERDICT:\s*(?:PASS|FAIL)/i.test(summary)
+            ? ''
+            : '\n(no VERDICT line — reviewer output is INVALID; treat the reviewed work as UNVERIFIED)'
+          : '';
         sections.push(
-          `### [${label}] ${childOk ? 'SUCCESS' : 'FAILED'} (scope: ${scope})${id ? ` (sub-agent ${id})` : ''}\n${summary}${emptyNote}`
+          `### [${label}] ${childOk ? (evidenceOk ? 'SUCCESS' : 'SUCCESS (UNVERIFIED — no concrete evidence cited)') : 'FAILED'} (scope: ${scope})${id ? ` (sub-agent ${id})` : ''}\n${summary}${emptyNote}${verdictNote}`
         );
         if (!childOk) {
           failedRetries.push(

@@ -1,0 +1,7 @@
+{
+  "id": "hard-stale-spec",
+  "tags": ["tier:hard", "spec:stale-doc"],
+  "maxTurns": 12,
+  "timeoutMs": 360000,
+  "prompt": "docs/design.md and the doc comment in cart.js say cart totals round DOWN to the nearest cent. Change the rounding to match the documentation. `node test.js` must pass; do not modify test.js or docs/design.md."
+}

@@ -1,0 +1,7 @@
+{
+  "id": "hard-wrong-fix-rejected",
+  "tags": ["tier:hard", "debug:wrong-premise"],
+  "maxTurns": 12,
+  "timeoutMs": 360000,
+  "prompt": "A user complains the free-shipping threshold is broken: their $50.00 order was charged shipping. Investigate and fix the bug. `node test.js` must pass; do not modify test.js, and shipping.js must keep exporting qualifiesForFreeShipping(subtotalCents)."
+}

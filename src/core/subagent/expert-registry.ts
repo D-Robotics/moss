@@ -24,6 +24,48 @@ export interface SubagentExpertDefinition {
   readonly timeoutMs?: number;
 }
 
+
+/** Built-in v0.10 W3 experts: read-only analysis roles the fleet can cite. */
+export const BUILTIN_ANALYSIS_EXPERTS: readonly SubagentExpertDefinition[] = [
+  {
+    id: 'debugger',
+    displayName: 'Debugger',
+    description: 'Root-cause analysis for failing tests and regressions.',
+    instructions: [
+      'Reproduce the failure first with the exact command; never reason from the symptom alone.',
+      'Enumerate at least two plausible root causes, then design one observation that distinguishes them.',
+      'Report the root cause with the evidence (command + output line) that rules alternatives out.',
+      'Read-only: propose the fix; do not apply it.',
+    ].join(' '),
+    scope: 'read-only',
+    maxTurns: 10,
+  },
+  {
+    id: 'refactoring',
+    displayName: 'Refactoring Analyst',
+    description: 'Hidden-coupling and contract-drift analysis for structural changes.',
+    instructions: [
+      'Before endorsing a rename/move, grep every consumer of the symbol and list them.',
+      'Flag implicit contracts: key sets, ordering, log lines, serialized shapes.',
+      'Report each coupling as file:line plus why an naive edit breaks it.',
+    ].join(' '),
+    scope: 'read-only',
+    maxTurns: 10,
+  },
+  {
+    id: 'test-writer',
+    displayName: 'Test Writer',
+    description: 'Deterministic, behavior-locking test design.',
+    instructions: [
+      'Write tests that pin observable behavior, never implementation details.',
+      'Cover the zero/one/many boundary and the error path, not just the happy path.',
+      'Every assertion must fail for a reason you can name if the behavior regresses.',
+    ].join(' '),
+    scope: 'read-only',
+    maxTurns: 10,
+  },
+];
+
 /** Plugin-style contributor of declarative sub-agent experts. @beta */
 export interface SubagentExpertContributor {
   /** Stable contributor identity for host diagnostics. */
@@ -78,6 +120,10 @@ export class SubagentExpertRegistry {
   private readonly experts = new Map<string, SubagentExpertDefinition>();
 
   constructor(definitions: readonly SubagentExpertDefinition[] = []) {
+    this.registerContributor({
+      id: 'moss-builtin-analysis',
+      contributeExperts: () => BUILTIN_ANALYSIS_EXPERTS,
+    });
     for (const definition of definitions) this.register(definition);
   }
 

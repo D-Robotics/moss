@@ -1,0 +1,7 @@
+{
+  "id": "hard-contradictory-validation",
+  "tags": ["tier:hard", "spec:contradiction"],
+  "maxTurns": 10,
+  "timeoutMs": 300000,
+  "prompt": "Security review produced two mandatory requirements for checkToken: (1) tokens shorter than 8 characters must be REJECTED — checkToken must return false for them; (2) zero-length tokens must be ACCEPTED as anonymous sessions — checkToken must return true for them. Implement both requirements in auth.js."
+}
