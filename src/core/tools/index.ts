@@ -17,7 +17,6 @@ export {
   validateToolInputObject,
   runPreToolHookChain,
   registerPreToolHook,
-  clearPreToolHooksForTests,
 } from './tool-pipeline.js';
 export type { PreToolHookContext, PreToolHookResult, PreToolHook } from './tool-pipeline.js';
 export {

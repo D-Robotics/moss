@@ -53,6 +53,7 @@ export {
   lastMessageNeedsToolFollowUpLlm,
   resolveEffectiveCaps,
   PendingToolAbortStore,
+  resolveRoutedModel,
 } from './loop/index.js';
 export type {
   AgentLoopDeps,
@@ -65,6 +66,7 @@ export type {
   AgentLoopPromptInput,
   AgentLoopProviderInput,
   AgentLoopToolInput,
+  ModelTiers,
 } from './loop/index.js';
 export { CompactHookRegistry, buildCompactionCheckpointOutline } from './loop/index.js';
 export type {
@@ -182,7 +184,6 @@ export {
   validateToolInputObject,
   runPreToolHookChain,
   registerPreToolHook,
-  clearPreToolHooksForTests,
 } from './tools/index.js';
 export type { PreToolHookContext, PreToolHookResult, PreToolHook } from './tools/index.js';
 export {

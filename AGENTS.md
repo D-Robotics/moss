@@ -29,19 +29,40 @@ orchestration / web-ui 等已移除的子系统。
 
 ## 常用命令
 
-| 命令                                             | 用途                                                                                        |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `npm run build`                                  | 清理并构建到 `dist/`                                                                        |
-| `npm run typecheck`                              | 全量类型检查                                                                                |
-| `npm run lint` / `lint:fix`                      | ESLint（0 warning）                                                                         |
-| `npm run test`                                   | 构建 + 运行 `test/*.spec.mjs`（面向 `dist/`）                                               |
-| `npm run test:filter -- --filter <name>`         | 只跑匹配的 spec（至少匹配 1 个，否则失败）                                                  |
-| `npm run smoke`                                  | CLI 冒烟（版本 / 帮助 / PTY 启动）                                                          |
-| `npm run check`                                  | format:check + lint + typecheck                                                             |
-| `npm run verify`                                 | check + test + smoke，交付前必须绿                                                          |
-| `npm run bench [-- --task <id> --samples <n>]`   | agent 能力基准（`bench/tasks/`，DeepSeek 基准模型，结果落 `bench/results/`，不入库）        |
-| `npm run bench:ab -- <engine>`                   | hard 层 A/B 对照（`best-of-n` / `reasoning-high`，`--samples <n>` 可调），输出默认开/关建议 |
-| `npm run bench:noise -- <label1> <label2> [...]` | 同 SHA 重复跑聚合成噪声带（`bench/results/noise-band.json`）                                |
+| 命令                                             | 用途                                                                                                          |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `npm run build`                                  | 清理并构建到 `dist/`                                                                                          |
+| `npm run typecheck`                              | 全量类型检查                                                                                                  |
+| `npm run lint` / `lint:fix`                      | ESLint（0 warning）                                                                                           |
+| `npm run test`                                   | 构建 + 运行 `test/*.spec.mjs`（面向 `dist/`）                                                                 |
+| `npm run test:filter -- --filter <name>`         | 只跑匹配的 spec（至少匹配 1 个，否则失败）                                                                    |
+| `npm run smoke`                                  | CLI 冒烟（版本 / 帮助 / PTY 启动）                                                                            |
+| `npm run check`                                  | format:check + lint + typecheck                                                                               |
+| `npm run verify`                                 | check + test + smoke，交付前必须绿                                                                            |
+| `npm run bench [-- --task <id> --samples <n>]`   | agent 能力基准（`bench/tasks/`，DeepSeek 基准模型，结果落 `bench/results/`，不入库）                          |
+| `npm run bench:ab -- <engine>`                   | hard 层 A/B 对照（`best-of-n` / `reasoning-high` / `model-routing`，`--samples <n>` 可调），输出默认开/关建议 |
+| `npm run bench:noise -- <label1> <label2> [...]` | 同 SHA 重复跑聚合成噪声带（`bench/results/noise-band.json`）                                                  |
+
+## SDK 公共面与 semver（v0.13 起）
+
+`src/index.ts` 的导出面（`dist/index.js` / `dist/index.d.ts`）是受 semver 保护的产品契约，由
+`test/sdk-contract.spec.mjs` 快照锁定：
+
+- **minor**：新增导出、既有导出行为向后兼容扩展 → 必须同步更新快照（重跑
+  `node scratch/gen-sdk-contract-spec.mjs`）。
+- **major（0.x 期间 = 明确的破坏性变更说明）**：删除 / 重命名导出、参数或行为破坏。
+- 故意改公共面时快照更新与代码改动同一个 commit；spec 变红说明改动未被视为契约决策。
+- `examples/` 下三个嵌入示例是契约的活文档，发版前必须实跑通过。
+
+## 支持矩阵
+
+| 维度     | 支持                                                      | 验证方式                           |
+| -------- | --------------------------------------------------------- | ---------------------------------- |
+| Node     | ≥ 22.16.0（CI 钉 22.16.0 与 24 双档）                     | CI `Test` 矩阵                     |
+| 平台     | Linux / macOS / Windows（Windows 无 PTY smoke，其余全量） | CI `Test` 矩阵                     |
+| provider | deepseek / qwen / openai / anthropic / openai-compatible  | 单测 + 冒烟；真实 key 回归按需人工 |
+
+不在表内的组合（其他 Node 大版本、其他 provider 协议）未验证，不支持。
 
 ## 结构导航
 
