@@ -3,12 +3,13 @@
 ## 棒日志
 
 - sprint-000 (2026-09-30, 编排者)：合同建立。worktree=../moss-ap（分支 autopilot/v014-v020，基点 6d73392f）。RUNNER=self。主仓三臂 A/B 由并行会话运行中（cheap/balanced 已收，routing 进行中），主仓禁 build 至其结束。验收器 10 个建于 pending/（gate 只扫 acceptance/ 顶层文件），每棒随版本落地逐个上移。全部验收器已完成"先红"自检（见 evidence/sprint-000/）。
+- sprint-001 (2026-09-30, T1 ✅)：0.14-S3 命令面止血。幽灵子命令（update/mcp/plugins/migrate/web/agent）经 isUnimplementedCommand 硬错退出 2；/steer /queue /history /resume /clear 从目录/补全/help 下架（/sessions 描述改指 moss resume --last）；删 input-queue.ts 死模块（含 barrel 导出与其全部测试段）。新 spec test/cli-command-surface.spec.mjs 先红（evidence/sprint-001-command-surface-red.log）后绿；cli-interactive-commands/onboarding/tui/tui-utils-core 同步修订。gate GREEN。tag autopilot/green-001。
 
 ## Checklist 镜像（与 task.md §4 同步）
 
-- [ ] T1 0.14-S3 命令面止血
-- [ ] T2 0.14-S1/S2 SWE-bench adapter+基线+确定性
-- [ ] T3 0.14 收口（S0/S4）+v0.13.0/v0.14.0 tag
+- [x] T1 0.14-S3 命令面止血（sprint-001 完成，tag green-001）
+- [ ] T2 0.14-S1/S2 SWE-bench adapter+基线+确定性 ← 进行中（镜像/数据集/adapter 就绪，冒烟调试中）
+- [ ] T3 0.14 收口（S0/S4）+v0.13.0/v0.14.0 tag ← 三臂数据已收（routing DEFAULT-OFF，证据已固化）；主仓 0.13.0 版本已提交（88d0b8b0），P4 门后台运行中
 - [ ] T4-S7 v0.15（goal/worktree/hooks/A/B+SWE delta+tag）
 - [ ] T8-T11 v0.16（MCP/skills/出网/T-Bench+tag）
 - [ ] T12 v0.17 TUI 地基+tag

@@ -26,3 +26,4 @@ scratch/
 
 # benchmark run artifacts (jsonl transcripts + summaries) — never commit
 bench/results/
+bench/.cache/

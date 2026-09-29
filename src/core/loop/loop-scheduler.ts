@@ -22,6 +22,7 @@
 import type { MossAgent } from '../agent/moss-agent.js';
 import { getRootLogger } from '../../logger.js';
 import { errorMessage } from '../../errors.js';
+import { runAcceptanceCommand, buildAcceptanceFailurePrompt } from './goal-loop.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
@@ -57,6 +58,13 @@ export interface LoopSchedulerOptions {
    * for independent parallel work. Default false (legacy: re-run the same prompt).
    */
   autonomous?: boolean;
+  /**
+   * Acceptance gate (goal mode): an external command that must exit 0 for the
+   * goal to count as complete. Its verdict outranks the model's
+   * self-judgement — a failing command vetoes a DONE verdict and redirects the
+   * next iteration to the failure evidence.
+   */
+  acceptance?: { command: string; timeoutMs?: number };
   /** Consecutive iteration failures before pausing. Default 5. */
   maxConsecutiveFailures?: number;
   /**
@@ -107,6 +115,14 @@ export interface LoopState {
   compactBetweenIterations?: boolean;
   journal?: boolean;
   autonomous?: boolean;
+  /** Persisted acceptance-gate status (goal mode); updated after each check. */
+  acceptance?: {
+    command: string;
+    timeoutMs?: number;
+    lastExitCode?: number;
+    lastRanAt?: number;
+    passes?: number;
+  };
   currentIteration: number;
   startedAt: number;
   totalDurationMs: number;
@@ -131,9 +147,12 @@ const LOOP_STATE_FILE = 'loop-state.json';
 
 export class LoopScheduler {
   private readonly agent: MossAgent;
-  private readonly options: Required<Omit<LoopSchedulerOptions, 'prompt' | 'onIterationEvent'>> & {
+  private readonly options: Required<
+    Omit<LoopSchedulerOptions, 'prompt' | 'onIterationEvent' | 'acceptance'>
+  > & {
     prompt: string;
     onIterationEvent?: LoopSchedulerOptions['onIterationEvent'];
+    acceptance?: { command: string; timeoutMs?: number };
   };
   private state: LoopState;
   private listeners: ((event: LoopEvent) => void)[] = [];
@@ -168,6 +187,7 @@ export class LoopScheduler {
       autonomous: options.autonomous ?? false,
       maxConsecutiveFailures: options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES,
       onIterationEvent: options.onIterationEvent,
+      acceptance: options.acceptance,
     };
     this.currentPrompt = this.options.prompt;
     this.state = {
@@ -317,6 +337,39 @@ export class LoopScheduler {
 
           // Save state for resume
           await this.saveState();
+
+          // Acceptance gate (goal mode): an external verification command is
+          // the authoritative completion signal — it outranks the model judge.
+          if (this.options.acceptance && this.running && !this.abortController?.signal.aborted) {
+            const accept = await runAcceptanceCommand(
+              this.options.acceptance,
+              this.abortController?.signal
+            );
+            this.state.acceptance = {
+              ...this.options.acceptance,
+              lastExitCode: accept.exitCode,
+              lastRanAt: accept.endedAt,
+              passes: accept.passed ? (this.state.acceptance?.passes ?? 0) + 1 : 0,
+            };
+            if (accept.passed) {
+              this.state.status = 'completed';
+              await this.saveState();
+              this.emit({
+                type: 'loop_completed',
+                totalIterations: this.state.currentIteration,
+                totalDurationMs: this.state.totalDurationMs,
+                startedAt: this.state.startedAt,
+                endedAt: Date.now(),
+              });
+              break;
+            }
+            // Verification already proved the goal is NOT done — skip the
+            // model judge and aim the next iteration at the failure evidence.
+            this.currentPrompt = buildAcceptanceFailurePrompt(this.options.prompt, accept);
+            this.state.currentPrompt = this.currentPrompt;
+            await this.saveState();
+            continue;
+          }
 
           // Autonomous completion check: ask the model if the goal is done.
           // If done, emit loop_completed and break. If not, update currentPrompt
@@ -468,6 +521,8 @@ export class LoopScheduler {
           if (event.type === 'done') {
             const r = event.result?.response;
             if (typeof r === 'string' && r.trim()) doneResponse = r;
+            const stop = (event.result as { stopReason?: string } | undefined)?.stopReason;
+            if (typeof stop === 'string') lastStopReason = stop;
           }
         }
         response = (doneResponse && doneResponse.trim()) || accText;
@@ -510,6 +565,9 @@ export class LoopScheduler {
       previous
         ? `Previous iteration evidence:\n${previous.slice(-6000)}`
         : 'Previous iteration evidence: none — this is the first iteration.',
+      this.options.acceptance
+        ? `Acceptance command (the loop ONLY completes when this exits 0; run it yourself to check progress): ${this.options.acceptance.command}`
+        : '',
       '',
       'Work only toward the original goal. Treat the current focus as the next step, not as a replacement goal.',
       'Inspect the current state before acting. Do not redo work already proven complete by the previous evidence.',
@@ -666,6 +724,9 @@ export class LoopScheduler {
         compactBetweenIterations: state.compactBetweenIterations,
         journal: state.journal,
         autonomous: state.autonomous,
+        acceptance: state.acceptance
+          ? { command: state.acceptance.command, timeoutMs: state.acceptance.timeoutMs }
+          : undefined,
         maxConsecutiveFailures: state.maxConsecutiveFailures,
         onIterationEvent: options.onIterationEvent,
       });

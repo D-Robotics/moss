@@ -44,6 +44,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         description: 'resume the last paused autonomous loop from its saved iteration',
         hidden: true,
       },
+      {
+        command: '/goal <goal> --accept "<verification command>"',
+        description:
+          'acceptance-gated autonomous loop: only completes when the verification command exits 0 (MOSS_GOAL_AUTO_MAX_RUNS caps iterations); /goal stop aborts',
+      },
       { command: '/context', description: 'show current context-window usage', hidden: true },
       {
         command: '/usage',
