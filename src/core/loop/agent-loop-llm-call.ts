@@ -25,6 +25,7 @@ export interface ExecuteLlmTurnParams {
   apiKey?: string;
   temperature?: number;
   reasoning?: ThinkingLevel;
+  reasoningBudget?: 'off' | 'adaptive' | 'high';
   maxLLMRetries?: number;
   topP?: number;
   abortSignal: AbortSignal;
@@ -104,6 +105,23 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
 
   const turnGapMs =
     state.lastLlmActivityMs !== undefined ? Date.now() - state.lastLlmActivityMs : undefined;
+
+  // v0.10 W4 adaptive reasoning: failure signals (repeated verify failures,
+  // red-verify attempts, turn errors) escalate to 'high' for the next call;
+  // a clean run keeps the configured level.
+  const budget = params.reasoningBudget ?? 'adaptive';
+  let effectiveReasoning = reasoning;
+  if (budget === 'high') {
+    effectiveReasoning = 'high';
+  } else if (budget === 'adaptive') {
+    const underPressure =
+      (state.failingVerifyStreak?.count ?? 0) >= 1 ||
+      state.redVerifyNudgeAttempts > 0 ||
+      state.consecutiveTurnErrors > 0;
+    if (underPressure && reasoning !== undefined && reasoning !== null) {
+      effectiveReasoning = 'high';
+    }
+  }
   try {
     const llmTurn = await runAgentLoopLlmTurn({
       stream: { push },
@@ -112,7 +130,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
       streamFn,
       apiKey,
       temperature,
-      reasoning,
+      reasoning: effectiveReasoning,
       maxLLMRetries,
       topP,
       abortSignal,

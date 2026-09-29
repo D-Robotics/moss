@@ -133,6 +133,8 @@ export interface AgentRuntimeConfig {
   };
   /** v0.10 W2: >=2 enables the verification-gated best-of-n fix engine. */
   bestOfN?: number;
+  /** v0.10 W4: 'off' | 'adaptive' | 'high' (default adaptive). */
+  reasoningBudget?: 'off' | 'adaptive' | 'high';
   /** Max output tokens per LLM response. If unset, moss derives a default from
    * the probed context window (contextTokens/4, capped to 32k) — NOT a hardcoded
    * 4096, which truncated long answers on modern large-output models. */
@@ -639,6 +641,8 @@ export interface ResolvedCliConfig {
   budget?: { maxTokens?: number; maxToolCalls?: number; maxTurns?: number; maxWallMs?: number };
   /** v0.10 W2 best-of-n (config agent.bestOfN + MOSS_BEST_OF_N env). */
   bestOfN?: number;
+  /** v0.10 W4 (config agent.reasoningBudget + MOSS_REASONING_BUDGET env). */
+  reasoningBudget?: 'off' | 'adaptive' | 'high';
   /** Max output tokens per LLM response. undefined → runtime derives from contextTokens. */
   maxOutputTokens?: number;
   compactionSettings: Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>;
@@ -1063,6 +1067,13 @@ export function resolveCliConfig(
       : activeConfig.agent?.bestOfN && activeConfig.agent.bestOfN >= 2
         ? Math.min(5, activeConfig.agent.bestOfN)
         : undefined;
+  const rawReasoningBudget = (env.MOSS_REASONING_BUDGET ?? '').toLowerCase().trim();
+  const reasoningBudget =
+    rawReasoningBudget === 'off' ||
+    rawReasoningBudget === 'adaptive' ||
+    rawReasoningBudget === 'high'
+      ? rawReasoningBudget
+      : activeConfig.agent?.reasoningBudget;
   const runBudget =
     budgetMaxTokens !== undefined ||
     budgetMaxToolCalls !== undefined ||
@@ -1130,6 +1141,7 @@ export function resolveCliConfig(
     compactionSettings,
     ...(runBudget ? { budget: runBudget } : {}),
     ...(bestOfN !== undefined ? { bestOfN } : {}),
+    ...(reasoningBudget ? { reasoningBudget } : {}),
     compactionSettingsSource,
     configPath: configPaths?.configPath ?? resolveConfigPath(undefined, env),
     projectConfigPath: configPaths?.projectConfigPath,

@@ -213,4 +213,8 @@ export interface AgentLoopParams
     AgentLoopDeps {
   budget?: RunBudget;
   bestOfNFix?: BestOfNFixFn;
+  /** v0.10 W4: adaptive reasoning — raise to high after observed failure
+   *  signals, fall back when the run is clean. 'off' pins the configured
+   *  level; 'high' pins high; default (undefined) = adaptive. */
+  reasoningBudget?: 'off' | 'adaptive' | 'high';
 }

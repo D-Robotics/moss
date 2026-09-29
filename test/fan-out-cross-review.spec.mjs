@@ -5,10 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import {
-  summaryHasEvidence,
-  buildReviewerTask,
-} from '../dist/tools/create-subagent.js';
+import { summaryHasEvidence, buildReviewerTask } from '../dist/tools/create-subagent.js';
 import { fanOutSubagentsTool } from '../dist/tools/create-subagent.js';
 import { SubagentExpertRegistry } from '../dist/core/subagent/expert-registry.js';
 
@@ -70,7 +67,10 @@ test('fan_out cross_review=true appends reviewers and marks evidence/verdict sta
   const text = String(out);
   // 2 implementers + 2 reviewers spawned
   assert.equal(spawned.length, 4, `expected 4 children, got ${spawned.length}`);
-  assert.ok(spawned.some((p) => /VERDICT/.test(p.task)), 'reviewer task present');
+  assert.ok(
+    spawned.some((p) => /VERDICT/.test(p.task)),
+    'reviewer task present'
+  );
   // evidence gate marks implementer summary without backticks/paths
   assert.match(text, /SUCCESS \(UNVERIFIED — no concrete evidence cited\)/);
   // reviewer with verdict + evidence is plain SUCCESS

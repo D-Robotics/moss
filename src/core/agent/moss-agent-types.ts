@@ -116,6 +116,9 @@ export interface MossAgentConfig
   /** v0.10 W2: verification-gated best-of-n fix candidates (>=2 enables). */
   bestOfN?: number;
 
+  /** v0.10 W4: reasoning budget policy. Default 'adaptive'. */
+  reasoningBudget?: 'off' | 'adaptive' | 'high';
+
   maxAgentTurns?: number;
 
   hooks?: AgentHooks;
