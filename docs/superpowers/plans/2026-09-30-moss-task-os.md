@@ -61,3 +61,31 @@ Runtime 侧；TUI 消费的类型/事件契约由本线定义（§1），TUI 会
 - 每步完成后：build → verify → 真跑一次受影响路径 → commit（直推 main，git add 只点名自己的文件，push 前 pull --rebase 防并行 TUI 会话撞车）。
 - 不动 `src/cli/tui/`（TUI 会话领地）；契约改动在本文件记录后立即 push 供 TUI 会话同步。
 - goal-loop 效率方向：合并验收后用既有 bench:ab 复测，方向是更少 iteration 更高 success。
+
+## 完成态（2026-09-30 23:29，merge 7a5777c5 入 main）
+
+| #   | 结果 | 证据                                                                                                                                                                                                     |
+| --- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1  | ✅   | `contracts/task-runtime.ts` + `test/task-runtime-contract.spec.mjs`（11 测试，含 plan_ready-from-draft 回归）                                                                                            |
+| M2  | ✅   | `core/task/task-store.ts` + `test/task-store.spec.mjs`（latest-wins/timeline/非法转移拒绝）                                                                                                              |
+| M3  | ✅   | `core/task/{task-engine,verdict}.ts` + `test/task-engine.spec.mjs`（mock 全链 repair、预算耗尽、命令裁决、resume）                                                                                       |
+| M4  | ✅   | 工具层事件接线 + `test/task-tools-runtime.spec.mjs`；gate 读 runtime                                                                                                                                     |
+| M5  | ✅   | `moss task` CLI（AgentReady 分发）+ REPL `/task` + SDK 263 符号快照；**真跑 PASS**：qwen3.8-max 全链含真实修复循环（attempts 2 / repairs 1 / failures 1，文件落盘，exit 0）                              |
+| M6  | ✅   | LoopScheduler `onAcceptanceVerdict` 镜像 + /goal 绑任务 + MOSS_GOAL_VERIFY_LOOP 镜像；`test/task-goal-unification.spec.mjs`                                                                              |
+| M7  | ✅   | `core/task/capability.ts` 词干匹配 + planning 注入；`test/task-capability.spec.mjs`                                                                                                                      |
+| M8  | ✅   | bench `task-os-a-coding` 1/1 PASS（8 turns/18s）、`task-os-c-failure-repair` 1/1 PASS（hard 100/100，13 turns/28s，oracle 先败后修）；`task-os-b-device` requiresEnv 就绪；`scripts/task-os-metrics.mjs` |
+| M9  | ✅   | merge 7a5777c5（TUI v0.21 + task-os 共存，168 spec 全绿）；AGENTS.md 双线导航；本审计                                                                                                                    |
+
+### 过程中发现并修复的真断点（按 §28 执行纪律）
+
+1. headless 审批把 `task_define` 拦死在第一步 → runtime_state 免审（危险类不变）。
+2. 零 criteria 契约会自动 PASS → "无可检完成定义不得验收"守卫。
+3. **agent 自建任务（task_define）不进状态机**——整个 robotics P0 主路径对 runtime 不可视 → task_define 即入机（task_created→plan_ready）。
+4. 状态表 `plan_ready` from draft 值错位（M1 同型笔误第二处，spec 漏格）→ 修正 + 回归测试。
+5. `moss task run` 首跑崩溃：方法脱绑丢 `this` → 方法调用形式。
+
+### DoD 对照（§27）
+
+- NL → Task → Plan → Agent Execution → Tools → Runtime → Evidence → Verification → Repair → Acceptance：**两种驱动方式各真跑通过一次**（engine 驱动 `moss task run` + agent 工具驱动 bench C），模型散文全程无法移动状态。
+- Real Device 段：`task-os-b-device` 已就绪（requiresEnv）；本机无 MOSS*DEVICE*\* 凭据，待有设备环境时 `node scripts/run-benchmark.mjs --task task-os-b-device` 即可出真样本（真机链路本身已有 main 上 device-deploy-verify 1/1 背书）。
+- False Success：结构性不可能（无证据即拒收 + C 类判分明确拒绝 pass-before-fail）。
