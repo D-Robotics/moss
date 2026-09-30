@@ -14,11 +14,20 @@ import type {
 } from './types.js';
 import { McpStdioTransport } from './stdio-transport.js';
 import { McpHttpTransport } from './http-transport.js';
+import { getPackageVersion } from '../../utils/package-info.js';
 
 const log = getRootLogger().child('mcp:client');
 
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
-const CLIENT_INFO = { name: 'moss', version: '0.16.0' };
+
+/**
+ * Client identity sent in the initialize handshake. The version is read from
+ * package.json — it used to be pinned to '0.16.0', so every MCP server was
+ * told a version that stopped being true five releases ago.
+ */
+function clientInfo(): { name: string; version: string } {
+  return { name: 'moss', version: getPackageVersion() };
+}
 
 export interface McpClientOptions {
   connectTimeoutMs?: number;
@@ -89,7 +98,7 @@ export class McpClient {
       {
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: {},
-        clientInfo: CLIENT_INFO,
+        clientInfo: clientInfo(),
       },
       { timeoutMs: this.connectTimeoutMs }
     );
