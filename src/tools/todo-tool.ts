@@ -41,6 +41,36 @@ export function formatTodos(todos: TodoItem[]): string {
   return lines.join('\n');
 }
 
+/**
+ * Task OS M12 finding #3: a live unified task already owns the checklist, so a
+ * parallel todo list just costs turns (2-3 per run). Only a task that actually
+ * has a plan suppresses the tool — a stale draft with an empty plan must not
+ * silently disable todos, because ambient workspace state is not a contract.
+ */
+async function liveTaskPlanNotice(workspaceDir: string | undefined): Promise<string | null> {
+  if (!workspaceDir) return null;
+  try {
+    const { findLatestLiveTaskSnapshot } = await import('../core/task/task-store.js');
+    const snapshot = await findLatestLiveTaskSnapshot(workspaceDir);
+    if (!snapshot || snapshot.plan.length === 0) return null;
+    const plan = snapshot.plan
+      .map((step) => {
+        const marker =
+          step.status === 'done' ? '[x]' : step.status === 'in_progress' ? '[>]' : '[ ]';
+        return `${marker} ${step.title}`;
+      })
+      .join('\n');
+    return (
+      `Not applied — the live task ${snapshot.taskId} already owns the checklist ` +
+      `(phase ${snapshot.phase}). Maintain that plan with task_plan_update so the ` +
+      `timeline, acceptance and TUI stay in sync instead of forking a second list.\n` +
+      `Current plan:\n${plan}`
+    );
+  } catch {
+    return null;
+  }
+}
+
 export const todoWriteTool: Tool = {
   name: 'todo_write',
   description:
@@ -82,7 +112,9 @@ export const todoWriteTool: Tool = {
     },
     required: ['todos'],
   },
-  async execute(input) {
+  async execute(input, ctx) {
+    const owned = await liveTaskPlanNotice(ctx?.workspaceDir);
+    if (owned) return owned;
     const raw = Array.isArray(input.todos) ? input.todos : [];
     const todos: TodoItem[] = [];
     for (const item of raw) {

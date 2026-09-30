@@ -22,16 +22,28 @@ export const EXEC_DEFAULT_TIMEOUT_MS = (() => {
 export const FILE_UNCHANGED_STUB =
   'File unchanged since last read. The content from the earlier read_file result in this conversation is still current — refer to that instead of re-reading.';
 
+/**
+ * Same window, still unchanged, but the earlier result was elided by the tool
+ * output budget: the middle is NOT in context, so "refer to the earlier
+ * result" would be a lie (Task OS M12 finding #2 — that lie cost 2-3 blind
+ * re-read turns per coding run).
+ */
+export const FILE_UNCHANGED_TRUNCATED_STUB =
+  'File unchanged since last read, but the earlier result was TRUNCATED by the output budget — the dropped region is not in context. Re-read just the region you need with offset/limit instead of the whole file.';
+
 export class ToolStateManager {
   private readonly fileReadState = new Map<string, number>();
   /** Last read window per path (`full` or `offset:limit`) for unchanged stubs. */
   private readonly fileReadRange = new Map<string, string>();
+  /** Whether the last served window was elided by the tool output budget. */
+  private readonly fileReadTruncated = new Map<string, boolean>();
 
-  async recordFileState(resolvedPath: string, rangeKey = 'full'): Promise<void> {
+  async recordFileState(resolvedPath: string, rangeKey = 'full', truncated = false): Promise<void> {
     try {
       const st = await fs.stat(resolvedPath);
       this.fileReadState.set(resolvedPath, st.mtimeMs);
       this.fileReadRange.set(resolvedPath, rangeKey);
+      this.fileReadTruncated.set(resolvedPath, truncated);
     } catch {
       // File may not exist yet; ignore
     }
@@ -48,15 +60,28 @@ export class ToolStateManager {
    * a short stub instead of re-dumping the file (token + latency win).
    */
   async unchangedSinceLastRead(resolvedPath: string, rangeKey = 'full'): Promise<boolean> {
+    return (await this.readReuseState(resolvedPath, rangeKey)) === 'fresh';
+  }
+
+  /**
+   * Three-way reuse state for a read window: `miss` (never read, other window,
+   * or changed on disk), `fresh` (body is still in context — serve the stub),
+   * or `truncated` (unchanged but the body was elided — serve the honest stub).
+   */
+  async readReuseState(
+    resolvedPath: string,
+    rangeKey = 'full'
+  ): Promise<'miss' | 'fresh' | 'truncated'> {
     const seen = this.fileReadState.get(resolvedPath);
-    if (seen === undefined) return false;
-    if ((this.fileReadRange.get(resolvedPath) ?? 'full') !== rangeKey) return false;
+    if (seen === undefined) return 'miss';
+    if ((this.fileReadRange.get(resolvedPath) ?? 'full') !== rangeKey) return 'miss';
     try {
       const current = (await fs.stat(resolvedPath)).mtimeMs;
-      return Math.abs(current - seen) < 1;
+      if (Math.abs(current - seen) >= 1) return 'miss';
     } catch {
-      return false;
+      return 'miss';
     }
+    return this.fileReadTruncated.get(resolvedPath) ? 'truncated' : 'fresh';
   }
 
   /**

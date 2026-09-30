@@ -9,7 +9,9 @@ import {
   toolError,
   withLineNumbers,
   FILE_UNCHANGED_STUB,
+  FILE_UNCHANGED_TRUNCATED_STUB,
 } from './tool-helpers.js';
+import { wouldTruncateToolOutput } from '../context/tool-output-truncate.js';
 
 /** Strip read_file-style line-number prefixes the model often pastes back. */
 export function stripLineNumberPrefixes(s: string): string {
@@ -176,35 +178,45 @@ export const readFileTool: Tool = {
     try {
       const filePath = await safePath(input.path, ctx.workspaceDir);
       const rangeKey = readRangeKey(input);
-      // Claude Code FileRead parity: skip re-dumping an unchanged window.
-      if (await globalToolStateManager.unchangedSinceLastRead(filePath, rangeKey)) {
-        return FILE_UNCHANGED_STUB;
-      }
+      // Claude Code FileRead parity: skip re-dumping an unchanged window — but
+      // only when the earlier body actually survived the output budget.
+      const reuse = await globalToolStateManager.readReuseState(filePath, rangeKey);
+      if (reuse === 'fresh') return FILE_UNCHANGED_STUB;
+      if (reuse === 'truncated') return FILE_UNCHANGED_TRUNCATED_STUB;
       const content = await fs.readFile(filePath, 'utf-8');
-      await globalToolStateManager.recordFileState(filePath, rangeKey);
       const hasRange = input.offset !== undefined || input.limit !== undefined;
-      if (hasRange) {
-        const lines = content.split('\n');
-        const start = Math.max(1, Math.floor(Number(input.offset) || 1));
-        const count =
-          input.limit !== undefined ? Math.max(0, Math.floor(Number(input.limit))) : lines.length;
-        const slice = lines.slice(start - 1, start - 1 + count);
-        const end = Math.min(lines.length, start - 1 + count);
-        let body = slice.join('\n');
-        let note = '';
-        if (body.length > 100_000) {
-          note = `\n\n[... truncated range, total ${body.length} chars]`;
-          body = body.slice(0, 100_000);
+      const result = (() => {
+        if (hasRange) {
+          const lines = content.split('\n');
+          const start = Math.max(1, Math.floor(Number(input.offset) || 1));
+          const count =
+            input.limit !== undefined ? Math.max(0, Math.floor(Number(input.limit))) : lines.length;
+          const slice = lines.slice(start - 1, start - 1 + count);
+          const end = Math.min(lines.length, start - 1 + count);
+          let body = slice.join('\n');
+          let note = '';
+          if (body.length > 100_000) {
+            note = `\n\n[... truncated range, total ${body.length} chars]`;
+            body = body.slice(0, 100_000);
+          }
+          return `[lines ${start}-${end} of ${lines.length}]\n${withLineNumbers(body, start)}${note}`;
         }
-        return `[lines ${start}-${end} of ${lines.length}]\n${withLineNumbers(body, start)}${note}`;
-      }
-      if (content.length > 100_000) {
-        return (
-          withLineNumbers(content.slice(0, 100_000)) +
-          `\n\n[... truncated, total ${content.length} chars — pass offset/limit to page through the rest]`
-        );
-      }
-      return withLineNumbers(content);
+        if (content.length > 100_000) {
+          return (
+            withLineNumbers(content.slice(0, 100_000)) +
+            `\n\n[... truncated, total ${content.length} chars — pass offset/limit to page through the rest]`
+          );
+        }
+        return withLineNumbers(content);
+      })();
+      // Record what we actually handed over: an elided body must not be
+      // advertised as "still current" on the next identical read.
+      await globalToolStateManager.recordFileState(
+        filePath,
+        rangeKey,
+        wouldTruncateToolOutput('read', result)
+      );
+      return result;
     } catch (err) {
       if (
         (err as NodeJS.ErrnoException).code === 'ENOENT' ||

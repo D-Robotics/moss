@@ -170,10 +170,30 @@ export async function buildCapabilityLayerForGoal(
     const { matchTaskCapabilities, buildCapabilityPromptLayer } =
       await import('../core/task/capability.js');
     const skills = loadSkills([path.join(ctx.workspace, '.moss', 'skills')]);
-    const duck = ctx.agent as { tools?: { getAll?: () => Array<{ name: string }> } };
-    const builtinTools =
-      typeof duck.tools?.getAll === 'function' ? duck.tools.getAll().map((tool) => tool.name) : [];
-    return buildCapabilityPromptLayer(matchTaskCapabilities(goal, { skills, builtinTools }));
+    const duck = ctx.agent as {
+      tools?: { getAll?: () => Array<{ name: string; description?: string }> };
+    };
+    const registered = typeof duck.tools?.getAll === 'function' ? duck.tools.getAll() : [];
+    // MCP tools carry wire names (`mcp__<server>__<tool>`). Splitting them out is
+    // what lets the matcher score them as MCP capabilities per task instead of
+    // treating them as opaque builtins — and the MCP inventory was previously
+    // never handed to the matcher at all (Task OS M12 follow-up).
+    const builtinTools = registered
+      .filter((tool) => !tool.name.startsWith('mcp__'))
+      .map((tool) => tool.name);
+    const mcpTools = registered
+      .filter((tool) => tool.name.startsWith('mcp__'))
+      .map((tool) => ({
+        name: tool.name,
+        ...(tool.description ? { description: tool.description } : {}),
+      }));
+    return buildCapabilityPromptLayer(
+      matchTaskCapabilities(goal, {
+        skills,
+        builtinTools,
+        ...(mcpTools.length > 0 ? { mcpTools } : {}),
+      })
+    );
   } catch {
     return '';
   }

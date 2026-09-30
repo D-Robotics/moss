@@ -28,6 +28,29 @@ function estimateTokens(text: string): number {
   return Math.ceil(Buffer.byteLength(text, 'utf8') / BYTES_PER_TOKEN);
 }
 
+/**
+ * Per-tool recovery hint appended to the elision notice. The dropped middle is
+ * gone from context, so the notice must say how to fetch just that slice —
+ * otherwise the model re-reads the whole thing and burns a turn (Task OS M12
+ * finding #2: 2-3 blind re-read turns per coding run).
+ */
+const TRUNCATION_RECOVERY_HINTS: Record<string, string> = {
+  read: 'the dropped region is not in context — re-read only it with offset/limit',
+  device_file_read: 'the dropped region is not in context — page it with offset/limit',
+  exec: 'output was cut — narrow the command (grep/head/tail) to the slice you need',
+  bash: 'output was cut — narrow the command (grep/head/tail) to the slice you need',
+  device_exec: 'output was cut — narrow the remote command to the slice you need',
+};
+
+/**
+ * True when `truncateToolOutput` would drop part of this output. Tool
+ * implementations use it to avoid promising that a body is still in context
+ * when the budget will elide it.
+ */
+export function wouldTruncateToolOutput(toolName: string, output: string): boolean {
+  return estimateTokens(output) > getToolOutputLimitTokens(toolName);
+}
+
 export function truncateToolOutput(toolName: string, output: string): string {
   const limitTokens = getToolOutputLimitTokens(toolName);
   const outputTokens = estimateTokens(output);
@@ -45,8 +68,10 @@ export function truncateToolOutput(toolName: string, output: string): string {
   const head = output.slice(0, headEnd);
   const tail = output.slice(tailStart);
   const droppedTokens = estimateTokens(output.slice(headEnd, tailStart));
+  const hint = TRUNCATION_RECOVERY_HINTS[toolName];
+  const notice = `…${droppedTokens} tokens truncated${hint ? ` (${hint})` : ''}…`;
 
-  return `${head}\n\n…${droppedTokens} tokens truncated…\n\n${tail}`;
+  return `${head}\n\n${notice}\n\n${tail}`;
 }
 
 function findSafeSlicePoint(

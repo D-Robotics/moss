@@ -34,6 +34,15 @@ export const TODO_NUDGE_MAX_ATTEMPTS = 1;
 export function evaluateTodoNudge(request: TodoNudgeRequest): TodoNudgeResult {
   if (request.attempts >= TODO_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if ((request.toolCallsByName.todo_write ?? 0) > 0) return { fire: false };
+  // A run already driving the unified task plan has a checklist (task_define /
+  // task_plan_update). Nudging a second one made the agent maintain two lists
+  // for the rest of the run — 2-3 turns per run in the Task OS M12 analysis.
+  if (
+    (request.toolCallsByName.task_define ?? 0) > 0 ||
+    (request.toolCallsByName.task_plan_update ?? 0) > 0
+  ) {
+    return { fire: false };
+  }
   if (request.turns < TODO_NUDGE_MIN_TURNS) return { fire: false };
   if (request.totalToolCalls < TODO_NUDGE_MIN_TOOLS) return { fire: false };
 

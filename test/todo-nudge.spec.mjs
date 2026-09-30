@@ -68,4 +68,28 @@ import {
   assert.equal(r.fire, false);
 }
 
+// A run already driving the unified task plan → no second checklist (M12 #3)
+{
+  const r = evaluateTodoNudge({
+    turns: TODO_NUDGE_MIN_TURNS,
+    totalToolCalls: TODO_NUDGE_MIN_TOOLS,
+    toolCallsByName: { task_define: 1, task_plan_update: 2, read_file: 2 },
+    userText: 'fix the pre-abort child process bug and add a regression test',
+    attempts: 0,
+  });
+  assert.equal(r.fire, false);
+}
+
+// task_define alone is enough — the plan lives in the runtime from that point
+{
+  const r = evaluateTodoNudge({
+    turns: TODO_NUDGE_MIN_TURNS,
+    totalToolCalls: TODO_NUDGE_MIN_TOOLS,
+    toolCallsByName: { task_define: 1, read_file: 2 },
+    userText: 'fix the pre-abort child process bug and add a regression test',
+    attempts: 0,
+  });
+  assert.equal(r.fire, false);
+}
+
 console.log('[PASS] todo-nudge');

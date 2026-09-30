@@ -83,6 +83,45 @@ test('mcp tools match on name and description', () => {
   assert.ok(!match.candidates.some((c) => c.name === 'mcp__billing__invoice'));
 });
 
+test('mcp servers stay reachable even when no tool name matches', () => {
+  const match = matchTaskCapabilities('regenerate the quarterly report', {
+    mcpTools: [
+      { name: 'mcp__vision__search' },
+      { name: 'mcp__billing__search', description: 'search billing tools' },
+    ],
+  });
+  assert.ok(
+    !match.candidates.some((c) => c.name.endsWith('__search')),
+    'the meta search tool is an entry point, not a capability candidate'
+  );
+  assert.deepEqual(match.mcpServers, ['vision', 'billing']);
+  const layer = buildCapabilityPromptLayer(match);
+  assert.match(layer, /mcp__billing__search/);
+  assert.match(layer, /mcp__vision__search/);
+});
+
+test('matched mcp tools are named with their server, per task', () => {
+  const match = matchTaskCapabilities('measure camera latency on the board', {
+    mcpTools: [
+      {
+        name: 'mcp__vision__camera_probe',
+        description: 'camera latency and fps probes\nsecond line',
+      },
+      { name: 'mcp__billing__invoice', description: 'invoices' },
+      { name: 'mcp__vision__search' },
+    ],
+  });
+  const probe = match.candidates.find((c) => c.name === 'mcp__vision__camera_probe');
+  assert.equal(probe.server, 'vision');
+  assert.ok(!match.candidates.some((c) => c.name === 'mcp__billing__invoice'));
+  const layer = buildCapabilityPromptLayer(match);
+  assert.match(layer, /Relevant MCP tools \(already connected for this task\):/);
+  assert.match(
+    layer,
+    /mcp__vision__camera_probe \(server vision\) — camera latency and fps probes/
+  );
+});
+
 test('chinese device goals are detected', () => {
   const match = matchTaskCapabilities('把机器人的摄像头 FPS 优化到 30 以上并部署到板子', {
     skills: SKILLS,
