@@ -108,18 +108,29 @@ export interface NavigatorInput {
 
 export function renderNavigator(input: NavigatorInput): PanelLine[] {
   const { summaries, selectedTaskId, focusTaskId, width, height } = input;
-  const out: PanelLine[] = [
-    line(clip(`TASKS (${summaries.length})`, width), { bold: true }),
-    line('─'.repeat(Math.max(3, Math.min(width, 24))), { dim: true }),
-  ];
+  const out: PanelLine[] = [line(clip(`TASKS (${summaries.length})`, width), { bold: true })];
   if (summaries.length === 0) {
-    out.push(line(clip('no tasks yet', width), { dim: true }));
-    out.push(line(clip('describe a goal below', width), { dim: true }));
+    out.push(line(clip('describe a', width), { dim: true }));
+    out.push(line(clip('goal below —', width), { dim: true }));
+    out.push(line(clip('it becomes a', width), { dim: true }));
+    out.push(line(clip('verified task.', width), { dim: true }));
   }
-  for (const summary of summaries) {
+  // Scroll window: keep the selected row visible in short panes.
+  const selectedIndex = Math.max(
+    0,
+    summaries.findIndex((s) => s.taskId === selectedTaskId)
+  );
+  const listCapacity = Math.max(1, height - out.length - 2);
+  const windowStart = Math.min(
+    Math.max(0, summaries.length - listCapacity),
+    Math.max(0, selectedIndex - listCapacity + 1)
+  );
+  for (const summary of summaries.slice(windowStart, windowStart + listCapacity)) {
     const cursor = summary.taskId === selectedTaskId ? '▸' : ' ';
     const resultLabel = summary.result ?? summary.state;
-    const left = `${cursor} ${idTail(summary.taskId)} ${KIND_LABEL[summary.kind]}`;
+    const idPart = `${cursor} ${idTail(summary.taskId, width >= 24 ? 8 : 6)}`;
+    const kindPart = width >= 24 ? ` ${KIND_LABEL[summary.kind]}` : '';
+    const left = `${idPart}${kindPart}`;
     const stateText = clip(resultLabel, Math.max(4, width - left.length - 1));
     const pad = ' '.repeat(Math.max(1, width - left.length - stateText.length));
     const color = summary.result ? RESULT_COLOR[summary.result] : STATE_COLOR[summary.state];
@@ -132,10 +143,8 @@ export function renderNavigator(input: NavigatorInput): PanelLine[] {
   }
   const focus = summaries.find((s) => s.taskId === focusTaskId);
   if (focus && focus.taskId !== selectedTaskId) {
-    out.push(line(clip(`● live: ${idTail(focus.taskId)}`, width), { color: 'cyan', dim: true }));
+    out.push(line(clip(`● ${idTail(focus.taskId, 6)}`, width), { color: 'cyan', dim: true }));
   }
-  out.push(line('', {}));
-  out.push(line(clip('↑↓ select · ↵ switch', width), { dim: true }));
   while (out.length < height) out.push(line('', {}));
   return out.slice(0, height);
 }
@@ -157,6 +166,8 @@ export interface CanvasInput {
     evidence: number;
     acceptance: number;
   };
+  /** Example highlighted by ↑↓ in the composer (empty state only). */
+  selectedExample?: number;
 }
 
 /** Empty-state examples — pressing 1/2/3 loads one into the composer. */
@@ -183,10 +194,14 @@ export function renderCanvas(input: CanvasInput): PanelLine[] {
         width
       ).map((text) => line(text)),
       line(''),
-      line('TRY — press 1 / 2 / 3 to load an example, edit, Enter', { bold: true }),
-      ...EMPTY_STATE_EXAMPLES.map((example, i) =>
-        line(clip(`  ${i + 1}  ${example}`, width), { color: 'cyan' })
-      ),
+      line('EXAMPLES — ↑↓ select · ↵ load · 1/2/3 quick-pick', { bold: true }),
+      ...EMPTY_STATE_EXAMPLES.map((example, i) => {
+        const selected = input.selectedExample === i;
+        return line(
+          clip(`${selected ? '▸' : ' '} ${i + 1} › ${example}`, width),
+          selected ? { color: 'cyan', bold: true } : { color: 'cyan' }
+        );
+      }),
       line(''),
       line('WORKSPACE', { bold: true }),
       line(clip(`  device   ${ws?.device ?? 'checking…'}`, width), {
@@ -204,9 +219,7 @@ export function renderCanvas(input: CanvasInput): PanelLine[] {
       ...wrap('One intent → one task → one verified result.', width).map((text) =>
         line(text, { color: 'cyan' })
       ),
-      line(clip('Ctrl+T tasks · Ctrl+E evidence · Ctrl+A menu · Ctrl+O transcript', width), {
-        dim: true,
-      }),
+      line(clip('? help · Ctrl+T tasks · Ctrl+E evidence · Ctrl+A menu', width), { dim: true }),
     ];
     out.push(...empty);
     while (out.length < height) out.push(line(''));
@@ -402,18 +415,6 @@ export function renderCanvas(input: CanvasInput): PanelLine[] {
   return out.slice(0, height);
 }
 
-export function renderTaskStrip(summaries: TaskSummary[], width: number): PanelLine {
-  if (summaries.length === 0) {
-    return line(clip('TASKS: none yet', width), { bold: true });
-  }
-  const chips = summaries.slice(0, 6).map((summary) => {
-    const label = summary.result ?? summary.state;
-    return `[${idTail(summary.taskId, 4)} ${label}]`;
-  });
-  const text = chips.join(' ');
-  return line(clip(`TASKS ${text}`, width), { bold: true });
-}
-
 // ---- Contextual Device + Verification panel (right) ----
 
 const KIND_METRIC_HINT: Record<TaskKind, string> = {
@@ -538,34 +539,7 @@ export function renderContextPanel(input: ContextPanelInput): PanelLine[] {
   return out.slice(0, height);
 }
 
-// ---- Status + composer (bottom) ----
-
-export interface ComposerStatusInput {
-  model?: string;
-  live: { running: boolean; approvalPending: boolean };
-  taskSummary?: TaskSummary;
-  queueLength: number;
-  queuePaused: boolean;
-  usageText: string;
-  width: number;
-}
-
-export function renderStatusLine(input: ComposerStatusInput): PanelLine {
-  const bits: string[] = [];
-  if (input.model) bits.push(input.model);
-  if (input.taskSummary) {
-    bits.push(`${idTail(input.taskSummary.taskId)} ${KIND_LABEL[input.taskSummary.kind]}`);
-    bits.push(input.taskSummary.result ?? input.taskSummary.state);
-  } else {
-    bits.push(input.live.running ? 'RUNNING' : 'READY');
-  }
-  if (input.queueLength > 0)
-    bits.push(`queue:${input.queueLength}${input.queuePaused ? ' paused' : ''}`);
-  bits.push(input.usageText);
-  return line(clip(bits.join(' · '), input.width), {
-    color: input.live.running ? 'yellow' : 'green',
-  });
-}
+// ---- Composer (bottom) ----
 
 export function renderApprovalBanner(question: string, width: number): PanelLine[] {
   return [

@@ -1,7 +1,7 @@
 /**
  * Mission Control overlays — full-area views layered over the panel layout:
  * Task Switcher, Task History, Evidence Inspector, Deployment Inspector,
- * Action Menu, Failure/Repair View. Pure projections, no ink imports.
+ * Action Menu, Failure/Repair View, Help. Pure projections, no ink imports.
  */
 import type { DeploymentRecord } from '../../contracts/deployment.js';
 import type { EvidenceRecord } from '../../contracts/evidence.js';
@@ -14,7 +14,8 @@ export type OverlayKind =
   | 'evidence'
   | 'deployments'
   | 'action-menu'
-  | 'failure-repair';
+  | 'failure-repair'
+  | 'help';
 
 export const OVERLAY_TITLE: Record<OverlayKind, string> = {
   'task-switcher': 'TASK SWITCHER',
@@ -23,7 +24,45 @@ export const OVERLAY_TITLE: Record<OverlayKind, string> = {
   deployments: 'DEPLOYMENT INSPECTOR',
   'action-menu': 'ACTION MENU',
   'failure-repair': 'FAILURE / REPAIR',
+  help: 'HELP — KEYS & COMMANDS',
 };
+
+/**
+ * Canonical key/command reference. The `?` overlay and the `/help` transcript
+ * banner both render from these lists, so the two can never drift apart.
+ * The Ctrl+ chords are grouped onto shared rows on purpose: one row per chord
+ * would push the command list out of a 24-row pane entirely.
+ */
+export const HELP_KEYS: ReadonlyArray<readonly [string, string]> = [
+  ['Enter', 'send the goal'],
+  ['Esc', 'interrupt the run · close the overlay'],
+  ['Tab', 'focus the navigator · cycle the canvas view'],
+  ['↑↓', 'select a task, or an example in an empty composer'],
+  ['PgUp/PgDn', 'scroll the execution detail'],
+  ['Ctrl+T H E', 'tasks · history · evidence'],
+  ['Ctrl+G F A O', 'deployments · failures · menu · detail'],
+  ['?', 'this help'],
+];
+
+export const HELP_COMMANDS: readonly string[] = [
+  '/help',
+  '/quit',
+  '/tasks',
+  '/resume [id]',
+  '/history',
+  '/evidence',
+  '/deployments',
+  '/failures',
+  '/actions',
+  '/steer <c>',
+  '/queue [pause|resume|drop|clear]',
+  '/bg',
+  '/subs',
+  '/sessions',
+  '/mcp',
+  '/rewind [seq]',
+  '/usage',
+];
 
 function overlayShell(
   kind: OverlayKind,
@@ -266,6 +305,7 @@ export function actionMenuItems(): ActionMenuItem[] {
     { id: 'sessions', label: 'Sessions' },
     { id: 'mcp', label: 'MCP servers' },
     { id: 'subs', label: 'Sub-agents' },
+    { id: 'help', label: 'Help — keys & commands', hint: '?' },
     { id: 'quit', label: 'Quit', hint: '/quit' },
   ];
 }
@@ -352,4 +392,56 @@ export function renderFailureRepair(
     }
   }
   return overlayShell('failure-repair', body, width, height, 'Esc close');
+}
+
+/** Lay out atomic tokens (a command with its args is one token) across lines. */
+function wrapTokens(tokens: readonly string[], width: number, indent = 2): string[] {
+  const out: string[] = [];
+  let current = '';
+  for (const token of tokens) {
+    const candidate = current ? `${current} · ${token}` : token;
+    if (candidate.length + indent > width && current) {
+      out.push(current);
+      current = token;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) out.push(current);
+  return out.map((chunk) => ' '.repeat(indent) + clip(chunk, Math.max(4, width - indent)));
+}
+
+/**
+ * `?` help overlay. The commands flow across wrapped lines rather than one per
+ * row — at the common 24-row terminal a column of 17 commands plus 8 key rows
+ * does not fit, and a help screen that hides most of itself is not help.
+ * Whatever still overflows at very short heights is reported as "… N more".
+ */
+export function renderHelp(width: number, height: number): PanelLine[] {
+  const body: PanelLine[] = [line('KEYS', { bold: true, color: 'white' })];
+  for (const [keys, what] of HELP_KEYS) {
+    body.push(line(clip(`  ${keys.padEnd(11)} ${what}`, width)));
+  }
+  body.push(line('COMMANDS', { bold: true, color: 'white' }));
+  for (const chunk of wrapTokens(HELP_COMMANDS, width)) {
+    body.push(line(chunk, { color: 'cyan' }));
+  }
+
+  // `Esc close` rides the title rule: the separate footer row is exactly what
+  // the command list needs on a 24-row terminal.
+  const capacity = Math.max(3, height - 1);
+  let elided = 0;
+  if (body.length > capacity) {
+    elided = body.length - capacity + 1;
+    body.length = capacity - 1;
+  }
+  const title = `── ${OVERLAY_TITLE.help} `;
+  const tail = elided > 0 ? `… ${elided} more · Esc close ` : 'Esc close ';
+  const dashes = Math.max(2, width - title.length - tail.length);
+  const out: PanelLine[] = [
+    line(clip(`${title}${'─'.repeat(dashes)}${tail}`, width), { bold: true, color: 'cyan' }),
+    ...body,
+  ];
+  while (out.length < height) out.push(line('', {}));
+  return out.slice(0, height);
 }

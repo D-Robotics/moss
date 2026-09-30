@@ -2,9 +2,10 @@
 /**
  * Mission Control TUI (v0.21 redo): task-first layout, state-first canvas,
  * contextual device panel, transcript demotion, overlays (task switcher /
- * history / resume / evidence / deployments / action menu / failure-repair),
- * and the three responsive breakpoints. Pure projections from the shared
- * TaskRuntime + component-level overlay interactions.
+ * history / resume / evidence / deployments / action menu / failure-repair /
+ * help), and the two responsive breakpoints (wide 3-pane / standard 2-pane).
+ * Pure projections from the shared TaskRuntime + component-level overlay
+ * interactions.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -22,10 +23,12 @@ import { computeLayout } from '../dist/cli/tui/layout.js';
 import { renderCanvas, renderContextPanel, renderNavigator } from '../dist/cli/tui/panels.js';
 import {
   actionMenuItems,
+  HELP_COMMANDS,
   renderActionMenu,
   renderDeploymentInspector,
   renderEvidenceInspector,
   renderFailureRepair,
+  renderHelp,
   renderTaskHistory,
   renderTaskSwitcher,
 } from '../dist/cli/tui/overlays.js';
@@ -151,8 +154,8 @@ await runtime.refresh();
     },
   });
   const emptyText = text(empty);
-  assert.ok(emptyText.includes('TRY — press 1 / 2 / 3'), 'example loader hint');
-  assert.ok(emptyText.includes('  1  Stream the camera'), 'example 1 listed');
+  assert.ok(emptyText.includes('EXAMPLES — ↑↓ select'), 'example loader hint');
+  assert.ok(emptyText.includes('1 › Stream the camera'), 'example 1 listed');
   assert.ok(emptyText.includes('WORKSPACE'), 'workspace section');
   assert.ok(emptyText.includes('not configured'), 'device truth visible');
   assert.ok(emptyText.includes('3 evidence · 1 acceptance'), 'artifact counts');
@@ -287,6 +290,33 @@ await runtime.refresh();
     assert.ok(menuText.includes(item.label), `menu item: ${item.label}`);
   }
 
+  const help = renderHelp(80, 40);
+  const helpText = text(help);
+  assert.ok(helpText.includes('HELP — KEYS & COMMANDS'), 'help title');
+  assert.ok(helpText.includes('Ctrl+T H E'), 'help lists the global keys');
+  assert.ok(helpText.includes('this help'), 'help advertises its own key');
+  assert.ok(helpText.includes('Esc close'), 'help advertises how to close');
+  for (const command of HELP_COMMANDS) {
+    assert.ok(helpText.includes(command), `help lists command: ${command}`);
+  }
+
+  // The common 24-row terminal must show the whole reference: a help screen
+  // that elides most of its own command list is not help.
+  const helpTypical = text(renderHelp(80, 15));
+  for (const command of HELP_COMMANDS) {
+    assert.ok(helpTypical.includes(command), `24-row help still lists ${command}`);
+  }
+  assert.ok(!helpTypical.includes('more · Esc close'), '24-row help elides nothing');
+
+  // Narrower/shorter panes may elide, but never silently: the title says how
+  // much was dropped and the help key is still advertised.
+  const helpShort = renderHelp(80, 8);
+  const helpShortText = text(helpShort);
+  assert.equal(helpShort.length, 8, 'help never exceeds the pane height');
+  assert.ok(helpShortText.includes('HELP — KEYS & COMMANDS'), 'short help keeps its title');
+  assert.ok(helpShortText.includes('Esc close'), 'short help keeps its close hint');
+  assert.ok(/… \d+ more/.test(helpShortText), 'short help elides honestly');
+
   const failureRepair = renderFailureRepair(runtime.taskDetail('task_cam1'), 80, 20);
   const frText = text(failureRepair);
   assert.ok(frText.includes('FAILURE / REPAIR'), 'failure-repair title');
@@ -295,7 +325,7 @@ await runtime.refresh();
   assert.ok(frText.includes('latest acceptance: PASS'), 'latest verdict');
 }
 
-// ─── 5. Layout breakpoints: wide 3 columns, medium 2, narrow 1 ──────────────
+// ─── 5. Layout breakpoints: wide 3 panes, standard 2 panes (IDE shell) ──────
 
 {
   const wide = computeLayout(140, 40);
@@ -303,14 +333,16 @@ await runtime.refresh();
   assert.ok(wide.showNavigator && wide.showContext);
   assert.equal(wide.navigatorWidth + wide.canvasWidth + wide.contextWidth + 2, 140);
 
-  const medium = computeLayout(90, 30);
-  assert.equal(medium.mode, 'medium');
-  assert.ok(!medium.showNavigator && medium.showContext, 'navigator collapses to strip');
+  const std = computeLayout(80, 24);
+  assert.equal(std.mode, 'standard');
+  assert.ok(std.showNavigator && !std.showContext, 'two-pane shell at 80 cols');
+  assert.equal(std.navigatorWidth + std.canvasWidth + 1, 80, 'nav + canvas fills the row');
+  assert.equal(std.bodyHeight, 24 - 7, 'chrome budget: the key reference costs no permanent row');
 
-  const narrow = computeLayout(55, 24);
-  assert.equal(narrow.mode, 'narrow');
-  assert.ok(!narrow.showNavigator && !narrow.showContext, 'single column');
-  assert.equal(narrow.canvasWidth, 55);
+  const small = computeLayout(55, 24);
+  assert.equal(small.mode, 'standard');
+  assert.ok(small.showNavigator, 'navigator survives narrow terminals');
+  assert.ok(small.canvasWidth >= 18, 'canvas keeps a usable minimum');
 }
 
 // ─── 6. Component level: Ctrl+T opens the switcher, ↵ switches tasks ───────
@@ -365,6 +397,23 @@ await runtime.refresh();
   instance.stdin.write('\x1b'); // Esc closes
   ok = await waitForFrame(instance, (frame) => !frame.includes('EVIDENCE INSPECTOR'));
   assert.ok(ok, 'Esc closes the overlay');
+
+  // The key reference is discoverable from the bar, opens on `?` and closes
+  // on Esc.
+  assert.ok(instance.lastFrame().includes('? help'), 'status bar advertises the help key');
+  instance.stdin.write('?');
+  ok = await waitForFrame(instance, (frame) => frame.includes('HELP — KEYS & COMMANDS'));
+  assert.ok(ok, `? opens help: ${JSON.stringify(instance.lastFrame().slice(0, 160))}`);
+  instance.stdin.write('\x1b');
+  ok = await waitForFrame(instance, (frame) => !frame.includes('HELP — KEYS & COMMANDS'));
+  assert.ok(ok, 'Esc closes the help overlay');
+
+  // A '?' typed into a goal is literal text, never a help request.
+  instance.stdin.write('echo ?');
+  await sleep(120);
+  const typedFrame = instance.lastFrame();
+  assert.ok(!typedFrame.includes('HELP — KEYS & COMMANDS'), '? inside a goal is literal');
+  assert.ok(typedFrame.includes('echo ?'), 'the typed goal survives verbatim');
 
   instance.unmount();
   await sleep(150);

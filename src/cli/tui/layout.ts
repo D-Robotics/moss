@@ -1,13 +1,11 @@
 /**
- * Mission Control layout engine — pure geometry for the three breakpoints.
- * wide (≥120): navigator | canvas | context, each an ink Box with a border;
- * medium (≥90): canvas | context (navigator collapses into the header chips);
- * narrow (<90 — the most common real terminal width): a single full-width
- * panel, context/detail reachable via Tab view switching. Widths are Box
- * widths (border included); projections receive width-2 content columns.
+ * Mission Control layout engine — pure geometry. IDE-style two-pane shell at
+ * every width: task navigator (left) + execution canvas (right); a third
+ * context pane joins at wide (≥120). Widths are ink Box widths (border
+ * included); projections receive width-2 content columns.
  */
 
-export type LayoutMode = 'wide' | 'medium' | 'narrow';
+export type LayoutMode = 'wide' | 'standard';
 
 export interface MissionLayout {
   mode: LayoutMode;
@@ -27,15 +25,16 @@ export interface MissionLayout {
 export const MIN_COLUMNS = 40;
 
 export function computeLayout(columns: number, rows: number): MissionLayout {
-  const mode: LayoutMode = columns >= 120 ? 'wide' : columns >= 90 ? 'medium' : 'narrow';
-  // Header 1 + notice ≤2 + live tail ≤2 + status 1 + input 1 = up to 7 rows
-  // around the main panel; keep the panel usable on short terminals.
-  const bodyHeight = Math.max(6, rows - 8);
+  // Status bar + live tail ≤2 + notice ≤2 + composer hint + input = up to 7
+  // rows around the main panels (the key reference now lives in the `?`
+  // overlay, so it costs no permanent row); keep the panels usable when short.
+  const bodyHeight = Math.max(6, rows - 7);
   const contentHeight = bodyHeight - 2;
+  const mode: LayoutMode = columns >= 120 ? 'wide' : 'standard';
   if (mode === 'wide') {
-    const navigatorWidth = 26;
-    const contextWidth = 40;
-    const canvasWidth = columns - navigatorWidth - contextWidth - 2;
+    const navigatorWidth = 24;
+    const contextWidth = 38;
+    const canvasWidth = Math.max(24, columns - navigatorWidth - contextWidth - 2);
     return {
       mode,
       columns,
@@ -44,36 +43,23 @@ export function computeLayout(columns: number, rows: number): MissionLayout {
       contentHeight,
       navigatorWidth,
       contextWidth,
-      canvasWidth: Math.max(24, canvasWidth),
+      canvasWidth,
       showNavigator: true,
       showContext: true,
     };
   }
-  if (mode === 'medium') {
-    const contextWidth = 32;
-    return {
-      mode,
-      columns,
-      rows,
-      bodyHeight,
-      contentHeight,
-      navigatorWidth: 0,
-      contextWidth,
-      canvasWidth: Math.max(24, columns - contextWidth - 1),
-      showNavigator: false,
-      showContext: true,
-    };
-  }
+  // Standard (the common 80-col terminal): two panes, navigator + canvas.
+  const navigatorWidth = columns >= 70 ? 22 : 16;
   return {
     mode,
     columns,
     rows,
     bodyHeight,
     contentHeight,
-    navigatorWidth: 0,
+    navigatorWidth,
     contextWidth: 0,
-    canvasWidth: columns,
-    showNavigator: false,
+    canvasWidth: Math.max(18, columns - navigatorWidth - 1),
+    showNavigator: true,
     showContext: false,
   };
 }

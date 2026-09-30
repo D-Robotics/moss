@@ -44,16 +44,18 @@ import {
   renderExecutionDetailTail,
   renderInputLine,
   renderNavigator,
-  renderStatusLine,
-  renderTaskStrip,
+  type PanelColor,
   type PanelLine,
 } from './panels.js';
 import {
   actionMenuItems,
+  HELP_COMMANDS,
+  HELP_KEYS,
   renderActionMenu,
   renderDeploymentInspector,
   renderEvidenceInspector,
   renderFailureRepair,
+  renderHelp,
   renderTaskHistory,
   renderTaskSwitcher,
   type OverlayKind,
@@ -61,8 +63,8 @@ import {
 
 export const TUI_HELP_TEXT = [
   'moss Mission Control — describe a goal below; moss runs it as a task (plan → execute → device → verify → repair → acceptance).',
-  'keys: Enter send · Esc interrupt/close · Tab switch pane · Ctrl+T tasks · Ctrl+H history · Ctrl+E evidence · Ctrl+G deployments · Ctrl+F failures · Ctrl+A menu · Ctrl+O transcript',
-  'commands: /help · /quit · /tasks · /resume [id] · /history · /evidence · /deployments · /failures · /actions · /steer <c> · /queue [pause|resume|drop|clear] · /bg · /subs · /sessions · /mcp · /rewind [seq] · /usage',
+  `keys: ${HELP_KEYS.map(([keys, what]) => `${keys} ${what}`).join(' · ')}`,
+  `commands: ${HELP_COMMANDS.join(' · ')}`,
 ].join('\n');
 
 export interface TuiReplayRow {
@@ -105,6 +107,46 @@ export interface TuiAppOptions {
 
 export function buildTuiHelpText(): string {
   return TUI_HELP_TEXT;
+}
+
+interface StatusSegment {
+  text: string;
+  color?: PanelColor;
+  bold?: boolean;
+  dim?: boolean;
+}
+
+/**
+ * Keep the status bar to exactly one row. Ink wraps a `<Text>` whose children
+ * overflow the terminal — which silently steals a row from the panels — so
+ * whole trailing segments are dropped instead, and the first is clipped.
+ */
+function fitStatusBar(segments: StatusSegment[], width: number): React.ReactElement[] {
+  const kept: StatusSegment[] = [];
+  let used = 0;
+  for (const segment of segments) {
+    if (kept.length === 0) {
+      const text = clip(segment.text, width);
+      kept.push({ ...segment, text });
+      used = text.length;
+      continue;
+    }
+    if (used + segment.text.length > width) break;
+    kept.push(segment);
+    used += segment.text.length;
+  }
+  return kept.map((segment, i) =>
+    React.createElement(
+      Text,
+      {
+        key: `status-${i}`,
+        ...(segment.color ? { color: segment.color } : {}),
+        ...(segment.bold ? { bold: true } : {}),
+        ...(segment.dim ? { dimColor: true } : {}),
+      },
+      segment.text
+    )
+  );
 }
 
 interface StoreHandle {
@@ -171,6 +213,7 @@ export function TuiAppRoot({
   const pasteRef = useRef(createPasteCapture());
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>(undefined);
   const [deviceSummary, setDeviceSummary] = useState<string>('checking…');
+  const [selectedExample, setSelectedExample] = useState<number | undefined>(undefined);
   const sessionKey = options.sessionKey ?? 'tui';
   const { store } = handle;
 
@@ -462,7 +505,7 @@ export function TuiAppRoot({
       }
       if (text === '/detail' || text === '/transcript') {
         setDetailExpanded((expanded) => !expanded);
-        if (layoutModeRef.current === 'narrow') setNarrowView('detail');
+        if (layoutModeRef.current === 'standard') setNarrowView('detail');
         logNotice(['toggled execution detail (transcript) view']);
         return;
       }
@@ -592,7 +635,11 @@ export function TuiAppRoot({
     ]
   );
 
-  const layoutModeRef = useRef<'wide' | 'medium' | 'narrow'>('wide');
+  const layoutModeRef = useRef<'wide' | 'standard'>('wide');
+  // Empty workspace + empty composer: the example picker is live (↑↓ + Enter,
+  // 1/2/3 quick-pick) — the fastest path to a first verified task.
+  const examplesActive =
+    input.length === 0 && !store.run.running && runtime.taskSummaries().length === 0;
 
   const overlayDataLength = useCallback(
     (kind: OverlayKind): number => {
@@ -673,6 +720,9 @@ export function TuiAppRoot({
             closeOverlay();
             void showInfo('subs');
             break;
+          case 'help':
+            setOverlay({ kind: 'help', cursor: 0 });
+            break;
           case 'quit':
             exit();
             break;
@@ -719,7 +769,7 @@ export function TuiAppRoot({
       }
       if (controlKey === 'o') {
         setDetailExpanded((expanded) => !expanded);
-        if (layoutModeRef.current === 'narrow') {
+        if (layoutModeRef.current === 'standard') {
           setNarrowView((view) => (view === 'detail' ? 'canvas' : 'detail'));
         }
         return;
@@ -760,17 +810,24 @@ export function TuiAppRoot({
       return;
     }
 
+    // `?` on an empty composer opens the key/command reference, from either
+    // focus zone. Deliberately ahead of the printable-chunk guard below:
+    // terminals deliver '?' as shift+'/', which that guard would drop.
+    if (chunk === '?' && input.length === 0) {
+      openOverlay('help');
+      return;
+    }
+
     if (key.tab) {
       const mode = layoutModeRef.current;
-      if (mode === 'narrow') {
+      if (mode === 'wide') {
+        setFocusZone((zone) => (zone === 'composer' ? 'navigator' : 'composer'));
+      } else {
+        // Standard (two-pane): cycle what the canvas pane shows.
         setNarrowView((view) =>
           view === 'canvas' ? 'context' : view === 'context' ? 'detail' : 'canvas'
         );
         setDetailExpanded(false);
-      } else if (mode === 'medium') {
-        setDetailExpanded((expanded) => !expanded);
-      } else {
-        setFocusZone((zone) => (zone === 'composer' ? 'navigator' : 'composer'));
       }
       return;
     }
@@ -798,7 +855,21 @@ export function TuiAppRoot({
     }
 
     // Composer focus.
+    // Empty workspace + empty input: ↑↓ moves the example selection and
+    // Enter loads it (so the fastest path to a first task is two keys).
+    if (examplesActive && (key.upArrow || key.downArrow)) {
+      setSelectedExample((current) => {
+        const max = EMPTY_STATE_EXAMPLES.length - 1;
+        if (current === undefined) return key.upArrow ? max : 0;
+        return key.upArrow ? Math.max(0, current - 1) : Math.min(max, current + 1);
+      });
+      return;
+    }
     if (key.return) {
+      if (examplesActive && selectedExample !== undefined) {
+        setInput(EMPTY_STATE_EXAMPLES[Math.min(selectedExample, EMPTY_STATE_EXAMPLES.length - 1)]);
+        return;
+      }
       void submit(input);
       return;
     }
@@ -975,9 +1046,8 @@ export function TuiAppRoot({
             selectedTaskId,
             width: layout.canvasWidth - 2,
             height: layout.contentHeight,
-            // The header chips already say "TASKS: none yet" — the empty
-            // state inside the panel must not repeat it.
             detailExpanded,
+            selectedExample: examplesActive ? selectedExample : undefined,
             workspace: {
               device: deviceSummary,
               tasks: summaries.length,
@@ -1038,19 +1108,23 @@ export function TuiAppRoot({
       );
     } else if (overlay.kind === 'action-menu') {
       overlayLines = renderActionMenu(overlay.cursor, overlayWidth, layout.contentHeight);
+    } else if (overlay.kind === 'help') {
+      overlayLines = renderHelp(overlayWidth, layout.contentHeight);
     } else {
       overlayLines = renderFailureRepair(detail, overlayWidth, layout.contentHeight);
     }
     mainArea = panelBox(overlayLines, 'overlay', columns, true);
-  } else if (layout.mode === 'narrow') {
+  } else if (layout.mode === 'standard') {
+    // Two-pane IDE shell at the common width: navigator | main pane
+    // (canvas ⇄ context ⇄ transcript via Tab).
     const width = layout.canvasWidth - 2;
-    let lines: PanelLine[];
+    let mainLines: PanelLine[];
     if (narrowView === 'context') {
-      lines = padTo(renderContextPanel({ detail, width, height: layout.contentHeight }));
-    } else if (narrowView === 'detail') {
-      lines = transcriptPanelLines();
+      mainLines = padTo(renderContextPanel({ detail, width, height: layout.contentHeight }));
+    } else if (narrowView === 'detail' || detailExpanded) {
+      mainLines = transcriptPanelLines();
     } else {
-      lines = padTo(
+      mainLines = padTo(
         renderCanvas({
           detail,
           summaries,
@@ -1058,6 +1132,7 @@ export function TuiAppRoot({
           width,
           height: layout.contentHeight,
           detailExpanded: false,
+          selectedExample: examplesActive ? selectedExample : undefined,
           workspace: {
             device: deviceSummary,
             tasks: summaries.length,
@@ -1067,7 +1142,12 @@ export function TuiAppRoot({
         })
       );
     }
-    mainArea = panelBox(lines, 'narrow', columns, false);
+    mainArea = React.createElement(
+      Box,
+      { key: 'main-row', flexDirection: 'row', gap: 1 },
+      panelBox(navigatorPanelLines(), 'nav', layout.navigatorWidth, focusZone === 'navigator'),
+      panelBox(mainLines, 'main', undefined, false)
+    );
   } else {
     const panels: React.ReactElement[] = [];
     if (layout.showNavigator) {
@@ -1099,29 +1179,38 @@ export function TuiAppRoot({
     maxLines: 2,
   });
 
-  const statusLine = renderStatusLine({
-    model: options.model,
-    live: { running: store.run.running, approvalPending: live.approvalPending },
-    taskSummary: detail?.summary,
-    queueLength: queueRef.current.length,
-    queuePaused,
-    usageText: formatUsage(store.usage),
-    width: columns,
-  });
-
-  const headerChips = renderTaskStrip(summaries, Math.max(20, columns - 26));
+  const statusWord = store.run.running ? 'RUNNING' : live.approvalPending ? 'BLOCKED' : 'READY';
+  const statusColor: PanelColor = store.run.running
+    ? 'yellow'
+    : live.approvalPending
+      ? 'magenta'
+      : 'green';
+  const deviceUnconfigured = deviceSummary.startsWith('not configured');
+  const usageText = formatUsage(store.usage);
 
   return React.createElement(
     Box,
     { flexDirection: 'column' },
     React.createElement(
       Text,
-      { key: 'header' },
-      React.createElement(Text, { bold: true, color: 'cyan' }, ' moss MISSION CONTROL'),
-      React.createElement(
-        Text,
-        { dimColor: true },
-        ` ${clip(headerChips.text, Math.max(0, columns - 22))}`
+      { key: 'statusbar' },
+      ...fitStatusBar(
+        [
+          { text: ' moss', bold: true, color: 'cyan' },
+          { text: ` ${statusWord}`, bold: true, color: statusColor },
+          // The key reference lives in the `?` overlay; the bar only advertises
+          // it, early enough that a narrow terminal never drops it.
+          { text: ' · ? help', dim: true },
+          deviceUnconfigured
+            ? { text: ' · ⚠ set MOSS_DEVICE_HOST in .env', bold: true, color: 'yellow' }
+            : { text: ` · device ${deviceSummary}`, color: 'green' },
+          ...(options.model ? [{ text: ` · ${options.model}` }] : []),
+          {
+            text: ` · ${usageText}${queueRef.current.length > 0 ? ` · queue:${queueRef.current.length}` : ''}`,
+            dim: true,
+          },
+        ],
+        columns
       )
     ),
     mainArea,
@@ -1132,11 +1221,17 @@ export function TuiAppRoot({
       .map((text, i) =>
         React.createElement(Text, { key: `notice-${i}`, dimColor: true }, clip(text, columns))
       ),
-    renderLines([statusLine], 'status'),
     ...renderLines(
       renderInputLine(input, columns, input.length === 0 && !store.run.running),
       'input'
-    )
+    ),
+    examplesActive
+      ? React.createElement(
+          Text,
+          { key: 'composer-hint', dimColor: true },
+          clip('↑↓ pick an example · ↵ load it · or just type a goal and Enter', columns)
+        )
+      : null
   );
 }
 
