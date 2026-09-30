@@ -148,9 +148,23 @@ export interface CanvasInput {
   selectedTaskId?: string;
   width: number;
   height: number;
-  showStrip: boolean;
   detailExpanded: boolean;
+  /** Real workspace facts for the empty state (product register: empty
+   * states teach the interface and show live truth, not "nothing here"). */
+  workspace?: {
+    device?: string;
+    tasks: number;
+    evidence: number;
+    acceptance: number;
+  };
 }
+
+/** Empty-state examples — pressing 1/2/3 loads one into the composer. */
+export const EMPTY_STATE_EXAMPLES: string[] = [
+  'Stream the camera at 30 fps and verify the pipeline on the device',
+  'Deploy bin/fps_probe to the device and prove it is running',
+  'Bring up the ros2 demo nodes and check the topic rate',
+];
 
 interface CanvasSection {
   priority: number;
@@ -158,33 +172,43 @@ interface CanvasSection {
 }
 
 export function renderCanvas(input: CanvasInput): PanelLine[] {
-  const { detail, width, height, showStrip } = input;
+  const { detail, width, height } = input;
   const out: PanelLine[] = [];
 
-  if (showStrip) {
-    out.push(renderTaskStrip(input.summaries, width));
-  }
-
   if (!detail) {
-    out.push(
-      line('MISSION CONTROL', { bold: true, color: 'cyan' }),
+    const ws = input.workspace;
+    const empty: PanelLine[] = [
+      ...wrap(
+        'Describe a goal below — moss turns it into a task with acceptance criteria, executes it, and verifies with evidence.',
+        width
+      ).map((text) => line(text)),
       line(''),
-      ...wrap('Describe a goal below — moss turns it into a task with acceptance', width).map(
-        (text) => line(text, { dim: true })
-      ),
-      ...wrap('criteria, executes it on the device, and verifies with evidence.', width).map(
-        (text) => line(text, { dim: true })
+      line('TRY — press 1 / 2 / 3 to load an example, edit, Enter', { bold: true }),
+      ...EMPTY_STATE_EXAMPLES.map((example, i) =>
+        line(clip(`  ${i + 1}  ${example}`, width), { color: 'cyan' })
       ),
       line(''),
-      ...wrap('One intent → one task → one agent loop → one verified result.', width).map((text) =>
+      line('WORKSPACE', { bold: true }),
+      line(clip(`  device   ${ws?.device ?? 'checking…'}`, width), {
+        dim: (ws?.device ?? '').startsWith('not configured'),
+        color: (ws?.device ?? '').startsWith('not configured') ? 'yellow' : undefined,
+      }),
+      line(
+        clip(
+          `  history  ${ws ? `${ws.tasks} task${ws.tasks === 1 ? '' : 's'} · ${ws.evidence} evidence · ${ws.acceptance} acceptance` : '…'}`,
+          width
+        ),
+        { dim: true }
+      ),
+      line(''),
+      ...wrap('One intent → one task → one verified result.', width).map((text) =>
         line(text, { color: 'cyan' })
       ),
-      line(''),
-      ...wrap(
-        'Keys: Tab focus · Ctrl+T tasks · Ctrl+E evidence · Ctrl+G deployments · Ctrl+F failures · Ctrl+A menu · Ctrl+O detail',
-        width
-      ).map((text) => line(text, { dim: true }))
-    );
+      line(clip('Ctrl+T tasks · Ctrl+E evidence · Ctrl+A menu · Ctrl+O transcript', width), {
+        dim: true,
+      }),
+    ];
+    out.push(...empty);
     while (out.length < height) out.push(line(''));
     return out.slice(0, height);
   }

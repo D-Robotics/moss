@@ -31,6 +31,8 @@ import {
   listBackgroundProcessSnapshots,
   type BackgroundProcSnapshot,
 } from '../../core/tools/background-process-registry.js';
+import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
+import { EMPTY_STATE_EXAMPLES } from './panels.js';
 import { setCliApprovalAsker } from '../approval.js';
 import { transcriptLines } from './transcript-view.js';
 import { computeLayout } from './layout.js';
@@ -168,6 +170,7 @@ export function TuiAppRoot({
   void queueRevision;
   const pasteRef = useRef(createPasteCapture());
   const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>(undefined);
+  const [deviceSummary, setDeviceSummary] = useState<string>('checking…');
   const sessionKey = options.sessionKey ?? 'tui';
   const { store } = handle;
 
@@ -230,6 +233,16 @@ export function TuiAppRoot({
       if (focusId) setSelectedTaskId(focusId);
       handle.notify();
     });
+    try {
+      const target = resolveDefaultDeviceTarget();
+      setDeviceSummary(
+        target
+          ? `${target.deviceId} (kind=${target.kind})`
+          : 'not configured — set MOSS_DEVICE_HOST in .env'
+      );
+    } catch {
+      setDeviceSummary('not configured — set MOSS_DEVICE_HOST in .env');
+    }
     handle.notify();
   }, []);
 
@@ -815,6 +828,19 @@ export function TuiAppRoot({
     ) {
       return;
     }
+    // Empty-state examples: 1/2/3 loads a ready-to-edit goal into the
+    // composer (fastest path to the aha moment — see it become a task).
+    // Only when the composer is EMPTY — never hijack digits inside a typed
+    // command like "/rewind 1".
+    if (
+      input.length === 0 &&
+      !store.run.running &&
+      runtime.taskSummaries().length === 0 &&
+      (chunk === '1' || chunk === '2' || chunk === '3')
+    ) {
+      setInput(EMPTY_STATE_EXAMPLES[Number(chunk) - 1]);
+      return;
+    }
     if (key.pageUp) {
       setScrollOffset((n) => Math.min(n + 10, Math.max(0, store.rows.length)));
       return;
@@ -949,8 +975,15 @@ export function TuiAppRoot({
             selectedTaskId,
             width: layout.canvasWidth - 2,
             height: layout.contentHeight,
-            showStrip: !layout.showNavigator,
+            // The header chips already say "TASKS: none yet" — the empty
+            // state inside the panel must not repeat it.
             detailExpanded,
+            workspace: {
+              device: deviceSummary,
+              tasks: summaries.length,
+              evidence: runtime.getArtifacts().evidence.length,
+              acceptance: runtime.getArtifacts().acceptance.length,
+            },
           })
         );
 
@@ -1024,8 +1057,13 @@ export function TuiAppRoot({
           selectedTaskId,
           width,
           height: layout.contentHeight,
-          showStrip: true,
           detailExpanded: false,
+          workspace: {
+            device: deviceSummary,
+            tasks: summaries.length,
+            evidence: runtime.getArtifacts().evidence.length,
+            acceptance: runtime.getArtifacts().acceptance.length,
+          },
         })
       );
     }

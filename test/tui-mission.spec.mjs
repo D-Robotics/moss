@@ -137,6 +137,31 @@ await runtime.refresh();
 //        ACCEPTANCE all render; current action appears only live ────────────
 
 {
+  // Empty state teaches the interface: examples, workspace truth, keys.
+  const empty = renderCanvas({
+    summaries: [],
+    width: 76,
+    height: 14,
+    detailExpanded: false,
+    workspace: {
+      device: 'not configured — set MOSS_DEVICE_HOST in .env',
+      tasks: 0,
+      evidence: 3,
+      acceptance: 1,
+    },
+  });
+  const emptyText = text(empty);
+  assert.ok(emptyText.includes('TRY — press 1 / 2 / 3'), 'example loader hint');
+  assert.ok(emptyText.includes('  1  Stream the camera'), 'example 1 listed');
+  assert.ok(emptyText.includes('WORKSPACE'), 'workspace section');
+  assert.ok(emptyText.includes('not configured'), 'device truth visible');
+  assert.ok(emptyText.includes('3 evidence · 1 acceptance'), 'artifact counts');
+  assert.ok(emptyText.includes('One intent → one task'), 'product sentence');
+  assert.ok(!emptyText.includes('MISSION CONTROL'), 'no duplicate title inside panel');
+  assert.ok(!emptyText.includes('TASKS: none yet'), 'no duplicate strip inside panel');
+}
+
+{
   const detail = runtime.taskDetail('task_cam1');
   assert.equal(detail.summary.state, 'COMPLETED');
   assert.equal(detail.summary.result, 'PASS');
@@ -147,7 +172,6 @@ await runtime.refresh();
     selectedTaskId: 'task_cam1',
     width: 60,
     height: 40,
-    showStrip: false,
     detailExpanded: false,
   });
   const joined = text(canvas);
@@ -183,7 +207,6 @@ await runtime.refresh();
     selectedTaskId: 'task_cam1',
     width: 60,
     height: 40,
-    showStrip: false,
     detailExpanded: false,
   });
   assert.ok(text(liveCanvas).includes('NOW ▌ device ▸ fps_probe.sh'), 'current action live');
