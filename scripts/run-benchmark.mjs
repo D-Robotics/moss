@@ -297,6 +297,14 @@ async function main() {
     ),
     { mode: 0o600 }
   );
+  // Opt-in skills provisioning for the skills-bench-trigger evidence run;
+  // default bench behavior is unchanged (scratch config dir stays skill-free).
+  if (process.env.MOSS_BENCH_WITH_SKILLS === '1') {
+    const repoSkills = path.join(repoRoot, '.moss', 'skills');
+    if (fs.existsSync(repoSkills)) {
+      fs.cpSync(repoSkills, path.join(configDir, 'skills'), { recursive: true });
+    }
+  }
   const canaryDir = path.join(scratchRoot, 'canary');
   fs.mkdirSync(canaryDir, { recursive: true });
 
