@@ -79,22 +79,22 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 
 ## 结构导航
 
-| 想改什么                          | 去哪                                                                   |
-| --------------------------------- | ---------------------------------------------------------------------- |
-| Agent loop / 轮次控制 / nudge     | `src/core/loop/`                                                       |
-| 达标驱动自主执行（/goal 验收门）  | `src/core/loop/goal-loop.ts`                                           |
-| MossAgent / 配置 / 事件           | `src/core/agent/`                                                      |
-| 工具注册与执行管线                | `src/tools/builtin.ts`、`src/core/tools/`                              |
-| 内置工具实现                      | `src/tools/*.ts`                                                       |
-| 设备契约 / SSH 连接 / 观测解析    | `src/contracts/device.ts`、`src/device/`、`src/tools/device-tools.ts`  |
-| 上下文 / 压缩 / token             | `src/context/`                                                         |
-| LLM provider                      | `src/provider/`                                                        |
-| CLI / REPL / 命令                 | `src/cli/`、`src/cli-main.ts`                                          |
-| 全屏 TUI（v0.17 起，动态 import） | `src/cli/tui/`                                                         |
-| MCP 客户端（v0.16 起）            | `src/core/mcp/`                                                        |
-| 轻量 skills（v0.16 起）           | `src/core/skills/`                                                     |
-| 契约（prompt、soul、async-task）  | `src/contracts/`                                                       |
-| 错误 / 日志                       | `src/errors.ts`、`src/logger.ts`                                       |
+| 想改什么                          | 去哪                                                                  |
+| --------------------------------- | --------------------------------------------------------------------- |
+| Agent loop / 轮次控制 / nudge     | `src/core/loop/`                                                      |
+| 达标驱动自主执行（/goal 验收门）  | `src/core/loop/goal-loop.ts`                                          |
+| MossAgent / 配置 / 事件           | `src/core/agent/`                                                     |
+| 工具注册与执行管线                | `src/tools/builtin.ts`、`src/core/tools/`                             |
+| 内置工具实现                      | `src/tools/*.ts`                                                      |
+| 设备契约 / SSH 连接 / 观测解析    | `src/contracts/device.ts`、`src/device/`、`src/tools/device-tools.ts` |
+| 上下文 / 压缩 / token             | `src/context/`                                                        |
+| LLM provider                      | `src/provider/`                                                       |
+| CLI / REPL / 命令                 | `src/cli/`、`src/cli-main.ts`                                         |
+| 全屏 TUI（v0.17 起，动态 import） | `src/cli/tui/`                                                        |
+| MCP 客户端（v0.16 起）            | `src/core/mcp/`                                                       |
+| 轻量 skills（v0.16 起）           | `src/core/skills/`                                                    |
+| 契约（prompt、soul、async-task）  | `src/contracts/`                                                      |
+| 错误 / 日志                       | `src/errors.ts`、`src/logger.ts`                                      |
 
 **分层规则**：依赖只能指向内层（contracts → errors/logger/utils/safety → provider/context/device → core → tools → cli）。ESLint `moss/boundary-*` 规则（`eslint.config.mjs`）强制执行——新增 import 前先看边界规则，不要申请豁免除非是新的合法端口。
 

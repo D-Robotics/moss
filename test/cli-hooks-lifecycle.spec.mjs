@@ -26,6 +26,13 @@ async function tempWs() {
   return fsPromises.mkdtemp(path.join(os.tmpdir(), 'moss-hooks-life-'));
 }
 
+// Hook commands must run under both /bin/sh and cmd.exe — the Unix one-liners
+// this spec used (`>&2`, `;` chains, `cat >`) parse differently on Windows.
+// Every marker path travels through an env var (child env passes through
+// safeChildEnv) so no cross-shell quoting is needed.
+const STDIN_TO_ENV_FILE = (envVar) =>
+  `node -e "const fs=require('fs');let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>fs.writeFileSync(process.env.${envVar},d))"`;
+
 // ─── Stop hook: blocking semantics ──────────────────────────────────────────
 
 {
@@ -34,7 +41,7 @@ async function tempWs() {
     {
       Stop: [
         {
-          command: `echo "tests not green yet" >&2; exit 2`,
+          command: `node -e "console.error('tests not green yet');process.exit(2)"`,
           blocking: true,
         },
       ],
@@ -65,8 +72,9 @@ async function tempWs() {
 {
   const ws = await tempWs();
   const marker = path.join(ws, 'subagent-stop.txt');
+  process.env.MOSS_HOOK_MARKER = marker;
   const cbs = createConfiguredHookCallbacks(
-    { SubagentStop: [{ command: `cat > ${JSON.stringify(marker)}` }] },
+    { SubagentStop: [{ command: STDIN_TO_ENV_FILE('MOSS_HOOK_MARKER') }] },
     { workspaceDir: ws }
   );
   await cbs.runSubagentStop({ sessionKey: 'sa', goal: 'scan deps', success: true, summary: 'ok' });
@@ -82,10 +90,12 @@ async function tempWs() {
   const ws = await tempWs();
   const pre = path.join(ws, 'pre.txt');
   const post = path.join(ws, 'post.txt');
+  process.env.MOSS_HOOK_PRE = pre;
+  process.env.MOSS_HOOK_POST = post;
   const cbs = createConfiguredHookCallbacks(
     {
-      PreCompact: [{ command: `cat > ${JSON.stringify(pre)}` }],
-      PostCompact: [{ command: `cat > ${JSON.stringify(post)}` }],
+      PreCompact: [{ command: STDIN_TO_ENV_FILE('MOSS_HOOK_PRE') }],
+      PostCompact: [{ command: STDIN_TO_ENV_FILE('MOSS_HOOK_POST') }],
     },
     { workspaceDir: ws }
   );

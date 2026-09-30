@@ -78,6 +78,7 @@ async function tempWs() {
 {
   const ws = await tempWs();
   const marker = path.join(ws, 'marker');
+  process.env.GOAL_LOOP_MARKER = marker;
   const agent = createGoalAgent({ responses: ['attempt 1', 'attempt 2'], workspaceDir: ws });
   const sched = new LoopScheduler(agent, {
     prompt: 'flip the marker',
@@ -85,9 +86,11 @@ async function tempWs() {
     journal: true,
     autonomous: true,
     acceptance: {
-      command: `if [ -f ${JSON.stringify(marker)} ]; then exit 0; else touch ${JSON.stringify(
-        marker
-      )}; echo "marker missing"; exit 1; fi`,
+      // Cross-platform flip-marker probe: pass once the marker file exists.
+      // Path travels via env var — quoting `if [ -f … ]; fi` sh syntax does
+      // not survive cmd.exe on the Windows CI leg.
+      command:
+        "node -e \"const fs=require('fs');const p=process.env.GOAL_LOOP_MARKER;if(fs.existsSync(p))process.exit(0);fs.writeFileSync(p,'');process.exit(1)\"",
     },
     sessionKey: 'goal-t2',
   });
