@@ -37,4 +37,20 @@
 
 ## 下一棒
 
-T1 0.14-S3 命令面止血：改 src/cli/args.ts 幽灵子命令、interactive-commands 目录、删 input-queue.ts，先写红 spec 再修绿。
+**终局数据链（后台 scratch/swe-endgame.sh 已发射，等双条件：镜像齐 + goal-loop A/B 完）**，串行五段：
+1. swe-base2（v014 快照，plain）→ 官方判分 → **v0.14 基线证据**（accept-02）
+2. swe-v016（v016 快照，plain）→ 判分 → v0.16「SWE 不回退」门
+3. swe-v015goal（v016 快照 + --goal-verify：实例 f2p 测试作验收命令）→ 判分 → v0.15「SWE ≥基线+3」门
+4. swe-det1/det2（astropy 前 10×1）→ 判分对比 → 确定性 ≤1 差异
+5. tb-base1（Terminal-Bench 40 任务）→ v0.16 TB 基线证据
+
+**代码面已全部完成**（sprint-001..013，13 个绿 tag）：v0.14 止血+adapter / v0.15 goal+worktree+hooks1 / v0.16 MCP+skills+net+hooks2+TB / v0.17 TUI 地基 / v0.18 控制面+审批桥 / v0.19 多任务面 / v0.20 性能预算+命令遍历+Windows 回退标注。
+
+**数据齐后的收口序列**：
+- A/B json → deltaHard≥4 且 costRatio≤1.5 → v0.15 内部门
+- swe-base2 判分 → 固化 swe-baseline.json + swe-det 对比 → swe-determinism.json → 上移 accept-02
+- 每版门过 → package.json 版本逐版 bump + tag v0.14.0…v0.20.0（tag 前 npm run verify 必绿）
+- v0.19 门补：easy 层抽样 5 任务（bench --task 抽 easy 名单 --samples 1）100%
+- v0.20 门补：全量 bench 复跑（easy 100/hard≥93.9）+ SWE ≥ swe-v015goal 水平
+- 全部 tag 后：合并 autopilot/v014-v020 → main（ff 或 merge commit），push main + 8 个 tag
+- 夜报 reports/night-2026-09-30.md + 蒸馏候选
