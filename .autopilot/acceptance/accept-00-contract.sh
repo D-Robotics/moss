@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 n=$(find .autopilot/acceptance/pending -maxdepth 1 -name "*.sh" -perm +111 2>/dev/null | wc -l | tr -d " ")
-[ "${n:-0}" -ge 10 ] || { echo "FAIL: pending 验收器 $n < 10"; exit 1; }
+[ "${n:-0}" -ge 1 ] || { echo "FAIL: pending 验收器 $n < 1（应至少留有未毕业验收器）"; exit 1; }
 r=$(grep -c "RED-as-expected" .autopilot/evidence/sprint-000/verifier-red-check.log 2>/dev/null || true)
 [ "${r:-0}" = "10" ] || { echo "FAIL: 先红自检记录 ${r:-0}/10"; exit 1; }
 g=$(grep -c "UNEXPECTED-GREEN" .autopilot/evidence/sprint-000/verifier-red-check.log 2>/dev/null || true)

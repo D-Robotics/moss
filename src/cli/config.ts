@@ -91,6 +91,8 @@ export interface ConfigFile {
   guardrails?: GuardrailsConfig;
   agent?: AgentRuntimeConfig;
   hooks?: HooksConfig;
+  /** Network egress policy for web tools (hostname allowlist). */
+  net?: { allowHosts?: string[] };
   _examples?: Record<string, unknown>;
 }
 

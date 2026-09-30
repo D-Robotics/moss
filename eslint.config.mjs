@@ -251,6 +251,31 @@ export default tseslint.config(
     },
   },
   {
+    name: 'moss/boundary-mcp',
+    // v0.16 MCP 客户端端口（src/core/mcp）：只许依赖内层
+    // (contracts/errors/logger/utils/safety/provider/context) 与 core 内部共享类型；
+    // 禁止依赖 src/tools 具体工具实现、UI 层与 core 其他子系统。
+    files: ['src/core/mcp/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '\\.\\./\\.\\./tools/',
+              message: 'mcp 端口不得依赖 src/tools 具体工具实现（契约经 core/tools 类型）',
+            },
+            { regex: '\\.\\./\\.\\./cli/', message: 'mcp 端口不得依赖 UI 层' },
+            {
+              regex: '\\.\\./\\.\\./core/',
+              message: 'mcp 端口不得依赖 core 其他子系统（agent/loop/session/subagent）',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     name: 'moss/boundary-tools',
     files: ['src/tools/**/*.ts'],
     rules: {

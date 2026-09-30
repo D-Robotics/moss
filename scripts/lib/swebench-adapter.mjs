@@ -179,13 +179,24 @@ export async function cleanupContainer(containerName) {
   await docker(['rm', '-f', containerName], { quiet: true });
 }
 
-export async function ensureNodeTarball(cacheDir) {
+export function ensureNodeTarballForArch(cacheDir, arch = 'x64') {
+  const mapping = {
+    x64: 'node-v22.16.0-linux-x64.tar.gz',
+    arm64: 'node-v22.16.0-linux-arm64.tar.gz',
+  };
+  const file = mapping[arch];
+  if (!file) throw new Error(`unsupported node arch: ${arch}`);
+  const url = `https://nodejs.org/dist/v22.16.0/${file}`;
   fs.mkdirSync(cacheDir, { recursive: true });
-  const target = path.join(cacheDir, NODE_RUNTIME_TARBALL);
+  const target = path.join(cacheDir, file);
   if (fs.existsSync(target) && fs.statSync(target).size > 10_000_000) return target;
-  const res = await spawnFetch(NODE_RUNTIME_URL, target);
-  if (!res.ok) throw new Error(`node runtime download failed: ${NODE_RUNTIME_URL}`);
+  const res = spawnFetch(url, target);
+  if (!res.ok) throw new Error(`node runtime download failed: ${url}`);
   return target;
+}
+
+export async function ensureNodeTarball(cacheDir) {
+  return ensureNodeTarballForArch(cacheDir, 'x64');
 }
 
 function spawnFetch(url, target) {

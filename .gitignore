@@ -12,7 +12,8 @@ tmp/
 .npmrc
 .codegraph/
 .mimosa/
-.moss/
+.moss/*
+!.moss/skills/
 .moss-fresh-audit/
 CLAUDE.md
 TEST_REPORT-*.md
