@@ -1,0 +1,255 @@
+/**
+ * `moss task` — the headless face of the unified task runtime (Task OS M5).
+ * One natural-language goal in, one verified result out:
+ *
+ *   moss task run <goal...> [--accept "<cmd>"] [--max-repairs N] [--max-turns N] [--device ID]
+ *   moss task resume <task_id>
+ *   moss task status [task_id]      (default: latest)
+ *   moss task timeline [task_id]
+ *
+ * Exit code 0 only when the task reached accepted (PASS).
+ */
+import { runTask, resumeTask, summarizeTaskRun } from '../core/task/task-engine.js';
+import { createAgentTurnRunner } from '../core/task/agent-turn.js';
+import {
+  getTaskStateSnapshot,
+  listTaskEvents,
+  listTaskStateSnapshots,
+  buildTaskTimeline,
+  formatTaskTimeline,
+} from '../core/task/task-store.js';
+import type { TaskStateSnapshot } from '../contracts/task-runtime.js';
+
+export interface TaskCommandContext {
+  agent: unknown;
+  workspace: string;
+  sessionKey: string;
+  /** Live event tap for the CLI renderer (optional). */
+  onAgentEvent?: (event: unknown) => void;
+  signal?: AbortSignal;
+}
+
+function usage(): string {
+  return [
+    'Usage: moss task <command> [options]',
+    '',
+    '  run <goal...>        run a task end to end (plan → execute → verify → repair → accept)',
+    '      --accept "<cmd>"  acceptance authority: command must exit 0',
+    '      --max-repairs N  repair attempts before honest FAIL (default 2)',
+    '      --max-turns N    agent turn budget (default 8)',
+    '      --device ID      target device id for the contract',
+    '  resume <task_id>     resume a failed/abandoned/blocked task',
+    '  status [task_id]     current phase, plan, failures, verdict (default: latest)',
+    '  timeline [task_id]   full lifecycle timeline (default: latest)',
+    '',
+    'Exit code is 0 only when the task is accepted (PASS).',
+  ].join('\n');
+}
+
+/**
+ * Minimal shell-ish tokenizer: splits on whitespace but honors double-quoted
+ * segments (for --accept "npm test && npm run check").
+ */
+export function splitCommandArgs(line: string): string[] {
+  const args: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (const char of line.trim()) {
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (!inQuotes && /\s/.test(char)) {
+      if (current) args.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  if (current) args.push(current);
+  return args;
+}
+
+function parseFlags(args: string[]): {
+  goal: string[];
+  accept?: string;
+  maxRepairs?: number;
+  maxTurns?: number;
+  device?: string;
+} {
+  const goal: string[] = [];
+  let accept: string | undefined;
+  let maxRepairs: number | undefined;
+  let maxTurns: number | undefined;
+  let device: string | undefined;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--accept') accept = args[++i];
+    else if (arg.startsWith('--accept=')) accept = arg.slice('--accept='.length);
+    else if (arg === '--max-repairs') maxRepairs = Number(args[++i]);
+    else if (arg.startsWith('--max-repairs='))
+      maxRepairs = Number(arg.slice('--max-repairs='.length));
+    else if (arg === '--max-turns') maxTurns = Number(args[++i]);
+    else if (arg.startsWith('--max-turns=')) maxTurns = Number(arg.slice('--max-turns='.length));
+    else if (arg === '--device') device = args[++i];
+    else if (arg.startsWith('--device=')) device = arg.slice('--device='.length);
+    else goal.push(arg);
+  }
+  return { goal, accept, maxRepairs, maxTurns, device };
+}
+
+export function formatTaskStatus(snapshot: TaskStateSnapshot, timeline: string): string {
+  const lines: string[] = [
+    `TASK      ${snapshot.taskId}`,
+    `GOAL      ${snapshot.goal}`,
+    `PHASE     ${snapshot.phase} (${snapshot.statusView}${snapshot.outcome ? ` · ${snapshot.outcome}` : ''})`,
+  ];
+  if (snapshot.targetDeviceId) lines.push(`DEVICE    ${snapshot.targetDeviceId}`);
+  if (snapshot.blockedReason) lines.push(`BLOCKED   ${snapshot.blockedReason}`);
+  lines.push(
+    `ATTEMPTS  ${snapshot.attempt} · repairs ${snapshot.repairs.length} · failures ${snapshot.failures.length} · evidence ${snapshot.evidenceCount}`
+  );
+  if (snapshot.plan.length > 0) {
+    lines.push('PLAN');
+    for (const step of snapshot.plan) {
+      const mark =
+        step.status === 'done'
+          ? '[x]'
+          : step.status === 'in_progress'
+            ? '[>]'
+            : step.status === 'failed'
+              ? '[!]'
+              : step.status === 'skipped'
+                ? '[-]'
+                : '[ ]';
+      lines.push(`  ${mark} ${step.title}${step.detail ? ` — ${step.detail}` : ''}`);
+    }
+  }
+  for (const failure of snapshot.failures) {
+    lines.push(
+      `FAILURE #${failure.attempt} [${failure.stage}] ${failure.symptom}` +
+        (failure.rootCause ? `\n  root cause: ${failure.rootCause}` : '') +
+        (failure.resolved ? ' (resolved)' : ' (unresolved)')
+    );
+  }
+  if (snapshot.lastVerdict) {
+    lines.push(
+      `VERDICT   ${snapshot.lastVerdict.verdict.toUpperCase()} (${snapshot.lastVerdict.unmetRequired} required unmet)`
+    );
+  }
+  if (timeline) {
+    lines.push('TIMELINE');
+    lines.push(
+      timeline
+        .split('\n')
+        .map((line) => `  ${line}`)
+        .join('\n')
+    );
+  }
+  return lines.join('\n');
+}
+
+async function latestSnapshot(workspace: string): Promise<TaskStateSnapshot | null> {
+  const all = await listTaskStateSnapshots(workspace);
+  if (all.length === 0) return null;
+  return all.reduce((a, b) => (b.updatedAt >= a.updatedAt ? b : a));
+}
+
+export async function runTaskCommand(
+  commandArgs: string[],
+  ctx: TaskCommandContext
+): Promise<number> {
+  const sub = commandArgs[0] ?? 'status';
+
+  if (sub === 'run') {
+    const flags = parseFlags(commandArgs.slice(1));
+    const goal = flags.goal.join(' ').trim();
+    if (!goal) {
+      process.stderr.write('moss task run: a goal is required.\n\n' + usage() + '\n');
+      return 2;
+    }
+    const runTurn = createAgentTurnRunner(ctx.agent, ctx.sessionKey, {
+      ...(ctx.onAgentEvent ? { onEvent: ctx.onAgentEvent } : {}),
+      ...(ctx.signal ? { abortSignal: ctx.signal } : {}),
+    });
+    const result = await runTask(
+      {
+        workspaceDir: ctx.workspace,
+        runTurn,
+        ...(flags.maxRepairs !== undefined && Number.isFinite(flags.maxRepairs)
+          ? { maxRepairAttempts: flags.maxRepairs }
+          : {}),
+        ...(flags.maxTurns !== undefined && Number.isFinite(flags.maxTurns)
+          ? { maxTurns: flags.maxTurns }
+          : {}),
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+        onProgress: (progress) => {
+          process.stderr.write(`[task ${progress.phase}] ${progress.detail}\n`);
+        },
+      },
+      goal,
+      {
+        ...(flags.accept ? { acceptanceCommand: flags.accept } : {}),
+        ...(flags.device ? { targetDeviceId: flags.device } : {}),
+      }
+    );
+    process.stdout.write(summarizeTaskRun(result) + '\n');
+    return result.outcome === 'pass' ? 0 : 1;
+  }
+
+  if (sub === 'resume') {
+    const taskId = commandArgs[1];
+    if (!taskId) {
+      process.stderr.write('moss task resume: task_id required.\n');
+      return 2;
+    }
+    const runTurn = createAgentTurnRunner(ctx.agent, ctx.sessionKey, {
+      ...(ctx.onAgentEvent ? { onEvent: ctx.onAgentEvent } : {}),
+      ...(ctx.signal ? { abortSignal: ctx.signal } : {}),
+    });
+    const result = await resumeTask(
+      {
+        workspaceDir: ctx.workspace,
+        runTurn,
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+        onProgress: (progress) => {
+          process.stderr.write(`[task ${progress.phase}] ${progress.detail}\n`);
+        },
+      },
+      taskId
+    );
+    process.stdout.write(summarizeTaskRun(result) + '\n');
+    return result.outcome === 'pass' ? 0 : 1;
+  }
+
+  if (sub === 'status') {
+    const snapshot = commandArgs[1]
+      ? await getTaskStateSnapshot(ctx.workspace, commandArgs[1])
+      : await latestSnapshot(ctx.workspace);
+    if (!snapshot) {
+      process.stdout.write('No tasks in this workspace. Start one: moss task run <goal>\n');
+      return 0;
+    }
+    const events = await listTaskEvents(ctx.workspace, snapshot.taskId);
+    process.stdout.write(
+      formatTaskStatus(snapshot, formatTaskTimeline(buildTaskTimeline(events))) + '\n'
+    );
+    return 0;
+  }
+
+  if (sub === 'timeline') {
+    const snapshot = commandArgs[1]
+      ? await getTaskStateSnapshot(ctx.workspace, commandArgs[1])
+      : await latestSnapshot(ctx.workspace);
+    if (!snapshot) {
+      process.stdout.write('No tasks in this workspace.\n');
+      return 0;
+    }
+    const events = await listTaskEvents(ctx.workspace, snapshot.taskId);
+    process.stdout.write(formatTaskTimeline(buildTaskTimeline(events)) + '\n');
+    return 0;
+  }
+
+  process.stderr.write(`Unknown task subcommand "${sub}".\n\n` + usage() + '\n');
+  return 2;
+}

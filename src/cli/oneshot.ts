@@ -589,6 +589,26 @@ export async function runOneShot(
     process.env.MOSS_GOAL_VERIFY_CMD &&
     verifyDepth < 1
   ) {
+    // Task OS M6: mirror the verify verdict onto the latest live task so
+    // headless goal runs land in unified task history too.
+    const mirrorGoalVerdict = async (passed: boolean, exitCode: number, tail: string) => {
+      try {
+        const { findLatestLiveTaskSnapshot, emitAcceptanceLifecycle } =
+          await import('../core/index.js');
+        const live = await findLatestLiveTaskSnapshot(workspaceDir);
+        if (!live) return;
+        await emitAcceptanceLifecycle(
+          workspaceDir,
+          live.taskId,
+          passed,
+          passed
+            ? 'goal verify command exited 0'
+            : `goal verify command failed (exit ${exitCode}): ${tail.slice(0, 300)}`
+        );
+      } catch {
+        /* observability only — never break the run */
+      }
+    };
     try {
       const shell = process.platform === 'win32' ? (process.env.COMSPEC ?? 'cmd.exe') : 'bash';
       const shellArgs =
@@ -602,6 +622,7 @@ export async function runOneShot(
       });
       if (verify.exitCode !== 0) {
         const tail = `${verify.stdout}\n${verify.stderr}`.trim().slice(-2000);
+        await mirrorGoalVerdict(false, verify.exitCode, tail);
         process.stderr.write(
           `[goal-verify] command failed (exit ${verify.exitCode}); running one continuation turn\n`
         );
@@ -619,6 +640,7 @@ export async function runOneShot(
           { ...options, goalVerifyDepth: verifyDepth + 1 }
         );
       }
+      await mirrorGoalVerdict(true, 0, '');
     } catch {
       /* verification infrastructure failures never break the run */
     }

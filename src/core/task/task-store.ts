@@ -165,6 +165,31 @@ export async function findLatestLiveTaskSnapshot(
   return live[0] ?? null;
 }
 
+/**
+ * Emit the lifecycle events an acceptance verdict implies: entering
+ * verification from execution/diagnosis/repair, then the verdict. Tolerant on
+ * unsettled (draft/understanding/planning — no execution yet) and settled
+ * (terminal) tasks — the verdict itself remains the source of truth. Shared
+ * by the task tools, the goal-loop mirror and the headless verify path.
+ */
+export async function emitAcceptanceLifecycle(
+  workspaceDir: string,
+  taskId: string,
+  passed: boolean,
+  detail: string
+): Promise<void> {
+  const events = await listTaskEvents(workspaceDir, taskId);
+  if (events.length === 0) return;
+  const phase = replayTaskPhase(events);
+  if (isTerminalTaskPhase(phase)) return;
+  if (['ready', 'executing', 'diagnosing', 'repairing'].includes(phase)) {
+    await tryAppendTaskEvent(workspaceDir, taskId, 'verification_started');
+  }
+  await tryAppendTaskEvent(workspaceDir, taskId, passed ? 'acceptance_pass' : 'acceptance_fail', {
+    detail: detail.slice(0, 400),
+  });
+}
+
 // --- failures & repairs -------------------------------------------------------
 
 /**

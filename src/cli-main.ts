@@ -761,6 +761,23 @@ async function main() {
       );
     }
 
+    // AgentReady table commands (moss task …) dispatch with the fully
+    // initialized agent — the unified task runtime needs the real thing.
+    if (commandConfig && requiredPhase === CliPhase.AgentReady) {
+      await commandConfig.handler({
+        argv,
+        commandArgs: parsedArgs.commandArgs,
+        configOverrides: parsedArgs.configOverrides,
+        resolvedConfig,
+        workspace,
+        agent,
+        sessionStore,
+        sessionKey: session.sessionKey,
+        liveRuntime,
+      });
+      return;
+    }
+
     if (oneShotMessage) {
       // Slash-command dispatch in oneshot mode. Previously a prompt like
       // `moss "/review"` or `moss "/skills"` was sent verbatim to the LLM,

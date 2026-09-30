@@ -95,6 +95,19 @@ export function createContractVerdictProvider(workspaceDir: string): VerdictProv
   return {
     source: 'contract',
     async evaluate(taskId) {
+      // Guard: a draft contract with no criteria would trivially "pass"
+      // (nothing to fail). No criteria = no defined done = not accepted.
+      const tasks = await listTaskRecords(workspaceDir);
+      const task = tasks.find((candidate) => candidate.taskId === taskId);
+      if (task && task.acceptanceCriteria.length === 0) {
+        return {
+          taskId,
+          passed: false,
+          source: 'contract',
+          detail:
+            'task has no acceptance criteria — define them with task_define (metric + expectation) before verification; a goal without a checkable definition of done cannot be accepted',
+        };
+      }
       const result = await evaluateContractAcceptance(workspaceDir, taskId);
       if (!result) {
         return {

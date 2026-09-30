@@ -27,6 +27,8 @@ import { LoopScheduler } from '../core/loop/loop-scheduler.js';
 let currentModel = '';
 
 let activeLoopScheduler: LoopScheduler | null = null;
+let taskRunInFlight = false;
+let goalAcceptanceMirror: ((passed: boolean, exitCode: number, tail: string) => void) | undefined;
 
 export const INTERACTIVE_COMMANDS = [...INTERACTIVE_COMPLETION_COMMANDS];
 
@@ -530,6 +532,46 @@ export async function runInteractive(
       continue;
     }
 
+    // Task OS M5: unified task runtime entry — one goal in, one verified
+    // result out (plan → execute → verify → repair → accept). PASS can only
+    // come from the verdict provider, never from the agent's prose.
+    if (msg === '/task' || msg.startsWith('/task ')) {
+      const rest = msg.slice('/task'.length).trim();
+      const sub = rest.split(/\s+/)[0];
+      if (!['run', 'resume', 'status', 'timeline'].includes(sub)) {
+        process.stderr.write(
+          'Usage: /task run <goal...> [--accept "<cmd>"] [--max-repairs N] | /task status [id] | /task timeline [id] | /task resume <id>\n'
+        );
+        rl.prompt();
+        continue;
+      }
+      if (taskRunInFlight) {
+        process.stderr.write('A /task is already running in this session.\n');
+        rl.prompt();
+        continue;
+      }
+      taskRunInFlight = true;
+      rl.pause();
+      const { runTaskCommand, splitCommandArgs } = await import('./task-run.js');
+      const taskSessionKey = createCliSessionKey();
+      try {
+        const code = await runTaskCommand(splitCommandArgs(rest), {
+          agent,
+          workspace,
+          sessionKey: taskSessionKey,
+        });
+        if (code === 2) process.stderr.write('(bad /task arguments — see usage above)\n');
+      } catch (err) {
+        process.stderr.write(`task run failed: ${errorMessage(err)}\n`);
+      } finally {
+        taskRunInFlight = false;
+        rl.resume();
+        rl.setPrompt('\n› ');
+        rl.prompt();
+      }
+      continue;
+    }
+
     // v0.15 goal mode: same autonomous engine as /loop, plus an acceptance
     // gate — the loop only completes when the verification command exits 0.
     if (msg.startsWith('/goal ')) {
@@ -547,6 +589,32 @@ export async function runInteractive(
         continue;
       }
       const maxIterations = resolveLoopMaxIterations(process.env, true);
+      // Task OS M6: goal runs ARE tasks — the acceptance verdict mirrors into
+      // the unified runtime so /goal history shows up in `moss task status`
+      // and the TUI like every other task.
+      let goalTaskId: string | undefined;
+      if (parsed.acceptance) {
+        try {
+          const { createDraftTask, appendTaskEvent, emitAcceptanceLifecycle } =
+            await import('../core/index.js');
+          const contract = await createDraftTask(workspace, parsed.goal);
+          await appendTaskEvent(workspace, contract.taskId, 'execution_started');
+          goalTaskId = contract.taskId;
+          goalAcceptanceMirror = (passed: boolean, exitCode: number, tail: string) => {
+            void emitAcceptanceLifecycle(
+              workspace,
+              contract.taskId,
+              passed,
+              passed
+                ? 'goal acceptance command exited 0'
+                : `goal acceptance command failed (exit ${exitCode}): ${tail.slice(0, 300)}`
+            ).catch(() => undefined);
+          };
+        } catch {
+          // Mirroring is observability — /goal must work without it.
+          goalTaskId = undefined;
+        }
+      }
       const sched = new LoopScheduler(agent, {
         prompt: parsed.goal,
         intervalMs: 0,
@@ -556,6 +624,17 @@ export async function runInteractive(
         journal: true,
         autonomous: true,
         ...(parsed.acceptance ? { acceptance: parsed.acceptance } : {}),
+        ...(goalTaskId
+          ? {
+              onAcceptanceVerdict: (result: {
+                passed: boolean;
+                exitCode: number;
+                tail: string;
+              }) => {
+                goalAcceptanceMirror?.(result.passed, result.exitCode, result.tail);
+              },
+            }
+          : {}),
         onIterationEvent: (() => {
           const renderer = createCliRunRenderer({ workspaceDir: workspace });
           return renderer.handle.bind(renderer);

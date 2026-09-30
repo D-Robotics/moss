@@ -210,3 +210,36 @@ export type { ExtractedToolInvocation } from './tools/index.js';
 
 export { ErrorCode } from '../errors.js';
 export type { MossErrorOutcome } from '../errors.js';
+
+// Unified task runtime (Task OS M5): one model, four interfaces.
+export { runTask, resumeTask, summarizeTaskRun } from './task/task-engine.js';
+export type { TaskEngineDeps, TaskEngineProgress, TaskRunResult } from './task/task-engine.js';
+export { createAgentTurnRunner } from './task/agent-turn.js';
+export type { AgentTurnRunner, AgentTurnRunnerOptions } from './task/agent-turn.js';
+export {
+  appendTaskEvent,
+  tryAppendTaskEvent,
+  createDraftTask,
+  emitAcceptanceLifecycle,
+  getTaskStateSnapshot,
+  listTaskStateSnapshots,
+  listTaskEvents,
+  listAcceptanceVerdicts,
+  recordFailure,
+  listFailures,
+  recordRepair,
+  listRepairs,
+  replayTaskPhase,
+  findLatestLiveTaskSnapshot,
+  buildTaskTimeline,
+  formatTaskTimeline,
+  isTaskSettled,
+} from './task/task-store.js';
+export type { TaskTimelineEntry } from './task/task-store.js';
+export {
+  createCommandVerdictProvider,
+  createContractVerdictProvider,
+  createTaskVerdictProvider,
+  evaluateContractAcceptance,
+} from './task/verdict.js';
+export type { VerdictProvider, VerdictSource, TaskVerdict } from './task/verdict.js';

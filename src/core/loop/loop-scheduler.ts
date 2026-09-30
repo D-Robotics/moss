@@ -65,6 +65,13 @@ export interface LoopSchedulerOptions {
    * next iteration to the failure evidence.
    */
   acceptance?: { command: string; timeoutMs?: number };
+  /**
+   * Task OS M6: called after every acceptance run (pass or fail) so hosts can
+   * mirror goal-loop verdicts into the unified task runtime's lifecycle
+   * events — goal runs become visible task history without behaving
+   * differently. Errors here never break the loop.
+   */
+  onAcceptanceVerdict?: (result: import('./goal-loop.js').AcceptanceResult) => void;
   /** Consecutive iteration failures before pausing. Default 5. */
   maxConsecutiveFailures?: number;
   /**
@@ -148,11 +155,12 @@ const LOOP_STATE_FILE = 'loop-state.json';
 export class LoopScheduler {
   private readonly agent: MossAgent;
   private readonly options: Required<
-    Omit<LoopSchedulerOptions, 'prompt' | 'onIterationEvent' | 'acceptance'>
+    Omit<LoopSchedulerOptions, 'prompt' | 'onIterationEvent' | 'acceptance' | 'onAcceptanceVerdict'>
   > & {
     prompt: string;
     onIterationEvent?: LoopSchedulerOptions['onIterationEvent'];
     acceptance?: { command: string; timeoutMs?: number };
+    onAcceptanceVerdict?: LoopSchedulerOptions['onAcceptanceVerdict'];
   };
   private state: LoopState;
   private listeners: ((event: LoopEvent) => void)[] = [];
@@ -188,6 +196,7 @@ export class LoopScheduler {
       maxConsecutiveFailures: options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES,
       onIterationEvent: options.onIterationEvent,
       acceptance: options.acceptance,
+      onAcceptanceVerdict: options.onAcceptanceVerdict,
     };
     this.currentPrompt = this.options.prompt;
     this.state = {
@@ -345,6 +354,12 @@ export class LoopScheduler {
               this.options.acceptance,
               this.abortController?.signal
             );
+            // Task OS M6: mirror the verdict into the unified task runtime.
+            try {
+              await this.options.onAcceptanceVerdict?.(accept);
+            } catch {
+              // Lifecycle mirroring is observability — never break the loop.
+            }
             this.state.acceptance = {
               ...this.options.acceptance,
               lastExitCode: accept.exitCode,

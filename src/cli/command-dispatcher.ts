@@ -246,6 +246,30 @@ export const COMMANDS: Record<string, CommandConfig> = {
       'Inspect robotics loop artifacts: tasks, evidence, deployments, acceptance, device',
   },
 
+  task: {
+    name: 'task',
+    phase: CliPhase.AgentReady,
+    handler: async (ctx) => {
+      const { runTaskCommand } = await import('./task-run.js');
+      const { ExitCode } = await import('./exit-codes.js');
+      const workspace = ctx.workspace as string | undefined;
+      const agent = ctx.agent;
+      if (!workspace || !agent) {
+        console.error('[moss] task could not resolve the workspace/agent.');
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      const code = await runTaskCommand(ctx.commandArgs, {
+        agent,
+        workspace,
+        sessionKey: (ctx.sessionKey as string | undefined) ?? `task-${Date.now().toString(36)}`,
+      });
+      if (code !== 0) process.exitCode = code;
+    },
+    description:
+      'Unified task runtime: run/resume/status/timeline — one goal in, one verified result out',
+  },
+
   setup: {
     name: 'setup',
     phase: CliPhase.None,

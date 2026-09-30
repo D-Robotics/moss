@@ -49,6 +49,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         description:
           'acceptance-gated autonomous loop: only completes when the verification command exits 0 (MOSS_GOAL_AUTO_MAX_RUNS caps iterations); /goal stop aborts',
       },
+      {
+        command: '/task run <goal...>',
+        description:
+          'unified task runtime: plan → execute → verify → repair → accept, PASS only from recorded evidence (--accept "<cmd>" for exit-code authority; /task status|timeline|resume to inspect)',
+      },
       { command: '/context', description: 'show current context-window usage', hidden: true },
       {
         command: '/usage',

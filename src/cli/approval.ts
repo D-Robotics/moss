@@ -348,6 +348,12 @@ function needsApproval(request: ToolApprovalRequest, sideEffect: ToolSideEffectC
     return request.tool.metadata.requiresApproval;
   // Special case: 'exec' with detected readonly side effect doesn't need approval
   if (request.tool.name === 'exec' && sideEffect === 'readonly') return false;
+  // Task OS M5: runtime_state is moss's own bookkeeping (.moss/ jsonl, task
+  // contracts, evidence, todos) — an implementation detail, never a
+  // user-visible mutation. Gating it on approval (which headless runs cannot
+  // grant) breaks the task journey at step one; dangerous classes below
+  // (local_write, device_mutation, external_message) still require approval.
+  if (sideEffect === 'runtime_state') return false;
   return (
     sideEffect !== 'readonly' || request.tool.metadata?.planMode === 'requires_user_confirmation'
   );
