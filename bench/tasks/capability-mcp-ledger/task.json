@@ -1,0 +1,13 @@
+{
+  "id": "capability-mcp-ledger",
+  "tags": ["domain:capability", "tools:mcp", "tier:core"],
+  "maxTurns": 6,
+  "timeoutMs": 900000,
+  "requiresEnv": ["MOSS_MCP_BENCH_SERVER"],
+  "passEnv": ["MOSS_CAPABILITY_LAYER", "MOSS_BENCH_CLI", "MOSS_MCP_BENCH_SERVER"],
+  "env": {
+    "MOSS_MCP_BENCH_NONCE": "capability-mcp-ledger-bench-nonce",
+    "MOSS_MCP_BENCH_LOG": "mcp-calls.jsonl"
+  },
+  "prompt": "This workspace has a warehouse MCP tool server configured in .moss/mcp.json. Its tools belong to the task runtime, not to this session. Complete the goal below through the unified task runtime, with this workspace as cwd:\n\nnode \"$MOSS_BENCH_CLI\" task run --goal \"Look up the verification checksum of order ORD-4771 in the ledger through the connected tool server, and write it as the only content of checksum.txt (no extra text). The checksum is only obtainable from the ledger tool — do not guess or compute it yourself.\" --accept \"node check-goal.mjs\"\n\n1. Run the command above ($MOSS_BENCH_CLI holds the moss CLI entry path; check-goal.mjs is already in this workspace). The nested run drives its own LLM turns and takes several minutes — give the exec a timeout_ms of at least 480000, or start it with run_in_background=true and wait for it via exec_wait/exec_logs.\n2. The nested task run must end PASS (exit 0). If it FAILs, read its output, fix the cause in this workspace, and re-run the same command.\n3. Do not call the warehouse MCP tools from this session and do not write checksum.txt yourself — the nested runtime does the work.\n\nFinish with the nested run's final verdict line quoted verbatim."
+}

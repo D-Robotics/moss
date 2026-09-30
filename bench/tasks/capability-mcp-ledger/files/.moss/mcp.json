@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "warehouse": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["${MOSS_MCP_BENCH_SERVER}"],
+      "env": {
+        "MOSS_MCP_BENCH_NONCE": "${MOSS_MCP_BENCH_NONCE}",
+        "MOSS_MCP_BENCH_LOG": "${MOSS_MCP_BENCH_LOG}"
+      }
+    }
+  }
+}
