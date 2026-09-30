@@ -223,6 +223,29 @@ export interface CommandContext {
  * Replaces the big if-else tree in main().
  */
 export const COMMANDS: Record<string, CommandConfig> = {
+  tasks: {
+    name: 'tasks',
+    phase: CliPhase.WorkspaceReady,
+    handler: async (ctx) => {
+      const { runTasksCommand } = await import('./tasks-commands.js');
+      const { ExitCode } = await import('./exit-codes.js');
+      const workspace = ctx.workspace;
+      if (!workspace) {
+        console.error('[moss] tasks could not resolve the workspace.');
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      try {
+        await runTasksCommand(ctx.commandArgs, workspace);
+      } catch (err) {
+        console.error(`[moss] tasks failed: ${err instanceof Error ? err.message : String(err)}`);
+        process.exitCode = ExitCode.USAGE;
+      }
+    },
+    description:
+      'Inspect robotics loop artifacts: tasks, evidence, deployments, acceptance, device',
+  },
+
   setup: {
     name: 'setup',
     phase: CliPhase.None,

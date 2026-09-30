@@ -21,6 +21,7 @@ const expectedPhases = {
   config: CliPhase.ConfigOnly,
   doctor: CliPhase.ConfigOnly,
   sessions: CliPhase.WorkspaceReady,
+  tasks: CliPhase.WorkspaceReady,
 };
 
 for (const [cmd, phase] of Object.entries(expectedPhases)) {
