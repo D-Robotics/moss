@@ -191,7 +191,7 @@ type TransitionTable = Partial<Record<TaskEventType, Partial<Record<TaskPhase, T
  */
 const TRANSITIONS: TransitionTable = {
   task_understood: { draft: 'understanding' },
-  planning_started: { draft: 'understanding', understanding: 'planning' },
+  planning_started: { draft: 'planning', understanding: 'planning' },
   plan_ready: { draft: 'ready', understanding: 'ready', planning: 'ready' },
   execution_started: {
     draft: 'executing',
