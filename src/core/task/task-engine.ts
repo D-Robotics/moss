@@ -86,21 +86,71 @@ function executionPrompt(goal: string, taskId: string, round: number): string {
   ].join('\n');
 }
 
-function repairPrompt(goal: string, verdictDetail: string, attempt: number): string {
-  return [
+/** What a repair turn needs to know about repairs/failures already on record. */
+interface RepairHistory {
+  /** Repair actions already applied (oldest first), capped to keep prompts small. */
+  repairs: string[];
+  /** Symptoms of failures still unresolved, capped likewise. */
+  openFailures: string[];
+}
+
+const REPAIR_HISTORY_MAX_ENTRIES = 3;
+const REPAIR_HISTORY_MAX_CHARS = 200;
+
+function repairHistoryFrom(snapshot: TaskStateSnapshot | null): RepairHistory {
+  if (!snapshot) return { repairs: [], openFailures: [] };
+  const clip = (text: string): string =>
+    text.length > REPAIR_HISTORY_MAX_CHARS ? `${text.slice(0, REPAIR_HISTORY_MAX_CHARS)}…` : text;
+  return {
+    repairs: snapshot.repairs
+      .slice(-REPAIR_HISTORY_MAX_ENTRIES)
+      .map((repair) => clip(repair.action)),
+    openFailures: snapshot.failures
+      .filter((failure) => !failure.resolved)
+      .slice(-REPAIR_HISTORY_MAX_ENTRIES)
+      .map((failure) => clip(failure.symptom)),
+  };
+}
+
+function repairPrompt(
+  goal: string,
+  verdictDetail: string,
+  attempt: number,
+  history: RepairHistory = { repairs: [], openFailures: [] }
+): string {
+  const lines = [
     `Verification attempt ${attempt} FAILED. Diagnose and repair, then re-measure.`,
     '',
     'Verdict:',
     verdictDetail,
     '',
     `Goal: ${goal}`,
+  ];
+  // Reverify failed after at least one applied repair: the fixes below did
+  // not clear the verdict, so repeating them burns a repair cycle for
+  // nothing. This section is what turns a re-fail into a hypothesis change
+  // instead of the same fix re-applied.
+  if (history.repairs.length > 0) {
+    lines.push('', 'Repairs already applied (verification STILL fails afterwards):');
+    for (const repair of history.repairs) lines.push(`- ${repair}`);
+    lines.push(
+      'These did not clear the verdict. Do NOT repeat them. Form a different root-cause hypothesis, confirm it against a probe of the failing system, then apply a different minimal fix.'
+    );
+  }
+  if (history.openFailures.length > 0) {
+    lines.push('', 'Failures still unresolved on record:');
+    for (const symptom of history.openFailures) lines.push(`- ${symptom}`);
+  }
+  lines.push(
+    '',
     'Steps:',
-    '1. Identify the root cause from the verdict and any logs/probes you need.',
+    '1. Identify the root cause from the verdict and any logs/probes you need — state it as a hypothesis you can check before editing.',
     '2. record_failure with the symptom and your diagnosis (include task_id).',
     '3. Apply the minimal fix; record_repair with what you changed (include task_id).',
     '4. Re-measure and record fresh evidence for the failing metrics (record_evidence with task_id).',
-    'Do not work around or weaken the acceptance criteria. Do not claim success without recorded evidence.',
-  ].join('\n');
+    'Do not work around or weaken the acceptance criteria. Do not claim success without recorded evidence.'
+  );
+  return lines.join('\n');
 }
 
 interface RunLoopState {
@@ -205,8 +255,16 @@ async function verifyRepairLoop(
       turn: state.turns,
       detail: 'diagnosis + repair turn',
     });
+    // Fresh snapshot for the repair turn: repairs/failures the agent recorded
+    // during the execution turn above must be visible as history.
+    const historySnapshot = await getTaskStateSnapshot(workspaceDir, state.taskId);
     await deps.runTurn(
-      repairPrompt(current?.goal ?? '', verdict.detail, state.repairsUsed),
+      repairPrompt(
+        current?.goal ?? '',
+        verdict.detail,
+        state.repairsUsed,
+        repairHistoryFrom(historySnapshot)
+      ),
       'repairing'
     );
     await appendTaskEvent(workspaceDir, state.taskId, 'repair_applied', {

@@ -35,6 +35,8 @@ export interface AgentLoopMutableState {
   buildToolsNudgeAttempts: number;
   /** Soft mid-run reminder when dev server start asked without bg exec. */
   backgroundServerNudgeAttempts: number;
+  /** Soft mid-run recovery after a red task_acceptance verdict (repair-loop discipline). */
+  taskRepairNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
@@ -89,6 +91,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     runTestsToolsNudgeAttempts: 0,
     buildToolsNudgeAttempts: 0,
     backgroundServerNudgeAttempts: 0,
+    taskRepairNudgeAttempts: 0,
     postToolThinkingOnlyRetryAttempts: 0,
     emptyResponseRetryAttempts: 0,
     completionGateAttempts: 0,
