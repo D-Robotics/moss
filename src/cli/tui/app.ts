@@ -1,22 +1,21 @@
 /**
- * moss full-screen TUI (v0.17) — the interactive face for TTY sessions.
+ * moss Mission Control TUI (v0.21) — the interactive face for TTY sessions,
+ * rebuilt task-first around the shared TaskRuntime: Task Navigator | Task
+ * Execution Canvas | Contextual Device + Verification, with the transcript
+ * demoted to an expandable execution detail.
  *
  * This module (and only this directory) statically imports ink/react; every
  * entry point must dynamically import it so headless/SDK paths never load UI
  * dependencies. Non-TTY or `--no-tty` sessions fall back to the readline REPL.
  *
- * v0.17 surface: full-screen transcript with PgUp/PgDn scrollback, Esc
- * interrupt at run boundaries, bracketed-paste staging (one paste = one
- * message), resume replay rows, and an honest minimal command surface
- * (/help, /quit — the rest lands with the v0.18 control plane).
- *
- * The input line is a minimal ink `useInput` editor (append + backspace +
- * return) rather than ink-text-input: full control over paste/return events
- * across ink versions, and it is deterministic under ink-testing-library.
+ * Input model stays hand-rolled (append + backspace + return) rather than
+ * ink-text-input, with bracketed-paste staged at the raw stdin layer — both
+ * are deterministic under ink-testing-library (see project TUI notes).
  */
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { render, Text, Box, useApp, useInput, useStdin } from 'ink';
+import { render, Text, Box, useApp, useInput, useStdin, useStdout } from 'ink';
 import type { MossAgent } from '../../core/agent/moss-agent.js';
+import { TaskRuntime } from '../../core/task-runtime/runtime.js';
 import { errorMessage } from '../../errors.js';
 import {
   applyAgentEvent,
@@ -28,19 +27,40 @@ import {
   type TranscriptRowKind,
 } from './render-bridge.js';
 import { createPasteCapture, feedChunk } from './input-box.js';
-import { renderStatusBar } from './status-bar.js';
 import {
   listBackgroundProcessSnapshots,
   type BackgroundProcSnapshot,
 } from '../../core/tools/background-process-registry.js';
 import { setCliApprovalAsker } from '../approval.js';
 import { transcriptLines } from './transcript-view.js';
-
-const TRANSCRIPT_HEIGHT = 14;
+import { computeLayout } from './layout.js';
+import {
+  clip,
+  renderApprovalBanner,
+  renderCanvas,
+  renderContextPanel,
+  renderExecutionDetailTail,
+  renderInputLine,
+  renderNavigator,
+  renderStatusLine,
+  renderTaskStrip,
+  type PanelLine,
+} from './panels.js';
+import {
+  actionMenuItems,
+  renderActionMenu,
+  renderDeploymentInspector,
+  renderEvidenceInspector,
+  renderFailureRepair,
+  renderTaskHistory,
+  renderTaskSwitcher,
+  type OverlayKind,
+} from './overlays.js';
 
 export const TUI_HELP_TEXT = [
-  'moss TUI — keys: Enter send · Esc interrupt run (or discard staged paste) · PgUp/PgDn scroll',
-  'commands: /help · /quit · /steer <c> · /queue [pause|resume|drop|clear] · /bg · /subs · /sessions · /mcp · /rewind [seq] · /usage',
+  'moss Mission Control — describe a goal below; moss runs it as a task (plan → execute → device → verify → repair → acceptance).',
+  'keys: Enter send · Esc interrupt/close · Tab switch pane · Ctrl+T tasks · Ctrl+H history · Ctrl+E evidence · Ctrl+G deployments · Ctrl+F failures · Ctrl+A menu · Ctrl+O transcript',
+  'commands: /help · /quit · /tasks · /resume [id] · /history · /evidence · /deployments · /failures · /actions · /steer <c> · /queue [pause|resume|drop|clear] · /bg · /subs · /sessions · /mcp · /rewind [seq] · /usage',
 ].join('\n');
 
 export interface TuiReplayRow {
@@ -77,6 +97,8 @@ export interface TuiAppOptions {
   /** File checkpoint restore for /rewind (host wires the checkpoint store). */
   rewindTo?: (seq: number) => { ok: boolean; detail: string };
   listCheckpoints?: () => Array<{ seq: number; label: string; files: number }>;
+  /** Injected task runtime (specs); created from workspaceDir when omitted. */
+  runtime?: TaskRuntime;
 }
 
 export function buildTuiHelpText(): string {
@@ -105,19 +127,35 @@ function createStoreHandle(): StoreHandle {
   };
 }
 
+type FocusZone = 'composer' | 'navigator';
+type NarrowView = 'canvas' | 'context' | 'detail';
+
+interface OverlayState {
+  kind: OverlayKind;
+  cursor: number;
+}
+
 export function TuiAppRoot({
   options,
   handle,
+  runtime,
 }: {
   options: TuiAppOptions;
   handle: StoreHandle;
+  runtime: TaskRuntime;
 }): React.ReactElement {
   const { exit } = useApp();
   const { stdin } = useStdin();
+  const { stdout } = useStdout();
   const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
   const [input, setInput] = useState('');
   const [scrollOffset, setScrollOffset] = useState(0);
   const [pastePreview, setPastePreview] = useState<string | undefined>(undefined);
+  const [overlay, setOverlay] = useState<OverlayState | undefined>(undefined);
+  const [focusZone, setFocusZone] = useState<FocusZone>('composer');
+  const [narrowView, setNarrowView] = useState<NarrowView>('canvas');
+  const [detailExpanded, setDetailExpanded] = useState(false);
+  const [notice, setNotice] = useState<string[]>([]);
   const abortRef = useRef<AbortController | undefined>(undefined);
   const pendingApprovalRef = useRef<{
     question: string;
@@ -129,23 +167,41 @@ export function TuiAppRoot({
   const [queueRevision, setQueueRevision] = useState(0);
   void queueRevision;
   const pasteRef = useRef(createPasteCapture());
+  const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>(undefined);
   const sessionKey = options.sessionKey ?? 'tui';
   const { store } = handle;
 
   useEffect(() => handle.subscribe(forceUpdate), [handle, forceUpdate]);
+  useEffect(() => runtime.onChange(forceUpdate), [runtime, forceUpdate]);
+
+  const sayNotice = useCallback((lines: string[]) => {
+    setNotice(lines.map((text) => clip(text, 200)));
+  }, []);
+
+  /** Command answers leave a durable transcript row (execution log) + a
+   * short-lived notice above the composer. */
+  const logNotice = useCallback(
+    (lines: string[]) => {
+      appendRow(store, 'banner', lines.join('\n'));
+      sayNotice(lines.slice(0, 6));
+      handle.notify();
+    },
+    [handle, sayNotice, store]
+  );
 
   // Approval bridge: when a mutating tool needs consent mid-run, the question
-  // renders in the transcript and the NEXT input line is the answer (y/a/n).
-  // Without this, TUI sessions would deadlock on the readline asker.
+  // surfaces as a banner and the NEXT input line is the answer (y/a/n).
   useEffect(() => {
     setCliApprovalAsker(async (question: string) => {
       const pending = pendingApprovalRef.current;
       if (pending) pending.resolve('n');
+      runtime.setApprovalPending(true);
       appendRow(
         store,
         'banner',
         `APPROVAL NEEDED — reply y (once) / a (session) / n (deny):\n${question.slice(0, 300)}`
       );
+      sayNotice([`APPROVAL NEEDED — y (once) / a (session) / n (deny):`, question.slice(0, 160)]);
       handle.notify();
       return new Promise<string>((resolve) => {
         pendingApprovalRef.current = { question, resolve };
@@ -155,24 +211,31 @@ export function TuiAppRoot({
       const pending = pendingApprovalRef.current;
       if (pending) pending.resolve('n');
       pendingApprovalRef.current = null;
+      runtime.setApprovalPending(false);
       setCliApprovalAsker(null);
     };
-  }, [handle, store]);
+  }, [handle, runtime, sayNotice, store]);
 
-  // Boot banner + resume replay rows land in the transcript on mount.
+  // Boot: banner, replay rows, task artifacts.
   useEffect(() => {
-    appendRow(store, 'banner', 'moss TUI (v0.17) — /help for keys');
+    appendRow(store, 'banner', 'moss Mission Control — /help for keys');
     for (const row of options.replayRows ?? []) {
       appendRow(store, row.kind, row.text);
     }
     if (options.replayRows?.length) {
       appendRow(store, 'banner', `Resumed — replayed ${options.replayRows.length} rows above.`);
     }
+    void runtime.refresh().then(() => {
+      const focusId = runtime.getLiveState().focusTaskId;
+      if (focusId) setSelectedTaskId(focusId);
+      handle.notify();
+    });
     handle.notify();
   }, []);
 
   const runTurn = useCallback(
     async (message: string) => {
+      runtime.beginRun();
       beginRun(store);
       handle.notify();
       const controller = new AbortController();
@@ -182,6 +245,7 @@ export function TuiAppRoot({
           abortSignal: controller.signal,
         })) {
           applyAgentEvent(store, event);
+          runtime.applyEvent(event);
           if (event.type === 'done') {
             const response = event.result?.response;
             if (
@@ -197,17 +261,22 @@ export function TuiAppRoot({
       } catch (err) {
         if (!controller.signal.aborted) {
           appendRow(store, 'error', errorMessage(err));
+          runtime.applyEvent({ type: 'error', error: errorMessage(err), retriable: false });
         }
       }
       abortRef.current = undefined;
       const halted = controller.signal.aborted;
       endRun(store, halted);
+      await runtime.endRun(halted);
+      const focusId = runtime.getLiveState().focusTaskId;
+      if (focusId && !selectedTaskId) setSelectedTaskId(focusId);
       if (halted) {
         appendRow(store, 'banner', 'Run halted at a safe boundary — you can continue.');
+        sayNotice(['Run halted at a safe boundary — you can continue.']);
       }
       handle.notify();
     },
-    [handle, options.agent, sessionKey, store]
+    [handle, options.agent, runtime, sayNotice, selectedTaskId, sessionKey, store]
   );
 
   const drainQueue = useCallback(async (): Promise<void> => {
@@ -222,11 +291,84 @@ export function TuiAppRoot({
     if (queueRef.current.length === 0) setQueueRevision((n) => n + 1);
   }, [handle, runTurn, store]);
 
+  const buildResumePrompt = useCallback(
+    (taskId?: string): string => {
+      const detail = runtime.taskDetail(taskId);
+      if (!detail) return '';
+      const unmet = detail.progress
+        .filter((criterion) => criterion.result !== 'pass')
+        .map((criterion) => `${criterion.metric} (${criterion.result})`)
+        .join(', ');
+      return (
+        `Continue task ${detail.summary.taskId} — goal: ${detail.goal}. ` +
+        `State: ${detail.summary.state}${detail.summary.result ? ` / ${detail.summary.result}` : ''}. ` +
+        (unmet ? `Unmet criteria: ${unmet}. ` : '') +
+        'Repair what failed, record fresh evidence, and re-run task_acceptance when done.'
+      );
+    },
+    [runtime]
+  );
+
+  const openOverlay = useCallback((kind: OverlayKind) => {
+    setOverlay({ kind, cursor: 0 });
+    setNotice([]);
+  }, []);
+
+  const runInfoCommand = useCallback(
+    async (command: 'sessions' | 'mcp' | 'subs' | 'bg'): Promise<string[]> => {
+      if (command === 'sessions') {
+        const sessions = (await options.listSessions?.()) ?? [];
+        if (sessions.length === 0) return ['No saved sessions.'];
+        return [
+          ...sessions.map(
+            (x) =>
+              `${x.current ? '*' : ' '} ${x.key}${x.title ? ` — ${x.title}` : ''}${
+                x.messageCount !== undefined ? ` (${x.messageCount} messages)` : ''
+              }`
+          ),
+          'Switch or fork from the shell: moss resume --last / moss fork --fork-from <key>',
+        ];
+      }
+      if (command === 'mcp') {
+        const servers = options.mcpServers ?? [];
+        if (servers.length === 0) return ['No MCP servers configured (.moss/mcp.json).'];
+        return servers.map(
+          (x) =>
+            `${x.state === 'connected' ? '●' : '○'} ${x.name} — ${x.state}${
+              x.toolCount !== undefined ? ` (${x.toolCount} tools, lazy)` : ''
+            }${x.error ? `: ${x.error.slice(0, 80)}` : ''}`
+        );
+      }
+      if (command === 'subs') {
+        const snaps = options.agent.asyncTasks?.list() ?? [];
+        if (snaps.length === 0) return ['No sub-agent tasks.'];
+        return snaps.map((t) => `#${t.taskId.slice(-6)} ${t.status}`);
+      }
+      const running = listBackgroundProcessSnapshots().filter(
+        (p: BackgroundProcSnapshot) => p.status === 'running'
+      );
+      if (running.length === 0) return ['No background tasks running.'];
+      return running.map((p) => `#${p.id} ${p.command}${p.label ? ` (${p.label})` : ''}`);
+    },
+    [options]
+  );
+
+  const showInfo = useCallback(
+    async (command: 'sessions' | 'mcp' | 'subs' | 'bg') => {
+      const lines = await runInfoCommand(command);
+      appendRow(store, 'banner', `[${command}] ${lines.join('\n')}`);
+      sayNotice(lines.slice(0, 6));
+      handle.notify();
+    },
+    [handle, runInfoCommand, sayNotice, store]
+  );
+
   const submit = useCallback(
     async (raw: string) => {
       const pending = pendingApprovalRef.current;
       if (pending) {
         pendingApprovalRef.current = null;
+        runtime.setApprovalPending(false);
         const answer = raw.trim().toLowerCase();
         const normalized =
           answer === 'y' || answer === 'yes'
@@ -236,13 +378,13 @@ export function TuiAppRoot({
               : 'n';
         appendRow(store, 'user', raw.trim() || '(no)');
         appendRow(store, 'banner', `Approval answered: ${normalized}`);
+        sayNotice([`Approval answered: ${normalized}`]);
         handle.notify();
         setInput('');
         pending.resolve(normalized);
         return;
       }
       if (pastePreview !== undefined) {
-        // A paste is staged: this Enter confirms it as ONE message.
         const staged = pasteRef.current.pending.shift() ?? pastePreview;
         setPastePreview(undefined);
         setInput('');
@@ -255,92 +397,71 @@ export function TuiAppRoot({
       }
       const text = raw.trim();
       if (!text) return;
+      setInput('');
+      setNotice([]);
       if (text === '/quit' || text === '/exit') {
         exit();
         return;
       }
       if (text === '/help') {
         appendRow(store, 'banner', buildTuiHelpText());
+        sayNotice(buildTuiHelpText().split('\n'));
         handle.notify();
-        setInput('');
         return;
       }
       if (text === '/usage') {
-        appendRow(store, 'banner', `tokens: ${formatUsage(store.usage)}`);
-        handle.notify();
-        setInput('');
+        logNotice([`tokens: ${formatUsage(store.usage)}`]);
         return;
       }
-      if (text === '/bg') {
-        const running = listBackgroundProcessSnapshots().filter(
-          (p: BackgroundProcSnapshot) => p.status === 'running'
-        );
-        appendRow(
-          store,
-          'banner',
-          running.length === 0
-            ? 'No background tasks running.'
-            : running
-                .map((p) => `#${p.id} ${p.command}${p.label ? ` (${p.label})` : ''}`)
-                .join('\n')
-        );
-        handle.notify();
-        setInput('');
+      if (text === '/bg' || text === '/subs' || text === '/sessions' || text === '/mcp') {
+        await showInfo(text.slice(1) as 'bg' | 'subs' | 'sessions' | 'mcp');
         return;
       }
-      if (text === '/sessions') {
-        const sessions = (await options.listSessions?.()) ?? [];
-        appendRow(
-          store,
-          'banner',
-          sessions.length === 0
-            ? 'No saved sessions.'
-            : `${sessions
-                .map(
-                  (x) =>
-                    `${x.current ? '*' : ' '} ${x.key}${x.title ? ` — ${x.title}` : ''}${
-                      x.messageCount !== undefined ? ` (${x.messageCount} messages)` : ''
-                    }`
-                )
-                .join(
-                  '\n'
-                )}\nSwitch or fork from the shell: moss resume --last / moss fork --fork-from <key>`
-        );
-        handle.notify();
-        setInput('');
+      if (text === '/tasks') {
+        openOverlay('task-switcher');
+        logNotice(['opened task switcher — ↑↓ select · ↵ switch · r resume']);
         return;
       }
-      if (text === '/mcp') {
-        const servers = options.mcpServers ?? [];
-        appendRow(
-          store,
-          'banner',
-          servers.length === 0
-            ? 'No MCP servers configured (.moss/mcp.json).'
-            : servers
-                .map(
-                  (x) =>
-                    `${x.state === 'connected' ? '●' : '○'} ${x.name} — ${x.state}${
-                      x.toolCount !== undefined ? ` (${x.toolCount} tools, lazy)` : ''
-                    }${x.error ? `: ${x.error.slice(0, 80)}` : ''}`
-                )
-                .join('\n')
-        );
-        handle.notify();
-        setInput('');
+      if (text === '/evidence') {
+        openOverlay('evidence');
+        logNotice(['opened evidence inspector']);
         return;
       }
-      if (text === '/subs') {
-        const snaps = options.agent.asyncTasks?.list() ?? [];
-        appendRow(
-          store,
-          'banner',
-          snaps.length === 0
-            ? 'No sub-agent tasks.'
-            : snaps.map((t) => `#${t.taskId.slice(-6)} ${t.status}`).join('\n')
-        );
-        handle.notify();
-        setInput('');
+      if (text === '/deployments') {
+        openOverlay('deployments');
+        logNotice(['opened deployment inspector']);
+        return;
+      }
+      if (text === '/history') {
+        openOverlay('task-history');
+        logNotice(['opened task history']);
+        return;
+      }
+      if (text === '/failures') {
+        openOverlay('failure-repair');
+        logNotice(['opened failure / repair view']);
+        return;
+      }
+      if (text === '/actions' || text === '/menu') {
+        openOverlay('action-menu');
+        logNotice(['opened action menu']);
+        return;
+      }
+      if (text === '/detail' || text === '/transcript') {
+        setDetailExpanded((expanded) => !expanded);
+        if (layoutModeRef.current === 'narrow') setNarrowView('detail');
+        logNotice(['toggled execution detail (transcript) view']);
+        return;
+      }
+      if (text === '/resume' || text.startsWith('/resume ')) {
+        const taskId = text.split(' ')[1];
+        const prompt = buildResumePrompt(taskId);
+        if (!prompt) {
+          logNotice(['No task to resume — define one first (describe a goal).']);
+        } else {
+          setInput(prompt);
+          logNotice(['Resume prompt staged below — edit if needed, Enter to send.']);
+        }
         return;
       }
       if (
@@ -352,28 +473,24 @@ export function TuiAppRoot({
         const arg = text.split(' ')[1];
         const checkpoints = options.listCheckpoints?.() ?? [];
         if (!arg) {
-          appendRow(
-            store,
-            'banner',
+          logNotice(
             checkpoints.length === 0
-              ? 'No checkpoints recorded yet.'
-              : `Checkpoints:\n${checkpoints
-                  .map((c) => `${c.seq}. ${c.label} (${c.files} files)`)
-                  .join('\n')}\n/rewind <seq> restores files.`
+              ? ['No checkpoints recorded yet.']
+              : [
+                  'Checkpoints:',
+                  ...checkpoints.map((c) => `${c.seq}. ${c.label} (${c.files} files)`),
+                  '/rewind <seq> restores files.',
+                ]
           );
         } else {
           const seq = Number(arg);
           const result = options.rewindTo?.(seq);
-          appendRow(
-            store,
-            'banner',
+          logNotice(
             result?.ok
-              ? `Rewound to checkpoint ${seq}: ${result.detail}`
-              : (result?.detail ?? `Rewind to ${seq} failed.`)
+              ? [`Rewound to checkpoint ${seq}: ${result.detail}`]
+              : [result?.detail ?? `Rewind to ${seq} failed.`]
           );
         }
-        handle.notify();
-        setInput('');
         return;
       }
       if (text === '/queue' || text.startsWith('/queue ')) {
@@ -381,65 +498,51 @@ export function TuiAppRoot({
         if (sub === 'pause') {
           queuePausedRef.current = true;
           setQueuePaused(true);
-          appendRow(store, 'banner', 'Queue paused — new submissions wait.');
+          logNotice(['Queue paused — new submissions wait.']);
         } else if (sub === 'resume') {
           queuePausedRef.current = false;
           setQueuePaused(false);
-          appendRow(store, 'banner', 'Queue resumed.');
+          logNotice(['Queue resumed.']);
           if (!store.run.running && queueRef.current.length > 0) void drainQueue();
         } else if (sub === 'drop') {
           const dropped = queueRef.current.shift();
-          appendRow(
-            store,
-            'banner',
-            dropped ? `Dropped: ${dropped.text.slice(0, 60)}` : 'Queue empty — nothing to drop.'
-          );
+          logNotice([
+            dropped ? `Dropped: ${dropped.text.slice(0, 60)}` : 'Queue empty — nothing to drop.',
+          ]);
           setQueueRevision((n) => n + 1);
         } else if (sub === 'clear') {
           const n = queueRef.current.length;
           queueRef.current.length = 0;
           setQueueRevision((n2) => n2 + 1);
-          appendRow(store, 'banner', `Cleared ${n} queued item${n === 1 ? '' : 's'}.`);
+          logNotice([`Cleared ${n} queued item${n === 1 ? '' : 's'}.`]);
         } else {
-          const items = queueRef.current
-            .map((q, i) => `${i + 1}. ${q.text.slice(0, 60)}`)
-            .join('\n');
-          appendRow(
-            store,
-            'banner',
-            items ? `Queue (${queuePaused ? 'paused' : 'active'}):\n${items}` : 'Queue empty.'
-          );
+          const items = queueRef.current.map((q, i) => `${i + 1}. ${q.text.slice(0, 60)}`);
+          logNotice([
+            items.length
+              ? `Queue (${queuePaused ? 'paused' : 'active'}): ${items.join(' · ')}`
+              : 'Queue empty.',
+          ]);
         }
-        handle.notify();
-        setInput('');
         return;
       }
       if (text.startsWith('/steer')) {
         const constraint = text.slice('/steer'.length).trim();
         if (!constraint) {
-          appendRow(store, 'banner', 'Usage: /steer <constraint> — injects at the next boundary.');
+          logNotice(['Usage: /steer <constraint> — injects at the next boundary.']);
         } else {
           const entry = options.agent.steer?.(sessionKey, constraint);
-          appendRow(
-            store,
-            'banner',
+          logNotice([
             entry === null || entry === undefined
               ? 'Steer rejected — no single active run on this session.'
-              : `Steer queued: ${constraint.slice(0, 80)}`
-          );
+              : `Steer queued: ${constraint.slice(0, 80)}`,
+          ]);
         }
-        handle.notify();
-        setInput('');
         return;
       }
       if (text.startsWith('/')) {
-        appendRow(
-          store,
-          'banner',
-          `Unknown command "${text.split(' ')[0]}" in the TUI. ${buildTuiHelpText().split('\n')[1]}`
-        );
-        handle.notify();
-        setInput('');
+        logNotice([
+          `Unknown command "${text.split(' ')[0]}" in the TUI. ${buildTuiHelpText().split('\n')[2]}`,
+        ]);
         return;
       }
       if (store.run.running) {
@@ -450,20 +553,238 @@ export function TuiAppRoot({
           'banner',
           `Queued #${queueRef.current.length} (runs when the current turn ends; /queue to manage)`
         );
+        sayNotice([`Queued #${queueRef.current.length} (/queue to manage)`]);
         handle.notify();
-        setInput('');
         return;
       }
       setScrollOffset(0);
       appendRow(store, 'user', text);
       handle.notify();
-      setInput('');
       void runTurn(text);
     },
-    [exit, handle, pastePreview, runTurn, store]
+    [
+      buildResumePrompt,
+      drainQueue,
+      exit,
+      handle,
+      logNotice,
+      openOverlay,
+      pastePreview,
+      runTurn,
+      runtime,
+      sessionKey,
+      showInfo,
+      store,
+      sayNotice,
+    ]
+  );
+
+  const layoutModeRef = useRef<'wide' | 'medium' | 'narrow'>('wide');
+
+  const overlayDataLength = useCallback(
+    (kind: OverlayKind): number => {
+      if (kind === 'task-switcher') return runtime.taskSummaries().length;
+      if (kind === 'evidence') return runtime.getArtifacts().evidence.length;
+      if (kind === 'deployments') return runtime.getArtifacts().deployments.length;
+      if (kind === 'action-menu') return actionMenuItems().length;
+      return 0;
+    },
+    [runtime]
+  );
+
+  const closeOverlay = useCallback(() => setOverlay(undefined), []);
+
+  const activateOverlay = useCallback(
+    (state: OverlayState) => {
+      if (state.kind === 'task-switcher') {
+        const summaries = runtime.taskSummaries();
+        const summary = summaries[state.cursor];
+        if (summary) {
+          setSelectedTaskId(summary.taskId);
+          sayNotice([`Switched to ${summary.taskId} — ${clip(summary.goal, 80)}`]);
+        }
+        closeOverlay();
+        return;
+      }
+      if (state.kind === 'action-menu') {
+        const item = actionMenuItems()[state.cursor];
+        if (!item) {
+          closeOverlay();
+          return;
+        }
+        switch (item.id) {
+          case 'new-task':
+            setFocusZone('composer');
+            closeOverlay();
+            break;
+          case 'switch-task':
+            setOverlay({ kind: 'task-switcher', cursor: 0 });
+            break;
+          case 'task-history':
+            setOverlay({ kind: 'task-history', cursor: 0 });
+            break;
+          case 'resume-task': {
+            const prompt = buildResumePrompt(selectedTaskId);
+            if (prompt) {
+              setInput(prompt);
+              sayNotice(['Resume prompt staged below — edit if needed, Enter to send.']);
+              setFocusZone('composer');
+            } else {
+              sayNotice(['No task to resume — describe a goal first.']);
+            }
+            closeOverlay();
+            break;
+          }
+          case 'evidence':
+            setOverlay({ kind: 'evidence', cursor: 0 });
+            break;
+          case 'deployments':
+            setOverlay({ kind: 'deployments', cursor: 0 });
+            break;
+          case 'failure-repair':
+            setOverlay({ kind: 'failure-repair', cursor: 0 });
+            break;
+          case 'execution-detail':
+            setDetailExpanded(true);
+            closeOverlay();
+            break;
+          case 'sessions':
+            closeOverlay();
+            void showInfo('sessions');
+            break;
+          case 'mcp':
+            closeOverlay();
+            void showInfo('mcp');
+            break;
+          case 'subs':
+            closeOverlay();
+            void showInfo('subs');
+            break;
+          case 'quit':
+            exit();
+            break;
+          default:
+            closeOverlay();
+        }
+        return;
+      }
+      closeOverlay();
+    },
+    [buildResumePrompt, closeOverlay, exit, runtime, sayNotice, selectedTaskId, showInfo]
   );
 
   useInput((chunk, key) => {
+    // Ctrl+<letter>: ink 7 reports the letter itself as the chunk (with
+    // key.ctrl true); accept the raw control byte too for robustness.
+    if (key.ctrl && !key.return && typeof chunk === 'string' && chunk.length === 1) {
+      const code = chunk.charCodeAt(0);
+      const controlKey =
+        code >= 1 && code <= 26 ? String.fromCharCode(code + 96) : chunk.toLowerCase();
+      if (controlKey === 't') {
+        openOverlay('task-switcher');
+        return;
+      }
+      if (controlKey === 'h') {
+        openOverlay('task-history');
+        return;
+      }
+      if (controlKey === 'e') {
+        openOverlay('evidence');
+        return;
+      }
+      if (controlKey === 'g') {
+        openOverlay('deployments');
+        return;
+      }
+      if (controlKey === 'f') {
+        openOverlay('failure-repair');
+        return;
+      }
+      if (controlKey === 'a') {
+        openOverlay('action-menu');
+        return;
+      }
+      if (controlKey === 'o') {
+        setDetailExpanded((expanded) => !expanded);
+        if (layoutModeRef.current === 'narrow') {
+          setNarrowView((view) => (view === 'detail' ? 'canvas' : 'detail'));
+        }
+        return;
+      }
+      return;
+    }
+
+    if (overlay) {
+      const max = Math.max(0, overlayDataLength(overlay.kind) - 1);
+      if (key.escape) {
+        closeOverlay();
+        return;
+      }
+      if (key.upArrow) {
+        setOverlay({ ...overlay, cursor: Math.max(0, overlay.cursor - 1) });
+        return;
+      }
+      if (key.downArrow) {
+        setOverlay({ ...overlay, cursor: Math.min(max, overlay.cursor + 1) });
+        return;
+      }
+      if (key.return) {
+        void activateOverlay(overlay);
+        return;
+      }
+      if (overlay.kind === 'task-switcher' && chunk?.toLowerCase() === 'r') {
+        const summaries = runtime.taskSummaries();
+        const summary = summaries[overlay.cursor];
+        const prompt = buildResumePrompt(summary?.taskId);
+        if (prompt) {
+          setInput(prompt);
+          sayNotice(['Resume prompt staged below — edit if needed, Enter to send.']);
+        }
+        setFocusZone('composer');
+        closeOverlay();
+        return;
+      }
+      return;
+    }
+
+    if (key.tab) {
+      const mode = layoutModeRef.current;
+      if (mode === 'narrow') {
+        setNarrowView((view) =>
+          view === 'canvas' ? 'context' : view === 'context' ? 'detail' : 'canvas'
+        );
+        setDetailExpanded(false);
+      } else if (mode === 'medium') {
+        setDetailExpanded((expanded) => !expanded);
+      } else {
+        setFocusZone((zone) => (zone === 'composer' ? 'navigator' : 'composer'));
+      }
+      return;
+    }
+
+    if (focusZone === 'navigator') {
+      const summaries = runtime.taskSummaries();
+      const index = summaries.findIndex((s) => s.taskId === selectedTaskId);
+      if (key.upArrow || key.downArrow) {
+        const next = key.upArrow
+          ? Math.max(0, index - 1)
+          : Math.min(summaries.length - 1, index + 1);
+        const summary = summaries[next];
+        if (summary) setSelectedTaskId(summary.taskId);
+        return;
+      }
+      if (key.return) {
+        setFocusZone('composer');
+        return;
+      }
+      if (key.escape) {
+        setFocusZone('composer');
+        return;
+      }
+      return;
+    }
+
+    // Composer focus.
     if (key.return) {
       void submit(input);
       return;
@@ -473,13 +794,25 @@ export function TuiAppRoot({
         pasteRef.current.pending.length = 0;
         setPastePreview(undefined);
         setInput('');
-        appendRow(store, 'banner', 'Paste discarded.');
+        sayNotice(['Paste discarded.']);
         handle.notify();
         return;
       }
       if (abortRef.current) {
         abortRef.current.abort();
       }
+      return;
+    }
+    // A staged paste owns the composer until confirmed (Enter) or dropped
+    // (Esc): every other keystroke — including the paste echo ink re-delivers
+    // without its ESC prefix — must neither leak into the input nor fire a
+    // premature submit. Ref (not state): the paste listener and ink's input
+    // handler fire within the same event, before the state update flushes.
+    if (
+      pastePreview !== undefined ||
+      pasteRef.current.active ||
+      pasteRef.current.pending.length > 0
+    ) {
       return;
     }
     if (key.pageUp) {
@@ -497,10 +830,23 @@ export function TuiAppRoot({
     if (!chunk || key.ctrl || key.meta || key.shift || key.tab || key.upArrow || key.downArrow) {
       return;
     }
-    // Escape-sequence payloads (bracketed-paste markers reach here as raw
-    // bytes on some ink versions) are handled at the stdin layer below.
     if (chunk.startsWith('\x1b')) return;
-    if (chunk === '\n') return;
+    // Control characters inside a chunk: only the "one line + one trailing
+    // break" shape ('/quit\r' merged by the terminal) is a typed submit.
+    // Multi-line chunks are bracketed-paste content (ink strips the ESC[200~
+    // marker before we see it) — the paste-capture confirmation flow owns
+    // them; treating them as input would double-submit.
+    const newlineIdx = chunk.search(/[\r\n]/);
+    if (newlineIdx >= 0) {
+      const head = chunk.slice(0, newlineIdx);
+      const tail = chunk.slice(newlineIdx + 1);
+      if (tail.length === 0 && head.length > 0 && !/[\r\n]/.test(head)) {
+        const combined = input + head;
+        setInput('');
+        void submit(combined);
+      }
+      return;
+    }
     setInput((v) => v + chunk);
   });
 
@@ -526,40 +872,245 @@ export function TuiAppRoot({
     };
   }, [stdin, handle]);
 
-  const lines = transcriptLines(store, scrollOffset, { height: TRANSCRIPT_HEIGHT });
-  const statusLine = `${renderStatusBar({
+  // `||` (not `??`): a PTY without a negotiated winsize reports 0, which
+  // would collapse every clip() to nothing — fall back to 80x24.
+  const columns = stdout?.columns || 80;
+  const rows = stdout?.rows || 24;
+  const layout = computeLayout(columns, rows);
+  layoutModeRef.current = layout.mode;
+
+  const summaries = runtime.taskSummaries();
+  const detail = runtime.taskDetail(selectedTaskId);
+  const live = runtime.getLiveState();
+
+  const renderLines = (lines: PanelLine[], keyPrefix: string): React.ReactElement[] =>
+    lines.map((panelLine, i) =>
+      React.createElement(
+        Text,
+        {
+          key: `${keyPrefix}-${i}`,
+          ...(panelLine.color ? { color: panelLine.color } : {}),
+          ...(panelLine.bold ? { bold: true } : {}),
+          ...(panelLine.dim ? { dimColor: true } : {}),
+        },
+        panelLine.text
+      )
+    );
+
+  /** A bordered main-area panel; contents are clipped to width-2 by the
+   * projections, so ink only needs the fixed Box geometry. */
+  const panelBox = (
+    lines: PanelLine[],
+    key: string,
+    width: number | undefined,
+    accent: boolean
+  ): React.ReactElement =>
+    React.createElement(
+      Box,
+      {
+        key,
+        flexDirection: 'column',
+        borderStyle: 'round',
+        borderColor: accent ? 'cyan' : 'gray',
+        ...(width !== undefined ? { width } : { flexGrow: 1 }),
+        height: layout.bodyHeight,
+      },
+      ...renderLines(lines, key)
+    );
+
+  const padTo = (lines: PanelLine[]): PanelLine[] => {
+    const filled = [...lines];
+    while (filled.length < layout.contentHeight) filled.push(line0(''));
+    return filled.slice(0, layout.contentHeight);
+  };
+
+  const transcriptPanelLines = (): PanelLine[] => {
+    const lines = transcriptLines(store, scrollOffset, {
+      height: layout.contentHeight,
+    }).map((text) => line0(text));
+    lines.push(
+      ...renderExecutionDetailTail({
+        toolLine: store.run.toolLine,
+        streamingText: store.run.streamingText,
+        width: layout.canvasWidth - 2,
+        maxLines: 2,
+      })
+    );
+    return padTo(lines);
+  };
+
+  const canvasPanelLines = (): PanelLine[] =>
+    detailExpanded
+      ? transcriptPanelLines()
+      : padTo(
+          renderCanvas({
+            detail,
+            summaries,
+            selectedTaskId,
+            width: layout.canvasWidth - 2,
+            height: layout.contentHeight,
+            showStrip: !layout.showNavigator,
+            detailExpanded,
+          })
+        );
+
+  const navigatorPanelLines = (): PanelLine[] =>
+    padTo(
+      renderNavigator({
+        summaries,
+        selectedTaskId,
+        focusTaskId: live.focusTaskId,
+        width: layout.navigatorWidth - 2,
+        height: layout.contentHeight,
+      })
+    );
+
+  const contextPanelLines = (): PanelLine[] =>
+    padTo(
+      renderContextPanel({
+        detail,
+        width: layout.contextWidth - 2,
+        height: layout.contentHeight,
+      })
+    );
+
+  let mainArea: React.ReactElement;
+  if (overlay) {
+    const artifacts = runtime.getArtifacts();
+    const overlayWidth = columns - 2;
+    let overlayLines: PanelLine[];
+    if (overlay.kind === 'task-switcher') {
+      overlayLines = renderTaskSwitcher(
+        summaries,
+        overlay.cursor,
+        selectedTaskId,
+        overlayWidth,
+        layout.contentHeight
+      );
+    } else if (overlay.kind === 'task-history') {
+      overlayLines = renderTaskHistory(detail, overlayWidth, layout.contentHeight);
+    } else if (overlay.kind === 'evidence') {
+      overlayLines = renderEvidenceInspector(
+        artifacts.evidence,
+        overlay.cursor,
+        overlayWidth,
+        layout.contentHeight
+      );
+    } else if (overlay.kind === 'deployments') {
+      overlayLines = renderDeploymentInspector(
+        artifacts.deployments,
+        overlay.cursor,
+        overlayWidth,
+        layout.contentHeight
+      );
+    } else if (overlay.kind === 'action-menu') {
+      overlayLines = renderActionMenu(overlay.cursor, overlayWidth, layout.contentHeight);
+    } else {
+      overlayLines = renderFailureRepair(detail, overlayWidth, layout.contentHeight);
+    }
+    mainArea = panelBox(overlayLines, 'overlay', columns, true);
+  } else if (layout.mode === 'narrow') {
+    const width = layout.canvasWidth - 2;
+    let lines: PanelLine[];
+    if (narrowView === 'context') {
+      lines = padTo(renderContextPanel({ detail, width, height: layout.contentHeight }));
+    } else if (narrowView === 'detail') {
+      lines = transcriptPanelLines();
+    } else {
+      lines = padTo(
+        renderCanvas({
+          detail,
+          summaries,
+          selectedTaskId,
+          width,
+          height: layout.contentHeight,
+          showStrip: true,
+          detailExpanded: false,
+        })
+      );
+    }
+    mainArea = panelBox(lines, 'narrow', columns, false);
+  } else {
+    const panels: React.ReactElement[] = [];
+    if (layout.showNavigator) {
+      panels.push(
+        panelBox(navigatorPanelLines(), 'nav', layout.navigatorWidth, focusZone === 'navigator')
+      );
+    }
+    panels.push(panelBox(canvasPanelLines(), 'canvas', undefined, false));
+    if (layout.showContext) {
+      panels.push(panelBox(contextPanelLines(), 'ctx', layout.contextWidth, false));
+    }
+    mainArea = React.createElement(
+      Box,
+      { key: 'main-row', flexDirection: 'row', gap: 1 },
+      ...panels
+    );
+  }
+
+  const approvalBanner = pendingApprovalRef.current
+    ? renderApprovalBanner(pendingApprovalRef.current.question, columns)
+    : [];
+
+  // Live tail (≤2 lines) above the composer: streaming response / tool
+  // progress stays visible without promoting the transcript to the main view.
+  const liveTail = renderExecutionDetailTail({
+    toolLine: store.run.toolLine,
+    streamingText: store.run.streamingText,
+    width: columns,
+    maxLines: 2,
+  });
+
+  const statusLine = renderStatusLine({
     model: options.model,
-    workspace: options.workspaceDir,
-    running: store.run.running,
-    scrollOffset,
-    halted: store.run.halted,
-  })} · ${formatUsage(store.usage)}${
-    queueRef.current.length ? ` · queue:${queueRef.current.length}` : ''
-  }${queuePaused ? ' (paused)' : ''}`;
+    live: { running: store.run.running, approvalPending: live.approvalPending },
+    taskSummary: detail?.summary,
+    queueLength: queueRef.current.length,
+    queuePaused,
+    usageText: formatUsage(store.usage),
+    width: columns,
+  });
+
+  const headerChips = renderTaskStrip(summaries, Math.max(20, columns - 26));
 
   return React.createElement(
     Box,
     { flexDirection: 'column' },
-    ...lines.map((line, i) => React.createElement(Text, { key: `line-${i}` }, line)),
-    store.run.streamingText
-      ? React.createElement(Text, { dimColor: true }, store.run.streamingText)
-      : null,
-    store.run.toolLine ? React.createElement(Text, { dimColor: true }, store.run.toolLine) : null,
-    React.createElement(Text, { color: store.run.running ? 'yellow' : 'green' }, statusLine),
     React.createElement(
-      Box,
-      {},
-      React.createElement(Text, { color: 'cyan' }, '› '),
-      React.createElement(Text, null, input),
-      React.createElement(Text, { color: 'cyan' }, '▌')
+      Text,
+      { key: 'header' },
+      React.createElement(Text, { bold: true, color: 'cyan' }, ' moss MISSION CONTROL'),
+      React.createElement(
+        Text,
+        { dimColor: true },
+        ` ${clip(headerChips.text, Math.max(0, columns - 22))}`
+      )
+    ),
+    mainArea,
+    ...renderLines(liveTail, 'tail'),
+    ...renderLines(approvalBanner, 'approval'),
+    ...notice
+      .slice(0, 2)
+      .map((text, i) =>
+        React.createElement(Text, { key: `notice-${i}`, dimColor: true }, clip(text, columns))
+      ),
+    renderLines([statusLine], 'status'),
+    ...renderLines(
+      renderInputLine(input, columns, input.length === 0 && !store.run.running),
+      'input'
     )
   );
+}
+
+function line0(text: string): PanelLine {
+  return { text };
 }
 
 /** Boot the TUI; resolves when the user quits. TTY-only entry point. */
 export async function runTuiApp(options: TuiAppOptions): Promise<void> {
   const handle = createStoreHandle();
-  const instance = render(React.createElement(TuiAppRoot, { options, handle }), {
+  const runtime = options.runtime ?? new TaskRuntime({ workspaceDir: options.workspaceDir });
+  const instance = render(React.createElement(TuiAppRoot, { options, handle, runtime }), {
     exitOnCtrlC: true,
   });
   await instance.waitUntilExit();

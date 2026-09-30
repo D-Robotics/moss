@@ -6,8 +6,12 @@
  */
 import React from 'react';
 import { render } from 'ink-testing-library';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createTuiStore } from '../../dist/cli/tui/render-bridge.js';
 import { TuiAppRoot } from '../../dist/cli/tui/app.js';
+import { TaskRuntime } from '../../dist/core/task-runtime/runtime.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -54,10 +58,14 @@ function makeHandle() {
   };
 }
 const handle = makeHandle();
+const runtime = new TaskRuntime({
+  workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-esc-')),
+});
 const instance = render(
   React.createElement(TuiAppRoot, {
     options: { agent: mockAgent(), workspaceDir: '/tmp/ws' },
     handle,
+    runtime,
   })
 );
 

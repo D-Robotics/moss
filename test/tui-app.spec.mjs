@@ -132,6 +132,7 @@ async function type(instance, text) {
   const { render: renderInk } = await import('ink-testing-library');
   const React = await import('react');
   const { TuiAppRoot, runTuiApp } = await import('../dist/cli/tui/app.js');
+  const { TaskRuntime } = await import('../dist/core/task-runtime/runtime.js');
 
   const calls = [];
   function createMockAgent({ slow = false } = {}) {
@@ -155,33 +156,34 @@ async function type(instance, text) {
     };
   }
 
-  // 4a. /help renders the key reference
+  function mount(options) {
+    const handle = liveHandle();
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-app-'));
+    const runtime = new TaskRuntime({ workspaceDir: workspace });
+    const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
+    return { instance, handle, runtime, workspace };
+  }
+
+  // 4a. /help renders the key reference in the notice area
   {
     calls.length = 0;
-    const handle = liveHandle();
-    const instance = renderInk(
-      React.createElement(TuiAppRoot, {
-        options: { agent: createMockAgent(), workspaceDir: '/tmp/ws', model: 'm-test' },
-        handle,
-      })
-    );
+    const { instance } = mount({
+      agent: createMockAgent(),
+      workspaceDir: '/tmp/ws',
+      model: 'm-test',
+    });
     await type(instance, '/help');
-    await waitFor(() => instance.lastFrame().includes('PgUp'));
-    assert.match(instance.lastFrame(), /Esc interrupt/, 'help text visible');
+    const ok = await waitFor(() => instance.lastFrame().includes('Esc interrupt'));
+    assert.ok(ok, `help text visible: ${JSON.stringify(instance.lastFrame().slice(0, 200))}`);
     instance.unmount();
     await sleep(150);
   }
 
-  // 4b. A 50-line paste is confirmed into exactly ONE agent call
+  // 4b. A 50-line paste is confirmed into exactly ONE agent call; the
+  // response lands in the transcript, visible via Ctrl+O execution detail.
   {
     calls.length = 0;
-    const handle = liveHandle();
-    const instance = renderInk(
-      React.createElement(TuiAppRoot, {
-        options: { agent: createMockAgent(), workspaceDir: '/tmp/ws' },
-        handle,
-      })
-    );
+    const { instance, handle } = mount({ agent: createMockAgent(), workspaceDir: '/tmp/ws' });
     const lines = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`);
     instance.stdin.write(`${PASTE_START}${lines.join('\n')}${PASTE_END}`);
     await waitFor(() => instance.lastFrame().includes('paste: 50 lines'));
@@ -189,6 +191,8 @@ async function type(instance, text) {
     const ok = await waitFor(() => calls.length === 1);
     assert.ok(ok, `exactly one streamChat call (got ${calls.length})`);
     assert.equal(calls[0].message.split('\n').length, 50, 'full paste in one message');
+    await waitFor(() => handle.store.run.running === false);
+    instance.stdin.write('\x0f'); // Ctrl+O → execution detail
     await waitFor(() => instance.lastFrame().includes('echo:'));
     instance.unmount();
     await sleep(150);
@@ -207,10 +211,9 @@ async function type(instance, text) {
     assert.match(r.stdout, /TUI-ESC-OK/);
   }
 
-  // 4d. Resume replay rows render on boot via runTuiApp options
+  // 4d. Resume replay rows render on boot via runTuiApp options (transcript
+  // view — execution detail)
   {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-replay-'));
-    void tmp;
     const { buildResumeReplay } = await import('../dist/cli/tui-utils.js');
     const replay = buildResumeReplay([
       { role: 'user', content: 'earlier question' },
@@ -223,17 +226,14 @@ async function type(instance, text) {
       },
     ]);
     const replayRows = replay.items.map((item) => ({ kind: item.kind, text: item.text }));
-    const handle = liveHandle();
-    const instance = renderInk(
-      React.createElement(TuiAppRoot, {
-        options: {
-          agent: createMockAgent(),
-          workspaceDir: '/tmp/ws',
-          replayRows,
-        },
-        handle,
-      })
-    );
+    const { instance } = mount({
+      agent: createMockAgent(),
+      workspaceDir: '/tmp/ws',
+      replayRows,
+    });
+    await sleep(150);
+    instance.stdin.write('\x0f'); // Ctrl+O → transcript visible
+    await sleep(60);
     const ok = await waitFor(
       () =>
         instance.lastFrame().includes('earlier question') &&
@@ -247,15 +247,9 @@ async function type(instance, text) {
   // 4e. Unknown slash commands answer honestly
   {
     calls.length = 0;
-    const handle = liveHandle();
-    const instance = renderInk(
-      React.createElement(TuiAppRoot, {
-        options: { agent: createMockAgent(), workspaceDir: '/tmp/ws' },
-        handle,
-      })
-    );
-    await type(instance, '/steer x');
-    await waitFor(() => instance.lastFrame().includes('Unknown command "/steer"'));
+    const { instance } = mount({ agent: createMockAgent(), workspaceDir: '/tmp/ws' });
+    await type(instance, '/nope');
+    await waitFor(() => instance.lastFrame().includes('Unknown command "/nope"'));
     instance.unmount();
     await sleep(150);
   }

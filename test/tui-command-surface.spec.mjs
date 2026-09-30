@@ -5,9 +5,13 @@
  * (/quit exits, so it is verified by its branch in the help line only.)
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { createTuiStore } from '../dist/cli/tui/render-bridge.js';
 import { TUI_HELP_TEXT, buildTuiHelpText } from '../dist/cli/tui/app.js';
+import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -71,23 +75,26 @@ const options = {
 };
 
 // Extract "/cmd" tokens from the help line (skip /quit which exits).
-const helpLine = buildTuiHelpText().split('\n')[1];
+const helpLine = buildTuiHelpText().split('\n')[2];
 const advertised = [...helpLine.matchAll(/\/([a-z]+)/g)].map((m) => `/${m[1]}`);
 assert.ok(advertised.length >= 8, `help advertises >=8 commands (got ${advertised.length})`);
 void TUI_HELP_TEXT;
 
+const BOOT_BANNER = 'moss Mission Control — /help for keys';
+
 for (const command of advertised) {
   if (command === '/quit') continue; // exits the app — verified by name only
-  const arg = command === '/steer' ? ' be terse' : command === '/rewind' ? '' : '';
+  const arg = command === '/steer' ? ' be terse' : '';
   const handle = liveHandle();
-  const instance = renderInk(React.createElement(TuiAppRoot, { options, handle }));
+  const runtime = new TaskRuntime({
+    workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-cmd-')),
+  });
+  const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
+  await sleep(120);
   await type(instance, `${command}${arg}`);
   const handled = await waitFor(() =>
     handle.store.rows.some(
-      (r) =>
-        r.kind === 'banner' &&
-        r.text !== 'moss TUI (v0.17) — /help for keys' &&
-        !r.text.startsWith('Resumed')
+      (r) => r.kind === 'banner' && r.text !== BOOT_BANNER && !r.text.startsWith('Resumed')
     )
   );
   const unknown = handle.store.rows.some((r) => r.text.includes('Unknown command'));

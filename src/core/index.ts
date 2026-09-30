@@ -210,3 +210,25 @@ export type { ExtractedToolInvocation } from './tools/index.js';
 
 export { ErrorCode } from '../errors.js';
 export type { MossErrorOutcome } from '../errors.js';
+
+export {
+  appendAcceptanceVerdict,
+  listAcceptanceVerdicts,
+  loadTaskArtifacts,
+} from './task-runtime/artifacts.js';
+export type { TaskArtifacts } from './task-runtime/artifacts.js';
+export { TaskRuntime, classifyTaskKind, describeToolCall } from './task-runtime/runtime.js';
+export type {
+  MissionState,
+  MissionResult,
+  TaskKind,
+  TaskSummary,
+  TaskDetail,
+  FailureItem,
+  RepairCycle,
+  TaskHistoryEntry,
+  DeviceObservation,
+  TaskDeviceContext,
+  RuntimeLiveState,
+  TaskRuntimeOptions,
+} from './task-runtime/runtime.js';

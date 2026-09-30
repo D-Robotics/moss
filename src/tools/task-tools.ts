@@ -1,14 +1,16 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import type {
-  AcceptanceCriterion,
-  AcceptanceVerdict,
-  TaskContract,
-  TaskContractStatus,
-} from '../contracts/task.js';
+import type { AcceptanceCriterion, TaskContract, TaskContractStatus } from '../contracts/task.js';
 import { evaluateAcceptance, formatAcceptanceVerdict } from '../contracts/task.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { listEvidenceRecords } from './evidence-tools.js';
+import {
+  appendAcceptanceVerdict,
+  appendTaskRecord,
+  listTaskRecords,
+} from '../core/task-runtime/artifacts.js';
+
+// Canonical artifact IO lives in core (shared task runtime); re-exported here
+// to keep the SDK surface stable.
+export { appendTaskRecord, listTaskRecords } from '../core/task-runtime/artifacts.js';
 
 /**
  * Task contract tools (robotics closed loop P0-1/P0-2): define the task as a
@@ -19,39 +21,6 @@ import { listEvidenceRecords } from './evidence-tools.js';
 
 function newTaskId(): string {
   return `task_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-async function taskStorePath(workspaceDir: string): Promise<string> {
-  const dir = path.join(workspaceDir, '.moss');
-  await fs.mkdir(dir, { recursive: true });
-  return path.join(dir, 'tasks.jsonl');
-}
-
-export async function appendTaskRecord(workspaceDir: string, task: TaskContract): Promise<void> {
-  const file = await taskStorePath(workspaceDir);
-  await fs.appendFile(file, `${JSON.stringify(task)}\n`, 'utf8');
-}
-
-export async function listTaskRecords(workspaceDir: string, limit = 50): Promise<TaskContract[]> {
-  try {
-    const raw = await fs.readFile(path.join(workspaceDir, '.moss', 'tasks.jsonl'), 'utf8');
-    const lines = raw.split('\n').filter((line) => line.trim() !== '');
-    const parsed = lines.map((line) => JSON.parse(line) as TaskContract);
-    // Latest version of each taskId wins (contracts are re-defined as they evolve).
-    const byId = new Map(parsed.map((task) => [task.taskId, task]));
-    return [...byId.values()].slice(-limit);
-  } catch {
-    return [];
-  }
-}
-
-async function appendAcceptanceVerdict(
-  workspaceDir: string,
-  verdict: AcceptanceVerdict
-): Promise<void> {
-  const dir = path.join(workspaceDir, '.moss');
-  await fs.mkdir(dir, { recursive: true });
-  await fs.appendFile(path.join(dir, 'acceptance.jsonl'), `${JSON.stringify(verdict)}\n`, 'utf8');
 }
 
 function parseCriteria(raw: unknown): AcceptanceCriterion[] | string {
