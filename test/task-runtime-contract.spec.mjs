@@ -45,6 +45,64 @@ test('plan_ready lands on ready from every planning-adjacent phase', () => {
   assert.equal(t('executing', 'plan_ready'), null);
 });
 
+// Structural guard (value-shift typos hit this table twice): every
+// transition target must be a declared phase. A shifted row like
+// plan_ready: {draft: 'understanding'} passes column checks but fails
+// nothing here unless the target is invalid — so also pin the semantics
+// of every row's targets set below.
+test('transition table invariants: targets are valid phases; key rows pinned', async () => {
+  const { nextTaskPhase } = await import('../dist/contracts/task-runtime.js');
+  const events = [
+    'task_understood',
+    'planning_started',
+    'plan_ready',
+    'execution_started',
+    'verification_started',
+    'verification_failed',
+    'acceptance_pass',
+    'acceptance_fail',
+    'diagnosis_recorded',
+    'repair_applied',
+    'blocked_on_user',
+    'unblocked',
+    'task_failed',
+    'task_abandoned',
+    'task_resumed',
+  ];
+  const semantics = {
+    task_understood: new Set(['understanding']),
+    planning_started: new Set(['planning']),
+    plan_ready: new Set(['ready']),
+    execution_started: new Set(['executing']),
+    verification_started: new Set(['verifying', 'reverifying']),
+    verification_failed: new Set(['diagnosing']),
+    acceptance_pass: new Set(['accepted']),
+    acceptance_fail: new Set(['diagnosing']),
+    repair_applied: new Set(['repairing']),
+    blocked_on_user: new Set(['blocked']),
+    unblocked: new Set([
+      /* resume target varies */
+    ]),
+    task_failed: new Set(['failed']),
+    task_abandoned: new Set(['abandoned']),
+    task_resumed: new Set(['executing']),
+  };
+  for (const event of events) {
+    const allowed = semantics[event];
+    if (!allowed || allowed.size === 0) continue;
+    for (const phase of TASK_PHASES) {
+      const next = nextTaskPhase(phase, event);
+      if (next !== null) {
+        assert.ok(TASK_PHASES.includes(next), `${event} from ${phase} → invalid phase ${next}`);
+        assert.ok(
+          allowed.has(next) || (event === 'unblocked' && !isTerminalTaskPhase(next)),
+          `${event} from ${phase} → ${next} outside pinned semantics ${[...allowed]}`
+        );
+      }
+    }
+  }
+});
+
 test('repair cycle: fail -> diagnosing -> repairing -> reverifying -> pass', () => {
   let phase = 'verifying';
   phase = t(phase, 'acceptance_fail');
