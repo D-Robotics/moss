@@ -68,6 +68,13 @@ export {
   deviceTemperatureTool,
 } from './tools/device-tools.js';
 export {
+  evidenceTools,
+  recordEvidenceTool,
+  appendEvidenceRecord,
+  listEvidenceRecords,
+  summarizeEvidence,
+} from './tools/evidence-tools.js';
+export {
   configureDefaultDeviceTarget,
   resolveDefaultDeviceTarget,
   formatDeviceTarget,

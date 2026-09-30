@@ -34,6 +34,15 @@ export type {
 } from './deployment.js';
 
 export type {
+  EvidenceResult,
+  EvidenceComparator,
+  EvidenceRecord,
+  ExpectationEvaluation,
+  EvidenceStoreSummary,
+} from './evidence.js';
+export { evaluateExpectation } from './evidence.js';
+
+export type {
   MossAsyncTaskStatus,
   MossAsyncTaskKind,
   MossAsyncTaskStopReason,

@@ -16,6 +16,7 @@ import { backgroundExecTools } from './background-exec.js';
 import { codeDiagnosticsTool } from './code-diagnostics.js';
 import { harnessTools } from './harness-tools.js';
 import { deviceTools } from './device-tools.js';
+import { evidenceTools } from './evidence-tools.js';
 import {
   IS_WIN,
   EXEC_DEFAULT_TIMEOUT_MS,
@@ -243,6 +244,7 @@ export const builtinTools: Tool[] = [
   ...backgroundExecTools,
   ...harnessTools,
   ...deviceTools,
+  ...evidenceTools,
 ];
 
 export function registerBuiltinTools(agent: { tools: { register: (tool: Tool) => void } }): void {
