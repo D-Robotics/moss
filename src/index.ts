@@ -62,6 +62,7 @@ export {
   deviceFileReadTool,
   deviceFileListTool,
   deviceFileWriteTool,
+  deviceDeployTool,
   deviceProcessesTool,
   deviceResourcesTool,
   deviceTemperatureTool,
@@ -76,6 +77,12 @@ export {
   disconnectAllDevices,
   listDeviceConnections,
 } from './device/device-registry.js';
+export {
+  runDeployment,
+  appendDeploymentRecord,
+  listDeploymentRecords,
+  formatDeploymentRecord,
+} from './device/deployment.js';
 export { SshDeviceConnection } from './device/ssh-device-connection.js';
 
 export {

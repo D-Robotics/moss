@@ -199,7 +199,7 @@ test('device tools: no target configured returns actionable guidance', async () 
 
 test('device tools: metadata matches the reserved scaffolding contracts', () => {
   const byName = new Map(deviceTools.map((tool) => [tool.name, tool]));
-  assert.equal(byName.size, 8);
+  assert.equal(byName.size, 9);
 
   const readonly = [
     'device_info',
@@ -217,7 +217,7 @@ test('device tools: metadata matches the reserved scaffolding contracts', () => 
       `${name} retries on transient failure`
     );
   }
-  for (const name of ['device_exec', 'device_file_write']) {
+  for (const name of ['device_exec', 'device_file_write', 'device_deploy']) {
     assert.equal(
       byName.get(name).metadata.sideEffectClass,
       'device_mutation',

@@ -6,6 +6,11 @@ import { isCommandDangerous } from '../safety/channel-safety.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { getDeviceConnection } from '../device/device-registry.js';
 import {
+  appendDeploymentRecord,
+  formatDeploymentRecord,
+  runDeployment,
+} from '../device/deployment.js';
+import {
   formatDeviceTarget,
   missingTargetHelp,
   resolveDefaultDeviceTarget,
@@ -362,12 +367,85 @@ export const deviceTemperatureTool: Tool = {
   },
 };
 
+export const deviceDeployTool: Tool = {
+  name: 'device_deploy',
+  description:
+    'Deploy a workspace artifact to the configured device as one recorded lifecycle: mkdir → SFTP upload → (chmod +x) → (start command) → (health check). The full record is appended to .moss/deployments.jsonl — a deploy only reports success when every requested step passed (health check included).\n' +
+    `- artifact_path must live inside the workspace.\n` +
+    `- start_command: how to launch on the device (e.g. a systemd restart or nohup invocation). Omit for file-only deploys.\n` +
+    `- health_command: device command proving the deployment is alive (exit 0 required); health_expect: optional regex its output must match.\n` +
+    DEVICE_TOOLS_DESCRIPTION_NOTE,
+  metadata: {
+    sideEffectClass: 'device_mutation',
+    planMode: 'requires_user_confirmation',
+    permissionBoundary:
+      'Host must enforce approval via AgentHooks.onBeforeToolExec (device_mutation class).',
+  },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      artifact_path: { type: 'string', description: 'Workspace-relative artifact path to deploy' },
+      remote_path: { type: 'string', description: 'Absolute destination path on the device' },
+      executable: { type: 'boolean', description: 'chmod +x the artifact on the device' },
+      start_command: {
+        type: 'string',
+        description: 'Device command that starts the artifact (optional)',
+      },
+      health_command: {
+        type: 'string',
+        description: 'Device command proving the deployment is alive (optional)',
+      },
+      health_expect: {
+        type: 'string',
+        description: 'Regex the health command output must match (optional)',
+      },
+      timeout_ms: { type: 'number', description: 'Per-step timeout in ms (default 60000)' },
+    },
+    required: ['artifact_path', 'remote_path'],
+  },
+  async execute(input, ctx) {
+    const resolved = await connectDefaultDevice('device_deploy');
+    if (typeof resolved === 'string') return resolved;
+    let artifactAbs: string;
+    try {
+      artifactAbs = await safePath(String(input.artifact_path ?? ''), ctx.workspaceDir);
+      await fs.access(artifactAbs);
+    } catch (err) {
+      return `Error: device_deploy artifact_path ${input.artifact_path}: ${errorMessage(err)}`;
+    }
+    const record = await runDeployment(
+      resolved.conn,
+      {
+        artifactPath: artifactAbs,
+        remotePath: String(input.remote_path ?? ''),
+        ...(input.executable === true ? { executable: true } : {}),
+        ...(input.start_command ? { startCommand: String(input.start_command) } : {}),
+        ...(input.health_command ? { healthCommand: String(input.health_command) } : {}),
+        ...(input.health_expect ? { healthExpect: String(input.health_expect) } : {}),
+        ...(input.timeout_ms ? { timeoutMs: Number(input.timeout_ms) } : {}),
+      },
+      ctx.abortSignal ? { signal: ctx.abortSignal } : {}
+    );
+    try {
+      await appendDeploymentRecord(ctx.workspaceDir, record);
+    } catch {
+      // Persistence failure must not mask the deployment outcome; the record
+      // is still returned to the model in full.
+    }
+    const text = formatDeploymentRecord(record);
+    return record.status === 'failed'
+      ? `Error: device_deploy failed — see steps below.\n${text}`
+      : text;
+  },
+};
+
 export const deviceTools: Tool[] = [
   deviceInfoTool,
   deviceExecTool,
   deviceFileReadTool,
   deviceFileListTool,
   deviceFileWriteTool,
+  deviceDeployTool,
   deviceProcessesTool,
   deviceResourcesTool,
   deviceTemperatureTool,

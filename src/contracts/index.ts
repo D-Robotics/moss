@@ -26,6 +26,14 @@ export type {
 } from './device.js';
 
 export type {
+  DeploymentStatus,
+  DeploymentStepLog,
+  DeploymentHealthCheck,
+  DeploymentRecord,
+  DeploymentPlan,
+} from './deployment.js';
+
+export type {
   MossAsyncTaskStatus,
   MossAsyncTaskKind,
   MossAsyncTaskStopReason,
