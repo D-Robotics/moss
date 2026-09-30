@@ -5,6 +5,8 @@ import type { SubagentRunProgress, Tool, ToolContext } from '../core/tools/tool-
 interface CreateSubagentInput {
   task: string;
   writePaths?: string[];
+  /** Run this writable worker in an isolated git worktree (lease-patch merge). */
+  worktree?: boolean;
   expert?: string;
   scope?: 'read-only' | 'device-read' | 'full' | 'explore' | 'plan' | 'verify';
   maxTurns?: number;
@@ -124,6 +126,11 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
         description:
           'Required for full scope: parent-relative files or directories this worker may modify.',
       },
+      worktree: {
+        type: 'boolean',
+        description:
+          'Run this writable worker in an isolated git worktree; its changes come back as a lease patch merged with git apply --3way (use when multiple writable sub-agents may touch the same files).',
+      },
       expert: {
         type: 'string',
         description:
@@ -232,6 +239,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
           const result = await ctx.spawnSubagent?.({
             task: input.task,
             ...(input.writePaths ? { writePaths: input.writePaths } : {}),
+            ...(input.worktree ? { worktree: true } : {}),
             scope,
             maxTurns,
             timeoutMs,
@@ -327,6 +335,8 @@ interface FanOutTaskInput {
   /** Per-task model override (e.g. a cheap model for exploration, a strong
    *  model for a critical angle). Omit to use the parent's model. */
   model?: string;
+  /** Run this writable task in an isolated git worktree (lease-patch merge). */
+  worktree?: boolean;
 }
 
 interface FanOutSubagentsInput {
@@ -338,6 +348,10 @@ interface FanOutSubagentsInput {
 }
 
 const MAX_FAN_OUT_TASKS = 8; // was 6; user requested ≤8 sub-agents
+
+/** A/B gate for worktree isolation: full-scope fan-out tasks default to
+ *  isolated worktrees when set (per-task `worktree` overrides either way). */
+const WORKTREE_ENV_DEFAULT = process.env.MOSS_WORKTREE_SUBAGENTS === '1';
 
 type FanOutScope = NonNullable<FanOutTaskInput['scope']>;
 
@@ -517,6 +531,11 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
               description:
                 "Per-task model override (e.g. a cheap model for exploration, a strong model for a critical angle). Omit to use the parent agent's model.",
             },
+            worktree: {
+              type: 'boolean',
+              description:
+                'Run this writable task in an isolated git worktree and return its changes as a lease patch the parent merges with git apply --3way (concurrent writers cannot stomp each other). Default: on for full-scope tasks when MOSS_WORKTREE_SUBAGENTS=1, else off.',
+            },
           },
           required: ['task'],
         },
@@ -600,6 +619,9 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
         ctx.spawnSubagent!({
           task: t.task,
           ...(t.writePaths ? { writePaths: t.writePaths } : {}),
+          ...(t.worktree || (WORKTREE_ENV_DEFAULT && resolvedScopes[i] === 'full')
+            ? { worktree: true }
+            : {}),
           scope: resolvedScopes[i],
           maxTurns: experts[i]?.maxTurns ?? maxTurns,
           timeoutMs: resolveSubagentTimeoutMs(experts[i]?.timeoutMs ?? timeoutMs),

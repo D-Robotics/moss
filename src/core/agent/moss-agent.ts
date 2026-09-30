@@ -6,6 +6,7 @@ import { getRootLogger } from '../../logger.js';
 const log = getRootLogger().child('agent');
 import { ToolRegistry } from '../tools/tool-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
+import { mergeLeasePatch } from '../subagent/worktree-isolation.js';
 import type { AgentLoopRun } from './agent-loop-run-state.js';
 import {
   buildAgentBehaviorPrompt,
@@ -806,6 +807,15 @@ ${result.stderr ?? ''}`.trim();
       ...(options?.toolInputLimits ? { toolInputLimits: options.toolInputLimits } : {}),
       ...(options?.toolInputOverrides ? { toolInputOverrides: options.toolInputOverrides } : {}),
       ...(this.config.execWriteRoots ? { execWriteRoots: this.config.execWriteRoots } : {}),
+      // Worktree-lease merge host (merge_subagent_patch tool target): applies
+      // a collected sub-agent patch back into this workspace with 3-way merge.
+      mergeWorkspacePatch: async (leaseId, patchId) => {
+        const result = await mergeLeasePatch({ parentWorkspace: workspaceDir, leaseId, patchId });
+        return {
+          status: result.status,
+          conflictingPaths: result.status === 'merge_conflict' ? result.conflictingPaths : [],
+        };
+      },
       asyncTaskRegistry: this.asyncTasks,
     };
 
@@ -906,6 +916,7 @@ ${result.stderr ?? ''}`.trim();
             scope: (params.scope ?? 'full') as SpawnToolScope,
             task: params.task,
             ...(params.writePaths ? { writePaths: params.writePaths } : {}),
+            ...(params.worktree ? { worktree: true } : {}),
             ...(params.allowedTools !== undefined ? { allowedTools: params.allowedTools } : {}),
             model: params.model,
             ...(overrideContextTokens !== undefined
@@ -930,6 +941,11 @@ ${result.stderr ?? ''}`.trim();
           ...(result.toolResults !== undefined ? { toolResults: result.toolResults } : {}),
           ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
           ...(result.error ? { error: result.error } : {}),
+          ...(result.workspaceLeaseId ? { workspaceLeaseId: result.workspaceLeaseId } : {}),
+          ...(result.patchId ? { patchId: result.patchId } : {}),
+          ...(result.patchRef ? { patchRef: result.patchRef } : {}),
+          ...(result.patchDigest ? { patchDigest: result.patchDigest } : {}),
+          ...(result.changedPaths ? { changedPaths: result.changedPaths } : {}),
         };
       } finally {
         clearTimeout(timeout);

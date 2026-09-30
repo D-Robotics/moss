@@ -49,6 +49,8 @@ export interface ToolContext {
     task: string;
     /** Parent-relative paths a full-scope worker may modify. */
     writePaths?: readonly string[];
+    /** Run this writable worker in an isolated git worktree (lease-patch merge). */
+    worktree?: boolean;
     label?: string;
     cleanup?: 'keep' | 'delete';
     scope?: string;
