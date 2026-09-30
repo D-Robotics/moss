@@ -110,7 +110,8 @@ function gitSha() {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const provider = loadProvider(args);
+  // Eval never calls the LLM — don't demand provider config for it.
+  const provider = args.eval ? { apiKey: '', model: 'eval-only', baseUrl: '' } : loadProvider(args);
   const board = JSON.parse(fs.readFileSync(BOARDS, 'utf8'));
   let instances = board.instances;
   if (args.filter) instances = instances.filter((i) => i.instance_id.includes(args.filter));
