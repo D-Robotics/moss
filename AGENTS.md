@@ -160,3 +160,16 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 - 只做必须做的改动，匹配现有风格；修一个 bug 时 grep 同类形状。
 - 行为验证优先于静态检查：逻辑改动后实际运行 CLI 验证一次。
 - 报告真实命令与结果；没有观察到 post-condition 就不报成功。
+
+## 会话与工作区纪律（2026-10-01）
+
+- **一个工作区同一时间只允许一个写会话**。同一 checkout 里并发跑两个 agent 会话（或"会话 + 未提交的手动编辑"）
+  会让"谁的改动"不可判定：2026-10-01 实测，另一个会话正在编辑 `src/cli/tui/panels.ts`/`terminal-text.ts`，
+  本会话的 `git status` 出现非本会话改动，`tsc` 在两次相邻运行间给出不同结论（对方瞬时半成品状态）。
+- 长任务 / 无人值守运行一律在独立 worktree 开工：`git worktree add ../moss-<topic> -b <topic>`，
+  build / test / bench / `dist/` 全部隔离在该 worktree 内；完成后再合并或推送。
+- **禁止 `git add -A` / `git add .`**：只按路径暂存本次会话的改动。工作区里可能有他人未提交的改动；
+  另注意 worktree 的 `node_modules` 是符号链接时，`.gitignore` 的 `node_modules/` 规则不匹配，它会显示为 untracked。
+- 提交前 `git status --short` 必须只剩本次会话预期改动的文件；出现外来改动先停下来确认，不要顺手提交他人半成品。
+- 跑 bench / 全量测试前确认没有其他会话在同一 worktree 构建（曾在 bench 期间 `npm run build` 破坏 A/B 对照结果）。
+- 收工报告要写清 worktree 与 main 的关系（分支名、commit、是否已 push），不留"离线成果"。
