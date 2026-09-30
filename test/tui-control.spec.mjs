@@ -52,7 +52,7 @@ const { TuiAppRoot } = await import('../dist/cli/tui/app.js');
 
 const calls = [];
 const steers = [];
-function mockAgent({ slow = false } = {}) {
+function mockAgent({ slow = false, hold = null } = {}) {
   return {
     steer(sessionKey, constraint) {
       steers.push({ sessionKey, constraint });
@@ -60,6 +60,25 @@ function mockAgent({ slow = false } = {}) {
     },
     async *streamChat(sessionKey, message, opts) {
       calls.push(message);
+      // hold: stream one delta and block until the test releases — makes
+      // queue semantics deterministic on slow machines (the timed slow mode
+      // finished before /queue on the Windows CI leg and drained the queue).
+      if (hold) {
+        yield { type: 'text_delta', delta: `ack:${message.slice(0, 12)} ` };
+        await hold.promise;
+        yield {
+          type: 'llm_usage',
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+        };
+        yield {
+          type: 'done',
+          result: { response: `done ${message.slice(0, 10)}`, stopReason: 'end_turn' },
+        };
+        return;
+      }
       for (let i = 0; i < (slow ? 6 : 1); i++) {
         if (slow && opts?.abortSignal?.aborted) return;
         yield { type: 'text_delta', delta: `ack:${message.slice(0, 12)} ` };
@@ -99,9 +118,11 @@ function mockAgent({ slow = false } = {}) {
   calls.length = 0;
   steers.length = 0;
   const handle = liveHandle();
+  let releaseRun;
+  const hold = { promise: new Promise((resolve) => (releaseRun = resolve)) };
   const instance = renderInk(
     React.createElement(TuiAppRoot, {
-      options: { agent: mockAgent({ slow: true }), workspaceDir: '/tmp/ws', sessionKey: 'sess-1' },
+      options: { agent: mockAgent({ hold }), workspaceDir: '/tmp/ws', sessionKey: 'sess-1' },
       handle,
     })
   );
@@ -113,6 +134,7 @@ function mockAgent({ slow = false } = {}) {
   assert.equal(steers[0].sessionKey, 'sess-1');
   assert.equal(steers[0].constraint, 'keep it under 50 lines');
   await waitFor(() => instance.lastFrame().includes('Steer queued'));
+  releaseRun();
   instance.unmount();
   await sleep(120);
 }
@@ -122,9 +144,11 @@ function mockAgent({ slow = false } = {}) {
 {
   calls.length = 0;
   const handle = liveHandle();
+  let releaseFirst;
+  const hold = { promise: new Promise((resolve) => (releaseFirst = resolve)) };
   const instance = renderInk(
     React.createElement(TuiAppRoot, {
-      options: { agent: mockAgent({ slow: true }), workspaceDir: '/tmp/ws' },
+      options: { agent: mockAgent({ hold }), workspaceDir: '/tmp/ws' },
       handle,
     })
   );
@@ -136,9 +160,10 @@ function mockAgent({ slow = false } = {}) {
   await waitFor(() => instance.lastFrame().includes('Queue (active)'));
   assert.match(instance.lastFrame(), /1\. second queued task/);
 
-  // Pause, then let the first run finish — the queued item must NOT start.
+  // Pause, then let the held first run finish — the queued item must NOT start.
   await type(instance, '/queue pause');
   await waitFor(() => instance.lastFrame().includes('Queue paused'));
+  releaseFirst();
   await waitFor(() => !instance.lastFrame().includes('working'), 6000);
   await sleep(300);
   assert.equal(calls.length, 1, 'paused queue does not drain');
