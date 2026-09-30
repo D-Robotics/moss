@@ -1,0 +1,18 @@
+{
+  "id": "device-observe-evidence",
+  "tags": ["domain:robotics", "tools:device", "tools:task-contract"],
+  "maxTurns": 12,
+  "timeoutMs": 240000,
+  "passEnv": [
+    "MOSS_DEVICE_HOST",
+    "MOSS_DEVICE_PORT",
+    "MOSS_DEVICE_USER",
+    "MOSS_DEVICE_PASSWORD",
+    "MOSS_DEVICE_KEY",
+    "MOSS_DEVICE_KEY_PASSPHRASE",
+    "MOSS_DEVICE_KIND",
+    "MOSS_DEVICE_ID"
+  ],
+  "requiresEnv": ["MOSS_DEVICE_HOST"],
+  "prompt": "A remote device is reachable over SSH; its connection settings come from the MOSS_DEVICE_* environment variables (do not ask the user, do not guess host names). Work through the robotics closed loop discipline end to end:\n\n1. Call device_info once to probe the live device.\n2. Define a task contract with task_define: goal 'report device identity and health from the live device', acceptance criteria exactly:\n   - {metric: 'device_reachable', expected: 'exists'}\n   - {metric: 'hostname_reported', expected: 'exists'}\n3. Record evidence for BOTH metrics with record_evidence using the task_id from step 2:\n   - device_reachable: observed = the connection line of the device_info result (it must show connected).\n   - hostname_reported: observed = the hostname reported by device_info.\n4. Run task_acceptance for the task. If it does not PASS, repair (re-probe, re-record correct evidence) and re-run until it PASSes.\n\nFinish with a short summary that quotes the acceptance verdict."
+}

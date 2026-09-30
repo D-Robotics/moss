@@ -140,6 +140,12 @@ function loadTasks(filters) {
         timeoutMs: task.timeoutMs ?? 300_000,
         env: task.env ?? {},
         tags: task.tags ?? [],
+        // Environment variables copied from the bench parent process (values
+        // never live in task.json — credentials stay in env/.env).
+        passEnv: Array.isArray(task.passEnv) ? task.passEnv : [],
+        // Task runs only when all of these are set; otherwise skipped (not
+        // failed) so device tasks do not break device-less CI benches.
+        requiresEnv: Array.isArray(task.requiresEnv) ? task.requiresEnv : [],
       };
     })
     .filter((task) => filters.length === 0 || filters.some((f) => task.id.includes(f)));
@@ -311,6 +317,14 @@ async function main() {
 
   try {
     for (const task of tasks) {
+      const missingEnv = task.requiresEnv.filter((key) => process.env[key] === undefined);
+      if (missingEnv.length > 0) {
+        console.log(
+          `[bench] SKIP ${task.id} — missing required env: ${missingEnv.join(', ')} (device task; set it to include this benchmark)`
+        );
+        for (let sample = 1; sample <= args.samples; sample++) done += 1;
+        continue;
+      }
       for (let sample = 1; sample <= args.samples; sample++) {
         done += 1;
         const workspace = fs.mkdtempSync(path.join(scratchRoot, 'ws-'));
@@ -333,6 +347,9 @@ async function main() {
           ...(args.temperature !== undefined ? { MOSS_TEMPERATURE: String(args.temperature) } : {}),
           ...task.env,
         };
+        for (const key of task.passEnv) {
+          if (process.env[key] !== undefined) mossEnv[key] = process.env[key];
+        }
         const cliArgs = [
           CLI_ENTRY,
           '-p',
