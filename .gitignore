@@ -12,7 +12,8 @@ tmp/
 .npmrc
 .codegraph/
 .mimosa/
-.moss/
+.moss/*
+!.moss/skills/
 .moss-fresh-audit/
 CLAUDE.md
 TEST_REPORT-*.md
@@ -26,6 +27,7 @@ scratch/
 
 # benchmark run artifacts (jsonl transcripts + summaries) — never commit
 bench/results/
+bench/.cache/
 
 # Qoder IDE session artifacts
 .qoder/

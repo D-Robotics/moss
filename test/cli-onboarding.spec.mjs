@@ -52,7 +52,7 @@ import {
   const help = renderCliInteractiveHelp();
   assert.ok(typeof help === 'string' && help.length > 0, '/help output is non-empty');
   assert.ok(help.includes('/help'), '/help output mentions the /help command itself');
-  assert.ok(help.includes('/clear'), '/help output includes /clear');
+  assert.ok(help.includes('/compact'), '/help output includes /compact');
   assert.ok(help.includes('/model'), '/help output includes /model');
   assert.ok(help.includes('/sessions'), '/help output includes /sessions');
   assert.ok(help.includes('Ctrl+C'), '/help output mentions how to exit');

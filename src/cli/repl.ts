@@ -4,6 +4,7 @@ import type { MossAgent } from '../core/index.js';
 import { setCliApprovalAsker } from './approval.js';
 import { handleCompactCommand } from './compact-command.js';
 import { resolveLoopMaxIterations } from './loop-tui-events.js';
+import { parseGoalCommandLine } from '../core/loop/goal-loop.js';
 import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
 import { loadCustomCommands, reservedBuiltinNames } from './commands/custom-commands.js';
 import { INTERACTIVE_COMPLETION_COMMANDS } from './interactive-commands.js';
@@ -278,10 +279,17 @@ export async function runInteractive(
         const submitText: string | null = pendingSubmit;
         if (submitText) {
           checkpointStore.open(`custom: ${String(submitText).slice(0, 60)}`);
-          await runOneShot(agent, String(submitText), {
+          const stop = await runOneShot(agent, String(submitText), {
             sessionKey,
             onAgentEvent: (event) => usage.record(event),
           });
+          if (stop?.blocked) {
+            await runOneShot(
+              agent,
+              `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`,
+              { sessionKey, onAgentEvent: (event) => usage.record(event) }
+            );
+          }
         }
         rl.prompt();
         if (pendingPrefill) rl.write(pendingPrefill);
@@ -478,9 +486,14 @@ export async function runInteractive(
       continue;
     }
 
-    if (msg === '/loop stop' || msg === '/loop abort') {
+    if (
+      msg === '/loop stop' ||
+      msg === '/loop abort' ||
+      msg === '/goal stop' ||
+      msg === '/goal abort'
+    ) {
       if (!activeLoopScheduler) {
-        process.stderr.write('No /loop is running.\n');
+        process.stderr.write('No /loop or /goal is running.\n');
       } else {
         activeLoopScheduler.abort();
         activeLoopScheduler = null;
@@ -490,7 +503,7 @@ export async function runInteractive(
       rl.prompt();
       continue;
     }
-    if (msg === '/loop resume') {
+    if (msg === '/loop resume' || msg === '/goal resume') {
       if (activeLoopScheduler) {
         process.stderr.write('A /loop is already running. Use /loop stop first.\n');
         rl.prompt();
@@ -513,6 +526,42 @@ export async function runInteractive(
         continue;
       }
       wireLoopScheduler(restored, 'resumed');
+      rl.prompt();
+      continue;
+    }
+
+    // v0.15 goal mode: same autonomous engine as /loop, plus an acceptance
+    // gate — the loop only completes when the verification command exits 0.
+    if (msg.startsWith('/goal ')) {
+      const parsed = parseGoalCommandLine(msg.slice('/goal '.length));
+      if (!parsed) {
+        process.stderr.write(
+          'Usage: /goal <goal> [--accept "<verification command>"] — run autonomously until the acceptance command exits 0. /goal stop aborts.\n'
+        );
+        rl.prompt();
+        continue;
+      }
+      if (activeLoopScheduler) {
+        process.stderr.write('A /loop or /goal is already running. Use /loop stop first.\n');
+        rl.prompt();
+        continue;
+      }
+      const maxIterations = resolveLoopMaxIterations(process.env, true);
+      const sched = new LoopScheduler(agent, {
+        prompt: parsed.goal,
+        intervalMs: 0,
+        maxIterations,
+        sessionKey: 'goal',
+        compactBetweenIterations: true,
+        journal: true,
+        autonomous: true,
+        ...(parsed.acceptance ? { acceptance: parsed.acceptance } : {}),
+        onIterationEvent: (() => {
+          const renderer = createCliRunRenderer({ workspaceDir: workspace });
+          return renderer.handle.bind(renderer);
+        })(),
+      });
+      wireLoopScheduler(sched, 'started');
       rl.prompt();
       continue;
     }
@@ -566,7 +615,19 @@ export async function runInteractive(
     }
 
     checkpointStore.open(msg.slice(0, 60));
-    await runOneShot(agent, msg, { sessionKey, onAgentEvent: (event) => usage.record(event) });
+    const stop = await runOneShot(agent, msg, {
+      sessionKey,
+      onAgentEvent: (event) => usage.record(event),
+    });
+    if (stop?.blocked) {
+      // Stop hook vetoed the run ending: one forced continuation turn, then
+      // the veto is consumed (a hook that keeps blocking would loop forever).
+      await runOneShot(
+        agent,
+        `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`,
+        { sessionKey, onAgentEvent: (event) => usage.record(event) }
+      );
+    }
     rl.prompt();
   }
 

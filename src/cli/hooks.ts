@@ -1,6 +1,7 @@
 import type { ToolApprovalRequest, ToolApprovalDecision } from '../core/agent/agent-hooks.js';
 import type { ToolCall, ToolResult } from '../core/tools/tool-types.js';
 import type { HooksConfig, HookCommandConfig } from './config.js';
+import { CompactHookRegistry } from '../core/loop/compact-hooks.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { errorMessage } from '../errors.js';
 import { ProcessError, runProcess } from '../utils/run-process.js';
@@ -15,11 +16,35 @@ interface HookRunResult {
 }
 
 interface HookPayload {
-  event: 'PreToolUse' | 'PostToolUse' | 'SessionStart';
+  event:
+    | 'PreToolUse'
+    | 'PostToolUse'
+    | 'SessionStart'
+    | 'Stop'
+    | 'SubagentStop'
+    | 'PreCompact'
+    | 'PostCompact'
+    | 'SessionEnd'
+    | 'Notification';
   toolName?: string;
   input?: Record<string, unknown>;
   result?: string;
   isError?: boolean;
+  /** Stop hook: the run's stop subtype (e.g. end_turn, error_budget_exceeded). */
+  stopReason?: string;
+  /** Stop hook: tail of the final response. */
+  response?: string;
+  /** SubagentStop hook fields. */
+  goal?: string;
+  success?: boolean;
+  summary?: string;
+  /** Compact hook fields. */
+  compactReason?: string;
+  summaryChars?: number;
+  droppedMessages?: number;
+  /** Notification hook fields. */
+  notificationReason?: string;
+  message?: string;
 }
 
 function runHookCommand(
@@ -78,6 +103,23 @@ export interface ConfiguredHookCallbacks {
 
   runSessionStart: () => Promise<void>;
 
+  /** Stop lifecycle hook: a blocking non-zero exit vetoes the run's stop. */
+  runStop: (info: StopHookInfo) => Promise<StopHookResult>;
+
+  runSubagentStop: (info: SubagentStopHookInfo) => Promise<void>;
+
+  /** SessionEnd: fires once when the CLI session is shutting down. */
+  runSessionEnd: (info: { reason: string }) => Promise<void>;
+
+  /** Notification: fires when user attention is needed (approval prompt). */
+  runNotification: (info: { reason: string; message: string }) => Promise<void>;
+
+  /**
+   * PreCompact/PostCompact shell hooks wrapped in the core CompactHookRegistry,
+   * ready to hand to MossAgentConfig.compactHooks.
+   */
+  buildCompactHookRegistry: () => CompactHookRegistry | undefined;
+
   hasHooks: boolean;
 }
 
@@ -88,6 +130,12 @@ export function createConfiguredHookCallbacks(
   const pre = hooks?.PreToolUse ?? [];
   const post = hooks?.PostToolUse ?? [];
   const sessionStart = hooks?.SessionStart ?? [];
+  const stop = hooks?.Stop ?? [];
+  const subagentStop = hooks?.SubagentStop ?? [];
+  const preCompact = hooks?.PreCompact ?? [];
+  const postCompact = hooks?.PostCompact ?? [];
+  const sessionEnd = hooks?.SessionEnd ?? [];
+  const notification = hooks?.Notification ?? [];
   const cwd = opts.workspaceDir;
 
   const onBeforeToolExec =
@@ -158,10 +206,216 @@ export function createConfiguredHookCallbacks(
     }
   };
 
+  const runStop = async (info: StopHookInfo): Promise<StopHookResult> => {
+    for (const hook of stop) {
+      const r = await runHookCommand(
+        hook.command,
+        {
+          event: 'Stop',
+          stopReason: info.stopReason,
+          ...(info.response ? { response: info.response.slice(-4000) } : {}),
+        },
+        cwd,
+        timeoutFor(hook)
+      );
+      if (hook.blocking !== false && r.exitCode !== 0) {
+        const reason = (r.stderr || r.stdout || `hook exited ${r.exitCode}`).trim().slice(0, 500);
+        return { blocked: true, reason: `Blocked by Stop hook: ${reason}` };
+      }
+      if (r.exitCode !== 0) {
+        process.stderr.write(
+          `[hooks] Stop exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
+        );
+      }
+    }
+    return { blocked: false };
+  };
+
+  const runSubagentStop = async (info: SubagentStopHookInfo): Promise<void> => {
+    for (const hook of subagentStop) {
+      const r = await runHookCommand(
+        hook.command,
+        {
+          event: 'SubagentStop',
+          goal: info.goal,
+          success: info.success,
+          ...(info.summary ? { summary: info.summary.slice(0, 4000) } : {}),
+        },
+        cwd,
+        timeoutFor(hook)
+      );
+      if (r.exitCode !== 0) {
+        process.stderr.write(
+          `[hooks] SubagentStop exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
+        );
+      }
+    }
+  };
+
+  const buildCompactHookRegistry = (): CompactHookRegistry | undefined => {
+    if (preCompact.length + postCompact.length === 0) return undefined;
+    const registry = new CompactHookRegistry();
+    for (const hook of preCompact) {
+      registry.registerPre(async (ctx) => {
+        const r = await runHookCommand(
+          hook.command,
+          {
+            event: 'PreCompact',
+            compactReason: ctx.reason,
+            droppedMessages: ctx.messages.length,
+          },
+          cwd,
+          timeoutFor(hook)
+        );
+        if (r.exitCode !== 0) {
+          process.stderr.write(
+            `[hooks] PreCompact exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
+          );
+        }
+      });
+    }
+    for (const hook of postCompact) {
+      registry.registerPost(async (ctx) => {
+        const r = await runHookCommand(
+          hook.command,
+          {
+            event: 'PostCompact',
+            compactReason: ctx.reason,
+            summaryChars: ctx.summaryChars,
+            droppedMessages: ctx.droppedMessages,
+            success: ctx.success,
+          },
+          cwd,
+          timeoutFor(hook)
+        );
+        if (r.exitCode !== 0) {
+          process.stderr.write(
+            `[hooks] PostCompact exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
+          );
+        }
+      });
+    }
+    return registry;
+  };
+
+  const runSessionEnd = async (info: { reason: string }): Promise<void> => {
+    for (const hook of sessionEnd) {
+      const r = await runHookCommand(
+        hook.command,
+        { event: 'SessionEnd', notificationReason: info.reason },
+        cwd,
+        timeoutFor(hook)
+      );
+      if (r.exitCode !== 0) {
+        process.stderr.write(
+          `[hooks] SessionEnd exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
+        );
+      }
+    }
+  };
+
+  const runNotification = async (info: { reason: string; message: string }): Promise<void> => {
+    for (const hook of notification) {
+      const r = await runHookCommand(
+        hook.command,
+        {
+          event: 'Notification',
+          notificationReason: info.reason,
+          message: info.message.slice(0, 500),
+        },
+        cwd,
+        timeoutFor(hook)
+      );
+      if (r.exitCode !== 0) {
+        process.stderr.write(
+          `[hooks] Notification exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
+        );
+      }
+    }
+  };
+
   return {
     onBeforeToolExec,
     onToolResult,
     runSessionStart,
-    hasHooks: pre.length + post.length + sessionStart.length > 0,
+    runStop,
+    runSubagentStop,
+    runSessionEnd,
+    runNotification,
+    buildCompactHookRegistry,
+    hasHooks:
+      pre.length +
+        post.length +
+        sessionStart.length +
+        stop.length +
+        subagentStop.length +
+        preCompact.length +
+        postCompact.length +
+        sessionEnd.length +
+        notification.length >
+      0,
   };
+}
+
+// ── Lifecycle hook runner (module singleton, mirrors setCliApprovalAsker) ───
+// Core/loop code that finishes a run without access to CLI wiring fires these;
+// cli-main installs the real runner at startup. Without a runner everything is
+// a no-op, so SDK hosts are unaffected.
+
+export interface StopHookInfo {
+  sessionKey: string;
+  stopReason?: string;
+  response?: string;
+}
+
+export interface StopHookResult {
+  blocked: boolean;
+  reason?: string;
+}
+
+export interface SubagentStopHookInfo {
+  sessionKey: string;
+  goal: string;
+  success: boolean;
+  summary?: string;
+}
+
+interface LifecycleHookRunner {
+  runStop(info: StopHookInfo): Promise<StopHookResult>;
+  runSubagentStop(info: SubagentStopHookInfo): Promise<void>;
+  runNotification?: (info: { reason: string; message: string }) => Promise<void>;
+}
+
+let lifecycleRunner: LifecycleHookRunner | undefined;
+
+export function setLifecycleHookRunner(runner?: LifecycleHookRunner): void {
+  lifecycleRunner = runner;
+}
+
+export async function runStopHooks(info: StopHookInfo): Promise<StopHookResult> {
+  try {
+    return (await lifecycleRunner?.runStop(info)) ?? { blocked: false };
+  } catch (err) {
+    process.stderr.write(`[hooks] Stop hook failed: ${errorMessage(err)}\n`);
+    return { blocked: false };
+  }
+}
+
+export async function runNotificationHooks(info: {
+  reason: string;
+  message: string;
+}): Promise<void> {
+  try {
+    await lifecycleRunner?.runNotification?.(info);
+  } catch (err) {
+    process.stderr.write(`[hooks] Notification hook failed: ${errorMessage(err)}\n`);
+  }
+}
+
+export async function runSubagentStopHooks(info: SubagentStopHookInfo): Promise<void> {
+  try {
+    await lifecycleRunner?.runSubagentStop(info);
+  } catch (err) {
+    process.stderr.write(`[hooks] SubagentStop hook failed: ${errorMessage(err)}\n`);
+  }
 }

@@ -11,6 +11,7 @@ import { buildApprovalDetailLines, type ApprovalDetailContext } from './approval
 import { getCliInteractionMode, type CliInteractionMode } from './interaction-mode.js';
 import { setUserQuestionAsker } from '../core/tools/user-question-asker.js';
 import type { CliDetailMode } from './output.js';
+import { runNotificationHooks } from './hooks.js';
 
 export {
   formatCliInteractionModeLabel,
@@ -81,6 +82,11 @@ export interface CliToolApprovalPreview {
 export function setCliApprovalAsker(asker: AskUser | null): void {
   interactiveAsker = asker;
   syncUserQuestionAskerPort();
+}
+
+/** @internal Test hook: the currently registered interactive asker (TUI specs). */
+export function getCliApprovalAskerForTest(): AskUser | null {
+  return interactiveAsker;
 }
 
 /** Mirror the effective asker into the core port so tools resolve it without
@@ -701,6 +707,9 @@ export function describeCliToolApproval(
 
 async function defaultAskUser(question: string, abortSignal?: AbortSignal): Promise<string> {
   if (!process.stdin.isTTY) return '';
+  // Attention needed: fire the Notification lifecycle hook (terminal bell,
+  // desktop notify, etc.) before blocking on the prompt.
+  void runNotificationHooks({ reason: 'approval_required', message: question.slice(0, 200) });
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
     const finish = (answer: string) => {

@@ -3,7 +3,6 @@
  * now split into focused sibling modules:
  *
  *   - `terminal-text.ts`      — ANSI/control-char sanitizers, visible/truncated text
- *   - `input-queue.ts`        — queued-input model, drain gate, queue messages
  *   - `repl-process.ts`       — local `!` shell execution and process-tree kill
  *   - `resume-replay.ts`      — transcript rows replayed after `/resume`
  *   - `transcript-types.ts`   — transcript/activity/picker state types + id factory
@@ -21,7 +20,6 @@
  */
 
 export * from './terminal-text.js';
-export * from './input-queue.js';
 export * from './repl-process.js';
 export * from './resume-replay.js';
 export * from './transcript-types.js';

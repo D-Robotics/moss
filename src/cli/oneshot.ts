@@ -24,6 +24,8 @@ import {
 } from './print.js';
 import { createCliSessionKey } from './session.js';
 import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
+import { runStopHooks, type StopHookResult } from './hooks.js';
+import { runProcess } from '../utils/run-process.js';
 
 /** Format the oneshot exit warning when background work outlives the wait window. */
 export function formatOneshotStillRunningBackgroundNotice(
@@ -64,6 +66,8 @@ export interface RunOneShotOptions {
   abortSignal?: AbortSignal;
   /** Host tap for agent stream events (REPL usage accumulation, etc.). */
   onAgentEvent?: (event: MossAgentEvent) => void;
+  /** Internal: continuation depth of the headless goal-verify loop. */
+  goalVerifyDepth?: number;
 }
 
 const BRIEF_ONE_SHOT_MAX_TURNS = 6;
@@ -366,7 +370,7 @@ export async function runOneShot(
   agent: MossAgent,
   message: string,
   options: RunOneShotOptions = {}
-) {
+): Promise<StopHookResult> {
   const sessionKey = options.sessionKey || createCliSessionKey();
   const outputFormat = options.outputFormat || 'text';
   const stdout = options.stdout ?? process.stdout;
@@ -573,5 +577,69 @@ export async function runOneShot(
     } catch {
       /* ignore */
     }
+  }
+
+  // Headless goal-verify loop (MOSS_GOAL_VERIFY_LOOP=1): the headless
+  // counterpart of `/goal --accept`. After the primary run, execute
+  // MOSS_GOAL_VERIFY_CMD; a non-zero exit triggers ONE continuation turn
+  // carrying the failure evidence.
+  const verifyDepth = options.goalVerifyDepth ?? 0;
+  if (
+    process.env.MOSS_GOAL_VERIFY_LOOP === '1' &&
+    process.env.MOSS_GOAL_VERIFY_CMD &&
+    verifyDepth < 1
+  ) {
+    try {
+      const shell = process.platform === 'win32' ? (process.env.COMSPEC ?? 'cmd.exe') : 'bash';
+      const shellArgs =
+        process.platform === 'win32'
+          ? ['/d', '/s', '/c', process.env.MOSS_GOAL_VERIFY_CMD]
+          : ['-lc', process.env.MOSS_GOAL_VERIFY_CMD];
+      const verify = await runProcess(shell, {
+        args: shellArgs,
+        cwd: workspaceDir,
+        timeout: 5 * 60_000,
+      });
+      if (verify.exitCode !== 0) {
+        const tail = `${verify.stdout}\n${verify.stderr}`.trim().slice(-2000);
+        process.stderr.write(
+          `[goal-verify] command failed (exit ${verify.exitCode}); running one continuation turn\n`
+        );
+        return runOneShot(
+          agent,
+          [
+            `[verification failed] The verification command exited ${verify.exitCode}.`,
+            'Fix the underlying cause — do not work around or edit the verification command.',
+            '',
+            'Last output (tail):',
+            tail || '(no output)',
+            '',
+            'Complete the original task so the verification passes.',
+          ].join('\n'),
+          { ...options, goalVerifyDepth: verifyDepth + 1 }
+        );
+      }
+    } catch {
+      /* verification infrastructure failures never break the run */
+    }
+  }
+
+  // Stop lifecycle hook: fires after every completed run. A blocking non-zero
+  // exit vetoes the stop — the REPL turns that into one forced continuation
+  // turn; headless reports it on stderr.
+  try {
+    const stop = await runStopHooks({
+      sessionKey,
+      ...(finalResult?.subtype !== undefined ? { stopReason: String(finalResult.subtype) } : {}),
+      ...(typeof finalResult?.result === 'string' ? { response: finalResult.result } : {}),
+    });
+    if (stop.blocked) {
+      process.stderr.write(
+        `[hooks] ${stop.reason ?? 'Stop hook blocked the run ending.'} (headless mode reports but does not force-continue)\n`
+      );
+    }
+    return stop;
+  } catch {
+    return { blocked: false };
   }
 }

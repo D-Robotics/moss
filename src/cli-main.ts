@@ -1,6 +1,7 @@
 // Moss Agent CLI main — see --help for usage, config, and environment variables.
 
 import fs from 'node:fs';
+import path from 'node:path';
 import { configureWindowsUtf8Console } from './utils/run-process.js';
 import { errorMessage } from './errors.js';
 import { exitCodeForError, ExitCode } from './cli/exit-codes.js';
@@ -23,7 +24,7 @@ import {
 import { parseCliArgs } from './cli/args.js';
 import { displayHelp, displayVersion } from './cli/help.js';
 import { createConfiguredGuardrailHooks } from './cli/guardrails.js';
-import { createConfiguredHookCallbacks } from './cli/hooks.js';
+import { createConfiguredHookCallbacks, setLifecycleHookRunner } from './cli/hooks.js';
 import { resolveSoulIdentity } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
 import { createCliProvider } from './cli/providers.js';
@@ -46,7 +47,12 @@ import { configureRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
 import { registerBuiltinTools } from './tools/builtin.js';
 import { loadFileBasedTools } from './tools/file-based-tools.js';
+import { loadMcpConfigs } from './cli/mcp-config.js';
+import { McpToolRegistry, buildMcpPromptLayer } from './core/mcp/registry.js';
 import { createWebSearchTool } from './tools/web-search.js';
+import { createWebFetchTool } from './tools/web-fetch.js';
+import { loadSkills, buildSkillsPromptLayer } from './core/skills/skill-registry.js';
+import { createSkillTool } from './tools/skill-tool.js';
 import {
   runRegistryCommand,
   unknownSlashCommandLines,
@@ -70,6 +76,7 @@ import type {
 import {
   CliPhase,
   getPhaseForCommand,
+  isUnimplementedCommand,
   getCommandConfig,
   type CommandContext,
 } from './cli/command-dispatcher.js';
@@ -251,6 +258,15 @@ async function main() {
   // Determine the initialization phase needed for this command
   const requiredPhase = getPhaseForCommand(parsedArgs.command);
   const commandConfig = getCommandConfig(parsedArgs.command);
+
+  // Known-but-unimplemented subcommands must hard-fail instead of silently
+  // falling through into chat.
+  if (isUnimplementedCommand(parsedArgs.command)) {
+    console.error(
+      `moss: "${parsedArgs.command}" is not implemented in this build — the subsystem was removed. Run "moss --help" for available commands.`
+    );
+    process.exit(ExitCode.USAGE);
+  }
 
   // CliPhase.None: no initialization needed (e.g., setup, --help, --version)
   if (requiredPhase === CliPhase.None && commandConfig) {
@@ -502,6 +518,14 @@ async function main() {
   const configuredHooks = createConfiguredHookCallbacks(loadedConfig.config.hooks, {
     workspaceDir: workspace,
   });
+  // Lifecycle shell hooks (Stop / SubagentStop) fire from shared run paths
+  // that have no access to this wiring — install them as the module runner.
+  setLifecycleHookRunner({
+    runStop: (info) => configuredHooks.runStop(info),
+    runSubagentStop: (info) => configuredHooks.runSubagentStop(info),
+    runNotification: (info) => configuredHooks.runNotification(info),
+  });
+  const compactHookRegistry = configuredHooks.buildCompactHookRegistry();
   // The live runtime object mutates in place as in-session commands run; the
   // approval hook closes over getters so it observes those changes live.
   const liveRuntime: CliRuntimeStatus = {};
@@ -562,6 +586,8 @@ async function main() {
     ...(bestOfN ? { bestOfN } : {}),
     ...(reasoningBudget ? { reasoningBudget } : {}),
     ...(modelTiers ? { modelTiers } : {}),
+    ...(compactHookRegistry ? { compactHooks: compactHookRegistry } : {}),
+    subagentStopHook: (info) => configuredHooks.runSubagentStop(info),
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
     baseSystemPrompt: resolveSoulIdentity({
@@ -594,10 +620,60 @@ async function main() {
     hooks,
   });
   await registerBuiltinTools(agent);
+  // v0.16 MCP client: connect servers declared in `.moss/mcp.json` /
+  // `<configDir>/mcp.json` (credentials only via ${ENV_VAR} expansion).
+  // Zero-config = zero overhead (nothing spawns, nothing enters the prompt);
+  // a failing server degrades to a warning and never blocks the CLI.
+  let mcpRegistry: McpToolRegistry | null = null;
+  const mcpConfigs = loadMcpConfigs(workspace, configDir, process.env, (warning) =>
+    console.error(warning)
+  );
+  if (mcpConfigs.length > 0) {
+    try {
+      mcpRegistry = await McpToolRegistry.connectAll(mcpConfigs, {
+        // Real MCP tools register on demand: the search meta-tool installs
+        // them into the live registry when the model asks for a server's list.
+        registerTool: (tool) => agent.tools.register(tool),
+      });
+      for (const searchTool of mcpRegistry.getTools()) agent.tools.register(searchTool);
+      for (const status of mcpRegistry.getStatuses()) {
+        if (status.state === 'failed') {
+          console.error(
+            `[mcp] server "${status.name}" unavailable: ${status.error} — its tools are disabled for this session.`
+          );
+        } else if (status.state === 'connected' && cliDetailForNotices !== 'quiet') {
+          console.error(
+            `[mcp] server "${status.name}" connected (${status.toolCount ?? 0} tools, lazy-loaded — search with mcp__${status.name.replace(/[^a-zA-Z0-9_-]/g, '_')}__search)`
+          );
+        }
+      }
+      // Lazy-loading budget: the system prompt gets one index line per server,
+      // never the tool list itself.
+      const mcpLayer = buildMcpPromptLayer(mcpRegistry);
+      if (mcpLayer) extraPromptLayers.push(mcpLayer);
+    } catch (err) {
+      console.error(`[mcp] initialization failed: ${errorMessage(err)}`);
+      mcpRegistry = null;
+    }
+  }
   // File-based custom tools from .moss/tools/*.tool.json — the lightweight
   // path for users who want a named, schema-validated tool without a host
   // extension module.
   for (const tool of loadFileBasedTools(workspace)) agent.tools.register(tool);
+  // v0.16 skills: SKILL.md files from `.moss/skills/` (workspace) and
+  // `<configDir>/skills/` (user). Progressive disclosure — only the index
+  // enters the system prompt; bodies load through the readonly skill tool.
+  {
+    const skills = loadSkills([
+      path.join(workspace, '.moss', 'skills'),
+      path.join(configDir, 'skills'),
+    ]);
+    if (skills.length > 0) {
+      agent.tools.register(createSkillTool(skills));
+      const layer = buildSkillsPromptLayer(skills);
+      if (layer) extraPromptLayers.push(layer);
+    }
+  }
   // Answers model-identity questions from the gateway and tracks later context-window probes.
   agent.tools.replace(
     createModelInfoTool({
@@ -619,6 +695,19 @@ async function main() {
   // so the builtin web_search registered above is replaced by the localized one.
   if (searchRegion) {
     agent.tools.replace(createWebSearchTool({ region: searchRegion }));
+  }
+  // v0.16 net egress policy: `net.allowHosts` (config) plus
+  // MOSS_NET_ALLOW_HOSTS (comma list, env) constrain web_fetch at request
+  // time AND after redirects (the tool enforces both).
+  {
+    const envHosts = (process.env.MOSS_NET_ALLOW_HOSTS ?? '')
+      .split(',')
+      .map((h) => h.trim())
+      .filter(Boolean);
+    const allowHosts = [...(loadedConfig.config.net?.allowHosts ?? []), ...envHosts];
+    if (allowHosts.length > 0) {
+      agent.tools.replace(createWebFetchTool({ allowHosts }));
+    }
   }
   try {
     // Startup context-window probe: if the user didn't explicitly set
@@ -864,10 +953,102 @@ async function main() {
       sessionKey: session.sessionKey,
       config: resolvedConfig,
     });
-    await runInteractive(agent, liveRuntime, { sessionKey: session.sessionKey });
+    // v0.17: interactive TTY sessions get the full-screen TUI (ink); non-TTY
+    // pipes and MOSS_NO_TUI=1 keep the readline REPL. The TUI is dynamically
+    // imported so headless/SDK paths never load ink/react.
+    const useTui =
+      Boolean(process.stdout.isTTY) && process.env.MOSS_NO_TUI !== '1' && !parsedArgs.print;
+    if (useTui) {
+      const { runTuiApp } = await import('./cli/tui/app.js');
+      const { FileCheckpointStore, checkpointTargetPaths } =
+        await import('./cli/file-checkpoint.js');
+      const runtimeDirForTui = runtimeDir ?? path.join(workspace, '.moss', 'runtime');
+      const checkpointStore = new FileCheckpointStore({
+        runtimeDir: runtimeDirForTui,
+        sessionKey: session.sessionKey,
+      });
+      const parsePatchPaths = (patch: string): string[] => {
+        const out: string[] = [];
+        for (const m of patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm))
+          out.push(m[1].trim());
+        return out;
+      };
+      agent.registerPreToolHook({
+        name: 'tui-checkpoint',
+        priority: 5,
+        async check({ tool, input }) {
+          for (const p of checkpointTargetPaths(tool.name, input, workspace, parsePatchPaths)) {
+            checkpointStore.trackBeforeWrite(p);
+          }
+          return null;
+        },
+      });
+      agent.registerPostToolHook({
+        name: 'tui-checkpoint-after',
+        priority: 5,
+        async process({ tool, input }) {
+          for (const p of checkpointTargetPaths(tool.name, input, workspace, parsePatchPaths)) {
+            checkpointStore.noteAfterWrite(p);
+          }
+          return null;
+        },
+      });
+      await runTuiApp({
+        agent,
+        workspaceDir: workspace,
+        sessionKey: session.sessionKey,
+        model: typeof model === 'string' ? model : undefined,
+        listSessions: async () => {
+          const metas = await sessionStore.listSessions().catch(() => []);
+          return metas
+            .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+            .slice(0, 15)
+            .map((m) => ({
+              key: m.sessionKey,
+              ...(m.title ? { title: m.title } : {}),
+              ...(m.messageCount !== undefined ? { messageCount: m.messageCount } : {}),
+              ...(m.updatedAt !== undefined ? { updatedAt: m.updatedAt } : {}),
+              current: m.sessionKey === session.sessionKey,
+            }));
+        },
+        mcpServers: mcpRegistry
+          ? mcpRegistry.getStatuses().map((s) => ({
+              name: s.name,
+              state: s.state,
+              ...(s.toolCount !== undefined ? { toolCount: s.toolCount } : {}),
+              ...(s.error ? { error: s.error } : {}),
+            }))
+          : [],
+        rewindTo: (seq) => {
+          try {
+            const result = checkpointStore.rewindTo(seq);
+            return {
+              ok: true,
+              detail: `${result.restored.length} file(s) restored`,
+            };
+          } catch (err) {
+            return { ok: false, detail: errorMessage(err) };
+          }
+        },
+      });
+    } else {
+      await runInteractive(agent, liveRuntime, { sessionKey: session.sessionKey });
+    }
   } finally {
-    await agent.close();
-    await disconnectAllDevices();
+    try {
+      await agent.close();
+      await disconnectAllDevices();
+    } finally {
+      // Shut MCP server connections (stdio children) down after the agent is
+      // done — closeAll absorbs per-server errors internally.
+      await mcpRegistry?.closeAll();
+      // SessionEnd lifecycle hook: fires exactly once at CLI shutdown.
+      try {
+        await configuredHooks.runSessionEnd({ reason: 'cli_shutdown' });
+      } catch {
+        /* shutdown hooks never block exit */
+      }
+    }
   }
 }
 

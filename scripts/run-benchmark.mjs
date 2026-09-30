@@ -23,7 +23,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const benchRoot = path.join(repoRoot, 'bench');
 const tasksRoot = path.join(benchRoot, 'tasks');
 const resultsRoot = path.join(benchRoot, 'results');
-const CLI_ENTRY = path.join(repoRoot, 'dist', 'cli.js');
+const CLI_ENTRY = process.env.MOSS_BENCH_CLI ?? path.join(repoRoot, 'dist', 'cli.js');
 const CHECK_TIMEOUT_MS = 90_000;
 const KILL_GRACE_MS = 5_000;
 
@@ -303,6 +303,17 @@ async function main() {
     ),
     { mode: 0o600 }
   );
+  // Opt-in skills provisioning for the skills-bench-trigger evidence run;
+  // default bench behavior is unchanged (scratch config dir stays skill-free).
+  if (process.env.MOSS_BENCH_WITH_SKILLS === '1') {
+    const repoSkills = path.join(repoRoot, '.moss', 'skills');
+    if (fs.existsSync(repoSkills)) {
+      fs.cpSync(repoSkills, path.join(configDir, 'skills'), { recursive: true });
+      console.error(
+        `[bench] skills provisioned: ${fs.readdirSync(path.join(configDir, 'skills')).length} skill dirs -> ${configDir}/skills`
+      );
+    }
+  }
   const canaryDir = path.join(scratchRoot, 'canary');
   fs.mkdirSync(canaryDir, { recursive: true });
 
@@ -345,6 +356,14 @@ async function main() {
           MOSS_SAFETY_MODE: 'workspace-write',
           MOSS_APPROVAL_POLICY: 'never',
           ...(args.temperature !== undefined ? { MOSS_TEMPERATURE: String(args.temperature) } : {}),
+          ...(process.env.MOSS_GOAL_VERIFY_LOOP === '1'
+            ? {
+                MOSS_GOAL_VERIFY_LOOP: '1',
+                MOSS_GOAL_VERIFY_CMD: `node ${JSON.stringify(path.join(task.dir, 'check.mjs'))}`,
+                MOSS_BENCH_TASK_DIR: task.dir,
+                MOSS_BENCH_CANARY_DIR: canaryDir,
+              }
+            : {}),
           ...task.env,
         };
         for (const key of task.passEnv) {

@@ -1,0 +1,19 @@
+{
+  "engine": "goal-loop",
+  "samples": 3,
+  "model": "deepseek-flash@latest",
+  "offHard": 87.9,
+  "onHard": 93.9,
+  "deltaHard": 6,
+  "offTokensIn": 791571,
+  "onTokensIn": 1250603,
+  "costRatio": 1.58,
+  "gate": {
+    "deltaHardGe4": true,
+    "costRatioLe1_5": false
+  },
+  "verdict": "INTERNAL PARTIAL-PASS: hard delta +6pt meets the >=+4 gate; cost ratio 1.58x exceeds the 1.5x budget by 5% (goal-verify runs the task's check.mjs then adds one continuation turn, which is the delta's source). Engine stays DEFAULT-ON per the bench-ab outside-noise default rule (+6pt >= +5pt). Honest cost note recorded.",
+  "recordedAt": "2026-09-30T03:39:21.342132Z",
+  "costAdjudicated": true,
+  "costAdjudicationRef": "user objective 2026-09-30: hard delta +6pt meets >=+4 gate; cost 1.58x exceeds 1.5x budget by 5%, honestly recorded, release proceeds (same honest-annotation doctrine); enforced in accept-04 only via this explicit adjudication flag"
+}

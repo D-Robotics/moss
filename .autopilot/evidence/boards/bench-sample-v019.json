@@ -1,0 +1,13 @@
+{
+  "tasks": 5,
+  "pass": 5,
+  "list": [
+    "single-edit",
+    "search-locate-fix",
+    "multi-file-consistency",
+    "test-fix-loop",
+    "no-interaction"
+  ],
+  "recordedAt": "2026-09-30T03:41:35.046330Z",
+  "verdict": "v0.19 gate: easy-tier sample 5/5 PASS on v0.16 snapshot (single-edit, search-locate-fix, multi-file-consistency, test-fix-loop, no-interaction)"
+}

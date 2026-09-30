@@ -8,6 +8,13 @@ import type { LLMSystemPromptParts } from '../llm/llm-provider.js';
 import type { SubAgentConfig, SubAgentResult, SubAgentRunner } from './subagent-orchestrator.js';
 import { resolveSpawnToolSet, buildSubagentPromptAddon } from './spawn-profile.js';
 import type { SpawnProfileRegistry } from './spawn-profile.js';
+import {
+  createWorktree,
+  collectWorktreePatch,
+  cleanupWorktree,
+  type WorktreeLease,
+  type WorktreePatch,
+} from './worktree-isolation.js';
 import { runAgentLoop } from '../loop/agent-loop.js';
 import { getRootLogger } from '../../logger.js';
 import { errorMessage } from '../../errors.js';
@@ -41,9 +48,13 @@ function subtaskSummaryNeedsContractRepair(task: string, summary: string): boole
 }
 
 async function prepareWorkspaceDir(
-  parentWorkspaceDir: string
-): Promise<{ workspaceDir: string; isolated: boolean }> {
-  return { workspaceDir: path.resolve(parentWorkspaceDir), isolated: false };
+  parentWorkspaceDir: string,
+  config: SubAgentConfig
+): Promise<{ workspaceDir: string; isolated: boolean; lease?: WorktreeLease; parentDir: string }> {
+  const parent = path.resolve(parentWorkspaceDir);
+  if (!config.worktree) return { workspaceDir: parent, isolated: false, parentDir: parent };
+  const lease = await createWorktree({ parentWorkspace: parent, runId: config.runId });
+  return { workspaceDir: lease.worktreePath, isolated: true, lease, parentDir: parent };
 }
 
 export interface SubAgentRunnerDeps {
@@ -185,10 +196,14 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
 
     let workspaceDir: string;
     let isolated = false;
+    let worktreeLease: WorktreeLease | undefined;
+    let parentWorkspaceDir: string;
     {
-      const prepared = await prepareWorkspaceDir(deps.workspaceDir ?? process.cwd());
+      const prepared = await prepareWorkspaceDir(deps.workspaceDir ?? process.cwd(), config);
       workspaceDir = prepared.workspaceDir;
       isolated = prepared.isolated;
+      worktreeLease = prepared.lease;
+      parentWorkspaceDir = prepared.parentDir;
     }
     // Reserve the tail of every bounded child run for tool-free synthesis.
     // Without this, a diligent verifier can consume the entire wall-clock
@@ -415,13 +430,49 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         summaryPreview: finalSummary.slice(0, 240),
       });
 
+      // Worktree lease: collect the child's changes as a patch artifact and
+      // attach lease metadata so the parent can merge it (merge_subagent_patch).
+      let leasePatch: WorktreePatch | undefined;
+      if (worktreeLease) {
+        try {
+          leasePatch = await collectWorktreePatch({
+            parentWorkspace: parentWorkspaceDir,
+            lease: worktreeLease,
+          });
+          log.info('worktree lease collected', {
+            runId: childRunId,
+            leaseId: worktreeLease.leaseId,
+            changedPaths: leasePatch.changedPaths.length,
+            empty: leasePatch.empty,
+          });
+        } catch (err) {
+          log.warn('worktree patch collection failed', {
+            runId: childRunId,
+            error: errorMessage(err),
+          });
+        }
+      }
+
       return {
         runId: childRunId,
-        summary: finalSummary,
+        summary: worktreeLease
+          ? `${finalSummary}\n[worktree lease=${worktreeLease.leaseId} patch=${
+              leasePatch?.patchId ?? 'unavailable'
+            } changed=${leasePatch?.changedPaths.length ?? 0}]`
+          : finalSummary,
         toolResults: toolResultCount,
         turns: turnCount,
         durationMs: Date.now() - startedAt,
         success: true,
+        ...(worktreeLease ? { workspaceLeaseId: worktreeLease.leaseId } : {}),
+        ...(leasePatch
+          ? {
+              patchId: leasePatch.patchId,
+              patchRef: leasePatch.patchPath,
+              patchDigest: leasePatch.patchDigest,
+              changedPaths: leasePatch.changedPaths,
+            }
+          : {}),
       };
     } catch (err) {
       const errorMsg = errorMessage(err);
@@ -450,9 +501,14 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
     } finally {
       clearTimeout(workPhaseTimer);
       signal.removeEventListener('abort', abortWorkPhase);
-      // Implementation leases and failed verification leases are deliberately
-      // retained for recovery. Successful verification releases its disposable
-      // snapshot above; the parent orchestrator owns implementation merge/cleanup.
+      // The worktree itself is disposable once its patch artifact is collected
+      // (the parent merges from .moss/patches, not from the worktree).
+      if (worktreeLease) {
+        await cleanupWorktree({
+          parentWorkspace: parentWorkspaceDir,
+          worktreePath: worktreeLease.worktreePath,
+        });
+      }
       void isolated;
     }
   };

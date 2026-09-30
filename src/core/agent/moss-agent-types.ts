@@ -153,6 +153,15 @@ export interface MossAgentConfig
 
   compactHooks?: CompactHookRegistry;
 
+  /** Fired when a spawned sub-agent finishes (host wiring, e.g. CLI
+   *  SubagentStop shell hooks). Failures are absorbed by the caller. */
+  subagentStopHook?: (info: {
+    sessionKey: string;
+    goal: string;
+    success: boolean;
+    summary: string;
+  }) => Promise<void>;
+
   enableSteering?: boolean;
 
   replaceDefaultSteeringRules?: boolean;

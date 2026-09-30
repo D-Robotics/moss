@@ -1,0 +1,37 @@
+{
+  "label": "full-bench-v020",
+  "sha": "v016-snapshot(c8acc24d-era)",
+  "model": "deepseek-flash@latest",
+  "samples": 3,
+  "easy": 100,
+  "hardRaw": 87.9,
+  "hardRecheckCorrected": 90.9,
+  "hardR2": 90.9,
+  "hardNoiseBand": "87.9-90.9 across 4 same-snapshot runs (ab-off 11:17=87.9, full r1 11:42=87.9, recheck ~12:05=90.9, full r2 12:14=90.9); 1 hard run = 3.03pt",
+  "perRunFailingTasks": {
+    "ab-goal-loop-off-1790737295267": {
+      "hard-coupling-refactor": "1/3",
+      "hard-perf-regression": "1/3"
+    },
+    "full-bench-v020 (r1)": {
+      "hard-coupling-refactor": "2/3",
+      "hard-dependency-conflict": "2/3",
+      "hard-perf-regression": "1/3"
+    },
+    "recheck (~12:05)": { "hard-coupling-refactor": "2/3", "hard-perf-regression": "1/3" },
+    "full-bench-v020-r2 (12:14)": { "hard-coupling-refactor": "1/3", "hard-perf-regression": "2/3" }
+  },
+  "attribution": {
+    "hard-coupling-refactor": "consistent -1..-2 samples vs v0.13's 3/3 across 4 plain runs — the one real deficit candidate; the goal-verify engine recovers it to 3/3 (ab on-arm), i.e. acceptance-driven retry closes the gap",
+    "hard-dependency-conflict": "single-sample noise (3/3 in 3 of 4 runs)",
+    "hard-perf-regression": "identical to the v0.13 P4 baseline's own 1/3 (r2 saw 2/3) — known flaky, not a regression"
+  },
+  "gate": {
+    "easy100": true,
+    "hardGe93_9": false
+  },
+  "verdict": "v0.20 internal gate PARTIAL: easy 100 PASS; hard 90.9 (recheck-corrected and independently reproduced by r2; noise band 87.9-90.9) below the 93.9 bar by 3pt, driven by one borderline task (coupling-refactor). Per roadmap contingency, release proceeds with this honest annotation rather than blocking.",
+  "recordedAt": "2026-09-30T04:11:42.837887Z",
+  "amendedAt": "2026-09-30T04:38:00Z",
+  "amendment": "added r2 (goal-session 93951f1c) + noise-band consolidation; verdict unchanged"
+}

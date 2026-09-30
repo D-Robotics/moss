@@ -1,0 +1,23 @@
+{
+  "sourceLabel": "ab-model-routing-1790699398880",
+  "model": "deepseek-flash@latest (cheap) / deepseek-pro@latest (balanced)",
+  "samples": 3,
+  "cheap": {
+    "hard": 97,
+    "cost": 3125972
+  },
+  "balanced": {
+    "hard": 81.8,
+    "cost": 8971518
+  },
+  "routing": {
+    "hard": 90.9,
+    "cost": 2901136
+  },
+  "gate": {
+    "routingHardGeCheapPlus5": false,
+    "routingCostLe70pctOfBalanced": true
+  },
+  "verdict": "routing DEFAULT-OFF \u2014 Pareto hard gate failed (routing 90.9 < cheap 97 + 5); cost gate passed (routing cost <= 70% of balanced). Per v0.12 contingency: engine stays, default off, not blocking v0.13.0/v0.14.0.",
+  "recordedAt": "2026-09-29T17:47:47.981825Z"
+}

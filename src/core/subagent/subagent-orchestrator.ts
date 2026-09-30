@@ -13,6 +13,14 @@ export interface SubAgentConfig {
   /** Parent-relative paths that an implementation worker may modify. */
   writePaths?: readonly string[];
 
+  /**
+   * Run this writable sub-agent in an isolated git worktree detached at the
+   * parent's HEAD; changes come back as a lease patch the parent merges with
+   * `git apply --3way` (worktree-isolation.ts). Concurrent writers cannot
+   * stomp each other or the parent workspace.
+   */
+  worktree?: boolean;
+
   /** Optional exact host allowlist, always intersected with the selected scope. */
   allowedTools?: readonly string[];
 

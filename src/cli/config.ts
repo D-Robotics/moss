@@ -91,6 +91,8 @@ export interface ConfigFile {
   guardrails?: GuardrailsConfig;
   agent?: AgentRuntimeConfig;
   hooks?: HooksConfig;
+  /** Network egress policy for web tools (hostname allowlist). */
+  net?: { allowHosts?: string[] };
   _examples?: Record<string, unknown>;
 }
 
@@ -160,6 +162,24 @@ export interface HooksConfig {
   PostToolUse?: HookCommandConfig[];
 
   SessionStart?: HookCommandConfig[];
+
+  /** Fires after each completed agent run; a blocking non-zero exit vetoes the stop. */
+  Stop?: HookCommandConfig[];
+
+  /** Fires when a spawned subagent finishes its task. */
+  SubagentStop?: HookCommandConfig[];
+
+  /** Fires before a context compaction splices the transcript. */
+  PreCompact?: HookCommandConfig[];
+
+  /** Fires after a context compaction (success or failure). */
+  PostCompact?: HookCommandConfig[];
+
+  /** Fires once when the CLI session is shutting down. */
+  SessionEnd?: HookCommandConfig[];
+
+  /** Fires when user attention is needed (e.g. an approval prompt). */
+  Notification?: HookCommandConfig[];
 }
 
 export interface ResolvedTextGuardrailConfig {
