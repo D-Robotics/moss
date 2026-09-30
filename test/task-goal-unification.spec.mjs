@@ -53,13 +53,13 @@ test('acceptance pass mirrors acceptance_pass onto the bound task', async () => 
     autonomous: true,
     acceptance: { command: 'exit 0' },
     sessionKey: 'task-goal-unify-pass',
-    onAcceptanceVerdict: (result) => {
-      void emitAcceptanceLifecycle(
+    onAcceptanceVerdict: async (result) => {
+      await emitAcceptanceLifecycle(
         ws,
         contract.taskId,
         result.passed,
         result.passed ? 'goal acceptance command exited 0' : `exit ${result.exitCode}`
-      ).catch(() => undefined);
+      );
     },
   });
   await sched.start();
@@ -88,13 +88,8 @@ test('acceptance fail mirrors acceptance_fail → diagnosing; later pass → acc
     acceptance: {
       command: `sh -c "if [ -f ${marker} ]; then exit 0; else touch ${marker}; exit 1; fi"`,
     },
-    onAcceptanceVerdict: (result) => {
-      void emitAcceptanceLifecycle(
-        ws,
-        contract.taskId,
-        result.passed,
-        `exit ${result.exitCode}`
-      ).catch(() => undefined);
+    onAcceptanceVerdict: async (result) => {
+      await emitAcceptanceLifecycle(ws, contract.taskId, result.passed, `exit ${result.exitCode}`);
     },
   });
   await sched.start();

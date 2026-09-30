@@ -7,6 +7,7 @@ import { appendTaskRecord, listTaskRecords } from '../core/task-runtime/artifact
 import {
   appendTaskEvent,
   getTaskStateSnapshot,
+  listFailures,
   recordFailure,
   recordRepair,
   tryAppendTaskEvent,
@@ -320,6 +321,11 @@ export const recordFailureTool: Tool = {
         ? input.stage.trim()
         : (snapshot?.phase ?? 'executing')
     ) as 'executing';
+    // M12: idempotent per verification attempt — a repeated record_failure for
+    // the same attempt updates the existing record instead of stacking clones.
+    const existing = (await listFailures(ctx.workspaceDir, taskId)).find(
+      (failure) => failure.attempt === (snapshot?.attempt ?? 1) && !failure.resolved
+    );
     const failure = await recordFailure(ctx.workspaceDir, {
       taskId,
       stage,
@@ -330,6 +336,7 @@ export const recordFailureTool: Tool = {
       ...(input.root_cause ? { rootCause: String(input.root_cause) } : {}),
       ...(Array.isArray(input.evidence_ids) ? { evidenceIds: input.evidence_ids.map(String) } : {}),
       ...(input.failure_id ? { failureId: String(input.failure_id) } : {}),
+      ...(existing && !input.failure_id ? { failureId: existing.failureId } : {}),
     });
     await tryAppendTaskEvent(ctx.workspaceDir, taskId, 'diagnosis_recorded', {
       detail: symptom.slice(0, 200),

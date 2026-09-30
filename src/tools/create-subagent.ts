@@ -66,6 +66,24 @@ function snapshotProgressLines(snapshot: MossAsyncTaskSnapshot | undefined): str
   return lines.length > 0 ? lines : [];
 }
 
+/**
+ * Task OS §14: sub-agents share the live task context (goal/plan/acceptance/
+ * open failures) instead of working from an isolated prompt. No-op without a
+ * live task.
+ */
+async function withTaskContext(workspaceDir: string | undefined, task: string): Promise<string> {
+  if (!workspaceDir) return task;
+  try {
+    const { buildTaskContextBrief } = await import('../core/task/task-store.js');
+    const brief = await buildTaskContextBrief(workspaceDir);
+    if (!brief) return task;
+    if (!task) return brief;
+    return `${brief}\n\n---\n\n${task}`;
+  } catch {
+    return task;
+  }
+}
+
 function resolveSubagentTimeoutMs(timeoutMs: number | undefined): number {
   if (timeoutMs === undefined || !Number.isFinite(timeoutMs)) {
     return DEFAULT_SUBAGENT_TIMEOUT_MS;
@@ -196,6 +214,9 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       if (!ctx.asyncTaskRegistry) {
         return 'Error: background sub-agent tasks are not available in this context.';
       }
+      // Enrich BEFORE registry.start: awaiting inside the runner would delay
+      // the spawn past an already-aborted signal (listener never fires).
+      const backgroundTask = await withTaskContext(ctx.workspaceDir, input.task);
       const taskId = `${ctx.runId ?? ctx.sessionKey}/sub-${randomUUID().slice(0, 8)}`;
       const scope = selectedScope;
       const maxTurns = selectedMaxTurns;
@@ -237,7 +258,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
         },
         async (_request: MossAsyncTaskStartRequest, signal: AbortSignal) => {
           const result = await ctx.spawnSubagent?.({
-            task: input.task,
+            task: backgroundTask,
             ...(input.writePaths ? { writePaths: input.writePaths } : {}),
             ...(input.worktree ? { worktree: true } : {}),
             scope,
@@ -291,7 +312,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
     const scope = selectedScope;
     const maxTurns = selectedMaxTurns;
     const result = await ctx.spawnSubagent({
-      task: input.task,
+      task: await withTaskContext(ctx.workspaceDir, input.task),
       ...(input.writePaths ? { writePaths: input.writePaths } : {}),
       scope,
       maxTurns,
@@ -614,10 +635,12 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
       return `Error: full-scope fan-out task ${missingWritePathsIndex + 1} requires declared writePaths.`;
     }
 
+    // Shared task context once per batch (same live task for every fan-out).
+    const fanOutBrief = await withTaskContext(ctx.workspaceDir, '').catch(() => '');
     const settled = await Promise.allSettled(
       effectiveTasks.map((t, i) =>
         ctx.spawnSubagent!({
-          task: t.task,
+          task: fanOutBrief ? `${fanOutBrief}\n\n---\n\n${t.task}` : t.task,
           ...(t.writePaths ? { writePaths: t.writePaths } : {}),
           ...(t.worktree || (WORKTREE_ENV_DEFAULT && resolvedScopes[i] === 'full')
             ? { worktree: true }

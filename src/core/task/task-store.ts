@@ -346,6 +346,49 @@ export async function listTaskStateSnapshots(workspaceDir: string): Promise<Task
   return snapshots.filter((snapshot): snapshot is TaskStateSnapshot => snapshot !== null);
 }
 
+/**
+ * Compact live-task brief prepended to sub-agent prompts (§14: expert agents
+ * share the task context instead of working from an isolated prompt). Empty
+ * when no live task exists — sub-agents keep their bare task text.
+ */
+export async function buildTaskContextBrief(workspaceDir: string): Promise<string> {
+  const snapshot = await findLatestLiveTaskSnapshot(workspaceDir);
+  if (!snapshot) return '';
+  const lines = ['[Task context you are part of]', `goal: ${snapshot.goal}`];
+  if (snapshot.targetDeviceId) lines.push(`device: ${snapshot.targetDeviceId}`);
+  lines.push(`phase: ${snapshot.phase} · verification attempt ${snapshot.attempt}`);
+  if (snapshot.plan.length > 0) {
+    lines.push(
+      `plan: ${snapshot.plan
+        .map(
+          (step) =>
+            `${step.status === 'done' ? 'x' : step.status === 'in_progress' ? '>' : ' '}${step.title}`
+        )
+        .join(' | ')
+        .slice(0, 400)}`
+    );
+  }
+  if (snapshot.acceptanceCriteria.length > 0) {
+    lines.push(
+      `acceptance: ${snapshot.acceptanceCriteria
+        .map((c) => `${c.metric} ${c.expected}`)
+        .join('; ')
+        .slice(0, 300)}`
+    );
+  }
+  const open = snapshot.failures.filter((failure) => !failure.resolved);
+  if (open.length > 0) {
+    lines.push(
+      `open failures: ${open
+        .map((f) => f.symptom.slice(0, 80))
+        .join(' ; ')
+        .slice(0, 300)}`
+    );
+  }
+  lines.push(`task_id: ${snapshot.taskId} — link any record_evidence to it.`);
+  return lines.join('\n');
+}
+
 // --- timeline -----------------------------------------------------------------
 
 const TIMELINE_LABELS: Record<TaskEventType, string> = {
