@@ -40,12 +40,27 @@ const TRANSCRIPT_HEIGHT = 14;
 
 export const TUI_HELP_TEXT = [
   'moss TUI — keys: Enter send · Esc interrupt run (or discard staged paste) · PgUp/PgDn scroll',
-  'commands: /help · /quit (the full command surface lands with the v0.18 control plane)',
+  'commands: /help · /quit · /steer <c> · /queue [pause|resume|drop|clear] · /bg · /subs · /sessions · /mcp · /rewind [seq] · /usage',
 ].join('\n');
 
 export interface TuiReplayRow {
   kind: TranscriptRowKind;
   text: string;
+}
+
+export interface TuiSessionSummary {
+  key: string;
+  title?: string;
+  messageCount?: number;
+  updatedAt?: number;
+  current?: boolean;
+}
+
+export interface TuiMcpServerStatus {
+  name: string;
+  state: string;
+  toolCount?: number;
+  error?: string;
 }
 
 export interface TuiAppOptions {
@@ -55,6 +70,13 @@ export interface TuiAppOptions {
   model?: string;
   /** Transcript rows replayed on boot (resume). */
   replayRows?: TuiReplayRow[];
+  /** /sessions panel provider (host-side session store). */
+  listSessions?: () => Promise<TuiSessionSummary[]>;
+  /** /mcp panel data (host-side registry statuses). */
+  mcpServers?: TuiMcpServerStatus[];
+  /** File checkpoint restore for /rewind (host wires the checkpoint store). */
+  rewindTo?: (seq: number) => { ok: boolean; detail: string };
+  listCheckpoints?: () => Array<{ seq: number; label: string; files: number }>;
 }
 
 export function buildTuiHelpText(): string {
@@ -201,7 +223,7 @@ export function TuiAppRoot({
   }, [handle, runTurn, store]);
 
   const submit = useCallback(
-    (raw: string) => {
+    async (raw: string) => {
       const pending = pendingApprovalRef.current;
       if (pending) {
         pendingApprovalRef.current = null;
@@ -262,6 +284,94 @@ export function TuiAppRoot({
                 .map((p) => `#${p.id} ${p.command}${p.label ? ` (${p.label})` : ''}`)
                 .join('\n')
         );
+        handle.notify();
+        setInput('');
+        return;
+      }
+      if (text === '/sessions') {
+        const sessions = (await options.listSessions?.()) ?? [];
+        appendRow(
+          store,
+          'banner',
+          sessions.length === 0
+            ? 'No saved sessions.'
+            : `${sessions
+                .map(
+                  (x) =>
+                    `${x.current ? '*' : ' '} ${x.key}${x.title ? ` — ${x.title}` : ''}${
+                      x.messageCount !== undefined ? ` (${x.messageCount} messages)` : ''
+                    }`
+                )
+                .join(
+                  '\n'
+                )}\nSwitch or fork from the shell: moss resume --last / moss fork --fork-from <key>`
+        );
+        handle.notify();
+        setInput('');
+        return;
+      }
+      if (text === '/mcp') {
+        const servers = options.mcpServers ?? [];
+        appendRow(
+          store,
+          'banner',
+          servers.length === 0
+            ? 'No MCP servers configured (.moss/mcp.json).'
+            : servers
+                .map(
+                  (x) =>
+                    `${x.state === 'connected' ? '●' : '○'} ${x.name} — ${x.state}${
+                      x.toolCount !== undefined ? ` (${x.toolCount} tools, lazy)` : ''
+                    }${x.error ? `: ${x.error.slice(0, 80)}` : ''}`
+                )
+                .join('\n')
+        );
+        handle.notify();
+        setInput('');
+        return;
+      }
+      if (text === '/subs') {
+        const snaps = options.agent.asyncTasks?.list() ?? [];
+        appendRow(
+          store,
+          'banner',
+          snaps.length === 0
+            ? 'No sub-agent tasks.'
+            : snaps.map((t) => `#${t.taskId.slice(-6)} ${t.status}`).join('\n')
+        );
+        handle.notify();
+        setInput('');
+        return;
+      }
+      if (
+        text === '/rewind' ||
+        text === '/undo' ||
+        text.startsWith('/rewind ') ||
+        text.startsWith('/undo ')
+      ) {
+        const arg = text.split(' ')[1];
+        const checkpoints = options.listCheckpoints?.() ?? [];
+        if (!arg) {
+          appendRow(
+            store,
+            'banner',
+            checkpoints.length === 0
+              ? 'No checkpoints recorded yet.'
+              : `Checkpoints:\n${checkpoints
+                  .map((c) => `${c.seq}. ${c.label} (${c.files} files)`)
+                  .join('\n')}\n/rewind <seq> restores files.`
+          );
+        } else {
+          const seq = Number(arg);
+          const result = options.rewindTo?.(seq);
+          appendRow(
+            store,
+            'banner',
+            result?.ok
+              ? `Rewound to checkpoint ${seq}: ${result.detail}`
+              : (result?.detail ?? `Rewind to ${seq} failed.`)
+          );
+        }
         handle.notify();
         setInput('');
         return;
@@ -355,7 +465,7 @@ export function TuiAppRoot({
 
   useInput((chunk, key) => {
     if (key.return) {
-      submit(input);
+      void submit(input);
       return;
     }
     if (key.escape) {

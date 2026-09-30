@@ -950,11 +950,76 @@ async function main() {
       Boolean(process.stdout.isTTY) && process.env.MOSS_NO_TUI !== '1' && !parsedArgs.print;
     if (useTui) {
       const { runTuiApp } = await import('./cli/tui/app.js');
+      const { FileCheckpointStore, checkpointTargetPaths } =
+        await import('./cli/file-checkpoint.js');
+      const runtimeDirForTui = runtimeDir ?? path.join(workspace, '.moss', 'runtime');
+      const checkpointStore = new FileCheckpointStore({
+        runtimeDir: runtimeDirForTui,
+        sessionKey: session.sessionKey,
+      });
+      const parsePatchPaths = (patch: string): string[] => {
+        const out: string[] = [];
+        for (const m of patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm))
+          out.push(m[1].trim());
+        return out;
+      };
+      agent.registerPreToolHook({
+        name: 'tui-checkpoint',
+        priority: 5,
+        async check({ tool, input }) {
+          for (const p of checkpointTargetPaths(tool.name, input, workspace, parsePatchPaths)) {
+            checkpointStore.trackBeforeWrite(p);
+          }
+          return null;
+        },
+      });
+      agent.registerPostToolHook({
+        name: 'tui-checkpoint-after',
+        priority: 5,
+        async process({ tool, input }) {
+          for (const p of checkpointTargetPaths(tool.name, input, workspace, parsePatchPaths)) {
+            checkpointStore.noteAfterWrite(p);
+          }
+          return null;
+        },
+      });
       await runTuiApp({
         agent,
         workspaceDir: workspace,
         sessionKey: session.sessionKey,
         model: typeof model === 'string' ? model : undefined,
+        listSessions: async () => {
+          const metas = await sessionStore.listSessions().catch(() => []);
+          return metas
+            .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+            .slice(0, 15)
+            .map((m) => ({
+              key: m.sessionKey,
+              ...(m.title ? { title: m.title } : {}),
+              ...(m.messageCount !== undefined ? { messageCount: m.messageCount } : {}),
+              ...(m.updatedAt !== undefined ? { updatedAt: m.updatedAt } : {}),
+              current: m.sessionKey === session.sessionKey,
+            }));
+        },
+        mcpServers: mcpRegistry
+          ? mcpRegistry.getStatuses().map((s) => ({
+              name: s.name,
+              state: s.state,
+              ...(s.toolCount !== undefined ? { toolCount: s.toolCount } : {}),
+              ...(s.error ? { error: s.error } : {}),
+            }))
+          : [],
+        rewindTo: (seq) => {
+          try {
+            const result = checkpointStore.rewindTo(seq);
+            return {
+              ok: true,
+              detail: `${result.restored.length} file(s) restored`,
+            };
+          } catch (err) {
+            return { ok: false, detail: errorMessage(err) };
+          }
+        },
       });
     } else {
       await runInteractive(agent, liveRuntime, { sessionKey: session.sessionKey });
