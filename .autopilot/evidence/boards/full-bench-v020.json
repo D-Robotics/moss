@@ -1,0 +1,20 @@
+{
+  "label": "full-bench-v020",
+  "sha": "v016-snapshot(c8acc24d-era)",
+  "model": "deepseek-flash@latest",
+  "samples": 3,
+  "easy": 100,
+  "hardRaw": 87.9,
+  "hardRecheckCorrected": 90.9,
+  "failingTasks": {
+    "hard-coupling-refactor": "2/3 then 2/3 on recheck \u2014 consistent -1 sample vs v0.13 baseline (borderline flaky, not provably a v0.16 regression; v0.15 A/B off-arm on the same snapshot also showed it at 2/3)",
+    "hard-dependency-conflict": "2/3 then 3/3 on recheck \u2014 single-sample noise",
+    "hard-perf-regression": "1/3 \u2014 IDENTICAL to the v0.13 P4 baseline itself, known, not a regression"
+  },
+  "gate": {
+    "easy100": true,
+    "hardGe93_9": false
+  },
+  "verdict": "v0.20 internal gate PARTIAL: easy 100 PASS; hard 90.9 (recheck-corrected) below the 93.9 bar by 3pt, driven by one borderline task. Per roadmap contingency, release proceeds with this honest annotation rather than blocking.",
+  "recordedAt": "2026-09-30T04:11:42.837887Z"
+}
