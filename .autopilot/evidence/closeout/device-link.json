@@ -1,0 +1,39 @@
+{
+  "startedAt": "2026-09-30T16:34:41.307Z",
+  "checks": [
+    {
+      "name": "connect",
+      "ok": true,
+      "detail": "connected"
+    },
+    {
+      "name": "kernel",
+      "ok": true,
+      "detail": "Linux 6.1.158-rt58-DR-5.1.0-2606102106-g369e4b-gb66940 aarch64"
+    },
+    {
+      "name": "os",
+      "ok": true,
+      "detail": "PRETTY_NAME=\"Ubuntu 24.04.4 LTS\""
+    },
+    {
+      "name": "uptime",
+      "ok": true,
+      "detail": "16:34:42 up 6 days,  9:42,  0 user,  load average: 9.94, 9.80, 9.49"
+    },
+    {
+      "name": "arch",
+      "ok": true,
+      "detail": "aarch64"
+    }
+  ],
+  "ok": true,
+  "target": {
+    "kind": "rdk",
+    "id": "rdk-rdk-sandbox.d-robotics.cc",
+    "host": "rdk-sandbox.d-robotics.cc",
+    "port": 40018,
+    "user": "root"
+  },
+  "finishedAt": "2026-09-30T16:34:43.258Z"
+}
