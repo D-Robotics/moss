@@ -15,12 +15,17 @@ import { createWebSearchTool } from './web-search.js';
 import { backgroundExecTools } from './background-exec.js';
 import { codeDiagnosticsTool } from './code-diagnostics.js';
 import { harnessTools } from './harness-tools.js';
+import { deviceTools } from './device-tools.js';
 import {
   IS_WIN,
   EXEC_DEFAULT_TIMEOUT_MS,
   childEnv,
   globalToolStateManager,
+  looksBinary,
 } from './tool-helpers.js';
+
+export { looksBinary };
+
 import { extractShellMutationPaths } from '../context/stale-read-invalidate.js';
 
 // Re-export tools from extracted modules for backward compatibility.
@@ -48,35 +53,6 @@ export { askUserQuestionTool } from './ask-user-question.js';
 const WIN_POSIX_HINT =
   'On Windows the local shell is cmd/PowerShell: Unix-only utilities (e.g. uname, grep without Git) are unavailable. ' +
   'Use PowerShell equivalents or read workspace files.';
-
-/**
- * Detect whether captured stdout looks like binary data (e.g. `cat /bin/ls`).
- * runProcess captures as UTF-8, so binary produces U+FFFD replacement chars
- * and control chars. If more than 10% of chars are non-printable, treat as binary so
- * the exec tool returns a safe summary instead of flooding the model's context.
- * @public
- */
-export function looksBinary(text: string): boolean {
-  if (!text || text.length < 20) return false;
-  let nonPrintable = 0;
-  const sample = text.length > 4000 ? text.slice(0, 4000) : text;
-  for (const ch of sample) {
-    const code = ch.codePointAt(0) ?? 0;
-    if (code === 0xfffd) {
-      nonPrintable++;
-      continue;
-    }
-    if (code === 0) {
-      nonPrintable++;
-      continue;
-    }
-    if (code < 32 && code !== 9 && code !== 10 && code !== 13) {
-      nonPrintable++;
-      continue;
-    }
-  }
-  return nonPrintable / sample.length > 0.1;
-}
 
 export const execTool: Tool = {
   name: 'exec',
@@ -266,6 +242,7 @@ export const builtinTools: Tool[] = [
   subagentStopTool,
   ...backgroundExecTools,
   ...harnessTools,
+  ...deviceTools,
 ];
 
 export function registerBuiltinTools(agent: { tools: { register: (tool: Tool) => void } }): void {

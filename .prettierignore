@@ -13,3 +13,7 @@ package-lock.json
 sessions/
 tmp/
 .tmp/
+
+# Qoder IDE session artifacts
+.qoder/
+.qoder-collab-runtime/

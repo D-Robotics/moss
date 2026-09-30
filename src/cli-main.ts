@@ -54,6 +54,8 @@ import {
 } from './cli/commands/registry.js';
 import { commandSuggestion, cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
 import { buildEnvironmentContextLayer } from './context/environment.js';
+import { disconnectAllDevices } from './device/device-registry.js';
+import { resolveDefaultDeviceTarget } from './device/device-target.js';
 import { buildRuntimeCapabilitiesPrompt } from './context/runtime-capabilities.js';
 import { buildSoftwareEngineeringPromptQuick } from './contracts/index.js';
 import type { CliRuntimeStatus } from './cli/onboarding.js';
@@ -503,11 +505,19 @@ async function main() {
   // The live runtime object mutates in place as in-session commands run; the
   // approval hook closes over getters so it observes those changes live.
   const liveRuntime: CliRuntimeStatus = {};
+  const deviceTarget = resolveDefaultDeviceTarget();
   const approvalHook = createCliToolApprovalHook(safetyMode, process.env, {
     approvalPolicy: resolvedConfig.approvalPolicy,
     trustedTools: resolvedConfig.trustedTools,
     deniedTools: resolvedConfig.deniedTools,
     workspaceDir: workspace,
+    device: deviceTarget
+      ? {
+          host: deviceTarget.host,
+          ...(deviceTarget.user ? { user: deviceTarget.user } : {}),
+          ...(deviceTarget.port ? { port: deviceTarget.port } : {}),
+        }
+      : null,
     // /yolo flips liveRuntime.fullPower → session becomes full-access + no prompt.
     safetyModeOverride: () => (liveRuntime.fullPower ? 'full-access' : undefined),
     autoApprove: () => liveRuntime.fullPower === true,
@@ -857,6 +867,7 @@ async function main() {
     await runInteractive(agent, liveRuntime, { sessionKey: session.sessionKey });
   } finally {
     await agent.close();
+    await disconnectAllDevices();
   }
 }
 

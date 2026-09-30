@@ -4,6 +4,28 @@ export { DEFAULT_MODEL } from './constants.js';
 export * from './messages.js';
 
 export type {
+  DeviceKind,
+  DeviceAuthConfig,
+  DeviceTarget,
+  DeviceConnectionStatus,
+  DeviceCommandResult,
+  DeviceFileEntry,
+  DeviceInfoSnapshot,
+  DeviceProcessSnapshot,
+  DeviceProcessListSnapshot,
+  DeviceDiskUsage,
+  DeviceResourceSnapshot,
+  DeviceThermalZone,
+  DeviceTemperatureSnapshot,
+  DeviceConnectionSnapshot,
+  DeviceConnectionEvent,
+  DeviceConnection,
+  DeviceExecOptions,
+  DeviceReadFileOptions,
+  DeviceWriteFileOptions,
+} from './device.js';
+
+export type {
   MossAsyncTaskStatus,
   MossAsyncTaskKind,
   MossAsyncTaskStopReason,

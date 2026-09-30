@@ -56,6 +56,29 @@ export {
 export { codeDiagnosticsTool } from './tools/code-diagnostics.js';
 
 export {
+  deviceTools,
+  deviceInfoTool,
+  deviceExecTool,
+  deviceFileReadTool,
+  deviceFileListTool,
+  deviceFileWriteTool,
+  deviceProcessesTool,
+  deviceResourcesTool,
+  deviceTemperatureTool,
+} from './tools/device-tools.js';
+export {
+  configureDefaultDeviceTarget,
+  resolveDefaultDeviceTarget,
+  formatDeviceTarget,
+} from './device/device-target.js';
+export {
+  getDeviceConnection,
+  disconnectAllDevices,
+  listDeviceConnections,
+} from './device/device-registry.js';
+export { SshDeviceConnection } from './device/ssh-device-connection.js';
+
+export {
   backgroundExecTools,
   execBackgroundTool,
   execLogsTool,

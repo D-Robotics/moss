@@ -26,3 +26,7 @@ scratch/
 
 # benchmark run artifacts (jsonl transcripts + summaries) — never commit
 bench/results/
+
+# Qoder IDE session artifacts
+.qoder/
+.qoder-collab-runtime/

@@ -168,6 +168,32 @@ export async function findSimilarFileName(
 // Global instance for now; enables future injection per agent/session
 export const globalToolStateManager = new ToolStateManager();
 
+/**
+ * Detect whether captured stdout looks like binary data (e.g. `cat /bin/ls`).
+ * runProcess captures as UTF-8, so binary produces U+FFFD replacement chars
+ * and control chars. If more than 10% of chars are non-printable, treat as
+ * binary so exec-style tools return a safe summary instead of flooding the
+ * model's context. Shared by the local exec tool and device tools.
+ * @public
+ */
+export function looksBinary(text: string): boolean {
+  if (!text || text.length < 20) return false;
+  let nonPrintable = 0;
+  const sample = text.length > 4000 ? text.slice(0, 4000) : text;
+  for (const ch of sample) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code === 0xfffd || code === 0) {
+      nonPrintable++;
+      continue;
+    }
+    if (code < 32 && code !== 9 && code !== 10 && code !== 13) {
+      nonPrintable++;
+      continue;
+    }
+  }
+  return nonPrintable / sample.length > 0.1;
+}
+
 export function childEnv(_workspaceDir: string): Record<string, string> {
   return safeChildEnv({ LANG: process.env.LANG || 'en_US.UTF-8' });
 }

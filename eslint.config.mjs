@@ -251,6 +251,24 @@ export default tseslint.config(
     },
   },
   {
+    name: 'moss/boundary-device',
+    files: ['src/device/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '\\.\\./(provider|context|core|tools|cli)/',
+              message:
+                'device 是设备能力层（与 provider/context 同级），不得依赖更外层模块；共享类型走 contracts',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     name: 'moss/boundary-tools',
     files: ['src/tools/**/*.ts'],
     rules: {

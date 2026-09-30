@@ -36,6 +36,7 @@
   "dependencies": {
     "micromatch": "^4.0.8",
     "picocolors": "^1.1.1",
+    "ssh2": "^1.17.0",
     "string-width": "^8.2.1",
     "turndown": "^7.2.0",
     "undici": "^7.29.0"
@@ -44,6 +45,7 @@
     "@eslint/js": "10.0.1",
     "@types/micromatch": "^4.0.10",
     "@types/node": "^22.10.2",
+    "@types/ssh2": "^1.15.6",
     "@types/turndown": "^5.0.5",
     "eslint": "10.8.1",
     "globals": "17.9.0",

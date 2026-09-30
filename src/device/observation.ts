@@ -1,0 +1,288 @@
+import type {
+  DeviceInfoSnapshot,
+  DeviceKind,
+  DeviceProcessListSnapshot,
+  DeviceProcessSnapshot,
+  DeviceResourceSnapshot,
+  DeviceDiskUsage,
+  DeviceTemperatureSnapshot,
+  DeviceThermalZone,
+} from '../contracts/device.js';
+
+/**
+ * Device runtime observation: POSIX-sh probes + parsers. Builders and parsers
+ * are pure so they unit-test without a device; each probe runs as one shell
+ * script over the exec channel and tolerates partial failures (missing
+ * /proc entries, busybox ps) by reporting what it found.
+ */
+
+export const INFO_PROBE_SCRIPT = [
+  'printf "S|%s|%s|%s|%s\\n" "$(uname -s 2>/dev/null)" "$(uname -n 2>/dev/null)" "$(uname -r 2>/dev/null)" "$(uname -m 2>/dev/null)"',
+  'awk -F": " \'/^model name/{print "CPU|"$2; exit}\' /proc/cpuinfo 2>/dev/null',
+  'awk -F": " \'/^Hardware/{print "HW|"$2; exit}\' /proc/cpuinfo 2>/dev/null',
+  'if [ -r /etc/os-release ]; then . /etc/os-release 2>/dev/null; printf "OS|%s\\n" "$PRETTY_NAME"; fi',
+  'printf "CORES|%s\\n" "$(nproc 2>/dev/null)"',
+  'awk \'/^MemTotal/{print "MEMTOTAL|"$2} /^MemAvailable/{print "MEMAVAIL|"$2}\' /proc/meminfo 2>/dev/null',
+  'read -r UP _ < /proc/uptime 2>/dev/null && printf "UPTIME|%s\\n" "$UP"',
+  'printf "LOADAVG|%s\\n" "$(cat /proc/loadavg 2>/dev/null)"',
+].join('\n');
+
+export const PROCESSES_PROBE_SCRIPT =
+  'ps -eo pid=,user:20=,pcpu=,pmem=,rss=,args= --sort=-pcpu 2>/dev/null | head -n 40';
+
+export const RESOURCES_PROBE_SCRIPT = [
+  'awk \'/^MemTotal/{print "MEMTOTAL|"$2} /^MemAvailable/{print "MEMAVAIL|"$2}\' /proc/meminfo 2>/dev/null',
+  'printf "LOADAVG|%s\\n" "$(cat /proc/loadavg 2>/dev/null)"',
+  'df -P -k 2>/dev/null | tail -n +2',
+].join('\n');
+
+export const TEMPERATURE_PROBE_SCRIPT =
+  'for z in /sys/class/thermal/thermal_zone*; do [ -r "$z/temp" ] || continue; printf "ZONE|%s|%s|%s\\n" "${z##*/}" "$(cat "$z/type" 2>/dev/null)" "$(cat "$z/temp" 2>/dev/null)"; done';
+
+function parseLoadavg(line: string): [number, number, number] | undefined {
+  const parts = line.trim().split(/\s+/).slice(0, 3).map(Number);
+  if (parts.length === 3 && parts.every((n) => Number.isFinite(n))) {
+    return parts as [number, number, number];
+  }
+  return undefined;
+}
+
+function kbToBytes(kb: number): number {
+  return kb * 1024;
+}
+
+export function parseInfoProbe(
+  stdout: string,
+  target: { deviceId: string; kind: DeviceKind }
+): DeviceInfoSnapshot {
+  const snapshot: DeviceInfoSnapshot = {
+    deviceId: target.deviceId,
+    kind: target.kind,
+    connectedAt: Date.now(),
+  };
+  for (const rawLine of stdout.split('\n')) {
+    const line = rawLine.trimEnd();
+    if (!line.includes('|')) continue;
+    const sep = line.indexOf('|');
+    const key = line.slice(0, sep);
+    const value = line.slice(sep + 1);
+    switch (key) {
+      case 'S': {
+        const [sysname, hostname, kernel, arch] = value.split('|');
+        if (sysname) snapshot.sysname = sysname;
+        if (hostname) snapshot.hostname = hostname;
+        if (kernel) snapshot.kernel = kernel;
+        if (arch) snapshot.arch = arch;
+        break;
+      }
+      case 'CPU':
+        if (value) snapshot.cpuModel = value.trim();
+        break;
+      case 'HW':
+        if (value) snapshot.hardware = value.trim();
+        break;
+      case 'OS':
+        if (value) snapshot.osPrettyName = value.trim();
+        break;
+      case 'CORES': {
+        const cores = Number(value);
+        if (Number.isFinite(cores) && cores > 0) snapshot.cpuCores = cores;
+        break;
+      }
+      case 'MEMTOTAL': {
+        const kb = Number(value);
+        if (Number.isFinite(kb) && kb > 0) snapshot.memTotalBytes = kbToBytes(kb);
+        break;
+      }
+      case 'MEMAVAIL': {
+        const kb = Number(value);
+        if (Number.isFinite(kb) && kb > 0) snapshot.memAvailableBytes = kbToBytes(kb);
+        break;
+      }
+      case 'UPTIME': {
+        const up = Number(value);
+        if (Number.isFinite(up) && up > 0) snapshot.uptimeSeconds = Math.round(up);
+        break;
+      }
+      case 'LOADAVG':
+        snapshot.loadavg = parseLoadavg(value);
+        break;
+    }
+  }
+  return snapshot;
+}
+
+export function parseProcessesProbe(stdout: string, deviceId: string): DeviceProcessListSnapshot {
+  const processes: DeviceProcessSnapshot[] = [];
+  let psUnsupported = stdout.trim() === '';
+  for (const rawLine of stdout.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const match = /^(\d+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(.+)$/.exec(line);
+    if (!match) continue;
+    processes.push({
+      pid: Number(match[1]),
+      user: match[2],
+      cpuPercent: Number(match[3]),
+      memPercent: Number(match[4]),
+      rssKb: Number(match[5]),
+      command: match[6].trim(),
+    });
+  }
+  if (processes.length === 0) psUnsupported = true;
+  return {
+    deviceId,
+    collectedAt: Date.now(),
+    processes,
+    ...(psUnsupported ? { psUnsupported } : {}),
+  };
+}
+
+export function parseResourcesProbe(stdout: string, deviceId: string): DeviceResourceSnapshot {
+  const snapshot: DeviceResourceSnapshot = {
+    deviceId,
+    collectedAt: Date.now(),
+    disks: [],
+  };
+  for (const rawLine of stdout.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.includes('|')) {
+      const sep = line.indexOf('|');
+      const key = line.slice(0, sep);
+      const value = line.slice(sep + 1);
+      if (key === 'MEMTOTAL') {
+        const kb = Number(value);
+        if (Number.isFinite(kb) && kb > 0) snapshot.memTotalBytes = kbToBytes(kb);
+      } else if (key === 'MEMAVAIL') {
+        const kb = Number(value);
+        if (Number.isFinite(kb) && kb > 0) snapshot.memAvailableBytes = kbToBytes(kb);
+      } else if (key === 'LOADAVG') {
+        snapshot.loadavg = parseLoadavg(value);
+      }
+      continue;
+    }
+    // POSIX df -P -k: filesystem 1024-blocks used available capacity mounted-on
+    const match = /^(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)%\s+(.+)$/.exec(line);
+    if (!match) continue;
+    const disk: DeviceDiskUsage = {
+      filesystem: match[1],
+      mount: match[6],
+      totalBytes: kbToBytes(Number(match[2])),
+      availableBytes: kbToBytes(Number(match[4])),
+      usedPercent: Number(match[5]),
+    };
+    snapshot.disks.push(disk);
+  }
+  return snapshot;
+}
+
+export function parseTemperatureProbe(stdout: string, deviceId: string): DeviceTemperatureSnapshot {
+  const zones: DeviceThermalZone[] = [];
+  for (const rawLine of stdout.split('\n')) {
+    const line = rawLine.trim();
+    if (!line.startsWith('ZONE|')) continue;
+    const [, zone, label, milli] = line.split('|');
+    const milliC = Number(milli);
+    if (!Number.isFinite(milliC)) continue;
+    zones.push({
+      zone: zone ?? '',
+      ...(label ? { label } : {}),
+      celsius: Math.round((milliC / 1000) * 10) / 10,
+    });
+  }
+  return { deviceId, collectedAt: Date.now(), zones };
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
+  return `${Math.round(bytes / 1024)} KiB`;
+}
+
+export function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+export function formatInfoSnapshot(info: DeviceInfoSnapshot, endpoint: string): string {
+  const lines = [
+    `device: ${info.deviceId} (kind=${info.kind}) @ ${endpoint} — connected`,
+    `hostname: ${info.hostname ?? 'unknown'}`,
+    `os: ${info.osPrettyName ?? 'unknown'} | kernel: ${info.kernel ?? 'unknown'} | arch: ${info.arch ?? 'unknown'}`,
+  ];
+  const cpuBits: string[] = [];
+  if (info.cpuCores) cpuBits.push(`${info.cpuCores} cores`);
+  if (info.cpuModel) cpuBits.push(info.cpuModel);
+  if (info.hardware) cpuBits.push(`hardware: ${info.hardware}`);
+  if (cpuBits.length) lines.push(`cpu: ${cpuBits.join(' | ')}`);
+  const memBits: string[] = [];
+  if (info.memTotalBytes) memBits.push(`${formatBytes(info.memTotalBytes)} total`);
+  if (info.memAvailableBytes) memBits.push(`${formatBytes(info.memAvailableBytes)} available`);
+  if (memBits.length) lines.push(`memory: ${memBits.join(' / ')}`);
+  const loadBits: string[] = [];
+  if (info.uptimeSeconds) loadBits.push(`uptime ${formatUptime(info.uptimeSeconds)}`);
+  if (info.loadavg) loadBits.push(`load ${info.loadavg.join(' ')}`);
+  if (loadBits.length) lines.push(loadBits.join(' | '));
+  return lines.join('\n');
+}
+
+export function formatProcessList(snapshot: DeviceProcessListSnapshot, endpoint: string): string {
+  if (snapshot.psUnsupported) {
+    return (
+      `Process listing unavailable on ${snapshot.deviceId}: the device ps does not support \`ps -eo\` columns.\n` +
+      `Probe /proc directly with device_exec instead (e.g. \`for p in /proc/[0-9]*; do echo $p $(tr '\\0' ' ' < $p/cmdline); done\`).`
+    );
+  }
+  const header = '  PID USER                 CPU%  MEM%    RSS_KB  COMMAND';
+  const rows = snapshot.processes.slice(0, 25).map((p) => {
+    const user = (p.user ?? '?').padEnd(18).slice(0, 18);
+    const cpu = String(p.cpuPercent ?? 0).padStart(5);
+    const mem = String(p.memPercent ?? 0).padStart(5);
+    const rss = String(p.rssKb ?? 0).padStart(9);
+    const cmd = p.command.length > 120 ? `${p.command.slice(0, 117)}…` : p.command;
+    return `${String(p.pid).padStart(5)} ${user} ${cpu} ${mem} ${rss}  ${cmd}`;
+  });
+  return (
+    `Top ${rows.length} of ${snapshot.processes.length} processes on ${snapshot.deviceId} (${endpoint}):\n` +
+    `${header}\n${rows.join('\n')}`
+  );
+}
+
+export function formatResourceSnapshot(snapshot: DeviceResourceSnapshot, endpoint: string): string {
+  const lines = [`resources on ${snapshot.deviceId} (${endpoint}):`];
+  if (snapshot.memTotalBytes) {
+    const avail = snapshot.memAvailableBytes
+      ? ` / ${formatBytes(snapshot.memAvailableBytes)} available`
+      : '';
+    lines.push(`memory: ${formatBytes(snapshot.memTotalBytes)} total${avail}`);
+  }
+  if (snapshot.loadavg) lines.push(`load: ${snapshot.loadavg.join(' ')}`);
+  if (snapshot.disks.length) {
+    lines.push('disks (df -P):');
+    for (const disk of snapshot.disks.slice(0, 10)) {
+      const total = disk.totalBytes ? formatBytes(disk.totalBytes) : '?';
+      const avail = disk.availableBytes ? formatBytes(disk.availableBytes) : '?';
+      lines.push(
+        `  ${disk.mount} — ${total} total, ${avail} avail, ${disk.usedPercent ?? '?'}% used (${disk.filesystem})`
+      );
+    }
+  } else {
+    lines.push('disks: no df output parsed');
+  }
+  return lines.join('\n');
+}
+
+export function formatTemperatureSnapshot(snapshot: DeviceTemperatureSnapshot): string {
+  if (snapshot.zones.length === 0) {
+    return `No thermal zones exposed on ${snapshot.deviceId} (/sys/class/thermal empty).`;
+  }
+  const rows = snapshot.zones.map(
+    (z) => `  ${z.zone}${z.label ? ` (${z.label})` : ''}: ${z.celsius}°C`
+  );
+  return `thermal zones on ${snapshot.deviceId}:\n${rows.join('\n')}`;
+}

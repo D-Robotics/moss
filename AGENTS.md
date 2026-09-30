@@ -10,7 +10,9 @@ Moss 是一个精简的跨平台 coding agent harness：TypeScript / ESM 单包�
 核心能力（也是唯一应当存在的范围）：agent loop、工具框架（`src/tools/`）、上下文管理
 （`src/context/`）、provider（`src/provider/`）、安全（`src/safety/`）、会话
 （`src/core/session/`）、子代理（`src/core/subagent/`）与 CLI（`src/cli/`、`src/cli-main.ts`，交互界面为
-readline REPL，无 ink TUI）。
+readline REPL，无 ink TUI）、设备抽象（`src/device/` + `src/contracts/device.ts` +
+`src/tools/device-tools.ts`，SSH 连 RDK / Linux 真机，目标是机器人闭环
+Goal→…→Deploy→Verify→Repair→Physical Acceptance）。
 共享契约在 `src/contracts/`。不要重新引入 memory / skills / mesh / mcp / observability /
 orchestration / web-ui 等已移除的子系统。
 
@@ -66,19 +68,30 @@ orchestration / web-ui 等已移除的子系统。
 
 ## 结构导航
 
-| 想改什么                         | 去哪                                      |
-| -------------------------------- | ----------------------------------------- |
-| Agent loop / 轮次控制 / nudge    | `src/core/loop/`                          |
-| MossAgent / 配置 / 事件          | `src/core/agent/`                         |
-| 工具注册与执行管线               | `src/tools/builtin.ts`、`src/core/tools/` |
-| 内置工具实现                     | `src/tools/*.ts`                          |
-| 上下文 / 压缩 / token            | `src/context/`                            |
-| LLM provider                     | `src/provider/`                           |
-| CLI / REPL / 命令                | `src/cli/`、`src/cli-main.ts`             |
-| 契约（prompt、soul、async-task） | `src/contracts/`                          |
-| 错误 / 日志                      | `src/errors.ts`、`src/logger.ts`          |
+| 想改什么                         | 去哪                                                                  |
+| -------------------------------- | --------------------------------------------------------------------- |
+| Agent loop / 轮次控制 / nudge    | `src/core/loop/`                                                      |
+| MossAgent / 配置 / 事件          | `src/core/agent/`                                                     |
+| 工具注册与执行管线               | `src/tools/builtin.ts`、`src/core/tools/`                             |
+| 内置工具实现                     | `src/tools/*.ts`                                                      |
+| 设备契约 / SSH 连接 / 观测解析   | `src/contracts/device.ts`、`src/device/`、`src/tools/device-tools.ts` |
+| 上下文 / 压缩 / token            | `src/context/`                                                        |
+| LLM provider                     | `src/provider/`                                                       |
+| CLI / REPL / 命令                | `src/cli/`、`src/cli-main.ts`                                         |
+| 契约（prompt、soul、async-task） | `src/contracts/`                                                      |
+| 错误 / 日志                      | `src/errors.ts`、`src/logger.ts`                                      |
 
-**分层规则**：依赖只能指向内层（contracts → errors/logger/utils/safety → provider/context → core → tools → cli）。ESLint `moss/boundary-*` 规则（`eslint.config.mjs`）强制执行——新增 import 前先看边界规则，不要申请豁免除非是新的合法端口。
+**分层规则**：依赖只能指向内层（contracts → errors/logger/utils/safety → provider/context/device → core → tools → cli）。ESLint `moss/boundary-*` 规则（`eslint.config.mjs`）强制执行——新增 import 前先看边界规则，不要申请豁免除非是新的合法端口。
+
+## 设备子系统（robotics closed loop P0）
+
+- 设备目标从 `MOSS_DEVICE_HOST/PORT/USER/KIND` + `MOSS_DEVICE_PASSWORD`（或 `MOSS_DEVICE_KEY`）解析，
+  凭据只在 env/.env，绝不写入 DeviceTarget / 日志 / 子进程环境（`safeChildEnv` 会剥离）。
+- `device_info/processes/resources/temperature/file_read/file_list` 为 readonly（可并行、自动重试）；
+  `device_exec/device_file_write` 为 `device_mutation`，走审批。工具名已被 subagent scope、
+  截断预算、loop-guard 等按保留名引用，改名等于破坏契约。
+- 单测用 `test/helpers/in-process-ssh-device.mjs`（进程内 ssh2 服务器，真协议握手）；
+  mock 只准用于单测，能力证明必须打真实设备（参照 `scratch/real-device-verify.mjs` 的做法）。
 
 ## 测试约定
 
