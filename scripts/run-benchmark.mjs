@@ -303,6 +303,9 @@ async function main() {
     const repoSkills = path.join(repoRoot, '.moss', 'skills');
     if (fs.existsSync(repoSkills)) {
       fs.cpSync(repoSkills, path.join(configDir, 'skills'), { recursive: true });
+      console.error(
+        `[bench] skills provisioned: ${fs.readdirSync(path.join(configDir, 'skills')).length} skill dirs -> ${configDir}/skills`
+      );
     }
   }
   const canaryDir = path.join(scratchRoot, 'canary');

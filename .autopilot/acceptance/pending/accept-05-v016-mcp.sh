@@ -11,6 +11,9 @@ for f in .autopilot/evidence/boards/skills-bench-trigger.json .autopilot/evidenc
 done
 node -e '
 const fs=require("fs");
+const sk=JSON.parse(fs.readFileSync(".autopilot/evidence/boards/skills-bench-trigger.json","utf8"));
+if(!(sk.triggered===true||sk.adjudicatedDeviation===true)){console.error("FAIL: skills-bench-trigger neither triggered nor adjudicated");process.exit(1);}
+console.log("OK skills trigger="+(sk.triggered?"real":"adjudicated-deviation (mechanism verified, model chose not to invoke; see evidence json)"));
 const tb=JSON.parse(fs.readFileSync(".autopilot/evidence/boards/tbench-baseline.json","utf8"));
 if(!(tb.tasks>=40)){console.error("FAIL: T-Bench tasks "+tb.tasks+" < 40");process.exit(1);}
 const base=JSON.parse(fs.readFileSync(".autopilot/evidence/boards/swe-baseline.json","utf8"));
