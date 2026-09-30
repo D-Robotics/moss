@@ -17,7 +17,7 @@ SSH, so "done" can mean _the board actually did it_.
 | Area          | What you get                                                                                                                                                              |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Agent loop    | turn control, context compaction + budgets, nudges, loop guards, best-of-n / cross-review switches                                                                        |
-| Tools         | 43 built-in tools: files, search, patches, processes, web, diagnostics, tests, sub-agents                                                                                 |
+| Tools         | 45 built-in tools: files, search, patches, processes, web, diagnostics, tests, sub-agents, task contract                                                                  |
 | Devices       | 12 SSH device tools (`device_info/processes/resources/temperature/network/cameras/robotics_status/file_read/file_list/exec/file_write/deploy`) against RDK / Linux boards |
 | Task OS       | event-sourced task runtime (``.moss/*.jsonl`): draft → planning → executing → verifying → diagnosing → repairing → reverifying → accepted/failed                          |
 | Acceptance    | `task_define` → `record_evidence` → `task_acceptance`; PASS can only come from a verdict provider, never from prose                                                       |
