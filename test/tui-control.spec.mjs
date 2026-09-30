@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * TUI control plane (v0.18): /steer during a run, input queue with
- * pause/drop/resume, per-run + session usage in the status line, /bg list.
+ * TUI control plane (Mission Control): /steer during a run, input queue with
+ * pause/drop/resume, per-run + session usage in the status line, /bg list,
+ * approval bridge.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createTuiStore, formatUsage } from '../dist/cli/tui/render-bridge.js';
+import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -50,9 +52,18 @@ const { render: renderInk } = await import('ink-testing-library');
 const React = await import('react');
 const { TuiAppRoot } = await import('../dist/cli/tui/app.js');
 
+function mount(options) {
+  const handle = liveHandle();
+  const runtime = new TaskRuntime({
+    workspaceDir: options.workspaceDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-ctl-')),
+  });
+  const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
+  return { instance, handle, runtime };
+}
+
 const calls = [];
 const steers = [];
-function mockAgent({ slow = false } = {}) {
+function mockAgent({ slow = false, hold = null } = {}) {
   return {
     steer(sessionKey, constraint) {
       steers.push({ sessionKey, constraint });
@@ -60,6 +71,25 @@ function mockAgent({ slow = false } = {}) {
     },
     async *streamChat(sessionKey, message, opts) {
       calls.push(message);
+      // hold: stream one delta and block until the test releases — makes
+      // queue semantics deterministic on slow machines (the timed slow mode
+      // finished before /queue on the Windows CI leg and drained the queue).
+      if (hold) {
+        yield { type: 'text_delta', delta: `ack:${message.slice(0, 12)} ` };
+        await hold.promise;
+        yield {
+          type: 'llm_usage',
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+        };
+        yield {
+          type: 'done',
+          result: { response: `done ${message.slice(0, 10)}`, stopReason: 'end_turn' },
+        };
+        return;
+      }
       for (let i = 0; i < (slow ? 6 : 1); i++) {
         if (slow && opts?.abortSignal?.aborted) return;
         yield { type: 'text_delta', delta: `ack:${message.slice(0, 12)} ` };
@@ -98,13 +128,13 @@ function mockAgent({ slow = false } = {}) {
 {
   calls.length = 0;
   steers.length = 0;
-  const handle = liveHandle();
-  const instance = renderInk(
-    React.createElement(TuiAppRoot, {
-      options: { agent: mockAgent({ slow: true }), workspaceDir: '/tmp/ws', sessionKey: 'sess-1' },
-      handle,
-    })
-  );
+  let releaseRun;
+  const hold = { promise: new Promise((resolve) => (releaseRun = resolve)) };
+  const { instance } = mount({
+    agent: mockAgent({ hold }),
+    workspaceDir: '/tmp/ws',
+    sessionKey: 'sess-1',
+  });
   await type(instance, 'do the big task');
   await waitFor(() => calls.length === 1);
   await type(instance, '/steer keep it under 50 lines');
@@ -113,6 +143,7 @@ function mockAgent({ slow = false } = {}) {
   assert.equal(steers[0].sessionKey, 'sess-1');
   assert.equal(steers[0].constraint, 'keep it under 50 lines');
   await waitFor(() => instance.lastFrame().includes('Steer queued'));
+  releaseRun();
   instance.unmount();
   await sleep(120);
 }
@@ -121,13 +152,9 @@ function mockAgent({ slow = false } = {}) {
 
 {
   calls.length = 0;
-  const handle = liveHandle();
-  const instance = renderInk(
-    React.createElement(TuiAppRoot, {
-      options: { agent: mockAgent({ slow: true }), workspaceDir: '/tmp/ws' },
-      handle,
-    })
-  );
+  let releaseFirst;
+  const hold = { promise: new Promise((resolve) => (releaseFirst = resolve)) };
+  const { instance } = mount({ agent: mockAgent({ hold }), workspaceDir: '/tmp/ws' });
   await type(instance, 'first slow task');
   await waitFor(() => calls.length === 1);
   await type(instance, 'second queued task');
@@ -136,10 +163,11 @@ function mockAgent({ slow = false } = {}) {
   await waitFor(() => instance.lastFrame().includes('Queue (active)'));
   assert.match(instance.lastFrame(), /1\. second queued task/);
 
-  // Pause, then let the first run finish — the queued item must NOT start.
+  // Pause, then let the held first run finish — the queued item must NOT start.
   await type(instance, '/queue pause');
   await waitFor(() => instance.lastFrame().includes('Queue paused'));
-  await waitFor(() => !instance.lastFrame().includes('working'), 6000);
+  releaseFirst();
+  await waitFor(() => !instance.lastFrame().includes('RUNNING'), 6000);
   await sleep(300);
   assert.equal(calls.length, 1, 'paused queue does not drain');
 
@@ -160,15 +188,11 @@ function mockAgent({ slow = false } = {}) {
 
 {
   calls.length = 0;
-  const handle = liveHandle();
-  const instance = renderInk(
-    React.createElement(TuiAppRoot, {
-      options: { agent: mockAgent(), workspaceDir: '/tmp/ws' },
-      handle,
-    })
-  );
+  const { instance, handle } = mount({ agent: mockAgent(), workspaceDir: '/tmp/ws' });
   await type(instance, 'count my tokens');
-  await waitFor(() => instance.lastFrame().includes('done count my'));
+  await waitFor(() =>
+    handle.store.rows.some((r) => r.kind === 'assistant' && r.text.includes('done count my'))
+  );
   assert.match(instance.lastFrame(), /150 in run \/ 150 session/, 'status line usage');
   await type(instance, '/usage');
   await waitFor(() => instance.lastFrame().includes('tokens: '));
@@ -180,35 +204,19 @@ function mockAgent({ slow = false } = {}) {
 
 {
   calls.length = 0;
-  const handle = liveHandle();
-  const instance = renderInk(
-    React.createElement(TuiAppRoot, {
-      options: { agent: mockAgent(), workspaceDir: '/tmp/ws' },
-      handle,
-    })
-  );
+  const { instance } = mount({ agent: mockAgent(), workspaceDir: '/tmp/ws' });
   await type(instance, '/bg');
   await waitFor(() => instance.lastFrame().includes('No background tasks'));
   instance.unmount();
   await sleep(120);
 }
 
-void fs;
-void os;
-void path;
-
 // ─── approval bridge: question renders, next input answers ─────────────────
 
 {
   calls.length = 0;
-  const handle = liveHandle();
+  const { instance } = mount({ agent: mockAgent(), workspaceDir: '/tmp/ws' });
   const { getCliApprovalAskerForTest } = await import('../dist/cli/approval.js');
-  const instance = renderInk(
-    React.createElement(TuiAppRoot, {
-      options: { agent: mockAgent(), workspaceDir: '/tmp/ws' },
-      handle,
-    })
-  );
   const asker = getCliApprovalAskerForTest();
   assert.ok(typeof asker === 'function', 'TUI registered an approval asker');
   const answerPromise = asker('Allow write_file src/index.ts?');

@@ -10,6 +10,7 @@ import { listEvidenceRecords, summarizeEvidence } from '../tools/evidence-tools.
 import { listDeploymentRecords } from '../device/deployment.js';
 import { formatDeviceTarget, resolveDefaultDeviceTarget } from '../device/device-target.js';
 import { listDeviceConnections } from '../device/device-registry.js';
+import { listAcceptanceVerdicts } from '../core/task-runtime/artifacts.js';
 
 function parseJsonl(file: string): unknown[] {
   try {
@@ -119,12 +120,7 @@ export async function runTasksCommand(
   }
 
   if (sub === 'acceptance') {
-    const verdicts = parseJsonl(path.join(mossDir, 'acceptance.jsonl')) as Array<{
-      taskId: string;
-      verdict: string;
-      acceptedAt: number;
-      unmetRequired: number;
-    }>;
+    const verdicts = await listAcceptanceVerdicts(workspace, 500);
     if (json) {
       console.log(JSON.stringify(verdicts, null, 2));
       return;

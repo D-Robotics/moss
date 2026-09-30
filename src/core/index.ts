@@ -211,6 +211,25 @@ export type { ExtractedToolInvocation } from './tools/index.js';
 export { ErrorCode } from '../errors.js';
 export type { MossErrorOutcome } from '../errors.js';
 
+// Shared task-artifact IO + TUI projection layer (v0.21 Mission Control).
+export { appendAcceptanceVerdict, loadTaskArtifacts } from './task-runtime/artifacts.js';
+export type { TaskArtifacts } from './task-runtime/artifacts.js';
+export { TaskRuntime, classifyTaskKind, describeToolCall } from './task-runtime/runtime.js';
+export type {
+  MissionState,
+  MissionResult,
+  TaskKind,
+  TaskSummary,
+  TaskDetail,
+  FailureItem,
+  RepairCycle,
+  TaskHistoryEntry,
+  DeviceObservation,
+  TaskDeviceContext,
+  RuntimeLiveState,
+  TaskRuntimeOptions,
+} from './task-runtime/runtime.js';
+
 // Unified task runtime (Task OS M5): one model, four interfaces.
 export { runTask, resumeTask, summarizeTaskRun } from './task/task-engine.js';
 export type { TaskEngineDeps, TaskEngineProgress, TaskRunResult } from './task/task-engine.js';

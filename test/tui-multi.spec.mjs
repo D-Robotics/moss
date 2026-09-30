@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 
 import { createTuiStore } from '../dist/cli/tui/render-bridge.js';
+import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -85,7 +86,8 @@ const options = {
 };
 
 const handle = liveHandle();
-const instance = renderInk(React.createElement(TuiAppRoot, { options, handle }));
+const runtime = new TaskRuntime({ workspaceDir: '/tmp/ws' });
+const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
 
 // /sessions lists both with the current marker
 await type(instance, '/sessions');

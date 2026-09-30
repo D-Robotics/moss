@@ -68,35 +68,36 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 
 ## 支持矩阵
 
-| 维度     | 支持                                                                                   | 验证方式                                 |
-| -------- | -------------------------------------------------------------------------------------- | ---------------------------------------- |
-| Node     | ≥ 22.16.0（CI 钉 22.16.0 与 24 双档）                                                  | CI `Test` 矩阵                           |
-| 平台     | Linux / macOS / Windows（Windows 无 PTY smoke，其余全量）                              | CI `Test` 矩阵                           |
-| provider | deepseek / qwen / openai / anthropic / openai-compatible                               | 单测 + 冒烟；真实 key 回归按需人工       |
-| 交互面   | TTY：全屏 TUI（ink，v0.17 起）；非 TTY / `MOSS_NO_TUI=1` / Windows：readline REPL 回退 | TUI spec 家族 + PTY smoke（macOS/Linux） |
+| 维度     | 支持                                                                                                                                                                                                         | 验证方式                                 |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| Node     | ≥ 22.16.0（CI 钉 22.16.0 与 24 双档）                                                                                                                                                                        | CI `Test` 矩阵                           |
+| 平台     | Linux / macOS / Windows（Windows 无 PTY smoke，其余全量）                                                                                                                                                    | CI `Test` 矩阵                           |
+| provider | deepseek / qwen / openai / anthropic / openai-compatible                                                                                                                                                     | 单测 + 冒烟；真实 key 回归按需人工       |
+| 交互面   | TTY：全屏 TUI（ink，v0.21 起 Mission Control：Task Navigator / Execution Canvas / Contextual Device / Composer，transcript 降级为 execution detail）；非 TTY / `MOSS_NO_TUI=1` / Windows：readline REPL 回退 | TUI spec 家族 + PTY smoke（macOS/Linux） |
 
 不在表内的组合（其他 Node 大版本、其他 provider 协议）未验证，不支持。
 
 ## 结构导航
 
-| 想改什么                          | 去哪                                                                  |
-| --------------------------------- | --------------------------------------------------------------------- |
-| Agent loop / 轮次控制 / nudge     | `src/core/loop/`                                                      |
-| 达标驱动自主执行（/goal 验收门）  | `src/core/loop/goal-loop.ts`                                          |
-| MossAgent / 配置 / 事件           | `src/core/agent/`                                                     |
-| 工具注册与执行管线                | `src/tools/builtin.ts`、`src/core/tools/`                             |
-| 内置工具实现                      | `src/tools/*.ts`                                                      |
-| 设备契约 / SSH 连接 / 观测解析    | `src/contracts/device.ts`、`src/device/`、`src/tools/device-tools.ts` |
-| 上下文 / 压缩 / token             | `src/context/`                                                        |
-| LLM provider                      | `src/provider/`                                                       |
-| CLI / REPL / 命令                 | `src/cli/`、`src/cli-main.ts`                                         |
-| 全屏 TUI（v0.17 起，动态 import） | `src/cli/tui/`                                                        |
-| MCP 客户端（v0.16 起）            | `src/core/mcp/`                                                       |
-| 轻量 skills（v0.16 起）           | `src/core/skills/`                                                    |
-| 统一 Task Runtime 协议（状态机）  | `src/contracts/task-runtime.ts`                                       |
-| 统一 Task Runtime 引擎/存储/裁决  | `src/core/task/`（engine、store、verdict、capability、agent-turn）    |
-| 契约（prompt、soul、async-task）  | `src/contracts/`                                                      |
-| 错误 / 日志                       | `src/errors.ts`、`src/logger.ts`                                      |
+| 想改什么                                               | 去哪                                                                  |
+| ------------------------------------------------------ | --------------------------------------------------------------------- |
+| Agent loop / 轮次控制 / nudge                          | `src/core/loop/`                                                      |
+| 达标驱动自主执行（/goal 验收门）                       | `src/core/loop/goal-loop.ts`                                          |
+| MossAgent / 配置 / 事件                                | `src/core/agent/`                                                     |
+| 工具注册与执行管线                                     | `src/tools/builtin.ts`、`src/core/tools/`                             |
+| 内置工具实现                                           | `src/tools/*.ts`                                                      |
+| 设备契约 / SSH 连接 / 观测解析                         | `src/contracts/device.ts`、`src/device/`、`src/tools/device-tools.ts` |
+| 上下文 / 压缩 / token                                  | `src/context/`                                                        |
+| LLM provider                                           | `src/provider/`                                                       |
+| CLI / REPL / 命令                                      | `src/cli/`、`src/cli-main.ts`                                         |
+| 全屏 TUI（v0.21 起 Mission Control 重做，动态 import） | `src/cli/tui/`（app/layout/panels/overlays 纯投影 + ink 外壳）        |
+| MCP 客户端（v0.16 起）                                 | `src/core/mcp/`                                                       |
+| 轻量 skills（v0.16 起）                                | `src/core/skills/`                                                    |
+| 统一 Task Runtime 协议（状态机/事件/快照）             | `src/contracts/task-runtime.ts`                                       |
+| 统一 Task Runtime 引擎/存储/裁决/能力发现              | `src/core/task/`（engine、store、verdict、capability、agent-turn）    |
+| TUI 任务投影层（Mission Control 读路径）               | `src/core/task-runtime/`（artifacts + runtime 视图模型）              |
+| 契约（prompt、soul、async-task）                       | `src/contracts/`                                                      |
+| 错误 / 日志                                            | `src/errors.ts`、`src/logger.ts`                                      |
 
 **分层规则**：依赖只能指向内层（contracts → errors/logger/utils/safety → provider/context/device → core → tools → cli）。ESLint `moss/boundary-*` 规则（`eslint.config.mjs`）强制执行——新增 import 前先看边界规则，不要申请豁免除非是新的合法端口。
 

@@ -78,6 +78,21 @@ async function tempWs() {
 {
   const ws = await tempWs();
   const marker = path.join(ws, 'marker');
+  // Cross-platform flip-marker probe. Inline `node -e` scripts get truncated
+  // by Windows cmd quoting, so the probe lives in a file; the marker path
+  // travels through an env var (runAcceptanceCommand inherits process.env).
+  const probe = path.join(ws, 'flip-marker.mjs');
+  await fs.writeFile(
+    probe,
+    [
+      "import fs from 'node:fs';",
+      'const p = process.env.GOAL_LOOP_MARKER;',
+      'if (fs.existsSync(p)) process.exit(0);',
+      "fs.writeFileSync(p, '');",
+      'process.exit(1);',
+      '',
+    ].join('\n')
+  );
   process.env.GOAL_LOOP_MARKER = marker;
   const agent = createGoalAgent({ responses: ['attempt 1', 'attempt 2'], workspaceDir: ws });
   const sched = new LoopScheduler(agent, {
@@ -86,11 +101,7 @@ async function tempWs() {
     journal: true,
     autonomous: true,
     acceptance: {
-      // Cross-platform flip-marker probe: pass once the marker file exists.
-      // Path travels via env var — quoting `if [ -f … ]; fi` sh syntax does
-      // not survive cmd.exe on the Windows CI leg.
-      command:
-        "node -e \"const fs=require('fs');const p=process.env.GOAL_LOOP_MARKER;if(fs.existsSync(p))process.exit(0);fs.writeFileSync(p,'');process.exit(1)\"",
+      command: `node ${probe}`,
     },
     sessionKey: 'goal-t2',
   });
