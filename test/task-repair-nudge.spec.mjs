@@ -140,4 +140,106 @@ function toolResult(id, name, text) {
   assert.equal(r.fire, true);
 }
 
+// --- multi-task sessions -----------------------------------------------------
+
+function verdictText(taskId, outcome) {
+  const head = 'Task acceptance (' + taskId + '): ' + outcome;
+  if (outcome === 'PASS') {
+    return (
+      head +
+      '\n  [PASS] m — expected ==0 observed 0\nFINAL: PASS — acceptance criteria met with recorded evidence.'
+    );
+  }
+  return (
+    head +
+    '\n  [NO EVIDENCE] m — expected ==0\ncriteria: 0/1 met (1 required unmet), evidence records considered: 0\nFINAL: not accepted — record evidence for the missing metrics, repair what failed, then re-run task_acceptance.'
+  );
+}
+
+// 8. REGRESSION (red→green): a FAIL verdict on task B must NOT be masked by
+//    a later PASS verdict on task A — the nudge tracks the latest verdict
+//    PER TASK, so B's pending repair still gets guidance (and the correction
+//    names the task that failed).
+{
+  const r = evaluateTaskRepairNudge({
+    messages: [
+      { role: 'user', content: 'two tasks' },
+      toolUse('accB', 'task_acceptance', { task_id: 'task_B' }),
+      toolResult('accB', 'task_acceptance', verdictText('task_B', 'FAIL')),
+      toolUse('accA', 'task_acceptance', { task_id: 'task_A' }),
+      toolResult('accA', 'task_acceptance', verdictText('task_A', 'PASS')),
+    ],
+    attempts: 0,
+  });
+  assert.equal(r.fire, true);
+  assert.match(r.correction, /task_B/);
+  assert.doesNotMatch(r.correction, /task_A/);
+}
+
+// 9. REGRESSION (red→green): repair work belonging to task A does not count
+//    as progress on task B's pending FAIL (per-task activity attribution via
+//    the tools' task_id input).
+{
+  const r = evaluateTaskRepairNudge({
+    messages: [
+      toolUse('accB', 'task_acceptance', { task_id: 'task_B' }),
+      toolResult('accB', 'task_acceptance', verdictText('task_B', 'FAIL')),
+      toolUse('repA', 'record_repair', { task_id: 'task_A', action: 'fix A' }),
+      toolUse('accA', 'task_acceptance', { task_id: 'task_A' }),
+      toolResult('accA', 'task_acceptance', verdictText('task_A', 'PASS')),
+    ],
+    attempts: 0,
+  });
+  assert.equal(r.fire, true);
+  assert.match(r.correction, /task_B/);
+}
+
+// 10. Per-task suppression: repair work FOR task B after its FAIL keeps the
+//     nudge silent (same as case 3, but with explicit task_id attribution).
+{
+  const r = evaluateTaskRepairNudge({
+    messages: [
+      toolUse('accB', 'task_acceptance', { task_id: 'task_B' }),
+      toolResult('accB', 'task_acceptance', verdictText('task_B', 'FAIL')),
+      toolUse('fB', 'record_failure', { task_id: 'task_B', symptom: 'x' }),
+    ],
+    attempts: 0,
+  });
+  assert.equal(r.fire, false);
+}
+
+// 11. KNOWN-LIMITATION LOCK: a bare record_evidence after the FAIL silences
+//     the nudge (evidence is repair-path progress by design — latest evidence
+//     per metric wins, so fresh evidence may legitimately clear the verdict).
+//     If this behavior is ever changed deliberately, update this lock first.
+{
+  const r = evaluateTaskRepairNudge({
+    messages: [
+      toolUse('acc1', 'task_acceptance', { task_id: 'task_1' }),
+      toolResult('acc1', 'task_acceptance', FAIL_VERDICT),
+      toolUse('ev1', 'record_evidence', { task_id: 'task_1', metric: 'm', observed: 0 }),
+    ],
+    attempts: 0,
+  });
+  assert.equal(r.fire, false);
+}
+
+// 12. KNOWN-LIMITATION LOCK: a PARTIAL verdict (optional criteria unmet) is
+//     not a red wave — no fire, and no counter reset either.
+{
+  const r = evaluateTaskRepairNudge({
+    messages: [
+      toolUse('acc1', 'task_acceptance', { task_id: 'task_1' }),
+      toolResult(
+        'acc1',
+        'task_acceptance',
+        'Task acceptance (task_1): PARTIAL\n  [PASS] m1 — expected ==0 observed 0\n  [FAIL] m2 — expected >=1 (optional)\nFINAL: not accepted.'
+      ),
+    ],
+    attempts: 1,
+  });
+  assert.equal(r.fire, false);
+  assert.notEqual(r.resetAttempts, true);
+}
+
 console.log('task-repair-nudge.spec: all assertions passed');
