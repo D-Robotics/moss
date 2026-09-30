@@ -45,6 +45,7 @@ function parseArgs(argv) {
     maxTurns: 40,
     eval: false,
     skipRun: false,
+    goalVerify: false,
     model: null,
     baseUrl: null,
     dist: null,
@@ -65,6 +66,7 @@ function parseArgs(argv) {
     else if (a === '--model') out.model = next();
     else if (a === '--base-url') out.baseUrl = next();
     else if (a === '--dist') out.dist = next();
+    else if (a === '--goal-verify') out.goalVerify = true;
     else if (a === '--eval') out.eval = true;
     else if (a === '--skip-run') out.skipRun = true;
     else throw new Error(`unknown flag ${a}`);
@@ -179,10 +181,23 @@ async function main() {
           nodeTarballPath: nodeTar,
         });
         await writeProviderConfig(name, provider);
+        // --goal-verify: hand the agent its own acceptance command (run the
+        // instance's known failing tests) — the headless /goal engine then
+        // forces one continuation turn when the fix doesn't pass them yet.
+        const goalEnv = args.goalVerify
+          ? {
+              MOSS_GOAL_VERIFY_LOOP: '1',
+              MOSS_GOAL_VERIFY_CMD: `cd /testbed && conda run -n testbed python -m pytest -x -q ${inst.fail_to_pass
+                .slice(0, 8)
+                .map((t) => JSON.stringify(t.split('::')[0]))
+                .join(' ')} || true`,
+            }
+          : {};
         const run = await runMossInContainer(inst, {
           containerName: name,
           provider,
           maxTurns: args.maxTurns,
+          ...(Object.keys(goalEnv).length ? { extraEnv: goalEnv } : {}),
         });
         fs.writeFileSync(path.join(jobDir, 'run.jsonl'), run.stdout || '');
         if (run.stderr) fs.writeFileSync(path.join(jobDir, 'run.stderr.log'), run.stderr);

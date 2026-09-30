@@ -122,7 +122,7 @@ export async function writeProviderConfig(containerName, provider) {
 }
 
 export async function runMossInContainer(instance, opts) {
-  const { containerName, provider, maxTurns = 40, timeoutMs = 25 * 60_000 } = opts;
+  const { containerName, provider, maxTurns = 40, timeoutMs = 25 * 60_000, extraEnv = {} } = opts;
   const prompt = buildPrompt(instance);
   const promptFile = `/tmp/moss-prompt-${Date.now()}.txt`;
   const seed = Math.random().toString(36).slice(2, 8);
@@ -141,6 +141,7 @@ export async function runMossInContainer(instance, opts) {
     'export MOSS_SAFETY_MODE=workspace-write',
     'export MOSS_APPROVAL_POLICY=never',
     'export MOSS_NO_COLOR=1',
+    ...Object.entries(extraEnv).map(([k, v]) => `export ${k}=${JSON.stringify(String(v))}`),
     `node /opt/moss/cli.js -p --output-format stream-json --ask-for-approval never --model ${JSON.stringify(
       provider.model
     )} --base-url ${JSON.stringify(provider.baseUrl)} --max-turns ${maxTurns} "$(cat ${promptFile})"`,
