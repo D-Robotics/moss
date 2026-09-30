@@ -23,7 +23,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const benchRoot = path.join(repoRoot, 'bench');
 const tasksRoot = path.join(benchRoot, 'tasks');
 const resultsRoot = path.join(benchRoot, 'results');
-const CLI_ENTRY = path.join(repoRoot, 'dist', 'cli.js');
+const CLI_ENTRY = process.env.MOSS_BENCH_CLI ?? path.join(repoRoot, 'dist', 'cli.js');
 const CHECK_TIMEOUT_MS = 90_000;
 const KILL_GRACE_MS = 5_000;
 

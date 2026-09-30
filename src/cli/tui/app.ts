@@ -24,10 +24,15 @@ import {
   beginRun,
   createTuiStore,
   endRun,
+  formatUsage,
   type TranscriptRowKind,
 } from './render-bridge.js';
 import { createPasteCapture, feedChunk } from './input-box.js';
 import { renderStatusBar } from './status-bar.js';
+import {
+  listBackgroundProcessSnapshots,
+  type BackgroundProcSnapshot,
+} from '../../core/tools/background-process-registry.js';
 import { transcriptLines } from './transcript-view.js';
 
 const TRANSCRIPT_HEIGHT = 14;
@@ -91,6 +96,11 @@ export function TuiAppRoot({
   const [scrollOffset, setScrollOffset] = useState(0);
   const [pastePreview, setPastePreview] = useState<string | undefined>(undefined);
   const abortRef = useRef<AbortController | undefined>(undefined);
+  const queueRef = useRef<{ text: string; kind: 'prompt' }[]>([]);
+  const queuePausedRef = useRef(false);
+  const [queuePaused, setQueuePaused] = useState(false);
+  const [queueRevision, setQueueRevision] = useState(0);
+  void queueRevision;
   const pasteRef = useRef(createPasteCapture());
   const sessionKey = options.sessionKey ?? 'tui';
   const { store } = handle;
@@ -148,6 +158,18 @@ export function TuiAppRoot({
     [handle, options.agent, sessionKey, store]
   );
 
+  const drainQueue = useCallback(async (): Promise<void> => {
+    while (queueRef.current.length > 0 && !queuePausedRef.current) {
+      const next = queueRef.current.shift();
+      if (!next) break;
+      setQueueRevision((n) => n + 1);
+      appendRow(store, 'user', next.text);
+      handle.notify();
+      await runTurn(next.text);
+    }
+    if (queueRef.current.length === 0) setQueueRevision((n) => n + 1);
+  }, [handle, runTurn, store]);
+
   const submit = useCallback(
     (raw: string) => {
       if (pastePreview !== undefined) {
@@ -158,7 +180,7 @@ export function TuiAppRoot({
         if (!store.run.running) {
           appendRow(store, 'user', staged);
           handle.notify();
-          void runTurn(staged);
+          void runTurn(staged).then(() => void drainQueue());
         }
         return;
       }
@@ -174,6 +196,85 @@ export function TuiAppRoot({
         setInput('');
         return;
       }
+      if (text === '/usage') {
+        appendRow(store, 'banner', `tokens: ${formatUsage(store.usage)}`);
+        handle.notify();
+        setInput('');
+        return;
+      }
+      if (text === '/bg') {
+        const running = listBackgroundProcessSnapshots().filter(
+          (p: BackgroundProcSnapshot) => p.status === 'running'
+        );
+        appendRow(
+          store,
+          'banner',
+          running.length === 0
+            ? 'No background tasks running.'
+            : running
+                .map((p) => `#${p.id} ${p.command}${p.label ? ` (${p.label})` : ''}`)
+                .join('\n')
+        );
+        handle.notify();
+        setInput('');
+        return;
+      }
+      if (text === '/queue' || text.startsWith('/queue ')) {
+        const sub = text.split(' ')[1] ?? 'list';
+        if (sub === 'pause') {
+          queuePausedRef.current = true;
+          setQueuePaused(true);
+          appendRow(store, 'banner', 'Queue paused — new submissions wait.');
+        } else if (sub === 'resume') {
+          queuePausedRef.current = false;
+          setQueuePaused(false);
+          appendRow(store, 'banner', 'Queue resumed.');
+          if (!store.run.running && queueRef.current.length > 0) void drainQueue();
+        } else if (sub === 'drop') {
+          const dropped = queueRef.current.shift();
+          appendRow(
+            store,
+            'banner',
+            dropped ? `Dropped: ${dropped.text.slice(0, 60)}` : 'Queue empty — nothing to drop.'
+          );
+          setQueueRevision((n) => n + 1);
+        } else if (sub === 'clear') {
+          const n = queueRef.current.length;
+          queueRef.current.length = 0;
+          setQueueRevision((n2) => n2 + 1);
+          appendRow(store, 'banner', `Cleared ${n} queued item${n === 1 ? '' : 's'}.`);
+        } else {
+          const items = queueRef.current
+            .map((q, i) => `${i + 1}. ${q.text.slice(0, 60)}`)
+            .join('\n');
+          appendRow(
+            store,
+            'banner',
+            items ? `Queue (${queuePaused ? 'paused' : 'active'}):\n${items}` : 'Queue empty.'
+          );
+        }
+        handle.notify();
+        setInput('');
+        return;
+      }
+      if (text.startsWith('/steer')) {
+        const constraint = text.slice('/steer'.length).trim();
+        if (!constraint) {
+          appendRow(store, 'banner', 'Usage: /steer <constraint> — injects at the next boundary.');
+        } else {
+          const entry = options.agent.steer?.(sessionKey, constraint);
+          appendRow(
+            store,
+            'banner',
+            entry === null || entry === undefined
+              ? 'Steer rejected — no single active run on this session.'
+              : `Steer queued: ${constraint.slice(0, 80)}`
+          );
+        }
+        handle.notify();
+        setInput('');
+        return;
+      }
       if (text.startsWith('/')) {
         appendRow(
           store,
@@ -185,10 +286,12 @@ export function TuiAppRoot({
         return;
       }
       if (store.run.running) {
+        queueRef.current.push({ text, kind: 'prompt' });
+        setQueueRevision((n) => n + 1);
         appendRow(
           store,
           'banner',
-          'A run is active — Esc interrupts it; queued input lands with the v0.18 control plane.'
+          `Queued #${queueRef.current.length} (runs when the current turn ends; /queue to manage)`
         );
         handle.notify();
         setInput('');
@@ -267,13 +370,15 @@ export function TuiAppRoot({
   }, [stdin, handle]);
 
   const lines = transcriptLines(store, scrollOffset, { height: TRANSCRIPT_HEIGHT });
-  const statusLine = renderStatusBar({
+  const statusLine = `${renderStatusBar({
     model: options.model,
     workspace: options.workspaceDir,
     running: store.run.running,
     scrollOffset,
     halted: store.run.halted,
-  });
+  })} · ${formatUsage(store.usage)}${
+    queueRef.current.length ? ` · queue:${queueRef.current.length}` : ''
+  }${queuePaused ? ' (paused)' : ''}`;
 
   return React.createElement(
     Box,

@@ -56,6 +56,9 @@ const helpFlag = argv.includes('--help') || argv.includes('-h');
 const engine = argv.find((a) => !a.startsWith('-'));
 const samplesIdx = argv.indexOf('--samples');
 const samples = samplesIdx >= 0 ? Number(argv[samplesIdx + 1]) : 3;
+const distIdx = argv.indexOf('--dist');
+const distDir = distIdx >= 0 ? argv[distIdx + 1] : null;
+if (distDir) process.env.MOSS_BENCH_CLI = path.resolve(distDir, 'cli.js');
 const ratioIdx = argv.indexOf('--price-ratio');
 const priceRatio = ratioIdx >= 0 ? Number(argv[ratioIdx + 1]) : 3;
 
@@ -70,6 +73,8 @@ if (!ENGINES[engine]) {
 }
 
 function runArm(label, arm) {
+  // MOSS_BENCH_CLI (set via --dist) pins the arms to a snapshot build so a
+  // concurrent worktree rebuild cannot corrupt a running A/B.
   const env = { ...process.env, ...arm.env };
   const cliArgs = [
     path.join(repoRoot, 'scripts', 'run-benchmark.mjs'),

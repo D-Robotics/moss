@@ -2,6 +2,8 @@
 
 ## 棒日志
 
+- 事故（10:57,自责记录）：goal-loop A/B 首跑期间我连续重建 worktree dist → off 臂 33 run 全部秒败（0 token）、on 臂 dist 缺失退出——违反"bench 运行中禁 build"自订规则。已重发 A/B 并冻结构建。教训：**任何 bench 从 worktree dist 跑数期间（含 bench:ab/bench:tb），worktree 禁 npm run build/test；需要验证时先跑完或用快照 dist。**
+
 - sprint-000 (2026-09-30, 编排者)：合同建立。worktree=../moss-ap（分支 autopilot/v014-v020，基点 6d73392f）。RUNNER=self。主仓三臂 A/B 由并行会话运行中（cheap/balanced 已收，routing 进行中），主仓禁 build 至其结束。验收器 10 个建于 pending/（gate 只扫 acceptance/ 顶层文件），每棒随版本落地逐个上移。全部验收器已完成"先红"自检（见 evidence/sprint-000/）。
 - sprint-001 (2026-09-30, T1 ✅)：0.14-S3 命令面止血。幽灵子命令（update/mcp/plugins/migrate/web/agent）经 isUnimplementedCommand 硬错退出 2；/steer /queue /history /resume /clear 从目录/补全/help 下架（/sessions 描述改指 moss resume --last）；删 input-queue.ts 死模块（含 barrel 导出与其全部测试段）。新 spec test/cli-command-surface.spec.mjs 先红（evidence/sprint-001-command-surface-red.log）后绿；cli-interactive-commands/onboarding/tui/tui-utils-core 同步修订。gate GREEN。tag autopilot/green-001。
 - sprint-002 (~02:00, T2 部分)：SWE-bench 体系：锁定 100 实例子集（bench/boards/swebench-instances.json，官方镜像名+完整题目/测试补丁）；adapter（容器内 moss headless + node 运行时注入 + patch 提取）+ orchestrator（bench:swe，--dist 冻结快照防中途污染）；官方 swebench harness 判分链路打通；smoke3（无题面盲跑）被官方判分 resolved ✓。失败复盘：首跑 swe-base1 因并行拉镜像+任务并发→网关 ECONNRESET 全灭（126 errors/100 空 patch）；镜像拉取撞 Hub 匿名配额。修复：温和重拉（sleep 300 轮询）+ 串行化执行。
