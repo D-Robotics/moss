@@ -21,3 +21,9 @@
 - 协调闸门：endgame 已 SIGSTOP 冻结，等"full-bench 收尾 且 镜像 missing=0"后自动放行（/tmp/moss-endgame-coordinator.sh）。
 - 链尾接力：endgame 退出后自动跑 swe-v020（v0.20 tip 快照）+ 判分（/tmp/moss-swe-v020-tail.sh）。
 - 噪声取证：full-bench-v020-r2（同快照第二次全量）进行中，用于 hard 87.9 vs 93.9 的噪声裁决。
+
+## 补充裁决（2026-09-30 19:20，用户拍板）
+
+- main 已并行推进"机器人闭环"方向（8 提交：device 子系统/task contract/evidence-gated acceptance），与 autopilot（24 提交，TUI/MCP/skills 线）分叉 96 文件。
+- **用户裁定：外榜证据齐、门过后，按原计划合并 autopilot → main**——两线共存；合并时 AGENTS.md 手工调和（TUI/MCP/skills 解冻表述 + 设备子系统章节并存），机器人线提交完整保留。
+- 已知障碍：主 worktree 有未提交 scripts/run-benchmark.mjs 改动（非本会话），合并前核对其归属。
