@@ -84,6 +84,11 @@ export function setCliApprovalAsker(asker: AskUser | null): void {
   syncUserQuestionAskerPort();
 }
 
+/** @internal Test hook: the currently registered interactive asker (TUI specs). */
+export function getCliApprovalAskerForTest(): AskUser | null {
+  return interactiveAsker;
+}
+
 /** Mirror the effective asker into the core port so tools resolve it without
  *  importing the CLI layer (dynamic fallback preserved at every mutation). */
 function syncUserQuestionAskerPort(): void {

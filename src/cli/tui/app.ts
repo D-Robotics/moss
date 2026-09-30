@@ -33,6 +33,7 @@ import {
   listBackgroundProcessSnapshots,
   type BackgroundProcSnapshot,
 } from '../../core/tools/background-process-registry.js';
+import { setCliApprovalAsker } from '../approval.js';
 import { transcriptLines } from './transcript-view.js';
 
 const TRANSCRIPT_HEIGHT = 14;
@@ -96,6 +97,10 @@ export function TuiAppRoot({
   const [scrollOffset, setScrollOffset] = useState(0);
   const [pastePreview, setPastePreview] = useState<string | undefined>(undefined);
   const abortRef = useRef<AbortController | undefined>(undefined);
+  const pendingApprovalRef = useRef<{
+    question: string;
+    resolve: (answer: string) => void;
+  } | null>(null);
   const queueRef = useRef<{ text: string; kind: 'prompt' }[]>([]);
   const queuePausedRef = useRef(false);
   const [queuePaused, setQueuePaused] = useState(false);
@@ -106,6 +111,31 @@ export function TuiAppRoot({
   const { store } = handle;
 
   useEffect(() => handle.subscribe(forceUpdate), [handle, forceUpdate]);
+
+  // Approval bridge: when a mutating tool needs consent mid-run, the question
+  // renders in the transcript and the NEXT input line is the answer (y/a/n).
+  // Without this, TUI sessions would deadlock on the readline asker.
+  useEffect(() => {
+    setCliApprovalAsker(async (question: string) => {
+      const pending = pendingApprovalRef.current;
+      if (pending) pending.resolve('n');
+      appendRow(
+        store,
+        'banner',
+        `APPROVAL NEEDED — reply y (once) / a (session) / n (deny):\n${question.slice(0, 300)}`
+      );
+      handle.notify();
+      return new Promise<string>((resolve) => {
+        pendingApprovalRef.current = { question, resolve };
+      });
+    });
+    return () => {
+      const pending = pendingApprovalRef.current;
+      if (pending) pending.resolve('n');
+      pendingApprovalRef.current = null;
+      setCliApprovalAsker(null);
+    };
+  }, [handle, store]);
 
   // Boot banner + resume replay rows land in the transcript on mount.
   useEffect(() => {
@@ -172,6 +202,23 @@ export function TuiAppRoot({
 
   const submit = useCallback(
     (raw: string) => {
+      const pending = pendingApprovalRef.current;
+      if (pending) {
+        pendingApprovalRef.current = null;
+        const answer = raw.trim().toLowerCase();
+        const normalized =
+          answer === 'y' || answer === 'yes'
+            ? 'y'
+            : answer === 'a' || answer === 'always'
+              ? 'a'
+              : 'n';
+        appendRow(store, 'user', raw.trim() || '(no)');
+        appendRow(store, 'banner', `Approval answered: ${normalized}`);
+        handle.notify();
+        setInput('');
+        pending.resolve(normalized);
+        return;
+      }
       if (pastePreview !== undefined) {
         // A paste is staged: this Enter confirms it as ONE message.
         const staged = pasteRef.current.pending.shift() ?? pastePreview;

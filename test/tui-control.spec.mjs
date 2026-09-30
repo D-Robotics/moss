@@ -197,4 +197,28 @@ void fs;
 void os;
 void path;
 
-console.log('[PASS] TUI control plane (steer/queue/usage/bg)');
+// ─── approval bridge: question renders, next input answers ─────────────────
+
+{
+  calls.length = 0;
+  const handle = liveHandle();
+  const { getCliApprovalAskerForTest } = await import('../dist/cli/approval.js');
+  const instance = renderInk(
+    React.createElement(TuiAppRoot, {
+      options: { agent: mockAgent(), workspaceDir: '/tmp/ws' },
+      handle,
+    })
+  );
+  const asker = getCliApprovalAskerForTest();
+  assert.ok(typeof asker === 'function', 'TUI registered an approval asker');
+  const answerPromise = asker('Allow write_file src/index.ts?');
+  await waitFor(() => instance.lastFrame().includes('APPROVAL NEEDED'));
+  await type(instance, 'y');
+  const answer = await answerPromise;
+  assert.equal(answer, 'y');
+  await waitFor(() => instance.lastFrame().includes('Approval answered: y'));
+  instance.unmount();
+  await sleep(120);
+}
+
+console.log('[PASS] TUI control plane (steer/queue/usage/bg/approval)');
