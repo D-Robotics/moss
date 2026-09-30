@@ -21,16 +21,22 @@ import {
   RESOURCES_PROBE_SCRIPT,
   ROBOTICS_PROBE_SCRIPT,
   TEMPERATURE_PROBE_SCRIPT,
+  NETWORK_PROBE_SCRIPT,
+  CAMERAS_PROBE_SCRIPT,
   formatInfoSnapshot,
   formatProcessList,
   formatResourceSnapshot,
   formatRoboticsSnapshot,
   formatTemperatureSnapshot,
+  formatNetworkSnapshot,
+  formatCamerasSnapshot,
   parseInfoProbe,
   parseProcessesProbe,
   parseResourcesProbe,
   parseRoboticsProbe,
   parseTemperatureProbe,
+  parseNetworkProbe,
+  parseCamerasProbe,
 } from '../device/observation.js';
 import { EXEC_DEFAULT_TIMEOUT_MS, looksBinary, safePath } from './tool-helpers.js';
 
@@ -468,6 +474,56 @@ export const deviceRoboticsStatusTool: Tool = {
   },
 };
 
+export const deviceNetworkTool: Tool = {
+  name: 'device_network',
+  description:
+    'Report the network state of the configured device: interfaces with link state, global addresses (inet/inet6), and the default route. First stop when diagnosing connectivity to a robot.\n' +
+    DEVICE_TOOLS_DESCRIPTION_NOTE,
+  metadata: { sideEffectClass: 'readonly', transientRetry: true },
+  inputSchema: {
+    type: 'object',
+    properties: {},
+  },
+  async execute() {
+    const resolved = await connectDefaultDevice('device_network');
+    if (typeof resolved === 'string') return resolved;
+    try {
+      const result = await resolved.conn.exec(NETWORK_PROBE_SCRIPT, { timeoutMs: 20_000 });
+      return formatNetworkSnapshot(
+        parseNetworkProbe(result.stdout, resolved.target.deviceId),
+        resolved.endpoint
+      );
+    } catch (err) {
+      return deviceConnectionDown('device_network', resolved.endpoint, err);
+    }
+  },
+};
+
+export const deviceCamerasTool: Tool = {
+  name: 'device_cameras',
+  description:
+    'Enumerate v4l2 camera devices on the configured device (/sys/class/video4linux names + /dev/video* nodes). On RDK boards sensor names appear here — use before any camera/pipeline debugging.\n' +
+    DEVICE_TOOLS_DESCRIPTION_NOTE,
+  metadata: { sideEffectClass: 'readonly', transientRetry: true },
+  inputSchema: {
+    type: 'object',
+    properties: {},
+  },
+  async execute() {
+    const resolved = await connectDefaultDevice('device_cameras');
+    if (typeof resolved === 'string') return resolved;
+    try {
+      const result = await resolved.conn.exec(CAMERAS_PROBE_SCRIPT, { timeoutMs: 20_000 });
+      return formatCamerasSnapshot(
+        parseCamerasProbe(result.stdout, resolved.target.deviceId),
+        resolved.endpoint
+      );
+    } catch (err) {
+      return deviceConnectionDown('device_cameras', resolved.endpoint, err);
+    }
+  },
+};
+
 export const deviceTools: Tool[] = [
   deviceInfoTool,
   deviceExecTool,
@@ -479,4 +535,6 @@ export const deviceTools: Tool[] = [
   deviceResourcesTool,
   deviceTemperatureTool,
   deviceRoboticsStatusTool,
+  deviceNetworkTool,
+  deviceCamerasTool,
 ];

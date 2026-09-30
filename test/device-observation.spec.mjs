@@ -16,6 +16,10 @@ import {
   formatResourceSnapshot,
   formatTemperatureSnapshot,
   formatRoboticsSnapshot,
+  formatNetworkSnapshot,
+  formatCamerasSnapshot,
+  parseNetworkProbe,
+  parseCamerasProbe,
   formatBytes,
   formatUptime,
 } from '../dist/device/observation.js';
@@ -143,6 +147,53 @@ test('parseRoboticsProbe detects TROS, upstream ROS, and plain Linux hosts', () 
   const none = parseRoboticsProbe('', 'plain');
   assert.equal(none.installations.length, 0);
   assert.match(formatRoboticsSnapshot(none, 'x:22'), /none detected/);
+});
+
+test('parseNetworkProbe parses addresses, routes, and link states', () => {
+  const snap = parseNetworkProbe(
+    [
+      'ADDR|eth0|inet|192.168.1.10/24',
+      'ADDR|eth0|inet6|fe80::1/64',
+      'ROUTE|default via 192.168.1.1 dev eth0',
+      'LINK|eth0|UP',
+      'LINK|wlan0|DOWN',
+    ].join('\n'),
+    'rdk-x5-001'
+  );
+  assert.equal(snap.addresses.length, 2);
+  assert.deepEqual(snap.addresses[0], {
+    interface: 'eth0',
+    family: 'inet',
+    cidr: '192.168.1.10/24',
+  });
+  assert.equal(snap.defaultRoute, 'default via 192.168.1.1 dev eth0');
+  assert.deepEqual(snap.links, [
+    { interface: 'eth0', state: 'UP' },
+    { interface: 'wlan0', state: 'DOWN' },
+  ]);
+  const text = formatNetworkSnapshot(snap, 'root@x:22');
+  assert.match(text, /eth0 \(UP\): inet 192\.168\.1\.10\/24/);
+  assert.match(text, /wlan0 \(DOWN\): no global address/);
+  assert.match(text, /default route: default via 192\.168\.1\.1/);
+  assert.match(formatNetworkSnapshot(parseNetworkProbe('', 'd'), 'x:22'), /no interfaces parsed/);
+});
+
+test('parseCamerasProbe enumerates v4l2 devices with sensor names', () => {
+  const snap = parseCamerasProbe(
+    [
+      'CAM|video0|m00_b_rgb_8bpp_1920x1080',
+      'CAM|video1|m00_b_ir_10bpp_1280x1024',
+      'V4L2DEV|/dev/video0',
+      'V4L2DEV|/dev/video1',
+    ].join('\n'),
+    'rdk-x5-001'
+  );
+  assert.equal(snap.cameras.length, 2);
+  assert.equal(snap.cameras[0].name, 'm00_b_rgb_8bpp_1920x1080');
+  const text = formatCamerasSnapshot(snap, 'root@x:22');
+  assert.match(text, /2 v4l2 device\(s\)/);
+  assert.match(text, /m00_b_rgb_8bpp_1920x1080/);
+  assert.match(formatCamerasSnapshot(parseCamerasProbe('', 'd'), 'x:22'), /none detected/);
 });
 
 test('formatters render compact human-readable output', () => {

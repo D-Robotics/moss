@@ -43,8 +43,7 @@ export const TEMPERATURE_PROBE_SCRIPT =
  * Robotics stack probe: which ROS/TROS installation exists on the device.
  * TROS (D-Robotics) installs to /opt/tros; upstream ROS2 to /opt/ros/<distro>.
  * Everything is optional — a plain Linux host reports "no ROS" gracefully.
- */
-export const ROBOTICS_PROBE_SCRIPT = [
+ */ export const ROBOTICS_PROBE_SCRIPT = [
   'if [ -d /opt/tros ]; then printf "ROSDIR|/opt/tros|tros\\n"; fi',
   'for d in /opt/ros/*; do [ -d "$d" ] && printf "ROSDIR|%s|%s\\n" "$d" "${d##*/}"; done',
   'for b in /opt/tros/bin/ros2 /opt/ros/*/bin/ros2; do [ -x "$b" ] && printf "ROS2BIN|%s\\n" "$b"; done',
@@ -371,4 +370,114 @@ export function formatTemperatureSnapshot(snapshot: DeviceTemperatureSnapshot): 
     (z) => `  ${z.zone}${z.label ? ` (${z.label})` : ''}: ${z.celsius}°C`
   );
   return `thermal zones on ${snapshot.deviceId}:\n${rows.join('\n')}`;
+}
+
+export const NETWORK_PROBE_SCRIPT = [
+  'ip -o addr show scope global 2>/dev/null | awk \'{printf "ADDR|%s|%s|%s\\n", $2, $3, $4}\'',
+  'ip route show default 2>/dev/null | awk \'{printf "ROUTE|%s\\n", $0}\'',
+  'ip -o link show 2>/dev/null | awk \'{iface=$2; sub(/:$/, "", iface); state="unknown"; for (i=1; i<=NF; i++) if ($i == "state") state=$(i+1); printf "LINK|%s|%s\\n", iface, state}\'',
+].join('\n');
+
+export interface DeviceNetworkAddress {
+  interface: string;
+  family: string;
+  cidr: string;
+}
+
+export interface DeviceNetworkSnapshot {
+  deviceId: string;
+  collectedAt: number;
+  addresses: DeviceNetworkAddress[];
+  defaultRoute?: string;
+  links: Array<{ interface: string; state: string }>;
+}
+
+export function parseNetworkProbe(stdout: string, deviceId: string): DeviceNetworkSnapshot {
+  const snapshot: DeviceNetworkSnapshot = {
+    deviceId,
+    collectedAt: Date.now(),
+    addresses: [],
+    links: [],
+  };
+  for (const rawLine of stdout.split('\n')) {
+    const line = rawLine.trim();
+    if (!line.includes('|')) continue;
+    const sep = line.indexOf('|');
+    const key = line.slice(0, sep);
+    const value = line.slice(sep + 1);
+    if (key === 'ADDR') {
+      const [iface, family, cidr] = value.split('|');
+      if (iface && family && cidr) snapshot.addresses.push({ interface: iface, family, cidr });
+    } else if (key === 'ROUTE') {
+      if (value) snapshot.defaultRoute = snapshot.defaultRoute ?? value;
+    } else if (key === 'LINK') {
+      const [iface, state] = value.split('|');
+      if (iface) snapshot.links.push({ interface: iface, state: state ?? 'unknown' });
+    }
+  }
+  return snapshot;
+}
+
+export function formatNetworkSnapshot(snapshot: DeviceNetworkSnapshot, endpoint: string): string {
+  if (snapshot.addresses.length === 0 && snapshot.links.length === 0) {
+    return `network on ${snapshot.deviceId} (${endpoint}): no interfaces parsed (ip tool missing?).`;
+  }
+  const lines = [`network on ${snapshot.deviceId} (${endpoint}):`];
+  for (const addr of snapshot.addresses) {
+    const link = snapshot.links.find((l) => l.interface === addr.interface);
+    lines.push(`  ${addr.interface} (${link?.state ?? 'unknown'}): ${addr.family} ${addr.cidr}`);
+  }
+  for (const link of snapshot.links) {
+    if (!snapshot.addresses.some((a) => a.interface === link.interface)) {
+      lines.push(`  ${link.interface} (${link.state}): no global address`);
+    }
+  }
+  if (snapshot.defaultRoute) lines.push(`  default route: ${snapshot.defaultRoute}`);
+  return lines.join('\n');
+}
+
+export const CAMERAS_PROBE_SCRIPT = [
+  'for n in /sys/class/video4linux/*/name; do [ -r "$n" ] || continue; printf "CAM|%s|%s\\n" "$(basename "$(dirname "$n")")" "$(cat "$n" 2>/dev/null)"; done',
+  'for v in /dev/video*; do [ -e "$v" ] || continue; printf "V4L2DEV|%s\\n" "$v"; done',
+].join('\n');
+
+export interface DeviceCameraSnapshot {
+  deviceId: string;
+  collectedAt: number;
+  cameras: Array<{ device: string; name?: string }>;
+}
+
+export function parseCamerasProbe(stdout: string, deviceId: string): DeviceCameraSnapshot {
+  const nameByBase = new Map<string, string>();
+  const devPaths = new Map<string, string>();
+  for (const rawLine of stdout.split('\n')) {
+    const line = rawLine.trim();
+    if (line.startsWith('CAM|')) {
+      const [, device, name] = line.split('|');
+      if (device) nameByBase.set(device, name || '');
+    } else if (line.startsWith('V4L2DEV|')) {
+      const dev = line.slice('V4L2DEV|'.length);
+      if (dev) devPaths.set(dev.split('/').filter(Boolean).pop() ?? dev, dev);
+    }
+  }
+  const bases = new Set([...nameByBase.keys(), ...devPaths.keys()]);
+  return {
+    deviceId,
+    collectedAt: Date.now(),
+    cameras: [...bases].sort().map((base) => ({
+      device: devPaths.get(base) ?? base,
+      ...(nameByBase.get(base) ? { name: nameByBase.get(base) } : {}),
+    })),
+  };
+}
+
+export function formatCamerasSnapshot(snapshot: DeviceCameraSnapshot, endpoint: string): string {
+  if (snapshot.cameras.length === 0) {
+    return (
+      `cameras on ${snapshot.deviceId} (${endpoint}): none detected under /sys/class/video4linux.\n` +
+      `If the hardware should have cameras, check the driver/bring-up before any perception work.`
+    );
+  }
+  const rows = snapshot.cameras.map((cam) => `  ${cam.device}${cam.name ? ` — ${cam.name}` : ''}`);
+  return `cameras on ${snapshot.deviceId} (${endpoint}): ${snapshot.cameras.length} v4l2 device(s)\n${rows.join('\n')}`;
 }

@@ -67,6 +67,8 @@ export {
   deviceResourcesTool,
   deviceTemperatureTool,
   deviceRoboticsStatusTool,
+  deviceNetworkTool,
+  deviceCamerasTool,
 } from './tools/device-tools.js';
 export {
   evidenceTools,
