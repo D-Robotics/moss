@@ -44,12 +44,42 @@ interface ServerEntry {
   /** Real tools created on demand, keyed by wire name (stable identity so the
    *  post-first-call schema upgrade mutates the registered object). */
   realTools: Map<string, Tool>;
+  /**
+   * Descriptors from the `tools/list` call already made at connect time. Kept
+   * so capability discovery can select tools per task without revealing (and
+   * paying prompt tokens for) the whole server catalog.
+   */
+  descriptors: McpToolDescriptor[];
+}
+
+/** One selectable server tool, as seen by capability discovery. */
+export interface McpCatalogEntry {
+  server: string;
+  /** Server-side tool name (not the wire name). */
+  tool: string;
+  /** `mcp__<server>__<tool>` — what the model would call. */
+  wireName: string;
+  description: string;
 }
 
 /** [a-zA-Z0-9_-] segment for wire names; anything else collapses to '_'. */
 function sanitizeSegment(value: string): string {
   const cleaned = value.replace(/[^a-zA-Z0-9_-]/g, '_');
   return cleaned || '_';
+}
+
+/**
+ * First non-empty line of a server-provided description, capped. The line is
+ * embedded verbatim in the revealed tool's schema description, so a verbose or
+ * hostile server must not be able to blow the provider payload.
+ */
+function firstDescriptionLine(text: string | undefined, max = 500): string {
+  const line = (text ?? '')
+    .split('\n')
+    .find((candidate) => candidate.trim().length > 0)
+    ?.trim();
+  if (!line) return '';
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
 /** FNV-1a 32-bit → 8 hex chars (deterministic short hash for long names). */
@@ -123,10 +153,12 @@ export class McpToolRegistry {
         status,
         searchTool: registry.buildSearchTool(client),
         realTools: new Map(),
+        descriptors: [],
       };
       try {
         await client.connect();
         const tools = await client.listTools();
+        entry.descriptors = tools;
         status.state = 'connected';
         status.toolCount = tools.length;
         log.debug('server connected', { server: config.name, tools: tools.length });
@@ -154,6 +186,53 @@ export class McpToolRegistry {
 
   getSearchTool(serverName: string): Tool | undefined {
     return this.entries.find((e) => e.status.name === serverName)?.searchTool;
+  }
+
+  /**
+   * Every tool the connected servers expose, from the `tools/list` cache taken
+   * at connect time — no extra round trip, no prompt cost.
+   *
+   * Capability discovery scores this catalog against the goal and then calls
+   * `revealTools` for the few that matched, so a 50-tool server costs one
+   * prompt line per selected tool instead of 50 schemas.
+   */
+  getCatalog(): McpCatalogEntry[] {
+    const catalog: McpCatalogEntry[] = [];
+    for (const entry of this.entries) {
+      if (entry.status.state !== 'connected') continue;
+      for (const descriptor of entry.descriptors) {
+        catalog.push({
+          server: entry.status.name,
+          tool: descriptor.name,
+          wireName: mcpToolWireName(entry.status.name, descriptor.name),
+          description: descriptor.description ?? '',
+        });
+      }
+    }
+    return catalog;
+  }
+
+  /**
+   * Install the named tools so they are directly callable, without the model
+   * having to run the search meta-tool first. Unknown or unreachable wire names
+   * are ignored (a stale catalog must not throw mid-run). Returns what was
+   * actually revealed, so the caller can report only what exists.
+   */
+  revealTools(wireNames: readonly string[]): string[] {
+    const revealed: string[] = [];
+    for (const wireName of wireNames) {
+      for (const entry of this.entries) {
+        if (entry.status.state !== 'connected') continue;
+        const matches = entry.descriptors.filter(
+          (descriptor) => mcpToolWireName(entry.status.name, descriptor.name) === wireName
+        );
+        if (matches.length === 0) continue;
+        for (const descriptor of matches)
+          revealed.push(this.ensureRealTool(entry.client, descriptor));
+        break;
+      }
+    }
+    return revealed;
   }
 
   /** Close every connection (stdio children terminated). Never throws. */
@@ -184,7 +263,7 @@ export class McpToolRegistry {
     if (existing) return wireName;
 
     const firstLine =
-      (descriptor.description ?? '').split('\n').find((line) => line.trim().length > 0) ??
+      firstDescriptionLine(descriptor.description) ||
       `MCP tool "${descriptor.name}" on server "${client.name}"`;
 
     const tool: Tool = {
@@ -215,6 +294,17 @@ export class McpToolRegistry {
     input: Record<string, unknown>,
     ctx: ToolContext
   ): Promise<string> {
+    // A revealed tool outlives its connection in the host registry; calling it
+    // after closeAll must fail with a clear reason, not a transport error.
+    const serverState = this.entryFor(client.name)?.status.state;
+    if (serverState !== 'connected') {
+      throw new MossError({
+        code: ErrorCode.TOOL_EXECUTION_FAILED,
+        message: `mcp tool "${descriptor.name}" on "${client.name}" is not callable: server state is "${serverState ?? 'unknown'}".`,
+        hint: 'The MCP connection was closed; re-run to reconnect before calling this tool.',
+        recoverable: true,
+      });
+    }
     // First call is the lazy-schema trigger: pull the (already cached)
     // descriptor and attach the true schema so subsequent requests render it.
     if (tool.inputSchema.properties && Object.keys(tool.inputSchema.properties).length === 0) {

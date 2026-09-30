@@ -25,9 +25,20 @@ export interface TaskCommandContext {
   agent: unknown;
   workspace: string;
   sessionKey: string;
+  /** User config dir (`<configDir>/skills`), so discovery sees the same skills the agent was given. */
+  configDir?: string;
   /** Live event tap for the CLI renderer (optional). */
   onAgentEvent?: (event: unknown) => void;
   signal?: AbortSignal;
+  /**
+   * Connected MCP servers, when the host has any. Discovery selects tools from
+   * `catalog()` per task and `reveal()`s exactly those, so a per-task MCP choice
+   * actually becomes callable without the model searching first.
+   */
+  mcp?: {
+    catalog: () => readonly { name: string; description?: string }[];
+    reveal: (wireNames: readonly string[]) => void;
+  };
 }
 
 function usage(): string {
@@ -169,7 +180,15 @@ export async function buildCapabilityLayerForGoal(
     const { loadSkills } = await import('../core/skills/skill-registry.js');
     const { matchTaskCapabilities, buildCapabilityPromptLayer } =
       await import('../core/task/capability.js');
-    const skills = loadSkills([path.join(ctx.workspace, '.moss', 'skills')]);
+    // Same two sources the agent itself is given (skill-registry contract):
+    // workspace skills plus user config skills. Loading only the workspace set
+    // made every `<configDir>/skills` skill undiscoverable per task even though
+    // the skill tool could load it — the discovery surface was narrower than
+    // the real one.
+    const skills = loadSkills([
+      path.join(ctx.workspace, '.moss', 'skills'),
+      ...(ctx.configDir ? [path.join(ctx.configDir, 'skills')] : []),
+    ]);
     const duck = ctx.agent as {
       tools?: { getAll?: () => Array<{ name: string; description?: string }> };
     };
@@ -181,20 +200,57 @@ export async function buildCapabilityLayerForGoal(
     const builtinTools = registered
       .filter((tool) => !tool.name.startsWith('mcp__'))
       .map((tool) => tool.name);
-    const mcpTools = registered
+
+    // The connected servers' tools/list catalog beats "whatever happens to be
+    // registered": lazily-loaded MCP tools are invisible to `agent.tools` until
+    // something searches for them, so the agent view alone can only ever select
+    // servers, never tools. Catalog wins when present; the registered view stays
+    // as the fallback for hosts that wired tools without a registry.
+    const catalog = ctx.mcp?.catalog() ?? [];
+    const registeredMcp = registered
       .filter((tool) => tool.name.startsWith('mcp__'))
       .map((tool) => ({
         name: tool.name,
         ...(tool.description ? { description: tool.description } : {}),
       }));
-    return buildCapabilityPromptLayer(
-      matchTaskCapabilities(goal, {
-        skills,
-        builtinTools,
-        ...(mcpTools.length > 0 ? { mcpTools } : {}),
-      })
-    );
-  } catch {
+    // Merge both views. The catalog carries every server tool (selection); the
+    // registered view carries the per-server `__search` meta-tools. The matcher
+    // skips meta-tools as candidates but records their servers — feeding only
+    // the catalog left the "no tool matched, search here" fallback dead in the
+    // production wiring.
+    const mcpByName = new Map<string, { name: string; description?: string }>();
+    for (const entry of [...catalog, ...registeredMcp]) {
+      if (!mcpByName.has(entry.name)) mcpByName.set(entry.name, entry);
+    }
+    const mcpTools = [...mcpByName.values()];
+
+    const match = matchTaskCapabilities(goal, {
+      skills,
+      builtinTools,
+      ...(mcpTools.length > 0 ? { mcpTools } : {}),
+    });
+
+    // Selection is only real if the selected tools become callable — otherwise
+    // the prompt would name tools the provider never offered.
+    const selected = match.candidates
+      .filter((candidate) => candidate.kind === 'mcp-tool')
+      .map((candidate) => candidate.name);
+    if (ctx.mcp && selected.length > 0) ctx.mcp.reveal(selected);
+
+    return buildCapabilityPromptLayer(match);
+  } catch (error) {
+    // Discovery stays best-effort (a broken layer must not break the task), but
+    // degrading to "no capabilities" silently would also hide real bugs.
+    try {
+      const { getRootLogger } = await import('../logger.js');
+      getRootLogger()
+        .child('task:capability')
+        .warn('capability discovery failed; continuing without it', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+    } catch {
+      /* logging must never break the run */
+    }
     return '';
   }
 }

@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 /**
- * MCP selection reaches the capability layer (Task OS M12 follow-up).
+ * The capability layer must see the same surface the agent has.
  *
- * The matcher always supported `mcp-tool` candidates, but the only production
- * caller (`moss task run`) handed it skills + builtins and dropped the MCP
- * inventory entirely — so MCP was never selected per task. This pins the wiring
- * end to end through the exported entry point.
+ * Two inventory mismatches were fixed here, both of the same shape — the agent
+ * could use a capability that discovery could not see, so a per-task choice was
+ * impossible:
+ *   1. MCP: only the lazily-registered search meta-tool was visible (fixed by
+ *      selecting from the connect-time tools/list catalog and revealing the
+ *      matched tools).
+ *   2. Skills: the agent loads <workspace>/.moss/skills AND <configDir>/skills,
+ *      discovery loaded only the workspace set (fixed by passing configDir).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,15 +31,23 @@ const AGENT = {
   },
 };
 
-async function workspace() {
-  return fs.mkdtemp(path.join(os.tmpdir(), 'moss-capability-'));
+async function tmp(prefix) {
+  return fs.mkdtemp(path.join(os.tmpdir(), prefix));
+}
+
+async function writeSkill(root, dirName, frontmatter, body = 'steps') {
+  const dir = path.join(root, dirName);
+  await fs.mkdir(dir, { recursive: true });
+  const lines = Object.entries(frontmatter).map(([key, value]) => `${key}: ${value}`);
+  await fs.writeFile(path.join(dir, 'SKILL.md'), `---\n${lines.join('\n')}\n---\n${body}\n`);
 }
 
 test('a matching goal gets its MCP tool named, and unrelated servers stay out', async (t) => {
-  const dir = await workspace();
+  const dir = await tmp('moss-capability-');
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const layer = await buildCapabilityLayerForGoal('measure camera latency on the RDK board', {
     workspace: dir,
+    sessionKey: 'spec',
     agent: AGENT,
   });
   assert.match(layer, /device\/robotics task/);
@@ -44,10 +56,11 @@ test('a matching goal gets its MCP tool named, and unrelated servers stay out', 
 });
 
 test('an unmatched goal still learns which MCP servers to search', async (t) => {
-  const dir = await workspace();
+  const dir = await tmp('moss-capability-');
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const layer = await buildCapabilityLayerForGoal('refactor the parser module for readability', {
     workspace: dir,
+    sessionKey: 'spec',
     agent: AGENT,
   });
   assert.match(layer, /mcp__vision__search/);
@@ -55,12 +68,68 @@ test('an unmatched goal still learns which MCP servers to search', async (t) => 
 });
 
 test('no MCP tools registered → no MCP section invented', async (t) => {
-  const dir = await workspace();
+  const dir = await tmp('moss-capability-');
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const layer = await buildCapabilityLayerForGoal('measure camera latency', {
     workspace: dir,
+    sessionKey: 'spec',
     agent: { tools: { getAll: () => [{ name: 'device_cameras' }] } },
   });
   assert.doesNotMatch(layer, /MCP/);
   assert.match(layer, /device_cameras/);
+});
+
+test('user config skills are discoverable, not just workspace skills', async (t) => {
+  const workspace = await tmp('moss-ws-');
+  const configDir = await tmp('moss-cfg-');
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  t.after(() => fs.rm(configDir, { recursive: true, force: true }));
+
+  await writeSkill(path.join(configDir, 'skills'), 'rdk-camera-tuning', {
+    name: 'rdk-camera-tuning',
+    description: 'Tune the RDK camera pipeline: ISP parameters, FPS measurement',
+    when: 'camera fps or image quality tasks',
+  });
+
+  // Without configDir the user skill is invisible (the old behaviour).
+  const blind = await buildCapabilityLayerForGoal('optimize the camera fps on the board', {
+    workspace,
+    sessionKey: 'spec',
+    agent: { tools: { getAll: () => [] } },
+  });
+  assert.doesNotMatch(blind, /rdk-camera-tuning/);
+
+  const aware = await buildCapabilityLayerForGoal('optimize the camera fps on the board', {
+    workspace,
+    sessionKey: 'spec',
+    configDir,
+    agent: { tools: { getAll: () => [] } },
+  });
+  assert.match(aware, /rdk-camera-tuning/, 'the user skill must be selectable per task');
+});
+
+test('workspace skills win on a name collision (same precedence as the agent)', async (t) => {
+  const workspace = await tmp('moss-ws-');
+  const configDir = await tmp('moss-cfg-');
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  t.after(() => fs.rm(configDir, { recursive: true, force: true }));
+
+  await fs.mkdir(path.join(workspace, '.moss', 'skills'), { recursive: true });
+  await writeSkill(path.join(workspace, '.moss', 'skills'), 'camera-tuning', {
+    name: 'camera-tuning',
+    description: 'workspace camera tuning variant',
+  });
+  await writeSkill(path.join(configDir, 'skills'), 'camera-tuning', {
+    name: 'camera-tuning',
+    description: 'user camera tuning variant',
+  });
+
+  const layer = await buildCapabilityLayerForGoal('tune the camera pipeline', {
+    workspace,
+    sessionKey: 'spec',
+    configDir,
+    agent: { tools: { getAll: () => [] } },
+  });
+  assert.match(layer, /workspace camera tuning variant/);
+  assert.doesNotMatch(layer, /user camera tuning variant/);
 });

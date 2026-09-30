@@ -3,6 +3,7 @@
 
 import type { LLMMessage } from '../core/llm/llm-provider.js';
 import type { SessionStore, SessionMeta } from '../core/session/session.js';
+import type { TaskCommandContext } from './task-run.js';
 
 /** A single `sessions search` match: enough to locate and resume the session. */
 export interface SessionSearchHit {
@@ -263,6 +264,8 @@ export const COMMANDS: Record<string, CommandConfig> = {
         agent,
         workspace,
         sessionKey: (ctx.sessionKey as string | undefined) ?? `task-${Date.now().toString(36)}`,
+        ...(typeof ctx.configDir === 'string' ? { configDir: ctx.configDir } : {}),
+        ...(ctx.mcp ? { mcp: ctx.mcp as NonNullable<TaskCommandContext['mcp']> } : {}),
       });
       if (code !== 0) process.exitCode = code;
     },

@@ -774,6 +774,21 @@ async function main() {
         sessionStore,
         sessionKey: session.sessionKey,
         liveRuntime,
+        configDir,
+        // Capability discovery selects MCP tools per task and reveals exactly
+        // those; without this port it could only name servers to search.
+        mcp: mcpRegistry
+          ? {
+              catalog: () =>
+                mcpRegistry.getCatalog().map((entry) => ({
+                  name: entry.wireName,
+                  description: entry.description,
+                })),
+              reveal: (wireNames: readonly string[]) => {
+                mcpRegistry?.revealTools(wireNames);
+              },
+            }
+          : undefined,
       });
       return;
     }
