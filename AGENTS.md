@@ -93,6 +93,16 @@ orchestration / web-ui 等已移除的子系统。
 - 单测用 `test/helpers/in-process-ssh-device.mjs`（进程内 ssh2 服务器，真协议握手）；
   mock 只准用于单测，能力证明必须打真实设备（参照 `scratch/real-device-verify.mjs` 的做法）。
 
+## 任务契约 / 证据 / 验收（robotics closed loop P0-1/2/8）
+
+- 闭环的"完成"判定链：`task_define`（Goal + 可机检 acceptance criteria）→ `device_deploy` /
+  `device_exec` / `run_tests` 执行 → `record_evidence`（Expected/Observed/Result 结构化证据）→
+  `task_acceptance`（按 metric 匹配最新 evidence 评估；缺证据 = 未完成，latest-wins 支持修复后复测）。
+- 工件持久化在工作区 `.moss/`：`tasks.jsonl`、`evidence.jsonl`、`deployments.jsonl`、
+  `acceptance.jsonl`——这是任务可复现、可追踪、可分析的数据基础。
+- Agent 不得以散文宣布任务成功；成功 = acceptance PASS + 背后 evidence。verify 子代理 scope 已带
+  `record_evidence` / `task_acceptance`。
+
 ## 测试约定
 
 - 测试在 `test/*.spec.mjs`，import 构建产物 `dist/`，由 `scripts/run-package-tests.mjs` 顺序执行。
