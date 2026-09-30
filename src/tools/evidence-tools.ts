@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import type {
   EvidenceRecord,
   EvidenceResult,
@@ -7,6 +5,15 @@ import type {
 } from '../contracts/evidence.js';
 import { evaluateExpectation } from '../contracts/evidence.js';
 import type { Tool } from '../core/tools/tool-types.js';
+import { appendEvidenceRecord, listEvidenceRecords } from '../core/task-runtime/artifacts.js';
+
+// Canonical artifact IO lives in core (shared task runtime); re-exported here
+// to keep the SDK surface stable.
+export { appendEvidenceRecord, listEvidenceRecords } from '../core/task-runtime/artifacts.js';
+
+function newEvidenceId(): string {
+  return `ev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 /**
  * record_evidence (robotics closed loop P0-8): the structured sink for every
@@ -14,35 +21,6 @@ import type { Tool } from '../core/tools/tool-types.js';
  * reduces to evidence records with an evaluated expectation, persisted to
  * workspace .moss/evidence.jsonl for acceptance and later analysis.
  */
-
-function newEvidenceId(): string {
-  return `ev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-export async function appendEvidenceRecord(
-  workspaceDir: string,
-  record: EvidenceRecord
-): Promise<void> {
-  const dir = path.join(workspaceDir, '.moss');
-  await fs.mkdir(dir, { recursive: true });
-  await fs.appendFile(path.join(dir, 'evidence.jsonl'), `${JSON.stringify(record)}\n`, 'utf8');
-}
-
-export async function listEvidenceRecords(
-  workspaceDir: string,
-  limit = 100
-): Promise<EvidenceRecord[]> {
-  try {
-    const raw = await fs.readFile(path.join(workspaceDir, '.moss', 'evidence.jsonl'), 'utf8');
-    const lines = raw.split('\n').filter((line) => line.trim() !== '');
-    return lines
-      .slice(-limit)
-      .map((line) => JSON.parse(line) as EvidenceRecord)
-      .reverse();
-  } catch {
-    return [];
-  }
-}
 
 export function summarizeEvidence(records: EvidenceRecord[]): EvidenceStoreSummary {
   const summary: EvidenceStoreSummary = {
