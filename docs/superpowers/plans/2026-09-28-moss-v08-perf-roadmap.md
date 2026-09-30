@@ -1,6 +1,8 @@
 # moss v0.8 性能与能力放大路线图:缓存 × 速度 × 能力
 
 > 状态:决策建议文档(未执行)。前置:能力评审(`2026-09-28-moss-capability-review.md`)全部完成,v0.7.0 已发布。
+> **2026-10-01 复核**：本线的代码面已交付并入 main（执行记录见 [`.autopilot/PROGRESS.md`](../../../.autopilot/PROGRESS.md)）；上方"未执行"是**立项时状态**，不是当前事实。版本与 tag 口径见 [`docs/release-policy.md`](../../release-policy.md)。
+> 交付口径：M1/M2 已由 `.autopilot/evidence/boards/` 的缓存命中数据背书（41% → 44%）。
 > 依据:2026-09-28 对 moss 缓存/速度路径的代码级取证 + 真实 soak 基线 + DashScope/Anthropic 官方缓存机制文档。
 > 定位:在 minimal harness 边界内做深三个杠杆——**前缀缓存命中率**(成本+首 token 延迟的最大杠杆)、**周转速度**、**模型能力放大**。不重新引入已删除子系统(memory/skills/mcp/observability/orchestration/web-ui)。
 

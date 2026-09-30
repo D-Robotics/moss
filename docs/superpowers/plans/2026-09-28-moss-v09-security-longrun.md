@@ -1,6 +1,8 @@
 # moss v0.9 里程碑规划:安全与长跑(Security & Long-Horizon Autonomy)
 
 > 状态:**规划冻结,未执行**。上一个 tag:v0.8.1(2026-09-28)。下一个 tag 必须过本文件的验收总门。
+> **2026-10-01 复核**：本线的代码面已交付并入 main（执行记录见 [`.autopilot/PROGRESS.md`](../../../.autopilot/PROGRESS.md)）；上方"未执行"是**立项时状态**，不是当前事实。版本与 tag 口径见 [`docs/release-policy.md`](../../release-policy.md)。
+> 交付口径：W1–W5 执行记录见本文件尾部；safety-boundary 门的 5/5 采样证据仍在补。
 > 主题定性:从"能对话能改码"到"**可信地整夜自主干活**"——这是 moss 作为被嵌入 agent 引擎的生产前提。
 > 决策:2026-09-28 用户拍板(三选一:安全与长跑 / 直接 v1.0 / 能力放大质变)。
 

@@ -65,6 +65,9 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 - **major（0.x 期间 = 明确的破坏性变更说明）**：删除 / 重命名导出、参数或行为破坏。
 - 故意改公共面时快照更新与代码改动同一个 commit；spec 变红说明改动未被视为契约决策。
 - `examples/` 下三个嵌入示例是契约的活文档，发版前必须实跑通过。
+- **发布口径（2026-10-01 起）**：见 [`docs/release-policy.md`](docs/release-policy.md)——main 是滚动线，
+  版本号表示**当前能力级别**；tag 只在 `npm run verify` 全绿 + `examples/` 实跑通过后打，
+  tag 说明必须写清"跑了什么、没跑什么"；**不为从未验收的中间版本补打 tag**（v0.14.0–v0.20.0 永久不补）。
 
 ## 支持矩阵
 

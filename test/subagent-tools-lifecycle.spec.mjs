@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createInMemoryMossAsyncTaskRegistry } from '../dist/contracts/async-task.js';
 import {
   createSubagentTool,
@@ -8,15 +11,29 @@ import {
   subagentStatusTool,
   subagentStopTool,
 } from '../dist/tools/create-subagent.js';
+import { buildTaskContextBrief, createDraftTask } from '../dist/core/task/task-store.js';
+
+/**
+ * The §14 live-task brief is read from '<workspaceDir>/.moss', so a spec that
+ * points workspaceDir at process.cwd() silently inherits whatever task the
+ * developer's checkout happens to hold — the fan-out contract stops being
+ * tested (observed: 8 ok / 0 failed instead of 7 ok / 1 failed, because the
+ * brief prefix no longer matched the mock's 'fail' sentinel). Every test below
+ * gets its own empty workspace; the brief itself is locked by the last test.
+ */
+function hermeticWorkspace() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'moss-subagent-spec-'));
+}
 
 function taskIdFrom(output) {
   return /\[Sub-agent task ([^\]]+)\]/.exec(output)?.[1];
 }
 
 test('background sub-agent reports progress and completion through status', async () => {
+  const workspaceDir = hermeticWorkspace();
   const registry = createInMemoryMossAsyncTaskRegistry();
   const ctx = {
-    workspaceDir: process.cwd(),
+    workspaceDir,
     sessionKey: 'parent',
     runId: 'run-1',
     abortSignal: new AbortController().signal,
@@ -56,13 +73,15 @@ test('background sub-agent reports progress and completion through status', asyn
   assert.match(done, /status: completed/);
   assert.match(done, /found the answer/);
   assert.match(done, /turns: 2/);
+  fs.rmSync(workspaceDir, { recursive: true, force: true });
 });
 
 test('background sub-agent stop aborts the child signal', async () => {
+  const workspaceDir = hermeticWorkspace();
   const registry = createInMemoryMossAsyncTaskRegistry();
   let childAborted = false;
   const ctx = {
-    workspaceDir: process.cwd(),
+    workspaceDir,
     sessionKey: 'parent',
     runId: 'run-stop',
     abortSignal: new AbortController().signal,
@@ -94,15 +113,17 @@ test('background sub-agent stop aborts the child signal', async () => {
   assert.match(stopped, /STOP/);
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(childAborted, true);
+  fs.rmSync(workspaceDir, { recursive: true, force: true });
 });
 
 test('fan-out runs up to eight independent tasks and aggregates failures', async () => {
   assert.match(fanOutSubagentsTool.description, /2-8/);
+  const workspaceDir = hermeticWorkspace();
   let active = 0;
   let maxActive = 0;
   const spawnMetadata = [];
   const ctx = {
-    workspaceDir: process.cwd(),
+    workspaceDir,
     sessionKey: 'parent',
     abortSignal: new AbortController().signal,
     spawnSubagent: async ({ task, mode, tasks }) => {
@@ -128,4 +149,47 @@ test('fan-out runs up to eight independent tasks and aggregates failures', async
   );
   assert.match(output, /8 sub-agents ran concurrently — 7 ok, 1 failed/);
   assert.match(output, /boom/);
+  fs.rmSync(workspaceDir, { recursive: true, force: true });
+});
+
+test('sub-agent prompts carry the live task brief only when one exists', async () => {
+  const workspaceDir = hermeticWorkspace();
+  const seen = [];
+  const ctx = {
+    workspaceDir,
+    sessionKey: 'parent',
+    runId: 'run-brief',
+    abortSignal: new AbortController().signal,
+    spawnSubagent: async ({ task }) => {
+      seen.push(task);
+      return { runId: task, sessionKey: task, summary: `summary ${task}`, success: true };
+    },
+  };
+  const batch = [
+    { task: 'inspect camera driver', label: 'camera' },
+    { task: 'check i2c bus', label: 'bus' },
+  ];
+
+  await fanOutSubagentsTool.execute({ tasks: batch }, ctx);
+  assert.deepEqual(
+    seen,
+    ['inspect camera driver', 'check i2c bus'],
+    'no live task: the child gets the bare task text'
+  );
+
+  seen.length = 0;
+  const contract = await createDraftTask(
+    workspaceDir,
+    'Create hello-moss.txt containing exactly "MOSS_OK"'
+  );
+  const brief = await buildTaskContextBrief(workspaceDir);
+  assert.match(brief, /^\[Task context you are part of\]/);
+  assert.match(brief, new RegExp(`task_id: ${contract.taskId}`));
+
+  await fanOutSubagentsTool.execute({ tasks: batch }, ctx);
+  batch.forEach((entry, index) => {
+    assert.ok(seen[index].startsWith(brief), `child ${index} carries the shared brief`);
+    assert.ok(seen[index].endsWith(entry.task), `child ${index} keeps its own task text`);
+  });
+  fs.rmSync(workspaceDir, { recursive: true, force: true });
 });
