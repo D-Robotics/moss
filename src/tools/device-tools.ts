@@ -121,6 +121,11 @@ export const deviceExecTool: Tool = {
         type: 'number',
         description: `Timeout in ms (default ${EXEC_DEFAULT_TIMEOUT_MS}).`,
       },
+      reason: {
+        type: 'string',
+        description:
+          'One line on why this device mutation is needed for the task (shown to the user in the approval prompt)',
+      },
     },
     required: ['command'],
   },
@@ -259,6 +264,11 @@ export const deviceFileWriteTool: Tool = {
       local_path: {
         type: 'string',
         description: 'Workspace-relative (or in-workspace absolute) local file to upload',
+      },
+      reason: {
+        type: 'string',
+        description:
+          'One line on why this device file change is needed for the task (shown to the user in the approval prompt)',
       },
       mode: {
         type: 'number',
@@ -412,6 +422,11 @@ export const deviceDeployTool: Tool = {
       task_id: {
         type: 'string',
         description: 'Task this deployment belongs to (default: latest live task)',
+      },
+      reason: {
+        type: 'string',
+        description:
+          'One line on why this deployment is needed for the task (shown to the user in the approval prompt)',
       },
       timeout_ms: { type: 'number', description: 'Per-step timeout in ms (default 60000)' },
     },

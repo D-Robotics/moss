@@ -580,14 +580,86 @@ function approvalAlwaysSummary(preview: CliToolApprovalPreview): string | undefi
   return 'allow this scope for the session';
 }
 
+export interface TaskApprovalContext {
+  taskId: string;
+  goal: string;
+  phase: string;
+  attempt?: number;
+  targetDeviceId?: string;
+}
+
+/**
+ * Task OS §11 — approval as task experience. Renders the why/impact block:
+ * what operation, which task it serves, why now, what it affects, and what
+ * happens if declined. Absent task context or explicit reason → no block
+ * (legacy prompt unchanged).
+ */
+export function buildTaskApprovalBlock(
+  preview: CliToolApprovalPreview,
+  input: Record<string, unknown>,
+  task?: TaskApprovalContext
+): string[] {
+  const reason =
+    typeof input.reason === 'string' && input.reason.trim()
+      ? input.reason.trim()
+      : task
+        ? task.phase === 'verifying' || task.phase === 'reverifying'
+          ? 'verification cannot proceed without this step'
+          : 'required by the current task plan step'
+        : undefined;
+  if (!task && reason === undefined) return [];
+
+  const command =
+    typeof input.command === 'string' || typeof input.cmd === 'string'
+      ? String(input.command ?? input.cmd)
+      : '';
+  const remotePath = typeof input.remote_path === 'string' ? input.remote_path : undefined;
+
+  let impact: string;
+  if (preview.sideEffect === 'device_mutation') {
+    if (/\b(restart|stop|kill|reboot|poweroff|systemctl)\b/i.test(command)) {
+      impact = 'the affected device service will be interrupted (typically seconds)';
+    } else if (remotePath) {
+      impact = `the file at ${remotePath} on the device will be overwritten`;
+    } else {
+      impact = 'device state changes (command runs on the live device)';
+    }
+  } else if (preview.sideEffect === 'local_write') {
+    impact = 'workspace files change';
+  } else {
+    impact = approvalScopeSummary(preview, input);
+  }
+
+  const lines = ['', 'Task context:'];
+  lines.push(
+    `  operation: ${approvalActionSummary(preview, input)}${command ? ` — ${command.slice(0, 120)}` : ''}`
+  );
+  if (task) {
+    lines.push(
+      `  task: ${task.goal.slice(0, 80)} (${task.phase}${task.attempt ? `, attempt ${task.attempt}` : ''})`
+    );
+  }
+  if (task?.targetDeviceId) {
+    lines.push(`  target device: ${task.targetDeviceId}`);
+  }
+  if (reason) lines.push(`  reason: ${reason}`);
+  lines.push(`  impact: ${impact}`);
+  if (task) {
+    lines.push('  if declined: the task stays blocked (needs user) until approved or skipped');
+  }
+  return lines;
+}
+
 export function renderCliApprovalPrompt(
   preview: CliToolApprovalPreview,
   input: Record<string, unknown>,
-  detailCtx: ApprovalDetailContext = {}
+  detailCtx: ApprovalDetailContext = {},
+  task?: TaskApprovalContext
 ): string {
   const target = approvalTargetSummary(preview.toolName, input);
   const detail = buildApprovalDetailLines(preview.toolName, preview.sideEffect, input, detailCtx);
   const always = approvalAlwaysSummary(preview);
+  const taskBlock = buildTaskApprovalBlock(preview, input, task);
 
   const lines = [
     '',
@@ -600,6 +672,10 @@ export function renderCliApprovalPrompt(
   if (detail.length > 0) {
     lines.push('Details:');
     lines.push(...detail);
+  }
+
+  if (taskBlock.length > 0) {
+    lines.push(...taskBlock);
   }
 
   lines.push('');
@@ -849,10 +925,36 @@ export function createCliToolApprovalHook(
       };
     }
 
-    const prompt = renderCliApprovalPrompt(preview, request.input, {
-      workspaceDir: options.workspaceDir,
-      device: options.device,
-    });
+    // Task OS §11: attach the live task context so approvals read as task
+    // decisions (what/why/impact), not raw tool prompts.
+    let taskCtx: TaskApprovalContext | undefined;
+    try {
+      const { findLatestLiveTaskSnapshot } = await import('../core/task/task-store.js');
+      const snapshot = await findLatestLiveTaskSnapshot(options.workspaceDir ?? workspaceRoot);
+      if (snapshot) {
+        taskCtx = {
+          taskId: snapshot.taskId,
+          goal: snapshot.goal,
+          phase: snapshot.phase,
+          attempt: snapshot.attempt,
+          ...(snapshot.targetDeviceId || options.device?.host
+            ? { targetDeviceId: snapshot.targetDeviceId ?? options.device?.host }
+            : {}),
+        };
+      }
+    } catch {
+      /* task context is enrichment — approvals work without it */
+    }
+
+    const prompt = renderCliApprovalPrompt(
+      preview,
+      request.input,
+      {
+        workspaceDir: options.workspaceDir,
+        device: options.device,
+      },
+      taskCtx
+    );
     const answer = (await (asker ?? defaultAskUser)(prompt, request.abortSignal))
       .trim()
       .toLowerCase();
