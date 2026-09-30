@@ -21,6 +21,12 @@ const ENGINES = {
       on: { env: { MOSS_REASONING_BUDGET: 'high' } },
     },
   },
+  'goal-loop': {
+    // v0.15 S1: acceptance-driven headless runs — after the primary run the
+    // agent executes the task's own check.mjs once and gets one continuation
+    // turn with the failure evidence when it fails.
+    arms: { off: { env: {} }, on: { env: { MOSS_GOAL_VERIFY_LOOP: '1' } } },
+  },
   'model-routing': {
     threeArm: true,
     cheapModel: 'deepseek-flash@latest',

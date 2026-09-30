@@ -331,6 +331,14 @@ async function main() {
           MOSS_SAFETY_MODE: 'workspace-write',
           MOSS_APPROVAL_POLICY: 'never',
           ...(args.temperature !== undefined ? { MOSS_TEMPERATURE: String(args.temperature) } : {}),
+          ...(process.env.MOSS_GOAL_VERIFY_LOOP === '1'
+            ? {
+                MOSS_GOAL_VERIFY_LOOP: '1',
+                MOSS_GOAL_VERIFY_CMD: `node ${JSON.stringify(path.join(task.dir, 'check.mjs'))}`,
+                MOSS_BENCH_TASK_DIR: task.dir,
+                MOSS_BENCH_CANARY_DIR: canaryDir,
+              }
+            : {}),
           ...task.env,
         };
         const cliArgs = [
