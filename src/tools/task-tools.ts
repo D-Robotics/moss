@@ -176,20 +176,28 @@ export const taskDefineTool: Tool = {
 export const taskAcceptanceTool: Tool = {
   name: 'task_acceptance',
   description:
-    'Evaluate a task contract against its recorded evidence and return the acceptance verdict. Required criteria with no matching evidence FAIL acceptance ("no evidence, no success"); the latest evidence per metric wins, so a repaired re-measurement supersedes an earlier failure. Run this before claiming a task is done — and re-run it after every repair.',
+    'Evaluate a task contract against its recorded evidence and return the acceptance verdict. Required criteria with no matching evidence FAIL acceptance ("no evidence, no success"); the latest evidence per metric wins, so a repaired re-measurement supersedes an earlier failure. Run this before claiming a task is done — and re-run it after every repair. Omit task_id to evaluate the most recently defined contract.',
   metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
   inputSchema: {
     type: 'object',
     properties: {
-      task_id: { type: 'string', description: 'Task contract id from task_define' },
+      task_id: {
+        type: 'string',
+        description: 'Task contract id from task_define (default: the latest defined contract)',
+      },
     },
-    required: ['task_id'],
   },
   async execute(input, ctx) {
+    const tasks = await listTaskRecords(ctx.workspaceDir);
+    if (tasks.length === 0) {
+      return 'Error: task_acceptance: no task contracts in this workspace — define one with task_define first.';
+    }
     const taskId = String(input.task_id ?? '').trim();
-    const task = (await listTaskRecords(ctx.workspaceDir)).find((t) => t.taskId === taskId);
+    const task = taskId
+      ? tasks.find((t) => t.taskId === taskId)
+      : tasks.reduce((latest, t) => (t.updatedAt >= latest.updatedAt ? t : latest));
     if (!task) {
-      return `Error: task_acceptance: task ${taskId || '(none given)'} not found — define it with task_define first.`;
+      return `Error: task_acceptance: task ${taskId} not found — check task ids with the define output, or omit task_id to use the latest contract.`;
     }
     const evidence = await listEvidenceRecords(ctx.workspaceDir, 1000);
     const verdict = evaluateAcceptance(task, evidence);

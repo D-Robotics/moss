@@ -17,6 +17,7 @@ import {
   createInMemoryMossAsyncTaskRegistry,
 } from '../../contracts/index.js';
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
+import { createAcceptanceCompletionGate } from '../loop/acceptance-completion-gate.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
 import { resolveContextCharsPerTokenUnit, estimateMessagesTokens } from '../../context/tokens.js';
 import { getEffectiveContextWindowTokens } from '../../context/window-economics.js';
@@ -1057,6 +1058,19 @@ ${result.stderr ?? ''}`.trim();
       }
     }
 
+    // Robotics loop P0-2/P0-9: hold the final answer until a defined task
+    // contract has an acceptance verdict (blocks at most once per run, then
+    // an honest FAIL report is allowed through). Runs before the host gate.
+    const acceptanceGate = createAcceptanceCompletionGate();
+    const hostCompletionGate = this.config.completionGate;
+    const completionGate: AgentLoopParams['completionGate'] = hostCompletionGate
+      ? async (request) => {
+          const pre = await acceptanceGate(request);
+          if (!pre.ok) return pre;
+          return hostCompletionGate(request);
+        }
+      : acceptanceGate;
+
     const params: AgentLoopParams = {
       runId,
       sessionKey,
@@ -1219,7 +1233,7 @@ ${result.stderr ?? ''}`.trim();
         : undefined,
       // Buffer only when a host completionGate may rewrite or discard the answer.
       shouldBufferAssistantOutput: () => this.config.bufferAssistantUntilComplete === true,
-      completionGate: this.config.completionGate,
+      completionGate,
       // Per-instance epochs isolate same-session streams across embedded agents.
       runEpochStore: this.runEpochStore,
       pendingToolAborts: this.pendingToolAborts,
