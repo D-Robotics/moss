@@ -1,0 +1,7 @@
+{
+  "hostPlatform": "darwin/arm64 (CI matrix covers Linux; Windows CI has no PTY smoke)",
+  "cases": 0,
+  "documentedFallback": true,
+  "fallback": "Windows TTY sessions fall back to the readline REPL (MOSS_NO_TUI is honored everywhere; the ink TUI is verified on macOS/Linux via the TUI spec family and PTY smoke). Support matrix in AGENTS.md states this explicitly.",
+  "recordedAt": "2026-09-30T03:23:09.657298Z"
+}

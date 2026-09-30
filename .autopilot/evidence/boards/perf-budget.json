@@ -1,0 +1,11 @@
+{
+  "rows": 10000,
+  "appendAllMs": 0.98,
+  "worstWindowProjectionMs": 0.06,
+  "streaming10kMs": 2.48,
+  "budget": {
+    "windowProjectionMaxMs": 5,
+    "streaming10kMaxMs": 250
+  },
+  "pass": true
+}

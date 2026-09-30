@@ -66,11 +66,12 @@ readline REPL）。
 
 ## 支持矩阵
 
-| 维度     | 支持                                                      | 验证方式                           |
-| -------- | --------------------------------------------------------- | ---------------------------------- |
-| Node     | ≥ 22.16.0（CI 钉 22.16.0 与 24 双档）                     | CI `Test` 矩阵                     |
-| 平台     | Linux / macOS / Windows（Windows 无 PTY smoke，其余全量） | CI `Test` 矩阵                     |
-| provider | deepseek / qwen / openai / anthropic / openai-compatible  | 单测 + 冒烟；真实 key 回归按需人工 |
+| 维度     | 支持                                                                                   | 验证方式                                 |
+| -------- | -------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Node     | ≥ 22.16.0（CI 钉 22.16.0 与 24 双档）                                                  | CI `Test` 矩阵                           |
+| 平台     | Linux / macOS / Windows（Windows 无 PTY smoke，其余全量）                              | CI `Test` 矩阵                           |
+| provider | deepseek / qwen / openai / anthropic / openai-compatible                               | 单测 + 冒烟；真实 key 回归按需人工       |
+| 交互面   | TTY：全屏 TUI（ink，v0.17 起）；非 TTY / `MOSS_NO_TUI=1` / Windows：readline REPL 回退 | TUI spec 家族 + PTY smoke（macOS/Linux） |
 
 不在表内的组合（其他 Node 大版本、其他 provider 协议）未验证，不支持。
 
