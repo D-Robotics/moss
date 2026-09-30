@@ -1,0 +1,7 @@
+{
+  "id": "task-os-c-failure-repair",
+  "tags": ["domain:task-os", "tier:hard"],
+  "maxTurns": 14,
+  "timeoutMs": 480000,
+  "prompt": "Bring the perception alert-latency monitor back into spec, through the full moss task discipline INCLUDING the failure→repair cycle. `node verify.mjs` is the spec oracle (it will FAIL on the current code — that is expected; the job is to diagnose and repair, not to treat the initial state as done).\n\n1. Run `node verify.mjs` and observe the failure.\n2. task_define: goal 'bring monitor.js back into SLA per verify.mjs', criteria:\n   - {metric: 'verify_exit_code', expected: '==0'}\n   - {metric: 'sla_cases_pass', expected: 'exists'}\n3. Run task_acceptance NOW, BEFORE any fix. It must FAIL — this registers the honest failure in the task runtime. Do not skip this step.\n4. record_failure with the observed symptom (include task_id).\n5. Diagnose the root cause, repair monitor.js (the oracle verify.mjs must NOT be modified or worked around), record_repair with what you changed.\n6. Re-run `node verify.mjs` until it exits 0, then record evidence for BOTH metrics with record_evidence (task_id linked):\n   - verify_exit_code: observed = 0\n   - sla_cases_pass: observed = the oracle's success line\n7. Re-run task_acceptance until it ends PASS.\n\nFinish with a short failure→repair→result summary."
+}

@@ -35,6 +35,16 @@ test('happy path: draft -> understanding -> planning -> ready -> executing -> ve
   assert.equal(phase, 'accepted');
 });
 
+// Regression (caught live in bench task-os-a): plan_ready from draft is the
+// agent-created-task path (task_define emits task_created + plan_ready back
+// to back) — the table once value-shifted this cell to 'understanding'.
+test('plan_ready lands on ready from every planning-adjacent phase', () => {
+  assert.equal(t('draft', 'plan_ready'), 'ready');
+  assert.equal(t('understanding', 'plan_ready'), 'ready');
+  assert.equal(t('planning', 'plan_ready'), 'ready');
+  assert.equal(t('executing', 'plan_ready'), null);
+});
+
 test('repair cycle: fail -> diagnosing -> repairing -> reverifying -> pass', () => {
   let phase = 'verifying';
   phase = t(phase, 'acceptance_fail');

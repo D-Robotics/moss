@@ -93,6 +93,8 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 | 全屏 TUI（v0.17 起，动态 import） | `src/cli/tui/`                                                        |
 | MCP 客户端（v0.16 起）            | `src/core/mcp/`                                                       |
 | 轻量 skills（v0.16 起）           | `src/core/skills/`                                                    |
+| 统一 Task Runtime 协议（状态机）  | `src/contracts/task-runtime.ts`                                       |
+| 统一 Task Runtime 引擎/存储/裁决  | `src/core/task/`（engine、store、verdict、capability、agent-turn）    |
 | 契约（prompt、soul、async-task）  | `src/contracts/`                                                      |
 | 错误 / 日志                       | `src/errors.ts`、`src/logger.ts`                                      |
 
@@ -108,20 +110,38 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 - 单测用 `test/helpers/in-process-ssh-device.mjs`（进程内 ssh2 服务器，真协议握手）；
   mock 只准用于单测，能力证明必须打真实设备（参照 `scratch/real-device-verify.mjs` 的做法）。
 
-## 任务契约 / 证据 / 验收（robotics closed loop P0-1/2/8）
+## 任务契约 / 证据 / 验收（robotics closed loop P0-1/2/8 + Task OS）
 
 - 闭环的"完成"判定链：`task_define`（Goal + 可机检 acceptance criteria）→ `device_deploy` /
   `device_exec` / `run_tests` 执行 → `record_evidence`（Expected/Observed/Result 结构化证据）→
   `task_acceptance`（按 metric 匹配最新 evidence 评估；缺证据 = 未完成，latest-wins 支持修复后复测）。
 - 工件持久化在工作区 `.moss/`：`tasks.jsonl`、`evidence.jsonl`、`deployments.jsonl`、
-  `acceptance.jsonl`——这是任务可复现、可追踪、可分析的数据基础。
+  `acceptance.jsonl`，加 Task OS 的 `task-events.jsonl`（生命周期时间线）、
+  `task-failures.jsonl`、`task-repairs.jsonl`——这是任务可复现、可追踪、可分析的数据基础。
+- **统一 Task Runtime（2026-09-30 Task OS 起）**：一切"完成机制"合一于一个事件驱动状态机
+  （`contracts/task-runtime.ts`：draft→…→verifying→diagnosing→repairing→reverifying→accepted/failed；
+  非法转移抛 `EXECUTION_STATE_INVALID`，PASS 只能来自 verdict provider，模型散文永远不是事件）。
+  - 引擎 `core/task/task-engine.ts`：runTask/resumeTask 驱动 plan→execute→verify→repair→accept；
+    goal-loop 与 robotics 验收统一为 VerdictProvider（命令裁决 > 契约裁决，`core/task/verdict.ts`）。
+  - `task_define` 新建任务即入状态机（task*created→plan_ready）；`task_acceptance` 落
+    verification_started/acceptance*\* 事件；`record_failure`/`record_repair`/`task_plan_update`
+    是一等公民工具；`record_evidence`/`device_deploy` 落 info 事件到 timeline。
+  - 四入口同一行为：`moss task run/resume/status/timeline`（headless，exit 0 仅当 accepted）、
+    REPL `/task`、SDK（`runTask` 等，semver 保护）、TUI（读同一份 `.moss/` 工件）。
+  - `runtime_state` 类工具不进审批（moss 自身 `.moss/` 记账）；危险类不变。
+  - LoopScheduler `onAcceptanceVerdict` 把 /goal 与 MOSS_GOAL_VERIFY_LOOP 的裁决镜像进统一 runtime。
+  - 能力发现：`core/task/capability.ts` 按 goal 匹配 skills/内置工具/MCP，注入 planning 上下文。
 - Agent 不得以散文宣布任务成功；成功 = acceptance PASS + 背后 evidence。verify 子代理 scope 已带
   `record_evidence` / `task_acceptance`。
 - 完成门（acceptance completion gate）在 MossAgent 内置：本 run 定义过 task_define 而无验收裁决时，
   终稿会被拦截一次并注入修正（跑 task_acceptance / 修复 / 诚实报 FAIL），之后放行——不无限劫持。
+  runtime 已裁决过（engine 或上一 run 落过 accepted）时直接放行。
 - Robotics benchmark：`bench/tasks/device-*` 设备任务用 `requiresEnv`（无 MOSS_DEVICE_HOST 时跳过不判负）
   与 `passEnv`（凭据从父进程透传，不进仓库）；真实样本：device-observe-evidence 与
   device-deploy-verify（tier:hard）均已 1/1 PASS（deepseek-flash 驱动真机全链）。
+- Task OS benchmark：`bench/tasks/task-os-{a-coding,b-device,c-failure-repair}`；C 类是"故障→诊断→
+  修复→复验→验收"全链证明（oracle 必须先 FAIL 再修复）；产品指标聚合
+  `node scripts/task-os-metrics.mjs [run-dir...]`。
 
 ## 测试约定
 

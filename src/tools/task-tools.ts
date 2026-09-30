@@ -5,12 +5,12 @@ import { isTerminalTaskPhase } from '../contracts/task-runtime.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { appendTaskRecord, listTaskRecords } from '../core/task-runtime/artifacts.js';
 import {
+  appendTaskEvent,
   getTaskStateSnapshot,
-  listTaskEvents,
   recordFailure,
   recordRepair,
-  replayTaskPhase,
   tryAppendTaskEvent,
+  emitAcceptanceLifecycle,
 } from '../core/task/task-store.js';
 import { evaluateContractAcceptance } from '../core/task/verdict.js';
 
@@ -62,31 +62,6 @@ function stringList(raw: unknown): string[] | undefined {
     (item): item is string => typeof item === 'string' && item.trim() !== ''
   );
   return items.length ? items : undefined;
-}
-
-/**
- * Emit the lifecycle events an in-turn acceptance run implies: entering
- * verification from execution/diagnosis/repair, then the verdict. No-ops on
- * terminal phases (the runtime already settled the task).
- */
-async function emitAcceptanceLifecycle(
-  workspaceDir: string,
-  taskId: string,
-  passed: boolean,
-  detail: string
-): Promise<void> {
-  const events = await listTaskEvents(workspaceDir, taskId);
-  if (events.length === 0) return;
-  const phase = replayTaskPhase(events);
-  if (isTerminalTaskPhase(phase)) return;
-  // Tolerant: phases with no execution yet (draft/understanding/planning)
-  // cannot carry a verdict event — the returned text is still the truth.
-  if (['ready', 'executing', 'diagnosing', 'repairing'].includes(phase)) {
-    await tryAppendTaskEvent(workspaceDir, taskId, 'verification_started');
-  }
-  await tryAppendTaskEvent(workspaceDir, taskId, passed ? 'acceptance_pass' : 'acceptance_fail', {
-    detail: detail.slice(0, 400),
-  });
 }
 
 export const taskDefineTool: Tool = {
@@ -160,6 +135,15 @@ export const taskDefineTool: Tool = {
       ...(input.expected_behavior ? { expectedBehavior: String(input.expected_behavior) } : {}),
     };
     await appendTaskRecord(ctx.workspaceDir, task);
+    // Task OS: an agent-created task enters the unified state machine here —
+    // without these events the whole robotics P0 path (task_define driven by
+    // the agent, not the engine) would be invisible to the runtime/TUI.
+    if (!(input.task_id && typeof input.task_id === 'string')) {
+      await appendTaskEvent(ctx.workspaceDir, taskId, 'task_created', { goal: task.goal });
+      await appendTaskEvent(ctx.workspaceDir, taskId, 'plan_ready', {
+        detail: 'contract defined by agent',
+      });
+    }
     const rows = task.acceptanceCriteria.map(
       (c) => `  - ${c.metric} ${c.expected}${c.required === false ? ' (optional)' : ''}`
     );
@@ -388,6 +372,10 @@ export const recordRepairTool: Tool = {
         ? { changedFiles: input.changed_files.map(String) }
         : {}),
       ...(input.redeployed === true ? { redeployed: true } : {}),
+    });
+    // Repair moves the lifecycle (diagnosing→repairing; no-op elsewhere).
+    await tryAppendTaskEvent(ctx.workspaceDir, taskId, 'repair_applied', {
+      detail: action.slice(0, 200),
     });
     return `Repair ${repair.repairId} recorded for ${taskId}: ${action}. Re-measure and record fresh evidence, then re-run task_acceptance.`;
   },

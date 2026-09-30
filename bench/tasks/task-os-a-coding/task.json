@@ -1,0 +1,7 @@
+{
+  "id": "task-os-a-coding",
+  "tags": ["domain:task-os", "tier:core"],
+  "maxTurns": 10,
+  "timeoutMs": 360000,
+  "prompt": "Work this coding task through the moss task discipline end to end:\n\n1. task_define: goal 'implement slugify in utils.js exactly per its spec comment', acceptance criteria:\n   - {metric: 'slugify_basic', expected: 'exists'}\n   - {metric: 'slugify_verified', expected: 'exists'}\n2. Implement slugify in utils.js exactly per the spec comment at the top of the file (read it first).\n3. Prove it with a real check (node probe), record evidence for BOTH metrics with record_evidence using your task_id:\n   - slugify_basic: observed = slugify('Hello, Task OS!') (the exact returned string)\n   - slugify_verified: observed = the passing probe command you ran\n4. task_acceptance must end PASS. Repair and re-record if not.\n\nFinish with a one-line summary quoting the verdict."
+}
