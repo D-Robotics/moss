@@ -111,6 +111,7 @@ const SNAPSHOT = [
   'deviceInfoTool',
   'deviceProcessesTool',
   'deviceResourcesTool',
+  'deviceRoboticsStatusTool',
   'deviceTemperatureTool',
   'deviceTools',
   'disconnectAllDevices',

@@ -39,6 +39,92 @@ export const RESOURCES_PROBE_SCRIPT = [
 export const TEMPERATURE_PROBE_SCRIPT =
   'for z in /sys/class/thermal/thermal_zone*; do [ -r "$z/temp" ] || continue; printf "ZONE|%s|%s|%s\\n" "${z##*/}" "$(cat "$z/type" 2>/dev/null)" "$(cat "$z/temp" 2>/dev/null)"; done';
 
+/**
+ * Robotics stack probe: which ROS/TROS installation exists on the device.
+ * TROS (D-Robotics) installs to /opt/tros; upstream ROS2 to /opt/ros/<distro>.
+ * Everything is optional — a plain Linux host reports "no ROS" gracefully.
+ */
+export const ROBOTICS_PROBE_SCRIPT = [
+  'if [ -d /opt/tros ]; then printf "ROSDIR|/opt/tros|tros\\n"; fi',
+  'for d in /opt/ros/*; do [ -d "$d" ] && printf "ROSDIR|%s|%s\\n" "$d" "${d##*/}"; done',
+  'for b in /opt/tros/bin/ros2 /opt/ros/*/bin/ros2; do [ -x "$b" ] && printf "ROS2BIN|%s\\n" "$b"; done',
+  'for f in /opt/tros/version /opt/tros/version.txt /opt/tros/RELEASE; do [ -r "$f" ] && printf "TROSVER|%s|%s\\n" "$f" "$(head -c 120 "$f" | tr -d "\\n")"; done',
+  'if [ -x /usr/bin/hbm_shell ] || [ -x /usr/local/bin/hbm_shell ]; then printf "HBM|present\\n"; fi',
+].join('\n');
+
+export interface RoboticsStackSnapshot {
+  deviceId: string;
+  collectedAt: number;
+  /** Installed distro dirs: ['/opt/tros' (tros), '/opt/ros/humble' (humble)]. */
+  installations: Array<{ path: string; distro: string }>;
+  ros2Binaries: string[];
+  trosVersion?: string;
+  hbmPresent?: boolean;
+}
+
+export function parseRoboticsProbe(stdout: string, deviceId: string): RoboticsStackSnapshot {
+  const snapshot: RoboticsStackSnapshot = {
+    deviceId,
+    collectedAt: Date.now(),
+    installations: [],
+    ros2Binaries: [],
+  };
+  for (const rawLine of stdout.split('\n')) {
+    const line = rawLine.trim();
+    if (!line.includes('|')) continue;
+    const sep = line.indexOf('|');
+    const key = line.slice(0, sep);
+    const value = line.slice(sep + 1);
+    switch (key) {
+      case 'ROSDIR': {
+        const [p, distro] = value.split('|');
+        if (p) {
+          const fallback = p.split('/').filter(Boolean).pop() ?? p;
+          snapshot.installations.push({ path: p, distro: distro ?? fallback });
+        }
+        break;
+      }
+      case 'ROS2BIN':
+        if (value) snapshot.ros2Binaries.push(value);
+        break;
+      case 'TROSVER': {
+        const [, version] = value.split('|');
+        if (version) snapshot.trosVersion = version;
+        break;
+      }
+      case 'HBM':
+        snapshot.hbmPresent = true;
+        break;
+    }
+  }
+  return snapshot;
+}
+
+export function formatRoboticsSnapshot(snapshot: RoboticsStackSnapshot, endpoint: string): string {
+  if (snapshot.installations.length === 0) {
+    return (
+      `robotics stack on ${snapshot.deviceId} (${endpoint}): none detected.\n` +
+      `No /opt/tros or /opt/ros installation found — this device is a plain Linux host for robotics purposes. ` +
+      `(ros2_* tools will not work until a ROS/TROS runtime is installed.)`
+    );
+  }
+  const lines = [`robotics stack on ${snapshot.deviceId} (${endpoint}):`];
+  for (const install of snapshot.installations) {
+    lines.push(`  ${install.path} (distro: ${install.distro})`);
+  }
+  if (snapshot.trosVersion) lines.push(`  TROS version: ${snapshot.trosVersion}`);
+  if (snapshot.hbmPresent) lines.push('  hbm: present');
+  for (const bin of snapshot.ros2Binaries) lines.push(`  ros2: ${bin}`);
+  if (snapshot.ros2Binaries.length > 0) {
+    lines.push(
+      'ROS commands run via device_exec after sourcing the setup, e.g.: source /opt/tros/setup.bash && ros2 node list'
+    );
+  } else {
+    lines.push('No ros2 binary found in the installation — runtime may be broken or partial.');
+  }
+  return lines.join('\n');
+}
+
 function parseLoadavg(line: string): [number, number, number] | undefined {
   const parts = line.trim().split(/\s+/).slice(0, 3).map(Number);
   if (parts.length === 3 && parts.every((n) => Number.isFinite(n))) {

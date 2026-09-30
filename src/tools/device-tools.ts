@@ -19,14 +19,17 @@ import {
   INFO_PROBE_SCRIPT,
   PROCESSES_PROBE_SCRIPT,
   RESOURCES_PROBE_SCRIPT,
+  ROBOTICS_PROBE_SCRIPT,
   TEMPERATURE_PROBE_SCRIPT,
   formatInfoSnapshot,
   formatProcessList,
   formatResourceSnapshot,
+  formatRoboticsSnapshot,
   formatTemperatureSnapshot,
   parseInfoProbe,
   parseProcessesProbe,
   parseResourcesProbe,
+  parseRoboticsProbe,
   parseTemperatureProbe,
 } from '../device/observation.js';
 import { EXEC_DEFAULT_TIMEOUT_MS, looksBinary, safePath } from './tool-helpers.js';
@@ -439,6 +442,32 @@ export const deviceDeployTool: Tool = {
   },
 };
 
+export const deviceRoboticsStatusTool: Tool = {
+  name: 'device_robotics_status',
+  description:
+    'Detect the robotics stack on the configured device: TROS (/opt/tros, D-Robotics RDK) or upstream ROS2 (/opt/ros/<distro>) installations, the ros2 binary path, TROS version, and hbm presence. Call this before any ROS work — on a plain Linux host it reports "none detected" so you do not chase missing tools.\n' +
+    'ROS commands themselves run through device_exec after sourcing the setup (e.g. `source /opt/tros/setup.bash && ros2 node list`).\n' +
+    DEVICE_TOOLS_DESCRIPTION_NOTE,
+  metadata: { sideEffectClass: 'readonly', transientRetry: true },
+  inputSchema: {
+    type: 'object',
+    properties: {},
+  },
+  async execute() {
+    const resolved = await connectDefaultDevice('device_robotics_status');
+    if (typeof resolved === 'string') return resolved;
+    try {
+      const result = await resolved.conn.exec(ROBOTICS_PROBE_SCRIPT, { timeoutMs: 20_000 });
+      return formatRoboticsSnapshot(
+        parseRoboticsProbe(result.stdout, resolved.target.deviceId),
+        resolved.endpoint
+      );
+    } catch (err) {
+      return deviceConnectionDown('device_robotics_status', resolved.endpoint, err);
+    }
+  },
+};
+
 export const deviceTools: Tool[] = [
   deviceInfoTool,
   deviceExecTool,
@@ -449,4 +478,5 @@ export const deviceTools: Tool[] = [
   deviceProcessesTool,
   deviceResourcesTool,
   deviceTemperatureTool,
+  deviceRoboticsStatusTool,
 ];

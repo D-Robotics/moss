@@ -10,10 +10,12 @@ import {
   parseProcessesProbe,
   parseResourcesProbe,
   parseTemperatureProbe,
+  parseRoboticsProbe,
   formatInfoSnapshot,
   formatProcessList,
   formatResourceSnapshot,
   formatTemperatureSnapshot,
+  formatRoboticsSnapshot,
   formatBytes,
   formatUptime,
 } from '../dist/device/observation.js';
@@ -109,6 +111,38 @@ test('parseTemperatureProbe converts milli-celsius and handles empty zones', () 
   const none = parseTemperatureProbe('', 'd');
   assert.equal(none.zones.length, 0);
   assert.match(formatTemperatureSnapshot(none), /No thermal zones/);
+});
+
+test('parseRoboticsProbe detects TROS, upstream ROS, and plain Linux hosts', () => {
+  const tros = parseRoboticsProbe(
+    [
+      'ROSDIR|/opt/tros|tros',
+      'ROS2BIN|/opt/tros/bin/ros2',
+      'TROSVER|/opt/tros/version|2.1.1',
+      'HBM|present',
+    ].join('\n'),
+    'rdk-x5-001'
+  );
+  assert.equal(tros.installations.length, 1);
+  assert.equal(tros.installations[0].distro, 'tros');
+  assert.deepEqual(tros.ros2Binaries, ['/opt/tros/bin/ros2']);
+  assert.equal(tros.trosVersion, '2.1.1');
+  assert.equal(tros.hbmPresent, true);
+  const trosText = formatRoboticsSnapshot(tros, 'root@10.0.0.1:22');
+  assert.match(trosText, /\/opt\/tros \(distro: tros\)/);
+  assert.match(trosText, /TROS version: 2\.1\.1/);
+  assert.match(trosText, /source \/opt\/tros\/setup\.bash && ros2 node list/);
+
+  const humble = parseRoboticsProbe(
+    ['ROSDIR|/opt/ros/humble|humble', 'ROS2BIN|/opt/ros/humble/bin/ros2'].join('\n'),
+    'linux-1'
+  );
+  assert.equal(humble.installations[0].distro, 'humble');
+  assert.equal(humble.trosVersion, undefined);
+
+  const none = parseRoboticsProbe('', 'plain');
+  assert.equal(none.installations.length, 0);
+  assert.match(formatRoboticsSnapshot(none, 'x:22'), /none detected/);
 });
 
 test('formatters render compact human-readable output', () => {
