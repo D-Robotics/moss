@@ -102,6 +102,11 @@ orchestration / web-ui 等已移除的子系统。
   `acceptance.jsonl`——这是任务可复现、可追踪、可分析的数据基础。
 - Agent 不得以散文宣布任务成功；成功 = acceptance PASS + 背后 evidence。verify 子代理 scope 已带
   `record_evidence` / `task_acceptance`。
+- 完成门（acceptance completion gate）在 MossAgent 内置：本 run 定义过 task_define 而无验收裁决时，
+  终稿会被拦截一次并注入修正（跑 task_acceptance / 修复 / 诚实报 FAIL），之后放行——不无限劫持。
+- Robotics benchmark：`bench/tasks/device-*` 设备任务用 `requiresEnv`（无 MOSS_DEVICE_HOST 时跳过不判负）
+  与 `passEnv`（凭据从父进程透传，不进仓库）；真实样本：device-observe-evidence 与
+  device-deploy-verify（tier:hard）均已 1/1 PASS（deepseek-flash 驱动真机全链）。
 
 ## 测试约定
 

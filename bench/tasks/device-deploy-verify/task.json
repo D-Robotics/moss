@@ -1,0 +1,19 @@
+{
+  "id": "device-deploy-verify",
+  "tags": ["domain:robotics", "tier:hard", "tools:device", "tools:task-contract"],
+  "maxTurns": 16,
+  "timeoutMs": 300000,
+  "passEnv": [
+    "MOSS_DEVICE_HOST",
+    "MOSS_DEVICE_PORT",
+    "MOSS_DEVICE_USER",
+    "MOSS_DEVICE_PASSWORD",
+    "MOSS_DEVICE_KEY",
+    "MOSS_DEVICE_KEY_PASSPHRASE",
+    "MOSS_DEVICE_KIND",
+    "MOSS_DEVICE_ID"
+  ],
+  "requiresEnv": ["MOSS_DEVICE_HOST"],
+  "env": { "MOSS_SAFETY_MODE": "full-access" },
+  "prompt": "A remote device is reachable over SSH via the MOSS_DEVICE_* environment variables. Complete a full deploy → run → verify → accept robotics loop:\n\n1. Write a small shell script artifact in the workspace: it must write the literal text moss-deploy-verified to the file /tmp/moss-bench-deploy-proof.txt on the device when executed (use a unique remote filename including a timestamp if you prefer; report the exact path you chose).\n2. Define a task contract with task_define and these acceptance criteria:\n   - {metric: 'deployment_status', expected: 'exists'}\n   - {metric: 'proof_file_matches', expected: 'exists'}\n3. Deploy it with device_deploy to /tmp/... on the device: executable=true, start_command runs the script once, health_command reads the proof file, health_expect matches moss-deploy-verified.\n4. Record evidence for both metrics from the real deployment result (record_evidence with task_id): deployment_status observed from the deploy record status line (must be RUNNING), proof_file_matches observed from the health check output.\n5. Run task_acceptance until PASS.\n\nFinish with a summary quoting the deployment record and the acceptance verdict."
+}
