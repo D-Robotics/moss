@@ -69,6 +69,7 @@ function parseArgs(argv) {
     else if (a === '--goal-verify') out.goalVerify = true;
     else if (a === '--eval') out.eval = true;
     else if (a === '--skip-run') out.skipRun = true;
+    else if (a === '--rebuild-summary') out.rebuildSummary = true;
     else throw new Error(`unknown flag ${a}`);
   }
   return out;
@@ -124,6 +125,23 @@ async function main() {
   }
   if (args.skipRun) {
     console.log(`[swe] skip-run: predictions already at ${path.join(runDir, 'predictions.json')}`);
+    return;
+  }
+  if (args.rebuildSummary) {
+    const samplesDir = path.join(runDir, 'samples');
+    const results = fs.existsSync(samplesDir)
+      ? fs
+          .readdirSync(samplesDir)
+          .filter((d) => fs.existsSync(path.join(samplesDir, d, 'meta.json')))
+          .map((d) => JSON.parse(fs.readFileSync(path.join(samplesDir, d, 'meta.json'), 'utf8')))
+      : [];
+    if (results.length === 0) throw new Error(`no sample meta records under ${samplesDir}`);
+    await writeAggregates(runDir, label, instances, results, {
+      samples: args.samples,
+      model: args.model ?? 'unknown',
+      baseUrl: args.baseUrl ?? '',
+      wallMs: 0,
+    });
     return;
   }
 
@@ -214,6 +232,7 @@ async function main() {
         };
         results.push(record);
         fs.writeFileSync(path.join(jobDir, 'meta.json'), JSON.stringify(record, null, 2));
+        fs.appendFileSync(path.join(runDir, 'results.jsonl'), `${JSON.stringify(record)}\n`);
         console.log(
           `[swe] w${wid} ${inst.instance_id}#${sample} exit=${run.exitCode} patch=${
             patch.trim() === '' ? 'EMPTY' : `${patch.split('\n').length}L`
@@ -228,6 +247,10 @@ async function main() {
           error: String(err?.message ?? err).slice(0, 500),
           wallMs: Date.now() - t,
         });
+        fs.appendFileSync(
+          path.join(runDir, 'results.jsonl'),
+          `${JSON.stringify(results[results.length - 1])}\n`
+        );
         fs.writeFileSync(
           path.join(jobDir, 'meta.json'),
           JSON.stringify({ instance_id: inst.instance_id, sample, error: String(err) }, null, 2)
@@ -247,6 +270,17 @@ async function main() {
   }
   await Promise.all(Array.from({ length: args.concurrency }, (_, i) => worker(i + 1)));
 
+  await writeAggregates(runDir, label, instances, results, {
+    samples: args.samples,
+    model: provider.model,
+    baseUrl: provider.baseUrl,
+    wallMs: Date.now() - t0,
+  });
+}
+
+// Rebuilds predictions.json + summary.json from per-sample meta records; shared
+// by the live run path and --rebuild-summary (process-death recovery).
+async function writeAggregates(runDir, label, instances, results, meta) {
   // One prediction per instance: prefer the last non-empty sample patch.
   const predictions = [];
   for (const inst of instances) {
@@ -270,11 +304,11 @@ async function main() {
   const summary = {
     label,
     sha: gitSha(),
-    model: provider.model,
-    baseUrl: provider.baseUrl,
+    model: meta.model,
+    baseUrl: meta.baseUrl,
     instances: instances.length,
-    samples: args.samples,
-    wallMs: Date.now() - t0,
+    samples: meta.samples,
+    wallMs: meta.wallMs ?? 0,
     withPatch: predictions.filter((p) => p.model_patch.trim() !== '').length,
     emptyPatch: predictions.filter((p) => p.model_patch.trim() === '').length,
     errors: results.filter((r) => r.error).length,
@@ -282,7 +316,7 @@ async function main() {
     tokensOut: results.reduce((a, r) => a + (r.tokensOut ?? 0), 0),
   };
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
-  console.log('[swe] phase-1 complete', JSON.stringify(summary));
+  console.log('[swe] aggregates written', JSON.stringify(summary));
   console.log(
     `[swe] next: MOSS_BENCH_API_KEY=... node scripts/bench-swebench.mjs --eval --label ${label}`
   );
@@ -292,10 +326,14 @@ async function gradePredictions(runDir, label, args) {
   const predsPath = path.join(runDir, 'predictions.json');
   if (!fs.existsSync(predsPath)) throw new Error(`missing ${predsPath}`);
   const venvPython = await ensureSwebenchVenv();
+  // Native docker socket first (Linux hosts); fall back to the colima socket
+  // (macOS) so the eval harness works on both.
+  const defaultDockerHost = fs.existsSync('/var/run/docker.sock')
+    ? 'unix:///var/run/docker.sock'
+    : `unix://${path.join(os.homedir(), '.colima/default/docker.sock')}`;
   const env = {
     ...process.env,
-    DOCKER_HOST:
-      process.env.DOCKER_HOST ?? `unix://${path.join(os.homedir(), '.colima/default/docker.sock')}`,
+    DOCKER_HOST: process.env.DOCKER_HOST ?? defaultDockerHost,
   };
   const harnessArgs = [
     '-m',
