@@ -115,6 +115,10 @@ export const SPAWN_TOOL_SCOPE_SETS: Record<Exclude<SpawnToolScope, 'full'>, Set<
     'device_exec',
     'code_diagnostics',
     'todo_write',
+    // Structured verdict machinery: verify sub-agents record evidence and
+    // gate completion on acceptance evaluated against it (robotics loop P0).
+    'record_evidence',
+    'task_acceptance',
     ...DEVICE_READ_TOOLS,
   ]),
 };

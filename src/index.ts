@@ -75,6 +75,13 @@ export {
   summarizeEvidence,
 } from './tools/evidence-tools.js';
 export {
+  taskTools,
+  taskDefineTool,
+  taskAcceptanceTool,
+  appendTaskRecord,
+  listTaskRecords,
+} from './tools/task-tools.js';
+export {
   configureDefaultDeviceTarget,
   resolveDefaultDeviceTarget,
   formatDeviceTarget,

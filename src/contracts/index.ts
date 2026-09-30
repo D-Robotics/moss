@@ -43,6 +43,16 @@ export type {
 export { evaluateExpectation } from './evidence.js';
 
 export type {
+  TaskContractStatus,
+  AcceptanceCriterion,
+  TaskContract,
+  CriterionCheckResult,
+  CriterionVerdict,
+  AcceptanceVerdict,
+} from './task.js';
+export { evaluateAcceptance, formatAcceptanceVerdict } from './task.js';
+
+export type {
   MossAsyncTaskStatus,
   MossAsyncTaskKind,
   MossAsyncTaskStopReason,
