@@ -39,6 +39,7 @@ import {
   parseCamerasProbe,
 } from '../device/observation.js';
 import { EXEC_DEFAULT_TIMEOUT_MS, looksBinary, safePath } from './tool-helpers.js';
+import { findLatestLiveTaskSnapshot, tryAppendTaskEvent } from '../core/task/task-store.js';
 
 const EXEC_STDOUT_MAX = 80_000;
 const EXEC_STDERR_MAX = 4_096;
@@ -408,6 +409,10 @@ export const deviceDeployTool: Tool = {
         type: 'string',
         description: 'Regex the health command output must match (optional)',
       },
+      task_id: {
+        type: 'string',
+        description: 'Task this deployment belongs to (default: latest live task)',
+      },
       timeout_ms: { type: 'number', description: 'Per-step timeout in ms (default 60000)' },
     },
     required: ['artifact_path', 'remote_path'],
@@ -440,6 +445,22 @@ export const deviceDeployTool: Tool = {
     } catch {
       // Persistence failure must not mask the deployment outcome; the record
       // is still returned to the model in full.
+    }
+    // Task OS M4: deployments are timeline-visible events of the task they
+    // serve (explicit task_id, or the latest live task in the workspace).
+    {
+      const taskId =
+        typeof input.task_id === 'string' && input.task_id.trim()
+          ? input.task_id.trim()
+          : (await findLatestLiveTaskSnapshot(ctx.workspaceDir))?.taskId;
+      if (taskId) {
+        await tryAppendTaskEvent(ctx.workspaceDir, taskId, 'deployment_recorded', {
+          deploymentId: record.deploymentId,
+          deviceId: record.deviceId,
+          remotePath: record.remotePath,
+          status: record.status,
+        }).catch(() => undefined);
+      }
     }
     const text = formatDeploymentRecord(record);
     return record.status === 'failed'

@@ -1087,7 +1087,9 @@ ${result.stderr ?? ''}`.trim();
     // Robotics loop P0-2/P0-9: hold the final answer until a defined task
     // contract has an acceptance verdict (blocks at most once per run, then
     // an honest FAIL report is allowed through). Runs before the host gate.
-    const acceptanceGate = createAcceptanceCompletionGate();
+    const acceptanceGate = createAcceptanceCompletionGate({
+      ...(this.config?.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
+    });
     const hostCompletionGate = this.config.completionGate;
     const completionGate: AgentLoopParams['completionGate'] = hostCompletionGate
       ? async (request) => {

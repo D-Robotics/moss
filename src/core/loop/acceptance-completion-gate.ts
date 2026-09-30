@@ -111,18 +111,46 @@ export function evaluateAcceptanceCompletionGate(request: {
  * Per-run wrapper: the gate blocks at most once. After one correction the
  * agent may finish (with an acceptance verdict if it complied, or plainly if
  * it could not) — this never escalates into a thrown completion rejection.
+ *
+ * Task OS M4: with a workspaceDir the gate also consults the unified task
+ * runtime — a verdict may have been recorded by the engine (or a settled
+ * lifecycle phase reached) even when the message history carries no
+ * task_acceptance tool result.
  */
-export function createAcceptanceCompletionGate(): NonNullable<
-  AgentLoopExtensions['completionGate']
-> {
+export function createAcceptanceCompletionGate(
+  options: { workspaceDir?: string } = {}
+): NonNullable<AgentLoopExtensions['completionGate']> {
   let blockedOnce = false;
   return async (request) => {
     if (blockedOnce) return { ok: true as const };
     const decision = evaluateAcceptanceCompletionGate(request);
+    if (!decision.ok && options.workspaceDir) {
+      const settled = await runtimeHasSettledAcceptance(options.workspaceDir);
+      if (settled) return { ok: true as const };
+    }
     if (!decision.ok) {
       blockedOnce = true;
       return decision;
     }
     return decision;
   };
+}
+
+/**
+ * True when the most recently updated task in the runtime has a recorded
+ * acceptance verdict whose latest lifecycle state is terminal — the engine
+ * (or an earlier run) already settled acceptance outside this run's context.
+ */
+async function runtimeHasSettledAcceptance(workspaceDir: string): Promise<boolean> {
+  try {
+    const { listTaskStateSnapshots } = await import('../task/task-store.js');
+    const snapshots = await listTaskStateSnapshots(workspaceDir);
+    if (snapshots.length === 0) return false;
+    const latest = snapshots.reduce((a, b) => (b.updatedAt >= a.updatedAt ? b : a));
+    return (
+      latest.phase === 'accepted' || (latest.lastVerdict !== undefined && latest.phase === 'failed')
+    );
+  } catch {
+    return false;
+  }
 }

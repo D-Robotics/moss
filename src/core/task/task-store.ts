@@ -131,6 +131,40 @@ export async function appendTaskEvent(
   return event;
 }
 
+/**
+ * Tool-facing tolerant variant: emits info/lifecycle events only when the
+ * task exists and is in a live phase where the event is valid; returns null
+ * otherwise (e.g. after acceptance, or for a task the runtime never saw).
+ * The engine uses the strict appendTaskEvent; tools use this so a verdict on
+ * a settled task is a no-op rather than an error.
+ */
+export async function tryAppendTaskEvent(
+  workspaceDir: string,
+  taskId: string,
+  type: TaskEventType,
+  data?: Record<string, unknown>
+): Promise<TaskEvent | null> {
+  try {
+    return await appendTaskEvent(workspaceDir, taskId, type, data);
+  } catch (err) {
+    if (err instanceof MossError && err.code === ErrorCode.EXECUTION_STATE_INVALID) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/** Latest-updated task whose lifecycle phase is not terminal (or null). */
+export async function findLatestLiveTaskSnapshot(
+  workspaceDir: string
+): Promise<TaskStateSnapshot | null> {
+  const snapshots = await listTaskStateSnapshots(workspaceDir);
+  const live = snapshots
+    .filter((snapshot) => !isTerminalTaskPhase(snapshot.phase))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  return live[0] ?? null;
+}
+
 // --- failures & repairs -------------------------------------------------------
 
 /**

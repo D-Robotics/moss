@@ -6,6 +6,7 @@ import type {
 import { evaluateExpectation } from '../contracts/evidence.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { appendEvidenceRecord, listEvidenceRecords } from '../core/task-runtime/artifacts.js';
+import { tryAppendTaskEvent } from '../core/task/task-store.js';
 
 // Canonical artifact IO lives in core (shared task runtime); re-exported here
 // to keep the SDK surface stable.
@@ -169,6 +170,14 @@ export const recordEvidenceTool: Tool = {
       await appendEvidenceRecord(ctx.workspaceDir, record);
     } catch (err) {
       return `Error: record_evidence: cannot persist to .moss/evidence.jsonl: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    if (record.taskId) {
+      // Task OS M4: keep the unified runtime's timeline in sync (info event;
+      // no-op when the task is settled or unknown to the runtime).
+      await tryAppendTaskEvent(ctx.workspaceDir, record.taskId, 'evidence_recorded', {
+        metric: record.metric,
+        result: record.result,
+      }).catch(() => undefined);
     }
     const summary = summarizeEvidence(await listEvidenceRecords(ctx.workspaceDir));
     return (

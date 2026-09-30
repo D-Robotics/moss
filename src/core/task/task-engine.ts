@@ -13,7 +13,9 @@ import {
   formatTaskTimeline,
   getTaskStateSnapshot,
   listTaskEvents,
+  tryAppendTaskEvent,
 } from './task-store.js';
+import { isTerminalTaskPhase } from '../../contracts/task-runtime.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
 import { createTaskVerdictProvider } from './verdict.js';
 
@@ -117,7 +119,9 @@ async function verifyRepairLoop(
       return 'failed';
     }
     const current = await getTaskStateSnapshot(workspaceDir, state.taskId);
-    if (current?.phase === 'blocked') return 'blocked';
+    if (!current) return 'failed';
+    if (isTerminalTaskPhase(current.phase)) return 'accepted';
+    if (current.phase === 'blocked') return 'blocked';
 
     state.turns += 1;
     if (state.turns > maxTurns) {
@@ -137,7 +141,9 @@ async function verifyRepairLoop(
       'executing'
     );
 
-    await appendTaskEvent(workspaceDir, state.taskId, 'verification_started');
+    // Tolerant: the agent may already have entered verification via the
+    // task_acceptance tool during its turn.
+    await tryAppendTaskEvent(workspaceDir, state.taskId, 'verification_started');
     deps.onProgress?.({
       taskId: state.taskId,
       phase: 'verifying',
@@ -148,7 +154,7 @@ async function verifyRepairLoop(
     state.lastVerdict = verdict;
 
     if (verdict.passed) {
-      await appendTaskEvent(workspaceDir, state.taskId, 'acceptance_pass', {
+      await tryAppendTaskEvent(workspaceDir, state.taskId, 'acceptance_pass', {
         detail:
           verdict.source === 'command'
             ? 'acceptance command exited 0'
@@ -163,7 +169,7 @@ async function verifyRepairLoop(
       return 'accepted';
     }
 
-    await appendTaskEvent(workspaceDir, state.taskId, 'acceptance_fail', {
+    await tryAppendTaskEvent(workspaceDir, state.taskId, 'acceptance_fail', {
       detail: verdict.detail.slice(0, 400),
     });
     deps.onProgress?.({
