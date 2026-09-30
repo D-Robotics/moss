@@ -9,6 +9,7 @@
  *
  * Exit code 0 only when the task reached accepted (PASS).
  */
+import path from 'node:path';
 import { runTask, resumeTask, summarizeTaskRun } from '../core/task/task-engine.js';
 import { createAgentTurnRunner } from '../core/task/agent-turn.js';
 import {
@@ -155,6 +156,29 @@ async function latestSnapshot(workspace: string): Promise<TaskStateSnapshot | nu
   return all.reduce((a, b) => (b.updatedAt >= a.updatedAt ? b : a));
 }
 
+/**
+ * Capability discovery (M7): score the goal against workspace skills and the
+ * agent's registered tools, and hand the planner a focused summary instead of
+ * the full inventory.
+ */
+export async function buildCapabilityLayerForGoal(
+  goal: string,
+  ctx: TaskCommandContext
+): Promise<string> {
+  try {
+    const { loadSkills } = await import('../core/skills/skill-registry.js');
+    const { matchTaskCapabilities, buildCapabilityPromptLayer } =
+      await import('../core/task/capability.js');
+    const skills = loadSkills([path.join(ctx.workspace, '.moss', 'skills')]);
+    const duck = ctx.agent as { tools?: { getAll?: () => Array<{ name: string }> } };
+    const builtinTools =
+      typeof duck.tools?.getAll === 'function' ? duck.tools.getAll().map((tool) => tool.name) : [];
+    return buildCapabilityPromptLayer(matchTaskCapabilities(goal, { skills, builtinTools }));
+  } catch {
+    return '';
+  }
+}
+
 export async function runTaskCommand(
   commandArgs: string[],
   ctx: TaskCommandContext
@@ -191,6 +215,7 @@ export async function runTaskCommand(
       {
         ...(flags.accept ? { acceptanceCommand: flags.accept } : {}),
         ...(flags.device ? { targetDeviceId: flags.device } : {}),
+        capabilityLayer: await buildCapabilityLayerForGoal(goal, ctx),
       }
     );
     process.stdout.write(summarizeTaskRun(result) + '\n');

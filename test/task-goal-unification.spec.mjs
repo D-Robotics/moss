@@ -52,6 +52,7 @@ test('acceptance pass mirrors acceptance_pass onto the bound task', async () => 
     journal: false,
     autonomous: true,
     acceptance: { command: 'exit 0' },
+    sessionKey: 'task-goal-unify-pass',
     onAcceptanceVerdict: (result) => {
       void emitAcceptanceLifecycle(
         ws,

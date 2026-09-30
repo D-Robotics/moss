@@ -53,7 +53,12 @@ export interface TaskRunResult {
 const DEFAULT_MAX_REPAIR_ATTEMPTS = 2;
 const DEFAULT_MAX_TURNS = 8;
 
-function planningPrompt(goal: string, taskId: string, acceptanceCommand?: string): string {
+function planningPrompt(
+  goal: string,
+  taskId: string,
+  acceptanceCommand?: string,
+  capabilityLayer?: string
+): string {
   return [
     'You are planning a task for the moss task runtime. Understand the goal, then define the contract and plan.',
     '',
@@ -61,6 +66,7 @@ function planningPrompt(goal: string, taskId: string, acceptanceCommand?: string
     acceptanceCommand
       ? `Acceptance authority: the command "${acceptanceCommand}" must exit 0. Define acceptance criteria that mirror what it checks.`
       : 'Acceptance authority: criteria × recorded evidence. Define machine-checkable acceptance criteria (metric + expectation, e.g. camera_fps >=30).',
+    ...(capabilityLayer ? ['', capabilityLayer] : []),
     '',
     'Do ALL of the following, then stop (no implementation yet):',
     `1. task_define with task_id="${taskId}" — goal, acceptance_criteria, target_device if a device is involved, verification_plan.`,
@@ -236,7 +242,13 @@ async function buildRunResult(
 export async function runTask(
   deps: TaskEngineDeps,
   goal: string,
-  options: { acceptanceCommand?: string; targetDeviceId?: string; constraints?: string[] } = {}
+  options: {
+    acceptanceCommand?: string;
+    targetDeviceId?: string;
+    constraints?: string[];
+    /** Capability-discovery layer injected into the planning turn (M7). */
+    capabilityLayer?: string;
+  } = {}
 ): Promise<TaskRunResult> {
   const provider =
     deps.verdictProvider ??
@@ -262,7 +274,10 @@ export async function runTask(
     detail: 'understanding goal, defining contract + plan',
   });
   state.turns += 1;
-  await deps.runTurn(planningPrompt(goal, taskId, options.acceptanceCommand), 'planning');
+  await deps.runTurn(
+    planningPrompt(goal, taskId, options.acceptanceCommand, options.capabilityLayer),
+    'planning'
+  );
   await appendTaskEvent(deps.workspaceDir, taskId, 'plan_ready');
   await appendTaskEvent(deps.workspaceDir, taskId, 'execution_started');
 

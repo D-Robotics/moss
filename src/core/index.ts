@@ -243,3 +243,9 @@ export {
   evaluateContractAcceptance,
 } from './task/verdict.js';
 export type { VerdictProvider, VerdictSource, TaskVerdict } from './task/verdict.js';
+export { matchTaskCapabilities, buildCapabilityPromptLayer } from './task/capability.js';
+export type {
+  CapabilityCandidate,
+  CapabilityInventory,
+  TaskCapabilityMatch,
+} from './task/capability.js';
