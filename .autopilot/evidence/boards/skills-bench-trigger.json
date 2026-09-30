@@ -8,9 +8,25 @@
   "attempts": [
     { "task": "subagent-fanout", "label": "skills-trigger", "pass": "1/1", "skillToolCalls": 0 },
     { "task": "single-edit", "label": "skills-trigger-2", "pass": "1/1", "skillToolCalls": 0 },
-    { "task": "multi-file-consistency", "label": "skills-trigger-multi-file-consistency", "pass": "1/1", "skillToolCalls": 0 },
-    { "task": "test-fix-loop", "label": "skills-trigger-test-fix-loop", "pass": "1/1", "skillToolCalls": 0 },
-    { "task": "hard-coupling-refactor", "label": "skills-trigger-hcr", "pass": "1/1", "skillToolCalls": 0, "note": "12 turns, 18 tool calls — model worked hard and still did not load a skill body" }
+    {
+      "task": "multi-file-consistency",
+      "label": "skills-trigger-multi-file-consistency",
+      "pass": "1/1",
+      "skillToolCalls": 0
+    },
+    {
+      "task": "test-fix-loop",
+      "label": "skills-trigger-test-fix-loop",
+      "pass": "1/1",
+      "skillToolCalls": 0
+    },
+    {
+      "task": "hard-coupling-refactor",
+      "label": "skills-trigger-hcr",
+      "pass": "1/1",
+      "skillToolCalls": 0,
+      "note": "12 turns, 18 tool calls — model worked hard and still did not load a skill body"
+    }
   ],
   "verdict": "NEGATIVE-INVOCATION, MECHANISM-VERIFIED: deepseek-flash@latest sees the skill index in bench conditions but judges the bodies unnecessary for all 5 attempted tasks (all tasks PASS without it). The roadmap S3 requirement '1 skill actually triggered by a bench task' is NOT met as a tool-call observation; adjudicated 2026-09-30 (goal session 93951f1c) per the release train's honest-annotation doctrine: record and proceed, flag in the night report as a v0.16 gate deviation.",
   "adjudicatedDeviation": true,

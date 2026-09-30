@@ -40,6 +40,7 @@
 > **归属（见仲裁队列 2026-09-30 12:22）**：本节收口序列由 goal 会话 93951f1c 执行；其他会话只读观察。
 
 **终局数据链（后台 scratch/swe-endgame.sh 已发射，等双条件：镜像齐 + goal-loop A/B 完）**，串行五段：
+
 1. swe-base2（v014 快照，plain）→ 官方判分 → **v0.14 基线证据**（accept-02）
 2. swe-v016（v016 快照，plain）→ 判分 → v0.16「SWE 不回退」门
 3. swe-v015goal（v016 快照 + --goal-verify：实例 f2p 测试作验收命令）→ 判分 → v0.15「SWE ≥基线+3」门
@@ -49,6 +50,7 @@
 **代码面已全部完成**（sprint-001..013，13 个绿 tag）：v0.14 止血+adapter / v0.15 goal+worktree+hooks1 / v0.16 MCP+skills+net+hooks2+TB / v0.17 TUI 地基 / v0.18 控制面+审批桥 / v0.19 多任务面 / v0.20 性能预算+命令遍历+Windows 回退标注。
 
 **数据齐后的收口序列**：
+
 - A/B json → deltaHard≥4 且 costRatio≤1.5 → v0.15 内部门
 - swe-base2 判分 → 固化 swe-baseline.json + swe-det 对比 → swe-determinism.json → 上移 accept-02
 - 每版门过 → package.json 版本逐版 bump + tag v0.14.0…v0.20.0（tag 前 npm run verify 必绿）
