@@ -26,22 +26,38 @@ async function tempWs() {
   return fsPromises.mkdtemp(path.join(os.tmpdir(), 'moss-hooks-life-'));
 }
 
-// Hook commands must run under both /bin/sh and cmd.exe — the Unix one-liners
-// this spec used (`>&2`, `;` chains, `cat >`) parse differently on Windows.
-// Every marker path travels through an env var (child env passes through
-// safeChildEnv) so no cross-shell quoting is needed.
-const STDIN_TO_ENV_FILE = (envVar) =>
-  `node -e "const fs=require('fs');let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>fs.writeFileSync(process.env.${envVar},d))"`;
+// Hook commands must run under both /bin/sh and cmd.exe. Inline `node -e`
+// scripts die on Windows (runProcess arg escaping + cmd /c quote rules
+// truncate them at the first space), so probes live in script files inside
+// the hook cwd and are invoked as bare filenames — zero cross-shell quoting.
+// Marker paths travel through env vars (child env passes safeChildEnv).
+function writeHookHelpers(ws) {
+  fs.writeFileSync(
+    path.join(ws, 'stop-exit2.mjs'),
+    "console.error('tests not green yet');\nprocess.exit(2);\n"
+  );
+  fs.writeFileSync(
+    path.join(ws, 'stdin-to-file.mjs'),
+    [
+      "import fs from 'node:fs';",
+      "let data = '';",
+      "process.stdin.on('data', (chunk) => (data += chunk));",
+      "process.stdin.on('end', () => fs.writeFileSync(process.env.MOSS_HOOK_OUT, data));",
+      '',
+    ].join('\n')
+  );
+}
 
 // ─── Stop hook: blocking semantics ──────────────────────────────────────────
 
 {
   const ws = await tempWs();
+  writeHookHelpers(ws);
   const blocked = createConfiguredHookCallbacks(
     {
       Stop: [
         {
-          command: `node -e "console.error('tests not green yet');process.exit(2)"`,
+          command: 'node stop-exit2.mjs',
           blocking: true,
         },
       ],
@@ -72,9 +88,10 @@ const STDIN_TO_ENV_FILE = (envVar) =>
 {
   const ws = await tempWs();
   const marker = path.join(ws, 'subagent-stop.txt');
-  process.env.MOSS_HOOK_MARKER = marker;
+  writeHookHelpers(ws);
+  process.env.MOSS_HOOK_OUT = marker;
   const cbs = createConfiguredHookCallbacks(
-    { SubagentStop: [{ command: STDIN_TO_ENV_FILE('MOSS_HOOK_MARKER') }] },
+    { SubagentStop: [{ command: 'node stdin-to-file.mjs' }] },
     { workspaceDir: ws }
   );
   await cbs.runSubagentStop({ sessionKey: 'sa', goal: 'scan deps', success: true, summary: 'ok' });
@@ -90,12 +107,12 @@ const STDIN_TO_ENV_FILE = (envVar) =>
   const ws = await tempWs();
   const pre = path.join(ws, 'pre.txt');
   const post = path.join(ws, 'post.txt');
-  process.env.MOSS_HOOK_PRE = pre;
-  process.env.MOSS_HOOK_POST = post;
+  writeHookHelpers(ws);
+  process.env.MOSS_HOOK_OUT = pre;
   const cbs = createConfiguredHookCallbacks(
     {
-      PreCompact: [{ command: STDIN_TO_ENV_FILE('MOSS_HOOK_PRE') }],
-      PostCompact: [{ command: STDIN_TO_ENV_FILE('MOSS_HOOK_POST') }],
+      PreCompact: [{ command: 'node stdin-to-file.mjs' }],
+      PostCompact: [{ command: 'node stdin-to-file.mjs' }],
     },
     { workspaceDir: ws }
   );
@@ -116,6 +133,9 @@ const STDIN_TO_ENV_FILE = (envVar) =>
   assert.equal(prePayload.event, 'PreCompact');
   assert.equal(prePayload.compactReason, 'proactive');
   assert.equal(prePayload.droppedMessages, 1);
+  // The probe reads MOSS_HOOK_OUT when the child spawns, so retarget it
+  // between the two hook runs.
+  process.env.MOSS_HOOK_OUT = post;
   await registry.runPostHooks({
     sessionKey: 's',
     runId: 'r',
