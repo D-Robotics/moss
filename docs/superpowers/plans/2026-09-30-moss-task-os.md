@@ -112,3 +112,10 @@ Runtime 侧；TUI 消费的类型/事件契约由本线定义（§1），TUI 会
 5. 刚性最小集 ≈ 5-7 轮（PLAN 1 + CODE 1 + RUN 1-2 + EVIDENCE 2 + VERIFY 1-2）；当前 8-22 轮的差值几乎全部来自 1-4 项。
 
 方向不变：更少 iteration + 更高 task success；已识别浪费点均有机械修复路径，无需提高 loop iteration 上限。
+
+## 增强层收口（2026-10-01 00:07，74426eb3 入 main）
+
+- **M12 修复落地并实证**：设备连接退避后 Task B 真机复测 9 turns/24s/13 tools（前 22/172s/36）——同 PASS，轮数 −59%、耗时 −86%；record_failure 幂等。
+- **§14 起步**：create/fan-out/background sub-agent 提示前置 live task 简报（goal/plan/acceptance/open failures/task_id），共享任务上下文取代孤立提示。
+- 全量 171 spec 绿；main = 74426eb3。
+- 下一迭代候选（按 §28 找最大断点）：read 截断摘要（消除重读轮）、任务中抑制 todo_write、MCP 按任务动态选择、skills 的 procedure/verification 元数据建模。
