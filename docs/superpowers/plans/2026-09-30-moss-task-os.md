@@ -87,5 +87,28 @@ Runtime 侧；TUI 消费的类型/事件契约由本线定义（§1），TUI 会
 ### DoD 对照（§27）
 
 - NL → Task → Plan → Agent Execution → Tools → Runtime → Evidence → Verification → Repair → Acceptance：**两种驱动方式各真跑通过一次**（engine 驱动 `moss task run` + agent 工具驱动 bench C），模型散文全程无法移动状态。
-- Real Device 段：`task-os-b-device` 已就绪（requiresEnv）；本机无 MOSS*DEVICE*\* 凭据，待有设备环境时 `node scripts/run-benchmark.mjs --task task-os-b-device` 即可出真样本（真机链路本身已有 main 上 device-deploy-verify 1/1 背书）。
+- Real Device 段：`task-os-b-device` 已就绪（requiresEnv）；本机无设备凭据，待有设备环境时 `node scripts/run-benchmark.mjs --task task-os-b-device` 即可出真样本（真机链路本身已有 main 上 device-deploy-verify 1/1 背书）。
 - False Success：结构性不可能（无证据即拒收 + C 类判分明确拒绝 pass-before-fail）。
+
+## 收口更新（2026-09-30 23:51）
+
+- **DoD 全链含真机段闭合**：`task-os-b-device` 1/1 PASS on rdk-sandbox 真机（22 turns/172s/36 tools）——中途遭遇真实 sshd MaxStartups 连接风暴，agent 自行诊断恢复、取回真实遥测后验收 PASS。
+- **三类任务 3/3 = 100%**：A（编码 8t/18s）、B（真机 22t/172s）、C（故障修复 hard 13t/28s），deepseek-flash 驱动；engine 驱动的 `moss task run` 另由 qwen3.8-max 三次真跑背书（含合并构建）。
+
+## M11 审批=任务体验（已交付，063a8e17）
+
+审批提示带 Task context 块：operation / task+phase+attempt / target device / reason / impact（restart→服务中断、deploy→覆盖路径、默认→设备状态变化）/ if-declined（任务阻塞待人）。device_exec/device_file_write/device_deploy 新增 `reason` 输入直达审批块。
+
+## M12 goal-loop 迭代效率研究（§24，基于 6 次已录运行的逐轮分类）
+
+方法：对 bench/results 全部 task-os 运行的 stream-json 逐轮分类（PLAN/RUN/CODE/READ/VERIFY/EVIDENCE/REPAIR-REC/TODO/DEVICE/OTHER）。
+
+结论（按浪费轮数排序）：
+
+1. **环境故障吃掉 60% 轮数（B 运行 22 轮中约 15 轮）**：sshd MaxStartups 连接风暴 → agent 逐工具试错、考古式排查。修复方向：device 连接握手失败自动指数退避重试（2s/5s/10s），错误信息直接给"server overloaded, retrying"而非裸 SSH 错误。
+2. **截断逼出重读轮（A 运行每 run 2-3 轮）**："read tool is returning a stub / earlier read result was elided"——工具输出截断吃掉文件内容后只能重读。修复方向：spec/源码类 read 保留紧凑摘要或小文件截断豁免。
+3. **双清单冗余（每 run 2-3 轮）**：task_plan_update 与 todo_write 并行维护两份清单。修复方向：任务运行中抑制 todo_write。
+4. **重复 record_failure（C 运行 3 连发）**：修复方向：同 task+attempt 幂等（返回已有 failureId）。
+5. 刚性最小集 ≈ 5-7 轮（PLAN 1 + CODE 1 + RUN 1-2 + EVIDENCE 2 + VERIFY 1-2）；当前 8-22 轮的差值几乎全部来自 1-4 项。
+
+方向不变：更少 iteration + 更高 task success；已识别浪费点均有机械修复路径，无需提高 loop iteration 上限。
