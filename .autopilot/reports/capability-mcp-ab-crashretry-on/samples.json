@@ -1,0 +1,63 @@
+{
+  "label": "capability-mcp-ab-crashretry-on",
+  "goal": "Look up the verification checksum of order ORD-4771 in the ledger through the connected tool server, and write it as the only content of checksum.txt (no extra text). The checksum is only obtainable from the ledger tool — do not guess or compute it yourself.",
+  "rows": [
+    {
+      "arm": "on",
+      "sample": 1,
+      "pass": true,
+      "outcome": "PASS",
+      "exitCode": 0,
+      "timedOut": false,
+      "engineTurnsPrinted": 2,
+      "engineTurnsEvents": 3,
+      "wallMs": 64919,
+      "mcpCalls": [
+        {
+          "tool": "ledger_lookup",
+          "order": "ORD-4771"
+        }
+      ],
+      "sessions": {
+        "sessionFiles": 1,
+        "layerInPlanning": 1,
+        "assistantMessages": 16,
+        "toolUses": 25,
+        "searchCalls": 1,
+        "ledgerDirectCalls": 1,
+        "otherMcpCalls": 0,
+        "firstMcpAction": "search",
+        "toolSequence": [
+          "read_file",
+          "list_directory",
+          "task_define",
+          "task_plan_update",
+          "mcp__warehouse__search",
+          "exec",
+          "exec",
+          "mcp__warehouse__ledger_lookup",
+          "write_file",
+          "exec",
+          "exec",
+          "read_file",
+          "exec",
+          "exec",
+          "exec",
+          "exec",
+          "record_evidence",
+          "record_evidence",
+          "record_evidence",
+          "task_plan_update",
+          "task_acceptance",
+          "task_define",
+          "record_evidence",
+          "task_acceptance",
+          "task_plan_update"
+        ]
+      },
+      "stdoutTail": "\nTimeline (tail):\n02:04:21 Evidence recorded\n02:04:23 Verification started\n02:04:23 Acceptance passed — Task acceptance (task_muoeysqm_l4phs4): PASS\ngoal: Look up the verification checksum of order ORD-4771 via the connected warehouse MCP tool server and write that value as the only content of checksum.txt.\n  [PASS] check_goal_exit_code — expected ==0 observed 0 (ev_muoezt1d_p7ciht)\n  [PASS] checksum_txt_content — expected contains 003882b1d5e4d325d33b1ccdc69385e08bcb40e4f86cade84c7a8fa66d902bf5 obs",
+      "stderrTail": "[mcp] server \"warehouse\" connected (3 tools, lazy-loaded — search with mcp__warehouse__search)\n[task planning] understanding goal, defining contract + plan\n[provider:pi-ai] stream threw after processing events · error=OpenAI-compatible provider returned HTTP 429: Rate limit exceeded for user: ou_814ddff3189da90e13cf67b04e0ffab2. Limit type: requests. Current limit: 60, Remaining: 0. Limit resets at: 2026-09-30 18:04:30 UTC — rate limited; retry shortly or lower request rate · model=deepseek-flash@latest\n[provider:pi-ai] stream threw after processing events · error=OpenAI-compatible provider returned HTTP 429: Rate limit exceeded for user: ou_814ddff3189da90e13cf67b04e0ffab2. Limit type: requests. Current limit: 60, Remaining: 0. Limit resets at: 2026-09-30 18:04:33 UTC — rate limited; retry shortly or lower request rate · model=deepseek-flash@latest\n[provider:pi-ai] stream threw after processing events · error=OpenAI-compatible provider returned HTTP 429: Rate limit exceeded for user: ou_814ddff3189da90e13cf67b04e0ffab2. Limit type: requests. Current limit: 60, Remaining: 0. Limit resets at: 2026-09-30 18:04:39 UTC — rate limited; retry shortly or lower request rate · model=deepseek-flash@latest\n[task executing] agent execution turn\n[task verifying] evaluating acceptance\n[task accepted] acceptance passed",
+      "workspace": null
+    }
+  ]
+}

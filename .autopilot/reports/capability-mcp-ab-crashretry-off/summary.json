@@ -1,0 +1,93 @@
+{
+  "meta": {
+    "startedLabel": "capability-mcp-ab-crashretry-off",
+    "finishedAt": "2026-09-30T18:03:19.673Z",
+    "goal": "Look up the verification checksum of order ORD-4771 in the ledger through the connected tool server, and write it as the only content of checksum.txt (no extra text). The checksum is only obtainable from the ledger tool — do not guess or compute it yourself.",
+    "model": "deepseek-flash@latest",
+    "temperature": 0,
+    "samples": 1,
+    "arms": ["off"],
+    "gitSha": "58026e9b"
+  },
+  "perArm": [
+    {
+      "arm": "off",
+      "passes": 1,
+      "samples": 1,
+      "meanEngineTurns": 2,
+      "meanWallMs": 84671,
+      "meanSearchCalls": 3,
+      "meanDirectCalls": 3,
+      "meanAssistantMessages": 22,
+      "meanToolUses": 31,
+      "firstActionSearch": 1,
+      "firstActionDirect": 0,
+      "layerFiredIn": 0
+    }
+  ],
+  "rows": [
+    {
+      "arm": "off",
+      "sample": 1,
+      "pass": true,
+      "outcome": "PASS",
+      "exitCode": 0,
+      "timedOut": false,
+      "engineTurnsPrinted": 2,
+      "engineTurnsEvents": 2,
+      "wallMs": 84671,
+      "mcpCalls": [
+        {
+          "tool": "ledger_lookup",
+          "order": "ORD-4771"
+        }
+      ],
+      "sessions": {
+        "sessionFiles": 1,
+        "layerInPlanning": 0,
+        "assistantMessages": 22,
+        "toolUses": 31,
+        "searchCalls": 3,
+        "ledgerDirectCalls": 3,
+        "otherMcpCalls": 0,
+        "firstMcpAction": "search",
+        "toolSequence": [
+          "read_file",
+          "mcp__warehouse__search",
+          "task_define",
+          "task_plan_update",
+          "mcp__warehouse__ledger_lookup",
+          "exec",
+          "mcp__warehouse__search",
+          "exec",
+          "mcp__warehouse__ledger_lookup",
+          "read_file",
+          "exec",
+          "exec",
+          "exec",
+          "exec",
+          "record_evidence",
+          "record_evidence",
+          "record_evidence",
+          "record_failure",
+          "record_failure",
+          "task_acceptance",
+          "task_plan_update",
+          "exec",
+          "mcp__warehouse__search",
+          "exec",
+          "exec",
+          "mcp__warehouse__ledger_lookup",
+          "exec",
+          "todo_write",
+          "write_file",
+          "exec",
+          "exec"
+        ]
+      },
+      "stdoutTail": "\nTimeline (tail):\n02:02:34 Evidence recorded\n02:02:43 Plan updated\n02:02:47 Plan ready\n02:02:47 Execution started\n02:03:19 Verification started\n02:03:19 Acceptance passed — acceptance command exited 0",
+      "stderrTail": "[mcp] server \"warehouse\" connected (3 tools, lazy-loaded — search with mcp__warehouse__search)\n[task planning] understanding goal, defining contract + plan\n[task executing] agent execution turn\n[provider:pi-ai] stream threw after processing events · error=OpenAI-compatible provider returned HTTP 429: Rate limit exceeded for user: ou_814ddff3189da90e13cf67b04e0ffab2. Limit type: requests. Current limit: 60, Remaining: 0. Limit resets at: 2026-09-30 18:04:11 UTC — rate limited; retry shortly or lower request rate · model=deepseek-flash@latest\n[provider:pi-ai] stream threw after processing events · error=OpenAI-compatible provider returned HTTP 429: Rate limit exceeded for user: ou_814ddff3189da90e13cf67b04e0ffab2. Limit type: requests. Current limit: 60, Remaining: 0. Limit resets at: 2026-09-30 18:04:13 UTC — rate limited; retry shortly or lower request rate · model=deepseek-flash@latest\n[provider:pi-ai] stream threw after processing events · error=OpenAI-compatible provider returned HTTP 429: Rate limit exceeded for user: ou_814ddff3189da90e13cf67b04e0ffab2. Limit type: requests. Current limit: 60, Remaining: 0. Limit resets at: 2026-09-30 18:04:19 UTC — rate limited; retry shortly or lower request rate · model=deepseek-flash@latest\n[task verifying] evaluating acceptance\n[task accepted] acceptance passed",
+      "workspace": null
+    }
+  ]
+}
