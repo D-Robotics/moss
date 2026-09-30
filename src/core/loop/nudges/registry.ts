@@ -23,6 +23,7 @@ import { evaluateInstallToolsNudge } from './install-tools-nudge.js';
 import { evaluateRunTestsToolsNudge } from './run-tests-tools-nudge.js';
 import { evaluateBuildToolsNudge } from './build-tools-nudge.js';
 import { evaluateBackgroundServerNudge } from './background-server-nudge.js';
+import { evaluateTaskRepairNudge } from './task-repair-nudge.js';
 
 /** Inputs the registry needs from the agent loop host. */
 export interface NudgeBuildContext {
@@ -350,6 +351,27 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
           totalToolCalls: metrics.totalToolCalls,
           attempts: state.backgroundServerNudgeAttempts,
         })
+    )
+  );
+
+  // 14. Red task_acceptance verdict with no repair-path progress after it —
+  // force the diagnose→repair→reverify loop (and, after a re-fail with a
+  // repair on record, a DIFFERENT root-cause hypothesis instead of a repeat).
+  push(
+    runNudgeStep(
+      ctx.buildCorrectionMessage,
+      {
+        get: () => state.taskRepairNudgeAttempts,
+        set: (v) => {
+          state.taskRepairNudgeAttempts = v;
+        },
+      },
+      () =>
+        evaluateTaskRepairNudge({
+          messages: currentMessages,
+          attempts: state.taskRepairNudgeAttempts,
+        }),
+      { resetOnResetAttempts: true }
     )
   );
 
