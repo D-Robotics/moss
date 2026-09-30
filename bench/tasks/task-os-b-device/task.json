@@ -11,7 +11,8 @@
     "MOSS_DEVICE_KEY",
     "MOSS_DEVICE_KEY_PASSPHRASE",
     "MOSS_DEVICE_KIND",
-    "MOSS_DEVICE_ID"
+    "MOSS_DEVICE_ID",
+    "MOSS_CAPABILITY_LAYER"
   ],
   "requiresEnv": ["MOSS_DEVICE_HOST"],
   "prompt": "A remote device is reachable over SSH (MOSS_DEVICE_* env vars carry the connection; do not ask, do not guess). Complete a device task through the unified task discipline:\n\n1. Probe the live device (device_info).\n2. task_define: goal 'verify device identity and runtime health from the live device', target_device set, criteria:\n   - {metric: 'device_reachable', expected: 'exists'}\n   - {metric: 'runtime_healthy', expected: 'exists'}\n3. Record evidence for BOTH metrics via real device probes (record_evidence with task_id). runtime_healthy: observed = proof the runtime is alive (e.g. process check or load line from device_resources/device_processes).\n4. task_acceptance must end PASS; repair with fresh evidence if not.\n\nFinish with a one-line summary quoting the verdict."

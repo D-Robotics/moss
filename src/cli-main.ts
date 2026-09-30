@@ -784,9 +784,7 @@ async function main() {
                   name: entry.wireName,
                   description: entry.description,
                 })),
-              reveal: (wireNames: readonly string[]) => {
-                mcpRegistry?.revealTools(wireNames);
-              },
+              reveal: (wireNames: readonly string[]) => mcpRegistry?.revealTools(wireNames) ?? [],
             }
           : undefined,
       });

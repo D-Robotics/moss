@@ -107,6 +107,8 @@ const GENERIC_WORDS = new Set([
   'all',
   'each',
   'every',
+  'record',
+  'report',
 ]);
 
 const DEVICE_SIGNALS = [
@@ -133,6 +135,35 @@ const DEVICE_SIGNALS = [
   '机械臂',
 ];
 
+/**
+ * zh document-shape bigrams — the Chinese face of GENERIC_WORDS. Without them
+ * a goal like 列出所有信息并记录任务状态 sweeps in every "记录系统信息与任务状态"
+ * tool in the catalog (verified by adversarial re-review).
+ */
+const CJK_GENERIC_WORDS = new Set([
+  '信息',
+  '记录',
+  '状态',
+  '所有',
+  '查看',
+  '列出',
+  '显示',
+  '获取',
+  '保存',
+  '处理',
+  '管理',
+  '系统',
+  '任务',
+]);
+
+/**
+ * Characters that only ever appear here as part of a generic word. A bigram
+ * made of two of them (务状 from 任务+状态) is a word-boundary artifact of
+ * bigram tokenization, not a word — dropping it kills the noise pairs that
+ * made goal and boilerplate descriptions match each other.
+ */
+const CJK_GENERIC_CHARS = new Set([...CJK_GENERIC_WORDS].flatMap((word) => [...word]));
+
 function tokenize(text: string): string[] {
   const tokens: string[] = [];
   for (const word of text.toLowerCase().split(/[^a-z0-9\u4e00-\u9fff]+/)) {
@@ -143,7 +174,12 @@ function tokenize(text: string): string[] {
       for (let i = 0; i < word.length; i++) {
         const gram = word.slice(i, i + (word.length === 1 ? 1 : 2));
         if (gram.length === 1 && word.length > 1) continue;
-        if (!STOP_WORDS.has(gram)) tokens.push(gram);
+        if (STOP_WORDS.has(gram) || CJK_GENERIC_WORDS.has(gram)) continue;
+        const [first, second] = [...gram];
+        if (gram.length === 2 && CJK_GENERIC_CHARS.has(first) && CJK_GENERIC_CHARS.has(second)) {
+          continue;
+        }
+        tokens.push(gram);
       }
     } else if (word.length > 1 && !STOP_WORDS.has(word) && !GENERIC_WORDS.has(word)) {
       tokens.push(word);
@@ -158,14 +194,37 @@ function tokenize(text: string): string[] {
  * (strip es) both match exactly instead of the old single-suffix order
  * deciding which one wins.
  */
+const STEM_SUFFIXES: readonly string[] = [
+  'ing',
+  'ion',
+  'ions',
+  'ies',
+  'ied',
+  'ment',
+  'ed',
+  'es',
+  'ly',
+  'ty',
+  's',
+];
+
 function stems(token: string): Set<string> {
   const variants = new Set<string>([token]);
   const add = (value: string) => {
     if (value.length >= 2) variants.add(value);
+    // Doubled-consonant fallback: stopped→stopp must also yield stop, and
+    // running→runn must also yield run, or stopped↔stop never matches.
+    if (/([bcdfgmnpt])\1$/.test(value)) {
+      const collapsed = value.slice(0, -1);
+      if (collapsed.length >= 2) variants.add(collapsed);
+    }
   };
   if (token.endsWith('ies')) add(`${token.slice(0, -3)}y`);
   if (token.endsWith('ied')) add(`${token.slice(0, -3)}y`);
-  for (const suffix of ['ing', 'ion', 'ions', 'ies', 'ied', 'ed', 'es', 'ly', 'ty', 's']) {
+  // e-drop derivation: navigate→navigation, calibrate→calibration — the 'e'
+  // disappears when the suffix attaches, so both sides need the bare stem.
+  if (token.length > 3 && token.endsWith('e')) add(token.slice(0, -1));
+  for (const suffix of STEM_SUFFIXES) {
     if (token.length > suffix.length + 2 && token.endsWith(suffix)) {
       add(token.slice(0, token.length - suffix.length));
     }
@@ -194,7 +253,6 @@ const ZH_EN_GLOSSARY: Record<string, readonly string[]> = {
   资源: ['resource'],
   证据: ['evidence'],
   验收: ['acceptance'],
-  任务: ['task'],
   测试: ['test'],
   修复: ['repair', 'fix'],
   曝光: ['exposure'],
@@ -202,6 +260,11 @@ const ZH_EN_GLOSSARY: Record<string, readonly string[]> = {
   图像: ['image'],
   视频: ['video'],
   模型: ['model'],
+  音频: ['audio'],
+  电池: ['battery'],
+  电量: ['battery'],
+  麦克: ['microphone'],
+  克风: ['microphone'],
 };
 
 function expandWithGlossary(set: Set<string>, token: string): Set<string> {
@@ -215,37 +278,70 @@ function expandWithGlossary(set: Set<string>, token: string): Set<string> {
 /** Prefix containment is only allowed between long stems. */
 const PREFIX_MIN_LENGTH = 6;
 
-function scoreCandidate(goalTokens: string[], text: string): { score: number; hits: string[] } {
+function scoreCandidate(
+  goalTokens: string[],
+  text: string
+): { score: number; hits: string[]; glossaryHits: number } {
   // Candidate side: variant sets per token, glossary-expanded for CJK bigrams.
   const candidateStems: Set<string>[] = [];
   for (const token of tokenize(text)) {
     candidateStems.push(expandWithGlossary(stems(token), token));
   }
   const hits: string[] = [];
+  let glossaryHits = 0;
   for (const goalToken of goalTokens) {
-    const goalStems = expandWithGlossary(stems(goalToken), goalToken);
-    const hit = candidateStems.some((candidateSet) => {
+    const ownStems = stems(goalToken);
+    const goalStems = expandWithGlossary(ownStems, goalToken);
+    let viaNative = false;
+    let viaGlossary = false;
+    for (const candidateSet of candidateStems) {
       for (const goalStem of goalStems) {
-        if (candidateSet.has(goalStem)) return true;
+        if (candidateSet.has(goalStem)) {
+          if (ownStems.has(goalStem)) viaNative = true;
+          else viaGlossary = true;
+        }
       }
-      // Prefix containment only between long stems: rest→restart and
-      // parse→parsec are different words, not inflections of each other.
+      // Prefix containment only as inflection completion: the longer stem must
+      // be the shorter one plus a known suffix. Length alone let compute↔computer
+      // and person↔personal through — derivations that share a prefix are not
+      // the same word.
       for (const goalStem of goalStems) {
         if (goalStem.length < PREFIX_MIN_LENGTH) continue;
         for (const candidateStem of candidateSet) {
-          if (
-            candidateStem.length >= PREFIX_MIN_LENGTH &&
-            (goalStem.startsWith(candidateStem) || candidateStem.startsWith(goalStem))
-          ) {
-            return true;
+          if (candidateStem.length < PREFIX_MIN_LENGTH) continue;
+          const [shorter, longer] =
+            goalStem.length <= candidateStem.length
+              ? [goalStem, candidateStem]
+              : [candidateStem, goalStem];
+          const remainder = longer.slice(shorter.length);
+          if (longer.startsWith(shorter) && STEM_SUFFIXES.includes(remainder)) {
+            if (ownStems.has(goalStem)) viaNative = true;
+            else viaGlossary = true;
           }
         }
       }
-      return false;
-    });
-    if (hit) hits.push(goalToken);
+    }
+    if (viaNative || viaGlossary) {
+      hits.push(goalToken);
+      if (!viaNative) glossaryHits += 1;
+    }
   }
-  return { score: hits.length, hits };
+  return { score: hits.length, hits, glossaryHits };
+}
+
+/** Reason string: cap the hit list so a repetitive goal cannot bloat a line. */
+function matchedReason(hits: readonly string[]): string {
+  const shown = hits.slice(0, 4).join(', ');
+  return hits.length > 4 ? `matched: ${shown} +${hits.length - 4} more` : `matched: ${shown}`;
+}
+
+/**
+ * A candidate kept on glossary-only evidence needs at least two distinct
+ * glossary hits: one zh→en mapping alone (查看任务信息 → task) recommends
+ * destructive task tools it knows nothing about.
+ */
+function isGlossarySingleton(score: { score: number; glossaryHits: number }): boolean {
+  return score.glossaryHits === score.score && score.score < 2;
 }
 
 function isDeviceTask(goal: string): boolean {
@@ -255,7 +351,11 @@ function isDeviceTask(goal: string): boolean {
 
 export interface CapabilityInventory {
   skills?: readonly SkillManifest[];
-  /** Registered builtin tool names (e.g. from agent.tools.getAll()). */
+  /**
+   * Registered builtin tool names. Kept for compatibility, but builtins are no
+   * longer scored as candidates: the provider tool list always carries them, so
+   * naming them in the layer adds cost without information (A/B measured).
+   */
   builtinTools?: readonly string[];
   /** Connected MCP tool names (wire names). */
   mcpTools?: readonly { name: string; description?: string }[];
@@ -272,33 +372,25 @@ export function matchTaskCapabilities(
   const candidates: CapabilityCandidate[] = [];
 
   for (const skill of inventory.skills ?? []) {
-    const { score, hits } = scoreCandidate(
+    const { score, hits, glossaryHits } = scoreCandidate(
       goalTokens,
       `${skill.name} ${skill.description} ${skill.when ?? ''}`
     );
-    if (score > 0) {
+    if (score > 0 && !isGlossarySingleton({ score, glossaryHits })) {
       candidates.push({
         kind: 'skill',
         name: skill.name,
         description: skill.description,
-        reason: `matched: ${hits.join(', ')}`,
+        reason: matchedReason(hits),
         score,
       });
     }
   }
 
-  for (const tool of inventory.builtinTools ?? []) {
-    const { score, hits } = scoreCandidate(goalTokens, tool.replace(/_/g, ' '));
-    if (score > 0) {
-      candidates.push({
-        kind: 'builtin-tool',
-        name: tool,
-        description: '',
-        reason: `matched: ${hits.join(', ')}`,
-        score,
-      });
-    }
-  }
+  // Builtin tools are deliberately not candidates: they are always in the
+  // provider's tool list, so narrowing them adds no information the model can
+  // act on — and scored builtins used to crowd real candidates out of the
+  // top-N slots.
 
   const mcpServers = new Set<string>();
   for (const tool of inventory.mcpTools ?? []) {
@@ -308,16 +400,16 @@ export function matchTaskCapabilities(
       mcpServers.add(server);
       continue;
     }
-    const { score, hits } = scoreCandidate(
+    const { score, hits, glossaryHits } = scoreCandidate(
       goalTokens,
       `${tool.name.replace(/__|-|_/g, ' ')} ${tool.description ?? ''}`
     );
-    if (score > 0) {
+    if (score > 0 && !isGlossarySingleton({ score, glossaryHits })) {
       candidates.push({
         kind: 'mcp-tool',
         name: tool.name,
         description: tool.description ?? '',
-        reason: `matched: ${hits.join(', ')}`,
+        reason: matchedReason(hits),
         score,
         ...(server ? { server } : {}),
       });
@@ -331,7 +423,7 @@ export function matchTaskCapabilities(
   // is absent but its best candidate scores at least the weakest selected one,
   // it takes the last slot.
   const kindsPresent = new Set(selected.map((candidate) => candidate.kind));
-  for (const kind of ['skill', 'builtin-tool', 'mcp-tool'] as const) {
+  for (const kind of ['skill', 'mcp-tool'] as const) {
     if (kindsPresent.has(kind) || selected.length === 0) continue;
     const best = candidates.find((candidate) => candidate.kind === kind);
     if (!best) continue;
@@ -363,33 +455,39 @@ function oneLine(text: string, max = 140): string {
 }
 
 export function buildCapabilityPromptLayer(match: TaskCapabilityMatch): string {
+  // The layer must earn its tokens. Builtin tool names are already in the
+  // provider's tool list and every skill is already in the skills index, so a
+  // layer with only builtin candidates restates what the model can already
+  // see — measured as pure cost (A/B: task-os a/b/c each ran worse with it,
+  // one arm failed). Speak only when there is something the model cannot see:
+  // a skill worth loading, an MCP catalog tool it could not know about, or a
+  // server to search.
   const mcpServers = match.mcpServers ?? [];
-  if (match.candidates.length === 0 && !match.deviceTask && mcpServers.length === 0) return '';
+  const skills = match.candidates.filter((candidate) => candidate.kind === 'skill');
+  const mcp = match.candidates.filter((candidate) => candidate.kind === 'mcp-tool');
+  if (skills.length === 0 && mcp.length === 0 && mcpServers.length === 0) return '';
+
   const lines: string[] = ['## Task capability discovery'];
-  if (match.candidates.length > 0 || match.deviceTask) {
+  if (match.deviceTask) {
     lines.push(
-      match.deviceTask
-        ? 'This goal looks like a device/robotics task: use the device tools (device_info, device_exec, device_deploy, device_cameras…) and record device evidence.'
-        : 'No special capabilities detected; the standard toolset applies.'
+      'This goal looks like a device/robotics task: use the device tools (device_info, device_exec, device_deploy, device_cameras…) and record device evidence.'
     );
   }
-  const skills = match.candidates.filter((candidate) => candidate.kind === 'skill');
   if (skills.length > 0) {
     lines.push('Relevant skills (load with the skill tool if useful):');
     for (const skill of skills) {
-      lines.push(`- ${skill.name} — ${oneLine(skill.description)} (${skill.reason})`);
+      // The name is workspace-authored text too — cap it or a 300-char skill
+      // name produces a 400+-char line.
+      lines.push(`- ${oneLine(skill.name, 60)} — ${oneLine(skill.description)} (${skill.reason})`);
     }
   }
-  const tools = match.candidates.filter((candidate) => candidate.kind === 'builtin-tool');
-  if (tools.length > 0) {
-    lines.push('Relevant tools:');
-    lines.push(`- ${tools.map((tool) => tool.name).join(', ')}`);
-  }
+  // Builtin candidates are deliberately not rendered: the provider tool list
+  // already carries every one of them, so restating them is noise that the A/B
+  // run measured as a net cost.
 
   // MCP selection is task-scoped: name the matched tools so the planner calls
   // them directly, and name the servers behind them so an unmatched goal knows
   // where to search before declaring the capability missing.
-  const mcp = match.candidates.filter((candidate) => candidate.kind === 'mcp-tool');
   if (mcp.length > 0) {
     lines.push('Relevant MCP tools (already connected for this task):');
     for (const tool of mcp) {

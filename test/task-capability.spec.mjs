@@ -38,14 +38,18 @@ test('camera goal surfaces the camera skill and camera device tools first', () =
   const top = match.candidates[0];
   assert.equal(top.kind, 'skill');
   assert.equal(top.name, 'rdk-camera-tuning');
-  assert.ok(match.candidates.some((c) => c.kind === 'builtin-tool' && c.name === 'device_cameras'));
+  // Builtin tools are no longer candidates: the provider tool list always
+  // carries them, so narrowing them adds cost without information.
+  assert.ok(!match.candidates.some((c) => c.kind === 'builtin-tool'));
   assert.ok(!match.candidates.some((c) => c.name === 'ros2-navigation'));
 
   const layer = buildCapabilityPromptLayer(match);
   assert.match(layer, /## Task capability discovery/);
   assert.match(layer, /device\/robotics task/);
   assert.match(layer, /- rdk-camera-tuning — Tune RDK camera pipeline/);
-  assert.match(layer, /device_cameras/);
+  // Builtin tool names are not rendered in the layer (they are already in the
+  // provider tool list); the matcher still ranks them as candidates.
+  assert.doesNotMatch(layer, /Relevant tools/);
 });
 
 test('ROS navigation goal surfaces the ros skill, not the camera one', () => {

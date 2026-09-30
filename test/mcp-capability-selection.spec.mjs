@@ -39,7 +39,9 @@ function port(registry, revealed) {
         description: entry.description,
       })),
     reveal: (wireNames) => {
-      revealed.push(...registry.revealTools(wireNames));
+      const installed = registry.revealTools(wireNames);
+      revealed.push(...installed);
+      return installed;
     },
   };
 }
@@ -101,6 +103,30 @@ test('a camera goal selects the camera tool and makes it callable', async (t) =>
     !registered.has('mcp__catalog__invoice_list'),
     'an unrelated tool must not be loaded and must not cost prompt tokens'
   );
+});
+
+test('MOSS_CAPABILITY_LAYER=off disables discovery entirely (A/B switch)', async (t) => {
+  const { registry } = await connect();
+  t.after(() => registry.closeAll());
+  const dir = await workspace();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+
+  const revealed = [];
+  const previous = process.env.MOSS_CAPABILITY_LAYER;
+  process.env.MOSS_CAPABILITY_LAYER = 'off';
+  t.after(() => {
+    if (previous === undefined) delete process.env.MOSS_CAPABILITY_LAYER;
+    else process.env.MOSS_CAPABILITY_LAYER = previous;
+  });
+
+  const layer = await buildCapabilityLayerForGoal('tune the camera exposure on the rdk board', {
+    workspace: dir,
+    sessionKey: 'spec',
+    agent: { tools: { getAll: () => [] } },
+    mcp: port(registry, revealed),
+  });
+  assert.equal(layer, '');
+  assert.deepEqual(revealed, [], 'nothing may be revealed while the layer is off');
 });
 
 test('an unrelated goal reveals nothing (no context bloat, no invented selection)', async (t) => {

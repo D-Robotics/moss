@@ -37,7 +37,9 @@ export interface TaskCommandContext {
    */
   mcp?: {
     catalog: () => readonly { name: string; description?: string }[];
-    reveal: (wireNames: readonly string[]) => void;
+    /** Returns the wire names that were actually revealed — the layer may only
+     *  name tools that exist, so a stale catalog must not put ghosts in the prompt. */
+    reveal: (wireNames: readonly string[]) => string[];
   };
 }
 
@@ -176,6 +178,10 @@ export async function buildCapabilityLayerForGoal(
   goal: string,
   ctx: TaskCommandContext
 ): Promise<string> {
+  // A/B switch for measuring the layer itself (and an escape hatch if a bad
+  // selection ever misleads a run). Everything discovery does is additive, so
+  // 'off' simply restores the pre-v0.16 behaviour.
+  if (process.env.MOSS_CAPABILITY_LAYER === 'off') return '';
   try {
     const { loadSkills } = await import('../core/skills/skill-registry.js');
     const { matchTaskCapabilities, buildCapabilityPromptLayer } =
@@ -231,13 +237,25 @@ export async function buildCapabilityLayerForGoal(
     });
 
     // Selection is only real if the selected tools become callable — otherwise
-    // the prompt would name tools the provider never offered.
+    // the prompt would name tools the provider never offered. The reveal
+    // result is the authority: names it did not install are dropped from the
+    // layer instead of being advertised as callable.
     const selected = match.candidates
       .filter((candidate) => candidate.kind === 'mcp-tool')
       .map((candidate) => candidate.name);
-    if (ctx.mcp && selected.length > 0) ctx.mcp.reveal(selected);
+    const revealed = ctx.mcp && selected.length > 0 ? ctx.mcp.reveal(selected) : selected;
+    const revealedSet = new Set(revealed);
+    const honestMatch =
+      revealed.length === selected.length
+        ? match
+        : {
+            ...match,
+            candidates: match.candidates.filter(
+              (candidate) => candidate.kind !== 'mcp-tool' || revealedSet.has(candidate.name)
+            ),
+          };
 
-    return buildCapabilityPromptLayer(match);
+    return buildCapabilityPromptLayer(honestMatch);
   } catch (error) {
     // Discovery stays best-effort (a broken layer must not break the task), but
     // degrading to "no capabilities" silently would also hide real bugs.

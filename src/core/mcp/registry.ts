@@ -359,6 +359,17 @@ export class McpToolRegistry {
         },
       },
       execute: async (input: { query?: string; refresh?: boolean }, ctx: ToolContext) => {
+        // Same guard as revealed tools: after closeAll the cached path would
+        // otherwise answer from stale memory and register more dead tools.
+        const serverState = this.entryFor(client.name)?.status.state;
+        if (serverState !== 'connected') {
+          throw new MossError({
+            code: ErrorCode.TOOL_EXECUTION_FAILED,
+            message: `mcp search on "${client.name}" is not callable: server state is "${serverState ?? 'unknown'}".`,
+            hint: 'The MCP connection was closed; re-run to reconnect before searching.',
+            recoverable: true,
+          });
+        }
         const query = typeof input?.query === 'string' ? input.query.trim().toLowerCase() : '';
         const tools = await client.listTools({
           refresh: input?.refresh === true,

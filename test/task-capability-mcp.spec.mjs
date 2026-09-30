@@ -67,7 +67,7 @@ test('an unmatched goal still learns which MCP servers to search', async (t) => 
   assert.match(layer, /mcp__billing__search/);
 });
 
-test('no MCP tools registered → no MCP section invented', async (t) => {
+test('builtin-only matches stay silent (the layer must earn its tokens)', async (t) => {
   const dir = await tmp('moss-capability-');
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const layer = await buildCapabilityLayerForGoal('measure camera latency', {
@@ -75,8 +75,10 @@ test('no MCP tools registered → no MCP section invented', async (t) => {
     sessionKey: 'spec',
     agent: { tools: { getAll: () => [{ name: 'device_cameras' }] } },
   });
-  assert.doesNotMatch(layer, /MCP/);
-  assert.match(layer, /device_cameras/);
+  // device_cameras is already in the provider tool list; restating it in the
+  // prompt measured as a net cost in the layer A/B run, so the layer says
+  // nothing until it knows something the model cannot already see.
+  assert.equal(layer, '');
 });
 
 test('user config skills are discoverable, not just workspace skills', async (t) => {

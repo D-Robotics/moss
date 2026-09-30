@@ -10,8 +10,165 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { matchTaskCapabilities } from '../dist/core/task/capability.js';
+import { matchTaskCapabilities, buildCapabilityPromptLayer } from '../dist/core/task/capability.js';
 import { buildCapabilityLayerForGoal } from '../dist/cli/task-run.js';
+import { McpToolRegistry } from '../dist/core/mcp/registry.js';
+
+const FIXTURE = path.join(process.cwd(), 'test', 'fixtures', 'mcp-catalog-server.mjs');
+
+async function connect() {
+  const registry = await McpToolRegistry.connectAll(
+    [{ name: 'catalog', transport: 'stdio', command: process.execPath, args: [FIXTURE] }],
+    { registerTool: () => {} }
+  );
+  return { registry };
+}
+
+test('zh generic words do not sweep (re-review counterexample)', () => {
+  const tools = Array.from({ length: 12 }, (_, index) => ({
+    name: `mcp__audit__tool_${String(index).padStart(2, '0')}`,
+    description: '记录系统信息与任务状态，便于审计',
+  }));
+  const match = matchTaskCapabilities('列出所有信息并记录任务状态', { mcpTools: tools });
+  assert.equal(
+    match.candidates.length,
+    0,
+    `zh document-shape words must not count as matches; got ${match.candidates
+      .map((candidate) => candidate.name)
+      .join(', ')}`
+  );
+});
+
+test('a single glossary hit does not recommend destructive tools', () => {
+  const match = matchTaskCapabilities('查看任务信息', {
+    mcpTools: [
+      {
+        name: 'mcp__ops__task_queue_purge',
+        description: 'purge the task queue, dropping all pending tasks',
+      },
+    ],
+  });
+  assert.equal(
+    match.candidates.filter((candidate) => candidate.name === 'mcp__ops__task_queue_purge').length,
+    0,
+    'one zh→en mapping alone must not select a tool it knows nothing about'
+  );
+});
+
+test('multi-word Chinese goals still select via the glossary', () => {
+  const match = matchTaskCapabilities('调整摄像头的曝光和增益', {
+    mcpTools: [
+      {
+        name: 'mcp__catalog__camera_tune',
+        description: 'tune camera exposure and gain for the board camera pipeline',
+      },
+    ],
+  });
+  assert.ok(match.candidates.some((candidate) => candidate.name === 'mcp__catalog__camera_tune'));
+});
+
+test('doubled-consonant stems match: stopped ↔ stop', () => {
+  const match = matchTaskCapabilities('the service stopped responding', {
+    mcpTools: [{ name: 'mcp__host__stop_leaks', description: 'stop memory leaks fast' }],
+  });
+  assert.ok(match.candidates.some((candidate) => candidate.name === 'mcp__host__stop_leaks'));
+});
+
+test('a repetitive goal cannot bloat the reason string', () => {
+  const goal = Array.from({ length: 60 }, () => 'camera').join(' ');
+  const match = matchTaskCapabilities(goal, {
+    skills: [
+      {
+        name: 'rdk-camera-tuning',
+        description: 'Tune the RDK camera pipeline: ISP parameters, FPS measurement',
+        file: '/x/a.md',
+      },
+    ],
+  });
+  const layer = buildCapabilityPromptLayer(match);
+  const line = layer.split('\n').find((l) => l.includes('rdk-camera-tuning'));
+  assert.ok(line, 'skill line rendered');
+  assert.ok(line.length < 300, `skill line must stay bounded, got ${line.length}`);
+});
+
+test('record/report are generic too (re-review counterexample)', () => {
+  const match = matchTaskCapabilities('record the failing tests in a report', {
+    mcpTools: ledgerTools,
+  });
+  assert.equal(match.candidates.length, 0);
+});
+
+test('prefix must be inflection completion: compute does not mean computer', () => {
+  const match = matchTaskCapabilities('benchmark the compute nodes', {
+    mcpTools: [{ name: 'mcp__host__computer_vision', description: 'computer vision inference' }],
+  });
+  assert.equal(match.candidates.length, 0);
+});
+
+test('inflection completion still works: measure ↔ measurement', () => {
+  const match = matchTaskCapabilities('check the frame measurement latency', {
+    mcpTools: [{ name: 'mcp__host__measure_probe', description: 'measure frame timing' }],
+  });
+  assert.ok(match.candidates.some((candidate) => candidate.name === 'mcp__host__measure_probe'));
+});
+
+test('battery and audio goals select via the glossary', () => {
+  const battery = matchTaskCapabilities('查看电池电量', {
+    mcpTools: [{ name: 'mcp__power__battery_probe', description: 'battery level and health' }],
+  });
+  assert.ok(battery.candidates.some((candidate) => candidate.name === 'mcp__power__battery_probe'));
+
+  const audio = matchTaskCapabilities('采集麦克风的音频并保存', {
+    mcpTools: [
+      { name: 'mcp__sound__audio_capture', description: 'audio capture from a microphone' },
+    ],
+  });
+  assert.ok(audio.candidates.some((candidate) => candidate.name === 'mcp__sound__audio_capture'));
+});
+
+test('the layer drops names the reveal did not install', async (t) => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-ghost-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+
+  const layer = await buildCapabilityLayerForGoal('tune the camera exposure on the rdk board', {
+    workspace,
+    sessionKey: 'spec',
+    agent: { tools: { getAll: () => [] } },
+    mcp: {
+      // A stale catalog names a tool the server no longer has.
+      catalog: () => [{ name: 'mcp__ghost__camera_tune', description: 'tune camera exposure' }],
+      reveal: () => [],
+    },
+  });
+  assert.equal(layer, '', 'a ghost selection must not be advertised as callable');
+});
+
+test('a long skill name cannot bloat the layer line', () => {
+  const match = matchTaskCapabilities('tune the camera pipeline', {
+    skills: [
+      {
+        name: 'camera-'.repeat(40),
+        description: 'Tune the camera pipeline',
+        file: '/x/a.md',
+      },
+    ],
+  });
+  const layer = buildCapabilityPromptLayer(match);
+  const line = layer.split('\n').find((l) => l.includes('Tune the camera'));
+  assert.ok(line);
+  assert.ok(line.length < 220, `skill line must stay bounded, got ${line.length}`);
+});
+
+test('search meta-tool also refuses after closeAll', async () => {
+  const { registry } = await connect();
+  const searchTool = registry.getTools().find((tool) => tool.name === 'mcp__catalog__search');
+  assert.ok(searchTool);
+  await registry.closeAll();
+  await assert.rejects(
+    () => searchTool.execute({}, { workspaceDir: process.cwd(), sessionKey: 'spec' }),
+    /not callable: server state is "closed"/
+  );
+});
 
 const ledgerTools = Array.from({ length: 20 }, (_, index) => ({
   name: `mcp__ledger__tool_${String(index).padStart(2, '0')}`,
@@ -107,7 +264,7 @@ test('host-registered mcp tools stay visible when a catalog port is present', as
     },
     mcp: {
       catalog: () => [{ name: 'mcp__catalog__camera_tune', description: 'tune camera exposure' }],
-      reveal: () => {},
+      reveal: (wireNames) => wireNames,
     },
   });
   assert.match(layer, /mcp__host__custom_mount/, 'the registered view must not be dropped');
