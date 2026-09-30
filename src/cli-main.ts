@@ -23,7 +23,7 @@ import {
 import { parseCliArgs } from './cli/args.js';
 import { displayHelp, displayVersion } from './cli/help.js';
 import { createConfiguredGuardrailHooks } from './cli/guardrails.js';
-import { createConfiguredHookCallbacks } from './cli/hooks.js';
+import { createConfiguredHookCallbacks, setLifecycleHookRunner } from './cli/hooks.js';
 import { resolveSoulIdentity } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
 import { createCliProvider } from './cli/providers.js';
@@ -510,6 +510,13 @@ async function main() {
   const configuredHooks = createConfiguredHookCallbacks(loadedConfig.config.hooks, {
     workspaceDir: workspace,
   });
+  // Lifecycle shell hooks (Stop / SubagentStop) fire from shared run paths
+  // that have no access to this wiring — install them as the module runner.
+  setLifecycleHookRunner({
+    runStop: (info) => configuredHooks.runStop(info),
+    runSubagentStop: (info) => configuredHooks.runSubagentStop(info),
+  });
+  const compactHookRegistry = configuredHooks.buildCompactHookRegistry();
   // The live runtime object mutates in place as in-session commands run; the
   // approval hook closes over getters so it observes those changes live.
   const liveRuntime: CliRuntimeStatus = {};
@@ -562,6 +569,7 @@ async function main() {
     ...(bestOfN ? { bestOfN } : {}),
     ...(reasoningBudget ? { reasoningBudget } : {}),
     ...(modelTiers ? { modelTiers } : {}),
+    ...(compactHookRegistry ? { compactHooks: compactHookRegistry } : {}),
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
     baseSystemPrompt: resolveSoulIdentity({

@@ -160,6 +160,18 @@ export interface HooksConfig {
   PostToolUse?: HookCommandConfig[];
 
   SessionStart?: HookCommandConfig[];
+
+  /** Fires after each completed agent run; a blocking non-zero exit vetoes the stop. */
+  Stop?: HookCommandConfig[];
+
+  /** Fires when a spawned subagent finishes its task. */
+  SubagentStop?: HookCommandConfig[];
+
+  /** Fires before a context compaction splices the transcript. */
+  PreCompact?: HookCommandConfig[];
+
+  /** Fires after a context compaction (success or failure). */
+  PostCompact?: HookCommandConfig[];
 }
 
 export interface ResolvedTextGuardrailConfig {

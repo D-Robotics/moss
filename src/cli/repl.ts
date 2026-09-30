@@ -279,10 +279,17 @@ export async function runInteractive(
         const submitText: string | null = pendingSubmit;
         if (submitText) {
           checkpointStore.open(`custom: ${String(submitText).slice(0, 60)}`);
-          await runOneShot(agent, String(submitText), {
+          const stop = await runOneShot(agent, String(submitText), {
             sessionKey,
             onAgentEvent: (event) => usage.record(event),
           });
+          if (stop?.blocked) {
+            await runOneShot(
+              agent,
+              `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`,
+              { sessionKey, onAgentEvent: (event) => usage.record(event) }
+            );
+          }
         }
         rl.prompt();
         if (pendingPrefill) rl.write(pendingPrefill);
@@ -608,7 +615,19 @@ export async function runInteractive(
     }
 
     checkpointStore.open(msg.slice(0, 60));
-    await runOneShot(agent, msg, { sessionKey, onAgentEvent: (event) => usage.record(event) });
+    const stop = await runOneShot(agent, msg, {
+      sessionKey,
+      onAgentEvent: (event) => usage.record(event),
+    });
+    if (stop?.blocked) {
+      // Stop hook vetoed the run ending: one forced continuation turn, then
+      // the veto is consumed (a hook that keeps blocking would loop forever).
+      await runOneShot(
+        agent,
+        `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`,
+        { sessionKey, onAgentEvent: (event) => usage.record(event) }
+      );
+    }
     rl.prompt();
   }
 
