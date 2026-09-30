@@ -174,6 +174,12 @@ export interface HooksConfig {
 
   /** Fires after a context compaction (success or failure). */
   PostCompact?: HookCommandConfig[];
+
+  /** Fires once when the CLI session is shutting down. */
+  SessionEnd?: HookCommandConfig[];
+
+  /** Fires when user attention is needed (e.g. an approval prompt). */
+  Notification?: HookCommandConfig[];
 }
 
 export interface ResolvedTextGuardrailConfig {

@@ -521,6 +521,7 @@ async function main() {
   setLifecycleHookRunner({
     runStop: (info) => configuredHooks.runStop(info),
     runSubagentStop: (info) => configuredHooks.runSubagentStop(info),
+    runNotification: (info) => configuredHooks.runNotification(info),
   });
   const compactHookRegistry = configuredHooks.buildCompactHookRegistry();
   // The live runtime object mutates in place as in-session commands run; the
@@ -576,6 +577,7 @@ async function main() {
     ...(reasoningBudget ? { reasoningBudget } : {}),
     ...(modelTiers ? { modelTiers } : {}),
     ...(compactHookRegistry ? { compactHooks: compactHookRegistry } : {}),
+    subagentStopHook: (info) => configuredHooks.runSubagentStop(info),
     // Keep the Moss persona, but name the actual model so the agent can answer
     // "which model are you?" honestly instead of substituting "Moss".
     baseSystemPrompt: resolveSoulIdentity({
@@ -964,6 +966,12 @@ async function main() {
       // Shut MCP server connections (stdio children) down after the agent is
       // done — closeAll absorbs per-server errors internally.
       await mcpRegistry?.closeAll();
+      // SessionEnd lifecycle hook: fires exactly once at CLI shutdown.
+      try {
+        await configuredHooks.runSessionEnd({ reason: 'cli_shutdown' });
+      } catch {
+        /* shutdown hooks never block exit */
+      }
     }
   }
 }

@@ -932,6 +932,16 @@ ${result.stderr ?? ''}`.trim();
           },
           controller.signal
         );
+        try {
+          await this.config.subagentStopHook?.({
+            sessionKey: `subagent:${result.runId}`,
+            goal: params.task,
+            success: result.success,
+            summary: result.summary.slice(0, 4000),
+          });
+        } catch {
+          /* host hook failures never fail the sub-agent result */
+        }
         return {
           runId: result.runId,
           sessionKey: `subagent:${result.runId}`,

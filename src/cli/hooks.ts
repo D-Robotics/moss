@@ -23,7 +23,9 @@ interface HookPayload {
     | 'Stop'
     | 'SubagentStop'
     | 'PreCompact'
-    | 'PostCompact';
+    | 'PostCompact'
+    | 'SessionEnd'
+    | 'Notification';
   toolName?: string;
   input?: Record<string, unknown>;
   result?: string;
@@ -40,6 +42,9 @@ interface HookPayload {
   compactReason?: string;
   summaryChars?: number;
   droppedMessages?: number;
+  /** Notification hook fields. */
+  notificationReason?: string;
+  message?: string;
 }
 
 function runHookCommand(
@@ -103,6 +108,12 @@ export interface ConfiguredHookCallbacks {
 
   runSubagentStop: (info: SubagentStopHookInfo) => Promise<void>;
 
+  /** SessionEnd: fires once when the CLI session is shutting down. */
+  runSessionEnd: (info: { reason: string }) => Promise<void>;
+
+  /** Notification: fires when user attention is needed (approval prompt). */
+  runNotification: (info: { reason: string; message: string }) => Promise<void>;
+
   /**
    * PreCompact/PostCompact shell hooks wrapped in the core CompactHookRegistry,
    * ready to hand to MossAgentConfig.compactHooks.
@@ -123,6 +134,8 @@ export function createConfiguredHookCallbacks(
   const subagentStop = hooks?.SubagentStop ?? [];
   const preCompact = hooks?.PreCompact ?? [];
   const postCompact = hooks?.PostCompact ?? [];
+  const sessionEnd = hooks?.SessionEnd ?? [];
+  const notification = hooks?.Notification ?? [];
   const cwd = opts.workspaceDir;
 
   const onBeforeToolExec =
@@ -285,12 +298,50 @@ export function createConfiguredHookCallbacks(
     return registry;
   };
 
+  const runSessionEnd = async (info: { reason: string }): Promise<void> => {
+    for (const hook of sessionEnd) {
+      const r = await runHookCommand(
+        hook.command,
+        { event: 'SessionEnd', notificationReason: info.reason },
+        cwd,
+        timeoutFor(hook)
+      );
+      if (r.exitCode !== 0) {
+        process.stderr.write(
+          `[hooks] SessionEnd exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
+        );
+      }
+    }
+  };
+
+  const runNotification = async (info: { reason: string; message: string }): Promise<void> => {
+    for (const hook of notification) {
+      const r = await runHookCommand(
+        hook.command,
+        {
+          event: 'Notification',
+          notificationReason: info.reason,
+          message: info.message.slice(0, 500),
+        },
+        cwd,
+        timeoutFor(hook)
+      );
+      if (r.exitCode !== 0) {
+        process.stderr.write(
+          `[hooks] Notification exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
+        );
+      }
+    }
+  };
+
   return {
     onBeforeToolExec,
     onToolResult,
     runSessionStart,
     runStop,
     runSubagentStop,
+    runSessionEnd,
+    runNotification,
     buildCompactHookRegistry,
     hasHooks:
       pre.length +
@@ -299,7 +350,9 @@ export function createConfiguredHookCallbacks(
         stop.length +
         subagentStop.length +
         preCompact.length +
-        postCompact.length >
+        postCompact.length +
+        sessionEnd.length +
+        notification.length >
       0,
   };
 }
@@ -330,6 +383,7 @@ export interface SubagentStopHookInfo {
 interface LifecycleHookRunner {
   runStop(info: StopHookInfo): Promise<StopHookResult>;
   runSubagentStop(info: SubagentStopHookInfo): Promise<void>;
+  runNotification?: (info: { reason: string; message: string }) => Promise<void>;
 }
 
 let lifecycleRunner: LifecycleHookRunner | undefined;
@@ -344,6 +398,17 @@ export async function runStopHooks(info: StopHookInfo): Promise<StopHookResult> 
   } catch (err) {
     process.stderr.write(`[hooks] Stop hook failed: ${errorMessage(err)}\n`);
     return { blocked: false };
+  }
+}
+
+export async function runNotificationHooks(info: {
+  reason: string;
+  message: string;
+}): Promise<void> {
+  try {
+    await lifecycleRunner?.runNotification?.(info);
+  } catch (err) {
+    process.stderr.write(`[hooks] Notification hook failed: ${errorMessage(err)}\n`);
   }
 }
 
