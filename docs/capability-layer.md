@@ -21,6 +21,21 @@ a spec that fails if it regresses.
 | 6   | **Failure degrades to empty, loudly.** No MCP, a failed server, an empty catalog, a broken skills dir — the layer yields '' and the task still runs, but a warning is logged instead of silence.                                                                                          | `mcp-capability-selection.spec.mjs`, `task-capability-mcp.spec.mjs`                            |
 | 7   | **The effect is measured.** `MOSS_CAPABILITY_LAYER=off` disables the layer for an A/B arm; benchmark deltas are reported, not assumed.                                                                                                                                                    | the gate spec in `mcp-capability-selection.spec.mjs` + the bench `passEnv` entries             |
 
+## Measured, not assumed
+
+Two A/B rounds (task-os a/b/c, deepseek-flash@latest, temperature 0, 1 sample
+per arm):
+
+- **Before the diet** the layer restated builtin tool names and a device hint
+  on MCP-less tasks — the OFF arm won all three (a: 6 vs 8 turns; b: PASS 6 vs
+  FAIL; c: 8 vs 9). That measurement drove the redesign: the layer now speaks
+  only when it knows something the model cannot already see.
+- **After the diet** the layer is silent on MCP-less tasks, so the arms are
+  equivalent modulo run noise (OFF 9/7/9 vs ON 8*/6/11; *re-run in isolation
+  after a transient API failure — in=0/out=0 — passed at 8 turns). The value
+  path (catalog → select → reveal) is spec-locked; bench-level benefit in
+  MCP-rich workspaces is the open measurement, tracked on the team board.
+
 ## How to re-measure the A/B
 
 ```bash
