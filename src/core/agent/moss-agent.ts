@@ -13,6 +13,7 @@ import {
   buildAgentBehaviorPromptQuick,
   buildLanguagePolicyPrompt,
   buildSoftwareEngineeringPrompt,
+  buildSoftwareEngineeringPromptQuick,
   DEFAULT_MODEL,
   type MossAsyncTaskRegistry,
   createInMemoryMossAsyncTaskRegistry,
@@ -221,8 +222,10 @@ export class MossAgent {
       // Explicitly disabled: add no domain prompt.
     } else if (typeof this.config.domainPrompt === 'function') {
       parts.push(this.config.domainPrompt());
-    } else {
+    } else if (this.config.includeDomainPrompt === 'full') {
       parts.push(buildSoftwareEngineeringPrompt());
+    } else {
+      parts.push(buildSoftwareEngineeringPromptQuick());
     }
 
     // Hosts can opt into the long-form behavior prompt with `includeAgentBehaviorPrompt: 'full'`.

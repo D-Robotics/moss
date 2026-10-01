@@ -92,6 +92,17 @@ export interface PromptConfig {
    */
   includeAgentBehaviorPrompt?: boolean | 'full';
 
+  /**
+   * Controls the software-engineering domain layer of the system prompt.
+   * - `true` / `undefined` (default): inject the compact domain contract
+   *   (`buildSoftwareEngineeringPromptQuick`) — same rules, a fraction of the
+   *   tokens; matches what the CLI already injects.
+   * - `'full'`: inject the long-form domain prompt
+   *   (`buildSoftwareEngineeringPrompt`) — for hosts that want the full prose.
+   * - `false`: inject no domain layer.
+   */
+  includeDomainPrompt?: boolean | 'full';
+
   includeLanguagePolicyPrompt?: boolean;
 }
 
