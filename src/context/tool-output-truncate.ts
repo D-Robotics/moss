@@ -74,12 +74,48 @@ export function truncateToolOutput(toolName: string, output: string): string {
   return `${head}\n\n${notice}\n\n${tail}`;
 }
 
+// The budget is in UTF-8 bytes but string indices are UTF-16 code units; for
+// multi-byte text (CJK, emoji) they are not interchangeable. Convert with a
+// binary search over Buffer.byteLength so the kept head/tail respect the byte
+// budget, and never land inside a surrogate pair.
+function prefixCharIndexForBytes(text: string, budgetBytes: number): number {
+  if (budgetBytes <= 0) return 0;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (Buffer.byteLength(text.slice(0, mid), 'utf8') <= budgetBytes) lo = mid;
+    else hi = mid - 1;
+  }
+  const prev = lo > 0 ? text.charCodeAt(lo - 1) : 0;
+  const next = lo < text.length ? text.charCodeAt(lo) : 0;
+  const splitsPair = prev >= 0xd800 && prev <= 0xdbff && !(next >= 0xdc00 && next <= 0xdfff);
+  return splitsPair ? lo - 1 : lo;
+}
+
+function suffixCharIndexForBytes(text: string, budgetBytes: number): number {
+  if (budgetBytes <= 0) return text.length;
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (Buffer.byteLength(text.slice(mid), 'utf8') <= budgetBytes) hi = mid;
+    else lo = mid + 1;
+  }
+  const at = lo < text.length ? text.charCodeAt(lo) : 0;
+  const startsMidPair = at >= 0xdc00 && at <= 0xdfff;
+  return startsMidPair ? lo + 1 : lo;
+}
+
 function findSafeSlicePoint(
   text: string,
   targetBytes: number,
   direction: 'forward' | 'backward'
 ): number {
-  const approxCharIndex = Math.min(text.length, Math.floor(targetBytes));
+  const approxCharIndex =
+    direction === 'forward'
+      ? prefixCharIndexForBytes(text, targetBytes)
+      : suffixCharIndexForBytes(text, targetBytes);
 
   if (direction === 'forward') {
     const searchStart = Math.max(0, approxCharIndex - 100);
@@ -89,9 +125,9 @@ function findSafeSlicePoint(
     return approxCharIndex;
   }
 
-  const searchStart = Math.max(0, text.length - approxCharIndex - 100);
-  const searchEnd = Math.min(text.length, text.length - approxCharIndex + 100);
+  const searchStart = Math.max(0, approxCharIndex - 100);
+  const searchEnd = Math.min(text.length, approxCharIndex + 100);
   const newlineIdx = text.indexOf('\n', searchStart);
   if (newlineIdx >= 0 && newlineIdx <= searchEnd) return newlineIdx;
-  return text.length - approxCharIndex;
+  return approxCharIndex;
 }

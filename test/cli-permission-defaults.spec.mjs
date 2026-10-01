@@ -344,6 +344,26 @@ const tool = (name, sideEffectClass) => ({
 }
 
 {
+  // A headless run that hits the approval wall must name the exact knobs —
+  // "use an explicit policy" without the flag/command is a dead end for a
+  // first-time one-shot user.
+  const wasTTY = process.stdin.isTTY;
+  Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+  setCliApprovalAsker(null);
+  const hook = createCliToolApprovalHook('workspace-write', {}, { workspaceDir: process.cwd() });
+  const decision = await hook({
+    tool: tool('edit_file', 'local_write'),
+    input: { path: 'notes.txt', old_string: 'a', new_string: 'b' },
+    sessionKey: 'headless-guidance',
+  });
+  Object.defineProperty(process.stdin, 'isTTY', { value: wasTTY, configurable: true });
+  assert.equal(decision.approved, false, 'headless stays denied without a policy');
+  assert.match(decision.reason, /--accept-edits/, 'the rejection names --accept-edits');
+  assert.match(decision.reason, /profile=autonomous/, 'the rejection names the persistent profile');
+  assert.match(decision.reason, /MOSS_CLI_AUTO_APPROVE/, 'the rejection names the env override');
+}
+
+{
   const answers = ['a', ''];
   setCliApprovalAsker(async () => answers.shift() ?? '');
   const hook = createCliToolApprovalHook('workspace-write', {}, { workspaceDir: process.cwd() });
