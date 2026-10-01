@@ -159,7 +159,18 @@ const THINKING = 'The user wants one word. ';
 // ─── a finished run leaves an honest summary ──────────────────────────────
 
 {
-  assert.equal(text(renderRunSummary(5000, false, 80)), '\n✻ Thinking for 5s', 'summary line');
+  assert.match(
+    text(renderRunSummary(5000, false, 80)),
+    /^\n✻ Thinking for 5s · done \d{1,2}:\d{2}/,
+    'summary line carries the local finish time'
+  );
+  assert.match(
+    text(
+      renderRunSummary(5000, false, 80, { input: 0, output: 0 }, new Date('2026-10-01T09:05:00'))
+    ),
+    /✻ Thinking for 5s · done/,
+    'the wall-clock stamp is injectable for deterministic asserts'
+  );
   assert.match(
     text(renderRunSummary(5000, true, 80)),
     /✻ \w+ for 5s · interrupted/,

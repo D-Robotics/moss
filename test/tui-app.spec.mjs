@@ -388,6 +388,13 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
     .join('\n');
   assert.match(halted, /· interrupted$/, 'no-token runs stay clean');
   assert.ok(!renderRunSummary(4000, false, 200).some((l) => l.text.includes('↑')));
+  assert.match(
+    renderRunSummary(4000, false, 200, undefined, new Date('2026-10-01T23:45:00'))
+      .map((l) => l.text)
+      .join('\n'),
+    /· done /,
+    'the summary carries the local finish time'
+  );
 
   const hot = renderStatusRight(
     {
@@ -811,6 +818,69 @@ async function type(instance, text) {
     );
     instance.unmount();
     await sleep(150);
+  }
+
+  // 4k. Ctrl+D never destroys a draft: quitting on a non-empty composer gets
+  // a pointer instead (A12.96 — the draft is the user's work).
+  {
+    const { instance } = mount({ agent: createMockAgent(), workspaceDir: '/tmp/ws' });
+    for (const ch of 'precious draft') instance.stdin.write(ch);
+    await sleep(60);
+    instance.stdin.write('\x04'); // Ctrl+D on a non-empty draft
+    await sleep(60);
+    assert.ok(instance.lastFrame().includes('precious draft'), 'the draft survives Ctrl+D');
+    assert.ok(instance.lastFrame().includes('Ctrl+D quits'), 'the refusal explains itself');
+    // Clear the draft (Esc-Esc), then Ctrl+D may exit.
+    instance.stdin.write('\x1b');
+    await sleep(40);
+    instance.stdin.write('\x1b');
+    await sleep(60);
+    assert.ok(!instance.lastFrame().includes('precious draft'), 'draft dropped deliberately');
+    instance.unmount();
+    await sleep(150);
+  }
+
+  // 4l. A failed MCP server is visible at boot, not buried in /mcp.
+  {
+    const { instance, handle } = mount({
+      agent: createMockAgent(),
+      workspaceDir: '/tmp/ws',
+      mcpServers: [
+        { name: 'docs', state: 'connected', toolCount: 4 },
+        { name: 'broken-server', state: 'failed', error: 'spawn ENOENT' },
+      ],
+    });
+    const ok = await waitFor(() =>
+      handle.store.rows.some(
+        (row) =>
+          row.kind === 'system' &&
+          row.text.includes('⚠ 1 MCP server failed to start (broken-server)') &&
+          row.text.includes('/mcp for details')
+      )
+    );
+    assert.ok(
+      ok,
+      `the boot row names the failure: ${JSON.stringify(
+        handle.store.rows.map((r) => `${r.kind}:${r.text}`)
+      )}`
+    );
+    instance.unmount();
+    await sleep(150);
+  }
+
+  // 4m. The verbose transcript state is visible in the chrome (A9.72): the
+  // status row carries a `verbose` badge and the hint names the exit key.
+  {
+    const status = renderStatusRight(
+      { running: false, tokens: 0, taskCount: 0, queueLength: 0, verbose: true },
+      80
+    ).text;
+    assert.match(status, /verbose/, 'the status row badges the verbose state');
+    const hint = renderHint(
+      { running: false, tokens: 0, taskCount: 0, queueLength: 0, verbose: true },
+      80
+    ).text;
+    assert.match(hint, /ctrl\+o to exit/, 'the hint names the toggle');
   }
 }
 

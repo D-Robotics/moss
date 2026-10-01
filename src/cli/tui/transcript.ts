@@ -662,12 +662,13 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
   return out;
 }
 
-/** The line a finished run leaves behind, Claude-style: `✻ Worked for 5s`. */
+/** The line a finished run leaves behind, Claude-style: `✻ Worked for 5s · done 1:23 AM`. */
 export function renderRunSummary(
   elapsedMs: number,
   halted: boolean,
   width: number,
-  tokens?: { input: number; output: number }
+  tokens?: { input: number; output: number },
+  now: Date = new Date()
 ): TuiLine[] {
   const seconds = Math.max(1, Math.round(elapsedMs / 1000));
   const verb = runVerb(seconds);
@@ -676,9 +677,12 @@ export function renderRunSummary(
     tokens && (tokens.input > 0 || tokens.output > 0)
       ? ` · ↑ ${fmt(tokens.input)} ↓ ${fmt(tokens.output)}`
       : '';
+  // The local wall-clock stamp (`done 1:23 AM`) is how the reference answers
+  // "when did this actually finish" for a run the user watched scroll away.
+  const doneAt = ` · done ${now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
   const text = halted
     ? `✻ ${verb} for ${seconds}s${tokenPart} · interrupted`
-    : `✻ ${verb} for ${seconds}s${tokenPart}`;
+    : `✻ ${verb} for ${seconds}s${tokenPart}${doneAt}`;
   return [line(''), line(clip(text, width), { dim: true })];
 }
 
@@ -880,6 +884,8 @@ export interface StatusView {
   mode?: CliInteractionMode;
   /** The composer is in `!` shell mode for the current draft (R1 §5). */
   shellMode?: boolean;
+  /** ctrl+o detailed-transcript state — the chrome must not hide it (A9.72). */
+  verbose?: boolean;
 }
 
 /** Context fill at/above which the status row turns the percentage yellow. */
@@ -891,6 +897,7 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
   const parts: string[] = [];
   if (view.blocked) parts.push('● waiting for you');
   else if (view.running) parts.push('● running');
+  if (view.verbose) parts.push('verbose');
   if (view.model) parts.push(view.model);
   let ctxPart: string | undefined;
   if (view.contextUsed !== undefined && view.contextTotal) {
@@ -949,6 +956,7 @@ export function renderHint(view: StatusView, width: number): TuiLine {
   const parts = [modeLabel, '? for shortcuts'];
   if (view.blocked) parts.push('1/2/3 to answer');
   else if (view.running) parts.push('Esc to interrupt');
+  if (view.verbose) parts.push('verbose transcript · ctrl+o to exit');
   if (view.queueLength > 0) parts.push(`${view.queueLength} queued`);
   if (view.taskCount > 0) parts.push(`${view.taskCount} task${view.taskCount === 1 ? '' : 's'}`);
   return line(clip(`  ${parts.join(' · ')}`, width), {

@@ -731,6 +731,25 @@ export function TuiAppRoot({
     [handle, store]
   );
 
+  /**
+   * Terminal attention for the unfocused case: BEL plus an OSC 9 growl
+   * (iTerm2/WezTerm/Kitty render it as a notification; harmless elsewhere).
+   * A long run finishing — or a dialog blocking on the user — while the
+   * terminal is in the background is moss's core long-run use case, and it
+   * used to be completely silent. MOSS_NOTIFY=0 opts out.
+   */
+  const notifyAttention = useCallback(
+    (message: string) => {
+      if (process.env.MOSS_NOTIFY === '0') return;
+      try {
+        stdout.write(`\x07\x1b]9;moss: ${message}\x07`);
+      } catch {
+        // A closed stream must never break a run.
+      }
+    },
+    [stdout]
+  );
+
   // Dialog bridge: the policy hands the frozen structured payload (N1) to the
   // structured port, and this ONE state machine renders it inline above the
   // composer (1/2/3, or y/a/n) instead of letting the tool be answered blind.
@@ -797,6 +816,7 @@ export function TuiAppRoot({
         // deny the stale one instead of orphaning it.
         settleDialog(true);
         runtime.setApprovalPending(true);
+        notifyAttention(question ? 'question needs your answer' : 'approval needed');
         handle.notify();
         const entry: PendingDialog = {
           kind: question ? 'question' : 'approval',
@@ -847,7 +867,7 @@ export function TuiAppRoot({
       setCliApprovalAsker(null);
       settleDialog(true);
     };
-  }, [handle, resolveDialog, runtime, settleDialog]);
+  }, [handle, notifyAttention, resolveDialog, runtime, settleDialog]);
 
   // Boot: banner + replayed rows + artifacts.
   useEffect(() => {
@@ -896,6 +916,22 @@ export function TuiAppRoot({
       }
       if (info.soul) parts.push(`soul:${info.soul}`);
       if (parts.length > 0) appendRow(store, 'detail', `context: ${parts.join(' · ')}`);
+    }
+    // A failed MCP server is the most common boot problem and it used to be
+    // readable only if the user already knew about /mcp: the context line
+    // counts servers, this row names the failures (codex §1.4's ⚠ shape).
+    const failedMcp = (options.mcpServers ?? []).filter((s) => s.state !== 'connected');
+    if (failedMcp.length > 0) {
+      const names = failedMcp
+        .slice(0, 3)
+        .map((s) => s.name)
+        .join(', ');
+      appendRow(
+        store,
+        'system',
+        `⚠ ${failedMcp.length} MCP server${failedMcp.length === 1 ? '' : 's'} failed to start` +
+          `${names ? ` (${names})` : ''} — /mcp for details`
+      );
     }
     for (const row of options.replayRows ?? []) appendRow(store, row.kind, row.text);
     if (options.replayRows?.length) {
@@ -1051,9 +1087,10 @@ export function TuiAppRoot({
         if (text) appendRow(store, 'summary', text);
       }
       await runtime.endRun(halted);
+      notifyAttention(halted ? 'run interrupted' : 'run finished');
       handle.notify();
     },
-    [handle, options.agent, runtime, sessionKey, settleDialog, store, streamTurn]
+    [handle, notifyAttention, options.agent, runtime, sessionKey, settleDialog, store, streamTurn]
   );
 
   const drainQueue = useCallback(async (): Promise<void> => {
@@ -1818,6 +1855,13 @@ export function TuiAppRoot({
       return;
     }
     if (key.ctrl && chunk === 'd') {
+      // A12.96: Ctrl+D quits only at an EMPTY composer — quitting on a
+      // half-written draft silently destroys it. Esc-Esc is the deliberate
+      // way to drop a draft; Ctrl+D on one gets a pointer instead.
+      if (input.length > 0) {
+        setStatusLine('Ctrl+D quits — press Esc twice to drop the draft first');
+        return;
+      }
       exit();
       return;
     }
@@ -2209,6 +2253,7 @@ export function TuiAppRoot({
     contextTotal: store.usage.contextTotal,
     // A7: the policy layer's live mode is part of the chrome, always.
     mode: interactionMode,
+    verbose,
     shellMode,
   };
   const editor = renderComposerEditor(composer, {
