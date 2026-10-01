@@ -1247,6 +1247,31 @@ async function type(instance, text) {
     instance.unmount();
     await sleep(150);
   }
+
+  // 4w. Approval option labels say what the answer ACTUALLY grants (A6.52):
+  // workspace file edits vs eligible tools vs no session trust at all, and
+  // the Fetch dialog's network wording (A6.53).
+  {
+    const { buildCliApprovalView } = await import('../dist/cli/approval-view.js');
+    const fileView = buildCliApprovalView({
+      title: 'Edit file',
+      subject: 'a.ts',
+      detail: ['+ x'],
+      question: 'Do you want to make this edit to a.ts?',
+      trustOptionLabel: 'Yes, and don\u2019t ask again for file edits this session',
+    });
+    assert.match(fileView.options[1].label, /file edits this session/);
+    assert.equal(fileView.options[2].label, 'No', 'no override keeps the default');
+    const fetchView = buildCliApprovalView({
+      title: 'Fetch',
+      detail: [],
+      question: 'Do you want to proceed?',
+      trustOptionLabel: 'Yes (no session trust for web_fetch)',
+      denyOptionLabel: 'No, and tell moss what to do differently (esc)',
+    });
+    assert.match(fetchView.options[1].label, /no session trust for web_fetch/);
+    assert.match(fetchView.options[2].label, /tell moss what to do differently/);
+  }
 }
 
 assert.equal(typeof runTuiApp, 'function', 'the TTY entry point is exported');

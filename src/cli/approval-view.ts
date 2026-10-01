@@ -73,12 +73,24 @@ export function getCliApprovalViewAsker(): CliApprovalViewAsker | null {
 
 /** Pure: policy payload -> renderable view. */
 export function buildCliApprovalView(dialog: ApprovalDialog): CliApprovalView {
+  // A6.52/53: option 2/3 labels describe what the answer ACTUALLY does for
+  // this dialog's class (see describeApprovalDialog); the frozen defaults
+  // remain the fallback for callers without a classified dialog.
+  const options = CLI_APPROVAL_OPTIONS.map((option) => {
+    if (option.answer === 'a' && dialog.trustOptionLabel) {
+      return { ...option, label: dialog.trustOptionLabel };
+    }
+    if (option.answer === 'n' && dialog.denyOptionLabel) {
+      return { ...option, label: dialog.denyOptionLabel };
+    }
+    return { ...option };
+  });
   return {
     title: dialog.title,
     ...(dialog.subject ? { subject: dialog.subject } : {}),
     ...(dialog.detail.length > 0 ? { preview: dialog.detail } : {}),
     question: dialog.question,
-    options: [...CLI_APPROVAL_OPTIONS],
+    options,
     footer: CLI_APPROVAL_FOOTER,
   };
 }

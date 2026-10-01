@@ -42,6 +42,15 @@ export interface ApprovalDialog {
   scope?: string;
   /** The question the dialog asks. */
   question: string;
+  /**
+   * Option-2 label override (A6.52): `a`'s trust grant is class-dependent —
+   * workspace file edits, session-trust-eligible tools, or nothing at all —
+   * and the frozen generic label ("don't ask again this session") lied for
+   * the classes where it grants nothing.
+   */
+  trustOptionLabel?: string;
+  /** Option-3 label override (A6.53 network wording). */
+  denyOptionLabel?: string;
 }
 
 import {
@@ -732,6 +741,8 @@ export function approvalDialogTitle(toolName: string): string {
     case 'apply_patch':
     case 'multi_edit':
       return 'Edit file';
+    case 'web_fetch':
+      return 'Fetch';
     case 'bash':
     case 'shell':
     case 'exec':
@@ -764,12 +775,24 @@ export function describeApprovalDialog(
 ): ApprovalDialog {
   const title = approvalDialogTitle(preview.toolName);
   const subject = approvalTargetSummary(preview.toolName, input) || undefined;
+  // A6.52: say what `a` ACTUALLY grants for this class — workspace file edits,
+  // session trust for eligible tools, or (exec/device/fetch) nothing beyond
+  // this one approval.
+  const trustOptionLabel = isWorkspaceTrustEligible(preview)
+    ? 'Yes, and don\u2019t ask again for file edits this session'
+    : isSessionTrustEligible(preview.sideEffect)
+      ? `Yes, and always allow ${preview.toolName} this session`
+      : `Yes (no session trust for ${preview.toolName})`;
   return {
     title,
     ...(subject ? { subject } : {}),
     detail: buildApprovalDetailLines(preview.toolName, preview.sideEffect, input, detailCtx),
     scope: approvalScopeSummary(preview, input),
     question: approvalDialogQuestion(title, subject),
+    ...(trustOptionLabel ? { trustOptionLabel } : {}),
+    ...(preview.toolName === 'web_fetch'
+      ? { denyOptionLabel: 'No, and tell moss what to do differently (esc)' }
+      : {}),
   };
 }
 
