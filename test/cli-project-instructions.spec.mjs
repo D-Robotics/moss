@@ -65,3 +65,15 @@ function tempWorkspace() {
 }
 
 console.log('[PASS] project-instructions (AGENTS.md layer)');
+
+{
+  // B4: the answer-language layer follows the locale — zh gets the Chinese
+  // default, non-zh locales get no layer (the model default already matches).
+  const { buildAnswerLanguageLayer } = await import('../dist/cli/cli-locale.js');
+  const zh = buildAnswerLanguageLayer('zh_CN.UTF-8');
+  assert.match(zh, /\[Answer language\]/, 'zh locale gets the layer');
+  assert.match(zh, /简体中文/, 'the zh layer pins Simplified Chinese');
+  assert.match(zh, /代码.*保持原样/, 'code and identifiers stay untranslated');
+  assert.equal(buildAnswerLanguageLayer('en_US.UTF-8'), '', 'en locale gets no layer');
+  assert.equal(buildAnswerLanguageLayer(undefined), '', 'no locale gets no layer');
+}
