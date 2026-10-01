@@ -286,7 +286,7 @@ export async function runTaskCommand(
     const flags = parseFlags(commandArgs.slice(1));
     const goal = flags.goal.join(' ').trim();
     if (!goal) {
-      process.stderr.write('moss task run: a goal is required.\n\n' + usage() + '\n');
+      output('stderr', 'moss task run: a goal is required.\n\n' + usage() + '\n');
       return 2;
     }
     const runTurn = createAgentTurnRunner(ctx.agent, ctx.sessionKey, {
@@ -322,7 +322,7 @@ export async function runTaskCommand(
   if (sub === 'resume') {
     const taskId = commandArgs[1];
     if (!taskId) {
-      process.stderr.write('moss task resume: task_id required.\n');
+      output('stderr', 'moss task resume: task_id required.\n');
       return 2;
     }
     const runTurn = createAgentTurnRunner(ctx.agent, ctx.sessionKey, {
@@ -349,11 +349,12 @@ export async function runTaskCommand(
       ? await getTaskStateSnapshot(ctx.workspace, commandArgs[1])
       : await latestSnapshot(ctx.workspace);
     if (!snapshot) {
-      process.stdout.write('No tasks in this workspace. Start one: moss task run <goal>\n');
+      output('stdout', 'No tasks in this workspace. Start one: moss task run <goal>\n');
       return 0;
     }
     const events = await listTaskEvents(ctx.workspace, snapshot.taskId);
-    process.stdout.write(
+    output(
+      'stdout',
       formatTaskStatus(snapshot, formatTaskTimeline(buildTaskTimeline(events))) + '\n'
     );
     return 0;
@@ -364,14 +365,14 @@ export async function runTaskCommand(
       ? await getTaskStateSnapshot(ctx.workspace, commandArgs[1])
       : await latestSnapshot(ctx.workspace);
     if (!snapshot) {
-      process.stdout.write('No tasks in this workspace.\n');
+      output('stdout', 'No tasks in this workspace.\n');
       return 0;
     }
     const events = await listTaskEvents(ctx.workspace, snapshot.taskId);
-    process.stdout.write(formatTaskTimeline(buildTaskTimeline(events)) + '\n');
+    output('stdout', formatTaskTimeline(buildTaskTimeline(events)) + '\n');
     return 0;
   }
 
-  process.stderr.write(`Unknown task subcommand "${sub}".\n\n` + usage() + '\n');
+  output('stderr', `Unknown task subcommand "${sub}".\n\n` + usage() + '\n');
   return 2;
 }

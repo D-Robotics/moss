@@ -21,6 +21,7 @@ import {
   appendEvidenceRecord,
   appendAcceptanceVerdict,
 } from '../dist/core/task-runtime/artifacts.js';
+import { createDraftTask, appendTaskEvent } from '../dist/core/task/task-store.js';
 
 async function tempWorkspace() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-task-runtime-'));
@@ -99,6 +100,32 @@ test('mission state derivation: PASS / FAIL / IDLE from artifacts', async () => 
   assert.equal(byId.get('task_idle').state, 'IDLE');
   assert.equal(byId.get('task_idle').result, undefined);
   assert.equal(byId.get('task_pass').kind, 'camera');
+});
+
+test('Task OS events drive the TUI projection: failed/blocked never render as IDLE', async () => {
+  const dir = await tempWorkspace();
+  const failed = await createDraftTask(dir, 'deploy the vision model to the RDK board');
+  await appendTaskEvent(dir, failed.taskId, 'plan_ready');
+  await appendTaskEvent(dir, failed.taskId, 'task_failed');
+
+  const blocked = await createDraftTask(dir, 'stream camera at 30 fps');
+  await appendTaskEvent(dir, blocked.taskId, 'execution_started');
+  await appendTaskEvent(dir, blocked.taskId, 'blocked_on_user', {
+    reason: 'device credentials missing',
+  });
+
+  const runtime = new TaskRuntime({ workspaceDir: dir, now: () => 5000 });
+  await runtime.refresh();
+
+  const byId = new Map(runtime.taskSummaries().map((s) => [s.taskId, s]));
+  assert.equal(byId.get(failed.taskId).state, 'COMPLETED', 'a Task OS failed task is terminal');
+  assert.equal(byId.get(failed.taskId).result, 'FAIL');
+  assert.equal(
+    byId.get(blocked.taskId).state,
+    'BLOCKED',
+    'a blocked task never falls back to IDLE'
+  );
+  assert.equal(byId.get(blocked.taskId).result, 'NEEDS USER');
 });
 
 test('live run: PLANNING → EXECUTING → approval BLOCKED → endRun', async () => {

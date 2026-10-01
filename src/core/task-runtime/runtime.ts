@@ -15,6 +15,8 @@ import type { AcceptanceVerdict, CriterionVerdict, TaskContract } from '../../co
 import { evaluateAcceptance } from '../../contracts/task.js';
 import type { MossAgentEvent } from '../agent/moss-agent-types.js';
 import { loadTaskArtifacts, type TaskArtifacts } from './artifacts.js';
+import { listTaskStateSnapshots } from '../task/task-store.js';
+import type { TaskStateSnapshot } from '../../contracts/task-runtime.js';
 
 export type MissionState = 'IDLE' | 'PLANNING' | 'EXECUTING' | 'BLOCKED' | 'COMPLETED';
 export type MissionResult = 'PASS' | 'FAIL' | 'NEEDS USER';
@@ -235,6 +237,7 @@ export class TaskRuntime {
     deployments: [],
     acceptance: [],
   };
+  private taskSnapshots = new Map<string, TaskStateSnapshot>();
   private live: RuntimeLiveState = {
     running: false,
     sawToolCall: false,
@@ -275,6 +278,8 @@ export class TaskRuntime {
     this.refreshing = true;
     try {
       this.artifacts = await loadTaskArtifacts(this.workspaceDir);
+      const snapshots = await listTaskStateSnapshots(this.workspaceDir);
+      this.taskSnapshots = new Map(snapshots.map((snapshot) => [snapshot.taskId, snapshot]));
     } finally {
       this.refreshing = false;
       if (this.refreshQueued) {
@@ -385,6 +390,21 @@ export class TaskRuntime {
     task: TaskContract,
     latestVerdict: AcceptanceVerdict | undefined
   ): { state: MissionState; result?: MissionResult } {
+    const snapshot = this.taskSnapshots.get(task.taskId);
+    if (snapshot?.phase === 'accepted') return { state: 'COMPLETED', result: 'PASS' };
+    if (snapshot?.phase === 'failed' || snapshot?.phase === 'abandoned') {
+      return { state: 'COMPLETED', result: 'FAIL' };
+    }
+    if (snapshot?.phase === 'blocked') return { state: 'BLOCKED', result: 'NEEDS USER' };
+    if (snapshot && ['understanding', 'planning', 'ready'].includes(snapshot.phase)) {
+      return { state: 'PLANNING' };
+    }
+    if (
+      snapshot &&
+      ['executing', 'verifying', 'diagnosing', 'repairing', 'reverifying'].includes(snapshot.phase)
+    ) {
+      return { state: 'EXECUTING' };
+    }
     const isFocus = this.live.focusTaskId === task.taskId;
     const pass = latestVerdict?.verdict === 'pass' || task.status === 'accepted';
     if (pass) return { state: 'COMPLETED', result: 'PASS' };
