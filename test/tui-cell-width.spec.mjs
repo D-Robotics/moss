@@ -244,7 +244,7 @@ function assertFits(lines, width, label) {
     60
   );
   assert.equal(cells(status.text), 60, 'status right occupies the full pane width');
-  assert.ok(status.text.endsWith('deepseek-flash · 1.5k tokens'), 'status content is flush right');
+  assert.ok(status.text.endsWith('deepseek-flash · 1.5k out'), 'status content is flush right');
 
   // Bottom chrome contract: full-width rules bracket the composer, and the
   // hint is the last line — the composer can never float mid-pane.

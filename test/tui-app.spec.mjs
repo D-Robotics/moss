@@ -589,7 +589,7 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
   ).text;
   assert.match(status, /● running/, 'a live run is announced in the status line');
   assert.match(status, /deepseek-flash@latest/, 'the active model is shown');
-  assert.match(status, /1\.5k tokens/, 'session usage is shown');
+  assert.doesNotMatch(status, /tokens/, 'idle status leaves token accounting to /usage');
   assert.match(
     renderStatusRight({ running: true, blocked: true, tokens: 0, taskCount: 0, queueLength: 0 }, 80)
       .text,

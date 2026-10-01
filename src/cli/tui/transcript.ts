@@ -933,12 +933,17 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
   let ctxPart: string | undefined;
   if (view.contextUsed !== undefined && view.contextTotal) {
     const pct = Math.min(100, Math.round((view.contextUsed / view.contextTotal) * 100));
-    ctxPart = `${pct}% ctx`;
-    parts.push(ctxPart);
+    // Keep the idle chrome quiet like Claude Code: normal context and token
+    // accounting belong in /usage and the completed run summary. Surface the
+    // context percentage here only when it needs the user's attention.
+    if (pct >= CONTEXT_WARN_PCT) {
+      ctxPart = `${pct}% ctx`;
+      parts.push(ctxPart);
+    }
   }
-  if (view.tokens > 0)
+  if (view.running && view.tokens > 0)
     parts.push(
-      `${view.tokens >= 1000 ? `${Math.round(view.tokens / 100) / 10}k` : view.tokens} tokens`
+      `${view.tokens >= 1000 ? `${Math.round(view.tokens / 100) / 10}k` : view.tokens} out`
     );
   const text = parts.join(' · ');
   const pad = ' '.repeat(Math.max(0, width - displayWidth(text)));

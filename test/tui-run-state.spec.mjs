@@ -210,13 +210,13 @@ const THINKING = 'The user wants one word. ';
       tokens: 1500,
       taskCount: 0,
       queueLength: 0,
-      contextUsed: 50_000,
+      contextUsed: 180_000,
       contextTotal: 200_000,
     },
     80
   );
-  assert.ok(status.text.includes('25% ctx'), 'the status line shows how full the context is');
-  assert.ok(status.text.includes('1.5k tokens'), 'cumulative tokens stay visible');
+  assert.ok(status.text.includes('90% ctx'), 'the status line shows how full the context is');
+  assert.ok(!status.text.includes('tokens'), 'idle status does not duplicate the usage ledger');
 
   applyAgentEvent(store, { type: 'compaction', droppedMessages: 12, tokensAfter: 8000 });
   const last = store.rows[store.rows.length - 1];

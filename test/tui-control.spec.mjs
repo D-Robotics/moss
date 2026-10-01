@@ -124,10 +124,10 @@ function mockAgent({ slow = false, hold = null } = {}) {
     formatUsage({ tokensIn: 1500, tokensOut: 400, runTokensIn: 900, runTokensOut: 100 }),
     /1.9k session/
   );
-  assert.match(
+  assert.doesNotMatch(
     renderStatusRight({ running: false, tokens: 1500, taskCount: 0, queueLength: 0 }, 60).text,
-    /1\.5k tokens/,
-    'the status line carries session usage'
+    /tokens/,
+    'the idle status line leaves session usage to /usage'
   );
 }
 
@@ -212,7 +212,7 @@ function mockAgent({ slow = false, hold = null } = {}) {
   await waitFor(() =>
     handle.store.rows.some((r) => r.kind === 'assistant' && r.text.includes('done count my'))
   );
-  assert.match(instance.lastFrame(), /150 tokens/, 'status line usage');
+  assert.match(instance.lastFrame(), /prompt 100 · reply 50/, 'run summary usage');
   await type(instance, '/usage');
   await waitFor(() => instance.lastFrame().includes('150 in run / 150 session'));
   instance.unmount();
