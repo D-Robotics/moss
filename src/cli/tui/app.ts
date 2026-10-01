@@ -741,6 +741,7 @@ export function TuiAppRoot({
   const [modelPicker, setModelPicker] = useState<
     { choices: ModelChoiceList; cursor: number } | undefined
   >(undefined);
+  const [helpOverlay, setHelpOverlay] = useState<string[] | undefined>(undefined);
   /** ctrl+o: detailed transcript (full tool output + reasoning). */
   const [verbose, setVerbose] = useState(false);
   /**
@@ -1827,16 +1828,31 @@ export function TuiAppRoot({
         return;
       }
       if (text === '/help' || text === '?') {
-        printBlock('Shortcuts', [
-          ...HELP_KEYS.map(([keys, what]) => `${keys.padEnd(12)} ${what}`),
-          '',
+        const commonCommands = [
+          '/status',
+          '/model',
+          '/mode',
+          '/task',
+          '/resume',
+          '/context',
+          '/usage',
+          '/permissions',
+          '/help',
+          '/quit',
+        ];
+        setHelpOverlay([
           'prefixes',
           ...HELP_PREFIXES.map(([prefix, what]) => `  ${prefix.padEnd(3)} ${what}`),
           '',
-          'commands',
-          // A13.99: usage + description on one line, straight from the same
-          // table the `/` palette ranks (one source of truth).
-          ...SHELL_COMMANDS.map((entry) => `  ${entry.usage.padEnd(24)} ${entry.description}`),
+          'shortcuts',
+          ...HELP_KEYS.map(([keys, what]) => `${keys.padEnd(12)} ${what}`),
+          '',
+          'common commands',
+          ...SHELL_COMMANDS.filter((entry) => commonCommands.includes(entry.command)).map(
+            (entry) => `  ${entry.usage.padEnd(24)} ${entry.description}`
+          ),
+          '',
+          'type / to browse all commands · /help --all for the full reference',
         ]);
         return;
       }
@@ -2118,7 +2134,12 @@ export function TuiAppRoot({
         (options.skills ?? []).map((skill) => [`/${skill.name}`, skill.description] as const)
       );
   const paletteOpen =
-    paletteRows.length > 0 && !paletteDismissed && !approval && !shellMode && !modelPicker;
+    paletteRows.length > 0 &&
+    !paletteDismissed &&
+    !approval &&
+    !shellMode &&
+    !modelPicker &&
+    !helpOverlay;
   const paletteSelection = Math.min(paletteCursor, Math.max(0, paletteRows.length - 1));
   /** First row of the rendered window — keeps the marked row and the acted row equal (D-15). */
   const paletteWindow = paletteWindowOffset(paletteSelection, paletteRows.length, PALETTE_MAX_ROWS);
@@ -2482,6 +2503,13 @@ export function TuiAppRoot({
         setMentionDismissed(true);
         return;
       }
+    }
+
+    if (helpOverlay) {
+      if (key.escape || key.return || (key.ctrl && chunk === 'c')) {
+        setHelpOverlay(undefined);
+      }
+      return;
     }
 
     if (modelPicker) {
@@ -2850,6 +2878,18 @@ export function TuiAppRoot({
   // The composer sits between two full-width rules; everything else is plain.
   // D-15: hand the renderer the window that contains the cursor, so the `❯`
   // marker and the command Enter/Tab act on are the same row.
+  const helpOverlayLines = helpOverlay
+    ? [
+        line(rule(columns)),
+        line(clip('  Help · Esc or Enter to close', columns), { dim: true }),
+        ...helpOverlay
+          .slice(0, Math.max(1, Math.min(helpOverlay.length, Math.max(6, windowSize.rows - 8))))
+          .map((text) => line(clip(`  ${text}`, columns), { dim: true })),
+        ...(helpOverlay.length > Math.max(6, windowSize.rows - 8)
+          ? [line(clip('  … more commands in /help --all', columns), { dim: true })]
+          : []),
+      ]
+    : [];
   const modelPickerStart = modelPicker
     ? Math.min(
         Math.max(0, modelPicker.cursor - 7),
@@ -2955,11 +2995,12 @@ export function TuiAppRoot({
           ),
         ]
       : []),
-    ...(!approval ? palette : []),
-    ...(!approval ? sessionPickerOverlay : []),
-    ...(!approval ? historySearchOverlay : []),
-    ...(!approval ? mentions : []),
-    ...modelPickerLines,
+    ...(!approval && !helpOverlay ? palette : []),
+    ...(!approval && !helpOverlay ? sessionPickerOverlay : []),
+    ...(!approval && !helpOverlay ? historySearchOverlay : []),
+    ...(!approval && !helpOverlay ? mentions : []),
+    ...(!helpOverlay ? modelPickerLines : []),
+    ...helpOverlayLines,
     renderStatusRight(status, columns),
     line(rule(columns), ruleTone),
   ];

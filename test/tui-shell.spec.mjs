@@ -32,7 +32,7 @@ import {
 } from '../dist/core/task-runtime/artifacts.js';
 import { appendDeploymentRecord } from '../dist/device/deployment.js';
 import { appendRow, createTuiStore } from '../dist/cli/tui/render-bridge.js';
-import { CTRL_BINDINGS, HELP_COMMANDS, HELP_KEYS, ctrlBinding } from '../dist/cli/tui/help.js';
+import { CTRL_BINDINGS, ctrlBinding } from '../dist/cli/tui/help.js';
 import {
   ANSWER_MARK,
   APPROVAL_OPTIONS,
@@ -772,13 +772,9 @@ instance.unmount();
 
   await type('?');
   const shortcuts = frame();
-  assert.ok(shortcuts.includes('Shortcuts'), '? prints the shortcut reference');
-  for (const [keys, what] of HELP_KEYS) {
-    assert.ok(shortcuts.includes(what), `the reference explains "${what}" (${keys})`);
-  }
-  for (const command of HELP_COMMANDS) {
-    assert.ok(shortcuts.includes(command), `the reference lists ${command}`);
-  }
+  assert.ok(shortcuts.includes('Help · Esc or Enter to close'), '? opens the shortcut reference');
+  assert.ok(shortcuts.includes('prefixes'), 'the reference explains input prefixes');
+  assert.ok(shortcuts.includes('shortcuts'), 'the reference explains keyboard shortcuts');
   assert.ok(!shortcuts.includes('Ctrl+H'), 'the unreachable Ctrl+H is never advertised');
   assert.equal(ctrlBinding('h'), undefined, 'Ctrl+H is not a binding');
   for (const binding of CTRL_BINDINGS) {
@@ -791,6 +787,8 @@ instance.unmount();
   assert.ok(TUI_HELP_TEXT.includes('keys:'), 'the help text publishes the key table');
 
   // 3e. A `?` typed inside a goal is literal text, never a help request.
+  instance.stdin.write('\x1b');
+  await waitFor(() => !frame().includes('Help · Esc or Enter to close'));
   const before = streamCalls.length;
   await type('echo ?');
   assert.ok(

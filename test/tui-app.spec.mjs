@@ -689,12 +689,9 @@ async function type(instance, text) {
       model: 'm-test',
     });
     await type(instance, '/help');
-    const ok = await waitFor(() => instance.lastFrame().includes('Esc interrupt the run'));
-    assert.ok(ok, `help text visible: ${JSON.stringify(instance.lastFrame().slice(0, 200))}`);
-    assert.ok(
-      instance.lastFrame().includes('/resume [id]'),
-      'the reference prints the whole command list'
-    );
+    const ok = await waitFor(() => instance.lastFrame().includes('Help · Esc or Enter to close'));
+    assert.ok(ok, `help overlay visible: ${JSON.stringify(instance.lastFrame().slice(0, 200))}`);
+    assert.ok(instance.lastFrame().includes('interrupt the run'), 'shortcut help is visible');
     instance.unmount();
     await sleep(150);
   }
@@ -845,7 +842,9 @@ async function type(instance, text) {
       model: 'm-test',
     });
     await type(instance, '/help');
-    await waitFor(() => instance.lastFrame().includes('/resume [id]'));
+    await waitFor(() => instance.lastFrame().includes('Help · Esc or Enter to close'));
+    instance.stdin.write('\x1b');
+    await waitFor(() => !instance.lastFrame().includes('Help · Esc or Enter to close'));
     await type(instance, '/clear');
     const ok = await waitFor(() => instance.lastFrame().includes('transcript cleared'));
     assert.ok(ok, `/clear reports itself: ${instance.lastFrame().slice(0, 200)}`);

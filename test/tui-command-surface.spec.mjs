@@ -276,7 +276,8 @@ for (const command of advertised) {
     const booted = await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
     assert.ok(booted, '/clear: shell booted');
     await type(instance, '/help');
-    await waitFor(() => handle.store.rows.some((r) => r.kind === 'tool' && r.text === 'Shortcuts'));
+    await waitFor(() => instance.lastFrame().includes('Help · Esc or Enter to close'));
+    await press(instance, '\r');
     await type(instance, '/clear');
     const cleared = await waitFor(() =>
       handle.store.rows.some((r) => r.kind === 'summary' && r.text.includes('transcript cleared'))
@@ -306,6 +307,19 @@ for (const command of advertised) {
       await waitFor(() => instance.lastFrame().includes('Select model')),
       'model command opens an inline picker instead of dumping the catalog into scrollback'
     );
+    instance.unmount();
+    await sleep(100);
+    continue;
+  }
+  if (command === '/help') {
+    const handle = liveHandle();
+    const runtime = new TaskRuntime({
+      workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-cmd-help-')),
+    });
+    const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
+    await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
+    await type(instance, '/help');
+    assert.ok(await waitFor(() => instance.lastFrame().includes('Help · Esc or Enter to close')));
     instance.unmount();
     await sleep(100);
     continue;
