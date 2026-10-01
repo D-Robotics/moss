@@ -1004,6 +1004,8 @@ export function createCliToolApprovalHook(
         approved: false,
         reason:
           `Tool "${tool.name}" requires approval, but Moss is running non-interactively. ` +
+          'This gate is inherited by sub-agents: delegating the same call via ' +
+          'create_subagent or fan_out_subagents will be denied too, so do not retry it that way. ' +
           'Use an explicit autonomous/auto-approve policy only when unattended mutations are intended.',
       };
     }

@@ -860,6 +860,35 @@ ${result.stderr ?? ''}`.trim();
           ? options.reasoning
           : this.config.reasoning || undefined;
 
+    // F23: single approval-gate factory shared by the parent loop and every
+    // sub-agent loop — children inherit the host policy (a non-interactive
+    // denial stays denied); scope/writePaths narrow permissions, never widen.
+    const buildToolApprovalCheck = (
+      approvalSessionKey: string,
+      approvalRunId: string
+    ): AgentLoopParams['checkToolApproval'] =>
+      hooks?.onBeforeToolExec
+        ? async (call) => {
+            const tool = allTools.find((t) => t.name === call.name);
+            if (!tool) return null;
+            const input =
+              call.input && typeof call.input === 'object' && !Array.isArray(call.input)
+                ? (call.input as Record<string, unknown>)
+                : {};
+            const decision = await hooks.onBeforeToolExec!({
+              tool,
+              input,
+              sessionKey: approvalSessionKey,
+              runId: approvalRunId,
+              toolCallId: call.id,
+              abortSignal: call.abortSignal,
+            });
+            return decision.approved
+              ? null
+              : { approved: false, decision: 'deny', reason: decision.reason };
+          }
+        : undefined;
+
     const subAgentRunner = createSubAgentRunner({
       parentTools: allTools,
       streamFn,
@@ -876,6 +905,23 @@ ${result.stderr ?? ''}`.trim();
       // Child agents inherit host coding gates (verify/todo/false-complete) so
       // fan_out_subagents / create_subagent cannot skip completion honesty.
       ...(this.config.completionGate ? { completionGate: this.config.completionGate } : {}),
+      // F23: child agents inherit the host approval gate. The runner tags each
+      // call with the child sessionKey/runId before consulting this policy.
+      ...(hooks?.onBeforeToolExec
+        ? {
+            checkToolApproval: async (call: {
+              id: string;
+              name: string;
+              input: unknown;
+              abortSignal: AbortSignal;
+              sessionKey: string;
+              runId: string;
+            }) => {
+              const check = buildToolApprovalCheck(call.sessionKey, call.runId);
+              return check ? check(call) : null;
+            },
+          }
+        : {}),
     });
 
     let maxSubagentStartsPerRun = DEFAULT_MAX_SUBAGENT_STARTS_PER_RUN;
@@ -1192,27 +1238,7 @@ ${result.stderr ?? ''}`.trim();
           usage,
         };
       },
-      checkToolApproval: hooks?.onBeforeToolExec
-        ? async (call) => {
-            const tool = allTools.find((t) => t.name === call.name);
-            if (!tool) return null;
-            const input =
-              call.input && typeof call.input === 'object' && !Array.isArray(call.input)
-                ? (call.input as Record<string, unknown>)
-                : {};
-            const decision = await hooks.onBeforeToolExec!({
-              tool,
-              input,
-              sessionKey,
-              runId,
-              toolCallId: call.id,
-              abortSignal: call.abortSignal,
-            });
-            return decision.approved
-              ? null
-              : { approved: false, decision: 'deny', reason: decision.reason };
-          }
-        : undefined,
+      checkToolApproval: buildToolApprovalCheck(sessionKey, runId),
       toolAbortSignalFor: options?.toolAbortSignalFor,
       enrichToolContext: (baseContext, activeSessionKey) => {
         const enriched = hooks?.enrichToolContext?.(baseContext, activeSessionKey) ?? baseContext;
