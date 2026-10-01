@@ -1143,6 +1143,41 @@ async function type(instance, text) {
     instance.unmount();
     await sleep(150);
   }
+
+  // 4u. Fenced code blocks are syntax highlighted (A10.77): keywords, strings
+  // and numbers carry colour runs while the text itself never changes.
+  {
+    const { renderMarkdown } = await import('../dist/cli/tui/markdown.js');
+    const { highlightCodeLine, normalizeCodeLang } = await import('../dist/cli/tui/code-style.js');
+    assert.equal(normalizeCodeLang('TypeScript'), 'ts', 'lang aliases fold');
+    assert.equal(normalizeCodeLang('markdown'), '', 'unknown langs stay plain');
+    const block = renderMarkdown('```ts\nconst name = "moss"; // hi\n```', 60);
+    const codeLine = block.find((l) => l.text.includes('const name'));
+    assert.ok(codeLine?.runs, 'the code line carries runs');
+    const colored = codeLine.runs.filter((r) => r.color);
+    assert.ok(
+      colored.some((r) => r.color === 'magenta' && r.text === 'const'),
+      'keywords are magenta'
+    );
+    assert.ok(
+      colored.some((r) => r.color === 'green' && r.text === '"moss"'),
+      'strings are green'
+    );
+    assert.ok(
+      colored.some((r) => r.color === 'gray' && r.text === '// hi'),
+      'comments are gray'
+    );
+    assert.equal(
+      codeLine.runs.map((r) => r.text).join(''),
+      codeLine.text,
+      'runs concatenate back to the exact line'
+    );
+    const long = renderMarkdown('```ts\n' + 'x'.repeat(120) + '\n```', 60);
+    const clipped = long.find((l) => l.text.startsWith('│'));
+    assert.ok(clipped?.text.endsWith('…'), 'long lines are clipped');
+    assert.equal(clipped.runs, undefined, 'clipped lines drop runs instead of lying');
+    assert.equal(highlightCodeLine('plain words', 'markdown'), undefined, 'no lang, no runs');
+  }
 }
 
 assert.equal(typeof runTuiApp, 'function', 'the TTY entry point is exported');

@@ -24,6 +24,7 @@
  */
 import { clip, displayWidth, graphemes, line, padEndTo, type TuiLine } from './text.js';
 import type { TuiLineRun } from './text.js';
+import { highlightCodeLine, normalizeCodeLang } from './code-style.js';
 
 /**
  * One styled run inside a rendered line. A terminal row can carry several
@@ -333,8 +334,16 @@ function pushCodeBlock(out: MarkdownLine[], lang: string, code: string[], width:
     text: clip(`${head}${'─'.repeat(Math.max(0, width - displayWidth(head)))}`, width),
     dim: true,
   });
+  // Fenced bodies get the shared tokenizer's colours (A10.77); runs are only
+  // kept on lines that fit — a clipped line drops them (runs must concatenate
+  // back to the line's text).
+  const styledLang = normalizeCodeLang(lang);
   for (const raw of code) {
-    out.push({ text: clip(`│ ${raw.replace(/\t/g, '  ')}`, width) });
+    const body = raw.replace(/\t/g, '  ');
+    const text = clip(`│ ${body}`, width);
+    const runs =
+      text === `│ ${body}` && styledLang ? highlightCodeLine(body, styledLang) : undefined;
+    out.push(runs ? { text, runs: [{ text: '│ ' }, ...runs] } : { text });
   }
   out.push({ text: clip(`└${'─'.repeat(Math.max(0, width - 1))}`, width), dim: true });
 }
