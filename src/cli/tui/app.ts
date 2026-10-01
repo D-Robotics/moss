@@ -1159,6 +1159,37 @@ export function TuiAppRoot({
     [options.agent, sessionKey]
   );
 
+  /**
+   * A2: the end of a MODEL RUN is not the end of a TASK. When a task reached a
+   * verdict during this run, the transcript's last word names it — PASS with
+   * criteria, or FAIL with the recovery command — so completion is the
+   * acceptance verdict, never the model's prose.
+   */
+  const appendTaskVerdictIfAny = useCallback(
+    (startedAt: number) => {
+      if (!startedAt) return;
+      const decided = runtime
+        .taskSummaries()
+        .filter(
+          (task) =>
+            task.updatedAt >= startedAt && (task.result === 'PASS' || task.result === 'FAIL')
+        )
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      if (!decided) return;
+      const short = decided.taskId.slice(-6);
+      const criteria = `${decided.criteriaMet}/${decided.criteriaTotal} criteria`;
+      appendRow(
+        store,
+        'summary',
+        decided.result === 'PASS'
+          ? `◇ task ${short} — PASS (${criteria} met)`
+          : `◇ task ${short} — FAIL (${criteria} met) · /task resume ${decided.taskId} to repair`
+      );
+      handle.notify();
+    },
+    [handle, runtime, store]
+  );
+
   const runTurn = useCallback(
     async (message: string) => {
       options.onTurnStart?.(message);
@@ -1257,6 +1288,7 @@ export function TuiAppRoot({
         if (text) appendRow(store, 'summary', text);
       }
       await runtime.endRun(halted);
+      if (startedAt !== undefined) appendTaskVerdictIfAny(startedAt);
       notifyAttention(halted ? 'run interrupted' : 'run finished');
       // Plan-mode exit ritual (the reference's `Ready to code?` gate): a
       // finished plan-mode run that actually produced a plan — it explored
@@ -1271,7 +1303,17 @@ export function TuiAppRoot({
       handle.notify();
       if (producedPlan) planGateRef.current?.();
     },
-    [handle, notifyAttention, options.agent, runtime, sessionKey, settleDialog, store, streamTurn]
+    [
+      appendTaskVerdictIfAny,
+      handle,
+      notifyAttention,
+      options.agent,
+      runtime,
+      sessionKey,
+      settleDialog,
+      store,
+      streamTurn,
+    ]
   );
 
   const drainQueue = useCallback(async (): Promise<void> => {
@@ -1461,17 +1503,26 @@ export function TuiAppRoot({
             onAgentEvent: (event) =>
               applyAgentEvent(store, event as Parameters<typeof applyAgentEvent>[1]),
             onOutput: (stream, text) => {
-              if (stream === 'stderr') setStatusLine(text.trim());
-              else printBlock('Task', text.trimEnd().split('\n'));
+              if (stream === 'stderr') {
+                const line = text.trim();
+                setStatusLine(line);
+                // Phase transitions are transcript history, not a rotating
+                // status: a minute-long device task must stay reviewable.
+                const phase = /^\[task ([a-z]+)\] (.+)$/.exec(line);
+                if (phase) {
+                  appendRow(store, 'summary', `◇ task ${phase[1]} — ${phase[2]}`);
+                }
+              } else printBlock('Task', text.trimEnd().split('\n'));
             },
           });
         } catch (err) {
           printCommandError('Task', errorMessage(err));
         } finally {
           abortRef.current = undefined;
-          runStartedAtRef.current = undefined;
           endRun(store, controller.signal.aborted);
           await runtime.endRun(controller.signal.aborted);
+          appendTaskVerdictIfAny(runStartedAtRef.current ?? 0);
+          runStartedAtRef.current = undefined;
           setStatusLine(undefined);
           handle.notify();
         }
