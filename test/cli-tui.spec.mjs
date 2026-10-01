@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /**
  * TUI utility functions — tested from the user's perspective:
- * what does the user see in the footer, status bar, and session list.
- * The queued-input model tests were removed with the dead module (v0.14-S3).
+ * what the user sees in the session list and shell tooling.
+ * The footer/status-bar chrome tests were removed with the dead exports
+ * (the ink TUI renders its own status bar); the queued-input model tests
+ * were removed with the dead module (v0.14-S3).
  */
 import assert from 'node:assert/strict';
 import os from 'node:os';
@@ -10,75 +12,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-  footerHint,
-  statusLine,
   formatTuiSessions,
   runLocalShellCommand,
   sanitizeRenderableText,
-  promptCacheModeLabel,
 } from '../dist/cli/tui-utils.js';
-
-// ─── footerHint ─────────────────────────────────────────────────────────────
-
-{
-  const hint = footerHint('ready');
-  assert.ok(hint.includes('Tab complete'), 'ready state hints Tab for autocomplete');
-  assert.ok(hint.includes('Up/Down history'), 'ready state hints history navigation');
-  assert.ok(hint.includes('Ctrl+C exit'), 'ready state always shows how to exit');
-  assert.ok(hint.includes('paste file path + Enter'), 'ready state mentions file attachment');
-  assert.ok(hint.includes('Ctrl+O details'), 'ready state mentions Ctrl+O details');
-}
-
-{
-  const hint = footerHint('running');
-  assert.ok(hint.includes('Esc stop'), 'running state shows how to stop');
-  assert.ok(hint.includes('Enter queue'), 'running state shows queueing');
-  assert.ok(hint.length < 80, 'running footer stays short so it does not fight the Working line');
-}
-
-{
-  const hint = footerHint('approval');
-  assert.ok(hint.includes('a'), 'approval state mentions approving');
-  assert.ok(
-    hint.toLowerCase().includes('trust scope') || hint.toLowerCase().includes('approve'),
-    'approval state guides user'
-  );
-}
-
-// macOS shows Ctrl+V attach; other platforms do not advertise it
-if (process.platform === 'darwin') {
-  assert.ok(
-    footerHint('ready').includes('Ctrl+V attach'),
-    'macOS shows Ctrl+V file attachment hint'
-  );
-} else {
-  assert.ok(!footerHint('ready').includes('Ctrl+V attach'), 'non-macOS does not show Ctrl+V hint');
-}
-
-// ─── statusLine ─────────────────────────────────────────────────────────────
-
-{
-  const line = statusLine({
-    state: 'ready',
-    model: 'deepseek-v4-pro',
-    device: 'local',
-    workspace: '/home/user/project',
-  });
-  assert.ok(line.includes('Moss'), 'status line always starts with Moss');
-  assert.ok(line.includes('deepseek-v4-pro'), 'status line shows active model');
-}
-
-{
-  const line = statusLine({ state: 'ready', model: '', device: 'board', workspace: '/tmp' });
-  assert.ok(line.includes('no model'), 'status line flags missing model');
-  assert.ok(line.includes('board'), 'status line shows device context');
-}
-
-// ─── promptCacheModeLabel ────────────────────────────────────────────────────
-
-assert.equal(promptCacheModeLabel(), 'cache stable');
-assert.equal(promptCacheModeLabel({ config: { promptCacheEnabled: false } }), 'cache off');
-assert.equal(promptCacheModeLabel({ config: { promptCacheDebug: true } }), 'cache debug');
 
 // ─── formatTuiSessions ──────────────────────────────────────────────────────
 

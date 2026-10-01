@@ -50,7 +50,8 @@ import {
   renderTranscriptRows,
   toolLabel,
 } from '../dist/cli/tui/transcript.js';
-import { TUI_HELP_TEXT, TuiAppRoot, inkLineStyle } from '../dist/cli/tui/app.js';
+import { TuiAppRoot, inkLineStyle } from '../dist/cli/tui/app.js';
+import { HELP_KEYS } from '../dist/cli/tui/help.js';
 import { getCliApprovalAskerForTest } from '../dist/cli/approval.js';
 import {
   CLI_APPROVAL_FOOTER,
@@ -784,7 +785,10 @@ instance.unmount();
       `binding resolves: ${binding.letter}`
     );
   }
-  assert.ok(TUI_HELP_TEXT.includes('keys:'), 'the help text publishes the key table');
+  assert.ok(
+    HELP_KEYS.length >= 8 && HELP_KEYS.some(([k]) => k === '?'),
+    'the help overlay publishes the key table'
+  );
 
   // 3e. A `?` typed inside a goal is literal text, never a help request.
   instance.stdin.write('\x1b');

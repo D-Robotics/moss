@@ -9,32 +9,22 @@ export function printMissingConfigGuidance(
 ): void {
   print('Moss needs a model configuration before it can run.');
   if (options.bundledDefaultSuppressedBy) {
-    print('');
     print(
-      `Note: the built-in model gateway is available but disabled because ${options.bundledDefaultSuppressedBy} already sets model settings.`
-    );
-    print(
-      'Remove them (moss config unset provider|model|baseUrl) or complete them with an API key.'
+      `Note: the built-in model gateway is disabled because ${options.bundledDefaultSuppressedBy} already sets model settings — remove them (moss config unset provider|model|baseUrl) or add an API key.`
     );
   }
   print('');
-  print('Fast path:');
-  print('  moss setup');
-  print('');
-  print('Script path (no TTY — model settings are read from config files, never env vars):');
-  print('  moss config set provider deepseek');
-  print('  moss config set model deepseek-v4-flash');
-  print('  # for the API key, use moss setup (hidden prompt) or write it into a JSON config file:');
+  print('  moss setup                                      # interactive: provider + model + key');
+  print('  moss config set provider <p> && moss config set model <m>   # script path (no TTY)');
   print(
-    '  # WARNING: moss config set apiKey <key> leaves the key in your shell history — prefer moss setup.'
+    '  # API key: prefer `moss setup` (hidden prompt) — `config set apiKey` stays in shell history.'
   );
-  print('  moss --config-file /path/to/config.json  # {"provider":"deepseek","apiKey":"..."}');
   print('');
-  if (interactive) {
-    print('You can run setup now, then start `moss` again.');
-  } else {
-    print('Run moss setup to configure a model, then retry your one-shot command.');
-  }
+  print(
+    interactive
+      ? 'Run setup, then start `moss` again.'
+      : 'Configure a model, then retry your command.'
+  );
 }
 
 export async function offerSetupForInteractiveMissingConfig(

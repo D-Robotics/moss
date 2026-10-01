@@ -29,9 +29,8 @@ process.env.MOSS_NO_BUNDLED_DEFAULT = '1';
 const { HELP_COMMANDS, SHELL_COMMAND_NAMES, SHELL_COMMAND_ROWS } =
   await import('../dist/cli/tui/help.js');
 const {
-  TUI_HELP_TEXT,
-  buildTuiHelpText,
   TuiAppRoot,
+  buildHelpOverlayLines,
   shellPaletteRows,
   paletteFrameRows,
   paletteWindowOffset,
@@ -94,10 +93,10 @@ const { render: renderInk } = await import('ink-testing-library');
 const React = await import('react');
 
 // The advertised surface is HELP_COMMANDS: the same table the `?` / `/help`
-// block prints, so "advertised" and "handled" cannot drift apart.
-assert.equal(TUI_HELP_TEXT, buildTuiHelpText(), 'the help text is the published table');
+// overlay prints, so "advertised" and "handled" cannot drift apart.
+const fullHelpText = buildHelpOverlayLines(true).join('\n');
 for (const entry of HELP_COMMANDS) {
-  assert.ok(buildTuiHelpText().includes(entry), `help advertises ${entry}`);
+  assert.ok(fullHelpText.includes(entry), `help advertises ${entry}`);
 }
 const advertised = HELP_COMMANDS.map((entry) => entry.split(' ')[0]);
 assert.ok(advertised.length >= 8, `help advertises >=8 commands (got ${advertised.length})`);

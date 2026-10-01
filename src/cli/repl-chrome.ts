@@ -1,8 +1,5 @@
 import type { MossAgentEvent } from '../core/index.js';
 import type { SessionMeta } from '../core/session/session.js';
-import type { CliRuntimeStatus } from './onboarding.js';
-import { compactPath } from './ui.js';
-import type { TuiRunState } from './transcript-types.js';
 
 export function formatSessionTimestamp(updatedAt: number): string {
   if (!Number.isFinite(updatedAt) || updatedAt <= 0) return 'unknown time';
@@ -37,45 +34,6 @@ export function formatTuiSessions(
   lines.push('Shell: moss resume --session <key>');
   lines.push('Shell: moss fork --fork-from <key>');
   return lines.join('\n');
-}
-
-export function statusLine(options: {
-  state: TuiRunState;
-  model: string;
-  device: string;
-  workspace: string;
-  cacheMode?: string;
-  profile?: string;
-}): string {
-  const parts = [
-    'Moss',
-    statusBadge(options.state),
-    options.model || 'no model',
-    options.profile ? `profile ${options.profile}` : '',
-    options.device,
-    compactPath(options.workspace),
-    options.cacheMode || 'cache stable',
-  ];
-  return parts.filter(Boolean).join('  ');
-}
-
-export function promptCacheModeLabel(runtime?: CliRuntimeStatus): string {
-  if (runtime?.config?.promptCacheEnabled === false) return 'cache off';
-  return runtime?.config?.promptCacheDebug === true ? 'cache debug' : 'cache stable';
-}
-
-export function footerHint(state: TuiRunState): string {
-  if (state === 'approval')
-    return '←/→ choose · Enter submit · y approve · a trust scope · n/Esc deny';
-  // Keep running footer short — long multi-action strings fight the Working line.
-  if (state === 'running') return 'Esc stop · Enter queue · /steer · /btw';
-  return `${process.platform === 'darwin' ? 'Ctrl+V attach · ' : ''}paste file path + Enter · Tab complete · Up/Down history · Ctrl+O details · Ctrl+C exit`;
-}
-
-export function statusBadge(state: TuiRunState): string {
-  if (state === 'approval') return 'approval needed';
-  if (state === 'running') return 'running';
-  return 'ready';
 }
 
 export function humanTokens(n: number): string {

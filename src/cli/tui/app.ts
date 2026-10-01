@@ -114,7 +114,6 @@ import {
 } from './composer.js';
 import {
   ctrlBinding,
-  HELP_COMMANDS,
   HELP_KEYS,
   HELP_PREFIXES,
   SHELL_COMMANDS,
@@ -224,16 +223,6 @@ export interface TuiAppOptions {
    * restore anything later.
    */
   onTurnStart?: (message: string) => void;
-}
-
-export const TUI_HELP_TEXT = [
-  'moss — describe a goal; moss runs it as a task (plan → execute → device → verify → repair → acceptance).',
-  `keys: ${HELP_KEYS.map(([keys, what]) => `${keys} ${what}`).join(' · ')}`,
-  `commands: ${HELP_COMMANDS.join(' · ')}`,
-].join('\n');
-
-export function buildTuiHelpText(): string {
-  return TUI_HELP_TEXT;
 }
 
 /**
