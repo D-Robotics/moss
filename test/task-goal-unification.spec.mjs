@@ -78,16 +78,32 @@ test('acceptance fail mirrors acceptance_fail → diagnosing; later pass → acc
   await appendTaskEvent(ws, contract.taskId, 'execution_started');
 
   // Deterministic flip: first run fails (creates the marker), second passes.
+  // The gate is a node script ON DISK invoked bare (`node <abs> <marker>`) —
+  // the old `sh -c "if [ -f … ]"` acceptance command was at the mercy of
+  // whatever `sh` a runner image ships (GitHub's windows-latest image churn
+  // flipped it red), per the scripts-on-disk Windows-CI rule.
   const marker = path.join(os.tmpdir(), `moss-goal-unify-${Date.now()}.marker`);
+  const gateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-goal-gate-'));
+  const gate = path.join(gateDir, 'accept-once.mjs');
+  await fs.writeFile(
+    gate,
+    [
+      "import fs from 'node:fs';",
+      'const marker = process.argv[2];',
+      'if (fs.existsSync(marker)) process.exit(0);',
+      "fs.writeFileSync(marker, 'x');",
+      'process.exit(1);',
+      '',
+    ].join('\n'),
+    'utf8'
+  );
   const sched = new LoopScheduler(agent, {
     prompt: 'make the check pass',
     intervalMs: 0,
     journal: false,
     autonomous: true,
     maxIterations: 3,
-    acceptance: {
-      command: `sh -c "if [ -f ${marker} ]; then exit 0; else touch ${marker}; exit 1; fi"`,
-    },
+    acceptance: { command: `node ${gate} ${marker}` },
     onAcceptanceVerdict: async (result) => {
       await emitAcceptanceLifecycle(ws, contract.taskId, result.passed, `exit ${result.exitCode}`);
     },
