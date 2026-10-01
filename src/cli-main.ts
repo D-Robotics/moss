@@ -65,6 +65,7 @@ import {
   type CommandContext as RegistryCommandContext,
 } from './cli/commands/registry.js';
 import { commandSuggestion, cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
+import { buildAnswerLanguageLayer } from './cli/cli-locale.js';
 import { buildEnvironmentContextLayer, getGitBranch } from './context/environment.js';
 import { disconnectAllDevices } from './device/device-registry.js';
 import { resolveDefaultDeviceTarget } from './device/device-target.js';
@@ -553,6 +554,10 @@ async function main() {
   // "auto-loaded from workspace root" claim in help/onboarding is real.
   const agentsLayer = buildAgentsMdLayer(workspace);
   if (agentsLayer) extraPromptLayers.push(agentsLayer);
+  // Answer language follows the user's locale (a recorded UX finding: Chinese
+  // questions occasionally got English answers).
+  const answerLanguageLayer = buildAnswerLanguageLayer();
+  if (answerLanguageLayer) extraPromptLayers.push(answerLanguageLayer);
 
   const configuredHooks = createConfiguredHookCallbacks(loadedConfig.config.hooks, {
     workspaceDir: workspace,

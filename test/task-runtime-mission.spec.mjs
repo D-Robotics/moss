@@ -15,6 +15,7 @@ import {
   TaskRuntime,
   classifyTaskKind,
   describeToolCall,
+  formatDeploymentLine,
 } from '../dist/core/task-runtime/runtime.js';
 import {
   appendTaskRecord,
@@ -281,4 +282,98 @@ test('empty workspace: no tasks, detail undefined', async () => {
   await runtime.refresh();
   assert.deepEqual(runtime.taskSummaries(), []);
   assert.equal(runtime.taskDetail(), undefined);
+});
+
+// ─── A4: one deployment, one honest line ─────────────────────────────────────
+
+test('formatDeploymentLine names the stage the record proves', () => {
+  const base = {
+    deploymentId: 'dep_1',
+    deviceId: 'rdk-x5',
+    artifactPath: 'app.py',
+    remotePath: '/userdata/app.py',
+    startedAt: 1,
+    steps: [],
+  };
+  assert.match(
+    formatDeploymentLine({ ...base, status: 'uploaded' }),
+    /UPLOADED.*— upload ok · not started/,
+    'uploaded ≠ running: the line says it was not started'
+  );
+  assert.match(
+    formatDeploymentLine({
+      ...base,
+      status: 'running',
+      healthCheck: { command: 'pgrep app', passed: true, checkedAt: 2, exitCode: 0 },
+    }),
+    /RUNNING.*— health PASS \(exit 0\)/,
+    'running carries the health-check verdict'
+  );
+  assert.match(
+    formatDeploymentLine({
+      ...base,
+      status: 'running',
+      healthCheck: { command: 'pgrep app', passed: false, checkedAt: 2, exitCode: 1 },
+    }),
+    /health FAIL/,
+    'a failed health check never reads as healthy'
+  );
+  assert.match(
+    formatDeploymentLine({ ...base, status: 'running' }),
+    /no health check recorded/,
+    'running without a health check says so'
+  );
+  assert.match(
+    formatDeploymentLine({ ...base, status: 'failed', error: 'scp: permission denied' }),
+    /FAILED.*— scp: permission denied/,
+    'failed carries the error'
+  );
+});
+
+// ─── A3: a task never inherits another task's deployments ───────────────────
+
+test("taskDetail attaches deployments only from the task's own device evidence", async () => {
+  const dir = await tempWorkspace();
+  const { appendDeploymentRecord } = await import('../dist/device/deployment.js');
+  await appendDeploymentRecord(dir, {
+    deploymentId: 'dep_other',
+    deviceId: 'rdk-x5',
+    artifactPath: 'other.py',
+    remotePath: '/userdata/other.py',
+    status: 'running',
+    startedAt: Date.now(),
+    steps: [],
+  });
+  await appendTaskRecord(dir, task({ taskId: 'task_nodev', updatedAt: 1000 }));
+  await appendTaskRecord(
+    dir,
+    task({ taskId: 'task_own', updatedAt: 1100, targetDeviceId: 'rdk-x5' })
+  );
+
+  const runtime = new TaskRuntime({ workspaceDir: dir, now: () => 5000 });
+  await runtime.refresh();
+
+  const noDev = runtime.taskDetail('task_nodev');
+  assert.equal(noDev?.device, undefined, 'a task with no device evidence shows no device section');
+  const own = runtime.taskDetail('task_own');
+  assert.ok(own?.device, 'the task that names the device gets its deployments');
+  assert.equal(own.device.deployments.length, 1);
+  assert.equal(own.device.deployments[0].deploymentId, 'dep_other');
+});
+
+// ─── A5: blocked reason reaches the summary ──────────────────────────────────
+
+test('a blocked task carries its blockedReason into taskSummaries', async () => {
+  const dir = await tempWorkspace();
+  const contract = await createDraftTask(dir, 'stream camera at 30 fps');
+  await appendTaskEvent(dir, contract.taskId, 'execution_started');
+  await appendTaskEvent(dir, contract.taskId, 'blocked_on_user', {
+    reason: 'device credentials missing',
+  });
+
+  const runtime = new TaskRuntime({ workspaceDir: dir, now: () => 5000 });
+  await runtime.refresh();
+  const summary = runtime.taskSummaries().find((s) => s.taskId === contract.taskId);
+  assert.equal(summary?.state, 'BLOCKED');
+  assert.equal(summary?.blockedReason, 'device credentials missing');
 });
