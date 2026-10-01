@@ -259,7 +259,19 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       break;
     }
     case 'error': {
-      appendRow(store, 'error', String(event.error ?? 'error'));
+      // The loop classifies provider failures into a sanitized surface
+      // (`userMessage` + suggested `actions`). The raw error string is for
+      // logs; the transcript gets the human reading plus the action hints.
+      const surface = event.errorSurface;
+      const actions =
+        surface?.actions && surface.actions.length > 0
+          ? ` (${surface.actions.map((a) => a.label).join(' · ')})`
+          : '';
+      appendRow(
+        store,
+        'error',
+        surface?.userMessage ? `${surface.userMessage}${actions}` : String(event.error ?? 'error')
+      );
       break;
     }
     case 'llm_usage': {

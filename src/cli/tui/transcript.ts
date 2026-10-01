@@ -753,6 +753,12 @@ export interface ApprovalView extends Partial<CliApprovalView> {
   question: string;
   title: string;
   cursor: number;
+  /**
+   * Tab-to-amend armed (A6.54): option 1 becomes "Yes, and tell moss what to
+   * do next" and Enter answers `amend` — the tool runs, and the user's next
+   * composer message steers it.
+   */
+  amend?: boolean;
 }
 
 /** The frozen option list, re-exported for callers that have no payload. */
@@ -790,13 +796,27 @@ export function renderApproval(
   // sentence is only the fallback for a caller with no question of its own.
   const question = view.question.split('\n').find((text) => text.trim() !== '') ?? '';
   const questionLine = line(clip(` ${question.trim() || APPROVAL_FALLBACK_QUESTION}`, width));
+  const amendLabel =
+    view.amend && options[0]?.answer === 'y' ? 'Yes, and tell moss what to do next' : undefined;
   const optionLines = options.map((option, index) =>
-    line(clip(` ${index === view.cursor ? '❯' : ' '} ${option.key}. ${option.label}`, width), {
-      bold: index === view.cursor,
-      ...(index === view.cursor ? {} : { dim: true }),
-    })
+    line(
+      clip(
+        ` ${index === view.cursor ? '❯' : ' '} ${option.key}. ${index === 0 ? (amendLabel ?? option.label) : option.label}`,
+        width
+      ),
+      {
+        bold: index === view.cursor,
+        ...(index === view.cursor ? {} : { dim: true }),
+      }
+    )
   );
-  const footerLine = line(clip(` ${view.footer ?? APPROVAL_FOOTER}`, width), { dim: true });
+  const footerLine = line(
+    clip(
+      ` ${view.amend ? 'Esc to cancel · Tab to amend' : (view.footer ?? APPROVAL_FOOTER)}`,
+      width
+    ),
+    { dim: true }
+  );
   const headLines: TuiLine[] = [
     line(rule(width)),
     line(clip(` ${view.title}`, width), { bold: true }),
@@ -954,7 +974,7 @@ export function renderHint(view: StatusView, width: number): TuiLine {
     });
   }
   const parts = [modeLabel, '? for shortcuts'];
-  if (view.blocked) parts.push('1/2/3 to answer');
+  if (view.blocked) parts.push('1/2/3 to answer', 'Tab to amend');
   else if (view.running) parts.push('Esc to interrupt');
   if (view.verbose) parts.push('verbose transcript · ctrl+o to exit');
   if (view.queueLength > 0) parts.push(`${view.queueLength} queued`);

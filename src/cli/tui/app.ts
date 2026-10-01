@@ -387,6 +387,8 @@ export function isInterruptEvent(controller: AbortController, error: unknown): b
 /** The visible approval dialog: the frozen payload plus the UI cursor. */
 export interface ApprovalDialogView extends CliApprovalView {
   cursor: number;
+  /** Tab-to-amend armed (A6.54): option 1 answers `amend`. */
+  amend?: boolean;
 }
 
 /**
@@ -932,6 +934,29 @@ export function TuiAppRoot({
         `⚠ ${failedMcp.length} MCP server${failedMcp.length === 1 ? '' : 's'} failed to start` +
           `${names ? ` (${names})` : ''} — /mcp for details`
       );
+    }
+    // Crash/quit recovery: history survives per-message, but a bare `moss`
+    // used to start blank with no path back. One hint row names the newest
+    // session and the flag that resumes it (only when this boot is fresh —
+    // a resumed boot is already replaying).
+    if (!options.replayRows?.length) {
+      void (async () => {
+        try {
+          const sessions = (await options.listSessions?.()) ?? [];
+          const previous = sessions.find((s) => !s.current);
+          if (previous) {
+            const title = previous.title?.trim() || previous.key;
+            appendRow(
+              store,
+              'system',
+              `previous session: ${title}${previous.messageCount !== undefined ? ` (${previous.messageCount} messages)` : ''} — restart with \`moss --continue\` to resume it`
+            );
+            handle.notify();
+          }
+        } catch {
+          // Session listing must never break boot.
+        }
+      })();
     }
     for (const row of options.replayRows ?? []) appendRow(store, row.kind, row.text);
     if (options.replayRows?.length) {
@@ -1734,6 +1759,11 @@ export function TuiAppRoot({
 
   const answerApproval = useCallback(
     (answer: CliApprovalAnswer) => {
+      if (answer === 'amend') {
+        // The tool runs; the user's next composer message steers it. Tell
+        // them so the queued message does not feel like it vanished.
+        setStatusLine('approved — type what moss should do next; your message is queued');
+      }
       resolveApproval(answer);
     },
     [resolveApproval]
@@ -1924,6 +1954,15 @@ export function TuiAppRoot({
           answerApproval('n');
           return;
         }
+        if (key.tab) {
+          // A6.54 Tab-to-amend: option 1 becomes "Yes, and tell moss what to
+          // do next" — the tool runs, and the composer message the user types
+          // lands in the queue to steer the very next step.
+          setApproval((current) =>
+            current ? { ...current, amend: !current.amend, cursor: 0 } : current
+          );
+          return;
+        }
         if (key.upArrow) {
           setApproval({ ...approval, cursor: Math.max(0, approval.cursor - 1) });
           return;
@@ -1936,7 +1975,8 @@ export function TuiAppRoot({
           return;
         }
         if (key.return) {
-          answerApproval(approval.options[approval.cursor]?.answer ?? 'n');
+          const amendArmed = approval.amend === true && approval.cursor === 0;
+          answerApproval(amendArmed ? 'amend' : (approval.options[approval.cursor]?.answer ?? 'n'));
           return;
         }
         const pressed = chunk?.toLowerCase();

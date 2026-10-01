@@ -351,6 +351,29 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
     'the tail summary skips a bare exit= line'
   );
 
+  // A classified provider failure renders its sanitized surface (user message
+  // + suggested actions) instead of the raw error string.
+  applyAgentEvent(store, {
+    type: 'error',
+    error: 'PiAiFirstEventTimeoutError: raw internals',
+    retriable: true,
+    errorSurface: {
+      category: 'timeout',
+      userMessage: '模型响应超时，请稍后重试。',
+      actions: [
+        { id: 'retry', label: '重试', variant: 'primary' },
+        { id: 'switchModel', label: '换一个模型', variant: 'secondary' },
+      ],
+      silent: false,
+      retryable: true,
+    },
+  });
+  assert.equal(
+    store.rows.at(-1).text,
+    '模型响应超时，请稍后重试。 (重试 · 换一个模型)',
+    'the error row carries the human reading and the actions'
+  );
+
   // Microcompaction is announced, not silent.
   applyAgentEvent(store, {
     type: 'microcompact',
@@ -881,6 +904,83 @@ async function type(instance, text) {
       80
     ).text;
     assert.match(hint, /ctrl\+o to exit/, 'the hint names the toggle');
+  }
+
+  // 4n. Tab-to-amend (A6.54): Tab swaps option 1 to "Yes, and tell moss what
+  // to do next" and Enter answers `amend` — the tool runs and the composer
+  // message the user types next steers it.
+  {
+    const { getCliApprovalViewAsker, CLI_APPROVAL_OPTIONS, CLI_APPROVAL_FOOTER } =
+      await import('../dist/cli/approval-view.js');
+    const { instance, handle } = mount({ agent: createMockAgent(), workspaceDir: '/tmp/ws' });
+    const asker = getCliApprovalViewAsker();
+    assert.ok(typeof asker === 'function', 'the shell installs the view asker');
+    const pending = asker({
+      title: 'Create file',
+      subject: 'demo.txt',
+      preview: ['+ hello'],
+      question: 'Do you want to create demo.txt?',
+      options: [...CLI_APPROVAL_OPTIONS],
+      footer: CLI_APPROVAL_FOOTER,
+    });
+    await waitFor(() => instance.lastFrame().includes('waiting for you'));
+    instance.stdin.write('\t'); // Tab arms amend
+    await sleep(80);
+    assert.ok(
+      instance.lastFrame().includes('Yes, and tell moss what to do next'),
+      'option 1 becomes the amend wording'
+    );
+    assert.ok(instance.lastFrame().includes('Tab to amend'), 'the footer names the toggle');
+    instance.stdin.write('\r'); // Enter on option 1 → amend
+    const answer = await Promise.race([pending, sleep(3000).then(() => 'TIMEOUT')]);
+    assert.equal(answer, 'amend', 'Enter answers amend');
+    assert.ok(
+      handle.store.rows.some((r) => r.text.startsWith('approval: amend')),
+      'the amend decision is committed'
+    );
+    assert.ok(
+      instance.lastFrame().includes('type what moss should do next'),
+      'the follow-up affordance is staged'
+    );
+    instance.unmount();
+    await sleep(150);
+  }
+
+  // 4o. A previous session is discoverable at boot: one row names it and the
+  // flag that resumes it (crash recovery without a picker).
+  {
+    const { instance, handle } = mount({
+      agent: createMockAgent(),
+      workspaceDir: '/tmp/ws',
+      listSessions: async () => [
+        {
+          key: 'cli-1',
+          title: 'the cpp demo task',
+          messageCount: 12,
+          updatedAt: Date.now(),
+          current: true,
+        },
+        {
+          key: 'cli-0',
+          title: 'yesterday debugging',
+          messageCount: 40,
+          updatedAt: Date.now() - 86_400_000,
+        },
+      ],
+    });
+    const ok = await waitFor(() =>
+      handle.store.rows.some(
+        (r) => r.kind === 'system' && r.text.includes('previous session: yesterday debugging')
+      )
+    );
+    assert.ok(
+      ok,
+      `the boot hint names the resumable session: ${JSON.stringify(
+        handle.store.rows.map((r) => `${r.kind}:${r.text}`)
+      )}`
+    );
+    instance.unmount();
+    await sleep(150);
   }
 }
 
