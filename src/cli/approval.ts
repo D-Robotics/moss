@@ -49,6 +49,8 @@ export interface ApprovalDialog {
    * the classes where it grants nothing.
    */
   trustOptionLabel?: string;
+  /** Whether option 2 can grant a real session-scoped trust. */
+  trustOptionAvailable?: boolean;
   /** Option-3 label override (A6.53 network wording). */
   denyOptionLabel?: string;
 }
@@ -790,6 +792,8 @@ export function describeApprovalDialog(
     scope: approvalScopeSummary(preview, input),
     question: approvalDialogQuestion(title, subject),
     ...(trustOptionLabel ? { trustOptionLabel } : {}),
+    trustOptionAvailable:
+      isWorkspaceTrustEligible(preview) || isSessionTrustEligible(preview.sideEffect),
     ...(preview.toolName === 'web_fetch'
       ? { denyOptionLabel: 'No, and tell moss what to do differently (esc)' }
       : {}),

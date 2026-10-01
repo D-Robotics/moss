@@ -39,15 +39,16 @@ export function printMissingConfigGuidance(
 
 export async function offerSetupForInteractiveMissingConfig(
   options: { bundledDefaultSuppressedBy?: string } = {}
-): Promise<void> {
+): Promise<boolean> {
   printMissingConfigGuidance(true, options);
   const answer = await question('Start setup now? [Y/n] ');
   if (!answer || /^y(es)?$/i.test(answer)) {
     await runSetupWizard();
-  } else {
-    print('Setup skipped. Run `moss setup` when you are ready.');
-    process.exitCode = 1;
+    return true;
   }
+  print('Setup skipped. Run `moss setup` when you are ready.');
+  process.exitCode = 1;
+  return false;
 }
 
 const ONE_SHOT_ONBOARDING_MARKER = '.moss_onboarding_shown';

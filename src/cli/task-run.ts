@@ -29,6 +29,8 @@ export interface TaskCommandContext {
   configDir?: string;
   /** Live event tap for the CLI renderer (optional). */
   onAgentEvent?: (event: unknown) => void;
+  /** Output sink; defaults to the process streams for headless CLI use. */
+  onOutput?: (stream: 'stdout' | 'stderr', text: string) => void;
   signal?: AbortSignal;
   /**
    * Connected MCP servers, when the host has any. Discovery selects tools from
@@ -277,6 +279,7 @@ export async function runTaskCommand(
   commandArgs: string[],
   ctx: TaskCommandContext
 ): Promise<number> {
+  const output = ctx.onOutput ?? ((stream, text) => process[stream].write(text));
   const sub = commandArgs[0] ?? 'status';
 
   if (sub === 'run') {
@@ -302,7 +305,7 @@ export async function runTaskCommand(
           : {}),
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         onProgress: (progress) => {
-          process.stderr.write(`[task ${progress.phase}] ${progress.detail}\n`);
+          output('stderr', `[task ${progress.phase}] ${progress.detail}\n`);
         },
       },
       goal,
@@ -312,7 +315,7 @@ export async function runTaskCommand(
         capabilityLayer: await buildCapabilityLayerForGoal(goal, ctx),
       }
     );
-    process.stdout.write(summarizeTaskRun(result) + '\n');
+    output('stdout', summarizeTaskRun(result) + '\n');
     return result.outcome === 'pass' ? 0 : 1;
   }
 
@@ -332,12 +335,12 @@ export async function runTaskCommand(
         runTurn,
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         onProgress: (progress) => {
-          process.stderr.write(`[task ${progress.phase}] ${progress.detail}\n`);
+          output('stderr', `[task ${progress.phase}] ${progress.detail}\n`);
         },
       },
       taskId
     );
-    process.stdout.write(summarizeTaskRun(result) + '\n');
+    output('stdout', summarizeTaskRun(result) + '\n');
     return result.outcome === 'pass' ? 0 : 1;
   }
 

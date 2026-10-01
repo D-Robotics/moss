@@ -37,11 +37,23 @@ import {
   renderStatusRight,
   renderTranscriptRows,
 } from '../dist/cli/tui/transcript.js';
-import { TuiAppRoot, runTuiApp } from '../dist/cli/tui/app.js';
+import { TuiAppRoot, questionDialogFromPrompt, runTuiApp } from '../dist/cli/tui/app.js';
 import { buildResumeReplay } from '../dist/cli/tui-utils.js';
 import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+{
+  const parsed = questionDialogFromPrompt(
+    'Choose a build profile.\n  1. C++ — use the existing ABI — recommended\n  2. Rust\nEnter a number, or free text for "Other".'
+  );
+  assert.ok(parsed, 'question prompt with long-dash labels is parsed');
+  assert.deepEqual(
+    parsed.answers,
+    ['C++ — use the existing ABI — recommended', 'Rust'],
+    'question answers preserve the complete option labels'
+  );
+}
 
 function liveHandle() {
   const listeners = new Set();
@@ -426,7 +438,11 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
   const done = renderRunSummary(12_000, false, 200, { input: 3200, output: 891 })
     .map((l) => l.text)
     .join('\n');
-  assert.match(done, /✻ \w+ for 12s · ↑ 3\.2k ↓ 891/, 'the run summary shows token spend');
+  assert.match(
+    done,
+    /✻ \w+ for 12s · prompt 3\.2k · reply 891/,
+    'the run summary labels token spend'
+  );
   const halted = renderRunSummary(4000, true, 200, { input: 0, output: 0 })
     .map((l) => l.text)
     .join('\n');
@@ -488,8 +504,8 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
 // ─── 2d. Live region: markdown tail, stall flag ─────────────────────────────
 
 {
-  // The streaming tail is projected through the same markdown as committed
-  // answers — a table must not show up as raw `|---|` source.
+  // The streaming tail stays stable plain text; committed answers are projected
+  // through markdown after the turn, so incomplete tables do not reflow live.
   const md = renderLive(
     {
       running: true,
@@ -502,8 +518,8 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
     60
   );
   assert.ok(
-    !md.some((l) => l.text.includes('|---|')),
-    'no raw markdown source leaks into the live region'
+    md.some((l) => l.text.includes('|---|')),
+    'the live region keeps incomplete markdown source stable'
   );
   assert.ok(
     md.some((l) => l.text.includes('Case') && l.text.includes('Verdict')),
@@ -584,6 +600,22 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
     renderHint({ running: true, tokens: 0, taskCount: 0, queueLength: 0 }, 80).text,
     /Esc to interrupt/,
     'a live run advertises how to stop it'
+  );
+  assert.match(
+    renderHint(
+      {
+        running: true,
+        blocked: true,
+        dialogKind: 'question',
+        dialogHasOptions: false,
+        tokens: 0,
+        taskCount: 0,
+        queueLength: 0,
+      },
+      80
+    ).text,
+    /type answer · Enter to send/,
+    'a free-text question advertises text input instead of numeric approval keys'
   );
 
   const store = createTuiStore();
@@ -1026,7 +1058,7 @@ async function type(instance, text) {
     await type(instance, 'plan the refactor');
     const gated = await waitFor(() => instance.lastFrame().includes('Ready to code?'));
     assert.ok(gated, `the plan gate opens after a plan run: ${instance.lastFrame().slice(0, 160)}`);
-    instance.stdin.write('\r'); // Enter on option 1 — proceed with accept-edits
+    instance.stdin.write('1'); // Direct option key — proceed with accept-edits
     const executed = await waitFor(() => planCalls.length === 2);
     assert.ok(executed, `the approved plan dispatches execution: ${JSON.stringify(planCalls)}`);
     assert.match(planCalls[1], /approved — proceed with execution/);
@@ -1267,10 +1299,12 @@ async function type(instance, text) {
       detail: [],
       question: 'Do you want to proceed?',
       trustOptionLabel: 'Yes (no session trust for web_fetch)',
+      trustOptionAvailable: false,
       denyOptionLabel: 'No, and tell moss what to do differently (esc)',
     });
-    assert.match(fetchView.options[1].label, /no session trust for web_fetch/);
-    assert.match(fetchView.options[2].label, /tell moss what to do differently/);
+    assert.equal(fetchView.options.length, 2, 'unavailable session trust is not shown');
+    assert.equal(fetchView.options[0].key, '1', 'allow remains option 1');
+    assert.match(fetchView.options[1].label, /tell moss what to do differently/);
   }
 }
 

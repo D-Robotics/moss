@@ -56,6 +56,7 @@ import {
 } from '../commands/registry.js';
 import { cliLocale } from '../cli-locale.js';
 import { handleCompactCommand } from '../compact-command.js';
+import { runTaskCommand, splitCommandArgs } from '../task-run.js';
 import { resolveCliConfig, type ResolvedCliConfig } from '../config.js';
 import {
   formatCliInteractionModeLabel,
@@ -65,7 +66,6 @@ import {
   type CliInteractionMode,
 } from '../interaction-mode.js';
 import {
-  formatModelChoices,
   loadModelChoicesForRuntime,
   resolveContextTokensForModel,
   resolveModelSelection,
@@ -431,14 +431,15 @@ export function questionDialogFromPrompt(promptText: string): {
       continue;
     }
     if (/^\s*(Enter a number|Enter one or more|\(Type your answer)/i.test(rawLine)) continue;
+    if (/^\s{5,}\S/.test(rawLine)) continue;
     if (rawLine.trim()) title.push(rawLine.trim());
   }
   const freeText = /\(Type your answer and press Enter\)/i.test(promptText);
   const multiSelect = /Enter one or more numbers separated by commas/i.test(promptText);
   if (options.length === 0 && !freeText) return null;
-  // The tool resolves a chosen number to the option's LABEL, so answer with the
-  // label (description dropped) — the same string the model would have received.
-  const answers = options.map((option) => option.split(' — ')[0]!.trim() || option);
+  // Descriptions are rendered on their own indented line, so the option label
+  // remains an exact answer value even when it contains punctuation or dashes.
+  const answers = options.map((option) => option.trim());
   return {
     view: {
       title: 'Question',
@@ -477,22 +478,6 @@ interface PendingDialog {
    * told the user nothing; the commit row names what was decided.
    */
   label?: string;
-}
-
-/** Resume prompt shared by `/resume` and the task switcher. */
-export function buildResumePrompt(runtime: TaskRuntime, taskId?: string): string {
-  const detail = runtime.taskDetail(taskId);
-  if (!detail) return '';
-  const unmet = detail.progress
-    .filter((criterion) => criterion.result !== 'pass')
-    .map((criterion) => `${criterion.metric} (${criterion.result})`)
-    .join(', ');
-  return (
-    `Continue task ${detail.summary.taskId} — goal: ${detail.goal}. ` +
-    `State: ${detail.summary.state}${detail.summary.result ? ` / ${detail.summary.result}` : ''}. ` +
-    (unmet ? `Unmet criteria: ${unmet}. ` : '') +
-    'Repair what failed, record fresh evidence, and re-run task_acceptance when done.'
-  );
 }
 
 function collectStrings(value: unknown, out: string[] = []): string[] {
@@ -753,6 +738,9 @@ export function TuiAppRoot({
   );
   /** Active model, so `/model` is reflected in the status row immediately. */
   const [currentModel, setCurrentModel] = useState<string | undefined>(options.model);
+  const [modelPicker, setModelPicker] = useState<
+    { choices: ModelChoiceList; cursor: number } | undefined
+  >(undefined);
   /** ctrl+o: detailed transcript (full tool output + reasoning). */
   const [verbose, setVerbose] = useState(false);
   /**
@@ -780,6 +768,7 @@ export function TuiAppRoot({
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const [mentionIndex, setMentionIndex] = useState<MentionEntry[]>([]);
   const abortRef = useRef<AbortController | undefined>(undefined);
+  const modelProbeGenerationRef = useRef(0);
   /** Plan-mode exit gate, filled in after `dispatchRun` exists (below). */
   const planGateRef = useRef<(() => void) | undefined>(undefined);
   const runStartedAtRef = useRef<number | undefined>(undefined);
@@ -1396,6 +1385,90 @@ export function TuiAppRoot({
     [drainQueue, runTurn, store]
   );
 
+  const runTaskShellCommand = useCallback(
+    async (args: string): Promise<void> => {
+      if (store.run.running) {
+        printBlock('Task', ['a run is in flight — press Esc to interrupt it first']);
+        return;
+      }
+      const parsed = splitCommandArgs(args);
+      if (parsed.length === 0) {
+        printBlock('Task', [
+          'usage: /task run <goal...> [--accept "<cmd>"]',
+          '/task status|timeline [id]',
+          '/task resume [id]',
+        ]);
+        return;
+      }
+      if (parsed[0] === 'resume' && !parsed[1]) {
+        const candidate = runtime
+          .taskSummaries()
+          .filter((task) => task.state === 'BLOCKED' || task.result === 'FAIL')
+          .sort((left, right) => right.updatedAt - left.updatedAt)[0];
+        if (!candidate) {
+          printBlock('Resume', ['no failed, blocked, or abandoned task is available to resume']);
+          return;
+        }
+        parsed.push(candidate.taskId);
+      }
+      if (parsed[0] === 'run' || parsed[0] === 'resume') {
+        appendRow(store, 'user', `/task ${parsed.join(' ')}`);
+        runtime.beginRun();
+        beginRun(store);
+        runStartedAtRef.current = Date.now();
+        const controller = new AbortController();
+        abortRef.current = controller;
+        handle.notify();
+        try {
+          await runTaskCommand(parsed, {
+            agent: options.agent,
+            workspace: options.workspaceDir,
+            sessionKey,
+            signal: controller.signal,
+            onAgentEvent: (event) =>
+              applyAgentEvent(store, event as Parameters<typeof applyAgentEvent>[1]),
+            onOutput: (stream, text) => {
+              if (stream === 'stderr') setStatusLine(text.trim());
+              else printBlock('Task', text.trimEnd().split('\n'));
+            },
+          });
+        } catch (err) {
+          printCommandError('Task', errorMessage(err));
+        } finally {
+          abortRef.current = undefined;
+          runStartedAtRef.current = undefined;
+          endRun(store, controller.signal.aborted);
+          await runtime.endRun(controller.signal.aborted);
+          setStatusLine(undefined);
+          handle.notify();
+        }
+        return;
+      }
+      try {
+        await runTaskCommand(parsed, {
+          agent: options.agent,
+          workspace: options.workspaceDir,
+          sessionKey,
+          onOutput: (stream, text) => {
+            if (stream === 'stdout') printBlock('Task', text.trimEnd().split('\n'));
+          },
+        });
+      } catch (err) {
+        printCommandError('Task', errorMessage(err));
+      }
+    },
+    [
+      handle,
+      options.agent,
+      options.workspaceDir,
+      printBlock,
+      printCommandError,
+      runtime,
+      sessionKey,
+      store,
+    ]
+  );
+
   /**
    * The plan-mode exit gate (A7.60-62, Qoder's core "present plan → approve →
    * execute" ritual). A finished plan run hands the user three decisions:
@@ -1426,7 +1499,6 @@ export function TuiAppRoot({
         }
       },
       optionAnswers: [PROCEED_AUTO, PROCEED_MANUAL, ''],
-      freeTextEntry: true,
     };
     pendingDialogRef.current = entry;
     setApproval({
@@ -1552,6 +1624,12 @@ export function TuiAppRoot({
    */
   const runModelCommand = useCallback(
     async (args: string) => {
+      if (store.run.running) {
+        printBlock('Model', [
+          'a run is in flight — press Esc to interrupt it before switching models',
+        ]);
+        return;
+      }
       const config = resolveShellCliConfig();
       const fallbackProvider = (options.agent.config as { provider?: string }).provider;
       let choices: ModelChoiceList | undefined;
@@ -1566,7 +1644,13 @@ export function TuiAppRoot({
       const token = args.trim();
       if (!token) {
         if (!choices) return;
-        printBlock('Model', formatModelChoices(choices).split('\n'));
+        setModelPicker({
+          choices,
+          cursor: Math.max(
+            0,
+            choices.choices.findIndex((item) => item.model === currentModel)
+          ),
+        });
         return;
       }
       if (token === 'config' || token.startsWith('config ')) {
@@ -1602,13 +1686,18 @@ export function TuiAppRoot({
         return;
       }
       setCurrentModel(model);
+      store.usage.lastModel = undefined;
+      store.usage.contextUsed = 0;
+      store.usage.contextTotal = 0;
+      const probeGeneration = ++modelProbeGenerationRef.current;
       printBlock('Model', [
         selected
           ? `switched to ${model} (${provider})`
           : `switched to custom model ${model} (${provider})`,
+        'context usage will appear after the first response from this model',
       ]);
-      // Re-probe the new model's context window so the status row can never show
-      // the previous model's percentage. Fire-and-forget: the switch is already real.
+      // Re-probe the new model's context window. Ignore an older probe that
+      // finishes after a later model switch.
       void (async () => {
         try {
           const detected = await resolveContextTokensForModel({
@@ -1618,6 +1707,7 @@ export function TuiAppRoot({
             provider,
             timeoutMs: 4000,
           });
+          if (probeGeneration !== modelProbeGenerationRef.current) return;
           options.agent.config.contextTokens = detected.contextTokens;
           store.usage.contextTotal = detected.contextTokens;
           handle.notify();
@@ -1664,6 +1754,11 @@ export function TuiAppRoot({
           setStatusLine(`interaction mode: ${formatCliInteractionModeLabel(mode)}`);
         },
       };
+
+      if (head === '/task') {
+        await runTaskShellCommand(args);
+        return true;
+      }
 
       try {
         if (await runRegistryCommand(text, context)) return true;
@@ -1871,13 +1966,7 @@ export function TuiAppRoot({
         return;
       }
       if (text === '/resume' || text.startsWith('/resume ')) {
-        const prompt = buildResumePrompt(runtime, text.split(' ')[1]);
-        if (!prompt) {
-          printBlock('Resume', ['no task to resume — define one first (describe a goal)']);
-        } else {
-          setInput(prompt);
-          setStatusLine('resume prompt staged — edit if needed, Enter to send');
-        }
+        await runTaskShellCommand(`resume${text.slice('/resume'.length)}`);
         return;
       }
       if (
@@ -2028,7 +2117,8 @@ export function TuiAppRoot({
         input,
         (options.skills ?? []).map((skill) => [`/${skill.name}`, skill.description] as const)
       );
-  const paletteOpen = paletteRows.length > 0 && !paletteDismissed && !approval && !shellMode;
+  const paletteOpen =
+    paletteRows.length > 0 && !paletteDismissed && !approval && !shellMode && !modelPicker;
   const paletteSelection = Math.min(paletteCursor, Math.max(0, paletteRows.length - 1));
   /** First row of the rendered window — keeps the marked row and the acted row equal (D-15). */
   const paletteWindow = paletteWindowOffset(paletteSelection, paletteRows.length, PALETTE_MAX_ROWS);
@@ -2147,6 +2237,10 @@ export function TuiAppRoot({
       return;
     }
     if (key.tab && key.shift) {
+      if (approval) {
+        setStatusLine('finish the pending approval before changing interaction mode');
+        return;
+      }
       // shift+tab (CSI Z) cycles the REAL policy mode; the subscription above
       // paints the new label on the same frame. Read through the getter, never
       // the React state, so a rapid double press cannot skip a mode.
@@ -2388,6 +2482,35 @@ export function TuiAppRoot({
         setMentionDismissed(true);
         return;
       }
+    }
+
+    if (modelPicker) {
+      if (key.upArrow || key.downArrow) {
+        setModelPicker((current) =>
+          current
+            ? {
+                ...current,
+                cursor: movePaletteSelection(
+                  current.cursor,
+                  current.choices.choices.length,
+                  key.upArrow ? -1 : 1
+                ),
+              }
+            : current
+        );
+        return;
+      }
+      if (key.escape) {
+        setModelPicker(undefined);
+        return;
+      }
+      if (key.return) {
+        const choice = modelPicker.choices.choices[modelPicker.cursor];
+        setModelPicker(undefined);
+        if (choice) void runModelCommand(choice.model);
+        return;
+      }
+      return;
     }
 
     if (paletteOpen) {
@@ -2692,11 +2815,19 @@ export function TuiAppRoot({
     ...(store.run.lastEventAt !== undefined ? { lastEventAt: store.run.lastEventAt } : {}),
     blocked: Boolean(approval),
   };
+  const actualModel =
+    store.usage.lastModel && store.usage.lastModel !== currentModel
+      ? store.usage.lastModel
+      : undefined;
   const status: StatusView = {
     running,
     blocked: Boolean(approval),
-    model: currentModel,
-    tokens: store.usage.tokensIn + store.usage.tokensOut,
+    ...(actualModel ? { model: actualModel } : {}),
+    ...(approval ? { dialogKind: pendingDialogRef.current?.kind } : {}),
+    ...(approval && pendingDialogRef.current?.kind === 'question'
+      ? { dialogHasOptions: approval.options.length > 0 }
+      : {}),
+    tokens: running ? store.usage.runTokensOut : store.usage.tokensIn + store.usage.tokensOut,
     taskCount: runtime.taskSummaries().length,
     queueLength: queueRef.current.length,
     contextUsed: store.usage.contextUsed,
@@ -2719,6 +2850,39 @@ export function TuiAppRoot({
   // The composer sits between two full-width rules; everything else is plain.
   // D-15: hand the renderer the window that contains the cursor, so the `❯`
   // marker and the command Enter/Tab act on are the same row.
+  const modelPickerStart = modelPicker
+    ? Math.min(
+        Math.max(0, modelPicker.cursor - 7),
+        Math.max(0, modelPicker.choices.choices.length - 8)
+      )
+    : 0;
+  const modelPickerLines = modelPicker
+    ? [
+        line(rule(columns)),
+        line(
+          clip(
+            `  Select model · ${modelPicker.choices.choices.length} available · ↑↓ move · Enter choose · Esc close`,
+            columns
+          ),
+          { dim: true }
+        ),
+        ...modelPicker.choices.choices
+          .slice(modelPickerStart, modelPickerStart + 8)
+          .map((choice, offset) => {
+            const index = modelPickerStart + offset;
+            return line(
+              clip(
+                `${index === modelPicker.cursor ? '❯' : ' '} ${String(index + 1).padStart(2, ' ')}. ${choice.model}${choice.label ? ` — ${choice.label}` : ''}`,
+                columns
+              ),
+              index === modelPicker.cursor ? { color: 'cyan', bold: true } : { dim: true }
+            );
+          }),
+        ...(modelPicker.choices.choices.length > 8
+          ? [line(clip('  … type /model <name> for any other model', columns), { dim: true })]
+          : []),
+      ]
+    : [];
   const palette = paletteOpen
     ? renderSlashPalette(paletteFrameRows(paletteRows, paletteWindow, PALETTE_MAX_ROWS), {
         width: columns,
@@ -2726,12 +2890,13 @@ export function TuiAppRoot({
         query: input.trimStart(),
       })
     : [];
-  const mentions = mentionOpen
-    ? renderMentionMenu(mentionRows.slice(0, MENTION_MAX_ROWS), {
-        width: columns,
-        selected: Math.min(mentionSelection, Math.max(0, mentionRows.length - 1)),
-      })
-    : [];
+  const mentions =
+    mentionOpen && !modelPicker
+      ? renderMentionMenu(mentionRows.slice(0, MENTION_MAX_ROWS), {
+          width: columns,
+          selected: Math.min(mentionSelection, Math.max(0, mentionRows.length - 1)),
+        })
+      : [];
   // Shell mode tints both rules (E2): the composer sits between them, so the
   // whole input block reads as one state.
   const ruleTone = shellMode ? { color: SHELL_MODE_TONE } : {};
@@ -2774,9 +2939,12 @@ export function TuiAppRoot({
           ),
         })
       : []),
-    ...renderTodoPanel(store.todos, columns),
-    ...(statusLine ? [line(clip(statusLine, columns), { dim: true })] : []),
-    ...(contextPct >= CONTEXT_WARN_PCT
+    // A pending approval/question owns the decision area. Suppress secondary
+    // overlays and live checklist noise so its question and options remain
+    // visible on short terminals.
+    ...(!approval ? renderTodoPanel(store.todos, columns) : []),
+    ...(!approval && statusLine ? [line(clip(statusLine, columns), { dim: true })] : []),
+    ...(!approval && contextPct >= CONTEXT_WARN_PCT
       ? [
           line(
             clip(
@@ -2787,10 +2955,11 @@ export function TuiAppRoot({
           ),
         ]
       : []),
-    ...palette,
-    ...sessionPickerOverlay,
-    ...historySearchOverlay,
-    ...mentions,
+    ...(!approval ? palette : []),
+    ...(!approval ? sessionPickerOverlay : []),
+    ...(!approval ? historySearchOverlay : []),
+    ...(!approval ? mentions : []),
+    ...modelPickerLines,
     renderStatusRight(status, columns),
     line(rule(columns), ruleTone),
   ];

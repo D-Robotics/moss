@@ -161,9 +161,13 @@ assert.ok(
   re.includes('/resume') && re.includes('/review'),
   `/re offers /resume and /review (got ${re.join(', ')})`
 );
-// Reverse mismatch: commands only the readline REPL / headless paths answer must
-// not be offered by the shell's menu.
-for (const replOnly of ['/loop', '/goal', '/task', '/init']) {
+// Task OS is available in the default TUI; loop/goal remain REPL-only until
+// they are migrated to the same runtime contract.
+assert.ok(
+  menuAll.some(([command]) => command === '/task'),
+  '/task is offered by the shell menu'
+);
+for (const replOnly of ['/loop', '/goal', '/init']) {
   assert.ok(
     !menuAll.some(([command]) => command === replOnly),
     `${replOnly} is not offered by the shell menu`
@@ -187,6 +191,7 @@ const BLOCK_TITLE = new Map([
   ['/usage', /^Usage$/],
   ['/log', /^Log$/],
   ['/stop', /^Stop$/],
+  ['/task', /^Task$/],
   ['/tasks', /^Tasks \(\d+\)$/],
   ['/history', /^History \(\d+\)$/],
   ['/evidence', /^Evidence \(\d+\)$/],
@@ -289,6 +294,22 @@ for (const command of advertised) {
     await sleep(100);
     continue;
   }
+  if (command === '/model') {
+    const handle = liveHandle();
+    const runtime = new TaskRuntime({
+      workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-cmd-model-')),
+    });
+    const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
+    await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
+    await type(instance, '/model');
+    assert.ok(
+      await waitFor(() => instance.lastFrame().includes('Select model')),
+      'model command opens an inline picker instead of dumping the catalog into scrollback'
+    );
+    instance.unmount();
+    await sleep(100);
+    continue;
+  }
   const title = BLOCK_TITLE.get(command);
   assert.ok(title, `${command} has an expected block title in this spec`);
   const arg = ARGS.get(command) ?? '';
@@ -325,10 +346,12 @@ for (const command of advertised) {
   const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
   await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
   for (const command of HEADLINE) {
+    if (command === '/model') continue;
     await type(instance, `${command}${ARGS.get(command) ?? ''}`);
   }
   const blocks = handle.store.rows.filter((r) => r.kind === 'tool').map((r) => r.text);
   for (const command of HEADLINE) {
+    if (command === '/model') continue;
     const title = BLOCK_TITLE.get(command);
     assert.ok(title && blocks.some((text) => title.test(text)), `M1: ${command} answered inline`);
   }
@@ -382,7 +405,8 @@ for (const command of advertised) {
 // shell acts on.
 {
   const rows = shellPaletteRows('/');
-  assert.equal(rows[8][0], '/doctor', 'D-15 repro: 8 × ↓ lands on /doctor');
+  const doctorIndex = rows.findIndex(([command]) => command === '/doctor');
+  assert.ok(doctorIndex >= 0, 'the palette contains /doctor');
   assert.equal(rows[rows.length - 1][0], '/hooks', 'the last row is /hooks');
 
   // Pure windowing contract: the window contains the cursor and never grows.
@@ -414,11 +438,11 @@ for (const command of advertised) {
     return { instance, handle };
   };
 
-  // 8 × ↓ then Enter: the marker is /doctor and /doctor is what runs.
+  // Moving to the /doctor row then pressing Enter runs the marked command.
   {
     const { instance, handle } = await mountMenu('d15-enter');
     await typeKeys(instance, '/');
-    for (let i = 0; i < 8; i += 1) await press(instance, '\x1b[B');
+    for (let i = 0; i < doctorIndex; i += 1) await press(instance, '\x1b[B');
     const marked = await waitFor(() => instance.lastFrame().includes('❯ /doctor'));
     assert.ok(
       marked,
@@ -444,11 +468,11 @@ for (const command of advertised) {
     await sleep(100);
   }
 
-  // 8 × ↓ then Tab: the composer receives /doctor (never the un-marked row).
+  // Move to /doctor then Tab: the composer receives the marked command.
   {
     const { instance } = await mountMenu('d15-tab');
     await typeKeys(instance, '/');
-    for (let i = 0; i < 8; i += 1) await press(instance, '\x1b[B');
+    for (let i = 0; i < doctorIndex; i += 1) await press(instance, '\x1b[B');
     await press(instance, '\t');
     await press(instance, '\x1b'); // close the menu: only the composer keeps a ❯
     const completed = await waitFor(() => instance.lastFrame().includes('❯ /doctor'));

@@ -60,6 +60,54 @@ export interface MarkdownOptions {
   indent?: number;
 }
 
+/**
+ * Render a partial response without reflowing an open markdown block. Completed
+ * blocks use the full renderer; the still-open tail stays plain and stable until
+ * a blank line, closing fence, or end-of-response makes its structure certain.
+ */
+export function renderStreamingMarkdown(text: string, width: number): MarkdownLine[] {
+  const source = text.replace(/\r\n?/g, '\n');
+  const lines = source.split('\n');
+  let fence = false;
+  let stableEnd = 0;
+  let blockStart = 0;
+  let sawContent = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const raw = lines[index] ?? '';
+    const isFence = FENCE.test(raw);
+    if (isFence) {
+      fence = !fence;
+      sawContent = true;
+      if (!fence) {
+        stableEnd = index + 1;
+        blockStart = stableEnd;
+        sawContent = false;
+      }
+      continue;
+    }
+    if (!fence && raw.trim() === '' && sawContent) {
+      stableEnd = index;
+      blockStart = index + 1;
+      sawContent = false;
+    } else if (raw.trim() !== '') {
+      sawContent = true;
+    }
+  }
+
+  const stableText = lines.slice(0, stableEnd).join('\n');
+  const openText = lines.slice(blockStart).join('\n');
+  const committed = stableText ? renderMarkdown(stableText, width) : [];
+  if (!openText.trim()) return committed;
+  const openLines = openText
+    .split('\n')
+    .flatMap((lineText) =>
+      lineText ? wrapRuns(parseInlineMarkdown(lineText), Math.max(1, width)) : [[]]
+    )
+    .map((runs) => markdownLine(runs));
+  return [...committed, ...openLines];
+}
+
 type RunStyle = Omit<MarkdownRun, 'text'>;
 /** Row-level style fields (everything `TuiLine` carries except the text). */
 type RowStyle = Omit<MarkdownLine, 'text' | 'runs'>;

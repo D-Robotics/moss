@@ -39,7 +39,13 @@ export function createComposer(value = ''): ComposerState {
 }
 
 export function composerSetValue(value: string, caret?: number): ComposerState {
-  return { value, caret: Math.max(0, Math.min(caret ?? value.length, value.length)) };
+  const bounded = Math.max(0, Math.min(caret ?? value.length, value.length));
+  const previous = prevGraphemeIndex(value, bounded);
+  const normalized =
+    bounded > 0 && bounded < value.length && nextGraphemeIndex(value, previous) !== bounded
+      ? previous
+      : bounded;
+  return { value, caret: normalized };
 }
 
 /**

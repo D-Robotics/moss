@@ -184,9 +184,12 @@ assert.deepEqual(
   const { instance, handle } = mount({ agent, workspaceDir: '/tmp/ws', model: 'spec-model' });
   await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
   await type(instance, '/model');
-  const listed = await waitFor(() => allText(handle).includes('active provider'));
-  assert.ok(listed, `/model listed the catalog: ${JSON.stringify(allText(handle).slice(-300))}`);
-  assert.match(allText(handle), /current model\s+spec-model/);
+  const listed = await waitFor(() => instance.lastFrame().includes('Select model'));
+  assert.ok(
+    listed,
+    `/model opened the picker: ${JSON.stringify(instance.lastFrame().slice(-300))}`
+  );
+  assert.match(instance.lastFrame(), /spec-model/, 'the picker includes the active model');
   instance.unmount();
   await sleep(100);
 }

@@ -20,7 +20,7 @@ import {
 } from '../approval-view.js';
 import { formatCliInteractionModeLabel, type CliInteractionMode } from '../interaction-mode.js';
 import { COMPOSER_MAX_ROWS, createComposer, renderComposerEditor } from './composer.js';
-import { renderMarkdown, type MarkdownLine } from './markdown.js';
+import { renderMarkdown, renderStreamingMarkdown, type MarkdownLine } from './markdown.js';
 import type { TranscriptRow } from './render-bridge.js';
 import {
   clip,
@@ -95,6 +95,11 @@ export function runVerb(seed: number): string {
 
 export function spinnerFrame(elapsedMs: number): string {
   return SPINNER_FRAMES[Math.floor(elapsedMs / 120) % SPINNER_FRAMES.length] ?? '✢';
+}
+
+function formatCompactCount(value: number): string {
+  if (value >= 1000) return `${Math.round(value / 100) / 10}k`;
+  return String(value);
 }
 
 /** Claude-style tool labels: `Write(hello.txt)` rather than prose. */
@@ -604,8 +609,6 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
   // the detailed transcript shows both in full (ctrl+o in the reference).
   const reasoning = renderReasoning(view.thinking, width);
   for (const entry of verbose ? reasoning : reasoning.slice(-2)) out.push(entry);
-  if (view.toolLine)
-    out.push(line(clip(`  ${RESULT_MARK}  ${view.toolLine}`, width), { dim: true }));
   if (view.retry) {
     out.push(
       line(
@@ -617,25 +620,27 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
       )
     );
   }
-  // The live tail gets the SAME markdown projection as committed answers —
-  // streaming a table/bold/code as raw `|---|` source made the region look
-  // broken exactly when the answer was at its richest.
-  const markdownTail = renderMarkdown(view.streaming.trim(), Math.max(4, width - 2));
-  for (const entry of verbose ? markdownTail : markdownTail.slice(-8)) {
-    // Runs must concatenate back to the line text — a clipped line drops them.
-    const clippedText = clip(entry.text, width);
-    out.push(clippedText === entry.text ? entry : { ...entry, text: clippedText, runs: undefined });
-  }
+  // Streaming text is deliberately rendered as plain wrapped text. Markdown
+  // syntax is often incomplete between deltas (fences, tables, emphasis), so
+  // reparsing it on every token makes long answers jump and reorder. The
+  // committed transcript performs the full markdown projection once the turn
+  // ends.
+  const streamingLines = renderStreamingMarkdown(view.streaming, Math.max(4, width - 2)).map(
+    (entry) => {
+      const clippedText = clip(`  ${entry.text}`, width);
+      return clippedText === `  ${entry.text}`
+        ? { ...entry, text: clippedText, runs: entry.runs?.map((run) => ({ ...run })) }
+        : line(clippedText, { dim: true });
+    }
+  );
+  for (const entry of verbose ? streamingLines : streamingLines.slice(-8)) out.push(entry);
   if (view.blocked) return out;
   const seconds = Math.max(0, Math.round(elapsedMs / 1000));
-  const tokens = view.tokensOut > 0 ? ` · ↓ ${view.tokensOut} tokens` : '';
+  const tokens = view.tokensOut > 0 ? ` · ${formatCompactCount(view.tokensOut)} out` : '';
   const queued = view.queued > 0 ? ` · ${view.queued} queued` : '';
   out.push(
     line(
-      clip(
-        `${spinnerFrame(elapsedMs)} ${runVerb(seconds)}… (${seconds}s${tokens}${queued})`,
-        width
-      ),
+      clip(`${spinnerFrame(elapsedMs)} ${runVerb(seconds)}… ${seconds}s${tokens}${queued}`, width),
       { color: 'yellow' }
     )
   );
@@ -675,7 +680,7 @@ export function renderRunSummary(
   const fmt = (n: number) => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n));
   const tokenPart =
     tokens && (tokens.input > 0 || tokens.output > 0)
-      ? ` · ↑ ${fmt(tokens.input)} ↓ ${fmt(tokens.output)}`
+      ? ` · prompt ${fmt(tokens.input)} · reply ${fmt(tokens.output)}`
       : '';
   // The local wall-clock stamp (`done 1:23 AM`) is how the reference answers
   // "when did this actually finish" for a run the user watched scroll away.
@@ -904,6 +909,9 @@ export interface StatusView {
   mode?: CliInteractionMode;
   /** The composer is in `!` shell mode for the current draft (R1 §5). */
   shellMode?: boolean;
+  /** Pending interaction kind, so hints describe question input honestly. */
+  dialogKind?: 'approval' | 'question';
+  dialogHasOptions?: boolean;
   /** ctrl+o detailed-transcript state — the chrome must not hide it (A9.72). */
   verbose?: boolean;
   /** A stashed draft exists (Ctrl+S); composes with other badges (A2.24). */
@@ -977,8 +985,16 @@ export function renderHint(view: StatusView, width: number): TuiLine {
     });
   }
   const parts = [modeLabel, '? for shortcuts'];
-  if (view.blocked) parts.push('1/2/3 to answer', 'Tab to amend');
-  else if (view.running) parts.push('Esc to interrupt');
+  if (view.blocked) {
+    if (view.dialogKind === 'question') {
+      parts.push(
+        view.dialogHasOptions ? '1/2/3 to answer' : 'type answer · Enter to send',
+        'Esc to skip'
+      );
+    } else {
+      parts.push('1/2/3 to answer', 'Tab to amend');
+    }
+  } else if (view.running) parts.push('Esc to interrupt');
   if (view.verbose) parts.push('verbose transcript · ctrl+o to exit');
   if (view.queueLength > 0) parts.push(`${view.queueLength} queued`);
   if (view.taskCount > 0) parts.push(`${view.taskCount} task${view.taskCount === 1 ? '' : 's'}`);

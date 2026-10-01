@@ -15,7 +15,11 @@ import assert from 'node:assert/strict';
 
 import stringWidth from 'string-width';
 
-import { renderMarkdown, parseInlineMarkdown } from '../dist/cli/tui/markdown.js';
+import {
+  renderMarkdown,
+  renderStreamingMarkdown,
+  parseInlineMarkdown,
+} from '../dist/cli/tui/markdown.js';
 import {
   APPROVAL_FALLBACK_QUESTION,
   ANSWER_MARK,
@@ -33,6 +37,36 @@ import {
 
 const cells = (value) => stringWidth(value);
 const text = (lines) => lines.map((entry) => entry.text).join('\n');
+
+{
+  const partial = renderStreamingMarkdown(
+    'Intro paragraph.\n\n## Heading\n\n```ts\nconst x = 1;',
+    40
+  );
+  assert.ok(
+    text(partial).includes('Intro paragraph.'),
+    'streaming projection keeps completed prose'
+  );
+  assert.ok(text(partial).includes('Heading'), 'heading content remains visible while streaming');
+  assert.ok(text(partial).includes('```ts'), 'an open fence is not reinterpreted as prose');
+  assert.ok(
+    partial.every((line) => cells(line.text) <= 40),
+    'streaming lines fit the pane'
+  );
+
+  const completed = renderStreamingMarkdown(
+    'Intro paragraph.\n\n## Heading\n\n```ts\nconst x = 1;\n```',
+    40
+  );
+  assert.ok(
+    completed.some((line) => line.bold && line.text.includes('Heading')),
+    'closed heading upgrades'
+  );
+  assert.ok(
+    completed.some((line) => line.text.includes('┌ ts')),
+    'closed fence renders as a code block'
+  );
+}
 
 function assertFits(lines, width, label) {
   for (const entry of lines) {
@@ -551,7 +585,7 @@ const CJK_CODE = 'const 问候 = "你好，moss";';
     body.indexOf('Do you want to create beta.txt?') < body.indexOf('1. Yes'),
     'the question still precedes the options'
   );
-  assert.ok(body.includes('Esc to cancel · ↑↓ then Enter'), 'the footer stays honest');
+  assert.ok(body.includes('Esc to deny · ↑↓ then Enter'), 'the footer stays honest');
 
   const multiline = renderApproval(
     { ...view, question: 'moss wants to write a file\nsrc/index.ts' },

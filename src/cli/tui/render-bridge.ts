@@ -92,6 +92,8 @@ export interface TuiUsageState {
    */
   contextUsed: number;
   contextTotal: number;
+  /** The model name reported by the latest provider usage event, when available. */
+  lastModel?: string;
   /** Session-cumulative prompt-cache hits (llm_usage.cacheReadTokens). */
   cacheReadTokens: number;
   /** Compactions seen this session (the transcript announces them). */
@@ -302,6 +304,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
           Number(event.cacheReadTokens ?? 0) +
           Number(event.cacheCreationTokens ?? 0);
       }
+      if (event.model?.trim()) store.usage.lastModel = event.model.trim();
       store.version++;
       break;
     }

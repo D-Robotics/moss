@@ -82,8 +82,8 @@ export interface ShellCommand {
  *   - `HELP_COMMANDS` (below) is what `/help` and `?` print,
  *   - `SHELL_COMMAND_ROWS` feeds the `/` palette (`shellPaletteRows` in `app.ts`),
  *   - `SHELL_COMMAND_NAMES` is the guard that keeps the palette from offering
- *     anything else (the REPL table `interactive-commands.ts` is a superset:
- *     `/loop`, `/goal`, `/task`, `/init` are still REPL/headless-only).
+ *     anything else (the REPL table `interactive-commands.ts` still contains
+ *     loop/goal-only controls).
  *
  * Adding a command here advertises it in both places at once, and
  * `test/tui-command-surface.spec.mjs` fails if any entry answers "unknown
@@ -159,6 +159,11 @@ export const SHELL_COMMANDS: readonly ShellCommand[] = [
     description: 'show this session\u2019s on-disk conversation and run-event logs',
   },
   { command: '/stop', usage: '/stop', description: 'interrupt the active run' },
+  {
+    command: '/task',
+    usage: '/task run|resume|status|timeline',
+    description: 'run or inspect a verified Task OS task',
+  },
   { command: '/tasks', usage: '/tasks', description: 'print the task-runtime tasks' },
   {
     command: '/history',
@@ -171,7 +176,7 @@ export const SHELL_COMMANDS: readonly ShellCommand[] = [
   {
     command: '/resume',
     usage: '/resume [id]',
-    description: 'stage a prompt that resumes the task runtime',
+    description: 'resume a failed, blocked, or abandoned task through Task OS',
   },
   {
     command: '/rewind',

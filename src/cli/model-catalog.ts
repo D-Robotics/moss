@@ -369,12 +369,23 @@ export function formatModelChoices(list: ModelChoiceList): string {
     `  ${describeModelListSource(list)}`,
   ];
   if (list.warning) lines.push(`  note             ${list.warning}`);
-  lines.push('', 'Choose for this session:');
-  list.choices.forEach((choice, index) => {
+  lines.push('', `Choose for this session (${list.choices.length} available):`);
+  const visibleChoices = list.choices.slice(0, 20);
+  const currentIndex = list.choices.findIndex((choice) => choice.model === list.currentModel);
+  if (currentIndex >= 20 && list.choices[currentIndex]) {
+    visibleChoices.push(list.choices[currentIndex]!);
+  }
+  visibleChoices.forEach((choice) => {
+    const originalIndex = list.choices.indexOf(choice);
     const current = choice.model === list.currentModel ? ' current' : '';
     const label = choice.label ? ` - ${choice.label}` : '';
-    lines.push(`  ${String(index + 1).padStart(2, ' ')}. ${choice.model}${label}${current}`);
+    lines.push(
+      `  ${String(originalIndex + 1).padStart(2, ' ')}. ${choice.model}${label}${current}`
+    );
   });
+  if (list.choices.length > visibleChoices.length) {
+    lines.push(`  … ${list.choices.length - visibleChoices.length} more — use /model <model-name>`);
+  }
   lines.push(
     '',
     'Use:',

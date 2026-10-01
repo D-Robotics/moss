@@ -25,10 +25,10 @@ function formatQuestionPrompt(q: AskUserQuestionItem, index: number, total: numb
   if (!q.options || q.options.length === 0) {
     return `${header}\n(Type your answer and press Enter)`;
   }
-  const lines = q.options.map((opt, i) => {
-    const desc = opt.description ? ` — ${opt.description}` : '';
-    return `  ${i + 1}. ${opt.label}${desc}`;
-  });
+  const lines = q.options.flatMap((opt, i) => [
+    `  ${i + 1}. ${opt.label}`,
+    ...(opt.description ? [`     ${opt.description}`] : []),
+  ]);
   const multi = q.multi_select
     ? '\nEnter one or more numbers separated by commas, or free text.'
     : '\nEnter a number, or free text for "Other".';

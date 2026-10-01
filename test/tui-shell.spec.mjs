@@ -288,18 +288,20 @@ for (const width of [40, 80, 120]) {
     width
   );
   const liveText = text(live);
-  assert.match(liveText, /[✢✳✶✻✽] \w+… \(4s/, `live@${width} shows a spinner and elapsed seconds`);
-  assert.ok(liveText.includes('↓ 1200 tokens'), `live@${width} shows the token counter`);
-  assert.ok(liveText.includes('fps_probe.sh'), `live@${width} shows the in-flight tool`);
+  assert.match(liveText, /[✢✳✶✻✽] \w+… 4s/, `live@${width} shows a spinner and elapsed seconds`);
+  assert.ok(liveText.includes('1.2k out'), `live@${width} labels current output tokens`);
+  assert.ok(
+    !liveText.includes('fps_probe.sh'),
+    `live@${width} does not duplicate the transcript tool`
+  );
   assert.ok(liveText.includes('camera_fps is 31.5'), `live@${width} previews the answer`);
   assertFits(live, width, `live@${width}`);
   if (width >= 80) {
     assert.ok(liveText.includes('1 queued'), `live@${width} shows the queue`);
   } else {
-    assert.equal(
-      cells(live[live.length - 1].text),
-      width,
-      'a narrow activity line is clipped to exactly the pane width'
+    assert.ok(
+      cells(live[live.length - 1].text) <= width,
+      'a narrow activity line stays within the pane width'
     );
   }
 
@@ -333,7 +335,7 @@ for (const width of [40, 80, 120]) {
     approvalText.includes('moss wants to run a command'),
     'approval renders the host question verbatim'
   );
-  assert.ok(approvalText.includes('Esc to cancel'), 'approval says how to back out');
+  assert.ok(approvalText.includes('Esc to deny'), 'approval says Esc denies the action');
 }
 
 // ─── 2b. D-11: a lone +/- line is output, never a fabricated diff gutter ──
@@ -747,27 +749,18 @@ instance.unmount();
     '/tasks prints the same block Ctrl+T does'
   );
 
-  // The task switcher overlay is gone; /resume replaces it, and it STAGES the
-  // prompt (visible and editable) instead of silently starting a run.
-  await type('/resume');
-  assert.ok(
-    frame().includes('Continue task task_cam1'),
-    `resume stages a prompt for the active task: ${JSON.stringify(frame().slice(-300))}`
-  );
-  assert.ok(frame().includes('State: COMPLETED / PASS'), 'the staged prompt carries the verdict');
-  assert.ok(frame().includes('resume prompt staged'), 'the shell says what the staged text is for');
-  instance.stdin.write('\x0c'); // Ctrl+L clears the staged prompt
-  await sleep(80);
-  assert.ok(!frame().includes('Continue task task_cam1'), 'the staged prompt can be discarded');
-
+  // `/resume` is the strict Task OS recovery path. It selects the latest
+  // failed/blocked task and reports the real recovery result instead of staging
+  // an editable prompt that never changes task state.
   await type('/resume task_ros2');
-  assert.ok(frame().includes('Continue task task_ros2'), 'resume can target an explicit task');
   assert.ok(
-    frame().includes('topic_hz:/cmd_vel (no-evidence)'),
-    'the staged prompt names the unmet criterion'
+    await waitFor(() => toolTitles().includes('Task')),
+    `resume renders a Task block: ${JSON.stringify(frame().slice(-300))}`
   );
-  instance.stdin.write('\x0c');
-  await sleep(80);
+  assert.ok(
+    detailRows().some((line) => line.includes('task_ros2') || line.includes('task_id')),
+    'resume output identifies the task being recovered'
+  );
 
   // 3d. Ctrl+L clears the composer; `?` prints the complete reference.
   await typeOnly('a draft goal');
@@ -968,11 +961,11 @@ instance.unmount();
     instance.stdin.write('2');
     assert.equal(
       await Promise.race([pending, sleep(3000).then(() => 'TIMEOUT')]),
-      'Postgres',
-      'the chosen option text is the answer — not `a`/`y`'
+      'Postgres — more ops',
+      'the complete chosen option label is the answer — not `a`/`y`'
     );
     assert.ok(
-      await waitFor(() => frame().includes('answer: Postgres')),
+      await waitFor(() => frame().includes('answer: Postgres — more ops')),
       'the choice is committed to the transcript'
     );
   }

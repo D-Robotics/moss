@@ -55,7 +55,7 @@ export const CLI_APPROVAL_OPTIONS: readonly CliApprovalOption[] = [
  * keys that work. When an amend path exists, add it here rather than printing a
  * key that does nothing.
  */
-export const CLI_APPROVAL_FOOTER = 'Esc to cancel · ↑↓ then Enter';
+export const CLI_APPROVAL_FOOTER = 'Esc to deny · ↑↓ then Enter';
 
 let viewAsker: CliApprovalViewAsker | null = null;
 
@@ -76,7 +76,9 @@ export function buildCliApprovalView(dialog: ApprovalDialog): CliApprovalView {
   // A6.52/53: option 2/3 labels describe what the answer ACTUALLY does for
   // this dialog's class (see describeApprovalDialog); the frozen defaults
   // remain the fallback for callers without a classified dialog.
-  const options = CLI_APPROVAL_OPTIONS.map((option) => {
+  const options = CLI_APPROVAL_OPTIONS.filter(
+    (option) => option.answer !== 'a' || dialog.trustOptionAvailable !== false
+  ).map((option) => {
     if (option.answer === 'a' && dialog.trustOptionLabel) {
       return { ...option, label: dialog.trustOptionLabel };
     }

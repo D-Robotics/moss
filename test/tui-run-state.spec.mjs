@@ -111,10 +111,18 @@ const THINKING = 'The user wants one word. ';
     80
   );
   const joined = text(lines);
-  assert.match(joined, /[✢✳✶✻✽] \w+… \(4s/, 'spinner + elapsed seconds are shown');
-  assert.ok(joined.includes('↓ 1500 tokens'), 'token count is shown');
+  assert.match(joined, /[✢✳✶✻✽] \w+… 4s/, 'spinner + elapsed seconds are shown');
+  assert.ok(joined.includes('1.5k out'), 'current run output tokens are labeled');
   assert.ok(joined.includes('1 queued'), 'queued submissions are shown');
-  assert.ok(joined.includes('fps_probe.sh'), 'in-flight tool is shown');
+  assert.ok(
+    !joined.includes('fps_probe.sh'),
+    'live region does not duplicate the transcript tool row'
+  );
+  assert.equal(
+    store.rows.filter((row) => row.kind === 'tool' && row.text.includes('fps_probe.sh')).length,
+    1,
+    'the tool is recorded once in the transcript'
+  );
   assert.ok(joined.includes('checking the pipeline'), 'reasoning is shown dimmed');
   assert.ok(joined.includes('measuring fps'), 'answer preview is shown');
   assert.ok(!joined.includes('Try "'), 'the composer placeholder is not part of the live region');
@@ -189,9 +197,11 @@ const THINKING = 'The user wants one word. ';
     cacheReadTokens: 10_000,
     cacheCreationTokens: 0,
     contextTokens: 200_000,
+    model: 'provider-routed-model',
   });
   assert.equal(store.usage.contextTotal, 200_000, 'the context window is recorded');
   assert.equal(store.usage.contextUsed, 50_000, 'prompt tokens include cache reads');
+  assert.equal(store.usage.lastModel, 'provider-routed-model', 'actual provider model is recorded');
 
   const status = renderStatusRight(
     {

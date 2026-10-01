@@ -362,7 +362,7 @@ async function main() {
   }
   const configStartDir = fallbackStartDir;
   const loadedConfig = loadCliConfigFile(process.env, process.argv.slice(2), configStartDir);
-  const resolvedConfig = resolveCliConfig(
+  let resolvedConfig = resolveCliConfig(
     process.env,
     loadedConfig.config,
     parsedArgs.configOverrides,
@@ -477,23 +477,40 @@ async function main() {
 
   if (!resolvedConfig.apiKey && !parsedArgs.mock) {
     const guidance = { bundledDefaultSuppressedBy: resolvedConfig.bundledDefaultSuppressedBy };
+    let setupCompleted = false;
     if (process.stdin.isTTY && !oneShotMessage) {
-      await offerSetupForInteractiveMissingConfig(guidance);
-      return;
+      const setupStarted = await offerSetupForInteractiveMissingConfig(guidance);
+      if (!setupStarted) return;
+      const refreshed = loadCliConfigFile(process.env, process.argv.slice(2), configStartDir);
+      resolvedConfig = resolveCliConfig(
+        process.env,
+        refreshed.config,
+        parsedArgs.configOverrides,
+        refreshed
+      );
+      if (!resolvedConfig.apiKey) {
+        printMissingConfigGuidance(false, {
+          bundledDefaultSuppressedBy: resolvedConfig.bundledDefaultSuppressedBy,
+        });
+        process.exit(ExitCode.CONFIG);
+      }
+      setupCompleted = true;
     }
-    // One-shot mode with no model configured: show a brief onboarding hint
-    // (once), then the full config guidance.
-    if (oneShotMessage && !hasShownOneShotOnboardingHint()) {
-      console.error(renderOneShotOnboardingHint());
-      markOneShotOnboardingShown();
-      console.error('');
+    if (!setupCompleted) {
+      // One-shot mode with no model configured: show a brief onboarding hint
+      // (once), then the full config guidance.
+      if (oneShotMessage && !hasShownOneShotOnboardingHint()) {
+        console.error(renderOneShotOnboardingHint());
+        markOneShotOnboardingShown();
+        console.error('');
+      }
+      if (resolveCliDetailMode(argv) !== 'quiet') {
+        printMissingConfigGuidance(false, guidance);
+      } else {
+        console.error('[moss] No API key configured. Run `moss setup` or set MOSS_API_KEY.');
+      }
+      process.exit(ExitCode.CONFIG);
     }
-    if (resolveCliDetailMode(argv) !== 'quiet') {
-      printMissingConfigGuidance(false, guidance);
-    } else {
-      console.error('[moss] No API key configured. Run `moss setup` or set MOSS_API_KEY.');
-    }
-    process.exit(ExitCode.CONFIG);
   }
 
   if (parsedArgs.mock) {
