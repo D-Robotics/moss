@@ -17,6 +17,9 @@
  *      binary blobs are still removed.
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   LOCAL_SHELL_OUTPUT_LIMIT,
@@ -144,7 +147,26 @@ const bodyOf = (value) => value.slice(value.indexOf('\n') + 1);
 // ─── 6. D-4 repro: a big capture announces its truncation ─────────────────
 
 {
-  const big = await run("seq 1 20000 | sed 's/^/row-/'");
+  // The generator is a script ON DISK invoked with zero quoting (`node <abs>`):
+  // the old `seq 1 20000 | sed 's/^/row-/'` pipeline needs `seq`, which the
+  // Windows runners do not have on PATH (Git Bash ships sed/printf but not
+  // seq) — the established Windows-CI rule is scripts-on-disk, never inline
+  // shell pipelines (see the Windows CI pitfalls ledger).
+  const genPath = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'moss-output-integrity-')),
+    'gen-rows.mjs'
+  );
+  fs.writeFileSync(
+    genPath,
+    'for (let i = 1; i <= 20000; i += 1) console.log(`row-${i}`);\n',
+    'utf8'
+  );
+  const big = await run(`node ${genPath}`);
+  assert.equal(
+    big.exitCode,
+    0,
+    `the generator runs (exit ${big.exitCode}: ${big.output.slice(0, 120)})`
+  );
   assert.ok(big.output.length <= LOCAL_SHELL_OUTPUT_LIMIT, 'the capture respects the limit');
   const notice = noticeOf(big.output);
   assert.ok(notice.lines > 1000, `a 20k-line capture reports its scale (${notice.lines} lines)`);
