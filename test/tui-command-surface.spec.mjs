@@ -205,6 +205,7 @@ const BLOCK_TITLE = new Map([
   ['/sessions', /^sessions$/],
   ['/mcp', /^mcp$/],
   ['/hooks', /^Hooks$/],
+  ['/jobs', /^Jobs$/],
 ]);
 
 // Arguments a bare command needs to answer deterministically (the variable part
@@ -542,4 +543,64 @@ for (const command of advertised) {
 }
 
 void streamCalls;
+
+// ─── D5: task artifacts fold into /task view; /jobs merges bg+subs ──────────
+// The merged-away tokens keep dispatching (back-compat) while leaving the
+// advertised catalog.
+{
+  const hasBlock = (handle, title) =>
+    handle.store.rows.some((r) => r.kind === 'tool' && title.test(r.text));
+  const mount = async (suffix) => {
+    const handle = liveHandle();
+    const runtime = new TaskRuntime({
+      workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), `moss-tui-cmd-${suffix}-`)),
+    });
+    const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
+    await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
+    return { instance, handle };
+  };
+  {
+    const { instance, handle } = await mount('d5-view');
+    await type(instance, '/task view evidence');
+    assert.ok(
+      await waitFor(() => hasBlock(handle, /^Evidence \(\d+\)$/)),
+      '/task view evidence prints the Evidence block'
+    );
+    await type(instance, '/task view');
+    assert.ok(
+      await waitFor(() => hasBlock(handle, /^Tasks \(\d+\)$/)),
+      'bare /task view defaults to tasks'
+    );
+    await type(instance, '/tasks');
+    assert.ok(
+      await waitFor(
+        () =>
+          handle.store.rows.filter((r) => r.kind === 'tool' && /^Tasks \(\d+\)$/.test(r.text))
+            .length >= 2
+      ),
+      'legacy /tasks still dispatches after the merge'
+    );
+    await type(instance, '/task view bogus');
+    assert.ok(
+      await waitFor(() => instance.lastFrame().includes('unknown kind "bogus"')),
+      'an unknown kind gets a one-line corrective hint'
+    );
+    instance.unmount();
+    await sleep(100);
+  }
+  {
+    const { instance, handle } = await mount('d5-jobs');
+    await type(instance, '/jobs');
+    assert.ok(await waitFor(() => hasBlock(handle, /^Jobs$/)), '/jobs prints the combined block');
+    assert.ok(instance.lastFrame().includes('sub-agents:'), '/jobs includes the sub-agent section');
+    await type(instance, '/bg');
+    assert.ok(
+      await waitFor(() => handle.store.rows.some((r) => r.kind === 'tool' && r.text === 'bg')),
+      'legacy /bg still dispatches after the merge'
+    );
+    instance.unmount();
+    await sleep(100);
+  }
+}
+
 console.log('[PASS] TUI command surface honesty (advertised + discoverable + marker==action)');

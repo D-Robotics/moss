@@ -78,8 +78,9 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       },
       {
         command: '/task',
-        args: 'run|resume|status|timeline',
-        description: 'run or inspect a verified Task OS task',
+        args: 'run|resume|status|timeline|view',
+        description:
+          'run or inspect a verified Task OS task; view [tasks|history|evidence|deployments|failures] prints its artifacts',
       },
       {
         command: '/resume',
@@ -117,31 +118,6 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       {
         command: '/log',
         description: 'show this session’s on-disk conversation and run-event logs',
-        surfaces: ['tui'],
-      },
-      {
-        command: '/tasks',
-        description: 'print the task-runtime tasks',
-        surfaces: ['tui'],
-      },
-      {
-        command: '/history',
-        description: 'print the lifecycle timeline of each task',
-        surfaces: ['tui'],
-      },
-      {
-        command: '/evidence',
-        description: 'print recorded acceptance evidence',
-        surfaces: ['tui'],
-      },
-      {
-        command: '/deployments',
-        description: 'print device deployments',
-        surfaces: ['tui'],
-      },
-      {
-        command: '/failures',
-        description: 'print recorded task failures',
         surfaces: ['tui'],
       },
       { command: '/mcp', description: 'list MCP server status', surfaces: ['tui'] },
@@ -189,8 +165,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         description: 'clear the transcript (banner stays; the model context is kept)',
         surfaces: ['tui'],
       },
-      { command: '/bg', description: 'list background shell tasks', surfaces: ['tui'] },
-      { command: '/subs', description: 'list background sub-agent tasks', surfaces: ['tui'] },
+      {
+        command: '/jobs',
+        description: 'list background shell and sub-agent jobs',
+        surfaces: ['tui'],
+      },
       {
         command: '/queue',
         args: '[pause|resume|drop|clear]',

@@ -1812,6 +1812,25 @@ export function TuiAppRoot({
         },
       };
 
+      if (head === '/task' && (args === 'view' || args.startsWith('view '))) {
+        const kind = args.slice(4).trim() || 'tasks';
+        if (
+          kind === 'tasks' ||
+          kind === 'history' ||
+          kind === 'evidence' ||
+          kind === 'deployments' ||
+          kind === 'failures'
+        ) {
+          await showBlock(kind);
+        } else {
+          printCommandError(
+            'Task view',
+            `unknown kind "${kind}" — use tasks | history | evidence | deployments | failures`
+          );
+        }
+        return true;
+      }
+
       if (head === '/task') {
         await runTaskShellCommand(args);
         return true;
@@ -1945,6 +1964,16 @@ export function TuiAppRoot({
           'transcript cleared — the conversation context is kept (see /compact to shrink it)'
         );
         handle.notify();
+        return;
+      }
+      if (text === '/jobs') {
+        printBlock('Jobs', [
+          'background shell:',
+          ...(await sessionInfo('bg')).map((l) => `  ${l}`),
+          '',
+          'sub-agents:',
+          ...(await sessionInfo('subs')).map((l) => `  ${l}`),
+        ]);
         return;
       }
       if (text === '/tasks') {

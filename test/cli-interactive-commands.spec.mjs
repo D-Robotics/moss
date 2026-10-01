@@ -122,10 +122,14 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
 // ─── Commands without REPL handlers are never advertised to the REPL ────────
 
 {
-  // /steer /queue /history /resume /clear have no REPL handler. They live in
-  // the catalog marked surfaces:['tui'] so the shell can offer them, but no
-  // REPL-facing projection (menu, completion, help) may list them.
-  const dead = ['/steer', '/queue', '/history', '/resume', '/clear'];
+  // Two groups after the D5 merge:
+  //  - folded-away task-artifact tokens (/tasks /history /evidence /deployments
+  //    /failures /bg /subs) left the catalog entirely — they still dispatch in
+  //    the shell via /task view and /jobs back-compat, but are advertised nowhere;
+  //  - tui-only commands (/steer /queue /clear /resume /mcp /log /hooks) live in
+  //    the catalog marked surfaces:['tui'], absent from every REPL projection.
+  const folded = ['/tasks', '/history', '/evidence', '/deployments', '/failures', '/bg', '/subs'];
+  const tuiOnly = ['/steer', '/queue', '/clear', '/resume', '/mcp', '/log', '/hooks'];
   const tokens = new Set([
     ...SLASH_MENU_ROWS.map((row) => row.command),
     ...SLASH_MENU_ROWS.flatMap((row) => row.aliases ?? []),
@@ -133,10 +137,19 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
     ...REPL_COMMAND_SECTIONS.flatMap((section) => section.rows.map((row) => row.command)),
   ]);
   const helpText = formatInteractiveCommandSections({ includeHidden: true }).join('\n');
-  for (const cmd of dead) {
-    assert.ok(!tokens.has(cmd), `tui-only command "${cmd}" is not in the REPL menu/completion`);
-    assert.ok(!helpText.includes(cmd), `tui-only command "${cmd}" is not in REPL help text`);
-    const row = INTERACTIVE_COMMAND_SECTIONS.flatMap((s) => s.rows).find((r) => r.command === cmd);
+  const catalogRows = INTERACTIVE_COMMAND_SECTIONS.flatMap((s) => s.rows);
+  for (const cmd of [...folded, ...tuiOnly]) {
+    assert.ok(!tokens.has(cmd), `shell-only command "${cmd}" is not in the REPL menu/completion`);
+    assert.ok(!helpText.includes(cmd), `shell-only command "${cmd}" is not in REPL help text`);
+  }
+  for (const cmd of folded) {
+    assert.ok(
+      !catalogRows.some((r) => r.command === cmd),
+      `folded command "${cmd}" is gone from the catalog`
+    );
+  }
+  for (const cmd of tuiOnly) {
+    const row = catalogRows.find((r) => r.command === cmd);
     assert.ok(row, `tui-only command "${cmd}" exists in the shared catalog`);
     assert.deepEqual(row.surfaces, ['tui'], `"${cmd}" is marked tui-only`);
   }
@@ -180,6 +193,27 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
       `${name} stays REPL-only in the TUI projection`
     );
   }
+  // D5 merges: the task-artifact family folds into /task view, bg+subs into
+  // /jobs; the merged-away tokens stay dispatchable but leave the catalog.
+  const tuiCommands = SHELL_COMMANDS.map((entry) => entry.command);
+  for (const merged of [
+    '/tasks',
+    '/history',
+    '/evidence',
+    '/deployments',
+    '/failures',
+    '/bg',
+    '/subs',
+  ]) {
+    assert.ok(!tuiCommands.includes(merged), `${merged} is no longer advertised (folded away)`);
+  }
+  assert.ok(tuiCommands.includes('/jobs'), '/jobs is advertised');
+  const taskRow = byCommand.get('/task');
+  assert.ok(taskRow?.args?.includes('view'), '/task advertises the view subcommand');
+  assert.ok(
+    SHELL_COMMANDS.length <= 27,
+    `the TUI command surface keeps shrinking (got ${SHELL_COMMANDS.length})`
+  );
 }
 
 console.log('[PASS] Interactive slash commands');

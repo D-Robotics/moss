@@ -316,6 +316,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
         runConfigSet,
         runConfigUnset,
         runConfigValidate,
+        runConfigEnv,
         renderConfigUsage,
       } = await import('./config-commands.js');
       const { ExitCode } = await import('./exit-codes.js');
@@ -331,6 +332,11 @@ export const COMMANDS: Record<string, CommandConfig> = {
           json: checkJsonOutput(ctx.argv),
           overrides: ctx.configOverrides as never,
         });
+        return;
+      }
+
+      if (ctx.commandArgs[0] === 'env') {
+        runConfigEnv();
         return;
       }
 

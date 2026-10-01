@@ -69,6 +69,7 @@ const EXPECTED_USAGE = [
   '  moss config init [--project] [--force]',
   '  moss config show [--json]',
   '  moss config validate [--strict] [--json]',
+  '  moss config env                      every MOSS_* override moss reads',
   '  moss config set <key> <value>|<key>=<value> [--project]',
   '  moss config unset <key> [--project]',
   '',

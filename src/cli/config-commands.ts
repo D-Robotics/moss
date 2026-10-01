@@ -174,11 +174,193 @@ export function renderConfigUsage(): string {
     '  moss config init [--project] [--force]',
     '  moss config show [--json]',
     '  moss config validate [--strict] [--json]',
+    '  moss config env                      every MOSS_* override moss reads',
     '  moss config set <key> <value>|<key>=<value> [--project]',
     '  moss config unset <key> [--project]',
     '',
     'Every settable key with examples: moss config --help',
   ].join('\n');
+}
+
+/**
+ * The authoritative MOSS_* environment-variable reference. A coverage test
+ * scans src/ for /MOSS_[A-Z0-9_]+/ and fails when a new variable is read but
+ * missing here (or listed here but read nowhere).
+ */
+export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly string[] }> = [
+  {
+    group: 'config & identity',
+    vars: [
+      'MOSS_CONFIG_DIR',
+      'MOSS_CONFIG_FILE',
+      'MOSS_CONFIG_PATH (legacy alias of MOSS_CONFIG_FILE)',
+      'MOSS_WORKSPACE',
+      'MOSS_PROFILE',
+      'MOSS_CONFIG_PROFILE (legacy alias of MOSS_PROFILE)',
+      'MOSS_CLI_IDENTITY',
+      'MOSS_RUN_ID',
+      'MOSS_BUNDLED_DEFAULT_FILE',
+      'MOSS_NO_BUNDLED_DEFAULT',
+    ],
+  },
+  {
+    group: 'safety & approval',
+    vars: [
+      'MOSS_SAFETY_MODE',
+      'MOSS_CLI_SAFETY_MODE (legacy alias of MOSS_SAFETY_MODE)',
+      'MOSS_APPROVAL_POLICY',
+      'MOSS_ASK_FOR_APPROVAL (legacy alias of MOSS_APPROVAL_POLICY)',
+      'MOSS_TRUSTED_TOOLS',
+      'MOSS_DENIED_TOOLS',
+      'MOSS_CLI_AUTO_APPROVE',
+      'MOSS_AUTO_APPROVE (legacy alias of MOSS_CLI_AUTO_APPROVE)',
+    ],
+  },
+  {
+    group: 'runs, loops & budgets',
+    vars: [
+      'MOSS_MAX_AGENT_TURNS',
+      'MOSS_DEFAULT_MAX_AGENT_TURNS',
+      'MOSS_MAX_AGENT_TURNS_HARD_CAP',
+      'MOSS_CONTEXT_TOKENS',
+      'MOSS_MAX_OUTPUT_TOKENS',
+      'MOSS_LOOP_MAX',
+      'MOSS_GOAL_VERIFY_CMD',
+      'MOSS_GOAL_VERIFY_LOOP',
+      'MOSS_GOAL_AUTO_MAX_RUNS',
+      'MOSS_BUDGET_MAX_TOKENS',
+      'MOSS_BUDGET_MAX_TOOL_CALLS',
+      'MOSS_BUDGET_MAX_TURNS',
+      'MOSS_BUDGET_MAX_WALL_MS',
+      'MOSS_BUDGET_ (prefix of the MOSS_BUDGET_MAX_* keys)',
+      'MOSS_CAPABILITY_LAYER',
+      'MOSS_WORKTREE_SUBAGENTS',
+    ],
+  },
+  {
+    group: 'device (robotics closed loop)',
+    vars: [
+      'MOSS_DEVICE_HOST',
+      'MOSS_DEVICE_PORT',
+      'MOSS_DEVICE_USER',
+      'MOSS_DEVICE_PASSWORD',
+      'MOSS_DEVICE_KEY',
+      'MOSS_DEVICE_KEY_PASSPHRASE',
+      'MOSS_DEVICE_KIND',
+      'MOSS_DEVICE_ID',
+      'MOSS_DEVICE_ (prefix of every MOSS_DEVICE_* key)',
+    ],
+  },
+  {
+    group: 'context & compaction',
+    vars: [
+      'MOSS_AUTOCOMPACT_BUFFER_RATIO',
+      'MOSS_AUTOCOMPACT_BUFFER_TOKENS',
+      'MOSS_COMPACTION_PREPARE_TIMEOUT_MS',
+      'MOSS_CONTEXT_CHARS_PER_TOKEN_UNIT',
+      'MOSS_CONTEXT_HARD_CLEAR_RATIO',
+      'MOSS_CONTEXT_KEEP_LAST_ASSISTANTS',
+      'MOSS_CONTEXT_MAX_HISTORY_SHARE',
+      'MOSS_CONTEXT_SOFT_TRIM_RATIO',
+      'MOSS_REMOTE_COMPACT_ENDPOINT',
+      'MOSS_REMOTE_COMPACT_API_KEY',
+      'MOSS_REMOTE_COMPACT_TIMEOUT_MS',
+    ],
+  },
+  {
+    group: 'providers, models & fallback',
+    vars: [
+      'MOSS_BEST_OF_N',
+      'MOSS_REASONING_BUDGET',
+      'MOSS_MODEL_BALANCED',
+      'MOSS_MODEL_CHEAP',
+      'MOSS_MODEL_STRONG',
+      'MOSS_TEMPERATURE',
+      'MOSS_FALLBACK_PROVIDERS',
+      'MOSS_FALLBACK_MAX_RETRIES',
+      'MOSS_FALLBACK_COOLDOWN_MS',
+      'MOSS_PROMPT_CACHE',
+      'MOSS_PROMPT_CACHE_DEBUG',
+      'MOSS_PROMPT_CACHE_ENABLED (legacy alias)',
+      'MOSS_PROMPT_PREFIX_DEBUG (legacy alias)',
+      'MOSS_PRICE_IN',
+      'MOSS_PRICE_OUT',
+      'MOSS_DISABLE_CONN_WARMUP',
+      'MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS',
+      'MOSS_PI_AI_FIRST_EVENT_TIMEOUT_MS',
+      'MOSS_PI_AI_INTER_EVENT_TIMEOUT_MS',
+      'MOSS_PI_AI_TOOL_CHOICE',
+      'MOSS_TRACE_PI_AI_STREAM',
+    ],
+  },
+  {
+    group: 'tools, exec & guardrails',
+    vars: [
+      'MOSS_EXEC_BACKEND',
+      'MOSS_EXEC_TIMEOUT_MS',
+      'MOSS_NET_ALLOW_HOSTS',
+      'MOSS_TOOL_RETRY_MAX',
+      'MOSS_TOOL_RETRY_BACKOFF_BASE_MS',
+      'MOSS_TOOL_RETRY_BACKOFF_MAX_MS',
+      'MOSS_TOOL_LOOP_DISCOVERY_FAILURE_LIMIT',
+      'MOSS_TOOL_LOOP_EDIT_PATH_FAILURE_LIMIT',
+      'MOSS_TOOL_LOOP_FAILURE_LIMIT',
+      'MOSS_TOOL_LOOP_IDENTICAL_LIMIT',
+      'MOSS_TOOL_LOOP_SINGLE_TOOL_LIMIT',
+      'MOSS_TOOL_LOOP_TOTAL_LIMIT',
+      'MOSS_TOOL_NAME',
+      'MOSS_TUI_LOCAL_SHELL',
+      'MOSS_OVERFLOW_PATTERNS',
+      'MOSS_HOOK_EVENT',
+    ],
+  },
+  {
+    group: 'ui, logging & notifications',
+    vars: [
+      'MOSS_NO_TUI',
+      'MOSS_THEME',
+      'MOSS_TUI_THEME',
+      'MOSS_NO_COLOR',
+      'MOSS_NO_TERM_QUERY',
+      'MOSS_LOG_LEVEL',
+      'MOSS_LOG_JSON',
+      'MOSS_SHOW_THINKING',
+      'MOSS_CLI_DETAIL',
+      'MOSS_VERBOSE_CLI',
+      'MOSS_VERBOSE_TOOLS',
+      'MOSS_QUIET',
+      'MOSS_NOTIFY',
+    ],
+  },
+  {
+    group: 'network & telemetry',
+    vars: ['MOSS_TELEMETRY_ALLOW', 'MOSS_WEB_SEARCH_VARIATION_LIMIT'],
+  },
+  {
+    group: 'test-only',
+    vars: ['MOSS_TEST_PIPED_STDIN_CAP'],
+  },
+  {
+    group: 'read but IGNORED (model settings are config-only)',
+    vars: ['MOSS_PROVIDER', 'MOSS_MODEL', 'MOSS_BASE_URL', 'MOSS_API_KEY'],
+  },
+];
+
+export function renderConfigEnv(): string {
+  const lines: string[] = ['MOSS_* environment variables moss actually reads:'];
+  for (const { group, vars } of MOSS_ENV_REFERENCE) {
+    lines.push('', `  ${group}`);
+    for (const v of vars) lines.push(`    ${v}`);
+  }
+  lines.push(
+    '',
+    'Credentials belong in the config file or a provider-specific key var — never in shell history.'
+  );
+  return lines.join('\n');
+}
+
+export function runConfigEnv(): void {
+  standardOutput.write(`${renderConfigEnv()}\n`);
 }
 
 /** Full reference — the single home for settable keys and examples. */
