@@ -8,7 +8,7 @@
  * rewrite are asserted here against the new grammar:
  *
  *   ❯ user echo · ⏺ answer/tool · ⎿ result · ✢ live run · inline approval
- *   boot banner · two rules · composer · hint · Ctrl+T/R/E/G/F blocks
+ *   boot banner · two rules · composer · hint · Ctrl+T/R/V/G/F blocks
  *
  * The task-runtime fixture is seeded exactly as the old spec did, so the
  * replacement checks read the same `.moss/` truth.
@@ -681,7 +681,7 @@ instance.unmount();
     );
   }
 
-  // 3b. Ctrl+T/R/E/G/F print the task-runtime blocks into the transcript.
+  // 3b. Ctrl+T/R/V/G/F print the task-runtime blocks into the transcript.
   instance.stdin.write('\x14'); // Ctrl+T → tasks
   assert.ok(await waitFor(() => toolTitles().includes('Tasks (2)')), 'Ctrl+T prints the task list');
   assert.ok(
@@ -704,10 +704,10 @@ instance.unmount();
     'history shows the acceptance verdict'
   );
 
-  instance.stdin.write('\x05'); // Ctrl+E → evidence
+  instance.stdin.write('\x16'); // Ctrl+V → evidence (Ctrl+E is the caret-to-line-end editor key)
   assert.ok(
     await waitFor(() => toolTitles().includes('Evidence (1)')),
-    'Ctrl+E prints the evidence'
+    'Ctrl+V prints the evidence'
   );
   assert.ok(
     detailRows().some(

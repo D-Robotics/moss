@@ -26,9 +26,15 @@ import {
   beginRun,
   createTuiStore,
   endRun,
+  formatUsage,
   visibleRows,
 } from '../dist/cli/tui/render-bridge.js';
-import { renderHint, renderStatusRight, renderTranscriptRows } from '../dist/cli/tui/transcript.js';
+import {
+  renderHint,
+  renderRunSummary,
+  renderStatusRight,
+  renderTranscriptRows,
+} from '../dist/cli/tui/transcript.js';
 import { TuiAppRoot, runTuiApp } from '../dist/cli/tui/app.js';
 import { buildResumeReplay } from '../dist/cli/tui-utils.js';
 import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
@@ -153,11 +159,229 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
     !compactResult.some((text) => text.includes('line5')),
     'the compact projection hides the tail behind the ctrl+o marker'
   );
-  assert.equal(store.rows[5].text, 'FAILED — boom', 'a failed tool result says FAILED');
+  assert.equal(store.rows[5].text, 'boom', 'the failed row keeps the raw result text');
+  assert.equal(store.rows[5].tool?.isError, true, 'the failure is meta, not a text prefix');
+  assert.match(
+    store.rows[5].tool?.summary ?? '',
+    /failed — boom/,
+    'the red headline carries the failure detail'
+  );
   assert.equal(store.rows[6].text, 'explode', 'errors surface their message verbatim');
   assert.equal(store.rows[7].text, 'hello world', 'the answer commits as an assistant row');
   assert.equal(store.run.running, false);
   assert.equal(store.run.toolLine, undefined, 'the in-flight tool clears when it finishes');
+}
+
+// ─── 2b. Tool completion meta: summaries, durations, diffs, retries ─────────
+
+{
+  const store = createTuiStore();
+  beginRun(store);
+  // A write with content: the transcript shows the gain summary + the diff gutter.
+  applyAgentEvent(store, {
+    type: 'tool_start',
+    toolName: 'write_file',
+    toolCallId: 'w1',
+    input: { path: 'notes.md', content: '# title\n\nbody text\n' },
+  });
+  applyAgentEvent(store, {
+    type: 'tool_end',
+    toolName: 'write_file',
+    toolCallId: 'w1',
+    result: 'Wrote 3 lines to notes.md',
+    isError: false,
+    durationMs: 320,
+  });
+  const writeRow = store.rows.at(-1);
+  assert.equal(writeRow.tool?.summary, 'Wrote 3 lines', 'the headline counts the written lines');
+  assert.equal(writeRow.tool?.durationMs, 320, 'the call duration is kept');
+  assert.ok(writeRow.text.includes('+ # title'), 'the row body is the new-file diff');
+  const writeLines = renderTranscriptRows([writeRow], 72).map((l) => l.text);
+  assert.ok(
+    writeLines.some((text) => text.includes('⎿') && text.includes('Wrote 3 lines')),
+    `the ⎿ headline leads the block: ${JSON.stringify(writeLines)}`
+  );
+  assert.ok(
+    writeLines.some((text) => text.includes('320ms')),
+    'the duration rides the headline'
+  );
+
+  // An edit: Added/removed counts + a real diff gutter.
+  applyAgentEvent(store, {
+    type: 'tool_start',
+    toolName: 'edit_file',
+    toolCallId: 'e1',
+    input: { path: 'a.ts', old_string: 'const a = 1;', new_string: 'const a = 1;\nconst b = 2;' },
+  });
+  applyAgentEvent(store, {
+    type: 'tool_end',
+    toolName: 'edit_file',
+    toolCallId: 'e1',
+    result: 'edited a.ts',
+    isError: false,
+    durationMs: 5200,
+  });
+  const editRow = store.rows.at(-1);
+  assert.match(editRow.tool?.summary ?? '', /Added 1 line/, 'the edit summary counts gains');
+  const editLines = renderTranscriptRows([editRow], 72);
+  const durationLine = editLines.find((l) => l.text.includes('5.2s'));
+  assert.ok(durationLine, 'a slow tool shows its duration');
+  assert.ok(
+    durationLine.runs?.some((r) => r.color === 'yellow'),
+    'a >3s call turns the duration yellow'
+  );
+  assert.ok(
+    editLines.some((l) => l.color === 'green' && l.text.includes('const b = 2;')),
+    'the added line renders green in the gutter'
+  );
+
+  // A ranged read names its window; a long exec surfaces its tail.
+  applyAgentEvent(store, {
+    type: 'tool_start',
+    toolName: 'read_file',
+    toolCallId: 'r1',
+    input: { path: 'big.ts', offset: 10, limit: 30 },
+  });
+  applyAgentEvent(store, {
+    type: 'tool_end',
+    toolName: 'read_file',
+    toolCallId: 'r1',
+    result: '[lines 10-39 of 200]\n' + '   10\tcode\n'.repeat(30),
+    isError: false,
+  });
+  assert.equal(store.rows.at(-1).tool?.summary, 'Read lines 10-39 of 200');
+
+  const longOutput =
+    Array.from({ length: 30 }, (_, i) => `build step ${i}`).join('\n') + '\nBuild completed in 12s';
+  applyAgentEvent(store, {
+    type: 'tool_start',
+    toolName: 'exec',
+    toolCallId: 'x1',
+    input: { command: 'npm run build' },
+  });
+  applyAgentEvent(store, {
+    type: 'tool_end',
+    toolName: 'exec',
+    toolCallId: 'x1',
+    result: longOutput,
+    isError: false,
+  });
+  assert.match(
+    store.rows.at(-1).tool?.summary ?? '',
+    /Build completed in 12s/,
+    'a long command surfaces its conclusion, not its head'
+  );
+
+  // A short exec result that fits the preview gets NO headline (no double-telling).
+  applyAgentEvent(store, {
+    type: 'tool_start',
+    toolName: 'exec',
+    toolCallId: 'x2',
+    input: { command: 'pwd' },
+  });
+  applyAgentEvent(store, {
+    type: 'tool_end',
+    toolName: 'exec',
+    toolCallId: 'x2',
+    result: '/tmp',
+    isError: false,
+    durationMs: 41,
+  });
+  const shortRow = store.rows.at(-1);
+  assert.equal(shortRow.tool?.summary, undefined, 'short output needs no summary');
+  const shortLines = renderTranscriptRows([shortRow], 72).map((l) => l.text);
+  assert.ok(
+    shortLines.some((text) => text.includes('⎿') && text.includes('41ms')),
+    'the duration still shows'
+  );
+
+  // Provider retries land in the live state, and progress clears them.
+  applyAgentEvent(store, { type: 'retry', attempt: 2, error: 'rate limited' });
+  assert.deepEqual(store.run.retry, { attempt: 2, error: 'rate limited' });
+  applyAgentEvent(store, { type: 'text_delta', delta: 'ok' });
+  assert.equal(store.run.retry, undefined, 'progress clears the retry notice');
+
+  // Microcompaction is announced, not silent.
+  applyAgentEvent(store, {
+    type: 'microcompact',
+    compressedCount: 4,
+    savedChars: 9000,
+    savedTokens: 2400,
+  });
+  assert.match(
+    store.rows.at(-1).text,
+    /compressed 4 old tool results · saved ~2.4k tokens/,
+    'microcompact leaves a transcript note'
+  );
+
+  // Prompt-cache hits accumulate into the usage line.
+  applyAgentEvent(store, {
+    type: 'llm_usage',
+    inputTokens: 100,
+    outputTokens: 10,
+    cacheReadTokens: 4000,
+  });
+  assert.equal(store.usage.cacheReadTokens, 4000);
+  assert.match(formatUsage(store.usage), /4k prompt-cache hits/, 'cache hits are visible');
+  endRun(store, false);
+}
+
+// ─── 2c. Run summary tokens + context high-water status ─────────────────────
+
+{
+  const done = renderRunSummary(12_000, false, 200, { input: 3200, output: 891 })
+    .map((l) => l.text)
+    .join('\n');
+  assert.match(done, /✻ \w+ for 12s · ↑ 3\.2k ↓ 891/, 'the run summary shows token spend');
+  const halted = renderRunSummary(4000, true, 200, { input: 0, output: 0 })
+    .map((l) => l.text)
+    .join('\n');
+  assert.match(halted, /· interrupted$/, 'no-token runs stay clean');
+  assert.ok(!renderRunSummary(4000, false, 200).some((l) => l.text.includes('↑')));
+
+  const hot = renderStatusRight(
+    {
+      running: false,
+      tokens: 0,
+      taskCount: 0,
+      queueLength: 0,
+      contextUsed: 87_000,
+      contextTotal: 100_000,
+    },
+    80
+  );
+  assert.ok(hot.text.includes('87% ctx'), 'the percentage is shown');
+  assert.ok(
+    hot.runs?.some((r) => r.color === 'yellow' && r.text === '87% ctx'),
+    'past 80% the segment turns yellow'
+  );
+  const critical = renderStatusRight(
+    {
+      running: false,
+      tokens: 0,
+      taskCount: 0,
+      queueLength: 0,
+      contextUsed: 97_000,
+      contextTotal: 100_000,
+    },
+    80
+  );
+  assert.ok(
+    critical.runs?.some((r) => r.color === 'red'),
+    'past 95% the segment turns red'
+  );
+  const cool = renderStatusRight(
+    {
+      running: false,
+      tokens: 0,
+      taskCount: 0,
+      queueLength: 0,
+      contextUsed: 10_000,
+      contextTotal: 100_000,
+    },
+    80
+  );
+  assert.equal(cool.runs, undefined, 'a cool context keeps the plain dim row');
 }
 
 // ─── 3. Status/hint chrome + transcript window ──────────────────────────────
@@ -331,6 +555,92 @@ async function type(instance, text) {
     await type(instance, '/nope');
     const ok = await waitFor(() => instance.lastFrame().includes('unknown command "/nope"'));
     assert.ok(ok, `unknown command answered: ${instance.lastFrame().slice(0, 200)}`);
+    instance.unmount();
+    await sleep(150);
+  }
+
+  // 4f. Composer editing keys: Ctrl+A/E caret, Ctrl+U kill + Ctrl+Y yank.
+  {
+    const { instance } = mount({ agent: createMockAgent(), workspaceDir: '/tmp/ws' });
+    for (const ch of 'abc') instance.stdin.write(ch);
+    await sleep(60);
+    instance.stdin.write('\x01'); // Ctrl+A → line start
+    await sleep(40);
+    instance.stdin.write('X');
+    await sleep(40);
+    instance.stdin.write('\x05'); // Ctrl+E → line end (NOT the evidence panel)
+    await sleep(40);
+    instance.stdin.write('Y');
+    await sleep(60);
+    assert.ok(
+      instance.lastFrame().includes('XabcY'),
+      `Ctrl+A/E move the caret for mid-line edits: ${JSON.stringify(instance.lastFrame())}`
+    );
+    instance.stdin.write('\x15'); // Ctrl+U → kill to line start
+    await sleep(60);
+    assert.ok(
+      instance.lastFrame().includes('Ctrl+Y to paste back'),
+      'a kill advertises its undo key'
+    );
+    assert.ok(
+      !instance
+        .lastFrame()
+        .split('\n')
+        .some((row) => row.startsWith('❯ XabcY')),
+      'the composer row no longer holds the killed draft'
+    );
+    instance.stdin.write('\x19'); // Ctrl+Y → yank
+    await sleep(60);
+    assert.ok(instance.lastFrame().includes('XabcY'), 'Ctrl+Y pastes the killed text back');
+    instance.unmount();
+    await sleep(150);
+  }
+
+  // 4g. Esc on an idle draft arms "Esc again to clear"; the second Esc clears.
+  {
+    const { instance } = mount({ agent: createMockAgent(), workspaceDir: '/tmp/ws' });
+    for (const ch of 'draft text') instance.stdin.write(ch);
+    await sleep(60);
+    instance.stdin.write('\x1b');
+    await sleep(60);
+    assert.ok(
+      instance.lastFrame().includes('Esc again to clear'),
+      'the first Esc arms instead of destroying the draft'
+    );
+    assert.ok(instance.lastFrame().includes('draft text'), 'the draft survives one Esc');
+    instance.stdin.write('\x1b');
+    await sleep(60);
+    assert.ok(!instance.lastFrame().includes('draft text'), 'the second Esc clears');
+    instance.unmount();
+    await sleep(150);
+  }
+
+  // 4h. Ctrl+V prints the evidence block (the chord evidence moved to).
+  {
+    const { instance } = mount({ agent: createMockAgent(), workspaceDir: '/tmp/ws' });
+    instance.stdin.write('\x16');
+    const ok = await waitFor(() => instance.lastFrame().includes('Evidence'));
+    assert.ok(ok, `Ctrl+V prints evidence: ${instance.lastFrame().slice(0, 160)}`);
+    instance.unmount();
+    await sleep(150);
+  }
+
+  // 4i. /clear wipes the visible transcript but keeps the banner and says so.
+  {
+    const { instance, handle } = mount({
+      agent: createMockAgent(),
+      workspaceDir: '/tmp/ws',
+      model: 'm-test',
+    });
+    await type(instance, '/help');
+    await waitFor(() => instance.lastFrame().includes('/resume [id]'));
+    await type(instance, '/clear');
+    const ok = await waitFor(() => instance.lastFrame().includes('transcript cleared'));
+    assert.ok(ok, `/clear reports itself: ${instance.lastFrame().slice(0, 200)}`);
+    assert.ok(
+      handle.store.rows.every((row) => row.kind === 'banner' || row.kind === 'summary'),
+      'only the banner and the clear note survive'
+    );
     instance.unmount();
     await sleep(150);
   }

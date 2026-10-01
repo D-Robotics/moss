@@ -5,6 +5,7 @@
  */
 import type { MossAgentEvent } from '../../core/agent/moss-agent-types.js';
 import { toolLabel } from './transcript.js';
+import { summarizeToolCompletion } from './tool-summary.js';
 
 /**
  * The row keeps the result; the PROJECTION decides how much of it to show
@@ -33,12 +34,27 @@ export type TranscriptRowKind =
   | 'error'
   | 'banner';
 
+/**
+ * Completion metadata attached to a tool's `result` row: the one-line human
+ * summary (`Read 14 lines`), how long the call took, and how it ended. The
+ * transcript renders this as the `⎿` headline above the output preview.
+ */
+export interface ToolRowMeta {
+  name: string;
+  summary?: string;
+  durationMs?: number;
+  isError?: boolean;
+  abortedBy?: 'user' | 'timeout';
+}
+
 export interface TranscriptRow {
   id: number;
   kind: TranscriptRowKind;
   text: string;
   /** Reasoning that produced this row (verbose view reveals it). */
   reasoning?: string;
+  /** Set when the row is a tool's completion (`tool_end`). */
+  tool?: ToolRowMeta;
 }
 
 export interface TuiRunState {
@@ -54,6 +70,10 @@ export interface TuiRunState {
   streamingText: string;
   toolLine?: string;
   halted?: boolean;
+  /** Inputs of in-flight tool calls, keyed by call id (tool_end summarizes). */
+  toolInputs: Map<string, Record<string, unknown>>;
+  /** Latest provider retry notice (shown in the live region until progress). */
+  retry?: { attempt: number; error: string };
 }
 
 export interface TuiUsageState {
@@ -70,6 +90,8 @@ export interface TuiUsageState {
    */
   contextUsed: number;
   contextTotal: number;
+  /** Session-cumulative prompt-cache hits (llm_usage.cacheReadTokens). */
+  cacheReadTokens: number;
   /** Compactions seen this session (the transcript announces them). */
   compactions: number;
 }
@@ -92,7 +114,7 @@ export interface TuiStore {
 export function createTuiStore(): TuiStore {
   return {
     rows: [],
-    run: { running: false, thinkingText: '', streamingText: '' },
+    run: { running: false, thinkingText: '', streamingText: '', toolInputs: new Map() },
     todos: [],
     usage: {
       tokensIn: 0,
@@ -101,6 +123,7 @@ export function createTuiStore(): TuiStore {
       runTokensOut: 0,
       contextUsed: 0,
       contextTotal: 0,
+      cacheReadTokens: 0,
       compactions: 0,
     },
     nextId: 1,
@@ -112,13 +135,14 @@ export function appendRow(
   store: TuiStore,
   kind: TranscriptRowKind,
   text: string,
-  extra: { reasoning?: string } = {}
+  extra: { reasoning?: string; tool?: ToolRowMeta } = {}
 ): void {
   store.rows.push({
     id: store.nextId++,
     kind,
     text,
     ...(extra.reasoning ? { reasoning: extra.reasoning } : {}),
+    ...(extra.tool ? { tool: extra.tool } : {}),
   });
   store.version++;
 }
@@ -145,6 +169,7 @@ function tail(text: string, max = 400): string {
 export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
   switch (event.type) {
     case 'text_delta': {
+      store.run.retry = undefined;
       setStreaming(store, tail(store.run.streamingText + event.delta));
       break;
     }
@@ -152,10 +177,25 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       setThinking(store, tail(store.run.thinkingText + event.delta));
       break;
     }
+    case 'retry': {
+      // The provider is retrying a failed call: surface it in the live region
+      // instead of letting the spinner pretend nothing is wrong (the REPL has
+      // always printed these; the shell used to drop them).
+      store.run.retry = { attempt: event.attempt, error: event.error };
+      store.version++;
+      break;
+    }
+    case 'turn_start': {
+      store.run.retry = undefined;
+      store.version++;
+      break;
+    }
     case 'tool_start': {
+      store.run.retry = undefined;
       // The call itself is transcript content (`⏺ Write(hello.txt)`), not just a
       // status line: it is what the user scrolls back to.
       store.run.toolLine = toolLabel(event.toolName, event.input);
+      store.run.toolInputs.set(event.toolCallId, event.input);
       if (event.toolName === 'todo_write' && Array.isArray(event.input.todos)) {
         store.todos = toTodos(event.input.todos);
       }
@@ -165,17 +205,43 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
     }
     case 'tool_end': {
       // The todo checklist is rendered as a live panel, so echoing its full
-      // formatted list here would print the same three lines twice.
+      // formatted list here would print the same three lines twice. The count
+      // IS the summary headline, so the row body stays empty.
       if (event.toolName === 'todo_write' && store.todos.length > 0) {
         const done = store.todos.filter((todo) => todo.status === 'completed').length;
-        appendRow(store, 'result', `${done}/${store.todos.length} done`);
+        appendRow(store, 'result', '', {
+          tool: {
+            name: event.toolName,
+            summary: `${done}/${store.todos.length} done`,
+            ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+          },
+        });
         store.run.toolLine = undefined;
         store.version++;
         break;
       }
-      const preview = resultBody(event.result);
-      const body = event.isError ? `FAILED${preview ? ` — ${preview}` : ''}` : preview || 'ok';
-      appendRow(store, 'result', body);
+      const input = store.run.toolInputs.get(event.toolCallId) ?? {};
+      store.run.toolInputs.delete(event.toolCallId);
+      const abortedBy = event.aborted?.by;
+      const completion = summarizeToolCompletion(
+        event.toolName,
+        input,
+        event.result,
+        Boolean(event.isError)
+      );
+      const summary = abortedBy ? `aborted (${abortedBy})` : completion.summary;
+      // Edits and writes render as a diff gutter; everything else keeps the
+      // raw result (the projection decides how much of it to show).
+      const body = completion.diff ?? (resultBody(event.result) || (event.isError ? '' : 'ok'));
+      appendRow(store, 'result', body, {
+        tool: {
+          name: event.toolName,
+          ...(summary ? { summary } : {}),
+          ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+          ...(event.isError ? { isError: true } : {}),
+          ...(abortedBy ? { abortedBy } : {}),
+        },
+      });
       store.run.toolLine = undefined;
       store.version++;
       break;
@@ -189,6 +255,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       store.usage.tokensOut += Number(event.outputTokens ?? 0);
       store.usage.runTokensIn += Number(event.inputTokens ?? 0);
       store.usage.runTokensOut += Number(event.outputTokens ?? 0);
+      store.usage.cacheReadTokens += Number(event.cacheReadTokens ?? 0);
       if (event.contextTokens && event.contextTokens > 0) {
         store.usage.contextTotal = event.contextTokens;
         store.usage.contextUsed =
@@ -196,6 +263,20 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
           Number(event.cacheReadTokens ?? 0) +
           Number(event.cacheCreationTokens ?? 0);
       }
+      store.version++;
+      break;
+    }
+    case 'microcompact': {
+      // The loop silently compressed old tool results; say so (the REPL does).
+      const saved =
+        event.savedTokens > 0
+          ? ` · saved ~${event.savedTokens >= 1000 ? `${Math.round(event.savedTokens / 100) / 10}k` : event.savedTokens} tokens`
+          : '';
+      appendRow(
+        store,
+        'summary',
+        `compressed ${event.compressedCount} old tool result${event.compressedCount === 1 ? '' : 's'}${saved}`
+      );
       store.version++;
       break;
     }
@@ -234,7 +315,7 @@ export function toTodos(raw: readonly unknown[]): TuiTodo[] {
 }
 
 export function beginRun(store: TuiStore): void {
-  store.run = { running: true, thinkingText: '', streamingText: '' };
+  store.run = { running: true, thinkingText: '', streamingText: '', toolInputs: new Map() };
   store.usage.runTokensIn = 0;
   store.usage.runTokensOut = 0;
   store.version++;
@@ -242,9 +323,11 @@ export function beginRun(store: TuiStore): void {
 
 export function formatUsage(usage: TuiUsageState): string {
   const fmt = (n: number) => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n));
+  const cache =
+    usage.cacheReadTokens > 0 ? ` · ${fmt(usage.cacheReadTokens)} prompt-cache hits` : '';
   return `${fmt(usage.runTokensIn + usage.runTokensOut)} in run / ${fmt(
     usage.tokensIn + usage.tokensOut
-  )} session`;
+  )} session${cache}`;
 }
 
 export function endRun(store: TuiStore, halted: boolean): void {
@@ -253,7 +336,13 @@ export function endRun(store: TuiStore, halted: boolean): void {
       ...(store.run.thinkingText.trim() ? { reasoning: store.run.thinkingText } : {}),
     });
   }
-  store.run = { running: false, thinkingText: '', streamingText: '', halted: halted || undefined };
+  store.run = {
+    running: false,
+    thinkingText: '',
+    streamingText: '',
+    toolInputs: new Map(),
+    halted: halted || undefined,
+  };
   store.version++;
 }
 

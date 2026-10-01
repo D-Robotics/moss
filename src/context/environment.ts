@@ -40,6 +40,13 @@ export interface EnvironmentContextOptions {
   includeGit?: boolean;
 }
 
+/** Current branch of the workspace, or null outside a git repo. */
+export async function getGitBranch(cwd: string): Promise<string | null> {
+  const inside = await git(['rev-parse', '--is-inside-work-tree'], cwd);
+  if (inside !== 'true') return null;
+  return git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+}
+
 export async function buildEnvironmentContextLayer(
   workspaceDir: string,
   options: EnvironmentContextOptions = {}

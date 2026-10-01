@@ -38,7 +38,13 @@ import {
   type TuiUsageState,
 } from './render-bridge.js';
 import { createPasteCapture, feedChunk } from './input-box.js';
-import { listBackgroundProcessSnapshots } from '../../core/tools/background-process-registry.js';
+import {
+  getBackgroundProcessOutputTail,
+  listBackgroundProcessSnapshots,
+  subscribeBackgroundLifecycle,
+} from '../../core/tools/background-process-registry.js';
+import { formatBackgroundCompletionFlash } from '../background-completion-ui.js';
+import { isZhLocale } from '../cli-locale.js';
 import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
 import { setCliApprovalAsker } from '../approval.js';
 import {
@@ -84,6 +90,7 @@ import {
   renderRunSummary,
   renderStatusRight,
   renderTranscriptRow,
+  CONTEXT_WARN_PCT,
   SHELL_MODE_TONE,
   type LiveView,
   PLACEHOLDER_TEXT,
@@ -94,6 +101,7 @@ import {
   COMPOSER_MAX_ROWS,
   composerDelete,
   composerInsert,
+  composerKill,
   composerMove,
   composerNewline,
   composerSetValue,
@@ -149,6 +157,22 @@ export interface TuiMcpServerStatus {
   error?: string;
 }
 
+/**
+ * What the session actually loaded into the model's context — shown once under
+ * the boot banner (the reference CLI prints `SessionStart` hook output and
+ * loaded-context notes in exactly this spot).
+ */
+export interface TuiContextInfo {
+  /** Registered skills (`.moss/skills/` + user dir); omitted when 0. */
+  skills?: number;
+  /** Connected MCP servers / total configured; omitted when none configured. */
+  mcp?: { connected: number; total: number };
+  /** Active soul id when it is not the built-in default. */
+  soul?: string;
+  /** Current git branch of the workspace, when inside a repo. */
+  branch?: string;
+}
+
 export interface TuiAppOptions {
   agent: MossAgent;
   workspaceDir: string;
@@ -157,6 +181,8 @@ export interface TuiAppOptions {
   version?: string;
   /** Transcript rows replayed on boot (resume). */
   replayRows?: TuiReplayRow[];
+  /** Boot-time context note (skills/MCP/soul/branch) printed under the banner. */
+  contextInfo?: TuiContextInfo;
   /** /sessions panel provider (host-side session store). */
   listSessions?: () => Promise<TuiSessionSummary[]>;
   /** /mcp panel data (host-side registry statuses). */
@@ -224,6 +250,12 @@ const QUIT_CONFIRM_MS = 1500;
  * row and the hint). The dialog may never grow past `terminalRows - this`.
  */
 const APPROVAL_CHROME_RESERVE = 6;
+
+/**
+ * How long a first Esc on a non-empty composer keeps "Esc again to clear"
+ * armed (same idea as the D-7 double-Ctrl+C quit window).
+ */
+const ESC_CLEAR_MS = 1600;
 
 interface StoreHandle {
   store: ReturnType<typeof createTuiStore>;
@@ -609,6 +641,17 @@ export function TuiAppRoot({
   const queuePausedRef = useRef(false);
   const [queueRevision, setQueueRevision] = useState(0);
   void queueRevision;
+  /** Kill ring: the text the last Ctrl+U/K/W removed, pasted back by Ctrl+Y. */
+  const killRef = useRef<string>('');
+  /** `Esc again to clear` arming (see ESC_CLEAR_MS); the composer survives one Esc. */
+  const escClearTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [escClearArmed, setEscClearArmed] = useState(false);
+  /**
+   * `/clear` remounts the committed transcript (same trick as `verboseRevision`:
+   * ink's <Static> never un-renders committed rows, so the key change is what
+   * drops them from the visible screen after the ANSI clear).
+   */
+  const [clearRevision, setClearRevision] = useState(0);
   const pasteRef = useRef(createPasteCapture());
   const sessionKey = options.sessionKey ?? 'tui';
   const { store } = handle;
@@ -790,6 +833,24 @@ export function TuiAppRoot({
         .join('\n')
         .trim()
     );
+    // What the model actually starts with (skills index, MCP servers, a custom
+    // soul, the git branch) — the reference CLI prints this as its SessionStart
+    // context line; moss used to load all of it silently.
+    const info = options.contextInfo;
+    if (info) {
+      const parts: string[] = [];
+      if (info.branch) parts.push(`git:${info.branch}`);
+      if (info.skills) parts.push(`${info.skills} skill${info.skills === 1 ? '' : 's'}`);
+      if (info.mcp && info.mcp.total > 0) {
+        parts.push(
+          info.mcp.connected === info.mcp.total
+            ? `${info.mcp.total} MCP server${info.mcp.total === 1 ? '' : 's'}`
+            : `${info.mcp.connected}/${info.mcp.total} MCP servers connected`
+        );
+      }
+      if (info.soul) parts.push(`soul:${info.soul}`);
+      if (parts.length > 0) appendRow(store, 'detail', `context: ${parts.join(' · ')}`);
+    }
     for (const row of options.replayRows ?? []) appendRow(store, row.kind, row.text);
     if (options.replayRows?.length) {
       appendRow(store, 'result', `resumed — replayed ${options.replayRows.length} rows`);
@@ -797,6 +858,38 @@ export function TuiAppRoot({
     void runtime.refresh().then(() => handle.notify());
     handle.notify();
   }, []);
+
+  // Background shell tasks (`exec_background`) finish while the user reads or
+  // types: surface the completion in the transcript instead of leaving it to
+  // `/bg`. (The REPL/oneshot renderer has its own subscription in output.ts.)
+  useEffect(
+    () =>
+      subscribeBackgroundLifecycle((snap) => {
+        if (snap.status === 'running') return;
+        const failed = snap.status === 'error' || (snap.exitCode !== null && snap.exitCode !== 0);
+        appendRow(
+          store,
+          failed ? 'error' : 'summary',
+          formatBackgroundCompletionFlash(snap, isZhLocale())
+        );
+        if (failed) {
+          let tail = '';
+          try {
+            tail = getBackgroundProcessOutputTail(snap.id, 4);
+          } catch {
+            tail = snap.errorMessage ?? '';
+          }
+          for (const text of tail
+            .split('\n')
+            .filter((l) => l.trim())
+            .slice(-4)) {
+            appendRow(store, 'detail', text);
+          }
+        }
+        handle.notify();
+      }),
+    [handle, store]
+  );
 
   const runTurn = useCallback(
     async (message: string) => {
@@ -873,8 +966,11 @@ export function TuiAppRoot({
       endRun(store, halted);
       if (startedAt !== undefined) {
         // Claude leaves a finalizing status line in the transcript; keep the
-        // same shape (`✻ Worked for 5s`) instead of a bare "done".
-        const summary = renderRunSummary(Date.now() - startedAt, halted, Number.MAX_SAFE_INTEGER);
+        // same shape (`✻ Worked for 5s`) and add the run's token spend.
+        const summary = renderRunSummary(Date.now() - startedAt, halted, Number.MAX_SAFE_INTEGER, {
+          input: store.usage.runTokensIn,
+          output: store.usage.runTokensOut,
+        });
         const text = summary.find((l) => l.text.trim())?.text.trim();
         if (text) appendRow(store, 'summary', text);
       }
@@ -1325,6 +1421,23 @@ export function TuiAppRoot({
         printBlock('Usage', [formatUsage(store.usage)]);
         return;
       }
+      if (text === '/clear') {
+        // Clear the visible transcript but keep the banner (reference: /clear
+        // leaves the header). Committed <Static> rows live in the terminal's
+        // scrollback and cannot be un-printed — an ANSI clear wipes the visible
+        // screen, and the `clearRevision` remount re-renders only what remains.
+        store.rows = store.rows.filter((row) => row.kind === 'banner');
+        store.version++;
+        stdout.write('\x1b[2J\x1b[H');
+        setClearRevision((n) => n + 1);
+        appendRow(
+          store,
+          'summary',
+          'transcript cleared — the conversation context is kept (see /compact to shrink it)'
+        );
+        handle.notify();
+        return;
+      }
       if (text === '/tasks') {
         await showBlock('tasks');
         return;
@@ -1541,9 +1654,37 @@ export function TuiAppRoot({
   useEffect(
     () => () => {
       if (quitTimerRef.current !== undefined) clearTimeout(quitTimerRef.current);
+      if (escClearTimerRef.current !== undefined) clearTimeout(escClearTimerRef.current);
     },
     []
   );
+
+  /**
+   * `Esc again to clear` (reference §2): one Esc on a non-empty idle composer
+   * arms the affordance instead of destroying the draft; the second Esc clears.
+   * Any real edit disarms it.
+   */
+  const disarmEscClear = useCallback(() => {
+    if (escClearTimerRef.current !== undefined) clearTimeout(escClearTimerRef.current);
+    escClearTimerRef.current = undefined;
+    setEscClearArmed(false);
+    setStatusLine((current) =>
+      current === 'Esc again to clear the composer' ? undefined : current
+    );
+  }, []);
+
+  const armEscClear = useCallback(() => {
+    if (escClearTimerRef.current !== undefined) clearTimeout(escClearTimerRef.current);
+    setEscClearArmed(true);
+    setStatusLine('Esc again to clear the composer');
+    escClearTimerRef.current = setTimeout(() => {
+      escClearTimerRef.current = undefined;
+      setEscClearArmed(false);
+      setStatusLine((current) =>
+        current === 'Esc again to clear the composer' ? undefined : current
+      );
+    }, ESC_CLEAR_MS);
+  }, []);
 
   useInput((chunk, key) => {
     if (key.ctrl && chunk === 'c') {
@@ -1691,6 +1832,9 @@ export function TuiAppRoot({
       }
       if (key.escape) {
         setPaletteDismissed(true);
+        // The menu is closed; the composer still holds the typed `/…` — offer
+        // the reference's second-Esc clear instead of leaving a dead command.
+        if (input.length > 0) armEscClear();
         return;
       }
       if (key.return) {
@@ -1741,7 +1885,22 @@ export function TuiAppRoot({
         setInput('');
         return;
       }
-      if (abortRef.current) abortRef.current.abort();
+      if (abortRef.current) {
+        abortRef.current.abort();
+        return;
+      }
+      // Idle with a draft: one Esc must not destroy it. The first Esc arms the
+      // `Esc again to clear` affordance; only the second press clears (D-7's
+      // double-press pattern, applied to the draft).
+      if (input.length > 0) {
+        if (escClearArmed) {
+          disarmEscClear();
+          setInput('');
+          setStatusLine(undefined);
+        } else {
+          armEscClear();
+        }
+      }
       return;
     }
     if (
@@ -1766,14 +1925,17 @@ export function TuiAppRoot({
           historyIndex === undefined ? history.length - 1 : Math.max(0, historyIndex - 1);
         setHistoryIndex(next);
         setInput(history[next] ?? '');
+        setStatusLine(`history ${next + 1}/${history.length} — ↑↓ to walk · type to edit`);
       } else if (historyIndex !== undefined) {
         const next = historyIndex + 1;
         if (next >= history.length) {
           setHistoryIndex(undefined);
           setInput('');
+          setStatusLine(undefined);
         } else {
           setHistoryIndex(next);
           setInput(history[next] ?? '');
+          setStatusLine(`history ${next + 1}/${history.length} — ↑↓ to walk · type to edit`);
         }
       }
       return;
@@ -1795,16 +1957,32 @@ export function TuiAppRoot({
         setComposer((current) => composerMove(current, 'line-start'));
         return;
       }
-      if (letter === 'w') {
-        setComposer((current) => composerDelete(current, 'word-backward'));
+      if (letter === 'e') {
+        // Readline muscle memory (and the reference CLI): end of line. The
+        // evidence panel moved to Ctrl+V so this key could be an editor key.
+        setComposer((current) => composerMove(current, 'line-end'));
         return;
       }
-      if (letter === 'u') {
-        setComposer((current) => composerDelete(current, 'line-start'));
+      if (letter === 'y') {
+        // Yank the last killed text back (readline's kill ring, depth 1).
+        if (killRef.current) {
+          const killed = killRef.current;
+          setComposer((current) => composerInsert(current, killed));
+          setStatusLine(undefined);
+        } else {
+          setStatusLine('nothing to paste — Ctrl+U / Ctrl+K / Ctrl+W delete into the kill ring');
+        }
         return;
       }
-      if (letter === 'k') {
-        setComposer((current) => composerDelete(current, 'line-end'));
+      if (letter === 'w' || letter === 'u' || letter === 'k') {
+        const unit = letter === 'u' ? 'line-start' : letter === 'k' ? 'line-end' : 'word-backward';
+        const { next, killed } = composerKill(composer, unit);
+        if (killed) {
+          killRef.current = killed;
+          setComposer(next);
+          const shown = killed.length > 24 ? `${killed.length} chars` : `"${killed.trim()}"`;
+          setStatusLine(`deleted ${shown} — Ctrl+Y to paste back`);
+        }
         return;
       }
       if (letter === 'o') {
@@ -1858,6 +2036,15 @@ export function TuiAppRoot({
     }
     // Insert AT THE CARET (the bulk setInput shim parks the caret at the end,
     // which silently turned every mid-text edit into an append).
+    // A real edit ends every transient affordance: history-walk mode, the
+    // `Esc again to clear` arming, and the status note that came with them.
+    if (historyIndex !== undefined) setHistoryIndex(undefined);
+    disarmEscClear();
+    setStatusLine((current) =>
+      current !== undefined && /^(history |deleted |nothing to paste)/.test(current)
+        ? undefined
+        : current
+    );
     setComposer((current) => composerInsert(current, chunk));
   });
 
@@ -1895,6 +2082,8 @@ export function TuiAppRoot({
     thinking: showThinking ? store.run.thinkingText : '',
     tokensOut: store.usage.runTokensOut,
     queued: queueRef.current.length,
+    ...(queueRef.current[0] ? { queuePreview: queueRef.current[0] } : {}),
+    ...(store.run.retry ? { retry: store.run.retry } : {}),
     blocked: Boolean(approval),
   };
   const status: StatusView = {
@@ -1926,6 +2115,7 @@ export function TuiAppRoot({
     ? renderSlashPalette(paletteFrameRows(paletteRows, paletteWindow, PALETTE_MAX_ROWS), {
         width: columns,
         selected: paletteSelection - paletteWindow,
+        query: input.trimStart(),
       })
     : [];
   const mentions = mentionOpen
@@ -1937,6 +2127,13 @@ export function TuiAppRoot({
   // Shell mode tints both rules (E2): the composer sits between them, so the
   // whole input block reads as one state.
   const ruleTone = shellMode ? { color: SHELL_MODE_TONE } : {};
+  // Context-window high-water mark: the status row paints the percentage, and
+  // past the warn line a full row says what happens next (auto-compact) and
+  // what the user can do now (/compact).
+  const contextPct =
+    store.usage.contextTotal > 0
+      ? Math.round((store.usage.contextUsed / store.usage.contextTotal) * 100)
+      : 0;
   const chromeTop: TuiLine[] = [
     // D-13: the dialog gets a height budget (terminal rows minus the rest of the
     // pinned chrome and any extra composer rows) so a short terminal can never
@@ -1951,6 +2148,17 @@ export function TuiAppRoot({
       : []),
     ...renderTodoPanel(store.todos, columns),
     ...(statusLine ? [line(clip(statusLine, columns), { dim: true })] : []),
+    ...(contextPct >= CONTEXT_WARN_PCT
+      ? [
+          line(
+            clip(
+              `context ${contextPct}% full — auto-compact will trim older messages · /compact to do it now`,
+              columns
+            ),
+            { color: 'yellow' }
+          ),
+        ]
+      : []),
     ...palette,
     ...mentions,
     renderStatusRight(status, columns),
@@ -2035,8 +2243,10 @@ export function TuiAppRoot({
       // (the memo keeps returning the empty slice taken at mount).
       //
       // The key carries the ctrl+o revision: remounting is the only way ink
-      // re-renders rows it has already committed (D-5).
-      key: `transcript-${verboseRevision}`,
+      // re-renders rows it has already committed (D-5). `/clear` rides the same
+      // mechanism: after the ANSI wipe, the remount re-prints only the rows the
+      // store kept (the banner).
+      key: `transcript-${verboseRevision}-${clearRevision}`,
       items: store.rows.slice(),
       // ink types Static's children as (item: unknown, index) => ReactNode.
       children: (item: unknown) => {

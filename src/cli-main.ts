@@ -26,7 +26,7 @@ import { parseCliArgs } from './cli/args.js';
 import { displayHelp, displayVersion } from './cli/help.js';
 import { createConfiguredGuardrailHooks } from './cli/guardrails.js';
 import { createConfiguredHookCallbacks, setLifecycleHookRunner } from './cli/hooks.js';
-import { resolveSoulIdentity } from './cli/soul.js';
+import { resolveSoulIdentity, resolveSoul } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
 import { createCliProvider } from './cli/providers.js';
 import type { CliProviderRuntimeConfig } from './cli/providers.js';
@@ -60,7 +60,7 @@ import {
   type CommandContext as RegistryCommandContext,
 } from './cli/commands/registry.js';
 import { commandSuggestion, cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
-import { buildEnvironmentContextLayer } from './context/environment.js';
+import { buildEnvironmentContextLayer, getGitBranch } from './context/environment.js';
 import { disconnectAllDevices } from './device/device-registry.js';
 import { resolveDefaultDeviceTarget } from './device/device-target.js';
 import { buildRuntimeCapabilitiesPrompt } from './context/runtime-capabilities.js';
@@ -664,11 +664,14 @@ async function main() {
   // v0.16 skills: SKILL.md files from `.moss/skills/` (workspace) and
   // `<configDir>/skills/` (user). Progressive disclosure — only the index
   // enters the system prompt; bodies load through the readonly skill tool.
+  // The count feeds the TUI's boot context line (what the session loaded).
+  let loadedSkillCount = 0;
   {
     const skills = loadSkills([
       path.join(workspace, '.moss', 'skills'),
       path.join(configDir, 'skills'),
     ]);
+    loadedSkillCount = skills.length;
     if (skills.length > 0) {
       agent.tools.register(createSkillTool(skills));
       const layer = buildSkillsPromptLayer(skills);
@@ -1042,6 +1045,20 @@ async function main() {
         sessionKey: session.sessionKey,
         model: typeof model === 'string' ? model : undefined,
         cliRuntime: liveRuntime,
+        contextInfo: {
+          skills: loadedSkillCount,
+          mcp: mcpRegistry
+            ? {
+                connected: mcpRegistry.getStatuses().filter((s) => s.state === 'connected').length,
+                total: mcpRegistry.getStatuses().length,
+              }
+            : undefined,
+          soul: (() => {
+            const soul = resolveSoul({ workspaceDir: workspace, configDir });
+            return soul.source === 'default' ? undefined : soul.id;
+          })(),
+          branch: (await getGitBranch(workspace)) ?? undefined,
+        },
         ...(replayRows ? { replayRows } : {}),
         // The checkpoint is what `/rewind` restores from; without this call the
         // store records nothing and every rewind silently did nothing (D1).

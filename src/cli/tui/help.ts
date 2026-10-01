@@ -11,7 +11,10 @@
 export const CTRL_BINDINGS = [
   { letter: 't', action: 'tasks', label: 'tasks' },
   { letter: 'r', action: 'history', label: 'history' },
-  { letter: 'e', action: 'evidence', label: 'evidence' },
+  // Evidence rides Ctrl+V, not Ctrl+E: in the reference CLI (and readline
+  // muscle memory) Ctrl+E moves the composer caret to the end of the line,
+  // and that editing key wins over a panel shortcut that /evidence also has.
+  { letter: 'v', action: 'evidence', label: 'evidence' },
   { letter: 'g', action: 'deployments', label: 'deployments' },
   { letter: 'f', action: 'failures', label: 'failures' },
   { letter: 'l', action: 'clear', label: 'clear the composer' },
@@ -40,8 +43,10 @@ export const HELP_KEYS: ReadonlyArray<readonly [string, string]> = [
   ['Enter', 'send the goal · run the shell command in `!` mode'],
   ['Shift+Tab', 'cycle the interaction mode (default → accept-edits → plan)'],
   ['!', 'first character only: run a shell command inline'],
-  ['Esc', 'interrupt the run · cancel `!` shell mode'],
+  ['Esc', 'interrupt the run · cancel `!` shell mode · press again to clear the composer'],
   ['↑ ↓', 'walk back through what you typed'],
+  ['Ctrl+A / Ctrl+E', 'caret to line start / end'],
+  ['Ctrl+U / Ctrl+Y', 'delete to line start · paste deleted text'],
   ['Ctrl+C', 'interrupt the run · press again to quit'],
   ['Ctrl+D', 'quit'],
   [chordRow(['tasks', 'history', 'evidence']), 'print tasks · history · evidence'],
@@ -86,6 +91,11 @@ export interface ShellCommand {
 export const SHELL_COMMANDS: readonly ShellCommand[] = [
   { command: '/help', usage: '/help', description: 'show this key and command reference' },
   { command: '/quit', usage: '/quit', description: 'exit moss' },
+  {
+    command: '/clear',
+    usage: '/clear',
+    description: 'clear the transcript (banner stays; the model context is kept)',
+  },
   {
     command: '/status',
     usage: '/status',

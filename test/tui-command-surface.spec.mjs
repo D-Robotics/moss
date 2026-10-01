@@ -258,6 +258,35 @@ const options = {
 
 for (const command of advertised) {
   if (command === '/quit') continue; // exits the app — verified by name only
+  // `/clear` answers by REMOVING rows, not by printing a block: the transcript
+  // shrinks to the banner and a summary note. It gets its own assertion shape.
+  if (command === '/clear') {
+    const handle = liveHandle();
+    const runtime = new TaskRuntime({
+      workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-cmd-')),
+    });
+    const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
+    const booted = await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
+    assert.ok(booted, '/clear: shell booted');
+    await type(instance, '/help');
+    await waitFor(() => handle.store.rows.some((r) => r.kind === 'tool' && r.text === 'Shortcuts'));
+    await type(instance, '/clear');
+    const cleared = await waitFor(() =>
+      handle.store.rows.some((r) => r.kind === 'summary' && r.text.includes('transcript cleared'))
+    );
+    assert.ok(cleared, '/clear leaves its note');
+    assert.ok(
+      handle.store.rows.every((r) => r.kind === 'banner' || r.kind === 'summary'),
+      '/clear drops every non-banner row'
+    );
+    assert.ok(
+      !handle.store.rows.some((r) => r.text.includes('unknown command')),
+      '/clear must not be answered "unknown command"'
+    );
+    instance.unmount();
+    await sleep(100);
+    continue;
+  }
   const title = BLOCK_TITLE.get(command);
   assert.ok(title, `${command} has an expected block title in this spec`);
   const arg = ARGS.get(command) ?? '';
@@ -323,10 +352,11 @@ for (const command of advertised) {
   const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
   await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
   await typeKeys(instance, '/');
-  const opened = await waitFor(() => instance.lastFrame().includes('… 20 more'));
+  const expectedMore = advertised.length - 8;
+  const opened = await waitFor(() => instance.lastFrame().includes(`… ${expectedMore} more`));
   assert.ok(
     opened,
-    `/ offers the whole surface (28 rows → 8 shown + "… 20 more"): ${JSON.stringify(
+    `/ offers the whole surface (${advertised.length} rows → 8 shown + "… ${expectedMore} more"): ${JSON.stringify(
       instance.lastFrame().slice(0, 200)
     )}`
   );

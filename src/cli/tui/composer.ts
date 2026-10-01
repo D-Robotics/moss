@@ -103,6 +103,44 @@ export function composerDelete(state: ComposerState, unit: ComposerDeleteUnit): 
   return { value: value.slice(0, caret) + value.slice(end), caret };
 }
 
+/**
+ * Kill-ring delete (readline semantics): like `composerDelete` for the killing
+ * units, but also returns the removed text so the shell can offer Ctrl+Y
+ * (yank) afterwards, exactly like the reference CLI's "Ctrl+Y to paste
+ * deleted text" hint.
+ */
+export function composerKill(
+  state: ComposerState,
+  unit: 'word-backward' | 'line-start' | 'line-end'
+): { next: ComposerState; killed: string } {
+  const { value, caret } = state;
+  if (unit === 'line-start') {
+    const { start } = logicalBounds(value, caret);
+    return {
+      next:
+        start === caret
+          ? state
+          : { value: value.slice(0, start) + value.slice(caret), caret: start },
+      killed: value.slice(start, caret),
+    };
+  }
+  if (unit === 'line-end') {
+    const { end } = logicalBounds(value, caret);
+    return {
+      next: end === caret ? state : { value: value.slice(0, caret) + value.slice(end), caret },
+      killed: value.slice(caret, end),
+    };
+  }
+  const moved = composerMove(state, 'word-left');
+  return {
+    next:
+      moved.caret === caret
+        ? state
+        : { value: value.slice(0, moved.caret) + value.slice(caret), caret: moved.caret },
+    killed: value.slice(moved.caret, caret),
+  };
+}
+
 // ─── soft wrap ────────────────────────────────────────────────────────────
 
 export interface WrapSpan {

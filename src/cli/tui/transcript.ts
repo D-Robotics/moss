@@ -140,6 +140,59 @@ export function diffTone(text: string): { color?: TuiColor; dim?: boolean } {
 
 // ─── diff gutter ─────────────────────────────────────────────────────────
 
+/** Tool-call duration: dim under a second, yellow past the 3s "slow" line. */
+export function formatToolDuration(durationMs: number): { text: string; slow: boolean } {
+  const text =
+    durationMs >= 1000
+      ? `${Math.round(durationMs / 100) / 10}s`
+      : `${Math.max(0, Math.round(durationMs))}ms`;
+  return { text, slow: durationMs > 3000 };
+}
+
+/**
+ * The `⎿` headline for a completed tool call: human summary (`Read 14 lines`)
+ * plus the call's duration. Returns [] when the row carries no tool meta
+ * (slash-command blocks, `!` output, approvals) so those keep their old shape.
+ */
+function renderToolHeadline(row: TranscriptRow, width: number): TuiLine[] {
+  const tool = row.tool;
+  if (!tool || (tool.summary === undefined && tool.durationMs === undefined)) return [];
+  const prefix = `${CONTINUATION}${RESULT_MARK}  `;
+  const summary = tool.summary ?? (tool.isError ? 'failed' : 'ok');
+  const duration = tool.durationMs !== undefined ? formatToolDuration(tool.durationMs) : undefined;
+  const text = `${prefix}${summary}${duration ? ` · ${duration.text}` : ''}`;
+  if (displayWidth(text) > width) {
+    // A clipped line cannot keep its runs (they must concatenate back to text).
+    return [line(clip(text, width), toolHeadlineTone(tool))];
+  }
+  return [
+    {
+      text,
+      ...toolHeadlineTone(tool),
+      runs: [
+        { text: `${prefix}${summary}` },
+        ...(duration
+          ? [
+              {
+                text: ` · ${duration.text}`,
+                ...(duration.slow ? { color: 'yellow' as const } : {}),
+              },
+            ]
+          : []),
+      ],
+    },
+  ];
+}
+
+function toolHeadlineTone(tool: NonNullable<TranscriptRow['tool']>): {
+  color?: TuiColor;
+  dim?: boolean;
+} {
+  if (tool.isError) return { color: 'red' };
+  if (tool.abortedBy) return { color: 'yellow' };
+  return { dim: true };
+}
+
 const FILE_HEADER = /^(?:---|\+\+\+)\s/;
 const ADDED_FILE_HEADER = /^\+\+\+\s/;
 const REMOVED_FILE_HEADER = /^---\s/;
@@ -249,7 +302,12 @@ function parseDiffLines(lines: string[]): { rows: DiffRow[]; digits: number } {
  * (`+` green, `-` red) and keeps context dim — the marker still reads first
  * because the sign column is its own cell.
  */
-export function renderDiffGutter(text: string, width: number): TuiLine[] {
+export function renderDiffGutter(
+  text: string,
+  width: number,
+  options: { markFirst?: boolean } = {}
+): TuiLine[] {
+  const markFirst = options.markFirst !== false;
   const lines = resultLines(text);
   if (lines.length === 0) return [];
   const { rows, digits } = parseDiffLines(lines);
@@ -257,7 +315,9 @@ export function renderDiffGutter(text: string, width: number): TuiLine[] {
   const out: TuiLine[] = [];
   let first = true;
   for (const row of rows) {
-    const prefix = first ? `${CONTINUATION}${RESULT_MARK}  ` : RESULT_INDENT;
+    // `markFirst: false` — the row's ⎿ lives on a headline above (tool
+    // completion summary), so every gutter line takes the continuation indent.
+    const prefix = first && markFirst ? `${CONTINUATION}${RESULT_MARK}  ` : RESULT_INDENT;
     first = false;
     if (row.header) {
       // `@@ -a,b +c,d @@` and `--- / +++` file headers sit at the text column,
@@ -398,9 +458,18 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
       // The mark is owned here: some producers (resume replay) already bake a
       // "⎿ " prefix into the row text, which used to render it twice.
       const source = resultLines(row.text);
-      if (source.length === 0) return out;
+      // A tool completion row leads with its summary headline (`Read 14 lines
+      // · 0.3s`); the ⎿ mark lives on that headline, so the body below takes
+      // the plain continuation indent instead of repeating it.
+      const headline = renderToolHeadline(row, width);
+      if (source.length === 0) {
+        out.push(...headline);
+        return out;
+      }
+      const markBody = headline.length === 0;
       if (hasDiffLines(row.text)) {
-        const diff = renderDiffGutter(row.text, width);
+        out.push(...headline);
+        const diff = renderDiffGutter(row.text, width, { markFirst: markBody });
         const shown = verbose ? diff : diff.slice(0, DIFF_PREVIEW_LINES);
         out.push(...shown);
         if (shown.length < diff.length) {
@@ -416,12 +485,15 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
       // Compact is a preview (first few lines + a pointer at ctrl+o); verbose
       // is the whole output — the reference's collapsing behaviour (§9).
       const shown = verbose ? source : source.slice(0, RESULT_PREVIEW_LINES);
+      out.push(...headline);
       shown.forEach((raw, index) => {
         const tone = diffTone(raw);
         const body = wrap(raw, width - 5);
         body.forEach((text, lineIndex) => {
           const prefix =
-            index === 0 && lineIndex === 0 ? `${CONTINUATION}${RESULT_MARK}  ` : RESULT_INDENT;
+            markBody && index === 0 && lineIndex === 0
+              ? `${CONTINUATION}${RESULT_MARK}  `
+              : RESULT_INDENT;
           out.push(line(clip(`${prefix}${text}`, width), tone));
         });
       });
@@ -511,6 +583,10 @@ export interface LiveView {
   thinking: string;
   tokensOut: number;
   queued: number;
+  /** First queued message (preview), so the count is not anonymous. */
+  queuePreview?: string;
+  /** Active provider retry (`retry` event) — the spinner alone would lie. */
+  retry?: { attempt: number; error: string };
   /** Waiting on the user (approval): the spinner must not keep pretending. */
   blocked?: boolean;
 }
@@ -525,6 +601,17 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
   for (const entry of verbose ? reasoning : reasoning.slice(-2)) out.push(entry);
   if (view.toolLine)
     out.push(line(clip(`  ${RESULT_MARK}  ${view.toolLine}`, width), { dim: true }));
+  if (view.retry) {
+    out.push(
+      line(
+        clip(
+          `  ↻ provider retry ${view.retry.attempt} — ${view.retry.error.replace(/\s+/g, ' ').trim()}`,
+          width
+        ),
+        { color: 'yellow' }
+      )
+    );
+  }
   const streaming = wrap(view.streaming.trim(), width - 2);
   for (const text of verbose ? streaming : streaming.slice(-8)) {
     out.push(line(clip(`${text}`, width)));
@@ -542,14 +629,33 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
       { color: 'yellow' }
     )
   );
+  if (view.queuePreview) {
+    out.push(
+      line(clip(`  ⏐ next: ${view.queuePreview.replace(/\s+/g, ' ').trim()}`, width), {
+        dim: true,
+      })
+    );
+  }
   return out;
 }
 
 /** The line a finished run leaves behind, Claude-style: `✻ Worked for 5s`. */
-export function renderRunSummary(elapsedMs: number, halted: boolean, width: number): TuiLine[] {
+export function renderRunSummary(
+  elapsedMs: number,
+  halted: boolean,
+  width: number,
+  tokens?: { input: number; output: number }
+): TuiLine[] {
   const seconds = Math.max(1, Math.round(elapsedMs / 1000));
   const verb = runVerb(seconds);
-  const text = halted ? `✻ ${verb} for ${seconds}s · interrupted` : `✻ ${verb} for ${seconds}s`;
+  const fmt = (n: number) => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n));
+  const tokenPart =
+    tokens && (tokens.input > 0 || tokens.output > 0)
+      ? ` · ↑ ${fmt(tokens.input)} ↓ ${fmt(tokens.output)}`
+      : '';
+  const text = halted
+    ? `✻ ${verb} for ${seconds}s${tokenPart} · interrupted`
+    : `✻ ${verb} for ${seconds}s${tokenPart}`;
   return [line(''), line(clip(text, width), { dim: true })];
 }
 
@@ -753,20 +859,53 @@ export interface StatusView {
   shellMode?: boolean;
 }
 
+/** Context fill at/above which the status row turns the percentage yellow. */
+export const CONTEXT_WARN_PCT = 80;
+/** …and red past this line. The live warning row uses CONTEXT_WARN_PCT. */
+export const CONTEXT_CRIT_PCT = 95;
+
 export function renderStatusRight(view: StatusView, width: number): TuiLine {
   const parts: string[] = [];
   if (view.blocked) parts.push('● waiting for you');
   else if (view.running) parts.push('● running');
   if (view.model) parts.push(view.model);
+  let ctxPart: string | undefined;
   if (view.contextUsed !== undefined && view.contextTotal) {
     const pct = Math.min(100, Math.round((view.contextUsed / view.contextTotal) * 100));
-    parts.push(`${pct}% ctx`);
+    ctxPart = `${pct}% ctx`;
+    parts.push(ctxPart);
   }
   if (view.tokens > 0)
     parts.push(
       `${view.tokens >= 1000 ? `${Math.round(view.tokens / 100) / 10}k` : view.tokens} tokens`
     );
-  return line(clip(padStartTo(parts.join(' · '), width), width), { dim: true });
+  const text = parts.join(' · ');
+  const pad = ' '.repeat(Math.max(0, width - displayWidth(text)));
+  const full = `${pad}${text}`;
+  // A hot context window is the one part of this row that can demand action:
+  // paint just that segment (yellow → red) and keep the rest of the row dim.
+  if (
+    ctxPart &&
+    view.contextUsed !== undefined &&
+    view.contextTotal &&
+    displayWidth(full) <= width
+  ) {
+    const pct = Math.min(100, Math.round((view.contextUsed / view.contextTotal) * 100));
+    if (pct >= CONTEXT_WARN_PCT) {
+      const idx = full.lastIndexOf(ctxPart);
+      const color: TuiColor = pct >= CONTEXT_CRIT_PCT ? 'red' : 'yellow';
+      return {
+        text: clip(full, width),
+        dim: true,
+        runs: [
+          { text: full.slice(0, idx) },
+          { text: ctxPart, color, bold: true },
+          { text: full.slice(idx + ctxPart.length) },
+        ],
+      };
+    }
+  }
+  return line(clip(full, width), { dim: true });
 }
 
 /**
