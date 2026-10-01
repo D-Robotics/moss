@@ -192,6 +192,11 @@ export const SHELL_COMMANDS: readonly ShellCommand[] = [
   { command: '/subs', usage: '/subs', description: 'list background sub-agent tasks' },
   { command: '/sessions', usage: '/sessions', description: 'list saved conversations' },
   { command: '/mcp', usage: '/mcp', description: 'list MCP server status' },
+  {
+    command: '/hooks',
+    usage: '/hooks',
+    description: 'list configured lifecycle hooks and where to edit them',
+  },
 ];
 
 /** `/help` and `?` print these; the bare name is what the shell dispatches. */

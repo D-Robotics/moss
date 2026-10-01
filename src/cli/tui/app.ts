@@ -1821,6 +1821,51 @@ export function TuiAppRoot({
         await showBlock('failures');
         return;
       }
+      if (text === '/hooks') {
+        // The hooks subsystem is the most powerful config surface (9 events,
+        // blocking vetoes) and used to be manageable only by hand-editing
+        // JSON. The view lists what is live and where to edit it.
+        const hooks = (
+          options.cliRuntime?.config as
+            | {
+                hooks?: Record<
+                  string,
+                  Array<{
+                    matcher?: string;
+                    command: string;
+                    timeoutMs?: number;
+                    blocking?: boolean;
+                  }>
+                >;
+              }
+            | undefined
+        )?.hooks;
+        const lines: string[] = [];
+        if (hooks) {
+          for (const [event, entries] of Object.entries(hooks)) {
+            for (const hook of entries ?? []) {
+              lines.push(
+                `${event.padEnd(14)} ${hook.matcher ? `[${hook.matcher}] ` : ''}${hook.command}` +
+                  `${hook.blocking ? ' · blocking' : ''}` +
+                  `${hook.timeoutMs !== undefined ? ` · ${hook.timeoutMs}ms` : ''}`
+              );
+            }
+          }
+        }
+        if (lines.length === 0) {
+          lines.push(
+            'no hooks configured — add a "hooks" object to the config file:',
+            '  PreToolUse · PostToolUse · SessionStart · Stop · SubagentStop',
+            '  PreCompact · PostCompact · SessionEnd · Notification',
+            'each entry: { "command": "…", "matcher": "tool-glob", "timeoutMs": 5000, "blocking": true }'
+          );
+        }
+        if (options.cliRuntime?.configDir) {
+          lines.push('', `config dir: ${options.cliRuntime.configDir} (or MOSS_CONFIG_FILE)`);
+        }
+        printBlock('Hooks', lines);
+        return;
+      }
       if (text === '/sessions' || text === '/mcp' || text === '/subs' || text === '/bg') {
         await showBlock(text.slice(1) as 'sessions');
         return;

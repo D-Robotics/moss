@@ -200,6 +200,7 @@ const BLOCK_TITLE = new Map([
   ['/subs', /^subs$/],
   ['/sessions', /^sessions$/],
   ['/mcp', /^mcp$/],
+  ['/hooks', /^Hooks$/],
 ]);
 
 // Arguments a bare command needs to answer deterministically (the variable part
@@ -382,7 +383,7 @@ for (const command of advertised) {
 {
   const rows = shellPaletteRows('/');
   assert.equal(rows[8][0], '/doctor', 'D-15 repro: 8 × ↓ lands on /doctor');
-  assert.equal(rows[rows.length - 1][0], '/mcp', 'the last row is /mcp');
+  assert.equal(rows[rows.length - 1][0], '/hooks', 'the last row is /hooks');
 
   // Pure windowing contract: the window contains the cursor and never grows.
   assert.equal(paletteWindowOffset(0, rows.length, 8), 0, 'the first row starts the window');
@@ -468,7 +469,7 @@ for (const command of advertised) {
     const { instance, handle } = await mountMenu('d15-wrap');
     await typeKeys(instance, '/');
     await press(instance, '\x1b[A');
-    const marked = await waitFor(() => instance.lastFrame().includes('❯ /mcp'));
+    const marked = await waitFor(() => instance.lastFrame().includes('❯ /hooks'));
     assert.ok(
       marked,
       `↑ wraps to the last row in the tail window: ${JSON.stringify(
@@ -477,7 +478,7 @@ for (const command of advertised) {
     );
     await press(instance, '\r');
     const ran = await waitFor(() =>
-      handle.store.rows.some((r) => r.kind === 'tool' && r.text === 'mcp')
+      handle.store.rows.some((r) => r.kind === 'tool' && r.text === 'Hooks')
     );
     assert.ok(
       ran,
