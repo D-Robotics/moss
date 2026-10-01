@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 /**
- * moss TUI (v0.17): full-screen transcript, Esc interrupt, bracketed paste,
- * resume replay. Component-level via ink-testing-library; pure modules
- * (paste capture, render bridge) directly.
+ * moss CLI shell (v0.22): single-column transcript, bracketed paste, Esc
+ * interrupt, resume replay. Component-level via ink-testing-library; pure
+ * modules (paste capture, render bridge, transcript window) directly.
+ *
+ * Retargeted from the deleted full-screen transcript/status-bar modules to the
+ * render-bridge rows + transcript projections the shell actually renders.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 import {
   createPasteCapture,
@@ -18,12 +22,16 @@ import {
 } from '../dist/cli/tui/input-box.js';
 import {
   applyAgentEvent,
+  appendRow,
   beginRun,
   createTuiStore,
   endRun,
+  visibleRows,
 } from '../dist/cli/tui/render-bridge.js';
-import { renderStatusBar } from '../dist/cli/tui/status-bar.js';
-import { transcriptLines } from '../dist/cli/tui/transcript-view.js';
+import { renderHint, renderStatusRight, renderTranscriptRows } from '../dist/cli/tui/transcript.js';
+import { TuiAppRoot, runTuiApp } from '../dist/cli/tui/app.js';
+import { buildResumeReplay } from '../dist/cli/tui-utils.js';
+import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -73,7 +81,7 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
   assert.equal(noPaste.consumed, false, 'normal typing is not hijacked');
 }
 
-// ─── 2. Render bridge: events → rows ────────────────────────────────────────
+// ─── 2. Render bridge: events → transcript rows ─────────────────────────────
 
 {
   const store = createTuiStore();
@@ -88,33 +96,107 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
     result: 'ok',
     isError: false,
   });
-  applyAgentEvent(store, { type: 'error', message: 'boom' });
+  applyAgentEvent(store, {
+    type: 'tool_start',
+    toolName: 'write_file',
+    toolCallId: 't2',
+    input: { file_path: 'a.txt' },
+  });
+  applyAgentEvent(store, {
+    type: 'tool_end',
+    toolName: 'write_file',
+    toolCallId: 't2',
+    result: 'line1\nline2\nline3\nline4\nline5',
+    isError: false,
+  });
+  applyAgentEvent(store, { type: 'tool_start', toolName: 'exec', toolCallId: 't3', input: {} });
+  applyAgentEvent(store, {
+    type: 'tool_end',
+    toolName: 'exec',
+    toolCallId: 't3',
+    result: 'boom',
+    isError: true,
+  });
+  applyAgentEvent(store, { type: 'error', error: 'explode', retriable: false });
   endRun(store, false);
+
   const kinds = store.rows.map((r) => r.kind);
-  // The streaming tail commits as an assistant row at endRun — after the
-  // system/error rows emitted mid-run.
-  assert.deepEqual(kinds, ['system', 'error', 'assistant'], JSON.stringify(kinds));
-  assert.equal(store.rows[2].text, 'hello world');
-  assert.match(store.rows[0].text, /exec \(ok\)/);
+  // A tool call is transcript content (`⏺ Write(a.txt)`), its result is a `⎿`
+  // row, and the streaming tail commits as an assistant row at endRun.
+  assert.deepEqual(
+    kinds,
+    ['tool', 'result', 'tool', 'result', 'tool', 'result', 'error', 'assistant'],
+    JSON.stringify(kinds)
+  );
+  // A call with no usable argument gets a bare label: `Exec(running )` was empty
+  // parens carrying no information. `Write(a.txt)` below covers the arg case.
+  assert.equal(
+    store.rows[0].text,
+    'Exec',
+    'tool_start with no argument is a bare Claude-style label'
+  );
+  assert.equal(store.rows[1].text, 'ok', 'tool_end becomes a result row');
+  assert.equal(store.rows[2].text, 'Write(a.txt)', 'the tool label names the file it touches');
+  // The ROW keeps the whole result (the verbose view must be able to reveal it);
+  // the COMPACT projection is what caps the preview at 3 lines.
+  assert.equal(
+    store.rows[3].text,
+    'line1\nline2\nline3\nline4\nline5',
+    'the result row keeps the full output'
+  );
+  const compactResult = renderTranscriptRows([store.rows[3]], 40).map((l) => l.text);
+  assert.ok(
+    compactResult.some((text) => text.includes('line3')),
+    'the compact projection shows the head of the result'
+  );
+  assert.ok(
+    !compactResult.some((text) => text.includes('line5')),
+    'the compact projection hides the tail behind the ctrl+o marker'
+  );
+  assert.equal(store.rows[5].text, 'FAILED — boom', 'a failed tool result says FAILED');
+  assert.equal(store.rows[6].text, 'explode', 'errors surface their message verbatim');
+  assert.equal(store.rows[7].text, 'hello world', 'the answer commits as an assistant row');
   assert.equal(store.run.running, false);
+  assert.equal(store.run.toolLine, undefined, 'the in-flight tool clears when it finishes');
 }
 
-// ─── 3. Status bar + transcript window ──────────────────────────────────────
+// ─── 3. Status/hint chrome + transcript window ──────────────────────────────
 
 {
+  const status = renderStatusRight(
+    { running: true, model: 'deepseek-flash@latest', tokens: 1500, taskCount: 0, queueLength: 0 },
+    80
+  ).text;
+  assert.match(status, /● running/, 'a live run is announced in the status line');
+  assert.match(status, /deepseek-flash@latest/, 'the active model is shown');
+  assert.match(status, /1\.5k tokens/, 'session usage is shown');
   assert.match(
-    renderStatusBar({ model: 'deepseek-flash@latest', running: true, scrollOffset: 0 }),
-    /working/
+    renderStatusRight({ running: true, blocked: true, tokens: 0, taskCount: 0, queueLength: 0 }, 80)
+      .text,
+    /● waiting for you/,
+    'an approval wait is announced, not hidden behind the spinner'
   );
-  assert.match(renderStatusBar({ running: false, halted: true, scrollOffset: 3 }), /halted/);
+  assert.match(
+    renderHint({ running: true, tokens: 0, taskCount: 0, queueLength: 0 }, 80).text,
+    /Esc to interrupt/,
+    'a live run advertises how to stop it'
+  );
+
   const store = createTuiStore();
   for (let i = 1; i <= 30; i++) {
-    store.rows.push({ id: i, kind: 'user', text: `row ${i}` });
+    appendRow(store, 'user', `row ${i}`);
   }
-  const visible = transcriptLines(store, 0, { height: 5 });
-  assert.deepEqual(visible, ['› row 26', '› row 27', '› row 28', '› row 29', '› row 30']);
-  const scrolled = transcriptLines(store, 10, { height: 5 });
-  assert.ok(scrolled[0].includes('row 16'));
+  assert.deepEqual(
+    visibleRows(store, 5, 0).map((r) => r.text),
+    ['row 26', 'row 27', 'row 28', 'row 29', 'row 30'],
+    'the transcript window shows the newest rows'
+  );
+  assert.ok(
+    visibleRows(store, 5, 10)[0].text.includes('row 16'),
+    'scrolling back moves the window without re-projecting the whole history'
+  );
+  const rendered = renderTranscriptRows(visibleRows(store, 5, 0), 40).map((l) => l.text);
+  assert.ok(rendered.includes('❯ row 30'), 'windowed rows render in the transcript grammar');
 }
 
 async function type(instance, text) {
@@ -131,8 +213,6 @@ async function type(instance, text) {
 {
   const { render: renderInk } = await import('ink-testing-library');
   const React = await import('react');
-  const { TuiAppRoot, runTuiApp } = await import('../dist/cli/tui/app.js');
-  const { TaskRuntime } = await import('../dist/core/task-runtime/runtime.js');
 
   const calls = [];
   function createMockAgent({ slow = false } = {}) {
@@ -164,7 +244,7 @@ async function type(instance, text) {
     return { instance, handle, runtime, workspace };
   }
 
-  // 4a. /help renders the key reference in the notice area
+  // 4a. /help prints the key + command reference into the transcript
   {
     calls.length = 0;
     const { instance } = mount({
@@ -173,14 +253,18 @@ async function type(instance, text) {
       model: 'm-test',
     });
     await type(instance, '/help');
-    const ok = await waitFor(() => instance.lastFrame().includes('Esc interrupt'));
+    const ok = await waitFor(() => instance.lastFrame().includes('Esc interrupt the run'));
     assert.ok(ok, `help text visible: ${JSON.stringify(instance.lastFrame().slice(0, 200))}`);
+    assert.ok(
+      instance.lastFrame().includes('/resume [id]'),
+      'the reference prints the whole command list'
+    );
     instance.unmount();
     await sleep(150);
   }
 
-  // 4b. A 50-line paste is confirmed into exactly ONE agent call; the
-  // response lands in the transcript, visible via Ctrl+O execution detail.
+  // 4b. A 50-line paste is confirmed into exactly ONE agent call; the response
+  // lands in the transcript, where the user can scroll back to it.
   {
     calls.length = 0;
     const { instance, handle } = mount({ agent: createMockAgent(), workspaceDir: '/tmp/ws' });
@@ -192,8 +276,8 @@ async function type(instance, text) {
     assert.ok(ok, `exactly one streamChat call (got ${calls.length})`);
     assert.equal(calls[0].message.split('\n').length, 50, 'full paste in one message');
     await waitFor(() => handle.store.run.running === false);
-    instance.stdin.write('\x0f'); // Ctrl+O → execution detail
-    await waitFor(() => instance.lastFrame().includes('echo:'));
+    const visible = await waitFor(() => instance.lastFrame().includes('echo:'));
+    assert.ok(visible, 'the response is committed to the transcript');
     instance.unmount();
     await sleep(150);
   }
@@ -201,7 +285,6 @@ async function type(instance, text) {
   // 4c. Esc interrupts a running turn at a boundary; process survives.
   // Isolated subprocess: sequential ink instances in one process leak state.
   {
-    const { spawnSync } = await import('node:child_process');
     const r = spawnSync(process.execPath, ['test/fixtures/tui-esc-case.mjs'], {
       cwd: path.resolve(import.meta.dirname, '..'),
       encoding: 'utf8',
@@ -211,10 +294,9 @@ async function type(instance, text) {
     assert.match(r.stdout, /TUI-ESC-OK/);
   }
 
-  // 4d. Resume replay rows render on boot via runTuiApp options (transcript
-  // view — execution detail)
+  // 4d. Resume replay rows render on boot via runTuiApp options (the transcript
+  // is the conversation, so no panel has to be opened to see it).
   {
-    const { buildResumeReplay } = await import('../dist/cli/tui-utils.js');
     const replay = buildResumeReplay([
       { role: 'user', content: 'earlier question' },
       {
@@ -231,13 +313,11 @@ async function type(instance, text) {
       workspaceDir: '/tmp/ws',
       replayRows,
     });
-    await sleep(150);
-    instance.stdin.write('\x0f'); // Ctrl+O → transcript visible
-    await sleep(60);
     const ok = await waitFor(
       () =>
         instance.lastFrame().includes('earlier question') &&
-        instance.lastFrame().includes('Resumed')
+        instance.lastFrame().includes('earlier answer') &&
+        instance.lastFrame().includes('resumed — replayed 3 rows')
     );
     assert.ok(ok, `replay rendered: ${instance.lastFrame().slice(0, 200)}`);
     instance.unmount();
@@ -249,12 +329,13 @@ async function type(instance, text) {
     calls.length = 0;
     const { instance } = mount({ agent: createMockAgent(), workspaceDir: '/tmp/ws' });
     await type(instance, '/nope');
-    await waitFor(() => instance.lastFrame().includes('Unknown command "/nope"'));
+    const ok = await waitFor(() => instance.lastFrame().includes('unknown command "/nope"'));
+    assert.ok(ok, `unknown command answered: ${instance.lastFrame().slice(0, 200)}`);
     instance.unmount();
     await sleep(150);
   }
-
-  void runTuiApp;
 }
+
+assert.equal(typeof runTuiApp, 'function', 'the TTY entry point is exported');
 
 console.log('[PASS] TUI foundation (transcript/paste/Esc/replay)');

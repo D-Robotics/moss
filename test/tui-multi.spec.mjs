@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
- * TUI multi-task plane (v0.19): /sessions panel, /mcp panel, /subs panel,
- * /rewind checkpoint restore — all driven through host-provided providers.
+ * CLI shell multi-task plane: /sessions, /mcp, /subs, /rewind — all driven
+ * through host-provided providers and printed into the transcript (the v0.22
+ * shell has no overlays, so the answer is the output).
  */
 import assert from 'node:assert/strict';
 
 import { createTuiStore } from '../dist/cli/tui/render-bridge.js';
 import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
+import { TuiAppRoot } from '../dist/cli/tui/app.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -46,7 +48,6 @@ async function type(instance, text) {
 
 const { render: renderInk } = await import('ink-testing-library');
 const React = await import('react');
-const { TuiAppRoot } = await import('../dist/cli/tui/app.js');
 
 const streamCalls = [];
 function mockAgent() {
@@ -88,49 +89,52 @@ const options = {
 const handle = liveHandle();
 const runtime = new TaskRuntime({ workspaceDir: '/tmp/ws' });
 const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
+const rowsWith = (needle) => handle.store.rows.filter((r) => r.text.includes(needle));
 
-// /sessions lists both with the current marker
+// /sessions lists both, with the current marker on the active one
 await type(instance, '/sessions');
 assert.ok(
-  await waitFor(() =>
-    handle.store.rows.some(
-      (r) => r.text.includes('* sess-current') && r.text.includes('sess-old — Fix the bug')
-    )
-  ),
-  'sessions panel lists with current marker'
+  await waitFor(() => rowsWith('* sess-current').length > 0),
+  'sessions block marks the current session'
+);
+assert.ok(
+  handle.store.rows.some((r) => r.text.includes('sess-old — Fix the bug')),
+  'sessions block lists the other session with its title'
 );
 
 // /mcp shows connected + failed servers with lazy tool counts
 await type(instance, '/mcp');
 assert.ok(
-  await waitFor(
-    () =>
-      handle.store.rows.some((r) =>
-        r.text.includes('● fixture-stdio — connected (50 tools, lazy)')
-      ) && handle.store.rows.some((r) => r.text.includes('○ broken — failed'))
-  ),
-  'mcp panel statuses'
+  await waitFor(() => rowsWith('● fixture-stdio — connected (50 tools, lazy)').length > 0),
+  'mcp block shows the connected server lazily'
+);
+assert.ok(
+  handle.store.rows.some((r) => r.text.includes('○ broken — failed')),
+  'mcp block shows the failed server'
 );
 
 // /subs lists the async task registry
 await type(instance, '/subs');
 assert.ok(
-  await waitFor(() =>
-    handle.store.rows.some((r) => r.text.includes('abc123') && r.text.includes('def456'))
+  await waitFor(
+    () =>
+      handle.store.rows.some((r) => r.text.includes('abc123')) &&
+      handle.store.rows.some((r) => r.text.includes('def456'))
   ),
-  'subs panel lists tasks'
+  'subs block lists tasks'
 );
 
 // /rewind lists checkpoints; /rewind 1 restores through the host provider
 await type(instance, '/rewind');
 assert.ok(
-  await waitFor(() =>
-    handle.store.rows.some((r) => r.text.includes('1. write src/a.ts (1 files)'))
-  ),
+  await waitFor(() => rowsWith('1. write src/a.ts (1 files)').length > 0),
   'rewind lists checkpoints'
 );
 await type(instance, '/rewind 1');
-assert.ok(await waitFor(() => instance.lastFrame().includes('Rewound to checkpoint 1')));
+assert.ok(
+  await waitFor(() => instance.lastFrame().includes('restored checkpoint 1: 1 file(s) restored')),
+  `rewind restores through the host provider: ${JSON.stringify(instance.lastFrame().slice(-200))}`
+);
 assert.deepEqual(rewinds, [1], 'host rewind provider invoked');
 
 instance.unmount();

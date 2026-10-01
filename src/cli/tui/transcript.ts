@@ -1,0 +1,800 @@
+/**
+ * Transcript grammar — the CLI shell renders like Claude Code / codex: ONE
+ * column that grows downward into the terminal's own scrollback, with the
+ * conversation rendered inline and only the composer pinned at the bottom.
+ *
+ * Marks (kept deliberately in one place so the whole product reads the same):
+ *   ❯  what the user said            (the only "input" echo)
+ *   ⏺  what moss says or is about to do (answer, tool call, notice)
+ *   ⎿  what a tool/hook returned
+ *   ✢  the run in flight (spinner + elapsed + tokens), finalized as ✻
+ *
+ * Pure projections: no ink imports, so specs can drive them directly.
+ */
+import { describeToolCall } from '../../core/task-runtime/runtime.js';
+import {
+  CLI_APPROVAL_FOOTER,
+  CLI_APPROVAL_OPTIONS,
+  type CliApprovalOption,
+  type CliApprovalView,
+} from '../approval-view.js';
+import { formatCliInteractionModeLabel, type CliInteractionMode } from '../interaction-mode.js';
+import { COMPOSER_MAX_ROWS, createComposer, renderComposerEditor } from './composer.js';
+import { renderMarkdown, type MarkdownLine } from './markdown.js';
+import type { TranscriptRow } from './render-bridge.js';
+import {
+  clip,
+  displayWidth,
+  line,
+  padStartTo,
+  rule,
+  wrap,
+  type TuiColor,
+  type TuiLine,
+} from './text.js';
+
+export const USER_MARK = '❯';
+export const ANSWER_MARK = '⏺';
+export const RESULT_MARK = '⎿';
+export const SPINNER_FRAMES = ['✢', '✳', '✶', '✻', '✽'];
+
+const CONTINUATION = '  ';
+const RESULT_INDENT = '     '; // 2 + width of "⎿  "
+
+/**
+ * `!` shell mode accent (`claude-code-surface.md` §5): the reference paints the
+ * prompt glyph, both rules and the hint `#fd5db1`; `magenta` is the nearest
+ * colour in the ink palette `TuiColor` names.
+ */
+export const SHELL_MODE_TONE: TuiColor = 'magenta';
+
+/**
+ * One distinct colour per interaction mode (R1 §6.6: manual `#999999`,
+ * accept edits `#af87ff`, plan `#48968c`). The hint row carries the whole
+ * tint because a `TuiLine` has exactly one colour.
+ */
+export const INTERACTION_MODE_TONES: Record<CliInteractionMode, TuiColor> = {
+  default: 'gray',
+  acceptEdits: 'magenta',
+  plan: 'cyan',
+};
+
+/**
+ * Hint-row wording for the active interaction mode (A7/F10). Only a
+ * non-default mode appends `(shift+tab to cycle)`, exactly like the reference;
+ * the label vocabulary stays moss's own (`/mode default`, `/mode plan`,
+ * `/mode accept-edits`) so the hint and the command agree.
+ */
+export function interactionModeHint(mode: CliInteractionMode): string {
+  const label = formatCliInteractionModeLabel(mode);
+  if (mode === 'default') return `⏸ ${label} mode on`;
+  return `${mode === 'plan' ? '⏸' : '⏵⏵'} ${label} mode on (shift+tab to cycle)`;
+}
+
+/** A user row that echoes a `!`-mode shell command rather than a goal. */
+export function isShellCommandRow(text: string): boolean {
+  return /^!\s?\S/.test(text);
+}
+
+/**
+ * Compact tool results are a preview, not a dump — the reference CLI collapses
+ * long output and expands it with ctrl+o (`claude-code-surface.md` §9). Verbose
+ * shows the whole thing; compact keeps the first few lines plus a marker
+ * pointing at the key that reveals the rest.
+ */
+export const RESULT_PREVIEW_LINES = 3;
+/** Diff blocks get a larger window: a hunk with its context is one thought. */
+export const DIFF_PREVIEW_LINES = 14;
+
+/** Verbs rotate slowly so a long run still looks alive without being cute. */
+const VERBS = ['Working', 'Thinking', 'Probing', 'Checking', 'Wiring', 'Verifying'];
+
+export function runVerb(seed: number): string {
+  return VERBS[Math.abs(Math.trunc(seed / 3)) % VERBS.length] ?? 'Working';
+}
+
+export function spinnerFrame(elapsedMs: number): string {
+  return SPINNER_FRAMES[Math.floor(elapsedMs / 120) % SPINNER_FRAMES.length] ?? '✢';
+}
+
+/** Claude-style tool labels: `Write(hello.txt)` rather than prose. */
+export function toolLabel(toolName: string, input: Record<string, unknown> = {}): string {
+  const display = toolName
+    .replace(/_(file|command)$/, '')
+    .split('_')
+    .map((part) => (part ? part[0]!.toUpperCase() + part.slice(1) : part))
+    .join(' ');
+  const primary =
+    pick(input, ['file_path', 'path', 'command', 'pattern', 'query', 'goal', 'url', 'metric']) ??
+    '';
+  if (primary) return `${display}(${clip(primary.replace(/\s+/g, ' ').trim(), 70)})`;
+  const summary = describeToolCall(toolName, input).trim();
+  // "running" / "reading" with no object says nothing (`Exec(running )`), so a
+  // bare label is more honest than empty parens.
+  const trivial =
+    !summary ||
+    summary.toLowerCase() === toolName.replace(/_/g, ' ').toLowerCase() ||
+    /^(running|reading|writing|editing|listing|deploying)\s*$/.test(summary);
+  return trivial ? display : `${display}(${clip(summary, 70)})`;
+}
+
+function pick(input: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return undefined;
+}
+
+/**
+ * Diff lines carry meaning through their sign (`+ ` added, `- ` removed — the
+ * same convention the REPL renderer uses, note the space). Everything else in a
+ * preview stays dim so the change pops without shouting.
+ */
+export function diffTone(text: string): { color?: TuiColor; dim?: boolean } {
+  if (text.startsWith('+ ')) return { color: 'green' };
+  if (text.startsWith('- ')) return { color: 'red' };
+  if (text.startsWith('@@')) return { color: 'cyan', dim: true };
+  return { dim: true };
+}
+
+// ─── diff gutter ─────────────────────────────────────────────────────────
+
+const FILE_HEADER = /^(?:---|\+\+\+)\s/;
+const ADDED_FILE_HEADER = /^\+\+\+\s/;
+const REMOVED_FILE_HEADER = /^---\s/;
+const HUNK_HEADER = /^@@/;
+const ADDED_LINE = /^\+(?!\+\+)/;
+const REMOVED_LINE = /^-(?!--)/;
+const CONTEXT_ELISION = /^\s*…\s*\(/;
+
+/**
+ * A `result` row that carries unified-diff lines (`+ `, `- `, `@@`) is rendered
+ * as a gutter block instead of a plain preview: right-aligned line number, then
+ * the marker column (` ` context, `+` added, `-` removed).
+ *
+ * `diffLinesForApproval` (`src/cli/approval-detail.ts`) is the producer, and it
+ * uses the `+ `/`- ` spelling, so both that and a bare `+added` (real `diff`
+ * output) are accepted.
+ *
+ * D-11: a LONE `+`/`-`-leading line is ordinary output — `! printf '+x\n'`,
+ * `! echo -n`, a `-`-prefixed log line — and classifying it as a diff made the
+ * transcript fabricate a gutter number for it. A diff needs real evidence: a
+ * `@@` hunk header, a `---`/`+++` file-header pair, or a RUN of at least two
+ * sign-prefixed lines.
+ */
+export function hasDiffLines(text: string): boolean {
+  const lines = resultLines(text);
+  if (lines.some((raw) => HUNK_HEADER.test(raw))) return true;
+  if (
+    lines.some((raw) => ADDED_FILE_HEADER.test(raw)) &&
+    lines.some((raw) => REMOVED_FILE_HEADER.test(raw))
+  ) {
+    return true;
+  }
+  return lines.filter((raw) => ADDED_LINE.test(raw) || REMOVED_LINE.test(raw)).length >= 2;
+}
+
+interface DiffRow {
+  sign: ' ' | '+' | '-';
+  body: string;
+  /** Line number; absent for hunk/file headers and context elisions. */
+  no?: number;
+  header?: boolean;
+  elision?: boolean;
+  /**
+   * D-11: a row may only show a number when a `@@` anchor was seen AT OR ABOVE
+   * it. A block-wide flag is not enough: a large diff whose head was truncated
+   * still contains a `@@` further down, which would number the retained rows
+   * above it with invented 1/2/3… counters.
+   */
+  anchored?: boolean;
+}
+
+function parseDiffLines(lines: string[]): { rows: DiffRow[]; digits: number } {
+  const rows: DiffRow[] = [];
+  let oldNo = 1;
+  let newNo = 1;
+  let largest = 1;
+  let sawHunk = false;
+  for (const raw of lines) {
+    if (HUNK_HEADER.test(raw) || FILE_HEADER.test(raw)) {
+      const hunk = /^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?/.exec(raw);
+      if (hunk) {
+        oldNo = Number(hunk[1]);
+        newNo = Number(hunk[2]);
+        sawHunk = true;
+      }
+      rows.push({ sign: ' ', body: raw, header: true, anchored: sawHunk });
+      continue;
+    }
+    if (CONTEXT_ELISION.test(raw)) {
+      rows.push({ sign: ' ', body: raw, elision: true, anchored: sawHunk });
+      continue;
+    }
+    if (ADDED_LINE.test(raw)) {
+      rows.push({ sign: '+', body: raw.slice(1), no: newNo, anchored: sawHunk });
+      largest = Math.max(largest, newNo);
+      newNo += 1;
+      continue;
+    }
+    if (REMOVED_LINE.test(raw)) {
+      rows.push({ sign: '-', body: raw.slice(1), no: oldNo, anchored: sawHunk });
+      largest = Math.max(largest, oldNo);
+      oldNo += 1;
+      continue;
+    }
+    rows.push({
+      sign: ' ',
+      body: raw.startsWith(' ') ? raw.slice(1) : raw,
+      no: newNo,
+      anchored: sawHunk,
+    });
+    largest = Math.max(largest, newNo);
+    oldNo += 1;
+    newNo += 1;
+  }
+  return { rows, digits: String(largest).length };
+}
+
+/**
+ * Gutter block for a diff result row. The first row carries the `⎿` mark (which
+ * occupies exactly the same 5 cells as the continuation indent, so the number
+ * column stays aligned); wrapped continuations are indented past the gutter so
+ * they line up under the code, not under the line numbers.
+ *
+ * The reference paints added/removed rows with a dark background AND colours the
+ * marker (`claude-code-surface.md` §8). ink applies `backgroundColor` per
+ * `<Text>`, and `TuiLine` carries no background, so moss colours the whole row
+ * (`+` green, `-` red) and keeps context dim — the marker still reads first
+ * because the sign column is its own cell.
+ */
+export function renderDiffGutter(text: string, width: number): TuiLine[] {
+  const lines = resultLines(text);
+  if (lines.length === 0) return [];
+  const { rows, digits } = parseDiffLines(lines);
+  const gutterWidth = Math.max(2, digits);
+  const out: TuiLine[] = [];
+  let first = true;
+  for (const row of rows) {
+    const prefix = first ? `${CONTINUATION}${RESULT_MARK}  ` : RESULT_INDENT;
+    first = false;
+    if (row.header) {
+      // `@@ -a,b +c,d @@` and `--- / +++` file headers sit at the text column,
+      // but the first rendered line still carries the ⎿ block mark.
+      out.push(
+        line(clip(`${prefix}${' '.repeat(gutterWidth + 2)}${row.body}`, width), {
+          color: 'cyan',
+          dim: true,
+        })
+      );
+      continue;
+    }
+    const gutter = row.elision
+      ? padStartTo('⋯', gutterWidth)
+      : row.anchored
+        ? padStartTo(String(row.no ?? ''), gutterWidth)
+        : // No hunk anchor at or above this row: a number here would be
+          // fabricated (D-11, including the truncated-head case).
+          padStartTo('', gutterWidth);
+    const lead = `${gutter} ${row.sign}`;
+    const pad = row.body.startsWith(' ') ? ' ' : '';
+    const body = row.body.replace(/^ /, '');
+    // The sign drives the colour (a real `diff` writes `+added` with no space,
+    // which `diffTone` — kept for the approval preview — does not cover).
+    const tone =
+      row.sign === '+'
+        ? { color: 'green' as const }
+        : row.sign === '-'
+          ? { color: 'red' as const }
+          : { dim: true };
+    const available = Math.max(4, width - displayWidth(prefix) - displayWidth(lead) - pad.length);
+    const chunks = wrap(body, available);
+    // An empty body (a bare `+`) still owns its gutter row.
+    if (chunks.length === 0) chunks.push('');
+    chunks.forEach((chunk, lineIndex) => {
+      // The ⎿ mark belongs to the row, not to every wrapped line: continuations
+      // are plain spaces, so they align under the code and not under the gutter.
+      const head =
+        lineIndex === 0
+          ? `${prefix}${lead}${pad}`
+          : `${RESULT_INDENT}${' '.repeat(displayWidth(lead) + pad.length)}`;
+      out.push(line(clip(`${head}${chunk}`, width), tone));
+    });
+  }
+  return out;
+}
+
+/**
+ * Reasoning lines (`· …`). The compact live region keeps the last two; the
+ * detailed transcript (ctrl+o) shows the stream, exactly like the reference's
+ * hidden-reasoning line (`claude-code-surface.md` §9).
+ */
+export function renderReasoning(text: string, width: number): TuiLine[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  return wrap(trimmed, Math.max(4, width - 2)).map((chunk) =>
+    line(clip(`· ${chunk}`, width), { dim: true })
+  );
+}
+
+/** Result rows may hide their reasoning; verbose-only, optional by design. */
+function rowReasoning(row: TranscriptRow): string | undefined {
+  const value = (row as { reasoning?: unknown }).reasoning;
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+/** Result text → display lines, with a replayed `⎿ ` prefix stripped once. */
+function resultLines(text: string): string[] {
+  return text
+    .split('\n')
+    .map((raw) => raw.replace(/^\s*⎿\s?/, '').replace(/\s+$/, ''))
+    .filter((raw) => raw.trim() !== '');
+}
+
+// ─── committed transcript rows ────────────────────────────────────────────
+
+/**
+ * One committed row → lines. Every block starts with a blank line so entries
+ * stay readable as they scroll past, exactly like the reference CLI.
+ *
+ * `verbose` is the detailed-transcript toggle (ctrl+o in the reference): it
+ * renders every tool-output line instead of the compact preview, and reveals
+ * the reasoning a row carries. Default false, so existing callers are unchanged.
+ */
+export function renderTranscriptRow(row: TranscriptRow, width: number, verbose = false): TuiLine[] {
+  const out: TuiLine[] = [line('')];
+  switch (row.kind) {
+    case 'user': {
+      // A `! <cmd>` submission is shell mode, not a goal: the reference swaps
+      // the `❯` mark for the shell prefix and keeps the command at column 0
+      // (`claude-code-surface.md` §5). Normal rows keep the exact old wrapping.
+      //
+      // D-10: a multi-line paste/draft keeps its own line breaks. `wrap()` alone
+      // collapses ALL whitespace, so `paste-line-one\npaste-line-two` was
+      // committed as one squashed row even though the model received the break.
+      const shell = isShellCommandRow(row.text);
+      const tone = shell ? { color: SHELL_MODE_TONE } : {};
+      let first = true;
+      for (const logical of row.text.split('\n')) {
+        const chunks = wrap(logical, width - 2);
+        if (chunks.length === 0) chunks.push('');
+        for (const chunk of chunks) {
+          const prefix = first ? (shell ? '' : `${USER_MARK} `) : CONTINUATION;
+          out.push(line(clip(`${prefix}${chunk}`, width), tone));
+          first = false;
+        }
+      }
+      return out;
+    }
+    case 'assistant': {
+      // Answers are markdown: headings/code/lists get their own projection while
+      // the ⏺ + 2-space continuation grammar stays exactly as it was.
+      const reasoning = verbose ? rowReasoning(row) : undefined;
+      if (reasoning) out.push(...renderReasoning(reasoning, width));
+      const body: MarkdownLine[] = renderMarkdown(row.text, Math.max(4, width - 2));
+      body.forEach((entry, index) => {
+        const prefix = index === 0 ? `${ANSWER_MARK} ` : CONTINUATION;
+        const text = `${prefix}${entry.text}`;
+        const clipped = clip(text, width);
+        // D-12: inline runs are the source of truth for emphasis, so a mixed
+        // prose line keeps its inline-code colour instead of being painted as
+        // one uniform row. The prefix becomes its own run; a CLIPPED line drops
+        // the runs (they must concatenate back to `text`).
+        out.push(
+          clipped === text
+            ? { ...entry, text, ...(entry.runs ? { runs: [{ text: prefix }, ...entry.runs] } : {}) }
+            : { ...entry, text: clipped, runs: undefined }
+        );
+      });
+      return out;
+    }
+    case 'tool': {
+      const body = wrap(`${ANSWER_MARK} ${row.text}`, width);
+      return [line(''), ...body.map((text) => line(clip(text, width), { color: 'cyan' }))];
+    }
+    case 'result':
+    case 'system': {
+      // The mark is owned here: some producers (resume replay) already bake a
+      // "⎿ " prefix into the row text, which used to render it twice.
+      const source = resultLines(row.text);
+      if (source.length === 0) return out;
+      if (hasDiffLines(row.text)) {
+        const diff = renderDiffGutter(row.text, width);
+        const shown = verbose ? diff : diff.slice(0, DIFF_PREVIEW_LINES);
+        out.push(...shown);
+        if (shown.length < diff.length) {
+          out.push(
+            line(
+              clip(`${RESULT_INDENT}… ${diff.length - shown.length} more lines · ctrl+o`, width),
+              { dim: true }
+            )
+          );
+        }
+        return out;
+      }
+      // Compact is a preview (first few lines + a pointer at ctrl+o); verbose
+      // is the whole output — the reference's collapsing behaviour (§9).
+      const shown = verbose ? source : source.slice(0, RESULT_PREVIEW_LINES);
+      shown.forEach((raw, index) => {
+        const tone = diffTone(raw);
+        const body = wrap(raw, width - 5);
+        body.forEach((text, lineIndex) => {
+          const prefix =
+            index === 0 && lineIndex === 0 ? `${CONTINUATION}${RESULT_MARK}  ` : RESULT_INDENT;
+          out.push(line(clip(`${prefix}${text}`, width), tone));
+        });
+      });
+      if (shown.length < source.length) {
+        out.push(
+          line(
+            clip(`${RESULT_INDENT}… ${source.length - shown.length} more lines · ctrl+o`, width),
+            { dim: true }
+          )
+        );
+      }
+      return out;
+    }
+    case 'detail': {
+      // Slash-command / help output: indented like a tool result, but without
+      // repeating the ⎿ mark on every line.
+      const indent = /^(\s*)/.exec(row.text)?.[1] ?? '';
+      const body = wrap(row.text.trim(), Math.max(8, width - 4 - indent.length));
+      if (body.length === 0) return [line('')];
+      for (const text of body) {
+        out.push(line(clip(`${' '.repeat(4)}${indent}${text}`, width), { dim: true }));
+      }
+      return out;
+    }
+    case 'summary': {
+      // Finalizing status (`✻ Worked for 5s`): sits at the same 2-space column
+      // as an answer continuation, not in the 4-space block body.
+      out.push(line(clip(`  ${row.text}`, width), { dim: true }));
+      return out;
+    }
+    case 'error': {
+      const body = wrap(row.text, width - 2);
+      out.push(line(clip(`${ANSWER_MARK} ${body[0] ?? ''}`, width), { color: 'red', bold: true }));
+      for (const extra of body.slice(1)) {
+        out.push(line(clip(`${CONTINUATION}${extra}`, width), { color: 'red' }));
+      }
+      return out;
+    }
+    case 'banner': {
+      // Boot banner: name line loud, the rest quiet (model · device · cwd).
+      const rows = row.text.split('\n');
+      out.push(line(clip(rows[0] ?? '', width), { bold: true, color: 'cyan' }));
+      for (const extra of rows.slice(1)) out.push(line(clip(extra, width), { dim: true }));
+      return out;
+    }
+    default: {
+      for (const raw of row.text.split('\n')) out.push(line(clip(raw, width)));
+      return out;
+    }
+  }
+}
+
+export function renderTranscriptRows(
+  rows: TranscriptRow[],
+  width: number,
+  verbose = false
+): TuiLine[] {
+  return rows.flatMap((row) => renderTranscriptRow(row, width, verbose));
+}
+
+// ─── boot banner ─────────────────────────────────────────────────────────
+
+export interface BannerInfo {
+  version: string;
+  model?: string;
+  cwd: string;
+  device?: string;
+}
+
+export function renderBanner(info: BannerInfo, width: number): TuiLine[] {
+  const second = [info.model, info.device].filter(Boolean).join(' · ');
+  return [
+    line(clip(` moss v${info.version}`, width), { bold: true, color: 'cyan' }),
+    line(clip(` ${second}`, width), { dim: true }),
+    // The caller passes an already-display-ready path.
+    line(clip(` ${info.cwd}`, width), { dim: true }),
+  ];
+}
+
+// ─── live region (in flight) ─────────────────────────────────────────────
+
+export interface LiveView {
+  running: boolean;
+  startedAt?: number;
+  toolLine?: string;
+  streaming: string;
+  thinking: string;
+  tokensOut: number;
+  queued: number;
+  /** Waiting on the user (approval): the spinner must not keep pretending. */
+  blocked?: boolean;
+}
+
+export function renderLive(view: LiveView, width: number, verbose = false): TuiLine[] {
+  if (!view.running) return [];
+  const elapsedMs = view.startedAt !== undefined ? Date.now() - view.startedAt : 0;
+  const out: TuiLine[] = [];
+  // Compact keeps the most recent reasoning (two lines) and the streaming tail;
+  // the detailed transcript shows both in full (ctrl+o in the reference).
+  const reasoning = renderReasoning(view.thinking, width);
+  for (const entry of verbose ? reasoning : reasoning.slice(-2)) out.push(entry);
+  if (view.toolLine)
+    out.push(line(clip(`  ${RESULT_MARK}  ${view.toolLine}`, width), { dim: true }));
+  const streaming = wrap(view.streaming.trim(), width - 2);
+  for (const text of verbose ? streaming : streaming.slice(-8)) {
+    out.push(line(clip(`${text}`, width)));
+  }
+  if (view.blocked) return out;
+  const seconds = Math.max(0, Math.round(elapsedMs / 1000));
+  const tokens = view.tokensOut > 0 ? ` · ↓ ${view.tokensOut} tokens` : '';
+  const queued = view.queued > 0 ? ` · ${view.queued} queued` : '';
+  out.push(
+    line(
+      clip(
+        `${spinnerFrame(elapsedMs)} ${runVerb(seconds)}… (${seconds}s${tokens}${queued})`,
+        width
+      ),
+      { color: 'yellow' }
+    )
+  );
+  return out;
+}
+
+/** The line a finished run leaves behind, Claude-style: `✻ Worked for 5s`. */
+export function renderRunSummary(elapsedMs: number, halted: boolean, width: number): TuiLine[] {
+  const seconds = Math.max(1, Math.round(elapsedMs / 1000));
+  const verb = runVerb(seconds);
+  const text = halted ? `✻ ${verb} for ${seconds}s · interrupted` : `✻ ${verb} for ${seconds}s`;
+  return [line(''), line(clip(text, width), { dim: true })];
+}
+
+// ─── inline information blocks (slash commands, `?`) ─────────────────────
+
+export function infoBlock(title: string, lines: string[], width: number): TuiLine[] {
+  const out: TuiLine[] = [line(''), line(clip(`${ANSWER_MARK} ${title}`, width), { bold: true })];
+  for (const raw of lines) {
+    for (const text of wrap(raw, width - 5)) {
+      out.push(line(clip(`${RESULT_INDENT}${text}`, width), { dim: true }));
+    }
+  }
+  return out;
+}
+
+// ─── live todo checklist ────────────────────────────────────────────────
+
+const TODO_GLYPH: Record<string, string> = {
+  pending: '○',
+  in_progress: '◐',
+  completed: '✓',
+};
+
+export const TODO_PANEL_MAX_ROWS = 6;
+
+/**
+ * The agent's todo list, rendered above the composer while it works — the same
+ * place the reference CLI puts its plan. Completed items go dim-green, the
+ * in-flight one is the only loud row.
+ */
+export function renderTodoPanel(
+  todos: ReadonlyArray<{ content: string; status: string }>,
+  width: number,
+  maxRows = TODO_PANEL_MAX_ROWS
+): TuiLine[] {
+  if (todos.length === 0) return [];
+  const done = todos.filter((todo) => todo.status === 'completed').length;
+  const out: TuiLine[] = [
+    line(clip(`  ${ANSWER_MARK} ${done}/${todos.length} done`, width), { dim: true }),
+  ];
+  const capacity = Math.max(1, maxRows - 1);
+  for (const todo of todos.slice(0, capacity)) {
+    const glyph = TODO_GLYPH[todo.status] ?? '○';
+    const active = todo.status === 'in_progress';
+    out.push(
+      line(clip(`   ${glyph} ${todo.content}`, width), {
+        ...(active ? { color: 'cyan' as const, bold: true } : {}),
+        ...(todo.status === 'completed' ? { dim: true, color: 'green' as const } : {}),
+        ...(todo.status === 'pending' ? { dim: true } : {}),
+      })
+    );
+  }
+  if (todos.length > capacity) {
+    out.push(line(clip(`   … ${todos.length - capacity} more`, width), { dim: true }));
+  }
+  return out;
+}
+
+// ─── approval prompt ────────────────────────────────────────────────────
+
+/**
+ * The frozen structured approval payload (N1) plus the UI-only `cursor`. The
+ * option list and the footer are read FROM the payload (N2): this renderer must
+ * never invent its own, because a second hard-coded copy is exactly the drift
+ * that left `setCliApprovalViewAsker` dead (SI-2).
+ */
+export interface ApprovalView extends Partial<CliApprovalView> {
+  question: string;
+  title: string;
+  cursor: number;
+}
+
+/** The frozen option list, re-exported for callers that have no payload. */
+export const APPROVAL_OPTIONS: readonly CliApprovalOption[] = CLI_APPROVAL_OPTIONS;
+
+/** The frozen footer, re-exported for callers that have no payload. */
+export const APPROVAL_FOOTER = CLI_APPROVAL_FOOTER;
+
+export const APPROVAL_FALLBACK_QUESTION = 'Do you want to proceed?';
+
+export interface ApprovalRenderOptions {
+  /**
+   * Rows the dialog may occupy. The shell passes the terminal height minus the
+   * rest of the pinned chrome, so a short terminal cannot push the question of a
+   * security prompt off screen (D-13). Default: unbounded (unchanged rendering
+   * for pure callers and specs).
+   */
+  maxHeight?: number;
+}
+
+export function renderApproval(
+  view: ApprovalView,
+  width: number,
+  renderOptions: ApprovalRenderOptions = {}
+): TuiLine[] {
+  const maxHeight =
+    renderOptions.maxHeight === undefined
+      ? Number.POSITIVE_INFINITY
+      : Math.max(1, renderOptions.maxHeight);
+  // Verbatim from the payload (N2): the footer advertises only keys that work.
+  // An EXPLICIT empty list means "this dialog has no options" (a free-text
+  // `ask_user_question`); only an absent list falls back to the frozen defaults.
+  const options = view.options ?? APPROVAL_OPTIONS;
+  // The host owns the wording (`Do you want to create beta.txt?`); the generic
+  // sentence is only the fallback for a caller with no question of its own.
+  const question = view.question.split('\n').find((text) => text.trim() !== '') ?? '';
+  const questionLine = line(clip(` ${question.trim() || APPROVAL_FALLBACK_QUESTION}`, width));
+  const optionLines = options.map((option, index) =>
+    line(clip(` ${index === view.cursor ? '❯' : ' '} ${option.key}. ${option.label}`, width), {
+      bold: index === view.cursor,
+      ...(index === view.cursor ? {} : { dim: true }),
+    })
+  );
+  const footerLine = line(clip(` ${view.footer ?? APPROVAL_FOOTER}`, width), { dim: true });
+  const headLines: TuiLine[] = [
+    line(rule(width)),
+    line(clip(` ${view.title}`, width), { bold: true }),
+    ...(view.subject ? [line(clip(` ${view.subject}`, width), { color: 'cyan' })] : []),
+  ];
+
+  // The preview is the only unbounded part of the dialog, so it is capped by the
+  // budget BEFORE anything is dropped: 2 frame rules + head + question + options
+  // + footer are the fixed cost.
+  const fixedCost = 2 + headLines.length + 1 + optionLines.length + 1;
+  const previewCap = Number.isFinite(maxHeight)
+    ? Math.max(0, Math.min(12, maxHeight - fixedCost))
+    : 12;
+  const previewLines: TuiLine[] = [];
+  for (const raw of (view.preview ?? []).slice(0, previewCap)) {
+    const tone = diffTone(raw);
+    for (const text of wrap(raw, width - 3))
+      previewLines.push(line(clip(`  ${text}`, width), tone));
+  }
+  const previewBlock: TuiLine[] =
+    previewLines.length > 0
+      ? [line(rule(width, '╌')), ...previewLines, line(rule(width, '╌'))]
+      : [];
+
+  const full = [...headLines, ...previewBlock, questionLine, ...optionLines, footerLine];
+  if (full.length <= maxHeight) return full;
+  // Degrade in priority order: preview, then the title/subject frame, then the
+  // one-row-per-option list. The QUESTION is the last thing to go.
+  const withoutPreview = [...headLines, questionLine, ...optionLines, footerLine];
+  if (withoutPreview.length <= maxHeight) return withoutPreview;
+  const tailOnly = [questionLine, ...optionLines, footerLine];
+  if (tailOnly.length <= maxHeight) return tailOnly;
+  const compactOptions = line(
+    clip(
+      ` ${options.map((option, index) => `${index === view.cursor ? '❯ ' : ''}${option.key}. ${option.label}`).join(' · ')}`,
+      width
+    ),
+    { bold: true }
+  );
+  const compact = [questionLine, compactOptions, footerLine];
+  if (compact.length <= maxHeight) return compact;
+  // A 1–2 row pane: the question outranks the key hints.
+  return [questionLine, compactOptions].slice(0, Math.max(1, maxHeight));
+}
+
+// ─── composer + bottom chrome ───────────────────────────────────────────
+
+export { COMPOSER_MAX_ROWS } from './composer.js';
+
+/**
+ * Plain-text composer projection (the shape specs and previews assert on):
+ * `❯ ` prefix, `▌` block caret, `…` elision — same wrapping engine as the
+ * interactive shell, so the two can never disagree about how a goal wraps.
+ */
+export function renderComposer(input: string, width: number, placeholder: boolean): TuiLine[] {
+  const view = renderComposerEditor(createComposer(input), {
+    width,
+    maxRows: COMPOSER_MAX_ROWS,
+    placeholder: placeholder ? PLACEHOLDER_TEXT : undefined,
+    firstPrefix: `${USER_MARK} `,
+    restPrefix: '  ',
+    caretGlyph: '▌',
+    markElision: true,
+  });
+  return view.lines.map((runs) => line(runs.map((run) => run.text).join('')));
+}
+
+export const PLACEHOLDER_TEXT = 'Try "stream the camera at 30 fps and verify it"';
+
+export interface StatusView {
+  running: boolean;
+  blocked?: boolean;
+  model?: string;
+  tokens: number;
+  taskCount: number;
+  queueLength: number;
+  /** Context-window fill, when the provider reports one. */
+  contextUsed?: number;
+  contextTotal?: number;
+  /**
+   * Active interaction mode, straight from the policy layer
+   * (`getCliInteractionMode`). Defaults to `default` so a caller with no mode
+   * still renders the A7 hint row.
+   */
+  mode?: CliInteractionMode;
+  /** The composer is in `!` shell mode for the current draft (R1 §5). */
+  shellMode?: boolean;
+}
+
+export function renderStatusRight(view: StatusView, width: number): TuiLine {
+  const parts: string[] = [];
+  if (view.blocked) parts.push('● waiting for you');
+  else if (view.running) parts.push('● running');
+  if (view.model) parts.push(view.model);
+  if (view.contextUsed !== undefined && view.contextTotal) {
+    const pct = Math.min(100, Math.round((view.contextUsed / view.contextTotal) * 100));
+    parts.push(`${pct}% ctx`);
+  }
+  if (view.tokens > 0)
+    parts.push(
+      `${view.tokens >= 1000 ? `${Math.round(view.tokens / 100) / 10}k` : view.tokens} tokens`
+    );
+  return line(clip(padStartTo(parts.join(' · '), width), width), { dim: true });
+}
+
+/**
+ * The 2-space-indented hint row under the rule (A7): the active interaction
+ * mode is always present, and only the keys that work in the current state are
+ * advertised. In `!` shell mode the whole row takes the shell accent and says
+ * `! for shell mode` (E3), while still naming the mode so A7 cannot regress.
+ */
+export function renderHint(view: StatusView, width: number): TuiLine {
+  const mode = view.mode ?? 'default';
+  const modeLabel = interactionModeHint(mode);
+  if (view.shellMode) {
+    return line(clip(`  ${['! for shell mode', 'Esc to cancel', modeLabel].join(' · ')}`, width), {
+      color: SHELL_MODE_TONE,
+      bold: true,
+    });
+  }
+  const parts = [modeLabel, '? for shortcuts'];
+  if (view.blocked) parts.push('1/2/3 to answer');
+  else if (view.running) parts.push('Esc to interrupt');
+  if (view.queueLength > 0) parts.push(`${view.queueLength} queued`);
+  if (view.taskCount > 0) parts.push(`${view.taskCount} task${view.taskCount === 1 ? '' : 's'}`);
+  return line(clip(`  ${parts.join(' · ')}`, width), {
+    color: INTERACTION_MODE_TONES[mode],
+    // The default mode is the resting state: keep it quiet so plan/accept-edits
+    // (and shell mode) read as a change.
+    ...(mode === 'default' ? { dim: true } : {}),
+  });
+}
+
+export { displayWidth };

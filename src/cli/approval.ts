@@ -25,7 +25,36 @@ export {
 
 export type CliSafetyMode = 'read-only' | 'workspace-write' | 'full-access';
 
-export type AskUser = (question: string, abortSignal?: AbortSignal) => Promise<string>;
+/**
+ * Structured approval payload, so a UI does not have to re-parse the flattened
+ * prompt string to recover what is being approved. The reference clients title
+ * these dialogs by intent ("Create file", "Edit file", "Bash command") and ask
+ * one question; this carries exactly that.
+ */
+export interface ApprovalDialog {
+  /** Short imperative title, e.g. `Create file` / `Edit file` / `Bash command`. */
+  title: string;
+  /** The thing being acted on (path, command, device target). */
+  subject?: string;
+  /** Detail/diff lines, already sanitized and capped. */
+  detail: string[];
+  /** One-line scope, e.g. `workspace file change`. */
+  scope?: string;
+  /** The question the dialog asks. */
+  question: string;
+}
+
+import {
+  buildCliApprovalView,
+  getCliApprovalViewAsker,
+  normalizeApprovalAnswer,
+} from './approval-view.js';
+
+export type AskUser = (
+  question: string,
+  abortSignal?: AbortSignal,
+  dialog?: ApprovalDialog
+) => Promise<string>;
 
 let interactiveAsker: AskUser | null = null;
 /** Separate channel for ask_user_question so TUI can render option pickers
@@ -690,6 +719,60 @@ export function renderCliApprovalPrompt(
   return lines.join('\n');
 }
 
+/**
+ * Dialog title in the reference clients' vocabulary. moss's extra surfaces
+ * (device mutations) get their own honest titles rather than being folded into
+ * the file/shell ones.
+ */
+export function approvalDialogTitle(toolName: string): string {
+  switch (toolName) {
+    case 'write_file':
+      return 'Create file';
+    case 'edit_file':
+    case 'apply_patch':
+    case 'multi_edit':
+      return 'Edit file';
+    case 'bash':
+    case 'shell':
+    case 'exec':
+    case 'run_command':
+      return 'Bash command';
+    case 'device_file_write':
+      return 'Write file on device';
+    case 'device_exec':
+      return 'Run command on device';
+    default:
+      return toolName.replace(/_(file|command)$/, '').replace(/_/g, ' ') || 'Approve';
+  }
+}
+
+function approvalDialogQuestion(title: string, subject: string | undefined): string {
+  if (!subject) return 'Do you want to proceed?';
+  if (title === 'Create file') return `Do you want to create ${subject}?`;
+  if (title === 'Edit file') return `Do you want to make this edit to ${subject}?`;
+  if (title === 'Bash command') return 'Do you want to proceed?';
+  if (title === 'Write file on device') return `Do you want to write ${subject} on the device?`;
+  if (title === 'Run command on device') return `Do you want to run this on the device?`;
+  return 'Do you want to proceed?';
+}
+
+/** Build the structured dialog for a pending approval. */
+export function describeApprovalDialog(
+  preview: CliToolApprovalPreview,
+  input: Record<string, unknown>,
+  detailCtx: ApprovalDetailContext = {}
+): ApprovalDialog {
+  const title = approvalDialogTitle(preview.toolName);
+  const subject = approvalTargetSummary(preview.toolName, input) || undefined;
+  return {
+    title,
+    ...(subject ? { subject } : {}),
+    detail: buildApprovalDetailLines(preview.toolName, preview.sideEffect, input, detailCtx),
+    scope: approvalScopeSummary(preview, input),
+    question: approvalDialogQuestion(title, subject),
+  };
+}
+
 function hasAutoApproval(env: NodeJS.ProcessEnv, options: CliToolApprovalOptions): boolean {
   return (
     options.approvalPolicy === 'never' ||
@@ -955,9 +1038,22 @@ export function createCliToolApprovalHook(
       },
       taskCtx
     );
-    const answer = (await (asker ?? defaultAskUser)(prompt, request.abortSignal))
-      .trim()
-      .toLowerCase();
+    const dialog = describeApprovalDialog(preview, request.input, {
+      workspaceDir: options.workspaceDir,
+      device: options.device,
+    });
+    // Precedence: a structured UI (which renders the dialog itself) wins over
+    // the flattened-prompt asker; headless/tests keep using the string path.
+    const viewAsker = getCliApprovalViewAsker();
+    const answer = viewAsker
+      ? normalizeApprovalAnswer(await viewAsker(buildCliApprovalView(dialog), request.abortSignal))
+      : (await (asker ?? defaultAskUser)(prompt, request.abortSignal, dialog)).trim().toLowerCase();
+
+    // "Yes, but let me add something first": run the tool, and the UI stages the
+    // composer for the user's follow-up. Not a session-wide trust grant.
+    if (answer === 'amend') {
+      return { approved: true };
+    }
     if (answer === 'a' || answer === 'always') {
       if (isWorkspaceTrustEligible(preview)) {
         sessionTrustedWorkspaces.add(workspaceRoot);

@@ -1,19 +1,29 @@
 /**
- * moss Mission Control TUI (v0.21) — the interactive face for TTY sessions,
- * rebuilt task-first around the shared TaskRuntime: Task Navigator | Task
- * Execution Canvas | Contextual Device + Verification, with the transcript
- * demoted to an expandable execution detail.
+ * moss CLI shell (v0.22) — the interactive face for TTY sessions.
+ *
+ * Deliberately the same shape as Claude Code / codex: ONE column. Finished
+ * transcript rows are committed to the terminal's own scrollback through ink's
+ * `<Static>` (so history survives and terminal selection/copy keeps working),
+ * while a small live region, the composer and the status chrome stay pinned at
+ * the bottom. There are no side panels and no full-screen overlays: everything
+ * the user needs is printed into the conversation where it happened.
  *
  * This module (and only this directory) statically imports ink/react; every
  * entry point must dynamically import it so headless/SDK paths never load UI
  * dependencies. Non-TTY or `--no-tty` sessions fall back to the readline REPL.
- *
- * Input model stays hand-rolled (append + backspace + return) rather than
- * ink-text-input, with bracketed-paste staged at the raw stdin layer — both
- * are deterministic under ink-testing-library (see project TUI notes).
  */
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { render, Text, Box, useApp, useInput, useStdin, useStdout } from 'ink';
+import {
+  render,
+  Box,
+  Static,
+  Text,
+  useApp,
+  useInput,
+  useStdin,
+  useStdout,
+  useWindowSize,
+} from 'ink';
 import type { MossAgent } from '../../core/agent/moss-agent.js';
 import { TaskRuntime } from '../../core/task-runtime/runtime.js';
 import { errorMessage } from '../../errors.js';
@@ -24,51 +34,103 @@ import {
   createTuiStore,
   endRun,
   formatUsage,
-  type TranscriptRowKind,
+  type TranscriptRow,
+  type TuiUsageState,
 } from './render-bridge.js';
 import { createPasteCapture, feedChunk } from './input-box.js';
-import {
-  listBackgroundProcessSnapshots,
-  type BackgroundProcSnapshot,
-} from '../../core/tools/background-process-registry.js';
+import { listBackgroundProcessSnapshots } from '../../core/tools/background-process-registry.js';
 import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
-import { EMPTY_STATE_EXAMPLES } from './panels.js';
 import { setCliApprovalAsker } from '../approval.js';
-import { transcriptLines } from './transcript-view.js';
-import { computeLayout } from './layout.js';
 import {
-  clip,
-  renderApprovalBanner,
-  renderCanvas,
-  renderContextPanel,
-  renderExecutionDetailTail,
-  renderInputLine,
-  renderNavigator,
-  type PanelColor,
-  type PanelLine,
-} from './panels.js';
+  runRegistryCommand,
+  type CommandContext,
+  type CommandSurface,
+} from '../commands/registry.js';
+import { cliLocale } from '../cli-locale.js';
+import { handleCompactCommand } from '../compact-command.js';
+import { resolveCliConfig, type ResolvedCliConfig } from '../config.js';
 import {
-  actionMenuItems,
+  formatCliInteractionModeLabel,
+  getCliInteractionMode,
+  setCliInteractionMode,
+  subscribeCliInteractionMode,
+  type CliInteractionMode,
+} from '../interaction-mode.js';
+import {
+  formatModelChoices,
+  loadModelChoicesForRuntime,
+  resolveContextTokensForModel,
+  resolveModelSelection,
+  type ModelChoiceList,
+} from '../model-catalog.js';
+import { createCliProvider } from '../providers.js';
+import { writePreferredModel } from '../preferred-model-store.js';
+import { runLocalShellCommand } from '../repl-process.js';
+import type { CliRuntimeStatus } from '../onboarding.js';
+import type { ContextUsageSnapshot } from '../usage-display.js';
+import {
+  CLI_APPROVAL_FOOTER,
+  CLI_APPROVAL_OPTIONS,
+  setCliApprovalViewAsker,
+  type CliApprovalAnswer,
+  type CliApprovalView,
+} from '../approval-view.js';
+import {
+  renderApproval,
+  renderBanner,
+  renderHint,
+  renderLive,
+  renderTodoPanel,
+  renderRunSummary,
+  renderStatusRight,
+  renderTranscriptRow,
+  SHELL_MODE_TONE,
+  type LiveView,
+  PLACEHOLDER_TEXT,
+  type StatusView,
+} from './transcript.js';
+import { clip, line, rule, type TuiColor, type TuiLine } from './text.js';
+import {
+  COMPOSER_MAX_ROWS,
+  composerDelete,
+  composerInsert,
+  composerMove,
+  composerNewline,
+  composerSetValue,
+  createComposer,
+  renderComposerEditor,
+  type ComposerRun,
+  type ComposerState,
+} from './composer.js';
+import {
+  ctrlBinding,
   HELP_COMMANDS,
   HELP_KEYS,
-  renderActionMenu,
-  renderDeploymentInspector,
-  renderEvidenceInspector,
-  renderFailureRepair,
-  renderHelp,
-  renderTaskHistory,
-  renderTaskSwitcher,
-  type OverlayKind,
-} from './overlays.js';
-
-export const TUI_HELP_TEXT = [
-  'moss Mission Control — describe a goal below; moss runs it as a task (plan → execute → device → verify → repair → acceptance).',
-  `keys: ${HELP_KEYS.map(([keys, what]) => `${keys} ${what}`).join(' · ')}`,
-  `commands: ${HELP_COMMANDS.join(' · ')}`,
-].join('\n');
+  HELP_PREFIXES,
+  SHELL_COMMAND_NAMES,
+  SHELL_COMMAND_ROWS,
+  type CtrlAction,
+} from './help.js';
+import {
+  movePaletteSelection,
+  PALETTE_MAX_ROWS,
+  renderSlashPalette,
+  slashPaletteRows,
+  type PaletteRow,
+} from './palette.js';
+import {
+  MENTION_MAX_ROWS,
+  completeMention,
+  filterMentions,
+  mentionTokenAt,
+  renderMentionMenu,
+  workspaceFileIndex,
+  type MentionEntry,
+} from './mentions.js';
+import { getPackageVersion } from '../package-info.js';
 
 export interface TuiReplayRow {
-  kind: TranscriptRowKind;
+  kind: TranscriptRow['kind'];
   text: string;
 }
 
@@ -92,6 +154,7 @@ export interface TuiAppOptions {
   workspaceDir: string;
   sessionKey?: string;
   model?: string;
+  version?: string;
   /** Transcript rows replayed on boot (resume). */
   replayRows?: TuiReplayRow[];
   /** /sessions panel provider (host-side session store). */
@@ -103,51 +166,64 @@ export interface TuiAppOptions {
   listCheckpoints?: () => Array<{ seq: number; label: string; files: number }>;
   /** Injected task runtime (specs); created from workspaceDir when omitted. */
   runtime?: TaskRuntime;
+  /**
+   * Host-side CLI runtime status (workspace, resolved config, safety mode) used
+   * by the shared registry commands `/status`, `/doctor`, `/permissions` and
+   * `/quickstart`. When omitted the shell resolves the same defaults the REPL
+   * uses, so those commands still answer with real config data.
+   */
+  cliRuntime?: CliRuntimeStatus;
+  /**
+   * Called once per submitted turn BEFORE streaming starts. The host uses it to
+   * open a file checkpoint for the turn, which is what makes `/rewind` able to
+   * restore anything later.
+   */
+  onTurnStart?: (message: string) => void;
 }
+
+export const TUI_HELP_TEXT = [
+  'moss — describe a goal; moss runs it as a task (plan → execute → device → verify → repair → acceptance).',
+  `keys: ${HELP_KEYS.map(([keys, what]) => `${keys} ${what}`).join(' · ')}`,
+  `commands: ${HELP_COMMANDS.join(' · ')}`,
+].join('\n');
 
 export function buildTuiHelpText(): string {
   return TUI_HELP_TEXT;
 }
 
-interface StatusSegment {
-  text: string;
-  color?: PanelColor;
-  bold?: boolean;
-  dim?: boolean;
+/**
+ * shift+tab cycle order (`claude-code-surface.md` §6.6: manual → accept edits →
+ * plan → auto). moss's policy layer (`cli/interaction-mode.ts`) has exactly
+ * three modes — there is no fourth "auto" state (full-auto is the safety-mode
+ * axis: `--full-access`, §Z8) — so the cycle visits all three real ones and
+ * returns to default. The LIST is the single source of truth for the key.
+ */
+export const INTERACTION_MODE_CYCLE: readonly CliInteractionMode[] = [
+  'default',
+  'acceptEdits',
+  'plan',
+];
+
+export function nextInteractionMode(current: CliInteractionMode): CliInteractionMode {
+  const index = INTERACTION_MODE_CYCLE.indexOf(current);
+  return INTERACTION_MODE_CYCLE[(index + 1) % INTERACTION_MODE_CYCLE.length] ?? 'default';
 }
 
+/** `❯ ` and `! ` are both one glyph + one space: the prompt run is 2 cells. */
+const PROMPT_CELLS = 2;
+
 /**
- * Keep the status bar to exactly one row. Ink wraps a `<Text>` whose children
- * overflow the terminal — which silently steals a row from the panels — so
- * whole trailing segments are dropped instead, and the first is clipped.
+ * D-7: how long a first Ctrl+C keeps the quit armed. Long enough to be a real
+ * double-press, short enough that a stale confirmation cannot surprise someone
+ * typing a goal.
  */
-function fitStatusBar(segments: StatusSegment[], width: number): React.ReactElement[] {
-  const kept: StatusSegment[] = [];
-  let used = 0;
-  for (const segment of segments) {
-    if (kept.length === 0) {
-      const text = clip(segment.text, width);
-      kept.push({ ...segment, text });
-      used = text.length;
-      continue;
-    }
-    if (used + segment.text.length > width) break;
-    kept.push(segment);
-    used += segment.text.length;
-  }
-  return kept.map((segment, i) =>
-    React.createElement(
-      Text,
-      {
-        key: `status-${i}`,
-        ...(segment.color ? { color: segment.color } : {}),
-        ...(segment.bold ? { bold: true } : {}),
-        ...(segment.dim ? { dimColor: true } : {}),
-      },
-      segment.text
-    )
-  );
-}
+const QUIT_CONFIRM_MS = 1500;
+
+/**
+ * D-13: rows reserved below the approval dialog (status, two rules, one composer
+ * row and the hint). The dialog may never grow past `terminalRows - this`.
+ */
+const APPROVAL_CHROME_RESERVE = 6;
 
 interface StoreHandle {
   store: ReturnType<typeof createTuiStore>;
@@ -171,12 +247,291 @@ function createStoreHandle(): StoreHandle {
   };
 }
 
-type FocusZone = 'composer' | 'navigator';
-type NarrowView = 'canvas' | 'context' | 'detail';
+/** Pull title / subject / preview out of the host's approval question. */
+export function describeApproval(question: string): {
+  title: string;
+  subject?: string;
+  preview?: string[];
+} {
+  const lines = question
+    .split('\n')
+    .map((text) => text.trim())
+    .filter(Boolean);
+  // The host phrases the intent as its own line ("Moss wants to write a file")
+  // followed by the subject ("notes.txt"): use those, and keep the rest as the
+  // preview, instead of dumping the whole paragraph above the options.
+  const intentIndex = lines.findIndex((text) => /^moss wants to /i.test(text));
+  if (intentIndex >= 0) {
+    const intent = lines[intentIndex]!.replace(/^moss wants to /i, '');
+    const subject = lines[intentIndex + 1];
+    return {
+      title: `${intent.charAt(0).toUpperCase()}${intent.slice(1)}`,
+      subject: subject ? clip(subject, 120) : undefined,
+      preview: lines
+        .filter((_, index) => index !== intentIndex && index !== intentIndex + 1)
+        .slice(0, 10),
+    };
+  }
+  const body = lines[0] ?? 'Approval required';
+  const sentence = body.split(/(?<=\.)\s/)[0] ?? body;
+  const rest = lines.slice(1);
+  const subject = body.slice(sentence.length).trim() || rest.shift() || undefined;
+  return {
+    title: sentence.replace(/\.$/, ''),
+    subject: subject ? clip(subject, 120) : undefined,
+    preview: rest.slice(0, 10),
+  };
+}
 
-interface OverlayState {
-  kind: OverlayKind;
+/**
+ * ink props for one text style (a row or a single inline run).
+ *
+ * D-12 regression guard: the ROW style must be applied to a line's outer
+ * `<Text>` even when the line carries runs. A heading's `bold` and a
+ * blockquote's `dim` live on the row (`TuiLineRun` cannot express `dim`), and
+ * ink applies a `<Text>`'s chalk over its composed children, so a nested run
+ * keeps its own colour while inheriting the uniform row attribute. Skipping the
+ * row style whenever `runs` existed silently un-bolded every heading and
+ * un-dimmed every quote.
+ */
+export function inkTextStyle(style: {
+  color?: TuiColor;
+  bold?: boolean;
+  italic?: boolean;
+  dim?: boolean;
+}): Record<string, unknown> {
+  return {
+    ...(style.color ? { color: style.color } : {}),
+    ...(style.bold ? { bold: true } : {}),
+    ...(style.italic ? { italic: true } : {}),
+    ...(style.dim ? { dimColor: true } : {}),
+  };
+}
+
+/** The outer `<Text>` style for a line: always the row style, runs included. */
+export function inkLineStyle(l: TuiLine): Record<string, unknown> {
+  return inkTextStyle(l);
+}
+
+/**
+ * A legacy flattened question → the frozen structured payload. The old
+ * string-port callers (and the `ask_user_question` channel that `approval.ts`
+ * mirrors from the same port) get the same dialog as the structured port.
+ */
+export function legacyApprovalView(question: string): CliApprovalView {
+  const described = describeApproval(question);
+  return {
+    title: described.title,
+    ...(described.subject ? { subject: described.subject } : {}),
+    ...(described.preview?.length ? { preview: described.preview } : {}),
+    question: 'Do you want to proceed?',
+    options: [...CLI_APPROVAL_OPTIONS],
+    footer: CLI_APPROVAL_FOOTER,
+  };
+}
+
+function approvalAnswerLabel(answer: CliApprovalAnswer): string {
+  if (answer === 'y') return 'yes';
+  if (answer === 'a') return 'yes (session)';
+  if (answer === 'amend') return 'amend';
+  return 'no';
+}
+
+/**
+ * Is an `error` event the user's own interrupt rather than a failure? The loop
+ * tags aborts with `stopReason: 'aborted_by_user'` but still emits an `error`
+ * event carrying the provider AbortError ("This operation was aborted"), which
+ * the shell used to print as a red bold error row (D-9).
+ */
+export function isInterruptEvent(controller: AbortController, error: unknown): boolean {
+  if (controller.signal.aborted) return true;
+  const message = typeof error === 'string' ? error : errorMessage(error);
+  return /abort(ed)?\b/i.test(message);
+}
+
+/** The visible approval dialog: the frozen payload plus the UI cursor. */
+export interface ApprovalDialogView extends CliApprovalView {
   cursor: number;
+}
+
+/**
+ * N-1: `ask_user_question` is a QUESTION, not a permission request. Its numbered
+ * options must be answerable and the CHOSEN option has to reach the model — the
+ * approval state machine used to discard the choice and return `y`/`a`/`n`.
+ * The prompt the tool builds is deterministic (`formatQuestionPrompt`), so the
+ * options are recovered from it here instead of inventing a second contract.
+ */
+export function questionDialogFromPrompt(promptText: string): {
+  view: ApprovalDialogView;
+  answers: string[];
+  /** `multi_select`: digits must NOT answer immediately (`1,3` is one answer). */
+  multiSelect: boolean;
+} | null {
+  const options: string[] = [];
+  const title: string[] = [];
+  for (const rawLine of promptText.split('\n')) {
+    const match = /^\s*(\d+)\.\s+(\S.*)$/.exec(rawLine);
+    if (match && Number(match[1]) === options.length + 1) {
+      options.push(match[2]!.trim());
+      continue;
+    }
+    if (/^\s*(Enter a number|Enter one or more|\(Type your answer)/i.test(rawLine)) continue;
+    if (rawLine.trim()) title.push(rawLine.trim());
+  }
+  const freeText = /\(Type your answer and press Enter\)/i.test(promptText);
+  const multiSelect = /Enter one or more numbers separated by commas/i.test(promptText);
+  if (options.length === 0 && !freeText) return null;
+  // The tool resolves a chosen number to the option's LABEL, so answer with the
+  // label (description dropped) — the same string the model would have received.
+  const answers = options.map((option) => option.split(' — ')[0]!.trim() || option);
+  return {
+    view: {
+      title: 'Question',
+      question: title.join(' ') || 'Question',
+      options: options.map((label, index) => ({
+        key: String(index + 1),
+        answer: 'y' as const,
+        label,
+      })),
+      footer: options.length
+        ? multiSelect
+          ? 'type 1,3 below · ↑↓ then Enter · Esc to skip'
+          : `${options.map((_, index) => index + 1).join('/')} · ↑↓ then Enter · Esc to skip`
+        : 'type your answer below · Enter to send · Esc to skip',
+      cursor: 0,
+    },
+    answers,
+    multiSelect,
+  };
+}
+
+interface PendingDialog {
+  kind: 'approval' | 'question';
+  /** Exactly-once guard: several exit paths can race to resolve the same dialog. */
+  settled: boolean;
+  cleanup?: () => void;
+  /** Approval answers are `CliApprovalAnswer`; question answers are free text. */
+  resolve: (value: string) => void;
+  /** Question dialogs: what each numbered option answers with. */
+  optionAnswers?: string[];
+  /** `multi_select` questions: digits are typed, only Enter answers. */
+  freeTextEntry?: boolean;
+}
+
+/** Resume prompt shared by `/resume` and the task switcher. */
+export function buildResumePrompt(runtime: TaskRuntime, taskId?: string): string {
+  const detail = runtime.taskDetail(taskId);
+  if (!detail) return '';
+  const unmet = detail.progress
+    .filter((criterion) => criterion.result !== 'pass')
+    .map((criterion) => `${criterion.metric} (${criterion.result})`)
+    .join(', ');
+  return (
+    `Continue task ${detail.summary.taskId} — goal: ${detail.goal}. ` +
+    `State: ${detail.summary.state}${detail.summary.result ? ` / ${detail.summary.result}` : ''}. ` +
+    (unmet ? `Unmet criteria: ${unmet}. ` : '') +
+    'Repair what failed, record fresh evidence, and re-run task_acceptance when done.'
+  );
+}
+
+function collectStrings(value: unknown, out: string[] = []): string[] {
+  if (typeof value === 'string') out.push(value);
+  else if (Array.isArray(value)) for (const item of value) collectStrings(item, out);
+  return out;
+}
+
+/**
+ * The registry's `CommandSurface` vocabulary has no shell member and no command
+ * branches on it, so `'repl'` is the only type-legal value today. Widening the
+ * union is a `src/cli/commands/registry.ts` change owned outside this task (the
+ * registry spec already passes `'tui'`).
+ */
+const COMMAND_SURFACE: CommandSurface = 'repl';
+
+/** `/status` → `Status`: the canonical title of a command's inline block. */
+export function commandBlockTitle(head: string): string {
+  const name = head.trim().replace(/^\//, '');
+  if (!name) return 'Command';
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/**
+ * Provider-reported context snapshot for the shared `/context` command. Returns
+ * undefined until the provider reports a window, which makes the registry fall
+ * back to a labelled local estimate instead of showing a fake 100%.
+ */
+export function shellContextUsage(usage: TuiUsageState): ContextUsageSnapshot | undefined {
+  if (usage.contextTotal <= 0) return undefined;
+  return { used: usage.contextUsed, total: usage.contextTotal, source: 'provider' };
+}
+
+/** Resolve the CLI config the shell's control commands report on; never throws. */
+export function resolveShellCliConfig(): ResolvedCliConfig | undefined {
+  try {
+    return resolveCliConfig();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Palette rows for the shell's OWN command surface.
+ *
+ * `slashPaletteRows` ranks the shared REPL table (`interactive-commands.ts`),
+ * which is a superset: it knows `/loop`, `/goal`, `/task`, `/init` (still
+ * REPL/headless-only, so the shell must not offer them) and it does NOT know the
+ * eleven task/control commands the shell owns (`/tasks`, `/history`,
+ * `/evidence`, `/deployments`, `/failures`, `/resume`, `/queue`, `/steer`,
+ * `/bg`, `/subs`, `/mcp`), which is why filtering alone could never surface
+ * them. Feeding `SHELL_COMMAND_ROWS` — the same table `/help` prints — through
+ * the shared ranker and keeping only the shell's names makes the menu and
+ * `/help` one list: the menu can neither hide an advertised command nor offer an
+ * unadvertised one. The map keeps the ranker's position for a name but takes the
+ * shell table's description, so the wording has one source too.
+ */
+export function shellPaletteRows(input: string): PaletteRow[] {
+  const allowed = new Set(SHELL_COMMAND_NAMES);
+  const byCommand = new Map<string, PaletteRow>();
+  for (const row of slashPaletteRows(input, SHELL_COMMAND_ROWS)) {
+    if (!allowed.has(row[0])) continue;
+    byCommand.set(row[0], row);
+  }
+  return [...byCommand.values()];
+}
+
+/**
+ * First row of the visible palette window (D-15).
+ *
+ * The selection index is absolute over the whole menu, while `renderSlashPalette`
+ * draws at most `maxRows` rows. Without an offset the renderer clamped its `❯`
+ * marker into that slice while Tab/Enter used the absolute index — past row 8 the
+ * menu highlighted one command and executed another (`/sessions` marked,
+ * `/doctor` run). The window therefore follows the cursor: the marker row is
+ * always the row `paletteRows[selected]` that Enter/Tab act on. Returns 0 while
+ * everything fits, so short menus never scroll.
+ */
+export function paletteWindowOffset(selected: number, total: number, maxRows: number): number {
+  if (maxRows <= 0 || total <= maxRows) return 0;
+  return Math.min(Math.max(0, selected - maxRows + 1), total - maxRows);
+}
+
+/**
+ * Rows handed to `renderSlashPalette`: the window first, so the marker index
+ * `selected - offset` maps onto the row the shell actually acts on. The hidden
+ * rows are appended so the renderer keeps owning its `… N more` counter — it
+ * only ever draws the first `maxRows` entries.
+ */
+export function paletteFrameRows(
+  rows: readonly PaletteRow[],
+  offset: number,
+  maxRows: number
+): PaletteRow[] {
+  if (offset <= 0) return [...rows];
+  return [
+    ...rows.slice(offset, offset + maxRows),
+    ...rows.slice(0, offset),
+    ...rows.slice(offset + maxRows),
+  ];
 }
 
 export function TuiAppRoot({
@@ -192,107 +547,263 @@ export function TuiAppRoot({
   const { stdin } = useStdin();
   const { stdout } = useStdout();
   const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
-  const [input, setInput] = useState('');
-  const [scrollOffset, setScrollOffset] = useState(0);
+  const [composer, setComposer] = useState<ComposerState>(() => createComposer());
+  const input = composer.value;
+  // Bulk edits (history recall, staged prompts, paste) replace the whole value
+  // and park the caret at the end; the fine-grained keys use the editor ops.
+  const setInput = useCallback((next: string | ((value: string) => string)) => {
+    setComposer((current) => {
+      const value = typeof next === 'function' ? next(current.value) : next;
+      return composerSetValue(value, value.length);
+    });
+  }, []);
   const [pastePreview, setPastePreview] = useState<string | undefined>(undefined);
-  const [overlay, setOverlay] = useState<OverlayState | undefined>(undefined);
-  const [focusZone, setFocusZone] = useState<FocusZone>('composer');
-  const [narrowView, setNarrowView] = useState<NarrowView>('canvas');
-  const [detailExpanded, setDetailExpanded] = useState(false);
-  const [notice, setNotice] = useState<string[]>([]);
+  const [approval, setApproval] = useState<ApprovalDialogView | undefined>(undefined);
+  const [statusLine, setStatusLine] = useState<string | undefined>(undefined);
+  /**
+   * D-7: `Ctrl+C` is a two-press quit, exactly as `?` advertises. The first
+   * press interrupts (or arms the quit on an idle composer) and NEVER touches
+   * the draft; the second press inside the confirm window exits.
+   */
+  const [quitArmed, setQuitArmed] = useState(false);
+  /**
+   * `!` shell mode for the CURRENT draft. Entered by typing `!` as the first
+   * character; the `!` itself is consumed (the composer prefix becomes `! `),
+   * exactly like the reference.
+   */
+  const [shellMode, setShellMode] = useState(false);
+  /**
+   * The active interaction mode MIRRORS the policy layer — it is never owned
+   * here. `setCliInteractionMode` is what the approval policy reads, and its
+   * subscription is what makes a shift+tab change visible on the next frame
+   * (including changes made by `/mode`, the CLI flags or another host).
+   */
+  const [interactionMode, setInteractionModeState] = useState<CliInteractionMode>(() =>
+    getCliInteractionMode()
+  );
+  /** Active model, so `/model` is reflected in the status row immediately. */
+  const [currentModel, setCurrentModel] = useState<string | undefined>(options.model);
+  /** ctrl+o: detailed transcript (full tool output + reasoning). */
+  const [verbose, setVerbose] = useState(false);
+  /**
+   * Bumped by ctrl+o. Committed rows live in ink's `<Static>`, which memoises
+   * the items it has already emitted and NEVER re-renders them in place, so
+   * flipping `verbose` alone left every old row collapsed and made the printed
+   * `· ctrl+o` marker a false affordance (D-5). A new `key` remounts the Static
+   * with index 0, which re-emits the whole transcript in the new state.
+   */
+  const [verboseRevision, setVerboseRevision] = useState(0);
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number | undefined>(undefined);
+  const [paletteCursor, setPaletteCursor] = useState(0);
+  const [paletteDismissed, setPaletteDismissed] = useState(false);
+  const [mentionCursor, setMentionCursor] = useState(0);
+  const [mentionDismissed, setMentionDismissed] = useState(false);
+  const [mentionIndex, setMentionIndex] = useState<MentionEntry[]>([]);
   const abortRef = useRef<AbortController | undefined>(undefined);
-  const pendingApprovalRef = useRef<{
-    question: string;
-    resolve: (answer: string) => void;
-  } | null>(null);
-  const queueRef = useRef<{ text: string; kind: 'prompt' }[]>([]);
+  const runStartedAtRef = useRef<number | undefined>(undefined);
+  const pendingDialogRef = useRef<PendingDialog | null>(null);
+  /** Timer behind the D-7 two-press Ctrl+C quit confirmation. */
+  const quitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const queueRef = useRef<string[]>([]);
   const queuePausedRef = useRef(false);
-  const [queuePaused, setQueuePaused] = useState(false);
   const [queueRevision, setQueueRevision] = useState(0);
   void queueRevision;
   const pasteRef = useRef(createPasteCapture());
-  const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>(undefined);
-  const [deviceSummary, setDeviceSummary] = useState<string>('checking…');
-  const [selectedExample, setSelectedExample] = useState<number | undefined>(undefined);
   const sessionKey = options.sessionKey ?? 'tui';
   const { store } = handle;
+  /**
+   * D-1: the width must come from a REACT-REACTIVE source. `stdout.columns` read
+   * during a render is only re-read when something re-renders the tree, and
+   * ink's own `resize` handler just re-runs layout + repaints the stale tree — so
+   * the chrome stayed at the old width until the next keystroke, and a shrink left
+   * the old and new frames interleaved. `useWindowSize()` subscribes to the
+   * stdout `resize` event and re-renders this component, so SIGWINCH now reflows
+   * immediately with no user input.
+   */
+  const windowSize = useWindowSize();
+  const columns = windowSize.columns || stdouts(stdout);
 
   useEffect(() => handle.subscribe(forceUpdate), [handle, forceUpdate]);
   useEffect(() => runtime.onChange(forceUpdate), [runtime, forceUpdate]);
+  // The policy layer is authoritative: any mode change (shift+tab, `/mode`, a
+  // flag, an embedded host) re-renders the hint row immediately.
+  useEffect(() => subscribeCliInteractionMode(setInteractionModeState), []);
 
-  const sayNotice = useCallback((lines: string[]) => {
-    setNotice(lines.map((text) => clip(text, 200)));
-  }, []);
-
-  /** Command answers leave a durable transcript row (execution log) + a
-   * short-lived notice above the composer. */
-  const logNotice = useCallback(
-    (lines: string[]) => {
-      appendRow(store, 'banner', lines.join('\n'));
-      sayNotice(lines.slice(0, 6));
+  /** Inline information block: a ⏺ title plus ⎿ rows, right in the transcript. */
+  const printBlock = useCallback(
+    (title: string, lines: string[]) => {
+      appendRow(store, 'tool', title);
+      for (const text of lines.length > 0 ? lines : ['(nothing to show)']) {
+        appendRow(store, 'detail', text);
+      }
       handle.notify();
     },
-    [handle, sayNotice, store]
+    [handle, store]
   );
 
-  // Approval bridge: when a mutating tool needs consent mid-run, the question
-  // surfaces as a banner and the NEXT input line is the answer (y/a/n).
+  // Dialog bridge: the policy hands the frozen structured payload (N1) to the
+  // structured port, and this ONE state machine renders it inline above the
+  // composer (1/2/3, or y/a/n) instead of letting the tool be answered blind.
+  //
+  // Resolve EXACTLY ONCE, from any exit path: an explicit answer, Esc, Ctrl+C,
+  // the run ending for any reason, the asker's abort signal, or unmount. A
+  // dialog that outlives its run keeps `● waiting for you` on screen and
+  // swallows every keystroke until the dead prompt is answered (D-2).
+  const resolveDialog = useCallback(
+    (value: string, options: { silent?: boolean; commit?: string } = {}): boolean => {
+      const pending = pendingDialogRef.current;
+      if (!pending || pending.settled) return false;
+      pending.settled = true;
+      pendingDialogRef.current = null;
+      pending.cleanup?.();
+      setApproval(undefined);
+      runtime.setApprovalPending(false);
+      if (!options.silent) {
+        appendRow(
+          store,
+          'result',
+          options.commit ??
+            `${pending.kind === 'question' ? 'answer' : 'approval'}: ${
+              pending.kind === 'question'
+                ? value || 'skipped'
+                : approvalAnswerLabel(value as CliApprovalAnswer)
+            }`
+        );
+        handle.notify();
+      }
+      pending.resolve(value);
+      return true;
+    },
+    [handle, runtime, store]
+  );
+
+  const resolveApproval = useCallback(
+    (answer: CliApprovalAnswer, options: { silent?: boolean } = {}): boolean =>
+      resolveDialog(answer, {
+        ...options,
+        ...(options.silent ? {} : { commit: `approval: ${approvalAnswerLabel(answer)}` }),
+      }),
+    [resolveDialog]
+  );
+
+  /**
+   * Settle whatever dialog is open from a shared exit path (Ctrl+C, the run
+   * ending, unmount). A question is skipped; an approval is denied.
+   */
+  const settleDialog = useCallback(
+    (silent: boolean): boolean => {
+      const pending = pendingDialogRef.current;
+      if (!pending) return false;
+      return pending.kind === 'question'
+        ? resolveDialog('', silent ? { silent: true } : { commit: 'answer: skipped' })
+        : resolveApproval('n', silent ? { silent: true } : {});
+    },
+    [resolveApproval, resolveDialog]
+  );
+
   useEffect(() => {
-    setCliApprovalAsker(async (question: string) => {
-      const pending = pendingApprovalRef.current;
-      if (pending) pending.resolve('n');
-      runtime.setApprovalPending(true);
-      appendRow(
-        store,
-        'banner',
-        `APPROVAL NEEDED — reply y (once) / a (session) / n (deny):\n${question.slice(0, 300)}`
-      );
-      sayNotice([`APPROVAL NEEDED — y (once) / a (session) / n (deny):`, question.slice(0, 160)]);
-      handle.notify();
-      return new Promise<string>((resolve) => {
-        pendingApprovalRef.current = { question, resolve };
+    const ask = (
+      view: CliApprovalView,
+      abortSignal: AbortSignal | undefined,
+      question: { answers: string[]; multiSelect: boolean } | undefined
+    ): Promise<string> =>
+      new Promise<string>((resolve) => {
+        // A second request can only arrive if the first was never answered:
+        // deny the stale one instead of orphaning it.
+        settleDialog(true);
+        runtime.setApprovalPending(true);
+        handle.notify();
+        const entry: PendingDialog = {
+          kind: question ? 'question' : 'approval',
+          resolve,
+          settled: false,
+          ...(question
+            ? { optionAnswers: question.answers, freeTextEntry: question.multiSelect }
+            : {}),
+        };
+        pendingDialogRef.current = entry;
+        if (abortSignal) {
+          const onAbort = () => settleDialog(true);
+          if (abortSignal.aborted) {
+            onAbort();
+            return;
+          }
+          abortSignal.addEventListener('abort', onAbort, { once: true });
+          entry.cleanup = () => abortSignal.removeEventListener('abort', onAbort);
+        }
+        // Verbatim payload: title/subject/preview/question/options/footer.
+        setApproval({ ...view, cursor: 0 });
       });
+
+    const uninstallViewAsker = setCliApprovalViewAsker(
+      async (view, abortSignal) =>
+        // The structured port only ever answers with the frozen option values.
+        (await ask(view, abortSignal, undefined)) as CliApprovalAnswer
+    );
+    // The legacy string port stays installed because `approval.ts` also mirrors
+    // it into the core `ask_user_question` channel; it funnels into the SAME
+    // state machine, so there is one view, not two competing ones. A prompt that
+    // carries numbered options is a QUESTION: its options render and the chosen
+    // option's text is the answer the model receives (N-1), instead of the
+    // approval state machine discarding the choice and replying `y`.
+    setCliApprovalAsker(async (question: string, abortSignal) => {
+      const parsed = questionDialogFromPrompt(question);
+      return parsed
+        ? ask(parsed.view, abortSignal, parsed)
+        : ask(legacyApprovalView(question), abortSignal, undefined);
     });
     return () => {
-      const pending = pendingApprovalRef.current;
-      if (pending) pending.resolve('n');
-      pendingApprovalRef.current = null;
-      runtime.setApprovalPending(false);
+      uninstallViewAsker();
       setCliApprovalAsker(null);
+      settleDialog(true);
     };
-  }, [handle, runtime, sayNotice, store]);
+  }, [handle, resolveDialog, runtime, settleDialog]);
 
-  // Boot: banner, replay rows, task artifacts.
+  // Boot: banner + replayed rows + artifacts.
   useEffect(() => {
-    appendRow(store, 'banner', 'moss Mission Control — /help for keys');
-    for (const row of options.replayRows ?? []) {
-      appendRow(store, row.kind, row.text);
-    }
-    if (options.replayRows?.length) {
-      appendRow(store, 'banner', `Resumed — replayed ${options.replayRows.length} rows above.`);
-    }
-    void runtime.refresh().then(() => {
-      const focusId = runtime.getLiveState().focusTaskId;
-      if (focusId) setSelectedTaskId(focusId);
-      handle.notify();
-    });
+    let device: string | undefined;
     try {
-      const target = resolveDefaultDeviceTarget();
-      setDeviceSummary(
-        target
-          ? `${target.deviceId} (kind=${target.kind})`
-          : 'not configured — set MOSS_DEVICE_HOST in .env'
-      );
+      device = resolveDefaultDeviceTarget()?.deviceId;
     } catch {
-      setDeviceSummary('not configured — set MOSS_DEVICE_HOST in .env');
+      device = undefined;
     }
+    const home = process.env.HOME ?? '';
+    const cwd =
+      home && options.workspaceDir.startsWith(home)
+        ? `~${options.workspaceDir.slice(home.length)}`
+        : options.workspaceDir;
+    appendRow(
+      store,
+      'banner',
+      renderBanner(
+        {
+          version: options.version ?? getPackageVersion(),
+          model: options.model,
+          device,
+          cwd,
+        },
+        // Clip at render time, not here.
+        Number.MAX_SAFE_INTEGER
+      )
+        .map((l) => l.text)
+        .join('\n')
+        .trim()
+    );
+    for (const row of options.replayRows ?? []) appendRow(store, row.kind, row.text);
+    if (options.replayRows?.length) {
+      appendRow(store, 'result', `resumed — replayed ${options.replayRows.length} rows`);
+    }
+    void runtime.refresh().then(() => handle.notify());
     handle.notify();
   }, []);
 
   const runTurn = useCallback(
     async (message: string) => {
+      options.onTurnStart?.(message);
       runtime.beginRun();
       beginRun(store);
+      runStartedAtRef.current = Date.now();
       handle.notify();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -300,16 +811,47 @@ export function TuiAppRoot({
         for await (const event of options.agent.streamChat(sessionKey, message, {
           abortSignal: controller.signal,
         })) {
+          if (event.type === 'error' && isInterruptEvent(controller, event.error)) {
+            // D-9: the loop reports the user's own abort as an `error` event
+            // ("This operation was aborted"), which used to land in the
+            // transcript as a red bold failure. An interrupt is an outcome the
+            // user asked for: record it quietly and keep the partial output.
+            runtime.applyEvent(event);
+            appendRow(store, 'summary', 'interrupted — partial output kept');
+            handle.notify();
+            continue;
+          }
+          if (event.type === 'tool_start' && store.run.streamingText.trim()) {
+            // D-6: prose that introduced a tool call belongs to the step that
+            // announced it. `endRun` commits one assistant row from the whole
+            // run, which concatenated pre-tool and post-tool prose into a single
+            // run-on line (`⏺ Planning the refactor.Todo list is live.`). Flush
+            // the pending prose into its own row at the tool boundary; the rest
+            // of the run streams into a fresh buffer.
+            appendRow(store, 'assistant', store.run.streamingText, {
+              ...(store.run.thinkingText.trim() ? { reasoning: store.run.thinkingText } : {}),
+            });
+            store.run.streamingText = '';
+            store.run.thinkingText = '';
+            store.version++;
+          }
           applyAgentEvent(store, event);
           runtime.applyEvent(event);
           if (event.type === 'done') {
             const response = event.result?.response;
-            if (
-              typeof response === 'string' &&
-              response.trim() &&
-              !store.run.streamingText.trim()
-            ) {
-              appendRow(store, 'assistant', response);
+            if (typeof response === 'string' && response.trim()) {
+              if (!store.run.streamingText.trim()) {
+                appendRow(store, 'assistant', response);
+              } else if (response.length > store.run.streamingText.length) {
+                // N-4 (found while reproducing D-12): the live tail is capped
+                // (`render-bridge` keeps the last 400 chars), and `endRun` commits
+                // that tail — so an answer longer than 400 chars lost its HEAD in
+                // the transcript (`⏺ ith bold, …` for a paragraph starting
+                // "A paragraph w…"). The provider's final response is
+                // authoritative: commit that instead of the truncated tail.
+                store.run.streamingText = response;
+                store.version++;
+              }
             }
           }
           handle.notify();
@@ -320,19 +862,26 @@ export function TuiAppRoot({
           runtime.applyEvent({ type: 'error', error: errorMessage(err), retriable: false });
         }
       }
+      // Every exit path from a run — done, throw, abort, interrupt — releases a
+      // pending dialog: it can never outlive its run and hold the composer
+      // hostage (D-2).
+      settleDialog(true);
       abortRef.current = undefined;
+      const startedAt = runStartedAtRef.current;
+      runStartedAtRef.current = undefined;
       const halted = controller.signal.aborted;
       endRun(store, halted);
-      await runtime.endRun(halted);
-      const focusId = runtime.getLiveState().focusTaskId;
-      if (focusId && !selectedTaskId) setSelectedTaskId(focusId);
-      if (halted) {
-        appendRow(store, 'banner', 'Run halted at a safe boundary — you can continue.');
-        sayNotice(['Run halted at a safe boundary — you can continue.']);
+      if (startedAt !== undefined) {
+        // Claude leaves a finalizing status line in the transcript; keep the
+        // same shape (`✻ Worked for 5s`) instead of a bare "done".
+        const summary = renderRunSummary(Date.now() - startedAt, halted, Number.MAX_SAFE_INTEGER);
+        const text = summary.find((l) => l.text.trim())?.text.trim();
+        if (text) appendRow(store, 'summary', text);
       }
+      await runtime.endRun(halted);
       handle.notify();
     },
-    [handle, options.agent, runtime, sayNotice, selectedTaskId, sessionKey, store]
+    [handle, options.agent, runtime, sessionKey, settleDialog, store]
   );
 
   const drainQueue = useCallback(async (): Promise<void> => {
@@ -340,54 +889,28 @@ export function TuiAppRoot({
       const next = queueRef.current.shift();
       if (!next) break;
       setQueueRevision((n) => n + 1);
-      appendRow(store, 'user', next.text);
+      appendRow(store, 'user', next);
       handle.notify();
-      await runTurn(next.text);
+      await runTurn(next);
     }
     if (queueRef.current.length === 0) setQueueRevision((n) => n + 1);
   }, [handle, runTurn, store]);
 
-  const buildResumePrompt = useCallback(
-    (taskId?: string): string => {
-      const detail = runtime.taskDetail(taskId);
-      if (!detail) return '';
-      const unmet = detail.progress
-        .filter((criterion) => criterion.result !== 'pass')
-        .map((criterion) => `${criterion.metric} (${criterion.result})`)
-        .join(', ');
-      return (
-        `Continue task ${detail.summary.taskId} — goal: ${detail.goal}. ` +
-        `State: ${detail.summary.state}${detail.summary.result ? ` / ${detail.summary.result}` : ''}. ` +
-        (unmet ? `Unmet criteria: ${unmet}. ` : '') +
-        'Repair what failed, record fresh evidence, and re-run task_acceptance when done.'
-      );
-    },
-    [runtime]
-  );
-
-  const openOverlay = useCallback((kind: OverlayKind) => {
-    setOverlay({ kind, cursor: 0 });
-    setNotice([]);
-  }, []);
-
-  const runInfoCommand = useCallback(
+  const sessionInfo = useCallback(
     async (command: 'sessions' | 'mcp' | 'subs' | 'bg'): Promise<string[]> => {
       if (command === 'sessions') {
         const sessions = (await options.listSessions?.()) ?? [];
-        if (sessions.length === 0) return ['No saved sessions.'];
-        return [
-          ...sessions.map(
-            (x) =>
-              `${x.current ? '*' : ' '} ${x.key}${x.title ? ` — ${x.title}` : ''}${
-                x.messageCount !== undefined ? ` (${x.messageCount} messages)` : ''
-              }`
-          ),
-          'Switch or fork from the shell: moss resume --last / moss fork --fork-from <key>',
-        ];
+        if (sessions.length === 0) return ['no saved sessions'];
+        return sessions.map(
+          (x) =>
+            `${x.current ? '*' : ' '} ${x.key}${x.title ? ` — ${x.title}` : ''}${
+              x.messageCount !== undefined ? ` (${x.messageCount} messages)` : ''
+            }`
+        );
       }
       if (command === 'mcp') {
         const servers = options.mcpServers ?? [];
-        if (servers.length === 0) return ['No MCP servers configured (.moss/mcp.json).'];
+        if (servers.length === 0) return ['no MCP servers configured (.moss/mcp.json)'];
         return servers.map(
           (x) =>
             `${x.state === 'connected' ? '●' : '○'} ${x.name} — ${x.state}${
@@ -397,126 +920,442 @@ export function TuiAppRoot({
       }
       if (command === 'subs') {
         const snaps = options.agent.asyncTasks?.list() ?? [];
-        if (snaps.length === 0) return ['No sub-agent tasks.'];
+        if (snaps.length === 0) return ['no sub-agent tasks'];
         return snaps.map((t) => `#${t.taskId.slice(-6)} ${t.status}`);
       }
-      const running = listBackgroundProcessSnapshots().filter(
-        (p: BackgroundProcSnapshot) => p.status === 'running'
-      );
-      if (running.length === 0) return ['No background tasks running.'];
+      const running = listBackgroundProcessSnapshots().filter((p) => p.status === 'running');
+      if (running.length === 0) return ['no background tasks running'];
       return running.map((p) => `#${p.id} ${p.command}${p.label ? ` (${p.label})` : ''}`);
     },
     [options]
   );
 
-  const showInfo = useCallback(
-    async (command: 'sessions' | 'mcp' | 'subs' | 'bg') => {
-      const lines = await runInfoCommand(command);
-      appendRow(store, 'banner', `[${command}] ${lines.join('\n')}`);
-      sayNotice(lines.slice(0, 6));
+  /** One place that knows how to print each task-runtime view. */
+  const showBlock = useCallback(
+    async (action: CtrlAction | 'tasks' | 'sessions' | 'mcp' | 'subs' | 'bg' | 'usage') => {
+      if (action === 'tasks') {
+        const summaries = runtime.taskSummaries();
+        printBlock(
+          `Tasks (${summaries.length})`,
+          summaries.map(
+            (s) =>
+              `${s.kind.toUpperCase().padEnd(8)} ${(s.result ?? s.state).padEnd(10)} ${s.criteriaMet}/${s.criteriaTotal} met  ${s.goal}`
+          )
+        );
+        return;
+      }
+      if (action === 'evidence') {
+        const records = runtime.getArtifacts().evidence;
+        printBlock(
+          `Evidence (${records.length})`,
+          records.map(
+            (r) =>
+              `${r.result.toUpperCase().padEnd(5)} ${r.metric} = ${r.observed ?? '?'}${
+                r.expected ? ` (want ${r.expected})` : ''
+              }`
+          )
+        );
+        return;
+      }
+      if (action === 'deployments') {
+        const deployments = runtime.getArtifacts().deployments;
+        printBlock(
+          `Deployments (${deployments.length})`,
+          deployments.map(
+            (d) =>
+              `${d.status.toUpperCase().padEnd(8)} ${d.deviceId} ${d.remotePath}${
+                d.error ? ` — ${d.error}` : ''
+              }`
+          )
+        );
+        return;
+      }
+      if (action === 'history') {
+        const summaries = runtime.taskSummaries();
+        const details = summaries
+          .map((s) => runtime.taskDetail(s.taskId))
+          .filter((d): d is NonNullable<typeof d> => Boolean(d));
+        printBlock(
+          `History (${details.length})`,
+          details.flatMap((d) => [
+            `${d.summary.taskId}`,
+            ...d.history.slice(-6).map((entry) => `  ${entry.kind.padEnd(11)} ${entry.label}`),
+          ])
+        );
+        return;
+      }
+      if (action === 'failures') {
+        const details = runtime
+          .taskSummaries()
+          .map((s) => runtime.taskDetail(s.taskId))
+          .filter((d): d is NonNullable<typeof d> => Boolean(d?.failure));
+        printBlock(
+          `Failures (${details.length})`,
+          details.flatMap((d) => [
+            `${d.summary.taskId}: ${d.failure?.headline ?? ''}`,
+            ...collectStrings(d.failure?.items.map((i) => `  ${i.label}`) ?? []),
+          ])
+        );
+        return;
+      }
+      printBlock(action, await sessionInfo(action as 'sessions'));
+    },
+    [printBlock, runtime, sessionInfo]
+  );
+
+  /** Every command answers in its own named block; failures add a loud error row. */
+  const printCommandError = useCallback(
+    (title: string, message: string) => {
+      appendRow(store, 'tool', title);
+      appendRow(store, 'error', message);
       handle.notify();
     },
-    [handle, runInfoCommand, sayNotice, store]
+    [handle, store]
+  );
+
+  /** Run a message the shell itself composed (e.g. `/review`'s review prompt). */
+  const dispatchRun = useCallback(
+    (message: string) => {
+      if (store.run.running) {
+        queueRef.current.push(message);
+        setQueueRevision((n) => n + 1);
+        return;
+      }
+      void runTurn(message).then(() => void drainQueue());
+    },
+    [drainQueue, runTurn, store]
+  );
+
+  /**
+   * `/diff` — the real working-tree diff through the same helper the readline
+   * REPL uses. A `result` row (not a detail dump) so the transcript keeps its
+   * diff gutter and the ctrl+o expander instead of hundreds of plain lines.
+   */
+  const runDiffCommand = useCallback(async () => {
+    try {
+      const result = await runLocalShellCommand({
+        command: 'git --no-pager diff --stat && git --no-pager diff',
+        cwd: options.workspaceDir,
+      });
+      if (result.exitCode !== 0) {
+        const notRepo = /not a git repository/i.test(result.output);
+        printBlock('Diff', [
+          notRepo
+            ? `Not a git repository: ${options.workspaceDir} — /diff needs a git workspace.`
+            : `git diff failed (exit ${result.exitCode}): ${
+                result.output.trim().split('\n')[0] || 'unknown error'
+              }`,
+        ]);
+        return;
+      }
+      appendRow(store, 'tool', 'Diff');
+      appendRow(store, 'result', result.output.trim() || '(no unstaged working-tree changes)');
+      handle.notify();
+    } catch (err) {
+      printCommandError('Diff', `git diff failed: ${errorMessage(err)}`);
+    }
+  }, [handle, options.workspaceDir, printBlock, printCommandError, store]);
+
+  /**
+   * `! <cmd>` — run the command inline through the SAME helper `/diff` uses
+   * (`runLocalShellCommand`), commit the echo as a `user` row and the real
+   * output as a `result` row so the diff gutter / ctrl+o expander apply. This is
+   * deliberately synchronous to the transcript: no model turn is started (the
+   * reference continues the turn with the output; that needs a live provider and
+   * is left to the agent loop — see the task report).
+   */
+  const runShellSubmission = useCallback(
+    async (command: string) => {
+      appendRow(store, 'user', `! ${command}`);
+      handle.notify();
+      try {
+        const result = await runLocalShellCommand({
+          command,
+          cwd: options.workspaceDir,
+        });
+        const output = result.output.replace(/\s+$/, '');
+        // "(no output)" is a real result: the command ran and printed nothing.
+        appendRow(
+          store,
+          'result',
+          output ||
+            `(no output${result.exitCode === 0 ? '' : ` · exit ${result.exitCode ?? 'signal'}`})`
+        );
+        if (result.exitCode !== 0) {
+          appendRow(
+            store,
+            'detail',
+            result.exitCode === null
+              ? `terminated by ${result.signal ?? 'signal'}`
+              : `exit code ${result.exitCode}`
+          );
+        }
+      } catch (err) {
+        appendRow(store, 'error', `! ${command} failed: ${errorMessage(err)}`);
+      }
+      handle.notify();
+    },
+    [handle, options.workspaceDir, store]
+  );
+
+  /**
+   * `/compact` — reuses `handleCompactCommand`, the exact helper the REPL calls,
+   * so the reported dropped-message/token numbers are the real compaction result.
+   */
+  const runCompactCommand = useCallback(
+    async (args: string) => {
+      if (store.run.running) {
+        printBlock('Compact', ['a run is in flight — press Esc to interrupt it, then /compact']);
+        return;
+      }
+      try {
+        const outcome = await handleCompactCommand(
+          options.agent,
+          sessionKey,
+          args.trim() || undefined
+        );
+        printBlock('Compact', outcome.split('\n'));
+      } catch (err) {
+        printCommandError('Compact', `compaction failed: ${errorMessage(err)}`);
+      }
+    },
+    [options.agent, printBlock, printCommandError, sessionKey, store]
+  );
+
+  /**
+   * `/model [name|number]` — lists the catalog or really switches the session
+   * model: the agent config, the provider (rebuilt, because the loop reads
+   * `config.llmProvider` per call), the persisted per-gateway preference and the
+   * status row all change together, and the new context window is re-probed.
+   */
+  const runModelCommand = useCallback(
+    async (args: string) => {
+      const config = resolveShellCliConfig();
+      const fallbackProvider = (options.agent.config as { provider?: string }).provider;
+      let choices: ModelChoiceList | undefined;
+      try {
+        choices = await loadModelChoicesForRuntime(config, currentModel ?? '', {
+          fallbackProvider,
+        });
+      } catch (err) {
+        choices = undefined;
+        printCommandError('Model', `could not load the model catalog: ${errorMessage(err)}`);
+      }
+      const token = args.trim();
+      if (!token) {
+        if (!choices) return;
+        printBlock('Model', formatModelChoices(choices).split('\n'));
+        return;
+      }
+      if (token === 'config' || token.startsWith('config ')) {
+        printBlock('Model', [
+          '/model config is not wired in the shell — use `moss setup` for a guided',
+          'provider/model/key change, or `moss config set model <name>` to persist one.',
+          '`/model <name>` still switches the active model for this session.',
+        ]);
+        return;
+      }
+      const selected = choices ? resolveModelSelection(token, choices.choices) : null;
+      const model = selected?.model ?? token;
+      const provider = selected?.provider ?? choices?.provider ?? config?.provider;
+      if (!config || !provider) {
+        printCommandError('Model', 'could not resolve the provider config — run `moss setup`.');
+        return;
+      }
+      try {
+        options.agent.config.model = model;
+        const mutable = options.agent.config as { provider?: string; baseUrl?: string };
+        mutable.provider = provider;
+        mutable.baseUrl = config.baseUrl;
+        options.agent.config.llmProvider = createCliProvider({
+          provider,
+          apiKey: config.apiKey,
+          model,
+          baseUrl: config.baseUrl,
+          ...(config.usingBundledDefault ? { usingBundledDefault: true } : {}),
+        });
+        writePreferredModel(config.baseUrl, model);
+      } catch (err) {
+        printCommandError('Model', `could not switch to ${model}: ${errorMessage(err)}`);
+        return;
+      }
+      setCurrentModel(model);
+      printBlock('Model', [
+        selected
+          ? `switched to ${model} (${provider})`
+          : `switched to custom model ${model} (${provider})`,
+      ]);
+      // Re-probe the new model's context window so the status row can never show
+      // the previous model's percentage. Fire-and-forget: the switch is already real.
+      void (async () => {
+        try {
+          const detected = await resolveContextTokensForModel({
+            model,
+            ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
+            ...(config.apiKey ? { apiKey: config.apiKey } : {}),
+            provider,
+            timeoutMs: 4000,
+          });
+          options.agent.config.contextTokens = detected.contextTokens;
+          store.usage.contextTotal = detected.contextTokens;
+          handle.notify();
+        } catch {
+          // Best-effort — the name-matching fallback already ran during config load.
+        }
+      })();
+    },
+    [currentModel, handle, options.agent, printBlock, printCommandError, store]
+  );
+
+  /**
+   * The shell's control-command router. It runs the SAME registry the readline
+   * REPL runs (`src/cli/commands/registry.ts`) — no second implementation — and
+   * only adds the commands that need live shell state: `/model`, `/compact`,
+   * `/diff` and `/stop`. Returns false when nothing in the shell knows the input.
+   */
+  const runShellCommand = useCallback(
+    async (text: string): Promise<boolean> => {
+      const head = text.split(/\s+/, 1)[0] ?? text;
+      const args = text.slice(head.length).trim();
+      const title = commandBlockTitle(head);
+      const locale = cliLocale();
+
+      const context: CommandContext = {
+        agent: options.agent,
+        runtime: {
+          ...(options.cliRuntime ?? {}),
+          workspace: options.cliRuntime?.workspace ?? options.workspaceDir,
+          sessionKey: options.cliRuntime?.sessionKey ?? sessionKey,
+        },
+        sessionKey,
+        workspace: options.workspaceDir,
+        ...(locale ? { locale } : {}),
+        surface: COMMAND_SURFACE,
+        say: (kind, out) =>
+          kind === 'error' ? printCommandError(title, out) : printBlock(title, out.split('\n')),
+        prefillInput: (value) => setInput(value),
+        submitPrompt: (value) => dispatchRun(value),
+        getContextUsage: () => shellContextUsage(store.usage),
+        setInteractionMode: (mode: CliInteractionMode) => {
+          // The policy layer already switched the mode; surface it so the change
+          // is visible instead of silent.
+          setStatusLine(`interaction mode: ${formatCliInteractionModeLabel(mode)}`);
+        },
+      };
+
+      try {
+        if (await runRegistryCommand(text, context)) return true;
+      } catch (err) {
+        printCommandError(title, `${head} failed: ${errorMessage(err)}`);
+        return true;
+      }
+
+      if (head === '/model') {
+        await runModelCommand(args);
+        return true;
+      }
+      if (head === '/compact') {
+        await runCompactCommand(args);
+        return true;
+      }
+      if (head === '/diff') {
+        await runDiffCommand();
+        return true;
+      }
+      if (head === '/stop' || head === '/abort') {
+        if (abortRef.current) {
+          abortRef.current.abort();
+          printBlock('Stop', ['interrupted the active run']);
+        } else {
+          printBlock('Stop', ['no run in flight — nothing to interrupt']);
+        }
+        return true;
+      }
+      return false;
+    },
+    [
+      dispatchRun,
+      options,
+      printBlock,
+      printCommandError,
+      runCompactCommand,
+      runDiffCommand,
+      runModelCommand,
+      sessionKey,
+      setInput,
+      store,
+    ]
   );
 
   const submit = useCallback(
     async (raw: string) => {
-      const pending = pendingApprovalRef.current;
-      if (pending) {
-        pendingApprovalRef.current = null;
-        runtime.setApprovalPending(false);
-        const answer = raw.trim().toLowerCase();
-        const normalized =
-          answer === 'y' || answer === 'yes'
-            ? 'y'
-            : answer === 'a' || answer === 'always'
-              ? 'a'
-              : 'n';
-        appendRow(store, 'user', raw.trim() || '(no)');
-        appendRow(store, 'banner', `Approval answered: ${normalized}`);
-        sayNotice([`Approval answered: ${normalized}`]);
-        handle.notify();
-        setInput('');
-        pending.resolve(normalized);
-        return;
-      }
-      if (pastePreview !== undefined) {
-        const staged = pasteRef.current.pending.shift() ?? pastePreview;
-        setPastePreview(undefined);
-        setInput('');
-        if (!store.run.running) {
-          appendRow(store, 'user', staged);
-          handle.notify();
-          void runTurn(staged).then(() => void drainQueue());
-        }
-        return;
-      }
       const text = raw.trim();
       if (!text) return;
       setInput('');
-      setNotice([]);
+      setHistoryIndex(undefined);
+      setStatusLine(undefined);
+
+      // `!` shell mode is checked FIRST: `/quit` typed in shell mode is a shell
+      // command, not the shell's quit. Shell commands are also not prompt
+      // history (↑ recalls goals), so nothing is pushed here.
+      if (shellMode) {
+        setShellMode(false);
+        await runShellSubmission(text);
+        return;
+      }
+      setHistory((entries) => [...entries.filter((entry) => entry !== text), text].slice(-100));
+
       if (text === '/quit' || text === '/exit') {
         exit();
         return;
       }
-      if (text === '/help') {
-        appendRow(store, 'banner', buildTuiHelpText());
-        sayNotice(buildTuiHelpText().split('\n'));
-        handle.notify();
+      if (text === '/help' || text === '?') {
+        printBlock('Shortcuts', [
+          ...HELP_KEYS.map(([keys, what]) => `${keys.padEnd(12)} ${what}`),
+          '',
+          'prefixes',
+          ...HELP_PREFIXES.map(([prefix, what]) => `  ${prefix.padEnd(3)} ${what}`),
+          '',
+          'commands',
+          ...HELP_COMMANDS.map((command) => `  ${command}`),
+        ]);
         return;
       }
       if (text === '/usage') {
-        logNotice([`tokens: ${formatUsage(store.usage)}`]);
-        return;
-      }
-      if (text === '/bg' || text === '/subs' || text === '/sessions' || text === '/mcp') {
-        await showInfo(text.slice(1) as 'bg' | 'subs' | 'sessions' | 'mcp');
+        printBlock('Usage', [formatUsage(store.usage)]);
         return;
       }
       if (text === '/tasks') {
-        openOverlay('task-switcher');
-        logNotice(['opened task switcher — ↑↓ select · ↵ switch · r resume']);
-        return;
-      }
-      if (text === '/evidence') {
-        openOverlay('evidence');
-        logNotice(['opened evidence inspector']);
-        return;
-      }
-      if (text === '/deployments') {
-        openOverlay('deployments');
-        logNotice(['opened deployment inspector']);
+        await showBlock('tasks');
         return;
       }
       if (text === '/history') {
-        openOverlay('task-history');
-        logNotice(['opened task history']);
+        await showBlock('history');
+        return;
+      }
+      if (text === '/evidence') {
+        await showBlock('evidence');
+        return;
+      }
+      if (text === '/deployments') {
+        await showBlock('deployments');
         return;
       }
       if (text === '/failures') {
-        openOverlay('failure-repair');
-        logNotice(['opened failure / repair view']);
+        await showBlock('failures');
         return;
       }
-      if (text === '/actions' || text === '/menu') {
-        openOverlay('action-menu');
-        logNotice(['opened action menu']);
-        return;
-      }
-      if (text === '/detail' || text === '/transcript') {
-        setDetailExpanded((expanded) => !expanded);
-        if (layoutModeRef.current === 'standard') setNarrowView('detail');
-        logNotice(['toggled execution detail (transcript) view']);
+      if (text === '/sessions' || text === '/mcp' || text === '/subs' || text === '/bg') {
+        await showBlock(text.slice(1) as 'sessions');
         return;
       }
       if (text === '/resume' || text.startsWith('/resume ')) {
-        const taskId = text.split(' ')[1];
-        const prompt = buildResumePrompt(taskId);
+        const prompt = buildResumePrompt(runtime, text.split(' ')[1]);
         if (!prompt) {
-          logNotice(['No task to resume — define one first (describe a goal).']);
+          printBlock('Resume', ['no task to resume — define one first (describe a goal)']);
         } else {
           setInput(prompt);
-          logNotice(['Resume prompt staged below — edit if needed, Enter to send.']);
+          setStatusLine('resume prompt staged — edit if needed, Enter to send');
         }
         return;
       }
@@ -529,23 +1368,18 @@ export function TuiAppRoot({
         const arg = text.split(' ')[1];
         const checkpoints = options.listCheckpoints?.() ?? [];
         if (!arg) {
-          logNotice(
-            checkpoints.length === 0
-              ? ['No checkpoints recorded yet.']
-              : [
-                  'Checkpoints:',
-                  ...checkpoints.map((c) => `${c.seq}. ${c.label} (${c.files} files)`),
-                  '/rewind <seq> restores files.',
-                ]
+          printBlock(
+            `Checkpoints (${checkpoints.length})`,
+            checkpoints.map((c) => `${c.seq}. ${c.label} (${c.files} files)`)
           );
         } else {
           const seq = Number(arg);
           const result = options.rewindTo?.(seq);
-          logNotice(
+          printBlock('Rewind', [
             result?.ok
-              ? [`Rewound to checkpoint ${seq}: ${result.detail}`]
-              : [result?.detail ?? `Rewind to ${seq} failed.`]
-          );
+              ? `restored checkpoint ${seq}: ${result.detail}`
+              : (result?.detail ?? `rewind to ${seq} failed`),
+          ]);
         }
         return;
       }
@@ -553,324 +1387,344 @@ export function TuiAppRoot({
         const sub = text.split(' ')[1] ?? 'list';
         if (sub === 'pause') {
           queuePausedRef.current = true;
-          setQueuePaused(true);
-          logNotice(['Queue paused — new submissions wait.']);
+          setQueueRevision((n) => n + 1);
+          printBlock('Queue', ['paused — new submissions wait']);
         } else if (sub === 'resume') {
           queuePausedRef.current = false;
-          setQueuePaused(false);
-          logNotice(['Queue resumed.']);
+          setQueueRevision((n) => n + 1);
+          printBlock('Queue', ['resumed']);
           if (!store.run.running && queueRef.current.length > 0) void drainQueue();
         } else if (sub === 'drop') {
           const dropped = queueRef.current.shift();
-          logNotice([
-            dropped ? `Dropped: ${dropped.text.slice(0, 60)}` : 'Queue empty — nothing to drop.',
-          ]);
           setQueueRevision((n) => n + 1);
+          printBlock('Queue', [dropped ? `dropped: ${dropped.slice(0, 60)}` : 'queue empty']);
         } else if (sub === 'clear') {
-          const n = queueRef.current.length;
+          const count = queueRef.current.length;
           queueRef.current.length = 0;
-          setQueueRevision((n2) => n2 + 1);
-          logNotice([`Cleared ${n} queued item${n === 1 ? '' : 's'}.`]);
+          setQueueRevision((n) => n + 1);
+          printBlock('Queue', [`cleared ${count} queued item${count === 1 ? '' : 's'}`]);
         } else {
-          const items = queueRef.current.map((q, i) => `${i + 1}. ${q.text.slice(0, 60)}`);
-          logNotice([
-            items.length
-              ? `Queue (${queuePaused ? 'paused' : 'active'}): ${items.join(' · ')}`
-              : 'Queue empty.',
-          ]);
+          printBlock(
+            `Queue (${queuePausedRef.current ? 'paused' : 'active'})`,
+            queueRef.current.map((q, i) => `${i + 1}. ${q.slice(0, 60)}`)
+          );
         }
         return;
       }
       if (text.startsWith('/steer')) {
         const constraint = text.slice('/steer'.length).trim();
         if (!constraint) {
-          logNotice(['Usage: /steer <constraint> — injects at the next boundary.']);
+          printBlock('Steer', ['usage: /steer <constraint> — injects at the next boundary']);
         } else {
           const entry = options.agent.steer?.(sessionKey, constraint);
-          logNotice([
+          printBlock('Steer', [
             entry === null || entry === undefined
-              ? 'Steer rejected — no single active run on this session.'
-              : `Steer queued: ${constraint.slice(0, 80)}`,
+              ? 'rejected — no single active run on this session'
+              : `queued: ${constraint.slice(0, 80)}`,
           ]);
         }
         return;
       }
       if (text.startsWith('/')) {
-        logNotice([
-          `Unknown command "${text.split(' ')[0]}" in the TUI. ${buildTuiHelpText().split('\n')[2]}`,
-        ]);
-        return;
-      }
-      if (store.run.running) {
-        queueRef.current.push({ text, kind: 'prompt' });
-        setQueueRevision((n) => n + 1);
-        appendRow(
-          store,
-          'banner',
-          `Queued #${queueRef.current.length} (runs when the current turn ends; /queue to manage)`
-        );
-        sayNotice([`Queued #${queueRef.current.length} (/queue to manage)`]);
+        // Shared registry first (status/doctor/permissions/mode/context/export/
+        // review/quickstart), then the shell-local control commands, then the
+        // honest unknown-command path.
+        if (await runShellCommand(text)) return;
+        appendRow(store, 'error', `unknown command "${text.split(' ')[0]}" — try /help`);
         handle.notify();
         return;
       }
-      setScrollOffset(0);
+      if (pastePreview !== undefined) {
+        const staged = pasteRef.current.pending.shift() ?? pastePreview;
+        setPastePreview(undefined);
+        if (!store.run.running) {
+          appendRow(store, 'user', staged);
+          handle.notify();
+          void runTurn(staged).then(() => void drainQueue());
+        }
+        return;
+      }
       appendRow(store, 'user', text);
       handle.notify();
-      void runTurn(text);
+      if (store.run.running) {
+        queueRef.current.push(text);
+        setQueueRevision((n) => n + 1);
+        return;
+      }
+      void runTurn(text).then(() => void drainQueue());
     },
     [
-      buildResumePrompt,
       drainQueue,
       exit,
       handle,
-      logNotice,
-      openOverlay,
+      options,
       pastePreview,
+      printBlock,
+      runShellCommand,
+      runShellSubmission,
       runTurn,
       runtime,
       sessionKey,
-      showInfo,
+      shellMode,
+      showBlock,
       store,
-      sayNotice,
     ]
   );
 
-  const layoutModeRef = useRef<'wide' | 'standard'>('wide');
-  // Empty workspace + empty composer: the example picker is live (↑↓ + Enter,
-  // 1/2/3 quick-pick) — the fastest path to a first verified task.
-  const examplesActive =
-    input.length === 0 && !store.run.running && runtime.taskSummaries().length === 0;
-
-  const overlayDataLength = useCallback(
-    (kind: OverlayKind): number => {
-      if (kind === 'task-switcher') return runtime.taskSummaries().length;
-      if (kind === 'evidence') return runtime.getArtifacts().evidence.length;
-      if (kind === 'deployments') return runtime.getArtifacts().deployments.length;
-      if (kind === 'action-menu') return actionMenuItems().length;
-      return 0;
+  const answerApproval = useCallback(
+    (answer: CliApprovalAnswer) => {
+      resolveApproval(answer);
     },
-    [runtime]
+    [resolveApproval]
   );
 
-  const closeOverlay = useCallback(() => setOverlay(undefined), []);
+  // Spinner ticker: only while a run is in flight, and cheap because ink's
+  // <Static> rows are never re-rendered.
+  const running = store.run.running;
+  // Palette: open while the user is typing a command name; any edit resets the
+  // selection and re-opens it (dismissal only lasts until the next keystroke).
+  // `shellPaletteRows` is the shell's own surface (the same table `/help` prints),
+  // so the menu cannot hide an advertised command or offer an unadvertised one.
+  const paletteRows: PaletteRow[] = running ? [] : shellPaletteRows(input);
+  const paletteOpen = paletteRows.length > 0 && !paletteDismissed && !approval && !shellMode;
+  const paletteSelection = Math.min(paletteCursor, Math.max(0, paletteRows.length - 1));
+  /** First row of the rendered window — keeps the marked row and the acted row equal (D-15). */
+  const paletteWindow = paletteWindowOffset(paletteSelection, paletteRows.length, PALETTE_MAX_ROWS);
+  useEffect(() => {
+    setPaletteCursor(0);
+    setPaletteDismissed(false);
+    setMentionCursor(0);
+    setMentionDismissed(false);
+  }, [input]);
 
-  const activateOverlay = useCallback(
-    (state: OverlayState) => {
-      if (state.kind === 'task-switcher') {
-        const summaries = runtime.taskSummaries();
-        const summary = summaries[state.cursor];
-        if (summary) {
-          setSelectedTaskId(summary.taskId);
-          sayNotice([`Switched to ${summary.taskId} — ${clip(summary.goal, 80)}`]);
-        }
-        closeOverlay();
-        return;
-      }
-      if (state.kind === 'action-menu') {
-        const item = actionMenuItems()[state.cursor];
-        if (!item) {
-          closeOverlay();
-          return;
-        }
-        switch (item.id) {
-          case 'new-task':
-            setFocusZone('composer');
-            closeOverlay();
-            break;
-          case 'switch-task':
-            setOverlay({ kind: 'task-switcher', cursor: 0 });
-            break;
-          case 'task-history':
-            setOverlay({ kind: 'task-history', cursor: 0 });
-            break;
-          case 'resume-task': {
-            const prompt = buildResumePrompt(selectedTaskId);
-            if (prompt) {
-              setInput(prompt);
-              sayNotice(['Resume prompt staged below — edit if needed, Enter to send.']);
-              setFocusZone('composer');
-            } else {
-              sayNotice(['No task to resume — describe a goal first.']);
-            }
-            closeOverlay();
-            break;
-          }
-          case 'evidence':
-            setOverlay({ kind: 'evidence', cursor: 0 });
-            break;
-          case 'deployments':
-            setOverlay({ kind: 'deployments', cursor: 0 });
-            break;
-          case 'failure-repair':
-            setOverlay({ kind: 'failure-repair', cursor: 0 });
-            break;
-          case 'execution-detail':
-            setDetailExpanded(true);
-            closeOverlay();
-            break;
-          case 'sessions':
-            closeOverlay();
-            void showInfo('sessions');
-            break;
-          case 'mcp':
-            closeOverlay();
-            void showInfo('mcp');
-            break;
-          case 'subs':
-            closeOverlay();
-            void showInfo('subs');
-            break;
-          case 'help':
-            setOverlay({ kind: 'help', cursor: 0 });
-            break;
-          case 'quit':
-            exit();
-            break;
-          default:
-            closeOverlay();
-        }
-        return;
-      }
-      closeOverlay();
+  // `@` mentions: the index is built lazily, once per session, the first time
+  // the user types an `@` token (a workspace walk is not free).
+  const mentionToken =
+    running || approval || shellMode ? null : mentionTokenAt(input, composer.caret);
+  useEffect(() => {
+    if (mentionToken && mentionIndex.length === 0) {
+      setMentionIndex(workspaceFileIndex(options.workspaceDir));
+    }
+  }, [mentionToken?.query, mentionIndex.length, options.workspaceDir]);
+  const mentionRows = mentionToken ? filterMentions(mentionIndex, mentionToken.query) : [];
+  const mentionOpen = mentionToken !== null && !mentionDismissed && mentionRows.length > 0;
+  const mentionSelection = Math.min(mentionCursor, Math.max(0, mentionRows.length - 1));
+
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => forceUpdate(), 140);
+    return () => clearInterval(timer);
+  }, [running, forceUpdate]);
+
+  /**
+   * Arm the Ctrl+C quit confirmation (D-7): the notice is a status line, not a
+   * transcript row, because a confirm prompt that scrolls away is not a prompt.
+   */
+  const armQuitConfirm = useCallback(
+    (inFlight: boolean) => {
+      if (quitTimerRef.current !== undefined) clearTimeout(quitTimerRef.current);
+      setQuitArmed(true);
+      setStatusLine(
+        inFlight ? 'run interrupted — press Ctrl+C again to quit' : 'press Ctrl+C again to quit'
+      );
+      handle.notify();
+      quitTimerRef.current = setTimeout(() => {
+        quitTimerRef.current = undefined;
+        setQuitArmed(false);
+        setStatusLine(undefined);
+      }, QUIT_CONFIRM_MS);
     },
-    [buildResumePrompt, closeOverlay, exit, runtime, sayNotice, selectedTaskId, showInfo]
+    [handle]
+  );
+
+  // A pending confirmation timer must not outlive the component.
+  useEffect(
+    () => () => {
+      if (quitTimerRef.current !== undefined) clearTimeout(quitTimerRef.current);
+    },
+    []
   );
 
   useInput((chunk, key) => {
-    // Ctrl+<letter>: ink 7 reports the letter itself as the chunk (with
-    // key.ctrl true); accept the raw control byte too for robustness.
-    if (key.ctrl && !key.return && typeof chunk === 'string' && chunk.length === 1) {
-      const code = chunk.charCodeAt(0);
-      const controlKey =
-        code >= 1 && code <= 26 ? String.fromCharCode(code + 96) : chunk.toLowerCase();
-      if (controlKey === 't') {
-        openOverlay('task-switcher');
+    if (key.ctrl && chunk === 'c') {
+      // D-7: `?` advertises `Ctrl+C interrupt the run · press again to quit`, and
+      // the shell must keep that promise. ONE press never quits: it interrupts
+      // (or, on an idle composer, arms the quit and KEEPS the draft); a second
+      // press inside the confirm window exits. The old handler called `exit()`
+      // straight away on an idle composer and destroyed the draft.
+      //
+      // The approval dismissal comes first (D-2): a pending dialog is denied
+      // exactly once, so an aborted run can never leave a zombie modal behind.
+      settleDialog(false);
+      const inFlight = abortRef.current !== undefined;
+      if (inFlight) abortRef.current?.abort();
+      if (quitArmed) {
+        exit();
         return;
       }
-      if (controlKey === 'h') {
-        openOverlay('task-history');
-        return;
-      }
-      if (controlKey === 'e') {
-        openOverlay('evidence');
-        return;
-      }
-      if (controlKey === 'g') {
-        openOverlay('deployments');
-        return;
-      }
-      if (controlKey === 'f') {
-        openOverlay('failure-repair');
-        return;
-      }
-      if (controlKey === 'a') {
-        openOverlay('action-menu');
-        return;
-      }
-      if (controlKey === 'o') {
-        setDetailExpanded((expanded) => !expanded);
-        if (layoutModeRef.current === 'standard') {
-          setNarrowView((view) => (view === 'detail' ? 'canvas' : 'detail'));
+      armQuitConfirm(inFlight);
+      return;
+    }
+    if (key.ctrl && chunk === 'd') {
+      exit();
+      return;
+    }
+    if (key.tab && key.shift) {
+      // shift+tab (CSI Z) cycles the REAL policy mode; the subscription above
+      // paints the new label on the same frame. Read through the getter, never
+      // the React state, so a rapid double press cannot skip a mode.
+      setCliInteractionMode(nextInteractionMode(getCliInteractionMode()));
+      return;
+    }
+    if (approval) {
+      const pending = pendingDialogRef.current;
+      if (pending?.kind === 'question') {
+        // N-1: an `ask_user_question` dialog is answered with the CHOSEN option
+        // (or with free text typed into the composer), never with a permission
+        // code. Unhandled keys fall through to the composer below so "Other" and
+        // `multi_select` ("1,3") are typeable.
+        if (key.escape) {
+          resolveDialog('', { commit: 'answer: skipped' });
+          return;
         }
-        return;
-      }
-      return;
-    }
-
-    if (overlay) {
-      const max = Math.max(0, overlayDataLength(overlay.kind) - 1);
-      if (key.escape) {
-        closeOverlay();
-        return;
-      }
-      if (key.upArrow) {
-        setOverlay({ ...overlay, cursor: Math.max(0, overlay.cursor - 1) });
-        return;
-      }
-      if (key.downArrow) {
-        setOverlay({ ...overlay, cursor: Math.min(max, overlay.cursor + 1) });
-        return;
-      }
-      if (key.return) {
-        void activateOverlay(overlay);
-        return;
-      }
-      if (overlay.kind === 'task-switcher' && chunk?.toLowerCase() === 'r') {
-        const summaries = runtime.taskSummaries();
-        const summary = summaries[overlay.cursor];
-        const prompt = buildResumePrompt(summary?.taskId);
-        if (prompt) {
-          setInput(prompt);
-          sayNotice(['Resume prompt staged below — edit if needed, Enter to send.']);
+        if (key.upArrow || key.downArrow) {
+          setApproval((current) =>
+            current
+              ? {
+                  ...current,
+                  cursor: Math.min(
+                    Math.max(0, current.options.length - 1),
+                    Math.max(0, current.cursor + (key.upArrow ? -1 : 1))
+                  ),
+                }
+              : current
+          );
+          return;
         }
-        setFocusZone('composer');
-        closeOverlay();
-        return;
-      }
-      return;
-    }
-
-    // `?` on an empty composer opens the key/command reference, from either
-    // focus zone. Deliberately ahead of the printable-chunk guard below:
-    // terminals deliver '?' as shift+'/', which that guard would drop.
-    if (chunk === '?' && input.length === 0) {
-      openOverlay('help');
-      return;
-    }
-
-    if (key.tab) {
-      const mode = layoutModeRef.current;
-      if (mode === 'wide') {
-        setFocusZone((zone) => (zone === 'composer' ? 'navigator' : 'composer'));
+        const pressed = typeof chunk === 'string' ? chunk.toLowerCase() : '';
+        const optionIndex = approval.options.findIndex((option) => option.key === pressed);
+        if (key.return) {
+          if (input.trim()) {
+            resolveDialog(input.trim());
+            setInput('');
+            return;
+          }
+          if (optionIndex >= 0) {
+            resolveDialog(
+              pending.optionAnswers?.[optionIndex] ?? approval.options[optionIndex]!.label
+            );
+            return;
+          }
+          return;
+        }
+        if (optionIndex >= 0 && !pending.freeTextEntry) {
+          resolveDialog(
+            pending.optionAnswers?.[optionIndex] ?? approval.options[optionIndex]!.label
+          );
+          return;
+        }
       } else {
-        // Standard (two-pane): cycle what the canvas pane shows.
-        setNarrowView((view) =>
-          view === 'canvas' ? 'context' : view === 'context' ? 'detail' : 'canvas'
-        );
-        setDetailExpanded(false);
-      }
-      return;
-    }
-
-    if (focusZone === 'navigator') {
-      const summaries = runtime.taskSummaries();
-      const index = summaries.findIndex((s) => s.taskId === selectedTaskId);
-      if (key.upArrow || key.downArrow) {
-        const next = key.upArrow
-          ? Math.max(0, index - 1)
-          : Math.min(summaries.length - 1, index + 1);
-        const summary = summaries[next];
-        if (summary) setSelectedTaskId(summary.taskId);
+        if (key.escape) {
+          answerApproval('n');
+          return;
+        }
+        if (key.upArrow) {
+          setApproval({ ...approval, cursor: Math.max(0, approval.cursor - 1) });
+          return;
+        }
+        if (key.downArrow) {
+          setApproval({
+            ...approval,
+            cursor: Math.min(approval.options.length - 1, approval.cursor + 1),
+          });
+          return;
+        }
+        if (key.return) {
+          answerApproval(approval.options[approval.cursor]?.answer ?? 'n');
+          return;
+        }
+        const pressed = chunk?.toLowerCase();
+        const direct = approval.options.find((option) => option.key === pressed);
+        if (direct) {
+          answerApproval(direct.answer);
+          return;
+        }
+        if (pressed === 'y' || pressed === 'a' || pressed === 'n') answerApproval(pressed);
         return;
       }
-      if (key.return) {
-        setFocusZone('composer');
+    }
+
+    if (mentionOpen) {
+      if (key.upArrow || key.downArrow) {
+        setMentionCursor((current) =>
+          movePaletteSelection(current, mentionRows.length, key.upArrow ? -1 : 1)
+        );
+        return;
+      }
+      if (key.tab) {
+        // The reference completes the highlighted path into the composer and
+        // does NOT run anything.
+        const entry = mentionRows[mentionSelection];
+        if (entry && mentionToken) {
+          const completed = completeMention(input, mentionToken, entry);
+          setComposer(composerSetValue(completed.value, completed.caret));
+        }
         return;
       }
       if (key.escape) {
-        setFocusZone('composer');
+        setMentionDismissed(true);
         return;
       }
-      return;
     }
 
-    // Composer focus.
-    // Empty workspace + empty input: ↑↓ moves the example selection and
-    // Enter loads it (so the fastest path to a first task is two keys).
-    if (examplesActive && (key.upArrow || key.downArrow)) {
-      setSelectedExample((current) => {
-        const max = EMPTY_STATE_EXAMPLES.length - 1;
-        if (current === undefined) return key.upArrow ? max : 0;
-        return key.upArrow ? Math.max(0, current - 1) : Math.min(max, current + 1);
-      });
-      return;
+    if (paletteOpen) {
+      if (key.upArrow || key.downArrow) {
+        setPaletteCursor((current) =>
+          movePaletteSelection(current, paletteRows.length, key.upArrow ? -1 : 1)
+        );
+        return;
+      }
+      if (key.tab) {
+        const command = paletteRows[paletteSelection]?.[0];
+        if (command) setComposer(composerSetValue(command, command.length));
+        return;
+      }
+      if (key.escape) {
+        setPaletteDismissed(true);
+        return;
+      }
+      if (key.return) {
+        const command = paletteRows[paletteSelection]?.[0];
+        if (command) {
+          void submit(command);
+          return;
+        }
+      }
     }
+
     if (key.return) {
-      if (examplesActive && selectedExample !== undefined) {
-        setInput(EMPTY_STATE_EXAMPLES[Math.min(selectedExample, EMPTY_STATE_EXAMPLES.length - 1)]);
+      // Shift/Alt+Enter inserts a newline; a trailing backslash is the classic
+      // fallback for terminals that cannot report Shift+Enter.
+      if (key.shift || key.meta) {
+        setComposer((current) => composerNewline(current));
+        return;
+      }
+      if (input.endsWith('\\')) {
+        setComposer((current) => composerInsert(composerDelete(current, 'backward'), '\n'));
         return;
       }
       void submit(input);
+      return;
+    }
+    // Ctrl+J (line feed) is the portable newline key.
+    if (chunk === '\n') {
+      setComposer((current) => composerNewline(current));
+      return;
+    }
+    if (key.leftArrow || key.rightArrow) {
+      const word = Boolean(key.meta || key.ctrl);
+      const motion = key.leftArrow ? (word ? 'word-left' : 'left') : word ? 'word-right' : 'right';
+      setComposer((current) => composerMove(current, motion, Math.max(4, columns - 2)));
       return;
     }
     if (key.escape) {
@@ -878,20 +1732,18 @@ export function TuiAppRoot({
         pasteRef.current.pending.length = 0;
         setPastePreview(undefined);
         setInput('');
-        sayNotice(['Paste discarded.']);
-        handle.notify();
         return;
       }
-      if (abortRef.current) {
-        abortRef.current.abort();
+      if (shellMode) {
+        // Esc cancels shell mode: the draft is discarded and the composer
+        // returns to the normal `❯` prompt (nothing was executed).
+        setShellMode(false);
+        setInput('');
+        return;
       }
+      if (abortRef.current) abortRef.current.abort();
       return;
     }
-    // A staged paste owns the composer until confirmed (Enter) or dropped
-    // (Esc): every other keystroke — including the paste echo ink re-delivers
-    // without its ESC prefix — must neither leak into the input nor fire a
-    // premature submit. Ref (not state): the paste listener and ink's input
-    // handler fire within the same event, before the state update flushes.
     if (
       pastePreview !== undefined ||
       pasteRef.current.active ||
@@ -899,57 +1751,117 @@ export function TuiAppRoot({
     ) {
       return;
     }
-    // Empty-state examples: 1/2/3 loads a ready-to-edit goal into the
-    // composer (fastest path to the aha moment — see it become a task).
-    // Only when the composer is EMPTY — never hijack digits inside a typed
-    // command like "/rewind 1".
-    if (
-      input.length === 0 &&
-      !store.run.running &&
-      runtime.taskSummaries().length === 0 &&
-      (chunk === '1' || chunk === '2' || chunk === '3')
-    ) {
-      setInput(EMPTY_STATE_EXAMPLES[Number(chunk) - 1]);
-      return;
-    }
-    if (key.pageUp) {
-      setScrollOffset((n) => Math.min(n + 10, Math.max(0, store.rows.length)));
-      return;
-    }
-    if (key.pageDown) {
-      setScrollOffset((n) => Math.max(0, n - 10));
+    if (key.upArrow || key.downArrow) {
+      // Inside a multi-line draft the arrows move between visual rows; on a
+      // single-line draft they walk the input history.
+      if (input.includes('\n')) {
+        setComposer((current) =>
+          composerMove(current, key.upArrow ? 'up' : 'down', Math.max(4, columns - 2))
+        );
+        return;
+      }
+      if (history.length === 0) return;
+      if (key.upArrow) {
+        const next =
+          historyIndex === undefined ? history.length - 1 : Math.max(0, historyIndex - 1);
+        setHistoryIndex(next);
+        setInput(history[next] ?? '');
+      } else if (historyIndex !== undefined) {
+        const next = historyIndex + 1;
+        if (next >= history.length) {
+          setHistoryIndex(undefined);
+          setInput('');
+        } else {
+          setHistoryIndex(next);
+          setInput(history[next] ?? '');
+        }
+      }
       return;
     }
     if (key.backspace || key.delete) {
-      setInput((v) => v.slice(0, -1));
+      if (shellMode && input.length === 0) {
+        // Backspacing an empty shell draft leaves shell mode (same as Esc).
+        setShellMode(false);
+        return;
+      }
+      setComposer((current) => composerDelete(current, key.delete ? 'forward' : 'backward'));
       return;
     }
-    if (!chunk || key.ctrl || key.meta || key.shift || key.tab || key.upArrow || key.downArrow) {
+    // Ctrl+<letter> shortcuts, driven by the same table the help block prints.
+    if (key.ctrl && typeof chunk === 'string' && chunk.length === 1) {
+      const code = chunk.charCodeAt(0);
+      const letter = code >= 1 && code <= 26 ? String.fromCharCode(code + 96) : chunk.toLowerCase();
+      if (letter === 'a') {
+        setComposer((current) => composerMove(current, 'line-start'));
+        return;
+      }
+      if (letter === 'w') {
+        setComposer((current) => composerDelete(current, 'word-backward'));
+        return;
+      }
+      if (letter === 'u') {
+        setComposer((current) => composerDelete(current, 'line-start'));
+        return;
+      }
+      if (letter === 'k') {
+        setComposer((current) => composerDelete(current, 'line-end'));
+        return;
+      }
+      if (letter === 'o') {
+        setVerbose((current) => !current);
+        // Re-emit the transcript (see `verboseRevision`): the key change remounts
+        // <Static> so the rows the marker pointed at are really re-rendered.
+        setVerboseRevision((n) => n + 1);
+        return;
+      }
+      const action = ctrlBinding(letter);
+      if (action === 'clear') {
+        setInput('');
+        setStatusLine(undefined);
+        return;
+      }
+      if (action) void showBlock(action);
       return;
     }
+    // NB: key.shift must NOT be in this guard — ink reports shift=true for
+    // every single uppercase letter (parse-keypress.js: "shift+letter"),
+    // so filtering on it silently dropped R/D/K/M/C… and made goals like
+    // "RDK X5" untypable. Shifted sequences that matter arrive as \x1b…
+    // and are filtered below.
+    if (!chunk || key.meta || key.tab || key.upArrow || key.downArrow) return;
     if (chunk.startsWith('\x1b')) return;
-    // Control characters inside a chunk: only the "one line + one trailing
-    // break" shape ('/quit\r' merged by the terminal) is a typed submit.
-    // Multi-line chunks are bracketed-paste content (ink strips the ESC[200~
-    // marker before we see it) — the paste-capture confirmation flow owns
-    // them; treating them as input would double-submit.
     const newlineIdx = chunk.search(/[\r\n]/);
     if (newlineIdx >= 0) {
       const head = chunk.slice(0, newlineIdx);
       const tail = chunk.slice(newlineIdx + 1);
       if (tail.length === 0 && head.length > 0 && !/[\r\n]/.test(head)) {
-        const combined = input + head;
-        setInput('');
-        void submit(combined);
+        // A batched `!cmd\r` (paste / fast typing) never saw `!` as its own
+        // keypress: run it as a shell submission instead of a goal.
+        if (input.length === 0 && head.startsWith('!')) {
+          const command = head.slice(1).trim();
+          if (command) void runShellSubmission(command);
+          else setShellMode(true);
+          return;
+        }
+        void submit(input + head);
       }
       return;
     }
-    setInput((v) => v + chunk);
+    // `!` as the FIRST character enters shell mode for this draft: the `!` is
+    // consumed and becomes the composer prefix, exactly like the reference
+    // (`claude-code-surface.md` §5). A batched chunk beginning with `!` counts.
+    if (!shellMode && input.length === 0 && chunk.startsWith('!')) {
+      setShellMode(true);
+      const rest = chunk.slice(1);
+      if (rest) setComposer((current) => composerInsert(current, rest));
+      return;
+    }
+    // Insert AT THE CARET (the bulk setInput shim parks the caret at the end,
+    // which silently turned every mid-text edit into an append).
+    setComposer((current) => composerInsert(current, chunk));
   });
 
-  // Bracketed-paste capture at the raw stdin level: ESC[200~…ESC[201~ is
-  // staged for confirmation so one paste becomes ONE message with newlines
-  // intact — never N accidental turns.
+  // Bracketed paste: staged so one paste becomes ONE message with newlines.
   useEffect(() => {
     if (!stdin) return;
     const onData = (chunk: Buffer | string) => {
@@ -969,274 +1881,188 @@ export function TuiAppRoot({
     };
   }, [stdin, handle]);
 
-  // `||` (not `??`): a PTY without a negotiated winsize reports 0, which
-  // would collapse every clip() to nothing — fall back to 80x24.
-  const columns = stdout?.columns || 80;
-  const rows = stdout?.rows || 24;
-  const layout = computeLayout(columns, rows);
-  layoutModeRef.current = layout.mode;
+  // ─── render ────────────────────────────────────────────────────────────
 
-  const summaries = runtime.taskSummaries();
-  const detail = runtime.taskDetail(selectedTaskId);
-  const live = runtime.getLiveState();
-
-  const renderLines = (lines: PanelLine[], keyPrefix: string): React.ReactElement[] =>
-    lines.map((panelLine, i) =>
-      React.createElement(
-        Text,
-        {
-          key: `${keyPrefix}-${i}`,
-          ...(panelLine.color ? { color: panelLine.color } : {}),
-          ...(panelLine.bold ? { bold: true } : {}),
-          ...(panelLine.dim ? { dimColor: true } : {}),
-        },
-        panelLine.text
-      )
-    );
-
-  /** A bordered main-area panel; contents are clipped to width-2 by the
-   * projections, so ink only needs the fixed Box geometry. */
-  const panelBox = (
-    lines: PanelLine[],
-    key: string,
-    width: number | undefined,
-    accent: boolean
-  ): React.ReactElement =>
-    React.createElement(
-      Box,
-      {
-        key,
-        flexDirection: 'column',
-        borderStyle: 'round',
-        borderColor: accent ? 'cyan' : 'gray',
-        ...(width !== undefined ? { width } : { flexGrow: 1 }),
-        height: layout.bodyHeight,
-      },
-      ...renderLines(lines, key)
-    );
-
-  const padTo = (lines: PanelLine[]): PanelLine[] => {
-    const filled = [...lines];
-    while (filled.length < layout.contentHeight) filled.push(line0(''));
-    return filled.slice(0, layout.contentHeight);
-  };
-
-  const transcriptPanelLines = (): PanelLine[] => {
-    const lines = transcriptLines(store, scrollOffset, {
-      height: layout.contentHeight,
-    }).map((text) => line0(text));
-    lines.push(
-      ...renderExecutionDetailTail({
-        toolLine: store.run.toolLine,
-        streamingText: store.run.streamingText,
-        width: layout.canvasWidth - 2,
-        maxLines: 2,
-      })
-    );
-    return padTo(lines);
-  };
-
-  const canvasPanelLines = (): PanelLine[] =>
-    detailExpanded
-      ? transcriptPanelLines()
-      : padTo(
-          renderCanvas({
-            detail,
-            summaries,
-            selectedTaskId,
-            width: layout.canvasWidth - 2,
-            height: layout.contentHeight,
-            detailExpanded,
-            selectedExample: examplesActive ? selectedExample : undefined,
-            workspace: {
-              device: deviceSummary,
-              tasks: summaries.length,
-              evidence: runtime.getArtifacts().evidence.length,
-              acceptance: runtime.getArtifacts().acceptance.length,
-            },
-          })
-        );
-
-  const navigatorPanelLines = (): PanelLine[] =>
-    padTo(
-      renderNavigator({
-        summaries,
-        selectedTaskId,
-        focusTaskId: live.focusTaskId,
-        width: layout.navigatorWidth - 2,
-        height: layout.contentHeight,
-      })
-    );
-
-  const contextPanelLines = (): PanelLine[] =>
-    padTo(
-      renderContextPanel({
-        detail,
-        width: layout.contextWidth - 2,
-        height: layout.contentHeight,
-      })
-    );
-
-  let mainArea: React.ReactElement;
-  if (overlay) {
-    const artifacts = runtime.getArtifacts();
-    const overlayWidth = columns - 2;
-    let overlayLines: PanelLine[];
-    if (overlay.kind === 'task-switcher') {
-      overlayLines = renderTaskSwitcher(
-        summaries,
-        overlay.cursor,
-        selectedTaskId,
-        overlayWidth,
-        layout.contentHeight
-      );
-    } else if (overlay.kind === 'task-history') {
-      overlayLines = renderTaskHistory(detail, overlayWidth, layout.contentHeight);
-    } else if (overlay.kind === 'evidence') {
-      overlayLines = renderEvidenceInspector(
-        artifacts.evidence,
-        overlay.cursor,
-        overlayWidth,
-        layout.contentHeight
-      );
-    } else if (overlay.kind === 'deployments') {
-      overlayLines = renderDeploymentInspector(
-        artifacts.deployments,
-        overlay.cursor,
-        overlayWidth,
-        layout.contentHeight
-      );
-    } else if (overlay.kind === 'action-menu') {
-      overlayLines = renderActionMenu(overlay.cursor, overlayWidth, layout.contentHeight);
-    } else if (overlay.kind === 'help') {
-      overlayLines = renderHelp(overlayWidth, layout.contentHeight);
-    } else {
-      overlayLines = renderFailureRepair(detail, overlayWidth, layout.contentHeight);
-    }
-    mainArea = panelBox(overlayLines, 'overlay', columns, true);
-  } else if (layout.mode === 'standard') {
-    // Two-pane IDE shell at the common width: navigator | main pane
-    // (canvas ⇄ context ⇄ transcript via Tab).
-    const width = layout.canvasWidth - 2;
-    let mainLines: PanelLine[];
-    if (narrowView === 'context') {
-      mainLines = padTo(renderContextPanel({ detail, width, height: layout.contentHeight }));
-    } else if (narrowView === 'detail' || detailExpanded) {
-      mainLines = transcriptPanelLines();
-    } else {
-      mainLines = padTo(
-        renderCanvas({
-          detail,
-          summaries,
-          selectedTaskId,
-          width,
-          height: layout.contentHeight,
-          detailExpanded: false,
-          selectedExample: examplesActive ? selectedExample : undefined,
-          workspace: {
-            device: deviceSummary,
-            tasks: summaries.length,
-            evidence: runtime.getArtifacts().evidence.length,
-            acceptance: runtime.getArtifacts().acceptance.length,
-          },
-        })
-      );
-    }
-    mainArea = React.createElement(
-      Box,
-      { key: 'main-row', flexDirection: 'row', gap: 1 },
-      panelBox(navigatorPanelLines(), 'nav', layout.navigatorWidth, focusZone === 'navigator'),
-      panelBox(mainLines, 'main', undefined, false)
-    );
-  } else {
-    const panels: React.ReactElement[] = [];
-    if (layout.showNavigator) {
-      panels.push(
-        panelBox(navigatorPanelLines(), 'nav', layout.navigatorWidth, focusZone === 'navigator')
-      );
-    }
-    panels.push(panelBox(canvasPanelLines(), 'canvas', undefined, false));
-    if (layout.showContext) {
-      panels.push(panelBox(contextPanelLines(), 'ctx', layout.contextWidth, false));
-    }
-    mainArea = React.createElement(
-      Box,
-      { key: 'main-row', flexDirection: 'row', gap: 1 },
-      ...panels
-    );
-  }
-
-  const approvalBanner = pendingApprovalRef.current
-    ? renderApprovalBanner(pendingApprovalRef.current.question, columns)
-    : [];
-
-  // Live tail (≤2 lines) above the composer: streaming response / tool
-  // progress stays visible without promoting the transcript to the main view.
-  const liveTail = renderExecutionDetailTail({
+  // Reasoning is hidden by default, exactly like the reference CLI: the
+  // composer line (`✢ Thinking… (4s · ↓ N tokens)`) is the activity signal, and
+  // the inner monologue is opt-in through moss's own env convention.
+  const showThinking = process.env.MOSS_SHOW_THINKING === 'true';
+  const live: LiveView = {
+    running,
+    startedAt: runStartedAtRef.current,
     toolLine: store.run.toolLine,
-    streamingText: store.run.streamingText,
+    streaming: store.run.streamingText,
+    thinking: showThinking ? store.run.thinkingText : '',
+    tokensOut: store.usage.runTokensOut,
+    queued: queueRef.current.length,
+    blocked: Boolean(approval),
+  };
+  const status: StatusView = {
+    running,
+    blocked: Boolean(approval),
+    model: currentModel,
+    tokens: store.usage.tokensIn + store.usage.tokensOut,
+    taskCount: runtime.taskSummaries().length,
+    queueLength: queueRef.current.length,
+    contextUsed: store.usage.contextUsed,
+    contextTotal: store.usage.contextTotal,
+    // A7: the policy layer's live mode is part of the chrome, always.
+    mode: interactionMode,
+    shellMode,
+  };
+  const editor = renderComposerEditor(composer, {
     width: columns,
-    maxLines: 2,
+    maxRows: COMPOSER_MAX_ROWS,
+    placeholder: input.length === 0 && !running ? PLACEHOLDER_TEXT : undefined,
+    // Shell mode swaps the prompt glyph (`! ` instead of `❯ `) — E2.
+    firstPrefix: shellMode ? '! ' : '❯ ',
+    restPrefix: '  ',
   });
+  const composerRuns: ComposerRun[][] = editor.lines;
+  // The composer sits between two full-width rules; everything else is plain.
+  // D-15: hand the renderer the window that contains the cursor, so the `❯`
+  // marker and the command Enter/Tab act on are the same row.
+  const palette = paletteOpen
+    ? renderSlashPalette(paletteFrameRows(paletteRows, paletteWindow, PALETTE_MAX_ROWS), {
+        width: columns,
+        selected: paletteSelection - paletteWindow,
+      })
+    : [];
+  const mentions = mentionOpen
+    ? renderMentionMenu(mentionRows.slice(0, MENTION_MAX_ROWS), {
+        width: columns,
+        selected: Math.min(mentionSelection, Math.max(0, mentionRows.length - 1)),
+      })
+    : [];
+  // Shell mode tints both rules (E2): the composer sits between them, so the
+  // whole input block reads as one state.
+  const ruleTone = shellMode ? { color: SHELL_MODE_TONE } : {};
+  const chromeTop: TuiLine[] = [
+    // D-13: the dialog gets a height budget (terminal rows minus the rest of the
+    // pinned chrome and any extra composer rows) so a short terminal can never
+    // push the question of a security prompt off screen.
+    ...(approval
+      ? renderApproval(approval, columns, {
+          maxHeight: Math.max(
+            3,
+            windowSize.rows - APPROVAL_CHROME_RESERVE - Math.max(0, editor.lines.length - 1)
+          ),
+        })
+      : []),
+    ...renderTodoPanel(store.todos, columns),
+    ...(statusLine ? [line(clip(statusLine, columns), { dim: true })] : []),
+    ...palette,
+    ...mentions,
+    renderStatusRight(status, columns),
+    line(rule(columns), ruleTone),
+  ];
+  const chromeBottom: TuiLine[] = [line(rule(columns), ruleTone), renderHint(status, columns)];
+  const liveLines = renderLive(live, columns, verbose);
 
-  const statusWord = store.run.running ? 'RUNNING' : live.approvalPending ? 'BLOCKED' : 'READY';
-  const statusColor: PanelColor = store.run.running
-    ? 'yellow'
-    : live.approvalPending
-      ? 'magenta'
-      : 'green';
-  const deviceUnconfigured = deviceSummary.startsWith('not configured');
-  const usageText = formatUsage(store.usage);
+  /**
+   * Blank separator lines are part of the grammar (every block starts after an
+   * empty line), but ink renders `<Text></Text>` as a ZERO-height element — the
+   * separators silently disappear. A single space keeps the row.
+   */
+  /**
+   * D-12: a line that carries inline runs is rendered run-by-run (nested
+   * `<Text>`), so inline code keeps its colour inside mixed prose and bold +
+   * italic can coexist.
+   *
+   * The ROW style is applied to the outer `<Text>` even when runs exist: a
+   * heading's `bold` and a blockquote's `dim` live on the row (a run cannot
+   * express `dim`), and ink applies a `<Text>`'s chalk over its composed
+   * children, so a nested run keeps its own colour while inheriting the uniform
+   * row attribute. Row fields are uniform-only, so they never contradict a run.
+   */
+  const inkLine = (l: TuiLine, key: string): React.ReactElement =>
+    React.createElement(
+      Text,
+      { key, ...inkLineStyle(l) },
+      ...(l.runs?.length
+        ? l.runs.map((run, index) =>
+            React.createElement(Text, { key: `${key}-${index}`, ...inkTextStyle(run) }, run.text)
+          )
+        : [l.text === '' ? ' ' : l.text])
+    );
+
+  /**
+   * Composer row: styled runs, so the caret is a real inverted cell. In shell
+   * mode the row takes the shell accent on its prompt glyph (`! `) without
+   * touching the command text — `renderComposerEditor` emits the prefix as its
+   * own run, except for the placeholder where it is glued to the placeholder.
+   */
+  const inkRuns = (runs: ComposerRun[], key: string, accentPrompt: boolean): React.ReactElement => {
+    const children: React.ReactElement[] = [];
+    runs.forEach((run, index) => {
+      const accent = accentPrompt && index === 0;
+      const head = accent ? run.text.slice(0, PROMPT_CELLS) : '';
+      const tail = accent ? run.text.slice(PROMPT_CELLS) : run.text;
+      if (head) {
+        children.push(
+          React.createElement(
+            Text,
+            {
+              key: `${key}-${index}-prompt`,
+              color: SHELL_MODE_TONE,
+              ...(run.inverse ? { inverse: true } : {}),
+            },
+            head
+          )
+        );
+      }
+      children.push(
+        React.createElement(
+          Text,
+          { key: `${key}-${index}`, ...(run.inverse ? { inverse: true } : {}) },
+          tail
+        )
+      );
+    });
+    return React.createElement(
+      Text,
+      { key, ...(editor.placeholder ? { dimColor: true } : {}) },
+      ...children
+    );
+  };
 
   return React.createElement(
     Box,
     { flexDirection: 'column' },
-    React.createElement(
-      Text,
-      { key: 'statusbar' },
-      ...fitStatusBar(
-        [
-          { text: ' moss', bold: true, color: 'cyan' },
-          { text: ` ${statusWord}`, bold: true, color: statusColor },
-          // The key reference lives in the `?` overlay; the bar only advertises
-          // it, early enough that a narrow terminal never drops it.
-          { text: ' · ? help', dim: true },
-          deviceUnconfigured
-            ? { text: ' · ⚠ set MOSS_DEVICE_HOST in .env', bold: true, color: 'yellow' }
-            : { text: ` · device ${deviceSummary}`, color: 'green' },
-          ...(options.model ? [{ text: ` · ${options.model}` }] : []),
-          {
-            text: ` · ${usageText}${queueRef.current.length > 0 ? ` · queue:${queueRef.current.length}` : ''}`,
-            dim: true,
-          },
-        ],
-        columns
-      )
+    React.createElement(Static, {
+      // ink's <Static> memoizes on the ITEM ARRAY IDENTITY, so the store array
+      // must be copied every render — pushing into it in place renders nothing
+      // (the memo keeps returning the empty slice taken at mount).
+      //
+      // The key carries the ctrl+o revision: remounting is the only way ink
+      // re-renders rows it has already committed (D-5).
+      key: `transcript-${verboseRevision}`,
+      items: store.rows.slice(),
+      // ink types Static's children as (item: unknown, index) => ReactNode.
+      children: (item: unknown) => {
+        const row = item as TranscriptRow;
+        return React.createElement(
+          Box,
+          { key: row.id, flexDirection: 'column' },
+          ...renderTranscriptRow(row, columns, verbose).map((l, index) =>
+            inkLine(l, `${row.id}-${index}`)
+          )
+        );
+      },
+    }),
+    ...liveLines.map((l, index) => inkLine(l, `live-${index}`)),
+    ...chromeTop.map((l, index) => inkLine(l, `chrome-top-${index}`)),
+    ...composerRuns.map((runs, index) =>
+      inkRuns(runs, `composer-${index}`, shellMode && index === 0)
     ),
-    mainArea,
-    ...renderLines(liveTail, 'tail'),
-    ...renderLines(approvalBanner, 'approval'),
-    ...notice
-      .slice(0, 2)
-      .map((text, i) =>
-        React.createElement(Text, { key: `notice-${i}`, dimColor: true }, clip(text, columns))
-      ),
-    ...renderLines(
-      renderInputLine(input, columns, input.length === 0 && !store.run.running),
-      'input'
-    ),
-    examplesActive
-      ? React.createElement(
-          Text,
-          { key: 'composer-hint', dimColor: true },
-          clip('↑↓ pick an example · ↵ load it · or just type a goal and Enter', columns)
-        )
-      : null
+    ...chromeBottom.map((l, index) => inkLine(l, `chrome-bottom-${index}`))
   );
 }
 
-function line0(text: string): PanelLine {
-  return { text };
+function stdouts(stdout: { columns?: number } | undefined): number {
+  // `||` (not `??`): a PTY without a negotiated winsize reports 0, which would
+  // collapse every clip() to nothing.
+  return stdout?.columns || 80;
 }
 
 /** Boot the TUI; resolves when the user quits. TTY-only entry point. */
@@ -1244,7 +2070,7 @@ export async function runTuiApp(options: TuiAppOptions): Promise<void> {
   const handle = createStoreHandle();
   const runtime = options.runtime ?? new TaskRuntime({ workspaceDir: options.workspaceDir });
   const instance = render(React.createElement(TuiAppRoot, { options, handle, runtime }), {
-    exitOnCtrlC: true,
+    exitOnCtrlC: false,
   });
   await instance.waitUntilExit();
 }

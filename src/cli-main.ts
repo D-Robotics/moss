@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { configureWindowsUtf8Console } from './utils/run-process.js';
 import { errorMessage } from './errors.js';
+import { buildResumeReplay } from './cli/resume-replay.js';
 import { exitCodeForError, ExitCode } from './cli/exit-codes.js';
 import { resolveCliAgentRuntimeOptions, deriveMaxOutputTokens } from './cli/agent-runtime.js';
 import {
@@ -1023,11 +1024,28 @@ async function main() {
           return null;
         },
       });
+      // Resuming must SHOW the conversation: the replay builder exists but was
+      // never wired here, so a resumed session booted blank (D2 in the parity
+      // baseline audit).
+      let replayRows: Array<{ kind: 'user' | 'assistant' | 'system'; text: string }> | undefined;
+      if (sessionCommand !== 'chat') {
+        try {
+          const replay = buildResumeReplay(await sessionStore.loadMessages(session.sessionKey));
+          if (replay.items.length > 0) replayRows = replay.items;
+        } catch {
+          // A missing/unreadable session store must not block the shell.
+        }
+      }
       await runTuiApp({
         agent,
         workspaceDir: workspace,
         sessionKey: session.sessionKey,
         model: typeof model === 'string' ? model : undefined,
+        cliRuntime: liveRuntime,
+        ...(replayRows ? { replayRows } : {}),
+        // The checkpoint is what `/rewind` restores from; without this call the
+        // store records nothing and every rewind silently did nothing (D1).
+        onTurnStart: (message) => checkpointStore.open(message.slice(0, 60)),
         listSessions: async () => {
           const metas = await sessionStore.listSessions().catch(() => []);
           return metas
@@ -1049,12 +1067,20 @@ async function main() {
               ...(s.error ? { error: s.error } : {}),
             }))
           : [],
+        listCheckpoints: () =>
+          checkpointStore.list().map((cp) => ({
+            seq: cp.seq,
+            label: cp.label,
+            files: cp.fileCount,
+          })),
         rewindTo: (seq) => {
           try {
             const result = checkpointStore.rewindTo(seq);
+            if (!result.found) return { ok: false, detail: `no checkpoint ${seq}` };
+            const skipped = result.skipped.length > 0 ? `, ${result.skipped.length} skipped` : '';
             return {
               ok: true,
-              detail: `${result.restored.length} file(s) restored`,
+              detail: `${result.restored.length} file(s) restored${skipped}`,
             };
           } catch (err) {
             return { ok: false, detail: errorMessage(err) };

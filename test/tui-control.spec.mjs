@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * TUI control plane (Mission Control): /steer during a run, input queue with
+ * CLI shell control plane: /steer during a run, input queue with
  * pause/drop/resume, per-run + session usage in the status line, /bg list,
- * approval bridge.
+ * approval bridge. Retargeted from the deleted Mission Control status bar and
+ * overlays to the single-column shell (chrome status line + inline blocks).
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,7 +11,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createTuiStore, formatUsage } from '../dist/cli/tui/render-bridge.js';
+import { renderStatusRight } from '../dist/cli/tui/transcript.js';
 import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
+import { TuiAppRoot } from '../dist/cli/tui/app.js';
+import { getCliApprovalAskerForTest } from '../dist/cli/approval.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -50,7 +54,6 @@ async function type(instance, text) {
 
 const { render: renderInk } = await import('ink-testing-library');
 const React = await import('react');
-const { TuiAppRoot } = await import('../dist/cli/tui/app.js');
 
 function mount(options) {
   const handle = liveHandle();
@@ -110,7 +113,7 @@ function mockAgent({ slow = false, hold = null } = {}) {
   };
 }
 
-// ─── usage formatter ────────────────────────────────────────────────────────
+// ─── usage formatter + status line ──────────────────────────────────────────
 
 {
   assert.match(
@@ -121,6 +124,11 @@ function mockAgent({ slow = false, hold = null } = {}) {
     formatUsage({ tokensIn: 1500, tokensOut: 400, runTokensIn: 900, runTokensOut: 100 }),
     /1.9k session/
   );
+  assert.match(
+    renderStatusRight({ running: false, tokens: 1500, taskCount: 0, queueLength: 0 }, 60).text,
+    /1\.5k tokens/,
+    'the status line carries session usage'
+  );
 }
 
 // ─── /steer injects into the live run ───────────────────────────────────────
@@ -130,7 +138,7 @@ function mockAgent({ slow = false, hold = null } = {}) {
   steers.length = 0;
   let releaseRun;
   const hold = { promise: new Promise((resolve) => (releaseRun = resolve)) };
-  const { instance } = mount({
+  const { instance, handle } = mount({
     agent: mockAgent({ hold }),
     workspaceDir: '/tmp/ws',
     sessionKey: 'sess-1',
@@ -142,7 +150,13 @@ function mockAgent({ slow = false, hold = null } = {}) {
   assert.ok(steered, '/steer reached agent.steer');
   assert.equal(steers[0].sessionKey, 'sess-1');
   assert.equal(steers[0].constraint, 'keep it under 50 lines');
-  await waitFor(() => instance.lastFrame().includes('Steer queued'));
+  const answered = await waitFor(() =>
+    handle.store.rows.some((r) => r.text.includes('queued: keep it under 50 lines'))
+  );
+  assert.ok(
+    answered,
+    `/steer answered inline: ${JSON.stringify(instance.lastFrame().slice(-200))}`
+  );
   releaseRun();
   instance.unmount();
   await sleep(120);
@@ -154,29 +168,34 @@ function mockAgent({ slow = false, hold = null } = {}) {
   calls.length = 0;
   let releaseFirst;
   const hold = { promise: new Promise((resolve) => (releaseFirst = resolve)) };
-  const { instance } = mount({ agent: mockAgent({ hold }), workspaceDir: '/tmp/ws' });
+  const { instance, handle } = mount({ agent: mockAgent({ hold }), workspaceDir: '/tmp/ws' });
   await type(instance, 'first slow task');
   await waitFor(() => calls.length === 1);
   await type(instance, 'second queued task');
-  await waitFor(() => instance.lastFrame().includes('Queued #1'));
+  const queued = await waitFor(() => instance.lastFrame().includes('1 queued'));
+  assert.ok(
+    queued,
+    `the shell shows the queue depth: ${JSON.stringify(instance.lastFrame().slice(-120))}`
+  );
   await type(instance, '/queue');
   await waitFor(() => instance.lastFrame().includes('Queue (active)'));
   assert.match(instance.lastFrame(), /1\. second queued task/);
 
   // Pause, then let the held first run finish — the queued item must NOT start.
   await type(instance, '/queue pause');
-  await waitFor(() => instance.lastFrame().includes('Queue paused'));
+  await waitFor(() => instance.lastFrame().includes('paused — new submissions wait'));
   releaseFirst();
-  await waitFor(() => !instance.lastFrame().includes('RUNNING'), 6000);
+  await waitFor(() => handle.store.run.running === false, 6000);
   await sleep(300);
   assert.equal(calls.length, 1, 'paused queue does not drain');
 
-  // Drop the queued item, then confirm empty.
+  // Drop the queued item, then confirm the queue is empty.
   await type(instance, '/queue drop');
-  await waitFor(() => instance.lastFrame().includes('Dropped: second queued task'));
+  await waitFor(() => instance.lastFrame().includes('dropped: second queued task'));
 
   // Resume with nothing queued: a fresh submission runs directly.
   await type(instance, '/queue resume');
+  await waitFor(() => instance.lastFrame().includes('resumed'));
   await type(instance, 'fresh after resume');
   const ran = await waitFor(() => calls.includes('fresh after resume'));
   assert.ok(ran, 'submission after resume runs');
@@ -193,9 +212,9 @@ function mockAgent({ slow = false, hold = null } = {}) {
   await waitFor(() =>
     handle.store.rows.some((r) => r.kind === 'assistant' && r.text.includes('done count my'))
   );
-  assert.match(instance.lastFrame(), /150 in run \/ 150 session/, 'status line usage');
+  assert.match(instance.lastFrame(), /150 tokens/, 'status line usage');
   await type(instance, '/usage');
-  await waitFor(() => instance.lastFrame().includes('tokens: '));
+  await waitFor(() => instance.lastFrame().includes('150 in run / 150 session'));
   instance.unmount();
   await sleep(120);
 }
@@ -206,25 +225,29 @@ function mockAgent({ slow = false, hold = null } = {}) {
   calls.length = 0;
   const { instance } = mount({ agent: mockAgent(), workspaceDir: '/tmp/ws' });
   await type(instance, '/bg');
-  await waitFor(() => instance.lastFrame().includes('No background tasks'));
+  await waitFor(() => instance.lastFrame().includes('no background tasks running'));
   instance.unmount();
   await sleep(120);
 }
 
-// ─── approval bridge: question renders, next input answers ─────────────────
+// ─── approval bridge: question renders inline, next input answers ───────────
+// The numbered options + ↑↓ cursor are covered in tui-shell.spec.mjs; here the
+// guarantee is that the host's asker reaches the shell and the answer returns.
 
 {
   calls.length = 0;
   const { instance } = mount({ agent: mockAgent(), workspaceDir: '/tmp/ws' });
-  const { getCliApprovalAskerForTest } = await import('../dist/cli/approval.js');
   const asker = getCliApprovalAskerForTest();
   assert.ok(typeof asker === 'function', 'TUI registered an approval asker');
   const answerPromise = asker('Allow write_file src/index.ts?');
-  await waitFor(() => instance.lastFrame().includes('APPROVAL NEEDED'));
+  const shown = await waitFor(() => instance.lastFrame().includes('Do you want to proceed?'));
+  assert.ok(shown, `approval renders inline: ${JSON.stringify(instance.lastFrame().slice(-200))}`);
+  assert.match(instance.lastFrame(), /1\. Yes/, 'the affirmative option is offered');
   await type(instance, 'y');
   const answer = await answerPromise;
   assert.equal(answer, 'y');
-  await waitFor(() => instance.lastFrame().includes('Approval answered: y'));
+  const answered = await waitFor(() => instance.lastFrame().includes('approval: yes'));
+  assert.ok(answered, 'the decision is committed to the transcript');
   instance.unmount();
   await sleep(120);
 }

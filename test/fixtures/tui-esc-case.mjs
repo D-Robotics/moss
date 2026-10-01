@@ -81,7 +81,8 @@ if (!streaming) {
   process.exit(1);
 }
 instance.stdin.write('\x1b');
-const halted = await waitFor(() => instance.lastFrame().includes('halted'));
+// The v0.22 shell commits the halt as a `⎿ done in Ns · interrupted` result row.
+const halted = await waitFor(() => instance.lastFrame().includes('interrupted'));
 const abortedFlag = await waitFor(() => calls[0]?.abortedAtEnd === true);
 instance.unmount();
 

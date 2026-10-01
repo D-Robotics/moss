@@ -66,6 +66,15 @@ export function visibleText(text: string, maxLines = Number.POSITIVE_INFINITY): 
   ].join('\n');
 }
 
+/**
+ * Terminal cell width of `text` (CJK/emoji are 2 cells, combining marks 0).
+ * Any layout math in the CLI must go through this instead of `String.length`,
+ * which counts UTF-16 code units and silently mis-measures CJK by 2x.
+ */
+export function displayWidth(text: string): number {
+  return stringWidth(text);
+}
+
 export function truncateTerminalText(text: string, maxWidth: number): string {
   if (maxWidth <= 0) return '';
   if (stringWidth(text) <= maxWidth) return text;

@@ -211,7 +211,7 @@ export type { ExtractedToolInvocation } from './tools/index.js';
 export { ErrorCode } from '../errors.js';
 export type { MossErrorOutcome } from '../errors.js';
 
-// Shared task-artifact IO + TUI projection layer (v0.21 Mission Control).
+// Shared task-artifact IO + CLI-shell projection layer.
 export { appendAcceptanceVerdict, loadTaskArtifacts } from './task-runtime/artifacts.js';
 export type { TaskArtifacts } from './task-runtime/artifacts.js';
 export { TaskRuntime, classifyTaskKind, describeToolCall } from './task-runtime/runtime.js';

@@ -1,17 +1,43 @@
 #!/usr/bin/env node
 /**
- * TUI command-surface honesty (v0.20): every command advertised in the TUI
- * help line has a working handler — typing it never yields "Unknown command".
- * (/quit exits, so it is verified by its branch in the help line only.)
+ * CLI shell command-surface honesty: every command the shell advertises in its
+ * key reference has a working handler that PRINTS an inline block — typing it
+ * never yields "unknown command". (/quit exits, so it is verified by its branch
+ * in the help table only.)
+ *
+ * This is the gate for M1: the shell's control commands (`/status`, `/model`,
+ * `/compact`, `/context`, `/diff`, …) are answered by the shared command
+ * registry plus a handful of shell-local handlers, never by the unknown-command
+ * path.
+ *
+ * Retargeted from the Mission Control overlay surface to the v0.22 inline
+ * transcript blocks.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createTuiStore } from '../dist/cli/tui/render-bridge.js';
-import { TUI_HELP_TEXT, buildTuiHelpText } from '../dist/cli/tui/app.js';
-import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
+// Hermetic + offline: the control commands resolve CLI config, so point config
+// resolution at an empty temp dir and disable the bundled gateway. This must run
+// BEFORE `dist/cli/config.js` is imported — that module captures module-level
+// defaults at import time — hence the dynamic imports below.
+const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-cmd-config-'));
+process.env.MOSS_CONFIG_DIR = configDir;
+process.env.MOSS_NO_BUNDLED_DEFAULT = '1';
+
+const { HELP_COMMANDS, SHELL_COMMAND_NAMES, SHELL_COMMAND_ROWS } =
+  await import('../dist/cli/tui/help.js');
+const {
+  TUI_HELP_TEXT,
+  buildTuiHelpText,
+  TuiAppRoot,
+  shellPaletteRows,
+  paletteFrameRows,
+  paletteWindowOffset,
+} = await import('../dist/cli/tui/app.js');
+const { TaskRuntime } = await import('../dist/core/task-runtime/runtime.js');
+const { createTuiStore } = await import('../dist/cli/tui/render-bridge.js');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -49,15 +75,169 @@ async function type(instance, text) {
   await sleep(30);
 }
 
+/** Type without submitting — the palette is only open while the draft is live. */
+async function typeKeys(instance, text) {
+  for (const ch of text) {
+    instance.stdin.write(ch);
+    await sleep(14);
+  }
+  await sleep(60);
+}
+
+/** Send one raw key sequence (arrows, Tab, Enter, Esc) and let ink re-render. */
+async function press(instance, sequence) {
+  instance.stdin.write(sequence);
+  await sleep(70);
+}
+
 const { render: renderInk } = await import('ink-testing-library');
 const React = await import('react');
-const { TuiAppRoot } = await import('../dist/cli/tui/app.js');
+
+// The advertised surface is HELP_COMMANDS: the same table the `?` / `/help`
+// block prints, so "advertised" and "handled" cannot drift apart.
+assert.equal(TUI_HELP_TEXT, buildTuiHelpText(), 'the help text is the published table');
+for (const entry of HELP_COMMANDS) {
+  assert.ok(buildTuiHelpText().includes(entry), `help advertises ${entry}`);
+}
+const advertised = HELP_COMMANDS.map((entry) => entry.split(' ')[0]);
+assert.ok(advertised.length >= 8, `help advertises >=8 commands (got ${advertised.length})`);
+
+// M1 headline: the control commands that used to fall through to
+// "unknown command" must be advertised (and are handled, below).
+const HEADLINE = [
+  '/model',
+  '/mode',
+  '/compact',
+  '/status',
+  '/diff',
+  '/context',
+  '/export',
+  '/doctor',
+  '/permissions',
+  '/review',
+  '/quickstart',
+];
+for (const command of HEADLINE) {
+  assert.ok(advertised.includes(command), `M1: ${command} is advertised by the shell`);
+}
+
+// ─── C17 / D-8: the `/` menu and `/help` are ONE list ────────────────────────
+// Before this fix the menu was the REPL's table filtered down to the shell's
+// names: it could only REMOVE rows, so the eleven task/control commands the
+// shell owns (/tasks /history /evidence /deployments /failures /resume /queue
+// /steer /bg /subs /mcp) were advertised by /help yet missing from the `/` menu.
+assert.deepEqual(
+  [...SHELL_COMMAND_NAMES],
+  advertised,
+  'the command table has one bare name per advertised command'
+);
+assert.equal(
+  SHELL_COMMAND_ROWS.length,
+  advertised.length,
+  'every advertised command has exactly one palette row'
+);
+const menuAll = shellPaletteRows('/');
+assert.equal(
+  menuAll.length,
+  advertised.length,
+  `the / menu offers every advertised command (${menuAll.length} of ${advertised.length})`
+);
+for (const [command, description] of menuAll) {
+  assert.ok(
+    advertised.includes(command),
+    `the menu never offers an unadvertised command: ${command}`
+  );
+  assert.ok(
+    description.trim() && !description.includes('\n'),
+    `${command} has a one-line description`
+  );
+}
+for (const command of advertised) {
+  const rows = shellPaletteRows(command).map(([candidate]) => candidate);
+  assert.ok(rows.includes(command), `${command} is offered for its own prefix (got ${rows})`);
+}
+const re = shellPaletteRows('/re').map(([command]) => command);
+assert.ok(
+  re.includes('/resume') && re.includes('/review'),
+  `/re offers /resume and /review (got ${re.join(', ')})`
+);
+// Reverse mismatch: commands only the readline REPL / headless paths answer must
+// not be offered by the shell's menu.
+for (const replOnly of ['/loop', '/goal', '/task', '/init']) {
+  assert.ok(
+    !menuAll.some(([command]) => command === replOnly),
+    `${replOnly} is not offered by the shell menu`
+  );
+}
+
+// Each command must answer with its own named block, not just "something".
+const BLOCK_TITLE = new Map([
+  ['/help', /^Shortcuts$/],
+  ['/status', /^Status$/],
+  ['/model', /^Model$/],
+  ['/mode', /^Mode$/],
+  ['/permissions', /^Permissions$/],
+  ['/doctor', /^Doctor$/],
+  ['/context', /^Context$/],
+  ['/compact', /^Compact$/],
+  ['/diff', /^Diff$/],
+  ['/review', /^Review$/],
+  ['/export', /^Export$/],
+  ['/quickstart', /^Quickstart$/],
+  ['/usage', /^Usage$/],
+  ['/stop', /^Stop$/],
+  ['/tasks', /^Tasks \(\d+\)$/],
+  ['/history', /^History \(\d+\)$/],
+  ['/evidence', /^Evidence \(\d+\)$/],
+  ['/deployments', /^Deployments \(\d+\)$/],
+  ['/failures', /^Failures \(\d+\)$/],
+  ['/resume', /^Resume$/],
+  ['/rewind', /^Checkpoints \(\d+\)$/],
+  ['/queue', /^Queue \(/],
+  ['/steer', /^Steer$/],
+  ['/bg', /^bg$/],
+  ['/subs', /^subs$/],
+  ['/sessions', /^sessions$/],
+  ['/mcp', /^mcp$/],
+]);
+
+// Arguments a bare command needs to answer deterministically (the variable part
+// of the advertised entry, e.g. `/export [path]`).
+const exportPath = path.join(
+  fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-cmd-export-')),
+  'session.md'
+);
+const ARGS = new Map([
+  ['/steer', ' be terse'],
+  ['/export', ` ${exportPath}`],
+]);
 
 const streamCalls = [];
 const agent = {
   steer() {
     return { delivery: 'steer', id: 's', message: '', createdAt: Date.now() };
   },
+  asyncTasks: { list: () => [] },
+  async compactSession(_sessionKey, instructions) {
+    return {
+      compacted: true,
+      droppedMessages: 3,
+      summaryChars: 42,
+      tokensAfter: 1234,
+      instructions,
+    };
+  },
+  config: {
+    model: 'spec-model',
+    contextTokens: 100_000,
+    sessionStore: {
+      loadMessages: async () => [
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: 'hi' },
+      ],
+    },
+  },
+  tools: { getAll: () => [], getNames: () => [], size: 0 },
   async *streamChat(_sk, message) {
     streamCalls.push(message);
     yield {
@@ -68,41 +248,216 @@ const agent = {
 };
 const options = {
   agent,
-  workspaceDir: '/tmp/ws',
+  // A real (non-git) workspace directory: `/diff` and `/review` then exercise
+  // their honest "not a git repository" answer instead of a spawn failure.
+  workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-cmd-ws-')),
   listSessions: async () => [],
   mcpServers: [],
   listCheckpoints: () => [],
 };
 
-// Extract "/cmd" tokens from the help line (skip /quit which exits).
-const helpLine = buildTuiHelpText().split('\n')[2];
-const advertised = [...helpLine.matchAll(/\/([a-z]+)/g)].map((m) => `/${m[1]}`);
-assert.ok(advertised.length >= 8, `help advertises >=8 commands (got ${advertised.length})`);
-void TUI_HELP_TEXT;
-
-const BOOT_BANNER = 'moss Mission Control — /help for keys';
-
 for (const command of advertised) {
   if (command === '/quit') continue; // exits the app — verified by name only
-  const arg = command === '/steer' ? ' be terse' : '';
+  const title = BLOCK_TITLE.get(command);
+  assert.ok(title, `${command} has an expected block title in this spec`);
+  const arg = ARGS.get(command) ?? '';
   const handle = liveHandle();
   const runtime = new TaskRuntime({
     workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-cmd-')),
   });
   const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
-  await sleep(120);
+  const booted = await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
+  assert.ok(booted, `${command}: shell booted`);
   await type(instance, `${command}${arg}`);
   const handled = await waitFor(() =>
-    handle.store.rows.some(
-      (r) => r.kind === 'banner' && r.text !== BOOT_BANNER && !r.text.startsWith('Resumed')
-    )
+    handle.store.rows.some((r) => r.kind === 'tool' && title.test(r.text))
   );
-  const unknown = handle.store.rows.some((r) => r.text.includes('Unknown command'));
-  assert.ok(handled, `${command} produced a response`);
-  assert.ok(!unknown, `${command} must not be answered "Unknown command"`);
+  const unknown = handle.store.rows.some((r) => r.text.includes('unknown command'));
+  assert.ok(
+    handled,
+    `${command} produced its inline block (rows: ${JSON.stringify(
+      handle.store.rows.map((r) => `${r.kind}:${r.text}`).slice(-3)
+    )})`
+  );
+  assert.ok(!unknown, `${command} must not be answered "unknown command"`);
   instance.unmount();
   await sleep(100);
 }
 
+// The whole control surface, typed back to back with no "unknown command" among
+// them: the M1 regression that started this work.
+{
+  const handle = liveHandle();
+  const runtime = new TaskRuntime({
+    workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-cmd-all-')),
+  });
+  const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
+  await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
+  for (const command of HEADLINE) {
+    await type(instance, `${command}${ARGS.get(command) ?? ''}`);
+  }
+  const blocks = handle.store.rows.filter((r) => r.kind === 'tool').map((r) => r.text);
+  for (const command of HEADLINE) {
+    const title = BLOCK_TITLE.get(command);
+    assert.ok(title && blocks.some((text) => title.test(text)), `M1: ${command} answered inline`);
+  }
+  const unknown = handle.store.rows.filter(
+    (r) => r.kind === 'error' && r.text.includes('unknown command')
+  );
+  assert.equal(
+    unknown.length,
+    0,
+    `no control command fell through: ${JSON.stringify(unknown.map((r) => r.text))}`
+  );
+  instance.unmount();
+  await sleep(100);
+}
+
+// The mounted shell must actually FEED the menu from that table (the pure helper
+// above would keep passing if app.ts went back to filtering the REPL table).
+{
+  const handle = liveHandle();
+  const runtime = new TaskRuntime({
+    workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-cmd-menu-')),
+  });
+  const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
+  await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
+  await typeKeys(instance, '/');
+  const opened = await waitFor(() => instance.lastFrame().includes('… 20 more'));
+  assert.ok(
+    opened,
+    `/ offers the whole surface (28 rows → 8 shown + "… 20 more"): ${JSON.stringify(
+      instance.lastFrame().slice(0, 200)
+    )}`
+  );
+  assert.ok(instance.lastFrame().includes('/status'), 'the menu leads with the everyday commands');
+  await typeKeys(instance, 're');
+  const filtered = await waitFor(() => instance.lastFrame().includes('/resume'));
+  assert.ok(
+    filtered,
+    `/re offers the task-resume command: ${JSON.stringify(instance.lastFrame().slice(0, 300))}`
+  );
+  assert.ok(instance.lastFrame().includes('/review'), '/re also offers /review');
+  instance.unmount();
+  await sleep(100);
+}
+
+// ─── D-15: the marked row IS the row Enter runs and Tab completes ────────────
+// `renderSlashPalette` draws at most PALETTE_MAX_ROWS rows, so an absolute
+// selection beyond the window used to be clamped for the marker only: the menu
+// highlighted `/sessions` while Enter ran `/doctor`. The window must follow the
+// cursor, and the marker index handed to the renderer must be the same row the
+// shell acts on.
+{
+  const rows = shellPaletteRows('/');
+  assert.equal(rows[8][0], '/doctor', 'D-15 repro: 8 × ↓ lands on /doctor');
+  assert.equal(rows[rows.length - 1][0], '/mcp', 'the last row is /mcp');
+
+  // Pure windowing contract: the window contains the cursor and never grows.
+  assert.equal(paletteWindowOffset(0, rows.length, 8), 0, 'the first row starts the window');
+  assert.equal(paletteWindowOffset(7, rows.length, 8), 0, 'row 8 still fits the window');
+  assert.equal(paletteWindowOffset(8, rows.length, 8), 1, 'row 9 scrolls the window');
+  assert.equal(
+    paletteWindowOffset(rows.length - 1, rows.length, 8),
+    rows.length - 8,
+    'the last row uses the tail window'
+  );
+  assert.equal(paletteWindowOffset(3, 4, 8), 0, 'a short menu never scrolls');
+  for (const selected of [0, 7, 8, 9, 15, rows.length - 1]) {
+    const offset = paletteWindowOffset(selected, rows.length, 8);
+    const frame = paletteFrameRows(rows, offset, 8);
+    const relative = selected - offset;
+    assert.ok(relative >= 0 && relative < 8, `row ${selected} stays inside the window`);
+    assert.equal(frame[relative][0], rows[selected][0], `the marker row is row ${selected}`);
+    assert.equal(frame.length, rows.length, 'hidden rows only feed the "… N more" counter');
+  }
+
+  const mountMenu = async (suffix) => {
+    const handle = liveHandle();
+    const runtime = new TaskRuntime({
+      workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), `moss-tui-cmd-${suffix}-`)),
+    });
+    const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
+    await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
+    return { instance, handle };
+  };
+
+  // 8 × ↓ then Enter: the marker is /doctor and /doctor is what runs.
+  {
+    const { instance, handle } = await mountMenu('d15-enter');
+    await typeKeys(instance, '/');
+    for (let i = 0; i < 8; i += 1) await press(instance, '\x1b[B');
+    const marked = await waitFor(() => instance.lastFrame().includes('❯ /doctor'));
+    assert.ok(
+      marked,
+      `the marker follows the cursor past the window: ${JSON.stringify(
+        instance.lastFrame().slice(0, 300)
+      )}`
+    );
+    assert.ok(
+      !instance.lastFrame().includes('❯ /sessions'),
+      'the marker is not one row behind the cursor'
+    );
+    await press(instance, '\r');
+    const ran = await waitFor(() =>
+      handle.store.rows.some((r) => r.kind === 'tool' && r.text === 'Doctor')
+    );
+    assert.ok(
+      ran,
+      `Enter ran the marked command, not another row: ${JSON.stringify(
+        handle.store.rows.map((r) => `${r.kind}:${r.text}`).slice(-3)
+      )}`
+    );
+    instance.unmount();
+    await sleep(100);
+  }
+
+  // 8 × ↓ then Tab: the composer receives /doctor (never the un-marked row).
+  {
+    const { instance } = await mountMenu('d15-tab');
+    await typeKeys(instance, '/');
+    for (let i = 0; i < 8; i += 1) await press(instance, '\x1b[B');
+    await press(instance, '\t');
+    await press(instance, '\x1b'); // close the menu: only the composer keeps a ❯
+    const completed = await waitFor(() => instance.lastFrame().includes('❯ /doctor'));
+    assert.ok(
+      completed,
+      `Tab completed the marked command: ${JSON.stringify(instance.lastFrame().slice(0, 300))}`
+    );
+    assert.ok(
+      !instance.lastFrame().includes('/quickstart'),
+      'Tab did not complete a row the marker was not on'
+    );
+    instance.unmount();
+    await sleep(100);
+  }
+
+  // Wrap upwards from row 0 → the tail window marks /mcp, and Enter runs it.
+  {
+    const { instance, handle } = await mountMenu('d15-wrap');
+    await typeKeys(instance, '/');
+    await press(instance, '\x1b[A');
+    const marked = await waitFor(() => instance.lastFrame().includes('❯ /mcp'));
+    assert.ok(
+      marked,
+      `↑ wraps to the last row in the tail window: ${JSON.stringify(
+        instance.lastFrame().slice(0, 300)
+      )}`
+    );
+    await press(instance, '\r');
+    const ran = await waitFor(() =>
+      handle.store.rows.some((r) => r.kind === 'tool' && r.text === 'mcp')
+    );
+    assert.ok(
+      ran,
+      `Enter ran the wrapped-to command: ${JSON.stringify(
+        handle.store.rows.map((r) => `${r.kind}:${r.text}`).slice(-3)
+      )}`
+    );
+    instance.unmount();
+    await sleep(100);
+  }
+}
+
 void streamCalls;
-console.log('[PASS] TUI command surface honesty (every advertised command answers)');
+console.log('[PASS] TUI command surface honesty (advertised + discoverable + marker==action)');
