@@ -37,8 +37,13 @@ import {
   );
   assert.ok(concise.includes('/permissions --verbose'), 'default output points to diagnostics');
   const verbose = renderCliPermissions(runtime, { verbose: true });
-  assert.ok(verbose.includes('Profiles:'), 'verbose permissions keeps the detailed reference');
+  assert.ok(verbose.includes('One axis'), 'verbose permissions leads with the single /mode axis');
+  assert.ok(verbose.includes('/mode plan'), 'verbose permissions shows the three modes');
   assert.ok(verbose.includes('/permissions'), 'verbose permissions keeps command guidance');
+  assert.ok(
+    !verbose.includes('Profiles:'),
+    'the profile concept retires from the permissions help'
+  );
   assert.ok(
     verbose.split('\n').length <= 50,
     `verbose permissions stays compact (got ${verbose.split('\n').length} lines)`

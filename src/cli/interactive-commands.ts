@@ -60,20 +60,22 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         args: '[instructions]',
         description: 'compress older conversation history into a summary',
       },
-      // /loop and /goal remain REPL/headless-only until they are migrated to
-      // the same Task OS runtime contract the shell runs.
+      // /loop stays the one advertised autonomous loop; /goal is a hidden
+      // compat alias of the acceptance-gated path (/task run --accept runs the
+      // same runtime contract). The engines stay untouched this pass.
       {
         command: '/loop',
         args: '<goal>',
         description:
-          'autonomous loop: agent works until it judges the goal done; /loop resume continues the last paused loop; /loop stop waits for the current step (MOSS_LOOP_MAX caps iterations)',
+          'autonomous loop: agent works until it judges the goal done (/loop stop waits; /loop resume continues; MOSS_LOOP_MAX caps iterations)',
         surfaces: ['repl'],
       },
       {
         command: '/goal',
         args: '<goal> --accept "<verification command>"',
         description:
-          'acceptance-gated loop: completes only when the verification command exits 0 (MOSS_GOAL_AUTO_MAX_RUNS caps runs; /goal stop aborts)',
+          'compat alias: prefer /task run --accept "<verification command>" — same acceptance-gated loop (MOSS_GOAL_AUTO_MAX_RUNS caps runs; /goal stop aborts)',
+        hidden: true,
         surfaces: ['repl'],
       },
       {
