@@ -982,6 +982,43 @@ async function type(instance, text) {
     instance.unmount();
     await sleep(150);
   }
+
+  // 4p. Plan-mode exit ritual: a plan run that produced a plan gets the
+  // `Ready to code?` gate; option 1 flips to accept-edits and dispatches the
+  // execution run (A7.60-62). Esc keeps planning.
+  {
+    const { getCliInteractionMode, setCliInteractionMode } =
+      await import('../dist/cli/interaction-mode.js');
+    const before = getCliInteractionMode();
+    setCliInteractionMode('plan');
+    const planCalls = [];
+    const planAgent = {
+      async *streamChat(_sk, message) {
+        planCalls.push(message);
+        const answer =
+          planCalls.length > 1 ? 'executing' : `## Plan\n${'step for the refactor. '.repeat(30)}`;
+        yield { type: 'text_delta', delta: answer };
+        yield { type: 'done', result: { response: answer, stopReason: 'end_turn' } };
+      },
+    };
+    const { instance } = mount({ agent: planAgent, workspaceDir: '/tmp/ws' });
+    await type(instance, 'plan the refactor');
+    const gated = await waitFor(() => instance.lastFrame().includes('Ready to code?'));
+    assert.ok(gated, `the plan gate opens after a plan run: ${instance.lastFrame().slice(0, 160)}`);
+    instance.stdin.write('\r'); // Enter on option 1 — proceed with accept-edits
+    const executed = await waitFor(() => planCalls.length === 2);
+    assert.ok(executed, `the approved plan dispatches execution: ${JSON.stringify(planCalls)}`);
+    assert.match(planCalls[1], /approved — proceed with execution/);
+    assert.equal(
+      getCliInteractionMode(),
+      'acceptEdits',
+      'option 1 flips the mode to accept-edits for the execution run'
+    );
+    await waitFor(() => instance.lastFrame().includes('executing'));
+    setCliInteractionMode(before || 'default');
+    instance.unmount();
+    await sleep(150);
+  }
 }
 
 assert.equal(typeof runTuiApp, 'function', 'the TTY entry point is exported');

@@ -681,6 +681,8 @@ export function TuiAppRoot({
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const [mentionIndex, setMentionIndex] = useState<MentionEntry[]>([]);
   const abortRef = useRef<AbortController | undefined>(undefined);
+  /** Plan-mode exit gate, filled in after `dispatchRun` exists (below). */
+  const planGateRef = useRef<(() => void) | undefined>(undefined);
   const runStartedAtRef = useRef<number | undefined>(undefined);
   const pendingDialogRef = useRef<PendingDialog | null>(null);
   /** Timer behind the D-7 two-press Ctrl+C quit confirmation. */
@@ -1020,6 +1022,9 @@ export function TuiAppRoot({
   const runTurn = useCallback(
     async (message: string) => {
       options.onTurnStart?.(message);
+      // Rows committed from this run on — the plan gate asks whether the run
+      // actually produced a plan (tools were used, or a substantial answer).
+      const firstRowId = store.nextId;
       runtime.beginRun();
       beginRun(store);
       runStartedAtRef.current = Date.now();
@@ -1113,7 +1118,18 @@ export function TuiAppRoot({
       }
       await runtime.endRun(halted);
       notifyAttention(halted ? 'run interrupted' : 'run finished');
+      // Plan-mode exit ritual (the reference's `Ready to code?` gate): a
+      // finished plan-mode run that actually produced a plan — it explored
+      // with tools, or answered at length — hands the decision to the user.
+      // An interrupted run or a quick question does not get the ceremony.
+      const rowsThisRun = store.rows.filter((row) => row.id >= firstRowId);
+      const producedPlan =
+        !halted &&
+        getCliInteractionMode() === 'plan' &&
+        (rowsThisRun.some((row) => row.kind === 'tool') ||
+          rowsThisRun.some((row) => row.kind === 'assistant' && row.text.length > 300));
       handle.notify();
+      if (producedPlan) planGateRef.current?.();
     },
     [handle, notifyAttention, options.agent, runtime, sessionKey, settleDialog, store, streamTurn]
   );
@@ -1259,6 +1275,58 @@ export function TuiAppRoot({
     },
     [drainQueue, runTurn, store]
   );
+
+  /**
+   * The plan-mode exit gate (A7.60-62, Qoder's core "present plan → approve →
+   * execute" ritual). A finished plan run hands the user three decisions:
+   * proceed with edits auto-accepted, proceed behind manual approvals, or
+   * type what should change (which stays in plan mode). Esc keeps planning —
+   * the gate is an offer, never a wall.
+   */
+  const openPlanGate = useCallback(() => {
+    if (pendingDialogRef.current) return;
+    runtime.setApprovalPending(true);
+    handle.notify();
+    const PROCEED_AUTO = 'Proceed: accept edits this session.';
+    const PROCEED_MANUAL = 'Proceed: keep manual approvals.';
+    const entry: PendingDialog = {
+      kind: 'question',
+      settled: false,
+      resolve: (value) => {
+        if (value === PROCEED_AUTO) {
+          setCliInteractionMode('acceptEdits');
+          dispatchRun('The plan above is approved — proceed with execution now.');
+        } else if (value === PROCEED_MANUAL) {
+          setCliInteractionMode('default');
+          dispatchRun(
+            'The plan above is approved — proceed with execution now (manual approvals stay on).'
+          );
+        } else if (value.trim()) {
+          dispatchRun(`Plan feedback — revise the plan accordingly: ${value}`);
+        }
+      },
+      optionAnswers: [PROCEED_AUTO, PROCEED_MANUAL, ''],
+      freeTextEntry: true,
+    };
+    pendingDialogRef.current = entry;
+    setApproval({
+      title: 'Ready to code?',
+      question: 'The plan is above. How should moss proceed?',
+      options: [
+        { key: '1', answer: 'y', label: 'Proceed — accept edits this session' },
+        { key: '2', answer: 'y', label: 'Proceed — keep manual approvals' },
+        { key: '3', answer: 'y', label: 'Tell moss what to change (type below)' },
+      ],
+      footer: '↑↓ then Enter · or type feedback below · Esc keeps planning',
+      cursor: 0,
+    });
+  }, [dispatchRun, handle, runtime]);
+  useEffect(() => {
+    planGateRef.current = openPlanGate;
+    return () => {
+      planGateRef.current = undefined;
+    };
+  }, [openPlanGate]);
 
   /**
    * `/diff` — the real working-tree diff through the same helper the readline
@@ -1935,10 +2003,13 @@ export function TuiAppRoot({
             setInput('');
             return;
           }
-          if (optionIndex >= 0) {
-            resolveDialog(
-              pending.optionAnswers?.[optionIndex] ?? approval.options[optionIndex]!.label
-            );
+          // Enter answers the CURSOR-selected option (the footer has always
+          // advertised `↑↓ then Enter` — but only digit keys actually worked,
+          // which the plan gate ran straight into).
+          const idx = optionIndex >= 0 ? optionIndex : approval.cursor;
+          const option = approval.options[idx];
+          if (option) {
+            resolveDialog(pending.optionAnswers?.[idx] ?? option.label);
             return;
           }
           return;
