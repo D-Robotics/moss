@@ -3,7 +3,7 @@ import * as readline from 'node:readline';
 import type { MossAgent } from '../core/index.js';
 import { setCliApprovalAsker } from './approval.js';
 import { handleCompactCommand } from './compact-command.js';
-import { resolveLoopMaxIterations } from './loop-tui-events.js';
+import { resolveLoopMaxIterations, formatLoopStatusLine } from './loop-tui-events.js';
 import { parseGoalCommandLine } from '../core/loop/goal-loop.js';
 import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
 import { loadCustomCommands, reservedBuiltinNames } from './commands/custom-commands.js';
@@ -204,10 +204,26 @@ export async function runInteractive(
   const wireLoopScheduler = (sched: LoopScheduler, mode: 'started' | 'resumed'): void => {
     activeLoopScheduler = sched;
     rl.setPrompt('\n[loop] › ');
+    let loopMax = 0;
     sched.on((event) => {
-      if (event.type === 'iteration_completed') {
+      if (event.type === 'loop_started') {
+        loopMax = event.maxIterations;
+      } else if (event.type === 'iteration_completed') {
         process.stderr.write(
           `\n[loop ${event.result.iteration}] ${event.result.response.slice(0, 400)}\n`
+        );
+        // The live status line (iteration · elapsed · controls) used to exist
+        // only in tests; without it a running loop's progress and escape
+        // hatches are invisible between iterations.
+        const state = sched.getState();
+        process.stderr.write(
+          `${ui.dim(
+            `  ${formatLoopStatusLine({
+              iteration: state.currentIteration,
+              maxIterations: loopMax,
+              elapsedSeconds: Math.max(0, Math.round((Date.now() - state.startedAt) / 1000)),
+            })}`
+          )}\n`
         );
       } else if (event.type === 'iteration_failed') {
         process.stderr.write(`\n[loop ${event.iteration}] failed: ${event.error.slice(0, 200)}\n`);

@@ -57,11 +57,11 @@ assert.deepEqual(
 
 assert.equal(
   formatLoopStatusLine({ iteration: 2, maxIterations: 20, elapsedSeconds: 9 }),
-  'loop 2/20 · 9s · /steer update · /btw aside · /loop stop'
+  'loop 2/20 · 9s · /steer update · /loop stop'
 );
 assert.equal(
   formatLoopStatusLine({ iteration: 2, maxIterations: 0, elapsedSeconds: 9 }),
-  'loop 2/∞ · 9s · /steer update · /btw aside · /loop stop'
+  'loop 2/∞ · 9s · /steer update · /loop stop'
 );
 assert.equal(
   formatLoopStatusLine({ iteration: 2, maxIterations: 0, elapsedSeconds: 9, stopping: true }),
