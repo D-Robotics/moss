@@ -587,9 +587,14 @@ export interface LiveView {
   queuePreview?: string;
   /** Active provider retry (`retry` event) — the spinner alone would lie. */
   retry?: { attempt: number; error: string };
+  /** Last time ANY event arrived; a quiet stream past STALL_HINT_S is flagged. */
+  lastEventAt?: number;
   /** Waiting on the user (approval): the spinner must not keep pretending. */
   blocked?: boolean;
 }
+
+/** Seconds of stream silence before the live region says so out loud. */
+export const STALL_HINT_S = 15;
 
 export function renderLive(view: LiveView, width: number, verbose = false): TuiLine[] {
   if (!view.running) return [];
@@ -612,9 +617,14 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
       )
     );
   }
-  const streaming = wrap(view.streaming.trim(), width - 2);
-  for (const text of verbose ? streaming : streaming.slice(-8)) {
-    out.push(line(clip(`${text}`, width)));
+  // The live tail gets the SAME markdown projection as committed answers —
+  // streaming a table/bold/code as raw `|---|` source made the region look
+  // broken exactly when the answer was at its richest.
+  const markdownTail = renderMarkdown(view.streaming.trim(), Math.max(4, width - 2));
+  for (const entry of verbose ? markdownTail : markdownTail.slice(-8)) {
+    // Runs must concatenate back to the line text — a clipped line drops them.
+    const clippedText = clip(entry.text, width);
+    out.push(clippedText === entry.text ? entry : { ...entry, text: clippedText, runs: undefined });
   }
   if (view.blocked) return out;
   const seconds = Math.max(0, Math.round(elapsedMs / 1000));
@@ -629,6 +639,19 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
       { color: 'yellow' }
     )
   );
+  // Silence is information too: past the hint threshold the spinner stops
+  // pretending the model is thinking and says the stream has gone quiet (a
+  // stuck upstream gateway reads exactly like this until the watchdog aborts).
+  if (view.lastEventAt !== undefined) {
+    const quietS = Math.floor((Date.now() - view.lastEventAt) / 1000);
+    if (quietS >= STALL_HINT_S) {
+      out.push(
+        line(clip(`  … stream quiet for ${quietS}s — the gateway may be stuck`, width), {
+          color: 'yellow',
+        })
+      );
+    }
+  }
   if (view.queuePreview) {
     out.push(
       line(clip(`  ⏐ next: ${view.queuePreview.replace(/\s+/g, ' ').trim()}`, width), {

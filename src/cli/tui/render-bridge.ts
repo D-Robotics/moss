@@ -74,6 +74,8 @@ export interface TuiRunState {
   toolInputs: Map<string, Record<string, unknown>>;
   /** Latest provider retry notice (shown in the live region until progress). */
   retry?: { attempt: number; error: string };
+  /** Last event time — the live region flags a stream that has gone quiet. */
+  lastEventAt?: number;
 }
 
 export interface TuiUsageState {
@@ -167,6 +169,7 @@ function tail(text: string, max = 400): string {
  * errors surface as error rows.
  */
 export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
+  store.run.lastEventAt = Date.now();
   switch (event.type) {
     case 'text_delta': {
       store.run.retry = undefined;
@@ -179,9 +182,15 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
     }
     case 'retry': {
       // The provider is retrying a failed call: surface it in the live region
-      // instead of letting the spinner pretend nothing is wrong (the REPL has
-      // always printed these; the shell used to drop them).
+      // AND leave a transcript marker — when the retried call regenerates, the
+      // re-streamed text must read as a deliberate retry, not a glitchy echo
+      // of the partial output above.
       store.run.retry = { attempt: event.attempt, error: event.error };
+      appendRow(
+        store,
+        'summary',
+        `↻ provider retry ${event.attempt} — ${event.error.replace(/\s+/g, ' ').trim()}`
+      );
       store.version++;
       break;
     }
@@ -231,8 +240,11 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       );
       const summary = abortedBy ? `aborted (${abortedBy})` : completion.summary;
       // Edits and writes render as a diff gutter; everything else keeps the
-      // raw result (the projection decides how much of it to show).
-      const body = completion.diff ?? (resultBody(event.result) || (event.isError ? '' : 'ok'));
+      // raw result (the projection decides how much of it to show). A dialog
+      // that already showed its answer gets its synthetic wrapper dropped.
+      const body = completion.dropBody
+        ? ''
+        : (completion.diff ?? (resultBody(event.result) || (event.isError ? '' : 'ok')));
       appendRow(store, 'result', body, {
         tool: {
           name: event.toolName,
@@ -315,7 +327,13 @@ export function toTodos(raw: readonly unknown[]): TuiTodo[] {
 }
 
 export function beginRun(store: TuiStore): void {
-  store.run = { running: true, thinkingText: '', streamingText: '', toolInputs: new Map() };
+  store.run = {
+    running: true,
+    thinkingText: '',
+    streamingText: '',
+    toolInputs: new Map(),
+    lastEventAt: Date.now(),
+  };
   store.usage.runTokensIn = 0;
   store.usage.runTokensOut = 0;
   store.version++;

@@ -152,6 +152,11 @@ export const SHELL_COMMANDS: readonly ShellCommand[] = [
     usage: '/usage',
     description: 'show cumulative token usage for this session',
   },
+  {
+    command: '/log',
+    usage: '/log',
+    description: 'show this session\u2019s on-disk conversation and run-event logs',
+  },
   { command: '/stop', usage: '/stop', description: 'interrupt the active run' },
   { command: '/tasks', usage: '/tasks', description: 'print the task-runtime tasks' },
   {

@@ -4,6 +4,7 @@ export type SessionEventType =
   | 'step.started'
   | 'step.ended'
   | 'step.failed'
+  | 'step.retry'
   | 'text.delta'
   | 'reasoning.delta'
   | 'tool.called'

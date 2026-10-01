@@ -1042,7 +1042,14 @@ instance.unmount();
       await waitFor(() => !frame().includes('waiting for you')),
       'the status stops waiting'
     );
-    assert.ok(await waitFor(() => !frame().includes('demo-write.txt')), 'the dead dialog is gone');
+    assert.ok(
+      await waitFor(() => !frame().includes('Do you want to create')),
+      'the dead dialog is gone (its question row leaves the chrome)'
+    );
+    assert.ok(
+      frame().includes('approval: no · demo-write.txt'),
+      'the committed denial names what was denied'
+    );
     assert.equal(
       rowsOf('result').filter((row) => row.text.startsWith('approval:')).length,
       approvalsBefore + 1,

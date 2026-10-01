@@ -7,6 +7,9 @@ interface AgentStreamEventLike {
   readonly toolCallId?: string;
   readonly isError?: boolean;
   readonly stopReason?: string;
+  readonly attempt?: number;
+  /** `retry` carries a string; `tool_end` carries an error object — both fine. */
+  readonly error?: unknown;
 }
 
 export function recordAgentEvent(log: SessionEventLog, event: AgentStreamEventLike): void {
@@ -36,7 +39,21 @@ export function recordAgentEvent(log: SessionEventLog, event: AgentStreamEventLi
       log.append({ type: 'step.ended', data: { stopReason: event.stopReason } });
       break;
     case 'error':
-      log.append({ type: 'step.failed', data: {} });
+      log.append({
+        type: 'step.failed',
+        data: { message: typeof event.error === 'string' ? event.error : undefined },
+      });
+      break;
+    case 'retry':
+      // A retried call is not a failure: the run continues. But it IS the
+      // breadcrumb that explains a regenerated answer, so it goes to the log.
+      log.append({
+        type: 'step.retry',
+        data: {
+          attempt: event.attempt,
+          error: typeof event.error === 'string' ? event.error : String(event.error ?? ''),
+        },
+      });
       break;
     case 'compaction':
       log.append({ type: 'compaction.ended', data: {} });

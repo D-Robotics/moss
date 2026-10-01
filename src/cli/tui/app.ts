@@ -13,6 +13,8 @@
  * dependencies. Non-TTY or `--no-tty` sessions fall back to the readline REPL.
  */
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   render,
   Box,
@@ -136,6 +138,7 @@ import {
   type MentionEntry,
 } from './mentions.js';
 import { getPackageVersion } from '../package-info.js';
+import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
 
 export interface TuiReplayRow {
   kind: TranscriptRow['kind'];
@@ -448,6 +451,12 @@ interface PendingDialog {
   optionAnswers?: string[];
   /** `multi_select` questions: digits are typed, only Enter answers. */
   freeTextEntry?: boolean;
+  /**
+   * What the dialog was about (`Write(wordfreq/Makefile)`-style subject, else
+   * the title). A bare `approval: yes` row floating under an unrelated block
+   * told the user nothing; the commit row names what was decided.
+   */
+  label?: string;
 }
 
 /** Resume prompt shared by `/resume` and the task switcher. */
@@ -485,6 +494,43 @@ export function commandBlockTitle(head: string): string {
   const name = head.trim().replace(/^\//, '');
   if (!name) return 'Command';
   return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/** One `HH:MM:SS role: snippet…` line for a conversation-log JSONL entry. */
+export function describeConversationLogEntry(raw: string): string | undefined {
+  let entry: {
+    type?: string;
+    message?: { role?: string; content?: unknown; timestamp?: number };
+  };
+  try {
+    entry = JSON.parse(raw) as typeof entry;
+  } catch {
+    return undefined;
+  }
+  if (entry.type !== 'message' || !entry.message) return undefined;
+  const content = entry.message.content;
+  const text =
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content
+            .map((block) => {
+              const b = block as { type?: string; text?: string; name?: string };
+              if (b.type === 'text' && typeof b.text === 'string') return b.text;
+              if (b.type === 'tool_use') return `[tool ${b.name}]`;
+              if (b.type === 'tool_result') return '[tool result]';
+              return '';
+            })
+            .filter(Boolean)
+            .join(' ')
+        : '';
+  const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 90);
+  if (!snippet) return undefined;
+  const time =
+    entry.message.timestamp !== undefined
+      ? ` ${new Date(entry.message.timestamp).toISOString().slice(11, 19)}`
+      : '';
+  return `${time.trim()} ${entry.message.role === 'user' ? '❯' : '⏺'} ${snippet}`;
 }
 
 /**
@@ -703,16 +749,12 @@ export function TuiAppRoot({
       setApproval(undefined);
       runtime.setApprovalPending(false);
       if (!options.silent) {
-        appendRow(
-          store,
-          'result',
+        const base =
           options.commit ??
-            `${pending.kind === 'question' ? 'answer' : 'approval'}: ${
-              pending.kind === 'question'
-                ? value || 'skipped'
-                : approvalAnswerLabel(value as CliApprovalAnswer)
-            }`
-        );
+          (pending.kind === 'question'
+            ? `answer: ${value || 'skipped'}`
+            : `approval: ${approvalAnswerLabel(value as CliApprovalAnswer)}`);
+        appendRow(store, 'result', pending.label ? `${base} · ${pending.label}` : base);
         handle.notify();
       }
       pending.resolve(value);
@@ -723,10 +765,9 @@ export function TuiAppRoot({
 
   const resolveApproval = useCallback(
     (answer: CliApprovalAnswer, options: { silent?: boolean } = {}): boolean =>
-      resolveDialog(answer, {
-        ...options,
-        ...(options.silent ? {} : { commit: `approval: ${approvalAnswerLabel(answer)}` }),
-      }),
+      // No explicit commit: resolveDialog adds the dialog's label (the file or
+      // command that was approved) so the row reads `approval: yes · Write(x)`.
+      resolveDialog(answer, options),
     [resolveDialog]
   );
 
@@ -763,6 +804,11 @@ export function TuiAppRoot({
           settled: false,
           ...(question
             ? { optionAnswers: question.answers, freeTextEntry: question.multiSelect }
+            : {}),
+          // Approvals name their target (subject → title); a question's title
+          // is the generic word "Question", which would add noise, not signal.
+          ...(!question && (view.subject ?? view.title)
+            ? { label: (view.subject ?? view.title)! }
             : {}),
         };
         pendingDialogRef.current = entry;
@@ -891,6 +937,25 @@ export function TuiAppRoot({
     [handle, store]
   );
 
+  /**
+   * Run through the RECORDED stream when the agent offers it, so the TUI's
+   * turns land in `.moss/events/<sessionKey>.jsonl` (steps · tool calls ·
+   * retries · failures) next to the conversation log — post-hoc analysis of a
+   * stalled or duplicated run has ground truth instead of screenshots. Spec
+   * mock agents only implement `streamChat` and fall back cleanly.
+   */
+  const streamTurn = useCallback(
+    (message: string, abortSignal: AbortSignal) => {
+      const agent = options.agent as MossAgent & {
+        streamChatRecorded?: typeof options.agent.streamChat;
+      };
+      return typeof agent.streamChatRecorded === 'function'
+        ? agent.streamChatRecorded(sessionKey, message, { abortSignal })
+        : options.agent.streamChat(sessionKey, message, { abortSignal });
+    },
+    [options.agent, sessionKey]
+  );
+
   const runTurn = useCallback(
     async (message: string) => {
       options.onTurnStart?.(message);
@@ -901,9 +966,7 @@ export function TuiAppRoot({
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        for await (const event of options.agent.streamChat(sessionKey, message, {
-          abortSignal: controller.signal,
-        })) {
+        for await (const event of streamTurn(message, controller.signal)) {
           if (event.type === 'error' && isInterruptEvent(controller, event.error)) {
             // D-9: the loop reports the user's own abort as an `error` event
             // ("This operation was aborted"), which used to land in the
@@ -921,6 +984,19 @@ export function TuiAppRoot({
             // run-on line (`⏺ Planning the refactor.Todo list is live.`). Flush
             // the pending prose into its own row at the tool boundary; the rest
             // of the run streams into a fresh buffer.
+            appendRow(store, 'assistant', store.run.streamingText, {
+              ...(store.run.thinkingText.trim() ? { reasoning: store.run.thinkingText } : {}),
+            });
+            store.run.streamingText = '';
+            store.run.thinkingText = '';
+            store.version++;
+          }
+          if (event.type === 'retry' && store.run.streamingText.trim()) {
+            // Same boundary rule as D-6: a retried call REGENERATES from
+            // scratch, so keeping the stalled call's partial text in the buffer
+            // would splice two generations into one duplicated row. Commit the
+            // partial as its own row; the retry marker row (bridge) separates
+            // the two generations visually.
             appendRow(store, 'assistant', store.run.streamingText, {
               ...(store.run.thinkingText.trim() ? { reasoning: store.run.thinkingText } : {}),
             });
@@ -977,7 +1053,7 @@ export function TuiAppRoot({
       await runtime.endRun(halted);
       handle.notify();
     },
-    [handle, options.agent, runtime, sessionKey, settleDialog, store]
+    [handle, options.agent, runtime, sessionKey, settleDialog, store, streamTurn]
   );
 
   const drainQueue = useCallback(async (): Promise<void> => {
@@ -1419,6 +1495,41 @@ export function TuiAppRoot({
       }
       if (text === '/usage') {
         printBlock('Usage', [formatUsage(store.usage)]);
+        return;
+      }
+      if (text === '/log') {
+        // The session's full I/O is persisted on disk all along — the
+        // conversation log (every message: user text, assistant text +
+        // thinking, complete tool input/output) and the run-event log (steps,
+        // tool calls, retries, failures). Nobody could find them, so this is
+        // the map.
+        const paths = getMossWorkspacePaths(options.workspaceDir);
+        const conversation = path.join(paths.sessionsDir, `${sessionKey}.jsonl`);
+        const events = path.join(
+          paths.runtimeDir,
+          'events',
+          `${encodeURIComponent(sessionKey)}.jsonl`
+        );
+        const lines: string[] = [
+          `session        ${sessionKey}`,
+          `conversation   ${conversation}${fs.existsSync(conversation) ? '' : '  (after the first turn)'}`,
+          `run events     ${events}${fs.existsSync(events) ? '' : '  (after the first run)'}`,
+          '',
+          `tail -f ${conversation}`,
+        ];
+        try {
+          const tail = fs
+            .readFileSync(conversation, 'utf8')
+            .trim()
+            .split('\n')
+            .slice(-6)
+            .map((raw) => describeConversationLogEntry(raw))
+            .filter((line): line is string => Boolean(line));
+          if (tail.length > 0) lines.push('', ...tail);
+        } catch {
+          // Not created yet — the paths above already say so.
+        }
+        printBlock('Log', lines);
         return;
       }
       if (text === '/clear') {
@@ -2084,6 +2195,7 @@ export function TuiAppRoot({
     queued: queueRef.current.length,
     ...(queueRef.current[0] ? { queuePreview: queueRef.current[0] } : {}),
     ...(store.run.retry ? { retry: store.run.retry } : {}),
+    ...(store.run.lastEventAt !== undefined ? { lastEventAt: store.run.lastEventAt } : {}),
     blocked: Boolean(approval),
   };
   const status: StatusView = {

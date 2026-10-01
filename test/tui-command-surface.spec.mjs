@@ -185,6 +185,7 @@ const BLOCK_TITLE = new Map([
   ['/export', /^Export$/],
   ['/quickstart', /^Quickstart$/],
   ['/usage', /^Usage$/],
+  ['/log', /^Log$/],
   ['/stop', /^Stop$/],
   ['/tasks', /^Tasks \(\d+\)$/],
   ['/history', /^History \(\d+\)$/],

@@ -26,6 +26,11 @@ export interface ToolCompletion {
    * unified-diff body that REPLACES the raw result text in the transcript row.
    */
   diff?: string;
+  /**
+   * Drop the result body entirely: the answer was already shown by the dialog
+   * that produced it (ask_user_question's synthetic wrapper adds nothing).
+   */
+  dropBody?: boolean;
 }
 
 const EXEC_TOOLS = new Set(['exec', 'device_exec', 'docker_exec', 'exec_background']);
@@ -150,11 +155,26 @@ export function summarizeToolCompletion(
 
   if (EXEC_TOOLS.has(toolName)) {
     // Success: the tail carries the conclusion (build OK, N passed) — but only
-    // when the output is long enough that the compact preview hides it.
-    const tail = extractCommandOutputPreview(body, { maxLines: 1, minLines: 4, minChars: 160 });
-    const last = tail.filter((l) => !l.startsWith('…')).at(-1);
+    // when the output is long enough that the compact preview hides it. A bare
+    // `exit=0` line the COMMAND printed (`; echo exit=$?` idioms) is noise, so
+    // the window is widened past it instead of letting it be the conclusion.
+    const tail = extractCommandOutputPreview(body, { maxLines: 4, minLines: 4, minChars: 160 });
+    const candidates = tail.filter(
+      (l) => !l.startsWith('…') && !/^exit[=:]\s*\d+$/i.test(l.trim())
+    );
+    const last = candidates.at(-1);
     if (last) return { summary: last };
     return {};
+  }
+
+  if (toolName === 'ask_user_question') {
+    // The dialog already committed each `answer: …` row; the tool result is a
+    // synthetic "User has answered your questions: …" wrapper that would dump
+    // the same choices a second time as one unreadable line.
+    if (/^User has answered your questions:/.test(body.trim())) {
+      return { summary: 'answered', dropBody: true };
+    }
+    return { summary: firstLine(body, 60) || 'answered' };
   }
 
   // Everything else gets a headline only when the preview cannot show the

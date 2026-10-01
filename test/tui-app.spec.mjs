@@ -31,6 +31,7 @@ import {
 } from '../dist/cli/tui/render-bridge.js';
 import {
   renderHint,
+  renderLive,
   renderRunSummary,
   renderStatusRight,
   renderTranscriptRows,
@@ -298,8 +299,57 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
   // Provider retries land in the live state, and progress clears them.
   applyAgentEvent(store, { type: 'retry', attempt: 2, error: 'rate limited' });
   assert.deepEqual(store.run.retry, { attempt: 2, error: 'rate limited' });
+  assert.match(
+    store.rows.at(-1).text,
+    /↻ provider retry 2 — rate limited/,
+    'a retry leaves a transcript marker so regenerated text reads as a retry'
+  );
   applyAgentEvent(store, { type: 'text_delta', delta: 'ok' });
   assert.equal(store.run.retry, undefined, 'progress clears the retry notice');
+
+  // ask_user_question: the dialog already showed each answer; the synthetic
+  // "User has answered your questions: …" wrapper must not dump them again.
+  applyAgentEvent(store, {
+    type: 'tool_start',
+    toolName: 'ask_user_question',
+    toolCallId: 'q1',
+    input: {},
+  });
+  applyAgentEvent(store, {
+    type: 'tool_end',
+    toolName: 'ask_user_question',
+    toolCallId: 'q1',
+    isError: false,
+    result:
+      'User has answered your questions: "代码放在哪里？"="放进已有的 cpp-demo/". ' +
+      "You can now continue with the user's answers in mind.",
+    durationMs: 8000,
+  });
+  const questionRow = store.rows.at(-1);
+  assert.equal(questionRow.tool?.summary, 'answered');
+  assert.equal(questionRow.text, '', 'the wrapper body is dropped');
+
+  // An exec tail that is only the program's own `exit=0` line is noise: the
+  // summary must reach past it to the real conclusion.
+  const noisyTail = `${Array.from({ length: 30 }, (_, i) => `step ${i}`).join('\n')}\nexit=0`;
+  applyAgentEvent(store, {
+    type: 'tool_start',
+    toolName: 'exec',
+    toolCallId: 'x3',
+    input: { command: './build.sh; echo exit=$?' },
+  });
+  applyAgentEvent(store, {
+    type: 'tool_end',
+    toolName: 'exec',
+    toolCallId: 'x3',
+    result: noisyTail,
+    isError: false,
+  });
+  assert.equal(
+    store.rows.at(-1).tool?.summary,
+    'step 29',
+    'the tail summary skips a bare exit= line'
+  );
 
   // Microcompaction is announced, not silent.
   applyAgentEvent(store, {
@@ -382,6 +432,85 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
     80
   );
   assert.equal(cool.runs, undefined, 'a cool context keeps the plain dim row');
+}
+
+// ─── 2d. Live region: markdown tail, stall flag ─────────────────────────────
+
+{
+  // The streaming tail is projected through the same markdown as committed
+  // answers — a table must not show up as raw `|---|` source.
+  const md = renderLive(
+    {
+      running: true,
+      startedAt: Date.now() - 5000,
+      streaming: 'Results:\n\n| Case | Verdict |\n|---|---|\n| build | pass |',
+      thinking: '',
+      tokensOut: 0,
+      queued: 0,
+    },
+    60
+  );
+  assert.ok(
+    !md.some((l) => l.text.includes('|---|')),
+    'no raw markdown source leaks into the live region'
+  );
+  assert.ok(
+    md.some((l) => l.text.includes('Case') && l.text.includes('Verdict')),
+    'the table content renders live'
+  );
+
+  // A stream that has gone quiet past the hint threshold says so; an active
+  // stream does not.
+  const stalled = renderLive(
+    {
+      running: true,
+      startedAt: Date.now() - 60_000,
+      streaming: '',
+      thinking: '',
+      tokensOut: 0,
+      queued: 0,
+      lastEventAt: Date.now() - 30_000,
+    },
+    80
+  );
+  assert.ok(
+    stalled.some((l) => /stream quiet for \d+s/.test(l.text)),
+    'a quiet stream is flagged'
+  );
+  const fresh = renderLive(
+    {
+      running: true,
+      startedAt: Date.now() - 5000,
+      streaming: '',
+      thinking: '',
+      tokensOut: 0,
+      queued: 0,
+      lastEventAt: Date.now(),
+    },
+    80
+  );
+  assert.ok(!fresh.some((l) => l.text.includes('stream quiet')), 'an active stream is not flagged');
+}
+
+// ─── 2e. The session-event recorder logs retries and failures ───────────────
+
+{
+  const { SessionEventLog } = await import('../dist/core/session/session-event.js');
+  const { recordAgentEvent } = await import('../dist/core/session/session-event-recorder.js');
+  const log = new SessionEventLog('spec-session');
+  recordAgentEvent(log, { type: 'retry', attempt: 3, error: 'rate limited' });
+  recordAgentEvent(log, { type: 'error', error: 'stream stalled' });
+  const events = log.all().map((event) => ({ type: event.type, data: event.data }));
+  assert.deepEqual(
+    events[0],
+    { type: 'step.retry', data: { attempt: 3, error: 'rate limited' } },
+    'a provider retry is a first-class log event (regenerated answers get explained)'
+  );
+  assert.deepEqual(
+    events[1],
+    { type: 'step.failed', data: { message: 'stream stalled' } },
+    'an error keeps its message in the log'
+  );
 }
 
 // ─── 3. Status/hint chrome + transcript window ──────────────────────────────
@@ -640,6 +769,45 @@ async function type(instance, text) {
     assert.ok(
       handle.store.rows.every((row) => row.kind === 'banner' || row.kind === 'summary'),
       'only the banner and the clear note survive'
+    );
+    instance.unmount();
+    await sleep(150);
+  }
+
+  // 4j. A provider retry splits the two generations at a visible boundary:
+  // the stalled call's partial text commits as its own row, the retry marker
+  // sits between them, and the regenerated text never concatenates onto the
+  // partial (which is how duplicated paragraphs used to appear mid-answer).
+  {
+    const retryAgent = {
+      async *streamChat() {
+        yield { type: 'text_delta', delta: 'partial answer that stalled' };
+        yield { type: 'retry', attempt: 1, error: 'stream stalled' };
+        yield { type: 'text_delta', delta: 'regenerated answer' };
+        yield {
+          type: 'done',
+          result: { response: 'regenerated answer', stopReason: 'end_turn' },
+        };
+      },
+    };
+    const { instance, handle } = mount({ agent: retryAgent, workspaceDir: '/tmp/ws' });
+    await type(instance, 'go');
+    const finished = await waitFor(() => handle.store.run.running === false);
+    assert.ok(finished, 'the retried run completes');
+    const rows = handle.store.rows.map((row) => `${row.kind}:${row.text.trim()}`);
+    const partialIdx = rows.findIndex((text) => text === 'assistant:partial answer that stalled');
+    const retryIdx = rows.findIndex((text) =>
+      text.startsWith('summary:↻ provider retry 1 — stream stalled')
+    );
+    const regenIdx = rows.findIndex((text) => text === 'assistant:regenerated answer');
+    assert.ok(partialIdx >= 0, `the partial committed: ${JSON.stringify(rows)}`);
+    assert.ok(
+      retryIdx > partialIdx,
+      `the retry marker separates the generations: ${JSON.stringify(rows)}`
+    );
+    assert.ok(
+      regenIdx > retryIdx,
+      `the regenerated answer is its own row, never spliced: ${JSON.stringify(rows)}`
     );
     instance.unmount();
     await sleep(150);
