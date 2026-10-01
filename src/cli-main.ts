@@ -440,9 +440,21 @@ async function main() {
   // `--continue` on a bare `moss` auto-resumes the most recent session (parity
   // with `claude --continue`): treat it as a resume+useLast for session resolution.
   const continueLatest = parsedArgs.continueLast && parsedArgs.command === 'chat';
+  // `moss resume` with no key/--last on a TTY opens the IN-TUI session picker
+  // instead of the pre-TUI readline prompt: resolve a fresh session here and
+  // let the shell's overlay do the choosing (A12.88).
+  const interactiveTty =
+    Boolean(process.stdout.isTTY) && process.env.MOSS_NO_TUI !== '1' && !parsedArgs.print;
+  const resumeInteractive =
+    parsedArgs.command === 'resume' &&
+    parsedArgs.sessionKey === undefined &&
+    !parsedArgs.continueLast &&
+    interactiveTty;
   const sessionCommand: 'chat' | 'resume' | 'fork' =
     parsedArgs.command === 'resume' || parsedArgs.command === 'fork'
-      ? parsedArgs.command
+      ? resumeInteractive
+        ? 'chat'
+        : parsedArgs.command
       : continueLatest
         ? 'resume'
         : 'chat';
@@ -1063,6 +1075,7 @@ async function main() {
           branch: (await getGitBranch(workspace)) ?? undefined,
         },
         ...(loadedSkills.length > 0 ? { skills: loadedSkills } : {}),
+        ...(resumeInteractive ? { resumePicker: true } : {}),
         ...(replayRows ? { replayRows } : {}),
         // The checkpoint is what `/rewind` restores from; without this call the
         // store records nothing and every rewind silently did nothing (D1).

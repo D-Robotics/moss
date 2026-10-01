@@ -1178,6 +1178,75 @@ async function type(instance, text) {
     assert.equal(clipped.runs, undefined, 'clipped lines drop runs instead of lying');
     assert.equal(highlightCodeLine('plain words', 'markdown'), undefined, 'no lang, no runs');
   }
+
+  // 4v. `moss resume` boots into the in-TUI session picker: rows carry title
+  // and relative age, Enter resumes IN PLACE (replay + the next run goes to
+  // the picked session's key), Esc keeps a fresh session (A12.88).
+  {
+    calls.length = 0;
+    const agent = {
+      config: {
+        model: 'm-test',
+        sessionStore: {
+          loadMessages: async (key) =>
+            key === 'cli-old'
+              ? [
+                  { role: 'user', content: 'old question' },
+                  { role: 'assistant', content: [{ type: 'text', text: 'old answer' }] },
+                ]
+              : [],
+        },
+      },
+      asyncTasks: { list: () => [] },
+      async *streamChat(sessionKey, message) {
+        calls.push({ sessionKey, message });
+        yield {
+          type: 'done',
+          result: { response: `ok ${message.slice(0, 6)}`, stopReason: 'end_turn' },
+        };
+      },
+    };
+    const { instance, handle } = mount({
+      agent,
+      workspaceDir: '/tmp/ws',
+      resumePicker: true,
+      listSessions: async () => [
+        {
+          key: 'cli-old',
+          title: 'the old session',
+          messageCount: 4,
+          updatedAt: Date.now() - 300_000,
+        },
+        {
+          key: 'cli-other',
+          title: 'other work',
+          messageCount: 2,
+          updatedAt: Date.now() - 86_400_000,
+        },
+      ],
+    });
+    const opened = await waitFor(
+      () =>
+        instance.lastFrame().includes('Resume session') &&
+        instance.lastFrame().includes('the old session')
+    );
+    assert.ok(opened, 'the picker opens at boot with real rows');
+    assert.ok(instance.lastFrame().includes('5m'), 'relative age shows');
+    instance.stdin.write('\r'); // Enter on the newest session
+    const resumed = await waitFor(() =>
+      handle.store.rows.some((r) => r.text.includes('resumed cli-old'))
+    );
+    assert.ok(resumed, 'the resume is committed');
+    assert.ok(
+      handle.store.rows.some((r) => r.text.includes('old question')),
+      'the picked session replays into the transcript'
+    );
+    await type(instance, 'next message');
+    await waitFor(() => calls.length === 1);
+    assert.equal(calls[0].sessionKey, 'cli-old', 'the run goes to the picked session');
+    instance.unmount();
+    await sleep(150);
+  }
 }
 
 assert.equal(typeof runTuiApp, 'function', 'the TTY entry point is exported');

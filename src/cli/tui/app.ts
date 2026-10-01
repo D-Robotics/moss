@@ -139,6 +139,7 @@ import {
   type MentionEntry,
 } from './mentions.js';
 import { filterHistory, renderHistorySearch } from './history-search.js';
+import { buildResumeReplay } from '../resume-replay.js';
 import { getPackageVersion } from '../package-info.js';
 import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
 
@@ -199,6 +200,8 @@ export interface TuiAppOptions {
    * model already has the skill index and the readonly skill tool.
    */
   skills?: TuiSkillCommand[];
+  /** Open the session resume picker at boot (`moss resume` on a TTY). */
+  resumePicker?: boolean;
   /** /sessions panel provider (host-side session store). */
   listSessions?: () => Promise<TuiSessionSummary[]>;
   /** /mcp panel data (host-side registry statuses). */
@@ -513,6 +516,65 @@ export function commandBlockTitle(head: string): string {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
+/** `5m` / `2h` / `3d` — a session's age in one glance. */
+export function relativeAge(updatedAt: number | undefined, now = Date.now()): string {
+  if (updatedAt === undefined) return '';
+  const s = Math.max(0, Math.floor((now - updatedAt) / 1000));
+  if (s < 60) return 'now';
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86_400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86_400)}d`;
+}
+
+/** Sessions matching the picker's query (title or key contains it). */
+export function filterPickerSessions(
+  sessions: readonly TuiSessionSummary[],
+  query: string
+): TuiSessionSummary[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...sessions];
+  return sessions.filter(
+    (s) => s.key.toLowerCase().includes(q) || (s.title ?? '').toLowerCase().includes(q)
+  );
+}
+
+/** The boot resume-picker overlay: rows of `title · age · N messages`. */
+export function renderSessionPicker(
+  query: string,
+  matches: readonly TuiSessionSummary[],
+  selected: number,
+  width: number,
+  maxRows = 8
+): TuiLine[] {
+  const out: TuiLine[] = [
+    line(clip(`Resume session  ⌕ ${query}▌`, width), { color: 'cyan', bold: true }),
+  ];
+  const sel = Math.max(0, Math.min(selected, matches.length - 1));
+  matches.slice(0, maxRows).forEach((s, index) => {
+    const title = s.title?.trim() || s.key;
+    const meta = [
+      relativeAge(s.updatedAt),
+      s.messageCount !== undefined ? `${s.messageCount} messages` : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    out.push(
+      line(
+        clip(`${index === sel ? '❯ ' : '  '}${title}${meta ? `  (${meta})` : ''}`, width),
+        index === sel ? { bold: true } : { dim: true }
+      )
+    );
+  });
+  if (matches.length > maxRows) {
+    out.push(line(clip(`  … ${matches.length - maxRows} more`, width), { dim: true }));
+  }
+  if (matches.length === 0) {
+    out.push(line(clip('  no matching session', width), { dim: true }));
+  }
+  out.push(line(clip('  ↑/↓ to pick · type to filter · Esc starts fresh', width), { dim: true }));
+  return out;
+}
+
 /** One `HH:MM:SS role: snippet…` line for a conversation-log JSONL entry. */
 export function describeConversationLogEntry(raw: string): string | undefined {
   let entry: {
@@ -707,6 +769,11 @@ export function TuiAppRoot({
   const [historySearch, setHistorySearch] = useState<{ query: string; cursor: number } | undefined>(
     undefined
   );
+  /** Boot session picker (`moss resume` on a TTY): query + cursor overlay. */
+  const [sessionPicker, setSessionPicker] = useState<{ query: string; cursor: number } | undefined>(
+    options.resumePicker ? { query: '', cursor: 0 } : undefined
+  );
+  const [pickerSessions, setPickerSessions] = useState<TuiSessionSummary[]>([]);
   const [paletteCursor, setPaletteCursor] = useState(0);
   const [paletteDismissed, setPaletteDismissed] = useState(false);
   const [mentionCursor, setMentionCursor] = useState(0);
@@ -737,7 +804,13 @@ export function TuiAppRoot({
    */
   const [clearRevision, setClearRevision] = useState(0);
   const pasteRef = useRef(createPasteCapture());
-  const sessionKey = options.sessionKey ?? 'tui';
+  /**
+   * ACTIVE session key — state, not a const, because the resume picker can
+   * switch conversations in place (replay + subsequent turns go to the
+   * picked session's log).
+   */
+  const [activeSession, setActiveSession] = useState(options.sessionKey ?? 'tui');
+  const sessionKey = activeSession;
   const { store } = handle;
   /**
    * D-1: the width must come from a REACT-REACTIVE source. `stdout.columns` read
@@ -974,8 +1047,8 @@ export function TuiAppRoot({
     // Crash/quit recovery: history survives per-message, but a bare `moss`
     // used to start blank with no path back. One hint row names the newest
     // session and the flag that resumes it (only when this boot is fresh —
-    // a resumed boot is already replaying).
-    if (!options.replayRows?.length) {
+    // a resumed boot is already replaying, and the picker replaces the hint).
+    if (!options.replayRows?.length && !options.resumePicker) {
       void (async () => {
         try {
           const sessions = (await options.listSessions?.()) ?? [];
@@ -992,6 +1065,17 @@ export function TuiAppRoot({
         } catch {
           // Session listing must never break boot.
         }
+      })();
+    }
+    if (options.resumePicker) {
+      // `moss resume` on a TTY: the picker overlay opens with real sessions.
+      void (async () => {
+        try {
+          setPickerSessions((await options.listSessions?.()) ?? []);
+        } catch {
+          setPickerSessions([]);
+        }
+        handle.notify();
       })();
     }
     for (const row of options.replayRows ?? []) appendRow(store, row.kind, row.text);
@@ -2115,6 +2199,78 @@ export function TuiAppRoot({
       }
     }
 
+    if (sessionPicker) {
+      // The boot resume picker owns the keyboard: typing filters by title or
+      // key, ↑↓ move, Enter RESUMES the session in place (replay + switch),
+      // Esc keeps the fresh session.
+      const matches = filterPickerSessions(pickerSessions, sessionPicker.query);
+      if (key.escape) {
+        setSessionPicker(undefined);
+        setStatusLine('fresh session — `moss resume` reopens the picker');
+        return;
+      }
+      if (key.upArrow || key.downArrow) {
+        setSessionPicker((current) =>
+          current
+            ? {
+                ...current,
+                cursor: movePaletteSelection(current.cursor, matches.length, key.upArrow ? -1 : 1),
+              }
+            : current
+        );
+        return;
+      }
+      if (key.return) {
+        const pick = matches[sessionPicker.cursor];
+        setSessionPicker(undefined);
+        if (pick) {
+          void (async () => {
+            try {
+              const sessionStore = (
+                options.agent.config as {
+                  sessionStore?: { loadMessages: (key: string) => Promise<unknown[]> };
+                }
+              ).sessionStore;
+              const messages = sessionStore ? await sessionStore.loadMessages(pick.key) : [];
+              const replay = buildResumeReplay(messages as Parameters<typeof buildResumeReplay>[0]);
+              for (const item of replay.items) appendRow(store, item.kind, item.text);
+              appendRow(
+                store,
+                'result',
+                `resumed ${pick.key} — replayed ${replay.items.length} rows`
+              );
+              setActiveSession(pick.key);
+            } catch (err) {
+              appendRow(store, 'error', `could not resume ${pick.key}: ${errorMessage(err)}`);
+            }
+            handle.notify();
+          })();
+        }
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setSessionPicker((current) =>
+          current ? { ...current, query: current.query.slice(0, -1), cursor: 0 } : current
+        );
+        return;
+      }
+      if (
+        typeof chunk === 'string' &&
+        chunk &&
+        !key.ctrl &&
+        !key.meta &&
+        !key.tab &&
+        !chunk.startsWith('\x1b') &&
+        !/[\r\n]/.test(chunk)
+      ) {
+        setSessionPicker((current) =>
+          current ? { ...current, query: current.query + chunk, cursor: 0 } : current
+        );
+        return;
+      }
+      return;
+    }
+
     if (historySearch) {
       // The Ctrl+R overlay owns the keyboard: typing filters, ↑↓ move, Enter
       // STAGES the match into the composer (using ≠ sending), Esc cancels.
@@ -2543,6 +2699,17 @@ export function TuiAppRoot({
         selected: Math.min(historySearch.cursor, Math.max(0, historySearchMatches.length - 1)),
       })
     : [];
+  const sessionPickerMatches = sessionPicker
+    ? filterPickerSessions(pickerSessions, sessionPicker.query)
+    : [];
+  const sessionPickerOverlay = sessionPicker
+    ? renderSessionPicker(
+        sessionPicker.query,
+        sessionPickerMatches,
+        Math.min(sessionPicker.cursor, Math.max(0, sessionPickerMatches.length - 1)),
+        columns
+      )
+    : [];
   // Context-window high-water mark: the status row paints the percentage, and
   // past the warn line a full row says what happens next (auto-compact) and
   // what the user can do now (/compact).
@@ -2576,6 +2743,7 @@ export function TuiAppRoot({
         ]
       : []),
     ...palette,
+    ...sessionPickerOverlay,
     ...historySearchOverlay,
     ...mentions,
     renderStatusRight(status, columns),
