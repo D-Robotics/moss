@@ -906,6 +906,8 @@ export interface StatusView {
   shellMode?: boolean;
   /** ctrl+o detailed-transcript state — the chrome must not hide it (A9.72). */
   verbose?: boolean;
+  /** A stashed draft exists (Ctrl+S); composes with other badges (A2.24). */
+  stashed?: boolean;
 }
 
 /** Context fill at/above which the status row turns the percentage yellow. */
@@ -918,6 +920,7 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
   if (view.blocked) parts.push('● waiting for you');
   else if (view.running) parts.push('● running');
   if (view.verbose) parts.push('verbose');
+  if (view.stashed) parts.push('› stashed');
   if (view.model) parts.push(view.model);
   let ctxPart: string | undefined;
   if (view.contextUsed !== undefined && view.contextTotal) {

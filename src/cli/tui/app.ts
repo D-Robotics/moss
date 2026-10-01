@@ -117,6 +117,7 @@ import {
   HELP_COMMANDS,
   HELP_KEYS,
   HELP_PREFIXES,
+  SHELL_COMMANDS,
   SHELL_COMMAND_NAMES,
   SHELL_COMMAND_ROWS,
   type CtrlAction,
@@ -333,12 +334,14 @@ export function inkTextStyle(style: {
   color?: TuiColor;
   bold?: boolean;
   italic?: boolean;
+  underline?: boolean;
   dim?: boolean;
 }): Record<string, unknown> {
   return {
     ...(style.color ? { color: style.color } : {}),
     ...(style.bold ? { bold: true } : {}),
     ...(style.italic ? { italic: true } : {}),
+    ...(style.underline ? { underline: true } : {}),
     ...(style.dim ? { dimColor: true } : {}),
   };
 }
@@ -693,6 +696,8 @@ export function TuiAppRoot({
   void queueRevision;
   /** Kill ring: the text the last Ctrl+U/K/W removed, pasted back by Ctrl+Y. */
   const killRef = useRef<string>('');
+  /** Ctrl+S stash: a parked draft, swapped back with a second Ctrl+S (A2.24). */
+  const stashRef = useRef<string | undefined>(undefined);
   /** `Esc again to clear` arming (see ESC_CLEAR_MS); the composer survives one Esc. */
   const escClearTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [escClearArmed, setEscClearArmed] = useState(false);
@@ -1619,7 +1624,9 @@ export function TuiAppRoot({
           ...HELP_PREFIXES.map(([prefix, what]) => `  ${prefix.padEnd(3)} ${what}`),
           '',
           'commands',
-          ...HELP_COMMANDS.map((command) => `  ${command}`),
+          // A13.99: usage + description on one line, straight from the same
+          // table the `/` palette ranks (one source of truth).
+          ...SHELL_COMMANDS.map((entry) => `  ${entry.usage.padEnd(24)} ${entry.description}`),
         ]);
         return;
       }
@@ -2240,6 +2247,29 @@ export function TuiAppRoot({
         }
         return;
       }
+      if (letter === 's') {
+        // A2.24: stash the prompt when something urgent arrives; a second
+        // Ctrl+S SWAPS — the new draft goes into the stash and the parked
+        // one comes back (neither is ever lost).
+        if (input.length > 0) {
+          const restore = stashRef.current;
+          stashRef.current = input;
+          setInput(restore ?? '');
+          setStatusLine(
+            restore !== undefined
+              ? 'swapped — Ctrl+S again to swap back'
+              : 'prompt stashed — Ctrl+S brings it back'
+          );
+        } else if (stashRef.current !== undefined) {
+          const stashed = stashRef.current;
+          stashRef.current = undefined;
+          setInput(stashed);
+          setStatusLine(undefined);
+        } else {
+          setStatusLine('nothing to stash — the composer is empty');
+        }
+        return;
+      }
       if (letter === 'w' || letter === 'u' || letter === 'k') {
         const unit = letter === 'u' ? 'line-start' : letter === 'k' ? 'line-end' : 'word-backward';
         const { next, killed } = composerKill(composer, unit);
@@ -2322,8 +2352,13 @@ export function TuiAppRoot({
       if (disposition.completed) {
         const staged = pasteRef.current.pending[0] ?? '';
         setPastePreview(staged);
+        // A multi-hundred-KB paste goes to the model verbatim — the staging
+        // line must say so out loud before Enter commits it.
+        const size = staged.length;
         setInput(
-          `[paste: ${staged.split('\n').length} lines — Enter sends as one message, Esc discards]`
+          size > 100_000
+            ? `[paste: ${staged.split('\n').length} lines · LARGE ${Math.round(size / 1000)}k chars — Enter sends it all; @-mention a file instead to send a path]`
+            : `[paste: ${staged.split('\n').length} lines — Enter sends as one message, Esc discards]`
         );
         handle.notify();
       }
@@ -2365,6 +2400,7 @@ export function TuiAppRoot({
     // A7: the policy layer's live mode is part of the chrome, always.
     mode: interactionMode,
     verbose,
+    ...(stashRef.current !== undefined ? { stashed: true } : {}),
     shellMode,
   };
   const editor = renderComposerEditor(composer, {

@@ -262,7 +262,9 @@ export function renderMarkdown(
     if (heading) {
       flushParagraph();
       const spans = parseInlineMarkdown((heading[2] ?? '').trim());
-      for (const runs of wrapRuns(spans, body)) out.push(markdownLine(runs, { bold: true }));
+      // A10.75: headings read bold + italic + underlined, like the reference.
+      for (const runs of wrapRuns(spans, body))
+        out.push(markdownLine(runs, { bold: true, italic: true, underline: true }));
       index += 1;
       continue;
     }

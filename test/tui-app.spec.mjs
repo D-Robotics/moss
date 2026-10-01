@@ -1019,6 +1019,45 @@ async function type(instance, text) {
     instance.unmount();
     await sleep(150);
   }
+
+  // 4q. Ctrl+S stashes the draft; a second Ctrl+S swaps it back (A2.24).
+  {
+    const { instance } = mount({ agent: createMockAgent(), workspaceDir: '/tmp/ws' });
+    for (const ch of 'urgent goal draft') instance.stdin.write(ch);
+    await sleep(60);
+    instance.stdin.write('\x13'); // Ctrl+S → stash
+    await sleep(60);
+    assert.ok(instance.lastFrame().includes('› stashed'), 'the badge appears');
+    assert.ok(
+      !instance
+        .lastFrame()
+        .split('\n')
+        .some((row) => row.startsWith('❯ urgent goal draft')),
+      'the composer is free'
+    );
+    instance.stdin.write('quick question');
+    await sleep(60);
+    instance.stdin.write('\x13'); // Ctrl+S again → stash the new draft, restore the old
+    await sleep(60);
+    assert.ok(
+      instance.lastFrame().includes('❯ urgent goal draft'),
+      'Ctrl+S swaps back to the parked draft'
+    );
+    instance.unmount();
+    await sleep(150);
+  }
+
+  // 4r. Markdown headings render bold + italic + underlined (A10.75).
+  {
+    const { renderMarkdown } = await import('../dist/cli/tui/markdown.js');
+    const heading = renderMarkdown('## Ship it', 40).find((l) => l.text.includes('Ship it'));
+    assert.ok(heading, 'the heading renders');
+    assert.equal(
+      heading.bold && heading.italic && heading.underline,
+      true,
+      'headings are bold + italic + underlined'
+    );
+  }
 }
 
 assert.equal(typeof runTuiApp, 'function', 'the TTY entry point is exported');

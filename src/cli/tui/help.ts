@@ -47,6 +47,7 @@ export const HELP_KEYS: ReadonlyArray<readonly [string, string]> = [
   ['↑ ↓', 'walk back through what you typed'],
   ['Ctrl+A / Ctrl+E', 'caret to line start / end'],
   ['Ctrl+U / Ctrl+Y', 'delete to line start · paste deleted text'],
+  ['Ctrl+S', 'stash the draft · press again to bring it back'],
   ['Ctrl+C', 'interrupt the run · press again to quit'],
   ['Ctrl+D', 'quit'],
   [chordRow(['tasks', 'history', 'evidence']), 'print tasks · history · evidence'],

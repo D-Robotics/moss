@@ -19,6 +19,7 @@ export interface TuiLineRun {
   color?: TuiColor;
   bold?: boolean;
   italic?: boolean;
+  underline?: boolean;
 }
 
 export interface TuiLine {
@@ -28,6 +29,8 @@ export interface TuiLine {
   dim?: boolean;
   /** Italic emphasis (markdown); the shell maps it to ink's `<Text italic>`. */
   italic?: boolean;
+  /** Headings (A10.75): bold + italic + underlined, like the reference. */
+  underline?: boolean;
   /**
    * Inline runs in reading order. Invariant:
    * `runs.map((run) => run.text).join('') === text`. When present the runs are
