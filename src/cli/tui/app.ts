@@ -35,7 +35,7 @@ import {
   beginRun,
   createTuiStore,
   endRun,
-  formatUsage,
+  usageBlock,
   type TranscriptRow,
   type TuiUsageState,
 } from './render-bridge.js';
@@ -1638,7 +1638,7 @@ export function TuiAppRoot({
         return;
       }
       if (text === '/usage') {
-        printBlock('Usage', [formatUsage(store.usage)]);
+        printBlock('Usage', usageBlock(store.usage));
         return;
       }
       if (text === '/log') {

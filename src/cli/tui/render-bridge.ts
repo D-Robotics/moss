@@ -96,6 +96,12 @@ export interface TuiUsageState {
   cacheReadTokens: number;
   /** Compactions seen this session (the transcript announces them). */
   compactions: number;
+  /** Completed runs (turns) this session. */
+  runs: number;
+  /** Sum of provider-reported generation times (actual API work). */
+  apiMs: number;
+  /** time-to-first-token samples (ms) for the latency average. */
+  ttftSamples: number[];
 }
 
 export interface TuiTodo {
@@ -127,6 +133,9 @@ export function createTuiStore(): TuiStore {
       contextTotal: 0,
       cacheReadTokens: 0,
       compactions: 0,
+      runs: 0,
+      apiMs: 0,
+      ttftSamples: [],
     },
     nextId: 1,
     version: 0,
@@ -280,6 +289,12 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       store.usage.runTokensIn += Number(event.inputTokens ?? 0);
       store.usage.runTokensOut += Number(event.outputTokens ?? 0);
       store.usage.cacheReadTokens += Number(event.cacheReadTokens ?? 0);
+      if (event.generationMs !== undefined && event.generationMs > 0) {
+        store.usage.apiMs += event.generationMs;
+      }
+      if (event.ttftMs !== undefined && event.ttftMs > 0) {
+        store.usage.ttftSamples.push(event.ttftMs);
+      }
       if (event.contextTokens && event.contextTokens > 0) {
         store.usage.contextTotal = event.contextTokens;
         store.usage.contextUsed =
@@ -360,6 +375,51 @@ export function formatUsage(usage: TuiUsageState): string {
   )} session${cache}`;
 }
 
+function fmtDuration(ms: number): string {
+  if (ms >= 60_000) return `${Math.round(ms / 6000) / 10}min`;
+  if (ms >= 1000) return `${Math.round(ms / 100) / 10}s`;
+  return `${Math.round(ms)}ms`;
+}
+
+/**
+ * The `/usage` block (A11.83): token split with cache hits, run count,
+ * provider-reported API time and first-token latency, compactions — and a
+ * cost line ONLY when the user configured pricing (USD per 1M tokens via
+ * MOSS_PRICE_IN / MOSS_PRICE_OUT). Moss deliberately does not guess model
+ * prices: a wrong number is worse than none.
+ */
+export function usageBlock(usage: TuiUsageState, env: NodeJS.ProcessEnv = process.env): string[] {
+  const fmt = (n: number) => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n));
+  const lines: string[] = [
+    `tokens      ${fmt(usage.tokensIn + usage.tokensOut)} session · ↑ ${fmt(usage.tokensIn)} in · ↓ ${fmt(usage.tokensOut)} out` +
+      (usage.cacheReadTokens > 0 ? ` · ${fmt(usage.cacheReadTokens)} cache hits` : ''),
+  ];
+  const ttftAvg =
+    usage.ttftSamples.length > 0
+      ? usage.ttftSamples.reduce((a, b) => a + b, 0) / usage.ttftSamples.length
+      : undefined;
+  lines.push(
+    `runs        ${usage.runs} · api ${fmtDuration(usage.apiMs)}` +
+      (ttftAvg !== undefined ? ` · avg first-token ${fmtDuration(ttftAvg)}` : '')
+  );
+  if (usage.compactions > 0) lines.push(`compactions ${usage.compactions}`);
+  const priceIn = Number(env.MOSS_PRICE_IN);
+  const priceOut = Number(env.MOSS_PRICE_OUT);
+  if (Number.isFinite(priceIn) && priceIn > 0 && Number.isFinite(priceOut) && priceOut > 0) {
+    const cost =
+      ((usage.tokensIn + usage.cacheReadTokens) / 1e6) * priceIn +
+      (usage.tokensOut / 1e6) * priceOut;
+    lines.push(
+      `cost        ~$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)} (MOSS_PRICE_IN/OUT)`
+    );
+  } else {
+    lines.push(
+      'cost        unknown — set MOSS_PRICE_IN / MOSS_PRICE_OUT (USD per 1M tokens) to enable'
+    );
+  }
+  return lines;
+}
+
 export function endRun(store: TuiStore, halted: boolean): void {
   if (store.run.streamingText.trim()) {
     appendRow(store, 'assistant', store.run.streamingText, {
@@ -373,6 +433,7 @@ export function endRun(store: TuiStore, halted: boolean): void {
     toolInputs: new Map(),
     halted: halted || undefined,
   };
+  store.usage.runs += 1;
   store.version++;
 }
 

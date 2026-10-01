@@ -27,6 +27,7 @@ import {
   createTuiStore,
   endRun,
   formatUsage,
+  usageBlock,
   visibleRows,
 } from '../dist/cli/tui/render-bridge.js';
 import {
@@ -393,9 +394,29 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
     inputTokens: 100,
     outputTokens: 10,
     cacheReadTokens: 4000,
+    generationMs: 2500,
+    ttftMs: 800,
   });
   assert.equal(store.usage.cacheReadTokens, 4000);
   assert.match(formatUsage(store.usage), /4k prompt-cache hits/, 'cache hits are visible');
+
+  // The /usage block accounts for time, runs and (configured) cost.
+  endRun(store, false);
+  endRun(store, false);
+  const block = usageBlock(store.usage, { MOSS_PRICE_IN: '1', MOSS_PRICE_OUT: '2' });
+  assert.match(block[0], /tokens\s+/, 'the token split leads');
+  assert.match(
+    block[1],
+    /runs\s+2 · api 2.5s · avg first-token 800ms/,
+    'runs, api time and first-token latency are accounted'
+  );
+  assert.match(block[2], /\$0\.0041/, 'cost is computed from the configured per-1M prices');
+  const unpriced = usageBlock(store.usage, {});
+  assert.match(
+    unpriced[2],
+    /unknown — set MOSS_PRICE_IN/,
+    'without pricing the line says unknown instead of guessing'
+  );
   endRun(store, false);
 }
 
