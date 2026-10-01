@@ -53,6 +53,7 @@ import { McpToolRegistry, buildMcpPromptLayer } from './core/mcp/registry.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import { loadSkills, buildSkillsPromptLayer } from './core/skills/skill-registry.js';
+import { buildAgentsMdLayer } from './cli/project-instructions.js';
 import { createSkillTool } from './tools/skill-tool.js';
 import {
   runRegistryCommand,
@@ -544,6 +545,10 @@ async function main() {
   const extraPromptLayers: string[] = [];
   const envLayer = await buildEnvironmentContextLayer(workspace);
   if (envLayer) extraPromptLayers.push(envLayer);
+  // Project instructions: the workspace AGENTS.md, loaded once so the
+  // "auto-loaded from workspace root" claim in help/onboarding is real.
+  const agentsLayer = buildAgentsMdLayer(workspace);
+  if (agentsLayer) extraPromptLayers.push(agentsLayer);
 
   const configuredHooks = createConfiguredHookCallbacks(loadedConfig.config.hooks, {
     workspaceDir: workspace,
