@@ -175,6 +175,26 @@ const contextCommand: CommandSpec = {
       };
       const pct = Math.min(100, Math.round((usage.used / usage.total) * 100));
       const usagePrefix = usage.source === 'estimated' ? '~' : '';
+      const fmt = (n: number) => n.toLocaleString();
+      // The fill bar (A11.81): the share of the window is a shape, not just a
+      // number — one glance answers "how much headroom is left".
+      const barWidth = 24;
+      const filled = Math.min(
+        barWidth,
+        pct > 0 ? Math.max(1, Math.round((pct / 100) * barWidth)) : 0
+      );
+      const bar = `${'█'.repeat(filled)}${'░'.repeat(barWidth - filled)}`;
+      // Per-category breakdown with the numbers moss can compute honestly:
+      // the system prompt (built and estimated right here), saved messages,
+      // the free remainder, and the compaction reserve (A11.82's buffer).
+      let systemPromptTokens: number | undefined;
+      try {
+        systemPromptTokens = estimateTokensForText(ctx.agent.buildSystemPrompt({}) as string);
+      } catch {
+        systemPromptTokens = undefined;
+      }
+      const reserveTokens = ctx.agent.config.compactionSettings?.reserveTokens ?? 20_000;
+      const freeTokens = Math.max(0, usage.total - usage.used);
       const detailLines =
         usage.source === 'provider'
           ? [
@@ -207,8 +227,15 @@ const contextCommand: CommandSpec = {
         'system',
         [
           'Context window',
-          `  messages   ${msgs.length}`,
-          `  usage      ${usagePrefix}${usage.used.toLocaleString()} / ${usage.total.toLocaleString()} tokens (${pct}%)`,
+          `  ${bar} ${pct}%`,
+          `  usage      ${usagePrefix}${fmt(usage.used)} / ${fmt(usage.total)} tokens`,
+          '  by category',
+          ...(systemPromptTokens !== undefined
+            ? [`    system prompt  ~${fmt(systemPromptTokens)}`]
+            : []),
+          `    messages       ~${fmt(tokens)} (${msgs.length} saved)`,
+          `    free           ${fmt(freeTokens)}`,
+          `    compact keep   ${fmt(reserveTokens)} (auto-compact reserve)`,
           ...detailLines,
           ...compactionLines,
           `  model      ${ctx.agent.config.model ?? ''}`,
