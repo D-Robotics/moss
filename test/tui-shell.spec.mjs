@@ -214,14 +214,43 @@ for (const width of [40, 80, 120]) {
   assert.ok(joined.includes('camera_fps = 31.5'), 'the evidence value is visible inline');
   assert.ok(!joined.includes('now 31.5 pass'), 'rows do not bleed into each other');
 
-  // Boot banner projection is the same three rows the shell commits.
+  // Boot banner projection is two rows: version+cwd, then model·device.
   const banner = renderBanner(
     { version: '0.22.0', model: 'model-x', device: 'rdk-x3', cwd: '/workspace/demo' },
     width
   );
   assertFits(banner, width, `banner@${width}`);
-  assert.equal(banner.length, 3, 'the banner is name / model·device / cwd');
+  assert.equal(banner.length, 2, 'the banner is version+cwd / model·device');
   assert.ok(banner[0].text.includes('moss v0.22.0'), 'banner names the build');
+  assert.ok(banner[0].text.includes('/workspace/demo'), 'banner folds the workspace in');
+  assert.ok(banner[1].text.includes('model-x · rdk-x3'), 'banner keeps model · device');
+
+  // Read-only observations fold to the headline by default; ctrl+o expands;
+  // errors never fold.
+  {
+    const row = {
+      kind: 'result',
+      text: 'alpha\nbeta\ngamma\ndelta',
+      tool: { name: 'read_file', summary: 'Read 4 lines', durationMs: 12 },
+    };
+    const compact = renderTranscriptRow(row, 80, false)
+      .map((l) => l.text)
+      .filter((t) => t.trim());
+    assert.ok(compact.length === 2, `read-only result folds to headline + pointer`);
+    assert.ok(compact[1].includes('4 lines · ctrl+o'), 'the pointer names the expand key');
+    const verbose = renderTranscriptRow(row, 80, true)
+      .map((l) => l.text)
+      .filter((t) => t.trim());
+    assert.equal(verbose.length, 5, 'verbose expands the full body');
+    const failed = renderTranscriptRow(
+      { ...row, tool: { name: 'read_file', summary: 'failed', isError: true } },
+      80,
+      false
+    )
+      .map((l) => l.text)
+      .filter((t) => t.trim());
+    assert.equal(failed.length, 5, 'errors keep their body unfurled');
+  }
 
   // Composer + rules + hint: the bottom chrome contract.
   const placeholder = renderComposer('', width, true);

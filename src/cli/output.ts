@@ -5,6 +5,7 @@ import { redactSensitiveData } from '../safety/redact.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { ui } from './ui.js';
 import { diffLinesForApproval } from './approval-detail.js';
+import { DIFF_PREVIEW_LINES } from './tui/transcript.js';
 import { summarizeVerificationResult } from '../tools/harness-tools.js';
 import {
   extractCommandFailurePreview,
@@ -176,9 +177,9 @@ function extractExecExitCode(toolName: string, result: string | undefined): numb
 function formatErrorResult(result: unknown): string {
   if (!result) return '';
   if (typeof result === 'string') {
-    if (result.includes('ENOENT')) return '文件不存在';
-    if (result.includes('EACCES')) return '权限不足';
-    if (result.includes('EISDIR')) return '目标是一个目录';
+    if (result.includes('ENOENT')) return 'file not found';
+    if (result.includes('EACCES')) return 'permission denied';
+    if (result.includes('EISDIR')) return 'target is a directory';
     const cleaned = result.replace(/Execution error:\s*/i, '').trim();
     return cleaned.length > 200 ? `${cleaned.slice(0, 197)}...` : cleaned;
   }
@@ -707,7 +708,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
             typeof toolInput === 'object'
           ) {
             const ti = toolInput as Record<string, unknown>;
-            const previewCap = isVerbose ? MAX_DETAIL_LINES : 24;
+            const previewCap = isVerbose ? MAX_DETAIL_LINES : DIFF_PREVIEW_LINES;
             if (
               event.toolName === 'edit_file' &&
               typeof ti.old_string === 'string' &&

@@ -86,6 +86,34 @@ export const RESULT_PREVIEW_LINES = 3;
 /** Diff blocks get a larger window: a hunk with its context is one thought. */
 export const DIFF_PREVIEW_LINES = 14;
 
+/**
+ * Read-only observation tools whose results fold to the headline by default
+ * (the summary already says what came back: "Read 14 lines · 0.3s"). ctrl+o
+ * (verbose) expands them; errors never fold.
+ */
+const READONLY_PREVIEW_TOOLS = new Set<string>([
+  'read_file',
+  'list_directory',
+  'search_code',
+  'search_files',
+  'repo_outline',
+  'code_diagnostics',
+  'web_fetch',
+  'web_search',
+  'skill',
+  'subagent_status',
+  'exec_logs',
+  'device_info',
+  'device_file_list',
+  'device_file_read',
+  'device_processes',
+  'device_resources',
+  'device_temperature',
+  'device_network',
+  'device_cameras',
+  'device_robotics_status',
+]);
+
 /** Verbs rotate slowly so a long run still looks alive without being cute. */
 const VERBS = ['Working', 'Thinking', 'Probing', 'Checking', 'Wiring', 'Verifying'];
 
@@ -489,6 +517,20 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
       }
       // Compact is a preview (first few lines + a pointer at ctrl+o); verbose
       // is the whole output — the reference's collapsing behaviour (§9).
+      // Read-only observations fold to the headline: the summary already says
+      // what came back, so the preview lines are pure scrollback noise.
+      const foldsQuiet =
+        !verbose &&
+        !row.tool?.isError &&
+        row.tool?.name !== undefined &&
+        READONLY_PREVIEW_TOOLS.has(row.tool.name);
+      if (foldsQuiet && source.length > 0) {
+        out.push(
+          ...headline,
+          line(clip(`${RESULT_INDENT}… ${source.length} lines · ctrl+o`, width), { dim: true })
+        );
+        return out;
+      }
       const shown = verbose ? source : source.slice(0, RESULT_PREVIEW_LINES);
       out.push(...headline);
       shown.forEach((raw, index) => {
@@ -569,12 +611,10 @@ export interface BannerInfo {
 }
 
 export function renderBanner(info: BannerInfo, width: number): TuiLine[] {
-  const second = [info.model, info.device].filter(Boolean).join(' · ');
+  const meta = [info.model, info.device].filter(Boolean).join(' · ');
   return [
-    line(clip(` moss v${info.version}`, width), { bold: true, color: 'cyan' }),
-    line(clip(` ${second}`, width), { dim: true }),
-    // The caller passes an already-display-ready path.
-    line(clip(` ${info.cwd}`, width), { dim: true }),
+    line(clip(` moss v${info.version} — ${info.cwd}`, width), { bold: true, color: 'cyan' }),
+    line(clip(` ${meta}`, width), { dim: true }),
   ];
 }
 

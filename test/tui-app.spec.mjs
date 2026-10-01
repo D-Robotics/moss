@@ -749,10 +749,13 @@ async function type(instance, text) {
     const ok = await waitFor(
       () =>
         instance.lastFrame().includes('earlier question') &&
-        instance.lastFrame().includes('earlier answer') &&
-        instance.lastFrame().includes('resumed — replayed 3 rows')
+        instance.lastFrame().includes('earlier answer')
     );
     assert.ok(ok, `replay rendered: ${instance.lastFrame().slice(0, 200)}`);
+    assert.ok(
+      !instance.lastFrame().includes('resumed — replayed'),
+      'the replay lands without a trailing summary row'
+    );
     instance.unmount();
     await sleep(150);
   }

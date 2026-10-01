@@ -1084,9 +1084,6 @@ export function TuiAppRoot({
       })();
     }
     for (const row of options.replayRows ?? []) appendRow(store, row.kind, row.text);
-    if (options.replayRows?.length) {
-      appendRow(store, 'result', `resumed — replayed ${options.replayRows.length} rows`);
-    }
     void runtime.refresh().then(() => handle.notify());
     handle.notify();
   }, []);

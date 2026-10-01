@@ -260,9 +260,8 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       // Edits and writes render as a diff gutter; everything else keeps the
       // raw result (the projection decides how much of it to show). A dialog
       // that already showed its answer gets its synthetic wrapper dropped.
-      const body = completion.dropBody
-        ? ''
-        : (completion.diff ?? (resultBody(event.result) || (event.isError ? '' : 'ok')));
+      // An empty success body stays empty — the headline alone is the result.
+      const body = completion.dropBody ? '' : (completion.diff ?? resultBody(event.result));
       appendRow(store, 'result', body, {
         tool: {
           name: event.toolName,
