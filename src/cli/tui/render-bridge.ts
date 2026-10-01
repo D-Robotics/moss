@@ -226,8 +226,15 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
     case 'tool_end': {
       // The todo checklist is rendered as a live panel, so echoing its full
       // formatted list here would print the same three lines twice. The count
-      // IS the summary headline, so the row body stays empty.
-      if (event.toolName === 'todo_write' && store.todos.length > 0) {
+      // IS the summary headline, so the row body stays empty. A failed or
+      // aborted todo_write must NOT read as progress — it falls through to the
+      // generic error/abort summary below.
+      if (
+        event.toolName === 'todo_write' &&
+        !event.isError &&
+        !event.aborted &&
+        store.todos.length > 0
+      ) {
         const done = store.todos.filter((todo) => todo.status === 'completed').length;
         appendRow(store, 'result', '', {
           tool: {

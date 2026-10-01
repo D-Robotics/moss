@@ -320,6 +320,12 @@ for (const command of advertised) {
     await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
     await type(instance, '/help');
     assert.ok(await waitFor(() => instance.lastFrame().includes('Help · Esc or Enter to close')));
+    await press(instance, '\x1b');
+    await waitFor(() => !instance.lastFrame().includes('Help · Esc or Enter to close'));
+    // `/help --all` is the promised full-reference entry and must not be dead.
+    await type(instance, '/help --all');
+    const full = await waitFor(() => instance.lastFrame().includes('Help · full reference'));
+    assert.ok(full, '/help --all opens the full command reference');
     instance.unmount();
     await sleep(100);
     continue;

@@ -278,6 +278,27 @@ const THINKING = 'The user wants one word. ';
     'content is trimmed and status defaults'
   );
   assert.deepEqual(renderTodoPanel([], 40), [], 'no todos, no panel');
+
+  // A failed todo_write must NOT read as progress: the result row carries the
+  // failure summary instead of a "N/M done" count.
+  const failed = createTuiStore();
+  beginRun(failed);
+  applyAgentEvent(failed, {
+    type: 'tool_start',
+    toolName: 'todo_write',
+    toolCallId: 't2',
+    input: { todos: [{ content: 'step', status: 'in_progress' }] },
+  });
+  applyAgentEvent(failed, {
+    type: 'tool_end',
+    toolName: 'todo_write',
+    toolCallId: 't2',
+    isError: true,
+    result: 'checklist rejected',
+  });
+  const failedRow = failed.rows.find((row) => row.kind === 'result');
+  assert.ok(failedRow?.tool?.isError, 'the failed todo_write row is marked as an error');
+  assert.doesNotMatch(failedRow?.tool?.summary ?? '', /done$/, 'no progress count on failure');
 }
 
 console.log('OK tui-run-state');

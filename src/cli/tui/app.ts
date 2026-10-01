@@ -501,6 +501,36 @@ export function commandBlockTitle(head: string): string {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
+const COMMON_HELP_COMMANDS = [
+  '/status',
+  '/model',
+  '/mode',
+  '/task',
+  '/resume',
+  '/context',
+  '/usage',
+  '/permissions',
+  '/help',
+  '/quit',
+];
+
+/** Compact help (prefixes + shortcuts + common commands) or the full reference. */
+export function buildHelpOverlayLines(all: boolean): string[] {
+  return [
+    'prefixes',
+    ...HELP_PREFIXES.map(([prefix, what]) => `  ${prefix.padEnd(3)} ${what}`),
+    '',
+    'shortcuts',
+    ...HELP_KEYS.map(([keys, what]) => `${keys.padEnd(12)} ${what}`),
+    '',
+    all ? 'all commands' : 'common commands',
+    ...SHELL_COMMANDS.filter((entry) => all || COMMON_HELP_COMMANDS.includes(entry.command)).map(
+      (entry) => `  ${entry.usage.padEnd(24)} ${entry.description}`
+    ),
+    ...(all ? [] : ['', 'type / to browse all commands · /help --all for the full reference']),
+  ];
+}
+
 /** `5m` / `2h` / `3d` — a session's age in one glance. */
 export function relativeAge(updatedAt: number | undefined, now = Date.now()): string {
   if (updatedAt === undefined) return '';
@@ -741,7 +771,9 @@ export function TuiAppRoot({
   const [modelPicker, setModelPicker] = useState<
     { choices: ModelChoiceList; cursor: number } | undefined
   >(undefined);
-  const [helpOverlay, setHelpOverlay] = useState<string[] | undefined>(undefined);
+  const [helpOverlay, setHelpOverlay] = useState<{ lines: string[]; all: boolean } | undefined>(
+    undefined
+  );
   /** ctrl+o: detailed transcript (full tool output + reasoning). */
   const [verbose, setVerbose] = useState(false);
   /**
@@ -1827,33 +1859,12 @@ export function TuiAppRoot({
         exit();
         return;
       }
+      if (text === '/help --all') {
+        setHelpOverlay({ lines: buildHelpOverlayLines(true), all: true });
+        return;
+      }
       if (text === '/help' || text === '?') {
-        const commonCommands = [
-          '/status',
-          '/model',
-          '/mode',
-          '/task',
-          '/resume',
-          '/context',
-          '/usage',
-          '/permissions',
-          '/help',
-          '/quit',
-        ];
-        setHelpOverlay([
-          'prefixes',
-          ...HELP_PREFIXES.map(([prefix, what]) => `  ${prefix.padEnd(3)} ${what}`),
-          '',
-          'shortcuts',
-          ...HELP_KEYS.map(([keys, what]) => `${keys.padEnd(12)} ${what}`),
-          '',
-          'common commands',
-          ...SHELL_COMMANDS.filter((entry) => commonCommands.includes(entry.command)).map(
-            (entry) => `  ${entry.usage.padEnd(24)} ${entry.description}`
-          ),
-          '',
-          'type / to browse all commands · /help --all for the full reference',
-        ]);
+        setHelpOverlay({ lines: buildHelpOverlayLines(false), all: false });
         return;
       }
       if (text === '/usage') {
@@ -2881,12 +2892,33 @@ export function TuiAppRoot({
   const helpOverlayLines = helpOverlay
     ? [
         line(rule(columns)),
-        line(clip('  Help · Esc or Enter to close', columns), { dim: true }),
-        ...helpOverlay
-          .slice(0, Math.max(1, Math.min(helpOverlay.length, Math.max(6, windowSize.rows - 8))))
+        line(
+          clip(
+            helpOverlay.all
+              ? '  Help · full reference · Esc to close'
+              : '  Help · Esc or Enter to close',
+            columns
+          ),
+          { dim: true }
+        ),
+        ...helpOverlay.lines
+          .slice(
+            0,
+            Math.max(1, Math.min(helpOverlay.lines.length, Math.max(6, windowSize.rows - 8)))
+          )
           .map((text) => line(clip(`  ${text}`, columns), { dim: true })),
-        ...(helpOverlay.length > Math.max(6, windowSize.rows - 8)
-          ? [line(clip('  … more commands in /help --all', columns), { dim: true })]
+        ...(helpOverlay.lines.length > Math.max(6, windowSize.rows - 8)
+          ? [
+              line(
+                clip(
+                  helpOverlay.all
+                    ? '  … shorter terminal — resize or use / <name>'
+                    : '  … more commands in /help --all',
+                  columns
+                ),
+                { dim: true }
+              ),
+            ]
           : []),
       ]
     : [];
