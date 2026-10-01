@@ -134,3 +134,111 @@ test('record_evidence: metadata is runtime_state and plan-mode allowed', () => {
   assert.equal(recordEvidenceTool.metadata.sideEffectClass, 'runtime_state');
   assert.equal(recordEvidenceTool.metadata.planMode, 'allow');
 });
+
+// F24 regression (field evidence ev_mup0ne51_ygq7ud): the exists comparator
+// scored observed "missing" as PASS ('observed present → pass'). A presence
+// comparator must understand negative observations; anything indeterminate is
+// inconclusive — never a silent pass (contracts/evidence.ts invariant).
+test('evaluateExpectation exists: negative observations are absence, never PASS', () => {
+  const negatives = [
+    'missing',
+    'not found',
+    'no such file',
+    'no such file or directory',
+    'absent',
+    'false',
+    '0',
+    'does not exist',
+    'ENOENT: no such file or directory, open hello.txt',
+  ];
+  for (const observed of negatives) {
+    assert.equal(
+      evaluateExpectation('exists', observed).result,
+      'fail',
+      `exists with observed ${JSON.stringify(observed)} must be fail`
+    );
+  }
+  // Empty/undefined observation stays fail (locked behavior).
+  assert.equal(evaluateExpectation('exists', '').result, 'fail');
+  assert.equal(evaluateExpectation('exists', undefined).result, 'fail');
+  // Positive presence indicators stay pass (locked: 'active').
+  for (const observed of ['exists (8 bytes)', 'present', 'active', 'connected', 'true', '1']) {
+    assert.equal(
+      evaluateExpectation('exists', observed).result,
+      'pass',
+      `exists with observed ${JSON.stringify(observed)} must be pass`
+    );
+  }
+  // Indeterminate observations must never pass — inconclusive, honestly labeled.
+  for (const observed of ['hello world', 'maybe?', 'some command output']) {
+    const evaluation = evaluateExpectation('exists', observed);
+    assert.equal(
+      evaluation.result,
+      'inconclusive',
+      `exists with observed ${JSON.stringify(observed)} must be inconclusive, got ${evaluation.result}`
+    );
+  }
+});
+
+test('record_evidence: exists + observed "missing" with explicit fail records FAIL (F24 field repro)', async (t) => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-evidence-f24-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const ctx = makeCtx(workspace);
+
+  // Verbatim shape of the field call: the model said fail, the harness said PASS.
+  const out = await recordEvidenceTool.execute(
+    {
+      metric: 'file_exists:hello.txt',
+      expected: 'exists',
+      observed: 'missing',
+      result: 'fail',
+      source: 'search_files',
+    },
+    ctx
+  );
+  assert.match(out, /^evidence ev_\w+: FAIL — file_exists:hello\.txt/);
+  const records = await listEvidenceRecords(workspace);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].result, 'fail');
+});
+
+test('record_evidence: explicit verdict conflicting with auto-evaluation is exposed, never silently rewritten', async (t) => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-evidence-f24c-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const ctx = makeCtx(workspace);
+
+  // Explicit "pass" over an auto-evaluated fail must not become a stored PASS,
+  // and the explicit verdict must not be silently dropped either: the conflict
+  // surfaces as inconclusive naming both sides.
+  const out = await recordEvidenceTool.execute(
+    {
+      metric: 'camera_fps',
+      expected: '>=30',
+      observed: '17.3',
+      result: 'pass',
+      source: 'device_exec',
+    },
+    ctx
+  );
+  assert.match(out, /^evidence ev_\w+: INCONCLUSIVE — camera_fps/);
+  assert.match(out, /conflict/i);
+  assert.match(out, /explicit result "pass"/);
+  assert.match(out, /auto-evaluation "fail"/);
+  const records = await listEvidenceRecords(workspace);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].result, 'inconclusive');
+
+  // A matching explicit verdict is recorded as-is (no conflict noise).
+  const agreeing = await recordEvidenceTool.execute(
+    {
+      metric: 'camera_fps',
+      expected: '>=30',
+      observed: '17.3',
+      result: 'fail',
+      source: 'device_exec',
+    },
+    ctx
+  );
+  assert.match(agreeing, /^evidence ev_\w+: FAIL — camera_fps/);
+  assert.doesNotMatch(agreeing, /conflict/i);
+});

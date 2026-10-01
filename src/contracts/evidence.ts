@@ -50,6 +50,59 @@ const COMPARATOR_PATTERN = new RegExp(
   'i'
 );
 
+// F24: vocabulary for the `exists` comparator. A presence verdict must
+// understand negative observations — scoring observed "missing" as PASS was a
+// false-PASS in the acceptance gate. Negatives are matched first so phrases
+// like "not found" win over a leading "found"; anything indeterminate is
+// inconclusive, honoring this file's invariant: never a silent pass.
+const EXISTS_NEGATIVE_EXACT = new Set([
+  'missing',
+  'absent',
+  'false',
+  'no',
+  'none',
+  'null',
+  'nil',
+  '0',
+  'n/a',
+  'na',
+  'enoent',
+  'gone',
+  'unavailable',
+  'not found',
+  'not present',
+  'not there',
+  'no such file',
+  'no such file or directory',
+  'no such directory',
+  'no such path',
+  'does not exist',
+  "doesn't exist",
+  'file not found',
+  'path not found',
+  'nothing found',
+]);
+const EXISTS_NEGATIVE_PHRASES = [
+  'no such file',
+  'not found',
+  'does not exist',
+  "doesn't exist",
+  'nonexistent',
+  'non-existent',
+  'enoent',
+  'nothing found',
+  'found nothing',
+  'none found',
+  'cannot find',
+  "can't find",
+  'unable to find',
+  'is missing',
+  'was missing',
+];
+const EXISTS_POSITIVE_PREFIX =
+  /^(?:exists?|existing|present|found|active|alive|connected|available|ok|okay|yes|true|there)\b/;
+const EXISTS_COUNT_PATTERN = /^\d+(?:\.\d+)?$/;
+
 /**
  * Evaluate an expectation expression against an observed value.
  * Supported: numeric comparisons (>=30, <=5, >0, <100, ==4, !=1), string
@@ -134,11 +187,43 @@ export function evaluateExpectation(
       };
     }
     case 'exists': {
-      const pass = observed !== undefined && observedText.trim() !== '';
+      if (observed === undefined) {
+        return { comparator, result: 'fail', explanation: 'nothing observed → fail' };
+      }
+      const text = observedText.trim();
+      if (text === '') {
+        return { comparator, result: 'fail', explanation: 'observed empty → fail' };
+      }
+      const lower = text.toLowerCase();
+      if (
+        EXISTS_NEGATIVE_EXACT.has(lower) ||
+        EXISTS_NEGATIVE_PHRASES.some((phrase) => lower.includes(phrase))
+      ) {
+        return {
+          comparator,
+          result: 'fail',
+          explanation: `observed "${text.slice(0, 120)}" indicates absence → fail`,
+        };
+      }
+      if (EXISTS_COUNT_PATTERN.test(lower)) {
+        const present = Number(lower) > 0;
+        return {
+          comparator,
+          result: present ? 'pass' : 'fail',
+          explanation: `observed count ${lower} → ${present ? 'pass' : 'fail'}`,
+        };
+      }
+      if (EXISTS_POSITIVE_PREFIX.test(lower)) {
+        return {
+          comparator,
+          result: 'pass',
+          explanation: `observed "${text.slice(0, 120)}" indicates presence → pass`,
+        };
+      }
       return {
         comparator,
-        result: pass ? 'pass' : 'fail',
-        explanation: `observed ${pass ? 'present' : 'empty/missing'} → ${pass ? 'pass' : 'fail'}`,
+        result: 'inconclusive',
+        explanation: `cannot determine presence from observed "${text.slice(0, 120)}" → inconclusive (never a silent pass)`,
       };
     }
     case 'matches': {
