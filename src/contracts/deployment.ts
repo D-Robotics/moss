@@ -41,6 +41,12 @@ export interface DeploymentRecord {
   steps: DeploymentStepLog[];
   healthCheck?: DeploymentHealthCheck;
   error?: string;
+  /**
+   * Task this deployment serves (explicit task_id or the latest live task).
+   * Absent on records written before the field existed — consumers fall back
+   * to device-scoped association for those.
+   */
+  taskId?: string;
 }
 
 export interface DeploymentPlan {

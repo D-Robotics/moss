@@ -455,27 +455,28 @@ export const deviceDeployTool: Tool = {
       },
       ctx.abortSignal ? { signal: ctx.abortSignal } : {}
     );
+    // Task OS M4: deployments are timeline-visible events of the task they
+    // serve (explicit task_id, or the latest live task in the workspace). The
+    // association rides on the record itself so every consumer (TUI detail,
+    // history, /deployments) sees the same ownership, not just the timeline.
+    const owningTaskId =
+      typeof input.task_id === 'string' && input.task_id.trim()
+        ? input.task_id.trim()
+        : (await findLatestLiveTaskSnapshot(ctx.workspaceDir))?.taskId;
+    if (owningTaskId) record.taskId = owningTaskId;
     try {
       await appendDeploymentRecord(ctx.workspaceDir, record);
     } catch {
       // Persistence failure must not mask the deployment outcome; the record
       // is still returned to the model in full.
     }
-    // Task OS M4: deployments are timeline-visible events of the task they
-    // serve (explicit task_id, or the latest live task in the workspace).
-    {
-      const taskId =
-        typeof input.task_id === 'string' && input.task_id.trim()
-          ? input.task_id.trim()
-          : (await findLatestLiveTaskSnapshot(ctx.workspaceDir))?.taskId;
-      if (taskId) {
-        await tryAppendTaskEvent(ctx.workspaceDir, taskId, 'deployment_recorded', {
-          deploymentId: record.deploymentId,
-          deviceId: record.deviceId,
-          remotePath: record.remotePath,
-          status: record.status,
-        }).catch(() => undefined);
-      }
+    if (record.taskId) {
+      await tryAppendTaskEvent(ctx.workspaceDir, record.taskId, 'deployment_recorded', {
+        deploymentId: record.deploymentId,
+        deviceId: record.deviceId,
+        remotePath: record.remotePath,
+        status: record.status,
+      }).catch(() => undefined);
     }
     const text = formatDeploymentRecord(record);
     return record.status === 'failed'

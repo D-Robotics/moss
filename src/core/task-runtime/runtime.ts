@@ -543,16 +543,20 @@ export class TaskRuntime {
 
     const verdicts = this.verdictsFor(task.taskId);
     const evidence = this.artifacts.evidence.filter((record) => record.taskId === task.taskId);
-    // A3: never invent an association. Deployments attach only when the task
-    // itself names the device (contract target or its own evidence); a global
-    // deployment on some device is not this task's deployment. Live device
+    // A3: never invent an association. A tagged deployment belongs to exactly
+    // its task; only legacy untagged records fall back to device-scoped
+    // association via the task's own device evidence. Live device
     // observations belong to the task being worked NOW, not to any task whose
     // detail happens to be browsed.
     const ownDeviceId = task.targetDeviceId ?? evidence.find((record) => record.deviceId)?.deviceId;
     const deviceId = ownDeviceId;
-    const deployments = deviceId
-      ? this.artifacts.deployments.filter((deployment) => deployment.deviceId === deviceId)
-      : [];
+    const deployments = this.artifacts.deployments.filter(
+      (deployment) =>
+        deployment.taskId === task.taskId ||
+        (deployment.taskId === undefined &&
+          ownDeviceId !== undefined &&
+          deployment.deviceId === ownDeviceId)
+    );
     const observations = this.live.focusTaskId === task.taskId ? this.observations.slice(-8) : [];
 
     const summary = this.summarize(task);
@@ -653,5 +657,5 @@ export function formatDeploymentLine(deployment: DeploymentRecord): string {
     default:
       tail = deployment.status;
   }
-  return `${head} — ${tail}`;
+  return `${head} — ${tail}${deployment.taskId ? ` · task ${deployment.taskId.slice(-6)}` : ''}`;
 }

@@ -328,6 +328,11 @@ test('formatDeploymentLine names the stage the record proves', () => {
     /FAILED.*— scp: permission denied/,
     'failed carries the error'
   );
+  assert.match(
+    formatDeploymentLine({ ...base, status: 'uploaded', taskId: 'task_muprgfsp_yhky1z' }),
+    /· task yhky1z$/,
+    'a tagged deployment names its task'
+  );
 });
 
 // ─── A3: a task never inherits another task's deployments ───────────────────
@@ -359,6 +364,51 @@ test("taskDetail attaches deployments only from the task's own device evidence",
   assert.ok(own?.device, 'the task that names the device gets its deployments');
   assert.equal(own.device.deployments.length, 1);
   assert.equal(own.device.deployments[0].deploymentId, 'dep_other');
+});
+
+test('a tagged deployment belongs to exactly its task, same device or not', async () => {
+  const dir = await tempWorkspace();
+  const { appendDeploymentRecord } = await import('../dist/device/deployment.js');
+  await appendTaskRecord(
+    dir,
+    task({ taskId: 'task_a', updatedAt: 1000, targetDeviceId: 'rdk-x5' })
+  );
+  await appendTaskRecord(
+    dir,
+    task({ taskId: 'task_b', updatedAt: 1100, targetDeviceId: 'rdk-x5' })
+  );
+  // Same device, but tagged to task_b — task_a must not claim it.
+  await appendDeploymentRecord(dir, {
+    deploymentId: 'dep_tagged_b',
+    deviceId: 'rdk-x5',
+    artifactPath: 'b.py',
+    remotePath: '/userdata/b.py',
+    status: 'running',
+    startedAt: Date.now(),
+    steps: [],
+    taskId: 'task_b',
+  });
+  // Tagged to task_a — attaches even though it is on another device.
+  await appendDeploymentRecord(dir, {
+    deploymentId: 'dep_tagged_a',
+    deviceId: 'rdk-x3',
+    artifactPath: 'a.py',
+    remotePath: '/userdata/a.py',
+    status: 'uploaded',
+    startedAt: Date.now(),
+    steps: [],
+    taskId: 'task_a',
+  });
+
+  const runtime = new TaskRuntime({ workspaceDir: dir, now: () => 5000 });
+  await runtime.refresh();
+
+  const a = runtime.taskDetail('task_a');
+  assert.equal(a.device.deployments.length, 1, 'task_a sees only its tagged deployment');
+  assert.equal(a.device.deployments[0].deploymentId, 'dep_tagged_a');
+  const b = runtime.taskDetail('task_b');
+  assert.equal(b.device.deployments.length, 1, 'task_b sees only its tagged deployment');
+  assert.equal(b.device.deployments[0].deploymentId, 'dep_tagged_b');
 });
 
 // ─── A5: blocked reason reaches the summary ──────────────────────────────────
