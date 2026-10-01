@@ -285,3 +285,31 @@ test('resumeTask refuses accepted and live tasks', async () => {
     /not found/
   );
 });
+
+test('a crashed run marks the task failed — never stuck unresumable in a live phase', async () => {
+  const ws = await tmpWorkspace();
+  const crash = async () => {
+    throw new Error('gateway exploded mid-turn');
+  };
+  await assert.rejects(
+    () => runTask({ workspaceDir: ws, runTurn: crash }, 'camera FPS >=30 on device'),
+    /gateway exploded/
+  );
+
+  // The only task in the workspace is the crashed one; it must be failed, not
+  // stuck in planning, so the user can /task resume it.
+  const { listTaskStateSnapshots } = await import('../dist/core/task/task-store.js');
+  const snapshots = await listTaskStateSnapshots(ws);
+  assert.equal(snapshots.length, 1);
+  const snapshot = snapshots[0];
+  assert.equal(snapshot.phase, 'failed', 'a crashed run lands in the failed phase');
+  const types = (await listTaskEvents(ws, snapshot.taskId)).map((e) => e.type);
+  assert.ok(types.includes('task_failed'), 'the crash is recorded as task_failed');
+
+  // resumeTask re-enters the cycle instead of refusing with "nothing to resume".
+  await assert.rejects(
+    () => resumeTask({ workspaceDir: ws, runTurn: crash }, snapshot.taskId),
+    (err) => !/nothing to resume/.test(err.message),
+    'a failed-by-crash task is resumable'
+  );
+});

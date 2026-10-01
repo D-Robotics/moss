@@ -332,14 +332,24 @@ export async function runTask(
     detail: 'understanding goal, defining contract + plan',
   });
   state.turns += 1;
-  await deps.runTurn(
-    planningPrompt(goal, taskId, options.acceptanceCommand, options.capabilityLayer),
-    'planning'
-  );
-  await appendTaskEvent(deps.workspaceDir, taskId, 'plan_ready');
-  await appendTaskEvent(deps.workspaceDir, taskId, 'execution_started');
+  try {
+    await deps.runTurn(
+      planningPrompt(goal, taskId, options.acceptanceCommand, options.capabilityLayer),
+      'planning'
+    );
+    await appendTaskEvent(deps.workspaceDir, taskId, 'plan_ready');
+    await appendTaskEvent(deps.workspaceDir, taskId, 'execution_started');
 
-  await verifyRepairLoop(deps, state, provider, maxRepairAttempts);
+    await verifyRepairLoop(deps, state, provider, maxRepairAttempts);
+  } catch (err) {
+    // A crashed run must stay resumable: mark the task failed (valid from any
+    // live phase) instead of leaving it stuck in planning/executing where
+    // `resumeTask` refuses to re-enter.
+    await tryAppendTaskEvent(deps.workspaceDir, taskId, 'task_failed', {
+      detail: `run crashed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200),
+    });
+    throw err;
+  }
   return buildRunResult(deps.workspaceDir, taskId, state);
 }
 
@@ -358,12 +368,19 @@ export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<
   const provider =
     deps.verdictProvider ?? createTaskVerdictProvider({ workspaceDir: deps.workspaceDir });
   const state: RunLoopState = { taskId, turns: 0, repairsUsed: 0 };
-  await verifyRepairLoop(
-    deps,
-    state,
-    provider,
-    deps.maxRepairAttempts ?? DEFAULT_MAX_REPAIR_ATTEMPTS
-  );
+  try {
+    await verifyRepairLoop(
+      deps,
+      state,
+      provider,
+      deps.maxRepairAttempts ?? DEFAULT_MAX_REPAIR_ATTEMPTS
+    );
+  } catch (err) {
+    await tryAppendTaskEvent(deps.workspaceDir, taskId, 'task_failed', {
+      detail: `run crashed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200),
+    });
+    throw err;
+  }
   return buildRunResult(deps.workspaceDir, taskId, state);
 }
 

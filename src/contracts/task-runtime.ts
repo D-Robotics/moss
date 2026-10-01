@@ -224,6 +224,8 @@ const TRANSITIONS: TransitionTable = {
   },
   unblocked: { blocked: 'executing' },
   task_failed: {
+    understanding: 'failed',
+    planning: 'failed',
     ready: 'failed',
     executing: 'failed',
     verifying: 'failed',
