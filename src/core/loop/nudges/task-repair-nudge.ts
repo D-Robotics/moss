@@ -163,11 +163,18 @@ function latestAcceptanceByTask(
 
 /**
  * Whether a tool use counts as repair-loop progress for the given task.
- * Unattributable calls (no task_id) count conservatively for every task —
- * the record_* tools require task_id, so this only covers odd providers.
+ * Unattributable record_* calls (no task_id) count conservatively for every
+ * task — those tools require task_id, so this only covers odd providers.
+ *
+ * task_acceptance is the exception: an unattributed acceptance call is almost
+ * always a re-run for SOME OTHER task (the tool schema allows omitting
+ * task_id), and counting it for every task let one call silence another
+ * task's pending FAIL (adversarial-review follow-up). Its verdict is tracked
+ * separately from the result text, so the use-level pass adds nothing.
  */
 function isRepairActivityFor(use: ToolUseEvent, taskId: string): boolean {
   if (!REPAIR_PATH_TOOLS.has(use.name)) return false;
+  if (use.name === ACCEPTANCE_TOOL) return use.taskId === taskId;
   return use.taskId === undefined || use.taskId === taskId;
 }
 

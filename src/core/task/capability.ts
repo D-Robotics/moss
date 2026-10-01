@@ -489,7 +489,9 @@ export function buildCapabilityPromptLayer(match: TaskCapabilityMatch): string {
   // them directly, and name the servers behind them so an unmatched goal knows
   // where to search before declaring the capability missing.
   if (mcp.length > 0) {
-    lines.push('Relevant MCP tools (already connected for this task):');
+    lines.push(
+      'Relevant MCP tools (already registered and directly callable by name for this task — call them now, no mcp search needed first):'
+    );
     for (const tool of mcp) {
       const firstLine = oneLine(tool.description);
       lines.push(

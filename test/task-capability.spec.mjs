@@ -119,7 +119,10 @@ test('matched mcp tools are named with their server, per task', () => {
   assert.equal(probe.server, 'vision');
   assert.ok(!match.candidates.some((c) => c.name === 'mcp__billing__invoice'));
   const layer = buildCapabilityPromptLayer(match);
-  assert.match(layer, /Relevant MCP tools \(already connected for this task\):/);
+  assert.match(
+    layer,
+    /Relevant MCP tools \(already registered and directly callable by name[^)]*\):/
+  );
   assert.match(
     layer,
     /mcp__vision__camera_probe \(server vision\) — camera latency and fps probes/

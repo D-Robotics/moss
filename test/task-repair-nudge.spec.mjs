@@ -242,4 +242,38 @@ function verdictText(taskId, outcome) {
   assert.notEqual(r.resetAttempts, true);
 }
 
+// 13. REGRESSION (adversarial-review follow-up): an UNATTRIBUTED
+//     task_acceptance call (tool schema allows omitting task_id — it resolves
+//     to the latest task, here task_A) must not count as repair progress for
+//     task_B and silence its pending FAIL.
+{
+  const r = evaluateTaskRepairNudge({
+    messages: [
+      toolUse('accB', 'task_acceptance', { task_id: 'task_B' }),
+      toolResult('accB', 'task_acceptance', verdictText('task_B', 'FAIL')),
+      toolUse('accAnon', 'task_acceptance', {}),
+      toolResult('accAnon', 'task_acceptance', verdictText('task_A', 'PASS')),
+    ],
+    attempts: 0,
+  });
+  assert.equal(r.fire, true, 'task_B still waits on repair');
+  assert.match(r.correction, /task_B/);
+}
+
+// 14. The same unattributed acceptance must not silence the wave when it is a
+//     FAIL re-run either: the verdict text (not the call input) is the truth.
+{
+  const r = evaluateTaskRepairNudge({
+    messages: [
+      toolUse('accB', 'task_acceptance', { task_id: 'task_B' }),
+      toolResult('accB', 'task_acceptance', verdictText('task_B', 'FAIL')),
+      toolUse('accAnon', 'task_acceptance', {}),
+      toolResult('accAnon', 'task_acceptance', verdictText('task_B', 'FAIL')),
+    ],
+    attempts: 0,
+  });
+  assert.equal(r.fire, true);
+  assert.match(r.correction, /task_B/);
+}
+
 console.log('task-repair-nudge.spec: all assertions passed');

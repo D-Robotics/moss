@@ -337,12 +337,25 @@ async function main() {
         fs.mkdirSync(logsDir, { recursive: true });
         fs.writeFileSync(path.join(logsDir, arm + '-' + sample + '.out.log'), run.stdout);
         fs.writeFileSync(path.join(logsDir, arm + '-' + sample + '.err.log'), run.stderr);
+        // Durable crash triage: full logs stay on disk only (*.log is
+        // gitignored), so the committed samples.json carries an error class.
+        const errorClass =
+          run.code === 0
+            ? null
+            : /429|rate limit|budget exceeded/i.test(run.stderr)
+              ? 'rate-limit'
+              : /ETIMEDOUT|timed out/i.test(run.stderr)
+                ? 'timeout'
+                : /ECONNREFUSED|ENOTFOUND|\b50[23]\b/i.test(run.stderr)
+                  ? 'provider-unavailable'
+                  : 'crash-exit-' + run.code;
         const row = {
           arm,
           sample,
           pass: run.code === 0 && outcomeMatch?.[2] === 'PASS',
           outcome: outcomeMatch?.[2] ?? null,
           exitCode: run.code,
+          errorClass,
           timedOut: run.timedOut,
           engineTurnsPrinted: turnsMatch ? Number(turnsMatch[1]) : null,
           engineTurnsEvents: engineTurnsFromEvents(workspace),
