@@ -10,10 +10,9 @@
  */
 export const CTRL_BINDINGS = [
   { letter: 't', action: 'tasks', label: 'tasks' },
-  { letter: 'r', action: 'history', label: 'history' },
-  // Evidence rides Ctrl+V, not Ctrl+E: in the reference CLI (and readline
-  // muscle memory) Ctrl+E moves the composer caret to the end of the line,
-  // and that editing key wins over a panel shortcut that /evidence also has.
+  // Ctrl+R is the prompt-SEARCH key (readline + reference muscle memory), so
+  // the task-history block lives on `/history` alone — the chord that used to
+  // sit here actively misled anyone arriving from another CLI.
   { letter: 'v', action: 'evidence', label: 'evidence' },
   { letter: 'g', action: 'deployments', label: 'deployments' },
   { letter: 'f', action: 'failures', label: 'failures' },
@@ -48,9 +47,10 @@ export const HELP_KEYS: ReadonlyArray<readonly [string, string]> = [
   ['Ctrl+A / Ctrl+E', 'caret to line start / end'],
   ['Ctrl+U / Ctrl+Y', 'delete to line start · paste deleted text'],
   ['Ctrl+S', 'stash the draft · press again to bring it back'],
+  ['Ctrl+R', 'search your earlier prompts'],
   ['Ctrl+C', 'interrupt the run · press again to quit'],
   ['Ctrl+D', 'quit'],
-  [chordRow(['tasks', 'history', 'evidence']), 'print tasks · history · evidence'],
+  [chordRow(['tasks', 'evidence']), 'print tasks · evidence'],
   [chordRow(['deployments', 'failures']), 'print deployments · failures'],
   ['?', 'this list'],
 ];

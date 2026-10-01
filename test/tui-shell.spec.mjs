@@ -693,8 +693,14 @@ instance.unmount();
     'second task listed'
   );
 
-  instance.stdin.write('\x12'); // Ctrl+R → history
-  assert.ok(await waitFor(() => toolTitles().includes('History (2)')), 'Ctrl+R prints the history');
+  // Ctrl+R is the prompt-SEARCH key (A2.22) — the task-history block answers
+  // to /history, which drives the same showBlock('history') path the chord
+  // used to take.
+  await type('/history');
+  assert.ok(
+    await waitFor(() => toolTitles().includes('History (2)')),
+    '/history prints the history'
+  );
   assert.ok(
     detailRows().some((line) => line.includes('task_cam1')),
     'history names the task'

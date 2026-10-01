@@ -1058,6 +1058,48 @@ async function type(instance, text) {
       'headings are bold + italic + underlined'
     );
   }
+
+  // 4s. Ctrl+R searches earlier prompts: filter live, Enter STAGES the match
+  // into the composer (A2.22 — using is not sending), Esc cancels.
+  {
+    calls.length = 0;
+    const { instance } = mount({ agent: createMockAgent(), workspaceDir: '/tmp/ws' });
+    await type(instance, 'deploy the camera pipeline to the board');
+    await waitFor(() => calls.length === 1);
+    await type(instance, 'unrelated second prompt');
+    await waitFor(() => calls.length === 2);
+    instance.stdin.write('\x12'); // Ctrl+R opens the search overlay
+    await sleep(80);
+    assert.ok(instance.lastFrame().includes('⌕'), 'the search box opens');
+    for (const ch of 'camera') instance.stdin.write(ch);
+    await sleep(120);
+    assert.ok(instance.lastFrame().includes('⌕ camera'), 'the query is echoed in the search box');
+    assert.ok(
+      instance.lastFrame().includes('❯ deploy the camera pipeline'),
+      'the match is selected in the overlay'
+    );
+    // Pure filtering contract (the frame cannot prove non-matches are gone:
+    // the transcript legitimately holds the other prompt's user row).
+    {
+      const { filterHistory } = await import('../dist/cli/tui/history-search.js');
+      const matches = filterHistory(
+        ['deploy the camera pipeline to the board', 'unrelated second prompt'],
+        'camera'
+      );
+      assert.deepEqual(matches, ['deploy the camera pipeline to the board'], 'filter narrows');
+      assert.deepEqual(
+        filterHistory(['b', 'a', 'a', 'b'], '').slice(0, 2),
+        ['b', 'a'],
+        'newest first, deduplicated'
+      );
+    }
+    instance.stdin.write('\r'); // Enter stages the match
+    await sleep(80);
+    assert.ok(instance.lastFrame().includes('prompt staged from history'), 'staging is announced');
+    assert.equal(calls.length, 2, 'Enter did NOT submit — using is not sending');
+    instance.unmount();
+    await sleep(150);
+  }
 }
 
 assert.equal(typeof runTuiApp, 'function', 'the TTY entry point is exported');

@@ -138,6 +138,7 @@ import {
   workspaceFileIndex,
   type MentionEntry,
 } from './mentions.js';
+import { filterHistory, renderHistorySearch } from './history-search.js';
 import { getPackageVersion } from '../package-info.js';
 import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
 
@@ -678,6 +679,10 @@ export function TuiAppRoot({
   const [verboseRevision, setVerboseRevision] = useState(0);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number | undefined>(undefined);
+  /** Ctrl+R prompt search: `{ query, cursor }` while the overlay is open. */
+  const [historySearch, setHistorySearch] = useState<{ query: string; cursor: number } | undefined>(
+    undefined
+  );
   const [paletteCursor, setPaletteCursor] = useState(0);
   const [paletteDismissed, setPaletteDismissed] = useState(false);
   const [mentionCursor, setMentionCursor] = useState(0);
@@ -1187,7 +1192,9 @@ export function TuiAppRoot({
 
   /** One place that knows how to print each task-runtime view. */
   const showBlock = useCallback(
-    async (action: CtrlAction | 'tasks' | 'sessions' | 'mcp' | 'subs' | 'bg' | 'usage') => {
+    async (
+      action: CtrlAction | 'tasks' | 'history' | 'sessions' | 'mcp' | 'subs' | 'bg' | 'usage'
+    ) => {
       if (action === 'tasks') {
         const summaries = runtime.taskSummaries();
         printBlock(
@@ -2068,6 +2075,57 @@ export function TuiAppRoot({
       }
     }
 
+    if (historySearch) {
+      // The Ctrl+R overlay owns the keyboard: typing filters, ↑↓ move, Enter
+      // STAGES the match into the composer (using ≠ sending), Esc cancels.
+      const matches = filterHistory(history, historySearch.query);
+      if (key.escape) {
+        setHistorySearch(undefined);
+        return;
+      }
+      if (key.upArrow || key.downArrow) {
+        setHistorySearch((current) =>
+          current
+            ? {
+                ...current,
+                cursor: movePaletteSelection(current.cursor, matches.length, key.upArrow ? -1 : 1),
+              }
+            : current
+        );
+        return;
+      }
+      if (key.return) {
+        const picked = matches[historySearch.cursor];
+        setHistorySearch(undefined);
+        if (picked) {
+          setInput(picked);
+          setStatusLine('prompt staged from history — Enter sends');
+        }
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setHistorySearch((current) =>
+          current ? { ...current, query: current.query.slice(0, -1), cursor: 0 } : current
+        );
+        return;
+      }
+      if (
+        typeof chunk === 'string' &&
+        chunk &&
+        !key.ctrl &&
+        !key.meta &&
+        !key.tab &&
+        !chunk.startsWith('\x1b') &&
+        !/[\r\n]/.test(chunk)
+      ) {
+        setHistorySearch((current) =>
+          current ? { ...current, query: current.query + chunk, cursor: 0 } : current
+        );
+        return;
+      }
+      return;
+    }
+
     if (mentionOpen) {
       if (key.upArrow || key.downArrow) {
         setMentionCursor((current) =>
@@ -2245,6 +2303,11 @@ export function TuiAppRoot({
         } else {
           setStatusLine('nothing to paste — Ctrl+U / Ctrl+K / Ctrl+W delete into the kill ring');
         }
+        return;
+      }
+      if (letter === 'r') {
+        // A2.22: readline/reference muscle memory — search earlier prompts.
+        setHistorySearch({ query: '', cursor: 0 });
         return;
       }
       if (letter === 's') {
@@ -2431,6 +2494,15 @@ export function TuiAppRoot({
   // Shell mode tints both rules (E2): the composer sits between them, so the
   // whole input block reads as one state.
   const ruleTone = shellMode ? { color: SHELL_MODE_TONE } : {};
+  // Ctrl+R prompt-search overlay (A2.22): query box + matches + footer, in
+  // the pinned chrome right above the status row.
+  const historySearchMatches = historySearch ? filterHistory(history, historySearch.query) : [];
+  const historySearchOverlay = historySearch
+    ? renderHistorySearch(historySearch.query, historySearchMatches, {
+        width: columns,
+        selected: Math.min(historySearch.cursor, Math.max(0, historySearchMatches.length - 1)),
+      })
+    : [];
   // Context-window high-water mark: the status row paints the percentage, and
   // past the warn line a full row says what happens next (auto-compact) and
   // what the user can do now (/compact).
@@ -2464,6 +2536,7 @@ export function TuiAppRoot({
         ]
       : []),
     ...palette,
+    ...historySearchOverlay,
     ...mentions,
     renderStatusRight(status, columns),
     line(rule(columns), ruleTone),
