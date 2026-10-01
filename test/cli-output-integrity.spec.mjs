@@ -105,7 +105,20 @@ const bodyOf = (value) => value.slice(value.indexOf('\n') + 1);
 
   const pathToken = "'../dist/core/task-runtime/runtime.js';";
   const path = await run(`echo "${pathToken}"`);
-  assert.equal(path.output.trimEnd(), pathToken, 'a quoted path is not split every 24 chars');
+  // cmd.exe (`spawn …, { shell: true }` → `cmd /d /s /c`) has its own rules for
+  // how many of the surrounding double quotes survive an echo, so the round
+  // trip asserts the TOKEN, not cmd's quoting: every path character must
+  // arrive un-split and un-spaced (quote normalization on both sides).
+  const tokenChars = (value) => value.trimEnd().replace(/["']/g, '');
+  assert.equal(
+    tokenChars(path.output),
+    tokenChars(pathToken),
+    'a quoted path is not split every 24 chars'
+  );
+  assert.ok(
+    path.output.includes('task-runtime/runtime.js'),
+    'the path body survives the shell round trip verbatim'
+  );
 
   const url = 'https://example.com/a/very/long/repository/file/name/runtime.js?rev=1234567890';
   const fetched = await run(`printf '%s\\n' '${url}'`);
