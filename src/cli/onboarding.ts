@@ -456,7 +456,10 @@ const PERMISSIONS_HELP_TEXT = [
   '    MOSS_PROFILE, MOSS_SAFETY_MODE, MOSS_APPROVAL_POLICY, MOSS_TRUSTED_TOOLS, MOSS_PROMPT_CACHE, MOSS_PROMPT_CACHE_DEBUG, MOSS_MAX_AGENT_TURNS, MOSS_CONTEXT_TOKENS (legacy MOSS_* still works)',
 ].join('\n');
 
-export function renderCliPermissions(runtime: CliRuntimeStatus = {}): string {
+export function renderCliPermissions(
+  runtime: CliRuntimeStatus = {},
+  options: { verbose?: boolean } = {}
+): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
   const safety = auth.safetyMode ?? rt.safetyMode;
@@ -479,8 +482,7 @@ export function renderCliPermissions(runtime: CliRuntimeStatus = {}): string {
     (guardrails.output?.blockPatterns?.length ?? 0) +
     (guardrails.output?.redactPatterns?.length ?? 0);
   const compaction = auth.compactionSettings ?? { reserveTokens: 20000, keepRecentTokens: 20000 };
-  return [
-    ui.bold(ui.black('Permissions & Config')),
+  const details = [
     `  ${label('config file')} ${auth.configPath}`,
     `  ${label('profile')} ${auth.profile ?? 'autonomous'} (${auth.profileSource ?? 'default'})`,
     `  ${label('workspace')} ${auth.workspace} (${auth.workspaceSource})`,
@@ -496,7 +498,22 @@ export function renderCliPermissions(runtime: CliRuntimeStatus = {}): string {
     `  ${label('max output')} ${auth.maxOutputTokens ?? 'derived from context window (contextTokens/4, cap 8k)'}`,
     `  ${label('compaction')} reserve ${compaction.reserveTokens}, keepRecent ${compaction.keepRecentTokens} (${auth.compactionSettingsSource ?? 'default'})`,
     ...configWarningLines(auth),
-    PERMISSIONS_HELP_TEXT,
+  ];
+  if (options.verbose) {
+    return [ui.bold(ui.black('Permissions & Config')), ...details, PERMISSIONS_HELP_TEXT].join(
+      '\n'
+    );
+  }
+  const activeRules = configuredTrustedTools.length + configuredDeniedTools.length;
+  return [
+    ui.bold(ui.black('Permissions')),
+    `  ${label('safety')} ${safety}`,
+    `  ${label('approval')} ${approval === 'never' ? 'automatic for allowed tools' : 'asks before changes'}`,
+    `  ${label('workspace')} ${auth.workspace}`,
+    `  ${label('rules')} ${activeRules === 0 ? 'default tool policy' : `${activeRules} custom rule${activeRules === 1 ? '' : 's'}`}`,
+    '',
+    '  Change behavior with /mode plan or /mode accept-edits.',
+    '  Need diagnostics? Use /permissions --verbose or /doctor.',
   ].join('\n');
 }
 

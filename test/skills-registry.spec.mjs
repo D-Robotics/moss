@@ -13,6 +13,7 @@ import {
   parseSkillFile,
   loadSkills,
   buildSkillsPromptLayer,
+  buildEmptySkillsHintLayer,
 } from '../dist/core/skills/skill-registry.js';
 import { createSkillTool } from '../dist/tools/skill-tool.js';
 
@@ -87,6 +88,21 @@ async function writeSkill(dir, name, description, body) {
   assert.equal(tool.name, 'skill');
   assert.equal(tool.metadata?.sideEffectClass, 'readonly');
   void fs;
+}
+
+// ─── empty-skills hint: anchor the model to Moss's own dirs ─────────────────
+
+{
+  const hint = buildEmptySkillsHintLayer(['/ws/.moss/skills', '/u/.config/moss/skills']);
+  assert.ok(hint.includes('No skills installed'), 'hint states the empty case');
+  assert.ok(
+    hint.includes(path.join('/ws/.moss/skills', '<name>', 'SKILL.md')),
+    'hint shows the concrete SKILL.md path shape'
+  );
+  assert.ok(
+    hint.includes('~/.claude/skills'),
+    'hint names the foreign folders the model must not scan'
+  );
 }
 
 console.log('[PASS] skills registry + skill tool');

@@ -91,9 +91,9 @@ const doctorCommand: CommandSpec = {
 
 const permissionsCommand: CommandSpec = {
   name: '/permissions',
-  summary: 'show safety mode, approval policy, and permissions',
-  run(ctx) {
-    ctx.say('system', renderCliPermissions(ctx.runtime));
+  summary: 'show safety and approval settings; --verbose prints every knob',
+  run(ctx, args) {
+    ctx.say('system', renderCliPermissions(ctx.runtime, { verbose: args.trim() === '--verbose' }));
   },
 };
 

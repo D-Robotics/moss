@@ -114,8 +114,8 @@ export const SHELL_COMMANDS: readonly ShellCommand[] = [
   },
   {
     command: '/permissions',
-    usage: '/permissions',
-    description: 'show safety mode, approval policy, and permissions',
+    usage: '/permissions [--verbose]',
+    description: 'show safety and approval settings; --verbose prints every knob',
   },
   {
     command: '/doctor',

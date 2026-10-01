@@ -105,6 +105,20 @@ export function buildSkillsPromptLayer(skills: readonly SkillManifest[]): string
   return lines.join('\n');
 }
 
+/**
+ * Prompt layer for the no-skills case: anchors the model to Moss's own skill
+ * directories so it answers skill questions from config instead of shelling
+ * out to scan other tools' skill folders (~/.claude/skills, ~/.codex/skills).
+ */
+export function buildEmptySkillsHintLayer(dirs: readonly string[]): string {
+  return [
+    '## Available skills',
+    'No skills installed. Moss discovers skills only from:',
+    ...dirs.map((dir) => `- ${path.join(dir, '<name>', 'SKILL.md')}`),
+    "Answer skill questions from this list; other tools' skill folders (e.g. ~/.claude/skills) are not loaded by Moss.",
+  ].join('\n');
+}
+
 export function findSkill(
   skills: readonly SkillManifest[],
   name: string

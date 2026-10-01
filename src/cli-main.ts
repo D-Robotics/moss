@@ -52,7 +52,11 @@ import { loadMcpConfigs } from './cli/mcp-config.js';
 import { McpToolRegistry, buildMcpPromptLayer } from './core/mcp/registry.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
-import { loadSkills, buildSkillsPromptLayer } from './core/skills/skill-registry.js';
+import {
+  loadSkills,
+  buildSkillsPromptLayer,
+  buildEmptySkillsHintLayer,
+} from './core/skills/skill-registry.js';
 import { buildAgentsMdLayer } from './cli/project-instructions.js';
 import { createSkillTool } from './tools/skill-tool.js';
 import {
@@ -713,6 +717,15 @@ async function main() {
       agent.tools.register(createSkillTool(skills));
       const layer = buildSkillsPromptLayer(skills);
       if (layer) extraPromptLayers.push(layer);
+    } else {
+      // With no skills installed the model used to shell out and scan other
+      // tools' skill folders; anchor it to Moss's own directories instead.
+      extraPromptLayers.push(
+        buildEmptySkillsHintLayer([
+          path.join(workspace, '.moss', 'skills'),
+          path.join(configDir, 'skills'),
+        ])
+      );
     }
   }
   // Answers model-identity questions from the gateway and tracks later context-window probes.

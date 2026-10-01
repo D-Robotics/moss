@@ -7,9 +7,40 @@ import assert from 'node:assert/strict';
 
 import {
   renderCliInteractiveHelp,
+  renderCliPermissions,
   renderCliStatus,
   renderProgressiveOnboardingTips,
 } from '../dist/cli/onboarding.js';
+
+// ─── renderCliPermissions — concise by default, detailed on demand ───────────
+
+{
+  const runtime = {
+    workspace: '/tmp/project',
+    config: {
+      configPath: '/tmp/config.json',
+      workspace: '/tmp/project',
+      workspaceSource: 'cwd',
+      profile: 'balanced',
+      safetyMode: 'workspace-write',
+      approvalPolicy: 'prompt',
+      trustedTools: [],
+      deniedTools: [],
+      maxAgentTurns: 64,
+      contextTokens: 128000,
+    },
+  };
+  const concise = renderCliPermissions(runtime);
+  assert.ok(concise.includes('Permissions'), 'default permissions output has a clear title');
+  assert.ok(
+    !concise.includes('Profiles:'),
+    'default permissions output omits the reference manual'
+  );
+  assert.ok(concise.includes('/permissions --verbose'), 'default output points to diagnostics');
+  const verbose = renderCliPermissions(runtime, { verbose: true });
+  assert.ok(verbose.includes('Profiles:'), 'verbose permissions keeps the detailed reference');
+  assert.ok(verbose.includes('/permissions'), 'verbose permissions keeps command guidance');
+}
 
 // ─── renderCliStatus — live runtime config ──────────────────────────────────
 
