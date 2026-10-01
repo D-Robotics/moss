@@ -178,6 +178,11 @@ export interface TuiContextInfo {
   branch?: string;
 }
 
+export interface TuiSkillCommand {
+  name: string;
+  description: string;
+}
+
 export interface TuiAppOptions {
   agent: MossAgent;
   workspaceDir: string;
@@ -188,6 +193,12 @@ export interface TuiAppOptions {
   replayRows?: TuiReplayRow[];
   /** Boot-time context note (skills/MCP/soul/branch) printed under the banner. */
   contextInfo?: TuiContextInfo;
+  /**
+   * Skills as first-class commands (the Qoder pattern): each appears in the
+   * `/` palette as `/name` and dispatches a run that invokes the skill. The
+   * model already has the skill index and the readonly skill tool.
+   */
+  skills?: TuiSkillCommand[];
   /** /sessions panel provider (host-side session store). */
   listSessions?: () => Promise<TuiSessionSummary[]>;
   /** /mcp panel data (host-side registry statuses). */
@@ -573,11 +584,24 @@ export function resolveShellCliConfig(): ResolvedCliConfig | undefined {
  * unadvertised one. The map keeps the ranker's position for a name but takes the
  * shell table's description, so the wording has one source too.
  */
-export function shellPaletteRows(input: string): PaletteRow[] {
+export function shellPaletteRows(
+  input: string,
+  extra: ReadonlyArray<PaletteRow> = []
+): PaletteRow[] {
   const allowed = new Set(SHELL_COMMAND_NAMES);
   const byCommand = new Map<string, PaletteRow>();
   for (const row of slashPaletteRows(input, SHELL_COMMAND_ROWS)) {
     if (!allowed.has(row[0])) continue;
+    byCommand.set(row[0], row);
+  }
+  // Skills ride the SAME ranker as first-class commands (outside the static
+  // table, so `/help` honesty is untouched); a static command always wins a
+  // name collision. Only rows that CAME from `extra` may enter — the ranker
+  // also folds the REPL table, whose /loop /goal /task /init are not this
+  // shell's commands.
+  const extraNames = new Set(extra.map((row) => row[0]));
+  for (const row of slashPaletteRows(input, extra)) {
+    if (!extraNames.has(row[0]) || byCommand.has(row[0])) continue;
     byCommand.set(row[0], row);
   }
   return [...byCommand.values()];
@@ -1795,9 +1819,19 @@ export function TuiAppRoot({
       }
       if (text.startsWith('/')) {
         // Shared registry first (status/doctor/permissions/mode/context/export/
-        // review/quickstart), then the shell-local control commands, then the
-        // honest unknown-command path.
+        // review/quickstart), then the shell-local control commands, then
+        // skills as first-class commands, then the honest unknown-command path.
         if (await runShellCommand(text)) return;
+        const head = text.split(/\s+/, 1)[0] ?? text;
+        const skill = options.skills?.find((entry) => `/${entry.name}` === head);
+        if (skill) {
+          appendRow(store, 'user', text);
+          handle.notify();
+          dispatchRun(
+            `Use the "${skill.name}" skill${skill.description ? ` (${skill.description})` : ''} for this task. Read the skill body with the skill tool first, then follow it.`
+          );
+          return;
+        }
         appendRow(store, 'error', `unknown command "${text.split(' ')[0]}" — try /help`);
         handle.notify();
         return;
@@ -1823,6 +1857,7 @@ export function TuiAppRoot({
     },
     [
       drainQueue,
+      dispatchRun,
       exit,
       handle,
       options,
@@ -1858,7 +1893,12 @@ export function TuiAppRoot({
   // selection and re-opens it (dismissal only lasts until the next keystroke).
   // `shellPaletteRows` is the shell's own surface (the same table `/help` prints),
   // so the menu cannot hide an advertised command or offer an unadvertised one.
-  const paletteRows: PaletteRow[] = running ? [] : shellPaletteRows(input);
+  const paletteRows: PaletteRow[] = running
+    ? []
+    : shellPaletteRows(
+        input,
+        (options.skills ?? []).map((skill) => [`/${skill.name}`, skill.description] as const)
+      );
   const paletteOpen = paletteRows.length > 0 && !paletteDismissed && !approval && !shellMode;
   const paletteSelection = Math.min(paletteCursor, Math.max(0, paletteRows.length - 1));
   /** First row of the rendered window — keeps the marked row and the acted row equal (D-15). */

@@ -664,14 +664,17 @@ async function main() {
   // v0.16 skills: SKILL.md files from `.moss/skills/` (workspace) and
   // `<configDir>/skills/` (user). Progressive disclosure — only the index
   // enters the system prompt; bodies load through the readonly skill tool.
-  // The count feeds the TUI's boot context line (what the session loaded).
+  // The count feeds the TUI's boot context line, and the TUI also gets the
+  // skills themselves so they surface as first-class `/` commands.
   let loadedSkillCount = 0;
+  let loadedSkills: Array<{ name: string; description: string }> = [];
   {
     const skills = loadSkills([
       path.join(workspace, '.moss', 'skills'),
       path.join(configDir, 'skills'),
     ]);
     loadedSkillCount = skills.length;
+    loadedSkills = skills.map(({ name, description }) => ({ name, description }));
     if (skills.length > 0) {
       agent.tools.register(createSkillTool(skills));
       const layer = buildSkillsPromptLayer(skills);
@@ -1059,6 +1062,7 @@ async function main() {
           })(),
           branch: (await getGitBranch(workspace)) ?? undefined,
         },
+        ...(loadedSkills.length > 0 ? { skills: loadedSkills } : {}),
         ...(replayRows ? { replayRows } : {}),
         // The checkpoint is what `/rewind` restores from; without this call the
         // store records nothing and every rewind silently did nothing (D1).

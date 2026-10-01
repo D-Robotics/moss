@@ -1121,6 +1121,28 @@ async function type(instance, text) {
     instance.unmount();
     await sleep(150);
   }
+
+  // 4t. Skills are first-class commands (the Qoder pattern): they ride the
+  // `/` palette outside the static table, and `/skill-name` dispatches a run
+  // that tells the agent to use the skill.
+  {
+    calls.length = 0;
+    const { instance } = mount({
+      agent: createMockAgent(),
+      workspaceDir: '/tmp/ws',
+      skills: [{ name: 'flash-rdk', description: 'flash the RDK board via XBurn' }],
+    });
+    for (const ch of '/fla') instance.stdin.write(ch);
+    await sleep(120);
+    assert.ok(instance.lastFrame().includes('/flash-rdk'), 'the skill is offered by the palette');
+    assert.ok(instance.lastFrame().includes('flash the RDK board'), 'with its description');
+    instance.stdin.write('\r'); // palette Enter runs the highlighted row
+    const dispatched = await waitFor(() => calls.length === 1);
+    assert.ok(dispatched, 'the skill command dispatches a run');
+    assert.match(calls[0].message, /Use the "flash-rdk" skill/, 'the run invokes the skill');
+    instance.unmount();
+    await sleep(150);
+  }
 }
 
 assert.equal(typeof runTuiApp, 'function', 'the TTY entry point is exported');
