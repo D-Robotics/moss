@@ -166,7 +166,23 @@ export function renderConfigJson(
   return JSON.stringify(serializeResolvedConfig(resolved), null, 2);
 }
 
+/** Short usage — printed on error paths; points at `moss config --help`. */
 export function renderConfigUsage(): string {
+  return [
+    'Usage:',
+    '  moss config                          show resolved values and sources',
+    '  moss config init [--project] [--force]',
+    '  moss config show [--json]',
+    '  moss config validate [--strict] [--json]',
+    '  moss config set <key> <value>|<key>=<value> [--project]',
+    '  moss config unset <key> [--project]',
+    '',
+    'Every settable key with examples: moss config --help',
+  ].join('\n');
+}
+
+/** Full reference — the single home for settable keys and examples. */
+export function renderConfigHelp(): string {
   return [
     'Usage:',
     '  moss config',

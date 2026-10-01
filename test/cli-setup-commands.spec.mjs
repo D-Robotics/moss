@@ -61,43 +61,18 @@ function withProjectDir(fn) {
 
 const projectConfigPath = (dir) => path.join(dir, '.moss', 'config.json');
 
-// Verbatim current usage text (probe: renderConfigUsage() return value).
+// Verbatim short usage (probe: renderConfigUsage() return value) — error paths
+// print this; the full key list lives on `moss config --help`.
 const EXPECTED_USAGE = [
   'Usage:',
-  '  moss config',
+  '  moss config                          show resolved values and sources',
   '  moss config init [--project] [--force]',
-  '  moss config show',
-  '  moss config show --json',
+  '  moss config show [--json]',
   '  moss config validate [--strict] [--json]',
-  '  moss config set <provider|model|baseUrl|apiKey> <value>                       # model',
-  '  moss config set <profile|safetyMode|approvalPolicy|trustedTools|deniedTools|promptCache|promptCacheDebug|guardrails.*|agent.*> <value>   # operational',
-  '  moss config set <key>=<value> [<key>=<value>...]                               # batch',
-  '  moss config set --project <key>=<value> [<key>=<value>...]',
-  '  moss config set --project <key> <value>',
-  '  moss config unset <key>',
-  '  moss config unset --project <key>',
+  '  moss config set <key> <value>|<key>=<value> [--project]',
+  '  moss config unset <key> [--project]',
   '',
-  'Config file:',
-  '  Moss reads .moss/config.json from the current workspace as project defaults',
-  '  moss --config-file /path/to/config.json config show',
-  '  set MOSS_CONFIG_FILE=/path/to/config.json to use an explicit config file',
-  '',
-  'Examples:',
-  '  moss config init --project',
-  '  moss config validate --strict',
-  '  moss config set profile autonomous',
-  '  moss config set provider openai-compatible',
-  '  moss config set model <your-model>',
-  '  moss config set baseUrl https://your-gateway.example   # API root, not /v1 or /chat/completions',
-  '  moss setup                                     # stores the API key (hidden prompt, safer than command line)',
-  '  moss config set --project safetyMode workspace-write',
-  '  moss config set approvalPolicy prompt',
-  '  moss config set trustedTools exec,filesystem__*',
-  '  moss config set deniedTools write_file,exec',
-  '  moss config set guardrails.input.redactPatterns SECRET=[^\\\\s]+',
-  '  moss config set agent.maxTurns 96',
-  '  moss config set agent.contextTokens 200000',
-  '  moss config set agent.compaction.reserveTokens 20000',
+  'Every settable key with examples: moss config --help',
 ].join('\n');
 
 // Verbatim current "supported keys" help text (probe: unknown-key error path).
@@ -115,6 +90,23 @@ test('renderConfigUsage returns the full usage text without printing (characteri
   assert.equal(err, '', 'renderConfigUsage does not write to stderr');
   assert.equal(exitCode, 0);
   assert.equal(setup.renderConfigUsage(), EXPECTED_USAGE);
+});
+
+test('short usage stays short; the full reference lives on config --help alone', () => {
+  assert.ok(
+    setup.renderConfigUsage().split('\n').length <= 14,
+    'error-path usage is at most 14 lines'
+  );
+  const full = setup.renderConfigHelp();
+  assert.ok(
+    full.includes('moss config init --project'),
+    'full help keeps the smoke-parity example'
+  );
+  assert.ok(full.includes('Examples:'), 'full help keeps the examples section');
+  assert.ok(
+    full.split('\n').length > setup.renderConfigUsage().split('\n').length,
+    'full help is strictly richer than the short usage'
+  );
 });
 
 // ─── runConfigSet ────────────────────────────────────────────────────────────

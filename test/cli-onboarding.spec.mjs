@@ -40,6 +40,14 @@ import {
   const verbose = renderCliPermissions(runtime, { verbose: true });
   assert.ok(verbose.includes('Profiles:'), 'verbose permissions keeps the detailed reference');
   assert.ok(verbose.includes('/permissions'), 'verbose permissions keeps command guidance');
+  assert.ok(
+    verbose.split('\n').length <= 50,
+    `verbose permissions stays compact (got ${verbose.split('\n').length} lines)`
+  );
+  assert.ok(
+    verbose.includes('moss config --help'),
+    'verbose permissions points at the config reference instead of restating it'
+  );
 }
 
 // ─── one snapshot source: verbose status & verbose permissions agree ────────

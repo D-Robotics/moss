@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 
-import { briefHelpLines } from '../dist/cli/help.js';
+import { briefHelpLines, fullHelpLines } from '../dist/cli/help.js';
 import { isZhLocale } from '../dist/cli/cli-locale.js';
 
 const identity = (s) => s;
@@ -64,6 +64,18 @@ function restoreLocale() {
   const en = briefHelpLines(colors, '/tmp/moss-config.json', false).join('\n');
   assert.ok(en.includes('Most useful'), 'en brief help keeps English section title');
   assert.ok(en.includes('Inside Moss'), 'en brief help keeps Inside Moss');
+}
+
+{
+  // --help --all stays a digest, not a manual: hard line budget.
+  const all = fullHelpLines(colors, '/tmp/moss-config.json');
+  assert.ok(all.length > 20, '--all is richer than the brief help');
+  assert.ok(all.length <= 60, `--help --all keeps a 60-line budget (got ${all.length})`);
+  assert.ok(all.join('\n').includes('Quick start'), '--all keeps the quick start section');
+  assert.ok(
+    !all.join('\n').includes('config set agent.compaction'),
+    '--all no longer duplicates the config set example list'
+  );
 }
 
 console.log('[PASS] cli locale + brief help');

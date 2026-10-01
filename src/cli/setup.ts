@@ -21,6 +21,7 @@ export {
 export {
   renderConfigJson,
   renderConfigUsage,
+  renderConfigHelp,
   runConfigInit,
   runConfigSet,
   runConfigShow,
