@@ -1,5 +1,39 @@
 # Moss 全软件精简 v2 · 执行计划（2026-10-02 拍板）
 
+> **状态：已完成（2026-10-02）**。批次落点：ab2e8279(/permissions+skills 提示)、6d1797a0(目录合一)、
+> c33a5797(D1)、3b9f62cd(D2)、50c8e4af(D3)、dfb24afb(D4)、bf9b8ef2(D5)、cf634a91(D7+D8)、45f70a3e(D9)。
+> 全部 verify 绿 + CI 绿 + examples 实跑通过。
+
+## 完成对账（实测口径）
+
+| 指标                        | 基线                             | 结果                                                                           |
+| --------------------------- | -------------------------------- | ------------------------------------------------------------------------------ |
+| 配置快照代码份数            | 3                                | 1（config-snapshot.ts，三视图逐字同源测试锁定）                                |
+| /permissions 默认           | ~60 行                           | 9 行                                                                           |
+| --help --all                | ~110 行                          | 58 行（≤60 守卫锁定）                                                          |
+| config 错误路径用法         | 37 行                            | 10 行（全文只在 config --help）                                                |
+| setup 成功输出              | ~11 行                           | 4 行                                                                           |
+| 首启指引                    | 16 行                            | 8 行（+一次性提示 3 行）                                                       |
+| TUI 命令数                  | 32                               | 26（/task view 与 /jobs 折叠；目标 ≤24 未达，余 /sessions /mcp /hooks 等候选） |
+| 死代码                      | tips/TUI_HELP_TEXT/repl-chrome×4 | -322 行，零调用者 grep 证据在 commit                                           |
+| banner / resumed 行 / 空 ok | 3 行/有/有                       | 2 行/删/删                                                                     |
+| 只读工具结果                | headline+3 行预览                | headline+1 行 ctrl+o 指针（verbose 展开，错误不折叠）                          |
+| REPL diff 上限              | 24 行                            | 14（与 TUI 共享 DIFF_PREVIEW_LINES）                                           |
+| 权限概念呈现                | Profiles/Safety/Approval 三节    | /mode 单轴三态 + ceiling 原文保留（D8）                                        |
+| /goal                       | 独立入口                         | hidden 别名 → /task run --accept（引擎不动，呈现归一）                         |
+| 环境变量文档                | 帮助 9 个/实际 ~111              | `moss config env` 135 行权威清单 + src 扫描双向 CI 锁                          |
+| SDK domain 层默认           | 5880 字符                        | 1646 字符（-72%；includeDomainPrompt:'full' 可选回长版）                       |
+| zh-only 错误串              | 3 处                             | 0                                                                              |
+| MOSS_API_KEY 误导提示       | 存在                             | 修复                                                                           |
+
+## 显式偏离（不静默放宽）
+
+- **D9 全局 -20% 未承诺兑现**：工具描述层实测仅 ~1.6k tokens（本就精瘦）；behavior 层是行为承载文本，
+  盲压有回归风险且需 bench 背书——显式留给带基准的专项。
+- **D7 引擎级合并未做**：LoopScheduler 与 Task OS 引擎合一为独立大项，本轮只完成呈现归一。
+- **命令数 ≤24**：折叠后 26；继续合并需动 /sessions /mcp /hooks 等独立能力，留待下一轮。
+- **D6 dogfood 取证口径**：以 ink 实渲染测试 + PTY smoke + examples 实跑为证据；人眼截图级走查留给用户验收。
+
 决策 A–G 全部按推荐执行。主线 D1–D6 + 弹性 D7–D10；每批：实现与测试同 commit、真实运行取证、`npm run verify` 绿后合 main 并过 CI。
 
 ## 总目标
