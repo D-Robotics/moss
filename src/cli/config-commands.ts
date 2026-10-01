@@ -23,13 +23,8 @@ import {
   type ConfigFile,
 } from './config.js';
 import { errorMessage } from '../errors.js';
-import {
-  guessModelProvider,
-  print,
-  renderAuthStatus,
-  sanitizeBaseUrl,
-  withoutSecret,
-} from './setup-wizard.js';
+import { guessModelProvider, print, renderAuthStatus, sanitizeBaseUrl } from './setup-wizard.js';
+import { withoutSecret } from './config-snapshot.js';
 
 function serializeResolvedConfig(
   resolved: ReturnType<typeof resolveCliConfig>

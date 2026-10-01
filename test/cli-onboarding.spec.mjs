@@ -42,6 +42,68 @@ import {
   assert.ok(verbose.includes('/permissions'), 'verbose permissions keeps command guidance');
 }
 
+// ─── one snapshot source: verbose status & verbose permissions agree ────────
+
+{
+  const agent = { config: { model: 'new-model' }, tools: { getAll: () => [], size: 0 } };
+  const runtime = {
+    workspace: '/tmp/project',
+    config: {
+      configPath: '/tmp/config.json',
+      projectConfigPath: '',
+      workspace: '/tmp/project',
+      workspaceSource: 'cwd',
+      provider: 'deepseek',
+      providerSource: 'config',
+      model: 'new-model',
+      modelSource: 'config',
+      baseUrl: 'https://new.example/v1',
+      baseUrlSource: 'config',
+      apiKey: 'test-key',
+      apiKeySource: 'config',
+      apiKeyEncrypted: true,
+      usingBundledDefault: false,
+      profile: 'balanced',
+      profileSource: 'config',
+      safetyMode: 'workspace-write',
+      safetyModeSource: 'config',
+      approvalPolicy: 'prompt',
+      approvalPolicySource: 'config',
+      trustedTools: ['exec'],
+      trustedToolsSource: 'config',
+      deniedTools: [],
+      deniedToolsSource: 'default',
+      promptCacheEnabled: true,
+      promptCacheSource: 'config',
+      promptCacheDebug: false,
+      promptCacheDebugSource: 'default',
+      guardrails: {
+        input: { blockPatterns: [], redactPatterns: [] },
+        output: { blockPatterns: [], redactPatterns: [] },
+      },
+      guardrailsSource: 'default',
+      maxAgentTurns: 64,
+      maxAgentTurnsSource: 'default',
+      contextTokens: 128000,
+      contextTokensSource: 'config',
+      compactionSettings: { reserveTokens: 20000, keepRecentTokens: 20000 },
+      compactionSettingsSource: 'default',
+      ignoredModelEnvVars: [],
+    },
+  };
+  const status = renderCliStatus(agent, runtime, { verbose: true });
+  const perms = renderCliPermissions(runtime, { verbose: true });
+  for (const shared of [
+    'workspace-write (config)',
+    'exec (config)',
+    'reserve 20000, keepRecent 20000 (default)',
+    'prompt (config)',
+  ]) {
+    assert.ok(status.includes(shared), `verbose status includes ${shared}`);
+    assert.ok(perms.includes(shared), `verbose permissions includes ${shared}`);
+  }
+}
+
 // ─── renderCliStatus — live runtime config ──────────────────────────────────
 
 {

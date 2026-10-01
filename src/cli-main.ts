@@ -513,7 +513,9 @@ async function main() {
       if (resolveCliDetailMode(argv) !== 'quiet') {
         printMissingConfigGuidance(false, guidance);
       } else {
-        console.error('[moss] No API key configured. Run `moss setup` or set MOSS_API_KEY.');
+        console.error(
+          '[moss] No API key configured. Run `moss setup` to add one (model settings are config-only — env keys are ignored).'
+        );
       }
       process.exit(ExitCode.CONFIG);
     }

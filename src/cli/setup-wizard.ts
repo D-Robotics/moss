@@ -3,7 +3,6 @@ import * as readline from 'node:readline';
 import { stdin as input, stderr as output } from 'node:process';
 import { buildApiV1Url, isHttpUrl, stripEndpointSuffix } from '../provider/api-v1-url.js';
 import {
-  auditResolvedCliConfig,
   loadCliConfigFile,
   loadConfigFile,
   PROVIDER_PRESETS,
@@ -15,6 +14,7 @@ import {
   type ConfigFile,
   type ResolvedCliConfig,
 } from './config.js';
+import { configSnapshotLines } from './config-snapshot.js';
 import { loadModelChoicesForRuntime } from './model-catalog.js';
 
 export async function probeSetupReachability(
@@ -169,38 +169,6 @@ export function guessModelProvider(model: string): CliProviderPreset | null {
   return null;
 }
 
-export function withoutSecret(value: string): string {
-  try {
-    const url = new URL(value);
-    url.username = '';
-    url.password = '';
-    url.search = '';
-    url.hash = '';
-    return url.toString().replace(/\/$/, '');
-  } catch {
-    return value || '(not configured)';
-  }
-}
-
-function guardrailSummary(resolved: ReturnType<typeof resolveCliConfig>): string {
-  const inputCount =
-    resolved.guardrails.input.blockPatterns.length +
-    resolved.guardrails.input.redactPatterns.length;
-  const outputCount =
-    resolved.guardrails.output.blockPatterns.length +
-    resolved.guardrails.output.redactPatterns.length;
-  if (inputCount === 0 && outputCount === 0) return `none (${resolved.guardrailsSource})`;
-  return `input ${inputCount}, output ${outputCount} (${resolved.guardrailsSource})`;
-}
-
-export function configAuditSummary(resolved: ReturnType<typeof resolveCliConfig>): string {
-  const warnings = auditResolvedCliConfig(resolved);
-  if (warnings.length === 0) return 'none';
-  // Multi-line (semicolon + newline + indent) so each warning is scannable
-  // instead of crammed onto one long line.
-  return warnings.map((warning) => `${warning.code}: ${warning.message}`).join(';\n    ');
-}
-
 export function renderAuthStatus(
   config?: ConfigFile,
   env: NodeJS.ProcessEnv = process.env,
@@ -213,25 +181,62 @@ export function renderAuthStatus(
   const resolved = resolveCliConfig(env, config ?? loaded?.config, overrides, loaded);
   return [
     heading,
-    `  provider: ${resolved.provider} (${resolved.providerSource})`,
-    `  profile: ${resolved.profile} (${resolved.profileSource})`,
-    `  model: ${resolved.model ? `${resolved.model} (${resolved.modelSource})` : `(${resolved.modelSource})`}`,
-    `  baseUrl: ${withoutSecret(resolved.baseUrl)} (${resolved.baseUrlSource}) → chat completions: ${withoutSecret(buildApiV1Url(resolved.baseUrl, 'chat/completions'))}`,
-    `  apiKey: ${resolved.apiKey ? `configured (${resolved.apiKeySource === 'built-in' ? 'built-in, shared gateway key' : `${resolved.apiKeySource}, ${resolved.apiKeyEncrypted ? 'encrypted' : 'plain text'}`})` : "missing -- run 'moss setup' to configure"}`,
-    `  safetyMode: ${resolved.safetyMode} (${resolved.safetyModeSource})`,
-    `  approvalPolicy: ${resolved.approvalPolicy} (${resolved.approvalPolicySource})`,
-    `  trustedTools: ${resolved.trustedTools.length ? resolved.trustedTools.join(', ') : 'none'} (${resolved.trustedToolsSource})`,
-    `  deniedTools: ${resolved.deniedTools.length ? resolved.deniedTools.join(', ') : 'none'} (${resolved.deniedToolsSource})`,
-    `  promptCache: ${resolved.promptCacheEnabled ? 'enabled' : 'disabled'} (${resolved.promptCacheSource})`,
-    `  promptCacheDebug: ${resolved.promptCacheDebug ? 'enabled' : 'disabled'} (${resolved.promptCacheDebugSource})`,
-    `  guardrails: ${guardrailSummary(resolved)}`,
-    `  maxAgentTurns: ${resolved.maxAgentTurns} (${resolved.maxAgentTurnsSource})`,
-    `  contextTokens: ${resolved.contextTokens} (${resolved.contextTokensSource})`,
-    `  compaction: reserve ${resolved.compactionSettings.reserveTokens}, keepRecent ${resolved.compactionSettings.keepRecentTokens} (${resolved.compactionSettingsSource})`,
-    `  configWarnings: ${configAuditSummary(resolved)}`,
-    `  config: ${resolved.configPath}`,
-    `  projectConfig: ${resolved.projectConfigPath || 'none'}${resolved.projectConfigPath ? ' — project config overrides user config for this workspace' : ''}`,
+    ...configSnapshotLines(
+      resolved,
+      [
+        'provider',
+        'profile',
+        'model',
+        'baseUrl',
+        'apiKey',
+        'safetyMode',
+        'approvalPolicy',
+        'trustedTools',
+        'deniedTools',
+        'promptCache',
+        'promptCacheDebug',
+        'guardrails',
+        'maxTurns',
+        'contextTokens',
+        'compaction',
+        'warnings',
+        'configPath',
+        'projectConfig',
+      ],
+      'plain'
+    ),
   ].join('\n');
+}
+
+interface SetupSuccessInfo {
+  preset: { displayName: string };
+  model: string;
+  baseUrl: string;
+  provider: CliProviderPreset;
+  apiKey: string;
+  probe: boolean;
+}
+
+/** One success printer for both wizard branches — the saved line, a real
+ * reachability probe when interactive, the security note, and the next step. */
+async function printSetupSuccess({
+  preset,
+  model,
+  baseUrl,
+  provider,
+  apiKey,
+  probe,
+}: SetupSuccessInfo): Promise<void> {
+  print('');
+  print(
+    `Saved ${preset.displayName}${model ? ` · model ${model}` : ' · model not set — pick one inside moss with /model'} → ${resolveConfigPath()}`
+  );
+  if (probe) {
+    print(await probeSetupReachability({ provider, model, baseUrl, apiKey }));
+  }
+  print('Security note: the API key is stored encrypted in the config file (file mode 600).');
+  print('Avoid sharing or committing this file. Run `moss auth logout` to remove the key.');
+  print('Try `moss "explain this project and how to run it"` or run `moss` for interactive mode.');
 }
 
 export async function runSetupWizard(): Promise<void> {
@@ -340,27 +345,14 @@ export async function runSetupWizard(): Promise<void> {
       ...(model ? { model } : {}),
     };
     saveConfigFile(next);
-    print('');
-    print(`Saved configuration to ${resolveConfigPath()}`);
-    print(`Provider: ${preset.displayName}`);
-    print(
-      model
-        ? `Model: ${model}`
-        : "Model: (not set — start Moss and run /model to pick from your gateway's available models)"
-    );
-    print(`Base URL: ${withoutSecret(baseUrl)}`);
-    if (!skipPostProbe && input.isTTY) {
-      print('');
-      print('Checking the gateway…');
-      print(await probeSetupReachability({ provider, model, baseUrl, apiKey }));
-    }
-    print('');
-    print('Security note: the API key is stored encrypted in the config file (file mode 600).');
-    print('Avoid sharing or committing this file. Run `moss auth logout` to remove the key.');
-    print('');
-    print(
-      'Try `moss "explain this project and how to run it"` or run `moss` for interactive mode.'
-    );
+    await printSetupSuccess({
+      preset,
+      model,
+      baseUrl,
+      provider,
+      apiKey,
+      probe: !skipPostProbe && input.isTTY,
+    });
     return;
   }
 
@@ -423,22 +415,14 @@ export async function runSetupWizard(): Promise<void> {
     promptCache: current.promptCache ?? { enabled: true, debug: false },
   };
   saveConfigFile(next);
-  print('');
-  print(`Saved configuration to ${resolveConfigPath()}`);
-  print(`Provider: ${preset.displayName}`);
-  print(`Model: ${model}`);
-  print(`Base URL: ${withoutSecret(baseUrl)}`);
-
-  if (input.isTTY) {
-    print('');
-    print('Checking the gateway…');
-    print(await probeSetupReachability({ provider, model, baseUrl, apiKey }));
-  }
-  print('');
-  print('Security note: the API key is stored encrypted in the config file (file mode 600).');
-  print('Avoid sharing or committing this file. Run `moss auth logout` to remove the key.');
-  print('');
-  print('Try `moss "explain this project and how to run it"` or run `moss` for interactive mode.');
+  await printSetupSuccess({
+    preset,
+    model,
+    baseUrl,
+    provider,
+    apiKey,
+    probe: input.isTTY,
+  });
 }
 
 export async function runAuthLogout(): Promise<void> {

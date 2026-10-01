@@ -15,7 +15,13 @@ import { formatInteractiveCommandSections } from './interactive-commands.js';
 import { resolveCliDetailMode, type CliDetailMode } from './output.js';
 import { getPackageVersion } from './package-info.js';
 import { compactPath, label, ui } from './ui.js';
-import { MIN_NODE_MAJOR, MIN_NODE_MINOR, nodeVersionProblem } from './node-version-check.js';
+import { configSnapshotLines } from './config-snapshot.js';
+import {
+  ok as doctorOk,
+  warn as doctorWarn,
+  fail as doctorFail,
+  renderNodeDoctorLine,
+} from './doctor.js';
 import { isZhLocale } from './cli-locale.js';
 
 export interface CliRuntimeStatus {
@@ -61,26 +67,6 @@ function createDefaultRuntime(): Required<CliRuntimeStatus> {
 
 function runtimeWithDefaults(runtime: CliRuntimeStatus = {}) {
   return { ...createDefaultRuntime(), ...runtime };
-}
-
-function guardrailLine(config: ResolvedCliConfig): string {
-  const inputCount =
-    (config.guardrails?.input?.blockPatterns?.length ?? 0) +
-    (config.guardrails?.input?.redactPatterns?.length ?? 0);
-  const outputCount =
-    (config.guardrails?.output?.blockPatterns?.length ?? 0) +
-    (config.guardrails?.output?.redactPatterns?.length ?? 0);
-  if (inputCount === 0 && outputCount === 0) return 'guardrails off';
-  return `guardrails in ${inputCount} out ${outputCount}`;
-}
-
-function configWarningLines(config: ResolvedCliConfig): string[] {
-  const warnings = auditResolvedCliConfig(config);
-  if (warnings.length === 0) return [`  ${label('config warnings')} none`];
-  return [
-    `  ${label('config warnings')} ${warnings.length}`,
-    ...warnings.map((warning) => `    ${warning.code}: ${warning.message}`),
-  ];
 }
 
 function countJsonIndex(filePath: string): number {
@@ -279,7 +265,6 @@ export function renderCliStatus(
   const detailMode = resolveCliDetailMode();
   const toolGroups = groupTools(agent.tools.getAll()).filter((g) => g.enabled);
   const auth = rt.config;
-  const baseUrl = auth.baseUrl || rt.baseUrl;
   if (!options.verbose) {
     return [
       ui.bold(ui.black('Status')),
@@ -300,24 +285,24 @@ export function renderCliStatus(
     ui.bold('Status'),
     `  ${label('session')} ${rt.sessionKey}`,
     `  ${label('model')} ${agent.config.model}`,
-    `  ${label('provider')} ${auth.usingBundledDefault ? 'built-in model gateway' : `${auth.provider} (${auth.providerSource}) via ${shortBaseUrl(baseUrl)}`}`,
-    `  ${label('profile')} ${auth.profile ?? 'autonomous'} (${auth.profileSource ?? 'default'})`,
-    `  ${label('api key')} ${auth.usingBundledDefault ? 'built-in model (hidden)' : auth.apiKey ? `configured via ${auth.apiKeySource}` : 'missing'}`,
+    ...configSnapshotLines(auth, ['provider', 'baseUrl', 'profile', 'apiKey']),
     `  ${label('workspace')} ${rt.workspace}`,
     `  ${label('config')} ${rt.configDir}`,
     `  ${label('sessions')} ${sessionDir}`,
     `  ${label('detail')} ${describeDetail(detailMode)}`,
-    `  ${label('safety')} ${rt.safetyMode}`,
-    `  ${label('approval')} ${auth.approvalPolicy ?? 'never'} (${auth.approvalPolicySource ?? 'default'})`,
-    `  ${label('trusted tools')} ${(auth.trustedTools ?? []).length ? (auth.trustedTools ?? []).join(', ') : 'none'} (${auth.trustedToolsSource ?? 'default'})`,
-    `  ${label('denied tools')} ${(auth.deniedTools ?? []).length ? (auth.deniedTools ?? []).join(', ') : 'none'} (${auth.deniedToolsSource ?? 'default'})`,
-    `  ${label('prompt cache')} ${auth.promptCacheEnabled === false ? 'disabled' : 'enabled'} (${auth.promptCacheSource ?? 'default'})`,
-    `  ${label('prompt cache debug')} ${auth.promptCacheDebug === true ? 'enabled' : 'disabled'} (${auth.promptCacheDebugSource ?? 'default'})`,
-    `  ${label('guardrails')} ${guardrailLine(auth)} (${auth.guardrailsSource ?? 'default'})`,
-    `  ${label('max turns')} ${auth.maxAgentTurns} (${auth.maxAgentTurnsSource ?? 'default'})`,
-    `  ${label('context tokens')} ${auth.contextTokens} (${auth.contextTokensSource ?? 'default'})`,
-    `  ${label('max output')} ${auth.maxOutputTokens ?? 'derived from context window (contextTokens/4, cap 8k)'}`,
-    `  ${label('compaction')} reserve ${auth.compactionSettings?.reserveTokens ?? 20000}, keepRecent ${auth.compactionSettings?.keepRecentTokens ?? 20000} (${auth.compactionSettingsSource ?? 'default'})`,
+    ...configSnapshotLines(auth, [
+      'safetyMode',
+      'approvalPolicy',
+      'trustedTools',
+      'deniedTools',
+      'promptCache',
+      'promptCacheDebug',
+      'guardrails',
+      'maxTurns',
+      'contextTokens',
+      'maxOutput',
+      'compaction',
+    ]),
     `  ${label('exec')} ${rt.execBackend}`,
     `  ${label('memory')} ${memoryCount} entries`,
     `  ${label('skills')} ${skillCount}`,
@@ -325,40 +310,25 @@ export function renderCliStatus(
   ].join('\n');
 }
 
-function doctorLine(kind: 'ok' | 'warn' | 'fail', name: string, detail: string): string {
-  const dot = kind === 'ok' ? ui.green('●') : ui.yellow('○');
-  return `  ${dot} ${kind.padEnd(4)} ${label(name)} ${detail}`;
-}
-
 export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStatus = {}): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
-  const lines: string[] = [ui.bold(ui.black('Doctor'))];
+  const lines: string[] = [ui.bold(ui.black('Doctor')), renderNodeDoctorLine()];
 
-  const nodeProblem = nodeVersionProblem(process.version);
-  lines.push(
-    !nodeProblem
-      ? doctorLine('ok', 'node', process.version)
-      : doctorLine(
-          'fail',
-          'node',
-          `${process.version}; requires >=${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0`
-        )
-  );
   if (auth.usingBundledDefault) {
-    lines.push(doctorLine('ok', 'model', `${agent.config.model} (built-in model gateway)`));
-    lines.push(doctorLine('ok', 'auth', 'built-in gateway (no API key needed)'));
+    lines.push(doctorOk('model', `${agent.config.model} (built-in model gateway)`));
+    lines.push(doctorOk('auth', 'built-in gateway (no API key needed)'));
   } else {
-    lines.push(doctorLine('ok', 'model', `${agent.config.model} (${auth.providerSource})`));
-    lines.push(doctorLine('ok', 'provider', `${auth.provider} (${auth.providerSource})`));
+    lines.push(doctorOk('model', `${agent.config.model} (${auth.providerSource})`));
+    lines.push(doctorOk('provider', `${auth.provider} (${auth.providerSource})`));
     const authKeyDetail =
       auth.apiKeySource === 'built-in'
         ? 'built-in, shared gateway key'
         : `${auth.apiKeySource}, ${auth.apiKeyEncrypted ? 'encrypted' : 'plain text'}`;
     lines.push(
       auth.apiKey
-        ? doctorLine('ok', 'auth', `API key configured (${authKeyDetail})`)
-        : doctorLine('fail', 'auth', 'no API key; run `moss setup` or `moss config set apiKey ...`')
+        ? doctorOk('auth', `API key configured (${authKeyDetail})`)
+        : doctorFail('auth', 'no API key; run `moss setup` or `moss config set apiKey ...`')
     );
   }
 
@@ -369,16 +339,14 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
     process.env.http_proxy;
   if (auth.usingBundledDefault) {
     lines.push(
-      doctorLine(
-        'ok',
+      doctorOk(
         'egress',
         proxy ? `built-in gateway via proxy ${shortBaseUrl(proxy)}` : 'built-in gateway (direct)'
       )
     );
   } else {
     lines.push(
-      doctorLine(
-        'ok',
+      doctorOk(
         'egress',
         proxy
           ? `${shortBaseUrl(auth.baseUrl)} via proxy ${shortBaseUrl(proxy)}`
@@ -389,15 +357,14 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
 
   const warnings = auditResolvedCliConfig(auth);
   if (warnings.length === 0) {
-    lines.push(doctorLine('ok', 'config', 'no warnings'));
+    lines.push(doctorOk('config', 'no warnings'));
   } else {
-    for (const w of warnings) lines.push(doctorLine('warn', w.code, w.message));
+    for (const w of warnings) lines.push(doctorWarn(w.code, w.message));
   }
 
   if ((auth.ignoredModelEnvVars ?? []).length > 0) {
     lines.push(
-      doctorLine(
-        'warn',
+      doctorWarn(
         'env ignored',
         `${auth.ignoredModelEnvVars.join(', ')} — model settings come only from moss config`
       )
@@ -465,44 +432,29 @@ export function renderCliPermissions(
   const safety = auth.safetyMode ?? rt.safetyMode;
   const approval = auth.approvalPolicy ?? 'never';
   const configuredTrustedTools = auth.trustedTools ?? [];
-  const trustedTools = configuredTrustedTools.length ? configuredTrustedTools.join(', ') : 'none';
   const configuredDeniedTools = auth.deniedTools ?? [];
-  const deniedTools = configuredDeniedTools.length ? configuredDeniedTools.join(', ') : 'none';
-  const cache = auth.promptCacheEnabled === false ? 'disabled' : 'enabled';
-  const cacheDebug = auth.promptCacheDebug === true ? 'enabled' : 'disabled';
 
-  const guardrails = auth.guardrails ?? {
-    input: { blockPatterns: [], redactPatterns: [] },
-    output: { blockPatterns: [], redactPatterns: [] },
-  };
-  const inputGuardrails =
-    (guardrails.input?.blockPatterns?.length ?? 0) +
-    (guardrails.input?.redactPatterns?.length ?? 0);
-  const outputGuardrails =
-    (guardrails.output?.blockPatterns?.length ?? 0) +
-    (guardrails.output?.redactPatterns?.length ?? 0);
-  const compaction = auth.compactionSettings ?? { reserveTokens: 20000, keepRecentTokens: 20000 };
-  const details = [
-    `  ${label('config file')} ${auth.configPath}`,
-    `  ${label('profile')} ${auth.profile ?? 'autonomous'} (${auth.profileSource ?? 'default'})`,
-    `  ${label('workspace')} ${auth.workspace} (${auth.workspaceSource})`,
-    `  ${label('safety')} ${safety} (${auth.safetyModeSource ?? 'default'})`,
-    `  ${label('approval')} ${approval} (${auth.approvalPolicySource ?? 'default'})`,
-    `  ${label('trusted tools')} ${trustedTools} (${auth.trustedToolsSource ?? 'default'})`,
-    `  ${label('denied tools')} ${deniedTools} (${auth.deniedToolsSource ?? 'default'})`,
-    `  ${label('prompt cache')} ${cache} (${auth.promptCacheSource ?? 'default'})`,
-    `  ${label('prompt cache debug')} ${cacheDebug} (${auth.promptCacheDebugSource ?? 'default'})`,
-    `  ${label('guardrails')} input ${inputGuardrails}, output ${outputGuardrails} (${auth.guardrailsSource ?? 'default'})`,
-    `  ${label('max turns')} ${auth.maxAgentTurns} (${auth.maxAgentTurnsSource ?? 'default'})`,
-    `  ${label('context tokens')} ${auth.contextTokens} (${auth.contextTokensSource ?? 'default'})`,
-    `  ${label('max output')} ${auth.maxOutputTokens ?? 'derived from context window (contextTokens/4, cap 8k)'}`,
-    `  ${label('compaction')} reserve ${compaction.reserveTokens}, keepRecent ${compaction.keepRecentTokens} (${auth.compactionSettingsSource ?? 'default'})`,
-    ...configWarningLines(auth),
-  ];
   if (options.verbose) {
-    return [ui.bold(ui.black('Permissions & Config')), ...details, PERMISSIONS_HELP_TEXT].join(
-      '\n'
-    );
+    return [
+      ui.bold(ui.black('Permissions & Config')),
+      ...configSnapshotLines(auth, ['configPath', 'profile']),
+      `  ${label('workspace')} ${auth.workspace} (${auth.workspaceSource})`,
+      ...configSnapshotLines(auth, [
+        'safetyMode',
+        'approvalPolicy',
+        'trustedTools',
+        'deniedTools',
+        'promptCache',
+        'promptCacheDebug',
+        'guardrails',
+        'maxTurns',
+        'contextTokens',
+        'maxOutput',
+        'compaction',
+        'warnings',
+      ]),
+      PERMISSIONS_HELP_TEXT,
+    ].join('\n');
   }
   const activeRules = configuredTrustedTools.length + configuredDeniedTools.length;
   return [

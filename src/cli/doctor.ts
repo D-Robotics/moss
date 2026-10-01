@@ -80,15 +80,15 @@ async function checkSessionIntegrity(sessionsDir: string): Promise<string[]> {
   return lines;
 }
 
-function ok(label: string, detail: string): string {
+export function ok(label: string, detail: string): string {
   return `  ok    ${label}: ${detail}`;
 }
 
-function warn(label: string, detail: string): string {
+export function warn(label: string, detail: string): string {
   return `  warn  ${label}: ${detail}`;
 }
 
-function fail(label: string, detail: string): string {
+export function fail(label: string, detail: string): string {
   return `  fail  ${label}: ${detail}`;
 }
 
