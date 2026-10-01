@@ -8,6 +8,12 @@
  */
 import assert from 'node:assert/strict';
 
+// The classifier is locale-aware (zh voice vs English fallback); pin the
+// locale so the userMessage assertions below are deterministic everywhere.
+process.env.LANG = 'zh_CN.UTF-8';
+delete process.env.LC_ALL;
+delete process.env.LC_MESSAGES;
+
 import {
   getContextWarningThreshold,
   getProactiveCompactThreshold,
