@@ -27,7 +27,7 @@ import {
   useWindowSize,
 } from 'ink';
 import type { MossAgent } from '../../core/agent/moss-agent.js';
-import { TaskRuntime } from '../../core/task-runtime/runtime.js';
+import { TaskRuntime, formatDeploymentLine } from '../../core/task-runtime/runtime.js';
 import { errorMessage } from '../../errors.js';
 import {
   applyAgentEvent,
@@ -1373,7 +1373,8 @@ export function TuiAppRoot({
           `Tasks (${summaries.length})`,
           summaries.map(
             (s) =>
-              `${s.kind.toUpperCase().padEnd(8)} ${(s.result ?? s.state).padEnd(10)} ${s.criteriaMet}/${s.criteriaTotal} met  ${s.goal}`
+              `${s.kind.toUpperCase().padEnd(8)} ${(s.result ?? s.state).padEnd(10)} ${s.criteriaMet}/${s.criteriaTotal} met  ${s.goal}` +
+              (s.blockedReason ? `\n         blocked: ${s.blockedReason}` : '')
           )
         );
         return;
@@ -1393,15 +1394,7 @@ export function TuiAppRoot({
       }
       if (action === 'deployments') {
         const deployments = runtime.getArtifacts().deployments;
-        printBlock(
-          `Deployments (${deployments.length})`,
-          deployments.map(
-            (d) =>
-              `${d.status.toUpperCase().padEnd(8)} ${d.deviceId} ${d.remotePath}${
-                d.error ? ` — ${d.error}` : ''
-              }`
-          )
-        );
+        printBlock(`Deployments (${deployments.length})`, deployments.map(formatDeploymentLine));
         return;
       }
       if (action === 'history') {
@@ -3050,6 +3043,23 @@ export function TuiAppRoot({
     store.usage.contextTotal > 0
       ? Math.round((store.usage.contextUsed / store.usage.contextTotal) * 100)
       : 0;
+  // A5: a blocked task is a standing decision the user owes — it stays pinned
+  // (even behind an approval dialog) with the reason and the recovery command.
+  const blockedTask = runtime
+    .taskSummaries()
+    .filter((task) => task.state === 'BLOCKED')
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  const blockedLine = blockedTask
+    ? line(
+        clip(
+          `◇ task ${blockedTask.taskId.slice(-6)} blocked — ${
+            blockedTask.blockedReason ?? 'user decision required'
+          } · /task resume ${blockedTask.taskId}`,
+          columns
+        ),
+        { color: 'yellow' }
+      )
+    : undefined;
   const chromeTop: TuiLine[] = [
     // D-13: the dialog gets a height budget (terminal rows minus the rest of the
     // pinned chrome and any extra composer rows) so a short terminal can never
@@ -3062,6 +3072,7 @@ export function TuiAppRoot({
           ),
         })
       : []),
+    ...(blockedLine ? [blockedLine] : []),
     // A pending approval/question owns the decision area. Suppress secondary
     // overlays and live checklist noise so its question and options remain
     // visible on short terminals.

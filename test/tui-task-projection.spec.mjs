@@ -154,3 +154,45 @@ instance.unmount();
 failInstance.unmount();
 await sleep(150);
 console.log('[PASS] TUI task projection (phases + verdict last word)');
+
+// A5: a blocked task stays pinned in the chrome with the reason + recovery.
+{
+  const { createDraftTask, appendTaskEvent } = await import('../dist/core/task/task-store.js');
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-task-blocked-'));
+  const contract = await createDraftTask(ws, 'stream camera at 30 fps');
+  await appendTaskEvent(ws, contract.taskId, 'execution_started');
+  await appendTaskEvent(ws, contract.taskId, 'blocked_on_user', {
+    reason: 'device credentials missing',
+  });
+
+  const bHandle = liveHandle();
+  const bRuntime = new TaskRuntime({ workspaceDir: ws });
+  const bInstance = renderInk(
+    React.createElement(TuiAppRoot, {
+      options: {
+        agent,
+        workspaceDir: ws,
+        model: 'spec-model',
+        version: '0.0.0-spec',
+        listSessions: async () => [],
+        mcpServers: [],
+        listCheckpoints: () => [],
+      },
+      handle: bHandle,
+      runtime: bRuntime,
+    })
+  );
+  assert.ok(
+    await waitFor(() => bInstance.lastFrame().includes('blocked — device credentials missing')),
+    `the blocked reason is pinned in the chrome: ${JSON.stringify(
+      bInstance.lastFrame().slice(0, 400)
+    )}`
+  );
+  assert.match(
+    bInstance.lastFrame(),
+    new RegExp(`/task resume ${contract.taskId}`),
+    'the pinned line names the recovery command'
+  );
+  bInstance.unmount();
+  await sleep(150);
+}

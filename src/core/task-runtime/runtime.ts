@@ -33,6 +33,8 @@ export interface TaskSummary {
   criteriaTotal: number;
   updatedAt: number;
   targetDeviceId?: string;
+  /** Task OS blocked reason, when the snapshot recorded one (blocked_on_user). */
+  blockedReason?: string;
 }
 
 export interface FailureItem {
@@ -440,6 +442,9 @@ export class TaskRuntime {
       criteriaTotal: verdict.criteriaResults.length,
       updatedAt: task.updatedAt,
       ...(task.targetDeviceId ? { targetDeviceId: task.targetDeviceId } : {}),
+      ...(this.taskSnapshots.get(task.taskId)?.blockedReason
+        ? { blockedReason: this.taskSnapshots.get(task.taskId)?.blockedReason }
+        : {}),
     };
   }
 
@@ -538,13 +543,17 @@ export class TaskRuntime {
 
     const verdicts = this.verdictsFor(task.taskId);
     const evidence = this.artifacts.evidence.filter((record) => record.taskId === task.taskId);
-    const deviceId =
-      task.targetDeviceId ??
-      evidence.find((record) => record.deviceId)?.deviceId ??
-      this.artifacts.deployments.find((deployment) => deployment.status !== 'pending')?.deviceId;
+    // A3: never invent an association. Deployments attach only when the task
+    // itself names the device (contract target or its own evidence); a global
+    // deployment on some device is not this task's deployment. Live device
+    // observations belong to the task being worked NOW, not to any task whose
+    // detail happens to be browsed.
+    const ownDeviceId = task.targetDeviceId ?? evidence.find((record) => record.deviceId)?.deviceId;
+    const deviceId = ownDeviceId;
     const deployments = deviceId
       ? this.artifacts.deployments.filter((deployment) => deployment.deviceId === deviceId)
       : [];
+    const observations = this.live.focusTaskId === task.taskId ? this.observations.slice(-8) : [];
 
     const summary = this.summarize(task);
     const failures = this.failuresFor(task, verdicts, evidence, deployments);
@@ -598,15 +607,51 @@ export class TaskRuntime {
       verification: evidence,
       ...(verdicts.length > 0 ? { acceptance: verdicts[verdicts.length - 1] } : {}),
       history,
-      ...(deviceId || this.observations.length > 0
+      ...(deviceId || observations.length > 0
         ? {
             device: {
               deviceId: deviceId ?? 'device (live session)',
               deployments: deployments.slice(0, 10),
-              observations: this.observations.slice(-8),
+              observations,
             },
           }
         : {}),
     };
   }
+}
+
+/**
+ * A4: one deployment, one honest line. The status word alone lets "uploaded"
+ * read as "running" and "running" read as "verified" — the tail names the
+ * stage the record actually proves, including the health-check result.
+ */
+export function formatDeploymentLine(deployment: DeploymentRecord): string {
+  const head = `${deployment.status.toUpperCase().padEnd(9)} ${deployment.deviceId} ${deployment.remotePath}`;
+  let tail: string;
+  switch (deployment.status) {
+    case 'uploaded':
+      tail = 'upload ok · not started';
+      break;
+    case 'uploading':
+    case 'pending':
+      tail = 'upload not confirmed';
+      break;
+    case 'starting':
+      tail = 'start command issued';
+      break;
+    case 'running':
+      tail = deployment.healthCheck
+        ? `health ${deployment.healthCheck.passed ? 'PASS' : 'FAIL'} (exit ${deployment.healthCheck.exitCode ?? '?'})`
+        : 'no health check recorded';
+      break;
+    case 'failed':
+      tail = deployment.error ? deployment.error : 'failed';
+      break;
+    case 'stopped':
+      tail = 'stopped by user';
+      break;
+    default:
+      tail = deployment.status;
+  }
+  return `${head} — ${tail}`;
 }
