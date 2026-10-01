@@ -1,5 +1,5 @@
 import { resolveConfigPath } from './config.js';
-import { INTERACTIVE_COMMAND_SECTIONS } from './interactive-commands.js';
+import { REPL_COMMAND_SECTIONS } from './interactive-commands.js';
 import { getPackageVersion } from './package-info.js';
 import { isZhLocale } from './cli-locale.js';
 
@@ -84,7 +84,7 @@ export function briefHelpLines(c: Colors, configPath: string, zh: boolean): stri
 
 export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
   const configPath = resolveConfigPath();
-  const interactiveLines = INTERACTIVE_COMMAND_SECTIONS.flatMap((section) => [
+  const interactiveLines = REPL_COMMAND_SECTIONS.flatMap((section) => [
     `    ${c.bold(section.title)}`,
     ...section.rows.map((row) => `      ${c.green(row.command.padEnd(24))} ${row.description}`),
   ]);

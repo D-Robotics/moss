@@ -649,17 +649,11 @@ export function resolveShellCliConfig(): ResolvedCliConfig | undefined {
 /**
  * Palette rows for the shell's OWN command surface.
  *
- * `slashPaletteRows` ranks the shared REPL table (`interactive-commands.ts`),
- * which is a superset: it knows `/loop`, `/goal`, `/task`, `/init` (still
- * REPL/headless-only, so the shell must not offer them) and it does NOT know the
- * eleven task/control commands the shell owns (`/tasks`, `/history`,
- * `/evidence`, `/deployments`, `/failures`, `/resume`, `/queue`, `/steer`,
- * `/bg`, `/subs`, `/mcp`), which is why filtering alone could never surface
- * them. Feeding `SHELL_COMMAND_ROWS` — the same table `/help` prints — through
- * the shared ranker and keeping only the shell's names makes the menu and
- * `/help` one list: the menu can neither hide an advertised command nor offer an
- * unadvertised one. The map keeps the ranker's position for a name but takes the
- * shell table's description, so the wording has one source too.
+ * One catalog (`interactive-commands.ts`) feeds both surfaces; `SHELL_COMMAND_ROWS`
+ * is its `tui` projection — the same table `/help` prints — run through the
+ * shared ranker. The `allowed` filter keeps REPL-only commands (/loop /goal
+ * /init) out of the shell menu, so the menu can neither hide an advertised
+ * command nor offer an unadvertised one.
  */
 export function shellPaletteRows(
   input: string,

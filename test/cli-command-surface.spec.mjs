@@ -38,23 +38,22 @@ for (const ghost of GHOSTS) {
 
 // ─── The interactive catalog only advertises commands with handlers ──────────
 
-const { SLASH_MENU_ROWS, INTERACTIVE_COMPLETION_COMMANDS, INTERACTIVE_COMMAND_SECTIONS } =
-  await import(pathToFileURL(path.join(here, '..', 'dist', 'cli', 'interactive-commands.js')).href);
+const { SLASH_MENU_ROWS, INTERACTIVE_COMPLETION_COMMANDS, REPL_COMMAND_SECTIONS } = await import(
+  pathToFileURL(path.join(here, '..', 'dist', 'cli', 'interactive-commands.js')).href
+);
 
-// /steer /queue /history /resume /clear were advertised in v0.13 without any
-// REPL handler. They must stay out of the catalog until the TUI control plane
-// (v0.18) and resume replay (v0.17) land their real implementations.
+// /steer /queue /history /resume /clear have no REPL handler. They live in the
+// shared catalog marked surfaces:['tui'] (the TUI control plane answers them),
+// so no REPL-facing projection may list them.
 const DEAD = ['/steer', '/queue', '/history', '/resume', '/clear'];
 const tokens = new Set([
   ...SLASH_MENU_ROWS.map((row) => row.command),
   ...SLASH_MENU_ROWS.flatMap((row) => row.aliases ?? []),
   ...INTERACTIVE_COMPLETION_COMMANDS,
-  ...INTERACTIVE_COMMAND_SECTIONS.flatMap((section) =>
-    section.rows.map((row) => row.command.split(/\s+/, 1)[0])
-  ),
+  ...REPL_COMMAND_SECTIONS.flatMap((section) => section.rows.map((row) => row.command)),
 ]);
 for (const dead of DEAD) {
-  assert.ok(!tokens.has(dead), `dead command "${dead}" must not be advertised`);
+  assert.ok(!tokens.has(dead), `tui-only command "${dead}" must not be advertised to the REPL`);
 }
 
 // ─── The dead queued-input module is gone ─────────────────────────────────────

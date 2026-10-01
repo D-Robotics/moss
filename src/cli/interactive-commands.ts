@@ -1,13 +1,42 @@
+/**
+ * THE command catalog — one table both interaction surfaces derive from:
+ *
+ *   - the readline REPL (help sections, slash menu, completion) takes the rows
+ *     available on the `repl` surface (`REPL_COMMAND_SECTIONS`,
+ *     `SLASH_MENU_ROWS`, `INTERACTIVE_COMPLETION_COMMANDS`),
+ *   - the TUI shell (`src/cli/tui/help.ts`) takes the `tui` rows and derives
+ *     `SHELL_COMMANDS` (help overlay, `?` keys, `/` palette).
+ *
+ * A command lives in exactly one row — name, argument hint, description, and
+ * surface availability — so wording and availability cannot drift between the
+ * REPL and the TUI. `test/cli-interactive-commands.spec.mjs` locks the two
+ * derivations together.
+ */
+export type CommandSurface = 'repl' | 'tui';
+
 export interface InteractiveCommandRow {
+  /** Bare token both surfaces dispatch, e.g. `/mode`. */
   command: string;
+
+  /** Usage hint printed after the command, e.g. `[plan|default|accept-edits]`. */
+  args?: string;
+
   description: string;
+
   menuDescription?: string;
+
   aliases?: readonly string[];
+
+  /** REPL only: rank the command after the common ones in menus/help. */
   hidden?: boolean;
+
+  /** Surfaces the command answers on; default: both. */
+  surfaces?: readonly CommandSurface[];
 }
 
 export interface InteractiveCommandSection {
   title: string;
+
   rows: InteractiveCommandRow[];
 }
 
@@ -16,87 +45,106 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
     title: 'Work',
     rows: [
       { command: '/status', description: 'view model, workspace, and tool state' },
-      // De-surfaced (still dispatch for back-compat): /subagents (alias /agents) —
-      // the background sub-agent registry is empty in a normal session (background
-      // tasks are opt-in via create_subagent), so it almost always shows "none".
-      { command: '/model', description: 'choose or switch the active model for this session' },
       {
-        command: '/mode [plan|default|accept-edits]',
+        command: '/model',
+        args: '[name|number]',
+        description: 'choose or switch the active model for this session',
+      },
+      {
+        command: '/mode',
+        args: '[plan|default|accept-edits]',
+        description: 'show or set interaction mode (plan = read-only planning; Shift+Tab cycles)',
+      },
+      {
+        command: '/compact',
+        args: '[instructions]',
+        description: 'compress older conversation history into a summary',
+      },
+      // /loop and /goal remain REPL/headless-only until they are migrated to
+      // the same Task OS runtime contract the shell runs.
+      {
+        command: '/loop',
+        args: '<goal>',
         description:
-          'show or set interaction mode (plan = read-only planning; Shift+Tab also cycles)',
-        aliases: ['/plan'],
+          'autonomous loop: agent works until it judges the goal done; /loop resume continues the last paused loop; /loop stop waits for the current step (MOSS_LOOP_MAX caps iterations)',
+        surfaces: ['repl'],
       },
-      { command: '/compact', description: 'compress older conversation history into a summary' },
       {
-        command: '/compact [instructions]',
-        description: 'compact and focus the summary on the given instructions',
-        hidden: true,
-      },
-      // /steer and /queue are intentionally NOT listed: they have no handler in
-      // this REPL. They return with the TUI control plane (v0.18).
-      {
-        command: '/loop <goal>',
+        command: '/goal',
+        args: '<goal> --accept "<verification command>"',
         description:
-          'autonomous loop: agent works until it judges the goal done; set MOSS_LOOP_MAX for an optional iteration cap; /loop stop waits for the current step',
+          'acceptance-gated loop: completes only when the verification command exits 0 (MOSS_GOAL_AUTO_MAX_RUNS caps runs; /goal stop aborts)',
+        surfaces: ['repl'],
       },
       {
-        command: '/loop resume',
-        description: 'resume the last paused autonomous loop from its saved iteration',
-        hidden: true,
+        command: '/task',
+        args: 'run|resume|status|timeline',
+        description: 'run or inspect a verified Task OS task',
       },
       {
-        command: '/goal <goal> --accept "<verification command>"',
-        description:
-          'acceptance-gated autonomous loop: only completes when the verification command exits 0 (MOSS_GOAL_AUTO_MAX_RUNS caps iterations); /goal stop aborts',
-      },
-      {
-        command: '/task run <goal...>',
-        description:
-          'unified task runtime: plan → execute → verify → repair → accept, PASS only from recorded evidence (--accept "<cmd>" for exit-code authority; /task status|timeline|resume to inspect)',
+        command: '/resume',
+        args: '[id]',
+        description: 'resume a failed, blocked, or abandoned task through Task OS',
+        surfaces: ['tui'],
       },
       { command: '/context', description: 'show current context-window usage', hidden: true },
+      { command: '/usage', description: 'show cumulative token usage for this session' },
       {
-        command: '/usage',
-        description: 'show cumulative token usage for this session',
-      },
-      {
-        command: '/export [path]',
+        command: '/export',
+        args: '[path]',
         description: 'export this session to markdown (path optional; - prints to stdout)',
       },
-      // De-surfaced (still dispatch for back-compat): /attach — redundant with `@`
-      // file mentions, which are the primary way to attach an image or text file.
       {
         command: '/review',
-        description: 'review the working-tree diff for bugs, security, and simplification',
-      },
-      {
-        command: '/review <PR#>',
-        description: 'review a GitHub pull request via `gh pr diff`',
-        hidden: true,
+        args: '[PR#]',
+        description: 'review the working-tree diff (or a GitHub PR) for bugs and security',
       },
     ],
   },
   {
     title: 'Inspect',
     rows: [
-      {
-        command: '/sessions',
-        description:
-          'list saved conversations (continue one from the shell with `moss resume --last`)',
-      },
-      // /history and the in-REPL /resume are intentionally NOT listed: they have
-      // no handler in this REPL. /resume returns with TUI resume replay (v0.17).
-      {
-        command: '/doctor',
-        description: 'health-check model, egress, and config in this session',
-      },
+      { command: '/sessions', description: 'list saved conversations' },
+      { command: '/doctor', description: 'health-check model, egress, and config in this session' },
       { command: '/diff', description: 'show git working-tree changes' },
       {
-        command: '/rewind [seq]',
+        command: '/rewind',
+        args: '[seq]',
         description: 'undo file edits from a checkpoint',
         aliases: ['/undo'],
         hidden: true,
       },
+      {
+        command: '/log',
+        description: 'show this session’s on-disk conversation and run-event logs',
+        surfaces: ['tui'],
+      },
+      {
+        command: '/tasks',
+        description: 'print the task-runtime tasks',
+        surfaces: ['tui'],
+      },
+      {
+        command: '/history',
+        description: 'print the lifecycle timeline of each task',
+        surfaces: ['tui'],
+      },
+      {
+        command: '/evidence',
+        description: 'print recorded acceptance evidence',
+        surfaces: ['tui'],
+      },
+      {
+        command: '/deployments',
+        description: 'print device deployments',
+        surfaces: ['tui'],
+      },
+      {
+        command: '/failures',
+        description: 'print recorded task failures',
+        surfaces: ['tui'],
+      },
+      { command: '/mcp', description: 'list MCP server status', surfaces: ['tui'] },
     ],
   },
   {
@@ -104,52 +152,94 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
     rows: [
       {
         command: '/quickstart',
-        description: 'configure model and workspace',
+        description: 'show setup and next-steps guidance',
         aliases: ['/quick_start', '/start'],
       },
       {
         command: '/permissions',
-        description: 'show safety, approvals, and how to grant full access',
+        args: '[--verbose]',
+        description: 'show safety and approval settings; --verbose prints every knob',
         hidden: true,
       },
+      {
+        command: '/hooks',
+        description: 'list configured lifecycle hooks and where to edit them',
+        surfaces: ['tui'],
+      },
       // De-surfaced (still dispatch for back-compat, just not presented): /examples
-      // (→ /quickstart), /config (alias of /permissions), /tools (tools are internal),
-      // /models (→ /model lists+switches), /yolo (full access is a mode/flag, set via
-      // /permissions or --full-access). See command-curation rationale.
+      // (→ /quickstart), /config (alias of /permissions), /tools (tools are
+      // internal), /models (→ /model lists+switches), /yolo (full access is a
+      // mode/flag, set via /permissions or --full-access).
     ],
   },
   {
     title: 'Control',
     rows: [
-      { command: '/stop', description: 'stop the active run', hidden: true },
-      // /clear is intentionally NOT listed: it does not clear the context
-      // window in this REPL (the honest handler just points at Ctrl+L).
-      // De-surfaced (still dispatch for back-compat): /thinking (a display
-      // toggle — mainstream uses a keybind), /detail (a display setting),
-      // /version (shown by /status and /doctor), /upgrade (updates are
-      // out-of-band via the package installer).
-      { command: '/init', description: 'create an AGENTS.md project memory file', hidden: true },
-      { command: '/help', description: 'show this command reference' },
-      { command: '/quit', description: 'exit Moss', hidden: true },
+      { command: '/stop', description: 'interrupt the active run', hidden: true },
+      {
+        command: '/init',
+        description: 'create an AGENTS.md project memory file',
+        hidden: true,
+        surfaces: ['repl'],
+      },
+      { command: '/help', description: 'show the key and command reference' },
+      { command: '/quit', description: 'exit moss', hidden: true },
+      {
+        command: '/clear',
+        description: 'clear the transcript (banner stays; the model context is kept)',
+        surfaces: ['tui'],
+      },
+      { command: '/bg', description: 'list background shell tasks', surfaces: ['tui'] },
+      { command: '/subs', description: 'list background sub-agent tasks', surfaces: ['tui'] },
+      {
+        command: '/queue',
+        args: '[pause|resume|drop|clear]',
+        description: 'inspect or control the input queue',
+        surfaces: ['tui'],
+      },
+      {
+        command: '/steer',
+        args: '<constraint>',
+        description: 'inject a constraint into the live run',
+        surfaces: ['tui'],
+      },
     ],
   },
 ] as const;
 
+function availableOn(row: InteractiveCommandRow, surface: CommandSurface): boolean {
+  return !row.surfaces || row.surfaces.includes(surface);
+}
+
+/** Catalog rows that answer on the given surface, in catalog order. */
+export function rowsForSurface(surface: CommandSurface): readonly InteractiveCommandRow[] {
+  return INTERACTIVE_COMMAND_SECTIONS.flatMap((section) => section.rows).filter((row) =>
+    availableOn(row, surface)
+  );
+}
+
+/** The REPL's view of the catalog: sections with only repl-answerable rows. */
+export const REPL_COMMAND_SECTIONS: readonly InteractiveCommandSection[] =
+  INTERACTIVE_COMMAND_SECTIONS.map((section) => ({
+    ...section,
+    rows: section.rows.filter((row) => availableOn(row, 'repl')),
+  })).filter((section) => section.rows.length > 0);
+
 function uniqueMenuRows(): InteractiveCommandRow[] {
-  // Surface EVERY command in the slash menu + completion + did-you-mean, so a
-  // user can discover and use the whole capability set (moss competes on being
-  // usable, so hiding real features is self-defeating). `hidden` no longer
-  // removes a command — it just ranks it after the common ones, so the menu
-  // still leads with the everyday commands and fuzzy-filtering narrows the rest.
+  // Surface EVERY repl command in the slash menu + completion + did-you-mean,
+  // so a user can discover and use the whole capability set (moss competes on
+  // being usable, so hiding real features is self-defeating). `hidden` no
+  // longer removes a command — it just ranks it after the common ones, so the
+  // menu still leads with the everyday commands and fuzzy-filtering narrows
+  // the rest.
   const seen = new Set<string>();
   const common: InteractiveCommandRow[] = [];
   const advanced: InteractiveCommandRow[] = [];
-  for (const row of INTERACTIVE_COMMAND_SECTIONS.flatMap((section) => section.rows)) {
-    const command = commandToken(row.command);
-    if (seen.has(command)) continue;
-    seen.add(command);
+  for (const row of rowsForSurface('repl')) {
+    if (seen.has(row.command)) continue;
+    seen.add(row.command);
     const entry: InteractiveCommandRow = {
-      command,
+      command: row.command,
       description: row.menuDescription ?? row.description,
       ...(row.aliases ? { aliases: row.aliases } : {}),
     };
@@ -159,10 +249,6 @@ function uniqueMenuRows(): InteractiveCommandRow[] {
 }
 
 export const SLASH_MENU_ROWS: readonly InteractiveCommandRow[] = uniqueMenuRows();
-
-function commandToken(command: string): string {
-  return command.split(/\s+/, 1)[0] ?? command;
-}
 
 export const INTERACTIVE_COMPLETION_COMMANDS: readonly string[] = Array.from(
   new Set([
@@ -243,11 +329,12 @@ export function formatInteractiveCommandSections(
   const indent = options.indent ?? '    ';
   const commandWidth = options.commandWidth ?? 23;
   const lines: string[] = [];
-  for (const section of INTERACTIVE_COMMAND_SECTIONS) {
+  for (const section of REPL_COMMAND_SECTIONS) {
     lines.push(`  ${section.title}`);
     for (const row of section.rows) {
       if (row.hidden && !options.includeHidden) continue;
-      lines.push(`${indent}${row.command.padEnd(commandWidth)} ${row.description}`);
+      const usage = row.args ? `${row.command} ${row.args}` : row.command;
+      lines.push(`${indent}${usage.padEnd(commandWidth)} ${row.description}`);
     }
   }
   return lines;

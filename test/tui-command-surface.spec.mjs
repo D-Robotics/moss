@@ -427,7 +427,11 @@ for (const command of advertised) {
   const rows = shellPaletteRows('/');
   const doctorIndex = rows.findIndex(([command]) => command === '/doctor');
   assert.ok(doctorIndex >= 0, 'the palette contains /doctor');
-  assert.equal(rows[rows.length - 1][0], '/hooks', 'the last row is /hooks');
+  const lastCommand = rows[rows.length - 1][0];
+  assert.ok(
+    typeof lastCommand === 'string' && lastCommand.startsWith('/') && !lastCommand.includes(' '),
+    `the palette ends with a dispatchable command row (got ${lastCommand})`
+  );
 
   // Pure windowing contract: the window contains the cursor and never grows.
   assert.equal(paletteWindowOffset(0, rows.length, 8), 0, 'the first row starts the window');
@@ -508,21 +512,24 @@ for (const command of advertised) {
     await sleep(100);
   }
 
-  // Wrap upwards from row 0 → the tail window marks /mcp, and Enter runs it.
+  // Wrap upwards from row 0 → the tail window marks the LAST row, and Enter runs it.
   {
     const { instance, handle } = await mountMenu('d15-wrap');
     await typeKeys(instance, '/');
     await press(instance, '\x1b[A');
-    const marked = await waitFor(() => instance.lastFrame().includes('❯ /hooks'));
+    const last = rows[rows.length - 1][0];
+    const marked = await waitFor(() => instance.lastFrame().includes(`❯ ${last}`));
     assert.ok(
       marked,
-      `↑ wraps to the last row in the tail window: ${JSON.stringify(
+      `↑ wraps to the last row (${last}) in the tail window: ${JSON.stringify(
         instance.lastFrame().slice(0, 300)
       )}`
     );
     await press(instance, '\r');
+    const title = BLOCK_TITLE.get(last);
+    assert.ok(title, `${last} has a block-title expectation in this spec`);
     const ran = await waitFor(() =>
-      handle.store.rows.some((r) => r.kind === 'tool' && r.text === 'Hooks')
+      handle.store.rows.some((r) => r.kind === 'tool' && title.test(r.text))
     );
     assert.ok(
       ran,

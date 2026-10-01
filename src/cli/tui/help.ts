@@ -1,3 +1,5 @@
+import { rowsForSurface } from '../interactive-commands.js';
+
 /**
  * The key/command reference. Single source of truth: the input handler and the
  * `?` help block both read these tables, so the shell can never advertise a
@@ -77,132 +79,24 @@ export interface ShellCommand {
 }
 
 /**
- * THE advertised command surface — one table, three consumers:
+ * THE advertised command surface — derived from the one command catalog
+ * (`interactive-commands.ts`), taking the rows that answer on `tui`. Three
+ * consumers read this table:
  *
  *   - `HELP_COMMANDS` (below) is what `/help` and `?` print,
  *   - `SHELL_COMMAND_ROWS` feeds the `/` palette (`shellPaletteRows` in `app.ts`),
  *   - `SHELL_COMMAND_NAMES` is the guard that keeps the palette from offering
- *     anything else (the REPL table `interactive-commands.ts` still contains
- *     loop/goal-only controls).
+ *     anything else.
  *
- * Adding a command here advertises it in both places at once, and
+ * Adding a command to the catalog advertises it everywhere at once, and
  * `test/tui-command-surface.spec.mjs` fails if any entry answers "unknown
  * command" or is missing from the palette for its own prefix.
  */
-export const SHELL_COMMANDS: readonly ShellCommand[] = [
-  { command: '/help', usage: '/help', description: 'show this key and command reference' },
-  { command: '/quit', usage: '/quit', description: 'exit moss' },
-  {
-    command: '/clear',
-    usage: '/clear',
-    description: 'clear the transcript (banner stays; the model context is kept)',
-  },
-  {
-    command: '/status',
-    usage: '/status',
-    description: 'view model, workspace, and tool state',
-  },
-  {
-    command: '/model',
-    usage: '/model [name|number]',
-    description: 'choose or switch the active model for this session',
-  },
-  {
-    command: '/mode',
-    usage: '/mode [plan|default|accept-edits]',
-    description: 'show or set interaction mode (plan = read-only planning; Shift+Tab cycles)',
-  },
-  {
-    command: '/permissions',
-    usage: '/permissions [--verbose]',
-    description: 'show safety and approval settings; --verbose prints every knob',
-  },
-  {
-    command: '/doctor',
-    usage: '/doctor',
-    description: 'health-check model, egress, and config in this session',
-  },
-  {
-    command: '/context',
-    usage: '/context',
-    description: 'show current context-window usage',
-  },
-  {
-    command: '/compact',
-    usage: '/compact [instructions]',
-    description: 'compress older conversation history into a summary',
-  },
-  { command: '/diff', usage: '/diff', description: 'show git working-tree changes' },
-  {
-    command: '/review',
-    usage: '/review [PR#]',
-    description: 'review the working-tree diff (or a GitHub PR) for bugs and security',
-  },
-  {
-    command: '/export',
-    usage: '/export [path]',
-    description: 'export this session to markdown (path optional; - prints to stdout)',
-  },
-  {
-    command: '/quickstart',
-    usage: '/quickstart',
-    description: 'show setup and next-steps guidance',
-  },
-  {
-    command: '/usage',
-    usage: '/usage',
-    description: 'show cumulative token usage for this session',
-  },
-  {
-    command: '/log',
-    usage: '/log',
-    description: 'show this session\u2019s on-disk conversation and run-event logs',
-  },
-  { command: '/stop', usage: '/stop', description: 'interrupt the active run' },
-  {
-    command: '/task',
-    usage: '/task run|resume|status|timeline',
-    description: 'run or inspect a verified Task OS task',
-  },
-  { command: '/tasks', usage: '/tasks', description: 'print the task-runtime tasks' },
-  {
-    command: '/history',
-    usage: '/history',
-    description: 'print the lifecycle timeline of each task',
-  },
-  { command: '/evidence', usage: '/evidence', description: 'print recorded acceptance evidence' },
-  { command: '/deployments', usage: '/deployments', description: 'print device deployments' },
-  { command: '/failures', usage: '/failures', description: 'print recorded task failures' },
-  {
-    command: '/resume',
-    usage: '/resume [id]',
-    description: 'resume a failed, blocked, or abandoned task through Task OS',
-  },
-  {
-    command: '/rewind',
-    usage: '/rewind [seq]',
-    description: 'undo file edits from a checkpoint',
-  },
-  {
-    command: '/queue',
-    usage: '/queue [pause|resume|drop|clear]',
-    description: 'inspect or control the input queue',
-  },
-  {
-    command: '/steer',
-    usage: '/steer <constraint>',
-    description: 'inject a constraint into the live run',
-  },
-  { command: '/bg', usage: '/bg', description: 'list background shell tasks' },
-  { command: '/subs', usage: '/subs', description: 'list background sub-agent tasks' },
-  { command: '/sessions', usage: '/sessions', description: 'list saved conversations' },
-  { command: '/mcp', usage: '/mcp', description: 'list MCP server status' },
-  {
-    command: '/hooks',
-    usage: '/hooks',
-    description: 'list configured lifecycle hooks and where to edit them',
-  },
-];
+export const SHELL_COMMANDS: readonly ShellCommand[] = rowsForSurface('tui').map((row) => ({
+  command: row.command,
+  usage: row.args ? `${row.command} ${row.args}` : row.command,
+  description: row.description,
+}));
 
 /** `/help` and `?` print these; the bare name is what the shell dispatches. */
 export const HELP_COMMANDS: readonly string[] = SHELL_COMMANDS.map((entry) => entry.usage);

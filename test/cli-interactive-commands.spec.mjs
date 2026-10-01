@@ -7,11 +7,13 @@ import assert from 'node:assert/strict';
 
 import {
   INTERACTIVE_COMMAND_SECTIONS,
+  REPL_COMMAND_SECTIONS,
   SLASH_MENU_ROWS,
   INTERACTIVE_COMPLETION_COMMANDS,
   commandRowsForSlashInput,
   formatInteractiveCommandSections,
 } from '../dist/cli/interactive-commands.js';
+import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
 
 // ─── Command sections are organized and complete ──────────────────────────────
 
@@ -117,25 +119,66 @@ import {
   assert.equal(unique.size, commands.length, 'no duplicate command entries in the menu');
 }
 
-// ─── Commands without handlers are never advertised ──────────────────────────
+// ─── Commands without REPL handlers are never advertised to the REPL ────────
 
 {
-  // /steer /queue /history /resume /clear were advertised in v0.13 without any
-  // REPL handler. They must stay out of the catalog, completion, and help text
-  // until their real implementations land (resume replay v0.17, TUI v0.18).
+  // /steer /queue /history /resume /clear have no REPL handler. They live in
+  // the catalog marked surfaces:['tui'] so the shell can offer them, but no
+  // REPL-facing projection (menu, completion, help) may list them.
   const dead = ['/steer', '/queue', '/history', '/resume', '/clear'];
   const tokens = new Set([
     ...SLASH_MENU_ROWS.map((row) => row.command),
     ...SLASH_MENU_ROWS.flatMap((row) => row.aliases ?? []),
     ...INTERACTIVE_COMPLETION_COMMANDS,
-    ...INTERACTIVE_COMMAND_SECTIONS.flatMap((section) =>
-      section.rows.map((row) => row.command.split(/\s+/, 1)[0])
-    ),
+    ...REPL_COMMAND_SECTIONS.flatMap((section) => section.rows.map((row) => row.command)),
   ]);
   const helpText = formatInteractiveCommandSections({ includeHidden: true }).join('\n');
   for (const cmd of dead) {
-    assert.ok(!tokens.has(cmd), `dead command "${cmd}" is not in the menu/completion`);
-    assert.ok(!helpText.includes(cmd), `dead command "${cmd}" is not in help text`);
+    assert.ok(!tokens.has(cmd), `tui-only command "${cmd}" is not in the REPL menu/completion`);
+    assert.ok(!helpText.includes(cmd), `tui-only command "${cmd}" is not in REPL help text`);
+    const row = INTERACTIVE_COMMAND_SECTIONS.flatMap((s) => s.rows).find((r) => r.command === cmd);
+    assert.ok(row, `tui-only command "${cmd}" exists in the shared catalog`);
+    assert.deepEqual(row.surfaces, ['tui'], `"${cmd}" is marked tui-only`);
+  }
+}
+
+// ─── One catalog: the TUI table is a pure projection of it ──────────────────
+
+{
+  const rows = INTERACTIVE_COMMAND_SECTIONS.flatMap((s) => s.rows);
+  const commands = rows.map((row) => row.command);
+  assert.equal(
+    new Set(commands).size,
+    commands.length,
+    'the catalog has no duplicate command tokens'
+  );
+  const byCommand = new Map(rows.map((row) => [row.command, row]));
+  for (const row of rows) {
+    assert.ok(
+      !row.surfaces || row.surfaces.length > 0,
+      `${row.command} declares a non-empty surfaces list`
+    );
+  }
+  for (const entry of SHELL_COMMANDS) {
+    const row = byCommand.get(entry.command);
+    assert.ok(row, `TUI command ${entry.command} exists in the shared catalog`);
+    assert.equal(
+      entry.description,
+      row.description,
+      `${entry.command} description comes from the catalog`
+    );
+    const usage = row.args ? `${row.command} ${row.args}` : row.command;
+    assert.equal(entry.usage, usage, `${entry.command} usage comes from the catalog`);
+    assert.ok(
+      !row.surfaces || row.surfaces.includes('tui'),
+      `${entry.command} is marked available on the tui surface`
+    );
+  }
+  for (const name of ['/loop', '/goal', '/init']) {
+    assert.ok(
+      !SHELL_COMMANDS.some((entry) => entry.command === name),
+      `${name} stays REPL-only in the TUI projection`
+    );
   }
 }
 

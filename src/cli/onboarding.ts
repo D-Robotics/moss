@@ -524,8 +524,6 @@ export function renderCliInteractiveHelp(): string {
     '',
     '  Shortcuts',
     '    Ctrl+C                   exit',
-    '',
-    '  Advanced commands still work when needed: /status --verbose, /context, /usage, /export, /rewind, /permissions, /queue.',
   ].join('\n');
 }
 
