@@ -31,7 +31,37 @@ package.json 已 0.13.0）。v0.14–v0.20 期间欠账扩大：代码交付到 
 
 选择后者：证据不足时缩小主张，而不是补齐文字。
 
-## 当前主张（2026-10-02，v0.24.0）
+## 当前主张（2026-10-02，v0.25.0）
+
+- **版本**：`0.25.0`；tag `v0.25.0`。该版本在 v0.24（诚实度 + 子命令双语）之上交付只读多设备
+  fleet、TUI 自有 chrome 双语与任务摘要 locale 一致性（v0.25 计划见
+  `docs/superpowers/plans/2026-10-02-v025-fleet-tui-locale.md`）：
+  - **Fleet MVP（只读）**：`moss device fleet <probe> --devices id1,id2` 按注册表 `deviceId` 选设备，
+    有限并发（默认 4）、结果镜像输入顺序、聚合为 all-pass/partial/all-fail 三态；每条结果带
+    `deviceId`/endpoint/status/error-or-result；单台失败不抹掉同伴，取消只会把未完成设备标 fail、
+    绝不报 pass；复用现有连接注册表/退避/SSH 信号量，写操作不 fan-out（无 fleet 写、无隐式全表扇出）。
+  - **TUI 自有 chrome zh/en**：`cli-main` 显式把 locale 传入 TUI，zh 下翻译 Moss 自己的固定文案
+    （帮助、键位提示、`/` 面板含命令目录描述、resume 选择器、审批/提问页脚、启动状态、任务裁决提示、
+    composer/模型选择器、transcript 固定状态词、底部提示）；英文态字节级不变；命令名/键位/路径/
+    模型名/skill-MCP-工具名/用户输入/模型与 shell-git-MCP 原始输出一律不翻译；不引入 i18n 框架。
+  - **任务摘要 locale**：`summarizeTaskRun(result, locale?)` 支持 zh/en，默认英文（不破坏 SDK 调用者）；
+    `moss task run/resume` 传 CLI locale；`PASS/FAIL/BLOCKED` token、task id、命令、路径、裁决文本不翻译。
+- **已跑、可主张**：
+  - `npm run verify`：format/lint/typecheck + 200 个 spec 文件 + PTY 冒烟全绿。
+  - `npm run examples`：三例实跑通过。
+  - 真实 headless 取证：同一 task fixture 在 `LANG=en_US.UTF-8` 与 `LANG=zh_CN.UTF-8` 下跑
+    run/status/resume；`PASS/FAIL` token、task id、计数两态一致，固定标签按 locale 变化。
+  - 真实 PTY 取证（zh locale，24×120）：TUI 壳启动（`⏸ 默认已开启 · ? 查看快捷键 · N 个任务`）、
+    `/help` 全中文（含命令描述）、`/` 面板描述中文化、`/task status` 中文化但 task id 原样、
+    未知命令提示中文；命令 token 与原始输入未翻译。
+  - fleet 取证：两个 in-process SSH 设备 + 一个拒绝凭据的真实设备，实跑观察到
+    all-pass / partial / all-fail 三态，每条结果带 deviceId，非全通退出 1，取消不报 PASS
+    （`test/device-fleet-readonly.spec.mjs`，8/8）。
+- **未执行、因此不主张**：SWE-bench/Terminal-Bench/全量 bench 复跑（同 v0.23 口径）；
+  真实多设备硬件闭环（in-process SSH 与受控 fixture 只证明协议/调度行为，不主张硬件集群能力）；
+  设备自动发现、健康自动摘除、fleet 写操作、跨设备 acceptance 聚合（v0.25 non-goals）。
+
+## 上一版主张（2026-10-02，v0.24.0）
 
 - **版本**：`0.24.0`；tag `v0.24.0`。该版本在 v0.23（能力层可用性）之上交付诚实度+信任传递
   与子命令层双语（v0.24 计划见 `docs/superpowers/plans/2026-10-02-v024-honesty-i18n.md`）：
