@@ -60,14 +60,13 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         args: '[instructions]',
         description: 'compress older conversation history into a summary',
       },
-      // One advertised autonomous entry: /task run is the Task OS door. /loop
-      // and /goal stay dispatchable compat aliases (their engines, journals,
-      // and env caps are untouched) but leave the visible surface.
+      // One autonomous engine: /task run (plan → execute → verify → repair →
+      // accept). /loop and /goal are dispatch-level compat aliases of it.
       {
         command: '/loop',
         args: '<goal>',
         description:
-          'compat alias: prefer /task run <goal> — the unified Task OS loop (/loop stop waits; /loop resume continues; MOSS_LOOP_MAX caps iterations)',
+          'compat alias of /task run <goal> — Ctrl+C interrupts (resumable via /task resume); MOSS_LOOP_MAX becomes the turn budget',
         hidden: true,
         surfaces: ['repl'],
       },
@@ -75,7 +74,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         command: '/goal',
         args: '<goal> --accept "<verification command>"',
         description:
-          'compat alias: prefer /task run --accept "<verification command>" — same acceptance-gated loop (MOSS_GOAL_AUTO_MAX_RUNS caps runs; /goal stop aborts)',
+          'compat alias of /task run <goal> --accept "<cmd>" — completes only when the command exits 0',
         hidden: true,
         surfaces: ['repl'],
       },

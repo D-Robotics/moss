@@ -27,6 +27,7 @@ import {
   useWindowSize,
 } from 'ink';
 import type { MossAgent } from '../../core/agent/moss-agent.js';
+import { parseGoalCommandLine } from '../../core/loop/goal-loop.js';
 import { TaskRuntime, formatDeploymentLine } from '../../core/task-runtime/runtime.js';
 import { errorMessage } from '../../errors.js';
 import {
@@ -1810,6 +1811,43 @@ export function TuiAppRoot({
           setStatusLine(`interaction mode: ${formatCliInteractionModeLabel(mode)}`);
         },
       };
+
+      // One autonomous engine — /loop and /goal translate onto /task run
+      // (the same delegation the readline REPL performs), so every shell has
+      // one completion mechanism: verdict-backed Task OS runs.
+      if (head === '/loop' || head === '/goal') {
+        const rest = text.slice(head.length).trim();
+        if (head === '/goal') {
+          const parsed = parseGoalCommandLine(rest);
+          if (!parsed) {
+            printCommandError(
+              'Goal',
+              'Usage: /goal <goal> [--accept "<verification command>"] — same as /task run with an acceptance gate.'
+            );
+            return true;
+          }
+          const translated = [
+            '/task run',
+            parsed.goal,
+            ...(parsed.acceptance ? ['--accept', `"${parsed.acceptance.command}"`] : []),
+          ].join(' ');
+          await runTaskShellCommand(translated.slice('/task'.length).trim());
+          return true;
+        }
+        if (!rest || rest === 'stop' || rest === 'abort' || rest === 'resume') {
+          if (rest === 'resume') {
+            await runTaskShellCommand('resume');
+            return true;
+          }
+          printCommandError(
+            'Loop',
+            'A running task is interrupted with Esc; it stays resumable — /task status lists ids, /task resume <id> continues it.'
+          );
+          return true;
+        }
+        await runTaskShellCommand(`run ${rest}`);
+        return true;
+      }
 
       if (head === '/task' && (args === 'view' || args.startsWith('view '))) {
         const kind = args.slice(4).trim() || 'tasks';

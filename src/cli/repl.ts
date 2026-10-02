@@ -1,9 +1,9 @@
 import path from 'node:path';
 import * as readline from 'node:readline';
-import type { MossAgent } from '../core/index.js';
+import type { MossAgent, MossAgentEvent } from '../core/index.js';
 import { setCliApprovalAsker } from './approval.js';
 import { handleCompactCommand } from './compact-command.js';
-import { resolveLoopMaxIterations, formatLoopStatusLine } from './loop-tui-events.js';
+import { resolveLoopMaxIterations } from './loop-tui-events.js';
 import { parseGoalCommandLine } from '../core/loop/goal-loop.js';
 import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
 import { loadCustomCommands, reservedBuiltinNames } from './commands/custom-commands.js';
@@ -22,13 +22,10 @@ import { compactPath, label, ui } from './ui.js';
 import { formatTuiSessions, runLocalShellCommand } from './tui-utils.js';
 import { FileCheckpointStore, checkpointTargetPaths } from './file-checkpoint.js';
 import { errorMessage } from '../errors.js';
-import { LoopScheduler } from '../core/loop/loop-scheduler.js';
 
 let currentModel = '';
 
-let activeLoopScheduler: LoopScheduler | null = null;
 let taskRunInFlight = false;
-let goalAcceptanceMirror: ((passed: boolean, exitCode: number, tail: string) => void) | undefined;
 
 export const INTERACTIVE_COMMANDS = [...INTERACTIVE_COMPLETION_COMMANDS];
 
@@ -201,67 +198,8 @@ export async function runInteractive(
   );
   rl.prompt();
 
-  const wireLoopScheduler = (sched: LoopScheduler, mode: 'started' | 'resumed'): void => {
-    activeLoopScheduler = sched;
-    rl.setPrompt('\n[loop] › ');
-    let loopMax = 0;
-    sched.on((event) => {
-      if (event.type === 'loop_started') {
-        loopMax = event.maxIterations;
-      } else if (event.type === 'iteration_completed') {
-        process.stderr.write(
-          `\n[loop ${event.result.iteration}] ${event.result.response.slice(0, 400)}\n`
-        );
-        // The live status line (iteration · elapsed · controls) used to exist
-        // only in tests; without it a running loop's progress and escape
-        // hatches are invisible between iterations.
-        const state = sched.getState();
-        process.stderr.write(
-          `${ui.dim(
-            `  ${formatLoopStatusLine({
-              iteration: state.currentIteration,
-              maxIterations: loopMax,
-              elapsedSeconds: Math.max(0, Math.round((Date.now() - state.startedAt) / 1000)),
-            })}`
-          )}\n`
-        );
-      } else if (event.type === 'iteration_failed') {
-        process.stderr.write(`\n[loop ${event.iteration}] failed: ${event.error.slice(0, 200)}\n`);
-      } else if (event.type === 'loop_paused') {
-        process.stderr.write(`\nLoop paused at iteration ${event.iteration}: ${event.reason}\n`);
-        if (activeLoopScheduler === sched) {
-          activeLoopScheduler = null;
-          rl.setPrompt('\n› ');
-        }
-      } else if (event.type === 'loop_completed') {
-        process.stderr.write(
-          `\nLoop completed: ${event.totalIterations} iteration(s) in ${Math.round(event.totalDurationMs / 1000)}s.\n`
-        );
-        if (activeLoopScheduler === sched) {
-          activeLoopScheduler = null;
-          rl.setPrompt('\n› ');
-        }
-      } else if (event.type === 'loop_aborted') {
-        process.stderr.write(`\nLoop aborted at iteration ${event.iteration}.\n`);
-        if (activeLoopScheduler === sched) {
-          activeLoopScheduler = null;
-          rl.setPrompt('\n› ');
-        }
-      }
-    });
-    if (mode === 'resumed') {
-      process.stderr.write(
-        `Loop resumed from saved state (iteration onward). /loop stop waits for the current step.\n`
-      );
-    }
-    void sched.start().catch((err) => {
-      process.stderr.write(`Loop error: ${errorMessage(err)}\n`);
-      if (activeLoopScheduler === sched) activeLoopScheduler = null;
-    });
-  };
-
   for await (const line of rl) {
-    const msg = line.trim();
+    let msg = line.trim();
     if (!msg) {
       rl.prompt();
       continue;
@@ -504,53 +442,79 @@ export async function runInteractive(
       continue;
     }
 
+    // ── One autonomous engine ─────────────────────────────────────────────
+    // /loop and /goal are translators onto /task run (plan → execute → verify
+    // → repair → accept). Loop runs ARE tasks now: /task status, /task
+    // timeline, /task resume, and the TUI all see them, and PASS can only come
+    // from the verdict provider — never from the agent judging its own prose.
     if (
       msg === '/loop stop' ||
       msg === '/loop abort' ||
       msg === '/goal stop' ||
       msg === '/goal abort'
     ) {
-      if (!activeLoopScheduler) {
-        process.stderr.write('No /loop or /goal is running.\n');
-      } else {
-        activeLoopScheduler.abort();
-        activeLoopScheduler = null;
-        rl.setPrompt('\n› ');
-        process.stderr.write('Loop aborted.\n');
-      }
+      process.stderr.write(
+        'A running task is interrupted with Ctrl+C; it stays resumable — /task status lists ids, /task resume <id> continues it.\n'
+      );
       rl.prompt();
       continue;
     }
     if (msg === '/loop resume' || msg === '/goal resume') {
-      if (activeLoopScheduler) {
-        process.stderr.write('A /loop is already running. Use /loop stop first.\n');
+      const { listTaskStateSnapshots } = await import('../core/index.js');
+      const resumable = (await listTaskStateSnapshots(workspace))
+        .filter((s) => ['failed', 'abandoned', 'blocked'].includes(s.phase))
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      if (!resumable) {
+        process.stderr.write('No resumable task found. Start one with /task run <goal>.\n');
         rl.prompt();
         continue;
       }
-      // v0.9 W4: continue the last interrupted/paused autonomous loop from
-      // its persisted state (goal, iteration, journal) — completed steps live
-      // in the journal + session history and are not redone.
-      const restored = await LoopScheduler.restore(agent, workspace, {
-        onIterationEvent: (() => {
-          const renderer = createCliRunRenderer({ workspaceDir: workspace });
-          return renderer.handle.bind(renderer);
-        })(),
-      });
-      if (!restored) {
-        process.stderr.write(
-          'No resumable loop found (no saved state, or the last loop completed). Start one with /loop <goal>.\n'
-        );
-        rl.prompt();
-        continue;
+      msg = `/task resume ${resumable.taskId}`;
+      // fall through to the /task branch below
+    } else if (
+      msg === '/loop' ||
+      msg.startsWith('/loop ') ||
+      msg === '/goal' ||
+      msg.startsWith('/goal ')
+    ) {
+      const isGoal = msg.startsWith('/goal');
+      let rest: string;
+      if (isGoal) {
+        const parsed = parseGoalCommandLine(msg.slice('/goal '.length));
+        if (!parsed) {
+          process.stderr.write(
+            'Usage: /goal <goal> [--accept "<verification command>"] — same as /task run with an acceptance gate.\n'
+          );
+          rl.prompt();
+          continue;
+        }
+        rest = [
+          'run',
+          parsed.goal,
+          ...(parsed.acceptance ? ['--accept', `"${parsed.acceptance.command}"`] : []),
+        ].join(' ');
+      } else {
+        const goal = msg.slice('/loop '.length).trim();
+        if (!goal) {
+          process.stderr.write('Usage: /loop <goal> — same as /task run <goal>.\n');
+          rl.prompt();
+          continue;
+        }
+        rest = `run ${goal}`;
       }
-      wireLoopScheduler(restored, 'resumed');
-      rl.prompt();
-      continue;
+      // The loop caps keep their anti-runaway meaning as the task turn budget
+      // (only when the user set them; the default is uncapped).
+      const maxTurns = resolveLoopMaxIterations(process.env, isGoal);
+      if (maxTurns > 0) rest = `${rest} --max-turns ${maxTurns}`;
+      msg = `/task ${rest}`;
+      // fall through to the /task branch below
     }
 
     // Task OS M5: unified task runtime entry — one goal in, one verified
     // result out (plan → execute → verify → repair → accept). PASS can only
-    // come from the verdict provider, never from the agent's prose.
+    // come from the verdict provider, never from the agent's prose. /loop and
+    // /goal translate into this branch above, so every autonomous run streams
+    // live through the same renderer too.
     if (msg === '/task' || msg.startsWith('/task ')) {
       const rest = msg.slice('/task'.length).trim();
       const sub = rest.split(/\s+/)[0];
@@ -570,11 +534,13 @@ export async function runInteractive(
       rl.pause();
       const { runTaskCommand, splitCommandArgs } = await import('./task-run.js');
       const taskSessionKey = createCliSessionKey();
+      const renderer = createCliRunRenderer({ workspaceDir: workspace });
       try {
         const code = await runTaskCommand(splitCommandArgs(rest), {
           agent,
           workspace,
           sessionKey: taskSessionKey,
+          onAgentEvent: (event) => renderer.handle(event as MossAgentEvent),
         });
         if (code === 2) process.stderr.write('(bad /task arguments — see usage above)\n');
       } catch (err) {
@@ -585,114 +551,6 @@ export async function runInteractive(
         rl.setPrompt('\n› ');
         rl.prompt();
       }
-      continue;
-    }
-
-    // v0.15 goal mode: same autonomous engine as /loop, plus an acceptance
-    // gate — the loop only completes when the verification command exits 0.
-    if (msg.startsWith('/goal ')) {
-      const parsed = parseGoalCommandLine(msg.slice('/goal '.length));
-      if (!parsed) {
-        process.stderr.write(
-          'Usage: /goal <goal> [--accept "<verification command>"] — run autonomously until the acceptance command exits 0. /goal stop aborts.\n'
-        );
-        rl.prompt();
-        continue;
-      }
-      if (activeLoopScheduler) {
-        process.stderr.write('A /loop or /goal is already running. Use /loop stop first.\n');
-        rl.prompt();
-        continue;
-      }
-      const maxIterations = resolveLoopMaxIterations(process.env, true);
-      // Task OS M6: goal runs ARE tasks — the acceptance verdict mirrors into
-      // the unified runtime so /goal history shows up in `moss task status`
-      // and the TUI like every other task.
-      let goalTaskId: string | undefined;
-      if (parsed.acceptance) {
-        try {
-          const { createDraftTask, appendTaskEvent, emitAcceptanceLifecycle } =
-            await import('../core/index.js');
-          const contract = await createDraftTask(workspace, parsed.goal);
-          await appendTaskEvent(workspace, contract.taskId, 'execution_started');
-          goalTaskId = contract.taskId;
-          goalAcceptanceMirror = (passed: boolean, exitCode: number, tail: string) => {
-            void emitAcceptanceLifecycle(
-              workspace,
-              contract.taskId,
-              passed,
-              passed
-                ? 'goal acceptance command exited 0'
-                : `goal acceptance command failed (exit ${exitCode}): ${tail.slice(0, 300)}`
-            ).catch(() => undefined);
-          };
-        } catch {
-          // Mirroring is observability — /goal must work without it.
-          goalTaskId = undefined;
-        }
-      }
-      const sched = new LoopScheduler(agent, {
-        prompt: parsed.goal,
-        intervalMs: 0,
-        maxIterations,
-        sessionKey: 'goal',
-        compactBetweenIterations: true,
-        journal: true,
-        autonomous: true,
-        ...(parsed.acceptance ? { acceptance: parsed.acceptance } : {}),
-        ...(goalTaskId
-          ? {
-              onAcceptanceVerdict: (result: {
-                passed: boolean;
-                exitCode: number;
-                tail: string;
-              }) => {
-                goalAcceptanceMirror?.(result.passed, result.exitCode, result.tail);
-              },
-            }
-          : {}),
-        onIterationEvent: (() => {
-          const renderer = createCliRunRenderer({ workspaceDir: workspace });
-          return renderer.handle.bind(renderer);
-        })(),
-      });
-      wireLoopScheduler(sched, 'started');
-      rl.prompt();
-      continue;
-    }
-
-    if (msg.startsWith('/loop ')) {
-      const prompt = msg.slice('/loop '.length).trim();
-      if (!prompt) {
-        process.stderr.write(
-          'Usage: /loop <goal> — run autonomously until the goal is done. /loop stop waits for the current step, then stops.\n'
-        );
-        rl.prompt();
-        continue;
-      }
-      if (activeLoopScheduler) {
-        process.stderr.write('A /loop is already running. Use /loop stop first.\n');
-        rl.prompt();
-        continue;
-      }
-      const maxIterations = resolveLoopMaxIterations(process.env);
-      const sched = new LoopScheduler(agent, {
-        prompt,
-        intervalMs: 0,
-        maxIterations,
-        sessionKey: 'loop',
-        compactBetweenIterations: true,
-        journal: true,
-        autonomous: true,
-        // Stream each iteration's events through the CLI renderer so the user
-        // sees tool calls and text output live, not just summaries at iteration end.
-        onIterationEvent: (() => {
-          const renderer = createCliRunRenderer({ workspaceDir: workspace });
-          return renderer.handle.bind(renderer);
-        })(),
-      });
-      wireLoopScheduler(sched, 'started');
-      rl.prompt();
       continue;
     }
 
