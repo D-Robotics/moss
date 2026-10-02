@@ -38,12 +38,18 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
     '/sessions',
     '/status',
     '/compact',
-    '/loop',
+    '/task',
     '/usage',
     '/review',
   ]) {
     assert.ok(hasCmd(cmd), `critical command "${cmd}" is visible in the catalog`);
   }
+  // First-principles closeout: one advertised autonomous entry (/task), with
+  // /loop retired to a hidden alias like /goal.
+  const loopRow = INTERACTIVE_COMMAND_SECTIONS.flatMap((s) => s.rows).find(
+    (r) => r.command === '/loop'
+  );
+  assert.equal(loopRow?.hidden, true, '/loop is a hidden compat alias of /task run');
 }
 
 // ─── formatInteractiveCommandSections — structured help text ─────────────────
@@ -128,8 +134,18 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
   //    the shell via /task view and /jobs back-compat, but are advertised nowhere;
   //  - tui-only commands (/steer /queue /clear /resume /mcp /log /hooks) live in
   //    the catalog marked surfaces:['tui'], absent from every REPL projection.
-  const folded = ['/tasks', '/history', '/evidence', '/deployments', '/failures', '/bg', '/subs'];
-  const tuiOnly = ['/steer', '/queue', '/clear', '/resume', '/mcp', '/log', '/hooks'];
+  const folded = [
+    '/tasks',
+    '/history',
+    '/evidence',
+    '/deployments',
+    '/failures',
+    '/bg',
+    '/subs',
+    '/quickstart',
+    '/log',
+  ];
+  const tuiOnly = ['/steer', '/queue', '/clear', '/resume', '/mcp', '/hooks'];
   const tokens = new Set([
     ...SLASH_MENU_ROWS.map((row) => row.command),
     ...SLASH_MENU_ROWS.flatMap((row) => row.aliases ?? []),
@@ -211,9 +227,15 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
   const taskRow = byCommand.get('/task');
   assert.ok(taskRow?.args?.includes('view'), '/task advertises the view subcommand');
   assert.ok(
-    SHELL_COMMANDS.length <= 27,
+    SHELL_COMMANDS.length <= 24,
     `the TUI command surface keeps shrinking (got ${SHELL_COMMANDS.length})`
   );
+  for (const folded of ['/quickstart', '/log']) {
+    assert.ok(
+      !tuiCommands.includes(folded),
+      `${folded} left the catalog (info rides on /status and /doctor)`
+    );
+  }
 }
 
 console.log('[PASS] Interactive slash commands');

@@ -52,7 +52,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // agree with what Enter will actually do.
   assert.deepEqual(
     slashPaletteRows('  /st').map(([command]) => command),
-    ['/status', '/stop', '/quickstart'],
+    ['/status', '/stop'],
     'leading whitespace keeps the menu consistent with submit()'
   );
 

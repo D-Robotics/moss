@@ -60,14 +60,15 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         args: '[instructions]',
         description: 'compress older conversation history into a summary',
       },
-      // /loop stays the one advertised autonomous loop; /goal is a hidden
-      // compat alias of the acceptance-gated path (/task run --accept runs the
-      // same runtime contract). The engines stay untouched this pass.
+      // One advertised autonomous entry: /task run is the Task OS door. /loop
+      // and /goal stay dispatchable compat aliases (their engines, journals,
+      // and env caps are untouched) but leave the visible surface.
       {
         command: '/loop',
         args: '<goal>',
         description:
-          'autonomous loop: agent works until it judges the goal done (/loop stop waits; /loop resume continues; MOSS_LOOP_MAX caps iterations)',
+          'compat alias: prefer /task run <goal> — the unified Task OS loop (/loop stop waits; /loop resume continues; MOSS_LOOP_MAX caps iterations)',
+        hidden: true,
         surfaces: ['repl'],
       },
       {
@@ -117,22 +118,12 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         aliases: ['/undo'],
         hidden: true,
       },
-      {
-        command: '/log',
-        description: 'show this session’s on-disk conversation and run-event logs',
-        surfaces: ['tui'],
-      },
       { command: '/mcp', description: 'list MCP server status', surfaces: ['tui'] },
     ],
   },
   {
     title: 'Configure',
     rows: [
-      {
-        command: '/quickstart',
-        description: 'show setup and next-steps guidance',
-        aliases: ['/quick_start', '/start'],
-      },
       {
         command: '/permissions',
         args: '[--verbose]',
@@ -144,10 +135,10 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         description: 'list configured lifecycle hooks and where to edit them',
         surfaces: ['tui'],
       },
-      // De-surfaced (still dispatch for back-compat, just not presented): /examples
-      // (→ /quickstart), /config (alias of /permissions), /tools (tools are
-      // internal), /models (→ /model lists+switches), /yolo (full access is a
-      // mode/flag, set via /permissions or --full-access).
+      // De-surfaced (still dispatch for back-compat): /quickstart — after the
+      // config-snapshot unification its content duplicates /status + the
+      // first-boot guidance; /log — its whole value (two on-disk paths) now
+      // rides on /doctor's footer. See the simplification v2 ledger.
     ],
   },
   {

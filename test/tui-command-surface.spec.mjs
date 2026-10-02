@@ -114,10 +114,12 @@ const HEADLINE = [
   '/doctor',
   '/permissions',
   '/review',
-  '/quickstart',
 ];
 for (const command of HEADLINE) {
   assert.ok(advertised.includes(command), `M1: ${command} is advertised by the shell`);
+}
+for (const folded of ['/quickstart', '/log']) {
+  assert.ok(!advertised.includes(folded), `${folded} left the advertised surface`);
 }
 
 // ─── C17 / D-8: the `/` menu and `/help` are ONE list ────────────────────────
@@ -598,6 +600,19 @@ void streamCalls;
       await waitFor(() => handle.store.rows.some((r) => r.kind === 'tool' && r.text === 'bg')),
       'legacy /bg still dispatches after the merge'
     );
+    instance.unmount();
+    await sleep(100);
+  }
+  // Folded-away /quickstart and /log keep dispatching (back-compat).
+  {
+    const { instance, handle } = await mount('closeout-fold');
+    await type(instance, '/quickstart');
+    assert.ok(
+      await waitFor(() => hasBlock(handle, /^Quickstart$/)),
+      'legacy /quickstart still dispatches'
+    );
+    await type(instance, '/log');
+    assert.ok(await waitFor(() => hasBlock(handle, /^Log$/)), 'legacy /log still dispatches');
     instance.unmount();
     await sleep(100);
   }

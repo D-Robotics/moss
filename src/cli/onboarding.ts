@@ -202,8 +202,8 @@ export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {
     `${label(zh ? '工作区' : 'workspace')} ${compactPath(rt.workspace)}`,
     `${label(zh ? '模型密钥' : 'model key')} ${authState}`,
     zh
-      ? `${ui.dim('下一步')} /quickstart、/model，或 moss setup 配置自有服务商 API key`
-      : `${ui.dim('next')} /quickstart, /model, or moss setup to configure your own provider API key`,
+      ? `${ui.dim('下一步')} /status 查看配置、/model 切换模型，或 moss setup 配置自有服务商 API key`
+      : `${ui.dim('next')} /status for the setup, /model to switch, or moss setup for your own provider key`,
   ].join('\n');
 }
 
@@ -371,7 +371,13 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
     );
   }
 
-  lines.push('', '  Full report: `moss doctor` (adds writable-path and search-backend probes)');
+  const sessionLog = path.join(rt.runtimeDir, 'sessions', `${rt.sessionKey}.jsonl`);
+  const eventLog = path.join(rt.runtimeDir, 'events', `${encodeURIComponent(rt.sessionKey)}.jsonl`);
+  lines.push(
+    '',
+    `  Session logs: ${sessionLog} · ${eventLog}`,
+    '  Full report: `moss doctor` (adds writable-path and search-backend probes)'
+  );
   return lines.join('\n');
 }
 

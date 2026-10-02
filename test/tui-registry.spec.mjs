@@ -316,7 +316,6 @@ for (const command of [
   '/doctor',
   '/permissions',
   '/review',
-  '/quickstart',
 ]) {
   assert.ok(
     HELP_COMMANDS.some((entry) => entry.split(' ')[0] === command),
