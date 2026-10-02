@@ -2,7 +2,7 @@
 
 > **状态：已完成（2026-10-02）**。批次落点：ab2e8279(/permissions+skills 提示)、6d1797a0(目录合一)、
 > c33a5797(D1)、3b9f62cd(D2)、50c8e4af(D3)、dfb24afb(D4)、bf9b8ef2(D5)、cf634a91(D7+D8)、45f70a3e(D9)、
-> 0e1af450(第一性原理收尾)、62e78408(台账)。
+> 0e1af450(第一性原理收尾)、62e78408(台账)、76d582ae(人眼版)、4d500327(免询问：'a' 持久化)。
 > 全部 verify 绿 + CI 绿 + examples 实跑通过 + PTY 交互级 dogfood 通过（scratch/dogfood-tui.log）。
 
 ## 完成对账（实测口径）
@@ -37,6 +37,10 @@
   退出全部断言通过，证据 scratch/dogfood-tui.log）；人眼截图级走查仍留给用户验收。
 - **收尾批（0e1af450）**：/quickstart 出表面（D1 后与 /status 重复）、/log 出表面（两路径收进 /doctor
   尾注）、/loop 降为 hidden 别名；三者 dispatch 全保留，TUI 面 26→24。
+- **免询问批（4d500327，用户复验反馈）**：审批选 'a' 现在真正"别再问"——exec 入会话信任名单
+  （此前选了也只管当次）、persistTrust（仅交互 TTY）把授权写进 config trustedTools（编辑一次
+  覆盖全编辑族），重启后不再问；标签从"this session"改为"(saved)"；/permissions 直接教"按 a"。
+  device_exec 维持逐次审批（机器人安全）；信任只免提示、安全检查全程保留。
 
 决策 A–G 全部按推荐执行。主线 D1–D6 + 弹性 D7–D10；每批：实现与测试同 commit、真实运行取证、`npm run verify` 绿后合 main 并过 CI。
 
