@@ -1,9 +1,8 @@
 /**
  * Secret-redaction patterns + free-text redactor. Lives in the safety base layer
- * (alongside `sanitizeSecrets` / `containsSecrets`) so that `skill-learning` can
- * redact `userMessage` / `assistantText` before persisting a SKILL.md draft
- * WITHOUT pulling the `memory` layer — keeping `skill-learning` a self-contained
- * base layer (no skill-learning → memory dependency).
+ * (alongside `sanitizeSecrets` / `containsSecrets`) so callers can redact free
+ * text (user messages, transcripts, exported bodies) without pulling heavier
+ * layers.
  *
  * Shares the canonical `MEMORY_SECRET_PATTERNS` with memory's
  * `validateMemoryWriteContent` (which imports it from here) so the two cannot
@@ -28,8 +27,8 @@ export const MEMORY_SECRET_PATTERNS: RegExp[] = [
 /**
  * Redact secret-shaped substrings from free text (e.g. a user message pasted
  * into a conversation) by replacing each match with `[redacted]`. Used by
- * skill-learning to sanitize `userMessage` / `assistantText` before persisting a
- * SKILL.md draft, so a pasted API key does not land in `.moss/skills/`.
+ * callers persisting conversation-derived text (sessions, exports) so a
+ * pasted API key never lands on disk.
  * Shares the canonical {@link MEMORY_SECRET_PATTERNS} with memory's
  * `validateMemoryWriteContent` so the two cannot drift.
  * @public

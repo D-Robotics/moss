@@ -260,7 +260,7 @@ export function renderCliStatus(
 ): string {
   const rt = runtimeWithDefaults(runtime);
   const memoryCount = countJsonIndex(path.join(rt.runtimeDir, 'memory', 'index.json'));
-  const skillCount = countMarkdownFiles(path.join(rt.workspace, '.moss', 'skills', 'learned'));
+  const skillCount = countMarkdownFiles(path.join(rt.workspace, '.moss', 'skills'));
   const sessionDir = path.join(rt.runtimeDir, 'sessions');
   const detailMode = resolveCliDetailMode();
   const toolGroups = groupTools(agent.tools.getAll()).filter((g) => g.enabled);

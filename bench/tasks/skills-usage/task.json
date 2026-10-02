@@ -1,0 +1,7 @@
+{
+  "id": "skills-usage",
+  "tags": ["domain:skills", "tier:core"],
+  "maxTurns": 6,
+  "timeoutMs": 240000,
+  "prompt": "Skills are markdown instructions under .moss/skills/<name>/SKILL.md. Do this end to end:\n\n1. Create a skill named 'robot-check' via the shell: moss skill create robot-check\n   (run it with `!` or exec — the scaffold lands in .moss/skills/robot-check/SKILL.md).\n2. Edit the scaffold: set description to 'verify a robot subsystem is ready', keep the $ARGUMENTS placeholder, and make the body a short checklist that names $ARGUMENTS in its first line.\n3. Verify the skill is discoverable: run `moss skill list` and show its line.\n4. Call the skill tool with {name: 'robot-check', args: 'camera'} and quote the first line of the loaded body in your answer — it must show the injected argument, not the literal $ARGUMENTS.\n\nFinish with: created/discovered/loaded = yes/no for each step and the quoted line."
+}

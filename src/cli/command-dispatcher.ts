@@ -273,6 +273,28 @@ export const COMMANDS: Record<string, CommandConfig> = {
       'Unified task runtime: run/resume/status/timeline — one goal in, one verified result out',
   },
 
+  skill: {
+    name: 'skill',
+    phase: CliPhase.WorkspaceReady,
+    handler: async (ctx) => {
+      const { runSkillCommand } = await import('./skill-commands.js');
+      const { ExitCode } = await import('./exit-codes.js');
+      const { resolveConfigDir } = await import('./config.js');
+      const workspace = ctx.workspace;
+      if (!workspace) {
+        console.error('[moss] skill could not resolve the workspace.');
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      const code = await runSkillCommand(ctx.commandArgs, {
+        workspaceDir: workspace,
+        configDir: resolveConfigDir(),
+      });
+      if (code !== 0) process.exitCode = code;
+    },
+    description: 'Skills: create/list (.moss/skills scaffolding)',
+  },
+
   device: {
     name: 'device',
     phase: CliPhase.WorkspaceReady,

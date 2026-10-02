@@ -24,6 +24,7 @@ const expectedPhases = {
   tasks: CliPhase.WorkspaceReady,
   mcp: CliPhase.WorkspaceReady,
   device: CliPhase.WorkspaceReady,
+  skill: CliPhase.WorkspaceReady,
   task: CliPhase.AgentReady,
 };
 
