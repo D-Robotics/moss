@@ -137,4 +137,42 @@ import {
   );
 }
 
+// ─── /review in a non-git workspace: classified, not crashed ───────────────
+
+{
+  // git exits non-zero (128/129 by version) outside a repo and runProcess
+  // rejects — /review must still answer with the honest "not a git
+  // repository" guidance, which means the rejection is classified, not
+  // surfaced as a raw ProcessError.
+  const messages = [];
+  const os = await import('node:os');
+  const fs = await import('node:fs');
+  const pathMod = await import('node:path');
+  const nonGit = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'moss-review-nogit-'));
+  const errors = [];
+  await runRegistryCommand('/review', {
+    agent: { config: { model: 'm', contextTokens: 1000 } },
+    runtime: undefined,
+    sessionKey: 'review-spec',
+    workspace: nonGit,
+    surface: 'repl',
+    say: (kind, text) => {
+      (kind === 'error' ? errors : messages).push(text);
+    },
+    prefillInput() {},
+    submitPrompt: () => {
+      messages.push('(submitted)');
+    },
+  });
+  const said = [...errors, ...messages].join('\n');
+  assert.ok(
+    /review needs a git workspace|Not a git repository/i.test(said),
+    `/review classifies a non-git workspace instead of crashing: ${said.slice(0, 160)}`
+  );
+  assert.ok(
+    !/ProcessError|git diff failed: Command/i.test(said),
+    'no raw process internals leak into the answer'
+  );
+}
+
 console.log('[PASS] Command registry');

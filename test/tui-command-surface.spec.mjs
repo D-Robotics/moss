@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 // Hermetic + offline: the control commands resolve CLI config, so point config
 // resolution at an empty temp dir and disable the bundled gateway. This must run
@@ -257,9 +258,22 @@ const agent = {
 };
 const options = {
   agent,
-  // A real (non-git) workspace directory: `/diff` and `/review` then exercise
-  // their honest "not a git repository" answer instead of a spawn failure.
-  workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-cmd-ws-')),
+  // A git workspace WITH a diff, built for the test: `/diff` and `/review`
+  // then take their happy paths deterministically — independent of the host
+  // git version's exit codes and of any temp-dir quirks.
+  workspaceDir: (() => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-cmd-ws-'));
+    fs.writeFileSync(path.join(ws, 'note.txt'), 'v1\n');
+    const git = (args) => spawnSync('git', args, { cwd: ws, encoding: 'utf8', timeout: 10_000 });
+    git(['init', '-q']);
+    git(['config', 'user.email', 'spec@moss']);
+    git(['config', 'user.name', 'moss-spec']);
+    git(['add', 'note.txt']);
+    git(['commit', '-q', '-m', 'init']);
+    fs.writeFileSync(path.join(ws, 'note.txt'), 'v2\n');
+    fs.writeFileSync(path.join(ws, 'extra.txt'), 'new\n');
+    return ws;
+  })(),
   listSessions: async () => [],
   mcpServers: [],
   listCheckpoints: () => [],

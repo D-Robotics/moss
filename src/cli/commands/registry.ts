@@ -316,11 +316,33 @@ const reviewCommand: CommandSpec = {
         diff = result.stdout;
         scopeLabel = `GitHub PR #${prNumber}`;
       } else {
-        const result = await runProcess('git', {
-          args: ['--no-pager', 'diff', 'HEAD'],
-          cwd: ctx.workspace,
-          timeout: 30_000,
-        });
+        // runProcess rejects on non-zero exit, so "not a git repository" (git
+        // exits 128/129 there, depending on version) arrives as a throw —
+        // classify it from the error, not from a result we never receive.
+        let result: { exitCode: number; stdout: string; stderr: string };
+        try {
+          result = await runProcess('git', {
+            args: ['--no-pager', 'diff', 'HEAD'],
+            cwd: ctx.workspace,
+            timeout: 30_000,
+          });
+        } catch (err) {
+          // runProcess rejects on non-zero exit — git exits 128/129 outside a
+          // repo depending on version, so the classification reads the
+          // ProcessError's own stderr, not a result we never receive.
+          const procErr = err as { stderr?: string; exitCode?: number };
+          const stderr = procErr.stderr ?? (err instanceof Error ? err.message : String(err));
+          const notRepo = /not a git repository/i.test(stderr);
+          throw new MossError({
+            code: ErrorCode.TOOL_EXECUTION_FAILED,
+            message: notRepo
+              ? `Not a git repository: ${ctx.workspace} — /review needs a git workspace.`
+              : `git diff failed${procErr.exitCode !== undefined ? ` (exit ${procErr.exitCode})` : ''}: ${errorMessage(err)}`,
+            hint: notRepo
+              ? 'Open a git repository, or pass a PR number: `/review <PR#>`.'
+              : undefined,
+          });
+        }
         if (result.exitCode !== 0) {
           const notRepo = /not a git repository/i.test(result.stderr);
           throw new MossError({
