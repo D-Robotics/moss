@@ -373,7 +373,9 @@ for (const command of advertised) {
 }
 
 // The whole control surface, typed back to back with no "unknown command" among
-// them: the M1 regression that started this work.
+// them: the M1 regression that started this work. Each command waits for its
+// own block before the next keystroke — a slow runner must not turn
+// still-settling async answers (e.g. /review's git spawn) into false reds.
 {
   const handle = liveHandle();
   const runtime = new TaskRuntime({
@@ -384,12 +386,14 @@ for (const command of advertised) {
   for (const command of HEADLINE) {
     if (command === '/model') continue;
     await type(instance, `${command}${ARGS.get(command) ?? ''}`);
-  }
-  const blocks = handle.store.rows.filter((r) => r.kind === 'tool').map((r) => r.text);
-  for (const command of HEADLINE) {
-    if (command === '/model') continue;
     const title = BLOCK_TITLE.get(command);
-    assert.ok(title && blocks.some((text) => title.test(text)), `M1: ${command} answered inline`);
+    const settled = await waitFor(
+      () =>
+        title !== undefined &&
+        handle.store.rows.some((r) => r.kind === 'tool' && title.test(r.text)),
+      15_000
+    );
+    assert.ok(settled, `M1: ${command} answered inline`);
   }
   const unknown = handle.store.rows.filter(
     (r) => r.kind === 'error' && r.text.includes('unknown command')
