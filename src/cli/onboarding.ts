@@ -266,18 +266,16 @@ export function renderCliStatus(
   const toolGroups = groupTools(agent.tools.getAll()).filter((g) => g.enabled);
   const auth = rt.config;
   if (!options.verbose) {
+    // The human view: what am I running, where, and will it ask me first.
+    // Diagnostics (api key, memory/skills counts, sources) live in --verbose.
     return [
       ui.bold(ui.black('Status')),
-      `  ${label('model')} ${agent.config.model} (${auth.usingBundledDefault ? 'built-in model gateway' : auth.provider})`,
-      `  ${label('api key')} ${auth.usingBundledDefault ? 'built-in model (no model key needed)' : auth.apiKey ? `configured via ${auth.apiKeySource}` : 'missing'}`,
+      `  ${label('model')} ${agent.config.model} (${auth.usingBundledDefault ? 'built-in' : auth.provider})`,
       `  ${label('workspace')} ${rt.workspace}`,
-      `  ${label('permissions')} ${auth.approvalPolicy === 'never' ? 'all allowed without prompts' : 'ask before changes'} (${auth.approvalPolicySource ?? 'default'})`,
-      `  ${label('tools')} ${agent.tools.size} (${toolGroups.map((g) => g.title).join(', ') || 'none'})`,
-      `  ${label('memory')} ${memoryCount} entries`,
-      `  ${label('skills')} ${skillCount}`,
-      `  ${label('setup')} moss setup · /model · /quickstart`,
+      `  ${label('changes')} ${auth.approvalPolicy === 'never' ? 'runs without asking' : 'asks you first'}`,
+      `  ${label('tools')} ${agent.tools.size} available`,
       '',
-      '  Details: /status --verbose',
+      '  More: /status --verbose · switch model: /model',
     ].join('\n');
   }
 
@@ -406,7 +404,6 @@ export function renderCliPermissions(
 ): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
-  const safety = auth.safetyMode ?? rt.safetyMode;
   const approval = auth.approvalPolicy ?? 'never';
   const configuredTrustedTools = auth.trustedTools ?? [];
   const configuredDeniedTools = auth.deniedTools ?? [];
@@ -436,13 +433,11 @@ export function renderCliPermissions(
   const activeRules = configuredTrustedTools.length + configuredDeniedTools.length;
   return [
     ui.bold(ui.black('Permissions')),
-    `  ${label('safety')} ${safety}`,
-    `  ${label('approval')} ${approval === 'never' ? 'automatic for allowed tools' : 'asks before changes'}`,
+    `  ${label('changes')} ${approval === 'never' ? 'runs without asking' : 'asks you first'}`,
     `  ${label('workspace')} ${auth.workspace}`,
-    `  ${label('rules')} ${activeRules === 0 ? 'default tool policy' : `${activeRules} custom rule${activeRules === 1 ? '' : 's'}`}`,
+    `  ${label('rules')} ${activeRules === 0 ? 'default' : `${activeRules} custom`}`,
     '',
-    '  Change behavior with /mode plan or /mode accept-edits.',
-    '  Need diagnostics? Use /permissions --verbose or /doctor.',
+    '  Switch: /mode plan | /mode accept-edits · everything: /permissions --verbose',
   ].join('\n');
 }
 

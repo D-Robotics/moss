@@ -1030,7 +1030,6 @@ export function TuiAppRoot({
             : `${info.mcp.connected}/${info.mcp.total} MCP servers connected`
         );
       }
-      if (info.soul) parts.push(`soul:${info.soul}`);
       if (parts.length > 0) appendRow(store, 'detail', `context: ${parts.join(' · ')}`);
     }
     // A failed MCP server is the most common boot problem and it used to be

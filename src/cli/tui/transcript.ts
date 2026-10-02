@@ -707,27 +707,23 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
   return out;
 }
 
-/** The line a finished run leaves behind, Claude-style: `✻ Worked for 5s · done 1:23 AM`. */
+/** The line a finished run leaves behind, Claude-style: `✻ Worked for 5s · done 1:23 AM`.
+ * Token telemetry lives in /usage — the run line is for the human watching. */
 export function renderRunSummary(
   elapsedMs: number,
   halted: boolean,
   width: number,
-  tokens?: { input: number; output: number },
+  _tokens?: { input: number; output: number },
   now: Date = new Date()
 ): TuiLine[] {
   const seconds = Math.max(1, Math.round(elapsedMs / 1000));
   const verb = runVerb(seconds);
-  const fmt = (n: number) => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n));
-  const tokenPart =
-    tokens && (tokens.input > 0 || tokens.output > 0)
-      ? ` · prompt ${fmt(tokens.input)} · reply ${fmt(tokens.output)}`
-      : '';
   // The local wall-clock stamp (`done 1:23 AM`) is how the reference answers
   // "when did this actually finish" for a run the user watched scroll away.
   const doneAt = ` · done ${now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
   const text = halted
-    ? `✻ ${verb} for ${seconds}s${tokenPart} · interrupted`
-    : `✻ ${verb} for ${seconds}s${tokenPart}${doneAt}`;
+    ? `✻ ${verb} for ${seconds}s · interrupted`
+    : `✻ ${verb} for ${seconds}s${doneAt}`;
   return [line(''), line(clip(text, width), { dim: true })];
 }
 

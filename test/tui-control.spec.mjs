@@ -212,7 +212,11 @@ function mockAgent({ slow = false, hold = null } = {}) {
   await waitFor(() =>
     handle.store.rows.some((r) => r.kind === 'assistant' && r.text.includes('done count my'))
   );
-  assert.match(instance.lastFrame(), /prompt 100 · reply 50/, 'run summary usage');
+  assert.match(
+    instance.lastFrame(),
+    /✻ \w+ for \d+s/,
+    'run summary stays human-sized (tokens live in /usage)'
+  );
   await type(instance, '/usage');
   await waitFor(() => instance.lastFrame().includes('150 in run / 150 session'));
   instance.unmount();

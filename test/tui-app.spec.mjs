@@ -438,15 +438,12 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
   const done = renderRunSummary(12_000, false, 200, { input: 3200, output: 891 })
     .map((l) => l.text)
     .join('\n');
-  assert.match(
-    done,
-    /✻ \w+ for 12s · prompt 3\.2k · reply 891/,
-    'the run summary labels token spend'
-  );
+  assert.match(done, /✻ \w+ for 12s · done /, 'the run summary is human-sized: time + finish');
+  assert.ok(!done.includes('prompt'), 'token telemetry stays in /usage, not the run line');
   const halted = renderRunSummary(4000, true, 200, { input: 0, output: 0 })
     .map((l) => l.text)
     .join('\n');
-  assert.match(halted, /· interrupted$/, 'no-token runs stay clean');
+  assert.match(halted, /· interrupted$/, 'halted runs say interrupted');
   assert.ok(!renderRunSummary(4000, false, 200).some((l) => l.text.includes('↑')));
   assert.match(
     renderRunSummary(4000, false, 200, undefined, new Date('2026-10-01T23:45:00'))
