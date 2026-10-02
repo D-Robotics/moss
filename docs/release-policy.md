@@ -31,7 +31,30 @@ package.json 已 0.13.0）。v0.14–v0.20 期间欠账扩大：代码交付到 
 
 选择后者：证据不足时缩小主张，而不是补齐文字。
 
-## 当前主张（2026-10-02，v0.23.0）
+## 当前主张（2026-10-02，v0.24.0）
+
+- **版本**：`0.24.0`；tag `v0.24.0`。该版本在 v0.23（能力层可用性）之上交付诚实度+信任传递
+  与子命令层双语（v0.24 计划见 `docs/superpowers/plans/2026-10-02-v024-honesty-i18n.md`）：
+  - 信任修复合并自 prod/ux-hardening 线：F23 非交互审批拒绝文案继承到子代理（委托
+    create_subagent / fan_out 重试同一调用同样被拒，堵住"换条路绕过审批"的口子）；
+    F24 `exists` 比较语义修复（证据模型按真实内容判 PASS/FAIL，拒绝字符串拼凑误判）。
+  - `moss device|mcp|skill|task` 四命令族 zh/en 双语：usage 块、错误路径、成功输出、
+    空态按终端 locale 渲染（isZhLocale 三元分支，无 i18n 框架）；实体名、命令、机器 token
+    不翻译。task status 视图列标签双语且保持 10 列对齐（任务/目标/阶段/…）。
+- **已跑、可主张**：
+  - `npm run verify`：format/lint/typecheck + 198 个 spec 文件 + PTY 冒烟全绿（每批独立过门：
+    批次 1 合并提交 331a26c2、批次 2 提交 396f94e1、批次 3 提交 8d7e8ea7）。
+  - `npm run examples`：三例实跑通过。
+  - 双语真实运行取证：四命令族在 LANG=zh_CN.UTF-8 与 en 两态 headless 实跑（空态/错误/
+    成功路径）；`moss task status` zh 视图对真实快照渲染（任务/目标/阶段/尝试/裁决 列对齐）。
+  - PTY dogfood（zh locale）：TUI 壳正常启动；`/task status` 在会话内输出中文空态
+    （探针：python3 PTY 24×120、离线 provider 配置、无真实凭据）。
+  - 合并线新增 spec 实跑：subagent-approval-inheritance（F23）、evidence-model（F24）。
+- **未执行、因此不主张**：SWE-bench/Terminal-Bench/全量 bench 复跑（同 v0.23 口径）；
+  TUI 全壳 zh（本版 non-goal，TUI 面板文案仍为英文）；多设备 fleet 编排（推迟到 v0.25）；
+  真机设备全链（需凭据时人工执行）。
+
+## 上一版主张（2026-10-02，v0.23.0）
 
 - **版本**：`0.23.0`；tag `v0.23.0`。该版本在 v0.22（精简发布）之上交付能力层可用性
   （v0.23 计划见 `docs/superpowers/plans/2026-10-02-v023-capability.md`）：
