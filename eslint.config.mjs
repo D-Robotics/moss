@@ -239,10 +239,9 @@ export default tseslint.config(
         {
           patterns: [
             {
-              // 豁免：background-completion 的 exec 注册表依赖
-              // （T3.3 将 tracker 移入 core/loop 后，其读取 background-exec
-              //  进程注册表/状态队列的 import 仍留在 tools，待后续归位）。
-              regex: '\\.\\./\\.\\./tools/(?!background-exec|background-completion-state)',
+              // 后台完成的 tracker/注册表已归位到 core/tools（core 自有的工具管线），
+              // core 对 src/tools（外层具体实现）的引用为硬边界。
+              regex: '\\.\\./\\.\\./tools/',
               message: 'core 只依赖 contracts/provider/context；src/tools 具体工具实现禁止',
             },
           ],

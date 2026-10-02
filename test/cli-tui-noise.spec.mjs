@@ -2,11 +2,6 @@
 import assert from 'node:assert/strict';
 
 import { activityLabel } from '../dist/cli/tui-utils.js';
-import { legacyTheme as theme, applyTerminalThemeMode } from '../dist/cli/theme/theme.js';
-
-applyTerminalThemeMode('light');
-assert.equal(theme.text, '#0a0a0a', 'light terminal body text uses high-contrast ink');
-assert.equal(theme.textMuted, '#4b5563', 'light terminal secondary text stays readable');
 
 assert.equal(
   activityLabel({
@@ -20,4 +15,4 @@ assert.equal(
   'internal checkpoint status never leaks into the transcript'
 );
 
-console.log('cli-tui-noise.spec: readable light theme and low-noise labels passed');
+console.log('cli-tui-noise.spec: low-noise labels passed');

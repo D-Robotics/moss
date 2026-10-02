@@ -318,10 +318,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
     group: 'ui, logging & notifications',
     vars: [
       'MOSS_NO_TUI',
-      'MOSS_THEME',
-      'MOSS_TUI_THEME',
       'MOSS_NO_COLOR',
-      'MOSS_NO_TERM_QUERY',
       'MOSS_LOG_LEVEL',
       'MOSS_LOG_JSON',
       'MOSS_SHOW_THINKING',

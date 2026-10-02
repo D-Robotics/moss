@@ -31,8 +31,8 @@ const DEVICE_READ_TOOLS = [
 
 const WEB_TOOLS = ['web_search', 'web_fetch', 'web_browser_fetch'];
 
-// No first-class attachment_* agent tools are registered (attachments are
-// prompt-side via preparePromptAttachments). Keep empty so scope sets stay real.
+// No first-class attachment_* agent tools are registered (prompt attachments
+// are a host/SDK concern, not agent tools). Keep empty so scope sets stay real.
 const ATTACHMENT_TOOLS: string[] = [];
 
 // Skill tools a host may register; kept as names so scoped sub-agents can use them.

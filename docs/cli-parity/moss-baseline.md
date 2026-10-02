@@ -525,10 +525,11 @@ useInput, usePaste, useStdin, useStdout, useStderr, useApp, useCursor, useFocus,
 useFocusManager, useAnimation, useBoxMetrics, useWindowSize, useIsScreenReaderEnabled,
 renderToString, kittyFlags, kittyModifiers`.
 - **Colour/theme**: the shell uses ink `color`/`bold`/`dimColor`/`inverse` only
-  (`src/cli/tui/app.ts:901-923`); the REPL has a separate colour layer
-  (`src/cli/ui.ts:6-9`, `src/cli/theme/theme.ts`) with `--no-color`
-  (`src/cli/args.ts:376`) and `NO_COLOR` (`src/cli/ui.ts:9`; terminal-background probing also honours
-  it, `src/cli/theme/terminal-background.ts:34`).
+  (`src/cli/tui/app.ts`); the REPL has a single self-contained ANSI colour layer
+  (`src/cli/ui.ts:6-9`) honouring `--no-color` (`src/cli/args.ts:376`) and `NO_COLOR`
+  (`src/cli/ui.ts:9`). The former `src/cli/theme/` module (colour tokens + terminal-background
+  probing) was unreferenced and has been removed, along with `MOSS_THEME` / `MOSS_TUI_THEME` /
+  `MOSS_NO_TERM_QUERY`.
 - **SIGINT**: `render(..., { exitOnCtrlC: false })` and explicit Ctrl+C semantics ("interrupt the
   run · press again to quit", `src/cli/tui/app.ts:672-676`, `:960-962`;
   `src/cli/tui/help.ts:43`).
