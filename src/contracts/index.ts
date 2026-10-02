@@ -23,6 +23,9 @@ export type {
   DeviceExecOptions,
   DeviceReadFileOptions,
   DeviceWriteFileOptions,
+  FleetDeviceResult,
+  FleetResult,
+  FleetOutcome,
 } from './device.js';
 
 export type {

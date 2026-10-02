@@ -100,6 +100,52 @@ export function resolveDefaultDeviceTarget(
 
 export { loadDeviceRegistry };
 
+/** Outcome of resolving an explicit fleet selector against the workspace registry. */
+export interface DeviceTargetSelection {
+  /** Resolved targets in the user's (deduped) order. */
+  targets: DeviceTarget[];
+  /** Selector ids not present in the registry, in the user's order. */
+  missing: string[];
+  /** True when the selector carried no usable id (whitespace/empty). */
+  empty: boolean;
+}
+
+/**
+ * Resolve an explicit set of registry device ids (Fleet MVP v0.25). This is the
+ * multi-target sibling of the single-target `resolveDefaultDeviceTarget`: it
+ * NEVER falls back to a default or fans out the whole registry implicitly, so
+ * "which devices ran" is always exactly what the user named.
+ *
+ * Selector ids are trimmed, deduped preserving order, and matched against the
+ * workspace registry only. Unknown ids are collected (not thrown) so the caller
+ * can report every missing id at once before connecting anything.
+ */
+export function resolveDeviceTargets(
+  selector: readonly string[],
+  options: { workspaceDir?: string } = {}
+): DeviceTargetSelection {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const raw of selector) {
+    const id = raw.trim();
+    if (id.length === 0 || seen.has(id)) continue;
+    seen.add(id);
+    ordered.push(id);
+  }
+  if (ordered.length === 0) return { targets: [], missing: [], empty: true };
+  const workspaceDir = options.workspaceDir ?? hostConfiguredWorkspace ?? undefined;
+  const registry = workspaceDir ? loadDeviceRegistry(workspaceDir) : [];
+  const byId = new Map(registry.map((device) => [device.deviceId, device]));
+  const targets: DeviceTarget[] = [];
+  const missing: string[] = [];
+  for (const id of ordered) {
+    const target = byId.get(id);
+    if (target) targets.push(target);
+    else missing.push(id);
+  }
+  return { targets, missing, empty: false };
+}
+
 export function missingTargetHelp(toolName: string): string {
   return (
     `Error: ${toolName}: no device target configured. Set MOSS_DEVICE_HOST (plus auth) in the environment or .env, then retry.\n` +

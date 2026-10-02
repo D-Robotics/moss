@@ -165,3 +165,27 @@ export interface DeviceWriteFileOptions {
   mode?: number;
   signal?: AbortSignal;
 }
+
+/**
+ * Fleet MVP (v0.25) — one device's slot in a read-only fan-out. `status`
+ * distinguishes a real result from a per-device failure so one unreachable
+ * device can never erase the others; `endpoint` is the loggable
+ * `user@host:port` identity (never a secret).
+ */
+export interface FleetDeviceResult<T> {
+  deviceId: string;
+  endpoint: string;
+  status: 'pass' | 'fail';
+  result?: T;
+  error?: string;
+}
+
+/** Aggregate of a read-only fleet run: `selector` echoes the resolved ids in
+ *  order; `outcome` is the three-state verdict (see {@link FleetOutcome}). */
+export interface FleetResult<T> {
+  selector: string[];
+  outcome: FleetOutcome;
+  results: FleetDeviceResult<T>[];
+}
+
+export type FleetOutcome = 'all-pass' | 'partial' | 'all-fail';
