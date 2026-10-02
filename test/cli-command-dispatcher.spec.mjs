@@ -22,6 +22,7 @@ const expectedPhases = {
   doctor: CliPhase.ConfigOnly,
   sessions: CliPhase.WorkspaceReady,
   tasks: CliPhase.WorkspaceReady,
+  mcp: CliPhase.WorkspaceReady,
   task: CliPhase.AgentReady,
 };
 

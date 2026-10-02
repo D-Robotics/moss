@@ -50,6 +50,10 @@ interface ServerEntry {
    * paying prompt tokens for) the whole server catalog.
    */
   descriptors: McpToolDescriptor[];
+  /** Server config, kept so a dropped connection can be re-established. */
+  config: McpServerConfig;
+  /** Reconnect attempts already made for the current down period (max 1). */
+  reconnectAttempts: number;
 }
 
 /** One selectable server tool, as seen by capability discovery. */
@@ -127,9 +131,13 @@ function toolCallResultToText(result: McpToolCallResult): string {
 export class McpToolRegistry {
   private entries: ServerEntry[] = [];
   private readonly registerTool: (tool: Tool) => void;
+  private readonly connectTimeoutMs: number | undefined;
+  private readonly requestTimeoutMs: number | undefined;
 
   private constructor(opts: McpRegistryOptions = {}) {
     this.registerTool = opts.registerTool ?? (() => {});
+    this.connectTimeoutMs = opts.connectTimeoutMs;
+    this.requestTimeoutMs = opts.requestTimeoutMs;
   }
 
   /**
@@ -154,6 +162,8 @@ export class McpToolRegistry {
         searchTool: registry.buildSearchTool(client),
         realTools: new Map(),
         descriptors: [],
+        config,
+        reconnectAttempts: 0,
       };
       try {
         await client.connect();
@@ -177,6 +187,43 @@ export class McpToolRegistry {
   /** Status snapshot (order follows the config). */
   getStatuses(): McpServerStatus[] {
     return this.entries.map((e) => ({ ...e.status }));
+  }
+
+  /**
+   * Lazy reconnect for a dropped server: rebuild the client, retry the
+   * handshake once, refresh descriptors. Only an unexpected drop ('failed')
+   * heals — an explicit closeAll ('closed') stays closed, and the counter
+   * caps retries at one per down period so a dead server can't loop.
+   */
+  private async reconnect(entry: ServerEntry): Promise<boolean> {
+    if (entry.status.state !== 'failed' || entry.reconnectAttempts >= 1) return false;
+    entry.reconnectAttempts += 1;
+    entry.status.state = 'connecting';
+    entry.status.error = undefined;
+    try {
+      await entry.client.close().catch(() => undefined);
+      const client = new McpClient(entry.config, {
+        connectTimeoutMs: this.connectTimeoutMs,
+        requestTimeoutMs: this.requestTimeoutMs,
+      });
+      await client.connect();
+      entry.descriptors = await client.listTools();
+      entry.client = client;
+      // The search tool and any revealed real tools captured the old client;
+      // rebuild the wire tools so future calls hit the new connection.
+      entry.searchTool = this.buildSearchTool(client);
+      entry.realTools.clear();
+      entry.status.state = 'connected';
+      entry.status.toolCount = entry.descriptors.length;
+      entry.reconnectAttempts = 0;
+      log.info('server reconnected', { server: entry.config.name });
+      return true;
+    } catch (err) {
+      entry.status.state = 'failed';
+      entry.status.error = errorMessage(err).split('\n')[0] ?? 'reconnect failed';
+      log.warn('server reconnect failed', { server: entry.config.name, error: entry.status.error });
+      return false;
+    }
   }
 
   /** The eagerly-registered tools: one search meta-tool per CONNECTED server. */
@@ -294,27 +341,33 @@ export class McpToolRegistry {
     input: Record<string, unknown>,
     ctx: ToolContext
   ): Promise<string> {
-    // A revealed tool outlives its connection in the host registry; calling it
-    // after closeAll must fail with a clear reason, not a transport error.
-    const serverState = this.entryFor(client.name)?.status.state;
-    if (serverState !== 'connected') {
-      throw new MossError({
-        code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: `mcp tool "${descriptor.name}" on "${client.name}" is not callable: server state is "${serverState ?? 'unknown'}".`,
-        hint: 'The MCP connection was closed; re-run to reconnect before calling this tool.',
-        recoverable: true,
-      });
+    // A revealed tool outlives its connection in the host registry; a dropped
+    // server gets one lazy reconnect attempt before the call fails with a
+    // clear reason. The reconnect swaps entry.client, so re-resolve it.
+    const entryBefore = this.entryFor(client.name);
+    if (entryBefore && entryBefore.status.state !== 'connected') {
+      const reconnected = await this.reconnect(entryBefore);
+      if (!reconnected) {
+        throw new MossError({
+          code: ErrorCode.TOOL_EXECUTION_FAILED,
+          message: `mcp tool "${descriptor.name}" on "${client.name}" is not callable: server state is "${entryBefore.status.state}".`,
+          hint: 'The MCP connection dropped and a reconnect attempt failed; check the server, then retry.',
+          recoverable: true,
+        });
+      }
     }
+    const entry = this.entryFor(client.name);
+    const liveClient = entry?.client ?? client;
     // First call is the lazy-schema trigger: pull the (already cached)
     // descriptor and attach the true schema so subsequent requests render it.
     if (tool.inputSchema.properties && Object.keys(tool.inputSchema.properties).length === 0) {
-      const fresh = client.findCachedTool(descriptor.name) ?? undefined;
+      const fresh = liveClient.findCachedTool(descriptor.name) ?? undefined;
       const schema = (fresh ?? descriptor).inputSchema;
       if (schema && schema.type === 'object') {
         tool.inputSchema = { ...schema, properties: schema.properties ?? {} };
       }
     }
-    const result = await client.callTool(descriptor.name, input ?? {}, {
+    const result = await liveClient.callTool(descriptor.name, input ?? {}, {
       signal: ctx.abortSignal,
     });
     const text = toolCallResultToText(result);
@@ -359,19 +412,23 @@ export class McpToolRegistry {
         },
       },
       execute: async (input: { query?: string; refresh?: boolean }, ctx: ToolContext) => {
-        // Same guard as revealed tools: after closeAll the cached path would
-        // otherwise answer from stale memory and register more dead tools.
-        const serverState = this.entryFor(client.name)?.status.state;
-        if (serverState !== 'connected') {
-          throw new MossError({
-            code: ErrorCode.TOOL_EXECUTION_FAILED,
-            message: `mcp search on "${client.name}" is not callable: server state is "${serverState ?? 'unknown'}".`,
-            hint: 'The MCP connection was closed; re-run to reconnect before searching.',
-            recoverable: true,
-          });
+        // Same guard as revealed tools, plus one lazy reconnect so a bounced
+        // server heals on the next search instead of erroring until restart.
+        const entry = this.entryFor(client.name);
+        let liveClient = entry?.client ?? client;
+        if (entry && entry.status.state !== 'connected') {
+          if (!(await this.reconnect(entry))) {
+            throw new MossError({
+              code: ErrorCode.TOOL_EXECUTION_FAILED,
+              message: `mcp search on "${client.name}" is not callable: server state is "${entry.status.state}".`,
+              hint: 'The MCP connection dropped and a reconnect attempt failed; check the server, then retry.',
+              recoverable: true,
+            });
+          }
+          liveClient = entry.client;
         }
         const query = typeof input?.query === 'string' ? input.query.trim().toLowerCase() : '';
-        const tools = await client.listTools({
+        const tools = await liveClient.listTools({
           refresh: input?.refresh === true,
           signal: ctx.abortSignal,
         });
@@ -388,7 +445,7 @@ export class McpToolRegistry {
         // Lazy registration: whatever the model can see here becomes callable.
         const lines: string[] = [];
         for (const t of matched) {
-          const wireName = this.ensureRealTool(client, t);
+          const wireName = this.ensureRealTool(liveClient, t);
           const desc = (t.description ?? '(no description)').split('\n')[0] ?? '';
           lines.push(
             `- ${wireName}: ${desc}${wireName.endsWith(`__${t.name}`) ? '' : ` (server tool: ${t.name})`}`

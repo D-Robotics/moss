@@ -273,6 +273,26 @@ export const COMMANDS: Record<string, CommandConfig> = {
       'Unified task runtime: run/resume/status/timeline — one goal in, one verified result out',
   },
 
+  mcp: {
+    name: 'mcp',
+    phase: CliPhase.WorkspaceReady,
+    handler: async (ctx) => {
+      const { runMcpCommand } = await import('./mcp-commands.js');
+      const { ExitCode } = await import('./exit-codes.js');
+      const { resolveConfigDir } = await import('./config.js');
+      const workspace = ctx.workspace;
+      if (!workspace) {
+        console.error('[moss] mcp could not resolve the workspace.');
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      const configDir = resolveConfigDir();
+      const code = await runMcpCommand(ctx.commandArgs, { workspaceDir: workspace, configDir });
+      if (code !== 0) process.exitCode = code;
+    },
+    description: 'Manage MCP servers: add/list/remove/test (project or user config)',
+  },
+
   setup: {
     name: 'setup',
     phase: CliPhase.None,
@@ -569,7 +589,6 @@ export const COMMANDS: Record<string, CommandConfig> = {
  */
 export const UNIMPLEMENTED_COMMANDS: readonly string[] = [
   'update',
-  'mcp',
   'plugins',
   'migrate',
   'web',

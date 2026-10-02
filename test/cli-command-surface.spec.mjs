@@ -15,7 +15,10 @@ const cli = path.join(here, '..', 'dist', 'cli.js');
 
 // ─── Ghost subcommands must hard-fail with a clear error ─────────────────────
 
-const GHOSTS = ['mcp', 'plugins', 'migrate', 'web', 'agent', 'update'];
+// 'mcp' graduated from ghost to a real lifecycle command (mcp add/list/
+// remove/test) — it answers with usage, exit 2, and is covered by
+// test/mcp-lifecycle.spec.mjs.
+const GHOSTS = ['plugins', 'migrate', 'web', 'agent', 'update'];
 for (const ghost of GHOSTS) {
   const res = spawnSync(process.execPath, [cli, ghost], {
     input: '',
