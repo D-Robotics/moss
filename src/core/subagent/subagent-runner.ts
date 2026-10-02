@@ -92,6 +92,22 @@ export interface SubAgentRunnerDeps {
    * so fan_out_subagents / create_subagent cannot false-complete coding work.
    */
   completionGate?: import('../loop/agent-loop-types.js').AgentLoopExtensions['completionGate'];
+
+  /**
+   * Optional host approval gate. When set, every child tool call is checked
+   * against the SAME approval policy as the parent before execution, so a
+   * non-interactive denial stays denied inside sub-agents — scope/writePaths
+   * narrow permissions, they never widen them (F23). The runner injects the
+   * child's sessionKey/runId into each call.
+   */
+  checkToolApproval?: (call: {
+    id: string;
+    name: string;
+    input: unknown;
+    abortSignal: AbortSignal;
+    sessionKey: string;
+    runId: string;
+  }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
 }
 
 /**
@@ -241,6 +257,10 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
     });
     emitProgress({ status: 'started', phase: 'starting' });
 
+    // Approval inheritance (F23): the child loop must consult the same gate as
+    // the parent; capture once so the work pass sees a stable reference.
+    const inheritedApprovalGate = deps.checkToolApproval;
+
     try {
       const childStream = runAgentLoop({
         runId: childRunId,
@@ -278,6 +298,24 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         toolHooks: deps.toolHooks,
         // Inherit parent coding completion gates (verify / todo / false-complete).
         ...(deps.completionGate ? { completionGate: deps.completionGate } : {}),
+        // Inherit the parent's approval gate (F23): without it the child loop
+        // executes mutating tools the parent was denied. Child identity is
+        // injected so approval audit/UI sees the sub-agent context.
+        ...(inheritedApprovalGate
+          ? {
+              checkToolApproval: (call: {
+                id: string;
+                name: string;
+                input: unknown;
+                abortSignal: AbortSignal;
+              }) =>
+                inheritedApprovalGate({
+                  ...call,
+                  sessionKey: childSessionKey,
+                  runId: childRunId,
+                }),
+            }
+          : {}),
       });
 
       let miniResult: { turns: number; finalText: string } | undefined;

@@ -1080,7 +1080,9 @@ export function createCliToolApprovalHook(
           `Tool "${tool.name}" requires approval, but Moss is running non-interactively. ` +
           'To let it run: re-run with --accept-edits (workspace file edits only), ' +
           'or set an explicit policy for unattended mutations — `moss config set profile=autonomous` ' +
-          '(persistent) or MOSS_CLI_AUTO_APPROVE=1 (this process only).',
+          '(persistent) or MOSS_CLI_AUTO_APPROVE=1 (this process only). ' +
+          'This gate is inherited by sub-agents: delegating the same call via ' +
+          'create_subagent or fan_out_subagents will be denied too, so do not retry it that way.',
       };
     }
 

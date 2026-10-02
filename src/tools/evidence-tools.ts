@@ -64,7 +64,8 @@ export const recordEvidenceTool: Tool = {
   description:
     'Record one structured piece of verification evidence: metric, expected, observed, verdict — persisted to .moss/evidence.jsonl. Every success claim in a task must be backed by recorded evidence ("No Evidence, No Success"): after running a check (test run, device probe, deploy health check), record what was measured instead of asserting success in prose.\n' +
     '- Give expected + observed to auto-evaluate (e.g. expected ">=30", observed 31.2).\n' +
-    '- Give an explicit result only for externally-determined verdicts (e.g. human observation); it will not be re-evaluated.\n' +
+    '- Give an explicit result only for externally-determined verdicts (e.g. human observation), without expected/observed.\n' +
+    '- An explicit result that conflicts with the expected/observed auto-evaluation is recorded as inconclusive with the conflict explained — it is never silently rewritten in either direction.\n' +
     '- source: which check produced this (device_exec, device_deploy, run_tests, exec, human…).',
   metadata: {
     sideEffectClass: 'runtime_state',
@@ -139,11 +140,22 @@ export const recordEvidenceTool: Tool = {
     const expected =
       input.expected === undefined || input.expected === null ? undefined : String(input.expected);
 
-    if (expected !== undefined) {
+    if (expected !== undefined && expected.trim() !== '') {
       const evaluation = evaluateExpectation(expected, observed);
-      result = evaluation.result;
-      explanation = evaluation.explanation;
       if (evaluation.comparator !== 'none') comparator = evaluation.comparator;
+      if (explicitResult !== undefined && explicitResult !== evaluation.result) {
+        // F24: a conflict between the caller's explicit verdict and the
+        // auto-evaluation is never silently rewritten in either direction —
+        // it surfaces as inconclusive with both sides named, so a false PASS
+        // cannot be manufactured and an honest FAIL cannot be discarded.
+        result = 'inconclusive';
+        explanation =
+          `explicit result "${explicitResult}" conflicts with auto-evaluation "${evaluation.result}" ` +
+          `(${evaluation.explanation}) — recorded inconclusive; re-measure or correct expected/observed`;
+      } else {
+        result = evaluation.result;
+        explanation = evaluation.explanation;
+      }
     } else if (explicitResult) {
       result = explicitResult;
     } else if (observed !== undefined) {
