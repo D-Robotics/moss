@@ -4,6 +4,7 @@
  * directly.
  */
 import type { MossAgentEvent } from '../../core/agent/moss-agent-types.js';
+import { tui } from './copy.js';
 import { toolLabel } from './transcript.js';
 import { summarizeToolCompletion } from './tool-summary.js';
 
@@ -200,7 +201,10 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       appendRow(
         store,
         'summary',
-        `↻ provider retry ${event.attempt} — ${event.error.replace(/\s+/g, ' ').trim()}`
+        tui('↻ provider retry {attempt} — {error}', {
+          attempt: event.attempt,
+          error: event.error.replace(/\s+/g, ' ').trim(),
+        })
       );
       store.version++;
       break;
@@ -239,7 +243,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
         appendRow(store, 'result', '', {
           tool: {
             name: event.toolName,
-            summary: `${done}/${store.todos.length} done`,
+            summary: tui('{done}/{total} done', { done, total: store.todos.length }),
             ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
           },
         });
@@ -256,7 +260,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
         event.result,
         Boolean(event.isError)
       );
-      const summary = abortedBy ? `aborted (${abortedBy})` : completion.summary;
+      const summary = abortedBy ? tui('aborted ({by})', { by: abortedBy }) : completion.summary;
       // Edits and writes render as a diff gutter; everything else keeps the
       // raw result (the projection decides how much of it to show). A dialog
       // that already showed its answer gets its synthetic wrapper dropped.
@@ -318,12 +322,22 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       // The loop silently compressed old tool results; say so (the REPL does).
       const saved =
         event.savedTokens > 0
-          ? ` · saved ~${event.savedTokens >= 1000 ? `${Math.round(event.savedTokens / 100) / 10}k` : event.savedTokens} tokens`
+          ? tui(' · saved ~{count} tokens', {
+              count:
+                event.savedTokens >= 1000
+                  ? `${Math.round(event.savedTokens / 100) / 10}k`
+                  : event.savedTokens,
+            })
           : '';
       appendRow(
         store,
         'summary',
-        `compressed ${event.compressedCount} old tool result${event.compressedCount === 1 ? '' : 's'}${saved}`
+        `${tui(
+          event.compressedCount === 1
+            ? 'compressed {count} old tool result'
+            : 'compressed {count} old tool results',
+          { count: event.compressedCount }
+        )}${saved}`
       );
       store.version++;
       break;
@@ -335,8 +349,10 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       appendRow(
         store,
         'summary',
-        `compacted ${event.droppedMessages} earlier messages${
-          event.tokensAfter !== undefined ? ` · now ~${event.tokensAfter} tokens` : ''
+        `${tui('compacted {count} earlier messages', { count: event.droppedMessages })}${
+          event.tokensAfter !== undefined
+            ? tui(' · now ~{count} tokens', { count: event.tokensAfter })
+            : ''
         }`
       );
       store.version++;

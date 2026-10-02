@@ -20,6 +20,7 @@ import {
 } from '../approval-view.js';
 import { formatCliInteractionModeLabel, type CliInteractionMode } from '../interaction-mode.js';
 import { COMPOSER_MAX_ROWS, createComposer, renderComposerEditor } from './composer.js';
+import { isTuiZh, tui } from './copy.js';
 import { renderMarkdown, renderStreamingMarkdown, type MarkdownLine } from './markdown.js';
 import type { TranscriptRow } from './render-bridge.js';
 import {
@@ -66,9 +67,14 @@ export const INTERACTION_MODE_TONES: Record<CliInteractionMode, TuiColor> = {
  * `/mode accept-edits`) so the hint and the command agree.
  */
 export function interactionModeHint(mode: CliInteractionMode): string {
-  const label = formatCliInteractionModeLabel(mode);
-  if (mode === 'default') return `⏸ ${label} mode on`;
-  return `${mode === 'plan' ? '⏸' : '⏵⏵'} ${label} mode on (shift+tab to cycle)`;
+  // The label vocabulary is already locale-aware; zh also shortens the
+  // surrounding sentence ("mode on" → "已开启").
+  const label = formatCliInteractionModeLabel(mode, isTuiZh());
+  if (mode === 'default') return tui('⏸ {label} mode on', { label });
+  return tui('{glyph} {label} mode on (shift+tab to cycle)', {
+    glyph: mode === 'plan' ? '⏸' : '⏵⏵',
+    label,
+  });
 }
 
 /** A user row that echoes a `!`-mode shell command rather than a goal. */
@@ -118,7 +124,7 @@ const READONLY_PREVIEW_TOOLS = new Set<string>([
 const VERBS = ['Working', 'Thinking', 'Probing', 'Checking', 'Wiring', 'Verifying'];
 
 export function runVerb(seed: number): string {
-  return VERBS[Math.abs(Math.trunc(seed / 3)) % VERBS.length] ?? 'Working';
+  return tui(VERBS[Math.abs(Math.trunc(seed / 3)) % VERBS.length] ?? 'Working');
 }
 
 export function spinnerFrame(elapsedMs: number): string {
@@ -191,7 +197,7 @@ function renderToolHeadline(row: TranscriptRow, width: number): TuiLine[] {
   const tool = row.tool;
   if (!tool || (tool.summary === undefined && tool.durationMs === undefined)) return [];
   const prefix = `${CONTINUATION}${RESULT_MARK}  `;
-  const summary = tool.summary ?? (tool.isError ? 'failed' : 'ok');
+  const summary = tool.summary ?? tui(tool.isError ? 'failed' : 'ok');
   const duration = tool.durationMs !== undefined ? formatToolDuration(tool.durationMs) : undefined;
   const text = `${prefix}${summary}${duration ? ` · ${duration.text}` : ''}`;
   if (displayWidth(text) > width) {
@@ -508,7 +514,10 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
         if (shown.length < diff.length) {
           out.push(
             line(
-              clip(`${RESULT_INDENT}… ${diff.length - shown.length} more lines · ctrl+o`, width),
+              clip(
+                `${RESULT_INDENT}${tui('… {count} more lines · ctrl+o', { count: diff.length - shown.length })}`,
+                width
+              ),
               { dim: true }
             )
           );
@@ -527,7 +536,13 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
       if (foldsQuiet && source.length > 0) {
         out.push(
           ...headline,
-          line(clip(`${RESULT_INDENT}… ${source.length} lines · ctrl+o`, width), { dim: true })
+          line(
+            clip(
+              `${RESULT_INDENT}${tui('… {count} lines · ctrl+o', { count: source.length })}`,
+              width
+            ),
+            { dim: true }
+          )
         );
         return out;
       }
@@ -547,7 +562,10 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
       if (shown.length < source.length) {
         out.push(
           line(
-            clip(`${RESULT_INDENT}… ${source.length - shown.length} more lines · ctrl+o`, width),
+            clip(
+              `${RESULT_INDENT}${tui('… {count} more lines · ctrl+o', { count: source.length - shown.length })}`,
+              width
+            ),
             { dim: true }
           )
         );
@@ -653,7 +671,10 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
     out.push(
       line(
         clip(
-          `  ↻ provider retry ${view.retry.attempt} — ${view.retry.error.replace(/\s+/g, ' ').trim()}`,
+          tui('  ↻ provider retry {attempt} — {error}', {
+            attempt: view.retry.attempt,
+            error: view.retry.error.replace(/\s+/g, ' ').trim(),
+          }),
           width
         ),
         { color: 'yellow' }
@@ -676,8 +697,9 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
   for (const entry of verbose ? streamingLines : streamingLines.slice(-8)) out.push(entry);
   if (view.blocked) return out;
   const seconds = Math.max(0, Math.round(elapsedMs / 1000));
-  const tokens = view.tokensOut > 0 ? ` · ${formatCompactCount(view.tokensOut)} out` : '';
-  const queued = view.queued > 0 ? ` · ${view.queued} queued` : '';
+  const tokens =
+    view.tokensOut > 0 ? tui(' · {count} out', { count: formatCompactCount(view.tokensOut) }) : '';
+  const queued = view.queued > 0 ? tui(' · {count} queued', { count: view.queued }) : '';
   out.push(
     line(
       clip(`${spinnerFrame(elapsedMs)} ${runVerb(seconds)}… ${seconds}s${tokens}${queued}`, width),
@@ -691,17 +713,25 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
     const quietS = Math.floor((Date.now() - view.lastEventAt) / 1000);
     if (quietS >= STALL_HINT_S) {
       out.push(
-        line(clip(`  … stream quiet for ${quietS}s — the gateway may be stuck`, width), {
-          color: 'yellow',
-        })
+        line(
+          clip(
+            tui('  … stream quiet for {seconds}s — the gateway may be stuck', { seconds: quietS }),
+            width
+          ),
+          { color: 'yellow' }
+        )
       );
     }
   }
   if (view.queuePreview) {
     out.push(
-      line(clip(`  ⏐ next: ${view.queuePreview.replace(/\s+/g, ' ').trim()}`, width), {
-        dim: true,
-      })
+      line(
+        clip(
+          tui('  ⏐ next: {preview}', { preview: view.queuePreview.replace(/\s+/g, ' ').trim() }),
+          width
+        ),
+        { dim: true }
+      )
     );
   }
   return out;
@@ -720,10 +750,12 @@ export function renderRunSummary(
   const verb = runVerb(seconds);
   // The local wall-clock stamp (`done 1:23 AM`) is how the reference answers
   // "when did this actually finish" for a run the user watched scroll away.
-  const doneAt = ` · done ${now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  const doneAt = tui(' · done {time}', {
+    time: now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+  });
   const text = halted
-    ? `✻ ${verb} for ${seconds}s · interrupted`
-    : `✻ ${verb} for ${seconds}s${doneAt}`;
+    ? tui('✻ {verb} for {seconds}s · interrupted', { verb, seconds })
+    : tui('✻ {verb} for {seconds}s{doneAt}', { verb, seconds, doneAt });
   return [line(''), line(clip(text, width), { dim: true })];
 }
 
@@ -762,7 +794,10 @@ export function renderTodoPanel(
   if (todos.length === 0) return [];
   const done = todos.filter((todo) => todo.status === 'completed').length;
   const out: TuiLine[] = [
-    line(clip(`  ${ANSWER_MARK} ${done}/${todos.length} done`, width), { dim: true }),
+    line(
+      clip(`  ${ANSWER_MARK} ${tui('{done}/{total} done', { done, total: todos.length })}`, width),
+      { dim: true }
+    ),
   ];
   const capacity = Math.max(1, maxRows - 1);
   for (const todo of todos.slice(0, capacity)) {
@@ -777,7 +812,11 @@ export function renderTodoPanel(
     );
   }
   if (todos.length > capacity) {
-    out.push(line(clip(`   … ${todos.length - capacity} more`, width), { dim: true }));
+    out.push(
+      line(clip(`   … ${tui('{count} more', { count: todos.length - capacity })}`, width), {
+        dim: true,
+      })
+    );
   }
   return out;
 }
@@ -836,13 +875,17 @@ export function renderApproval(
   // The host owns the wording (`Do you want to create beta.txt?`); the generic
   // sentence is only the fallback for a caller with no question of its own.
   const question = view.question.split('\n').find((text) => text.trim() !== '') ?? '';
-  const questionLine = line(clip(` ${question.trim() || APPROVAL_FALLBACK_QUESTION}`, width));
+  const questionLine = line(clip(` ${question.trim() || tui(APPROVAL_FALLBACK_QUESTION)}`, width));
   const amendLabel =
-    view.amend && options[0]?.answer === 'y' ? 'Yes, and tell moss what to do next' : undefined;
+    view.amend && options[0]?.answer === 'y'
+      ? tui('Yes, and tell moss what to do next')
+      : undefined;
   const optionLines = options.map((option, index) =>
     line(
       clip(
-        ` ${index === view.cursor ? '❯' : ' '} ${option.key}. ${index === 0 ? (amendLabel ?? option.label) : option.label}`,
+        ` ${index === view.cursor ? '❯' : ' '} ${option.key}. ${tui(
+          index === 0 ? (amendLabel ?? option.label) : option.label
+        )}`,
         width
       ),
       {
@@ -853,7 +896,7 @@ export function renderApproval(
   );
   const footerLine = line(
     clip(
-      ` ${view.amend ? 'Esc to cancel · Tab to amend' : (view.footer ?? APPROVAL_FOOTER)}`,
+      ` ${view.amend ? tui('Esc to cancel · Tab to amend') : tui(view.footer ?? APPROVAL_FOOTER)}`,
       width
     ),
     { dim: true }
@@ -892,7 +935,7 @@ export function renderApproval(
   if (tailOnly.length <= maxHeight) return tailOnly;
   const compactOptions = line(
     clip(
-      ` ${options.map((option, index) => `${index === view.cursor ? '❯ ' : ''}${option.key}. ${option.label}`).join(' · ')}`,
+      ` ${options.map((option, index) => `${index === view.cursor ? '❯ ' : ''}${option.key}. ${tui(option.label)}`).join(' · ')}`,
       width
     ),
     { bold: true }
@@ -916,7 +959,7 @@ export function renderComposer(input: string, width: number, placeholder: boolea
   const view = renderComposerEditor(createComposer(input), {
     width,
     maxRows: COMPOSER_MAX_ROWS,
-    placeholder: placeholder ? PLACEHOLDER_TEXT : undefined,
+    placeholder: placeholder ? tui(PLACEHOLDER_TEXT) : undefined,
     firstPrefix: `${USER_MARK} `,
     restPrefix: '  ',
     caretGlyph: '▌',
@@ -961,10 +1004,10 @@ export const CONTEXT_CRIT_PCT = 95;
 
 export function renderStatusRight(view: StatusView, width: number): TuiLine {
   const parts: string[] = [];
-  if (view.blocked) parts.push('● waiting for you');
-  else if (view.running) parts.push('● running');
-  if (view.verbose) parts.push('verbose');
-  if (view.stashed) parts.push('› stashed');
+  if (view.blocked) parts.push(tui('● waiting for you'));
+  else if (view.running) parts.push(tui('● running'));
+  if (view.verbose) parts.push(tui('verbose'));
+  if (view.stashed) parts.push(tui('› stashed'));
   if (view.model) parts.push(view.model);
   let ctxPart: string | undefined;
   if (view.contextUsed !== undefined && view.contextTotal) {
@@ -973,13 +1016,15 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
     // accounting belong in /usage and the completed run summary. Surface the
     // context percentage here only when it needs the user's attention.
     if (pct >= CONTEXT_WARN_PCT) {
-      ctxPart = `${pct}% ctx`;
+      ctxPart = tui('{pct}% ctx', { pct });
       parts.push(ctxPart);
     }
   }
   if (view.running && view.tokens > 0)
     parts.push(
-      `${view.tokens >= 1000 ? `${Math.round(view.tokens / 100) / 10}k` : view.tokens} out`
+      tui('{count} out', {
+        count: view.tokens >= 1000 ? `${Math.round(view.tokens / 100) / 10}k` : view.tokens,
+      })
     );
   const text = parts.join(' · ');
   const pad = ' '.repeat(Math.max(0, width - displayWidth(text)));
@@ -1020,25 +1065,31 @@ export function renderHint(view: StatusView, width: number): TuiLine {
   const mode = view.mode ?? 'default';
   const modeLabel = interactionModeHint(mode);
   if (view.shellMode) {
-    return line(clip(`  ${['! for shell mode', 'Esc to cancel', modeLabel].join(' · ')}`, width), {
-      color: SHELL_MODE_TONE,
-      bold: true,
-    });
+    return line(
+      clip(`  ${[tui('! for shell mode'), tui('Esc to cancel'), modeLabel].join(' · ')}`, width),
+      {
+        color: SHELL_MODE_TONE,
+        bold: true,
+      }
+    );
   }
-  const parts = [modeLabel, '? for shortcuts'];
+  const parts = [modeLabel, tui('? for shortcuts')];
   if (view.blocked) {
     if (view.dialogKind === 'question') {
       parts.push(
-        view.dialogHasOptions ? '1/2/3 to answer' : 'type answer · Enter to send',
-        'Esc to skip'
+        view.dialogHasOptions ? tui('1/2/3 to answer') : tui('type answer · Enter to send'),
+        tui('Esc to skip')
       );
     } else {
-      parts.push('1/2/3 to answer', 'Tab to amend');
+      parts.push(tui('1/2/3 to answer'), tui('Tab to amend'));
     }
-  } else if (view.running) parts.push('Esc to interrupt');
-  if (view.verbose) parts.push('verbose transcript · ctrl+o to exit');
-  if (view.queueLength > 0) parts.push(`${view.queueLength} queued`);
-  if (view.taskCount > 0) parts.push(`${view.taskCount} task${view.taskCount === 1 ? '' : 's'}`);
+  } else if (view.running) parts.push(tui('Esc to interrupt'));
+  if (view.verbose) parts.push(tui('verbose transcript · ctrl+o to exit'));
+  if (view.queueLength > 0) parts.push(tui('{count} queued', { count: view.queueLength }));
+  if (view.taskCount > 0)
+    parts.push(
+      tui(view.taskCount === 1 ? '{count} task' : '{count} tasks', { count: view.taskCount })
+    );
   return line(clip(`  ${parts.join(' · ')}`, width), {
     color: INTERACTION_MODE_TONES[mode],
     // The default mode is the resting state: keep it quiet so plan/accept-edits

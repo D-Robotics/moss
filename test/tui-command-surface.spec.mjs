@@ -29,6 +29,7 @@ process.env.MOSS_NO_BUNDLED_DEFAULT = '1';
 
 const { HELP_COMMANDS, SHELL_COMMAND_NAMES, SHELL_COMMAND_ROWS } =
   await import('../dist/cli/tui/help.js');
+const { setTuiLocale } = await import('../dist/cli/tui/copy.js');
 const {
   TuiAppRoot,
   buildHelpOverlayLines,
@@ -173,6 +174,28 @@ for (const replOnly of ['/loop', '/goal', '/init']) {
   assert.ok(
     !menuAll.some(([command]) => command === replOnly),
     `${replOnly} is not offered by the shell menu`
+  );
+}
+
+// v0.25: the same overlay renders zh chrome under a zh locale. Only moss's own
+// wording changes — the command NAMES stay identical, so the advertised surface
+// is locale-independent.
+{
+  const enText = buildHelpOverlayLines(true).join('\n');
+  assert.ok(enText.includes('all commands'), 'EN overlay labels the command list in EN');
+  assert.ok(!enText.includes('全部命令'), 'EN overlay never prints the zh label');
+
+  setTuiLocale(true);
+  const zhText = buildHelpOverlayLines(true).join('\n');
+  assert.ok(zhText.includes('全部命令'), 'zh help labels the command list in zh');
+  assert.ok(zhText.includes('快捷键'), 'zh help labels the key reference in zh');
+  for (const entry of HELP_COMMANDS) {
+    assert.ok(zhText.includes(entry), `zh help still advertises ${entry}`);
+  }
+  setTuiLocale(false);
+  assert.ok(
+    buildHelpOverlayLines(true).join('\n').includes('all commands'),
+    'resetting the locale restores the EN overlay'
   );
 }
 

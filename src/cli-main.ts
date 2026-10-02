@@ -1107,6 +1107,9 @@ async function main() {
         workspaceDir: workspace,
         sessionKey: session.sessionKey,
         model: typeof model === 'string' ? model : undefined,
+        // Part B: hand the shell the resolved locale explicitly instead of
+        // letting every component re-read the environment.
+        locale: cliLocale(),
         cliRuntime: liveRuntime,
         contextInfo: {
           skills: loadedSkillCount,

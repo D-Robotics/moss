@@ -100,6 +100,7 @@ import {
   type StatusView,
 } from './transcript.js';
 import { clip, line, rule, type TuiColor, type TuiLine } from './text.js';
+import { isTuiZh, setTuiLocale, transientStatus, tui } from './copy.js';
 import {
   COMPOSER_MAX_ROWS,
   composerDelete,
@@ -190,6 +191,12 @@ export interface TuiAppOptions {
   sessionKey?: string;
   model?: string;
   version?: string;
+  /**
+   * CLI locale (the host passes `cliLocale()`, i.e. LC_ALL/LC_MESSAGES/LANG).
+   * Decides whether moss's own chrome renders zh; the environment is only a
+   * fallback when the host does not supply it.
+   */
+  locale?: string;
   /** Transcript rows replayed on boot (resume). */
   replayRows?: TuiReplayRow[];
   /** Boot-time context note (skills/MCP/soul/branch) printed under the banner. */
@@ -313,7 +320,7 @@ export function describeApproval(question: string): {
         .slice(0, 10),
     };
   }
-  const body = lines[0] ?? 'Approval required';
+  const body = lines[0] ?? tui('Approval required');
   const sentence = body.split(/(?<=\.)\s/)[0] ?? body;
   const rest = lines.slice(1);
   const subject = body.slice(sentence.length).trim() || rest.shift() || undefined;
@@ -367,17 +374,17 @@ export function legacyApprovalView(question: string): CliApprovalView {
     title: described.title,
     ...(described.subject ? { subject: described.subject } : {}),
     ...(described.preview?.length ? { preview: described.preview } : {}),
-    question: 'Do you want to proceed?',
+    question: tui('Do you want to proceed?'),
     options: [...CLI_APPROVAL_OPTIONS],
     footer: CLI_APPROVAL_FOOTER,
   };
 }
 
 function approvalAnswerLabel(answer: CliApprovalAnswer): string {
-  if (answer === 'y') return 'yes';
-  if (answer === 'a') return 'yes (session)';
-  if (answer === 'amend') return 'amend';
-  return 'no';
+  if (answer === 'y') return tui('yes');
+  if (answer === 'a') return tui('yes (session)');
+  if (answer === 'amend') return tui('amend');
+  return tui('no');
 }
 
 /**
@@ -432,8 +439,8 @@ export function questionDialogFromPrompt(promptText: string): {
   const answers = options.map((option) => option.trim());
   return {
     view: {
-      title: 'Question',
-      question: title.join(' ') || 'Question',
+      title: tui('Question'),
+      question: title.join(' ') || tui('Question'),
       options: options.map((label, index) => ({
         key: String(index + 1),
         answer: 'y' as const,
@@ -441,9 +448,11 @@ export function questionDialogFromPrompt(promptText: string): {
       })),
       footer: options.length
         ? multiSelect
-          ? 'type 1,3 below · ↑↓ then Enter · Esc to skip'
-          : `${options.map((_, index) => index + 1).join('/')} · ↑↓ then Enter · Esc to skip`
-        : 'type your answer below · Enter to send · Esc to skip',
+          ? tui('type 1,3 below · ↑↓ then Enter · Esc to skip')
+          : tui('{keys} · ↑↓ then Enter · Esc to skip', {
+              keys: options.map((_, index) => index + 1).join('/'),
+            })
+        : tui('type your answer below · Enter to send · Esc to skip'),
       cursor: 0,
     },
     answers,
@@ -506,18 +515,20 @@ const COMMON_HELP_COMMANDS = [
 
 /** Compact help (prefixes + shortcuts + common commands) or the full reference. */
 export function buildHelpOverlayLines(all: boolean): string[] {
+  // The labels, keys and usages stay as-is (they are command/key surfaces); only
+  // moss's own descriptions are localized, at the render site.
   return [
-    'prefixes',
-    ...HELP_PREFIXES.map(([prefix, what]) => `  ${prefix.padEnd(3)} ${what}`),
+    tui('prefixes'),
+    ...HELP_PREFIXES.map(([prefix, what]) => `  ${prefix.padEnd(3)} ${tui(what)}`),
     '',
-    'shortcuts',
-    ...HELP_KEYS.map(([keys, what]) => `${keys.padEnd(12)} ${what}`),
+    tui('shortcuts'),
+    ...HELP_KEYS.map(([keys, what]) => `${keys.padEnd(12)} ${tui(what)}`),
     '',
-    all ? 'all commands' : 'common commands',
+    all ? tui('all commands') : tui('common commands'),
     ...SHELL_COMMANDS.filter((entry) => all || COMMON_HELP_COMMANDS.includes(entry.command)).map(
-      (entry) => `  ${entry.usage.padEnd(24)} ${entry.description}`
+      (entry) => `  ${entry.usage.padEnd(24)} ${tui(entry.description)}`
     ),
-    ...(all ? [] : ['', 'type / to browse all commands · /help --all for the full reference']),
+    ...(all ? [] : ['', tui('type / to browse all commands · /help --all for the full reference')]),
   ];
 }
 
@@ -525,10 +536,10 @@ export function buildHelpOverlayLines(all: boolean): string[] {
 export function relativeAge(updatedAt: number | undefined, now = Date.now()): string {
   if (updatedAt === undefined) return '';
   const s = Math.max(0, Math.floor((now - updatedAt) / 1000));
-  if (s < 60) return 'now';
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86_400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86_400)}d`;
+  if (s < 60) return tui('now');
+  if (s < 3600) return tui('{n}m', { n: Math.floor(s / 60) });
+  if (s < 86_400) return tui('{n}h', { n: Math.floor(s / 3600) });
+  return tui('{n}d', { n: Math.floor(s / 86_400) });
 }
 
 /** Sessions matching the picker's query (title or key contains it). */
@@ -552,14 +563,14 @@ export function renderSessionPicker(
   maxRows = 8
 ): TuiLine[] {
   const out: TuiLine[] = [
-    line(clip(`Resume session  ⌕ ${query}▌`, width), { color: 'cyan', bold: true }),
+    line(clip(tui('Resume session  ⌕ {query}▌', { query }), width), { color: 'cyan', bold: true }),
   ];
   const sel = Math.max(0, Math.min(selected, matches.length - 1));
   matches.slice(0, maxRows).forEach((s, index) => {
     const title = s.title?.trim() || s.key;
     const meta = [
       relativeAge(s.updatedAt),
-      s.messageCount !== undefined ? `${s.messageCount} messages` : '',
+      s.messageCount !== undefined ? tui('{count} messages', { count: s.messageCount }) : '',
     ]
       .filter(Boolean)
       .join(' · ');
@@ -571,12 +582,16 @@ export function renderSessionPicker(
     );
   });
   if (matches.length > maxRows) {
-    out.push(line(clip(`  … ${matches.length - maxRows} more`, width), { dim: true }));
+    out.push(
+      line(clip(tui('  … {count} more', { count: matches.length - maxRows }), width), { dim: true })
+    );
   }
   if (matches.length === 0) {
-    out.push(line(clip('  no matching session', width), { dim: true }));
+    out.push(line(clip(tui('  no matching session'), width), { dim: true }));
   }
-  out.push(line(clip('  ↑/↓ to pick · type to filter · Esc starts fresh', width), { dim: true }));
+  out.push(
+    line(clip(tui('  ↑/↓ to pick · type to filter · Esc starts fresh'), width), { dim: true })
+  );
   return out;
 }
 
@@ -601,8 +616,8 @@ export function describeConversationLogEntry(raw: string): string | undefined {
             .map((block) => {
               const b = block as { type?: string; text?: string; name?: string };
               if (b.type === 'text' && typeof b.text === 'string') return b.text;
-              if (b.type === 'tool_use') return `[tool ${b.name}]`;
-              if (b.type === 'tool_result') return '[tool result]';
+              if (b.type === 'tool_use') return tui('[tool {name}]', { name: b.name ?? '' });
+              if (b.type === 'tool_result') return tui('[tool result]');
               return '';
             })
             .filter(Boolean)
@@ -653,7 +668,10 @@ export function shellPaletteRows(
   const byCommand = new Map<string, PaletteRow>();
   for (const row of slashPaletteRows(input, SHELL_COMMAND_ROWS)) {
     if (!allowed.has(row[0])) continue;
-    byCommand.set(row[0], row);
+    // The catalog is Moss's own chrome, so its description follows the UI
+    // locale here exactly as it does in the `/help` overlay. Skill rows below
+    // are author content and stay verbatim.
+    byCommand.set(row[0], [row[0], tui(row[1])]);
   }
   // Skills ride the SAME ranker as first-class commands (outside the static
   // table, so `/help` honesty is untouched); a static command always wins a
@@ -712,6 +730,10 @@ export function TuiAppRoot({
   handle: StoreHandle;
   runtime: TaskRuntime;
 }): React.ReactElement {
+  // Part B: pin moss's own chrome to the locale the host resolved. Idempotent,
+  // so running it on every render is fine; the environment is only the fallback
+  // and the host's explicit `locale` is authoritative.
+  setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
   const { exit } = useApp();
   const { stdin } = useStdin();
   const { stdout } = useStdout();
@@ -1023,15 +1045,26 @@ export function TuiAppRoot({
     if (info) {
       const parts: string[] = [];
       if (info.branch) parts.push(`git:${info.branch}`);
-      if (info.skills) parts.push(`${info.skills} skill${info.skills === 1 ? '' : 's'}`);
+      if (info.skills) {
+        parts.push(
+          tui(info.skills === 1 ? '{count} skill' : '{count} skills', { count: info.skills })
+        );
+      }
       if (info.mcp && info.mcp.total > 0) {
         parts.push(
           info.mcp.connected === info.mcp.total
-            ? `${info.mcp.total} MCP server${info.mcp.total === 1 ? '' : 's'}`
-            : `${info.mcp.connected}/${info.mcp.total} MCP servers connected`
+            ? tui(info.mcp.total === 1 ? '{count} MCP server' : '{count} MCP servers', {
+                count: info.mcp.total,
+              })
+            : tui('{connected}/{total} MCP servers connected', {
+                connected: info.mcp.connected,
+                total: info.mcp.total,
+              })
         );
       }
-      if (parts.length > 0) appendRow(store, 'detail', `context: ${parts.join(' · ')}`);
+      if (parts.length > 0) {
+        appendRow(store, 'detail', tui('context: {parts}', { parts: parts.join(' · ') }));
+      }
     }
     // A failed MCP server is the most common boot problem and it used to be
     // readable only if the user already knew about /mcp: the context line
@@ -1045,8 +1078,14 @@ export function TuiAppRoot({
       appendRow(
         store,
         'system',
-        `⚠ ${failedMcp.length} MCP server${failedMcp.length === 1 ? '' : 's'} failed to start` +
-          `${names ? ` (${names})` : ''} — /mcp for details`
+        tui(
+          failedMcp.length === 1
+            ? '⚠ {count} MCP server failed to start'
+            : '⚠ {count} MCP servers failed to start',
+          { count: failedMcp.length }
+        ) +
+          `${names ? ` (${names})` : ''}` +
+          tui(' — /mcp for details')
       );
     }
     // Crash/quit recovery: history survives per-message, but a bare `moss`
@@ -1063,7 +1102,14 @@ export function TuiAppRoot({
             appendRow(
               store,
               'system',
-              `previous session: ${title}${previous.messageCount !== undefined ? ` (${previous.messageCount} messages)` : ''} — restart with \`moss --continue\` to resume it`
+              previous.messageCount !== undefined
+                ? tui(
+                    'previous session: {title} ({count} messages) — restart with `moss --continue` to resume it',
+                    { title, count: previous.messageCount }
+                  )
+                : tui('previous session: {title} — restart with `moss --continue` to resume it', {
+                    title,
+                  })
             );
             handle.notify();
           }
@@ -1158,12 +1204,17 @@ export function TuiAppRoot({
       if (!decided) return;
       const short = decided.taskId.slice(-6);
       const criteria = `${decided.criteriaMet}/${decided.criteriaTotal} criteria`;
+      // The verdict token (PASS/FAIL), task id and recover command stay raw.
       appendRow(
         store,
         'summary',
         decided.result === 'PASS'
-          ? `◇ task ${short} — PASS (${criteria} met)`
-          : `◇ task ${short} — FAIL (${criteria} met) · /task resume ${decided.taskId} to repair`
+          ? tui('◇ task {id} — PASS ({criteria} met)', { id: short, criteria })
+          : tui('◇ task {id} — FAIL ({criteria} met) · /task resume {task} to repair', {
+              id: short,
+              criteria,
+              task: decided.taskId,
+            })
       );
       handle.notify();
     },
@@ -1312,31 +1363,33 @@ export function TuiAppRoot({
     async (command: 'sessions' | 'mcp' | 'subs' | 'bg'): Promise<string[]> => {
       if (command === 'sessions') {
         const sessions = (await options.listSessions?.()) ?? [];
-        if (sessions.length === 0) return ['no saved sessions'];
+        if (sessions.length === 0) return [tui('no saved sessions')];
         return sessions.map(
           (x) =>
             `${x.current ? '*' : ' '} ${x.key}${x.title ? ` — ${x.title}` : ''}${
-              x.messageCount !== undefined ? ` (${x.messageCount} messages)` : ''
+              x.messageCount !== undefined
+                ? tui(' ({count} messages)', { count: x.messageCount })
+                : ''
             }`
         );
       }
       if (command === 'mcp') {
         const servers = options.mcpServers ?? [];
-        if (servers.length === 0) return ['no MCP servers configured (.moss/mcp.json)'];
+        if (servers.length === 0) return [tui('no MCP servers configured (.moss/mcp.json)')];
         return servers.map(
           (x) =>
             `${x.state === 'connected' ? '●' : '○'} ${x.name} — ${x.state}${
-              x.toolCount !== undefined ? ` (${x.toolCount} tools, lazy)` : ''
+              x.toolCount !== undefined ? tui(' ({count} tools, lazy)', { count: x.toolCount }) : ''
             }${x.error ? `: ${x.error.slice(0, 80)}` : ''}`
         );
       }
       if (command === 'subs') {
         const snaps = options.agent.asyncTasks?.list() ?? [];
-        if (snaps.length === 0) return ['no sub-agent tasks'];
+        if (snaps.length === 0) return [tui('no sub-agent tasks')];
         return snaps.map((t) => `#${t.taskId.slice(-6)} ${t.status}`);
       }
       const running = listBackgroundProcessSnapshots().filter((p) => p.status === 'running');
-      if (running.length === 0) return ['no background tasks running'];
+      if (running.length === 0) return [tui('no background tasks running')];
       return running.map((p) => `#${p.id} ${p.command}${p.label ? ` (${p.label})` : ''}`);
     },
     [options]
@@ -1436,7 +1489,7 @@ export function TuiAppRoot({
   const runTaskShellCommand = useCallback(
     async (args: string): Promise<void> => {
       if (store.run.running) {
-        printBlock('Task', ['a run is in flight — press Esc to interrupt it first']);
+        printBlock('Task', [tui('a run is in flight — press Esc to interrupt it first')]);
         return;
       }
       const parsed = splitCommandArgs(args);
@@ -1454,7 +1507,9 @@ export function TuiAppRoot({
           .filter((task) => task.state === 'BLOCKED' || task.result === 'FAIL')
           .sort((left, right) => right.updatedAt - left.updatedAt)[0];
         if (!candidate) {
-          printBlock('Resume', ['no failed, blocked, or abandoned task is available to resume']);
+          printBlock('Resume', [
+            tui('no failed, blocked, or abandoned task is available to resume'),
+          ]);
           return;
         }
         parsed.push(candidate.taskId);
@@ -1483,7 +1538,11 @@ export function TuiAppRoot({
                 // status: a minute-long device task must stay reviewable.
                 const phase = /^\[task ([a-z]+)\] (.+)$/.exec(line);
                 if (phase) {
-                  appendRow(store, 'summary', `◇ task ${phase[1]} — ${phase[2]}`);
+                  appendRow(
+                    store,
+                    'summary',
+                    tui('◇ task {phase} — {text}', { phase: phase[1]!, text: phase[2]! })
+                  );
                 }
               } else printBlock('Task', text.trimEnd().split('\n'));
             },
@@ -1559,14 +1618,14 @@ export function TuiAppRoot({
     };
     pendingDialogRef.current = entry;
     setApproval({
-      title: 'Ready to code?',
-      question: 'The plan is above. How should moss proceed?',
+      title: tui('Ready to code?'),
+      question: tui('The plan is above. How should moss proceed?'),
       options: [
-        { key: '1', answer: 'y', label: 'Proceed — accept edits this session' },
-        { key: '2', answer: 'y', label: 'Proceed — keep manual approvals' },
-        { key: '3', answer: 'y', label: 'Tell moss what to change (type below)' },
+        { key: '1', answer: 'y', label: tui('Proceed — accept edits this session') },
+        { key: '2', answer: 'y', label: tui('Proceed — keep manual approvals') },
+        { key: '3', answer: 'y', label: tui('Tell moss what to change (type below)') },
       ],
-      footer: '↑↓ then Enter · or type feedback below · Esc keeps planning',
+      footer: tui('↑↓ then Enter · or type feedback below · Esc keeps planning'),
       cursor: 0,
     });
   }, [dispatchRun, handle, runtime]);
@@ -1592,15 +1651,18 @@ export function TuiAppRoot({
         const notRepo = /not a git repository/i.test(result.output);
         printBlock('Diff', [
           notRepo
-            ? `Not a git repository: ${options.workspaceDir} — /diff needs a git workspace.`
-            : `git diff failed (exit ${result.exitCode}): ${
-                result.output.trim().split('\n')[0] || 'unknown error'
-              }`,
+            ? tui('Not a git repository: {path} — /diff needs a git workspace.', {
+                path: options.workspaceDir,
+              })
+            : tui('git diff failed (exit {code}): {error}', {
+                code: result.exitCode ?? tui('signal'),
+                error: result.output.trim().split('\n')[0] || 'unknown error',
+              }),
         ]);
         return;
       }
       appendRow(store, 'tool', 'Diff');
-      appendRow(store, 'result', result.output.trim() || '(no unstaged working-tree changes)');
+      appendRow(store, 'result', result.output.trim() || tui('(no unstaged working-tree changes)'));
       handle.notify();
     } catch (err) {
       printCommandError('Diff', `git diff failed: ${errorMessage(err)}`);
@@ -1630,15 +1692,17 @@ export function TuiAppRoot({
           store,
           'result',
           output ||
-            `(no output${result.exitCode === 0 ? '' : ` · exit ${result.exitCode ?? 'signal'}`})`
+            (result.exitCode === 0
+              ? tui('(no output)')
+              : tui('(no output · exit {code})', { code: result.exitCode ?? tui('signal') }))
         );
         if (result.exitCode !== 0) {
           appendRow(
             store,
             'detail',
             result.exitCode === null
-              ? `terminated by ${result.signal ?? 'signal'}`
-              : `exit code ${result.exitCode}`
+              ? tui('terminated by {signal}', { signal: result.signal ?? tui('signal') })
+              : tui('exit code {code}', { code: result.exitCode })
           );
         }
       } catch (err) {
@@ -1656,7 +1720,9 @@ export function TuiAppRoot({
   const runCompactCommand = useCallback(
     async (args: string) => {
       if (store.run.running) {
-        printBlock('Compact', ['a run is in flight — press Esc to interrupt it, then /compact']);
+        printBlock('Compact', [
+          tui('a run is in flight — press Esc to interrupt it, then /compact'),
+        ]);
         return;
       }
       try {
@@ -1683,7 +1749,7 @@ export function TuiAppRoot({
     async (args: string) => {
       if (store.run.running) {
         printBlock('Model', [
-          'a run is in flight — press Esc to interrupt it before switching models',
+          tui('a run is in flight — press Esc to interrupt it before switching models'),
         ]);
         return;
       }
@@ -1712,9 +1778,9 @@ export function TuiAppRoot({
       }
       if (token === 'config' || token.startsWith('config ')) {
         printBlock('Model', [
-          '/model config is not wired in the shell — use `moss setup` for a guided',
-          'provider/model/key change, or `moss config set model <name>` to persist one.',
-          '`/model <name>` still switches the active model for this session.',
+          tui('/model config is not wired in the shell — use `moss setup` for a guided'),
+          tui('provider/model/key change, or `moss config set model <name>` to persist one.'),
+          tui('`/model <name>` still switches the active model for this session.'),
         ]);
         return;
       }
@@ -1749,9 +1815,9 @@ export function TuiAppRoot({
       const probeGeneration = ++modelProbeGenerationRef.current;
       printBlock('Model', [
         selected
-          ? `switched to ${model} (${provider})`
-          : `switched to custom model ${model} (${provider})`,
-        'context usage will appear after the first response from this model',
+          ? tui('switched to {model} ({provider})', { model, provider })
+          : tui('switched to custom model {model} ({provider})', { model, provider }),
+        tui('context usage will appear after the first response from this model'),
       ]);
       // Re-probe the new model's context window. Ignore an older probe that
       // finishes after a later model switch.
@@ -1808,7 +1874,11 @@ export function TuiAppRoot({
         setInteractionMode: (mode: CliInteractionMode) => {
           // The policy layer already switched the mode; surface it so the change
           // is visible instead of silent.
-          setStatusLine(`interaction mode: ${formatCliInteractionModeLabel(mode)}`);
+          setStatusLine(
+            tui('interaction mode: {label}', {
+              label: formatCliInteractionModeLabel(mode, isTuiZh()),
+            })
+          );
         },
       };
 
@@ -1895,9 +1965,9 @@ export function TuiAppRoot({
       if (head === '/stop' || head === '/abort') {
         if (abortRef.current) {
           abortRef.current.abort();
-          printBlock('Stop', ['interrupted the active run']);
+          printBlock('Stop', [tui('interrupted the active run')]);
         } else {
-          printBlock('Stop', ['no run in flight — nothing to interrupt']);
+          printBlock('Stop', [tui('no run in flight — nothing to interrupt')]);
         }
         return true;
       }
@@ -1998,17 +2068,17 @@ export function TuiAppRoot({
         appendRow(
           store,
           'summary',
-          'transcript cleared — the conversation context is kept (see /compact to shrink it)'
+          tui('transcript cleared — the conversation context is kept (see /compact to shrink it)')
         );
         handle.notify();
         return;
       }
       if (text === '/jobs') {
         printBlock('Jobs', [
-          'background shell:',
+          tui('background shell:'),
           ...(await sessionInfo('bg')).map((l) => `  ${l}`),
           '',
-          'sub-agents:',
+          tui('sub-agents:'),
           ...(await sessionInfo('subs')).map((l) => `  ${l}`),
         ]);
         return;
@@ -2066,14 +2136,19 @@ export function TuiAppRoot({
         }
         if (lines.length === 0) {
           lines.push(
-            'no hooks configured — add a "hooks" object to the config file:',
+            tui('no hooks configured — add a "hooks" object to the config file:'),
             '  PreToolUse · PostToolUse · SessionStart · Stop · SubagentStop',
             '  PreCompact · PostCompact · SessionEnd · Notification',
             'each entry: { "command": "…", "matcher": "tool-glob", "timeoutMs": 5000, "blocking": true }'
           );
         }
         if (options.cliRuntime?.configDir) {
-          lines.push('', `config dir: ${options.cliRuntime.configDir} (or MOSS_CONFIG_FILE)`);
+          lines.push(
+            '',
+            tui('config dir: {path} (or MOSS_CONFIG_FILE)', {
+              path: options.cliRuntime.configDir,
+            })
+          );
         }
         printBlock('Hooks', lines);
         return;
@@ -2087,10 +2162,12 @@ export function TuiAppRoot({
         printBlock(
           'Skills',
           rows.length === 0
-            ? ['no skills found', 'create one: moss skill create <name>']
+            ? [tui('no skills found'), 'create one: moss skill create <name>']
             : rows
                 .map((s) => `  ${s.name.padEnd(18)} ${s.description.split('\n')[0] ?? ''}`)
-                .concat([`  (${rows.length} skill(s) · load with the skill tool)`])
+                .concat([
+                  tui('  ({count} skill(s) · load with the skill tool)', { count: rows.length }),
+                ])
         );
         return;
       }
@@ -2116,8 +2193,8 @@ export function TuiAppRoot({
           const result = options.rewindTo?.(seq);
           printBlock('Rewind', [
             result?.ok
-              ? `restored checkpoint ${seq}: ${result.detail}`
-              : (result?.detail ?? `rewind to ${seq} failed`),
+              ? tui('restored checkpoint {seq}: {detail}', { seq, detail: result.detail })
+              : (result?.detail ?? tui('rewind to {seq} failed', { seq })),
           ]);
         }
         return;
@@ -2127,22 +2204,29 @@ export function TuiAppRoot({
         if (sub === 'pause') {
           queuePausedRef.current = true;
           setQueueRevision((n) => n + 1);
-          printBlock('Queue', ['paused — new submissions wait']);
+          printBlock('Queue', [tui('paused — new submissions wait')]);
         } else if (sub === 'resume') {
           queuePausedRef.current = false;
           setQueueRevision((n) => n + 1);
-          printBlock('Queue', ['resumed']);
+          printBlock('Queue', [tui('resumed')]);
           if (!store.run.running && queueRef.current.length > 0) void drainQueue();
         } else if (sub === 'drop') {
           const dropped = queueRef.current.shift();
           setQueueRevision((n) => n + 1);
-          printBlock('Queue', [dropped ? `dropped: ${dropped.slice(0, 60)}` : 'queue empty']);
+          printBlock('Queue', [
+            dropped ? tui('dropped: {text}', { text: dropped.slice(0, 60) }) : tui('queue empty'),
+          ]);
         } else if (sub === 'clear') {
           const count = queueRef.current.length;
           queueRef.current.length = 0;
           setQueueRevision((n) => n + 1);
-          printBlock('Queue', [`cleared ${count} queued item${count === 1 ? '' : 's'}`]);
+          printBlock('Queue', [
+            tui(count === 1 ? 'cleared {count} queued item' : 'cleared {count} queued items', {
+              count,
+            }),
+          ]);
         } else {
+          // Block titles mirror command names, so they stay raw (`/queue`).
           printBlock(
             `Queue (${queuePausedRef.current ? 'paused' : 'active'})`,
             queueRef.current.map((q, i) => `${i + 1}. ${q.slice(0, 60)}`)
@@ -2153,13 +2237,13 @@ export function TuiAppRoot({
       if (text.startsWith('/steer')) {
         const constraint = text.slice('/steer'.length).trim();
         if (!constraint) {
-          printBlock('Steer', ['usage: /steer <constraint> — injects at the next boundary']);
+          printBlock('Steer', [tui('usage: /steer <constraint> — injects at the next boundary')]);
         } else {
           const entry = options.agent.steer?.(sessionKey, constraint);
           printBlock('Steer', [
             entry === null || entry === undefined
-              ? 'rejected — no single active run on this session'
-              : `queued: ${constraint.slice(0, 80)}`,
+              ? tui('rejected — no single active run on this session')
+              : tui('queued: {text}', { text: constraint.slice(0, 80) }),
           ]);
         }
         return;
@@ -2179,7 +2263,11 @@ export function TuiAppRoot({
           );
           return;
         }
-        appendRow(store, 'error', `unknown command "${text.split(' ')[0]}" — try /help`);
+        appendRow(
+          store,
+          'error',
+          tui('unknown command "{name}" — try /help', { name: text.split(' ')[0] ?? '' })
+        );
         handle.notify();
         return;
       }
@@ -2226,7 +2314,7 @@ export function TuiAppRoot({
       if (answer === 'amend') {
         // The tool runs; the user's next composer message steers it. Tell
         // them so the queued message does not feel like it vanished.
-        setStatusLine('approved — type what moss should do next; your message is queued');
+        setStatusLine(tui('approved — type what moss should do next; your message is queued'));
       }
       resolveApproval(answer);
     },
@@ -2291,7 +2379,9 @@ export function TuiAppRoot({
       if (quitTimerRef.current !== undefined) clearTimeout(quitTimerRef.current);
       setQuitArmed(true);
       setStatusLine(
-        inFlight ? 'run interrupted — press Ctrl+C again to quit' : 'press Ctrl+C again to quit'
+        tui(
+          inFlight ? 'run interrupted — press Ctrl+C again to quit' : 'press Ctrl+C again to quit'
+        )
       );
       handle.notify();
       quitTimerRef.current = setTimeout(() => {
@@ -2322,19 +2412,19 @@ export function TuiAppRoot({
     escClearTimerRef.current = undefined;
     setEscClearArmed(false);
     setStatusLine((current) =>
-      current === 'Esc again to clear the composer' ? undefined : current
+      current === tui('Esc again to clear the composer') ? undefined : current
     );
   }, []);
 
   const armEscClear = useCallback(() => {
     if (escClearTimerRef.current !== undefined) clearTimeout(escClearTimerRef.current);
     setEscClearArmed(true);
-    setStatusLine('Esc again to clear the composer');
+    setStatusLine(tui('Esc again to clear the composer'));
     escClearTimerRef.current = setTimeout(() => {
       escClearTimerRef.current = undefined;
       setEscClearArmed(false);
       setStatusLine((current) =>
-        current === 'Esc again to clear the composer' ? undefined : current
+        current === tui('Esc again to clear the composer') ? undefined : current
       );
     }, ESC_CLEAR_MS);
   }, []);
@@ -2364,7 +2454,7 @@ export function TuiAppRoot({
       // half-written draft silently destroys it. Esc-Esc is the deliberate
       // way to drop a draft; Ctrl+D on one gets a pointer instead.
       if (input.length > 0) {
-        setStatusLine('Ctrl+D quits — press Esc twice to drop the draft first');
+        setStatusLine(tui('Ctrl+D quits — press Esc twice to drop the draft first'));
         return;
       }
       exit();
@@ -2372,7 +2462,7 @@ export function TuiAppRoot({
     }
     if (key.tab && key.shift) {
       if (approval) {
-        setStatusLine('finish the pending approval before changing interaction mode');
+        setStatusLine(tui('finish the pending approval before changing interaction mode'));
         return;
       }
       // shift+tab (CSI Z) cycles the REAL policy mode; the subscription above
@@ -2479,7 +2569,7 @@ export function TuiAppRoot({
       const matches = filterPickerSessions(pickerSessions, sessionPicker.query);
       if (key.escape) {
         setSessionPicker(undefined);
-        setStatusLine('fresh session — `moss resume` reopens the picker');
+        setStatusLine(tui('fresh session — `moss resume` reopens the picker'));
         return;
       }
       if (key.upArrow || key.downArrow) {
@@ -2568,7 +2658,7 @@ export function TuiAppRoot({
         setHistorySearch(undefined);
         if (picked) {
           setInput(picked);
-          setStatusLine('prompt staged from history — Enter sends');
+          setStatusLine(tui('prompt staged from history — Enter sends'));
         }
         return;
       }
@@ -2761,7 +2851,12 @@ export function TuiAppRoot({
           historyIndex === undefined ? history.length - 1 : Math.max(0, historyIndex - 1);
         setHistoryIndex(next);
         setInput(history[next] ?? '');
-        setStatusLine(`history ${next + 1}/${history.length} — ↑↓ to walk · type to edit`);
+        setStatusLine(
+          tui('history {n}/{total} — ↑↓ to walk · type to edit', {
+            n: next + 1,
+            total: history.length,
+          })
+        );
       } else if (historyIndex !== undefined) {
         const next = historyIndex + 1;
         if (next >= history.length) {
@@ -2771,7 +2866,12 @@ export function TuiAppRoot({
         } else {
           setHistoryIndex(next);
           setInput(history[next] ?? '');
-          setStatusLine(`history ${next + 1}/${history.length} — ↑↓ to walk · type to edit`);
+          setStatusLine(
+            tui('history {n}/{total} — ↑↓ to walk · type to edit', {
+              n: next + 1,
+              total: history.length,
+            })
+          );
         }
       }
       return;
@@ -2806,7 +2906,9 @@ export function TuiAppRoot({
           setComposer((current) => composerInsert(current, killed));
           setStatusLine(undefined);
         } else {
-          setStatusLine('nothing to paste — Ctrl+U / Ctrl+K / Ctrl+W delete into the kill ring');
+          setStatusLine(
+            tui('nothing to paste — Ctrl+U / Ctrl+K / Ctrl+W delete into the kill ring')
+          );
         }
         return;
       }
@@ -2824,9 +2926,11 @@ export function TuiAppRoot({
           stashRef.current = input;
           setInput(restore ?? '');
           setStatusLine(
-            restore !== undefined
-              ? 'swapped — Ctrl+S again to swap back'
-              : 'prompt stashed — Ctrl+S brings it back'
+            tui(
+              restore !== undefined
+                ? 'swapped — Ctrl+S again to swap back'
+                : 'prompt stashed — Ctrl+S brings it back'
+            )
           );
         } else if (stashRef.current !== undefined) {
           const stashed = stashRef.current;
@@ -2834,7 +2938,7 @@ export function TuiAppRoot({
           setInput(stashed);
           setStatusLine(undefined);
         } else {
-          setStatusLine('nothing to stash — the composer is empty');
+          setStatusLine(tui('nothing to stash — the composer is empty'));
         }
         return;
       }
@@ -2845,7 +2949,7 @@ export function TuiAppRoot({
           killRef.current = killed;
           setComposer(next);
           const shown = killed.length > 24 ? `${killed.length} chars` : `"${killed.trim()}"`;
-          setStatusLine(`deleted ${shown} — Ctrl+Y to paste back`);
+          setStatusLine(tui('deleted {what} — Ctrl+Y to paste back', { what: shown }));
         }
         return;
       }
@@ -2905,9 +3009,7 @@ export function TuiAppRoot({
     if (historyIndex !== undefined) setHistoryIndex(undefined);
     disarmEscClear();
     setStatusLine((current) =>
-      current !== undefined && /^(history |deleted |nothing to paste)/.test(current)
-        ? undefined
-        : current
+      current !== undefined && transientStatus(current) ? undefined : current
     );
     setComposer((current) => composerInsert(current, chunk));
   });
@@ -3110,9 +3212,11 @@ export function TuiAppRoot({
   const blockedLine = blockedTask
     ? line(
         clip(
-          `◇ task ${blockedTask.taskId.slice(-6)} blocked — ${
-            blockedTask.blockedReason ?? 'user decision required'
-          } · /task resume ${blockedTask.taskId}`,
+          tui('◇ task {id} blocked — {reason} · /task resume {task}', {
+            id: blockedTask.taskId.slice(-6),
+            reason: blockedTask.blockedReason ?? tui('user decision required'),
+            task: blockedTask.taskId,
+          }),
           columns
         ),
         { color: 'yellow' }
@@ -3140,7 +3244,10 @@ export function TuiAppRoot({
       ? [
           line(
             clip(
-              `context ${contextPct}% full — auto-compact will trim older messages · /compact to do it now`,
+              tui(
+                'context {pct}% full — auto-compact will trim older messages · /compact to do it now',
+                { pct: contextPct }
+              ),
               columns
             ),
             { color: 'yellow' }
@@ -3269,6 +3376,7 @@ function stdouts(stdout: { columns?: number } | undefined): number {
 
 /** Boot the TUI; resolves when the user quits. TTY-only entry point. */
 export async function runTuiApp(options: TuiAppOptions): Promise<void> {
+  setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
   const handle = createStoreHandle();
   const runtime = options.runtime ?? new TaskRuntime({ workspaceDir: options.workspaceDir });
   const instance = render(React.createElement(TuiAppRoot, { options, handle, runtime }), {
