@@ -31,7 +31,29 @@ package.json 已 0.13.0）。v0.14–v0.20 期间欠账扩大：代码交付到 
 
 选择后者：证据不足时缩小主张，而不是补齐文字。
 
-## 当前主张（2026-10-01）
+## 当前主张（2026-10-02，v0.22.0）
+
+- **版本**：`0.22.0`；tag `v0.22.0`。该版本在 v0.21（Mission Control TUI + 统一 Task Runtime）之上
+  交付全软件精简专项（16 个提交，`ab2e8279…9edd9889`，对账见
+  `docs/superpowers/plans/2026-10-02-simplification-v2.md`）：
+  - 单一来源：命令目录（REPL/TUI 同表投影）、配置快照（config-snapshot.ts 三视图）、
+    环境变量权威清单（`moss config env`，src 扫描双向 CI 锁）、自主循环引擎（/loop /goal
+    翻译到 /task run，PASS 只来自 verdict provider）。
+  - 人眼版默认视图：/status 6 行、/permissions 5 行、brief help 12 行、TUI 命令面 32→24、
+    只读工具结果折叠、运行尾行去 token 遥测。
+  - 审批免询问：'a' 持久化（exec 入信任、编辑族一次覆盖、重启生效）；术语与遥测全进 --verbose。
+- **已跑、可主张**：
+  - `npm run verify`：format/lint/typecheck + 194 个 spec 文件 + PTY 冒烟全绿（精简专项每批独立过门）。
+  - `npm run examples`：三个嵌入示例实跑通过（含审批 ALLOW/DENY 审计轨迹）。
+  - PTY 交互级 dogfood 两份：通用壳（banner/permissions/task view/jobs/对话轮/退出）与
+    引擎合一（/goal --accept → 命令裁决 PASS → accepted → /task status → /loop resume），
+    证据 `scratch/dogfood-tui.log`、`scratch/loop-unify.log`（scratch/ 不入库）。
+  - CI：v0.22.0 tag 时点 main 上全部 run 绿。
+- **未执行、因此不主张**：SWE-bench Verified 三跑、确定性对、Terminal-Bench 基线、全量 bench 复跑
+  （同 v0.21 口径，退役门登记于 `.autopilot/acceptance/retired/`）；behavior 层 prompt 压缩
+  （待 bench 背书）；safety 解析双链合并（显式遗留）。
+
+## 上一版主张（2026-10-01，v0.21.0）
 
 - **版本**：`0.21.0`；tag `v0.21.0`。该版本覆盖两条已合并的线：
   v0.21 Mission Control TUI + 统一 Task Runtime（Task OS）。
