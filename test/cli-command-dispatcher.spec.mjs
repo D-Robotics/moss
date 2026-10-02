@@ -23,6 +23,7 @@ const expectedPhases = {
   sessions: CliPhase.WorkspaceReady,
   tasks: CliPhase.WorkspaceReady,
   mcp: CliPhase.WorkspaceReady,
+  device: CliPhase.WorkspaceReady,
   task: CliPhase.AgentReady,
 };
 

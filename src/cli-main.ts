@@ -68,7 +68,7 @@ import { commandSuggestion, cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js
 import { buildAnswerLanguageLayer } from './cli/cli-locale.js';
 import { buildEnvironmentContextLayer, getGitBranch } from './context/environment.js';
 import { disconnectAllDevices } from './device/device-registry.js';
-import { resolveDefaultDeviceTarget } from './device/device-target.js';
+import { configureDeviceWorkspace, resolveDefaultDeviceTarget } from './device/device-target.js';
 import { buildRuntimeCapabilitiesPrompt } from './context/runtime-capabilities.js';
 import { buildSoftwareEngineeringPromptQuick } from './contracts/index.js';
 import type { CliRuntimeStatus } from './cli/onboarding.js';
@@ -669,6 +669,9 @@ async function main() {
     hooks,
   });
   await registerBuiltinTools(agent);
+  // Device targets resolve host > env > .moss/devices.json (registered via
+  // `moss device add`); declaring the workspace turns the registry tier on.
+  configureDeviceWorkspace(workspace);
   // v0.16 MCP client: connect servers declared in `.moss/mcp.json` /
   // `<configDir>/mcp.json` (credentials only via ${ENV_VAR} expansion).
   // Zero-config = zero overhead (nothing spawns, nothing enters the prompt);

@@ -273,6 +273,24 @@ export const COMMANDS: Record<string, CommandConfig> = {
       'Unified task runtime: run/resume/status/timeline — one goal in, one verified result out',
   },
 
+  device: {
+    name: 'device',
+    phase: CliPhase.WorkspaceReady,
+    handler: async (ctx) => {
+      const { runDeviceCommand } = await import('./device-commands.js');
+      const { ExitCode } = await import('./exit-codes.js');
+      const workspace = ctx.workspace;
+      if (!workspace) {
+        console.error('[moss] device could not resolve the workspace.');
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      const code = await runDeviceCommand(ctx.commandArgs, { workspaceDir: workspace });
+      if (code !== 0) process.exitCode = code;
+    },
+    description: 'Manage devices: add/list/remove/test (.moss/devices.json registry)',
+  },
+
   mcp: {
     name: 'mcp',
     phase: CliPhase.WorkspaceReady,

@@ -1,10 +1,15 @@
 import type { DeviceAuthConfig, DeviceKind, DeviceTarget } from '../contracts/device.js';
+import { loadDeviceRegistry } from './device-registry-file.js';
 
 /**
- * Device target resolution. The moss process reads MOSS_DEVICE_* directly
- * (safeChildEnv strips them from spawned child processes); hosts can also
- * install a target programmatically via configureDefaultDeviceTarget, which
- * wins over the environment.
+ * Device target resolution, three sources in precedence order:
+ *  1. a host-installed programmatic target (configureDefaultDeviceTarget),
+ *  2. MOSS_DEVICE_* environment variables (credentials in .env only),
+ *  3. the workspace device registry `.moss/devices.json` (persisted by
+ *     `moss device add`; auth stored as env-var references, never values).
+ *
+ * The moss process reads MOSS_DEVICE_* directly (safeChildEnv strips them
+ * from spawned child processes).
  */
 
 const ENV_VARS_HELP = [
@@ -19,10 +24,21 @@ const ENV_VARS_HELP = [
 ].join('\n');
 
 let hostConfiguredTarget: DeviceTarget | null = null;
+/** Workspace whose .moss/devices.json backs the registry fallback. */
+let hostConfiguredWorkspace: string | null = null;
 
 /** Host API: install a default device target programmatically (overrides env). */
 export function configureDefaultDeviceTarget(target: DeviceTarget | null): void {
   hostConfiguredTarget = target;
+}
+
+/**
+ * Host API: declare the workspace whose `.moss/devices.json` backs the
+ * registry fallback in resolveDefaultDeviceTarget. Without it the registry
+ * tier is inert (env/host sources still work).
+ */
+export function configureDeviceWorkspace(workspaceDir: string | null): void {
+  hostConfiguredWorkspace = workspaceDir;
 }
 
 function envAuth(): DeviceAuthConfig | undefined {
@@ -46,24 +62,43 @@ function normalizeKind(raw: string | undefined): DeviceKind {
   return raw?.toLowerCase() === 'rdk' ? 'rdk' : 'linux';
 }
 
-/** Resolve the default device target: host override first, then MOSS_DEVICE_*. */
-export function resolveDefaultDeviceTarget(): DeviceTarget | null {
+/**
+ * Resolve the default device target: host override, then MOSS_DEVICE_* env,
+ * then the workspace registry's first (or named) entry. Returns null when no
+ * source is configured.
+ */
+export function resolveDefaultDeviceTarget(
+  options: { workspaceDir?: string; registryDeviceId?: string } = {}
+): DeviceTarget | null {
   if (hostConfiguredTarget) return hostConfiguredTarget;
   const host = process.env.MOSS_DEVICE_HOST?.trim();
-  if (!host) return null;
-  const kind = normalizeKind(process.env.MOSS_DEVICE_KIND);
-  const user = process.env.MOSS_DEVICE_USER?.trim() || 'root';
-  const port = Number(process.env.MOSS_DEVICE_PORT) || 22;
-  const auth = envAuth();
-  return {
-    deviceId: process.env.MOSS_DEVICE_ID?.trim() || `${kind}-${host}`,
-    kind,
-    host,
-    port,
-    user,
-    ...(auth ? { auth } : {}),
-  };
+  if (host) {
+    const kind = normalizeKind(process.env.MOSS_DEVICE_KIND);
+    const user = process.env.MOSS_DEVICE_USER?.trim() || 'root';
+    const port = Number(process.env.MOSS_DEVICE_PORT) || 22;
+    const auth = envAuth();
+    return {
+      deviceId: process.env.MOSS_DEVICE_ID?.trim() || `${kind}-${host}`,
+      kind,
+      host,
+      port,
+      user,
+      ...(auth ? { auth } : {}),
+    };
+  }
+  const workspaceDir = options.workspaceDir ?? hostConfiguredWorkspace ?? undefined;
+  if (workspaceDir) {
+    const registry = loadDeviceRegistry(workspaceDir);
+    if (registry.length > 0) {
+      return (
+        registry.find((device) => device.deviceId === options.registryDeviceId) ?? registry[0]!
+      );
+    }
+  }
+  return null;
 }
+
+export { loadDeviceRegistry };
 
 export function missingTargetHelp(toolName: string): string {
   return (
