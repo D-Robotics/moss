@@ -20,7 +20,7 @@ import {
   formatTaskTimeline,
 } from '../core/task/task-store.js';
 import type { TaskStateSnapshot } from '../contracts/task-runtime.js';
-import { isZhLocale } from './cli-locale.js';
+import { cliLocale, isZhLocale } from './cli-locale.js';
 
 export interface TaskCommandContext {
   agent: unknown;
@@ -322,6 +322,7 @@ export async function runTaskCommand(
   const output = ctx.onOutput ?? ((stream, text) => process[stream].write(text));
   const sub = commandArgs[0] ?? 'status';
   const zh = isZhLocale();
+  const locale = cliLocale();
 
   if (sub === 'run') {
     const flags = parseFlags(commandArgs.slice(1));
@@ -362,7 +363,7 @@ export async function runTaskCommand(
         capabilityLayer: await buildCapabilityLayerForGoal(goal, ctx),
       }
     );
-    output('stdout', summarizeTaskRun(result) + '\n');
+    output('stdout', summarizeTaskRun(result, locale) + '\n');
     return result.outcome === 'pass' ? 0 : 1;
   }
 
@@ -390,7 +391,7 @@ export async function runTaskCommand(
       },
       taskId
     );
-    output('stdout', summarizeTaskRun(result) + '\n');
+    output('stdout', summarizeTaskRun(result, locale) + '\n');
     return result.outcome === 'pass' ? 0 : 1;
   }
 

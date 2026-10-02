@@ -387,16 +387,29 @@ export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<
 /**
  * User-facing final message assembled from the REAL result (snapshot +
  * verdict + timeline tail) — never from agent prose.
+ *
+ * Locale (v0.25): the fixed labels (task/goal/phase/attempts/verdict/timeline)
+ * follow the caller's locale and match `formatTaskStatus`'s wording. The
+ * outcome token (PASS/FAIL/BLOCKED), task id, counts, and the verdict/timeline
+ * bodies stay verbatim. Core cannot read the CLI locale (layering), so the
+ * caller passes it in — undefined keeps the English default for SDK callers.
  */
-export function summarizeTaskRun(result: TaskRunResult): string {
+export function summarizeTaskRun(result: TaskRunResult, locale?: string): string {
+  const zh = typeof locale === 'string' && /^zh/i.test(locale);
   const { snapshot, outcome, verdictDetail, timeline, turns } = result;
-  const lines = [
-    `Task ${snapshot.taskId} — ${outcome.toUpperCase()}`,
-    `goal: ${snapshot.goal}`,
-    `phase: ${snapshot.phase} · attempts: ${snapshot.attempt} · repairs: ${snapshot.repairs.length} · failures: ${snapshot.failures.length} · turns: ${turns}`,
-  ];
-  if (verdictDetail) lines.push('', 'Final verdict:', verdictDetail);
+  const lines = zh
+    ? [
+        `任务 ${snapshot.taskId} — ${outcome.toUpperCase()}`,
+        `目标: ${snapshot.goal}`,
+        `阶段: ${snapshot.phase} · 尝试: ${snapshot.attempt} · 修复: ${snapshot.repairs.length} · 失败: ${snapshot.failures.length} · 轮次: ${turns}`,
+      ]
+    : [
+        `Task ${snapshot.taskId} — ${outcome.toUpperCase()}`,
+        `goal: ${snapshot.goal}`,
+        `phase: ${snapshot.phase} · attempts: ${snapshot.attempt} · repairs: ${snapshot.repairs.length} · failures: ${snapshot.failures.length} · turns: ${turns}`,
+      ];
+  if (verdictDetail) lines.push('', zh ? '最终裁决:' : 'Final verdict:', verdictDetail);
   const tail = timeline.split('\n').slice(-6).join('\n');
-  if (tail) lines.push('', 'Timeline (tail):', tail);
+  if (tail) lines.push('', zh ? '时间线（末尾）:' : 'Timeline (tail):', tail);
   return lines.join('\n');
 }

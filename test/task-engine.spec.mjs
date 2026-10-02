@@ -106,6 +106,18 @@ test('full chain: fail → repair → reverify → accepted, driven only by evid
   assert.match(summary, /Task task_\S+ — PASS/);
   assert.match(summary, /attempts: 2 · repairs: 1 · failures: 1/);
   assert.match(summary, /Acceptance passed/);
+
+  // v0.25: locale-aware summary. Labels follow the caller's locale and match
+  // formatTaskStatus's wording; the outcome token, task id and verdict body
+  // stay verbatim. Default (no locale) stays English for SDK callers.
+  const zhSummary = summarizeTaskRun(result, 'zh_CN.UTF-8');
+  assert.match(zhSummary, /任务 task_\S+ — PASS/);
+  assert.match(zhSummary, /目标: camera FPS >=30 on device/);
+  assert.match(zhSummary, /尝试: 2 · 修复: 1 · 失败: 1/);
+  assert.match(zhSummary, /最终裁决:/);
+  assert.match(zhSummary, /Acceptance passed/, 'verdict body stays verbatim under zh');
+  assert.doesNotMatch(summarizeTaskRun(result), /任务/, 'no locale → English default');
+  assert.match(summarizeTaskRun(result, 'en_US.UTF-8'), /^Task task_/, 'explicit en stays English');
   // phases recorded on events never regress
   const phases = (await listTaskEvents(ws, taskId)).map((event) => event.phase);
   assert.equal(phases[phases.length - 1], 'accepted');

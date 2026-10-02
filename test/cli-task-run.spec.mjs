@@ -114,6 +114,68 @@ test('moss task run exits 0 only on acceptance, printing the real summary', asyn
   assert.equal(snapshot.phase, 'accepted');
 });
 
+test('moss task run passes the CLI locale into the summary (zh)', async () => {
+  const ws = await tmpWorkspace();
+  const ref = { ws };
+  let taskId;
+  const agent = scriptedAgent(ref, [
+    async (dir) => {
+      const { listTaskEvents } = await import('../dist/core/task/task-store.js');
+      taskId = (await listTaskEvents(dir))[0].taskId;
+      await appendTaskRecord(dir, {
+        taskId,
+        goal: '创建标记文件',
+        acceptanceCriteria: [{ metric: 'file_content', expected: 'contains x' }],
+        status: 'active',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    },
+    async (dir) => {
+      await appendEvidenceRecord(dir, {
+        evidenceId: `ev_${Date.now()}`,
+        taskId,
+        source: 'exec',
+        metric: 'file_content',
+        expected: 'contains x',
+        observed: 'x',
+        result: 'pass',
+        timestamp: Date.now(),
+      });
+    },
+  ]);
+  const saved = {
+    LANG: process.env.LANG,
+    LC_ALL: process.env.LC_ALL,
+    LC_MESSAGES: process.env.LC_MESSAGES,
+  };
+  const out = captureStdout();
+  try {
+    process.env.LANG = 'zh_CN.UTF-8';
+    process.env.LC_ALL = 'zh_CN.UTF-8';
+    delete process.env.LC_MESSAGES;
+    const code = await runTaskCommand(['run', '创建标记文件'], {
+      agent,
+      workspace: ws,
+      sessionKey: 'cli-task-zh',
+    });
+    assert.equal(code, 0);
+  } finally {
+    out.restore();
+    if (saved.LANG === undefined) delete process.env.LANG;
+    else process.env.LANG = saved.LANG;
+    if (saved.LC_ALL === undefined) delete process.env.LC_ALL;
+    else process.env.LC_ALL = saved.LC_ALL;
+    if (saved.LC_MESSAGES === undefined) delete process.env.LC_MESSAGES;
+    else process.env.LC_MESSAGES = saved.LC_MESSAGES;
+  }
+  const text = out.text();
+  assert.match(text, /任务 task_\S+ — PASS/, 'zh summary label + verbatim outcome token');
+  assert.match(text, /目标: 创建标记文件/);
+  assert.match(text, /阶段: accepted/);
+  assert.match(text, /时间线（末尾）:/);
+});
+
 test('moss task run exits 1 on honest failure', async () => {
   const ws = await tmpWorkspace();
   const ref = { ws };
