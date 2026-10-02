@@ -2,8 +2,8 @@
 
 > **状态：已完成（2026-10-02）**。批次落点：ab2e8279(/permissions+skills 提示)、6d1797a0(目录合一)、
 > c33a5797(D1)、3b9f62cd(D2)、50c8e4af(D3)、dfb24afb(D4)、bf9b8ef2(D5)、cf634a91(D7+D8)、45f70a3e(D9)、
-> 0e1af450(第一性原理收尾)、62e78408(台账)、76d582ae(人眼版)、4d500327(免询问：'a' 持久化)。
-> 全部 verify 绿 + CI 绿 + examples 实跑通过 + PTY 交互级 dogfood 通过（scratch/dogfood-tui.log）。
+> 0e1af450(第一性原理收尾)、62e78408(台账)、76d582ae(人眼版)、4d500327(免询问持久化)、70652679(引擎合一)。
+> 全部 verify 绿 + CI 绿 + examples 实跑通过 + PTY 交互级 dogfood 通过（scratch/dogfood-tui.log、scratch/loop-unify.log）。
 
 ## 完成对账（实测口径）
 
@@ -31,12 +31,21 @@
 
 - **D9 全局 -20% 未承诺兑现**：工具描述层实测仅 ~1.6k tokens（本就精瘦）；behavior 层是行为承载文本，
   盲压有回归风险且需 bench 背书——显式留给带基准的专项。
-- **D7 引擎级合并未做**：LoopScheduler 与 Task OS 引擎合一为独立大项，本轮只完成呈现归一（/loop
-  与 /goal 均为 hidden 别名，/task 是唯一可见入口）。
-- **D6 dogfood 取证口径**：补齐——PTY 交互级 dogfood 已跑（banner/permissions/task view/jobs/对话轮/
-  退出全部断言通过，证据 scratch/dogfood-tui.log）；人眼截图级走查仍留给用户验收。
+- **D7 引擎级合并已达成（70652679）**：/loop /goal 在 REPL 与 TUI 双壳统一翻译到 /task run——循环运行
+  即任务（创建→命令/契约裁决→修复→可恢复），PASS 只能来自 verdict provider；REPL 私有 LoopScheduler
+  机械删除（-130 行）；MOSS_LOOP_MAX/MOSS_GOAL_AUTO_MAX_RUNS 转为任务 turn 预算。LoopScheduler 模块
+  保留（SDK 语义与自测），仅不再被任何 shell 构造。
+- **安全解析双链（未做，显式遗留）**：resolveCliSafetyMode 仍绕过 profile 链独立解析 argv/env。合并
+  它会改 profile 优先级语义，风险大于用户可见收益——留给带权限矩阵回归测试的专项。
 - **收尾批（0e1af450）**：/quickstart 出表面（D1 后与 /status 重复）、/log 出表面（两路径收进 /doctor
   尾注）、/loop 降为 hidden 别名；三者 dispatch 全保留，TUI 面 26→24。
+- **免询问批（4d500327，用户复验反馈）**：审批选 'a' 现在真正"别再问"——exec 入会话信任名单
+  （此前选了也只管当次）、persistTrust（仅交互 TTY）把授权写进 config trustedTools（编辑一次
+  覆盖全编辑族），重启后不再问；标签从"this session"改为"(saved)"；/permissions 直接教"按 a"。
+  device_exec 维持逐次审批（机器人安全）；信任只免提示、安全检查全程保留。
+- **D6 dogfood 取证口径**：补齐——PTY 交互级 dogfood 已跑（banner/permissions/task view/jobs/对话轮/
+  退出全部断言通过，证据 scratch/dogfood-tui.log）；引擎合一另有专项 dogfood（scratch/loop-unify.log）。
+  人眼截图级走查仍留给用户验收。
 - **免询问批（4d500327，用户复验反馈）**：审批选 'a' 现在真正"别再问"——exec 入会话信任名单
   （此前选了也只管当次）、persistTrust（仅交互 TTY）把授权写进 config trustedTools（编辑一次
   覆盖全编辑族），重启后不再问；标签从"this session"改为"(saved)"；/permissions 直接教"按 a"。
