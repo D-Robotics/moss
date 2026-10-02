@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { runSkillCommand } from '../dist/cli/skill-commands.js';
+import { renderSkillUsage, runSkillCommand } from '../dist/cli/skill-commands.js';
 import { loadSkills } from '../dist/core/skills/skill-registry.js';
 import { createSkillTool } from '../dist/tools/skill-tool.js';
 
@@ -104,6 +104,47 @@ try {
   // ─── /learn ghost: dispatching it answers as an unknown command ──────────
   const { findRegistryCommand } = await import('../dist/cli/commands/registry.js');
   assert.equal(findRegistryCommand('/learn'), null, '/learn has no handler (ghost)');
+
+  // ─── zh locale: usage + command output render in Chinese ─────────────────
+  const savedLang = process.env.LANG;
+  const savedLcAll = process.env.LC_ALL;
+  const zhWs = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-skill-zh-'));
+  try {
+    process.env.LANG = 'zh_CN.UTF-8';
+    process.env.LC_ALL = 'zh_CN.UTF-8';
+
+    stdout.length = 0;
+    code = await runSkillCommand(['list'], { workspaceDir: ws, configDir: cfg });
+    assert.equal(code, 0);
+    const zhList = stdout.join('');
+    assert.ok(zhList.includes('deploy-check'), 'zh list still names the skill');
+    assert.ok(zhList.includes('个 skill'), 'zh list footer counts in Chinese');
+
+    stderr.length = 0;
+    code = await runSkillCommand(['create', 'deploy-check'], { workspaceDir: ws, configDir: cfg });
+    assert.equal(code, 1);
+    assert.ok(stderr.join('').includes('已存在'), 'zh duplicate error');
+
+    stdout.length = 0;
+    code = await runSkillCommand(['list'], { workspaceDir: zhWs, configDir: cfg });
+    assert.equal(code, 0);
+    assert.ok(stdout.join('').includes('未发现 skills'), 'zh empty list');
+
+    stdout.length = 0;
+    code = await runSkillCommand(['create', 'zh-probe'], { workspaceDir: zhWs, configDir: cfg });
+    assert.equal(code, 0, 'zh create succeeds');
+    assert.ok(stdout.join('').includes('已创建'), 'zh create success message');
+
+    assert.ok(renderSkillUsage(true).includes('用法'), 'zh usage header');
+    assert.ok(!renderSkillUsage(true).includes('Usage:'), 'zh usage drops the English header');
+    assert.ok(renderSkillUsage(false).includes('Usage:'), 'en usage header');
+  } finally {
+    if (savedLcAll === undefined) delete process.env.LC_ALL;
+    else process.env.LC_ALL = savedLcAll;
+    if (savedLang === undefined) delete process.env.LANG;
+    else process.env.LANG = savedLang;
+    fs.rmSync(zhWs, { recursive: true, force: true });
+  }
 } finally {
   process.stdout.write = prevOut;
   process.stderr.write = prevErr;

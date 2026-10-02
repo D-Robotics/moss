@@ -10,7 +10,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { runTaskCommand, splitCommandArgs } from '../dist/cli/task-run.js';
+import { formatTaskStatus, runTaskCommand, splitCommandArgs } from '../dist/cli/task-run.js';
 import {
   createDraftTask,
   appendTaskEvent,
@@ -182,4 +182,77 @@ test('moss task unknown subcommand exits 2', async () => {
     sessionKey: 'x',
   });
   assert.equal(code, 2);
+});
+
+test('moss task speaks the user locale (zh)', async () => {
+  const ws = await tmpWorkspace();
+  const savedLang = process.env.LANG;
+  const savedLcAll = process.env.LC_ALL;
+  const savedLcMsg = process.env.LC_MESSAGES;
+  const capture = (stream) => {
+    const chunks = [];
+    return {
+      onOutput: (s, text) => {
+        if (s === stream) chunks.push(text);
+      },
+      text: () => chunks.join(''),
+    };
+  };
+  try {
+    process.env.LANG = 'zh_CN.UTF-8';
+    process.env.LC_ALL = 'zh_CN.UTF-8';
+    delete process.env.LC_MESSAGES;
+
+    // error paths: missing goal, unknown subcommand — with zh usage
+    const goalErr = capture('stderr');
+    let code = await runTaskCommand(['run'], {
+      agent: {},
+      workspace: ws,
+      sessionKey: 'x',
+      onOutput: goalErr.onOutput,
+    });
+    assert.equal(code, 2);
+    assert.ok(goalErr.text().includes('需要一个目标'), 'zh missing-goal error');
+    assert.ok(goalErr.text().includes('用法：moss task'), 'zh usage block');
+
+    const subErr = capture('stderr');
+    code = await runTaskCommand(['bogus'], {
+      agent: {},
+      workspace: ws,
+      sessionKey: 'x',
+      onOutput: subErr.onOutput,
+    });
+    assert.equal(code, 2);
+    assert.ok(subErr.text().includes('未知 task 子命令'), 'zh unknown-subcommand error');
+
+    // empty state
+    const emptyOut = capture('stdout');
+    code = await runTaskCommand(['status'], {
+      agent: {},
+      workspace: ws,
+      sessionKey: 'x',
+      onOutput: emptyOut.onOutput,
+    });
+    assert.equal(code, 0);
+    assert.ok(emptyOut.text().includes('本工作区尚无任务'), 'zh empty-status message');
+
+    // status view: zh column labels against a real snapshot
+    const { taskId } = await createDraftTask(ws, '渲染目标');
+    await appendTaskEvent(ws, taskId, 'execution_started');
+    const snapshot = await getTaskStateSnapshot(ws, taskId);
+    const zhView = formatTaskStatus(snapshot, '');
+    assert.match(zhView, /任务 {6}task_/);
+    assert.match(zhView, /目标 {6}渲染目标/);
+    assert.match(zhView, /阶段/);
+    assert.match(zhView, /尝试/);
+    const enView = formatTaskStatus(snapshot, '', false);
+    assert.match(enView, /TASK {6}task_/, 'explicit en view keeps English labels');
+  } finally {
+    if (savedLcAll === undefined) delete process.env.LC_ALL;
+    else process.env.LC_ALL = savedLcAll;
+    if (savedLang === undefined) delete process.env.LANG;
+    else process.env.LANG = savedLang;
+    if (savedLcMsg === undefined) delete process.env.LC_MESSAGES;
+    else process.env.LC_MESSAGES = savedLcMsg;
+  }
 });

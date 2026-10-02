@@ -8,11 +8,25 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { McpClient } from '../core/mcp/client.js';
 import type { McpServerConfig } from '../core/mcp/types.js';
+import { isZhLocale } from './cli-locale.js';
 import { loadMcpConfigs } from './mcp-config.js';
 
 const SERVER_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/i;
 
-export function renderMcpUsage(): string {
+export function renderMcpUsage(zh: boolean = isZhLocale()): string {
+  if (zh) {
+    return [
+      '用法：',
+      '  moss mcp add <name> <command...>            stdio 服务器（参数跟在命令后）',
+      '  moss mcp add <name> <url> [--header k=v]    http 服务器',
+      '  moss mcp add --project <name> <command...>  写入 .moss/mcp.json 而非用户级文件',
+      '  moss mcp list                               查看已配置的服务器与文件',
+      '  moss mcp remove <name> [--project]          删除一个服务器',
+      '  moss mcp test <name>                        立即连接并列出工具',
+      '',
+      '值支持 ${ENV_VAR} 引用——凭据只留在环境变量里。',
+    ].join('\n');
+  }
   return [
     'Usage:',
     '  moss mcp add <name> <command...>            stdio server (args after the command)',
@@ -147,6 +161,7 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
   const out = (text: string) => process.stdout.write(`${text}\n`);
   const err = (text: string) => process.stderr.write(`${text}\n`);
   const sub = argv[0] ?? 'list';
+  const zh = isZhLocale();
 
   const parseScope = (rest: string[]): { scope: 'project' | 'user'; rest: string[] } => {
     if (rest[0] === '--project') return { scope: 'project', rest: rest.slice(1) };
@@ -157,7 +172,11 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
     const { scope, rest } = parseScope(argv.slice(1));
     const name = rest[0];
     if (!name) {
-      err('moss mcp add: a server name is required.\n\n' + renderMcpUsage());
+      err(
+        'moss mcp add: ' +
+          (zh ? '需要服务器名。\n\n' : 'a server name is required.\n\n') +
+          renderMcpUsage(zh)
+      );
       return 2;
     }
     const built = buildEntryFromArgv(rest.slice(1));
@@ -173,27 +192,43 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
     const filePath = serverFilePath(scope, ctx.workspaceDir, ctx.configDir);
     const servers = readRawServers(filePath);
     if (servers[name]) {
-      err(`moss mcp add: "${name}" already exists in ${filePath} (moss mcp remove ${name} first)`);
+      err(
+        zh
+          ? `moss mcp add: "${name}" 已存在于 ${filePath}（先 moss mcp remove ${name}）`
+          : `moss mcp add: "${name}" already exists in ${filePath} (moss mcp remove ${name} first)`
+      );
       return 1;
     }
     servers[name] = built;
     writeRawServers(filePath, servers);
-    out(`Added ${name} (${built.transport}) to ${filePath}`);
-    out(`Test it now: moss mcp test ${name}`);
+    out(
+      zh
+        ? `已添加 ${name}（${built.transport}）到 ${filePath}`
+        : `Added ${name} (${built.transport}) to ${filePath}`
+    );
+    out(zh ? `现在验证：moss mcp test ${name}` : `Test it now: moss mcp test ${name}`);
     return 0;
   }
 
   if (sub === 'list') {
     const merged = loadMcpConfigs(ctx.workspaceDir, ctx.configDir, ctx.env ?? process.env);
     if (merged.length === 0) {
-      out('No MCP servers configured. Add one: moss mcp add <name> <command...>');
+      out(
+        zh
+          ? '未配置 MCP 服务器。添加一个：moss mcp add <name> <command...>'
+          : 'No MCP servers configured. Add one: moss mcp add <name> <command...>'
+      );
       return 0;
     }
     for (const config of merged) {
       const where = config.transport === 'http' ? config.url : config.command;
       out(`  ${config.name.padEnd(18)} ${config.transport.padEnd(6)} ${where ?? ''}`);
     }
-    out(`\n${merged.length} server(s). moss mcp test <name> checks one now.`);
+    out(
+      zh
+        ? `\n共 ${merged.length} 个服务器。moss mcp test <name> 可立即检测。`
+        : `\n${merged.length} server(s). moss mcp test <name> checks one now.`
+    );
     return 0;
   }
 
@@ -201,53 +236,72 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
     const { scope, rest } = parseScope(argv.slice(1));
     const name = rest[0];
     if (!name) {
-      err('moss mcp remove: a server name is required.');
+      err(zh ? 'moss mcp remove: 需要服务器名。' : 'moss mcp remove: a server name is required.');
       return 2;
     }
     const filePath = serverFilePath(scope, ctx.workspaceDir, ctx.configDir);
     const servers = readRawServers(filePath);
     if (!servers[name]) {
-      err(`moss mcp remove: "${name}" is not in ${filePath}`);
+      err(
+        zh
+          ? `moss mcp remove: "${name}" 不在 ${filePath} 中`
+          : `moss mcp remove: "${name}" is not in ${filePath}`
+      );
       return 1;
     }
     delete servers[name];
     writeRawServers(filePath, servers);
-    out(`Removed ${name} from ${filePath}`);
+    out(zh ? `已从 ${filePath} 删除 ${name}` : `Removed ${name} from ${filePath}`);
     return 0;
   }
 
   if (sub === 'test') {
     const name = argv[1];
     if (!name) {
-      err('moss mcp test: a server name is required.');
+      err(zh ? 'moss mcp test: 需要服务器名。' : 'moss mcp test: a server name is required.');
       return 2;
     }
     const merged = loadMcpConfigs(ctx.workspaceDir, ctx.configDir, ctx.env ?? process.env);
     const config: McpServerConfig | undefined = merged.find((c) => c.name === name);
     if (!config) {
-      err(`moss mcp test: "${name}" is not configured (moss mcp list)`);
+      err(
+        zh
+          ? `moss mcp test: "${name}" 未配置（查看 moss mcp list）`
+          : `moss mcp test: "${name}" is not configured (moss mcp list)`
+      );
       return 1;
     }
-    out(`Connecting to ${name} (${config.transport})…`);
+    out(
+      zh
+        ? `正在连接 ${name}（${config.transport}）…`
+        : `Connecting to ${name} (${config.transport})…`
+    );
     const client = new McpClient(config, { connectTimeoutMs: 10_000, requestTimeoutMs: 10_000 });
     try {
       await client.connect();
       const tools = await client.listTools();
-      out(`  connected — ${tools.length} tool(s)`);
+      out(zh ? `  已连接 — ${tools.length} 个工具` : `  connected — ${tools.length} tool(s)`);
       for (const tool of tools.slice(0, 5)) out(`    · ${tool.name}`);
-      if (tools.length > 5) out(`    … ${tools.length - 5} more`);
+      if (tools.length > 5)
+        out(zh ? `    … 还有 ${tools.length - 5} 个` : `    … ${tools.length - 5} more`);
       return 0;
     } catch (failure) {
       err(
-        `  failed: ${failure instanceof Error ? failure.message.split('\n')[0] : String(failure)}`
+        zh
+          ? `  失败：${failure instanceof Error ? failure.message.split('\n')[0] : String(failure)}`
+          : `  failed: ${failure instanceof Error ? failure.message.split('\n')[0] : String(failure)}`
       );
-      err('  check the command/url, ${ENV_VAR} expansion, and that the server runs.');
+      err(
+        zh
+          ? '  请检查 command/url、${ENV_VAR} 展开以及服务器是否在运行。'
+          : '  check the command/url, ${ENV_VAR} expansion, and that the server runs.'
+      );
       return 1;
     } finally {
       await client.close().catch(() => undefined);
     }
   }
 
-  err(renderMcpUsage());
+  err(renderMcpUsage(zh));
   return 2;
 }

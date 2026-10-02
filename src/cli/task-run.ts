@@ -20,6 +20,7 @@ import {
   formatTaskTimeline,
 } from '../core/task/task-store.js';
 import type { TaskStateSnapshot } from '../contracts/task-runtime.js';
+import { isZhLocale } from './cli-locale.js';
 
 export interface TaskCommandContext {
   agent: unknown;
@@ -45,7 +46,23 @@ export interface TaskCommandContext {
   };
 }
 
-function usage(): string {
+function usage(zh: boolean = isZhLocale()): string {
+  if (zh) {
+    return [
+      '用法：moss task <command> [options]',
+      '',
+      '  run <goal...>        端到端跑一个任务（plan → execute → verify → repair → accept）',
+      '      --accept "<cmd>"  验收权威：命令必须以退出码 0 结束',
+      '      --max-repairs N  诚实 FAIL 前的修复尝试次数（默认 2）',
+      '      --max-turns N    agent 轮次预算（默认 8）',
+      '      --device ID      契约指定的目标设备 id',
+      '  resume <task_id>     恢复一个失败/中断/阻塞的任务',
+      '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新）',
+      '  timeline [task_id]   完整生命周期时间线（默认：最新）',
+      '',
+      '只有任务被验收（PASS）时退出码才是 0。',
+    ].join('\n');
+  }
   return [
     'Usage: moss task <command> [options]',
     '',
@@ -114,19 +131,29 @@ function parseFlags(args: string[]): {
   return { goal, accept, maxRepairs, maxTurns, device };
 }
 
-export function formatTaskStatus(snapshot: TaskStateSnapshot, timeline: string): string {
+export function formatTaskStatus(
+  snapshot: TaskStateSnapshot,
+  timeline: string,
+  zh: boolean = isZhLocale()
+): string {
+  // Column labels: English pads to 10 chars; zh labels are all two CJK
+  // characters (4 display columns) + 6 spaces — same 10-column alignment.
+  const label = (en: string, zhLabel: string) => (zh ? `${zhLabel}      ` : en.padEnd(10));
   const lines: string[] = [
-    `TASK      ${snapshot.taskId}`,
-    `GOAL      ${snapshot.goal}`,
-    `PHASE     ${snapshot.phase} (${snapshot.statusView}${snapshot.outcome ? ` · ${snapshot.outcome}` : ''})`,
+    `${label('TASK', '任务')}${snapshot.taskId}`,
+    `${label('GOAL', '目标')}${snapshot.goal}`,
+    `${label('PHASE', '阶段')}${snapshot.phase} (${snapshot.statusView}${snapshot.outcome ? ` · ${snapshot.outcome}` : ''})`,
   ];
-  if (snapshot.targetDeviceId) lines.push(`DEVICE    ${snapshot.targetDeviceId}`);
-  if (snapshot.blockedReason) lines.push(`BLOCKED   ${snapshot.blockedReason}`);
+  if (snapshot.targetDeviceId) lines.push(`${label('DEVICE', '设备')}${snapshot.targetDeviceId}`);
+  if (snapshot.blockedReason) lines.push(`${label('BLOCKED', '阻塞')}${snapshot.blockedReason}`);
   lines.push(
-    `ATTEMPTS  ${snapshot.attempt} · repairs ${snapshot.repairs.length} · failures ${snapshot.failures.length} · evidence ${snapshot.evidenceCount}`
+    `${label('ATTEMPTS', '尝试')}${snapshot.attempt}` +
+      (zh
+        ? ` · 修复 ${snapshot.repairs.length} · 失败 ${snapshot.failures.length} · 证据 ${snapshot.evidenceCount}`
+        : ` · repairs ${snapshot.repairs.length} · failures ${snapshot.failures.length} · evidence ${snapshot.evidenceCount}`)
   );
   if (snapshot.plan.length > 0) {
-    lines.push('PLAN');
+    lines.push(zh ? '计划' : 'PLAN');
     for (const step of snapshot.plan) {
       const mark =
         step.status === 'done'
@@ -143,18 +170,31 @@ export function formatTaskStatus(snapshot: TaskStateSnapshot, timeline: string):
   }
   for (const failure of snapshot.failures) {
     lines.push(
-      `FAILURE #${failure.attempt} [${failure.stage}] ${failure.symptom}` +
-        (failure.rootCause ? `\n  root cause: ${failure.rootCause}` : '') +
-        (failure.resolved ? ' (resolved)' : ' (unresolved)')
+      `${zh ? '失败' : 'FAILURE'} #${failure.attempt} [${failure.stage}] ${failure.symptom}` +
+        (failure.rootCause
+          ? zh
+            ? `\n  根因：${failure.rootCause}`
+            : `\n  root cause: ${failure.rootCause}`
+          : '') +
+        (failure.resolved
+          ? zh
+            ? '（已解决）'
+            : ' (resolved)'
+          : zh
+            ? '（未解决）'
+            : ' (unresolved)')
     );
   }
   if (snapshot.lastVerdict) {
     lines.push(
-      `VERDICT   ${snapshot.lastVerdict.verdict.toUpperCase()} (${snapshot.lastVerdict.unmetRequired} required unmet)`
+      `${label('VERDICT', '裁决')}${snapshot.lastVerdict.verdict.toUpperCase()}` +
+        (zh
+          ? `（尚缺 ${snapshot.lastVerdict.unmetRequired} 条必需验收）`
+          : ` (${snapshot.lastVerdict.unmetRequired} required unmet)`)
     );
   }
   if (timeline) {
-    lines.push('TIMELINE');
+    lines.push(zh ? '时间线' : 'TIMELINE');
     lines.push(
       timeline
         .split('\n')
@@ -281,12 +321,19 @@ export async function runTaskCommand(
 ): Promise<number> {
   const output = ctx.onOutput ?? ((stream, text) => process[stream].write(text));
   const sub = commandArgs[0] ?? 'status';
+  const zh = isZhLocale();
 
   if (sub === 'run') {
     const flags = parseFlags(commandArgs.slice(1));
     const goal = flags.goal.join(' ').trim();
     if (!goal) {
-      output('stderr', 'moss task run: a goal is required.\n\n' + usage() + '\n');
+      output(
+        'stderr',
+        'moss task run: ' +
+          (zh ? '需要一个目标（goal）。\n\n' : 'a goal is required.\n\n') +
+          usage(zh) +
+          '\n'
+      );
       return 2;
     }
     const runTurn = createAgentTurnRunner(ctx.agent, ctx.sessionKey, {
@@ -322,7 +369,10 @@ export async function runTaskCommand(
   if (sub === 'resume') {
     const taskId = commandArgs[1];
     if (!taskId) {
-      output('stderr', 'moss task resume: task_id required.\n');
+      output(
+        'stderr',
+        zh ? 'moss task resume: 需要 task_id。\n' : 'moss task resume: task_id required.\n'
+      );
       return 2;
     }
     const runTurn = createAgentTurnRunner(ctx.agent, ctx.sessionKey, {
@@ -349,7 +399,12 @@ export async function runTaskCommand(
       ? await getTaskStateSnapshot(ctx.workspace, commandArgs[1])
       : await latestSnapshot(ctx.workspace);
     if (!snapshot) {
-      output('stdout', 'No tasks in this workspace. Start one: moss task run <goal>\n');
+      output(
+        'stdout',
+        zh
+          ? '本工作区尚无任务。开始一个：moss task run <目标>\n'
+          : 'No tasks in this workspace. Start one: moss task run <goal>\n'
+      );
       return 0;
     }
     const events = await listTaskEvents(ctx.workspace, snapshot.taskId);
@@ -365,7 +420,7 @@ export async function runTaskCommand(
       ? await getTaskStateSnapshot(ctx.workspace, commandArgs[1])
       : await latestSnapshot(ctx.workspace);
     if (!snapshot) {
-      output('stdout', 'No tasks in this workspace.\n');
+      output('stdout', zh ? '本工作区尚无任务。\n' : 'No tasks in this workspace.\n');
       return 0;
     }
     const events = await listTaskEvents(ctx.workspace, snapshot.taskId);
@@ -373,6 +428,11 @@ export async function runTaskCommand(
     return 0;
   }
 
-  output('stderr', `Unknown task subcommand "${sub}".\n\n` + usage() + '\n');
+  output(
+    'stderr',
+    (zh ? `未知 task 子命令 "${sub}"。\n\n` : `Unknown task subcommand "${sub}".\n\n`) +
+      usage(zh) +
+      '\n'
+  );
   return 2;
 }

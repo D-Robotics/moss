@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   buildEntryFromArgv,
+  renderMcpUsage,
   runMcpCommand,
   validateServerEntry,
 } from '../dist/cli/mcp-commands.js';
@@ -166,6 +167,42 @@ try {
   const result = await healedSearch.execute({ query: '' }, {});
   assert.ok(String(result).includes('fixture'), 'search answers after reconnect');
   assert.equal(registry2.getStatuses()[0].state, 'connected', 'status healed to connected');
+
+  // ─── zh locale: usage + command output render in Chinese ─────────────────
+  const savedLang = process.env.LANG;
+  const savedLcAll = process.env.LC_ALL;
+  try {
+    process.env.LANG = 'zh_CN.UTF-8';
+    process.env.LC_ALL = 'zh_CN.UTF-8';
+
+    stdout.length = 0;
+    code = await runMcpCommand(['list'], ctx);
+    assert.equal(code, 0);
+    const zhList = stdout.join('');
+    assert.ok(zhList.includes('fixture'), 'zh list still names the server');
+    assert.ok(zhList.includes('个服务器'), 'zh list footer counts in Chinese');
+
+    stderr.length = 0;
+    code = await runMcpCommand(['test', 'nope'], ctx);
+    assert.equal(code, 1);
+    assert.ok(stderr.join('').includes('未配置'), 'zh test error names the state');
+
+    stdout.length = 0;
+    code = await runMcpCommand(['add', 'zhcheck', process.execPath, stdioServerPath], ctx);
+    assert.equal(code, 0, 'zh add succeeds');
+    assert.ok(stdout.join('').includes('已添加'), 'zh add success message');
+    code = await runMcpCommand(['remove', 'zhcheck'], ctx);
+    assert.equal(code, 0, 'cleanup zhcheck');
+
+    assert.ok(renderMcpUsage(true).includes('用法'), 'zh usage header');
+    assert.ok(!renderMcpUsage(true).includes('Usage:'), 'zh usage drops the English header');
+    assert.ok(renderMcpUsage(false).includes('Usage:'), 'en usage header');
+  } finally {
+    if (savedLcAll === undefined) delete process.env.LC_ALL;
+    else process.env.LC_ALL = savedLcAll;
+    if (savedLang === undefined) delete process.env.LANG;
+    else process.env.LANG = savedLang;
+  }
 } finally {
   process.stdout.write = prevOut;
   process.stderr.write = prevErr;

@@ -6,10 +6,21 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { isZhLocale } from './cli-locale.js';
 
 const SKILL_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/i;
 
-export function renderSkillUsage(): string {
+export function renderSkillUsage(zh: boolean = isZhLocale()): string {
+  if (zh) {
+    return [
+      '用法：',
+      '  moss skill create <name>          生成 .moss/skills/<name>/SKILL.md 脚手架',
+      '  moss skill list                   列出已发现的 skills（工作区 + 用户级）',
+      '',
+      '编辑脚手架、补全 description 与正文；下次启动 moss 自动加载（渐进披露：',
+      '只有 name + description 进入提示词；正文经 skill 工具按 {args} 加载）。',
+    ].join('\n');
+  }
   return [
     'Usage:',
     '  moss skill create <name>          scaffold .moss/skills/<name>/SKILL.md',
@@ -45,11 +56,16 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
   const out = (text: string) => process.stdout.write(`${text}\n`);
   const err = (text: string) => process.stderr.write(`${text}\n`);
   const sub = argv[0] ?? 'list';
+  const zh = isZhLocale();
 
   if (sub === 'create') {
     const name = argv[1];
     if (!name) {
-      err('moss skill create: a skill name is required.\n\n' + renderSkillUsage());
+      err(
+        'moss skill create: ' +
+          (zh ? '需要 skill 名称。\n\n' : 'a skill name is required.\n\n') +
+          renderSkillUsage(zh)
+      );
       return 2;
     }
     if (!SKILL_NAME_RE.test(name)) {
@@ -59,13 +75,21 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
     const skillDir = path.join(ctx.workspaceDir, '.moss', 'skills', name);
     const filePath = path.join(skillDir, 'SKILL.md');
     if (fs.existsSync(filePath)) {
-      err(`moss skill create: "${name}" already exists at ${filePath}`);
+      err(
+        zh
+          ? `moss skill create: "${name}" 已存在（${filePath}）`
+          : `moss skill create: "${name}" already exists at ${filePath}`
+      );
       return 1;
     }
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(filePath, SKILL_TEMPLATE.replaceAll('{{NAME}}', name), 'utf8');
-    out(`Created ${filePath}`);
-    out('Edit description + body, then start moss — the skill loads automatically.');
+    out(zh ? `已创建 ${filePath}` : `Created ${filePath}`);
+    out(
+      zh
+        ? '编辑 description 与正文后启动 moss——skill 会自动加载。'
+        : 'Edit description + body, then start moss — the skill loads automatically.'
+    );
     return 0;
   }
 
@@ -76,14 +100,22 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
       path.join(ctx.configDir, 'skills'),
     ]);
     if (skills.length === 0) {
-      out('No skills found. Create one: moss skill create <name>');
+      out(
+        zh
+          ? '未发现 skills。创建一个：moss skill create <name>'
+          : 'No skills found. Create one: moss skill create <name>'
+      );
       return 0;
     }
     for (const skill of skills) out(`  ${skill.name.padEnd(18)} ${skill.description}`);
-    out(`\n${skills.length} skill(s). Load one in-session with the skill tool.`);
+    out(
+      zh
+        ? `\n共 ${skills.length} 个 skill。会话内用 skill 工具加载。`
+        : `\n${skills.length} skill(s). Load one in-session with the skill tool.`
+    );
     return 0;
   }
 
-  err(renderSkillUsage());
+  err(renderSkillUsage(zh));
   return 2;
 }
