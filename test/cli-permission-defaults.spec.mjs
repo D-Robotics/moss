@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { CLI_PROFILE_DEFAULTS } from '../dist/cli/config.js';
 import {
@@ -481,6 +484,123 @@ const tool = (name, sideEffectClass) => ({
     'destructive shell commands stay blocked even in full access'
   );
   assert.match(decision.reason, /blocked|filesystem|root|dangerous/i);
+}
+
+// ─── 'a' on exec: session trust, and (opt-in) a grant that survives restarts ─
+
+const execRequest = (command) => ({
+  tool: {
+    name: 'exec',
+    description: 'Run a shell command',
+    inputSchema: { type: 'object', properties: {} },
+    metadata: { sideEffectClass: 'local_write', planMode: 'requires_user_confirmation' },
+    execute: async () => 'ok',
+  },
+  input: { command },
+});
+
+{
+  const answers = ['a'];
+  setCliApprovalAsker(async () => answers.shift() ?? '');
+  const hook = createCliToolApprovalHook('workspace-write', {}, { workspaceDir: process.cwd() });
+  const first = await hook({
+    ...execRequest('touch /tmp/moss-a-trust-1'),
+    sessionKey: 'exec-trust',
+  });
+  assert.equal(first.approved, true, "'a' approves the command");
+  let secondPrompted = false;
+  setCliApprovalAsker(async () => {
+    secondPrompted = true;
+    return '';
+  });
+  const second = await hook({
+    ...execRequest('touch /tmp/moss-a-trust-2'),
+    sessionKey: 'exec-trust',
+  });
+  assert.equal(secondPrompted, false, "'a' on exec stops asking for the rest of the session");
+  assert.equal(second.approved, true, 'the second command runs without a prompt');
+  setCliApprovalAsker(null);
+}
+
+{
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-trust-persist-'));
+  const prevConfigDir = process.env.MOSS_CONFIG_DIR;
+  process.env.MOSS_CONFIG_DIR = configDir;
+  try {
+    // Without persistTrust (the scripted/test default): 'a' must not write.
+    const answers = ['a'];
+    setCliApprovalAsker(async () => answers.shift() ?? '');
+    const bareHook = createCliToolApprovalHook(
+      'workspace-write',
+      {},
+      {
+        workspaceDir: process.cwd(),
+      }
+    );
+    await bareHook({ ...execRequest('touch /tmp/moss-p0'), sessionKey: 'persist-off' });
+    assert.equal(
+      fs.existsSync(path.join(configDir, 'config.json')),
+      false,
+      "scripted 'a' answers never touch the config file"
+    );
+
+    // With persistTrust: 'a' on exec writes exec; 'a' on an edit writes the
+    // whole edit family in one press; a fresh hook then runs without asking.
+    const persisted = ['a', 'a'];
+    setCliApprovalAsker(async () => persisted.shift() ?? '');
+    const hook = createCliToolApprovalHook(
+      'workspace-write',
+      {},
+      {
+        workspaceDir: process.cwd(),
+        persistTrust: true,
+      }
+    );
+    await hook({ ...execRequest('touch /tmp/moss-p1'), sessionKey: 'persist-on' });
+    await hook({
+      tool: {
+        name: 'edit_file',
+        description: 'Edit a file',
+        inputSchema: { type: 'object', properties: {} },
+        metadata: { sideEffectClass: 'local_write', planMode: 'requires_user_confirmation' },
+        execute: async () => 'ok',
+      },
+      input: { path: 'notes.txt', old_string: 'a', new_string: 'b' },
+      sessionKey: 'persist-on',
+    });
+    const written = JSON.parse(fs.readFileSync(path.join(configDir, 'config.json'), 'utf8'));
+    assert.ok(written.trustedTools.includes('exec'), "'a' (saved) persists exec to trustedTools");
+    for (const family of ['write_file', 'edit_file', 'apply_patch', 'move_file']) {
+      assert.ok(
+        written.trustedTools.includes(family),
+        `one press on an edit persists the whole edit family (${family})`
+      );
+    }
+    let askedAgain = false;
+    setCliApprovalAsker(async () => {
+      askedAgain = true;
+      return '';
+    });
+    const fresh = createCliToolApprovalHook(
+      'workspace-write',
+      {},
+      {
+        workspaceDir: process.cwd(),
+        trustedTools: written.trustedTools,
+      }
+    );
+    const replay = await fresh({
+      ...execRequest('touch /tmp/moss-p2'),
+      sessionKey: 'persist-replay',
+    });
+    assert.equal(askedAgain, false, 'a fresh session inherits the saved trust — no re-asking');
+    assert.equal(replay.approved, true, 'the saved trust lets the command run');
+    setCliApprovalAsker(null);
+  } finally {
+    if (prevConfigDir === undefined) delete process.env.MOSS_CONFIG_DIR;
+    else process.env.MOSS_CONFIG_DIR = prevConfigDir;
+    setCliApprovalAsker(null);
+  }
 }
 
 console.log(

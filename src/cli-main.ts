@@ -581,6 +581,9 @@ async function main() {
     trustedTools: resolvedConfig.trustedTools,
     deniedTools: resolvedConfig.deniedTools,
     workspaceDir: workspace,
+    // "a" (don't ask again) persists to the user config only from a real
+    // interactive terminal — piped/scripted answers stay session-scoped.
+    persistTrust: process.stdin.isTTY === true,
     device: deviceTarget
       ? {
           host: deviceTarget.host,

@@ -6,7 +6,12 @@ import type { Tool, ToolSideEffectClass } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
-import { normalizeSafetyModeConfig, type ConfigApprovalPolicy } from './config.js';
+import {
+  normalizeSafetyModeConfig,
+  loadConfigFile,
+  saveConfigFile,
+  type ConfigApprovalPolicy,
+} from './config.js';
 import { buildApprovalDetailLines, type ApprovalDetailContext } from './approval-detail.js';
 import { getCliInteractionMode, type CliInteractionMode } from './interaction-mode.js';
 import { setUserQuestionAsker } from '../core/tools/user-question-asker.js';
@@ -89,6 +94,14 @@ export interface CliToolApprovalOptions {
   interactionMode?: () => CliInteractionMode;
 
   detailMode?: CliDetailMode;
+
+  /**
+   * Answering "a" (don't ask again) also appends the tool to the user
+   * config's trustedTools so the grant survives restarts. Wired only for
+   * interactive sessions — scripted/test answers never touch a config file.
+   * Safety checks still apply to trusted tools.
+   */
+  persistTrust?: boolean;
 }
 
 /** A CLI policy hook whose interactive asker can be scoped by an embedding host. @beta */
@@ -451,9 +464,16 @@ function isWorkspaceTrustEligible(
   return preview.workspaceFileMutation;
 }
 
-function isSessionTrustEligible(sideEffect: ToolSideEffectClass): boolean {
+function isSessionTrustEligible(sideEffect: ToolSideEffectClass, toolName: string): boolean {
   return (
-    sideEffect === 'memory_write' || sideEffect === 'runtime_state' || sideEffect === 'subagent'
+    sideEffect === 'memory_write' ||
+    sideEffect === 'runtime_state' ||
+    sideEffect === 'subagent' ||
+    // 'a' on a mutating shell command trusts commands for the rest of the
+    // session — the one grant users actually reach for, and the one that now
+    // also persists. device_exec deliberately stays excluded: mutations on a
+    // connected robot are approved one by one.
+    (toolName === 'exec' && sideEffect === 'local_write')
   );
 }
 
@@ -616,7 +636,7 @@ function approvalScopeSummary(
 function approvalAlwaysSummary(preview: CliToolApprovalPreview): string | undefined {
   if (isWorkspaceTrustEligible(preview)) return 'trust workspace file edits for this session';
 
-  if (!isSessionTrustEligible(preview.sideEffect)) return undefined;
+  if (!isSessionTrustEligible(preview.sideEffect, preview.toolName)) return undefined;
   return 'allow this scope for the session';
 }
 
@@ -773,17 +793,20 @@ function approvalDialogQuestion(title: string, subject: string | undefined): str
 export function describeApprovalDialog(
   preview: CliToolApprovalPreview,
   input: Record<string, unknown>,
-  detailCtx: ApprovalDetailContext = {}
+  detailCtx: ApprovalDetailContext = {},
+  options: { persistTrust?: boolean } = {}
 ): ApprovalDialog {
   const title = approvalDialogTitle(preview.toolName);
   const subject = approvalTargetSummary(preview.toolName, input) || undefined;
   // A6.52: say what `a` ACTUALLY grants for this class — workspace file edits,
   // session trust for eligible tools, or (exec/device/fetch) nothing beyond
-  // this one approval.
+  // this one approval. With persistTrust, `a` also writes to the config, so
+  // the label says so instead of promising a session-only grant that resets.
+  const grantScope = options.persistTrust ? ' (saved)' : ' this session';
   const trustOptionLabel = isWorkspaceTrustEligible(preview)
-    ? 'Yes, and don\u2019t ask again for file edits this session'
-    : isSessionTrustEligible(preview.sideEffect)
-      ? `Yes, and always allow ${preview.toolName} this session`
+    ? `Yes, and don\u2019t ask again for file edits${grantScope}`
+    : isSessionTrustEligible(preview.sideEffect, preview.toolName)
+      ? `Yes, and always allow ${preview.toolName}${grantScope}`
       : `Yes (no session trust for ${preview.toolName})`;
   return {
     title,
@@ -793,7 +816,8 @@ export function describeApprovalDialog(
     question: approvalDialogQuestion(title, subject),
     ...(trustOptionLabel ? { trustOptionLabel } : {}),
     trustOptionAvailable:
-      isWorkspaceTrustEligible(preview) || isSessionTrustEligible(preview.sideEffect),
+      isWorkspaceTrustEligible(preview) ||
+      isSessionTrustEligible(preview.sideEffect, preview.toolName),
     ...(preview.toolName === 'web_fetch'
       ? { denyOptionLabel: 'No, and tell moss what to do differently (esc)' }
       : {}),
@@ -915,6 +939,29 @@ async function defaultAskUser(question: string, abortSignal?: AbortSignal): Prom
     rl.once('SIGINT', () => finish(''));
     rl.question(question, finish);
   });
+}
+
+/**
+ * "Don't ask again" that survives restarts: append the granted tools to the
+ * user config's trustedTools. File edits persist the whole edit family in one
+ * press (the session grant is workspace-wide, not per tool); everything else
+ * persists the exact tool. Gated by persistTrust, so scripted and test
+ * answers never touch a real config file. Trusted tools still run through
+ * every safety check — trust only removes the prompt.
+ */
+function persistTrustedTool(preview: CliToolApprovalPreview, toolName: string): void {
+  try {
+    const granted = isWorkspaceTrustEligible(preview)
+      ? [...WORKSPACE_FILE_MUTATION_TOOLS]
+      : [toolName];
+    const current = loadConfigFile();
+    const existing = current.trustedTools ?? [];
+    const merged = [...new Set([...existing, ...granted])];
+    if (merged.length === existing.length) return;
+    saveConfigFile({ ...current, trustedTools: merged });
+  } catch {
+    /* a failed save only costs re-asking next session */
+  }
 }
 
 export function createCliToolApprovalHook(
@@ -1067,10 +1114,12 @@ export function createCliToolApprovalHook(
       },
       taskCtx
     );
-    const dialog = describeApprovalDialog(preview, request.input, {
-      workspaceDir: options.workspaceDir,
-      device: options.device,
-    });
+    const dialog = describeApprovalDialog(
+      preview,
+      request.input,
+      { workspaceDir: options.workspaceDir, device: options.device },
+      { persistTrust: options.persistTrust }
+    );
     // Precedence: a structured UI (which renders the dialog itself) wins over
     // the flattened-prompt asker; headless/tests keep using the string path.
     const viewAsker = getCliApprovalViewAsker();
@@ -1086,9 +1135,10 @@ export function createCliToolApprovalHook(
     if (answer === 'a' || answer === 'always') {
       if (isWorkspaceTrustEligible(preview)) {
         sessionTrustedWorkspaces.add(workspaceRoot);
-      } else if (isSessionTrustEligible(preview.sideEffect)) {
+      } else if (isSessionTrustEligible(preview.sideEffect, tool.name)) {
         sessionTrustedTools.add(tool.name);
       }
+      if (options.persistTrust) persistTrustedTool(preview, tool.name);
 
       return { approved: true };
     }

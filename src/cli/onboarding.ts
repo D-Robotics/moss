@@ -437,6 +437,7 @@ export function renderCliPermissions(
     `  ${label('workspace')} ${auth.workspace}`,
     `  ${label('rules')} ${activeRules === 0 ? 'default' : `${activeRules} custom`}`,
     '',
+    '  Stop asking? press a when prompted — the choice is saved.',
     '  Switch: /mode plan | /mode accept-edits · everything: /permissions --verbose',
   ].join('\n');
 }
