@@ -2082,6 +2082,18 @@ export function TuiAppRoot({
         await showBlock(text.slice(1) as 'sessions');
         return;
       }
+      if (text === '/skills') {
+        const rows = options.skills ?? [];
+        printBlock(
+          'Skills',
+          rows.length === 0
+            ? ['no skills found', 'create one: moss skill create <name>']
+            : rows
+                .map((s) => `  ${s.name.padEnd(18)} ${s.description.split('\n')[0] ?? ''}`)
+                .concat([`  (${rows.length} skill(s) · load with the skill tool)`])
+        );
+        return;
+      }
       if (text === '/resume' || text.startsWith('/resume ')) {
         await runTaskShellCommand(`resume${text.slice('/resume'.length)}`);
         return;

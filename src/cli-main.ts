@@ -1170,7 +1170,10 @@ async function main() {
         },
       });
     } else {
-      await runInteractive(agent, liveRuntime, { sessionKey: session.sessionKey });
+      await runInteractive(agent, liveRuntime, {
+        sessionKey: session.sessionKey,
+        ...(loadedSkills.length > 0 ? { skills: loadedSkills } : {}),
+      });
     }
   } finally {
     try {

@@ -209,6 +209,7 @@ const BLOCK_TITLE = new Map([
   ['/mcp', /^mcp$/],
   ['/hooks', /^Hooks$/],
   ['/jobs', /^Jobs$/],
+  ['/skills', /^Skills/],
 ]);
 
 // Arguments a bare command needs to answer deterministically (the variable part

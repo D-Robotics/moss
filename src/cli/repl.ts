@@ -122,7 +122,12 @@ function basicReplUnsupportedMessage(command: string): string {
 export async function runInteractive(
   agent: MossAgent,
   runtime?: CliRuntimeStatus,
-  options: { sessionKey?: string; services?: CliServices } = {}
+  options: {
+    sessionKey?: string;
+    services?: CliServices;
+    /** Discovered skills (name+description) for /skills; omitted when none. */
+    skills?: Array<{ name: string; description: string }>;
+  } = {}
 ) {
   const services = options.services ?? new CliServices();
   const usage = createSessionUsageAccumulator();
@@ -362,6 +367,20 @@ export async function runInteractive(
         console.error(formatTuiSessions(sessions, sessionKey));
       } catch (err) {
         console.error(`[sessions] ${errorMessage(err)}`);
+      }
+      rl.prompt();
+      continue;
+    }
+
+    if (msg === '/skills') {
+      const rows = options.skills ?? [];
+      if (rows.length === 0) {
+        console.error('no skills found — create one: moss skill create <name>');
+      } else {
+        console.error('Skills');
+        for (const s of rows)
+          console.error(`  ${s.name.padEnd(18)} ${s.description.split('\n')[0] ?? ''}`);
+        console.error(`  (${rows.length} skill(s) · load with the skill tool)`);
       }
       rl.prompt();
       continue;

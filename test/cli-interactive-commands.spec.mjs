@@ -227,7 +227,7 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
   const taskRow = byCommand.get('/task');
   assert.ok(taskRow?.args?.includes('view'), '/task advertises the view subcommand');
   assert.ok(
-    SHELL_COMMANDS.length <= 24,
+    SHELL_COMMANDS.length <= 25,
     `the TUI command surface keeps shrinking (got ${SHELL_COMMANDS.length})`
   );
   for (const folded of ['/quickstart', '/log']) {

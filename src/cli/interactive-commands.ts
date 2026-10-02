@@ -118,6 +118,10 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         hidden: true,
       },
       { command: '/mcp', description: 'list MCP server status', surfaces: ['tui'] },
+      {
+        command: '/skills',
+        description: 'list discovered skills; create more with moss skill create',
+      },
     ],
   },
   {
