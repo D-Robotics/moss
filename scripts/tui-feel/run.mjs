@@ -13,7 +13,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const driver = path.join(root, 'scripts/tui-feel/driver.py');
+const compare = process.argv.includes('--compare');
+const driver = path.join(root, 'scripts/tui-feel', compare ? 'compare_feel.py' : 'driver.py');
 const py = spawnSync('python3', ['-c', 'import pyte'], { encoding: 'utf8' });
 if (py.status !== 0) {
   console.log('[tui-feel] skip: python3 or pyte is not available');
