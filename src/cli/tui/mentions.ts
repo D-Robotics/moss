@@ -78,6 +78,50 @@ export function workspaceFileIndex(root: string, limit = DEFAULT_LIMIT): Mention
   return [...dirs, ...files].sort(rank).slice(0, limit);
 }
 
+/** Same index as {@link workspaceFileIndex}, but each directory read yields. */
+export async function buildWorkspaceIndexAsync(
+  root: string,
+  limit = DEFAULT_LIMIT
+): Promise<MentionEntry[]> {
+  const dirs: MentionEntry[] = [];
+  const files: MentionEntry[] = [];
+  const queue: Array<{ abs: string; prefix: string; depth: number }> = [
+    { abs: root, prefix: '', depth: 0 },
+  ];
+  while (queue.length > 0 && dirs.length + files.length < limit) {
+    const next = queue.shift();
+    if (!next || next.depth > 8) continue;
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(next.abs, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (dirs.length + files.length >= limit) break;
+      if (IGNORED.has(entry.name)) continue;
+      if (entry.name.startsWith('.') && entry.name !== '.env.example') continue;
+      const rel = next.prefix ? `${next.prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        dirs.push({ path: `${rel}/`, directory: true });
+        queue.push({ abs: path.join(next.abs, entry.name), prefix: rel, depth: next.depth + 1 });
+      } else if (entry.isFile()) {
+        files.push({ path: rel, directory: false });
+      }
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  const depth = (entry: MentionEntry) => entry.path.replace(/\/$/, '').split('/').length;
+  return [...dirs, ...files]
+    .sort(
+      (a, b) =>
+        depth(a) - depth(b) ||
+        Number(b.directory) - Number(a.directory) ||
+        a.path.localeCompare(b.path)
+    )
+    .slice(0, limit);
+}
+
 export interface MentionToken {
   /** Offset of the `@` in the value. */
   start: number;

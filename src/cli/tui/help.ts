@@ -16,7 +16,6 @@ export const CTRL_BINDINGS = [
   // the task-history block lives on `/history` alone — the chord that used to
   // sit here actively misled anyone arriving from another CLI.
   { letter: 'v', action: 'evidence', label: 'evidence' },
-  { letter: 'g', action: 'deployments', label: 'deployments' },
   { letter: 'f', action: 'failures', label: 'failures' },
   { letter: 'l', action: 'clear', label: 'clear the composer' },
 ] as const;
@@ -50,10 +49,12 @@ export const HELP_KEYS: ReadonlyArray<readonly [string, string]> = [
   ['Ctrl+U / Ctrl+Y', 'delete to line start · paste deleted text'],
   ['Ctrl+S', 'stash the draft · press again to bring it back'],
   ['Ctrl+R', 'search your earlier prompts'],
+  ['Ctrl+G', 'edit the draft in $EDITOR'],
+  ['PgUp / PgDn', 'scroll the transcript'],
   ['Ctrl+C', 'interrupt the run · press again to quit'],
   ['Ctrl+D', 'quit'],
   [chordRow(['tasks', 'evidence']), 'print tasks · evidence'],
-  [chordRow(['deployments', 'failures']), 'print deployments · failures'],
+  [chordRow(['failures']), 'print failures · deployments are /deployments'],
   ['?', 'this list'],
 ];
 

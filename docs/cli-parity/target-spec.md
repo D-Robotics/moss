@@ -719,6 +719,10 @@ These exist on purpose and have no counterpart in the reference surface. Removin
 14. **Shift+Tab mode cycling and the mode indicator** — now implemented (F9–F11, A7) in the hint row
     rather than as a right-aligned status segment (A17 `done (equivalent)`). Keep the hint-row
     placement; do not move the mode into the status row to satisfy codex's layout.
+15. **Fullscreen renderer is the TTY default** (alternate screen, mouse tracking, in-app
+    scroll). `MOSS_TUI_RENDERER=inline` keeps the primary-screen transcript. This replaces the
+    earlier "do not use an alternate screen" note. Exit prints a resume hint on the primary
+    screen because the alternate screen does not keep the transcript.
 
 ---
 

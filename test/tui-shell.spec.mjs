@@ -754,10 +754,10 @@ instance.unmount();
     `the evidence block shows the raw measurement: ${JSON.stringify(detailRows().slice(-2))}`
   );
 
-  instance.stdin.write('\x07'); // Ctrl+G → deployments
+  await type('/deployments');
   assert.ok(
     await waitFor(() => toolTitles().includes('Deployments (1)')),
-    'Ctrl+G prints deployments'
+    '/deployments prints deployments'
   );
   assert.ok(
     detailRows().some((line) => line.includes('RUNNING') && line.includes('/userdata/fps_probe')),

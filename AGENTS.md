@@ -77,7 +77,7 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 | Node     | ≥ 22.16.0（CI 钉 22.16.0 与 24 双档）                                                                                                                                                                                         | CI `Test` 矩阵                           |
 | 平台     | Linux / macOS / Windows（Windows 无 PTY smoke，其余全量）                                                                                                                                                                     | CI `Test` 矩阵                           |
 | provider | deepseek / qwen / openai / anthropic / openai-compatible                                                                                                                                                                      | 单测 + 冒烟；真实 key 回归按需人工       |
-| 交互面   | TTY：CLI 形态全屏壳（ink，v0.22 起对齐 Claude Code / codex：单列 transcript 走终端 scrollback + 底部 composer，工具调用/审批/任务信息全部内联打印，无侧栏无 overlay）；非 TTY / `MOSS_NO_TUI=1` / Windows：readline REPL 回退 | TUI spec 家族 + PTY smoke（macOS/Linux） |
+| 交互面   | TTY：全屏渲染器为默认（备用屏 + 鼠标 + 应用内滚动）；`MOSS_TUI_RENDERER=inline`、矮终端、dumb、tmux 鼠标关闭或 GNU screen 回退为 primary screen 内联形态；非 TTY / `MOSS_NO_TUI=1` / Windows：readline REPL | TUI spec 家族 + PTY smoke（macOS/Linux） |
 
 不在表内的组合（其他 Node 大版本、其他 provider 协议）未验证，不支持。
 

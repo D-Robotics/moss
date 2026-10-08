@@ -14,6 +14,7 @@
  */
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   render,
@@ -40,7 +41,8 @@ import {
   usageBlock,
   type TranscriptRow,
 } from './render-bridge.js';
-import { isComposerLeak, noteDroppedKeys } from './input/key-stream.js';
+import { isComposerLeak, classifyKeyStream, noteDroppedKeys } from './input/key-stream.js';
+import { routeMouse, type MouseLayout } from './input/mouse-route.js';
 import {
   deleteText,
   expandPasteTokens,
@@ -106,7 +108,7 @@ import {
 import { clip, line, rule, type TuiLine } from './text.js';
 import { isTuiZh, setTuiLocale, transientStatus, tui } from './copy.js';
 import { allocateFrame } from './layout.js';
-import { MOUSE_TRACKING_OFF, MOUSE_TRACKING_ON, selectTuiRenderer } from './renderer.js';
+import { MOUSE_TRACKING_OFF, MOUSE_TRACKING_ON, osc52, selectTuiRenderer } from './renderer.js';
 import { installTuiLogSink } from './terminal-io.js';
 import { createViewport, scrollViewport, viewportWindow, type ViewportLine } from './viewport.js';
 import {
@@ -117,6 +119,7 @@ import {
   composerNewline,
   composerSetValue,
   createComposer,
+  composerCaretFromClick,
   renderComposerEditor,
   type ComposerRun,
   type ComposerState,
@@ -134,9 +137,12 @@ import {
   filterMentions,
   mentionTokenAt,
   renderMentionMenu,
-  workspaceFileIndex,
+  buildWorkspaceIndexAsync,
   type MentionEntry,
 } from './mentions.js';
+import { loadPromptHistory, promptHistoryFile, savePromptHistory } from './prompt-history.js';
+import { selectionText, type SelectionPoint } from './selection.js';
+import { spawnProcess, runProcess } from '../../utils/run-process.js';
 import { filterHistory, renderHistorySearch } from './history-search.js';
 import { buildResumeReplay } from '../resume-replay.js';
 import { getPackageVersion } from '../package-info.js';
@@ -307,7 +313,7 @@ export function TuiAppRoot({
   // so running it on every render is fine; the environment is only the fallback
   // and the host's explicit `locale` is authoritative.
   setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
-  const { exit } = useApp();
+  const { exit, suspendTerminal } = useApp();
   const { stdout, write: writeStdout } = useStdout();
   const { setCursorPosition } = useCursor();
   const fullscreen = options.renderer === 'fullscreen';
@@ -369,6 +375,19 @@ export function TuiAppRoot({
    */
   const [viewport, setViewport] = useState(createViewport);
   const viewportLinesRef = useRef(0);
+  const mouseLayoutRef = useRef<MouseLayout>({
+    composerTop: 0,
+    composerLines: 1,
+    viewportRows: 0,
+  });
+  const projectedTextRef = useRef<string[]>([]);
+  const selectionRef = useRef<{ anchor: SelectionPoint; head: SelectionPoint } | undefined>(
+    undefined
+  );
+  const chordRef = useRef('');
+  const [rewindOpen, setRewindOpen] = useState(false);
+  const [rewindCursor, setRewindCursor] = useState(0);
+  const historyReadyRef = useRef(false);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number | undefined>(undefined);
   /** Ctrl+R prompt search: `{ query, cursor }` while the overlay is open. */
@@ -435,6 +454,22 @@ export function TuiAppRoot({
   // The policy layer is authoritative: any mode change (shift+tab, `/mode`, a
   // flag, an embedded host) re-renders the hint row immediately.
   useEffect(() => subscribeCliInteractionMode(setInteractionModeState), []);
+  useEffect(() => {
+    historyReadyRef.current = false;
+    setHistory(
+      loadPromptHistory(promptHistoryFile(getMossWorkspacePaths(options.workspaceDir).runtimeDir))
+    );
+  }, [options.workspaceDir]);
+  useEffect(() => {
+    if (!historyReadyRef.current) {
+      historyReadyRef.current = true;
+      return;
+    }
+    savePromptHistory(
+      promptHistoryFile(getMossWorkspacePaths(options.workspaceDir).runtimeDir),
+      history
+    );
+  }, [history, options.workspaceDir]);
   useEffect(() => {
     if (!fullscreen) return undefined;
     writeStdout(MOUSE_TRACKING_ON);
@@ -1003,7 +1038,16 @@ export function TuiAppRoot({
   /** One place that knows how to print each task-runtime view. */
   const showBlock = useCallback(
     async (
-      action: CtrlAction | 'tasks' | 'history' | 'sessions' | 'mcp' | 'subs' | 'bg' | 'usage'
+      action:
+        | CtrlAction
+        | 'tasks'
+        | 'history'
+        | 'sessions'
+        | 'mcp'
+        | 'subs'
+        | 'bg'
+        | 'usage'
+        | 'deployments'
     ) => {
       if (action === 'tasks') {
         const summaries = runtime.taskSummaries();
@@ -1860,6 +1904,41 @@ export function TuiAppRoot({
         // Shared registry first (status/doctor/permissions/mode/context/export/
         // review/quickstart), then the shell-local control commands, then
         // skills as first-class commands, then the honest unknown-command path.
+        if (store.run.running) {
+          const head = (text.split(/\s+/, 1)[0] ?? text).toLowerCase();
+          const immediate = new Set([
+            '/help',
+            '/status',
+            '/usage',
+            '/context',
+            '/mode',
+            '/permissions',
+            '/tasks',
+            '/history',
+            '/evidence',
+            '/deployments',
+            '/failures',
+            '/jobs',
+            '/bg',
+            '/subs',
+            '/mcp',
+            '/skills',
+            '/hooks',
+            '/log',
+            '/diff',
+            '/queue',
+            '/steer',
+            '/stop',
+            '/clear',
+            '/tui',
+          ]);
+          if (!immediate.has(head)) {
+            queueRef.current.push({ display: text, text });
+            setQueueRevision((n) => n + 1);
+            setStatusLine(tui('queued: {text}', { text: text.slice(0, 80) }));
+            return;
+          }
+        }
         if (await runShellCommand(text)) return;
         const head = text.split(/\s+/, 1)[0] ?? text;
         const skill = options.skills?.find((entry) => `/${entry.name}` === head);
@@ -1929,12 +2008,10 @@ export function TuiAppRoot({
   // selection and re-opens it (dismissal only lasts until the next keystroke).
   // `shellPaletteRows` is the shell's own surface (the same table `/help` prints),
   // so the menu cannot hide an advertised command or offer an unadvertised one.
-  const paletteRows: PaletteRow[] = running
-    ? []
-    : shellPaletteRows(
-        input,
-        (options.skills ?? []).map((skill) => [`/${skill.name}`, skill.description] as const)
-      );
+  const paletteRows: PaletteRow[] = shellPaletteRows(
+    input,
+    (options.skills ?? []).map((skill) => [`/${skill.name}`, skill.description] as const)
+  );
   const paletteOpen =
     paletteRows.length > 0 &&
     !paletteDismissed &&
@@ -1957,9 +2034,14 @@ export function TuiAppRoot({
   const mentionToken =
     running || approval || shellMode ? null : mentionTokenAt(input, composer.caret);
   useEffect(() => {
-    if (mentionToken && mentionIndex.length === 0) {
-      setMentionIndex(workspaceFileIndex(options.workspaceDir));
-    }
+    if (!mentionToken || mentionIndex.length > 0) return undefined;
+    let cancelled = false;
+    void buildWorkspaceIndexAsync(options.workspaceDir).then((entries) => {
+      if (!cancelled) setMentionIndex(entries);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [mentionToken?.query, mentionIndex.length, options.workspaceDir]);
   const mentionRows = mentionToken ? filterMentions(mentionIndex, mentionToken.query) : [];
   const mentionOpen = mentionToken !== null && !mentionDismissed && mentionRows.length > 0;
@@ -2025,7 +2107,9 @@ export function TuiAppRoot({
       escClearTimerRef.current = undefined;
       setEscClearArmed(false);
       setStatusLine((current) =>
-        current === tui('Esc again to clear the composer') ? undefined : current
+        current === tui('Esc again to clear the composer') || current === tui('Esc again to rewind')
+          ? undefined
+          : current
       );
     }, ESC_CLEAR_MS);
   }, []);
@@ -2044,7 +2128,88 @@ export function TuiAppRoot({
       key.ctrl ||
       key.meta;
     if (!inkKey && isComposerLeak(chunk)) {
+      if (fullscreen) {
+        for (const event of classifyKeyStream(chunk).events) {
+          if (event.kind !== 'mouse') continue;
+          const action = routeMouse(event, mouseLayoutRef.current);
+          if (action.type === 'scroll') {
+            setViewport((current) =>
+              scrollViewport(
+                current,
+                viewportLinesRef.current,
+                action.delta,
+                Math.max(1, mouseLayoutRef.current.viewportRows)
+              )
+            );
+          } else if (action.type === 'pin') {
+            setViewport(createViewport());
+          } else if (action.type === 'caret') {
+            setComposer((current) =>
+              composerCaretFromClick(
+                current,
+                {
+                  width: columns,
+                  maxRows: COMPOSER_MAX_ROWS,
+                  firstPrefix: shellMode ? '! ' : '❯ ',
+                  restPrefix: '  ',
+                },
+                action.visibleRow,
+                action.cell
+              )
+            );
+          } else if (action.type === 'select') {
+            if (action.phase === 'start') {
+              selectionRef.current = {
+                anchor: { x: action.x, y: action.y },
+                head: { x: action.x, y: action.y },
+              };
+            } else if (action.phase === 'move' && selectionRef.current) {
+              selectionRef.current = {
+                ...selectionRef.current,
+                head: { x: action.x, y: action.y },
+              };
+            } else if (action.phase === 'end' && selectionRef.current) {
+              const text = selectionText(
+                projectedTextRef.current,
+                selectionRef.current.anchor,
+                selectionRef.current.head
+              );
+              selectionRef.current = undefined;
+              if (text) {
+                writeStdout(osc52(text));
+                if (process.platform === 'darwin') {
+                  void runProcess('pbcopy', { args: [], stdin: text }).catch(() => undefined);
+                }
+                setStatusLine(tui('copied {count} chars to clipboard', { count: text.length }));
+              }
+            }
+          }
+        }
+      }
       noteDroppedKeys(1);
+      return;
+    }
+    if (rewindOpen) {
+      const checkpoints = options.listCheckpoints?.() ?? [];
+      if (key.escape) {
+        setRewindOpen(false);
+        return;
+      }
+      if (key.upArrow || key.downArrow) {
+        setRewindCursor((current) =>
+          Math.max(0, Math.min(checkpoints.length - 1, current + (key.upArrow ? -1 : 1)))
+        );
+        return;
+      }
+      if (key.return) {
+        const picked = checkpoints[rewindCursor];
+        setRewindOpen(false);
+        if (picked) {
+          const result = options.rewindTo?.(picked.seq);
+          setStatusLine(result?.detail ?? tui('rewind to {seq} failed', { seq: picked.seq }));
+        }
+        return;
+      }
       return;
     }
     if (fullscreen && (key.pageUp || key.pageDown) && !approval) {
@@ -2466,6 +2631,14 @@ export function TuiAppRoot({
         } else {
           armEscClear();
         }
+      } else if (escClearArmed) {
+        disarmEscClear();
+        setRewindCursor(0);
+        setRewindOpen(true);
+        setStatusLine(undefined);
+      } else {
+        armEscClear();
+        setStatusLine(tui('Esc again to rewind'));
       }
       return;
     }
@@ -2563,6 +2736,41 @@ export function TuiAppRoot({
         setHistorySearch({ query: '', cursor: 0 });
         return;
       }
+      if (letter === 'x') {
+        chordRef.current = 'x';
+        return;
+      }
+      if (letter === 'g') {
+        const editor = process.env.VISUAL || process.env.EDITOR;
+        if (!editor) {
+          setStatusLine(tui('set $EDITOR to edit the draft externally'));
+          return;
+        }
+        const file = path.join(os.tmpdir(), `moss-draft-${process.pid}.txt`);
+        const draft = input;
+        fs.writeFileSync(file, draft);
+        void suspendTerminal(async () => {
+          await new Promise<void>((resolve) => {
+            const child = spawnProcess(editor, [file], { stdio: 'inherit' });
+            child.on('exit', () => resolve());
+            child.on('error', () => resolve());
+          });
+          try {
+            const next = fs.readFileSync(file, 'utf8').replace(/\n$/, '');
+            tokensRef.current = [];
+            setComposer(composerSetValue(next));
+          } catch {
+            setStatusLine(tui('could not read the edited draft'));
+          }
+        });
+        return;
+      }
+      if (letter === 's' && chordRef.current === 'x') {
+        chordRef.current = '';
+        if (abortRef.current && queueRef.current.length > 0) abortRef.current.abort();
+        return;
+      }
+      chordRef.current = '';
       if (letter === 's') {
         // A2.24: stash the prompt when something urgent arrives; a second
         // Ctrl+S SWAPS — the new draft goes into the stash and the parked
@@ -2938,10 +3146,22 @@ export function TuiAppRoot({
     }
   }
   viewportLinesRef.current = projected.length;
+  projectedTextRef.current = projected.map((entry) => entry.text);
   const view = fullscreen
     ? viewportWindow(projected, viewport, frameLayout.viewportRows)
     : undefined;
   const permissionDialog = Boolean(approval && pendingDialogRef.current?.kind !== 'question');
+  const composerLines = permissionDialog ? 0 : editor.lines.length;
+  mouseLayoutRef.current = {
+    composerTop: (view?.lines.length ?? shownLive.length) + chromeTop.length,
+    composerLines,
+    viewportRows: fullscreen ? frameLayout.viewportRows : 0,
+    ...(view && !view.pinned
+      ? {
+          jumpRow: (view.lines.length ?? 0) + shownLive.length + chromeTop.length + composerLines,
+        }
+      : {}),
+  };
   const hideHardwareCursor = Boolean(permissionDialog || sessionPicker || modelPicker);
   if (hideHardwareCursor || process.env.MOSS_TUI_HW_CURSOR === '0') {
     setCursorPosition(undefined);
@@ -3051,6 +3271,9 @@ export function TuiAppRoot({
       : composerRuns.map((runs, index) =>
           inkRuns(runs, `composer-${index}`, shellMode && index === 0)
         )),
+    ...(view && !view.pinned
+      ? [inkLine(line(tui('Jump to bottom (click) ↓'), { dim: true }), 'jump-bottom')]
+      : []),
     ...chromeBottom.map((l, index) => inkLine(l, `chrome-bottom-${index}`))
   );
 }

@@ -240,6 +240,38 @@ function offsetAt(state: ComposerState, row: WrapSpan, column: number): number {
   return row.end;
 }
 
+/**
+ * Map a click on a visible composer row to a caret offset.
+ * `visibleRow` is 0-based inside the window `renderComposerEditor` shows.
+ * `cell` is the terminal column of the click, including the prompt prefix.
+ */
+export function composerCaretFromClick(
+  state: ComposerState,
+  options: ComposerViewOptions,
+  visibleRow: number,
+  cell: number
+): ComposerState {
+  if (state.value.length === 0) return { value: state.value, caret: 0 };
+  const width = Math.max(1, options.width);
+  const maxRows = Math.max(1, options.maxRows);
+  const firstPrefix = options.firstPrefix ?? '';
+  const restPrefix = options.restPrefix ?? firstPrefix;
+  const prefixWidth = Math.max(displayWidth(firstPrefix), displayWidth(restPrefix));
+  const rowWidth = Math.max(1, width - prefixWidth);
+  const rows = composerRows(state, rowWidth);
+  const position = caretAt(state, rowWidth, rows);
+  const caretNeedsRow = position.column >= rowWidth && position.row === rows.length - 1;
+  const displayRows = caretNeedsRow
+    ? [...rows, { start: state.value.length, end: state.value.length }]
+    : rows;
+  const caretIndex = caretNeedsRow ? displayRows.length - 1 : position.row;
+  const start = Math.max(0, Math.min(caretIndex - maxRows + 1, displayRows.length - maxRows));
+  const span = displayRows[start + visibleRow];
+  if (!span) return state;
+  const prefixCells = visibleRow === 0 ? displayWidth(firstPrefix) : displayWidth(restPrefix);
+  return { value: state.value, caret: offsetAt(state, span, Math.max(0, cell - prefixCells)) };
+}
+
 export function composerMove(
   state: ComposerState,
   motion: ComposerMotion,
