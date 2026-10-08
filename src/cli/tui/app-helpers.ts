@@ -25,7 +25,7 @@ import type { CliInteractionMode } from '../interaction-mode.js';
 import type { CliRuntimeStatus } from '../onboarding.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
 import { tui } from './copy.js';
-import { paintColor } from './theme.js';
+import { paintColor, TONE } from './theme.js';
 import { DEFAULT_KEYBINDINGS, type KeyBinding } from './keymap.js';
 import {
   helpKeyRows,
@@ -387,7 +387,10 @@ export function renderSessionPicker(
   maxRows = 8
 ): TuiLine[] {
   const out: TuiLine[] = [
-    line(clip(tui('Resume session  ⌕ {query}', { query }), width), { color: 'cyan', bold: true }),
+    line(clip(tui('Resume session  ⌕ {query}', { query }), width), {
+      color: TONE.accent,
+      bold: true,
+    }),
   ];
   const sel = Math.max(0, Math.min(selected, matches.length - 1));
   matches.slice(0, maxRows).forEach((s, index) => {

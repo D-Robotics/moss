@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { clip, displayWidth, line, padEndTo, type TuiLine } from './text.js';
+import { TONE } from './theme.js';
 
 export interface MentionEntry {
   /** Workspace-relative path (POSIX separators). */
@@ -211,7 +212,7 @@ export function renderMentionMenu(
     const kind = entry.directory ? 'dir' : 'file';
     const text = `${marker}${padEndTo(`@${entry.path}`, labelWidth)}${kind}`;
     return index === selected
-      ? line(clip(text, width), { color: 'cyan', bold: true })
+      ? line(clip(text, width), { color: TONE.accent, bold: true })
       : line(clip(text, width), { dim: true });
   });
 }

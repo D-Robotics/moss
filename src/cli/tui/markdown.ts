@@ -25,6 +25,7 @@
 import { clip, displayWidth, graphemes, line, padEndTo, type TuiLine } from './text.js';
 import type { TuiLineRun } from './text.js';
 import { highlightCodeLine, normalizeCodeLang } from './code-style.js';
+import { TONE } from './theme.js';
 
 /**
  * One styled run inside a rendered line. A terminal row can carry several
@@ -186,7 +187,7 @@ function styleOf(span: InlineSpan): RunStyle {
   return {
     ...(span.bold ? { bold: true } : {}),
     ...(span.italic ? { italic: true } : {}),
-    ...(span.code ? { color: 'cyan' as const } : {}),
+    ...(span.code ? { color: TONE.accent } : {}),
   };
 }
 
@@ -215,7 +216,7 @@ function uniformStyle(runs: MarkdownRun[]): RunStyle {
   return {
     ...(styled.every((run) => run.bold) ? { bold: true } : {}),
     ...(styled.every((run) => run.italic) ? { italic: true } : {}),
-    ...(styled.every((run) => run.color === 'cyan') ? { color: 'cyan' as const } : {}),
+    ...(styled.every((run) => run.color === 'cyan') ? { color: TONE.accent } : {}),
   };
 }
 

@@ -7,6 +7,7 @@
  */
 import { commandRowsForSlashInput } from '../interactive-commands.js';
 import { clip, line, padEndTo, displayWidth, type TuiColor, type TuiLine } from './text.js';
+import { TONE } from './theme.js';
 
 export type PaletteRow = readonly [command: string, description: string];
 
@@ -115,9 +116,7 @@ export function renderSlashPalette(
     const label = padEndTo(command, commandWidth);
     const text = `${marker}${label}${description}`;
     const selectedRow = index === selected;
-    const base = selectedRow
-      ? { color: options.accent ?? ('cyan' as const), bold: true }
-      : { dim: true };
+    const base = selectedRow ? { color: options.accent ?? TONE.accent, bold: true } : { dim: true };
     // Runs only when they can stay exact: a clipped row falls back to plain
     // text (runs must concatenate back to the line's text).
     if (options.query && clip(text, options.width) === text) {

@@ -59,7 +59,8 @@ export function selectTuiRenderer(probe: RendererProbe = {}): RendererChoice {
   return { mode: 'fullscreen', reason: 'default' };
 }
 
-export const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?1004h';
+// 1003 (any-event) reports motion without a button: the scroll bar appears on hover.
+export const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h\x1b[?1004h';
 export const MOUSE_TRACKING_OFF =
   '\x1b[?1004l\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1003l\x1b[?1015l';
 

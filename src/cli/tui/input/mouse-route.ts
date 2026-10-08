@@ -26,12 +26,19 @@ export type MouseAction =
   | { type: 'caret'; visibleRow: number; cell: number }
   | { type: 'select'; phase: 'start' | 'move' | 'end'; x: number; y: number }
   | { type: 'scrollbar'; phase: 'start' | 'move' | 'end'; y: number }
+  | { type: 'hover'; x: number; y: number }
   | { type: 'ignore' };
+
+/** Motion with no button held (any-event tracking, mode 1003). */
+export function isHoverMotion(hit: MouseHit): boolean {
+  return (hit.button & 32) !== 0 && (hit.button & 3) === 3 && (hit.button & 64) === 0;
+}
 
 export function routeMouse(hit: MouseHit, layout: MouseLayout): MouseAction {
   const row = hit.y - 1;
   const cell = hit.x - 1;
   const wheel = hit.button & 64;
+  if (isHoverMotion(hit)) return { type: 'hover', x: cell, y: row };
   if (wheel) {
     // Press and release both arrive for one notch on some terminals.
     if (hit.release) return { type: 'ignore' };

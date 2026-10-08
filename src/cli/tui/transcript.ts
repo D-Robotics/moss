@@ -34,6 +34,7 @@ import {
   type TuiColor,
   type TuiLine,
 } from './text.js';
+import { TONE } from './theme.js';
 
 export const USER_MARK = '❯';
 export const ANSWER_MARK = '⏺';
@@ -179,9 +180,9 @@ function pick(input: Record<string, unknown>, keys: string[]): string | undefine
  * preview stays dim so the change pops without shouting.
  */
 export function diffTone(text: string): { color?: TuiColor; dim?: boolean } {
-  if (text.startsWith('+ ')) return { color: 'green' };
-  if (text.startsWith('- ')) return { color: 'red' };
-  if (text.startsWith('@@')) return { color: 'cyan', dim: true };
+  if (text.startsWith('+ ')) return { color: TONE.ok };
+  if (text.startsWith('- ')) return { color: TONE.err };
+  if (text.startsWith('@@')) return { color: TONE.accent, dim: true };
   return { dim: true };
 }
 
@@ -222,7 +223,7 @@ function renderToolHeadline(row: TranscriptRow, width: number): TuiLine[] {
           ? [
               {
                 text: ` · ${duration.text}`,
-                ...(duration.slow ? { color: 'yellow' as const } : {}),
+                ...(duration.slow ? { color: TONE.warn } : {}),
               },
             ]
           : []),
@@ -235,8 +236,8 @@ function toolHeadlineTone(tool: NonNullable<TranscriptRow['tool']>): {
   color?: TuiColor;
   dim?: boolean;
 } {
-  if (tool.isError) return { color: 'red' };
-  if (tool.abortedBy) return { color: 'yellow' };
+  if (tool.isError) return { color: TONE.err };
+  if (tool.abortedBy) return { color: TONE.warn };
   return { dim: true };
 }
 
@@ -385,7 +386,7 @@ export function renderDiffGutter(
       // but the first rendered line still carries the ⎿ block mark.
       out.push(
         line(clip(`${prefix}${' '.repeat(gutterWidth + 2)}${row.body}`, width), {
-          color: 'cyan',
+          color: TONE.accent,
           dim: true,
         })
       );
@@ -405,9 +406,9 @@ export function renderDiffGutter(
     // which `diffTone` — kept for the approval preview — does not cover).
     const tone =
       row.sign === '+'
-        ? { color: 'green' as const }
+        ? { color: TONE.ok }
         : row.sign === '-'
-          ? { color: 'red' as const }
+          ? { color: TONE.err }
           : { dim: true };
     const available = Math.max(4, width - displayWidth(prefix) - displayWidth(lead) - pad.length);
     const chunks = wrap(body, available);
@@ -575,7 +576,7 @@ export function renderTranscriptRow(
     }
     case 'tool': {
       const body = wrap(`${ANSWER_MARK} ${row.text}`, width);
-      return [line(''), ...body.map((text) => line(clip(text, width), { color: 'cyan' }))];
+      return [line(''), ...body.map((text) => line(clip(text, width), { color: TONE.accent }))];
     }
     case 'result':
     case 'system': {
@@ -668,9 +669,9 @@ export function renderTranscriptRow(
                 {
                   text: `${prefix}${sign}`,
                   ...(sign === '+ '
-                    ? { color: 'green' as const }
+                    ? { color: TONE.ok }
                     : sign === '- '
-                      ? { color: 'red' as const }
+                      ? { color: TONE.err }
                       : {}),
                 },
                 ...painted.map((run) => ({ ...run, text: run.text })),
@@ -713,7 +714,7 @@ export function renderTranscriptRow(
         return [
           {
             text,
-            runs: [{ text: label, color: 'gray' }, { text: value }],
+            runs: [{ text: label, color: TONE.muted }, { text: value }],
           },
         ];
       }
@@ -724,7 +725,7 @@ export function renderTranscriptRow(
       return body.map((text) =>
         line(
           clip(`${' '.repeat(4)}${text}`, width),
-          heading ? { bold: true, color: 'cyan' } : { dim: true }
+          heading ? { bold: true, color: TONE.accent } : { dim: true }
         )
       );
     }
@@ -736,16 +737,18 @@ export function renderTranscriptRow(
     }
     case 'error': {
       const body = wrap(row.text, width - 2);
-      out.push(line(clip(`${ANSWER_MARK} ${body[0] ?? ''}`, width), { color: 'red', bold: true }));
+      out.push(
+        line(clip(`${ANSWER_MARK} ${body[0] ?? ''}`, width), { color: TONE.err, bold: true })
+      );
       for (const extra of body.slice(1)) {
-        out.push(line(clip(`${CONTINUATION}${extra}`, width), { color: 'red' }));
+        out.push(line(clip(`${CONTINUATION}${extra}`, width), { color: TONE.err }));
       }
       return out;
     }
     case 'banner': {
       // Boot banner: name line loud, the rest quiet (model · device · cwd).
       const rows = row.text.split('\n');
-      out.push(line(clip(rows[0] ?? '', width), { bold: true, color: 'cyan' }));
+      out.push(line(clip(rows[0] ?? '', width), { bold: true, color: TONE.accent }));
       for (const extra of rows.slice(1)) out.push(line(clip(extra, width), { dim: true }));
       return out;
     }
@@ -776,7 +779,7 @@ export interface BannerInfo {
 export function renderBanner(info: BannerInfo, width: number): TuiLine[] {
   const meta = [info.model, info.device].filter(Boolean).join(' · ');
   return [
-    line(clip(` moss v${info.version} — ${info.cwd}`, width), { bold: true, color: 'cyan' }),
+    line(clip(` moss v${info.version} — ${info.cwd}`, width), { bold: true, color: TONE.accent }),
     line(clip(` ${meta}`, width), { dim: true }),
   ];
 }
@@ -839,7 +842,7 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
           }),
           width
         ),
-        { color: 'yellow' }
+        { color: TONE.warn }
       )
     );
   }
@@ -866,7 +869,7 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
   const verb = view.thinkingActive && !view.streaming.trim() ? tui('Thinking') : runVerb(seconds);
   out.push(
     line(clip(`${spinnerFrame(elapsedMs)} ${verb}… ${seconds}s${tokens}${queued}`, width), {
-      color: 'yellow',
+      color: TONE.warn,
     })
   );
   // Silence is information too: past the hint threshold the spinner stops
@@ -881,7 +884,7 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
             tui('  … stream quiet for {seconds}s — the gateway may be stuck', { seconds: quietS }),
             width
           ),
-          { color: 'yellow' }
+          { color: TONE.warn }
         )
       );
     }
@@ -962,8 +965,8 @@ export function renderTodoPanel(
     const active = todo.status === 'in_progress';
     out.push(
       line(clip(`   ${glyph} ${todo.content}`, width), {
-        ...(active ? { color: 'cyan' as const, bold: true } : {}),
-        ...(todo.status === 'completed' ? { dim: true, color: 'green' as const } : {}),
+        ...(active ? { color: TONE.accent, bold: true } : {}),
+        ...(todo.status === 'completed' ? { dim: true, color: TONE.ok } : {}),
         ...(todo.status === 'pending' ? { dim: true } : {}),
       })
     );
@@ -1063,7 +1066,7 @@ export function renderApproval(
   const headLines: TuiLine[] = [
     line(rule(width)),
     line(clip(` ${view.title}`, width), { bold: true }),
-    ...(view.subject ? [line(clip(` ${view.subject}`, width), { color: 'cyan' })] : []),
+    ...(view.subject ? [line(clip(` ${view.subject}`, width), { color: TONE.accent })] : []),
   ];
 
   // The preview is the only unbounded part of the dialog, so it is capped by the

@@ -21,6 +21,14 @@ assert.equal(
   'NO_COLOR outranks the theme choice'
 );
 
+import { themeFromOsc11, themeLockedByEnv } from '../dist/cli/tui/theme.js';
+
+assert.equal(themeFromOsc11('rgb:ffff/ffff/ffff'), 'light', 'a white background is light');
+assert.equal(themeFromOsc11('rgb:0000/0000/0000'), 'dark', 'a black background is dark');
+assert.equal(themeFromOsc11('not a colour'), undefined, 'a garbled reply is ignored');
+assert.equal(themeLockedByEnv({ NO_COLOR: '1' }), true);
+assert.equal(themeLockedByEnv({}), false);
+
 try {
   setTuiTheme('light');
   assert.equal(paintColor('yellow'), 'magenta', 'yellow is remapped on a light background');

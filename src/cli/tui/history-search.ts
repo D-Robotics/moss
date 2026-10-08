@@ -5,6 +5,7 @@
  */
 import { tui } from './copy.js';
 import { clip, displayWidth, line, type TuiLine } from './text.js';
+import { TONE } from './theme.js';
 
 export const HISTORY_SEARCH_MAX_ROWS = 6;
 
@@ -40,7 +41,9 @@ export function renderHistorySearch(
   options: HistorySearchOptions
 ): TuiLine[] {
   const maxRows = Math.max(1, options.maxRows ?? HISTORY_SEARCH_MAX_ROWS);
-  const out: TuiLine[] = [line(clip(`⌕ ${query}`, options.width), { color: 'cyan', bold: true })];
+  const out: TuiLine[] = [
+    line(clip(`⌕ ${query}`, options.width), { color: TONE.accent, bold: true }),
+  ];
   const selected = Math.max(0, Math.min(options.selected, matches.length - 1));
   matches.slice(0, maxRows).forEach((match, index) => {
     out.push(

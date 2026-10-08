@@ -143,6 +143,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         description: 'show safety and approval settings; --verbose prints every knob',
       },
       {
+        command: '/theme',
+        args: '[dark|light|mono]',
+        description: 'show or set the terminal colour theme for this session',
+      },
+      {
         command: '/hooks',
         description: 'list configured lifecycle hooks and where to edit them',
         surfaces: ['tui'],

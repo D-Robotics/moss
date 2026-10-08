@@ -204,6 +204,7 @@ const BLOCK_TITLE = new Map([
   ['/model', /^Model$/],
   ['/mode', /^Mode$/],
   ['/permissions', /^Permissions$/],
+  ['/theme', /^Theme$/],
   ['/doctor', /^Doctor$/],
   ['/context', /^Context$/],
   ['/compact', /^Compact$/],

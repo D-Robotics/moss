@@ -51,3 +51,23 @@ assert.equal(selectionText(['abcdef', 'ghijkl'], { x: 1, y: 0 }, { x: 3, y: 0 })
     'without a bar the same cell is ordinary text selection'
   );
 }
+
+// P1 hover: motion with no button is a hover (shows the scroll bar), not a drag.
+{
+  const barred = { ...layout, scrollbarCol: 79 };
+  assert.deepEqual(routeMouse({ button: 35, x: 80, y: 4, release: false }, barred), {
+    type: 'hover',
+    x: 79,
+    y: 3,
+  });
+  assert.equal(
+    routeMouse({ button: 35, x: 4, y: 21, release: false }, barred).type,
+    'hover',
+    'hover over the composer does not reach the caret'
+  );
+  assert.equal(
+    routeMouse({ button: 32, x: 80, y: 4, release: false }, barred).type,
+    'scrollbar',
+    'a drag (button held) still drives the bar'
+  );
+}

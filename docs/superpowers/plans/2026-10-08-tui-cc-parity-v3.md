@@ -159,8 +159,8 @@ moss 的 `docs/cli-parity/claude-code-surface.md` 已把其中 103 条整理成 
 
 **对"改前"对比的说明**：N3 的"改前"是把工作区整体 `git stash` 后的结果，不只含该项改动；漂移的根因（距底部行数在内容增长时不变）已由单测直接覆盖。
 
-## 7. 立即可执行的下一步
+## 7. 进度（2026-10-09）
 
-1. 提交本批改动（按路径暂存，参照 AGENTS.md 会话纪律）。
-2. 先做 P0：把 `scratch/tui-probe.py` 迁入 `scripts/tui-feel/` 并写 N1–N4 的断言场景。
-3. 起 P3 的 N7 失败用例（不改实现），确认是 stub 特性还是真实缺陷。
+P0–P6 已在 main 上落地，证据是 `npm test`（含 `test/tui-screen-layout.spec.mjs`，最近一次 68/68）和 `scripts/tui-feel/compare_feel.py --compare claude`（`failures: []`，光标列与 Claude Code 同为 22 / 16）。结果文件在 `bench/results/`，不入库。
+
+未在真机上核对的项（pyte 覆盖不到）：iTerm2、Terminal.app、tmux（鼠标开/关）、GNU screen、VS Code 终端、Windows Terminal，以及中文输入法候选框是否跟光标。`app.ts` 仍未按 v2 Phase 3 拆分。vim 模式按计划保持可选，未做。

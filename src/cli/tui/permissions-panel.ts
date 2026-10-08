@@ -8,6 +8,7 @@
  */
 import { clip, line, type TuiLine } from './text.js';
 import { tui } from './copy.js';
+import { TONE } from './theme.js';
 
 export interface PermissionPanelRule {
   level: string;
@@ -29,7 +30,7 @@ export function renderPermissionsPanel(view: PermissionPanelView): TuiLine[] {
   const cursor =
     view.rules.length === 0 ? 0 : Math.max(0, Math.min(view.cursor, view.rules.length - 1));
   const out: TuiLine[] = [
-    line(clip(tui('Permissions'), width), { bold: true, color: 'cyan' }),
+    line(clip(tui('Permissions'), width), { bold: true, color: TONE.accent }),
     line(clip(tui('  mode  {mode}    Shift+Tab cycles', { mode: view.mode }), width), {
       dim: true,
     }),

@@ -178,16 +178,21 @@ export function viewportAtRatio(
   return top ? { ...state, anchor: { rowId: top.rowId, lineIndex: top.lineIndex } } : state;
 }
 
-/** Thumb geometry for a scrollbar column `height` rows tall (null = no bar). */
+/**
+ * Thumb geometry for a track `track` rows tall (default: the viewport), with the
+ * thumb size proportional to the visible share of the transcript. `null` = no bar.
+ */
 export function scrollThumb(
   total: number,
   viewportRows: number,
-  start: number
+  start: number,
+  track = viewportRows
 ): { top: number; size: number } | null {
   const height = Math.max(1, viewportRows);
   if (total <= height) return null;
-  const size = Math.max(1, Math.round((height * height) / total));
-  const travel = height - size;
+  const rail = Math.max(1, track);
+  const size = Math.min(rail, Math.max(1, Math.round((height * rail) / total)));
+  const travel = rail - size;
   const maxStart = total - height;
   const top = maxStart === 0 ? 0 : Math.round((Math.min(start, maxStart) / maxStart) * travel);
   return { top, size };

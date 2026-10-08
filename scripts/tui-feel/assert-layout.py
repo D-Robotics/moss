@@ -114,7 +114,7 @@ def transcript_body(session):
             continue
         # pyte's display string is not one character per cell (wide CJK), so the
         # bar is removed by its glyph, not by position.
-        rows.append(re.sub(r"[┃│]$", "", line.rstrip()))
+        rows.append(re.sub(r"[┃│↑↓]$", "", line.rstrip()).rstrip())
     return rows[: max(0, len(rows) - 6)]
 
 
@@ -149,10 +149,25 @@ def p1_scroll_bar_and_home():
     with Session(cols=80, rows=20, renderer="fullscreen", extra_env=DEBUG_ENV) as session:
         session.submit("longstream", wait=17.0)
         session.settle()
+        # Idle: the bar is hidden until the pointer or a scroll touches it.
+        idle = [i for i, line in enumerate(session.lines()[:14]) if line.rstrip()[-1:] in ("┃", "│", "↑", "↓")]
+        check("P1 scroll bar is hidden while idle", not idle, f"bar rows while idle={idle}")
+        # Hover over the bar column (mode 1003 motion, no button held): 1-based x=80.
+        session.send("\x1b[<35;80;5M")
+        session.pump(0.3)
         lines = session.lines()
-        bar_rows = [i for i, line in enumerate(lines[:14]) if line.rstrip()[-1:] in ("┃", "│")]
-        check("P1 scroll bar drawn in the last column while the transcript overflows",
+        bar_rows = [i for i, line in enumerate(lines[:14]) if line.rstrip()[-1:] in ("┃", "│", "↑", "↓")]
+        check("P1 hovering the right column shows the scroll bar",
               len(bar_rows) >= 10, f"bar rows={bar_rows}")
+        arrows = [line.rstrip()[-1:] for line in lines[:-4] if line.rstrip()[-1:] in ("↑", "↓")]
+        check("P1 the bar has an up and a down arrow", arrows[:1] == ["↑"] and arrows[-1:] == ["↓"],
+              f"arrows={arrows}")
+        session.pump(2.0)
+        session.settle()
+        after = [i for i, line in enumerate(session.lines()[:14]) if line.rstrip()[-1:] in ("┃", "│", "↑", "↓")]
+        check("P1 the bar hides again after the pointer leaves", not after, f"bar rows={after}")
+        session.send("\x1b[<35;80;5M")
+        session.pump(0.3)
         thumbs = [i for i, line in enumerate(lines[:-4]) if line.rstrip().endswith("┃")]
         check("P1 thumb is present", bool(thumbs), "no thumb glyph")
         session.key("home")
@@ -172,7 +187,7 @@ def p1_scroll_bar_and_home():
         session.pump(0.5)
         session.settle()
         # Drag the thumb from the top of the bar to its bottom (button held = +32).
-        bar = [i for i, line in enumerate(session.lines()[:-4]) if line.rstrip()[-1:] in ("┃", "│")]
+        bar = [i for i, line in enumerate(session.lines()[:-4]) if line.rstrip()[-1:] in ("┃", "│", "↑", "↓")]
         last_bar_row = max(bar) + 1  # 1-based SGR row of the bar's last cell
         session.send(f"\x1b[<32;80;{last_bar_row}M")
         session.pump(0.2)
@@ -346,6 +361,31 @@ def p6_external_editor():
               f"argv={argv!r}")
 
 
+def p5_theme_command():
+    with Session(cols=100, rows=30, renderer="fullscreen") as session:
+        session.submit("/theme light", wait=1.2)
+        session.settle()
+        text = "\n".join(line.rstrip() for line in session.lines())
+        check("P5 /theme light switches the session theme", "theme: light" in text, "no theme confirmation")
+
+
+def p6_queue_recall():
+    with Session(cols=100, rows=30, renderer="fullscreen") as session:
+        session.submit("longstream", wait=1.2)
+        session.submit("queued note", wait=0.8)
+        session.settle()
+        queued = any("1 queued" in line for line in session.lines())
+        check("P6 a message sent during a run is queued", queued, "queue count missing")
+        session.key("up")
+        session.settle()
+        tail = [line.rstrip() for line in session.lines()[-6:]]
+        check(
+            "P6 Up pulls the queued message back into the composer",
+            any("queued note" in line and line.lstrip().startswith("❯") for line in tail),
+            f"tail={tail!r}",
+        )
+
+
 def main():
     for renderer in RENDERERS:
         for cols, rows in SIZES:
@@ -357,6 +397,8 @@ def main():
     p3_tool_rows()
     p4_keybindings()
     p5_theme()
+    p5_theme_command()
+    p6_queue_recall()
     p6_overlay_cursor()
     p6_external_editor()
     p1_scroll_bar_and_home()

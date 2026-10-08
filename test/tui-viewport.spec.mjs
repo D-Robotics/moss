@@ -133,3 +133,16 @@ function lines(count) {
   assert.equal(bottom.top + bottom.size, 10, 'the thumb reaches the track end at the bottom');
   assert.ok(top.size >= 1 && top.size <= 10);
 }
+
+// P1 arrows: the thumb lives on the track between the two arrow rows.
+{
+  const top = scrollThumb(100, 10, 0, 8);
+  const bottom = scrollThumb(100, 10, 90, 8);
+  assert.equal(top.top, 0, 'the top of the transcript puts the thumb at the top of the track');
+  assert.equal(
+    bottom.top + bottom.size,
+    8,
+    'the bottom of the transcript puts it at the track end'
+  );
+  assert.ok(bottom.size >= 1 && bottom.size <= 8);
+}

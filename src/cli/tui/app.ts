@@ -136,7 +136,16 @@ import {
   type ViewportLine,
 } from './viewport.js';
 import { createProjectionCache } from './projection-cache.js';
-import { detectTheme, setTuiTheme } from './theme.js';
+import {
+  currentTuiTheme,
+  detectTheme,
+  setTuiTheme,
+  themeFromOsc11,
+  themeLockedByEnv,
+  THEME_NAMES,
+  TONE,
+  type TuiThemeName,
+} from './theme.js';
 import { caretLine, externalEditorArgs, splitEditorCommand } from './external-editor.js';
 import {
   COMPOSER_MAX_ROWS,
@@ -334,6 +343,9 @@ function collectStrings(value: unknown, out: string[] = []): string[] {
  */
 const COMMAND_SURFACE: CommandSurface = 'repl';
 
+/** How long the scroll bar stays visible after the pointer or a scroll last touched it. */
+const SCROLLBAR_HIDE_MS = 1500;
+
 export function TuiAppRoot({
   options,
   handle,
@@ -352,6 +364,25 @@ export function TuiAppRoot({
   const { setCursorPosition } = useCursor();
   const fullscreen = options.renderer === 'fullscreen';
   const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
+  // The scroll bar is shown while the pointer is on it, while the transcript is
+  // being scrolled or dragged, and for a moment after that (plan v3 P1).
+  const barTouchedRef = useRef(0);
+  const barTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const touchScrollBar = useCallback((): void => {
+    barTouchedRef.current = Date.now();
+    if (barTimerRef.current !== undefined) clearTimeout(barTimerRef.current);
+    barTimerRef.current = setTimeout(() => {
+      barTimerRef.current = undefined;
+      forceUpdate();
+    }, SCROLLBAR_HIDE_MS + 50);
+    forceUpdate();
+  }, []);
+  useEffect(
+    () => () => {
+      if (barTimerRef.current !== undefined) clearTimeout(barTimerRef.current);
+    },
+    []
+  );
   const [composer, setComposer] = useState<ComposerState>(() => createComposer());
   const input = composer.value;
   // Bulk edits (history recall, staged prompts, paste) replace the whole value
@@ -560,6 +591,14 @@ export function TuiAppRoot({
       restoreTerminalModes(stdout);
     };
   }, [stdout, writeStdout]);
+  useEffect(() => {
+    // Ask the terminal for its background (OSC 11). A reply that never comes
+    // leaves the theme from COLORFGBG / the dark default. NO_COLOR and an
+    // explicit MOSS_TUI_THEME are not overridden.
+    if (themeLockedByEnv() || process.env.MOSS_TUI_THEME) return undefined;
+    writeStdout('\x1b]11;?\x07');
+    return undefined;
+  }, [writeStdout]);
   useEffect(() => {
     if (!fullscreen) return undefined;
     writeStdout(MOUSE_TRACKING_ON);
@@ -1996,6 +2035,31 @@ export function TuiAppRoot({
         setPermissionCursor(0);
         return;
       }
+      if (text === '/theme' || text.startsWith('/theme ')) {
+        const asked = text.slice('/theme'.length).trim().toLowerCase();
+        if (themeLockedByEnv()) {
+          printBlock('Theme', [tui('NO_COLOR is set — the theme stays mono')]);
+          return;
+        }
+        if (!asked) {
+          printBlock('Theme', [
+            tui('current theme: {name}', { name: currentTuiTheme() }),
+            THEME_NAMES.join(' · '),
+            tui('/theme <name> switches it for this session'),
+          ]);
+          return;
+        }
+        if (!(THEME_NAMES as readonly string[]).includes(asked)) {
+          printBlock('Theme', [
+            tui('unknown theme "{name}" — dark, light, or mono', { name: asked }),
+          ]);
+          return;
+        }
+        setTuiTheme(asked as TuiThemeName);
+        forceUpdate();
+        printBlock('Theme', [tui('theme: {name}', { name: asked })]);
+        return;
+      }
       if (text.startsWith('/')) {
         // Shared registry first (status/doctor/permissions/mode/context/export/
         // review/quickstart), then the shell-local control commands, then
@@ -2009,6 +2073,7 @@ export function TuiAppRoot({
             '/context',
             '/mode',
             '/permissions',
+            '/theme',
             '/tasks',
             '/history',
             '/evidence',
@@ -2235,17 +2300,30 @@ export function TuiAppRoot({
   };
 
   useInput((chunk, key) => {
+    const osc = /\]11;([^\u0007\u001b]*)/.exec(chunk);
+    if (osc && !themeLockedByEnv() && !process.env.MOSS_TUI_THEME) {
+      const detected = themeFromOsc11(osc[1] ?? '');
+      if (detected) {
+        setTuiTheme(detected);
+        forceUpdate();
+      }
+      return;
+    }
     if (fullscreen) {
       const mouseEvents = mouseEventsInChunk(chunk);
       if (mouseEvents.length > 0) {
         for (const event of mouseEvents) {
           const action = routeMouse(event, mouseLayoutRef.current);
-          if (action.type === 'scroll') {
+          if (action.type === 'hover') {
+            if (action.x === mouseLayoutRef.current.scrollbarCol) touchScrollBar();
+          } else if (action.type === 'scroll') {
+            touchScrollBar();
             const height = Math.max(1, mouseLayoutRef.current.viewportRows);
             setViewport((current) =>
               scrollViewport(current, projectedFullRef.current, action.delta, height)
             );
           } else if (action.type === 'scrollbar') {
+            touchScrollBar();
             const height = Math.max(1, mouseLayoutRef.current.viewportRows);
             setViewport(viewportAtRatio(projectedFullRef.current, height, action.y));
           } else if (action.type === 'pin') {
@@ -2378,15 +2456,18 @@ export function TuiAppRoot({
       return;
     }
     if (fullscreen && key.end && !approval && input.length === 0) {
+      touchScrollBar();
       setViewport(createViewport());
       return;
     }
     if (fullscreen && key.home && !approval && input.length === 0) {
+      touchScrollBar();
       const height = Math.max(1, mouseLayoutRef.current.viewportRows);
       setViewport(viewportAtRatio(projectedFullRef.current, height, 0));
       return;
     }
     if (fullscreen && (key.pageUp || key.pageDown) && !approval) {
+      touchScrollBar();
       const height = Math.max(1, mouseLayoutRef.current.viewportRows);
       setViewport((current) =>
         scrollViewport(current, projectedFullRef.current, key.pageUp ? -height : height, height)
@@ -2836,6 +2917,7 @@ export function TuiAppRoot({
       // one row at a time; history recall remains once the view cannot move
       // (already at the top, or Down while pinned to the latest row).
       if (fullscreen && !walking && input.length === 0 && !approval) {
+        touchScrollBar();
         const height = Math.max(1, mouseLayoutRef.current.viewportRows);
         const motion = moveTranscript(
           viewport,
@@ -3200,7 +3282,7 @@ export function TuiAppRoot({
                 `${index === modelPicker.cursor ? '❯' : ' '} ${String(index + 1).padStart(2, ' ')}. ${choice.model}${choice.label ? ` — ${choice.label}` : ''}`,
                 columns
               ),
-              index === modelPicker.cursor ? { color: 'cyan', bold: true } : { dim: true }
+              index === modelPicker.cursor ? { color: TONE.accent, bold: true } : { dim: true }
             );
           }),
         ...(modelPicker.choices.choices.length > 8
@@ -3274,7 +3356,7 @@ export function TuiAppRoot({
           }),
           columns
         ),
-        { color: 'yellow' }
+        { color: TONE.warn }
       )
     : undefined;
   const statusRight = renderStatusRight(status, columns);
@@ -3306,7 +3388,7 @@ export function TuiAppRoot({
               ),
               columns
             ),
-            { color: 'yellow' }
+            { color: TONE.warn }
           ),
         ]
       : []),
@@ -3395,15 +3477,30 @@ export function TuiAppRoot({
   viewportWindowRef.current = view?.lines ?? [];
   // One cell per viewport row, right-most column: a thumb while the transcript
   // overflows, nothing otherwise. The thumb follows the same window as the text.
+  // The arrows take the first and last rows, so the thumb moves along the rows between.
   const thumb =
-    fullscreen && view ? scrollThumb(projected.length, frameLayout.viewportRows, view.start) : null;
-  const barCells: Array<{ text: string; color?: TuiLine['color'] } | undefined> = thumb
-    ? Array.from({ length: frameLayout.viewportRows }, (_, index) =>
-        index >= thumb.top && index < thumb.top + thumb.size
-          ? { text: '┃', color: 'cyan' as const }
-          : { text: '│', color: 'gray' as const }
-      )
-    : [];
+    fullscreen && view
+      ? scrollThumb(
+          projected.length,
+          frameLayout.viewportRows,
+          view.start,
+          Math.max(1, frameLayout.viewportRows - 2)
+        )
+      : null;
+  const barShown = Boolean(thumb) && Date.now() - barTouchedRef.current < SCROLLBAR_HIDE_MS;
+  const barCells: Array<{ text: string; color?: TuiLine['color'] } | undefined> =
+    thumb && barShown
+      ? Array.from({ length: frameLayout.viewportRows }, (_, index) => {
+          // The first and last rows are the arrows: a click there goes to the top
+          // or bottom of the transcript (see routeMouse / viewportAtRatio).
+          if (index === 0) return { text: '↑', color: TONE.accent };
+          if (index === frameLayout.viewportRows - 1) return { text: '↓', color: TONE.accent };
+          const track = index - 1;
+          return track >= thumb.top && track < thumb.top + thumb.size
+            ? { text: '┃', color: TONE.accent }
+            : { text: '│', color: TONE.muted };
+        })
+      : [];
   projectedTextRef.current = (view?.lines ?? []).map((entry) => entry.text);
   // A short transcript leaves the viewport partly empty. The composer belongs at
   // the bottom edge (like Claude Code's fullscreen), so the gap is explicit rows.
