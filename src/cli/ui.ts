@@ -9,7 +9,6 @@ const _ansiOn =
   !env.NO_COLOR &&
   (!!env.FORCE_COLOR ||
     !!env.COLORTERM ||
-    process.platform === 'win32' ||
     Boolean((process.stdout as NodeJS.WriteStream).isTTY) ||
     Boolean((process.stderr as NodeJS.WriteStream).isTTY));
 
