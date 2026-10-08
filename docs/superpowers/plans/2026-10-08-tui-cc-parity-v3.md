@@ -161,6 +161,6 @@ moss 的 `docs/cli-parity/claude-code-surface.md` 已把其中 103 条整理成 
 
 ## 7. 进度（2026-10-09）
 
-P0–P6 已在 main 上落地，证据是 `npm test`（含 `test/tui-screen-layout.spec.mjs`，最近一次 68/68）和 `scripts/tui-feel/compare_feel.py --compare claude`（`failures: []`，光标列与 Claude Code 同为 22 / 16）。结果文件在 `bench/results/`，不入库。
+P0–P6 已在 main 上落地，证据是 `npm test`（含 `test/tui-screen-layout.spec.mjs`）和 `scripts/tui-feel/compare_feel.py --compare claude`（`failures: []`，光标列与 Claude Code 同为 22 / 16）。结果文件在 `bench/results/`，不入库。布局探针最近一次 **74/74**：在 68 项之上补了审批框（问题、选项、硬件光标落在选中项、帧高不变量）、`Ctrl+Home` 回顶、浅色主题把 spinner 从黄色改成品红而暗色保持黄色。窄终端提示行的有意契约写在 `docs/cli-parity/tui-narrow-hint.md`。
 
 未在真机上核对的项（pyte 覆盖不到）：iTerm2、Terminal.app、tmux（鼠标开/关）、GNU screen、VS Code 终端、Windows Terminal，以及中文输入法候选框是否跟光标。`app.ts` 仍未按 v2 Phase 3 拆分。vim 模式按计划保持可选，未做。

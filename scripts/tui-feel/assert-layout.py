@@ -296,6 +296,70 @@ def p4_keybindings():
               "Ctrl+T did not clear the composer")
 
 
+def p0_approval_dialog():
+    """An approval dialog is a selector: its own caret is the hardware cursor."""
+    with Session(
+        cols=100,
+        rows=30,
+        renderer="fullscreen",
+        extra_env=DEBUG_ENV,
+        config={"permissions": {"defaultMode": "manual"}},
+    ) as session:
+        session.submit("approvewrite", wait=2.5)
+        session.settle()
+        lines = session.lines()
+        text = "\n".join(line.rstrip() for line in lines)
+        option = next((i for i, line in enumerate(lines) if "❯" in line and "1." in line), None)
+        x, y, hidden = session.cursor()
+        check("P0 an approval dialog shows its question and options",
+              "Do you want to create note.txt?" in text and option is not None,
+              "approval dialog missing")
+        check("P0 the hardware cursor sits on the selected approval option",
+              option is not None and not hidden and y == option and x == lines[option].index("❯"),
+              f"option={option} cursor=({x},{y}) hidden={hidden}")
+        check("P0 an approval dialog still fits the terminal",
+              not session.frame_violations(),
+              "; ".join(session.frame_violations()[:2]))
+
+
+def p1_ctrl_home():
+    with Session(cols=80, rows=20, renderer="fullscreen") as session:
+        session.submit("longstream", wait=4.0)
+        session.settle()
+        session.key("ctrl-home")
+        session.settle()
+        top = " ".join(transcript_body(session)[:8])
+        check("P1 Ctrl+Home returns to the first rows", "Section 1" in top, f"top={top!r}")
+
+
+def foregrounds(session, row):
+    seen = set()
+    for cell in session.screen.buffer[row].values():
+        if str(cell.data).strip() and cell.fg not in ("default", None):
+            seen.add(cell.fg)
+    return seen
+
+
+def p5_light_colours():
+    """Light theme remaps yellow (the spinner) so it stays readable; dark keeps it."""
+    def spinner_colours(theme):
+        env = {"MOSS_TUI_THEME": theme} if theme else {}
+        with Session(cols=80, rows=20, renderer="fullscreen", extra_env=env) as session:
+            session.submit("longstream", wait=1.2)
+            session.settle()
+            row = next((i for i, line in enumerate(session.lines()) if "…" in line), None)
+            return foregrounds(session, row) if row is not None else set()
+
+    # pyte names ANSI yellow (SGR 33) "brown", the VGA name for that colour.
+    yellow = {"yellow", "brown"}
+    light = spinner_colours("light")
+    dark = spinner_colours("dark")
+    check("P5 a light theme remaps the spinner off yellow",
+          "magenta" in light and not (light & yellow), f"light={light!r}")
+    check("P5 a dark theme keeps the spinner yellow",
+          bool(dark & yellow), f"dark={dark!r}")
+
+
 def p5_theme():
     import re
     colour = re.compile(rb"\x1b\[(?:3[0-7]|9[0-7]|38;)[0-9;]*m")
@@ -396,7 +460,10 @@ def main():
     p2_narrow_fallback()
     p3_tool_rows()
     p4_keybindings()
+    p0_approval_dialog()
+    p1_ctrl_home()
     p5_theme()
+    p5_light_colours()
     p5_theme_command()
     p6_queue_recall()
     p6_overlay_cursor()

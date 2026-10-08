@@ -26,6 +26,7 @@ KEYS = {
     "pgup": "\x1b[5~",
     "pgdn": "\x1b[6~",
     "home": "\x1b[H",
+    "ctrl-home": "\x1b[1;5H",
     "end": "\x1b[F",
     "enter": "\r",
     "esc": "\x1b",

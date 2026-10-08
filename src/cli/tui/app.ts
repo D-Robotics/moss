@@ -3538,29 +3538,40 @@ export function TuiAppRoot({
   // cursor at the end of their query, the same way the composer does.
   const overlayQueryRow = chromeTop.findIndex((entry) => entry.text.includes('⌕'));
   const overlayQuery = overlayQueryRow >= 0 && Boolean(historySearch || sessionPicker);
-  const hideHardwareCursor = Boolean(
-    permissionDialog || modelPicker || (sessionPicker && !overlayQuery)
+  // A selector (approval, model list, session list, permissions) owns the caret:
+  // the hardware cursor sits on its `❯` row so IME and screen readers follow the
+  // choice, the same way the composer and the search query do.
+  const selectorOwnsCaret = Boolean(
+    approval || modelPicker || permissionsOpen || (sessionPicker && !overlayQuery)
   );
-  if (hideHardwareCursor || process.env.MOSS_TUI_HW_CURSOR === '0') {
+  const selectorRow = selectorOwnsCaret
+    ? chromeTop.findIndex((entry) => /^\s*❯/.test(entry.text))
+    : -1;
+  // ink only appends the trailing newline its cursor maths assumes while the
+  // frame is shorter than the terminal. A frame that fills every row (the
+  // fullscreen viewport, or a narrow/short pane) leaves the real cursor one
+  // row lower, which parked the caret on the rule above the prompt.
+  const frameRows = aboveComposer + composerLines + chromeBottom.length;
+  const fillsTerminal = frameRows >= (windowSize.rows || 24);
+  if (process.env.MOSS_TUI_DEBUG === '1') {
+    noteFrameHeight(options.workspaceDir, frameRows, windowSize.rows || 24, fullscreen);
+  }
+  if (process.env.MOSS_TUI_HW_CURSOR === '0') {
     setCursorPosition(undefined);
   } else if (overlayQuery) {
     const queryLine = chromeTop[overlayQueryRow];
-    const fillsOverlay =
-      aboveComposer + composerLines + chromeBottom.length >= (windowSize.rows || 24);
     setCursorPosition({
       x: displayWidth(queryLine?.text ?? ''),
-      y: aboveComposer - chromeTop.length + overlayQueryRow + (fillsOverlay ? 1 : 0),
+      y: aboveComposer - chromeTop.length + overlayQueryRow + (fillsTerminal ? 1 : 0),
+    });
+  } else if (selectorRow >= 0) {
+    const marker = chromeTop[selectorRow]?.text ?? '';
+    const markAt = marker.indexOf('❯');
+    setCursorPosition({
+      x: displayWidth(markAt >= 0 ? marker.slice(0, markAt) : marker),
+      y: aboveComposer - chromeTop.length + selectorRow + (fillsTerminal ? 1 : 0),
     });
   } else {
-    // ink only appends the trailing newline its cursor maths assumes while the
-    // frame is shorter than the terminal. A frame that fills every row (the
-    // fullscreen viewport, or a narrow/short pane) leaves the real cursor one
-    // row lower, which parked the caret on the rule above the prompt.
-    const frameRows = aboveComposer + composerLines + chromeBottom.length;
-    const fillsTerminal = frameRows >= (windowSize.rows || 24);
-    if (process.env.MOSS_TUI_DEBUG === '1') {
-      noteFrameHeight(options.workspaceDir, frameRows, windowSize.rows || 24, fullscreen);
-    }
     setCursorPosition({
       x: editor.caretCol,
       y: aboveComposer + editor.caretRow + (fillsTerminal ? 1 : 0),
