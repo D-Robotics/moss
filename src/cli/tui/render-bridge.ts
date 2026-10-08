@@ -4,6 +4,7 @@
  * directly.
  */
 import type { MossAgentEvent } from '../../core/agent/moss-agent-types.js';
+import { noteToolForVerifyHint, type VerifyHintState } from '../verify-hint.js';
 import { tui } from './copy.js';
 import { nextStreamCommit } from './stream-commit.js';
 import { toolLabel } from './transcript.js';
@@ -82,6 +83,9 @@ export interface TuiRunState {
   lastEventAt?: number;
   /** Assistant text already committed from this prose segment. */
   committedText?: string;
+  /** This run edited a JS/TS file and has not run a test or diagnostics tool. */
+  editedJsTs?: boolean;
+  ranTests?: boolean;
 }
 
 export interface TuiUsageState {
@@ -177,10 +181,6 @@ function setThinking(store: TuiStore, text: string): void {
   store.version++;
 }
 
-function tail(text: string, max = 400): string {
-  return text.length > max ? text.slice(-max) : text;
-}
-
 /**
  * Feed one MossAgentEvent into the store. Mirrors the REPL renderer's shape:
  * text deltas stream into a live tail, tool calls surface as one system line,
@@ -205,7 +205,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       break;
     }
     case 'thinking_delta': {
-      setThinking(store, tail(store.run.thinkingText + event.delta));
+      setThinking(store, store.run.thinkingText + event.delta);
       break;
     }
     case 'retry': {
@@ -236,6 +236,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       // status line: it is what the user scrolls back to.
       store.run.toolLine = toolLabel(event.toolName, event.input);
       store.run.toolInputs.set(event.toolCallId, event.input);
+      noteToolForVerifyHint(store.run as VerifyHintState, event.toolName, event.input);
       if (event.toolName === 'todo_write' && Array.isArray(event.input.todos)) {
         store.todos = toTodos(event.input.todos);
       }

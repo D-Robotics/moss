@@ -1,4 +1,4 @@
-import { rowsForSurface } from '../interactive-commands.js';
+import { rowsForSurface, type InteractiveCommandRow } from '../interactive-commands.js';
 
 /**
  * The key/command reference. Single source of truth: the input handler and the
@@ -81,11 +81,22 @@ export interface ShellCommand {
  * `test/tui-command-surface.spec.mjs` fails if any entry answers "unknown
  * command" or is missing from the palette for its own prefix.
  */
-export const SHELL_COMMANDS: readonly ShellCommand[] = rowsForSurface('tui').map((row) => ({
-  command: row.command,
-  usage: row.args ? `${row.command} ${row.args}` : row.command,
-  description: row.description,
-}));
+function toShellCommand(row: InteractiveCommandRow): ShellCommand {
+  return {
+    command: row.command,
+    usage: row.args ? `${row.command} ${row.args}` : row.command,
+    description: row.description,
+  };
+}
+
+/** Everyday `/` menu and compact help. Hidden catalog rows are omitted. */
+export const SHELL_COMMANDS: readonly ShellCommand[] = rowsForSurface('tui')
+  .filter((row) => !row.hidden)
+  .map(toShellCommand);
+
+/** `/help --all`: every TUI command that still dispatches, including hidden ones. */
+export const ALL_SHELL_COMMANDS: readonly ShellCommand[] =
+  rowsForSurface('tui').map(toShellCommand);
 
 /** `/help` and `?` print these; the bare name is what the shell dispatches. */
 export const HELP_COMMANDS: readonly string[] = SHELL_COMMANDS.map((entry) => entry.usage);

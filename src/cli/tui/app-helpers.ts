@@ -28,6 +28,7 @@ import { tui } from './copy.js';
 import {
   HELP_KEYS,
   HELP_PREFIXES,
+  ALL_SHELL_COMMANDS,
   SHELL_COMMANDS,
   SHELL_COMMAND_NAMES,
   SHELL_COMMAND_ROWS,
@@ -314,13 +315,13 @@ const COMMON_HELP_COMMANDS = [
   '/status',
   '/model',
   '/mode',
+  '/compact',
   '/task',
   '/resume',
-  '/context',
-  '/usage',
+  '/diff',
   '/permissions',
   '/help',
-  '/quit',
+  '/clear',
 ];
 
 /** Compact help (prefixes + shortcuts + common commands) or the full reference. */
@@ -335,10 +336,11 @@ export function buildHelpOverlayLines(all: boolean): string[] {
     ...HELP_KEYS.map(([keys, what]) => `${keys.padEnd(12)} ${tui(what)}`),
     '',
     all ? tui('all commands') : tui('common commands'),
-    ...SHELL_COMMANDS.filter((entry) => all || COMMON_HELP_COMMANDS.includes(entry.command)).map(
-      (entry) => `  ${entry.usage.padEnd(24)} ${tui(entry.description)}`
-    ),
-    ...(all ? [] : ['', tui('type / to browse all commands · /help --all for the full reference')]),
+    ...(all
+      ? ALL_SHELL_COMMANDS
+      : SHELL_COMMANDS.filter((entry) => COMMON_HELP_COMMANDS.includes(entry.command))
+    ).map((entry) => `  ${entry.usage.padEnd(24)} ${tui(entry.description)}`),
+    ...(all ? [] : ['', tui('type / to browse commands · /help --all for the rest')]),
   ];
 }
 

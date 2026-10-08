@@ -11,10 +11,21 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { runTask, resumeTask, summarizeTaskRun } from '../dist/core/task/task-engine.js';
+import {
+  DEFAULT_MAX_REPAIR_ATTEMPTS,
+  DEFAULT_MAX_TURNS,
+  runTask,
+  resumeTask,
+  summarizeTaskRun,
+} from '../dist/core/task/task-engine.js';
 import { listTaskEvents, recordFailure, recordRepair } from '../dist/core/task/task-store.js';
 import { appendTaskRecord, appendEvidenceRecord } from '../dist/core/task-runtime/artifacts.js';
 import { createCommandVerdictProvider } from '../dist/core/task/verdict.js';
+
+test('long-horizon defaults outlast a short demo loop', () => {
+  assert.ok(DEFAULT_MAX_TURNS >= 24, `turn budget is ${DEFAULT_MAX_TURNS}`);
+  assert.ok(DEFAULT_MAX_REPAIR_ATTEMPTS >= 5, `repair budget is ${DEFAULT_MAX_REPAIR_ATTEMPTS}`);
+});
 
 async function tmpWorkspace() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'moss-task-engine-'));

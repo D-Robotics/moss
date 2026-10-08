@@ -32,16 +32,7 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
     .map((r) => r.command);
   // Commands may include argument descriptions in their names (e.g. "/connect <ip>")
   const hasCmd = (prefix) => allVisible.some((c) => c === prefix || c.startsWith(prefix + ' '));
-  for (const cmd of [
-    '/help',
-    '/model',
-    '/sessions',
-    '/status',
-    '/compact',
-    '/task',
-    '/usage',
-    '/review',
-  ]) {
+  for (const cmd of ['/help', '/model', '/status', '/compact', '/task', '/diff', '/review']) {
     assert.ok(hasCmd(cmd), `critical command "${cmd}" is visible in the catalog`);
   }
   // First-principles closeout: one advertised autonomous entry (/task), with
@@ -62,7 +53,8 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
   assert.ok(joined.includes('/help'), 'formatted commands include /help');
   assert.ok(joined.includes('/compact'), 'formatted commands include /compact');
   assert.ok(joined.includes('/model'), 'formatted commands include /model');
-  assert.ok(joined.includes('/sessions'), 'formatted commands include /sessions');
+  assert.ok(joined.includes('/diff'), 'formatted commands include /diff');
+  assert.ok(!joined.includes('/sessions'), 'hidden /sessions stays out of the everyday help');
 }
 
 // ─── Slash menu for autocomplete ─────────────────────────────────────────────
@@ -104,7 +96,7 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
 // ─── INTERACTIVE_COMPLETION_COMMANDS includes slash aliases ──────────────────
 
 {
-  for (const cmd of ['/help', '/model', '/sessions', '/compact', '/quit']) {
+  for (const cmd of ['/help', '/model', '/status', '/compact', '/diff']) {
     assert.ok(INTERACTIVE_COMPLETION_COMMANDS.includes(cmd), `completion list includes "${cmd}"`);
   }
 }
@@ -223,7 +215,12 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
   ]) {
     assert.ok(!tuiCommands.includes(merged), `${merged} is no longer advertised (folded away)`);
   }
-  assert.ok(tuiCommands.includes('/jobs'), '/jobs is advertised');
+  assert.ok(
+    !tuiCommands.includes('/jobs'),
+    '/jobs stays dispatchable but leaves the everyday menu'
+  );
+  assert.ok(tuiCommands.includes('/task'), '/task stays advertised');
+  assert.ok(tuiCommands.includes('/permissions'), '/permissions stays advertised');
   const taskRow = byCommand.get('/task');
   assert.ok(taskRow?.args?.includes('view'), '/task advertises the view subcommand');
   assert.ok(

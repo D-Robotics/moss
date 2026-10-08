@@ -367,6 +367,27 @@ const CJK_CODE = 'const 问候 = "你好，moss";';
   assert.equal(lines[1].text.indexOf('-'), 8, 'the removed marker sits after the blank gutter');
   assert.equal(lines[2].text.indexOf('+'), 8, 'the added marker sits after the blank gutter');
   assert.equal(lines[3].text.indexOf('+'), 8, 'every added row aligns');
+
+  const codeDiff = renderDiffGutter(
+    '+++ b/cam.cpp\n@@ -1 +1 @@\n-int old;\n+const int next = 1; // hi',
+    80
+  );
+  const addedCode = codeDiff.find((entry) => entry.text.includes('const'));
+  assert.ok(addedCode, 'the added source row is rendered');
+  assert.equal(addedCode.color, 'green', 'the added row stays green');
+  assert.ok(
+    addedCode.runs?.some((run) => run.text === 'const' && run.color === 'magenta'),
+    'a keyword inside the diff is coloured'
+  );
+  assert.ok(
+    addedCode.runs?.some((run) => run.text.includes('// hi') && run.color === 'gray'),
+    'a comment inside the diff is coloured'
+  );
+  assert.equal(
+    addedCode.runs?.map((run) => run.text).join(''),
+    addedCode.text,
+    'syntax runs reconstruct the row'
+  );
   assert.equal(lines[0].text.slice(9), 'ctx', 'context content follows the blank sign column');
 
   // Hunk headers move the counters to the real file lines.
@@ -601,6 +622,38 @@ const CJK_CODE = 'const 问候 = "你好，moss";';
   for (const width of [40, 80, 120]) {
     assertFits(renderApproval(view, width), width, `approval@${width}`);
   }
+}
+
+{
+  // /permissions bakes REPL SGR into the line. The shell must drop it and
+  // paint the label gray with the value in the normal colour.
+  const lines = renderTranscriptRow(
+    {
+      id: 1,
+      kind: 'detail',
+      text: '  \x1b[2mdefault mode:\x1b[22m full',
+    },
+    80
+  );
+  const row = lines.find((entry) => entry.text.includes('default mode'));
+  assert.ok(row, 'the permissions field is rendered');
+  assert.equal(row.text.includes('\x1b'), false, 'baked-in SGR is not drawn');
+  assert.ok(
+    row.runs?.some((run) => run.color === 'gray' && run.text.includes('default mode')),
+    'the label stays gray'
+  );
+  assert.ok(
+    row.runs?.some((run) => run.text === 'full' && run.color === undefined),
+    'the value is not washed gray'
+  );
+  const heading = renderTranscriptRow(
+    { id: 2, kind: 'detail', text: '\x1b[1m\x1b[30mPermissions\x1b[39m\x1b[22m' },
+    80
+  ).find((entry) => entry.text.includes('Permissions'));
+  assert.ok(heading, 'the heading survives SGR stripping');
+  assert.equal(heading.bold, true);
+  assert.equal(heading.color, 'cyan');
+  assert.equal(heading.text.includes('\x1b'), false);
 }
 
 console.log('OK tui-markdown');

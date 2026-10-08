@@ -54,7 +54,7 @@ test('evaluateAcceptanceCompletionGate: pure decision matrix', () => {
   assert.match(blocked.correction, /task_acceptance/);
   assert.match(blocked.correction, /record_evidence/);
 
-  // Acceptance ran with FAIL verdict → open (honest failure reporting).
+  // FAIL with no repair after it → blocked once so the run enters the repair loop.
   const failed = {
     messages: [
       ...defined.messages,
@@ -66,7 +66,28 @@ test('evaluateAcceptanceCompletionGate: pure decision matrix', () => {
     ],
     toolCallsByName: { task_define: 1, task_acceptance: 1 },
   };
-  assert.equal(evaluateAcceptanceCompletionGate(failed).ok, true);
+  const unrepaired = evaluateAcceptanceCompletionGate(failed);
+  assert.equal(unrepaired.ok, false);
+  assert.equal(unrepaired.kind, 'unrepaired-fail');
+  assert.match(unrepaired.correction, /record_failure/);
+
+  // FAIL followed by a repair-path tool → open (the loop has started; a later
+  // honest report is allowed).
+  const repaired = {
+    messages: [
+      ...failed.messages,
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'use_record_failure', name: 'record_failure', input: {} },
+        ],
+        timestamp: 3,
+      },
+      toolResultMessage('use_record_failure', 'failure recorded'),
+    ],
+    toolCallsByName: { task_define: 1, task_acceptance: 1, record_failure: 1 },
+  };
+  assert.equal(evaluateAcceptanceCompletionGate(repaired).ok, true);
 
   // Acceptance PASS → open.
   const passed = {
@@ -118,6 +139,36 @@ test('createAcceptanceCompletionGate blocks at most once per run', async () => {
     totalToolCalls: 3,
   });
   assert.equal(second.ok, true, 'second attempt passes — the gate never holds the run hostage');
+
+  const failedRequest = {
+    messages: [
+      ...request.messages,
+      toolUseMessage('task_acceptance', {}),
+      toolResultMessage(
+        'use_task_acceptance',
+        'Task acceptance (task_x): FAIL\nFINAL: not accepted'
+      ),
+    ],
+    toolCallsByName: { task_define: 1, task_acceptance: 1 },
+  };
+  const repairBlock = await gate({
+    ...failedRequest,
+    sessionKey: 's',
+    runId: 'r',
+    turn: 3,
+    response: 'it failed',
+    totalToolCalls: 4,
+  });
+  assert.equal(repairBlock.ok, false, 'a later unrepaired FAIL is its own block');
+  const repairGiveUp = await gate({
+    ...failedRequest,
+    sessionKey: 's',
+    runId: 'r',
+    turn: 4,
+    response: 'reporting FAIL',
+    totalToolCalls: 4,
+  });
+  assert.equal(repairGiveUp.ok, true, 'the repair block also fires only once');
 });
 
 test('collectToolResultsByName pairs tool_use ids with tool_result blocks', () => {
@@ -151,6 +202,7 @@ test('E2E: gate forces an acceptance run before the agent may finish', async (t)
       { text: 'Task complete, everything works.' },
       { toolCalls: [{ name: 'task_acceptance', input: {} }] },
       { text: 'Honest report: acceptance FAILED — no evidence recorded for checks_done.' },
+      { text: 'Reporting the recorded FAIL. The task is not done.' },
     ]),
     sessionStore: new InMemorySessionStore(),
     model: 'gate-e2e',
@@ -165,7 +217,8 @@ test('E2E: gate forces an acceptance run before the agent may finish', async (t)
 
   const result = await agent.chat('gate-e2e-run', 'Do the task.');
   const text = typeof result === 'string' ? result : result?.response;
-  assert.match(text, /acceptance FAILED/);
+  assert.match(text, /not done/);
+  assert.match(text, /FAIL/);
 
   // The blocked "Task complete" claim never became the final answer.
   assert.ok(!/everything works/.test(text));

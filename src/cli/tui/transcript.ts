@@ -20,7 +20,7 @@ import {
 } from '../approval-view.js';
 import { formatCliInteractionModeLabel, type CliInteractionMode } from '../interaction-mode.js';
 import { COMPOSER_MAX_ROWS, createComposer, renderComposerEditor, takeCells } from './composer.js';
-import { highlightCodeLine } from './code-style.js';
+import { highlightCodeLine, normalizeCodeLang } from './code-style.js';
 import { isTuiZh, localizeApprovalText, tui } from './copy.js';
 import { renderMarkdown, renderStreamingMarkdown, type MarkdownLine } from './markdown.js';
 import type { TranscriptRow } from './render-bridge.js';
@@ -349,12 +349,26 @@ function parseDiffLines(lines: string[]): { rows: DiffRow[]; digits: number } {
  * (`+` green, `-` red) and keeps context dim — the marker still reads first
  * because the sign column is its own cell.
  */
+/** Language for syntax colour inside a diff body. The sign colour stays on the row. */
+function diffCodeLang(text: string): string {
+  const header = /(?:\+\+\+|---)\s+\S*?\.([A-Za-z0-9]+)\b/.exec(text);
+  if (header) {
+    const lang = normalizeCodeLang(header[1] ?? '');
+    if (lang) return lang;
+  }
+  if (/#include\b|\bnamespace\b|\btemplate\b/.test(text)) return 'cpp';
+  if (/\b(?:def|elif|lambda)\b/.test(text)) return 'py';
+  if (/\b(?:const|function|import|export|interface)\b/.test(text)) return 'ts';
+  return '';
+}
+
 export function renderDiffGutter(
   text: string,
   width: number,
   options: { markFirst?: boolean } = {}
 ): TuiLine[] {
   const markFirst = options.markFirst !== false;
+  const lang = diffCodeLang(text);
   const lines = resultLines(text);
   if (lines.length === 0) return [];
   const { rows, digits } = parseDiffLines(lines);
@@ -406,7 +420,14 @@ export function renderDiffGutter(
         lineIndex === 0
           ? `${prefix}${lead}${pad}`
           : `${RESULT_INDENT}${' '.repeat(displayWidth(lead) + pad.length)}`;
-      out.push(line(clip(`${head}${chunk}`, width), tone));
+      const full = `${head}${chunk}`;
+      const clipped = clip(full, width);
+      const painted = lang && clipped === full ? highlightCodeLine(chunk, lang) : undefined;
+      if (painted) {
+        out.push({ text: full, ...tone, runs: [{ text: head }, ...painted] });
+      } else {
+        out.push(line(clipped, tone));
+      }
     });
   }
   return out;
@@ -429,6 +450,14 @@ export function renderReasoning(text: string, width: number): TuiLine[] {
 function rowReasoning(row: TranscriptRow): string | undefined {
   const value = (row as { reasoning?: unknown }).reasoning;
   return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+/** SGR color sequences. Slash output from the REPL helpers bakes these in. */
+const SGR = /\x1b\[[0-9;]*m/g;
+
+/** Drop baked-in SGR so the transcript styler owns the color. */
+export function stripSgr(text: string): string {
+  return text.replace(SGR, '');
 }
 
 /** Result text → display lines, with a replayed `⎿ ` prefix stripped once. */
@@ -610,7 +639,9 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
     case 'detail': {
       // Slash-command output. A heading is bold; `label: value` keeps the
       // value in the normal colour so the block is not one wash of gray.
-      const raw = row.text;
+      // Producers such as /permissions bake REPL SGR into the string; that
+      // defeats the label/value split and paints the whole row gray.
+      const raw = stripSgr(row.text);
       const trimmed = raw.trim();
       if (!trimmed) return [line(' ')];
       const field = /^([^:]{1,32}):\s+(\S.*)$/.exec(trimmed);

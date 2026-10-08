@@ -100,6 +100,7 @@ import {
   renderStatusRight,
   renderTranscriptRow,
   foldReadonlyRows,
+  stripSgr,
   CONTEXT_WARN_PCT,
   SHELL_MODE_TONE,
   type LiveView,
@@ -111,6 +112,7 @@ import { isTuiZh, setTuiLocale, transientStatus, tui } from './copy.js';
 import { allocateFrame } from './layout.js';
 import { MOUSE_TRACKING_OFF, MOUSE_TRACKING_ON, osc52, selectTuiRenderer } from './renderer.js';
 import { installTuiLogSink } from './terminal-io.js';
+import { needsTestHint, type VerifyHintState } from '../verify-hint.js';
 import { createViewport, scrollViewport, viewportWindow, type ViewportLine } from './viewport.js';
 import {
   COMPOSER_MAX_ROWS,
@@ -512,7 +514,12 @@ export function TuiAppRoot({
   const printBlock = useCallback(
     (title: string, lines: string[]) => {
       appendRow(store, 'tool', title);
-      for (const text of lines.length > 0 ? lines : ['(nothing to show)']) {
+      const cleaned = lines.map((text) => stripSgr(text));
+      const body = cleaned.filter((text, index) => {
+        if (index !== 0) return true;
+        return text.trim().toLowerCase() !== title.trim().toLowerCase();
+      });
+      for (const text of body.length > 0 ? body : ['(nothing to show)']) {
         appendRow(store, 'detail', text);
       }
       handle.notify();
@@ -967,6 +974,7 @@ export function TuiAppRoot({
       const startedAt = runStartedAtRef.current;
       runStartedAtRef.current = undefined;
       const halted = controller.signal.aborted;
+      const unverified = !halted && needsTestHint(store.run as VerifyHintState);
       endRun(store, halted);
       if (startedAt !== undefined) {
         // Claude leaves a finalizing status line in the transcript; keep the
@@ -977,6 +985,9 @@ export function TuiAppRoot({
         });
         const text = summary.find((l) => l.text.trim())?.text.trim();
         if (text) appendRow(store, 'summary', text);
+      }
+      if (unverified) {
+        appendRow(store, 'summary', tui('edited JS/TS files but did not run tests'));
       }
       await runtime.endRun(halted);
       if (startedAt !== undefined) appendTaskVerdictIfAny(startedAt);
@@ -1222,7 +1233,12 @@ export function TuiAppRoot({
           printCommandError('Task', errorMessage(err));
         } finally {
           abortRef.current = undefined;
+          const unverifiedTask =
+            !controller.signal.aborted && needsTestHint(store.run as VerifyHintState);
           endRun(store, controller.signal.aborted);
+          if (unverifiedTask) {
+            appendRow(store, 'summary', tui('edited JS/TS files but did not run tests'));
+          }
           await runtime.endRun(controller.signal.aborted);
           appendTaskVerdictIfAny(runStartedAtRef.current ?? 0);
           runStartedAtRef.current = undefined;
@@ -3143,7 +3159,7 @@ export function TuiAppRoot({
     line(rule(columns), ruleTone),
   ];
   const chromeBottom: TuiLine[] = [line(rule(columns), ruleTone), renderHint(status, columns)];
-  const liveLines = renderLive(live, columns, verbose || fullscreen);
+  const liveLines = renderLive(live, columns, verbose);
   const frameLayout = allocateFrame({
     rows: windowSize.rows || 24,
     mode: fullscreen ? 'fullscreen' : 'inline',
@@ -3155,7 +3171,7 @@ export function TuiAppRoot({
         lines: liveLines,
         min: liveLines.length > 0 ? 1 : 0,
         priority: 5,
-        trim: 'tail',
+        trim: 'head',
       },
     ],
   });

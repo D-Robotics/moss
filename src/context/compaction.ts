@@ -83,7 +83,11 @@ function extractFilePathsFromToolUse(name: string, args: Record<string, unknown>
 }
 import type { RemoteCompactProvider } from './remote-compaction.js';
 import { buildDeterministicCompactionSummary } from './deterministic-summary.js';
-import { extractLatestTodosFromMessages, type ParsedTodoItem } from './message-tool-helpers.js';
+import {
+  extractLatestTodosFromMessages,
+  extractTaskAnchorFromMessages,
+  type ParsedTodoItem,
+} from './message-tool-helpers.js';
 import {
   extractCompactionSummaryText,
   isCompactionSummaryMessage,
@@ -261,6 +265,20 @@ function formatActiveTodos(todos: ParsedTodoItem[] | null): string {
   const done = todos.filter((t) => t.status === 'completed').length;
   lines.push('', `Progress: ${done}/${todos.length} complete.`);
   return `\n\n<active-todos>\n${lines.join('\n')}\n</active-todos>`;
+}
+
+/**
+ * Keep the live task contract and the latest acceptance verdict in the
+ * summary. Same failure mode as todos: both tool results sit in the pruned
+ * middle of a long run, and the next turn no longer knows what "done" means.
+ */
+function formatActiveTask(anchor: { contract?: string; verdict?: string } | null): string {
+  if (!anchor || (!anchor.contract && !anchor.verdict)) return '';
+  const lines = ['<active-task>'];
+  if (anchor.contract) lines.push('Contract:', anchor.contract);
+  if (anchor.verdict) lines.push('Latest verdict:', anchor.verdict);
+  lines.push('</active-task>');
+  return `\n\n${lines.join('\n')}`;
 }
 
 function selectFilesToRestore(fileOps: FileOps, maxFiles: number): string[] {
@@ -1146,6 +1164,7 @@ export async function compactHistoryIfNeeded(params: {
   // pruned middle (the common case in a long coding session) is still carried
   // forward into the summary the LLM sees next turn. Null/no todos → no block.
   summary += formatActiveTodos(extractLatestTodosFromMessages(params.messages));
+  summary += formatActiveTask(extractTaskAnchorFromMessages(params.messages));
 
   if (resolvedSettings.restoreFileContents) {
     const restoreRoot = params.workspaceDir ?? process.cwd();

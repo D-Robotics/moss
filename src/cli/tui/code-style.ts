@@ -5,8 +5,8 @@
  * deliberately NOT a parser — mis-coloring an exotic construct is fine, the
  * text itself never changes.
  *
- * Diff rows keep their sign colours (green/red IS the information there);
- * this module is for fenced blocks only.
+ * Diff rows keep the sign colour on the row and use this tokenizer for the
+ * code body (keywords, comments, strings).
  */
 import type { TuiLineRun } from './text.js';
 

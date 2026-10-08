@@ -102,3 +102,59 @@ export function extractLatestTodosFromMessages(messages: Message[]): ParsedTodoI
   }
   return null;
 }
+
+const TASK_ANCHOR_MAX_CHARS = 800;
+
+/** Latest task contract and acceptance verdict still in the message history. */
+export interface TaskAnchor {
+  contract?: string;
+  verdict?: string;
+}
+
+function clipAnchor(text: string): string {
+  const flat = text.replace(/\s+$/g, '').trim();
+  if (flat.length <= TASK_ANCHOR_MAX_CHARS) return flat;
+  return `${flat.slice(0, TASK_ANCHOR_MAX_CHARS)}…`;
+}
+
+/**
+ * The newest `task_define` result and the newest `task_acceptance` result.
+ * Compaction otherwise drops both when they sit in the pruned middle, and a
+ * long task continues without its contract or its last FAIL/PASS.
+ */
+export function extractTaskAnchorFromMessages(messages: Message[]): TaskAnchor | null {
+  const nameById = toolUseNameById(messages);
+  let contract: string | undefined;
+  let verdict: string | undefined;
+  for (let i = messages.length - 1; i >= 0 && (!contract || !verdict); i -= 1) {
+    const message = messages[i];
+    if (!message || message.role !== 'user' || !Array.isArray(message.content)) continue;
+    for (let j = message.content.length - 1; j >= 0 && (!contract || !verdict); j -= 1) {
+      const block = message.content[j] as {
+        type?: string;
+        name?: string;
+        tool_name?: string;
+        toolName?: string;
+        tool_use_id?: string;
+        toolCallId?: string;
+      };
+      if (!block || block.type !== 'tool_result') continue;
+      const useId = block.tool_use_id ?? block.toolCallId ?? '';
+      const name =
+        block.name ??
+        block.tool_name ??
+        block.toolName ??
+        (useId ? nameById.get(useId) : undefined) ??
+        '';
+      const text = toolResultText(block);
+      if (!text.trim()) continue;
+      if (!verdict && name === 'task_acceptance') verdict = clipAnchor(text);
+      else if (!contract && name === 'task_define') contract = clipAnchor(text);
+    }
+  }
+  if (!contract && !verdict) return null;
+  return {
+    ...(contract ? { contract } : {}),
+    ...(verdict ? { verdict } : {}),
+  };
+}

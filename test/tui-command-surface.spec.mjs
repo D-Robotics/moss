@@ -111,11 +111,11 @@ const HEADLINE = [
   '/compact',
   '/status',
   '/diff',
-  '/context',
   '/export',
   '/doctor',
   '/permissions',
   '/review',
+  '/task',
 ];
 for (const command of HEADLINE) {
   assert.ok(advertised.includes(command), `M1: ${command} is advertised by the shell`);
@@ -487,7 +487,10 @@ for (const command of advertised) {
     'the last row uses the tail window'
   );
   assert.equal(paletteWindowOffset(3, 4, 8), 0, 'a short menu never scrolls');
-  for (const selected of [0, 7, 8, 9, 15, rows.length - 1]) {
+  const selections = [0, 7, 8, 9, rows.length - 1].filter(
+    (selected, index, all) => selected >= 0 && selected < rows.length && all.indexOf(selected) === index
+  );
+  for (const selected of selections) {
     const offset = paletteWindowOffset(selected, rows.length, 8);
     const frame = paletteFrameRows(rows, offset, 8);
     const relative = selected - offset;
@@ -571,9 +574,13 @@ for (const command of advertised) {
     );
     await press(instance, '\r');
     const title = BLOCK_TITLE.get(last);
-    assert.ok(title, `${last} has a block-title expectation in this spec`);
     const ran = await waitFor(() =>
-      handle.store.rows.some((r) => r.kind === 'tool' && title.test(r.text))
+      last === '/clear'
+        ? handle.store.rows.some(
+            (r) => r.kind === 'summary' && /transcript cleared/.test(r.text)
+          )
+        : title !== undefined &&
+          handle.store.rows.some((r) => r.kind === 'tool' && title.test(r.text))
     );
     assert.ok(
       ran,

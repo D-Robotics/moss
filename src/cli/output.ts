@@ -17,6 +17,7 @@ import {
   formatBackgroundCompletionFlash,
 } from './background-completion-ui.js';
 import { isZhLocale } from './cli-locale.js';
+import { noteToolForVerifyHint } from './verify-hint.js';
 
 const CODE_EDIT_TOOLS = new Set([
   'write_file',
@@ -27,9 +28,6 @@ const CODE_EDIT_TOOLS = new Set([
 ]);
 
 const EXEC_LIKE_TOOLS = new Set(['exec', 'exec_background', 'device_exec']);
-
-const TEST_COMMAND_RE =
-  /\b(npm (run )?test|npm t|yarn test|pnpm test|node\s+--test|pytest|vitest|jest|mocha|go test|cargo test|make test|npm run (build|typecheck|lint)|tsc)\b/;
 
 function discoverableTestCommand(workspaceDir: string | undefined): string | null {
   if (!workspaceDir) return null;
@@ -552,19 +550,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         spinner?.stop();
         state.toolStartTimes.set(event.toolCallId, Date.now());
         state.toolInputs.set(event.toolCallId, event.input);
-        if (CODE_EDIT_TOOLS.has(event.toolName)) {
-          // Track JS/TS files specifically to avoid false npm test hints for Python, docs, etc.
-          const pathVal = (event.input as { path?: unknown } | undefined)?.path;
-          if (typeof pathVal === 'string' && /\.[cm]?[jt]sx?$/.test(pathVal)) {
-            state.editedJsTs = true;
-          }
-        }
-        if (event.toolName === 'run_tests') {
-          state.ranTests = true;
-        } else if (event.toolName === 'exec' || event.toolName === 'device_exec') {
-          const cmd = (event.input as { command?: unknown } | undefined)?.command;
-          if (typeof cmd === 'string' && TEST_COMMAND_RE.test(cmd)) state.ranTests = true;
-        }
+        noteToolForVerifyHint(
+          state,
+          event.toolName,
+          event.input as Record<string, unknown> | undefined
+        );
         if (!isQuiet) {
           breakAnswerForStatus();
           // CC-style: ⏺ tool_name (target) — yellow dot while in progress

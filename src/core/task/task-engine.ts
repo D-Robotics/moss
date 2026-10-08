@@ -15,7 +15,6 @@ import {
   listTaskEvents,
   tryAppendTaskEvent,
 } from './task-store.js';
-import { isTerminalTaskPhase } from '../../contracts/task-runtime.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
 import { createTaskVerdictProvider } from './verdict.js';
 
@@ -25,9 +24,9 @@ export interface TaskEngineDeps {
   runTurn: (prompt: string, phase: string) => Promise<string>;
   /** Defaults to contract acceptance; a command provider overrides it. */
   verdictProvider?: VerdictProvider;
-  /** Repair cycles before the task is declared failed (default 2). */
+  /** Repair cycles before the task is declared failed (default 5). */
   maxRepairAttempts?: number;
-  /** Safety bound on total agent turns (default 8). */
+  /** Safety bound on total agent turns (default 24). */
   maxTurns?: number;
   signal?: AbortSignal;
   /** Live progress for interfaces (TUI / REPL / headless). */
@@ -50,8 +49,13 @@ export interface TaskRunResult {
   turns: number;
 }
 
-const DEFAULT_MAX_REPAIR_ATTEMPTS = 2;
-const DEFAULT_MAX_TURNS = 8;
+/**
+ * Long tasks need more than a demo loop. Two repairs and eight turns ended
+ * real failure-repair work while the diagnosis was still moving. Callers can
+ * still pass a tighter budget.
+ */
+export const DEFAULT_MAX_REPAIR_ATTEMPTS = 5;
+export const DEFAULT_MAX_TURNS = 24;
 
 function planningPrompt(
   goal: string,
@@ -176,7 +180,8 @@ async function verifyRepairLoop(
     }
     const current = await getTaskStateSnapshot(workspaceDir, state.taskId);
     if (!current) return 'failed';
-    if (isTerminalTaskPhase(current.phase)) return 'accepted';
+    if (current.phase === 'accepted') return 'accepted';
+    if (current.phase === 'failed' || current.phase === 'abandoned') return 'failed';
     if (current.phase === 'blocked') return 'blocked';
 
     state.turns += 1;

@@ -64,6 +64,51 @@ test('compaction summary carries the active todo checklist forward', async () =>
   assert.match(summary, /Progress: 1\/3 complete\./, 'preserves the progress line');
 });
 
+test('compaction summary carries the task contract and the latest verdict', async () => {
+  const messages = [
+    { role: 'user', content: 'get the camera to 30 fps and prove it' },
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'd1', name: 'task_define', input: {} }],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'd1',
+          name: 'task_define',
+          content: 'Task contract task_cam:\ngoal: camera_fps >= 30\nmetric camera_fps >=30',
+        },
+      ],
+    },
+    { role: 'assistant', content: [{ type: 'text', text: 'measuring now' }] },
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'a1', name: 'task_acceptance', input: {} }],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'a1',
+          name: 'task_acceptance',
+          content: 'Task acceptance (task_cam): FAIL\nFINAL: not accepted',
+        },
+      ],
+    },
+    { role: 'user', content: 'keep going' },
+    { role: 'assistant', content: [{ type: 'text', text: 'still on it' }] },
+    { role: 'user', content: 'status?' },
+    { role: 'assistant', content: [{ type: 'text', text: 'repairing the probe' }] },
+  ];
+  const summary = await compact(messages);
+  assert.match(summary, /<active-task>/, 'summary includes an <active-task> block');
+  assert.match(summary, /camera_fps >= 30/, 'carries the contract goal');
+  assert.match(summary, /Task acceptance \(task_cam\): FAIL/, 'carries the latest verdict');
+});
+
 test('compaction summary omits <active-todos> when no todo_write happened', async () => {
   const messages = [
     { role: 'user', content: 'just a quick question' },
@@ -75,4 +120,5 @@ test('compaction summary omits <active-todos> when no todo_write happened', asyn
   ];
   const summary = await compact(messages);
   assert.doesNotMatch(summary, /<active-todos>/, 'no todo block when no todo_write ran');
+  assert.doesNotMatch(summary, /<active-task>/, 'no task block when no task tools ran');
 });

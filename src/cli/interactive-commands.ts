@@ -52,7 +52,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       },
       {
         command: '/mode',
-        args: '[plan|default|accept-edits]',
+        args: '[manual|accept-edits|plan|full]',
         description: 'show or set interaction mode (plan = read-only planning; Shift+Tab cycles)',
       },
       {
@@ -91,7 +91,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         surfaces: ['tui'],
       },
       { command: '/context', description: 'show current context-window usage', hidden: true },
-      { command: '/usage', description: 'show cumulative token usage for this session' },
+      {
+        command: '/usage',
+        description: 'show cumulative token usage for this session',
+        hidden: true,
+      },
       {
         command: '/export',
         args: '[path]',
@@ -107,7 +111,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
   {
     title: 'Inspect',
     rows: [
-      { command: '/sessions', description: 'list saved conversations' },
+      { command: '/sessions', description: 'list saved conversations', hidden: true },
       { command: '/doctor', description: 'health-check model, egress, and config in this session' },
       { command: '/diff', description: 'show git working-tree changes' },
       {
@@ -117,10 +121,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         aliases: ['/undo'],
         hidden: true,
       },
-      { command: '/mcp', description: 'list MCP server status', surfaces: ['tui'] },
+      { command: '/mcp', description: 'list MCP server status', surfaces: ['tui'], hidden: true },
       {
         command: '/skills',
         description: 'list discovered skills; create more with moss skill create',
+        hidden: true,
       },
     ],
   },
@@ -131,12 +136,12 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         command: '/permissions',
         args: '[--verbose]',
         description: 'show safety and approval settings; --verbose prints every knob',
-        hidden: true,
       },
       {
         command: '/hooks',
         description: 'list configured lifecycle hooks and where to edit them',
         surfaces: ['tui'],
+        hidden: true,
       },
       // De-surfaced (still dispatch for back-compat): /quickstart — after the
       // config-snapshot unification its content duplicates /status + the
@@ -154,29 +159,32 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         hidden: true,
         surfaces: ['repl'],
       },
-      { command: '/help', description: 'show the key and command reference' },
-      { command: '/quit', description: 'exit moss', hidden: true },
       {
         command: '/clear',
         description: 'clear the transcript (banner stays; the model context is kept)',
         surfaces: ['tui'],
       },
+      { command: '/quit', description: 'exit moss', hidden: true },
+      { command: '/help', description: 'show the key and command reference' },
       {
         command: '/jobs',
         description: 'list background shell and sub-agent jobs',
         surfaces: ['tui'],
+        hidden: true,
       },
       {
         command: '/queue',
         args: '[pause|resume|drop|clear]',
         description: 'inspect or control the input queue',
         surfaces: ['tui'],
+        hidden: true,
       },
       {
         command: '/steer',
         args: '<constraint>',
         description: 'inject a constraint into the live run',
         surfaces: ['tui'],
+        hidden: true,
       },
     ],
   },
@@ -201,26 +209,21 @@ export const REPL_COMMAND_SECTIONS: readonly InteractiveCommandSection[] =
   })).filter((section) => section.rows.length > 0);
 
 function uniqueMenuRows(): InteractiveCommandRow[] {
-  // Surface EVERY repl command in the slash menu + completion + did-you-mean,
-  // so a user can discover and use the whole capability set (moss competes on
-  // being usable, so hiding real features is self-defeating). `hidden` no
-  // longer removes a command — it just ranks it after the common ones, so the
-  // menu still leads with the everyday commands and fuzzy-filtering narrows
-  // the rest.
+  // The slash menu is the everyday set. `hidden` rows stay in the catalog and
+  // still dispatch when typed in full; they leave the menu, completion, and
+  // did-you-mean so `/` is not a dump of every subsystem.
   const seen = new Set<string>();
   const common: InteractiveCommandRow[] = [];
-  const advanced: InteractiveCommandRow[] = [];
   for (const row of rowsForSurface('repl')) {
-    if (seen.has(row.command)) continue;
+    if (row.hidden || seen.has(row.command)) continue;
     seen.add(row.command);
-    const entry: InteractiveCommandRow = {
+    common.push({
       command: row.command,
       description: row.menuDescription ?? row.description,
       ...(row.aliases ? { aliases: row.aliases } : {}),
-    };
-    (row.hidden ? advanced : common).push(entry);
+    });
   }
-  return [...common, ...advanced];
+  return common;
 }
 
 export const SLASH_MENU_ROWS: readonly InteractiveCommandRow[] = uniqueMenuRows();
