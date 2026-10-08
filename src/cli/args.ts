@@ -37,6 +37,12 @@ export interface ParsedCliArgs {
   prompt: string;
   configOverrides: CliConfigOverrides;
   safetyModeOverride?: CliSafetyMode;
+  /**
+   * v0.26: `--read-only` / `MOSS_SAFETY_MODE=read-only` arms a read-only
+   * ceiling that compresses ANY mode including full (PRD decision 2). It
+   * rides alongside the mode, never conflicting with it (only tightens).
+   */
+  readOnlyCeiling?: boolean;
 
   interactionModeOverride?: CliInteractionMode;
   approvalPolicy: ApprovalPolicy;
@@ -242,7 +248,6 @@ const INTERACTIVE_ONLY_COMMANDS = new Set<string>([
   'subagents',
   'thinking',
   'queue',
-  'yolo',
   'clear',
   'prompt',
   'theme',
@@ -351,6 +356,27 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     }
     safetyModeOverride = mode;
     safetyFlag = flag;
+    // v0.26 (design §3.3): safety flags are mode overrides. --read-only maps
+    // to manual + ceiling; --workspace-write to manual; --full-access to full.
+    // The mode family keeps the requestSafety conflict pattern: two flags
+    // pushing different modes is an explicit error, not a silent last-wins.
+    requestInteractionMode(
+      mode === 'read-only' ? 'manual' : mode === 'full-access' ? 'full' : 'manual',
+      flag
+    );
+    if (mode === 'read-only') readOnlyCeiling = true;
+  };
+
+  let readOnlyCeiling = false;
+  let modeFlag: string | undefined;
+  const requestInteractionMode = (mode: CliInteractionMode, flag: string): void => {
+    if (interactionModeOverride !== undefined && interactionModeOverride !== mode) {
+      throw new Error(
+        `${modeFlag} and ${flag} conflict — --plan / --accept-edits / --full-access / --workspace-write / --read-only / --ask-for-approval push different interaction modes; pick one`
+      );
+    }
+    interactionModeOverride = mode;
+    modeFlag = flag;
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -386,17 +412,11 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       continue;
     }
     if (arg === '--plan') {
-      if (interactionModeOverride !== undefined && interactionModeOverride !== 'plan') {
-        throw new Error('--plan and --accept-edits are mutually exclusive; pick one');
-      }
-      interactionModeOverride = 'plan';
+      requestInteractionMode('plan', '--plan');
       continue;
     }
     if (arg === '--accept-edits') {
-      if (interactionModeOverride !== undefined && interactionModeOverride !== 'acceptEdits') {
-        throw new Error('--plan and --accept-edits are mutually exclusive; pick one');
-      }
-      interactionModeOverride = 'acceptEdits';
+      requestInteractionMode('acceptEdits', '--accept-edits');
       continue;
     }
     if (arg === '--mock') {
@@ -493,19 +513,33 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     if (arg === '--ask-for-approval' || arg.startsWith('--ask-for-approval=')) {
       const parsed = readValue(argv, i, arg);
       const raw = parsed.value.toLowerCase().trim();
+      // v0.26 (PRD decision 6): 'on-request' was a ghost value — never an
+      // actually-effective policy — and is now an explicit error.
+      if (raw === 'on-request') {
+        throw new Error(
+          `--ask-for-approval no longer accepts "on-request" (it never had an effect) — use never | prompt | read-only | workspace-write | full-access`
+        );
+      }
       const approval = normalizeApprovalPolicyConfig(raw);
       const safety = normalizeSafetyMode(raw);
       if (!approval && !safety) {
         throw new Error(
-          `--ask-for-approval must be never|prompt|on-request|read-only|workspace-write|full-access, got "${parsed.value}"`
+          `--ask-for-approval must be never|prompt|read-only|workspace-write|full-access, got "${parsed.value}"`
         );
       }
-      if (approval === 'never') {
+      // The flag is collected as a mode override (design §3.3): never → full,
+      // prompt → manual, read-only → manual + ceiling, full-access → full,
+      // workspace-write → manual.
+      if (safety) {
+        requestSafety(safety, '--ask-for-approval');
+      } else if (approval === 'never') {
         approvalPolicy = 'never';
         configOverrides.approvalPolicy = 'never';
+        requestInteractionMode('full', '--ask-for-approval=never');
+      } else if (approval === 'prompt') {
+        approvalPolicy = 'prompt';
+        requestInteractionMode('manual', '--ask-for-approval=prompt');
       }
-
-      if (safety && !approval) requestSafety(safety, '--ask-for-approval');
       i = parsed.nextIndex;
       continue;
     }
@@ -582,12 +616,28 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     }
   }
 
+  // v0.26: the mode override family resolves into config overrides so
+  // resolveCliConfig's overrides layer (mode-override semantics) sees the
+  // same mode. read-only arms the ceiling flag; the ceiling is carried by
+  // ParsedCliArgs.readOnlyCeiling for the wiring layer.
+  if (interactionModeOverride !== undefined) {
+    configOverrides.safetyMode = safetyModeOverride ?? undefined;
+    if (interactionModeOverride === 'full') {
+      configOverrides.approvalPolicy = 'never';
+    } else if (safetyModeOverride === undefined) {
+      // A bare --plan/--accept-edits mode override keeps the manual base
+      // (workspace-write) so the profile no longer fills it.
+      configOverrides.safetyMode = 'workspace-write';
+    }
+  }
+
   return {
     command,
     commandArgs,
     prompt: promptParts.join(' ').trim(),
     configOverrides,
     safetyModeOverride,
+    ...(readOnlyCeiling ? { readOnlyCeiling } : {}),
     interactionModeOverride,
     approvalPolicy,
     sessionKey,

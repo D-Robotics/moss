@@ -17,3 +17,6 @@ tmp/
 # Qoder IDE session artifacts
 .qoder/
 .qoder-collab-runtime/
+
+# WorkBuddy session-local runtime data (agent memory, not source)
+.workbuddy/

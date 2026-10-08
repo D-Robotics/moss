@@ -59,12 +59,16 @@ async function waitFor(predicate, timeoutMs = 5000) {
   const base = { running: false, tokens: 0, taskCount: 0, queueLength: 0 };
 
   // F10: only a non-default mode advertises the cycle key.
-  assert.equal(interactionModeHint('default'), '⏸ default mode on');
+  // v0.26 T01 (PRD 2026-10-08): 'default' renamed to 'manual' — manual is a
+  // non-default mode now (full is default) so it carries the cycle suffix.
+  // Full four-state badge/cycle assertions land with T02 (W1b).
+  assert.match(interactionModeHint('manual'), /manual mode on \(shift\+tab to cycle\)$/);
   assert.match(interactionModeHint('acceptEdits'), /accept-edits mode on \(shift\+tab to cycle\)$/);
   assert.match(interactionModeHint('plan'), /plan mode on \(shift\+tab to cycle\)$/);
+  assert.match(interactionModeHint('full'), /full mode on$/);
 
   const hints = {};
-  for (const mode of ['default', 'acceptEdits', 'plan']) {
+  for (const mode of ['manual', 'acceptEdits', 'plan', 'full']) {
     const hint = renderHint({ ...base, mode }, 100);
     hints[mode] = hint;
     assert.ok(
@@ -79,10 +83,14 @@ async function waitFor(predicate, timeoutMs = 5000) {
     );
     assert.ok(cells(hint.text) <= 100, `the hint never overflows (${mode})`);
   }
-  assert.equal(new Set(Object.values(hints).map((h) => h.color)).size, 3, 'one colour per mode');
+  assert.equal(new Set(Object.values(hints).map((h) => h.color)).size, 4, 'one colour per mode');
 
   // The tint is on the row, so a mode change is visible even while typing.
-  assert.equal(renderHint({ ...base }, 100).color, 'gray', 'an omitted mode is the default mode');
+  assert.equal(
+    renderHint({ ...base }, 100).color,
+    'yellow',
+    'an omitted mode is the factory-default (full, v0.26)'
+  );
 
   // Shell mode: the reference hint text, the shell accent, and the mode intact.
   const shellHint = renderHint({ ...base, mode: 'plan', shellMode: true }, 100);
@@ -118,8 +126,8 @@ async function waitFor(predicate, timeoutMs = 5000) {
 {
   assert.deepEqual(
     [...INTERACTION_MODE_CYCLE],
-    ['default', 'acceptEdits', 'plan'],
-    'F9: the cycle covers every real interaction mode'
+    ['manual', 'acceptEdits', 'plan', 'full'],
+    'F9 v0.26 (PRD W1): the four-state cycle covers every real interaction mode'
   );
   // Guards against inventing a parallel state: every cycle member must be
   // accepted by the policy layer's own parser.
@@ -127,15 +135,80 @@ async function waitFor(predicate, timeoutMs = 5000) {
     assert.equal(parseCliInteractionMode(mode), mode, `${mode} is a real policy mode`);
   }
   const seen = [];
-  let mode = 'default';
+  let mode = 'manual';
   for (let i = 0; i < 4; i++) {
     mode = nextInteractionMode(mode);
     seen.push(mode);
   }
   assert.deepEqual(
     seen,
-    ['acceptEdits', 'plan', 'default', 'acceptEdits'],
-    'shift+tab walks default → accept-edits → plan → default'
+    ['acceptEdits', 'plan', 'full', 'manual'],
+    'four shift+tab presses walk manual → accept-edits → plan → full → manual (PRD W1 四态循环)'
+  );
+  // Four presses from ANY starting mode return to the start: the cycle wraps.
+  for (const start of INTERACTION_MODE_CYCLE) {
+    let walked = start;
+    for (let i = 0; i < 4; i++) walked = nextInteractionMode(walked);
+    assert.equal(walked, start, `four presses from ${start} return to ${start}`);
+  }
+}
+
+// ─── 3b. read-only ceiling vs plan: the two non-full ceilings differ (W1) ────
+
+{
+  // PRD decision 2 / design §1.2: the read-only ceiling blocks EVERY non-readonly
+  // side effect (including runtime_state); plan allows readonly + planMode:allow
+  // helpers (todo_write/ask_user_question) while denying device_mutation and
+  // plain mutations. The two mechanisms must stay distinct.
+  const { describeCliToolApproval, isAllowedDuringPlanMode } =
+    await import('../dist/cli/approval.js');
+  const mkTool = (name, sideEffectClass, planMode) => ({
+    name,
+    description: name,
+    inputSchema: { type: 'object', properties: {} },
+    metadata: { sideEffectClass, ...(planMode ? { planMode } : {}) },
+    execute: async () => 'ok',
+  });
+  // plan mode: readonly passes the class gate.
+  assert.equal(
+    isAllowedDuringPlanMode(mkTool('read_file', 'readonly', undefined), 'readonly'),
+    true,
+    'plan allows readonly side effects'
+  );
+  // plan mode: planMode allow helpers pass.
+  assert.equal(
+    isAllowedDuringPlanMode(mkTool('todo_write', 'runtime_state', 'allow'), 'runtime_state'),
+    true,
+    'plan allows planMode:allow runtime_state helpers'
+  );
+  // plan mode: device_mutation is class-denied even with planMode allow.
+  assert.equal(
+    isAllowedDuringPlanMode(mkTool('device_exec', 'device_mutation', 'allow'), 'device_mutation'),
+    false,
+    'plan denies device_mutation even with planMode allow (class-level)'
+  );
+  // read-only ceiling (describeCliToolApproval with mode read-only): every
+  // non-readonly side effect is blocked, including runtime_state — STRICTER
+  // than plan, which lets runtime_state through via planMode allow.
+  const runtimePreview = describeCliToolApproval(
+    { tool: mkTool('todo_write', 'runtime_state', 'allow'), input: {} },
+    'read-only',
+    {},
+    {}
+  );
+  assert.ok(
+    /Blocked by read-only/.test(runtimePreview.decisionContext),
+    `read-only ceiling blocks runtime_state (stricter than plan): ${runtimePreview.decisionContext}`
+  );
+  const readonlyPreview = describeCliToolApproval(
+    { tool: mkTool('read_file', 'readonly', undefined), input: {} },
+    'read-only',
+    {},
+    {}
+  );
+  assert.ok(
+    !/Blocked by/.test(readonlyPreview.decisionContext),
+    `read-only ceiling still lets readonly tools through: ${readonlyPreview.decisionContext}`
   );
 }
 
@@ -156,7 +229,7 @@ const agent = {
   },
 };
 
-setCliInteractionMode('default');
+setCliInteractionMode('manual');
 const listeners = new Set();
 const handle = {
   store: createTuiStore(),
@@ -197,7 +270,7 @@ const typeOnly = async (value) => {
 const hintRow = () => frame().trimEnd().split('\n').pop() ?? '';
 
 assert.ok(await waitFor(() => rowsOf('banner').length === 1), 'the shell boots');
-assert.ok(hintRow().includes('default mode on'), `boot hint names the mode: ${hintRow()}`);
+assert.ok(hintRow().includes('manual mode on'), `boot hint names the mode: ${hintRow()}`);
 
 // 4a. Typing `!` alone enters shell mode: the glyph, the glyph+placeholder line
 // and the hint row all change, exactly like the reference capture.
@@ -222,7 +295,7 @@ assert.ok(frame().includes('! echo never-runs'), 'the command is echoed inside s
 instance.stdin.write('\x1b');
 await sleep(120);
 assert.ok(!frame().includes('! for shell mode'), 'Esc cancels shell mode');
-assert.ok(hintRow().includes('default mode on'), 'the hint row returns to the mode label');
+assert.ok(hintRow().includes('manual mode on'), 'the hint row returns to the mode label');
 assert.ok(!frame().includes('! echo never-runs'), 'Esc discards the cancelled draft');
 assert.equal(rowsOf('user').length, 0, 'Esc committed no user row');
 assert.equal(rowsOf('result').length, 0, 'Esc executed nothing');
@@ -249,7 +322,7 @@ assert.ok(
   await waitFor(() => !frame().includes('! for shell mode')),
   'the composer returns to normal after the run'
 );
-assert.ok(hintRow().includes('default mode on'), 'the hint row returns to the mode label');
+assert.ok(hintRow().includes('manual mode on'), 'the hint row returns to the mode label');
 
 // 4d. A batched chunk (`!pwd` in ONE write, i.e. a paste/fast typing) still
 // enters shell mode — ink delivers multi-character input in one keypress.
@@ -264,10 +337,15 @@ await sleep(120);
 assert.ok(!frame().includes('! for shell mode'), 'Esc leaves the batched draft too');
 
 // 4e. shift+tab cycles the policy layer and repaints the hint immediately.
+// v0.26 (PRD W1): four states, so four presses visit all of them and the
+// fifth returns to the start. The badge follows PRD decision 4 — the DEFAULT
+// mode (full) has no suffix; every non-default mode carries
+// `(shift+tab to cycle)`.
 const cycle = [
   ['acceptEdits', 'accept-edits mode on (shift+tab to cycle)'],
   ['plan', 'plan mode on (shift+tab to cycle)'],
-  ['default', 'default mode on'],
+  ['full', 'full mode on'],
+  ['manual', 'manual mode on (shift+tab to cycle)'],
 ];
 for (const [expected, label] of cycle) {
   instance.stdin.write('\x1b[Z'); // CSI Z = shift+tab
@@ -283,9 +361,19 @@ instance.stdin.write('\x1b[Z');
 await sleep(150);
 assert.equal(getCliInteractionMode(), 'acceptEdits', 'the cycle wraps back around');
 assert.ok(hintRow().includes('(shift+tab to cycle)'), 'a non-default mode advertises the key');
-setCliInteractionMode('default');
+setCliInteractionMode('full');
 await sleep(120);
-assert.ok(!hintRow().includes('(shift+tab to cycle)'), 'the default mode drops the suffix');
+assert.ok(
+  !hintRow().includes('(shift+tab to cycle)'),
+  'v0.26 decision 4: full (the default) drops the suffix'
+);
+assert.ok(hintRow().includes('full mode on'), 'full names itself in the hint');
+setCliInteractionMode('manual');
+await sleep(120);
+assert.ok(
+  hintRow().includes('(shift+tab to cycle)'),
+  'manual is non-default (full is default) so it carries the suffix'
+);
 
 // 4f. The advertised surface is real: every prefix is documented and routed,
 // and the key table names the two new keys.

@@ -197,10 +197,26 @@ assert.deepEqual(
 // ─── /mode drives the shared policy layer and shows up in the chrome ─────────
 
 {
-  setCliInteractionMode('default');
+  setCliInteractionMode('manual');
   const { agent } = mockAgent();
   const { instance, handle } = mount({ agent, workspaceDir: '/tmp/ws' });
   await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
+  // v0.26 (PRD W1): the four-mode help block lists manual/accept-edits/plan/full
+  // — full is the new default and its line names the deny-rule guardrail.
+  await type(instance, '/mode');
+  const helped = await waitFor(() => allText(handle).includes('/mode full'));
+  assert.ok(
+    helped,
+    `the /mode help lists all four modes: ${JSON.stringify(allText(handle).slice(-400))}`
+  );
+  assert.match(allText(handle), /\/mode manual/, 'the help lists manual');
+  assert.match(allText(handle), /\/mode accept-edits/, 'the help lists accept-edits');
+  assert.match(allText(handle), /\/mode plan/, 'the help lists plan');
+  assert.match(
+    allText(handle),
+    /\/mode full.*deny rules/i,
+    'the full line names the deny-rule guardrail'
+  );
   await type(instance, '/mode plan');
   const answered = await waitFor(() => allText(handle).includes('Switched to plan'));
   assert.ok(answered, `/mode answered: ${JSON.stringify(allText(handle).slice(-200))}`);
@@ -210,9 +226,25 @@ assert.deepEqual(
     /interaction mode: plan/,
     'the shell reflects the mode instead of silently changing it'
   );
+  await type(instance, '/mode full');
+  await waitFor(() => allText(handle).includes('Switched to full'));
+  assert.equal(
+    getCliInteractionMode(),
+    'full',
+    'v0.26: /mode full switches to the full mode (four-state)'
+  );
+  assert.match(
+    allText(handle),
+    /deny rules and dangerous-command blocks still apply/i,
+    'the full switch copy names what still applies'
+  );
   await type(instance, '/mode default');
-  await waitFor(() => getCliInteractionMode() === 'default');
-  assert.equal(getCliInteractionMode(), 'default', '/mode restores the default mode');
+  await waitFor(() => getCliInteractionMode() === 'manual');
+  assert.equal(
+    getCliInteractionMode(),
+    'manual',
+    '/mode default restores the manual mode (v0.26 rename, alias kept)'
+  );
   instance.unmount();
   await sleep(100);
 }
@@ -321,6 +353,56 @@ for (const command of [
     HELP_COMMANDS.some((entry) => entry.split(' ')[0] === command),
     `${command} is advertised by the shell`
   );
+}
+
+// ─── /permissions is the v0.26 rule manager (T04) ───────────────────────────
+
+{
+  setCliInteractionMode('manual');
+  const { PermissionRuleRegistry } = await import('../dist/cli/permission-rules.js');
+  const registry = new PermissionRuleRegistry();
+  const { agent } = mockAgent();
+  const { instance, handle } = mount({
+    agent,
+    workspaceDir: '/tmp/ws',
+    // The TUI context takes the runtime (registry + live rule getter) from
+    // options.cliRuntime — exactly what cli-main passes via liveRuntime.
+    cliRuntime: {
+      workspace: '/tmp/ws',
+      sessionKey: 'tui-permissions',
+      permissionRuleRegistry: registry,
+      permissionsRules: () => ({
+        rules: [...registry.list()],
+        sources: { userPath: `${configDir}/config.json` },
+      }),
+    },
+  });
+  await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
+  // The default view names the mode, counts rules, and advertises the
+  // manager subcommands.
+  await type(instance, '/permissions');
+  const viewed = await waitFor(() => allText(handle).includes('default mode'));
+  assert.ok(
+    viewed,
+    `the /permissions view rendered: ${JSON.stringify(allText(handle).slice(-300))}`
+  );
+  assert.match(allText(handle), /default mode:\s*full/, 'the view names the default mode');
+  assert.match(
+    allText(handle),
+    /\/permissions add\|remove\|persist/,
+    'the view advertises the manager subcommands'
+  );
+  // add → remove round-trip through the registry the TUI shares with the hook.
+  await type(instance, '/permissions add deny "read_file(./.env)"');
+  const added = await waitFor(() => allText(handle).includes('Session deny rule added'));
+  assert.ok(added, 'add confirms the session rule in the shell');
+  assert.equal(registry.list().length, 1, 'the rule landed in the shared registry');
+  await type(instance, '/permissions remove "read_file(./.env)"');
+  const removed = await waitFor(() => allText(handle).includes('Session rule removed'));
+  assert.ok(removed, 'remove works from the shell');
+  assert.equal(registry.list().length, 0, 'the rule is gone from the registry');
+  instance.unmount();
+  await sleep(100);
 }
 
 console.log('[PASS] TUI control-command registry (model/mode/compact/diff/review/context)');

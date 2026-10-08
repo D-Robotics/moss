@@ -25,6 +25,8 @@ import {
 import { errorMessage } from '../errors.js';
 import { guessModelProvider, print, renderAuthStatus, sanitizeBaseUrl } from './setup-wizard.js';
 import { withoutSecret } from './config-snapshot.js';
+import { parsePermissionRuleSpec } from './permission-rules.js';
+import { parseCliInteractionMode } from './interaction-mode.js';
 
 function serializeResolvedConfig(
   resolved: ReturnType<typeof resolveCliConfig>
@@ -154,6 +156,70 @@ function setGuardrailPatternList(config: ConfigFile, key: string, value: string)
   return true;
 }
 
+// ── v0.26 permissions write side (T04) ───────────────────────────────────────
+
+/**
+ * Append one rule spec to the user config's permissions.<level> list
+ * (dedup; `moss config set permissions.allow=...` REPLACES the whole list —
+ * this helper is the additive path /permissions persist uses).
+ */
+export function appendUserPermissionRule(
+  spec: string,
+  level: 'allow' | 'ask' | 'deny'
+): { ok: true; message: string } | { ok: false; message: string } {
+  try {
+    // Validate the spec BEFORE touching the file (parse throws MossError).
+    parsePermissionRuleSpecPublic(spec, level);
+    const configPath = resolveConfigPath();
+    const current = loadConfigFile(configPath);
+    const permissions = current.permissions ?? {};
+    const list = [...new Set([...(permissions[level] ?? []), spec])];
+    if (list.length === (permissions[level] ?? []).length) {
+      return { ok: true, message: `already present in ${configPath}` };
+    }
+    saveConfigFileAtPath(
+      { ...current, permissions: { ...permissions, [level]: list } },
+      configPath
+    );
+    return { ok: true, message: `saved to ${configPath}` };
+  } catch (err) {
+    return { ok: false, message: errorMessage(err) };
+  }
+}
+
+/** Thin re-export so config-commands keeps one import surface for the parser. */
+function parsePermissionRuleSpecPublic(
+  spec: string,
+  level: 'allow' | 'ask' | 'deny'
+): ReturnType<typeof parsePermissionRuleSpec> {
+  return parsePermissionRuleSpec(spec, 'user', level);
+}
+
+/**
+ * v0.26 `permissions.*` set keys. Array lists REPLACE the whole table (same
+ * semantics as the guardrails array keys — comma-separated specs).
+ * permissions.defaultMode validates against the mode enum.
+ */
+function setPermissionsKey(config: ConfigFile, key: string, value: string): boolean {
+  if (
+    key !== 'permissions.defaultMode' &&
+    key !== 'permissions.allow' &&
+    key !== 'permissions.ask' &&
+    key !== 'permissions.deny'
+  ) {
+    return false;
+  }
+  const subKey = key.split('.')[1] as 'defaultMode' | 'allow' | 'ask' | 'deny';
+  const permissions = { ...(config.permissions ?? {}) };
+  if (subKey === 'defaultMode') {
+    permissions.defaultMode = value;
+  } else {
+    permissions[subKey] = parseConfigPatternList(value, key);
+  }
+  config.permissions = permissions;
+  return true;
+}
+
 export function renderConfigJson(
   config?: ConfigFile,
   env: NodeJS.ProcessEnv = process.env,
@@ -204,14 +270,15 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
     ],
   },
   {
-    group: 'safety & approval',
+    group:
+      'safety & approval (v0.26: these are MODE overrides — read-only arms the read-only ceiling, never/ full, prompt/manual; rules live in permissions.*, not env)',
     vars: [
       'MOSS_SAFETY_MODE',
       'MOSS_CLI_SAFETY_MODE (legacy alias of MOSS_SAFETY_MODE)',
       'MOSS_APPROVAL_POLICY',
       'MOSS_ASK_FOR_APPROVAL (legacy alias of MOSS_APPROVAL_POLICY)',
-      'MOSS_TRUSTED_TOOLS',
-      'MOSS_DENIED_TOOLS',
+      'MOSS_TRUSTED_TOOLS (legacy — translated to allow rules on read)',
+      'MOSS_DENIED_TOOLS (legacy — translated to deny rules on read)',
       'MOSS_CLI_AUTO_APPROVE',
       'MOSS_AUTO_APPROVE (legacy alias of MOSS_CLI_AUTO_APPROVE)',
     ],
@@ -448,6 +515,38 @@ export function runConfigValidate(args: string[] = [], startDir = process.cwd())
       message: `no API key configured for provider "${resolved.provider}"; moss will fail at runtime — run \`moss setup\` to add one`,
     });
   }
+  // v0.26 (T04): validate the permissions block — spec syntax per rule and
+  // the defaultMode enum (through the policy layer's own parser).
+  {
+    const permissions = loaded.config.permissions;
+    if (permissions) {
+      if (permissions.defaultMode !== undefined) {
+        const mode = parseCliInteractionMode(String(permissions.defaultMode));
+        if (!mode) {
+          warnings.push({
+            code: 'permissions.default_mode',
+            severity: 'warn',
+            source: 'config',
+            message: `permissions.defaultMode "${permissions.defaultMode}" is not a mode; expected manual | acceptEdits | plan | full`,
+          });
+        }
+      }
+      for (const level of ['allow', 'ask', 'deny'] as const) {
+        for (const spec of permissions[level] ?? []) {
+          try {
+            parsePermissionRuleSpec(spec, 'user', level);
+          } catch (err) {
+            warnings.push({
+              code: `permissions.${level}`,
+              severity: 'warn',
+              source: 'config',
+              message: `invalid ${level} rule "${spec}": ${errorMessage(err)}`,
+            });
+          }
+        }
+      }
+    }
+  }
   if (strict && warnings.length > 0) process.exitCode = 1;
 
   if (json) {
@@ -573,7 +672,7 @@ function buildProjectConfigTemplate(): ConfigFile {
 }
 
 function supportedConfigKeys(): string {
-  return 'Supported keys — model: provider, model, baseUrl, apiKey; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens';
+  return 'Supported keys — model: provider, model, baseUrl, apiKey; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens';
 }
 
 function removeEmptyNestedConfig(config: ConfigFile): ConfigFile {
@@ -630,6 +729,11 @@ function applyConfigSetPair(
       return { ok: false, messages: ['Supported profile values: cautious, balanced, autonomous'] };
     }
     next.profile = profile;
+    // v0.26 (T04): deprecated write-side notice — the read side migrates
+    // profile → defaultMode; the write stays for one release (PRD 决策 5).
+    messages.push(
+      '[config] NOTE: profile is a legacy key (deprecated next release) — cautious→manual(+read-only ceiling), balanced→manual, autonomous→full. Prefer `permissions.defaultMode`.'
+    );
   } else if (key === 'provider') {
     const provider = parseProviderPreset(value);
     if (!provider) {
@@ -686,6 +790,44 @@ function applyConfigSetPair(
     next.baseUrl = sanitized;
   } else if (key === 'workspace') {
     next.workspace = path.resolve(value);
+  } else if (key === 'permissions.defaultMode') {
+    // v0.26 (T04): the canonical mode knob. Validates against the mode enum
+    // through the policy layer's own parser (aliases accepted, resolved and
+    // stored as the canonical name).
+    const mode = parseCliInteractionMode(value);
+    if (!mode) {
+      return {
+        ok: false,
+        messages: [
+          'Supported permissions.defaultMode values: manual, acceptEdits, plan, full',
+          '(accepted aliases: default/d/normal, accept-edits, plan, full/bypass)',
+        ],
+      };
+    }
+    next.permissions = { ...next.permissions, defaultMode: mode };
+  } else if (
+    key === 'permissions.allow' ||
+    key === 'permissions.ask' ||
+    key === 'permissions.deny'
+  ) {
+    // Array lists REPLACE the whole table (guardrails-array-key semantics).
+    // Every spec is validated through the permission-rules parser first.
+    const specs = parseConfigPatternList(value, key);
+    try {
+      const level = key.split('.')[1] as 'allow' | 'ask' | 'deny';
+      for (const spec of specs) parsePermissionRuleSpec(spec, 'user', level);
+    } catch (err) {
+      return {
+        ok: false,
+        messages: [
+          `Invalid rule spec: ${errorMessage(err)}`,
+          'Rules look like ToolName (whole tool) or ToolName(pattern), e.g. exec(npm run *)',
+        ],
+      };
+    }
+    if (!setPermissionsKey(next, key, value)) {
+      return { ok: false, messages: [supportedConfigKeys()] };
+    }
   } else if (key === 'safetyMode') {
     const mode = normalizeSafetyModeConfig(value);
     if (!mode) {
@@ -695,16 +837,35 @@ function applyConfigSetPair(
       };
     }
     next.safetyMode = mode;
+    // v0.26 (T04): deprecated write-side notice — one release of grace
+    // (PRD 决策 5). The key still writes and the read side translates it.
+    messages.push(
+      '[config] NOTE: safetyMode is a legacy key (deprecated next release) — prefer `moss config set permissions.defaultMode=manual|acceptEdits|plan|full`.'
+    );
   } else if (key === 'approvalPolicy') {
     const policy = normalizeApprovalPolicyConfig(value);
     if (!policy) {
       return { ok: false, messages: ['Supported approvalPolicy values: prompt, never'] };
     }
     next.approvalPolicy = policy;
+    // v0.26 (T04): deprecated write-side notice (PRD 决策 6 收编).
+    messages.push(
+      '[config] NOTE: approvalPolicy is a legacy key (deprecated next release) — prefer `moss config set permissions.defaultMode=full` (never) or `=manual` (prompt).'
+    );
   } else if (key === 'trustedTools') {
     try {
       const parsedTrusted = parseTrustedTools(value) ?? [];
       next.trustedTools = parsedTrusted;
+      // v0.26 (T04): deprecated write-side notice + the synced translation
+      // into permissions.allow (one release of grace — both surfaces stay
+      // equivalent on read because the migration unions them).
+      next.permissions = {
+        ...next.permissions,
+        allow: [...new Set([...(next.permissions?.allow ?? []), ...parsedTrusted])],
+      };
+      messages.push(
+        '[config] NOTE: trustedTools is a legacy key (deprecated next release) — the same names were added to permissions.allow; prefer that key for new rules.'
+      );
       const broad = parsedTrusted.filter(isBroadTrustedToolPattern);
       if (broad.length > 0) {
         messages.push(
@@ -716,7 +877,16 @@ function applyConfigSetPair(
     }
   } else if (key === 'deniedTools') {
     try {
-      next.deniedTools = parseTrustedTools(value) ?? [];
+      const parsedDenied = parseTrustedTools(value) ?? [];
+      next.deniedTools = parsedDenied;
+      // v0.26 (T04): deprecated write-side notice + synced translation.
+      next.permissions = {
+        ...next.permissions,
+        deny: [...new Set([...(next.permissions?.deny ?? []), ...parsedDenied])],
+      };
+      messages.push(
+        '[config] NOTE: deniedTools is a legacy key (deprecated next release) — the same names were added to permissions.deny; prefer that key for new rules.'
+      );
     } catch (err) {
       return { ok: false, messages: [errorMessage(err)] };
     }

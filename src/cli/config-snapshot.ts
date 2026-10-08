@@ -82,11 +82,36 @@ const FIELDS = {
   ],
   safetyMode: [
     'safety',
-    (c: ResolvedCliConfig) => `${c.safetyMode} (${c.safetyModeSource ?? 'default'})`,
+    (c: ResolvedCliConfig) =>
+      `${c.safetyMode} (${c.safetyModeSource ?? 'default'}${c.safetyModeSource === 'derived:mode' ? ', from permissions.defaultMode' : ''})`,
   ],
   approvalPolicy: [
     'approval',
-    (c: ResolvedCliConfig) => `${c.approvalPolicy} (${c.approvalPolicySource ?? 'default'})`,
+    (c: ResolvedCliConfig) =>
+      `${c.approvalPolicy} (${c.approvalPolicySource ?? 'default'}${c.approvalPolicySource === 'derived:mode' ? ', from permissions.defaultMode' : ''})`,
+  ],
+  permissions: [
+    'permissions',
+    (c: ResolvedCliConfig) => {
+      // Tolerate hosts that hand-render partial configs (spec fixtures skip
+      // the permissions view) — render counts as zero instead of crashing.
+      const view = c.permissions ?? {
+        defaultMode: 'full' as const,
+        readOnlyCeiling: false,
+        allow: [],
+        ask: [],
+        deny: [],
+        legacyKeysUsed: [],
+        source: 'default',
+      };
+      const counts = `allow ${view.allow.length} · ask ${view.ask.length} · deny ${view.deny.length}`;
+      const ceiling = view.readOnlyCeiling ? ' + read-only ceiling' : '';
+      const legacy =
+        view.legacyKeysUsed.length > 0
+          ? `; legacy keys migrated: ${view.legacyKeysUsed.join(', ')}`
+          : '';
+      return `mode ${view.defaultMode}${ceiling} (${view.source}), ${counts}${legacy}`;
+    },
   ],
   trustedTools: [
     'trusted tools',

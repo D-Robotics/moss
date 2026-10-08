@@ -144,8 +144,23 @@ moss tasks list                     # 只读查看机器人闭环产物
 
 ## 安全与隐私
 
-- 三档安全上限：`read-only` / `workspace-write` / `full-access`；默认 fail-closed，越界路径与毁灭性命令被拦截。
-- 写类工具与 `device_mutation` 走审批；授权可持久化（重启不再问），但 `device_exec` 维持逐次审批——机器人安全优先。
+- **v0.26 起默认全开（full 模式）**：跳过逐次询问、`device_mutation` 放行——对齐 Claude Code 出厂默认哲学（bypassPermissions）。防线不靠"多问"，靠规则与硬拦截。
+- **四态交互模式**（Shift+Tab 循环，或 `/mode`）：
+
+  | 模式           | 行为                                       |
+  | -------------- | ------------------------------------------ |
+  | `manual`       | 写操作与设备变更逐次询问                   |
+  | `acceptEdits`  | 工作区内文件编辑自动通过，shell 变更仍询问 |
+  | `plan`         | 只读规划，写操作与设备变更被拦             |
+  | `full`（默认） | 跳过询问；仅 deny 规则与硬拦截生效         |
+
+- **权限规则**（`/permissions`，任何模式生效，deny 优先于一切含 full）：
+  - 三级 `allow` / `ask` / `deny`，优先级 deny > ask > allow；
+  - 语法 `ToolName(pattern)`，用 moss 原生工具名：`/permissions add deny "read_file(./.env)"`、`/permissions add allow "exec(npm run *)"`；
+  - 会话级规则下一个工具调用即生效；`/permissions persist` 写用户配置重启仍生效；
+  - `--read-only` / `MOSS_SAFETY_MODE=read-only` 是压过任何模式（含 full）的只读上限。
+- **硬拦截永不撤**：毁灭性命令（`rm -rf /` 等）与路径逃逸在 full 模式下同样被拦——full 跳过的是询问，不是检查。
+- **旧键兼容**（一版宽限）：`profile` / `trustedTools` / `deniedTools` / `safetyMode` / `approvalPolicy` 读入即按映射表翻译（cautious→manual+只读上限、balanced→manual、autonomous→full、trustedTools→allow 规则、deniedTools→deny 规则），写侧提示 deprecated，新配置请用 `permissions.*` 块。
 - 凭据只从 `.env` 或环境变量读，绝不硬编码、不进日志、不传子进程、不写设备清单。
 - 无账号、无云服务、无遥测；provider 是普通 HTTP 端点。
 
@@ -153,7 +168,7 @@ moss tasks list                     # 只读查看机器人闭环产物
 
 ```bash
 npm run check    # prettier + eslint（0 warning）+ typecheck
-npm run test     # build + 全部 test/*.spec.mjs（当前 197 个，面向 dist 跑）
+npm run test     # build + 全部 test/*.spec.mjs（当前 200 个，面向 dist 跑）
 npm run smoke    # CLI 冒烟：--version / --help / PTY 启动
 npm run verify   # check + test + smoke —— 发版前必须全绿
 ```
@@ -331,17 +346,41 @@ Key env vars (full list: `moss config env`): `MOSS_PROFILE` · `MOSS_WORKSPACE` 
 
 ### Safety and privacy
 
-Three safety ceilings (`read-only` / `workspace-write` / `full-access`), fail-closed by default
-with path-escape and destructive-command guards. Mutating tools and `device_mutation` go through
-approval; trust can be persisted, but `device_exec` always asks — robot safety first. Credentials
-come only from `.env` or the environment: never hardcoded, never logged, never passed to child
-processes, never written to the device registry. No account, no cloud, no telemetry.
+- **Full by default since v0.26**: prompts are skipped and `device_mutation` runs — the Claude Code
+  factory-default philosophy (bypassPermissions). The guardrails are rules and hard blocks, not
+  more questions.
+- **Four interaction modes** (Shift+Tab cycles, or `/mode`):
+
+  | Mode             | Behavior                                                          |
+  | ---------------- | ----------------------------------------------------------------- |
+  | `manual`         | mutations and device changes ask one by one                       |
+  | `acceptEdits`    | sandboxed workspace edits auto-approve; shell mutations still ask |
+  | `plan`           | read-only planning; mutations and device changes blocked          |
+  | `full` (default) | prompts skipped; only deny rules and hard blocks apply            |
+
+- **Permission rules** (`/permissions`, effective in any mode, deny beats everything incl. full):
+  - three levels `allow` / `ask` / `deny`, priority deny > ask > allow;
+  - syntax `ToolName(pattern)` with moss-native tool names:
+    `/permissions add deny "read_file(./.env)"`, `/permissions add allow "exec(npm run *)"`;
+  - session rules take effect on the next tool call; `/permissions persist` writes the user config
+    and survives restarts;
+  - `--read-only` / `MOSS_SAFETY_MODE=read-only` is a read-only ceiling that compresses any mode
+    including full.
+- **Hard blocks never lift**: destructive commands (`rm -rf /` …) and path escapes are blocked in
+  full mode too — full skips the asking, not the checking.
+- **Legacy keys** (one release of grace): `profile` / `trustedTools` / `deniedTools` /
+  `safetyMode` / `approvalPolicy` are translated on read (cautious→manual+read-only ceiling,
+  balanced→manual, autonomous→full, trustedTools→allow rules, deniedTools→deny rules); writing
+  them prints a deprecation notice — use the `permissions.*` block for new config.
+- Credentials come only from `.env` or the environment: never hardcoded, never logged, never
+  passed to child processes, never written to the device registry. No account, no cloud, no
+  telemetry.
 
 ### Quality gates and benchmarks
 
 ```bash
 npm run check    # prettier + eslint (0 warning) + typecheck
-npm run test     # build + every test/*.spec.mjs (197 specs, run against dist/)
+npm run test     # build + every test/*.spec.mjs (200 specs, run against dist/)
 npm run smoke    # CLI smoke: --version / --help / PTY startup
 npm run verify   # check + test + smoke — required before any release
 ```

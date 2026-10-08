@@ -1,0 +1,54 @@
+%% sequenceDiagram — moss v0.26 一次 tool call 的权限决策完整路径
+%% 源自 docs/superpowers/plans/2026-10-08-v026-architecture.md §4
+
+sequenceDiagram
+  autonumber
+  participant Loop as agent loop (MossAgent)
+  participant Hook as createCliToolApprovalHook<br/>(approval.ts)
+  participant IM as interaction-mode.ts<br/>(四态单例)
+  participant PR as permission-rules.ts<br/>(纯函数)
+  participant Rules as liveRuntime.rules getter<br/>(user+workspace+session 合并)
+  participant Safety as safety 层<br/>(channel-safety/sandbox-paths)
+  participant Asker as approval-view / asker<br/>(TUI 或 REPL)
+
+  Loop->>Hook: onBeforeToolExec(request)
+  Note over Hook: liveMode 引擎量装配开始
+  Hook->>IM: getCliInteractionMode()（instanceInteractionMode ?? options.interactionMode ?? 全局）
+  IM-->>Hook: mode = 'manual' | 'acceptEdits' | 'plan' | 'full'
+  Hook->>IM: deriveEngineQuantas(mode)
+  IM-->>Hook: { safetyMode, approvalPolicy, deviceMutationPolicy, acceptEditsEligible }
+  Hook->>Rules: permissionRules()（live getter，闭包 liveRuntime —— 不做启动快照）
+  Rules-->>Hook: ResolvedPermissionRules（deny 并集 + 层级合并 + session 规则）
+  Hook->>PR: extractRuleOperand(tool.name, request.input)
+  PR-->>Hook: operand（exec.command / read_file.path / device_exec.command …）
+  Hook->>Safety: workspaceMutationBlockReason（assertSandboxPath 路径逃逸）+ isCommandDangerous
+  Safety-->>Hook: hardBlockReason?（危险命令 / 路径逃逸）
+  alt hardBlock 命中
+    Hook-->>Loop: { approved: false, reason: hardBlock }（任何模式不可绕过）
+  end
+  Hook->>PR: resolvePermissionDecision({ toolName, sideEffect, operand, mode, readOnlyCeiling, boardMode }, rules)
+  alt deny 规则命中（含 full）
+    PR-->>Hook: { decision: 'deny', matchedRule }（deny > 一切模式）
+    Hook-->>Loop: { approved: false, reason: blocked by deny rule (source) }
+  else readOnlyCeiling / plan 类级 ceiling
+    PR-->>Hook: { decision: 'block', reason }
+    Hook-->>Loop: { approved: false, reason: read-only ceiling / plan mode }
+  else ask 规则（manual/acceptEdits）
+    PR-->>Hook: { decision: 'ask-rule', matchedRule }
+  else allow 规则 / full / acceptEdits / board / no-approval-needed
+    PR-->>Hook: { decision: 'allow', reason }
+    Hook-->>Loop: { approved: true }
+  else 兜底
+    PR-->>Hook: { decision: 'ask' }
+    alt 非 TTY 且无 asker（headless）
+      Hook-->>Loop: { approved: false, reason: 新口径指引 /mode full、--full-access }（一次性提示）
+    else TTY
+      Hook->>Asker: viewAsker(buildCliApprovalView(dialog)) / asker(prompt)
+      Asker-->>Hook: 'y' | 'a' | 'amend' | ''（n/esc）
+      alt 'a'（don't ask again）
+        Hook->>Rules: PermissionRuleRegistry.add({ level: 'allow', toolName, source: 'session' })<br/>+ persistTrust 时写 user config permissions.allow
+        Note over Rules: 下一个工具调用即生效（live getter）
+      end
+      Hook-->>Loop: { approved: true/false }
+    end
+  end

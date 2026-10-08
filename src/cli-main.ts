@@ -12,6 +12,7 @@ import {
   getCliInteractionMode,
   resolveCliSafetyMode,
   setCliInteractionMode,
+  type CliInteractionMode,
 } from './cli/approval.js';
 import {
   CliConfigFileError,
@@ -21,8 +22,15 @@ import {
   resolveCliConfig,
   resolveConfigDir,
   safeProcessCwd,
+  shouldShowFullDefaultNotice,
 } from './cli/config.js';
 import { parseCliArgs } from './cli/args.js';
+import {
+  PermissionRuleRegistry,
+  parsePermissionRuleSpec,
+  type PermissionRule,
+  type ResolvedPermissionRules,
+} from './cli/permission-rules.js';
 import { displayHelp, displayVersion } from './cli/help.js';
 import { createConfiguredGuardrailHooks } from './cli/guardrails.js';
 import { createConfiguredHookCallbacks, setLifecycleHookRunner } from './cli/hooks.js';
@@ -398,20 +406,39 @@ async function main() {
         '(change with moss setup / moss config set)'
     );
   }
+  // v0.26 mode engine (T01): the mode is the first axis. Startup mode =
+  // flag override (--plan/--accept-edits/--full-access/--read-only…) >
+  // resolved config permissions.defaultMode (env/legacy migrated inside).
+  // safetyMode is a read projection of the mode (deriveEngineQuantas).
+  const startupMode: CliInteractionMode =
+    parsedArgs.interactionModeOverride ?? resolvedConfig.permissions.defaultMode;
   const safetyMode =
     parsedArgs.safetyModeOverride ?? resolvedConfig.safetyMode ?? resolveCliSafetyMode(argv);
-  // Apply startup interaction mode from --plan / --accept-edits flags.
-  if (parsedArgs.interactionModeOverride) {
-    setCliInteractionMode(parsedArgs.interactionModeOverride);
+  // Apply startup interaction mode (flags or the config default). The global
+  // singleton starts at 'manual'; the resolved default (v0.26: full) takes
+  // over unless a flag already set it above.
+  if (parsedArgs.interactionModeOverride || startupMode !== 'manual') {
+    setCliInteractionMode(startupMode);
     if (cliDetailForNotices !== 'quiet') {
       const modeLabels: Record<string, string> = {
         plan: 'plan (dry-run)',
         acceptEdits: 'accept-edits',
+        manual: 'manual',
+        full: 'full (v0.26 default — add deny rules with /permissions)',
       };
       console.error(
-        `[moss] Interaction mode: ${modeLabels[parsedArgs.interactionModeOverride] || parsedArgs.interactionModeOverride}`
+        `[moss] Interaction mode: ${modeLabels[parsedArgs.interactionModeOverride ?? startupMode] || (parsedArgs.interactionModeOverride ?? startupMode)}`
       );
     }
+  }
+  // v0.26 one-shot full-default notice (PRD decision 7): session-level
+  // deduplication in memory — the factory-default full user with no deny rules
+  // hears "add deny rules with /permissions" exactly once per session.
+  if (cliDetailForNotices !== 'quiet' && shouldShowFullDefaultNotice(resolvedConfig)) {
+    console.error(
+      '[moss] Default full mode has no deny rules; add them with /permissions ' +
+        '(e.g. deny read_file(./.env)) to keep sensitive tools gated. This notice shows once.'
+    );
   }
   const workspace = resolvedConfig.workspace;
   // Validate the workspace up front so a bad -C/--cd (or MOSS_WORKSPACE) yields
@@ -575,6 +602,29 @@ async function main() {
   // The live runtime object mutates in place as in-session commands run; the
   // approval hook closes over getters so it observes those changes live.
   const liveRuntime: CliRuntimeStatus = {};
+  // v0.26 (T03) rule engine: startup rules come from the resolved
+  // permissions block (allow/ask/deny lists — legacy trustedTools/deniedTools
+  // already migrated into them at resolve time); the SESSION registry holds
+  // /permissions add and 'a' grants. The live getter snapshots per tool call
+  // so a new rule takes effect on the very next call (PRD W2 运行中生效).
+  const permissionRuleRegistry = new PermissionRuleRegistry();
+  const startupPermissionRules: PermissionRule[] = [
+    ...resolvedConfig.permissions.allow.map((spec) =>
+      parsePermissionRuleSpec(spec, 'user', 'allow')
+    ),
+    ...resolvedConfig.permissions.ask.map((spec) => parsePermissionRuleSpec(spec, 'user', 'ask')),
+    ...resolvedConfig.permissions.deny.map((spec) => parsePermissionRuleSpec(spec, 'user', 'deny')),
+  ];
+  const permissionRuleSources = {
+    userPath: path.join(configDir, 'config.json'),
+    ...(resolvedConfig.projectConfigPath
+      ? { workspacePath: resolvedConfig.projectConfigPath }
+      : {}),
+  };
+  const livePermissionRules = (): ResolvedPermissionRules => ({
+    rules: [...startupPermissionRules, ...permissionRuleRegistry.list()],
+    sources: permissionRuleSources,
+  });
   const deviceTarget = resolveDefaultDeviceTarget();
   const approvalHook = createCliToolApprovalHook(safetyMode, process.env, {
     approvalPolicy: resolvedConfig.approvalPolicy,
@@ -591,10 +641,13 @@ async function main() {
           ...(deviceTarget.port ? { port: deviceTarget.port } : {}),
         }
       : null,
-    // /yolo flips liveRuntime.fullPower → session becomes full-access + no prompt.
-    safetyModeOverride: () => (liveRuntime.fullPower ? 'full-access' : undefined),
-    autoApprove: () => liveRuntime.fullPower === true,
+    // v0.26: the /yolo fullPower bypass is retired — the interaction mode is
+    // the single mode axis (mode=full derives full-access + never).
     interactionMode: () => getCliInteractionMode(),
+    // v0.26 (T03): the live rule table + the startup read-only ceiling
+    // (flags/env/migrated cautious all resolved into the config view).
+    permissionRules: livePermissionRules,
+    readOnlyCeiling: resolvedConfig.permissions.readOnlyCeiling,
     detailMode: resolveCliDetailMode(argv),
   });
   const configPreHook = configuredHooks.onBeforeToolExec;
@@ -1049,6 +1102,10 @@ async function main() {
       safetyMode,
       sessionKey: session.sessionKey,
       config: resolvedConfig,
+      // v0.26 (T03): live rule table + the session registry (consumed by
+      // /permissions from T04 and by 'a' grants through the hook's getter).
+      permissionsRules: livePermissionRules,
+      permissionRuleRegistry,
     });
     // v0.17: interactive TTY sessions get the full-screen TUI (ink); non-TTY
     // pipes and MOSS_NO_TUI=1 keep the readline REPL. The TUI is dynamically

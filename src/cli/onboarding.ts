@@ -23,6 +23,7 @@ import {
   renderNodeDoctorLine,
 } from './doctor.js';
 import { isZhLocale } from './cli-locale.js';
+import { PermissionRuleRegistry } from './permission-rules.js';
 
 export interface CliRuntimeStatus {
   workspace?: string;
@@ -33,7 +34,17 @@ export interface CliRuntimeStatus {
   safetyMode?: string;
   sessionKey?: string;
   config?: ResolvedCliConfig;
-  fullPower?: boolean;
+  /**
+   * v0.26 (T03): live rule-table getter (user + workspace + session rules
+   * merged). In-session commands (/permissions, T04) mutate the registry;
+   * consumers read through this getter so changes apply to the next call.
+   */
+  permissionsRules?: () => import('./permission-rules.js').ResolvedPermissionRules;
+  /**
+   * v0.26 (T04 will wire /permissions add/remove): the session registry.
+   * Present from T03 wiring on.
+   */
+  permissionRuleRegistry?: import('./permission-rules.js').PermissionRuleRegistry;
 }
 
 interface ToolGroupSummary {
@@ -60,7 +71,8 @@ function createDefaultRuntime(): Required<CliRuntimeStatus> {
     execBackend: process.env.MOSS_EXEC_BACKEND || 'local',
     safetyMode: process.env.MOSS_SAFETY_MODE || process.env.MOSS_CLI_SAFETY_MODE || 'full-access',
     sessionKey: 'cli',
-    fullPower: false,
+    permissionsRules: () => ({ rules: [], sources: {} }),
+    permissionRuleRegistry: new PermissionRuleRegistry(),
     config: loadDefaultRuntimeConfig(),
   };
 }
@@ -289,6 +301,7 @@ export function renderCliStatus(
     `  ${label('sessions')} ${sessionDir}`,
     `  ${label('detail')} ${describeDetail(detailMode)}`,
     ...configSnapshotLines(auth, [
+      'permissions',
       'safetyMode',
       'approvalPolicy',
       'trustedTools',
@@ -381,22 +394,44 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
 
 const PERMISSIONS_HELP_TEXT = [
   '',
-  '  One axis to care about — /mode (Shift+Tab cycles):',
+  '  One mode axis — /mode (Shift+Tab cycles four states, v0.26):',
+  '    /mode manual        approve mutations one by one',
+  '    /mode accept-edits  auto-approve sandboxed workspace edits',
   '    /mode plan          read-only planning (mutations blocked)',
-  '    /mode default       normal coding (approve mutations)',
-  '    /mode accept-edits  auto-approve workspace file edits',
+  '    /mode full          skip prompts (default) — deny rules still apply',
   '',
-  '  Underneath it sits the safety mode: read-only | workspace-write | full-access.',
-  '  Denied tools stay blocked either way; the safety mode above is the ceiling.',
+  '  Rules manage what the mode cannot (ToolName or ToolName(pattern)):',
+  '    /permissions add deny "read_file(./.env)"     session-level deny',
+  '    /permissions add allow "exec(npm run *)"      session-level allow',
+  '    /permissions add ask "exec(rm *)"             always ask before rm',
+  '    /permissions persist deny "read_file(./.env)" write to user config',
+  '    /permissions remove "read_file(./.env)"       drop a session rule',
+  '  deny wins in ANY mode (full included); allow skips the prompt;',
+  '  ask forces the prompt. Rules take effect on the next tool call.',
   '',
-  '  Grant full access (run allowed tools without per-call approval):',
-  '    --full-access    launch flag for the whole run',
-  '    /permissions     change safety mode and approval policy for this session',
-  '  --ask-for-approval takes either an approval policy (never | prompt) or a safety',
-  '  mode (read-only | workspace-write | full-access) — it sets the two axes above.',
-  '',
-  '  Persist or inspect every knob: `moss config --help` (all settable keys + examples).',
+  '  Persist or inspect every knob: `moss config --help` (settable keys).',
 ].join('\n');
+
+/**
+ * One line per permission rule, with its source level spelled out (user /
+ * workspace / session — v0.26 T04: the rule manager makes sources visible).
+ */
+export function permissionRuleLines(
+  rules: readonly { level: string; toolName: string; operandPattern?: string; source: string }[],
+  sources: { userPath?: string; workspacePath?: string }
+): string[] {
+  const describeSource = (source: string): string => {
+    if (source === 'user')
+      return `user (${compactPath(sources.userPath ?? '~/.config/moss/config.json')})`;
+    if (source === 'workspace')
+      return `workspace (${compactPath(sources.workspacePath ?? '.moss/config.json')})`;
+    return 'session (this session only)';
+  };
+  return rules.map((rule) => {
+    const spec = rule.operandPattern ? `${rule.toolName}(${rule.operandPattern})` : rule.toolName;
+    return `    ${rule.level.padEnd(5)} ${spec}  —  ${describeSource(rule.source)}`;
+  });
+}
 
 export function renderCliPermissions(
   runtime: CliRuntimeStatus = {},
@@ -404,15 +439,43 @@ export function renderCliPermissions(
 ): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
-  const approval = auth.approvalPolicy ?? 'never';
-  const configuredTrustedTools = auth.trustedTools ?? [];
-  const configuredDeniedTools = auth.deniedTools ?? [];
+  const permissions = auth.permissions;
+  const zh = isZhLocale();
+  const modeLabel =
+    permissions?.defaultMode === 'manual'
+      ? 'manual'
+      : permissions?.defaultMode === 'acceptEdits'
+        ? 'accept-edits'
+        : permissions?.defaultMode === 'plan'
+          ? 'plan'
+          : 'full';
+  const ceiling = permissions?.readOnlyCeiling === true;
+  // The live rule table (session layer included when the runtime carries the
+  // T03 getter; the config view covers the startup rules).
+  const liveRules = rt.permissionsRules?.().rules ?? [];
+  const sources = rt.permissionsRules?.().sources ?? {};
+  const allowCount = liveRules.filter((r) => r.level === 'allow').length;
+  const askCount = liveRules.filter((r) => r.level === 'ask').length;
+  const denyCount = liveRules.filter((r) => r.level === 'deny').length;
 
   if (options.verbose) {
     return [
-      ui.bold(ui.black('Permissions & Config')),
+      ui.bold(ui.black(zh ? '权限与配置' : 'Permissions & Config')),
       ...configSnapshotLines(auth, ['configPath', 'profile']),
       `  ${label('workspace')} ${auth.workspace} (${auth.workspaceSource})`,
+      `  ${label(zh ? '默认模式' : 'default mode')} ${modeLabel}${ceiling ? ' + read-only ceiling' : ''} (${permissions?.source ?? 'default'})`,
+      `  ${label('rules')} allow ${allowCount} · ask ${askCount} · deny ${denyCount}`,
+      ...(liveRules.length > 0
+        ? [zh ? '  规则表：' : '  Rule table:']
+        : [
+            `    ${zh ? '无规则（默认 full 模式下可用 /permissions 添加 deny 规则）' : 'none (add deny rules with /permissions in the default full mode)'}`,
+          ]),
+      ...permissionRuleLines(liveRules, sources),
+      ...(permissions && permissions.legacyKeysUsed.length > 0
+        ? [
+            `  ${label(zh ? '旧键迁移' : 'legacy keys')} ${permissions.legacyKeysUsed.join(', ')} ${zh ? '（已按迁移表翻译，建议改用 permissions.* 新键）' : '(migrated on read — prefer the permissions.* keys)'}`,
+          ]
+        : []),
       ...configSnapshotLines(auth, [
         'safetyMode',
         'approvalPolicy',
@@ -430,15 +493,25 @@ export function renderCliPermissions(
       PERMISSIONS_HELP_TEXT,
     ].join('\n');
   }
-  const activeRules = configuredTrustedTools.length + configuredDeniedTools.length;
   return [
-    ui.bold(ui.black('Permissions')),
-    `  ${label('changes')} ${approval === 'never' ? 'runs without asking' : 'asks you first'}`,
-    `  ${label('workspace')} ${auth.workspace}`,
-    `  ${label('rules')} ${activeRules === 0 ? 'default' : `${activeRules} custom`}`,
+    ui.bold(ui.black(zh ? '权限' : 'Permissions')),
+    `  ${label(zh ? '默认模式' : 'default mode')} ${modeLabel}${ceiling ? ' (read-only ceiling)' : ''}`,
+    `  ${label(zh ? '工作区' : 'workspace')} ${auth.workspace}`,
+    `  ${label(zh ? '规则' : 'rules')} ${
+      allowCount + askCount + denyCount === 0
+        ? zh
+          ? '无'
+          : 'none'
+        : `allow ${allowCount} · ask ${askCount} · deny ${denyCount}`
+    }`,
+    ...(liveRules.length > 0 ? permissionRuleLines(liveRules, sources) : []),
     '',
-    '  Stop asking? press a when prompted — the choice is saved.',
-    '  Switch: /mode plan | /mode accept-edits · everything: /permissions --verbose',
+    zh
+      ? '  增删规则：/permissions add|remove|persist（下一次工具调用即生效）'
+      : '  Manage: /permissions add|remove|persist (takes effect on the next call)',
+    zh
+      ? '  全部配置与来源：/permissions --verbose · 模式切换：/mode'
+      : '  Full table & sources: /permissions --verbose · mode: /mode',
   ].join('\n');
 }
 

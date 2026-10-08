@@ -51,26 +51,30 @@ export const SHELL_MODE_TONE: TuiColor = 'magenta';
 
 /**
  * One distinct colour per interaction mode (R1 §6.6: manual `#999999`,
- * accept edits `#af87ff`, plan `#48968c`). The hint row carries the whole
- * tint because a `TuiLine` has exactly one colour.
+ * accept edits `#af87ff`, plan `#48968c`; v0.26 adds full yellow per CC
+ * #ffc107). The hint row carries the whole tint because a `TuiLine` has
+ * exactly one colour.
  */
 export const INTERACTION_MODE_TONES: Record<CliInteractionMode, TuiColor> = {
-  default: 'gray',
+  manual: 'gray',
   acceptEdits: 'magenta',
   plan: 'cyan',
+  full: 'yellow',
 };
 
 /**
  * Hint-row wording for the active interaction mode (A7/F10). Only a
  * non-default mode appends `(shift+tab to cycle)`, exactly like the reference;
- * the label vocabulary stays moss's own (`/mode default`, `/mode plan`,
- * `/mode accept-edits`) so the hint and the command agree.
+ * the label vocabulary stays moss's own (`/mode manual`, `/mode plan`,
+ * `/mode accept-edits`, `/mode full`) so the hint and the command agree.
+ * v0.26 default mode is `full`, so full drops the suffix and the others
+ * carry it (PRD decision 4).
  */
 export function interactionModeHint(mode: CliInteractionMode): string {
   // The label vocabulary is already locale-aware; zh also shortens the
   // surrounding sentence ("mode on" → "已开启").
   const label = formatCliInteractionModeLabel(mode, isTuiZh());
-  if (mode === 'default') return tui('⏸ {label} mode on', { label });
+  if (mode === 'full') return tui('⏵⏵ {label} mode on', { label });
   return tui('{glyph} {label} mode on (shift+tab to cycle)', {
     glyph: mode === 'plan' ? '⏸' : '⏵⏵',
     label,
@@ -97,7 +101,7 @@ export const DIFF_PREVIEW_LINES = 14;
  * (the summary already says what came back: "Read 14 lines · 0.3s"). ctrl+o
  * (verbose) expands them; errors never fold.
  */
-const READONLY_PREVIEW_TOOLS = new Set<string>([
+export const READONLY_PREVIEW_TOOLS = new Set<string>([
   'read_file',
   'list_directory',
   'search_code',
@@ -985,8 +989,8 @@ export interface StatusView {
   contextTotal?: number;
   /**
    * Active interaction mode, straight from the policy layer
-   * (`getCliInteractionMode`). Defaults to `default` so a caller with no mode
-   * still renders the A7 hint row.
+   * (`getCliInteractionMode`). Defaults to the factory-default mode (`full`,
+   * v0.26) so a caller with no mode still renders the A7 hint row.
    */
   mode?: CliInteractionMode;
   /** The composer is in `!` shell mode for the current draft (R1 §5). */
@@ -1067,7 +1071,7 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
  * `! for shell mode` (E3), while still naming the mode so A7 cannot regress.
  */
 export function renderHint(view: StatusView, width: number): TuiLine {
-  const mode = view.mode ?? 'default';
+  const mode = view.mode ?? 'full';
   const modeLabel = interactionModeHint(mode);
   if (view.shellMode) {
     return line(
@@ -1102,10 +1106,51 @@ export function renderHint(view: StatusView, width: number): TuiLine {
     );
   return line(clip(`  ${parts.join(' · ')}`, width), {
     color: INTERACTION_MODE_TONES[mode],
-    // The default mode is the resting state: keep it quiet so plan/accept-edits
-    // (and shell mode) read as a change.
-    ...(mode === 'default' ? { dim: true } : {}),
+    // The default mode (v0.26: full) is the resting state: keep it quiet so
+    // manual/plan/accept-edits read as a change (PRD decision 4 inverted the
+    // default/non-default suffix rule the same way).
+    ...(mode === 'full' ? { dim: true } : {}),
   });
+}
+
+/**
+ * Collapse a run of read-only tool calls into one summary line. Verbose mode
+ * keeps every row. The store itself is unchanged; this is a projection.
+ */
+export function foldReadonlyRows(rows: readonly TranscriptRow[], verbose: boolean): TranscriptRow[] {
+  if (verbose) return [...rows];
+  const out: TranscriptRow[] = [];
+  let index = 0;
+  while (index < rows.length) {
+    const row = rows[index]!;
+    if (row.kind === 'tool' && row.tool?.name && READONLY_PREVIEW_TOOLS.has(row.tool.name)) {
+      let reads = 0;
+      let lists = 0;
+      let cursor = index;
+      while (cursor < rows.length) {
+        const current = rows[cursor]!;
+        if (current.kind !== 'tool' || !current.tool?.name || !READONLY_PREVIEW_TOOLS.has(current.tool.name)) {
+          break;
+        }
+        if (current.tool.name.includes('list') || current.tool.name === 'search_files') lists += 1;
+        else reads += 1;
+        cursor += 1;
+        if (rows[cursor]?.kind === 'result') cursor += 1;
+      }
+      if (reads + lists > 1) {
+        const parts = [
+          reads > 0 ? `read ${reads} file${reads === 1 ? '' : 's'}` : '',
+          lists > 0 ? `listed ${lists} director${lists === 1 ? 'y' : 'ies'}` : '',
+        ].filter(Boolean);
+        out.push({ id: row.id, kind: 'summary', text: parts.join(', ') });
+        index = cursor;
+        continue;
+      }
+    }
+    out.push(row);
+    index += 1;
+  }
+  return out;
 }
 
 export { displayWidth };

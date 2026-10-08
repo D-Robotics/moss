@@ -339,12 +339,20 @@ const execFileAsync = promisify(execFile);
 {
   const resolved = resolveCliConfig({ MOSS_NO_BUNDLED_DEFAULT: '1' }, {});
   assert.equal(resolved.profile, 'balanced', 'fresh CLI config defaults to the balanced profile');
+  // v0.26 default flip (PRD 2026-10-08 W1): the fresh default mode is `full` —
+  // safetyMode/approvalPolicy are derived read-projections of the mode
+  // (source 'derived:mode'); the balanced profile no longer owns them.
+  assert.equal(resolved.permissions.defaultMode, 'full', 'fresh CLI config defaults to full mode');
   assert.equal(
     resolved.safetyMode,
-    'workspace-write',
-    'default profile is workspace-scoped (safe by default)'
+    'full-access',
+    'fresh default derives full-access safety from mode=full'
   );
-  assert.equal(resolved.approvalPolicy, 'prompt', 'default profile asks before sensitive actions');
+  assert.equal(
+    resolved.approvalPolicy,
+    'never',
+    'fresh default derives approvalPolicy=never from mode=full'
+  );
 }
 
 {

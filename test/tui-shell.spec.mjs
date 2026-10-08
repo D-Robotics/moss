@@ -713,9 +713,9 @@ instance.unmount();
     );
   }
 
-  // 3b. Ctrl+T/R/V/G/F print the task-runtime blocks into the transcript.
-  instance.stdin.write('\x14'); // Ctrl+T → tasks
-  assert.ok(await waitFor(() => toolTitles().includes('Tasks (2)')), 'Ctrl+T prints the task list');
+  // 3b. Slash commands print the task-runtime blocks into the transcript.
+  await type('/tasks');
+  assert.ok(await waitFor(() => toolTitles().includes('Tasks (2)')), '/tasks prints the task list');
   assert.ok(
     detailRows().some((line) => line.includes('CAMERA') && line.includes('PASS')),
     'task kind + verdict'
@@ -742,10 +742,10 @@ instance.unmount();
     'history shows the acceptance verdict'
   );
 
-  instance.stdin.write('\x16'); // Ctrl+V → evidence (Ctrl+E is the caret-to-line-end editor key)
+  await type('/evidence');
   assert.ok(
     await waitFor(() => toolTitles().includes('Evidence (1)')),
-    'Ctrl+V prints the evidence'
+    '/evidence prints the evidence'
   );
   assert.ok(
     detailRows().some(
@@ -764,8 +764,8 @@ instance.unmount();
     'deployment row names device path + status'
   );
 
-  instance.stdin.write('\x06'); // Ctrl+F → failures
-  assert.ok(await waitFor(() => toolTitles().includes('Failures (1)')), 'Ctrl+F prints failures');
+  await type('/failures');
+  assert.ok(await waitFor(() => toolTitles().includes('Failures (1)')), '/failures prints failures');
   assert.ok(
     detailRows().some((line) => line.includes('camera_fps observed 12, expected >=30')),
     'the recorded failure is the same one acceptance repaired'

@@ -78,7 +78,7 @@ const EXPECTED_USAGE = [
 
 // Verbatim current "supported keys" help text (probe: unknown-key error path).
 const EXPECTED_SUPPORTED_KEYS = [
-  'Supported keys — model: provider, model, baseUrl, apiKey; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens',
+  'Supported keys — model: provider, model, baseUrl, apiKey; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens',
   'Run `moss config --help` for supported keys and usage.',
   '',
 ].join('\n');
@@ -139,9 +139,12 @@ test('runConfigSet batch key=value pairs write all keys (characterization)', () 
       setup.runConfigSet(['--project', 'model=x-model', 'profile=autonomous'], dir)
     );
     assert.equal(exitCode, 0);
+    // v0.26 (T04): setting the legacy profile key emits a deprecation note
+    // (one release of grace, PRD 决策 5) alongside the update line.
     assert.equal(
       err,
-      `[config] project updated 2 key(s) in ${projectConfigPath(dir)}: model, profile\n`
+      `[config] project updated 2 key(s) in ${projectConfigPath(dir)}: model, profile\n` +
+        '[config] NOTE: profile is a legacy key (deprecated next release) — cautious→manual(+read-only ceiling), balanced→manual, autonomous→full. Prefer `permissions.defaultMode`.\n'
     );
     const written = fs.readFileSync(projectConfigPath(dir), 'utf8');
     assert.equal(written, '{\n  "model": "x-model",\n  "profile": "autonomous"\n}\n');

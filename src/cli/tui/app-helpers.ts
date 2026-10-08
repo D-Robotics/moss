@@ -128,21 +128,21 @@ export interface TuiAppOptions {
 }
 
 /**
- * shift+tab cycle order (`claude-code-surface.md` §6.6: manual → accept edits →
- * plan → auto). moss's policy layer (`cli/interaction-mode.ts`) has exactly
- * three modes — there is no fourth "auto" state (full-auto is the safety-mode
- * axis: `--full-access`, §Z8) — so the cycle visits all three real ones and
- * returns to default. The LIST is the single source of truth for the key.
+ * shift+tab cycle order (`claude-code-surface.md` §6.6: manual → accept edits
+ * → plan → auto). v0.26 (PRD W1): the policy layer has four real modes —
+ * manual → acceptEdits → plan → full → manual — and the cycle visits all of
+ * them. The LIST is the single source of truth for the key.
  */
 export const INTERACTION_MODE_CYCLE: readonly CliInteractionMode[] = [
-  'default',
+  'manual',
   'acceptEdits',
   'plan',
+  'full',
 ];
 
 export function nextInteractionMode(current: CliInteractionMode): CliInteractionMode {
   const index = INTERACTION_MODE_CYCLE.indexOf(current);
-  return INTERACTION_MODE_CYCLE[(index + 1) % INTERACTION_MODE_CYCLE.length] ?? 'default';
+  return INTERACTION_MODE_CYCLE[(index + 1) % INTERACTION_MODE_CYCLE.length] ?? 'manual';
 }
 
 /** Pull title / subject / preview out of the host's approval question. */

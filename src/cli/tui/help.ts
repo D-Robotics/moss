@@ -11,12 +11,8 @@ import { rowsForSurface } from '../interactive-commands.js';
  * is unreachable. History rides Ctrl+R instead.
  */
 export const CTRL_BINDINGS = [
-  { letter: 't', action: 'tasks', label: 'tasks' },
-  // Ctrl+R is the prompt-SEARCH key (readline + reference muscle memory), so
-  // the task-history block lives on `/history` alone — the chord that used to
-  // sit here actively misled anyone arriving from another CLI.
-  { letter: 'v', action: 'evidence', label: 'evidence' },
-  { letter: 'f', action: 'failures', label: 'failures' },
+  // Task artifacts are slash commands (`/tasks`, `/evidence`, `/failures`,
+  // `/deployments`). Ctrl+R searches prompts; Ctrl+G opens $EDITOR.
   { letter: 'l', action: 'clear', label: 'clear the composer' },
 ] as const;
 
@@ -29,14 +25,6 @@ export function ctrlBinding(letter: string): CtrlAction | undefined {
 export function ctrlHintFor(action: CtrlAction): string | undefined {
   const binding = CTRL_BINDINGS.find((candidate) => candidate.action === action);
   return binding ? `Ctrl+${binding.letter.toUpperCase()}` : undefined;
-}
-
-function chordRow(actions: readonly CtrlAction[]): string {
-  return `Ctrl+${actions
-    .map((action) =>
-      CTRL_BINDINGS.find((binding) => binding.action === action)?.letter.toUpperCase()
-    )
-    .join(' ')}`;
 }
 
 export const HELP_KEYS: ReadonlyArray<readonly [string, string]> = [
@@ -53,8 +41,8 @@ export const HELP_KEYS: ReadonlyArray<readonly [string, string]> = [
   ['PgUp / PgDn', 'scroll the transcript'],
   ['Ctrl+C', 'interrupt the run · press again to quit'],
   ['Ctrl+D', 'quit'],
-  [chordRow(['tasks', 'evidence']), 'print tasks · evidence'],
-  [chordRow(['failures']), 'print failures · deployments are /deployments'],
+  ['Ctrl+L', 'clear the composer'],
+  ['/tasks /evidence /failures', 'print task artifacts'],
   ['?', 'this list'],
 ];
 

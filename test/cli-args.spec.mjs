@@ -122,6 +122,11 @@ for (const cmd of [
     'full-access',
     '--full-access sets full-access safety mode override'
   );
+  assert.equal(
+    args.interactionModeOverride,
+    'full',
+    'v0.26: --full-access is a mode override → full (PRD 2026-10-08 §3.3)'
+  );
 }
 
 {
@@ -131,6 +136,91 @@ for (const cmd of [
     'read-only',
     '--read-only sets read-only safety mode override'
   );
+  assert.equal(
+    args.interactionModeOverride,
+    'manual',
+    'v0.26: --read-only maps to manual + ceiling (PRD decision 2)'
+  );
+  assert.equal(args.readOnlyCeiling, true, '--read-only arms the read-only ceiling');
+}
+
+{
+  const args = parseCliArgs(['--workspace-write']);
+  assert.equal(
+    args.safetyModeOverride,
+    'workspace-write',
+    '--workspace-write sets workspace-write safety mode override'
+  );
+  assert.equal(
+    args.interactionModeOverride,
+    'manual',
+    'v0.26: --workspace-write is a mode override → manual'
+  );
+  assert.equal(args.readOnlyCeiling, undefined, 'no ceiling without --read-only');
+}
+
+// ─── v0.26: mode-override family conflicts are explicit errors ───────────────
+
+{
+  assert.throws(
+    () => parseCliArgs(['--plan', '--accept-edits']),
+    /conflict/i,
+    '--plan and --accept-edits conflict explicitly (requestSafety pattern extended)'
+  );
+  assert.throws(
+    () => parseCliArgs(['--full-access', '--plan']),
+    /conflict/i,
+    '--full-access and --plan push different modes → explicit error'
+  );
+  assert.throws(
+    () => parseCliArgs(['--read-only', '--full-access']),
+    /mutually exclusive/i,
+    'safety flags remain mutually exclusive'
+  );
+}
+
+// ─── v0.26: --ask-for-approval collects as a mode override; ghost cleanup ────
+
+{
+  const args = parseCliArgs(['--ask-for-approval', 'never']);
+  assert.equal(
+    args.interactionModeOverride,
+    'full',
+    '--ask-for-approval=never is a mode override → full (PRD decision 6)'
+  );
+  assert.equal(args.approvalPolicy, 'never', 'approvalPolicy recorded as never');
+}
+
+{
+  const args = parseCliArgs(['--ask-for-approval', 'prompt']);
+  assert.equal(
+    args.interactionModeOverride,
+    'manual',
+    '--ask-for-approval=prompt is a mode override → manual'
+  );
+}
+
+{
+  // on-request was a ghost value that never had an effect — now an error.
+  assert.throws(
+    () => parseCliArgs(['--ask-for-approval', 'on-request']),
+    /on-request/i,
+    'v0.26: --ask-for-approval=on-request is an explicit error (ghost value cleanup, PRD decision 6)'
+  );
+}
+
+// ─── v0.26: ghost /yolo removed from interactive-only commands ──────────────
+
+{
+  // `moss yolo` must fall through to unknown-command handling, not the
+  // interactive-only list: the ghost entry was deleted (PRD W4 cleanup).
+  const args = parseCliArgs(['yolo']);
+  assert.equal(
+    args.interactiveOnlyCommand,
+    undefined,
+    'v0.26: /yolo ghost entry removed — no interactive-only interception'
+  );
+  assert.equal(args.command, 'chat', 'yolo falls back to a chat prompt');
 }
 
 // ─── closestKnownCommand — typo correction ────────────────────────────────────

@@ -1,10 +1,28 @@
 #!/usr/bin/env node
+/**
+ * v0.26 permission defaults (T01 rewrite).
+ *
+ * Behavior decisions from PRD 2026-10-08
+ * (docs/superpowers/plans/2026-10-08-v026-permission-model.md):
+ * - W1 default flip: out-of-box mode is `full` (full-access + never +
+ *   device_mutation allow). The old balanced=workspace-write+prompt assertions
+ *   were rewritten as MIGRATION assertions: a legacy `profile: balanced` key
+ *   reads in and migrates to `manual`.
+ * - Hard blocks survive the flip untouched: dangerous commands, path escapes,
+ *   deniedTools.
+ */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { CLI_PROFILE_DEFAULTS } from '../dist/cli/config.js';
+import {
+  CLI_PROFILE_DEFAULTS,
+  migrateLegacyPermissionConfig,
+  resolveCliConfig,
+} from '../dist/cli/config.js';
+import { deriveEngineQuantas } from '../dist/cli/interaction-mode.js';
+import { parsePermissionRuleSpec } from '../dist/cli/permission-rules.js';
 import {
   createCliToolApprovalHook,
   describeCliToolApproval,
@@ -13,25 +31,84 @@ import {
   setCliApprovalAsker,
 } from '../dist/cli/approval.js';
 
-assert.equal(
-  CLI_PROFILE_DEFAULTS.balanced.approvalPolicy,
-  'prompt',
-  'balanced profile (the default) asks before sensitive actions — safe by default'
-);
+// ─── 1. migration semantics: legacy profile keys (PRD migration table) ─────
+
+{
+  const migrated = migrateLegacyPermissionConfig({ profile: 'balanced' });
+  assert.equal(
+    migrated.defaultMode,
+    'manual',
+    'legacy profile: balanced key reads in and migrates to manual (PRD 2026-10-08 迁移表)'
+  );
+  assert.equal(
+    migrateLegacyPermissionConfig({ profile: 'cautious' }).defaultMode,
+    'manual',
+    'legacy profile: cautious migrates to manual'
+  );
+  assert.equal(
+    migrateLegacyPermissionConfig({ profile: 'cautious' }).ceiling,
+    'read-only',
+    'legacy cautious arms the read-only ceiling'
+  );
+  assert.equal(
+    migrateLegacyPermissionConfig({ profile: 'autonomous' }).defaultMode,
+    'full',
+    'legacy profile: autonomous migrates to full'
+  );
+}
+
+// ─── 2. new default: no config at all → full (PRD W1 default flip) ──────────
+
+{
+  const resolved = resolveCliConfig({ MOSS_NO_BUNDLED_DEFAULT: '1' }, {});
+  assert.equal(
+    resolved.permissions.defaultMode,
+    'full',
+    'v0.26 default: no permission config → defaultMode=full (PRD 2026-10-08 W1 默认翻转)'
+  );
+  assert.equal(resolved.safetyMode, 'full-access', 'derived safetyMode=full-access');
+  assert.equal(resolved.approvalPolicy, 'never', 'derived approvalPolicy=never');
+}
+
+// ─── 3. CLI_PROFILE_DEFAULTS: balanced tier is full-equivalent (fields kept) ─
+
 assert.equal(
   CLI_PROFILE_DEFAULTS.balanced.safetyMode,
-  'workspace-write',
-  'balanced profile is workspace-scoped by default (full-access is autonomous)'
+  'full-access',
+  'balanced tier defaults to full-access equivalent — v0.26 默认翻转 (PRD 2026-10-08); field names kept for SDK compat, semantics owned by permissions.defaultMode'
+);
+assert.equal(
+  CLI_PROFILE_DEFAULTS.balanced.approvalPolicy,
+  'never',
+  'balanced tier approvalPolicy=never (full equivalent)'
 );
 assert.equal(
   CLI_PROFILE_DEFAULTS.autonomous.safetyMode,
   'full-access',
-  'autonomous is the most permissive profile (full-access)'
+  'autonomous stays full-access'
 );
 assert.equal(
   CLI_PROFILE_DEFAULTS.autonomous.approvalPolicy,
   'never',
   'autonomous auto-approves (explicit unrestricted execution)'
+);
+
+// ─── 4. device_mutation is allowed in full mode (PRD 量化表) ────────────────
+
+assert.equal(
+  deriveEngineQuantas('full').deviceMutationPolicy,
+  'allow',
+  'full mode derives deviceMutationPolicy=allow (PRD 量化表: device_mutation 默认（full 模式）→ 放行)'
+);
+assert.equal(
+  deriveEngineQuantas('manual').deviceMutationPolicy,
+  'ask',
+  'manual mode keeps device_mutation at ask (逐次审批)'
+);
+assert.equal(
+  deriveEngineQuantas('plan').deviceMutationPolicy,
+  'deny',
+  'plan mode keeps the device_mutation class-level deny'
 );
 
 const deviceMutation = {
@@ -45,6 +122,8 @@ const deviceMutation = {
   input: { topic: '/cmd_vel', message: { linear: { x: 1 } } },
 };
 
+// The full-mode preview: physical device mutation auto-approves (v0.26
+// default full == old full-access + never, behavior unchanged for this path).
 const preview = describeCliToolApproval(
   deviceMutation,
   'full-access',
@@ -54,11 +133,11 @@ const preview = describeCliToolApproval(
     boardMode: () => true,
   }
 );
-assert.equal(preview.requiresApproval, true, 'physical device mutation requires approval');
+assert.equal(preview.requiresApproval, true, 'physical device mutation requires approval metadata');
 assert.equal(
   preview.autoApproved,
   true,
-  'default approval policy auto-approves physical device mutations'
+  'full mode auto-approves physical device mutations (deviceMutationPolicy=allow)'
 );
 
 {
@@ -67,7 +146,7 @@ assert.equal(
   assert.equal(
     decision.approved,
     true,
-    'default full-access policy does not prompt for device mutations'
+    'full mode (v0.26 default) does not prompt for device mutations'
   );
 }
 
@@ -78,6 +157,80 @@ const tool = (name, sideEffectClass) => ({
   metadata: { sideEffectClass, planMode: 'requires_user_confirmation' },
   execute: async () => 'ok',
 });
+
+// ─── 5. hard blocks survive the default flip (PRD 硬底线保留) ───────────────
+
+{
+  // Dangerous commands still blocked in full access.
+  const hook = createCliToolApprovalHook(
+    'full-access',
+    {},
+    {
+      workspaceDir: process.cwd(),
+      approvalPolicy: 'never',
+    }
+  );
+  const decision = await hook({
+    tool: tool('exec', 'local_write'),
+    input: { command: 'rm -rf -- /' },
+    sessionKey: 'dangerous-command',
+  });
+  assert.equal(
+    decision.approved,
+    false,
+    'destructive shell commands stay blocked even in full access'
+  );
+  assert.match(decision.reason, /blocked|filesystem|root|dangerous/i);
+}
+
+{
+  // Path escape still blocked in full access.
+  let asked = false;
+  setCliApprovalAsker(async () => {
+    asked = true;
+    return 'y';
+  });
+  const hook = createCliToolApprovalHook('full-access', {}, { workspaceDir: process.cwd() });
+  const decision = await hook({
+    tool: tool('write_file', 'local_write'),
+    input: { path: '../outside.txt', content: 'escape' },
+    sessionKey: 'workspace-escape',
+  });
+  assert.equal(
+    decision.approved,
+    false,
+    'workspace file tools reject path escape even in full access'
+  );
+  assert.equal(
+    asked,
+    false,
+    'invalid path is rejected before showing a misleading approval prompt'
+  );
+  assert.match(decision.reason, /outside|escape|sandbox/i);
+  setCliApprovalAsker(null);
+}
+
+{
+  // deniedTools still block in full access (deny > mode).
+  const hook = createCliToolApprovalHook(
+    'full-access',
+    {},
+    { workspaceDir: process.cwd(), approvalPolicy: 'never', deniedTools: ['exec'] }
+  );
+  const decision = await hook({
+    tool: tool('exec', 'local_write'),
+    input: { command: 'echo hi' },
+    sessionKey: 'denied-tools-block',
+  });
+  assert.equal(
+    decision.approved,
+    false,
+    'deniedTools still block in full access (deny wins over any mode — PRD 硬底线)'
+  );
+  assert.match(decision.reason, /deny rule/i, 'v0.26: deniedTools translate to deny rules (T03)');
+}
+
+// ─── 6. abort-signal propagation to the asker (unchanged behavior) ─────────
 
 {
   let askerSawAbort = false;
@@ -117,6 +270,8 @@ const tool = (name, sideEffectClass) => ({
   );
   setCliApprovalAsker(null);
 }
+
+// ─── 7. manual-mode behavior preserved (headless denial etc.) ───────────────
 
 {
   const hook = createCliToolApprovalHook('workspace-write', {}, { workspaceDir: process.cwd() });
@@ -169,6 +324,8 @@ const tool = (name, sideEffectClass) => ({
     'accept-edits does not silently approve arbitrary shell commands'
   );
 }
+
+// ─── 8. plan-mode class-level guards (unchanged semantics) ──────────────────
 
 {
   // Plan mode must honor metadata.planMode === 'allow' for planning helpers
@@ -320,31 +477,7 @@ const tool = (name, sideEffectClass) => ({
   }
 }
 
-{
-  let asked = false;
-  setCliApprovalAsker(async () => {
-    asked = true;
-    return 'y';
-  });
-  const hook = createCliToolApprovalHook('full-access', {}, { workspaceDir: process.cwd() });
-  const decision = await hook({
-    tool: tool('write_file', 'local_write'),
-    input: { path: '../outside.txt', content: 'escape' },
-    sessionKey: 'workspace-escape',
-  });
-  assert.equal(
-    decision.approved,
-    false,
-    'workspace file tools reject path escape even in full access'
-  );
-  assert.equal(
-    asked,
-    false,
-    'invalid path is rejected before showing a misleading approval prompt'
-  );
-  assert.match(decision.reason, /outside|escape|sandbox/i);
-  setCliApprovalAsker(null);
-}
+// ─── 9. headless guidance names real knobs ──────────────────────────────────
 
 {
   // A headless run that hits the approval wall must name the exact knobs —
@@ -361,10 +494,24 @@ const tool = (name, sideEffectClass) => ({
   });
   Object.defineProperty(process.stdin, 'isTTY', { value: wasTTY, configurable: true });
   assert.equal(decision.approved, false, 'headless stays denied without a policy');
-  assert.match(decision.reason, /--accept-edits/, 'the rejection names --accept-edits');
-  assert.match(decision.reason, /profile=autonomous/, 'the rejection names the persistent profile');
-  assert.match(decision.reason, /MOSS_CLI_AUTO_APPROVE/, 'the rejection names the env override');
+  // v0.26 (T03, PRD W3): the headless rejection names the NEW mode knobs —
+  // /mode full, --full-access, permissions.defaultMode — not the old
+  // --accept-edits/profile=autonomous/MOSS_CLI_AUTO_APPROVE trio.
+  assert.match(decision.reason, /\/mode full/, 'the rejection names /mode full');
+  assert.match(decision.reason, /--full-access/, 'the rejection names --full-access');
+  assert.match(
+    decision.reason,
+    /permissions.defaultMode=full/,
+    'the rejection names the persistent permissions.defaultMode key'
+  );
+  assert.match(
+    decision.reason,
+    /\/permissions/,
+    'the rejection points at /permissions allow rules'
+  );
 }
+
+// ─── 10. 'a' trust semantics (unchanged in T01; T03 moves to rules) ─────────
 
 {
   const answers = ['a', ''];
@@ -432,6 +579,8 @@ const tool = (name, sideEffectClass) => ({
   setCliApprovalAsker(null);
 }
 
+// ─── 11. approval card content (unchanged) ──────────────────────────────────
+
 {
   const request = {
     tool: tool('write_file', 'local_write'),
@@ -464,29 +613,7 @@ const tool = (name, sideEffectClass) => ({
   );
 }
 
-{
-  const hook = createCliToolApprovalHook(
-    'full-access',
-    {},
-    {
-      workspaceDir: process.cwd(),
-      approvalPolicy: 'never',
-    }
-  );
-  const decision = await hook({
-    tool: tool('exec', 'local_write'),
-    input: { command: 'rm -rf -- /' },
-    sessionKey: 'dangerous-command',
-  });
-  assert.equal(
-    decision.approved,
-    false,
-    'destructive shell commands stay blocked even in full access'
-  );
-  assert.match(decision.reason, /blocked|filesystem|root|dangerous/i);
-}
-
-// ─── 'a' on exec: session trust, and (opt-in) a grant that survives restarts ─
+// ─── 12. 'a' on exec: session trust, and (opt-in) persisted grants ──────────
 
 const execRequest = (command) => ({
   tool: {
@@ -569,10 +696,13 @@ const execRequest = (command) => ({
       sessionKey: 'persist-on',
     });
     const written = JSON.parse(fs.readFileSync(path.join(configDir, 'config.json'), 'utf8'));
-    assert.ok(written.trustedTools.includes('exec'), "'a' (saved) persists exec to trustedTools");
+    // v0.26 (T03): 'a' persists allow rules into the user config's
+    // permissions.allow block (the trustedTools write side moved, PRD W2).
+    const persistedAllow = written.permissions?.allow ?? [];
+    assert.ok(persistedAllow.includes('exec'), "'a' (saved) persists exec to permissions.allow");
     for (const family of ['write_file', 'edit_file', 'apply_patch', 'move_file']) {
       assert.ok(
-        written.trustedTools.includes(family),
+        persistedAllow.includes(family),
         `one press on an edit persists the whole edit family (${family})`
       );
     }
@@ -586,7 +716,11 @@ const execRequest = (command) => ({
       {},
       {
         workspaceDir: process.cwd(),
-        trustedTools: written.trustedTools,
+        // v0.26: the persisted rules round-trip as a live rule table.
+        permissionRules: () => ({
+          rules: persistedAllow.map((spec) => parsePermissionRuleSpec(spec, 'user', 'allow')),
+          sources: {},
+        }),
       }
     );
     const replay = await fresh({
@@ -604,5 +738,5 @@ const execRequest = (command) => ({
 }
 
 console.log(
-  'cli-permission-defaults.spec: safe balanced default + explicit safety overrides passed'
+  'cli-permission-defaults.spec: v0.26 full default + legacy migration semantics + hard blocks passed'
 );

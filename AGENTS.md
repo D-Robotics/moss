@@ -110,8 +110,10 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 - 设备目标从 `MOSS_DEVICE_HOST/PORT/USER/KIND` + `MOSS_DEVICE_PASSWORD`（或 `MOSS_DEVICE_KEY`）解析，
   凭据只在 env/.env，绝不写入 DeviceTarget / 日志 / 子进程环境（`safeChildEnv` 会剥离）。
 - `device_info/processes/resources/temperature/file_read/file_list` 为 readonly（可并行、自动重试）；
-  `device_exec/device_file_write` 为 `device_mutation`，走审批。工具名已被 subagent scope、
-  截断预算、loop-guard 等按保留名引用，改名等于破坏契约。
+  `device_exec/device_file_write` 为 `device_mutation`，行为按 v0.26 交互模式分档：`manual` /
+  `acceptEdits` 逐次询问（allow 规则可豁免），`full`（默认）放行，`plan` 类级拒绝，deny 规则在
+  任何模式下都赢。工具名已被 subagent scope、截断预算、loop-guard 等按保留名引用，
+  改名等于破坏契约。
 - 单测用 `test/helpers/in-process-ssh-device.mjs`（进程内 ssh2 服务器，真协议握手）；
   mock 只准用于单测，能力证明必须打真实设备（参照 `scratch/real-device-verify.mjs` 的做法）。
 

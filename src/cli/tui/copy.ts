@@ -45,7 +45,7 @@ export function isTuiZh(): boolean {
  */
 export const ZH: Readonly<Record<string, string>> = {
   // ── interaction mode hint (transcript.ts) ──────────────────────────────
-  '⏸ {label} mode on': '⏸ {label}已开启',
+  '⏵⏵ {label} mode on': '⏵⏵ {label}已开启',
   '{glyph} {label} mode on (shift+tab to cycle)': '{glyph} {label}已开启 (shift+tab 切换)',
 
   // ── run verbs (transcript.ts) ──────────────────────────────────────────
@@ -163,6 +163,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'edit the draft in $EDITOR': '用 $EDITOR 编辑草稿',
   'scroll the transcript': '滚动对话记录',
   'print failures · deployments are /deployments': '打印 failures · deployments 用 /deployments',
+  'print task artifacts': '打印任务工件',
+  'clear the composer': '清空输入框',
   'interrupt the run · press again to quit': '中断运行 · 再按退出',
   quit: '退出',
   'print tasks · evidence': '打印 tasks · evidence',

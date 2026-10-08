@@ -608,6 +608,10 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
         tokens: 0,
         taskCount: 0,
         queueLength: 0,
+        // v0.26: the factory-default mode is full (no cycle suffix, short hint);
+        // a cycled manual mode would lengthen the row and clip the answer hint
+        // at this width.
+        mode: 'full',
       },
       80
     ).text,
@@ -826,12 +830,12 @@ async function type(instance, text) {
     await sleep(150);
   }
 
-  // 4h. Ctrl+V prints the evidence block (the chord evidence moved to).
+  // 4h. /evidence prints the evidence block.
   {
     const { instance } = mount({ agent: createMockAgent(), workspaceDir: '/tmp/ws' });
-    instance.stdin.write('\x16');
+    await type(instance, '/evidence');
     const ok = await waitFor(() => instance.lastFrame().includes('Evidence'));
-    assert.ok(ok, `Ctrl+V prints evidence: ${instance.lastFrame().slice(0, 160)}`);
+    assert.ok(ok, `/evidence prints evidence: ${instance.lastFrame().slice(0, 160)}`);
     instance.unmount();
     await sleep(150);
   }

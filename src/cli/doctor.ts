@@ -132,16 +132,39 @@ function sourceLooksEnv(source: string): boolean {
 }
 
 function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
+  // Tolerate partial ResolvedCliConfig objects (spec fixtures may omit the
+  // v0.26 permissions view).
+  const permissionsView = config.permissions;
+  const modeLine = permissionsView
+    ? `default ${permissionsView.defaultMode} (${permissionsView.source})${
+        permissionsView.readOnlyCeiling ? ' + read-only ceiling' : ''
+      }`
+    : 'default full (default)';
   const lines: string[] = [
     ok('approval', `${config.approvalPolicy} (${config.approvalPolicySource})`),
+    ok('mode', modeLine),
   ];
 
   const auditWarnings = auditResolvedCliConfig(config);
   for (const auditWarning of auditWarnings) {
     const label = auditWarning.code.startsWith('trustedTools.')
       ? 'trustedTools'
-      : 'approval policy';
+      : auditWarning.code === 'approval.full_default_no_deny'
+        ? 'full mode'
+        : 'approval policy';
     lines.push(warn(label, auditWarning.message));
+  }
+
+  // v0.26 (T04): the read-side migration surfaced legacy keys — tell the
+  // user which knobs are deprecated and what to move to.
+  const legacyKeys = permissionsView?.legacyKeysUsed ?? [];
+  if (legacyKeys.length > 0) {
+    lines.push(
+      warn(
+        'deprecated keys',
+        `${legacyKeys.join(', ')} migrated on read — prefer the permissions.* keys (defaultMode/allow/ask/deny)`
+      )
+    );
   }
 
   const hasBroadTrustedPattern = auditWarnings.some(

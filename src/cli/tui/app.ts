@@ -99,6 +99,7 @@ import {
   renderRunSummary,
   renderStatusRight,
   renderTranscriptRow,
+  foldReadonlyRows,
   CONTEXT_WARN_PCT,
   SHELL_MODE_TONE,
   type LiveView,
@@ -448,6 +449,16 @@ export function TuiAppRoot({
    */
   const windowSize = useWindowSize();
   const columns = windowSize.columns || stdouts(stdout);
+  const prevColumnsRef = useRef(columns);
+  useEffect(() => {
+    const previous = prevColumnsRef.current;
+    prevColumnsRef.current = columns;
+    if (!fullscreen && columns < previous) {
+      // A shrink soft-wraps the previous frame. One clear is a resize, then
+      // ink repaints the new width.
+      writeStdout('\x1b[2J\x1b[H');
+    }
+  }, [columns, fullscreen, writeStdout]);
 
   useEffect(() => handle.subscribe(forceUpdate), [handle, forceUpdate]);
   useEffect(() => runtime.onChange(forceUpdate), [runtime, forceUpdate]);
@@ -1048,6 +1059,8 @@ export function TuiAppRoot({
         | 'bg'
         | 'usage'
         | 'deployments'
+        | 'evidence'
+        | 'failures'
     ) => {
       if (action === 'tasks') {
         const summaries = runtime.taskSummaries();
@@ -1255,7 +1268,7 @@ export function TuiAppRoot({
           setCliInteractionMode('acceptEdits');
           dispatchRun('The plan above is approved — proceed with execution now.');
         } else if (value === PROCEED_MANUAL) {
-          setCliInteractionMode('default');
+          setCliInteractionMode('manual');
           dispatchRun(
             'The plan above is approved — proceed with execution now (manual approvals stay on).'
           );
@@ -2163,11 +2176,13 @@ export function TuiAppRoot({
                 anchor: { x: action.x, y: action.y },
                 head: { x: action.x, y: action.y },
               };
+              forceUpdate();
             } else if (action.phase === 'move' && selectionRef.current) {
               selectionRef.current = {
                 ...selectionRef.current,
                 head: { x: action.x, y: action.y },
               };
+              forceUpdate();
             } else if (action.phase === 'end' && selectionRef.current) {
               const text = selectionText(
                 projectedTextRef.current,
@@ -2175,6 +2190,7 @@ export function TuiAppRoot({
                 selectionRef.current.head
               );
               selectionRef.current = undefined;
+              forceUpdate();
               if (text) {
                 writeStdout(osc52(text));
                 if (process.platform === 'darwin') {
@@ -3139,7 +3155,7 @@ export function TuiAppRoot({
   const shownLive = frameLayout.sections[0]?.lines ?? liveLines;
   const projected: ViewportLine[] = [];
   if (fullscreen) {
-    for (const row of store.rows) {
+    for (const row of foldReadonlyRows(store.rows, verbose)) {
       renderTranscriptRow(row, columns, verbose).forEach((entry, lineIndex) => {
         projected.push({ rowId: row.id, lineIndex, text: entry.text });
       });
@@ -3186,10 +3202,10 @@ export function TuiAppRoot({
    * children, so a nested run keeps its own colour while inheriting the uniform
    * row attribute. Row fields are uniform-only, so they never contradict a run.
    */
-  const inkLine = (l: TuiLine, key: string): React.ReactElement =>
+  const inkLine = (l: TuiLine, key: string, inverse = false): React.ReactElement =>
     React.createElement(
       Text,
-      { key, ...inkLineStyle(l) },
+      { key, ...inkLineStyle(l), ...(inverse ? { inverse: true } : {}) },
       ...(l.runs?.length
         ? l.runs.map((run, index) =>
             React.createElement(Text, { key: `${key}-${index}`, ...inkTextStyle(run) }, run.text)
@@ -3262,7 +3278,12 @@ export function TuiAppRoot({
           },
         }),
     ...(fullscreen && view
-      ? view.lines.map((entry, index) => inkLine(line(entry.text), `view-${index}`))
+      ? view.lines.map((entry, index) => {
+          const selected = selectionRef.current;
+          const top = selected ? Math.min(selected.anchor.y, selected.head.y) : -1;
+          const bottom = selected ? Math.max(selected.anchor.y, selected.head.y) : -1;
+          return inkLine(line(entry.text), `view-${index}`, index >= top && index <= bottom);
+        })
       : []),
     ...shownLive.map((l, index) => inkLine(l, `live-${index}`)),
     ...chromeTop.map((l, index) => inkLine(l, `chrome-top-${index}`)),
@@ -3305,6 +3326,8 @@ export async function runTuiApp(options: TuiAppOptions): Promise<void> {
     {
       exitOnCtrlC: false,
       alternateScreen: (options.renderer ?? choice.mode) === 'fullscreen',
+      incrementalRendering: process.env.MOSS_TUI_INCREMENTAL !== '0',
+      kittyKeyboard: { mode: 'auto' },
     }
   );
   try {

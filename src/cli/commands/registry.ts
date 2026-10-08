@@ -19,6 +19,8 @@ import {
   setCliInteractionMode,
   type CliInteractionMode,
 } from '../approval.js';
+import { parsePermissionRuleSpec } from '../permission-rules.js';
+import { appendUserPermissionRule } from '../config-commands.js';
 
 export interface CommandInputOptions {
   label: string;
@@ -91,16 +93,147 @@ const doctorCommand: CommandSpec = {
 
 const permissionsCommand: CommandSpec = {
   name: '/permissions',
-  summary: 'show safety and approval settings; --verbose prints every knob',
+  summary:
+    'permission rule manager: view | add <level> <spec> | remove <spec> | persist <level> <spec>',
   run(ctx, args) {
-    ctx.say('system', renderCliPermissions(ctx.runtime, { verbose: args.trim() === '--verbose' }));
+    const zh = isZh(ctx.locale);
+    const trimmed = args.trim();
+    const [verb, ...rest] = trimmed.split(/\s+/);
+    const runtime = ctx.runtime;
+
+    // /permissions (default view) — defaultMode + 3-level counts + sources.
+    if (!trimmed || verb === 'status' || verb === 'show' || verb === '--verbose') {
+      ctx.say(
+        'system',
+        renderCliPermissions(runtime, { verbose: verb === '--verbose' || trimmed === 'verbose' })
+      );
+      return;
+    }
+
+    // Shared quoting: /permissions add deny "read_file(./.env)" — strip quotes.
+    const unquote = (value: string): string =>
+      value.startsWith('"') && value.endsWith('"') && value.length >= 2
+        ? value.slice(1, -1)
+        : value.startsWith("'") && value.endsWith("'") && value.length >= 2
+          ? value.slice(1, -1)
+          : value;
+    const registry = runtime?.permissionRuleRegistry;
+
+    if (verb === 'add' || verb === 'persist') {
+      const [rawLevel, ...specParts] = rest;
+      const spec = unquote(specParts.join(' ').trim());
+      const level = (rawLevel ?? '').toLowerCase();
+      if (!specParts.length || (level !== 'allow' && level !== 'ask' && level !== 'deny')) {
+        ctx.say(
+          'error',
+          zh
+            ? `用法：/permissions ${verb} <allow|ask|deny> "<ToolName(pattern)>"，例：/permissions ${verb} deny "read_file(./.env)"`
+            : `Usage: /permissions ${verb} <allow|ask|deny> "<ToolName(pattern)>" — e.g. /permissions ${verb} deny "read_file(./.env)"`
+        );
+        return;
+      }
+      try {
+        const rule = parsePermissionRuleSpec(spec, verb === 'add' ? 'session' : 'user', level);
+        if (verb === 'add') {
+          if (!registry) {
+            ctx.say(
+              'error',
+              zh
+                ? '会话规则注册表不可用（此会话未挂载 live 规则表）；改用 /permissions persist 写入用户配置。'
+                : 'The session rule registry is unavailable in this session; use /permissions persist to write the user config instead.'
+            );
+            return;
+          }
+          registry.add(rule);
+          ctx.say(
+            'system',
+            zh
+              ? `已添加会话级 ${level} 规则：${spec}——下一次工具调用即生效（会话内有效，重启后失效）。`
+              : `Session ${level} rule added: ${spec} — effective on the next tool call (session-scoped, resets on restart).`
+          );
+        } else {
+          const result = appendUserPermissionRule(spec, level);
+          if (!result.ok) {
+            ctx.say('error', result.message);
+            return;
+          }
+          ctx.say(
+            'system',
+            zh
+              ? `已写入用户级 ${level} 规则：${spec}（${result.message}）——重启后仍生效。`
+              : `User-level ${level} rule saved: ${spec} (${result.message}) — survives restarts.`
+          );
+        }
+      } catch (err) {
+        if (err instanceof MossError) {
+          ctx.say('error', `${err.message}${err.hint ? `\n  → ${err.hint}` : ''}`);
+          return;
+        }
+        throw err;
+      }
+      return;
+    }
+
+    if (verb === 'remove') {
+      const target = unquote(rest.join(' ').trim());
+      if (!target) {
+        ctx.say(
+          'error',
+          zh
+            ? '用法：/permissions remove "<spec 或序号>"（仅能移除会话级规则）'
+            : 'Usage: /permissions remove "<spec or index>" (session rules only)'
+        );
+        return;
+      }
+      if (!registry) {
+        ctx.say(
+          'error',
+          zh
+            ? '会话规则注册表不可用；用户/工作区级规则请直接编辑配置文件。'
+            : 'The session registry is unavailable; edit the config file for user/workspace rules.'
+        );
+        return;
+      }
+      const index = /^\d+$/.test(target) ? Number(target) : target;
+      const removed = registry.remove(index);
+      if (removed) {
+        ctx.say('system', zh ? `已移除会话规则：${target}` : `Session rule removed: ${target}`);
+        return;
+      }
+      // Honest boundary: the rule exists, but not at session level.
+      const liveRules = runtime?.permissionsRules?.().rules ?? [];
+      const elsewhere = liveRules.find((rule) => {
+        const identity = rule.operandPattern
+          ? `${rule.toolName}(${rule.operandPattern})`
+          : rule.toolName;
+        return identity === target;
+      });
+      if (elsewhere) {
+        ctx.say(
+          'error',
+          zh
+            ? `"${target}" 是${elsewhere.source === 'user' ? '用户级' : '工作区级'}规则——会话内不可移除；请编辑 ${elsewhere.source === 'user' ? '~/.config/moss/config.json' : '.moss/config.json'} 的 permissions.${elsewhere.level} 列表。`
+            : `"${target}" is a ${elsewhere.source}-level rule and cannot be removed in-session; edit the permissions.${elsewhere.level} list in ${elsewhere.source === 'user' ? '~/.config/moss/config.json' : '.moss/config.json'}.`
+        );
+        return;
+      }
+      ctx.say('error', zh ? `未找到会话规则：${target}` : `No session rule matched: ${target}`);
+      return;
+    }
+
+    ctx.say(
+      'error',
+      zh
+        ? `未知子命令 "${verb}"。用法：/permissions [view|add|remove|persist|status|show] [--verbose]`
+        : `Unknown subcommand "${verb}". Usage: /permissions [view|add|remove|persist|status|show] [--verbose]`
+    );
   },
 };
 
 const modeCommand: CommandSpec = {
   name: '/mode',
   aliases: ['/plan'],
-  summary: 'show or set interaction mode: plan | default | accept-edits',
+  summary: 'show or set interaction mode: manual | accept-edits | plan | full',
   run(ctx, args) {
     const zh = isZh(ctx.locale);
     const token = args.trim();
@@ -112,17 +245,19 @@ const modeCommand: CommandSpec = {
         zh
           ? [
               `当前交互模式：${label}`,
-              '  /mode plan          只读规划（不执行写操作）',
-              '  /mode default       正常编码（变更需审批）',
+              '  /mode manual        正常编码（逐次审批写操作与设备变更）',
               '  /mode accept-edits  自动接受工作区内文件编辑',
-              '  快捷键：Shift+Tab 在三种模式间循环',
+              '  /mode plan          只读规划（不执行写操作）',
+              '  /mode full          全开：跳过询问，仅 deny 规则与硬拦截生效（默认）',
+              '  快捷键：Shift+Tab 在四种模式间循环',
             ].join('\n')
           : [
               `Interaction mode: ${label}`,
-              '  /mode plan          read-only planning (block mutations)',
-              '  /mode default       normal coding (approve mutations)',
+              '  /mode manual        normal coding (approve mutations one by one)',
               '  /mode accept-edits  auto-approve sandboxed workspace edits',
-              '  Shortcut: Shift+Tab cycles plan / default / accept-edits',
+              '  /mode plan          read-only planning (block mutations)',
+              '  /mode full          skip prompts — only deny rules and hard blocks apply (default)',
+              '  Shortcut: Shift+Tab cycles manual / accept-edits / plan / full',
             ].join('\n')
       );
       return;
@@ -131,7 +266,9 @@ const modeCommand: CommandSpec = {
     if (!next) {
       ctx.say(
         'error',
-        zh ? '用法：/mode [plan|default|accept-edits]' : 'Usage: /mode [plan|default|accept-edits]'
+        zh
+          ? '用法：/mode [manual|accept-edits|plan|full]（default 为 manual 别名）'
+          : 'Usage: /mode [manual|accept-edits|plan|full] (default is a manual alias)'
       );
       return;
     }
@@ -142,15 +279,19 @@ const modeCommand: CommandSpec = {
       'system',
       zh
         ? next === 'plan'
-          ? `已切换到${label}：只读探索与规划；写文件/副作用命令会被拦截。规划完成后用 /mode default 或 Shift+Tab 退出。`
+          ? `已切换到${label}：只读探索与规划；写文件/副作用命令会被拦截。规划完成后用 /mode manual 或 Shift+Tab 退出。`
           : next === 'acceptEdits'
             ? `已切换到${label}：工作区内文件编辑自动通过；shell 变更仍会确认。`
-            : `已切换到${label}：正常编码，变更按审批策略确认。`
+            : next === 'full'
+              ? `已切换到${label}：跳过询问，deny 规则与危险命令拦截仍生效。`
+              : `已切换到${label}：正常编码，写操作与设备变更逐次确认。`
         : next === 'plan'
-          ? `Switched to ${label}: explore and plan read-only; file/side-effect tools are blocked. Leave with /mode default or Shift+Tab when ready to implement.`
+          ? `Switched to ${label}: explore and plan read-only; file/side-effect tools are blocked. Leave with /mode manual or Shift+Tab when ready to implement.`
           : next === 'acceptEdits'
             ? `Switched to ${label}: sandboxed workspace edits auto-approve; shell mutations still prompt.`
-            : `Switched to ${label}: normal coding with the current approval policy.`
+            : next === 'full'
+              ? `Switched to ${label}: prompts are skipped; deny rules and dangerous-command blocks still apply.`
+              : `Switched to ${label}: normal coding; mutations and device changes confirm one by one.`
     );
   },
 };

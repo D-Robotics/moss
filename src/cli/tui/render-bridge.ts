@@ -239,7 +239,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       if (event.toolName === 'todo_write' && Array.isArray(event.input.todos)) {
         store.todos = toTodos(event.input.todos);
       }
-      appendRow(store, 'tool', store.run.toolLine);
+      appendRow(store, 'tool', store.run.toolLine, { tool: { name: event.toolName } });
       store.version++;
       break;
     }

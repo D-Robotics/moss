@@ -24,6 +24,13 @@ import {
   normalizeProvider,
   inferProviderFromBaseUrl,
 } from '../provider/provider-presets.js';
+import {
+  DEFAULT_CLI_INTERACTION_MODE,
+  deriveEngineQuantas,
+  modeFromLegacySafetyPair,
+  parseCliInteractionMode,
+  type CliInteractionMode,
+} from './interaction-mode.js';
 
 export {
   CliConfigFileError,
@@ -87,6 +94,13 @@ export interface ConfigFile {
   approvalPolicy?: ConfigApprovalPolicy | string;
   trustedTools?: string[];
   deniedTools?: string[];
+  /**
+   * v0.26 permission block (PRD 2026-10-08): the single source for the mode
+   * engine. `defaultMode` replaces the safetyMode × approvalPolicy pair as
+   * the user-facing knob; allow/ask/deny are rule lists (consumed by the
+   * permission-rules engine from T03).
+   */
+  permissions?: PermissionsConfig;
   promptCache?: PromptCacheConfig | boolean;
   guardrails?: GuardrailsConfig;
   agent?: AgentRuntimeConfig;
@@ -94,6 +108,18 @@ export interface ConfigFile {
   /** Network egress policy for web tools (hostname allowlist). */
   net?: { allowHosts?: string[] };
   _examples?: Record<string, unknown>;
+}
+
+/**
+ * The v0.26 permissions block shape. `defaultMode` accepts the mode name
+ * (manual | acceptEdits | plan | full); rule arrays use the Tool(pattern)
+ * syntax parsed by the permission-rules engine (T03).
+ */
+export interface PermissionsConfig {
+  defaultMode?: CliInteractionMode | string;
+  allow?: string[];
+  ask?: string[];
+  deny?: string[];
 }
 
 export interface LoadedCliConfigFile {
@@ -225,20 +251,24 @@ export const CLI_PROFILE_DEFAULTS: Record<CliConfigProfile, CliProfileDefaults> 
     promptCacheEnabled: true,
     promptCacheDebug: false,
   },
-  // balanced is the DEFAULT profile — safe by default: workspace file writes
-  // run, but sensitive actions (shell, device, external) ask first. Matches
-  // the documented "asking before sensitive actions". For unrestricted
-  // execution, use `profile: autonomous` (or set safetyMode: full-access).
+  // v0.26 (PRD 2026-10-08 W1): balanced is the DEFAULT profile and now maps to
+  // the `full` mode equivalent — full-access + never — matching the new
+  // out-of-box default (defaultMode=full). The field VALUES are kept (SDK
+  // surface compat) but their resolution semantics give way to
+  // permissions.defaultMode: the mode engine derives safetyMode/approvalPolicy
+  // and these profile fields are no longer consulted for them. An explicit
+  // legacy `profile: balanced` key in a config file migrates to `manual`
+  // (PRD migration table), NOT to full — the flip only applies to the
+  // no-config default.
   balanced: {
-    safetyMode: 'workspace-write',
-    approvalPolicy: 'prompt',
+    safetyMode: 'full-access',
+    approvalPolicy: 'never',
     trustedTools: [],
     promptCacheEnabled: true,
     promptCacheDebug: false,
   },
   // autonomous is the most permissive — full-access + never prompt, for
-  // explicitly trusted / disposable environments. (balanced < autonomous:
-  // balanced asks, autonomous auto-approves everything.)
+  // explicitly trusted / disposable environments.
   autonomous: {
     safetyMode: 'full-access',
     approvalPolicy: 'never',
@@ -247,6 +277,100 @@ export const CLI_PROFILE_DEFAULTS: Record<CliConfigProfile, CliProfileDefaults> 
     promptCacheDebug: false,
   },
 };
+
+/**
+ * Migration result for the legacy permission keys (read-side only).
+ * `defaultMode` is only set when a legacy key actually maps; `ceiling` carries
+ * the read-only override; `allowRules`/`denyRules` translate trustedTools /
+ * deniedTools into whole-tool rule specs; `legacyKeysUsed` feeds the
+ * doctor/config-show deprecated notice.
+ */
+export interface LegacyPermissionMigration {
+  defaultMode?: CliInteractionMode;
+  ceiling: 'read-only' | undefined;
+  allowRules: string[];
+  denyRules: string[];
+  legacyKeysUsed: string[];
+}
+
+/**
+ * v0.26 read-side migration (PRD 2026-10-08 「旧键迁移兼容（读侧）」 mapping
+ * table, a pure function — no IO):
+ *
+ *   profile: cautious     → defaultMode manual + ceiling read-only
+ *   profile: balanced     → defaultMode manual
+ *   profile: autonomous   → defaultMode full
+ *   safetyMode+approvalPolicy: full-access+never → full; read-only →
+ *                             manual+ceiling; anything else → manual
+ *   trustedTools          → allow rules (whole tool names)
+ *   deniedTools           → deny rules (whole tool names)
+ *
+ * Unknown values do not migrate (validation stays at the normal parse path).
+ */
+export function migrateLegacyPermissionConfig(legacy: {
+  profile?: string;
+  safetyMode?: string;
+  approvalPolicy?: string;
+  trustedTools?: string[];
+  deniedTools?: string[];
+}): LegacyPermissionMigration {
+  const legacyKeysUsed: string[] = [];
+  const allowRules: string[] = [];
+  const denyRules: string[] = [];
+  let defaultMode: CliInteractionMode | undefined;
+  let ceiling: 'read-only' | undefined;
+
+  if (legacy.profile !== undefined) {
+    legacyKeysUsed.push('profile');
+    const normalized = normalizeConfigProfile(legacy.profile);
+    if (normalized === 'cautious') {
+      defaultMode = 'manual';
+      ceiling = 'read-only';
+    } else if (normalized === 'balanced') {
+      defaultMode = 'manual';
+    } else if (normalized === 'autonomous') {
+      defaultMode = 'full';
+    }
+    // Unknown profile values do not migrate (the resolution path validates
+    // them earlier; direct callers get no defaultMode from this key).
+  }
+
+  const hasLegacyPair = legacy.safetyMode !== undefined || legacy.approvalPolicy !== undefined;
+  if (hasLegacyPair) {
+    if (legacy.safetyMode !== undefined) legacyKeysUsed.push('safetyMode');
+    if (legacy.approvalPolicy !== undefined) legacyKeysUsed.push('approvalPolicy');
+    const safetyMode = normalizeSafetyModeConfig(legacy.safetyMode) ?? undefined;
+    const approvalPolicy = normalizeApprovalPolicyConfig(legacy.approvalPolicy) ?? undefined;
+    if (safetyMode === 'read-only') {
+      // read-only is a ceiling that compresses ANY mode including full (PRD
+      // decision 2). The mode itself stays manual; the ceiling rides along.
+      defaultMode = 'manual';
+      ceiling = 'read-only';
+    } else {
+      // The explicit safetyMode/approvalPolicy pair is more specific than the
+      // profile migration, so it wins: full-access+never → full; anything
+      // else → manual.
+      defaultMode = modeFromLegacySafetyPair(safetyMode, approvalPolicy);
+    }
+  }
+
+  if (legacy.trustedTools !== undefined) {
+    legacyKeysUsed.push('trustedTools');
+    allowRules.push(...legacy.trustedTools);
+  }
+  if (legacy.deniedTools !== undefined) {
+    legacyKeysUsed.push('deniedTools');
+    denyRules.push(...legacy.deniedTools);
+  }
+
+  return {
+    ...(defaultMode !== undefined ? { defaultMode } : {}),
+    ceiling,
+    allowRules,
+    denyRules,
+    legacyKeysUsed,
+  };
+}
 
 function resolveExplicitConfigPath(
   env: NodeJS.ProcessEnv = process.env,
@@ -401,10 +525,36 @@ export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFi
     approvalPolicy: userConfig.approvalPolicy ?? projectConfig.approvalPolicy,
     trustedTools: userConfig.trustedTools ?? projectConfig.trustedTools,
     deniedTools: userConfig.deniedTools ?? projectConfig.deniedTools,
+    permissions: mergePermissionsConfig(userConfig.permissions, projectConfig.permissions),
     promptCache: mergePromptCacheConfig(userConfig.promptCache, projectConfig.promptCache),
     guardrails: mergeGuardrailsConfig(userConfig.guardrails, projectConfig.guardrails),
     agent: mergeAgentRuntimeConfig(userConfig.agent, projectConfig.agent),
     hooks: mergeHooksConfig(userConfig.hooks, projectConfig.hooks),
+  };
+}
+
+/**
+ * v0.26 permission-block merge, safety-directional like the other safety
+ * fields: user-wins on every scalar knob; rule lists union BOTH layers
+ * (deny rules union across levels by design — a project cannot silently
+ * remove the user's deny; allow/ask dedupe).
+ */
+function mergePermissionsConfig(
+  user: PermissionsConfig | undefined,
+  project: PermissionsConfig | undefined
+): PermissionsConfig | undefined {
+  if (!user && !project) return undefined;
+  const unionList = (a: string[] | undefined, b: string[] | undefined): string[] | undefined => {
+    if (!a && !b) return undefined;
+    return [...new Set([...(a ?? []), ...(b ?? [])])];
+  };
+  return {
+    ...(user ?? {}),
+    ...(project ?? {}),
+    defaultMode: user?.defaultMode ?? project?.defaultMode,
+    allow: unionList(user?.allow, project?.allow),
+    ask: unionList(user?.ask, project?.ask),
+    deny: unionList(user?.deny, project?.deny),
   };
 }
 
@@ -622,6 +772,27 @@ function listIgnoredModelEnvVars(env: NodeJS.ProcessEnv): string[] {
   return IGNORED_MODEL_ENV_VARS.filter((name) => Boolean(env[name]));
 }
 
+/**
+ * v0.26 resolved permission view: the mode-engine output of the resolution
+ * chain. `safetyMode`/`approvalPolicy` on ResolvedCliConfig become DERIVED
+ * quantities of `defaultMode` (source 'derived:mode'); this view carries the
+ * mode + rule lists + the read-only ceiling flag + which legacy keys fed the
+ * migration (for doctor / config show deprecation notices).
+ */
+export interface ResolvedPermissionsView {
+  defaultMode: CliInteractionMode;
+  /** Startup read-only ceiling (--read-only / MOSS_SAFETY_MODE=read-only /
+   * migrated cautious profile): compresses ANY mode including full. */
+  readOnlyCeiling: boolean;
+  allow: string[];
+  ask: string[];
+  deny: string[];
+  /** Legacy keys that fed the read-side migration (profile/safetyMode/
+   * approvalPolicy/trustedTools/deniedTools) — empty for pure new-key users. */
+  legacyKeysUsed: string[];
+  source: string;
+}
+
 export interface ResolvedCliConfig {
   profile: CliConfigProfile;
   profileSource: string;
@@ -641,8 +812,12 @@ export interface ResolvedCliConfig {
   baseUrlSource: string;
   workspace: string;
   workspaceSource: string;
+  /** v0.26: derived from permissions.defaultMode (source 'derived:mode'). */
+  permissions: ResolvedPermissionsView;
+  /** v0.26: derived output of the mode engine; kept for SDK/embed compat. */
   safetyMode: CliSafetyModeConfig;
   safetyModeSource: string;
+  /** v0.26: derived output of the mode engine; kept for SDK/embed compat. */
   approvalPolicy: ConfigApprovalPolicy;
   approvalPolicySource: string;
   trustedTools: string[];
@@ -717,15 +892,25 @@ export function auditResolvedCliConfig(
     | 'trustedToolsSource'
     | 'deniedTools'
     | 'deniedToolsSource'
+    | 'permissions'
   >
 ): CliConfigAuditWarning[] {
   const warnings: CliConfigAuditWarning[] = [];
-  if (config.approvalPolicy === 'never') {
+  // v0.26 audit re-check (PRD W1 告警重校): the old blanket auto-approval
+  // warning would fire for every factory-default user now that full is the
+  // default. The warning only fires when the auto-approval stance came from
+  // an EXPLICIT source (cli/env/config/legacy — not the derived default) AND
+  // there is no deny guardrail.
+  const explicitAutoApproval =
+    config.approvalPolicy === 'never' &&
+    config.permissions !== undefined &&
+    config.permissions.source !== 'default';
+  if (explicitAutoApproval) {
     warnings.push({
       code: 'approval.auto_approval',
       severity: 'warn',
       source: config.approvalPolicySource,
-      message: `auto-approval is enabled via ${config.approvalPolicySource}; keep deniedTools current for risky tools`,
+      message: `auto-approval is enabled via ${config.permissions.source} (${config.approvalPolicySource}); keep deniedTools current for risky tools`,
     });
     if (config.deniedTools.length === 0) {
       warnings.push({
@@ -735,14 +920,20 @@ export function auditResolvedCliConfig(
         message: `auto-approval has no deniedTools guardrail (${config.deniedToolsSource}); add high-risk tools or globs to deniedTools`,
       });
     }
-  }
-
-  if (config.safetyMode === 'full-access' && config.approvalPolicy === 'never') {
+  } else if (
+    config.approvalPolicy === 'never' &&
+    config.deniedTools.length === 0 &&
+    config.permissions !== undefined &&
+    config.permissions.source === 'default'
+  ) {
+    // The new factory default (full, no deny rules): a single informational
+    // nudge toward /permissions, not a warning (PRD decision 7).
     warnings.push({
-      code: 'approval.full_access_auto_approval',
+      code: 'approval.full_default_no_deny',
       severity: 'warn',
-      source: `${config.safetyModeSource}, ${config.approvalPolicySource}`,
-      message: `full-access safety and auto-approval are both enabled; prefer workspace-write or prompt approval unless the workspace is fully trusted`,
+      source: 'default',
+      message:
+        'default full mode has no deny rules; add rules with /permissions (e.g. deny read_file(./.env)) to keep sensitive tools gated',
     });
   }
 
@@ -771,6 +962,29 @@ export function auditResolvedCliConfig(
 
 export function hasTrustedToolWildcard(config: Pick<ResolvedCliConfig, 'trustedTools'>): boolean {
   return config.trustedTools.some(hasToolPatternWildcard);
+}
+
+/**
+ * v0.26 one-shot full-default notice (PRD decision 7 / design §8-6): a session
+ * may surface the "you are in full mode with no deny rules" nudge at most
+ * ONCE (in-memory boolean — no persisted counter). The audit-side info-level
+ * warning stays separate: doctor / config show keep printing it on every
+ * invocation (both sides implemented, per the adjudication).
+ */
+let fullDefaultNoticeShown = false;
+
+export function shouldShowFullDefaultNotice(
+  config: Pick<ResolvedCliConfig, 'approvalPolicy' | 'deniedTools' | 'permissions'>
+): boolean {
+  if (fullDefaultNoticeShown) return false;
+  const applicable =
+    config.approvalPolicy === 'never' &&
+    config.deniedTools.length === 0 &&
+    config.permissions !== undefined &&
+    config.permissions.source === 'default';
+  if (!applicable) return false;
+  fullDefaultNoticeShown = true;
+  return true;
 }
 
 let bundledDefaultReadWarned = false;
@@ -891,47 +1105,122 @@ export function resolveCliConfig(
         ? 'baseUrl'
         : 'default';
   const workspaceEnv = env.MOSS_WORKSPACE;
+
+  // ── v0.26 permission mode resolution (PRD 2026-10-08 W1 / design §3.3) ──
+  // Chain: overrides (CLI flags → safetyMode/approvalPolicy override fields,
+  // args.ts maps them to mode-override semantics) > env compat keys > config
+  // permissions.defaultMode > legacy-key migration > default full.
   const safetyModeEnv = env.MOSS_SAFETY_MODE || env.MOSS_CLI_SAFETY_MODE;
-  const configSafetyMode = normalizeSafetyModeConfig(
-    typeof activeConfig.safetyMode === 'string' ? activeConfig.safetyMode : undefined
-  );
   const envSafetyMode = normalizeSafetyModeConfig(safetyModeEnv);
-  const safetyMode =
-    overrides.safetyMode || envSafetyMode || configSafetyMode || profileDefaults.safetyMode;
-  const safetyModeSource = overrides.safetyMode
-    ? 'cli'
-    : envSafetyMode
-      ? env.MOSS_SAFETY_MODE
-        ? 'MOSS_SAFETY_MODE'
-        : 'MOSS_CLI_SAFETY_MODE'
-      : configSafetyMode
-        ? 'config'
-        : `profile:${profile}`;
 
   const approvalEnv =
     env.MOSS_CLI_AUTO_APPROVE === '1' || env.MOSS_AUTO_APPROVE === '1'
       ? 'never'
       : env.MOSS_APPROVAL_POLICY || env.MOSS_ASK_FOR_APPROVAL;
-  const configApproval = normalizeApprovalPolicyConfig(
-    typeof activeConfig.approvalPolicy === 'string' ? activeConfig.approvalPolicy : undefined
-  );
   const envApproval = normalizeApprovalPolicyConfig(approvalEnv);
-  const approvalPolicy =
-    overrides.approvalPolicy || envApproval || configApproval || profileDefaults.approvalPolicy;
-  const approvalPolicySource = overrides.approvalPolicy
-    ? 'cli'
-    : envApproval
-      ? env.MOSS_CLI_AUTO_APPROVE === '1'
+
+  const legacyMigration = migrateLegacyPermissionConfig({
+    profile:
+      activeConfig.profile !== undefined && configProfile !== undefined
+        ? String(activeConfig.profile)
+        : undefined,
+    safetyMode: typeof activeConfig.safetyMode === 'string' ? activeConfig.safetyMode : undefined,
+    approvalPolicy:
+      typeof activeConfig.approvalPolicy === 'string' ? activeConfig.approvalPolicy : undefined,
+    trustedTools: Array.isArray(activeConfig.trustedTools)
+      ? [...activeConfig.trustedTools]
+      : undefined,
+    deniedTools: Array.isArray(activeConfig.deniedTools)
+      ? [...activeConfig.deniedTools]
+      : undefined,
+  });
+
+  const configPermissionsMode = parseCliInteractionMode(
+    typeof activeConfig.permissions?.defaultMode === 'string'
+      ? activeConfig.permissions.defaultMode
+      : undefined
+  );
+
+  // Mode-override layers, first match wins: overrides > env > permissions block
+  // > legacy migration > default full (§3.3 mapping table). read-only inputs
+  // (flag/env/migration) additionally arm the ceiling and map to manual.
+  let resolvedMode: CliInteractionMode | undefined;
+  let modeSource: string | undefined;
+  let readOnlyCeiling = false;
+  let ceilingSource: string | undefined;
+
+  if (overrides.safetyMode !== undefined || overrides.approvalPolicy !== undefined) {
+    // CLI flags reach resolveCliConfig as override fields with mode-override
+    // semantics (args.ts performs the flag → mode mapping and conflict checks).
+    const safety = overrides.safetyMode;
+    const approval = overrides.approvalPolicy;
+    if (safety === 'read-only') {
+      resolvedMode = 'manual';
+      readOnlyCeiling = true;
+    } else if (safety !== undefined) {
+      resolvedMode = modeFromLegacySafetyPair(safety, approval);
+    } else if (approval !== undefined) {
+      // --ask-for-approval=never alone → full; prompt → manual (§3.3).
+      resolvedMode = approval === 'never' ? 'full' : 'manual';
+    } else {
+      resolvedMode = 'manual';
+    }
+    modeSource = 'cli';
+    if (safety === 'read-only') ceilingSource = 'cli';
+  } else if (envSafetyMode !== null) {
+    if (envSafetyMode === 'read-only') {
+      resolvedMode = 'manual';
+      readOnlyCeiling = true;
+      ceilingSource = env.MOSS_SAFETY_MODE ? 'MOSS_SAFETY_MODE' : 'MOSS_CLI_SAFETY_MODE';
+    } else {
+      resolvedMode = modeFromLegacySafetyPair(envSafetyMode, undefined);
+    }
+    modeSource = env.MOSS_SAFETY_MODE ? 'MOSS_SAFETY_MODE' : 'MOSS_CLI_SAFETY_MODE';
+  } else if (envApproval !== null) {
+    // env MOSS_APPROVAL_POLICY=never / MOSS_CLI_AUTO_APPROVE=1 → full;
+    // prompt → manual (design §3.3 mapping table).
+    resolvedMode = envApproval === 'never' ? 'full' : 'manual';
+    modeSource =
+      env.MOSS_CLI_AUTO_APPROVE === '1'
         ? 'MOSS_CLI_AUTO_APPROVE'
         : env.MOSS_AUTO_APPROVE === '1'
           ? 'MOSS_AUTO_APPROVE'
           : env.MOSS_APPROVAL_POLICY
             ? 'MOSS_APPROVAL_POLICY'
-            : 'MOSS_ASK_FOR_APPROVAL'
-      : configApproval
-        ? 'config'
-        : `profile:${profile}`;
+            : 'MOSS_ASK_FOR_APPROVAL';
+  } else if (configPermissionsMode !== null) {
+    resolvedMode = configPermissionsMode;
+    modeSource = 'config';
+  } else if (legacyMigration.defaultMode !== undefined) {
+    resolvedMode = legacyMigration.defaultMode;
+    modeSource = 'legacy';
+    if (legacyMigration.ceiling === 'read-only') {
+      readOnlyCeiling = true;
+      ceilingSource = 'legacy';
+    }
+  }
 
+  const defaultMode: CliInteractionMode = resolvedMode ?? DEFAULT_CLI_INTERACTION_MODE;
+  const permissionsSource = modeSource ?? 'default';
+  if (legacyMigration.ceiling === 'read-only' && !readOnlyCeiling) {
+    // A legacy read-only pair arms the ceiling even when a stronger layer
+    // already fixed the mode (the ceiling only tightens; it never conflicts).
+    readOnlyCeiling = true;
+    ceilingSource = ceilingSource ?? 'legacy';
+  }
+
+  // Derived outputs (design §1.2): safetyMode/approvalPolicy are now read
+  // projections of the mode. Source stays 'derived:mode' unless an embed host
+  // explicitly set the fields via overrides — the profile no longer owns them.
+  const quantas = deriveEngineQuantas(defaultMode);
+  const safetyMode: CliSafetyModeConfig = readOnlyCeiling ? 'read-only' : quantas.safetyMode;
+  const safetyModeSource = ceilingSource ?? 'derived:mode';
+  const approvalPolicy: ConfigApprovalPolicy = quantas.approvalPolicy;
+  const approvalPolicySource = 'derived:mode';
+
+  // Rule lists: permissions block wins (new canonical surface); the legacy
+  // trustedTools/deniedTools keys translate to whole-tool rules and merge in.
+  const permissionsBlock = activeConfig.permissions;
   const envTrustedTools = parseTrustedTools(env.MOSS_TRUSTED_TOOLS);
   const configTrustedTools = Array.isArray(activeConfig.trustedTools)
     ? parseTrustedTools(activeConfig.trustedTools)
@@ -957,6 +1246,23 @@ export function resolveCliConfig(
       : configDeniedTools
         ? 'config'
         : 'default';
+
+  const permissionsAllow = [
+    ...new Set([...(permissionsBlock?.allow ?? []), ...legacyMigration.allowRules]),
+  ];
+  const permissionsAsk = [...new Set([...(permissionsBlock?.ask ?? [])])];
+  const permissionsDeny = [
+    ...new Set([...(permissionsBlock?.deny ?? []), ...legacyMigration.denyRules]),
+  ];
+  const permissionsView: ResolvedPermissionsView = {
+    defaultMode,
+    readOnlyCeiling,
+    allow: permissionsAllow,
+    ask: permissionsAsk,
+    deny: permissionsDeny,
+    legacyKeysUsed: [...legacyMigration.legacyKeysUsed],
+    source: permissionsSource,
+  };
 
   const promptCacheEnv = env.MOSS_PROMPT_CACHE ?? env.MOSS_PROMPT_CACHE_ENABLED;
   const envPromptCache = parseConfigBoolean(promptCacheEnv);
@@ -1160,6 +1466,7 @@ export function resolveCliConfig(
     safetyModeSource,
     approvalPolicy,
     approvalPolicySource,
+    permissions: permissionsView,
     trustedTools: [...trustedTools],
     trustedToolsSource,
     deniedTools: [...deniedTools],
