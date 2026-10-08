@@ -385,6 +385,10 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
     group: 'ui, logging & notifications',
     vars: [
       'MOSS_NO_TUI',
+      'MOSS_TUI_HW_CURSOR',
+      'MOSS_TUI_INCREMENTAL',
+      'MOSS_TUI_RENDERER',
+      'MOSS_TUI_RENDERER_CONFIG',
       'MOSS_NO_COLOR',
       'MOSS_LOG_LEVEL',
       'MOSS_LOG_JSON',

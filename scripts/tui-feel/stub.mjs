@@ -55,7 +55,8 @@ http
         const pieces = LONG.match(/[\s\S]{1,12}/g) ?? [];
         let i = 0;
         const timer = setInterval(() => {
-          if (i < pieces.length) send(res, { choices: [{ index: 0, delta: { content: pieces[i++] } }] });
+          if (i < pieces.length)
+            send(res, { choices: [{ index: 0, delta: { content: pieces[i++] } }] });
           else {
             clearInterval(timer);
             done(res);

@@ -544,7 +544,17 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
         return out;
       }
       const markBody = headline.length === 0;
-      if (hasDiffLines(row.text)) {
+      // A one-line edit is still a diff: the tool summary built it. The ≥2-sign
+      // rule stays on arbitrary output so `! printf '+x'` does not grow a gutter.
+      const structuredDiff =
+        row.tool?.name !== undefined &&
+        (row.tool.name === 'edit_file' ||
+          row.tool.name === 'write_file' ||
+          row.tool.name === 'device_file_write' ||
+          row.tool.name === 'apply_patch' ||
+          row.tool.name === 'multi_edit') &&
+        source.some((raw) => ADDED_LINE.test(raw) || REMOVED_LINE.test(raw));
+      if (hasDiffLines(row.text) || structuredDiff) {
         out.push(...headline);
         const diff = renderDiffGutter(row.text, width, { markFirst: markBody });
         const shown = verbose ? diff : diff.slice(0, DIFF_PREVIEW_LINES);

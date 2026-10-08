@@ -112,8 +112,6 @@ function basicReplUnsupportedMessage(command: string): string {
   const token = command.split(/\s+/, 1)[0] || command;
   if (token === '/stop' || token === '/abort')
     return '[help] Press Ctrl+C to interrupt the terminal process in this basic REPL.';
-  if (token === '/clear')
-    return '[help] Use Ctrl+L or your shell `clear` command to clear this terminal.';
   if (token === '/init')
     return '[help] /init is not available in this REPL. Create AGENTS.md in your workspace manually.';
   return '[help] This control is not available in this REPL.';
@@ -133,10 +131,10 @@ export async function runInteractive(
   const usage = createSessionUsageAccumulator();
   currentModel = agent.config.model || currentModel;
   const workspace = runtime?.workspace || process.cwd();
-  const sessionKey = options.sessionKey || createCliSessionKey();
+  let sessionKey = options.sessionKey || createCliSessionKey();
 
   const runtimeDir = runtime?.runtimeDir ?? path.join(workspace, '.moss', 'runtime');
-  const checkpointStore = new FileCheckpointStore({ runtimeDir, sessionKey });
+  let checkpointStore = new FileCheckpointStore({ runtimeDir, sessionKey });
   const parsePatchPaths = (patch: string): string[] => {
     const out: string[] = [];
     for (const m of patch.matchAll(/^\*\*\* (?:Update|Add|Delete) File: (.+)$/gm))
@@ -409,7 +407,17 @@ export async function runInteractive(
       continue;
     }
 
-    if (msg === '/stop' || msg === '/abort' || msg === '/clear' || msg === '/init') {
+    if (msg === '/clear') {
+      sessionKey = createCliSessionKey();
+      checkpointStore = new FileCheckpointStore({ runtimeDir, sessionKey });
+      console.error(
+        '[clear] new conversation, empty context. The previous one stays on disk — moss --continue'
+      );
+      rl.prompt();
+      continue;
+    }
+
+    if (msg === '/stop' || msg === '/abort' || msg === '/init') {
       console.error(basicReplUnsupportedMessage(msg));
       rl.prompt();
       continue;

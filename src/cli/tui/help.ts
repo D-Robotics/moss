@@ -29,7 +29,7 @@ export function ctrlHintFor(action: CtrlAction): string | undefined {
 
 export const HELP_KEYS: ReadonlyArray<readonly [string, string]> = [
   ['Enter', 'send the goal · run the shell command in `!` mode'],
-  ['Shift+Tab', 'cycle the interaction mode (default → accept-edits → plan)'],
+  ['Shift+Tab', 'cycle the interaction mode (manual → accept-edits → plan → full)'],
   ['!', 'first character only: run a shell command inline'],
   ['Esc', 'interrupt the run · cancel `!` shell mode · press again to clear the composer'],
   ['↑ ↓', 'walk back through what you typed'],

@@ -44,7 +44,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
   {
     title: 'Work',
     rows: [
-      { command: '/status', description: 'view model, workspace, and tool state' },
+      {
+        command: '/status',
+        description: 'view model, workspace, and tool state',
+        hidden: true,
+      },
       {
         command: '/model',
         args: '[name|number]',
@@ -100,6 +104,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         command: '/export',
         args: '[path]',
         description: 'export this session to markdown (path optional; - prints to stdout)',
+        hidden: true,
       },
       {
         command: '/review',
@@ -161,8 +166,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       },
       {
         command: '/clear',
-        description: 'clear the transcript (banner stays; the model context is kept)',
-        surfaces: ['tui'],
+        description: 'start a new conversation with an empty context',
       },
       { command: '/quit', description: 'exit moss', hidden: true },
       { command: '/help', description: 'show the key and command reference' },

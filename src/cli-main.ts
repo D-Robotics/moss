@@ -1117,9 +1117,10 @@ async function main() {
       const { FileCheckpointStore, checkpointTargetPaths } =
         await import('./cli/file-checkpoint.js');
       const runtimeDirForTui = runtimeDir ?? path.join(workspace, '.moss', 'runtime');
-      const checkpointStore = new FileCheckpointStore({
+      let currentSessionKey = session.sessionKey;
+      let checkpointStore = new FileCheckpointStore({
         runtimeDir: runtimeDirForTui,
-        sessionKey: session.sessionKey,
+        sessionKey: currentSessionKey,
       });
       const parsePatchPaths = (patch: string): string[] => {
         const out: string[] = [];
@@ -1188,6 +1189,13 @@ async function main() {
         // The checkpoint is what `/rewind` restores from; without this call the
         // store records nothing and every rewind silently did nothing (D1).
         onTurnStart: (message) => checkpointStore.open(message.slice(0, 60)),
+        onNewSession: (next) => {
+          currentSessionKey = next;
+          checkpointStore = new FileCheckpointStore({
+            runtimeDir: runtimeDirForTui,
+            sessionKey: next,
+          });
+        },
         listSessions: async () => {
           const metas = await sessionStore.listSessions().catch(() => []);
           return metas
@@ -1198,7 +1206,7 @@ async function main() {
               ...(m.title ? { title: m.title } : {}),
               ...(m.messageCount !== undefined ? { messageCount: m.messageCount } : {}),
               ...(m.updatedAt !== undefined ? { updatedAt: m.updatedAt } : {}),
-              current: m.sessionKey === session.sessionKey,
+              current: m.sessionKey === currentSessionKey,
             }));
         },
         mcpServers: mcpRegistry

@@ -54,7 +54,7 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 | `npm run bench:ab -- <engine>`                                                   | hard 层 A/B 对照（`best-of-n` / `reasoning-high` / `model-routing`，`--samples <n>` 可调），输出默认开/关建议                                                        |
 | `npm run bench:noise -- <label1> <label2> [...]`                                 | 同 SHA 重复跑聚合成噪声带（`bench/results/noise-band.json`）                                                                                                         |
 | `npm run bench:swe -- [--samples N --concurrency K --label L --filter s --eval]` | SWE-bench Verified 100 实例锁子集（`bench/boards/swebench-instances.json`）：容器内 moss headless 产 patch + 官方 swebench harness 判分；密钥经 `MOSS_BENCH_API_KEY` |
-| `npm run bench:tui-feel` | TUI 体感基准（`scripts/tui-feel/`，PTY + pyte；缺 python/pyte 时跳过）。结果落 `bench/results/`，不入库 |
+| `npm run bench:tui-feel`                                                         | TUI 体感基准（`scripts/tui-feel/`，PTY + pyte；缺 python/pyte 时跳过）。结果落 `bench/results/`，不入库                                                              |
 
 ## SDK 公共面与 semver（v0.13 起）
 
@@ -72,11 +72,11 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 
 ## 支持矩阵
 
-| 维度     | 支持                                                                                                                                                                                                                          | 验证方式                                 |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| Node     | ≥ 22.16.0（CI 钉 22.16.0 与 24 双档）                                                                                                                                                                                         | CI `Test` 矩阵                           |
-| 平台     | Linux / macOS / Windows（Windows 无 PTY smoke，其余全量）                                                                                                                                                                     | CI `Test` 矩阵                           |
-| provider | deepseek / qwen / openai / anthropic / openai-compatible                                                                                                                                                                      | 单测 + 冒烟；真实 key 回归按需人工       |
+| 维度     | 支持                                                                                                                                                                                                        | 验证方式                                 |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Node     | ≥ 22.16.0（CI 钉 22.16.0 与 24 双档）                                                                                                                                                                       | CI `Test` 矩阵                           |
+| 平台     | Linux / macOS / Windows（Windows 无 PTY smoke，其余全量）                                                                                                                                                   | CI `Test` 矩阵                           |
+| provider | deepseek / qwen / openai / anthropic / openai-compatible                                                                                                                                                    | 单测 + 冒烟；真实 key 回归按需人工       |
 | 交互面   | TTY：全屏渲染器为默认（备用屏 + 鼠标 + 应用内滚动）；`MOSS_TUI_RENDERER=inline`、矮终端、dumb、tmux 鼠标关闭或 GNU screen 回退为 primary screen 内联形态；非 TTY / `MOSS_NO_TUI=1` / Windows：readline REPL | TUI spec 家族 + PTY smoke（macOS/Linux） |
 
 不在表内的组合（其他 Node 大版本、其他 provider 协议）未验证，不支持。

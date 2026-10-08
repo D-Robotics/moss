@@ -840,24 +840,37 @@ async function type(instance, text) {
     await sleep(150);
   }
 
-  // 4i. /clear wipes the visible transcript but keeps the banner and says so.
+  // 4i. /clear wipes the screen AND the model context: the next turn is a
+  // new session, while the banner stays.
   {
+    calls.length = 0;
     const { instance, handle } = mount({
       agent: createMockAgent(),
       workspaceDir: '/tmp/ws',
       model: 'm-test',
+      sessionKey: 'sess-a',
     });
-    await type(instance, '/help');
-    await waitFor(() => instance.lastFrame().includes('Help · Esc or Enter to close'));
-    instance.stdin.write('\x1b');
-    await waitFor(() => !instance.lastFrame().includes('Help · Esc or Enter to close'));
+    await type(instance, 'hello');
+    const first = await waitFor(() => calls.length === 1);
+    assert.ok(first, 'the first turn reaches the agent');
+    assert.equal(calls[0].sessionKey, 'sess-a');
+    await waitFor(() => handle.store.run.running === false);
     await type(instance, '/clear');
     const ok = await waitFor(() => instance.lastFrame().includes('transcript cleared'));
     assert.ok(ok, `/clear reports itself: ${instance.lastFrame().slice(0, 200)}`);
     assert.ok(
+      instance.lastFrame().includes('empty context'),
+      'clear says the model context starts empty'
+    );
+    assert.ok(
       handle.store.rows.every((row) => row.kind === 'banner' || row.kind === 'summary'),
       'only the banner and the clear note survive'
     );
+    await type(instance, 'next task');
+    const second = await waitFor(() => calls.length === 2);
+    assert.ok(second, 'the turn after /clear still reaches the agent');
+    assert.notEqual(calls[1].sessionKey, 'sess-a', 'the new turn is a different conversation');
+    assert.match(calls[1].sessionKey, /^cli-/);
     instance.unmount();
     await sleep(150);
   }

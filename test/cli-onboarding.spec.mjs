@@ -166,7 +166,8 @@ import {
   assert.ok(help.includes('/help'), '/help output mentions the /help command itself');
   assert.ok(help.includes('/compact'), '/help output includes /compact');
   assert.ok(help.includes('/model'), '/help output includes /model');
-  assert.ok(help.includes('/sessions'), '/help output includes /sessions');
+  assert.ok(help.includes('/diff'), '/help output includes /diff');
+  assert.ok(!help.includes('/sessions'), 'everyday /help leaves hidden /sessions out');
   assert.ok(help.includes('Ctrl+C'), '/help output mentions how to exit');
 }
 

@@ -126,6 +126,12 @@ export interface TuiAppOptions {
    * restore anything later.
    */
   onTurnStart?: (message: string) => void;
+  /**
+   * `/clear` starts a new conversation. The host rebinds checkpoints (and
+   * anything else keyed by the session) to this key; the previous conversation
+   * stays on disk for `moss --continue`.
+   */
+  onNewSession?: (sessionKey: string) => void;
 }
 
 /**

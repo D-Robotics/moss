@@ -435,12 +435,12 @@ export function permissionRuleLines(
 
 export function renderCliPermissions(
   runtime: CliRuntimeStatus = {},
-  options: { verbose?: boolean } = {}
+  options: { verbose?: boolean; locale?: string } = {}
 ): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
   const permissions = auth.permissions;
-  const zh = isZhLocale();
+  const zh = isZhLocale(options.locale);
   const modeLabel =
     permissions?.defaultMode === 'manual'
       ? 'manual'

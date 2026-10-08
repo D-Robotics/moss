@@ -2,5 +2,8 @@
   "name": "idle-typing",
   "cols": 100,
   "rows": 30,
-  "steps": [{ "type": "keys", "text": "hello" }, { "type": "expect", "includes": "hello" }]
+  "steps": [
+    { "type": "keys", "text": "hello" },
+    { "type": "expect", "includes": "hello" }
+  ]
 }

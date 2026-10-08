@@ -68,6 +68,7 @@ import {
 } from '../commands/registry.js';
 import { cliLocale } from '../cli-locale.js';
 import { handleCompactCommand } from '../compact-command.js';
+import { createCliSessionKey } from '../session.js';
 import { runTaskCommand, splitCommandArgs } from '../task-run.js';
 import {
   formatCliInteractionModeLabel,
@@ -1745,10 +1746,36 @@ export function TuiAppRoot({
         return;
       }
       if (text === '/clear') {
-        // Clear the visible transcript but keep the banner (reference: /clear
-        // leaves the header). Committed <Static> rows live in the terminal's
-        // scrollback and cannot be un-printed — an ANSI clear wipes the visible
-        // screen, and the `clearRevision` remount re-renders only what remains.
+        // `/clear` is how a developer drops the thread and starts an unrelated
+        // task: empty model context, new session key. `/compact` is the command
+        // that keeps the same task and shrinks it. The banner stays; committed
+        // <Static> rows live in scrollback, so an ANSI clear plus remount is
+        // what actually empties the screen.
+        if (store.run.running) {
+          appendRow(
+            store,
+            'summary',
+            tui('a run is in flight — press Esc to interrupt it, then /clear')
+          );
+          handle.notify();
+          return;
+        }
+        const next = createCliSessionKey();
+        setActiveSession(next);
+        options.onNewSession?.(next);
+        queueRef.current = [];
+        setQueueRevision((n) => n + 1);
+        store.todos = [];
+        store.usage.tokensIn = 0;
+        store.usage.tokensOut = 0;
+        store.usage.runTokensIn = 0;
+        store.usage.runTokensOut = 0;
+        store.usage.contextUsed = 0;
+        store.usage.cacheReadTokens = 0;
+        store.usage.compactions = 0;
+        store.usage.runs = 0;
+        store.usage.apiMs = 0;
+        store.usage.ttftSamples = [];
         store.rows = store.rows.filter((row) => row.kind === 'banner');
         store.version++;
         writeStdout('\x1b[2J\x1b[H');
@@ -1756,7 +1783,7 @@ export function TuiAppRoot({
         appendRow(
           store,
           'summary',
-          tui('transcript cleared — the conversation context is kept (see /compact to shrink it)')
+          tui('transcript cleared — new conversation, empty context (previous: `moss --continue`)')
         );
         handle.notify();
         return;

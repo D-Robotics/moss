@@ -341,17 +341,22 @@ for (const command of [
   '/model',
   '/mode',
   '/compact',
-  '/status',
   '/diff',
-  '/context',
-  '/export',
   '/doctor',
   '/permissions',
   '/review',
+  '/clear',
+  '/help',
 ]) {
   assert.ok(
     HELP_COMMANDS.some((entry) => entry.split(' ')[0] === command),
     `${command} is advertised by the shell`
+  );
+}
+for (const hidden of ['/status', '/context', '/export']) {
+  assert.ok(
+    !HELP_COMMANDS.some((entry) => entry.split(' ')[0] === hidden),
+    `${hidden} stays out of the everyday menu`
   );
 }
 

@@ -45,10 +45,11 @@ const { SLASH_MENU_ROWS, INTERACTIVE_COMPLETION_COMMANDS, REPL_COMMAND_SECTIONS 
   pathToFileURL(path.join(here, '..', 'dist', 'cli', 'interactive-commands.js')).href
 );
 
-// /steer /queue /history /resume /clear have no REPL handler. They live in the
+// /steer /queue /history /resume have no REPL handler. They live in the
 // shared catalog marked surfaces:['tui'] (the TUI control plane answers them),
-// so no REPL-facing projection may list them.
-const DEAD = ['/steer', '/queue', '/history', '/resume', '/clear'];
+// so no REPL-facing projection may list them. /clear does have a REPL handler:
+// it starts a new conversation, same as the TUI.
+const DEAD = ['/steer', '/queue', '/history', '/resume'];
 const tokens = new Set([
   ...SLASH_MENU_ROWS.map((row) => row.command),
   ...SLASH_MENU_ROWS.flatMap((row) => row.aliases ?? []),

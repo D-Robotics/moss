@@ -11,6 +11,7 @@ import path from 'node:path';
 
 import stringWidth from 'string-width';
 
+import { shellPaletteRows } from '../dist/cli/tui/app-helpers.js';
 import {
   movePaletteSelection,
   renderSlashPalette,
@@ -39,11 +40,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     ['/compact'],
     'fuzzy subsequence match finds /compact'
   );
+  assert.deepEqual(
+    shellPaletteRows('/re').map(([command]) => command),
+    ['/review', '/resume'],
+    'prefix matches stay in catalog order'
+  );
   assert.ok(
-    slashPaletteRows('/rew')
+    !slashPaletteRows('/rew')
       .map(([command]) => command)
       .includes('/rewind'),
-    'prefix matches rank first'
+    'hidden /rewind stays out of the everyday menu'
   );
 
   assert.deepEqual(slashPaletteRows('hello'), [], 'plain text never opens the menu');
@@ -51,8 +57,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // `submit()` trims, so a leading space is still a command: the menu must
   // agree with what Enter will actually do.
   assert.deepEqual(
-    slashPaletteRows('  /st').map(([command]) => command),
-    ['/status', '/stop'],
+    slashPaletteRows('  /mo').map(([command]) => command),
+    ['/model', '/mode', '/permissions'],
     'leading whitespace keeps the menu consistent with submit()'
   );
 
@@ -67,12 +73,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ─── 2. rendering ────────────────────────────────────────────────────────
 
 {
-  const rows = slashPaletteRows('/rew');
+  const rows = shellPaletteRows('/re');
   const lines = renderSlashPalette(rows, { width: 60, selected: 0 });
   assert.equal(lines.length, rows.length, 'one row per match');
-  assert.ok(lines[0].text.startsWith('❯ /rewind'), 'the selection carries the marker');
+  assert.ok(lines[0].text.startsWith('❯ /review'), 'the selection carries the marker');
   assert.ok(lines[0].bold, 'the selection is emphasised');
-  assert.ok(lines[1].text.startsWith('  /review'), 'other rows keep the gutter');
+  assert.ok(lines[1].text.startsWith('  /resume'), 'other rows keep the gutter');
   assert.ok(lines[1].dim, 'other rows are dim');
 
   for (const width of [20, 40, 90]) {
@@ -157,22 +163,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await typeOnly('/');
   assert.ok(instance.lastFrame().includes('/compact'), 'typing / opens the menu');
 
-  await typeOnly('rew');
+  await typeOnly('re');
   const frame = instance.lastFrame();
-  assert.ok(frame.includes('/rewind'), '/rew lists /rewind');
+  assert.ok(frame.includes('/review'), '/re lists /review');
   await instance.stdin.write('\x1b[B'); // ↓
   await sleep(80);
-  assert.ok(instance.lastFrame().includes('❯ /review'), '↓ moves the selection');
+  assert.ok(instance.lastFrame().includes('❯ /resume'), '↓ moves the selection');
 
   await instance.stdin.write('\t'); // Tab completes
   await sleep(80);
-  assert.ok(instance.lastFrame().includes('❯ /review'), 'Tab completes the command');
+  assert.ok(instance.lastFrame().includes('❯ /resume'), 'Tab completes the command');
 
   await instance.stdin.write('\x1b'); // Esc closes the menu
   await sleep(80);
   const closed = instance.lastFrame();
-  assert.ok(!closed.includes('review the working-tree diff'), 'Esc closes the menu');
-  assert.ok(closed.includes('/review'), 'the completed command survives the menu closing');
+  assert.ok(!closed.includes('resume a failed'), 'Esc closes the menu');
+  assert.ok(closed.includes('/resume'), 'the completed command survives the menu closing');
 
   // Enter runs the completed command (the palette must not swallow it).
   instance.stdin.write('\r');

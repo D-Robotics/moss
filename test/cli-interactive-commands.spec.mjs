@@ -32,9 +32,11 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
     .map((r) => r.command);
   // Commands may include argument descriptions in their names (e.g. "/connect <ip>")
   const hasCmd = (prefix) => allVisible.some((c) => c === prefix || c.startsWith(prefix + ' '));
-  for (const cmd of ['/help', '/model', '/status', '/compact', '/task', '/diff', '/review']) {
+  for (const cmd of ['/help', '/model', '/compact', '/task', '/diff', '/review']) {
     assert.ok(hasCmd(cmd), `critical command "${cmd}" is visible in the catalog`);
   }
+  assert.ok(!hasCmd('/status'), '/status stays out of the everyday menu');
+  assert.ok(!hasCmd('/export'), '/export stays out of the everyday menu');
   // First-principles closeout: one advertised autonomous entry (/task), with
   // /loop retired to a hidden alias like /goal.
   const loopRow = INTERACTIVE_COMMAND_SECTIONS.flatMap((s) => s.rows).find(
@@ -96,7 +98,7 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
 // ─── INTERACTIVE_COMPLETION_COMMANDS includes slash aliases ──────────────────
 
 {
-  for (const cmd of ['/help', '/model', '/status', '/compact', '/diff']) {
+  for (const cmd of ['/help', '/model', '/compact', '/diff', '/review']) {
     assert.ok(INTERACTIVE_COMPLETION_COMMANDS.includes(cmd), `completion list includes "${cmd}"`);
   }
 }
@@ -124,8 +126,9 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
   //  - folded-away task-artifact tokens (/tasks /history /evidence /deployments
   //    /failures /bg /subs) left the catalog entirely — they still dispatch in
   //    the shell via /task view and /jobs back-compat, but are advertised nowhere;
-  //  - tui-only commands (/steer /queue /clear /resume /mcp /log /hooks) live in
+  //  - tui-only commands (/steer /queue /resume /mcp /hooks) live in
   //    the catalog marked surfaces:['tui'], absent from every REPL projection.
+  //    /clear is on both surfaces: the REPL starts a new conversation too.
   const folded = [
     '/tasks',
     '/history',
@@ -137,7 +140,7 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
     '/quickstart',
     '/log',
   ];
-  const tuiOnly = ['/steer', '/queue', '/clear', '/resume', '/mcp', '/hooks'];
+  const tuiOnly = ['/steer', '/queue', '/resume', '/mcp', '/hooks'];
   const tokens = new Set([
     ...SLASH_MENU_ROWS.map((row) => row.command),
     ...SLASH_MENU_ROWS.flatMap((row) => row.aliases ?? []),

@@ -109,9 +109,7 @@ const HEADLINE = [
   '/model',
   '/mode',
   '/compact',
-  '/status',
   '/diff',
-  '/export',
   '/doctor',
   '/permissions',
   '/review',
@@ -449,7 +447,7 @@ for (const command of advertised) {
       instance.lastFrame().slice(0, 200)
     )}`
   );
-  assert.ok(instance.lastFrame().includes('/status'), 'the menu leads with the everyday commands');
+  assert.ok(instance.lastFrame().includes('/model'), 'the menu leads with the everyday commands');
   await typeKeys(instance, 're');
   const filtered = await waitFor(() => instance.lastFrame().includes('/resume'));
   assert.ok(
@@ -488,7 +486,8 @@ for (const command of advertised) {
   );
   assert.equal(paletteWindowOffset(3, 4, 8), 0, 'a short menu never scrolls');
   const selections = [0, 7, 8, 9, rows.length - 1].filter(
-    (selected, index, all) => selected >= 0 && selected < rows.length && all.indexOf(selected) === index
+    (selected, index, all) =>
+      selected >= 0 && selected < rows.length && all.indexOf(selected) === index
   );
   for (const selected of selections) {
     const offset = paletteWindowOffset(selected, rows.length, 8);
@@ -576,9 +575,7 @@ for (const command of advertised) {
     const title = BLOCK_TITLE.get(last);
     const ran = await waitFor(() =>
       last === '/clear'
-        ? handle.store.rows.some(
-            (r) => r.kind === 'summary' && /transcript cleared/.test(r.text)
-          )
+        ? handle.store.rows.some((r) => r.kind === 'summary' && /transcript cleared/.test(r.text))
         : title !== undefined &&
           handle.store.rows.some((r) => r.kind === 'tool' && title.test(r.text))
     );

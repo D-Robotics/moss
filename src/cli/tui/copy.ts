@@ -151,8 +151,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'run a moss command (/help lists them all)': '执行 moss 命令（/help 列出全部）',
   'reference a workspace file or directory': '引用工作区文件或目录',
   'send the goal · run the shell command in `!` mode': '发送目标 · 在 `!` 模式下执行 shell 命令',
-  'cycle the interaction mode (default → accept-edits → plan)':
-    '循环切换交互模式（default → accept-edits → plan）',
+  'cycle the interaction mode (manual → accept-edits → plan → full)':
+    '循环切换交互模式（manual → accept-edits → plan → full）',
   'first character only: run a shell command inline': '仅限首字符：内联执行 shell 命令',
   'interrupt the run · cancel `!` shell mode · press again to clear the composer':
     '中断运行 · 取消 `!` shell 模式 · 再按清空输入框',
@@ -203,8 +203,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'interrupt the active run': '中断当前运行',
   'show the key and command reference': '显示快捷键与命令参考',
   'exit moss': '退出 moss',
-  'clear the transcript (banner stays; the model context is kept)':
-    '清空 transcript（保留 banner；模型上下文保留）',
+  'start a new conversation with an empty context': '开始一段空上下文的新对话',
   'list background shell and sub-agent jobs': '列出后台 shell 与子 agent 任务',
   'inspect or control the input queue': '查看或控制输入队列',
   'inject a constraint into the live run': '向正在运行的 run 注入一条约束',
@@ -338,8 +337,10 @@ export const ZH: Readonly<Record<string, string>> = {
     '没有可恢复的失败、受阻或已放弃任务',
   'interrupted the active run': '已中断当前运行',
   'no run in flight — nothing to interrupt': '没有运行中的 run — 无需中断',
-  'transcript cleared — the conversation context is kept (see /compact to shrink it)':
-    'transcript 已清空 — 对话上下文保留（用 /compact 收缩）',
+  'transcript cleared — new conversation, empty context (previous: `moss --continue`)':
+    'transcript 已清空 — 新对话，上下文为空（上一段：`moss --continue`）',
+  'a run is in flight — press Esc to interrupt it, then /clear':
+    '有 run 正在运行 — 先按 Esc 中断，再 /clear',
   'a run is in flight — press Esc to interrupt it, then /compact':
     '有 run 正在运行 — 先按 Esc 中断，再 /compact',
   'a run is in flight — press Esc to interrupt it before switching models':

@@ -765,7 +765,10 @@ instance.unmount();
   );
 
   await type('/failures');
-  assert.ok(await waitFor(() => toolTitles().includes('Failures (1)')), '/failures prints failures');
+  assert.ok(
+    await waitFor(() => toolTitles().includes('Failures (1)')),
+    '/failures prints failures'
+  );
   assert.ok(
     detailRows().some((line) => line.includes('camera_fps observed 12, expected >=30')),
     'the recorded failure is the same one acceptance repaired'

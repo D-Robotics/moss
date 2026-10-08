@@ -6,7 +6,7 @@
  *     runs the command inline through `runLocalShellCommand` and commits a
  *     `user` echo + a `result` row, Esc cancels.
  *   · shift+tab cycles the REAL policy layer (`cli/interaction-mode.ts`) —
- *     default → accept-edits → plan → default — never a parallel state.
+ *     manual → accept-edits → plan → full → manual — never a parallel state.
  *   · the hint row always names the active mode, tinted per mode, and appends
  *     `(shift+tab to cycle)` to every non-default mode.
  *   · the advertised key/prefix tables only contain keys the shell routes.

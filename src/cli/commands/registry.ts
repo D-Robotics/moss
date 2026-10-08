@@ -105,7 +105,10 @@ const permissionsCommand: CommandSpec = {
     if (!trimmed || verb === 'status' || verb === 'show' || verb === '--verbose') {
       ctx.say(
         'system',
-        renderCliPermissions(runtime, { verbose: verb === '--verbose' || trimmed === 'verbose' })
+        renderCliPermissions(runtime, {
+          verbose: verb === '--verbose' || trimmed === 'verbose',
+          locale: ctx.locale,
+        })
       );
       return;
     }
