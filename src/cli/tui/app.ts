@@ -482,6 +482,15 @@ export function TuiAppRoot({
     );
   }, [history, options.workspaceDir]);
   useEffect(() => {
+    // A line that is exactly `columns` wide makes real terminals auto-wrap
+    // and then honour the newline, inserting a blank row. The hardware cursor
+    // is then one row high (it sits on the rule above the prompt).
+    writeStdout('\x1b[?7l');
+    return () => {
+      writeStdout('\x1b[?7h');
+    };
+  }, [writeStdout]);
+  useEffect(() => {
     if (!fullscreen) return undefined;
     writeStdout(MOUSE_TRACKING_ON);
     return () => {
@@ -1948,7 +1957,6 @@ export function TuiAppRoot({
           if (!immediate.has(head)) {
             queueRef.current.push({ display: text, text });
             setQueueRevision((n) => n + 1);
-            setStatusLine(tui('queued: {text}', { text: text.slice(0, 80) }));
             return;
           }
         }
@@ -2905,10 +2913,9 @@ export function TuiAppRoot({
 
   // ─── render ────────────────────────────────────────────────────────────
 
-  // Reasoning is hidden by default, exactly like the reference CLI: the
-  // composer line (`✢ Thinking… (4s · ↓ N tokens)`) is the activity signal, and
-  // the inner monologue is opt-in through moss's own env convention.
-  const showThinking = process.env.MOSS_SHOW_THINKING === 'true';
+  // A short tail of the thinking stream stays visible. MOSS_SHOW_THINKING=false
+  // hides it; otherwise a long silent spinner looks like nothing is happening.
+  const showThinking = process.env.MOSS_SHOW_THINKING !== 'false';
   const live: LiveView = {
     running,
     startedAt: runStartedAtRef.current,
@@ -3167,9 +3174,16 @@ export function TuiAppRoot({
     ? viewportWindow(projected, viewport, frameLayout.viewportRows)
     : undefined;
   const permissionDialog = Boolean(approval && pendingDialogRef.current?.kind !== 'question');
+  const detailSource =
+    verbose && !fullscreen
+      ? [...store.rows].reverse().find((row) => row.kind === 'result' && row.text.includes('\n'))
+      : undefined;
+  const detailLines = detailSource
+    ? renderTranscriptRow(detailSource, columns, true).slice(0, 40)
+    : [];
   const composerLines = permissionDialog ? 0 : editor.lines.length;
   mouseLayoutRef.current = {
-    composerTop: (view?.lines.length ?? shownLive.length) + chromeTop.length,
+    composerTop: (view?.lines.length ?? shownLive.length) + detailLines.length + chromeTop.length,
     composerLines,
     viewportRows: fullscreen ? frameLayout.viewportRows : 0,
     ...(view && !view.pinned
@@ -3182,7 +3196,8 @@ export function TuiAppRoot({
   if (hideHardwareCursor || process.env.MOSS_TUI_HW_CURSOR === '0') {
     setCursorPosition(undefined);
   } else {
-    const aboveComposer = (view?.lines.length ?? shownLive.length) + chromeTop.length;
+    const aboveComposer =
+      (view?.lines.length ?? shownLive.length) + detailLines.length + chromeTop.length;
     setCursorPosition({ x: editor.caretCol, y: aboveComposer + editor.caretRow });
   }
 
@@ -3286,6 +3301,7 @@ export function TuiAppRoot({
         })
       : []),
     ...shownLive.map((l, index) => inkLine(l, `live-${index}`)),
+    ...detailLines.map((l, index) => inkLine(l, `detail-${index}`)),
     ...chromeTop.map((l, index) => inkLine(l, `chrome-top-${index}`)),
     ...(permissionDialog
       ? []

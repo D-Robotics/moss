@@ -32,6 +32,11 @@ const KEYWORDS: Record<string, ReadonlySet<string>> = {
       ' '
     )
   ),
+  cpp: new Set(
+    'if else for while return class struct enum namespace using template typename const auto new delete public private protected virtual override static void int bool char float double true false nullptr try catch throw include define'.split(
+      ' '
+    )
+  ),
 };
 
 /** `​```typescript` / `​```JSX` fold onto the known set ('ts' here) or ''. */
@@ -42,6 +47,7 @@ export function normalizeCodeLang(raw: string): string {
   if (lang === 'json') return 'json';
   if (['py', 'python'].includes(lang)) return 'py';
   if (['sh', 'bash', 'zsh', 'shell', 'console'].includes(lang)) return 'sh';
+  if (['c', 'cpp', 'cc', 'cxx', 'h', 'hpp', 'hh'].includes(lang)) return 'cpp';
   return '';
 }
 
@@ -52,9 +58,10 @@ const COLOR = {
   number: 'yellow',
 } as const;
 
-function tokenRegex(hashComment: boolean): RegExp {
+function tokenRegex(hashComment: boolean, preprocessor = false): RegExp {
   // One alternation walked left to right; un-matched spans stay plain.
   const parts = [
+    preprocessor ? '#\\s*\\w+' : '',
     hashComment ? '#[^\\n]*' : '//[^\\n]*',
     '"""[\\s\\S]*?"""',
     "'''[\\s\\S]*?'''",
@@ -63,7 +70,7 @@ function tokenRegex(hashComment: boolean): RegExp {
     '`(?:[^`\\\\]|\\\\.)*`',
     '\\b\\d[\\d_]*(?:\\.\\d+)?\\b',
     '[A-Za-z_$][\\w$]*',
-  ];
+  ].filter((part) => part.length > 0);
   return new RegExp(parts.join('|'), 'g');
 }
 
@@ -71,7 +78,7 @@ function tokenRegex(hashComment: boolean): RegExp {
 export function highlightCodeLine(line: string, lang: string): TuiLineRun[] | undefined {
   if (!KEYWORDS[lang]) return undefined;
   const hashComment = lang === 'py' || lang === 'sh';
-  const re = tokenRegex(hashComment);
+  const re = tokenRegex(hashComment, lang === 'cpp');
   const runs: TuiLineRun[] = [];
   let last = 0;
   for (const match of line.matchAll(re)) {
@@ -81,6 +88,8 @@ export function highlightCodeLine(line: string, lang: string): TuiLineRun[] | un
     let color: TuiLineRun['color'] | undefined;
     if ((hashComment && text.startsWith('#')) || text.startsWith('//')) {
       color = COLOR.comment;
+    } else if (text.startsWith('#')) {
+      color = 'cyan';
     } else if (/^["'`]/.test(text)) {
       color = COLOR.string;
     } else if (/^\d/.test(text)) {

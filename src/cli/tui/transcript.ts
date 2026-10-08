@@ -20,6 +20,7 @@ import {
 } from '../approval-view.js';
 import { formatCliInteractionModeLabel, type CliInteractionMode } from '../interaction-mode.js';
 import { COMPOSER_MAX_ROWS, createComposer, renderComposerEditor, takeCells } from './composer.js';
+import { highlightCodeLine } from './code-style.js';
 import { isTuiZh, localizeApprovalText, tui } from './copy.js';
 import { renderMarkdown, renderStreamingMarkdown, type MarkdownLine } from './markdown.js';
 import type { TranscriptRow } from './render-bridge.js';
@@ -59,7 +60,8 @@ export const INTERACTION_MODE_TONES: Record<CliInteractionMode, TuiColor> = {
   manual: 'gray',
   acceptEdits: 'magenta',
   plan: 'cyan',
-  full: 'yellow',
+  // Resting mode stays quiet. A yellow wash on the whole hint row reads as an error.
+  full: 'gray',
 };
 
 /**
@@ -93,6 +95,8 @@ export function isShellCommandRow(text: string): boolean {
  * pointing at the key that reveals the rest.
  */
 export const RESULT_PREVIEW_LINES = 3;
+/** Source dumps (writes, patches) stay readable without ctrl+o. */
+const CODE_PREVIEW_LINES = 24;
 /** Diff blocks get a larger window: a hunk with its context is one thought. */
 export const DIFF_PREVIEW_LINES = 14;
 
@@ -551,7 +555,12 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
         );
         return out;
       }
-      const shown = verbose ? source : source.slice(0, RESULT_PREVIEW_LINES);
+      const codeLike = source.some((raw) =>
+        /^\s*(\+\s|-\s)?(#include|\/\/|\/\*|\*|template\b|namespace\b)/.test(raw)
+      );
+      const shown = verbose
+        ? source
+        : source.slice(0, codeLike ? CODE_PREVIEW_LINES : RESULT_PREVIEW_LINES);
       out.push(...headline);
       shown.forEach((raw, index) => {
         const tone = diffTone(raw);
@@ -561,7 +570,28 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
             markBody && index === 0 && lineIndex === 0
               ? `${CONTINUATION}${RESULT_MARK}  `
               : RESULT_INDENT;
-          out.push(line(clip(`${prefix}${text}`, width), tone));
+          const painted = highlightCodeLine(text.replace(/^[+-]\s/, ''), 'cpp');
+          const full = `${prefix}${text}`;
+          const clipped = clip(full, width);
+          if (painted && clipped === full) {
+            const sign = text.startsWith('+ ') ? '+ ' : text.startsWith('- ') ? '- ' : '';
+            out.push({
+              text: full,
+              runs: [
+                {
+                  text: `${prefix}${sign}`,
+                  ...(sign === '+ '
+                    ? { color: 'green' as const }
+                    : sign === '- '
+                      ? { color: 'red' as const }
+                      : {}),
+                },
+                ...painted.map((run) => ({ ...run, text: run.text })),
+              ],
+            });
+            return;
+          }
+          out.push(line(clipped, codeLike ? {} : tone));
         });
       });
       if (shown.length < source.length) {
@@ -578,15 +608,36 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
       return out;
     }
     case 'detail': {
-      // Slash-command / help output: indented like a tool result, but without
-      // repeating the ⎿ mark on every line.
-      const indent = /^(\s*)/.exec(row.text)?.[1] ?? '';
-      const body = wrap(row.text.trim(), Math.max(8, width - 4 - indent.length));
-      if (body.length === 0) return [line('')];
-      for (const text of body) {
-        out.push(line(clip(`${' '.repeat(4)}${indent}${text}`, width), { dim: true }));
+      // Slash-command output. A heading is bold; `label: value` keeps the
+      // value in the normal colour so the block is not one wash of gray.
+      const raw = row.text;
+      const trimmed = raw.trim();
+      if (!trimmed) return [line(' ')];
+      const field = /^([^:]{1,32}):\s+(\S.*)$/.exec(trimmed);
+      const indented = raw.startsWith(' ') && !raw.startsWith('    ');
+      if (field && indented) {
+        const label = `    ${field[1]}: `;
+        const value = field[2] ?? '';
+        const text = `${label}${value}`;
+        const clipped = clip(text, width);
+        if (clipped !== text) return [line(clipped, { dim: true })];
+        return [
+          {
+            text,
+            runs: [{ text: label, color: 'gray' }, { text: value }],
+          },
+        ];
       }
-      return out;
+      const heading = !raw.startsWith(' ') && trimmed.length < 48;
+      const indent = /^(\s*)/.exec(raw)?.[1] ?? '';
+      const body = wrap(trimmed, Math.max(8, width - 4 - indent.length));
+      if (body.length === 0) return [line(' ')];
+      return body.map((text) =>
+        line(
+          clip(`${' '.repeat(4)}${text}`, width),
+          heading ? { bold: true, color: 'cyan' } : { dim: true }
+        )
+      );
     }
     case 'summary': {
       // Finalizing status (`✻ Worked for 5s`): sits at the same 2-space column
@@ -1106,10 +1157,8 @@ export function renderHint(view: StatusView, width: number): TuiLine {
     );
   return line(clip(`  ${parts.join(' · ')}`, width), {
     color: INTERACTION_MODE_TONES[mode],
-    // The default mode (v0.26: full) is the resting state: keep it quiet so
-    // manual/plan/accept-edits read as a change (PRD decision 4 inverted the
-    // default/non-default suffix rule the same way).
-    ...(mode === 'full' ? { dim: true } : {}),
+    // full is the resting mode: dim gray, not a yellow bar across the footer.
+    ...(mode === 'full' || mode === 'manual' ? { dim: true } : {}),
   });
 }
 
@@ -1117,7 +1166,10 @@ export function renderHint(view: StatusView, width: number): TuiLine {
  * Collapse a run of read-only tool calls into one summary line. Verbose mode
  * keeps every row. The store itself is unchanged; this is a projection.
  */
-export function foldReadonlyRows(rows: readonly TranscriptRow[], verbose: boolean): TranscriptRow[] {
+export function foldReadonlyRows(
+  rows: readonly TranscriptRow[],
+  verbose: boolean
+): TranscriptRow[] {
   if (verbose) return [...rows];
   const out: TranscriptRow[] = [];
   let index = 0;
@@ -1129,7 +1181,11 @@ export function foldReadonlyRows(rows: readonly TranscriptRow[], verbose: boolea
       let cursor = index;
       while (cursor < rows.length) {
         const current = rows[cursor]!;
-        if (current.kind !== 'tool' || !current.tool?.name || !READONLY_PREVIEW_TOOLS.has(current.tool.name)) {
+        if (
+          current.kind !== 'tool' ||
+          !current.tool?.name ||
+          !READONLY_PREVIEW_TOOLS.has(current.tool.name)
+        ) {
           break;
         }
         if (current.tool.name.includes('list') || current.tool.name === 'search_files') lists += 1;

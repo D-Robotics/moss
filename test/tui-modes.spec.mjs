@@ -83,13 +83,15 @@ async function waitFor(predicate, timeoutMs = 5000) {
     );
     assert.ok(cells(hint.text) <= 100, `the hint never overflows (${mode})`);
   }
-  assert.equal(new Set(Object.values(hints).map((h) => h.color)).size, 4, 'one colour per mode');
+  assert.equal(hints.plan.color, 'cyan', 'plan stays cyan');
+  assert.equal(hints.acceptEdits.color, 'magenta', 'accept-edits stays magenta');
+  assert.equal(hints.full.color, 'gray', 'full is quiet gray, not a yellow footer');
 
   // The tint is on the row, so a mode change is visible even while typing.
   assert.equal(
     renderHint({ ...base }, 100).color,
-    'yellow',
-    'an omitted mode is the factory-default (full, v0.26)'
+    'gray',
+    'an omitted mode is the factory-default (full) and stays quiet'
   );
 
   // Shell mode: the reference hint text, the shell accent, and the mode intact.
