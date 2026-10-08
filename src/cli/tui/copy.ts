@@ -63,6 +63,7 @@ export const ZH: Readonly<Record<string, string>> = {
   // ── collapsed-preview markers (transcript.ts) ──────────────────────────
   '… {count} more lines · ctrl+o': '… 还有 {count} 行 · ctrl+o',
   '… {count} lines · ctrl+o': '… {count} 行 · ctrl+o',
+  '  ⎿ thinking · click or ctrl+o': '  ⎿ 思考过程 · 点击或 ctrl+o',
 
   // ── live region (transcript.ts) ────────────────────────────────────────
   '  ↻ provider retry {attempt} — {error}': '  ↻ 提供方重试 {attempt} — {error}',
@@ -163,6 +164,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'search your earlier prompts': '搜索早先的提示',
   'edit the draft in $EDITOR': '用 $EDITOR 编辑草稿',
   'scroll the transcript': '滚动对话记录',
+  'expand a collapsed block · drag to copy': '展开被折叠的块 · 拖动复制',
   'print failures · deployments are /deployments': '打印 failures · deployments 用 /deployments',
   'print task artifacts': '打印任务工件',
   'clear the composer': '清空输入框',
@@ -315,6 +317,16 @@ export const ZH: Readonly<Record<string, string>> = {
   'fresh session — `moss resume` reopens the picker': '新会话 — `moss resume` 重新打开选择器',
   'prompt staged from history — Enter sends': '已从历史暂存提示 — Enter 发送',
   'history {n}/{total} — ↑↓ to walk · type to edit': '历史 {n}/{total} — ↑↓ 浏览 · 输入以编辑',
+  'History {n}/{total}': '历史 {n}/{total}',
+  Permissions: '权限',
+  '  mode  {mode}    Shift+Tab cycles': '  模式  {mode}    Shift+Tab 循环',
+  '  no rules — full allows tools; deny still wins everywhere':
+    '  无规则 — full 放行工具；deny 在任何模式都优先',
+  session: '会话',
+  '  ↑↓ select · d remove session rule · Esc close': '  ↑↓ 选择 · d 删除会话规则 · Esc 关闭',
+  '  add   /permissions add deny "exec(rm *)"': '  添加  /permissions add deny "exec(rm *)"',
+  'removed session rule {spec}': '已删除会话规则 {spec}',
+  'config rules stay in the config file': '配置文件里的规则留在配置文件中',
   'nothing to paste — Ctrl+U / Ctrl+K / Ctrl+W delete into the kill ring':
     '无可粘贴 — Ctrl+U / Ctrl+K / Ctrl+W 删除并入 kill ring',
   'swapped — Ctrl+S again to swap back': '已交换 — 再按 Ctrl+S 换回',

@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+
 /**
  * Which terminal renderer a TTY session uses.
  *
@@ -46,7 +48,40 @@ export function selectTuiRenderer(probe: RendererProbe = {}): RendererChoice {
 }
 
 export const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?1004h';
-export const MOUSE_TRACKING_OFF = '\x1b[?1004l\x1b[?1006l\x1b[?1002l\x1b[?1000l';
+export const MOUSE_TRACKING_OFF =
+  '\x1b[?1004l\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1003l\x1b[?1015l';
+
+/**
+ * Modes that must not survive the process. Mouse tracking in particular is
+ * not tied to the alternate screen: if it is still on when the shell prompt
+ * returns, a click is delivered as an SGR report (`0;84;44M`) and echoed.
+ * Autowrap (`?7`) is turned off for the session and has to come back too.
+ * Written with `writeSync` because ink drops `useStdout().write` once
+ * unmount has set `isUnmounted`.
+ */
+export const TERMINAL_RESTORE = MOUSE_TRACKING_OFF + '\x1b[?7h\x1b[?25h\x1b[?2004l';
+
+export function restoreTerminalModes(target: { fd?: number; isTTY?: boolean } | number = 1): void {
+  const fd = typeof target === 'number' ? target : target.fd;
+  const tty = typeof target === 'number' ? true : target.isTTY === true;
+  if (!tty || typeof fd !== 'number') return;
+  try {
+    fs.writeSync(fd, TERMINAL_RESTORE);
+  } catch {
+    // The fd is already closed during a hard shutdown.
+  }
+}
+
+let restoreInstalled = false;
+
+/** Idempotent. The `exit` hook covers signals that skip the React cleanup. */
+export function installTerminalRestore(): void {
+  if (restoreInstalled) return;
+  restoreInstalled = true;
+  process.on('exit', () => {
+    restoreTerminalModes(process.stdout);
+  });
+}
 
 /** OSC 52 clipboard write. The caller also falls back to pbcopy on macOS. */
 export function osc52(text: string): string {

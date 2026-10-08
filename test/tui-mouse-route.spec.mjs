@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { routeMouse } from '../dist/cli/tui/input/mouse-route.js';
+import { isExpandAffordance, routeMouse } from '../dist/cli/tui/input/mouse-route.js';
 import { selectionText } from '../dist/cli/tui/selection.js';
 import { composerCaretFromClick, createComposer } from '../dist/cli/tui/composer.js';
 
 const layout = { composerTop: 20, composerLines: 1, viewportRows: 18 };
 
 assert.equal(routeMouse({ button: 64, x: 1, y: 2, release: false }, layout).type, 'scroll');
+assert.equal(routeMouse({ button: 64, x: 1, y: 2, release: true }, layout).type, 'ignore');
+assert.equal(isExpandAffordance('    … 51 more lines · ctrl+o'), true);
+assert.equal(isExpandAffordance('  ⎿ thinking · click or ctrl+o'), true);
+assert.equal(isExpandAffordance('hello'), false);
 assert.deepEqual(routeMouse({ button: 0, x: 4, y: 21, release: false }, layout), {
   type: 'caret',
   visibleRow: 0,

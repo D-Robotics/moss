@@ -386,16 +386,16 @@ for (const hidden of ['/status', '/context', '/export']) {
   // The default view names the mode, counts rules, and advertises the
   // manager subcommands.
   await type(instance, '/permissions');
-  const viewed = await waitFor(() => allText(handle).includes('default mode'));
+  const viewed = await waitFor(() => instance.lastFrame().includes('Shift+Tab cycles'));
   assert.ok(
     viewed,
-    `the /permissions view rendered: ${JSON.stringify(allText(handle).slice(-300))}`
+    `the /permissions panel rendered: ${JSON.stringify(instance.lastFrame().slice(-300))}`
   );
-  assert.match(allText(handle), /default mode:\s*full/, 'the view names the default mode');
+  assert.match(instance.lastFrame(), /manual/, 'the panel shows the live interaction mode');
   assert.match(
-    allText(handle),
-    /\/permissions add\|remove\|persist/,
-    'the view advertises the manager subcommands'
+    instance.lastFrame(),
+    /\/permissions add/,
+    'the panel advertises how to add a rule'
   );
   // add → remove round-trip through the registry the TUI shares with the hook.
   await type(instance, '/permissions add deny "read_file(./.env)"');

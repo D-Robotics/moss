@@ -41,8 +41,8 @@ import {
   usageBlock,
   type TranscriptRow,
 } from './render-bridge.js';
-import { isComposerLeak, classifyKeyStream, noteDroppedKeys } from './input/key-stream.js';
-import { routeMouse, type MouseLayout } from './input/mouse-route.js';
+import { isComposerLeak, mouseEventsInChunk, noteDroppedKeys } from './input/key-stream.js';
+import { isExpandAffordance, routeMouse, type MouseLayout } from './input/mouse-route.js';
 import {
   deleteText,
   expandPasteTokens,
@@ -100,6 +100,7 @@ import {
   renderRunSummary,
   renderStatusRight,
   renderTranscriptRow,
+  renderScrollableActivity,
   foldReadonlyRows,
   stripSgr,
   CONTEXT_WARN_PCT,
@@ -111,7 +112,13 @@ import {
 import { clip, line, rule, type TuiLine } from './text.js';
 import { isTuiZh, setTuiLocale, transientStatus, tui } from './copy.js';
 import { allocateFrame } from './layout.js';
-import { MOUSE_TRACKING_OFF, MOUSE_TRACKING_ON, osc52, selectTuiRenderer } from './renderer.js';
+import {
+  MOUSE_TRACKING_ON,
+  installTerminalRestore,
+  osc52,
+  restoreTerminalModes,
+  selectTuiRenderer,
+} from './renderer.js';
 import { installTuiLogSink } from './terminal-io.js';
 import { needsTestHint, type VerifyHintState } from '../verify-hint.js';
 import { createViewport, scrollViewport, viewportWindow, type ViewportLine } from './viewport.js';
@@ -144,10 +151,17 @@ import {
   buildWorkspaceIndexAsync,
   type MentionEntry,
 } from './mentions.js';
-import { loadPromptHistory, promptHistoryFile, savePromptHistory } from './prompt-history.js';
+import {
+  loadMergedPromptHistory,
+  promptHistoryFile,
+  savePromptHistory,
+  walkPromptHistory,
+  type HistoryCursor,
+} from './prompt-history.js';
 import { selectionText, type SelectionPoint } from './selection.js';
 import { spawnProcess, runProcess } from '../../utils/run-process.js';
-import { filterHistory, renderHistorySearch } from './history-search.js';
+import { filterHistory, renderHistoryRule, renderHistorySearch } from './history-search.js';
+import { renderPermissionsPanel, type PermissionPanelRule } from './permissions-panel.js';
 import { buildResumeReplay } from '../resume-replay.js';
 import { getPackageVersion } from '../package-info.js';
 import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
@@ -393,7 +407,23 @@ export function TuiAppRoot({
   const [rewindCursor, setRewindCursor] = useState(0);
   const historyReadyRef = useRef(false);
   const [history, setHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState<number | undefined>(undefined);
+  const [historyCursor, setHistoryCursor] = useState<HistoryCursor>({
+    index: undefined,
+    draft: '',
+  });
+  const historyRef = useRef(history);
+  const historyCursorRef = useRef(historyCursor);
+  historyRef.current = history;
+  historyCursorRef.current = historyCursor;
+  /** Rows the user expanded by clicking, independent of the global ctrl+o toggle. */
+  const [expandedRows, setExpandedRows] = useState<ReadonlySet<number>>(() => new Set());
+  const expandedRowsRef = useRef(expandedRows);
+  expandedRowsRef.current = expandedRows;
+  const projectedFullRef = useRef<ViewportLine[]>([]);
+  const viewportWindowRef = useRef<ViewportLine[]>([]);
+  const clickPressRef = useRef<{ x: number; y: number } | undefined>(undefined);
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [permissionCursor, setPermissionCursor] = useState(0);
   /** Ctrl+R prompt search: `{ query, cursor }` while the overlay is open. */
   const [historySearch, setHistorySearch] = useState<{ query: string; cursor: number } | undefined>(
     undefined
@@ -468,38 +498,38 @@ export function TuiAppRoot({
   // The policy layer is authoritative: any mode change (shift+tab, `/mode`, a
   // flag, an embedded host) re-renders the hint row immediately.
   useEffect(() => subscribeCliInteractionMode(setInteractionModeState), []);
+  const historyFiles = useCallback(() => {
+    const workspace = promptHistoryFile(getMossWorkspacePaths(options.workspaceDir).runtimeDir);
+    const configDir = options.cliRuntime?.configDir;
+    return configDir ? [promptHistoryFile(configDir), workspace] : [workspace];
+  }, [options.cliRuntime?.configDir, options.workspaceDir]);
   useEffect(() => {
     historyReadyRef.current = false;
-    setHistory(
-      loadPromptHistory(promptHistoryFile(getMossWorkspacePaths(options.workspaceDir).runtimeDir))
-    );
-  }, [options.workspaceDir]);
+    setHistory(loadMergedPromptHistory(historyFiles()));
+  }, [historyFiles]);
   useEffect(() => {
     if (!historyReadyRef.current) {
       historyReadyRef.current = true;
       return;
     }
-    savePromptHistory(
-      promptHistoryFile(getMossWorkspacePaths(options.workspaceDir).runtimeDir),
-      history
-    );
-  }, [history, options.workspaceDir]);
+    for (const file of historyFiles()) savePromptHistory(file, history);
+  }, [history, historyFiles]);
   useEffect(() => {
     // A line that is exactly `columns` wide makes real terminals auto-wrap
     // and then honour the newline, inserting a blank row. The hardware cursor
     // is then one row high (it sits on the rule above the prompt).
     writeStdout('\x1b[?7l');
     return () => {
-      writeStdout('\x1b[?7h');
+      restoreTerminalModes(stdout);
     };
-  }, [writeStdout]);
+  }, [stdout, writeStdout]);
   useEffect(() => {
     if (!fullscreen) return undefined;
     writeStdout(MOUSE_TRACKING_ON);
     return () => {
-      writeStdout(MOUSE_TRACKING_OFF);
+      restoreTerminalModes(stdout);
     };
-  }, [fullscreen, writeStdout]);
+  }, [fullscreen, stdout, writeStdout]);
   useEffect(() => {
     const paths = getMossWorkspacePaths(options.workspaceDir);
     return installTuiLogSink({
@@ -1681,7 +1711,7 @@ export function TuiAppRoot({
       const text = raw.trim();
       if (!text) return;
       setInput('');
-      setHistoryIndex(undefined);
+      setHistoryCursor({ index: undefined, draft: '' });
       setStatusLine(undefined);
 
       // `!` shell mode is checked FIRST: `/quit` typed in shell mode is a shell
@@ -1965,6 +1995,11 @@ export function TuiAppRoot({
         }
         return;
       }
+      if (text === '/permissions') {
+        setPermissionsOpen(true);
+        setPermissionCursor(0);
+        return;
+      }
       if (text.startsWith('/')) {
         // Shared registry first (status/doctor/permissions/mode/context/export/
         // review/quickstart), then the shell-local control commands, then
@@ -2178,32 +2213,41 @@ export function TuiAppRoot({
     }, ESC_CLEAR_MS);
   }, []);
 
+  const permissionPanelRules = (): PermissionPanelRule[] => {
+    const live = options.cliRuntime?.permissionsRules?.().rules ?? [];
+    return live.map((rule) => ({
+      level: rule.level,
+      spec: rule.operandPattern ? `${rule.toolName}(${rule.operandPattern})` : rule.toolName,
+      source: rule.source,
+      session: rule.source === 'session',
+    }));
+  };
+  const copySelection = (text: string): void => {
+    writeStdout(osc52(text));
+    if (process.platform === 'darwin') {
+      void runProcess('pbcopy', { args: [], stdin: text }).catch(() => undefined);
+    }
+    setStatusLine(tui('copied {count} chars to clipboard', { count: text.length }));
+  };
+  const toggleExpandedRow = (rowId: number): void => {
+    setExpandedRows((current) => {
+      const next = new Set(current);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
+  };
+
   useInput((chunk, key) => {
-    const inkKey =
-      key.upArrow ||
-      key.downArrow ||
-      key.leftArrow ||
-      key.rightArrow ||
-      key.return ||
-      key.escape ||
-      key.tab ||
-      key.backspace ||
-      key.delete ||
-      key.ctrl ||
-      key.meta;
-    if (!inkKey && isComposerLeak(chunk)) {
-      if (fullscreen) {
-        for (const event of classifyKeyStream(chunk).events) {
-          if (event.kind !== 'mouse') continue;
+    if (fullscreen) {
+      const mouseEvents = mouseEventsInChunk(chunk);
+      if (mouseEvents.length > 0) {
+        for (const event of mouseEvents) {
           const action = routeMouse(event, mouseLayoutRef.current);
           if (action.type === 'scroll') {
+            const height = Math.max(1, mouseLayoutRef.current.viewportRows);
             setViewport((current) =>
-              scrollViewport(
-                current,
-                viewportLinesRef.current,
-                action.delta,
-                Math.max(1, mouseLayoutRef.current.viewportRows)
-              )
+              scrollViewport(current, viewportLinesRef.current, action.delta, height)
             );
           } else if (action.type === 'pin') {
             setViewport(createViewport());
@@ -2223,38 +2267,93 @@ export function TuiAppRoot({
             );
           } else if (action.type === 'select') {
             if (action.phase === 'start') {
-              selectionRef.current = {
-                anchor: { x: action.x, y: action.y },
-                head: { x: action.x, y: action.y },
-              };
-              forceUpdate();
-            } else if (action.phase === 'move' && selectionRef.current) {
-              selectionRef.current = {
-                ...selectionRef.current,
-                head: { x: action.x, y: action.y },
-              };
-              forceUpdate();
-            } else if (action.phase === 'end' && selectionRef.current) {
-              const text = selectionText(
-                projectedTextRef.current,
-                selectionRef.current.anchor,
-                selectionRef.current.head
-              );
+              clickPressRef.current = { x: action.x, y: action.y };
               selectionRef.current = undefined;
               forceUpdate();
-              if (text) {
-                writeStdout(osc52(text));
-                if (process.platform === 'darwin') {
-                  void runProcess('pbcopy', { args: [], stdin: text }).catch(() => undefined);
+            } else if (action.phase === 'move' && clickPressRef.current) {
+              const pressed = clickPressRef.current;
+              if (pressed.x !== action.x || pressed.y !== action.y) {
+                selectionRef.current = {
+                  anchor: { x: pressed.x, y: pressed.y },
+                  head: { x: action.x, y: action.y },
+                };
+                forceUpdate();
+              }
+            } else if (action.phase === 'end') {
+              const pressed = clickPressRef.current;
+              clickPressRef.current = undefined;
+              if (selectionRef.current) {
+                const text = selectionText(
+                  projectedTextRef.current,
+                  selectionRef.current.anchor,
+                  selectionRef.current.head
+                );
+                selectionRef.current = undefined;
+                forceUpdate();
+                if (text) copySelection(text);
+              } else if (pressed) {
+                const hit = viewportWindowRef.current[pressed.y];
+                const rowId = hit?.rowId;
+                if (
+                  rowId !== undefined &&
+                  rowId >= 0 &&
+                  (expandedRowsRef.current.has(rowId) ||
+                    projectedFullRef.current.some(
+                      (entry) => entry.rowId === rowId && isExpandAffordance(entry.text)
+                    ))
+                ) {
+                  toggleExpandedRow(rowId);
                 }
-                setStatusLine(tui('copied {count} chars to clipboard', { count: text.length }));
               }
             }
           }
         }
+        return;
       }
+    }
+    const inkKey =
+      key.upArrow ||
+      key.downArrow ||
+      key.leftArrow ||
+      key.rightArrow ||
+      key.return ||
+      key.escape ||
+      key.tab ||
+      key.backspace ||
+      key.delete ||
+      key.ctrl ||
+      key.meta;
+    if (!inkKey && isComposerLeak(chunk)) {
       noteDroppedKeys(1);
       return;
+    }
+    if (permissionsOpen) {
+      const rules = permissionPanelRules();
+      if (key.escape) {
+        setPermissionsOpen(false);
+        return;
+      }
+      if (key.upArrow || key.downArrow) {
+        setPermissionCursor((current) =>
+          Math.max(0, Math.min(rules.length - 1, current + (key.upArrow ? -1 : 1)))
+        );
+        return;
+      }
+      if ((chunk === 'd' || key.backspace) && rules.length > 0) {
+        const rule = rules[Math.min(permissionCursor, rules.length - 1)];
+        const registry = options.cliRuntime?.permissionRuleRegistry;
+        if (rule?.session && registry?.remove(rule.spec)) {
+          setStatusLine(tui('removed session rule {spec}', { spec: rule.spec }));
+          forceUpdate();
+        } else if (rule) {
+          setStatusLine(tui('config rules stay in the config file'));
+        }
+        return;
+      }
+      // A typed command (`/permissions add …`) leaves the panel and lands in
+      // the composer. Arrow keys and `d` stay inside the panel.
+      if (!chunk || inkKey) return;
+      setPermissionsOpen(false);
     }
     if (rewindOpen) {
       const checkpoints = options.listCheckpoints?.() ?? [];
@@ -2280,9 +2379,9 @@ export function TuiAppRoot({
       return;
     }
     if (fullscreen && (key.pageUp || key.pageDown) && !approval) {
-      const page = Math.max(1, windowSize.rows - 8);
+      const height = Math.max(1, mouseLayoutRef.current.viewportRows);
       setViewport((current) =>
-        scrollViewport(current, viewportLinesRef.current, key.pageUp ? -page : page, page)
+        scrollViewport(current, viewportLinesRef.current, key.pageUp ? -height : height, height)
       );
       return;
     }
@@ -2710,49 +2809,32 @@ export function TuiAppRoot({
       return;
     }
     if (key.upArrow || key.downArrow) {
-      // Inside a multi-line draft the arrows move between visual rows; on a
-      // single-line draft they walk the input history.
-      if (input.includes('\n')) {
+      // A history walk keeps using Up/Down even when the recalled prompt is
+      // multi-line. Otherwise the first multi-line entry traps the arrows.
+      const walking = historyCursorRef.current.index !== undefined;
+      if (!walking && input.includes('\n')) {
         setComposer((current) =>
           composerMove(current, key.upArrow ? 'up' : 'down', Math.max(4, columns - 2))
         );
         return;
       }
-      if (key.upArrow && input.length === 0 && queueRef.current.length > 0) {
+      if (key.upArrow && input.length === 0 && queueRef.current.length > 0 && !walking) {
         const last = queueRef.current.pop();
         setQueueRevision((n) => n + 1);
         if (last) setInput(last.display);
         return;
       }
-      if (history.length === 0) return;
-      if (key.upArrow) {
-        const next =
-          historyIndex === undefined ? history.length - 1 : Math.max(0, historyIndex - 1);
-        setHistoryIndex(next);
-        setInput(history[next] ?? '');
-        setStatusLine(
-          tui('history {n}/{total} — ↑↓ to walk · type to edit', {
-            n: next + 1,
-            total: history.length,
-          })
-        );
-      } else if (historyIndex !== undefined) {
-        const next = historyIndex + 1;
-        if (next >= history.length) {
-          setHistoryIndex(undefined);
-          setInput('');
-          setStatusLine(undefined);
-        } else {
-          setHistoryIndex(next);
-          setInput(history[next] ?? '');
-          setStatusLine(
-            tui('history {n}/{total} — ↑↓ to walk · type to edit', {
-              n: next + 1,
-              total: history.length,
-            })
-          );
-        }
-      }
+      const recalled = walkPromptHistory(
+        historyRef.current,
+        historyCursorRef.current,
+        key.upArrow ? 'older' : 'newer',
+        input
+      );
+      if (!recalled) return;
+      historyCursorRef.current = { index: recalled.index, draft: recalled.draft };
+      setHistoryCursor({ index: recalled.index, draft: recalled.draft });
+      setInput(recalled.text);
+      setStatusLine(undefined);
       return;
     }
     if (key.backspace || key.delete) {
@@ -2927,7 +3009,9 @@ export function TuiAppRoot({
     // which silently turned every mid-text edit into an append).
     // A real edit ends every transient affordance: history-walk mode, the
     // `Esc again to clear` arming, and the status note that came with them.
-    if (historyIndex !== undefined) setHistoryIndex(undefined);
+    if (historyCursorRef.current.index !== undefined) {
+      setHistoryCursor({ index: undefined, draft: '' });
+    }
     disarmEscClear();
     setStatusLine((current) =>
       current !== undefined && transientStatus(current) ? undefined : current
@@ -3182,11 +3266,34 @@ export function TuiAppRoot({
     ...(!approval && !helpOverlay ? mentions : []),
     ...(!helpOverlay ? modelPickerLines : []),
     ...helpOverlayLines,
+    ...(permissionsOpen
+      ? renderPermissionsPanel({
+          width: columns,
+          mode: formatCliInteractionModeLabel(interactionMode, isTuiZh()),
+          rules: permissionPanelRules(),
+          cursor: permissionCursor,
+        })
+      : []),
     renderStatusRight(status, columns),
+    ...(historyCursor.index !== undefined
+      ? [renderHistoryRule(historyCursor.index + 1, history.length, columns)]
+      : []),
     line(rule(columns), ruleTone),
   ];
   const chromeBottom: TuiLine[] = [line(rule(columns), ruleTone), renderHint(status, columns)];
-  const liveLines = renderLive(live, columns, verbose);
+  const rowDetail = (row: { id: number }): boolean => verbose || expandedRows.has(row.id);
+  const activityLines = fullscreen
+    ? renderScrollableActivity(
+        showThinking ? store.run.thinkingText : '',
+        store.run.streamingText,
+        columns
+      )
+    : [];
+  const liveLines = renderLive(
+    fullscreen ? { ...live, thinking: '', streaming: '' } : live,
+    columns,
+    verbose
+  );
   const frameLayout = allocateFrame({
     rows: windowSize.rows || 24,
     mode: fullscreen ? 'fullscreen' : 'inline',
@@ -3206,16 +3313,21 @@ export function TuiAppRoot({
   const projected: ViewportLine[] = [];
   if (fullscreen) {
     for (const row of foldReadonlyRows(store.rows, verbose)) {
-      renderTranscriptRow(row, columns, verbose).forEach((entry, lineIndex) => {
+      renderTranscriptRow(row, columns, rowDetail(row)).forEach((entry, lineIndex) => {
         projected.push({ rowId: row.id, lineIndex, text: entry.text });
       });
     }
+    activityLines.forEach((entry, lineIndex) => {
+      projected.push({ rowId: -1, lineIndex, text: entry.text });
+    });
   }
+  projectedFullRef.current = projected;
   viewportLinesRef.current = projected.length;
-  projectedTextRef.current = projected.map((entry) => entry.text);
   const view = fullscreen
     ? viewportWindow(projected, viewport, frameLayout.viewportRows)
     : undefined;
+  viewportWindowRef.current = view?.lines ?? [];
+  projectedTextRef.current = (view?.lines ?? []).map((entry) => entry.text);
   const permissionDialog = Boolean(approval && pendingDialogRef.current?.kind !== 'question');
   const detailSource =
     verbose && !fullscreen
@@ -3333,7 +3445,7 @@ export function TuiAppRoot({
             return React.createElement(
               Box,
               { key: row.id, flexDirection: 'column' },
-              ...renderTranscriptRow(row, columns, verbose).map((l, index) =>
+              ...renderTranscriptRow(row, columns, rowDetail(row)).map((l, index) =>
                 inkLine(l, `${row.id}-${index}`)
               )
             );
@@ -3370,6 +3482,7 @@ function stdouts(stdout: { columns?: number } | undefined): number {
 
 /** Boot the TUI; resolves when the user quits. TTY-only entry point. */
 export async function runTuiApp(options: TuiAppOptions): Promise<void> {
+  installTerminalRestore();
   setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
   const choice = selectTuiRenderer({
     env: process.env,
@@ -3396,6 +3509,7 @@ export async function runTuiApp(options: TuiAppOptions): Promise<void> {
   try {
     await instance.waitUntilExit();
   } finally {
+    restoreTerminalModes(process.stdout);
     if ((options.renderer ?? choice.mode) === 'fullscreen') {
       const session = options.sessionKey ?? 'current';
       const last = [...handle.store.rows].reverse().find((row) => row.kind === 'assistant');

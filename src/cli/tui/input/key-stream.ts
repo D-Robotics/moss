@@ -195,6 +195,22 @@ export function isComposerLeak(chunk: string): boolean {
   return /^(?:\[<\d+;\d+;\d+[Mm]|\[200~|\[201~|\[I|\[O|\[(?:1[1-9]|2[0-4])~)+$/.test(chunk);
 }
 
+/**
+ * Ink's `useInput` strips one leading ESC before the app sees the chunk, so a
+ * mouse report arrives as `[<0;84;44M` instead of `\x1b[<0;84;44M`. Treating
+ * that as text drops the wheel and the click. Put the ESC back and parse.
+ */
+export function mouseEventsInChunk(
+  chunk: string
+): Array<Extract<KeyStreamEvent, { kind: 'mouse' }>> {
+  if (!chunk) return [];
+  const normalized = chunk.startsWith('[<') || chunk.startsWith('[M') ? `\x1b${chunk}` : chunk;
+  if (!normalized.includes('\x1b')) return [];
+  return classifyKeyStream(normalized).events.filter(
+    (event): event is Extract<KeyStreamEvent, { kind: 'mouse' }> => event.kind === 'mouse'
+  );
+}
+
 /** True when every event in the chunk must stay out of the composer. */
 export function droppedKeyStream(chunk: string): KeyStreamEvent[] {
   const { events, carry } = classifyKeyStream(chunk);

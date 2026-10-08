@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /** Unknown terminal sequences never become composer text (G12 / S16). */
 import assert from 'node:assert/strict';
-import { classifyKeyStream, isComposerLeak } from '../dist/cli/tui/input/key-stream.js';
+import {
+  classifyKeyStream,
+  isComposerLeak,
+  mouseEventsInChunk,
+} from '../dist/cli/tui/input/key-stream.js';
 
 function kinds(chunk) {
   return classifyKeyStream(chunk).events.map((event) => event.kind);
@@ -28,5 +32,11 @@ assert.equal(rest.events[0]?.kind, 'mouse');
 
 assert.equal(isComposerLeak('\x1b[<0;10;5M'), true);
 assert.equal(isComposerLeak('[<0;10;5M'), true);
+// Ink strips the leading ESC, so the shell sees `[<0;84;44M`. That must
+// still be a mouse event or the wheel never scrolls.
+assert.equal(mouseEventsInChunk('[<0;84;44M')[0]?.kind, 'mouse');
+assert.equal(mouseEventsInChunk('[<0;84;44M')[0]?.button, 0);
+assert.equal(mouseEventsInChunk('[<64;12;4M')[0]?.button, 64);
+assert.equal(mouseEventsInChunk('\x1b[<65;3;9M')[0]?.button, 65);
 assert.equal(isComposerLeak('hello'), false);
 assert.equal(isComposerLeak('?'), false);

@@ -333,6 +333,26 @@ for (const command of advertised) {
     await sleep(100);
     continue;
   }
+  if (command === '/permissions') {
+    const handle = liveHandle();
+    const runtime = new TaskRuntime({
+      workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), 'moss-tui-cmd-perm-')),
+    });
+    const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
+    await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
+    await type(instance, '/permissions');
+    assert.ok(
+      await waitFor(() => instance.lastFrame().includes('Shift+Tab cycles')),
+      '/permissions opens the rule panel instead of dumping the table into the transcript'
+    );
+    assert.ok(
+      !handle.store.rows.some((r) => r.text.includes('unknown command')),
+      '/permissions must not be answered "unknown command"'
+    );
+    instance.unmount();
+    await sleep(100);
+    continue;
+  }
   if (command === '/model') {
     const handle = liveHandle();
     const runtime = new TaskRuntime({
@@ -407,6 +427,15 @@ for (const command of advertised) {
   await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
   for (const command of HEADLINE) {
     if (command === '/model') continue;
+    if (command === '/permissions') {
+      await type(instance, '/permissions');
+      assert.ok(
+        await waitFor(() => instance.lastFrame().includes('Shift+Tab cycles')),
+        'M1: /permissions opens the rule panel'
+      );
+      await press(instance, '\x1b');
+      continue;
+    }
     await type(instance, `${command}${ARGS.get(command) ?? ''}`);
     const title = BLOCK_TITLE.get(command);
     const settled = await waitFor(

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Renderer selection: fullscreen by default, inline when the terminal cannot host it. */
 import assert from 'node:assert/strict';
-import { selectTuiRenderer } from '../dist/cli/tui/renderer.js';
+import { selectTuiRenderer, TERMINAL_RESTORE } from '../dist/cli/tui/renderer.js';
 
 assert.equal(selectTuiRenderer({ rows: 30, term: 'xterm-256color' }).mode, 'fullscreen');
 assert.equal(selectTuiRenderer({ env: { MOSS_TUI_RENDERER: 'inline' }, rows: 40 }).mode, 'inline');
@@ -16,3 +16,6 @@ assert.equal(
   'fullscreen'
 );
 assert.equal(selectTuiRenderer({ inScreen: true, rows: 40, term: 'screen' }).mode, 'inline');
+assert.ok(TERMINAL_RESTORE.includes('\x1b[?1006l'), 'SGR mouse tracking is turned off');
+assert.ok(TERMINAL_RESTORE.includes('\x1b[?1000l'), 'normal mouse tracking is turned off');
+assert.ok(TERMINAL_RESTORE.includes('\x1b[?7h'), 'autowrap is restored');

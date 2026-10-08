@@ -30,6 +30,8 @@ export function routeMouse(hit: MouseHit, layout: MouseLayout): MouseAction {
   const cell = hit.x - 1;
   const wheel = hit.button & 64;
   if (wheel) {
+    // Press and release both arrive for one notch on some terminals.
+    if (hit.release) return { type: 'ignore' };
     const up = (hit.button & 1) === 0;
     return { type: 'scroll', delta: up ? -3 : 3 };
   }
@@ -50,4 +52,9 @@ export function routeMouse(hit: MouseHit, layout: MouseLayout): MouseAction {
     return { type: 'select', phase: 'start', x: cell, y: row };
   }
   return { type: 'ignore' };
+}
+
+/** Collapsed tool output and hidden thinking advertise themselves with ctrl+o. */
+export function isExpandAffordance(text: string): boolean {
+  return text.includes('ctrl+o');
 }

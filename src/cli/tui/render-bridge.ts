@@ -182,6 +182,27 @@ function setThinking(store: TuiStore, text: string): void {
 }
 
 /**
+ * A thinking stream with no newlines used to live only in a two-line live
+ * window, so the head was discarded as tokens arrived. Completed prefixes
+ * become transcript rows the viewport (and the inline scrollback) can show.
+ */
+const THINKING_LIVE_BUDGET = 360;
+
+function commitThinkingPrefix(store: TuiStore, text: string): string {
+  let next = text;
+  while (next.length > THINKING_LIVE_BUDGET) {
+    const pivot = next.lastIndexOf(' ', Math.floor(THINKING_LIVE_BUDGET / 2));
+    const at = pivot > 40 ? pivot : Math.floor(THINKING_LIVE_BUDGET / 2);
+    const head = next.slice(0, at).trim();
+    const tail = next.slice(at).trimStart();
+    if (!head || tail.length >= next.length) break;
+    appendRow(store, 'detail', `  · ${head}`);
+    next = tail;
+  }
+  return next;
+}
+
+/**
  * Feed one MossAgentEvent into the store. Mirrors the REPL renderer's shape:
  * text deltas stream into a live tail, tool calls surface as one system line,
  * errors surface as error rows.
@@ -205,7 +226,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       break;
     }
     case 'thinking_delta': {
-      setThinking(store, store.run.thinkingText + event.delta);
+      setThinking(store, commitThinkingPrefix(store, store.run.thinkingText + event.delta));
       break;
     }
     case 'retry': {

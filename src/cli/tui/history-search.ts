@@ -3,7 +3,8 @@
  * session's submitted prompts, mirroring the reference's search overlay.
  * Pure projection — the shell owns the state machine.
  */
-import { clip, line, type TuiLine } from './text.js';
+import { tui } from './copy.js';
+import { clip, displayWidth, line, type TuiLine } from './text.js';
 
 export const HISTORY_SEARCH_MAX_ROWS = 6;
 
@@ -60,4 +61,12 @@ export function renderHistorySearch(
   }
   out.push(line(clip('  ↑/↓ to nav · Enter to use · Esc to cancel', options.width), { dim: true }));
   return out;
+}
+
+/** `─── History 2/7 ───` above the composer while Up/Down is walking prompts. */
+export function renderHistoryRule(n: number, total: number, width: number): TuiLine {
+  const label = ` ${tui('History {n}/{total}', { n, total })} `;
+  const fill = Math.max(0, width - displayWidth(label));
+  const left = Math.min(3, fill);
+  return line(`${'─'.repeat(left)}${label}${'─'.repeat(Math.max(0, fill - left))}`, { dim: true });
 }

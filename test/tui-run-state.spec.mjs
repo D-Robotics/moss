@@ -26,6 +26,7 @@ import {
   SPINNER_FRAMES,
   diffTone,
   renderLive,
+  renderScrollableActivity,
   renderTodoPanel,
   renderRunSummary,
   renderStatusRight,
@@ -73,13 +74,34 @@ const THINKING = 'The user wants one word. ';
   const reasoningLine = live.find((entry) => entry.text.includes('one word'));
   assert.ok(reasoningLine.text.startsWith('· '), 'reasoning rides the dim activity prefix');
 
+  const longThought = `${'consider the design '.repeat(40)}tail`;
+  const growing = createTuiStore();
+  beginRun(growing);
+  applyAgentEvent(growing, { type: 'thinking_delta', delta: longThought });
+  assert.ok(growing.run.thinkingText.length <= 360, 'the live tail stays bounded');
+  assert.ok(growing.run.thinkingText.includes('tail'), 'the newest tokens stay live');
+  assert.ok(
+    growing.rows.some((row) => row.kind === 'detail' && row.text.includes('consider the design')),
+    'the head of a long thought is committed where it can be scrolled back to'
+  );
+  const activity = renderScrollableActivity(growing.run.thinkingText, 'answer so far', 40);
+  assert.ok(activity.filter((entry) => entry.text.startsWith('· ')).length > 2);
+  assert.ok(activity.some((entry) => entry.text.includes('answer so far')));
+
   endRun(store, false);
   const last = store.rows[store.rows.length - 1];
   assert.equal(last.kind, 'assistant', 'the answer becomes an assistant row');
   assert.equal(last.text, 'pong', 'the answer row contains no reasoning');
 
   const committed = renderTranscriptRow(last, 80).map((entry) => entry.text);
-  assert.ok(committed[1].startsWith(`${ANSWER_MARK} pong`), 'the committed answer keeps its mark');
+  assert.ok(
+    committed.some((line) => line.startsWith(`${ANSWER_MARK} pong`)),
+    'the committed answer keeps its mark'
+  );
+  assert.ok(
+    committed.some((line) => line.includes('click or ctrl+o')),
+    'hidden thinking stays one click away'
+  );
   assert.ok(!committed.join('\n').includes('one word'), 'the committed answer has no reasoning');
 }
 

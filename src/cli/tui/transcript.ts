@@ -446,6 +446,28 @@ export function renderReasoning(text: string, width: number): TuiLine[] {
   );
 }
 
+/**
+ * Thinking and the still-open answer tail, every line. The pinned live region
+ * keeps only the spinner; these lines go into the scrollable viewport so a
+ * long thought is not reduced to its last two wrapped lines.
+ */
+export function renderScrollableActivity(
+  thinking: string,
+  streaming: string,
+  width: number
+): TuiLine[] {
+  const out: TuiLine[] = [...renderReasoning(thinking, width)];
+  if (!streaming) return out;
+  const streamingLines = renderStreamingMarkdown(streaming, Math.max(4, width - 2)).map((entry) => {
+    const clippedText = clip(`  ${entry.text}`, width);
+    return clippedText === `  ${entry.text}`
+      ? { ...entry, text: clippedText, runs: entry.runs?.map((run) => ({ ...run })) }
+      : line(clippedText, { dim: true });
+  });
+  out.push(...streamingLines);
+  return out;
+}
+
 /** Result rows may hide their reasoning; verbose-only, optional by design. */
 function rowReasoning(row: TranscriptRow): string | undefined {
   const value = (row as { reasoning?: unknown }).reasoning;
@@ -509,6 +531,9 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
       // A continuation row is a later block of the same answer (stream commit).
       const reasoning = verbose ? rowReasoning(row) : undefined;
       if (reasoning) out.push(...renderReasoning(reasoning, width));
+      else if (rowReasoning(row)) {
+        out.push(line(clip(tui('  ⎿ thinking · click or ctrl+o'), width), { dim: true }));
+      }
       const body: MarkdownLine[] = renderMarkdown(row.text, Math.max(4, width - 2));
       body.forEach((entry, index) => {
         const prefix = index === 0 && !row.continuation ? `${ANSWER_MARK} ` : CONTINUATION;
