@@ -34,6 +34,11 @@ export function label(name: string): string {
 }
 
 export function compactPath(value: string): string {
+  // path.resolve on Windows turns a POSIX absolute path (`/home/test/...`) into
+  // `D:\home\test\...`. Those strings are display paths, not local files.
+  if (process.platform === 'win32' && value.startsWith('/') && !/^[A-Za-z]:/.test(value)) {
+    return value;
+  }
   const home = os.homedir();
   const normalized = path.resolve(value);
   if (normalized === home) return '~';
