@@ -80,7 +80,7 @@ export async function prepareContainer(instance, opts) {
     '--name',
     containerName,
     '--memory',
-    '6g',
+    process.env.MOSS_SWE_MEMORY || '6g',
     instance.image,
     'sleep',
     'infinity',
