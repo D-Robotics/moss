@@ -82,6 +82,8 @@ export interface TuiAppOptions {
   workspaceDir: string;
   sessionKey?: string;
   model?: string;
+  /** `inline` keeps the primary screen. `fullscreen` is the alternate-screen default from `runTuiApp`. */
+  renderer?: 'inline' | 'fullscreen';
   version?: string;
   /**
    * CLI locale (the host passes `cliLocale()`, i.e. LC_ALL/LC_MESSAGES/LANG).

@@ -30,6 +30,7 @@
     "bench:ab": "npm run build && node scripts/bench-ab.mjs",
     "bench:noise": "node scripts/bench-noise.mjs",
     "bench:swe": "node scripts/bench-swebench.mjs",
+    "bench:tui-feel": "npm run build && node scripts/tui-feel/run.mjs",
     "bench:tb": "node scripts/bench-tbench.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck",
     "verify": "npm run check && npm run test && npm run smoke",

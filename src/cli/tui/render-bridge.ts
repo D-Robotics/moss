@@ -5,6 +5,7 @@
  */
 import type { MossAgentEvent } from '../../core/agent/moss-agent-types.js';
 import { tui } from './copy.js';
+import { nextStreamCommit } from './stream-commit.js';
 import { toolLabel } from './transcript.js';
 import { summarizeToolCompletion } from './tool-summary.js';
 
@@ -56,6 +57,8 @@ export interface TranscriptRow {
   reasoning?: string;
   /** Set when the row is a tool's completion (`tool_end`). */
   tool?: ToolRowMeta;
+  /** Later block of an answer that already has its ⏺ row. */
+  continuation?: boolean;
 }
 
 export interface TuiRunState {
@@ -77,6 +80,8 @@ export interface TuiRunState {
   retry?: { attempt: number; error: string };
   /** Last event time — the live region flags a stream that has gone quiet. */
   lastEventAt?: number;
+  /** Assistant text already committed from this prose segment. */
+  committedText?: string;
 }
 
 export interface TuiUsageState {
@@ -149,7 +154,7 @@ export function appendRow(
   store: TuiStore,
   kind: TranscriptRowKind,
   text: string,
-  extra: { reasoning?: string; tool?: ToolRowMeta } = {}
+  extra: { reasoning?: string; tool?: ToolRowMeta; continuation?: boolean } = {}
 ): void {
   store.rows.push({
     id: store.nextId++,
@@ -157,6 +162,7 @@ export function appendRow(
     text,
     ...(extra.reasoning ? { reasoning: extra.reasoning } : {}),
     ...(extra.tool ? { tool: extra.tool } : {}),
+    ...(extra.continuation ? { continuation: true } : {}),
   });
   store.version++;
 }
@@ -185,7 +191,17 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
   switch (event.type) {
     case 'text_delta': {
       store.run.retry = undefined;
-      setStreaming(store, tail(store.run.streamingText + event.delta));
+      const buffered = store.run.streamingText + event.delta;
+      const split = nextStreamCommit(buffered);
+      if (split.commit) {
+        appendRow(store, 'assistant', split.commit, {
+          continuation: Boolean(store.run.committedText),
+        });
+        store.run.committedText = `${store.run.committedText ?? ''}${split.commit}\n`;
+        setStreaming(store, split.rest);
+      } else {
+        setStreaming(store, buffered);
+      }
       break;
     }
     case 'thinking_delta': {
@@ -383,6 +399,7 @@ export function beginRun(store: TuiStore): void {
     running: true,
     thinkingText: '',
     streamingText: '',
+    committedText: '',
     toolInputs: new Map(),
     lastEventAt: Date.now(),
   };
@@ -448,6 +465,7 @@ export function usageBlock(usage: TuiUsageState, env: NodeJS.ProcessEnv = proces
 export function endRun(store: TuiStore, halted: boolean): void {
   if (store.run.streamingText.trim()) {
     appendRow(store, 'assistant', store.run.streamingText, {
+      ...(store.run.committedText ? { continuation: true } : {}),
       ...(store.run.thinkingText.trim() ? { reasoning: store.run.thinkingText } : {}),
     });
   }
@@ -455,6 +473,7 @@ export function endRun(store: TuiStore, halted: boolean): void {
     running: false,
     thinkingText: '',
     streamingText: '',
+    committedText: '',
     toolInputs: new Map(),
     halted: halted || undefined,
   };

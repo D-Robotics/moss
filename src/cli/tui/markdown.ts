@@ -65,7 +65,12 @@ export interface MarkdownOptions {
  * blocks use the full renderer; the still-open tail stays plain and stable until
  * a blank line, closing fence, or end-of-response makes its structure certain.
  */
-export function renderStreamingMarkdown(text: string, width: number): MarkdownLine[] {
+/**
+ * Closed markdown prefix of a streaming buffer, plus the still-open tail.
+ * A blank line or a closed fence ends a block. The separator blank line is
+ * not part of either side.
+ */
+export function stableMarkdownPrefix(text: string): { stable: string; rest: string } {
   const source = text.replace(/\r\n?/g, '\n');
   const lines = source.split('\n');
   let fence = false;
@@ -95,8 +100,14 @@ export function renderStreamingMarkdown(text: string, width: number): MarkdownLi
     }
   }
 
-  const stableText = lines.slice(0, stableEnd).join('\n');
-  const openText = lines.slice(blockStart).join('\n');
+  return {
+    stable: lines.slice(0, stableEnd).join('\n'),
+    rest: lines.slice(blockStart).join('\n'),
+  };
+}
+
+export function renderStreamingMarkdown(text: string, width: number): MarkdownLine[] {
+  const { stable: stableText, rest: openText } = stableMarkdownPrefix(text);
   const committed = stableText ? renderMarkdown(stableText, width) : [];
   if (!openText.trim()) return committed;
   const openLines = openText

@@ -152,7 +152,20 @@ function safeStringify(v: unknown, max = 400): string {
   }
 }
 
+export type LogSink = (entry: LogEntry) => void;
+
+/** When set, the root logger (and children created from the default sink) deliver here instead of stderr. */
+let rootLogSink: LogSink | null = null;
+
+export function setRootLogSink(sink: LogSink | null): void {
+  rootLogSink = sink;
+}
+
 function defaultSink(entry: LogEntry, json: boolean): void {
+  if (rootLogSink) {
+    rootLogSink(entry);
+    return;
+  }
   if (typeof globalThis === 'undefined') return;
   // Write directly to process.stderr to bypass Ink's patchConsole interception.
   // When Moss runs in TUI mode (patchConsole: true), console.warn/error are

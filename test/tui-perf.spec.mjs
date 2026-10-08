@@ -82,7 +82,11 @@ for (let i = 0; i < ROWS; i++) {
 }
 const streamMs = performance.now() - t1;
 assert.ok(streamMs < 250, `10k text_delta ingestion ${streamMs.toFixed(2)}ms >= 250ms`);
-assert.equal(streamStore.run.streamingText.length, 400, 'the live tail stays bounded');
+assert.equal(
+  streamStore.run.streamingText.length,
+  ROWS,
+  'the live buffer keeps the whole answer so the head is not dropped'
+);
 
 const summary = {
   rows: ROWS,

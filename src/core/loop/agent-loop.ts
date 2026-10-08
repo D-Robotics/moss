@@ -771,7 +771,7 @@ export function runAgentLoop(
     }
   })().catch((err) => {
     try {
-      process.stderr.write(`[agent-loop] fatal unhandled error: ${errorMessage(err)}\n`);
+      log.error(`fatal unhandled error: ${errorMessage(err)}`);
     } catch {}
     try {
       stream.push({

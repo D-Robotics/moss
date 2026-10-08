@@ -54,6 +54,7 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 | `npm run bench:ab -- <engine>`                                                   | hard 层 A/B 对照（`best-of-n` / `reasoning-high` / `model-routing`，`--samples <n>` 可调），输出默认开/关建议                                                        |
 | `npm run bench:noise -- <label1> <label2> [...]`                                 | 同 SHA 重复跑聚合成噪声带（`bench/results/noise-band.json`）                                                                                                         |
 | `npm run bench:swe -- [--samples N --concurrency K --label L --filter s --eval]` | SWE-bench Verified 100 实例锁子集（`bench/boards/swebench-instances.json`）：容器内 moss headless 产 patch + 官方 swebench harness 判分；密钥经 `MOSS_BENCH_API_KEY` |
+| `npm run bench:tui-feel` | TUI 体感基准（`scripts/tui-feel/`，PTY + pyte；缺 python/pyte 时跳过）。结果落 `bench/results/`，不入库 |
 
 ## SDK 公共面与 semver（v0.13 起）
 

@@ -1,6 +1,7 @@
 import type { Tool, ToolContext } from './tool-types.js';
 import { abortable } from '../agent/abort.js';
 import { ErrorCode, isMossError } from '../../errors.js';
+import { getRootLogger } from '../../logger.js';
 
 export type PreToolUseDecision =
   | { action: 'allow' }
@@ -109,9 +110,11 @@ export class ToolHookRegistry {
         }
       } catch (err) {
         if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) throw err;
-        process.stderr.write(
-          `[tool-hooks] PreToolUse hook "${hook.name}" error: ${err instanceof Error ? err.message : err}\n`
-        );
+        getRootLogger()
+          .child('tool-hooks')
+          .warn(
+            `PreToolUse hook "${hook.name}" error: ${err instanceof Error ? err.message : err}`
+          );
       }
     }
 
@@ -142,9 +145,11 @@ export class ToolHookRegistry {
         if (modification) currentResult = modification.result;
       } catch (err) {
         if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) throw err;
-        process.stderr.write(
-          `[tool-hooks] PostToolUse hook "${hook.name}" error: ${err instanceof Error ? err.message : err}\n`
-        );
+        getRootLogger()
+          .child('tool-hooks')
+          .warn(
+            `PostToolUse hook "${hook.name}" error: ${err instanceof Error ? err.message : err}`
+          );
       }
     }
     return currentResult;
@@ -168,9 +173,11 @@ export class ToolHookRegistry {
         if (modification) currentResult = modification.result;
       } catch (err) {
         if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) throw err;
-        process.stderr.write(
-          `[tool-hooks] PostToolUseFailure hook "${hook.name}" error: ${err instanceof Error ? err.message : err}\n`
-        );
+        getRootLogger()
+          .child('tool-hooks')
+          .warn(
+            `PostToolUseFailure hook "${hook.name}" error: ${err instanceof Error ? err.message : err}`
+          );
       }
     }
     return currentResult;

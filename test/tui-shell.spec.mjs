@@ -800,7 +800,8 @@ instance.unmount();
   assert.ok(!frame().includes('a draft goal'), 'Ctrl+L clears the composer');
   assert.ok(frame().includes('Try "stream the camera'), 'the placeholder comes back');
 
-  await type('?');
+  instance.stdin.write('?');
+  await waitFor(() => frame().includes('Help · Esc or Enter to close'));
   const shortcuts = frame();
   assert.ok(shortcuts.includes('Help · Esc or Enter to close'), '? opens the shortcut reference');
   assert.ok(shortcuts.includes('prefixes'), 'the reference explains input prefixes');
@@ -876,6 +877,9 @@ instance.unmount();
     const answer = asker('moss wants to write a file\nsrc/index.ts');
     const shown = await waitFor(() => frame().includes('Do you want to proceed?'));
     assert.ok(shown, `approval prompt rendered: ${JSON.stringify(frame().slice(-200))}`);
+    // A dialog that opens while the composer was just edited ignores answer
+    // keys for 350ms so an in-flight letter cannot approve the prompt.
+    await sleep(400);
     for (const key of keys) {
       instance.stdin.write(key);
       await sleep(60);
@@ -892,9 +896,6 @@ instance.unmount();
     [['1'], 'y', 'digit 1 approves'],
     [['2'], 'a', 'digit 2 approves for the session'],
     [['3'], 'n', 'digit 3 declines'],
-    [['y'], 'y', 'y approves'],
-    [['a'], 'a', 'a approves for the session'],
-    [['n'], 'n', 'n declines'],
   ]) {
     assert.equal(await ask(keys), expected, label);
   }
@@ -1128,13 +1129,10 @@ instance.unmount();
     );
     assert.ok(!frame().includes('seq-line-40'), 'the tail is hidden while collapsed');
     instance.stdin.write('\x0f'); // Ctrl+O
+    await sleep(80);
     assert.ok(
-      await waitFor(() => frame().includes('seq-line-40')),
-      `ctrl+o reveals the committed tail: ${JSON.stringify(frame().slice(-200))}`
-    );
-    assert.ok(
-      !frame().includes('more lines · ctrl+o'),
-      'the re-emitted transcript is no longer collapsed'
+      !frame().includes('seq-line-40'),
+      'ctrl+o does not reprint committed rows into the scrollback'
     );
   }
 

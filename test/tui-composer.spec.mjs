@@ -157,25 +157,17 @@ function assertFits(view, width, label) {
   const state = composerMove(createComposer('hello'), 'left', 20);
   const edited = renderComposerEditor(state, { width: 20, maxRows: 2, firstPrefix: '❯ ' });
   const runs = edited.lines[0];
-  const caretIndex = runs.findIndex((run) => run.inverse);
   assert.equal(
-    runs
-      .slice(0, caretIndex)
-      .map((run) => run.text)
-      .join(''),
-    '❯ hell',
-    'everything before the caret cell is plain text'
+    runs.map((run) => run.text).join(''),
+    '❯ hello',
+    'moving the caret does not insert a cell into the text'
   );
-  assert.equal(runs[caretIndex].text, ' ', 'the caret occupies exactly one cell');
+  assert.equal(edited.caretCol, stringWidth('❯ hell'), 'the hardware cursor sits on the caret');
   assert.equal(
-    runs
-      .slice(caretIndex + 1)
-      .map((run) => run.text)
-      .join(''),
-    'o',
-    'the text after the caret follows the cell'
+    runs.some((run) => run.inverse),
+    false,
+    'the projection does not paint a fake caret'
   );
-  assert.equal(runs.filter((run) => run.inverse).length, 1, 'exactly one caret cell');
 
   // Placeholder mode is a single row and carries no caret.
   const empty = renderComposerEditor(createComposer(''), {
@@ -308,7 +300,6 @@ for (const value of FUZZ_STRINGS) {
         maxRows: COMPOSER_MAX_ROWS,
         firstPrefix: '❯ ',
         restPrefix: '  ',
-        caretGlyph: '▌',
         markElision: true,
       });
       assertLinesFit(

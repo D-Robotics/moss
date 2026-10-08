@@ -19,8 +19,8 @@ import {
   type CliApprovalView,
 } from '../approval-view.js';
 import { formatCliInteractionModeLabel, type CliInteractionMode } from '../interaction-mode.js';
-import { COMPOSER_MAX_ROWS, createComposer, renderComposerEditor } from './composer.js';
-import { isTuiZh, tui } from './copy.js';
+import { COMPOSER_MAX_ROWS, createComposer, renderComposerEditor, takeCells } from './composer.js';
+import { isTuiZh, localizeApprovalText, tui } from './copy.js';
 import { renderMarkdown, renderStreamingMarkdown, type MarkdownLine } from './markdown.js';
 import type { TranscriptRow } from './render-bridge.js';
 import {
@@ -469,11 +469,12 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
     case 'assistant': {
       // Answers are markdown: headings/code/lists get their own projection while
       // the ⏺ + 2-space continuation grammar stays exactly as it was.
+      // A continuation row is a later block of the same answer (stream commit).
       const reasoning = verbose ? rowReasoning(row) : undefined;
       if (reasoning) out.push(...renderReasoning(reasoning, width));
       const body: MarkdownLine[] = renderMarkdown(row.text, Math.max(4, width - 2));
       body.forEach((entry, index) => {
-        const prefix = index === 0 ? `${ANSWER_MARK} ` : CONTINUATION;
+        const prefix = index === 0 && !row.continuation ? `${ANSWER_MARK} ` : CONTINUATION;
         const text = `${prefix}${entry.text}`;
         const clipped = clip(text, width);
         // D-12: inline runs are the source of truth for emphasis, so a mixed
@@ -724,15 +725,9 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
     }
   }
   if (view.queuePreview) {
-    out.push(
-      line(
-        clip(
-          tui('  ⏐ next: {preview}', { preview: view.queuePreview.replace(/\s+/g, ' ').trim() }),
-          width
-        ),
-        { dim: true }
-      )
-    );
+    const preview = view.queuePreview.replace(/\s+/g, ' ').trim();
+    out.push(line(clip(tui('  ❯ {preview}', { preview }), width), { dim: true }));
+    out.push(line(clip(`  ${tui('ctrl+x ctrl+s to send now')}`, width), { dim: true }));
   }
   return out;
 }
@@ -755,7 +750,7 @@ export function renderRunSummary(
   });
   const text = halted
     ? tui('✻ {verb} for {seconds}s · interrupted', { verb, seconds })
-    : tui('✻ {verb} for {seconds}s{doneAt}', { verb, seconds, doneAt });
+    : tui('✻ worked for {seconds}s{doneAt}', { seconds, doneAt });
   return [line(''), line(clip(text, width), { dim: true })];
 }
 
@@ -875,7 +870,9 @@ export function renderApproval(
   // The host owns the wording (`Do you want to create beta.txt?`); the generic
   // sentence is only the fallback for a caller with no question of its own.
   const question = view.question.split('\n').find((text) => text.trim() !== '') ?? '';
-  const questionLine = line(clip(` ${question.trim() || tui(APPROVAL_FALLBACK_QUESTION)}`, width));
+  const questionLine = line(
+    clip(` ${localizeApprovalText(question.trim() || APPROVAL_FALLBACK_QUESTION)}`, width)
+  );
   const amendLabel =
     view.amend && options[0]?.answer === 'y'
       ? tui('Yes, and tell moss what to do next')
@@ -883,7 +880,7 @@ export function renderApproval(
   const optionLines = options.map((option, index) =>
     line(
       clip(
-        ` ${index === view.cursor ? '❯' : ' '} ${option.key}. ${tui(
+        ` ${index === view.cursor ? '❯' : ' '} ${option.key}. ${localizeApprovalText(
           index === 0 ? (amendLabel ?? option.label) : option.label
         )}`,
         width
@@ -962,10 +959,16 @@ export function renderComposer(input: string, width: number, placeholder: boolea
     placeholder: placeholder ? tui(PLACEHOLDER_TEXT) : undefined,
     firstPrefix: `${USER_MARK} `,
     restPrefix: '  ',
-    caretGlyph: '▌',
     markElision: true,
   });
-  return view.lines.map((runs) => line(runs.map((run) => run.text).join('')));
+  return view.lines.map((runs, index) => {
+    const text = runs.map((run) => run.text).join('');
+    if (view.placeholder || index !== view.caretRow) return line(text);
+    // Plain previews still mark the caret. The interactive shell uses the
+    // hardware cursor and must not insert this glyph.
+    const body = displayWidth(text) + 1 <= width ? text : takeCells(text, Math.max(0, width - 1));
+    return line(`${body}▌`);
+  });
 }
 
 export const PLACEHOLDER_TEXT = 'Try "stream the camera at 30 fps and verify it"';
@@ -991,6 +994,8 @@ export interface StatusView {
   /** Pending interaction kind, so hints describe question input honestly. */
   dialogKind?: 'approval' | 'question';
   dialogHasOptions?: boolean;
+  /** Numbered keys the open dialog actually offers, e.g. `1/2`. */
+  answerKeys?: string;
   /** ctrl+o detailed-transcript state — the chrome must not hide it (A9.72). */
   verbose?: boolean;
   /** A stashed draft exists (Ctrl+S); composes with other badges (A2.24). */
@@ -1077,11 +1082,16 @@ export function renderHint(view: StatusView, width: number): TuiLine {
   if (view.blocked) {
     if (view.dialogKind === 'question') {
       parts.push(
-        view.dialogHasOptions ? tui('1/2/3 to answer') : tui('type answer · Enter to send'),
+        view.dialogHasOptions
+          ? tui('{keys} to answer', { keys: view.answerKeys ?? '1/2/3' })
+          : tui('type answer · Enter to send'),
         tui('Esc to skip')
       );
     } else {
-      parts.push(tui('1/2/3 to answer'), tui('Tab to amend'));
+      parts.push(
+        tui('{keys} to answer', { keys: view.answerKeys ?? '1/2/3' }),
+        tui('Tab to amend')
+      );
     }
   } else if (view.running) parts.push(tui('Esc to interrupt'));
   if (view.verbose) parts.push(tui('verbose transcript · ctrl+o to exit'));

@@ -700,7 +700,9 @@ async function type(instance, text) {
     const { instance, handle } = mount({ agent: createMockAgent(), workspaceDir: '/tmp/ws' });
     const lines = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`);
     instance.stdin.write(`${PASTE_START}${lines.join('\n')}${PASTE_END}`);
-    await waitFor(() => instance.lastFrame().includes('paste: 50 lines'));
+    await waitFor(() => instance.lastFrame().includes('Pasted text #1'));
+    instance.stdin.write(' tail');
+    await waitFor(() => instance.lastFrame().includes('tail'));
     instance.stdin.write('\r');
     const ok = await waitFor(() => calls.length === 1);
     assert.ok(ok, `exactly one streamChat call (got ${calls.length})`);

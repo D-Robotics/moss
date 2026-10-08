@@ -76,6 +76,7 @@ export const ZH: Readonly<Record<string, string>> = {
   ' · done {time}': ' · 完成于 {time}',
   '✻ {verb} for {seconds}s · interrupted': '✻ {verb} {seconds}s · 已中断',
   '✻ {verb} for {seconds}s{doneAt}': '✻ {verb} {seconds}s{doneAt}',
+  '✻ worked for {seconds}s{doneAt}': '✻ 用时 {seconds}s{doneAt}',
 
   // ── todo panel (transcript.ts / render-bridge.ts) ──────────────────────
   '{done}/{total} done': '{done}/{total} 完成',
@@ -87,6 +88,17 @@ export const ZH: Readonly<Record<string, string>> = {
   No: '否',
   'Esc to deny · ↑↓ then Enter': 'Esc 拒绝 · ↑↓ 后 Enter',
   'Do you want to proceed?': '是否继续？',
+  'Do you want to make this edit to {target}?': '要对 {target} 做这个修改吗？',
+  'Do you want to create {target}?': '要创建 {target} 吗？',
+  'Yes, and always allow {tool} (saved)': '是，并始终允许 {tool}（已保存）',
+  'Yes, and always allow {tool} this session': '是，并在本次会话始终允许 {tool}',
+  'Yes, and don’t ask again for file edits this session': '是，本次会话内文件修改不再询问',
+  'Yes, and don’t ask again for file edits (saved)': '是，文件修改不再询问（已保存）',
+  'keys paused — dialog just opened': '按键已暂停 — 对话框刚刚打开',
+  'Press up to edit queued messages': '按 ↑ 编辑排队消息',
+  'ctrl+x ctrl+s to send now': 'ctrl+x ctrl+s 立即发送',
+  '[Pasted text #{id} +{lines} lines]': '[粘贴文本 #{id} +{lines} 行]',
+  'paste again to expand': '再次粘贴可展开',
   'Yes, and tell moss what to do next': '是，并告诉 moss 接下来做什么',
   'Esc to cancel · Tab to amend': 'Esc 取消 · Tab 补充说明',
 
@@ -106,6 +118,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'Esc to cancel': 'Esc 取消',
   '? for shortcuts': '? 查看快捷键',
   '1/2/3 to answer': '1/2/3 作答',
+  '{keys} to answer': '{keys} 作答',
+  '  ❯ {preview}': '排队 ❯ {preview}',
   'type answer · Enter to send': '输入回答 · Enter 发送',
   'Esc to skip': 'Esc 跳过',
   'Tab to amend': 'Tab 补充说明',
@@ -357,6 +371,35 @@ export const ZH: Readonly<Record<string, string>> = {
  * concatenation); in zh mode the dictionary value is used, falling back to the
  * English text when moss does not own the string.
  */
+/** Translate approval sentences the policy builds with a target baked in. */
+export function localizeApprovalText(text: string): string {
+  const patterns: Array<{ re: RegExp; key: string }> = [
+    {
+      re: /^Yes, and always allow (.+) \(saved\)$/,
+      key: 'Yes, and always allow {tool} (saved)',
+    },
+    {
+      re: /^Yes, and always allow (.+) this session$/,
+      key: 'Yes, and always allow {tool} this session',
+    },
+    {
+      re: /^Do you want to make this edit to (.+)\?$/,
+      key: 'Do you want to make this edit to {target}?',
+    },
+    {
+      re: /^Do you want to create (.+)\?$/,
+      key: 'Do you want to create {target}?',
+    },
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.re.exec(text);
+    if (!match?.[1]) continue;
+    const field = pattern.key.includes('{tool}') ? 'tool' : 'target';
+    return tui(pattern.key, { [field]: match[1] });
+  }
+  return tui(text);
+}
+
 export function tui(text: string, params?: Record<string, string | number>): string {
   const template = isTuiZh() ? (ZH[text] ?? text) : text;
   if (!params) return template;

@@ -21,8 +21,9 @@ import {
   Static,
   Text,
   useApp,
+  useCursor,
   useInput,
-  useStdin,
+  usePaste,
   useStdout,
   useWindowSize,
 } from 'ink';
@@ -39,7 +40,16 @@ import {
   usageBlock,
   type TranscriptRow,
 } from './render-bridge.js';
-import { createPasteCapture, feedChunk } from './input-box.js';
+import { isComposerLeak, noteDroppedKeys } from './input/key-stream.js';
+import {
+  deleteText,
+  expandPasteTokens,
+  insertPaste,
+  insertText,
+  killText,
+  moveCaret,
+  type PasteToken,
+} from './paste-tokens.js';
 import {
   getBackgroundProcessOutputTail,
   listBackgroundProcessSnapshots,
@@ -95,11 +105,14 @@ import {
 } from './transcript.js';
 import { clip, line, rule, type TuiLine } from './text.js';
 import { isTuiZh, setTuiLocale, transientStatus, tui } from './copy.js';
+import { allocateFrame } from './layout.js';
+import { MOUSE_TRACKING_OFF, MOUSE_TRACKING_ON, selectTuiRenderer } from './renderer.js';
+import { installTuiLogSink } from './terminal-io.js';
+import { createViewport, scrollViewport, viewportWindow, type ViewportLine } from './viewport.js';
 import {
   COMPOSER_MAX_ROWS,
   composerDelete,
   composerInsert,
-  composerKill,
   composerMove,
   composerNewline,
   composerSetValue,
@@ -295,20 +308,25 @@ export function TuiAppRoot({
   // and the host's explicit `locale` is authoritative.
   setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
   const { exit } = useApp();
-  const { stdin } = useStdin();
-  const { stdout } = useStdout();
+  const { stdout, write: writeStdout } = useStdout();
+  const { setCursorPosition } = useCursor();
+  const fullscreen = options.renderer === 'fullscreen';
   const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
   const [composer, setComposer] = useState<ComposerState>(() => createComposer());
   const input = composer.value;
   // Bulk edits (history recall, staged prompts, paste) replace the whole value
   // and park the caret at the end; the fine-grained keys use the editor ops.
+  const tokensRef = useRef<PasteToken[]>([]);
+  const pasteIdRef = useRef(1);
+  const lastEditAtRef = useRef(0);
+  const approvalGuardUntilRef = useRef(0);
   const setInput = useCallback((next: string | ((value: string) => string)) => {
+    tokensRef.current = [];
     setComposer((current) => {
       const value = typeof next === 'function' ? next(current.value) : next;
       return composerSetValue(value, value.length);
     });
   }, []);
-  const [pastePreview, setPastePreview] = useState<string | undefined>(undefined);
   const [approval, setApproval] = useState<ApprovalDialogView | undefined>(undefined);
   const [statusLine, setStatusLine] = useState<string | undefined>(undefined);
   /**
@@ -349,7 +367,8 @@ export function TuiAppRoot({
    * `· ctrl+o` marker a false affordance (D-5). A new `key` remounts the Static
    * with index 0, which re-emits the whole transcript in the new state.
    */
-  const [verboseRevision, setVerboseRevision] = useState(0);
+  const [viewport, setViewport] = useState(createViewport);
+  const viewportLinesRef = useRef(0);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number | undefined>(undefined);
   /** Ctrl+R prompt search: `{ query, cursor }` while the overlay is open. */
@@ -374,7 +393,7 @@ export function TuiAppRoot({
   const pendingDialogRef = useRef<PendingDialog | null>(null);
   /** Timer behind the D-7 two-press Ctrl+C quit confirmation. */
   const quitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const queueRef = useRef<string[]>([]);
+  const queueRef = useRef<Array<{ display: string; text: string }>>([]);
   const queuePausedRef = useRef(false);
   const [queueRevision, setQueueRevision] = useState(0);
   void queueRevision;
@@ -391,7 +410,6 @@ export function TuiAppRoot({
    * drops them from the visible screen after the ANSI clear).
    */
   const [clearRevision, setClearRevision] = useState(0);
-  const pasteRef = useRef(createPasteCapture());
   /**
    * ACTIVE session key — state, not a const, because the resume picker can
    * switch conversations in place (replay + subsequent turns go to the
@@ -417,6 +435,23 @@ export function TuiAppRoot({
   // The policy layer is authoritative: any mode change (shift+tab, `/mode`, a
   // flag, an embedded host) re-renders the hint row immediately.
   useEffect(() => subscribeCliInteractionMode(setInteractionModeState), []);
+  useEffect(() => {
+    if (!fullscreen) return undefined;
+    writeStdout(MOUSE_TRACKING_ON);
+    return () => {
+      writeStdout(MOUSE_TRACKING_OFF);
+    };
+  }, [fullscreen, writeStdout]);
+  useEffect(() => {
+    const paths = getMossWorkspacePaths(options.workspaceDir);
+    return installTuiLogSink({
+      logFile: path.join(paths.runtimeDir, 'logs', `tui-${sessionKey}.log`),
+      onUserVisible: (message) => {
+        appendRow(store, 'system', message);
+        handle.notify();
+      },
+    });
+  }, [handle, options.workspaceDir, sessionKey, store]);
 
   /** Inline information block: a ⏺ title plus ⎿ rows, right in the transcript. */
   const printBlock = useCallback(
@@ -441,12 +476,12 @@ export function TuiAppRoot({
     (message: string) => {
       if (process.env.MOSS_NOTIFY === '0') return;
       try {
-        stdout.write(`\x07\x1b]9;moss: ${message}\x07`);
+        writeStdout(`\x07\x1b]9;moss: ${message}\x07`);
       } catch {
         // A closed stream must never break a run.
       }
     },
-    [stdout]
+    [writeStdout]
   );
 
   // Dialog bridge: the policy hands the frozen structured payload (N1) to the
@@ -541,6 +576,9 @@ export function TuiAppRoot({
           entry.cleanup = () => abortSignal.removeEventListener('abort', onAbort);
         }
         // Verbatim payload: title/subject/preview/question/options/footer.
+        if (Date.now() - lastEditAtRef.current < 350) {
+          approvalGuardUntilRef.current = Date.now() + 350;
+        }
         setApproval({ ...view, cursor: 0 });
       });
 
@@ -813,9 +851,11 @@ export function TuiAppRoot({
             // the pending prose into its own row at the tool boundary; the rest
             // of the run streams into a fresh buffer.
             appendRow(store, 'assistant', store.run.streamingText, {
+              ...(store.run.committedText ? { continuation: true } : {}),
               ...(store.run.thinkingText.trim() ? { reasoning: store.run.thinkingText } : {}),
             });
             store.run.streamingText = '';
+            store.run.committedText = '';
             store.run.thinkingText = '';
             store.version++;
           }
@@ -826,9 +866,11 @@ export function TuiAppRoot({
             // partial as its own row; the retry marker row (bridge) separates
             // the two generations visually.
             appendRow(store, 'assistant', store.run.streamingText, {
+              ...(store.run.committedText ? { continuation: true } : {}),
               ...(store.run.thinkingText.trim() ? { reasoning: store.run.thinkingText } : {}),
             });
             store.run.streamingText = '';
+            store.run.committedText = '';
             store.run.thinkingText = '';
             store.version++;
           }
@@ -839,7 +881,10 @@ export function TuiAppRoot({
             if (typeof response === 'string' && response.trim()) {
               if (!store.run.streamingText.trim()) {
                 appendRow(store, 'assistant', response);
-              } else if (response.length > store.run.streamingText.length) {
+              } else if (
+                !store.run.committedText &&
+                response.length > store.run.streamingText.length
+              ) {
                 // N-4 (found while reproducing D-12): the live tail is capped
                 // (`render-bridge` keeps the last 400 chars), and `endRun` commits
                 // that tail — so an answer longer than 400 chars lost its HEAD in
@@ -912,9 +957,9 @@ export function TuiAppRoot({
       const next = queueRef.current.shift();
       if (!next) break;
       setQueueRevision((n) => n + 1);
-      appendRow(store, 'user', next);
+      appendRow(store, 'user', next.display);
       handle.notify();
-      await runTurn(next);
+      await runTurn(next.text);
     }
     if (queueRef.current.length === 0) setQueueRevision((n) => n + 1);
   }, [handle, runTurn, store]);
@@ -1037,7 +1082,7 @@ export function TuiAppRoot({
   const dispatchRun = useCallback(
     (message: string) => {
       if (store.run.running) {
-        queueRef.current.push(message);
+        queueRef.current.push({ display: message, text: message });
         setQueueRevision((n) => n + 1);
         return;
       }
@@ -1549,6 +1594,7 @@ export function TuiAppRoot({
 
   const submit = useCallback(
     async (raw: string) => {
+      const submittedTokens = tokensRef.current.slice();
       const text = raw.trim();
       if (!text) return;
       setInput('');
@@ -1623,7 +1669,7 @@ export function TuiAppRoot({
         // screen, and the `clearRevision` remount re-renders only what remains.
         store.rows = store.rows.filter((row) => row.kind === 'banner');
         store.version++;
-        stdout.write('\x1b[2J\x1b[H');
+        writeStdout('\x1b[2J\x1b[H');
         setClearRevision((n) => n + 1);
         appendRow(
           store,
@@ -1774,7 +1820,9 @@ export function TuiAppRoot({
           const dropped = queueRef.current.shift();
           setQueueRevision((n) => n + 1);
           printBlock('Queue', [
-            dropped ? tui('dropped: {text}', { text: dropped.slice(0, 60) }) : tui('queue empty'),
+            dropped
+              ? tui('dropped: {text}', { text: dropped.display.slice(0, 60) })
+              : tui('queue empty'),
           ]);
         } else if (sub === 'clear') {
           const count = queueRef.current.length;
@@ -1789,7 +1837,7 @@ export function TuiAppRoot({
           // Block titles mirror command names, so they stay raw (`/queue`).
           printBlock(
             `Queue (${queuePausedRef.current ? 'paused' : 'active'})`,
-            queueRef.current.map((q, i) => `${i + 1}. ${q.slice(0, 60)}`)
+            queueRef.current.map((q, i) => `${i + 1}. ${q.display.slice(0, 60)}`)
           );
         }
         return;
@@ -1831,24 +1879,18 @@ export function TuiAppRoot({
         handle.notify();
         return;
       }
-      if (pastePreview !== undefined) {
-        const staged = pasteRef.current.pending.shift() ?? pastePreview;
-        setPastePreview(undefined);
-        if (!store.run.running) {
-          appendRow(store, 'user', staged);
-          handle.notify();
-          void runTurn(staged).then(() => void drainQueue());
-        }
-        return;
-      }
-      appendRow(store, 'user', text);
-      handle.notify();
+      const expanded = expandPasteTokens(raw, submittedTokens).trim();
+      const display = text;
+      tokensRef.current = [];
+      if (!expanded) return;
       if (store.run.running) {
-        queueRef.current.push(text);
+        queueRef.current.push({ display, text: expanded });
         setQueueRevision((n) => n + 1);
         return;
       }
-      void runTurn(text).then(() => void drainQueue());
+      appendRow(store, 'user', display);
+      handle.notify();
+      void runTurn(expanded).then(() => void drainQueue());
     },
     [
       drainQueue,
@@ -1856,7 +1898,6 @@ export function TuiAppRoot({
       exit,
       handle,
       options,
-      pastePreview,
       printBlock,
       runShellCommand,
       runShellSubmission,
@@ -1990,6 +2031,33 @@ export function TuiAppRoot({
   }, []);
 
   useInput((chunk, key) => {
+    const inkKey =
+      key.upArrow ||
+      key.downArrow ||
+      key.leftArrow ||
+      key.rightArrow ||
+      key.return ||
+      key.escape ||
+      key.tab ||
+      key.backspace ||
+      key.delete ||
+      key.ctrl ||
+      key.meta;
+    if (!inkKey && isComposerLeak(chunk)) {
+      noteDroppedKeys(1);
+      return;
+    }
+    if (fullscreen && (key.pageUp || key.pageDown) && !approval) {
+      const page = Math.max(1, windowSize.rows - 8);
+      setViewport((current) =>
+        scrollViewport(current, viewportLinesRef.current, key.pageUp ? -page : page, page)
+      );
+      return;
+    }
+    if (chunk === '?' && input.length === 0 && !shellMode && !approval && !key.ctrl && !key.meta) {
+      setHelpOverlay({ lines: buildHelpOverlayLines(false), all: false });
+      return;
+    }
     if (key.ctrl && chunk === 'c') {
       // D-7: `?` advertises `Ctrl+C interrupt the run · press again to quit`, and
       // the shell must keep that promise. ONE press never quits: it interrupts
@@ -2106,18 +2174,22 @@ export function TuiAppRoot({
           });
           return;
         }
+        const pressed = chunk?.toLowerCase();
+        const answering = key.return || (typeof pressed === 'string' && /^[1-9]$/.test(pressed));
+        if (answering && Date.now() < approvalGuardUntilRef.current) {
+          setStatusLine(tui('keys paused — dialog just opened'));
+          return;
+        }
         if (key.return) {
           const amendArmed = approval.amend === true && approval.cursor === 0;
           answerApproval(amendArmed ? 'amend' : (approval.options[approval.cursor]?.answer ?? 'n'));
           return;
         }
-        const pressed = chunk?.toLowerCase();
         const direct = approval.options.find((option) => option.key === pressed);
         if (direct) {
           answerApproval(direct.answer);
           return;
         }
-        if (pressed === 'y' || pressed === 'a' || pressed === 'n') answerApproval(pressed);
         return;
       }
     }
@@ -2354,16 +2426,18 @@ export function TuiAppRoot({
     if (key.leftArrow || key.rightArrow) {
       const word = Boolean(key.meta || key.ctrl);
       const motion = key.leftArrow ? (word ? 'word-left' : 'left') : word ? 'word-right' : 'right';
-      setComposer((current) => composerMove(current, motion, Math.max(4, columns - 2)));
+      setComposer((current) => {
+        const doc = moveCaret(
+          { state: current, tokens: tokensRef.current },
+          motion,
+          Math.max(4, columns - 2)
+        );
+        tokensRef.current = doc.tokens;
+        return doc.state;
+      });
       return;
     }
     if (key.escape) {
-      if (pastePreview !== undefined) {
-        pasteRef.current.pending.length = 0;
-        setPastePreview(undefined);
-        setInput('');
-        return;
-      }
       if (shellMode) {
         // Esc cancels shell mode: the draft is discarded and the composer
         // returns to the normal `❯` prompt (nothing was executed).
@@ -2372,6 +2446,12 @@ export function TuiAppRoot({
         return;
       }
       if (abortRef.current) {
+        if (queueRef.current.length > 0) {
+          const returned = queueRef.current.map((item) => item.display).join('\n');
+          queueRef.current = [];
+          setQueueRevision((n) => n + 1);
+          if (input.length === 0) setInput(returned);
+        }
         abortRef.current.abort();
         return;
       }
@@ -2389,13 +2469,6 @@ export function TuiAppRoot({
       }
       return;
     }
-    if (
-      pastePreview !== undefined ||
-      pasteRef.current.active ||
-      pasteRef.current.pending.length > 0
-    ) {
-      return;
-    }
     if (key.upArrow || key.downArrow) {
       // Inside a multi-line draft the arrows move between visual rows; on a
       // single-line draft they walk the input history.
@@ -2403,6 +2476,12 @@ export function TuiAppRoot({
         setComposer((current) =>
           composerMove(current, key.upArrow ? 'up' : 'down', Math.max(4, columns - 2))
         );
+        return;
+      }
+      if (key.upArrow && input.length === 0 && queueRef.current.length > 0) {
+        const last = queueRef.current.pop();
+        setQueueRevision((n) => n + 1);
+        if (last) setInput(last.display);
         return;
       }
       if (history.length === 0) return;
@@ -2442,7 +2521,14 @@ export function TuiAppRoot({
         setShellMode(false);
         return;
       }
-      setComposer((current) => composerDelete(current, key.delete ? 'forward' : 'backward'));
+      setComposer((current) => {
+        const doc = deleteText(
+          { state: current, tokens: tokensRef.current },
+          key.delete ? 'forward' : 'backward'
+        );
+        tokensRef.current = doc.tokens;
+        return doc.state;
+      });
       return;
     }
     // Ctrl+<letter> shortcuts, driven by the same table the help block prints.
@@ -2504,20 +2590,20 @@ export function TuiAppRoot({
       }
       if (letter === 'w' || letter === 'u' || letter === 'k') {
         const unit = letter === 'u' ? 'line-start' : letter === 'k' ? 'line-end' : 'word-backward';
-        const { next, killed } = composerKill(composer, unit);
+        const { doc, killed } = killText({ state: composer, tokens: tokensRef.current }, unit);
         if (killed) {
           killRef.current = killed;
-          setComposer(next);
+          tokensRef.current = doc.tokens;
+          setComposer(doc.state);
           const shown = killed.length > 24 ? `${killed.length} chars` : `"${killed.trim()}"`;
           setStatusLine(tui('deleted {what} — Ctrl+Y to paste back', { what: shown }));
         }
         return;
       }
       if (letter === 'o') {
+        // Inline: only later rows pick up the new detail. Remounting <Static>
+        // reprinted the whole transcript into scrollback.
         setVerbose((current) => !current);
-        // Re-emit the transcript (see `verboseRevision`): the key change remounts
-        // <Static> so the rows the marker pointed at are really re-rendered.
-        setVerboseRevision((n) => n + 1);
         return;
       }
       const action = ctrlBinding(letter);
@@ -2571,33 +2657,27 @@ export function TuiAppRoot({
     setStatusLine((current) =>
       current !== undefined && transientStatus(current) ? undefined : current
     );
-    setComposer((current) => composerInsert(current, chunk));
+    lastEditAtRef.current = Date.now();
+    setComposer((current) => {
+      const doc = insertText({ state: current, tokens: tokensRef.current }, chunk);
+      tokensRef.current = doc.tokens;
+      return doc.state;
+    });
   });
 
-  // Bracketed paste: staged so one paste becomes ONE message with newlines.
-  useEffect(() => {
-    if (!stdin) return;
-    const onData = (chunk: Buffer | string) => {
-      const disposition = feedChunk(pasteRef.current, chunk.toString('utf8'));
-      if (disposition.completed) {
-        const staged = pasteRef.current.pending[0] ?? '';
-        setPastePreview(staged);
-        // A multi-hundred-KB paste goes to the model verbatim — the staging
-        // line must say so out loud before Enter commits it.
-        const size = staged.length;
-        setInput(
-          size > 100_000
-            ? `[paste: ${staged.split('\n').length} lines · LARGE ${Math.round(size / 1000)}k chars — Enter sends it all; @-mention a file instead to send a path]`
-            : `[paste: ${staged.split('\n').length} lines — Enter sends as one message, Esc discards]`
-        );
-        handle.notify();
-      }
-    };
-    stdin.on('data', onData);
-    return () => {
-      stdin.off('data', onData);
-    };
-  }, [stdin, handle]);
+  usePaste((text) => {
+    lastEditAtRef.current = Date.now();
+    setComposer((current) => {
+      const doc = insertPaste(
+        { state: current, tokens: tokensRef.current },
+        text,
+        pasteIdRef.current
+      );
+      pasteIdRef.current += 1;
+      tokensRef.current = doc.tokens;
+      return doc.state;
+    });
+  });
 
   // ─── render ────────────────────────────────────────────────────────────
 
@@ -2613,7 +2693,7 @@ export function TuiAppRoot({
     thinking: showThinking ? store.run.thinkingText : '',
     tokensOut: store.usage.runTokensOut,
     queued: queueRef.current.length,
-    ...(queueRef.current[0] ? { queuePreview: queueRef.current[0] } : {}),
+    ...(queueRef.current[0] ? { queuePreview: queueRef.current[0].display } : {}),
     ...(store.run.retry ? { retry: store.run.retry } : {}),
     ...(store.run.lastEventAt !== undefined ? { lastEventAt: store.run.lastEventAt } : {}),
     blocked: Boolean(approval),
@@ -2630,6 +2710,7 @@ export function TuiAppRoot({
     ...(approval && pendingDialogRef.current?.kind === 'question'
       ? { dialogHasOptions: approval.options.length > 0 }
       : {}),
+    ...(approval ? { answerKeys: approval.options.map((option) => option.key).join('/') } : {}),
     tokens: running ? store.usage.runTokensOut : store.usage.tokensIn + store.usage.tokensOut,
     taskCount: runtime.taskSummaries().length,
     queueLength: queueRef.current.length,
@@ -2644,7 +2725,14 @@ export function TuiAppRoot({
   const editor = renderComposerEditor(composer, {
     width: columns,
     maxRows: COMPOSER_MAX_ROWS,
-    placeholder: input.length === 0 && !running ? PLACEHOLDER_TEXT : undefined,
+    placeholder:
+      input.length === 0
+        ? queueRef.current.length > 0
+          ? tui('Press up to edit queued messages')
+          : running
+            ? undefined
+            : PLACEHOLDER_TEXT
+        : undefined,
     // Shell mode swaps the prompt glyph (`! ` instead of `❯ `) — E2.
     firstPrefix: shellMode ? '! ' : '❯ ',
     restPrefix: '  ',
@@ -2824,7 +2912,43 @@ export function TuiAppRoot({
     line(rule(columns), ruleTone),
   ];
   const chromeBottom: TuiLine[] = [line(rule(columns), ruleTone), renderHint(status, columns)];
-  const liveLines = renderLive(live, columns, verbose);
+  const liveLines = renderLive(live, columns, verbose || fullscreen);
+  const frameLayout = allocateFrame({
+    rows: windowSize.rows || 24,
+    mode: fullscreen ? 'fullscreen' : 'inline',
+    composerLines: approval ? 1 : Math.max(1, editor.lines.length),
+    fixedChrome: chromeTop.length + chromeBottom.length,
+    sections: [
+      {
+        id: 'live',
+        lines: liveLines,
+        min: liveLines.length > 0 ? 1 : 0,
+        priority: 5,
+        trim: 'tail',
+      },
+    ],
+  });
+  const shownLive = frameLayout.sections[0]?.lines ?? liveLines;
+  const projected: ViewportLine[] = [];
+  if (fullscreen) {
+    for (const row of store.rows) {
+      renderTranscriptRow(row, columns, verbose).forEach((entry, lineIndex) => {
+        projected.push({ rowId: row.id, lineIndex, text: entry.text });
+      });
+    }
+  }
+  viewportLinesRef.current = projected.length;
+  const view = fullscreen
+    ? viewportWindow(projected, viewport, frameLayout.viewportRows)
+    : undefined;
+  const permissionDialog = Boolean(approval && pendingDialogRef.current?.kind !== 'question');
+  const hideHardwareCursor = Boolean(permissionDialog || sessionPicker || modelPicker);
+  if (hideHardwareCursor || process.env.MOSS_TUI_HW_CURSOR === '0') {
+    setCursorPosition(undefined);
+  } else {
+    const aboveComposer = (view?.lines.length ?? shownLive.length) + chromeTop.length;
+    setCursorPosition({ x: editor.caretCol, y: aboveComposer + editor.caretRow });
+  }
 
   /**
    * Blank separator lines are part of the grammar (every block starts after an
@@ -2872,19 +2996,12 @@ export function TuiAppRoot({
             {
               key: `${key}-${index}-prompt`,
               color: SHELL_MODE_TONE,
-              ...(run.inverse ? { inverse: true } : {}),
             },
             head
           )
         );
       }
-      children.push(
-        React.createElement(
-          Text,
-          { key: `${key}-${index}`, ...(run.inverse ? { inverse: true } : {}) },
-          tail
-        )
-      );
+      children.push(React.createElement(Text, { key: `${key}-${index}` }, tail));
     });
     return React.createElement(
       Text,
@@ -2895,35 +3012,45 @@ export function TuiAppRoot({
 
   return React.createElement(
     Box,
-    { flexDirection: 'column' },
-    React.createElement(Static, {
-      // ink's <Static> memoizes on the ITEM ARRAY IDENTITY, so the store array
-      // must be copied every render — pushing into it in place renders nothing
-      // (the memo keeps returning the empty slice taken at mount).
-      //
-      // The key carries the ctrl+o revision: remounting is the only way ink
-      // re-renders rows it has already committed (D-5). `/clear` rides the same
-      // mechanism: after the ANSI wipe, the remount re-prints only the rows the
-      // store kept (the banner).
-      key: `transcript-${verboseRevision}-${clearRevision}`,
-      items: store.rows.slice(),
-      // ink types Static's children as (item: unknown, index) => ReactNode.
-      children: (item: unknown) => {
-        const row = item as TranscriptRow;
-        return React.createElement(
-          Box,
-          { key: row.id, flexDirection: 'column' },
-          ...renderTranscriptRow(row, columns, verbose).map((l, index) =>
-            inkLine(l, `${row.id}-${index}`)
-          )
-        );
-      },
-    }),
-    ...liveLines.map((l, index) => inkLine(l, `live-${index}`)),
+    {
+      flexDirection: 'column',
+      ...(fullscreen ? { height: windowSize.rows || 24 } : {}),
+    },
+    fullscreen
+      ? null
+      : React.createElement(Static, {
+          // ink's <Static> memoizes on the ITEM ARRAY IDENTITY, so the store array
+          // must be copied every render — pushing into it in place renders nothing
+          // (the memo keeps returning the empty slice taken at mount).
+          //
+          // The key carries the ctrl+o revision: remounting is the only way ink
+          // re-renders rows it has already committed (D-5). `/clear` rides the same
+          // mechanism: after the ANSI wipe, the remount re-prints only the rows the
+          // store kept (the banner).
+          key: `transcript-${clearRevision}`,
+          items: store.rows.slice(),
+          // ink types Static's children as (item: unknown, index) => ReactNode.
+          children: (item: unknown) => {
+            const row = item as TranscriptRow;
+            return React.createElement(
+              Box,
+              { key: row.id, flexDirection: 'column' },
+              ...renderTranscriptRow(row, columns, verbose).map((l, index) =>
+                inkLine(l, `${row.id}-${index}`)
+              )
+            );
+          },
+        }),
+    ...(fullscreen && view
+      ? view.lines.map((entry, index) => inkLine(line(entry.text), `view-${index}`))
+      : []),
+    ...shownLive.map((l, index) => inkLine(l, `live-${index}`)),
     ...chromeTop.map((l, index) => inkLine(l, `chrome-top-${index}`)),
-    ...composerRuns.map((runs, index) =>
-      inkRuns(runs, `composer-${index}`, shellMode && index === 0)
-    ),
+    ...(permissionDialog
+      ? []
+      : composerRuns.map((runs, index) =>
+          inkRuns(runs, `composer-${index}`, shellMode && index === 0)
+        )),
     ...chromeBottom.map((l, index) => inkLine(l, `chrome-bottom-${index}`))
   );
 }
@@ -2937,10 +3064,35 @@ function stdouts(stdout: { columns?: number } | undefined): number {
 /** Boot the TUI; resolves when the user quits. TTY-only entry point. */
 export async function runTuiApp(options: TuiAppOptions): Promise<void> {
   setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
+  const choice = selectTuiRenderer({
+    env: process.env,
+    rows: process.stdout.rows,
+    term: process.env.TERM,
+    inTmux: Boolean(process.env.TMUX),
+    inScreen: Boolean(process.env.STY),
+  });
   const handle = createStoreHandle();
   const runtime = options.runtime ?? new TaskRuntime({ workspaceDir: options.workspaceDir });
-  const instance = render(React.createElement(TuiAppRoot, { options, handle, runtime }), {
-    exitOnCtrlC: false,
-  });
-  await instance.waitUntilExit();
+  const instance = render(
+    React.createElement(TuiAppRoot, {
+      options: { ...options, renderer: options.renderer ?? choice.mode },
+      handle,
+      runtime,
+    }),
+    {
+      exitOnCtrlC: false,
+      alternateScreen: (options.renderer ?? choice.mode) === 'fullscreen',
+    }
+  );
+  try {
+    await instance.waitUntilExit();
+  } finally {
+    if ((options.renderer ?? choice.mode) === 'fullscreen') {
+      const session = options.sessionKey ?? 'current';
+      const last = [...handle.store.rows].reverse().find((row) => row.kind === 'assistant');
+      process.stdout.write(
+        `\nsession ${session}\nmoss resume ${session}\n${last ? last.text.slice(0, 500) : ''}\n`
+      );
+    }
+  }
 }

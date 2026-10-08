@@ -305,8 +305,7 @@ assert.ok(
   'the shell prefix is in the advertised key table'
 );
 
-await typeOnly('?');
-instance.stdin.write('\r');
+instance.stdin.write('?');
 assert.ok(
   await waitFor(() => frame().includes('prefixes')),
   'the help block documents the prefixes'

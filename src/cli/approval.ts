@@ -569,6 +569,19 @@ function approvalTargetSummary(
   if (source && destination) return `${source} -> ${destination}`;
   const patch = patchPathSummary(input);
   if (patch) return patch;
+  if (toolName === 'multi_edit' && Array.isArray(input.edits)) {
+    const paths: string[] = [];
+    for (const item of input.edits) {
+      if (!item || typeof item !== 'object') continue;
+      const filePath = (item as Record<string, unknown>).path;
+      if (typeof filePath === 'string' && filePath.trim()) paths.push(cleanPromptText(filePath));
+    }
+    if (paths.length > 0) {
+      const shown = paths.slice(0, 3);
+      const extra = paths.length - shown.length;
+      return extra > 0 ? `${shown.join(', ')}, +${extra} more` : shown.join(', ');
+    }
+  }
   const directTarget = compactInputValue(input, [
     'path',
     'file_path',

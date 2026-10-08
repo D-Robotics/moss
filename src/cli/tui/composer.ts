@@ -288,8 +288,6 @@ export const COMPOSER_MAX_ROWS = 6;
 
 export interface ComposerRun {
   text: string;
-  /** The caret cell: drawn as an inverted space. */
-  inverse?: boolean;
 }
 
 export interface ComposerView {
@@ -299,6 +297,12 @@ export interface ComposerView {
   placeholder: boolean;
   /** Visible row that holds the caret (0-based). */
   caretRow: number;
+  /**
+   * Hardware-cursor column in terminal cells, including the prompt prefix.
+   * The shell places the real cursor here; the projection never inserts a
+   * fake caret cell.
+   */
+  caretCol: number;
 }
 
 export interface ComposerViewOptions {
@@ -309,19 +313,15 @@ export interface ComposerViewOptions {
   firstPrefix?: string;
   /** Prefix for continuation rows, e.g. `  `. Defaults to `firstPrefix`. */
   restPrefix?: string;
-  /**
-   * When set, the caret is drawn as this glyph (replacing the cell under it)
-   * instead of an inverted run — used by the plain-text projection.
-   */
-  caretGlyph?: string;
   /** Mark the first visible row with `… ` when rows above it are hidden. */
   markElision?: boolean;
 }
 
 /**
  * Render the composer: soft-wrapped rows, windowed so the caret row is always
- * visible, with the caret as an inverted space at its exact cell — including at
- * the end of a full row, where the caret needs its own cell.
+ * visible. The caret is NOT drawn — `caretRow`/`caretCol` are the hardware
+ * cursor, including at the end of a full row, where the caret needs its own
+ * (empty) row so the terminal has a cell to park it in.
  */
 export function renderComposerEditor(
   state: ComposerState,
@@ -334,6 +334,7 @@ export function renderComposerEditor(
     return {
       placeholder: true,
       caretRow: 0,
+      caretCol: displayWidth(prefix),
       lines: [[{ text: clipCells(`${prefix}${options.placeholder}`, width) }]],
     };
   }
@@ -365,36 +366,16 @@ export function renderComposerEditor(
   const lines = visible.map((row, index) => {
     const text = state.value.slice(row.start, row.end);
     const elided = options.markElision === true && start > 0 && index === 0;
-    if (index !== caretRow) {
-      return withPrefix([{ text: elided ? clipCells(`… ${text}`, width) : text }], index, elided);
-    }
-    const before = state.value.slice(row.start, state.caret);
-    const after = state.value.slice(state.caret, row.end);
-    if (options.caretGlyph) {
-      // Block cursor: the glyph occupies the cell under the caret.
-      const head = elided ? `… ${before}` : before;
-      const glyph = options.caretGlyph;
-      const body = after.length > 0 ? `${glyph}${after.slice(nextIndex(after, 0))}` : glyph;
-      return withPrefix([{ text: clipCells(`${head}${body}`, rowWidth) }], index, elided);
-    }
-    // The caret cell is INSERTED, not overlaid: on a row that is already full it
-    // would push the row one cell past its budget and make the terminal wrap.
-    // Give the last cell(s) of the tail back instead.
-    const overflow = Math.max(0, displayWidth(before) + 1 + displayWidth(after) - rowWidth);
-    const tail =
-      overflow > 0 ? takeCells(after, Math.max(0, displayWidth(after) - overflow)) : after;
-    return withPrefix(
-      [
-        ...(elided ? [{ text: '… ' }] : []),
-        { text: before },
-        { text: ' ', inverse: true },
-        { text: tail },
-      ],
-      index,
-      elided
-    );
+    return withPrefix([{ text: elided ? clipCells(`… ${text}`, width) : text }], index, elided);
   });
-  return { placeholder: false, lines, caretRow };
+  const caretSpan = visible[caretRow];
+  const elidedCaret = options.markElision === true && start > 0 && caretRow === 0;
+  const prefixForCaret = elidedCaret ? '… ' : caretRow === 0 ? firstPrefix : restPrefix;
+  const beforeCaret = caretSpan
+    ? state.value.slice(caretSpan.start, Math.min(state.caret, caretSpan.end))
+    : '';
+  const caretCol = displayWidth(prefixForCaret) + displayWidth(beforeCaret);
+  return { placeholder: false, lines, caretRow, caretCol };
 }
 
 /** Take at most `cells` cells from the head of a string, without a marker. */

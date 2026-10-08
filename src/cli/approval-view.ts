@@ -78,14 +78,15 @@ export function buildCliApprovalView(dialog: ApprovalDialog): CliApprovalView {
   // remain the fallback for callers without a classified dialog.
   const options = CLI_APPROVAL_OPTIONS.filter(
     (option) => option.answer !== 'a' || dialog.trustOptionAvailable !== false
-  ).map((option) => {
+  ).map((option, index) => {
+    const key = String(index + 1);
     if (option.answer === 'a' && dialog.trustOptionLabel) {
-      return { ...option, label: dialog.trustOptionLabel };
+      return { ...option, key, label: dialog.trustOptionLabel };
     }
     if (option.answer === 'n' && dialog.denyOptionLabel) {
-      return { ...option, label: dialog.denyOptionLabel };
+      return { ...option, key, label: dialog.denyOptionLabel };
     }
-    return { ...option };
+    return { ...option, key };
   });
   return {
     title: dialog.title,
