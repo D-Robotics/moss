@@ -3225,8 +3225,14 @@ export function TuiAppRoot({
     ? renderTranscriptRow(detailSource, columns, true).slice(0, 40)
     : [];
   const composerLines = permissionDialog ? 0 : editor.lines.length;
+  // Rows the frame paints above the composer, in render order: the fullscreen
+  // transcript viewport, then the live block (streaming text, spinner), then the
+  // detail block, then the top chrome. Fullscreen renders the live block too, so
+  // it must be counted; dropping it parked the hardware cursor above the prompt.
+  const aboveComposer =
+    (view?.lines.length ?? 0) + shownLive.length + detailLines.length + chromeTop.length;
   mouseLayoutRef.current = {
-    composerTop: (view?.lines.length ?? shownLive.length) + detailLines.length + chromeTop.length,
+    composerTop: aboveComposer,
     composerLines,
     viewportRows: fullscreen ? frameLayout.viewportRows : 0,
     ...(view && !view.pinned
@@ -3239,8 +3245,6 @@ export function TuiAppRoot({
   if (hideHardwareCursor || process.env.MOSS_TUI_HW_CURSOR === '0') {
     setCursorPosition(undefined);
   } else {
-    const aboveComposer =
-      (view?.lines.length ?? shownLive.length) + detailLines.length + chromeTop.length;
     setCursorPosition({ x: editor.caretCol, y: aboveComposer + editor.caretRow });
   }
 
