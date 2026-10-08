@@ -441,8 +441,10 @@ export function renderDiffGutter(
 export function renderReasoning(text: string, width: number): TuiLine[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
+  // Reasoning reads as a quoted aside: a left gutter and secondary italic, never
+  // the answer's mark (plan v3 P3, the ThinkingMessage treatment in gemini-cli).
   return wrap(trimmed, Math.max(4, width - 2)).map((chunk) =>
-    line(clip(`· ${chunk}`, width), { dim: true })
+    line(clip(`│ ${chunk}`, width), { dim: true, italic: true })
   );
 }
 
@@ -500,8 +502,17 @@ function resultLines(text: string): string[] {
  * renders every tool-output line instead of the compact preview, and reveals
  * the reasoning a row carries. Default false, so existing callers are unchanged.
  */
-export function renderTranscriptRow(row: TranscriptRow, width: number, verbose = false): TuiLine[] {
-  const out: TuiLine[] = [line('')];
+export function renderTranscriptRow(
+  row: TranscriptRow,
+  width: number,
+  verbose = false,
+  previous?: TranscriptRow
+): TuiLine[] {
+  // A tool's result belongs to the call right above it: no blank line between
+  // `⏺ Read(x)` and its `⎿ …`, and consecutive results of one fold stay a block.
+  const attached =
+    row.kind === 'result' && (previous?.kind === 'tool' || previous?.kind === 'result');
+  const out: TuiLine[] = attached ? [] : [line('')];
   switch (row.kind) {
     case 'user': {
       // A `! <cmd>` submission is shell mode, not a goal: the reference swaps
@@ -532,7 +543,18 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
       const reasoning = verbose ? rowReasoning(row) : undefined;
       if (reasoning) out.push(...renderReasoning(reasoning, width));
       else if (rowReasoning(row)) {
-        out.push(line(clip(tui('  ⎿ thinking · click or ctrl+o'), width), { dim: true }));
+        const seconds = Math.round((row.thinkingMs ?? 0) / 1000);
+        out.push(
+          line(
+            clip(
+              seconds >= 1
+                ? tui('  ⎿ thought for {seconds}s · click or ctrl+o', { seconds })
+                : tui('  ⎿ thinking · click or ctrl+o'),
+              width
+            ),
+            { dim: true }
+          )
+        );
       }
       const body: MarkdownLine[] = renderMarkdown(row.text, Math.max(4, width - 2));
       body.forEach((entry, index) => {
@@ -606,7 +628,8 @@ export function renderTranscriptRow(row: TranscriptRow, width: number, verbose =
         !row.tool?.isError &&
         row.tool?.name !== undefined &&
         READONLY_PREVIEW_TOOLS.has(row.tool.name);
-      if (foldsQuiet && source.length > 0) {
+      // One or two lines are cheaper to show than a `… 1 lines · ctrl+o` pointer.
+      if (foldsQuiet && source.length > 2) {
         out.push(
           ...headline,
           line(
@@ -776,6 +799,11 @@ export interface LiveView {
   lastEventAt?: number;
   /** Waiting on the user (approval): the spinner must not keep pretending. */
   blocked?: boolean;
+  /**
+   * The model is reasoning and has not started its answer. The text itself stays
+   * hidden by default (ctrl+o reveals it); the spinner just says what is going on.
+   */
+  thinkingActive?: boolean;
 }
 
 /** Seconds of stream silence before the live region says so out loud. */
@@ -788,7 +816,19 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
   // Compact keeps the most recent reasoning (two lines) and the streaming tail;
   // the detailed transcript shows both in full (ctrl+o in the reference).
   const reasoning = renderReasoning(view.thinking, width);
-  for (const entry of verbose ? reasoning : reasoning.slice(-2)) out.push(entry);
+  // Detailed view: the newest reasoning, bounded. A long thought used to stream
+  // as a wall of dim text that pushed the answer and the spinner off screen; the
+  // full text lands in the answer's row once the turn ends (ctrl+o reveals it).
+  const REASONING_TAIL = 12;
+  if (!verbose) {
+    for (const entry of reasoning.slice(-2)) out.push(entry);
+  } else {
+    const hidden = Math.max(0, reasoning.length - REASONING_TAIL);
+    if (hidden > 0) {
+      out.push(line(clip(`│ … ${hidden} earlier lines`, width), { dim: true, italic: true }));
+    }
+    for (const entry of reasoning.slice(-REASONING_TAIL)) out.push(entry);
+  }
   if (view.retry) {
     out.push(
       line(
@@ -816,17 +856,18 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
         : line(clippedText, { dim: true });
     }
   );
-  for (const entry of verbose ? streamingLines : streamingLines.slice(-8)) out.push(entry);
+  for (const entry of verbose ? streamingLines.slice(-40) : streamingLines.slice(-8))
+    out.push(entry);
   if (view.blocked) return out;
   const seconds = Math.max(0, Math.round(elapsedMs / 1000));
   const tokens =
     view.tokensOut > 0 ? tui(' · {count} out', { count: formatCompactCount(view.tokensOut) }) : '';
   const queued = view.queued > 0 ? tui(' · {count} queued', { count: view.queued }) : '';
+  const verb = view.thinkingActive && !view.streaming.trim() ? tui('Thinking') : runVerb(seconds);
   out.push(
-    line(
-      clip(`${spinnerFrame(elapsedMs)} ${runVerb(seconds)}… ${seconds}s${tokens}${queued}`, width),
-      { color: 'yellow' }
-    )
+    line(clip(`${spinnerFrame(elapsedMs)} ${verb}… ${seconds}s${tokens}${queued}`, width), {
+      color: 'yellow',
+    })
   );
   // Silence is information too: past the hint threshold the spinner stops
   // pretending the model is thinking and says the stream has gone quiet (a
@@ -1121,6 +1162,8 @@ export interface StatusView {
   verbose?: boolean;
   /** A stashed draft exists (Ctrl+S); composes with other badges (A2.24). */
   stashed?: boolean;
+  /** Folded output is on screen: the hint row offers ctrl+o to open it. */
+  collapsed?: boolean;
 }
 
 /** Context fill at/above which the status row turns the percentage yellow. */
@@ -1152,8 +1195,20 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
         count: view.tokens >= 1000 ? `${Math.round(view.tokens / 100) / 10}k` : view.tokens,
       })
     );
-  const text = parts.join(' · ');
-  const pad = ' '.repeat(Math.max(0, width - displayWidth(text)));
+  // Narrow panes drop the model name first, then the token count; the state
+  // badge (`● running`) is the part that must survive.
+  const fit = (list: string[]): string => list.join(' · ');
+  if (displayWidth(fit(parts)) > width && view.model) {
+    const at = parts.indexOf(view.model);
+    if (at >= 0) parts.splice(at, 1);
+  }
+  while (displayWidth(fit(parts)) > width && parts.length > 1) parts.pop();
+  const text = fit(parts);
+  // The right-most column is left empty. A row that fills every column is one
+  // width error away from losing its last glyph (the wide glyphs `●` and `·` are
+  // measured as one cell here and can be drawn as two elsewhere).
+  const room = Math.max(1, width - 1);
+  const pad = ' '.repeat(Math.max(0, room - displayWidth(text)));
   const full = `${pad}${text}`;
   // A hot context window is the one part of this row that can demand action:
   // paint just that segment (yellow → red) and keep the rest of the row dim.
@@ -1199,28 +1254,47 @@ export function renderHint(view: StatusView, width: number): TuiLine {
       }
     );
   }
-  const parts = [modeLabel, tui('? for shortcuts')];
+  // Each item carries a priority. A narrow pane drops the lowest-priority items
+  // whole (never a half-word) and keeps the mode label, which is the one thing
+  // that must always be readable: what the next Shift+Tab will change.
+  // Priority: mode (always) > what the keys do now > ? for shortcuts > counts.
+  const items: Array<{ text: string; priority: number }> = [{ text: modeLabel, priority: 0 }];
   if (view.blocked) {
     if (view.dialogKind === 'question') {
-      parts.push(
-        view.dialogHasOptions
-          ? tui('{keys} to answer', { keys: view.answerKeys ?? '1/2/3' })
-          : tui('type answer · Enter to send'),
-        tui('Esc to skip')
+      items.push(
+        {
+          text: view.dialogHasOptions
+            ? tui('{keys} to answer', { keys: view.answerKeys ?? '1/2/3' })
+            : tui('type answer · Enter to send'),
+          priority: 1,
+        },
+        { text: tui('Esc to skip'), priority: 2 }
       );
     } else {
-      parts.push(
-        tui('{keys} to answer', { keys: view.answerKeys ?? '1/2/3' }),
-        tui('Tab to amend')
+      items.push(
+        { text: tui('{keys} to answer', { keys: view.answerKeys ?? '1/2/3' }), priority: 1 },
+        { text: tui('Tab to amend'), priority: 2 }
       );
     }
-  } else if (view.running) parts.push(tui('Esc to interrupt'));
-  if (view.verbose) parts.push(tui('verbose transcript · ctrl+o to exit'));
-  if (view.queueLength > 0) parts.push(tui('{count} queued', { count: view.queueLength }));
+  } else if (view.running) items.push({ text: tui('Esc to interrupt'), priority: 1 });
+  items.push({ text: tui('? for shortcuts'), priority: 3 });
+  if (view.verbose) items.push({ text: tui('verbose transcript · ctrl+o to exit'), priority: 4 });
+  else if (view.collapsed) items.push({ text: tui('ctrl+o to expand'), priority: 2 });
+  if (view.queueLength > 0)
+    items.push({ text: tui('{count} queued', { count: view.queueLength }), priority: 4 });
   if (view.taskCount > 0)
-    parts.push(
-      tui(view.taskCount === 1 ? '{count} task' : '{count} tasks', { count: view.taskCount })
-    );
+    items.push({
+      text: tui(view.taskCount === 1 ? '{count} task' : '{count} tasks', {
+        count: view.taskCount,
+      }),
+      priority: 5,
+    });
+  const fits = (list: typeof items): boolean =>
+    displayWidth(`  ${list.map((item) => item.text).join(' · ')}`) <= width;
+  const kept = [...items].sort((a, b) => a.priority - b.priority);
+  while (kept.length > 1 && !fits(kept)) kept.pop();
+  // Keep the on-screen order of the original list.
+  const parts = items.filter((item) => kept.includes(item)).map((item) => item.text);
   return line(clip(`  ${parts.join(' · ')}`, width), {
     color: INTERACTION_MODE_TONES[mode],
     // full is the resting mode: dim gray, not a yellow bar across the footer.

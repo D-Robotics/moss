@@ -12,6 +12,8 @@ export type TuiRendererMode = 'inline' | 'fullscreen';
 export interface RendererProbe {
   env?: Record<string, string | undefined>;
   rows?: number;
+  /** Terminal width; below MIN_FULLSCREEN_COLUMNS the fullscreen frame cannot hold its chrome. */
+  columns?: number;
   term?: string;
   /** `tmux show -gv mouse` result; undefined when not inside tmux. */
   tmuxMouse?: string | undefined;
@@ -23,6 +25,9 @@ export interface RendererChoice {
   mode: TuiRendererMode;
   reason: string;
 }
+
+/** Below this width the fullscreen chrome (rules, hint, status) cannot stay on one row each. */
+export const MIN_FULLSCREEN_COLUMNS = 40;
 
 export function selectTuiRenderer(probe: RendererProbe = {}): RendererChoice {
   const env = probe.env ?? {};
@@ -39,6 +44,13 @@ export function selectTuiRenderer(probe: RendererProbe = {}): RendererChoice {
     return { mode: 'inline', reason: 'TERM cannot host a fullscreen UI' };
   const rows = probe.rows ?? 24;
   if (rows < 10) return { mode: 'inline', reason: 'terminal is shorter than 10 rows' };
+  const columns = probe.columns ?? 80;
+  if (columns < MIN_FULLSCREEN_COLUMNS) {
+    return {
+      mode: 'inline',
+      reason: `terminal is narrower than ${MIN_FULLSCREEN_COLUMNS} columns`,
+    };
+  }
   if (probe.inScreen || env.STY) return { mode: 'inline', reason: 'GNU screen' };
   if (probe.inTmux || env.TMUX) {
     const mouse = (probe.tmuxMouse ?? 'off').trim().toLowerCase();

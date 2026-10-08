@@ -39,6 +39,23 @@ const cells = (value) => stringWidth(value);
 const text = (lines) => lines.map((entry) => entry.text).join('\n');
 
 {
+  const unfenced = renderMarkdown('def main():\n    rclpy.init()\n    node = Talker()\n', 80);
+  const unfencedText = text(unfenced);
+  assert.ok(
+    unfencedText.includes('def main():'),
+    `unfenced code keeps the def line: ${unfencedText}`
+  );
+  assert.ok(unfencedText.includes('rclpy.init()'), `unfenced code keeps the body: ${unfencedText}`);
+  assert.equal(
+    unfencedText.includes('def main(): rclpy.init()'),
+    false,
+    'a newline in code is not replaced with a space'
+  );
+  assert.ok(
+    unfenced.some((line) => line.text.includes('    rclpy.init()')),
+    `indent survives: ${unfencedText}`
+  );
+
   const partial = renderStreamingMarkdown(
     'Intro paragraph.\n\n## Heading\n\n```ts\nconst x = 1;',
     40
@@ -543,11 +560,11 @@ const CJK_CODE = 'const 问候 = "你好，moss";';
   const compactAnswer = renderTranscriptRow(answer, 60).map((entry) => entry.text);
   const verboseAnswer = renderTranscriptRow(answer, 60, true).map((entry) => entry.text);
   assert.ok(
-    compactAnswer.every((line) => !line.startsWith('·')),
+    compactAnswer.every((line) => !line.startsWith('│ ')),
     'the compact answer hides the reasoning'
   );
   assert.ok(
-    verboseAnswer.some((line) => line.startsWith('·')),
+    verboseAnswer.some((line) => line.startsWith('│ ')),
     'the detailed transcript shows the reasoning'
   );
   assert.ok(
@@ -569,7 +586,7 @@ const CJK_CODE = 'const 问候 = "你好，moss";';
   };
   const liveCompact = renderLive(view, 40);
   const liveVerbose = renderLive(view, 40, true);
-  const dots = (lines) => lines.filter((entry) => entry.text.startsWith('· ')).length;
+  const dots = (lines) => lines.filter((entry) => entry.text.startsWith('│ ')).length;
   assert.ok(dots(liveCompact) <= 2, 'the compact live region keeps the last reasoning lines');
   assert.ok(dots(liveVerbose) > dots(liveCompact), 'verbose shows more reasoning');
   assert.ok(
@@ -579,7 +596,7 @@ const CJK_CODE = 'const 问候 = "你好，moss";';
   assertFits(liveVerbose, 40, 'verbose live');
 
   const reasoning = renderReasoning(`why ${CJK}`, 30);
-  assert.ok(reasoning[0].text.startsWith('· '), 'reasoning lines carry the · mark');
+  assert.ok(reasoning[0].text.startsWith('│ '), 'reasoning lines carry the │ gutter');
   assert.equal(reasoning[0].dim, true, 'reasoning is quiet');
   assert.deepEqual(renderReasoning('   ', 30), [], 'blank reasoning emits nothing');
 }
@@ -657,3 +674,36 @@ const CJK_CODE = 'const 问候 = "你好，moss";';
 }
 
 console.log('OK tui-markdown');
+
+// ─── terminal polish regressions ─────────────────────────────────────────
+
+{
+  // A newline that just ended the last received line is not a blank row.
+  const open = renderStreamingMarkdown('first line\n', 40);
+  assert.equal(open.length, 1, 'a trailing newline does not grow the live block');
+  // A heading that is still streaming already reads as a heading.
+  const heading = renderStreamingMarkdown('## Section 22\nbody so far', 40);
+  assert.equal(heading[0].text, 'Section 22', 'open heading drops its # markers');
+  assert.ok(heading[0].bold, 'open heading is bold');
+
+  // A tool result is attached to the call above it: no blank line between them.
+  const result = {
+    id: 2,
+    kind: 'result',
+    text: 'ok · 1ms\n.moss/',
+    tool: { name: 'list_directory' },
+  };
+  const call = { id: 1, kind: 'tool', text: 'List Directory(.)', tool: { name: 'list_directory' } };
+  assert.equal(renderTranscriptRow(result, 60, false, call)[0].text.trim() !== '', true);
+  assert.equal(
+    renderTranscriptRow(result, 60, false)[0].text,
+    '',
+    'standalone result keeps its gap'
+  );
+  // One or two lines are shown instead of a `… 1 lines · ctrl+o` pointer.
+  const shown = renderTranscriptRow(result, 60, false, call)
+    .map((l) => l.text)
+    .join('\n');
+  assert.ok(shown.includes('.moss/'), `short read-only output is shown: ${shown}`);
+  assert.ok(!shown.includes('ctrl+o'), 'no expand pointer for a one-line result');
+}

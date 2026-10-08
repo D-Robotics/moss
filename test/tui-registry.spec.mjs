@@ -392,11 +392,7 @@ for (const hidden of ['/status', '/context', '/export']) {
     `the /permissions panel rendered: ${JSON.stringify(instance.lastFrame().slice(-300))}`
   );
   assert.match(instance.lastFrame(), /manual/, 'the panel shows the live interaction mode');
-  assert.match(
-    instance.lastFrame(),
-    /\/permissions add/,
-    'the panel advertises how to add a rule'
-  );
+  assert.match(instance.lastFrame(), /\/permissions add/, 'the panel advertises how to add a rule');
   // add → remove round-trip through the registry the TUI shares with the hook.
   await type(instance, '/permissions add deny "read_file(./.env)"');
   const added = await waitFor(() => allText(handle).includes('Session deny rule added'));

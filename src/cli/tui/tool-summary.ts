@@ -36,10 +36,16 @@ export interface ToolCompletion {
 const EXEC_TOOLS = new Set(['exec', 'device_exec', 'docker_exec', 'exec_background']);
 const READ_TOOLS = new Set(['read_file', 'device_file_read']);
 const WRITE_TOOLS = new Set(['write_file', 'device_file_write']);
+const LIST_TOOLS = new Set(['list_directory', 'device_file_list']);
+const SEARCH_TOOLS = new Set(['search_code', 'search_files']);
+const FETCH_TOOLS = new Set(['web_fetch']);
 /** The transcript's compact preview shows 3 lines; summaries exist beyond that. */
 const PREVIEW_LINES = 3;
 /** A write's `+`-prefixed content is capped so a large file cannot flood the row. */
 const WRITE_DIFF_MAX_LINES = 120;
+/** Words that make an output line a verdict rather than data. */
+const EXEC_CONCLUSION =
+  /\b(pass(ed|es)?|fail(ed|s|ure)?|succe(ss|eded)|error|errors|warning|warnings|built|build|done|ok|complete[d]?|finish(ed)?|exit|total|tests?|lint|typecheck|found|no matches)\b|\d+\s*(passed|failed|errors?|warnings?)/i;
 
 function countContentLines(text: string): number {
   return text.split('\n').filter((l) => l.trim() !== '').length;
@@ -163,8 +169,35 @@ export function summarizeToolCompletion(
       (l) => !l.startsWith('…') && !/^exit[=:]\s*\d+$/i.test(l.trim())
     );
     const last = candidates.at(-1);
-    if (last) return { summary: last };
+    // A last line is a conclusion only when it reads like one (a verdict, a
+    // result, an error). Otherwise it is just the end of some output, and the
+    // honest headline is how much came back.
+    if (last && EXEC_CONCLUSION.test(last)) return { summary: last };
+    const lines = countContentLines(body);
+    if (lines > PREVIEW_LINES) return { summary: `${lines} ${lines === 1 ? 'line' : 'lines'}` };
     return {};
+  }
+
+  // Observation tools name what came back. A count is a fact the result proves;
+  // an empty result is said out loud rather than shown as a blank row.
+  if (LIST_TOOLS.has(toolName)) {
+    const entries = countContentLines(body);
+    return { summary: `Listed ${entries} ${entries === 1 ? 'entry' : 'entries'}` };
+  }
+  if (SEARCH_TOOLS.has(toolName)) {
+    const matches = countContentLines(body);
+    if (matches === 0) return { summary: 'No matches' };
+    return { summary: `Found ${matches} ${matches === 1 ? 'match' : 'matches'}` };
+  }
+  if (FETCH_TOOLS.has(toolName)) {
+    const url = typeof input.url === 'string' ? input.url : '';
+    let host = '';
+    try {
+      host = new URL(url).host;
+    } catch {
+      host = '';
+    }
+    if (host) return { summary: `Fetched ${host}` };
   }
 
   if (toolName === 'ask_user_question') {

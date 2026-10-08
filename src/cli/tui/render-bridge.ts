@@ -56,6 +56,8 @@ export interface TranscriptRow {
   text: string;
   /** Reasoning that produced this row (verbose view reveals it). */
   reasoning?: string;
+  /** How long the model reasoned before this row (the `thought for 4s` line). */
+  thinkingMs?: number;
   /** Set when the row is a tool's completion (`tool_end`). */
   tool?: ToolRowMeta;
   /** Later block of an answer that already has its ⏺ row. */
@@ -71,6 +73,9 @@ export interface TuiRunState {
    * row that the canvas then shows as the answer.
    */
   thinkingText: string;
+  /** When the current reasoning stream started, and how long it lasted once it ended. */
+  thinkingStartedAt?: number;
+  thinkingMs?: number;
   /** Live tail of the streaming assistant response. */
   streamingText: string;
   toolLine?: string;
@@ -83,6 +88,8 @@ export interface TuiRunState {
   lastEventAt?: number;
   /** Assistant text already committed from this prose segment. */
   committedText?: string;
+  /** Every prose segment committed to the transcript this run (turn end, tool boundary). */
+  flushed?: string[];
   /** This run edited a JS/TS file and has not run a test or diagnostics tool. */
   editedJsTs?: boolean;
   ranTests?: boolean;
@@ -158,13 +165,19 @@ export function appendRow(
   store: TuiStore,
   kind: TranscriptRowKind,
   text: string,
-  extra: { reasoning?: string; tool?: ToolRowMeta; continuation?: boolean } = {}
+  extra: {
+    reasoning?: string;
+    thinkingMs?: number;
+    tool?: ToolRowMeta;
+    continuation?: boolean;
+  } = {}
 ): void {
   store.rows.push({
     id: store.nextId++,
     kind,
     text,
     ...(extra.reasoning ? { reasoning: extra.reasoning } : {}),
+    ...(extra.thinkingMs ? { thinkingMs: extra.thinkingMs } : {}),
     ...(extra.tool ? { tool: extra.tool } : {}),
     ...(extra.continuation ? { continuation: true } : {}),
   });
@@ -182,24 +195,82 @@ function setThinking(store: TuiStore, text: string): void {
 }
 
 /**
- * A thinking stream with no newlines used to live only in a two-line live
- * window, so the head was discarded as tokens arrived. Completed prefixes
- * become transcript rows the viewport (and the inline scrollback) can show.
+ * Reasoning is not transcript content. It used to be flushed into scrollback in
+ * 360-char slices, which buried the answer under pages of dim text. It now stays
+ * in one bounded buffer: the spinner reports "Thinking…", ctrl+o shows the tail,
+ * and the answer row keeps it as its hidden `reasoning`.
  */
-const THINKING_LIVE_BUDGET = 360;
+const THINKING_KEEP_CHARS = 6000;
 
-function commitThinkingPrefix(store: TuiStore, text: string): string {
-  let next = text;
-  while (next.length > THINKING_LIVE_BUDGET) {
-    const pivot = next.lastIndexOf(' ', Math.floor(THINKING_LIVE_BUDGET / 2));
-    const at = pivot > 40 ? pivot : Math.floor(THINKING_LIVE_BUDGET / 2);
-    const head = next.slice(0, at).trim();
-    const tail = next.slice(at).trimStart();
-    if (!head || tail.length >= next.length) break;
-    appendRow(store, 'detail', `  · ${head}`);
-    next = tail;
+/** Reasoning (and how long it took) to attach to the row being committed; resets the stream. */
+export function takeReasoning(store: TuiStore): { reasoning?: string; thinkingMs?: number } {
+  const reasoning = store.run.thinkingText.trim() ? store.run.thinkingText : undefined;
+  const thinkingMs =
+    store.run.thinkingMs ??
+    (store.run.thinkingStartedAt !== undefined
+      ? Date.now() - store.run.thinkingStartedAt
+      : undefined);
+  store.run.thinkingText = '';
+  store.run.thinkingStartedAt = undefined;
+  store.run.thinkingMs = undefined;
+  return {
+    ...(reasoning ? { reasoning } : {}),
+    ...(reasoning && thinkingMs ? { thinkingMs } : {}),
+  };
+}
+
+/** The reasoning stream ends the moment the answer or a tool call begins. */
+function closeThinking(store: TuiStore): void {
+  if (store.run.thinkingStartedAt !== undefined && store.run.thinkingMs === undefined) {
+    store.run.thinkingMs = Date.now() - store.run.thinkingStartedAt;
   }
-  return next;
+}
+
+function capThinking(text: string): string {
+  if (text.length <= THINKING_KEEP_CHARS) return text;
+  const tail = text.slice(text.length - THINKING_KEEP_CHARS);
+  const space = tail.indexOf(' ');
+  return space > 0 && space < 80 ? tail.slice(space + 1) : tail;
+}
+
+/**
+ * Commit the pending answer prose as its own transcript row (a finished assistant
+ * message). Shared by the tool boundary, the provider retry and the turn end, so
+ * two messages never share one buffer.
+ */
+export function flushProse(store: TuiStore): void {
+  if (!store.run.streamingText.trim()) return;
+  appendRow(store, 'assistant', store.run.streamingText, {
+    ...(store.run.committedText ? { continuation: true } : {}),
+    ...takeReasoning(store),
+  });
+  store.run.flushed = [...(store.run.flushed ?? []), store.run.streamingText];
+  store.run.streamingText = '';
+  store.run.committedText = '';
+  store.version++;
+}
+
+/**
+ * The provider's `done` response is the final answer. It is shown once: when the
+ * same text was already committed at the turn boundary it is skipped; when the
+ * stream carried nothing the response is the answer; when the live tail is a
+ * truncated prefix (long answers) the full response replaces it (N-4).
+ */
+export function reconcileFinalResponse(store: TuiStore, response: string | undefined): void {
+  if (typeof response !== 'string' || !response.trim()) return;
+  if (!store.run.streamingText.trim()) {
+    // The response is the whole run's answer. When every part of it is already
+    // committed (one turn, or several turns joined), it must not appear again.
+    const norm = (text: string): string => text.replace(/\s+/g, ' ').trim();
+    const committed = norm((store.run.flushed ?? []).join(' '));
+    if (committed && committed.includes(norm(response))) return;
+    appendRow(store, 'assistant', response);
+    return;
+  }
+  if (!store.run.committedText && response.length > store.run.streamingText.length) {
+    store.run.streamingText = response;
+    store.version++;
+  }
 }
 
 /**
@@ -211,6 +282,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
   store.run.lastEventAt = Date.now();
   switch (event.type) {
     case 'text_delta': {
+      closeThinking(store);
       store.run.retry = undefined;
       const buffered = store.run.streamingText + event.delta;
       const split = nextStreamCommit(buffered);
@@ -226,7 +298,8 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       break;
     }
     case 'thinking_delta': {
-      setThinking(store, commitThinkingPrefix(store, store.run.thinkingText + event.delta));
+      store.run.thinkingStartedAt ??= Date.now();
+      setThinking(store, capThinking(store.run.thinkingText + event.delta));
       break;
     }
     case 'retry': {
@@ -246,12 +319,19 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       store.version++;
       break;
     }
+    case 'turn_end': {
+      // An assistant turn that ends without a tool call is a finished message.
+      // Commit its prose now: the next turn's text must start its own row (N7).
+      flushProse(store);
+      break;
+    }
     case 'turn_start': {
       store.run.retry = undefined;
       store.version++;
       break;
     }
     case 'tool_start': {
+      closeThinking(store);
       store.run.retry = undefined;
       // The call itself is transcript content (`⏺ Write(hello.txt)`), not just a
       // status line: it is what the user scrolls back to.
@@ -488,7 +568,7 @@ export function endRun(store: TuiStore, halted: boolean): void {
   if (store.run.streamingText.trim()) {
     appendRow(store, 'assistant', store.run.streamingText, {
       ...(store.run.committedText ? { continuation: true } : {}),
-      ...(store.run.thinkingText.trim() ? { reasoning: store.run.thinkingText } : {}),
+      ...takeReasoning(store),
     });
   }
   store.run = {

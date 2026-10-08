@@ -32,7 +32,7 @@ import {
 } from '../dist/core/task-runtime/artifacts.js';
 import { appendDeploymentRecord } from '../dist/device/deployment.js';
 import { appendRow, createTuiStore } from '../dist/cli/tui/render-bridge.js';
-import { CTRL_BINDINGS, ctrlBinding } from '../dist/cli/tui/help.js';
+import { commandForKey, DEFAULT_KEYBINDINGS } from '../dist/cli/tui/keymap.js';
 import {
   ANSWER_MARK,
   APPROVAL_OPTIONS,
@@ -264,16 +264,21 @@ for (const width of [40, 80, 120]) {
   assertFits(typing, width, `composer(cjk)@${width}`);
 
   const hint = renderHint({ running: true, tokens: 0, taskCount: 2, queueLength: 1 }, width);
-  assert.ok(hint.text.includes('? for shortcuts'), 'the hint advertises the key reference');
+  // Contract (plan v3 P2, intentional): the mode label is never dropped; the
+  // lower-priority items give way on a narrow pane instead of being clipped.
+  assert.ok(hint.text.includes('full mode on'), 'the mode label survives every width');
+  if (width >= 60) {
+    assert.ok(hint.text.includes('? for shortcuts'), 'the hint advertises the key reference');
+  }
   assertFits([hint], width, `hint@${width}`);
   if (width >= 80) {
     assert.ok(hint.text.includes('Esc to interrupt'), 'the hint advertises how to stop a run');
     assert.ok(hint.text.includes('1 queued'), 'the hint carries the queue depth');
     assert.ok(hint.text.includes('2 tasks'), 'the hint carries the task count');
   } else {
-    // A 40-cell pane cannot show every hint: it must truncate honestly, never
-    // overflow the row.
-    assert.equal(cells(hint.text), width, 'a narrow hint is clipped to exactly the pane width');
+    // A 40-cell pane keeps what the keys do now before the generic shortcut hint.
+    assert.ok(hint.text.includes('Esc to interrupt'), 'a narrow run still says how to stop');
+    assert.ok(cells(hint.text) <= width, 'a narrow hint never overflows the row');
   }
   assertFits(
     [
@@ -810,12 +815,12 @@ instance.unmount();
   assert.ok(shortcuts.includes('prefixes'), 'the reference explains input prefixes');
   assert.ok(shortcuts.includes('shortcuts'), 'the reference explains keyboard shortcuts');
   assert.ok(!shortcuts.includes('Ctrl+H'), 'the unreachable Ctrl+H is never advertised');
-  assert.equal(ctrlBinding('h'), undefined, 'Ctrl+H is not a binding');
-  for (const binding of CTRL_BINDINGS) {
+  assert.equal(commandForKey(DEFAULT_KEYBINDINGS, 'ctrl+h'), undefined, 'Ctrl+H is not a binding');
+  for (const binding of DEFAULT_KEYBINDINGS) {
     assert.equal(
-      ctrlBinding(binding.letter),
-      binding.action,
-      `binding resolves: ${binding.letter}`
+      commandForKey(DEFAULT_KEYBINDINGS, binding.key),
+      binding.command,
+      `binding resolves: ${binding.key}`
     );
   }
   assert.ok(

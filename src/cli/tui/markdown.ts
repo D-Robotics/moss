@@ -106,16 +106,48 @@ export function stableMarkdownPrefix(text: string): { stable: string; rest: stri
   };
 }
 
+/**
+ * One source line, keeping its leading indent. `wrapRuns` treats whitespace as
+ * a word gap, so passing the indent through it used to delete the indent and,
+ * together with paragraph joining, turn a Python body into one clipped line.
+ */
+function renderPlainLine(lineText: string, width: number): MarkdownLine[] {
+  const expanded = lineText.replace(/\s+$/, '').replace(/\t/g, '  ');
+  if (!expanded.trim()) return [markdownLine([])];
+  // A heading that is still streaming already reads as a heading: no `##`, bold.
+  const heading = HEADING.exec(expanded);
+  if (heading) {
+    return wrapRuns(parseInlineMarkdown((heading[2] ?? '').trim()), Math.max(1, width)).map(
+      (runs) => markdownLine(runs, { bold: true, italic: true, underline: true })
+    );
+  }
+  const restStart = expanded.length - expanded.trimStart().length;
+  const leading = expanded.slice(0, restStart);
+  const rest = expanded.slice(restStart);
+  const budget = Math.max(1, width - displayWidth(leading));
+  const wrapped = rest ? wrapRuns(parseInlineMarkdown(rest), budget) : [];
+  if (wrapped.length === 0) {
+    const text = clip(leading, width);
+    return [markdownLine(text ? [{ text }] : [])];
+  }
+  return wrapped.map((runs, index) => {
+    const prefix = index === 0 ? leading : ' '.repeat(displayWidth(leading));
+    const entry = markdownLine(prefix ? [{ text: prefix }, ...runs] : runs);
+    if (displayWidth(entry.text) <= width) return entry;
+    return { ...entry, text: clip(entry.text, width), runs: undefined };
+  });
+}
+
 export function renderStreamingMarkdown(text: string, width: number): MarkdownLine[] {
   const { stable: stableText, rest: openText } = stableMarkdownPrefix(text);
   const committed = stableText ? renderMarkdown(stableText, width) : [];
   if (!openText.trim()) return committed;
+  // The newline that ends the last received line is not a blank row yet: counting
+  // it made the live block grow and shrink by one row on every line break.
   const openLines = openText
+    .replace(/\n+$/, '')
     .split('\n')
-    .flatMap((lineText) =>
-      lineText ? wrapRuns(parseInlineMarkdown(lineText), Math.max(1, width)) : [[]]
-    )
-    .map((runs) => markdownLine(runs));
+    .flatMap((lineText) => renderPlainLine(lineText, width));
   return [...committed, ...openLines];
 }
 
@@ -287,8 +319,10 @@ export function renderMarkdown(
 
   const flushParagraph = (): void => {
     if (paragraph.length === 0) return;
-    const spans = parseInlineMarkdown(paragraph.join(' ').trim());
-    for (const runs of wrapRuns(spans, body)) out.push(markdownLine(runs));
+    // A newline is a hard break. Joining with a space turned an unfenced code
+    // block into one line, which the terminal then clipped (the rest was gone
+    // and there was no row above to scroll to).
+    for (const raw of paragraph) out.push(...renderPlainLine(raw, body));
     paragraph = [];
   };
 
@@ -361,8 +395,9 @@ export function renderMarkdown(
       continue;
     }
 
-    // Ordinary prose: consecutive lines are one paragraph (markdown soft-wrap).
-    paragraph.push(trimmed);
+    // Keep the raw line so a following indented statement is not trimmed away
+    // before it is drawn. Blank lines already flushed above.
+    paragraph.push(raw);
     index += 1;
   }
   flushParagraph();

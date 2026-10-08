@@ -25,8 +25,10 @@ import type { CliInteractionMode } from '../interaction-mode.js';
 import type { CliRuntimeStatus } from '../onboarding.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
 import { tui } from './copy.js';
+import { paintColor } from './theme.js';
+import { DEFAULT_KEYBINDINGS, type KeyBinding } from './keymap.js';
 import {
-  HELP_KEYS,
+  helpKeyRows,
   HELP_PREFIXES,
   ALL_SHELL_COMMANDS,
   SHELL_COMMANDS,
@@ -206,8 +208,9 @@ export function inkTextStyle(style: {
   underline?: boolean;
   dim?: boolean;
 }): Record<string, unknown> {
+  const color = paintColor(style.color);
   return {
-    ...(style.color ? { color: style.color } : {}),
+    ...(color ? { color } : {}),
     ...(style.bold ? { bold: true } : {}),
     ...(style.italic ? { italic: true } : {}),
     ...(style.underline ? { underline: true } : {}),
@@ -331,7 +334,10 @@ const COMMON_HELP_COMMANDS = [
 ];
 
 /** Compact help (prefixes + shortcuts + common commands) or the full reference. */
-export function buildHelpOverlayLines(all: boolean): string[] {
+export function buildHelpOverlayLines(
+  all: boolean,
+  bindings: readonly KeyBinding[] = DEFAULT_KEYBINDINGS
+): string[] {
   // The labels, keys and usages stay as-is (they are command/key surfaces); only
   // moss's own descriptions are localized, at the render site.
   return [
@@ -339,7 +345,7 @@ export function buildHelpOverlayLines(all: boolean): string[] {
     ...HELP_PREFIXES.map(([prefix, what]) => `  ${prefix.padEnd(3)} ${tui(what)}`),
     '',
     tui('shortcuts'),
-    ...HELP_KEYS.map(([keys, what]) => `${keys.padEnd(12)} ${tui(what)}`),
+    ...helpKeyRows(bindings).map(([keys, what]) => `${keys.padEnd(12)} ${tui(what)}`),
     '',
     all ? tui('all commands') : tui('common commands'),
     ...(all
@@ -381,7 +387,7 @@ export function renderSessionPicker(
   maxRows = 8
 ): TuiLine[] {
   const out: TuiLine[] = [
-    line(clip(tui('Resume session  ⌕ {query}▌', { query }), width), { color: 'cyan', bold: true }),
+    line(clip(tui('Resume session  ⌕ {query}', { query }), width), { color: 'cyan', bold: true }),
   ];
   const sel = Math.max(0, Math.min(selected, matches.length - 1));
   matches.slice(0, maxRows).forEach((s, index) => {

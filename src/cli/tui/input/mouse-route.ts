@@ -16,6 +16,8 @@ export interface MouseLayout {
   viewportRows: number;
   /** 0-based row of the jump-to-bottom affordance, when it is on screen. */
   jumpRow?: number;
+  /** 0-based column of the scroll bar, when the transcript overflows the viewport. */
+  scrollbarCol?: number;
 }
 
 export type MouseAction =
@@ -23,6 +25,7 @@ export type MouseAction =
   | { type: 'pin' }
   | { type: 'caret'; visibleRow: number; cell: number }
   | { type: 'select'; phase: 'start' | 'move' | 'end'; x: number; y: number }
+  | { type: 'scrollbar'; phase: 'start' | 'move' | 'end'; y: number }
   | { type: 'ignore' };
 
 export function routeMouse(hit: MouseHit, layout: MouseLayout): MouseAction {
@@ -47,6 +50,12 @@ export function routeMouse(hit: MouseHit, layout: MouseLayout): MouseAction {
     return { type: 'caret', visibleRow: row - layout.composerTop, cell };
   }
   if (row >= 0 && row < layout.viewportRows) {
+    if (layout.scrollbarCol !== undefined && cell === layout.scrollbarCol) {
+      // Press on the bar jumps the thumb there; holding and dragging follows.
+      if (hit.release) return { type: 'scrollbar', phase: 'end', y: row };
+      if ((hit.button & 32) !== 0) return { type: 'scrollbar', phase: 'move', y: row };
+      return { type: 'scrollbar', phase: 'start', y: row };
+    }
     if (hit.release) return { type: 'select', phase: 'end', x: cell, y: row };
     if ((hit.button & 32) !== 0) return { type: 'select', phase: 'move', x: cell, y: row };
     return { type: 'select', phase: 'start', x: cell, y: row };

@@ -63,6 +63,7 @@ export const ZH: Readonly<Record<string, string>> = {
   // ── collapsed-preview markers (transcript.ts) ──────────────────────────
   '… {count} more lines · ctrl+o': '… 还有 {count} 行 · ctrl+o',
   '… {count} lines · ctrl+o': '… {count} 行 · ctrl+o',
+  '  ⎿ thought for {seconds}s · click or ctrl+o': '  ⎿ 思考了 {seconds} 秒 · 点击或 ctrl+o 展开',
   '  ⎿ thinking · click or ctrl+o': '  ⎿ 思考过程 · 点击或 ctrl+o',
 
   // ── live region (transcript.ts) ────────────────────────────────────────
@@ -158,12 +159,15 @@ export const ZH: Readonly<Record<string, string>> = {
   'interrupt the run · cancel `!` shell mode · press again to clear the composer':
     '中断运行 · 取消 `!` shell 模式 · 再按清空输入框',
   'walk back through what you typed': '回溯你输入过的内容',
+  'scroll the transcript · at the top, walk back through what you typed':
+    '滚动对话记录 · 到顶后回溯你输入过的内容',
   'caret to line start / end': '光标移到行首 / 行尾',
   'delete to line start · paste deleted text': '删除到行首 · 粘贴已删除文本',
   'stash the draft · press again to bring it back': '暂存草稿 · 再按取回',
   'search your earlier prompts': '搜索早先的提示',
   'edit the draft in $EDITOR': '用 $EDITOR 编辑草稿',
   'scroll the transcript': '滚动对话记录',
+  'scroll the transcript · End jumps to the latest': '滚动对话记录 · End 跳到最新',
   'expand a collapsed block · drag to copy': '展开被折叠的块 · 拖动复制',
   'print failures · deployments are /deployments': '打印 failures · deployments 用 /deployments',
   'print task artifacts': '打印任务工件',
@@ -226,7 +230,7 @@ export const ZH: Readonly<Record<string, string>> = {
   '{n}d': '{n}天',
 
   // ── resume picker + session meta (app.ts) ──────────────────────────────
-  'Resume session  ⌕ {query}▌': '恢复会话  ⌕ {query}▌',
+  'Resume session  ⌕ {query}': '恢复会话  ⌕ {query}',
   '{count} messages': '{count} 条消息',
   '  … {count} more': '  … 还有 {count} 条',
   '  no matching session': '  没有匹配的会话',
@@ -310,7 +314,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'set $EDITOR to edit the draft externally': '设置 $EDITOR 后可在外部编辑草稿',
   'could not read the edited draft': '读不回编辑后的草稿',
   'copied {count} chars to clipboard': '已复制 {count} 个字符到剪贴板',
-  'Jump to bottom (click) ↓': '跳到底部（点击）↓',
+  '  ↓ Jump to bottom (click or End)': '  ↓ 跳到底部（点击或按 End）',
   'Ctrl+D quits — press Esc twice to drop the draft first': 'Ctrl+D 退出 — 先连按两次 Esc 丢弃草稿',
   'finish the pending approval before changing interaction mode':
     '请先处理待审批项，再切换交互模式',

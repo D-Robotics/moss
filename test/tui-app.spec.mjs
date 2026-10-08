@@ -344,7 +344,7 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
 
   // An exec tail that is only the program's own `exit=0` line is noise: the
   // summary must reach past it to the real conclusion.
-  const noisyTail = `${Array.from({ length: 30 }, (_, i) => `step ${i}`).join('\n')}\nexit=0`;
+  const noisyTail = `${Array.from({ length: 29 }, (_, i) => `step ${i}`).join('\n')}\nbuild finished\nexit=0`;
   applyAgentEvent(store, {
     type: 'tool_start',
     toolName: 'exec',
@@ -360,8 +360,8 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
   });
   assert.equal(
     store.rows.at(-1).tool?.summary,
-    'step 29',
-    'the tail summary skips a bare exit= line'
+    'build finished',
+    'the tail summary skips a bare exit= line and reaches the conclusion'
   );
 
   // A classified provider failure renders its sanitized surface (user message
