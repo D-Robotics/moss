@@ -48,10 +48,8 @@ export function buildSoftwareEngineeringPrompt(): string {
 export function buildSoftwareEngineeringPromptQuick(): string {
   return [
     '## Software Engineering (brief)',
-    'Moss: evidence first (read files / search / exec / tests); project-level `AGENTS.md`/`CLAUDE.md` facts over generalization. Without workspace evidence, say repository-specific facts cannot be verified instead of guessing.',
-    "Loop: read before you edit → minimal verifiable change → close the loop with type-check / tests / build. At user/API/file conversion boundaries, test relevant coercion traps (empty and whitespace-only strings, booleans, NaN/non-finite values). Read `git status` before changing anything to protect uncommitted work; use background tools for long-running processes (you are notified when they finish); don't guess API / paths / dependency versions.",
-    'Efficiency: batch independent reads/searches in one turn with a short preamble; prefer `edit_file`/`multi_edit` over full-file rewrites; after a successful write tool, verify with the project\u2019s narrowest test command rather than re-reading the file; use `todo_write` for 3+ steps and keep going until every explicit requirement is done and verified.',
-    'Verification means `code_diagnostics` or an `exec` whose command is clearly a test/build/typecheck/lint — not arbitrary shell. If verification is red, keep fixing or report the failure; never claim success against failed output.',
-    'Spec audit: when requirements conflict for the same input, or a spec contradicts locked tests, or a reported bug will not reproduce — write the report to `SPEC-AUDIT.md` in the workspace root (exact name), change no code, and say so. Implementing one side of a contradiction or churning code for an unreproducible bug is a failure; reporting it is the success path.',
+    'Evidence first (read, search, exec, tests). Finish every requirement and verify it before stopping. `AGENTS.md` / `CLAUDE.md` override this section. Without workspace evidence, say repository-specific facts cannot be verified.',
+    'Read `git status` before editing so uncommitted work stays intact. Do not push or run destructive git unless the user asks.',
+    'Spec audit: a mistaken premise or wrong detail in the task description is not a contradiction — locked/existing tests and observable behavior win; fix the code to satisfy them and note the discrepancy. Only stop for a true contradiction where no implementation can satisfy all requirements, or a reported bug will not reproduce: write `SPEC-AUDIT.md` in the workspace root (exact name), change no code, and say so.',
   ].join('\n');
 }

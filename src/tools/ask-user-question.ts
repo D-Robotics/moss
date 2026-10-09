@@ -77,13 +77,7 @@ function resolveChoice(
 export const askUserQuestionTool: Tool = {
   name: 'ask_user_question',
   description:
-    'Ask the user structured multiple-choice questions to clarify requirements, ' +
-    'choose between implementation approaches, or gather preferences before proceeding. ' +
-    'Use when instructions are ambiguous, multiple reasonable paths exist, or a product/design ' +
-    'decision needs the user (Claude Code AskUserQuestion / Grok plan-interview parity). ' +
-    'Do not use this to ask "should I proceed with my plan?" after already deciding — decide or implement; ' +
-    "use this only when the user's input would change the approach. Prefer at most 1–3 questions per call. " +
-    'If you recommend an option, put it first and mark the label with (Recommended).',
+    "Ask 1–3 structured questions when the user's answer would change the approach. Do not ask permission to continue a plan you already chose. Put a recommended option first and mark it (Recommended).",
   metadata: {
     sideEffectClass: 'runtime_state',
     planMode: 'allow',

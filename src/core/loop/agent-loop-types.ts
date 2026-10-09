@@ -42,6 +42,11 @@ export interface AgentLoopPromptInput {
    * layer changes mid-run (an MCP server reaching connected or failed).
    */
   getSystemPrompt?: () => string;
+  /**
+   * Stable prefix plus optional dynamic suffix. When set, a change to the
+   * suffix does not rewrite the cached stable block.
+   */
+  getSystemPromptParts?: () => { stable: string; dynamic?: string };
   systemPromptMeta?: { hashShort: string; layerCount: number };
 }
 

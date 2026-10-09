@@ -68,10 +68,7 @@ function publishRedactedOutput(proc: BackgroundProc, text: string): void {
 export const execBackgroundTool: Tool = {
   name: 'exec_background',
   description:
-    'Start a shell command in the background (a server, watcher, or other long-running process) and return a handle id. ' +
-    'Outside a /goal run it returns after settle_ms. During runTask/resumeTask it waits until the command exits or timeout_ms, unless settle_ms is set or wait is false. ' +
-    'Use exec_logs to read its output and exec_stop to terminate it. ' +
-    'Briefly watches the process after start so an immediate crash is reported inline.',
+    'Start a long-running command and return a handle. Outside /goal it returns after settle_ms. During a goal it waits until exit or timeout_ms unless settle_ms is set or wait is false. Read output with exec_logs; stop with exec_stop. An immediate crash is reported inline.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -387,11 +384,7 @@ export const execStopTool: Tool = {
 export const execWaitTool: Tool = {
   name: 'exec_wait',
   description:
-    'Wait for one or more background commands (started by exec_background) to finish — ' +
-    'mode=wait_any returns when the first completes; wait_all (default) waits for every one. ' +
-    'Returns each id status + output tail. Use this to coordinate parallel dev servers / test ' +
-    'suites / builds in one call instead of polling exec_logs one id at a time. Caps at 20 ids ' +
-    'and 120s timeout.',
+    'Wait for background commands. mode=wait_all (default) waits for every id; wait_any returns when the first finishes. Caps at 20 ids and 120s.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',

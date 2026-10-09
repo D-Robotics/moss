@@ -49,16 +49,7 @@ export interface VerifyResult {
 export const runTestsTool: Tool = {
   name: 'run_tests',
   description:
-    'Run the project test suite and return structured results (pass/fail counts, ' +
-    'failing test names + messages). Use this instead of `exec` for running tests — ' +
-    'the structured output lets you identify exactly which tests failed and why, ' +
-    'without parsing raw terminal output. Supports npm test, node --test, or a ' +
-    'custom command. Defaults to `npm test` in the workspace.\n\n' +
-    'For fast TDD iteration on one spec, pass `file` (a path relative to the ' +
-    'workspace, e.g. "test/foo.spec.mjs") — it runs only that file via `node --test` ' +
-    'and still returns structured pass/fail results. Prefer `file` over running the ' +
-    'whole suite when iterating on a single test; the full suite stays the default ' +
-    'when `file` is omitted.',
+    'Run tests and return structured pass/fail counts and failing names. Default command is npm test. Pass file to run one spec with node --test (command is ignored). Prefer file while iterating on a single spec.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -158,10 +149,7 @@ export const runTestsTool: Tool = {
 export const verifyFixTool: Tool = {
   name: 'verify_fix',
   description:
-    'Run build + typecheck + tests in one call. Use this after making code changes ' +
-    'to verify the fix is correct: does the project build? Does tsc pass? Do all ' +
-    'tests pass? Returns a structured summary. If any step fails, the output ' +
-    'includes the specific error messages so you can fix them.',
+    'Run build, typecheck, and tests in one call and return a structured summary. Failures include the error text.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',

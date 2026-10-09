@@ -43,9 +43,7 @@ export function restoreDominantLineEndings(content: string, original: string): s
 export const applyPatchTool: Tool = {
   name: 'apply_patch',
   description:
-    'Apply a structured patch within the workspace. Supports add, update, and delete hunks. ' +
-    'All hunks are parsed and conflict-checked before files are touched; applied files are restored on execution failure. ' +
-    'For update/delete of existing files you must `read_file` the path at least once in this session first (same discipline as edit_file).',
+    'Apply an add/update/delete patch. Hunks are checked before any write; a failed apply restores files. read_file existing targets first.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',

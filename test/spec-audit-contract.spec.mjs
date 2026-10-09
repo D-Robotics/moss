@@ -30,6 +30,26 @@ test('quick prompt carries the one-line contract', () => {
   assert.match(p, /Spec audit/, 'contract line present');
   assert.match(p, /change no code/, 'no-code rule present');
   assert.match(p, /SPEC-AUDIT\.md/, 'canonical report file named');
+  assert.match(
+    p,
+    /Finish every requirement and verify it before stopping/,
+    'persistence: implement and verify before stopping'
+  );
+  assert.match(
+    p,
+    /mistaken premise or wrong detail in the task description is not a contradiction/,
+    'a wrong premise is not a spec contradiction'
+  );
+  assert.match(
+    p,
+    /locked\/existing tests and observable behavior win/,
+    'locked tests and observed behavior win over a wrong premise'
+  );
+  assert.match(
+    p,
+    /Only stop for a true contradiction where no implementation can satisfy all requirements/,
+    'stop only when no implementation can satisfy every requirement'
+  );
 });
 
 console.log('[PASS] spec-audit honesty contract in prompts');

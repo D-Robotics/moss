@@ -13,10 +13,7 @@ export function createModelInfoTool(deps: {
   return {
     name: 'current_model',
     description:
-      'Report the real underlying language model currently powering this agent, including its context window size and max output length. ' +
-      'Call this when the user asks which model / LLM you are running on, or how large the context window / output length is. Moss is ' +
-      'the product name, not the model — this returns the actual backing model ' +
-      '(the built-in gateway serves it under a placeholder name).',
+      'Return the real model id, context window, and max output length. Call this when asked which model you are. Moss is the product name, not the model.',
     metadata: {
       sideEffectClass: 'readonly',
       planMode: 'allow',

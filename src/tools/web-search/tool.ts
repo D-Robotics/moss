@@ -279,13 +279,9 @@ export function createWebSearchTool(opts: WebSearchOptions = {}): Tool<{
   return {
     name: 'web_search',
     description:
-      'Search the web and return a ranked list of results (title, URL, snippet). ' +
-      'Use this to discover official documentation, look up an error message, or find a page when you do not know its URL. ' +
-      'Use concise keywords (not full sentences). For brand/company searches, if you know the official website URL, call web_fetch directly instead of searching. ' +
-      'For multi-angle comparisons, pass `query_keyword_groups` (up to 5) so one tool call runs parallel sub-searches and merges results (fewer LLM round-trips). ' +
-      'Use `allowed_domains` / `blocked_domains` to whitelist or blacklist result hosts (post-filter; prefer this over site: operators). ' +
-      'Avoid site: operators or boolean syntax (OR, AND) — keyless backends do not support them. To search within a specific site, use web_fetch on that site instead. ' +
-      'Fetch a result when full text or stronger verification is needed.',
+      'Search the web (title, URL, snippet). Use keywords, not sentences. If you already know the URL, call web_fetch. ' +
+      'query_keyword_groups (up to 5) runs parallel sub-searches in one call. ' +
+      'allowed_domains / blocked_domains filter hosts. Avoid site: and boolean operators; keyless backends reject them.',
     metadata: {
       sideEffectClass: 'readonly',
       planMode: 'allow',

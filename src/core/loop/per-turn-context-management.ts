@@ -3,6 +3,7 @@ import {
   dedupeUnchangedReadToolResults,
 } from '../../context/stale-read-invalidate.js';
 import { snipTailOversizedToolResults } from '../../context/tail-tool-snip.js';
+import { elideOldLargeToolResults } from '../../context/tool-result-elision.js';
 import { microcompact } from '../../context/microcompact.js';
 import type { Message } from '../session/session-jsonl.js';
 import type { ContextActionSummary, MiniAgentEvent } from '../subagent/agent-events.js';
@@ -74,6 +75,23 @@ export function runPerTurnContextManagement(
           count: branchCount,
           savedChars: branchSavedChars,
           savedTokens: branchSavedTokens,
+        });
+      }
+      continue;
+    }
+
+    if (action.kind === 'elide_old_large_tool_results') {
+      const elided = elideOldLargeToolResults(currentMessages);
+      if (elided.savedChars > 0) {
+        currentMessages.splice(0, currentMessages.length, ...elided.messages);
+        savedChars += elided.savedChars;
+        savedTokens += elided.savedTokens;
+        contextActions.push({
+          kind: action.kind,
+          reason: action.reason,
+          count: elided.elidedCount,
+          savedChars: elided.savedChars,
+          savedTokens: elided.savedTokens,
         });
       }
       continue;

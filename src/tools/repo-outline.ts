@@ -88,9 +88,7 @@ function humanBytes(n: number): string {
 export const repoOutlineTool: Tool = {
   name: 'repo_outline',
   description:
-    'One-shot file-level outline of the workspace tree (paths + sizes) — a cheap context amplifier: ' +
-    'call this instead of many list_directory/search round-trips when you need to understand repo structure first. ' +
-    'Skips node_modules/.git/dist/build/coverage/.moss and hidden dirs by default.',
+    'List the workspace tree with paths and sizes. Skips node_modules, .git, dist, build, coverage, .moss, and hidden dirs.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',

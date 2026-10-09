@@ -527,34 +527,17 @@ export class McpToolRegistry {
   }
 
   private buildSearchTool(client: McpClient): Tool {
-    const wireSearchName = `${mcpServerWirePrefix(client.name)}search`;
+    const declared = mcpSearchToolDeclaration(client.name);
     return {
-      name: wireSearchName,
-      description:
-        `List the tools exposed by the MCP server "${client.name}" (name + description, no schemas). ` +
-        'Pass {query} to filter by substring. Every listed tool becomes directly callable as ' +
-        '`mcp__' +
-        `${sanitizeSegment(client.name)}__<tool>` +
-        '` — call it by that name with arguments matching the listed description.',
+      name: declared.name,
+      description: declared.description,
       metadata: {
         sideEffectClass: 'readonly',
         planMode: 'allow',
         permissionBoundary:
           'Reads the tool index of a connected MCP server; no server-side effects.',
       },
-      inputSchema: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'Optional substring filter on tool name or description.',
-          },
-          refresh: {
-            type: 'boolean',
-            description: 'Re-fetch the tool list from the server (default: cached).',
-          },
-        },
-      },
+      inputSchema: declared.inputSchema,
       execute: async (input: { query?: string; refresh?: boolean }, ctx: ToolContext) => {
         // Same guard as revealed tools, plus one lazy reconnect so a bounced
         // server heals on the next search instead of erroring until restart.
@@ -616,11 +599,50 @@ export class McpToolRegistry {
 }
 
 /**
+ * Schema of the per-server search meta-tool. The registry's search tool and
+ * the context report both use this so the measured schema is the one sent.
+ */
+export function mcpSearchToolDeclaration(serverName: string): {
+  name: string;
+  description: string;
+  inputSchema: {
+    type: 'object';
+    properties: {
+      query: { type: 'string'; description: string };
+      refresh: { type: 'boolean'; description: string };
+    };
+  };
+} {
+  return {
+    name: `${mcpServerWirePrefix(serverName)}search`,
+    description:
+      `List MCP tools on "${serverName}" (name + description, no schemas). ` +
+      'Optional query filters by substring. Each listed tool is then callable as ' +
+      `mcp__${sanitizeSegment(serverName)}__<tool>.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Optional substring filter on tool name or description.',
+        },
+        refresh: {
+          type: 'boolean',
+          description: 'Re-fetch the tool list from the server (default: cached).',
+        },
+      },
+    },
+  };
+}
+
+/**
  * The system-prompt MCP index layer. Deliberately minimal — one line per
  * connected server pointing at its search meta-tool. Tool names, descriptions,
  * and schemas never enter the system prompt (that is the lazy-loading budget).
  */
-export function buildMcpPromptLayer(registry: McpToolRegistry): string {
+export function buildMcpPromptLayer(registry: {
+  getStatuses(): readonly { name: string; state: string; toolCount?: number }[];
+}): string {
   const servers = registry.getStatuses().filter((s) => s.state === 'connected');
   if (servers.length === 0) return '';
   const lines = servers.map(

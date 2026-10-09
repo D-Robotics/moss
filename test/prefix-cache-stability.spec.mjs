@@ -197,4 +197,39 @@ test('two model calls with unchanged state send byte-identical system prompts', 
   }
 });
 
+test('dynamic prompt layers change the suffix without touching the cached prefix', async () => {
+  const captured = [];
+  const agent = new MossAgent({
+    llmProvider: capturingProvider(captured),
+    sessionStore: new InMemorySessionStore(),
+    model: 'prefix-stability',
+    baseSystemPrompt: 'You are Moss. Stable persona.',
+    domainPrompt: false,
+    includeAgentBehaviorPrompt: false,
+    includeLanguagePolicyPrompt: false,
+    enableSteering: false,
+    extraPromptLayers: ['stable project instructions'],
+    dynamicPromptLayers: ['## Environment\ngit: clean'],
+    maxAgentTurns: 2,
+  });
+  const sessionKey = 'dynamic-suffix';
+  for await (const _ of agent.streamChat(sessionKey, 'first')) {
+    void _;
+  }
+  agent.config.dynamicPromptLayers = ['## Environment\ngit: dirty'];
+  for await (const _ of agent.streamChat(sessionKey, 'second')) {
+    void _;
+  }
+  assert.equal(captured.length, 2);
+  assert.equal(captured[0].systemPromptParts.stable, captured[1].systemPromptParts.stable);
+  assert.equal(captured[0].systemPromptParts.stable.includes('stable project instructions'), true);
+  assert.equal(captured[0].systemPromptParts.stable.includes('git:'), false);
+  assert.notEqual(captured[0].systemPrompt, captured[1].systemPrompt);
+  assert.match(captured[0].systemPrompt, /git: clean/);
+  assert.match(captured[1].systemPrompt, /git: dirty/);
+  assert.match(captured[0].systemPromptParts.dynamic, /git: clean/);
+  assert.match(captured[1].systemPromptParts.dynamic, /git: dirty/);
+  await agent.close();
+});
+
 console.log('[PASS] prefix-cache stability invariants');

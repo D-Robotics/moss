@@ -100,9 +100,7 @@ function truncate(s: string, max = OUTPUT_MAX): string {
 export const codeDiagnosticsTool: Tool = {
   name: 'code_diagnostics',
   description:
-    'Run the project type/lint checks and report errors and warnings — use this after editing code. ' +
-    'Auto-detects JS/TS checks (package.json typecheck/lint script, local tsc, or local eslint). ' +
-    'For other toolchains pass `command` (e.g. "ruff check .", "mypy .", "cargo check", "go vet ./...").',
+    'Run type/lint checks and report errors. Auto-detects JS/TS (package script, tsc, or eslint). Pass command for other toolchains (ruff, mypy, cargo check, go vet).',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',

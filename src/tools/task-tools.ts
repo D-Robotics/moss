@@ -68,10 +68,8 @@ function stringList(raw: unknown): string[] | undefined {
 export const taskDefineTool: Tool = {
   name: 'task_define',
   description:
-    'Define (or redefine) a task contract. Call this only for /goal or when the user explicitly asked for a task contract — not for questions, status checks, or ordinary edits.\n' +
-    'The contract is goal, constraints, target device, expected behavior, and machine-checkable acceptance criteria. Acceptance criteria are what task_acceptance holds the work to (each criterion = an evidence metric + expectation, e.g. {metric: "camera_fps", expected: ">=30"}).\n' +
-    'Supported expectation operators: numeric >= <= > < == != (for example >=30 or ==4); string == and != (for example ==hi); contains; not-contains; exists; matches.\n' +
-    'Redefining an existing task_id updates it in place.',
+    'Define or update a task contract. Only for /goal or an explicit request for a task contract — not ordinary edits.\n' +
+    'acceptance_criteria are machine-checked metrics ({metric, expected}). Operators: numeric >= <= > < == != (for example >=30 or ==4); string == and != (for example ==hi); contains; not-contains; exists; matches. Redefining a task_id updates it in place.',
   metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
   inputSchema: {
     type: 'object',
@@ -166,7 +164,7 @@ export const taskDefineTool: Tool = {
 export const taskAcceptanceTool: Tool = {
   name: 'task_acceptance',
   description:
-    'Evaluate a task contract against its recorded evidence and return the acceptance verdict. Required criteria with no matching evidence FAIL acceptance ("no evidence, no success"); the latest evidence per metric wins, so a repaired re-measurement supersedes an earlier failure. Run this before claiming a task is done — and re-run it after every repair. Omit task_id to evaluate the most recently defined contract.',
+    'Evaluate a task against its evidence. Missing evidence for a required metric fails. Latest evidence per metric wins. Omit task_id to use the latest contract. Re-run after every repair.',
   metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
   inputSchema: {
     type: 'object',
@@ -290,7 +288,7 @@ export const taskPlanUpdateTool: Tool = {
 export const recordFailureTool: Tool = {
   name: 'record_failure',
   description:
-    'Record a failure as a first-class object (not a lost stderr line): what failed, where (stage), the symptom, and — once known — the diagnosis and root cause. Use after any failed verification or unexpected error. Later updates to the same failure (re-call with failure_id) add diagnosis/root_cause and mark it resolved.',
+    'Record a failure (symptom, stage, later diagnosis and root cause). Pass failure_id to update the same row or mark it resolved.',
   metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
   inputSchema: {
     type: 'object',

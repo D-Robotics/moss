@@ -27,7 +27,7 @@ export function createSkillTool(skills: readonly SkillManifest[]): Tool<SkillToo
   return {
     name: 'skill',
     description:
-      'Load the full instructions of a discovered skill by name. Only the skill index (name + description) is in context; the body loads on demand through this tool. Pass {args} to fill $ARGUMENTS placeholders in the body.',
+      'Load a skill body by name. The system prompt only has the index. Pass args to fill $ARGUMENTS.',
     metadata: { sideEffectClass: 'readonly', planMode: 'allow', requiresApproval: false },
     inputSchema: {
       type: 'object',

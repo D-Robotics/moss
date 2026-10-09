@@ -68,6 +68,8 @@ test('a call during a 2s MCP connect waits, then the next model call sees the to
     llmProvider: scriptedProvider(async (request) => {
       calls.push({
         system: request.systemPrompt,
+        stable: request.systemPromptParts?.stable,
+        dynamic: request.systemPromptParts?.dynamic,
         tools: (request.tools ?? []).map((tool) => tool.name),
         messages: request.messages,
       });
@@ -99,7 +101,7 @@ test('a call during a 2s MCP connect waits, then the next model call sees the to
     includeAgentBehaviorPrompt: false,
     enableSteering: false,
     enableFollowUpGuard: false,
-    extraPromptLayers: layers,
+    dynamicPromptLayers: layers,
     maxAgentTurns: 4,
     resolveMissingTool: (name, signal) => registry.resolveCallableTool(name, signal),
     describeMissingTool: (name) => registry.missingToolReason(name),
@@ -156,6 +158,13 @@ test('a call during a 2s MCP connect waits, then the next model call sees the to
       `next model call must see the tool registered during connect: ${calls[1].tools.join(',')}`
     );
     assert.match(calls[1].system, /official-start/);
+    assert.equal(
+      calls[0].stable,
+      calls[1].stable,
+      'MCP connect must not rewrite the cached prefix'
+    );
+    assert.equal(String(calls[1].stable ?? '').includes('official-start'), false);
+    assert.match(String(calls[1].dynamic ?? ''), /official-start/);
     assert.equal(rdkDocsKnowledgeLayer(registry.getStatuses()), RDK_DOCS_CONNECTED_LAYER);
     assert.match(
       formatMcpStatusLine(registry.getStatuses()[0]),
@@ -210,7 +219,7 @@ test('an unreachable MCP server fails with a reason and is not Unknown tool', as
     includeAgentBehaviorPrompt: false,
     enableSteering: false,
     enableFollowUpGuard: false,
-    extraPromptLayers: layers,
+    dynamicPromptLayers: layers,
     maxAgentTurns: 4,
     resolveMissingTool: (name, signal) => registry.resolveCallableTool(name, signal),
     describeMissingTool: (name) => registry.missingToolReason(name),

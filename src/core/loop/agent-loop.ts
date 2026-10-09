@@ -235,6 +235,16 @@ export function runAgentLoop(
     let activeSystemPrompt = systemPrompt;
     let activeSystemPromptParts = systemPromptParts;
     const refreshActiveSystemPrompt = (): void => {
+      if (params.getSystemPromptParts) {
+        const parts = params.getSystemPromptParts();
+        const dynamic =
+          parts.dynamic && parts.dynamic.trim().length > 0 ? parts.dynamic : undefined;
+        activeSystemPrompt = dynamic ? `${parts.stable}\n\n${dynamic}` : parts.stable;
+        activeSystemPromptParts = dynamic
+          ? { stable: parts.stable, dynamic }
+          : { stable: parts.stable };
+        return;
+      }
       if (!params.getSystemPrompt) return;
       const next = params.getSystemPrompt();
       const mirrored =

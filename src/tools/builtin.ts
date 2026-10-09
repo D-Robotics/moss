@@ -71,13 +71,10 @@ const WIN_POSIX_HINT =
 export const execTool: Tool = {
   name: 'exec',
   description:
-    'Execute a shell command in the workspace directory. Returns stdout + stderr. Commands run with cwd set to the workspace.\n' +
-    '- Prefer the dedicated tools over shell equivalents: read_file over `cat`, edit_file/multi_edit over `sed`, search_files over `find`, search_code over `grep`/`rg`, run_tests/verify_fix over ad-hoc test scripts. Reserve exec for real shell work: installing deps, custom build scripts, git operations.\n' +
-    '- Use absolute paths and avoid `cd`; the working directory is already the workspace and does not persist between calls.\n' +
-    '- For long-running or blocking processes (dev servers, watchers, log tails) set run_in_background=true (Claude Code Bash parity) or call exec_background — a foreground exec that never returns will time out. You will be notified when a background command finishes; use exec_logs/exec_stop with the returned id.\n' +
-    '- Prefer one focused command per call. Chain with `&&` only when the second step must not run if the first fails.\n' +
-    '- Shell commands are not blocked for reading outside the workspace (for example /proc, /dev, /opt). Secret-like values in the output, including Moss config and key files, are removed before the result reaches the model.\n' +
-    '- Every MOSS_DEVICE_* value is hidden from the shell. When you inspect the environment, a footnote lists the variable names that are set. Do not tell the user a hidden variable is unset, and do not expect to see its value.',
+    'Run a shell command in the workspace (cwd does not persist). Prefer read_file, edit_file, multi_edit, search_files, search_code, run_tests, and verify_fix over cat/sed/find/grep. ' +
+    'Use absolute paths; do not cd. Chain with && only when the next step must not run if this one fails. ' +
+    'For servers, watchers, or anything that may not exit, set run_in_background or use exec_background, then exec_logs / exec_stop. ' +
+    'Reads outside the workspace are allowed. Secret-like output, including Moss config and keys, is removed. Every MOSS_DEVICE_* value is hidden; a footnote lists names that are set — do not claim a hidden variable is unset.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -91,26 +88,25 @@ export const execTool: Tool = {
       timeout_ms: {
         type: 'number',
         description:
-          'Timeout in ms (default 120000). Raise it for slow builds/installs/training; for genuinely unbounded processes use run_in_background / exec_background instead.',
+          'Timeout in ms (default 120000). Use run_in_background for processes that do not exit.',
       },
       run_in_background: {
         type: 'boolean',
         description:
-          'If true, start the command in the background and return a handle id (Claude Code Bash run_in_background parity). During a /goal run the command waits until it exits or timeout_ms unless wait is false or settle_ms is set. Use exec_logs / exec_stop with that id. Do not append "&" to the command.',
+          'Start in the background and return a handle. During /goal the command waits until exit or timeout_ms unless wait is false or settle_ms is set. Do not append "&".',
       },
       settle_ms: {
         type: 'number',
         description:
-          'When run_in_background is true, watch this many milliseconds for an immediate crash (default 1200, max 10000). Setting it during a /goal run keeps that short settle.',
+          'With run_in_background, watch this many ms for an immediate crash (default 1200, max 10000).',
       },
       wait: {
         type: 'boolean',
-        description:
-          'When run_in_background is true, set false to return after settle_ms even during a /goal run.',
+        description: 'With run_in_background, false returns after settle_ms even during /goal.',
       },
       label: {
         type: 'string',
-        description: 'Optional label when run_in_background is true (shown in exec_logs listings).',
+        description: 'Optional label shown in exec_logs.',
       },
     },
     required: ['command'],

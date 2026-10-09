@@ -52,13 +52,14 @@ const warningThreshold = getContextWarningThreshold(WINDOW);
     turn: 5,
   });
   assert.equal(result.reason, 'tool_followup_round', 'tool follow-up reason');
-  assert.equal(result.actions.length, 1, 'one action for tool follow-up');
+  assert.equal(result.actions.length, 2, 'invalidate plus old-result elision');
   assert.equal(
     result.actions[0].kind,
     'invalidate_stale_reads',
     'action is invalidate_stale_reads'
   );
   assert.equal(result.actions[0].reason, 'tool_followup_round', 'action reason matches');
+  assert.equal(result.actions[1].kind, 'elide_old_large_tool_results');
 }
 
 // ─── baseline hygiene (below warning threshold) ──────────────────────────────
@@ -75,8 +76,12 @@ const warningThreshold = getContextWarningThreshold(WINDOW);
   assert.equal(result.actions[0].kind, 'invalidate_stale_reads', 'first action is invalidate');
   assert.equal(result.actions[0].reason, 'baseline_hygiene', 'action reason is baseline');
 
-  // Should NOT have snip_tail_tool_results or microcompact when below warning
+  // Large-result elision runs at baseline. Window-pressure snip and microcompact do not.
   const kinds = result.actions.map((a) => a.kind);
+  assert.ok(
+    kinds.includes('elide_old_large_tool_results'),
+    'old large results elide below warning'
+  );
   assert.ok(!kinds.includes('snip_tail_tool_results'), 'no snip below warning');
   assert.ok(!kinds.includes('microcompact'), 'no microcompact below warning');
 }

@@ -79,6 +79,13 @@ export interface PromptConfig {
   extraPromptLayers?: string[];
 
   /**
+   * Volatile prompt suffix (environment snapshot, MCP/skill index, context-window
+   * line). Kept off the cached prefix so a mid-session MCP connect does not
+   * rewrite the stable system block.
+   */
+  dynamicPromptLayers?: string[];
+
+  /**
    * Tool names that appear after the run starts (MCP handshake). The loop
    * calls this instead of returning "Unknown tool" immediately.
    */
@@ -111,7 +118,11 @@ export interface PromptConfig {
    */
   includeDomainPrompt?: boolean | 'full';
 
-  includeLanguagePolicyPrompt?: boolean;
+  /**
+   * `true` / `undefined`: compact language policy. `'full'`: the long form.
+   * `false`: omit the layer.
+   */
+  includeLanguagePolicyPrompt?: boolean | 'full';
 }
 
 export interface PromptCacheConfig {

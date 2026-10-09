@@ -136,9 +136,10 @@ for (const [label, ctxTokens, maxOut] of [
   });
 
   assert.equal(plan.reason, 'tool_followup_round');
-  assert.equal(plan.actions.length, 1);
+  assert.equal(plan.actions.length, 2);
   assert.equal(plan.actions[0].kind, 'invalidate_stale_reads');
   assert.equal(plan.actions[0].reason, 'tool_followup_round');
+  assert.equal(plan.actions[1].kind, 'elide_old_large_tool_results');
 }
 
 // ─── 5. Error message for context_length_exceeded is accurate ───────────

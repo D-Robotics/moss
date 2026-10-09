@@ -604,8 +604,11 @@ async function main() {
   // the agent does not have to discover it on the first turn; the runtime
   // capability and context-window layers are appended after tools are wired.
   const extraPromptLayers: string[] = [];
+  // Date, git status, and the workspace listing sit in the dynamic suffix so
+  // the cached prefix (persona + contracts + AGENTS.md) stays byte-stable.
+  const dynamicPromptLayers: string[] = [];
   const envLayer = await buildEnvironmentContextLayer(workspace);
-  if (envLayer) extraPromptLayers.push(envLayer);
+  if (envLayer) dynamicPromptLayers.push(envLayer);
   // Project instructions: the workspace AGENTS.md, loaded once so the
   // "auto-loaded from workspace root" claim in help/onboarding is real.
   const agentsLayer = buildAgentsMdLayer(workspace);
@@ -805,6 +808,7 @@ async function main() {
     }),
     enableToolOutputTruncation: true,
     extraPromptLayers,
+    dynamicPromptLayers,
     // Coding is the primary CLI workload. Inject the compact software-
     // engineering domain prompt into the stable system prompt so every coding
     // turn gets "read before edit → minimal verifiable change → close the loop".
@@ -869,12 +873,12 @@ async function main() {
     ].filter(Boolean);
     const combined = layers.join('\n');
     if (mcpPromptLayerIndex === undefined) {
-      mcpPromptLayerIndex = extraPromptLayers.length;
-      extraPromptLayers.push(combined);
+      mcpPromptLayerIndex = dynamicPromptLayers.length;
+      dynamicPromptLayers.push(combined);
     } else {
-      // MossAgent re-reads this array before each model call, so a background
-      // connect or failure replaces the layer before the next request.
-      extraPromptLayers[mcpPromptLayerIndex] = combined;
+      // MossAgent re-reads this array before each model call. It lives in the
+      // dynamic suffix so a late connect does not rewrite the cached prefix.
+      dynamicPromptLayers[mcpPromptLayerIndex] = combined;
     }
   };
   const builtinRdkDocsEnabled = rdkDocsAutoConnectEnabled({
@@ -980,10 +984,10 @@ async function main() {
       const layer =
         sessionSkills.length > 0 ? (buildSkillsPromptLayer(sessionSkills) ?? '') : emptySkillsLayer;
       if (skillsLayerIndex === undefined) {
-        skillsLayerIndex = extraPromptLayers.length;
-        extraPromptLayers.push(layer);
+        skillsLayerIndex = dynamicPromptLayers.length;
+        dynamicPromptLayers.push(layer);
       } else {
-        extraPromptLayers[skillsLayerIndex] = layer;
+        dynamicPromptLayers[skillsLayerIndex] = layer;
       }
     };
     syncRdkDocsSkills();
@@ -1068,9 +1072,10 @@ async function main() {
     // so it can answer "how large is your context window?" accurately.  This layer
     // is pushed AFTER the startup probe (which may have updated contextTokens from
     // the unprobed 1M default to the probe value), so the LLM sees the truth.
+    // It lives on the dynamic suffix: a late probe must not rewrite the cached prefix.
     if (resolvedConfig.contextTokens) {
       const ctxK = Math.round(resolvedConfig.contextTokens / 1000);
-      extraPromptLayers.push(
+      dynamicPromptLayers.push(
         `## Context Window\nYour context window is ${ctxK}k tokens. State this number accurately when the user asks about context size — do not guess from training knowledge.`
       );
     }

@@ -121,15 +121,12 @@ export function normalizeSubagentSuccess(
 export const createSubagentTool: Tool<CreateSubagentInput> = {
   name: 'create_subagent',
   description: [
-    'Spawn a sub-agent to perform a task independently.',
-    'Sub-agents have their own tool scope and context window.',
-    'Use for parallel exploration, planning, verification, or bounded implementation slices.',
-    'Do not use for quick usage/config/help questions, short-answer requests, or simple read-only summaries.',
-    '',
-    'Scopes: "explore" (read-only), "plan" (read + plan), "verify" (read + exec for testing), "full" (all tools).',
-    'When scope is omitted it is inferred from the task text (fix/implement→full, explore/architecture→explore, verify-only→verify, plan→plan; otherwise full).',
-    'maxTurns defaults by scope (explore ~20, plan ~24, verify ~30, full 64) unless you set it. Put acceptance criteria + verification in implement/fix tasks.',
-    'Treat empty child output as failure — do not invent success.',
+    'Spawn a sub-agent with its own tool scope and context.',
+    'Scopes: explore (read-only), plan, verify (read + exec), full (all tools).',
+    'Omitted scope is inferred (fix/implement→full, explore→explore, verify-only→verify, plan→plan; otherwise full).',
+    'maxTurns defaults by scope (explore 20, plan 24, verify 30, full 64).',
+    'Put acceptance and verification in implement/fix tasks. Empty child output is failure.',
+    'Do not use for quick usage, config, or short-answer questions.',
   ].join(' '),
   metadata: {
     sideEffectClass: 'subagent',
@@ -152,12 +149,11 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       worktree: {
         type: 'boolean',
         description:
-          'Run this writable worker in an isolated git worktree; its changes come back as a lease patch merged with git apply --3way (use when multiple writable sub-agents may touch the same files).',
+          'Run a writable worker in an isolated git worktree and return a lease patch (git apply --3way).',
       },
       expert: {
         type: 'string',
-        description:
-          'Optional host-registered expert id. The expert enforces its scope, tool allowlist, instructions, model, and budgets. File-defined experts may include write tools; those calls still need approval.',
+        description: 'Optional host-registered expert id. Write tools still need approval.',
       },
       scope: {
         type: 'string',
@@ -173,18 +169,15 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
         type: 'number',
         minimum: MIN_SUBAGENT_TIMEOUT_MS,
         maximum: MAX_SUBAGENT_TIMEOUT_MS,
-        description:
-          'Maximum runtime for the sub-agent in milliseconds (default: 600000 = 10 min, max: 1800000 = 30 min)',
+        description: 'Max runtime in ms (default 600000, max 1800000).',
       },
       background: {
         type: 'boolean',
-        description:
-          'Return immediately with a task handle instead of waiting for the sub-agent to finish',
+        description: 'Return a task handle immediately instead of waiting.',
       },
       model: {
         type: 'string',
-        description:
-          "Override the sub-agent model (e.g. a cheaper model for read-only exploration, a stronger model for a critical decision). Omit to use the parent agent's model. The provider routes by model id, so the override takes effect at the request level.",
+        description: 'Model override for this sub-agent. Omit to use the parent model.',
       },
     },
     required: ['task'],
@@ -510,17 +503,12 @@ export function buildReviewerTask(task: FanOutTaskInput): {
 export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
   name: 'fan_out_subagents',
   description: [
-    `Run 2-${MAX_FAN_OUT_TASKS} sub-agents CONCURRENTLY over independent tasks, then return all their summaries aggregated.`,
-    'Use for breadth + speed when independent facets can be tackled in parallel — e.g. multi-angle code review',
-    '(correctness / security / perf), multi-source exploration, or cross-checking a finding. Each child is',
-    'When presenting merged results, cite per-child evidence (file paths, commands, key output lines) — a merge without evidence citations is treated as unverified. ',
-    'Default scope is inferred from each task text when omitted: review/explore → explore; ' +
-      'fix/implement/refactor → full; verify/test-only → verify; plan-only → plan. ' +
-      'You may still set scope explicitly. Put acceptance criteria + verification commands in implementation tasks. ' +
-      'Empty child output is FAILED. For a single task, use create_subagent instead.',
-    'cross_review=true (v0.10 W3) appends one INDEPENDENT read-only reviewer per implementation task: the reviewer re-runs the verification commands and emits a VERDICT: PASS/FAIL line with evidence. Outputs without a VERDICT are marked UNVERIFIED; implementer summaries without concrete evidence (paths/commands/code) are marked UNVERIFIED too.',
-    'Do not use for quick usage/config/help questions, "answer in N lines" requests, or simple UX impressions;',
-    'answer directly or do at most one targeted file read in those cases.',
+    `Run 2-${MAX_FAN_OUT_TASKS} independent sub-agents concurrently and return their summaries.`,
+    "Cite each child's paths, commands, and output. A merge without evidence is unverified.",
+    'Omitted scope is inferred per task (review/explore→explore, fix/implement→full, verify→verify, plan→plan).',
+    'Empty child output is FAILED. One task: use create_subagent.',
+    'cross_review=true adds one read-only reviewer per implementation task. It must emit VERDICT: PASS or FAIL. Missing VERDICT or evidence is UNVERIFIED.',
+    'Do not use for quick help or one-line answers.',
   ].join(' '),
   metadata: {
     sideEffectClass: 'subagent',
@@ -546,8 +534,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
             },
             expert: {
               type: 'string',
-              description:
-                'Optional host-registered expert id for this angle. File-defined experts may include write tools; those calls still need approval.',
+              description: 'Optional expert id. Write tools still need approval.',
             },
             scope: {
               type: 'string',
@@ -561,13 +548,12 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
             },
             model: {
               type: 'string',
-              description:
-                "Per-task model override (e.g. a cheap model for exploration, a strong model for a critical angle). Omit to use the parent agent's model.",
+              description: 'Per-task model override. Omit to use the parent model.',
             },
             worktree: {
               type: 'boolean',
               description:
-                'Run this writable task in an isolated git worktree and return its changes as a lease patch the parent merges with git apply --3way (concurrent writers cannot stomp each other). Default: on for full-scope tasks when MOSS_WORKTREE_SUBAGENTS=1, else off.',
+                'Isolated git worktree; changes return as a lease patch. Default on for full scope when MOSS_WORKTREE_SUBAGENTS=1.',
             },
           },
           required: ['task'],
@@ -575,7 +561,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
       },
       maxTurns: {
         type: 'number',
-        description: `Max turns per sub-agent (default: ${DEFAULT_FAN_OUT_MAX_TURNS}). Raise to 60+ for deep review tasks; keep at 10-20 for quick exploration.`,
+        description: `Max turns per sub-agent (default ${DEFAULT_FAN_OUT_MAX_TURNS}).`,
       },
       timeoutMs: {
         type: 'number',

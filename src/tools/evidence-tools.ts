@@ -62,12 +62,8 @@ function formatRecord(record: EvidenceRecord, explanation?: string): string {
 export const recordEvidenceTool: Tool = {
   name: 'record_evidence',
   description:
-    'Record one structured piece of verification evidence for an existing /goal or explicit task: metric, expected, observed, verdict — persisted to .moss/evidence.jsonl. Do not call this for a status question or ordinary chat.\n' +
-    'Every success claim in a task must be backed by recorded evidence ("No Evidence, No Success"): after running a check (test run, device probe, deploy health check), record what was measured instead of asserting success in prose.\n' +
-    '- Give expected + observed to auto-evaluate (e.g. expected ">=30", observed 31.2).\n' +
-    '- Give an explicit result only for externally-determined verdicts (e.g. human observation), without expected/observed.\n' +
-    '- An explicit result that conflicts with the expected/observed auto-evaluation is recorded as inconclusive with the conflict explained — it is never silently rewritten in either direction.\n' +
-    '- source: which check produced this (device_exec, device_deploy, run_tests, exec, human…).',
+    'Record one evidence row for an open /goal or task contract (metric, expected, observed) in .moss/evidence.jsonl. Do not call this for ordinary chat.\n' +
+    'Pass expected + observed to auto-evaluate (expected ">=30", observed 31.2). An explicit result is only for external verdicts such as human observation. A result that conflicts with expected/observed is stored as inconclusive, not rewritten. source names the check (run_tests, exec, device_exec, human).',
   metadata: {
     sideEffectClass: 'runtime_state',
     planMode: 'allow',

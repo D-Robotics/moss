@@ -156,11 +156,9 @@ function readRangeKey(input: { offset?: unknown; limit?: unknown }): string {
 export const readFileTool: Tool = {
   name: 'read_file',
   description:
-    'Read the contents of a file within the workspace. ' +
-    'For large files, pass `offset` (1-based start line) and/or `limit` (line count) to page through it. ' +
-    'Each line is prefixed with a right-aligned line number and a tab for reference — these prefixes are NOT part of the file; never copy them into edit_file / write_file / apply_patch content. ' +
-    'If you re-read the same path+range without the file changing on disk, the tool returns a short "unchanged" stub (Claude Code parity) so you reuse the earlier result instead of burning context. ' +
-    'Paths are resolved from the workspace. A path outside the workspace is still read. Secret-like values, including Moss config and key files, are removed before the result reaches the model.',
+    'Read a workspace file. Page large files with offset (1-based line) and limit. ' +
+    'Each line is prefixed with a line number and a tab that are NOT file content — do not copy them into edits. ' +
+    'An unchanged re-read returns a short stub. Paths outside the workspace are still read; secret-like values are removed.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -241,10 +239,7 @@ export const readFileTool: Tool = {
 export const writeFileTool: Tool = {
   name: 'write_file',
   description:
-    'Write content to a file within the workspace. Creates parent directories if needed. ' +
-    'Prefer `edit_file` / `multi_edit` for modifying existing files. ' +
-    'If the path already exists, you must `read_file` it at least once in this session first ' +
-    '(Claude FileWrite discipline) so you do not clobber unread content.',
+    'Create or overwrite a workspace file (parent directories are created). Prefer edit_file or multi_edit for existing files. If the path exists, read_file it once this session first.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -434,12 +429,9 @@ export function applyPreciseEditToContent(
 export const editFileTool: Tool = {
   name: 'edit_file',
   description:
-    'Make a precise in-place edit by replacing an exact string in an existing file. ' +
-    'Prefer this over write_file for modifying files — it changes only the matched text and leaves everything else untouched, which is safer and cheaper than rewriting the whole file.\n- You must call `read_file` on the target at least once in this session before editing (Claude Code FileEdit parity).\n' +
-    '- `old_string` must match the file EXACTLY, including whitespace and indentation, and must be UNIQUE. Include enough surrounding context to target a single location; if it matches more than once the edit is rejected unless `replace_all` is true.\n' +
-    "- Never include read_file's line-number prefixes in `old_string` or `new_string`.\n" +
-    '- Set `new_string` to "" to delete the matched text. To create a new file or replace an entire file, use write_file instead. ' +
-    'For several surgical edits in one step, prefer multi_edit.',
+    'Replace one exact unique string in an existing file. read_file it first. ' +
+    'old_string must match whitespace exactly and be unique unless replace_all. Do not include read_file line-number prefixes. ' +
+    'Empty new_string deletes the match. Use write_file for new files and multi_edit for several replacements.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -528,11 +520,7 @@ export const editFileTool: Tool = {
 export const multiEditTool: Tool = {
   name: 'multi_edit',
   description:
-    'Apply multiple precise in-place edits across one or more files in a single tool call. ' +
-    'Prefer this over sequential edit_file when a task needs 2+ surgical replacements — one call keeps the turn budget low (Claude Code MultiEdit / Codex multi-hunk parity).\n' +
-    '- Each edit uses the same matching rules as edit_file (exact unique match, optional replace_all, line-number prefix stripping, trailing-whitespace tolerance).\n' +
-    '- Edits to the same file are applied in order; later edits see earlier replacements in that file.\n' +
-    '- If any edit fails, no files are written (all-or-nothing).',
+    'Apply several edit_file replacements in one call (same match rules, in order, all-or-nothing). Prefer this for 2+ edits.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -659,9 +647,7 @@ export const multiEditTool: Tool = {
 export const moveFileTool: Tool = {
   name: 'move_file',
   description:
-    'Move or rename a file or directory within the workspace. ' +
-    'Both paths are sandbox-checked; destination parent directories are created as needed. ' +
-    'If overwriting an existing destination (`overwrite=true`), you must `read_file` that destination first so you do not destroy unread content.',
+    'Move or rename a workspace path. overwrite=true requires a prior read_file of an existing destination.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -798,10 +784,7 @@ export async function listDirEntries(
 export const listDirectoryTool: Tool = {
   name: 'list_directory',
   description:
-    'List files and directories within the workspace (Codex list_dir parity: optional depth). ' +
-    'Directories end with `/`, symlinks with `@`. Skips node_modules/.git/dist and similar noise. ' +
-    'Default depth=1 (immediate children); set depth=2–3 for a shallow tree. Prefer search_files for name globs. ' +
-    'The default path is the workspace. A path outside it is still listed.',
+    'List a directory (depth default 1, max 5). Directories end with /, symlinks with @. Skips node_modules, .git, and dist. Prefer search_files for globs. A path outside the workspace is still listed.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',

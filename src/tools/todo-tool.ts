@@ -74,13 +74,7 @@ async function liveTaskPlanNotice(workspaceDir: string | undefined): Promise<str
 export const todoWriteTool: Tool = {
   name: 'todo_write',
   description:
-    'Create and manage a structured task list for the current coding session (Claude Code TodoWrite parity). ' +
-    'Use proactively for: complex multi-step work (3+ distinct steps), non-trivial features, explicit multi-item user lists, ' +
-    'or right after receiving new instructions. Skip for a single trivial step or pure conversation.\n' +
-    '- Call at the start with the full plan; mark a step `in_progress` BEFORE starting it (exactly one in_progress).\n' +
-    '- After completing a step, mark it `completed` and add any new follow-ups discovered during implementation.\n' +
-    '- Each call replaces the whole list — re-send every todo every time.\n' +
-    '- The checklist is a normal tool result so the next turn always sees progress on long refactors.',
+    'Replace the session checklist. Use for 3+ steps; skip a single trivial step. Exactly one item is in_progress. Each call sends the full list.',
   metadata: {
     sideEffectClass: 'runtime_state',
     planMode: 'allow',

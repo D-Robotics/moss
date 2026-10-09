@@ -423,9 +423,7 @@ function presentSearch(text: string, location: SearchLocation): string {
 export const searchFilesTool: Tool = {
   name: 'search_files',
   description:
-    'Find files by glob pattern (Claude Code Glob parity). ' +
-    'Prefer this over running `find`/`ls` through exec — it respects .gitignore when ripgrep is available, and returns paths sorted by modification time (newest first). ' +
-    'Patterns: `*.ts`, `src/**/*.tsx`, `**/package.json`. The default root is the workspace; an explicit path outside it is still searched. A recursive search of `/` or `$HOME` is depth-, time-, and result-capped. For open-ended multi-round search, use create_subagent scope=explore.',
+    'Find files by glob (gitignore-aware, newest first). Default root is the workspace. Searches of / or $HOME are capped. Prefer this over exec find. For open-ended search, use create_subagent scope=explore.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -494,14 +492,8 @@ export const searchFilesTool: Tool = {
 export const searchCodeTool: Tool = {
   name: 'search_code',
   description:
-    'Search for a regex or text pattern (Claude Code Grep parity, powered by ripgrep when available). ' +
-    'The default root is the workspace. An explicit path outside it is still searched. A recursive search of `/` or `$HOME` is depth-, time-, and result-capped.\n' +
-    'Prefer this over running `grep`/`rg` through exec.\n' +
-    '- Default output_mode is "content" (matching lines with context).\n' +
-    '- Use output_mode "files_with_matches" to get only file paths (cheaper for discovery).\n' +
-    '- Use output_mode "count" for per-file match counts.\n' +
-    '- Filter with glob (e.g. "*.ts") or type (rg --type, e.g. "ts", "py").\n' +
-    '- Case-sensitive by default (good for symbol names); set case_sensitive: false for prose.',
+    'Search file contents with a regex or literal (ripgrep when available). Default root is the workspace; / and $HOME are capped. Prefer this over exec grep.\n' +
+    'output_mode: content (default, matching lines), files_with_matches (paths only), or count. Filter with glob or type. case_sensitive defaults to true.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -512,13 +504,11 @@ export const searchCodeTool: Tool = {
       pattern: { type: 'string', description: 'Regex or literal text to search for' },
       path: {
         type: 'string',
-        description:
-          'File or directory to search. Defaults to the workspace root, not the filesystem root. A search of / or $HOME is depth-, time-, and result-capped.',
+        description: 'File or directory. Defaults to the workspace. / and $HOME are capped.',
       },
       fileTypes: {
         type: 'string',
-        description:
-          'Comma-separated extensions to include, e.g. ".ts,.js,.json" (legacy; prefer glob or type)',
+        description: 'Comma-separated extensions, e.g. ".ts,.js" (prefer glob or type).',
       },
       glob: {
         type: 'string',
@@ -536,32 +526,27 @@ export const searchCodeTool: Tool = {
       },
       maxResults: {
         type: 'number',
-        description:
-          'Max results to return (default 50, max 200). Alias: head_limit (Claude Code Grep).',
+        description: 'Max results (default 50, max 200). Alias: head_limit.',
       },
       head_limit: {
         type: 'number',
-        description:
-          'Alias for maxResults (Claude Code Grep head_limit). Cap on returned matches/paths/counts.',
+        description: 'Alias for maxResults.',
       },
       maxFileSize: {
         type: 'number',
-        description: 'Skip files larger than this in bytes for JS fallback only (default 100KB)',
+        description: 'JS-fallback size cap in bytes (default 100KB).',
       },
       case_sensitive: {
         type: 'boolean',
-        description:
-          'Case-sensitive match (default true). Set false to ignore case — useful for prose, not for symbol names.',
+        description: 'Case-sensitive match (default true).',
       },
       context_lines: {
         type: 'number',
-        description:
-          'Lines of context before/after each match in content mode (default 1, max 3). Ignored for other modes.',
+        description: 'Context lines in content mode (default 1, max 3).',
       },
       multiline: {
         type: 'boolean',
-        description:
-          'Enable multiline regex (rg -U --multiline-dotall). Default false. Patterns can span lines.',
+        description: 'Multiline regex (default false).',
       },
     },
     required: ['pattern'],

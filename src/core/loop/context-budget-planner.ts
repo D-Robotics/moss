@@ -6,6 +6,7 @@ import {
 
 export type ContextBudgetActionKind =
   | 'invalidate_stale_reads'
+  | 'elide_old_large_tool_results'
   | 'snip_tail_tool_results'
   | 'microcompact'
   | 'llm_summarize'
@@ -55,7 +56,10 @@ export function planContextBudgetActions(input: ContextBudgetPlannerInput): Cont
 
   if (input.isToolFollowUpRound) {
     return {
-      actions: [{ kind: 'invalidate_stale_reads', reason: 'tool_followup_round' }],
+      actions: [
+        { kind: 'invalidate_stale_reads', reason: 'tool_followup_round' },
+        { kind: 'elide_old_large_tool_results', reason: 'tool_followup_round' },
+      ],
       reason: 'tool_followup_round',
       warningThreshold,
       proactiveThreshold,
@@ -64,6 +68,7 @@ export function planContextBudgetActions(input: ContextBudgetPlannerInput): Cont
 
   const actions: ContextBudgetAction[] = [
     { kind: 'invalidate_stale_reads', reason: 'baseline_hygiene' },
+    { kind: 'elide_old_large_tool_results', reason: 'baseline_hygiene' },
   ];
 
   const pressureReason: ContextBudgetActionReason =
