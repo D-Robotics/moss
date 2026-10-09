@@ -3,17 +3,28 @@
  *
  * Dry mode drives Moss's task engine (`runTask`) with a scripted turn and the
  * command verdict. Live modes spawn `moss task run` against a sim ssh2 server
- * or a real board. PASS is the engine outcome, never agent prose.
+ * or a real board. A row passes only when that verdict passes and an
+ * independent probe matches recorded evidence. Agent prose is not a score.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { approvalEnv } from './device-bench-approval.mjs';
-import { commandText, findForbidden, redactSecrets, shellQuote } from './device-bench-safety.mjs';
-import { execOnTarget, newBenchPassword, startSimSsh } from './device-bench-target.mjs';
+import {
+  commandText,
+  findForbidden,
+  quoteForShell,
+  redactSecrets,
+} from './device-bench-safety.mjs';
+import {
+  execOnTarget,
+  newBenchPassword,
+  seedBoardFixture,
+  startSimSsh,
+} from './device-bench-target.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const DEVICE_TASK_DIR = path.join(repoRoot, 'bench', 'device-tasks');
@@ -40,6 +51,9 @@ export function validateDeviceTasks(tasks) {
     }
     if (task.sideEffect !== 'readonly' && task.sideEffect !== 'mutating') {
       problems.push(`${task.id}: sideEffect must be readonly or mutating`);
+    }
+    if (task.tier !== undefined && task.tier !== 'core' && task.tier !== 'optional') {
+      problems.push(`${task.id}: tier must be core or optional`);
     }
     if (
       task.sideEffect === 'mutating' &&
@@ -105,19 +119,20 @@ function substitutePrompt(task, ctx) {
 }
 
 function acceptanceCommand(task, ctx) {
+  const q = (value) => quoteForShell(value);
   const flags = [
     'node',
-    shellQuote(ACCEPT_SCRIPT),
+    q(ACCEPT_SCRIPT),
     '--task',
-    shellQuote(task.file),
+    q(task.file),
     '--workspace',
-    shellQuote(ctx.workspace),
+    q(ctx.workspace),
     '--root',
-    shellQuote(ctx.root),
+    q(ctx.root),
     '--state',
-    shellQuote(ctx.stateDir),
+    q(ctx.stateDir),
     '--token',
-    shellQuote(ctx.token),
+    q(ctx.token),
     '--port',
     String(ctx.port),
     '--mode',
@@ -126,6 +141,9 @@ function acceptanceCommand(task, ctx) {
   if (ctx.sim && ctx.mode === 'local') flags.push('--sim');
   if (ctx.simCamera) flags.push('--sim-camera');
   if (ctx.simRos) flags.push('--sim-ros');
+  if (ctx.expectSha256) {
+    flags.push('--expect-sha256', q(ctx.expectSha256));
+  }
   return flags.join(' ');
 }
 
@@ -163,22 +181,68 @@ function lastPhase(workspace) {
   return events.length > 0 ? events[events.length - 1].phase : undefined;
 }
 
+function countStatus(rows, status) {
+  return rows.filter((row) => row.status === status).length;
+}
+
+function rate(passed, scored) {
+  return scored === 0 ? null : passed / scored;
+}
+
+function mean(values) {
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+/** Population standard deviation. One sample has spread 0. */
+function spread(values) {
+  if (values.length === 0) return null;
+  if (values.length === 1) return 0;
+  const avg = mean(values);
+  const variance = values.reduce((sum, value) => sum + (value - avg) ** 2, 0) / values.length;
+  return Math.sqrt(variance);
+}
+
 function sideEffectRollup(rows) {
   const rollup = {};
   for (const kind of ['readonly', 'mutating']) {
     const group = rows.filter((row) => row.sideEffect === kind);
-    const passed = group.filter((row) => row.status === 'pass').length;
-    const failed = group.filter((row) => row.status === 'fail').length;
-    const skipped = group.filter((row) => row.status === 'skipped').length;
-    const scored = passed + failed;
+    const passed = countStatus(group, 'pass');
+    const failed = countStatus(group, 'fail');
+    const falseSuccess = countStatus(group, 'falseSuccess');
+    const skipped = countStatus(group, 'skipped');
+    const scored = passed + failed + falseSuccess;
     rollup[kind] = {
       passed,
       failed,
+      falseSuccess,
       skipped,
-      successRate: scored === 0 ? null : passed / scored,
+      successRate: rate(passed, scored),
     };
   }
   return rollup;
+}
+
+function tierRollup(rows, tier) {
+  const group = rows.filter((row) => (row.tier ?? 'optional') === tier);
+  const passed = countStatus(group, 'pass');
+  const failed = countStatus(group, 'fail');
+  const falseSuccess = countStatus(group, 'falseSuccess');
+  const skipped = countStatus(group, 'skipped');
+  const total = group.length;
+  const scored = passed + failed + falseSuccess;
+  return {
+    ids: group.map((row) => row.id).sort(),
+    total,
+    passed,
+    failed,
+    falseSuccess,
+    skipped,
+    scored,
+    // Core keeps a fixed denominator (skips count as misses). Optional skips
+    // stay out of the rate so a missing camera does not move the core number.
+    successRate: tier === 'core' ? rate(passed, total) : rate(passed, scored),
+  };
 }
 
 function costUsd(tokensIn, tokensOut) {
@@ -218,44 +282,55 @@ function gitSha() {
   return result.status === 0 ? result.stdout.trim() : 'unknown';
 }
 
-function loadQoderDeepseek() {
-  const settingsPath = path.join(os.homedir(), '.qoder-cn', 'settings.json');
-  try {
-    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    for (const entry of Object.values(settings.providers ?? {})) {
-      const models = Array.isArray(entry.models) ? entry.models.map((item) => item.model) : [];
-      const names = [entry.model, ...models].filter(Boolean);
-      if (names.some((name) => String(name).toLowerCase().startsWith('deepseek'))) {
-        return {
-          model: names.find((name) => String(name).toLowerCase().startsWith('deepseek')),
-          baseUrl: entry.baseUrl,
-          apiKey: entry.apiKey,
-        };
-      }
-    }
-  } catch {
-    // No qoder settings.
-  }
-  return null;
+async function loadCliConfigModule() {
+  const url = pathToFileURL(path.join(repoRoot, 'dist', 'cli', 'config.js')).href;
+  return import(url);
 }
 
-export function resolveBenchProvider(options = {}) {
-  const qoder = options.allowSettings === false ? null : loadQoderDeepseek();
-  const apiKey =
-    'apiKey' in options ? options.apiKey : process.env.MOSS_BENCH_API_KEY || qoder?.apiKey;
-  const model = options.model || qoder?.model;
-  const baseUrl = options.baseUrl || qoder?.baseUrl;
+/**
+ * Same resolution as `moss` itself: config file under MOSS_CONFIG_DIR /
+ * MOSS_CONFIG_FILE / ~/.config/moss/config.json, plus --model / --base-url.
+ * MOSS_API_KEY, MOSS_MODEL, MOSS_BASE_URL, and provider API-key env vars are
+ * ignored, matching resolveCliConfig.
+ */
+export async function resolveBenchProvider(options = {}) {
+  const { resolveCliConfig } = await loadCliConfigModule();
+  const env = { ...process.env, ...(options.env ?? {}) };
+  if (options.isolateConfig) {
+    env.MOSS_NO_BUNDLED_DEFAULT = '1';
+    env.MOSS_CONFIG_DIR =
+      options.configDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-cfg-'));
+    delete env.MOSS_CONFIG_FILE;
+    delete env.MOSS_CONFIG_PATH;
+  }
+  const resolved = resolveCliConfig(env, undefined, {
+    ...(options.model ? { model: options.model } : {}),
+    ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
+  });
+  const apiKey = resolved.apiKey?.trim() ?? '';
+  const model = resolved.model?.trim() ?? '';
+  const baseUrl = resolved.baseUrl?.trim() ?? '';
   if (!apiKey || !model || !baseUrl) {
+    const configPath = resolved.configPath || 'the moss config file';
     return {
       ok: false,
       missing: [
-        !apiKey ? 'MOSS_BENCH_API_KEY (or a deepseek apiKey in ~/.qoder-cn/settings.json)' : null,
-        !model ? '--model (or a deepseek model id in that settings file)' : null,
-        !baseUrl ? '--base-url (or a deepseek baseUrl in that settings file)' : null,
+        !apiKey
+          ? `apiKey in ${configPath} (MOSS_CONFIG_DIR, MOSS_CONFIG_FILE, or ~/.config/moss/config.json). MOSS_API_KEY, OPENAI_API_KEY, and DEEPSEEK_API_KEY are ignored`
+          : null,
+        !model ? '--model or model in the moss config file' : null,
+        !baseUrl ? '--base-url or baseUrl in the moss config file' : null,
       ].filter(Boolean),
+      configPath,
     };
   }
-  return { ok: true, apiKey, model, baseUrl };
+  return {
+    ok: true,
+    model,
+    baseUrl,
+    configPath: resolved.configPath,
+    apiKeySource: resolved.apiKeySource,
+  };
 }
 
 async function loadEngine() {
@@ -344,31 +419,11 @@ function spawnMoss(args) {
   });
 }
 
-function writeProviderConfig(dir, provider) {
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(
-    path.join(dir, 'config.json'),
-    JSON.stringify(
-      {
-        provider: 'openai-compatible',
-        model: provider.model,
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-      },
-      null,
-      2
-    ),
-    { mode: 0o600 }
-  );
-}
-
 async function runLiveMoss(task, ctx, provider, approval) {
   const cli = path.join(repoRoot, 'dist', 'cli.js');
   if (!fs.existsSync(cli)) {
     throw new Error('dist/cli.js missing — run npm run build');
   }
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-cfg-'));
-  writeProviderConfig(configDir, provider);
   const prompt = substitutePrompt(task, ctx);
   const argv = [
     cli,
@@ -395,10 +450,20 @@ async function runLiveMoss(task, ctx, provider, approval) {
     LANG: 'C',
     LC_ALL: 'C',
     TMPDIR: os.tmpdir(),
-    MOSS_CONFIG_DIR: configDir,
     MOSS_RUN_ID: `device-bench/${task.id}`,
     ...approval.env,
   };
+  for (const key of [
+    'USERPROFILE',
+    'APPDATA',
+    'XDG_CONFIG_HOME',
+    'MOSS_CONFIG_DIR',
+    'MOSS_CONFIG_FILE',
+    'MOSS_CONFIG_PATH',
+    'MOSS_NO_BUNDLED_DEFAULT',
+  ]) {
+    if (process.env[key]) env[key] = process.env[key];
+  }
   for (const key of [
     'MOSS_DEVICE_HOST',
     'MOSS_DEVICE_PORT',
@@ -411,11 +476,7 @@ async function runLiveMoss(task, ctx, provider, approval) {
   ]) {
     if (process.env[key]) env[key] = process.env[key];
   }
-  try {
-    return await spawnMoss({ argv, cwd: ctx.workspace, env, timeoutMs: task.timeoutMs ?? 180_000 });
-  } finally {
-    fs.rmSync(configDir, { recursive: true, force: true });
-  }
+  return spawnMoss({ argv, cwd: ctx.workspace, env, timeoutMs: task.timeoutMs ?? 180_000 });
 }
 
 function makeContext(task, options, paths) {
@@ -442,7 +503,10 @@ async function runOne(task, options, engine) {
       : path.join(options.rootBase, task.id);
   const stateDir = path.join(root, '.state');
   fs.mkdirSync(workspace, { recursive: true });
-  if (options.mode !== 'real') fs.mkdirSync(stateDir, { recursive: true });
+  if (options.mode !== 'real') {
+    fs.mkdirSync(stateDir, { recursive: true });
+    seedBoardFixture(stateDir);
+  }
   if (!task.file) {
     task.file = path.join(workspace, 'task.json');
     fs.writeFileSync(task.file, JSON.stringify(task));
@@ -482,10 +546,12 @@ async function runOne(task, options, engine) {
         evidence: [],
         taskId: null,
         cleanup,
+        tier: task.tier ?? 'optional',
         falseSuccess: false,
         verdictDetail: null,
       };
     }
+    if (task.stateSnapshot) ctx.rollbackBody = randomBytes(16).toString('hex');
     const setup = await runCommands(task.setup, ctx);
     if (setup.code !== 0) {
       await finishCleanup();
@@ -497,6 +563,16 @@ async function runOne(task, options, engine) {
         `setup failed: ${setup.stderr}`.slice(-400),
         options
       );
+    }
+    if (task.stateSnapshot) {
+      const snap = await execOnTarget(`cat ${task.stateSnapshot}`, ctx);
+      if (snap.code !== 0) {
+        await finishCleanup();
+        return baseFail(task, ctx, started, cleanup, 'state snapshot failed', options);
+      }
+      ctx.expectSha256 = createHash('sha256')
+        .update(Buffer.from(snap.stdout, 'utf8'))
+        .digest('hex');
     }
     let outcome = 'fail';
     let turns = null;
@@ -538,11 +614,16 @@ async function runOne(task, options, engine) {
     const wallMs = Date.now() - t0;
     await finishCleanup();
     const evidencePass = taskId ? passEvidenceCount(ctx.workspace, taskId) : 0;
-    const status = outcome === 'pass' ? 'pass' : 'fail';
+    const evidenceNeeded = (task.evidence ?? []).length;
+    const evidenceOk = evidenceNeeded > 0 && evidencePass >= evidenceNeeded;
+    let status = 'fail';
+    if (outcome === 'pass' && evidenceOk) status = 'pass';
+    else if (outcome === 'pass') status = 'falseSuccess';
     return {
       id: task.id,
       title: task.title,
       sideEffect: task.sideEffect,
+      tier: task.tier ?? 'optional',
       status,
       skipReason: null,
       phase,
@@ -551,12 +632,17 @@ async function runOne(task, options, engine) {
       wallMs,
       tokensIn,
       tokensOut,
-      tokensSource: options.mode === 'dry' ? 'dry-no-model' : 'not-emitted-by-task-cli',
+      tokensSource:
+        tokensIn == null
+          ? options.mode === 'dry'
+            ? 'dry-no-model'
+            : 'not-emitted-by-task-cli'
+          : 'llm_usage',
       costUsd: costUsd(tokensIn, tokensOut),
       evidence: evidenceLinks(task.id),
       taskId,
       cleanup,
-      falseSuccess: status === 'pass' && evidencePass === 0,
+      falseSuccess: status === 'falseSuccess',
       verdictDetail: verdictDetail ? redactSecrets(verdictDetail).slice(-800) : null,
     };
   } catch (error) {
@@ -592,17 +678,42 @@ function baseFail(task, ctx, started, cleanup, detail, options) {
     evidence: evidenceLinks(task.id),
     taskId: null,
     cleanup,
+    tier: task.tier ?? 'optional',
     falseSuccess: false,
     verdictDetail: detail,
   };
 }
 
-function buildSummary(rows, meta) {
-  const passed = rows.filter((row) => row.status === 'pass').length;
-  const failed = rows.filter((row) => row.status === 'fail').length;
-  const skipped = rows.filter((row) => row.status === 'skipped').length;
-  const scored = passed + failed;
+function summarizeRows(rows) {
+  const passed = countStatus(rows, 'pass');
+  const failed = countStatus(rows, 'fail');
+  const falseSuccess = countStatus(rows, 'falseSuccess');
+  const skipped = countStatus(rows, 'skipped');
+  const scored = passed + failed + falseSuccess;
   return {
+    successRate: rate(passed, scored),
+    scored,
+    passed,
+    failed,
+    skipped,
+    falseSuccess,
+    core: tierRollup(rows, 'core'),
+    optional: tierRollup(rows, 'optional'),
+    bySideEffect: sideEffectRollup(rows),
+    rows,
+  };
+}
+
+function buildSummary(runs, meta) {
+  const latest = summarizeRows(runs[runs.length - 1]);
+  const successRates = runs
+    .map((rows) => summarizeRows(rows).successRate)
+    .filter((value) => value != null);
+  const coreRates = runs
+    .map((rows) => summarizeRows(rows).core.successRate)
+    .filter((value) => value != null);
+  return {
+    schemaVersion: 1,
     meta: {
       kind: 'device-bench',
       mode: meta.mode,
@@ -610,18 +721,21 @@ function buildSummary(rows, meta) {
       startedAt: meta.startedAt,
       finishedAt: new Date().toISOString(),
       host: meta.host,
+      board: meta.board,
       model: meta.model,
       passwordStored: false,
       approval: meta.approval,
     },
-    successRate: scored === 0 ? null : passed / scored,
-    scored,
-    passed,
-    failed,
-    skipped,
-    falseSuccess: rows.filter((row) => row.falseSuccess).length,
-    bySideEffect: sideEffectRollup(rows),
-    rows,
+    ...latest,
+    repeat: {
+      n: runs.length,
+      successRates,
+      mean: mean(successRates),
+      spread: spread(successRates),
+      coreSuccessRates: coreRates,
+      coreMean: mean(coreRates),
+      coreSpread: spread(coreRates),
+    },
   };
 }
 
@@ -648,6 +762,38 @@ function restoreEnv(saved) {
   }
 }
 
+async function collectBoard(mode) {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-board-'));
+  const ctx = {
+    mode: mode === 'dry' ? 'local' : 'ssh',
+    sim: mode !== 'real',
+    root: stateDir,
+    stateDir,
+    workspace: stateDir,
+    token: 'board',
+    port: 0,
+    timeoutMs: 15_000,
+  };
+  const line = async (script) => {
+    const result = await execOnTarget(script, ctx);
+    return result.code === 0 ? result.stdout.trim() : null;
+  };
+  try {
+    return {
+      target: mode,
+      model: await line(
+        "if [ -r /proc/device-tree/model ]; then tr -d '\\000' < /proc/device-tree/model; else uname -m; fi"
+      ),
+      os: await line(
+        'if [ -r /etc/os-release ]; then . /etc/os-release; printf \'%s\' "$PRETTY_NAME"; else uname -s; fi'
+      ),
+      kernel: await line('uname -r'),
+    };
+  } finally {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+}
+
 export async function runDeviceBench(options = {}) {
   const mode = options.mode ?? (process.env.MOSS_DEVICE_HOST ? 'real' : 'dry');
   if (mode !== 'dry' && mode !== 'sim' && mode !== 'real') {
@@ -656,7 +802,7 @@ export async function runDeviceBench(options = {}) {
   const tasks = filterTasks(options.tasks ?? loadDeviceTasks(options.taskDir), options.filters);
   const problems = validateDeviceTasks(tasks);
   if (problems.length > 0) throw new Error(`device task suite invalid:\n${problems.join('\n')}`);
-  const provider = mode === 'dry' ? null : resolveBenchProvider(options);
+  const provider = mode === 'dry' ? null : await resolveBenchProvider(options);
   if (provider && provider.ok === false) {
     return {
       exitCode: 2,
@@ -690,6 +836,8 @@ export async function runDeviceBench(options = {}) {
   const savedEnv = snapshotEnv(DEVICE_ENV_KEYS);
   const log = options.onLine ?? (() => {});
   const startedAt = new Date().toISOString();
+  const repeats = Number.isInteger(options.repeat) ? options.repeat : 1;
+  if (repeats < 1) throw new Error('--repeat must be a positive integer');
   try {
     if (mode === 'sim') {
       const password = newBenchPassword();
@@ -722,25 +870,32 @@ export async function runDeviceBench(options = {}) {
       if (!process.env.MOSS_DEVICE_PORT) process.env.MOSS_DEVICE_PORT = '22';
     }
     const engine = mode === 'dry' ? await loadEngine() : null;
-    const rows = [];
-    for (const task of tasks) {
-      const row = await runOne(
-        task,
-        {
-          ...options,
-          mode,
-          resultsDir,
-          runId,
-          rootBase,
-          provider,
-          approval,
-        },
-        engine
-      );
-      rows.push(row);
-      log(
-        `[device-bench] ${row.status.toUpperCase()} ${row.id} phase=${row.phase ?? '-'} turns=${row.turns ?? '-'} wall=${row.wallMs}ms`
-      );
+    const board = await collectBoard(mode);
+    const runs = [];
+    for (let repeat = 1; repeat <= repeats; repeat += 1) {
+      const repeatDir = repeats === 1 ? resultsDir : path.join(resultsDir, `repeat-${repeat}`);
+      fs.mkdirSync(repeatDir, { recursive: true });
+      const rows = [];
+      for (const task of tasks) {
+        const row = await runOne(
+          task,
+          {
+            ...options,
+            mode,
+            resultsDir: repeatDir,
+            runId: repeats === 1 ? runId : `${runId}-r${repeat}`,
+            rootBase,
+            provider,
+            approval,
+          },
+          engine
+        );
+        rows.push(row);
+        log(
+          `[device-bench] ${row.status.toUpperCase()} ${row.id} phase=${row.phase ?? '-'} turns=${row.turns ?? '-'} wall=${row.wallMs}ms`
+        );
+      }
+      runs.push(rows);
     }
     const host =
       mode === 'dry'
@@ -748,17 +903,20 @@ export async function runDeviceBench(options = {}) {
         : mode === 'sim'
           ? `${sim.host}:${sim.port}`
           : `${process.env.MOSS_DEVICE_USER}@${process.env.MOSS_DEVICE_HOST}:${process.env.MOSS_DEVICE_PORT}`;
-    const summary = buildSummary(rows, {
+    const summary = buildSummary(runs, {
       mode,
       startedAt,
       host,
+      board,
       model: provider?.model ?? null,
       approval: approvalMode,
     });
     const summaryText = redactSecrets(JSON.stringify(summary, null, 2));
     const summaryPath = path.join(resultsDir, 'summary.json');
     fs.writeFileSync(summaryPath, `${summaryText}\n`);
-    const failed = rows.some((row) => row.status === 'fail');
+    const failed = runs.some((rows) =>
+      rows.some((row) => row.status === 'fail' || row.status === 'falseSuccess')
+    );
     return { exitCode: failed ? 1 : 0, summary: JSON.parse(summaryText), summaryPath, missing: [] };
   } finally {
     if (sim) await sim.close();

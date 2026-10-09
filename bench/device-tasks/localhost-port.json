@@ -2,6 +2,7 @@
   "id": "localhost-port",
   "title": "Open a localhost port and answer with a token",
   "sideEffect": "mutating",
+  "tier": "core",
   "maxTurns": 12,
   "timeoutMs": 180000,
   "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Work only under {{ROOT}} and on 127.0.0.1:{{PORT}}.\n\nListen on 127.0.0.1:{{PORT}} (localhost only; do not change firewall, routes, or ssh). The first TCP client must receive a line containing `moss-bench-port-ok {{TOKEN}}`. Write the listener pid to {{ROOT}}/port.pid. Record evidence metric `port_banner` whose observed value is that banner line, trimmed.\n\nUse Python, not nc or socat. Do not reboot, reflash, or change passwords. The bench kills the pid in {{ROOT}}/port.pid afterwards.",

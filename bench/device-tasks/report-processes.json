@@ -2,6 +2,7 @@
   "id": "report-processes",
   "title": "Report a live process id",
   "sideEffect": "readonly",
+  "tier": "optional",
   "maxTurns": 8,
   "timeoutMs": 180000,
   "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*).\n\nFind a process that is alive: the pid of systemd if present, otherwise pid 1. device_processes is fine if you then confirm the pid exists under /proc. Record evidence metric `live_pid` whose observed value is that pid and nothing else.\n\nDo not kill processes. Do not reboot, reflash, change passwords, or edit ssh or network configuration.",

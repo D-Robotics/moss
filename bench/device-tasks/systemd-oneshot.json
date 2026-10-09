@@ -2,6 +2,7 @@
   "id": "systemd-oneshot",
   "title": "Create and run a oneshot systemd unit",
   "sideEffect": "mutating",
+  "tier": "optional",
   "maxTurns": 14,
   "timeoutMs": 240000,
   "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*).\n\nCreate /etc/systemd/system/moss-bench-marker.service, a Type=oneshot unit whose ExecStart writes the single line {{TOKEN}} to {{ROOT}}/systemd-proof.txt. daemon-reload and start that unit only. Record evidence metric `unit_result` whose observed value is the trimmed output of `systemctl show -p Result --value moss-bench-marker` (it must be success).\n\nDo not enable a reboot, do not restart ssh, and do not edit firewall or network configuration. The bench removes this unit afterwards.",

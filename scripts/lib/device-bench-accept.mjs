@@ -6,6 +6,7 @@
  * Exit 0 only when every device check exits 0 and every evidence probe matches
  * a recorded evidence row. The password is never read from argv.
  */
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,6 +68,13 @@ export async function evaluateTaskAcceptance(options) {
       problems.push(`no evidence record for ${spec.metric} observed ${JSON.stringify(observed)}`);
     }
   }
+  if (options.expectSha256) {
+    const read = await execOnTarget('cat "$MOSS_BENCH_ROOT/state.txt"', ctx);
+    const digest = createHash('sha256').update(Buffer.from(read.stdout, 'utf8')).digest('hex');
+    if (read.code !== 0 || digest !== options.expectSha256) {
+      problems.push('state sha256 does not match the runner snapshot taken before the agent ran');
+    }
+  }
   if (Array.isArray(task.acceptance) && task.acceptance.length > 0) {
     const result = await execOnTarget(task.acceptance.join('\n'), ctx);
     if (result.code !== 0) {
@@ -92,6 +100,7 @@ async function main() {
       sim: argv.includes('--sim'),
       simCamera: argv.includes('--sim-camera'),
       simRos: argv.includes('--sim-ros'),
+      ...(argv.includes('--expect-sha256') ? { expectSha256: arg('--expect-sha256', argv) } : {}),
     });
     if (!result.ok) {
       process.stderr.write(`${result.problems.join('\n')}\n`);

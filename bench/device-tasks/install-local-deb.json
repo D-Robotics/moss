@@ -2,6 +2,7 @@
   "id": "install-local-deb",
   "title": "Build and install a local marker package",
   "sideEffect": "mutating",
+  "tier": "optional",
   "maxTurns": 14,
   "timeoutMs": 240000,
   "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Build a tiny local package named moss-bench-marker version 0.0.1 with no maintainer scripts and no dependencies. Its only payload is /usr/share/moss-bench-marker/ok containing exactly the line {{TOKEN}}. Build the .deb under {{ROOT}} and install it with dpkg. Record evidence metric `package_status` whose observed value is the trimmed output of `dpkg -s moss-bench-marker`.\n\nDo not use apt mirrors. Do not reboot, reflash, change passwords, or edit ssh or network configuration. The bench removes the package afterwards.",

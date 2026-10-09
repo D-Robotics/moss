@@ -46,6 +46,17 @@ export function shellQuote(value) {
   return `'${String(value).replaceAll("'", `'\\''`)}'`;
 }
 
+/**
+ * Quote one argument for the shell that runs the acceptance command.
+ * POSIX sh uses single quotes. Windows cmd.exe (`runAcceptanceCommand`)
+ * does not strip them, so a single-quoted path becomes part of the filename.
+ */
+export function quoteForShell(value, platform = process.platform) {
+  const text = String(value);
+  if (platform === 'win32') return `"${text.replaceAll('"', '""')}"`;
+  return shellQuote(text);
+}
+
 export function redactSecrets(text, secrets = secretValues()) {
   let out = String(text ?? '');
   for (const secret of secrets) {

@@ -2,6 +2,7 @@
   "id": "camera-presence",
   "title": "Report a camera device name",
   "sideEffect": "readonly",
+  "tier": "optional",
   "maxTurns": 8,
   "timeoutMs": 180000,
   "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*).\n\nReport one camera or sensor name. Prefer device_cameras, /dev/video0, or the first entry of /sys/class/video4linux. On a simulated board the name is the contents of $MOSS_BENCH_STATE/camera/name. Record evidence metric `camera_name` whose observed value is that name and nothing else.\n\nDo not start a capture pipeline. Do not reboot, reflash, change passwords, or edit ssh or network configuration.",

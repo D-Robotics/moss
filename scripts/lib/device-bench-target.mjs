@@ -18,7 +18,14 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 export const SIM_BIN = path.join(repoRoot, 'bench', 'device-tasks', 'sim', 'bin');
 export const SIM_ROS_BIN = path.join(repoRoot, 'bench', 'device-tasks', 'sim', 'ros-bin');
 
-const REWRITE_PREFIXES = ['/etc/systemd/system', '/usr/share/moss-bench-marker', '/var/lib/dpkg'];
+const REWRITE_PREFIXES = [
+  '/proc/meminfo',
+  '/sys/class/net',
+  '/etc/systemd/system',
+  '/usr/share/moss-bench-marker',
+  '/var/lib/dpkg',
+  '/proc/',
+];
 
 const REWRITE_BOUNDARY = /[\s"'=<>;&|(`]/;
 
@@ -61,6 +68,9 @@ export function wrapScript(script, ctx) {
   if (ctx.sim) lines.push('export MOSS_BENCH_SIM=1');
   if (ctx.simCamera) lines.push('export MOSS_BENCH_SIM_CAMERA=1');
   if (ctx.simRos) lines.push('export MOSS_BENCH_SIM_ROS=1');
+  if (ctx.rollbackBody) {
+    lines.push(`export MOSS_BENCH_ROLLBACK_BODY=${shellQuote(ctx.rollbackBody)}`);
+  }
   lines.push(script);
   return lines.join('\n');
 }
@@ -88,9 +98,29 @@ function benchEnv(ctx) {
   return env;
 }
 
+export function resolveBash() {
+  if (process.env.MOSS_BENCH_BASH) return process.env.MOSS_BENCH_BASH;
+  if (process.platform !== 'win32') return 'bash';
+  const candidates = [
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return 'bash';
+}
+
+/** Linux proc/sys paths the dry and sim sandboxes rewrite into this directory. */
+export function seedBoardFixture(stateDir) {
+  fs.mkdirSync(path.join(stateDir, 'proc', '1'), { recursive: true });
+  fs.writeFileSync(path.join(stateDir, 'proc', 'meminfo'), 'MemTotal:        1048576 kB\n');
+  fs.mkdirSync(path.join(stateDir, 'sys', 'class', 'net', 'lo'), { recursive: true });
+}
+
 function runBash(script, env, timeoutMs) {
   return new Promise((resolve) => {
-    const child = spawn('bash', ['-c', script], { env });
+    const child = spawn(resolveBash(), ['-c', script], { env });
     const stdout = [];
     const stderr = [];
     let timedOut = false;

@@ -2,6 +2,7 @@
   "id": "report-resources",
   "title": "Report memory total",
   "sideEffect": "readonly",
+  "tier": "optional",
   "maxTurns": 8,
   "timeoutMs": 180000,
   "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*).\n\nRead MemTotal from the live board (`awk '/MemTotal/{print $2; exit}' /proc/meminfo`, or device_resources if it shows the same kilobyte value). Record evidence metric `mem_total_kb` whose observed value is that integer and nothing else.\n\nDo not change the board. Do not reboot, reflash, change passwords, or edit ssh or network configuration.",

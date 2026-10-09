@@ -19,6 +19,7 @@ function usage() {
     '  --dry                 scripted oracle, no model, no SSH (default without MOSS_DEVICE_HOST)',
     '  --target <dry|sim|real>',
     '  --task <substr>       only tasks whose id contains <substr> (repeatable)',
+    '  --repeat <n>          run the suite n times and report mean and spread',
     '  --label <name>        result directory name under bench/results/',
     '  --approval <mode>     full (default) | inherit | manual',
     '  --sim-camera          treat a simulated camera as present',
@@ -28,13 +29,15 @@ function usage() {
     '  --list                list tasks and exit',
     '  --help                show this help',
     '',
+    'Model: the moss config file (MOSS_CONFIG_DIR / MOSS_CONFIG_FILE /',
+    '~/.config/moss/config.json) plus --model and --base-url. MOSS_API_KEY is ignored.',
     'Real board: MOSS_DEVICE_HOST/PORT/USER/KIND and RDK_S600_PASSWORD',
     '(or MOSS_DEVICE_PASSWORD or MOSS_DEVICE_KEY). The password is never printed.',
   ].join('\n');
 }
 
 function parseArgs(argv) {
-  const out = { filters: [], simCamera: false, simRos: false };
+  const out = { filters: [], simCamera: false, simRos: false, repeat: 1 };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = () => {
@@ -46,6 +49,7 @@ function parseArgs(argv) {
     else if (arg === '--target') out.mode = next();
     else if (arg === '--task') out.filters.push(next());
     else if (arg === '--label') out.label = next();
+    else if (arg === '--repeat') out.repeat = Number(next());
     else if (arg === '--approval') out.approval = next();
     else if (arg === '--model') out.model = next();
     else if (arg === '--base-url') out.baseUrl = next();
@@ -59,6 +63,10 @@ function parseArgs(argv) {
 }
 
 const args = parseArgs(process.argv.slice(2));
+if (!Number.isInteger(args.repeat) || args.repeat < 1) {
+  console.error('--repeat requires a positive integer');
+  process.exit(2);
+}
 if (args.help) {
   console.log(usage());
   process.exit(0);
@@ -79,6 +87,7 @@ try {
     ...(args.mode ? { mode: args.mode } : {}),
     filters: args.filters,
     ...(args.label ? { label: args.label } : {}),
+    repeat: args.repeat,
     ...(args.approval ? { approval: args.approval } : {}),
     ...(args.model ? { model: args.model } : {}),
     ...(args.baseUrl ? { baseUrl: args.baseUrl } : {}),

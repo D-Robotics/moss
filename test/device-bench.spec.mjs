@@ -13,10 +13,17 @@ import { fileURLToPath } from 'node:url';
 import ssh2 from 'ssh2';
 
 import { approvalEnv } from '../scripts/lib/device-bench-approval.mjs';
-import { findForbidden, redactSecrets, secretValues } from '../scripts/lib/device-bench-safety.mjs';
+import {
+  findForbidden,
+  quoteForShell,
+  redactSecrets,
+  secretValues,
+} from '../scripts/lib/device-bench-safety.mjs';
 import {
   execOnTarget,
   newBenchPassword,
+  rewriteSimPaths,
+  seedBoardFixture,
   startSimSsh,
 } from '../scripts/lib/device-bench-target.mjs';
 import {
@@ -44,6 +51,8 @@ test('device task suite is 12 tasks with cleanup on every mutation', () => {
   assert.ok(ids.includes('rollback-state'));
   assert.ok(ids.includes('systemd-oneshot'));
   assert.ok(ids.includes('ros2-pubsub'));
+  const core = tasks.filter((task) => task.tier === 'core').map((task) => task.id);
+  assert.deepEqual(core, ['localhost-port', 'python-program', 'report-identity', 'rollback-state']);
 });
 
 test('forbidden device commands are rejected before they can run', () => {
@@ -83,13 +92,23 @@ test(
       const result = await runDeviceBench({ mode: 'dry', resultsDir });
       assert.equal(result.exitCode, 0, JSON.stringify(result.summary?.rows, null, 2));
       const summary = result.summary;
+      assert.equal(summary.schemaVersion, 1);
       assert.equal(summary.meta.mode, 'dry');
       assert.equal(summary.meta.passwordStored, false);
       assert.equal(summary.meta.model, null);
       assert.equal(summary.failed, 0);
       assert.equal(summary.falseSuccess, 0);
-      assert.ok(summary.scored >= 8, `scored ${summary.scored}`);
-      assert.equal(summary.successRate, 1);
+      assert.equal(summary.repeat.n, 1);
+      assert.equal(summary.repeat.spread, 0);
+      assert.ok(summary.meta.board.kernel);
+      assert.equal(summary.core.total, 4);
+      if (process.platform === 'linux') {
+        assert.ok(summary.scored >= 8, `scored ${summary.scored}`);
+        assert.equal(summary.successRate, 1);
+        assert.equal(summary.core.successRate, 1);
+      } else {
+        assert.ok(summary.successRate === 1 || summary.scored === 0);
+      }
       const skipped = summary.rows.filter((row) => row.status === 'skipped').map((row) => row.id);
       assert.ok(
         skipped.includes('camera-presence') ||
@@ -189,8 +208,11 @@ test('a command pass with no evidence is flagged falseSuccess', async () => {
   };
   try {
     const result = await runDeviceBench({ mode: 'dry', resultsDir, tasks: [task] });
-    assert.equal(result.summary.rows[0].status, 'pass');
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.summary.rows[0].status, 'falseSuccess');
     assert.equal(result.summary.rows[0].phase, 'accepted');
+    assert.equal(result.summary.passed, 0);
+    assert.equal(result.summary.successRate, 0);
     assert.equal(result.summary.rows[0].falseSuccess, true);
     assert.equal(result.summary.falseSuccess, 1);
   } finally {
@@ -312,13 +334,10 @@ test(
   }
 );
 
-test('sim target without a model key refuses to invent a score', async () => {
+test('sim target without a moss config refuses to invent a score', async () => {
   const result = await runDeviceBench({
     mode: 'sim',
-    apiKey: undefined,
-    allowSettings: false,
-    model: undefined,
-    baseUrl: undefined,
+    isolateConfig: true,
     tasks: [
       {
         id: 'unused',
@@ -336,9 +355,66 @@ test('sim target without a model key refuses to invent a score', async () => {
   });
   assert.equal(result.exitCode, 2);
   assert.equal(result.summary, null);
-  assert.ok(result.missing.some((item) => item.includes('MOSS_BENCH_API_KEY')));
-  const resolved = resolveBenchProvider({ apiKey: undefined, allowSettings: false });
+  assert.ok(result.missing.some((item) => item.includes('apiKey')));
+  assert.ok(result.missing.some((item) => item.includes('MOSS_API_KEY')));
+  const resolved = await resolveBenchProvider({ isolateConfig: true });
   assert.equal(resolved.ok, false);
+});
+
+test('windows acceptance paths are double-quoted and proc paths stay in the sandbox', () => {
+  assert.equal(
+    quoteForShell('D:\\a\\moss\\scripts\\lib\\device-bench-accept.mjs', 'win32'),
+    '"D:\\a\\moss\\scripts\\lib\\device-bench-accept.mjs"'
+  );
+  assert.equal(quoteForShell("/tmp/o's", 'linux'), "'/tmp/o'\\''s'");
+  const state = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-fix-'));
+  seedBoardFixture(state);
+  const rewritten = rewriteSimPaths("awk 'END{}' /proc/meminfo", state);
+  assert.ok(rewritten.includes(path.join(state, 'proc', 'meminfo')));
+  fs.rmSync(state, { recursive: true, force: true });
+});
+
+test('a forged rollback fails the runner checksum', { timeout: 30_000 }, async () => {
+  const resultsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-forge-'));
+  const task = structuredClone(loadDeviceTasks().find((item) => item.id === 'rollback-state'));
+  task.oracle = ['printf \'v1\\n\' > "$MOSS_BENCH_ROOT/state.txt"'];
+  try {
+    const result = await runDeviceBench({ mode: 'dry', resultsDir, tasks: [task] });
+    assert.equal(result.summary.rows[0].status, 'fail');
+    assert.match(result.summary.rows[0].verdictDetail ?? '', /sha256/);
+  } finally {
+    fs.rmSync(resultsDir, { recursive: true, force: true });
+  }
+});
+
+test('repeat reports mean and spread', { timeout: 30_000 }, async () => {
+  const resultsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-repeat-'));
+  const task = {
+    id: 'repeat-hostname',
+    title: 'repeat hostname',
+    tier: 'core',
+    sideEffect: 'readonly',
+    prompt: 'Report the hostname and record evidence metric host_name.',
+    prerequisites: [],
+    setup: [],
+    oracle: [],
+    acceptance: ['test -n "$(hostname)"'],
+    cleanup: [],
+    evidence: [{ metric: 'host_name', probe: 'hostname' }],
+    maxTurns: 4,
+    timeoutMs: 30_000,
+  };
+  try {
+    const result = await runDeviceBench({ mode: 'dry', resultsDir, tasks: [task], repeat: 2 });
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.summary.schemaVersion, 1);
+    assert.equal(result.summary.repeat.n, 2);
+    assert.equal(result.summary.repeat.mean, 1);
+    assert.equal(result.summary.repeat.spread, 0);
+    assert.equal(result.summary.core.successRate, 1);
+  } finally {
+    fs.rmSync(resultsDir, { recursive: true, force: true });
+  }
 });
 
 test('bench:device --list and --dry --task report-identity', () => {
