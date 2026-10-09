@@ -30,6 +30,7 @@ if (process.env.MOSS_REAL_TERMINALS !== '1') {
       encoding: 'utf8',
       timeout: 600_000,
       env: isolatedCliEnv({
+        isolateHome: false,
         overrides: { MOSS_REAL_TERMINALS: '1' },
       }),
     });

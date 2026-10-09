@@ -16,7 +16,7 @@ if (probe.status !== 0) {
       cwd: root,
       encoding: 'utf8',
       timeout: 60_000,
-      env: isolatedCliEnv(),
+      env: isolatedCliEnv({ isolateHome: false }),
     }
   );
   process.stdout.write(`${result.stdout ?? ''}${result.stderr ?? ''}`);

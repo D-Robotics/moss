@@ -10,6 +10,7 @@ export function isolatedCliEnv({
   inherited = process.env,
   overrides = {},
   prefix = 'moss-cli-spec-',
+  isolateHome = true,
 } = {}) {
   const env = { ...inherited };
   for (const key of Object.keys(env)) {
@@ -25,14 +26,20 @@ export function isolatedCliEnv({
     }
   }
 
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  const configHome = path.join(home, '.config');
   const isolated = {
     ...env,
-    HOME: home,
-    XDG_CONFIG_HOME: configHome,
-    MOSS_CONFIG_DIR: path.join(configHome, 'moss'),
     MOSS_NO_RDK_DOCS: '1',
+    ...(isolateHome
+      ? (() => {
+          const home = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+          const configHome = path.join(home, '.config');
+          return {
+            HOME: home,
+            XDG_CONFIG_HOME: configHome,
+            MOSS_CONFIG_DIR: path.join(configHome, 'moss'),
+          };
+        })()
+      : {}),
     ...overrides,
   };
   for (const key of Object.keys(isolated)) {

@@ -21,7 +21,9 @@ if (probe.status !== 0) {
     cwd: root,
     encoding: 'utf8',
     timeout: 600_000,
-    env: isolatedCliEnv(),
+    // Keep Python's HOME so user-site pyte remains importable; screen.py gives
+    // the Moss child its own HOME/config.
+    env: isolatedCliEnv({ isolateHome: false }),
   });
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
   process.stdout.write(output);
