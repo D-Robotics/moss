@@ -31,10 +31,13 @@ import {
   parseCliInteractionMode,
   type CliInteractionMode,
 } from './interaction-mode.js';
+import { isDotenvDeniedEnvKey } from '../utils/dotenv-denied-env.js';
+import { captureEnvBeforeDotenv, envBeforeDotenv } from '../utils/startup-env.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
 import type { PricingConfig } from './model-pricing.js';
 import type { StatusLineConfig } from './status-line.js';
 
+export { envBeforeDotenv };
 export {
   CliConfigFileError,
   CliConfigWriteError,
@@ -57,8 +60,8 @@ export {
  * redirect `XDG_CONFIG_HOME`, `HOME`, `APPDATA`, or `USERPROFILE`.
  * `MOSS_CONFIG_DIR` / `FILE` / `PATH` stay live: `.env` cannot set them, and
  * in-process overrides (approval persist, tests) must still select a directory.
+ * The object itself lives in `startup-env.ts` so child spawns can see it.
  */
-export const envBeforeDotenv: NodeJS.ProcessEnv = {};
 let homeBeforeDotenv = '';
 
 const LIVE_CONFIG_LOCATION_KEYS = [
@@ -1691,8 +1694,10 @@ export function resolveCliConfig(
 
 /**
  * These decide trust, which directory is the user's, or which rdk-docs
- * package runs. A project `.env` must not set them. The process environment
- * captured in `envBeforeDotenv`, plus CLI flags, are the only sources.
+ * package runs. A project `.env` must not set them. Interpreter and loader
+ * variables are refused by `isDotenvDeniedEnvKey` (shared with child spawns).
+ * The process environment captured in `envBeforeDotenv`, plus CLI flags, are
+ * the only sources for the keys in this set.
  */
 const ENV_FILE_IGNORED_KEYS = new Set([
   'MOSS_TRUST_WORKSPACE',
@@ -1723,7 +1728,7 @@ export function loadEnvFile(envPath: string): void {
       .slice(eqIdx + 1)
       .trim()
       .replace(/^["']|["']$/g, '');
-    if (!key || ENV_FILE_IGNORED_KEYS.has(key)) continue;
+    if (!key || ENV_FILE_IGNORED_KEYS.has(key) || isDotenvDeniedEnvKey(key)) continue;
     if (process.env[key] === undefined) process.env[key] = value;
   }
 }
@@ -1738,7 +1743,7 @@ export function loadEnvFromAncestors(startDir: string, maxHops = 16): void {
   }
 }
 
-Object.assign(envBeforeDotenv, process.env);
+captureEnvBeforeDotenv(process.env);
 homeBeforeDotenv = os.homedir();
 loadEnvFromAncestors(safeProcessCwd());
 loadEnvFromAncestors(path.dirname(fileURLToPath(import.meta.url)));

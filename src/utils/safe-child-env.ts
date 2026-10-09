@@ -7,6 +7,9 @@
  * shell inspection is not mistaken for "unset".
  */
 
+import { isDotenvDeniedEnvKey } from './dotenv-denied-env.js';
+import { envBeforeDotenv, isStartupEnvCaptured } from './startup-env.js';
+
 const DANGEROUS_ENV_KEYS = [
   'SSHPASS',
   'MOSS_API_KEY',
@@ -55,15 +58,50 @@ function isStrippedFromChild(key: string): boolean {
   return isDangerousEnvKey(key);
 }
 
+/**
+ * Loader variables keep the value from before a project `.env` was loaded.
+ * A key the project file introduced is omitted. The user's own value stays.
+ */
+function valueFromStartup(key: string, live: string): string | undefined {
+  if (!isStartupEnvCaptured() || !isDotenvDeniedEnvKey(key)) return live;
+  const startup = envBeforeDotenv[key];
+  return typeof startup === 'string' ? startup : undefined;
+}
+
 export function safeChildEnv(overrides?: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value === undefined) continue;
     if (isStrippedFromChild(key)) continue;
+    const kept = valueFromStartup(key, value);
+    if (kept === undefined) continue;
+    env[key] = kept;
+  }
+  if (overrides) {
+    for (const [key, value] of Object.entries(overrides)) {
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
+/**
+ * Environment for a Moss-injected child (the built-in rdk-docs npx).
+ * The base is the pre-`.env` snapshot only, so a project `.env` cannot
+ * change that child's interpreter even with a variable this denylist misses.
+ * Falls back to {@link safeChildEnv} when the CLI has not captured a snapshot.
+ */
+export function startupChildEnv(overrides?: Record<string, string>): Record<string, string> {
+  if (!isStartupEnvCaptured()) return safeChildEnv(overrides);
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(envBeforeDotenv)) {
+    if (typeof value !== 'string') continue;
+    if (isStrippedFromChild(key)) continue;
     env[key] = value;
   }
   if (overrides) {
     for (const [key, value] of Object.entries(overrides)) {
+      if (isStrippedFromChild(key) || isDotenvDeniedEnvKey(key)) continue;
       env[key] = value;
     }
   }

@@ -59,6 +59,7 @@ test('builtin rdk-docs uses one pinned default and hardened npx arguments', () =
   assert.equal(config.name, 'rdk-docs');
   assert.equal(config.transport, 'stdio');
   assert.equal(config.command, 'npx');
+  assert.equal(config.startupEnvOnly, true);
   assert.deepEqual(config.args, [
     '--yes',
     '--ignore-scripts',

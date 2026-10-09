@@ -37,6 +37,8 @@ export function builtinRdkDocsServerConfig(
     // --ignore-scripts prevents package lifecycle hooks; the selected MCP bin
     // still executes, so package overrides must be treated as executable code.
     args: ['--yes', '--ignore-scripts', `--package=${packageSpec}`, '--', 'rdk-docs-mcp'],
+    // Project `.env` must not reach this child. It starts with no trust prompt.
+    startupEnvOnly: true,
     connectTimeoutMs: RDK_DOCS_CONNECT_TIMEOUT_MS,
     requestTimeoutMs: RDK_DOCS_REQUEST_TIMEOUT_MS,
   };

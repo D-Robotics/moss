@@ -9,7 +9,7 @@
  * for crash diagnostics only.
  */
 import { spawnProcess, type ChildProcess } from '../../utils/run-process.js';
-import { safeChildEnv } from '../../utils/safe-child-env.js';
+import { safeChildEnv, startupChildEnv } from '../../utils/safe-child-env.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import { getRootLogger } from '../../logger.js';
 import type {
@@ -88,7 +88,9 @@ export class McpStdioTransport implements McpTransport {
         stdio: ['pipe', 'pipe', 'pipe'],
         // Credential-bearing env values come only from the expanded config env
         // block; the inherited parent env is sanitized by safeChildEnv.
-        env: safeChildEnv(this.config.env ?? {}),
+        env: this.config.startupEnvOnly
+          ? startupChildEnv(this.config.env)
+          : safeChildEnv(this.config.env ?? {}),
         windowsHide: true,
       });
     } catch (err) {

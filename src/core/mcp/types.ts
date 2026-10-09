@@ -27,6 +27,11 @@ export interface McpServerConfig {
   args?: string[];
   /** Extra env for the child process (merged over a sanitized parent env). */
   env?: Record<string, string>;
+  /**
+   * Spawn from the process environment captured before a project `.env`
+   * was loaded. Set on the Moss-injected rdk-docs server.
+   */
+  startupEnvOnly?: boolean;
 
   // ── http transport (streamable HTTP) ─────────────────────────────────────
   /** Endpoint URL, e.g. `https://host/mcp`. */
