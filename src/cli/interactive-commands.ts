@@ -282,7 +282,8 @@ const RETIRED_SLASH: Readonly<
   '/sessions': { command: '/resume', migration: '/sessions is now /resume.' },
   '/mode': {
     command: '/mode',
-    migration: 'Switch modes with Shift+Tab, /plan, or /permissions. /mode remains for one version.',
+    migration:
+      'Switch modes with Shift+Tab, /plan, or /permissions. /mode remains for one version.',
   },
   '/steer': {
     command: '/steer',
@@ -304,6 +305,19 @@ export interface SlashRewrite {
   migration?: string;
 }
 
+/**
+ * True when the first token is a command the shell dispatches even if the
+ * everyday menu's fuzzy match would highlight something else. Hidden aliases
+ * (`/mode` beside `/model`) and retired names (`/loop`) must run as typed.
+ */
+export function isExactSlashCommand(input: string): boolean {
+  const trimmed = input.trim();
+  if (!trimmed.startsWith('/')) return false;
+  const head = (trimmed.split(/\s+/, 1)[0] ?? trimmed).toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(RETIRED_SLASH, head)) return true;
+  return catalogRows().some((row) => row.command === head || (row.aliases ?? []).includes(head));
+}
+
 /** Map a typed slash line onto the canonical command, once. */
 export function rewriteSlashInput(input: string): SlashRewrite {
   const trimmed = input.trim();
@@ -313,7 +327,9 @@ export function rewriteSlashInput(input: string): SlashRewrite {
   const args = trimmed.slice(rawHead.length).trim();
   const retired = RETIRED_SLASH[head];
   if (retired) {
-    const text = retired.replaceAll ? retired.command : `${retired.command}${args ? ` ${args}` : ''}`;
+    const text = retired.replaceAll
+      ? retired.command
+      : `${retired.command}${args ? ` ${args}` : ''}`;
     return { text, migration: retired.migration };
   }
   for (const row of catalogRows()) {
@@ -379,6 +395,7 @@ function uniqueMenuRows(): InteractiveCommandRow[] {
     common.push({
       command: row.command,
       description: row.menuDescription ?? row.description,
+      availableDuringRun: row.availableDuringRun,
       ...(row.aliases ? { aliases: row.aliases } : {}),
     });
   }
