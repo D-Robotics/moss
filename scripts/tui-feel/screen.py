@@ -109,6 +109,7 @@ class Session:
             "TERM": "xterm-256color",
             "LANG": "en_US.UTF-8",
             "MOSS_NOTIFY": "0",
+            "MOSS_NO_RDK_DOCS": "1",
             "MOSS_CONFIG_FILE": cfg,
             "MOSS_TUI_RENDERER": self.renderer,
             **self.extra_env,

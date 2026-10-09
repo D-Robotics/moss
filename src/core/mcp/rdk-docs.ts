@@ -51,7 +51,7 @@ export const RDK_DOCS_CONNECTED_LAYER = [
   "Use the user's words and, if the returned search schema supports it, a board/manual filter; do not answer from another board's page.",
   'Judge the snippet: prefer role=official-start; forum is unofficial and loses to the manual.',
   'Treat noGoodMatch, ranked fusion, and section reads as optional server capabilities; follow the returned schema and degrade to ordinary search/page reads.',
-  'Cite the page URL, and copy it into observed when it supports record_evidence.',
+  'Cite the page URL in the reply. Call record_evidence only when a task contract is already open.',
   'Do not invent pin tables or figures. Connection, probes, and approval do not wait on docs.',
 ].join(' ');
 

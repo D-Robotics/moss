@@ -45,7 +45,9 @@ test('camera goal surfaces the camera skill and camera device tools first', () =
 
   const layer = buildCapabilityPromptLayer(match);
   assert.match(layer, /## Task capability discovery/);
-  assert.match(layer, /device\/robotics task/);
+  assert.doesNotMatch(layer, /device\/robotics task/);
+  const withDevice = buildCapabilityPromptLayer({ ...match, deviceConfigured: true });
+  assert.match(withDevice, /device\/robotics task/);
   assert.match(layer, /- rdk-camera-tuning — Tune RDK camera pipeline/);
   // Builtin tool names are not rendered in the layer (they are already in the
   // provider tool list); the matcher still ranks them as candidates.

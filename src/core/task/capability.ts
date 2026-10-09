@@ -24,6 +24,11 @@ export interface TaskCapabilityMatch {
   /** True when the goal reads like a device/robotics task. */
   deviceTask: boolean;
   /**
+   * True when a device target is actually configured. A device-shaped goal
+   * must not be told to probe or record device evidence without one.
+   */
+  deviceConfigured?: boolean;
+  /**
    * MCP servers that exposed their meta search tool in this run. They are
    * entry points, not candidates: a task with no name match still needs to know
    * which server to query before concluding the capability is absent.
@@ -468,7 +473,7 @@ export function buildCapabilityPromptLayer(match: TaskCapabilityMatch): string {
   if (skills.length === 0 && mcp.length === 0 && mcpServers.length === 0) return '';
 
   const lines: string[] = ['## Task capability discovery'];
-  if (match.deviceTask) {
+  if (match.deviceTask && match.deviceConfigured) {
     lines.push(
       'This goal looks like a device/robotics task: use the device tools (device_info, device_exec, device_deploy, device_cameras…) and record device evidence.'
     );

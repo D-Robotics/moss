@@ -43,6 +43,8 @@ function cleanMossEnv(tempRoot) {
     MOSS_CONFIG_DIR: path.join(tempRoot, 'home', '.config', 'moss'),
     MOSS_RUNTIME_DIR: path.join(tempRoot, 'home', '.moss-runtime'),
     MOSS_NO_COLOR: '1',
+    // Builtin rdk-docs connects by default. Smoke must not spawn npx.
+    MOSS_NO_RDK_DOCS: '1',
   };
   for (const key of [
     'MOSS_API_KEY',
@@ -93,6 +95,7 @@ env = {
   'MOSS_NO_COLOR': '1',
   'MOSS_CONFIG_DIR': os.path.join(home, 'config'),
   'MOSS_RUNTIME_DIR': os.path.join(home, 'runtime'),
+  'MOSS_NO_RDK_DOCS': '1',
 }
 proc = subprocess.Popen([node_bin, cli_path], stdin=slave, stdout=slave, stderr=slave, env=env, cwd=workspace)
 os.close(slave)

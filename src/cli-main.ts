@@ -802,8 +802,9 @@ async function main() {
   // v0.16 MCP client: connect servers declared in `.moss/mcp.json` /
   // `<configDir>/mcp.json` (credentials only via ${ENV_VAR} expansion).
   // User servers stay zero-config = zero overhead. rdk-docs is the one builtin:
-  // it connects when a device target exists (or rdkDocs: true) and a failure
-  // is one line, not a crashed CLI. No cache, no bundled manual.
+  // on by default (no device required), connected in the background so startup
+  // does not wait on npx. A failure is one line, not a crashed CLI. No cache,
+  // no bundled manual. MOSS_NO_RDK_DOCS=1 or rdkDocs:false skips it.
   let mcpRegistry: McpToolRegistry | null = null;
   let mcpPromptLayerIndex: number | undefined;
   // TUI boot paints the current registry snapshot. Notices start only after

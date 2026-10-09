@@ -188,9 +188,8 @@ test('device tools: no target configured returns actionable guidance', async () 
   }
   try {
     const out = await deviceInfoTool.execute({}, makeCtx(os.tmpdir()));
-    assert.match(out, /^Error: device_info: no device target configured/);
-    assert.match(out, /MOSS_DEVICE_HOST/);
-    assert.match(out, /MOSS_DEVICE_PASSWORD|MOSS_DEVICE_KEY/);
+    assert.equal(out, 'no device configured, run /device add');
+    assert.doesNotMatch(out, /^Error:/);
   } finally {
     for (const key of Object.keys(process.env)) delete process.env[key];
     Object.assign(process.env, prev);

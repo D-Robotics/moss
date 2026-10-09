@@ -22,6 +22,7 @@ import {
 } from '../core/task/task-store.js';
 import { listEvidenceRecords } from '../core/task-runtime/artifacts.js';
 import { listDeploymentRecords } from '../device/deployment.js';
+import { resolveDefaultDeviceTarget } from '../device/device-target.js';
 import type { TaskStateSnapshot } from '../contracts/task-runtime.js';
 import { cliLocale, isZhLocale } from './cli-locale.js';
 import { createSessionUsageAccumulator } from './session-usage.js';
@@ -354,7 +355,10 @@ export async function buildCapabilityLayerForGoal(
             ),
           };
 
-    return buildCapabilityPromptLayer(honestMatch);
+    return buildCapabilityPromptLayer({
+      ...honestMatch,
+      deviceConfigured: resolveDefaultDeviceTarget() !== null,
+    });
   } catch (error) {
     // Discovery stays best-effort (a broken layer must not break the task), but
     // degrading to "no capabilities" silently would also hide real bugs.

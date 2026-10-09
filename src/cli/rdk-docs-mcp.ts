@@ -1,10 +1,10 @@
 /**
  * When the built-in rdk-docs server is part of a session.
  *
- * Default is on for a device context (MOSS_DEVICE_HOST or a saved device) and
- * when config `rdkDocs` is true. Coding sessions do not spawn npx.
- * Opt out with MOSS_NO_RDK_DOCS=1 or `rdkDocs: false` (either wins over a
- * device target). A same-named mcp.json entry replaces the builtin.
+ * Default is on, including workspaces with no device. The CLI connects it in
+ * the background (`McpToolRegistry.connectInBackground`) so startup does not
+ * wait on npx. Opt out with MOSS_NO_RDK_DOCS=1 or `rdkDocs: false` (either
+ * wins). A same-named mcp.json entry replaces the builtin.
  */
 import { loadDeviceRegistry } from '../device/device-registry-file.js';
 import {
@@ -75,12 +75,11 @@ export function hasDeviceTarget(workspaceDir: string, env: NodeJS.ProcessEnv): b
 
 /**
  * Whether this session should connect the builtin server.
- * Opt-out first, then an explicit `rdkDocs: true`, then a device target.
+ * On unless MOSS_NO_RDK_DOCS or `rdkDocs: false`. A device target is not required.
+ * `workspaceDir` stays on the input so callers and tests keep one shape.
  */
 export function rdkDocsAutoConnectEnabled(input: RdkDocsEnableInput): boolean {
-  if (rdkDocsOptOut(input.env, input.rdkDocs)) return false;
-  if (input.rdkDocs === true) return true;
-  return hasDeviceTarget(input.workspaceDir, input.env);
+  return !rdkDocsOptOut(input.env, input.rdkDocs);
 }
 
 /**
@@ -143,6 +142,6 @@ export function formatMcpStartupLine(
 
 export function rdkDocsInactiveNotice(zh: boolean): string {
   return zh
-    ? 'rdk-docs 内置服务器本次未连接：没有设备目标。设置 MOSS_DEVICE_HOST、登记一台设备，或在配置里写 "rdkDocs": true。退出用 MOSS_NO_RDK_DOCS=1 或 "rdkDocs": false。'
-    : 'rdk-docs builtin is off this session (no device target). Set MOSS_DEVICE_HOST, register a device, or set "rdkDocs": true. Opt out with MOSS_NO_RDK_DOCS=1 or "rdkDocs": false.';
+    ? 'rdk-docs 内置服务器本次未连接。退出开关是 MOSS_NO_RDK_DOCS=1 或配置 "rdkDocs": false。'
+    : 'rdk-docs builtin is off this session. Opt out with MOSS_NO_RDK_DOCS=1 or "rdkDocs": false.';
 }

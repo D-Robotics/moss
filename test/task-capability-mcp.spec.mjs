@@ -17,6 +17,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { buildCapabilityLayerForGoal } from '../dist/cli/task-run.js';
+import { configureDefaultDeviceTarget } from '../dist/device/device-target.js';
 
 const AGENT = {
   tools: {
@@ -44,15 +45,36 @@ async function writeSkill(root, dirName, frontmatter, body = 'steps') {
 
 test('a matching goal gets its MCP tool named, and unrelated servers stay out', async (t) => {
   const dir = await tmp('moss-capability-');
+  const savedHost = process.env.MOSS_DEVICE_HOST;
+  delete process.env.MOSS_DEVICE_HOST;
+  configureDefaultDeviceTarget(null);
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  t.after(() => {
+    configureDefaultDeviceTarget(null);
+    if (savedHost === undefined) delete process.env.MOSS_DEVICE_HOST;
+    else process.env.MOSS_DEVICE_HOST = savedHost;
+  });
   const layer = await buildCapabilityLayerForGoal('measure camera latency on the RDK board', {
     workspace: dir,
     sessionKey: 'spec',
     agent: AGENT,
   });
-  assert.match(layer, /device\/robotics task/);
+  assert.doesNotMatch(layer, /device\/robotics task/);
   assert.match(layer, /mcp__vision__camera_probe/);
   assert.doesNotMatch(layer, /mcp__billing__invoice/, 'unrelated MCP tools must not be advertised');
+
+  configureDefaultDeviceTarget({
+    deviceId: 'spec-board',
+    kind: 'linux',
+    host: '10.0.0.8',
+    user: 'root',
+  });
+  const withDevice = await buildCapabilityLayerForGoal('measure camera latency on the RDK board', {
+    workspace: dir,
+    sessionKey: 'spec',
+    agent: AGENT,
+  });
+  assert.match(withDevice, /device\/robotics task/);
 });
 
 test('an unmatched goal still learns which MCP servers to search', async (t) => {

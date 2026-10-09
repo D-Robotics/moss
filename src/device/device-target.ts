@@ -12,17 +12,6 @@ import { loadDeviceRegistry } from './device-registry-file.js';
  * MOSS_DEVICE_* variable from child processes. Reports list names only.
  */
 
-const ENV_VARS_HELP = [
-  'MOSS_DEVICE_HOST   device host (required)',
-  'MOSS_DEVICE_PORT   ssh port (default 22)',
-  'MOSS_DEVICE_USER   login user (default root)',
-  'MOSS_DEVICE_KIND   rdk | linux (default linux)',
-  'MOSS_DEVICE_ID     device id label (default derived from kind+host)',
-  'MOSS_DEVICE_PASSWORD  password auth (put it in .env, never in the repo)',
-  'MOSS_DEVICE_KEY       path to a private key file for key auth',
-  'MOSS_DEVICE_KEY_PASSPHRASE  passphrase env var for the key, if needed',
-].join('\n');
-
 let hostConfiguredTarget: DeviceTarget | null = null;
 /** Workspace whose .moss/devices.json backs the registry fallback. */
 let hostConfiguredWorkspace: string | null = null;
@@ -146,11 +135,13 @@ export function resolveDeviceTargets(
   return { targets, missing, empty: false };
 }
 
-export function missingTargetHelp(toolName: string): string {
-  return (
-    `Error: ${toolName}: no device target configured. Set MOSS_DEVICE_HOST (plus auth) in the environment or .env, then retry.\n` +
-    `Supported variables:\n${ENV_VARS_HELP}`
-  );
+/**
+ * Short, terminal result when a device tool runs with nothing configured.
+ * Not an `Error:` prefix: that marks a failure and invites another turn.
+ * The tool name is unused; every device tool shares this one sentence.
+ */
+export function missingTargetHelp(_toolName: string): string {
+  return 'no device configured, run /device add';
 }
 
 /** Loggable identity string for a target (no secrets). */

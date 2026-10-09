@@ -7,6 +7,7 @@ import { buildExperienceBlock, experienceEnabled } from '../experience/experienc
 const log = getRootLogger().child('agent');
 import { ToolRegistry } from '../tools/tool-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
+import { toolVisibleForRun } from './session-tool-offer.js';
 import { mergeLeasePatch } from '../subagent/worktree-isolation.js';
 import type { AgentLoopRun } from './agent-loop-run-state.js';
 import {
@@ -855,10 +856,13 @@ ${result.stderr ?? ''}`.trim();
         content: appendTurnExtraContext(userMsg.content, extraContext),
       });
     }
+    const visibleForRun = (tool: Tool): boolean =>
+      toolVisibleForRun(tool.name, { taskFlow: options?.taskFlow }) &&
+      (options?.toolFilter?.(tool) ?? true);
     const resolveRunTools = (): ReturnType<typeof filterToolsForRun> =>
       filterToolsForRun(
         [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])],
-        options?.toolFilter
+        visibleForRun
       );
     const allTools = resolveRunTools();
     const hostResolveMissingTool = this.config.resolveMissingTool;
@@ -868,7 +872,7 @@ ${result.stderr ?? ''}`.trim();
       ? async (name: string, signal?: AbortSignal): Promise<Tool | undefined> => {
           const resolved = await hostResolveMissingTool(name, signal);
           if (!resolved) return undefined;
-          return filterToolsForRun([resolved], options?.toolFilter)[0];
+          return filterToolsForRun([resolved], visibleForRun)[0];
         }
       : undefined;
 

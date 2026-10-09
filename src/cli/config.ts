@@ -111,9 +111,9 @@ export interface ConfigFile {
   /** Network egress policy for web tools (hostname allowlist). */
   net?: { allowHosts?: string[] };
   /**
-   * Built-in rdk-docs MCP. The legacy boolean form remains supported.
-   * `enabled` controls auto-connect; `package` accepts an npm package spec or
-   * local directory/tarball. MOSS_RDK_DOCS_PACKAGE overrides `package`.
+   * Built-in rdk-docs MCP. On unless `enabled: false` or MOSS_NO_RDK_DOCS=1.
+   * The legacy boolean form remains supported. `package` accepts an npm spec
+   * or a local directory/tarball. MOSS_RDK_DOCS_PACKAGE overrides `package`.
    */
   rdkDocs?: boolean | RdkDocsConfig;
   /**

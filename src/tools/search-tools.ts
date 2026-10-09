@@ -2,15 +2,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import micromatch from 'micromatch';
 import { errorMessage } from '../errors.js';
-import type { Tool, ToolContext } from '../core/tools/tool-types.js';
+import type { Tool } from '../core/tools/tool-types.js';
 import { runProcess, ProcessError } from '../utils/run-process.js';
 import { toolError, IS_WIN } from './tool-helpers.js';
 import { resolveReadPath } from '../safety/read-scope.js';
-
-function resolveSearchRoot(raw: unknown, ctx: ToolContext): string {
-  const text = typeof raw === 'string' && raw.trim() ? raw : '.';
-  return resolveReadPath(text, ctx.workspaceDir);
-}
+import { redactEgress } from '../safety/tool-output-redact.js';
 
 // ── ripgrep availability ────────────────────────────────────────────────────
 // ripgrep is an order of magnitude faster than the JS walk fallback and
@@ -39,6 +35,8 @@ export interface GrepWithRgOptions {
   searchDir: string;
   pattern: string;
   extensions: string[] | null;
+  /** rg --max-depth. Set for `/` and `$HOME` so a broad scan cannot walk forever. */
+  maxDepth?: number;
   /** Optional rg --glob filter (e.g. `*.ts` or nested path globs). */
   glob?: string | null;
   /** Optional rg --type filter (e.g. "ts", "py"). */
@@ -70,6 +68,7 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
     extensions,
     glob,
     type,
+    maxDepth,
     limit,
     timeoutMs,
     displayRoot,
@@ -98,6 +97,7 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
   // Grep defaults). Pass case_sensitive: false for case-insensitive recall.
   if (!caseSensitive) args.push('-i');
   if (multiline) args.push('-U', '--multiline-dotall');
+  if (maxDepth !== undefined) args.push('--max-depth', String(maxDepth));
 
   if (type && /^[a-zA-Z0-9_+-]+$/.test(type)) {
     args.push('--type', type);
@@ -112,25 +112,29 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
   }
   args.push(pattern, searchDir);
 
-  let result;
+  let stdout = '';
   try {
-    result = await runProcess('rg', {
+    const result = await runProcess('rg', {
       args,
       cwd: searchDir,
       timeout: timeoutMs,
       maxBuffer: 4 * 1024 * 1024,
     });
+    stdout = result.stdout;
   } catch (err) {
     if (err instanceof ProcessError) {
       // exit code 1 = no matches — return empty, not an error.
       if (err.exitCode === 1) return [];
-      // exit code 2 = real error (invalid regex, io error, etc.)
+      // A bounded scan of / or $HOME hits unreadable directories (exit 2)
+      // and may hit the time cap. Keep the lines rg already printed.
+      if (maxDepth !== undefined && err.stdout.trim()) stdout = err.stdout;
+      else return null;
+    } else {
       return null;
     }
-    return null;
   }
 
-  const out = result.stdout.trim();
+  const out = stdout.trim();
   if (!out) return [];
 
   const lines = out.split('\n').filter((l) => l.trim() && l !== '--');
@@ -184,7 +188,8 @@ export async function filesWithRg(
   searchDir: string,
   pattern: string,
   limit: number,
-  timeoutMs = 30_000
+  timeoutMs = 30_000,
+  maxDepth?: number
 ): Promise<string[] | null> {
   if (!(await isRgAvailable())) return null;
 
@@ -197,33 +202,41 @@ export async function filesWithRg(
     // Also match the pattern anywhere under the tree (basename-style).
     args.push('--glob', `**/${normalized}`);
   }
+  if (maxDepth !== undefined) args.push('--max-depth', String(maxDepth));
   args.push(searchDir);
 
-  let result;
+  let stdout = '';
   try {
-    result = await runProcess('rg', {
+    const result = await runProcess('rg', {
       args,
       cwd: searchDir,
       timeout: timeoutMs,
       maxBuffer: 8 * 1024 * 1024,
     });
+    stdout = result.stdout;
   } catch (err) {
     if (err instanceof ProcessError) {
       if (err.exitCode === 1) return [];
+      if (maxDepth !== undefined && err.stdout.trim()) stdout = err.stdout;
+      else return null;
+    } else {
       return null;
     }
-    return null;
   }
 
-  const lines = result.stdout
+  const lines = stdout
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
   if (lines.length === 0) return [];
 
+  // A depth-capped scan of / or $HOME can list far more paths than the result
+  // cap. Stat only that prefix so the time bound is not spent sorting mtimes.
+  const candidates = maxDepth !== undefined ? lines.slice(0, limit) : lines;
+
   // Resolve to absolute, stat for mtime, sort newest first, cap at limit.
   const withMtime: Array<{ abs: string; mtime: number }> = [];
-  for (const line of lines) {
+  for (const line of candidates) {
     const abs = path.isAbsolute(line) ? line : path.resolve(searchDir, line);
     try {
       const st = await fs.stat(abs);
@@ -236,14 +249,23 @@ export async function filesWithRg(
   return withMtime.slice(0, limit).map((x) => x.abs);
 }
 
-export async function walkMatch(dir: string, pattern: string, limit: number): Promise<string[]> {
+export async function walkMatch(
+  dir: string,
+  pattern: string,
+  limit: number,
+  options: { maxDepth?: number; timeoutMs?: number } = {}
+): Promise<string[]> {
   const results: string[] = [];
   const normalizedPattern = pattern.replace(/\\/g, '/');
   const matchRelativePath = normalizedPattern.includes('/');
   const root = dir;
+  const maxDepth = options.maxDepth;
+  const deadline =
+    options.timeoutMs !== undefined ? Date.now() + options.timeoutMs : Number.POSITIVE_INFINITY;
 
-  async function walk(d: string) {
-    if (results.length >= limit) return;
+  async function walk(d: string, depth: number) {
+    if (results.length >= limit || Date.now() > deadline) return;
+    if (maxDepth !== undefined && depth > maxDepth) return;
     let entries;
     try {
       entries = await fs.readdir(d, { withFileTypes: true });
@@ -251,11 +273,11 @@ export async function walkMatch(dir: string, pattern: string, limit: number): Pr
       return;
     }
     for (const e of entries) {
-      if (results.length >= limit) return;
+      if (results.length >= limit || Date.now() > deadline) return;
       const full = path.join(d, e.name);
       if (e.isDirectory()) {
         if (IGNORE_DIRS.has(e.name)) continue;
-        await walk(full);
+        await walk(full, depth + 1);
       } else {
         const relPath = path.relative(root, full).split(path.sep).join('/');
         const target = matchRelativePath ? relPath : e.name;
@@ -272,7 +294,7 @@ export async function walkMatch(dir: string, pattern: string, limit: number): Pr
     }
   }
 
-  await walk(dir);
+  await walk(dir, 0);
 
   // Sort by mtime descending (Claude Glob parity) when under a small limit
   // so walk fallback feels similar to the rg path.
@@ -341,12 +363,69 @@ function parseOutputMode(raw: unknown): SearchCodeOutputMode {
   return 'content';
 }
 
+/** Caps for a recursive scan of `/` or `$HOME`. Reads stay allowed; they just stay bounded. */
+export const BROAD_SEARCH_LIMITS = {
+  filesystemRoot: { maxDepth: 2, timeoutMs: 8_000, maxResults: 40 },
+  home: { maxDepth: 3, timeoutMs: 8_000, maxResults: 40 },
+} as const;
+
+export interface SearchBound {
+  label: '/' | '$HOME';
+  maxDepth: number;
+  timeoutMs: number;
+  maxResults: number;
+  note: string;
+}
+
+export interface SearchLocation {
+  dir: string;
+  bound: SearchBound | null;
+}
+
+function boundNote(
+  label: '/' | '$HOME',
+  limits: { maxDepth: number; timeoutMs: number; maxResults: number }
+): string {
+  const seconds = Math.round(limits.timeoutMs / 1000);
+  return (
+    `Note: recursive search of ${label} is bounded ` +
+    `(depth <= ${limits.maxDepth}, ${seconds}s, <= ${limits.maxResults} results). ` +
+    'Narrow the path to the workspace for a full search.'
+  );
+}
+
+/**
+ * Default root is the workspace. Every path is searched. A recursive scan of
+ * `/` or `$HOME` is depth-, time-, and result-capped; nothing is denied.
+ */
+export function resolveSearchLocation(raw: unknown, workspaceDir: string): SearchLocation {
+  const dir = resolveReadPath(typeof raw === 'string' ? raw : '', workspaceDir);
+  if (dir === path.parse(dir).root) {
+    const limits = BROAD_SEARCH_LIMITS.filesystemRoot;
+    return { dir, bound: { label: '/', ...limits, note: boundNote('/', limits) } };
+  }
+  if (dir === resolveReadPath('$HOME', workspaceDir)) {
+    const limits = BROAD_SEARCH_LIMITS.home;
+    return { dir, bound: { label: '$HOME', ...limits, note: boundNote('$HOME', limits) } };
+  }
+  return { dir, bound: null };
+}
+
+function withBoundNote(text: string, location: SearchLocation): string {
+  if (!location.bound) return text;
+  return `${text}\n${location.bound.note}`;
+}
+
+function presentSearch(text: string, location: SearchLocation): string {
+  return redactEgress(withBoundNote(text, location));
+}
+
 export const searchFilesTool: Tool = {
   name: 'search_files',
   description:
-    'Find files by glob pattern within the workspace (Claude Code Glob parity). ' +
-    'Prefer this over running `find`/`ls` through exec — it is sandbox-checked, respects .gitignore when ripgrep is available, and returns paths sorted by modification time (newest first). ' +
-    'Patterns: `*.ts`, `src/**/*.tsx`, `**/package.json`. The default root is the workspace; an explicit path outside it is still searched. For open-ended multi-round search, use create_subagent scope=explore.',
+    'Find files by glob pattern (Claude Code Glob parity). ' +
+    'Prefer this over running `find`/`ls` through exec — it respects .gitignore when ripgrep is available, and returns paths sorted by modification time (newest first). ' +
+    'Patterns: `*.ts`, `src/**/*.tsx`, `**/package.json`. The default root is the workspace; an explicit path outside it is still searched. A recursive search of `/` or `$HOME` is depth-, time-, and result-capped. For open-ended multi-round search, use create_subagent scope=explore.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -360,7 +439,8 @@ export const searchFilesTool: Tool = {
       },
       path: {
         type: 'string',
-        description: 'Directory to search in relative to workspace (default: root)',
+        description:
+          'Directory to search. Defaults to the workspace root, not the filesystem root.',
       },
       maxResults: {
         type: 'number',
@@ -377,30 +457,34 @@ export const searchFilesTool: Tool = {
   },
   async execute(input, ctx) {
     try {
-      const searchDir = resolveSearchRoot(input.path, ctx);
+      const location = resolveSearchLocation(input.path, ctx.workspaceDir);
       const rawLimit = Number(input.head_limit ?? input.maxResults);
-      const limit = Math.min(
+      const requested = Math.min(
         500,
         Math.max(1, Math.floor(Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 100))
       );
+      const limit = location.bound ? Math.min(requested, location.bound.maxResults) : requested;
       const pattern = String(input.pattern ?? '*');
+      const timeoutMs = location.bound?.timeoutMs ?? 30_000;
+      const maxDepth = location.bound?.maxDepth;
 
       // Prefer rg --files: gitignore-aware and fast on monorepos.
-      let absPaths = await filesWithRg(searchDir, pattern, limit);
+      let absPaths = await filesWithRg(location.dir, pattern, limit, timeoutMs, maxDepth);
       if (absPaths === null) {
-        absPaths = await walkMatch(searchDir, pattern, limit);
+        absPaths = await walkMatch(location.dir, pattern, limit, {
+          ...(maxDepth !== undefined ? { maxDepth, timeoutMs } : {}),
+        });
       }
 
       const relative = absPaths.map((file) =>
         path.relative(ctx.workspaceDir, file).split(path.sep).join('/')
       );
-      if (relative.length === 0) return 'No files found';
-      const body = relative.join('\n');
+      if (relative.length === 0) return presentSearch('No files found', location);
       const truncated = absPaths.length >= limit;
       const header = truncated
         ? `Found ${relative.length}+ files (showing first ${limit}, newest first):\n`
         : `Found ${relative.length} file(s) (newest first):\n`;
-      return header + body;
+      return presentSearch(header + relative.join('\n'), location);
     } catch (err) {
       throw toolError('Error searching files', err);
     }
@@ -410,8 +494,8 @@ export const searchFilesTool: Tool = {
 export const searchCodeTool: Tool = {
   name: 'search_code',
   description:
-    'Search for a regex or text pattern within the workspace (Claude Code Grep parity, powered by ripgrep when available). ' +
-    'The default root is the project. An explicit path outside the workspace is still searched.\n' +
+    'Search for a regex or text pattern (Claude Code Grep parity, powered by ripgrep when available). ' +
+    'The default root is the workspace. An explicit path outside it is still searched. A recursive search of `/` or `$HOME` is depth-, time-, and result-capped.\n' +
     'Prefer this over running `grep`/`rg` through exec.\n' +
     '- Default output_mode is "content" (matching lines with context).\n' +
     '- Use output_mode "files_with_matches" to get only file paths (cheaper for discovery).\n' +
@@ -428,7 +512,8 @@ export const searchCodeTool: Tool = {
       pattern: { type: 'string', description: 'Regex or literal text to search for' },
       path: {
         type: 'string',
-        description: 'Subdirectory or file to search within (defaults to workspace root)',
+        description:
+          'File or directory to search. Defaults to the workspace root, not the filesystem root. A search of / or $HOME is depth-, time-, and result-capped.',
       },
       fileTypes: {
         type: 'string',
@@ -507,34 +592,42 @@ export const searchCodeTool: Tool = {
     let regex: RegExp;
     try {
       if (!isSafeRegex(String(input.pattern))) {
-        return 'Error: pattern rejected as potentially unsafe (ReDoS risk). Use a simpler pattern.';
+        return redactEgress(
+          'Error: pattern rejected as potentially unsafe (ReDoS risk). Use a simpler pattern.'
+        );
       }
       regex = new RegExp(
         String(input.pattern),
         caseSensitive ? (multiline ? 'ms' : '') : multiline ? 'ims' : 'i'
       );
     } catch (err) {
-      return `Invalid regex pattern: ${errorMessage(err)}`;
+      return redactEgress(`Invalid regex pattern: ${errorMessage(err)}`);
     }
 
     try {
-      const searchDir = resolveSearchRoot(input.path, ctx);
+      const location = resolveSearchLocation(input.path, ctx.workspaceDir);
       const patternStr = String(input.pattern);
+      const cappedResults = location.bound
+        ? Math.min(maxResults, location.bound.maxResults)
+        : maxResults;
+      const timeoutMs = location.bound?.timeoutMs ?? 30_000;
+      const maxDepth = location.bound?.maxDepth;
       // Prefer ripgrep when available: respects .gitignore and is far
       // faster than the in-process walk on large repos.
       const rgResults = await grepWithRg({
-        searchDir,
+        searchDir: location.dir,
         pattern: patternStr,
         extensions,
         glob: globFilter,
         type: typeFilter,
-        limit: maxResults,
-        timeoutMs: 30_000,
+        limit: cappedResults,
+        timeoutMs,
         displayRoot: ctx.workspaceDir,
         caseSensitive,
         contextLines: outputMode === 'content' ? contextLines : 0,
         outputMode,
         multiline,
+        ...(maxDepth !== undefined ? { maxDepth } : {}),
       });
 
       let matches: string[];
@@ -543,28 +636,35 @@ export const searchCodeTool: Tool = {
       } else {
         // JS fallback — limited output_mode support (content + files_with_matches + count)
         matches = await grepWalk(
-          searchDir,
+          location.dir,
           regex,
           extensions,
-          maxResults,
+          cappedResults,
           maxFileSize,
-          30_000,
+          timeoutMs,
           ctx.workspaceDir,
           {
             outputMode,
             contextLines: outputMode === 'content' ? contextLines : 0,
             glob: globFilter,
+            ...(maxDepth !== undefined ? { maxDepth } : {}),
           }
         );
       }
-      if (matches.length === 0) return 'No matches found';
+      if (matches.length === 0) return presentSearch('No matches found', location);
       if (outputMode === 'files_with_matches') {
-        return `Files with matches (${matches.length}):\n${matches.join('\n')}`;
+        return presentSearch(
+          `Files with matches (${matches.length}):\n${matches.join('\n')}`,
+          location
+        );
       }
       if (outputMode === 'count') {
-        return `Match counts (${matches.length} files):\n${matches.join('\n')}`;
+        return presentSearch(
+          `Match counts (${matches.length} files):\n${matches.join('\n')}`,
+          location
+        );
       }
-      return matches.join('\n');
+      return presentSearch(matches.join('\n'), location);
     } catch (err) {
       throw toolError('Error searching code', err);
     }
@@ -575,6 +675,7 @@ export interface GrepWalkOptions {
   outputMode?: SearchCodeOutputMode;
   contextLines?: number;
   glob?: string | null;
+  maxDepth?: number;
 }
 
 export async function grepWalk(
@@ -590,12 +691,14 @@ export async function grepWalk(
   const outputMode = options.outputMode ?? 'content';
   const contextLines = options.contextLines ?? 2;
   const globFilter = options.glob ?? null;
+  const maxDepth = options.maxDepth;
   const results: string[] = [];
   const fileCounts = new Map<string, number>();
   const deadline = Date.now() + timeoutMs;
 
-  async function walk(d: string) {
+  async function walk(d: string, depth: number) {
     if (results.length >= limit || Date.now() > deadline) return;
+    if (maxDepth !== undefined && depth > maxDepth) return;
     if (outputMode !== 'content' && fileCounts.size >= limit) return;
     let entries;
     try {
@@ -609,7 +712,7 @@ export async function grepWalk(
       const full = path.join(d, e.name);
       if (e.isDirectory()) {
         if (IGNORE_DIRS.has(e.name)) continue;
-        await walk(full);
+        await walk(full, depth + 1);
       } else if (e.isFile()) {
         if (extensions && !extensions.some((ext) => e.name.toLowerCase().endsWith(ext))) continue;
         const relPath = path.relative(displayRoot, full).split(path.sep).join('/');
@@ -676,7 +779,7 @@ export async function grepWalk(
     }
   }
 
-  await walk(dir);
+  await walk(dir, 0);
   return results;
 }
 

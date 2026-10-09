@@ -119,11 +119,12 @@ test('rdk-docs package accepts config/env npm specs and local paths', () => {
   assert.equal(local[0].args[2], '--package=../rdk-docs-mcp');
 });
 
-test('opt-out and a missing device target leave the builtin out', () => {
+test('rdk-docs is on without a device; opt-out and rdkDocs:false still win', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rdk-docs-opt-'));
   const base = { rdkDocs: undefined, workspaceDir: tmp };
   assert.equal(hasDeviceTarget(tmp, {}), false);
-  assert.equal(rdkDocsAutoConnectEnabled({ ...base, env: {} }), false);
+  assert.equal(rdkDocsAutoConnectEnabled({ ...base, env: {} }), true);
+  assert.equal(withBuiltinRdkDocs([], true).length, 1);
   assert.equal(withBuiltinRdkDocs([], false).length, 0);
 
   assert.equal(rdkDocsAutoConnectEnabled({ ...base, env: { MOSS_DEVICE_HOST: '10.0.0.8' } }), true);
@@ -133,6 +134,14 @@ test('opt-out and a missing device target leave the builtin out', () => {
     JSON.stringify({ devices: [{ deviceId: 'rdk-01', kind: 'rdk', host: '10.0.0.9' }] })
   );
   assert.equal(rdkDocsAutoConnectEnabled({ ...base, env: {} }), true);
+  assert.equal(
+    rdkDocsAutoConnectEnabled({
+      ...base,
+      env: {},
+      rdkDocs: readRdkDocsFlag({ enabled: false }),
+    }),
+    false
+  );
 
   for (const value of ['1', 'true', 'yes', 'on']) {
     assert.equal(
@@ -240,12 +249,16 @@ test('a connected fixture adds the usage pointer and the skill index', async () 
     assert.match(knowledge, /official-start/);
     assert.match(knowledge, /manual filter/);
     assert.equal(knowledge, RDK_DOCS_CONNECTED_LAYER);
+    assert.match(knowledge, /record_evidence only when a task contract is already open/);
+    assert.doesNotMatch(knowledge, /copy it into observed/);
     const skills = includeBundledRdkDocsSkill([], true);
     const skillLayer = buildSkillsPromptLayer(skills);
     assert.match(skillLayer, /^- rdk-docs:/m);
     const body = await createSkillTool(skills).execute({ name: 'rdk-docs' });
     assert.match(body, /mcp__rdk-docs__search/);
     assert.match(body, /official-start/);
+    assert.match(body, /only when a task contract is already open/);
+    assert.match(body, /do not call device tools/);
     const concreteToolReferences =
       `${combined}\n${body}`.match(/mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+/g) ?? [];
     assert.deepEqual([...new Set(concreteToolReferences)], ['mcp__rdk-docs__search']);
@@ -276,10 +289,16 @@ test('background connection does not delay startup and search waits for readines
   try {
     assert.ok(performance.now() - startedAt < 100, 'registry creation must not await the server');
     assert.equal(registry.getStatuses()[0].state, 'connecting');
+    assert.equal(
+      rdkDocsKnowledgeLayer(registry.getStatuses()),
+      '',
+      'the usage guide waits until the server is connected'
+    );
     assert.equal(registry.getTools()[0].name, 'mcp__rdk-docs__search');
     const listed = await registry.getTools()[0].execute({}, {});
     assert.match(listed, /mcp__rdk-docs__search_docs/);
     assert.equal(registry.getStatuses()[0].state, 'connected');
+    assert.equal(rdkDocsKnowledgeLayer(registry.getStatuses()), RDK_DOCS_CONNECTED_LAYER);
   } finally {
     await registry.closeAll();
   }
