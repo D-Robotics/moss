@@ -736,6 +736,24 @@ async function main() {
   // Device targets resolve host > env > .moss/devices.json (registered via
   // `moss device add`); declaring the workspace turns the registry tier on.
   configureDeviceWorkspace(workspace);
+  const useTui =
+    Boolean(process.stdout.isTTY) && process.env.MOSS_NO_TUI !== '1' && !parsedArgs.print;
+  const pendingTuiNotices: string[] = [];
+  const tuiNoticeListeners = new Set<(message: string) => void>();
+  const tuiNoticeSource = {
+    subscribe(listener: (message: string) => void): () => void {
+      tuiNoticeListeners.add(listener);
+      for (const message of pendingTuiNotices.splice(0)) listener(message);
+      return () => tuiNoticeListeners.delete(listener);
+    },
+  };
+  const emitTuiNotice = (message: string): void => {
+    if (tuiNoticeListeners.size === 0) {
+      pendingTuiNotices.push(message);
+      return;
+    }
+    for (const listener of tuiNoticeListeners) listener(message);
+  };
   // v0.16 MCP client: connect servers declared in `.moss/mcp.json` /
   // `<configDir>/mcp.json` (credentials only via ${ENV_VAR} expansion).
   // User servers stay zero-config = zero overhead. rdk-docs is the one builtin:
@@ -781,7 +799,10 @@ async function main() {
         registerTool: (tool) => agent.tools.register(tool),
         onStatusChange: (status) => {
           const line = formatMcpStartupLine(status, cliDetailForNotices);
-          if (line) console.error(line);
+          if (line) {
+            if (useTui) emitTuiNotice(line);
+            else console.error(line);
+          }
           refreshMcpPromptLayer();
         },
       });
@@ -1152,8 +1173,6 @@ async function main() {
     // v0.17: interactive TTY sessions get the full-screen TUI (ink); non-TTY
     // pipes and MOSS_NO_TUI=1 keep the readline REPL. The TUI is dynamically
     // imported so headless/SDK paths never load ink/react.
-    const useTui =
-      Boolean(process.stdout.isTTY) && process.env.MOSS_NO_TUI !== '1' && !parsedArgs.print;
     if (useTui) {
       const { runTuiApp } = await import('./cli/tui/app.js');
       const { FileCheckpointStore, checkpointTargetPaths } =
@@ -1211,6 +1230,7 @@ async function main() {
         // letting every component re-read the environment.
         locale: cliLocale(),
         cliRuntime: liveRuntime,
+        noticeSource: tuiNoticeSource,
         contextInfo: {
           skills: loadedSkillCount,
           mcp: mcpRegistry

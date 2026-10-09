@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isolatedCliEnv } from './helpers/isolated-cli-env.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 if (process.env.MOSS_REAL_TERMINALS !== '1') {
@@ -28,6 +29,10 @@ if (process.env.MOSS_REAL_TERMINALS !== '1') {
       cwd: root,
       encoding: 'utf8',
       timeout: 600_000,
+      env: isolatedCliEnv({
+        isolateHome: false,
+        overrides: { MOSS_REAL_TERMINALS: '1' },
+      }),
     });
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
     process.stdout.write(output);

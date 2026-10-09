@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isolatedCliEnv } from './helpers/isolated-cli-env.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const cli = path.join(here, '..', 'dist', 'cli.js');
@@ -24,11 +25,12 @@ for (const ghost of GHOSTS) {
     input: '',
     encoding: 'utf8',
     timeout: 30_000,
-    env: {
-      ...process.env,
-      MOSS_CONFIG_DIR: path.join(here, '.tmp-command-surface-config'),
-      MOSS_NO_COLOR: '1',
-    },
+    env: isolatedCliEnv({
+      overrides: {
+        MOSS_CONFIG_DIR: path.join(here, '.tmp-command-surface-config'),
+        MOSS_NO_COLOR: '1',
+      },
+    }),
   });
   assert.notEqual(res.status, 0, `moss ${ghost} must exit non-zero (got ${res.status})`);
   const combined = `${res.stderr ?? ''}${res.stdout ?? ''}`;

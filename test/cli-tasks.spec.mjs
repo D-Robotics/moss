@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { isolatedCliEnv } from './helpers/isolated-cli-env.mjs';
 
 import { runTasksCommand } from '../dist/cli/tasks-commands.js';
 import { taskDefineTool, taskAcceptanceTool } from '../dist/tools/task-tools.js';
@@ -34,6 +35,16 @@ function capture() {
 }
 
 test('moss tasks renders contracts, evidence, deployments, acceptance, device', async (t) => {
+  const inheritedDeviceEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => key.startsWith('MOSS_DEVICE_'))
+  );
+  for (const key of Object.keys(inheritedDeviceEnv)) delete process.env[key];
+  t.after(() => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('MOSS_DEVICE_')) delete process.env[key];
+    }
+    Object.assign(process.env, inheritedDeviceEnv);
+  });
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-tasks-cli-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));
   const ctx = { workspaceDir: workspace, sessionKey: 'tasks-cli' };
@@ -137,7 +148,10 @@ test('moss tasks renders contracts, evidence, deployments, acceptance, device', 
   const cli = await run(
     process.execPath,
     [path.join(process.cwd(), 'dist', 'cli.js'), 'tasks', 'list'],
-    { cwd: workspace, env: { ...process.env, MOSS_CONFIG_DIR: workspace } }
+    {
+      cwd: workspace,
+      env: isolatedCliEnv({ overrides: { MOSS_CONFIG_DIR: workspace } }),
+    }
   );
   assert.match(cli.stdout, new RegExp(taskId));
 });

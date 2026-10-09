@@ -81,6 +81,10 @@ export interface TuiSkillCommand {
   description: string;
 }
 
+export interface TuiNoticeSource {
+  subscribe(listener: (message: string) => void): () => void;
+}
+
 export interface TuiAppOptions {
   agent: MossAgent;
   workspaceDir: string;
@@ -99,6 +103,8 @@ export interface TuiAppOptions {
   replayRows?: TuiReplayRow[];
   /** Boot-time context note (skills/MCP/soul/branch) printed under the banner. */
   contextInfo?: TuiContextInfo;
+  /** Host diagnostics that may arrive after Ink owns the terminal. */
+  noticeSource?: TuiNoticeSource;
   /**
    * Skills as first-class commands (the Qoder pattern): each appears in the
    * `/` palette as `/name` and dispatches a run that invokes the skill. The
