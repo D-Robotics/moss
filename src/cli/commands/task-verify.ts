@@ -43,14 +43,26 @@ export async function verifyTaskOnce(
       summary: `Task ${snapshot.taskId} is already accepted.`,
     };
   }
+  const events = await listTaskEvents(workspace, snapshot.taskId);
+  const explicit = options.command?.trim();
+  const command = explicit || acceptanceCommandFromEvents(events);
+  // A contract with criteria is the other verdict source. With neither, there
+  // is nothing to evaluate — do not open execution or record a fake failure.
+  if (!command && snapshot.acceptanceCriteria.length === 0) {
+    return {
+      exitCode: 2,
+      summary: [
+        `Task ${snapshot.taskId} has no acceptance command and no acceptance criteria, so there is nothing to verify.`,
+        'Pass --command "<cmd>", or define criteria with task_define, then run /task verify again.',
+      ].join('\n'),
+    };
+  }
   // acceptance_* is only valid from a verification phase. A draft (or a task
   // that never started) has to enter execution first; emitAcceptanceLifecycle
-  // then opens verification itself.
+  // then opens verification itself. Only do this once a verdict will be produced.
   if (['draft', 'understanding', 'planning', 'blocked'].includes(snapshot.phase)) {
     await appendTaskEvent(workspace, snapshot.taskId, 'execution_started');
   }
-  const events = await listTaskEvents(workspace, snapshot.taskId);
-  const command = options.command ?? acceptanceCommandFromEvents(events);
   const provider = createTaskVerdictProvider({
     workspaceDir: workspace,
     ...(command ? { command } : {}),
