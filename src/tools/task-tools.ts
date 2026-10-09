@@ -68,7 +68,8 @@ function stringList(raw: unknown): string[] | undefined {
 export const taskDefineTool: Tool = {
   name: 'task_define',
   description:
-    'Define (or redefine) the current work as a structured task contract: goal, constraints, target device, expected behavior, and machine-checkable acceptance criteria. Do this BEFORE implementing a real task — acceptance criteria are what task_acceptance will hold the work accountable to (each criterion = an evidence metric + expectation, e.g. {metric: "camera_fps", expected: ">=30"}).\n' +
+    'Define (or redefine) a task contract. Call this only for /goal or when the user explicitly asked for a task contract — not for questions, status checks, or ordinary edits.\n' +
+    'The contract is goal, constraints, target device, expected behavior, and machine-checkable acceptance criteria. Acceptance criteria are what task_acceptance holds the work to (each criterion = an evidence metric + expectation, e.g. {metric: "camera_fps", expected: ">=30"}).\n' +
     'Redefining an existing task_id updates it in place.',
   metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
   inputSchema: {
@@ -99,6 +100,9 @@ export const taskDefineTool: Tool = {
     required: ['goal', 'acceptance_criteria'],
   },
   async execute(input, ctx) {
+    if (ctx.taskContracts === 'deny') {
+      return 'Error: task contracts are only created for /goal or an explicit task. Answer the user directly — do not create a task or retry this tool.';
+    }
     const goal = String(input.goal ?? '').trim();
     if (!goal) return 'Error: task_define: goal is required.';
     const criteria = parseCriteria(input.acceptance_criteria);

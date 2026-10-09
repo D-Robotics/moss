@@ -92,8 +92,9 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
         '[System] You described using tools or opening a URL in plain text but did not emit any function/tool calls. ' +
         'You MUST invoke the appropriate tool now with valid JSON arguments for that URL/intent. ' +
         'Do not repeat the plan—call the tool immediately.',
-      deltaText:
-        '\n\n> （系统）检测到仅说明了工具与链接但未发起实际工具调用，已自动追加一轮对话以执行操作。\n',
+      // The correction stays in the model channel. An empty delta keeps the
+      // nudge out of the assistant transcript.
+      deltaText: '',
     };
   }
 

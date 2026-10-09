@@ -372,6 +372,29 @@ export async function buildCapabilityLayerForGoal(
   }
 }
 
+export interface LlmUsageStdout {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** A headless `{"type":"llm_usage",...}` line. Other stdout is left alone. */
+export function parseLlmUsageStdout(text: string): LlmUsageStdout | null {
+  const lines = text.trim().split('\n');
+  if (lines.length !== 1 || !lines[0]) return null;
+  try {
+    const parsed: unknown = JSON.parse(lines[0]);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const record = parsed as { type?: unknown; input_tokens?: unknown; output_tokens?: unknown };
+    if (record.type !== 'llm_usage') return null;
+    if (typeof record.input_tokens !== 'number' || typeof record.output_tokens !== 'number') {
+      return null;
+    }
+    return { inputTokens: record.input_tokens, outputTokens: record.output_tokens };
+  } catch {
+    return null;
+  }
+}
+
 function tapUsage(ctx: TaskCommandContext): {
   onAgentEvent: (event: MossAgentEvent) => void;
   line: () => string | null;

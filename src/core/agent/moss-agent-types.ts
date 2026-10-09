@@ -252,6 +252,12 @@ export interface ChatOptions {
   maxOutputTokens?: number;
 
   runId?: string;
+
+  /**
+   * When false, task_define and record_evidence refuse. Ordinary chat passes
+   * false. `/goal` and `moss task` pass true.
+   */
+  taskFlow?: boolean;
 }
 
 export interface ChatResult {

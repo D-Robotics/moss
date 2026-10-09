@@ -270,10 +270,14 @@ export function nextTaskPhase(
   resumePhase?: TaskPhase
 ): TaskPhase | null {
   if (isTerminalTaskPhase(phase)) {
-    // failed/abandoned tasks can be explicitly resumed (recover); accepted is
-    // final — replay means creating a new task, not mutating the record.
+    // failed/abandoned tasks can be explicitly resumed (recover). accepted
+    // stays closed to ordinary events so history is never rewritten; `/task
+    // verify` is the one exception and appends a fresh verification.
     if (event === 'task_resumed' && phase !== 'accepted') {
       return 'executing';
+    }
+    if (phase === 'accepted' && event === 'verification_started') {
+      return 'verifying';
     }
     return null;
   }

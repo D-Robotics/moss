@@ -10,6 +10,7 @@ import {
   appendTaskEvent,
   buildTaskTimeline,
   createDraftTask,
+  emitAcceptanceLifecycle,
   formatTaskTimeline,
   getTaskStateSnapshot,
   listTaskEvents,
@@ -17,7 +18,7 @@ import {
 } from './task-store.js';
 import { injectExperienceIntoPrompt } from '../experience/experience-library.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
-import { createTaskVerdictProvider } from './verdict.js';
+import { acceptanceAlreadySatisfied, createTaskVerdictProvider } from './verdict.js';
 
 export interface TaskEngineDeps {
   workspaceDir: string;
@@ -65,24 +66,29 @@ function planningPrompt(
   capabilityLayer?: string
 ): string {
   return [
-    'You are planning a task for the moss task runtime. Understand the goal, then define the contract and plan.',
+    '[task-phase:planning]',
+    'You are working one moss goal. Complete it in order: plan, then implement, then verify.',
+    'Do not stop after the plan. Do not ask the user whether to continue — this goal already includes implementation and verification.',
+    'Do not call ask_user_question to ask permission to proceed.',
     '',
     `Goal: ${goal}`,
     acceptanceCommand
-      ? `Acceptance authority: the command "${acceptanceCommand}" must exit 0. Define acceptance criteria that mirror what it checks.`
+      ? `Acceptance authority: the command "${acceptanceCommand}" must exit 0. Define acceptance criteria that mirror what it checks, then make that command pass.`
       : 'Acceptance authority: criteria × recorded evidence. Define machine-checkable acceptance criteria (metric + expectation, e.g. camera_fps >=30).',
     ...(capabilityLayer ? ['', capabilityLayer] : []),
     '',
-    'Do ALL of the following, then stop (no implementation yet):',
+    'Do all of the following in this turn:',
     `1. task_define with task_id="${taskId}" — goal, acceptance_criteria, target_device if a device is involved, verification_plan.`,
     `2. task_plan_update with task_id="${taskId}" — 3-8 concrete steps (inspect → change → build/deploy → verify → accept).`,
-    'Do not record evidence yet. Do not claim completion.',
+    '3. Implement the plan now (edit files and run the commands the plan names).',
+    '4. Record evidence for each acceptance metric (record_evidence) and run task_acceptance. Report that verdict. Do not claim the goal is done before it passes.',
   ].join('\n');
 }
 
 function executionPrompt(goal: string, taskId: string, round: number): string {
   return [
-    `Execute the task. Goal: ${goal}`,
+    '[task-phase:executing]',
+    `Continue the same goal: implement, then verify. Goal: ${goal}`,
     `task_id: ${taskId} — pass it to record_evidence / task tools.`,
     round === 1
       ? 'Work through the plan step by step. Record evidence (record_evidence) for every acceptance metric you can measure — real probes only, no asserted values.'
@@ -124,6 +130,7 @@ function repairPrompt(
   history: RepairHistory = { repairs: [], openFailures: [] }
 ): string {
   const lines = [
+    '[task-phase:repairing]',
     `Verification attempt ${attempt} FAILED. Diagnose and repair, then re-measure.`,
     '',
     'Verdict:',
@@ -300,6 +307,48 @@ async function buildRunResult(
 }
 
 /**
+ * The planning turn already implements and verifies. If that work satisfies
+ * acceptance, do not spend a second model turn on executionPrompt.
+ * A failing check is not recorded here — the repair loop still owns the
+ * first red verdict.
+ */
+async function acceptPlanningIfSatisfied(
+  deps: TaskEngineDeps,
+  state: RunLoopState,
+  provider: VerdictProvider
+): Promise<boolean> {
+  const current = await getTaskStateSnapshot(deps.workspaceDir, state.taskId);
+  if (!current || current.phase === 'accepted') return current?.phase === 'accepted';
+  const worthEvaluating =
+    provider.source === 'command' ||
+    (await acceptanceAlreadySatisfied(deps.workspaceDir, state.taskId));
+  if (!worthEvaluating) return false;
+  const verdict = await provider.evaluate(state.taskId, deps.signal);
+  if (!verdict.passed) return false;
+  state.lastVerdict = verdict;
+  deps.onProgress?.({
+    taskId: state.taskId,
+    phase: 'verifying',
+    turn: state.turns,
+    detail: 'evaluating acceptance',
+  });
+  await emitAcceptanceLifecycle(
+    deps.workspaceDir,
+    state.taskId,
+    true,
+    verdict.detail,
+    verdict.source
+  );
+  deps.onProgress?.({
+    taskId: state.taskId,
+    phase: 'accepted',
+    turn: state.turns,
+    detail: 'acceptance passed',
+  });
+  return true;
+}
+
+/**
  * Run a task end to end. The engine never trusts the agent's prose: PASS can
  * only come from the verdict provider, and every phase move is a validated
  * lifecycle event. Returns the final snapshot, outcome and timeline.
@@ -346,10 +395,16 @@ export async function runTask(
       await injectExperienceIntoPrompt(prompt, goal, deps.workspaceDir),
       'planning'
     );
-    await appendTaskEvent(deps.workspaceDir, taskId, 'plan_ready');
-    await appendTaskEvent(deps.workspaceDir, taskId, 'execution_started');
-
-    await verifyRepairLoop(deps, state, provider, maxRepairAttempts);
+    // The planning turn may already have accepted the task. Those events are
+    // illegal from `accepted`, so they must not throw away a finished goal.
+    await tryAppendTaskEvent(deps.workspaceDir, taskId, 'plan_ready');
+    await tryAppendTaskEvent(deps.workspaceDir, taskId, 'execution_started');
+    const planned = await getTaskStateSnapshot(deps.workspaceDir, taskId);
+    const planningAccepted =
+      planned?.phase === 'accepted' || (await acceptPlanningIfSatisfied(deps, state, provider));
+    if (!planningAccepted) {
+      await verifyRepairLoop(deps, state, provider, maxRepairAttempts);
+    }
   } catch (err) {
     // A crashed run must stay resumable: mark the task failed (valid from any
     // live phase) instead of leaving it stuck in planning/executing where

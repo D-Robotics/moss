@@ -168,10 +168,10 @@ export function evaluateAcceptanceCompletionGate(request: {
     kind: 'no-verdict',
     reason: 'task contract defined but acceptance never evaluated',
     correction:
-      'You defined a task contract (task_define) but the run cannot end before acceptance is evaluated. ' +
-      'Run task_acceptance for the task id now. For unmet criteria: record evidence with record_evidence (task_id=...) ' +
-      'or repair and re-verify, then re-run task_acceptance. If the task genuinely cannot pass (device unreachable, ' +
-      'environment gap), the recorded FAIL verdict is the honest outcome — report it, do not claim success.',
+      'You defined a task contract (task_define). This goal is plan, then implement, then verify — ' +
+      'do not stop after the plan and do not ask the user whether to continue. ' +
+      'Implement the plan, record evidence with record_evidence (task_id=...), then run task_acceptance. ' +
+      'If the task genuinely cannot pass (device unreachable, environment gap), the recorded FAIL verdict is the honest outcome — report it, do not claim success.',
     retryLimit: 1,
   };
 }

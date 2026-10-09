@@ -354,7 +354,9 @@ export async function processLlmResponse(
 
     case 'nudge':
       state.missingToolNudgeAttempts += 1;
-      push({ type: 'message_delta', delta: postLlmAction.deltaText });
+      if (postLlmAction.deltaText) {
+        push({ type: 'message_delta', delta: postLlmAction.deltaText });
+      }
       state.pendingMessages = [buildCorrectionMessage(postLlmAction.systemText)];
       pushTurnEnd();
       state.lastTurnEndMs = Date.now();

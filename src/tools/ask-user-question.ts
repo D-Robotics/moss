@@ -9,6 +9,18 @@
 import type { Tool } from '../core/tools/tool-types.js';
 import { getUserQuestionAsker } from '../core/tools/user-question-asker.js';
 
+/**
+ * A question the user cannot see must not block. Non-interactive runs (no
+ * stdin TTY) return immediately even if a waiting asker was installed.
+ */
+export function userQuestionIsVisible(stdinIsTTY: boolean): boolean {
+  return stdinIsTTY;
+}
+
+const NON_INTERACTIVE_QUESTION =
+  'Error: interactive questions are unavailable in this non-interactive run. ' +
+  'Continue with your best judgment and state assumptions explicitly. Do not wait for the user.';
+
 export interface AskUserQuestionOption {
   label: string;
   description?: string;
@@ -139,12 +151,14 @@ export const askUserQuestionTool: Tool = {
     }
     if (questions.length === 0) return 'Error: no valid questions provided.';
 
-    const asker = ctx.askUserQuestion ?? getUserQuestionAsker();
-    if (!asker) {
-      return (
-        'Error: interactive questions are unavailable in this non-interactive run. ' +
-        'Continue with your best judgment, state assumptions explicitly, or ask the user in plain text on the next turn.'
-      );
+    const stdinIsTTY =
+      typeof ctx.stdinIsTTY === 'boolean' ? ctx.stdinIsTTY : Boolean(process.stdin.isTTY);
+    // A host-provided asker is the UI the user can see (SDK / IDE). The TTY
+    // check applies only when falling back to the process-wide asker.
+    const hostAsker = ctx.askUserQuestion;
+    const asker = hostAsker ?? getUserQuestionAsker();
+    if (!asker || (!hostAsker && !userQuestionIsVisible(stdinIsTTY))) {
+      return NON_INTERACTIVE_QUESTION;
     }
 
     const answers: string[] = [];

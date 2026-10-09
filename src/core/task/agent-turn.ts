@@ -8,13 +8,13 @@ import type { MossAgentEvent } from '../agent/moss-agent-types.js';
 type StreamChatFn = (
   sessionKey: string,
   prompt: string,
-  options?: { abortSignal?: AbortSignal }
+  options?: { abortSignal?: AbortSignal; taskFlow?: boolean }
 ) => AsyncIterable<MossAgentEvent>;
 
 type ChatFn = (
   sessionKey: string,
   prompt: string,
-  options?: { abortSignal?: AbortSignal }
+  options?: { abortSignal?: AbortSignal; taskFlow?: boolean }
 ) => Promise<{ response: string; stopReason?: string }>;
 
 export interface AgentTurnRunnerOptions {
@@ -38,6 +38,7 @@ export function createAgentTurnRunner(
       // Method call on the agent (never a detached binding) — moss-agent
       // internals rely on `this`.
       for await (const event of duck.streamChat!(sessionKey, prompt, {
+        taskFlow: true,
         ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
       })) {
         options.onEvent?.(event);
@@ -53,6 +54,7 @@ export function createAgentTurnRunner(
   if (typeof duck.chat === 'function') {
     return async (prompt) => {
       const result = await duck.chat!(sessionKey, prompt, {
+        taskFlow: true,
         ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
       });
       return result.response;

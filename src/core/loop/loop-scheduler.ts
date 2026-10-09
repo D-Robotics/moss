@@ -516,12 +516,12 @@ export class LoopScheduler {
         streamChat?: (
           sessionKey: string,
           prompt: string,
-          options?: { abortSignal?: AbortSignal }
+          options?: { abortSignal?: AbortSignal; taskFlow?: boolean }
         ) => AsyncIterable<import('../index.js').MossAgentEvent>;
         chat?: (
           sessionKey: string,
           prompt: string,
-          options?: { abortSignal?: AbortSignal }
+          options?: { abortSignal?: AbortSignal; taskFlow?: boolean }
         ) => Promise<{ response: string }>;
       };
 
@@ -529,6 +529,7 @@ export class LoopScheduler {
         let accText = '';
         let doneResponse: string | undefined;
         for await (const event of agentAny.streamChat(sessionKey, iterationPrompt, {
+          taskFlow: true,
           abortSignal: this.abortController?.signal,
         })) {
           onEvent?.(event);
@@ -543,6 +544,7 @@ export class LoopScheduler {
         response = (doneResponse && doneResponse.trim()) || accText;
       } else if (typeof agentAny.chat === 'function') {
         const result = await agentAny.chat(sessionKey, iterationPrompt, {
+          taskFlow: true,
           abortSignal: this.abortController?.signal,
         });
         response = result.response;

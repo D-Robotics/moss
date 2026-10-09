@@ -139,6 +139,11 @@ test('guard: terminal phases are immutable except explicit resume', () => {
   }
   // accepted is final: resume means a new task, not mutating the record
   assert.equal(t('accepted', 'task_resumed'), null);
+  // /task verify re-opens an accepted task by appending verification, not by
+  // rewriting the earlier acceptance_pass.
+  assert.equal(t('accepted', 'verification_started'), 'verifying');
+  assert.equal(t('accepted', 'acceptance_fail'), null);
+  assert.equal(t('accepted', 'note'), null);
 });
 
 test('guard: unknown event/phase combinations are rejected, not guessed', () => {

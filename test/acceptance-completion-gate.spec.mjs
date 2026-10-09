@@ -53,6 +53,10 @@ test('evaluateAcceptanceCompletionGate: pure decision matrix', () => {
   assert.equal(blocked.ok, false);
   assert.match(blocked.correction, /task_acceptance/);
   assert.match(blocked.correction, /record_evidence/);
+  assert.match(blocked.correction, /implement/i);
+  assert.match(blocked.correction, /plan, then implement, then verify/);
+  assert.doesNotMatch(blocked.correction, /then stop/i);
+  assert.doesNotMatch(blocked.correction, /do not implement/i);
 
   // FAIL with no repair after it → blocked once so the run enters the repair loop.
   const failed = {

@@ -1149,6 +1149,13 @@ export interface StatusView {
   contextUsed?: number;
   contextTotal?: number;
   /**
+   * This turn's prompt/completion tokens. When set, the status row shows a
+   * compact `in / out` line (including after the run goes idle). Omit both
+   * to keep the older running-only output count.
+   */
+  turnIn?: number;
+  turnOut?: number;
+  /**
    * Active interaction mode, straight from the policy layer
    * (`getCliInteractionMode`). Defaults to the factory-default mode (`full`,
    * v0.26) so a caller with no mode still renders the A7 hint row.
@@ -1192,12 +1199,18 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
       parts.push(ctxPart);
     }
   }
-  if (view.running && view.tokens > 0)
+  const compact = (n: number): string => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n));
+  const hasTurn = view.turnIn !== undefined || view.turnOut !== undefined;
+  if (hasTurn && ((view.turnIn ?? 0) > 0 || (view.turnOut ?? 0) > 0)) {
     parts.push(
-      tui('{count} out', {
-        count: view.tokens >= 1000 ? `${Math.round(view.tokens / 100) / 10}k` : view.tokens,
+      tui('{in} in / {out} out', {
+        in: compact(view.turnIn ?? 0),
+        out: compact(view.turnOut ?? 0),
       })
     );
+  } else if (!hasTurn && view.running && view.tokens > 0) {
+    parts.push(tui('{count} out', { count: compact(view.tokens) }));
+  }
   // Narrow panes drop the model name first, then the token count; the state
   // badge (`● running`) is the part that must survive.
   const fit = (list: string[]): string => list.join(' · ');

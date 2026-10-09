@@ -1,3 +1,4 @@
+import { resumeUserText } from '../core/session/internal-transcript.js';
 import { toolHeadline } from './tool-headline.js';
 
 /**
@@ -24,9 +25,7 @@ export function resumedMessageText(message: ResumableMessage): string {
           .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
           .map((block) => block.text ?? '')
           .join('\n');
-  const text = raw.trim();
-  if (!text || text.includes('<moss_working_context_checkpoint')) return '';
-  return text;
+  return resumeUserText(raw);
 }
 
 /**

@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { verifyTaskOnce } from '../dist/cli/commands/task-verify.js';
-import { appendTaskRecord } from '../dist/core/task-runtime/artifacts.js';
+import { appendTaskRecord, listTaskRecords } from '../dist/core/task-runtime/artifacts.js';
 import {
   appendTaskEvent,
   createDraftTask,
@@ -41,9 +41,40 @@ const afterPass = await listTaskEvents(workspace, contract.taskId);
 assert.ok(afterPass.some((event) => event.type === 'acceptance_pass'));
 assert.equal((await getTaskStateSnapshot(workspace, contract.taskId)).phase, 'accepted');
 
-const again = await verifyTaskOnce(workspace, { taskId: contract.taskId });
+const again = await verifyTaskOnce(workspace, { taskId: contract.taskId, command: 'true' });
 assert.equal(again.exitCode, 0);
-assert.match(again.summary, /already accepted/);
+assert.match(again.summary, /re-verified/);
+assert.doesNotMatch(again.summary, /already accepted/);
+const reEvents = await listTaskEvents(workspace, contract.taskId);
+assert.ok(
+  reEvents.filter((event) => event.type === 'acceptance_pass').length >= 2,
+  'a second verify appends a fresh acceptance_pass'
+);
+assert.equal((await getTaskStateSnapshot(workspace, contract.taskId)).phase, 'accepted');
+
+const priorPass = reEvents.filter((event) => event.type === 'acceptance_pass').length;
+const records = await listTaskRecords(workspace);
+const current = records.find((task) => task.taskId === contract.taskId);
+assert.ok(current, 'the draft contract is still on disk');
+await appendTaskRecord(workspace, { ...current, status: 'accepted', updatedAt: Date.now() });
+const regressed = await verifyTaskOnce(workspace, { taskId: contract.taskId, command: 'false' });
+assert.equal(regressed.exitCode, 1);
+assert.match(regressed.summary, /Regression/);
+assert.match(regressed.summary, /previous acceptance stays in the timeline/);
+assert.equal((await getTaskStateSnapshot(workspace, contract.taskId)).phase, 'diagnosing');
+const afterRegression = await listTaskEvents(workspace, contract.taskId);
+assert.equal(
+  afterRegression.filter((event) => event.type === 'acceptance_pass').length,
+  priorPass,
+  'a failing re-verify does not delete the earlier PASS'
+);
+assert.ok(afterRegression.some((event) => event.type === 'acceptance_fail'));
+assert.ok(
+  afterRegression.some((event) => event.type === 'note' && event.data?.kind === 'regression'),
+  'regression is an appended note'
+);
+const latest = (await listTaskRecords(workspace)).find((task) => task.taskId === contract.taskId);
+assert.equal(latest?.status, 'active', 'an accepted contract is reopened, not rewritten in place');
 
 {
   const bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-task-verify-bare-'));
@@ -114,6 +145,39 @@ assert.match(again.summary, /already accepted/);
   assert.ok(revivedTypes.includes('task_resumed'));
   assert.ok(revivedTypes.includes('acceptance_pass'));
   assert.equal((await getTaskStateSnapshot(abandonedDir, abandoned.taskId)).phase, 'accepted');
+}
+
+{
+  const throwDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-task-verify-throw-'));
+  const accepted = await createDraftTask(throwDir, 'stay accepted', {
+    acceptanceCommand: 'true',
+  });
+  const passed = await verifyTaskOnce(throwDir, { taskId: accepted.taskId, command: 'true' });
+  assert.equal(passed.exitCode, 0);
+  assert.equal((await getTaskStateSnapshot(throwDir, accepted.taskId)).phase, 'accepted');
+  const before = (await listTaskEvents(throwDir, accepted.taskId)).map((event) => event.type);
+  await assert.rejects(
+    () =>
+      verifyTaskOnce(throwDir, {
+        taskId: accepted.taskId,
+        verdictProvider: {
+          async evaluate() {
+            throw new Error('acceptance command exploded');
+          },
+        },
+      }),
+    /acceptance command exploded/
+  );
+  assert.equal(
+    (await getTaskStateSnapshot(throwDir, accepted.taskId)).phase,
+    'accepted',
+    'a throwing evaluate must not leave the task in verifying'
+  );
+  assert.deepEqual(
+    (await listTaskEvents(throwDir, accepted.taskId)).map((event) => event.type),
+    before,
+    'a throwing evaluate writes no lifecycle events'
+  );
 }
 
 console.log('[PASS] cli task verify');

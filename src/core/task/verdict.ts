@@ -66,6 +66,21 @@ export function createCommandVerdictProvider(
  * verdict is persisted (acceptance.jsonl) and the contract status updated,
  * exactly like the task_acceptance tool — one implementation, two callers.
  */
+/**
+ * True when recorded evidence already meets the contract. Does not persist a
+ * verdict — a planning turn can be checked before spending another model turn.
+ */
+export async function acceptanceAlreadySatisfied(
+  workspaceDir: string,
+  taskId: string
+): Promise<boolean> {
+  const tasks = await listTaskRecords(workspaceDir);
+  const task = tasks.find((candidate) => candidate.taskId === taskId);
+  if (!task || task.acceptanceCriteria.length === 0) return false;
+  const evidence = await listEvidenceRecords(workspaceDir, 1000);
+  return evaluateAcceptance(task, evidence).verdict === 'pass';
+}
+
 export async function evaluateContractAcceptance(
   workspaceDir: string,
   taskId?: string

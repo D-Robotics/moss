@@ -215,6 +215,23 @@ test('task_define: redefine updates in place and validates references', async (t
   assert.match(badRef, /^Error: task_define: task_id task_missing not found/);
 });
 
+test('ordinary chat cannot open a task contract or record evidence', async () => {
+  const denied = { workspaceDir: '/tmp/moss-task-deny', sessionKey: 'chat', taskContracts: 'deny' };
+  const defined = await taskDefineTool.execute(
+    {
+      goal: 'what is the board status?',
+      acceptance_criteria: [{ metric: 'up', expected: '==true' }],
+    },
+    denied
+  );
+  assert.match(defined, /only created for \/goal or an explicit task/);
+  const recorded = await recordEvidenceTool.execute(
+    { metric: 'up', source: 'chat', observed: true, result: 'pass' },
+    denied
+  );
+  assert.match(recorded, /do not record evidence/);
+});
+
 test('task tools: metadata is runtime_state, plan-mode allowed', () => {
   for (const tool of [taskDefineTool, taskAcceptanceTool]) {
     assert.equal(tool.metadata.sideEffectClass, 'runtime_state');

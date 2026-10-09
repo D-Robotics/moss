@@ -9,6 +9,7 @@ import { tui } from './copy.js';
 import { nextStreamCommit } from './stream-commit.js';
 import { toolLabel } from './transcript.js';
 import { summarizeToolCompletion } from './tool-summary.js';
+import { userFacingAssistantText, userFacingToolResult } from '../user-facing-text.js';
 
 /**
  * The row keeps the result; the PROJECTION decides how much of it to show
@@ -17,8 +18,8 @@ import { summarizeToolCompletion } from './tool-summary.js';
  */
 const RESULT_ROW_MAX_CHARS = 4000;
 
-function resultBody(result: string): string {
-  const text = (result ?? '')
+function resultBody(result: string, toolName?: string): string {
+  const text = userFacingToolResult(result ?? '', toolName)
     .split('\n')
     .map((line) => line.replace(/\s+$/, ''))
     .join('\n')
@@ -239,12 +240,16 @@ function capThinking(text: string): string {
  * two messages never share one buffer.
  */
 export function flushProse(store: TuiStore): void {
-  if (!store.run.streamingText.trim()) return;
-  appendRow(store, 'assistant', store.run.streamingText, {
+  const visible = userFacingAssistantText(store.run.streamingText);
+  if (!visible.trim()) {
+    store.run.streamingText = '';
+    return;
+  }
+  appendRow(store, 'assistant', visible, {
     ...(store.run.committedText ? { continuation: true } : {}),
     ...takeReasoning(store),
   });
-  store.run.flushed = [...(store.run.flushed ?? []), store.run.streamingText];
+  store.run.flushed = [...(store.run.flushed ?? []), visible];
   store.run.streamingText = '';
   store.run.committedText = '';
   store.version++;
@@ -258,17 +263,22 @@ export function flushProse(store: TuiStore): void {
  */
 export function reconcileFinalResponse(store: TuiStore, response: string | undefined): void {
   if (typeof response !== 'string' || !response.trim()) return;
+  const visibleResponse = userFacingAssistantText(response);
+  if (!visibleResponse.trim()) return;
   if (!store.run.streamingText.trim()) {
     // The response is the whole run's answer. When every part of it is already
     // committed (one turn, or several turns joined), it must not appear again.
     const norm = (text: string): string => text.replace(/\s+/g, ' ').trim();
     const committed = norm((store.run.flushed ?? []).join(' '));
-    if (committed && committed.includes(norm(response))) return;
-    appendRow(store, 'assistant', response);
+    if (committed && committed.includes(norm(visibleResponse))) return;
+    appendRow(store, 'assistant', visibleResponse);
     return;
   }
-  if (!store.run.committedText && response.length > store.run.streamingText.length) {
-    store.run.streamingText = response;
+  if (
+    !store.run.committedText &&
+    visibleResponse.length > userFacingAssistantText(store.run.streamingText).length
+  ) {
+    store.run.streamingText = visibleResponse;
     store.version++;
   }
 }
@@ -287,10 +297,13 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       const buffered = store.run.streamingText + event.delta;
       const split = nextStreamCommit(buffered);
       if (split.commit) {
-        appendRow(store, 'assistant', split.commit, {
-          continuation: Boolean(store.run.committedText),
-        });
-        store.run.committedText = `${store.run.committedText ?? ''}${split.commit}\n`;
+        const visible = userFacingAssistantText(split.commit);
+        if (visible.trim()) {
+          appendRow(store, 'assistant', visible, {
+            continuation: Boolean(store.run.committedText),
+          });
+          store.run.committedText = `${store.run.committedText ?? ''}${visible}\n`;
+        }
         setStreaming(store, split.rest);
       } else {
         setStreaming(store, buffered);
@@ -383,7 +396,9 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       // raw result (the projection decides how much of it to show). A dialog
       // that already showed its answer gets its synthetic wrapper dropped.
       // An empty success body stays empty — the headline alone is the result.
-      const body = completion.dropBody ? '' : (completion.diff ?? resultBody(event.result));
+      const body = completion.dropBody
+        ? ''
+        : (completion.diff ?? resultBody(event.result, event.toolName));
       appendRow(store, 'result', body, {
         tool: {
           name: event.toolName,
@@ -565,8 +580,9 @@ export function usageBlock(usage: TuiUsageState, env: NodeJS.ProcessEnv = proces
 }
 
 export function endRun(store: TuiStore, halted: boolean): void {
-  if (store.run.streamingText.trim()) {
-    appendRow(store, 'assistant', store.run.streamingText, {
+  const visible = userFacingAssistantText(store.run.streamingText);
+  if (visible.trim()) {
+    appendRow(store, 'assistant', visible, {
       ...(store.run.committedText ? { continuation: true } : {}),
       ...takeReasoning(store),
     });

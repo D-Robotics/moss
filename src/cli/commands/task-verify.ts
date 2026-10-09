@@ -2,7 +2,7 @@
  * `/task verify` — one verdict from the existing provider, no model turn.
  * PASS is only the provider's `passed` flag, written through the lifecycle.
  */
-import { createTaskVerdictProvider } from '../../core/task/verdict.js';
+import { createTaskVerdictProvider, type VerdictProvider } from '../../core/task/verdict.js';
 import {
   appendTaskEvent,
   emitAcceptanceLifecycle,
@@ -10,6 +10,7 @@ import {
   listTaskEvents,
   listTaskStateSnapshots,
 } from '../../core/task/task-store.js';
+import { appendTaskRecord, listTaskRecords } from '../../core/task-runtime/artifacts.js';
 
 export interface TaskVerifyResult {
   exitCode: number;
@@ -28,7 +29,12 @@ function acceptanceCommandFromEvents(
 
 export async function verifyTaskOnce(
   workspace: string,
-  options: { taskId?: string; command?: string } = {}
+  options: {
+    taskId?: string;
+    command?: string;
+    /** Test hook: a throwing evaluate must not move an accepted task. */
+    verdictProvider?: Pick<VerdictProvider, 'evaluate'>;
+  } = {}
 ): Promise<TaskVerifyResult> {
   const snapshot = options.taskId
     ? await getTaskStateSnapshot(workspace, options.taskId)
@@ -36,12 +42,7 @@ export async function verifyTaskOnce(
   if (!snapshot) {
     return { exitCode: 2, summary: 'No task to verify. Start one with /goal <condition>.' };
   }
-  if (snapshot.phase === 'accepted') {
-    return {
-      exitCode: 0,
-      summary: `Task ${snapshot.taskId} is already accepted.`,
-    };
-  }
+  const wasAccepted = snapshot.phase === 'accepted';
   const events = await listTaskEvents(workspace, snapshot.taskId);
   const explicit = options.command?.trim();
   const command = explicit || acceptanceCommandFromEvents(events);
@@ -56,23 +57,31 @@ export async function verifyTaskOnce(
       ].join('\n'),
     };
   }
+  // Evaluate before any lifecycle write. A throw must leave an accepted task
+  // accepted — verification_started is not rolled back.
+  const provider =
+    options.verdictProvider ??
+    createTaskVerdictProvider({
+      workspaceDir: workspace,
+      ...(command ? { command } : {}),
+    });
+  const verdict = await provider.evaluate(snapshot.taskId);
   // acceptance_* is illegal from failed/abandoned (only task_resumed leaves
   // those phases). Resume into executing, then let verification open.
-  if (snapshot.phase === 'failed' || snapshot.phase === 'abandoned') {
+  if (wasAccepted) {
+    // Append-only reopen. The earlier acceptance_pass stays in the timeline.
+    await appendTaskEvent(workspace, snapshot.taskId, 'verification_started', {
+      reason: '/task verify',
+    });
+  } else if (snapshot.phase === 'failed' || snapshot.phase === 'abandoned') {
     await appendTaskEvent(workspace, snapshot.taskId, 'task_resumed', {
       reason: '/task verify',
     });
   } else if (['draft', 'understanding', 'planning', 'blocked'].includes(snapshot.phase)) {
     // acceptance_* is only valid from a verification phase. A draft has to
     // enter execution first; emitAcceptanceLifecycle opens verification.
-    // Only once a verdict will actually be produced.
     await appendTaskEvent(workspace, snapshot.taskId, 'execution_started');
   }
-  const provider = createTaskVerdictProvider({
-    workspaceDir: workspace,
-    ...(command ? { command } : {}),
-  });
-  const verdict = await provider.evaluate(snapshot.taskId);
   await emitAcceptanceLifecycle(
     workspace,
     snapshot.taskId,
@@ -83,7 +92,33 @@ export async function verifyTaskOnce(
   if (verdict.passed) {
     return {
       exitCode: 0,
-      summary: `Task ${snapshot.taskId} accepted — PASS from the ${verdict.source} verdict.\n${verdict.detail}`,
+      summary: wasAccepted
+        ? `Task ${snapshot.taskId} re-verified — PASS from the ${verdict.source} verdict.\n${verdict.detail}`
+        : `Task ${snapshot.taskId} accepted — PASS from the ${verdict.source} verdict.\n${verdict.detail}`,
+    };
+  }
+  if (wasAccepted) {
+    const tasks = await listTaskRecords(workspace);
+    const contract = tasks.find((task) => task.taskId === snapshot.taskId);
+    if (contract && contract.status === 'accepted') {
+      await appendTaskRecord(workspace, {
+        ...contract,
+        status: 'active',
+        updatedAt: Date.now(),
+      });
+    }
+    await appendTaskEvent(workspace, snapshot.taskId, 'note', {
+      kind: 'regression',
+      detail: 'previously PASS, now FAIL',
+    });
+    return {
+      exitCode: 1,
+      summary: [
+        `Regression: task ${snapshot.taskId} previously PASS, now FAIL from the ${verdict.source} verdict.`,
+        verdict.detail,
+        'Reopened for repair. The previous acceptance stays in the timeline.',
+        `Continue with /goal <condition> (or /task resume ${snapshot.taskId}).`,
+      ].join('\n'),
     };
   }
   return {

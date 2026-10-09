@@ -92,7 +92,14 @@ import { resolveLoopMaxIterations } from '../loop-tui-events.js';
 import { cliLocale } from '../cli-locale.js';
 import { handleCompactCommand } from '../compact-command.js';
 import { createCliSessionKey } from '../session.js';
-import { interactiveTaskUsageLines, runTaskCommand, splitCommandArgs } from '../task-run.js';
+import {
+  interactiveTaskUsageLines,
+  parseLlmUsageStdout,
+  runTaskCommand,
+  splitCommandArgs,
+} from '../task-run.js';
+import { messageRequestsTaskContract } from '../task-flow.js';
+import { userFacingAssistantText } from '../user-facing-text.js';
 import {
   formatCliInteractionModeLabel,
   getCliInteractionMode,
@@ -1039,9 +1046,10 @@ export function TuiAppRoot({
       const agent = options.agent as MossAgent & {
         streamChatRecorded?: typeof options.agent.streamChat;
       };
+      const taskFlow = messageRequestsTaskContract(message);
       return typeof agent.streamChatRecorded === 'function'
-        ? agent.streamChatRecorded(sessionKey, message, { abortSignal })
-        : options.agent.streamChat(sessionKey, message, { abortSignal });
+        ? agent.streamChatRecorded(sessionKey, message, { abortSignal, taskFlow })
+        : options.agent.streamChat(sessionKey, message, { abortSignal, taskFlow });
     },
     [options.agent, sessionKey]
   );
@@ -1429,7 +1437,9 @@ export function TuiAppRoot({
                     tui('◇ task {phase} — {text}', { phase: phase[1]!, text: phase[2]! })
                   );
                 }
-              } else printBlock('Task', text.trimEnd().split('\n'));
+              } else if (!parseLlmUsageStdout(text)) {
+                printBlock('Task', text.trimEnd().split('\n'));
+              }
             },
           });
         } catch (err) {
@@ -1463,7 +1473,9 @@ export function TuiAppRoot({
           workspace: options.workspaceDir,
           sessionKey,
           onOutput: (stream, text) => {
-            if (stream === 'stdout') printBlock('Task', text.trimEnd().split('\n'));
+            if (stream === 'stdout' && !parseLlmUsageStdout(text)) {
+              printBlock('Task', text.trimEnd().split('\n'));
+            }
           },
         });
       } catch (err) {
@@ -3338,7 +3350,7 @@ export function TuiAppRoot({
     running,
     startedAt: runStartedAtRef.current,
     toolLine: store.run.toolLine,
-    streaming: store.run.streamingText,
+    streaming: userFacingAssistantText(store.run.streamingText),
     thinking: showThinking ? store.run.thinkingText : '',
     tokensOut: store.usage.runTokensOut,
     queued: queueRef.current.length,
@@ -3362,6 +3374,8 @@ export function TuiAppRoot({
       : {}),
     ...(approval ? { answerKeys: approval.options.map((option) => option.key).join('/') } : {}),
     tokens: running ? store.usage.runTokensOut : store.usage.tokensIn + store.usage.tokensOut,
+    turnIn: store.usage.runTokensIn,
+    turnOut: store.usage.runTokensOut,
     taskCount: runtime.taskSummaries().length,
     queueLength: queueRef.current.length,
     contextUsed: store.usage.contextUsed,

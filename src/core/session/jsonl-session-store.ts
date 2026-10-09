@@ -6,6 +6,7 @@ import type { SessionStore, SessionMeta } from './session.js';
 import { WriteChain } from '../../utils/write-chain.js';
 import { ErrorCode, MossError } from '../../errors.js';
 import { acquireSessionWriteLock } from './session-write-lock.js';
+import { sessionTitleFromTexts } from './internal-transcript.js';
 
 export interface JsonlSessionStoreConfig {
   dir: string;
@@ -320,16 +321,16 @@ export class JsonlSessionStore implements SessionStore {
   }
 
   private deriveTitle(messages: LLMMessage[]): string | undefined {
+    const texts: string[] = [];
     for (const message of messages) {
       if (message.role !== 'user') continue;
-      const text =
+      texts.push(
         typeof message.content === 'string'
           ? message.content
-          : message.content.map((block) => (block.type === 'text' ? block.text : '')).join(' ');
-      const cleaned = text.replace(/\s+/g, ' ').trim();
-      if (cleaned) return cleaned.length > 80 ? `${cleaned.slice(0, 79)}…` : cleaned;
+          : message.content.map((block) => (block.type === 'text' ? block.text : '')).join(' ')
+      );
     }
-    return undefined;
+    return sessionTitleFromTexts(texts);
   }
 
   private replayMessagesFromContent(raw: string): {

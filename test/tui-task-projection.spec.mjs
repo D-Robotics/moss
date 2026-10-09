@@ -50,6 +50,7 @@ function liveHandle() {
 
 const agent = {
   async *streamChat(_sessionKey, message) {
+    yield { type: 'llm_usage', inputTokens: 1200, outputTokens: 40 };
     yield { type: 'text_delta', delta: `ok: ${message.slice(0, 12)}` };
     yield {
       type: 'done',
@@ -149,6 +150,13 @@ await typeFail('/task run unsatisfiable goal --accept false');
 const failRow = () => failHandle.store.rows.find((r) => /^◇ task \w+ — FAIL /.test(r.text));
 assert.ok(await waitFor(() => failRow() !== undefined), 'a FAIL verdict lands in the transcript');
 assert.match(failRow().text, /\/task resume task_\w+ to repair/, 'FAIL names the recovery command');
+
+const shown = `${instance.lastFrame()}\n${handle.store.rows.map((row) => row.text).join('\n')}`;
+assert.doesNotMatch(
+  shown,
+  /"type":"llm_usage"/,
+  'a /task run must not print the raw llm_usage JSON line in the UI'
+);
 
 instance.unmount();
 failInstance.unmount();

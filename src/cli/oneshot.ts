@@ -68,6 +68,12 @@ export interface RunOneShotOptions {
   onAgentEvent?: (event: MossAgentEvent) => void;
   /** Internal: continuation depth of the headless goal-verify loop. */
   goalVerifyDepth?: number;
+  /**
+   * Interactive hosts (REPL) set this so ordinary chat cannot open a task
+   * contract. Headless `moss -p` leaves it unset — bench prompts must still
+   * be able to call task_define / record_evidence.
+   */
+  taskFlow?: boolean;
 }
 
 const BRIEF_ONE_SHOT_MAX_TURNS = 6;
@@ -463,10 +469,12 @@ export async function runOneShot(
       ...(temperature !== undefined ? { temperature } : {}),
       ...(topP !== undefined ? { topP } : {}),
     };
+    const taskFlow = options.taskFlow === undefined ? {} : { taskFlow: options.taskFlow };
     const streamOptions =
       brief || focusedInspection || fastNews
         ? {
             ...cancellationOptions,
+            ...taskFlow,
             ...(options.runId ? { runId: options.runId } : {}),
             ...sampling,
             maxTurns: brief ? BRIEF_ONE_SHOT_MAX_TURNS : focusedInspection?.maxTurns,
@@ -488,6 +496,7 @@ export async function runOneShot(
           }
         : {
             ...cancellationOptions,
+            ...taskFlow,
             ...(options.runId ? { runId: options.runId } : {}),
             ...sampling,
             ...(mergedExtraContext ? { extraContext: mergedExtraContext } : {}),

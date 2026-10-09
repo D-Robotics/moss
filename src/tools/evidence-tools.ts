@@ -62,7 +62,8 @@ function formatRecord(record: EvidenceRecord, explanation?: string): string {
 export const recordEvidenceTool: Tool = {
   name: 'record_evidence',
   description:
-    'Record one structured piece of verification evidence: metric, expected, observed, verdict — persisted to .moss/evidence.jsonl. Every success claim in a task must be backed by recorded evidence ("No Evidence, No Success"): after running a check (test run, device probe, deploy health check), record what was measured instead of asserting success in prose.\n' +
+    'Record one structured piece of verification evidence for an existing /goal or explicit task: metric, expected, observed, verdict — persisted to .moss/evidence.jsonl. Do not call this for a status question or ordinary chat.\n' +
+    'Every success claim in a task must be backed by recorded evidence ("No Evidence, No Success"): after running a check (test run, device probe, deploy health check), record what was measured instead of asserting success in prose.\n' +
     '- Give expected + observed to auto-evaluate (e.g. expected ">=30", observed 31.2).\n' +
     '- Give an explicit result only for externally-determined verdicts (e.g. human observation), without expected/observed.\n' +
     '- An explicit result that conflicts with the expected/observed auto-evaluation is recorded as inconclusive with the conflict explained — it is never silently rewritten in either direction.\n' +
@@ -115,6 +116,9 @@ export const recordEvidenceTool: Tool = {
     return input;
   },
   async execute(input, ctx) {
+    if (ctx.taskContracts === 'deny') {
+      return 'Error: task contracts are only created for /goal or an explicit task. Answer the user directly — do not record evidence or retry this tool.';
+    }
     const metric = String(input.metric ?? '').trim();
     const source = String(input.source ?? '').trim();
     if (!metric) return 'Error: record_evidence: metric is required.';

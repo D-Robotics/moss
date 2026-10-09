@@ -45,6 +45,18 @@ export interface ToolContext {
   onToolOutput?: (text: string) => void;
   /** Host-owned interactive question channel scoped to this agent instance. */
   askUserQuestion?: (question: string, abortSignal?: AbortSignal) => Promise<string>;
+  /**
+   * Whether the user can see a question on this run. `ask_user_question`
+   * applies it only to the process-wide fallback asker. Omitted means
+   * `process.stdin.isTTY`. Tests inject the value.
+   */
+  stdinIsTTY?: boolean;
+  /**
+   * `deny` blocks task_define / record_evidence. Ordinary chat sets this so a
+   * status question cannot open a task contract. `/goal` and `moss task` leave
+   * it unset or `allow`.
+   */
+  taskContracts?: 'allow' | 'deny';
   spawnSubagent?: (params: {
     task: string;
     /** Parent-relative paths a full-scope worker may modify. */

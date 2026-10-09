@@ -10,6 +10,16 @@ export interface ContextUsageSnapshot {
   cacheCreationTokens?: number;
 }
 
+/** Compact token count: 16849 → "16.8k", 569012 → "569k". */
+export function formatCompactTokenCount(n: number): string {
+  return n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n);
+}
+
+/** One turn's spend for the status row and the REPL task line. */
+export function formatTurnUsage(inputTokens: number, outputTokens: number): string {
+  return `${formatCompactTokenCount(inputTokens)} in / ${formatCompactTokenCount(outputTokens)} out`;
+}
+
 export function contextUsageFromAgentEvent(event: MossAgentEvent): ContextUsageSnapshot | null {
   if (event.type !== 'llm_usage' || !event.contextTokens || event.contextTokens <= 0) return null;
   const cacheReadTokens = event.cacheReadTokens ?? 0;

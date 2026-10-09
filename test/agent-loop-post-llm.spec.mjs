@@ -51,6 +51,26 @@ const visible = decidePostLlmAction({
   shouldNudge: false,
   abortAborted: false,
 });
+const nudge = decidePostLlmAction({
+  hasThinkingOnly: false,
+  toolCallCount: 0,
+  postToolThinkingOnlyRetryAttempts: 0,
+  emptyResponseRetryAttempts: 0,
+  totalToolCalls: 0,
+  streamStopReason: 'end_turn',
+  outputContinuationCount: 0,
+  maxOutputContinuations: 2,
+  missingToolNudgeAttempts: 0,
+  finalText: 'I will open the URL',
+  maxTurns: 80,
+  turns: 1,
+  shouldNudge: true,
+  abortAborted: false,
+});
+assert.equal(nudge.kind, 'nudge');
+assert.equal(nudge.deltaText, '', 'a nudge stays in the model channel');
+assert.match(nudge.systemText, /^\[System\]/);
+
 assert.equal(visible.kind, 'tool_execute');
 assert.equal(
   nextThinkingOnlyRetryAttempts(visible, 1),

@@ -32,6 +32,7 @@ import { resolveContextTokensForModel } from './model-catalog.js';
 import { writePreferredModel } from './preferred-model-store.js';
 import { createCliProvider } from './providers.js';
 import { runOneShot } from './oneshot.js';
+import { messageRequestsTaskContract } from './task-flow.js';
 import { createSessionUsageAccumulator } from './session-usage.js';
 import { createCliRunRenderer } from './output.js';
 import { renderCliInteractiveHelp, renderCliWelcome, type CliRuntimeStatus } from './onboarding.js';
@@ -267,13 +268,15 @@ export async function runInteractive(
           const stop = await runOneShot(agent, String(submitText), {
             sessionKey,
             onAgentEvent: (event) => usage.record(event),
+            taskFlow: messageRequestsTaskContract(String(submitText)),
           });
           if (stop?.blocked) {
-            await runOneShot(
-              agent,
-              `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`,
-              { sessionKey, onAgentEvent: (event) => usage.record(event) }
-            );
+            const feedback = `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`;
+            await runOneShot(agent, feedback, {
+              sessionKey,
+              onAgentEvent: (event) => usage.record(event),
+              taskFlow: messageRequestsTaskContract(feedback),
+            });
           }
         }
         rl.prompt();
@@ -575,7 +578,9 @@ export async function runInteractive(
       }
       taskRunInFlight = true;
       rl.pause();
-      const { runTaskCommand, splitCommandArgs } = await import('./task-run.js');
+      const { parseLlmUsageStdout, runTaskCommand, splitCommandArgs } =
+        await import('./task-run.js');
+      const { formatTurnUsage } = await import('./usage-display.js');
       const taskSessionKey = createCliSessionKey();
       const renderer = createCliRunRenderer({ workspaceDir: workspace });
       try {
@@ -584,6 +589,14 @@ export async function runInteractive(
           workspace,
           sessionKey: taskSessionKey,
           onAgentEvent: (event) => renderer.handle(event as MossAgentEvent),
+          onOutput: (stream, text) => {
+            const usage = stream === 'stdout' ? parseLlmUsageStdout(text) : null;
+            if (usage) {
+              process.stderr.write(`${formatTurnUsage(usage.inputTokens, usage.outputTokens)}\n`);
+              return;
+            }
+            process[stream].write(text);
+          },
         });
         if (code === 2) process.stderr.write('(bad /task arguments — see usage above)\n');
       } catch (err) {
@@ -608,13 +621,15 @@ export async function runInteractive(
         const stop = await runOneShot(agent, resolved.prompt, {
           sessionKey,
           onAgentEvent: (event) => usage.record(event),
+          taskFlow: messageRequestsTaskContract(resolved.prompt),
         });
         if (stop?.blocked) {
-          await runOneShot(
-            agent,
-            `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`,
-            { sessionKey, onAgentEvent: (event) => usage.record(event) }
-          );
+          const feedback = `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`;
+          await runOneShot(agent, feedback, {
+            sessionKey,
+            onAgentEvent: (event) => usage.record(event),
+            taskFlow: messageRequestsTaskContract(feedback),
+          });
         }
         rl.prompt();
         continue;
@@ -636,15 +651,17 @@ export async function runInteractive(
     const stop = await runOneShot(agent, msg, {
       sessionKey,
       onAgentEvent: (event) => usage.record(event),
+      taskFlow: messageRequestsTaskContract(msg),
     });
     if (stop?.blocked) {
       // Stop hook vetoed the run ending: one forced continuation turn, then
       // the veto is consumed (a hook that keeps blocking would loop forever).
-      await runOneShot(
-        agent,
-        `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`,
-        { sessionKey, onAgentEvent: (event) => usage.record(event) }
-      );
+      const feedback = `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`;
+      await runOneShot(agent, feedback, {
+        sessionKey,
+        onAgentEvent: (event) => usage.record(event),
+        taskFlow: messageRequestsTaskContract(feedback),
+      });
     }
     rl.prompt();
   }

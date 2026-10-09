@@ -44,6 +44,7 @@ import {
 } from './background-completion.js';
 import { collectNudgeInjections } from './nudges/registry.js';
 import { isNudgeDisabled } from './nudges/disable.js';
+import { selectNudgeUserText } from '../session/internal-transcript.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -312,12 +313,13 @@ export function runAgentLoop(
       };
 
       const lastUserTextForNudge = (): string => {
+        const newestFirst: string[] = [];
         for (let i = currentMessages.length - 1; i >= 0; i--) {
           const m = currentMessages[i];
           if (!m || m.role !== 'user') continue;
           if (typeof m.content === 'string') {
-            if (m.content.startsWith('[System]')) continue;
-            return m.content;
+            newestFirst.push(m.content);
+            continue;
           }
           if (Array.isArray(m.content)) {
             const text = m.content
@@ -330,12 +332,10 @@ export function runAgentLoop(
               )
               .map((b) => b.text)
               .join('\n');
-            if (text.startsWith('[System]')) continue;
-            if (!text.trim()) continue;
-            return text;
+            newestFirst.push(text);
           }
         }
-        return '';
+        return selectNudgeUserText(newestFirst);
       };
 
       outerLoop: while (true) {

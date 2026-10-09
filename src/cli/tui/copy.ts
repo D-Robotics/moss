@@ -116,6 +116,7 @@ export const ZH: Readonly<Record<string, string>> = {
   '› stashed': '› 已暂存',
   '{pct}% ctx': '{pct}% 上下文',
   '{count} out': '{count} 输出',
+  '{in} in / {out} out': '{in} 入 / {out} 出',
 
   // ── hint row (transcript.ts) ───────────────────────────────────────────
   '! for shell mode': '! 进入 shell 模式',

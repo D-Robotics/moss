@@ -22,6 +22,55 @@ import { listTaskEvents, recordFailure, recordRepair } from '../dist/core/task/t
 import { appendTaskRecord, appendEvidenceRecord } from '../dist/core/task-runtime/artifacts.js';
 import { createCommandVerdictProvider } from '../dist/core/task/verdict.js';
 
+test('planning prompt completes the goal: plan, then implement, then verify', async () => {
+  const ws = await tmpWorkspace();
+  const { runTurn, calls } = mockAgent(ws, []);
+  await runTask({ workspaceDir: ws, runTurn, maxTurns: 1 }, 'add a twenty-line helper');
+  const prompt = calls[0]?.prompt ?? '';
+  assert.match(prompt, /\[task-phase:planning\]/);
+  assert.match(prompt, /plan, then implement, then verify/);
+  assert.match(prompt, /Goal: add a twenty-line helper/);
+  assert.match(prompt, /Implement the plan now/);
+  assert.match(prompt, /task_acceptance/);
+  assert.match(prompt, /do not call ask_user_question/i);
+  assert.doesNotMatch(prompt, /do not implement|don't implement|no implementation|then stop\./i);
+});
+
+test('planning turn that already satisfies acceptance is the only model turn', async () => {
+  const ws = await tmpWorkspace();
+  const { runTurn, calls } = mockAgent(ws, [
+    async (dir) => {
+      const events = await import('../dist/core/task/task-store.js').then((m) =>
+        m.listTaskEvents(dir)
+      );
+      const taskId = events[0].taskId;
+      await appendTaskRecord(dir, {
+        taskId,
+        goal: 'camera FPS >=30',
+        acceptanceCriteria: [{ metric: 'camera_fps', expected: '>=30' }],
+        status: 'active',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      await appendEvidenceRecord(dir, {
+        evidenceId: `ev_${Date.now()}`,
+        taskId,
+        source: 'device_exec',
+        metric: 'camera_fps',
+        expected: '>=30',
+        observed: 31,
+        result: 'pass',
+        timestamp: Date.now(),
+      });
+    },
+  ]);
+  const result = await runTask({ workspaceDir: ws, runTurn }, 'camera FPS >=30');
+  assert.equal(calls.length, 1, 'a passing planning turn must not start an execution round');
+  assert.equal(calls[0].phase, 'planning');
+  assert.equal(result.outcome, 'pass');
+  assert.equal(result.snapshot.phase, 'accepted');
+});
+
 test('long-horizon defaults outlast a short demo loop', () => {
   assert.ok(DEFAULT_MAX_TURNS >= 24, `turn budget is ${DEFAULT_MAX_TURNS}`);
   assert.ok(DEFAULT_MAX_REPAIR_ATTEMPTS >= 5, `repair budget is ${DEFAULT_MAX_REPAIR_ATTEMPTS}`);
