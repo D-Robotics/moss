@@ -21,6 +21,7 @@ import {
   resumeTask,
   summarizeTaskRun,
 } from '../dist/core/task/task-engine.js';
+import { createAgentTurnRunner } from '../dist/core/task/agent-turn.js';
 import {
   appendTaskEvent,
   createDraftTask,
@@ -725,4 +726,184 @@ test('a crashed run marks the task failed — never stuck unresumable in a live 
     (err) => !/nothing to resume/.test(err.message),
     'a failed-by-crash task is resumable'
   );
+});
+
+test('run budget stop ends the task without another turn', async () => {
+  const ws = await tmpWorkspace();
+  const calls = [];
+  const runTurn = async (_prompt, phase) => {
+    calls.push(phase);
+    if (phase === 'planning') {
+      const events = await import('../dist/core/task/task-store.js').then((m) =>
+        m.listTaskEvents(ws)
+      );
+      const taskId = events[0].taskId;
+      await appendTaskRecord(ws, {
+        taskId,
+        goal: 'stay under the run budget',
+        acceptanceCriteria: [{ metric: 'x', expected: '>=1' }],
+        status: 'active',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      return 'plan only';
+    }
+    // A non-budget stop still continues into repair. The repair turn is the
+    // one that hits the ceiling and must not be followed by another execution.
+    if (phase === 'executing') return { text: 'not done yet', stopReason: 'end_turn' };
+    return { text: 'tool-call ceiling', stopReason: 'budget_tool_calls_reached' };
+  };
+  const result = await runTask(
+    { workspaceDir: ws, runTurn, maxTurns: 8, maxRepairAttempts: 5 },
+    'stay under the run budget'
+  );
+  assert.deepEqual(calls, ['planning', 'executing', 'repairing']);
+  assert.equal(result.outcome, 'fail');
+  assert.equal(result.snapshot.phase, 'failed');
+  const failed = (await listTaskEvents(ws, result.snapshot.taskId)).find(
+    (event) => event.type === 'task_failed'
+  );
+  assert.match(failed.data.detail, /run budget exceeded \(budget_tool_calls_reached\)/);
+
+  const planWs = await tmpWorkspace();
+  const planCalls = [];
+  const planTurn = async (_prompt, phase) => {
+    planCalls.push(phase);
+    return { text: 'token ceiling during planning', stopReason: 'budget_tokens_reached' };
+  };
+  const planned = await runTask(
+    { workspaceDir: planWs, runTurn: planTurn, maxTurns: 8 },
+    'plan until the token budget'
+  );
+  assert.deepEqual(planCalls, ['planning']);
+  assert.equal(planned.outcome, 'fail');
+  assert.equal(planned.snapshot.phase, 'failed');
+  const planFailed = (await listTaskEvents(planWs, planned.snapshot.taskId)).find(
+    (event) => event.type === 'task_failed'
+  );
+  assert.match(planFailed.data.detail, /run budget exceeded \(budget_tokens_reached\)/);
+});
+
+test('accepted turn that also hits the run budget stays pass', async () => {
+  const ws = await tmpWorkspace();
+  const calls = [];
+  let taskId;
+  const runTurn = async (_prompt, phase) => {
+    calls.push(phase);
+    if (phase === 'planning') {
+      const events = await listTaskEvents(ws);
+      taskId = events[0].taskId;
+      await appendTaskRecord(ws, {
+        taskId,
+        goal: 'accept then budget',
+        acceptanceCriteria: [{ metric: 'x', expected: '>=1' }],
+        status: 'active',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      return 'plan only';
+    }
+    await appendTaskEvent(ws, taskId, 'verification_started');
+    await appendTaskEvent(ws, taskId, 'acceptance_pass', { detail: 'accepted in the turn' });
+    return { text: 'accepted and out of tokens', stopReason: 'budget_tokens_reached' };
+  };
+  const result = await runTask({ workspaceDir: ws, runTurn, maxTurns: 8 }, 'accept then budget');
+  assert.deepEqual(calls, ['planning', 'executing']);
+  assert.equal(result.outcome, 'pass');
+  assert.equal(result.snapshot.phase, 'accepted');
+  const types = (await listTaskEvents(ws, taskId)).map((event) => event.type);
+  assert.equal(types.includes('task_failed'), false);
+  assert.equal(types.at(-1), 'acceptance_pass');
+});
+
+test('blocked turn that also hits the run budget stays blocked', async () => {
+  const ws = await tmpWorkspace();
+  const calls = [];
+  let taskId;
+  const runTurn = async (_prompt, phase) => {
+    calls.push(phase);
+    if (phase === 'planning') {
+      const events = await listTaskEvents(ws);
+      taskId = events[0].taskId;
+      await appendTaskRecord(ws, {
+        taskId,
+        goal: 'block then budget',
+        acceptanceCriteria: [{ metric: 'x', expected: '>=1' }],
+        status: 'active',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      return 'plan only';
+    }
+    await appendTaskEvent(ws, taskId, 'blocked_on_user', { reason: 'need a credential' });
+    return { text: 'waiting on the user', stopReason: 'budget_tool_calls_reached' };
+  };
+  const result = await runTask({ workspaceDir: ws, runTurn, maxTurns: 8 }, 'block then budget');
+  assert.deepEqual(calls, ['planning', 'executing']);
+  assert.equal(result.outcome, 'blocked');
+  assert.equal(result.snapshot.phase, 'blocked');
+  const types = (await listTaskEvents(ws, taskId)).map((event) => event.type);
+  assert.equal(types.includes('task_failed'), false);
+  assert.equal(types.at(-1), 'blocked_on_user');
+});
+
+test('createAgentTurnRunner reports stopReason from streamChat and chat', async () => {
+  let streamCalls = 0;
+  const streamAgent = {
+    async *streamChat() {
+      streamCalls += 1;
+      yield { type: 'text_delta', delta: 'partial ' };
+      if (streamCalls === 1) {
+        yield {
+          type: 'done',
+          result: {
+            response: '  final text  ',
+            stopReason: 'budget_tokens_reached',
+            toolCalls: [],
+            toolResults: [],
+          },
+        };
+        return;
+      }
+      yield { type: 'done', result: { response: 'continued', toolCalls: [], toolResults: [] } };
+    },
+  };
+  const streamRunner = createAgentTurnRunner(streamAgent, 'session-stream');
+  assert.equal(await streamRunner('prompt', 'planning'), 'final text');
+  assert.equal(streamRunner.stopReason, 'budget_tokens_reached');
+  assert.equal(await streamRunner('again', 'executing'), 'continued');
+  assert.equal(streamRunner.stopReason, undefined);
+
+  const chatAgent = {
+    async chat() {
+      return { response: 'chat text', stopReason: 'budget_tool_calls_reached' };
+    },
+  };
+  const chatRunner = createAgentTurnRunner(chatAgent, 'session-chat');
+  assert.equal(await chatRunner('prompt', 'executing'), 'chat text');
+  assert.equal(chatRunner.stopReason, 'budget_tool_calls_reached');
+
+  const ws = await tmpWorkspace();
+  const engineAgent = {
+    async *streamChat() {
+      yield {
+        type: 'done',
+        result: {
+          response: 'out of tokens',
+          stopReason: 'budget_tokens_reached',
+          toolCalls: [],
+          toolResults: [],
+        },
+      };
+    },
+  };
+  const runTurn = createAgentTurnRunner(engineAgent, 'session-engine');
+  const result = await runTask({ workspaceDir: ws, runTurn }, 'budget via the string runner');
+  assert.equal(typeof runTurn.stopReason, 'string');
+  assert.equal(result.outcome, 'fail');
+  assert.equal(result.snapshot.phase, 'failed');
+  const failed = (await listTaskEvents(ws, result.snapshot.taskId)).find(
+    (event) => event.type === 'task_failed'
+  );
+  assert.match(failed.data.detail, /run budget exceeded \(budget_tokens_reached\)/);
 });

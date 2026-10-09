@@ -24,14 +24,20 @@ import {
 } from './task-store.js';
 import { injectExperienceIntoPrompt } from '../experience/experience-library.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
+import type { AgentTurnResult } from './agent-turn.js';
 import { acceptanceAlreadySatisfied, createTaskVerdictProvider } from './verdict.js';
 
 const log = getRootLogger().child('task-engine');
 
 export interface TaskEngineDeps {
   workspaceDir: string;
-  /** One agent turn: prompt in, final assistant text out. */
-  runTurn: (prompt: string, phase: string) => Promise<string>;
+  /**
+   * One agent turn. A string is the assistant text; `runTurn.stopReason` may
+   * carry the agent stop reason (the string-returning runner does this).
+   * An `AgentTurnResult` object may carry `stopReason` instead. A reason
+   * that starts with `budget_` ends the run unless the task is already settled.
+   */
+  runTurn: (prompt: string, phase: string) => Promise<string | AgentTurnResult>;
   /** Defaults to contract acceptance; a command provider overrides it. */
   verdictProvider?: VerdictProvider;
   /** Repair cycles before the task is declared failed (default 5). */
@@ -180,6 +186,41 @@ interface RunLoopState {
   lastVerdict?: TaskVerdict;
 }
 
+function readAgentTurnResult(
+  value: string | AgentTurnResult,
+  runTurn: TaskEngineDeps['runTurn']
+): AgentTurnResult {
+  if (typeof value !== 'string') {
+    const text = typeof value.text === 'string' ? value.text : '';
+    return typeof value.stopReason === 'string' ? { text, stopReason: value.stopReason } : { text };
+  }
+  const attached = (runTurn as { stopReason?: unknown }).stopReason;
+  return typeof attached === 'string' ? { text: value, stopReason: attached } : { text: value };
+}
+
+/**
+ * Run one agent turn. `budget_*` is the unattended token or tool-call ceiling.
+ * A task the turn already settled (accepted, failed, abandoned, or blocked)
+ * keeps that phase — `task_failed` from there throws, and the catch would
+ * report "run crashed" for a goal that finished. Otherwise record the failure
+ * and do not open another turn.
+ */
+async function runAgentTurn(
+  deps: TaskEngineDeps,
+  state: RunLoopState,
+  prompt: string,
+  phase: string
+): Promise<'ok' | 'budget'> {
+  const { stopReason } = readAgentTurnResult(await deps.runTurn(prompt, phase), deps.runTurn);
+  if (!stopReason?.startsWith('budget_')) return 'ok';
+  const snapshot = await getTaskStateSnapshot(deps.workspaceDir, state.taskId);
+  if (phaseIsSettled(snapshot?.phase)) return 'ok';
+  await appendTaskEvent(deps.workspaceDir, state.taskId, 'task_failed', {
+    detail: `run budget exceeded (${stopReason})`,
+  });
+  return 'budget';
+}
+
 async function verifyRepairLoop(
   deps: TaskEngineDeps,
   state: RunLoopState,
@@ -214,10 +255,13 @@ async function verifyRepairLoop(
       turn: state.turns,
       detail: 'agent execution turn',
     });
-    await deps.runTurn(
+    const executed = await runAgentTurn(
+      deps,
+      state,
       executionPrompt(current.goal ?? '', state.taskId, state.repairsUsed + 1),
       'executing'
     );
+    if (executed === 'budget') return 'budget';
 
     // The turn may already have accepted, failed, abandoned, or blocked the
     // task (task_acceptance, /goal clear). Do not reopen it with
@@ -289,7 +333,9 @@ async function verifyRepairLoop(
     // Fresh snapshot for the repair turn: repairs/failures the agent recorded
     // during the execution turn above must be visible as history.
     const historySnapshot = await getTaskStateSnapshot(workspaceDir, state.taskId);
-    await deps.runTurn(
+    const repaired = await runAgentTurn(
+      deps,
+      state,
       repairPrompt(
         current?.goal ?? '',
         verdict.detail,
@@ -298,6 +344,7 @@ async function verifyRepairLoop(
       ),
       'repairing'
     );
+    if (repaired === 'budget') return 'budget';
     // task_acceptance during the repair turn can accept the task. repair_applied
     // is illegal from a terminal or blocked phase and would surface as
     // "run crashed" even though the goal already finished.
@@ -453,16 +500,23 @@ export async function runTask(
   state.turns += 1;
   try {
     const prompt = planningPrompt(goal, taskId, options.acceptanceCommand, options.capabilityLayer);
-    await deps.runTurn(
+    const planning = await runAgentTurn(
+      deps,
+      state,
       await injectExperienceIntoPrompt(prompt, goal, deps.workspaceDir),
       'planning'
     );
-    // Already-accepted is the only skipped transition. Anything else illegal
-    // (for example plan_ready from verifying) throws.
-    await appendUnlessAccepted(deps.workspaceDir, taskId, 'plan_ready');
-    await appendUnlessAccepted(deps.workspaceDir, taskId, 'execution_started');
-    if (!(await acceptPlanningIfSatisfied(deps, state, provider))) {
-      await verifyRepairLoop(deps, state, provider, maxRepairAttempts);
+    // A budget stop during planning must not open the execution or repair loop.
+    // A turn that already settled is not a budget stop (runAgentTurn returns
+    // 'ok'), so this still runs #22's handoff.
+    if (planning !== 'budget') {
+      // Already-accepted is the only skipped transition. Anything else illegal
+      // (for example plan_ready from verifying) throws.
+      await appendUnlessAccepted(deps.workspaceDir, taskId, 'plan_ready');
+      await appendUnlessAccepted(deps.workspaceDir, taskId, 'execution_started');
+      if (!(await acceptPlanningIfSatisfied(deps, state, provider))) {
+        await verifyRepairLoop(deps, state, provider, maxRepairAttempts);
+      }
     }
   } catch (err) {
     // A lock timeout is the error: wrapping it as task_failed "run crashed"
