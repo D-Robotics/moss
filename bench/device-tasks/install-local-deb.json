@@ -1,0 +1,33 @@
+{
+  "id": "install-local-deb",
+  "title": "Build and install a local marker package",
+  "sideEffect": "mutating",
+  "tier": "optional",
+  "maxTurns": 14,
+  "timeoutMs": 240000,
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Build a tiny local package named moss-bench-marker version 0.0.1 with no maintainer scripts and no dependencies. Its only payload is /usr/share/moss-bench-marker/ok containing exactly the line {{TOKEN}}. Build the .deb under {{ROOT}} and install it with dpkg. Record evidence metric `package_status` whose observed value is the trimmed output of `dpkg -s moss-bench-marker`.\n\nDo not use apt mirrors. Do not reboot, reflash, change passwords, or edit ssh or network configuration. The bench removes the package afterwards.",
+  "prerequisites": ["command -v dpkg-deb >/dev/null && command -v dpkg >/dev/null"],
+  "setup": ["mkdir -p \"$MOSS_BENCH_ROOT\"", "dpkg -r moss-bench-marker >/dev/null 2>&1 || true"],
+  "oracle": [
+    "rm -rf \"$MOSS_BENCH_ROOT/pkg\"",
+    "mkdir -p \"$MOSS_BENCH_ROOT/pkg/DEBIAN\" \"$MOSS_BENCH_ROOT/pkg/usr/share/moss-bench-marker\"",
+    "cat > \"$MOSS_BENCH_ROOT/pkg/DEBIAN/control\" <<EOF\nPackage: moss-bench-marker\nVersion: 0.0.1\nSection: misc\nPriority: optional\nArchitecture: all\nMaintainer: Moss Bench <bench@localhost>\nDescription: temporary marker installed by the moss device bench\nEOF",
+    "printf '%s\\n' \"$MOSS_BENCH_TOKEN\" > \"$MOSS_BENCH_ROOT/pkg/usr/share/moss-bench-marker/ok\"",
+    "dpkg-deb --build \"$MOSS_BENCH_ROOT/pkg\" \"$MOSS_BENCH_ROOT/moss-bench-marker.deb\"",
+    "dpkg -i \"$MOSS_BENCH_ROOT/moss-bench-marker.deb\""
+  ],
+  "acceptance": [
+    "dpkg -s moss-bench-marker | grep -F 'Status: install ok installed'",
+    "grep -F \"$MOSS_BENCH_TOKEN\" /usr/share/moss-bench-marker/ok"
+  ],
+  "cleanup": [
+    "dpkg -r moss-bench-marker >/dev/null 2>&1 || true",
+    "rm -rf /usr/share/moss-bench-marker \"$MOSS_BENCH_ROOT\""
+  ],
+  "evidence": [
+    {
+      "metric": "package_status",
+      "probe": "dpkg -s moss-bench-marker"
+    }
+  ]
+}

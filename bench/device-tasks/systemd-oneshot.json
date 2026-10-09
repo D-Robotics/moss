@@ -1,0 +1,36 @@
+{
+  "id": "systemd-oneshot",
+  "title": "Create and run a oneshot systemd unit",
+  "sideEffect": "mutating",
+  "tier": "optional",
+  "maxTurns": 14,
+  "timeoutMs": 240000,
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*).\n\nCreate /etc/systemd/system/moss-bench-marker.service, a Type=oneshot unit whose ExecStart writes the single line {{TOKEN}} to {{ROOT}}/systemd-proof.txt. daemon-reload and start that unit only. Record evidence metric `unit_result` whose observed value is the trimmed output of `systemctl show -p Result --value moss-bench-marker` (it must be success).\n\nDo not enable a reboot, do not restart ssh, and do not edit firewall or network configuration. The bench removes this unit afterwards.",
+  "prerequisites": [
+    "command -v systemctl >/dev/null 2>&1 && { [ -d /run/systemd/system ] || [ \"${MOSS_BENCH_SIM:-}\" = 1 ]; }"
+  ],
+  "setup": ["mkdir -p \"$MOSS_BENCH_ROOT\""],
+  "oracle": [
+    "mkdir -p \"$MOSS_BENCH_ROOT\" /etc/systemd/system",
+    "cat > /etc/systemd/system/moss-bench-marker.service <<EOF\n[Unit]\nDescription=Moss bench marker oneshot\n[Service]\nType=oneshot\nExecStart=/bin/bash -lc 'mkdir -p \"$MOSS_BENCH_ROOT\" && printf \"%s\\n\" \"$MOSS_BENCH_TOKEN\" > \"$MOSS_BENCH_ROOT/systemd-proof.txt\"'\n[Install]\nWantedBy=multi-user.target\nEOF",
+    "systemctl daemon-reload",
+    "systemctl start moss-bench-marker"
+  ],
+  "acceptance": [
+    "test \"$(systemctl show -p Result --value moss-bench-marker)\" = success",
+    "grep -F \"$MOSS_BENCH_TOKEN\" \"$MOSS_BENCH_ROOT/systemd-proof.txt\""
+  ],
+  "cleanup": [
+    "systemctl stop moss-bench-marker >/dev/null 2>&1 || true",
+    "systemctl disable moss-bench-marker >/dev/null 2>&1 || true",
+    "rm -f /etc/systemd/system/moss-bench-marker.service",
+    "systemctl daemon-reload >/dev/null 2>&1 || true",
+    "rm -rf \"$MOSS_BENCH_ROOT\""
+  ],
+  "evidence": [
+    {
+      "metric": "unit_result",
+      "probe": "systemctl show -p Result --value moss-bench-marker"
+    }
+  ]
+}

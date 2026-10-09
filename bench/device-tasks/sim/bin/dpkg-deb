@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Simulated dpkg-deb --build. Writes a tar the sim dpkg can extract.
+set -eu
+if [ "${1:-}" != "--build" ] || [ -z "${2:-}" ]; then
+  echo "sim dpkg-deb: only --build DIR [DEB]" >&2
+  exit 1
+fi
+dir="$2"
+dest="${3:-$dir.deb}"
+mkdir -p "$(dirname "$dest")"
+tar -C "$dir" -cf "$dest" .

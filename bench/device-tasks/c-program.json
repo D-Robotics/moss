@@ -1,0 +1,19 @@
+{
+  "id": "c-program",
+  "title": "Write, compile, and run a C program",
+  "sideEffect": "mutating",
+  "tier": "optional",
+  "maxTurns": 12,
+  "timeoutMs": 180000,
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Work only under {{ROOT}}.\n\nWrite {{ROOT}}/hello.c, compile it to {{ROOT}}/hello with gcc or cc, and make {{ROOT}}/hello print a line that contains `moss-bench-c-ok {{TOKEN}}`. Record evidence metric `program_stdout` whose observed value is that program's stdout, trimmed.\n\nDo not install packages. Do not reboot, reflash, change passwords, or edit ssh or network configuration. The bench deletes {{ROOT}} afterwards.",
+  "prerequisites": ["command -v gcc >/dev/null || command -v cc >/dev/null"],
+  "setup": ["mkdir -p \"$MOSS_BENCH_ROOT\""],
+  "oracle": [
+    "mkdir -p \"$MOSS_BENCH_ROOT\"",
+    "cat > \"$MOSS_BENCH_ROOT/hello.c\" <<'EOF'\n#include <stdio.h>\n#include <stdlib.h>\nint main(void) {\n  const char *token = getenv(\"MOSS_BENCH_TOKEN\");\n  printf(\"moss-bench-c-ok %s\\n\", token ? token : \"\");\n  return 0;\n}\nEOF",
+    "if command -v gcc >/dev/null; then gcc -o \"$MOSS_BENCH_ROOT/hello\" \"$MOSS_BENCH_ROOT/hello.c\"; else cc -o \"$MOSS_BENCH_ROOT/hello\" \"$MOSS_BENCH_ROOT/hello.c\"; fi"
+  ],
+  "acceptance": ["\"$MOSS_BENCH_ROOT/hello\" | grep -F \"moss-bench-c-ok $MOSS_BENCH_TOKEN\""],
+  "cleanup": ["rm -rf \"$MOSS_BENCH_ROOT\""],
+  "evidence": [{ "metric": "program_stdout", "probe": "\"$MOSS_BENCH_ROOT/hello\"" }]
+}

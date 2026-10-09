@@ -1,0 +1,26 @@
+{
+  "id": "ros2-pubsub",
+  "title": "Publish a ROS2 message and read it back",
+  "sideEffect": "mutating",
+  "tier": "optional",
+  "maxTurns": 16,
+  "timeoutMs": 240000,
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Call device_robotics_status first. If ROS2 or TROS is installed, source its setup.bash before ros2 commands.\n\nPublish one std_msgs/msg/String on /moss_bench_demo whose data contains {{TOKEN}}. Leave the message where `ros2 topic echo /moss_bench_demo --once` can read it (a short-lived publisher is enough when echo sees the message). Record evidence metric `ros_message` whose observed value is that echo output, trimmed.\n\nDo not install a ROS distribution. Do not reboot, reflash, change passwords, or edit ssh or network configuration. The bench stops the publisher afterwards.",
+  "prerequisites": [
+    "if command -v ros2 >/dev/null 2>&1; then exit 0; fi; if [ -f /opt/tros/setup.bash ] || [ -f /opt/tros/humble/setup.bash ]; then exit 0; fi; if ls /opt/ros/*/setup.bash >/dev/null 2>&1; then exit 0; fi; exit 1"
+  ],
+  "setup": ["mkdir -p \"$MOSS_BENCH_ROOT\" \"$MOSS_BENCH_STATE/ros\""],
+  "oracle": ["ros2 topic pub /moss_bench_demo std_msgs/msg/String \"data: $MOSS_BENCH_TOKEN\""],
+  "acceptance": ["ros2 topic echo /moss_bench_demo --once | grep -F \"$MOSS_BENCH_TOKEN\""],
+  "cleanup": [
+    "if [ -f \"$MOSS_BENCH_ROOT/ros.pid\" ]; then kill \"$(cat \"$MOSS_BENCH_ROOT/ros.pid\")\" >/dev/null 2>&1 || true; fi",
+    "rm -f \"$MOSS_BENCH_STATE/ros/_moss_bench_demo\"",
+    "rm -rf \"$MOSS_BENCH_ROOT\""
+  ],
+  "evidence": [
+    {
+      "metric": "ros_message",
+      "probe": "ros2 topic echo /moss_bench_demo --once"
+    }
+  ]
+}

@@ -158,6 +158,59 @@ test('moss task run exits 0 only on acceptance, printing the real summary', asyn
   assert.equal(snapshot.phase, 'accepted');
 });
 
+test('moss task run prints llm_usage when the agent reports tokens', async () => {
+  const ws = await tmpWorkspace();
+  const ref = { ws };
+  let taskId;
+  const agent = {
+    async *streamChat() {
+      const { listTaskEvents } = await import('../dist/core/task/task-store.js');
+      const events = await listTaskEvents(ref.ws);
+      if (!taskId) {
+        taskId = events[0].taskId;
+        await appendTaskRecord(ref.ws, {
+          taskId,
+          goal: 'create marker file',
+          acceptanceCriteria: [{ metric: 'file_content', expected: 'contains task-os-m5' }],
+          status: 'active',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      } else {
+        await appendEvidenceRecord(ref.ws, {
+          evidenceId: `ev_${Date.now()}`,
+          taskId,
+          source: 'exec',
+          metric: 'file_content',
+          expected: 'contains task-os-m5',
+          observed: 'task-os-m5',
+          result: 'pass',
+          timestamp: Date.now(),
+        });
+      }
+      yield { type: 'llm_usage', inputTokens: 11, outputTokens: 7 };
+      yield { type: 'done', result: { response: 'done', stopReason: 'end_turn' } };
+    },
+  };
+  const out = captureStdout();
+  try {
+    const code = await runTaskCommand(['run', 'create marker file'], {
+      agent,
+      workspace: ws,
+      sessionKey: 'cli-task-usage',
+    });
+    assert.equal(code, 0);
+  } finally {
+    out.restore();
+  }
+  const text = out.text();
+  assert.match(text, /"type":"llm_usage"/);
+  const input = /"input_tokens":(\d+)/.exec(text);
+  const output = /"output_tokens":(\d+)/.exec(text);
+  assert.ok(input && Number(input[1]) >= 11 && Number(input[1]) % 11 === 0);
+  assert.ok(output && Number(output[1]) >= 7 && Number(output[1]) % 7 === 0);
+});
+
 test('moss task run passes the CLI locale into the summary (zh)', async () => {
   const ws = await tmpWorkspace();
   const ref = { ws };

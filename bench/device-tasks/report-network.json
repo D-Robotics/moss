@@ -1,0 +1,20 @@
+{
+  "id": "report-network",
+  "title": "Report a network interface name",
+  "sideEffect": "readonly",
+  "tier": "optional",
+  "maxTurns": 8,
+  "timeoutMs": 180000,
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*).\n\nList interface names under /sys/class/net (device_network is fine if you also confirm the name exists there). Record evidence metric `net_iface` whose observed value is exactly one interface name, the first directory entry of /sys/class/net.\n\nDo not change addresses, routes, links, firewall rules, or ssh. Do not reboot or reflash.",
+  "prerequisites": [],
+  "setup": [],
+  "oracle": [],
+  "acceptance": ["test -d /sys/class/net"],
+  "cleanup": [],
+  "evidence": [
+    {
+      "metric": "net_iface",
+      "probe": "shopt -s nullglob; ifaces=(/sys/class/net/*); if [ \"${#ifaces[@]}\" -eq 0 ]; then exit 1; fi; basename \"${ifaces[0]}\""
+    }
+  ]
+}

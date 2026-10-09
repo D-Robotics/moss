@@ -1,0 +1,27 @@
+{
+  "id": "rollback-state",
+  "title": "Change board state and roll it back",
+  "sideEffect": "mutating",
+  "maxTurns": 12,
+  "timeoutMs": 180000,
+  "tier": "core",
+  "stateSnapshot": "\"$MOSS_BENCH_ROOT/state.txt\"",
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Setup has installed {{ROOT}}/bin/mutate. {{ROOT}}/state.txt.orig is the original bytes of {{ROOT}}/state.txt.\n\n1. Run `{{ROOT}}/bin/mutate set v2` (this is the change).\n2. Run `{{ROOT}}/bin/mutate rollback` so state.txt is byte-for-byte the original again.\nDo not edit state.txt or audit.log by hand; the helper appends the audit. Do not invent the original contents.\nRecord evidence metric `state_text` whose observed value is the exact contents of {{ROOT}}/state.txt after the rollback, trimmed of surrounding whitespace.\n\nDo not reboot, reflash, change passwords, or edit ssh or network configuration. The bench deletes {{ROOT}} afterwards.",
+  "prerequisites": [],
+  "setup": [
+    "mkdir -p \"$MOSS_BENCH_ROOT/bin\"",
+    "printf '%s\\n' \"$MOSS_BENCH_ROLLBACK_BODY\" > \"$MOSS_BENCH_ROOT/state.txt\"",
+    "cp \"$MOSS_BENCH_ROOT/state.txt\" \"$MOSS_BENCH_ROOT/state.txt.orig\"",
+    "cat > \"$MOSS_BENCH_ROOT/bin/mutate\" <<'EOF'\n#!/usr/bin/env bash\nset -eu\nroot=\"$(cd \"$(dirname \"$0\")/..\" && pwd)\"\nlog=\"$root/audit.log\"\ncase \"${1:-}\" in\n  set)\n    printf '%s\\n' \"$2\" > \"$root/state.txt\"\n    printf 'SET %s\\n' \"$2\" >> \"$log\"\n    ;;\n  rollback)\n    cp \"$root/state.txt.orig\" \"$root/state.txt\"\n    printf 'ROLLBACK\\n' >> \"$log\"\n    ;;\n  *)\n    echo \"usage: mutate set VALUE | rollback\" >&2\n    exit 2\n    ;;\nesac\nEOF",
+    "chmod +x \"$MOSS_BENCH_ROOT/bin/mutate\""
+  ],
+  "oracle": ["\"$MOSS_BENCH_ROOT/bin/mutate\" set v2", "\"$MOSS_BENCH_ROOT/bin/mutate\" rollback"],
+  "acceptance": ["test -s \"$MOSS_BENCH_ROOT/state.txt\""],
+  "cleanup": ["rm -rf \"$MOSS_BENCH_ROOT\""],
+  "evidence": [
+    {
+      "metric": "state_text",
+      "probe": "tr -d '[:space:]' < \"$MOSS_BENCH_ROOT/state.txt\"; printf '\\n'"
+    }
+  ]
+}
