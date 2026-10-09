@@ -5,11 +5,11 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import ssh2 from 'ssh2';
 
 import {
@@ -514,4 +514,116 @@ test('bench:device --list and --dry --task report-identity', () => {
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /RDK_S600_PASSWORD/);
   fs.rmSync(resultsDir, { recursive: true, force: true });
+});
+
+const PROVIDER_KEY = 'sk-device-bench-cleanup-key';
+
+function providerHoldScript(moduleHref) {
+  return [
+    'import fs from "node:fs";',
+    `import { writeBenchProviderConfig } from ${JSON.stringify(moduleHref)};`,
+    'const marker = process.argv[2];',
+    'const mode = process.argv[3];',
+    'const { configDir } = writeBenchProviderConfig({',
+    `  apiKey: ${JSON.stringify(PROVIDER_KEY)},`,
+    '  model: "bench-model",',
+    '  baseUrl: "https://bench.invalid/v1",',
+    '});',
+    'const body = fs.readFileSync(configDir + "/config.json", "utf8");',
+    'fs.writeFileSync(marker, JSON.stringify({ configDir, hasKey: body.includes(' +
+      JSON.stringify(PROVIDER_KEY) +
+      ') }));',
+    'if (mode === "exit") process.exit(0);',
+    'setInterval(() => {}, 1000);',
+    '',
+  ].join('\n');
+}
+
+function runProviderHold(mode) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-hold-'));
+  const marker = path.join(root, 'marker.json');
+  const script = path.join(root, 'hold.mjs');
+  const moduleHref = pathToFileURL(path.join(repoRoot, 'scripts/lib/device-bench.mjs')).href;
+  fs.writeFileSync(script, providerHoldScript(moduleHref));
+  const child = spawn(process.execPath, [script, marker, mode], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stderr = '';
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
+  const exitCode = new Promise((resolve) => child.once('exit', resolve));
+  return { root, marker, child, exitCode, stderr: () => stderr };
+}
+
+async function waitForMarker(marker) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(marker)) return JSON.parse(fs.readFileSync(marker, 'utf8'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error('provider config marker was not written');
+}
+
+test('provider config dir is removed on process exit and SIGTERM', async () => {
+  const exited = runProviderHold('exit');
+  try {
+    const info = await waitForMarker(exited.marker);
+    assert.equal(info.hasKey, true, exited.stderr());
+    const code = await exited.exitCode;
+    assert.equal(code, 0, exited.stderr());
+    assert.equal(fs.existsSync(info.configDir), false);
+  } finally {
+    fs.rmSync(exited.root, { recursive: true, force: true });
+  }
+
+  const signaled = runProviderHold('wait');
+  try {
+    const info = await waitForMarker(signaled.marker);
+    assert.equal(info.hasKey, true, signaled.stderr());
+    assert.equal(fs.existsSync(path.join(info.configDir, 'config.json')), true);
+    signaled.child.kill('SIGTERM');
+    const code = await signaled.exitCode;
+    assert.equal(code, 143, signaled.stderr());
+    assert.equal(fs.existsSync(info.configDir), false);
+  } finally {
+    try {
+      signaled.child.kill('SIGKILL');
+    } catch {
+      /* already exited */
+    }
+    fs.rmSync(signaled.root, { recursive: true, force: true });
+  }
+});
+
+test('runDeviceBench finally removes the provider config dir', { timeout: 60_000 }, async () => {
+  const before = new Set(
+    fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith('moss-device-bench-provider-'))
+  );
+  const resultsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-cfgclean-'));
+  const rootBase = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-root-'));
+  try {
+    const result = await runDeviceBench({
+      mode: 'sim',
+      tasks: [],
+      resultsDir,
+      rootBase,
+      model: 'bench-model',
+      baseUrl: 'https://bench.invalid/v1',
+      env: { MOSS_BENCH_API_KEY: PROVIDER_KEY },
+    });
+    assert.equal(result.exitCode, 0);
+    assert.equal(
+      fs.readFileSync(result.summaryPath, 'utf8').includes(PROVIDER_KEY),
+      false,
+      'summary keeps the provider key'
+    );
+  } finally {
+    fs.rmSync(resultsDir, { recursive: true, force: true });
+    fs.rmSync(rootBase, { recursive: true, force: true });
+  }
+  const leaked = fs
+    .readdirSync(os.tmpdir())
+    .filter((name) => name.startsWith('moss-device-bench-provider-') && !before.has(name));
+  assert.deepEqual(leaked, []);
 });

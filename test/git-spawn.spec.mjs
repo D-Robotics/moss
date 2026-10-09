@@ -354,6 +354,35 @@ test('project .env GIT_DIR does not run another repo filter', async (t) => {
   }
 });
 
+test('read-only git refuses when config discovery exits 128', async (t) => {
+  const { captureEnvBeforeDotenv } = await import('../dist/utils/startup-env.js');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-git-discovery-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const bin = path.join(dir, 'bin');
+  const marker = path.join(dir, 'FILTER_RAN');
+  await fs.mkdir(bin);
+  const fakeGit = path.join(bin, 'git');
+  await fs.writeFile(
+    fakeGit,
+    `#!/bin/sh\nfor arg in "$@"; do\n  if [ "$arg" = "--get-regexp" ]; then\n    echo 'fatal: discovery failed' >&2\n    exit 128\n  fi\ndone\necho ran >> ${JSON.stringify(marker)}\nexit 0\n`
+  );
+  await fs.chmod(fakeGit, 0o755);
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${savedPath ?? ''}`;
+  captureEnvBeforeDotenv(process.env);
+  try {
+    await assert.rejects(
+      () => runWorkingTreeDiff(dir),
+      /Refusing read-only git: config discovery exited 128/
+    );
+    assert.equal(await markerWritten(marker), false, 'refused git still ran the filter');
+  } finally {
+    if (savedPath === undefined) delete process.env.PATH;
+    else process.env.PATH = savedPath;
+    captureEnvBeforeDotenv(process.env);
+  }
+});
+
 async function initPlainRepo(t, prefix) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));

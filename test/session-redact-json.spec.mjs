@@ -63,6 +63,38 @@ assert.equal(replaced.length, 3, 'replaceMessages reload still has 3 messages');
 assert.equal(JSON.stringify(replaced).includes(SECRET), false, 'replaced session leaks');
 assert.match(JSON.stringify(replaced), /DB_HOST=db\.internal/);
 
+const parallel = {
+  role: 'user',
+  content: [
+    { type: 'tool_result', tool_use_id: 'call_A', content: TOOL_TEXT },
+    {
+      type: 'tool_result',
+      tool_use_id: 'call_B',
+      content: 'Found 1 file(s) (newest first):\n.env',
+    },
+  ],
+};
+await store.appendMessage('cat-env-parallel', parallel);
+const parallelFile = path.join(sessionsDir, 'cat-env-parallel.jsonl');
+const parallelRaw = fs.readFileSync(parallelFile, 'utf8');
+const parallelLine = JSON.parse(parallelRaw);
+assert.equal(parallelRaw.includes(SECRET), false, 'parallel session file leaks');
+assert.match(parallelRaw, /call_A/);
+assert.match(parallelRaw, /call_B/);
+assert.match(parallelRaw, /Found 1 file\(s\) \(newest first\)/);
+assert.match(parallelRaw, /\.env/);
+const parallelLoaded = await store.loadMessages('cat-env-parallel');
+assert.equal(parallelLoaded.length, 1);
+const parallelContent = parallelLoaded[0].content;
+assert.equal(parallelContent.length, 2);
+assert.equal(parallelContent[0].tool_use_id, 'call_A');
+assert.equal(parallelContent[1].tool_use_id, 'call_B');
+assert.equal(parallelContent[1].content, 'Found 1 file(s) (newest first):\n.env');
+assert.equal(JSON.stringify(parallelLoaded).includes(SECRET), false, 'parallel reload leaks');
+assert.equal(parallelLine.message.content.length, 2);
+assert.match(parallelContent[0].content, /DB_HOST=db\.internal/);
+assert.match(parallelContent[0].content, /\[REDACTED\]/);
+
 const log = new SessionEventLog('cat-env');
 appendSessionEvent(eventFile, log.append({ type: 'text.delta', data: { text: TOOL_TEXT } }));
 const eventLine = fs.readFileSync(eventFile, 'utf8').trim();

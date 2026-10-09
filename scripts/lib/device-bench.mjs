@@ -497,19 +497,54 @@ async function runLiveMoss(task, ctx, provider, approval) {
   });
 }
 
-function writeBenchProviderConfig(provider) {
+const providerConfigDirs = new Set();
+let providerConfigCleanupInstalled = false;
+
+function releaseProviderConfigDir(dir) {
+  if (!dir) return;
+  fs.rmSync(dir, { recursive: true, force: true });
+  providerConfigDirs.delete(dir);
+}
+
+function releaseAllProviderConfigDirs() {
+  for (const dir of [...providerConfigDirs]) releaseProviderConfigDir(dir);
+}
+
+function installProviderConfigCleanup() {
+  if (providerConfigCleanupInstalled) return;
+  providerConfigCleanupInstalled = true;
+  process.on('exit', releaseAllProviderConfigDirs);
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    if (process.platform === 'win32' && signal === 'SIGHUP') continue;
+    process.on(signal, () => {
+      releaseAllProviderConfigDirs();
+      const code = signal === 'SIGINT' ? 130 : signal === 'SIGTERM' ? 143 : 129;
+      process.exit(code);
+    });
+  }
+}
+
+/** Temp config holding the bench API key. Removed on finish, exit, and signals. */
+export function writeBenchProviderConfig(provider) {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-provider-'));
-  fs.chmodSync(configDir, 0o700);
-  fs.writeFileSync(
-    path.join(configDir, 'config.json'),
-    `${JSON.stringify({
-      provider: 'openai-compatible',
-      model: provider.model,
-      baseUrl: provider.baseUrl,
-      apiKey: provider.apiKey,
-    })}\n`,
-    { mode: 0o600 }
-  );
+  providerConfigDirs.add(configDir);
+  installProviderConfigCleanup();
+  try {
+    fs.chmodSync(configDir, 0o700);
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      `${JSON.stringify({
+        provider: 'openai-compatible',
+        model: provider.model,
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+      })}\n`,
+      { mode: 0o600 }
+    );
+  } catch (err) {
+    releaseProviderConfigDir(configDir);
+    throw err;
+  }
   return { ...provider, configDir };
 }
 
@@ -972,7 +1007,7 @@ export async function runDeviceBench(options = {}) {
   } finally {
     if (sim) await sim.close();
     restoreEnv(savedEnv);
-    if (provider?.configDir) fs.rmSync(provider.configDir, { recursive: true, force: true });
+    releaseProviderConfigDir(provider?.configDir);
     if (ownsRoot) fs.rmSync(rootBase, { recursive: true, force: true });
   }
 }

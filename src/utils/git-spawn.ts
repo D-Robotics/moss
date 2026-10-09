@@ -20,6 +20,9 @@
  *
  * `GIT_*` on the child comes from the environment captured before a project
  * `.env`. A project file cannot point git at another repo or config.
+ * `git config --get-regexp` exit 1 means nothing matched. Any other discovery
+ * failure refuses the read-only git command instead of running it with those
+ * programs still armed.
  */
 import { ProcessError, runProcess, type RunProcessResult } from './run-process.js';
 import { safeChildEnv } from './safe-child-env.js';
@@ -154,6 +157,24 @@ function gitChildEnv(overrides?: Record<string, string>): Record<string, string>
   return env;
 }
 
+/** Exit 1 with no timeout is git's "no key matched". Everything else is a failure. */
+function isEmptyConfigListing(err: unknown): boolean {
+  return err instanceof ProcessError && err.exitCode === 1 && !err.timedOut;
+}
+
+function refuseConfigDiscovery(err: unknown): Error {
+  if (err instanceof ProcessError) {
+    const reason = err.timedOut ? 'timed out' : `exited ${err.exitCode}`;
+    const detail = (err.stderr || err.stdout).trim();
+    const suffix = detail ? `: ${detail}` : '';
+    return new Error(`Refusing read-only git: config discovery ${reason}${suffix}`, { cause: err });
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return new Error(`Refusing read-only git: config discovery failed: ${message}`, {
+    cause: err instanceof Error ? err : undefined,
+  });
+}
+
 async function executableConfigOverrides(
   cwd: string | undefined,
   signal: AbortSignal | undefined
@@ -175,8 +196,9 @@ async function executableConfigOverrides(
       env: gitChildEnv({ GIT_PAGER: 'cat' }),
     });
     return configOverridesForExecutableKeys(listed.stdout);
-  } catch {
-    return [];
+  } catch (err) {
+    if (isEmptyConfigListing(err)) return [];
+    throw refuseConfigDiscovery(err);
   }
 }
 

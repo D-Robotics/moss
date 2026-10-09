@@ -72,7 +72,12 @@ not used. Every git child passes `-c core.fsmonitor=` and
 are still read and are not overridden. Git children take `GIT_*` from the
 environment captured before the project `.env`. Startup `git status` and
 `/diff` do not run a program named in a copied repo's `.git/config` or
-`.gitattributes`.
+`.gitattributes`. If listing that config fails for any reason other than
+no matches (exit 1), the read-only git command is refused. A session JSON
+line keeps the per-value redaction when a whole-line pass would still parse
+but drop a later tool result. Device bench removes the temporary provider
+config directory that holds the API key on finish, process exit, and
+SIGINT / SIGTERM / SIGHUP.
 Headless `-p` stays untrusted and
 prints one line naming what was skipped. Enable it for that process with
 `--trust-workspace` or `MOSS_TRUST_WORKSPACE=1`.
@@ -131,7 +136,7 @@ scripts, connection steps, and device safety rules stay. See
 读取 `.claude/`（settings 或 agents）和 `.mcp.json` 需要一次性确认。项目 hooks、项目 MCP（stdio 与 HTTP，含 `.moss/mcp.json`）、项目 `statusLine` 命令、带写工具的项目 agent 和插件也需要按路径一次性信任。未信任的 HTTP 服务器不会加载，因此不会展开项目 URL 里的 `${VAR}`。
 信任结果传给 agent loader（`trusted` 与 `claudeOptIn` 分开：拒绝 Claude 兼容且没有其他项目内容时仍是 `trusted: true`、`claudeOptIn: false`，`.claude/agents` 里的写代理继续被挡住）。
 内置 rdk-docs 因来源是 Moss 自己注入而免询问；同名的项目服务器和项目 `rdkDocs.package` 不能替换它。用户自己的配置（`~/.config/moss` 与 `~/.moss`）不会询问。
-`MOSS_TRUST_WORKSPACE`、`MOSS_CONFIG_DIR`、`MOSS_CONFIG_FILE`、`MOSS_CONFIG_PATH`、`MOSS_RDK_DOCS_PACKAGE`、`XDG_CONFIG_HOME`、`HOME`、`APPDATA`、`USERPROFILE` 只认加载 `.env` 之前的进程环境和命令行，项目 `.env` 不能设置。项目 `.env` 也不能设置解释器/加载器变量（`NODE_OPTIONS`、`LD_PRELOAD`、`DYLD_*`、`BASH_ENV`、`PYTHON*`、`PERL5*`、`RUBY*`、`GIT_*`（含 `GIT_DIR`、`GIT_CONFIG`、`GIT_WORK_TREE`、`GIT_COMMON_DIR`、`GIT_OBJECT_DIRECTORY`）、`npm_config_*`、`PATH`、`SHELL`、`IFS`、`TMPDIR`、`TMP`、`TEMP` 等）。子进程保留用户自己设的值，丢掉项目文件加进来的值。内置 rdk-docs 的 `npx` 子进程只继承加载 `.env` 之前的环境，工作目录是加载 `.env` 之前的用户主目录下的 `~/.moss/cache/npx`，不用 `TMPDIR`，也不传 `--registry`，因此用户 `~/.npmrc` 或进程环境里的镜像源仍然有效；`npm_config_userconfig` 保持用户自己的 `~/.npmrc`，不改 `npm_config_globalconfig`，项目 `.npmrc` 的 `registry=` 不会被用到。Moss 启动的每个 git 子进程都带 `-c core.fsmonitor=` 和 `-c core.hooksPath=/dev/null`（Windows 为 `NUL`）。只读 git 另外清空 `core.sshCommand`、`diff.external`、`credential.helper`，把 `core.pager` 与 `GIT_PAGER` 设为 `cat`，对 `diff` 加上 `--no-ext-diff` 和 `--no-textconv`，并清空 local 与 worktree 作用域的 `filter.*.clean|smudge|process` 与 `diff.*.textconv|command`（含 `include.path`、`includeIf`、`extensions.worktreeConfig` 引入的键，同时 `filter.<name>.required=false`）。系统级和 global git 配置仍会读取且不会被覆盖。git 子进程的 `GIT_*` 取自加载项目 `.env` 之前的环境。启动时的 `git status` 和 `/diff` 不会执行拷贝来的仓库 `.git/config` 或 `.gitattributes` 里指定的程序。
+`MOSS_TRUST_WORKSPACE`、`MOSS_CONFIG_DIR`、`MOSS_CONFIG_FILE`、`MOSS_CONFIG_PATH`、`MOSS_RDK_DOCS_PACKAGE`、`XDG_CONFIG_HOME`、`HOME`、`APPDATA`、`USERPROFILE` 只认加载 `.env` 之前的进程环境和命令行，项目 `.env` 不能设置。项目 `.env` 也不能设置解释器/加载器变量（`NODE_OPTIONS`、`LD_PRELOAD`、`DYLD_*`、`BASH_ENV`、`PYTHON*`、`PERL5*`、`RUBY*`、`GIT_*`（含 `GIT_DIR`、`GIT_CONFIG`、`GIT_WORK_TREE`、`GIT_COMMON_DIR`、`GIT_OBJECT_DIRECTORY`）、`npm_config_*`、`PATH`、`SHELL`、`IFS`、`TMPDIR`、`TMP`、`TEMP` 等）。子进程保留用户自己设的值，丢掉项目文件加进来的值。内置 rdk-docs 的 `npx` 子进程只继承加载 `.env` 之前的环境，工作目录是加载 `.env` 之前的用户主目录下的 `~/.moss/cache/npx`，不用 `TMPDIR`，也不传 `--registry`，因此用户 `~/.npmrc` 或进程环境里的镜像源仍然有效；`npm_config_userconfig` 保持用户自己的 `~/.npmrc`，不改 `npm_config_globalconfig`，项目 `.npmrc` 的 `registry=` 不会被用到。Moss 启动的每个 git 子进程都带 `-c core.fsmonitor=` 和 `-c core.hooksPath=/dev/null`（Windows 为 `NUL`）。只读 git 另外清空 `core.sshCommand`、`diff.external`、`credential.helper`，把 `core.pager` 与 `GIT_PAGER` 设为 `cat`，对 `diff` 加上 `--no-ext-diff` 和 `--no-textconv`，并清空 local 与 worktree 作用域的 `filter.*.clean|smudge|process` 与 `diff.*.textconv|command`（含 `include.path`、`includeIf`、`extensions.worktreeConfig` 引入的键，同时 `filter.<name>.required=false`）。系统级和 global git 配置仍会读取且不会被覆盖。git 子进程的 `GIT_*` 取自加载项目 `.env` 之前的环境。启动时的 `git status` 和 `/diff` 不会执行拷贝来的仓库 `.git/config` 或 `.gitattributes` 里指定的程序。列出这些配置时，除了没有匹配（退出码 1）以外的失败都会拒绝这次只读 git。会话 JSON 行在整行脱敏仍能解析、但会丢掉后面的 tool result 时，保留按值脱敏的结果。设备基准在结束、进程退出和 SIGINT / SIGTERM / SIGHUP 时删除存放 API key 的临时 provider 配置目录。
 无头 `-p` 默认不信任，并打印一行说明跳过了什么；用 `--trust-workspace` 或 `MOSS_TRUST_WORKSPACE=1` 启用。
 
 ### 斜杠命令、真实终端与基准
