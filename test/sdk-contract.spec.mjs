@@ -75,6 +75,7 @@ const SNAPSHOT = [
   'buildTaskTimeline',
   'builtinTools',
   'canHostInjectToolWithEmptyInput',
+  'classifyDeviceOperation',
   'classifyFailoverReason',
   'classifyFileKind',
   'classifyLlmError',
