@@ -33,6 +33,8 @@ export interface BackgroundProcSnapshot {
   id: string;
   command: string;
   label?: string;
+  /** Session that started the process, when the host provided one. */
+  sessionKey?: string;
   pid?: number;
   status: BackgroundStatus;
   exitCode: number | null;
@@ -57,6 +59,8 @@ export interface BackgroundProc {
   id: string;
   command: string;
   label?: string;
+  /** Session that started the process, when the host provided one. */
+  sessionKey?: string;
   child: ChildProcess;
   pid?: number;
   status: BackgroundStatus;
@@ -104,6 +108,7 @@ export function toSnapshot(proc: BackgroundProc): BackgroundProcSnapshot {
     id: proc.id,
     command: proc.command,
     label: proc.label,
+    ...(proc.sessionKey ? { sessionKey: proc.sessionKey } : {}),
     pid: proc.pid,
     status: proc.status,
     exitCode: proc.exitCode,
@@ -265,6 +270,24 @@ export function stopBackgroundProcess(id: string): boolean {
   if (!proc || proc.status !== 'running') return false;
   killProc(proc);
   return true;
+}
+
+/**
+ * Stop running background processes. With a session key, only processes that
+ * session started are signaled — another session's jobs keep running.
+ * Omitting the key stops every running entry (tests and hosts that have one
+ * session). Processes moss did not spawn are not in this registry.
+ * Returns the ids that were signaled.
+ */
+export function stopAllBackgroundProcesses(sessionKey?: string): string[] {
+  const ids: string[] = [];
+  for (const proc of [...backgroundProcesses.values()]) {
+    if (proc.status !== 'running') continue;
+    if (sessionKey !== undefined && proc.sessionKey !== sessionKey) continue;
+    ids.push(proc.id);
+    killProc(proc);
+  }
+  return ids;
 }
 
 export function tailLines(text: string, n: number): string {

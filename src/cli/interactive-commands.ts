@@ -14,8 +14,11 @@
  */
 export type CommandSurface = 'repl' | 'tui';
 
+/** What a command does when a run is already in flight. */
+export type RunAvailability = 'immediate' | 'queue' | 'reject';
+
 export interface InteractiveCommandRow {
-  /** Bare token both surfaces dispatch, e.g. `/mode`. */
+  /** Bare token both surfaces dispatch, e.g. `/goal`. */
   command: string;
 
   /** Usage hint printed after the command, e.g. `[plan|default|accept-edits]`. */
@@ -27,11 +30,14 @@ export interface InteractiveCommandRow {
 
   aliases?: readonly string[];
 
-  /** REPL only: rank the command after the common ones in menus/help. */
+  /** Rank the command out of the everyday menu. It still dispatches when typed. */
   hidden?: boolean;
 
   /** Surfaces the command answers on; default: both. */
   surfaces?: readonly CommandSurface[];
+
+  /** Required: running-turn policy, aligned with Codex `available_during_task`. */
+  availableDuringRun: RunAvailability;
 }
 
 export interface InteractiveCommandSection {
@@ -48,89 +54,113 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         command: '/status',
         description: 'view model, workspace, and tool state',
         hidden: true,
+        availableDuringRun: 'immediate',
       },
       {
         command: '/model',
         args: '[name|number]',
         description: 'choose or switch the active model for this session',
-      },
-      {
-        command: '/mode',
-        args: '[manual|accept-edits|plan|full]',
-        description: 'show or set interaction mode (plan = read-only planning; Shift+Tab cycles)',
+        availableDuringRun: 'immediate',
       },
       {
         command: '/compact',
         args: '[instructions]',
         description: 'compress older conversation history into a summary',
-      },
-      // One autonomous engine: /task run (plan → execute → verify → repair →
-      // accept). /loop and /goal are dispatch-level compat aliases of it.
-      {
-        command: '/loop',
-        args: '<goal>',
-        description:
-          'compat alias of /task run <goal> — Ctrl+C interrupts (resumable via /task resume); MOSS_LOOP_MAX becomes the turn budget',
-        hidden: true,
-        surfaces: ['repl'],
+        availableDuringRun: 'reject',
       },
       {
         command: '/goal',
-        args: '<goal> --accept "<verification command>"',
-        description:
-          'compat alias of /task run <goal> --accept "<cmd>" — completes only when the command exits 0',
-        hidden: true,
-        surfaces: ['repl'],
+        args: '<condition> | clear',
+        description: 'work until a condition is met; /goal clear cancels',
+        availableDuringRun: 'queue',
+      },
+      {
+        command: '/plan',
+        args: '[description]',
+        description: 'enter plan mode; with a description, start planning immediately',
+        availableDuringRun: 'reject',
+      },
+      {
+        command: '/review',
+        args: '[PR#]',
+        description: 'review the working-tree diff (or a GitHub PR) for bugs and security',
+        availableDuringRun: 'reject',
       },
       {
         command: '/task',
-        args: 'run|resume|status|timeline|view',
+        args: 'status|timeline|resume|view|verify',
         description:
-          'run or inspect a verified Task OS task; view [tasks|history|evidence|deployments|failures] prints its artifacts',
+          'Task OS entry (hidden): status, timeline, resume, view, and verify — everyday work is /goal',
+        hidden: true,
+        availableDuringRun: 'queue',
       },
       {
-        command: '/resume',
-        args: '[id]',
-        description: 'resume a failed, blocked, or abandoned task through Task OS',
-        surfaces: ['tui'],
+        command: '/context',
+        description: 'show current context-window usage',
+        hidden: true,
+        availableDuringRun: 'immediate',
       },
-      { command: '/context', description: 'show current context-window usage', hidden: true },
       {
         command: '/usage',
         description: 'show cumulative token usage for this session',
+        aliases: ['/cost', '/stats'],
         hidden: true,
+        availableDuringRun: 'immediate',
       },
       {
         command: '/export',
         args: '[path]',
         description: 'export this session to markdown (path optional; - prints to stdout)',
         hidden: true,
-      },
-      {
-        command: '/review',
-        args: '[PR#]',
-        description: 'review the working-tree diff (or a GitHub PR) for bugs and security',
+        availableDuringRun: 'queue',
       },
     ],
   },
   {
     title: 'Inspect',
     rows: [
-      { command: '/sessions', description: 'list saved conversations', hidden: true },
-      { command: '/doctor', description: 'health-check model, egress, and config in this session' },
-      { command: '/diff', description: 'show git working-tree changes' },
+      {
+        command: '/doctor',
+        description: 'health-check model, egress, and config in this session',
+        availableDuringRun: 'immediate',
+      },
+      {
+        command: '/diff',
+        description: 'show git working-tree changes',
+        availableDuringRun: 'immediate',
+      },
+      {
+        command: '/resume',
+        args: '[id|name]',
+        description: 'resume a saved conversation',
+        availableDuringRun: 'queue',
+      },
       {
         command: '/rewind',
         args: '[seq]',
         description: 'undo file edits from a checkpoint',
-        aliases: ['/undo'],
+        aliases: ['/undo', '/checkpoint'],
         hidden: true,
+        availableDuringRun: 'queue',
       },
-      { command: '/mcp', description: 'list MCP server status', surfaces: ['tui'], hidden: true },
+      {
+        command: '/mcp',
+        description: 'list MCP server status',
+        hidden: true,
+        availableDuringRun: 'immediate',
+      },
       {
         command: '/skills',
         description: 'list discovered skills; create more with moss skill create',
         hidden: true,
+        availableDuringRun: 'immediate',
+      },
+      {
+        command: '/tasks',
+        description: 'list background shell and sub-agent jobs',
+        aliases: ['/ps', '/bashes'],
+        hidden: true,
+        availableDuringRun: 'immediate',
       },
     ],
   },
@@ -141,63 +171,202 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         command: '/permissions',
         args: '[--verbose]',
         description: 'show safety and approval settings; --verbose prints every knob',
+        availableDuringRun: 'immediate',
       },
       {
         command: '/theme',
         args: '[dark|light|mono]',
         description: 'show or set the terminal colour theme for this session',
+        // The readline REPL has no theme chrome. Advertising it there makes
+        // `/theme` an unknown command (U2).
+        surfaces: ['tui'],
+        availableDuringRun: 'immediate',
+      },
+      {
+        command: '/mode',
+        args: '[manual|accept-edits|plan|full]',
+        description: 'show or set interaction mode (plan = read-only planning; Shift+Tab cycles)',
+        hidden: true,
+        availableDuringRun: 'immediate',
       },
       {
         command: '/hooks',
         description: 'list configured lifecycle hooks and where to edit them',
-        surfaces: ['tui'],
         hidden: true,
+        availableDuringRun: 'immediate',
       },
-      // De-surfaced (still dispatch for back-compat): /quickstart — after the
-      // config-snapshot unification its content duplicates /status + the
-      // first-boot guidance; /log — its whole value (two on-disk paths) now
-      // rides on /doctor's footer. See the simplification v2 ledger.
     ],
   },
   {
     title: 'Control',
     rows: [
-      { command: '/stop', description: 'interrupt the active run', hidden: true },
+      {
+        command: '/stop',
+        description: 'stop background processes; Esc interrupts the current run',
+        aliases: ['/abort'],
+        hidden: true,
+        availableDuringRun: 'immediate',
+      },
       {
         command: '/init',
-        description: 'create an AGENTS.md project memory file',
+        description: 'create or update an AGENTS.md project memory file',
         hidden: true,
-        surfaces: ['repl'],
+        availableDuringRun: 'reject',
       },
       {
         command: '/clear',
         description: 'start a new conversation with an empty context',
+        aliases: ['/new', '/reset'],
+        availableDuringRun: 'reject',
       },
-      { command: '/quit', description: 'exit moss', hidden: true },
-      { command: '/help', description: 'show the key and command reference' },
       {
-        command: '/jobs',
-        description: 'list background shell and sub-agent jobs',
-        surfaces: ['tui'],
+        command: '/quit',
+        description: 'exit moss',
+        aliases: ['/exit'],
         hidden: true,
+        availableDuringRun: 'immediate',
+      },
+      {
+        command: '/help',
+        description: 'show the key and command reference',
+        availableDuringRun: 'immediate',
       },
       {
         command: '/queue',
         args: '[pause|resume|drop|clear]',
         description: 'inspect or control the input queue',
-        surfaces: ['tui'],
         hidden: true,
+        availableDuringRun: 'immediate',
       },
       {
         command: '/steer',
         args: '<constraint>',
         description: 'inject a constraint into the live run',
-        surfaces: ['tui'],
         hidden: true,
+        availableDuringRun: 'immediate',
       },
     ],
   },
 ] as const;
+
+/**
+ * Retired names. Checked before catalog aliases so a moss-only name can print
+ * a one-line migration and then run the canonical command. Silent aliases
+ * (`/cost`, `/new`, `/ps`, …) live on the row and are not listed here.
+ * `replaceAll` drops any trailing args (`/history extra` → `/task view history`).
+ */
+const RETIRED_SLASH: Readonly<
+  Record<string, { command: string; migration: string; replaceAll?: boolean }>
+> = {
+  '/loop': { command: '/goal', migration: '/loop 已改为 /goal' },
+  '/jobs': { command: '/tasks', migration: '/jobs is now /tasks.' },
+  '/bg': { command: '/tasks', migration: '/bg is now /tasks.' },
+  '/subs': { command: '/tasks', migration: '/subs is now /tasks.' },
+  '/history': {
+    command: '/task view history',
+    migration: '/history is now /task view history.',
+    replaceAll: true,
+  },
+  '/evidence': {
+    command: '/task view evidence',
+    migration: '/evidence is now /task view evidence.',
+    replaceAll: true,
+  },
+  '/deployments': {
+    command: '/task view deployments',
+    migration: '/deployments is now /task view deployments.',
+    replaceAll: true,
+  },
+  '/failures': {
+    command: '/task view failures',
+    migration: '/failures is now /task view failures.',
+    replaceAll: true,
+  },
+  '/sessions': { command: '/resume', migration: '/sessions is now /resume.' },
+  '/mode': {
+    command: '/mode',
+    migration:
+      'Switch modes with Shift+Tab, /plan, or /permissions. /mode remains for one version.',
+  },
+  '/steer': {
+    command: '/steer',
+    migration: 'A message sent during a run steers it. /steer remains as a hidden alias.',
+  },
+  '/queue': {
+    command: '/queue',
+    migration:
+      'A message sent during a run queues when it cannot steer. /queue remains as a hidden alias.',
+  },
+};
+
+function catalogRows(): readonly InteractiveCommandRow[] {
+  return INTERACTIVE_COMMAND_SECTIONS.flatMap((section) => section.rows);
+}
+
+export interface SlashRewrite {
+  text: string;
+  migration?: string;
+}
+
+/**
+ * True when the first token is a command the shell dispatches even if the
+ * everyday menu's fuzzy match would highlight something else. Hidden aliases
+ * (`/mode` beside `/model`) and retired names (`/loop`) must run as typed.
+ */
+export function isExactSlashCommand(input: string): boolean {
+  const trimmed = input.trim();
+  if (!trimmed.startsWith('/')) return false;
+  const head = (trimmed.split(/\s+/, 1)[0] ?? trimmed).toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(RETIRED_SLASH, head)) return true;
+  return catalogRows().some((row) => row.command === head || (row.aliases ?? []).includes(head));
+}
+
+/** Map a typed slash line onto the canonical command, once. */
+export function rewriteSlashInput(input: string): SlashRewrite {
+  const trimmed = input.trim();
+  if (!trimmed.startsWith('/')) return { text: trimmed };
+  const rawHead = trimmed.split(/\s+/, 1)[0] ?? trimmed;
+  const head = rawHead.toLowerCase();
+  const args = trimmed.slice(rawHead.length).trim();
+  const retired = RETIRED_SLASH[head];
+  if (retired) {
+    const text = retired.replaceAll
+      ? retired.command
+      : `${retired.command}${args ? ` ${args}` : ''}`;
+    return { text, migration: retired.migration };
+  }
+  for (const row of catalogRows()) {
+    if (row.aliases?.some((alias) => alias.toLowerCase() === head)) {
+      return { text: `${row.command}${args ? ` ${args}` : ''}` };
+    }
+  }
+  return { text: trimmed };
+}
+
+/** Running-turn policy for a typed command (aliases resolved first). */
+export function availabilityFor(input: string): RunAvailability {
+  const rewritten = rewriteSlashInput(input.startsWith('/') ? input : `/${input}`);
+  const head = (rewritten.text.split(/\s+/, 1)[0] ?? '').toLowerCase();
+  const row = catalogRows().find((entry) => entry.command === head);
+  return row?.availableDuringRun ?? 'queue';
+}
+
+/** Lines for `/help --all`: silent aliases and retired names. */
+export function slashAliasHelpLines(): string[] {
+  const lines: string[] = [];
+  const seen = new Set<string>();
+  for (const row of catalogRows()) {
+    for (const alias of row.aliases ?? []) {
+      seen.add(alias);
+      lines.push(`  ${alias.padEnd(24)} alias of ${row.command}`);
+    }
+  }
+  for (const [name, spec] of Object.entries(RETIRED_SLASH)) {
+    if (seen.has(name)) continue;
+    lines.push(`  ${name.padEnd(24)} ${spec.migration}`);
+  }
+  return lines;
+}
 
 function availableOn(row: InteractiveCommandRow, surface: CommandSurface): boolean {
   return !row.surfaces || row.surfaces.includes(surface);
@@ -229,6 +398,7 @@ function uniqueMenuRows(): InteractiveCommandRow[] {
     common.push({
       command: row.command,
       description: row.menuDescription ?? row.description,
+      availableDuringRun: row.availableDuringRun,
       ...(row.aliases ? { aliases: row.aliases } : {}),
     });
   }

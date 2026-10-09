@@ -27,6 +27,12 @@ const ENGINES = {
     // turn with the failure evidence when it fails.
     arms: { off: { env: {} }, on: { env: { MOSS_GOAL_VERIFY_LOOP: '1' } } },
   },
+  'plan-gate': {
+    // Default stays off. Turn it on only when hard-ambiguous-spec and
+    // hard-coupling-refactor beat the off arm by >= 5pt outside the noise band.
+    tasks: ['hard-ambiguous-spec', 'hard-coupling-refactor'],
+    arms: { off: { env: {} }, on: { env: { MOSS_PLAN_GATE: '1' } } },
+  },
   'model-routing': {
     threeArm: true,
     cheapModel: 'deepseek-flash@latest',
@@ -72,19 +78,18 @@ if (!ENGINES[engine]) {
   process.exit(2);
 }
 
-function runArm(label, arm) {
+function runArm(label, arm, tasks = ['hard-']) {
   // MOSS_BENCH_CLI (set via --dist) pins the arms to a snapshot build so a
   // concurrent worktree rebuild cannot corrupt a running A/B.
   const env = { ...process.env, ...arm.env };
   const cliArgs = [
     path.join(repoRoot, 'scripts', 'run-benchmark.mjs'),
-    '--task',
-    'hard-',
     '--samples',
     String(samples),
     '--label',
     label,
   ];
+  for (const task of tasks) cliArgs.push('--task', task);
   if (arm.model) cliArgs.push('--model', arm.model);
   const res = spawnSync(process.execPath, cliArgs, { stdio: 'inherit', env });
   if (res.status !== 0) {
@@ -111,7 +116,7 @@ if (spec.threeArm) {
   for (const [name, arm] of Object.entries(spec.arms))
     arms[name] = {
       label: `ab-${engine}-${name}-${stamp}`,
-      summary: runArm(`ab-${engine}-${name}-${stamp}`, arm),
+      summary: runArm(`ab-${engine}-${name}-${stamp}`, arm, spec.tasks),
     };
   const hard = (a) => a.summary.capability?.hardScore ?? null;
   const cost = (a) => armCost(a.summary, spec.cheapModel, priceRatio);
@@ -158,8 +163,8 @@ if (spec.threeArm) {
   );
   console.log(`recommendation: ${report.recommendation}`);
 } else {
-  const off = runArm(`ab-${engine}-off-${stamp}`, spec.arms.off);
-  const on = runArm(`ab-${engine}-on-${stamp}`, spec.arms.on);
+  const off = runArm(`ab-${engine}-off-${stamp}`, spec.arms.off, spec.tasks);
+  const on = runArm(`ab-${engine}-on-${stamp}`, spec.arms.on, spec.tasks);
   const offHard = off.capability?.hardScore ?? null;
   const onHard = on.capability?.hardScore ?? null;
   const offTok = off.perTask.reduce((n, t) => n + (t.meanTokensIn ?? 0), 0);

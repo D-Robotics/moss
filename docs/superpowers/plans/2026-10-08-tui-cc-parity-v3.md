@@ -163,4 +163,24 @@ moss 的 `docs/cli-parity/claude-code-surface.md` 已把其中 103 条整理成 
 
 P0–P6 已在 main 上落地，证据是 `npm test`（含 `test/tui-screen-layout.spec.mjs`）和 `scripts/tui-feel/compare_feel.py --compare claude`（`failures: []`，光标列与 Claude Code 同为 22 / 16）。结果文件在 `bench/results/`，不入库。布局探针最近一次 **74/74**：在 68 项之上补了审批框（问题、选项、硬件光标落在选中项、帧高不变量）、`Ctrl+Home` 回顶、浅色主题把 spinner 从黄色改成品红而暗色保持黄色。窄终端提示行的有意契约写在 `docs/cli-parity/tui-narrow-hint.md`。
 
-未在真机上核对的项（pyte 覆盖不到）：iTerm2、Terminal.app、tmux（鼠标开/关）、GNU screen、VS Code 终端、Windows Terminal，以及中文输入法候选框是否跟光标。`app.ts` 仍未按 v2 Phase 3 拆分。vim 模式按计划保持可选，未做。
+`app.ts` 仍未按 v2 Phase 3 拆分。vim 模式按计划保持可选，未做。
+
+### P7 真机（2026-10-09，macOS，`feat/tui-p7-real-terminals`）
+
+`python3 scripts/tui-feel/real-terminals.py` 在这台 Mac 上连续跑过两次，退出码都是 0。第二次输出：
+
+| 检查                      | 结果     | 依据                                                                                                                   |
+| ------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------- |
+| tmux，session `mouse off` | pass     | `alternate_on=0`，`mouse_sgr_flag=0`，硬件光标在提示符行第 2 列 `(2,8)`，composer 与 `Done.` 可见                      |
+| tmux，session `mouse on`  | pass     | `alternate_on=1`，`mouse_sgr_flag=1`，光标 `(2,27)` 在提示符行；composer 一出现就送 `测`，画面上只有一个，光标列变成 4 |
+| tmux，global `mouse on`   | pass     | `alternate_on=1`，光标 `(2,27)`，composer 与 `Done.` 可见                                                              |
+| GNU screen 4.00.03        | pass     | 用 pty attach 读到 composer 与 `Done.`。`hardcopy` 在这个版本上写出 0 字节文件，不能当证据                             |
+| Terminal.app              | pass     | AppleScript 只开标题为 `moss-p7-<pid>` 的窗口，读到 composer 与 `Done.`，然后 `/quit`、`exit`、关闭该窗口              |
+| iTerm2                    | 本机没有 | 无 `iTerm.app` / `iTerm2.app`，脚本打印 skip                                                                           |
+| VS Code 终端              | 本机没有 | 无 `Visual Studio Code.app`，也无 `code`。装上之后脚本仍 skip：集成终端没有可抓取的 API，步骤在手动清单                |
+| Windows Terminal          | 手动     | 这台是 macOS。云上的 Linux VM 也开不了它                                                                               |
+| 中文输入法候选框          | 手动     | 候选窗本身没有自动化。真终端上能核对的是硬件光标：tmux 全屏时光标在提示符格上，打一个宽字符后右移 2 列                 |
+
+修了一处输入缺陷：Ink 的 kitty `auto` 在探测窗口里把 stdin 旁路缓冲再 unshift，启动后约 200ms 内的按键会进两次（`测` 变成 `测测`，光标多走一格）。`TUI_KITTY_KEYBOARD` 改为 `enabled`，跳过这次探测。回归在 `test/tui-renderer.spec.mjs`，现网行为在上面的 tmux `测` 检查里。
+
+手动步骤写在 `docs/cli-parity/tui-real-terminals.md`。云上的 Linux 可以重跑 tmux 和 GNU screen；iTerm2、Terminal.app、VS Code 终端和输入法候选框必须留在 Mac 上，或者按那份清单手工做。Windows Terminal 只能在 Windows 上做。

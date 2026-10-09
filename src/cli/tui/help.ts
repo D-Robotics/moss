@@ -19,7 +19,7 @@ export const HELP_KEYS: ReadonlyArray<readonly [string, string]> = [
   ['↑ ↓', 'scroll the transcript · at the top, walk back through what you typed'],
   ['PgUp / PgDn / wheel', 'scroll the transcript · End jumps to the latest'],
   ['click', 'expand a collapsed block · drag to copy'],
-  ['/tasks /evidence /failures', 'print task artifacts'],
+  ['/goal /plan', 'work until a condition is met · enter plan mode'],
   ['?', 'this list'],
 ];
 
@@ -42,7 +42,7 @@ export function helpKeyRows(
   bindings: readonly KeyBinding[]
 ): ReadonlyArray<readonly [string, string]> {
   const ctrl = shortcutRows(bindings).map((row) => [row.keys, row.label] as const);
-  const at = HELP_KEYS.findIndex(([keys]) => keys.startsWith('/tasks'));
+  const at = HELP_KEYS.findIndex(([keys]) => keys.startsWith('/goal'));
   return [...HELP_KEYS.slice(0, at), ...ctrl, ...HELP_KEYS.slice(at)];
 }
 

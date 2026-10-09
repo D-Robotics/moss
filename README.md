@@ -35,9 +35,9 @@ moss                                       # 进入交互界面
 进到交互界面后：
 
 - `moss "整理这个项目的 README"` 直接派活；`@` 引用文件，`!` 执行 shell
-- `Shift+Tab` 在模式间切换（`plan` = 只读规划），`/mode` 看当前模式
+- `Shift+Tab` 在模式间切换（`plan` = 只读规划）；`/plan` 进入 plan 模式。`/mode` 仍可用一版
 - `Ctrl+V` 粘贴剪贴板图片 / Finder 文件 / 本地路径作为附件（macOS；Linux 用 wl-paste/xclip，Windows 用 PowerShell）
-- `/help` 看键位与命令，`/status` 看当前模型与工作区，`/model` 换模型
+- `/help` 看键位与命令，`/goal <条件>` 做到为止，`/model` 换模型
 
 <details>
 <summary>不装到 PATH 也能跑 · 一次性模式 · 会话恢复</summary>
@@ -126,7 +126,7 @@ moss tasks list                     # 只读查看机器人闭环产物
 
 > `update` / `plugins` / `migrate` / `web` / `agent` 属于已移除的子系统，本构建里会**明确报错**，不会悄悄 fallback。
 
-交互内斜杠命令：`/status` `/model` `/mode` `/compact` `/task` `/context` `/usage` `/export` `/review` `/sessions` `/doctor` `/diff` `/rewind` `/mcp` `/skills` `/permissions` `/hooks` `/jobs` `/queue` `/steer` `/stop` `/init` `/resume` `/help` `/clear` `/quit`。`/loop` 与 `/goal` 是 `/task run` 的兼容别名——循环运行即任务，PASS 只能来自 verdict provider。
+日常斜杠命令：`/model` `/compact` `/goal` `/plan` `/review` `/doctor` `/diff` `/permissions` `/clear` `/help`。`Shift+Tab` 循环模式；`/plan` 进入 plan 模式；`/goal <条件>` 持续工作直到条件满足，`/goal clear` 取消。`/resume` 恢复已保存的会话；`/tasks` 列出后台 shell 与子代理。`Esc` 中断当前回复；运行中直接发消息会先 steer，无法 steer 时排在输入区上方（`↑` 取回编辑）。`/mode` `/steer` `/queue` `/loop` 保留为隐藏别名一版（`/loop` 已改为 `/goal`）。PASS 只能来自 verdict provider。
 
 常用 flag：
 
@@ -146,7 +146,7 @@ moss tasks list                     # 只读查看机器人闭环产物
 ## 安全与隐私
 
 - **v0.26 起默认 full**：本地写操作与**可逆**设备变更跳过逐次询问。毁灭性设备操作（重启、刷机、写入 `/boot` 或 `/etc`、改网络、卸系统包、停掉 ssh）仍要确认——full 对齐的是 Claude Code 的「默认少问」，不是对真机的 `--dangerously-skip-permissions`。
-- **四态交互模式**（Shift+Tab 循环，或 `/mode`）：
+- **四态交互模式**（Shift+Tab 循环，或 `/plan` 进入 plan；`/mode` 仍可用一版）：
 
   | 模式           | 行为                                                                                              |
   | -------------- | ------------------------------------------------------------------------------------------------- |
@@ -330,10 +330,13 @@ The `src/index.ts` export surface is a semver-protected contract, snapshotted by
 > `update` / `plugins` / `migrate` / `web` / `agent` belong to removed subsystems and fail loudly
 > in this build rather than silently falling back to chat.
 
-Slash commands: `/status` `/model` `/mode` `/compact` `/task` `/context` `/usage` `/export`
-`/review` `/sessions` `/doctor` `/diff` `/rewind` `/mcp` `/skills` `/permissions` `/hooks`
-`/jobs` `/queue` `/steer` `/stop` `/init` `/resume` `/help` `/clear` `/quit` (`/loop` and `/goal`
-alias `/task run` — a loop run _is_ a task).
+Everyday slash commands: `/model` `/compact` `/goal` `/plan` `/review` `/doctor` `/diff`
+`/permissions` `/clear` `/help`. Shift+Tab cycles modes; `/plan` enters plan mode; `/goal <condition>`
+works until the condition is met and `/goal clear` cancels it. `/resume` restores a saved
+conversation; `/tasks` lists background shell jobs and sub-agents. Esc interrupts the current
+reply; a message typed during a run steers it, and queues above the composer when steering is
+refused (Up edits that queue). `/mode` `/steer` `/queue` `/loop` stay as hidden aliases for one
+version (`/loop` is now `/goal`). A PASS still comes only from the verdict provider.
 
 Key flags: `-m/--model`, `--provider`, `--base-url`, `-C/--cd`, `-c/--config k=v`,
 `--read-only` · `--workspace-write` · `--full-access`, `--trust-device`, `--accept-edits`,
@@ -352,7 +355,7 @@ Key env vars (full list: `moss config env`): `MOSS_PROFILE` · `MOSS_WORKSPACE` 
   prompt. Destructive device operations (reboot, flashing, writes to `/boot` or `/etc`, network
   changes, removing system packages, stopping ssh) still confirm. Full matches Claude Code's
   "ask less by default", not `--dangerously-skip-permissions` against a robot board.
-- **Four interaction modes** (Shift+Tab cycles, or `/mode`):
+- **Four interaction modes** (Shift+Tab cycles, or `/plan` to enter plan mode; `/mode` remains for one version):
 
   | Mode             | Behavior                                                                                                                                                                |
   | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -1,3 +1,7 @@
+/** Where a later question about a task can read the evidence instead of guessing. */
+export const WORKSPACE_ARTIFACT_HINT =
+  'Task artifacts live under the workspace `.moss/` directory: `tasks.jsonl` (task contracts), `evidence.jsonl` (expected / observed / result), `deployments.jsonl` (deploys), `task-failures.jsonl` (why a run failed), and `task-events.jsonl` (lifecycle). When asked why something failed, what was deployed, or what evidence exists, read those files and cite the path.';
+
 /** Build the general agent behavior prompt. @public */
 export function buildAgentBehaviorPrompt(): string {
   return [
@@ -42,6 +46,7 @@ export function buildAgentBehaviorPrompt(): string {
     '- Examples of dangerous actions that need confirmation: deleting files / branches, `rm -rf`, overwriting uncommitted changes, `git reset --hard`, force-push, adding / removing / downgrading dependencies, changing CI/CD; and anything externally visible or affecting shared state — pushing code, creating / closing / commenting on a PR or issue, sending messages (IM / email), uploading content to a third-party online tool (which may be cached or indexed even if later deleted).',
     '- The user approving an action once (e.g. one git push) does not mean it is approved in all situations. Authorization holds only within the scope it was explicitly stated and does not extend outward; match the scope of your action strictly to what the user actually asked for. Unless pre-authorized in a persistent instruction like `CLAUDE.md` / `AGENTS.md`, default to confirming first.',
     '- When you hit an obstacle, do not take a destructive shortcut to make the problem "disappear" (e.g. bypassing checks with `--no-verify`); find the root cause first. When you encounter unexpected state (an unfamiliar file, branch, or config), investigate before deleting or overwriting — it may be exactly the user\'s work in progress; usually you should resolve a merge conflict rather than discard changes, and when you hit a lock file, find out who holds it rather than just deleting it.',
+    `- ${WORKSPACE_ARTIFACT_HINT}`,
   ].join('\n');
 }
 
@@ -83,6 +88,7 @@ export function buildAgentBehaviorPromptQuick(): string {
     '- If an approach fails, diagnose before switching; do not retry the identical action blindly.',
     '- Report faithfully: paste red output when red; if you skipped a check, say so. Never claim green against red. When truly done, say so plainly — tell it straight, no defensive hedging.',
     '- Always close the loop: before reporting done, verify the goal actually passed — run the test, check the output, see it with your own eyes. Never let "should be fine" stand in for evidence.',
+    `- ${WORKSPACE_ARTIFACT_HINT}`,
     '- Treat explicit user requirements as a checklist; map each to implementation or a focused test before done.',
     '- For 3+ independent subtasks, dispatch subagents with goal + scope + acceptance; report each child status — empty is not success.',
     '',

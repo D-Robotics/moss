@@ -167,20 +167,35 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     }
     await sleep(100);
   };
+  // Ink renders asynchronously and shared CI runners stall unpredictably
+  // (this exact assertion flaked on windows-latest), so wait for the frame
+  // instead of trusting fixed sleeps.
+  const frameWith = async (needles, label, timeoutMs = 5000) => {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const frame = instance.lastFrame();
+      if (needles.every((needle) => frame.includes(needle))) return frame;
+      if (Date.now() > deadline) {
+        throw new Error(`${label}: frame never contained ${JSON.stringify(needles)}\n${frame}`);
+      }
+      await sleep(50);
+    }
+  };
 
   await typeOnly('@');
-  const opened = instance.lastFrame();
+  const opened = await frameWith(['@alpha.txt', '@nested/'], 'typing @ lists workspace files');
   assert.ok(opened.includes('@alpha.txt'), 'typing @ lists workspace files');
   assert.ok(opened.includes('@nested/'), 'directories are listed too');
 
   await typeOnly('alp');
-  const filtered = instance.lastFrame();
+  const filtered = await frameWith(['@alpha.txt'], '@alp keeps alpha.txt');
   assert.ok(filtered.includes('@alpha.txt'), '@alp keeps alpha.txt');
   assert.ok(!filtered.includes('@nested/'), '@alp filters nested/ out');
 
   await instance.stdin.write('\t');
-  await sleep(120);
-  const completed = instance.lastFrame();
+  // Ink trims trailing spaces, so poll for "menu closed + path in composer".
+  const completed = await frameWith(['@alpha.txt'], 'Tab completes the path into the composer');
+  assert.ok(!completed.includes('@nested/'), 'the menu closed after Tab');
   assert.ok(completed.includes('@alpha.txt'), 'Tab completes the path into the composer');
   assert.equal(streamCalls.length, 0, 'completing never runs anything');
 

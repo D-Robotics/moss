@@ -718,9 +718,13 @@ instance.unmount();
     );
   }
 
-  // 3b. Slash commands print the task-runtime blocks into the transcript.
-  await type('/tasks');
-  assert.ok(await waitFor(() => toolTitles().includes('Tasks (2)')), '/tasks prints the task list');
+  // 3b. Task OS artifacts answer on `/task view`. `/tasks` is background work.
+  // Retired names print a migration line and then the same view.
+  await type('/task view');
+  assert.ok(
+    await waitFor(() => toolTitles().includes('Tasks (2)')),
+    '/task view prints the task list'
+  );
   assert.ok(
     detailRows().some((line) => line.includes('CAMERA') && line.includes('PASS')),
     'task kind + verdict'
@@ -730,13 +734,18 @@ instance.unmount();
     'second task listed'
   );
 
-  // Ctrl+R is the prompt-SEARCH key (A2.22) — the task-history block answers
-  // to /history, which drives the same showBlock('history') path the chord
-  // used to take.
+  // Ctrl+R is the prompt-SEARCH key (A2.22). Task history is `/task view history`;
+  // `/history` remains a hidden alias that says so and then prints the same block.
   await type('/history');
   assert.ok(
+    await waitFor(() =>
+      rowsOf('summary').some((row) => row.text.includes('/history is now /task view history.'))
+    ),
+    '/history prints the migration hint'
+  );
+  assert.ok(
     await waitFor(() => toolTitles().includes('History (2)')),
-    '/history prints the history'
+    '/history still prints the history after the migration line'
   );
   assert.ok(
     detailRows().some((line) => line.includes('task_cam1')),
@@ -779,26 +788,34 @@ instance.unmount();
     'the recorded failure is the same one acceptance repaired'
   );
 
-  // 3c. The advertised command and the shortcut print the same block.
+  // 3c. `/tasks` is background shell + sub-agents, not a second Task OS board.
   await type('/tasks');
+  assert.ok(
+    await waitFor(() => toolTitles().includes('Tasks')),
+    '/tasks prints the background-job block'
+  );
+  assert.ok(
+    detailRows().some((line) => line.includes('background shell:')),
+    '/tasks names the background shell section'
+  );
   assert.equal(
     toolTitles().filter((title) => title === 'Tasks (2)').length,
-    2,
-    '/tasks prints the same block Ctrl+T does'
+    1,
+    '/tasks does not reprint the Task OS list'
   );
 
-  // `/resume` is the strict Task OS recovery path. It selects the latest
-  // failed/blocked task and reports the real recovery result instead of staging
-  // an editable prompt that never changes task state.
+  // `/resume` restores a conversation. With no saved sessions it says so and
+  // does not call Task OS resume.
   await type('/resume task_ros2');
   assert.ok(
-    await waitFor(() => toolTitles().includes('Task')),
-    `resume renders a Task block: ${JSON.stringify(frame().slice(-300))}`
+    await waitFor(() => toolTitles().includes('Resume')),
+    `resume renders a Resume block: ${JSON.stringify(frame().slice(-300))}`
   );
   assert.ok(
-    detailRows().some((line) => line.includes('task_ros2') || line.includes('task_id')),
-    'resume output identifies the task being recovered'
+    detailRows().some((line) => line.includes('no saved sessions')),
+    'resume with no sessions does not recover a Task OS task'
   );
+  assert.ok(!toolTitles().includes('Task'), 'resume does not dispatch /task');
 
   // 3d. Ctrl+L clears the composer; `?` prints the complete reference.
   await typeOnly('a draft goal');

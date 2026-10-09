@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 
 import {
   INTERACTIVE_COMMAND_SECTIONS,
-  REPL_COMMAND_SECTIONS,
   SLASH_MENU_ROWS,
   INTERACTIVE_COMPLETION_COMMANDS,
   commandRowsForSlashInput,
@@ -32,17 +31,17 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
     .map((r) => r.command);
   // Commands may include argument descriptions in their names (e.g. "/connect <ip>")
   const hasCmd = (prefix) => allVisible.some((c) => c === prefix || c.startsWith(prefix + ' '));
-  for (const cmd of ['/help', '/model', '/compact', '/task', '/diff', '/review']) {
+  for (const cmd of ['/help', '/model', '/compact', '/goal', '/plan', '/diff', '/review']) {
     assert.ok(hasCmd(cmd), `critical command "${cmd}" is visible in the catalog`);
   }
   assert.ok(!hasCmd('/status'), '/status stays out of the everyday menu');
   assert.ok(!hasCmd('/export'), '/export stays out of the everyday menu');
-  // First-principles closeout: one advertised autonomous entry (/task), with
-  // /loop retired to a hidden alias like /goal.
-  const loopRow = INTERACTIVE_COMMAND_SECTIONS.flatMap((s) => s.rows).find(
-    (r) => r.command === '/loop'
+  assert.ok(!hasCmd('/task'), '/task stays hidden — everyday work is /goal');
+  assert.ok(
+    !hasCmd('/mode'),
+    '/mode stays hidden — Shift+Tab, /plan, and /permissions switch modes'
   );
-  assert.equal(loopRow?.hidden, true, '/loop is a hidden compat alias of /task run');
+  assert.ok(!hasCmd('/loop'), '/loop is not a catalog command');
 }
 
 // ─── formatInteractiveCommandSections — structured help text ─────────────────
@@ -55,8 +54,12 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
   assert.ok(joined.includes('/help'), 'formatted commands include /help');
   assert.ok(joined.includes('/compact'), 'formatted commands include /compact');
   assert.ok(joined.includes('/model'), 'formatted commands include /model');
+  assert.ok(joined.includes('/goal'), 'formatted commands include /goal');
+  assert.ok(joined.includes('/plan'), 'formatted commands include /plan');
   assert.ok(joined.includes('/diff'), 'formatted commands include /diff');
   assert.ok(!joined.includes('/sessions'), 'hidden /sessions stays out of the everyday help');
+  assert.ok(!/\n\s*\/task\b/.test(joined), 'hidden /task stays out of the everyday help');
+  assert.ok(!/\n\s*\/mode\b/.test(joined), 'hidden /mode stays out of the everyday help');
 }
 
 // ─── Slash menu for autocomplete ─────────────────────────────────────────────
@@ -119,51 +122,57 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
   assert.equal(unique.size, commands.length, 'no duplicate command entries in the menu');
 }
 
-// ─── Commands without REPL handlers are never advertised to the REPL ────────
+// ─── Everyday menu vs hidden aliases (both surfaces still dispatch) ─────────
 
 {
-  // Two groups after the D5 merge:
-  //  - folded-away task-artifact tokens (/tasks /history /evidence /deployments
-  //    /failures /bg /subs) left the catalog entirely — they still dispatch in
-  //    the shell via /task view and /jobs back-compat, but are advertised nowhere;
-  //  - tui-only commands (/steer /queue /resume /mcp /hooks) live in
-  //    the catalog marked surfaces:['tui'], absent from every REPL projection.
-  //    /clear is on both surfaces: the REPL starts a new conversation too.
-  const folded = [
-    '/tasks',
+  // Retired names are not catalog rows. Hidden rows stay dispatchable and out
+  // of the everyday menu. /clear, /goal, /plan, and /resume answer on both
+  // surfaces.
+  const retired = [
+    '/loop',
     '/history',
     '/evidence',
     '/deployments',
     '/failures',
+    '/jobs',
     '/bg',
     '/subs',
+    '/sessions',
     '/quickstart',
     '/log',
   ];
-  const tuiOnly = ['/steer', '/queue', '/resume', '/mcp', '/hooks'];
-  const tokens = new Set([
+  const hidden = ['/steer', '/queue', '/task', '/mode', '/init', '/stop'];
+  const menu = new Set([
     ...SLASH_MENU_ROWS.map((row) => row.command),
     ...SLASH_MENU_ROWS.flatMap((row) => row.aliases ?? []),
     ...INTERACTIVE_COMPLETION_COMMANDS,
-    ...REPL_COMMAND_SECTIONS.flatMap((section) => section.rows.map((row) => row.command)),
   ]);
-  const helpText = formatInteractiveCommandSections({ includeHidden: true }).join('\n');
   const catalogRows = INTERACTIVE_COMMAND_SECTIONS.flatMap((s) => s.rows);
-  for (const cmd of [...folded, ...tuiOnly]) {
-    assert.ok(!tokens.has(cmd), `shell-only command "${cmd}" is not in the REPL menu/completion`);
-    assert.ok(!helpText.includes(cmd), `shell-only command "${cmd}" is not in REPL help text`);
-  }
-  for (const cmd of folded) {
+  const everydayCommands = new Set(
+    formatInteractiveCommandSections({ includeHidden: false })
+      .map((line) => line.trim().split(/\s+/, 1)[0] ?? '')
+      .filter((token) => token.startsWith('/'))
+  );
+  for (const cmd of retired) {
+    assert.ok(!menu.has(cmd), `retired command "${cmd}" is not in the everyday menu`);
     assert.ok(
-      !catalogRows.some((r) => r.command === cmd),
-      `folded command "${cmd}" is gone from the catalog`
+      !catalogRows.some((row) => row.command === cmd),
+      `retired command "${cmd}" is gone from the catalog`
     );
   }
-  for (const cmd of tuiOnly) {
-    const row = catalogRows.find((r) => r.command === cmd);
-    assert.ok(row, `tui-only command "${cmd}" exists in the shared catalog`);
-    assert.deepEqual(row.surfaces, ['tui'], `"${cmd}" is marked tui-only`);
+  for (const cmd of hidden) {
+    assert.ok(!menu.has(cmd), `hidden command "${cmd}" stays out of the everyday menu`);
+    const row = catalogRows.find((entry) => entry.command === cmd);
+    assert.ok(row, `hidden command "${cmd}" still exists in the catalog`);
+    assert.equal(row.hidden, true, `"${cmd}" is marked hidden`);
+    assert.ok(!everydayCommands.has(cmd), `"${cmd}" is absent from everyday help`);
   }
+  for (const cmd of ['/goal', '/plan', '/resume', '/clear', '/help']) {
+    assert.ok(menu.has(cmd), `everyday command "${cmd}" is in the menu`);
+  }
+  const fullHelp = formatInteractiveCommandSections({ includeHidden: true }).join('\n');
+  assert.ok(fullHelp.includes('/task'), 'hidden /task is listed when help includes hidden rows');
+  assert.ok(fullHelp.includes('/init'), 'hidden /init is listed when help includes hidden rows');
 }
 
 // ─── One catalog: the TUI table is a pure projection of it ──────────────────
@@ -198,14 +207,12 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
       `${entry.command} is marked available on the tui surface`
     );
   }
-  for (const name of ['/loop', '/goal', '/init']) {
+  for (const name of ['/loop', '/init', '/task', '/mode']) {
     assert.ok(
       !SHELL_COMMANDS.some((entry) => entry.command === name),
-      `${name} stays REPL-only in the TUI projection`
+      `${name} stays out of the everyday TUI menu`
     );
   }
-  // D5 merges: the task-artifact family folds into /task view, bg+subs into
-  // /jobs; the merged-away tokens stay dispatchable but leave the catalog.
   const tuiCommands = SHELL_COMMANDS.map((entry) => entry.command);
   for (const merged of [
     '/tasks',
@@ -215,17 +222,18 @@ import { SHELL_COMMANDS } from '../dist/cli/tui/help.js';
     '/failures',
     '/bg',
     '/subs',
+    '/jobs',
   ]) {
-    assert.ok(!tuiCommands.includes(merged), `${merged} is no longer advertised (folded away)`);
+    assert.ok(!tuiCommands.includes(merged), `${merged} is no longer in the everyday menu`);
   }
-  assert.ok(
-    !tuiCommands.includes('/jobs'),
-    '/jobs stays dispatchable but leaves the everyday menu'
-  );
-  assert.ok(tuiCommands.includes('/task'), '/task stays advertised');
+  assert.ok(tuiCommands.includes('/goal'), '/goal is the everyday work-until entry');
+  assert.ok(tuiCommands.includes('/plan'), '/plan is in the everyday menu');
+  assert.ok(!tuiCommands.includes('/task'), '/task stays hidden');
   assert.ok(tuiCommands.includes('/permissions'), '/permissions stays advertised');
   const taskRow = byCommand.get('/task');
+  assert.equal(taskRow?.hidden, true, '/task is a hidden Task OS entry');
   assert.ok(taskRow?.args?.includes('view'), '/task advertises the view subcommand');
+  assert.ok(taskRow?.args?.includes('verify'), '/task advertises verify');
   assert.ok(
     SHELL_COMMANDS.length <= 25,
     `the TUI command surface keeps shrinking (got ${SHELL_COMMANDS.length})`

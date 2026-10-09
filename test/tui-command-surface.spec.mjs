@@ -100,6 +100,12 @@ const fullHelpText = buildHelpOverlayLines(true).join('\n');
 for (const entry of HELP_COMMANDS) {
   assert.ok(fullHelpText.includes(entry), `help advertises ${entry}`);
 }
+assert.ok(fullHelpText.includes('alias of /usage'), '/help --all lists silent aliases');
+assert.ok(fullHelpText.includes('/new'), '/help --all lists /new as an alias of /clear');
+assert.ok(
+  fullHelpText.includes('/loop 已改为 /goal'),
+  '/help --all keeps the /loop migration line'
+);
 const advertised = HELP_COMMANDS.map((entry) => entry.split(' ')[0]);
 assert.ok(advertised.length >= 8, `help advertises >=8 commands (got ${advertised.length})`);
 
@@ -107,13 +113,13 @@ assert.ok(advertised.length >= 8, `help advertises >=8 commands (got ${advertise
 // "unknown command" must be advertised (and are handled, below).
 const HEADLINE = [
   '/model',
-  '/mode',
   '/compact',
+  '/goal',
+  '/plan',
   '/diff',
   '/doctor',
   '/permissions',
   '/review',
-  '/task',
 ];
 for (const command of HEADLINE) {
   assert.ok(advertised.includes(command), `M1: ${command} is advertised by the shell`);
@@ -125,8 +131,7 @@ for (const folded of ['/quickstart', '/log']) {
 // ─── C17 / D-8: the `/` menu and `/help` are ONE list ────────────────────────
 // Before this fix the menu was the REPL's table filtered down to the shell's
 // names: it could only REMOVE rows, so the eleven task/control commands the
-// shell owns (/tasks /history /evidence /deployments /failures /resume /queue
-// /steer /bg /subs /mcp) were advertised by /help yet missing from the `/` menu.
+// shell owns were advertised by /help yet missing from the `/` menu.
 assert.deepEqual(
   [...SHELL_COMMAND_NAMES],
   advertised,
@@ -162,16 +167,20 @@ assert.ok(
   re.includes('/resume') && re.includes('/review'),
   `/re offers /resume and /review (got ${re.join(', ')})`
 );
-// Task OS is available in the default TUI; loop/goal remain REPL-only until
-// they are migrated to the same runtime contract.
+// /goal and /plan are everyday commands. /task, /mode, /loop, and /init stay
+// out of the menu (hidden or retired).
 assert.ok(
-  menuAll.some(([command]) => command === '/task'),
-  '/task is offered by the shell menu'
+  menuAll.some(([command]) => command === '/goal'),
+  '/goal is offered by the shell menu'
 );
-for (const replOnly of ['/loop', '/goal', '/init']) {
+assert.ok(
+  menuAll.some(([command]) => command === '/plan'),
+  '/plan is offered by the shell menu'
+);
+for (const hidden of ['/loop', '/init', '/task', '/mode']) {
   assert.ok(
-    !menuAll.some(([command]) => command === replOnly),
-    `${replOnly} is not offered by the shell menu`
+    !menuAll.some(([command]) => command === hidden),
+    `${hidden} is not offered by the shell menu`
   );
 }
 
@@ -210,6 +219,8 @@ const BLOCK_TITLE = new Map([
   ['/compact', /^Compact$/],
   ['/diff', /^Diff$/],
   ['/review', /^Review$/],
+  ['/goal', /^Goal$/],
+  ['/plan', /^Plan$/],
   ['/export', /^Export$/],
   ['/quickstart', /^Quickstart$/],
   ['/usage', /^Usage$/],
@@ -480,10 +491,7 @@ for (const command of advertised) {
   assert.ok(instance.lastFrame().includes('/model'), 'the menu leads with the everyday commands');
   await typeKeys(instance, 're');
   const filtered = await waitFor(() => instance.lastFrame().includes('/resume'));
-  assert.ok(
-    filtered,
-    `/re offers the task-resume command: ${JSON.stringify(instance.lastFrame().slice(0, 300))}`
-  );
+  assert.ok(filtered, `/re offers /resume: ${JSON.stringify(instance.lastFrame().slice(0, 300))}`);
   assert.ok(instance.lastFrame().includes('/review'), '/re also offers /review');
   instance.unmount();
   await sleep(100);
@@ -606,8 +614,10 @@ for (const command of advertised) {
     const ran = await waitFor(() =>
       last === '/clear'
         ? handle.store.rows.some((r) => r.kind === 'summary' && /transcript cleared/.test(r.text))
-        : title !== undefined &&
-          handle.store.rows.some((r) => r.kind === 'tool' && title.test(r.text))
+        : last === '/help'
+          ? instance.lastFrame().includes('Help · Esc or Enter to close')
+          : title !== undefined &&
+            handle.store.rows.some((r) => r.kind === 'tool' && title.test(r.text))
     );
     assert.ok(
       ran,
@@ -651,12 +661,21 @@ void streamCalls;
     );
     await type(instance, '/tasks');
     assert.ok(
-      await waitFor(
-        () =>
-          handle.store.rows.filter((r) => r.kind === 'tool' && /^Tasks \(\d+\)$/.test(r.text))
-            .length >= 2
-      ),
-      'legacy /tasks still dispatches after the merge'
+      await waitFor(() => hasBlock(handle, /^Tasks$/)),
+      '/tasks lists background work, not the Task OS board'
+    );
+    assert.ok(
+      handle.store.rows.some((r) => r.text.includes('background shell:')),
+      '/tasks includes the background shell section'
+    );
+    assert.ok(
+      handle.store.rows.some((r) => r.text.includes('sub-agents:')),
+      '/tasks includes the sub-agent section'
+    );
+    assert.equal(
+      handle.store.rows.filter((r) => r.kind === 'tool' && /^Tasks \(\d+\)$/.test(r.text)).length,
+      1,
+      '/tasks does not print a second Task OS list'
     );
     await type(instance, '/task view bogus');
     assert.ok(
@@ -669,26 +688,38 @@ void streamCalls;
   {
     const { instance, handle } = await mount('d5-jobs');
     await type(instance, '/jobs');
-    assert.ok(await waitFor(() => hasBlock(handle, /^Jobs$/)), '/jobs prints the combined block');
+    assert.ok(
+      await waitFor(() => handle.store.rows.some((r) => r.text.includes('/jobs is now /tasks.'))),
+      '/jobs prints the migration hint'
+    );
+    assert.ok(
+      await waitFor(() => hasBlock(handle, /^Tasks$/)),
+      '/jobs still lists background work after the migration line'
+    );
     assert.ok(instance.lastFrame().includes('sub-agents:'), '/jobs includes the sub-agent section');
     await type(instance, '/bg');
     assert.ok(
-      await waitFor(() => handle.store.rows.some((r) => r.kind === 'tool' && r.text === 'bg')),
-      'legacy /bg still dispatches after the merge'
+      await waitFor(() => handle.store.rows.some((r) => r.text.includes('/bg is now /tasks.'))),
+      'legacy /bg prints its migration hint and still dispatches'
     );
     instance.unmount();
     await sleep(100);
   }
-  // Folded-away /quickstart and /log keep dispatching (back-compat).
+  // /quickstart and /log are deleted. Typing them is an unknown command.
   {
     const { instance, handle } = await mount('closeout-fold');
     await type(instance, '/quickstart');
     assert.ok(
-      await waitFor(() => hasBlock(handle, /^Quickstart$/)),
-      'legacy /quickstart still dispatches'
+      await waitFor(() => handle.store.rows.some((r) => r.text.includes('unknown command'))),
+      '/quickstart is gone'
     );
     await type(instance, '/log');
-    assert.ok(await waitFor(() => hasBlock(handle, /^Log$/)), 'legacy /log still dispatches');
+    assert.ok(
+      await waitFor(
+        () => handle.store.rows.filter((r) => r.text.includes('unknown command')).length >= 2
+      ),
+      '/log is gone'
+    );
     instance.unmount();
     await sleep(100);
   }
