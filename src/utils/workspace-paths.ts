@@ -49,7 +49,7 @@ export function getMossWorkspacePaths(workspaceDir: string): MossWorkspacePaths 
   };
 }
 
-function pathExists(filePath: string): boolean {
+export function pathExists(filePath: string): boolean {
   try {
     fs.lstatSync(filePath);
     return true;

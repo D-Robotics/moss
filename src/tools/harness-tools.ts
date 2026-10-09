@@ -12,24 +12,18 @@
  * @public
  */
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
-import { runProcess } from '../utils/run-process.js';
+import { ProcessError, runProcess } from '../utils/run-process.js';
 import { errorMessage } from '../errors.js';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import {
+  formatFailures,
+  readPackageScripts,
+  runVerifyTests,
+  runWorkspaceTests,
+} from './test-runners.js';
+import type { TestResult } from './test-runners.js';
 
 const DEFAULT_TEST_TIMEOUT_MS = 120_000;
 const DEFAULT_BUILD_TIMEOUT_MS = 120_000;
-
-export interface TestResult {
-  testFiles?: number;
-  total: number;
-  passed: number;
-  failed: number;
-  skipped: number;
-  durationMs: number;
-  failures: Array<{ name: string; message: string }>;
-  rawOutput: string;
-}
 
 export interface VerifyResult {
   buildOk: boolean;
@@ -41,6 +35,12 @@ export interface VerifyResult {
   buildOutput?: string;
   typecheckOutput?: string;
   testResult?: TestResult;
+  testsUnknown?: boolean;
+  testsNoTests?: boolean;
+  buildNotRun?: boolean;
+  typecheckNotRun?: boolean;
+  testsNotRun?: boolean;
+  testNote?: string;
   durationMs: number;
 }
 
@@ -49,7 +49,7 @@ export interface VerifyResult {
 export const runTestsTool: Tool = {
   name: 'run_tests',
   description:
-    'Run tests and return structured pass/fail counts and failing names. Default command is npm test. Pass file to run one spec with node --test (command is ignored). Prefer file while iterating on a single spec.',
+    'Run tests and return structured pass/fail counts and failing names. With no command, detect pytest, go test, cargo test, npm test, or make test. Pass file to run one spec (Python under pytest, otherwise node --test). Prefer file while iterating on a single spec.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -61,86 +61,27 @@ export const runTestsTool: Tool = {
     properties: {
       command: {
         type: 'string',
-        description: 'Test command to run. Default: "npm test". Ignored when `file` is set.',
+        description:
+          'Test command to run. When omitted, the workspace runner is detected ' +
+          '(pytest, go test, cargo test, make test, or npm test). Ignored when `file` is set.',
       },
       file: {
         type: 'string',
         description:
-          'Run a single spec file via `node --test <file>` for fast TDD iteration, ' +
-          'instead of the full suite. Path is relative to the workspace and must ' +
-          'stay inside it. When set, `command` is ignored.',
+          'Run one file instead of the full suite. Python files use pytest; other ' +
+          'files use `node --test`. Path is relative to the workspace and must stay ' +
+          'inside it. When set, `command` is ignored.',
       },
       timeout_ms: {
         type: 'number',
-        description: `Timeout in ms (default ${DEFAULT_TEST_TIMEOUT_MS}).`,
+        description: `Total budget in ms for this call. Values below 5000 are raised to 5000 (default ${DEFAULT_TEST_TIMEOUT_MS}).`,
       },
     },
   },
   async execute(input, ctx: ToolContext) {
+    // Floor is 5s so a caller cannot set a budget shorter than one scheduler slice.
     const timeoutMs = Math.max(5000, Number(input?.timeout_ms) || DEFAULT_TEST_TIMEOUT_MS);
-    let command: string;
-    const env: Record<string, string> = { ...process.env } as Record<string, string>;
-    const fileRaw = input?.file ? String(input.file).trim() : '';
-    // For `file` mode, spawn `node --test <abs>` directly (no shell) so the
-    // path needs no shell quoting — POSIX single-quoting breaks Windows cmd
-    // (single quotes are literal there → node can't find the file → exit 1).
-    // Direct spawn is cross-platform and avoids the quoting pitfall entirely.
-    let directSpawn: { cmd: string; args: string[] } | null = null;
-    if (fileRaw) {
-      const wsRoot = path.resolve(ctx.workspaceDir);
-      const abs = path.resolve(wsRoot, fileRaw);
-      // Keep the test path inside the workspace (permissionBoundary promises
-      // workspace-cwd restriction; never let `file` escape it).
-      if (abs !== wsRoot && !abs.startsWith(wsRoot + path.sep)) {
-        return `Test file path escapes workspace: ${fileRaw}`;
-      }
-      directSpawn = { cmd: process.execPath, args: ['--test', abs] };
-      command = `node --test ${fileRaw}`;
-      // `node --test` sets NODE_TEST_CONTEXT / NODE_TEST_WORKER_ID; if the agent
-      // itself runs inside a Node test-runner context (or inherited that env),
-      // a child `node --test <file>` sees it and routes output through the
-      // parent's IPC instead of stdout — silently producing no parseable
-      // summary. Strip those so the single-file run always prints its own
-      // human-readable result, regardless of the parent process.
-      delete env.NODE_TEST_CONTEXT;
-      delete env.NODE_TEST_WORKER_ID;
-    } else {
-      command = String(input?.command || 'npm test').trim();
-    }
-    const shell = process.platform === 'win32' ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
-    const shellArgs = process.platform === 'win32' ? ['/c', command] : ['-c', command];
-    const spawnCmd = directSpawn ? directSpawn.cmd : shell;
-    const spawnArgs = directSpawn ? directSpawn.args : shellArgs;
-
-    try {
-      const result = await runProcess(spawnCmd, {
-        args: spawnArgs,
-        timeout: timeoutMs,
-        maxBuffer: 10 * 1024 * 1024,
-        signal: ctx.abortSignal,
-        env,
-        cwd: ctx.workspaceDir,
-      });
-      const output = `${result.stdout || ''}\n${result.stderr || ''}`.trim();
-      const parsed = parseTestOutput(output);
-
-      return formatTestResult(parsed, command);
-    } catch (err) {
-      // ProcessError on non-zero exit — normal for test failures.
-      const errAny = err as {
-        stdout?: string;
-        stderr?: string;
-        message?: string;
-        exitCode?: number;
-      };
-      const output = `${errAny.stdout || ''}\n${errAny.stderr || ''}`.trim() || errorMessage(err);
-      const parsed = parseTestOutput(output);
-
-      if (parsed.failed > 0 || parsed.total > 0) {
-        return formatTestResult(parsed, command);
-      }
-      return `Test command failed to run: ${errorMessage(err)}\n\nOutput:\n${output.slice(0, 2000)}`;
-    }
+    return runWorkspaceTests(ctx, input, timeoutMs);
   },
 };
 
@@ -169,15 +110,17 @@ export const verifyFixTool: Tool = {
       },
       test_command: {
         type: 'string',
-        description: 'Test command. Default: "npm test". Set to empty string to skip.',
+        description:
+          'Test command. When omitted, the same runner detection as run_tests. Set to empty string to skip.',
       },
       timeout_ms: {
         type: 'number',
-        description: `Per-step timeout in ms (default ${DEFAULT_BUILD_TIMEOUT_MS}).`,
+        description: `Total budget in ms for build, typecheck, and tests. Values below 5000 are raised to 5000 (default ${DEFAULT_BUILD_TIMEOUT_MS}).`,
       },
     },
   },
   async execute(input, ctx: ToolContext) {
+    // Same 5s floor as run_tests. The value is one budget for every step below.
     const timeoutMs = Math.max(5000, Number(input?.timeout_ms) || DEFAULT_BUILD_TIMEOUT_MS);
     const packageScripts = await readPackageScripts(ctx.workspaceDir);
     const buildCmd = resolveVerifyCommand(input, 'build_command', packageScripts, 'build');
@@ -187,9 +130,10 @@ export const verifyFixTool: Tool = {
       packageScripts,
       'typecheck'
     );
-    const testCmd = resolveVerifyCommand(input, 'test_command', packageScripts, 'test');
     const startedAt = Date.now();
+    const deadline = startedAt + timeoutMs;
     const shell = process.platform === 'win32' ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
+    const left = (): number => Math.max(0, deadline - Date.now());
 
     const result: VerifyResult = {
       buildOk: false,
@@ -197,80 +141,84 @@ export const verifyFixTool: Tool = {
       testsOk: false,
       durationMs: 0,
     };
+    // A started step that hits the deadline holds every step after it.
+    let budgetHeld = false;
+    const heldByTimeout = (err: unknown): boolean => {
+      if (!(err instanceof ProcessError) || !err.timedOut) return false;
+      budgetHeld = true;
+      return true;
+    };
 
-    // Step 1: Build
+    // timeout_ms is one budget for build, typecheck, and every test runner.
     if (buildCmd) {
-      try {
-        const buildResult = await runCommand(shell, buildCmd, timeoutMs, ctx);
-        result.buildOk = buildResult.exitCode === 0;
-        result.buildOutput = buildResult.output.slice(0, 4000);
-      } catch (err) {
-        result.buildOutput = errorMessage(err).slice(0, 4000);
+      const budget = left();
+      if (budget <= 0) {
+        result.buildNotRun = true;
+        result.buildOutput = 'not run (timeout budget)';
+      } else {
+        try {
+          const buildResult = await runCommand(shell, buildCmd, budget, ctx);
+          result.buildOk = buildResult.exitCode === 0;
+          result.buildOutput = buildResult.output.slice(0, 4000);
+        } catch (err) {
+          result.buildOutput = errorMessage(err).slice(0, 4000);
+          heldByTimeout(err);
+        }
       }
     } else {
       result.buildOk = true;
       result.buildSkipped = true;
     }
 
-    // Step 2: Typecheck (skip if build failed or command is empty)
-    if (result.buildOk && typecheckCmd) {
-      try {
-        const tcResult = await runCommand(shell, typecheckCmd, timeoutMs, ctx);
-        result.typecheckOk = tcResult.exitCode === 0;
-        result.typecheckOutput = tcResult.output.slice(0, 4000);
-      } catch (err) {
-        result.typecheckOutput = errorMessage(err).slice(0, 4000);
+    // Typecheck (skip if build failed or command is empty). A step the budget
+    // never started is `not run`, not a failure.
+    if (result.buildNotRun || (budgetHeld && !result.buildOk)) {
+      if (typecheckCmd) result.typecheckNotRun = true;
+      else {
+        result.typecheckOk = true;
+        result.typecheckSkipped = true;
+      }
+    } else if (result.buildOk && typecheckCmd) {
+      const budget = left();
+      if (budget <= 0) {
+        result.typecheckNotRun = true;
+        result.typecheckOutput = 'not run (timeout budget)';
+      } else {
+        try {
+          const tcResult = await runCommand(shell, typecheckCmd, budget, ctx);
+          result.typecheckOk = tcResult.exitCode === 0;
+          result.typecheckOutput = tcResult.output.slice(0, 4000);
+        } catch (err) {
+          result.typecheckOutput = errorMessage(err).slice(0, 4000);
+          heldByTimeout(err);
+        }
       }
     } else if (!typecheckCmd) {
       result.typecheckOk = true; // skipped = pass
       result.typecheckSkipped = true;
     }
 
-    // Step 3: Tests (skip if build or typecheck failed)
-    if (result.buildOk && result.typecheckOk && testCmd) {
-      try {
-        const testResult = await runCommand(shell, testCmd, timeoutMs, ctx);
-        const parsed = parseTestOutput(testResult.output);
-        result.testResult = parsed;
-        // testsOk requires zero failures and evidence of real execution.
-        // - failed===0 && passed>0 → green (some may still be skipped)
-        // - parsed summary with zero executed (empty or all-skipped) → not green
-        // - exit 0 + non-empty output without a parseable summary → soft ok
-        //   (truncated runners that drop ℹ lines)
-        // - empty stdout+stderr → not green
-        const hasSummary =
-          /(?:ℹ|#)\s*tests\s+\d+/i.test(testResult.output) ||
-          /\[test\]\s+passed\s+\d+\s+file/i.test(testResult.output);
-        const noExecuted =
-          parsed.failed === 0 &&
-          parsed.passed === 0 &&
-          (parsed.total === 0 || parsed.skipped >= parsed.total);
-        const unparseableCleanExit =
-          testResult.exitCode === 0 &&
-          parsed.failed === 0 &&
-          !hasSummary &&
-          testResult.output.trim().length > 0;
-        if (parsed.failed > 0) {
-          result.testsOk = false;
-        } else if (parsed.passed > 0) {
-          result.testsOk = true;
-        } else if (hasSummary && noExecuted) {
-          result.testsOk = false;
-        } else if (unparseableCleanExit) {
-          result.testsOk = true;
-        } else {
-          result.testsOk = false;
-        }
-      } catch (err) {
-        const errOutput = err as { stdout?: string; stderr?: string };
-        const output = `${errOutput.stdout || ''}\n${errOutput.stderr || ''}`.trim();
-        const parsed = parseTestOutput(output);
-        result.testResult = parsed;
-        result.testsOk = false;
+    const testsHeld =
+      result.buildNotRun ||
+      result.typecheckNotRun ||
+      (budgetHeld && !(result.buildOk && result.typecheckOk));
+    if (testsHeld || (result.buildOk && result.typecheckOk && left() <= 0)) {
+      result.testsNotRun = true;
+    } else if (result.buildOk && result.typecheckOk) {
+      const tests = await runVerifyTests(ctx, input, left());
+      if (tests.skipped) {
+        result.testsOk = true;
+        result.testsSkipped = true;
+      } else if (tests.notRun) {
+        result.testsNotRun = true;
+        result.testNote = tests.note;
+      } else {
+        result.testsOk = tests.passed;
+        result.testsUnknown = tests.unknown;
+        result.testsNoTests = tests.noTests;
+        result.testNote = tests.note;
+        result.testResult = tests.result;
       }
-    } else if (!testCmd) {
-      result.testsOk = true; // skipped = not a hard fail for that step
-      result.testsSkipped = true;
     }
 
     result.durationMs = Date.now() - startedAt;
@@ -281,22 +229,6 @@ export const verifyFixTool: Tool = {
 export const harnessTools: Tool[] = [runTestsTool, verifyFixTool];
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-async function readPackageScripts(workspaceDir: string): Promise<Record<string, string> | null> {
-  try {
-    const raw = await fs.readFile(path.join(workspaceDir, 'package.json'), 'utf8');
-    const parsed = JSON.parse(raw) as { scripts?: Record<string, unknown> };
-    if (!parsed.scripts || typeof parsed.scripts !== 'object') return {};
-    return Object.fromEntries(
-      Object.entries(parsed.scripts).filter(
-        (entry): entry is [string, string] =>
-          typeof entry[1] === 'string' && entry[1].trim().length > 0
-      )
-    );
-  } catch {
-    return null;
-  }
-}
 
 function resolveVerifyCommand(
   input: Record<string, unknown> | undefined,
@@ -332,93 +264,6 @@ async function runCommand(
     exitCode: result.exitCode ?? 0,
     output: `${result.stdout || ''}\n${result.stderr || ''}`.trim(),
   };
-}
-
-function parseTestOutput(output: string): TestResult {
-  const result: TestResult = {
-    total: 0,
-    passed: 0,
-    failed: 0,
-    skipped: 0,
-    durationMs: 0,
-    failures: [],
-    rawOutput: output,
-  };
-
-  // Node.js test runner summary format. Two reporters emit different prefixes:
-  // - spec reporter (TTY): "ℹ tests N", "ℹ pass N", "ℹ fail N"
-  // - TAP reporter (non-TTY / CI): "# tests N", "# pass N", "# fail N", "not ok N - name"
-  // Match both prefixes so parsing works on macOS TTY and Linux CI alike.
-  const sumMatches = (pattern: RegExp): number => {
-    let sum = 0;
-    for (const match of output.matchAll(pattern)) sum += Number(match[1]) || 0;
-    return sum;
-  };
-  const testsMatches = [...output.matchAll(/(?:ℹ|#)\s*tests\s+(\d+)/g)];
-  result.total = testsMatches.reduce((sum, match) => sum + Number(match[1]), 0);
-  result.passed = sumMatches(/(?:ℹ|#)\s*pass\s+(\d+)/g);
-  result.failed = sumMatches(/(?:ℹ|#)\s*fail\s+(\d+)/g);
-  result.skipped = sumMatches(/(?:ℹ|#)\s*skipped\s+(\d+)/g);
-  result.durationMs = sumMatches(/(?:ℹ|#)\s*duration_ms\s+([\d.]+)/g);
-
-  // Also match "passed N file(s)" (moss's own test runner)
-  const fileMatch = output.match(/\[test\]\s+passed\s+(\d+)\s+file/);
-  if (fileMatch) {
-    result.testFiles = parseInt(fileMatch[1], 10);
-    if (testsMatches.length === 0) {
-      result.total = result.testFiles;
-      result.passed = result.testFiles;
-      result.failed = 0;
-    }
-  }
-
-  // Infer total if the ℹ tests summary line was missing (e.g. output
-  // truncated by timeout). total = passed + failed + skipped. This prevents
-  // verify_fix from reporting false FAIL when the summary is absent.
-  // (Found by moss self-iteration — the total>0 gate caused false negatives.)
-  if (result.total === 0 && (result.passed > 0 || result.failed > 0 || result.skipped > 0)) {
-    result.total = result.passed + result.failed + result.skipped;
-  }
-
-  // Extract individual failures: "✖ test name" or "not ok N - test name"
-  // The AssertionError regex previously captured the file path after "at " as
-  // the name — semantically wrong (name should identify the test, not the
-  // stack frame) and produced duplicate entries (Node prints both ✖ and
-  // AssertionError for the same failure; dedup keys on name+message so the
-  // two different names don't merge). Fixed to capture the assertion message
-  // text instead, which is useful even without a ✖ line. (Found by moss
-  // self-iteration — glm-5.2 reviewed this file.)
-  const failureRegexes = [
-    /✖\s+(.+?)(?:\n|$)/g,
-    /not ok\s+\d+\s+-\s+(.+?)(?:\n|$)/g,
-    /AssertionError[:\s]*([^\n]+)/g,
-  ];
-  for (const re of failureRegexes) {
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(output)) !== null) {
-      const name = m[1].trim().slice(0, 200);
-      // Get a short error message from nearby lines
-      const lineStart = Math.max(0, m.index - 200);
-      const lineEnd = Math.min(output.length, m.index + 500);
-      const context = output.slice(lineStart, lineEnd);
-      const msgMatch = context.match(/(?:AssertionError|Error)[:\s]*(.+?)(?:\n|$)/);
-      result.failures.push({
-        name,
-        message: msgMatch ? msgMatch[1].trim().slice(0, 300) : '',
-      });
-    }
-  }
-
-  // Deduplicate failures
-  const seen = new Set<string>();
-  result.failures = result.failures.filter((f) => {
-    const key = f.name + f.message;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  return result;
 }
 
 /**
@@ -572,114 +417,81 @@ export function summarizeVerificationResult(toolName: string, resultText: string
   return null;
 }
 
-function formatTestResult(result: TestResult, command: string): string {
-  // Zero executed tests is not green evidence (empty suite / all skipped / parse miss).
-  const noExecuted =
-    result.failed === 0 &&
-    result.passed === 0 &&
-    (result.total === 0 || result.skipped >= result.total);
-  const status =
-    result.failed > 0
-      ? `❌ ${result.failed} FAILED`
-      : noExecuted
-        ? '⚠️ NO TESTS EXECUTED'
-        : '✅ ALL PASSED';
-  let output = `Test Results: ${status}\n`;
-  output += `Command: ${command}\n`;
-  if (result.testFiles !== undefined) output += `Test files: ${result.testFiles} passed\n`;
-  output += `Tests: ${result.total} total, ${result.passed} passed, ${result.failed} failed, ${result.skipped} skipped\n`;
-  output += `Duration: ${result.durationMs}ms\n`;
+function stepMark(skipped: boolean | undefined, notRun: boolean | undefined, ok: boolean): string {
+  if (skipped) return '⏭ skipped';
+  if (notRun) return 'not run';
+  return ok ? '✅ pass' : '❌ FAIL';
+}
 
-  if (result.failures.length > 0) {
-    output += `\nFailures:\n`;
-    for (const f of result.failures.slice(0, 20)) {
-      output += `  • ${f.name}`;
-      if (f.message) output += ` — ${f.message}`;
-      output += '\n';
-    }
-    if (result.failures.length > 20) {
-      output += `  ... and ${result.failures.length - 20} more\n`;
-    }
-  }
-
-  if (result.failed > 0 && result.rawOutput.trim()) {
-    output += `\nFailure output:\n${result.rawOutput.trim().slice(-4000)}\n`;
-  }
-
-  if (result.failed > 0) {
-    output +=
-      '\nNext step: fix the failing tests (minimal surgical edits), then re-run `run_tests` or `verify_fix`. ' +
-      'Do not report done while tests are red.\n';
-  } else if (noExecuted) {
-    output +=
-      '\nNext step: no tests actually ran (empty suite, all skipped, or unparsed output). ' +
-      'Run a real suite or pass an explicit command — do not treat this as green verification.\n';
-  }
-
-  return output;
+function hardFail(ok: boolean, skipped?: boolean, notRun?: boolean): boolean {
+  return !ok && !skipped && !notRun;
 }
 
 function formatVerifyResult(result: VerifyResult): string {
-  const steps: string[] = [];
-  steps.push(
-    `Build: ${result.buildSkipped ? '⏭ skipped' : result.buildOk ? '✅ pass' : '❌ FAIL'}`
-  );
-  steps.push(
-    `Typecheck: ${result.typecheckSkipped ? '⏭ skipped' : result.typecheckOk ? '✅ pass' : '❌ FAIL'}`
-  );
-  steps.push(
-    `Tests: ${result.testsSkipped ? '⏭ skipped' : result.testsOk ? '✅ pass' : '❌ FAIL'}`
-  );
+  const steps = [
+    `Build: ${stepMark(result.buildSkipped, result.buildNotRun, result.buildOk)}`,
+    `Typecheck: ${stepMark(result.typecheckSkipped, result.typecheckNotRun, result.typecheckOk)}`,
+    `Tests: ${
+      result.testsSkipped
+        ? '⏭ skipped'
+        : result.testsNotRun
+          ? 'not run'
+          : result.testsUnknown
+            ? 'exit 0, counts unknown'
+            : result.testsOk
+              ? '✅ pass'
+              : '❌ FAIL'
+    }`,
+  ];
 
   const anyStepRan = !result.buildSkipped || !result.typecheckSkipped || !result.testsSkipped;
   const allSkipped =
     Boolean(result.buildSkipped) &&
     Boolean(result.typecheckSkipped) &&
     Boolean(result.testsSkipped);
-  // Prefer the testsOk flag (which already encodes empty/all-skipped). Only fall
-  // back to raw testResult totals when testsOk is false for empty-suite messaging.
-  const testsEmpty =
-    !result.testsSkipped &&
-    !result.testsOk &&
-    result.testResult &&
-    result.testResult.failed === 0 &&
-    result.testResult.passed === 0 &&
-    (result.testResult.total === 0 || result.testResult.skipped >= result.testResult.total);
+  const testsEmpty = Boolean(result.testsNoTests);
+  const countsUnknown = Boolean(result.testsUnknown) && result.buildOk && result.typecheckOk;
+  const budgetHold =
+    Boolean(result.buildNotRun || result.typecheckNotRun || result.testsNotRun) &&
+    !hardFail(result.buildOk, result.buildSkipped, result.buildNotRun) &&
+    !hardFail(result.typecheckOk, result.typecheckSkipped, result.typecheckNotRun) &&
+    !hardFail(result.testsOk, result.testsSkipped, result.testsNotRun);
 
-  // ALL PASSED only when at least one step actually ran and none failed.
-  // All-skipped / empty suite is not green evidence.
+  // ALL PASSED only when a step ran and tests reported real passing counts.
+  // Unknown counts are not a failure and not a pass. Held steps are not red.
   const allOk = anyStepRan && !allSkipped && result.buildOk && result.typecheckOk && result.testsOk;
 
   let statusLine: string;
   if (allOk) statusLine = '✅ ALL PASSED';
   else if (allSkipped) statusLine = '⚠️ NO STEPS EXECUTED';
+  else if (countsUnknown) statusLine = 'exit 0, counts unknown';
   else if (testsEmpty && result.buildOk && result.typecheckOk) statusLine = '⚠️ NO TESTS EXECUTED';
+  else if (budgetHold) statusLine = 'not run (timeout budget)';
   else statusLine = '❌ ISSUES FOUND';
 
   let output = `Verify Fix: ${statusLine}\n`;
   output += steps.join(' | ') + '\n';
+  if (result.testNote) output += `${result.testNote}\n`;
   output += `Duration: ${result.durationMs}ms\n`;
 
-  if (!result.buildOk && result.buildOutput) {
+  if (!result.buildOk && !result.buildNotRun && result.buildOutput) {
     output += `\n--- Build Errors ---\n${result.buildOutput.slice(0, 2000)}\n`;
   }
-  if (!result.typecheckOk && result.typecheckOutput) {
+  if (!result.typecheckOk && !result.typecheckNotRun && result.typecheckOutput) {
     output += `\n--- Typecheck Errors ---\n${result.typecheckOutput.slice(0, 2000)}\n`;
   }
-  if (!result.testsOk && result.testResult) {
+  if (!result.testsOk && !result.testsUnknown && !result.testsNotRun && result.testResult) {
     output += `\n--- Test Failures ---\n`;
     output += `Tests: ${result.testResult.total} total, ${result.testResult.passed} passed, ${result.testResult.failed} failed\n`;
-    for (const f of result.testResult.failures.slice(0, 10)) {
-      output += `  • ${f.name}`;
-      if (f.message) output += ` — ${f.message}`;
-      output += '\n';
-    }
+    output += formatFailures(result.testResult.failures, 10);
   }
 
   if (allSkipped) {
     output +=
       '\nNext step: every verify step was skipped (no build/typecheck/test command). ' +
       'Pass explicit commands or ensure package.json scripts exist — do not treat this as green verification.\n';
+  } else if (countsUnknown || budgetHold) {
+    // Exit 0 with no parsed counts, and steps the budget never started, are not red.
   } else if (testsEmpty && result.buildOk && result.typecheckOk) {
     output +=
       '\nNext step: no tests actually ran. Run a real suite or pass test_command — do not treat this as green verification.\n';
