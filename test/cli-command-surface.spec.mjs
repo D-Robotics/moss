@@ -68,6 +68,12 @@ for (const hidden of [
 for (const shown of ['/goal', '/plan', '/resume', '/clear', '/help', '/model']) {
   assert.ok(menu.has(shown), `"${shown}" is an everyday command`);
 }
+// /theme is TUI chrome. The REPL menu must not advertise a command it cannot run.
+assert.ok(!menu.has('/theme'), '"/theme" is not an everyday REPL command');
+const { SHELL_COMMAND_NAMES } = await import(
+  pathToFileURL(path.join(here, '..', 'dist', 'cli', 'tui', 'help.js')).href
+);
+assert.ok(SHELL_COMMAND_NAMES.includes('/theme'), '"/theme" stays on the TUI menu');
 const replCommands = new Set(
   REPL_COMMAND_SECTIONS.flatMap((section) => section.rows.map((row) => row.command))
 );

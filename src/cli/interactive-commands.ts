@@ -177,6 +177,9 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         command: '/theme',
         args: '[dark|light|mono]',
         description: 'show or set the terminal colour theme for this session',
+        // The readline REPL has no theme chrome. Advertising it there makes
+        // `/theme` an unknown command (U2).
+        surfaces: ['tui'],
         availableDuringRun: 'immediate',
       },
       {
