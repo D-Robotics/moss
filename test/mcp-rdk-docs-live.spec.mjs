@@ -8,9 +8,9 @@ import { test } from 'node:test';
 import { McpClient } from '../dist/core/mcp/client.js';
 import { builtinRdkDocsServerConfig } from '../dist/core/mcp/rdk-docs.js';
 
-test('list_manuals includes rdk-x and rdk-s', async (t) => {
+test('list_manuals includes rdk-x and rdk-s', async () => {
   if (process.env.RDK_DOCS_LIVE !== '1') {
-    t.skip('set RDK_DOCS_LIVE=1 to call rdk-docs-mcp (needs network)');
+    console.log('[mcp-rdk-docs-live] not run: set RDK_DOCS_LIVE=1 to call rdk-docs-mcp');
     return;
   }
   const client = new McpClient(builtinRdkDocsServerConfig());
