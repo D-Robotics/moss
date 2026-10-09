@@ -3885,6 +3885,10 @@ export async function runTuiApp(options: TuiAppOptions): Promise<void> {
     }),
     {
       exitOnCtrlC: false,
+      // Ink treats CI=true as non-interactive and then writes only <Static>
+      // (the banner) until exit, so the composer never appears. This entry
+      // point is the live TTY; a real terminal stays interactive in CI.
+      interactive: process.stdout.isTTY === true,
       alternateScreen: (options.renderer ?? choice.mode) === 'fullscreen',
       incrementalRendering: process.env.MOSS_TUI_INCREMENTAL !== '0',
       kittyKeyboard: TUI_KITTY_KEYBOARD,

@@ -35,6 +35,22 @@ PROMPT = "\u276f"
 CJK = "测"
 
 
+def pace(default):
+    """MOSS_REAL_TERMINAL_TIMEOUT (seconds) overrides every wait.
+
+    The default stays short for a local run. The Linux CI job sets a longer
+    budget so a busy runner can still paint the composer.
+    """
+    raw = os.environ.get("MOSS_REAL_TERMINAL_TIMEOUT", "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
 def have(name):
     return shutil.which(name) is not None
 
@@ -148,7 +164,7 @@ def tmux_case(stub, mouse, expect_alt, scope="session", check_cjk=False):
         pane = wait_until(
             lambda: out("capture-pane", "-p", "-t", name),
             lambda text: PROMPT in text and "mode on" in text,
-            20,
+            pace(20),
             f"tmux mouse {mouse} composer",
         )
         info = out(
@@ -195,7 +211,7 @@ def tmux_case(stub, mouse, expect_alt, scope="session", check_cjk=False):
         wait_until(
             lambda: out("capture-pane", "-p", "-t", name),
             lambda text: "Done." in text,
-            15,
+            pace(15),
             f"tmux mouse {mouse} answer",
         )
         print(
@@ -304,7 +320,7 @@ def screen_case(stub):
                 return (buf + chunk).decode("utf-8", "replace")
 
             seen = _read_pty(
-                master, chunk, lambda: PROMPT in text() and "mode on" in text(), 4
+                master, chunk, lambda: PROMPT in text() and "mode on" in text(), pace(8)
             )
             if not seen:
                 try:
@@ -312,7 +328,7 @@ def screen_case(stub):
                 except OSError:
                     pass
                 seen = _read_pty(
-                    master, chunk, lambda: PROMPT in text() and "mode on" in text(), 4
+                    master, chunk, lambda: PROMPT in text() and "mode on" in text(), pace(8)
                 )
             buf.extend(chunk)
             if seen:
@@ -325,7 +341,7 @@ def screen_case(stub):
             return buf.decode("utf-8", "replace")
 
         os.write(master, b"hello\r")
-        if not _read_pty(master, buf, lambda: "Done." in all_text(), 15):
+        if not _read_pty(master, buf, lambda: "Done." in all_text(), pace(15)):
             raise AssertionError(f"screen answer not observed\n{all_text()[-1500]!r}")
         print("[PASS] GNU screen: inline composer and answer visible")
     finally:
@@ -405,14 +421,14 @@ def terminal_app_case(stub):
         wait_until(
             lambda: osascript(TERMINAL_CONTENTS, title),
             lambda text: PROMPT in text and "mode on" in text,
-            25,
+            pace(25),
             "Terminal.app composer",
         )
         osascript(TERMINAL_TYPE, title, "hello")
         wait_until(
             lambda: osascript(TERMINAL_CONTENTS, title),
             lambda text: "Done." in text,
-            20,
+            pace(20),
             "Terminal.app answer",
         )
         print(
@@ -509,14 +525,14 @@ def iterm_case(stub):
         wait_until(
             lambda: osascript(ITERM_CONTENTS, title),
             lambda text: PROMPT in text and "mode on" in text,
-            25,
+            pace(25),
             "iTerm2 composer",
         )
         osascript(ITERM_TYPE, title, "hello")
         wait_until(
             lambda: osascript(ITERM_CONTENTS, title),
             lambda text: "Done." in text,
-            20,
+            pace(20),
             "iTerm2 answer",
         )
         print(f"[PASS] iTerm2: composer and answer visible ({app})")
