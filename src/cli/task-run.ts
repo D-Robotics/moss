@@ -473,9 +473,7 @@ export async function runTaskCommand(
       const blocks: string[] = [];
       for (const snapshot of snapshots) {
         const events = await listTaskEvents(ctx.workspace, snapshot.taskId);
-        blocks.push(
-          `${snapshot.taskId}\n${formatTaskTimeline(buildTaskTimeline(events))}`
-        );
+        blocks.push(`${snapshot.taskId}\n${formatTaskTimeline(buildTaskTimeline(events))}`);
       }
       output('stdout', blocks.join('\n') + '\n');
       return 0;
@@ -484,11 +482,11 @@ export async function runTaskCommand(
       const records = await listEvidenceRecords(ctx.workspace, 200);
       output(
         'stdout',
-        (records.length === 0
+        records.length === 0
           ? 'No evidence recorded.\n'
           : records
               .map((record) => `${record.result}  ${record.metric} = ${record.observed ?? '?'}`)
-              .join('\n') + '\n')
+              .join('\n') + '\n'
       );
       return 0;
     }
@@ -496,20 +494,20 @@ export async function runTaskCommand(
       const records = await listDeploymentRecords(ctx.workspace);
       output(
         'stdout',
-        (records.length === 0
+        records.length === 0
           ? 'No deployments recorded.\n'
           : records
               .map((record) => `${record.deploymentId}  ${record.status}  ${record.remotePath}`)
-              .join('\n') + '\n')
+              .join('\n') + '\n'
       );
       return 0;
     }
     const failures = await listFailures(ctx.workspace);
     output(
       'stdout',
-      (failures.length === 0
+      failures.length === 0
         ? 'No failures recorded.\n'
-        : failures.map((failure) => `${failure.taskId}  ${failure.symptom}`).join('\n') + '\n')
+        : failures.map((failure) => `${failure.taskId}  ${failure.symptom}`).join('\n') + '\n'
     );
     return 0;
   }

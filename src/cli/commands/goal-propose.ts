@@ -77,7 +77,8 @@ export function planGoalInvocation(rest: string, workspace: string): GoalInvocat
   if (first === 'resume' && token === 'resume') return { kind: 'resume' };
   const parsed = parseGoalCommandLine(token);
   if (!parsed) return { kind: 'usage' };
-  if (parsed.acceptance) return { kind: 'run', goal: parsed.goal, acceptance: parsed.acceptance.command };
+  if (parsed.acceptance)
+    return { kind: 'run', goal: parsed.goal, acceptance: parsed.acceptance.command };
   const proposal = proposeAcceptanceCommands(workspace);
   if (proposal.candidates.length === 0) {
     return { kind: 'run', goal: parsed.goal, notice: proposal.emptyNotice };

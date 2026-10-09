@@ -45,8 +45,6 @@ export const exitPlanTool: Tool<ExitPlanInput> = {
         summary
       );
     }
-    return (
-      'Plan submitted for approval. Wait for the user before editing files.\n' + summary
-    );
+    return 'Plan submitted for approval. Wait for the user before editing files.\n' + summary;
   },
 };

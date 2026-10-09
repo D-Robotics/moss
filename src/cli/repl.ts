@@ -11,7 +11,12 @@ import {
   resolveUserCommand,
 } from './commands/custom-commands.js';
 import { formatBackgroundJobLines } from './commands/background-jobs.js';
-import { abandonLiveGoal, GOAL_USAGE, goalRunArgs, planGoalInvocation } from './commands/goal-propose.js';
+import {
+  abandonLiveGoal,
+  GOAL_USAGE,
+  goalRunArgs,
+  planGoalInvocation,
+} from './commands/goal-propose.js';
 import {
   INTERACTIVE_COMPLETION_COMMANDS,
   rewriteSlashInput,
@@ -215,9 +220,7 @@ export async function runInteractive(
       const goal = pendingGoal.goal;
       pendingGoal = null;
       if (/^n$/i.test(msg)) {
-        console.error(
-          'Skipped the acceptance command. Only the contract verdict will apply.'
-        );
+        console.error('Skipped the acceptance command. Only the contract verdict will apply.');
         msg = `/task ${goalRunArgs(goal)}`;
       } else {
         msg = `/task ${goalRunArgs(goal, { acceptance: msg })}`;
