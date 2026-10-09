@@ -5,6 +5,7 @@
  *
  * `--fail` exits before the handshake so connect tests can observe a failure.
  */
+import fs from 'node:fs';
 import readline from 'node:readline';
 
 if (process.argv.includes('--fail')) {
@@ -14,6 +15,18 @@ if (process.argv.includes('--fail')) {
 
 const delayArg = process.argv.find((arg) => arg.startsWith('--delay-ms='));
 const delayMs = Math.max(0, Number(delayArg?.slice('--delay-ms='.length) ?? 0) || 0);
+const startupArg = process.argv.find((arg) => arg.startsWith('--startup-delay-ms='));
+const startupDelayMs = Math.max(
+  0,
+  Number(startupArg?.slice('--startup-delay-ms='.length) ?? 0) || 0
+);
+const recordArg = process.argv.find((arg) => arg.startsWith('--record='));
+const recordPath = recordArg?.slice('--record='.length);
+
+function noteMethod(method) {
+  if (!recordPath || typeof method !== 'string' || method.length === 0) return;
+  fs.appendFileSync(recordPath, `${method}\n`);
+}
 
 const TOOLS = [
   {
@@ -62,8 +75,7 @@ function send(msg) {
   else write();
 }
 
-const rl = readline.createInterface({ input: process.stdin, terminal: false });
-rl.on('line', (line) => {
+function handleLine(line) {
   const trimmed = line.trim();
   if (!trimmed) return;
   let msg;
@@ -72,6 +84,7 @@ rl.on('line', (line) => {
   } catch {
     return;
   }
+  if (typeof msg.method === 'string') noteMethod(msg.method);
   if (msg.id === undefined || msg.id === null) return;
   if (msg.method === 'initialize') {
     send({
@@ -106,4 +119,21 @@ rl.on('line', (line) => {
     id: msg.id,
     error: { code: -32601, message: `method not found: ${msg.method}` },
   });
+}
+
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+let accept = startupDelayMs === 0;
+const queued = [];
+if (!accept) {
+  setTimeout(() => {
+    accept = true;
+    for (const line of queued.splice(0)) handleLine(line);
+  }, startupDelayMs);
+}
+rl.on('line', (line) => {
+  if (!accept) {
+    queued.push(line);
+    return;
+  }
+  handleLine(line);
 });

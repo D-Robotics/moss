@@ -95,6 +95,14 @@ export interface ToolContext {
     leaseId: string,
     patchId: string
   ) => Promise<{ status: 'merged' | 'merge_conflict'; conflictingPaths: readonly string[] }>;
+  /**
+   * Host hook for a tool name missing from this call's list. MCP uses it to
+   * wait out an in-flight connect (bounded by that server's connect timeout)
+   * and return the tool once the catalog has it.
+   */
+  resolveMissingTool?: (name: string, signal?: AbortSignal) => Promise<Tool | undefined>;
+  /** When set, replaces the generic "Unknown tool" line (failed MCP server). */
+  describeMissingTool?: (name: string) => string | undefined;
   /** Resolve a model-requested expert id through the host-trusted per-agent registry. */
   resolveSubagentExpert?: (id: string) =>
     | {

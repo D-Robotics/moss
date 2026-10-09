@@ -37,6 +37,11 @@ export interface AgentLoopPromptInput {
   compactionSummary: Message | undefined;
   systemPrompt: string;
   systemPromptParts?: { stable: string; dynamic?: string };
+  /**
+   * Re-read the system prompt before each model call. Hosts use this when a
+   * layer changes mid-run (an MCP server reaching connected or failed).
+   */
+  getSystemPrompt?: () => string;
   systemPromptMeta?: { hashShort: string; layerCount: number };
 }
 
@@ -49,6 +54,8 @@ export interface AgentLoopToolInput {
     name: string;
     input: unknown;
     abortSignal: AbortSignal;
+    /** Set when the executor already resolved the tool, including a late MCP tool. */
+    tool?: Tool;
   }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;

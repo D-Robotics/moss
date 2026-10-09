@@ -97,6 +97,32 @@ export function withBuiltinRdkDocs(
   return [builtinRdkDocsServerConfig(packageSpec), ...configs];
 }
 
+/**
+ * One status line for `/mcp` and TUI notices. States are connecting,
+ * connected, or failed with the registry's reason. This is the only wording
+ * those surfaces should use.
+ */
+export function formatMcpStatusLine(
+  status: { name: string; state: string; toolCount?: number; error?: string },
+  toolsLabel?: string
+): string {
+  const countLabel =
+    toolsLabel !== undefined
+      ? toolsLabel
+      : status.state === 'connected' && status.toolCount !== undefined
+        ? ` (${status.toolCount} tools, lazy)`
+        : '';
+  if (status.state === 'failed') {
+    const reason = status.error?.trim().split('\n')[0]?.slice(0, 160) || 'connection failed';
+    return `○ ${status.name} — failed: ${reason}`;
+  }
+  if (status.state === 'connected') {
+    return `● ${status.name} — connected${countLabel}`;
+  }
+  const extra = status.error?.trim().split('\n')[0]?.slice(0, 160);
+  return `○ ${status.name} — ${status.state}${extra ? `: ${extra}` : ''}`;
+}
+
 export function formatMcpStartupLine(
   status: { name: string; state: string; toolCount?: number; error?: string },
   detail: string

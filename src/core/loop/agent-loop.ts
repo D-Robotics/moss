@@ -30,6 +30,7 @@ import {
   assessPromptCacheEligibility,
   isPromptPrefixDebugEnabled,
 } from '../llm/prompt-prefix-cache.js';
+import { hashSystemPromptForTelemetry } from '../../prompts/system-prompt-telemetry.js';
 import { createToolLoopGuardState } from '../tools/tool-loop-guard.js';
 import type { AgentLoopHardCaps, AgentLoopParams } from './agent-loop-types.js';
 import { createInitialLoopState, resetIterationState } from './agent-loop-state.js';
@@ -230,6 +231,19 @@ export function runAgentLoop(
 
     const isQuiet = platform?.quiet ?? readEnvFlag('MOSS_QUIET');
 
+    let activeSystemPrompt = systemPrompt;
+    let activeSystemPromptParts = systemPromptParts;
+    const refreshActiveSystemPrompt = (): void => {
+      if (!params.getSystemPrompt) return;
+      const next = params.getSystemPrompt();
+      const mirrored =
+        activeSystemPromptParts !== undefined &&
+        activeSystemPromptParts.dynamic === undefined &&
+        activeSystemPromptParts.stable === activeSystemPrompt;
+      activeSystemPrompt = next;
+      if (mirrored) activeSystemPromptParts = { stable: next };
+    };
+
     const resolveToolsForRun = () => (getToolsForRun ? getToolsForRun() : params.toolsForRun);
 
     const evaluateSteering = (): Message[] => {
@@ -247,7 +261,7 @@ export function runAgentLoop(
             ? (() => {
                 const estimated = estimatePromptUnitsForContextWindow({
                   messages: currentMessages,
-                  systemPrompt,
+                  systemPrompt: activeSystemPrompt,
                   charsPerTokenUnit: charsPerUnit,
                   effectiveContextWindowTokens: effCtx,
                   includeThinking: shouldIncludeThinkingInBudget(currentMessages, modelDef),
@@ -444,11 +458,12 @@ export function runAgentLoop(
 
           let turnToolCalls: { id: string; name: string; input: Record<string, unknown> }[] = [];
           try {
+            refreshActiveSystemPrompt();
             const ctxResult = await prepareTurnContext({
               state,
               currentMessages,
-              systemPrompt,
-              systemPromptParts,
+              systemPrompt: activeSystemPrompt,
+              systemPromptParts: activeSystemPromptParts,
               effectiveContextTokens,
               charsPerUnit,
               modelDef,
@@ -701,8 +716,8 @@ export function runAgentLoop(
 
       const maxOutMetrics = maxOutputTokensParam ?? modelDef.maxTokens ?? 8192;
       const effMetrics = getEffectiveContextWindowTokens(contextTokens, maxOutMetrics);
-      const promptCacheEligibility = assessPromptCacheEligibility(systemPromptParts, {
-        enabled: Boolean(systemPromptParts?.stable),
+      const promptCacheEligibility = assessPromptCacheEligibility(activeSystemPromptParts, {
+        enabled: Boolean(activeSystemPromptParts?.stable),
       });
       stream.push({
         type: 'run_metrics',
@@ -718,15 +733,18 @@ export function runAgentLoop(
           totalDurationMs: Date.now() - runStartMs,
           firstTokenMs: state.firstTokenMs,
           contextCompactions: state.overflowState.contextCompactions,
-          systemPromptChars: systemPrompt.length,
-          systemPromptHashShort: systemPromptMeta?.hashShort ?? '',
+          systemPromptChars: activeSystemPrompt.length,
+          systemPromptHashShort:
+            activeSystemPrompt === systemPrompt && systemPromptMeta?.hashShort
+              ? systemPromptMeta.hashShort
+              : hashSystemPromptForTelemetry(activeSystemPrompt, []).combinedHashShort,
           effectiveContextTokens: effMetrics,
           llmCompactionFailureStreak: state.overflowState.llmCompactionFailureStreak,
           systemPromptLayerCount: systemPromptMeta?.layerCount ?? 0,
-          promptCacheEnabled: Boolean(systemPromptParts?.stable),
+          promptCacheEnabled: Boolean(activeSystemPromptParts?.stable),
           promptCacheDebug: prefixDebugEnabled,
-          promptCacheStableChars: systemPromptParts?.stable.length ?? 0,
-          promptCacheDynamicChars: systemPromptParts?.dynamic?.length ?? 0,
+          promptCacheStableChars: activeSystemPromptParts?.stable.length ?? 0,
+          promptCacheDynamicChars: activeSystemPromptParts?.dynamic?.length ?? 0,
           promptCacheEligible: promptCacheEligibility.eligible,
           promptCacheEligibilityReason: promptCacheEligibility.reason,
           promptCacheMinStableChars: promptCacheEligibility.minStableChars,

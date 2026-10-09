@@ -60,6 +60,7 @@ import {
   subscribeBackgroundLifecycle,
 } from '../../core/tools/background-process-registry.js';
 import { formatBackgroundCompletionFlash } from '../background-completion-ui.js';
+import { formatMcpStatusLine } from '../rdk-docs-mcp.js';
 import { isZhLocale } from '../cli-locale.js';
 import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
 import { setCliApprovalAsker } from '../approval.js';
@@ -865,39 +866,72 @@ export function TuiAppRoot({
     // soul, the git branch) — the reference CLI prints this as its SessionStart
     // context line; moss used to load all of it silently.
     const info = options.contextInfo;
-    if (info) {
+    const liveMcpServers = options.listMcpServers?.() ?? options.mcpServers;
+    const mcpSummary =
+      liveMcpServers && liveMcpServers.length > 0
+        ? {
+            connected: liveMcpServers.filter((s) => s.state === 'connected').length,
+            connecting: liveMcpServers.filter((s) => s.state === 'connecting').length,
+            total: liveMcpServers.length,
+          }
+        : info?.mcp
+          ? {
+              connected: info.mcp.connected,
+              connecting: info.mcp.connecting ?? 0,
+              total: info.mcp.total,
+            }
+          : undefined;
+    if (info || mcpSummary) {
       const parts: string[] = [];
-      if (info.branch) parts.push(`git:${info.branch}`);
-      if (info.skills) {
+      if (info?.branch) parts.push(`git:${info.branch}`);
+      if (info?.skills) {
         parts.push(
           tui(info.skills === 1 ? '{count} skill' : '{count} skills', { count: info.skills })
         );
       }
-      if (info.mcp && info.mcp.total > 0) {
-        parts.push(
-          info.mcp.connected === info.mcp.total
-            ? tui(info.mcp.total === 1 ? '{count} MCP server' : '{count} MCP servers', {
-                count: info.mcp.total,
-              })
-            : tui('{connected}/{total} MCP servers connected', {
-                connected: info.mcp.connected,
-                total: info.mcp.total,
-              })
-        );
+      if (mcpSummary && mcpSummary.total > 0) {
+        if (mcpSummary.connecting > 0) {
+          parts.push(
+            tui(
+              mcpSummary.connecting === 1
+                ? '{count} MCP server connecting'
+                : '{count} MCP servers connecting',
+              { count: mcpSummary.connecting }
+            )
+          );
+        } else if (mcpSummary.connected === mcpSummary.total) {
+          parts.push(
+            tui(mcpSummary.total === 1 ? '{count} MCP server' : '{count} MCP servers', {
+              count: mcpSummary.total,
+            })
+          );
+        } else {
+          parts.push(
+            tui('{connected}/{total} MCP servers connected', {
+              connected: mcpSummary.connected,
+              total: mcpSummary.total,
+            })
+          );
+        }
       }
       if (parts.length > 0) {
         appendRow(store, 'detail', tui('context: {parts}', { parts: parts.join(' · ') }));
       }
     }
-    // A failed MCP server is the most common boot problem and it used to be
-    // readable only if the user already knew about /mcp: the context line
-    // counts servers, this row names the failures (codex §1.4's ⚠ shape).
-    const failedMcp = (options.mcpServers ?? []).filter((s) => s.state !== 'connected');
+    // Only a terminal failure is a boot warning. `connecting` is not failed;
+    // the registry notifies once the handshake settles.
+    const failedMcp = (liveMcpServers ?? []).filter((s) => s.state === 'failed');
     if (failedMcp.length > 0) {
       const names = failedMcp
         .slice(0, 3)
         .map((s) => s.name)
         .join(', ');
+      const reasons = failedMcp
+        .slice(0, 3)
+        .map((s) => s.error?.trim().split('\n')[0])
+        .filter((reason): reason is string => Boolean(reason))
+        .join('; ')
+        .slice(0, 160);
       appendRow(
         store,
         'system',
@@ -908,9 +942,11 @@ export function TuiAppRoot({
           { count: failedMcp.length }
         ) +
           `${names ? ` (${names})` : ''}` +
+          `${reasons ? `: ${reasons}` : ''}` +
           tui(' — /mcp for details')
       );
     }
+    options.onMcpUiReady?.();
     // Crash/quit recovery: history survives per-message, but a bare `moss`
     // used to start blank with no path back. One hint row names the newest
     // session and the flag that resumes it (only when this boot is fresh —
@@ -1215,13 +1251,13 @@ export function TuiAppRoot({
         );
       }
       if (command === 'mcp') {
-        const servers = options.mcpServers ?? [];
+        const servers = options.listMcpServers?.() ?? options.mcpServers ?? [];
         if (servers.length === 0) return [tui('no MCP servers configured (.moss/mcp.json)')];
-        return servers.map(
-          (x) =>
-            `${x.state === 'connected' ? '●' : '○'} ${x.name} — ${x.state}${
-              x.toolCount !== undefined ? tui(' ({count} tools, lazy)', { count: x.toolCount }) : ''
-            }${x.error ? `: ${x.error.slice(0, 80)}` : ''}`
+        return servers.map((x) =>
+          formatMcpStatusLine(
+            x,
+            x.toolCount !== undefined ? tui(' ({count} tools, lazy)', { count: x.toolCount }) : ''
+          )
         );
       }
       if (command === 'subs') {

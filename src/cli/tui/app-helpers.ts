@@ -69,7 +69,7 @@ export interface TuiContextInfo {
   /** Registered skills (`.moss/skills/` + user dir); omitted when 0. */
   skills?: number;
   /** Connected MCP servers / total configured; omitted when none configured. */
-  mcp?: { connected: number; total: number };
+  mcp?: { connected: number; total: number; connecting?: number };
   /** Active soul id when it is not the built-in default. */
   soul?: string;
   /** Current git branch of the workspace, when inside a repo. */
@@ -115,8 +115,12 @@ export interface TuiAppOptions {
   resumePicker?: boolean;
   /** /sessions panel provider (host-side session store). */
   listSessions?: () => Promise<TuiSessionSummary[]>;
-  /** /mcp panel data (host-side registry statuses). */
+  /** /mcp panel data (host-side registry statuses). Snapshot; prefer listMcpServers. */
   mcpServers?: TuiMcpServerStatus[];
+  /** Live MCP statuses. `/mcp` and the boot line read this when the host provides it. */
+  listMcpServers?: () => TuiMcpServerStatus[];
+  /** Called after the boot transcript has painted the current MCP snapshot. */
+  onMcpUiReady?: () => void;
   /** File checkpoint restore for /rewind (host wires the checkpoint store). */
   rewindTo?: (seq: number) => { ok: boolean; detail: string };
   listCheckpoints?: () => Array<{ seq: number; label: string; files: number }>;

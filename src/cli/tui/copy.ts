@@ -285,6 +285,8 @@ export const ZH: Readonly<Record<string, string>> = {
   '{count} skills': '{count} 个 skill',
   '{count} MCP server': '{count} 个 MCP 服务',
   '{count} MCP servers': '{count} 个 MCP 服务',
+  '{count} MCP server connecting': '{count} 个 MCP 服务连接中',
+  '{count} MCP servers connecting': '{count} 个 MCP 服务连接中',
   '⚠ {count} MCP server failed to start': '⚠ {count} 个 MCP 服务启动失败',
   '⚠ {count} MCP servers failed to start': '⚠ {count} 个 MCP 服务启动失败',
   ' — /mcp for details': ' — 详情见 /mcp',

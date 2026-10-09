@@ -195,6 +195,7 @@ export interface ExecuteToolCallDeps {
     name: string;
     input: unknown;
     abortSignal: AbortSignal;
+    tool?: Tool;
   }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
 
   push: (event: MiniAgentEvent) => void;
@@ -248,9 +249,16 @@ async function executeOneToolCallInner(
   deps: ExecuteToolCallDeps
 ): Promise<ExecuteToolCallOutcome> {
   try {
-    const tool = deps.toolsForRun.find((t) => t.name === call.name);
+    let tool = deps.toolsForRun.find((t) => t.name === call.name);
+    if (!tool && deps.toolCtx.resolveMissingTool) {
+      const resolved = await deps.toolCtx.resolveMissingTool(call.name, deps.abortSignal);
+      if (resolved) tool = resolved;
+    }
     if (!tool) {
-      const text = `Unknown tool: ${call.name}. Available tools: ${formatAvailableToolNames(deps.toolsForRun)}. Use only registered tool names.`;
+      const reason = deps.toolCtx.describeMissingTool?.(call.name);
+      const text =
+        reason ??
+        `Unknown tool: ${call.name}. Available tools: ${formatAvailableToolNames(deps.toolsForRun)}. Use only registered tool names.`;
       return {
         kind: 'unknown-tool',
         text,
@@ -342,7 +350,7 @@ async function executeOneToolCallInner(
     let approvalTriggered = false;
     if (deps.checkToolApproval) {
       const approval = await abortable(
-        deps.checkToolApproval({ ...call, abortSignal: effectiveAbortSignal }),
+        deps.checkToolApproval({ ...call, abortSignal: effectiveAbortSignal, tool }),
         effectiveAbortSignal
       );
       if (approval !== null) {

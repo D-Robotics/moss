@@ -245,6 +245,9 @@ export function createMossAgentLoopEventAdapter(
               prefixChanges: event.metrics.promptPrefixChanges ?? 0,
               toolOrderChecks: event.metrics.promptToolOrderChecks ?? 0,
               toolOrderChanges: event.metrics.promptToolOrderChanges ?? 0,
+              ...(event.metrics.systemPromptHashShort
+                ? { systemPromptHashShort: event.metrics.systemPromptHashShort }
+                : {}),
               cacheReadTokens: usage?.cacheReadTokens ?? 0,
               cacheCreationTokens: usage?.cacheCreationTokens ?? 0,
             },

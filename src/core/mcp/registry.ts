@@ -349,6 +349,86 @@ export class McpToolRegistry {
     return this.entries.filter((e) => e.status.state === 'connected').map((e) => e.status.name);
   }
 
+  /**
+   * Resolve a wire name that was not in the turn's tool list yet.
+   * A server still connecting is awaited (bounded by its connect timeout,
+   * and by `signal`). After the handshake, a catalog hit is registered and
+   * returned. Unknown names and servers that failed return undefined;
+   * `missingToolReason` explains the failure.
+   */
+  async resolveCallableTool(wireName: string, signal?: AbortSignal): Promise<Tool | undefined> {
+    const entry = this.entryForWireName(wireName);
+    if (!entry) return undefined;
+    await this.waitUntilReady(entry, signal);
+    if (entry.status.state !== 'connected') return undefined;
+    if (wireName === entry.searchTool.name) return entry.searchTool;
+    const existing = entry.realTools.get(wireName);
+    if (existing) return existing;
+    const descriptor = entry.descriptors.find(
+      (candidate) => mcpToolWireName(entry.status.name, candidate.name) === wireName
+    );
+    if (!descriptor) return undefined;
+    this.ensureRealTool(entry.client, descriptor);
+    return entry.realTools.get(wireName);
+  }
+
+  /** Replaces "Unknown tool" when the server itself is down or closed. */
+  missingToolReason(wireName: string): string | undefined {
+    const entry = this.entryForWireName(wireName);
+    if (!entry) return undefined;
+    if (entry.status.state === 'failed') {
+      const reason = entry.status.error?.trim() || 'connection failed';
+      return `MCP server "${entry.status.name}" failed to connect: ${reason}. Its tools are not available.`;
+    }
+    if (entry.status.state === 'closed') {
+      return `MCP server "${entry.status.name}" is closed. Its tools are not available.`;
+    }
+    return undefined;
+  }
+
+  private entryForWireName(wireName: string): ServerEntry | undefined {
+    if (!wireName.startsWith('mcp__')) return undefined;
+    let match: ServerEntry | undefined;
+    let matchLength = 0;
+    for (const entry of this.entries) {
+      const prefix = mcpServerWirePrefix(entry.status.name);
+      if (wireName.startsWith(prefix) && prefix.length > matchLength) {
+        match = entry;
+        matchLength = prefix.length;
+      }
+    }
+    return match;
+  }
+
+  /** Handshake wait. `ready` already rejects nothing and is connect-timeout bounded. */
+  private async waitUntilReady(entry: ServerEntry, signal?: AbortSignal): Promise<void> {
+    if (entry.status.state !== 'connecting') return;
+    if (signal?.aborted) {
+      throw new MossError({ code: ErrorCode.USER_ABORTED, message: 'Operation aborted' });
+    }
+    if (!signal) {
+      await entry.ready;
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        signal.removeEventListener('abort', onAbort);
+        reject(new MossError({ code: ErrorCode.USER_ABORTED, message: 'Operation aborted' }));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      entry.ready.then(
+        () => {
+          signal.removeEventListener('abort', onAbort);
+          resolve();
+        },
+        (err: unknown) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(err);
+        }
+      );
+    });
+  }
+
   /** Create (or reuse) the real moss Tool wrapping a server tool, and install
    *  it through the host registerTool hook. Returns the wire name. */
   private ensureRealTool(client: McpClient, descriptor: McpToolDescriptor): string {
@@ -520,9 +600,7 @@ export class McpToolRegistry {
  * and schemas never enter the system prompt (that is the lazy-loading budget).
  */
 export function buildMcpPromptLayer(registry: McpToolRegistry): string {
-  const servers = registry
-    .getStatuses()
-    .filter((s) => s.state === 'connecting' || s.state === 'connected');
+  const servers = registry.getStatuses().filter((s) => s.state === 'connected');
   if (servers.length === 0) return '';
   const lines = servers.map(
     (s) =>

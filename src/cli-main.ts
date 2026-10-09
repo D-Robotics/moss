@@ -53,13 +53,14 @@ import {
 import { renderConfigHelp } from './cli/config-commands.js';
 import { renderSetupHelp } from './cli/setup-wizard.js';
 import { MossAgent, JsonlSessionStore } from './core/index.js';
-import { configureRootLogger, type LogLevel } from './logger.js';
+import { configureRootLogger, getRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
 import { registerBuiltinTools } from './tools/builtin.js';
 import { loadFileBasedTools } from './tools/file-based-tools.js';
 import { loadMcpConfigs } from './cli/mcp-config.js';
 import {
   formatMcpStartupLine,
+  formatMcpStatusLine,
   rdkDocsAutoConnectEnabled,
   readRdkDocsFlag,
   resolveRdkDocsPackage,
@@ -766,6 +767,10 @@ async function main() {
   // is one line, not a crashed CLI. No cache, no bundled manual.
   let mcpRegistry: McpToolRegistry | null = null;
   let mcpPromptLayerIndex: number | undefined;
+  // TUI boot paints the current registry snapshot. Notices start only after
+  // that paint, so a server still connecting is not also announced as failed.
+  let announceMcpStatus = !useTui;
+  let syncRdkDocsSkills = (): void => {};
   const refreshMcpPromptLayer = (): void => {
     if (!mcpRegistry) return;
     const layers = [
@@ -777,8 +782,8 @@ async function main() {
       mcpPromptLayerIndex = extraPromptLayers.length;
       extraPromptLayers.push(combined);
     } else {
-      // MossAgent keeps this array by reference, so a background connection
-      // failure replaces optimistic guidance before the next model turn.
+      // MossAgent re-reads this array before each model call, so a background
+      // connect or failure replaces the layer before the next request.
       extraPromptLayers[mcpPromptLayerIndex] = combined;
     }
   };
@@ -803,12 +808,17 @@ async function main() {
         // config; other servers keep the client defaults.
         registerTool: (tool) => agent.tools.register(tool),
         onStatusChange: (status) => {
-          const line = formatMcpStartupLine(status, cliDetailForNotices);
-          if (line) {
-            if (useTui) emitTuiNotice(line);
-            else console.error(line);
-          }
           refreshMcpPromptLayer();
+          syncRdkDocsSkills();
+          if (status.state !== 'connected' && status.state !== 'failed') return;
+          if (!announceMcpStatus) return;
+          if (useTui) {
+            if (status.state === 'connected' && cliDetailForNotices === 'quiet') return;
+            emitTuiNotice(formatMcpStatusLine(status));
+            return;
+          }
+          const line = formatMcpStartupLine(status, cliDetailForNotices);
+          if (line) console.error(line);
         },
       });
       for (const searchTool of mcpRegistry.getTools()) agent.tools.register(searchTool);
@@ -821,6 +831,9 @@ async function main() {
       mcpRegistry = null;
     }
   }
+  agent.config.resolveMissingTool = (name, signal) =>
+    mcpRegistry?.resolveCallableTool(name, signal) ?? Promise.resolve(undefined);
+  agent.config.describeMissingTool = (name) => mcpRegistry?.missingToolReason(name);
   // File-based custom tools from .moss/tools/*.tool.json — the lightweight
   // path for users who want a named, schema-validated tool without a host
   // extension module.
@@ -830,37 +843,54 @@ async function main() {
   // enters the system prompt; bodies load through the readonly skill tool.
   // The count feeds the TUI's boot context line, and the TUI also gets the
   // skills themselves so they surface as first-class `/` commands.
-  let loadedSkillCount = 0;
-  let loadedSkills: Array<{ name: string; description: string }> = [];
+  const loadedSkills: Array<{ name: string; description: string }> = [];
+  const sessionContextInfo: { skills?: number; soul?: string; branch?: string } = {};
   {
-    const rdkDocsConnected =
-      mcpRegistry
-        ?.getStatuses()
-        .some(
-          (status) =>
-            status.name === RDK_DOCS_SERVER_NAME &&
-            (status.state === 'connecting' || status.state === 'connected')
-        ) ?? false;
-    const skills = includeBundledRdkDocsSkill(
-      loadSkills([path.join(workspace, '.moss', 'skills'), path.join(configDir, 'skills')]),
-      rdkDocsConnected
-    );
-    loadedSkillCount = skills.length;
-    loadedSkills = skills.map(({ name, description }) => ({ name, description }));
-    if (skills.length > 0) {
-      agent.tools.register(createSkillTool(skills));
-      const layer = buildSkillsPromptLayer(skills);
-      if (layer) extraPromptLayers.push(layer);
-    } else {
-      // With no skills installed the model used to shell out and scan other
-      // tools' skill folders; anchor it to Moss's own directories instead.
-      extraPromptLayers.push(
-        buildEmptySkillsHintLayer([
-          path.join(workspace, '.moss', 'skills'),
-          path.join(configDir, 'skills'),
-        ])
+    const skillDirs = [path.join(workspace, '.moss', 'skills'), path.join(configDir, 'skills')];
+    const baseSkills = loadSkills(skillDirs);
+    const sessionSkills = [...baseSkills];
+    let skillsLayerIndex: number | undefined;
+    let installedSkillTool: ReturnType<typeof createSkillTool> | undefined;
+    const emptySkillsLayer = buildEmptySkillsHintLayer(skillDirs);
+    syncRdkDocsSkills = () => {
+      const connected =
+        mcpRegistry
+          ?.getStatuses()
+          .some((status) => status.name === RDK_DOCS_SERVER_NAME && status.state === 'connected') ??
+        false;
+      const next = includeBundledRdkDocsSkill(baseSkills, connected);
+      sessionSkills.splice(0, sessionSkills.length, ...next);
+      if (sessionSkills.length > 0) {
+        const tool = createSkillTool(sessionSkills);
+        try {
+          agent.tools.register(tool);
+          installedSkillTool = tool;
+        } catch (err) {
+          // A plugin that already owns `skill` must not take down the status callback.
+          getRootLogger()
+            .child('cli')
+            .warn('skill tool register skipped', { error: errorMessage(err) });
+        }
+      } else if (installedSkillTool && agent.tools.get('skill') === installedSkillTool) {
+        agent.tools.remove('skill');
+        installedSkillTool = undefined;
+      }
+      sessionContextInfo.skills = sessionSkills.length;
+      loadedSkills.splice(
+        0,
+        loadedSkills.length,
+        ...sessionSkills.map(({ name, description }) => ({ name, description }))
       );
-    }
+      const layer =
+        sessionSkills.length > 0 ? (buildSkillsPromptLayer(sessionSkills) ?? '') : emptySkillsLayer;
+      if (skillsLayerIndex === undefined) {
+        skillsLayerIndex = extraPromptLayers.length;
+        extraPromptLayers.push(layer);
+      } else {
+        extraPromptLayers[skillsLayerIndex] = layer;
+      }
+    };
+    syncRdkDocsSkills();
   }
   // Answers model-identity questions from the gateway and tracks later context-window probes.
   agent.tools.replace(
@@ -1236,21 +1266,14 @@ async function main() {
         locale: cliLocale(),
         cliRuntime: liveRuntime,
         noticeSource: tuiNoticeSource,
-        contextInfo: {
-          skills: loadedSkillCount,
-          mcp: mcpRegistry
-            ? {
-                connected: mcpRegistry.getStatuses().filter((s) => s.state === 'connected').length,
-                total: mcpRegistry.getStatuses().length,
-              }
-            : undefined,
+        contextInfo: Object.assign(sessionContextInfo, {
           soul: (() => {
             const soul = resolveSoul({ workspaceDir: workspace, configDir });
             return soul.source === 'default' ? undefined : soul.id;
           })(),
           branch: (await getGitBranch(workspace)) ?? undefined,
-        },
-        ...(loadedSkills.length > 0 ? { skills: loadedSkills } : {}),
+        }),
+        skills: loadedSkills,
         ...(resumeInteractive ? { resumePicker: true } : {}),
         ...(replayRows ? { replayRows } : {}),
         // The checkpoint is what `/rewind` restores from; without this call the
@@ -1276,14 +1299,18 @@ async function main() {
               current: m.sessionKey === currentSessionKey,
             }));
         },
-        mcpServers: mcpRegistry
-          ? mcpRegistry.getStatuses().map((s) => ({
-              name: s.name,
-              state: s.state,
-              ...(s.toolCount !== undefined ? { toolCount: s.toolCount } : {}),
-              ...(s.error ? { error: s.error } : {}),
-            }))
-          : [],
+        listMcpServers: () =>
+          mcpRegistry
+            ? mcpRegistry.getStatuses().map((s) => ({
+                name: s.name,
+                state: s.state,
+                ...(s.toolCount !== undefined ? { toolCount: s.toolCount } : {}),
+                ...(s.error ? { error: s.error } : {}),
+              }))
+            : [],
+        onMcpUiReady: () => {
+          announceMcpStatus = true;
+        },
         listCheckpoints: () =>
           checkpointStore.list().map((cp) => ({
             seq: cp.seq,

@@ -107,6 +107,7 @@ export interface SubAgentRunnerDeps {
     abortSignal: AbortSignal;
     sessionKey: string;
     runId: string;
+    tool?: Tool;
   }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
 }
 
@@ -308,6 +309,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
                 name: string;
                 input: unknown;
                 abortSignal: AbortSignal;
+                tool?: Tool;
               }) =>
                 inheritedApprovalGate({
                   ...call,

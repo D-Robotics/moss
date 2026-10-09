@@ -11,6 +11,7 @@
  *  4. tools serialization identical across turns (order + schema bytes)
  */
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { test } from 'node:test';
 import { MossAgent } from '../dist/core/agent/moss-agent.js';
 import { InMemorySessionStore } from '../dist/core/session/session.js';
@@ -132,6 +133,68 @@ test('system prompt and tools stay byte-identical across turns; extraContext rid
     'parts.stable === system'
   );
   assert.equal(captured[0].systemPromptParts?.dynamic, undefined, 'no dynamic tail');
+});
+
+test('two model calls with unchanged state send byte-identical system prompts', async () => {
+  const systems = [];
+  let turn = 0;
+  const events = [];
+  const agent = new MossAgent({
+    llmProvider: {
+      id: 'capture',
+      capabilities: { streaming: true },
+      async complete() {
+        throw new Error('complete is not used');
+      },
+      async stream(request) {
+        systems.push(request.systemPrompt);
+        turn += 1;
+        if (turn === 1) {
+          return {
+            stopReason: 'tool_use',
+            content: [{ type: 'tool_use', id: 'call-probe', name: 'probe_a', input: { q: 'x' } }],
+            usage: { inputTokens: 10, outputTokens: 2 },
+          };
+        }
+        return {
+          stopReason: 'end_turn',
+          content: [{ type: 'text', text: 'done' }],
+          usage: { inputTokens: 10, outputTokens: 2 },
+        };
+      },
+    },
+    sessionStore: new InMemorySessionStore(),
+    model: 'prefix-stability',
+    baseSystemPrompt: 'You are Moss. Stable persona.',
+    domainPrompt: false,
+    includeAgentBehaviorPrompt: false,
+    enableSteering: false,
+    enableFollowUpGuard: false,
+    extraPromptLayers: ['stable layer that must not drift'],
+    maxAgentTurns: 4,
+  });
+  agent.tools.register({
+    name: 'probe_a',
+    description: 'Probe A.',
+    metadata: { sideEffectClass: 'readonly' },
+    inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
+    async execute() {
+      return 'a';
+    },
+  });
+  try {
+    for await (const event of agent.streamChat('same-prompt', 'use the probe')) {
+      events.push(event);
+    }
+    assert.equal(systems.length, 2);
+    assert.equal(systems[0], systems[1]);
+    assert.equal(systems[0].includes('stable layer that must not drift'), true);
+    const hash = crypto.createHash('sha256').update(systems[1], 'utf8').digest('hex').slice(0, 16);
+    const metrics = events.find((event) => event.type === 'cache_metrics');
+    assert.equal(metrics?.systemPromptHashShort, hash);
+  } finally {
+    await agent.close();
+  }
 });
 
 console.log('[PASS] prefix-cache stability invariants');

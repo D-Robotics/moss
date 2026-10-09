@@ -64,8 +64,9 @@ export function rdkDocsKnowledgeLayer(
 ): string {
   const status = statuses.find((entry) => entry.name === RDK_DOCS_SERVER_NAME);
   if (!status) return '';
-  if (status.state === 'connecting' || status.state === 'connected')
-    return RDK_DOCS_CONNECTED_LAYER;
+  // Connecting is not connected: the usage guide appears on the next model
+  // call after the handshake, not while npx is still starting.
+  if (status.state === 'connected') return RDK_DOCS_CONNECTED_LAYER;
   if (status.state === 'failed') return RDK_DOCS_UNAVAILABLE_LAYER;
   return '';
 }

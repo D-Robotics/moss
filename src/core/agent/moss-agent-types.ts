@@ -78,6 +78,14 @@ export interface PromptConfig {
 
   extraPromptLayers?: string[];
 
+  /**
+   * Tool names that appear after the run starts (MCP handshake). The loop
+   * calls this instead of returning "Unknown tool" immediately.
+   */
+  resolveMissingTool?: (name: string, signal?: AbortSignal) => Promise<Tool | undefined>;
+  /** Optional replacement for the generic unknown-tool message. */
+  describeMissingTool?: (name: string) => string | undefined;
+
   includeRegisteredKnowledgePrompts?: boolean;
 
   /**
@@ -331,6 +339,8 @@ export type MossAgentEvent =
       prefixChanges: number;
       toolOrderChecks: number;
       toolOrderChanges: number;
+      /** SHA-256 prefix of the system prompt actually sent on the last model call. */
+      systemPromptHashShort?: string;
 
       cacheReadTokens: number;
       cacheCreationTokens: number;

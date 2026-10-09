@@ -962,6 +962,29 @@ async function type(instance, text) {
     await sleep(150);
   }
 
+  // 4l2. A server that is still connecting is not reported as failed.
+  {
+    const { instance, handle } = mount({
+      agent: createMockAgent(),
+      workspaceDir: '/tmp/ws',
+      mcpServers: [{ name: 'rdk-docs', state: 'connecting' }],
+    });
+    const connecting = await waitFor(() =>
+      handle.store.rows.some((row) => row.text.includes('1 MCP server connecting'))
+    );
+    assert.ok(
+      connecting,
+      `boot names connecting: ${JSON.stringify(handle.store.rows.map((r) => r.text))}`
+    );
+    assert.equal(
+      handle.store.rows.some((row) => row.text.includes('failed to start')),
+      false,
+      'connecting is not a startup failure'
+    );
+    instance.unmount();
+    await sleep(150);
+  }
+
   // 4m. An MCP failure arriving after mount is rendered inside Ink, so it
   // cannot write below the fullscreen frame or displace the composer.
   {

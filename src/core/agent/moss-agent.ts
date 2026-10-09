@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { LLMMessage } from '../llm/llm-provider.js';
-import type { ToolContext, ToolResult } from '../tools/tool-types.js';
+import type { Tool, ToolContext, ToolResult } from '../tools/tool-types.js';
 import { getRootLogger } from '../../logger.js';
 import { buildExperienceBlock, experienceEnabled } from '../experience/experience-library.js';
 
@@ -844,10 +844,22 @@ ${result.stderr ?? ''}`.trim();
         content: appendTurnExtraContext(userMsg.content, extraContext),
       });
     }
-    const allTools = filterToolsForRun(
-      [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])],
-      options?.toolFilter
-    );
+    const resolveRunTools = (): ReturnType<typeof filterToolsForRun> =>
+      filterToolsForRun(
+        [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])],
+        options?.toolFilter
+      );
+    const allTools = resolveRunTools();
+    const hostResolveMissingTool = this.config.resolveMissingTool;
+    // A name that appears after the tool list was built (MCP handshake) still
+    // has to pass this run's filter. Filtered-out tools stay unknown.
+    const resolveMissingToolForRun = hostResolveMissingTool
+      ? async (name: string, signal?: AbortSignal): Promise<Tool | undefined> => {
+          const resolved = await hostResolveMissingTool(name, signal);
+          if (!resolved) return undefined;
+          return filterToolsForRun([resolved], options?.toolFilter)[0];
+        }
+      : undefined;
 
     const workspaceDir = path.resolve(this.config.workspaceDir ?? process.cwd());
     const toolCtx: ToolContext = {
@@ -868,6 +880,10 @@ ${result.stderr ?? ''}`.trim();
         };
       },
       asyncTaskRegistry: this.asyncTasks,
+      ...(resolveMissingToolForRun ? { resolveMissingTool: resolveMissingToolForRun } : {}),
+      ...(this.config.describeMissingTool
+        ? { describeMissingTool: this.config.describeMissingTool }
+        : {}),
     };
 
     const adapter = createMossAgentLoopEventAdapter({
@@ -919,8 +935,16 @@ ${result.stderr ?? ''}`.trim();
     ): AgentLoopParams['checkToolApproval'] =>
       hooks?.onBeforeToolExec
         ? async (call) => {
-            const tool = allTools.find((t) => t.name === call.name);
-            if (!tool) return null;
+            const tool = call.tool ?? resolveRunTools().find((t) => t.name === call.name);
+            // A missing lookup used to return null, which the executor treats
+            // as allow. Fail closed so a resolved tool cannot skip the gate.
+            if (!tool) {
+              return {
+                approved: false,
+                decision: 'deny',
+                reason: `Tool "${call.name}" is not available for this run.`,
+              };
+            }
             const input =
               call.input && typeof call.input === 'object' && !Array.isArray(call.input)
                 ? (call.input as Record<string, unknown>)
@@ -940,7 +964,9 @@ ${result.stderr ?? ''}`.trim();
         : undefined;
 
     const subAgentRunner = createSubAgentRunner({
-      parentTools: allTools,
+      get parentTools() {
+        return resolveRunTools();
+      },
       streamFn,
       modelDef,
       systemPrompt,
@@ -1203,8 +1229,13 @@ ${result.stderr ?? ''}`.trim();
       compactionSummary: undefined,
       systemPrompt,
       systemPromptParts,
+      getSystemPrompt: () =>
+        this.buildSystemPrompt({
+          platform: options?.platform,
+          omitExtraPromptLayers: options?.omitExtraPromptLayers === true,
+        }),
       toolsForRun: allTools,
-      getToolsForRun: () => allTools,
+      getToolsForRun: resolveRunTools,
       toolCtx,
       modelDef,
       streamFn,

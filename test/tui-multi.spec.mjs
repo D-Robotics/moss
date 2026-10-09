@@ -151,4 +151,54 @@ instance.unmount();
 await sleep(120);
 void streamCalls;
 
+// /mcp reads the live registry. A server can leave "connecting" and show why.
+{
+  let servers = [{ name: 'rdk-docs', state: 'connecting' }];
+  const handle2 = liveHandle();
+  const instance2 = renderInk(
+    React.createElement(TuiAppRoot, {
+      options: {
+        agent: mockAgent(),
+        workspaceDir: '/tmp/ws',
+        listMcpServers: () => servers,
+      },
+      handle: handle2,
+      runtime: new TaskRuntime({ workspaceDir: '/tmp/ws' }),
+    })
+  );
+  const texts = () => handle2.store.rows.map((row) => row.text);
+  assert.ok(
+    await waitFor(() => texts().some((text) => text.includes('1 MCP server connecting'))),
+    `connecting boot: ${JSON.stringify(texts())}`
+  );
+  assert.equal(
+    texts().some((text) => text.includes('failed to start')),
+    false,
+    'connecting boot does not say failed'
+  );
+  await type(instance2, '/mcp');
+  assert.ok(
+    await waitFor(() => texts().some((text) => text.includes('○ rdk-docs — connecting'))),
+    ` /mcp shows connecting: ${JSON.stringify(texts())}`
+  );
+  servers = [
+    {
+      name: 'rdk-docs',
+      state: 'failed',
+      error: 'npx rdk-docs-mcp@0.2.0: registry unreachable',
+    },
+  ];
+  await type(instance2, '/mcp');
+  assert.ok(
+    await waitFor(() =>
+      texts().some((text) =>
+        text.includes('○ rdk-docs — failed: npx rdk-docs-mcp@0.2.0: registry unreachable')
+      )
+    ),
+    ` /mcp shows the failure reason: ${JSON.stringify(texts())}`
+  );
+  instance2.unmount();
+  await sleep(80);
+}
+
 console.log('[PASS] TUI multi-task plane (sessions/mcp/subs/rewind)');
