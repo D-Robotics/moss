@@ -23,12 +23,22 @@ assert.equal(
   'Applied 1 edit(s).\n  code uses exec_stop("bg_1")'
 );
 
+const backgroundHint =
+  'Started bg_1 (pid 9). Still running after 200ms. You will be notified when it finishes; use exec_logs("bg_1") to monitor and exec_stop("bg_1") to terminate.\nchild printed exec_stop("bg_1")';
+const backgroundFacing =
+  'Started bg_1 (pid 9). Still running after 200ms. You will be notified when it finishes; use exec_logs("bg_1") to monitor and /stop to terminate.\nchild printed exec_stop("bg_1")';
+assert.equal(userFacingToolResult(backgroundHint, 'exec_background'), backgroundFacing);
+assert.equal(userFacingToolResult(backgroundHint, 'exec'), backgroundFacing);
+assert.equal(
+  userFacingToolResult('child printed exec_stop("bg_1") to terminate', 'exec'),
+  'child printed exec_stop("bg_1") to terminate'
+);
 assert.equal(
   userFacingToolResult(
-    'Started bg_1. use exec_logs("bg_1") to monitor and exec_stop("bg_1") to terminate.\nchild printed exec_stop("bg_1")',
-    'exec_background'
+    'Error: too many background processes (8/8). Stop one with exec_stop first.',
+    'exec'
   ),
-  'Started bg_1. use exec_logs("bg_1") to monitor and /stop to terminate.\nchild printed exec_stop("bg_1")'
+  'Error: too many background processes (8/8). Stop one with /stop first.'
 );
 
 const assistant = userFacingAssistantText(
@@ -58,6 +68,19 @@ assert.equal(
   const read = store.rows.find((row) => row.kind === 'result');
   assert.ok(read, 'read_file lands in the transcript');
   assert.match(read.text, /exec_stop\("bg_1"\)/);
+
+  applyAgentEvent(store, {
+    type: 'tool_end',
+    toolName: 'exec',
+    toolCallId: 'c2',
+    result: backgroundHint,
+    isError: false,
+  });
+  const execRow = store.rows.filter((row) => row.kind === 'result').at(-1);
+  assert.ok(execRow, 'background exec lands in the transcript');
+  assert.match(execRow.text, /\/stop to terminate/);
+  assert.match(execRow.text, /child printed exec_stop\("bg_1"\)/);
+  assert.doesNotMatch(execRow.text, /exec_stop\("bg_1"\) to terminate/);
 
   applyAgentEvent(store, {
     type: 'text_delta',

@@ -18,7 +18,13 @@ import {
   resumeTask,
   summarizeTaskRun,
 } from '../dist/core/task/task-engine.js';
-import { listTaskEvents, recordFailure, recordRepair } from '../dist/core/task/task-store.js';
+import {
+  appendTaskEvent,
+  listTaskEvents,
+  recordFailure,
+  recordRepair,
+} from '../dist/core/task/task-store.js';
+import { setRootLogSink } from '../dist/logger.js';
 import { appendTaskRecord, appendEvidenceRecord } from '../dist/core/task-runtime/artifacts.js';
 import { createCommandVerdictProvider } from '../dist/core/task/verdict.js';
 
@@ -69,6 +75,137 @@ test('planning turn that already satisfies acceptance is the only model turn', a
   assert.equal(calls[0].phase, 'planning');
   assert.equal(result.outcome, 'pass');
   assert.equal(result.snapshot.phase, 'accepted');
+});
+
+test('a command acceptance waits for the execution turn when planning has not passed', async () => {
+  const ws = await tmpWorkspace();
+  let runs = 0;
+  const { runTurn, calls } = mockAgent(ws, [async () => {}, async () => {}]);
+  const inner = createCommandVerdictProvider('false');
+  const result = await runTask(
+    {
+      workspaceDir: ws,
+      runTurn,
+      maxRepairAttempts: 0,
+      verdictProvider: {
+        source: 'command',
+        async evaluate(taskId, signal) {
+          runs += 1;
+          assert.deepEqual(
+            calls.map((call) => call.phase),
+            ['planning', 'executing'],
+            'the command must not run before the execution turn'
+          );
+          return inner.evaluate(taskId, signal);
+        },
+      },
+    },
+    'command must pass'
+  );
+  assert.equal(runs, 1, 'a red command is not spawned again before repair');
+  assert.equal(result.outcome, 'fail');
+  const types = (await listTaskEvents(ws, result.snapshot.taskId)).map((event) => event.type);
+  assert.ok(types.includes('verification_started'));
+  assert.ok(types.includes('acceptance_fail'));
+  assert.equal(types.at(-1), 'task_failed');
+});
+
+test('a satisfied planning contract runs the command once and skips the execution turn', async () => {
+  const ws = await tmpWorkspace();
+  let runs = 0;
+  const { runTurn, calls } = mockAgent(ws, [
+    async (dir) => {
+      const events = await listTaskEvents(dir);
+      const taskId = events[0].taskId;
+      await appendTaskRecord(dir, {
+        taskId,
+        goal: 'command gate',
+        acceptanceCriteria: [{ metric: 'camera_fps', expected: '>=30' }],
+        status: 'active',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      await appendEvidenceRecord(dir, {
+        evidenceId: `ev_${Date.now()}`,
+        taskId,
+        source: 'test',
+        metric: 'camera_fps',
+        expected: '>=30',
+        observed: 31,
+        result: 'pass',
+        timestamp: Date.now(),
+      });
+    },
+  ]);
+  const inner = createCommandVerdictProvider('true');
+  const result = await runTask(
+    {
+      workspaceDir: ws,
+      runTurn,
+      verdictProvider: {
+        source: 'command',
+        async evaluate(taskId, signal) {
+          runs += 1;
+          return inner.evaluate(taskId, signal);
+        },
+      },
+    },
+    'command gate'
+  );
+  assert.equal(runs, 1);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].phase, 'planning');
+  assert.equal(result.outcome, 'pass');
+});
+
+test('planning handoff skips events only when the turn already accepted', async () => {
+  const ws = await tmpWorkspace();
+  const { runTurn, calls } = mockAgent(ws, [
+    async (dir) => {
+      const events = await listTaskEvents(dir);
+      const taskId = events[0].taskId;
+      await appendTaskEvent(dir, taskId, 'plan_ready');
+      await appendTaskEvent(dir, taskId, 'execution_started');
+      await appendTaskEvent(dir, taskId, 'verification_started');
+      await appendTaskEvent(dir, taskId, 'acceptance_pass', { detail: 'planning already passed' });
+    },
+  ]);
+  const result = await runTask({ workspaceDir: ws, runTurn }, 'already accepted in planning');
+  assert.equal(result.outcome, 'pass');
+  assert.equal(calls.length, 1);
+  const types = (await listTaskEvents(ws, result.snapshot.taskId)).map((event) => event.type);
+  assert.equal(types.filter((type) => type === 'plan_ready').length, 1);
+  assert.equal(types.filter((type) => type === 'execution_started').length, 1);
+  assert.equal(types.at(-1), 'acceptance_pass');
+});
+
+test('planning handoff logs and throws an illegal transition other than already-accepted', async () => {
+  const ws = await tmpWorkspace();
+  const { runTurn } = mockAgent(ws, [
+    async (dir) => {
+      const events = await listTaskEvents(dir);
+      const taskId = events[0].taskId;
+      await appendTaskEvent(dir, taskId, 'plan_ready');
+      await appendTaskEvent(dir, taskId, 'execution_started');
+      await appendTaskEvent(dir, taskId, 'verification_started');
+    },
+  ]);
+  const warnings = [];
+  setRootLogSink((entry) => {
+    if (entry.level === 'warn') warnings.push(entry);
+  });
+  try {
+    await assert.rejects(
+      () => runTask({ workspaceDir: ws, runTurn }, 'stuck in verifying'),
+      /not valid from phase verifying/
+    );
+  } finally {
+    setRootLogSink(null);
+  }
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].msg, 'refusing illegal task phase transition');
+  assert.equal(warnings[0].data.type, 'plan_ready');
+  assert.equal(warnings[0].data.phase, 'verifying');
 });
 
 test('long-horizon defaults outlast a short demo loop', () => {

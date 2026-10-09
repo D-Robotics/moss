@@ -6,6 +6,8 @@
  * verdict provider consulted in the VERIFYING phase.
  */
 import type { TaskStateSnapshot } from '../../contracts/task-runtime.js';
+import { ErrorCode, MossError } from '../../errors.js';
+import { getRootLogger } from '../../logger.js';
 import {
   appendTaskEvent,
   buildTaskTimeline,
@@ -19,6 +21,8 @@ import {
 import { injectExperienceIntoPrompt } from '../experience/experience-library.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
 import { acceptanceAlreadySatisfied, createTaskVerdictProvider } from './verdict.js';
+
+const log = getRootLogger().child('task-engine');
 
 export interface TaskEngineDeps {
   workspaceDir: string;
@@ -206,7 +210,7 @@ async function verifyRepairLoop(
       detail: 'agent execution turn',
     });
     await deps.runTurn(
-      executionPrompt(current?.goal ?? '', state.taskId, state.repairsUsed + 1),
+      executionPrompt(current.goal ?? '', state.taskId, state.repairsUsed + 1),
       'executing'
     );
 
@@ -307,10 +311,38 @@ async function buildRunResult(
 }
 
 /**
+ * plan_ready / execution_started are illegal once the planning turn has
+ * already accepted. That one case is skipped. Any other illegal transition
+ * is logged and thrown — tryAppend would hide it.
+ */
+async function appendUnlessAccepted(
+  workspaceDir: string,
+  taskId: string,
+  type: 'plan_ready' | 'execution_started'
+): Promise<void> {
+  const snapshot = await getTaskStateSnapshot(workspaceDir, taskId);
+  if (snapshot?.phase === 'accepted') return;
+  try {
+    await appendTaskEvent(workspaceDir, taskId, type);
+  } catch (err) {
+    if (err instanceof MossError && err.code === ErrorCode.EXECUTION_STATE_INVALID) {
+      log.warn('refusing illegal task phase transition', {
+        taskId,
+        type,
+        phase: snapshot?.phase,
+        message: err.message,
+      });
+    }
+    throw err;
+  }
+}
+
+/**
  * The planning turn already implements and verifies. If that work satisfies
  * acceptance, do not spend a second model turn on executionPrompt.
- * A failing check is not recorded here — the repair loop still owns the
- * first red verdict.
+ * A command is not run here unless the contract is already satisfied — a red
+ * command would only run again after the execution turn. A failing check is
+ * not recorded here; the repair loop still owns the first red verdict.
  */
 async function acceptPlanningIfSatisfied(
   deps: TaskEngineDeps,
@@ -319,10 +351,7 @@ async function acceptPlanningIfSatisfied(
 ): Promise<boolean> {
   const current = await getTaskStateSnapshot(deps.workspaceDir, state.taskId);
   if (!current || current.phase === 'accepted') return current?.phase === 'accepted';
-  const worthEvaluating =
-    provider.source === 'command' ||
-    (await acceptanceAlreadySatisfied(deps.workspaceDir, state.taskId));
-  if (!worthEvaluating) return false;
+  if (!(await acceptanceAlreadySatisfied(deps.workspaceDir, state.taskId))) return false;
   const verdict = await provider.evaluate(state.taskId, deps.signal);
   if (!verdict.passed) return false;
   state.lastVerdict = verdict;
@@ -395,14 +424,11 @@ export async function runTask(
       await injectExperienceIntoPrompt(prompt, goal, deps.workspaceDir),
       'planning'
     );
-    // The planning turn may already have accepted the task. Those events are
-    // illegal from `accepted`, so they must not throw away a finished goal.
-    await tryAppendTaskEvent(deps.workspaceDir, taskId, 'plan_ready');
-    await tryAppendTaskEvent(deps.workspaceDir, taskId, 'execution_started');
-    const planned = await getTaskStateSnapshot(deps.workspaceDir, taskId);
-    const planningAccepted =
-      planned?.phase === 'accepted' || (await acceptPlanningIfSatisfied(deps, state, provider));
-    if (!planningAccepted) {
+    // Already-accepted is the only skipped transition. Anything else illegal
+    // (for example plan_ready from verifying) throws.
+    await appendUnlessAccepted(deps.workspaceDir, taskId, 'plan_ready');
+    await appendUnlessAccepted(deps.workspaceDir, taskId, 'execution_started');
+    if (!(await acceptPlanningIfSatisfied(deps, state, provider))) {
       await verifyRepairLoop(deps, state, provider, maxRepairAttempts);
     }
   } catch (err) {

@@ -13,8 +13,22 @@ const INJECTED_PHASE_MARKS = new Set([
 ]);
 
 /**
- * Drop the multi_edit hint line, and rewrite only exec_background's own
- * `exec_stop("…") to terminate` hint. File contents from read_file stay intact.
+ * The harness hint background exec returns to the model. The transcript shows
+ * `/stop` (the user command); the tool result the model reads is unchanged.
+ */
+const BACKGROUND_STOP_HINT =
+  /use exec_logs\((['"])[^'"]+\1\) to monitor and exec_stop\((['"])[^'"]+\2\) to terminate/g;
+
+function rewriteBackgroundStopHint(text: string): string {
+  return text.replace(BACKGROUND_STOP_HINT, (clause) =>
+    clause.replace(/exec_stop\((['"])[^'"]+\1\)/, '/stop')
+  );
+}
+
+/**
+ * Drop the multi_edit hint line, and rewrite the background-exec stop hint
+ * (`exec` with run_in_background, or `exec_background`) to `/stop`. Other
+ * tools, including read_file source that mentions exec_stop, stay intact.
  */
 export function userFacingToolResult(result: string, toolName?: string): string {
   const lines =
@@ -22,8 +36,11 @@ export function userFacingToolResult(result: string, toolName?: string): string 
       ? result.split('\n').filter((line) => line.trim() !== MODEL_HINT_LINE)
       : result.split('\n');
   let text = lines.join('\n');
-  if (toolName === 'exec_background') {
-    text = text.replace(/exec_stop\((['"])[^'"]+\1\)(?= to terminate)/g, '/stop');
+  if (toolName === 'exec' || toolName === 'exec_background') {
+    text = rewriteBackgroundStopHint(text).replaceAll(
+      'Stop one with exec_stop first.',
+      'Stop one with /stop first.'
+    );
   }
   return text;
 }
