@@ -343,7 +343,7 @@ assert.equal(delivered.transcript.length, 1);
   const injected = withBuiltinRdkDocs(still, true);
   assert.equal(injected[0].name, 'rdk-docs');
   assert.equal(injected[0].command, 'npx');
-  assert.equal(injected[0].args[2], `--package=${DEFAULT_RDK_DOCS_MCP_PACKAGE}`);
+  assert.ok(injected[0].args.includes(`--package=${DEFAULT_RDK_DOCS_MCP_PACKAGE}`));
 }
 
 {

@@ -7,6 +7,8 @@
  * shell inspection is not mistaken for "unset".
  */
 
+import os from 'node:os';
+import path from 'node:path';
 import { isDotenvDeniedEnvKey } from './dotenv-denied-env.js';
 import { envBeforeDotenv, isStartupEnvCaptured } from './startup-env.js';
 
@@ -86,10 +88,27 @@ export function safeChildEnv(overrides?: Record<string, string>): Record<string,
 }
 
 /**
+ * Point npm at the user's own `~/.npmrc` when the child has no userconfig yet.
+ * Does not set or clear `npm_config_globalconfig`. A project `.npmrc` is a
+ * different file; keeping it out of the working directory is what stops npm
+ * from loading it.
+ */
+export function pinNpmUserConfig(env: Record<string, string>): Record<string, string> {
+  if (env.npm_config_userconfig !== undefined || env.NPM_CONFIG_USERCONFIG !== undefined) {
+    return env;
+  }
+  const home = env.HOME || env.USERPROFILE || os.homedir();
+  if (!home) return env;
+  return { ...env, npm_config_userconfig: path.join(home, '.npmrc') };
+}
+
+/**
  * Environment for a Moss-injected child (the built-in rdk-docs npx).
  * The base is the pre-`.env` snapshot only, so a project `.env` cannot
  * change that child's interpreter even with a variable this denylist misses.
  * Falls back to {@link safeChildEnv} when the CLI has not captured a snapshot.
+ * Denylisted overrides are dropped; {@link pinNpmUserConfig} is applied by
+ * the stdio transport after this returns.
  */
 export function startupChildEnv(overrides?: Record<string, string>): Record<string, string> {
   if (!isStartupEnvCaptured()) return safeChildEnv(overrides);

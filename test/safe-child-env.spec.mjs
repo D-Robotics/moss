@@ -30,6 +30,13 @@ const denied = [
   'dyld_library_path',
   'BASH_ENV',
   'ENV',
+  'IFS',
+  'ifs',
+  'TMPDIR',
+  'TMP',
+  'TEMP',
+  'tmpdir',
+  'temp',
   'ZDOTDIR',
   'PYTHONSTARTUP',
   'PYTHONPATH',
@@ -42,15 +49,22 @@ const denied = [
   'GIT_SSH_COMMAND',
   'GIT_EXEC_PATH',
   'GIT_ASKPASS',
+  'GIT_CONFIG',
   'GIT_CONFIG_PARAMETERS',
   'GIT_CONFIG_GLOBAL',
+  'GIT_DIR',
+  'git_dir',
+  'GIT_WORK_TREE',
+  'GIT_COMMON_DIR',
+  'GIT_OBJECT_DIRECTORY',
   'npm_config_registry',
+  'npm_config_userconfig',
   'NPM_CONFIG_SCRIPT_SHELL',
   'npm_config_node_options',
   'PATH',
   'SHELL',
 ];
-const allowed = ['NODE_DEBUG', 'HOME', 'FOO', 'npm_config', 'GIT_CONFIG', 'LD_DEBUG'];
+const allowed = ['NODE_DEBUG', 'HOME', 'FOO', 'npm_config', 'GIT', 'MY_GIT_CONFIG', 'LD_DEBUG'];
 for (const key of denied) assert.equal(isDotenvDeniedEnvKey(key), true, key);
 for (const key of allowed) assert.equal(isDotenvDeniedEnvKey(key), false, key);
 
@@ -91,16 +105,25 @@ function restoreEnv(saved) {
 
 {
   const saved = Object.fromEntries(
-    ['NODE_OPTIONS', 'LD_PRELOAD', 'CUSTOM_SENTINEL'].map((key) => [key, process.env[key]])
+    ['NODE_OPTIONS', 'LD_PRELOAD', 'CUSTOM_SENTINEL', 'GIT_CONFIG', 'GIT_DIR'].map((key) => [
+      key,
+      process.env[key],
+    ])
   );
   process.env.NODE_OPTIONS = '--require /tmp/moss-evil.cjs';
   process.env.LD_PRELOAD = '/no/such-moss-preload.so';
   process.env.CUSTOM_SENTINEL = 'from-project-dotenv';
+  process.env.GIT_CONFIG = '/tmp/moss-evil.cfg';
+  process.env.GIT_DIR = '/tmp/moss-evil.git';
   try {
-    const child = safeChildEnv();
+    const child = safeChildEnv({ GIT_OPTIONAL_LOCKS: '0' });
     assert.equal(child.NODE_OPTIONS, envBeforeDotenv.NODE_OPTIONS);
     assert.equal(child.LD_PRELOAD, envBeforeDotenv.LD_PRELOAD);
     assert.equal(child.CUSTOM_SENTINEL, 'from-project-dotenv');
+    assert.equal(child.GIT_CONFIG, envBeforeDotenv.GIT_CONFIG);
+    assert.equal(child.GIT_DIR, envBeforeDotenv.GIT_DIR);
+    assert.notEqual(child.GIT_CONFIG, '/tmp/moss-evil.cfg');
+    assert.equal(child.GIT_OPTIONAL_LOCKS, '0');
     const startup = startupChildEnv({ NODE_OPTIONS: '--require /tmp/moss-evil.cjs' });
     assert.equal(startup.NODE_OPTIONS, envBeforeDotenv.NODE_OPTIONS);
     assert.equal(startup.LD_PRELOAD, envBeforeDotenv.LD_PRELOAD);
@@ -263,11 +286,7 @@ function mossEnv(layout, userNode) {
     if (key.startsWith('MOSS_DEVICE_')) continue;
     if (drop.has(key) || drop.has(key.toUpperCase())) continue;
     const upper = key.toUpperCase();
-    if (
-      upper.startsWith('DYLD_') ||
-      upper.startsWith('GIT_CONFIG_') ||
-      upper.startsWith('NPM_CONFIG_')
-    ) {
+    if (upper.startsWith('DYLD_') || upper.startsWith('GIT_') || upper.startsWith('NPM_CONFIG_')) {
       continue;
     }
     if (key === 'MOSS_CONFIG_DIR' || key === 'MOSS_CONFIG_FILE' || key === 'MOSS_CONFIG_PATH')

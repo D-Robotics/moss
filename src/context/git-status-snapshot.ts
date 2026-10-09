@@ -6,19 +6,17 @@
  * cheap (porcelain only, 3s timeout) and is injected into extraContext each
  * turn so the model protects uncommitted work like Claude Code / Codex.
  */
-import { runProcess } from '../utils/run-process.js';
-import { safeChildEnv } from '../utils/safe-child-env.js';
+import { runGit } from '../utils/git-spawn.js';
 
 const GIT_TIMEOUT_MS = 2500;
 const MAX_STATUS_LINES = 16;
 
 async function git(args: string[], cwd: string): Promise<string | null> {
   try {
-    const r = await runProcess('git', {
-      args,
+    const r = await runGit(args, {
       cwd,
       timeout: GIT_TIMEOUT_MS,
-      env: safeChildEnv({ GIT_OPTIONAL_LOCKS: '0' }),
+      env: { GIT_OPTIONAL_LOCKS: '0' },
     });
     return r.stdout.trim();
   } catch {

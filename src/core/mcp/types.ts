@@ -25,6 +25,12 @@ export interface McpServerConfig {
   /** Executable to spawn (stdio transport). */
   command?: string;
   args?: string[];
+  /**
+   * Working directory for the stdio child. The built-in rdk-docs npx sets
+   * this to a Moss-owned cache directory so npm does not walk the workspace
+   * and load a project `.npmrc`. Unset inherits the Moss process cwd.
+   */
+  cwd?: string;
   /** Extra env for the child process (merged over a sanitized parent env). */
   env?: Record<string, string>;
   /**

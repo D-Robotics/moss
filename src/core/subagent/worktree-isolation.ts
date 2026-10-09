@@ -8,12 +8,12 @@
  * leases back with `git apply --3way` (see mergeLeasePatch, wired into
  * ToolContext.mergeWorkspacePatch).
  *
- * All git access goes through runProcess with argv arrays — never a shell.
+ * All git access goes through runGit with argv arrays — never a shell.
  */
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { runProcess } from '../../utils/run-process.js';
+import { runGit } from '../../utils/git-spawn.js';
 import { getRootLogger } from '../../logger.js';
 import { errorMessage } from '../../errors.js';
 
@@ -22,9 +22,14 @@ const GIT_TIMEOUT_MS = 60_000;
 
 async function git(
   args: string[],
-  opts: { cwd: string; signal?: AbortSignal }
+  opts: { cwd: string; signal?: AbortSignal; readOnly?: boolean }
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  return runProcess('git', { args, timeout: GIT_TIMEOUT_MS, cwd: opts.cwd, signal: opts.signal });
+  return runGit(args, {
+    cwd: opts.cwd,
+    signal: opts.signal,
+    timeout: GIT_TIMEOUT_MS,
+    readOnly: opts.readOnly,
+  });
 }
 
 export interface WorktreeLease {
@@ -45,6 +50,7 @@ export async function createWorktree(opts: {
   await git(['worktree', 'add', '--detach', worktreePath, baseRev], {
     cwd: opts.parentWorkspace,
     signal: opts.signal,
+    readOnly: false,
   });
   return { leaseId, worktreePath, baseRev };
 }
@@ -70,7 +76,9 @@ export async function collectWorktreePatch(opts: {
   const wt = opts.lease.worktreePath;
   // -N records new files in the index without content so untracked work shows
   // up in `git diff`.
-  await git(['add', '-A', '-N'], { cwd: wt, signal: opts.signal }).catch(() => undefined);
+  await git(['add', '-A', '-N'], { cwd: wt, signal: opts.signal, readOnly: false }).catch(
+    () => undefined
+  );
   const names = await git(['diff', '--name-only', opts.lease.baseRev], {
     cwd: wt,
     signal: opts.signal,
@@ -113,6 +121,7 @@ export async function applyWorktreePatch(opts: {
   // ours from the index, not the working tree).
   const numstat = await git(['apply', '--numstat', opts.patchPath], {
     cwd: opts.parentWorkspace,
+    readOnly: false,
   }).catch(() => undefined);
   const touched = (numstat?.stdout ?? '')
     .split('\n')
@@ -122,9 +131,13 @@ export async function applyWorktreePatch(opts: {
     await git(['apply', '--3way', opts.patchPath], {
       cwd: opts.parentWorkspace,
       signal: opts.signal,
+      readOnly: false,
     });
     if (touched.length) {
-      await git(['add', '--', ...touched], { cwd: opts.parentWorkspace }).catch(() => undefined);
+      await git(['add', '--', ...touched], {
+        cwd: opts.parentWorkspace,
+        readOnly: false,
+      }).catch(() => undefined);
     }
     return { status: 'merged' };
   } catch {
@@ -180,6 +193,7 @@ export async function cleanupWorktree(opts: {
   try {
     await git(['worktree', 'remove', '--force', opts.worktreePath], {
       cwd: opts.parentWorkspace,
+      readOnly: false,
     });
   } catch (err) {
     log.warn('worktree remove failed', {
@@ -188,7 +202,7 @@ export async function cleanupWorktree(opts: {
     });
   }
   try {
-    await git(['worktree', 'prune'], { cwd: opts.parentWorkspace });
+    await git(['worktree', 'prune'], { cwd: opts.parentWorkspace, readOnly: false });
   } catch {
     /* best-effort */
   }

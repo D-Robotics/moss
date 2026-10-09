@@ -8,8 +8,9 @@
  * `runProcess`, which is wrong for a persistent peer. Stderr is captured (capped)
  * for crash diagnostics only.
  */
+import fs from 'node:fs';
 import { spawnProcess, type ChildProcess } from '../../utils/run-process.js';
-import { safeChildEnv, startupChildEnv } from '../../utils/safe-child-env.js';
+import { pinNpmUserConfig, safeChildEnv, startupChildEnv } from '../../utils/safe-child-env.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import { getRootLogger } from '../../logger.js';
 import type {
@@ -84,13 +85,18 @@ export class McpStdioTransport implements McpTransport {
     this._state = 'connecting';
     let child: ChildProcess;
     try {
+      const env = this.config.startupEnvOnly
+        ? pinNpmUserConfig(startupChildEnv(this.config.env))
+        : safeChildEnv(this.config.env ?? {});
+      if (this.config.cwd) fs.mkdirSync(this.config.cwd, { recursive: true });
       child = spawnProcess(command, this.config.args ?? [], {
         stdio: ['pipe', 'pipe', 'pipe'],
         // Credential-bearing env values come only from the expanded config env
         // block; the inherited parent env is sanitized by safeChildEnv.
-        env: this.config.startupEnvOnly
-          ? startupChildEnv(this.config.env)
-          : safeChildEnv(this.config.env ?? {}),
+        // startupEnvOnly children (built-in rdk-docs) also pin npm's userconfig
+        // to the user's own ~/.npmrc and run outside the workspace cwd.
+        env,
+        cwd: this.config.cwd,
         windowsHide: true,
       });
     } catch (err) {

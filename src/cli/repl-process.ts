@@ -82,6 +82,11 @@ export function appendLimitedAnnounced(
   return `${nextNotice}${kept}`;
 }
 
+/** Same capture rules as a local shell command: sanitized, then line-truncated. */
+export function formatLocalCommandOutput(text: string): string {
+  return appendLimitedAnnounced('', sanitizeTextForTerminal(text, { breakLongTokens: false }));
+}
+
 export function killProcessTree(child: ChildProcess): void {
   if (!child.pid) return;
   if (process.platform === 'win32') {

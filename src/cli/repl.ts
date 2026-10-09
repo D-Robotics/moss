@@ -41,7 +41,8 @@ import { createCliRunRenderer } from './output.js';
 import { renderCliInteractiveHelp, renderCliWelcome, type CliRuntimeStatus } from './onboarding.js';
 import { createCliSessionKey, selectSessionForResume } from './session.js';
 import { compactPath, label, ui } from './ui.js';
-import { runLocalShellCommand } from './tui-utils.js';
+import { runWorkingTreeDiff } from '../utils/git-spawn.js';
+import { formatLocalCommandOutput } from './tui-utils.js';
 import { FileCheckpointStore, checkpointTargetPaths } from './file-checkpoint.js';
 import { errorMessage } from '../errors.js';
 import { interruptNoticeLine, isUserAbortErrorText } from './tui/copy.js';
@@ -449,19 +450,17 @@ export async function runInteractive(
 
     if (msg === '/diff' || msg.startsWith('/diff ')) {
       try {
-        const result = await runLocalShellCommand({
-          command: 'git --no-pager diff --stat && git --no-pager diff',
-          cwd: workspace,
-        });
+        const result = await runWorkingTreeDiff(workspace);
+        const output = formatLocalCommandOutput(result.output);
         if (result.exitCode !== 0) {
-          const notRepo = /not a git repository/i.test(result.output);
+          const notRepo = /not a git repository/i.test(output);
           console.error(
             notRepo
               ? `[diff] Not a git repository: ${workspace} — /diff needs a git workspace.`
-              : `[diff] git diff failed (exit ${result.exitCode}): ${result.output.trim().split('\n')[0] || 'unknown error'}`
+              : `[diff] git diff failed (exit ${result.exitCode}): ${output.trim().split('\n')[0] || 'unknown error'}`
           );
         } else {
-          console.error(result.output.trim() || '(no unstaged working-tree changes)');
+          console.error(output.trim() || '(no unstaged working-tree changes)');
         }
       } catch (err) {
         console.error(`[diff] ${errorMessage(err)}`);

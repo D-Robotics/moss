@@ -1,9 +1,13 @@
 /**
  * Environment variables a project `.env` must not set.
  *
- * They choose an interpreter, a dynamic linker, a shell startup file, or a
- * package manager that can execute code. The real process environment may
- * still set them; only values introduced by a project `.env` are refused.
+ * They choose an interpreter, a dynamic linker, a shell startup file, shell
+ * word-splitting (`IFS`), a temp directory (`TMPDIR` / `TMP` / `TEMP`), a git
+ * repository or config file (`GIT_*`, including `GIT_DIR`, `GIT_CONFIG`,
+ * `GIT_WORK_TREE`, `GIT_COMMON_DIR`, and `GIT_OBJECT_DIRECTORY`), or a
+ * package manager that can execute code. The real
+ * process environment may still set them; only values introduced by a project
+ * `.env` are refused.
  * Matching is case-insensitive so `npm_config_*` and `NPM_CONFIG_*` are one
  * prefix.
  */
@@ -17,6 +21,7 @@ const EXACT_KEYS = new Set([
   'LD_AUDIT',
   'BASH_ENV',
   'ENV',
+  'IFS',
   'ZDOTDIR',
   'PYTHONSTARTUP',
   'PYTHONPATH',
@@ -25,15 +30,14 @@ const EXACT_KEYS = new Set([
   'PERL5LIB',
   'RUBYOPT',
   'RUBYLIB',
-  'GIT_SSH',
-  'GIT_SSH_COMMAND',
-  'GIT_EXEC_PATH',
-  'GIT_ASKPASS',
   'PATH',
   'SHELL',
+  'TMPDIR',
+  'TMP',
+  'TEMP',
 ]);
 
-const PREFIXES = ['DYLD_', 'GIT_CONFIG_', 'NPM_CONFIG_'];
+const PREFIXES = ['DYLD_', 'GIT_', 'NPM_CONFIG_'];
 
 export function isDotenvDeniedEnvKey(key: string): boolean {
   const upper = key.toUpperCase();

@@ -51,10 +51,28 @@ is loaded, and from CLI flags. A project `.env` cannot set them, and cannot
 set interpreter or loader variables (`NODE_OPTIONS`, `NODE_PATH`,
 `NODE_EXTRA_CA_CERTS`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT`, `DYLD_*`,
 `BASH_ENV`, `ENV`, `ZDOTDIR`, `PYTHON*`, `PERL5OPT`, `PERL5LIB`, `RUBYOPT`,
-`RUBYLIB`, `GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_EXEC_PATH`, `GIT_ASKPASS`,
-`GIT_CONFIG_*`, `npm_config_*`, `PATH`, `SHELL`). Child processes keep the
-user's own values of those variables and drop ones the project file added.
-The built-in rdk-docs `npx` child inherits only the pre-`.env` environment.
+`RUBYLIB`, `GIT_*` (`GIT_DIR`, `GIT_CONFIG`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`,
+`GIT_OBJECT_DIRECTORY`, and the rest), `npm_config_*`, `PATH`, `SHELL`, `IFS`,
+`TMPDIR`, `TMP`, `TEMP`).
+Child processes keep the user's own values of those variables and drop ones the
+project file added. The built-in rdk-docs `npx` child inherits only the
+pre-`.env` environment. It runs in a Moss cache directory under the pre-`.env`
+home (`~/.moss/cache/npx`), not `TMPDIR`. It does not pass `--registry`, so a
+mirror in the user's `~/.npmrc` or pre-`.env` `npm_config_registry` is used.
+`npm_config_userconfig` stays the user's own `~/.npmrc`, and
+`npm_config_globalconfig` is not changed, so a project `.npmrc` `registry=` is
+not used. Every git child passes `-c core.fsmonitor=` and
+`-c core.hooksPath=/dev/null` (`NUL` on Windows). Read-only git also clears
+`core.sshCommand`, `diff.external`, and `credential.helper`, forces
+`core.pager=cat` with `GIT_PAGER=cat`, passes `--no-ext-diff` and
+`--no-textconv` on `diff`, and blanks `local` and `worktree`
+`filter.*.clean|smudge|process` and `diff.*.textconv|command` (with
+`filter.<name>.required=false`), including keys from `include.path`,
+`includeIf`, and `extensions.worktreeConfig`. System and global git config
+are still read and are not overridden. Git children take `GIT_*` from the
+environment captured before the project `.env`. Startup `git status` and
+`/diff` do not run a program named in a copied repo's `.git/config` or
+`.gitattributes`.
 Headless `-p` stays untrusted and
 prints one line naming what was skipped. Enable it for that process with
 `--trust-workspace` or `MOSS_TRUST_WORKSPACE=1`.
@@ -113,7 +131,7 @@ scripts, connection steps, and device safety rules stay. See
 读取 `.claude/`（settings 或 agents）和 `.mcp.json` 需要一次性确认。项目 hooks、项目 MCP（stdio 与 HTTP，含 `.moss/mcp.json`）、项目 `statusLine` 命令、带写工具的项目 agent 和插件也需要按路径一次性信任。未信任的 HTTP 服务器不会加载，因此不会展开项目 URL 里的 `${VAR}`。
 信任结果传给 agent loader（`trusted` 与 `claudeOptIn` 分开：拒绝 Claude 兼容且没有其他项目内容时仍是 `trusted: true`、`claudeOptIn: false`，`.claude/agents` 里的写代理继续被挡住）。
 内置 rdk-docs 因来源是 Moss 自己注入而免询问；同名的项目服务器和项目 `rdkDocs.package` 不能替换它。用户自己的配置（`~/.config/moss` 与 `~/.moss`）不会询问。
-`MOSS_TRUST_WORKSPACE`、`MOSS_CONFIG_DIR`、`MOSS_CONFIG_FILE`、`MOSS_CONFIG_PATH`、`MOSS_RDK_DOCS_PACKAGE`、`XDG_CONFIG_HOME`、`HOME`、`APPDATA`、`USERPROFILE` 只认加载 `.env` 之前的进程环境和命令行，项目 `.env` 不能设置。项目 `.env` 也不能设置解释器/加载器变量（`NODE_OPTIONS`、`LD_PRELOAD`、`DYLD_*`、`BASH_ENV`、`PYTHON*`、`PERL5*`、`RUBY*`、`GIT_SSH`、`GIT_CONFIG_*`、`npm_config_*`、`PATH`、`SHELL` 等）。子进程保留用户自己设的值，丢掉项目文件加进来的值。内置 rdk-docs 的 `npx` 子进程只继承加载 `.env` 之前的环境。
+`MOSS_TRUST_WORKSPACE`、`MOSS_CONFIG_DIR`、`MOSS_CONFIG_FILE`、`MOSS_CONFIG_PATH`、`MOSS_RDK_DOCS_PACKAGE`、`XDG_CONFIG_HOME`、`HOME`、`APPDATA`、`USERPROFILE` 只认加载 `.env` 之前的进程环境和命令行，项目 `.env` 不能设置。项目 `.env` 也不能设置解释器/加载器变量（`NODE_OPTIONS`、`LD_PRELOAD`、`DYLD_*`、`BASH_ENV`、`PYTHON*`、`PERL5*`、`RUBY*`、`GIT_*`（含 `GIT_DIR`、`GIT_CONFIG`、`GIT_WORK_TREE`、`GIT_COMMON_DIR`、`GIT_OBJECT_DIRECTORY`）、`npm_config_*`、`PATH`、`SHELL`、`IFS`、`TMPDIR`、`TMP`、`TEMP` 等）。子进程保留用户自己设的值，丢掉项目文件加进来的值。内置 rdk-docs 的 `npx` 子进程只继承加载 `.env` 之前的环境，工作目录是加载 `.env` 之前的用户主目录下的 `~/.moss/cache/npx`，不用 `TMPDIR`，也不传 `--registry`，因此用户 `~/.npmrc` 或进程环境里的镜像源仍然有效；`npm_config_userconfig` 保持用户自己的 `~/.npmrc`，不改 `npm_config_globalconfig`，项目 `.npmrc` 的 `registry=` 不会被用到。Moss 启动的每个 git 子进程都带 `-c core.fsmonitor=` 和 `-c core.hooksPath=/dev/null`（Windows 为 `NUL`）。只读 git 另外清空 `core.sshCommand`、`diff.external`、`credential.helper`，把 `core.pager` 与 `GIT_PAGER` 设为 `cat`，对 `diff` 加上 `--no-ext-diff` 和 `--no-textconv`，并清空 local 与 worktree 作用域的 `filter.*.clean|smudge|process` 与 `diff.*.textconv|command`（含 `include.path`、`includeIf`、`extensions.worktreeConfig` 引入的键，同时 `filter.<name>.required=false`）。系统级和 global git 配置仍会读取且不会被覆盖。git 子进程的 `GIT_*` 取自加载项目 `.env` 之前的环境。启动时的 `git status` 和 `/diff` 不会执行拷贝来的仓库 `.git/config` 或 `.gitattributes` 里指定的程序。
 无头 `-p` 默认不信任，并打印一行说明跳过了什么；用 `--trust-workspace` 或 `MOSS_TRUST_WORKSPACE=1` 启用。
 
 ### 斜杠命令、真实终端与基准

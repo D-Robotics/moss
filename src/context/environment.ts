@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
-import { runProcess } from '../utils/run-process.js';
-import { formatDeviceEnvReport, safeChildEnv } from '../utils/safe-child-env.js';
+import { runGit } from '../utils/git-spawn.js';
+import { formatDeviceEnvReport } from '../utils/safe-child-env.js';
 
 const GIT_TIMEOUT_MS = 3000;
 const MAX_TREE_ENTRIES = 40;
@@ -9,11 +9,10 @@ const MAX_LOG_LINES = 5;
 
 async function git(args: string[], cwd: string): Promise<string | null> {
   try {
-    const r = await runProcess('git', {
-      args,
+    const r = await runGit(args, {
       cwd,
       timeout: GIT_TIMEOUT_MS,
-      env: safeChildEnv({ GIT_OPTIONAL_LOCKS: '0' }),
+      env: { GIT_OPTIONAL_LOCKS: '0' },
     });
     return r.stdout.trim();
   } catch {

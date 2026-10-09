@@ -1,0 +1,138 @@
+/**
+ * Built-in rdk-docs npx must use the user's registry (~/.npmrc) and must not
+ * use a project .npmrc, even when TMPDIR points at the workspace.
+ */
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { builtinRdkDocsServerConfig, rdkDocsNpxCwd } from '../dist/core/mcp/rdk-docs.js';
+import { McpToolRegistry } from '../dist/core/mcp/registry.js';
+import { isDotenvDeniedEnvKey } from '../dist/utils/dotenv-denied-env.js';
+import { pinNpmUserConfig } from '../dist/utils/safe-child-env.js';
+
+for (const key of ['TMPDIR', 'TMP', 'TEMP', 'npm_config_userconfig', 'NPM_CONFIG_USERCONFIG']) {
+  assert.equal(isDotenvDeniedEnvKey(key), true, key);
+}
+
+function listen(bucket, hits) {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      hits[bucket].push(`${req.method} ${req.url}`);
+      res.statusCode = 500;
+      res.end('no');
+    });
+    server.listen(0, '127.0.0.1', () => resolve(server));
+  });
+}
+
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-npmrc-'));
+const hits = { user: [], project: [] };
+const userServer = await listen('user', hits);
+const projectServer = await listen('project', hits);
+const userPort = userServer.address().port;
+const projectPort = projectServer.address().port;
+
+const home = path.join(root, 'home');
+const ws = path.join(root, 'ws');
+const packageDir = path.join(root, 'rdk-docs-mcp');
+const ran = path.join(root, 'ran.json');
+const evilTmp = path.join(ws, 'evil-tmp');
+fs.mkdirSync(home, { recursive: true });
+fs.mkdirSync(evilTmp, { recursive: true });
+fs.mkdirSync(packageDir, { recursive: true });
+fs.writeFileSync(path.join(home, '.npmrc'), `registry=http://127.0.0.1:${userPort}/\n`);
+fs.writeFileSync(path.join(ws, 'package.json'), JSON.stringify({ name: 'proj', version: '1.0.0' }));
+fs.writeFileSync(path.join(ws, '.npmrc'), `registry=http://127.0.0.1:${projectPort}/\n`);
+fs.writeFileSync(path.join(ws, '.env'), `TMPDIR=${evilTmp}\nTMP=${evilTmp}\nTEMP=${evilTmp}\n`);
+fs.writeFileSync(
+  path.join(packageDir, 'package.json'),
+  JSON.stringify({
+    name: 'rdk-docs-mcp',
+    version: '0.0.0',
+    bin: { 'rdk-docs-mcp': './probe.mjs' },
+  })
+);
+fs.writeFileSync(
+  path.join(packageDir, 'probe.mjs'),
+  [
+    '#!/usr/bin/env node',
+    "import fs from 'node:fs';",
+    `fs.writeFileSync(${JSON.stringify(ran)}, JSON.stringify({ cwd: process.cwd() }));`,
+    'process.exit(0);',
+    '',
+  ].join('\n')
+);
+fs.chmodSync(path.join(packageDir, 'probe.mjs'), 0o755);
+
+{
+  const globalconfig = '/etc/npmrc-moss-sentinel';
+  const pinned = pinNpmUserConfig({
+    npm_config_globalconfig: globalconfig,
+    HOME: home,
+  });
+  assert.equal(pinned.npm_config_globalconfig, globalconfig);
+  assert.equal(pinned.npm_config_userconfig, path.join(home, '.npmrc'));
+}
+
+const savedKeys = [
+  'HOME',
+  'USERPROFILE',
+  'TMPDIR',
+  'TMP',
+  'TEMP',
+  'npm_config_registry',
+  'NPM_CONFIG_REGISTRY',
+  'npm_config_userconfig',
+  'NPM_CONFIG_USERCONFIG',
+];
+const saved = Object.fromEntries(savedKeys.map((key) => [key, process.env[key]]));
+process.env.HOME = home;
+process.env.USERPROFILE = home;
+process.env.TMPDIR = evilTmp;
+process.env.TMP = evilTmp;
+process.env.TEMP = evilTmp;
+delete process.env.npm_config_registry;
+delete process.env.NPM_CONFIG_REGISTRY;
+delete process.env.npm_config_userconfig;
+delete process.env.NPM_CONFIG_USERCONFIG;
+
+const previous = process.cwd();
+process.chdir(ws);
+const config = builtinRdkDocsServerConfig(packageDir);
+assert.equal(config.args.includes('--registry'), false);
+assert.ok(config.cwd);
+assert.ok(config.cwd.startsWith(home + path.sep), config.cwd);
+assert.ok(config.cwd.includes(`${path.sep}.moss${path.sep}cache${path.sep}npx${path.sep}`));
+assert.equal(config.cwd.startsWith(ws + path.sep) || config.cwd === ws, false);
+assert.equal(config.cwd.startsWith(evilTmp), false);
+assert.equal(rdkDocsNpxCwd(), config.cwd);
+
+const registry = McpToolRegistry.connectInBackground([config]);
+try {
+  await Promise.race([
+    registry.waitForConnections(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('rdk connect timed out')), 20000)),
+  ]);
+} finally {
+  await registry.closeAll();
+  process.chdir(previous);
+  for (const [key, value] of Object.entries(saved)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  await Promise.all([
+    new Promise((resolve) => userServer.close(resolve)),
+    new Promise((resolve) => projectServer.close(resolve)),
+  ]);
+}
+
+assert.equal(fs.existsSync(ran), true, 'rdk-docs npx did not start the package bin');
+assert.ok(hits.user.length > 0, 'user ~/.npmrc registry was not contacted');
+assert.deepEqual(
+  hits.project,
+  [],
+  `project .npmrc registry was contacted: ${hits.project.join(', ')}`
+);
+console.log('[PASS] user registry honored and project .npmrc ignored');

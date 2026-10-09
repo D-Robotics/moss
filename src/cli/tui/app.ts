@@ -121,7 +121,8 @@ import {
 } from '../model-catalog.js';
 import { createCliProvider } from '../providers.js';
 import { writePreferredModel } from '../preferred-model-store.js';
-import { runLocalShellCommand } from '../repl-process.js';
+import { formatLocalCommandOutput, runLocalShellCommand } from '../repl-process.js';
+import { runWorkingTreeDiff } from '../../utils/git-spawn.js';
 import {
   setCliApprovalViewAsker,
   type CliApprovalAnswer,
@@ -1651,18 +1652,16 @@ export function TuiAppRoot({
   }, [openPlanGate]);
 
   /**
-   * `/diff` — the real working-tree diff through the same helper the readline
-   * REPL uses. A `result` row (not a detail dump) so the transcript keeps its
-   * diff gutter and the ctrl+o expander instead of hundreds of plain lines.
+   * `/diff` — the real working-tree diff through the same hardened git helper
+   * the readline REPL uses. A `result` row (not a detail dump) so the transcript
+   * keeps its diff gutter and the ctrl+o expander instead of hundreds of plain lines.
    */
   const runDiffCommand = useCallback(async () => {
     try {
-      const result = await runLocalShellCommand({
-        command: 'git --no-pager diff --stat && git --no-pager diff',
-        cwd: options.workspaceDir,
-      });
+      const result = await runWorkingTreeDiff(options.workspaceDir);
+      const output = formatLocalCommandOutput(result.output);
       if (result.exitCode !== 0) {
-        const notRepo = /not a git repository/i.test(result.output);
+        const notRepo = /not a git repository/i.test(output);
         printBlock('Diff', [
           notRepo
             ? tui('Not a git repository: {path} — /diff needs a git workspace.', {
@@ -1670,13 +1669,13 @@ export function TuiAppRoot({
               })
             : tui('git diff failed (exit {code}): {error}', {
                 code: result.exitCode ?? tui('signal'),
-                error: result.output.trim().split('\n')[0] || 'unknown error',
+                error: output.trim().split('\n')[0] || 'unknown error',
               }),
         ]);
         return;
       }
       appendRow(store, 'tool', 'Diff');
-      appendRow(store, 'result', result.output.trim() || tui('(no unstaged working-tree changes)'));
+      appendRow(store, 'result', output.trim() || tui('(no unstaged working-tree changes)'));
       handle.notify();
     } catch (err) {
       printCommandError('Diff', tui('git diff failed: {error}', { error: errorMessage(err) }));
@@ -1684,12 +1683,12 @@ export function TuiAppRoot({
   }, [handle, options.workspaceDir, printBlock, printCommandError, store]);
 
   /**
-   * `! <cmd>` — run the command inline through the SAME helper `/diff` uses
-   * (`runLocalShellCommand`), commit the echo as a `user` row and the real
-   * output as a `result` row so the diff gutter / ctrl+o expander apply. This is
-   * deliberately synchronous to the transcript: no model turn is started (the
-   * reference continues the turn with the output; that needs a live provider and
-   * is left to the agent loop — see the task report).
+   * `! <cmd>` — run the command inline through `runLocalShellCommand`, commit
+   * the echo as a `user` row and the real output as a `result` row so the diff
+   * gutter / ctrl+o expander apply. This is deliberately synchronous to the
+   * transcript: no model turn is started (the reference continues the turn with
+   * the output; that needs a live provider and is left to the agent loop — see
+   * the task report).
    */
   const runShellSubmission = useCallback(
     async (command: string) => {

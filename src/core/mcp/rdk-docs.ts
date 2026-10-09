@@ -12,6 +12,10 @@
  * There is no disk cache and no bundled manual. A failed connect is a failed
  * connect.
  */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { envBeforeDotenv, isStartupEnvCaptured } from '../../utils/startup-env.js';
 import type { McpServerConfig } from './types.js';
 
 export const RDK_DOCS_SERVER_NAME = 'rdk-docs';
@@ -26,6 +30,34 @@ export const DEFAULT_RDK_DOCS_MCP_PACKAGE = 'rdk-docs-mcp@0.2.0';
 export const RDK_DOCS_CONNECT_TIMEOUT_MS = 45_000;
 export const RDK_DOCS_REQUEST_TIMEOUT_MS = 20_000;
 
+let npxCwd: string | undefined;
+
+/**
+ * Home from the pre-`.env` snapshot. `os.tmpdir()` follows `TMPDIR`, which a
+ * project `.env` could point at the workspace.
+ */
+function mossCacheHome(): string {
+  const env = isStartupEnvCaptured() ? envBeforeDotenv : process.env;
+  const named =
+    process.platform === 'win32' ? env.USERPROFILE || env.HOME : env.HOME || env.USERPROFILE;
+  if (typeof named === 'string' && named.trim()) return named.trim();
+  return os.homedir();
+}
+
+/**
+ * Empty directory under the Moss cache, not the process temp dir. npm loads a
+ * project `.npmrc` by walking up from the child cwd when it finds a
+ * `package.json`. This directory has neither, so the user's `~/.npmrc` and
+ * pre-`.env` `npm_config_registry` stay in effect.
+ */
+export function rdkDocsNpxCwd(): string {
+  if (npxCwd && fs.existsSync(npxCwd)) return npxCwd;
+  const root = path.join(mossCacheHome(), '.moss', 'cache', 'npx');
+  fs.mkdirSync(root, { recursive: true });
+  npxCwd = fs.mkdtempSync(path.join(root, 'run-'));
+  return npxCwd;
+}
+
 export function builtinRdkDocsServerConfig(
   packageSpec = DEFAULT_RDK_DOCS_MCP_PACKAGE
 ): McpServerConfig {
@@ -33,9 +65,13 @@ export function builtinRdkDocsServerConfig(
     name: RDK_DOCS_SERVER_NAME,
     transport: 'stdio',
     command: 'npx',
+    cwd: rdkDocsNpxCwd(),
     // --package=<value> keeps a user-supplied spec/path in one argv token.
     // --ignore-scripts prevents package lifecycle hooks; the selected MCP bin
     // still executes, so package overrides must be treated as executable code.
+    // No --registry: a mirror in the user's ~/.npmrc (or pre-.env
+    // npm_config_registry) must still be used. The cwd above has no project
+    // .npmrc, so a workspace registry is not consulted.
     args: ['--yes', '--ignore-scripts', `--package=${packageSpec}`, '--', 'rdk-docs-mcp'],
     // Project `.env` must not reach this child. It starts with no trust prompt.
     startupEnvOnly: true,

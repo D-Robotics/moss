@@ -10,6 +10,7 @@ import {
   renderCliStatus,
   type CliRuntimeStatus,
 } from '../onboarding.js';
+import { runGit } from '../../utils/git-spawn.js';
 import { runProcess } from '../../utils/run-process.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
@@ -483,8 +484,7 @@ const reviewCommand: CommandSpec = {
         // classify it from the error, not from a result we never receive.
         let result: { exitCode: number; stdout: string; stderr: string };
         try {
-          result = await runProcess('git', {
-            args: ['--no-pager', 'diff', 'HEAD'],
+          result = await runGit(['--no-pager', 'diff', 'HEAD'], {
             cwd: ctx.workspace,
             timeout: 30_000,
           });

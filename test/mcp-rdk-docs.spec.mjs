@@ -67,6 +67,10 @@ test('builtin rdk-docs uses one pinned default and hardened npx arguments', () =
     '--',
     'rdk-docs-mcp',
   ]);
+  assert.equal(config.args.includes('--registry'), false);
+  assert.equal(typeof config.cwd, 'string');
+  assert.ok(config.cwd && path.isAbsolute(config.cwd));
+  assert.ok(config.cwd?.includes(`${path.sep}.moss${path.sep}cache${path.sep}npx${path.sep}`));
   assert.equal(DEFAULT_RDK_DOCS_MCP_PACKAGE, 'rdk-docs-mcp@0.2.0');
   assert.deepEqual(resolveMcpClientTimeouts(config), {
     connectTimeoutMs: 45_000,
@@ -118,7 +122,7 @@ test('rdk-docs package accepts config/env npm specs and local paths', () => {
   assert.throws(() => resolveRdkDocsPackage({}, { MOSS_RDK_DOCS_PACKAGE: '--registry=evil' }));
 
   const local = withBuiltinRdkDocs([], true, '../rdk-docs-mcp');
-  assert.equal(local[0].args[2], '--package=../rdk-docs-mcp');
+  assert.ok(local[0].args.includes('--package=../rdk-docs-mcp'));
 });
 
 test('rdk-docs is on without a device; opt-out and rdkDocs:false still win', () => {
