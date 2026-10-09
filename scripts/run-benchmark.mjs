@@ -18,6 +18,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { releaseBenchWorkspace } from './lib/bench-artifacts.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const benchRoot = path.join(repoRoot, 'bench');
@@ -44,6 +45,8 @@ function usage() {
     '                       Reads bench/results/noise-band.json when present; exit 1',
     '                       if any task pass-rate drops beyond the noise band.',
     '  --keep               Keep temporary workspaces/config for debugging',
+    '  --keep-artifacts     Copy <workspace>/.moss to bench/results/<label>/<task>-NN.moss',
+    '                       before the workspace is deleted',
     '  --list               List tasks and exit',
     '  --help               Show this help',
     '',
@@ -59,6 +62,7 @@ function parseArgs(argv) {
     temperature: 0,
     label: undefined,
     keep: false,
+    keepArtifacts: false,
     baseline: undefined,
     capabilityGate: undefined,
   };
@@ -79,6 +83,7 @@ function parseArgs(argv) {
     else if (arg === '--base-url') out.baseUrl = next();
     else if (arg === '--label') out.label = next();
     else if (arg === '--keep') out.keep = true;
+    else if (arg === '--keep-artifacts') out.keepArtifacts = true;
     else if (arg === '--list') out.list = true;
     else if (arg === '--help' || arg === '-h') out.help = true;
     else throw new Error(`unknown flag: ${arg}`);
@@ -438,7 +443,12 @@ async function main() {
         );
         if (!row.pass && check.output)
           console.log(`    ↳ ${check.output.split('\n').slice(0, 3).join(' | ').slice(0, 300)}`);
-        if (!args.keep) fs.rmSync(workspace, { recursive: true, force: true });
+        releaseBenchWorkspace({
+          workspace,
+          artifactDest: path.join(runDir, `${task.id}-${String(sample).padStart(2, '0')}.moss`),
+          keep: args.keep,
+          keepArtifacts: args.keepArtifacts,
+        });
       }
     }
   } finally {

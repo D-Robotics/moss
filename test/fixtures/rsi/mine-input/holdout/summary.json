@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "synthetic": true,
+    "split": "holdout",
+    "category": "capability",
+    "round": 3,
+    "purpose": "mine-fixture"
+  },
+  "rows": [
+    {
+      "task": "hidden-holdout-task",
+      "sample": 1,
+      "pass": false,
+      "checkOutput": "secret question text"
+    },
+    {
+      "task": "hidden-holdout-task",
+      "sample": 2,
+      "pass": false,
+      "checkOutput": "secret question text"
+    }
+  ]
+}

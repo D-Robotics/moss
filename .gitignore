@@ -27,6 +27,9 @@ scratch/
 
 # benchmark run artifacts (jsonl transcripts + summaries) — never commit
 bench/results/
+
+# RSI gate runs are local output. The ledger and frozen list stay tracked.
+.rsi/runs/
 jobs/
 bench/.cache/
 __pycache__/

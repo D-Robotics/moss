@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { copyMossArtifacts } from './bench-artifacts.mjs';
 import { approvalEnv, inheritPolicySnapshot } from './device-bench-approval.mjs';
 import {
   commandText,
@@ -649,6 +650,15 @@ async function runOne(task, options, engine) {
     await finishCleanup().catch(() => undefined);
     const message = error instanceof Error ? error.message : String(error);
     return baseFail(task, ctx, started, cleanup, redactSecrets(message).slice(-400), options);
+  } finally {
+    if (options.keepArtifacts) {
+      const sample = Number.isInteger(options.sample) ? options.sample : 1;
+      const root = options.artifactRoot ?? options.resultsDir;
+      copyMossArtifacts(
+        workspace,
+        path.join(root, `${task.id}-${String(sample).padStart(2, '0')}.moss`)
+      );
+    }
   }
 }
 
@@ -886,6 +896,8 @@ export async function runDeviceBench(options = {}) {
             ...options,
             mode,
             resultsDir: repeatDir,
+            artifactRoot: resultsDir,
+            sample: repeat,
             runId: repeats === 1 ? runId : `${runId}-r${repeat}`,
             rootBase,
             provider,

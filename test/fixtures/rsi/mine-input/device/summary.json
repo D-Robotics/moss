@@ -1,0 +1,18 @@
+{
+  "meta": {
+    "synthetic": true,
+    "kind": "device-bench",
+    "round": 3,
+    "purpose": "mine-fixture"
+  },
+  "falseSuccess": 1,
+  "rows": [
+    {
+      "id": "synthetic-port",
+      "status": "falseSuccess",
+      "tier": "core",
+      "falseSuccess": true,
+      "verdictDetail": ""
+    }
+  ]
+}
