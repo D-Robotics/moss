@@ -234,7 +234,13 @@ export async function runInteractive(
       }
     } else if (msg.startsWith('/')) {
       pendingGoal = null;
-      const rewritten = rewriteSlashInput(msg);
+      const rewritten = rewriteSlashInput(msg, cliLocale());
+      if (rewritten.suggestion) {
+        if (rewritten.migration) console.error(rewritten.migration);
+        rl.prompt();
+        rl.write(rewritten.suggestion);
+        continue;
+      }
       if (rewritten.migration) console.error(rewritten.migration);
       msg = rewritten.text;
     }
@@ -291,7 +297,7 @@ export async function runInteractive(
 
     if (msg === '/help' || msg === '/help --all') {
       console.error(renderCliInteractiveHelp());
-      if (msg === '/help --all') console.error(slashAliasHelpLines().join('\n'));
+      if (msg === '/help --all') console.error(slashAliasHelpLines(cliLocale()).join('\n'));
       if (customCommands.length) {
         console.error(`\n  Custom commands (.moss/commands/*.md)`);
         for (const command of customCommands) {
@@ -517,8 +523,8 @@ export async function runInteractive(
       continue;
     }
 
-    // `/goal` is the everyday "work until" entry. `/loop` is rewritten to it
-    // (with the migration line) before this branch. Clear-words abandon the
+    // `/goal` is the everyday "work until" entry. `/loop` only prints a
+    // suggestion and does not reach this branch. Clear-words abandon the
     // live task; a missing `--accept` proposes a command from the workspace.
     if (msg === '/goal' || msg.startsWith('/goal ')) {
       const plan = planGoalInvocation(msg.slice('/goal'.length).trim(), workspace);
@@ -563,8 +569,8 @@ export async function runInteractive(
 
     // Task OS M5: unified task runtime entry — one goal in, one verified
     // result out (plan → execute → verify → repair → accept). PASS can only
-    // come from the verdict provider, never from the agent's prose. /loop and
-    // /goal translate into this branch above, so every autonomous run streams
+    // come from the verdict provider, never from the agent's prose. /goal
+    // translates into this branch above, so every autonomous run streams
     // live through the same renderer too.
     if (msg === '/task' || msg.startsWith('/task ')) {
       const rest = msg.slice('/task'.length).trim();

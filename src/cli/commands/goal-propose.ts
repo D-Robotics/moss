@@ -109,7 +109,7 @@ export type GoalInvocation =
   | { kind: 'run'; goal: string; acceptance?: string; notice?: string }
   | { kind: 'propose'; goal: string; candidates: string[] };
 
-/** How `/goal` (and a rewritten `/loop`) should behave for this argument line. */
+/** How `/goal` should behave for this argument line. `/loop` does not call this. */
 export function planGoalInvocation(rest: string, workspace: string): GoalInvocation {
   const token = rest.trim();
   if (!token) return { kind: 'usage' };

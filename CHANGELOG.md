@@ -5,8 +5,9 @@
 ### Legacy loop scheduler removed
 
 `LoopScheduler`, its acceptance-failure prompt, and the loop TUI event bridge are gone.
-`/goal`, `/task`, `moss task`, and `MOSS_GOAL_VERIFY_LOOP` behave as before. `/loop` still
-rewrites to `/goal`. Acceptance commands run from `core/task/acceptance-command.ts`. A token
+`/goal`, `/task`, `moss task`, and `MOSS_GOAL_VERIFY_LOOP` behave as before. `/loop` does not
+start a run: it prints a localized line (`/loop` is now `/goal`, with an example) and leaves
+a `/goal` command in the composer to confirm or edit. Acceptance commands run from `core/task/acceptance-command.ts`. A token
 or tool-call budget stop ends the task (`run budget exceeded (…)`) instead of opening another
 turn. `.moss/loop-state.json` and `.moss/loop-journal.jsonl` are no longer read or written;
 files already in a workspace are left in place. `MOSS_DISABLE_NUDGES=goal-acceptance` is an

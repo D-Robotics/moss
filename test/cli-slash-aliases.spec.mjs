@@ -22,9 +22,24 @@ import { buildHelpOverlayLines } from '../dist/cli/tui/app.js';
 }
 
 {
-  const loop = rewriteSlashInput('/loop make the suite pass');
-  assert.match(loop.migration ?? '', /\/loop 已改为 \/goal/);
-  assert.equal(loop.text, '/goal make the suite pass');
+  const loop = rewriteSlashInput('/loop make the suite pass', 'en');
+  assert.equal(loop.text, '/loop make the suite pass');
+  assert.equal(loop.suggestion, '/goal make the suite pass');
+  assert.equal(loop.migration, '/loop is now /goal. Example: /goal make the suite pass');
+  assert.equal(`${loop.migration} ${loop.suggestion}`.includes('/task'), false);
+
+  const scheduled = rewriteSlashInput('/loop 每分钟检查构建', 'zh');
+  assert.equal(scheduled.text, '/loop 每分钟检查构建');
+  assert.equal(scheduled.suggestion, '/goal 每分钟检查构建');
+  assert.equal(scheduled.migration, '/loop 已改为 /goal。例如：/goal 每分钟检查构建');
+  assert.equal(`${scheduled.migration} ${scheduled.suggestion}`.includes('/task'), false);
+
+  const bare = rewriteSlashInput('/loop', 'en');
+  assert.equal(bare.suggestion, '/goal make the tests pass');
+  assert.match(bare.migration ?? '', /\/loop is now \/goal\. Example: \/goal make the tests pass/);
+  const bareZh = rewriteSlashInput('/loop', 'zh-CN');
+  assert.equal(bareZh.suggestion, '/goal 让测试通过');
+  assert.match(bareZh.migration ?? '', /\/loop 已改为 \/goal。例如：\/goal 让测试通过/);
 }
 
 {
@@ -65,7 +80,11 @@ import { buildHelpOverlayLines } from '../dist/cli/tui/app.js';
   assert.match(lines, /\/cost\s+alias of \/usage/);
   assert.match(lines, /\/new\s+alias of \/clear/);
   assert.match(lines, /\/ps\s+alias of \/tasks/);
-  assert.match(lines, /\/loop 已改为 \/goal/);
+  assert.match(lines, /\/loop is now \/goal\. Example: \/goal make the tests pass/);
+  assert.match(
+    slashAliasHelpLines('zh').join('\n'),
+    /\/loop 已改为 \/goal。例如：\/goal 让测试通过/
+  );
   const help = buildHelpOverlayLines(true).join('\n');
   assert.match(help, /alias of \/usage/);
   assert.match(help, /\/checkpoint/);

@@ -1499,7 +1499,7 @@ export function TuiAppRoot({
   );
 
   const runTaskShellCommand = useCallback(
-    async (args: string): Promise<void> => {
+    async (args: string, display?: string): Promise<void> => {
       if (store.run.running) {
         printBlock('Task', [tui('a run is in flight — press Esc to interrupt it first')]);
         return;
@@ -1529,7 +1529,7 @@ export function TuiAppRoot({
         parsed.push(candidate.taskId);
       }
       if (parsed[0] === 'run' || parsed[0] === 'resume') {
-        appendRow(store, 'user', `/task ${parsed.join(' ')}`);
+        appendRow(store, 'user', display ?? `/task ${parsed.join(' ')}`);
         runtime.beginRun();
         beginRun(store, { resumeHint: true });
         runStartedAtRef.current = Date.now();
@@ -1937,7 +1937,7 @@ export function TuiAppRoot({
           return true;
         }
         if (plan.kind === 'resume') {
-          await runTaskShellCommand('resume');
+          await runTaskShellCommand('resume', '/goal resume');
           return true;
         }
         if (plan.kind === 'propose') {
@@ -1952,7 +1952,8 @@ export function TuiAppRoot({
           goalRunArgs(plan.goal, {
             ...(plan.acceptance ? { acceptance: plan.acceptance } : {}),
             ...(maxTurns > 0 ? { maxTurns } : {}),
-          })
+          }),
+          args ? `/goal ${args}` : '/goal'
         );
         return true;
       }
@@ -2032,15 +2033,33 @@ export function TuiAppRoot({
         if (/^n$/i.test(text)) {
           appendRow(store, 'summary', skippedAcceptanceNotice(cliLocale()));
           handle.notify();
-          await runTaskShellCommand(goalRunArgs(pending.goal));
+          await runTaskShellCommand(goalRunArgs(pending.goal), `/goal ${pending.goal}`);
           return;
         }
-        await runTaskShellCommand(goalRunArgs(pending.goal, { acceptance: text }));
+        await runTaskShellCommand(
+          goalRunArgs(pending.goal, { acceptance: text }),
+          `/goal ${pending.goal}`
+        );
         return;
       }
       if (text.startsWith('/')) {
         pendingGoalRef.current = null;
-        const rewritten = rewriteSlashInput(text);
+        const rewritten = rewriteSlashInput(text, isTuiZh() ? 'zh' : 'en');
+        if (rewritten.suggestion) {
+          if (rewritten.migration) {
+            appendRow(store, 'summary', rewritten.migration);
+            handle.notify();
+          }
+          if (!fromQueueRef.current) {
+            setHistory((entries) =>
+              [...entries.filter((entry) => entry !== text), text].slice(-100)
+            );
+          }
+          setInput(rewritten.suggestion);
+          setHistoryCursor({ index: undefined, draft: '' });
+          setStatusLine(undefined);
+          return;
+        }
         if (rewritten.migration) {
           appendRow(store, 'summary', rewritten.migration);
           handle.notify();

@@ -113,9 +113,10 @@ for (const entry of HELP_COMMANDS) {
 assert.ok(fullHelpText.includes('alias of /usage'), '/help --all lists silent aliases');
 assert.ok(fullHelpText.includes('/new'), '/help --all lists /new as an alias of /clear');
 assert.ok(
-  fullHelpText.includes('/loop 已改为 /goal'),
-  '/help --all keeps the /loop migration line'
+  fullHelpText.includes('/loop is now /goal. Example: /goal make the tests pass'),
+  '/help --all keeps the English /loop notice'
 );
+assert.equal(fullHelpText.includes('/task run'), false, '/help --all does not name /task run');
 const advertised = HELP_COMMANDS.map((entry) => entry.split(' ')[0]);
 assert.ok(advertised.length >= 8, `help advertises >=8 commands (got ${advertised.length})`);
 
@@ -206,6 +207,11 @@ for (const hidden of ['/loop', '/init', '/task', '/mode']) {
   const zhText = buildHelpOverlayLines(true).join('\n');
   assert.ok(zhText.includes('全部命令'), 'zh help labels the command list in zh');
   assert.ok(zhText.includes('快捷键'), 'zh help labels the key reference in zh');
+  assert.ok(
+    zhText.includes('/loop 已改为 /goal。例如：/goal 让测试通过'),
+    'zh help states that /loop is now /goal'
+  );
+  assert.equal(zhText.includes('/task run'), false, 'zh help does not name /task run');
   for (const entry of HELP_COMMANDS) {
     assert.ok(zhText.includes(entry), `zh help still advertises ${entry}`);
   }
@@ -712,6 +718,44 @@ void streamCalls;
     assert.ok(
       await waitFor(() => handle.store.rows.some((r) => r.text.includes('/bg is now /tasks.'))),
       'legacy /bg prints its migration hint and still dispatches'
+    );
+    instance.unmount();
+    await sleep(100);
+  }
+  {
+    const { instance, handle } = await mount('loop-hold');
+    const callsBefore = streamCalls.length;
+    await type(instance, '/loop 每分钟检查构建');
+    assert.ok(
+      await waitFor(() =>
+        handle.store.rows.some((row) =>
+          row.text.includes('/loop is now /goal. Example: /goal 每分钟检查构建')
+        )
+      ),
+      '/loop with arguments prints the one-line notice'
+    );
+    assert.equal(
+      handle.store.rows.some((row) => row.text.includes('/task')),
+      false,
+      '/loop does not write an internal /task line into the transcript'
+    );
+    assert.equal(handle.store.run.running, false, '/loop does not start a run');
+    assert.equal(streamCalls.length, callsBefore, '/loop does not call the model');
+    assert.ok(
+      await waitFor(() => instance.lastFrame().includes('❯ /goal 每分钟检查构建')),
+      'the composer holds the suggested /goal command'
+    );
+    instance.stdin.write('\r');
+    assert.ok(
+      await waitFor(() =>
+        handle.store.rows.some((row) => row.kind === 'user' && row.text === '/goal 每分钟检查构建')
+      ),
+      'confirming the suggestion records /goal, not /task run'
+    );
+    assert.equal(
+      handle.store.rows.some((row) => row.text.includes('/task')),
+      false,
+      'the confirmed goal still does not name /task'
     );
     instance.unmount();
     await sleep(100);

@@ -1,3 +1,5 @@
+import { isZhLocale } from './cli-locale.js';
+
 /**
  * THE command catalog — one table both interaction surfaces derive from:
  *
@@ -256,14 +258,15 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
 
 /**
  * Retired names. Checked before catalog aliases so a moss-only name can print
- * a one-line migration and then run the canonical command. Silent aliases
+ * a one-line migration and then run the canonical command. `/loop` is the
+ * exception: it only suggests `/goal` and does not run. Silent aliases
  * (`/cost`, `/new`, `/ps`, …) live on the row and are not listed here.
  * `replaceAll` drops any trailing args (`/history extra` → `/task view history`).
  */
 const RETIRED_SLASH: Readonly<
-  Record<string, { command: string; migration: string; replaceAll?: boolean }>
+  Record<string, { command: string; migration: string; replaceAll?: boolean; suggest?: boolean }>
 > = {
-  '/loop': { command: '/goal', migration: '/loop 已改为 /goal' },
+  '/loop': { command: '/goal', migration: '', suggest: true },
   '/jobs': { command: '/tasks', migration: '/jobs is now /tasks.' },
   '/bg': { command: '/tasks', migration: '/bg is now /tasks.' },
   '/subs': { command: '/tasks', migration: '/subs is now /tasks.' },
@@ -311,6 +314,33 @@ function catalogRows(): readonly InteractiveCommandRow[] {
 export interface SlashRewrite {
   text: string;
   migration?: string;
+  /**
+   * When set, the shell must not dispatch `text`. Show `migration` and put
+   * this line in the composer for the user to confirm or edit.
+   */
+  suggestion?: string;
+}
+
+const LOOP_EXAMPLE_EN = '/goal make the tests pass';
+const LOOP_EXAMPLE_ZH = '/goal 让测试通过';
+
+/**
+ * `/loop` is now `/goal`. One localized line, plus the `/goal` command the
+ * user confirms or edits. Arguments are kept as the example. The line names
+ * only `/loop` and `/goal`.
+ */
+export function loopRetirement(
+  args: string,
+  locale?: string
+): { notice: string; suggestion: string } {
+  const zh = isZhLocale(locale);
+  const trimmed = args.trim();
+  const example = zh ? LOOP_EXAMPLE_ZH : LOOP_EXAMPLE_EN;
+  const suggestion = trimmed.length > 0 ? `/goal ${trimmed}` : example;
+  const notice = zh
+    ? `/loop 已改为 /goal。例如：${suggestion}`
+    : `/loop is now /goal. Example: ${suggestion}`;
+  return { notice, suggestion };
 }
 
 /**
@@ -327,13 +357,17 @@ export function isExactSlashCommand(input: string): boolean {
 }
 
 /** Map a typed slash line onto the canonical command, once. */
-export function rewriteSlashInput(input: string): SlashRewrite {
+export function rewriteSlashInput(input: string, locale?: string): SlashRewrite {
   const trimmed = input.trim();
   if (!trimmed.startsWith('/')) return { text: trimmed };
   const rawHead = trimmed.split(/\s+/, 1)[0] ?? trimmed;
   const head = rawHead.toLowerCase();
   const args = trimmed.slice(rawHead.length).trim();
   const retired = RETIRED_SLASH[head];
+  if (retired?.suggest) {
+    const { notice, suggestion } = loopRetirement(args, locale);
+    return { text: trimmed, migration: notice, suggestion };
+  }
   if (retired) {
     const text = retired.replaceAll
       ? retired.command
@@ -357,7 +391,7 @@ export function availabilityFor(input: string): RunAvailability {
 }
 
 /** Lines for `/help --all`: silent aliases and retired names. */
-export function slashAliasHelpLines(): string[] {
+export function slashAliasHelpLines(locale?: string): string[] {
   const lines: string[] = [];
   const seen = new Set<string>();
   for (const row of catalogRows()) {
@@ -368,7 +402,8 @@ export function slashAliasHelpLines(): string[] {
   }
   for (const [name, spec] of Object.entries(RETIRED_SLASH)) {
     if (seen.has(name)) continue;
-    lines.push(`  ${name.padEnd(24)} ${spec.migration}`);
+    const detail = spec.suggest ? loopRetirement('', locale).notice : spec.migration;
+    lines.push(`  ${name.padEnd(24)} ${detail}`);
   }
   return lines;
 }

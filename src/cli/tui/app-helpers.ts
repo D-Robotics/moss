@@ -25,7 +25,7 @@ import type { CliInteractionMode } from '../interaction-mode.js';
 import { slashAliasHelpLines } from '../interactive-commands.js';
 import type { CliRuntimeStatus } from '../onboarding.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
-import { tui } from './copy.js';
+import { isTuiZh, tui } from './copy.js';
 import { paintColor, TONE } from './theme.js';
 import { DEFAULT_KEYBINDINGS, type KeyBinding } from './keymap.js';
 import {
@@ -362,7 +362,7 @@ export function buildHelpOverlayLines(
       : SHELL_COMMANDS.filter((entry) => COMMON_HELP_COMMANDS.includes(entry.command))
     ).map((entry) => `  ${entry.usage.padEnd(24)} ${tui(entry.description)}`),
     ...(all
-      ? ['', tui('aliases'), ...slashAliasHelpLines()]
+      ? ['', tui('aliases'), ...slashAliasHelpLines(isTuiZh() ? 'zh' : 'en')]
       : ['', tui('type / to browse commands · /help --all for the rest')]),
     '',
     tui('shortcuts'),
