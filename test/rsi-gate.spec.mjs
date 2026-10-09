@@ -509,6 +509,14 @@ test('score rules and the acceptance decision', () => {
       .decision,
     'reject'
   );
+  assert.equal(
+    decide({ ...gates, G2: { status: 'not-applicable' }, G6: { status: 'pass' } }).decision,
+    'reject'
+  );
+  assert.equal(
+    decide({ ...gates, G3: { status: 'not-applicable' }, G6: { status: 'pass' } }).decision,
+    'reject'
+  );
 
   assert.equal(evaluateTui({ cliChanged: false }).status, 'not-applicable');
   const tuiOk = { scenarios: [{ name: 'composer', screenHasComposer: true }] };

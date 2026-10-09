@@ -276,7 +276,9 @@ export async function runGate(options) {
   const reuse = (name) => {
     if (!priorMatchesRevision) return false;
     const previous = prior?.gates?.[name];
-    if (previous && (previous.status === 'pass' || previous.status === 'not-applicable')) {
+    const reusable =
+      previous?.status === 'pass' || (name === 'G5' && previous?.status === 'not-applicable');
+    if (reusable) {
       gates[name] = { ...previous, reused: true };
       return true;
     }
