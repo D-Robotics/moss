@@ -437,7 +437,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
         focus: {
           type: 'string',
           description:
-            'Optional extract focus: keywords or a short topic (e.g. "architecture overview BPU"). Matching sections are kept; if none match, returns the document head.',
+            'Optional extract focus: keywords or a short topic (e.g. "architecture overview"). Matching sections are kept; if none match, returns the document head.',
         },
         max_chars: {
           type: 'number',

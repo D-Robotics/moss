@@ -10,6 +10,15 @@ import { McpClient } from '../core/mcp/client.js';
 import type { McpServerConfig } from '../core/mcp/types.js';
 import { isZhLocale } from './cli-locale.js';
 import { loadMcpConfigs } from './mcp-config.js';
+import {
+  rdkDocsAutoConnectEnabled,
+  rdkDocsInactiveNotice,
+  rdkDocsOptOut,
+  readRdkDocsFlag,
+  resolveRdkDocsPackage,
+  withBuiltinRdkDocs,
+} from './rdk-docs-mcp.js';
+import { RDK_DOCS_SERVER_NAME } from '../core/mcp/rdk-docs.js';
 
 const SERVER_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/i;
 
@@ -104,6 +113,8 @@ export interface McpCommandContext {
   workspaceDir: string;
   configDir: string;
   env?: NodeJS.ProcessEnv;
+  /** Merged config.json `rdkDocs`, when the caller already loaded it. */
+  rdkDocs?: unknown;
 }
 
 /**
@@ -210,14 +221,34 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
     return 0;
   }
 
+  const env = ctx.env ?? process.env;
+  const rdkDocs = readRdkDocsFlag(ctx.rdkDocs);
+  const enableInput = { env, rdkDocs, workspaceDir: ctx.workspaceDir };
+  const effectiveConfigs = (purpose: 'session' | 'test', testName?: string): McpServerConfig[] => {
+    const loaded = loadMcpConfigs(ctx.workspaceDir, ctx.configDir, env);
+    if (rdkDocsOptOut(env, rdkDocs)) return loaded;
+    if (rdkDocsAutoConnectEnabled(enableInput))
+      return withBuiltinRdkDocs(loaded, true, resolveRdkDocsPackage(ctx.rdkDocs, env));
+    // `moss mcp test rdk-docs` health-checks the builtin even with no device.
+    if (purpose === 'test' && testName === RDK_DOCS_SERVER_NAME) {
+      return withBuiltinRdkDocs(loaded, true, resolveRdkDocsPackage(ctx.rdkDocs, env));
+    }
+    return loaded;
+  };
+
   if (sub === 'list') {
-    const merged = loadMcpConfigs(ctx.workspaceDir, ctx.configDir, ctx.env ?? process.env);
+    const merged = effectiveConfigs('session');
+    const showInactive =
+      !rdkDocsOptOut(env, rdkDocs) &&
+      !rdkDocsAutoConnectEnabled(enableInput) &&
+      !merged.some((config) => config.name === RDK_DOCS_SERVER_NAME);
     if (merged.length === 0) {
       out(
         zh
           ? '未配置 MCP 服务器。添加一个：moss mcp add <name> <command...>'
           : 'No MCP servers configured. Add one: moss mcp add <name> <command...>'
       );
+      if (showInactive) out(rdkDocsInactiveNotice(zh));
       return 0;
     }
     for (const config of merged) {
@@ -229,6 +260,7 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
         ? `\n共 ${merged.length} 个服务器。moss mcp test <name> 可立即检测。`
         : `\n${merged.length} server(s). moss mcp test <name> checks one now.`
     );
+    if (showInactive) out(rdkDocsInactiveNotice(zh));
     return 0;
   }
 
@@ -261,7 +293,7 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
       err(zh ? 'moss mcp test: 需要服务器名。' : 'moss mcp test: a server name is required.');
       return 2;
     }
-    const merged = loadMcpConfigs(ctx.workspaceDir, ctx.configDir, ctx.env ?? process.env);
+    const merged = effectiveConfigs('test', name);
     const config: McpServerConfig | undefined = merged.find((c) => c.name === name);
     if (!config) {
       err(
@@ -276,7 +308,10 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
         ? `正在连接 ${name}（${config.transport}）…`
         : `Connecting to ${name} (${config.transport})…`
     );
-    const client = new McpClient(config, { connectTimeoutMs: 10_000, requestTimeoutMs: 10_000 });
+    const client = new McpClient(config, {
+      connectTimeoutMs: config.connectTimeoutMs ?? 10_000,
+      requestTimeoutMs: config.requestTimeoutMs ?? 10_000,
+    });
     try {
       await client.connect();
       const tools = await client.listTools();

@@ -14,6 +14,7 @@ export interface SkillToolInput {
 const bodyCache = new Map<string, { mtimeMs: number; body: string }>();
 
 export function readSkillBodyCached(skill: SkillManifest): string {
+  if (typeof skill.body === 'string') return skill.body;
   const stat = fs.statSync(skill.file);
   const cached = bodyCache.get(skill.file);
   if (cached && cached.mtimeMs === stat.mtimeMs) return cached.body;

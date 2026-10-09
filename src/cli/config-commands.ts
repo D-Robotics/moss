@@ -331,6 +331,8 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_DEVICE_TRUST (full|1|true|yes opts this process into destructive device operations)',
       'MOSS_DEVICE_TRUST_DEVICES (comma-separated host or device-id allowlist)',
       'MOSS_DEVICE_ (prefix of every MOSS_DEVICE_* key)',
+      'MOSS_NO_RDK_DOCS (1|true|yes|on skips the built-in rdk-docs MCP server)',
+      'MOSS_RDK_DOCS_PACKAGE (npm spec or local directory/tarball for the built-in server)',
     ],
   },
   {
@@ -487,6 +489,8 @@ export function renderConfigHelp(): string {
     '  moss config set agent.maxTurns 96',
     '  moss config set agent.contextTokens 200000',
     '  moss config set agent.compaction.reserveTokens 20000',
+    '  moss config set rdkDocs false',
+    '  moss config set rdkDocs.package ../rdk-docs-mcp',
   ].join('\n');
 }
 
@@ -706,7 +710,7 @@ function buildProjectConfigTemplate(): ConfigFile {
 }
 
 function supportedConfigKeys(): string {
-  return 'Supported keys — model: provider, model, baseUrl, apiKey; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens';
+  return 'Supported keys — model: provider, model, baseUrl, apiKey; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens';
 }
 
 function removeEmptyNestedConfig(config: ConfigFile): ConfigFile {
@@ -731,6 +735,13 @@ function removeEmptyNestedConfig(config: ConfigFile): ConfigFile {
     if (guardrails.output && Object.keys(guardrails.output).length === 0) delete guardrails.output;
     if (Object.keys(guardrails).length === 0) delete next.guardrails;
     else next.guardrails = guardrails;
+  }
+  if (
+    typeof next.rdkDocs === 'object' &&
+    next.rdkDocs !== null &&
+    Object.keys(next.rdkDocs).length === 0
+  ) {
+    delete next.rdkDocs;
   }
   return next;
 }
@@ -937,6 +948,36 @@ function applyConfigSetPair(
     } catch (err) {
       return { ok: false, messages: [errorMessage(err)] };
     }
+  } else if (key === 'rdkDocs') {
+    const enabled = parseConfigBoolean(value);
+    if (enabled === null) {
+      return {
+        ok: false,
+        messages: ['Supported rdkDocs values: true/false (yes/no, on/off, 1/0 also accepted)'],
+      };
+    }
+    next.rdkDocs = enabled;
+  } else if (key === 'rdkDocs.enabled') {
+    const enabled = parseConfigBoolean(value);
+    if (enabled === null) {
+      return {
+        ok: false,
+        messages: [
+          'Supported rdkDocs.enabled values: true/false (yes/no, on/off, 1/0 also accepted)',
+        ],
+      };
+    }
+    const currentRdkDocs =
+      typeof current.rdkDocs === 'object' && current.rdkDocs !== null ? current.rdkDocs : {};
+    next.rdkDocs = { ...currentRdkDocs, enabled };
+  } else if (key === 'rdkDocs.package') {
+    const packageSpec = value.trim();
+    if (!packageSpec) {
+      return { ok: false, messages: ['rdkDocs.package must not be empty'] };
+    }
+    const currentRdkDocs =
+      typeof current.rdkDocs === 'object' && current.rdkDocs !== null ? current.rdkDocs : {};
+    next.rdkDocs = { ...currentRdkDocs, package: packageSpec };
   } else if (key === 'promptCache') {
     const enabled = parseConfigBoolean(value);
     if (enabled === null) {
@@ -1121,7 +1162,14 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
   else if (key === 'approvalPolicy') delete next.approvalPolicy;
   else if (key === 'trustedTools') delete next.trustedTools;
   else if (key === 'deniedTools') delete next.deniedTools;
-  else if (key === 'permissions.deviceTrust') {
+  else if (key === 'rdkDocs') delete next.rdkDocs;
+  else if (key === 'rdkDocs.enabled' && typeof next.rdkDocs === 'object') {
+    next.rdkDocs = { ...next.rdkDocs };
+    delete next.rdkDocs.enabled;
+  } else if (key === 'rdkDocs.package' && typeof next.rdkDocs === 'object') {
+    next.rdkDocs = { ...next.rdkDocs };
+    delete next.rdkDocs.package;
+  } else if (key === 'permissions.deviceTrust') {
     next.permissions = { ...current.permissions };
     delete next.permissions.deviceTrust;
   } else if (key === 'permissions.trustedDevices') {

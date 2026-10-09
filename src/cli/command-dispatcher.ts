@@ -327,7 +327,21 @@ export const COMMANDS: Record<string, CommandConfig> = {
         return;
       }
       const configDir = resolveConfigDir();
-      const code = await runMcpCommand(ctx.commandArgs, { workspaceDir: workspace, configDir });
+      const loaded = ctx.loadedConfig;
+      const rdkDocsConfig =
+        typeof loaded === 'object' &&
+        loaded !== null &&
+        'config' in loaded &&
+        typeof loaded.config === 'object' &&
+        loaded.config !== null &&
+        'rdkDocs' in loaded.config
+          ? loaded.config.rdkDocs
+          : undefined;
+      const code = await runMcpCommand(ctx.commandArgs, {
+        workspaceDir: workspace,
+        configDir,
+        ...(rdkDocsConfig !== undefined ? { rdkDocs: rdkDocsConfig } : {}),
+      });
       if (code !== 0) process.exitCode = code;
     },
     description: 'Manage MCP servers: add/list/remove/test (project or user config)',

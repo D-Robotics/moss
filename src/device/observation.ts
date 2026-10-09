@@ -116,7 +116,7 @@ export function formatRoboticsSnapshot(snapshot: RoboticsStackSnapshot, endpoint
   for (const bin of snapshot.ros2Binaries) lines.push(`  ros2: ${bin}`);
   if (snapshot.ros2Binaries.length > 0) {
     lines.push(
-      'ROS commands run via device_exec after sourcing the setup, e.g.: source /opt/tros/setup.bash && ros2 node list'
+      'ROS commands run via device_exec after verifying and sourcing <installation>/setup.bash (for example, test -f /opt/tros/setup.bash && source /opt/tros/setup.bash). Check the TROS manual when that file is absent; cite the page URL.'
     );
   } else {
     lines.push('No ros2 binary found in the installation — runtime may be broken or partial.');

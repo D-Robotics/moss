@@ -13,8 +13,10 @@ export interface SkillManifest {
   description: string;
   /** Optional hint for when the model should pick this skill. */
   when?: string;
-  /** Absolute path of the SKILL.md body. */
+  /** Absolute path of the SKILL.md body. Bundled skills may use a sentinel plus `body`. */
   file: string;
+  /** Inline body. When set, the skill tool does not read `file`. */
+  body?: string;
 }
 
 export interface ParsedSkillFile {
