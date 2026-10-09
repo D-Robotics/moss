@@ -112,6 +112,7 @@ export const execBackgroundTool: Tool = {
       id,
       command,
       label: typeof input.label === 'string' ? input.label : undefined,
+      ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}),
       child,
       pid: child.pid,
       status: 'running',

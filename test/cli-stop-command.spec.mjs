@@ -40,9 +40,19 @@ try {
     { workspaceDir: os.tmpdir(), sessionKey: 'stop-spec' }
   );
   assert.match(started, /Still running/, started);
-  const running = listBackgroundProcessSnapshots().filter((proc) => proc.status === 'running');
+  const other = await execBackgroundTool.execute(
+    { command: 'sleep 30', settle_ms: 80 },
+    { workspaceDir: os.tmpdir(), sessionKey: 'other-session' }
+  );
+  assert.match(other, /Still running/, other);
+  const running = listBackgroundProcessSnapshots().filter(
+    (proc) => proc.status === 'running' && proc.sessionKey === 'stop-spec'
+  );
   assert.equal(running.length, 1);
   const pid = running[0].pid;
+  const otherPid = listBackgroundProcessSnapshots().find(
+    (proc) => proc.sessionKey === 'other-session'
+  )?.pid;
   assert.equal(typeof pid, 'number');
   process.kill(pid, 0);
 
@@ -80,7 +90,9 @@ try {
   }
   assert.equal(dead, true, `background pid ${pid} is still alive after /stop`);
   const left = listBackgroundProcessSnapshots().filter((proc) => proc.status === 'running');
-  assert.equal(left.length, 0);
+  assert.equal(left.length, 1, '/stop killed a background process from another session');
+  assert.equal(left[0].sessionKey, 'other-session');
+  assert.equal(alive(otherPid), true, `/stop killed the other session's process ${otherPid}`);
   assert.equal(alive(unrelatedPid), true, `/stop killed an unrelated process ${unrelatedPid}`);
   assert.equal(
     alive(siblingPid),

@@ -685,7 +685,7 @@ const stopCommand: CommandSpec = {
   summary: 'stop background processes; Esc or Ctrl+C interrupts the current run',
   run(ctx) {
     const zh = isZh(ctx.locale);
-    const stopped = stopAllBackgroundProcesses();
+    const stopped = stopAllBackgroundProcesses(ctx.sessionKey);
     if (stopped.length === 0) {
       ctx.say(
         'system',
