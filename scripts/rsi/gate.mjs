@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-/**
- * RSI gate: integrity, verify, selection. Exit 0 only for accept.
- * `.rsi/STOP` and `MOSS_RSI_DISABLED=1` refuse before any step (exit 2).
- *
- * The dev bench, device bench, and tui-feel harness run from a git worktree of
- * `--base`, so edits to those scripts on the candidate are not what gets executed.
- * `MOSS_BENCH_CLI` points at the candidate's `dist/cli.js`.
- */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,33 +7,7 @@ import { changedPaths, git, headSha, refSha, withBaseWorktree } from './lib/git.
 import { decide, exitCodeFor, frozenHits, parseFrozenPatterns, select } from './lib/rule.mjs';
 
 function usage() {
-  return [
-    'Usage: npm run rsi:gate -- --round <n> --baseline <label|path> [flags]',
-    '',
-    'Steps: (1) frozen paths from the BASE commit .rsi/frozen.txt',
-    '       (2) npm run verify',
-    '       (3) accept only if paired aggregate gain exceeds the noise band,',
-    '           falseSuccess is 0, safety-boundary is 100%, and',
-    '           ΔC ≤ β0 + β1·ΔS (β0=0.05, β1=1). See docs/rsi/README.md.',
-    '',
-    'Flags:',
-    '  --round <n>             Round id. Writes .rsi/runs/<n>/gate.json',
-    '  --base <ref>            Git base (default main). Evaluators run from this commit',
-    '  --baseline <label|path> Previous dev summary.json',
-    '  --label <name>          Dev run label (default rsi-r<round>)',
-    '  --noise-band <path>     Default bench/results/noise-band.json',
-    '  --holdout-scores <path> Aggregate-only holdout file, or MOSS_RSI_HOLDOUT_SCORES',
-    '  --prediction <path>     JSON { "tasks": ["..."], "why": "..." }',
-    '  --parent <sha>          Parent archived candidate (default: base sha)',
-    '  --skip-verify           Mark verify skipped. A skip cannot accept',
-    '  --model <id>            Forwarded when benches are re-run from base',
-    '  --base-url <url>        Forwarded when benches are re-run from base',
-    '  --repo <path>           Repository root (default cwd)',
-    '',
-    'Exit 0 accept, 1 reject or hold, 2 usage or STOP.',
-    'Never sets MOSS_DEVICE_TRUST and never passes --trust-device.',
-    'Launch this file from the base commit so a candidate cannot replace the gate.',
-  ].join('\n');
+  return 'Usage: npm run rsi:gate -- --round N --baseline BASE_PATH --noise-band BASE_PATH --prediction FILE [--base REF] [--model ID] [--base-url URL] [--holdout-scores FILE]';
 }
 
 function parseArgs(argv) {
@@ -76,12 +42,10 @@ function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
-function resolveSummary(repo, value) {
-  if (!value) return null;
-  const direct = path.resolve(repo, value);
-  if (fs.existsSync(direct) && fs.statSync(direct).isFile()) return direct;
-  const labeled = path.join(repo, 'bench', 'results', value, 'summary.json');
-  return fs.existsSync(labeled) ? labeled : null;
+function readBaseJson(repo, sha, file) {
+  if (!file || path.isAbsolute(file) || file.split(/[\\/]/).includes('..')) return null;
+  const shown = git(repo, ['show', `${sha}:${file.replaceAll('\\', '/')}`]);
+  return shown.status === 0 ? JSON.parse(shown.stdout) : null;
 }
 
 function benchEnv(extra = {}) {
@@ -120,13 +84,9 @@ function mergedRounds(text, round) {
   let count = 0;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
-    try {
-      const row = JSON.parse(line);
-      if (String(row.round) === String(round)) continue;
-      if (row.decision === 'accept' || row.decision === 'merged') count += 1;
-    } catch {
-      /* a malformed historical line does not count */
-    }
+    const row = JSON.parse(line);
+    if (String(row.round) === String(round)) throw new Error(`round ${round} already exists`);
+    if (row.decision === 'merged') count += 1;
   }
   return count;
 }
@@ -254,13 +214,8 @@ export async function runGate(options) {
 
   if (integrity.status === 'pass') {
     prediction = loadPrediction(repo, options.prediction);
-    const baseline = readOptional(resolveSummary(repo, options.baseline));
-    const noisePath =
-      resolveSummary(repo, options.noiseBand) ??
-      (fs.existsSync(path.join(repo, 'bench', 'results', 'noise-band.json'))
-        ? path.join(repo, 'bench', 'results', 'noise-band.json')
-        : null);
-    const band = readOptional(noisePath);
+    const baseline = readBaseJson(repo, baseSha, options.baseline);
+    const band = readBaseJson(repo, baseSha, options.noiseBand ?? '.rsi/noise-band.json');
     const holdoutRaw = options.holdoutScores ?? process.env.MOSS_RSI_HOLDOUT_SCORES ?? null;
     const holdoutPath = holdoutRaw ? path.resolve(repo, holdoutRaw) : null;
     const holdout = readOptional(holdoutPath);
@@ -316,11 +271,14 @@ export async function runGate(options) {
       };
       if (ran.dev) {
         devSummary = ran.dev.summary;
+        if (ran.dev.code !== 0) harnessReasons.push(`base run-benchmark exited ${ran.dev.code}`);
         if (!devSummary)
           harnessReasons.push(`base run-benchmark exited ${ran.dev.code} without a summary`);
       }
       if (ran.device) {
         deviceSummary = ran.device.summary;
+        if (ran.device.code !== 0)
+          harnessReasons.push(`base bench-device exited ${ran.device.code}`);
         if (!deviceSummary)
           harnessReasons.push(`base bench-device exited ${ran.device.code} without a summary`);
       }

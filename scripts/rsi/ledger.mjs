@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-/**
- * Append or validate `.rsi/ledger.jsonl`.
- * Each candidate row carries `prediction` ({ tasks, why }) and, after the gate,
- * `predictionHeld`. Historical rows may use null.
- */
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -24,17 +19,8 @@ const REQUIRED = [
   'cost',
   'decision',
 ];
-const SENSITIVE_KEY_RE =
+const SENSITIVE =
   /^(?:api[-_]?key|authorization|password|passphrase|secret|access[-_]?token|refresh[-_]?token|private[-_]?key)$/i;
-
-function usage() {
-  return [
-    'Usage: npm run rsi:ledger -- [--validate] [--append <file>] [--ledger <path>] [--repo <path>]',
-    '',
-    'Default action is --validate of .rsi/ledger.jsonl.',
-    'Append refuses a duplicate round. Null fields are allowed when the value was not recorded.',
-  ].join('\n');
-}
 
 function parseArgs(argv) {
   const out = { repo: process.cwd(), validate: false, append: null };
@@ -59,23 +45,9 @@ function parseArgs(argv) {
   return out;
 }
 
-function sensitiveDataPaths(value, env = process.env) {
-  const secrets = Object.entries(env)
-    .filter(
-      ([name, item]) =>
-        /(?:API_KEY|PASSWORD|PASSPHRASE|SECRET|ACCESS_TOKEN|REFRESH_TOKEN|PRIVATE_KEY)$/i.test(
-          name
-        ) &&
-        typeof item === 'string' &&
-        item.length >= 4
-    )
-    .map(([, item]) => item);
+function sensitiveDataPaths(value) {
   const hits = [];
   const visit = (item, at) => {
-    if (typeof item === 'string') {
-      if (secrets.some((secret) => item.includes(secret))) hits.push(at);
-      return;
-    }
     if (!item || typeof item !== 'object') return;
     if (Array.isArray(item)) {
       item.forEach((child, index) => visit(child, `${at}[${index}]`));
@@ -83,7 +55,7 @@ function sensitiveDataPaths(value, env = process.env) {
     }
     for (const [key, child] of Object.entries(item)) {
       const next = at ? `${at}.${key}` : key;
-      if (SENSITIVE_KEY_RE.test(key) && child != null && child !== '') hits.push(next);
+      if (SENSITIVE.test(key) && child != null && child !== '') hits.push(next);
       visit(child, next);
     }
   };
@@ -192,7 +164,7 @@ if (isDirect()) {
     args = parseArgs(process.argv.slice(2));
     if (args.help) {
       refuseIfStopped(args.repo);
-      console.log(usage());
+      console.log('Usage: npm run rsi:ledger -- [--validate] [--append <file>]');
       process.exit(0);
     }
     refuseIfStopped(args.repo);

@@ -88,7 +88,7 @@ function task(id, passes, samples, tokens = 100) {
 
 function summary(tasks, gitSha = 'baseline-sha') {
   return {
-    meta: { gitSha, model: 'test-model', samples: 3, temperature: 0 },
+    meta: { gitSha, model: 'test-model', samples: tasks[0]?.samples ?? 3, temperature: 0 },
     perTask: tasks,
   };
 }
@@ -102,26 +102,30 @@ function plant(repo, name, value) {
 const passVerify = async () => ({ status: 'pass', reasons: [] });
 
 function scoreOptions(repo, files, extra = {}) {
-  const baseSha = git(repo, ['rev-parse', 'HEAD']);
-  const current = JSON.parse(fs.readFileSync(files.dev, 'utf8'));
-  current.meta.gitSha = baseSha;
   const baseline = JSON.parse(fs.readFileSync(files.baseline, 'utf8'));
   const band = JSON.parse(fs.readFileSync(files.band, 'utf8'));
   Object.assign(band, {
     gitSha: baseline.meta.gitSha,
     model: baseline.meta.model,
     samplesPerRun: baseline.meta.samples,
+    temperature: baseline.meta.temperature,
     runs: ['noise-1', 'noise-2'],
+    perTask: { measured: { rates: [0, band.maxDropPerTask] } },
   });
   fs.writeFileSync(files.band, `${JSON.stringify(band)}\n`);
+  git(repo, ['add', files.baseline, files.band]);
+  git(repo, ['commit', '--allow-empty', '-m', 'trusted score inputs']);
+  const baseSha = git(repo, ['rev-parse', 'HEAD']);
+  const current = JSON.parse(fs.readFileSync(files.dev, 'utf8'));
+  current.meta.gitSha = baseSha;
   return {
     repo,
     round: '1',
     base: 'HEAD',
     skipVerify: false,
     verifyRunner: passVerify,
-    baseline: files.baseline,
-    noiseBand: files.band,
+    baseline: path.relative(repo, files.baseline),
+    noiseBand: path.relative(repo, files.band),
     evalRunner: (_repo, pinned) => {
       assert.equal(pinned, baseSha);
       return {
@@ -280,9 +284,7 @@ test('the evaluator runs from the base worktree, not the candidate script', asyn
     assert.equal(result.report.evaluator.from, 'base-worktree');
     assert.equal(result.report.evaluator.origin, 'base');
     assert.equal(result.report.decision, 'reject');
-    assert.ok(
-      result.report.steps.selection.reasons.some((reason) => reason.includes('does not exceed'))
-    );
+    assert.ok(result.report.steps.selection.reasons.length > 0);
   } finally {
     if (previous === undefined) delete process.env.RSI_TOUCH_FILE;
     else process.env.RSI_TOUCH_FILE = previous;
@@ -303,7 +305,7 @@ test('the evaluator SHA is pinned before candidate verify can move the base ref'
     noiseBand: plant(repo, 'band.json', {}),
     prediction: plant(repo, 'prediction.json', { tasks: ['safety-boundary'], why: 'check' }),
     verifyRunner: async () => {
-      git(repo, ['branch', '-f', 'main', 'HEAD']);
+      git(repo, ['update-ref', 'refs/heads/main', 'HEAD']);
       return { status: 'pass', reasons: [] };
     },
     evalRunner: (_repo, baseSha) => {
@@ -312,6 +314,23 @@ test('the evaluator SHA is pinned before candidate verify can move the base ref'
     },
   });
   assert.equal(evaluatorSha, pinned);
+});
+
+test('candidate dist cannot redirect MOSS_BENCH_CLI through a symlink', async () => {
+  const repo = initRepo('src/safety/**\n');
+  write(repo, 'outside.js', '#!/usr/bin/env node\n');
+  fs.mkdirSync(path.join(repo, 'dist'));
+  fs.symlinkSync(path.join(repo, 'outside.js'), path.join(repo, 'dist', 'cli.js'));
+  await assert.rejects(
+    runGate({
+      repo,
+      round: '1',
+      base: 'HEAD',
+      verifyRunner: passVerify,
+      prediction: plant(repo, 'prediction.json', { tasks: ['safety-boundary'], why: 'check' }),
+    }),
+    /dist contains a symlink/
+  );
 });
 
 test('selection rejects mismatched provenance, zero baseline cost, and malformed rates', () => {

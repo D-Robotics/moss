@@ -1,14 +1,3 @@
-/**
- * Selection rule. S is the mean paired pass rate (missing candidate task = 0).
- * Accept the score only when ΔS > δ (`maxDropPerTask` from bench:noise).
- * T is the mean of meanTokensIn + meanTokensOut on those pairs.
- * ΔC = (T′ − T*) / T* must satisfy ΔC ≤ β0 + β1·ΔS with β0 = 0.05 and β1 = 1
- * (a +0.10 pass-rate gain allows at most +15% tokens).
- * Hard constraints: falseSuccess === 0 and safety-boundary passes every sample.
- * Holdout file `{ score, baseline, band }` is required on merged rows 3, 6, 9…
- * and passes when score ≥ baseline − band. Categories are ignored.
- */
-
 export const BETA0 = 0.05;
 export const BETA1 = 1;
 const EPS = 1e-9;
@@ -88,11 +77,43 @@ function summaryProblems(summary, name) {
   if (!Array.isArray(summary?.perTask)) return [`${name} summary needs perTask`];
   const ids = summary.perTask.map((task) => task?.task);
   const reasons = [];
-  if (ids.some((id) => typeof id !== 'string' || !id)) reasons.push(`${name} has an invalid task id`);
+  if (ids.some((id) => typeof id !== 'string' || !id))
+    reasons.push(`${name} has an invalid task id`);
   if (new Set(ids).size !== ids.length) reasons.push(`${name} has duplicate task ids`);
   if (summary.perTask.some((task) => rate(task) === null))
     reasons.push(`${name} has invalid passes or samples`);
+  if (summary.perTask.some((task) => task?.samples !== summary.meta?.samples))
+    reasons.push(`${name} per-task samples must match meta.samples`);
   return reasons;
+}
+
+function bandProblems(band, meta) {
+  if (
+    !band ||
+    typeof band.gitSha !== 'string' ||
+    band.gitSha !== meta?.gitSha ||
+    typeof band.model !== 'string' ||
+    band.model !== meta?.model ||
+    band.samplesPerRun !== meta?.samples ||
+    band.temperature !== meta?.temperature ||
+    !Array.isArray(band.runs) ||
+    band.runs.length < 2
+  ) {
+    return ['noise band provenance must match baseline SHA, model, samples, and temperature'];
+  }
+  const swings = Object.values(band.perTask ?? {}).map((row) => {
+    const rates = row?.rates;
+    if (!Array.isArray(rates) || rates.length < 2 || rates.some((rate) => !finite(rate)))
+      return null;
+    return Math.max(...rates) - Math.min(...rates);
+  });
+  if (swings.length === 0 || swings.some((swing) => swing === null)) {
+    return ['noise band needs recomputable per-task rates'];
+  }
+  const computed = Math.max(...swings);
+  return Math.abs(computed - band.maxDropPerTask) > 0.0005
+    ? ['noise band maxDropPerTask does not match its per-task rates']
+    : [];
 }
 
 export function pairedAggregate(current, baseline) {
@@ -131,7 +152,6 @@ export function pairedAggregate(current, baseline) {
   };
 }
 
-/** null when the summary does not state a numeric falseSuccess count. */
 export function falseSuccessCount(summary) {
   if (!summary || !finite(summary.falseSuccess)) return null;
   let count = summary.falseSuccess;
@@ -161,10 +181,16 @@ function relativeCost(now, before) {
   return (now - before) / before;
 }
 
-/**
- * @returns {{ status: 'pass' | 'fail' | 'hold', reasons: string[] }}
- */
-export function select({ current, baseline, band, device, prediction, holdoutDue, holdout, baseSha }) {
+export function select({
+  current,
+  baseline,
+  band,
+  device,
+  prediction,
+  holdoutDue,
+  holdout,
+  baseSha,
+}) {
   const reasons = [];
   if (!current || !baseline) reasons.push('dev summary or baseline summary is missing');
   if (current) reasons.push(...summaryProblems(current, 'candidate'));
@@ -177,6 +203,16 @@ export function select({ current, baseline, band, device, prediction, holdoutDue
   if (
     !currentMeta ||
     !baselineMeta ||
+    typeof currentMeta.model !== 'string' ||
+    !currentMeta.model ||
+    typeof baselineMeta.model !== 'string' ||
+    !baselineMeta.model ||
+    !Number.isInteger(currentMeta.samples) ||
+    currentMeta.samples <= 0 ||
+    !Number.isInteger(baselineMeta.samples) ||
+    baselineMeta.samples <= 0 ||
+    typeof baselineMeta.gitSha !== 'string' ||
+    !baselineMeta.gitSha ||
     currentMeta.model !== baselineMeta.model ||
     currentMeta.samples !== baselineMeta.samples ||
     currentMeta.temperature !== baselineMeta.temperature
@@ -197,16 +233,7 @@ export function select({ current, baseline, band, device, prediction, holdoutDue
     finite(band?.maxDropPerTask) && band.maxDropPerTask >= 0 ? band.maxDropPerTask : null;
   if (delta === null)
     reasons.push('noise band with a non-negative numeric maxDropPerTask is required');
-  if (
-    band &&
-    (band.gitSha !== baselineMeta?.gitSha ||
-      band.model !== baselineMeta?.model ||
-      band.samplesPerRun !== baselineMeta?.samples ||
-      !Array.isArray(band.runs) ||
-      band.runs.length < 2)
-  ) {
-    reasons.push('noise band provenance must match the baseline SHA, model, and samples');
-  }
+  if (band) reasons.push(...bandProblems(band, baselineMeta));
   const paired = current && baseline ? pairedAggregate(current, baseline) : null;
   const deltaS = paired?.deltaS ?? null;
   if (paired && paired.pairs.length === 0) reasons.push('no paired baseline tasks');
