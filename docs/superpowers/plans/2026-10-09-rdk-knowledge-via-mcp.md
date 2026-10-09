@@ -22,14 +22,14 @@ Moss **没有**一份可删的 RDK 手册。烧录步骤、apt 源、GPIO 针脚
 
 ## 计数
 
-| 裁决 | 处数 | 源码行（约） | 模型可见 token（约，英文按 4 字符/token） | 含义 |
-| --- | ---: | ---: | ---: | --- |
-| DELETE | 1 | 1 | ~10 | `web_fetch` 描述里的示例词 `BPU`，不是知识 |
-| SHRINK | 3 | 4 | ~120 | 单一的 `source /opt/tros/setup.bash` 示例，以及设备命令失败时指向 `web_fetch` 的那半句 |
-| KEEP（提示契约） | 11 | ~25 | ~400 | 「这是 RDK/Linux 设备、先探测、TROS 装在 `/opt/tros`、摄像头看 v4l2」——调用工具之前要知道 |
-| KEEP（探测脚本，不进提示） | 4 | ~30 | 0 | `/proc`、`/opt/tros`、`hbm_shell`、`ip`、v4l2。`hbm_shell` 与 `sun55iw3` 在 MCP 里 0 命中 |
-| KEEP（安全 / 验收 / 测试夹具 / 文档） | 8 | 不进 RDK 提示预算 | 0 | 见清单。测试夹具不向模型展示 |
-| 仓库里不存在 | — | 0 | 0 | 板型目录、烧录、apt 源、GPIO 针脚、hobot_dnn 教程、捆绑的 `rdk-docs` skill |
+| 裁决                                  | 处数 |      源码行（约） | 模型可见 token（约，英文按 4 字符/token） | 含义                                                                                      |
+| ------------------------------------- | ---: | ----------------: | ----------------------------------------: | ----------------------------------------------------------------------------------------- |
+| DELETE                                |    1 |                 1 |                                       ~10 | `web_fetch` 描述里的示例词 `BPU`，不是知识                                                |
+| SHRINK                                |    3 |                 4 |                                      ~120 | 单一的 `source /opt/tros/setup.bash` 示例，以及设备命令失败时指向 `web_fetch` 的那半句    |
+| KEEP（提示契约）                      |   11 |               ~25 |                                      ~400 | 「这是 RDK/Linux 设备、先探测、TROS 装在 `/opt/tros`、摄像头看 v4l2」——调用工具之前要知道 |
+| KEEP（探测脚本，不进提示）            |    4 |               ~30 |                                         0 | `/proc`、`/opt/tros`、`hbm_shell`、`ip`、v4l2。`hbm_shell` 与 `sun55iw3` 在 MCP 里 0 命中 |
+| KEEP（安全 / 验收 / 测试夹具 / 文档） |    8 | 不进 RDK 提示预算 |                                         0 | 见清单。测试夹具不向模型展示                                                              |
+| 仓库里不存在                          |    — |                 0 |                                         0 | 板型目录、烧录、apt 源、GPIO 针脚、hobot_dnn 教程、捆绑的 `rdk-docs` skill                |
 
 建议的替换指针（仅 MCP 已连接时进入系统提示）约 150 token。所以落地后的系统提示相对今天是**略增**，不是节省出一大段上下文。节省发生在「不要把手册贴进提示」这条已经成立的事实上，以及避免以后再把手册抄进来。
 
@@ -43,26 +43,26 @@ Moss **没有**一份可删的 RDK 手册。烧录步骤、apt 源、GPIO 针脚
 
 同一进程里第一次 `initialize` **3365 ms**（含拉起 `npx`），第二次进程 **1305 ms**（包已在本地）。本机没有单独测「清空 npm 缓存后的冷启动」。`list_manuals` 在握手之后 **1 ms**。`list_toc({manual:"x5"})` **84 ms**，解析到 `rdk-x`。
 
-| 调用 | ms | 结果概要 |
-| --- | ---: | --- |
-| `search_docs` X5 SD 烧录，`manual=x5` | 2484 | `role=official-start`，分数 1000，SD 卡烧录页。同进程里第一次检索，含索引加载 |
-| `search_docs` S100 烧录，`manual=rdk-s` | 2951 | `official-start` 指向 **RDK Studio / XBurn**，不是 S 系列手册里的音频页 |
-| `search_docs` hobot_dnn BPU，`manual=x5` | 72 | 索引已热。X3 与 X5 的 BPU API 页同分 42，**X3 排在前面** |
-| `search_docs` 仅 `hobot_dnn` | 93 | 唯一命中是 Conda FAQ，分数 8 |
-| `search_docs` MIPI 摄像头 | 80 | X5 示例页与 X3 用法页同分 61 |
-| `search_docs` TROS `source setup.bash`，`manual=tros` | 1889 | 无 `official-start`。含正确路径的 Hello World 排第 3 |
-| `search_docs` apt 软件源 | 89 | 无 `official-start`。FAQ「软件源域名变更或 GPG」排第 3，分数 30 |
-| `search_docs` 网络 / Wi-Fi | 89 | `official-start` = 远程登录；下一条是有线/无线配置页 |
-| `search_docs` 40PIN GPIO | 82 | `official-start` = GPIO 应用；下一条是管脚定义 |
-| `search_docs` 「X3 与 X5 区别」（不指定手册） | 7238 | 最高分 51，首条是网络配置。对比问法失败 |
-| `search_docs` S600 硬件规格 | 145 | 首条是 boardid/ADC bringup，不是规格首页 |
-| `search_docs` S100 / S600「硬件简介」 | 145 / 130 | S600 命中套件页（`official-start`）。S100 的 `official-start` 是**系列手册首页**，不是 S100 专页 |
-| `search_docs` `/opt/tros hbm_shell` | 26 | 无 `hbm_shell`。Hello World 仍在列表里，因为查询里有 `/opt/tros` |
-| `search_docs` `hbm_shell`、`sun55iw3` | 259 / 233 | **0 命中** |
-| `search_docs` `v4l2 video4linux`，`manual=x5` | 68 | 返回的是 X3 USB 摄像头页，不是 sysfs 枚举 |
-| `search_docs` X5 相机不出图，`source=forum` | 2926 | 有帖。首条是 GMSL 套件推广（59 分），第二条才是「右路无画面」排障（53 分） |
-| `get_page` 烧录 / S100 xburn / 网络 / Hello World / 管脚 / X5 硬件简介 | 933–1486 | 正文可用，见下节 |
-| `get_page` X5 MIPI 示例、TROS 图像加速（误命中页） | ~1.0–1.1s | 单页 markdown 约 16k 字符 |
+| 调用                                                                   |        ms | 结果概要                                                                                         |
+| ---------------------------------------------------------------------- | --------: | ------------------------------------------------------------------------------------------------ |
+| `search_docs` X5 SD 烧录，`manual=x5`                                  |      2484 | `role=official-start`，分数 1000，SD 卡烧录页。同进程里第一次检索，含索引加载                    |
+| `search_docs` S100 烧录，`manual=rdk-s`                                |      2951 | `official-start` 指向 **RDK Studio / XBurn**，不是 S 系列手册里的音频页                          |
+| `search_docs` hobot_dnn BPU，`manual=x5`                               |        72 | 索引已热。X3 与 X5 的 BPU API 页同分 42，**X3 排在前面**                                         |
+| `search_docs` 仅 `hobot_dnn`                                           |        93 | 唯一命中是 Conda FAQ，分数 8                                                                     |
+| `search_docs` MIPI 摄像头                                              |        80 | X5 示例页与 X3 用法页同分 61                                                                     |
+| `search_docs` TROS `source setup.bash`，`manual=tros`                  |      1889 | 无 `official-start`。含正确路径的 Hello World 排第 3                                             |
+| `search_docs` apt 软件源                                               |        89 | 无 `official-start`。FAQ「软件源域名变更或 GPG」排第 3，分数 30                                  |
+| `search_docs` 网络 / Wi-Fi                                             |        89 | `official-start` = 远程登录；下一条是有线/无线配置页                                             |
+| `search_docs` 40PIN GPIO                                               |        82 | `official-start` = GPIO 应用；下一条是管脚定义                                                   |
+| `search_docs` 「X3 与 X5 区别」（不指定手册）                          |      7238 | 最高分 51，首条是网络配置。对比问法失败                                                          |
+| `search_docs` S600 硬件规格                                            |       145 | 首条是 boardid/ADC bringup，不是规格首页                                                         |
+| `search_docs` S100 / S600「硬件简介」                                  | 145 / 130 | S600 命中套件页（`official-start`）。S100 的 `official-start` 是**系列手册首页**，不是 S100 专页 |
+| `search_docs` `/opt/tros hbm_shell`                                    |        26 | 无 `hbm_shell`。Hello World 仍在列表里，因为查询里有 `/opt/tros`                                 |
+| `search_docs` `hbm_shell`、`sun55iw3`                                  | 259 / 233 | **0 命中**                                                                                       |
+| `search_docs` `v4l2 video4linux`，`manual=x5`                          |        68 | 返回的是 X3 USB 摄像头页，不是 sysfs 枚举                                                        |
+| `search_docs` X5 相机不出图，`source=forum`                            |      2926 | 有帖。首条是 GMSL 套件推广（59 分），第二条才是「右路无画面」排障（53 分）                       |
+| `get_page` 烧录 / S100 xburn / 网络 / Hello World / 管脚 / X5 硬件简介 |  933–1486 | 正文可用，见下节                                                                                 |
+| `get_page` X5 MIPI 示例、TROS 图像加速（误命中页）                     | ~1.0–1.1s | 单页 markdown 约 16k 字符                                                                        |
 
 热检索 <150 ms，`get_page` 约 1–1.5 s，冷检索或论坛约 2.5–7 s。相对一次模型往返，这个量级可接受。请求超时取 **20 s** 有余量；连接超时要盖住冷的 `npx`，取 **45 s**。现在全局默认是连接 20 s、请求 120 s（`src/core/mcp/client.ts` 的 `connectTimeoutMs` / `requestTimeoutMs`）。20 s 连接对冷 `npx` 偏紧，120 s 请求会把一次卡死的检索拖成一轮对话。只对内置的 `rdk-docs` 收紧，不动其他服务器的默认值。
 
@@ -89,39 +89,39 @@ Moss **没有**一份可删的 RDK 手册。烧录步骤、apt 源、GPIO 针脚
 
 路径均相对仓库根。token 是模型会看到的英文/中文说明的粗算，探测脚本计 0。
 
-| 位置 | 行 | 大约 token | 编码的内容 | 裁决 | 依据 |
-| --- | --- | ---: | --- | --- | --- |
-| `src/core/agent/identity.ts` | 全文 | 0 | 身份与模型诚实，无板卡事实 | 空 | 已读 |
-| `src/contracts/prompts/agent-behavior-prompt.ts` | 全文 | 0 | 行为契约，无 RDK 步骤 | 空 | 已读 |
-| `src/contracts/prompts/software-engineering-prompt.ts` | 全文 | 0 | 通用工程方法 | 空 | 已读 |
-| `.moss/skills/*/SKILL.md` | 3 个 skill | 0 | bench / patch / worktree，无 RDK 手册 | 空 | 已读。产品未捆绑 `rdk-docs` skill |
-| `src/tools/device-tools.ts` | 82–83 | ~70 | `device_info`：RDK 或 Linux，先连，环境变量从哪来 | KEEP | 第一次工具调用之前就要知道该调谁、目标从 `MOSS_DEVICE_*` 来 |
-| `src/tools/device-tools.ts` | 107–109 | ~80 | `device_exec`：SSH 执行，ROS 命令走这里 | KEEP | 工具契约，不是教程 |
-| `src/tools/device-tools.ts` | 491 | ~80 | `device_robotics_status`：TROS 在 `/opt/tros`，ROS2 在 `/opt/ros/<distro>`，报 ros2 与 hbm | KEEP | 探测工具的语义。路径与脚本一致，MCP 的 Hello World 也确认 `/opt/tros` |
-| `src/tools/device-tools.ts` | 492 | ~40 | 举例只写 `source /opt/tros/setup.bash` | SHRINK | Hello World 页还有 `/opt/tros/humble/setup.bash`。改成「source 本工具报告的安装目录里的 setup；发行版布局以 rdk-docs 的 tros 手册为准并引用 URL」 |
-| `src/tools/device-tools.ts` | 517 | ~40 | `device_network`：接口、地址、默认路由 | KEEP | 读活板的 `ip` 输出。静态 IP 配方在 MCP，不进描述 |
-| `src/tools/device-tools.ts` | 542 | ~45 | `device_cameras`：v4l2 名字在 sysfs，RDK 上传感器名会出现在这里 | KEEP | `v4l2` 检索返回的是 X3 USB 示例页，没有这条 sysfs 约定 |
-| `src/tools/web-fetch.ts` | 440 | ~10 | 示例 focus 词「architecture overview BPU」 | DELETE | 换成与板卡无关的例子。删掉不损失任何可执行知识 |
-| `src/safety/shell-soft-failure-hint.ts` | 28 | ~40 | 设备命令失败后：`ros2 pkg prefix`、`dpkg -L`、`device_file_list`，或 `web_fetch` 官方文档 | SHRINK | 前半是板上排障，留。`web_fetch` 改成：设备/RDK 事实走 `rdk-docs`（`mcp__rdk_docs__search`），服务器不可达就说明超时，不要改用网页搜索编步骤 |
-| `src/device/observation.ts` | 19–28 | 0 | `INFO_PROBE_SCRIPT`，含 `/proc/cpuinfo` 的 `Hardware` 行 | KEEP | 连接后的身份探测，发生在模型查阅文档之前。通用 POSIX，不是规格表 |
-| `src/device/observation.ts` | 46–51 | 0 | `/opt/tros`、`/opt/ros/*`、版本文件、`hbm_shell` | KEEP | 探测脚本。`hbm_shell` 在 MCP 0 命中，脚本不能改成先问文档 |
-| `src/device/observation.ts` | 118–119 | ~40 | 格式化输出里同一句 `source /opt/tros/setup.bash` | SHRINK | 与工具描述同一条不完整示例。Humble 路径以手册为准 |
-| `src/device/observation.ts` | 375–379 | 0 | `ip addr` / `ip route` / `ip link` | KEEP | 活板观测。不包含 `192.168.127.10` |
-| `src/device/observation.ts` | 439–442 | 0 | `/sys/class/video4linux` 与 `/dev/video*` | KEEP | 同上，MCP 未覆盖这条探测 |
-| `src/contracts/device.ts` | 12–13, 68–69 | 0 | `DeviceKind = 'rdk' \| 'linux'`；`hardware` 来自 cpuinfo | KEEP | 只有两族，没有 X3/X5/S100 目录。注释写明 rdk 与 linux 今天都走 SSH |
-| `src/device/device-target.ts` | 19, 61–62 | 0 | `MOSS_DEVICE_KIND` 只接受 `rdk` 或 `linux` | KEEP | 连接参数，不是板型识别正则 |
-| `src/device/device-registry-file.ts` | 33 | 0 | 持久化 kind 同样只收 `rdk` | KEEP | 同上 |
-| `src/cli/device-commands.ts` | 21, 271, 295 | 0 | CLI `--kind rdk\|linux` | KEEP | 连接面 |
-| `src/core/task/capability.ts` | 114–136, 246, 472–474 | ~50 | 目标里出现 `rdk` / 机器人 / 摄像头 时把任务标成设备任务，并提示用 device_* 与证据 | KEEP | 选工具之前的路由。没有烧录或引脚事实 |
-| `src/core/task-runtime/runtime.ts` | 127–135 | 0 | 任务种类正则含 `tros`、`bpu`、`humble` | KEEP | TUI 分类，不产生答案 |
-| `src/cli/approval.ts` | 380–393, 403 | 0 | board 模式放行设备写；plan 模式拒绝 `device_mutation` | KEEP | 安全。与手册内容无关 |
-| `src/core/subagent/spawn-profile.ts` | 169, 229 | 0 | explore/verify 禁止刷机、安装、卸载类工具 | KEEP | 安全禁令，不是烧录教程 |
-| `src/tools/task-tools.ts`、`src/tools/evidence-tools.ts` | 任务/证据描述 | 0 | 指标 + expected/observed/result | KEEP | 验收约定。成功是裁决加证据，不是散文 |
-| `bench/tasks/device-observe-evidence/task.json`、`device-deploy-verify/task.json`、`task-os-b-device/task.json` | 提示正文 | 0 | 探测 → `task_define` → `record_evidence` → `task_acceptance` | KEEP | 闭环契约。三份提示都没有烧录、apt、GPIO、BPU 配方 |
-| `test/device-observation.spec.mjs` | 27–36 | 0 | 夹具：`rdkx5`、`sun55iw3`、Ubuntu 22.04、内核 5.10.198、Cortex-A55 | KEEP | 解析器往返测试。`sun55iw3` 在 MCP 0 命中。夹具不进提示，不要升格成板型表 |
-| 其余 `test/*` 里的 `rdk-x3` / `rdk-x5` | 多处 | 0 | 设备 id 或 CJK 排版句子 | KEEP | 夹具名字，不是知识 |
-| `README.md`、`AGENTS.md` 设备节 | 连接说明 | 0 | SSH、`MOSS_DEVICE_*`、工具名单、证据文件 | KEEP | 给人看的操作约定，不进模型的 RDK 手册层 |
-| `docs/superpowers/plans/*` 等历史计划 | — | 0 | 把用户称作 RDK 开发者 | KEEP | 历史，不是运行时知识。本计划不删它们 |
+| 位置                                                                                                            | 行                    | 大约 token | 编码的内容                                                                                 | 裁决   | 依据                                                                                                                                              |
+| --------------------------------------------------------------------------------------------------------------- | --------------------- | ---------: | ------------------------------------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/core/agent/identity.ts`                                                                                    | 全文                  |          0 | 身份与模型诚实，无板卡事实                                                                 | 空     | 已读                                                                                                                                              |
+| `src/contracts/prompts/agent-behavior-prompt.ts`                                                                | 全文                  |          0 | 行为契约，无 RDK 步骤                                                                      | 空     | 已读                                                                                                                                              |
+| `src/contracts/prompts/software-engineering-prompt.ts`                                                          | 全文                  |          0 | 通用工程方法                                                                               | 空     | 已读                                                                                                                                              |
+| `.moss/skills/*/SKILL.md`                                                                                       | 3 个 skill            |          0 | bench / patch / worktree，无 RDK 手册                                                      | 空     | 已读。产品未捆绑 `rdk-docs` skill                                                                                                                 |
+| `src/tools/device-tools.ts`                                                                                     | 82–83                 |        ~70 | `device_info`：RDK 或 Linux，先连，环境变量从哪来                                          | KEEP   | 第一次工具调用之前就要知道该调谁、目标从 `MOSS_DEVICE_*` 来                                                                                       |
+| `src/tools/device-tools.ts`                                                                                     | 107–109               |        ~80 | `device_exec`：SSH 执行，ROS 命令走这里                                                    | KEEP   | 工具契约，不是教程                                                                                                                                |
+| `src/tools/device-tools.ts`                                                                                     | 491                   |        ~80 | `device_robotics_status`：TROS 在 `/opt/tros`，ROS2 在 `/opt/ros/<distro>`，报 ros2 与 hbm | KEEP   | 探测工具的语义。路径与脚本一致，MCP 的 Hello World 也确认 `/opt/tros`                                                                             |
+| `src/tools/device-tools.ts`                                                                                     | 492                   |        ~40 | 举例只写 `source /opt/tros/setup.bash`                                                     | SHRINK | Hello World 页还有 `/opt/tros/humble/setup.bash`。改成「source 本工具报告的安装目录里的 setup；发行版布局以 rdk-docs 的 tros 手册为准并引用 URL」 |
+| `src/tools/device-tools.ts`                                                                                     | 517                   |        ~40 | `device_network`：接口、地址、默认路由                                                     | KEEP   | 读活板的 `ip` 输出。静态 IP 配方在 MCP，不进描述                                                                                                  |
+| `src/tools/device-tools.ts`                                                                                     | 542                   |        ~45 | `device_cameras`：v4l2 名字在 sysfs，RDK 上传感器名会出现在这里                            | KEEP   | `v4l2` 检索返回的是 X3 USB 示例页，没有这条 sysfs 约定                                                                                            |
+| `src/tools/web-fetch.ts`                                                                                        | 440                   |        ~10 | 示例 focus 词「architecture overview BPU」                                                 | DELETE | 换成与板卡无关的例子。删掉不损失任何可执行知识                                                                                                    |
+| `src/safety/shell-soft-failure-hint.ts`                                                                         | 28                    |        ~40 | 设备命令失败后：`ros2 pkg prefix`、`dpkg -L`、`device_file_list`，或 `web_fetch` 官方文档  | SHRINK | 前半是板上排障，留。`web_fetch` 改成：设备/RDK 事实走 `rdk-docs`（`mcp__rdk_docs__search`），服务器不可达就说明超时，不要改用网页搜索编步骤       |
+| `src/device/observation.ts`                                                                                     | 19–28                 |          0 | `INFO_PROBE_SCRIPT`，含 `/proc/cpuinfo` 的 `Hardware` 行                                   | KEEP   | 连接后的身份探测，发生在模型查阅文档之前。通用 POSIX，不是规格表                                                                                  |
+| `src/device/observation.ts`                                                                                     | 46–51                 |          0 | `/opt/tros`、`/opt/ros/*`、版本文件、`hbm_shell`                                           | KEEP   | 探测脚本。`hbm_shell` 在 MCP 0 命中，脚本不能改成先问文档                                                                                         |
+| `src/device/observation.ts`                                                                                     | 118–119               |        ~40 | 格式化输出里同一句 `source /opt/tros/setup.bash`                                           | SHRINK | 与工具描述同一条不完整示例。Humble 路径以手册为准                                                                                                 |
+| `src/device/observation.ts`                                                                                     | 375–379               |          0 | `ip addr` / `ip route` / `ip link`                                                         | KEEP   | 活板观测。不包含 `192.168.127.10`                                                                                                                 |
+| `src/device/observation.ts`                                                                                     | 439–442               |          0 | `/sys/class/video4linux` 与 `/dev/video*`                                                  | KEEP   | 同上，MCP 未覆盖这条探测                                                                                                                          |
+| `src/contracts/device.ts`                                                                                       | 12–13, 68–69          |          0 | `DeviceKind = 'rdk' \| 'linux'`；`hardware` 来自 cpuinfo                                   | KEEP   | 只有两族，没有 X3/X5/S100 目录。注释写明 rdk 与 linux 今天都走 SSH                                                                                |
+| `src/device/device-target.ts`                                                                                   | 19, 61–62             |          0 | `MOSS_DEVICE_KIND` 只接受 `rdk` 或 `linux`                                                 | KEEP   | 连接参数，不是板型识别正则                                                                                                                        |
+| `src/device/device-registry-file.ts`                                                                            | 33                    |          0 | 持久化 kind 同样只收 `rdk`                                                                 | KEEP   | 同上                                                                                                                                              |
+| `src/cli/device-commands.ts`                                                                                    | 21, 271, 295          |          0 | CLI `--kind rdk\|linux`                                                                    | KEEP   | 连接面                                                                                                                                            |
+| `src/core/task/capability.ts`                                                                                   | 114–136, 246, 472–474 |        ~50 | 目标里出现 `rdk` / 机器人 / 摄像头 时把任务标成设备任务，并提示用 device\_\* 与证据        | KEEP   | 选工具之前的路由。没有烧录或引脚事实                                                                                                              |
+| `src/core/task-runtime/runtime.ts`                                                                              | 127–135               |          0 | 任务种类正则含 `tros`、`bpu`、`humble`                                                     | KEEP   | TUI 分类，不产生答案                                                                                                                              |
+| `src/cli/approval.ts`                                                                                           | 380–393, 403          |          0 | board 模式放行设备写；plan 模式拒绝 `device_mutation`                                      | KEEP   | 安全。与手册内容无关                                                                                                                              |
+| `src/core/subagent/spawn-profile.ts`                                                                            | 169, 229              |          0 | explore/verify 禁止刷机、安装、卸载类工具                                                  | KEEP   | 安全禁令，不是烧录教程                                                                                                                            |
+| `src/tools/task-tools.ts`、`src/tools/evidence-tools.ts`                                                        | 任务/证据描述         |          0 | 指标 + expected/observed/result                                                            | KEEP   | 验收约定。成功是裁决加证据，不是散文                                                                                                              |
+| `bench/tasks/device-observe-evidence/task.json`、`device-deploy-verify/task.json`、`task-os-b-device/task.json` | 提示正文              |          0 | 探测 → `task_define` → `record_evidence` → `task_acceptance`                               | KEEP   | 闭环契约。三份提示都没有烧录、apt、GPIO、BPU 配方                                                                                                 |
+| `test/device-observation.spec.mjs`                                                                              | 27–36                 |          0 | 夹具：`rdkx5`、`sun55iw3`、Ubuntu 22.04、内核 5.10.198、Cortex-A55                         | KEEP   | 解析器往返测试。`sun55iw3` 在 MCP 0 命中。夹具不进提示，不要升格成板型表                                                                          |
+| 其余 `test/*` 里的 `rdk-x3` / `rdk-x5`                                                                          | 多处                  |          0 | 设备 id 或 CJK 排版句子                                                                    | KEEP   | 夹具名字，不是知识                                                                                                                                |
+| `README.md`、`AGENTS.md` 设备节                                                                                 | 连接说明              |          0 | SSH、`MOSS_DEVICE_*`、工具名单、证据文件                                                   | KEEP   | 给人看的操作约定，不进模型的 RDK 手册层                                                                                                           |
+| `docs/superpowers/plans/*` 等历史计划                                                                           | —                     |          0 | 把用户称作 RDK 开发者                                                                      | KEEP   | 历史，不是运行时知识。本计划不删它们                                                                                                              |
 
 全仓库检索过 `src/`、`bench/tasks/*/task.json`、`.moss/skills`、`docs/`：没有板型目录、没有烧录步骤、没有 apt source 列表、没有 GPIO 针脚表、没有 hobot_dnn 调用说明、没有把 `Hardware` 字符串映射到型号的正则。
 
@@ -163,12 +163,12 @@ Moss **没有**一份可删的 RDK 手册。烧录步骤、apt 源、GPIO 针脚
 
 ### token
 
-| 项 | token（约） |
-| --- | ---: |
-| 今天提示里可删的 RDK 示例 | 130 |
-| 删完后必须留下的工具契约 | 400 |
-| 连上之后新增的用法指针 + skill 索引行 | 150 |
-| 净变化（连上时） | 大约 +100 |
+| 项                                                      |                  token（约） |
+| ------------------------------------------------------- | ---------------------------: |
+| 今天提示里可删的 RDK 示例                               |                          130 |
+| 删完后必须留下的工具契约                                |                          400 |
+| 连上之后新增的用法指针 + skill 索引行                   |                          150 |
+| 净变化（连上时）                                        |                    大约 +100 |
 | 一次 `get_page`（烧录页 ~6k 字符，MIPI 示例 ~16k 字符） | 约 1.5k–4k，只在该轮任务发生 |
 
 不要为了「节省 token」把手册预取进系统提示。懒加载已经是 `src/core/mcp/registry.ts` 里 `buildMcpPromptLayer` 的设计。
@@ -229,12 +229,12 @@ npm run test:filter -- --filter shell-soft-failure
 
 四个臂，同一 SHA，`--samples 5` 起：
 
-| 臂 | 内置示例句 | MCP |
-| --- | --- | --- |
-| A | 今天的原文 `MOSS_RDK_KNOWLEDGE=builtin` | 关 `MOSS_NO_RDK_DOCS=1` |
-| B | 缩掉 `shrunk` | 关 |
-| C | 原文 | 开 |
-| D | 缩掉 | 开 |
+| 臂  | 内置示例句                              | MCP                     |
+| --- | --------------------------------------- | ----------------------- |
+| A   | 今天的原文 `MOSS_RDK_KNOWLEDGE=builtin` | 关 `MOSS_NO_RDK_DOCS=1` |
+| B   | 缩掉 `shrunk`                           | 关                      |
+| C   | 原文                                    | 开                      |
+| D   | 缩掉                                    | 开                      |
 
 ```bash
 npm run bench:device -- --arm builtin,mcp-off --samples 5 --label A
