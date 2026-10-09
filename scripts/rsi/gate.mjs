@@ -29,9 +29,6 @@ function usage() {
     '  --base <ref>            Git base (default main). Evaluators run from this commit',
     '  --baseline <label|path> Previous dev summary.json',
     '  --label <name>          Dev run label (default rsi-r<round>)',
-    '  --from-results          Read summaries; do not run benches',
-    '  --dev-summary <path>    Candidate dev summary (implies it is not re-run)',
-    '  --device-summary <path> Candidate device summary (falseSuccess)',
     '  --noise-band <path>     Default bench/results/noise-band.json',
     '  --holdout-scores <path> Aggregate-only holdout file, or MOSS_RSI_HOLDOUT_SCORES',
     '  --prediction <path>     JSON { "tasks": ["..."], "why": "..." }',
@@ -48,7 +45,7 @@ function usage() {
 }
 
 function parseArgs(argv) {
-  const out = { base: 'main', fromResults: false, skipVerify: false, repo: process.cwd() };
+  const out = { base: 'main', skipVerify: false, repo: process.cwd() };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = () => {
@@ -60,9 +57,6 @@ function parseArgs(argv) {
     else if (arg === '--base') out.base = next();
     else if (arg === '--baseline') out.baseline = next();
     else if (arg === '--label') out.label = next();
-    else if (arg === '--from-results') out.fromResults = true;
-    else if (arg === '--dev-summary') out.devSummary = next();
-    else if (arg === '--device-summary') out.deviceSummary = next();
     else if (arg === '--noise-band') out.noiseBand = next();
     else if (arg === '--holdout-scores') out.holdoutScores = next();
     else if (arg === '--prediction') out.prediction = next();
@@ -122,11 +116,9 @@ function loadPrediction(repo, value) {
   return { tasks: data.tasks, why: data.why };
 }
 
-function mergedRounds(repo, round) {
-  const file = path.join(repo, '.rsi', 'ledger.jsonl');
-  if (!fs.existsSync(file)) return 0;
+function mergedRounds(text, round) {
   let count = 0;
-  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+  for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     try {
       const row = JSON.parse(line);
@@ -154,21 +146,30 @@ function defaultVerify(repo) {
   };
 }
 
-function ensureBuild(repo) {
-  if (fs.existsSync(path.join(repo, 'dist', 'cli.js'))) return;
-  if (!fs.existsSync(path.join(repo, 'tsconfig.build.json'))) return;
-  const status = runNpm(repo, ['run', 'build']);
-  if (status !== 0) throw new Error(`npm run build exited ${status}`);
+function assertCandidateDist(repo) {
+  const root = path.join(repo, 'dist');
+  const cli = path.join(root, 'cli.js');
+  if (!fs.statSync(cli, { throwIfNoEntry: false })?.isFile()) {
+    throw new Error('npm run verify did not produce dist/cli.js');
+  }
+  const stack = [root];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const file = path.join(current, entry.name);
+      if (entry.isSymbolicLink()) throw new Error(`candidate dist contains a symlink: ${file}`);
+      if (entry.isDirectory()) stack.push(file);
+    }
+  }
 }
 
-function evaluateFromBase(repo, base, jobs) {
-  ensureBuild(repo);
-  return withBaseWorktree(repo, base, (baseDir) => {
+function evaluateFromBase(repo, baseSha, jobs) {
+  assertCandidateDist(repo);
+  return withBaseWorktree(repo, baseSha, (baseDir) => {
     const dist = path.join(repo, 'dist');
     const dest = path.join(baseDir, 'dist');
-    if (fs.existsSync(path.join(dist, 'cli.js')) && !fs.existsSync(dest)) {
-      fs.symlinkSync(dist, dest, 'dir');
-    }
+    fs.rmSync(dest, { recursive: true, force: true });
+    fs.cpSync(dist, dest, { recursive: true });
     const out = {};
     for (const job of jobs) {
       const script = path.join(baseDir, job.script);
@@ -178,7 +179,7 @@ function evaluateFromBase(repo, base, jobs) {
       }
       const result = spawnSync(process.execPath, [script, ...job.args], {
         cwd: baseDir,
-        env: benchEnv({ MOSS_BENCH_CLI: path.join(repo, 'dist', 'cli.js') }),
+        env: benchEnv({ MOSS_BENCH_CLI: path.join(dest, 'cli.js') }),
         stdio: 'inherit',
       });
       assertNotStopped(repo);
@@ -229,12 +230,16 @@ export async function runGate(options) {
   }
   if (!options.round) throw new Error('--round is required');
 
-  const paths = changedPaths(repo, options.base);
-  const shown = git(repo, ['show', `${options.base}:.rsi/frozen.txt`]);
+  const baseSha = refSha(repo, options.base);
+  if (git(repo, ['merge-base', '--is-ancestor', baseSha, 'HEAD']).status !== 0) {
+    throw new Error(`base ${options.base} is not an ancestor of HEAD`);
+  }
+  const paths = changedPaths(repo, baseSha);
+  const shown = git(repo, ['show', `${baseSha}:.rsi/frozen.txt`]);
   const patterns = shown.status === 0 ? parseFrozenPatterns(shown.stdout) : null;
   const hits = patterns ? frozenHits(patterns, paths) : [];
   const integrityReasons = [
-    ...(patterns ? [] : [`base ${options.base} has no .rsi/frozen.txt`]),
+    ...(patterns ? [] : [`base ${baseSha} has no .rsi/frozen.txt`]),
     ...hits.map((hit) => `frozen: ${hit.file} (${hit.patterns.join(', ')})`),
   ];
   const integrity = step(integrityReasons.length === 0 ? 'pass' : 'fail', integrityReasons, {
@@ -248,52 +253,62 @@ export async function runGate(options) {
   let evaluator = null;
 
   if (integrity.status === 'pass') {
+    prediction = loadPrediction(repo, options.prediction);
+    const baseline = readOptional(resolveSummary(repo, options.baseline));
+    const noisePath =
+      resolveSummary(repo, options.noiseBand) ??
+      (fs.existsSync(path.join(repo, 'bench', 'results', 'noise-band.json'))
+        ? path.join(repo, 'bench', 'results', 'noise-band.json')
+        : null);
+    const band = readOptional(noisePath);
+    const holdoutRaw = options.holdoutScores ?? process.env.MOSS_RSI_HOLDOUT_SCORES ?? null;
+    const holdoutPath = holdoutRaw ? path.resolve(repo, holdoutRaw) : null;
+    const holdout = readOptional(holdoutPath);
+    const ledger = git(repo, ['show', `${baseSha}:.rsi/ledger.jsonl`]);
+    const holdoutDue =
+      (mergedRounds(ledger.status === 0 ? ledger.stdout : '', options.round) + 1) % 3 === 0;
+
     if (options.skipVerify) verify = step('skipped', ['skipped by --skip-verify']);
     else {
       const result = await (options.verifyRunner ?? defaultVerify)(repo);
       assertNotStopped(repo);
       verify = step(result.status, result.reasons ?? []);
     }
-    prediction = loadPrediction(repo, options.prediction);
     const cliChanged = paths.some((file) => file === 'src/cli' || file.startsWith('src/cli/'));
-    if (cliChanged && options.fromResults) {
-      verify = step('fail', ['src/cli/ changed; --from-results cannot skip base bench:tui-feel']);
-    }
-    const scoreable = verify.status === 'pass' || verify.status === 'skipped';
     const label = options.label ?? `rsi-r${options.round}`;
-    const devPath = resolveSummary(repo, options.devSummary);
-    const devicePath = resolveSummary(repo, options.deviceSummary);
-    let devSummary = readOptional(devPath);
-    let deviceSummary = readOptional(devicePath);
+    let devSummary = null;
+    let deviceSummary = null;
     const harnessReasons = [];
 
-    if (scoreable && !options.fromResults && (!devSummary || !deviceSummary || cliChanged)) {
-      const jobs = [];
-      if (!devSummary) {
-        jobs.push({
+    if (verify.status === 'pass') {
+      const deviceLabel = `${label}-device`;
+      const deviceArgs = [
+        '--target',
+        'sim',
+        '--repeat',
+        '3',
+        '--label',
+        deviceLabel,
+        '--keep-artifacts',
+      ];
+      if (options.model) deviceArgs.push('--model', options.model);
+      if (options.baseUrl) deviceArgs.push('--base-url', options.baseUrl);
+      const jobs = [
+        {
           name: 'dev',
           script: 'scripts/run-benchmark.mjs',
           label,
           args: benchArgs(label, options),
-        });
-      }
-      if (!deviceSummary) {
-        const deviceLabel = `${label}-device`;
-        const args = [
-          '--target',
-          'sim',
-          '--repeat',
-          '3',
-          '--label',
-          deviceLabel,
-          '--keep-artifacts',
-        ];
-        if (options.model) args.push('--model', options.model);
-        if (options.baseUrl) args.push('--base-url', options.baseUrl);
-        jobs.push({ name: 'device', script: 'scripts/bench-device.mjs', label: deviceLabel, args });
-      }
+        },
+        {
+          name: 'device',
+          script: 'scripts/bench-device.mjs',
+          label: deviceLabel,
+          args: deviceArgs,
+        },
+      ];
       if (cliChanged) jobs.push({ name: 'tui', script: 'scripts/tui-feel/run.mjs', args: [] });
-      const ran = await (options.evalRunner ?? evaluateFromBase)(repo, options.base, jobs);
+      const ran = await (options.evalRunner ?? evaluateFromBase)(repo, baseSha, jobs);
       assertNotStopped(repo);
       evaluator = {
         from: 'base-worktree',
@@ -315,32 +330,24 @@ export async function runGate(options) {
           'src/cli/ changed and base bench:tui-feel did not write a report',
         ]);
       }
-    } else if (options.fromResults || devPath)
-      evaluator = { from: 'results', origin: devSummary?.origin ?? null };
 
-    if (verify.status === 'pass' || verify.status === 'skipped') {
-      const noisePath =
-        resolveSummary(repo, options.noiseBand) ??
-        (fs.existsSync(path.join(repo, 'bench', 'results', 'noise-band.json'))
-          ? path.join(repo, 'bench', 'results', 'noise-band.json')
-          : null);
-      const holdoutRaw = options.holdoutScores ?? process.env.MOSS_RSI_HOLDOUT_SCORES ?? null;
-      const holdoutPath = holdoutRaw ? path.resolve(repo, holdoutRaw) : null;
-      const holdoutMissing = Boolean(holdoutPath) && !fs.existsSync(holdoutPath);
       const picked = select({
         current: devSummary,
-        baseline: readOptional(resolveSummary(repo, options.baseline)),
-        band: readOptional(noisePath),
+        baseline,
+        band,
         device: deviceSummary,
         prediction,
-        holdoutDue: (mergedRounds(repo, options.round) + 1) % 3 === 0,
-        holdout: holdoutMissing ? null : readOptional(holdoutPath),
+        holdoutDue,
+        holdout,
+        baseSha,
       });
-      if (harnessReasons.length > 0 || holdoutMissing) {
+      if (harnessReasons.length > 0 || (holdoutPath && !holdout)) {
         picked.status = 'fail';
         picked.reasons = [
           ...harnessReasons,
-          ...(holdoutMissing ? [`holdout scores path does not exist: ${holdoutPath}`] : []),
+          ...(holdoutPath && !holdout
+            ? [`holdout scores path does not exist: ${holdoutPath}`]
+            : []),
           ...picked.reasons,
         ];
       }
@@ -353,9 +360,9 @@ export async function runGate(options) {
   const report = {
     round: options.round,
     base: options.base,
-    baseSha: refSha(repo, options.base),
+    baseSha,
     headSha: headSha(repo),
-    parent: options.parent ?? null,
+    parent: options.parent ?? baseSha,
     prediction,
     predictionHeld: selection.predictionHeld ?? null,
     evaluator,

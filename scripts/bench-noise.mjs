@@ -30,8 +30,10 @@ const summaries = labels.map((label) => {
   return JSON.parse(fs.readFileSync(p, 'utf8'));
 });
 const shas = new Set(summaries.map((s) => s.meta?.gitSha));
-if (shas.size > 1) {
-  console.error(`[bench-noise] refusing: runs span different SHAs (${[...shas].join(', ')})`);
+const models = new Set(summaries.map((s) => s.meta?.model));
+const samples = new Set(summaries.map((s) => s.meta?.samples));
+if (shas.size !== 1 || models.size !== 1 || samples.size !== 1) {
+  console.error('[bench-noise] refusing: runs must share SHA, model, and sample count');
   process.exit(2);
 }
 let maxDropPerTask = 0;
@@ -51,6 +53,7 @@ for (const task of summaries[0].perTask ?? []) {
 const out = {
   computedAt: new Date().toISOString(),
   gitSha: summaries[0].meta?.gitSha,
+  model: summaries[0].meta?.model,
   runs: labels,
   samplesPerRun: summaries[0].meta?.samples,
   maxDropPerTask: Number(maxDropPerTask.toFixed(3)),

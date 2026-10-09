@@ -11,7 +11,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { runGate } from '../scripts/rsi/gate.mjs';
-import { matchFrozen, parseFrozenPatterns } from '../scripts/rsi/lib/rule.mjs';
+import { matchFrozen, parseFrozenPatterns, select } from '../scripts/rsi/lib/rule.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const gateCli = path.join(repoRoot, 'scripts/rsi/gate.mjs');
@@ -86,8 +86,11 @@ function task(id, passes, samples, tokens = 100) {
   };
 }
 
-function summary(tasks) {
-  return { perTask: tasks };
+function summary(tasks, gitSha = 'baseline-sha') {
+  return {
+    meta: { gitSha, model: 'test-model', samples: 3, temperature: 0 },
+    perTask: tasks,
+  };
 }
 
 function plant(repo, name, value) {
@@ -99,17 +102,33 @@ function plant(repo, name, value) {
 const passVerify = async () => ({ status: 'pass', reasons: [] });
 
 function scoreOptions(repo, files, extra = {}) {
+  const baseSha = git(repo, ['rev-parse', 'HEAD']);
+  const current = JSON.parse(fs.readFileSync(files.dev, 'utf8'));
+  current.meta.gitSha = baseSha;
+  const baseline = JSON.parse(fs.readFileSync(files.baseline, 'utf8'));
+  const band = JSON.parse(fs.readFileSync(files.band, 'utf8'));
+  Object.assign(band, {
+    gitSha: baseline.meta.gitSha,
+    model: baseline.meta.model,
+    samplesPerRun: baseline.meta.samples,
+    runs: ['noise-1', 'noise-2'],
+  });
+  fs.writeFileSync(files.band, `${JSON.stringify(band)}\n`);
   return {
     repo,
     round: '1',
     base: 'HEAD',
-    fromResults: true,
     skipVerify: false,
     verifyRunner: passVerify,
-    devSummary: files.dev,
     baseline: files.baseline,
     noiseBand: files.band,
-    deviceSummary: files.device,
+    evalRunner: (_repo, pinned) => {
+      assert.equal(pinned, baseSha);
+      return {
+        dev: { code: 0, summary: current },
+        device: { code: 0, summary: JSON.parse(fs.readFileSync(files.device, 'utf8')) },
+      };
+    },
     ...extra,
   };
 }
@@ -231,6 +250,7 @@ test('the evaluator runs from the base worktree, not the candidate script', asyn
   commitAll(repo, 'honest evaluator');
   write(repo, 'scripts/run-benchmark.mjs', candidateScript);
   commitAll(repo, 'cheat the evaluator');
+  write(repo, 'dist/cli.js', '#!/usr/bin/env node\n');
   const touch = path.join(repo, 'candidate-eval-ran.txt');
   const previous = process.env.RSI_TOUCH_FILE;
   process.env.RSI_TOUCH_FILE = touch;
@@ -267,6 +287,58 @@ test('the evaluator runs from the base worktree, not the candidate script', asyn
     if (previous === undefined) delete process.env.RSI_TOUCH_FILE;
     else process.env.RSI_TOUCH_FILE = previous;
   }
+});
+
+test('the evaluator SHA is pinned before candidate verify can move the base ref', async () => {
+  const repo = initRepo('src/safety/**\n');
+  write(repo, 'src/core/change.ts', 'export const changed = true;\n');
+  commitAll(repo, 'candidate');
+  const pinned = git(repo, ['rev-parse', 'HEAD~1']);
+  let evaluatorSha;
+  await runGate({
+    repo,
+    round: '1',
+    base: 'main~1',
+    baseline: plant(repo, 'baseline.json', summary([task('safety-boundary', 1, 1)])),
+    noiseBand: plant(repo, 'band.json', {}),
+    prediction: plant(repo, 'prediction.json', { tasks: ['safety-boundary'], why: 'check' }),
+    verifyRunner: async () => {
+      git(repo, ['branch', '-f', 'main', 'HEAD']);
+      return { status: 'pass', reasons: [] };
+    },
+    evalRunner: (_repo, baseSha) => {
+      evaluatorSha = baseSha;
+      return {};
+    },
+  });
+  assert.equal(evaluatorSha, pinned);
+});
+
+test('selection rejects mismatched provenance, zero baseline cost, and malformed rates', () => {
+  const baseline = summary([task('safety-boundary', 1, 1, 0)]);
+  const current = summary([task('safety-boundary', 2, 1, 0)], 'candidate-sha');
+  current.meta.model = 'other-model';
+  const result = select({
+    current,
+    baseline,
+    band: {
+      gitSha: 'wrong-sha',
+      model: 'other-model',
+      samplesPerRun: 3,
+      runs: ['a', 'b'],
+      maxDropPerTask: 0,
+    },
+    device: { falseSuccess: 0 },
+    prediction: { tasks: ['safety-boundary'], why: 'check' },
+    holdoutDue: false,
+    holdout: null,
+    baseSha: 'candidate-sha',
+  });
+  assert.equal(result.status, 'fail');
+  assert.ok(result.reasons.some((reason) => reason.includes('same model')));
+  assert.ok(result.reasons.some((reason) => reason.includes('invalid passes')));
+  assert.ok(result.reasons.some((reason) => reason.includes('provenance')));
+  assert.ok(result.reasons.some((reason) => reason.includes('positive')));
 });
 
 test('gain inside the noise band is rejected', async () => {
@@ -413,7 +485,7 @@ test('skipping verify cannot accept', async () => {
     )
   );
   assert.equal(result.report.steps.verify.status, 'skipped');
-  assert.equal(result.report.steps.selection.status, 'pass');
+  assert.equal(result.report.steps.selection.status, 'not-run');
   assert.equal(result.report.decision, 'reject');
 });
 
@@ -430,6 +502,7 @@ test('holdout is required every third merged round and ignores category rows', a
       predictionHeld: null,
     });
   write(repo, '.rsi/ledger.jsonl', `${row('h1')}\n${row('h2')}\n`);
+  commitAll(repo, 'record merged rounds');
   const files = {
     dev: plant(repo, 'dev.json', summary([task('safety-boundary', 2, 2), task('other', 2, 2)])),
     baseline: plant(

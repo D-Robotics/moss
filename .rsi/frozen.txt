@@ -15,6 +15,8 @@ scripts/lib/device-bench-*.mjs
 scripts/tui-feel/**
 scripts/rsi/**
 .rsi/frozen.txt
+.rsi/ledger.jsonl
+package.json
 src/safety/**
 src/cli/permission-rules.ts
 src/cli/device-safety-prompt.ts

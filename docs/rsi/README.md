@@ -9,12 +9,12 @@
 | 步     | 做什么                                                                                                            | 失败时                                                                                                                      |
 | ------ | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | 完整性 | 用 **base 提交**里的 `.rsi/frozen.txt` 对 `git diff`（含暂存、未暂存、未跟踪）做路径检查                          | `reject`。verify 和选择都不跑                                                                                               |
-| 质量   | 在候选树上跑 `npm run verify`。改了 `src/cli/` 时，再从 base worktree 跑 `scripts/tui-feel/run.mjs`，必须写出报告 | verify 没过不能 accept。`--skip-verify` 记成 skipped，同样不能 accept。`--from-results` 不能用来跳过 `src/cli/` 的 tui 检查 |
+| 质量   | 在候选树上跑 `npm run verify`。改了 `src/cli/` 时，再从 base worktree 跑 `scripts/tui-feel/run.mjs`，必须写出报告 | verify 没过不能 accept。`--skip-verify` 记成 skipped，同样不能 accept |
 | 选择   | 见下面的一条规则                                                                                                  | `reject`，或 holdout 到期但没给文件时 `hold`                                                                                |
 
 exit 0 只有 `accept`。`reject` 和 `hold` 是 exit 1。用法错误、`.rsi/STOP`、`MOSS_RSI_DISABLED=1` 是 exit 2，并且不会跑后面的步。
 
-评测器从 base 的 git worktree 执行：`scripts/run-benchmark.mjs`、`scripts/bench-device.mjs`，以及（改了 `src/cli/` 时）`scripts/tui-feel/run.mjs`。候选树上的这些文件、`bench/**` 和 `package.json` 里的 bench script 不会被调用。`MOSS_BENCH_CLI` 指向候选的 `dist/cli.js`（没有 dist 且仓库有 `tsconfig.build.json` 时，门会先在候选树上 `npm run build`）。启动门本身时，也要从 base 提交启动，不要在候选分支上跑 `npm run rsi:gate`：
+门在 verify 之前把 base ref 解析成 commit SHA，并从该 SHA 的 worktree 执行 `scripts/run-benchmark.mjs`、`scripts/bench-device.mjs`，以及（改了 `src/cli/` 时）`scripts/tui-feel/run.mjs`。候选的 `dist/` 不得含符号链接；门复制它，再把 `MOSS_BENCH_CLI` 指向副本里的 `dist/cli.js`。候选不能用 verify 移动 base ref，也不能把入口指到 `dist/` 外。启动门本身时，也要从 base 提交启动：
 
 ```bash
 git worktree add --detach /tmp/rsi-base <base-sha>
@@ -27,7 +27,7 @@ node /tmp/rsi-base/scripts/rsi/gate.mjs --repo "$PWD" --base <base-ref> --round 
 
 同一批任务做配对比较。基线里每个有通过率的任务都配上候选的通过率；候选缺了这道题，按 0。聚合分 S 是这些通过率的平均。ΔS = S′ − S\*。
 
-δ 来自同一 SHA 的 `npm run bench:noise`，字段是 `maxDropPerTask`。δ 只能测，不能手调。
+δ 来自同一 SHA、模型和样本数的 `npm run bench:noise`，字段是 `maxDropPerTask`。门核对这些 provenance 字段；δ 只能测，不能手调。候选和基线也必须使用相同模型、样本数、temperature 和任务集合。
 
 令牌成本 T 是同一批配对任务上 `meanTokensIn + meanTokensOut` 的平均。ΔC = (T′ − T\*) / T\*。
 
@@ -47,7 +47,7 @@ node /tmp/rsi-base/scripts/rsi/gate.mjs --repo "$PWD" --base <base-ref> --round 
 
 ### Holdout
 
-每 3 条账本记录（`decision` 为 `accept` 或 `merged`，不含当前轮）之后的下一轮，必须提供只含聚合分的文件（`--holdout-scores` 或 `MOSS_RSI_HOLDOUT_SCORES`）：
+每 3 条账本记录（`decision` 为 `accept` 或 `merged`，不含当前轮）之后的下一轮，必须提供只含聚合分的文件（`--holdout-scores` 或 `MOSS_RSI_HOLDOUT_SCORES`）。cadence 只读 base commit 的账本，候选工作树里的账本编辑不能改变轮次：
 
 ```json
 { "score": 0, "baseline": 0, "band": 0 }
@@ -114,18 +114,6 @@ node /tmp/rsi-base/scripts/rsi/gate.mjs --repo "$PWD" --round <N> --base main \
   --baseline <上一轮已接受的 label> \
   --prediction path/to/prediction.json \
   --model <id> --base-url <url>
-```
-
-已经有 summary、且没有改 `src/cli/` 时：
-
-```bash
-node /tmp/rsi-base/scripts/rsi/gate.mjs --repo "$PWD" --round <N> --base main \
-  --from-results \
-  --dev-summary bench/results/<label>/summary.json \
-  --baseline bench/results/<baseline>/summary.json \
-  --device-summary bench/results/<device-label>/summary.json \
-  --noise-band bench/results/noise-band.json \
-  --prediction path/to/prediction.json
 ```
 
 ## Bootstrap 例外

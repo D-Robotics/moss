@@ -57,18 +57,42 @@ function finite(value) {
 }
 
 function rate(task) {
-  if (!task || typeof task.samples !== 'number' || task.samples <= 0) return null;
-  if (typeof task.passes !== 'number') return null;
+  if (
+    !task ||
+    !Number.isInteger(task.samples) ||
+    task.samples <= 0 ||
+    !Number.isInteger(task.passes) ||
+    task.passes < 0 ||
+    task.passes > task.samples
+  )
+    return null;
   return task.passes / task.samples;
 }
 
 function tokensOf(task) {
-  if (!finite(task?.meanTokensIn) || !finite(task?.meanTokensOut)) return null;
+  if (
+    !finite(task?.meanTokensIn) ||
+    task.meanTokensIn < 0 ||
+    !finite(task?.meanTokensOut) ||
+    task.meanTokensOut < 0
+  )
+    return null;
   return task.meanTokensIn + task.meanTokensOut;
 }
 
 function taskMap(summary) {
   return new Map((summary?.perTask ?? []).map((task) => [task.task, task]));
+}
+
+function summaryProblems(summary, name) {
+  if (!Array.isArray(summary?.perTask)) return [`${name} summary needs perTask`];
+  const ids = summary.perTask.map((task) => task?.task);
+  const reasons = [];
+  if (ids.some((id) => typeof id !== 'string' || !id)) reasons.push(`${name} has an invalid task id`);
+  if (new Set(ids).size !== ids.length) reasons.push(`${name} has duplicate task ids`);
+  if (summary.perTask.some((task) => rate(task) === null))
+    reasons.push(`${name} has invalid passes or samples`);
+  return reasons;
 }
 
 export function pairedAggregate(current, baseline) {
@@ -133,23 +157,56 @@ function synthetic(value) {
 
 function relativeCost(now, before) {
   if (!finite(now) || !finite(before)) return null;
-  if (before === 0) return now === 0 ? 0 : Number.POSITIVE_INFINITY;
+  if (before <= 0) return null;
   return (now - before) / before;
 }
 
 /**
  * @returns {{ status: 'pass' | 'fail' | 'hold', reasons: string[] }}
  */
-export function select({ current, baseline, band, device, prediction, holdoutDue, holdout }) {
+export function select({ current, baseline, band, device, prediction, holdoutDue, holdout, baseSha }) {
   const reasons = [];
   if (!current || !baseline) reasons.push('dev summary or baseline summary is missing');
+  if (current) reasons.push(...summaryProblems(current, 'candidate'));
+  if (baseline) reasons.push(...summaryProblems(baseline, 'baseline'));
   if ([current, baseline, band, device, holdout].some(synthetic)) {
     reasons.push('synthetic scores cannot be selected');
+  }
+  const currentMeta = current?.meta;
+  const baselineMeta = baseline?.meta;
+  if (
+    !currentMeta ||
+    !baselineMeta ||
+    currentMeta.model !== baselineMeta.model ||
+    currentMeta.samples !== baselineMeta.samples ||
+    currentMeta.temperature !== baselineMeta.temperature
+  ) {
+    reasons.push('candidate and baseline must use the same model, samples, and temperature');
+  }
+  if (baseSha && currentMeta?.gitSha !== baseSha) {
+    reasons.push(`candidate summary gitSha must equal pinned base ${baseSha}`);
+  }
+  if (
+    baseline &&
+    current &&
+    [...taskMap(baseline).keys()].some((id) => !taskMap(current).has(id))
+  ) {
+    reasons.push('candidate must contain every baseline task');
   }
   const delta =
     finite(band?.maxDropPerTask) && band.maxDropPerTask >= 0 ? band.maxDropPerTask : null;
   if (delta === null)
     reasons.push('noise band with a non-negative numeric maxDropPerTask is required');
+  if (
+    band &&
+    (band.gitSha !== baselineMeta?.gitSha ||
+      band.model !== baselineMeta?.model ||
+      band.samplesPerRun !== baselineMeta?.samples ||
+      !Array.isArray(band.runs) ||
+      band.runs.length < 2)
+  ) {
+    reasons.push('noise band provenance must match the baseline SHA, model, and samples');
+  }
   const paired = current && baseline ? pairedAggregate(current, baseline) : null;
   const deltaS = paired?.deltaS ?? null;
   if (paired && paired.pairs.length === 0) reasons.push('no paired baseline tasks');
@@ -168,7 +225,8 @@ export function select({ current, baseline, band, device, prediction, holdoutDue
   }
   const deltaC = paired ? relativeCost(paired.tokensNow, paired.tokensBase) : null;
   const allowed = deltaS === null ? null : BETA0 + BETA1 * deltaS;
-  if (deltaC !== null && allowed !== null && deltaC > allowed + EPS) {
+  if (paired && deltaC === null) reasons.push('baseline mean token cost must be positive');
+  else if (deltaC !== null && allowed !== null && deltaC > allowed + EPS) {
     reasons.push(
       `token cost ΔC=${deltaC} exceeds β0 + β1·ΔS = ${BETA0} + ${BETA1}·${deltaS} = ${allowed}`
     );
