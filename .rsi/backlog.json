@@ -1,0 +1,220 @@
+{
+  "synthetic": true,
+  "source": {
+    "results": "test/fixtures/rsi/mine-input",
+    "summaries": 6,
+    "note": "Every summary is marked meta.synthetic. These items are mined from fixture inputs, not from a measured bench run."
+  },
+  "items": [
+    {
+      "signature": "context:compaction-failed",
+      "surface": "context",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 1.5,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-hard-timeout"],
+      "examples": [],
+      "rounds": [3]
+    },
+    {
+      "signature": "device:falseSuccess",
+      "surface": "tool",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 1.5,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-port"],
+      "examples": [],
+      "rounds": [3]
+    },
+    {
+      "signature": "check:noGoodMatch",
+      "surface": "nudge",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 1,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-rdk"],
+      "examples": [],
+      "rounds": [3]
+    },
+    {
+      "signature": "outcome:maxTurns",
+      "surface": "loop",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 1,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-max-turns"],
+      "examples": [],
+      "rounds": [3]
+    },
+    {
+      "signature": "outcome:timedOut",
+      "surface": "loop",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 1,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-hard-timeout"],
+      "examples": [],
+      "rounds": [3]
+    },
+    {
+      "signature": "taskos:define-without-acceptance",
+      "surface": "nudge",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 1,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-define"],
+      "examples": ["test/fixtures/rsi/mine-input/round-3/synthetic-define-01.jsonl"],
+      "rounds": [3]
+    },
+    {
+      "signature": "taskos:fail-without-repair",
+      "surface": "nudge",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 1,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-repair"],
+      "examples": [],
+      "rounds": [3]
+    },
+    {
+      "signature": "knowledge:noGoodMatch",
+      "surface": "tool",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 0.5,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-rdk"],
+      "examples": [],
+      "rounds": [3]
+    },
+    {
+      "signature": "tool:loop-guard",
+      "surface": "tool",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 0.5,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-tool-crash"],
+      "examples": ["test/fixtures/rsi/mine-input/round-3/synthetic-tool-crash-01.jsonl"],
+      "rounds": [3]
+    },
+    {
+      "signature": "tool:moss-error:TOOL_EXECUTION_FAILED",
+      "surface": "tool",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 0.5,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-tool-crash"],
+      "examples": ["test/fixtures/rsi/mine-input/round-3/synthetic-tool-crash-01.jsonl"],
+      "rounds": [3]
+    },
+    {
+      "signature": "tool:repeat:read_file",
+      "surface": "tool",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 0.5,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-tool-crash"],
+      "examples": ["test/fixtures/rsi/mine-input/round-3/synthetic-tool-crash-01.jsonl"],
+      "rounds": [3]
+    },
+    {
+      "signature": "outcome:exit:1",
+      "surface": "loop",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 0.3333,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-tool-crash"],
+      "examples": ["test/fixtures/rsi/mine-input/round-3/synthetic-tool-crash-01.jsonl"],
+      "rounds": [3]
+    },
+    {
+      "signature": "outcome:subtype:error_during_execution",
+      "surface": "loop",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 0.3333,
+      "failSamples": 2,
+      "freshSamples": 1,
+      "tasks": ["synthetic-old-crash", "synthetic-tool-crash"],
+      "examples": ["test/fixtures/rsi/mine-input/round-3/synthetic-tool-crash-01.jsonl"],
+      "rounds": [0, 3]
+    },
+    {
+      "signature": "taskos:metric-repeat:metric camera_fps below bar",
+      "surface": "loop",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 0.3333,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-repair"],
+      "examples": [],
+      "rounds": [3]
+    },
+    {
+      "signature": "check:expected <n> got <n>",
+      "surface": "nudge",
+      "needsHuman": true,
+      "downgraded": true,
+      "score": 0.3,
+      "failSamples": 4,
+      "freshSamples": 3,
+      "tasks": ["synthetic-format-quote"],
+      "examples": [],
+      "rounds": [0, 1, 2, 3]
+    },
+    {
+      "signature": "device:policy-denied",
+      "surface": null,
+      "needsHuman": true,
+      "downgraded": false,
+      "score": 0.125,
+      "failSamples": 1,
+      "freshSamples": 1,
+      "tasks": ["synthetic-port"],
+      "examples": [],
+      "rounds": [3]
+    },
+    {
+      "signature": "outcome:exit:7",
+      "surface": "loop",
+      "needsHuman": false,
+      "downgraded": false,
+      "score": 0,
+      "failSamples": 1,
+      "freshSamples": 0,
+      "tasks": ["synthetic-old-crash"],
+      "examples": [],
+      "rounds": [0]
+    }
+  ],
+  "holdout": [
+    {
+      "category": "capability",
+      "count": 2
+    }
+  ]
+}

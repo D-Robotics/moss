@@ -1,0 +1,9 @@
+{
+  "synthetic": true,
+  "score": 0.9,
+  "baseline": 0.8,
+  "band": 0.05,
+  "categories": {
+    "capability": { "score": 0.9, "baseline": 0.8 }
+  }
+}

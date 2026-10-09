@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "meta": { "kind": "device-bench", "mode": "sim", "synthetic": true },
+  "falseSuccess": 0,
+  "core": { "successRate": 1, "falseSuccess": 0, "total": 4, "passed": 4 },
+  "repeat": { "n": 1, "coreMean": 1, "coreSpread": 0, "spread": 0 },
+  "rows": []
+}

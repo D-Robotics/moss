@@ -404,6 +404,21 @@ test('sim target without a moss config refuses to invent a score', async () => {
   assert.equal(resolved.ok, false);
 });
 
+test('device bench resolves MOSS_BENCH_API_KEY with model and base-url overrides', async () => {
+  const resolved = await resolveBenchProvider({
+    isolateConfig: true,
+    model: 'bench-model',
+    baseUrl: 'https://bench.invalid/v1',
+    env: { MOSS_BENCH_API_KEY: CANARY },
+  });
+  assert.equal(resolved.ok, true);
+  assert.equal(resolved.model, 'bench-model');
+  assert.equal(resolved.baseUrl, 'https://bench.invalid/v1');
+  assert.equal(resolved.apiKey, CANARY);
+  assert.equal(resolved.apiKeySource, 'MOSS_BENCH_API_KEY');
+  assert.equal(JSON.stringify({ ...resolved, apiKey: '[redacted]' }).includes(CANARY), false);
+});
+
 test('windows acceptance paths are double-quoted and proc paths stay in the sandbox', () => {
   assert.equal(
     quoteForShell('D:\\a\\moss\\scripts\\lib\\device-bench-accept.mjs', 'win32'),

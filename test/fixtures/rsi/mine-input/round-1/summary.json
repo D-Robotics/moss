@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "synthetic": true,
+    "round": 1,
+    "finishedAt": "2026-10-09T00:00:01.000Z",
+    "purpose": "mine-fixture"
+  },
+  "perTask": [],
+  "rows": [
+    {
+      "task": "synthetic-format-quote",
+      "sample": 1,
+      "pass": false,
+      "tags": [],
+      "timedOut": false,
+      "subtype": null,
+      "mossExitCode": 0,
+      "numTurns": 2,
+      "compactions": 0,
+      "checkOutput": "expected 1 got 2\n"
+    }
+  ]
+}

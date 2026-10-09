@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "synthetic": true,
+    "round": 0,
+    "finishedAt": "2026-10-09T00:00:00.000Z",
+    "purpose": "mine-fixture"
+  },
+  "perTask": [],
+  "rows": [
+    {
+      "task": "synthetic-format-quote",
+      "sample": 1,
+      "pass": false,
+      "tags": [],
+      "timedOut": false,
+      "subtype": null,
+      "mossExitCode": 0,
+      "numTurns": 2,
+      "compactions": 0,
+      "checkOutput": "expected 1 got 2\n"
+    },
+    {
+      "task": "synthetic-old-crash",
+      "sample": 1,
+      "pass": false,
+      "tags": [],
+      "timedOut": false,
+      "subtype": "error_during_execution",
+      "mossExitCode": 7,
+      "numTurns": 1,
+      "compactions": 0,
+      "checkOutput": ""
+    }
+  ]
+}

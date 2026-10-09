@@ -21,6 +21,7 @@ function usage() {
     '  --task <substr>       only tasks whose id contains <substr> (repeatable)',
     '  --repeat <n>          run the suite n times and report mean and spread',
     '  --label <name>        result directory name under bench/results/',
+    '  --keep-artifacts      copy each task workspace .moss/ to <label>/<task>-NN.moss/',
     '  --approval <mode>     full (default) | inherit | manual',
     '  --sim-camera          treat a simulated camera as present',
     '  --sim-ros             put the simulated ros2 on PATH',
@@ -37,7 +38,7 @@ function usage() {
 }
 
 function parseArgs(argv) {
-  const out = { filters: [], simCamera: false, simRos: false, repeat: 1 };
+  const out = { filters: [], simCamera: false, simRos: false, repeat: 1, keepArtifacts: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = () => {
@@ -55,6 +56,7 @@ function parseArgs(argv) {
     else if (arg === '--base-url') out.baseUrl = next();
     else if (arg === '--sim-camera') out.simCamera = true;
     else if (arg === '--sim-ros') out.simRos = true;
+    else if (arg === '--keep-artifacts') out.keepArtifacts = true;
     else if (arg === '--list') out.list = true;
     else if (arg === '--help' || arg === '-h') out.help = true;
     else throw new Error(`unknown flag: ${arg}`);
@@ -93,6 +95,7 @@ try {
     ...(args.baseUrl ? { baseUrl: args.baseUrl } : {}),
     simCamera: args.simCamera,
     simRos: args.simRos,
+    keepArtifacts: args.keepArtifacts,
     onLine: (line) => console.log(line),
   });
 } catch (error) {

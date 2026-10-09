@@ -20,3 +20,8 @@ tmp/
 
 # WorkBuddy session-local runtime data (agent memory, not source)
 .workbuddy/
+
+# Prettier has no parser for JSONL or the RSI frozen-path list.
+*.jsonl
+.rsi/frozen.txt
+.rsi/runs/
