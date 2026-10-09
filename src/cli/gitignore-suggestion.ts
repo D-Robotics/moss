@@ -1,7 +1,7 @@
 /**
- * `.moss/` holds session transcripts and task artifacts. A generated
- * `.gitignore` suggestion always names it so those files are not committed.
- * Skills stay tracked when a project commits them.
+ * Suggestion for a project `.gitignore`. Moss also writes `.moss/.gitignore`
+ * for runtime artifacts only (sessions, tasks, logs); that file does not hide
+ * shared config, skills, or agents. This suggestion is unchanged.
  */
 import fs from 'node:fs';
 import path from 'node:path';

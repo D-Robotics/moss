@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import type { LLMMessage } from '../llm/llm-provider.js';
 import type { SessionStore, SessionMeta } from './session.js';
 import { WriteChain } from '../../utils/write-chain.js';
+import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
 import { ErrorCode, MossError } from '../../errors.js';
 import { acquireSessionWriteLock } from './session-write-lock.js';
 import { sessionTitleFromTexts } from './internal-transcript.js';
@@ -263,6 +264,12 @@ export class JsonlSessionStore implements SessionStore {
     await ensureDirectoryDurably(this.dir);
   }
 
+  /** Sessions live in `.moss/sessions`. Ignore runtime files on a real write. */
+  private noteRuntimeGitignore(): void {
+    const moss = path.dirname(this.dir);
+    if (path.basename(moss) === '.moss') ensureMossRuntimeGitignore(path.dirname(moss));
+  }
+
   private enqueueWrite(filePath: string, fn: () => Promise<void>): Promise<void> {
     return sessionWriteChains.enqueue(filePath, fn);
   }
@@ -392,6 +399,7 @@ export class JsonlSessionStore implements SessionStore {
       await this.enqueueWrite(filePath, async () => {
         await this.withFileLock(filePath, async () => {
           await this.ensureDir();
+          this.noteRuntimeGitignore();
           isNewSession = this.maxSessions > 0 && !(await this.fileExists(filePath));
           const currentRaw = await this.readRaw(filePath);
           const observedVersion = this.observedContentVersions.get(filePath);
@@ -428,6 +436,7 @@ export class JsonlSessionStore implements SessionStore {
       await this.enqueueWrite(filePath, async () => {
         await this.withFileLock(filePath, async () => {
           await this.ensureDir();
+          this.noteRuntimeGitignore();
           const currentRaw = await this.readRaw(filePath);
           const observedVersion = this.observedContentVersions.get(filePath);
           const currentVersion = this.contentVersion(currentRaw);

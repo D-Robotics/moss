@@ -78,9 +78,30 @@ function isSourceExpression(value: string): boolean {
  * (`hashedPasswordValue`, `someLongIdentifierName`). A value is secret-like
  * when it mixes letters and digits, or when it is long and not an identifier.
  */
+function alreadyRedactedQueryValue(value: string): boolean {
+  const parts = value.split('&');
+  if (parts[0] !== REDACTED) return false;
+  return parts.every((part, index) => {
+    if (index === 0) return true;
+    if (/^[A-Za-z0-9_.-]+=\[REDACTED\]$/.test(part)) return true;
+    const eq = part.indexOf('=');
+    // `password=[REDACTED]&Zq9fK2mP7xW4vB8n` has no `=` in the second
+    // fragment. That fragment is still a secret; treating it as already
+    // redacted lets sanitizeSecrets turn it into `pass***8n`.
+    if (eq <= 0) return false;
+    // A later high-entropy secret still redacts. `page=1` does not.
+    return !shouldRedactAssignedValue(part.slice(eq + 1));
+  });
+}
+
 function shouldRedactAssignedValue(value: string): boolean {
   if (value.length < 8) return false;
   if (isPlaceholder(value) || isSourceExpression(value)) return false;
+  // `credential=[REDACTED]&sig=[REDACTED]` is one assignment because `&` is
+  // a legal value character. The query values are already redacted; folding
+  // them again would drop the later keys. A secret before the first
+  // `[REDACTED]` still redacts.
+  if (alreadyRedactedQueryValue(value)) return false;
   if (BARE_IDENTIFIER.test(value)) return false;
   if (/[A-Za-z]/.test(value) && /\d/.test(value)) return true;
   return value.length >= 20;
@@ -315,6 +336,35 @@ function redactStandalone(text: string): string {
   return text.replace(STANDALONE_SECRET, REDACTED);
 }
 
+/** Stop a URL secret at the next delimiter so source like `);` stays put. */
+const URL_VALUE_END = '[^@&#\\s\'"`)\\]]+';
+
+/** `scheme://user:password@host` and `scheme://:password@host` (empty username). */
+const URL_USERINFO_PASSWORD = new RegExp(
+  `([a-z][a-z0-9+.-]*:\\/\\/[^/\\s:@]*):(${URL_VALUE_END})@`,
+  'gi'
+);
+
+/**
+ * Query keys whose name ends in signature, credential, token, or sig
+ * (`X-Amz-Signature`, `X-Goog-Signature`, CloudFront `Signature`).
+ * Longer suffixes come first so `sig` does not eat `signature`.
+ */
+const SENSITIVE_QUERY = new RegExp(
+  `([?&][A-Za-z0-9_.-]*(?:signature|credential|token|sig)=)(${URL_VALUE_END})`,
+  'gi'
+);
+
+function redactUrlSecrets(text: string): string {
+  return text
+    .replace(URL_USERINFO_PASSWORD, (full, user: string, secret: string) =>
+      shouldRedactAssignedValue(secret) ? `${user}:${REDACTED}@` : full
+    )
+    .replace(SENSITIVE_QUERY, (full, key: string, secret: string) =>
+      shouldRedactAssignedValue(secret) ? `${key}${REDACTED}` : full
+    );
+}
+
 /**
  * `sanitizeSecrets` masks quoted credential values. Hide placeholders first so
  * a value we already replaced is not rewritten as `hunt***er`.
@@ -334,6 +384,7 @@ export function redactEgress(text: string, env: NodeJS.ProcessEnv = process.env)
   if (!text) return text;
   let out = redactUnclosedPrivateKey(redactPemBlocks(text));
   out = redactKnownSecretValues(out, env);
+  out = redactUrlSecrets(out);
   out = redactAssignments(out);
   out = redactNetrcPasswords(out);
   out = redactDockerAuth(out);

@@ -189,3 +189,8 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 - 提交前 `git status --short` 必须只剩本次会话预期改动的文件；出现外来改动先停下来确认，不要顺手提交他人半成品。
 - 跑 bench / 全量测试前确认没有其他会话在同一 worktree 构建（曾在 bench 期间 `npm run build` 破坏 A/B 对照结果）。
 - 收工报告要写清 worktree 与 main 的关系（分支名、commit、是否已 push），不留"离线成果"。
+- 工作区 `.moss/` 里，运行时产物由 `.moss/.gitignore` 忽略（sessions、tasks、checkpoints、
+  worktrees、evidence、logs、caches）。只在第一次写入运行时工件时、且目录在 git work tree
+  里才写：`.moss` 或 `.moss/.gitignore` 是符号链接就跳过，用 `wx` 创建，不改 `.git`。
+  `config get` 等只读命令不创建 `.moss/`。`config.json`、`mcp.json`、`skills/`、`agents/`、
+  `commands/`、`tools/`、`devices.json`、`soul.md` 仍出现在 `git status`。

@@ -13,6 +13,7 @@ import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
 import { listDeploymentRecords } from '../../device/deployment.js';
 import { getRootLogger } from '../../logger.js';
 import { redactEgress } from '../../safety/tool-output-redact.js';
+import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
 
 const jsonlLog = getRootLogger().child('task-jsonl');
 
@@ -113,6 +114,7 @@ async function ensureTrailingNewline(file: string): Promise<void> {
 }
 
 async function appendJsonl(workspaceDir: string, name: string, record: unknown): Promise<void> {
+  ensureMossRuntimeGitignore(workspaceDir);
   const dir = path.join(workspaceDir, '.moss');
   await fs.mkdir(dir, { recursive: true });
   await appendJsonlFile(path.join(dir, name), record);

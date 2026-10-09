@@ -1280,7 +1280,7 @@ export function TuiAppRoot({
       }
       await runtime.endRun(halted);
       if (startedAt !== undefined) appendTaskVerdictIfAny(startedAt);
-      notifyAttention(halted ? 'run interrupted' : 'run finished');
+      notifyAttention(halted ? tui('run interrupted') : tui('run finished'));
       // Plan-mode exit ritual (the reference's `Ready to code?` gate): a
       // finished plan-mode run that actually produced a plan — it explored
       // with tools, or answered at length — hands the decision to the user.

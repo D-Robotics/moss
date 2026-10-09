@@ -103,6 +103,113 @@ function migrateLegacySkillDirs(
   }
 }
 
+/**
+ * Runtime files under `.moss/`. Shared project files (config.json, mcp.json,
+ * skills/, agents/, commands/, tools/, devices.json, soul.md) stay visible.
+ * Patterns are relative to `.moss/`. Written once; a file the user already
+ * has is left alone. Never edits `.git`.
+ */
+const RUNTIME_GITIGNORE = `# Moss runtime artifacts. Not a substitute for a project .gitignore.
+# Shared files stay visible: config.json, mcp.json, skills/, agents/,
+# commands/, tools/, devices.json, soul.md. New shared files show in git status.
+sessions/
+memory/
+checkpoints/
+attachments/
+inbox/
+events/
+context-epoch/
+logs/
+experience/
+worktrees/
+patches/
+runtime/
+skills/learned/
+skills/candidates/
+.gitignore
+prompt-history.jsonl
+tasks.jsonl
+evidence.jsonl
+deployments.jsonl
+acceptance.jsonl
+task-events.jsonl
+task-failures.jsonl
+task-repairs.jsonl
+*.lock
+`;
+
+/** A `.git` directory, or a gitfile whose `gitdir:` target is a directory. */
+function resolvesAsGitMetadata(gitPath: string): boolean {
+  let st: fs.Stats;
+  try {
+    st = fs.statSync(gitPath);
+  } catch {
+    return false;
+  }
+  if (st.isDirectory()) return true;
+  if (!st.isFile()) return false;
+  let text: string;
+  try {
+    text = fs.readFileSync(gitPath, 'utf8');
+  } catch {
+    return false;
+  }
+  const gitdir = /^gitdir:\s*(.+)\s*$/m.exec(text)?.[1]?.trim();
+  if (!gitdir) return false;
+  try {
+    return fs.statSync(path.resolve(path.dirname(gitPath), gitdir)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function insideGitWorkTree(start: string): boolean {
+  let current = path.resolve(start);
+  for (;;) {
+    if (resolvesAsGitMetadata(path.join(current, '.git'))) return true;
+    const parent = path.dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
+
+/**
+ * Write `.moss/.gitignore` the first time a runtime artifact is written.
+ * Skips symlinks. `wx` does not follow a final-component symlink. Read-only
+ * commands must not call this. Never edits `.git`.
+ */
+export function ensureMossRuntimeGitignore(workspaceDir: string): void {
+  try {
+    const root = path.resolve(workspaceDir);
+    if (!insideGitWorkTree(root)) return;
+    const dir = path.join(root, '.moss');
+    const file = path.join(dir, '.gitignore');
+    let dirStat: fs.Stats | undefined;
+    try {
+      dirStat = fs.lstatSync(dir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return;
+    }
+    if (dirStat && !dirStat.isDirectory()) return;
+    try {
+      const fileStat = fs.lstatSync(file);
+      if (fileStat.isSymbolicLink() || !fileStat.isFile()) return;
+      return;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return;
+    }
+    if (!dirStat) fs.mkdirSync(dir);
+    const fd = fs.openSync(file, 'wx');
+    try {
+      fs.writeFileSync(fd, RUNTIME_GITIGNORE);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    // EEXIST or a symlink race: leave the target untouched.
+  }
+}
+
 export function migrateLegacyWorkspacePaths(workspaceDir: string): WorkspacePathMigrationResult {
   const paths = getMossWorkspacePaths(workspaceDir);
   const result: WorkspacePathMigrationResult = {

@@ -23,6 +23,8 @@ import {
   interruptNoticeLine,
   isStructuredUserAbort,
   isUserAbortErrorText,
+  localizeAbortActor,
+  tui,
 } from './tui/copy.js';
 import { noteToolForVerifyHint } from './verify-hint.js';
 
@@ -632,7 +634,9 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           const abortText = isStructuredUserAbort(event);
           if (abortText) noteInterrupt();
           const statusKind = abortText ? 'info' : event.isError || event.aborted ? 'fail' : 'ok';
-          const abortReason = event.aborted ? `aborted (${event.aborted.by})` : '';
+          const abortReason = event.aborted
+            ? tui('aborted ({by})', { by: localizeAbortActor(event.aborted.by) })
+            : '';
           // Color error messages red and abort messages yellow for immediate visual attention.
           // An Esc abort is one calm line, not a red failure per tool.
           const statusNote = abortText

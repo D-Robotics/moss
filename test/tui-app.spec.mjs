@@ -38,7 +38,11 @@ import {
   renderTranscriptRows,
 } from '../dist/cli/tui/transcript.js';
 import { TuiAppRoot, questionDialogFromPrompt, runTuiApp } from '../dist/cli/tui/app.js';
-import { setTuiLocale } from '../dist/cli/tui/copy.js';
+import {
+  chatInterruptNoticeLine,
+  interruptNoticeLine,
+  setTuiLocale,
+} from '../dist/cli/tui/copy.js';
 import { buildResumeReplay } from '../dist/cli/tui-utils.js';
 import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
 
@@ -266,6 +270,12 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
     'Interrupted — /goal resume to continue'
   );
 
+  setTuiLocale(false);
+  const haltedEn = renderRunSummary(2500, true, 80)
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(haltedEn, /interrupted/);
+
   setTuiLocale(true);
   try {
     const zh = createTuiStore();
@@ -277,6 +287,27 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
         .join('\n'),
       '已中断'
     );
+
+    const esc = createTuiStore();
+    beginRun(esc);
+    applyAgentEvent(esc, {
+      type: 'tool_end',
+      toolName: 'exec',
+      toolCallId: 'esc-1',
+      aborted: { by: 'user' },
+      isError: true,
+      result: 'Execution error: aborted_by_user',
+    });
+    const rendered = [
+      ...esc.rows.map((row) => `${row.text}\n${row.tool?.summary ?? ''}`),
+      ...renderRunSummary(2500, true, 80).map((entry) => entry.text),
+      interruptNoticeLine(),
+      chatInterruptNoticeLine(),
+    ].join('\n');
+    assert.match(rendered, /已中断/);
+    assert.match(rendered, /已中止（用户）/);
+    assert.doesNotMatch(rendered, /interrupted/i);
+    assert.doesNotMatch(rendered, /partial output kept/i);
   } finally {
     setTuiLocale(false);
   }

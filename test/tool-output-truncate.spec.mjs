@@ -113,4 +113,58 @@ for (const [label, text] of [
   assert.equal(truncateToolOutput('exec', text), text, `${label} passes through unchanged`);
 }
 
+function assertWholeRedactionMarkers(out, label) {
+  const stripped = out.replaceAll('[REDACTED]', '');
+  assert.equal(stripped.includes('[REDACTED'), false, `${label}: marker lost its closing bracket`);
+  assert.equal(stripped.includes('REDACTED]'), false, `${label}: marker lost its opening bracket`);
+}
+
+{
+  const secret =
+    'https://user:pass@docs.example/guide/page?X-Amz-Signature=secretvalue&X-Amz-Credential=AKIAEXAMPLE';
+  const body = `${'y'.repeat(20_000)}\n${secret}\n${'y'.repeat(20_000)}`;
+  const kept = truncateToolOutput('mcp__rdk-docs__search_docs', body);
+  assert.match(kept, /Doc URLs:/);
+  assert.match(kept, /https:\/\/docs\.example\/guide\/page/);
+  assert.doesNotMatch(kept, /user:pass/);
+  assert.doesNotMatch(kept, /X-Amz-Signature/);
+  assert.doesNotMatch(kept, /secretvalue/);
+  assertWholeRedactionMarkers(kept, 'rdk cite');
+
+  const page = truncateToolOutput('mcp__rdk-docs__get_page', body);
+  assert.match(page, /https:\/\/docs\.example\/guide\/page/);
+  assert.doesNotMatch(page, /user:pass/);
+
+  const execOut = truncateToolOutput('exec', body);
+  assert.equal(execOut.includes('Doc URLs:'), false);
+  assert.equal(execOut.includes('docs.example'), false);
+  assert.equal(execOut.includes('secretvalue'), false);
+
+  const byName = truncateToolOutput('rdk_search', body);
+  assert.equal(byName.includes('Doc URLs:'), false);
+
+  const other = truncateToolOutput('mcp__other__search_docs', body);
+  assert.equal(other.includes('Doc URLs:'), false);
+
+  const short = `see ${secret}`;
+  assert.equal(truncateToolOutput('mcp__rdk-docs__get_page', short), short);
+
+  const anchored = 'https://user:[REDACTED]@docs.example/guide/page?token=abc123DEF456#setup';
+  const cited = truncateToolOutput(
+    'mcp__rdk-docs__get_page',
+    `${'y'.repeat(20_000)}\n${anchored}\n${'y'.repeat(20_000)}`
+  );
+  assert.match(cited, /https:\/\/docs\.example\/guide\/page#setup/);
+  assert.doesNotMatch(cited, /\[REDACTED\]@/);
+  assert.doesNotMatch(cited, /abc123DEF456/);
+}
+
+{
+  const marker = '[REDACTED]';
+  const text = `${'a'.repeat(7996)}${marker}${'b'.repeat(20_000)}`;
+  const out = truncateToolOutput('custom_budget', text);
+  assert.match(out, /tokens truncated/);
+  assertWholeRedactionMarkers(out, 'cut');
+}
+
 console.log('[PASS] tool-output truncation byte budget (CJK/emoji/ASCII)');

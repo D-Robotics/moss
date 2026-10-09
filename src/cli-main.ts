@@ -103,6 +103,7 @@ import {
   formatInteractionModeNotice,
   isZhLocale,
 } from './cli/cli-locale.js';
+import { setTuiLocale, tui } from './cli/tui/copy.js';
 import { gitignoreNoticeForWorkspace } from './cli/gitignore-suggestion.js';
 import { buildEnvironmentContextLayer, getGitBranch } from './context/environment.js';
 import { disconnectAllDevices } from './device/device-registry.js';
@@ -291,6 +292,9 @@ function createMockLLMProvider(): LLMProvider {
 }
 
 async function main() {
+  // REPL, one-shot, and the cancel line share the TUI dictionary. The full-screen
+  // shell sets the same flag again from its own entry.
+  setTuiLocale(isZhLocale());
   if (process.platform === 'win32') {
     try {
       configureWindowsUtf8Console();
@@ -1514,7 +1518,11 @@ main().catch((err) => {
 
   // User aborted: they hit Ctrl+C or cancelled — not a bug.
   if (code === ExitCode.USER_ABORTED) {
-    console.error(`[moss] Cancelled: ${message || 'operation was interrupted'}`);
+    console.error(
+      `[moss] ${tui('Cancelled: {message}', {
+        message: message || tui('operation was interrupted'),
+      })}`
+    );
     process.exit(code);
   }
 

@@ -84,6 +84,13 @@ export function chatInterruptNoticeLine(): string {
   return tui(CHAT_INTERRUPT_NOTICE);
 }
 
+/** Abort actor shown inside `aborted ({by})`. Only the two engine values are translated. */
+export function localizeAbortActor(by: string | undefined): string {
+  const actor = by ?? '';
+  if (actor === 'user' || actor === 'timeout') return tui(actor);
+  return actor;
+}
+
 /**
  * English (exact call-site string) → Simplified Chinese chrome. Exported so the
  * locale spec can verify the two invariants exhaustively: no zh value is itself
@@ -125,6 +132,12 @@ export const ZH: Readonly<Record<string, string>> = {
   // ── run summary (transcript.ts) ────────────────────────────────────────
   ' · done {time}': ' · 完成于 {time}',
   '✻ {verb} for {seconds}s · interrupted': '✻ {verb} {seconds} 秒 · 已中断',
+  user: '用户',
+  timeout: '超时',
+  'run interrupted': '运行已中断',
+  'run finished': '运行已结束',
+  'operation was interrupted': '操作已中断',
+  'Cancelled: {message}': '已取消：{message}',
   '✻ {verb} for {seconds}s{doneAt}': '✻ {verb} {seconds} 秒{doneAt}',
   '✻ worked for {seconds}s{doneAt}': '✻ 用时 {seconds} 秒{doneAt}',
 

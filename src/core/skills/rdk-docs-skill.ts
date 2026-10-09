@@ -23,7 +23,7 @@ const RDK_DOCS_SKILL_BODY = [
   '- `source=forum` is unofficial. Use it only when the user wants community experience or the manual has no page. The manual wins a conflict.',
   '- An empty shell page: open `related`.',
   '- Pinouts, current limits, and connector counts are often figures. Do not reconstruct a table the page text does not contain. If two pages disagree, cite both URLs.',
-  '- Reply with the page URL. Copy it into record_evidence observed only when a task contract is already open. A quotation is not an acceptance pass.',
+  '- Cite every page URL copied from search or get_page, including when the page body was truncated. Copy a URL into record_evidence observed only when a task contract is already open. A quotation is not an acceptance pass.',
   '- Zero hits stay zero hits. Say the search missed; do not invent a page.',
   '',
   'Do not look up how Moss connects. If a device is configured, probes run before docs. If none is configured, do not call device tools. Docs answer what to do on the board.',

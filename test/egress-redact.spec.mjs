@@ -606,6 +606,46 @@ try {
   assert.match(String(poisoned), /refusing to write \[REDACTED\]/);
   assert.equal(fs.readFileSync(path.join(project, 'idents.ts'), 'utf8'), source);
 
+  const userinfo = redactEgress('fetch https://user:p4ssw0rdXYZ@example.com/a');
+  assert.match(userinfo, /https:\/\/user:\[REDACTED\]@example.com\/a/);
+  assert.doesNotMatch(userinfo, /p4ssw0rdXYZ/);
+  const emptyUser = redactEgress('redis://:p4ssw0rdXYZ@host/0');
+  assert.match(emptyUser, /redis:\/\/:\[REDACTED\]@host\/0/);
+  assert.doesNotMatch(emptyUser, /p4ssw0rdXYZ/);
+  const beside = redactEgress('password=[REDACTED]&Zq9fK2mP7xW4vB8n');
+  assert.equal(beside, 'password=[REDACTED]');
+  assert.doesNotMatch(beside, /Zq9fK2mP7xW4vB8n/);
+  assert.doesNotMatch(beside, /pass\*\*\*/);
+  const goog = redactEgress(
+    'https://storage.example/o?X-Goog-Signature=abc123DEF456&Signature=sig9valueXY'
+  );
+  assert.match(goog, /X-Goog-Signature=\[REDACTED\]/);
+  assert.match(goog, /[?&]Signature=\[REDACTED\]/);
+  assert.doesNotMatch(goog, /abc123DEF456/);
+  assert.doesNotMatch(goog, /sig9valueXY/);
+
+  const signed = redactEgress(
+    'https://bucket.example/k?X-Amz-Signature=abc123DEF456&X-Amz-Credential=AKIA%2Fsecret&sig=sig9valueXY&token=tok9valueXY&page=1'
+  );
+  assert.match(signed, /X-Amz-Signature=\[REDACTED\]/);
+  assert.match(signed, /X-Amz-Credential=\[REDACTED\]/);
+  assert.match(signed, /sig=\[REDACTED\]/);
+  assert.match(signed, /token=\[REDACTED\]&page=1/);
+  assert.doesNotMatch(signed, /abc123DEF456/);
+  assert.doesNotMatch(signed, /AKIA%2Fsecret/);
+  assert.doesNotMatch(signed, /sig9valueXY/);
+  assert.doesNotMatch(signed, /tok9valueXY/);
+
+  const sourceUrls = [
+    'postgres://${user}:${password}@localhost/app',
+    'redis://default:${process.env.X}@localhost',
+    'const q = `https://api.test/items?token=${t}&page=1`);',
+    'doc placeholder USER:PASSWORD@host',
+    'https://USER:PASSWORD@example.com/docs',
+    'https://ex.test/a?page=2&token=next',
+  ].join('\n');
+  assert.equal(redactEgress(sourceUrls), sourceUrls);
+
   console.log('[PASS] egress redaction');
 } finally {
   if (savedKey === undefined) delete process.env.EGRESS_SPEC_API_KEY;

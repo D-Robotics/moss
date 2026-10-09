@@ -8,6 +8,7 @@ import type {
 } from '../contracts/deployment.js';
 import type { DeviceConnection } from '../contracts/device.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
+import { ensureMossRuntimeGitignore } from '../utils/workspace-paths.js';
 
 /**
  * Deployment lifecycle runner (robotics closed loop P0-5): one place that
@@ -225,6 +226,7 @@ export async function appendDeploymentRecord(
   workspaceDir: string,
   record: DeploymentRecord
 ): Promise<void> {
+  ensureMossRuntimeGitignore(workspaceDir);
   const dir = path.join(workspaceDir, '.moss');
   await fs.mkdir(dir, { recursive: true });
   await fs.appendFile(path.join(dir, 'deployments.jsonl'), `${JSON.stringify(record)}\n`, 'utf8');

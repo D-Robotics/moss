@@ -36,6 +36,7 @@ import {
   listTaskRecords,
   readJsonlFile,
 } from '../task-runtime/artifacts.js';
+import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
 
 const log = getRootLogger().child('task-store');
 
@@ -63,6 +64,7 @@ async function readJsonl<T>(file: string): Promise<T[]> {
 }
 
 async function appendJsonl(workspaceDir: string, name: string, record: unknown): Promise<void> {
+  ensureMossRuntimeGitignore(workspaceDir);
   const dir = await mossDir(workspaceDir);
   // Newline repair runs here. Task-event callers already hold the event lock
   // (withTaskEventLock). That lock is not re-entrant.

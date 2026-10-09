@@ -60,8 +60,16 @@ export function truncateToolOutput(toolName: string, output: string): string {
   const limitBytes = limitTokens * BYTES_PER_TOKEN;
   const halfBytes = Math.floor(limitBytes / 2);
 
-  const headEnd = findSafeSlicePoint(output, halfBytes, 'forward');
-  const tailStart = findSafeSlicePoint(output, halfBytes, 'backward');
+  const headEnd = avoidRedactionCut(
+    output,
+    findSafeSlicePoint(output, halfBytes, 'forward'),
+    'forward'
+  );
+  const tailStart = avoidRedactionCut(
+    output,
+    findSafeSlicePoint(output, halfBytes, 'backward'),
+    'backward'
+  );
 
   if (headEnd >= tailStart) return output;
 
@@ -71,7 +79,49 @@ export function truncateToolOutput(toolName: string, output: string): string {
   const hint = TRUNCATION_RECOVERY_HINTS[toolName];
   const notice = `…${droppedTokens} tokens truncated${hint ? ` (${hint})` : ''}…`;
 
-  return `${head}\n\n${notice}\n\n${tail}`;
+  let truncated = `${head}\n\n${notice}\n\n${tail}`;
+  if (keepsRdkDocUrls(toolName)) {
+    const missing = citeableHttpUrls(output).filter((url) => !truncated.includes(url));
+    if (missing.length > 0) truncated += `\n\nDoc URLs:\n${missing.join('\n')}`;
+  }
+  return truncated;
+}
+
+/** Wire prefix from `mcpServerWirePrefix('rdk-docs')`. Server id, not a tool-name substring. */
+const RDK_DOCS_TOOL_PREFIX = 'mcp__rdk-docs__';
+
+function keepsRdkDocUrls(toolName: string): boolean {
+  return toolName.startsWith(RDK_DOCS_TOOL_PREFIX);
+}
+
+/** Drop userinfo and query. Keep `#anchor`. A redacted password is removed, not cited. */
+function citeableUrl(raw: string): string | null {
+  const stripped = raw.replace(/^(https?:\/\/)[^/\s@]*:[^@/\s]*@/i, '$1');
+  try {
+    const url = new URL(stripped);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function citeableHttpUrls(text: string): string[] {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  // Drop userinfo first so `[REDACTED]` in a password does not end the match at `]`.
+  const normalized = text.replace(/(https?:\/\/)[^/\s@]*:[^@/\s]*@/gi, '$1');
+  for (const match of normalized.matchAll(/https?:\/\/[^\s<>"'`)\]}]+/g)) {
+    const raw = match[0].replace(/[.,;:]+$/, '');
+    const url = citeableUrl(raw);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    urls.push(url);
+  }
+  return urls;
 }
 
 // The budget is in UTF-8 bytes but string indices are UTF-16 code units; for
@@ -105,6 +155,21 @@ function suffixCharIndexForBytes(text: string, budgetBytes: number): number {
   const at = lo < text.length ? text.charCodeAt(lo) : 0;
   const startsMidPair = at >= 0xdc00 && at <= 0xdfff;
   return startsMidPair ? lo + 1 : lo;
+}
+
+const REDACTION_MARKER = '[REDACTED]';
+
+/** A cut that lands inside `[REDACTED]` moves to the marker edge so the token stays whole. */
+function avoidRedactionCut(text: string, index: number, direction: 'forward' | 'backward'): number {
+  let from = Math.max(0, index - REDACTION_MARKER.length);
+  while (from < index + REDACTION_MARKER.length) {
+    const at = text.indexOf(REDACTION_MARKER, from);
+    if (at < 0 || at >= index + REDACTION_MARKER.length) break;
+    const end = at + REDACTION_MARKER.length;
+    if (index > at && index < end) return direction === 'forward' ? at : end;
+    from = at + 1;
+  }
+  return index;
 }
 
 function findSafeSlicePoint(

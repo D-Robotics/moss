@@ -18,6 +18,7 @@ import {
   isStructuredUserAbort,
   isTuiZh,
   isUserAbortErrorText,
+  localizeAbortActor,
   tui,
 } from './copy.js';
 import { nextStreamCommit } from './stream-commit.js';
@@ -491,7 +492,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
         Boolean(event.isError)
       );
       const summary = abortedBy
-        ? tui('aborted ({by})', { by: abortedBy })
+        ? tui('aborted ({by})', { by: localizeAbortActor(abortedBy) })
         : abortNotice
           ? undefined
           : completion.summary;

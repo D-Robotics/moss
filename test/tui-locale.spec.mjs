@@ -17,7 +17,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { ZH, isTuiZh, setTuiLocale, transientStatus, tui } from '../dist/cli/tui/copy.js';
+import {
+  ZH,
+  chatInterruptNoticeLine,
+  interruptNoticeLine,
+  isTuiZh,
+  localizeAbortActor,
+  setTuiLocale,
+  transientStatus,
+  tui,
+} from '../dist/cli/tui/copy.js';
 import { formatMcpStatusLine } from '../dist/cli/rdk-docs-mcp.js';
 import { summarizeToolCompletion } from '../dist/cli/tui/tool-summary.js';
 import { rowsForSurface } from '../dist/cli/interactive-commands.js';
@@ -403,6 +412,22 @@ import {
   );
   assert.equal(tui('✻ worked for {seconds}s{doneAt}', { seconds: 3, doneAt: '' }), '✻ 用时 3 秒');
   assert.equal(tui('answer: {value}', { value: 'y' }), '回答：y');
+  assert.equal(tui('run interrupted'), '运行已中断');
+  assert.equal(tui('run finished'), '运行已结束');
+  assert.equal(tui('operation was interrupted'), '操作已中断');
+  assert.equal(tui('Cancelled: {message}', { message: '操作已中断' }), '已取消：操作已中断');
+  assert.equal(tui('user'), '用户');
+  assert.equal(tui('timeout'), '超时');
+  assert.equal(chatInterruptNoticeLine(), '已中断');
+  assert.equal(interruptNoticeLine(), '已中断');
+  assert.equal(localizeAbortActor('user'), '用户');
+  assert.equal(localizeAbortActor('timeout'), '超时');
+  const haltedZh = renderRunSummary(3200, true, 80)
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(haltedZh, /已中断/);
+  assert.doesNotMatch(haltedZh, /interrupted/i);
+  assert.doesNotMatch(haltedZh, /partial output kept/i);
   for (const [key, value] of Object.entries(ZH)) {
     if (!/\p{Script=Han}/u.test(value)) continue;
     assert.equal(value.includes(':'), false, `half-width colon in ${JSON.stringify(key)}`);
@@ -413,6 +438,15 @@ import {
     assert.equal(value.includes('网关可能卡住'), false, key);
   }
   setTuiLocale(false);
+  assert.equal(
+    tui('Cancelled: {message}', { message: 'operation was interrupted' }),
+    'Cancelled: operation was interrupted'
+  );
+  assert.equal(localizeAbortActor('user'), 'user');
+  const haltedEn = renderRunSummary(3200, true, 80)
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(haltedEn, /interrupted/);
 }
 
 console.log('OK tui-locale');
