@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { approvalEnv } from './device-bench-approval.mjs';
+import { approvalEnv, inheritPolicySnapshot } from './device-bench-approval.mjs';
 import {
   commandText,
   findForbidden,
@@ -725,6 +725,7 @@ function buildSummary(runs, meta) {
       model: meta.model,
       passwordStored: false,
       approval: meta.approval,
+      ...(meta.devicePolicy ? { devicePolicy: meta.devicePolicy } : {}),
     },
     ...latest,
     repeat: {
@@ -830,7 +831,9 @@ export async function runDeviceBench(options = {}) {
   const approval = {
     mode: approvalMode,
     env: approvalEnv(approvalMode),
-    fullFlag: approvalMode === 'full',
+    // inherit and full both pass --full-access. inherit does not set
+    // MOSS_DEVICE_TRUST, and the summary records the device-risk snapshot.
+    fullFlag: approvalMode === 'full' || approvalMode === 'inherit',
   };
   let sim = null;
   const savedEnv = snapshotEnv(DEVICE_ENV_KEYS);
@@ -903,6 +906,7 @@ export async function runDeviceBench(options = {}) {
         : mode === 'sim'
           ? `${sim.host}:${sim.port}`
           : `${process.env.MOSS_DEVICE_USER}@${process.env.MOSS_DEVICE_HOST}:${process.env.MOSS_DEVICE_PORT}`;
+    const devicePolicy = approvalMode === 'inherit' ? await inheritPolicySnapshot() : null;
     const summary = buildSummary(runs, {
       mode,
       startedAt,
@@ -910,6 +914,7 @@ export async function runDeviceBench(options = {}) {
       board,
       model: provider?.model ?? null,
       approval: approvalMode,
+      ...(devicePolicy ? { devicePolicy } : {}),
     });
     const summaryText = redactSecrets(JSON.stringify(summary, null, 2));
     const summaryPath = path.join(resultsDir, 'summary.json');

@@ -63,4 +63,8 @@ Optional cost: `MOSS_BENCH_USD_PER_MILLION_TOKENS`. `moss task run` prints an `l
 - `repeat.mean` and `repeat.spread` are the mean and population standard deviation of the per-run success rates (`--repeat N`).
 - Exit 0 when every scored row passed. Exit 1 when any row failed or is `falseSuccess`. Exit 2 when the live target has no moss config.
 
-Approvals stay pluggable: `MOSS_DEVICE_BENCH_APPROVAL=full` (default), `inherit`, or `manual`. `inherit` is how another stream's device-safety policy applies.
+Approvals stay pluggable: `MOSS_DEVICE_BENCH_APPROVAL=full` (default), `inherit`, or `manual`.
+
+`inherit` 让子进程以 full 模式运行，并且不设置 `MOSS_DEVICE_TRUST`。汇总里的 `meta.devicePolicy` 来自 `src/safety/device-risk.ts`：只读和可逆样本 `autoAllow: true`；毁灭性（`reboot`）和敏感读取（`cat /etc/shadow`）不是。headless moss 会拒绝这两档。`full` 用同一交互模式，同样不授予设备信任。`manual` 会询问，headless 下等于拒绝。
+
+`inherit` runs the child in full mode and does not set `MOSS_DEVICE_TRUST`. The summary then includes `meta.devicePolicy` from `src/safety/device-risk.ts`: readonly and reversible samples are `autoAllow: true`; destructive (`reboot`) and sensitive (`cat /etc/shadow`) are not. Headless moss denies those tiers. `full` uses the same interaction mode and also does not grant device trust. `manual` prompts, which headless moss denies.

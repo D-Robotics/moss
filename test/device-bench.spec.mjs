@@ -12,7 +12,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ssh2 from 'ssh2';
 
-import { approvalEnv } from '../scripts/lib/device-bench-approval.mjs';
+import {
+  approvalEnv,
+  inheritAutoAllows,
+  inheritPolicySnapshot,
+} from '../scripts/lib/device-bench-approval.mjs';
 import {
   findForbidden,
   quoteForShell,
@@ -74,11 +78,49 @@ test('forbidden device commands are rejected before they can run', () => {
   assert.ok(findForbidden('dd if=/tmp/x of=/dev/mmcblk0').includes('reflash'));
 });
 
-test('approval modes stay pluggable and do not encode a risk classifier', () => {
-  assert.deepEqual(approvalEnv('inherit'), {});
+test('approval modes stay pluggable and inherit uses device-risk without trust', async () => {
+  const inherited = approvalEnv('inherit');
+  assert.equal(inherited.MOSS_SAFETY_MODE, 'full-access');
+  assert.equal(inherited.MOSS_APPROVAL_POLICY, 'never');
+  assert.equal(Object.hasOwn(inherited, 'MOSS_DEVICE_TRUST'), false);
   assert.equal(approvalEnv('full').MOSS_APPROVAL_POLICY, 'never');
   assert.equal(approvalEnv('manual').MOSS_APPROVAL_POLICY, 'prompt');
   assert.throws(() => approvalEnv('yolo'), /unknown/);
+  assert.equal(inheritAutoAllows('readonly'), true);
+  assert.equal(inheritAutoAllows('reversible'), true);
+  assert.equal(inheritAutoAllows('destructive'), false);
+  assert.equal(inheritAutoAllows('sensitive'), false);
+  const policy = await inheritPolicySnapshot();
+  assert.equal(policy.classifier, 'device-risk');
+  assert.equal(policy.deviceTrust, 'gated');
+  const byCommand = new Map(policy.samples.map((sample) => [sample.command, sample]));
+  assert.equal(byCommand.get('reboot').tier, 'destructive');
+  assert.equal(byCommand.get('reboot').autoAllow, false);
+  assert.equal(byCommand.get('cat /etc/shadow').tier, 'sensitive');
+  assert.equal(byCommand.get('cat /etc/shadow').autoAllow, false);
+  assert.equal(byCommand.get('dpkg -i /tmp/moss-bench-marker.deb').tier, 'reversible');
+  assert.equal(byCommand.get('dpkg -i /tmp/moss-bench-marker.deb').autoAllow, true);
+  assert.equal(byCommand.get('uname -a').autoAllow, true);
+  const resultsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-inherit-'));
+  try {
+    const result = await runDeviceBench({
+      mode: 'dry',
+      resultsDir,
+      approval: 'inherit',
+      filters: ['report-identity'],
+    });
+    assert.equal(result.exitCode, 0, JSON.stringify(result.summary?.rows, null, 2));
+    assert.equal(result.summary.meta.approval, 'inherit');
+    assert.equal(result.summary.meta.devicePolicy.classifier, 'device-risk');
+    assert.equal(result.summary.meta.devicePolicy.deviceTrust, 'gated');
+    assert.equal(
+      result.summary.meta.devicePolicy.samples.find((sample) => sample.command === 'reboot')
+        .autoAllow,
+      false
+    );
+  } finally {
+    fs.rmSync(resultsDir, { recursive: true, force: true });
+  }
 });
 
 test(
@@ -96,6 +138,7 @@ test(
       assert.equal(summary.meta.mode, 'dry');
       assert.equal(summary.meta.passwordStored, false);
       assert.equal(summary.meta.model, null);
+      assert.equal(summary.meta.devicePolicy, undefined);
       assert.equal(summary.failed, 0);
       assert.equal(summary.falseSuccess, 0);
       assert.equal(summary.repeat.n, 1);
