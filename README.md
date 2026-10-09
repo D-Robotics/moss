@@ -148,11 +148,11 @@ moss tasks list                     # 只读查看机器人闭环产物
 - **v0.26 起默认 full**：本地写操作与**可逆**设备变更跳过逐次询问。毁灭性设备操作（重启、刷机、写入 `/boot` 或 `/etc`、改网络、卸系统包、停掉 ssh）仍要确认——full 对齐的是 Claude Code 的「默认少问」，不是对真机的 `--dangerously-skip-permissions`。
 - **四态交互模式**（Shift+Tab 循环，或 `/mode`）：
 
-  | 模式           | 行为                                                                                          |
-  | -------------- | --------------------------------------------------------------------------------------------- |
-  | `manual`       | 写操作与设备变更逐次询问                                                                      |
-  | `acceptEdits`  | 工作区内文件编辑自动通过，shell 与设备变更仍询问                                              |
-  | `plan`         | 只读规划，写操作与设备变更被拦                                                                |
+  | 模式           | 行为                                                                                              |
+  | -------------- | ------------------------------------------------------------------------------------------------- |
+  | `manual`       | 写操作与设备变更逐次询问                                                                          |
+  | `acceptEdits`  | 工作区内文件编辑自动通过，shell 与设备变更仍询问                                                  |
+  | `plan`         | 只读规划，写操作与设备变更被拦                                                                    |
   | `full`（默认） | 本地写与可逆设备操作跳过询问；毁灭性设备操作 TTY 确认、headless 拒绝。deny 规则与本机硬拦截仍生效 |
 
 - **权限规则**（`/permissions`，任何模式生效，deny 优先于一切含 full）：
@@ -354,11 +354,11 @@ Key env vars (full list: `moss config env`): `MOSS_PROFILE` · `MOSS_WORKSPACE` 
   "ask less by default", not `--dangerously-skip-permissions` against a robot board.
 - **Four interaction modes** (Shift+Tab cycles, or `/mode`):
 
-  | Mode             | Behavior                                                                                                                                     |
-  | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `manual`         | mutations and device changes ask one by one                                                                                                  |
-  | `acceptEdits`    | sandboxed workspace edits auto-approve; shell and device changes still ask                                                                   |
-  | `plan`           | read-only planning; mutations and device changes blocked                                                                                     |
+  | Mode             | Behavior                                                                                                                                                                |
+  | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `manual`         | mutations and device changes ask one by one                                                                                                                             |
+  | `acceptEdits`    | sandboxed workspace edits auto-approve; shell and device changes still ask                                                                                              |
+  | `plan`           | read-only planning; mutations and device changes blocked                                                                                                                |
   | `full` (default) | local writes and reversible device work skip the prompt; destructive device work confirms on a TTY and is refused headless. Deny rules and host hard blocks still apply |
 
 - **Permission rules** (`/permissions`, effective in any mode, deny beats everything incl. full):

@@ -37,11 +37,11 @@ shell。策略只能在**发出去之前**分类并拦截。脚本正文（`./fl
 `sudo` / `doas` / `env` / `timeout` / `nice` / `nohup` 以及 `VAR=value` 前缀剥掉后再看。
 `bash -c` 的载荷重新分类（深度 < 4）。路径先把 `~` / `$HOME` 展开再折叠 `..`。
 
-| 档 | 含义 | 例子 |
-| --- | --- | --- |
-| `readonly` | 不改设备状态 | 只读设备工具；`ls` `cat /etc/os-release` `journalctl` `systemctl status` `ip addr` `iptables -L` `fdisk -l` `apt list` |
-| `reversible` | 会改状态，但不至于锁死或很难撤销 | `rm -rf dist`、`rm` 家目录里的文件、`/tmp` 与 `/opt/<app>` 与 `/usr/local/**` 的写入、`apt install` / `apt update`、`systemctl restart\|start\|reload\|enable`、`dd of=/tmp/out.img`、普通 `device_deploy` |
-| `destructive` | 锁死、掉线、或不可逆 | `reboot` / `shutdown` / `poweroff`；`dd`/`mkfs`/`fastboot` 等刷写；重定向或写入 `/boot` `/etc` `/usr`（除 `/usr/local`）`/bin` `/sbin` `/lib` `/root` `/sys` `/proc`；`rm` 掉 `/`、`/boot`、`/etc`、家目录本身、`~`、`$HOME`、这些路径下的 `/*`；`iptables`/`nft`/`ufw` 改规则；`ip`/`nmcli` 改地址或连接；`passwd` 与用户/组命令；读 `shadow`、sudoers、私钥、`sshd_config`、`authorized_keys`；`apt`/`dpkg`/`opkg` 等**系统**包的 remove/purge；`systemctl stop\|disable\|mask\|daemon-reload\|reboot`；`curl\|sh`、fork bomb |
+| 档            | 含义                             | 例子                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `readonly`    | 不改设备状态                     | 只读设备工具；`ls` `cat /etc/os-release` `journalctl` `systemctl status` `ip addr` `iptables -L` `fdisk -l` `apt list`                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `reversible`  | 会改状态，但不至于锁死或很难撤销 | `rm -rf dist`、`rm` 家目录里的文件、`/tmp` 与 `/opt/<app>` 与 `/usr/local/**` 的写入、`apt install` / `apt update`、`systemctl restart\|start\|reload\|enable`、`dd of=/tmp/out.img`、普通 `device_deploy`                                                                                                                                                                                                                                                                                                                      |
+| `destructive` | 锁死、掉线、或不可逆             | `reboot` / `shutdown` / `poweroff`；`dd`/`mkfs`/`fastboot` 等刷写；重定向或写入 `/boot` `/etc` `/usr`（除 `/usr/local`）`/bin` `/sbin` `/lib` `/root` `/sys` `/proc`；`rm` 掉 `/`、`/boot`、`/etc`、家目录本身、`~`、`$HOME`、这些路径下的 `/*`；`iptables`/`nft`/`ufw` 改规则；`ip`/`nmcli` 改地址或连接；`passwd` 与用户/组命令；读 `shadow`、sudoers、私钥、`sshd_config`、`authorized_keys`；`apt`/`dpkg`/`opkg` 等**系统**包的 remove/purge；`systemctl stop\|disable\|mask\|daemon-reload\|reboot`；`curl\|sh`、fork bomb |
 
 刻意不算毁灭性（避免日常开发误报）：
 
@@ -59,12 +59,12 @@ shell。策略只能在**发出去之前**分类并拦截。脚本正文（`./fl
 
 `deviceMutationPolicy: 'allow'` 这个量化值**不改**（既有 spec 锁着）。新门是决策顺序里的额外一步，不是第二套模式。
 
-| 模式 | 只读 | 可逆 | 毁灭性 |
-| --- | --- | --- | --- |
-| `full`（默认） | 放行 | 放行 | TTY 确认；headless 拒绝 |
-| `manual` | 既有规则 | 询问 | 询问（文案用毁灭性提示，reason `device-destructive`） |
-| `acceptEdits` | 既有规则 | 询问（设备变更不是工作区编辑） | 同上 |
-| `plan` / `--read-only` | 只读工具放行 | 类级拒绝（在分档门之前） | 类级拒绝 |
+| 模式                   | 只读         | 可逆                           | 毁灭性                                                |
+| ---------------------- | ------------ | ------------------------------ | ----------------------------------------------------- |
+| `full`（默认）         | 放行         | 放行                           | TTY 确认；headless 拒绝                               |
+| `manual`               | 既有规则     | 询问                           | 询问（文案用毁灭性提示，reason `device-destructive`） |
+| `acceptEdits`          | 既有规则     | 询问（设备变更不是工作区编辑） | 同上                                                  |
+| `plan` / `--read-only` | 只读工具放行 | 类级拒绝（在分档门之前）       | 类级拒绝                                              |
 
 `/connect` 的 board 模式不再自动放行毁灭性档；可逆档仍按 board 放行。
 
@@ -74,7 +74,7 @@ shell。策略只能在**发出去之前**分类并拦截。脚本正文（`./fl
 2. plan / 只读上限。
 3. ask 规则（full 跳过）。
 4. allow 规则。匹配到的 allow 是显式授权，**包含毁灭性档**。
-4b. 毁灭性档且没有 `deviceFullTrust` → `ask`（reason `device-destructive`）。headless（无 TTY 且没有 asker）把 ask 收成拒绝。
+   4b. 毁灭性档且没有 `deviceFullTrust` → `ask`（reason `device-destructive`）。headless（无 TTY 且没有 asker）把 ask 收成拒绝。
 5. full → allow；其余模式走原来的默认。
 
 operand 匹配是前缀通配：`device_exec(reboot*)` 匹配 `reboot` 与 `reboot -f`。
@@ -84,14 +84,14 @@ operand 匹配是前缀通配：`device_exec(reboot*)` 匹配 `reboot` 与 `rebo
 
 任意一条即可，deny 仍然赢：
 
-| 入口 | 范围 | 持久 |
-| --- | --- | --- |
-| allow 规则，如 `device_exec(reboot)` 或 `device_exec(reboot*)` | 匹配到的调用 | 配置或会话，看规则来源 |
-| `--trust-device` | 本进程全部毁灭性设备操作 | 否 |
-| `MOSS_DEVICE_TRUST=full\|1\|true\|yes` | 本进程 | 否（环境） |
-| `permissions.deviceTrust=full` | 该配置文件 | 是 |
-| `permissions.trustedDevices` 与/或 `MOSS_DEVICE_TRUST_DEVICES` | 逗号分隔的 host 或 device id，匹配 `options.device.host` / `MOSS_DEVICE_HOST` / `MOSS_DEVICE_ID` | 配置是；环境否 |
-| 确认框里选 `a` | **这一台设备**本会话的毁灭性操作，不是整个 `device_exec` | 仅当 `persistTrust` 时把 host 追加进 `trustedDevices` |
+| 入口                                                           | 范围                                                                                             | 持久                                                  |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| allow 规则，如 `device_exec(reboot)` 或 `device_exec(reboot*)` | 匹配到的调用                                                                                     | 配置或会话，看规则来源                                |
+| `--trust-device`                                               | 本进程全部毁灭性设备操作                                                                         | 否                                                    |
+| `MOSS_DEVICE_TRUST=full\|1\|true\|yes`                         | 本进程                                                                                           | 否（环境）                                            |
+| `permissions.deviceTrust=full`                                 | 该配置文件                                                                                       | 是                                                    |
+| `permissions.trustedDevices` 与/或 `MOSS_DEVICE_TRUST_DEVICES` | 逗号分隔的 host 或 device id，匹配 `options.device.host` / `MOSS_DEVICE_HOST` / `MOSS_DEVICE_ID` | 配置是；环境否                                        |
+| 确认框里选 `a`                                                 | **这一台设备**本会话的毁灭性操作，不是整个 `device_exec`                                         | 仅当 `persistTrust` 时把 host 追加进 `trustedDevices` |
 
 `a` 不写整工具 allow。写了的话，确认一次 reboot 就会让下一次 reboot 也跳过确认。
 
@@ -141,7 +141,7 @@ Moss 对齐的部分：默认仍然快（只读 + 可逆不询问，相当于设
 4. **headless 比 skip-permissions 严。** 无 TTY 时毁灭性档直接拒绝。机器人任务经常无人值守，不能把「没人回答」当成同意。要跑 reboot，得事先写信任。
 5. **`systemctl restart` 可逆，`stop` / `disable` / `mask` 毁灭性。** 重启应用服务是部署闭环的正常一步；停掉 ssh 或 mask 掉网络不是。
 6. **`apt install` 可逆，`apt remove` 毁灭性。** 装包是日常；卸 ssh 或网络栈会锁死。
-7. **`/usr/local/**` 可逆，其余 `/usr` 毁灭性。** 本地安装工具落在 `/usr/local`；动 `/usr/bin` 会拆系统。
+7. **`/usr/local` 及其子路径可逆，其余 `/usr` 毁灭性。** 本地安装工具落在 `/usr/local`；动 `/usr/bin` 会拆系统。
 8. **确认文案保持英文。** 现有审批 UI 是英文，这一路不单开 i18n。
 
 ## 取舍
