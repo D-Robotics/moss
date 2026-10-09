@@ -246,7 +246,7 @@ export async function listRepairs(workspaceDir: string, taskId?: string): Promis
 export async function createDraftTask(
   workspaceDir: string,
   goal: string,
-  options: { targetDeviceId?: string; constraints?: string[] } = {}
+  options: { targetDeviceId?: string; constraints?: string[]; acceptanceCommand?: string } = {}
 ): Promise<TaskContract> {
   const now = Date.now();
   const contract: TaskContract = {
@@ -260,7 +260,10 @@ export async function createDraftTask(
     ...(options.constraints?.length ? { constraints: options.constraints } : {}),
   };
   await appendTaskRecord(workspaceDir, contract);
-  await appendTaskEvent(workspaceDir, contract.taskId, 'task_created', { goal });
+  await appendTaskEvent(workspaceDir, contract.taskId, 'task_created', {
+    goal,
+    ...(options.acceptanceCommand ? { acceptanceCommand: options.acceptanceCommand } : {}),
+  });
   return contract;
 }
 

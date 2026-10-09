@@ -174,7 +174,21 @@ class Session:
         self.send(KEYS.get(name, name))
         self.pump(0.4)
 
+    def wait_for_prompt(self, timeout: float = 20.0) -> None:
+        """Pump until the composer glyph is painted.
+
+        A fixed pump assumed a fast machine: under load the first TUI frame can
+        land seconds after spawn (observed 2-4s), and every later assertion
+        would then read an app that never painted. Wait for the glyph instead.
+        """
+        end = time.time() + timeout
+        while not self.prompt_rows() and time.time() < end:
+            self.pump(0.05)
+        if not self.prompt_rows():
+            raise AssertionError(f"composer did not appear within {timeout}s")
+
     def submit(self, text: str, wait: float = 3.0) -> None:
+        self.wait_for_prompt()
         self.send(text)
         self.pump(0.3)
         self.send("\r")

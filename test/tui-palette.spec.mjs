@@ -58,8 +58,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // agree with what Enter will actually do.
   assert.deepEqual(
     slashPaletteRows('  /mo').map(([command]) => command),
-    ['/model', '/mode', '/permissions'],
-    'leading whitespace keeps the menu consistent with submit()'
+    ['/model', '/permissions'],
+    'leading whitespace keeps the menu consistent with submit(); /mode is a hidden alias'
   );
 
   const withCustom = slashPaletteRows('/deploy', [['/deploy', 'ship it to the robot']]);
@@ -177,7 +177,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await instance.stdin.write('\x1b'); // Esc closes the menu
   await sleep(80);
   const closed = instance.lastFrame();
-  assert.ok(!closed.includes('resume a failed'), 'Esc closes the menu');
+  assert.ok(!closed.includes('resume a saved conversation'), 'Esc closes the menu');
   assert.ok(closed.includes('/resume'), 'the completed command survives the menu closing');
 
   // Enter runs the completed command (the palette must not swallow it).
