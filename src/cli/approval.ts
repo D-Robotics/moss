@@ -19,6 +19,7 @@ import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { recordDevicePolicyDecision } from './device-policy-log.js';
 import { deviceDestructivePrompt } from './device-safety-prompt.js';
+import { isZhLocale } from './cli-locale.js';
 import {
   normalizeSafetyModeConfig,
   loadConfigFile,
@@ -1245,7 +1246,9 @@ export function createCliToolApprovalHook(
             tier: classification.tier === 'sensitive' ? 'sensitive' : 'destructive',
             operand: classification.operand,
             reason: classification.reason,
-            ...(classification.trust ? { trustLabel: classification.trust.en } : {}),
+            ...(classification.trust
+              ? { trustEn: classification.trust.en, trustZh: classification.trust.zh }
+              : {}),
             ...(deviceKeys[0] ? { deviceLabel: deviceKeys[0] } : {}),
           })
         : undefined;
@@ -1254,7 +1257,9 @@ export function createCliToolApprovalHook(
     if (!process.stdin.isTTY && asker === null) {
       if (options.detailMode !== 'quiet' && !headlessNoticeShown) {
         console.error(
-          `[moss] Approval required but no interactive terminal is available: ${tool.name}`
+          deviceGatedAsk && isZhLocale()
+            ? `[moss] 需要确认，但当前没有交互终端：${tool.name}`
+            : `[moss] Approval required but no interactive terminal is available: ${tool.name}`
         );
         headlessNoticeShown = true;
       }
@@ -1354,6 +1359,9 @@ export function createCliToolApprovalHook(
     }
     if (answer === 'y' || answer === 'yes') {
       return settle({ approved: true });
+    }
+    if (deviceGatedAsk && isZhLocale()) {
+      return settle({ approved: false, reason: `用户拒绝了 ${tool.name}。` });
     }
     return settle({ approved: false, reason: `User denied ${tool.name}.` });
   };

@@ -386,3 +386,47 @@ test('device_exec backstop blocks destructive calls the hook did not grant', asy
   const trusted = await deviceExecTool.execute({ command: 'reboot' }, ctx);
   assert.match(trusted, /rebooting/);
 });
+
+test('device approval copy and refusal follow zh-CN', async () => {
+  const previous = process.env.LC_ALL;
+  process.env.LC_ALL = 'zh_CN.UTF-8';
+  try {
+    setCliInteractionMode('full');
+    let prompt = '';
+    setCliApprovalAsker(async (question) => {
+      prompt = question;
+      return 'n';
+    });
+    const ws = await tmpWorkspace();
+    const hook = createCliToolApprovalHook(
+      'workspace-write',
+      {},
+      { workspaceDir: ws, device: { host: 'board.local' } }
+    );
+    const denied = await hook({
+      tool: tool('device_exec'),
+      input: { command: 'reboot' },
+      sessionKey: 'zh-deny',
+    });
+    assert.equal(denied.approved, false);
+    assert.match(denied.reason, /用户拒绝了 device_exec/);
+    assert.match(prompt, /毁灭性设备操作/);
+    assert.match(prompt, /reboot、shutdown、poweroff 和 halt/);
+    assert.match(prompt, /本会话信任/);
+    setCliApprovalAsker(null);
+    const refused = await hook({
+      tool: tool('device_exec'),
+      input: { command: 'cat /etc/shadow' },
+      sessionKey: 'zh-headless',
+    });
+    assert.match(refused.reason, /敏感的设备读取/);
+    assert.match(refused.reason, /MOSS_DEVICE_TRUST/);
+    assert.match(refused.reason, /--trust-device/);
+    assert.doesNotMatch(refused.reason, /switch the mode to full|把模式改成 full/);
+  } finally {
+    if (previous === undefined) delete process.env.LC_ALL;
+    else process.env.LC_ALL = previous;
+    setCliApprovalAsker(null);
+    setCliInteractionMode('manual');
+  }
+});
