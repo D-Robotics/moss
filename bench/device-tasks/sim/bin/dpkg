@@ -34,7 +34,15 @@ case "$cmd" in
     control="$tmp/DEBIAN/control"
     pkg="$(awk -F': ' '/^Package:/{print $2; exit}' "$control")"
     ver="$(awk -F': ' '/^Version:/{print $2; exit}' "$control")"
-    find "$tmp" -mindepth 1 -maxdepth 1 ! -name DEBIAN -exec cp -a {} "$STATE"/ \;
+    # Do not call `find`: on Windows, System32\find.exe is ahead of Git's find.
+    shopt -s nullglob
+    for entry in "$tmp"/*; do
+      name="${entry##*/}"
+      if [ "$name" = "DEBIAN" ]; then
+        continue
+      fi
+      cp -a "$entry" "$STATE/"
+    done
     rewrite_status_without "$pkg"
     cat >>"$status" <<EOF
 Package: $pkg
