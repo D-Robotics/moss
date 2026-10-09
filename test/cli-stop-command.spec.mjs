@@ -89,6 +89,21 @@ try {
     await sleep(40);
   }
   assert.equal(dead, true, `background pid ${pid} is still alive after /stop`);
+  // The pid can disappear before the child's 'close' handler flips the
+  // registry (Windows CI observed this). Wait for that update.
+  let stopped = false;
+  const statusDeadline = Date.now() + 3000;
+  while (Date.now() < statusDeadline) {
+    const still = listBackgroundProcessSnapshots().filter(
+      (proc) => proc.status === 'running' && proc.sessionKey === 'stop-spec'
+    );
+    if (still.length === 0) {
+      stopped = true;
+      break;
+    }
+    await sleep(40);
+  }
+  assert.equal(stopped, true, 'stopped session is still marked running after /stop');
   const left = listBackgroundProcessSnapshots().filter((proc) => proc.status === 'running');
   assert.equal(left.length, 1, '/stop killed a background process from another session');
   assert.equal(left[0].sessionKey, 'other-session');
