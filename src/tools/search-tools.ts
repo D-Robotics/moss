@@ -2,9 +2,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import micromatch from 'micromatch';
 import { errorMessage } from '../errors.js';
-import type { Tool } from '../core/tools/tool-types.js';
+import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { runProcess, ProcessError } from '../utils/run-process.js';
-import { safePath, toolError, IS_WIN } from './tool-helpers.js';
+import { toolError, IS_WIN } from './tool-helpers.js';
+import { resolveReadPath } from '../safety/read-scope.js';
+
+function resolveSearchRoot(raw: unknown, ctx: ToolContext): string {
+  const text = typeof raw === 'string' && raw.trim() ? raw : '.';
+  return resolveReadPath(text, ctx.workspaceDir);
+}
 
 // ── ripgrep availability ────────────────────────────────────────────────────
 // ripgrep is an order of magnitude faster than the JS walk fallback and
@@ -340,7 +346,7 @@ export const searchFilesTool: Tool = {
   description:
     'Find files by glob pattern within the workspace (Claude Code Glob parity). ' +
     'Prefer this over running `find`/`ls` through exec — it is sandbox-checked, respects .gitignore when ripgrep is available, and returns paths sorted by modification time (newest first). ' +
-    'Patterns: `*.ts`, `src/**/*.tsx`, `**/package.json`. For open-ended multi-round search, use create_subagent scope=explore.',
+    'Patterns: `*.ts`, `src/**/*.tsx`, `**/package.json`. The default root is the workspace; an explicit path outside it is still searched. For open-ended multi-round search, use create_subagent scope=explore.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -371,7 +377,7 @@ export const searchFilesTool: Tool = {
   },
   async execute(input, ctx) {
     try {
-      const searchDir = await safePath(input.path || '.', ctx.workspaceDir);
+      const searchDir = resolveSearchRoot(input.path, ctx);
       const rawLimit = Number(input.head_limit ?? input.maxResults);
       const limit = Math.min(
         500,
@@ -389,11 +395,12 @@ export const searchFilesTool: Tool = {
         path.relative(ctx.workspaceDir, file).split(path.sep).join('/')
       );
       if (relative.length === 0) return 'No files found';
+      const body = relative.join('\n');
       const truncated = absPaths.length >= limit;
       const header = truncated
         ? `Found ${relative.length}+ files (showing first ${limit}, newest first):\n`
         : `Found ${relative.length} file(s) (newest first):\n`;
-      return header + relative.join('\n');
+      return header + body;
     } catch (err) {
       throw toolError('Error searching files', err);
     }
@@ -403,7 +410,8 @@ export const searchFilesTool: Tool = {
 export const searchCodeTool: Tool = {
   name: 'search_code',
   description:
-    'Search for a regex or text pattern within files (Claude Code Grep parity, powered by ripgrep when available). ' +
+    'Search for a regex or text pattern within the workspace (Claude Code Grep parity, powered by ripgrep when available). ' +
+    'The default root is the project. An explicit path outside the workspace is still searched.\n' +
     'Prefer this over running `grep`/`rg` through exec.\n' +
     '- Default output_mode is "content" (matching lines with context).\n' +
     '- Use output_mode "files_with_matches" to get only file paths (cheaper for discovery).\n' +
@@ -510,7 +518,7 @@ export const searchCodeTool: Tool = {
     }
 
     try {
-      const searchDir = await safePath(input.path || '.', ctx.workspaceDir);
+      const searchDir = resolveSearchRoot(input.path, ctx);
       const patternStr = String(input.pattern);
       // Prefer ripgrep when available: respects .gitignore and is far
       // faster than the in-process walk on large repos.

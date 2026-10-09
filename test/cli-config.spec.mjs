@@ -17,6 +17,7 @@ import {
   maybeEncryptApiKeyInConfig,
   maybeDecryptApiKeyInConfig,
   resolveCliConfig,
+  shouldShowFullDefaultNotice,
 } from '../dist/cli/config.js';
 import { syncConfigDirectory } from '../dist/cli/config-api-key-crypto.js';
 import { writeConfigFileAtomic } from '../dist/cli/config-durable-write.js';
@@ -509,6 +510,23 @@ const execFileAsync = promisify(execFile);
     'explicit agent.contextTokens overrides model window'
   );
   assert.equal(resolved.contextTokensSource, 'config', 'explicit window source is config');
+}
+
+{
+  // The full-default tip is once per process. It is not written to disk.
+  const resolved = resolveCliConfig({ MOSS_NO_BUNDLED_DEFAULT: '1' }, {});
+  assert.equal(resolved.approvalPolicy, 'never');
+  assert.equal(resolved.permissions.source, 'default');
+  assert.equal(
+    shouldShowFullDefaultNotice(resolved),
+    true,
+    'first call in the process shows the tip'
+  );
+  assert.equal(
+    shouldShowFullDefaultNotice(resolved),
+    false,
+    'a second call in the same process does not show it again'
+  );
 }
 
 console.log('[PASS] Configuration management');

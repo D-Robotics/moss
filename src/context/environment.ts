@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import { runProcess } from '../utils/run-process.js';
-import { safeChildEnv } from '../utils/safe-child-env.js';
+import { formatDeviceEnvReport, safeChildEnv } from '../utils/safe-child-env.js';
 
 const GIT_TIMEOUT_MS = 3000;
 const MAX_TREE_ENTRIES = 40;
@@ -57,6 +57,7 @@ export async function buildEnvironmentContextLayer(
 
   lines.push(`- Working directory: ${workspaceDir}`);
   lines.push(`- Platform: ${process.platform}`);
+  lines.push(`- Device environment: ${formatDeviceEnvReport()}`);
   lines.push(`- Today's date: ${now().toISOString().slice(0, 10)}`);
 
   const entries = await topLevelEntries(workspaceDir);

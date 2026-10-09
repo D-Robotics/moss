@@ -1,4 +1,5 @@
 import type { Model } from '../../provider/pi-ai-types.js';
+import { createStreamingTextRedactor, redactEgress } from '../../safety/tool-output-redact.js';
 import type { MiniAgentEvent, MiniAgentResult } from '../subagent/agent-events.js';
 import type { ChatResult, MossAgentConfig, MossAgentEvent } from './moss-agent-types.js';
 import type { ToolCall, ToolResult } from '../tools/tool-types.js';
@@ -62,6 +63,7 @@ export function createMossAgentLoopEventAdapter(
   options?: MossAgentLoopEventAdapterOptions
 ): MossAgentLoopEventAdapter {
   let response = '';
+  const textRedactor = createStreamingTextRedactor();
   const thinking: string[] = [];
   const toolCalls: ToolCall[] = [];
   const toolResults: ToolResult[] = [];
@@ -82,7 +84,7 @@ export function createMossAgentLoopEventAdapter(
         toolResult.outcome === 'blocked' && /tool budget reached/i.test(toolResult.content)
     );
     return {
-      response: response || result.finalText,
+      response: redactEgress(response || result.finalText),
       toolCalls,
       toolResults,
       ...(usage ? { usage } : {}),
@@ -101,12 +103,16 @@ export function createMossAgentLoopEventAdapter(
   return {
     onMiniEvent(event) {
       switch (event.type) {
-        case 'message_delta':
+        case 'message_delta': {
           response += event.delta;
-          return [{ type: 'text_delta', delta: event.delta }];
-        case 'message_end':
+          const delta = textRedactor.push(event.delta);
+          return delta ? [{ type: 'text_delta', delta }] : [];
+        }
+        case 'message_end': {
           response = event.text;
-          return [];
+          const delta = textRedactor.flush();
+          return delta ? [{ type: 'text_delta', delta }] : [];
+        }
         case 'thinking_delta':
           thinking.push(event.delta);
           return [{ type: 'thinking_delta', delta: event.delta }];
@@ -150,6 +156,7 @@ export function createMossAgentLoopEventAdapter(
           ];
         }
         case 'turn_start':
+          textRedactor.reset();
           return [{ type: 'turn_start', turn: event.turn }];
         case 'turn_end': {
           const incomingStopReason = event.stopReason
@@ -158,16 +165,14 @@ export function createMossAgentLoopEventAdapter(
           const resolvedStopReason =
             incomingStopReason ?? (stopReason === 'unknown' && response ? 'end_turn' : stopReason);
           stopReason = resolvedStopReason;
-          return [
-            {
-              type: 'turn_end',
-              turn: event.turn,
-              stopReason: resolvedStopReason,
-              ...(event.totalToolCalls !== undefined
-                ? { totalToolCalls: event.totalToolCalls }
-                : {}),
-            },
-          ];
+          const delta = textRedactor.flush();
+          const endEvent: MossAgentEvent = {
+            type: 'turn_end',
+            turn: event.turn,
+            stopReason: resolvedStopReason,
+            ...(event.totalToolCalls !== undefined ? { totalToolCalls: event.totalToolCalls } : {}),
+          };
+          return delta ? [{ type: 'text_delta', delta }, endEvent] : [endEvent];
         }
         case 'turn_transition':
           stopReason = normalizePublicStopReason(event.reason);
@@ -253,6 +258,7 @@ export function createMossAgentLoopEventAdapter(
             },
           ];
         case 'retry':
+          textRedactor.reset();
           // Emit a retry event so the host/TUI can clear partial visible output
           // from the failed attempt before the new attempt streams fresh deltas.
           // Previously this was `return []` — the host saw no signal, so

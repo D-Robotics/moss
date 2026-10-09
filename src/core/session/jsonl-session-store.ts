@@ -7,6 +7,7 @@ import { WriteChain } from '../../utils/write-chain.js';
 import { ErrorCode, MossError } from '../../errors.js';
 import { acquireSessionWriteLock } from './session-write-lock.js';
 import { sessionTitleFromTexts } from './internal-transcript.js';
+import { redactEgress } from '../../safety/tool-output-redact.js';
 
 export interface JsonlSessionStoreConfig {
   dir: string;
@@ -385,7 +386,7 @@ export class JsonlSessionStore implements SessionStore {
 
   async appendMessage(sessionKey: string, message: LLMMessage): Promise<void> {
     const filePath = this.sessionPath(sessionKey);
-    const entry = JSON.stringify({ type: 'message', message, ts: Date.now() });
+    const entry = redactEgress(JSON.stringify({ type: 'message', message, ts: Date.now() }));
     const mutate = async () => {
       let isNewSession = false;
       await this.enqueueWrite(filePath, async () => {
@@ -417,11 +418,13 @@ export class JsonlSessionStore implements SessionStore {
 
   async replaceMessages(sessionKey: string, messages: LLMMessage[]): Promise<void> {
     const filePath = this.sessionPath(sessionKey);
-    const entry = JSON.stringify({
-      type: 'state_replace',
-      messages,
-      ts: Date.now(),
-    });
+    const entry = redactEgress(
+      JSON.stringify({
+        type: 'state_replace',
+        messages,
+        ts: Date.now(),
+      })
+    );
     const mutate = async () => {
       let isNewSession = false;
       await this.enqueueWrite(filePath, async () => {

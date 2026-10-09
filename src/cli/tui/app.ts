@@ -60,6 +60,7 @@ import {
   subscribeBackgroundLifecycle,
 } from '../../core/tools/background-process-registry.js';
 import { formatBackgroundCompletionFlash } from '../background-completion-ui.js';
+import { redactEgress } from '../../safety/tool-output-redact.js';
 import { formatMcpStatusLine } from '../rdk-docs-mcp.js';
 import { isZhLocale } from '../cli-locale.js';
 import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
@@ -1025,7 +1026,7 @@ export function TuiAppRoot({
         if (failed) {
           let tail = '';
           try {
-            tail = getBackgroundProcessOutputTail(snap.id, 4);
+            tail = redactEgress(getBackgroundProcessOutputTail(snap.id, 4));
           } catch {
             tail = snap.errorMessage ?? '';
           }

@@ -1,7 +1,9 @@
 /**
  * Model-channel hints that must not render as assistant or tool output.
  * The tool result the model reads is unchanged; only the transcript is.
+ * Assistant prose is passed through the shared egress redactor before it is shown.
  */
+import { redactEgress } from '../safety/tool-output-redact.js';
 
 const MODEL_HINT_LINE = 'Verify with tests instead of re-reading every file.';
 
@@ -54,5 +56,5 @@ export function userFacingAssistantText(text: string): string {
     if (INJECTED_PHASE_MARKS.has(trimmed)) return false;
     return true;
   });
-  return kept.join('\n').replace(/^\n+|\n+$/g, '');
+  return redactEgress(kept.join('\n').replace(/^\n+|\n+$/g, ''));
 }

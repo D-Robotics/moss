@@ -1009,11 +1009,9 @@ export function hasTrustedToolWildcard(config: Pick<ResolvedCliConfig, 'trustedT
 }
 
 /**
- * v0.26 one-shot full-default notice (PRD decision 7 / design §8-6): a session
- * may surface the "you are in full mode with no deny rules" nudge at most
- * ONCE (in-memory boolean — no persisted counter). The audit-side info-level
- * warning stays separate: doctor / config show keep printing it on every
- * invocation (both sides implemented, per the adjudication).
+ * v0.26 one-shot full-default notice. The factory-default full user with no
+ * deny rules hears it once per process. Doctor / config show keep their own
+ * warning. The latch is not written to disk.
  */
 let fullDefaultNoticeShown = false;
 

@@ -8,8 +8,8 @@ import { loadDeviceRegistry } from './device-registry-file.js';
  *  3. the workspace device registry `.moss/devices.json` (persisted by
  *     `moss device add`; auth stored as env-var references, never values).
  *
- * The moss process reads MOSS_DEVICE_* directly (safeChildEnv strips them
- * from spawned child processes).
+ * The moss process reads MOSS_DEVICE_* directly. safeChildEnv strips every
+ * MOSS_DEVICE_* variable from child processes. Reports list names only.
  */
 
 const ENV_VARS_HELP = [

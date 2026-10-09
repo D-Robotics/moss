@@ -68,8 +68,13 @@ test('repo_outline respects path filter, include_hidden, and entry caps', async 
     );
     assert.match(String(hidden), /Repo outline \(1 entries shown/, 'caps apply with hidden on');
 
-    const outside = await repoOutlineTool.execute({ path: '../' }, ctx(dir)).catch((e) => e);
-    assert.ok(outside instanceof Error, 'paths outside the workspace are rejected by safePath');
+    const outside = await repoOutlineTool.execute({ path: '../' }, ctx(dir));
+    assert.doesNotMatch(
+      String(outside),
+      /outside the project workspace/,
+      'a path outside the workspace is not hard-denied'
+    );
+    assert.match(String(outside), /Repo outline|empty outline/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

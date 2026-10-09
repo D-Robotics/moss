@@ -62,7 +62,6 @@ import { runBestOfNFix, describeBestOfNOutcome } from '../loop/best-of-n-fix.js'
 import { runProcess } from '../../utils/run-process.js';
 import {
   ToolHookRegistry,
-  createSecretSanitizerHook,
   type PreToolUseHook,
   type PostToolUseHook,
 } from '../tools/tool-hooks.js';
@@ -85,7 +84,7 @@ import {
 } from '../session/session-event-projector.js';
 import { initializeEpoch, reconcileEpoch, type ContextSources } from '../session/context-epoch.js';
 import { loadContextEpoch, saveContextEpoch } from '../session/context-epoch-store.js';
-import { sanitizeSecrets } from '../../safety/secret-sanitizer.js';
+import { presentToolOutput } from '../../safety/tool-output-redact.js';
 import { MossError, ErrorCode, errorMessage, isMossError } from '../../errors.js';
 import type {
   MossAgentConfig as SharedMossAgentConfig,
@@ -150,7 +149,19 @@ export class MossAgent {
       config.subagentExpertRegistry ?? new SubagentExpertRegistry(config.subagentExperts);
     this.asyncTasks = config.asyncTaskRegistry ?? createInMemoryMossAsyncTaskRegistry();
     this.toolHooks = new ToolHookRegistry();
-    this.toolHooks.registerPost(createSecretSanitizerHook(sanitizeSecrets));
+    this.toolHooks.registerPost({
+      name: 'secret-sanitizer',
+      priority: 10,
+      async process({ tool, input, result, ctx }) {
+        const sanitized = presentToolOutput({
+          toolName: tool.name,
+          input,
+          text: result,
+          workspaceDir: ctx.workspaceDir,
+        });
+        return sanitized !== result ? { result: sanitized } : null;
+      },
+    });
     this.toolHooks.registerPost(createEditSyntaxCheckHook());
     if (config.enableSteering !== false) {
       const rules = config.replaceDefaultSteeringRules

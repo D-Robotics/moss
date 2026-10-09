@@ -1,6 +1,6 @@
 import type { ChatResult, MossAgentEvent } from '../core/index.js';
 import { redactSensitiveData } from '../safety/redact.js';
-import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
+import { createStreamingTextRedactor, redactEgress } from '../safety/tool-output-redact.js';
 import { MossError, mossErrorToOutcome, type MossErrorOutcome } from '../errors.js';
 
 export type HeadlessOutputFormat = 'text' | 'json' | 'stream-json';
@@ -261,7 +261,23 @@ function normalizeError(error: unknown): string {
 }
 
 function redactText(value: string): string {
-  return sanitizeSecrets(value);
+  return redactEgress(value);
+}
+
+const streamRedactors = new WeakMap<
+  HeadlessPrintState,
+  ReturnType<typeof createStreamingTextRedactor>
+>();
+
+function streamRedactorFor(
+  state: HeadlessPrintState
+): ReturnType<typeof createStreamingTextRedactor> {
+  let redactor = streamRedactors.get(state);
+  if (!redactor) {
+    redactor = createStreamingTextRedactor();
+    streamRedactors.set(state, redactor);
+  }
+  return redactor;
 }
 
 function redactValue<T>(value: T): T {
@@ -315,6 +331,8 @@ function flushAssistant(
   state: HeadlessPrintState,
   stopReason: string | null = null
 ): HeadlessAssistantEvent[] {
+  const tail = streamRedactorFor(state).flush();
+  if (tail) state.pendingAssistantText += tail;
   const content: HeadlessAssistantContentBlock[] = [];
   if (state.pendingAssistantText)
     content.push({ type: 'text', text: redactText(state.pendingAssistantText) });
@@ -403,8 +421,8 @@ export function formatHeadlessStreamEvent(
 ): HeadlessStreamEvent[] {
   switch (event.type) {
     case 'text_delta':
-      state.pendingAssistantText += event.delta;
       state.finalText += event.delta;
+      state.pendingAssistantText += streamRedactorFor(state).push(event.delta);
       return [];
     case 'tool_start':
       if (event.toolName === 'generate_structured' && event.input.validateOnly !== true) {

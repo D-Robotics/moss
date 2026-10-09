@@ -12,6 +12,11 @@ import {
   FILE_UNCHANGED_TRUNCATED_STUB,
 } from './tool-helpers.js';
 import { wouldTruncateToolOutput } from '../context/tool-output-truncate.js';
+import {
+  redactedPlaceholderEditError,
+  redactedPlaceholderWriteError,
+} from '../safety/tool-output-redact.js';
+import { resolveReadPath } from '../safety/read-scope.js';
 
 /** Strip read_file-style line-number prefixes the model often pastes back. */
 export function stripLineNumberPrefixes(s: string): string {
@@ -154,7 +159,8 @@ export const readFileTool: Tool = {
     'Read the contents of a file within the workspace. ' +
     'For large files, pass `offset` (1-based start line) and/or `limit` (line count) to page through it. ' +
     'Each line is prefixed with a right-aligned line number and a tab for reference — these prefixes are NOT part of the file; never copy them into edit_file / write_file / apply_patch content. ' +
-    'If you re-read the same path+range without the file changing on disk, the tool returns a short "unchanged" stub (Claude Code parity) so you reuse the earlier result instead of burning context.',
+    'If you re-read the same path+range without the file changing on disk, the tool returns a short "unchanged" stub (Claude Code parity) so you reuse the earlier result instead of burning context. ' +
+    'Paths are resolved from the workspace. A path outside the workspace is still read. Secret-like values, including Moss config and key files, are removed before the result reaches the model.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -176,7 +182,7 @@ export const readFileTool: Tool = {
   },
   async execute(input, ctx) {
     try {
-      const filePath = await safePath(input.path, ctx.workspaceDir);
+      const filePath = resolveReadPath(String(input.path ?? ''), ctx.workspaceDir);
       const rangeKey = readRangeKey(input);
       // Claude Code FileRead parity: skip re-dumping an unchanged window — but
       // only when the earlier body actually survived the output budget.
@@ -209,8 +215,8 @@ export const readFileTool: Tool = {
         }
         return withLineNumbers(content);
       })();
-      // Record what we actually handed over: an elided body must not be
-      // advertised as "still current" on the next identical read.
+      // The secret-sanitizer post hook redacts the result that reaches the model.
+      // Record the tool's own body so an unchanged re-read still short-circuits.
       await globalToolStateManager.recordFileState(
         filePath,
         rangeKey,
@@ -277,18 +283,25 @@ export const writeFileTool: Tool = {
         }
       }
 
+      const contentStrEarly = String(input.content ?? '');
+      let originalBody: string | null = null;
+      if (existed) {
+        originalBody = await fs.readFile(filePath, 'utf-8');
+      }
+      const redactedWrite = redactedPlaceholderWriteError(originalBody, contentStrEarly);
+      if (redactedWrite) return `Error: ${redactedWrite}`;
+
       await fs.mkdir(path.dirname(filePath), { recursive: true });
-      await fs.writeFile(filePath, input.content, 'utf-8');
+      await fs.writeFile(filePath, contentStrEarly, 'utf-8');
       await globalToolStateManager.recordFileState(filePath);
-      const contentStr = String(input.content ?? '');
-      const contentLines = contentStr.split('\n');
+      const contentLines = contentStrEarly.split('\n');
       const previewLines = contentLines.slice(0, 12).map((l) => `+ ${l}`);
       if (contentLines.length > 12) {
         previewLines.push(`+ … (${contentLines.length - 12} more lines)`);
       }
       const preview =
-        contentStr.length > 0 ? `\n--- write preview ---\n${previewLines.join('\n')}` : '';
-      return `Successfully wrote ${contentStr.length} chars to ${displayPath}.${preview}`;
+        contentStrEarly.length > 0 ? `\n--- write preview ---\n${previewLines.join('\n')}` : '';
+      return `Successfully wrote ${contentStrEarly.length} chars to ${displayPath}.${preview}`;
     } catch (err) {
       throw toolError('Error writing file', err);
     }
@@ -484,6 +497,8 @@ export const editFileTool: Tool = {
           : result.error;
         return `Error: ${body}`;
       }
+      const redactedWrite = redactedPlaceholderEditError(oldStr, newStr);
+      if (redactedWrite) return `Error: ${redactedWrite}`;
 
       await atomicWriteFile(filePath, result.content);
       await globalToolStateManager.recordFileState(filePath);
@@ -605,6 +620,13 @@ export const multiEditTool: Tool = {
             : '\nNext step: call `read_file` on this path and retry with exact current text.';
           return (
             `Error: edits[${i}] on ${displayPath}: ${result.error}${missExtra}\n` +
+            'No files were written (all-or-nothing).'
+          );
+        }
+        const redactedEdit = redactedPlaceholderEditError(oldStr, newStr);
+        if (redactedEdit) {
+          return (
+            `Error: edits[${i}] on ${displayPath}: ${redactedEdit}\n` +
             'No files were written (all-or-nothing).'
           );
         }
@@ -778,7 +800,8 @@ export const listDirectoryTool: Tool = {
   description:
     'List files and directories within the workspace (Codex list_dir parity: optional depth). ' +
     'Directories end with `/`, symlinks with `@`. Skips node_modules/.git/dist and similar noise. ' +
-    'Default depth=1 (immediate children); set depth=2–3 for a shallow tree. Prefer search_files for name globs.',
+    'Default depth=1 (immediate children); set depth=2–3 for a shallow tree. Prefer search_files for name globs. ' +
+    'The default path is the workspace. A path outside it is still listed.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -807,8 +830,8 @@ export const listDirectoryTool: Tool = {
   },
   async execute(input, ctx) {
     try {
-      const dirPath = await safePath(input.path || '.', ctx.workspaceDir);
       const depth = input.depth !== undefined ? Number(input.depth) : 1;
+      const dirPath = resolveReadPath(String(input.path || '.'), ctx.workspaceDir);
       const rawLimit = Number(input.head_limit ?? input.limit);
       const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 200;
       const lines = await listDirEntries(dirPath, depth, limit);

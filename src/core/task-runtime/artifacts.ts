@@ -12,11 +12,23 @@ import type { EvidenceRecord } from '../../contracts/evidence.js';
 import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
 import { listDeploymentRecords } from '../../device/deployment.js';
 import { getRootLogger } from '../../logger.js';
+import { redactEgress } from '../../safety/tool-output-redact.js';
 
 const jsonlLog = getRootLogger().child('task-jsonl');
 
 /** One warn per file per process; later reads of the same torn file are debug. */
 const jsonlParseWarned = new Set<string>();
+
+function redactEvidenceRecord(record: EvidenceRecord): EvidenceRecord {
+  const observed =
+    typeof record.observed === 'string' ? redactEgress(record.observed) : record.observed;
+  return {
+    ...record,
+    ...(record.expected !== undefined ? { expected: redactEgress(record.expected) } : {}),
+    ...(observed !== undefined ? { observed } : {}),
+    ...(record.details !== undefined ? { details: redactEgress(record.details) } : {}),
+  };
+}
 
 export interface TaskArtifacts {
   /** Latest contract version per taskId, in first-definition order. */
@@ -122,7 +134,7 @@ export async function appendEvidenceRecord(
   workspaceDir: string,
   record: EvidenceRecord
 ): Promise<void> {
-  await appendJsonl(workspaceDir, 'evidence.jsonl', record);
+  await appendJsonl(workspaceDir, 'evidence.jsonl', redactEvidenceRecord(record));
 }
 
 export async function listEvidenceRecords(

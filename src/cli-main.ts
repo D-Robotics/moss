@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { configureWindowsUtf8Console } from './utils/run-process.js';
 import { errorMessage } from './errors.js';
+import { noteKnownSecret } from './safety/known-secrets.js';
 import { buildResumeReplay } from './cli/resume-replay.js';
 import { exitCodeForError, ExitCode } from './cli/exit-codes.js';
 import { resolveCliAgentRuntimeOptions, deriveMaxOutputTokens } from './cli/agent-runtime.js';
@@ -352,6 +353,7 @@ async function main() {
       parsedArgs.configOverrides,
       loadedConfig
     );
+    noteKnownSecret(resolvedConfig.apiKey);
     const workspace = resolvedConfig.workspace as string;
 
     let workspaceStat: fs.Stats;
@@ -443,9 +445,8 @@ async function main() {
       console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));
     }
   }
-  // v0.26 one-shot full-default notice (PRD decision 7): session-level
-  // deduplication in memory — the factory-default full user with no deny rules
-  // hears "add deny rules with /permissions" exactly once per session.
+  // v0.26 one-shot full-default notice: once per process for the factory-default
+  // full user with no deny rules. Not persisted across launches.
   if (cliDetailForNotices !== 'quiet' && shouldShowFullDefaultNotice(resolvedConfig)) {
     console.error(formatFullModeNotice());
   }

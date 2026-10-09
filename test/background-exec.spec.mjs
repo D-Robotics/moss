@@ -22,6 +22,9 @@ import {
 
 const ctx = () => ({ abortSignal: new AbortController().signal });
 const testDir = fs.mkdtempSync(path.join(process.cwd(), '.moss-background-exec-'));
+process.on('exit', () => {
+  fs.rmSync(testDir, { recursive: true, force: true });
+});
 const quote = (value) =>
   process.platform === 'win32'
     ? `"${String(value).replaceAll('"', '""')}"`

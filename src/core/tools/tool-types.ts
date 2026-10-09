@@ -21,7 +21,6 @@ export interface SubagentRunProgress {
 export interface ToolContext {
   workspaceDir: string;
   bootstrapDir?: string;
-  extraAllowedRoots?: string[];
   runId?: string;
   sessionKey: string;
   sessionId?: string;

@@ -28,7 +28,19 @@ import {
 
 export { looksBinary };
 
-import { extractShellMutationPaths } from '../context/stale-read-invalidate.js';
+import {
+  extractShellMutationPaths,
+  shellCommandHasWriteAction,
+} from '../context/stale-read-invalidate.js';
+import { deviceEnvFootnote } from '../utils/safe-child-env.js';
+import { createRedactingChunkWriter } from '../safety/tool-output-redact.js';
+import { commandMentionsMossCredential } from '../safety/read-scope.js';
+import {
+  filesWithIncreasedPlaceholderCount,
+  formatRedactedWritebackWarning,
+  redactedShellWriteRefusal,
+  snapshotMutationFiles,
+} from '../safety/redacted-writeback.js';
 
 // Re-export tools from extracted modules for backward compatibility.
 export {
@@ -63,7 +75,9 @@ export const execTool: Tool = {
     '- Prefer the dedicated tools over shell equivalents: read_file over `cat`, edit_file/multi_edit over `sed`, search_files over `find`, search_code over `grep`/`rg`, run_tests/verify_fix over ad-hoc test scripts. Reserve exec for real shell work: installing deps, custom build scripts, git operations.\n' +
     '- Use absolute paths and avoid `cd`; the working directory is already the workspace and does not persist between calls.\n' +
     '- For long-running or blocking processes (dev servers, watchers, log tails) set run_in_background=true (Claude Code Bash parity) or call exec_background — a foreground exec that never returns will time out. You will be notified when a background command finishes; use exec_logs/exec_stop with the returned id.\n' +
-    '- Prefer one focused command per call. Chain with `&&` only when the second step must not run if the first fails.',
+    '- Prefer one focused command per call. Chain with `&&` only when the second step must not run if the first fails.\n' +
+    '- Shell commands are not blocked for reading outside the workspace (for example /proc, /dev, /opt). Secret-like values in the output, including Moss config and key files, are removed before the result reaches the model.\n' +
+    '- Every MOSS_DEVICE_* value is hidden from the shell. When you inspect the environment, a footnote lists the variable names that are set. Do not tell the user a hidden variable is unset, and do not expect to see its value.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -125,6 +139,19 @@ export const execTool: Tool = {
         );
       }
     }
+    const commandText = String(input.command ?? '');
+    const redactedWrite = redactedShellWriteRefusal(
+      commandText,
+      shellCommandHasWriteAction(commandText)
+    );
+    if (redactedWrite) return redactedWrite;
+    const mutationSnap = snapshotMutationFiles(
+      ctx.workspaceDir,
+      extractShellMutationPaths(commandText)
+    );
+    const hideCredentialStream = commandMentionsMossCredential(commandText);
+    const streamer = hideCredentialStream ? null : createRedactingChunkWriter(ctx.onToolOutput);
+    const footnote = deviceEnvFootnote(String(input.command ?? ''));
     try {
       const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
       const result = await runProcess(shell, {
@@ -136,7 +163,14 @@ export const execTool: Tool = {
         cwd: ctx.workspaceDir,
         // Live streaming: forward stdout chunks to the host (TUI/headless
         // renderer) so long-running commands show output incrementally.
-        ...(ctx.onToolOutput ? { onStdoutChunk: ctx.onToolOutput } : {}),
+        // Line-buffered so a secret on its own line is redacted before display.
+        ...(ctx.onToolOutput
+          ? {
+              onStdoutChunk: (chunk: string) => {
+                streamer?.write(chunk);
+              },
+            }
+          : {}),
       });
       const STDERR_MAX = 4096;
       const STDOUT_MAX = 80_000;
@@ -170,8 +204,11 @@ export const execTool: Tool = {
       // Shell file rewrites (sed -i, redirects, …) leave prior read_file bodies
       // and ToolStateManager prior-read credit stale — clear credit for high-
       // confidence paths so the next surgical edit must re-read (Claude FileEdit).
+      const writebackWarning = formatRedactedWritebackWarning(
+        filesWithIncreasedPlaceholderCount(mutationSnap)
+      );
       if ((result.exitCode ?? 0) === 0) {
-        const paths = extractShellMutationPaths(String(input.command ?? ''));
+        const paths = extractShellMutationPaths(commandText);
         for (const rel of paths) {
           const abs = path.isAbsolute(rel) ? rel : path.resolve(ctx.workspaceDir, rel);
           globalToolStateManager.invalidateFileState(abs);
@@ -183,15 +220,23 @@ export const execTool: Tool = {
             '. Prefer edit_file/multi_edit/apply_patch; re-read before the next surgical edit.';
         }
       }
-      return text;
+      streamer?.flush();
+      return text + writebackWarning + footnote;
     } catch (err) {
+      streamer?.flush();
+      const writebackWarning = formatRedactedWritebackWarning(
+        filesWithIncreasedPlaceholderCount(mutationSnap)
+      );
       if (err instanceof ProcessError) {
         const output = [err.stdout.trim(), err.stderr.trim()].filter(Boolean).join('\n');
         const timedOut =
           /timeout|timed out|killed/i.test(err.message) || err.exitCode === null
             ? `\n(hint: raise timeout_ms or use exec_background for long-running processes; default timeout is ${EXEC_DEFAULT_TIMEOUT_MS}ms)`
             : '';
-        return `Command failed (exit ${err.exitCode}):\n${output || err.message}${timedOut}`;
+        return (
+          `Command failed (exit ${err.exitCode}):\n${output || err.message}${timedOut}${writebackWarning}` +
+          footnote
+        );
       }
       throw err;
     }

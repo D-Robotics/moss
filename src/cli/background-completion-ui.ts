@@ -2,6 +2,7 @@ import {
   getBackgroundProcessOutputTail,
   type BackgroundProcSnapshot,
 } from '../core/tools/background-process-registry.js';
+import { redactEgress } from '../safety/tool-output-redact.js';
 
 /** Multi-line system notice when a background process ends (TUI transcript / CLI stderr). */
 export function formatBackgroundCompletionNotice(
@@ -28,18 +29,20 @@ export function formatBackgroundCompletionNotice(
       : `Background finished ${snap.id}${tag} [${snap.status}] ${exit} · ${ageSec}s · ${snap.command}`;
   let tail = '';
   try {
-    tail = getBackgroundProcessOutputTail(snap.id, 6);
+    tail = redactEgress(getBackgroundProcessOutputTail(snap.id, 6));
   } catch {
     tail = '';
   }
   if (!tail && snap.errorMessage) tail = snap.errorMessage;
-  if (!tail) return head;
+  if (!tail) return redactEgress(head);
   const lines = tail
     .split('\n')
     .map((l) => l.trimEnd())
     .filter(Boolean)
     .slice(-4);
-  return [head, ...lines.map((l) => `  ${l.length > 120 ? `${l.slice(0, 119)}…` : l}`)].join('\n');
+  return redactEgress(
+    [head, ...lines.map((l) => `  ${l.length > 120 ? `${l.slice(0, 119)}…` : l}`)].join('\n')
+  );
 }
 
 /** One-line flash / compact status when a background process ends. */

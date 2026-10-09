@@ -24,6 +24,15 @@ export function isFileMutationTool(toolName: string): boolean {
   return MUTATE_RESULT_TOOLS.has(toolName);
 }
 
+const SHELL_WRITE_ACTION =
+  /(?:sed\s+-i|perl\s+-pi|ruby\s+-pi|^\s*(?:cp|mv|rm|tee|truncate)\b|>\s*[^\s|]|>>\s*[^\s|])/m;
+
+/** True when the command looks like a file rewrite (redirect, sed -i, cp, …). */
+export function shellCommandHasWriteAction(command: string): boolean {
+  if (!command || !command.trim()) return false;
+  return SHELL_WRITE_ACTION.test(command);
+}
+
 /**
  * High-confidence workspace paths rewritten by common shell mutation idioms.
  * Returns relative-looking path tokens (not full shell args). Empty when the
@@ -35,11 +44,7 @@ export function extractShellMutationPaths(command: string): string[] {
   if (!command || !command.trim()) return [];
   const cmd = command.trim();
   // Not a file rewrite — build/test/typecheck must not invalidate reads.
-  if (
-    !/(?:sed\s+-i|perl\s+-pi|ruby\s+-pi|^\s*(?:cp|mv|rm|tee|truncate)\b|>\s*[^\s|]|>>\s*[^\s|])/m.test(
-      cmd
-    )
-  ) {
+  if (!shellCommandHasWriteAction(cmd)) {
     return [];
   }
 

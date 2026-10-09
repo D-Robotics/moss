@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { MossAgentEvent } from '../core/index.js';
 import { redactSensitiveData } from '../safety/redact.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
+import { createStreamingTextRedactor } from '../safety/tool-output-redact.js';
 import { ui } from './ui.js';
 import { diffLinesForApproval } from './approval-detail.js';
 import { DIFF_PREVIEW_LINES } from './tui/transcript.js';
@@ -445,7 +446,20 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
    * source is readable as-is; the marked/marked-terminal/highlight.js render
    * pipeline was removed to keep the CLI dependency surface minimal.
    */
+  const answerRedactor = createStreamingTextRedactor();
+
+  function flushHeldAnswer(): void {
+    const tail = answerRedactor.flush();
+    if (!tail) return;
+    state.answerBuffer += tail;
+    state.answerOpen = true;
+    state.answerStarted = true;
+    stdout.write(tail);
+    state.answerLive = true;
+  }
+
   function flushAnswerBuffer(): void {
+    flushHeldAnswer();
     if (!state.answerBuffer) return;
     const raw = state.answerBuffer;
     state.answerBuffer = '';
@@ -540,11 +554,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           stdout.write('\n\n');
         }
         {
-          const delta = String(event.delta ?? '');
-          state.answerBuffer += delta;
+          const delta = answerRedactor.push(String(event.delta ?? ''));
           state.answerOpen = true;
           state.answerStarted = true;
           if (delta) {
+            state.answerBuffer += delta;
             stdout.write(delta);
             state.answerLive = true;
           }
@@ -834,6 +848,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         }
         break;
       case 'turn_end':
+        flushHeldAnswer();
         if (!isQuiet && isVerbose) {
           breakAnswerForStatus();
           const tools = event.totalToolCalls ? `, tools=${event.totalToolCalls}` : '';
@@ -846,6 +861,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         // Clear partial buffered answer text from the failed attempt so the
         // new attempt's deltas don't append to garbled/duplicate output.
         // (Parity with TUI's retry handler which resets the transcript entry.)
+        answerRedactor.reset();
         state.answerBuffer = '';
         state.answerLive = false;
         state.answerOpen = false;
@@ -908,6 +924,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
     detailMode,
     handle,
     dispose: () => {
+      try {
+        flushHeldAnswer();
+      } catch {
+        /* ignore */
+      }
       try {
         unsubscribeBackground();
       } catch {

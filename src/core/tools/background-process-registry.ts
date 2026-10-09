@@ -150,6 +150,26 @@ export function appendOutput(
   }
 }
 
+/**
+ * Replace the published buffer with a fully redacted transcript. Listeners
+ * receive the new suffix when the redaction stays prefix-stable, otherwise
+ * the whole published buffer (the buffer itself is what completion reads).
+ */
+export function replaceBackgroundOutput(proc: BackgroundProc, text: string): void {
+  const previous = proc.buffer;
+  const next = text.length > MAX_BUFFER ? text.slice(text.length - MAX_BUFFER) : text;
+  proc.buffer = next;
+  if (proc.outputListeners.size === 0) return;
+  const chunk = next.startsWith(previous) ? next.slice(previous.length) : next;
+  if (!chunk) return;
+  const event: BackgroundOutputChunk = { id: proc.id, stream: 'stdout', chunk };
+  for (const listener of proc.outputListeners) {
+    try {
+      listener(event);
+    } catch {}
+  }
+}
+
 export function subscribeBackgroundOutput(
   id: string,
   listener: BackgroundOutputListener

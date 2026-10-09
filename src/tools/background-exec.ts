@@ -4,9 +4,23 @@ import { safeChildEnv } from '../utils/safe-child-env.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { assertShellWritesWithinRoots } from '../safety/shell-write-sandbox.js';
 import { errorMessage } from '../errors.js';
+import { deviceEnvFootnote } from '../utils/safe-child-env.js';
+import { commandMentionsMossCredential } from '../safety/read-scope.js';
+import { redactEgress } from '../safety/tool-output-redact.js';
+import {
+  extractShellMutationPaths,
+  shellCommandHasWriteAction,
+} from '../context/stale-read-invalidate.js';
+import {
+  filesWithIncreasedPlaceholderCount,
+  formatRedactedWritebackWarning,
+  redactedShellWriteRefusal,
+  snapshotMutationFiles,
+} from '../safety/redacted-writeback.js';
 import { markBackgroundIdReported } from '../core/tools/background-completion-state.js';
 import {
   appendOutput,
+  replaceBackgroundOutput,
   backgroundProcesses,
   IS_WIN,
   DEFAULT_SETTLE_MS,
@@ -21,6 +35,17 @@ import {
   type BackgroundProc,
   type BackgroundWaitMode,
 } from '../core/tools/background-process-registry.js';
+
+/** Raw chunks, so a secret split across writes is redacted once it is complete. */
+const rawBackgroundOutput = new Map<string, string>();
+const RAW_OUTPUT_CAP = 256 * 1024;
+
+function publishRedactedOutput(proc: BackgroundProc, text: string): void {
+  let raw = (rawBackgroundOutput.get(proc.id) ?? '') + text;
+  if (raw.length > RAW_OUTPUT_CAP) raw = raw.slice(raw.length - RAW_OUTPUT_CAP);
+  rawBackgroundOutput.set(proc.id, raw);
+  replaceBackgroundOutput(proc, redactEgress(raw));
+}
 
 export const execBackgroundTool: Tool = {
   name: 'exec_background',
@@ -74,6 +99,12 @@ export const execBackgroundTool: Tool = {
     }
     const danger = isCommandDangerous(command);
     if (danger.blocked) return `Command blocked: ${danger.reason}`;
+    const redactedWrite = redactedShellWriteRefusal(command, shellCommandHasWriteAction(command));
+    if (redactedWrite) return redactedWrite;
+    const mutationSnap = snapshotMutationFiles(
+      ctx.workspaceDir || process.cwd(),
+      extractShellMutationPaths(command)
+    );
 
     const live = [...backgroundProcesses.values()].filter((p) => p.status === 'running').length;
     if (live >= MAX_PROCS) {
@@ -126,8 +157,19 @@ export const execBackgroundTool: Tool = {
     backgroundProcesses.set(id, proc);
     notifyLifecycle(proc);
 
-    child.stdout?.on('data', (c: Buffer) => appendOutput(proc, 'stdout', c.toString()));
-    child.stderr?.on('data', (c: Buffer) => appendOutput(proc, 'stderr', c.toString()));
+    const hideCredential = commandMentionsMossCredential(command);
+    let withheldCredential = false;
+    const onStream = (stream: 'stdout' | 'stderr', chunk: Buffer) => {
+      if (hideCredential && /\.apikey-key\b/.test(command)) {
+        if (withheldCredential) return;
+        withheldCredential = true;
+        appendOutput(proc, stream, 'Moss credential values withheld.\n');
+        return;
+      }
+      publishRedactedOutput(proc, chunk.toString());
+    };
+    child.stdout?.on('data', (c: Buffer) => onStream('stdout', c));
+    child.stderr?.on('data', (c: Buffer) => onStream('stderr', c));
 
     if (progressIntervalMs > 0) {
       const timer = setInterval(() => {
@@ -137,6 +179,17 @@ export const execBackgroundTool: Tool = {
       if (typeof timer.unref === 'function') timer.unref();
       proc.progressInterval = timer;
     }
+
+    let writebackChecked = false;
+    const finishWriteback = () => {
+      if (writebackChecked) return;
+      writebackChecked = true;
+      const writebackWarning = formatRedactedWritebackWarning(
+        filesWithIncreasedPlaceholderCount(mutationSnap)
+      );
+      if (writebackWarning) appendOutput(proc, 'stderr', writebackWarning);
+      rawBackgroundOutput.delete(proc.id);
+    };
 
     const settled = new Promise<void>((resolve) => {
       let done = false;
@@ -173,6 +226,7 @@ export const execBackgroundTool: Tool = {
           clearTimeout(proc.killTimer);
           proc.killTimer = undefined;
         }
+        finishWriteback();
         proc.status = proc.killRequested || signal ? 'killed' : 'exited';
         proc.exitCode = code;
         // A handler that exits 0 after SIGTERM leaves `signal` null. Record the
@@ -188,6 +242,7 @@ export const execBackgroundTool: Tool = {
           clearTimeout(proc.killTimer);
           proc.killTimer = undefined;
         }
+        finishWriteback();
         proc.status = 'error';
         proc.errorMessage = err.message;
         proc.endedAt = Date.now();
@@ -209,18 +264,19 @@ export const execBackgroundTool: Tool = {
       const hasStderr = proc.buffer.includes('\x1b[') || head.toLowerCase().includes('error');
       outputSection = `\n--- ${hasStderr ? 'stderr: ' : ''}output (last 20 lines) ---\n${head}`;
     }
+    const footnote = deviceEnvFootnote(command);
     if (proc.status === 'running') {
       // Still running: completion will be injected by core/loop/background-completion
       // when the process later exits (Grok TaskCompletionReminder parity).
-      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. You will be notified when it finishes; use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}`;
+      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. You will be notified when it finishes; use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}`;
     }
     // Terminal during settle — already fully reported in this tool result; suppress
     // a later system-reminder duplicate (lifecycle already enqueued the snapshot).
     markBackgroundIdReported(id);
     if (proc.status === 'error') {
-      return `Background command ${id} failed to start: ${proc.errorMessage}${outputSection}`;
+      return `Background command ${id} failed to start: ${proc.errorMessage}${outputSection}${footnote}`;
     }
-    return `Background command ${id} exited immediately (exit ${proc.exitCode}${proc.signal ? `, signal ${proc.signal}` : ''}).${outputSection}`;
+    return `Background command ${id} exited immediately (exit ${proc.exitCode}${proc.signal ? `, signal ${proc.signal}` : ''}).${outputSection}${footnote}`;
   },
 };
 

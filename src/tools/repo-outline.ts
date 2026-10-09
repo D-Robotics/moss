@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Tool } from '../core/tools/tool-types.js';
-import { safePath, toolError } from './tool-helpers.js';
+import { toolError } from './tool-helpers.js';
+import { resolveReadPath } from '../safety/read-scope.js';
 
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -114,7 +115,7 @@ export const repoOutlineTool: Tool = {
   async execute(input, ctx) {
     try {
       const rootRel = typeof input.path === 'string' && input.path.trim() ? input.path.trim() : '.';
-      const absRoot = await safePath(rootRel, ctx.workspaceDir);
+      const absRoot = resolveReadPath(rootRel, ctx.workspaceDir);
       const requested = Number(input.max_entries);
       const maxEntries =
         Number.isFinite(requested) && requested > 0

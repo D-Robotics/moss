@@ -5,6 +5,7 @@ import { applyUpdateHunk, extractAddContent, parsePatch } from '../utils/apply-p
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { errorMessage } from '../errors.js';
 import { globalToolStateManager, safePath } from './tool-helpers.js';
+import { redactedPlaceholderPatchLineError } from '../safety/tool-output-redact.js';
 
 export interface PatchFileState {
   path: string;
@@ -162,6 +163,17 @@ export const applyPatchTool: Tool = {
           );
         }
         state.nextContent = restoreDominantLineEndings(updated.result, previous);
+      }
+
+      const linesByPath = new Map<string, { op: string; text: string }[]>();
+      for (const hunk of parsed.hunks) {
+        const lines = linesByPath.get(hunk.path) ?? [];
+        lines.push(...hunk.lines);
+        linesByPath.set(hunk.path, lines);
+      }
+      for (const [displayPath, lines] of linesByPath) {
+        const redactedWrite = redactedPlaceholderPatchLineError(lines);
+        if (redactedWrite) return `Patch rejected for ${displayPath}: ${redactedWrite}`;
       }
 
       const changedStates = [...states.values()].filter((state) => state.nextContent !== undefined);

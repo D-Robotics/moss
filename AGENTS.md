@@ -114,7 +114,7 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 ## 设备子系统（robotics closed loop P0）
 
 - 设备目标从 `MOSS_DEVICE_HOST/PORT/USER/KIND` + `MOSS_DEVICE_PASSWORD`（或 `MOSS_DEVICE_KEY`）解析，
-  凭据只在 env/.env，绝不写入 DeviceTarget / 日志 / 子进程环境（`safeChildEnv` 会剥离）。
+  凭据只在 env/.env，绝不写入 DeviceTarget / 日志。`safeChildEnv` 剥离全部 `MOSS_DEVICE_*`（含 HOST/PORT/USER/KIND/ID 与 PASSWORD/KEY/KEY_PASSPHRASE）。子进程看不到这些值；环境提示和 `printenv` 脚注只列出已设置的变量名。
 - `device_info/processes/resources/temperature/file_read/file_list` 为 readonly（可并行、自动重试）；
   `device_exec` / `device_file_write` / `device_deploy` 为 `device_mutation`。`manual` /
   `acceptEdits` 逐次询问（allow 规则可豁免），`plan` 类级拒绝。`full`（默认）放行只读与可逆变更；

@@ -159,3 +159,9 @@ PR #9 的选择规则把聚合增益 ΔS 和 `maxDropPerTask` 比。同 SHA 三�
 `scripts/run-benchmark.mjs` 仍在冻结清单里。Round 1 在 main 的 runner 上只加了一处 allowlist：父进程设置了 `MOSS_DISABLE_NUDGES` 时，把它抄进子 Moss 的环境。编排者批准这是 harness 维护，形状和上面的 bootstrap 例外相同：diff 保持这一行，不改 `.rsi/frozen.txt`，不放宽完整性检查。用合并前的 `main` 当 `--base`，完整性仍然拒绝这条路径。
 
 门自己从 base worktree 跑 `scripts/run-benchmark.mjs`。合并前，门拉起的 bench 不会转发这个变量；`docs/rsi/round-1-subtraction.md` 里的消融命令是在候选树上直接跑 `npm run bench`，用的是本 PR 的 runner。合并之后，base 里的 runner 带上这一行，后面的轮次不要再改这个文件。
+
+## 安全收紧例外（编排者批准，PR #17）
+
+`src/safety/**` 在冻结清单里。PR #17 把路径解析（`read-scope.ts`）和统一出口脱敏（`tool-output-redact.ts` 的 `redactEgress`）放进 `src/safety/`。`redactEgress` 串起 `sanitizeSecrets`、赋值规则（允许 `_` 前缀，字母-only 标识符不当密钥）、PEM/OpenSSH 私钥块整段替换，以及已知密钥值的精确匹配。读取和 shell 命令不因路径被拒绝。`aws_secret_access_key`、`.netrc` 的 `password`、docker config 的 `auth`、kube config 的 `token` / `client-key-data` 在工具输出里替换。`xxd` / `od -c` / `hexdump` / `base64` / `rev` / `fold` 以及逐字符变换后由模型自己拼回去的秘密，单靠脱敏不能完全拦住；主防御是已知值精确匹配和这些结构化规则，脱敏是纵深防御。助手回答（TUI 提交、REPL、headless stream-json、SDK 事件）按行缓冲后再脱敏，避免密钥被拆到两个 chunk 时后半段漏出。后台命令缓冲、证据记录和 `.moss` 会话文件走同一个出口。写文件按 `[REDACTED]` 的个数比较：新内容比原文多就拒绝；`edit_file` / `multi_edit` 比较 `new_string` 与 `old_string`；`apply_patch` 比较新增行与删除行。exec 在命令文本含 `[REDACTED]` 且是写动作时拒绝执行。执行后只检测 shell 改写路径里占位符计数增加的文件，在工具结果里警告这些文件的真实值已被换成 `[REDACTED]`、必须从原始来源恢复；不会删除或覆盖文件。解释器写文件（`python3 -c`、`node -e` 且没有 shell 重定向）不在这条检测里。`MOSS_DEVICE_*` 的值不进入子进程，系统提示只列变量名。属性访问、`${...}` 和纯字母标识符不当成密钥。
+
+这是编排者批准的安全收紧，不是放宽。用合并前的 `main` 当 `--base` 跑门，完整性必须拒绝 `src/safety/**`。不能为了让本 PR 过门而删冻结项或放宽检查。不合并到 D-Robotics。

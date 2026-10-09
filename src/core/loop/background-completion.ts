@@ -13,6 +13,7 @@ import {
   subscribeBackgroundLifecycle,
   type BackgroundProcSnapshot,
 } from '../tools/background-process-registry.js';
+import { redactEgress } from '../../safety/tool-output-redact.js';
 import { isNudgeDisabled } from './nudges/disable.js';
 import {
   backgroundCompletionPending,
@@ -81,7 +82,7 @@ function formatOne(snap: BackgroundProcSnapshot): string {
   const lines = [`• ${snap.id}${tag} [${snap.status}] ${exit} · ${ageSec}s · ${snap.command}`];
   let tail = '';
   try {
-    tail = getBackgroundProcessOutputTail(snap.id, MAX_TAIL_LINES);
+    tail = redactEgress(getBackgroundProcessOutputTail(snap.id, MAX_TAIL_LINES));
   } catch {
     tail = '';
   }
@@ -103,7 +104,7 @@ function formatOne(snap: BackgroundProcSnapshot): string {
     }
     lines.push(`  (full log: exec_logs("${snap.id}"))`);
   }
-  return lines.join('\n');
+  return redactEgress(lines.join('\n'));
 }
 
 /**

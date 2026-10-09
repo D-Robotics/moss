@@ -2,6 +2,7 @@ import path from 'node:path';
 import * as readline from 'node:readline';
 import type { MossAgent, MossAgentEvent } from '../core/index.js';
 import { setCliApprovalAsker } from './approval.js';
+import { noteKnownSecret } from '../safety/known-secrets.js';
 import { handleCompactCommand } from './compact-command.js';
 import { resolveLoopMaxIterations } from './loop-tui-events.js';
 import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
@@ -81,6 +82,7 @@ function applyCustomModelConfigForRepl(
     runtime.config.baseUrlSource = 'config';
     runtime.config.apiKey = nextConfig.apiKey;
     runtime.config.apiKeySource = 'config';
+    noteKnownSecret(nextConfig.apiKey);
     runtime.config.usingBundledDefault = false;
   }
 
