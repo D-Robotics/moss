@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { isolatedCliEnv } from './helpers/isolated-cli-env.mjs';
 
 import { runTasksCommand } from '../dist/cli/tasks-commands.js';
 import { taskDefineTool, taskAcceptanceTool } from '../dist/tools/task-tools.js';
@@ -137,7 +138,10 @@ test('moss tasks renders contracts, evidence, deployments, acceptance, device', 
   const cli = await run(
     process.execPath,
     [path.join(process.cwd(), 'dist', 'cli.js'), 'tasks', 'list'],
-    { cwd: workspace, env: { ...process.env, MOSS_CONFIG_DIR: workspace } }
+    {
+      cwd: workspace,
+      env: isolatedCliEnv({ overrides: { MOSS_CONFIG_DIR: workspace } }),
+    }
   );
   assert.match(cli.stdout, new RegExp(taskId));
 });

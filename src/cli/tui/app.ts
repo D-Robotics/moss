@@ -652,6 +652,14 @@ export function TuiAppRoot({
       },
     });
   }, [handle, options.workspaceDir, sessionKey, store]);
+  useEffect(
+    () =>
+      options.noticeSource?.subscribe((message) => {
+        appendRow(store, 'system', message);
+        handle.notify();
+      }),
+    [handle, options.noticeSource, store]
+  );
 
   /** Inline information block: a ⏺ title plus ⎿ rows, right in the transcript. */
   const printBlock = useCallback(

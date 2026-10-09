@@ -962,7 +962,46 @@ async function type(instance, text) {
     await sleep(150);
   }
 
-  // 4m. The verbose transcript state is visible in the chrome (A9.72): the
+  // 4m. An MCP failure arriving after mount is rendered inside Ink, so it
+  // cannot write below the fullscreen frame or displace the composer.
+  {
+    let listener;
+    const noticeSource = {
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+    };
+    const { instance, handle } = mount({
+      agent: createMockAgent(),
+      workspaceDir: '/tmp/ws',
+      renderer: 'fullscreen',
+      noticeSource,
+    });
+    const subscribed = await waitFor(() => typeof listener === 'function');
+    assert.ok(subscribed, 'the mounted TUI subscribes to host notices');
+    listener('[mcp] server "broken" unavailable: fixture failed — its tools are disabled');
+    const rendered = await waitFor(() =>
+      handle.store.rows.some(
+        (row) => row.kind === 'system' && row.text.includes('server "broken" unavailable')
+      )
+    );
+    assert.ok(rendered, 'an asynchronous MCP failure becomes a transcript row');
+    const lines = instance.lastFrame().split('\n');
+    const prompt = lines.findIndex((line) => line.trimStart().startsWith('❯'));
+    assert.ok(prompt >= 0, `composer remains visible after async notice: ${instance.lastFrame()}`);
+    assert.ok(
+      prompt >= lines.length - 3,
+      `composer remains on the bottom edge after async notice: prompt=${prompt}, rows=${lines.length}`
+    );
+    instance.unmount();
+    await sleep(150);
+    assert.equal(listener, undefined, 'the host notice subscription is released on unmount');
+  }
+
+  // 4n. The verbose transcript state is visible in the chrome (A9.72): the
   // status row carries a `verbose` badge and the hint names the exit key.
   {
     const status = renderStatusRight(

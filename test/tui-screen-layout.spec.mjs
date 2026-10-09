@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isolatedCliEnv } from './helpers/isolated-cli-env.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const probe = spawnSync('python3', ['-c', 'import pyte'], { encoding: 'utf8' });
@@ -20,6 +21,7 @@ if (probe.status !== 0) {
     cwd: root,
     encoding: 'utf8',
     timeout: 600_000,
+    env: isolatedCliEnv(),
   });
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
   process.stdout.write(output);
