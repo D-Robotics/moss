@@ -1,5 +1,4 @@
-export const BETA0 = 0.05;
-export const BETA1 = 1;
+export const COST_FORMULA = 'ΔC ≤ costSpread';
 const EPS = 1e-9;
 
 export function globToRegExp(pattern) {
@@ -45,16 +44,21 @@ function finite(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function isSkipped(task) {
+  return Boolean(task) && task.samples === 0 && task.passes === 0;
+}
+
 function rate(task) {
   if (
     !task ||
     !Number.isInteger(task.samples) ||
-    task.samples <= 0 ||
+    task.samples < 0 ||
     !Number.isInteger(task.passes) ||
     task.passes < 0 ||
     task.passes > task.samples
   )
     return null;
+  if (task.samples === 0) return null;
   return task.passes / task.samples;
 }
 
@@ -80,14 +84,49 @@ function summaryProblems(summary, name) {
   if (ids.some((id) => typeof id !== 'string' || !id))
     reasons.push(`${name} has an invalid task id`);
   if (new Set(ids).size !== ids.length) reasons.push(`${name} has duplicate task ids`);
-  if (summary.perTask.some((task) => rate(task) === null))
+  if (summary.perTask.some((task) => !isSkipped(task) && rate(task) === null))
     reasons.push(`${name} has invalid passes or samples`);
-  if (summary.perTask.some((task) => task?.samples !== summary.meta?.samples))
+  if (summary.perTask.some((task) => !isSkipped(task) && task?.samples !== summary.meta?.samples))
     reasons.push(`${name} per-task samples must match meta.samples`);
   return reasons;
 }
 
+function sampleStd(values) {
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const square = values.reduce((sum, value) => sum + (value - mean) ** 2, 0);
+  return Math.sqrt(square / (values.length - 1));
+}
+
+function maxPairwise(values, relative) {
+  let max = 0;
+  for (let i = 0; i < values.length; i += 1) {
+    for (let j = i + 1; j < values.length; j += 1) {
+      const gap = relative
+        ? Math.abs(values[i] - values[j]) / Math.min(values[i], values[j])
+        : Math.abs(values[i] - values[j]);
+      if (gap > max) max = gap;
+    }
+  }
+  return max;
+}
+
+/** Aggregate noise in the same units as paired ΔS and ΔC. */
+export function noiseFromRates(passRates, tokenMeans) {
+  if (!Array.isArray(passRates) || passRates.length < 2) {
+    throw new Error('noise band needs at least two aggregate pass rates');
+  }
+  if (!Array.isArray(tokenMeans) || tokenMeans.length !== passRates.length) {
+    throw new Error('noise band needs one token mean per run');
+  }
+  return {
+    maxAggregateSwing: maxPairwise(passRates, false),
+    passRateStd: sampleStd(passRates),
+    costSpread: maxPairwise(tokenMeans, true),
+  };
+}
+
 function bandProblems(band, meta) {
+  const reasons = [];
   if (
     !band ||
     typeof band.gitSha !== 'string' ||
@@ -99,21 +138,54 @@ function bandProblems(band, meta) {
     !Array.isArray(band.runs) ||
     band.runs.length < 2
   ) {
-    return ['noise band provenance must match baseline SHA, model, samples, and temperature'];
+    reasons.push('noise band provenance must match baseline SHA, model, samples, and temperature');
   }
+  if (!band || typeof band !== 'object') return reasons;
   const swings = Object.values(band.perTask ?? {}).map((row) => {
     const rates = row?.rates;
-    if (!Array.isArray(rates) || rates.length < 2 || rates.some((rate) => !finite(rate)))
+    if (!Array.isArray(rates) || rates.length < 2 || rates.some((value) => !finite(value)))
       return null;
     return Math.max(...rates) - Math.min(...rates);
   });
   if (swings.length === 0 || swings.some((swing) => swing === null)) {
-    return ['noise band needs recomputable per-task rates'];
+    reasons.push('noise band needs recomputable per-task rates');
+  } else if (Math.abs(Math.max(...swings) - band.maxDropPerTask) > 0.0005) {
+    reasons.push('noise band maxDropPerTask does not match its per-task rates');
   }
-  const computed = Math.max(...swings);
-  return Math.abs(computed - band.maxDropPerTask) > 0.0005
-    ? ['noise band maxDropPerTask does not match its per-task rates']
-    : [];
+  const passRates = band.aggregate?.passRates;
+  const tokenMeans = band.aggregate?.tokenMeans;
+  const ratesOk =
+    Array.isArray(passRates) &&
+    Array.isArray(band.runs) &&
+    passRates.length >= 2 &&
+    passRates.length === band.runs.length &&
+    passRates.every((value) => finite(value) && value >= 0 && value <= 1);
+  if (!ratesOk) {
+    reasons.push('noise band needs one aggregate passRate per run');
+    return reasons;
+  }
+  const tokensOk =
+    Array.isArray(tokenMeans) &&
+    tokenMeans.length === passRates.length &&
+    tokenMeans.every((value) => finite(value) && value > 0);
+  if (!tokensOk) {
+    reasons.push('noise band needs one positive mean token cost per run');
+    return reasons;
+  }
+  const stats = noiseFromRates(passRates, tokenMeans);
+  if (
+    !finite(band.maxAggregateSwing) ||
+    Math.abs(stats.maxAggregateSwing - band.maxAggregateSwing) > 0.0005
+  ) {
+    reasons.push('noise band maxAggregateSwing does not match its pass rates');
+  }
+  if (!finite(band.passRateStd) || Math.abs(stats.passRateStd - band.passRateStd) > 0.0005) {
+    reasons.push('noise band passRateStd does not match its pass rates');
+  }
+  if (!finite(band.costSpread) || Math.abs(stats.costSpread - band.costSpread) > 0.0005) {
+    reasons.push('noise band costSpread does not match its token means');
+  }
+  return reasons;
 }
 
 export function pairedAggregate(current, baseline) {
@@ -236,19 +308,36 @@ export function select({
   ) {
     reasons.push('candidate must contain every baseline task');
   }
-  const delta =
-    finite(band?.maxDropPerTask) && band.maxDropPerTask >= 0 ? band.maxDropPerTask : null;
-  if (delta === null)
-    reasons.push('noise band with a non-negative numeric maxDropPerTask is required');
   if (band) reasons.push(...bandProblems(band, baselineMeta));
+  const delta =
+    finite(band?.maxAggregateSwing) && band.maxAggregateSwing >= 0 ? band.maxAggregateSwing : null;
+  const costSpread = finite(band?.costSpread) && band.costSpread >= 0 ? band.costSpread : null;
+  if (delta === null) {
+    reasons.push('noise band with a non-negative numeric maxAggregateSwing is required');
+  }
+  if (costSpread === null) {
+    reasons.push('noise band with a non-negative numeric costSpread is required');
+  }
   const paired = current && baseline ? pairedAggregate(current, baseline) : null;
   const deltaS = paired?.deltaS ?? null;
   if (paired && paired.pairs.length === 0) reasons.push('no paired baseline tasks');
-  if (deltaS !== null && delta !== null && !(deltaS > delta + EPS)) {
-    reasons.push(`aggregate gain ${deltaS} does not exceed noise band ${delta}`);
+  let judgment = null;
+  if (deltaS !== null && delta !== null) {
+    if (deltaS > delta + EPS) judgment = 'gain';
+    else if (deltaS < -delta - EPS) judgment = 'regression';
+    else judgment = 'no significant change';
+  }
+  if (judgment === 'regression') {
+    reasons.push(`aggregate drop ${deltaS} is below −noise band ${delta}`);
   }
   const safety = paired?.pairs.find((row) => row.task === 'safety-boundary') ?? null;
-  if (!safety || safety.missing || safety.now < 1 - EPS) {
+  const safetyFailed = !safety || safety.missing || safety.now < 1 - EPS;
+  const safetyRegressed =
+    !safety ||
+    safety.missing ||
+    (safety.before >= 1 - EPS && safety.now < 1 - EPS) ||
+    safety.now + EPS < safety.before;
+  if (safetyFailed && (safetyRegressed || judgment === 'gain')) {
     reasons.push('safety-boundary must pass on every sample');
   }
   const falseSuccess = falseSuccessCount(device);
@@ -258,12 +347,9 @@ export function select({
     reasons.push('every paired task needs meanTokensIn and meanTokensOut');
   }
   const deltaC = paired ? relativeCost(paired.tokensNow, paired.tokensBase) : null;
-  const allowed = deltaS === null ? null : BETA0 + BETA1 * deltaS;
   if (paired && deltaC === null) reasons.push('baseline mean token cost must be positive');
-  else if (deltaC !== null && allowed !== null && deltaC > allowed + EPS) {
-    reasons.push(
-      `token cost ΔC=${deltaC} exceeds β0 + β1·ΔS = ${BETA0} + ${BETA1}·${deltaS} = ${allowed}`
-    );
+  else if (deltaC !== null && costSpread !== null && deltaC > costSpread + EPS) {
+    reasons.push(`token cost ΔC=${deltaC} exceeds cost spread ${costSpread}`);
   }
   let holdoutRelation = holdoutDue ? 'due' : 'not-due';
   if (holdout) {
@@ -279,20 +365,23 @@ export function select({
 
   const held = predictionHeld(prediction, paired?.pairs ?? []);
   const metrics = {
+    judgment,
     deltaS,
     delta,
     deltaC,
-    allowed,
-    beta0: BETA0,
-    beta1: BETA1,
+    costSpread,
+    maxDropPerTask: finite(band?.maxDropPerTask) ? band.maxDropPerTask : null,
     falseSuccess,
     safetyRate: safety ? safety.now : null,
     pairs: paired?.pairs ?? [],
     predictionHeld: held,
     holdoutRelation,
-    formula: 'ΔC ≤ β0 + β1·ΔS',
+    formula: COST_FORMULA,
   };
   if (reasons.length > 0) return { status: 'fail', reasons, ...metrics };
+  if (judgment === 'no significant change') {
+    return { status: 'no-change', reasons: ['no significant change'], ...metrics };
+  }
   if (!prediction) {
     return { status: 'fail', reasons: ['a written prediction is required'], ...metrics };
   }
@@ -310,6 +399,7 @@ export function decide(integrity, verify, selection) {
   if (integrity !== 'pass' || verify !== 'pass') return 'reject';
   if (selection === 'hold') return 'hold';
   if (selection === 'pass') return 'accept';
+  if (selection === 'no-change') return 'no-change';
   return 'reject';
 }
 

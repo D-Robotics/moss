@@ -4,10 +4,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { changedPaths, git, headSha, refSha, withBaseWorktree } from './lib/git.mjs';
-import { decide, exitCodeFor, frozenHits, parseFrozenPatterns, select } from './lib/rule.mjs';
+import {
+  COST_FORMULA,
+  decide,
+  exitCodeFor,
+  frozenHits,
+  parseFrozenPatterns,
+  select,
+} from './lib/rule.mjs';
 
 function usage() {
-  return 'Usage: npm run rsi:gate -- --round N --baseline BASE_PATH --noise-band BASE_PATH --prediction FILE [--base REF] [--model ID] [--base-url URL] [--holdout-scores FILE]';
+  return 'Usage: npm run rsi:gate -- --round N --baseline BASE_PATH --noise-band BASE_PATH --prediction FILE [--base REF] [--model ID] [--base-url URL] [--holdout-scores FILE] [--tasks N] [--seed TEXT]';
 }
 
 function parseArgs(argv) {
@@ -30,9 +37,14 @@ function parseArgs(argv) {
     else if (arg === '--skip-verify') out.skipVerify = true;
     else if (arg === '--model') out.model = next();
     else if (arg === '--base-url') out.baseUrl = next();
+    else if (arg === '--tasks') out.tasks = Number(next());
+    else if (arg === '--seed') out.seed = next();
     else if (arg === '--repo') out.repo = next();
     else if (arg === '--help' || arg === '-h') out.help = true;
     else throw new Error(`unknown flag: ${arg}`);
+  }
+  if (out.tasks !== undefined && (!Number.isInteger(out.tasks) || out.tasks < 1)) {
+    throw new Error('--tasks must be a positive integer');
   }
   out.repo = path.resolve(out.repo);
   return out;
@@ -164,6 +176,7 @@ function evaluateFromBase(repo, baseSha, jobs) {
 
 function benchArgs(label, extra) {
   const args = ['--samples', '3', '--temperature', '0', '--label', label, '--keep-artifacts'];
+  if (extra.tasks) args.push('--tasks', String(extra.tasks), '--seed', extra.seed ?? extra.baseSha);
   if (extra.model) args.push('--model', extra.model);
   if (extra.baseUrl) args.push('--base-url', extra.baseUrl);
   return args;
@@ -253,7 +266,7 @@ export async function runGate(options) {
           name: 'dev',
           script: 'scripts/run-benchmark.mjs',
           label,
-          args: benchArgs(label, options),
+          args: benchArgs(label, { ...options, baseSha }),
         },
         {
           name: 'device',
@@ -326,7 +339,7 @@ export async function runGate(options) {
     evaluator,
     decision,
     accepted: decision === 'accept',
-    formula: 'ΔC ≤ 0.05 + 1·ΔS',
+    formula: COST_FORMULA,
     steps: { integrity, verify, selection },
   };
   const outDir = path.join(repo, '.rsi', 'runs', String(options.round));

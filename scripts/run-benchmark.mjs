@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { releaseBenchWorkspace } from './lib/bench-artifacts.mjs';
 
@@ -35,6 +35,11 @@ function usage() {
     'Flags:',
     '  --samples <n>        Runs per task (default 3)',
     '  --task <substr>      Only run tasks whose id contains <substr> (repeatable)',
+    '  --tasks <n>          Random subset of n tasks. safety-boundary stays in the',
+    '                       sample when it is in the pool. Same --seed draws the',
+    '                       same subset. Default seed is moss-bench. Re-measure',
+    '                       bench:noise on that subset; do not reuse a larger band.',
+    '  --seed <text>        Seed for --tasks (default moss-bench)',
     '  --temperature <t>    Pin MOSS_TEMPERATURE (default 0; "none" leaves it unset)',
     '  --model <id>         Override the benchmark model id',
     '  --base-url <url>     Override the provider base URL',
@@ -75,6 +80,8 @@ function parseArgs(argv) {
     };
     if (arg === '--samples') out.samples = Number(next());
     else if (arg === '--task') out.taskFilters.push(next());
+    else if (arg === '--tasks') out.tasks = Number(next());
+    else if (arg === '--seed') out.seed = next();
     else if (arg === '--baseline') out.baseline = next();
     else if (arg === '--capability-gate') out.capabilityGate = next();
     else if (arg === '--temperature') {
@@ -90,7 +97,44 @@ function parseArgs(argv) {
   }
   if (!Number.isInteger(out.samples) || out.samples < 1)
     throw new Error('--samples must be a positive integer');
+  if (out.tasks !== undefined && (!Number.isInteger(out.tasks) || out.tasks < 1))
+    throw new Error('--tasks must be a positive integer');
   return out;
+}
+
+function hashSeed(text) {
+  let hash = 2166136261;
+  const value = String(text);
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function mulberry32(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let mixed = Math.imul(state ^ (state >>> 15), 1 | state);
+    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Stable subset. safety-boundary is kept when present. */
+export function sampleTaskIds(ids, count, seed = 'moss-bench') {
+  if (!Number.isInteger(count) || count < 1) throw new Error('--tasks must be a positive integer');
+  const unique = [...new Set(ids)].sort();
+  if (count > unique.length) throw new Error(`--tasks ${count} exceeds ${unique.length} tasks`);
+  const pinned = unique.includes('safety-boundary') ? ['safety-boundary'] : [];
+  const rest = unique.filter((id) => id !== 'safety-boundary');
+  const random = mulberry32(hashSeed(seed));
+  for (let i = rest.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    [rest[i], rest[j]] = [rest[j], rest[i]];
+  }
+  return [...pinned, ...rest.slice(0, count - pinned.length)].sort();
 }
 
 function loadQoderDeepseekProvider() {
@@ -273,7 +317,19 @@ async function main() {
     console.log(usage());
     return;
   }
-  const tasks = loadTasks(args.taskFilters);
+  let tasks = loadTasks(args.taskFilters);
+  if (args.tasks) {
+    const seed = args.seed ?? 'moss-bench';
+    const ids = sampleTaskIds(
+      tasks.map((task) => task.id),
+      args.tasks,
+      seed
+    );
+    const chosen = new Set(ids);
+    tasks = tasks.filter((task) => chosen.has(task.id));
+    args.seed = seed;
+    console.log(`[bench] task sample n=${tasks.length} seed=${seed} ids=${ids.join(',')}`);
+  }
   if (args.list) {
     for (const task of tasks)
       console.log(
@@ -505,6 +561,11 @@ async function main() {
       baseUrl: provider.baseUrl,
       temperature: args.temperature ?? 'unset',
       samples: args.samples,
+      ...(args.tasks
+        ? {
+            taskSample: { count: tasks.length, seed: args.seed, ids: tasks.map((task) => task.id) },
+          }
+        : {}),
     },
     overall: {
       passes: rows.filter((r) => r.pass).length,
@@ -617,7 +678,15 @@ function timedOutOrCrashed(run, metrics) {
   return false;
 }
 
-main().catch((err) => {
-  console.error(`[bench] ${err instanceof Error ? err.message : String(err)}`);
-  process.exit(2);
-});
+function isDirect() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  return import.meta.url === pathToFileURL(path.resolve(entry)).href;
+}
+
+if (isDirect()) {
+  main().catch((err) => {
+    console.error(`[bench] ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(2);
+  });
+}
