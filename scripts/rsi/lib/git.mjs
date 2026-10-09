@@ -1,4 +1,7 @@
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 export function git(repo, args) {
   return spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
@@ -20,19 +23,19 @@ function lines(text) {
     .filter(Boolean);
 }
 
-/** Committed `base..HEAD` plus staged and unstaged edits, so a dirty tree cannot bypass G0. */
+/** Committed `base..HEAD` plus staged, unstaged, and untracked paths. */
 export function changedPaths(repo, base) {
   const chunks = [
-    git(repo, ['diff', '--name-only', `${base}..HEAD`]),
-    git(repo, ['diff', '--name-only', '--cached']),
-    git(repo, ['diff', '--name-only']),
-    git(repo, ['ls-files', '--others', '--exclude-standard']),
+    ['diff', '--name-only', `${base}..HEAD`],
+    ['diff', '--name-only', '--cached'],
+    ['diff', '--name-only'],
+    ['ls-files', '--others', '--exclude-standard'],
   ];
   const paths = new Set();
-  for (const result of chunks) {
+  for (const args of chunks) {
+    const result = git(repo, args);
     if (result.status !== 0) {
-      const detail = (result.stderr || '').trim();
-      throw new Error(detail || `git diff failed against ${base}`);
+      throw new Error((result.stderr || `git ${args[0]} failed against ${base}`).trim());
     }
     for (const file of lines(result.stdout)) paths.add(file.replaceAll('\\', '/'));
   }
@@ -47,15 +50,20 @@ export function refSha(repo, ref) {
   return gitOk(repo, ['rev-parse', `${ref}^{commit}`]).trim();
 }
 
-export function netLineChange(repo, base) {
-  const stdout = gitOk(repo, ['diff', '--numstat', base]);
-  let additions = 0;
-  let deletions = 0;
-  for (const line of lines(stdout)) {
-    const [added, deleted] = line.split('\t');
-    if (!/^\d+$/.test(added) || !/^\d+$/.test(deleted)) continue;
-    additions += Number(added);
-    deletions += Number(deleted);
+/** Check out `base` in a temporary worktree and remove it when `run` returns. */
+export function withBaseWorktree(repo, base, run) {
+  const sha = refSha(repo, base);
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-rsi-base-'));
+  const dir = path.join(parent, 'wt');
+  const added = git(repo, ['worktree', 'add', '--detach', dir, sha]);
+  if (added.status !== 0) {
+    fs.rmSync(parent, { recursive: true, force: true });
+    throw new Error((added.stderr || 'git worktree add failed').trim());
   }
-  return { additions, deletions, net: additions - deletions };
+  try {
+    return run(dir, sha);
+  } finally {
+    git(repo, ['worktree', 'remove', '--force', dir]);
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
 }

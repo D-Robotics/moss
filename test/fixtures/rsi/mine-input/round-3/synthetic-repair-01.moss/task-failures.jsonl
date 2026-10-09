@@ -1,2 +1,0 @@
-{"failureId":"f1","taskId":"synthetic-repair","symptom":"metric camera_fps below bar","attempt":1,"resolved":false,"timestamp":1}
-{"failureId":"f2","taskId":"synthetic-repair","symptom":"metric camera_fps below bar","attempt":2,"resolved":false,"timestamp":2}

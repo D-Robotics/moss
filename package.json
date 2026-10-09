@@ -33,7 +33,6 @@
     "bench:deepswe": "node scripts/bench-deepswe.mjs",
     "bench:tui-feel": "npm run build && node scripts/tui-feel/run.mjs",
     "rsi:gate": "node scripts/rsi/gate.mjs",
-    "rsi:mine": "node scripts/rsi/mine-failures.mjs",
     "rsi:ledger": "node scripts/rsi/ledger.mjs",
     "bench:tb": "node scripts/bench-tbench.mjs",
     "bench:device": "npm run build && node scripts/bench-device.mjs",

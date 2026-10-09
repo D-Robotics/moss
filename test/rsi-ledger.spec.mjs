@@ -20,41 +20,37 @@ function blankEntry(round) {
     branch: null,
     baseSha: null,
     headSha: null,
-    backlogItem: null,
+    parent: null,
     hypothesis: null,
+    prediction: null,
+    predictionHeld: null,
     changedPaths: null,
-    tier: null,
-    gates: { G0: null, G1: null, G2: null, G3: null, G4: null, G5: null, G6: null, G7: null },
-    dev: { hardScore: null, weighted: null },
+    dev: { score: null, baseline: null, deltaS: null },
     holdout: { score: null, band: null },
     cost: { tokens: null, usd: null, wallMin: null },
-    reviewer: { model: null, verdict: null },
     decision: null,
   };
 }
 
-test('committed rounds 1-2 backfill has null scores', () => {
+test('committed rounds 1-2 backfill has null scores and a null prediction', () => {
   const entries = loadLedger(ledgerPath);
   assert.equal(entries.length, 1);
   const row = entries[0];
   assert.equal(row.round, '1-2');
   assert.equal(row.decision, 'merged');
+  assert.equal(row.parent, null);
+  assert.equal(row.prediction, null);
+  assert.equal(row.predictionHeld, null);
   assert.equal(row.dev.hardScore, null);
-  assert.equal(row.dev.weighted, null);
   assert.equal(row.holdout.score, null);
-  assert.equal(row.holdout.band, null);
   assert.equal(row.cost.tokens, null);
-  assert.equal(row.cost.usd, null);
-  assert.equal(row.cost.wallMin, null);
-  assert.equal(row.reviewer.model, null);
-  assert.equal(row.reviewer.verdict, null);
   assert.ok(Array.isArray(row.changedPaths));
   assert.ok(row.changedPaths.length > 0);
   const numbers = row.prs.map((pr) => pr.number).sort((a, b) => a - b);
   assert.deepEqual(numbers, [2, 3, 4, 5, 6]);
 });
 
-test('append validates and rejects a duplicate round', () => {
+test('append requires a prediction object and rejects a duplicate round', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-rsi-ledger-'));
   const file = path.join(dir, 'ledger.jsonl');
   appendEntry(file, blankEntry(3));
@@ -62,11 +58,17 @@ test('append validates and rejects a duplicate round', () => {
   assert.throws(() => appendEntry(file, blankEntry(3)), /duplicate round/);
   assert.throws(() => validateEntry({ round: 4 }), /missing/);
   const bad = blankEntry(5);
-  bad.tier = 'C';
-  assert.throws(() => validateEntry(bad), /tier/);
+  bad.prediction = { tasks: [], why: '' };
+  assert.throws(() => validateEntry(bad), /prediction/);
   const leaked = blankEntry(6);
   leaked.apiKey = 'must-not-enter-ledger';
   assert.throws(() => validateEntry(leaked), /sensitive data/);
+  const checked = blankEntry(7);
+  checked.prediction = { tasks: ['safety-boundary'], why: 'the check should pass more often' };
+  checked.predictionHeld = false;
+  checked.decision = 'reject';
+  appendEntry(file, checked);
+  assert.equal(loadLedger(file)[1].predictionHeld, false);
 });
 
 test('ledger CLI refuses when RSI is disabled', () => {
