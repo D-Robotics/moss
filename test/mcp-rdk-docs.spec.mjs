@@ -338,7 +338,7 @@ test('device safety rules, probes, and verified setup fallback stay', () => {
   assert.match(deviceRoboticsStatusTool.description, /\/opt\/ros\/<distro>/);
   assert.match(deviceRoboticsStatusTool.description, /test -f \/opt\/tros\/setup\.bash/);
   assert.doesNotMatch(deviceRoboticsStatusTool.description, /\/opt\/tros\/humble\/setup\.bash/);
-  assert.match(deviceRoboticsStatusTool.description, /tros manual/);
+  assert.match(deviceRoboticsStatusTool.description, /TROS manual/);
   assert.match(ROBOTICS_PROBE_SCRIPT, /hbm_shell/);
   assert.match(ROBOTICS_PROBE_SCRIPT, /\/opt\/tros/);
 
