@@ -27,20 +27,42 @@ export interface AcceptanceResult {
 
 export const DEFAULT_ACCEPTANCE_TIMEOUT_MS = 5 * 60_000;
 
+/**
+ * Shell invocation for an acceptance command.
+ *
+ * On Windows, Node's default spawn quoting escapes embedded `"` as `\"`.
+ * `cmd.exe /s /c` does not treat that backslash as an escape, so the quote
+ * characters become part of the filename (`Cannot find module 'D:\repo\"D:\repo\script.mjs"'`).
+ * `child_process.exec` avoids this by wrapping the command in one extra pair of
+ * quotes and setting `windowsVerbatimArguments`: `/s` strips exactly that
+ * wrapper and cmd parses the original command.
+ */
+export function acceptanceShell(
+  command: string,
+  platform: NodeJS.Platform = process.platform
+): { cmd: string; args: string[]; windowsVerbatimArguments?: boolean } {
+  if (platform === 'win32') {
+    return {
+      cmd: process.env.COMSPEC ?? 'cmd.exe',
+      args: ['/d', '/s', '/c', `"${command}"`],
+      windowsVerbatimArguments: true,
+    };
+  }
+  return { cmd: 'bash', args: ['-lc', command] };
+}
+
 export async function runAcceptanceCommand(
   spec: AcceptanceSpec,
   signal?: AbortSignal
 ): Promise<AcceptanceResult> {
   const endedAt = Date.now();
-  const shell =
-    process.platform === 'win32'
-      ? { cmd: process.env.COMSPEC ?? 'cmd.exe', args: ['/d', '/s', '/c', spec.command] }
-      : { cmd: 'bash', args: ['-lc', spec.command] };
+  const shell = acceptanceShell(spec.command);
   try {
     const res = await runProcess(shell.cmd, {
       args: shell.args,
       timeout: spec.timeoutMs ?? DEFAULT_ACCEPTANCE_TIMEOUT_MS,
       signal,
+      ...(shell.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
     const combined = `${res.stdout}\n${res.stderr}`.trim();
     return {

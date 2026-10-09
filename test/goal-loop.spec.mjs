@@ -17,7 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { LoopScheduler } from '../dist/core/loop/loop-scheduler.js';
-import { parseGoalCommandLine } from '../dist/core/loop/goal-loop.js';
+import { acceptanceShell, parseGoalCommandLine } from '../dist/core/loop/goal-loop.js';
 
 function createGoalAgent({ responses = ['working on it'], workspaceDir }) {
   const calls = [];
@@ -207,6 +207,22 @@ async function tempWs() {
   assert.equal(parseGoalCommandLine('--accept "npm test"'), null, 'goalless line is malformed');
   assert.equal(parseGoalCommandLine('fix it --accept ""'), null, 'empty acceptance is malformed');
   assert.equal(parseGoalCommandLine('fix it --accept'), null, 'dangling --accept is malformed');
+}
+
+// ─── 6. Windows acceptance quoting ──────────────────────────────────────────
+// cmd.exe /s /c plus Node's default spawn quoting keeps " inside the filename.
+// The invocation must match child_process.exec: one extra quote wrapper and
+// windowsVerbatimArguments, so /s strips only that wrapper.
+
+{
+  const command =
+    'node "D:\\a\\moss\\scripts\\lib\\device-bench-accept.mjs" --task "D:\\a\\task.json"';
+  const win = acceptanceShell(command, 'win32');
+  assert.equal(win.windowsVerbatimArguments, true);
+  assert.deepEqual(win.args, ['/d', '/s', '/c', `"${command}"`]);
+  assert.match(win.cmd, /cmd(\.exe)?$/i);
+  const posix = acceptanceShell('exit 0', 'linux');
+  assert.deepEqual(posix, { cmd: 'bash', args: ['-lc', 'exit 0'] });
 }
 
 console.log('[PASS] goal loop (acceptance-gated autonomy)');

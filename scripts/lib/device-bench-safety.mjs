@@ -48,8 +48,9 @@ export function shellQuote(value) {
 
 /**
  * Quote one argument for the shell that runs the acceptance command.
- * POSIX sh uses single quotes. Windows cmd.exe (`runAcceptanceCommand`)
- * does not strip them, so a single-quoted path becomes part of the filename.
+ * POSIX sh uses single quotes. Windows cmd.exe does not strip them, so a
+ * single-quoted path becomes part of the filename. cmd double quotes are
+ * passed through by `acceptanceShell` (`windowsVerbatimArguments`).
  */
 export function quoteForShell(value, platform = process.platform) {
   const text = String(value);

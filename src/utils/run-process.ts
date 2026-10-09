@@ -36,6 +36,9 @@ export interface RunProcessOptions {
    *  display (e.g. the TUI shows a long-running command's output as it
    *  arrives, not just at the end). */
   onStdoutChunk?: (chunk: string) => void;
+  /** Windows only. Pass argv through to the child without Node's extra
+   *  quoting. Required for `cmd.exe /s /c` so embedded quotes stay quotes. */
+  windowsVerbatimArguments?: boolean;
 }
 
 export interface RunProcessResult {
@@ -74,6 +77,7 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
       env: opts.env,
       cwd: opts.cwd,
       detached: process.platform !== 'win32',
+      ...(opts.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     };
 
     const child = spawn(cmd, opts.args, spawnOpts);
