@@ -1,2 +1,0 @@
-{"type":"assistant","message":{"content":[{"type":"tool_use","name":"task_define","input":{"goal":"synthetic"}}]}}
-{"type":"result","subtype":"success","is_error":false,"result":"stopped"}

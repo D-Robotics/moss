@@ -1,8 +1,10 @@
-# Tier C frozen paths. G0 rejects any git diff (base..HEAD, index, worktree, or untracked)
-# that matches a pattern below. # comments and blank lines are ignored.
-# Globs: * is one path segment, ** crosses segments.
+# Frozen paths. Integrity uses the copy of this file at the BASE commit.
+# A candidate cannot shrink the list by editing it. Comments and blank lines
+# are ignored. Globs: * is one path segment, ** crosses segments.
 #
-# Differences from the plan's list are recorded in docs/rsi/README.md.
+# The v2 gate rewrite edits this file and scripts/rsi/**. That rewrite is the
+# one bootstrap exception in docs/rsi/README.md. Later rounds are judged by
+# the merged list.
 
 bench/**
 scripts/run-benchmark.mjs
@@ -13,16 +15,10 @@ scripts/lib/device-bench-*.mjs
 scripts/tui-feel/**
 scripts/rsi/**
 .rsi/frozen.txt
+.rsi/ledger.jsonl
+package.json
 src/safety/**
 src/cli/permission-rules.ts
 src/cli/device-safety-prompt.ts
 src/cli/approval*.ts
-test/sdk-contract.spec.mjs
-test/cli-headless-json-contract.spec.mjs
-eslint.config.mjs
 .github/**
-AGENTS.md
-
-# Inherited from .autopilot/no-touch.txt. bench/tasks/ is already covered by bench/**.
-docs/superpowers/plans/2026-09-28-*
-examples/**

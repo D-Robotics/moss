@@ -1,65 +1,37 @@
 #!/usr/bin/env node
-/**
- * Append or validate `.rsi/ledger.jsonl`.
- * One JSON object per line. Historical rows may use null where a score was never recorded.
- */
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { sensitiveDataPaths } from './lib/secrets.mjs';
 
-const GATE_KEYS = ['G0', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7'];
-const DECISIONS = new Set([
-  'accept',
-  'neutral',
-  'reject',
-  'pending-holdout',
-  'merged',
-  'rolled_back',
-  null,
-]);
-const TIERS = new Set(['A', 'B', null]);
+const DECISIONS = new Set(['accept', 'reject', 'hold', 'merged', 'rolled_back', null]);
 const REQUIRED = [
   'round',
   'branch',
   'baseSha',
   'headSha',
-  'backlogItem',
+  'parent',
   'hypothesis',
+  'prediction',
+  'predictionHeld',
   'changedPaths',
-  'tier',
-  'gates',
   'dev',
   'holdout',
   'cost',
-  'reviewer',
   'decision',
 ];
-
-function usage() {
-  return [
-    'Usage: npm run rsi:ledger -- [--validate] [--append <file>] [--ledger <path>] [--repo <path>]',
-    '',
-    'Default action is --validate of .rsi/ledger.jsonl.',
-    'Append refuses a duplicate round. Null fields are allowed when the value was not recorded.',
-  ].join('\n');
-}
+const SENSITIVE =
+  /^(?:api[-_]?key|authorization|password|passphrase|secret|access[-_]?token|refresh[-_]?token|private[-_]?key)$/i;
 
 function parseArgs(argv) {
-  const out = { repo: process.cwd(), validate: false, append: null };
+  const out = { repo: process.cwd() };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    const next = () => {
-      const value = argv[++i];
-      if (value === undefined) throw new Error(`${arg} requires a value`);
-      return value;
-    };
-    if (arg === '--validate') out.validate = true;
-    else if (arg === '--append') out.append = next();
-    else if (arg === '--ledger') out.ledger = next();
-    else if (arg === '--repo') out.repo = next();
+    if (arg === '--validate') continue;
     else if (arg === '--help' || arg === '-h') out.help = true;
-    else throw new Error(`unknown flag: ${arg}`);
+    else if (['--append', '--ledger', '--repo'].includes(arg)) {
+      if (argv[i + 1] === undefined) throw new Error(`${arg} requires a value`);
+      out[arg.slice(2)] = argv[++i];
+    } else throw new Error(`unknown flag: ${arg}`);
   }
   out.repo = path.resolve(out.repo);
   out.ledger = path.resolve(out.repo, out.ledger ?? path.join('.rsi', 'ledger.jsonl'));
@@ -68,67 +40,75 @@ function parseArgs(argv) {
   return out;
 }
 
-function hasKeys(object, keys, where) {
-  if (!object || typeof object !== 'object' || Array.isArray(object)) {
-    throw new Error(`${where} must be an object`);
-  }
-  for (const key of keys) {
-    if (!Object.hasOwn(object, key)) throw new Error(`${where}.${key} is missing`);
-  }
+function sensitiveDataPaths(value) {
+  const hits = [];
+  const visit = (item, at) => {
+    if (!item || typeof item !== 'object') return;
+    if (Array.isArray(item)) {
+      item.forEach((child, index) => visit(child, `${at}[${index}]`));
+      return;
+    }
+    for (const [key, child] of Object.entries(item)) {
+      const next = at ? `${at}.${key}` : key;
+      if (SENSITIVE.test(key) && child != null && child !== '') hits.push(next);
+      visit(child, next);
+    }
+  };
+  visit(value, '');
+  return [...new Set(hits)].sort();
+}
+
+function isObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 export function validateEntry(entry, index) {
   const where = index === undefined ? 'entry' : `line ${index + 1}`;
-  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-    throw new Error(`${where}: not an object`);
-  }
+  if (!isObject(entry)) throw new Error(`${where}: not an object`);
   const sensitive = sensitiveDataPaths(entry);
-  if (sensitive.length > 0) {
+  if (sensitive.length)
     throw new Error(`${where}: sensitive data is not allowed (${sensitive.join(', ')})`);
-  }
   for (const key of REQUIRED) {
     if (!Object.hasOwn(entry, key)) throw new Error(`${where}: missing ${key}`);
   }
-  if (!TIERS.has(entry.tier)) throw new Error(`${where}: tier must be "A", "B", or null`);
   if (!DECISIONS.has(entry.decision)) throw new Error(`${where}: decision is not allowed`);
-  if (entry.changedPaths !== null && !Array.isArray(entry.changedPaths)) {
+  if (entry.changedPaths !== null && !Array.isArray(entry.changedPaths))
     throw new Error(`${where}: changedPaths must be an array or null`);
+  if (entry.parent !== null && typeof entry.parent !== 'string')
+    throw new Error(`${where}: parent must be a sha or null`);
+  if (entry.prediction !== null) {
+    const { tasks, why } = entry.prediction ?? {};
+    if (
+      !Array.isArray(tasks) ||
+      tasks.length === 0 ||
+      tasks.some((task) => typeof task !== 'string') ||
+      typeof why !== 'string' ||
+      !why.trim()
+    ) {
+      throw new Error(`${where}: prediction must be null or { tasks, why }`);
+    }
   }
-  if (entry.gates === null || typeof entry.gates !== 'object' || Array.isArray(entry.gates)) {
-    throw new Error(`${where}: gates must be an object`);
-  }
-  for (const gate of GATE_KEYS) {
-    if (!Object.hasOwn(entry.gates, gate)) throw new Error(`${where}: gates.${gate} is missing`);
-  }
-  hasKeys(entry.dev, ['hardScore', 'weighted'], `${where}: dev`);
-  hasKeys(entry.holdout, ['score', 'band'], `${where}: holdout`);
-  hasKeys(entry.cost, ['tokens', 'usd', 'wallMin'], `${where}: cost`);
-  hasKeys(entry.reviewer, ['model', 'verdict'], `${where}: reviewer`);
-  if (
-    entry.rollback !== undefined &&
-    entry.rollback !== null &&
-    typeof entry.rollback !== 'object'
-  ) {
-    throw new Error(`${where}: rollback must be an object or null`);
+  if (entry.predictionHeld !== null && typeof entry.predictionHeld !== 'boolean')
+    throw new Error(`${where}: predictionHeld must be true, false, or null`);
+  for (const key of ['dev', 'holdout', 'cost']) {
+    if (entry[key] !== null && !isObject(entry[key]))
+      throw new Error(`${where}: ${key} must be an object or null`);
   }
 }
 
 export function loadLedger(file) {
   if (!fs.existsSync(file)) throw new Error(`missing ledger ${file}`);
-  const text = fs.readFileSync(file, 'utf8');
   const entries = [];
-  const lines = text.split('\n');
-  for (let index = 0; index < lines.length; index += 1) {
-    if (!lines[index].trim()) continue;
-    let entry;
+  for (const [index, line] of fs.readFileSync(file, 'utf8').split('\n').entries()) {
+    if (!line.trim()) continue;
     try {
-      entry = JSON.parse(lines[index]);
+      const entry = JSON.parse(line);
+      validateEntry(entry, index);
+      entries.push(entry);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`line ${index + 1}: ${message}`, { cause: error });
     }
-    validateEntry(entry, index);
-    entries.push(entry);
   }
   const seen = new Set();
   for (const entry of entries) {
@@ -161,19 +141,13 @@ function refuseIfStopped(repo) {
   }
 }
 
-function isDirect() {
-  const entry = process.argv[1];
-  if (!entry) return false;
-  return import.meta.url === pathToFileURL(path.resolve(entry)).href;
-}
-
-if (isDirect()) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   let args;
   try {
     args = parseArgs(process.argv.slice(2));
     if (args.help) {
       refuseIfStopped(args.repo);
-      console.log(usage());
+      console.log('Usage: npm run rsi:ledger -- [--validate] [--append <file>]');
       process.exit(0);
     }
     refuseIfStopped(args.repo);

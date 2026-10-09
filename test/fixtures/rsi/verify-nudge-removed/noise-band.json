@@ -1,8 +1,0 @@
-{
-  "synthetic": true,
-  "gitSha": "synthetic",
-  "runs": ["synthetic-a", "synthetic-b", "synthetic-c"],
-  "samplesPerRun": 3,
-  "maxDropPerTask": 0,
-  "perTask": {}
-}

@@ -1,5 +1,0 @@
-{"type":"assistant","message":{"content":[{"type":"tool_use","name":"read_file","input":{"path":"a.js"}}]}}
-{"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":"MossError: TOOL_EXECUTION_FAILED"}]}}
-{"type":"assistant","message":{"content":[{"type":"tool_use","name":"read_file","input":{"path":"a.js"}}]}}
-{"type":"user","message":{"content":[{"type":"tool_result","content":"[moss-agent] Tool loop guard stopped another read_file call: same path."}]}}
-{"type":"result","subtype":"error_during_execution","is_error":true}

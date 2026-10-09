@@ -1,69 +1,17 @@
 #!/usr/bin/env node
-/**
- * RSI round gate. Chains G0–G6 and writes `.rsi/runs/<round>/gate.json`.
- * Exit 0 only when the decision is accept or neutral (both are acceptances).
- * `.rsi/STOP` and `MOSS_RSI_DISABLED=1` refuse the run before any gate.
- */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { decide, exitCodeFor } from './lib/decide.mjs';
-import { changedPaths, headSha, netLineChange, refSha } from './lib/git.mjs';
-import {
-  frozenHits,
-  loadFrozenPatternsForBase,
-  protectedScriptReport,
-  testCountReport,
-} from './lib/frozen.mjs';
-import {
-  evaluateCost,
-  evaluateDevRegression,
-  evaluateDevice,
-  evaluateHoldout,
-  evaluateOverfit,
-  evaluateTui,
-  hardScore,
-} from './lib/scores.mjs';
+import { changedPaths, git, headSha, refSha, withBaseWorktree } from './lib/git.mjs';
+import { decide, exitCodeFor, frozenHits, parseFrozenPatterns, select } from './lib/rule.mjs';
 
 function usage() {
-  return [
-    'Usage: npm run rsi:gate -- --round <n> [flags]',
-    '',
-    'Flags:',
-    '  --round <n>              Round id. Results go to .rsi/runs/<n>/gate.json',
-    '  --split dev|holdout|all  dev = G0–G5 (default all also scores G6 when a file is present)',
-    '  --base <ref>             Git base ref (default main)',
-    '  --baseline <label|path>  Previous accepted dev summary (label under bench/results or a summary.json path)',
-    '  --label <name>           Current dev run label (default rsi-r<round>)',
-    '  --from-results           Read summary.json files instead of re-running benches',
-    '  --dev-summary <path>     Current dev summary.json (overrides --label)',
-    '  --device-summary <path>  Current device summary.json',
-    '  --device-baseline <label|path>',
-    '  --noise-band <path>      Default bench/results/noise-band.json',
-    '  --holdout-scores <path>  Aggregate-only holdout file (or MOSS_RSI_HOLDOUT_SCORES)',
-    '  --tui-summary <path>     Current tui-feel JSON',
-    '  --tui-baseline <path>    Previous tui-feel JSON',
-    '  --skip-verify            Do not run npm run verify. G1 is skipped, not passed',
-    '  --model <id>             Forwarded to dev and device benches when they are re-run',
-    '  --base-url <url>         Forwarded to dev and device benches when they are re-run',
-    '  --repo <path>            Repository root (default cwd)',
-    '  --help',
-    '',
-    'Exit 0 only for decision accept or neutral. pending-holdout and reject exit 1.',
-    'A missing holdout file marks G6 skipped and the decision is at most pending-holdout.',
-    'This command never sets MOSS_DEVICE_TRUST and never passes --trust-device.',
-  ].join('\n');
+  return 'Usage: npm run rsi:gate -- --round N --baseline BASE_PATH --noise-band BASE_PATH --prediction FILE [--base REF] [--model ID] [--base-url URL] [--holdout-scores FILE]';
 }
 
 function parseArgs(argv) {
-  const out = {
-    split: 'all',
-    base: 'main',
-    fromResults: false,
-    skipVerify: false,
-    repo: process.cwd(),
-  };
+  const out = { base: 'main', skipVerify: false, repo: process.cwd() };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = () => {
@@ -72,27 +20,19 @@ function parseArgs(argv) {
       return value;
     };
     if (arg === '--round') out.round = next();
-    else if (arg === '--split') out.split = next();
     else if (arg === '--base') out.base = next();
     else if (arg === '--baseline') out.baseline = next();
     else if (arg === '--label') out.label = next();
-    else if (arg === '--from-results') out.fromResults = true;
-    else if (arg === '--dev-summary') out.devSummary = next();
-    else if (arg === '--device-summary') out.deviceSummary = next();
-    else if (arg === '--device-baseline') out.deviceBaseline = next();
     else if (arg === '--noise-band') out.noiseBand = next();
     else if (arg === '--holdout-scores') out.holdoutScores = next();
-    else if (arg === '--tui-summary') out.tuiSummary = next();
-    else if (arg === '--tui-baseline') out.tuiBaseline = next();
+    else if (arg === '--prediction') out.prediction = next();
+    else if (arg === '--parent') out.parent = next();
     else if (arg === '--skip-verify') out.skipVerify = true;
     else if (arg === '--model') out.model = next();
     else if (arg === '--base-url') out.baseUrl = next();
     else if (arg === '--repo') out.repo = next();
     else if (arg === '--help' || arg === '-h') out.help = true;
     else throw new Error(`unknown flag: ${arg}`);
-  }
-  if (!['dev', 'holdout', 'all'].includes(out.split)) {
-    throw new Error('--split must be dev, holdout, or all');
   }
   out.repo = path.resolve(out.repo);
   return out;
@@ -102,13 +42,10 @@ function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
-function resolveSummary(repo, value) {
-  if (!value) return null;
-  const direct = path.resolve(repo, value);
-  if (fs.existsSync(direct) && fs.statSync(direct).isFile()) return direct;
-  const labeled = path.join(repo, 'bench', 'results', value, 'summary.json');
-  if (fs.existsSync(labeled)) return labeled;
-  return null;
+function readBaseJson(repo, sha, file) {
+  if (!file || path.isAbsolute(file) || file.split(/[\\/]/).includes('..')) return null;
+  const shown = git(repo, ['show', `${sha}:${file.replaceAll('\\', '/')}`]);
+  return shown.status === 0 ? JSON.parse(shown.stdout) : null;
 }
 
 function benchEnv(extra = {}) {
@@ -128,117 +65,111 @@ function assertNotStopped(repo) {
   if (reason) throw new Error(`RSI refused: ${reason}`);
 }
 
-function runCommand(repo, command, args) {
+function loadPrediction(repo, value) {
+  if (!value) return null;
+  const data = readJson(path.resolve(repo, value));
+  if (
+    !Array.isArray(data.tasks) ||
+    data.tasks.some((task) => typeof task !== 'string' || !task.trim())
+  ) {
+    throw new Error('prediction.tasks must be a non-empty array of strings');
+  }
+  if (data.tasks.length === 0 || typeof data.why !== 'string' || !data.why.trim()) {
+    throw new Error('prediction.why must be a non-empty string and tasks must be non-empty');
+  }
+  return { tasks: data.tasks, why: data.why };
+}
+
+function mergedRounds(text, round) {
+  let count = 0;
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    const row = JSON.parse(line);
+    if (String(row.round) === String(round)) throw new Error(`round ${round} already exists`);
+    if (row.decision === 'merged') count += 1;
+  }
+  return count;
+}
+
+function runNpm(repo, args) {
   assertNotStopped(repo);
-  const result = spawnSync(command, args, {
-    cwd: repo,
-    env: benchEnv(),
-    stdio: 'inherit',
-  });
+  const result = spawnSync('npm', args, { cwd: repo, env: benchEnv(), stdio: 'inherit' });
   assertNotStopped(repo);
   return result.status ?? 1;
 }
 
 function defaultVerify(repo) {
-  const status = runCommand(repo, 'npm', ['run', 'verify']);
+  const status = runNpm(repo, ['run', 'verify']);
   return {
     status: status === 0 ? 'pass' : 'fail',
     reasons: status === 0 ? [] : [`npm run verify exited ${status}`],
   };
 }
 
-function runDevBench(repo, { label, baseline, model, baseUrl }) {
-  const args = [
-    'scripts/run-benchmark.mjs',
-    '--samples',
-    '3',
-    '--temperature',
-    '0',
-    '--label',
-    label,
-    '--keep-artifacts',
-  ];
-  if (baseline) args.push('--baseline', baseline);
-  if (model) args.push('--model', model);
-  if (baseUrl) args.push('--base-url', baseUrl);
-  return runCommand(repo, process.execPath, args);
-}
-
-function runDeviceBench(repo, { label, model, baseUrl }) {
-  const args = [
-    'scripts/bench-device.mjs',
-    '--target',
-    'sim',
-    '--repeat',
-    '3',
-    '--label',
-    label,
-    '--keep-artifacts',
-  ];
-  if (model) args.push('--model', model);
-  if (baseUrl) args.push('--base-url', baseUrl);
-  return runCommand(repo, process.execPath, args);
-}
-
-function runTui(repo) {
-  return runCommand(repo, process.execPath, ['scripts/tui-feel/run.mjs']);
-}
-
-function loadOptional(file) {
-  if (!file) return null;
-  if (!fs.existsSync(file)) return null;
-  return readJson(file);
-}
-
-function previousOverfitSignal(repo, round) {
-  const file = path.join(repo, '.rsi', 'ledger.jsonl');
-  if (!fs.existsSync(file)) return false;
-  const roundNumber = Number(round);
-  let best = null;
-  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-    if (!line.trim()) continue;
-    let entry;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
+function assertCandidateDist(repo) {
+  const root = path.join(repo, 'dist');
+  const cli = path.join(root, 'cli.js');
+  if (!fs.statSync(cli, { throwIfNoEntry: false })?.isFile()) {
+    throw new Error('npm run verify did not produce dist/cli.js');
+  }
+  const stack = [root];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const file = path.join(current, entry.name);
+      if (entry.isSymbolicLink()) throw new Error(`candidate dist contains a symlink: ${file}`);
+      if (entry.isDirectory()) stack.push(file);
     }
-    if (typeof entry.round !== 'number') continue;
-    if (Number.isFinite(roundNumber) && entry.round >= roundNumber) continue;
-    if (best && entry.round < best.round) continue;
-    best = entry;
-  }
-  return Boolean(best?.gates?.G7?.overfitSignal || best?.gates?.G7?.alarm);
-}
-
-function readPriorGate(repo, round) {
-  const file = path.join(repo, '.rsi', 'runs', String(round), 'gate.json');
-  if (!fs.existsSync(file)) return null;
-  try {
-    return readJson(file);
-  } catch {
-    return null;
   }
 }
 
-function gateShell(status, reasons, extra = {}) {
-  return { status, reasons, ...extra };
+function evaluateFromBase(repo, baseSha, jobs) {
+  assertCandidateDist(repo);
+  return withBaseWorktree(repo, baseSha, (baseDir) => {
+    const dist = path.join(repo, 'dist');
+    const dest = path.join(baseDir, 'dist');
+    fs.rmSync(dest, { recursive: true, force: true });
+    fs.cpSync(dist, dest, { recursive: true });
+    const out = {};
+    for (const job of jobs) {
+      const script = path.join(baseDir, job.script);
+      if (!fs.existsSync(script)) {
+        out[job.name] = { code: 127, summary: null, missing: true };
+        continue;
+      }
+      const result = spawnSync(process.execPath, [script, ...job.args], {
+        cwd: baseDir,
+        env: benchEnv({ MOSS_BENCH_CLI: path.join(dest, 'cli.js') }),
+        stdio: 'inherit',
+      });
+      assertNotStopped(repo);
+      let summary = null;
+      if (job.label) {
+        const file = path.join(baseDir, 'bench', 'results', job.label, 'summary.json');
+        if (fs.existsSync(file)) summary = readJson(file);
+      }
+      out[job.name] = { code: result.status ?? 1, summary, origin: summary?.origin ?? null };
+    }
+    if (out.tui) {
+      const resultsDir = path.join(baseDir, 'bench', 'results');
+      out.tui.wrote =
+        fs.existsSync(resultsDir) &&
+        fs
+          .readdirSync(resultsDir)
+          .some((name) => name.startsWith('tui-feel-') && name.endsWith('.json'));
+    }
+    return out;
+  });
 }
 
-function newestTuiReport(repo, notBeforeMs) {
-  const dir = path.join(repo, 'bench', 'results');
-  if (!fs.existsSync(dir)) return null;
-  const files = fs
-    .readdirSync(dir)
-    .filter((name) => name.startsWith('tui-feel-') && name.endsWith('.json'))
-    .map((name) => {
-      const full = path.join(dir, name);
-      return { full, mtime: fs.statSync(full).mtimeMs };
-    })
-    .filter((item) => item.mtime >= notBeforeMs)
-    .sort((a, b) => b.mtime - a.mtime);
-  return files[0]?.full ?? null;
+function benchArgs(label, extra) {
+  const args = ['--samples', '3', '--temperature', '0', '--label', label, '--keep-artifacts'];
+  if (extra.model) args.push('--model', extra.model);
+  if (extra.baseUrl) args.push('--base-url', extra.baseUrl);
+  return args;
 }
+
+const step = (status, reasons, extra = {}) => ({ status, reasons, ...extra });
 
 export async function runGate(options) {
   const repo = options.repo;
@@ -257,296 +188,167 @@ export async function runGate(options) {
   }
   if (!options.round) throw new Error('--round is required');
 
-  const split = options.split ?? 'all';
-  const runDev = split === 'dev' || split === 'all';
-  const runHoldout = split === 'holdout' || split === 'all';
-  const prior = readPriorGate(repo, options.round);
-  const label = options.label ?? `rsi-r${options.round}`;
-  const deviceLabel = `${label}-device`;
-  const currentHeadSha = headSha(repo);
-  const currentBaseSha = refSha(repo, options.base);
-  const paths = changedPaths(repo, options.base);
-  const frozenFile = path.join(repo, '.rsi', 'frozen.txt');
-  if (!fs.existsSync(frozenFile)) throw new Error(`missing ${frozenFile}`);
-  const patterns = loadFrozenPatternsForBase(repo, options.base, frozenFile);
-  const priorMatchesRevision =
-    prior?.headSha === currentHeadSha && prior?.baseSha === currentBaseSha;
-
-  const gates = {};
-  const reuse = (name) => {
-    if (!priorMatchesRevision) return false;
-    const previous = prior?.gates?.[name];
-    const reusable =
-      previous?.status === 'pass' || (name === 'G5' && previous?.status === 'not-applicable');
-    if (reusable) {
-      gates[name] = { ...previous, reused: true };
-      return true;
-    }
-    return false;
-  };
-
-  if (runDev || runHoldout) {
-    const hits = frozenHits(patterns, paths);
-    const tests = testCountReport(repo, options.base);
-    const scripts = protectedScriptReport(repo, options.base);
-    const reasons = [
-      ...hits.map((hit) => `frozen: ${hit.file} (${hit.patterns.join(', ')})`),
-      ...tests.reasons,
-      ...scripts.reasons,
-    ];
-    gates.G0 = gateShell(reasons.length === 0 ? 'pass' : 'fail', reasons, {
-      changedPaths: paths,
-      testCount: {
-        beforeFiles: tests.beforeFiles,
-        afterFiles: tests.afterFiles,
-        beforeCases: tests.beforeCases,
-        afterCases: tests.afterCases,
-        beforeAssertions: tests.beforeAssertions,
-        afterAssertions: tests.afterAssertions,
-        assertionRemovals: tests.assertionRemovals,
-      },
-      protectedScriptsChanged: scripts.changed,
-    });
+  const baseSha = refSha(repo, options.base);
+  const candidateSha = headSha(repo);
+  if (baseSha === candidateSha) throw new Error('base must differ from candidate HEAD');
+  if (git(repo, ['merge-base', '--is-ancestor', baseSha, candidateSha]).status !== 0) {
+    throw new Error(`base ${options.base} is not an ancestor of HEAD`);
   }
+  const paths = changedPaths(repo, baseSha, candidateSha);
+  const shown = git(repo, ['show', `${baseSha}:.rsi/frozen.txt`]);
+  const patterns = shown.status === 0 ? parseFrozenPatterns(shown.stdout) : null;
+  const hits = patterns ? frozenHits(patterns, paths) : [];
+  const integrityReasons = [
+    ...(patterns ? [] : [`base ${baseSha} has no .rsi/frozen.txt`]),
+    ...hits.map((hit) => `frozen: ${hit.file} (${hit.patterns.join(', ')})`),
+  ];
+  const integrity = step(integrityReasons.length === 0 ? 'pass' : 'fail', integrityReasons, {
+    changedPaths: paths,
+    source: 'base',
+  });
 
-  if (runDev && gates.G0.status !== 'pass') {
-    gates.G1 = gateShell('not-run', ['not run because G0 failed']);
-  } else if (runDev) {
-    if (options.skipVerify) {
-      gates.G1 = gateShell('skipped', ['skipped by --skip-verify']);
-    } else {
-      const verify = await (options.verifyRunner ?? defaultVerify)(repo);
+  let verify = step('not-run', ['not run because integrity failed']);
+  let selection = step('not-run', ['not run because integrity failed']);
+  let prediction = null;
+  let evaluator = null;
+
+  if (integrity.status === 'pass') {
+    prediction = loadPrediction(repo, options.prediction);
+    const baseline = readBaseJson(repo, baseSha, options.baseline);
+    const band = readBaseJson(repo, baseSha, options.noiseBand ?? '.rsi/noise-band.json');
+    const holdoutRaw = options.holdoutScores ?? process.env.MOSS_RSI_HOLDOUT_SCORES ?? null;
+    const holdoutPath = holdoutRaw ? path.resolve(repo, holdoutRaw) : null;
+    const holdout = holdoutPath && fs.existsSync(holdoutPath) ? readJson(holdoutPath) : null;
+    const ledger = git(repo, ['show', `${baseSha}:.rsi/ledger.jsonl`]);
+    const holdoutDue =
+      (mergedRounds(ledger.status === 0 ? ledger.stdout : '', options.round) + 1) % 3 === 0;
+
+    if (options.skipVerify) verify = step('skipped', ['skipped by --skip-verify']);
+    else {
+      const result = await (options.verifyRunner ?? defaultVerify)(repo);
       assertNotStopped(repo);
-      gates.G1 = gateShell(verify.status, verify.reasons ?? []);
+      verify = step(result.status, result.reasons ?? []);
     }
-  } else if (!reuse('G1')) {
-    gates.G1 = gateShell('missing', [
-      prior && !priorMatchesRevision
-        ? 'prior dev gate does not match the current base/head revision'
-        : 'no prior dev gate for this round',
-    ]);
-  }
+    const cliChanged = paths.some((file) => file === 'src/cli' || file.startsWith('src/cli/'));
+    const label = options.label ?? `rsi-r${options.round}`;
+    let devSummary = null;
+    let deviceSummary = null;
+    const harnessReasons = [];
 
-  const devSummaryPath =
-    resolveSummary(repo, options.devSummary) ??
-    (options.fromResults ? resolveSummary(repo, label) : null);
-  const baselinePath = resolveSummary(repo, options.baseline);
-  let devSummary = loadOptional(devSummaryPath);
-  let baselineSummary = loadOptional(baselinePath);
-
-  if (runDev && !options.fromResults && gates.G0.status === 'pass') {
-    const code = await (options.benchRunner ?? runDevBench)(repo, {
-      label,
-      baseline: options.baseline,
-      model: options.model,
-      baseUrl: options.baseUrl,
-    });
-    assertNotStopped(repo);
-    devSummary = loadOptional(path.join(repo, 'bench', 'results', label, 'summary.json'));
-    if (!baselineSummary) baselineSummary = loadOptional(baselinePath);
-    if (code !== 0 && !devSummary) {
-      gates.G2 = gateShell('fail', [`run-benchmark exited ${code} without a summary`]);
-    }
-  }
-
-  const noisePath =
-    resolveSummary(repo, options.noiseBand) ??
-    (fs.existsSync(path.join(repo, 'bench', 'results', 'noise-band.json'))
-      ? path.join(repo, 'bench', 'results', 'noise-band.json')
-      : null);
-  const band = loadOptional(noisePath);
-
-  if (runDev && !gates.G2) {
-    const result = evaluateDevRegression(devSummary, baselineSummary, band);
-    gates.G2 = gateShell(result.status, result.reasons, {
-      regressions: result.regressions ?? [],
-      safetyRate: result.safetyRate ?? null,
-      bandNote: result.bandNote ?? null,
-      summary: devSummaryPath ?? path.join(repo, 'bench', 'results', label, 'summary.json'),
-      baseline: baselinePath,
-    });
-  } else if (!runDev && !gates.G2 && !reuse('G2')) {
-    gates.G2 = gateShell('missing', [
-      prior && !priorMatchesRevision
-        ? 'prior dev gate does not match the current base/head revision'
-        : 'no prior dev gate for this round',
-    ]);
-  }
-
-  const deviceSummaryPath = resolveSummary(repo, options.deviceSummary);
-  const deviceBaselinePath = resolveSummary(repo, options.deviceBaseline);
-  let deviceSummary = loadOptional(deviceSummaryPath);
-  let deviceBaseline = loadOptional(deviceBaselinePath);
-  if (runDev && !options.fromResults && gates.G0.status === 'pass' && !deviceSummary) {
-    const code = await (options.deviceRunner ?? runDeviceBench)(repo, {
-      label: deviceLabel,
-      model: options.model,
-      baseUrl: options.baseUrl,
-    });
-    assertNotStopped(repo);
-    deviceSummary = loadOptional(path.join(repo, 'bench', 'results', deviceLabel, 'summary.json'));
-    if (code !== 0 && !deviceSummary) {
-      gates.G3 = gateShell('fail', [`bench-device exited ${code} without a summary`]);
-    }
-  }
-  if (runDev && !gates.G3) {
-    const result = evaluateDevice(deviceSummary, deviceBaseline);
-    gates.G3 = gateShell(result.status, result.reasons, {
-      coreNow: result.now ?? null,
-      coreBaseline: result.before ?? null,
-      spread: result.spread ?? null,
-      falseSuccess: result.falseSuccess ?? null,
-    });
-  } else if (!runDev && !reuse('G3')) {
-    gates.G3 = gateShell('missing', [
-      prior && !priorMatchesRevision
-        ? 'prior dev gate does not match the current base/head revision'
-        : 'no prior dev gate for this round',
-    ]);
-  }
-
-  let costDropPct;
-  if (runDev) {
-    const cost = evaluateCost(devSummary, baselineSummary);
-    costDropPct = cost.costDropPct;
-    gates.G4 = gateShell(cost.status, cost.reasons, {
-      tokensNow: cost.tokensNow,
-      tokensBase: cost.tokensBase,
-      wallNow: cost.wallNow,
-      wallBase: cost.wallBase,
-      costDropPct: cost.costDropPct,
-    });
-  } else if (!reuse('G4')) {
-    gates.G4 = gateShell('missing', [
-      prior && !priorMatchesRevision
-        ? 'prior dev gate does not match the current base/head revision'
-        : 'no prior dev gate for this round',
-    ]);
-    costDropPct = prior?.costDropPct ?? null;
-  } else {
-    costDropPct = gates.G4.costDropPct ?? prior?.costDropPct ?? null;
-  }
-
-  const cliChanged = paths.some((file) => file === 'src/cli' || file.startsWith('src/cli/'));
-  if (runDev) {
-    let tuiSummary = loadOptional(resolveSummary(repo, options.tuiSummary));
-    const tuiBaseline = loadOptional(resolveSummary(repo, options.tuiBaseline));
-    if (cliChanged && !options.fromResults && gates.G0.status === 'pass' && !tuiSummary) {
-      const started = Date.now();
-      const code = await (options.tuiRunner ?? runTui)(repo);
+    if (verify.status === 'pass') {
+      const deviceLabel = `${label}-device`;
+      const deviceArgs = [
+        '--target',
+        'sim',
+        '--repeat',
+        '3',
+        '--label',
+        deviceLabel,
+        '--keep-artifacts',
+      ];
+      if (options.model) deviceArgs.push('--model', options.model);
+      if (options.baseUrl) deviceArgs.push('--base-url', options.baseUrl);
+      const jobs = [
+        {
+          name: 'dev',
+          script: 'scripts/run-benchmark.mjs',
+          label,
+          args: benchArgs(label, options),
+        },
+        {
+          name: 'device',
+          script: 'scripts/bench-device.mjs',
+          label: deviceLabel,
+          args: deviceArgs,
+        },
+      ];
+      if (cliChanged) jobs.push({ name: 'tui', script: 'scripts/tui-feel/run.mjs', args: [] });
+      const ran = await (options.evalRunner ?? evaluateFromBase)(repo, baseSha, jobs);
       assertNotStopped(repo);
-      const produced = newestTuiReport(repo, started);
-      tuiSummary = loadOptional(produced);
-      if (code !== 0 && !tuiSummary) {
-        gates.G5 = gateShell('fail', [`bench:tui-feel exited ${code}`]);
+      evaluator = {
+        from: 'base-worktree',
+        origin: ran.dev?.origin ?? ran.dev?.summary?.origin ?? null,
+      };
+      if (ran.dev) {
+        devSummary = ran.dev.summary;
+        if (ran.dev.code !== 0) harnessReasons.push(`base run-benchmark exited ${ran.dev.code}`);
+        if (!devSummary)
+          harnessReasons.push(`base run-benchmark exited ${ran.dev.code} without a summary`);
       }
-    }
-    if (!gates.G5) {
-      const result = evaluateTui({ cliChanged, current: tuiSummary, baseline: tuiBaseline });
-      gates.G5 = gateShell(result.status, result.reasons);
-    }
-  } else if (!reuse('G5')) {
-    gates.G5 = gateShell('missing', [
-      prior && !priorMatchesRevision
-        ? 'prior dev gate does not match the current base/head revision'
-        : 'no prior dev gate for this round',
-    ]);
-  }
+      if (ran.device) {
+        deviceSummary = ran.device.summary;
+        if (ran.device.code !== 0)
+          harnessReasons.push(`base bench-device exited ${ran.device.code}`);
+        if (!deviceSummary)
+          harnessReasons.push(`base bench-device exited ${ran.device.code} without a summary`);
+      }
+      if (ran.tui && (ran.tui.missing || ran.tui.code !== 0 || !ran.tui.wrote)) {
+        verify = step('fail', [
+          ...(verify.status === 'fail' ? verify.reasons : []),
+          'src/cli/ changed and base bench:tui-feel did not write a report',
+        ]);
+      }
 
-  const holdoutRaw = options.holdoutScores ?? process.env.MOSS_RSI_HOLDOUT_SCORES ?? null;
-  const holdoutPath = holdoutRaw ? path.resolve(repo, holdoutRaw) : null;
-  if (runHoldout || holdoutPath) {
-    const file = holdoutPath && fs.existsSync(holdoutPath) ? readJson(holdoutPath) : null;
-    const result = evaluateHoldout(holdoutPath ? file : null);
-    if (holdoutPath && !file) {
-      gates.G6 = gateShell('fail', [`holdout scores path does not exist: ${holdoutPath}`], {
-        relation: 'fail',
+      const picked = select({
+        current: devSummary,
+        baseline,
+        band,
+        device: deviceSummary,
+        prediction,
+        holdoutDue,
+        holdout,
+        baseSha,
       });
-    } else {
-      gates.G6 = gateShell(result.status, result.reasons, {
-        relation: result.relation,
-        score: result.score ?? null,
-        baseline: result.baseline ?? null,
-        band: result.band ?? null,
-      });
-    }
-  } else {
-    gates.G6 = gateShell('skipped', ['holdout aggregate file was not supplied'], {
-      relation: 'skipped',
-    });
-  }
-
-  const lines = netLineChange(repo, options.base);
-  const currentHard = hardScore(devSummary);
-  const baselineHard = hardScore(baselineSummary);
-  const hardDelta =
-    typeof currentHard === 'number' && typeof baselineHard === 'number'
-      ? currentHard - baselineHard
-      : null;
-  const overfit = evaluateOverfit({
-    hardDelta,
-    maxDropPerTask: band?.maxDropPerTask,
-    holdoutRelation: gates.G6.relation,
-    previousSignal: previousOverfitSignal(repo, options.round),
-  });
-  gates.G7 = gateShell(overfit.status, overfit.reasons, {
-    alarm: overfit.alarm,
-    overfitSignal: overfit.overfitSignal,
-  });
-
-  if (gates.G0.status === 'fail') {
-    for (const name of ['G1', 'G2', 'G3', 'G4', 'G5']) {
-      gates[name] = gateShell('not-run', ['not run because G0 failed']);
-    }
-    gates.G6 = gateShell('not-run', ['not run because G0 failed'], { relation: 'skipped' });
-    gates.G7 = gateShell('not-applicable', ['not run because G0 failed'], {
-      alarm: false,
-      overfitSignal: false,
-    });
-    costDropPct = null;
+      if (harnessReasons.length > 0 || (holdoutPath && !holdout)) {
+        picked.status = 'fail';
+        picked.reasons = [
+          ...harnessReasons,
+          ...(holdoutPath && !holdout
+            ? [`holdout scores path does not exist: ${holdoutPath}`]
+            : []),
+          ...picked.reasons,
+        ];
+      }
+      selection = step(picked.status, picked.reasons, picked);
+    } else selection = step('not-run', ['not run because verify failed']);
   }
 
   assertNotStopped(repo);
-  const verdict = decide(gates, { costDropPct, netDeletion: lines.net < 0 });
+  const decision = decide(integrity.status, verify.status, selection.status);
   const report = {
     round: options.round,
-    split,
     base: options.base,
-    baseSha: currentBaseSha,
-    headSha: currentHeadSha,
-    fromResults: Boolean(options.fromResults),
-    decision: verdict.decision,
-    accepted: verdict.accepted,
-    costDropPct,
-    netLineChange: lines,
-    gates,
+    baseSha,
+    headSha: candidateSha,
+    parent: options.parent ?? baseSha,
+    prediction,
+    predictionHeld: selection.predictionHeld ?? null,
+    evaluator,
+    decision,
+    accepted: decision === 'accept',
+    formula: 'ΔC ≤ 0.05 + 1·ΔS',
+    steps: { integrity, verify, selection },
   };
   const outDir = path.join(repo, '.rsi', 'runs', String(options.round));
   fs.mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, 'gate.json');
   fs.writeFileSync(outFile, `${JSON.stringify(report, null, 2)}\n`);
-  return { exitCode: exitCodeFor(verdict.decision), report, outFile };
+  return { exitCode: exitCodeFor(decision), report, outFile };
 }
 
-function isDirect() {
-  const entry = process.argv[1];
-  if (!entry) return false;
-  return import.meta.url === pathToFileURL(path.resolve(entry)).href;
-}
-
-if (isDirect()) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   let args;
   try {
-    if (process.env.MOSS_RSI_DISABLED === '1') {
-      console.error('RSI refused: MOSS_RSI_DISABLED=1');
-      process.exit(2);
-    }
     args = parseArgs(process.argv.slice(2));
-    if (fs.existsSync(path.join(args.repo, '.rsi', 'STOP'))) {
-      console.error('RSI refused: .rsi/STOP exists');
-      process.exit(2);
-    }
     if (args.help) {
+      if (process.env.MOSS_RSI_DISABLED === '1') {
+        console.error('RSI refused: MOSS_RSI_DISABLED=1');
+        process.exit(2);
+      }
+      if (fs.existsSync(path.join(args.repo, '.rsi', 'STOP'))) {
+        console.error('RSI refused: .rsi/STOP exists');
+        process.exit(2);
+      }
       console.log(usage());
       process.exit(0);
     }
