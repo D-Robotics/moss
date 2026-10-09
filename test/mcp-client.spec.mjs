@@ -54,7 +54,11 @@ const stdioRegistry = await McpToolRegistry.connectAll(
   assert.equal(statuses.length, 1, 'one server status entry');
   assert.equal(statuses[0].name, 'fixture-stdio');
   assert.equal(statuses[0].state, 'connected', `stdio connect, got ${statuses[0].state}`);
-  assert.equal(statuses[0].toolCount, 50, 'connect primes tools/list cache: 50 tools');
+  assert.equal(
+    statuses[0].toolCount,
+    51,
+    'status counts the 50 tools/list entries plus the search meta-tool'
+  );
 
   const searchTool = stdioRegistry.getTools().find((t) => t.name === 'mcp__fixture-stdio__search');
   assert.ok(searchTool, 'search meta-tool is registered for the server');

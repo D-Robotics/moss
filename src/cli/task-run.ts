@@ -197,10 +197,16 @@ export function formatTaskStatus(
   // Column labels: English pads to 10 chars; zh labels are all two CJK
   // characters (4 display columns) + 6 spaces — same 10-column alignment.
   const label = (en: string, zhLabel: string) => (zh ? `${zhLabel}      ` : en.padEnd(10));
+  const phaseText =
+    snapshot.outcome === 'aborted'
+      ? zh
+        ? '已中止'
+        : 'aborted'
+      : `${snapshot.phase} (${snapshot.statusView}${snapshot.outcome ? ` · ${snapshot.outcome}` : ''})`;
   const lines: string[] = [
     `${label('TASK', '任务')}${snapshot.taskId}`,
     `${label('GOAL', '目标')}${snapshot.goal}`,
-    `${label('PHASE', '阶段')}${snapshot.phase} (${snapshot.statusView}${snapshot.outcome ? ` · ${snapshot.outcome}` : ''})`,
+    `${label('PHASE', '阶段')}${phaseText}`,
   ];
   if (snapshot.targetDeviceId) lines.push(`${label('DEVICE', '设备')}${snapshot.targetDeviceId}`);
   if (snapshot.blockedReason) lines.push(`${label('BLOCKED', '阻塞')}${snapshot.blockedReason}`);

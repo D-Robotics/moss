@@ -16,6 +16,7 @@ import {
   nextTaskPhase,
   taskStatusView,
   deriveTaskOutcome,
+  latestTaskFailureDetail,
   isTerminalTaskPhase,
 } from '../../contracts/task-runtime.js';
 import type {
@@ -378,13 +379,15 @@ export async function getTaskStateSnapshot(
   const applied = folded.applied;
   const attempt = applied.filter((event) => event.type === 'verification_started').length;
   const taskEvidence = evidence.filter((record) => record.taskId === taskId);
+  const aborted = phase === 'failed' && latestTaskFailureDetail(applied) === 'aborted';
+  const outcome = aborted ? 'aborted' : deriveTaskOutcome(phase);
 
   return {
     taskId,
     goal: contract.goal,
     phase,
     statusView: taskStatusView(phase),
-    ...(deriveTaskOutcome(phase) ? { outcome: deriveTaskOutcome(phase) } : {}),
+    ...(outcome ? { outcome } : {}),
     ...(contract.targetDeviceId ? { targetDeviceId: contract.targetDeviceId } : {}),
     contractStatus: contract.status,
     plan: planFromEvents(applied),
@@ -486,9 +489,11 @@ export interface TaskTimelineEntry {
 
 export function buildTaskTimeline(events: TaskEvent[]): TaskTimelineEntry[] {
   return foldTaskEvents(events).applied.map((event) => {
-    const label = TIMELINE_LABELS[event.type];
-    const detail =
-      typeof event.data?.detail === 'string'
+    const aborted = event.type === 'task_failed' && event.data?.detail === 'aborted';
+    const label = aborted ? 'Task aborted' : TIMELINE_LABELS[event.type];
+    const detail = aborted
+      ? undefined
+      : typeof event.data?.detail === 'string'
         ? event.data.detail
         : typeof event.data?.reason === 'string'
           ? event.data.reason

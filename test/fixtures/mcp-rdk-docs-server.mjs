@@ -28,6 +28,12 @@ function noteMethod(method) {
   fs.appendFileSync(recordPath, `${method}\n`);
 }
 
+const extraArg = process.argv.find((arg) => arg.startsWith('--extra-tools='));
+const extraNames = (extraArg?.slice('--extra-tools='.length) ?? '')
+  .split(',')
+  .map((name) => name.trim())
+  .filter((name) => name.length > 0);
+
 const TOOLS = [
   {
     name: 'list_manuals',
@@ -67,6 +73,11 @@ const TOOLS = [
       required: ['manual'],
     },
   },
+  ...extraNames.map((name) => ({
+    name,
+    description: `Extra fixture tool ${name}.`,
+    inputSchema: { type: 'object', properties: {} },
+  })),
 ];
 
 function send(msg) {

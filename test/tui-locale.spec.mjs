@@ -14,6 +14,8 @@
  *      Chinese it returns is what the projections actually print.
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { ZH, isTuiZh, setTuiLocale, transientStatus, tui } from '../dist/cli/tui/copy.js';
 import { rowsForSurface } from '../dist/cli/interactive-commands.js';
@@ -276,6 +278,37 @@ import {
 
 {
   setTuiLocale(true);
+  assert.equal(tui('ctrl+o to expand'), 'ctrl+o 展开');
+  assert.notEqual(tui('ctrl+o to expand'), 'ctrl+o to expand');
+  const collapsed = renderHint(
+    { running: false, tokens: 0, taskCount: 0, queueLength: 0, collapsed: true },
+    120
+  ).text;
+  assert.match(collapsed, /ctrl\+o 展开/);
+  assert.equal(collapsed.includes('ctrl+o to expand'), false);
+  const root = path.join(process.cwd(), 'src', 'cli', 'tui');
+  const files = [];
+  const walk = (dir) => {
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (fs.statSync(full).isDirectory()) walk(full);
+      else if (name.endsWith('.ts')) files.push(full);
+    }
+  };
+  walk(root);
+  const missing = [];
+  const callRe = /tui\(\s*(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
+  for (const file of files) {
+    const text = fs.readFileSync(file, 'utf8');
+    for (const match of text.matchAll(callRe)) {
+      const key = match[2].replace(/\\'/g, "'").replace(/\\"/g, '"');
+      if (key.includes('${')) continue;
+      if (!Object.prototype.hasOwnProperty.call(ZH, key)) {
+        missing.push(`${path.relative(process.cwd(), file)}: ${key}`);
+      }
+    }
+  }
+  assert.deepEqual(missing, [], 'every TUI chrome tui() literal has a zh entry');
   assert.equal(tui('verbose transcript · ctrl+o to exit'), '详细对话记录 · ctrl+o 退出');
   assert.equal(tui('{count} skills', { count: 2 }), '2 个技能');
   assert.equal(

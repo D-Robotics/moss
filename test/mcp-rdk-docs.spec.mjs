@@ -14,6 +14,7 @@ import { mergeConfigFiles } from '../dist/cli/config.js';
 import { loadMcpConfigs } from '../dist/cli/mcp-config.js';
 import {
   formatMcpStartupLine,
+  formatMcpStatusLine,
   hasDeviceTarget,
   rdkDocsAutoConnectEnabled,
   rdkDocsOptOut,
@@ -236,7 +237,12 @@ test('a connected fixture adds the usage pointer and the skill index', async () 
   try {
     const status = registry.getStatuses()[0];
     assert.equal(status.state, 'connected', status.error);
-    assert.equal(status.toolCount, 4);
+    const catalog = registry.getCatalog();
+    const exposed = new Set(catalog.map((entry) => entry.wireName));
+    exposed.add(registry.getSearchTool('rdk-docs').name);
+    assert.equal(catalog.length, 4, 'tools/list is the four manual tools');
+    assert.equal(status.toolCount, exposed.size, 'status counts the real exposed tool list');
+    assert.equal(status.toolCount, 5);
     const search = registry.getSearchTool('rdk-docs');
     const listed = await search.execute({}, {});
     for (const tool of ['list_manuals', 'search_docs', 'get_page', 'list_toc']) {
@@ -269,6 +275,60 @@ test('a connected fixture adds the usage pointer and the skill index', async () 
     );
     assert.equal(userWins.length, 1);
     assert.equal(userWins[0].description, 'user skill');
+  } finally {
+    await registry.closeAll();
+  }
+});
+
+test('status tool count follows the real tools/list, including the search meta-tool', async () => {
+  const registry = await McpToolRegistry.connectAll([
+    {
+      name: 'rdk-docs',
+      transport: 'stdio',
+      command: process.execPath,
+      args: [fixture, '--extra-tools=search_skills,get_skill'],
+    },
+  ]);
+  try {
+    const catalog = registry.getCatalog();
+    assert.deepEqual(catalog.map((entry) => entry.tool).sort(), [
+      'get_page',
+      'get_skill',
+      'list_manuals',
+      'list_toc',
+      'search_docs',
+      'search_skills',
+    ]);
+    const exposed = new Set(catalog.map((entry) => entry.wireName));
+    exposed.add(registry.getSearchTool('rdk-docs').name);
+    assert.equal(exposed.size, 7, 'six server tools plus mcp__rdk-docs__search');
+    const status = registry.getStatuses()[0];
+    assert.equal(status.toolCount, exposed.size);
+    assert.match(formatMcpStatusLine(status), /● rdk-docs — connected \(7 tools, lazy\)/);
+    const listed = await registry.getSearchTool('rdk-docs').execute({}, {});
+    assert.match(listed, /6\/6 tool\(s\)/);
+    assert.equal(status.toolCount, 7);
+  } finally {
+    await registry.closeAll();
+  }
+});
+
+test('a server tool named search is not counted twice', async () => {
+  const registry = await McpToolRegistry.connectAll([
+    {
+      name: 'rdk-docs',
+      transport: 'stdio',
+      command: process.execPath,
+      args: [fixture, '--extra-tools=search'],
+    },
+  ]);
+  try {
+    const catalog = registry.getCatalog();
+    assert.equal(catalog.length, 5);
+    const exposed = new Set(catalog.map((entry) => entry.wireName));
+    exposed.add(registry.getSearchTool('rdk-docs').name);
+    assert.equal(exposed.size, 5, 'the server search tool shares the meta-tool wire name');
+    assert.equal(registry.getStatuses()[0].toolCount, 5);
   } finally {
     await registry.closeAll();
   }

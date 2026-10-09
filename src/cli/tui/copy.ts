@@ -109,6 +109,7 @@ export const ZH: Readonly<Record<string, string>> = {
   // ── collapsed-preview markers (transcript.ts) ──────────────────────────
   '… {count} more lines · ctrl+o': '… 还有 {count} 行 · ctrl+o',
   '… {count} lines · ctrl+o': '… {count} 行 · ctrl+o',
+  'ctrl+o to expand': 'ctrl+o 展开',
   '  ⎿ thought for {seconds}s · click or ctrl+o': '  ⎿ 思考了 {seconds} 秒 · 点击或 ctrl+o 展开',
   '  ⎿ thinking · click or ctrl+o': '  ⎿ 思考过程 · 点击或 ctrl+o',
 
@@ -477,6 +478,19 @@ export const ZH: Readonly<Record<string, string>> = {
   'no hooks configured — add a "hooks" object to the config file:':
     '未配置 hooks — 在配置文件中添加 "hooks" 对象：',
   'config dir: {path} (or MOSS_CONFIG_FILE)': '配置目录：{path}（或 MOSS_CONFIG_FILE）',
+  'create one: moss skill create <name>': '创建一个：moss skill create <name>',
+  'could not resume {key}: {error}': '无法恢复 {key}：{error}',
+  'resumed {key} — replayed {count} rows': '已恢复 {key} — 回放了 {count} 行',
+  'compaction failed: {error}': '压缩失败：{error}',
+  'git diff failed: {error}': 'git diff 失败：{error}',
+  '! {command} failed: {error}': '! {command} 失败：{error}',
+  'could not load the model catalog: {error}': '无法加载模型目录：{error}',
+  'could not resolve the provider config — run `moss setup`.':
+    '无法解析 provider 配置 — 请执行 `moss setup`。',
+  'could not switch to {model}: {error}': '无法切换到 {model}：{error}',
+  '{command} failed: {error}': '{command} 失败：{error}',
+  met: '达成',
+  'blocked: {reason}': '受阻：{reason}',
 };
 
 /**

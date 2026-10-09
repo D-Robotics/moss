@@ -19,7 +19,7 @@ import { listTaskStateSnapshots } from '../task/task-store.js';
 import type { TaskStateSnapshot } from '../../contracts/task-runtime.js';
 
 export type MissionState = 'IDLE' | 'PLANNING' | 'EXECUTING' | 'BLOCKED' | 'COMPLETED';
-export type MissionResult = 'PASS' | 'FAIL' | 'NEEDS USER';
+export type MissionResult = 'PASS' | 'FAIL' | 'NEEDS USER' | 'ABORTED';
 export type TaskKind = 'camera' | 'ros' | 'model' | 'navigation' | 'general';
 
 export interface TaskSummary {
@@ -35,6 +35,17 @@ export interface TaskSummary {
   targetDeviceId?: string;
   /** Task OS blocked reason, when the snapshot recorded one (blocked_on_user). */
   blockedReason?: string;
+}
+
+/** `/goal resume` with no id picks the newest task in one of these states. */
+export function isGoalResumeCandidate(summary: Pick<TaskSummary, 'state' | 'result'>): boolean {
+  return (
+    summary.state === 'BLOCKED' ||
+    summary.state === 'EXECUTING' ||
+    summary.state === 'PLANNING' ||
+    summary.result === 'FAIL' ||
+    summary.result === 'ABORTED'
+  );
 }
 
 export interface FailureItem {
@@ -393,6 +404,7 @@ export class TaskRuntime {
     latestVerdict: AcceptanceVerdict | undefined
   ): { state: MissionState; result?: MissionResult } {
     const snapshot = this.taskSnapshots.get(task.taskId);
+    if (snapshot?.outcome === 'aborted') return { state: 'COMPLETED', result: 'ABORTED' };
     if (snapshot?.phase === 'accepted') return { state: 'COMPLETED', result: 'PASS' };
     if (snapshot?.phase === 'failed' || snapshot?.phase === 'abandoned') {
       return { state: 'COMPLETED', result: 'FAIL' };

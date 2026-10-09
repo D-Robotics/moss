@@ -30,7 +30,11 @@ import {
 } from 'ink';
 import type { MossAgent } from '../../core/agent/moss-agent.js';
 import { planGateEnabled } from '../../tools/plan-gate.js';
-import { TaskRuntime, formatDeploymentLine } from '../../core/task-runtime/runtime.js';
+import {
+  TaskRuntime,
+  formatDeploymentLine,
+  isGoalResumeCandidate,
+} from '../../core/task-runtime/runtime.js';
 import { errorMessage } from '../../errors.js';
 import {
   applyAgentEvent,
@@ -1383,8 +1387,14 @@ export function TuiAppRoot({
           `Tasks (${summaries.length})`,
           summaries.map(
             (s) =>
-              `${s.kind.toUpperCase().padEnd(8)} ${(s.result ?? s.state).padEnd(10)} ${s.criteriaMet}/${s.criteriaTotal} met  ${s.goal}` +
-              (s.blockedReason ? `\n         blocked: ${s.blockedReason}` : '')
+              `${s.kind.toUpperCase().padEnd(8)} ${
+                s.result === 'ABORTED'
+                  ? 'ABORTED'
+                  : `${(s.result ?? s.state).padEnd(10)} ${s.criteriaMet}/${s.criteriaTotal} ${tui('met')}`
+              }  ${s.goal}` +
+              (s.blockedReason
+                ? `\n         ${tui('blocked: {reason}', { reason: s.blockedReason })}`
+                : '')
           )
         );
         return;
@@ -1479,13 +1489,7 @@ export function TuiAppRoot({
       if (parsed[0] === 'resume' && !parsed[1]) {
         const candidate = runtime
           .taskSummaries()
-          .filter(
-            (task) =>
-              task.state === 'BLOCKED' ||
-              task.state === 'EXECUTING' ||
-              task.state === 'PLANNING' ||
-              task.result === 'FAIL'
-          )
+          .filter((task) => isGoalResumeCandidate(task))
           .sort((left, right) => right.updatedAt - left.updatedAt)[0];
         if (!candidate) {
           printBlock('Resume', [
@@ -1673,7 +1677,7 @@ export function TuiAppRoot({
       appendRow(store, 'result', result.output.trim() || tui('(no unstaged working-tree changes)'));
       handle.notify();
     } catch (err) {
-      printCommandError('Diff', `git diff failed: ${errorMessage(err)}`);
+      printCommandError('Diff', tui('git diff failed: {error}', { error: errorMessage(err) }));
     }
   }, [handle, options.workspaceDir, printBlock, printCommandError, store]);
 
@@ -1714,7 +1718,11 @@ export function TuiAppRoot({
           );
         }
       } catch (err) {
-        appendRow(store, 'error', `! ${command} failed: ${errorMessage(err)}`);
+        appendRow(
+          store,
+          'error',
+          tui('! {command} failed: {error}', { command, error: errorMessage(err) })
+        );
       }
       handle.notify();
     },
@@ -1741,7 +1749,10 @@ export function TuiAppRoot({
         );
         printBlock('Compact', outcome.split('\n'));
       } catch (err) {
-        printCommandError('Compact', `compaction failed: ${errorMessage(err)}`);
+        printCommandError(
+          'Compact',
+          tui('compaction failed: {error}', { error: errorMessage(err) })
+        );
       }
     },
     [options.agent, printBlock, printCommandError, sessionKey, store]
@@ -1770,7 +1781,10 @@ export function TuiAppRoot({
         });
       } catch (err) {
         choices = undefined;
-        printCommandError('Model', `could not load the model catalog: ${errorMessage(err)}`);
+        printCommandError(
+          'Model',
+          tui('could not load the model catalog: {error}', { error: errorMessage(err) })
+        );
       }
       const token = args.trim();
       if (!token) {
@@ -1796,7 +1810,10 @@ export function TuiAppRoot({
       const model = selected?.model ?? token;
       const provider = selected?.provider ?? choices?.provider ?? config?.provider;
       if (!config || !provider) {
-        printCommandError('Model', 'could not resolve the provider config — run `moss setup`.');
+        printCommandError(
+          'Model',
+          tui('could not resolve the provider config — run `moss setup`.')
+        );
         return;
       }
       try {
@@ -1813,7 +1830,10 @@ export function TuiAppRoot({
         });
         writePreferredModel(config.baseUrl, model);
       } catch (err) {
-        printCommandError('Model', `could not switch to ${model}: ${errorMessage(err)}`);
+        printCommandError(
+          'Model',
+          tui('could not switch to {model}: {error}', { model, error: errorMessage(err) })
+        );
         return;
       }
       setCurrentModel(model);
@@ -1952,7 +1972,10 @@ export function TuiAppRoot({
       try {
         if (await runRegistryCommand(text, context, customCommands)) return true;
       } catch (err) {
-        printCommandError(title, `${head} failed: ${errorMessage(err)}`);
+        printCommandError(
+          title,
+          tui('{command} failed: {error}', { command: head, error: errorMessage(err) })
+        );
         return true;
       }
 
@@ -2219,7 +2242,7 @@ export function TuiAppRoot({
         printBlock(
           'Skills',
           rows.length === 0
-            ? [tui('no skills found'), 'create one: moss skill create <name>']
+            ? [tui('no skills found'), tui('create one: moss skill create <name>')]
             : rows
                 .map((s) => `  ${s.name.padEnd(18)} ${s.description.split('\n')[0] ?? ''}`)
                 .concat([
@@ -2252,11 +2275,18 @@ export function TuiAppRoot({
               appendRow(
                 store,
                 'result',
-                `resumed ${pick.key} — replayed ${replay.items.length} rows`
+                tui('resumed {key} — replayed {count} rows', {
+                  key: pick.key,
+                  count: replay.items.length,
+                })
               );
               setActiveSession(pick.key);
             } catch (err) {
-              appendRow(store, 'error', `could not resume ${pick.key}: ${errorMessage(err)}`);
+              appendRow(
+                store,
+                'error',
+                tui('could not resume {key}: {error}', { key: pick.key, error: errorMessage(err) })
+              );
             }
             handle.notify();
           }
@@ -2957,11 +2987,18 @@ export function TuiAppRoot({
               appendRow(
                 store,
                 'result',
-                `resumed ${pick.key} — replayed ${replay.items.length} rows`
+                tui('resumed {key} — replayed {count} rows', {
+                  key: pick.key,
+                  count: replay.items.length,
+                })
               );
               setActiveSession(pick.key);
             } catch (err) {
-              appendRow(store, 'error', `could not resume ${pick.key}: ${errorMessage(err)}`);
+              appendRow(
+                store,
+                'error',
+                tui('could not resume {key}: {error}', { key: pick.key, error: errorMessage(err) })
+              );
             }
             handle.notify();
           })();

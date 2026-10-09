@@ -48,7 +48,7 @@ export const TASK_PHASES: readonly TaskPhase[] = [
 export type TaskStatusView = 'idle' | 'planning' | 'executing' | 'blocked' | 'completed';
 
 /** User-facing result once a task reaches a verdict-ish phase. */
-export type TaskOutcome = 'pass' | 'fail' | 'needs-user';
+export type TaskOutcome = 'pass' | 'fail' | 'needs-user' | 'aborted';
 
 export type TaskEventType =
   | 'task_created'
@@ -201,6 +201,22 @@ export function deriveTaskOutcome(phase: TaskPhase): TaskOutcome | undefined {
   if (phase === 'accepted') return 'pass';
   if (phase === 'failed' || phase === 'abandoned') return 'fail';
   if (phase === 'blocked') return 'needs-user';
+  return undefined;
+}
+
+/**
+ * Detail of the latest `task_failed` event, if one was applied.
+ * Esc records exactly `aborted`; a later real failure replaces it.
+ */
+export function latestTaskFailureDetail(
+  events: readonly { type: string; data?: Record<string, unknown> }[]
+): string | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event?.type !== 'task_failed') continue;
+    const detail = event.data?.detail;
+    return typeof detail === 'string' ? detail : undefined;
+  }
   return undefined;
 }
 

@@ -783,6 +783,20 @@ test('esc during the resumed execution turn is aborted, not crashed, and resumab
     ['executing']
   );
   assertAborted(result, await listTaskEvents(ws, taskId));
+  assert.equal(result.snapshot.outcome, 'aborted');
+  assert.equal(result.snapshot.phase, 'failed', 'the state machine stays resumable');
+  const summary = summarizeTaskRun(result);
+  assert.match(summary, /— ABORTED/);
+  assert.match(summary, /phase: aborted/);
+  assert.doesNotMatch(summary, /phase: failed/);
+  assert.doesNotMatch(summary, /\bFAIL\b/);
+  assert.doesNotMatch(summary, /\/task resume/);
+  assert.doesNotMatch(summary, /Task failed/);
+  assert.deepEqual(summary.match(/\/goal resume/g), ['/goal resume']);
+  const zhSummary = summarizeTaskRun(result, 'zh-CN');
+  assert.match(zhSummary, /阶段: 已中止/);
+  assert.doesNotMatch(zhSummary, /failed|\bFAIL\b|\/task resume/);
+  assert.deepEqual(zhSummary.match(/\/goal resume/g), ['/goal resume']);
   await finishAfterAbort(ws, taskId);
 });
 

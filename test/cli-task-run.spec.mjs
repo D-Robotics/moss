@@ -416,6 +416,18 @@ test('moss task speaks the user locale (zh)', async () => {
     assert.match(zhView, /尝试/);
     const enView = formatTaskStatus(snapshot, '', false);
     assert.match(enView, /TASK {6}task_/, 'explicit en view keeps English labels');
+
+    await appendTaskEvent(ws, taskId, 'task_failed', { detail: 'aborted' });
+    const aborted = await getTaskStateSnapshot(ws, taskId);
+    assert.equal(aborted?.outcome, 'aborted');
+    assert.equal(aborted?.phase, 'failed');
+    const abortedEn = formatTaskStatus(aborted, '', false);
+    assert.match(abortedEn, /PHASE {5}aborted$/m);
+    assert.doesNotMatch(abortedEn, /failed/);
+    assert.doesNotMatch(abortedEn, /\/task resume/);
+    const abortedZh = formatTaskStatus(aborted, '', true);
+    assert.match(abortedZh, /阶段 {6}已中止/);
+    assert.doesNotMatch(abortedZh, /failed/);
   } finally {
     if (savedLcAll === undefined) delete process.env.LC_ALL;
     else process.env.LC_ALL = savedLcAll;

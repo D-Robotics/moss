@@ -159,7 +159,7 @@ test('a call during a 2s MCP connect waits, then the next model call sees the to
     assert.equal(rdkDocsKnowledgeLayer(registry.getStatuses()), RDK_DOCS_CONNECTED_LAYER);
     assert.match(
       formatMcpStatusLine(registry.getStatuses()[0]),
-      /● rdk-docs — connected \(4 tools/
+      /● rdk-docs — connected \(5 tools/
     );
     const metrics = events.find((event) => event.type === 'cache_metrics');
     assert.equal(metrics?.systemPromptHashShort, hashShort(calls[1].system));

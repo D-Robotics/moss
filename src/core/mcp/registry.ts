@@ -204,7 +204,7 @@ export class McpToolRegistry {
       const tools = await entry.client.listTools();
       entry.descriptors = tools;
       entry.status.state = 'connected';
-      entry.status.toolCount = tools.length;
+      entry.status.toolCount = this.exposedToolCount(entry);
       log.debug('server connected', { server: entry.config.name, tools: tools.length });
     } catch (err) {
       entry.status.state = 'failed';
@@ -228,9 +228,26 @@ export class McpToolRegistry {
     }
   }
 
+  /**
+   * Tools the session can actually call: every `tools/list` descriptor, plus
+   * the search meta-tool when its wire name is not already a server tool.
+   */
+  private exposedToolCount(entry: ServerEntry): number {
+    const names = new Set<string>([entry.searchTool.name]);
+    for (const descriptor of entry.descriptors) {
+      names.add(mcpToolWireName(entry.status.name, descriptor.name));
+    }
+    return names.size;
+  }
+
   /** Status snapshot (order follows the config). */
   getStatuses(): McpServerStatus[] {
-    return this.entries.map((e) => ({ ...e.status }));
+    return this.entries.map((entry) => {
+      if (entry.status.state !== 'connected') return { ...entry.status };
+      const toolCount = this.exposedToolCount(entry);
+      entry.status.toolCount = toolCount;
+      return { ...entry.status, toolCount };
+    });
   }
 
   /**
@@ -258,7 +275,7 @@ export class McpToolRegistry {
       entry.searchTool = this.buildSearchTool(client);
       entry.realTools.clear();
       entry.status.state = 'connected';
-      entry.status.toolCount = entry.descriptors.length;
+      entry.status.toolCount = this.exposedToolCount(entry);
       entry.reconnectAttempts = 0;
       log.info('server reconnected', { server: entry.config.name });
       return true;
@@ -562,6 +579,10 @@ export class McpToolRegistry {
           refresh: input?.refresh === true,
           signal: ctx.abortSignal,
         });
+        if (entry && entry.status.state === 'connected') {
+          entry.descriptors = tools;
+          entry.status.toolCount = this.exposedToolCount(entry);
+        }
         if (tools.length === 0) {
           return `MCP server "${client.name}" exposes no tools.`;
         }

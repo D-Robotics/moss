@@ -16,6 +16,7 @@ import {
   classifyTaskKind,
   describeToolCall,
   formatDeploymentLine,
+  isGoalResumeCandidate,
 } from '../dist/core/task-runtime/runtime.js';
 import {
   appendTaskRecord,
@@ -412,6 +413,27 @@ test('a tagged deployment belongs to exactly its task, same device or not', asyn
 });
 
 // ─── A5: blocked reason reaches the summary ──────────────────────────────────
+
+test('an Esc abort projects as ABORTED and stays a /goal resume candidate', async () => {
+  const dir = await tempWorkspace();
+  const aborted = await createDraftTask(dir, 'flash the board');
+  await appendTaskEvent(dir, aborted.taskId, 'execution_started');
+  await appendTaskEvent(dir, aborted.taskId, 'task_failed', { detail: 'aborted' });
+  const failed = await createDraftTask(dir, 'a real failure');
+  await appendTaskEvent(dir, failed.taskId, 'execution_started');
+  await appendTaskEvent(dir, failed.taskId, 'task_failed', { detail: 'camera stayed down' });
+
+  const runtime = new TaskRuntime({ workspaceDir: dir, now: () => 5000 });
+  await runtime.refresh();
+  const abortedSummary = runtime.taskSummaries().find((s) => s.taskId === aborted.taskId);
+  const failedSummary = runtime.taskSummaries().find((s) => s.taskId === failed.taskId);
+  assert.equal(abortedSummary?.result, 'ABORTED');
+  assert.equal(abortedSummary?.state, 'COMPLETED');
+  assert.equal(isGoalResumeCandidate(abortedSummary), true);
+  assert.equal(failedSummary?.result, 'FAIL');
+  assert.equal(isGoalResumeCandidate(failedSummary), true);
+  assert.equal(isGoalResumeCandidate({ state: 'COMPLETED', result: 'PASS' }), false);
+});
 
 test('a blocked task carries its blockedReason into taskSummaries', async () => {
   const dir = await tempWorkspace();

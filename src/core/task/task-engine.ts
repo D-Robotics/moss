@@ -8,6 +8,7 @@
 import {
   isResumableTaskPhase,
   isTerminalTaskPhase,
+  latestTaskFailureDetail,
   type TaskStateSnapshot,
 } from '../../contracts/task-runtime.js';
 import { ErrorCode, MossError } from '../../errors.js';
@@ -375,11 +376,7 @@ function outcomeFromSnapshot(
 ): TaskRunResult['outcome'] {
   if (snapshot.phase === 'accepted') return 'pass';
   if (snapshot.phase === 'blocked') return 'blocked';
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i];
-    if (event?.type !== 'task_failed') continue;
-    return event.data?.detail === 'aborted' ? 'aborted' : 'fail';
-  }
+  if (latestTaskFailureDetail(events) === 'aborted') return 'aborted';
   return 'fail';
 }
 
@@ -638,17 +635,21 @@ export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<
 export function summarizeTaskRun(result: TaskRunResult, locale?: string): string {
   const zh = typeof locale === 'string' && /^zh/i.test(locale);
   const { snapshot, outcome, verdictDetail, timeline, turns } = result;
+  // Esc keeps the state-machine phase `failed` so /goal resume can re-enter.
+  // The status the user reads says aborted, once, and names only /goal resume.
+  const phaseLabel = outcome === 'aborted' ? (zh ? '已中止' : 'aborted') : snapshot.phase;
   const lines = zh
     ? [
         `任务 ${snapshot.taskId} — ${outcome.toUpperCase()}`,
         `目标: ${snapshot.goal}`,
-        `阶段: ${snapshot.phase} · 尝试: ${snapshot.attempt} · 修复: ${snapshot.repairs.length} · 失败: ${snapshot.failures.length} · 轮次: ${turns}`,
+        `阶段: ${phaseLabel} · 尝试: ${snapshot.attempt} · 修复: ${snapshot.repairs.length} · 失败: ${snapshot.failures.length} · 轮次: ${turns}`,
       ]
     : [
         `Task ${snapshot.taskId} — ${outcome.toUpperCase()}`,
         `goal: ${snapshot.goal}`,
-        `phase: ${snapshot.phase} · attempts: ${snapshot.attempt} · repairs: ${snapshot.repairs.length} · failures: ${snapshot.failures.length} · turns: ${turns}`,
+        `phase: ${phaseLabel} · attempts: ${snapshot.attempt} · repairs: ${snapshot.repairs.length} · failures: ${snapshot.failures.length} · turns: ${turns}`,
       ];
+  if (outcome === 'aborted') lines.push('/goal resume');
   if (verdictDetail) lines.push('', zh ? '最终裁决:' : 'Final verdict:', verdictDetail);
   const tail = timeline.split('\n').slice(-6).join('\n');
   if (tail) lines.push('', zh ? '时间线（末尾）:' : 'Timeline (tail):', tail);
