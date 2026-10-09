@@ -434,18 +434,26 @@ def p5_theme_command():
 
 
 def p6_queue_recall():
+    """A message typed during a live run steers that run (P1-2).
+
+    The composer queue ("1 queued", Up to edit) is the fallback when steer
+    returns null. A real agent with one active run accepts the steer, so the
+    screen shows the transcript echo and the original run stays in flight.
+    """
     with Session(cols=100, rows=30, renderer="fullscreen") as session:
         session.submit("longstream", wait=1.2)
         session.submit("queued note", wait=0.8)
         session.settle()
-        queued = any("1 queued" in line for line in session.lines())
-        check("P6 a message sent during a run is queued", queued, "queue count missing")
-        session.key("up")
-        session.settle()
-        tail = [line.rstrip() for line in session.lines()[-6:]]
+        text = "\n".join(line.rstrip() for line in session.lines())
         check(
-            "P6 Up pulls the queued message back into the composer",
-            any("queued note" in line and line.lstrip().startswith("❯") for line in tail),
+            "P6 a message sent during a run steers it",
+            "queued: queued note" in text,
+            "steer echo missing",
+        )
+        tail = [line.rstrip() for line in session.lines()[-8:]]
+        check(
+            "P6 the original run stays in flight",
+            any("running" in line for line in tail),
             f"tail={tail!r}",
         )
 

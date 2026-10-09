@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * CLI shell multi-task plane: /sessions, /mcp, /subs, /rewind — all driven
- * through host-provided providers and printed into the transcript (the v0.22
- * shell has no overlays, so the answer is the output).
+ * CLI shell multi-task plane: /sessions (alias of /resume), /mcp, /subs
+ * (alias of /tasks), /rewind — host providers, printed into the transcript.
  */
 import assert from 'node:assert/strict';
 
@@ -91,16 +90,23 @@ const runtime = new TaskRuntime({ workspaceDir: '/tmp/ws' });
 const instance = renderInk(React.createElement(TuiAppRoot, { options, handle, runtime }));
 const rowsWith = (needle) => handle.store.rows.filter((r) => r.text.includes(needle));
 
-// /sessions lists both, with the current marker on the active one
+// /sessions is a hidden alias of /resume: migration line, then the session list.
 await type(instance, '/sessions');
 assert.ok(
+  await waitFor(() => rowsWith('/sessions is now /resume.').length > 0),
+  '/sessions prints the migration hint'
+);
+assert.ok(
   await waitFor(() => rowsWith('* sess-current').length > 0),
-  'sessions block marks the current session'
+  'resume block marks the current session'
 );
 assert.ok(
   handle.store.rows.some((r) => r.text.includes('sess-old — Fix the bug')),
   'sessions block lists the other session with its title'
 );
+// No-arg /resume opens the session picker and owns the keyboard until Esc.
+instance.stdin.write('\x1b');
+await sleep(40);
 
 // /mcp shows connected + failed servers with lazy tool counts
 await type(instance, '/mcp');
@@ -113,15 +119,19 @@ assert.ok(
   'mcp block shows the failed server'
 );
 
-// /subs lists the async task registry
+// /subs is a hidden alias of /tasks: migration line, then background jobs.
 await type(instance, '/subs');
+assert.ok(
+  await waitFor(() => rowsWith('/subs is now /tasks.').length > 0),
+  '/subs prints the migration hint'
+);
 assert.ok(
   await waitFor(
     () =>
       handle.store.rows.some((r) => r.text.includes('abc123')) &&
       handle.store.rows.some((r) => r.text.includes('def456'))
   ),
-  'subs block lists tasks'
+  '/tasks lists the sub-agents /subs used to print'
 );
 
 // /rewind lists checkpoints; /rewind 1 restores through the host provider

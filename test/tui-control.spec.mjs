@@ -66,10 +66,11 @@ function mount(options) {
 
 const calls = [];
 const steers = [];
-function mockAgent({ slow = false, hold = null } = {}) {
+function mockAgent({ slow = false, hold = null, steerResult = 'accept' } = {}) {
   return {
     steer(sessionKey, constraint) {
       steers.push({ sessionKey, constraint });
+      if (steerResult === 'reject') return null;
       return { delivery: 'steer', message: constraint, id: 's1', createdAt: Date.now() };
     },
     async *streamChat(sessionKey, message, opts) {
@@ -168,14 +169,21 @@ function mockAgent({ slow = false, hold = null } = {}) {
   calls.length = 0;
   let releaseFirst;
   const hold = { promise: new Promise((resolve) => (releaseFirst = resolve)) };
-  const { instance, handle } = mount({ agent: mockAgent({ hold }), workspaceDir: '/tmp/ws' });
+  const { instance, handle } = mount({
+    agent: mockAgent({ hold, steerResult: 'reject' }),
+    workspaceDir: '/tmp/ws',
+  });
   await type(instance, 'first slow task');
   await waitFor(() => calls.length === 1);
   await type(instance, 'second queued task');
-  const queued = await waitFor(() => instance.lastFrame().includes('1 queued'));
+  const queued = await waitFor(
+    () =>
+      instance.lastFrame().includes('queued 1. second queued task') &&
+      instance.lastFrame().includes('1 queued')
+  );
   assert.ok(
     queued,
-    `the shell shows the queue depth: ${JSON.stringify(instance.lastFrame().slice(-120))}`
+    `the shell shows the queued line above the composer: ${JSON.stringify(instance.lastFrame().slice(-200))}`
   );
   await type(instance, '/queue');
   await waitFor(() => instance.lastFrame().includes('Queue (active)'));
@@ -229,7 +237,9 @@ function mockAgent({ slow = false, hold = null } = {}) {
   calls.length = 0;
   const { instance } = mount({ agent: mockAgent(), workspaceDir: '/tmp/ws' });
   await type(instance, '/bg');
-  await waitFor(() => instance.lastFrame().includes('no background tasks running'));
+  await waitFor(() => instance.lastFrame().includes('/bg is now /tasks.'));
+  assert.match(instance.lastFrame(), /background shell:/);
+  assert.match(instance.lastFrame(), /\(none\)/);
   instance.unmount();
   await sleep(120);
 }

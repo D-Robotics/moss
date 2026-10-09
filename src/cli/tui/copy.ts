@@ -171,6 +171,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'expand a collapsed block · drag to copy': '展开被折叠的块 · 拖动复制',
   'print failures · deployments are /deployments': '打印 failures · deployments 用 /deployments',
   'print task artifacts': '打印任务工件',
+  'work until a condition is met · enter plan mode': '做到条件满足 · 进入 plan 模式',
+  aliases: '别名',
   'clear the composer': '清空输入框',
   'interrupt the run · press again to quit': '中断运行 · 再按退出',
   quit: '退出',
@@ -226,6 +228,14 @@ export const ZH: Readonly<Record<string, string>> = {
   'list background shell and sub-agent jobs': '列出后台 shell 与子 agent 任务',
   'inspect or control the input queue': '查看或控制输入队列',
   'inject a constraint into the live run': '向正在运行的 run 注入一条约束',
+  'work until a condition is met; /goal clear cancels': '持续工作直到条件满足；/goal clear 取消',
+  'enter plan mode; with a description, start planning immediately':
+    '进入 plan 模式；带描述则立即开始规划',
+  'Task OS entry (hidden): status, timeline, resume, view, and verify — everyday work is /goal':
+    'Task OS 入口（隐藏）：status、timeline、resume、view、verify — 日常用 /goal',
+  'resume a saved conversation': '恢复已保存的会话',
+  'stop background processes; Esc interrupts the current run': '停止后台进程；Esc 中断当前运行',
+  'create or update an AGENTS.md project memory file': '创建或更新 AGENTS.md 项目记忆文件',
 
   // ── app.ts chrome ──────────────────────────────────────────────────────
   'Approval required': '需要审批',
@@ -370,6 +380,9 @@ export const ZH: Readonly<Record<string, string>> = {
     'transcript 已清空 — 新对话，上下文为空（上一段：`moss --continue`）',
   'a run is in flight — press Esc to interrupt it, then /clear':
     '有 run 正在运行 — 先按 Esc 中断，再 /clear',
+  '{command} is not available while a run is in flight — press Esc to interrupt, then retry':
+    '{command} 在运行中不可用 — 先按 Esc 中断，再重试',
+  '  queued {n}. {text}': '  排队 {n}. {text}',
   'a run is in flight — press Esc to interrupt it, then /compact':
     '有 run 正在运行 — 先按 Esc 中断，再 /compact',
   'a run is in flight — press Esc to interrupt it before switching models':

@@ -33,6 +33,69 @@ function describeSession(meta: SessionMeta): string {
   return `${meta.sessionKey} (${meta.messageCount} messages, updated ${updated})`;
 }
 
+function formatResumeMatch(meta: SessionMeta): string {
+  const updated = Number.isFinite(meta.updatedAt)
+    ? new Date(meta.updatedAt).toISOString()
+    : 'unknown time';
+  const title = meta.title?.trim() ? meta.title.trim() : '(no title)';
+  return `${meta.sessionKey}  ${title}  updated ${updated}`;
+}
+
+export interface ResumeSelection {
+  sessionKey: string | null;
+  notice: string;
+}
+
+/**
+ * `/resume` for the readline REPL. A query matches session key or title.
+ * One match resumes it. Several matches use the numbered picker on a TTY.
+ * With no query and no TTY, the latest session is resumed. A query that
+ * matches several sessions on a non-TTY resumes nothing and lists up to 10
+ * matches so the caller can refine.
+ */
+export async function selectSessionForResume(
+  store: SessionStore,
+  query?: string
+): Promise<ResumeSelection> {
+  const sessions = sortRecent(await store.listSessions());
+  const needle = query?.trim().toLowerCase() ?? '';
+  const pool = needle
+    ? sessions.filter(
+        (session) =>
+          session.sessionKey.toLowerCase().includes(needle) ||
+          (session.title ?? '').toLowerCase().includes(needle)
+      )
+    : sessions;
+  if (pool.length === 0) {
+    return {
+      sessionKey: null,
+      notice: needle
+        ? `No saved session matches "${query}".`
+        : 'No saved sessions. Start talking to create one.',
+    };
+  }
+  if (pool.length === 1) {
+    return { sessionKey: pool[0].sessionKey, notice: `Resuming session: ${pool[0].sessionKey}` };
+  }
+  if (needle && !process.stdin.isTTY) {
+    const shown = pool.slice(0, 10);
+    const hidden = pool.length - shown.length;
+    const lines = [
+      `Several sessions match "${query}". No session was resumed.`,
+      ...shown.map(formatResumeMatch),
+    ];
+    if (hidden > 0) lines.push(`${hidden} more not shown. Refine the query.`);
+    return { sessionKey: null, notice: lines.join('\n') };
+  }
+  const selected = await promptForSession(pool);
+  if (selected) return { sessionKey: selected, notice: `Resuming session: ${selected}` };
+  const latest = pool[0].sessionKey;
+  return {
+    sessionKey: latest,
+    notice: `No interactive session picker available; using latest session. Resuming session: ${latest}`,
+  };
+}
+
 async function promptForSession(sessions: SessionMeta[]): Promise<string | null> {
   if (!process.stdin.isTTY) return null;
   const recent = sortRecent(sessions).slice(0, 10);

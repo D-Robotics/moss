@@ -22,6 +22,7 @@ import {
 } from '../approval-view.js';
 import { resolveCliConfig, type ResolvedCliConfig } from '../config.js';
 import type { CliInteractionMode } from '../interaction-mode.js';
+import { slashAliasHelpLines } from '../interactive-commands.js';
 import type { CliRuntimeStatus } from '../onboarding.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
 import { tui } from './copy.js';
@@ -321,16 +322,16 @@ export function commandBlockTitle(head: string): string {
 }
 
 const COMMON_HELP_COMMANDS = [
-  '/status',
   '/model',
-  '/mode',
   '/compact',
-  '/task',
-  '/resume',
+  '/goal',
+  '/plan',
+  '/review',
+  '/doctor',
   '/diff',
   '/permissions',
-  '/help',
   '/clear',
+  '/help',
 ];
 
 /** Compact help (prefixes + shortcuts + common commands) or the full reference. */
@@ -352,7 +353,9 @@ export function buildHelpOverlayLines(
       ? ALL_SHELL_COMMANDS
       : SHELL_COMMANDS.filter((entry) => COMMON_HELP_COMMANDS.includes(entry.command))
     ).map((entry) => `  ${entry.usage.padEnd(24)} ${tui(entry.description)}`),
-    ...(all ? [] : ['', tui('type / to browse commands · /help --all for the rest')]),
+    ...(all
+      ? ['', tui('aliases'), ...slashAliasHelpLines()]
+      : ['', tui('type / to browse commands · /help --all for the rest')]),
   ];
 }
 

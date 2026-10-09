@@ -61,6 +61,50 @@ export function parseCommandFile(raw: string): ParsedCommandFile {
   return { description, argumentHint, body: body.trim() };
 }
 
+export interface SkillCommandRef {
+  name: string;
+  description: string;
+}
+
+export type ResolvedUserCommand =
+  | { kind: 'builtin'; name: string; args: string }
+  | { kind: 'custom'; name: string; args: string; prompt: string }
+  | { kind: 'skill'; name: string; args: string; prompt: string }
+  | { kind: 'unknown'; name: string; args: string };
+
+/**
+ * Resolve a slash line the way both shells do: built-in, then a file command,
+ * then a skill, then unknown. A skill prompt keeps the caller's arguments.
+ */
+export function resolveUserCommand(
+  input: string,
+  options: {
+    builtinNames: ReadonlySet<string>;
+    customCommands: readonly CommandSpec[];
+    skills: readonly SkillCommandRef[];
+  }
+): ResolvedUserCommand {
+  const trimmed = input.trim();
+  const head = (trimmed.split(/\s+/, 1)[0] ?? trimmed).toLowerCase();
+  const args = trimmed.slice(head.length).trim();
+  if (options.builtinNames.has(head)) return { kind: 'builtin', name: head, args };
+  const custom = options.customCommands.find((command) => command.name === head);
+  if (custom?.body) {
+    return { kind: 'custom', name: head, args, prompt: expandCommandBody(custom.body, args) };
+  }
+  const skill = options.skills.find((entry) => `/${entry.name}`.toLowerCase() === head);
+  if (skill) {
+    const base = `Use the "${skill.name}" skill${skill.description ? ` (${skill.description})` : ''} for this task. Read the skill body with the skill tool first, then follow it.`;
+    return {
+      kind: 'skill',
+      name: head,
+      args,
+      prompt: expandCommandBody(`${base}\n\n$ARGUMENTS`, args).trim(),
+    };
+  }
+  return { kind: 'unknown', name: head, args };
+}
+
 export function expandCommandBody(body: string, args: string): string {
   const trimmed = args.trim();
   const tokens = trimmed.length ? trimmed.split(/\s+/) : [];
@@ -134,6 +178,7 @@ export function loadCustomCommands(
       specs.push({
         name: slash,
         summary: parsed.argumentHint ? `${summary} — args: ${parsed.argumentHint}` : summary,
+        body: parsed.body,
         run(ctx, args) {
           const prompt = expandCommandBody(parsed.body, args);
           if (!prompt) {

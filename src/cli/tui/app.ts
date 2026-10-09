@@ -29,7 +29,7 @@ import {
   useWindowSize,
 } from 'ink';
 import type { MossAgent } from '../../core/agent/moss-agent.js';
-import { parseGoalCommandLine } from '../../core/loop/goal-loop.js';
+import { planGateEnabled } from '../../tools/plan-gate.js';
 import { TaskRuntime, formatDeploymentLine } from '../../core/task-runtime/runtime.js';
 import { errorMessage } from '../../errors.js';
 import {
@@ -68,6 +68,26 @@ import {
   type CommandContext,
   type CommandSurface,
 } from '../commands/registry.js';
+import {
+  loadCustomCommands,
+  reservedBuiltinNames,
+  resolveUserCommand,
+} from '../commands/custom-commands.js';
+import { formatBackgroundJobLines } from '../commands/background-jobs.js';
+import {
+  abandonLiveGoal,
+  acceptanceProposalLines,
+  GOAL_USAGE,
+  goalRunArgs,
+  planGoalInvocation,
+  skippedAcceptanceNotice,
+} from '../commands/goal-propose.js';
+import {
+  availabilityFor,
+  isExactSlashCommand,
+  rewriteSlashInput,
+} from '../interactive-commands.js';
+import { resolveLoopMaxIterations } from '../loop-tui-events.js';
 import { cliLocale } from '../cli-locale.js';
 import { handleCompactCommand } from '../compact-command.js';
 import { createCliSessionKey } from '../session.js';
@@ -118,8 +138,10 @@ import { isTuiZh, setTuiLocale, transientStatus, tui } from './copy.js';
 import { allocateFrame } from './layout.js';
 import {
   MOUSE_TRACKING_ON,
+  TUI_KITTY_KEYBOARD,
   installTerminalRestore,
   osc52,
+  readTmuxMouse,
   restoreTerminalModes,
   selectTuiRenderer,
 } from './renderer.js';
@@ -335,13 +357,8 @@ function collectStrings(value: unknown, out: string[] = []): string[] {
   return out;
 }
 
-/**
- * The registry's `CommandSurface` vocabulary has no shell member and no command
- * branches on it, so `'repl'` is the only type-legal value today. Widening the
- * union is a `src/cli/commands/registry.ts` change owned outside this task (the
- * registry spec already passes `'tui'`).
- */
-const COMMAND_SURFACE: CommandSurface = 'repl';
+/** The shell tells the registry it is the TUI, so surface-specific copy can diverge later. */
+const COMMAND_SURFACE: CommandSurface = 'tui';
 
 /** How long the scroll bar stays visible after the pointer or a scroll last touched it. */
 const SCROLLBAR_HIDE_MS = 1500;
@@ -516,6 +533,25 @@ export function TuiAppRoot({
   const quitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const queueRef = useRef<Array<{ display: string; text: string }>>([]);
   const queuePausedRef = useRef(false);
+  /** Re-entry guard: draining a queued line must not start a second drain. */
+  const drainingRef = useRef(false);
+  /** The line being executed came from the queue, so the composer stays put. */
+  const fromQueueRef = useRef(false);
+  const submitRef = useRef<(text: string) => Promise<void>>(async () => undefined);
+  /** `/goal` proposal waiting for Enter (accept) or `n` (contract verdict only). */
+  const pendingGoalRef = useRef<{ goal: string } | null>(null);
+  const customCommands = useMemo(
+    () =>
+      loadCustomCommands(
+        {
+          workspace: options.workspaceDir,
+          configDir: options.cliRuntime?.configDir ?? path.join(options.workspaceDir, '.moss'),
+          reservedNames: reservedBuiltinNames(),
+        },
+        () => undefined
+      ),
+    [options.workspaceDir, options.cliRuntime?.configDir]
+  );
   const [queueRevision, setQueueRevision] = useState(0);
   void queueRevision;
   /** Kill ring: the text the last Ctrl+U/K/W removed, pasted back by Ctrl+Y. */
@@ -988,6 +1024,33 @@ export function TuiAppRoot({
     [handle, runtime, store]
   );
 
+  /**
+   * A steer that landed after the loop's last poll must not vanish. A finished
+   * run queues it (the drain sends it). An aborted run returns it to the
+   * composer, the same way Esc hands the visible queue back.
+   */
+  const absorbDeferredSteers = useCallback(
+    (halted: boolean) => {
+      const take = options.agent.takeDeferredSteers;
+      if (typeof take !== 'function') return;
+      const prompts = take
+        .call(options.agent, sessionKey)
+        .map((text) => text.trim())
+        .filter((text) => text.length > 0);
+      if (prompts.length === 0) return;
+      if (halted) {
+        setInput((current) => {
+          const extra = prompts.join('\n');
+          return current.trim() ? `${current.replace(/\s+$/, '')}\n${extra}` : extra;
+        });
+        return;
+      }
+      for (const text of prompts) queueRef.current.push({ display: text, text });
+      setQueueRevision((n) => n + 1);
+    },
+    [options.agent, sessionKey, setInput]
+  );
+
   const runTurn = useCallback(
     async (message: string) => {
       options.onTurnStart?.(message);
@@ -1070,9 +1133,11 @@ export function TuiAppRoot({
         (rowsThisRun.some((row) => row.kind === 'tool') ||
           rowsThisRun.some((row) => row.kind === 'assistant' && row.text.length > 300));
       handle.notify();
-      if (producedPlan) planGateRef.current?.();
+      if (producedPlan && planGateEnabled()) planGateRef.current?.();
+      absorbDeferredSteers(halted);
     },
     [
+      absorbDeferredSteers,
       appendTaskVerdictIfAny,
       handle,
       notifyAttention,
@@ -1086,16 +1151,32 @@ export function TuiAppRoot({
   );
 
   const drainQueue = useCallback(async (): Promise<void> => {
-    while (queueRef.current.length > 0 && !queuePausedRef.current) {
-      const next = queueRef.current.shift();
-      if (!next) break;
-      setQueueRevision((n) => n + 1);
-      appendRow(store, 'user', next.display);
-      handle.notify();
-      await runTurn(next.text);
+    if (drainingRef.current) return;
+    drainingRef.current = true;
+    try {
+      // Stop when a run is already in flight. Submitting again would push the
+      // same line back onto the queue and spin. That run's own drain continues it.
+      while (queueRef.current.length > 0 && !queuePausedRef.current && !store.run.running) {
+        const next = queueRef.current.shift();
+        if (!next) break;
+        setQueueRevision((n) => n + 1);
+        fromQueueRef.current = true;
+        try {
+          await submitRef.current(next.text);
+        } finally {
+          fromQueueRef.current = false;
+        }
+        if (store.run.running) break;
+      }
+    } finally {
+      drainingRef.current = false;
+      if (queueRef.current.length > 0 && !queuePausedRef.current && !store.run.running) {
+        void drainQueue();
+      } else if (queueRef.current.length === 0) {
+        setQueueRevision((n) => n + 1);
+      }
     }
-    if (queueRef.current.length === 0) setQueueRevision((n) => n + 1);
-  }, [handle, runTurn, store]);
+  }, [store]);
 
   const sessionInfo = useCallback(
     async (command: 'sessions' | 'mcp' | 'subs' | 'bg'): Promise<string[]> => {
@@ -1223,13 +1304,15 @@ export function TuiAppRoot({
 
   /** Run a message the shell itself composed (e.g. `/review`'s review prompt). */
   const dispatchRun = useCallback(
-    (message: string) => {
+    (message: string): Promise<void> => {
       if (store.run.running) {
         queueRef.current.push({ display: message, text: message });
         setQueueRevision((n) => n + 1);
-        return;
+        return Promise.resolve();
       }
-      void runTurn(message).then(() => void drainQueue());
+      const turn = runTurn(message);
+      if (drainingRef.current) return turn;
+      return turn.then(() => drainQueue());
     },
     [drainQueue, runTurn, store]
   );
@@ -1299,17 +1382,24 @@ export function TuiAppRoot({
           printCommandError('Task', errorMessage(err));
         } finally {
           abortRef.current = undefined;
-          const unverifiedTask =
-            !controller.signal.aborted && needsTestHint(store.run as VerifyHintState);
-          endRun(store, controller.signal.aborted);
+          const halted = controller.signal.aborted;
+          const unverifiedTask = !halted && needsTestHint(store.run as VerifyHintState);
+          endRun(store, halted);
           if (unverifiedTask) {
             appendRow(store, 'summary', tui('edited JS/TS files but did not run tests'));
           }
-          await runtime.endRun(controller.signal.aborted);
+          await runtime.endRun(halted);
           appendTaskVerdictIfAny(runStartedAtRef.current ?? 0);
           runStartedAtRef.current = undefined;
+          absorbDeferredSteers(halted);
           setStatusLine(undefined);
           handle.notify();
+          // A chat turn drains from its own completion. A task run does not go
+          // through that path, so messages queued while it was in flight would
+          // otherwise sit above the composer forever.
+          if (!halted && queueRef.current.length > 0 && !drainingRef.current) {
+            void drainQueue();
+          }
         }
         return;
       }
@@ -1327,6 +1417,8 @@ export function TuiAppRoot({
       }
     },
     [
+      absorbDeferredSteers,
+      drainQueue,
       handle,
       options.agent,
       options.workspaceDir,
@@ -1357,14 +1449,14 @@ export function TuiAppRoot({
       resolve: (value) => {
         if (value === PROCEED_AUTO) {
           setCliInteractionMode('acceptEdits');
-          dispatchRun('The plan above is approved — proceed with execution now.');
+          void dispatchRun('The plan above is approved — proceed with execution now.');
         } else if (value === PROCEED_MANUAL) {
           setCliInteractionMode('manual');
-          dispatchRun(
+          void dispatchRun(
             'The plan above is approved — proceed with execution now (manual approvals stay on).'
           );
         } else if (value.trim()) {
-          dispatchRun(`Plan feedback — revise the plan accordingly: ${value}`);
+          void dispatchRun(`Plan feedback — revise the plan accordingly: ${value}`);
         }
       },
       optionAnswers: [PROCEED_AUTO, PROCEED_MANUAL, ''],
@@ -1622,7 +1714,9 @@ export function TuiAppRoot({
         say: (kind, out) =>
           kind === 'error' ? printCommandError(title, out) : printBlock(title, out.split('\n')),
         prefillInput: (value) => setInput(value),
-        submitPrompt: (value) => dispatchRun(value),
+        submitPrompt: (value) => {
+          void dispatchRun(value);
+        },
         getContextUsage: () => shellContextUsage(store.usage),
         setInteractionMode: (mode: CliInteractionMode) => {
           // The policy layer already switched the mode; surface it so the change
@@ -1635,40 +1729,34 @@ export function TuiAppRoot({
         },
       };
 
-      // One autonomous engine — /loop and /goal translate onto /task run
-      // (the same delegation the readline REPL performs), so every shell has
-      // one completion mechanism: verdict-backed Task OS runs.
-      if (head === '/loop' || head === '/goal') {
-        const rest = text.slice(head.length).trim();
-        if (head === '/goal') {
-          const parsed = parseGoalCommandLine(rest);
-          if (!parsed) {
-            printCommandError(
-              'Goal',
-              'Usage: /goal <goal> [--accept "<verification command>"] — same as /task run with an acceptance gate.'
-            );
-            return true;
-          }
-          const translated = [
-            '/task run',
-            parsed.goal,
-            ...(parsed.acceptance ? ['--accept', `"${parsed.acceptance.command}"`] : []),
-          ].join(' ');
-          await runTaskShellCommand(translated.slice('/task'.length).trim());
+      if (head === '/goal') {
+        const plan = planGoalInvocation(args, options.workspaceDir);
+        if (plan.kind === 'usage') {
+          printBlock('Goal', [GOAL_USAGE]);
           return true;
         }
-        if (!rest || rest === 'stop' || rest === 'abort' || rest === 'resume') {
-          if (rest === 'resume') {
-            await runTaskShellCommand('resume');
-            return true;
-          }
-          printCommandError(
-            'Loop',
-            'A running task is interrupted with Esc; it stays resumable — /task status lists ids, /task resume <id> continues it.'
-          );
+        if (plan.kind === 'clear') {
+          printBlock('Goal', [await abandonLiveGoal(options.workspaceDir, locale)]);
           return true;
         }
-        await runTaskShellCommand(`run ${rest}`);
+        if (plan.kind === 'resume') {
+          await runTaskShellCommand('resume');
+          return true;
+        }
+        if (plan.kind === 'propose') {
+          printBlock('Goal', acceptanceProposalLines(plan.goal, plan.candidates, locale));
+          pendingGoalRef.current = { goal: plan.goal };
+          setInput(plan.candidates[0] ?? '');
+          return true;
+        }
+        if (plan.notice) printBlock('Goal', [plan.notice]);
+        const maxTurns = resolveLoopMaxIterations(process.env, true);
+        await runTaskShellCommand(
+          goalRunArgs(plan.goal, {
+            ...(plan.acceptance ? { acceptance: plan.acceptance } : {}),
+            ...(maxTurns > 0 ? { maxTurns } : {}),
+          })
+        );
         return true;
       }
 
@@ -1697,7 +1785,7 @@ export function TuiAppRoot({
       }
 
       try {
-        if (await runRegistryCommand(text, context)) return true;
+        if (await runRegistryCommand(text, context, customCommands)) return true;
       } catch (err) {
         printCommandError(title, `${head} failed: ${errorMessage(err)}`);
         return true;
@@ -1715,24 +1803,17 @@ export function TuiAppRoot({
         await runDiffCommand();
         return true;
       }
-      if (head === '/stop' || head === '/abort') {
-        if (abortRef.current) {
-          abortRef.current.abort();
-          printBlock('Stop', [tui('interrupted the active run')]);
-        } else {
-          printBlock('Stop', [tui('no run in flight — nothing to interrupt')]);
-        }
-        return true;
-      }
       return false;
     },
     [
+      customCommands,
       dispatchRun,
       options,
       printBlock,
       printCommandError,
       runCompactCommand,
       runDiffCommand,
+      runTaskShellCommand,
       runModelCommand,
       sessionKey,
       setInput,
@@ -1743,21 +1824,77 @@ export function TuiAppRoot({
   const submit = useCallback(
     async (raw: string) => {
       const submittedTokens = tokensRef.current.slice();
-      const text = raw.trim();
+      let text = raw.trim();
       if (!text) return;
-      setInput('');
-      setHistoryCursor({ index: undefined, draft: '' });
-      setStatusLine(undefined);
+      if (pendingGoalRef.current && !text.startsWith('/')) {
+        const pending = pendingGoalRef.current;
+        pendingGoalRef.current = null;
+        setInput('');
+        setHistoryCursor({ index: undefined, draft: '' });
+        setStatusLine(undefined);
+        if (/^n$/i.test(text)) {
+          appendRow(store, 'summary', skippedAcceptanceNotice(cliLocale()));
+          handle.notify();
+          await runTaskShellCommand(goalRunArgs(pending.goal));
+          return;
+        }
+        await runTaskShellCommand(goalRunArgs(pending.goal, { acceptance: text }));
+        return;
+      }
+      if (text.startsWith('/')) {
+        pendingGoalRef.current = null;
+        const rewritten = rewriteSlashInput(text);
+        if (rewritten.migration) {
+          appendRow(store, 'summary', rewritten.migration);
+          handle.notify();
+        }
+        text = rewritten.text;
+      }
+      if (!fromQueueRef.current) {
+        setInput('');
+        setHistoryCursor({ index: undefined, draft: '' });
+        setStatusLine(undefined);
+      }
 
       // `!` shell mode is checked FIRST: `/quit` typed in shell mode is a shell
       // command, not the shell's quit. Shell commands are also not prompt
-      // history (↑ recalls goals), so nothing is pushed here.
-      if (shellMode) {
+      // history (↑ recalls goals), so nothing is pushed here. A line drained
+      // from the queue is never a shell command — the user already left `!`.
+      if (shellMode && !fromQueueRef.current) {
         setShellMode(false);
         await runShellSubmission(text);
         return;
       }
-      setHistory((entries) => [...entries.filter((entry) => entry !== text), text].slice(-100));
+      if (!fromQueueRef.current) {
+        setHistory((entries) => [...entries.filter((entry) => entry !== text), text].slice(-100));
+      }
+
+      // Running-turn policy comes from the catalog (`availableDuringRun`), the
+      // same table the REPL reads. Codex disables Plan/Review/Compact/Init/Clear
+      // during a task: those are `reject`. Status/Diff/Model/Tasks stay immediate.
+      if (text.startsWith('/') && store.run.running) {
+        const policy = availabilityFor(text);
+        if (policy === 'queue') {
+          queueRef.current.push({ display: text, text });
+          setQueueRevision((n) => n + 1);
+          return;
+        }
+        if (policy === 'reject') {
+          const head = (text.split(/\s+/, 1)[0] ?? text).toLowerCase();
+          appendRow(
+            store,
+            'summary',
+            head === '/clear'
+              ? tui('a run is in flight — press Esc to interrupt it, then /clear')
+              : tui(
+                  '{command} is not available while a run is in flight — press Esc to interrupt, then retry',
+                  { command: head }
+                )
+          );
+          handle.notify();
+          return;
+        }
+      }
 
       if (text === '/quit' || text === '/exit') {
         exit();
@@ -1775,56 +1912,13 @@ export function TuiAppRoot({
         printBlock('Usage', usageBlock(store.usage));
         return;
       }
-      if (text === '/log') {
-        // The session's full I/O is persisted on disk all along — the
-        // conversation log (every message: user text, assistant text +
-        // thinking, complete tool input/output) and the run-event log (steps,
-        // tool calls, retries, failures). Nobody could find them, so this is
-        // the map.
-        const paths = getMossWorkspacePaths(options.workspaceDir);
-        const conversation = path.join(paths.sessionsDir, `${sessionKey}.jsonl`);
-        const events = path.join(
-          paths.runtimeDir,
-          'events',
-          `${encodeURIComponent(sessionKey)}.jsonl`
-        );
-        const lines: string[] = [
-          `session        ${sessionKey}`,
-          `conversation   ${conversation}${fs.existsSync(conversation) ? '' : '  (after the first turn)'}`,
-          `run events     ${events}${fs.existsSync(events) ? '' : '  (after the first run)'}`,
-          '',
-          `tail -f ${conversation}`,
-        ];
-        try {
-          const tail = fs
-            .readFileSync(conversation, 'utf8')
-            .trim()
-            .split('\n')
-            .slice(-6)
-            .map((raw) => describeConversationLogEntry(raw))
-            .filter((line): line is string => Boolean(line));
-          if (tail.length > 0) lines.push('', ...tail);
-        } catch {
-          // Not created yet — the paths above already say so.
-        }
-        printBlock('Log', lines);
-        return;
-      }
       if (text === '/clear') {
         // `/clear` is how a developer drops the thread and starts an unrelated
         // task: empty model context, new session key. `/compact` is the command
         // that keeps the same task and shrinks it. The banner stays; committed
         // <Static> rows live in scrollback, so an ANSI clear plus remount is
-        // what actually empties the screen.
-        if (store.run.running) {
-          appendRow(
-            store,
-            'summary',
-            tui('a run is in flight — press Esc to interrupt it, then /clear')
-          );
-          handle.notify();
-          return;
-        }
+        // what actually empties the screen. A run in flight never reaches here:
+        // the catalog marks `/clear` `reject` (Codex disables Clear mid-task).
         const next = createCliSessionKey();
         setActiveSession(next);
         options.onNewSession?.(next);
@@ -1853,34 +1947,18 @@ export function TuiAppRoot({
         handle.notify();
         return;
       }
-      if (text === '/jobs') {
-        printBlock('Jobs', [
-          tui('background shell:'),
-          ...(await sessionInfo('bg')).map((l) => `  ${l}`),
-          '',
-          tui('sub-agents:'),
-          ...(await sessionInfo('subs')).map((l) => `  ${l}`),
-        ]);
-        return;
-      }
       if (text === '/tasks') {
-        await showBlock('tasks');
-        return;
-      }
-      if (text === '/history') {
-        await showBlock('history');
-        return;
-      }
-      if (text === '/evidence') {
-        await showBlock('evidence');
-        return;
-      }
-      if (text === '/deployments') {
-        await showBlock('deployments');
-        return;
-      }
-      if (text === '/failures') {
-        await showBlock('failures');
+        const subagents = (options.agent.asyncTasks?.list() ?? []).map((task) => ({
+          taskId: task.taskId,
+          status: String(task.status),
+        }));
+        printBlock(
+          'Tasks',
+          formatBackgroundJobLines({
+            processes: listBackgroundProcessSnapshots(),
+            subagents,
+          })
+        );
         return;
       }
       if (text === '/hooks') {
@@ -1933,8 +2011,8 @@ export function TuiAppRoot({
         printBlock('Hooks', lines);
         return;
       }
-      if (text === '/sessions' || text === '/mcp' || text === '/subs' || text === '/bg') {
-        await showBlock(text.slice(1) as 'sessions');
+      if (text === '/mcp') {
+        await showBlock('mcp');
         return;
       }
       if (text === '/skills') {
@@ -1952,7 +2030,41 @@ export function TuiAppRoot({
         return;
       }
       if (text === '/resume' || text.startsWith('/resume ')) {
-        await runTaskShellCommand(`resume${text.slice('/resume'.length)}`);
+        const query = text.slice('/resume'.length).trim();
+        const sessions = (await options.listSessions?.()) ?? [];
+        setPickerSessions(sessions);
+        if (sessions.length === 0) {
+          printBlock('Resume', [tui('no saved sessions')]);
+          return;
+        }
+        const matches = filterPickerSessions(sessions, query);
+        if (query && matches.length === 1) {
+          const pick = matches[0];
+          if (pick) {
+            try {
+              const sessionStore = (
+                options.agent.config as {
+                  sessionStore?: { loadMessages: (key: string) => Promise<unknown[]> };
+                }
+              ).sessionStore;
+              const messages = sessionStore ? await sessionStore.loadMessages(pick.key) : [];
+              const replay = buildResumeReplay(messages as Parameters<typeof buildResumeReplay>[0]);
+              for (const item of replay.items) appendRow(store, item.kind, item.text);
+              appendRow(
+                store,
+                'result',
+                `resumed ${pick.key} — replayed ${replay.items.length} rows`
+              );
+              setActiveSession(pick.key);
+            } catch (err) {
+              appendRow(store, 'error', `could not resume ${pick.key}: ${errorMessage(err)}`);
+            }
+            handle.notify();
+          }
+          return;
+        }
+        setSessionPicker({ query, cursor: 0 });
+        printBlock('Resume', await sessionInfo('sessions'));
         return;
       }
       if (
@@ -2062,52 +2174,21 @@ export function TuiAppRoot({
       }
       if (text.startsWith('/')) {
         // Shared registry first (status/doctor/permissions/mode/context/export/
-        // review/quickstart), then the shell-local control commands, then
-        // skills as first-class commands, then the honest unknown-command path.
-        if (store.run.running) {
-          const head = (text.split(/\s+/, 1)[0] ?? text).toLowerCase();
-          const immediate = new Set([
-            '/help',
-            '/status',
-            '/usage',
-            '/context',
-            '/mode',
-            '/permissions',
-            '/theme',
-            '/tasks',
-            '/history',
-            '/evidence',
-            '/deployments',
-            '/failures',
-            '/jobs',
-            '/bg',
-            '/subs',
-            '/mcp',
-            '/skills',
-            '/hooks',
-            '/log',
-            '/diff',
-            '/queue',
-            '/steer',
-            '/stop',
-            '/clear',
-            '/tui',
-          ]);
-          if (!immediate.has(head)) {
-            queueRef.current.push({ display: text, text });
-            setQueueRevision((n) => n + 1);
-            return;
-          }
-        }
+        // review), then the shell-local control commands, then file commands
+        // and skills (arguments kept), then the honest unknown-command path.
         if (await runShellCommand(text)) return;
-        const head = text.split(/\s+/, 1)[0] ?? text;
-        const skill = options.skills?.find((entry) => `/${entry.name}` === head);
-        if (skill) {
+        const resolved = resolveUserCommand(text, {
+          builtinNames: reservedBuiltinNames(),
+          customCommands,
+          skills: (options.skills ?? []).map((skill) => ({
+            name: skill.name,
+            description: skill.description,
+          })),
+        });
+        if (resolved.kind === 'custom' || resolved.kind === 'skill') {
           appendRow(store, 'user', text);
           handle.notify();
-          dispatchRun(
-            `Use the "${skill.name}" skill${skill.description ? ` (${skill.description})` : ''} for this task. Read the skill body with the skill tool first, then follow it.`
-          );
+          await dispatchRun(resolved.prompt);
           return;
         }
         appendRow(
@@ -2123,13 +2204,29 @@ export function TuiAppRoot({
       tokensRef.current = [];
       if (!expanded) return;
       if (store.run.running) {
+        // A message typed during a run steers the live turn. Steer is refused
+        // (null: no single active run, or the host has no steer) → queue, and
+        // the queued lines render above the composer for ↑ to edit.
+        const steered = options.agent.steer?.(sessionKey, expanded);
+        if (steered) {
+          appendRow(store, 'summary', tui('queued: {text}', { text: display.slice(0, 80) }));
+          handle.notify();
+          return;
+        }
         queueRef.current.push({ display, text: expanded });
         setQueueRevision((n) => n + 1);
+        // The run can finish between the running check and steer() returning
+        // null. Nothing else will drain that line.
+        if (!store.run.running && !drainingRef.current) void drainQueue();
         return;
       }
       appendRow(store, 'user', display);
       handle.notify();
-      void runTurn(expanded).then(() => void drainQueue());
+      {
+        const turn = runTurn(expanded);
+        if (drainingRef.current) await turn;
+        else void turn.then(() => void drainQueue());
+      }
     },
     [
       drainQueue,
@@ -2138,6 +2235,7 @@ export function TuiAppRoot({
       handle,
       options,
       printBlock,
+      customCommands,
       runShellCommand,
       runShellSubmission,
       runTurn,
@@ -2148,6 +2246,9 @@ export function TuiAppRoot({
       store,
     ]
   );
+  useEffect(() => {
+    submitRef.current = submit;
+  }, [submit]);
 
   const answerApproval = useCallback(
     (answer: CliApprovalAnswer) => {
@@ -2168,10 +2269,11 @@ export function TuiAppRoot({
   // selection and re-opens it (dismissal only lasts until the next keystroke).
   // `shellPaletteRows` is the shell's own surface (the same table `/help` prints),
   // so the menu cannot hide an advertised command or offer an unadvertised one.
-  const paletteRows: PaletteRow[] = shellPaletteRows(
-    input,
-    (options.skills ?? []).map((skill) => [`/${skill.name}`, skill.description] as const)
-  );
+  const paletteRows: PaletteRow[] = shellPaletteRows(input, [
+    // File commands outrank skills on a name collision, matching resolveUserCommand.
+    ...customCommands.map((command) => [command.name, command.summary] as const),
+    ...(options.skills ?? []).map((skill) => [`/${skill.name}`, skill.description] as const),
+  ]);
   const paletteOpen =
     paletteRows.length > 0 &&
     !paletteDismissed &&
@@ -2816,6 +2918,18 @@ export function TuiAppRoot({
         return;
       }
       if (key.return) {
+        // A fully typed command wins over the fuzzy highlight. `/mode` is a
+        // hidden alias and is a subsequence of `/model`; Enter must run `/mode`.
+        const typed = input.trim();
+        const head = (typed.split(/\s+/, 1)[0] ?? '').toLowerCase();
+        const exact =
+          isExactSlashCommand(typed) ||
+          customCommands.some((command) => command.name === head) ||
+          (options.skills ?? []).some((skill) => `/${skill.name}`.toLowerCase() === head);
+        if (exact) {
+          void submit(typed);
+          return;
+        }
         const command = paletteRows[paletteSelection]?.[0];
         if (command) {
           void submit(command);
@@ -3412,6 +3526,24 @@ export function TuiAppRoot({
     ...(historyCursor.index !== undefined
       ? [renderHistoryRule(historyCursor.index + 1, history.length, columns)]
       : []),
+    // Queued follow-ups sit directly above the composer so ↑ can take one back.
+    ...(!approval && queueRef.current.length > 0
+      ? [
+          ...queueRef.current.slice(0, 5).map((item, index) =>
+            line(
+              clip(
+                tui('  queued {n}. {text}', {
+                  n: index + 1,
+                  text: item.display.replace(/\s+/g, ' ').trim().slice(0, 72),
+                }),
+                columns
+              ),
+              { dim: true }
+            )
+          ),
+          line(clip(`  ${tui('Press up to edit queued messages')}`, columns), { dim: true }),
+        ]
+      : []),
     line(rule(columns), ruleTone),
   ];
   const chromeBottom: TuiLine[] = [line(rule(columns), ruleTone), renderHint(status, columns)];
@@ -3733,6 +3865,7 @@ export async function runTuiApp(options: TuiAppOptions): Promise<void> {
     columns: process.stdout.columns,
     term: process.env.TERM,
     inTmux: Boolean(process.env.TMUX),
+    tmuxMouse: readTmuxMouse(process.env),
     inScreen: Boolean(process.env.STY),
   });
   if (!options.renderer && choice.mode === 'inline' && /narrower|shorter/.test(choice.reason)) {
@@ -3752,9 +3885,13 @@ export async function runTuiApp(options: TuiAppOptions): Promise<void> {
     }),
     {
       exitOnCtrlC: false,
+      // Ink treats CI=true as non-interactive and then writes only <Static>
+      // (the banner) until exit, so the composer never appears. This entry
+      // point is the live TTY; a real terminal stays interactive in CI.
+      interactive: process.stdout.isTTY === true,
       alternateScreen: (options.renderer ?? choice.mode) === 'fullscreen',
       incrementalRendering: process.env.MOSS_TUI_INCREMENTAL !== '0',
-      kittyKeyboard: { mode: 'auto' },
+      kittyKeyboard: TUI_KITTY_KEYBOARD,
     }
   );
   try {

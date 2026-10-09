@@ -294,6 +294,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_LOOP_MAX',
       'MOSS_GOAL_VERIFY_CMD',
       'MOSS_GOAL_VERIFY_LOOP',
+      'MOSS_PLAN_GATE (1 enables the /plan approval gate; default off)',
       'MOSS_GOAL_AUTO_MAX_RUNS',
       'MOSS_BUDGET_MAX_TOKENS',
       'MOSS_BUDGET_MAX_TOOL_CALLS',

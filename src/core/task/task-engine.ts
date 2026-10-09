@@ -324,6 +324,7 @@ export async function runTask(
   const contract = await createDraftTask(deps.workspaceDir, goal, {
     ...(options.targetDeviceId ? { targetDeviceId: options.targetDeviceId } : {}),
     ...(options.constraints?.length ? { constraints: options.constraints } : {}),
+    ...(options.acceptanceCommand ? { acceptanceCommand: options.acceptanceCommand } : {}),
   });
   const taskId = contract.taskId;
   const state: RunLoopState = { taskId, turns: 0, repairsUsed: 0 };
