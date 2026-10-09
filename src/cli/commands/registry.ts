@@ -36,6 +36,7 @@ import {
   unknownPriceMessage,
 } from '../model-pricing.js';
 import type { UsageSlice } from '../model-pricing.js';
+import { formatFileAgentReport } from '../../core/subagent/agent-file-loader.js';
 
 export interface CommandInputOptions {
   label: string;
@@ -768,9 +769,20 @@ const stopCommand: CommandSpec = {
   },
 };
 
+const agentsCommand: CommandSpec = {
+  name: '/agents',
+  summary: 'list file-defined sub-agents with source paths and warnings',
+  run(ctx) {
+    const experts = ctx.agent.config.subagentExperts ?? [];
+    const notices = ctx.agent.config.subagentExpertNotices ?? [];
+    ctx.say('system', formatFileAgentReport({ experts, notices, zh: isZh(ctx.locale) }));
+  },
+};
+
 const COMMANDS: readonly CommandSpec[] = [
   statusCommand,
   doctorCommand,
+  agentsCommand,
   reviewCommand,
   permissionsCommand,
   modeCommand,

@@ -77,6 +77,11 @@ import {
   buildEmptySkillsHintLayer,
 } from './core/skills/skill-registry.js';
 import { includeBundledRdkDocsSkill } from './core/skills/rdk-docs-skill.js';
+import {
+  adoptFileAgents,
+  formatFileAgentReport,
+  loadAgentFiles,
+} from './core/subagent/agent-file-loader.js';
 import { buildAgentsMdLayer } from './cli/project-instructions.js';
 import { createSkillTool } from './tools/skill-tool.js';
 import {
@@ -89,6 +94,7 @@ import {
   buildAnswerLanguageLayer,
   formatFullModeNotice,
   formatInteractionModeNotice,
+  isZhLocale,
 } from './cli/cli-locale.js';
 import { gitignoreNoticeForWorkspace } from './cli/gitignore-suggestion.js';
 import { buildEnvironmentContextLayer, getGitBranch } from './context/environment.js';
@@ -689,6 +695,37 @@ async function main() {
   const bestOfN = resolvedConfig.bestOfN;
   const reasoningBudget = resolvedConfig.reasoningBudget;
   const modelTiers = resolvedConfig.modelTiers;
+  let fileAgents: ReturnType<typeof adoptFileAgents> = { agents: [], notices: [] };
+  try {
+    fileAgents = adoptFileAgents(
+      loadAgentFiles({
+        workspaceDir: workspace,
+        parentModel: model,
+        ...(modelTiers ? { modelTiers } : {}),
+      })
+    );
+  } catch (err) {
+    console.error(`[agents] failed to load agent files: ${errorMessage(err)}`);
+  }
+  if (
+    fileAgents.notices.length > 0 ||
+    fileAgents.agents.some((agent) => agent.loadWarnings?.length)
+  ) {
+    const zh = isZhLocale();
+    for (const line of formatFileAgentReport({
+      experts: fileAgents.agents,
+      notices: fileAgents.notices,
+      zh,
+    }).split('\n')) {
+      if (
+        line.startsWith(zh ? '  警告：' : '  warning:') ||
+        line.startsWith('  skipped') ||
+        line.startsWith('  跳过')
+      ) {
+        console.error(`[agents] ${line.trim()}`);
+      }
+    }
+  }
 
   const agent = new MossAgent({
     llmProvider: cliLlmProvider,
@@ -704,6 +741,8 @@ async function main() {
     ...(bestOfN ? { bestOfN } : {}),
     ...(reasoningBudget ? { reasoningBudget } : {}),
     ...(modelTiers ? { modelTiers } : {}),
+    subagentExperts: fileAgents.agents,
+    subagentExpertNotices: fileAgents.notices,
     ...(compactHookRegistry ? { compactHooks: compactHookRegistry } : {}),
     subagentStopHook: (info) => configuredHooks.runSubagentStop(info),
     // Keep the Moss persona, but name the actual model so the agent can answer

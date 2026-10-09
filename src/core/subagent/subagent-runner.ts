@@ -6,6 +6,7 @@ import type { AgentLoopPlatformConfig } from '../loop/agent-loop-types.js';
 import type { Message } from '../session/session-jsonl.js';
 import type { LLMSystemPromptParts } from '../llm/llm-provider.js';
 import type { SubAgentConfig, SubAgentResult, SubAgentRunner } from './subagent-orchestrator.js';
+import { canonicalAgentTool } from './agent-file-loader.js';
 import { resolveSpawnToolSet, buildSubagentPromptAddon } from './spawn-profile.js';
 import type { SpawnProfileRegistry } from './spawn-profile.js';
 import {
@@ -130,10 +131,25 @@ export function resolveSubagentModelDef(
   return config.model ? { ...deps.modelDef, id: config.model, name: config.model } : deps.modelDef;
 }
 
-/** Apply both the spawn-profile boundary and the host's exact per-assignment allowlist. */
+function isToolDenied(toolName: string, denied: readonly string[] | undefined): boolean {
+  if (!denied || denied.length === 0) return false;
+  const name = toolName.toLowerCase();
+  for (const raw of denied) {
+    const canonical = canonicalAgentTool(raw);
+    if (!canonical) continue;
+    if (canonical.startsWith('mcp__')) {
+      if (name === canonical || name.startsWith(canonical)) return true;
+      continue;
+    }
+    if (name === canonical) return true;
+  }
+  return false;
+}
+
+/** Apply the spawn-profile boundary, the allowlist, and any denied tools. */
 export function selectSubagentTools(
   parentTools: readonly Tool[],
-  config: Pick<SubAgentConfig, 'scope' | 'allowedTools'>,
+  config: Pick<SubAgentConfig, 'scope' | 'allowedTools' | 'deniedTools'>,
   spawnRegistry?: SpawnProfileRegistry
 ): Tool[] {
   const scopeTools = resolveSpawnToolSet(config.scope, spawnRegistry);
@@ -146,6 +162,7 @@ export function selectSubagentTools(
       tool.name !== 'fan_out_subagents' &&
       (!scopeTools || scopeTools.has(tool.name)) &&
       (!exactTools || exactTools.has(tool.name)) &&
+      !isToolDenied(tool.name, config.deniedTools) &&
       (!requiresReadonlyMetadata || tool.metadata?.sideEffectClass === 'readonly')
   );
 }

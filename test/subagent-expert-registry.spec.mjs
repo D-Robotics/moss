@@ -26,6 +26,19 @@ assert.throws(
   () => first.register({ ...architect, id: 'unsafe', scope: 'full' }),
   /read-only scope/
 );
+assert.throws(
+  () =>
+    first.register({
+      ...architect,
+      id: 'forged-direct',
+      fileDefined: true,
+      scope: 'full',
+      allowedTools: ['write_file', 'exec'],
+    }),
+  /read-only scope/,
+  'fileDefined alone does not unlock a full tool set'
+);
+assert.equal(first.get('forged-direct'), undefined);
 
 first.registerContributor({
   id: 'quality-plugin',
@@ -58,6 +71,28 @@ assert.deepEqual(
   first.list(),
   beforeFailedContribution,
   'failed contributors roll back atomically'
+);
+
+assert.throws(
+  () =>
+    first.registerContributor({
+      id: 'forged-file-plugin',
+      contributeExperts: () => [
+        {
+          ...architect,
+          id: 'forged-writer',
+          fileDefined: true,
+          scope: 'full',
+          allowedTools: ['write_file', 'exec'],
+        },
+      ],
+    }),
+  /read-only scope/
+);
+assert.equal(
+  first.get('forged-writer'),
+  undefined,
+  'a contributor cannot mint a file-defined expert'
 );
 
 const disposeContributor = first.registerContributor({

@@ -1,6 +1,7 @@
-import type { SpawnToolScope } from './spawn-profile.js';
-
 const EXPERT_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** Where a file-defined agent was loaded from. Project beats user; Moss beats Claude. */
+export type FileAgentOrigin = 'project-moss' | 'project-claude' | 'user-moss' | 'user-claude';
 
 /** A declarative, host-trusted sub-agent expert profile. @beta */
 export interface SubagentExpertDefinition {
@@ -12,11 +13,31 @@ export interface SubagentExpertDefinition {
   readonly description: string;
   /** Trusted role instructions appended to inherited system policy. */
   readonly instructions: string;
-  /** Experts are restricted to a non-mutating spawn scope. */
-  readonly scope: Extract<SpawnToolScope, 'read-only' | 'device-read'>;
+  /**
+   * Built-in and plugin experts stay read-only. File-defined agents may use
+   * `full` so their declared tools are available; every call still goes
+   * through the parent session's approval gate.
+   */
+  readonly scope: 'read-only' | 'device-read' | 'full';
+  /**
+   * Set for agents loaded from `.moss/agents` or `.claude/agents`. This is the
+   * only case that may use a non-read-only scope.
+   */
+  readonly fileDefined?: boolean;
+  /** Absolute path of the agent markdown file. */
+  readonly sourcePath?: string;
+  readonly agentOrigin?: FileAgentOrigin;
+  /** Machine-readable load notes (`JSON` objects). `/agents` renders them. */
+  readonly loadWarnings?: readonly string[];
   /** Optional exact allowlist, intersected with scope and side-effect metadata. */
   readonly allowedTools?: readonly string[];
-  /** Optional host-routable model id. */
+  /**
+   * Tools removed even when `allowedTools` is omitted (inherit-all). Patterns
+   * are stored as the base tool (`Bash(git push *)` → `exec`); `mcp__` entries
+   * are prefixes.
+   */
+  readonly deniedTools?: readonly string[];
+  /** Optional host-routable model id. Omitted means inherit the parent model. */
   readonly model?: string;
   /** Optional positive turn ceiling. */
   readonly maxTurns?: number;
@@ -73,6 +94,19 @@ export interface SubagentExpertContributor {
   contributeExperts(): readonly SubagentExpertDefinition[];
 }
 
+/**
+ * Identities the file loader has stamped. Scope `full` is accepted only for
+ * these objects, and only through `register` (the path the CLI uses). A
+ * plugin contributor cannot set `fileDefined` and reach this set.
+ * Not part of the SDK surface — do not re-export from `src/index.ts`.
+ */
+const fileAgentBrands = new WeakSet<object>();
+
+/** @internal Stamp a definition the agent-file loader just built. */
+export function stampFileAgent(definition: object): void {
+  fileAgentBrands.add(definition);
+}
+
 function validateExpert(definition: SubagentExpertDefinition): void {
   if (!EXPERT_ID_PATTERN.test(definition.id)) {
     throw new Error(`expert id must be kebab-case: ${definition.id}`);
@@ -83,8 +117,13 @@ function validateExpert(definition: SubagentExpertDefinition): void {
   if (!definition.instructions.trim()) {
     throw new Error(`expert ${definition.id} must have non-empty instructions`);
   }
+  // Only a loader-stamped file agent may leave the read-only scopes. The
+  // public `fileDefined` flag is not enough: a plugin can set that boolean.
+  // Tool calls still pass the parent approval gate.
   if (definition.scope !== 'read-only' && definition.scope !== 'device-read') {
-    throw new Error(`expert ${definition.id} must use a read-only scope`);
+    if (definition.scope !== 'full' || !fileAgentBrands.has(definition)) {
+      throw new Error(`expert ${definition.id} must use a read-only scope`);
+    }
   }
   if (
     definition.maxTurns !== undefined &&
@@ -110,6 +149,12 @@ function freezeExpert(definition: SubagentExpertDefinition): SubagentExpertDefin
     instructions: definition.instructions.trim(),
     ...(definition.allowedTools
       ? { allowedTools: Object.freeze([...new Set(definition.allowedTools)]) }
+      : {}),
+    ...(definition.deniedTools?.length
+      ? { deniedTools: Object.freeze([...new Set(definition.deniedTools)]) }
+      : {}),
+    ...(definition.loadWarnings
+      ? { loadWarnings: Object.freeze([...definition.loadWarnings]) }
       : {}),
   });
 }
@@ -141,7 +186,18 @@ export class SubagentExpertRegistry {
     const contributorId = contributor.id.trim();
     if (!contributorId) throw new Error('sub-agent expert contributor requires a non-empty id');
 
-    const pending = contributor.contributeExperts().map(freezeExpert);
+    const contributed = contributor.contributeExperts();
+    for (const definition of contributed) {
+      // Contributors stay read-only even if they set `fileDefined` or were
+      // stamped. The stamp is honored only by `register`.
+      if (
+        definition.fileDefined === true ||
+        (definition.scope !== 'read-only' && definition.scope !== 'device-read')
+      ) {
+        throw new Error(`expert ${definition.id} must use a read-only scope`);
+      }
+    }
+    const pending = contributed.map(freezeExpert);
     const pendingIds = new Set<string>();
     for (const expert of pending) {
       if (pendingIds.has(expert.id)) {

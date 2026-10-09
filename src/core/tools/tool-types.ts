@@ -67,6 +67,8 @@ export interface ToolContext {
     scope?: string;
     /** Host-only exact tool allowlist; model-facing schemas do not expose this field. */
     allowedTools?: readonly string[];
+    /** Host-only denylist applied even when the allowlist is omitted. */
+    deniedTools?: readonly string[];
     maxTurns?: number;
     timeoutMs?: number;
     /** Override the sub-agent's model (e.g. a cheaper model for exploration, a
@@ -120,8 +122,11 @@ export interface ToolContext {
         id: string;
         displayName: string;
         instructions: string;
-        scope: 'read-only' | 'device-read';
+        scope: 'read-only' | 'device-read' | 'full';
+        /** File-defined agents may use scope `full`; approval still applies. */
+        fileDefined?: boolean;
         allowedTools?: readonly string[];
+        deniedTools?: readonly string[];
         model?: string;
         maxTurns?: number;
         timeoutMs?: number;

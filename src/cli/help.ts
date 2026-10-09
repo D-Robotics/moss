@@ -117,6 +117,7 @@ export function fullHelpLines(c: Colors, configPath: string): string[] {
     `    ${c.green('Persona')}         .moss/soul.md (or global) — replace/prepend the identity`,
     `    ${c.green('Slash commands')}  .moss/commands/<name>.md — reusable prompt expansions`,
     `    ${c.green('Skills')}          .moss/skills/<name>/SKILL.md — indexed, loaded on demand`,
+    `    ${c.green('Sub-agents')}      .moss/agents/*.md and .claude/agents/*.md — /agents lists them`,
     `  ${c.dim('License: MIT')}`,
     '',
   ];

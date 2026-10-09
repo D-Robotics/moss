@@ -26,6 +26,11 @@ interface SubagentStopInput {
   taskId: string;
 }
 
+/** File agents bring their own tool allowlist; they do not also need writePaths. */
+function fileAgentOwnsScope(expert: { fileDefined?: boolean } | undefined): boolean {
+  return expert?.fileDefined === true;
+}
+
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 600_000; // 10 min — enough for 30+ turns of work
 const DEFAULT_FAN_OUT_MAX_TURNS = 30; // was 4; raised so agents can complete real tasks
 const MIN_SUBAGENT_TIMEOUT_MS = 100;
@@ -152,7 +157,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       expert: {
         type: 'string',
         description:
-          'Optional host-registered expert id. The expert enforces its read-only scope, tool allowlist, instructions, model, and budgets.',
+          'Optional host-registered expert id. The expert enforces its scope, tool allowlist, instructions, model, and budgets. File-defined experts may include write tools; those calls still need approval.',
       },
       scope: {
         type: 'string',
@@ -206,7 +211,11 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       expert?.maxTurns ?? input.maxTurns ?? defaultMaxTurnsForScope(selectedScope);
     const selectedTimeoutMs = resolveSubagentTimeoutMs(expert?.timeoutMs ?? input.timeoutMs);
     const selectedModel = expert?.model ?? input.model;
-    if (selectedScope === 'full' && (!input.writePaths || input.writePaths.length === 0)) {
+    if (
+      selectedScope === 'full' &&
+      !fileAgentOwnsScope(expert) &&
+      (!input.writePaths || input.writePaths.length === 0)
+    ) {
       return 'Error: full-scope sub-agents require at least one declared writePaths entry.';
     }
 
@@ -267,6 +276,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
             abortSignal: signal,
             onProgress: updateProgress,
             ...(expert?.allowedTools ? { allowedTools: expert.allowedTools } : {}),
+            ...(expert?.deniedTools?.length ? { deniedTools: expert.deniedTools } : {}),
             ...(expert ? { expertPrompt: expert.instructions } : {}),
             ...(selectedModel ? { model: selectedModel } : {}),
           });
@@ -318,6 +328,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       maxTurns,
       timeoutMs: selectedTimeoutMs,
       ...(expert?.allowedTools ? { allowedTools: expert.allowedTools } : {}),
+      ...(expert?.deniedTools?.length ? { deniedTools: expert.deniedTools } : {}),
       ...(expert ? { expertPrompt: expert.instructions } : {}),
       ...(selectedModel ? { model: selectedModel } : {}),
     });
@@ -535,7 +546,8 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
             },
             expert: {
               type: 'string',
-              description: 'Optional host-registered read-only expert id for this angle.',
+              description:
+                'Optional host-registered expert id for this angle. File-defined experts may include write tools; those calls still need approval.',
             },
             scope: {
               type: 'string',
@@ -629,7 +641,9 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     );
     const missingWritePathsIndex = tasks.findIndex(
       (task, index) =>
-        resolvedScopes[index] === 'full' && (!task.writePaths || task.writePaths.length === 0)
+        resolvedScopes[index] === 'full' &&
+        !fileAgentOwnsScope(experts[index]) &&
+        (!task.writePaths || task.writePaths.length === 0)
     );
     if (missingWritePathsIndex >= 0) {
       return `Error: full-scope fan-out task ${missingWritePathsIndex + 1} requires declared writePaths.`;
@@ -649,6 +663,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           maxTurns: experts[i]?.maxTurns ?? maxTurns,
           timeoutMs: resolveSubagentTimeoutMs(experts[i]?.timeoutMs ?? timeoutMs),
           ...(experts[i]?.allowedTools ? { allowedTools: experts[i].allowedTools } : {}),
+          ...(experts[i]?.deniedTools?.length ? { deniedTools: experts[i].deniedTools } : {}),
           ...(experts[i] ? { expertPrompt: experts[i].instructions } : {}),
           mode: 'fan-out',
           tasks: effectiveTasks.map((item, taskIndex) => ({

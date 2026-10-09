@@ -1054,6 +1054,7 @@ ${result.stderr ?? ''}`.trim();
             ...(params.writePaths ? { writePaths: params.writePaths } : {}),
             ...(params.worktree ? { worktree: true } : {}),
             ...(params.allowedTools !== undefined ? { allowedTools: params.allowedTools } : {}),
+            ...(params.deniedTools !== undefined ? { deniedTools: params.deniedTools } : {}),
             model: params.model,
             ...(overrideContextTokens !== undefined
               ? { contextTokens: overrideContextTokens }

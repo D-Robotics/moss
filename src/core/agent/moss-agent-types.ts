@@ -159,6 +159,11 @@ export interface MossAgentConfig
 
   /** Instance-local declarative experts available to sub-agent tools. @beta */
   subagentExperts?: readonly import('../subagent/expert-registry.js').SubagentExpertDefinition[];
+  /**
+   * JSON notices from file-agent loading for agents that were not registered
+   * (malformed files, name clashes). `/agents` renders them. @beta
+   */
+  subagentExpertNotices?: readonly string[];
   /** Inject a plugin-populated, instance-local expert registry. @beta */
   subagentExpertRegistry?: import('../subagent/expert-registry.js').SubagentExpertRegistry;
 

@@ -24,6 +24,12 @@ export interface SubAgentConfig {
   /** Optional exact host allowlist, always intersected with the selected scope. */
   allowedTools?: readonly string[];
 
+  /**
+   * Tools removed after the allowlist. Applies even when `allowedTools` is
+   * omitted. `mcp__` entries match that prefix; `(...)` suffixes are stripped.
+   */
+  deniedTools?: readonly string[];
+
   /** Optional model override for this sub-agent (e.g. a cheaper model for
    *  exploration, a stronger model for a critical decision). The runner clones
    *  the parent's modelDef with this id; the provider routes by model id, so

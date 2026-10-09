@@ -208,6 +208,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'list MCP server status': '列出 MCP 服务状态',
   'list discovered skills; create more with moss skill create':
     '列出已发现的技能；用 moss skill create 创建更多',
+  'list file-defined sub-agents with source paths and warnings':
+    '列出文件定义的子代理、来源路径和加载警告',
   'show safety and approval settings; --verbose prints every knob':
     '显示安全与审批设置；--verbose 打印每个开关',
   'show or set the terminal colour theme for this session': '显示或设置本会话的终端配色',
