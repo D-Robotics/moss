@@ -29,6 +29,8 @@ scratch/
 bench/results/
 jobs/
 bench/.cache/
+__pycache__/
+*.pyc
 
 # Qoder IDE session artifacts
 .qoder/

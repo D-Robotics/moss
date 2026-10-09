@@ -18,10 +18,18 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(import.meta.dirname, '..');
 
-function parseArgs(argv) {
+function requirePositiveInt(name, value) {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${name} must be an integer >= 1`);
+  }
+  return value;
+}
+
+export function parseArgs(argv) {
   const out = {
     tasks: process.env.MOSS_DEEPSWE_TASKS ?? '',
     samples: 1,
@@ -47,11 +55,23 @@ function parseArgs(argv) {
     else if (arg === '--pier') out.pier = next();
     else throw new Error(`unknown flag ${arg}`);
   }
+  requirePositiveInt('--samples', out.samples);
+  requirePositiveInt('--concurrency', out.concurrency);
+  requirePositiveInt('--memory-mb', out.memoryMb);
+  if (out.nTasks !== null) requirePositiveInt('--n-tasks', out.nTasks);
+  if (!out.pier.trim()) throw new Error('--pier must name the Pier executable');
   return out;
 }
 
 function main() {
-  const args = parseArgs(process.argv.slice(2));
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[deepswe] ${message}`);
+    process.exit(2);
+  }
   const board = JSON.parse(
     fs.readFileSync(path.join(repoRoot, 'bench/boards/deepswe-v1.1-harness.json'), 'utf8')
   );
@@ -105,7 +125,13 @@ function main() {
     );
   }
   const child = spawnSync(cmd[0], cmd.slice(1), { cwd: repoRoot, env, stdio: 'inherit' });
+  if (child.error) {
+    console.error(`[deepswe] failed to start ${cmd[0]}: ${child.error.message}`);
+    process.exit(1);
+  }
   process.exit(child.status ?? 1);
 }
 
-main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}

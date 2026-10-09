@@ -9,7 +9,6 @@ binary changes.
 from __future__ import annotations
 
 import os
-import shlex
 import tempfile
 from pathlib import Path
 
@@ -18,6 +17,8 @@ from pier.environments.base import BaseEnvironment
 from pier.models.agent.context import AgentContext
 from pier.models.agent.install import AgentInstallSpec, InstallStep
 from pier.models.agent.network import NetworkAllowlist
+
+from runtime_command import deepswe_agent_command, provider_config_json
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NODE_TARBALL = REPO_ROOT / "bench" / ".cache" / "node-v22.16.0-linux-x64.tar.gz"
@@ -101,15 +102,7 @@ class MossHarnessAgent(BaseInstalledAgent):
         model = self.model_name or os.environ.get("MOSS_BENCH_MODEL") or "deepseek-flash"
         if "/" in model:
             model = model.split("/", 1)[1]
-        config = (
-            '{"provider":"openai-compatible","model":'
-            + _json_string(model)
-            + ',"baseUrl":'
-            + _json_string(base_url)
-            + ',"apiKey":'
-            + _json_string(api_key)
-            + "}"
-        )
+        config = provider_config_json(model, base_url, api_key)
         config_path = None
         try:
             with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
@@ -121,27 +114,5 @@ class MossHarnessAgent(BaseInstalledAgent):
         finally:
             if config_path:
                 os.unlink(config_path)
-        command = "\n".join(
-            [
-                "export PATH=/opt/node/bin:$PATH",
-                "export NODE_OPTIONS='--dns-result-order=ipv4first'",
-                "test -f /opt/moss/cli.js",
-                "export MOSS_CONFIG_DIR=/tmp/moss-config",
-                "export MOSS_TEMPERATURE=${MOSS_TEMPERATURE:-1}",
-                "export MOSS_TOP_P=${MOSS_TOP_P:-0.95}",
-                "export MOSS_SAFETY_MODE=workspace-write",
-                "export MOSS_APPROVAL_POLICY=never",
-                "export MOSS_NO_COLOR=1",
-                "cd /app",
-                "mkdir -p /logs/agent",
-                "/opt/node/bin/node /opt/moss/cli.js -p --output-format stream-json --ask-for-approval never "
-                + f"--model {shlex.quote(model)} --base-url {shlex.quote(base_url)} "
-                + "--max-turns ${MOSS_DEEPSWE_MAX_TURNS:-80} \"$(cat /tmp/moss-task.md)\" "
-                + "> /logs/agent/moss-run.log 2>&1 || true",
-            ]
-        )
-        await self.exec_as_agent(environment, command, timeout_sec=10800)
-
-
-def _json_string(value: str) -> str:
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        command, runtime = deepswe_agent_command(model, base_url, self._get_env)
+        await self.exec_as_agent(environment, command, env=runtime, timeout_sec=10800)
