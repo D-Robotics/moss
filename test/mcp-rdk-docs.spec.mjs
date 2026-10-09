@@ -65,7 +65,7 @@ test('builtin rdk-docs uses one pinned default and hardened npx arguments', () =
     '--',
     'rdk-docs-mcp',
   ]);
-  assert.equal(DEFAULT_RDK_DOCS_MCP_PACKAGE, 'rdk-docs-mcp@0.1.12');
+  assert.equal(DEFAULT_RDK_DOCS_MCP_PACKAGE, 'rdk-docs-mcp@0.2.0');
   assert.deepEqual(resolveMcpClientTimeouts(config), {
     connectTimeoutMs: 45_000,
     requestTimeoutMs: 20_000,
@@ -90,7 +90,7 @@ test('no user mcp.json still injects rdk-docs when the session asks for it', () 
   assert.deepEqual(merged[0].args, [
     '--yes',
     '--ignore-scripts',
-    '--package=rdk-docs-mcp@0.1.12',
+    '--package=rdk-docs-mcp@0.2.0',
     '--',
     'rdk-docs-mcp',
   ]);
@@ -107,7 +107,7 @@ test('rdk-docs package accepts config/env npm specs and local paths', () => {
   );
   assert.equal(
     resolveRdkDocsPackage(
-      { package: 'rdk-docs-mcp@0.1.12' },
+      { package: 'rdk-docs-mcp@0.2.0' },
       { MOSS_RDK_DOCS_PACKAGE: '../rdk-docs-mcp.tgz' }
     ),
     '../rdk-docs-mcp.tgz'

@@ -94,7 +94,7 @@ moss device fleet info --devices rdk-01,rdk-02,rdk-03 --concurrency 4
 moss --print "定义任务：相机管线保持 30 FPS 持续 60 秒；部署、运行、记录证据、验收"
 ```
 
-板卡手册（烧录、引脚、TROS / hobot_dnn、规格）由内置 rdk-docs MCP 供给，默认钉在 `rdk-docs-mcp@0.1.12`。有设备目标（`MOSS_DEVICE_HOST` 或 `.moss/devices.json`）或配置 `"rdkDocs": true` 时在后台连接，不阻塞交互界面。尚未发布到 npm 的版本可用 `"rdkDocs": {"package": "../rdk-docs-mcp"}` 或 `MOSS_RDK_DOCS_PACKAGE` 指向 npm spec、本地目录或 tarball；该值会作为代码执行，只使用可信来源。`MOSS_NO_RDK_DOCS=1`、`"rdkDocs": false` 或 `"rdkDocs": {"enabled": false}` 关闭；同名 `mcp.json` 条目整段替换内置项。服务器能力随版本而异，Moss 先查询工具清单再按实际 schema 调用。连不上时本会话不查手册，没有缓存，也没有离线副本。审计与保留标准见 [`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`](docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md)。
+板卡手册（烧录、引脚、TROS / hobot_dnn、规格）由内置 rdk-docs MCP 供给，默认钉在 `rdk-docs-mcp@0.2.0`（BM25 + 标题融合、`noGoodMatch`、板型过滤、按 section 读取页面）。有设备目标（`MOSS_DEVICE_HOST` 或 `.moss/devices.json`）或配置 `"rdkDocs": true` 时在后台连接，不阻塞交互界面。自定义或尚未发布的版本可用 `"rdkDocs": {"package": "../rdk-docs-mcp"}` 或 `MOSS_RDK_DOCS_PACKAGE` 指向 npm spec、本地目录或 tarball；该值会作为代码执行，只使用可信来源。`MOSS_NO_RDK_DOCS=1`、`"rdkDocs": false` 或 `"rdkDocs": {"enabled": false}` 关闭；同名 `mcp.json` 条目整段替换内置项。服务器能力随版本而异，Moss 先查询工具清单再按实际 schema 调用。连不上时本会话不查手册，没有缓存，也没有离线副本。审计与保留标准见 [`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`](docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md)。
 
 **扩展。** MCP 客户端（stdio + streamable HTTP，工具懒加载）；轻量 skills（`.moss/skills/<name>/SKILL.md`，渐进披露，`$ARGUMENTS` 传参）；自定义斜杠命令（`.moss/commands/<name>.md`）；人设（`.moss/soul.md`）；生命周期 hook。
 
@@ -307,7 +307,8 @@ moss --print "define a task: camera pipeline keeps 30 FPS for 60s; deploy, run, 
 ```
 
 Board manuals (flashing, pinouts, TROS / hobot_dnn, specs) come from the built-in rdk-docs MCP,
-defaulting to the pinned `rdk-docs-mcp@0.1.12`. Moss starts it in the background when a device target
+defaulting to the pinned `rdk-docs-mcp@0.2.0` (BM25 + title fusion, `noGoodMatch`, board filtering,
+and section page reads). Moss starts it in the background when a device target
 is set (`MOSS_DEVICE_HOST` or `.moss/devices.json`) or when `"rdkDocs": true`, so a cold npx download
 does not block the interactive shell. To test an unpublished build, set
 `"rdkDocs": {"package": "../rdk-docs-mcp"}` or `MOSS_RDK_DOCS_PACKAGE` to an npm spec, local

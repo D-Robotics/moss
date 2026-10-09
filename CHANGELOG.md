@@ -33,7 +33,8 @@ candidate windows are in `docs/cli-parity/tui-real-terminals.md`.
 ### RDK knowledge
 
 Board manuals come from the built-in rdk-docs MCP, defaulting to the pinned
-`rdk-docs-mcp@0.1.12`. Moss connects it in the background when a device target is configured
+`rdk-docs-mcp@0.2.0`, with BM25 + title fusion, `noGoodMatch`, board filtering, and section page
+reads. Moss connects it in the background when a device target is configured
 (`MOSS_DEVICE_HOST` or `.moss/devices.json`) or when `rdkDocs` is true. `rdkDocs.package` and
 `MOSS_RDK_DOCS_PACKAGE` accept a trusted npm spec, local directory, or tarball for unpublished
 server builds. Opt out with `MOSS_NO_RDK_DOCS=1` or `"rdkDocs": false`. A same-named `mcp.json`

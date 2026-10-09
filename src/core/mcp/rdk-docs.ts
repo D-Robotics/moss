@@ -15,7 +15,7 @@ import type { McpServerConfig } from './types.js';
 export const RDK_DOCS_SERVER_NAME = 'rdk-docs';
 
 /** Audited default. Keep this as the single bump point; never use `@latest`. */
-export const DEFAULT_RDK_DOCS_MCP_PACKAGE = 'rdk-docs-mcp@0.1.12';
+export const DEFAULT_RDK_DOCS_MCP_PACKAGE = 'rdk-docs-mcp@0.2.0';
 
 /**
  * Cold `npx` measured ~3.4s; 20s was tight. 45s covers a cold start.
