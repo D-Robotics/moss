@@ -163,4 +163,28 @@ moss 的 `docs/cli-parity/claude-code-surface.md` 已把其中 103 条整理成 
 
 P0–P6 已在 main 上落地，证据是 `npm test`（含 `test/tui-screen-layout.spec.mjs`）和 `scripts/tui-feel/compare_feel.py --compare claude`（`failures: []`，光标列与 Claude Code 同为 22 / 16）。结果文件在 `bench/results/`，不入库。布局探针最近一次 **74/74**：在 68 项之上补了审批框（问题、选项、硬件光标落在选中项、帧高不变量）、`Ctrl+Home` 回顶、浅色主题把 spinner 从黄色改成品红而暗色保持黄色。窄终端提示行的有意契约写在 `docs/cli-parity/tui-narrow-hint.md`。
 
-未在真机上核对的项（pyte 覆盖不到）：iTerm2、Terminal.app、tmux（鼠标开/关）、GNU screen、VS Code 终端、Windows Terminal，以及中文输入法候选框是否跟光标。`app.ts` 仍未按 v2 Phase 3 拆分。vim 模式按计划保持可选，未做。
+写这一节时，还没在真机上核对：iTerm2、Terminal.app、tmux（鼠标开/关）、GNU screen、VS Code 终端、Windows Terminal，以及中文输入法候选框是否跟光标。下面的暂停记录改写了其中几项。`app.ts` 仍未按 v2 Phase 3 拆分。vim 模式按计划保持可选，未做。
+
+### P7 真机暂停（2026-10-09，macOS，`feat/tui-p7-real-terminals`）
+
+这一节是中途交接，不是完成声明。工作区当时在 `moss-tui-feel-v2`，从 `bf073e21`（`scripts/tui-feel/real-terminals.py` + `test/tui-real-terminals.spec.mjs`）拉出。`npm ci` 与 `npm run build` 已成功。`npm run verify` 和 `npm run bench:tui-feel` 都没跑。没有改 `src/cli/tui/`，也没有确认到需要修的渲染缺陷。
+
+`python3 scripts/tui-feel/real-terminals.py` 的当次输出：
+
+| 检查                      | 结果           | 依据                                                 |
+| ------------------------- | -------------- | ---------------------------------------------------- |
+| tmux，session `mouse off` | pass           | `alternate_on=0`，composer 与 stub 的 `Done.` 都可见 |
+| tmux，session `mouse on`  | pass           | `alternate_on=1`，composer 与 `Done.` 都可见         |
+| tmux，global `mouse on`   | pass           | `alternate_on=1`，composer 与 `Done.` 都可见         |
+| GNU screen                | 未能读到画面   | 见下                                                 |
+| iTerm2                    | 本机没有       | 无 `iTerm.app` / `iTerm2.app`                        |
+| Terminal.app              | 只探到控制方式 | 见下；没有把 moss 跑到 pass/fail                     |
+| VS Code 终端              | 本机没有       | 无 `Visual Studio Code.app`，也无 `code`             |
+| Windows Terminal          | 手动           | 这台是 macOS                                         |
+| 中文输入法候选框          | 手动           | 没有自动化；光标格也还没在真终端上对过               |
+
+GNU screen 是 `/usr/bin/screen` 4.00.03（FAU，2006-10-23）。`screen -dmS` 能拉起 `sleep`，所以脚本里的 `screen_broken()` 不会跳过。对 moss 会话执行 `screen -X hardcopy <file>` 返回 0，但文件一直是 0 字节，20 秒轮询读到的都是空串，于是报 `screen composer not observed`。这只能说明这个 screen 的 hardcopy 没有交出画面，不能当成 TUI 渲染失败。后续若要在这台 Mac 上判定 screen，需要换捕获方式（例如更新的 GNU screen，或 attach 后读），不能继续只信 hardcopy。
+
+Terminal.app 在 `/System/Applications/Utilities/Terminal.app`。AppleScript 的 `contents of <tab>` 能读到当前可见文本（含另一扇已经开着的全屏会话，那扇窗口没有被关闭）。`do script "…" in <tab>` 能把一行送进该 tab 的 stdin（用 `cat` 写到文件验证过）。这两条够写一个不抢别的窗口的驱动：新建窗口、设 custom title、只关闭自己的窗口。还没对 moss 做 composer / 光标 / alt-screen 断言。
+
+云上的 Linux VM 驱动不了 iTerm2、Terminal.app、VS Code 终端和中文输入法候选框。tmux 与 GNU screen 可以在 Linux 上重跑；macOS 自带的 screen 4.00.03 这次的 hardcopy 结果不要外推到 Linux 的 screen。Windows Terminal 与输入法候选框保持手动清单。
