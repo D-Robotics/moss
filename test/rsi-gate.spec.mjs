@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * The v2 gate rejects frozen edits, runs the evaluator from the base commit,
- * and accepts only a gain above the measured noise band.
+ * and accepts only an aggregate gain above the measured aggregate noise band.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -11,7 +11,13 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { runGate } from '../scripts/rsi/gate.mjs';
-import { matchFrozen, parseFrozenPatterns, select } from '../scripts/rsi/lib/rule.mjs';
+import {
+  matchFrozen,
+  noiseFromRates,
+  parseFrozenPatterns,
+  select,
+} from '../scripts/rsi/lib/rule.mjs';
+import { aggregateNoise } from '../scripts/bench-noise.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const gateCli = path.join(repoRoot, 'scripts/rsi/gate.mjs');
@@ -104,13 +110,23 @@ const passVerify = async () => ({ status: 'pass', reasons: [] });
 function scoreOptions(repo, files, extra = {}) {
   const baseline = JSON.parse(fs.readFileSync(files.baseline, 'utf8'));
   const band = JSON.parse(fs.readFileSync(files.band, 'utf8'));
+  const swing = Number.isFinite(band.maxAggregateSwing)
+    ? band.maxAggregateSwing
+    : (band.maxDropPerTask ?? 0);
+  const spread = Number.isFinite(band.costSpread) ? band.costSpread : 0;
+  const passRates = band.aggregate?.passRates ?? [0, swing];
+  const tokenMeans = band.aggregate?.tokenMeans ?? [100, 100 * (1 + spread)];
+  const perTaskSwing = band.maxDropPerTask ?? 0;
   Object.assign(band, {
     gitSha: baseline.meta.gitSha,
     model: baseline.meta.model,
     samplesPerRun: baseline.meta.samples,
     temperature: baseline.meta.temperature,
     runs: ['noise-1', 'noise-2'],
-    perTask: { measured: { rates: [0, band.maxDropPerTask] } },
+    perTask: band.perTask ?? { measured: { rates: [0, perTaskSwing] } },
+    aggregate: { passRates, tokenMeans },
+    maxDropPerTask: perTaskSwing,
+    ...noiseFromRates(passRates, tokenMeans),
   });
   fs.writeFileSync(files.band, `${JSON.stringify(band)}\n`);
   git(repo, ['add', files.baseline, files.band]);
@@ -404,7 +420,7 @@ test('negative falseSuccess cannot cancel a failed row', () => {
   assert.ok(result.reasons.some((reason) => reason.includes('numeric falseSuccess')));
 });
 
-test('gain inside the noise band is rejected', async () => {
+test('gain inside the aggregate noise band is no significant change', async () => {
   const repo = initRepo('src/safety/**\n');
   write(repo, 'src/core/note.ts', 'export const note = 1;\n');
   commitAll(repo, 'harmless edit');
@@ -424,11 +440,12 @@ test('gain inside the noise band is rejected', async () => {
       device: plant(repo, 'device.json', { falseSuccess: 0 }),
     })
   );
-  assert.equal(result.report.decision, 'reject');
-  assert.equal(result.report.steps.selection.status, 'fail');
-  assert.ok(
-    result.report.steps.selection.reasons.some((reason) => reason.includes('does not exceed'))
-  );
+  assert.equal(result.report.decision, 'no-change');
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.report.accepted, false);
+  assert.equal(result.report.steps.selection.status, 'no-change');
+  assert.equal(result.report.steps.selection.judgment, 'no significant change');
+  assert.deepEqual(result.report.steps.selection.reasons, ['no significant change']);
   assert.ok(result.report.steps.selection.deltaS <= result.report.steps.selection.delta);
 });
 
@@ -458,7 +475,7 @@ test('falseSuccess above zero is rejected', async () => {
   );
 });
 
-test('a token increase past β0 + β1·ΔS is rejected', async () => {
+test('a token increase past the measured cost spread is rejected', async () => {
   const repo = initRepo('src/safety/**\n');
   write(repo, 'src/core/note.ts', 'export const note = 1;\n');
   commitAll(repo, 'harmless edit');
@@ -480,7 +497,7 @@ test('a token increase past β0 + β1·ΔS is rejected', async () => {
   );
   assert.equal(result.report.decision, 'reject');
   assert.ok(result.report.steps.selection.reasons.some((reason) => reason.includes('ΔC=')));
-  assert.equal(result.report.formula, 'ΔC ≤ 0.05 + 1·ΔS');
+  assert.equal(result.report.formula, 'ΔC ≤ costSpread');
 });
 
 test('a real gain records whether the written prediction held', async () => {
@@ -520,7 +537,7 @@ test('a real gain records whether the written prediction held', async () => {
   );
   assert.equal(hit.report.decision, 'accept');
   assert.equal(hit.report.predictionHeld, true);
-  assert.equal(hit.report.steps.selection.formula, 'ΔC ≤ β0 + β1·ΔS');
+  assert.equal(hit.report.steps.selection.formula, 'ΔC ≤ costSpread');
 });
 
 test('skipping verify cannot accept', async () => {
@@ -620,6 +637,143 @@ test('STOP and MOSS_RSI_DISABLED refuse before the gate', () => {
   const disabled = runCli(repo, ['--help'], { MOSS_RSI_DISABLED: '1' });
   assert.equal(disabled.status, 2);
   assert.match(disabled.stderr, /MOSS_RSI_DISABLED=1/);
+});
+
+const measuredNoiseDir = path.join(repoRoot, 'test/fixtures/rsi/noise-7cd9cc00');
+
+function loadMeasured(name) {
+  return JSON.parse(fs.readFileSync(path.join(measuredNoiseDir, name), 'utf8'));
+}
+
+function shiftPasses(summary, deltaPasses) {
+  const next = structuredClone(summary);
+  const scored = next.perTask.filter((task) => task.samples > 0);
+  const safety = scored.find((task) => task.task === 'safety-boundary');
+  const order =
+    deltaPasses > 0
+      ? [safety, ...scored.filter((task) => task !== safety)]
+      : scored.filter((task) => task !== safety);
+  let remaining = Math.abs(deltaPasses);
+  for (const task of order) {
+    if (!task || remaining === 0) continue;
+    if (deltaPasses > 0) {
+      const add = Math.min(task.samples - task.passes, remaining);
+      task.passes += add;
+      remaining -= add;
+    } else {
+      const remove = Math.min(task.passes, remaining);
+      task.passes -= remove;
+      remaining -= remove;
+    }
+  }
+  if (remaining !== 0) throw new Error(`could not shift ${deltaPasses} passes`);
+  return next;
+}
+
+test('measured same-SHA runs are no significant change, not a regression', () => {
+  const summaries = ['noise-a.json', 'noise-b.json', 'noise-c.json'].map(loadMeasured);
+  const band = aggregateNoise(summaries, ['noise-a', 'noise-b', 'noise-c']);
+  assert.ok(Math.abs(band.maxAggregateSwing - (0.92 - 67 / 75)) < 1e-12);
+  assert.ok(band.passRateStd > 0.01 && band.passRateStd < 0.02);
+  assert.ok(band.costSpread > 0.08 && band.costSpread < 0.09);
+  assert.ok(band.maxDropPerTask > 0.6);
+  assert.ok(band.maxAggregateSwing < 0.03);
+  for (let i = 0; i < summaries.length; i += 1) {
+    for (let j = 0; j < summaries.length; j += 1) {
+      if (i === j) continue;
+      const result = select({
+        current: summaries[i],
+        baseline: summaries[j],
+        band,
+        device: { falseSuccess: 0 },
+        prediction: null,
+        holdoutDue: false,
+        holdout: null,
+      });
+      assert.equal(result.status, 'no-change', `${i} vs ${j}: ${result.reasons.join('; ')}`);
+      assert.equal(result.judgment, 'no significant change');
+      assert.deepEqual(result.reasons, ['no significant change']);
+      assert.notEqual(result.status, 'fail');
+      assert.equal(result.delta, band.maxAggregateSwing);
+      assert.ok(Math.abs(result.deltaS) <= band.maxAggregateSwing + 1e-12);
+      assert.ok(band.maxDropPerTask > Math.abs(result.deltaS));
+    }
+  }
+});
+
+test('a +0.08 aggregate gain with stable cost is accepted on the measured band', () => {
+  const summaries = ['noise-a.json', 'noise-b.json', 'noise-c.json'].map(loadMeasured);
+  const band = aggregateNoise(summaries, ['noise-a', 'noise-b', 'noise-c']);
+  const baseline = summaries[0];
+  const current = shiftPasses(baseline, 6);
+  const result = select({
+    current,
+    baseline,
+    band,
+    device: { falseSuccess: 0 },
+    prediction: {
+      tasks: ['safety-boundary'],
+      why: 'an extra self-check should make the safety task pass on every sample',
+    },
+    holdoutDue: false,
+    holdout: null,
+  });
+  assert.ok(Math.abs(result.deltaS - 0.08) < 1e-12, String(result.deltaS));
+  assert.equal(result.deltaC, 0);
+  assert.equal(result.safetyRate, 1);
+  assert.equal(result.status, 'pass', result.reasons.join('; '));
+  assert.equal(result.judgment, 'gain');
+  assert.ok(result.deltaS > result.delta);
+  assert.ok(band.maxDropPerTask > result.deltaS);
+});
+
+test('a -0.08 aggregate drop is rejected on the measured band', () => {
+  const summaries = ['noise-a.json', 'noise-b.json', 'noise-c.json'].map(loadMeasured);
+  const band = aggregateNoise(summaries, ['noise-a', 'noise-b', 'noise-c']);
+  const baseline = summaries[1];
+  const current = shiftPasses(baseline, -6);
+  const result = select({
+    current,
+    baseline,
+    band,
+    device: { falseSuccess: 0 },
+    prediction: {
+      tasks: ['safety-boundary'],
+      why: 'the safety check was expected to stay put',
+    },
+    holdoutDue: false,
+    holdout: null,
+  });
+  assert.ok(Math.abs(result.deltaS + 0.08) < 1e-12, String(result.deltaS));
+  assert.equal(result.status, 'fail');
+  assert.equal(result.judgment, 'regression');
+  assert.ok(result.reasons.some((reason) => reason.includes('aggregate drop')));
+});
+
+test('dev bench sampling forwards --tasks and defaults the seed to the base sha', async () => {
+  const repo = initRepo('src/safety/**\n');
+  write(repo, 'src/core/note.ts', 'export const note = 1;\n');
+  commitAll(repo, 'harmless edit');
+  const baseSha = git(repo, ['rev-parse', 'HEAD~1']);
+  let seen;
+  await runGate({
+    repo,
+    round: '1',
+    base: 'HEAD~1',
+    tasks: 15,
+    verifyRunner: passVerify,
+    prediction: plant(repo, 'prediction.json', {
+      tasks: ['safety-boundary'],
+      why: 'keep the safety check in the sampled set',
+    }),
+    evalRunner: (_repo, pinned, jobs) => {
+      seen = { pinned, args: jobs.find((job) => job.name === 'dev').args };
+      return { dev: { code: 1, summary: null }, device: { code: 1, summary: null } };
+    },
+  });
+  assert.equal(seen.pinned, baseSha);
+  assert.equal(seen.args[seen.args.indexOf('--tasks') + 1], '15');
+  assert.equal(seen.args[seen.args.indexOf('--seed') + 1], baseSha);
 });
 
 test('a STOP created during verify aborts before a report is written', async () => {
