@@ -59,3 +59,35 @@ jobs:
       - name: CLI smoke
         if: runner.os != 'Windows'
         run: npm run smoke
+
+  # Not part of the OS matrix. Ubuntu runners ship tmux and macOS runners ship
+  # GNU screen, but those sessions do not meet the composer check (and Windows
+  # has neither tool). This job installs the tools and opts in.
+  real-terminals:
+    name: Real terminals (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install tmux and GNU screen
+        run: sudo apt-get update && sudo apt-get install -y tmux screen
+
+      - name: Build
+        run: npm run build
+
+      - name: Real terminal checks
+        env:
+          MOSS_REAL_TERMINALS: '1'
+          MOSS_REAL_TERMINAL_TIMEOUT: '60'
+        run: node test/tui-real-terminals.spec.mjs

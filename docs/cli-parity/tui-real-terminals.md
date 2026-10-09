@@ -1,6 +1,6 @@
 # 真实终端清单（P7）
 
-自动化入口是 `python3 scripts/tui-feel/real-terminals.py`（`test/tui-real-terminals.spec.mjs` 会调它）。缺哪个终端，脚本就跳过哪一项，退出码仍是 0；装上了但断言失败才是 1。先 `npm run build`，需要本地 stub，不走外网模型。
+自动化入口是 `python3 scripts/tui-feel/real-terminals.py`。`npm test` 默认不跑它：`test/tui-real-terminals.spec.mjs` 只有在 `MOSS_REAL_TERMINALS=1` 时才调用脚本。缺哪个终端，脚本就跳过哪一项，退出码仍是 0；装上了但断言失败才是 1。GitHub Actions 的系统矩阵不设置这个变量。单独的 Linux job 会安装 tmux 和 GNU screen、把 `MOSS_REAL_TERMINAL_TIMEOUT` 放宽到 60 秒，再打开开关。先 `npm run build`，需要本地 stub，不走外网模型。
 
 2026-10-09 在这台 Mac 上的结果：
 
