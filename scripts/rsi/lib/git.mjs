@@ -23,7 +23,6 @@ function lines(text) {
     .filter(Boolean);
 }
 
-/** Committed `base..HEAD` plus staged, unstaged, and untracked paths. */
 export function changedPaths(repo, base) {
   const chunks = [
     ['diff', '--name-only', `${base}..HEAD`],
@@ -50,7 +49,6 @@ export function refSha(repo, ref) {
   return gitOk(repo, ['rev-parse', `${ref}^{commit}`]).trim();
 }
 
-/** Check out `base` in a temporary worktree and remove it when `run` returns. */
 export function withBaseWorktree(repo, base, run) {
   const sha = refSha(repo, base);
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-rsi-base-'));

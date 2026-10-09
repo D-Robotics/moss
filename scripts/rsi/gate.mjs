@@ -169,9 +169,7 @@ function benchArgs(label, extra) {
   return args;
 }
 
-function step(status, reasons, extra = {}) {
-  return { status, reasons, ...extra };
-}
+const step = (status, reasons, extra = {}) => ({ status, reasons, ...extra });
 
 export async function runGate(options) {
   const repo = options.repo;
@@ -218,7 +216,7 @@ export async function runGate(options) {
     const band = readBaseJson(repo, baseSha, options.noiseBand ?? '.rsi/noise-band.json');
     const holdoutRaw = options.holdoutScores ?? process.env.MOSS_RSI_HOLDOUT_SCORES ?? null;
     const holdoutPath = holdoutRaw ? path.resolve(repo, holdoutRaw) : null;
-    const holdout = readOptional(holdoutPath);
+    const holdout = holdoutPath && fs.existsSync(holdoutPath) ? readJson(holdoutPath) : null;
     const ledger = git(repo, ['show', `${baseSha}:.rsi/ledger.jsonl`]);
     const holdoutDue =
       (mergedRounds(ledger.status === 0 ? ledger.stdout : '', options.round) + 1) % 3 === 0;
@@ -336,18 +334,7 @@ export async function runGate(options) {
   return { exitCode: exitCodeFor(decision), report, outFile };
 }
 
-function readOptional(file) {
-  if (!file || !fs.existsSync(file)) return null;
-  return readJson(file);
-}
-
-function isDirect() {
-  const entry = process.argv[1];
-  if (!entry) return false;
-  return import.meta.url === pathToFileURL(path.resolve(entry)).href;
-}
-
-if (isDirect()) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   let args;
   try {
     args = parseArgs(process.argv.slice(2));
