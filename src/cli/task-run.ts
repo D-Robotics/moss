@@ -21,6 +21,8 @@ import {
 } from '../core/task/task-store.js';
 import type { TaskStateSnapshot } from '../contracts/task-runtime.js';
 import { cliLocale, isZhLocale } from './cli-locale.js';
+import { createSessionUsageAccumulator } from './session-usage.js';
+import type { MossAgentEvent } from '../core/agent/moss-agent-types.js';
 
 export interface TaskCommandContext {
   agent: unknown;
@@ -315,6 +317,28 @@ export async function buildCapabilityLayerForGoal(
   }
 }
 
+function tapUsage(ctx: TaskCommandContext): {
+  onAgentEvent: (event: MossAgentEvent) => void;
+  line: () => string | null;
+} {
+  const usage = createSessionUsageAccumulator();
+  return {
+    onAgentEvent(event) {
+      usage.record(event);
+      ctx.onAgentEvent?.(event);
+    },
+    line() {
+      const summary = usage.summary();
+      if (summary.calls === 0) return null;
+      return JSON.stringify({
+        type: 'llm_usage',
+        input_tokens: summary.inputTokens,
+        output_tokens: summary.outputTokens,
+      });
+    },
+  };
+}
+
 export async function runTaskCommand(
   commandArgs: string[],
   ctx: TaskCommandContext
@@ -337,8 +361,9 @@ export async function runTaskCommand(
       );
       return 2;
     }
+    const usageTap = tapUsage(ctx);
     const runTurn = createAgentTurnRunner(ctx.agent, ctx.sessionKey, {
-      ...(ctx.onAgentEvent ? { onEvent: ctx.onAgentEvent } : {}),
+      onEvent: usageTap.onAgentEvent,
       ...(ctx.signal ? { abortSignal: ctx.signal } : {}),
     });
     const result = await runTask(
@@ -364,6 +389,8 @@ export async function runTaskCommand(
       }
     );
     output('stdout', summarizeTaskRun(result, locale) + '\n');
+    const usageLine = usageTap.line();
+    if (usageLine) output('stdout', `${usageLine}\n`);
     return result.outcome === 'pass' ? 0 : 1;
   }
 
@@ -376,8 +403,9 @@ export async function runTaskCommand(
       );
       return 2;
     }
+    const usageTap = tapUsage(ctx);
     const runTurn = createAgentTurnRunner(ctx.agent, ctx.sessionKey, {
-      ...(ctx.onAgentEvent ? { onEvent: ctx.onAgentEvent } : {}),
+      onEvent: usageTap.onAgentEvent,
       ...(ctx.signal ? { abortSignal: ctx.signal } : {}),
     });
     const result = await resumeTask(
@@ -392,6 +420,8 @@ export async function runTaskCommand(
       taskId
     );
     output('stdout', summarizeTaskRun(result, locale) + '\n');
+    const usageLine = usageTap.line();
+    if (usageLine) output('stdout', `${usageLine}\n`);
     return result.outcome === 'pass' ? 0 : 1;
   }
 
