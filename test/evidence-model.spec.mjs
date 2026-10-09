@@ -47,6 +47,25 @@ test('evaluateExpectation: numeric, string, presence, regex comparators', () => 
   assert.deepEqual(evaluateExpectation('ready', 'not ready').result, 'fail');
 });
 
+test('evaluateExpectation: == and != compare strings only when the operand is not numeric', () => {
+  assert.equal(evaluateExpectation('==hi', 'hi').result, 'pass');
+  assert.equal(evaluateExpectation('==hi', 'bye').result, 'fail');
+  assert.notEqual(evaluateExpectation('==hi', 'bye').result, 'inconclusive');
+  assert.equal(evaluateExpectation('!=hi', 'bye').result, 'pass');
+  assert.equal(evaluateExpectation('!=hi', 'hi').result, 'fail');
+  assert.equal(evaluateExpectation('==  hi', 'hi').result, 'pass');
+  // Numeric equality stays numeric.
+  assert.equal(evaluateExpectation('==4', 4).result, 'pass');
+  assert.equal(evaluateExpectation('==4', '4').result, 'pass');
+  assert.equal(evaluateExpectation('!=1', 1).result, 'fail');
+  assert.equal(evaluateExpectation('!=1', '2').result, 'pass');
+  // A numeric operand against units or NaN stays inconclusive.
+  assert.equal(evaluateExpectation('!=0', '0 fps').result, 'inconclusive');
+  assert.equal(evaluateExpectation('!=1', 'NaN').result, 'inconclusive');
+  assert.equal(evaluateExpectation('==42', '42ms').result, 'inconclusive');
+  assert.notEqual(evaluateExpectation('!=0', '0 fps').result, 'pass');
+});
+
 test('evaluateExpectation: never silently passes on garbage', () => {
   assert.deepEqual(evaluateExpectation('>=30', 'not-a-number').result, 'inconclusive');
   assert.deepEqual(evaluateExpectation(undefined, 1).result, 'inconclusive');

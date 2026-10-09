@@ -70,6 +70,7 @@ export const taskDefineTool: Tool = {
   description:
     'Define (or redefine) a task contract. Call this only for /goal or when the user explicitly asked for a task contract — not for questions, status checks, or ordinary edits.\n' +
     'The contract is goal, constraints, target device, expected behavior, and machine-checkable acceptance criteria. Acceptance criteria are what task_acceptance holds the work to (each criterion = an evidence metric + expectation, e.g. {metric: "camera_fps", expected: ">=30"}).\n' +
+    'Supported expectation operators: numeric >= <= > < == != (for example >=30 or ==4); string == and != (for example ==hi); contains; not-contains; exists; matches.\n' +
     'Redefining an existing task_id updates it in place.',
   metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
   inputSchema: {
@@ -79,7 +80,7 @@ export const taskDefineTool: Tool = {
       acceptance_criteria: {
         type: 'array',
         description:
-          'What "done" means, checkable against evidence: [{metric, expected, required?, description?}]',
+          'What "done" means, checkable against evidence: [{metric, expected, required?, description?}]. expected supports numeric >= <= > < == !=, string == and != (e.g. ==hi), contains, not-contains, exists, matches.',
         items: {
           type: 'object',
           properties: {

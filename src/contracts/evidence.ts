@@ -106,6 +106,9 @@ const EXISTS_COUNT_PATTERN = /^\d+(?:\.\d+)?$/;
 /**
  * Evaluate an expectation expression against an observed value.
  * Supported: numeric comparisons (>=30, <=5, >0, <100, ==4, !=1), string
+ * equality (==hi, !=bye — only when the operand itself is not a finite
+ * number; a numeric operand against a non-numeric observation stays
+ * inconclusive, for example ==42 vs 42ms or !=0 vs 0 fps),
  * containment (contains err / not-contains fail), presence (exists), and
  * regex matching (matches ^active$). Line-anchored regexes follow grep
  * semantics so trailing newlines do not break device output checks.
@@ -146,9 +149,7 @@ export function evaluateExpectation(
     case '>=':
     case '<=':
     case '>':
-    case '<':
-    case '==':
-    case '!=': {
+    case '<': {
       const lhs = Number(observed);
       const rhs = Number(operand);
       if (!Number.isFinite(lhs) || !Number.isFinite(rhs)) {
@@ -165,15 +166,41 @@ export function evaluateExpectation(
             ? lhs <= rhs
             : comparator === '>'
               ? lhs > rhs
-              : comparator === '<'
-                ? lhs < rhs
-                : comparator === '=='
-                  ? lhs === rhs
-                  : lhs !== rhs;
+              : lhs < rhs;
       return {
         comparator,
         result: ok ? 'pass' : 'fail',
         explanation: `${lhs} ${comparator} ${rhs} → ${ok ? 'pass' : 'fail'}`,
+      };
+    }
+    case '==':
+    case '!=': {
+      const lhs = Number(observed);
+      const rhs = Number(operand);
+      const operandNumeric = Number.isFinite(rhs);
+      if (operandNumeric && Number.isFinite(lhs)) {
+        const ok = comparator === '==' ? lhs === rhs : lhs !== rhs;
+        return {
+          comparator,
+          result: ok ? 'pass' : 'fail',
+          explanation: `${lhs} ${comparator} ${rhs} → ${ok ? 'pass' : 'fail'}`,
+        };
+      }
+      // Numeric operand, non-numeric observation: do not string-compare.
+      // `!=0` against `0 fps` would otherwise pass, and `==42` against `42ms` would fail.
+      if (operandNumeric) {
+        return {
+          comparator,
+          result: 'inconclusive',
+          explanation: `non-numeric comparison: observed="${observedText}" ${comparator} ${operand}`,
+        };
+      }
+      const left = observedText.trim();
+      const ok = comparator === '==' ? left === operand : left !== operand;
+      return {
+        comparator,
+        result: ok ? 'pass' : 'fail',
+        explanation: `"${left}" ${comparator} "${operand}" → ${ok ? 'pass' : 'fail'}`,
       };
     }
     case 'contains':

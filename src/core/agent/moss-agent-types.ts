@@ -263,6 +263,12 @@ export interface ChatOptions {
    * false. `/goal` and `moss task` pass true.
    */
   taskFlow?: boolean;
+
+  /**
+   * runTask/resumeTask set this so exec_background waits out the command.
+   * Ordinary chat leaves it unset even if a task file is still live on disk.
+   */
+  goalExecWait?: boolean;
 }
 
 export interface ChatResult {

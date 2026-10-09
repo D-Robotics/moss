@@ -43,6 +43,7 @@ import { compactPath, label, ui } from './ui.js';
 import { runLocalShellCommand } from './tui-utils.js';
 import { FileCheckpointStore, checkpointTargetPaths } from './file-checkpoint.js';
 import { errorMessage } from '../errors.js';
+import { interruptNoticeLine, isUserAbortErrorText } from './tui/copy.js';
 
 let currentModel = '';
 
@@ -585,7 +586,7 @@ export async function runInteractive(
         await import('./task-run.js');
       const { formatTurnUsage } = await import('./usage-display.js');
       const taskSessionKey = createCliSessionKey();
-      const renderer = createCliRunRenderer({ workspaceDir: workspace });
+      const renderer = createCliRunRenderer({ workspaceDir: workspace, resumeHint: true });
       try {
         const code = await runTaskCommand(splitCommandArgs(rest), {
           agent,
@@ -603,7 +604,12 @@ export async function runInteractive(
         });
         if (code === 2) process.stderr.write('(bad /task arguments — see usage above)\n');
       } catch (err) {
-        process.stderr.write(`task run failed: ${errorMessage(err)}\n`);
+        const message = errorMessage(err);
+        process.stderr.write(
+          isUserAbortErrorText(message)
+            ? `${interruptNoticeLine()}\n`
+            : `task run failed: ${message}\n`
+        );
       } finally {
         taskRunInFlight = false;
         rl.resume();

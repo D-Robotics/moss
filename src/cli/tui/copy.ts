@@ -38,6 +38,52 @@ export function isTuiZh(): boolean {
   return zhActive;
 }
 
+/** Esc during /goal or `moss task`. English is the dictionary key; zh is just 已中断. */
+export const INTERRUPT_NOTICE = 'Interrupted — /goal resume to continue';
+
+/** Esc in ordinary chat. Must not tell the user to resume a goal. */
+export const CHAT_INTERRUPT_NOTICE = 'Interrupted';
+
+const USER_ABORT_RESULT_PREFIX = 'Execution error: aborted_by_user';
+
+/**
+ * The engine's own user-cancel tool result. A command whose output merely
+ * contains "This operation was aborted" (a Node fetch timeout, for example)
+ * is not one of these.
+ */
+export function isUserAbortToolResult(result: unknown): boolean {
+  return typeof result === 'string' && result.startsWith(USER_ABORT_RESULT_PREFIX);
+}
+
+/** Structured user Esc: `aborted.by === 'user'` or the engine's abort result prefix. */
+export function isStructuredUserAbort(event: {
+  aborted?: { by?: string };
+  result?: unknown;
+}): boolean {
+  return event.aborted?.by === 'user' || isUserAbortToolResult(event.result);
+}
+
+/**
+ * Error text the loop emits for Esc. The whole message has to be that abort,
+ * so a longer tool error that quotes the same sentence stays a failure.
+ */
+export function isUserAbortErrorText(text: string): boolean {
+  const message = text.trim();
+  return (
+    message === 'This operation was aborted' ||
+    message.startsWith('agent run aborted before start:') ||
+    message.startsWith(USER_ABORT_RESULT_PREFIX)
+  );
+}
+
+export function interruptNoticeLine(): string {
+  return tui(INTERRUPT_NOTICE);
+}
+
+export function chatInterruptNoticeLine(): string {
+  return tui(CHAT_INTERRUPT_NOTICE);
+}
+
 /**
  * English (exact call-site string) → Simplified Chinese chrome. Exported so the
  * locale spec can verify the two invariants exhaustively: no zh value is itself
@@ -276,7 +322,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'approval: {label}': '审批：{label}',
   'question needs your answer': '有提问等待你的回答',
   'approval needed': '需要审批',
-  'interrupted — partial output kept': '已中断 — 保留部分输出',
+  'Interrupted — /goal resume to continue': '已中断',
+  Interrupted: '已中断',
   'no saved sessions': '没有已保存的会话',
   'no MCP servers configured (.moss/mcp.json)': '未配置 MCP 服务（.moss/mcp.json）',
   'no sub-agent tasks': '没有子 agent 任务',

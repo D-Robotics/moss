@@ -26,6 +26,12 @@ export interface ToolContext {
   sessionId?: string;
   agentId?: string;
   abortSignal?: AbortSignal;
+  /**
+   * Set by runTask/resumeTask for the turns of that goal. Background exec
+   * then waits until the command exits or timeout_ms. An explicit settle_ms
+   * or wait:false on the tool call keeps the short settle.
+   */
+  goalExecWait?: boolean;
   /** Per-run numeric ceilings for tool inputs. Hosts can constrain expensive
    *  parameters without hiding the tool or trusting the model to self-limit. */
   toolInputLimits?: Record<string, Record<string, number>>;

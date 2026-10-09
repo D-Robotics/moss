@@ -82,7 +82,7 @@ export const recordEvidenceTool: Tool = {
       expected: {
         type: 'string',
         description:
-          'Expectation expression: >=30, <=5, ==4, !=1, contains err, not-contains fail, exists, matches ^active$',
+          'Expectation expression: numeric >=30, <=5, >0, <100, ==4, !=1; string ==hi, !=bye; contains err, not-contains fail, exists, matches ^active$',
       },
       observed: {
         type: 'string',

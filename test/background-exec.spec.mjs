@@ -13,6 +13,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execBackgroundTool, execLogsTool, execStopTool } from '../dist/tools/background-exec.js';
+import { execTool } from '../dist/tools/builtin.js';
+import { appendTaskEvent, createDraftTask } from '../dist/core/task/task-store.js';
 import {
   clearBackgroundRegistryForTests,
   getBackgroundProcessSnapshot,
@@ -202,6 +204,99 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   clearBackgroundRegistryForTests();
   const out = await execBackgroundTool.execute({ command: 'rm -rf /', settle_ms: 0 }, ctx());
   assert.match(out, /block/i, 'dangerous command is blocked by the safety gate');
+}
+
+// ─── 6. /goal waits only when this run injected goalExecWait ──────────────
+{
+  clearBackgroundRegistryForTests();
+  const ws = fs.mkdtempSync(path.join(process.cwd(), '.moss-goal-exec-wait-'));
+  const sleepMs = 2000;
+  const script = path.join(ws, 'sleep.cjs');
+  fs.writeFileSync(script, `setTimeout(() => process.exit(0), ${sleepMs});\n`);
+  const command = `node ${quote(script)}`;
+  const { taskId } = await createDraftTask(ws, 'diagnosing on disk is not a goal run');
+  await appendTaskEvent(ws, taskId, 'execution_started');
+  await appendTaskEvent(ws, taskId, 'verification_started');
+  await appendTaskEvent(ws, taskId, 'acceptance_fail', { detail: 'no evidence' });
+  const diskCtx = { workspaceDir: ws, abortSignal: new AbortController().signal };
+  const goalCtx = { ...diskCtx, goalExecWait: true };
+
+  const idleStarted = Date.now();
+  const idle = await execBackgroundTool.execute({ command: `node ${quote(sleepScript)}` }, diskCtx);
+  const idleElapsed = Date.now() - idleStarted;
+  const idleId = extractBgId(idle);
+  assert.match(idle, /Still running after/, 'a diagnosing task on disk does not make exec wait');
+  assert.ok(idleElapsed < 1700, `no wait outside /goal, elapsed ${idleElapsed}`);
+  if (idleId) await execStopTool.execute({ id: idleId }, diskCtx);
+
+  const goalStarted = Date.now();
+  const waited = await execTool.execute({ command, run_in_background: true }, goalCtx);
+  const goalElapsed = Date.now() - goalStarted;
+  assert.doesNotMatch(waited, /Still running after/, `goal exec waited: ${waited}`);
+  assert.match(waited, /exited/, `goal exec reports the exit: ${waited}`);
+  assert.ok(goalElapsed >= 1700, `goal exec waited past the settle window, elapsed ${goalElapsed}`);
+
+  const optOutStarted = Date.now();
+  const optedOut = await execBackgroundTool.execute(
+    { command: `node ${quote(sleepScript)}`, wait: false },
+    goalCtx
+  );
+  const optOutElapsed = Date.now() - optOutStarted;
+  const optOutId = extractBgId(optedOut);
+  assert.match(optedOut, /Still running after/, `wait:false returns fast: ${optedOut}`);
+  assert.ok(
+    optOutElapsed < 1700,
+    `dev server with wait:false returns fast, elapsed ${optOutElapsed}`
+  );
+  if (optOutId) await execStopTool.execute({ id: optOutId }, goalCtx);
+
+  const settleStarted = Date.now();
+  const settled = await execTool.execute(
+    { command: `node ${quote(sleepScript)}`, run_in_background: true, settle_ms: 200 },
+    goalCtx
+  );
+  const settleElapsed = Date.now() - settleStarted;
+  const settleId = extractBgId(settled);
+  assert.match(settled, /Still running after/, `explicit settle_ms stays backgrounded: ${settled}`);
+  assert.ok(settleElapsed < 1000, `settle_ms during a goal returns fast, elapsed ${settleElapsed}`);
+  if (settleId) await execStopTool.execute({ id: settleId }, goalCtx);
+
+  const capStarted = Date.now();
+  const capped = await execBackgroundTool.execute({ command, timeout_ms: 300 }, goalCtx);
+  const capElapsed = Date.now() - capStarted;
+  const capId = extractBgId(capped);
+  assert.match(capped, /exec_wait/, `timeout tells the model how to await: ${capped}`);
+  assert.match(capped, /Still running after/, `timeout still returns a handle: ${capped}`);
+  assert.ok(capElapsed < 1000, `timeout_ms bounds the wait, elapsed ${capElapsed}`);
+  if (capId) await execStopTool.execute({ id: capId }, goalCtx);
+  fs.rmSync(ws, { recursive: true, force: true });
+}
+
+// ─── 7. Esc during a goal wait kills the command immediately ───────────────
+{
+  setKillEscalationMsForTests(200);
+  clearBackgroundRegistryForTests();
+  const controller = new AbortController();
+  const started = Date.now();
+  const command = `node ${quote(sleepScript)}`;
+  const pending = execBackgroundTool.execute(
+    { command, timeout_ms: 4000 },
+    { goalExecWait: true, abortSignal: controller.signal }
+  );
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  controller.abort();
+  const out = await pending;
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 1500, `esc stopped the goal wait immediately, elapsed ${elapsed}`);
+  assert.doesNotMatch(out, /Still running after/, `esc does not leave the wait running: ${out}`);
+  const id = extractBgId(out);
+  assert.ok(id, `aborted goal exec names the process: ${out}`);
+  const term = await waitForTerminalStatus(id, 3000);
+  assert.ok(term, 'aborted goal exec reached a terminal status');
+  assert.notEqual(term.status, 'running');
+  if (term.pid) {
+    assert.equal(isProcessAlive(term.pid), false, 'esc kills the waited process');
+  }
 }
 
 console.log('  [PASS] background-exec: abort lifecycle, output capture, stop kill, safety gate');

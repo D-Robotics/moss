@@ -38,6 +38,7 @@ import {
   renderTranscriptRows,
 } from '../dist/cli/tui/transcript.js';
 import { TuiAppRoot, questionDialogFromPrompt, runTuiApp } from '../dist/cli/tui/app.js';
+import { setTuiLocale } from '../dist/cli/tui/copy.js';
 import { buildResumeReplay } from '../dist/cli/tui-utils.js';
 import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
 
@@ -184,6 +185,101 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
   assert.equal(store.rows[7].text, 'hello world', 'the answer commits as an assistant row');
   assert.equal(store.run.running, false);
   assert.equal(store.run.toolLine, undefined, 'the in-flight tool clears when it finishes');
+}
+
+// ─── 2a. Esc abort is one calm line, not a red "This operation was aborted" ─
+
+{
+  const store = createTuiStore();
+  beginRun(store);
+  applyAgentEvent(store, {
+    type: 'error',
+    error: 'This operation was aborted',
+    retriable: false,
+  });
+  applyAgentEvent(store, {
+    type: 'tool_end',
+    toolName: 'exec',
+    toolCallId: 'esc-1',
+    result: 'Execution error: aborted_by_user: cancelled during execution',
+    isError: true,
+    aborted: { by: 'user' },
+  });
+  applyAgentEvent(store, {
+    type: 'error',
+    error: 'agent run aborted before start: This operation was aborted',
+    retriable: false,
+  });
+  const notices = store.rows.filter((row) => row.text === 'Interrupted');
+  assert.equal(notices.length, 1, 'Esc prints the calm line once');
+  assert.equal(
+    store.rows.some((row) => row.text.includes('/goal resume')),
+    false,
+    'plain chat Esc does not suggest /goal resume'
+  );
+  assert.equal(
+    store.rows.some((row) => row.kind === 'error'),
+    false,
+    'the abort is not an error row'
+  );
+  assert.equal(
+    store.rows.some((row) => row.text.includes('This operation was aborted')),
+    false
+  );
+  const rendered = renderTranscriptRows(store.rows, 80)
+    .map((line) => line.text)
+    .join('\n');
+  assert.match(rendered, /Interrupted/);
+  assert.doesNotMatch(rendered, /\/goal resume/);
+  assert.doesNotMatch(rendered, /⏺ This operation was aborted/);
+
+  const fetchTimeout = createTuiStore();
+  beginRun(fetchTimeout);
+  applyAgentEvent(fetchTimeout, {
+    type: 'tool_end',
+    toolName: 'exec',
+    toolCallId: 'fetch-1',
+    result: 'DOMException [AbortError]: This operation was aborted',
+    isError: true,
+  });
+  assert.equal(
+    fetchTimeout.rows.some(
+      (row) => row.text.includes('/goal resume') || row.text === 'Interrupted'
+    ),
+    false,
+    'a fetch timeout in tool output is not an Esc notice'
+  );
+  assert.ok(
+    fetchTimeout.rows.some((row) => row.text.includes('DOMException [AbortError]')),
+    'the tool output is kept'
+  );
+
+  const goal = createTuiStore();
+  beginRun(goal, { resumeHint: true });
+  applyAgentEvent(goal, {
+    type: 'error',
+    error: 'This operation was aborted',
+    retriable: false,
+  });
+  assert.equal(
+    goal.rows.find((row) => row.kind === 'summary')?.text,
+    'Interrupted — /goal resume to continue'
+  );
+
+  setTuiLocale(true);
+  try {
+    const zh = createTuiStore();
+    applyAgentEvent(zh, { type: 'error', error: 'This operation was aborted', retriable: false });
+    assert.equal(
+      zh.rows
+        .filter((row) => row.kind === 'summary')
+        .map((row) => row.text)
+        .join('\n'),
+      '已中断'
+    );
+  } finally {
+    setTuiLocale(false);
+  }
 }
 
 // ─── 2b. Tool completion meta: summaries, durations, diffs, retries ─────────

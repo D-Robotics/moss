@@ -12,7 +12,14 @@ import {
 } from '../model-pricing.js';
 import type { ModelPrice, UsageSlice } from '../model-pricing.js';
 import { noteToolForVerifyHint, type VerifyHintState } from '../verify-hint.js';
-import { tui, isTuiZh } from './copy.js';
+import {
+  chatInterruptNoticeLine,
+  interruptNoticeLine,
+  isStructuredUserAbort,
+  isTuiZh,
+  isUserAbortErrorText,
+  tui,
+} from './copy.js';
 import { nextStreamCommit } from './stream-commit.js';
 import { toolLabel } from './transcript.js';
 import { summarizeToolCompletion } from './tool-summary.js';
@@ -102,6 +109,8 @@ export interface TuiRunState {
   ranTests?: boolean;
   /** In-flight device_* tool-call ids. The live region says "waiting for device", not "gateway". */
   deviceCallIds?: Set<string>;
+  /** This run is /goal or moss task, so Esc may mention `/goal resume`. */
+  resumeHint?: boolean;
   /**
    * Index of the first transcript row that belongs to this run. Final-answer
    * dedupe looks only at rows from here on, so a short later reply that happens
@@ -185,6 +194,12 @@ export function createTuiStore(): TuiStore {
     nextId: 1,
     version: 0,
   };
+}
+
+function noteInterrupt(store: TuiStore): void {
+  const line = store.run.resumeHint ? interruptNoticeLine() : chatInterruptNoticeLine();
+  if (store.rows.some((row) => row.kind === 'summary' && row.text === line)) return;
+  appendRow(store, 'summary', line);
 }
 
 export function appendRow(
@@ -432,20 +447,27 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       store.run.toolInputs.delete(event.toolCallId);
       store.run.deviceCallIds?.delete(event.toolCallId);
       const abortedBy = event.aborted?.by;
+      const abortNotice = isStructuredUserAbort(event);
+      if (abortNotice) noteInterrupt(store);
       const completion = summarizeToolCompletion(
         event.toolName,
         input,
         event.result,
         Boolean(event.isError)
       );
-      const summary = abortedBy ? tui('aborted ({by})', { by: abortedBy }) : completion.summary;
+      const summary = abortedBy
+        ? tui('aborted ({by})', { by: abortedBy })
+        : abortNotice
+          ? undefined
+          : completion.summary;
       // Edits and writes render as a diff gutter; everything else keeps the
       // raw result (the projection decides how much of it to show). A dialog
       // that already showed its answer gets its synthetic wrapper dropped.
       // An empty success body stays empty — the headline alone is the result.
-      const body = completion.dropBody
-        ? ''
-        : (completion.diff ?? resultBody(event.result, event.toolName));
+      const body =
+        abortNotice || completion.dropBody
+          ? ''
+          : (completion.diff ?? resultBody(event.result, event.toolName));
       appendRow(store, 'result', body, {
         tool: {
           name: event.toolName,
@@ -468,11 +490,14 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
         surface?.actions && surface.actions.length > 0
           ? ` (${surface.actions.map((a) => a.label).join(' · ')})`
           : '';
-      appendRow(
-        store,
-        'error',
-        surface?.userMessage ? `${surface.userMessage}${actions}` : String(event.error ?? 'error')
-      );
+      const message = surface?.userMessage
+        ? `${surface.userMessage}${actions}`
+        : String(event.error ?? 'error');
+      if (isUserAbortErrorText(message)) {
+        noteInterrupt(store);
+        break;
+      }
+      appendRow(store, 'error', message);
       break;
     }
     case 'llm_usage': {
@@ -566,7 +591,7 @@ export function toTodos(raw: readonly unknown[]): TuiTodo[] {
   return out;
 }
 
-export function beginRun(store: TuiStore): void {
+export function beginRun(store: TuiStore, options: { resumeHint?: boolean } = {}): void {
   store.run = {
     running: true,
     thinkingText: '',
@@ -576,6 +601,7 @@ export function beginRun(store: TuiStore): void {
     deviceCallIds: new Set(),
     lastEventAt: Date.now(),
     rowStart: store.rows.length,
+    resumeHint: options.resumeHint === true,
   };
   store.usage.runTokensIn = 0;
   store.usage.runTokensOut = 0;

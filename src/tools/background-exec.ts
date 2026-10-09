@@ -35,6 +35,24 @@ import {
   type BackgroundProc,
   type BackgroundWaitMode,
 } from '../core/tools/background-process-registry.js';
+import { EXEC_DEFAULT_TIMEOUT_MS } from './tool-helpers.js';
+
+/**
+ * Wait out a background command only for the runTask/resumeTask that set
+ * `goalExecWait` on this call. A live task file in the workspace is not
+ * enough: a later chat, or a dev server started with wait:false / settle_ms,
+ * keeps the short settle.
+ */
+function goalWaitMsFor(
+  input: { timeout_ms?: unknown; settle_ms?: unknown; wait?: unknown },
+  ctx: ToolContext
+): number | null {
+  if (ctx.goalExecWait !== true) return null;
+  if (input.wait === false) return null;
+  if (input.settle_ms !== undefined) return null;
+  const requested = Number(input.timeout_ms);
+  return Number.isFinite(requested) && requested > 0 ? requested : EXEC_DEFAULT_TIMEOUT_MS;
+}
 
 /** Raw chunks, so a secret split across writes is redacted once it is complete. */
 const rawBackgroundOutput = new Map<string, string>();
@@ -51,7 +69,8 @@ export const execBackgroundTool: Tool = {
   name: 'exec_background',
   description:
     'Start a shell command in the background (a server, watcher, or other long-running process) and return a handle id. ' +
-    'Unlike exec, it does not block: use exec_logs to read its output and exec_stop to terminate it. ' +
+    'Outside a /goal run it returns after settle_ms. During runTask/resumeTask it waits until the command exits or timeout_ms, unless settle_ms is set or wait is false. ' +
+    'Use exec_logs to read its output and exec_stop to terminate it. ' +
     'Briefly watches the process after start so an immediate crash is reported inline.',
   metadata: {
     sideEffectClass: 'local_write',
@@ -66,7 +85,17 @@ export const execBackgroundTool: Tool = {
       label: { type: 'string', description: 'Optional human-readable label for the process' },
       settle_ms: {
         type: 'number',
-        description: `Time to watch for an immediate crash before returning (default ${DEFAULT_SETTLE_MS}, max 10000)`,
+        description: `Time to watch for an immediate crash before returning (default ${DEFAULT_SETTLE_MS}, max 10000). Setting this during a /goal run keeps that short settle instead of waiting for the command to exit.`,
+      },
+      wait: {
+        type: 'boolean',
+        description:
+          'Set false to return after settle_ms even during a /goal run (dev servers and watchers). Default during /goal is to wait until the command exits or timeout_ms.',
+      },
+      timeout_ms: {
+        type: 'number',
+        description:
+          'During a /goal run, wait up to this many milliseconds for the command to exit (default 120000) unless settle_ms is set or wait is false. Outside a goal this is ignored.',
       },
       progress_interval_ms: {
         type: 'number',
@@ -111,7 +140,9 @@ export const execBackgroundTool: Tool = {
       return `Error: too many background processes (${live}/${MAX_PROCS}). Stop one with exec_stop first.`;
     }
 
-    const settleMs = Math.min(Math.max(0, Number(input.settle_ms) || DEFAULT_SETTLE_MS), 10_000);
+    const goalWaitMs = goalWaitMsFor(input, ctx);
+    const settleMs =
+      goalWaitMs ?? Math.min(Math.max(0, Number(input.settle_ms) || DEFAULT_SETTLE_MS), 10_000);
     const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
     const args = IS_WIN ? ['/c', command] : ['-c', command];
 
@@ -268,6 +299,13 @@ export const execBackgroundTool: Tool = {
     if (proc.status === 'running') {
       // Still running: completion will be injected by core/loop/background-completion
       // when the process later exits (Grok TaskCompletionReminder parity).
+      if (goalWaitMs !== null) {
+        return (
+          `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms — backgrounded at the wait timeout. ` +
+          `Wait with exec_wait({"ids":["${id}"]}) before treating the goal as finished; ` +
+          `use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}`
+        );
+      }
       return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. You will be notified when it finishes; use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}`;
     }
     // Terminal during settle — already fully reported in this tool result; suppress

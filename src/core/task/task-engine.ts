@@ -58,8 +58,8 @@ export interface TaskEngineProgress {
 
 export interface TaskRunResult {
   snapshot: TaskStateSnapshot;
-  /** User-facing word for how the run ended. */
-  outcome: 'pass' | 'fail' | 'blocked';
+  /** User-facing word for how the run ended. `aborted` is Esc — resumable, not a crash. */
+  outcome: 'pass' | 'fail' | 'blocked' | 'aborted';
   verdictDetail?: string;
   timeline: string;
   turns: number;
@@ -199,11 +199,11 @@ function readAgentTurnResult(
 }
 
 /**
- * Run one agent turn. `budget_*` is the unattended token or tool-call ceiling.
- * A task the turn already settled (accepted, failed, abandoned, or blocked)
- * keeps that phase — `task_failed` from there throws, and the catch would
- * report "run crashed" for a goal that finished. Otherwise record the failure
- * and do not open another turn.
+ * Run one agent turn. Order after the turn:
+ * settled (accepted, failed, abandoned, blocked) is kept — `task_failed`
+ * from there throws and the catch would report "run crashed";
+ * Esc returns ok so the caller continues to the loop top, which records
+ * aborted; a `budget_*` stop records the failure and does not open another turn.
  */
 async function runAgentTurn(
   deps: TaskEngineDeps,
@@ -212,9 +212,9 @@ async function runAgentTurn(
   phase: string
 ): Promise<'ok' | 'budget'> {
   const { stopReason } = readAgentTurnResult(await deps.runTurn(prompt, phase), deps.runTurn);
-  if (!stopReason?.startsWith('budget_')) return 'ok';
   const snapshot = await getTaskStateSnapshot(deps.workspaceDir, state.taskId);
-  if (phaseIsSettled(snapshot?.phase)) return 'ok';
+  if (phaseIsSettled(snapshot?.phase) || deps.signal?.aborted) return 'ok';
+  if (!stopReason?.startsWith('budget_')) return 'ok';
   await appendTaskEvent(deps.workspaceDir, state.taskId, 'task_failed', {
     detail: `run budget exceeded (${stopReason})`,
   });
@@ -268,8 +268,11 @@ async function verifyRepairLoop(
     // verification_started — that would bump the attempt and, on a failing
     // command, fall into repair.
     const afterExecution = await getTaskStateSnapshot(workspaceDir, state.taskId);
-    // Loop top returns the settled outcome before it consults abort.
-    if (phaseIsSettled(afterExecution?.phase)) continue;
+    // Loop top returns the settled outcome before it consults abort. An Esc
+    // during this turn returns normally; continuing into verification and then
+    // a repair turn would throw on the already-aborted signal and resumeTask
+    // would record that as "run crashed".
+    if (phaseIsSettled(afterExecution?.phase) || deps.signal?.aborted) continue;
 
     // Tolerant: the agent may already have entered verification via the
     // task_acceptance tool during its turn.
@@ -299,6 +302,10 @@ async function verifyRepairLoop(
       });
       return 'accepted';
     }
+
+    // Esc during acceptance is not a failed verdict. Do not write
+    // acceptance_fail; the loop top records aborted.
+    if (deps.signal?.aborted) continue;
 
     await tryAppendTaskEvent(workspaceDir, state.taskId, 'acceptance_fail', {
       detail: verdict.detail.slice(0, 400),
@@ -350,7 +357,8 @@ async function verifyRepairLoop(
     // "run crashed" even though the goal already finished.
     const afterRepair = await getTaskStateSnapshot(workspaceDir, state.taskId);
     // Same as the execution turn: Esc after acceptance must not append task_failed.
-    if (phaseIsSettled(afterRepair?.phase)) continue;
+    // Esc during the repair turn itself goes back to the top and records aborted.
+    if (phaseIsSettled(afterRepair?.phase) || deps.signal?.aborted) continue;
     await appendTaskEvent(workspaceDir, state.taskId, 'repair_applied', {
       detail: `repair attempt ${state.repairsUsed}`,
     });
@@ -359,6 +367,32 @@ async function verifyRepairLoop(
 
 function phaseIsSettled(phase: TaskStateSnapshot['phase'] | undefined): boolean {
   return phase === 'blocked' || (phase !== undefined && isTerminalTaskPhase(phase));
+}
+
+function outcomeFromSnapshot(
+  snapshot: TaskStateSnapshot,
+  events: Awaited<ReturnType<typeof listTaskEvents>>
+): TaskRunResult['outcome'] {
+  if (snapshot.phase === 'accepted') return 'pass';
+  if (snapshot.phase === 'blocked') return 'blocked';
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event?.type !== 'task_failed') continue;
+    return event.data?.detail === 'aborted' ? 'aborted' : 'fail';
+  }
+  return 'fail';
+}
+
+/** Esc: mark a live task failed with detail `aborted` so /goal resume can re-enter. */
+async function failAborted(workspaceDir: string, taskId: string): Promise<void> {
+  const current = await getTaskStateSnapshot(workspaceDir, taskId);
+  if (!current || phaseIsSettled(current.phase)) return;
+  await appendTaskEvent(workspaceDir, taskId, 'task_failed', { detail: 'aborted' });
+}
+
+function isUserAbort(err: unknown): boolean {
+  if (err instanceof MossError && err.code === ErrorCode.USER_ABORTED) return true;
+  return err instanceof Error && err.name === 'AbortError';
 }
 
 function settledLoopOutcome(phase: TaskStateSnapshot['phase']): 'accepted' | 'failed' | 'blocked' {
@@ -379,8 +413,7 @@ async function buildRunResult(
   const snapshot = await getTaskStateSnapshot(workspaceDir, taskId);
   if (!snapshot) throw new Error(`task ${taskId} disappeared from the store`);
   const events = await listTaskEvents(workspaceDir, taskId);
-  const outcome: TaskRunResult['outcome'] =
-    snapshot.phase === 'accepted' ? 'pass' : snapshot.phase === 'blocked' ? 'blocked' : 'fail';
+  const outcome = outcomeFromSnapshot(snapshot, events);
   return {
     snapshot,
     outcome,
@@ -506,21 +539,34 @@ export async function runTask(
       await injectExperienceIntoPrompt(prompt, goal, deps.workspaceDir),
       'planning'
     );
-    // A budget stop during planning must not open the execution or repair loop.
-    // A turn that already settled is not a budget stop (runAgentTurn returns
-    // 'ok'), so this still runs #22's handoff.
+    // A budget stop must not open the execution or repair loop. A settled
+    // turn is not a budget stop. An aborted planning turn returns normally;
+    // do not hand off into execution or a repair turn.
     if (planning !== 'budget') {
+      if (deps.signal?.aborted) {
+        await failAborted(deps.workspaceDir, taskId);
+        return buildRunResult(deps.workspaceDir, taskId, state);
+      }
       // Already-accepted is the only skipped transition. Anything else illegal
       // (for example plan_ready from verifying) throws.
       await appendUnlessAccepted(deps.workspaceDir, taskId, 'plan_ready');
       await appendUnlessAccepted(deps.workspaceDir, taskId, 'execution_started');
+      if (deps.signal?.aborted) {
+        await failAborted(deps.workspaceDir, taskId);
+        return buildRunResult(deps.workspaceDir, taskId, state);
+      }
       if (!(await acceptPlanningIfSatisfied(deps, state, provider))) {
         await verifyRepairLoop(deps, state, provider, maxRepairAttempts);
       }
     }
   } catch (err) {
     // A lock timeout is the error: wrapping it as task_failed "run crashed"
-    // hides the cause, and the wrap needs the same lock.
+    // hides the cause, and the wrap needs the same lock. A user abort is
+    // the same class of non-crash: the task stays resumable.
+    if (isUserAbort(err) || deps.signal?.aborted) {
+      await failAborted(deps.workspaceDir, taskId);
+      return buildRunResult(deps.workspaceDir, taskId, state);
+    }
     if (!isTaskEventLockTimeout(err)) {
       // A crashed run must stay resumable: mark the task failed (valid from any
       // live phase) instead of leaving it stuck in planning/executing where
@@ -565,6 +611,10 @@ export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<
       deps.maxRepairAttempts ?? DEFAULT_MAX_REPAIR_ATTEMPTS
     );
   } catch (err) {
+    if (isUserAbort(err) || deps.signal?.aborted) {
+      await failAborted(deps.workspaceDir, taskId);
+      return buildRunResult(deps.workspaceDir, taskId, state);
+    }
     if (!isTaskEventLockTimeout(err)) {
       await tryAppendTaskEvent(deps.workspaceDir, taskId, 'task_failed', {
         detail: `run crashed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200),
@@ -581,7 +631,7 @@ export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<
  *
  * Locale (v0.25): the fixed labels (task/goal/phase/attempts/verdict/timeline)
  * follow the caller's locale and match `formatTaskStatus`'s wording. The
- * outcome token (PASS/FAIL/BLOCKED), task id, counts, and the verdict/timeline
+ * outcome token (PASS/FAIL/BLOCKED/ABORTED), task id, counts, and the verdict/timeline
  * bodies stay verbatim. Core cannot read the CLI locale (layering), so the
  * caller passes it in — undefined keeps the English default for SDK callers.
  */

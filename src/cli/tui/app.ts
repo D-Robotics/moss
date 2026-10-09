@@ -160,7 +160,15 @@ import {
 } from '../status-line.js';
 import { clip, line, padEndTo, rule, type TuiLine } from './text.js';
 import { displayWidth } from '../terminal-text.js';
-import { isTuiZh, setTuiLocale, transientStatus, tui } from './copy.js';
+import {
+  chatInterruptNoticeLine,
+  interruptNoticeLine,
+  isUserAbortErrorText,
+  isTuiZh,
+  setTuiLocale,
+  transientStatus,
+  tui,
+} from './copy.js';
 import { allocateFrame } from './layout.js';
 import {
   MOUSE_TRACKING_ON,
@@ -1226,7 +1234,8 @@ export function TuiAppRoot({
       // actually produced a plan (tools were used, or a substantial answer).
       const firstRowId = store.nextId;
       runtime.beginRun();
-      beginRun(store);
+      const resumeHint = messageRequestsTaskContract(message);
+      beginRun(store, { resumeHint });
       runStartedAtRef.current = Date.now();
       handle.notify();
       const controller = new AbortController();
@@ -1238,8 +1247,12 @@ export function TuiAppRoot({
             // ("This operation was aborted"), which used to land in the
             // transcript as a red bold failure. An interrupt is an outcome the
             // user asked for: record it quietly and keep the partial output.
+            // Ordinary chat must not suggest /goal resume.
             runtime.applyEvent(event);
-            appendRow(store, 'summary', tui('interrupted — partial output kept'));
+            const line = resumeHint ? interruptNoticeLine() : chatInterruptNoticeLine();
+            if (!store.rows.some((row) => row.kind === 'summary' && row.text === line)) {
+              appendRow(store, 'summary', line);
+            }
             handle.notify();
             continue;
           }
@@ -1518,7 +1531,7 @@ export function TuiAppRoot({
       if (parsed[0] === 'run' || parsed[0] === 'resume') {
         appendRow(store, 'user', `/task ${parsed.join(' ')}`);
         runtime.beginRun();
-        beginRun(store);
+        beginRun(store, { resumeHint: true });
         runStartedAtRef.current = Date.now();
         const controller = new AbortController();
         abortRef.current = controller;
@@ -1551,7 +1564,16 @@ export function TuiAppRoot({
             },
           });
         } catch (err) {
-          printCommandError('Task', errorMessage(err));
+          const message = errorMessage(err);
+          if (controller.signal.aborted || isUserAbortErrorText(message)) {
+            const line = interruptNoticeLine();
+            if (!store.rows.some((row) => row.kind === 'summary' && row.text === line)) {
+              appendRow(store, 'summary', line);
+            }
+            handle.notify();
+          } else {
+            printCommandError('Task', message);
+          }
         } finally {
           abortRef.current = undefined;
           const halted = controller.signal.aborted;

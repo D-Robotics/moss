@@ -18,6 +18,12 @@ import {
   formatBackgroundCompletionFlash,
 } from './background-completion-ui.js';
 import { isZhLocale } from './cli-locale.js';
+import {
+  chatInterruptNoticeLine,
+  interruptNoticeLine,
+  isStructuredUserAbort,
+  isUserAbortErrorText,
+} from './tui/copy.js';
 import { noteToolForVerifyHint } from './verify-hint.js';
 
 const CODE_EDIT_TOOLS = new Set([
@@ -54,6 +60,8 @@ interface CliRunRendererOptions extends Partial<CliOutputStreams> {
   interactive?: boolean;
 
   workspaceDir?: string;
+  /** /goal or moss task: Esc may mention `/goal resume`. Chat leaves this unset. */
+  resumeHint?: boolean;
 }
 
 interface RendererState {
@@ -73,6 +81,8 @@ interface RendererState {
   answerBuffer: string;
   /** True when deltas were already written live (avoid double-print on flush). */
   answerLive: boolean;
+  /** Esc already printed its one calm line for this renderer. */
+  notedInterrupt: boolean;
 }
 
 // ── CC-style spinner ─────────────────────────────────────────────────────────
@@ -419,7 +429,16 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
     answerBuffer: '',
     /** True when answer text was already written live (token streaming). */
     answerLive: false,
+    notedInterrupt: false,
   };
+
+  function noteInterrupt(): void {
+    if (state.notedInterrupt) return;
+    state.notedInterrupt = true;
+    spinner?.stop();
+    breakAnswerForStatus();
+    stderrLine(ui.dim(options.resumeHint ? interruptNoticeLine() : chatInterruptNoticeLine()));
+  }
 
   const isQuiet = detailMode === 'quiet';
   const isVerbose = detailMode === 'verbose';
@@ -609,15 +628,20 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           const elapsed = msElapsed
             ? ` ${msElapsed > 3000 ? ui.yellow(`${msElapsed}ms`) : ui.dim(`${msElapsed}ms`)}`
             : '';
-          const statusKind = event.isError || event.aborted ? 'fail' : 'ok';
           const failReason = event.isError ? formatErrorResult(event.result) : '';
+          const abortText = isStructuredUserAbort(event);
+          if (abortText) noteInterrupt();
+          const statusKind = abortText ? 'info' : event.isError || event.aborted ? 'fail' : 'ok';
           const abortReason = event.aborted ? `aborted (${event.aborted.by})` : '';
-          // Color error messages red and abort messages yellow for immediate visual attention
-          const statusNote = failReason
-            ? ui.red(`: ${failReason}`)
-            : abortReason
-              ? ui.yellow(` ${abortReason}`)
-              : '';
+          // Color error messages red and abort messages yellow for immediate visual attention.
+          // An Esc abort is one calm line, not a red failure per tool.
+          const statusNote = abortText
+            ? ''
+            : failReason
+              ? ui.red(`: ${failReason}`)
+              : abortReason
+                ? ui.yellow(` ${abortReason}`)
+                : '';
 
           const target = extractToolTarget(event.toolName, toolInput);
           let targetStr = target ? ` ${ui.dim(`(${target})`)}` : '';
@@ -872,13 +896,17 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         }
         break;
       }
-      case 'error':
+      case 'error': {
+        const text = summarizeForCli(event.error, 400);
+        if (isUserAbortErrorText(text)) {
+          noteInterrupt();
+          break;
+        }
         spinner?.stop();
         breakAnswerForStatus();
-        stderrLine(
-          `${mark('fail')} error ${event.retriable ? 'retryable ' : ''}${summarizeForCli(event.error, 400)}`
-        );
+        stderrLine(`${mark('fail')} error ${event.retriable ? 'retryable ' : ''}${text}`);
         break;
+      }
       case 'done': {
         spinner?.stop();
         if (state.thinkingOpen) {

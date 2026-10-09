@@ -96,7 +96,17 @@ export const execTool: Tool = {
       run_in_background: {
         type: 'boolean',
         description:
-          'If true, start the command in the background and return a handle id immediately (Claude Code Bash run_in_background parity). Use exec_logs / exec_stop with that id. Do not append "&" to the command.',
+          'If true, start the command in the background and return a handle id (Claude Code Bash run_in_background parity). During a /goal run the command waits until it exits or timeout_ms unless wait is false or settle_ms is set. Use exec_logs / exec_stop with that id. Do not append "&" to the command.',
+      },
+      settle_ms: {
+        type: 'number',
+        description:
+          'When run_in_background is true, watch this many milliseconds for an immediate crash (default 1200, max 10000). Setting it during a /goal run keeps that short settle.',
+      },
+      wait: {
+        type: 'boolean',
+        description:
+          'When run_in_background is true, set false to return after settle_ms even during a /goal run.',
       },
       label: {
         type: 'string',
@@ -113,7 +123,10 @@ export const execTool: Tool = {
       return execBackgroundTool.execute(
         {
           command: input.command,
-          label: typeof input.label === 'string' ? input.label : undefined,
+          ...(typeof input.label === 'string' ? { label: input.label } : {}),
+          ...(input.timeout_ms !== undefined ? { timeout_ms: input.timeout_ms } : {}),
+          ...(input.settle_ms !== undefined ? { settle_ms: input.settle_ms } : {}),
+          ...(input.wait !== undefined ? { wait: input.wait } : {}),
         },
         ctx
       );

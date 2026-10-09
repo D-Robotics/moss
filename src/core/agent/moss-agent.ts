@@ -886,6 +886,7 @@ ${result.stderr ?? ''}`.trim();
       ...(options?.toolInputOverrides ? { toolInputOverrides: options.toolInputOverrides } : {}),
       ...(options?.taskFlow === false ? { taskContracts: 'deny' as const } : {}),
       ...(options?.taskFlow === true ? { taskContracts: 'allow' as const } : {}),
+      ...(options?.goalExecWait === true ? { goalExecWait: true as const } : {}),
       ...(this.config.execWriteRoots ? { execWriteRoots: this.config.execWriteRoots } : {}),
       // Worktree-lease merge host (merge_subagent_patch tool target): applies
       // a collected sub-agent patch back into this workspace with 3-way merge.

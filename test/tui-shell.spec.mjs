@@ -1187,8 +1187,8 @@ instance.unmount();
     assert.ok(await waitFor(() => frame().includes('● running')), 'the run is in flight');
     instance.stdin.write('\x1b'); // Esc
     assert.ok(
-      await waitFor(() => frame().includes('interrupted — partial output kept')),
-      `the interrupt is recorded quietly: ${JSON.stringify(frame().slice(-200))}`
+      await waitFor(() => frame().includes('Interrupted') && !frame().includes('/goal resume')),
+      `plain chat Esc does not suggest /goal resume: ${JSON.stringify(frame().slice(-240))}`
     );
     assert.equal(
       rowsOf('error').length,

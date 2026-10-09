@@ -100,6 +100,21 @@ test('evaluateAcceptance: repaired re-measurement supersedes the earlier failure
   assert.equal(verdict.criteriaResults[0].observed, 31.2);
 });
 
+test('string equality ==hi is a real verdict, not NO EVIDENCE', () => {
+  const task = baseTask({
+    acceptanceCriteria: [{ metric: 'marker', expected: '==hi' }],
+  });
+  const pass = evaluateAcceptance(task, [ev('marker', 'hi', 'pass', 1)]);
+  assert.equal(pass.verdict, 'pass');
+  assert.equal(pass.criteriaResults[0].result, 'pass');
+  const fail = evaluateAcceptance(task, [ev('marker', 'bye', 'fail', 2)]);
+  assert.equal(fail.criteriaResults[0].result, 'fail');
+  assert.match(taskDefineTool.description, /==hi/);
+  assert.match(taskDefineTool.description, /numeric >= <= > < == !=/);
+  const criteria = taskDefineTool.inputSchema.properties?.acceptance_criteria;
+  assert.match(String(criteria?.description ?? ''), /==hi/);
+});
+
 test('task_define → record_evidence → task_acceptance full lifecycle', async (t) => {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-task-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));

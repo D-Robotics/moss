@@ -285,6 +285,79 @@ console.log('[PASS] CLI oneshot turn_start noise suppression');
   assert.match(out, /TS1005|Found 1 error/, 'failed exec surfaces error tail on the tool line');
 }
 
+// Esc prints one calm line, not a red abort per tool and per error event
+{
+  const stderrChunks = [];
+  const renderer = createCliRunRenderer({
+    detailMode: 'progress',
+    interactive: false,
+    workspaceDir: process.cwd(),
+    stdout: { write: () => {} },
+    stderr: {
+      write: (value) => {
+        stderrChunks.push(String(value));
+      },
+      isTTY: false,
+    },
+  });
+  renderer.handle({
+    type: 'tool_end',
+    toolCallId: 'esc-1',
+    toolName: 'exec',
+    input: { command: 'sleep 25' },
+    result: 'This operation was aborted',
+    isError: true,
+    aborted: { by: 'user' },
+  });
+  renderer.handle({
+    type: 'error',
+    error: 'This operation was aborted',
+    retriable: false,
+  });
+  renderer.handle({
+    type: 'error',
+    error: 'agent run aborted before start: This operation was aborted',
+    retriable: false,
+  });
+  const out = stderrChunks.join('');
+  assert.equal(out.split('Interrupted').length - 1, 1);
+  assert.doesNotMatch(out, /\/goal resume/);
+  assert.doesNotMatch(out, /✗ error/);
+}
+
+{
+  const stderrChunks = [];
+  const renderer = createCliRunRenderer({
+    detailMode: 'progress',
+    interactive: false,
+    resumeHint: true,
+    workspaceDir: process.cwd(),
+    stdout: { write: () => {} },
+    stderr: {
+      write: (value) => {
+        stderrChunks.push(String(value));
+      },
+      isTTY: false,
+    },
+  });
+  renderer.handle({
+    type: 'tool_end',
+    toolCallId: 'fetch-1',
+    toolName: 'exec',
+    input: { command: 'node fetch.mjs' },
+    result: 'DOMException [AbortError]: This operation was aborted',
+    isError: true,
+  });
+  renderer.handle({
+    type: 'error',
+    error: 'Execution error: aborted_by_user: cancelled during execution',
+    retriable: false,
+  });
+  const out = stderrChunks.join('');
+  assert.match(out, /DOMException \[AbortError\]/);
+  assert.equal(out.split('Interrupted — /goal resume to continue').length - 1, 1);
+}
+
 // Sibling: exec_background success also gets a non-verbose tail summary
 {
   const stderrChunks = [];

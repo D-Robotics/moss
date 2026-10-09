@@ -700,6 +700,256 @@ test('resumeTask refuses an accepted task and a missing task', async () => {
   );
 });
 
+async function executingTask(ws) {
+  const { taskId } = await createDraftTask(ws, 'resume then esc');
+  await appendTaskEvent(ws, taskId, 'execution_started');
+  await appendTaskRecord(ws, {
+    taskId,
+    goal: 'resume then esc',
+    acceptanceCriteria: [{ metric: 'x', expected: '>=1' }],
+    status: 'active',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+  return taskId;
+}
+
+function assertAborted(result, events) {
+  assert.equal(result.outcome, 'aborted');
+  assert.equal(result.snapshot.phase, 'failed');
+  const failed = [...events].reverse().find((event) => event.type === 'task_failed');
+  assert.equal(failed?.data?.detail, 'aborted');
+  assert.equal(
+    events.some((event) => /run crashed/.test(String(event.data?.detail ?? ''))),
+    false
+  );
+}
+
+async function finishAfterAbort(ws, taskId) {
+  const { runTurn } = mockAgent(ws, [
+    async (dir) => {
+      await appendEvidenceRecord(dir, {
+        evidenceId: `ev_${Date.now()}`,
+        taskId,
+        source: 'test',
+        metric: 'x',
+        expected: '>=1',
+        observed: 2,
+        result: 'pass',
+        timestamp: Date.now(),
+      });
+    },
+  ]);
+  const again = await resumeTask({ workspaceDir: ws, runTurn }, taskId);
+  assert.equal(again.outcome, 'pass');
+  assert.equal(again.snapshot.phase, 'accepted');
+}
+
+const failingVerdict = {
+  source: 'contract',
+  async evaluate() {
+    return { passed: false, detail: 'not yet', source: 'contract' };
+  },
+};
+
+test('esc during the resumed execution turn is aborted, not crashed, and resumable', async () => {
+  const ws = await tmpWorkspace();
+  const taskId = await executingTask(ws);
+  const controller = new AbortController();
+  let evaluations = 0;
+  const { runTurn, calls } = mockAgent(ws, [
+    async () => {
+      controller.abort();
+    },
+  ]);
+  const result = await resumeTask(
+    {
+      workspaceDir: ws,
+      runTurn,
+      signal: controller.signal,
+      verdictProvider: {
+        source: 'contract',
+        async evaluate() {
+          evaluations += 1;
+          return { passed: false, detail: 'should not run', source: 'contract' };
+        },
+      },
+    },
+    taskId
+  );
+  assert.equal(evaluations, 0);
+  assert.deepEqual(
+    calls.map((call) => call.phase),
+    ['executing']
+  );
+  assertAborted(result, await listTaskEvents(ws, taskId));
+  await finishAfterAbort(ws, taskId);
+});
+
+test('esc during verification aborts before the repair turn', async () => {
+  const ws = await tmpWorkspace();
+  const taskId = await executingTask(ws);
+  const controller = new AbortController();
+  const { runTurn, calls } = mockAgent(ws, [async () => {}]);
+  const result = await resumeTask(
+    {
+      workspaceDir: ws,
+      runTurn,
+      signal: controller.signal,
+      verdictProvider: {
+        source: 'contract',
+        async evaluate() {
+          controller.abort();
+          return { passed: false, detail: 'not yet', source: 'contract' };
+        },
+      },
+    },
+    taskId
+  );
+  assert.deepEqual(
+    calls.map((call) => call.phase),
+    ['executing']
+  );
+  const events = await listTaskEvents(ws, taskId);
+  assertAborted(result, events);
+  assert.equal(
+    events.some((event) => event.type === 'acceptance_fail'),
+    false,
+    'esc during acceptance does not record a fake acceptance_fail'
+  );
+  assert.equal(
+    events.some((event) => event.type === 'repair_applied'),
+    false
+  );
+  await finishAfterAbort(ws, taskId);
+});
+
+test('esc during the repair turn is aborted, not crashed, and resumable', async () => {
+  const ws = await tmpWorkspace();
+  const taskId = await executingTask(ws);
+  const controller = new AbortController();
+  const { runTurn, calls } = mockAgent(ws, [
+    async () => {},
+    async () => {
+      controller.abort();
+    },
+  ]);
+  const result = await resumeTask(
+    {
+      workspaceDir: ws,
+      runTurn,
+      signal: controller.signal,
+      verdictProvider: failingVerdict,
+    },
+    taskId
+  );
+  assert.deepEqual(
+    calls.map((call) => call.phase),
+    ['executing', 'repairing']
+  );
+  const events = await listTaskEvents(ws, taskId);
+  assertAborted(result, events);
+  assert.equal(events.filter((event) => event.type === 'repair_applied').length, 0);
+  await finishAfterAbort(ws, taskId);
+});
+
+test('a repair turn that throws USER_ABORTED is aborted, not crashed', async () => {
+  const ws = await tmpWorkspace();
+  const taskId = await executingTask(ws);
+  const { runTurn } = mockAgent(ws, [
+    async () => {},
+    async () => {
+      throw new MossError({
+        code: 'USER_ABORTED',
+        message: 'agent run aborted before start: This operation was aborted',
+      });
+    },
+  ]);
+  const result = await resumeTask(
+    { workspaceDir: ws, runTurn, verdictProvider: failingVerdict },
+    taskId
+  );
+  assertAborted(result, await listTaskEvents(ws, taskId));
+  await finishAfterAbort(ws, taskId);
+});
+
+test('esc during a budget stop is aborted, not a budget failure', async () => {
+  const ws = await tmpWorkspace();
+  const taskId = await executingTask(ws);
+  const controller = new AbortController();
+  const runTurn = async () => {
+    controller.abort();
+    return { text: 'ceiling', stopReason: 'budget_tokens_reached' };
+  };
+  const result = await resumeTask(
+    {
+      workspaceDir: ws,
+      runTurn,
+      signal: controller.signal,
+      verdictProvider: failingVerdict,
+    },
+    taskId
+  );
+  const events = await listTaskEvents(ws, taskId);
+  assertAborted(result, events);
+  assert.equal(
+    events.some((event) => /run budget exceeded/.test(String(event.data?.detail ?? ''))),
+    false
+  );
+});
+
+test('esc during acceptance that throws a plain error is aborted, not crashed', async () => {
+  const ws = await tmpWorkspace();
+  const taskId = await executingTask(ws);
+  const controller = new AbortController();
+  const { runTurn } = mockAgent(ws, [async () => {}]);
+  const result = await resumeTask(
+    {
+      workspaceDir: ws,
+      runTurn,
+      signal: controller.signal,
+      verdictProvider: {
+        source: 'contract',
+        async evaluate() {
+          controller.abort();
+          throw new Error('acceptance probe blew up');
+        },
+      },
+    },
+    taskId
+  );
+  const events = await listTaskEvents(ws, taskId);
+  assertAborted(result, events);
+  assert.equal(
+    events.some((event) => event.type === 'acceptance_fail'),
+    false
+  );
+});
+
+test('esc during planning records aborted and does not start execution', async () => {
+  const ws = await tmpWorkspace();
+  const controller = new AbortController();
+  const { runTurn, calls } = mockAgent(ws, [
+    async () => {
+      controller.abort();
+    },
+  ]);
+  const result = await runTask(
+    { workspaceDir: ws, runTurn, signal: controller.signal },
+    'plan then stop'
+  );
+  assert.deepEqual(
+    calls.map((call) => call.phase),
+    ['planning']
+  );
+  const events = await listTaskEvents(ws, result.snapshot.taskId);
+  assertAborted(result, events);
+  assert.equal(
+    events.some((event) => event.type === 'execution_started'),
+    false
+  );
+});
+
 test('a crashed run marks the task failed — never stuck unresumable in a live phase', async () => {
   const ws = await tmpWorkspace();
   const crash = async () => {
@@ -849,8 +1099,10 @@ test('blocked turn that also hits the run budget stays blocked', async () => {
 
 test('createAgentTurnRunner reports stopReason from streamChat and chat', async () => {
   let streamCalls = 0;
+  let streamOptions;
   const streamAgent = {
-    async *streamChat() {
+    async *streamChat(_session, _prompt, options) {
+      streamOptions = options;
       streamCalls += 1;
       yield { type: 'text_delta', delta: 'partial ' };
       if (streamCalls === 1) {
@@ -871,6 +1123,8 @@ test('createAgentTurnRunner reports stopReason from streamChat and chat', async 
   const streamRunner = createAgentTurnRunner(streamAgent, 'session-stream');
   assert.equal(await streamRunner('prompt', 'planning'), 'final text');
   assert.equal(streamRunner.stopReason, 'budget_tokens_reached');
+  assert.equal(streamOptions.goalExecWait, true);
+  assert.equal(streamOptions.taskFlow, true);
   assert.equal(await streamRunner('again', 'executing'), 'continued');
   assert.equal(streamRunner.stopReason, undefined);
 
