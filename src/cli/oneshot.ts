@@ -23,6 +23,8 @@ import {
   type HeadlessJsonWriter,
 } from './print.js';
 import { createCliSessionKey } from './session.js';
+import { loadCliConfigFile } from './config.js';
+import { configuredBaseUrl, pricingOverridesFromConfig } from './model-pricing.js';
 import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 import { runStopHooks, type StopHookResult } from './hooks.js';
 import { runProcess } from '../utils/run-process.js';
@@ -391,10 +393,19 @@ export async function runOneShot(
   const workspaceDir = options.cwd ?? process.cwd();
   const renderer = outputFormat === 'text' ? createCliRunRenderer({ workspaceDir }) : null;
 
+  let pricingOverrides: ReturnType<typeof pricingOverridesFromConfig> | undefined;
+  try {
+    pricingOverrides = pricingOverridesFromConfig(loadCliConfigFile().config.pricing);
+  } catch {
+    pricingOverrides = undefined;
+  }
+  const baseUrl = configuredBaseUrl(agent.config as { baseUrl?: string });
   const state = createHeadlessPrintState({
     sessionId: sessionKey,
     model: agent.config.model,
     startTime: Date.now(),
+    ...(pricingOverrides && Object.keys(pricingOverrides).length > 0 ? { pricingOverrides } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
   });
   let finalResult: HeadlessResultEvent | undefined;
   let runError: unknown = undefined;

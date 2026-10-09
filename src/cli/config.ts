@@ -32,6 +32,8 @@ import {
   type CliInteractionMode,
 } from './interaction-mode.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
+import type { PricingConfig } from './model-pricing.js';
+import type { StatusLineConfig } from './status-line.js';
 
 export {
   CliConfigFileError,
@@ -114,6 +116,17 @@ export interface ConfigFile {
    * local directory/tarball. MOSS_RDK_DOCS_PACKAGE overrides `package`.
    */
   rdkDocs?: boolean | RdkDocsConfig;
+  /**
+   * Per-model prices for gateway and custom models, per 1M tokens.
+   * Built-in prices cover common DeepSeek, Qwen, OpenAI, and Anthropic ids.
+   * Example: `{ "models": { "my-model": { "input": 2, "output": 8, "cached": 0.2, "currency": "CNY" } } }`.
+   */
+  pricing?: PricingConfig;
+  /**
+   * Status-line fields (`model`, `cwd`, `tokens`, `cost`, `context`, `device`,
+   * `task`) and an optional `command` whose stdout replaces the line.
+   */
+  statusLine?: StatusLineConfig;
   _examples?: Record<string, unknown>;
 }
 
@@ -555,7 +568,17 @@ export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFi
     // Merge object fields so a user can pin the executable package while a
     // project merely enables the integration (or vice versa).
     rdkDocs: mergeRdkDocsConfig(userConfig.rdkDocs, projectConfig.rdkDocs),
+    pricing: mergePricingConfig(userConfig.pricing, projectConfig.pricing),
+    statusLine: userConfig.statusLine ?? projectConfig.statusLine,
   };
+}
+
+function mergePricingConfig(
+  user: PricingConfig | undefined,
+  project: PricingConfig | undefined
+): PricingConfig | undefined {
+  if (!user && !project) return undefined;
+  return { models: { ...project?.models, ...user?.models } };
 }
 
 function mergeRdkDocsConfig(

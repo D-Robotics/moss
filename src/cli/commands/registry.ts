@@ -26,6 +26,16 @@ import { parsePermissionRuleSpec } from '../permission-rules.js';
 import { appendUserPermissionRule } from '../config-commands.js';
 import { stopAllBackgroundProcesses } from '../../core/tools/background-process-registry.js';
 import { probeDoctorModelPing } from '../doctor-model-ping.js';
+import { loadCliConfigFile } from '../config.js';
+import {
+  configuredBaseUrl,
+  formatCostEstimate,
+  priceSourceLine,
+  pricingOverridesFromConfig,
+  quoteUsage,
+  unknownPriceMessage,
+} from '../model-pricing.js';
+import type { UsageSlice } from '../model-pricing.js';
 
 export interface CommandInputOptions {
   label: string;
@@ -597,6 +607,40 @@ const usageCommand: CommandSpec = {
     ];
     if (summary.spanMs > 0) {
       lines.push(`  ${zh ? '时间跨度' : 'span'}       ${(summary.spanMs / 1000).toFixed(0)}s`);
+    }
+    const slices: UsageSlice[] =
+      summary.slices && summary.slices.length > 0
+        ? [...summary.slices]
+        : [
+            {
+              ...(ctx.agent.config.model ? { model: ctx.agent.config.model } : {}),
+              inputTokens: summary.inputTokens,
+              outputTokens: summary.outputTokens,
+              cacheReadTokens: summary.cacheReadTokens,
+              cacheCreationTokens: summary.cacheCreationTokens,
+            },
+          ];
+    let overrides = {};
+    try {
+      overrides = pricingOverridesFromConfig(loadCliConfigFile().config.pricing);
+    } catch {
+      overrides = {};
+    }
+    const baseUrl = configuredBaseUrl(ctx.agent.config as { baseUrl?: string }, ctx.runtime);
+    const quote = quoteUsage(slices, {
+      overrides,
+      env: process.env,
+      ...(baseUrl ? { baseUrl } : {}),
+      ...(ctx.agent.config.model ? { fallbackModel: ctx.agent.config.model } : {}),
+    });
+    if (quote.amount !== null && quote.currency) {
+      lines.push(
+        `  ${zh ? '费用' : 'cost'}        ${formatCostEstimate(quote.amount, quote.currency, zh)}`
+      );
+      const source = priceSourceLine(quote, zh);
+      if (source) lines.push(`  ${source}`);
+    } else {
+      lines.push(`  ${unknownPriceMessage(quote.unknownModel ?? ctx.agent.config.model, zh)}`);
     }
     lines.push(
       zh

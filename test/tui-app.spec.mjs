@@ -422,13 +422,19 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
     /runs\s+2 · api 2.5s · avg first-token 800ms/,
     'runs, api time and first-token latency are accounted'
   );
-  assert.match(block[2], /\$0\.0041/, 'cost is computed from the configured per-1M prices');
+  assert.match(
+    block[2],
+    /~\$0\.0041.*\(est\.\)/,
+    'cost is an estimate from the configured per-1M prices'
+  );
+  assert.match(block[3], /MOSS_PRICE_IN/, 'the usage block names the price source');
   const unpriced = usageBlock(store.usage, {});
   assert.match(
     unpriced[2],
-    /unknown — set MOSS_PRICE_IN/,
+    /price unknown, set it with pricing\.models/,
     'without pricing the line says unknown instead of guessing'
   );
+  assert.doesNotMatch(unpriced[2], /\$\d/, 'an unknown price is never a number');
   endRun(store, false);
 }
 

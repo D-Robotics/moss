@@ -7,6 +7,7 @@
  */
 import type { MossAgentEvent } from '../core/index.js';
 import { contextUsageFromAgentEvent, type ContextUsageSnapshot } from './usage-display.js';
+import type { UsageSlice } from './model-pricing.js';
 
 export interface SessionUsageSummary {
   /** Number of completed model calls that reported usage. */
@@ -23,6 +24,8 @@ export interface SessionUsageSummary {
   ttftMsAvg: number | undefined;
   turnGapMsAvg: number | undefined;
   tokensPerSecond: number | undefined;
+  /** Per-call slices so cost can follow a model switch. */
+  slices: readonly UsageSlice[];
 }
 
 /** One observed compaction (O2 metrics). */
@@ -56,6 +59,7 @@ export function createSessionUsageAccumulator(): SessionUsageAccumulator {
   const ttfts: number[] = [];
   const turnGaps: number[] = [];
   let generationMsTotal = 0;
+  const slices: UsageSlice[] = [];
 
   return {
     record(event) {
@@ -82,6 +86,13 @@ export function createSessionUsageAccumulator(): SessionUsageAccumulator {
       if (event.ttftMs !== undefined) ttfts.push(event.ttftMs);
       if (event.turnGapMs !== undefined) turnGaps.push(event.turnGapMs);
       if (event.generationMs !== undefined) generationMsTotal += event.generationMs;
+      slices.push({
+        ...(event.model?.trim() ? { model: event.model.trim() } : {}),
+        inputTokens: event.inputTokens ?? 0,
+        outputTokens: event.outputTokens ?? 0,
+        cacheReadTokens: event.cacheReadTokens ?? 0,
+        cacheCreationTokens: event.cacheCreationTokens ?? 0,
+      });
       const snapshot = contextUsageFromAgentEvent(event);
       if (snapshot) latest = snapshot;
     },
@@ -105,6 +116,7 @@ export function createSessionUsageAccumulator(): SessionUsageAccumulator {
             : undefined,
         tokensPerSecond:
           generationMsTotal > 0 ? Math.round((outputTokens / generationMsTotal) * 1000) : undefined,
+        slices,
       };
     },
     latestContextUsage() {

@@ -737,6 +737,7 @@ async function main() {
         .catch(() => undefined),
     hooks,
   });
+  (agent.config as { baseUrl?: string }).baseUrl = baseUrl;
   await registerBuiltinTools(agent);
   // Device targets resolve host > env > .moss/devices.json (registered via
   // `moss device add`); declaring the workspace turns the registry tier on.

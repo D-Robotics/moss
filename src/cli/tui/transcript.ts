@@ -35,6 +35,7 @@ import {
   type TuiLine,
 } from './text.js';
 import { TONE } from './theme.js';
+import { statusLineParts, type StatusLineField } from '../status-line.js';
 
 export const USER_MARK = '❯';
 export const ANSWER_MARK = '⏺';
@@ -1204,6 +1205,21 @@ export interface StatusView {
   stashed?: boolean;
   /** Folded output is on screen: the hint row offers ctrl+o to open it. */
   collapsed?: boolean;
+  /**
+   * When set, the informational half of the row is these fields (badges stay).
+   * Omit to keep the historical row: model, hot context, turn tokens.
+   */
+  statusFields?: readonly StatusLineField[];
+  /** User status command stdout. Replaces the whole row when non-empty. */
+  commandText?: string;
+  cwd?: string;
+  branch?: string;
+  costLabel?: string;
+  device?: string;
+  taskState?: string;
+  /** Session token totals for the `tokens` field. */
+  sessionIn?: number;
+  sessionOut?: number;
 }
 
 /** Context fill at/above which the status row turns the percentage yellow. */
@@ -1212,34 +1228,64 @@ export const CONTEXT_WARN_PCT = 80;
 export const CONTEXT_CRIT_PCT = 95;
 
 export function renderStatusRight(view: StatusView, width: number): TuiLine {
+  if (view.commandText?.trim()) {
+    return alignStatusLine(view.commandText.trim(), width);
+  }
   const parts: string[] = [];
   if (view.blocked) parts.push(tui('● waiting for you'));
   else if (view.running) parts.push(tui('● running'));
   if (view.verbose) parts.push(tui('verbose'));
   if (view.stashed) parts.push(tui('› stashed'));
-  if (view.model) parts.push(view.model);
   let ctxPart: string | undefined;
-  if (view.contextUsed !== undefined && view.contextTotal) {
-    const pct = Math.min(100, Math.round((view.contextUsed / view.contextTotal) * 100));
-    // Keep the idle chrome quiet like Claude Code: normal context and token
-    // accounting belong in /usage and the completed run summary. Surface the
-    // context percentage here only when it needs the user's attention.
-    if (pct >= CONTEXT_WARN_PCT) {
-      ctxPart = tui('{pct}% ctx', { pct });
-      parts.push(ctxPart);
-    }
-  }
-  const compact = (n: number): string => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n));
-  const hasTurn = view.turnIn !== undefined || view.turnOut !== undefined;
-  if (hasTurn && ((view.turnIn ?? 0) > 0 || (view.turnOut ?? 0) > 0)) {
-    parts.push(
-      tui('{in} in / {out} out', {
-        in: compact(view.turnIn ?? 0),
-        out: compact(view.turnOut ?? 0),
-      })
+  let ctxPct: number | undefined;
+  if (view.statusFields) {
+    const built = statusLineParts(
+      {
+        ...(view.model ? { model: view.model } : {}),
+        ...(view.cwd ? { cwd: view.cwd } : {}),
+        ...(view.branch ? { branch: view.branch } : {}),
+        tokensIn: view.sessionIn ?? view.turnIn,
+        tokensOut: view.sessionOut ?? view.turnOut,
+        ...(view.costLabel ? { costLabel: view.costLabel } : {}),
+        ...(view.contextUsed !== undefined && view.contextTotal
+          ? {
+              contextPct: Math.min(100, Math.round((view.contextUsed / view.contextTotal) * 100)),
+            }
+          : {}),
+        ...(view.device ? { device: view.device } : {}),
+        ...(view.taskState ? { task: view.taskState } : {}),
+        zh: isTuiZh(),
+      },
+      view.statusFields
     );
-  } else if (!hasTurn && view.running && view.tokens > 0) {
-    parts.push(tui('{count} out', { count: compact(view.tokens) }));
+    parts.push(...built.parts);
+    ctxPart = built.contextPart;
+    ctxPct = built.contextPct;
+  } else {
+    if (view.model) parts.push(view.model);
+    if (view.contextUsed !== undefined && view.contextTotal) {
+      const pct = Math.min(100, Math.round((view.contextUsed / view.contextTotal) * 100));
+      // Keep the idle chrome quiet like Claude Code: normal context and token
+      // accounting belong in /usage and the completed run summary. Surface the
+      // context percentage here only when it needs the user's attention.
+      if (pct >= CONTEXT_WARN_PCT) {
+        ctxPart = tui('{pct}% ctx', { pct });
+        ctxPct = pct;
+        parts.push(ctxPart);
+      }
+    }
+    const compact = (n: number): string => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n));
+    const hasTurn = view.turnIn !== undefined || view.turnOut !== undefined;
+    if (hasTurn && ((view.turnIn ?? 0) > 0 || (view.turnOut ?? 0) > 0)) {
+      parts.push(
+        tui('{in} in / {out} out', {
+          in: compact(view.turnIn ?? 0),
+          out: compact(view.turnOut ?? 0),
+        })
+      );
+    } else if (!hasTurn && view.running && view.tokens > 0) {
+      parts.push(tui('{count} out', { count: compact(view.tokens) }));
+    }
   }
   // Narrow panes drop the model name first, then the token count; the state
   // badge (`● running`) is the part that must survive.
@@ -1258,28 +1304,32 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
   const full = `${pad}${text}`;
   // A hot context window is the one part of this row that can demand action:
   // paint just that segment (yellow → red) and keep the rest of the row dim.
-  if (
-    ctxPart &&
-    view.contextUsed !== undefined &&
-    view.contextTotal &&
-    displayWidth(full) <= width
-  ) {
-    const pct = Math.min(100, Math.round((view.contextUsed / view.contextTotal) * 100));
-    if (pct >= CONTEXT_WARN_PCT) {
-      const idx = full.lastIndexOf(ctxPart);
-      const color: TuiColor = pct >= CONTEXT_CRIT_PCT ? 'red' : 'yellow';
-      return {
-        text: clip(full, width),
-        dim: true,
-        runs: [
-          { text: full.slice(0, idx) },
-          { text: ctxPart, color, bold: true },
-          { text: full.slice(idx + ctxPart.length) },
-        ],
-      };
-    }
+  const pct =
+    ctxPct ??
+    (view.contextUsed !== undefined && view.contextTotal
+      ? Math.min(100, Math.round((view.contextUsed / view.contextTotal) * 100))
+      : 0);
+  if (ctxPart && pct >= CONTEXT_WARN_PCT && displayWidth(full) <= width) {
+    const idx = full.lastIndexOf(ctxPart);
+    if (idx < 0) return line(clip(full, width), { dim: true });
+    const color: TuiColor = pct >= CONTEXT_CRIT_PCT ? 'red' : 'yellow';
+    return {
+      text: clip(full, width),
+      dim: true,
+      runs: [
+        { text: full.slice(0, idx) },
+        { text: ctxPart, color, bold: true },
+        { text: full.slice(idx + ctxPart.length) },
+      ],
+    };
   }
   return line(clip(full, width), { dim: true });
+}
+
+function alignStatusLine(text: string, width: number): TuiLine {
+  const room = Math.max(1, width - 1);
+  const pad = ' '.repeat(Math.max(0, room - displayWidth(text)));
+  return line(clip(`${pad}${text}`, width), { dim: true });
 }
 
 /**

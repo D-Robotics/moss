@@ -145,6 +145,19 @@ import {
   detectComposerProjectKind,
   type ComposerProjectKind,
 } from '../composer-placeholder.js';
+import { loadCliConfigFile } from '../config.js';
+import {
+  configuredBaseUrl,
+  formatCostEstimate,
+  pricingOverridesFromConfig,
+  quoteUsage,
+  takeUnknownPriceNotice,
+} from '../model-pricing.js';
+import {
+  parseStatusLineConfig,
+  runStatusLineCommand,
+  type StatusCommandPayload,
+} from '../status-line.js';
 import { clip, line, padEndTo, rule, type TuiLine } from './text.js';
 import { displayWidth } from '../terminal-text.js';
 import { isTuiZh, setTuiLocale, transientStatus, tui } from './copy.js';
@@ -603,6 +616,19 @@ export function TuiAppRoot({
   const [activeSession, setActiveSession] = useState(options.sessionKey ?? 'tui');
   const sessionKey = activeSession;
   const { store } = handle;
+  const sessionChrome = useMemo(() => {
+    try {
+      const file = loadCliConfigFile().config;
+      return {
+        pricing: pricingOverridesFromConfig(file.pricing),
+        status: parseStatusLineConfig(file.statusLine),
+      };
+    } catch {
+      return { pricing: {}, status: parseStatusLineConfig(undefined) };
+    }
+  }, []);
+  const [statusCommandText, setStatusCommandText] = useState<string | undefined>(undefined);
+  const deviceLabelRef = useRef<string | undefined>(undefined);
   /**
    * D-1: the width must come from a REACT-REACTIVE source. `stdout.columns` read
    * during a render is only re-read when something re-renders the tree, and
@@ -626,6 +652,73 @@ export function TuiAppRoot({
   }, [columns, fullscreen, writeStdout]);
 
   useEffect(() => handle.subscribe(forceUpdate), [handle, forceUpdate]);
+  useEffect(() => {
+    if (options.model) store.usage.sessionModel = options.model;
+  }, [options.model, store]);
+  const unknownPriceNoted = useRef(false);
+  useEffect(() => {
+    if (unknownPriceNoted.current || store.usage.slices.length === 0) return;
+    const baseUrl = configuredBaseUrl(
+      options.agent.config as { baseUrl?: string },
+      options.cliRuntime
+    );
+    const quote = quoteUsage(store.usage.slices, {
+      overrides: sessionChrome.pricing,
+      env: process.env,
+      ...(baseUrl ? { baseUrl } : {}),
+      ...(store.usage.sessionModel || store.usage.lastModel || options.model
+        ? {
+            fallbackModel: store.usage.sessionModel ?? store.usage.lastModel ?? options.model,
+          }
+        : {}),
+    });
+    if (quote.amount !== null) return;
+    unknownPriceNoted.current = true;
+    const notice = takeUnknownPriceNotice(quote.unknownModel, isTuiZh());
+    if (!notice) return;
+    appendRow(store, 'summary', notice);
+    handle.notify();
+  }, [
+    handle,
+    options.agent,
+    options.cliRuntime,
+    options.model,
+    sessionChrome.pricing,
+    store,
+    store.version,
+  ]);
+  const statusPayloadRef = useRef<StatusCommandPayload>({
+    ...(options.model ? { model: options.model } : {}),
+    cwd: options.workspaceDir,
+  });
+  useEffect(() => {
+    const command = sessionChrome.status.command;
+    if (!command) return undefined;
+    let cancelled = false;
+    let inflight = false;
+    const tick = (): void => {
+      if (cancelled || inflight) return;
+      inflight = true;
+      void runStatusLineCommand({
+        command,
+        cwd: options.workspaceDir,
+        timeoutMs: sessionChrome.status.timeoutMs,
+        payload: statusPayloadRef.current,
+      })
+        .then((result) => {
+          if (!cancelled) setStatusCommandText(result.ok ? result.text : undefined);
+        })
+        .finally(() => {
+          inflight = false;
+        });
+    };
+    tick();
+    const timer = setInterval(tick, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [options.workspaceDir, sessionChrome.status]);
   useEffect(() => runtime.onChange(forceUpdate), [runtime, forceUpdate]);
   // The policy layer is authoritative: any mode change (shift+tab, `/mode`, a
   // flag, an embedded host) re-renders the hint row immediately.
@@ -855,6 +948,7 @@ export function TuiAppRoot({
     } catch {
       device = undefined;
     }
+    deviceLabelRef.current = device;
     const home = process.env.HOME ?? '';
     const cwd =
       home && options.workspaceDir.startsWith(home)
@@ -1734,6 +1828,7 @@ export function TuiAppRoot({
         return;
       }
       setCurrentModel(model);
+      store.usage.sessionModel = model;
       store.usage.lastModel = undefined;
       store.usage.contextUsed = 0;
       store.usage.contextTotal = 0;
@@ -1997,7 +2092,15 @@ export function TuiAppRoot({
         return;
       }
       if (text === '/usage') {
-        printBlock('Usage', usageBlock(store.usage));
+        printBlock(
+          'Usage',
+          usageBlock(
+            store.usage,
+            process.env,
+            sessionChrome.pricing,
+            configuredBaseUrl(options.agent.config as { baseUrl?: string }, options.cliRuntime)
+          )
+        );
         return;
       }
       if (text === '/clear') {
@@ -3393,14 +3496,81 @@ export function TuiAppRoot({
     blocked: Boolean(approval),
     thinkingActive: store.run.thinkingText.trim() !== '' && !store.run.streamingText.trim(),
   };
-  const actualModel =
-    store.usage.lastModel && store.usage.lastModel !== currentModel
-      ? store.usage.lastModel
+  const actualModel = store.usage.lastModel || currentModel;
+  const home = process.env.HOME ?? '';
+  const cwdLabel =
+    home && options.workspaceDir.startsWith(home)
+      ? `~${options.workspaceDir.slice(home.length)}`
+      : options.workspaceDir;
+  const pricingBaseUrl = configuredBaseUrl(
+    options.agent.config as { baseUrl?: string },
+    options.cliRuntime
+  );
+  const quote = quoteUsage(store.usage.slices, {
+    overrides: sessionChrome.pricing,
+    env: process.env,
+    ...(pricingBaseUrl ? { baseUrl: pricingBaseUrl } : {}),
+    ...(actualModel ? { fallbackModel: actualModel } : {}),
+  });
+  const costLabel =
+    quote.amount !== null && quote.currency
+      ? formatCostEstimate(quote.amount, quote.currency, isTuiZh())
       : undefined;
+  const activeTask = runtime
+    .taskSummaries()
+    .find(
+      (task) => task.state === 'EXECUTING' || task.state === 'PLANNING' || task.state === 'BLOCKED'
+    );
+  // A 12-row inline terminal has no spare line. An idle model/cwd row scrolls
+  // the pre-Ink fallback notice off the screen; show the fields once there is
+  // a run, tokens, a cost, a hot context, or a status command.
+  const contextHot =
+    store.usage.contextTotal > 0 &&
+    store.usage.contextUsed / store.usage.contextTotal >= CONTEXT_WARN_PCT / 100;
+  const idleStatus =
+    !running &&
+    !costLabel &&
+    store.usage.tokensIn + store.usage.tokensOut === 0 &&
+    !contextHot &&
+    !statusCommandText;
+  const tightInline = options.renderer !== 'fullscreen' && (windowSize.rows || 24) <= 12;
+  const statusFields = tightInline && idleStatus ? [] : sessionChrome.status.fields;
+  statusPayloadRef.current = {
+    ...(actualModel ? { model: actualModel } : {}),
+    cwd: options.workspaceDir,
+    ...(options.contextInfo?.branch ? { branch: options.contextInfo.branch } : {}),
+    tokens: { input: store.usage.tokensIn, output: store.usage.tokensOut },
+    cost:
+      quote.amount !== null && quote.currency
+        ? { amount: quote.amount, currency: quote.currency }
+        : null,
+    context:
+      store.usage.contextTotal > 0
+        ? {
+            used: store.usage.contextUsed,
+            total: store.usage.contextTotal,
+            pct: Math.min(
+              100,
+              Math.round((store.usage.contextUsed / store.usage.contextTotal) * 100)
+            ),
+          }
+        : null,
+    ...(deviceLabelRef.current ? { device: deviceLabelRef.current } : {}),
+    ...(activeTask ? { task: activeTask.state } : {}),
+  };
   const status: StatusView = {
     running,
     blocked: Boolean(approval),
     ...(actualModel ? { model: actualModel } : {}),
+    statusFields,
+    ...(statusCommandText ? { commandText: statusCommandText } : {}),
+    cwd: cwdLabel,
+    ...(options.contextInfo?.branch ? { branch: options.contextInfo.branch } : {}),
+    ...(costLabel ? { costLabel } : {}),
+    ...(deviceLabelRef.current ? { device: deviceLabelRef.current } : {}),
+    ...(activeTask ? { taskState: activeTask.state } : {}),
+    sessionIn: store.usage.tokensIn,
+    sessionOut: store.usage.tokensOut,
     ...(approval ? { dialogKind: pendingDialogRef.current?.kind } : {}),
     ...(approval && pendingDialogRef.current?.kind === 'question'
       ? { dialogHasOptions: approval.options.length > 0 }

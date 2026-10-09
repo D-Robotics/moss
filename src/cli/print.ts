@@ -2,6 +2,8 @@ import type { ChatResult, MossAgentEvent } from '../core/index.js';
 import { redactSensitiveData } from '../safety/redact.js';
 import { createStreamingTextRedactor, redactEgress } from '../safety/tool-output-redact.js';
 import { MossError, mossErrorToOutcome, type MossErrorOutcome } from '../errors.js';
+import { quoteUsage } from './model-pricing.js';
+import type { ModelPrice, PriceCurrency, UsageSlice } from './model-pricing.js';
 
 export type HeadlessOutputFormat = 'text' | 'json' | 'stream-json';
 
@@ -127,6 +129,9 @@ export type HeadlessResultEvent = {
   session_id: string;
   total_cost_usd: number | null;
   cost_unavailable: boolean;
+  /** Present when every call shares one priced currency (USD or CNY). */
+  total_cost?: number;
+  cost_currency?: PriceCurrency;
   usage?: ChatResult['usage'];
   error?: string;
   error_code?: MossErrorOutcome['code'];
@@ -181,12 +186,18 @@ export interface HeadlessPrintState {
   lastErrorDetails?: MossErrorOutcome;
   resultEmitted: boolean;
   structuredOutputRequested: boolean;
+  usageSlices: UsageSlice[];
+  pricingOverrides?: Readonly<Record<string, ModelPrice>>;
+  /** Official-host gate for built-in prices. Gateways stay unpriced. */
+  baseUrl?: string;
 }
 
 export interface HeadlessPrintStateInput {
   sessionId: string;
   model?: string;
   startTime?: number;
+  pricingOverrides?: Readonly<Record<string, ModelPrice>>;
+  baseUrl?: string;
 }
 
 export interface HeadlessJsonWriter {
@@ -206,6 +217,9 @@ export function createHeadlessPrintState(input: HeadlessPrintStateInput): Headle
     numTurns: 0,
     resultEmitted: false,
     structuredOutputRequested: false,
+    usageSlices: [],
+    ...(input.pricingOverrides ? { pricingOverrides: input.pricingOverrides } : {}),
+    ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
   };
 }
 
@@ -382,6 +396,12 @@ function formatResult(
       : maxTurns
         ? 'error_max_turns'
         : 'error_during_execution';
+  const quote = quoteUsage(state.usageSlices ?? [], {
+    ...(state.pricingOverrides ? { overrides: state.pricingOverrides } : {}),
+    ...(state.model ? { fallbackModel: state.model } : {}),
+    ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}),
+    env: process.env,
+  });
   const event: HeadlessResultEvent = {
     type: 'result',
     subtype,
@@ -390,8 +410,11 @@ function formatResult(
     duration_ms: Math.max(0, Date.now() - state.startTime),
     num_turns: state.numTurns,
     session_id: state.sessionId,
-    total_cost_usd: null,
-    cost_unavailable: true,
+    total_cost_usd: quote.totalUsd,
+    cost_unavailable: quote.totalUsd === null,
+    ...(quote.amount !== null && quote.currency
+      ? { total_cost: quote.amount, cost_currency: quote.currency }
+      : {}),
   };
   if (result?.usage) event.usage = result.usage;
   if (errorMessage) event.error = redactText(errorMessage);
@@ -481,6 +504,19 @@ export function formatHeadlessStreamEvent(
       if (event.generationMs !== undefined) usage.generation_ms = event.generationMs;
       if (event.turnGapMs !== undefined) usage.turn_gap_ms = event.turnGapMs;
       if (event.model !== undefined) usage.model = event.model;
+      state.usageSlices.push({
+        ...(event.model?.trim()
+          ? { model: event.model.trim() }
+          : state.model
+            ? { model: state.model }
+            : {}),
+        inputTokens: event.inputTokens,
+        outputTokens: event.outputTokens,
+        ...(event.cacheReadTokens !== undefined ? { cacheReadTokens: event.cacheReadTokens } : {}),
+        ...(event.cacheCreationTokens !== undefined
+          ? { cacheCreationTokens: event.cacheCreationTokens }
+          : {}),
+      });
       return [usage];
     }
     case 'cache_metrics':

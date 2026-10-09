@@ -4,8 +4,15 @@
  * directly.
  */
 import type { MossAgentEvent } from '../../core/agent/moss-agent-types.js';
+import {
+  formatCostEstimate,
+  priceSourceLine,
+  quoteUsage,
+  unknownPriceMessage,
+} from '../model-pricing.js';
+import type { ModelPrice, UsageSlice } from '../model-pricing.js';
 import { noteToolForVerifyHint, type VerifyHintState } from '../verify-hint.js';
-import { tui } from './copy.js';
+import { tui, isTuiZh } from './copy.js';
 import { nextStreamCommit } from './stream-commit.js';
 import { toolLabel } from './transcript.js';
 import { summarizeToolCompletion } from './tool-summary.js';
@@ -129,6 +136,10 @@ export interface TuiUsageState {
   apiMs: number;
   /** time-to-first-token samples (ms) for the latency average. */
   ttftSamples: number[];
+  /** Per-call slices for session cost. */
+  slices: UsageSlice[];
+  /** Configured session model, used when a usage event omits one. */
+  sessionModel?: string;
 }
 
 export interface TuiTodo {
@@ -169,6 +180,7 @@ export function createTuiStore(): TuiStore {
       runs: 0,
       apiMs: 0,
       ttftSamples: [],
+      slices: [],
     },
     nextId: 1,
     version: 0,
@@ -483,6 +495,14 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
           Number(event.cacheCreationTokens ?? 0);
       }
       if (event.model?.trim()) store.usage.lastModel = event.model.trim();
+      const model = event.model?.trim() || store.usage.sessionModel;
+      store.usage.slices.push({
+        ...(model ? { model } : {}),
+        inputTokens: Number(event.inputTokens ?? 0),
+        outputTokens: Number(event.outputTokens ?? 0),
+        cacheReadTokens: Number(event.cacheReadTokens ?? 0),
+        cacheCreationTokens: Number(event.cacheCreationTokens ?? 0),
+      });
       store.version++;
       break;
     }
@@ -578,13 +598,17 @@ function fmtDuration(ms: number): string {
 }
 
 /**
- * The `/usage` block (A11.83): token split with cache hits, run count,
- * provider-reported API time and first-token latency, compactions — and a
- * cost line ONLY when the user configured pricing (USD per 1M tokens via
- * MOSS_PRICE_IN / MOSS_PRICE_OUT). Moss deliberately does not guess model
- * prices: a wrong number is worse than none.
+ * The `/usage` block: token split, run count, API time, and session cost.
+ * Cost comes from the built-in price table (official vendor host only),
+ * `pricing.models` in config, or MOSS_PRICE_IN / MOSS_PRICE_OUT. An unknown
+ * model stays unpriced.
  */
-export function usageBlock(usage: TuiUsageState, env: NodeJS.ProcessEnv = process.env): string[] {
+export function usageBlock(
+  usage: TuiUsageState,
+  env: NodeJS.ProcessEnv = process.env,
+  overrides?: Readonly<Record<string, ModelPrice>>,
+  baseUrl?: string
+): string[] {
   const fmt = (n: number) => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n));
   const lines: string[] = [
     `tokens      ${fmt(usage.tokensIn + usage.tokensOut)} session · ↑ ${fmt(usage.tokensIn)} in · ↓ ${fmt(usage.tokensOut)} out` +
@@ -599,19 +623,34 @@ export function usageBlock(usage: TuiUsageState, env: NodeJS.ProcessEnv = proces
       (ttftAvg !== undefined ? ` · avg first-token ${fmtDuration(ttftAvg)}` : '')
   );
   if (usage.compactions > 0) lines.push(`compactions ${usage.compactions}`);
-  const priceIn = Number(env.MOSS_PRICE_IN);
-  const priceOut = Number(env.MOSS_PRICE_OUT);
-  if (Number.isFinite(priceIn) && priceIn > 0 && Number.isFinite(priceOut) && priceOut > 0) {
-    const cost =
-      ((usage.tokensIn + usage.cacheReadTokens) / 1e6) * priceIn +
-      (usage.tokensOut / 1e6) * priceOut;
-    lines.push(
-      `cost        ~$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)} (MOSS_PRICE_IN/OUT)`
-    );
+  const slices =
+    usage.slices.length > 0
+      ? usage.slices
+      : [
+          {
+            ...(usage.sessionModel || usage.lastModel
+              ? { model: usage.sessionModel ?? usage.lastModel }
+              : {}),
+            inputTokens: usage.tokensIn,
+            outputTokens: usage.tokensOut,
+            cacheReadTokens: usage.cacheReadTokens,
+          },
+        ];
+  const zh = isTuiZh();
+  const quote = quoteUsage(slices, {
+    env,
+    ...(overrides ? { overrides } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(usage.sessionModel || usage.lastModel
+      ? { fallbackModel: usage.sessionModel ?? usage.lastModel }
+      : {}),
+  });
+  if (quote.amount !== null && quote.currency) {
+    lines.push(`cost        ${formatCostEstimate(quote.amount, quote.currency, zh)}`);
+    const source = priceSourceLine(quote, zh);
+    if (source) lines.push(source);
   } else {
-    lines.push(
-      'cost        unknown — set MOSS_PRICE_IN / MOSS_PRICE_OUT (USD per 1M tokens) to enable'
-    );
+    lines.push(unknownPriceMessage(quote.unknownModel ?? usage.lastModel, zh));
   }
   return lines;
 }
