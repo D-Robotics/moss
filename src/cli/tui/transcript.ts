@@ -27,6 +27,7 @@ import type { TranscriptRow } from './render-bridge.js';
 import {
   clip,
   displayWidth,
+  graphemes,
   line,
   padStartTo,
   rule,
@@ -35,7 +36,7 @@ import {
   type TuiLine,
 } from './text.js';
 import { TONE } from './theme.js';
-import { statusLineParts, type StatusLineField } from '../status-line.js';
+import { statusLineParts, type StatusLineField, type StatusLinePiece } from '../status-line.js';
 
 export const USER_MARK = '❯';
 export const ANSWER_MARK = '⏺';
@@ -1222,6 +1223,73 @@ export interface StatusView {
   sessionOut?: number;
 }
 
+/** Keep at least this much of a path before dropping it. */
+const PATH_MIN_CELLS = 8;
+
+/** Shorten a path from the left so the directory tail stays visible. */
+function clipPathTail(text: string, maxCells: number): string {
+  if (maxCells <= 0) return '';
+  if (displayWidth(text) <= maxCells) return text;
+  if (maxCells === 1) return '…';
+  const clusters = graphemes(text);
+  let used = 0;
+  let start = clusters.length;
+  for (let i = clusters.length - 1; i >= 0; i--) {
+    const cells = clusters[i]?.cells ?? 0;
+    if (used + cells > maxCells - 1) break;
+    used += cells;
+    start = i;
+  }
+  return `…${clusters
+    .slice(start)
+    .map((cluster) => cluster.text)
+    .join('')}`;
+}
+
+function joinedWidth(list: readonly string[]): number {
+  return displayWidth(list.join(' · '));
+}
+
+/**
+ * Narrow info row. Keep model, then tokens and cost, and shorten the path
+ * before dropping either. Badges stay ahead of those fields.
+ */
+function fitStatusFields(
+  badges: readonly string[],
+  pieces: readonly StatusLinePiece[],
+  budget: number
+): string[] {
+  let items = pieces.map((piece) => ({ field: piece.field, text: piece.text }));
+  const lineOf = (): string[] => [...badges, ...items.map((item) => item.text)];
+  if (joinedWidth(lineOf()) > budget) {
+    const cwd = items.find((item) => item.field === 'cwd');
+    if (cwd) {
+      const rest = lineOf().filter((text) => text !== cwd.text);
+      const sep = rest.length > 0 ? 3 : 0;
+      const room = budget - joinedWidth(rest) - sep;
+      if (room >= PATH_MIN_CELLS && room < displayWidth(cwd.text)) {
+        cwd.text = clipPathTail(cwd.text, room);
+      }
+    }
+  }
+  const drop: StatusLineField[] = ['cwd', 'context', 'device', 'task', 'cost', 'tokens'];
+  for (const field of drop) {
+    if (joinedWidth(lineOf()) <= budget) break;
+    items = items.filter((item) => item.field !== field);
+  }
+  let text = lineOf();
+  if (joinedWidth(text) > budget && items.some((item) => item.field === 'model')) {
+    text = [...badges, ...items.filter((item) => item.field === 'model').map((item) => item.text)];
+  }
+  if (joinedWidth(text) > budget && text.length > 0) {
+    const head = text.slice(0, -1);
+    const sep = head.length > 0 ? 3 : 0;
+    const room = Math.max(1, budget - joinedWidth(head) - sep);
+    text = [...head, clip(text[text.length - 1] ?? '', room)];
+  }
+  return text;
+}
+
 /** Context fill at/above which the status row turns the percentage yellow. */
 export const CONTEXT_WARN_PCT = 80;
 /** …and red past this line. The live warning row uses CONTEXT_WARN_PCT. */
@@ -1258,9 +1326,12 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
       },
       view.statusFields
     );
-    parts.push(...built.parts);
-    ctxPart = built.contextPart;
-    ctxPct = built.contextPct;
+    const fitted = fitStatusFields(parts, built.parts, Math.max(1, width - 1));
+    parts.splice(0, parts.length, ...fitted);
+    if (built.contextPart && fitted.includes(built.contextPart)) {
+      ctxPart = built.contextPart;
+      ctxPct = built.contextPct;
+    }
   } else {
     if (view.model) parts.push(view.model);
     if (view.contextUsed !== undefined && view.contextTotal) {
@@ -1287,14 +1358,18 @@ export function renderStatusRight(view: StatusView, width: number): TuiLine {
       parts.push(tui('{count} out', { count: compact(view.tokens) }));
     }
   }
-  // Narrow panes drop the model name first, then the token count; the state
-  // badge (`● running`) is the part that must survive.
+  // Legacy row (no statusFields): drop the model name first, then the token
+  // count; the state badge (`● running`) is the part that must survive.
+  // The configurable info line is already fitted above (model, then tokens
+  // and cost, path shortened first).
   const fit = (list: string[]): string => list.join(' · ');
-  if (displayWidth(fit(parts)) > width && view.model) {
+  if (!view.statusFields && displayWidth(fit(parts)) > width && view.model) {
     const at = parts.indexOf(view.model);
     if (at >= 0) parts.splice(at, 1);
   }
-  while (displayWidth(fit(parts)) > width && parts.length > 1) parts.pop();
+  if (!view.statusFields) {
+    while (displayWidth(fit(parts)) > width && parts.length > 1) parts.pop();
+  }
   const text = fit(parts);
   // The right-most column is left empty. A row that fills every column is one
   // width error away from losing its last glyph (the wide glyphs `●` and `·` are

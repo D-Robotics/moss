@@ -151,7 +151,6 @@ import {
   formatCostEstimate,
   pricingOverridesFromConfig,
   quoteUsage,
-  takeUnknownPriceNotice,
 } from '../model-pricing.js';
 import {
   parseStatusLineConfig,
@@ -663,38 +662,6 @@ export function TuiAppRoot({
   useEffect(() => {
     if (options.model) store.usage.sessionModel = options.model;
   }, [options.model, store]);
-  const unknownPriceNoted = useRef(false);
-  useEffect(() => {
-    if (unknownPriceNoted.current || store.usage.slices.length === 0) return;
-    const baseUrl = configuredBaseUrl(
-      options.agent.config as { baseUrl?: string },
-      options.cliRuntime
-    );
-    const quote = quoteUsage(store.usage.slices, {
-      overrides: sessionChrome.pricing,
-      env: process.env,
-      ...(baseUrl ? { baseUrl } : {}),
-      ...(store.usage.sessionModel || store.usage.lastModel || options.model
-        ? {
-            fallbackModel: store.usage.sessionModel ?? store.usage.lastModel ?? options.model,
-          }
-        : {}),
-    });
-    if (quote.amount !== null) return;
-    unknownPriceNoted.current = true;
-    const notice = takeUnknownPriceNotice(quote.unknownModel, isTuiZh());
-    if (!notice) return;
-    appendRow(store, 'summary', notice);
-    handle.notify();
-  }, [
-    handle,
-    options.agent,
-    options.cliRuntime,
-    options.model,
-    sessionChrome.pricing,
-    store,
-    store.version,
-  ]);
   const statusPayloadRef = useRef<StatusCommandPayload>({
     ...(options.model ? { model: options.model } : {}),
     cwd: options.workspaceDir,
@@ -3556,7 +3523,9 @@ export function TuiAppRoot({
   const costLabel =
     quote.amount !== null && quote.currency
       ? formatCostEstimate(quote.amount, quote.currency, isTuiZh())
-      : undefined;
+      : quote.unknownModel
+        ? tui('price unknown')
+        : undefined;
   const activeTask = runtime
     .taskSummaries()
     .find(
@@ -3820,7 +3789,8 @@ export function TuiAppRoot({
         })
       : []),
     // An idle status row has nothing to say; a blank row above the rule wastes
-    // a line of the transcript (plan v3 N5).
+    // a line of the transcript (plan v3 N5). Unknown price is a cost-field
+    // label on that row (`price unknown`), not an extra chrome line.
     ...(statusRight.text.trim() ? [statusRight] : []),
     ...(historyCursor.index !== undefined
       ? [renderHistoryRule(historyCursor.index + 1, history.length, columns)]

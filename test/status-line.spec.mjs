@@ -4,14 +4,17 @@
  */
 import assert from 'node:assert/strict';
 
+import { unknownPriceMessage } from '../dist/cli/model-pricing.js';
 import {
   DEFAULT_STATUS_LINE_FIELDS,
   formatStatusLine,
   parseStatusLineConfig,
   runStatusLineCommand,
 } from '../dist/cli/status-line.js';
+import { displayWidth } from '../dist/cli/terminal-text.js';
+import { setTuiLocale, tui } from '../dist/cli/tui/copy.js';
+import { usageBlock } from '../dist/cli/tui/render-bridge.js';
 import { renderStatusRight } from '../dist/cli/tui/transcript.js';
-import { setTuiLocale } from '../dist/cli/tui/copy.js';
 
 {
   const defaults = parseStatusLineConfig(undefined);
@@ -163,6 +166,84 @@ import { setTuiLocale } from '../dist/cli/tui/copy.js';
   assert.equal(timedOut.ok, false);
   assert.equal(timedOut.reason, 'timeout');
   assert.ok(elapsed < 2000, `timeout returned in ${elapsed}ms`);
+}
+
+{
+  setTuiLocale(false);
+  const path = '~/workspace/moss/projects/robot';
+  const view = {
+    running: false,
+    tokens: 0,
+    taskCount: 0,
+    queueLength: 0,
+    statusFields: ['model', 'cwd', 'tokens', 'cost', 'context'],
+    model: 'deepseek-v4-flash',
+    cwd: path,
+    branch: 'main',
+    costLabel: '~$0.15 (est.)',
+    sessionIn: 1500,
+    sessionOut: 20,
+    contextUsed: 12,
+    contextTotal: 100,
+  };
+  const at = (width) => renderStatusRight(view, width).text;
+  const fullPath = `${path} (main)`;
+  for (const width of [40, 60, 80, 120]) {
+    const text = at(width);
+    assert.ok(displayWidth(text) <= width, `${width} cols overflow: ${displayWidth(text)}`);
+    assert.match(text, /deepseek-v4-flash/, `${width} keeps the model`);
+    assert.match(text, /1\.5k in \/ 20 out/, `${width} keeps the token count`);
+  }
+  assert.match(at(120), new RegExp(fullPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(at(120), /~\$0\.15 \(est\.\)/);
+  assert.match(at(120), /12% ctx/);
+  assert.match(at(80), /…/, '80 cols shortens the path before dropping the model');
+  assert.doesNotMatch(at(80), /projects\/robot \(main\)/);
+  assert.match(at(80), /deepseek-v4-flash/);
+  assert.match(at(80), /1\.5k in \/ 20 out/);
+  assert.doesNotMatch(at(60), /workspace/, '60 cols drops the path before the model and tokens');
+  assert.match(at(60), /~\$0\.15 \(est\.\)/);
+  assert.doesNotMatch(at(40), /workspace/);
+  assert.doesNotMatch(at(40), /\$0\.15/, '40 cols keeps tokens ahead of cost when both cannot fit');
+  assert.match(at(40), /deepseek-v4-flash · 1\.5k in \/ 20 out/);
+
+  const unknown = { ...view, costLabel: 'price unknown' };
+  const unknownAt = (width) => renderStatusRight(unknown, width).text;
+  assert.match(unknownAt(120), /price unknown/, '120 cols keeps the short unknown-price field');
+  assert.match(unknownAt(120), /deepseek-v4-flash/);
+  assert.doesNotMatch(unknownAt(120), /set it with/);
+  assert.doesNotMatch(unknownAt(40), /price unknown/, '40 cols drops price unknown like cost');
+  assert.match(unknownAt(40), /deepseek-v4-flash · 1\.5k in \/ 20 out/);
+  for (const width of [40, 60, 80, 120]) {
+    assert.ok(displayWidth(unknownAt(width)) <= width, `${width} cols overflow`);
+  }
+  setTuiLocale(true);
+  assert.equal(tui('price unknown'), '价格未知');
+  const zhAt = (width) =>
+    renderStatusRight({ ...view, costLabel: tui('price unknown') }, width).text;
+  assert.match(zhAt(120), /价格未知/);
+  assert.doesNotMatch(zhAt(40), /价格未知/);
+  setTuiLocale(false);
+
+  const usage = usageBlock(
+    {
+      tokensIn: 100,
+      tokensOut: 10,
+      cacheReadTokens: 0,
+      runs: 1,
+      apiMs: 0,
+      ttftSamples: [],
+      compactions: 0,
+      slices: [{ model: 'deepseek-flash', inputTokens: 100, outputTokens: 10, cacheReadTokens: 0 }],
+      lastModel: 'deepseek-flash',
+      sessionModel: 'deepseek-flash',
+    },
+    {}
+  );
+  assert.ok(
+    usage.some((line) => line === unknownPriceMessage('deepseek-flash')),
+    '/usage prints the full how-to-set-a-price sentence'
+  );
 }
 
 console.log('[PASS] status line');

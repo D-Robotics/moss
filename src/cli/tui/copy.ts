@@ -162,6 +162,7 @@ export const ZH: Readonly<Record<string, string>> = {
   verbose: '详细',
   '› stashed': '› 已暂存',
   '{pct}% ctx': '{pct}% 上下文',
+  'price unknown': '价格未知',
   '{count} out': '{count} 输出',
   '{in} in / {out} out': '{in} 入 / {out} 出',
 

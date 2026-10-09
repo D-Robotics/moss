@@ -102,8 +102,13 @@ export interface StatusLineInput {
   zh?: boolean;
 }
 
+export interface StatusLinePiece {
+  field: StatusLineField;
+  text: string;
+}
+
 export interface StatusLineBuilt {
-  parts: string[];
+  parts: StatusLinePiece[];
   contextPart?: string;
   contextPct?: number;
 }
@@ -113,16 +118,19 @@ export function statusLineParts(
   fields: readonly StatusLineField[]
 ): StatusLineBuilt {
   const zh = input.zh === true;
-  const parts: string[] = [];
+  const parts: StatusLinePiece[] = [];
   let contextPart: string | undefined;
+  const push = (field: StatusLineField, text: string): void => {
+    parts.push({ field, text });
+  };
   for (const field of fields) {
-    if (field === 'model' && input.model) parts.push(input.model);
+    if (field === 'model' && input.model) push('model', input.model);
     if (field === 'cwd') {
       const cwd = input.cwd?.trim();
       const branch = input.branch?.trim();
-      if (cwd && branch) parts.push(`${cwd} (${branch})`);
-      else if (cwd) parts.push(cwd);
-      else if (branch) parts.push(branch);
+      if (cwd && branch) push('cwd', `${cwd} (${branch})`);
+      else if (cwd) push('cwd', cwd);
+      else if (branch) push('cwd', branch);
     }
     if (field === 'tokens') {
       const inn = input.tokensIn ?? 0;
@@ -130,22 +138,22 @@ export function statusLineParts(
       if (inn > 0 || out > 0) {
         const left = formatCompactTokenCount(inn);
         const right = formatCompactTokenCount(out);
-        parts.push(zh ? `${left} 入 / ${right} 出` : `${left} in / ${right} out`);
+        push('tokens', zh ? `${left} 入 / ${right} 出` : `${left} in / ${right} out`);
       }
     }
-    if (field === 'cost' && input.costLabel) parts.push(input.costLabel);
+    if (field === 'cost' && input.costLabel) push('cost', input.costLabel);
     if (field === 'context' && input.contextPct !== undefined) {
       const pct = Math.min(100, Math.max(0, Math.round(input.contextPct)));
       contextPart = zh ? `${pct}% 上下文` : `${pct}% ctx`;
-      parts.push(contextPart);
+      push('context', contextPart);
     }
     if (field === 'device' && input.device) {
-      parts.push(zh ? `设备 ${input.device}` : `device ${input.device}`);
+      push('device', zh ? `设备 ${input.device}` : `device ${input.device}`);
     }
     if (field === 'task' && input.task) {
       const state = input.task.trim();
       const label = zh ? (TASK_ZH[state] ?? state) : state.toLowerCase();
-      parts.push(zh ? `任务 ${label}` : `task ${label}`);
+      push('task', zh ? `任务 ${label}` : `task ${label}`);
     }
   }
   return {
@@ -158,7 +166,9 @@ export function formatStatusLine(
   input: StatusLineInput,
   fields: readonly StatusLineField[] = DEFAULT_STATUS_LINE_FIELDS
 ): string {
-  return statusLineParts(input, fields).parts.join(' · ');
+  return statusLineParts(input, fields)
+    .parts.map((part) => part.text)
+    .join(' · ');
 }
 
 export interface StatusCommandPayload {
