@@ -10,13 +10,13 @@
   "setup": [],
   "oracle": [],
   "acceptance": [
-    "pid=$(ps -eo pid,comm | awk '$2==\"systemd\"{print $1; exit}'); if [ -z \"${pid:-}\" ]; then pid=1; fi; test -d \"/proc/$pid\""
+    "pid=$(ps -eo pid,comm 2>/dev/null | awk '$2==\"systemd\"{print $1; exit}' || true); if [ -z \"${pid:-}\" ]; then pid=1; fi; test -d \"/proc/$pid\""
   ],
   "cleanup": [],
   "evidence": [
     {
       "metric": "live_pid",
-      "probe": "pid=$(ps -eo pid,comm | awk '$2==\"systemd\"{print $1; exit}'); if [ -z \"${pid:-}\" ]; then pid=1; fi; printf '%s\\n' \"$pid\""
+      "probe": "pid=$(ps -eo pid,comm 2>/dev/null | awk '$2==\"systemd\"{print $1; exit}' || true); if [ -z \"${pid:-}\" ]; then pid=1; fi; printf '%s\\n' \"$pid\""
     }
   ]
 }

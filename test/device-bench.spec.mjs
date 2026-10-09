@@ -370,7 +370,15 @@ test('windows acceptance paths are double-quoted and proc paths stay in the sand
   const state = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-fix-'));
   seedBoardFixture(state);
   const rewritten = rewriteSimPaths("awk 'END{}' /proc/meminfo", state);
-  assert.ok(rewritten.includes(path.join(state, 'proc', 'meminfo')));
+  assert.ok(rewritten.includes(path.join(state, 'proc', 'meminfo').replaceAll('\\', '/')));
+  const win = rewriteSimPaths(
+    "awk '/MemTotal/{print $2; exit}' /proc/meminfo",
+    'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\moss-device-bench-state'
+  );
+  assert.equal(
+    win,
+    "awk '/MemTotal/{print $2; exit}' C:/Users/RUNNER~1/AppData/Local/Temp/moss-device-bench-state/proc/meminfo"
+  );
   fs.rmSync(state, { recursive: true, force: true });
 });
 

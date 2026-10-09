@@ -29,10 +29,19 @@ const REWRITE_PREFIXES = [
 
 const REWRITE_BOUNDARY = /[\s"'=<>;&|(`]/;
 
+/**
+ * Bench scripts run under bash, including Git bash on Windows. A backslash
+ * in an unquoted script is an escape, so `C:\Users\...` becomes `C:Users...`.
+ * Forward slashes name the same file and survive bash.
+ */
+export function bashPath(filePath) {
+  return String(filePath).replaceAll('\\', '/');
+}
+
 export function rewriteSimPaths(command, stateDir) {
   let out = command;
   for (const prefix of REWRITE_PREFIXES) {
-    const replacement = path.join(stateDir, prefix.replace(/^\//, ''));
+    const replacement = bashPath(path.join(stateDir, prefix.replace(/^\//, '')));
     let next = '';
     let cursor = 0;
     while (cursor < out.length) {
@@ -59,11 +68,11 @@ export function stateDirFromScript(script, fallback) {
 export function wrapScript(script, ctx) {
   const lines = [
     'set -eu',
-    `export MOSS_BENCH_ROOT=${shellQuote(ctx.root)}`,
-    `export MOSS_BENCH_STATE=${shellQuote(ctx.stateDir)}`,
+    `export MOSS_BENCH_ROOT=${shellQuote(bashPath(ctx.root))}`,
+    `export MOSS_BENCH_STATE=${shellQuote(bashPath(ctx.stateDir))}`,
     `export MOSS_BENCH_TOKEN=${shellQuote(ctx.token)}`,
     `export MOSS_BENCH_PORT=${shellQuote(String(ctx.port))}`,
-    `export MOSS_BENCH_WORKSPACE=${shellQuote(ctx.workspace ?? '')}`,
+    `export MOSS_BENCH_WORKSPACE=${shellQuote(bashPath(ctx.workspace ?? ''))}`,
   ];
   if (ctx.sim) lines.push('export MOSS_BENCH_SIM=1');
   if (ctx.simCamera) lines.push('export MOSS_BENCH_SIM_CAMERA=1');
@@ -86,9 +95,9 @@ function benchEnv(ctx) {
     LANG: 'C',
     LC_ALL: 'C',
     TMPDIR: process.env.TMPDIR ?? os.tmpdir(),
-    MOSS_BENCH_ROOT: ctx.root,
-    MOSS_BENCH_STATE: ctx.stateDir,
-    MOSS_BENCH_WORKSPACE: ctx.workspace ?? '',
+    MOSS_BENCH_ROOT: bashPath(ctx.root),
+    MOSS_BENCH_STATE: bashPath(ctx.stateDir),
+    MOSS_BENCH_WORKSPACE: bashPath(ctx.workspace ?? ''),
     MOSS_BENCH_TOKEN: ctx.token,
     MOSS_BENCH_PORT: String(ctx.port),
   };
