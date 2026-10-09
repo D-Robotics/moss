@@ -26,7 +26,7 @@ export interface PostLlmContext {
 }
 
 /** Consecutive reasoning-only turns that get another chance before the run stops. */
-export const THINKING_ONLY_RETRY_BUDGET = 2;
+export const THINKING_ONLY_RETRY_BUDGET = 1;
 
 export function nextThinkingOnlyRetryAttempts(action: PostLlmAction, current: number): number {
   if (action.kind === 'thinking_retry') return current + 1;

@@ -337,9 +337,7 @@ export async function processLlmResponse(
       return { control: 'continue' };
 
     case 'thinking_only_complete':
-      throw new Error(
-        'The model returned private reasoning without a visible answer after repeated retries.'
-      );
+      throw new Error('The model returned private reasoning twice without a visible answer.');
 
     case 'continuation':
       state.outputContinuationCount++;

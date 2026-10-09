@@ -25,16 +25,12 @@ function thinkingOnly(attempts) {
   });
 }
 
-assert.equal(THINKING_ONLY_RETRY_BUDGET, 2);
+assert.equal(THINKING_ONLY_RETRY_BUDGET, 1);
 
 const first = thinkingOnly(0);
 assert.equal(first.kind, 'thinking_retry');
 assert.match(first.systemText, /call the next tool/);
 assert.equal(nextThinkingOnlyRetryAttempts(first, 0), 1);
-
-const second = thinkingOnly(1);
-assert.equal(second.kind, 'thinking_retry');
-assert.equal(nextThinkingOnlyRetryAttempts(second, 1), 2);
 
 const stopped = thinkingOnly(THINKING_ONLY_RETRY_BUDGET);
 assert.equal(stopped.kind, 'thinking_only_complete');
