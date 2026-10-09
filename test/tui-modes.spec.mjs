@@ -401,9 +401,12 @@ assert.ok(
   await waitFor(() => frame().includes('prefixes')),
   'the help block documents the prefixes'
 );
-const shortcuts = frame();
-assert.ok(shortcuts.includes('prefixes'), 'the help overlay includes the prefix section');
-assert.ok(shortcuts.includes('shortcuts'), 'the help overlay includes the shortcut section');
+assert.ok(frame().includes('/model'), 'common commands lead the help overlay');
+for (let step = 0; step < 16 && !frame().includes('shortcuts'); step += 1) {
+  instance.stdin.write('\x1b[B');
+  await sleep(30);
+}
+assert.ok(frame().includes('shortcuts'), 'the help overlay scrolls to the shortcut section');
 
 instance.unmount();
 await sleep(150);

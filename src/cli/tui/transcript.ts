@@ -531,7 +531,8 @@ export function renderTranscriptRow(
         if (chunks.length === 0) chunks.push('');
         for (const chunk of chunks) {
           const prefix = first ? (shell ? '' : `${USER_MARK} `) : CONTINUATION;
-          out.push(line(clip(`${prefix}${chunk}`, width), tone));
+          const text = `${prefix}${chunk}`;
+          out.push(line(clip(text, width), tone));
           first = false;
         }
       }
@@ -802,6 +803,8 @@ export interface LiveView {
   lastEventAt?: number;
   /** Waiting on the user (approval): the spinner must not keep pretending. */
   blocked?: boolean;
+  /** A device_* tool is in flight. Silence here is SSH, not the model gateway. */
+  waitingForDevice?: boolean;
   /**
    * The model is reasoning and has not started its answer. The text itself stays
    * hidden by default (ctrl+o reveals it); the spinner just says what is going on.
@@ -866,7 +869,11 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
   const tokens =
     view.tokensOut > 0 ? tui(' · {count} out', { count: formatCompactCount(view.tokensOut) }) : '';
   const queued = view.queued > 0 ? tui(' · {count} queued', { count: view.queued }) : '';
-  const verb = view.thinkingActive && !view.streaming.trim() ? tui('Thinking') : runVerb(seconds);
+  const verb = view.waitingForDevice
+    ? tui('Waiting for device')
+    : view.thinkingActive && !view.streaming.trim()
+      ? tui('Thinking')
+      : runVerb(seconds);
   out.push(
     line(clip(`${spinnerFrame(elapsedMs)} ${verb}… ${seconds}s${tokens}${queued}`, width), {
       color: TONE.warn,
@@ -881,7 +888,11 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
       out.push(
         line(
           clip(
-            tui('  … stream quiet for {seconds}s — the gateway may be stuck', { seconds: quietS }),
+            view.waitingForDevice
+              ? tui('  … waiting for device')
+              : tui('  … stream quiet for {seconds}s — the gateway may be stuck', {
+                  seconds: quietS,
+                }),
             width
           ),
           { color: TONE.warn }
@@ -1009,6 +1020,19 @@ export const APPROVAL_FOOTER = CLI_APPROVAL_FOOTER;
 
 export const APPROVAL_FALLBACK_QUESTION = 'Do you want to proceed?';
 
+/**
+ * The frozen prompt names the trust answer as `a`, but the dialog keys are
+ * 1/2/3. Rewrite only the displayed preview so the key the user can press is
+ * the one the sentence names.
+ */
+function approvalPreviewText(raw: string, options: readonly CliApprovalOption[]): string {
+  const trustKey = options.find((option) => option.answer === 'a')?.key;
+  if (!trustKey) return raw;
+  return raw
+    .replace(/选\s*a(?![A-Za-z0-9])/g, `选 ${trustKey}`)
+    .replace(/Answering a\b/g, `Choosing ${trustKey}`);
+}
+
 export interface ApprovalRenderOptions {
   /**
    * Rows the dialog may occupy. The shell passes the terminal height minus the
@@ -1078,8 +1102,9 @@ export function renderApproval(
     : 12;
   const previewLines: TuiLine[] = [];
   for (const raw of (view.preview ?? []).slice(0, previewCap)) {
-    const tone = diffTone(raw);
-    for (const text of wrap(raw, width - 3))
+    const shown = approvalPreviewText(raw, options);
+    const tone = diffTone(shown);
+    for (const text of wrap(shown, width - 3))
       previewLines.push(line(clip(`  ${text}`, width), tone));
   }
   const previewBlock: TuiLine[] =
@@ -1121,7 +1146,7 @@ export function renderComposer(input: string, width: number, placeholder: boolea
   const view = renderComposerEditor(createComposer(input), {
     width,
     maxRows: COMPOSER_MAX_ROWS,
-    placeholder: placeholder ? tui(PLACEHOLDER_TEXT) : undefined,
+    placeholder: placeholder ? composerPlaceholderText() : undefined,
     firstPrefix: `${USER_MARK} `,
     restPrefix: '  ',
     markElision: true,
@@ -1137,6 +1162,11 @@ export function renderComposer(input: string, width: number, placeholder: boolea
 }
 
 export const PLACEHOLDER_TEXT = 'Try "stream the camera at 30 fps and verify it"';
+
+/** Composer hint. Localized when the shell locale is Chinese. */
+export function composerPlaceholderText(): string {
+  return tui(PLACEHOLDER_TEXT);
+}
 
 export interface StatusView {
   running: boolean;

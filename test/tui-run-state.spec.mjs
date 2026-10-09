@@ -403,6 +403,68 @@ console.log('OK tui-run-state');
   );
 }
 
+// Text, then a thought, then more text: the closed paragraph is committed before
+// the thought, and the final response must not paint that answer a second time.
+{
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const store = createTuiStore();
+  beginRun(store);
+  applyAgentEvent(store, { type: 'text_delta', delta: 'Fixed both bugs.\n\n' });
+  applyAgentEvent(store, { type: 'thinking_delta', delta: 'checking the tests' });
+  applyAgentEvent(store, { type: 'text_delta', delta: 'The tests pass.' });
+  applyAgentEvent(store, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  reconcileFinalResponse(store, 'Fixed both bugs.\n\nThe tests pass.');
+  const answers = store.rows.filter((row) => row.kind === 'assistant').map((row) => row.text);
+  assert.deepEqual(
+    answers,
+    ['Fixed both bugs.', 'The tests pass.'],
+    'interleaved text and reasoning is not rendered twice'
+  );
+}
+
+// A harness line, a thought, and prose. The closed prose is remembered after
+// filtering, and the final answer is compared in that filtered form.
+{
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const store = createTuiStore();
+  beginRun(store);
+  applyAgentEvent(store, { type: 'text_delta', delta: '[System] The board is nominal.\n\n' });
+  applyAgentEvent(store, { type: 'thinking_delta', delta: 'checking ping' });
+  applyAgentEvent(store, { type: 'text_delta', delta: '[task-phase:planning]\n\n' });
+  applyAgentEvent(store, { type: 'text_delta', delta: 'It answers ping.' });
+  applyAgentEvent(store, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  reconcileFinalResponse(
+    store,
+    '[System] The board is nominal.\n\n[task-phase:planning]\n\nIt answers ping.'
+  );
+  const answers = store.rows.filter((row) => row.kind === 'assistant').map((row) => row.text);
+  assert.deepEqual(
+    answers,
+    ['[System] The board is nominal.', 'It answers ping.'],
+    'a system line, a thought, and prose are shown once, with the phase mark filtered'
+  );
+}
+
+// A later run's short answer can be a substring of an earlier one. Dedupe looks
+// at this run's rows only, so the short reply is still shown.
+{
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const store = createTuiStore();
+  beginRun(store);
+  applyAgentEvent(store, { type: 'text_delta', delta: 'The camera runs at 30 fps.' });
+  applyAgentEvent(store, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  reconcileFinalResponse(store, 'The camera runs at 30 fps.');
+  endRun(store, false);
+  beginRun(store);
+  reconcileFinalResponse(store, '30 fps');
+  const answers = store.rows.filter((row) => row.kind === 'assistant').map((row) => row.text);
+  assert.deepEqual(
+    answers,
+    ['The camera runs at 30 fps.', '30 fps'],
+    'a non-streamed reply that is a substring of an earlier run is shown'
+  );
+}
+
 // Live reasoning in the detailed view: a long thought streams as a bounded tail
 // with a marker, not as a wall that pushes the answer and the spinner off screen.
 {
@@ -429,4 +491,40 @@ console.log('OK tui-run-state');
     live.some((entry) => entry.text.includes('step 59')),
     'the newest reasoning stays visible'
   );
+}
+
+{
+  const quiet = Date.now() - 20_000;
+  const waiting = renderLive(
+    {
+      running: true,
+      startedAt: quiet,
+      streaming: '',
+      thinking: '',
+      tokensOut: 0,
+      queued: 0,
+      lastEventAt: quiet,
+      waitingForDevice: true,
+    },
+    80
+  )
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(waiting, /Waiting for device/);
+  assert.equal(waiting.includes('gateway may be stuck'), false);
+  const gateway = renderLive(
+    {
+      running: true,
+      startedAt: quiet,
+      streaming: '',
+      thinking: '',
+      tokensOut: 0,
+      queued: 0,
+      lastEventAt: quiet,
+    },
+    80
+  )
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(gateway, /gateway may be stuck/);
 }

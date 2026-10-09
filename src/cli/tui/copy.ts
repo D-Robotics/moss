@@ -70,15 +70,16 @@ export const ZH: Readonly<Record<string, string>> = {
   '  ↻ provider retry {attempt} — {error}': '  ↻ 提供方重试 {attempt} — {error}',
   ' · {count} out': ' · 输出 {count}',
   ' · {count} queued': ' · {count} 排队',
-  '  … stream quiet for {seconds}s — the gateway may be stuck':
-    '  … 流已静默 {seconds}s — 网关可能卡住了',
-  '  ⏐ next: {preview}': '  ⏐ 下一条: {preview}',
+  '  … stream quiet for {seconds}s — the gateway may be stuck': '  … 流已静默 {seconds} 秒',
+  '  … waiting for device': '  … 正在等待设备',
+  'Waiting for device': '等待设备',
+  '  ⏐ next: {preview}': '  ⏐ 下一条：{preview}',
 
   // ── run summary (transcript.ts) ────────────────────────────────────────
   ' · done {time}': ' · 完成于 {time}',
-  '✻ {verb} for {seconds}s · interrupted': '✻ {verb} {seconds}s · 已中断',
-  '✻ {verb} for {seconds}s{doneAt}': '✻ {verb} {seconds}s{doneAt}',
-  '✻ worked for {seconds}s{doneAt}': '✻ 用时 {seconds}s{doneAt}',
+  '✻ {verb} for {seconds}s · interrupted': '✻ {verb} {seconds} 秒 · 已中断',
+  '✻ {verb} for {seconds}s{doneAt}': '✻ {verb} {seconds} 秒{doneAt}',
+  '✻ worked for {seconds}s{doneAt}': '✻ 用时 {seconds} 秒{doneAt}',
 
   // ── todo panel (transcript.ts / render-bridge.ts) ──────────────────────
   '{done}/{total} done': '{done}/{total} 完成',
@@ -129,7 +130,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'Esc to skip': 'Esc 跳过',
   'Tab to amend': 'Tab 补充说明',
   'Esc to interrupt': 'Esc 中断',
-  'verbose transcript · ctrl+o to exit': '详细 transcript · ctrl+o 退出',
+  'verbose transcript · ctrl+o to exit': '详细对话记录 · ctrl+o 退出',
   '{count} queued': '{count} 排队',
   '{count} task': '{count} 个任务',
   '{count} tasks': '{count} 个任务',
@@ -152,7 +153,7 @@ export const ZH: Readonly<Record<string, string>> = {
     '输入 / 浏览命令 · /help --all 查看其余命令',
   'edited JS/TS files but did not run tests': '改过 JS/TS 文件，但没有跑测试',
   'run a shell command inline (result lands in the transcript)':
-    '内联执行 shell 命令（结果进入 transcript）',
+    '内联执行 shell 命令（结果进入对话记录）',
   'run a moss command (/help lists them all)': '执行 moss 命令（/help 列出全部）',
   'reference a workspace file or directory': '引用工作区文件或目录',
   'send the goal · run the shell command in `!` mode': '发送目标 · 在 `!` 模式下执行 shell 命令',
@@ -206,7 +207,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'undo file edits from a checkpoint': '从检查点撤销文件编辑',
   'list MCP server status': '列出 MCP 服务状态',
   'list discovered skills; create more with moss skill create':
-    '列出已发现的 skills；用 moss skill create 创建更多',
+    '列出已发现的技能；用 moss skill create 创建更多',
   'show safety and approval settings; --verbose prints every knob':
     '显示安全与审批设置；--verbose 打印每个开关',
   'show or set the terminal colour theme for this session': '显示或设置本会话的终端配色',
@@ -230,7 +231,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'start a new conversation with an empty context': '开始一段空上下文的新对话',
   'list background shell and sub-agent jobs': '列出后台 shell 与子 agent 任务',
   'inspect or control the input queue': '查看或控制输入队列',
-  'inject a constraint into the live run': '向正在运行的 run 注入一条约束',
+  'inject a constraint into the live run': '向当前运行注入一条约束',
   'work until a condition is met; /goal clear cancels': '持续工作直到条件满足；/goal clear 取消',
   'enter plan mode; with a description, start planning immediately':
     '进入 plan 模式；带描述则立即开始规划',
@@ -268,9 +269,9 @@ export const ZH: Readonly<Record<string, string>> = {
   ' ({count} tools, lazy)': '（{count} 个工具，懒加载）',
 
   // ── dialog/notice rows (app.ts) ────────────────────────────────────────
-  'answer: {value}': '回答: {value}',
-  'answer: skipped': '回答: 已跳过',
-  'approval: {label}': '审批: {label}',
+  'answer: {value}': '回答：{value}',
+  'answer: skipped': '回答：已跳过',
+  'approval: {label}': '审批：{label}',
   'question needs your answer': '有提问等待你的回答',
   'approval needed': '需要审批',
   'interrupted — partial output kept': '已中断 — 保留部分输出',
@@ -279,11 +280,11 @@ export const ZH: Readonly<Record<string, string>> = {
   'no sub-agent tasks': '没有子 agent 任务',
   'no background tasks running': '没有运行中的后台任务',
   '{connected}/{total} MCP servers connected': '已连接 {connected}/{total} 个 MCP 服务',
-  'context: {parts}': '上下文: {parts}',
+  'context: {parts}': '上下文：{parts}',
 
   // ── boot status (app.ts) ───────────────────────────────────────────────
-  '{count} skill': '{count} 个 skill',
-  '{count} skills': '{count} 个 skill',
+  '{count} skill': '{count} 个技能',
+  '{count} skills': '{count} 个技能',
   '{count} MCP server': '{count} 个 MCP 服务',
   '{count} MCP servers': '{count} 个 MCP 服务',
   '{count} MCP server connecting': '{count} 个 MCP 服务连接中',
@@ -292,15 +293,15 @@ export const ZH: Readonly<Record<string, string>> = {
   '⚠ {count} MCP servers failed to start': '⚠ {count} 个 MCP 服务启动失败',
   ' — /mcp for details': ' — 详情见 /mcp',
   'previous session: {title} — restart with `moss --continue` to resume it':
-    '上一个会话: {title} — 用 `moss --continue` 重启以恢复',
+    '上一个会话：{title} — 用 `moss --continue` 重启以恢复',
   'previous session: {title} ({count} messages) — restart with `moss --continue` to resume it':
-    '上一个会话: {title}（{count} 条消息）— 用 `moss --continue` 重启以恢复',
+    '上一个会话：{title}（{count} 条消息）— 用 `moss --continue` 重启以恢复',
 
   // ── paste staging (app.ts) ─────────────────────────────────────────────
   '[paste: {lines} lines · LARGE {size}k chars — Enter sends it all; @-mention a file instead to send a path]':
-    '[粘贴: {lines} 行 · 过大 {size}k 字符 — Enter 全部发送；改用 @ 提及文件以发送路径]',
+    '[粘贴：{lines} 行 · 过大 {size}k 字符 — Enter 全部发送；改用 @ 提及文件以发送路径]',
   '[paste: {lines} lines — Enter sends as one message, Esc discards]':
-    '[粘贴: {lines} 行 — Enter 作为一条消息发送，Esc 丢弃]',
+    '[粘贴：{lines} 行 — Enter 作为一条消息发送，Esc 丢弃]',
 
   // ── model picker (app.ts) ──────────────────────────────────────────────
   '  Select model · {count} available · ↑↓ move · Enter choose · Esc close':
@@ -317,19 +318,23 @@ export const ZH: Readonly<Record<string, string>> = {
   'user decision required': '需要用户决策',
   'context {pct}% full — auto-compact will trim older messages · /compact to do it now':
     '上下文已用 {pct}% — 自动压缩将裁剪较早消息 · 立刻执行用 /compact',
-  'interaction mode: {label}': '交互模式: {label}',
+  'interaction mode: {label}': '交互模式：{label}',
 
   // ── queue / steer control (app.ts) ─────────────────────────────────────
   'paused — new submissions wait': '已暂停 — 新提交将排队等待',
   resumed: '已恢复',
-  'dropped: {text}': '已丢弃: {text}',
+  'dropped: {text}': '已丢弃：{text}',
   'queue empty': '队列为空',
   'cleared {count} queued item': '已清空 {count} 条排队消息',
   'cleared {count} queued items': '已清空 {count} 条排队消息',
   'usage: /steer <constraint> — injects at the next boundary':
-    '用法: /steer <constraint> — 在下一个边界注入',
-  'rejected — no single active run on this session': '已拒绝 — 本会话没有单一活动 run',
-  'queued: {text}': '已排队: {text}',
+    '用法：/steer <constraint> — 在下一个边界注入',
+  'rejected — no single active run on this session': '已拒绝 — 本会话没有单一活动运行',
+  'queued: {text}': '已排队：{text}',
+  'applies at the next step': '将在下一步生效',
+  'applies when this run finishes': '将在本次运行结束后生效',
+  'queued — applies when this run finishes': '已排队 — 将在本次运行结束后生效',
+  '  ↑↓ to scroll': '  ↑↓ 滚动',
   'unknown command "{name}" — try /help': '未知命令 "{name}" — 试试 /help',
 
   // ── status-line notices (app.ts) ───────────────────────────────────────
@@ -376,22 +381,22 @@ export const ZH: Readonly<Record<string, string>> = {
     '↑↓ 后 Enter · 或在下方输入反馈 · Esc 继续规划',
 
   // ── command block bodies (app.ts) ──────────────────────────────────────
-  'a run is in flight — press Esc to interrupt it first': '有 run 正在运行 — 先按 Esc 中断它',
+  'a run is in flight — press Esc to interrupt it first': '有运行正在进行 — 先按 Esc 中断它',
   'no failed, blocked, abandoned, or in-progress task is available to resume':
     '没有可恢复的失败、受阻、已放弃或进行中的任务',
   'interrupted the active run': '已中断当前运行',
-  'no run in flight — nothing to interrupt': '没有运行中的 run — 无需中断',
+  'no run in flight — nothing to interrupt': '没有正在进行的运行 — 无需中断',
   'transcript cleared — new conversation, empty context (previous: `moss --continue`)':
-    'transcript 已清空 — 新对话，上下文为空（上一段：`moss --continue`）',
+    '对话记录已清空 — 新对话，上下文为空（上一段：`moss --continue`）',
   'a run is in flight — press Esc to interrupt it, then /clear':
-    '有 run 正在运行 — 先按 Esc 中断，再 /clear',
+    '有运行正在进行 — 先按 Esc 中断，再 /clear',
   '{command} is not available while a run is in flight — press Esc to interrupt, then retry':
     '{command} 在运行中不可用 — 先按 Esc 中断，再重试',
   '  queued {n}. {text}': '  排队 {n}. {text}',
   'a run is in flight — press Esc to interrupt it, then /compact':
-    '有 run 正在运行 — 先按 Esc 中断，再 /compact',
+    '有运行正在进行 — 先按 Esc 中断，再 /compact',
   'a run is in flight — press Esc to interrupt it before switching models':
-    '有 run 正在运行 — 切换模型前先按 Esc 中断',
+    '有运行正在进行 — 切换模型前先按 Esc 中断',
   'switched to {model} ({provider})': '已切换到 {model}（{provider}）',
   'switched to custom model {model} ({provider})': '已切换到自定义模型 {model}（{provider}）',
   'context usage will appear after the first response from this model':
@@ -403,8 +408,8 @@ export const ZH: Readonly<Record<string, string>> = {
   '`/model <name>` still switches the active model for this session.':
     '`/model <name>` 仍可切换本会话的活动模型。',
   'Not a git repository: {path} — /diff needs a git workspace.':
-    '不是 git 仓库: {path} — /diff 需要 git 工作区。',
-  'git diff failed (exit {code}): {error}': 'git diff 失败（退出码 {code}）: {error}',
+    '不是 git 仓库：{path} — /diff 需要 git 工作区。',
+  'git diff failed (exit {code}): {error}': 'git diff 失败（退出码 {code}）：{error}',
   '(no unstaged working-tree changes)': '（无未暂存的工作区改动）',
   '(no output)': '（无输出）',
   '(no output · exit {code})': '（无输出 · 退出码 {code}）',
@@ -413,15 +418,15 @@ export const ZH: Readonly<Record<string, string>> = {
   // Fallback for a null exit code whose signal the platform did not report —
   // `tui('signal')` is substituted in *both* locales, so the key must exist.
   signal: '信号',
-  'background shell:': '后台 shell:',
-  'sub-agents:': '子 agent:',
-  'no skills found': '未找到 skills',
-  '  ({count} skill(s) · load with the skill tool)': '  （{count} 个 skill · 用 skill 工具加载）',
-  'restored checkpoint {seq}: {detail}': '已恢复检查点 {seq}: {detail}',
+  'background shell:': '后台 shell：',
+  'sub-agents:': '子 agent：',
+  'no skills found': '未找到技能',
+  '  ({count} skill(s) · load with the skill tool)': '  （{count} 个技能 · 用技能工具加载）',
+  'restored checkpoint {seq}: {detail}': '已恢复检查点 {seq}：{detail}',
   'rewind to {seq} failed': '回退到 {seq} 失败',
   'no hooks configured — add a "hooks" object to the config file:':
-    '未配置 hooks — 在配置文件中添加 "hooks" 对象:',
-  'config dir: {path} (or MOSS_CONFIG_FILE)': '配置目录: {path}（或 MOSS_CONFIG_FILE）',
+    '未配置 hooks — 在配置文件中添加 "hooks" 对象：',
+  'config dir: {path} (or MOSS_CONFIG_FILE)': '配置目录：{path}（或 MOSS_CONFIG_FILE）',
 };
 
 /**

@@ -21,6 +21,7 @@ import { shellPaletteRows } from '../dist/cli/tui/app.js';
 import { HELP_KEYS, HELP_PREFIXES } from '../dist/cli/tui/help.js';
 import {
   renderApproval,
+  composerPlaceholderText,
   renderComposer,
   renderHint,
   renderRunSummary,
@@ -192,6 +193,10 @@ import {
   // Composer placeholder.
   const zhPh = run(() => renderComposer('', 80, true)[0].text, true);
   assert.ok(zhPh.includes('试试'), 'zh composer placeholder is translated');
+  assert.ok(
+    run(() => composerPlaceholderText(), true).includes('试试'),
+    'the live composer uses the same localized placeholder'
+  );
 
   // Run summary verb + done stamp.
   const zhSummary = run(() => renderRunSummary(5000, false, 80)[1].text, true);
@@ -244,6 +249,54 @@ import {
     .map(([, what]) => what)
     .filter((what) => tui(what) === what);
   assert.deepEqual(missingHelp, [], 'every help key/prefix row is translated');
+  setTuiLocale(false);
+}
+
+{
+  setTuiLocale(false);
+  const view = {
+    title: '毁灭性设备操作',
+    question: '要执行吗？',
+    cursor: 1,
+    preview: ['选 a 将在本会话信任：reboot', 'Answering a trusts: reboot'],
+    options: [
+      { key: '1', answer: 'y', label: 'Yes' },
+      { key: '2', answer: 'a', label: 'Trust' },
+      { key: '3', answer: 'n', label: 'No' },
+    ],
+  };
+  const text = renderApproval(view, 80)
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(text, /选 2/);
+  assert.match(text, /Choosing 2/);
+  assert.equal(text.includes('选 a'), false);
+  assert.equal(text.includes('Answering a'), false);
+}
+
+{
+  setTuiLocale(true);
+  assert.equal(tui('verbose transcript · ctrl+o to exit'), '详细对话记录 · ctrl+o 退出');
+  assert.equal(tui('{count} skills', { count: 2 }), '2 个技能');
+  assert.equal(
+    tui('rejected — no single active run on this session'),
+    '已拒绝 — 本会话没有单一活动运行'
+  );
+  assert.equal(
+    tui('  … stream quiet for {seconds}s — the gateway may be stuck', { seconds: 20 }),
+    '  … 流已静默 20 秒'
+  );
+  assert.equal(tui('✻ worked for {seconds}s{doneAt}', { seconds: 3, doneAt: '' }), '✻ 用时 3 秒');
+  assert.equal(tui('answer: {value}', { value: 'y' }), '回答：y');
+  for (const [key, value] of Object.entries(ZH)) {
+    if (!/\p{Script=Han}/u.test(value)) continue;
+    assert.equal(value.includes(':'), false, `half-width colon in ${JSON.stringify(key)}`);
+    const prose = value.replace(/moss skill create/g, '');
+    assert.equal(/\b(transcript|skills?)\b/i.test(prose), false, key);
+    assert.equal(/\brun\b/i.test(prose), false, key);
+    assert.equal(/\{seconds\}s/.test(value), false, key);
+    assert.equal(value.includes('网关可能卡住'), false, key);
+  }
   setTuiLocale(false);
 }
 

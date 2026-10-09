@@ -5,7 +5,18 @@
  */
 import assert from 'node:assert/strict';
 
-import { selectSessionForResume } from '../dist/cli/session.js';
+import {
+  createCliSessionKey,
+  formatCliSessionTimestamp,
+  selectSessionForResume,
+} from '../dist/cli/session.js';
+
+assert.equal(
+  formatCliSessionTimestamp(new Date(2026, 9, 9, 22, 55, 43)),
+  '20261009225543',
+  'session stamps use local time'
+);
+assert.match(createCliSessionKey(new Date(2026, 9, 9, 22, 55, 43)), /^cli-20261009225543-/);
 
 function store(sessions) {
   return {

@@ -835,9 +835,14 @@ instance.unmount();
 
   instance.stdin.write('?');
   await waitFor(() => frame().includes('Help · Esc or Enter to close'));
+  assert.ok(frame().includes('prefixes'), 'the reference explains input prefixes');
+  assert.ok(frame().includes('/model'), 'common commands are on the first help page');
+  for (let step = 0; step < 16 && !frame().includes('shortcuts'); step += 1) {
+    instance.stdin.write('\x1b[B');
+    await sleep(30);
+  }
   const shortcuts = frame();
   assert.ok(shortcuts.includes('Help · Esc or Enter to close'), '? opens the shortcut reference');
-  assert.ok(shortcuts.includes('prefixes'), 'the reference explains input prefixes');
   assert.ok(shortcuts.includes('shortcuts'), 'the reference explains keyboard shortcuts');
   assert.ok(!shortcuts.includes('Ctrl+H'), 'the unreachable Ctrl+H is never advertised');
   assert.equal(commandForKey(DEFAULT_KEYBINDINGS, 'ctrl+h'), undefined, 'Ctrl+H is not a binding');

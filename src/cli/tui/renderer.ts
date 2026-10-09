@@ -114,14 +114,89 @@ export const MOUSE_TRACKING_OFF =
  * Written with `writeSync` because ink drops `useStdout().write` once
  * unmount has set `isUnmounted`.
  */
+/**
+ * Mouse, wrap, cursor, and bracketed paste. Leaving the alternate screen
+ * (`?1049l`) is fullscreen-only: inline never entered it, and sending the
+ * leave sequence from the primary screen is not how a leftover frame is erased.
+ */
 export const TERMINAL_RESTORE = MOUSE_TRACKING_OFF + '\x1b[?7h\x1b[?25h\x1b[?2004l';
+
+/** Last dynamic frame (composer and rules), not the committed transcript above it. */
+export interface DrawnFrame {
+  rows: number;
+  /** 0-based hardware-cursor row inside the frame. `rows` means the line just below it. */
+  cursorRow: number;
+}
+
+let lastDrawnFrame: DrawnFrame | undefined;
+let restoreMode: 'inline' | 'fullscreen' = 'inline';
+
+/** Remember which renderer is on screen so a signal exit leaves the right buffer. */
+export function setTerminalRestoreMode(mode: 'inline' | 'fullscreen'): void {
+  restoreMode = mode;
+}
+
+/** The inline shell records the frame it just painted so exit can erase that frame only. */
+export function rememberDrawnFrame(frame: DrawnFrame | undefined): void {
+  lastDrawnFrame = frame;
+}
+
+/**
+ * Move to column 0 of the first row of the frame, then erase downward.
+ * The committed answer sits above the frame, so it stays.
+ */
+export function eraseDrawnFrame(frame: DrawnFrame): string {
+  const rows = Math.max(0, Math.floor(frame.rows));
+  if (rows <= 0) return '';
+  const up = Math.min(Math.max(0, Math.floor(frame.cursorRow)), rows);
+  return `${up > 0 ? `\x1b[${up}A` : ''}\x1b[G\x1b[J`;
+}
+
+/** Mode restores shared by exit and the process hook. Alternate-screen exit is fullscreen only. */
+export function terminalRestoreSequence(mode: 'inline' | 'fullscreen'): string {
+  return mode === 'fullscreen' ? `${TERMINAL_RESTORE}\x1b[?1049l` : TERMINAL_RESTORE;
+}
+
+/**
+ * What to write once when the shell exits.
+ * Inline erases only the last dynamic frame (not the answer above it), then
+ * prints one continue hint. Fullscreen leaves the alternate screen and does
+ * not clear the primary buffer.
+ */
+export function tuiExitSequence(mode: 'inline' | 'fullscreen', frame?: DrawnFrame): string {
+  if (mode === 'inline') {
+    const drawn = frame ?? lastDrawnFrame;
+    const erase = drawn ? eraseDrawnFrame(drawn) : '';
+    return `${terminalRestoreSequence('inline')}${erase}moss --continue\n`;
+  }
+  return terminalRestoreSequence('fullscreen');
+}
+
+let terminalExitDone = false;
+
+/** Write the exit sequence at most once. The process `exit` hook skips if this ran. */
+export function writeTuiExitSequence(
+  mode: 'inline' | 'fullscreen',
+  target: { fd?: number; isTTY?: boolean } | number = 1
+): void {
+  if (terminalExitDone) return;
+  const fd = typeof target === 'number' ? target : target.fd;
+  const tty = typeof target === 'number' ? true : target.isTTY === true;
+  if (!tty || typeof fd !== 'number') return;
+  terminalExitDone = true;
+  try {
+    fs.writeSync(fd, tuiExitSequence(mode));
+  } catch {
+    // The fd is already closed during a hard shutdown.
+  }
+}
 
 export function restoreTerminalModes(target: { fd?: number; isTTY?: boolean } | number = 1): void {
   const fd = typeof target === 'number' ? target : target.fd;
   const tty = typeof target === 'number' ? true : target.isTTY === true;
   if (!tty || typeof fd !== 'number') return;
   try {
-    fs.writeSync(fd, TERMINAL_RESTORE);
+    fs.writeSync(fd, terminalRestoreSequence(restoreMode));
   } catch {
     // The fd is already closed during a hard shutdown.
   }
@@ -134,6 +209,7 @@ export function installTerminalRestore(): void {
   if (restoreInstalled) return;
   restoreInstalled = true;
   process.on('exit', () => {
+    if (terminalExitDone) return;
     restoreTerminalModes(process.stdout);
   });
 }

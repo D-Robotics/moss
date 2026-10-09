@@ -112,9 +112,12 @@ function agentWith(steerImpl) {
   assert.equal(streamCalls.length, 0, 'a steered message does not start another turn');
   assert.ok(
     handle.store.rows.some(
-      (row) => row.kind === 'summary' && row.text.includes('queued: be terse')
+      (row) =>
+        row.kind === 'summary' &&
+        row.text.includes('queued: be terse') &&
+        row.text.includes('next step')
     ),
-    'the transcript echoes the steer'
+    'the transcript says the steer is queued until the next step'
   );
   instance.unmount();
   await sleep(80);
@@ -130,8 +133,12 @@ function agentWith(steerImpl) {
   assert.equal(steerCalls[0].text, 'hold this');
   assert.equal(streamCalls.length, 0, 'a refused steer does not start a turn');
   assert.ok(
-    await waitFor(() => instance.lastFrame().includes('queued 1. hold this')),
-    `the queue is drawn above the composer: ${JSON.stringify(instance.lastFrame().slice(-400))}`
+    await waitFor(
+      () =>
+        instance.lastFrame().includes('queued 1. hold this') &&
+        instance.lastFrame().includes('applies when this run finishes')
+    ),
+    `the queue says when it applies: ${JSON.stringify(instance.lastFrame().slice(-500))}`
   );
   instance.stdin.write('\x1b[A');
   assert.ok(

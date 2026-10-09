@@ -3,7 +3,7 @@ import type {
   DeviceConnectionSnapshot,
   DeviceTarget,
 } from '../contracts/device.js';
-import { SshDeviceConnection } from './ssh-device-connection.js';
+import { SshDeviceConnection, type SshConnectOptions } from './ssh-device-connection.js';
 import { deviceTargetKey } from './device-target.js';
 
 /**
@@ -15,6 +15,9 @@ import { deviceTargetKey } from './device-target.js';
 
 const connections = new Map<string, SshDeviceConnection>();
 const connecting = new Map<string, Promise<DeviceConnection>>();
+/** Unreachable results are shared so parallel tools and the next turn do not open more sockets. */
+const recentFailures = new Map<string, { at: number; error: unknown }>();
+const FAILURE_TTL_MS = 30_000;
 
 /**
  * Task OS §12/M12: transient SSH handshake failures — most notably sshd
@@ -23,11 +26,18 @@ const connecting = new Map<string, Promise<DeviceConnection>>();
  * Connect retries with exponential backoff instead.
  */
 const TRANSIENT_CONNECT_PATTERN =
-  /maxstartups|connection reset|econnreset|etimedout|timeout|econnrefused|eagain|handshake|pre-authentication|closed/i;
+  /maxstartups|connection reset|econnreset|eagain|handshake|pre-authentication/i;
+/** A dead route, refused port, or our own connect timer. Retrying these is a reconnect storm. */
+const UNREACHABLE_CONNECT_PATTERN =
+  /timed out|etimedout|econnrefused|ehostunreach|enetunreach|enotfound|eai_again|network is unreachable|cannot reach|无法在/i;
 const CONNECT_BACKOFF_MS = [1500, 4000, 9000];
 
 export function isTransientConnectError(message: string): boolean {
-  return TRANSIENT_CONNECT_PATTERN.test(message);
+  return TRANSIENT_CONNECT_PATTERN.test(message) && !isUnreachableConnectError(message);
+}
+
+export function isUnreachableConnectError(message: string): boolean {
+  return UNREACHABLE_CONNECT_PATTERN.test(message);
 }
 
 async function defaultSleep(ms: number): Promise<void> {
@@ -60,7 +70,13 @@ export async function connectWithBackoff<T>(
     } catch (err) {
       lastError = err;
       const message = err instanceof Error ? err.message : String(err);
-      if (attempt >= attempts || !isTransientConnectError(message)) throw err;
+      if (
+        attempt >= attempts ||
+        isUnreachableConnectError(message) ||
+        !isTransientConnectError(message)
+      ) {
+        throw err;
+      }
       const waitMs = backoff[Math.min(attempt - 1, backoff.length - 1)];
       options.onRetry?.(attempt, waitMs, message);
       await sleep(waitMs);
@@ -69,21 +85,35 @@ export async function connectWithBackoff<T>(
   throw lastError;
 }
 
-export function getDeviceConnection(target: DeviceTarget): Promise<DeviceConnection> {
+export function getDeviceConnection(
+  target: DeviceTarget,
+  options: SshConnectOptions = {}
+): Promise<DeviceConnection> {
   const key = deviceTargetKey(target);
+  const failed = recentFailures.get(key);
+  if (failed && Date.now() - failed.at < FAILURE_TTL_MS) return Promise.reject(failed.error);
+  if (failed) recentFailures.delete(key);
   const existing = connections.get(key);
   if (existing && existing.status === 'connected') return Promise.resolve(existing);
   connections.delete(key);
   const pending = connecting.get(key);
   if (pending) return pending;
-  const conn = new SshDeviceConnection(target);
+  const conn = new SshDeviceConnection(target, options);
   const promise = connectWithBackoff(async () => {
     await conn.connect();
+    recentFailures.delete(key);
     connections.set(key, conn);
     return conn as DeviceConnection;
-  }).finally(() => {
-    connecting.delete(key);
-  });
+  })
+    .catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      if (isUnreachableConnectError(message))
+        recentFailures.set(key, { at: Date.now(), error: err });
+      throw err;
+    })
+    .finally(() => {
+      connecting.delete(key);
+    });
   connecting.set(key, promise);
   return promise;
 }
@@ -91,6 +121,8 @@ export function getDeviceConnection(target: DeviceTarget): Promise<DeviceConnect
 export async function disconnectAllDevices(): Promise<void> {
   const all = [...connections.values()];
   connections.clear();
+  recentFailures.clear();
+  connecting.clear();
   await Promise.allSettled(all.map((conn) => conn.disconnect()));
 }
 

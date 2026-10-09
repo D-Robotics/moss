@@ -67,13 +67,28 @@ function tempWorkspace() {
 console.log('[PASS] project-instructions (AGENTS.md layer)');
 
 {
-  // B4: the answer-language layer follows the locale — zh gets the Chinese
-  // default, non-zh locales get no layer (the model default already matches).
-  const { buildAnswerLanguageLayer } = await import('../dist/cli/cli-locale.js');
+  // The reply follows the latest user message. Locale only picks the fallback
+  // when that message has no language of its own.
+  const { buildAnswerLanguageLayer, formatInteractionModeNotice, formatFullModeNotice } =
+    await import('../dist/cli/cli-locale.js');
   const zh = buildAnswerLanguageLayer('zh_CN.UTF-8');
   assert.match(zh, /\[Answer language\]/, 'zh locale gets the layer');
   assert.match(zh, /简体中文/, 'the zh layer pins Simplified Chinese');
   assert.match(zh, /代码.*保持原样/, 'code and identifiers stay untranslated');
-  assert.equal(buildAnswerLanguageLayer('en_US.UTF-8'), '', 'en locale gets no layer');
-  assert.equal(buildAnswerLanguageLayer(undefined), '', 'no locale gets no layer');
+  const en = buildAnswerLanguageLayer('en_US.UTF-8');
+  assert.equal(en, '', 'non-zh locales add no answer-language layer');
+  const { buildLanguagePolicyPrompt, buildLanguagePolicyPromptQuick } =
+    await import('../dist/contracts/prompts/language-policy-prompt.js');
+  const policy = buildLanguagePolicyPrompt();
+  assert.match(policy, /latest user message/, 'the policy follows the latest user message');
+  assert.match(policy, /otherwise English/, 'no signal is otherwise English');
+  assert.match(policy, /\[Answer language\]/, 'a present answer-language section still overrides');
+  assert.doesNotMatch(policy, /respond in \*\*English\*\*/);
+  const quick = buildLanguagePolicyPromptQuick();
+  assert.match(quick, /otherwise English/);
+  assert.match(quick, /\[Answer language\]/);
+  assert.match(formatInteractionModeNotice('full', 'zh_CN.UTF-8'), /交互模式/);
+  assert.match(formatInteractionModeNotice('full', 'en_US.UTF-8'), /Interaction mode/);
+  assert.match(formatFullModeNotice('zh_CN.UTF-8'), /拒绝规则/);
+  assert.match(formatFullModeNotice('en_US.UTF-8'), /deny rules/);
 }

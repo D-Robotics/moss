@@ -154,8 +154,11 @@ import {
   installTerminalRestore,
   osc52,
   readTmuxMouse,
+  rememberDrawnFrame,
   restoreTerminalModes,
   selectTuiRenderer,
+  setTerminalRestoreMode,
+  writeTuiExitSequence,
 } from './renderer.js';
 import { installTuiLogSink } from './terminal-io.js';
 import { noteFrameHeight } from './frame-invariant.js';
@@ -236,6 +239,8 @@ import {
   questionDialogFromPrompt,
   commandBlockTitle,
   buildHelpOverlayLines,
+  formatSteerQueued,
+  sliceHelpOverlay,
   relativeAge,
   filterPickerSessions,
   renderSessionPicker,
@@ -273,6 +278,8 @@ export {
   questionDialogFromPrompt,
   commandBlockTitle,
   buildHelpOverlayLines,
+  formatSteerQueued,
+  sliceHelpOverlay,
   relativeAge,
   filterPickerSessions,
   renderSessionPicker,
@@ -463,9 +470,9 @@ export function TuiAppRoot({
   const [modelPicker, setModelPicker] = useState<
     { choices: ModelChoiceList; cursor: number } | undefined
   >(undefined);
-  const [helpOverlay, setHelpOverlay] = useState<{ lines: string[]; all: boolean } | undefined>(
-    undefined
-  );
+  const [helpOverlay, setHelpOverlay] = useState<
+    { lines: string[]; all: boolean; offset: number } | undefined
+  >(undefined);
   /** ctrl+o: detailed transcript (full tool output + reasoning). */
   const [verbose, setVerbose] = useState(false);
   /**
@@ -1137,7 +1144,7 @@ export function TuiAppRoot({
             // transcript as a red bold failure. An interrupt is an outcome the
             // user asked for: record it quietly and keep the partial output.
             runtime.applyEvent(event);
-            appendRow(store, 'summary', 'interrupted — partial output kept');
+            appendRow(store, 'summary', tui('interrupted — partial output kept'));
             handle.notify();
             continue;
           }
@@ -1973,11 +1980,19 @@ export function TuiAppRoot({
         return;
       }
       if (text === '/help --all') {
-        setHelpOverlay({ lines: buildHelpOverlayLines(true, keymap.bindings), all: true });
+        setHelpOverlay({
+          lines: buildHelpOverlayLines(true, keymap.bindings),
+          all: true,
+          offset: 0,
+        });
         return;
       }
       if (text === '/help' || text === '?') {
-        setHelpOverlay({ lines: buildHelpOverlayLines(false, keymap.bindings), all: false });
+        setHelpOverlay({
+          lines: buildHelpOverlayLines(false, keymap.bindings),
+          all: false,
+          offset: 0,
+        });
         return;
       }
       if (text === '/usage') {
@@ -2209,7 +2224,7 @@ export function TuiAppRoot({
           printBlock('Steer', [
             entry === null || entry === undefined
               ? tui('rejected — no single active run on this session')
-              : tui('queued: {text}', { text: constraint.slice(0, 80) }),
+              : formatSteerQueued(constraint, 'next-step'),
           ]);
         }
         return;
@@ -2281,7 +2296,7 @@ export function TuiAppRoot({
         // the queued lines render above the composer for ↑ to edit.
         const steered = options.agent.steer?.(sessionKey, expanded);
         if (steered) {
-          appendRow(store, 'summary', tui('queued: {text}', { text: display.slice(0, 80) }));
+          appendRow(store, 'summary', formatSteerQueued(display, 'next-step'));
           handle.notify();
           return;
         }
@@ -2649,7 +2664,11 @@ export function TuiAppRoot({
       return;
     }
     if (chunk === '?' && input.length === 0 && !shellMode && !approval && !key.ctrl && !key.meta) {
-      setHelpOverlay({ lines: buildHelpOverlayLines(false, keymap.bindings), all: false });
+      setHelpOverlay({
+        lines: buildHelpOverlayLines(false, keymap.bindings),
+        all: false,
+        offset: 0,
+      });
       return;
     }
     if (key.ctrl && chunk === 'c') {
@@ -2935,6 +2954,12 @@ export function TuiAppRoot({
     }
 
     if (helpOverlay) {
+      if (key.upArrow || key.downArrow) {
+        setHelpOverlay((current) =>
+          current ? { ...current, offset: current.offset + (key.upArrow ? -1 : 1) } : current
+        );
+        return;
+      }
       if (key.escape || key.return || (key.ctrl && chunk === 'c')) {
         setHelpOverlay(undefined);
       }
@@ -3363,6 +3388,7 @@ export function TuiAppRoot({
     ...(queueRef.current[0] ? { queuePreview: queueRef.current[0].display } : {}),
     ...(store.run.retry ? { retry: store.run.retry } : {}),
     ...(store.run.lastEventAt !== undefined ? { lastEventAt: store.run.lastEventAt } : {}),
+    waitingForDevice: (store.run.deviceCallIds?.size ?? 0) > 0,
     blocked: Boolean(approval),
     thinkingActive: store.run.thinkingText.trim() !== '' && !store.run.streamingText.trim(),
   };
@@ -3412,39 +3438,26 @@ export function TuiAppRoot({
   // The composer sits between two full-width rules; everything else is plain.
   // D-15: hand the renderer the window that contains the cursor, so the `❯`
   // marker and the command Enter/Tab act on are the same row.
-  const helpOverlayLines = helpOverlay
-    ? [
-        line(rule(columns)),
-        line(
-          clip(
-            helpOverlay.all
-              ? '  Help · full reference · Esc to close'
-              : '  Help · Esc or Enter to close',
-            columns
+  const helpWindow = helpOverlay
+    ? sliceHelpOverlay(helpOverlay.lines, windowSize.rows, helpOverlay.offset)
+    : undefined;
+  const helpOverlayLines =
+    helpOverlay && helpWindow
+      ? [
+          line(rule(columns)),
+          line(
+            clip(
+              helpOverlay.all
+                ? '  Help · full reference · Esc to close'
+                : '  Help · Esc or Enter to close',
+              columns
+            ),
+            { dim: true }
           ),
-          { dim: true }
-        ),
-        ...helpOverlay.lines
-          .slice(
-            0,
-            Math.max(1, Math.min(helpOverlay.lines.length, Math.max(6, windowSize.rows - 8)))
-          )
-          .map((text) => line(clip(`  ${text}`, columns), { dim: true })),
-        ...(helpOverlay.lines.length > Math.max(6, windowSize.rows - 8)
-          ? [
-              line(
-                clip(
-                  helpOverlay.all
-                    ? '  … shorter terminal — resize or use / <name>'
-                    : '  … more commands in /help --all',
-                  columns
-                ),
-                { dim: true }
-              ),
-            ]
-          : []),
-      ]
-    : [];
+          ...helpWindow.lines.map((text) => line(clip(`  ${text}`, columns), { dim: true })),
+          ...(helpWindow.hint ? [line(clip(helpWindow.hint, columns), { dim: true })] : []),
+        ]
+      : [];
   const modelPickerStart = modelPicker
     ? Math.min(
         Math.max(0, modelPicker.cursor - 7),
@@ -3616,6 +3629,13 @@ export function TuiAppRoot({
             )
           ),
           line(clip(`  ${tui('Press up to edit queued messages')}`, columns), { dim: true }),
+          ...(running
+            ? [
+                line(clip(`  ${tui('queued — applies when this run finishes')}`, columns), {
+                  dim: true,
+                }),
+              ]
+            : []),
         ]
       : []),
     line(rule(columns), ruleTone),
@@ -3762,27 +3782,47 @@ export function TuiAppRoot({
   if (process.env.MOSS_TUI_DEBUG === '1') {
     noteFrameHeight(options.workspaceDir, frameRows, windowSize.rows || 24, fullscreen);
   }
+  const cursorRow = overlayQuery
+    ? aboveComposer - chromeTop.length + overlayQueryRow + (fillsTerminal ? 1 : 0)
+    : selectorRow >= 0
+      ? aboveComposer - chromeTop.length + selectorRow + (fillsTerminal ? 1 : 0)
+      : aboveComposer + editor.caretRow + (fillsTerminal ? 1 : 0);
   if (process.env.MOSS_TUI_HW_CURSOR === '0') {
     setCursorPosition(undefined);
   } else if (overlayQuery) {
     const queryLine = chromeTop[overlayQueryRow];
     setCursorPosition({
       x: displayWidth(queryLine?.text ?? ''),
-      y: aboveComposer - chromeTop.length + overlayQueryRow + (fillsTerminal ? 1 : 0),
+      y: cursorRow,
     });
   } else if (selectorRow >= 0) {
     const marker = chromeTop[selectorRow]?.text ?? '';
     const markAt = marker.indexOf('❯');
     setCursorPosition({
       x: displayWidth(markAt >= 0 ? marker.slice(0, markAt) : marker),
-      y: aboveComposer - chromeTop.length + selectorRow + (fillsTerminal ? 1 : 0),
+      y: cursorRow,
     });
   } else {
     setCursorPosition({
       x: editor.caretCol,
-      y: aboveComposer + editor.caretRow + (fillsTerminal ? 1 : 0),
+      y: cursorRow,
     });
   }
+  // Inline exit erases this frame only. The hardware cursor sits inside it;
+  // with the cursor disabled, ink leaves it on the line after a short frame.
+  rememberDrawnFrame(
+    fullscreen
+      ? undefined
+      : {
+          rows: frameRows,
+          cursorRow:
+            process.env.MOSS_TUI_HW_CURSOR === '0'
+              ? fillsTerminal
+                ? Math.max(0, frameRows - 1)
+                : frameRows
+              : cursorRow,
+        }
+  );
 
   /**
    * Blank separator lines are part of the grammar (every block starts after an
@@ -3942,6 +3982,8 @@ export async function runTuiApp(options: TuiAppOptions): Promise<void> {
     tmuxMouse: readTmuxMouse(process.env),
     inScreen: Boolean(process.env.STY),
   });
+  const mode = (options.renderer ?? choice.mode) === 'fullscreen' ? 'fullscreen' : 'inline';
+  setTerminalRestoreMode(mode);
   if (!options.renderer && choice.mode === 'inline' && /narrower|shorter/.test(choice.reason)) {
     // One line, before Ink takes the screen: the fallback is a fact the user can
     // act on (widen the window), not a silent downgrade.
@@ -3971,8 +4013,8 @@ export async function runTuiApp(options: TuiAppOptions): Promise<void> {
   try {
     await instance.waitUntilExit();
   } finally {
-    restoreTerminalModes(process.stdout);
-    if ((options.renderer ?? choice.mode) === 'fullscreen') {
+    writeTuiExitSequence(mode, process.stdout);
+    if (mode === 'fullscreen') {
       const session = options.sessionKey ?? 'current';
       const last = [...handle.store.rows].reverse().find((row) => row.kind === 'assistant');
       process.stdout.write(

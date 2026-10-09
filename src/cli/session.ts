@@ -15,15 +15,17 @@ function sortRecent(sessions: SessionMeta[]): SessionMeta[] {
   return [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-function timestampForKey(now = new Date()): string {
-  return now
-    .toISOString()
-    .replace(/[-:T.Z]/g, '')
-    .slice(0, 14);
+/** Local wall-clock stamp (`YYYYMMDDHHmmss`), not UTC. */
+export function formatCliSessionTimestamp(now = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return (
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+  );
 }
 
-export function createCliSessionKey(): string {
-  return `cli-${timestampForKey()}-${randomUUID().slice(0, 8)}`;
+export function createCliSessionKey(now = new Date()): string {
+  return `cli-${formatCliSessionTimestamp(now)}-${randomUUID().slice(0, 8)}`;
 }
 
 function describeSession(meta: SessionMeta): string {
@@ -187,7 +189,7 @@ export async function resolveCliSession(options: {
     return { sessionKey: source.key, forked: true, error: source.error };
   }
   if (!source) {
-    const fallback = `cli-fork-${timestampForKey()}-${randomUUID().slice(0, 8)}`;
+    const fallback = `cli-fork-${formatCliSessionTimestamp()}-${randomUUID().slice(0, 8)}`;
     return {
       sessionKey: fallback,
       forked: true,
@@ -196,7 +198,7 @@ export async function resolveCliSession(options: {
   }
   const messages = await options.store.loadMessages(source.key);
 
-  const forkKey = `cli-fork-${timestampForKey()}-${randomUUID().slice(0, 8)}`;
+  const forkKey = `cli-fork-${formatCliSessionTimestamp()}-${randomUUID().slice(0, 8)}`;
   await options.store.replaceMessages(forkKey, messages);
   return {
     sessionKey: forkKey,

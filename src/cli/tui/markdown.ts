@@ -22,7 +22,17 @@
  *
  * Pure projection: no ink imports, measured in terminal cells via `text.ts`.
  */
-import { clip, displayWidth, graphemes, line, padEndTo, type TuiLine } from './text.js';
+import {
+  clip,
+  displayWidth,
+  fitUrl,
+  graphemes,
+  isCjkGrapheme,
+  isUrlToken,
+  line,
+  padEndTo,
+  type TuiLine,
+} from './text.js';
 import type { TuiLineRun } from './text.js';
 import { highlightCodeLine, normalizeCodeLang } from './code-style.js';
 import { TONE } from './theme.js';
@@ -227,26 +237,78 @@ function markdownLine(runs: MarkdownRun[], extra: RowStyle = {}): MarkdownLine {
 interface StyledWord {
   text: string;
   clusters: Array<{ text: string; style: RunStyle }>;
+  /** A space separates this word from the previous one. CJK characters do not. */
+  spaced: boolean;
+  /** A URL: keep it whole so the terminal can still open it. */
+  solid: boolean;
 }
 
-/** Whitespace-separated words, each cluster keeping the style of its span. */
+/** Words for wrapping. CJK is one cluster per word; URLs are one solid word. */
 function wordsOf(spans: InlineSpan[]): StyledWord[] {
-  const words: StyledWord[] = [];
-  let current: StyledWord | undefined;
+  const clusters: Array<{ text: string; style: RunStyle }> = [];
   for (const span of spans) {
     const style = styleOf(span);
     for (const cluster of graphemes(span.text)) {
-      if (/^\s+$/.test(cluster.text)) {
-        current = undefined;
-        continue;
-      }
-      if (!current) {
-        current = { text: '', clusters: [] };
-        words.push(current);
-      }
-      current.text += cluster.text;
-      current.clusters.push({ text: cluster.text, style });
+      clusters.push({ text: cluster.text, style });
     }
+  }
+  const words: StyledWord[] = [];
+  let index = 0;
+  let pendingSpace = false;
+  while (index < clusters.length) {
+    const cluster = clusters[index];
+    if (!cluster) break;
+    if (/^\s+$/.test(cluster.text)) {
+      pendingSpace = words.length > 0;
+      index += 1;
+      continue;
+    }
+    const rest = clusters
+      .slice(index)
+      .map((item) => item.text)
+      .join('');
+    const url = /^https?:\/\/\S+/i.exec(rest);
+    if (url && isUrlToken(url[0])) {
+      const picked: Array<{ text: string; style: RunStyle }> = [];
+      let left = url[0].length;
+      while (left > 0 && index < clusters.length) {
+        const next = clusters[index];
+        if (!next) break;
+        picked.push(next);
+        left -= next.text.length;
+        index += 1;
+      }
+      words.push({ text: url[0], clusters: picked, spaced: pendingSpace, solid: true });
+      pendingSpace = false;
+      continue;
+    }
+    if (isCjkGrapheme(cluster.text)) {
+      words.push({
+        text: cluster.text,
+        clusters: [cluster],
+        spaced: pendingSpace,
+        solid: false,
+      });
+      pendingSpace = false;
+      index += 1;
+      continue;
+    }
+    const picked: Array<{ text: string; style: RunStyle }> = [];
+    let text = '';
+    while (index < clusters.length) {
+      const next = clusters[index];
+      if (!next || /^\s+$/.test(next.text)) break;
+      const ahead = clusters
+        .slice(index)
+        .map((item) => item.text)
+        .join('');
+      if (/^https?:\/\//i.test(ahead) || isCjkGrapheme(next.text)) break;
+      picked.push(next);
+      text += next.text;
+      index += 1;
+    }
+    if (text) words.push({ text, clusters: picked, spaced: pendingSpace, solid: false });
+    pendingSpace = false;
   }
   return words;
 }
@@ -271,9 +333,10 @@ function wrapRuns(spans: InlineSpan[], width: number): MarkdownRun[][] {
     current = [];
   };
   for (const word of wordsOf(spans)) {
-    const candidate = current.length > 0 ? `${runsText(current)} ${word.text}` : word.text;
+    const gap = word.spaced && current.length > 0 ? ' ' : '';
+    const candidate = `${runsText(current)}${gap}${word.text}`;
     if (displayWidth(candidate) <= max) {
-      if (current.length > 0) {
+      if (gap) {
         // A space between two words of the same span stays INSIDE that span's
         // run (`` `npm run build` `` is one cyan run, not three plus gaps).
         const last = current[current.length - 1];
@@ -281,6 +344,16 @@ function wrapRuns(spans: InlineSpan[], width: number): MarkdownRun[][] {
         pushRun(current, ' ', last && sameStyle(last, next) ? next : {});
       }
       for (const cluster of word.clusters) pushRun(current, cluster.text, cluster.style);
+      continue;
+    }
+    if (word.solid) {
+      flush();
+      const fitted = fitUrl(word.text, max);
+      if (fitted === word.text) {
+        for (const cluster of word.clusters) pushRun(current, cluster.text, cluster.style);
+      } else {
+        pushRun(current, fitted, word.clusters[0]?.style ?? {});
+      }
       continue;
     }
     flush();

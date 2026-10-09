@@ -3,12 +3,10 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { isolatedCliEnv } from './helpers/isolated-cli-env.mjs';
+import { requirePyLayout } from './helpers/require-pyte.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
-const probe = spawnSync('python3', ['-c', 'import pyte'], { encoding: 'utf8' });
-if (probe.status !== 0) {
-  console.log('[tui-mcp-failure-layout] skip: python3 or pyte is not available');
-} else {
+if (requirePyLayout('tui-mcp-failure-layout')) {
   const result = spawnSync(
     'python3',
     [path.join(root, 'test', 'fixtures', 'tui-mcp-failure-layout.py')],

@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 
 import stringWidth from 'string-width';
 
-import { clip, displayWidth, line, padStartTo, rule, wrap } from '../dist/cli/tui/text.js';
+import { clip, displayWidth, line, osc8, padStartTo, rule, wrap } from '../dist/cli/tui/text.js';
 import { renderMarkdown } from '../dist/cli/tui/markdown.js';
 import {
   ANSWER_MARK,
@@ -45,6 +45,19 @@ function cells(text) {
   return stringWidth(text);
 }
 
+function osc8Opens(text) {
+  const marker = '\x1b]8;;';
+  let count = 0;
+  let from = 0;
+  while (from < text.length) {
+    const at = text.indexOf(marker, from);
+    if (at < 0) return count;
+    count += 1;
+    from = at + marker.length;
+  }
+  return count;
+}
+
 function assertFits(lines, width, label) {
   for (const entry of lines) {
     const text = typeof entry === 'string' ? entry : entry.text;
@@ -63,6 +76,22 @@ function assertFits(lines, width, label) {
   assert.equal(clip('相机管线部署', 5), '相机…', 'clip counts cells');
   assert.equal(clip('中文中', 2), '…', 'width 2 fits no glyph before the ellipsis');
   assert.equal(clip('tty', 10), 'tty', 'text that fits is untouched');
+  const linkUrl = `https://example.com/${'segment/'.repeat(8)}file`;
+  const fitting = osc8('https://example.com', 'docs');
+  assert.equal(clip(fitting, 20), fitting, 'a link that fits is unchanged');
+  const clippedLink = clip(osc8(linkUrl, linkUrl), 20);
+  assert.ok(displayWidth(clippedLink) <= 20, 'a clipped OSC 8 link stays inside the budget');
+  assert.ok(clippedLink.includes(`\x1b]8;;${linkUrl}\x1b\\`), 'the full URL stays the target');
+  assert.equal(osc8Opens(clippedLink), 2, 'clip closes the OSC 8 sequence');
+  assert.ok(clippedLink.endsWith('\x1b\\\u2026'), 'the cut marker sits outside the link');
+  const mixedLink = clip(`see ${osc8(linkUrl, linkUrl)}`, 16);
+  assert.ok(displayWidth(mixedLink) <= 16, 'a prefixed link stays inside the budget');
+  assert.equal(osc8Opens(mixedLink), 2, 'a prefixed link stays closed');
+  assert.equal(
+    clip(`see ${osc8(linkUrl, 'click')}`, 5),
+    'see …',
+    'a link that does not fit is omitted whole'
+  );
 
   const wrapped = wrap(CJK_GOAL, 24);
   assert.ok(wrapped.length > 1, 'CJK prose wraps');
@@ -76,6 +105,37 @@ function assertFits(lines, width, label) {
   assert.ok(cjkSplit.length > 1, 'space-free CJK is hard-split');
   assertFits(cjkSplit, 20, 'wrap(cjk run)');
 
+  const mixed = 'See 能帮你写代码、改 bug，也能查资料';
+  const mixedLines = wrap(mixed, 20);
+  assert.ok(
+    cells(mixedLines[0]) >= 16,
+    `CJK fills the line instead of breaking early: ${JSON.stringify(mixedLines[0])}`
+  );
+  const url = 'https://example.com/a/very/long/path/that/must/stay/intact';
+  const urlLines = wrap(`docs ${url} end`, 20);
+  assert.equal(
+    urlLines.filter((entry) => entry.includes(url)).length,
+    1,
+    'a URL stays on one line'
+  );
+  assertFits(
+    urlLines.map((text) => ({ text })),
+    20,
+    'wrap(url)'
+  );
+  assert.ok(
+    urlLines.some((entry) => entry.includes('\x1b]8;;') && entry.includes(url)),
+    'a URL wider than the pane is an OSC 8 link, not a hard split'
+  );
+  const markdownUrl = renderMarkdown(`说明 ${url}`, 20)
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.ok(markdownUrl.includes(url), 'markdown keeps the URL intact');
+  assert.equal(markdownUrl.split(url).length, 2, 'markdown does not split the URL');
+  for (const entry of renderMarkdown(`说明 ${url}`, 20)) {
+    assert.ok(cells(entry.text) <= 20, 'markdown URL rows stay inside the pane');
+  }
+
   assert.equal(padStartTo('ab', 5), '   ab', 'padStartTo pads by cells');
   assert.equal(padStartTo('相机', 6), '  相机', 'padStartTo counts CJK as 2 cells');
   assert.equal(padStartTo('abcdef', 3), 'abcdef', 'never truncates to a negative pad');
@@ -85,6 +145,45 @@ function assertFits(lines, width, label) {
   assert.equal(cells(rule(0)), 1, 'rule keeps one cell at width 0');
   assert.equal(line('x', { bold: true, color: 'cyan' }).text, 'x', 'line keeps the text');
   assert.equal(line('x', { bold: true }).bold, true, 'line keeps its style');
+}
+
+// ─── frame height: an over-wide URL must not add terminal rows ───────────
+
+{
+  const width = 24;
+  const url = `https://example.com/${'segment/'.repeat(12)}file`;
+  const paintedRows = (lines) =>
+    lines.reduce((sum, entry) => {
+      const wide = cells(entry.text);
+      return sum + (wide === 0 ? 1 : Math.ceil(wide / width));
+    }, 0);
+  const assistant = renderTranscriptRow(
+    { id: 1, kind: 'assistant', text: `说明 ${url} 结束` },
+    width
+  );
+  assert.ok(
+    assistant.some((entry) => entry.text.includes(`\x1b]8;;${url}`)),
+    'the full URL is the OSC 8 target'
+  );
+  assert.equal(
+    paintedRows(assistant),
+    assistant.length,
+    'assistant URL rows do not wrap past the counted frame'
+  );
+  const user = renderTranscriptRow({ id: 2, kind: 'user', text: url }, width);
+  assert.equal(paintedRows(user), user.length, 'a user URL row does not wrap past the frame');
+  const live = renderLive(
+    {
+      running: true,
+      startedAt: Date.now(),
+      streaming: `see ${url}`,
+      thinking: '',
+      tokensOut: 0,
+      queued: 0,
+    },
+    width
+  );
+  assert.equal(paintedRows(live), live.length, 'the live frame does not grow a wrapped URL');
 }
 
 // ─── 2. transcript rows never exceed the pane width ───────────────────────

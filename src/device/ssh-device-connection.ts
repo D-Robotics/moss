@@ -14,7 +14,8 @@ import { ErrorCode, MossError } from '../errors.js';
 
 /** Max simultaneous remote channels (exec streams / sftp sessions). */
 const MAX_INFLIGHT = 4;
-const CONNECT_TIMEOUT_MS = 15_000;
+/** Bound the TCP+handshake wait. A blackhole route otherwise sits in SYN_SENT for minutes. */
+export const DEVICE_CONNECT_TIMEOUT_MS = 10_000;
 const DEFAULT_EXEC_TIMEOUT_MS = 120_000;
 const STREAM_CAP_BYTES = 2 * 1024 * 1024;
 const DEFAULT_READ_MAX_BYTES = 256 * 1024;
@@ -65,18 +66,40 @@ async function resolveAuth(target: DeviceTarget): Promise<SshAuth> {
   return { username, ...(password ? { password } : {}) };
 }
 
+export interface SshConnectOptions {
+  /** Overrides the 10s connect bound. Tests use a short value. */
+  connectTimeoutMs?: number;
+}
+
+/** host:port plus what to try next, in English and Chinese. */
+export function deviceUnreachableCopy(
+  target: DeviceTarget,
+  timeoutMs: number
+): { message: string; hint: string } {
+  const where = `${target.host}:${target.port ?? 22}`;
+  const seconds = Math.max(1, Math.round(timeoutMs / 1000));
+  return {
+    message: `Cannot reach ${where} within ${seconds}s. 无法在 ${seconds} 秒内连接 ${where}。`,
+    hint:
+      'Check the board is powered on, the address is correct, and this machine can reach it, then retry. ' +
+      '请确认开发板已开机、地址正确，且本机能访问该地址，然后再试。',
+  };
+}
+
 export class SshDeviceConnection implements DeviceConnection {
   readonly target: DeviceTarget;
   private client: Client | null = null;
   private readyPromise: Promise<Client> | null = null;
   private readonly inflight = new Semaphore(MAX_INFLIGHT);
+  private readonly connectTimeoutMs: number;
   private _status: DeviceConnectionStatus = 'disconnected';
   private _lastError: string | undefined;
   execCount = 0;
   lastActiveAt: number | undefined;
 
-  constructor(target: DeviceTarget) {
+  constructor(target: DeviceTarget, options: SshConnectOptions = {}) {
     this.target = target;
+    this.connectTimeoutMs = options.connectTimeoutMs ?? DEVICE_CONNECT_TIMEOUT_MS;
   }
 
   get status(): DeviceConnectionStatus {
@@ -102,36 +125,71 @@ export class SshDeviceConnection implements DeviceConnection {
         });
       }
       const client = new Client();
+      const timeoutMs = this.connectTimeoutMs;
       return await new Promise<Client>((resolve, reject) => {
-        const onReady = () => {
-          cleanup();
-          this.client = client;
-          this._status = 'connected';
-          this._lastError = undefined;
-          client.on('close', () => this.handleDown('connection closed'));
-          client.on('error', (err: Error) => this.handleDown(err.message));
-          resolve(client);
-        };
-        const onError = (err: Error) => {
-          cleanup();
-          this.handleDown(err.message);
-          client.end();
-          reject(
-            new MossError({
-              code: ErrorCode.TOOL_EXECUTION_FAILED,
-              message: `Cannot connect to ${this.target.user || 'root'}@${this.target.host}:${this.target.port ?? 22}: ${err.message}`,
-              hint: 'Check host/port reachability and credentials (MOSS_DEVICE_USER / MOSS_DEVICE_PASSWORD / MOSS_DEVICE_KEY).',
-              recoverable: true,
-              context: { deviceId: this.target.deviceId },
-            })
-          );
-        };
+        let settled = false;
+        const timer = setTimeout(() => {
+          fail(new Error(`Timed out while waiting for handshake (${timeoutMs}ms)`));
+        }, timeoutMs);
         const cleanup = () => {
           client.removeListener('ready', onReady);
-          client.removeListener('error', onError);
+        };
+        const finish = (fn: () => void) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          fn();
+          cleanup();
+        };
+        const fail = (err: Error) => {
+          finish(() => {
+            this.handleDown(err.message);
+            try {
+              client.destroy();
+            } catch {
+              // The socket may not exist yet when the timer wins the race.
+            }
+            const where = `${this.target.host}:${this.target.port ?? 22}`;
+            const unreachable =
+              /timed out|etimedout|econnrefused|ehostunreach|enetunreach|enotfound|eai_again|network is unreachable/i.test(
+                err.message
+              );
+            const copy = unreachable ? deviceUnreachableCopy(this.target, timeoutMs) : undefined;
+            reject(
+              new MossError({
+                code: ErrorCode.TOOL_EXECUTION_FAILED,
+                message: copy
+                  ? copy.message
+                  : `Cannot connect to ${this.target.user || 'root'}@${where}: ${err.message}`,
+                hint: copy
+                  ? copy.hint
+                  : 'Check host/port reachability and credentials (MOSS_DEVICE_USER / MOSS_DEVICE_PASSWORD / MOSS_DEVICE_KEY).',
+                recoverable: true,
+                context: {
+                  deviceId: this.target.deviceId,
+                  host: this.target.host,
+                  port: this.target.port ?? 22,
+                },
+              })
+            );
+          });
+        };
+        const onReady = () => {
+          finish(() => {
+            this.client = client;
+            this._status = 'connected';
+            this._lastError = undefined;
+            client.on('close', () => this.handleDown('connection closed'));
+            client.on('error', (err: Error) => this.handleDown(err.message));
+            resolve(client);
+          });
+        };
+        const onError = (err: Error) => {
+          if (settled) return;
+          fail(err);
         };
         client.once('ready', onReady);
-        client.once('error', onError);
+        client.on('error', onError);
         client.connect({
           host: this.target.host,
           port: this.target.port ?? 22,
@@ -139,7 +197,7 @@ export class SshDeviceConnection implements DeviceConnection {
           ...(auth.password ? { password: auth.password } : {}),
           ...(auth.privateKey ? { privateKey: auth.privateKey } : {}),
           ...(auth.passphrase ? { passphrase: auth.passphrase } : {}),
-          readyTimeout: CONNECT_TIMEOUT_MS,
+          readyTimeout: timeoutMs,
           keepaliveInterval: 15_000,
         });
       });

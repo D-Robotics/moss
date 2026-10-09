@@ -53,7 +53,25 @@ jobs:
       - name: Install
         run: npm ci
 
+      # Layout specs drive a Unix PTY through pyte. A missing module used to
+      # exit 0; verify now fails unless MOSS_SKIP_PY_LAYOUT=1. Windows has no
+      # pty module, so that job sets the skip. Linux and macOS install pyte
+      # and run the specs.
+      - name: Install pyte for TUI layout specs
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if python3 -c 'import pyte'; then
+            echo "pyte already installed"
+            exit 0
+          fi
+          python3 -m pip install --user pyte \
+            || python3 -m pip install --user --break-system-packages pyte
+          python3 -c 'import pyte'
+
       - name: Test (build + spec suite)
+        env:
+          MOSS_SKIP_PY_LAYOUT: ${{ runner.os == 'Windows' && '1' || '' }}
         run: npm run test
 
       - name: CLI smoke

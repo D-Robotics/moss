@@ -94,6 +94,14 @@ export interface TuiRunState {
   /** This run edited a JS/TS file and has not run a test or diagnostics tool. */
   editedJsTs?: boolean;
   ranTests?: boolean;
+  /** In-flight device_* tool-call ids. The live region says "waiting for device", not "gateway". */
+  deviceCallIds?: Set<string>;
+  /**
+   * Index of the first transcript row that belongs to this run. Final-answer
+   * dedupe looks only at rows from here on, so a short later reply that happens
+   * to be a substring of an earlier run ("30 fps", "OK", "完成。") is still shown.
+   */
+  rowStart?: number;
 }
 
 export interface TuiUsageState {
@@ -142,7 +150,13 @@ export interface TuiStore {
 export function createTuiStore(): TuiStore {
   return {
     rows: [],
-    run: { running: false, thinkingText: '', streamingText: '', toolInputs: new Map() },
+    run: {
+      running: false,
+      thinkingText: '',
+      streamingText: '',
+      toolInputs: new Map(),
+      deviceCallIds: new Set(),
+    },
     todos: [],
     usage: {
       tokensIn: 0,
@@ -239,20 +253,25 @@ function capThinking(text: string): string {
  * message). Shared by the tool boundary, the provider retry and the turn end, so
  * two messages never share one buffer.
  */
+function rememberFlushed(store: TuiStore, text: string): void {
+  if (!text.trim()) return;
+  store.run.flushed = [...(store.run.flushed ?? []), text];
+}
+
 export function flushProse(store: TuiStore): void {
   const visible = userFacingAssistantText(store.run.streamingText);
-  if (!visible.trim()) {
-    store.run.streamingText = '';
-    return;
+  if (visible.trim()) {
+    appendRow(store, 'assistant', visible, {
+      ...(store.run.committedText ? { continuation: true } : {}),
+      ...takeReasoning(store),
+    });
+    // Closed blocks were remembered when text_delta committed them. This is
+    // only the still-open tail, after internal lines have been filtered out.
+    rememberFlushed(store, visible);
+    store.version++;
   }
-  appendRow(store, 'assistant', visible, {
-    ...(store.run.committedText ? { continuation: true } : {}),
-    ...takeReasoning(store),
-  });
-  store.run.flushed = [...(store.run.flushed ?? []), visible];
   store.run.streamingText = '';
   store.run.committedText = '';
-  store.version++;
 }
 
 /**
@@ -267,10 +286,20 @@ export function reconcileFinalResponse(store: TuiStore, response: string | undef
   if (!visibleResponse.trim()) return;
   if (!store.run.streamingText.trim()) {
     // The response is the whole run's answer. When every part of it is already
-    // committed (one turn, or several turns joined), it must not appear again.
+    // on screen (one turn, several turns, or text committed around a thought),
+    // it must not appear again.
     const norm = (text: string): string => text.replace(/\s+/g, ' ').trim();
-    const committed = norm((store.run.flushed ?? []).join(' '));
-    if (committed && committed.includes(norm(visibleResponse))) return;
+    const want = norm(visibleResponse);
+    const runRows = store.rows.slice(store.run.rowStart ?? 0);
+    const fromRows = norm(
+      runRows
+        .filter((row) => row.kind === 'assistant')
+        .map((row) => row.text)
+        .join(' ')
+    );
+    const fromFlushed = norm((store.run.flushed ?? []).join(' '));
+    const shown = fromRows.length >= fromFlushed.length ? fromRows : fromFlushed;
+    if (shown && shown.includes(want)) return;
     appendRow(store, 'assistant', visibleResponse);
     return;
   }
@@ -303,6 +332,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
             continuation: Boolean(store.run.committedText),
           });
           store.run.committedText = `${store.run.committedText ?? ''}${visible}\n`;
+          rememberFlushed(store, visible);
         }
         setStreaming(store, split.rest);
       } else {
@@ -350,6 +380,11 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       // status line: it is what the user scrolls back to.
       store.run.toolLine = toolLabel(event.toolName, event.input);
       store.run.toolInputs.set(event.toolCallId, event.input);
+      if (event.toolName.startsWith('device_')) {
+        const ids = store.run.deviceCallIds ?? new Set<string>();
+        ids.add(event.toolCallId);
+        store.run.deviceCallIds = ids;
+      }
       noteToolForVerifyHint(store.run as VerifyHintState, event.toolName, event.input);
       if (event.toolName === 'todo_write' && Array.isArray(event.input.todos)) {
         store.todos = toTodos(event.input.todos);
@@ -384,6 +419,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       }
       const input = store.run.toolInputs.get(event.toolCallId) ?? {};
       store.run.toolInputs.delete(event.toolCallId);
+      store.run.deviceCallIds?.delete(event.toolCallId);
       const abortedBy = event.aborted?.by;
       const completion = summarizeToolCompletion(
         event.toolName,
@@ -518,7 +554,9 @@ export function beginRun(store: TuiStore): void {
     streamingText: '',
     committedText: '',
     toolInputs: new Map(),
+    deviceCallIds: new Set(),
     lastEventAt: Date.now(),
+    rowStart: store.rows.length,
   };
   store.usage.runTokensIn = 0;
   store.usage.runTokensOut = 0;

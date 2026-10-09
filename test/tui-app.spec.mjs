@@ -692,6 +692,15 @@ async function type(instance, text) {
     await type(instance, '/help');
     const ok = await waitFor(() => instance.lastFrame().includes('Help · Esc or Enter to close'));
     assert.ok(ok, `help overlay visible: ${JSON.stringify(instance.lastFrame().slice(0, 200))}`);
+    assert.ok(instance.lastFrame().includes('/model'), 'the command list is on the first page');
+    for (
+      let step = 0;
+      step < 16 && !instance.lastFrame().includes('interrupt the run');
+      step += 1
+    ) {
+      instance.stdin.write('\x1b[B');
+      await sleep(30);
+    }
     assert.ok(instance.lastFrame().includes('interrupt the run'), 'shortcut help is visible');
     instance.unmount();
     await sleep(150);

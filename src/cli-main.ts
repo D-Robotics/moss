@@ -84,7 +84,12 @@ import {
   type CommandContext as RegistryCommandContext,
 } from './cli/commands/registry.js';
 import { commandSuggestion, cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
-import { buildAnswerLanguageLayer } from './cli/cli-locale.js';
+import {
+  buildAnswerLanguageLayer,
+  formatFullModeNotice,
+  formatInteractionModeNotice,
+} from './cli/cli-locale.js';
+import { gitignoreNoticeForWorkspace } from './cli/gitignore-suggestion.js';
 import { buildEnvironmentContextLayer, getGitBranch } from './context/environment.js';
 import { disconnectAllDevices } from './device/device-registry.js';
 import { configureDeviceWorkspace, resolveDefaultDeviceTarget } from './device/device-target.js';
@@ -435,25 +440,14 @@ async function main() {
   if (parsedArgs.interactionModeOverride || startupMode !== 'manual') {
     setCliInteractionMode(startupMode);
     if (cliDetailForNotices !== 'quiet') {
-      const modeLabels: Record<string, string> = {
-        plan: 'plan (dry-run)',
-        acceptEdits: 'accept-edits',
-        manual: 'manual',
-        full: 'full (v0.26 default — add deny rules with /permissions)',
-      };
-      console.error(
-        `[moss] Interaction mode: ${modeLabels[parsedArgs.interactionModeOverride ?? startupMode] || (parsedArgs.interactionModeOverride ?? startupMode)}`
-      );
+      console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));
     }
   }
   // v0.26 one-shot full-default notice (PRD decision 7): session-level
   // deduplication in memory — the factory-default full user with no deny rules
   // hears "add deny rules with /permissions" exactly once per session.
   if (cliDetailForNotices !== 'quiet' && shouldShowFullDefaultNotice(resolvedConfig)) {
-    console.error(
-      '[moss] Default full mode has no deny rules; add them with /permissions ' +
-        '(e.g. deny read_file(./.env)) to keep sensitive tools gated. This notice shows once.'
-    );
+    console.error(formatFullModeNotice());
   }
   const workspace = resolvedConfig.workspace;
   // Validate the workspace up front so a bad -C/--cd (or MOSS_WORKSPACE) yields
@@ -477,6 +471,10 @@ async function main() {
     console.error(`[moss] workspace path is not a directory: ${workspace}`);
     console.error('Pass a directory with -C/--cd.');
     process.exit(ExitCode.CONFIG);
+  }
+  if (cliDetailForNotices !== 'quiet') {
+    const gitignoreNotice = gitignoreNoticeForWorkspace(workspace);
+    if (gitignoreNotice) console.error(gitignoreNotice);
   }
   const model = resolvedConfig.model;
   const baseUrl = resolvedConfig.baseUrl;
@@ -598,8 +596,8 @@ async function main() {
   // "auto-loaded from workspace root" claim in help/onboarding is real.
   const agentsLayer = buildAgentsMdLayer(workspace);
   if (agentsLayer) extraPromptLayers.push(agentsLayer);
-  // Answer language follows the user's locale (a recorded UX finding: Chinese
-  // questions occasionally got English answers).
+  // Answer language follows the latest user message. Locale is only the
+  // fallback when that message has no language of its own.
   const answerLanguageLayer = buildAnswerLanguageLayer();
   if (answerLanguageLayer) extraPromptLayers.push(answerLanguageLayer);
 

@@ -14,6 +14,7 @@ import { runProcess } from '../../utils/run-process.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
 import { isZhLocale as isZh } from '../cli-locale.js';
+import { GITIGNORE_SUGGESTION } from '../gitignore-suggestion.js';
 import {
   formatCliInteractionModeLabel,
   getCliInteractionMode,
@@ -638,17 +639,25 @@ const exportCommand: CommandSpec = {
 
 function buildInitPrompt(workspace: string): string {
   const agentsPath = path.join(workspace, 'AGENTS.md');
+  const gitignore = [
+    'If you create or update .gitignore, include this suggestion so session logs are not committed:',
+    '```',
+    GITIGNORE_SUGGESTION,
+    '```',
+  ];
   if (!fs.existsSync(agentsPath)) {
     return [
       'Analyze this repository and create an AGENTS.md project memory file at the workspace root.',
       'Cover the build, test, and layout facts you can verify by reading the repo.',
       'Do not invent commands or conventions you did not observe.',
+      ...gitignore,
     ].join('\n');
   }
   return [
     'AGENTS.md already exists. Review it against the current repository and update it incrementally.',
     'Keep instructions that are still accurate, fix stale ones, and do not rewrite unrelated sections.',
     'The file to edit is AGENTS.md.',
+    ...gitignore,
   ].join('\n');
 }
 

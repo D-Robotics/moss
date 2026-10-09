@@ -15,12 +15,32 @@ import {
   type ResolvedCliConfig,
 } from './config.js';
 import { configSnapshotLines } from './config-snapshot.js';
+import { isZhLocale } from './cli-locale.js';
 import { loadModelChoicesForRuntime } from './model-catalog.js';
+
+function L(en: string, zh: string, locale?: string): string {
+  return isZhLocale(locale) ? zh : en;
+}
+
+/** The provider menu `moss setup` prints. Localized when the locale is Chinese. */
+export function setupMenuLines(locale?: string): string[] {
+  return [
+    L('Moss model setup', 'Moss 模型配置', locale),
+    '',
+    L('Choose provider:', '选择提供方：', locale),
+    L('  1. DeepSeek (recommended)', '  1. DeepSeek（推荐）', locale),
+    L('  2. Aliyun / Qwen', '  2. 阿里云 / Qwen', locale),
+    '  3. OpenAI',
+    '  4. Anthropic',
+    L('  5. OpenAI-compatible', '  5. OpenAI 兼容', locale),
+  ];
+}
 
 export async function probeSetupReachability(
   config: Partial<ResolvedCliConfig>,
-  options: { fetchImpl?: typeof fetch; timeoutMs?: number } = {}
+  options: { fetchImpl?: typeof fetch; timeoutMs?: number; locale?: string } = {}
 ): Promise<string> {
+  const locale = options.locale;
   let result;
   try {
     result = await loadModelChoicesForRuntime(config, config.model ?? '', {
@@ -28,15 +48,32 @@ export async function probeSetupReachability(
       fetchImpl: options.fetchImpl,
     });
   } catch {
-    return 'Saved, but could not reach the gateway with this key — check baseUrl/key, then re-run `moss setup`.';
+    return L(
+      'Saved, but could not reach the gateway with this key — check baseUrl/key, then re-run `moss setup`.',
+      '已保存，但用这把密钥连不上网关 — 请检查 baseUrl/密钥，然后重新运行 `moss setup`。',
+      locale
+    );
   }
   if (result.source === 'live') {
-    return `Configured and reachable — ${result.choices.length} model(s) available from the gateway.`;
+    const count = result.choices.length;
+    return L(
+      `Configured and reachable — ${count} model(s) available from the gateway.`,
+      `已配置且可连通 — 网关提供 ${count} 个模型。`,
+      locale
+    );
   }
   if (result.warning) {
-    return 'Saved, but could not reach the gateway with this key — check baseUrl/key, then re-run `moss setup`.';
+    return L(
+      'Saved, but could not reach the gateway with this key — check baseUrl/key, then re-run `moss setup`.',
+      '已保存，但用这把密钥连不上网关 — 请检查 baseUrl/密钥，然后重新运行 `moss setup`。',
+      locale
+    );
   }
-  return `Key saved (${result.providerLabel} — skipping live reachability check).`;
+  return L(
+    `Key saved (${result.providerLabel} — skipping live reachability check).`,
+    `密钥已保存（${result.providerLabel} — 跳过实时连通性检查）。`,
+    locale
+  );
 }
 
 /** How many gateway models `moss setup` prints before it says "showing N of M". */
@@ -289,33 +326,46 @@ async function printSetupSuccess({
 }: SetupSuccessInfo): Promise<void> {
   print('');
   print(
-    `Saved ${preset.displayName}${model ? ` · model ${model}` : ' · model not set — pick one inside moss with /model'} → ${resolveConfigPath()}`
+    L(
+      `Saved ${preset.displayName}${model ? ` · model ${model}` : ' · model not set — pick one inside moss with /model'} → ${resolveConfigPath()}`,
+      `已保存 ${preset.displayName}${model ? ` · 模型 ${model}` : ' · 尚未选择模型 — 在 moss 里用 /model 选择'} → ${resolveConfigPath()}`
+    )
   );
   if (probe) {
     print(await probeSetupReachability({ provider, model, baseUrl, apiKey }));
   }
-  print('Security note: the API key is stored encrypted in the config file (file mode 600).');
-  print('Avoid sharing or committing this file. Run `moss auth logout` to remove the key.');
-  print('Try `moss "explain this project and how to run it"` or run `moss` for interactive mode.');
+  print(
+    L(
+      'Security note: the API key is stored encrypted in the config file (file mode 600).',
+      '安全说明：API 密钥以加密形式存在配置文件中（文件权限 600）。'
+    )
+  );
+  print(
+    L(
+      'Avoid sharing or committing this file. Run `moss auth logout` to remove the key.',
+      '不要分享或提交这个文件。运行 `moss auth logout` 可删除密钥。'
+    )
+  );
+  print(
+    L(
+      'Try `moss "explain this project and how to run it"` or run `moss` for interactive mode.',
+      '试试 `moss "explain this project and how to run it"`，或直接运行 `moss` 进入交互模式。'
+    )
+  );
 }
 
 export async function runSetupWizard(): Promise<void> {
   const current = loadConfigFile();
-  print('Moss model setup');
-  print('');
-  print('Choose provider:');
-  print('  1. DeepSeek (recommended)');
-  print('  2. Aliyun / Qwen');
-  print('  3. OpenAI');
-  print('  4. Anthropic');
-  print('  5. OpenAI-compatible');
+  for (const menuLine of setupMenuLines()) print(menuLine);
 
   const pipedAnswers = input.isTTY ? null : fs.readFileSync(0, 'utf-8').split(/\r?\n/);
   let answerIndex = 0;
   const nextPipedAnswer = () => (pipedAnswers ? (pipedAnswers[answerIndex++] ?? '').trim() : '');
 
   const rl = input.isTTY ? readline.createInterface({ input, output }) : null;
-  const providerAnswer = rl ? await questionWith(rl, 'Provider [1]: ') : nextPipedAnswer();
+  const providerAnswer = rl
+    ? await questionWith(rl, L('Provider [1]: ', '提供方 [1]：'))
+    : nextPipedAnswer();
   const provider = providerFromChoice(providerAnswer || '1');
   const preset = PROVIDER_PRESETS[provider];
 
@@ -323,12 +373,19 @@ export async function runSetupWizard(): Promise<void> {
   const defaultBaseUrl = current.baseUrl || preset.defaultBaseUrl;
 
   if (provider === 'openai-compatible') {
-    const baseUrlPrompt = defaultBaseUrl ? `Gateway URL [${defaultBaseUrl}]: ` : 'Gateway URL: ';
+    const baseUrlPrompt = defaultBaseUrl
+      ? L(`Gateway URL [${defaultBaseUrl}]: `, `网关 URL [${defaultBaseUrl}]：`)
+      : L('Gateway URL: ', '网关 URL：');
     const baseUrlAnswer = rl ? await questionWith(rl, baseUrlPrompt) : nextPipedAnswer();
     const baseUrlInput = baseUrlAnswer || defaultBaseUrl;
     if (!isHttpUrl(baseUrlInput)) {
       rl?.close();
-      print(`Setup cancelled: base URL must be a full http(s) URL, got: ${baseUrlInput}`);
+      print(
+        L(
+          `Setup cancelled: base URL must be a full http(s) URL, got: ${baseUrlInput}`,
+          `配置已取消：base URL 必须是完整的 http(s) URL，收到：${baseUrlInput}`
+        )
+      );
       process.exitCode = 1;
       return;
     }
@@ -336,14 +393,19 @@ export async function runSetupWizard(): Promise<void> {
     if (baseUrl !== baseUrlInput.trim().replace(/\/+$/, '')) {
       print('');
       print(
-        `Note: base URL normalized to "${baseUrl}" (endpoint paths, query strings, and credentials stripped).`
+        L(
+          `Note: base URL normalized to "${baseUrl}" (endpoint paths, query strings, and credentials stripped).`,
+          `注意：base URL 已规范为 "${baseUrl}"（已去掉端点路径、查询串和凭据）。`
+        )
       );
     }
 
     if (input.isTTY) rl?.close();
-    const apiKey = input.isTTY ? await hiddenQuestion('API key (hidden): ') : nextPipedAnswer();
+    const apiKey = input.isTTY
+      ? await hiddenQuestion(L('API key (hidden): ', 'API 密钥（隐藏）：'))
+      : nextPipedAnswer();
     if (!apiKey) {
-      print('Setup cancelled: API key is required.');
+      print(L('Setup cancelled: API key is required.', '配置已取消：必须填写 API 密钥。'));
       process.exitCode = 1;
       return;
     }
@@ -352,7 +414,7 @@ export async function runSetupWizard(): Promise<void> {
     let skipPostProbe = false;
     if (input.isTTY) {
       print('');
-      print('Checking available models on your gateway…');
+      print(L('Checking available models on your gateway…', '正在查询网关上的可用模型…'));
       const liveModels = await (async () => {
         try {
           const res = await fetch(buildApiV1Url(baseUrl, 'models'), {
@@ -373,19 +435,44 @@ export async function runSetupWizard(): Promise<void> {
       const rl2 = readline.createInterface({ input, output });
       if (listed.choices.length > 0) {
         skipPostProbe = true;
-        print(listed.heading);
+        const shown = listed.choices.length;
+        const total = Number(/^Found (\d+) model/.exec(listed.heading)?.[1] ?? shown);
+        print(
+          L(
+            listed.heading,
+            total > shown
+              ? `找到 ${total} 个模型，显示其中 ${shown} 个：`
+              : `找到 ${shown} 个模型：`
+          )
+        );
         for (const line of listed.lines) print(line);
         const defaultChoice = defaultModel || listed.choices[0]!;
-        const ans = (await questionWith(rl2, `Choose model [${defaultChoice}]: `)).trim();
+        const ans = (
+          await questionWith(
+            rl2,
+            L(`Choose model [${defaultChoice}]: `, `选择模型 [${defaultChoice}]：`)
+          )
+        ).trim();
         if (/^\d+$/.test(ans)) {
           model = listed.choices[parseInt(ans, 10) - 1] ?? defaultChoice;
         } else {
           model = ans || defaultChoice;
         }
       } else {
-        print('Note: could not reach /v1/models — enter your model name manually.');
+        print(
+          L(
+            'Note: could not reach /v1/models — enter your model name manually.',
+            '注意：无法访问 /v1/models — 请手动输入模型名。'
+          )
+        );
         const ans = (
-          await questionWith(rl2, `Model name${defaultModel ? ` [${defaultModel}]` : ''}: `)
+          await questionWith(
+            rl2,
+            L(
+              `Model name${defaultModel ? ` [${defaultModel}]` : ''}: `,
+              `模型名${defaultModel ? ` [${defaultModel}]` : ''}：`
+            )
+          )
         ).trim();
         model = ans || defaultModel;
       }
@@ -422,22 +509,38 @@ export async function runSetupWizard(): Promise<void> {
     model = defaultModel;
     baseUrlInput = defaultBaseUrl;
     print(
-      `Using ${preset.displayName} defaults — model ${defaultModel}, base URL ${defaultBaseUrl}.`
+      L(
+        `Using ${preset.displayName} defaults — model ${defaultModel}, base URL ${defaultBaseUrl}.`,
+        `使用 ${preset.displayName} 的默认值 — 模型 ${defaultModel}，base URL ${defaultBaseUrl}。`
+      )
     );
-    print('(Change later with `moss config set model <name>` or `moss config set baseUrl <url>`.)');
+    print(
+      L(
+        '(Change later with `moss config set model <name>` or `moss config set baseUrl <url>`.)',
+        '（之后可用 `moss config set model <name>` 或 `moss config set baseUrl <url>` 修改。）'
+      )
+    );
   } else {
     const modelAnswer = rl
-      ? await questionWith(rl, `Model [${defaultModel}]: `)
+      ? await questionWith(rl, L(`Model [${defaultModel}]: `, `模型 [${defaultModel}]：`))
       : nextPipedAnswer();
     model = modelAnswer || defaultModel;
     const baseUrlAnswer = rl
-      ? await questionWith(rl, `Base URL [${defaultBaseUrl}]: `)
+      ? await questionWith(
+          rl,
+          L(`Base URL [${defaultBaseUrl}]: `, `Base URL [${defaultBaseUrl}]：`)
+        )
       : nextPipedAnswer();
     baseUrlInput = baseUrlAnswer || defaultBaseUrl;
   }
   if (!isHttpUrl(baseUrlInput)) {
     rl?.close();
-    print(`Setup cancelled: base URL must be a full http(s) URL, got: ${baseUrlInput}`);
+    print(
+      L(
+        `Setup cancelled: base URL must be a full http(s) URL, got: ${baseUrlInput}`,
+        `配置已取消：base URL 必须是完整的 http(s) URL，收到：${baseUrlInput}`
+      )
+    );
     process.exitCode = 1;
     return;
   }
@@ -445,22 +548,35 @@ export async function runSetupWizard(): Promise<void> {
   const wasNormalized = baseUrl !== baseUrlInput.trim().replace(/\/+$/, '');
   if (wasNormalized) {
     print('');
-    print(`Note: the base URL was normalized from "${baseUrlInput.trim()}" to "${baseUrl}".`);
     print(
-      'Endpoint paths (/v1/chat/completions, /v1), query strings (?foo=bar), and credentials were stripped.'
+      L(
+        `Note: the base URL was normalized from "${baseUrlInput.trim()}" to "${baseUrl}".`,
+        `注意：base URL 已从 "${baseUrlInput.trim()}" 规范为 "${baseUrl}"。`
+      )
     );
-    print('Moss appends /v1/chat/completions itself — the saved value above is your API root.');
+    print(
+      L(
+        'Endpoint paths (/v1/chat/completions, /v1), query strings (?foo=bar), and credentials were stripped.',
+        '已去掉端点路径（/v1/chat/completions、/v1）、查询串（?foo=bar）和凭据。'
+      )
+    );
+    print(
+      L(
+        'Moss appends /v1/chat/completions itself — the saved value above is your API root.',
+        'Moss 会自己追加 /v1/chat/completions — 上面保存的值是 API 根地址。'
+      )
+    );
   }
   let apiKey: string;
   if (input.isTTY) {
     rl?.close();
-    apiKey = await hiddenQuestion('API key (hidden): ');
+    apiKey = await hiddenQuestion(L('API key (hidden): ', 'API 密钥（隐藏）：'));
   } else {
     apiKey = nextPipedAnswer();
   }
 
   if (!apiKey) {
-    print('Setup cancelled: API key is required.');
+    print(L('Setup cancelled: API key is required.', '配置已取消：必须填写 API 密钥。'));
     process.exitCode = 1;
     return;
   }

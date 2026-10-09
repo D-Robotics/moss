@@ -10,7 +10,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { connectWithBackoff, isTransientConnectError } from '../dist/device/device-registry.js';
+import {
+  connectWithBackoff,
+  isTransientConnectError,
+  isUnreachableConnectError,
+} from '../dist/device/device-registry.js';
 import { recordFailureTool, taskDefineTool } from '../dist/tools/task-tools.js';
 import { getTaskStateSnapshot, appendTaskEvent } from '../dist/core/task/task-store.js';
 
@@ -63,12 +67,34 @@ test('transient detection covers the storm signatures', () => {
   for (const message of [
     'sshd MaxStartups bucket full',
     'Connection reset by peer',
-    'ETIMEDOUT',
     'read ECONNRESET',
   ]) {
     assert.ok(isTransientConnectError(message), message);
   }
+  assert.equal(
+    isTransientConnectError('ETIMEDOUT'),
+    false,
+    'a timeout is unreachable, not a storm'
+  );
   assert.equal(isTransientConnectError('authentication failed'), false);
+  assert.ok(isUnreachableConnectError('ETIMEDOUT'));
+  assert.ok(isUnreachableConnectError('connect ECONNREFUSED 10.0.0.1:22'));
+  assert.ok(isUnreachableConnectError('Cannot reach 10.0.0.1:22 within 10s'));
+});
+
+test('connectWithBackoff does not retry an unreachable board', async () => {
+  let calls = 0;
+  await assert.rejects(
+    connectWithBackoff(
+      async () => {
+        calls += 1;
+        throw new Error('Cannot reach 10.1.2.3:22 within 10s. 无法在 10 秒内连接 10.1.2.3:22。');
+      },
+      { sleep: async () => {} }
+    ),
+    /Cannot reach 10\.1\.2\.3:22/
+  );
+  assert.equal(calls, 1, 'an unreachable host is not retried');
 });
 
 test('record_failure is idempotent per verification attempt', async () => {

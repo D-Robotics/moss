@@ -3,9 +3,11 @@
 import assert from 'node:assert/strict';
 import {
   readTmuxMouse,
+  rememberDrawnFrame,
   selectTuiRenderer,
   TERMINAL_RESTORE,
   TUI_KITTY_KEYBOARD,
+  tuiExitSequence,
 } from '../dist/cli/tui/renderer.js';
 
 assert.equal(selectTuiRenderer({ rows: 30, term: 'xterm-256color' }).mode, 'fullscreen');
@@ -30,6 +32,29 @@ assert.equal(
 assert.ok(TERMINAL_RESTORE.includes('\x1b[?1006l'), 'SGR mouse tracking is turned off');
 assert.ok(TERMINAL_RESTORE.includes('\x1b[?1000l'), 'normal mouse tracking is turned off');
 assert.ok(TERMINAL_RESTORE.includes('\x1b[?7h'), 'autowrap is restored');
+assert.equal(
+  TERMINAL_RESTORE.includes('\x1b[?1049l'),
+  false,
+  'leaving the alternate screen is fullscreen-only'
+);
+const inlineExit = tuiExitSequence('inline', { rows: 4, cursorRow: 2 });
+assert.equal(inlineExit.includes('\x1b[H\x1b[2J'), false, 'inline exit does not wipe the screen');
+assert.equal(inlineExit.includes('\x1b[?1049l'), false, 'inline exit stays on the primary screen');
+assert.ok(inlineExit.includes('\x1b[2A'), 'inline exit moves to the top of the last frame');
+assert.ok(inlineExit.includes('\x1b[J'), 'inline exit erases only that frame');
+assert.ok(inlineExit.includes('moss --continue\n'), 'inline exit names how to continue');
+rememberDrawnFrame({ rows: 3, cursorRow: 3 });
+const remembered = tuiExitSequence('inline');
+assert.ok(remembered.includes('\x1b[3A'), 'a recorded frame is what exit erases');
+rememberDrawnFrame(undefined);
+const fullscreenExit = tuiExitSequence('fullscreen');
+assert.equal(
+  fullscreenExit.includes('\x1b[H\x1b[2J'),
+  false,
+  'fullscreen exit keeps the primary buffer'
+);
+assert.ok(fullscreenExit.includes('\x1b[?1049l'), 'fullscreen exit leaves the alternate screen');
+assert.ok(fullscreenExit.includes('\x1b[?7h'), 'fullscreen exit still restores autowrap');
 assert.equal(
   TUI_KITTY_KEYBOARD.mode,
   'enabled',

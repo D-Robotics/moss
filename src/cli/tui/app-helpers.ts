@@ -344,7 +344,8 @@ const COMMON_HELP_COMMANDS = [
   '/help',
 ];
 
-/** Compact help (prefixes + shortcuts + common commands) or the full reference. */
+/** Compact help (prefixes + commands + shortcuts) or the full reference.
+ * Commands come before shortcuts so a 35-row terminal still shows the list. */
 export function buildHelpOverlayLines(
   all: boolean,
   bindings: readonly KeyBinding[] = DEFAULT_KEYBINDINGS
@@ -355,9 +356,6 @@ export function buildHelpOverlayLines(
     tui('prefixes'),
     ...HELP_PREFIXES.map(([prefix, what]) => `  ${prefix.padEnd(3)} ${tui(what)}`),
     '',
-    tui('shortcuts'),
-    ...helpKeyRows(bindings).map(([keys, what]) => `${keys.padEnd(12)} ${tui(what)}`),
-    '',
     all ? tui('all commands') : tui('common commands'),
     ...(all
       ? ALL_SHELL_COMMANDS
@@ -366,7 +364,37 @@ export function buildHelpOverlayLines(
     ...(all
       ? ['', tui('aliases'), ...slashAliasHelpLines()]
       : ['', tui('type / to browse commands · /help --all for the rest')]),
+    '',
+    tui('shortcuts'),
+    ...helpKeyRows(bindings).map(([keys, what]) => `${keys.padEnd(12)} ${tui(what)}`),
   ];
+}
+
+/** Visible body of the help overlay: `rows - 8`, at least 6. */
+export function helpOverlayWindow(rowCount: number): number {
+  return Math.max(6, rowCount - 8);
+}
+
+/** Slice the help list and tell the user it scrolls, instead of asking them to resize. */
+export function sliceHelpOverlay(
+  lines: readonly string[],
+  rowCount: number,
+  offset = 0
+): { offset: number; lines: string[]; hint?: string } {
+  const window = helpOverlayWindow(rowCount);
+  const maxOffset = Math.max(0, lines.length - window);
+  const start = Math.max(0, Math.min(offset, maxOffset));
+  const visible = lines.slice(start, start + window);
+  const hint = lines.length > window ? tui('  ↑↓ to scroll') : undefined;
+  return { offset: start, lines: visible, ...(hint ? { hint } : {}) };
+}
+
+/** Transcript line for a steer or a follow-up that waits until the run can take it. */
+export function formatSteerQueued(text: string, when: 'next-step' | 'run-finished'): string {
+  const clipped = text.slice(0, 80);
+  const timing =
+    when === 'next-step' ? tui('applies at the next step') : tui('applies when this run finishes');
+  return `${tui('queued: {text}', { text: clipped })} — ${timing}`;
 }
 
 /** `5m` / `2h` / `3d` — a session's age in one glance. */

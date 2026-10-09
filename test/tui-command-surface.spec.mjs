@@ -33,6 +33,7 @@ const { setTuiLocale } = await import('../dist/cli/tui/copy.js');
 const {
   TuiAppRoot,
   buildHelpOverlayLines,
+  sliceHelpOverlay,
   shellPaletteRows,
   paletteFrameRows,
   paletteWindowOffset,
@@ -96,6 +97,15 @@ const React = await import('react');
 
 // The advertised surface is HELP_COMMANDS: the same table the `?` / `/help`
 // overlay prints, so "advertised" and "handled" cannot drift apart.
+const compactHelp = buildHelpOverlayLines(false);
+const doctorAt = compactHelp.findIndex((line) => line.includes('/doctor'));
+assert.ok(doctorAt >= 0 && doctorAt < 27, `/doctor is on screen at 35 rows (line ${doctorAt})`);
+const helpSlice = sliceHelpOverlay(buildHelpOverlayLines(true), 35, 0);
+assert.match(helpSlice.hint ?? '', /↑↓ to scroll/);
+assert.equal((helpSlice.hint ?? '').includes('shorter terminal'), false);
+const helpScrolled = sliceHelpOverlay(buildHelpOverlayLines(true), 35, 1000);
+assert.notEqual(helpScrolled.lines[0], helpSlice.lines[0], '↑↓ moves the help window');
+
 const fullHelpText = buildHelpOverlayLines(true).join('\n');
 for (const entry of HELP_COMMANDS) {
   assert.ok(fullHelpText.includes(entry), `help advertises ${entry}`);

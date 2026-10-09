@@ -82,7 +82,7 @@ export function deviceDestructivePrompt(
       `执行一次 [y]，本会话信任（${trustLabel}）[a]，或拒绝 [N]？ `,
     ].join('\n');
     const headlessReason =
-      `工具「${input.toolName}」是${sensitive ? '敏感的设备读取' : '毁灭性设备操作'}，` +
+      `工具「${input.toolName}」是${sensitive ? '敏感的设备读取' : '毁灭性设备操作'}（${input.reason}），` +
       '而 Moss 正以非交互方式运行，因此已拒绝。' +
       '要放行：在 TTY 上确认，或显式信任：`--trust-device`（仅本进程）、' +
       '`MOSS_DEVICE_TRUST=full`、`permissions.deviceTrust=full`、' +

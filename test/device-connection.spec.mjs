@@ -4,6 +4,7 @@
  * handshake, exec streams, SFTP read/write/list, timeout, auth failure,
  * reconnect, and registry connection reuse.
  */
+import net from 'node:net';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -126,4 +127,56 @@ test('device registry: single connection per endpoint, shared across callers', a
   const result = await a.exec('echo shared');
   assert.equal(result.stdout, 'shared\n');
   assert.equal(a.execCount, 1);
+});
+
+function stallingPort() {
+  let accepts = 0;
+  const server = net.createServer((socket) => {
+    accepts += 1;
+    socket.resume();
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      resolve({
+        server,
+        port: typeof address === 'object' && address ? address.port : 0,
+        accepted: () => accepts,
+      });
+    });
+  });
+}
+
+test('unreachable board fails in one short timeout and names host:port', async (t) => {
+  process.env[PASSWORD_ENV] = 'swordfish';
+  const stalled = await stallingPort();
+  t.after(async () => {
+    stalled.server.close();
+    await disconnectAllDevices();
+  });
+  const target = makeTarget(stalled.port);
+  const started = Date.now();
+  const pending = [
+    getDeviceConnection(target, { connectTimeoutMs: 300 }),
+    getDeviceConnection(target, { connectTimeoutMs: 300 }),
+  ];
+  const settled = await Promise.allSettled(pending);
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 2000, `connect took ${elapsed}ms`);
+  assert.equal(stalled.accepted(), 1, 'parallel callers share one attempt');
+  for (const result of settled) {
+    assert.equal(result.status, 'rejected');
+    if (result.status !== 'rejected') continue;
+    const err = result.reason;
+    assert.match(err.message, new RegExp(`Cannot reach 127\\.0\\.0\\.1:${stalled.port}`));
+    assert.match(err.message, /无法在/);
+    assert.match(err.hint, /已开机/);
+  }
+  const cached = Date.now();
+  await assert.rejects(
+    () => getDeviceConnection(target, { connectTimeoutMs: 300 }),
+    /Cannot reach/
+  );
+  assert.ok(Date.now() - cached < 50, 'a cached failure does not open another socket');
+  assert.equal(stalled.accepted(), 1);
 });
