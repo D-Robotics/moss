@@ -26,6 +26,7 @@ import type {
   TaskPlanStep,
   TaskStateSnapshot,
 } from '../../contracts/task-runtime.js';
+import { experienceEnabled, recordAcceptedExperience } from '../experience/experience-library.js';
 import {
   appendTaskRecord,
   listEvidenceRecords,
@@ -128,6 +129,11 @@ export async function appendTaskEvent(
     ...(data ? { data } : {}),
   };
   await appendJsonl(workspaceDir, EVENTS_FILE, event);
+  if (experienceEnabled()) {
+    await recordAcceptedExperience(workspaceDir, event).catch(() => {
+      // Optional bookkeeping must not fail the task state machine.
+    });
+  }
   return event;
 }
 
@@ -176,7 +182,8 @@ export async function emitAcceptanceLifecycle(
   workspaceDir: string,
   taskId: string,
   passed: boolean,
-  detail: string
+  detail: string,
+  source?: 'command' | 'contract'
 ): Promise<void> {
   const events = await listTaskEvents(workspaceDir, taskId);
   if (events.length === 0) return;
@@ -187,6 +194,7 @@ export async function emitAcceptanceLifecycle(
   }
   await tryAppendTaskEvent(workspaceDir, taskId, passed ? 'acceptance_pass' : 'acceptance_fail', {
     detail: detail.slice(0, 400),
+    ...(source ? { acceptanceSource: source } : {}),
   });
 }
 

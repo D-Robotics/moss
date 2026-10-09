@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { LLMMessage } from '../llm/llm-provider.js';
 import type { ToolContext, ToolResult } from '../tools/tool-types.js';
 import { getRootLogger } from '../../logger.js';
+import { buildExperienceBlock, experienceEnabled } from '../experience/experience-library.js';
 
 const log = getRootLogger().child('agent');
 import { ToolRegistry } from '../tools/tool-registry.js';
@@ -789,6 +790,7 @@ ${result.stderr ?? ''}`.trim();
       abortSignal
     )) as unknown as InternalMessage[];
     const messages = fromSessionMessages(loadedMessages);
+    const isFirstUserTurn = !messages.some((message) => message.role === 'user');
     // Deferred steers belong to the previous run. Deliver them as ordinary
     // user messages ahead of this prompt. takeDeferredSteers clears the stash,
     // so a host that already queued them does not get a second copy.
@@ -816,7 +818,14 @@ ${result.stderr ?? ''}`.trim();
       platform: options?.platform,
       omitExtraPromptLayers: options?.omitExtraPromptLayers === true,
     });
-    const extraContext = options?.extraContext ?? '';
+    let extraContext = options?.extraContext ?? '';
+    if (isFirstUserTurn && experienceEnabled()) {
+      const experience = await buildExperienceBlock(
+        path.resolve(this.config.workspaceDir ?? process.cwd()),
+        activeUserMessage
+      );
+      if (experience) extraContext = extraContext ? `${extraContext}\n\n${experience}` : experience;
+    }
     // Prefix-cache invariant: the system prompt must stay byte-identical
     // across turns — implicit prefix caches match the messages array, and any
     // per-turn dynamic content placed ahead of the history (e.g. a fresh git

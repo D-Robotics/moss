@@ -73,7 +73,13 @@ export async function verifyTaskOnce(
     ...(command ? { command } : {}),
   });
   const verdict = await provider.evaluate(snapshot.taskId);
-  await emitAcceptanceLifecycle(workspace, snapshot.taskId, verdict.passed, verdict.detail);
+  await emitAcceptanceLifecycle(
+    workspace,
+    snapshot.taskId,
+    verdict.passed,
+    verdict.detail,
+    verdict.source
+  );
   if (verdict.passed) {
     return {
       exitCode: 0,

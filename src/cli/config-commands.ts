@@ -316,6 +316,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_BUDGET_ (prefix of the MOSS_BUDGET_MAX_* keys)',
       'MOSS_CAPABILITY_LAYER',
       'MOSS_WORKTREE_SUBAGENTS',
+      'MOSS_EXPERIENCE (1 enables the project-local experience experiment)',
     ],
   },
   {

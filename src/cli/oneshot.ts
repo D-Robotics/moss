@@ -616,7 +616,8 @@ export async function runOneShot(
           passed,
           passed
             ? 'goal verify command exited 0'
-            : `goal verify command failed (exit ${exitCode}): ${tail.slice(0, 300)}`
+            : `goal verify command failed (exit ${exitCode}): ${tail.slice(0, 300)}`,
+          'command'
         );
       } catch {
         /* observability only — never break the run */

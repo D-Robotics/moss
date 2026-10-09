@@ -15,6 +15,7 @@ import {
   listTaskEvents,
   tryAppendTaskEvent,
 } from './task-store.js';
+import { injectExperienceIntoPrompt } from '../experience/experience-library.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
 import { createTaskVerdictProvider } from './verdict.js';
 
@@ -220,6 +221,7 @@ async function verifyRepairLoop(
           verdict.source === 'command'
             ? 'acceptance command exited 0'
             : 'criteria met with evidence',
+        acceptanceSource: verdict.source,
       });
       deps.onProgress?.({
         taskId: state.taskId,
@@ -339,8 +341,9 @@ export async function runTask(
   });
   state.turns += 1;
   try {
+    const prompt = planningPrompt(goal, taskId, options.acceptanceCommand, options.capabilityLayer);
     await deps.runTurn(
-      planningPrompt(goal, taskId, options.acceptanceCommand, options.capabilityLayer),
+      await injectExperienceIntoPrompt(prompt, goal, deps.workspaceDir),
       'planning'
     );
     await appendTaskEvent(deps.workspaceDir, taskId, 'plan_ready');

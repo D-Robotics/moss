@@ -100,6 +100,8 @@ npm run bench:device -- --target sim --repeat 3 --label <name> --keep-artifacts
 
 人（或下一轮的提案者）从这些机制问题里做 1–3 个小改动，并为每个改动写下上面的预测。
 
+经验库（默认关，`MOSS_EXPERIENCE=1` 或配置 `experience: true`）和它跟 bench 的对照方法见 [`experience.md`](experience.md)。
+
 ## 冻结清单
 
 `.rsi/frozen.txt` 只冻评测器、门和安全边界：`bench/**`、bench 与 device bench 的脚本（含 `scripts/lib/device-bench*.mjs` 和 `scripts/lib/bench-artifacts.mjs`）、`scripts/tui-feel/**`、`scripts/rsi/**`、`src/safety/**`、审批相关的三个 CLI 文件、`.github/**`、清单自己。

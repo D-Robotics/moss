@@ -192,7 +192,8 @@ export const taskAcceptanceTool: Tool = {
       ctx.workspaceDir,
       task.taskId,
       result.verdict.verdict === 'pass',
-      formatAcceptanceVerdict(result.verdict, result.task)
+      formatAcceptanceVerdict(result.verdict, result.task),
+      'contract'
     );
     return formatAcceptanceVerdict(result.verdict, result.task);
   },
