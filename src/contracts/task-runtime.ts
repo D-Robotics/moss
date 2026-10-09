@@ -151,6 +151,29 @@ export function isTerminalTaskPhase(phase: TaskPhase): boolean {
   return phase === 'accepted' || phase === 'failed' || phase === 'abandoned';
 }
 
+/**
+ * Phases `/goal resume` and `resumeTask` may re-enter. `accepted` is done.
+ * `draft` has not started. Every other phase can be left behind by a lock
+ * timeout (the timeout cannot itself write `task_failed`).
+ */
+const RESUMABLE_TASK_PHASES: ReadonlySet<TaskPhase> = new Set([
+  'understanding',
+  'planning',
+  'ready',
+  'executing',
+  'verifying',
+  'diagnosing',
+  'repairing',
+  'reverifying',
+  'blocked',
+  'failed',
+  'abandoned',
+]);
+
+export function isResumableTaskPhase(phase: TaskPhase): boolean {
+  return RESUMABLE_TASK_PHASES.has(phase);
+}
+
 export function taskStatusView(phase: TaskPhase): TaskStatusView {
   switch (phase) {
     case 'draft':
@@ -267,7 +290,8 @@ const INFO_EVENTS: ReadonlySet<TaskEventType> = new Set<TaskEventType>([
 export function nextTaskPhase(
   phase: TaskPhase,
   event: TaskEventType,
-  resumePhase?: TaskPhase
+  resumePhase?: TaskPhase,
+  data?: Record<string, unknown>
 ): TaskPhase | null {
   if (isTerminalTaskPhase(phase)) {
     // failed/abandoned tasks can be explicitly resumed (recover). accepted
@@ -276,7 +300,11 @@ export function nextTaskPhase(
     if (event === 'task_resumed' && phase !== 'accepted') {
       return 'executing';
     }
-    if (phase === 'accepted' && event === 'verification_started') {
+    if (
+      phase === 'accepted' &&
+      event === 'verification_started' &&
+      data?.reason === '/task verify'
+    ) {
       return 'verifying';
     }
     return null;

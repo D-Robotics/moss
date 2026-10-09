@@ -1397,11 +1397,17 @@ export function TuiAppRoot({
       if (parsed[0] === 'resume' && !parsed[1]) {
         const candidate = runtime
           .taskSummaries()
-          .filter((task) => task.state === 'BLOCKED' || task.result === 'FAIL')
+          .filter(
+            (task) =>
+              task.state === 'BLOCKED' ||
+              task.state === 'EXECUTING' ||
+              task.state === 'PLANNING' ||
+              task.result === 'FAIL'
+          )
           .sort((left, right) => right.updatedAt - left.updatedAt)[0];
         if (!candidate) {
           printBlock('Resume', [
-            tui('no failed, blocked, or abandoned task is available to resume'),
+            tui('no failed, blocked, abandoned, or in-progress task is available to resume'),
           ]);
           return;
         }

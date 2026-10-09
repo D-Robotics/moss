@@ -5,7 +5,11 @@
  * loop and robotics acceptance stop being two systems here: both are just a
  * verdict provider consulted in the VERIFYING phase.
  */
-import type { TaskStateSnapshot } from '../../contracts/task-runtime.js';
+import {
+  isResumableTaskPhase,
+  isTerminalTaskPhase,
+  type TaskStateSnapshot,
+} from '../../contracts/task-runtime.js';
 import { ErrorCode, MossError } from '../../errors.js';
 import { getRootLogger } from '../../logger.js';
 import {
@@ -186,15 +190,16 @@ async function verifyRepairLoop(
   const maxTurns = deps.maxTurns ?? DEFAULT_MAX_TURNS;
 
   while (true) {
+    // Settled before abort: a turn can accept (or /goal clear) and the user
+    // can press Esc in the same beat. Writing task_failed from a terminal
+    // phase throws, and /goal reports "run crashed" for a task that finished.
+    const current = await getTaskStateSnapshot(workspaceDir, state.taskId);
+    if (!current) return 'failed';
+    if (phaseIsSettled(current.phase)) return settledLoopOutcome(current.phase);
     if (deps.signal?.aborted) {
       await appendTaskEvent(workspaceDir, state.taskId, 'task_failed', { detail: 'aborted' });
       return 'failed';
     }
-    const current = await getTaskStateSnapshot(workspaceDir, state.taskId);
-    if (!current) return 'failed';
-    if (current.phase === 'accepted') return 'accepted';
-    if (current.phase === 'failed' || current.phase === 'abandoned') return 'failed';
-    if (current.phase === 'blocked') return 'blocked';
 
     state.turns += 1;
     if (state.turns > maxTurns) {
@@ -213,6 +218,14 @@ async function verifyRepairLoop(
       executionPrompt(current.goal ?? '', state.taskId, state.repairsUsed + 1),
       'executing'
     );
+
+    // The turn may already have accepted, failed, abandoned, or blocked the
+    // task (task_acceptance, /goal clear). Do not reopen it with
+    // verification_started — that would bump the attempt and, on a failing
+    // command, fall into repair.
+    const afterExecution = await getTaskStateSnapshot(workspaceDir, state.taskId);
+    // Loop top returns the settled outcome before it consults abort.
+    if (phaseIsSettled(afterExecution?.phase)) continue;
 
     // Tolerant: the agent may already have entered verification via the
     // task_acceptance tool during its turn.
@@ -285,10 +298,30 @@ async function verifyRepairLoop(
       ),
       'repairing'
     );
+    // task_acceptance during the repair turn can accept the task. repair_applied
+    // is illegal from a terminal or blocked phase and would surface as
+    // "run crashed" even though the goal already finished.
+    const afterRepair = await getTaskStateSnapshot(workspaceDir, state.taskId);
+    // Same as the execution turn: Esc after acceptance must not append task_failed.
+    if (phaseIsSettled(afterRepair?.phase)) continue;
     await appendTaskEvent(workspaceDir, state.taskId, 'repair_applied', {
       detail: `repair attempt ${state.repairsUsed}`,
     });
   }
+}
+
+function phaseIsSettled(phase: TaskStateSnapshot['phase'] | undefined): boolean {
+  return phase === 'blocked' || (phase !== undefined && isTerminalTaskPhase(phase));
+}
+
+function settledLoopOutcome(phase: TaskStateSnapshot['phase']): 'accepted' | 'failed' | 'blocked' {
+  if (phase === 'accepted') return 'accepted';
+  if (phase === 'blocked') return 'blocked';
+  return 'failed';
+}
+
+function isTaskEventLockTimeout(err: unknown): boolean {
+  return err instanceof MossError && err.code === ErrorCode.EXECUTION_LEASE_HELD;
 }
 
 async function buildRunResult(
@@ -311,9 +344,9 @@ async function buildRunResult(
 }
 
 /**
- * plan_ready / execution_started are illegal once the planning turn has
- * already accepted. That one case is skipped. Any other illegal transition
- * is logged and thrown — tryAppend would hide it.
+ * plan_ready / execution_started are illegal once the task is terminal or
+ * blocked (the turn accepted, or another session ran /goal clear). That case
+ * is skipped. Any other illegal transition is logged and thrown.
  */
 async function appendUnlessAccepted(
   workspaceDir: string,
@@ -321,7 +354,7 @@ async function appendUnlessAccepted(
   type: 'plan_ready' | 'execution_started'
 ): Promise<void> {
   const snapshot = await getTaskStateSnapshot(workspaceDir, taskId);
-  if (snapshot?.phase === 'accepted') return;
+  if (phaseIsSettled(snapshot?.phase)) return;
   try {
     await appendTaskEvent(workspaceDir, taskId, type);
   } catch (err) {
@@ -432,29 +465,41 @@ export async function runTask(
       await verifyRepairLoop(deps, state, provider, maxRepairAttempts);
     }
   } catch (err) {
-    // A crashed run must stay resumable: mark the task failed (valid from any
-    // live phase) instead of leaving it stuck in planning/executing where
-    // `resumeTask` refuses to re-enter.
-    await tryAppendTaskEvent(deps.workspaceDir, taskId, 'task_failed', {
-      detail: `run crashed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200),
-    });
+    // A lock timeout is the error: wrapping it as task_failed "run crashed"
+    // hides the cause, and the wrap needs the same lock.
+    if (!isTaskEventLockTimeout(err)) {
+      // A crashed run must stay resumable: mark the task failed (valid from any
+      // live phase) instead of leaving it stuck in planning/executing where
+      // `resumeTask` refuses to re-enter.
+      await tryAppendTaskEvent(deps.workspaceDir, taskId, 'task_failed', {
+        detail: `run crashed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200),
+      });
+    }
     throw err;
   }
   return buildRunResult(deps.workspaceDir, taskId, state);
 }
 
 /**
- * Resume a failed/abandoned/blocked task: re-enter executing and run the same
- * verify→repair cycle from current state (no new planning turns).
+ * Resume a task and run the same verify→repair cycle from current state (no
+ * new planning turns). Failed, abandoned, and blocked tasks re-enter through
+ * `task_resumed`. A lock timeout cannot write that event, so a task left in
+ * executing (or any other live phase) is resumed in place.
  */
 export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<TaskRunResult> {
   const snapshot = await getTaskStateSnapshot(deps.workspaceDir, taskId);
   if (!snapshot) throw new Error(`task ${taskId} not found`);
   if (snapshot.phase === 'accepted') throw new Error(`task ${taskId} is already accepted`);
-  if (!['failed', 'abandoned', 'blocked'].includes(snapshot.phase)) {
+  if (!isResumableTaskPhase(snapshot.phase)) {
     throw new Error(`task ${taskId} is ${snapshot.phase}; nothing to resume`);
   }
-  await appendTaskEvent(deps.workspaceDir, taskId, 'task_resumed', { detail: 'resumed by user' });
+  if (
+    snapshot.phase === 'failed' ||
+    snapshot.phase === 'abandoned' ||
+    snapshot.phase === 'blocked'
+  ) {
+    await appendTaskEvent(deps.workspaceDir, taskId, 'task_resumed', { detail: 'resumed by user' });
+  }
   const provider =
     deps.verdictProvider ?? createTaskVerdictProvider({ workspaceDir: deps.workspaceDir });
   const state: RunLoopState = { taskId, turns: 0, repairsUsed: 0 };
@@ -466,9 +511,11 @@ export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<
       deps.maxRepairAttempts ?? DEFAULT_MAX_REPAIR_ATTEMPTS
     );
   } catch (err) {
-    await tryAppendTaskEvent(deps.workspaceDir, taskId, 'task_failed', {
-      detail: `run crashed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200),
-    });
+    if (!isTaskEventLockTimeout(err)) {
+      await tryAppendTaskEvent(deps.workspaceDir, taskId, 'task_failed', {
+        detail: `run crashed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200),
+      });
+    }
     throw err;
   }
   return buildRunResult(deps.workspaceDir, taskId, state);

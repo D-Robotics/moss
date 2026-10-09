@@ -137,11 +137,18 @@ test('guard: terminal phases are immutable except explicit resume', () => {
       assert.equal(t(terminal, event), null, `${terminal} + ${event} must be invalid`);
     }
   }
-  // accepted is final: resume means a new task, not mutating the record
+  // accepted is final: resume means a new task, not mutating the record.
+  // A bare verification_started must not reopen it — only /task verify does.
   assert.equal(t('accepted', 'task_resumed'), null);
-  // /task verify re-opens an accepted task by appending verification, not by
-  // rewriting the earlier acceptance_pass.
-  assert.equal(t('accepted', 'verification_started'), 'verifying');
+  assert.equal(t('accepted', 'verification_started'), null);
+  assert.equal(
+    nextTaskPhase('accepted', 'verification_started', undefined, { reason: '/task verify' }),
+    'verifying'
+  );
+  assert.equal(
+    nextTaskPhase('accepted', 'verification_started', undefined, { reason: 'agent' }),
+    null
+  );
   assert.equal(t('accepted', 'acceptance_fail'), null);
   assert.equal(t('accepted', 'note'), null);
 });

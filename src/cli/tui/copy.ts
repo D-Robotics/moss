@@ -377,8 +377,8 @@ export const ZH: Readonly<Record<string, string>> = {
 
   // ── command block bodies (app.ts) ──────────────────────────────────────
   'a run is in flight — press Esc to interrupt it first': '有 run 正在运行 — 先按 Esc 中断它',
-  'no failed, blocked, or abandoned task is available to resume':
-    '没有可恢复的失败、受阻或已放弃任务',
+  'no failed, blocked, abandoned, or in-progress task is available to resume':
+    '没有可恢复的失败、受阻、已放弃或进行中的任务',
   'interrupted the active run': '已中断当前运行',
   'no run in flight — nothing to interrupt': '没有运行中的 run — 无需中断',
   'transcript cleared — new conversation, empty context (previous: `moss --continue`)':

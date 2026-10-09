@@ -25,6 +25,7 @@ import {
   SLASH_MENU_ROWS,
   slashAliasHelpLines,
 } from './interactive-commands.js';
+import { isResumableTaskPhase } from '../contracts/task-runtime.js';
 import { listBackgroundProcessSnapshots } from '../core/tools/background-process-registry.js';
 import { CliServices } from './cli-services.js';
 import { resolveRealModel } from './model-resolution.js';
@@ -531,7 +532,7 @@ export async function runInteractive(
       if (plan.kind === 'resume') {
         const { listTaskStateSnapshots } = await import('../core/index.js');
         const resumable = (await listTaskStateSnapshots(workspace))
-          .filter((s) => ['failed', 'abandoned', 'blocked'].includes(s.phase))
+          .filter((s) => isResumableTaskPhase(s.phase))
           .sort((a, b) => b.updatedAt - a.updatedAt)[0];
         if (!resumable) {
           process.stderr.write('No resumable task found. Start one with /goal <condition>.\n');

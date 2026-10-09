@@ -7,9 +7,12 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+
+import { MossError } from '../dist/errors.js';
 
 import {
   DEFAULT_MAX_REPAIR_ATTEMPTS,
@@ -20,6 +23,7 @@ import {
 } from '../dist/core/task/task-engine.js';
 import {
   appendTaskEvent,
+  createDraftTask,
   listTaskEvents,
   recordFailure,
   recordRepair,
@@ -158,6 +162,136 @@ test('a satisfied planning contract runs the command once and skips the executio
   assert.equal(result.outcome, 'pass');
 });
 
+test('a repair turn that already accepted does not crash on repair_applied', async () => {
+  const ws = await tmpWorkspace();
+  let taskId;
+  const { runTurn, calls } = mockAgent(ws, [
+    async (dir) => {
+      const events = await listTaskEvents(dir);
+      taskId = events[0].taskId;
+      await appendTaskRecord(dir, {
+        taskId,
+        goal: 'repair then accept',
+        acceptanceCriteria: [{ metric: 'x', expected: '>=1' }],
+        status: 'active',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    },
+    async () => {},
+    async (dir) => {
+      await appendTaskEvent(dir, taskId, 'verification_started');
+      await appendTaskEvent(dir, taskId, 'acceptance_pass', { detail: 'repaired in the turn' });
+    },
+  ]);
+  const result = await runTask({ workspaceDir: ws, runTurn }, 'repair then accept');
+  assert.equal(result.outcome, 'pass');
+  assert.equal(result.snapshot.phase, 'accepted');
+  assert.equal(calls.at(-1).phase, 'repairing');
+  const types = (await listTaskEvents(ws, taskId)).map((event) => event.type);
+  assert.equal(types.filter((type) => type === 'repair_applied').length, 0);
+  assert.equal(types.at(-1), 'acceptance_pass');
+});
+
+test('accepted in a turn plus abort returns pass without throwing', async () => {
+  const ws = await tmpWorkspace();
+  const controller = new AbortController();
+  let taskId;
+  const { runTurn } = mockAgent(ws, [
+    async (dir) => {
+      const events = await listTaskEvents(dir);
+      taskId = events[0].taskId;
+      await appendTaskRecord(dir, {
+        taskId,
+        goal: 'accept then abort',
+        acceptanceCriteria: [{ metric: 'x', expected: '>=1' }],
+        status: 'active',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    },
+    async () => {
+      await appendTaskEvent(ws, taskId, 'verification_started');
+      await appendTaskEvent(ws, taskId, 'acceptance_pass', { detail: 'accepted before esc' });
+      controller.abort();
+    },
+  ]);
+  const result = await runTask(
+    { workspaceDir: ws, runTurn, signal: controller.signal },
+    'accept then abort'
+  );
+  assert.equal(result.outcome, 'pass');
+  assert.equal(result.snapshot.phase, 'accepted');
+  const types = (await listTaskEvents(ws, taskId)).map((event) => event.type);
+  assert.equal(types.includes('task_failed'), false);
+  assert.equal(types.at(-1), 'acceptance_pass');
+});
+
+test('an execution turn that already accepted is not reopened by a failing command', async () => {
+  const ws = await tmpWorkspace();
+  let taskId;
+  let runs = 0;
+  const { runTurn, calls } = mockAgent(ws, [
+    async (dir) => {
+      const events = await listTaskEvents(dir);
+      taskId = events[0].taskId;
+      await appendTaskRecord(dir, {
+        taskId,
+        goal: 'already accepted',
+        acceptanceCriteria: [{ metric: 'x', expected: '>=1' }],
+        status: 'active',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    },
+    async (dir) => {
+      await appendTaskEvent(dir, taskId, 'verification_started');
+      await appendTaskEvent(dir, taskId, 'acceptance_pass', { detail: 'agent accepted' });
+    },
+  ]);
+  const result = await runTask(
+    {
+      workspaceDir: ws,
+      runTurn,
+      verdictProvider: {
+        source: 'command',
+        async evaluate(id) {
+          runs += 1;
+          return {
+            taskId: id,
+            passed: false,
+            source: 'command',
+            detail: 'acceptance command failed (exit 1)',
+          };
+        },
+      },
+    },
+    'already accepted'
+  );
+  assert.equal(result.outcome, 'pass');
+  assert.equal(result.snapshot.phase, 'accepted');
+  assert.equal(runs, 0);
+  assert.deepEqual(
+    calls.map((call) => call.phase),
+    ['planning', 'executing']
+  );
+  const types = (await listTaskEvents(ws, taskId)).map((event) => event.type);
+  assert.equal(types.filter((type) => type === 'verification_started').length, 1);
+});
+
+test('task_abandoned during planning ends as fail without throwing', async () => {
+  const ws = await tmpWorkspace();
+  const { runTurn } = mockAgent(ws, [
+    async (dir) => {
+      const events = await listTaskEvents(dir);
+      await appendTaskEvent(dir, events[0].taskId, 'task_abandoned', { reason: '/goal clear' });
+    },
+  ]);
+  const result = await runTask({ workspaceDir: ws, runTurn }, 'cleared mid plan');
+  assert.equal(result.outcome, 'fail');
+  assert.equal(result.snapshot.phase, 'abandoned');
+});
+
 test('planning handoff skips events only when the turn already accepted', async () => {
   const ws = await tmpWorkspace();
   const { runTurn, calls } = mockAgent(ws, [
@@ -206,6 +340,45 @@ test('planning handoff logs and throws an illegal transition other than already-
   assert.equal(warnings[0].msg, 'refusing illegal task phase transition');
   assert.equal(warnings[0].data.type, 'plan_ready');
   assert.equal(warnings[0].data.phase, 'verifying');
+});
+
+test('a held task event lock surfaces as a lock timeout, not a crashed run', async () => {
+  const ws = await tmpWorkspace();
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)'], {
+    stdio: 'ignore',
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      child.once('spawn', resolve);
+      child.once('error', reject);
+    });
+    const { runTurn } = mockAgent(ws, [
+      async (dir) => {
+        await fs.writeFile(
+          path.join(dir, '.moss', 'task-events.jsonl.lock'),
+          String(child.pid),
+          'utf8'
+        );
+      },
+    ]);
+    const started = Date.now();
+    await assert.rejects(
+      () => runTask({ workspaceDir: ws, runTurn }, 'lock timeout'),
+      (err) => {
+        assert.ok(err instanceof MossError);
+        assert.equal(err.code, 'EXECUTION_LEASE_HELD');
+        assert.match(err.message, /task event lock/);
+        assert.doesNotMatch(err.message, /run crashed/);
+        return true;
+      }
+    );
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 8000, `lock timeout took ${elapsed}ms (a second wait would be ~10s)`);
+    const raw = await fs.readFile(path.join(ws, '.moss', 'task-events.jsonl'), 'utf8');
+    assert.doesNotMatch(raw, /run crashed/);
+  } finally {
+    child.kill();
+  }
 });
 
 test('long-horizon defaults outlast a short demo loop', () => {
@@ -455,7 +628,38 @@ test('resumeTask re-enters execution and can finish a failed task', async () => 
   assert.equal(types[types.length - 1], 'acceptance_pass');
 });
 
-test('resumeTask refuses accepted and live tasks', async () => {
+test('resumeTask re-enters a task left executing', async () => {
+  const ws = await tmpWorkspace();
+  const { taskId } = await createDraftTask(ws, 'left executing');
+  await appendTaskEvent(ws, taskId, 'execution_started');
+  await appendTaskRecord(ws, {
+    taskId,
+    goal: 'left executing',
+    acceptanceCriteria: [{ metric: 'x', expected: '>=1' }],
+    status: 'active',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+  await appendEvidenceRecord(ws, {
+    evidenceId: 'ev_left_executing',
+    taskId,
+    source: 'test',
+    metric: 'x',
+    expected: '>=1',
+    observed: 2,
+    result: 'pass',
+    timestamp: Date.now(),
+  });
+  const { runTurn } = mockAgent(ws, [async () => {}]);
+  const result = await resumeTask({ workspaceDir: ws, runTurn }, taskId);
+  assert.equal(result.outcome, 'pass');
+  assert.equal(result.snapshot.phase, 'accepted');
+  const types = (await listTaskEvents(ws, taskId)).map((event) => event.type);
+  assert.equal(types.includes('task_resumed'), false);
+  assert.equal(types.at(-1), 'acceptance_pass');
+});
+
+test('resumeTask refuses an accepted task and a missing task', async () => {
   const ws = await tmpWorkspace();
   const { runTurn } = mockAgent(ws, [
     async (dir) => {

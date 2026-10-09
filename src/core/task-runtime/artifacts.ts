@@ -11,6 +11,12 @@ import type { DeploymentRecord } from '../../contracts/deployment.js';
 import type { EvidenceRecord } from '../../contracts/evidence.js';
 import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
 import { listDeploymentRecords } from '../../device/deployment.js';
+import { getRootLogger } from '../../logger.js';
+
+const jsonlLog = getRootLogger().child('task-jsonl');
+
+/** One warn per file per process; later reads of the same torn file are debug. */
+const jsonlParseWarned = new Set<string>();
 
 export interface TaskArtifacts {
   /** Latest contract version per taskId, in first-definition order. */
@@ -23,20 +29,81 @@ export interface TaskArtifacts {
   acceptance: AcceptanceVerdict[];
 }
 
-async function readJsonl<T>(file: string): Promise<T[]> {
+/**
+ * Read a JSONL file line by line. A torn or non-JSON line is skipped so one
+ * bad line cannot hide every earlier record. Missing files are empty.
+ * The first skip for a file warns once; later reads only debug.
+ */
+export async function readJsonlFile<T>(file: string): Promise<T[]> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(file, 'utf8');
-    const lines = raw.split('\n').filter((line) => line.trim() !== '');
-    return lines.map((line) => JSON.parse(line) as T);
+    raw = await fs.readFile(file, 'utf8');
   } catch {
     return [];
+  }
+  const rows: T[] = [];
+  let skipped = 0;
+  for (const line of raw.split('\n')) {
+    if (line.trim() === '') continue;
+    try {
+      rows.push(JSON.parse(line) as T);
+    } catch {
+      skipped += 1;
+    }
+  }
+  if (skipped > 0) {
+    const key = path.resolve(file);
+    const payload = { file: key, skipped };
+    if (jsonlParseWarned.has(key)) {
+      jsonlLog.debug('skipping unparseable jsonl line', payload);
+    } else {
+      jsonlParseWarned.add(key);
+      jsonlLog.warn('skipping unparseable jsonl line', payload);
+    }
+  }
+  return rows;
+}
+
+async function readJsonl<T>(file: string): Promise<T[]> {
+  return readJsonlFile<T>(file);
+}
+
+/**
+ * Append one JSONL record. If the file does not end in a newline, write one
+ * first so a torn trailing line is not glued to the new record. Callers that
+ * share a file across processes must hold their own lock around this; the
+ * task-event lock is not re-entrant.
+ */
+export async function appendJsonlFile(file: string, record: unknown): Promise<void> {
+  await ensureTrailingNewline(file);
+  await fs.appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
+}
+
+async function ensureTrailingNewline(file: string): Promise<void> {
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+  try {
+    handle = await fs.open(file, 'r+');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
+  }
+  try {
+    const stat = await handle.stat();
+    if (stat.size === 0) return;
+    const buf = Buffer.alloc(1);
+    const { bytesRead } = await handle.read(buf, 0, 1, stat.size - 1);
+    if (bytesRead === 1 && buf[0] !== 0x0a) {
+      await handle.write(Buffer.from('\n'), 0, 1, stat.size);
+    }
+  } finally {
+    await handle.close();
   }
 }
 
 async function appendJsonl(workspaceDir: string, name: string, record: unknown): Promise<void> {
   const dir = path.join(workspaceDir, '.moss');
   await fs.mkdir(dir, { recursive: true });
-  await fs.appendFile(path.join(dir, name), `${JSON.stringify(record)}\n`, 'utf8');
+  await appendJsonlFile(path.join(dir, name), record);
 }
 
 export async function appendTaskRecord(workspaceDir: string, task: TaskContract): Promise<void> {
