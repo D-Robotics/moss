@@ -64,6 +64,9 @@ test('append validates and rejects a duplicate round', () => {
   const bad = blankEntry(5);
   bad.tier = 'C';
   assert.throws(() => validateEntry(bad), /tier/);
+  const leaked = blankEntry(6);
+  leaked.apiKey = 'must-not-enter-ledger';
+  assert.throws(() => validateEntry(leaked), /sensitive data/);
 });
 
 test('ledger CLI refuses when RSI is disabled', () => {

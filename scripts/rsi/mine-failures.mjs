@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { redactKnownSecrets, sensitiveDataPaths } from './lib/secrets.mjs';
 
 const MOSS_CODES = [
   'USER_INPUT_INVALID',
@@ -116,7 +117,7 @@ function pad(sample) {
 
 export function normalizeCheckOutput(output) {
   if (typeof output !== 'string' || !output.trim()) return '';
-  const lines = output.split(/\r?\n/).slice(0, 3).join('\n');
+  const lines = redactKnownSecrets(output).split(/\r?\n/).slice(0, 3).join('\n');
   return lines
     .replace(/[A-Za-z]:\\[^\s]+/g, '<path>')
     .replace(/(?:\/|\\)(?:[^\s/\\]+[/\\])*[^\s/\\]+/g, '<path>')
@@ -554,6 +555,13 @@ if (isDirect()) {
     process.exit(2);
   }
   const backlog = mineFailures(args);
+  const sensitive = sensitiveDataPaths(backlog);
+  if (sensitive.length > 0) {
+    console.error(
+      `[rsi:mine] refusing to write secrets to the RSI backlog: ${sensitive.join(', ')}`
+    );
+    process.exit(2);
+  }
   fs.mkdirSync(path.dirname(args.out), { recursive: true });
   fs.writeFileSync(args.out, `${JSON.stringify(backlog, null, 2)}\n`);
   console.log(

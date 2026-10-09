@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { sensitiveDataPaths } from './lib/secrets.mjs';
 
 const GATE_KEYS = ['G0', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7'];
 const DECISIONS = new Set([
@@ -80,6 +81,10 @@ export function validateEntry(entry, index) {
   const where = index === undefined ? 'entry' : `line ${index + 1}`;
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
     throw new Error(`${where}: not an object`);
+  }
+  const sensitive = sensitiveDataPaths(entry);
+  if (sensitive.length > 0) {
+    throw new Error(`${where}: sensitive data is not allowed (${sensitive.join(', ')})`);
   }
   for (const key of REQUIRED) {
     if (!Object.hasOwn(entry, key)) throw new Error(`${where}: missing ${key}`);

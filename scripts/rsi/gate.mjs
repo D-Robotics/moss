@@ -9,8 +9,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { decide, exitCodeFor } from './lib/decide.mjs';
-import { changedPaths, headSha, netLineChange } from './lib/git.mjs';
-import { frozenHits, loadFrozenPatterns, testCountReport } from './lib/frozen.mjs';
+import { changedPaths, headSha, netLineChange, refSha } from './lib/git.mjs';
+import {
+  frozenHits,
+  loadFrozenPatternsForBase,
+  protectedScriptReport,
+  testCountReport,
+} from './lib/frozen.mjs';
 import {
   evaluateCost,
   evaluateDevRegression,
@@ -112,12 +117,25 @@ function benchEnv(extra = {}) {
   return env;
 }
 
+function stoppedReason(repo) {
+  if (process.env.MOSS_RSI_DISABLED === '1') return 'MOSS_RSI_DISABLED=1';
+  if (fs.existsSync(path.join(repo, '.rsi', 'STOP'))) return '.rsi/STOP exists';
+  return null;
+}
+
+function assertNotStopped(repo) {
+  const reason = stoppedReason(repo);
+  if (reason) throw new Error(`RSI refused: ${reason}`);
+}
+
 function runCommand(repo, command, args) {
+  assertNotStopped(repo);
   const result = spawnSync(command, args, {
     cwd: repo,
     env: benchEnv(),
     stdio: 'inherit',
   });
+  assertNotStopped(repo);
   return result.status ?? 1;
 }
 
@@ -224,22 +242,15 @@ function newestTuiReport(repo, notBeforeMs) {
 
 export async function runGate(options) {
   const repo = options.repo;
-  if (process.env.MOSS_RSI_DISABLED === '1') {
-    return {
-      exitCode: 2,
-      refused: true,
-      report: { decision: 'stopped', accepted: false, reason: 'MOSS_RSI_DISABLED=1' },
-    };
-  }
-  const stopFile = path.join(repo, '.rsi', 'STOP');
-  if (fs.existsSync(stopFile)) {
+  const initialStop = stoppedReason(repo);
+  if (initialStop) {
     return {
       exitCode: 2,
       refused: true,
       report: {
         decision: 'stopped',
         accepted: false,
-        reason: '.rsi/STOP exists',
+        reason: initialStop,
         round: options.round ?? null,
       },
     };
@@ -252,13 +263,18 @@ export async function runGate(options) {
   const prior = readPriorGate(repo, options.round);
   const label = options.label ?? `rsi-r${options.round}`;
   const deviceLabel = `${label}-device`;
+  const currentHeadSha = headSha(repo);
+  const currentBaseSha = refSha(repo, options.base);
   const paths = changedPaths(repo, options.base);
   const frozenFile = path.join(repo, '.rsi', 'frozen.txt');
   if (!fs.existsSync(frozenFile)) throw new Error(`missing ${frozenFile}`);
-  const patterns = loadFrozenPatterns(frozenFile);
+  const patterns = loadFrozenPatternsForBase(repo, options.base, frozenFile);
+  const priorMatchesRevision =
+    prior?.headSha === currentHeadSha && prior?.baseSha === currentBaseSha;
 
   const gates = {};
   const reuse = (name) => {
+    if (!priorMatchesRevision) return false;
     const previous = prior?.gates?.[name];
     if (previous && (previous.status === 'pass' || previous.status === 'not-applicable')) {
       gates[name] = { ...previous, reused: true };
@@ -270,9 +286,11 @@ export async function runGate(options) {
   if (runDev || runHoldout) {
     const hits = frozenHits(patterns, paths);
     const tests = testCountReport(repo, options.base);
+    const scripts = protectedScriptReport(repo, options.base);
     const reasons = [
       ...hits.map((hit) => `frozen: ${hit.file} (${hit.patterns.join(', ')})`),
       ...tests.reasons,
+      ...scripts.reasons,
     ];
     gates.G0 = gateShell(reasons.length === 0 ? 'pass' : 'fail', reasons, {
       changedPaths: paths,
@@ -281,7 +299,11 @@ export async function runGate(options) {
         afterFiles: tests.afterFiles,
         beforeCases: tests.beforeCases,
         afterCases: tests.afterCases,
+        beforeAssertions: tests.beforeAssertions,
+        afterAssertions: tests.afterAssertions,
+        assertionRemovals: tests.assertionRemovals,
       },
+      protectedScriptsChanged: scripts.changed,
     });
   }
 
@@ -292,10 +314,15 @@ export async function runGate(options) {
       gates.G1 = gateShell('skipped', ['skipped by --skip-verify']);
     } else {
       const verify = await (options.verifyRunner ?? defaultVerify)(repo);
+      assertNotStopped(repo);
       gates.G1 = gateShell(verify.status, verify.reasons ?? []);
     }
   } else if (!reuse('G1')) {
-    gates.G1 = gateShell('missing', ['no prior dev gate for this round']);
+    gates.G1 = gateShell('missing', [
+      prior && !priorMatchesRevision
+        ? 'prior dev gate does not match the current base/head revision'
+        : 'no prior dev gate for this round',
+    ]);
   }
 
   const devSummaryPath =
@@ -312,6 +339,7 @@ export async function runGate(options) {
       model: options.model,
       baseUrl: options.baseUrl,
     });
+    assertNotStopped(repo);
     devSummary = loadOptional(path.join(repo, 'bench', 'results', label, 'summary.json'));
     if (!baselineSummary) baselineSummary = loadOptional(baselinePath);
     if (code !== 0 && !devSummary) {
@@ -336,7 +364,11 @@ export async function runGate(options) {
       baseline: baselinePath,
     });
   } else if (!runDev && !gates.G2 && !reuse('G2')) {
-    gates.G2 = gateShell('missing', ['no prior dev gate for this round']);
+    gates.G2 = gateShell('missing', [
+      prior && !priorMatchesRevision
+        ? 'prior dev gate does not match the current base/head revision'
+        : 'no prior dev gate for this round',
+    ]);
   }
 
   const deviceSummaryPath = resolveSummary(repo, options.deviceSummary);
@@ -349,6 +381,7 @@ export async function runGate(options) {
       model: options.model,
       baseUrl: options.baseUrl,
     });
+    assertNotStopped(repo);
     deviceSummary = loadOptional(path.join(repo, 'bench', 'results', deviceLabel, 'summary.json'));
     if (code !== 0 && !deviceSummary) {
       gates.G3 = gateShell('fail', [`bench-device exited ${code} without a summary`]);
@@ -363,7 +396,11 @@ export async function runGate(options) {
       falseSuccess: result.falseSuccess ?? null,
     });
   } else if (!runDev && !reuse('G3')) {
-    gates.G3 = gateShell('missing', ['no prior dev gate for this round']);
+    gates.G3 = gateShell('missing', [
+      prior && !priorMatchesRevision
+        ? 'prior dev gate does not match the current base/head revision'
+        : 'no prior dev gate for this round',
+    ]);
   }
 
   let costDropPct;
@@ -378,7 +415,11 @@ export async function runGate(options) {
       costDropPct: cost.costDropPct,
     });
   } else if (!reuse('G4')) {
-    gates.G4 = gateShell('missing', ['no prior dev gate for this round']);
+    gates.G4 = gateShell('missing', [
+      prior && !priorMatchesRevision
+        ? 'prior dev gate does not match the current base/head revision'
+        : 'no prior dev gate for this round',
+    ]);
     costDropPct = prior?.costDropPct ?? null;
   } else {
     costDropPct = gates.G4.costDropPct ?? prior?.costDropPct ?? null;
@@ -391,6 +432,7 @@ export async function runGate(options) {
     if (cliChanged && !options.fromResults && gates.G0.status === 'pass' && !tuiSummary) {
       const started = Date.now();
       const code = await (options.tuiRunner ?? runTui)(repo);
+      assertNotStopped(repo);
       const produced = newestTuiReport(repo, started);
       tuiSummary = loadOptional(produced);
       if (code !== 0 && !tuiSummary) {
@@ -402,7 +444,11 @@ export async function runGate(options) {
       gates.G5 = gateShell(result.status, result.reasons);
     }
   } else if (!reuse('G5')) {
-    gates.G5 = gateShell('missing', ['no prior dev gate for this round']);
+    gates.G5 = gateShell('missing', [
+      prior && !priorMatchesRevision
+        ? 'prior dev gate does not match the current base/head revision'
+        : 'no prior dev gate for this round',
+    ]);
   }
 
   const holdoutRaw = options.holdoutScores ?? process.env.MOSS_RSI_HOLDOUT_SCORES ?? null;
@@ -458,18 +504,14 @@ export async function runGate(options) {
     costDropPct = null;
   }
 
+  assertNotStopped(repo);
   const verdict = decide(gates, { costDropPct, netDeletion: lines.net < 0 });
-  let sha;
-  try {
-    sha = headSha(repo);
-  } catch {
-    sha = null;
-  }
   const report = {
     round: options.round,
     split,
     base: options.base,
-    headSha: sha,
+    baseSha: currentBaseSha,
+    headSha: currentHeadSha,
     fromResults: Boolean(options.fromResults),
     decision: verdict.decision,
     accepted: verdict.accepted,

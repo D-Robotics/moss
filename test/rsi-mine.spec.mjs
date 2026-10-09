@@ -27,6 +27,19 @@ test('check output normalization strips paths and numbers', () => {
   assert.equal(normalized.includes('12'), false);
 });
 
+test('check output normalization redacts known secret environment values', () => {
+  const previous = process.env.MOSS_BENCH_API_KEY;
+  process.env.MOSS_BENCH_API_KEY = 'rsi-secret-canary';
+  try {
+    const normalized = normalizeCheckOutput('provider rejected rsi-secret-canary');
+    assert.equal(normalized.includes('rsi-secret-canary'), false);
+    assert.match(normalized, /\[redacted\]/);
+  } finally {
+    if (previous === undefined) delete process.env.MOSS_BENCH_API_KEY;
+    else process.env.MOSS_BENCH_API_KEY = previous;
+  }
+});
+
 test('fixture mine yields at least 5 signed items and hides holdout tasks', () => {
   const first = mine();
   const second = mine();

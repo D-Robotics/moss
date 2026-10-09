@@ -12,6 +12,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { decide, exitCodeFor } from '../scripts/rsi/lib/decide.mjs';
 import { globToRegExp, loadFrozenPatterns, matchFrozen } from '../scripts/rsi/lib/frozen.mjs';
+import { runGate } from '../scripts/rsi/gate.mjs';
 import {
   evaluateCost,
   evaluateDevRegression,
@@ -46,6 +47,7 @@ function git(cwd, args) {
   if (result.status !== 0) {
     throw new Error(`${args.join(' ')}\n${result.stderr || result.stdout}`);
   }
+  return result.stdout.trim();
 }
 
 function write(repo, file, text) {
@@ -63,6 +65,8 @@ function initRepo() {
   write(repo, 'test/keep.spec.mjs', "test('keep', () => {});\n");
   write(repo, 'test/drop.spec.mjs', "test('drop', () => {});\n");
   write(repo, 'src/core/loop/nudges/registry.ts', 'export const registered = true;\n');
+  write(repo, 'scripts/rsi/guard.mjs', 'export const guard = true;\n');
+  write(repo, 'package.json', fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
   git(repo, ['add', '-A']);
   git(repo, ['commit', '-m', 'base']);
   return repo;
@@ -240,6 +244,86 @@ test('G0 rejects deleting a test and adding a focused test', () => {
   assert.ok(focusedReport.gates.G0.reasons.some((reason) => reason.includes('new skip or only')));
 });
 
+test('G0 rejects protected package script retargeting', () => {
+  const repo = initRepo();
+  const pkg = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8'));
+  pkg.scripts.verify = 'node -e "process.exit(0)"';
+  write(repo, 'package.json', `${JSON.stringify(pkg, null, 2)}\n`);
+  commitAll(repo, 'retarget verify');
+  const result = runCli(repo, [
+    '--round',
+    '1',
+    '--base',
+    'HEAD~1',
+    '--split',
+    'dev',
+    '--from-results',
+    '--skip-verify',
+  ]);
+  assert.equal(result.status, 1, result.stderr);
+  const report = reportOf(repo, 1);
+  assert.equal(report.gates.G0.status, 'fail');
+  assert.ok(report.gates.G0.reasons.includes('protected package script changed: verify'));
+});
+
+test('G0 uses the base frozen list when the candidate weakens frozen.txt', () => {
+  const repo = initRepo();
+  const frozen = fs
+    .readFileSync(path.join(repo, '.rsi/frozen.txt'), 'utf8')
+    .replace('scripts/rsi/**\n', '')
+    .replace('.rsi/frozen.txt\n', '');
+  write(repo, '.rsi/frozen.txt', frozen);
+  write(repo, 'scripts/rsi/guard.mjs', 'export const guard = false;\n');
+  commitAll(repo, 'weaken freeze list');
+  const result = runCli(repo, [
+    '--round',
+    '1',
+    '--base',
+    'HEAD~1',
+    '--split',
+    'dev',
+    '--from-results',
+    '--skip-verify',
+  ]);
+  assert.equal(result.status, 1, result.stderr);
+  const reasons = reportOf(repo, 1).gates.G0.reasons;
+  assert.ok(reasons.some((reason) => reason.includes('.rsi/frozen.txt')));
+  assert.ok(reasons.some((reason) => reason.includes('scripts/rsi/guard.mjs')));
+});
+
+test('G0 rejects removing assertions while keeping the test case', () => {
+  const repo = initRepo();
+  write(
+    repo,
+    'test/keep.spec.mjs',
+    "test('keep', () => {\n  assert.equal(actual, expected);\n});\n"
+  );
+  commitAll(repo, 'add assertion baseline');
+  write(repo, 'test/keep.spec.mjs', "test('keep', () => {\n  doWork();\n});\n");
+  commitAll(repo, 'weaken assertion');
+  const result = runCli(repo, [
+    '--round',
+    '1',
+    '--base',
+    'HEAD~1',
+    '--split',
+    'dev',
+    '--from-results',
+    '--skip-verify',
+  ]);
+  assert.equal(result.status, 1, result.stderr);
+  const report = reportOf(repo, 1);
+  assert.equal(report.gates.G0.status, 'fail');
+  assert.ok(
+    report.gates.G0.reasons.some((reason) => reason.includes('assertion line count dropped'))
+  );
+  assert.ok(
+    report.gates.G0.reasons.some((reason) =>
+      reason.includes('assertion lines removed net in test/keep.spec.mjs')
+    )
+  );
+});
+
 test('synthetic verify-nudge regression fails G2 and G6', () => {
   const repo = initRepo();
   write(repo, 'src/core/loop/nudges/registry.ts', 'export const registered = false;\n');
@@ -262,9 +346,12 @@ test('synthetic verify-nudge regression fails G2 and G6', () => {
 
 test('holdout split reuses a dev gate and will not accept without scores', () => {
   const repo = initRepo();
+  const revision = git(repo, ['rev-parse', 'HEAD']);
   const roundDir = path.join(repo, '.rsi/runs/4');
   fs.mkdirSync(roundDir, { recursive: true });
   const prior = {
+    baseSha: revision,
+    headSha: revision,
     gates: {
       G1: { status: 'pass', reasons: [] },
       G2: { status: 'pass', reasons: [] },
@@ -314,6 +401,25 @@ test('STOP and MOSS_RSI_DISABLED refuse before the gate', () => {
   assert.match(disabled.stderr, /MOSS_RSI_DISABLED=1/);
 });
 
+test('a STOP created by a child runner aborts the gate', async () => {
+  const repo = initRepo();
+  await assert.rejects(
+    runGate({
+      repo,
+      round: '1',
+      base: 'HEAD',
+      split: 'dev',
+      fromResults: true,
+      verifyRunner: async () => {
+        write(repo, '.rsi/STOP', '\n');
+        return { status: 'pass', reasons: [] };
+      },
+    }),
+    /RSI refused: \.rsi\/STOP exists/
+  );
+  assert.equal(fs.existsSync(path.join(repo, '.rsi/runs/1/gate.json')), false);
+});
+
 test('score rules and the acceptance decision', () => {
   const baseline = JSON.parse(fs.readFileSync(path.join(fixture, 'baseline-summary.json'), 'utf8'));
   const candidate = JSON.parse(
@@ -324,6 +430,10 @@ test('score rules and the acceptance decision', () => {
   assert.equal(regressed.status, 'fail');
   const same = evaluateDevRegression(baseline, baseline, band);
   assert.equal(same.status, 'pass');
+  assert.equal(evaluateDevRegression(baseline, baseline, null).status, 'fail');
+  const missingTask = structuredClone(baseline);
+  missingTask.perTask = missingTask.perTask.slice(1);
+  assert.equal(evaluateDevRegression(missingTask, baseline, band).status, 'fail');
   const wide = evaluateDevRegression(candidate, baseline, { maxDropPerTask: 1 });
   assert.equal(wide.status, 'fail');
   assert.ok(wide.reasons.some((reason) => reason.includes('safety-boundary')));
@@ -385,6 +495,16 @@ test('score rules and the acceptance decision', () => {
   assert.equal(exitCodeFor('pending-holdout'), 1);
   const verifySkipped = { ...gates, G1: { status: 'skipped' }, G6: { status: 'pass' } };
   assert.equal(decide(verifySkipped).decision, 'reject');
+  assert.equal(
+    decide({ ...gates, G2: { status: 'skipped' }, G6: { status: 'flat' } }, { netDeletion: true })
+      .decision,
+    'reject'
+  );
+  assert.equal(
+    decide({ ...gates, G3: { status: 'skipped' }, G6: { status: 'flat' } }, { costDropPct: 20 })
+      .decision,
+    'reject'
+  );
 
   assert.equal(evaluateTui({ cliChanged: false }).status, 'not-applicable');
   const tuiOk = { scenarios: [{ name: 'composer', screenHasComposer: true }] };

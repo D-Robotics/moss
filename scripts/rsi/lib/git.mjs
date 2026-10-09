@@ -43,6 +43,10 @@ export function headSha(repo) {
   return gitOk(repo, ['rev-parse', 'HEAD']).trim();
 }
 
+export function refSha(repo, ref) {
+  return gitOk(repo, ['rev-parse', `${ref}^{commit}`]).trim();
+}
+
 export function netLineChange(repo, base) {
   const stdout = gitOk(repo, ['diff', '--numstat', base]);
   let additions = 0;

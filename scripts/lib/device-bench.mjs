@@ -19,6 +19,7 @@ import {
   findForbidden,
   quoteForShell,
   redactSecrets,
+  secretValues,
 } from './device-bench-safety.mjs';
 import {
   execOnTarget,
@@ -308,7 +309,7 @@ export async function resolveBenchProvider(options = {}) {
     ...(options.model ? { model: options.model } : {}),
     ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
   });
-  const apiKey = resolved.apiKey?.trim() ?? '';
+  const apiKey = env.MOSS_BENCH_API_KEY?.trim() || resolved.apiKey?.trim() || '';
   const model = resolved.model?.trim() ?? '';
   const baseUrl = resolved.baseUrl?.trim() ?? '';
   if (!apiKey || !model || !baseUrl) {
@@ -317,7 +318,7 @@ export async function resolveBenchProvider(options = {}) {
       ok: false,
       missing: [
         !apiKey
-          ? `apiKey in ${configPath} (MOSS_CONFIG_DIR, MOSS_CONFIG_FILE, or ~/.config/moss/config.json). MOSS_API_KEY, OPENAI_API_KEY, and DEEPSEEK_API_KEY are ignored`
+          ? `MOSS_BENCH_API_KEY or apiKey in ${configPath} (MOSS_CONFIG_DIR, MOSS_CONFIG_FILE, or ~/.config/moss/config.json). MOSS_API_KEY, OPENAI_API_KEY, and DEEPSEEK_API_KEY are ignored`
           : null,
         !model ? '--model or model in the moss config file' : null,
         !baseUrl ? '--base-url or baseUrl in the moss config file' : null,
@@ -327,10 +328,11 @@ export async function resolveBenchProvider(options = {}) {
   }
   return {
     ok: true,
+    apiKey,
     model,
     baseUrl,
     configPath: resolved.configPath,
-    apiKeySource: resolved.apiKeySource,
+    apiKeySource: env.MOSS_BENCH_API_KEY?.trim() ? 'MOSS_BENCH_API_KEY' : resolved.apiKeySource,
   };
 }
 
@@ -406,14 +408,19 @@ function spawnMoss(args) {
     child.stderr.on('data', (chunk) => stderr.push(chunk));
     child.on('error', (error) => {
       clearTimeout(timer);
-      resolve({ code: 1, stdout: '', stderr: redactSecrets(error.message), timedOut: false });
+      resolve({
+        code: 1,
+        stdout: '',
+        stderr: redactSecrets(error.message, args.secrets),
+        timedOut: false,
+      });
     });
     child.on('close', (code) => {
       clearTimeout(timer);
       resolve({
         code: code ?? 1,
-        stdout: redactSecrets(Buffer.concat(stdout).toString('utf8')),
-        stderr: redactSecrets(Buffer.concat(stderr).toString('utf8')),
+        stdout: redactSecrets(Buffer.concat(stdout).toString('utf8'), args.secrets),
+        stderr: redactSecrets(Buffer.concat(stderr).toString('utf8'), args.secrets),
         timedOut,
       });
     });
@@ -465,6 +472,10 @@ async function runLiveMoss(task, ctx, provider, approval) {
   ]) {
     if (process.env[key]) env[key] = process.env[key];
   }
+  env.MOSS_CONFIG_DIR = provider.configDir;
+  env.MOSS_NO_BUNDLED_DEFAULT = '1';
+  delete env.MOSS_CONFIG_FILE;
+  delete env.MOSS_CONFIG_PATH;
   for (const key of [
     'MOSS_DEVICE_HOST',
     'MOSS_DEVICE_PORT',
@@ -477,7 +488,29 @@ async function runLiveMoss(task, ctx, provider, approval) {
   ]) {
     if (process.env[key]) env[key] = process.env[key];
   }
-  return spawnMoss({ argv, cwd: ctx.workspace, env, timeoutMs: task.timeoutMs ?? 180_000 });
+  return spawnMoss({
+    argv,
+    cwd: ctx.workspace,
+    env,
+    secrets: [...secretValues(), provider.apiKey],
+    timeoutMs: task.timeoutMs ?? 180_000,
+  });
+}
+
+function writeBenchProviderConfig(provider) {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-provider-'));
+  fs.chmodSync(configDir, 0o700);
+  fs.writeFileSync(
+    path.join(configDir, 'config.json'),
+    `${JSON.stringify({
+      provider: 'openai-compatible',
+      model: provider.model,
+      baseUrl: provider.baseUrl,
+      apiKey: provider.apiKey,
+    })}\n`,
+    { mode: 0o600 }
+  );
+  return { ...provider, configDir };
 }
 
 function makeContext(task, options, paths) {
@@ -813,7 +846,7 @@ export async function runDeviceBench(options = {}) {
   const tasks = filterTasks(options.tasks ?? loadDeviceTasks(options.taskDir), options.filters);
   const problems = validateDeviceTasks(tasks);
   if (problems.length > 0) throw new Error(`device task suite invalid:\n${problems.join('\n')}`);
-  const provider = mode === 'dry' ? null : await resolveBenchProvider(options);
+  let provider = mode === 'dry' ? null : await resolveBenchProvider(options);
   if (provider && provider.ok === false) {
     return {
       exitCode: 2,
@@ -835,6 +868,8 @@ export async function runDeviceBench(options = {}) {
   const resultsDir = options.resultsDir ?? path.join(repoRoot, 'bench', 'results', stamp);
   fs.mkdirSync(resultsDir, { recursive: true });
   const runId = options.runId ?? `run${Date.now().toString(36)}`;
+  const repeats = Number.isInteger(options.repeat) ? options.repeat : 1;
+  if (repeats < 1) throw new Error('--repeat must be a positive integer');
   const ownsRoot = options.rootBase == null;
   const rootBase = options.rootBase ?? fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-'));
   const approvalMode = options.approval ?? process.env.MOSS_DEVICE_BENCH_APPROVAL ?? 'full';
@@ -849,9 +884,8 @@ export async function runDeviceBench(options = {}) {
   const savedEnv = snapshotEnv(DEVICE_ENV_KEYS);
   const log = options.onLine ?? (() => {});
   const startedAt = new Date().toISOString();
-  const repeats = Number.isInteger(options.repeat) ? options.repeat : 1;
-  if (repeats < 1) throw new Error('--repeat must be a positive integer');
   try {
+    if (provider?.ok) provider = writeBenchProviderConfig(provider);
     if (mode === 'sim') {
       const password = newBenchPassword();
       const templateRoot = path.join(rootBase, '_sim');
@@ -938,6 +972,7 @@ export async function runDeviceBench(options = {}) {
   } finally {
     if (sim) await sim.close();
     restoreEnv(savedEnv);
+    if (provider?.configDir) fs.rmSync(provider.configDir, { recursive: true, force: true });
     if (ownsRoot) fs.rmSync(rootBase, { recursive: true, force: true });
   }
 }

@@ -18,11 +18,14 @@ export function evaluateDevRegression(current, baseline, band) {
   if (!current || !baseline) {
     return { status: 'fail', reasons: ['dev summary or baseline summary is missing'] };
   }
-  const allowed = Math.max(band?.maxDropPerTask ?? 0, 0);
-  const bandNote =
-    band && typeof band.maxDropPerTask === 'number'
-      ? `noise band maxDropPerTask=${band.maxDropPerTask}`
-      : 'noise band absent; maxDropPerTask treated as 0';
+  if (!finite(band?.maxDropPerTask) || band.maxDropPerTask < 0) {
+    return {
+      status: 'fail',
+      reasons: ['noise band with a non-negative numeric maxDropPerTask is required'],
+    };
+  }
+  const allowed = band.maxDropPerTask;
+  const bandNote = `noise band maxDropPerTask=${band.maxDropPerTask}`;
   const base = taskMap(baseline);
   const cur = taskMap(current);
   const regressions = [];
@@ -34,6 +37,9 @@ export function evaluateDevRegression(current, baseline, band) {
     if (drop > allowed + EPS) regressions.push({ task: id, before, now, drop });
   }
   const missing = [...base.keys()].filter((id) => !cur.has(id));
+  if (missing.length > 0) {
+    reasons.push(`baseline task(s) missing from current summary: ${missing.join(', ')}`);
+  }
   if (regressions.length > 0) {
     reasons.push(
       `${regressions.length} task(s) dropped beyond the noise band (${bandNote}): ${regressions
@@ -219,17 +225,20 @@ export function evaluateHoldout(file) {
     };
   }
   const { score, baseline, band, categories } = file;
-  if (![score, baseline, band].every(finite)) {
+  if (![score, baseline, band].every(finite) || band < 0) {
     return {
       status: 'fail',
       relation: 'fail',
-      reasons: ['holdout file needs numeric score, baseline, and band'],
+      reasons: ['holdout file needs numeric score/baseline and a non-negative numeric band'],
     };
   }
   const reasons = [];
   const categoryDrops = [];
   for (const [name, category] of Object.entries(categories ?? {})) {
-    if (!finite(category?.score) || !finite(category?.baseline)) continue;
+    if (!finite(category?.score) || !finite(category?.baseline)) {
+      reasons.push(`holdout category ${name} needs numeric score and baseline`);
+      continue;
+    }
     const drop = category.baseline - category.score;
     if (drop > band + EPS) categoryDrops.push(name);
   }
