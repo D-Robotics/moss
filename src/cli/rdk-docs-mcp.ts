@@ -15,6 +15,7 @@ import {
 } from '../core/mcp/rdk-docs.js';
 import type { McpServerConfig } from '../core/mcp/types.js';
 import { ErrorCode, throwMoss } from '../errors.js';
+import { tui } from './tui/copy.js';
 
 export interface RdkDocsConfigValue {
   enabled?: boolean;
@@ -112,14 +113,17 @@ export function formatMcpStatusLine(
     toolsLabel !== undefined
       ? toolsLabel
       : status.state === 'connected' && status.toolCount !== undefined
-        ? ` (${status.toolCount} tools, lazy)`
+        ? tui(' ({count} tools, lazy)', { count: status.toolCount })
         : '';
   if (status.state === 'failed') {
-    const reason = status.error?.trim().split('\n')[0]?.slice(0, 160) || 'connection failed';
-    return `○ ${status.name} — failed: ${reason}`;
+    const reason = status.error?.trim().split('\n')[0]?.slice(0, 160) || tui('connection failed');
+    return tui('○ {name} — failed: {reason}', { name: status.name, reason });
   }
   if (status.state === 'connected') {
-    return `● ${status.name} — connected${countLabel}`;
+    return `${tui('● {name} — connected', { name: status.name })}${countLabel}`;
+  }
+  if (status.state === 'connecting' && !status.error?.trim()) {
+    return tui('○ {name} — connecting', { name: status.name });
   }
   const extra = status.error?.trim().split('\n')[0]?.slice(0, 160);
   return `○ ${status.name} — ${status.state}${extra ? `: ${extra}` : ''}`;

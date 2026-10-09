@@ -40,7 +40,7 @@ import {
   formatUserPromptHookContext,
   setLifecycleHookRunner,
 } from './cli/hooks.js';
-import { resolveProjectCapabilities } from './cli/workspace-trust.js';
+import { deliverWorkspaceTrustNotice, resolveProjectCapabilities } from './cli/workspace-trust.js';
 import { runWithApprovalRequest, setPermissionRequestRunner } from './cli/permission-request.js';
 import { resolveSoulIdentity, resolveSoul } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
@@ -631,7 +631,6 @@ async function main() {
     trustFlag: parsedArgs.trustWorkspace,
     env: envBeforeDotenv,
   });
-  if (projectCapabilities.notice) console.error(projectCapabilities.notice);
   const configuredHooks = createConfiguredHookCallbacks(projectCapabilities.hooks, {
     workspaceDir: workspace,
   });
@@ -853,6 +852,10 @@ async function main() {
     }
     for (const listener of tuiNoticeListeners) listener(message);
   };
+  deliverWorkspaceTrustNotice(projectCapabilities.notice, useTui, {
+    transcript: emitTuiNotice,
+    stderr: (line) => console.error(line),
+  });
   // v0.16 MCP client: connect servers declared in `.moss/mcp.json` /
   // `<configDir>/mcp.json` (credentials only via ${ENV_VAR} expansion).
   // User servers stay zero-config = zero overhead. rdk-docs is the one builtin:

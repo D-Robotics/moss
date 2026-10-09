@@ -12,6 +12,7 @@
  * row would say the same thing twice.
  */
 import { diffLinesForApproval } from '../approval-detail.js';
+import { tui } from './copy.js';
 import {
   extractCommandFailurePreview,
   extractCommandOutputPreview,
@@ -70,8 +71,8 @@ function firstLine(text: string, max = 72): string {
   return found.length > max ? `${found.slice(0, max - 1)}…` : found;
 }
 
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
+function counted(count: number, one: string, many: string): string {
+  return tui(count === 1 ? one : many, { count });
 }
 
 /** New-file body as a pseudo-diff (`+ ` per line) so the gutter renders it. */
@@ -97,7 +98,7 @@ export function summarizeToolCompletion(
   if (isError) {
     const lines = EXEC_TOOLS.has(toolName) ? extractCommandFailurePreview(body, 1) : [];
     const detail = lines[0] ?? firstLine(body.replace(/^Execution error:\s*/i, ''));
-    return { summary: detail ? `failed — ${detail}` : 'failed' };
+    return { summary: detail ? tui('failed — {detail}', { detail }) : tui('failed') };
   }
 
   // run_tests / verify_fix / code_diagnostics carry a structured verdict —
@@ -110,11 +111,20 @@ export function summarizeToolCompletion(
     // leads with `[lines 10-40 of 200]`, and a re-read of an unchanged window
     // returns a stub (which "Read 1 line" would misdescribe).
     const range = /^\[lines (\d+)-(\d+) of (\d+)\]/.exec(body.trim());
-    if (range) return { summary: `Read lines ${range[1]}-${range[2]} of ${range[3]}` };
-    if (/unchanged/i.test(body) && countContentLines(body) <= 3) {
-      return { summary: firstLine(body, 60) || 'Read (unchanged)' };
+    if (range && range[1] && range[2] && range[3]) {
+      return {
+        summary: tui('Read lines {start}-{end} of {total}', {
+          start: range[1],
+          end: range[2],
+          total: range[3],
+        }),
+      };
     }
-    return { summary: `Read ${plural(countFileLines(body), 'line')}` };
+    if (/unchanged/i.test(body) && countContentLines(body) <= 3) {
+      return { summary: firstLine(body, 60) || tui('Read (unchanged)') };
+    }
+    const lines = countFileLines(body);
+    return { summary: counted(lines, 'Read {count} line', 'Read {count} lines') };
   }
 
   if (WRITE_TOOLS.has(toolName)) {
@@ -122,8 +132,9 @@ export function summarizeToolCompletion(
     // "Wrote 0 lines" would be a lie, so the row falls back to the preview.
     if (typeof input.content !== 'string') return {};
     const content = input.content;
+    const lines = countFileLines(content);
     return {
-      summary: `Wrote ${plural(countFileLines(content), 'line')}`,
+      summary: counted(lines, 'Wrote {count} line', 'Wrote {count} lines'),
       ...(content ? { diff: writeDiff(content) } : {}),
     };
   }
@@ -133,14 +144,14 @@ export function summarizeToolCompletion(
     const newString = typeof input.new_string === 'string' ? input.new_string : undefined;
     if (oldString === undefined || newString === undefined) return {};
     const diff = diffLinesForApproval(oldString, newString);
-    if (!diff) return { summary: 'Edited (too large for inline diff)' };
+    if (!diff) return { summary: tui('Edited (too large for inline diff)') };
     const added = diff.filter((l) => l.startsWith('+ ')).length;
     const removed = diff.filter((l) => l.startsWith('- ')).length;
     const parts: string[] = [];
-    if (added > 0) parts.push(`Added ${plural(added, 'line')}`);
-    if (removed > 0) parts.push(`removed ${plural(removed, 'line')}`);
+    if (added > 0) parts.push(counted(added, 'Added {count} line', 'Added {count} lines'));
+    if (removed > 0) parts.push(counted(removed, 'removed {count} line', 'removed {count} lines'));
     return {
-      summary: parts.length > 0 ? parts.join(' · ') : 'Edited (no line changes)',
+      summary: parts.length > 0 ? parts.join(' · ') : tui('Edited (no line changes)'),
       diff: diff.join('\n'),
     };
   }
@@ -152,11 +163,11 @@ export function summarizeToolCompletion(
       const added = signLines.filter((l) => l.startsWith('+')).length;
       const removed = signLines.length - added;
       return {
-        summary: `Patched · Added ${plural(added, 'line')} · removed ${plural(removed, 'line')}`,
+        summary: `${tui('Patched')} · ${counted(added, 'Added {count} line', 'Added {count} lines')} · ${counted(removed, 'removed {count} line', 'removed {count} lines')}`,
         diff: signLines.join('\n'),
       };
     }
-    return { summary: 'Patched' };
+    return { summary: tui('Patched') };
   }
 
   if (EXEC_TOOLS.has(toolName)) {
@@ -174,7 +185,7 @@ export function summarizeToolCompletion(
     // honest headline is how much came back.
     if (last && EXEC_CONCLUSION.test(last)) return { summary: last };
     const lines = countContentLines(body);
-    if (lines > PREVIEW_LINES) return { summary: `${lines} ${lines === 1 ? 'line' : 'lines'}` };
+    if (lines > PREVIEW_LINES) return { summary: counted(lines, '{count} line', '{count} lines') };
     return {};
   }
 
@@ -182,12 +193,12 @@ export function summarizeToolCompletion(
   // an empty result is said out loud rather than shown as a blank row.
   if (LIST_TOOLS.has(toolName)) {
     const entries = countContentLines(body);
-    return { summary: `Listed ${entries} ${entries === 1 ? 'entry' : 'entries'}` };
+    return { summary: counted(entries, 'Listed {count} entry', 'Listed {count} entries') };
   }
   if (SEARCH_TOOLS.has(toolName)) {
     const matches = countContentLines(body);
-    if (matches === 0) return { summary: 'No matches' };
-    return { summary: `Found ${matches} ${matches === 1 ? 'match' : 'matches'}` };
+    if (matches === 0) return { summary: tui('No matches') };
+    return { summary: counted(matches, 'Found {count} match', 'Found {count} matches') };
   }
   if (FETCH_TOOLS.has(toolName)) {
     const url = typeof input.url === 'string' ? input.url : '';

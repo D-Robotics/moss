@@ -194,8 +194,8 @@ export function diffTone(text: string): { color?: TuiColor; dim?: boolean } {
 export function formatToolDuration(durationMs: number): { text: string; slow: boolean } {
   const text =
     durationMs >= 1000
-      ? `${Math.round(durationMs / 100) / 10}s`
-      : `${Math.max(0, Math.round(durationMs))}ms`;
+      ? tui('{seconds}s', { seconds: Math.round(durationMs / 100) / 10 })
+      : tui('{ms}ms', { ms: Math.max(0, Math.round(durationMs)) });
   return { text, slow: durationMs > 3000 };
 }
 

@@ -1527,6 +1527,54 @@ async function type(instance, text) {
     assert.equal(fetchView.options[0].key, '1', 'allow remains option 1');
     assert.match(fetchView.options[1].label, /tell moss what to do differently/);
   }
+
+  // Declining workspace trust is a transcript row after mount. Printing it
+  // first would land on the primary screen, which fullscreen then hides.
+  {
+    const { untrustedWorkspaceLine } = await import('../dist/cli/workspace-trust.js');
+    let listener;
+    const noticeSource = {
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+    };
+    const { instance, handle } = mount({
+      agent: createMockAgent(),
+      workspaceDir: '/tmp/ws',
+      renderer: 'fullscreen',
+      locale: 'zh-CN',
+      noticeSource,
+    });
+    try {
+      const subscribed = await waitFor(() => typeof listener === 'function');
+      assert.ok(subscribed, 'the mounted TUI subscribes before the notice is shown');
+      const notice = untrustedWorkspaceLine('项目钩子（1）、状态栏', true);
+      assert.equal(notice.includes('\n'), false);
+      listener(notice);
+      const shown = await waitFor(
+        () =>
+          handle.store.rows.some((row) => row.kind === 'system' && row.text === notice) &&
+          instance.lastFrame().includes('工作区未信任')
+      );
+      assert.ok(shown, instance.lastFrame());
+      assert.equal(
+        handle.store.rows.filter((row) => row.text === notice).length,
+        1,
+        'the decline notice is one transcript row'
+      );
+      await type(instance, '/help');
+      const titled = await waitFor(() => instance.lastFrame().includes('帮助 · Esc 或 Enter 关闭'));
+      assert.ok(titled, `zh /help title: ${instance.lastFrame()}`);
+      assert.equal(instance.lastFrame().includes('Help · Esc or Enter to close'), false);
+    } finally {
+      instance.unmount();
+      setTuiLocale(false);
+      await sleep(150);
+    }
+  }
 }
 
 assert.equal(typeof runTuiApp, 'function', 'the TTY entry point is exported');

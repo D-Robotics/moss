@@ -1354,12 +1354,7 @@ export function TuiAppRoot({
       if (command === 'mcp') {
         const servers = options.listMcpServers?.() ?? options.mcpServers ?? [];
         if (servers.length === 0) return [tui('no MCP servers configured (.moss/mcp.json)')];
-        return servers.map((x) =>
-          formatMcpStatusLine(
-            x,
-            x.toolCount !== undefined ? tui(' ({count} tools, lazy)', { count: x.toolCount }) : ''
-          )
-        );
+        return servers.map((x) => formatMcpStatusLine(x));
       }
       if (command === 'subs') {
         const snaps = options.agent.asyncTasks?.list() ?? [];
@@ -3674,8 +3669,8 @@ export function TuiAppRoot({
           line(
             clip(
               helpOverlay.all
-                ? '  Help · full reference · Esc to close'
-                : '  Help · Esc or Enter to close',
+                ? tui('  Help · full reference · Esc to close')
+                : tui('  Help · Esc or Enter to close'),
               columns
             ),
             { dim: true }

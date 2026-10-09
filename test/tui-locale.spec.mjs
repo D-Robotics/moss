@@ -18,6 +18,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { ZH, isTuiZh, setTuiLocale, transientStatus, tui } from '../dist/cli/tui/copy.js';
+import { formatMcpStatusLine } from '../dist/cli/rdk-docs-mcp.js';
+import { summarizeToolCompletion } from '../dist/cli/tui/tool-summary.js';
 import { rowsForSurface } from '../dist/cli/interactive-commands.js';
 import { shellPaletteRows } from '../dist/cli/tui/app.js';
 import { HELP_KEYS, HELP_PREFIXES } from '../dist/cli/tui/help.js';
@@ -25,9 +27,11 @@ import {
   renderApproval,
   composerPlaceholderText,
   renderComposer,
+  formatToolDuration,
   renderHint,
   renderRunSummary,
   renderStatusRight,
+  renderTranscriptRows,
 } from '../dist/cli/tui/transcript.js';
 
 // ─── 1. locale gating ─────────────────────────────────────────────────────
@@ -288,29 +292,105 @@ import {
   ).text;
   assert.match(collapsed, /ctrl\+o 展开/);
   assert.equal(collapsed.includes('ctrl+o to expand'), false);
-  const root = path.join(process.cwd(), 'src', 'cli', 'tui');
   const files = [];
-  const walk = (dir) => {
-    for (const name of fs.readdirSync(dir)) {
-      const full = path.join(dir, name);
-      if (fs.statSync(full).isDirectory()) walk(full);
-      else if (name.endsWith('.ts')) files.push(full);
+  const addTs = (target) => {
+    if (fs.statSync(target).isDirectory()) {
+      for (const name of fs.readdirSync(target)) addTs(path.join(target, name));
+      return;
     }
+    if (target.endsWith('.ts')) files.push(target);
   };
-  walk(root);
+  addTs(path.join(process.cwd(), 'src', 'cli', 'tui'));
+  addTs(path.join(process.cwd(), 'src', 'cli', 'rdk-docs-mcp.ts'));
+  addTs(path.join(process.cwd(), 'src', 'cli', 'workspace-trust.ts'));
+  assert.ok(
+    files.some((file) => file.endsWith(`${path.sep}rdk-docs-mcp.ts`)),
+    'the scan covers formatMcpStatusLine'
+  );
+  assert.ok(
+    files.some((file) => file.endsWith(`${path.sep}workspace-trust.ts`)),
+    'the scan covers the trust prompt'
+  );
   const missing = [];
-  const callRe = /tui\(\s*(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
+  const collectKeys = (source) => {
+    const keys = [];
+    const take = (raw) => {
+      const key = raw.replace(/\\'/g, "'").replace(/\\"/g, '"');
+      if (!key.includes('${')) keys.push(key);
+    };
+    // The first argument, when it is a literal. Ternaries are not call-site keys.
+    const direct = /(?:tui|chrome)\(\s*(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
+    for (const match of source.matchAll(direct)) take(match[2]);
+    const counted =
+      /counted\(\s*[^,]+,\s*(['"`])((?:\\.|(?!\1)[\s\S])*?)\1\s*,\s*(['"`])((?:\\.|(?!\3)[\s\S])*?)\3/g;
+    for (const match of source.matchAll(counted)) {
+      take(match[2]);
+      take(match[4]);
+    }
+    return keys;
+  };
   for (const file of files) {
     const text = fs.readFileSync(file, 'utf8');
-    for (const match of text.matchAll(callRe)) {
-      const key = match[2].replace(/\\'/g, "'").replace(/\\"/g, '"');
-      if (key.includes('${')) continue;
+    for (const key of collectKeys(text)) {
       if (!Object.prototype.hasOwnProperty.call(ZH, key)) {
         missing.push(`${path.relative(process.cwd(), file)}: ${key}`);
       }
     }
   }
-  assert.deepEqual(missing, [], 'every TUI chrome tui() literal has a zh entry');
+  assert.deepEqual(missing, [], 'every chrome literal in the scanned files has a zh entry');
+  assert.equal(
+    formatMcpStatusLine({ name: 'rdk-docs', state: 'connected', toolCount: 7 }),
+    '● rdk-docs — 已连接（7 个工具，懒加载）'
+  );
+  assert.equal(
+    formatMcpStatusLine({ name: 'rdk-docs', state: 'connected', toolCount: 7 }).includes(
+      'connected'
+    ),
+    false
+  );
+  assert.equal(
+    formatMcpStatusLine({ name: 'rdk-docs', state: 'connected', toolCount: 7 }).includes(
+      'tools, lazy'
+    ),
+    false
+  );
+  assert.match(
+    formatMcpStatusLine({ name: 'rdk-docs', state: 'failed', error: 'boom' }),
+    /失败：boom/
+  );
+  const body = Array.from({ length: 60 }, () => 'x').join('\n');
+  const done = summarizeToolCompletion('exec', { command: 'seq' }, body, false);
+  assert.equal(done.summary, '60 行');
+  assert.equal(formatToolDuration(22).text, '22 毫秒');
+  const headline = renderTranscriptRows(
+    [
+      {
+        id: 1,
+        kind: 'result',
+        text: '',
+        tool: { name: 'exec', summary: done.summary, durationMs: 22 },
+      },
+    ],
+    80
+  )
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(headline, /60 行 · 22 毫秒/);
+  assert.equal(headline.includes('60 lines'), false);
+  assert.equal(headline.includes('22ms'), false);
+  assert.equal(tui('  Help · Esc or Enter to close'), '  帮助 · Esc 或 Enter 关闭');
+  assert.equal(tui('  Help · full reference · Esc to close'), '  帮助 · 完整参考 · Esc 关闭');
+  setTuiLocale(false);
+  assert.equal(
+    formatMcpStatusLine({ name: 'rdk-docs', state: 'connected', toolCount: 7 }),
+    '● rdk-docs — connected (7 tools, lazy)'
+  );
+  assert.equal(
+    summarizeToolCompletion('exec', { command: 'seq' }, body, false).summary,
+    '60 lines'
+  );
+  assert.equal(formatToolDuration(22).text, '22ms');
+  setTuiLocale(true);
   assert.equal(tui('verbose transcript · ctrl+o to exit'), '详细对话记录 · ctrl+o 退出');
   assert.equal(tui('{count} skills', { count: 2 }), '2 个技能');
   assert.equal(

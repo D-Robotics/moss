@@ -492,6 +492,49 @@ export const ZH: Readonly<Record<string, string>> = {
   '{command} failed: {error}': '{command} 失败：{error}',
   met: '达成',
   'blocked: {reason}': '受阻：{reason}',
+
+  // ── /mcp status (rdk-docs-mcp.ts formatMcpStatusLine) ──────────────────
+  '● {name} — connected': '● {name} — 已连接',
+  '○ {name} — connecting': '○ {name} — 连接中',
+  '○ {name} — failed: {reason}': '○ {name} — 失败：{reason}',
+  'connection failed': '连接失败',
+
+  // ── tool-result headline (tool-summary.ts / transcript.ts) ─────────────
+  '{count} line': '{count} 行',
+  '{count} lines': '{count} 行',
+  '{ms}ms': '{ms} 毫秒',
+  '{seconds}s': '{seconds} 秒',
+  'Read {count} line': '读取 {count} 行',
+  'Read {count} lines': '读取 {count} 行',
+  'Read lines {start}-{end} of {total}': '读取第 {start}-{end} 行，共 {total} 行',
+  'Read (unchanged)': '读取（未变化）',
+  'Wrote {count} line': '写入 {count} 行',
+  'Wrote {count} lines': '写入 {count} 行',
+  'Added {count} line': '增加 {count} 行',
+  'Added {count} lines': '增加 {count} 行',
+  'removed {count} line': '删除 {count} 行',
+  'removed {count} lines': '删除 {count} 行',
+  'Edited (too large for inline diff)': '已编辑（差异过大，无法内联显示）',
+  'Edited (no line changes)': '已编辑（行数无变化）',
+  Patched: '已打补丁',
+  'Listed {count} entry': '列出 {count} 项',
+  'Listed {count} entries': '列出 {count} 项',
+  'Found {count} match': '找到 {count} 处',
+  'Found {count} matches': '找到 {count} 处',
+  'No matches': '无匹配',
+  'failed — {detail}': '失败 — {detail}',
+
+  // ── /help overlay title (app.ts) ───────────────────────────────────────
+  '  Help · Esc or Enter to close': '  帮助 · Esc 或 Enter 关闭',
+  '  Help · full reference · Esc to close': '  帮助 · 完整参考 · Esc 关闭',
+
+  // ── workspace trust prompt (workspace-trust.ts) ────────────────────────
+  'project hooks ({count})': '项目钩子（{count}）',
+  'status line': '状态栏',
+  'stdio MCP ({names})': 'stdio MCP（{names}）',
+  'HTTP MCP ({names})': 'HTTP MCP（{names}）',
+  'agent {names}': '代理 {names}',
+  'plugin {names}': '插件 {names}',
 };
 
 /**
@@ -529,12 +572,24 @@ export function localizeApprovalText(text: string): string {
   return tui(text);
 }
 
-export function tui(text: string, params?: Record<string, string | number>): string {
-  const template = isTuiZh() ? (ZH[text] ?? text) : text;
+/**
+ * Same lookup as `tui()`, with the locale passed in. Startup prompts (workspace
+ * trust) run before the TUI sets the module flag, so they cannot read `isTuiZh()`.
+ */
+export function chrome(
+  text: string,
+  zh: boolean,
+  params?: Record<string, string | number>
+): string {
+  const template = zh ? (ZH[text] ?? text) : text;
   if (!params) return template;
   return template.replace(/\{(\w+)\}/g, (match, key: string) =>
     Object.prototype.hasOwnProperty.call(params, key) ? String(params[key]) : match
   );
+}
+
+export function tui(text: string, params?: Record<string, string | number>): string {
+  return chrome(text, isTuiZh(), params);
 }
 
 /**

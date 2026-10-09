@@ -145,6 +145,8 @@ moss tasks list                     # 只读查看机器人闭环产物
 
 > **头号坑**：模型相关设置**只认配置文件**。`MOSS_MODEL` / `MOSS_PROVIDER` / `MOSS_BASE_URL` / `MOSS_API_KEY` 即使设了也会被忽略——请用 `moss setup` 或 `moss config set`。
 
+未指定配置文件时，Moss 读取用户配置，并把工作区 `.moss/config.json` 当作项目默认值合并进去（用户配置优先）。`--config-file` 或 `MOSS_CONFIG_FILE` 只加载那个文件，项目 `.moss/config.json` 这一层不会进入本次配置。
+
 ## 安全与隐私
 
 - **v0.26 起默认 full**：本地写操作与**可逆**设备变更跳过逐次询问。毁灭性设备操作（重启、刷机、写入 `/boot` 或 `/etc`、改网络、卸系统包、停掉 ssh）仍要确认——full 对齐的是 Claude Code 的「默认少问」，不是对真机的 `--dangerously-skip-permissions`。
@@ -378,6 +380,10 @@ Key env vars (full list: `moss config env`): `MOSS_PROFILE` · `MOSS_WORKSPACE` 
 
 > **Gotcha:** model settings are config-only. `MOSS_MODEL` / `MOSS_PROVIDER` / `MOSS_BASE_URL` /
 > `MOSS_API_KEY` are read but ignored — use `moss setup` or `moss config set`.
+
+Without an explicit file, Moss reads the user config and merges `.moss/config.json` from the
+workspace as project defaults (the user file wins). `--config-file` or `MOSS_CONFIG_FILE` loads
+only that file, so the project `.moss/config.json` layer is not part of the run.
 
 ### Safety and privacy
 

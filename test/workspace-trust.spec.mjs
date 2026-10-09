@@ -22,6 +22,7 @@ import { DEFAULT_RDK_DOCS_MCP_PACKAGE } from '../dist/core/mcp/rdk-docs.js';
 import { McpToolRegistry } from '../dist/core/mcp/registry.js';
 import { loadAgentFiles } from '../dist/core/subagent/agent-file-loader.js';
 import {
+  deliverWorkspaceTrustNotice,
   listProjectTrustItems,
   resolveProjectCapabilities,
   summarizeTrustItems,
@@ -83,6 +84,40 @@ assert.equal(
   ),
   'project hooks (2), status line, stdio MCP (warehouse), HTTP MCP (docs)'
 );
+const zhItems = [
+  { kind: 'hook', label: 'project hooks (2)' },
+  { kind: 'status-line', label: 'status line' },
+  { kind: 'stdio-mcp', label: 'warehouse' },
+  { kind: 'http-mcp', label: 'docs' },
+  { kind: 'agent', label: 'reviewer' },
+  { kind: 'plugin', label: 'demo-plugin' },
+];
+const zhSummary = summarizeTrustItems(zhItems, true);
+assert.equal(
+  zhSummary,
+  '项目钩子（2）、状态栏、stdio MCP（warehouse）、HTTP MCP（docs）、代理 reviewer、插件 demo-plugin'
+);
+assert.equal(zhSummary.includes('project hooks'), false);
+assert.equal(zhSummary.includes('status line'), false);
+assert.equal(/\bagent\b/.test(zhSummary), false);
+assert.match(trustQuestion(zhSummary, true), /信任此工作区并运行 项目钩子（2）/);
+const zhNotice = untrustedWorkspaceLine(zhSummary, true);
+assert.equal(zhNotice.includes('\n'), false, 'the decline notice is one line');
+assert.match(zhNotice, /工作区未信任 — 已跳过 项目钩子/);
+const delivered = { transcript: [], stderr: [] };
+const sink = {
+  transcript: (line) => delivered.transcript.push(line),
+  stderr: (line) => delivered.stderr.push(line),
+};
+deliverWorkspaceTrustNotice(zhNotice, true, sink);
+assert.deepEqual(delivered.transcript, [zhNotice], 'the TUI keeps the notice for the transcript');
+assert.deepEqual(delivered.stderr, []);
+deliverWorkspaceTrustNotice(untrustedWorkspaceLine('project hooks (1)', false), false, sink);
+assert.equal(delivered.transcript.length, 1, '-p does not take the transcript path');
+assert.match(delivered.stderr[0], /Untrusted workspace/);
+assert.match(delivered.stderr[0], /--trust-workspace/);
+deliverWorkspaceTrustNotice(undefined, true, sink);
+assert.equal(delivered.transcript.length, 1);
 
 {
   const root = tempRoot();

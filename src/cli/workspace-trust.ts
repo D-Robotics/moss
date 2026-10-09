@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { isZhLocale } from './cli-locale.js';
+import { chrome } from './tui/copy.js';
 import {
   claudeMcpPath,
   describeClaudeMcp,
@@ -232,7 +233,11 @@ export function listProjectTrustItems(input: {
   return items;
 }
 
-export function summarizeTrustItems(items: readonly TrustItem[]): string {
+function hookCount(label: string): string | undefined {
+  return /\((\d+)\)/.exec(label)?.[1];
+}
+
+export function summarizeTrustItems(items: readonly TrustItem[], zh = false): string {
   if (items.length === 0) return '';
   const hooks = items.find((item) => item.kind === 'hook');
   const stdio = items.filter((item) => item.kind === 'stdio-mcp').map((item) => item.label);
@@ -240,13 +245,38 @@ export function summarizeTrustItems(items: readonly TrustItem[]): string {
   const agents = items.filter((item) => item.kind === 'agent').map((item) => item.label);
   const plugins = items.filter((item) => item.kind === 'plugin').map((item) => item.label);
   const parts: string[] = [];
-  if (hooks) parts.push(hooks.label);
-  if (items.some((item) => item.kind === 'status-line')) parts.push('status line');
-  if (stdio.length > 0) parts.push(`stdio MCP (${stdio.join(', ')})`);
-  if (http.length > 0) parts.push(`HTTP MCP (${http.join(', ')})`);
-  if (agents.length > 0) parts.push(`agent ${agents.join(', ')}`);
-  if (plugins.length > 0) parts.push(`plugin ${plugins.join(', ')}`);
-  return parts.join(', ');
+  if (hooks) {
+    const count = hookCount(hooks.label);
+    parts.push(
+      count === undefined ? hooks.label : chrome('project hooks ({count})', zh, { count })
+    );
+  }
+  if (items.some((item) => item.kind === 'status-line')) parts.push(chrome('status line', zh));
+  if (stdio.length > 0) {
+    parts.push(chrome('stdio MCP ({names})', zh, { names: stdio.join(', ') }));
+  }
+  if (http.length > 0) parts.push(chrome('HTTP MCP ({names})', zh, { names: http.join(', ') }));
+  if (agents.length > 0) parts.push(chrome('agent {names}', zh, { names: agents.join(', ') }));
+  if (plugins.length > 0) parts.push(chrome('plugin {names}', zh, { names: plugins.join(', ') }));
+  return parts.join(zh ? '、' : ', ');
+}
+
+/**
+ * Fullscreen hides anything printed before the alternate screen. An interactive
+ * TUI therefore keeps this one line for the transcript; `-p` and the REPL stay
+ * on stderr.
+ */
+export function deliverWorkspaceTrustNotice(
+  notice: string | undefined,
+  useTui: boolean,
+  sinks: {
+    transcript: (line: string) => void;
+    stderr: (line: string) => void;
+  }
+): void {
+  if (!notice) return;
+  if (useTui) sinks.transcript(notice);
+  else sinks.stderr(notice);
 }
 
 export function trustQuestion(summary: string, zh: boolean): string {
@@ -297,7 +327,9 @@ export async function resolveWorkspaceTrust(input: {
   if (store[key] === false) return { trusted: false, skipped: [...input.items] };
   if (input.interactive) {
     const zh = input.zh ?? isZhLocale();
-    const yes = await (input.ask ?? askYesNo)(trustQuestion(summarizeTrustItems(input.items), zh));
+    const yes = await (input.ask ?? askYesNo)(
+      trustQuestion(summarizeTrustItems(input.items, zh), zh)
+    );
     store[key] = yes;
     writeStore(input.configDir, store);
     return { trusted: yes, skipped: yes ? [] : [...input.items] };
@@ -390,7 +422,7 @@ export async function resolveProjectCapabilities(input: {
   const hooks = mergeHooksConfig(mergeHooksConfig(userHooks, inheritedUserHooks), projectLayer);
   const extraFiles = claudeOptIn ? [claudeMcpPath(input.workspaceDir)] : [];
   const zh = input.zh ?? isZhLocale();
-  const summary = summarizeTrustItems(decision.skipped);
+  const summary = summarizeTrustItems(decision.skipped, zh);
   return {
     hooks,
     mcp: {
