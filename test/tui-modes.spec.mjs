@@ -21,6 +21,7 @@ import path from 'node:path';
 
 import stringWidth from 'string-width';
 
+import { GENERAL_COMPOSER_PLACEHOLDER } from '../dist/cli/composer-placeholder.js';
 import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
 import { createTuiStore } from '../dist/cli/tui/render-bridge.js';
 import {
@@ -283,7 +284,7 @@ assert.ok(
 );
 const placeholderLine = frame()
   .split('\n')
-  .find((line) => line.includes('Try "stream the camera'));
+  .find((line) => line.includes(GENERAL_COMPOSER_PLACEHOLDER));
 assert.ok(
   placeholderLine?.startsWith('! '),
   `E2: the prompt glyph becomes ! (${JSON.stringify(placeholderLine)})`

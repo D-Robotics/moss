@@ -563,9 +563,8 @@ export async function runInteractive(
       const rest = msg.slice('/task'.length).trim();
       const sub = rest.split(/\s+/)[0];
       if (!['run', 'resume', 'status', 'timeline', 'view', 'verify'].includes(sub ?? '')) {
-        process.stderr.write(
-          'Usage: /task run <goal...> [--accept "<cmd>"] | /task status [id] | /task timeline [id] | /task resume <id> | /task view [kind] | /task verify [id]\n'
-        );
+        const { interactiveTaskUsageLines } = await import('./task-run.js');
+        process.stderr.write(`${interactiveTaskUsageLines().join('\n')}\n`);
         rl.prompt();
         continue;
       }

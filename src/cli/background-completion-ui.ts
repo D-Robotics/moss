@@ -10,13 +10,22 @@ export function formatBackgroundCompletionNotice(
 ): string {
   const ageSec = Math.round(((snap.endedAt ?? Date.now()) - snap.startedAt) / 1000);
   const tag = snap.label ? ` (${snap.label})` : '';
-  const exit =
-    snap.status === 'error'
+  const stopped = snap.status === 'killed';
+  const signal = snap.signal ?? (stopped ? 'SIGTERM' : null);
+  const exit = stopped
+    ? zh
+      ? `已终止，信号 ${signal}`
+      : `killed signal ${signal}`
+    : snap.status === 'error'
       ? `error: ${snap.errorMessage ?? 'unknown'}`
       : `exit ${snap.exitCode ?? '?'}${snap.signal ? ` signal ${snap.signal}` : ''}`;
-  const head = zh
-    ? `后台命令已结束 ${snap.id}${tag} [${snap.status}] ${exit} · ${ageSec}s · ${snap.command}`
-    : `Background finished ${snap.id}${tag} [${snap.status}] ${exit} · ${ageSec}s · ${snap.command}`;
+  const head = stopped
+    ? zh
+      ? `后台已停止 ${snap.id}${tag} ${exit} · ${ageSec}s · ${snap.command}`
+      : `Background stopped ${snap.id}${tag} ${exit} · ${ageSec}s · ${snap.command}`
+    : zh
+      ? `后台命令已结束 ${snap.id}${tag} [${snap.status}] ${exit} · ${ageSec}s · ${snap.command}`
+      : `Background finished ${snap.id}${tag} [${snap.status}] ${exit} · ${ageSec}s · ${snap.command}`;
   let tail = '';
   try {
     tail = getBackgroundProcessOutputTail(snap.id, 6);
@@ -35,9 +44,17 @@ export function formatBackgroundCompletionNotice(
 
 /** One-line flash / compact status when a background process ends. */
 export function formatBackgroundCompletionFlash(
-  snap: Pick<BackgroundProcSnapshot, 'id' | 'status' | 'exitCode'>,
+  snap: Pick<BackgroundProcSnapshot, 'id' | 'status' | 'exitCode'> & {
+    signal?: NodeJS.Signals | null;
+  },
   zh: boolean
 ): string {
+  if (snap.status === 'killed') {
+    const signal = snap.signal ?? 'SIGTERM';
+    return zh
+      ? `后台已停止 ${snap.id}，已终止，信号 ${signal}`
+      : `bg stopped ${snap.id} killed signal ${signal}`;
+  }
   if (snap.status === 'error' || (snap.exitCode !== null && snap.exitCode !== 0)) {
     return zh
       ? `后台失败 ${snap.id} exit ${snap.exitCode ?? '?'}`

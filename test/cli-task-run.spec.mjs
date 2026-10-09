@@ -12,6 +12,7 @@ import path from 'node:path';
 
 import {
   formatTaskStatus,
+  interactiveTaskUsageLines,
   quoteCommandArg,
   runTaskCommand,
   splitCommandArgs,
@@ -23,6 +24,15 @@ import {
   getTaskStateSnapshot,
 } from '../dist/core/task/task-store.js';
 import { appendTaskRecord, appendEvidenceRecord } from '../dist/core/task-runtime/artifacts.js';
+
+test('bare /task usage names verify and view', () => {
+  const text = interactiveTaskUsageLines().join('\n');
+  assert.match(text, /\/task verify \[id\]/);
+  assert.match(text, /\/task view \[kind\]/);
+  assert.match(text, /\/task run /);
+  assert.match(text, /\/task resume \[id\]/);
+  assert.match(text, /\/task status\|timeline \[id\]/);
+});
 
 async function tmpWorkspace() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'moss-cli-task-'));

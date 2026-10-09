@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 
 import stringWidth from 'string-width';
 
+import { GENERAL_COMPOSER_PLACEHOLDER } from '../dist/cli/composer-placeholder.js';
 import { line, rule } from '../dist/cli/tui/text.js';
 
 import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
@@ -823,7 +824,14 @@ instance.unmount();
   instance.stdin.write('\x0c'); // Ctrl+L
   await sleep(80);
   assert.ok(!frame().includes('a draft goal'), 'Ctrl+L clears the composer');
-  assert.ok(frame().includes('Try "stream the camera'), 'the placeholder comes back');
+  assert.ok(
+    frame().includes(GENERAL_COMPOSER_PLACEHOLDER),
+    'the placeholder comes back for a non-board workspace'
+  );
+  assert.ok(
+    !frame().includes('stream the camera'),
+    'a folder with no device target does not use the camera prompt'
+  );
 
   instance.stdin.write('?');
   await waitFor(() => frame().includes('Help · Esc or Enter to close'));
@@ -1046,7 +1054,7 @@ instance.unmount();
       'free text answers the question verbatim'
     );
     assert.ok(
-      await waitFor(() => frame().includes('Try "stream the camera')),
+      await waitFor(() => frame().includes(GENERAL_COMPOSER_PLACEHOLDER)),
       'the composer is cleared after answering (the placeholder is back)'
     );
 

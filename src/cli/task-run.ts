@@ -52,6 +52,17 @@ export interface TaskCommandContext {
   };
 }
 
+/** Bare `/task` in the shell. `verify` and `view` are real subcommands. */
+export function interactiveTaskUsageLines(): readonly string[] {
+  return [
+    'usage: /task run <goal...> [--accept "<cmd>"]',
+    '/task status|timeline [id]',
+    '/task resume [id]',
+    '/task verify [id]',
+    '/task view [kind]',
+  ];
+}
+
 function usage(zh: boolean = isZhLocale()): string {
   if (zh) {
     return [

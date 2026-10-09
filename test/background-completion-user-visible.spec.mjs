@@ -261,4 +261,69 @@ const base = {
   assert.equal(roundTrip.background_still_running.processes[0].command, 'npm run dev');
 }
 
+// A process stopped with /stop is killed, even when it exits 0.
+{
+  const killed = {
+    ...base,
+    id: 'bg_1',
+    status: 'killed',
+    exitCode: 0,
+    signal: null,
+    command: 'python3 -m http.server',
+  };
+  const flash = formatBackgroundCompletionFlash(killed, false);
+  assert.match(flash, /stopped/);
+  assert.match(flash, /killed/);
+  assert.match(flash, /signal SIGTERM/);
+  assert.doesNotMatch(flash, /exit 0/);
+  const zh = formatBackgroundCompletionFlash({ ...killed, signal: 'SIGTERM' }, true);
+  assert.match(zh, /后台已停止 bg_1/);
+  assert.match(zh, /已终止/);
+  assert.match(zh, /信号 SIGTERM/);
+  assert.doesNotMatch(zh, /exit 0/);
+  const notice = formatBackgroundCompletionNotice(killed, false);
+  assert.match(notice, /Background stopped bg_1/);
+  assert.match(notice, /killed signal SIGTERM/);
+  assert.doesNotMatch(notice, /exit 0/);
+}
+
+if (process.platform !== 'win32') {
+  const testDir = fs.mkdtempSync(path.join(process.cwd(), '.moss-bg-stop-'));
+  clearBackgroundRegistryForTests();
+  clearBackgroundCompletionReminderForTests();
+  try {
+    const out = await execBackgroundTool.execute(
+      {
+        command: "trap 'exit 0' TERM; while true; do sleep 1; done",
+        settle_ms: 40,
+      },
+      {
+        abortSignal: new AbortController().signal,
+        workspaceDir: testDir,
+      }
+    );
+    const id = /bg_\d+/.exec(String(out))?.[0];
+    assert.ok(id, `background id in start result: ${out}`);
+    const { stopBackgroundProcess, getBackgroundProcessSnapshot } =
+      await import('../dist/core/tools/background-process-registry.js');
+    assert.equal(stopBackgroundProcess(id), true, 'stop signals the running process');
+    let snap = null;
+    for (let i = 0; i < 40; i++) {
+      snap = getBackgroundProcessSnapshot(id);
+      if (snap && snap.status !== 'running') break;
+      await sleep(50);
+    }
+    assert.equal(snap?.status, 'killed');
+    assert.equal(snap?.signal, 'SIGTERM');
+    const flash = formatBackgroundCompletionFlash(snap, false);
+    assert.match(flash, /stopped/);
+    assert.match(flash, /killed signal SIGTERM/);
+    assert.doesNotMatch(flash, /exit 0/);
+  } finally {
+    clearBackgroundRegistryForTests();
+    clearBackgroundCompletionReminderForTests();
+    fs.rmSync(testDir, { recursive: true, force: true });
+  }
+}
+
 console.log('[PASS] background completion user-visible');

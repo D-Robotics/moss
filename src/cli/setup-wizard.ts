@@ -39,6 +39,66 @@ export async function probeSetupReachability(
   return `Key saved (${result.providerLabel} — skipping live reachability check).`;
 }
 
+/** How many gateway models `moss setup` prints before it says "showing N of M". */
+export const SETUP_MODEL_LIST_CAP = 30;
+
+/**
+ * The heading count and the printed rows describe the same set.
+ * A catalog longer than the cap says how many rows are shown.
+ */
+export function formatDiscoveredModels(
+  ids: readonly string[],
+  listCap = SETUP_MODEL_LIST_CAP
+): { heading: string; lines: string[]; choices: string[] } {
+  const choices: string[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    const name = id.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    if (choices.length < listCap) choices.push(name);
+  }
+  const total = seen.size;
+  const heading =
+    total > choices.length
+      ? `Found ${total} model(s), showing ${choices.length} of ${total}:`
+      : `Found ${choices.length} model(s):`;
+  return {
+    heading,
+    choices,
+    lines: choices.map((name, index) => `  ${index + 1}. ${name}`),
+  };
+}
+
+export function renderSetupHelp(): string {
+  return [
+    'Usage:',
+    '  moss setup',
+    '',
+    'Configure the provider, model, and API key and save them to the moss config file.',
+    'The API key is read from a hidden prompt and is never printed.',
+    '',
+    'Providers (enter the number or the name):',
+    '  1  deepseek            DeepSeek',
+    '  2  qwen                Aliyun / Qwen',
+    '  3  openai              OpenAI',
+    '  4  anthropic           Anthropic',
+    '  5  openai-compatible   gateway URL, then the models that gateway lists',
+    '',
+    'OpenAI-compatible lists models from /v1/models. The "Found N model(s)" count',
+    'matches the list; a longer catalog says how many rows are shown.',
+    'Answer with a number or a model name. A base URL is stored as the API root:',
+    '/v1, /chat/completions, query strings, and credentials are stripped.',
+    '',
+    'Non-interactive: pipe one answer per line (provider, then each prompt).',
+    'Change a saved value later with `moss config` (`moss config --help`).',
+    '',
+    'Examples:',
+    '  moss setup',
+    "  printf '5\\nhttps://gateway.example\\nYOUR_KEY\\nmy-model\\n' | moss setup",
+  ].join('\n');
+}
+
 export function print(line = ''): void {
   output.write(`${line}\n`);
 }
@@ -301,25 +361,24 @@ export async function runSetupWizard(): Promise<void> {
           });
           if (!res.ok) return [];
           const json = (await res.json()) as { data?: { id?: string; name?: string }[] };
-          return (json?.data ?? [])
-            .flatMap((item) => {
-              const id = item?.id ?? item?.name ?? '';
-              return typeof id === 'string' && id.trim() ? [id.trim()] : [];
-            })
-            .slice(0, 30);
+          return (json?.data ?? []).flatMap((item) => {
+            const id = item?.id ?? item?.name ?? '';
+            return typeof id === 'string' && id.trim() ? [id.trim()] : [];
+          });
         } catch {
           return [];
         }
       })();
+      const listed = formatDiscoveredModels(liveModels);
       const rl2 = readline.createInterface({ input, output });
-      if (liveModels.length > 0) {
+      if (listed.choices.length > 0) {
         skipPostProbe = true;
-        print(`Found ${liveModels.length} model(s):`);
-        liveModels.slice(0, 15).forEach((m, i) => print(`  ${i + 1}. ${m}`));
-        const defaultChoice = defaultModel || liveModels[0]!;
+        print(listed.heading);
+        for (const line of listed.lines) print(line);
+        const defaultChoice = defaultModel || listed.choices[0]!;
         const ans = (await questionWith(rl2, `Choose model [${defaultChoice}]: `)).trim();
         if (/^\d+$/.test(ans)) {
-          model = liveModels[parseInt(ans, 10) - 1] ?? defaultChoice;
+          model = listed.choices[parseInt(ans, 10) - 1] ?? defaultChoice;
         } else {
           model = ans || defaultChoice;
         }

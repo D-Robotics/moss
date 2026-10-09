@@ -91,7 +91,7 @@ import { resolveLoopMaxIterations } from '../loop-tui-events.js';
 import { cliLocale } from '../cli-locale.js';
 import { handleCompactCommand } from '../compact-command.js';
 import { createCliSessionKey } from '../session.js';
-import { runTaskCommand, splitCommandArgs } from '../task-run.js';
+import { interactiveTaskUsageLines, runTaskCommand, splitCommandArgs } from '../task-run.js';
 import {
   formatCliInteractionModeLabel,
   getCliInteractionMode,
@@ -129,9 +129,13 @@ import {
   INTERACTION_MODE_TONES,
   SHELL_MODE_TONE,
   type LiveView,
-  PLACEHOLDER_TEXT,
   type StatusView,
 } from './transcript.js';
+import {
+  composerPlaceholder,
+  detectComposerProjectKind,
+  type ComposerProjectKind,
+} from '../composer-placeholder.js';
 import { clip, line, padEndTo, rule, type TuiLine } from './text.js';
 import { displayWidth } from '../terminal-text.js';
 import { isTuiZh, setTuiLocale, transientStatus, tui } from './copy.js';
@@ -376,6 +380,14 @@ export function TuiAppRoot({
   // so running it on every render is fine; the environment is only the fallback
   // and the host's explicit `locale` is authoritative.
   setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
+  const composerProjectKind = useMemo(
+    (): ComposerProjectKind =>
+      detectComposerProjectKind({
+        workspaceDir: options.workspaceDir,
+        env: process.env,
+      }),
+    [options.workspaceDir]
+  );
   const { exit, suspendTerminal } = useApp();
   const { stdout, write: writeStdout } = useStdout();
   const { setCursorPosition } = useCursor();
@@ -952,7 +964,9 @@ export function TuiAppRoot({
     () =>
       subscribeBackgroundLifecycle((snap) => {
         if (snap.status === 'running') return;
-        const failed = snap.status === 'error' || (snap.exitCode !== null && snap.exitCode !== 0);
+        const stopped = snap.status === 'killed';
+        const failed =
+          !stopped && (snap.status === 'error' || (snap.exitCode !== null && snap.exitCode !== 0));
         appendRow(
           store,
           failed ? 'error' : 'summary',
@@ -1333,11 +1347,7 @@ export function TuiAppRoot({
       }
       const parsed = splitCommandArgs(args);
       if (parsed.length === 0) {
-        printBlock('Task', [
-          'usage: /task run <goal...> [--accept "<cmd>"]',
-          '/task status|timeline [id]',
-          '/task resume [id]',
-        ]);
+        printBlock('Task', [...interactiveTaskUsageLines()]);
         return;
       }
       if (parsed[0] === 'resume' && !parsed[1]) {
@@ -3336,7 +3346,7 @@ export function TuiAppRoot({
           ? tui('Press up to edit queued messages')
           : running
             ? undefined
-            : PLACEHOLDER_TEXT
+            : tui(composerPlaceholder(composerProjectKind))
         : undefined,
     // Shell mode swaps the prompt glyph (`! ` instead of `❯ `) — E2.
     firstPrefix: shellMode ? '! ' : '❯ ',

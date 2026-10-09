@@ -377,7 +377,14 @@ test(
   }
 );
 
-test('sim target without a moss config refuses to invent a score', async () => {
+test('sim target without a moss config refuses to invent a score', async (t) => {
+  // scripts/lib/device-bench.mjs is frozen and isolateConfig still copies the host env.
+  const previous = process.env.MOSS_BENCH_API_KEY;
+  t.after(() => {
+    if (previous === undefined) delete process.env.MOSS_BENCH_API_KEY;
+    else process.env.MOSS_BENCH_API_KEY = previous;
+  });
+  delete process.env.MOSS_BENCH_API_KEY;
   const result = await runDeviceBench({
     mode: 'sim',
     isolateConfig: true,

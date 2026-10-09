@@ -175,7 +175,9 @@ export const execBackgroundTool: Tool = {
         }
         proc.status = proc.killRequested || signal ? 'killed' : 'exited';
         proc.exitCode = code;
-        proc.signal = signal;
+        // A handler that exits 0 after SIGTERM leaves `signal` null. Record the
+        // signal we sent so the UI does not call that a clean exit 0.
+        proc.signal = signal ?? (proc.killRequested ? 'SIGTERM' : null);
         proc.endedAt = Date.now();
         notifyLifecycle(proc);
         ctx.abortSignal?.removeEventListener('abort', onAbort);

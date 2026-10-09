@@ -51,6 +51,7 @@ import {
   renderOneShotOnboardingHint,
 } from './cli/onboarding-hints.js';
 import { renderConfigHelp } from './cli/config-commands.js';
+import { renderSetupHelp } from './cli/setup-wizard.js';
 import { MossAgent, JsonlSessionStore } from './core/index.js';
 import { configureRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
@@ -183,6 +184,10 @@ configureRootLogger({
 // banner, so `moss config --help` answers the actual question.
 if (parsedArgs.help && parsedArgs.command === 'config') {
   console.log(renderConfigHelp());
+  process.exit(0);
+}
+if (parsedArgs.help && parsedArgs.command === 'setup') {
+  console.log(renderSetupHelp());
   process.exit(0);
 }
 if (parsedArgs.help) displayHelp(c, { all: parsedArgs.helpAll });

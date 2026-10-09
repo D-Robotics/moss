@@ -106,6 +106,8 @@ export const ZH: Readonly<Record<string, string>> = {
 
   // ── composer placeholder (transcript.ts) ───────────────────────────────
   'Try "stream the camera at 30 fps and verify it"': '试试 “以 30 fps 推流相机并验证”',
+  'Try "fix the failing test and explain the change"': '试试 “修好失败的测试，并说明改了什么”',
+  'Try "look around and tell me what this folder is"': '试试 “看看这个目录是做什么的”',
 
   // ── status row (transcript.ts) ─────────────────────────────────────────
   '● waiting for you': '● 等待你的输入',

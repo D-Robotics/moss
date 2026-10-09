@@ -474,16 +474,20 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
   const unsubscribeBackground = subscribeBackgroundLifecycle((snap) => {
     if (snap.status === 'running') return;
     const zh = isZhLocale();
-    const failed = snap.status === 'error' || (snap.exitCode !== null && snap.exitCode !== 0);
+    const stopped = snap.status === 'killed';
+    const failed =
+      !stopped && (snap.status === 'error' || (snap.exitCode !== null && snap.exitCode !== 0));
     if (isQuiet) {
-      stderrLine(`${mark(failed ? 'fail' : 'ok')} ${formatBackgroundCompletionFlash(snap, zh)}`);
+      stderrLine(
+        `${mark(failed ? 'fail' : stopped ? 'info' : 'ok')} ${formatBackgroundCompletionFlash(snap, zh)}`
+      );
       return;
     }
     breakAnswerForStatus();
     spinner?.stop();
     const notice = formatBackgroundCompletionNotice(snap, zh);
     for (const line of notice.split('\n')) {
-      stderrLine(`${mark(failed ? 'fail' : 'ok')} ${line}`);
+      stderrLine(`${mark(failed ? 'fail' : stopped ? 'info' : 'ok')} ${line}`);
     }
   });
 

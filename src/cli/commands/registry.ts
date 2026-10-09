@@ -24,6 +24,7 @@ import {
 import { parsePermissionRuleSpec } from '../permission-rules.js';
 import { appendUserPermissionRule } from '../config-commands.js';
 import { stopAllBackgroundProcesses } from '../../core/tools/background-process-registry.js';
+import { probeDoctorModelPing } from '../doctor-model-ping.js';
 
 export interface CommandInputOptions {
   label: string;
@@ -82,8 +83,18 @@ const statusCommand: CommandSpec = {
 const doctorCommand: CommandSpec = {
   name: '/doctor',
   summary: 'health-check model, egress, and config in this session',
-  run(ctx) {
-    ctx.say('system', renderCliSessionDoctor(ctx.agent, ctx.runtime));
+  async run(ctx) {
+    const report = renderCliSessionDoctor(ctx.agent, ctx.runtime);
+    const llm = ctx.agent.config.llmProvider;
+    const secrets: string[] = [];
+    const configuredKey = ctx.runtime?.config?.apiKey;
+    if (typeof configuredKey === 'string' && configuredKey) secrets.push(configuredKey);
+    const ping = await probeDoctorModelPing({
+      model: ctx.agent.config.model ?? '',
+      ...(llm && typeof llm.complete === 'function' ? { provider: llm } : {}),
+      secrets,
+    });
+    ctx.say('system', `${report}\n${ping}`);
   },
 };
 
