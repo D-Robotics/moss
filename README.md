@@ -161,7 +161,7 @@ moss tasks list                     # 只读查看机器人闭环产物
   - 会话级规则下一个工具调用即生效；`/permissions persist` 写用户配置重启仍生效；
   - `--read-only` / `MOSS_SAFETY_MODE=read-only` 是压过任何模式（含 full）的只读上限。
 - **本机硬拦截永不撤**：本机 `exec` 的毁灭性命令（`rm -rf /` 等）与路径逃逸在 full 模式下同样被拦——full 跳过的是询问，不是检查。设备侧的同一类命令不硬拦死：TTY 确认、allow 规则，或显式信任之后会真的执行。
-- **显式信任设备**（任一即可；deny 仍赢）：`--trust-device`（仅本进程）、`MOSS_DEVICE_TRUST=full`、`permissions.deviceTrust=full`、`permissions.trustedDevices` 或 `MOSS_DEVICE_TRUST_DEVICES`（逗号分隔的 host / device id）。确认框里选 `a` 只信任这一台设备到本次会话结束。每次决定写入 `.moss/evidence.jsonl`（`metric: device_policy`），有进行中的任务时同时写入时间线 `note`。策略说明见 [`docs/superpowers/plans/2026-10-09-device-safety-policy.md`](docs/superpowers/plans/2026-10-09-device-safety-policy.md)。
+- **显式信任设备**（任一即可；deny 仍赢）：`--trust-device`（仅本进程）、`MOSS_DEVICE_TRUST=full`、`permissions.deviceTrust=full`、`permissions.trustedDevices` 或 `MOSS_DEVICE_TRUST_DEVICES`（逗号分隔的 host / device id）。确认框里选 `a` 只信任提示里写明的范围（例如同一 unit 的 `systemctl restart` 或 `stop`，或同一命令前缀），不是整台设备的全部毁灭性操作。读取 `/etc/shadow`、私钥、`sshd_config`、`authorized_keys` 归入 `sensitive`：同样要确认，但文案和证据不把它叫成毁灭性修改。中文 locale（`LANG` / `LC_ALL` 以 `zh` 开头）下，确认与拒绝文案为简体中文。每次决定写入 `.moss/evidence.jsonl`（`metric: device_policy`），有进行中的任务时同时写入时间线 `note`。策略说明见 [`docs/superpowers/plans/2026-10-09-device-safety-policy.md`](docs/superpowers/plans/2026-10-09-device-safety-policy.md)。
 - **旧键兼容**（一版宽限）：`profile` / `trustedTools` / `deniedTools` / `safetyMode` / `approvalPolicy` 读入即按映射表翻译（cautious→manual+只读上限、balanced→manual、autonomous→full、trustedTools→allow 规则、deniedTools→deny 规则），写侧提示 deprecated，新配置请用 `permissions.*` 块。
 - 凭据只从 `.env` 或环境变量读，绝不硬编码、不进日志、不传子进程、不写设备清单。
 - 无账号、无云服务、无遥测；provider 是普通 HTTP 端点。
@@ -375,8 +375,12 @@ Key env vars (full list: `moss config env`): `MOSS_PROFILE` · `MOSS_WORKSPACE` 
   runs them for real.
 - **Trust a device** (any one; deny rules still win): `--trust-device` (this process only),
   `MOSS_DEVICE_TRUST=full`, `permissions.deviceTrust=full`, or `permissions.trustedDevices` /
-  `MOSS_DEVICE_TRUST_DEVICES` (comma-separated host or device id). Answering `a` trusts that one
-  device until the session ends. Every decision is appended to `.moss/evidence.jsonl`
+  `MOSS_DEVICE_TRUST_DEVICES` (comma-separated host or device id). Answering `a` trusts only the
+  scope named in the prompt (for example `systemctl restart` or `stop` of that unit, or the same
+  command prefix) until the session ends. Reading `/etc/shadow`, private keys, `sshd_config`, or
+  `authorized_keys` is a `sensitive` tier: it still confirms, and the copy does not call it
+  destructive. Prompts and refusals follow the CLI locale (Simplified Chinese when `LANG` /
+  `LC_ALL` starts with `zh`). Every decision is appended to `.moss/evidence.jsonl`
   (`metric: device_policy`) and, when a task is in progress, to its timeline as a `note`.
   Policy: [`docs/superpowers/plans/2026-10-09-device-safety-policy.md`](docs/superpowers/plans/2026-10-09-device-safety-policy.md).
 - **Legacy keys** (one release of grace): `profile` / `trustedTools` / `deniedTools` /

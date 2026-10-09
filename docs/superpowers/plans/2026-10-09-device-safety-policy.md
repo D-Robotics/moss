@@ -28,8 +28,9 @@ v0.26 起默认交互模式是 `full`。`deriveEngineQuantas('full')` 的 `devic
 3. 正在跑的机器人进程（可重启的服务、工作区里的构建产物）。
 
 做不到的事：Moss 不在设备上跑 OS 沙箱。SSH 进去之后，命令就是 root 或登录用户的真实
-shell。策略只能在**发出去之前**分类并拦截。脚本正文（`./flash.sh`、`python app.py`）
-看不到，这一档保持可逆，并记为已知缺口。
+shell。策略只能在**发出去之前**分类并拦截。脚本正文看不到：普通 `./deploy.sh`、
+`python app.py` 保持可逆。文件名或参数明显是刷机 / 格式化 / OTA（`flash`、`burn`、
+`xburn`、`ota`、`mkfs`、`upgrade_firmware`、`hb_ota`）则升到毁灭性档。
 
 ## 风险档
 
@@ -37,11 +38,11 @@ shell。策略只能在**发出去之前**分类并拦截。脚本正文（`./fl
 `sudo` / `doas` / `env` / `timeout` / `nice` / `nohup` 以及 `VAR=value` 前缀剥掉后再看。
 `bash -c` 的载荷重新分类（深度 < 4）。路径先把 `~` / `$HOME` 展开再折叠 `..`。
 
-| 档            | 含义                             | 例子                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `readonly`    | 不改设备状态                     | 只读设备工具；`ls` `cat /etc/os-release` `journalctl` `systemctl status` `ip addr` `iptables -L` `fdisk -l` `apt list`                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `reversible`  | 会改状态，但不至于锁死或很难撤销 | `rm -rf dist`、`rm` 家目录里的文件、`/tmp` 与 `/opt/<app>` 与 `/usr/local/**` 的写入、`apt install` / `apt update`、`systemctl restart\|start\|reload\|enable`、`dd of=/tmp/out.img`、普通 `device_deploy`                                                                                                                                                                                                                                                                                                                      |
-| `destructive` | 锁死、掉线、或不可逆             | `reboot` / `shutdown` / `poweroff`；`dd`/`mkfs`/`fastboot` 等刷写；重定向或写入 `/boot` `/etc` `/usr`（除 `/usr/local`）`/bin` `/sbin` `/lib` `/root` `/sys` `/proc`；`rm` 掉 `/`、`/boot`、`/etc`、家目录本身、`~`、`$HOME`、这些路径下的 `/*`；`iptables`/`nft`/`ufw` 改规则；`ip`/`nmcli` 改地址或连接；`passwd` 与用户/组命令；读 `shadow`、sudoers、私钥、`sshd_config`、`authorized_keys`；`apt`/`dpkg`/`opkg` 等**系统**包的 remove/purge；`systemctl stop\|disable\|mask\|daemon-reload\|reboot`；`curl\|sh`、fork bomb |
+| 档            | 含义                             | 例子                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `readonly`    | 不改设备状态                     | 只读设备工具；`ls` `cat /etc/os-release` `journalctl` `systemctl status` `ip addr` `iptables -L` `fdisk -l` `apt list`                                                                                                                                                                                                                                                                                                                                                                                           |
+| `reversible`  | 会改状态，但不至于锁死或很难撤销 | `rm -rf dist`、`rm` 家目录里的文件、`/tmp` 与 `/opt/<app>` 与 `/usr/local/**` 的写入、`apt install` / `apt update`、`systemctl restart\|start\|reload\|enable`、`dd of=/tmp/out.img`、普通 `device_deploy`                                                                                                                                                                                                                                                                                                       |
+| `destructive` | 锁死、掉线、或不可逆             | `reboot` / `shutdown` / `poweroff`；`dd`/`mkfs`/`fastboot` 等刷写；重定向或写入 `/boot` `/etc` `/usr`（除 `/usr/local`）`/bin` `/sbin` `/lib` `/root` `/sys` `/proc`；`rm` 掉 `/`、`/boot`、`/etc`、家目录本身、`~`、`$HOME`、这些路径下的 `/*`；`iptables`/`nft`/`ufw` 改规则；`ip`/`nmcli` 改地址或连接；`passwd` 与用户/组命令；`apt`/`dpkg`/`opkg` 等**系统**包的 remove/purge；停掉 ssh / NetworkManager / dbus 等关键单元（其它 unit 的 stop 可逆）；`curl\|sh`、fork bomb。读密钥是 `sensitive`，不是本档 |
 
 刻意不算毁灭性（避免日常开发误报）：
 
@@ -61,7 +62,7 @@ shell。策略只能在**发出去之前**分类并拦截。脚本正文（`./fl
 
 | 模式                   | 只读         | 可逆                           | 毁灭性                                                |
 | ---------------------- | ------------ | ------------------------------ | ----------------------------------------------------- |
-| `full`（默认）         | 放行         | 放行                           | TTY 确认；headless 拒绝                               |
+| `full`（默认）         | 放行         | 放行                           | TTY 确认；headless 拒绝。`sensitive` 同此规则         |
 | `manual`               | 既有规则     | 询问                           | 询问（文案用毁灭性提示，reason `device-destructive`） |
 | `acceptEdits`          | 既有规则     | 询问（设备变更不是工作区编辑） | 同上                                                  |
 | `plan` / `--read-only` | 只读工具放行 | 类级拒绝（在分档门之前）       | 类级拒绝                                              |
@@ -74,7 +75,7 @@ shell。策略只能在**发出去之前**分类并拦截。脚本正文（`./fl
 2. plan / 只读上限。
 3. ask 规则（full 跳过）。
 4. allow 规则。匹配到的 allow 是显式授权，**包含毁灭性档**。
-   4b. 毁灭性档且没有 `deviceFullTrust` → `ask`（reason `device-destructive`）。headless（无 TTY 且没有 asker）把 ask 收成拒绝。
+   4b. `destructive` 或 `sensitive`，且没有 `deviceFullTrust`、也没有本会话已确认的同一 scope → `ask`（reason `device-destructive` 或 `device-sensitive`）。headless 把 ask 收成拒绝。`sensitive` 在 plan / 只读上限里同样询问，因为它的 side effect 仍是 readonly。
 5. full → allow；其余模式走原来的默认。
 
 operand 匹配是前缀通配：`device_exec(reboot*)` 匹配 `reboot` 与 `reboot -f`。
@@ -84,30 +85,30 @@ operand 匹配是前缀通配：`device_exec(reboot*)` 匹配 `reboot` 与 `rebo
 
 任意一条即可，deny 仍然赢：
 
-| 入口                                                           | 范围                                                                                             | 持久                                                  |
-| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
-| allow 规则，如 `device_exec(reboot)` 或 `device_exec(reboot*)` | 匹配到的调用                                                                                     | 配置或会话，看规则来源                                |
-| `--trust-device`                                               | 本进程全部毁灭性设备操作                                                                         | 否                                                    |
-| `MOSS_DEVICE_TRUST=full\|1\|true\|yes`                         | 本进程                                                                                           | 否（环境）                                            |
-| `permissions.deviceTrust=full`                                 | 该配置文件                                                                                       | 是                                                    |
-| `permissions.trustedDevices` 与/或 `MOSS_DEVICE_TRUST_DEVICES` | 逗号分隔的 host 或 device id，匹配 `options.device.host` / `MOSS_DEVICE_HOST` / `MOSS_DEVICE_ID` | 配置是；环境否                                        |
-| 确认框里选 `a`                                                 | **这一台设备**本会话的毁灭性操作，不是整个 `device_exec`                                         | 仅当 `persistTrust` 时把 host 追加进 `trustedDevices` |
+| 入口                                                           | 范围                                                                                             | 持久                              |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------- |
+| allow 规则，如 `device_exec(reboot)` 或 `device_exec(reboot*)` | 匹配到的调用                                                                                     | 配置或会话，看规则来源            |
+| `--trust-device`                                               | 本进程全部毁灭性设备操作                                                                         | 否                                |
+| `MOSS_DEVICE_TRUST=full\|1\|true\|yes`                         | 本进程                                                                                           | 否（环境）                        |
+| `permissions.deviceTrust=full`                                 | 该配置文件                                                                                       | 是                                |
+| `permissions.trustedDevices` 与/或 `MOSS_DEVICE_TRUST_DEVICES` | 逗号分隔的 host 或 device id，匹配 `options.device.host` / `MOSS_DEVICE_HOST` / `MOSS_DEVICE_ID` | 配置是；环境否                    |
+| 确认框里选 `a`                                                 | 提示里写明的那一个 scope：电源类命令、同一 unit 的 systemctl restart 或 stop、或同一命令前缀     | 仅本会话，不写入 `trustedDevices` |
 
-`a` 不写整工具 allow。写了的话，确认一次 reboot 就会让下一次 reboot 也跳过确认。
+`a` 不写整工具 allow，也不把整台设备标成信任。提示文案就是将被信任的范围。
 
 TTY / REPL 的提示在 `src/cli/device-safety-prompt.ts`，填进已有的 `CliApprovalView`。
 `src/cli/tui/app.ts` 不改。headless 拒绝文案点名上面的四条 opt-in，**不**说「把模式改成 full」。
 
 SDK 嵌入方如果没挂 CLI hook，工具自身还有一道后闸（`permitDeviceOperation`）：
-毁灭性调用没有环境信任、设备名单、或 hook 发的一次性 grant，就返回 `Command blocked:`。
-hook 在放行毁灭性调用时先 `grantDeviceOperation`，工具再消费，所以确认过的调用不会被后闸再拦一次。
-本机 `exec` 的硬拦截不走这道 grant。
+`destructive` 与 `sensitive` 没有环境信任、设备名单、或与**本次 tool call id** 绑定的 grant，就返回 `Command blocked:`。
+hook 在放行时 `grantDeviceOperation(tool, operand, toolCallId)`，工具用同一个 id 消费。
+批准了却没执行的调用不能让下一次相同命令漏过去。本机 `exec` 的硬拦截不走这道 grant。
 
 ## 证据
 
 每次分类过的设备调用，只要 hook 有 `workspaceDir`，就写一条（失败只吞掉，不改决定）：
 
-- `.moss/evidence.jsonl`：`source` / `metric` = `device_policy`，`expected` = `destructive-requires-explicit-trust`，`observed` = `<tier>:<allow|deny>`，`result` 在 allow 时为 pass、否则 fail。`details` 带 signal 与截断后的原因。
+- `.moss/evidence.jsonl`：`source` / `metric` = `device_policy`，`expected` 按档分别为 `destructive-requires-explicit-trust`、`sensitive-requires-explicit-trust` 或 `auto-allow`，`observed` = `<tier>:<allow|deny>`，`result` 在 allow 时为 pass、否则 fail。
 - 若存在未结束任务，再写一条 `note` 事件（`kind: device_policy`，含 tool / tier / decision / signal）。`note` 是 info 事件，不推 phase。
 
 工具后闸拒绝**不**再写第二条，避免和 hook 重复。没有 workspace 的嵌入调用只拦，不落盘。
@@ -139,14 +140,14 @@ Moss 对齐的部分：默认仍然快（只读 + 可逆不询问，相当于设
 2. **没有 OS 沙箱。** 命令在板子上执行，Moss 进程的 bubblewrap/seatbelt 包不住 SSH 对端。确认之后就是真的执行。
 3. **`--trust-device` 比 yolo 窄。** 它只打开设备毁灭性档。本机 `exec` 硬拦截、路径沙箱、deny 规则都不抬。
 4. **headless 比 skip-permissions 严。** 无 TTY 时毁灭性档直接拒绝。机器人任务经常无人值守，不能把「没人回答」当成同意。要跑 reboot，得事先写信任。
-5. **`systemctl restart` 可逆，`stop` / `disable` / `mask` 毁灭性。** 重启应用服务是部署闭环的正常一步；停掉 ssh 或 mask 掉网络不是。
+5. **`systemctl restart` 与 `daemon-reload` 可逆。** `stop` / `disable` / `mask` 只对关键单元毁灭性：`ssh`、`sshd`、`networking`、`NetworkManager`、`systemd-networkd`、`wpa_supplicant`、`dbus`。其余单元（含操作者部署的服务）和 `--user` 可逆。不记录「本会话写过的 unit 文件」：SSH 侧的文件名可以被冒充，分类器也不该去读任务库。
 6. **`apt install` 可逆，`apt remove` 毁灭性。** 装包是日常；卸 ssh 或网络栈会锁死。
 7. **`/usr/local` 及其子路径可逆，其余 `/usr` 毁灭性。** 本地安装工具落在 `/usr/local`；动 `/usr/bin` 会拆系统。
-8. **确认文案保持英文。** 现有审批 UI 是英文，这一路不单开 i18n。
+8. **确认与拒绝文案跟随 CLI locale。** `LC_ALL` / `LC_MESSAGES` / `LANG` 以 `zh` 开头时用简体中文，否则英文。分类器的 `reason` 仍是稳定英文，进证据；用户看到的标题、问题和 headless 拒绝是本地化的。
 
 ## 取舍
 
-- 后闸用进程内一次性 grant，而不是把「已确认」写进命令本身。代价：hook 放行后如果工具没跑，下一次**完全相同**的 operand 会多放行一次。范围是一条命令，不是整台设备。
-- 会话级 `a` 信任的是整台设备的毁灭性档，不是单条命令。这和 CC「本会话别再问」同一粒度；比单条 allow 规则宽，比 `--trust-device` 窄（只这一台，且进程结束即失效）。
-- 不透明脚本保持可逆。把所有 `./` 和 `python` 都当成毁灭性会让正常部署全部停下来问，full 模式就名不副实。缺口写在威胁模型里，不假装看过脚本。
-- `/etc/passwd` 的读取不再在设备上硬拦截（`shadow`、私钥、`sshd_config` 仍拦截）。passwd 是日常 `grep` 的目标，误报比漏报更吵；写入 `/etc/passwd` 仍然是毁灭性重定向。
+- 后闸的 grant 绑定 tool call id。没执行就过期，不能被下一次相同命令花掉。
+- 会话级 `a` 信任提示里写明的 scope（电源类、同一 unit 的 restart 或 stop、或命令前缀），不是整台设备的毁灭性档。
+- 普通脚本保持可逆。名字或参数像刷机 / OTA / mkfs 的升到毁灭性。不读脚本正文。
+- 读取 `/etc/shadow`、私钥、`sshd_config`、`authorized_keys` 是 `sensitive`，不是 `destructive`：同样要确认，但证据和文案说的是读密钥。`/etc/passwd` 的读取仍是只读。写入 `/etc/passwd` 仍是毁灭性重定向。
