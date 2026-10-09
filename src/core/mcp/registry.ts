@@ -209,6 +209,10 @@ export class McpToolRegistry {
     } catch (err) {
       entry.status.state = 'failed';
       entry.status.error = errorMessage(err).split('\n')[0] ?? 'connection failed';
+      // A transport can fail after the child was successfully spawned (for
+      // example, handshake or tools/list timeout). Reap it immediately rather
+      // than leaving an idle npx process alive until the CLI exits.
+      await entry.client.close().catch(() => undefined);
       log.warn('server connect failed', {
         server: entry.config.name,
         error: entry.status.error,

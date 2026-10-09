@@ -363,12 +363,6 @@ test('device safety rules, probes, and verified setup fallback stay', () => {
     unavailableLayerTokensApprox: approxTokens(RDK_DOCS_UNAVAILABLE_LAYER),
     webFetchFocusDroppedTokensApprox: approxTokens(' BPU'),
   };
-  const outDir = '/opt/cursor/artifacts';
-  fs.mkdirSync(outDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(outDir, 'rdk-docs-token-delta.json'),
-    `${JSON.stringify(report, null, 2)}\n`
-  );
   assert.ok(report.connectedLayerTokensApprox < 220);
   assert.ok(report.unavailableLayerTokensApprox < 80);
 });
