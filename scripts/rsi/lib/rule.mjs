@@ -153,9 +153,16 @@ export function pairedAggregate(current, baseline) {
 }
 
 export function falseSuccessCount(summary) {
-  if (!summary || !finite(summary.falseSuccess)) return null;
+  if (!summary || !Number.isInteger(summary.falseSuccess) || summary.falseSuccess < 0) return null;
+  if (
+    summary.core?.falseSuccess !== undefined &&
+    (!Number.isInteger(summary.core.falseSuccess) || summary.core.falseSuccess < 0)
+  ) {
+    return null;
+  }
+  if (summary.rows !== undefined && !Array.isArray(summary.rows)) return null;
   let count = summary.falseSuccess;
-  if (finite(summary.core?.falseSuccess)) count += summary.core.falseSuccess;
+  if (Number.isInteger(summary.core?.falseSuccess)) count += summary.core.falseSuccess;
   for (const row of summary.rows ?? []) {
     if (row?.falseSuccess === true || row?.status === 'falseSuccess') count += 1;
   }

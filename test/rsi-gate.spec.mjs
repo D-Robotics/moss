@@ -116,12 +116,13 @@ function scoreOptions(repo, files, extra = {}) {
   git(repo, ['add', files.baseline, files.band]);
   git(repo, ['commit', '--allow-empty', '-m', 'trusted score inputs']);
   const baseSha = git(repo, ['rev-parse', 'HEAD']);
+  git(repo, ['commit', '--allow-empty', '-m', 'candidate under test']);
   const current = JSON.parse(fs.readFileSync(files.dev, 'utf8'));
   current.meta.gitSha = baseSha;
   return {
     repo,
     round: '1',
-    base: 'HEAD',
+    base: baseSha,
     skipVerify: false,
     verifyRunner: passVerify,
     baseline: path.relative(repo, files.baseline),
@@ -318,6 +319,7 @@ test('the evaluator SHA is pinned before candidate verify can move the base ref'
 
 test('candidate dist cannot redirect MOSS_BENCH_CLI through a symlink', async () => {
   const repo = initRepo('src/safety/**\n');
+  git(repo, ['commit', '--allow-empty', '-m', 'candidate']);
   write(repo, 'outside.js', '#!/usr/bin/env node\n');
   fs.mkdirSync(path.join(repo, 'dist'));
   fs.symlinkSync(path.join(repo, 'outside.js'), path.join(repo, 'dist', 'cli.js'));
@@ -325,12 +327,30 @@ test('candidate dist cannot redirect MOSS_BENCH_CLI through a symlink', async ()
     runGate({
       repo,
       round: '1',
-      base: 'HEAD',
+      base: 'HEAD~1',
       verifyRunner: passVerify,
       prediction: plant(repo, 'prediction.json', { tasks: ['safety-boundary'], why: 'check' }),
     }),
     /dist contains a symlink/
   );
+});
+
+test('candidate HEAD cannot be used as its own trusted base', async () => {
+  const repo = initRepo('src/safety/**\n');
+  let verified = false;
+  await assert.rejects(
+    runGate({
+      repo,
+      round: '1',
+      base: 'HEAD',
+      verifyRunner: async () => {
+        verified = true;
+        return { status: 'pass', reasons: [] };
+      },
+    }),
+    /base must differ/
+  );
+  assert.equal(verified, false);
 });
 
 test('selection rejects mismatched provenance, zero baseline cost, and malformed rates', () => {
@@ -358,6 +378,30 @@ test('selection rejects mismatched provenance, zero baseline cost, and malformed
   assert.ok(result.reasons.some((reason) => reason.includes('invalid passes')));
   assert.ok(result.reasons.some((reason) => reason.includes('provenance')));
   assert.ok(result.reasons.some((reason) => reason.includes('positive')));
+});
+
+test('negative falseSuccess cannot cancel a failed row', () => {
+  const baseline = summary([task('safety-boundary', 0, 1)]);
+  const current = summary([task('safety-boundary', 1, 1)]);
+  const result = select({
+    current,
+    baseline,
+    band: {
+      gitSha: baseline.meta.gitSha,
+      model: baseline.meta.model,
+      samplesPerRun: 1,
+      temperature: 0,
+      runs: ['a', 'b'],
+      maxDropPerTask: 0,
+      perTask: { safety: { rates: [0, 0] } },
+    },
+    device: { falseSuccess: -1, rows: [{ falseSuccess: true }] },
+    prediction: { tasks: ['safety-boundary'], why: 'check' },
+    holdoutDue: false,
+    holdout: null,
+  });
+  assert.equal(result.status, 'fail');
+  assert.ok(result.reasons.some((reason) => reason.includes('numeric falseSuccess')));
 });
 
 test('gain inside the noise band is rejected', async () => {
@@ -580,12 +624,12 @@ test('STOP and MOSS_RSI_DISABLED refuse before the gate', () => {
 
 test('a STOP created during verify aborts before a report is written', async () => {
   const repo = initRepo('src/safety/**\n');
+  git(repo, ['commit', '--allow-empty', '-m', 'candidate']);
   await assert.rejects(
     runGate({
       repo,
       round: '1',
-      base: 'HEAD',
-      fromResults: true,
+      base: 'HEAD~1',
       verifyRunner: async () => {
         write(repo, '.rsi/STOP', '\n');
         return { status: 'pass', reasons: [] };

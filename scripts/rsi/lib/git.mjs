@@ -23,9 +23,9 @@ function lines(text) {
     .filter(Boolean);
 }
 
-export function changedPaths(repo, base) {
+export function changedPaths(repo, base, head = 'HEAD') {
   const chunks = [
-    ['diff', '--name-only', `${base}..HEAD`],
+    ['diff', '--name-only', `${base}..${head}`],
     ['diff', '--name-only', '--cached'],
     ['diff', '--name-only'],
     ['ls-files', '--others', '--exclude-standard'],

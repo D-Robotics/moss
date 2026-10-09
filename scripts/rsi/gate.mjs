@@ -189,10 +189,12 @@ export async function runGate(options) {
   if (!options.round) throw new Error('--round is required');
 
   const baseSha = refSha(repo, options.base);
-  if (git(repo, ['merge-base', '--is-ancestor', baseSha, 'HEAD']).status !== 0) {
+  const candidateSha = headSha(repo);
+  if (baseSha === candidateSha) throw new Error('base must differ from candidate HEAD');
+  if (git(repo, ['merge-base', '--is-ancestor', baseSha, candidateSha]).status !== 0) {
     throw new Error(`base ${options.base} is not an ancestor of HEAD`);
   }
-  const paths = changedPaths(repo, baseSha);
+  const paths = changedPaths(repo, baseSha, candidateSha);
   const shown = git(repo, ['show', `${baseSha}:.rsi/frozen.txt`]);
   const patterns = shown.status === 0 ? parseFrozenPatterns(shown.stdout) : null;
   const hits = patterns ? frozenHits(patterns, paths) : [];
@@ -317,7 +319,7 @@ export async function runGate(options) {
     round: options.round,
     base: options.base,
     baseSha,
-    headSha: headSha(repo),
+    headSha: candidateSha,
     parent: options.parent ?? baseSha,
     prediction,
     predictionHeld: selection.predictionHeld ?? null,
