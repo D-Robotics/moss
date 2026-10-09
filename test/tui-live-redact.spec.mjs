@@ -95,19 +95,40 @@ const unclosed = flushed([
 ]);
 assert.match(unclosed, /Before/);
 assert.doesNotMatch(unclosed, new RegExp(pemBody), 'flush redacts an unclosed private key');
-assert.doesNotMatch(
-  unclosed,
-  /explanation continues/,
-  'an unclosed line-start header redacts through the end of the text'
-);
+assert.match(unclosed, /explanation continues/, 'flush keeps prose after the last key-body line');
 assert.match(unclosed, /\[REDACTED\]/);
+const heldOpen = createStreamingTextRedactor().push(
+  `Before.\n-----BEGIN OPENSSH PRIVATE KEY-----\n${pemBody}\nThe explanation continues after the header.\n`
+);
 assert.doesNotMatch(
-  createStreamingTextRedactor().push(
-    `Before.\n-----BEGIN OPENSSH PRIVATE KEY-----\n${pemBody}\nThe explanation continues after the header.\n`
-  ),
+  heldOpen,
   new RegExp(pemBody),
   'an open line-start header is still held until flush'
 );
+assert.doesNotMatch(
+  heldOpen,
+  /explanation continues/,
+  'an open stream still holds the unclosed key span'
+);
+assert.doesNotMatch(
+  createStreamingTextRedactor().push(`+-----BEGIN OPENSSH PRIVATE KEY-----\n+${pemBody}\n`),
+  new RegExp(pemBody),
+  'an open diff-prefixed header is held until flush'
+);
+
+const fencedKey = [
+  'Look at this key:',
+  '```',
+  '-----BEGIN OPENSSH PRIVATE KEY-----',
+  pemBody,
+  '```',
+  'The file was truncated before the end marker.',
+].join('\n');
+const fencedOut = flushed([fencedKey]);
+assert.doesNotMatch(fencedOut, new RegExp(pemBody), 'a fenced truncated key body is redacted');
+assert.match(fencedOut, /```/, 'the code fence survives an unclosed key');
+assert.match(fencedOut, /truncated before the end marker/, 'prose after the fence survives');
+assert.equal(fencedOut.split('\n').length, fencedKey.split('\n').length);
 
 const pemOut = flushed([closedPem]);
 assert.doesNotMatch(pemOut, new RegExp(pemBody), 'a real PEM block is redacted');

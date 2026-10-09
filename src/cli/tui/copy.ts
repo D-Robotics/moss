@@ -243,6 +243,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'resume a failed, blocked, or abandoned task through Task OS':
     '通过 Task OS 恢复失败、受阻或已放弃的任务',
   'show current context-window usage': '查看当前上下文窗口用量',
+  Usage: '用量',
   'show cumulative token usage for this session': '查看本会话累计 token 用量',
   'export this session to markdown (path optional; - prints to stdout)':
     '将会话导出为 markdown（路径可选；- 打印到标准输出）',

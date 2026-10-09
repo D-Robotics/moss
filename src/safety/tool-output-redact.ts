@@ -87,6 +87,14 @@ function shouldRedactAssignedValue(value: string): boolean {
 }
 
 const NUMBERED_READ_LINE = /^(\s*\d+\t)(.*)$/;
+/** Optional one-character diff / quote prefix: `+`, `-`, context space, or `>`. */
+const PEM_HEADER_LINE = /^[ \t]*(?:[+\- >][ \t]*)?-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
+const PEM_END_MARK = /-----END [A-Z0-9 ]*PRIVATE KEY-----/;
+const PEM_ARMOR_LINE = /^-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----$/;
+const PEM_END_LINE = /^-----END [A-Z0-9 ]*PRIVATE KEY-----$/;
+const KEY_MATERIAL_LINE = /^[A-Za-z0-9+/=:-]+$/;
+/** RFC 1421 encapsulation header, only valid before the first base64 line. */
+const RFC1421_HEADER = /^[A-Za-z][A-Za-z0-9-]*:\s?\S.*$/;
 
 /**
  * Replace a PEM block without collapsing lines. A `read_file` gutter
@@ -97,7 +105,109 @@ function redactPemBlocks(text: string): string {
   return text.replace(PEM_PRIVATE_KEY, (block) => redactPemLines(block));
 }
 
-const PEM_LINE_OPEN = /(?:^|\n)[ \t]*(?:\d+\t)?[ \t]*-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/g;
+function splitReadLine(line: string): { gutter: string; body: string } {
+  const numbered = NUMBERED_READ_LINE.exec(line);
+  if (!numbered) return { gutter: '', body: line };
+  return { gutter: numbered[1] ?? '', body: numbered[2] ?? '' };
+}
+
+/**
+ * Drop one leading diff marker (`+`, `-`, space, `>`) so `+-----BEGIN` and
+ * `+b3Blbn…` classify as armor and base64. Armor that already starts with
+ * `-----` keeps its hyphens.
+ */
+function pemLineBody(body: string): string {
+  let text = body.trim();
+  if (!text.startsWith('-----BEGIN ') && !text.startsWith('-----END ')) {
+    const mark = text[0];
+    // A context-line space is already gone via trim. `+`, `-`, and `>` stay.
+    if (mark === '+' || mark === '-' || mark === '>') text = text.slice(1).trim();
+  }
+  return text;
+}
+
+/** A markdown fence (` ``` ` or `~~~`, optional info string) cannot be key body. */
+function isCodeFenceLine(body: string): boolean {
+  const trimmed = pemLineBody(body);
+  return trimmed.startsWith('```') || trimmed.startsWith('~~~');
+}
+
+/**
+ * Base64 / PEM armor. Spaces between words, or any character outside
+ * `[A-Za-z0-9+/=:-]`, are not key body. RFC 1421 headers are not base64;
+ * they are allowed only while the header section is still open.
+ */
+function isKeyMaterialLine(body: string): boolean {
+  const trimmed = pemLineBody(body);
+  if (!trimmed) return false;
+  if (PEM_ARMOR_LINE.test(trimmed) || PEM_END_LINE.test(trimmed)) return true;
+  return KEY_MATERIAL_LINE.test(trimmed);
+}
+
+function isRfc1421HeaderLine(body: string): boolean {
+  return RFC1421_HEADER.test(pemLineBody(body));
+}
+
+function privateKeyEndLine(lines: readonly string[], from: number): number {
+  for (let i = from; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line !== undefined && PEM_END_MARK.test(splitReadLine(line).body)) return i;
+  }
+  return -1;
+}
+
+/**
+ * Lines of an unclosed key, starting at the BEGIN line. Before the first
+ * base64 line, RFC 1421 headers (`Proc-Type: 4,ENCRYPTED`) and the blank line
+ * that separates them from the body stay inside. After that, the span stops
+ * before a code fence, a non-empty line that is not base64 or PEM armor, or a
+ * blank line followed by either of those. A single leading diff marker is
+ * ignored. Trailing blanks after the last key line stay outside the span.
+ */
+function unclosedKeySpanLength(lines: readonly string[], start: number): number {
+  let last = start;
+  let inHeader = true;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line === undefined) break;
+    const body = splitReadLine(line).body;
+    if (pemLineBody(body) === '') {
+      let next = i + 1;
+      while (next < lines.length) {
+        const ahead = lines[next];
+        if (ahead === undefined || pemLineBody(splitReadLine(ahead).body) !== '') break;
+        next += 1;
+      }
+      const ahead = lines[next];
+      if (ahead === undefined) break;
+      const nextBody = splitReadLine(ahead).body;
+      if (isCodeFenceLine(nextBody)) break;
+      if (inHeader && isRfc1421HeaderLine(nextBody)) continue;
+      if (!isKeyMaterialLine(nextBody)) break;
+      continue;
+    }
+    if (isCodeFenceLine(body)) break;
+    if (inHeader && isRfc1421HeaderLine(body)) {
+      last = i;
+      continue;
+    }
+    if (!isKeyMaterialLine(body)) break;
+    inHeader = false;
+    last = i;
+  }
+  return last - start + 1;
+}
+
+function redactLineRange(lines: string[], start: number, count: number): void {
+  const redacted = redactPemLines(lines.slice(start, start + count).join('\n')).split('\n');
+  for (let j = 0; j < count; j += 1) {
+    const line = redacted[j];
+    if (line !== undefined) lines[start + j] = line;
+  }
+}
+
+const PEM_LINE_OPEN =
+  /(?:^|\n)[ \t]*(?:\d+\t)?[ \t]*(?:[+\- >][ \t]*)?-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/g;
 
 /**
  * A line-start private-key header with no matching END. `-1` when every
@@ -125,14 +235,32 @@ function redactPemLines(block: string): string {
 }
 
 /**
- * Line-start `BEGIN … PRIVATE KEY` with no END: redact that line through the
- * end of the text. A mention in the middle of a sentence is left alone.
- * Empty lines stay empty so a trailing newline does not add a row.
+ * Line-start `BEGIN … PRIVATE KEY` with no END, optionally prefixed by one
+ * diff marker: redact from that line through the last base64 or PEM-armor
+ * line. RFC 1421 headers before the first base64 line, and the blank line
+ * before the body, stay inside. A code fence or other non-key line ends the
+ * span; a blank line before such a line ends it too. A mention in the middle
+ * of a sentence is left alone. Empty lines stay empty so the line count does
+ * not change. Closed blocks are already gone.
  */
 function redactUnclosedPrivateKey(text: string): string {
-  const at = unclosedPrivateKeyLineStart(text);
-  if (at < 0) return text;
-  return text.slice(0, at) + redactPemLines(text.slice(at));
+  if (!text.includes('PRIVATE KEY-----')) return text;
+  const lines = text.split('\n');
+  let changed = false;
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line !== undefined && PEM_HEADER_LINE.test(splitReadLine(line).body)) {
+      const endAt = privateKeyEndLine(lines, i + 1);
+      const count = endAt === -1 ? unclosedKeySpanLength(lines, i) : endAt - i + 1;
+      redactLineRange(lines, i, count);
+      changed = true;
+      i += count;
+      continue;
+    }
+    i += 1;
+  }
+  return changed ? lines.join('\n') : text;
 }
 
 /**
@@ -141,22 +269,22 @@ function redactUnclosedPrivateKey(text: string): string {
  * block keeps one output line per source line.
  */
 function redactNumberedToolOutput(text: string, env: NodeJS.ProcessEnv): string {
-  let inPem = false;
-  return text
-    .split('\n')
-    .map((line) => {
-      const numbered = NUMBERED_READ_LINE.exec(line);
-      const gutter = numbered?.[1] ?? '';
-      const body = numbered ? numbered[2] : line;
-      const opens = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(body);
-      const closes = /-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(body);
-      if (inPem || opens) {
-        inPem = !closes;
-        return `${gutter}${REDACTED}`;
-      }
-      return `${gutter}${redactEgress(body, env)}`;
-    })
-    .join('\n');
+  const lines = text.split('\n');
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i] ?? '';
+    const { gutter, body } = splitReadLine(line);
+    if (PEM_HEADER_LINE.test(body)) {
+      const endAt = privateKeyEndLine(lines, i + 1);
+      const count = endAt === -1 ? unclosedKeySpanLength(lines, i) : endAt - i + 1;
+      redactLineRange(lines, i, count);
+      i += count;
+      continue;
+    }
+    lines[i] = line === '' ? '' : `${gutter}${redactEgress(body, env)}`;
+    i += 1;
+  }
+  return lines.join('\n');
 }
 
 function redactAssignments(text: string): string {
@@ -253,8 +381,8 @@ export function presentToolOutput(args: {
 /**
  * Text safe to paint while a stream is still open: every finished line, and
  * nothing from the current partial line or an unclosed line-start PEM block.
- * `flush` emits the tail; an unclosed line-start private key is redacted
- * through the end of the text rather than printed.
+ * `flush` emits the tail; the unclosed key is then redacted only through the
+ * last key-body line. While the stream is open, that span stays held.
  */
 export function visibleStreamPrefix(raw: string, flush: boolean): string {
   if (flush) return raw;
@@ -279,7 +407,7 @@ const OPEN_STANDALONE =
 export function holdOpenSecretSuffix(line: string, env: NodeJS.ProcessEnv = process.env): string {
   if (!line) return '';
   if (
-    /^[ \t]*-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(line) &&
+    /^[ \t]*(?:[+\- >][ \t]*)?-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(line) &&
     !/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(line)
   ) {
     return '';

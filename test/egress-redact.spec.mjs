@@ -220,16 +220,22 @@ try {
   const headlessText = JSON.stringify(pemFlushed);
   assert.match(headlessText, /Before/, 'headless flush keeps the prose before an unclosed header');
   assert.doesNotMatch(headlessText, new RegExp(PEM_BODY), 'headless flush redacts an unclosed key');
-  assert.doesNotMatch(
+  assert.match(
     headlessText,
     /explanation continues/,
-    'headless flush redacts through the end of an unclosed private key'
+    'headless flush keeps prose after the key body'
   );
   assert.match(headlessText, /\[REDACTED\]/, 'headless flush emits the redacted tail');
+  const assistantPem = userFacingAssistantText(unclosedHeader);
   assert.doesNotMatch(
-    userFacingAssistantText(unclosedHeader),
+    assistantPem,
     new RegExp(PEM_BODY),
     'assistant text redacts an unclosed private key'
+  );
+  assert.match(
+    assistantPem,
+    /explanation continues/,
+    'assistant text keeps prose after the key body'
   );
 
   const pemChunks = [];
@@ -250,21 +256,143 @@ try {
   const replText = pemChunks.join('');
   assert.match(replText, /Before/, 'REPL flush keeps the prose before an unclosed header');
   assert.doesNotMatch(replText, new RegExp(PEM_BODY), 'REPL flush redacts an unclosed key');
-  assert.doesNotMatch(
-    replText,
-    /explanation continues/,
-    'REPL flush redacts through the end of an unclosed private key'
-  );
+  assert.match(replText, /explanation continues/, 'REPL flush keeps prose after the key body');
   assert.match(replText, /\[REDACTED\]/, 'REPL flush emits the redacted tail');
 
   const headCut = `-----BEGIN OPENSSH PRIVATE KEY-----\n${PEM_BODY}\n`;
   const modelHead = modelView('exec', { command: 'head -n 2 ~/.ssh/id_ed25519' }, headCut);
+  assert.equal(modelHead, '[REDACTED]\n[REDACTED]\n', 'head -n 2 of a key stays fully redacted');
   assert.doesNotMatch(modelHead, new RegExp(PEM_BODY), 'unclosed key is not sent to the model');
-  assert.match(modelHead, /\[REDACTED\]/);
 
-  const openNumbered = ['alpha', '-----BEGIN OPENSSH PRIVATE KEY-----', PEM_BODY, 'omega'].join(
-    '\n'
+  const bareKey = `-----BEGIN OPENSSH PRIVATE KEY-----\n${PEM_BODY}`;
+  assert.equal(
+    redactEgress(bareKey),
+    '[REDACTED]\n[REDACTED]',
+    'a key body with no following text is fully redacted'
   );
+  assert.equal(redactEgress(bareKey).split('\n').length, bareKey.split('\n').length);
+
+  const blankThenProse = `-----BEGIN OPENSSH PRIVATE KEY-----\n${PEM_BODY}\n\nkept prose here\n`;
+  assert.equal(
+    redactEgress(blankThenProse),
+    '[REDACTED]\n[REDACTED]\n\nkept prose here\n',
+    'a blank line before prose ends the unclosed key span'
+  );
+
+  const fenced = [
+    'Look at this key:',
+    '```',
+    '-----BEGIN OPENSSH PRIVATE KEY-----',
+    PEM_BODY,
+    '```',
+    'The file was truncated before the end marker.',
+  ].join('\n');
+  const fencedOut = redactEgress(fenced);
+  assert.equal(
+    fencedOut.split('\n').length,
+    fenced.split('\n').length,
+    'fenced key keeps line count'
+  );
+  assert.equal(
+    fencedOut,
+    [
+      'Look at this key:',
+      '```',
+      '[REDACTED]',
+      '[REDACTED]',
+      '```',
+      'The file was truncated before the end marker.',
+    ].join('\n'),
+    'a closing fence and the prose after a truncated key survive'
+  );
+  assert.doesNotMatch(fencedOut, new RegExp(PEM_BODY));
+
+  const encBody = [
+    'MIIEowIBAAKCAQEA0123456789abcdef',
+    'abcdefghij0123456789ABCDEFGHIJ',
+    'QRSTUVWXYZabcdefghijklmnopqrstuv',
+  ];
+  const encrypted = [
+    '-----BEGIN RSA PRIVATE KEY-----',
+    'Proc-Type: 4,ENCRYPTED',
+    'DEK-Info: AES-128-CBC,DEADBEEFCAFEBABE',
+    '',
+    ...encBody,
+    'The explanation continues after the header.',
+  ].join('\n');
+  const encryptedOut = redactEgress(encrypted);
+  assert.equal(
+    encryptedOut,
+    [
+      '[REDACTED]',
+      '[REDACTED]',
+      '[REDACTED]',
+      '',
+      ...encBody.map(() => '[REDACTED]'),
+      'The explanation continues after the header.',
+    ].join('\n'),
+    'an unclosed encrypted RSA key is redacted through the body'
+  );
+  assert.equal(encryptedOut.split('\n').length, encrypted.split('\n').length);
+  assert.doesNotMatch(encryptedOut, /DEADBEEFCAFEBABE/);
+  assert.doesNotMatch(encryptedOut, /4,ENCRYPTED/);
+  assert.doesNotMatch(encryptedOut, /MIIEowIBAAKCAQEA/);
+  assert.match(encryptedOut, /explanation continues/);
+  const modelEnc = modelView('exec', { command: 'head -n 10 ~/.ssh/id_rsa' }, `${encrypted}\n`);
+  assert.doesNotMatch(
+    modelEnc,
+    /DEADBEEFCAFEBABE/,
+    'head of an encrypted key is not sent to the model'
+  );
+  assert.doesNotMatch(modelEnc, /MIIEowIBAAKCAQEA/);
+  assert.match(modelEnc, /explanation continues/);
+
+  for (const mark of ['+', '-', '>', ' ']) {
+    const marked = `${mark}-----BEGIN OPENSSH PRIVATE KEY-----\n${mark}${PEM_BODY}`;
+    assert.equal(
+      redactEgress(marked),
+      '[REDACTED]\n[REDACTED]',
+      `leading ${JSON.stringify(mark)} still redacts an unclosed key`
+    );
+  }
+  const diffKey = [
+    'diff --git a/id_ed25519 b/id_ed25519',
+    '--- /dev/null',
+    '+++ b/id_ed25519',
+    '@@ -0,0 +1,2 @@',
+    '+-----BEGIN OPENSSH PRIVATE KEY-----',
+    `+${PEM_BODY}`,
+    'The file was truncated before the end marker.',
+  ].join('\n');
+  assert.equal(
+    redactEgress(diffKey),
+    [
+      'diff --git a/id_ed25519 b/id_ed25519',
+      '--- /dev/null',
+      '+++ b/id_ed25519',
+      '@@ -0,0 +1,2 @@',
+      '[REDACTED]',
+      '[REDACTED]',
+      'The file was truncated before the end marker.',
+    ].join('\n'),
+    'a diff-prefixed unclosed key redacts the body and keeps the surrounding diff'
+  );
+  const modelDiff = modelView('exec', { command: 'git diff | head' }, `${diffKey}\n`);
+  assert.doesNotMatch(
+    modelDiff,
+    new RegExp(PEM_BODY),
+    'git diff | head does not send the key body'
+  );
+  assert.match(modelDiff, /diff --git/);
+  assert.match(modelDiff, /truncated before the end marker/);
+
+  const openNumbered = [
+    'alpha',
+    '-----BEGIN OPENSSH PRIVATE KEY-----',
+    PEM_BODY,
+    'omega',
+    'kept prose here',
+  ].join('\n');
   fs.writeFileSync(path.join(project, 'open-key.pem'), openNumbered);
   const openRaw = String(
     await readFileTool.execute({ path: path.join(project, 'open-key.pem') }, ctx())
@@ -275,6 +403,7 @@ try {
   assert.match(openLines[0], /1\talpha/);
   assert.match(openLines[1], /2\t\[REDACTED\]/);
   assert.match(openLines[3], /4\t\[REDACTED\]/);
+  assert.match(openLines[4], /5\tkept prose here/);
   assert.doesNotMatch(openView, new RegExp(PEM_BODY));
   assert.doesNotMatch(openView, /\bomega\b/);
 

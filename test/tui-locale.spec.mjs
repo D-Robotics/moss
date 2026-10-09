@@ -36,10 +36,12 @@ import {
   setTuiLocale(false);
   assert.equal(isTuiZh(), false, 'default/EN locale reports EN');
   assert.equal(tui('Working'), 'Working', 'EN passes moss wording through untouched');
+  assert.equal(tui('Usage'), 'Usage', 'EN /usage header stays Usage');
 
   setTuiLocale(true);
   assert.equal(isTuiZh(), true, 'zh locale reports zh');
   assert.equal(tui('Working'), '处理中', 'zh translates moss wording');
+  assert.equal(tui('Usage'), '用量', 'zh /usage header comes from the copy dictionary');
 
   setTuiLocale(false); // leave the process in EN for the byte-identical checks
 }

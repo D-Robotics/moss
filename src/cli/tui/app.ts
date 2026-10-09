@@ -2131,7 +2131,7 @@ export function TuiAppRoot({
       }
       if (text === '/usage') {
         printBlock(
-          'Usage',
+          tui('Usage'),
           usageBlock(
             store.usage,
             process.env,
