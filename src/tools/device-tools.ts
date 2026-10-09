@@ -534,7 +534,7 @@ export const deviceRoboticsStatusTool: Tool = {
   name: 'device_robotics_status',
   description:
     'Detect the robotics stack on the configured device: TROS (/opt/tros, D-Robotics RDK) or upstream ROS2 (/opt/ros/<distro>) installations, the ros2 binary path, TROS version, and hbm presence. Call this before any ROS work — on a plain Linux host it reports "none detected" so you do not chase missing tools.\n' +
-    'ROS commands themselves run through device_exec after sourcing the setup (e.g. `source /opt/tros/setup.bash && ros2 node list`).\n' +
+    'ROS commands themselves run through device_exec after sourcing the setup script in the installation directory this tool reports. The distro setup path comes from the tros manual; cite that page URL.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: { sideEffectClass: 'readonly', transientRetry: true },
   inputSchema: {

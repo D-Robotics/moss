@@ -57,7 +57,14 @@ import pc from 'picocolors';
 import { registerBuiltinTools } from './tools/builtin.js';
 import { loadFileBasedTools } from './tools/file-based-tools.js';
 import { loadMcpConfigs } from './cli/mcp-config.js';
+import {
+  formatMcpStartupLine,
+  rdkDocsAutoConnectEnabled,
+  readRdkDocsFlag,
+  withBuiltinRdkDocs,
+} from './cli/rdk-docs-mcp.js';
 import { McpToolRegistry, buildMcpPromptLayer } from './core/mcp/registry.js';
+import { RDK_DOCS_SERVER_NAME, rdkDocsKnowledgeLayer } from './core/mcp/rdk-docs.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import {
@@ -65,6 +72,7 @@ import {
   buildSkillsPromptLayer,
   buildEmptySkillsHintLayer,
 } from './core/skills/skill-registry.js';
+import { includeBundledRdkDocsSkill } from './core/skills/rdk-docs-skill.js';
 import { buildAgentsMdLayer } from './cli/project-instructions.js';
 import { createSkillTool } from './tools/skill-tool.js';
 import {
@@ -729,35 +737,46 @@ async function main() {
   configureDeviceWorkspace(workspace);
   // v0.16 MCP client: connect servers declared in `.moss/mcp.json` /
   // `<configDir>/mcp.json` (credentials only via ${ENV_VAR} expansion).
-  // Zero-config = zero overhead (nothing spawns, nothing enters the prompt);
-  // a failing server degrades to a warning and never blocks the CLI.
+  // User servers stay zero-config = zero overhead. rdk-docs is the one builtin:
+  // it connects when a device target exists (or rdkDocs: true) and a failure
+  // is one line, not a crashed CLI. No cache, no bundled manual.
   let mcpRegistry: McpToolRegistry | null = null;
-  const mcpConfigs = loadMcpConfigs(workspace, configDir, process.env, (warning) =>
-    console.error(warning)
+  const mcpConfigs = withBuiltinRdkDocs(
+    loadMcpConfigs(workspace, configDir, process.env, (warning) => console.error(warning)),
+    rdkDocsAutoConnectEnabled({
+      env: process.env,
+      rdkDocs: readRdkDocsFlag(loadedConfig.config.rdkDocs),
+      workspaceDir: workspace,
+    })
   );
   if (mcpConfigs.length > 0) {
     try {
       mcpRegistry = await McpToolRegistry.connectAll(mcpConfigs, {
         // Real MCP tools register on demand: the search meta-tool installs
         // them into the live registry when the model asks for a server's list.
+        // Per-server timeouts (rdk-docs: connect 45s, request 20s) live on the
+        // config; other servers keep the client defaults.
         registerTool: (tool) => agent.tools.register(tool),
       });
       for (const searchTool of mcpRegistry.getTools()) agent.tools.register(searchTool);
       for (const status of mcpRegistry.getStatuses()) {
-        if (status.state === 'failed') {
-          console.error(
-            `[mcp] server "${status.name}" unavailable: ${status.error} — its tools are disabled for this session.`
-          );
-        } else if (status.state === 'connected' && cliDetailForNotices !== 'quiet') {
-          console.error(
-            `[mcp] server "${status.name}" connected (${status.toolCount ?? 0} tools, lazy-loaded — search with mcp__${status.name.replace(/[^a-zA-Z0-9_-]/g, '_')}__search)`
-          );
-        }
+        const line = formatMcpStartupLine(status, cliDetailForNotices);
+        if (line) console.error(line);
       }
       // Lazy-loading budget: the system prompt gets one index line per server,
-      // never the tool list itself.
+      // never the tool list itself. The rdk-docs usage pointer sits on that
+      // server's line; a failed connect gets only the unavailable sentence.
       const mcpLayer = buildMcpPromptLayer(mcpRegistry);
-      if (mcpLayer) extraPromptLayers.push(mcpLayer);
+      const rdkLayer = rdkDocsKnowledgeLayer(mcpRegistry.getStatuses());
+      const rdkConnected = mcpRegistry
+        .getStatuses()
+        .some((status) => status.name === RDK_DOCS_SERVER_NAME && status.state === 'connected');
+      if (mcpLayer && rdkLayer && rdkConnected) {
+        extraPromptLayers.push(`${mcpLayer}\n${rdkLayer}`);
+      } else {
+        if (mcpLayer) extraPromptLayers.push(mcpLayer);
+        if (rdkLayer) extraPromptLayers.push(rdkLayer);
+      }
     } catch (err) {
       console.error(`[mcp] initialization failed: ${errorMessage(err)}`);
       mcpRegistry = null;
@@ -775,10 +794,15 @@ async function main() {
   let loadedSkillCount = 0;
   let loadedSkills: Array<{ name: string; description: string }> = [];
   {
-    const skills = loadSkills([
-      path.join(workspace, '.moss', 'skills'),
-      path.join(configDir, 'skills'),
-    ]);
+    const rdkDocsConnected =
+      mcpRegistry
+        ?.getStatuses()
+        .some((status) => status.name === RDK_DOCS_SERVER_NAME && status.state === 'connected') ??
+      false;
+    const skills = includeBundledRdkDocsSkill(
+      loadSkills([path.join(workspace, '.moss', 'skills'), path.join(configDir, 'skills')]),
+      rdkDocsConnected
+    );
     loadedSkillCount = skills.length;
     loadedSkills = skills.map(({ name, description }) => ({ name, description }));
     if (skills.length > 0) {

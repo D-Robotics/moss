@@ -135,7 +135,10 @@ test('parseRoboticsProbe detects TROS, upstream ROS, and plain Linux hosts', () 
   const trosText = formatRoboticsSnapshot(tros, 'root@10.0.0.1:22');
   assert.match(trosText, /\/opt\/tros \(distro: tros\)/);
   assert.match(trosText, /TROS version: 2\.1\.1/);
-  assert.match(trosText, /source \/opt\/tros\/setup\.bash && ros2 node list/);
+  assert.match(trosText, /installation directory above/);
+  assert.match(trosText, /tros manual/);
+  assert.doesNotMatch(trosText, /\/opt\/tros\/setup\.bash/);
+  assert.doesNotMatch(trosText, /\/opt\/tros\/humble\/setup\.bash/);
 
   const humble = parseRoboticsProbe(
     ['ROSDIR|/opt/ros/humble|humble', 'ROS2BIN|/opt/ros/humble/bin/ros2'].join('\n'),

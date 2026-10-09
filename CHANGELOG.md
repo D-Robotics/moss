@@ -32,9 +32,18 @@ candidate windows are in `docs/cli-parity/tui-real-terminals.md`.
 
 ### RDK knowledge
 
-Board manual facts are not shipped in prompts. The plan to source them from rdk-docs MCP is in
-`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`; until it lands, connect it with
-`moss mcp add rdk-docs npx -y rdk-docs-mcp@latest`.
+Board manuals come from the built-in rdk-docs MCP (`npx -y rdk-docs-mcp@0.1.12`, tools
+`list_manuals` / `search_docs` / `get_page` / `list_toc`). Moss connects it when a device target
+is configured (`MOSS_DEVICE_HOST` or `.moss/devices.json`) or when `rdkDocs` is true. Opt out with
+`MOSS_NO_RDK_DOCS=1` or `"rdkDocs": false`. A same-named `mcp.json` entry replaces the builtin.
+Connect timeout is 45s and each request 20s for this server only. A failed connect prints
+`[mcp] rdk-docs unreachable (<reason>) — RDK manual lookup is off this session.` and the system
+prompt tells the agent the manual could not be checked. There is no cache and no offline copy.
+When the server is up, the prompt points at `search_docs` / `get_page` (manual filter, judge the
+snippet, cite the URL) and a short `rdk-docs` skill is indexed. The single `source /opt/tros/setup.bash`
+example is gone from the robotics tool description and the probe formatter; probe scripts,
+connection steps, and device safety rules stay. See
+`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`.
 
 ### 斜杠命令、真实终端与基准
 
@@ -43,7 +52,8 @@ Board manual facts are not shipped in prompts. The plan to source them from rdk-
 `/resume` 恢复会话；`/tasks`（别名 `/ps`）列后台任务；`/stop` 只停本会话的后台进程，打断用 Esc；
 运行中发消息默认 steer，不能 steer 时排队。隐藏的 `/task` 新增 `verify`。
 真实终端核对用 `MOSS_REAL_TERMINALS=1` 打开。新增 `npm run bench:device`（板卡任务成功率）与
-`npm run bench:deepswe`（同模型 DeepSWE 对比）。RDK 手册知识改由 rdk-docs MCP 供给（计划中）。
+`npm run bench:deepswe`（同模型 DeepSWE 对比）。RDK 手册由内置 rdk-docs MCP 供给（设备会话默认连接，
+`MOSS_NO_RDK_DOCS=1` 或 `rdkDocs: false` 关闭；连不上只报一行错误，不缓存）。
 
 ### Device safety policy
 

@@ -59,6 +59,12 @@ function expandServerEntry(
     }
     config.env = expandedEnv;
   }
+  if (typeof raw.connectTimeoutMs === 'number' && Number.isFinite(raw.connectTimeoutMs)) {
+    config.connectTimeoutMs = raw.connectTimeoutMs;
+  }
+  if (typeof raw.requestTimeoutMs === 'number' && Number.isFinite(raw.requestTimeoutMs)) {
+    config.requestTimeoutMs = raw.requestTimeoutMs;
+  }
   if (typeof raw.url === 'string') config.url = expandString(raw.url);
   if (raw.headers && typeof raw.headers === 'object' && !Array.isArray(raw.headers)) {
     const expandedHeaders: Record<string, string> = {};

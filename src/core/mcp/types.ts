@@ -33,6 +33,13 @@ export interface McpServerConfig {
   url?: string;
   /** Extra request headers (auth). Values may reference `${ENV_VAR}`. */
   headers?: Record<string, string>;
+
+  /**
+   * Override the client defaults (connect 20s, request 120s) for this server.
+   * The built-in rdk-docs server sets both; other servers leave them unset.
+   */
+  connectTimeoutMs?: number;
+  requestTimeoutMs?: number;
 }
 
 /** A tool as reported by the server's `tools/list`. */

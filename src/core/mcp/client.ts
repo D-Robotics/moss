@@ -34,6 +34,17 @@ export interface McpClientOptions {
   requestTimeoutMs?: number;
 }
 
+/** Host options override the server entry; missing values keep the client defaults. */
+export function resolveMcpClientTimeouts(
+  config: McpServerConfig,
+  opts: McpClientOptions = {}
+): { connectTimeoutMs: number; requestTimeoutMs: number } {
+  return {
+    connectTimeoutMs: opts.connectTimeoutMs ?? config.connectTimeoutMs ?? 20_000,
+    requestTimeoutMs: opts.requestTimeoutMs ?? config.requestTimeoutMs ?? 120_000,
+  };
+}
+
 export interface McpListToolsOptions {
   /** Skip the cache and re-fetch from the server. */
   refresh?: boolean;
@@ -64,8 +75,9 @@ export class McpClient {
     opts: McpClientOptions = {}
   ) {
     this.name = config.name;
-    this.connectTimeoutMs = opts.connectTimeoutMs ?? 20_000;
-    this.requestTimeoutMs = opts.requestTimeoutMs ?? 120_000;
+    const timeouts = resolveMcpClientTimeouts(config, opts);
+    this.connectTimeoutMs = timeouts.connectTimeoutMs;
+    this.requestTimeoutMs = timeouts.requestTimeoutMs;
     this.transport =
       config.transport === 'http' ? new McpHttpTransport(config) : new McpStdioTransport(config);
   }

@@ -108,6 +108,12 @@ export interface ConfigFile {
   hooks?: HooksConfig;
   /** Network egress policy for web tools (hostname allowlist). */
   net?: { allowHosts?: string[] };
+  /**
+   * Built-in rdk-docs MCP. `true` connects even with no device target;
+   * `false` stays off even when a device is configured. Unset follows the
+   * device-target default. `MOSS_NO_RDK_DOCS=1` opts out for one process.
+   */
+  rdkDocs?: boolean;
   _examples?: Record<string, unknown>;
 }
 
@@ -540,6 +546,9 @@ export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFi
     guardrails: mergeGuardrailsConfig(userConfig.guardrails, projectConfig.guardrails),
     agent: mergeAgentRuntimeConfig(userConfig.agent, projectConfig.agent),
     hooks: mergeHooksConfig(userConfig.hooks, projectConfig.hooks),
+    // A cloned project's config must not override an explicit user choice.
+    // `false` is a choice (nullish-coalescing keeps it).
+    rdkDocs: userConfig.rdkDocs ?? projectConfig.rdkDocs,
   };
 }
 

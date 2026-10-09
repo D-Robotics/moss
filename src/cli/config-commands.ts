@@ -331,6 +331,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_DEVICE_TRUST (full|1|true|yes opts this process into destructive device operations)',
       'MOSS_DEVICE_TRUST_DEVICES (comma-separated host or device-id allowlist)',
       'MOSS_DEVICE_ (prefix of every MOSS_DEVICE_* key)',
+      'MOSS_NO_RDK_DOCS (1|true|yes|on skips the built-in rdk-docs MCP server)',
     ],
   },
   {
@@ -487,6 +488,7 @@ export function renderConfigHelp(): string {
     '  moss config set agent.maxTurns 96',
     '  moss config set agent.contextTokens 200000',
     '  moss config set agent.compaction.reserveTokens 20000',
+    '  moss config set rdkDocs false',
   ].join('\n');
 }
 
@@ -706,7 +708,7 @@ function buildProjectConfigTemplate(): ConfigFile {
 }
 
 function supportedConfigKeys(): string {
-  return 'Supported keys — model: provider, model, baseUrl, apiKey; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens';
+  return 'Supported keys — model: provider, model, baseUrl, apiKey; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens';
 }
 
 function removeEmptyNestedConfig(config: ConfigFile): ConfigFile {
@@ -937,6 +939,15 @@ function applyConfigSetPair(
     } catch (err) {
       return { ok: false, messages: [errorMessage(err)] };
     }
+  } else if (key === 'rdkDocs') {
+    const enabled = parseConfigBoolean(value);
+    if (enabled === null) {
+      return {
+        ok: false,
+        messages: ['Supported rdkDocs values: true/false (yes/no, on/off, 1/0 also accepted)'],
+      };
+    }
+    next.rdkDocs = enabled;
   } else if (key === 'promptCache') {
     const enabled = parseConfigBoolean(value);
     if (enabled === null) {
@@ -1121,6 +1132,7 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
   else if (key === 'approvalPolicy') delete next.approvalPolicy;
   else if (key === 'trustedTools') delete next.trustedTools;
   else if (key === 'deniedTools') delete next.deniedTools;
+  else if (key === 'rdkDocs') delete next.rdkDocs;
   else if (key === 'permissions.deviceTrust') {
     next.permissions = { ...current.permissions };
     delete next.permissions.deviceTrust;
