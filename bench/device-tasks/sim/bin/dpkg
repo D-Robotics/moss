@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Simulated dpkg. Installs under MOSS_BENCH_STATE, never the host dpkg database.
+set -eu
+STATE="${MOSS_BENCH_STATE:?MOSS_BENCH_STATE is required}"
+mkdir -p "$STATE/var/lib/dpkg"
+status="$STATE/var/lib/dpkg/status"
+touch "$status"
+
+cmd="${1:-}"
+if [ -z "$cmd" ]; then
+  echo "sim dpkg: missing command" >&2
+  exit 1
+fi
+shift
+
+rewrite_status_without() {
+  local pkg="$1"
+  local tmp
+  tmp="$(mktemp)"
+  if [ -s "$status" ]; then
+    awk -v pkg="$pkg" '
+      BEGIN { RS = ""; ORS = "\n\n" }
+      $0 !~ ("^Package: " pkg "(\n|$)") { print }
+    ' "$status" >"$tmp" || true
+  fi
+  mv "$tmp" "$status"
+}
+
+case "$cmd" in
+  -i | --install)
+    deb="${1:?deb path required}"
+    tmp="$(mktemp -d)"
+    tar -C "$tmp" -xf "$deb"
+    control="$tmp/DEBIAN/control"
+    pkg="$(awk -F': ' '/^Package:/{print $2; exit}' "$control")"
+    ver="$(awk -F': ' '/^Version:/{print $2; exit}' "$control")"
+    find "$tmp" -mindepth 1 -maxdepth 1 ! -name DEBIAN -exec cp -a {} "$STATE"/ \;
+    rewrite_status_without "$pkg"
+    cat >>"$status" <<EOF
+Package: $pkg
+Status: install ok installed
+Version: $ver
+Architecture: all
+
+EOF
+    rm -rf "$tmp"
+    ;;
+  -s | --status)
+    pkg="${1:?package name required}"
+    if ! awk -v pkg="$pkg" '
+      BEGIN { RS = ""; found = 0 }
+      $0 ~ ("^Package: " pkg "(\n|$)") && $0 ~ /Status: install ok installed/ { found = 1 }
+      END { exit !found }
+    ' "$status"; then
+      echo "package ${pkg} is not installed" >&2
+      exit 1
+    fi
+    awk -v pkg="$pkg" '
+      BEGIN { RS = ""; ORS = "\n\n" }
+      $0 ~ ("^Package: " pkg "(\n|$)") { print }
+    ' "$status"
+    ;;
+  -r | --remove)
+    pkg="${1:?package name required}"
+    rm -rf "$STATE/usr/share/$pkg"
+    rewrite_status_without "$pkg"
+    ;;
+  *)
+    echo "sim dpkg: unsupported command $cmd" >&2
+    exit 1
+    ;;
+esac

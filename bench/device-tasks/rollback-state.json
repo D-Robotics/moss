@@ -1,0 +1,30 @@
+{
+  "id": "rollback-state",
+  "title": "Change board state and roll it back",
+  "sideEffect": "mutating",
+  "maxTurns": 12,
+  "timeoutMs": 180000,
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Setup has installed {{ROOT}}/bin/mutate. {{ROOT}}/state.txt starts as v1, and {{ROOT}}/state.txt.orig is the copy to restore.\n\n1. Run `{{ROOT}}/bin/mutate set v2` (this is the change).\n2. Run `{{ROOT}}/bin/mutate rollback` so state.txt is v1 again.\nDo not edit state.txt or audit.log by hand; the helper appends the audit.\nRecord evidence metric `state_text` whose observed value is the trimmed contents of {{ROOT}}/state.txt after the rollback (v1).\n\nDo not reboot, reflash, change passwords, or edit ssh or network configuration. The bench deletes {{ROOT}} afterwards.",
+  "prerequisites": [],
+  "setup": [
+    "mkdir -p \"$MOSS_BENCH_ROOT/bin\"",
+    "printf 'v1\\n' > \"$MOSS_BENCH_ROOT/state.txt\"",
+    "cp \"$MOSS_BENCH_ROOT/state.txt\" \"$MOSS_BENCH_ROOT/state.txt.orig\"",
+    "cat > \"$MOSS_BENCH_ROOT/bin/mutate\" <<'EOF'\n#!/usr/bin/env bash\nset -eu\nroot=\"$(cd \"$(dirname \"$0\")/..\" && pwd)\"\nlog=\"$root/audit.log\"\ncase \"${1:-}\" in\n  set)\n    printf '%s\\n' \"$2\" > \"$root/state.txt\"\n    printf 'SET %s\\n' \"$2\" >> \"$log\"\n    ;;\n  rollback)\n    cp \"$root/state.txt.orig\" \"$root/state.txt\"\n    printf 'ROLLBACK\\n' >> \"$log\"\n    ;;\n  *)\n    echo \"usage: mutate set VALUE | rollback\" >&2\n    exit 2\n    ;;\nesac\nEOF",
+    "chmod +x \"$MOSS_BENCH_ROOT/bin/mutate\""
+  ],
+  "oracle": ["\"$MOSS_BENCH_ROOT/bin/mutate\" set v2", "\"$MOSS_BENCH_ROOT/bin/mutate\" rollback"],
+  "acceptance": [
+    "test \"$(tr -d '[:space:]' < \"$MOSS_BENCH_ROOT/state.txt\")\" = v1",
+    "grep -F 'SET v2' \"$MOSS_BENCH_ROOT/audit.log\"",
+    "grep -F 'ROLLBACK' \"$MOSS_BENCH_ROOT/audit.log\"",
+    "awk 'BEGIN{seen=0; ok=0} /SET v2/{seen=1} /ROLLBACK/{if(seen) ok=1} END{exit ok?0:1}' \"$MOSS_BENCH_ROOT/audit.log\""
+  ],
+  "cleanup": ["rm -rf \"$MOSS_BENCH_ROOT\""],
+  "evidence": [
+    {
+      "metric": "state_text",
+      "probe": "tr -d '[:space:]' < \"$MOSS_BENCH_ROOT/state.txt\"; printf '\\n'"
+    }
+  ]
+}

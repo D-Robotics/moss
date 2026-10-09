@@ -1,0 +1,23 @@
+{
+  "id": "camera-presence",
+  "title": "Report a camera device name",
+  "sideEffect": "readonly",
+  "maxTurns": 8,
+  "timeoutMs": 180000,
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*).\n\nReport one camera or sensor name. Prefer device_cameras, /dev/video0, or the first entry of /sys/class/video4linux. On a simulated board the name is the contents of $MOSS_BENCH_STATE/camera/name. Record evidence metric `camera_name` whose observed value is that name and nothing else.\n\nDo not start a capture pipeline. Do not reboot, reflash, change passwords, or edit ssh or network configuration.",
+  "prerequisites": [
+    "if [ -e /dev/video0 ]; then exit 0; fi; if [ -d /sys/class/video4linux ] && ls /sys/class/video4linux | grep -q .; then exit 0; fi; if [ \"${MOSS_BENCH_SIM_CAMERA:-}\" = 1 ] && [ -f \"$MOSS_BENCH_STATE/camera/name\" ]; then exit 0; fi; exit 1"
+  ],
+  "setup": [],
+  "oracle": [],
+  "acceptance": [
+    "if [ -e /dev/video0 ]; then exit 0; fi; if [ -d /sys/class/video4linux ] && ls /sys/class/video4linux | grep -q .; then exit 0; fi; test -s \"$MOSS_BENCH_STATE/camera/name\""
+  ],
+  "cleanup": [],
+  "evidence": [
+    {
+      "metric": "camera_name",
+      "probe": "if [ -e /dev/video0 ]; then printf '%s\\n' /dev/video0; elif [ -d /sys/class/video4linux ]; then ls /sys/class/video4linux | awk 'NR==1{print; exit}'; elif [ -f \"$MOSS_BENCH_STATE/camera/name\" ]; then tr -d '[:space:]' < \"$MOSS_BENCH_STATE/camera/name\"; printf '\\n'; else exit 1; fi"
+    }
+  ]
+}

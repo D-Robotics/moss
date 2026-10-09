@@ -1,0 +1,32 @@
+{
+  "id": "localhost-port",
+  "title": "Open a localhost port and answer with a token",
+  "sideEffect": "mutating",
+  "maxTurns": 12,
+  "timeoutMs": 180000,
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Work only under {{ROOT}} and on 127.0.0.1:{{PORT}}.\n\nListen on 127.0.0.1:{{PORT}} (localhost only; do not change firewall, routes, or ssh). The first TCP client must receive a line containing `moss-bench-port-ok {{TOKEN}}`. Write the listener pid to {{ROOT}}/port.pid. Record evidence metric `port_banner` whose observed value is that banner line, trimmed.\n\nUse Python, not nc or socat. Do not reboot, reflash, or change passwords. The bench kills the pid in {{ROOT}}/port.pid afterwards.",
+  "prerequisites": ["command -v python3 >/dev/null"],
+  "setup": [
+    "mkdir -p \"$MOSS_BENCH_ROOT\"",
+    "if [ -f \"$MOSS_BENCH_ROOT/port.pid\" ]; then kill \"$(cat \"$MOSS_BENCH_ROOT/port.pid\")\" >/dev/null 2>&1 || true; fi"
+  ],
+  "oracle": [
+    "mkdir -p \"$MOSS_BENCH_ROOT\"",
+    "cat > \"$MOSS_BENCH_ROOT/listen.py\" <<'PY'\nimport os\nimport socket\nport = int(os.environ[\"MOSS_BENCH_PORT\"])\ntoken = os.environ[\"MOSS_BENCH_TOKEN\"].encode()\nroot = os.environ[\"MOSS_BENCH_ROOT\"]\nserver = socket.socket()\nserver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\nserver.bind((\"127.0.0.1\", port))\nserver.listen(4)\nserver.settimeout(20)\nwith open(os.path.join(root, \"port.pid\"), \"w\", encoding=\"utf-8\") as handle:\n    handle.write(str(os.getpid()))\nbanner = b\"moss-bench-port-ok \" + token + b\"\\n\"\nserved = 0\ntry:\n    while served < 4:\n        try:\n            conn, _addr = server.accept()\n        except socket.timeout:\n            break\n        conn.sendall(banner)\n        conn.close()\n        served += 1\nfinally:\n    server.close()\nPY",
+    "nohup python3 \"$MOSS_BENCH_ROOT/listen.py\" > \"$MOSS_BENCH_ROOT/port.log\" 2>&1 &",
+    "ready=0; for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do if [ -s \"$MOSS_BENCH_ROOT/port.pid\" ]; then ready=1; break; fi; sleep 0.05; done; test \"$ready\" = 1"
+  ],
+  "acceptance": [
+    "python3 - <<'PY'\nimport os, socket, sys\nport = int(os.environ[\"MOSS_BENCH_PORT\"])\ntoken = os.environ[\"MOSS_BENCH_TOKEN\"]\nconn = socket.create_connection((\"127.0.0.1\", port), 5)\ndata = conn.recv(400).decode()\nconn.close()\nneedle = \"moss-bench-port-ok \" + token\nif needle not in data:\n    sys.stderr.write(data + \"\\n\")\n    sys.exit(1)\nprint(data.strip())\nPY"
+  ],
+  "cleanup": [
+    "if [ -f \"$MOSS_BENCH_ROOT/port.pid\" ]; then kill \"$(cat \"$MOSS_BENCH_ROOT/port.pid\")\" >/dev/null 2>&1 || true; fi",
+    "rm -rf \"$MOSS_BENCH_ROOT\""
+  ],
+  "evidence": [
+    {
+      "metric": "port_banner",
+      "probe": "python3 - <<'PY'\nimport os, socket\nport = int(os.environ[\"MOSS_BENCH_PORT\"])\nconn = socket.create_connection((\"127.0.0.1\", port), 5)\ndata = conn.recv(400).decode().strip()\nconn.close()\nprint(data)\nPY"
+    }
+  ]
+}

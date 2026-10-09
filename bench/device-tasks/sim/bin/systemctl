@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Simulated systemctl for the device bench. State stays under MOSS_BENCH_STATE.
+# This never talks to the host init system.
+set -eu
+STATE="${MOSS_BENCH_STATE:?MOSS_BENCH_STATE is required}"
+UNIT_DIR="$STATE/etc/systemd/system"
+STATUS_DIR="$STATE/systemd/status"
+mkdir -p "$UNIT_DIR" "$STATUS_DIR"
+
+unit_name() {
+  local name="${1:-}"
+  name="${name%.service}"
+  printf '%s\n' "$name"
+}
+
+cmd="${1:-}"
+if [ -z "$cmd" ]; then
+  echo "sim systemctl: missing command" >&2
+  exit 1
+fi
+shift
+
+case "$cmd" in
+  daemon-reload | reset-failed | enable)
+    exit 0
+    ;;
+  start)
+    name="$(unit_name "${1:-}")"
+    unit="$UNIT_DIR/$name.service"
+    if [ ! -f "$unit" ]; then
+      echo "Unit ${name}.service not found." >&2
+      exit 5
+    fi
+    execstart="$(grep -E '^ExecStart=' "$unit" | head -n 1 | sed 's/^ExecStart=//')"
+    if [ -z "$execstart" ]; then
+      echo "Unit ${name}.service has no ExecStart=" >&2
+      exit 1
+    fi
+    bash -lc "$execstart"
+    printf 'success\n' >"$STATUS_DIR/$name.result"
+    printf 'inactive\n' >"$STATUS_DIR/$name.active"
+    ;;
+  stop | disable)
+    name="$(unit_name "${1:-}")"
+    printf 'inactive\n' >"$STATUS_DIR/$name.active"
+    ;;
+  is-active)
+    name="$(unit_name "${1:-}")"
+    if [ -f "$STATUS_DIR/$name.active" ]; then
+      cat "$STATUS_DIR/$name.active"
+      [ "$(cat "$STATUS_DIR/$name.active")" = "active" ]
+    else
+      echo inactive
+      exit 3
+    fi
+    ;;
+  show)
+    prop="Result"
+    name=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        -p | --property)
+          prop="$2"
+          shift 2
+          ;;
+        --value)
+          shift
+          ;;
+        --*)
+          shift
+          ;;
+        -*)
+          shift
+          ;;
+        *)
+          name="$(unit_name "$1")"
+          shift
+          ;;
+      esac
+    done
+    if [ "$prop" != "Result" ]; then
+      echo "sim systemctl: unsupported property $prop" >&2
+      exit 1
+    fi
+    if [ ! -f "$STATUS_DIR/$name.result" ]; then
+      echo "sim systemctl: no result for $name" >&2
+      exit 1
+    fi
+    cat "$STATUS_DIR/$name.result"
+    ;;
+  *)
+    echo "sim systemctl: unsupported command $cmd" >&2
+    exit 1
+    ;;
+esac

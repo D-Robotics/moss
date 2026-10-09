@@ -1,0 +1,25 @@
+{
+  "id": "python-program",
+  "title": "Write and run a Python program",
+  "sideEffect": "mutating",
+  "maxTurns": 12,
+  "timeoutMs": 180000,
+  "prompt": "The board is already reachable over SSH (MOSS_DEVICE_*). Work only under {{ROOT}}.\n\nWrite {{ROOT}}/hello.py. Running `python3 {{ROOT}}/hello.py` must print a line that contains `moss-bench-python-ok {{TOKEN}}`. Record evidence metric `program_stdout` whose observed value is that program's stdout, trimmed.\n\nDo not install packages. Do not reboot, reflash, change passwords, or edit ssh or network configuration. The bench deletes {{ROOT}} afterwards.",
+  "prerequisites": ["command -v python3 >/dev/null"],
+  "setup": ["mkdir -p \"$MOSS_BENCH_ROOT\""],
+  "oracle": [
+    "mkdir -p \"$MOSS_BENCH_ROOT\"",
+    "printf '%s\\n' \"$MOSS_BENCH_TOKEN\" > \"$MOSS_BENCH_ROOT/token.txt\"",
+    "cat > \"$MOSS_BENCH_ROOT/hello.py\" <<'PY'\nfrom pathlib import Path\nroot = Path(__file__).resolve().parent\ntoken = (root / \"token.txt\").read_text().strip()\nprint(f\"moss-bench-python-ok {token}\")\nPY"
+  ],
+  "acceptance": [
+    "python3 \"$MOSS_BENCH_ROOT/hello.py\" | grep -F \"moss-bench-python-ok $MOSS_BENCH_TOKEN\""
+  ],
+  "cleanup": ["rm -rf \"$MOSS_BENCH_ROOT\""],
+  "evidence": [
+    {
+      "metric": "program_stdout",
+      "probe": "python3 \"$MOSS_BENCH_ROOT/hello.py\""
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Simulated ros2 topic pub/echo. Messages live under MOSS_BENCH_STATE/ros.
+set -eu
+STATE="${MOSS_BENCH_STATE:?MOSS_BENCH_STATE is required}"
+mkdir -p "$STATE/ros"
+
+if [ "${1:-}" != "topic" ]; then
+  echo "sim ros2: only topic pub/echo" >&2
+  exit 1
+fi
+action="${2:-}"
+topic="${3:-}"
+if [ -z "$action" ] || [ -z "$topic" ]; then
+  echo "sim ros2: usage: ros2 topic pub|echo TOPIC ..." >&2
+  exit 1
+fi
+file="$STATE/ros/$(printf '%s' "$topic" | tr '/' '_')"
+
+case "$action" in
+  pub)
+    shift 3
+    printf '%s\n' "$*" >"$file"
+    ;;
+  echo)
+    if [ ! -f "$file" ]; then
+      echo "sim ros2: no message on $topic" >&2
+      exit 1
+    fi
+    cat "$file"
+    ;;
+  *)
+    echo "sim ros2: unsupported topic action $action" >&2
+    exit 1
+    ;;
+esac
