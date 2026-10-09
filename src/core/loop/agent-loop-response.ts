@@ -16,7 +16,7 @@ import {
   shouldNudgeMissingToolInvocation,
 } from './agent-loop-assistant-turn.js';
 import { buildNamedWebToolMatcher } from '../../prompts/plan-detection.js';
-import { decidePostLlmAction } from './agent-loop-post-llm.js';
+import { decidePostLlmAction, nextThinkingOnlyRetryAttempts } from './agent-loop-post-llm.js';
 import { executeAgentLoopToolCalls } from './agent-loop-tool-execution.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
 
@@ -324,16 +324,22 @@ export async function processLlmResponse(
     abortAborted: abortSignal.aborted,
   });
 
+  state.postToolThinkingOnlyRetryAttempts = nextThinkingOnlyRetryAttempts(
+    postLlmAction,
+    state.postToolThinkingOnlyRetryAttempts
+  );
+
   switch (postLlmAction.kind) {
     case 'thinking_retry':
-      state.postToolThinkingOnlyRetryAttempts += 1;
       state.pendingMessages = [buildCorrectionMessage(postLlmAction.systemText)];
       pushTurnEnd();
       state.lastTurnEndMs = Date.now();
       return { control: 'continue' };
 
     case 'thinking_only_complete':
-      throw new Error('The model returned private reasoning twice without a visible answer.');
+      throw new Error(
+        'The model returned private reasoning without a visible answer after repeated retries.'
+      );
 
     case 'continuation':
       state.outputContinuationCount++;
