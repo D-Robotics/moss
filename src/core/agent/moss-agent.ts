@@ -129,7 +129,8 @@ export class MossAgent {
   private readonly activeRunIds = new Map<string, Set<string>>();
   /**
    * Steers admitted after the loop's last poll. The host queue (`takeDeferredSteers`)
-   * owns them; a later run on this session re-arms anything the host did not take.
+   * owns them. A later run that the host did not drain delivers each one as a
+   * normal user message ahead of the new prompt — not as a mid-run steer.
    */
   private readonly deferredSteers = new Map<string, string[]>();
   private userQuestionAsker?: NonNullable<ToolContext['askUserQuestion']>;
@@ -378,8 +379,8 @@ export class MossAgent {
 
   /**
    * Prompts that missed the run they were aimed at. Clears the stash.
-   * The TUI queues these; a host that never calls this still gets them
-   * re-armed on the next run of the same session.
+   * The TUI queues these. A host that never calls this still gets them once,
+   * as user messages ahead of the next prompt.
    */
   takeDeferredSteers(sessionKey: string): string[] {
     const prompts = this.deferredSteers.get(sessionKey) ?? [];
@@ -428,18 +429,6 @@ export class MossAgent {
     if (prompts.length === 0) return;
     const existing = this.deferredSteers.get(sessionKey) ?? [];
     this.deferredSteers.set(sessionKey, existing.concat(prompts));
-  }
-
-  /** Hand deferred steers to a new run so a host that did not queue them still delivers them once. */
-  private rearmDeferredSteers(sessionKey: string, runId: string): void {
-    const prompts = this.deferredSteers.get(sessionKey);
-    if (!prompts || prompts.length === 0) return;
-    this.deferredSteers.delete(sessionKey);
-    const inbox = this.inboxFor(sessionKey);
-    for (const prompt of prompts) {
-      inbox.admit({ prompt, delivery: 'steer', metadata: { runId } });
-    }
-    this.persistInbox(sessionKey);
   }
 
   private noteRunStarted(sessionKey: string, runId: string): void {
@@ -799,6 +788,20 @@ ${result.stderr ?? ''}`.trim();
       abortSignal
     )) as unknown as InternalMessage[];
     const messages = fromSessionMessages(loadedMessages);
+    // Deferred steers belong to the previous run. Deliver them as ordinary
+    // user messages ahead of this prompt. takeDeferredSteers clears the stash,
+    // so a host that already queued them does not get a second copy.
+    for (const prompt of this.takeDeferredSteers(sessionKey)) {
+      const text = prompt.trim();
+      if (!text) continue;
+      const prior: InternalMessage = {
+        role: 'user',
+        content: text,
+        timestamp: Date.now(),
+      };
+      messages.push(prior);
+      await store.appendMessage(sessionKey, prior as unknown as LLMMessage);
+    }
     const userMsg: InternalMessage = {
       role: 'user',
       content: buildUserMessageContent(activeUserMessage, options?.attachments),
@@ -1415,7 +1418,6 @@ ${result.stderr ?? ''}`.trim();
     try {
       run = await this.createAgentLoopRun(sessionKey, userMessage, options);
       this.noteRunStarted(sessionKey, run.params.runId);
-      this.rearmDeferredSteers(sessionKey, run.params.runId);
       miniStream = runAgentLoop(run.params);
       for await (const ev of this.adaptMiniStreamEvents(miniStream, run)) {
         yield ev;

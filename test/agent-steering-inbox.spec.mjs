@@ -13,6 +13,18 @@ function visibleText(messages) {
     .join('\n');
 }
 
+function userTexts(messages) {
+  return messages
+    .filter((message) => message.role === 'user')
+    .map((message) => {
+      if (typeof message.content === 'string') return message.content;
+      return message.content
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n');
+    });
+}
+
 test('an admitted steer reaches the next model turn exactly once', async () => {
   const requests = [];
   let providerCall = 0;
@@ -271,7 +283,123 @@ test('a steer that misses the last poll is deferred, not dropped', async () => {
   phase = 'go';
   const result = await agent.chat('deferred-session', 'second');
   assert.equal(result.response, 'second answer');
-  assert.match(visibleText(requests.at(-1) ?? []), /keep this too/);
+  const users = userTexts(requests.at(-1) ?? []);
+  const deferredAt = users.findIndex((text) => text === 'keep this too');
+  const promptAt = users.findIndex((text) => text.includes('second'));
+  assert.ok(deferredAt >= 0 && deferredAt < promptAt, `user texts: ${JSON.stringify(users)}`);
+  assert.equal(
+    users.filter((text) => text.includes('[User steering update]')).length,
+    0,
+    'a deferred steer is not injected as a mid-run steer'
+  );
   assert.equal(agent.takeDeferredSteers('deferred-session').length, 0);
   assert.equal(agent.inboxPending('deferred-session').length, 0);
+});
+
+function blockingProvider() {
+  let releaseEntered;
+  const entered = new Promise((resolve) => {
+    releaseEntered = resolve;
+  });
+  const requests = [];
+  let mode = 'block';
+  const provider = {
+    id: 'steering-delivery-test',
+    displayName: 'steering-delivery-test',
+    async stream(options, onEvent) {
+      if (mode === 'block') {
+        releaseEntered();
+        await new Promise((_resolve, reject) => {
+          const fail = () => reject(new Error('aborted'));
+          if (options.abortSignal?.aborted) {
+            fail();
+            return;
+          }
+          options.abortSignal?.addEventListener('abort', fail, { once: true });
+        });
+      }
+      requests.push(options.messages);
+      onEvent({ type: 'message_start' });
+      onEvent({ type: 'content_block_start' });
+      onEvent({ type: 'content_block_delta', text: 'ok' });
+      onEvent({ type: 'content_block_stop' });
+      onEvent({ type: 'message_delta', stopReason: 'end_turn' });
+      onEvent({ type: 'message_stop' });
+      return { stopReason: 'end_turn', content: [{ type: 'text', text: 'ok' }] };
+    },
+  };
+  return {
+    provider,
+    requests,
+    entered,
+    unblock() {
+      mode = 'go';
+    },
+  };
+}
+
+function testAgent(provider) {
+  return new MossAgent({
+    llmProvider: provider,
+    sessionStore: new InMemorySessionStore(),
+    baseSystemPrompt: 'test',
+    domainPrompt: false,
+    includeAgentBehaviorPrompt: false,
+    includeLanguagePolicyPrompt: false,
+    enableSteering: false,
+    enableFollowUpGuard: false,
+    maxAgentTurns: 2,
+  });
+}
+
+test('a deferred steer the host never takes is one user message ahead of the next prompt', async () => {
+  const harness = blockingProvider();
+  const agent = testAgent(harness.provider);
+  const controller = new AbortController();
+  const blocked = agent.chat('never-takes', 'first', { abortSignal: controller.signal });
+  await harness.entered;
+  assert.ok(agent.steer('never-takes', 'missed steer'));
+  controller.abort();
+  await blocked.catch(() => {});
+  harness.unblock();
+  await agent.chat('never-takes', 'next prompt');
+  const users = userTexts(harness.requests.at(-1) ?? []);
+  assert.equal(users.filter((text) => text === 'missed steer').length, 1);
+  assert.ok(
+    users.findIndex((text) => text === 'missed steer') <
+      users.findIndex((text) => text.includes('next prompt'))
+  );
+  assert.equal(
+    users.some((text) => text.includes('[User steering update]')),
+    false
+  );
+  await agent.chat('never-takes', 'third');
+  const again = userTexts(harness.requests.at(-1) ?? []);
+  assert.equal(
+    again.filter((text) => text === 'missed steer').length,
+    1,
+    'the carried steer is history, not delivered a second time'
+  );
+  assert.equal(agent.inboxPending('never-takes').length, 0);
+});
+
+test('a deferred steer the host already took is not delivered on the next run', async () => {
+  const harness = blockingProvider();
+  const agent = testAgent(harness.provider);
+  const controller = new AbortController();
+  const blocked = agent.chat('host-takes', 'first', { abortSignal: controller.signal });
+  await harness.entered;
+  assert.ok(agent.steer('host-takes', 'taken steer'));
+  controller.abort();
+  await blocked.catch(() => {});
+  assert.deepEqual(agent.takeDeferredSteers('host-takes'), ['taken steer']);
+  harness.unblock();
+  await agent.chat('host-takes', 'next prompt');
+  const users = userTexts(harness.requests.at(-1) ?? []);
+  assert.equal(
+    users.some((text) => text.includes('taken steer')),
+    false,
+    JSON.stringify(users)
+  );
+  assert.equal(agent.inboxPending('host-takes').length, 0);
 });
