@@ -580,6 +580,57 @@ function rmOperands(args: string[]): string[] {
   return operands;
 }
 
+function classifyCopyMove(base: string, args: string[]): SegmentJudgement {
+  const operands = rmOperands(args);
+  const dest = operands[operands.length - 1] ?? '';
+  const remoteSystem = /:(?:\/boot|\/etc|\/usr|\/bin|\/sbin|\/lib|\/root)(?:\/|$)/;
+  if (base === 'mv' && operands.some((path) => isLockoutPath(path) || isBlockDevicePath(path))) {
+    return hit('destructive', 'move-system-path', `${base} of a system path`);
+  }
+  if (dest && (isLockoutPath(dest) || isBlockDevicePath(dest) || remoteSystem.test(dest))) {
+    return hit('destructive', 'copy-system-path', `${base} into a system path ${dest}`);
+  }
+  return hit('reversible', 'reversible-command', `${base} of a non-system path`);
+}
+
+const FLASH_NAME_WORDS = new Set([
+  'flash',
+  'burn',
+  'xburn',
+  'ota',
+  'mkfs',
+  'upgrade_firmware',
+  'hb_ota',
+]);
+
+function flashToken(token: string): boolean {
+  const base = commandBase(token).replace(/^-+/, '').toLowerCase();
+  const stem = base.replace(/\.(?:sh|py|bin|elf|img|run|pl|rb|js|bash)$/i, '');
+  if (FLASH_NAME_WORDS.has(stem) || stem.includes('upgrade_firmware') || stem.includes('hb_ota')) {
+    return true;
+  }
+  return stem.split(/[^a-z0-9]+/).some((part) => FLASH_NAME_WORDS.has(part));
+}
+
+function looksLikeFlashInvocation(base: string, args: string[]): boolean {
+  if (flashToken(base)) return true;
+  const interpreters = new Set([
+    'python',
+    'python2',
+    'python3',
+    'perl',
+    'ruby',
+    'node',
+    'bash',
+    'sh',
+    'zsh',
+    'dash',
+  ]);
+  if (!interpreters.has(base)) return false;
+  const script = args.find((arg) => !arg.startsWith('-'));
+  return script ? flashToken(script) : false;
+}
+
 function classifyRm(base: string, args: string[]): SegmentJudgement {
   const operands = rmOperands(args);
   if (operands.length === 0) {
@@ -625,7 +676,6 @@ function classifySystemctl(args: string[]): SegmentJudgement {
     'poweroff',
     'halt',
     'kexec',
-    'daemon-reload',
     'daemon-reexec',
     'edit',
     'set-property',
@@ -642,6 +692,7 @@ function classifySystemctl(args: string[]): SegmentJudgement {
     'unmask',
     'reset-failed',
     'link',
+    'daemon-reload',
   ]);
   const verb = args.find(
     (arg) => knownReadonly.has(arg) || knownDestructive.has(arg) || knownReversible.has(arg)
@@ -649,10 +700,46 @@ function classifySystemctl(args: string[]): SegmentJudgement {
   if (!verb || knownReadonly.has(verb)) {
     return hit('readonly', 'systemd-query', 'systemctl read-only query');
   }
+  if (verb === 'daemon-reload') {
+    return hit('reversible', 'systemd-reload', 'systemctl daemon-reload reloads unit files');
+  }
   if (knownDestructive.has(verb)) {
+    // Critical-unit denylist, not a session ledger of unit files Moss wrote.
+    // Tracking files created over SSH is easy to spoof (any unit name) and
+    // would couple the classifier to the task store. Stop/disable/mask of
+    // anything not on this list — including units the operator deployed — is
+    // reversible. --user is a user manager, not sshd/NetworkManager.
+    if (verb === 'stop' || verb === 'disable' || verb === 'mask' || verb === 'kill') {
+      if (args.includes('--user')) {
+        return hit('reversible', 'systemd-user', `systemctl --user ${verb} changes a user unit`);
+      }
+      const units = args.filter((arg) => !arg.startsWith('-') && arg !== verb);
+      if (units.length > 0 && units.every((unit) => !isCriticalSystemdUnit(unit))) {
+        return hit('reversible', 'systemd-app', `systemctl ${verb} of a non-critical unit`);
+      }
+      return hit(
+        'destructive',
+        'systemd-lockout',
+        `systemctl ${verb} of a critical unit or with no unit name`
+      );
+    }
     return hit('destructive', 'systemd-lockout', `systemctl ${verb} can drop services or boot`);
   }
   return hit('reversible', 'systemd-restart', `systemctl ${verb} is reversible`);
+}
+
+/** ssh, networking, and dbus. Other units are treated as the operator's services. */
+function isCriticalSystemdUnit(name: string): boolean {
+  const base = unitBaseName(name).toLowerCase();
+  return (
+    base === 'ssh' ||
+    base === 'sshd' ||
+    base === 'networking' ||
+    base === 'networkmanager' ||
+    base === 'systemd-networkd' ||
+    base === 'wpa_supplicant' ||
+    base === 'dbus'
+  );
 }
 
 function classifyIp(args: string[], depth = 0): SegmentJudgement {
@@ -942,6 +1029,111 @@ function classifyNamedCommand(
       return hit('destructive', 'redirect-system-path', 'tee writes a system path');
     }
     if (operands.length > 0) return hit('reversible', 'redirect-file', 'tee writes a file');
+  }
+
+  if (
+    base === 'cp' ||
+    base === 'mv' ||
+    base === 'install' ||
+    base === 'ln' ||
+    base === 'rsync' ||
+    base === 'scp'
+  ) {
+    return classifyCopyMove(base, args);
+  }
+
+  if (base === 'ifconfig') {
+    const words = args.filter((arg) => !arg.startsWith('-'));
+    const changes = words.some(
+      (word) =>
+        word === 'up' ||
+        word === 'down' ||
+        word === 'add' ||
+        word === 'del' ||
+        word === 'delete' ||
+        /^\d+\.\d+\.\d+\.\d+/.test(word)
+    );
+    if (words.length === 0 || !changes) {
+      return hit('readonly', 'network-query', 'ifconfig display');
+    }
+    return hit('destructive', 'network-change', 'ifconfig changes an interface');
+  }
+
+  if (base === 'eval') {
+    const payload = args.join(' ');
+    if (!payload || payload.includes('$')) {
+      return hit('destructive', 'eval-escape', 'eval runs a shell string that is not visible');
+    }
+    if (depth < 4) return classifyCommand(payload, depth + 1).judgement;
+  }
+
+  if (base === 'xargs') {
+    const valueFlags = new Set(['-n', '-I', '-i', '-P', '-L', '-s', '-a', '-d', '-E', '-J']);
+    let index = 0;
+    while (index < args.length) {
+      const arg = args[index] ?? '';
+      if (arg === '--') {
+        index += 1;
+        break;
+      }
+      if (arg.startsWith('-')) {
+        index += valueFlags.has(arg) ? 2 : 1;
+        continue;
+      }
+      break;
+    }
+    const rest = args.slice(index);
+    const head = rest[0];
+    if (!head) return hit('destructive', 'xargs', 'xargs with no visible command');
+    return classifyNamedCommand(commandBase(head), rest.slice(1), rest.join(' '), depth);
+  }
+
+  if (base === 'ssh') {
+    if (args.includes('-V')) return hit('readonly', 'readonly-command', 'ssh version');
+    const valueFlags = new Set([
+      '-i',
+      '-p',
+      '-l',
+      '-o',
+      '-F',
+      '-J',
+      '-W',
+      '-b',
+      '-c',
+      '-D',
+      '-L',
+      '-R',
+      '-S',
+      '-E',
+      '-w',
+      '-m',
+      '-B',
+      '-e',
+      '-Q',
+    ]);
+    let index = 0;
+    while (index < args.length) {
+      const arg = args[index] ?? '';
+      if (arg === '--') {
+        index += 1;
+        break;
+      }
+      if (arg.startsWith('-')) {
+        index += valueFlags.has(arg) ? 2 : 1;
+        continue;
+      }
+      break;
+    }
+    const remote = args.slice(index + 1);
+    if (remote.length === 0) {
+      return hit('destructive', 'ssh-escape', 'ssh opens a shell on another host');
+    }
+    if (depth >= 4) return hit('destructive', 'ssh-escape', 'ssh remote command nested too deep');
+    return classifyCommand(remote.join(' '), depth + 1).judgement;
+  }
+
+  if (looksLikeFlashInvocation(base, args)) {
+    return hit('destructive', 'flash-or-format', `${base} looks like a flash, format, or OTA tool`);
   }
 
   if (READONLY_NAMES.has(base)) {
