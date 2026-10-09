@@ -92,6 +92,15 @@ export function readTmuxMouse(env: NodeJS.ProcessEnv = process.env): string | un
   return tmuxShow(['show', '-gv', 'mouse'], childEnv) || 'off';
 }
 
+/**
+ * Ink `auto` asks the terminal `CSI ? u` and, until that probe ends, copies
+ * stdin into a side buffer it later unshifts. A keystroke in that window is
+ * delivered twice — `测` becomes `测测`, so the hardware cursor (and an IME
+ * candidate window sitting on it) lands a cell too far. Force-enable skips
+ * the probe. Terminals that do not speak the protocol ignore `CSI > flags u`.
+ */
+export const TUI_KITTY_KEYBOARD = { mode: 'enabled' as const };
+
 // 1003 (any-event) reports motion without a button: the scroll bar appears on hover.
 export const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h\x1b[?1004h';
 export const MOUSE_TRACKING_OFF =
