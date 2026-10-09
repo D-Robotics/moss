@@ -91,15 +91,21 @@ assert.match(mentionOut, /and then more prose/, 'mid-sentence header is not a PE
 
 const unclosed = flushed([
   'Before.\n-----BEGIN OPENSSH PRIVATE KEY-----\n',
-  'The explanation continues after the header.\n',
+  `${pemBody}\nThe explanation continues after the header.\n`,
 ]);
 assert.match(unclosed, /Before/);
-assert.match(unclosed, /explanation continues/, 'flush emits the prose after an unclosed header');
+assert.doesNotMatch(unclosed, new RegExp(pemBody), 'flush redacts an unclosed private key');
+assert.doesNotMatch(
+  unclosed,
+  /explanation continues/,
+  'an unclosed line-start header redacts through the end of the text'
+);
+assert.match(unclosed, /\[REDACTED\]/);
 assert.doesNotMatch(
   createStreamingTextRedactor().push(
-    'Before.\n-----BEGIN OPENSSH PRIVATE KEY-----\nThe explanation continues after the header.\n'
+    `Before.\n-----BEGIN OPENSSH PRIVATE KEY-----\n${pemBody}\nThe explanation continues after the header.\n`
   ),
-  /explanation continues/,
+  new RegExp(pemBody),
   'an open line-start header is still held until flush'
 );
 

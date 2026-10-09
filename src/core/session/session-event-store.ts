@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { redactEgress } from '../../safety/tool-output-redact.js';
 import { type SessionEvent, SessionEventLog } from './session-event.js';
+import { redactJsonLine } from './redact-json-line.js';
 
 export function appendSessionEvent(filePath: string, event: SessionEvent): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.appendFileSync(filePath, `${redactEgress(JSON.stringify(event))}\n`, {
+  fs.appendFileSync(filePath, `${redactJsonLine(event)}\n`, {
     mode: 0o600,
   });
 }

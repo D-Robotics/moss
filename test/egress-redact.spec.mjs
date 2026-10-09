@@ -209,8 +209,7 @@ try {
   });
   assertAbsent(JSON.stringify(flushed), 'headless stream');
 
-  const unclosedHeader =
-    'Before.\n-----BEGIN OPENSSH PRIVATE KEY-----\nThe explanation continues after the header.\n';
+  const unclosedHeader = `Before.\n-----BEGIN OPENSSH PRIVATE KEY-----\n${PEM_BODY}\nThe explanation continues after the header.\n`;
   const headlessPem = createHeadlessPrintState({ sessionId: 'egress-pem' });
   formatHeadlessStreamEvent(headlessPem, { type: 'text_delta', delta: unclosedHeader });
   const pemFlushed = formatHeadlessStreamEvent(headlessPem, {
@@ -218,10 +217,19 @@ try {
     turn: 1,
     stopReason: 'end_turn',
   });
-  assert.match(
-    JSON.stringify(pemFlushed),
+  const headlessText = JSON.stringify(pemFlushed);
+  assert.match(headlessText, /Before/, 'headless flush keeps the prose before an unclosed header');
+  assert.doesNotMatch(headlessText, new RegExp(PEM_BODY), 'headless flush redacts an unclosed key');
+  assert.doesNotMatch(
+    headlessText,
     /explanation continues/,
-    'headless flush keeps prose after an unclosed header'
+    'headless flush redacts through the end of an unclosed private key'
+  );
+  assert.match(headlessText, /\[REDACTED\]/, 'headless flush emits the redacted tail');
+  assert.doesNotMatch(
+    userFacingAssistantText(unclosedHeader),
+    new RegExp(PEM_BODY),
+    'assistant text redacts an unclosed private key'
   );
 
   const pemChunks = [];
@@ -239,11 +247,36 @@ try {
   });
   pemRenderer.handle({ type: 'text_delta', delta: unclosedHeader });
   pemRenderer.dispose();
-  assert.match(
-    pemChunks.join(''),
+  const replText = pemChunks.join('');
+  assert.match(replText, /Before/, 'REPL flush keeps the prose before an unclosed header');
+  assert.doesNotMatch(replText, new RegExp(PEM_BODY), 'REPL flush redacts an unclosed key');
+  assert.doesNotMatch(
+    replText,
     /explanation continues/,
-    'REPL flush keeps prose after an unclosed header'
+    'REPL flush redacts through the end of an unclosed private key'
   );
+  assert.match(replText, /\[REDACTED\]/, 'REPL flush emits the redacted tail');
+
+  const headCut = `-----BEGIN OPENSSH PRIVATE KEY-----\n${PEM_BODY}\n`;
+  const modelHead = modelView('exec', { command: 'head -n 2 ~/.ssh/id_ed25519' }, headCut);
+  assert.doesNotMatch(modelHead, new RegExp(PEM_BODY), 'unclosed key is not sent to the model');
+  assert.match(modelHead, /\[REDACTED\]/);
+
+  const openNumbered = ['alpha', '-----BEGIN OPENSSH PRIVATE KEY-----', PEM_BODY, 'omega'].join(
+    '\n'
+  );
+  fs.writeFileSync(path.join(project, 'open-key.pem'), openNumbered);
+  const openRaw = String(
+    await readFileTool.execute({ path: path.join(project, 'open-key.pem') }, ctx())
+  );
+  const openView = modelView('read_file', { path: 'open-key.pem' }, openRaw);
+  const openLines = openView.split('\n');
+  assert.equal(openLines.length, openRaw.split('\n').length, 'unclosed PEM keeps read_file lines');
+  assert.match(openLines[0], /1\talpha/);
+  assert.match(openLines[1], /2\t\[REDACTED\]/);
+  assert.match(openLines[3], /4\t\[REDACTED\]/);
+  assert.doesNotMatch(openView, new RegExp(PEM_BODY));
+  assert.doesNotMatch(openView, /\bomega\b/);
 
   const chunks = [];
   const renderer = createCliRunRenderer({

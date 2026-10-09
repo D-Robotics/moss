@@ -94,15 +94,45 @@ const NUMBERED_READ_LINE = /^(\s*\d+\t)(.*)$/;
  * line numbers do not jump.
  */
 function redactPemBlocks(text: string): string {
-  return text.replace(PEM_PRIVATE_KEY, (block) =>
-    block
-      .split('\n')
-      .map((line) => {
-        const numbered = NUMBERED_READ_LINE.exec(line);
-        return `${numbered?.[1] ?? ''}${REDACTED}`;
-      })
-      .join('\n')
-  );
+  return text.replace(PEM_PRIVATE_KEY, (block) => redactPemLines(block));
+}
+
+const PEM_LINE_OPEN = /(?:^|\n)[ \t]*(?:\d+\t)?[ \t]*-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/g;
+
+/**
+ * A line-start private-key header with no matching END. `-1` when every
+ * opener is closed. The index is the start of that line, gutter included.
+ */
+function unclosedPrivateKeyLineStart(text: string): number {
+  let holdAt = -1;
+  for (const match of text.matchAll(PEM_LINE_OPEN)) {
+    const at = match.index ?? 0;
+    const lineStart = text[at] === '\n' ? at + 1 : at;
+    if (!/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(text.slice(lineStart))) holdAt = lineStart;
+  }
+  return holdAt;
+}
+
+function redactPemLines(block: string): string {
+  return block
+    .split('\n')
+    .map((line) => {
+      if (line === '') return '';
+      const numbered = NUMBERED_READ_LINE.exec(line);
+      return `${numbered?.[1] ?? ''}${REDACTED}`;
+    })
+    .join('\n');
+}
+
+/**
+ * Line-start `BEGIN … PRIVATE KEY` with no END: redact that line through the
+ * end of the text. A mention in the middle of a sentence is left alone.
+ * Empty lines stay empty so a trailing newline does not add a row.
+ */
+function redactUnclosedPrivateKey(text: string): string {
+  const at = unclosedPrivateKeyLineStart(text);
+  if (at < 0) return text;
+  return text.slice(0, at) + redactPemLines(text.slice(at));
 }
 
 /**
@@ -174,7 +204,7 @@ function sanitizeWithoutTouchingPlaceholders(text: string): string {
  */
 export function redactEgress(text: string, env: NodeJS.ProcessEnv = process.env): string {
   if (!text) return text;
-  let out = redactPemBlocks(text);
+  let out = redactUnclosedPrivateKey(redactPemBlocks(text));
   out = redactKnownSecretValues(out, env);
   out = redactAssignments(out);
   out = redactNetrcPasswords(out);
@@ -220,29 +250,15 @@ export function presentToolOutput(args: {
   return redactEgress(args.text, env);
 }
 
-const PEM_OPENER_AT_LINE_START = /(?:^|\n)([ \t]*-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)/g;
-
-/**
- * Index of a still-open private-key header that begins a line. A mention in
- * the middle of a sentence is not an opener. `-1` when every opener is closed.
- */
-function unclosedPemHoldIndex(raw: string): number {
-  let holdAt = -1;
-  for (const match of raw.matchAll(PEM_OPENER_AT_LINE_START)) {
-    const at = (match.index ?? 0) + (match[0].startsWith('\n') ? 1 : 0);
-    if (!/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(raw.slice(at))) holdAt = at;
-  }
-  return holdAt;
-}
-
 /**
  * Text safe to paint while a stream is still open: every finished line, and
  * nothing from the current partial line or an unclosed line-start PEM block.
- * `flush` never holds — the tail is redacted and emitted (commit / turn end).
+ * `flush` emits the tail; an unclosed line-start private key is redacted
+ * through the end of the text rather than printed.
  */
 export function visibleStreamPrefix(raw: string, flush: boolean): string {
   if (flush) return raw;
-  const holdAt = unclosedPemHoldIndex(raw);
+  const holdAt = unclosedPrivateKeyLineStart(raw);
   if (holdAt !== -1) return raw.slice(0, holdAt);
   if (raw.endsWith('\n')) return raw;
   const nl = raw.lastIndexOf('\n');
