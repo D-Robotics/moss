@@ -35,6 +35,16 @@ function capture() {
 }
 
 test('moss tasks renders contracts, evidence, deployments, acceptance, device', async (t) => {
+  const inheritedDeviceEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => key.startsWith('MOSS_DEVICE_'))
+  );
+  for (const key of Object.keys(inheritedDeviceEnv)) delete process.env[key];
+  t.after(() => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('MOSS_DEVICE_')) delete process.env[key];
+    }
+    Object.assign(process.env, inheritedDeviceEnv);
+  });
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-tasks-cli-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));
   const ctx = { workspaceDir: workspace, sessionKey: 'tasks-cli' };
