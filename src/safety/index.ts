@@ -12,6 +12,13 @@ export type { ChannelSource, ChannelSafetyResult, TextApprovalResult } from './c
 
 export { resolveSandboxPath, assertSandboxPath } from './sandbox-paths.js';
 
+export { classifyDeviceOperation, isLockoutPath, isBlockDevicePath } from './device-risk.js';
+export type {
+  DeviceRiskTier,
+  DeviceRiskClassification,
+  DeviceOperationInput,
+} from './device-risk.js';
+
 export {
   SHELL_SOFT_FAILURE_TOOL_NAMES,
   shouldAppendShellContinueHint,

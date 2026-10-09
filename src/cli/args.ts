@@ -466,6 +466,10 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       requestSafety('full-access', '--full-access');
       continue;
     }
+    if (arg === '--trust-device') {
+      configOverrides.deviceTrust = 'full';
+      continue;
+    }
     if (arg === '--quiet') {
       detailMode = 'quiet';
       continue;

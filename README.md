@@ -135,6 +135,7 @@ moss tasks list                     # 只读查看机器人闭环产物
 | `-m/--model` · `--provider` · `--base-url`            | 仅本次运行覆盖                       |
 | `-C/--cd <dir>` · `-c/--config k=v`                   | 换工作区 · 覆盖 profile/model/policy |
 | `--read-only` · `--workspace-write` · `--full-access` | 本次运行的安全上限                   |
+| `--trust-device`                                      | 本进程允许毁灭性设备操作             |
 | `--accept-edits` · `--ask-for-approval <p>`           | 审批行为                             |
 | `-p/--print` · `--json` · `--output-format <f>`       | 一次性 / 机器可读输出                |
 
@@ -144,22 +145,23 @@ moss tasks list                     # 只读查看机器人闭环产物
 
 ## 安全与隐私
 
-- **v0.26 起默认全开（full 模式）**：跳过逐次询问、`device_mutation` 放行——对齐 Claude Code 出厂默认哲学（bypassPermissions）。防线不靠"多问"，靠规则与硬拦截。
+- **v0.26 起默认 full**：本地写操作与**可逆**设备变更跳过逐次询问。毁灭性设备操作（重启、刷机、写入 `/boot` 或 `/etc`、改网络、卸系统包、停掉 ssh）仍要确认——full 对齐的是 Claude Code 的「默认少问」，不是对真机的 `--dangerously-skip-permissions`。
 - **四态交互模式**（Shift+Tab 循环，或 `/plan` 进入 plan；`/mode` 仍可用一版）：
 
-  | 模式           | 行为                                       |
-  | -------------- | ------------------------------------------ |
-  | `manual`       | 写操作与设备变更逐次询问                   |
-  | `acceptEdits`  | 工作区内文件编辑自动通过，shell 变更仍询问 |
-  | `plan`         | 只读规划，写操作与设备变更被拦             |
-  | `full`（默认） | 跳过询问；仅 deny 规则与硬拦截生效         |
+  | 模式           | 行为                                                                                              |
+  | -------------- | ------------------------------------------------------------------------------------------------- |
+  | `manual`       | 写操作与设备变更逐次询问                                                                          |
+  | `acceptEdits`  | 工作区内文件编辑自动通过，shell 与设备变更仍询问                                                  |
+  | `plan`         | 只读规划，写操作与设备变更被拦                                                                    |
+  | `full`（默认） | 本地写与可逆设备操作跳过询问；毁灭性设备操作 TTY 确认、headless 拒绝。deny 规则与本机硬拦截仍生效 |
 
 - **权限规则**（`/permissions`，任何模式生效，deny 优先于一切含 full）：
   - 三级 `allow` / `ask` / `deny`，优先级 deny > ask > allow；
   - 语法 `ToolName(pattern)`，用 moss 原生工具名：`/permissions add deny "read_file(./.env)"`、`/permissions add allow "exec(npm run *)"`；
   - 会话级规则下一个工具调用即生效；`/permissions persist` 写用户配置重启仍生效；
   - `--read-only` / `MOSS_SAFETY_MODE=read-only` 是压过任何模式（含 full）的只读上限。
-- **硬拦截永不撤**：毁灭性命令（`rm -rf /` 等）与路径逃逸在 full 模式下同样被拦——full 跳过的是询问，不是检查。
+- **本机硬拦截永不撤**：本机 `exec` 的毁灭性命令（`rm -rf /` 等）与路径逃逸在 full 模式下同样被拦——full 跳过的是询问，不是检查。设备侧的同一类命令不硬拦死：TTY 确认、allow 规则，或显式信任之后会真的执行。
+- **显式信任设备**（任一即可；deny 仍赢）：`--trust-device`（仅本进程）、`MOSS_DEVICE_TRUST=full`、`permissions.deviceTrust=full`、`permissions.trustedDevices` 或 `MOSS_DEVICE_TRUST_DEVICES`（逗号分隔的 host / device id）。确认框里选 `a` 只信任提示里写明的范围（例如同一 unit 的 `systemctl restart` 或 `stop`，或同一命令前缀），不是整台设备的全部毁灭性操作。读取 `/etc/shadow`、私钥、`sshd_config`、`authorized_keys` 归入 `sensitive`：同样要确认，但文案和证据不把它叫成毁灭性修改。中文 locale（`LANG` / `LC_ALL` 以 `zh` 开头）下，确认与拒绝文案为简体中文。每次决定写入 `.moss/evidence.jsonl`（`metric: device_policy`），有进行中的任务时同时写入时间线 `note`。策略说明见 [`docs/superpowers/plans/2026-10-09-device-safety-policy.md`](docs/superpowers/plans/2026-10-09-device-safety-policy.md)。
 - **旧键兼容**（一版宽限）：`profile` / `trustedTools` / `deniedTools` / `safetyMode` / `approvalPolicy` 读入即按映射表翻译（cautious→manual+只读上限、balanced→manual、autonomous→full、trustedTools→allow 规则、deniedTools→deny 规则），写侧提示 deprecated，新配置请用 `permissions.*` 块。
 - 凭据只从 `.env` 或环境变量读，绝不硬编码、不进日志、不传子进程、不写设备清单。
 - 无账号、无云服务、无遥测；provider 是普通 HTTP 端点。
@@ -337,8 +339,8 @@ refused (Up edits that queue). `/mode` `/steer` `/queue` `/loop` stay as hidden 
 version (`/loop` is now `/goal`). A PASS still comes only from the verdict provider.
 
 Key flags: `-m/--model`, `--provider`, `--base-url`, `-C/--cd`, `-c/--config k=v`,
-`--read-only` · `--workspace-write` · `--full-access`, `--accept-edits`, `--ask-for-approval <p>`,
-`-p/--print`, `--json`, `--output-format <f>`.
+`--read-only` · `--workspace-write` · `--full-access`, `--trust-device`, `--accept-edits`,
+`--ask-for-approval <p>`, `-p/--print`, `--json`, `--output-format <f>`.
 
 Key env vars (full list: `moss config env`): `MOSS_PROFILE` · `MOSS_WORKSPACE` ·
 `MOSS_SAFETY_MODE` · `MOSS_APPROVAL_POLICY` · `MOSS_MAX_AGENT_TURNS` · `MOSS_CONTEXT_TOKENS` ·
@@ -349,17 +351,18 @@ Key env vars (full list: `moss config env`): `MOSS_PROFILE` · `MOSS_WORKSPACE` 
 
 ### Safety and privacy
 
-- **Full by default since v0.26**: prompts are skipped and `device_mutation` runs — the Claude Code
-  factory-default philosophy (bypassPermissions). The guardrails are rules and hard blocks, not
-  more questions.
+- **Full by default since v0.26**: local writes and **reversible** device changes skip the
+  prompt. Destructive device operations (reboot, flashing, writes to `/boot` or `/etc`, network
+  changes, removing system packages, stopping ssh) still confirm. Full matches Claude Code's
+  "ask less by default", not `--dangerously-skip-permissions` against a robot board.
 - **Four interaction modes** (Shift+Tab cycles, or `/plan` to enter plan mode; `/mode` remains for one version):
 
-  | Mode             | Behavior                                                          |
-  | ---------------- | ----------------------------------------------------------------- |
-  | `manual`         | mutations and device changes ask one by one                       |
-  | `acceptEdits`    | sandboxed workspace edits auto-approve; shell mutations still ask |
-  | `plan`           | read-only planning; mutations and device changes blocked          |
-  | `full` (default) | prompts skipped; only deny rules and hard blocks apply            |
+  | Mode             | Behavior                                                                                                                                                                |
+  | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `manual`         | mutations and device changes ask one by one                                                                                                                             |
+  | `acceptEdits`    | sandboxed workspace edits auto-approve; shell and device changes still ask                                                                                              |
+  | `plan`           | read-only planning; mutations and device changes blocked                                                                                                                |
+  | `full` (default) | local writes and reversible device work skip the prompt; destructive device work confirms on a TTY and is refused headless. Deny rules and host hard blocks still apply |
 
 - **Permission rules** (`/permissions`, effective in any mode, deny beats everything incl. full):
   - three levels `allow` / `ask` / `deny`, priority deny > ask > allow;
@@ -369,8 +372,20 @@ Key env vars (full list: `moss config env`): `MOSS_PROFILE` · `MOSS_WORKSPACE` 
     and survives restarts;
   - `--read-only` / `MOSS_SAFETY_MODE=read-only` is a read-only ceiling that compresses any mode
     including full.
-- **Hard blocks never lift**: destructive commands (`rm -rf /` …) and path escapes are blocked in
-  full mode too — full skips the asking, not the checking.
+- **Host hard blocks never lift**: destructive host `exec` commands (`rm -rf /` …) and path
+  escapes stay blocked in full mode — full skips the asking, not the checking. The same shapes on
+  the device are not a permanent hard block: a TTY confirmation, an allow rule, or explicit trust
+  runs them for real.
+- **Trust a device** (any one; deny rules still win): `--trust-device` (this process only),
+  `MOSS_DEVICE_TRUST=full`, `permissions.deviceTrust=full`, or `permissions.trustedDevices` /
+  `MOSS_DEVICE_TRUST_DEVICES` (comma-separated host or device id). Answering `a` trusts only the
+  scope named in the prompt (for example `systemctl restart` or `stop` of that unit, or the same
+  command prefix) until the session ends. Reading `/etc/shadow`, private keys, `sshd_config`, or
+  `authorized_keys` is a `sensitive` tier: it still confirms, and the copy does not call it
+  destructive. Prompts and refusals follow the CLI locale (Simplified Chinese when `LANG` /
+  `LC_ALL` starts with `zh`). Every decision is appended to `.moss/evidence.jsonl`
+  (`metric: device_policy`) and, when a task is in progress, to its timeline as a `note`.
+  Policy: [`docs/superpowers/plans/2026-10-09-device-safety-policy.md`](docs/superpowers/plans/2026-10-09-device-safety-policy.md).
 - **Legacy keys** (one release of grace): `profile` / `trustedTools` / `deniedTools` /
   `safetyMode` / `approvalPolicy` are translated on read (cautious→manual+read-only ceiling,
   balanced→manual, autonomous→full, trustedTools→allow rules, deniedTools→deny rules); writing

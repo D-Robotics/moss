@@ -31,6 +31,7 @@ import {
   parseCliInteractionMode,
   type CliInteractionMode,
 } from './interaction-mode.js';
+import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
 
 export {
   CliConfigFileError,
@@ -120,6 +121,13 @@ export interface PermissionsConfig {
   allow?: string[];
   ask?: string[];
   deny?: string[];
+  /**
+   * `full` opts every device into the destructive tier (reboot, flash, system
+   * paths). Absent or `gated` keeps the safe default.
+   */
+  deviceTrust?: 'gated' | 'full' | string;
+  /** Hosts or device ids that may run the destructive tier without a prompt. */
+  trustedDevices?: string[];
 }
 
 export interface LoadedCliConfigFile {
@@ -226,6 +234,8 @@ export interface CliConfigOverrides {
   workspace?: string;
   safetyMode?: CliSafetyModeConfig;
   approvalPolicy?: ConfigApprovalPolicy;
+  /** `--trust-device`: this process may run destructive device operations. */
+  deviceTrust?: 'full';
   trustedTools?: string[];
   deniedTools?: string[];
   promptCacheEnabled?: boolean;
@@ -787,6 +797,10 @@ export interface ResolvedPermissionsView {
   allow: string[];
   ask: string[];
   deny: string[];
+  /** `full` when flag, env, or config opts into destructive device operations. */
+  deviceTrust: 'gated' | 'full';
+  /** Hosts / device ids allowed to run the destructive tier. */
+  trustedDevices: string[];
   /** Legacy keys that fed the read-side migration (profile/safetyMode/
    * approvalPolicy/trustedTools/deniedTools) — empty for pure new-key users. */
   legacyKeysUsed: string[];
@@ -1254,12 +1268,29 @@ export function resolveCliConfig(
   const permissionsDeny = [
     ...new Set([...(permissionsBlock?.deny ?? []), ...legacyMigration.denyRules]),
   ];
+  const configTrustedDevices = Array.isArray(permissionsBlock?.trustedDevices)
+    ? permissionsBlock.trustedDevices
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+    : [];
+  const trustedDevices = [
+    ...new Set([...configTrustedDevices, ...parseDeviceTrustList(env.MOSS_DEVICE_TRUST_DEVICES)]),
+  ];
+  const deviceTrust: 'gated' | 'full' =
+    overrides.deviceTrust === 'full' ||
+    isDeviceTrustEnv(env) ||
+    permissionsBlock?.deviceTrust === 'full'
+      ? 'full'
+      : 'gated';
   const permissionsView: ResolvedPermissionsView = {
     defaultMode,
     readOnlyCeiling,
     allow: permissionsAllow,
     ask: permissionsAsk,
     deny: permissionsDeny,
+    deviceTrust,
+    trustedDevices,
     legacyKeysUsed: [...legacyMigration.legacyKeysUsed],
     source: permissionsSource,
   };
