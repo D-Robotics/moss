@@ -10,7 +10,6 @@ import {
   listTaskEvents,
   listTaskStateSnapshots,
 } from '../../core/task/task-store.js';
-import { isTerminalTaskPhase } from '../../contracts/task-runtime.js';
 
 export interface TaskVerifyResult {
   exitCode: number;
@@ -37,7 +36,7 @@ export async function verifyTaskOnce(
   if (!snapshot) {
     return { exitCode: 2, summary: 'No task to verify. Start one with /goal <condition>.' };
   }
-  if (isTerminalTaskPhase(snapshot.phase) && snapshot.phase === 'accepted') {
+  if (snapshot.phase === 'accepted') {
     return {
       exitCode: 0,
       summary: `Task ${snapshot.taskId} is already accepted.`,
@@ -57,10 +56,16 @@ export async function verifyTaskOnce(
       ].join('\n'),
     };
   }
-  // acceptance_* is only valid from a verification phase. A draft (or a task
-  // that never started) has to enter execution first; emitAcceptanceLifecycle
-  // then opens verification itself. Only do this once a verdict will be produced.
-  if (['draft', 'understanding', 'planning', 'blocked'].includes(snapshot.phase)) {
+  // acceptance_* is illegal from failed/abandoned (only task_resumed leaves
+  // those phases). Resume into executing, then let verification open.
+  if (snapshot.phase === 'failed' || snapshot.phase === 'abandoned') {
+    await appendTaskEvent(workspace, snapshot.taskId, 'task_resumed', {
+      reason: '/task verify',
+    });
+  } else if (['draft', 'understanding', 'planning', 'blocked'].includes(snapshot.phase)) {
+    // acceptance_* is only valid from a verification phase. A draft has to
+    // enter execution first; emitAcceptanceLifecycle opens verification.
+    // Only once a verdict will actually be produced.
     await appendTaskEvent(workspace, snapshot.taskId, 'execution_started');
   }
   const provider = createTaskVerdictProvider({

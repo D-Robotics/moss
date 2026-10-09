@@ -12,6 +12,7 @@ import path from 'node:path';
 import { verifyTaskOnce } from '../dist/cli/commands/task-verify.js';
 import { appendTaskRecord } from '../dist/core/task-runtime/artifacts.js';
 import {
+  appendTaskEvent,
   createDraftTask,
   getTaskStateSnapshot,
   listTaskEvents,
@@ -75,6 +76,44 @@ assert.match(again.summary, /already accepted/);
   const types = (await listTaskEvents(criteriaDir, drafted.taskId)).map((event) => event.type);
   assert.ok(types.includes('execution_started'), 'a real verdict opens execution first');
   assert.ok(types.includes('acceptance_fail'));
+}
+
+{
+  const failedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-task-verify-failed-'));
+  const failedTask = await createDraftTask(failedDir, 'bring it back', {
+    acceptanceCommand: 'true',
+  });
+  await appendTaskEvent(failedDir, failedTask.taskId, 'execution_started');
+  await appendTaskEvent(failedDir, failedTask.taskId, 'task_failed', { reason: 'budget' });
+  assert.equal((await getTaskStateSnapshot(failedDir, failedTask.taskId)).phase, 'failed');
+  const recovered = await verifyTaskOnce(failedDir, { taskId: failedTask.taskId });
+  assert.equal(recovered.exitCode, 0, recovered.summary);
+  const recoveredTypes = (await listTaskEvents(failedDir, failedTask.taskId)).map(
+    (event) => event.type
+  );
+  assert.ok(recoveredTypes.includes('task_resumed'), 'failed tasks reopen through task_resumed');
+  assert.equal(
+    recoveredTypes.filter((type) => type === 'execution_started').length,
+    1,
+    'resume does not emit a second execution_started'
+  );
+  assert.ok(recoveredTypes.indexOf('task_resumed') < recoveredTypes.indexOf('acceptance_pass'));
+  assert.equal((await getTaskStateSnapshot(failedDir, failedTask.taskId)).phase, 'accepted');
+
+  const abandonedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-task-verify-abandoned-'));
+  const abandoned = await createDraftTask(abandonedDir, 'left behind', {
+    acceptanceCommand: 'true',
+  });
+  await appendTaskEvent(abandonedDir, abandoned.taskId, 'task_abandoned');
+  assert.equal((await getTaskStateSnapshot(abandonedDir, abandoned.taskId)).phase, 'abandoned');
+  const revived = await verifyTaskOnce(abandonedDir, { taskId: abandoned.taskId });
+  assert.equal(revived.exitCode, 0, revived.summary);
+  const revivedTypes = (await listTaskEvents(abandonedDir, abandoned.taskId)).map(
+    (event) => event.type
+  );
+  assert.ok(revivedTypes.includes('task_resumed'));
+  assert.ok(revivedTypes.includes('acceptance_pass'));
+  assert.equal((await getTaskStateSnapshot(abandonedDir, abandoned.taskId)).phase, 'accepted');
 }
 
 console.log('[PASS] cli task verify');
