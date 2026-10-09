@@ -7,18 +7,58 @@
  * device target). A same-named mcp.json entry replaces the builtin.
  */
 import { loadDeviceRegistry } from '../device/device-registry-file.js';
-import { RDK_DOCS_SERVER_NAME, builtinRdkDocsServerConfig } from '../core/mcp/rdk-docs.js';
+import {
+  DEFAULT_RDK_DOCS_MCP_PACKAGE,
+  RDK_DOCS_SERVER_NAME,
+  builtinRdkDocsServerConfig,
+} from '../core/mcp/rdk-docs.js';
 import type { McpServerConfig } from '../core/mcp/types.js';
+import { ErrorCode, throwMoss } from '../errors.js';
+
+export interface RdkDocsConfigValue {
+  enabled?: boolean;
+  package?: string;
+}
 
 export interface RdkDocsEnableInput {
   env: NodeJS.ProcessEnv;
-  /** Merged config `rdkDocs`, when it was a real boolean. */
+  /** Merged config `rdkDocs.enabled` (or the legacy boolean form). */
   rdkDocs: boolean | undefined;
   workspaceDir: string;
 }
 
 export function readRdkDocsFlag(value: unknown): boolean | undefined {
-  return value === true || value === false ? value : undefined;
+  if (value === true || value === false) return value;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const enabled = (value as RdkDocsConfigValue).enabled;
+  return enabled === true || enabled === false ? enabled : undefined;
+}
+
+/**
+ * Resolve the executable package spec. Env is useful for a one-off checkout;
+ * config is persistent. The value is one argv token, never a command string.
+ */
+export function resolveRdkDocsPackage(value: unknown, env: NodeJS.ProcessEnv): string {
+  const configPackage =
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as RdkDocsConfigValue).package
+      : undefined;
+  const candidate = (env.MOSS_RDK_DOCS_PACKAGE ?? configPackage ?? '').trim();
+  if (!candidate) return DEFAULT_RDK_DOCS_MCP_PACKAGE;
+  if (
+    candidate.length > 2_048 ||
+    candidate.startsWith('-') ||
+    candidate.includes('\0') ||
+    candidate.includes('\r') ||
+    candidate.includes('\n')
+  ) {
+    throwMoss({
+      code: ErrorCode.USER_INPUT_INVALID,
+      message: 'Invalid rdk-docs package spec.',
+      hint: 'Use an npm spec (for example rdk-docs-mcp@0.1.12) or a local directory/tarball path.',
+    });
+  }
+  return candidate;
 }
 
 /** Positive opt-out. Env wins so one session can disable a saved `rdkDocs: true`. */
@@ -49,11 +89,12 @@ export function rdkDocsAutoConnectEnabled(input: RdkDocsEnableInput): boolean {
  */
 export function withBuiltinRdkDocs(
   configs: readonly McpServerConfig[],
-  enabled: boolean
+  enabled: boolean,
+  packageSpec = DEFAULT_RDK_DOCS_MCP_PACKAGE
 ): McpServerConfig[] {
   if (!enabled) return [...configs];
   if (configs.some((config) => config.name === RDK_DOCS_SERVER_NAME)) return [...configs];
-  return [builtinRdkDocsServerConfig(), ...configs];
+  return [builtinRdkDocsServerConfig(packageSpec), ...configs];
 }
 
 export function formatMcpStartupLine(

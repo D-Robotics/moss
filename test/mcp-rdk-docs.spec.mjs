@@ -17,12 +17,14 @@ import {
   hasDeviceTarget,
   rdkDocsAutoConnectEnabled,
   rdkDocsOptOut,
+  readRdkDocsFlag,
+  resolveRdkDocsPackage,
   withBuiltinRdkDocs,
 } from '../dist/cli/rdk-docs-mcp.js';
 import { resolveMcpClientTimeouts } from '../dist/core/mcp/client.js';
 import {
   RDK_DOCS_CONNECTED_LAYER,
-  RDK_DOCS_MCP_PACKAGE,
+  DEFAULT_RDK_DOCS_MCP_PACKAGE,
   RDK_DOCS_UNAVAILABLE_LAYER,
   builtinRdkDocsServerConfig,
   rdkDocsKnowledgeLayer,
@@ -51,13 +53,19 @@ function approxTokens(text) {
   return Math.ceil(text.length / 4);
 }
 
-test('builtin rdk-docs is npx -y rdk-docs-mcp@0.1.12 with tightened timeouts', () => {
+test('builtin rdk-docs uses one pinned default and hardened npx arguments', () => {
   const config = builtinRdkDocsServerConfig();
   assert.equal(config.name, 'rdk-docs');
   assert.equal(config.transport, 'stdio');
   assert.equal(config.command, 'npx');
-  assert.deepEqual(config.args, ['-y', RDK_DOCS_MCP_PACKAGE]);
-  assert.equal(RDK_DOCS_MCP_PACKAGE, 'rdk-docs-mcp@0.1.12');
+  assert.deepEqual(config.args, [
+    '--yes',
+    '--ignore-scripts',
+    `--package=${DEFAULT_RDK_DOCS_MCP_PACKAGE}`,
+    '--',
+    'rdk-docs-mcp',
+  ]);
+  assert.equal(DEFAULT_RDK_DOCS_MCP_PACKAGE, 'rdk-docs-mcp@0.1.12');
   assert.deepEqual(resolveMcpClientTimeouts(config), {
     connectTimeoutMs: 45_000,
     requestTimeoutMs: 20_000,
@@ -79,10 +87,36 @@ test('no user mcp.json still injects rdk-docs when the session asks for it', () 
   const merged = withBuiltinRdkDocs(loaded, true);
   assert.equal(merged.length, 1);
   assert.equal(merged[0].command, 'npx');
-  assert.deepEqual(merged[0].args, ['-y', 'rdk-docs-mcp@0.1.12']);
+  assert.deepEqual(merged[0].args, [
+    '--yes',
+    '--ignore-scripts',
+    '--package=rdk-docs-mcp@0.1.12',
+    '--',
+    'rdk-docs-mcp',
+  ]);
   assert.equal(fs.existsSync(path.join(tmp, 'mcp.json')), false);
   assert.equal(fs.existsSync(path.join(tmp, '.moss', 'mcp.json')), false);
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('rdk-docs package accepts config/env npm specs and local paths', () => {
+  assert.equal(resolveRdkDocsPackage(undefined, {}), DEFAULT_RDK_DOCS_MCP_PACKAGE);
+  assert.equal(
+    resolveRdkDocsPackage({ package: 'rdk-docs-mcp@github:D-Robotics/rdk-docs-mcp' }, {}),
+    'rdk-docs-mcp@github:D-Robotics/rdk-docs-mcp'
+  );
+  assert.equal(
+    resolveRdkDocsPackage(
+      { package: 'rdk-docs-mcp@0.1.12' },
+      { MOSS_RDK_DOCS_PACKAGE: '../rdk-docs-mcp.tgz' }
+    ),
+    '../rdk-docs-mcp.tgz'
+  );
+  assert.equal(readRdkDocsFlag({ enabled: false, package: '../server' }), false);
+  assert.throws(() => resolveRdkDocsPackage({}, { MOSS_RDK_DOCS_PACKAGE: '--registry=evil' }));
+
+  const local = withBuiltinRdkDocs([], true, '../rdk-docs-mcp');
+  assert.equal(local[0].args[2], '--package=../rdk-docs-mcp');
 });
 
 test('opt-out and a missing device target leave the builtin out', () => {
@@ -168,17 +202,28 @@ test('user rdkDocs:false wins over a project rdkDocs:true', () => {
   assert.equal(merged.rdkDocs, false);
   const projectOnly = mergeConfigFiles({ rdkDocs: true }, {});
   assert.equal(projectOnly.rdkDocs, true);
+  assert.deepEqual(
+    mergeConfigFiles(
+      { rdkDocs: { enabled: true, package: './project-server' } },
+      { rdkDocs: { package: './user-server' } }
+    ).rdkDocs,
+    { enabled: true, package: './user-server' }
+  );
 });
 
 test('a connected fixture adds the usage pointer and the skill index', async () => {
-  const registry = await McpToolRegistry.connectAll([
-    {
-      name: 'rdk-docs',
-      transport: 'stdio',
-      command: process.execPath,
-      args: [fixture],
-    },
-  ]);
+  const registered = new Map();
+  const registry = await McpToolRegistry.connectAll(
+    [
+      {
+        name: 'rdk-docs',
+        transport: 'stdio',
+        command: process.execPath,
+        args: [fixture],
+      },
+    ],
+    { registerTool: (tool) => registered.set(tool.name, tool) }
+  );
   try {
     const status = registry.getStatuses()[0];
     assert.equal(status.state, 'connected', status.error);
@@ -191,7 +236,7 @@ test('a connected fixture adds the usage pointer and the skill index', async () 
     const mcpLayer = buildMcpPromptLayer(registry);
     const knowledge = rdkDocsKnowledgeLayer(registry.getStatuses());
     const combined = `${mcpLayer}\n${knowledge}`;
-    assert.match(combined, /mcp__rdk_docs__search/);
+    assert.match(combined, /mcp__rdk-docs__search/);
     assert.match(knowledge, /official-start/);
     assert.match(knowledge, /manual filter/);
     assert.equal(knowledge, RDK_DOCS_CONNECTED_LAYER);
@@ -199,15 +244,42 @@ test('a connected fixture adds the usage pointer and the skill index', async () 
     const skillLayer = buildSkillsPromptLayer(skills);
     assert.match(skillLayer, /^- rdk-docs:/m);
     const body = await createSkillTool(skills).execute({ name: 'rdk-docs' });
-    assert.match(body, /maxChars/);
+    assert.match(body, /mcp__rdk-docs__search/);
     assert.match(body, /official-start/);
-    assert.match(body, /40000/);
+    const concreteToolReferences =
+      `${combined}\n${body}`.match(/mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+/g) ?? [];
+    assert.deepEqual([...new Set(concreteToolReferences)], ['mcp__rdk-docs__search']);
+    assert.ok(registry.getTools().some((tool) => tool.name === concreteToolReferences[0]));
     const userWins = includeBundledRdkDocsSkill(
       [{ name: 'rdk-docs', description: 'user skill', file: '/tmp/user/SKILL.md' }],
       true
     );
     assert.equal(userWins.length, 1);
     assert.equal(userWins[0].description, 'user skill');
+  } finally {
+    await registry.closeAll();
+  }
+});
+
+test('background connection does not delay startup and search waits for readiness', async () => {
+  const startedAt = performance.now();
+  const registry = McpToolRegistry.connectInBackground([
+    {
+      name: 'rdk-docs',
+      transport: 'stdio',
+      command: process.execPath,
+      args: [fixture, '--delay-ms=250'],
+      connectTimeoutMs: 2_000,
+      requestTimeoutMs: 2_000,
+    },
+  ]);
+  try {
+    assert.ok(performance.now() - startedAt < 100, 'registry creation must not await the server');
+    assert.equal(registry.getStatuses()[0].state, 'connecting');
+    assert.equal(registry.getTools()[0].name, 'mcp__rdk-docs__search');
+    const listed = await registry.getTools()[0].execute({}, {});
+    assert.match(listed, /mcp__rdk-docs__search_docs/);
+    assert.equal(registry.getStatuses()[0].state, 'connected');
   } finally {
     await registry.closeAll();
   }
@@ -232,7 +304,7 @@ test('a failed rdk-docs connect does not throw and the prompt says unavailable',
     );
     const knowledge = rdkDocsKnowledgeLayer(registry.getStatuses());
     assert.equal(knowledge, RDK_DOCS_UNAVAILABLE_LAYER);
-    assert.doesNotMatch(knowledge, /mcp__rdk_docs__search/);
+    assert.doesNotMatch(knowledge, /mcp__rdk-docs__search/);
     assert.doesNotMatch(knowledge, /official-start/);
     assert.doesNotMatch(knowledge, /search_docs/);
     const skills = includeBundledRdkDocsSkill(
@@ -253,7 +325,7 @@ test('a failed rdk-docs connect does not throw and the prompt says unavailable',
   }
 });
 
-test('device safety rules and probe scripts stay; the setup.bash example is gone', () => {
+test('device safety rules, probes, and verified setup fallback stay', () => {
   assert.equal(deviceExecTool.metadata.sideEffectClass, 'device_mutation');
   assert.equal(deviceExecTool.metadata.planMode, 'requires_user_confirmation');
   assert.match(deviceExecTool.description, /Destructive or lockout-risk/);
@@ -264,7 +336,7 @@ test('device safety rules and probe scripts stay; the setup.bash example is gone
   assert.match(deviceCamerasTool.description, /\/sys\/class\/video4linux/);
   assert.match(deviceRoboticsStatusTool.description, /\/opt\/tros/);
   assert.match(deviceRoboticsStatusTool.description, /\/opt\/ros\/<distro>/);
-  assert.doesNotMatch(deviceRoboticsStatusTool.description, /\/opt\/tros\/setup\.bash/);
+  assert.match(deviceRoboticsStatusTool.description, /test -f \/opt\/tros\/setup\.bash/);
   assert.doesNotMatch(deviceRoboticsStatusTool.description, /\/opt\/tros\/humble\/setup\.bash/);
   assert.match(deviceRoboticsStatusTool.description, /tros manual/);
   assert.match(ROBOTICS_PROBE_SCRIPT, /hbm_shell/);
@@ -280,10 +352,6 @@ test('device safety rules and probe scripts stay; the setup.bash example is gone
   assert.doesNotMatch(focus, /BPU/);
   assert.match(focus, /architecture overview/);
 
-  const oldToolExample =
-    'ROS commands themselves run through device_exec after sourcing the setup (e.g. `source /opt/tros/setup.bash && ros2 node list`).';
-  const oldSnapshotExample =
-    'ROS commands run via device_exec after sourcing the setup, e.g.: source /opt/tros/setup.bash && ros2 node list';
   const skill = bundledRdkDocsSkill();
   const skillIndex = `- ${skill.name}: ${skill.description} (when: ${skill.when})`;
   const report = {
@@ -293,8 +361,6 @@ test('device safety rules and probe scripts stay; the setup.bash example is gone
     systemPromptAddedTokensApprox:
       approxTokens(RDK_DOCS_CONNECTED_LAYER) + approxTokens(skillIndex),
     unavailableLayerTokensApprox: approxTokens(RDK_DOCS_UNAVAILABLE_LAYER),
-    oldRoboticsExampleTokensApprox: approxTokens(oldToolExample),
-    oldSnapshotExampleTokensApprox: approxTokens(oldSnapshotExample),
     webFetchFocusDroppedTokensApprox: approxTokens(' BPU'),
   };
   const outDir = '/opt/cursor/artifacts';

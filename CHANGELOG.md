@@ -32,17 +32,19 @@ candidate windows are in `docs/cli-parity/tui-real-terminals.md`.
 
 ### RDK knowledge
 
-Board manuals come from the built-in rdk-docs MCP (`npx -y rdk-docs-mcp@0.1.12`, tools
-`list_manuals` / `search_docs` / `get_page` / `list_toc`). Moss connects it when a device target
-is configured (`MOSS_DEVICE_HOST` or `.moss/devices.json`) or when `rdkDocs` is true. Opt out with
-`MOSS_NO_RDK_DOCS=1` or `"rdkDocs": false`. A same-named `mcp.json` entry replaces the builtin.
-Connect timeout is 45s and each request 20s for this server only. A failed connect prints
+Board manuals come from the built-in rdk-docs MCP, defaulting to the pinned
+`rdk-docs-mcp@0.1.12`. Moss connects it in the background when a device target is configured
+(`MOSS_DEVICE_HOST` or `.moss/devices.json`) or when `rdkDocs` is true. `rdkDocs.package` and
+`MOSS_RDK_DOCS_PACKAGE` accept a trusted npm spec, local directory, or tarball for unpublished
+server builds. Opt out with `MOSS_NO_RDK_DOCS=1` or `"rdkDocs": false`. A same-named `mcp.json`
+entry replaces the builtin. Connect timeout is 45s and each request 20s for this server only; the
+timeout does not delay the interactive shell. A failed connect prints
 `[mcp] rdk-docs unreachable (<reason>) — RDK manual lookup is off this session.` and the system
 prompt tells the agent the manual could not be checked. There is no cache and no offline copy.
-When the server is up, the prompt points at `search_docs` / `get_page` (manual filter, judge the
-snippet, cite the URL) and a short `rdk-docs` skill is indexed. The single `source /opt/tros/setup.bash`
-example is gone from the robotics tool description and the probe formatter; probe scripts,
-connection steps, and device safety rules stay. See
+When the server is up, the prompt points only at the registered `mcp__rdk-docs__search` tool and
+treats version-specific search/ranking/section features as optional. A short `rdk-docs` skill is
+indexed. The robotics fallback verifies `<installation>/setup.bash` before sourcing it; probe
+scripts, connection steps, and device safety rules stay. See
 `docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`.
 
 ### 斜杠命令、真实终端与基准

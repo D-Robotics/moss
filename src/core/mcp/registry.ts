@@ -28,6 +28,8 @@ export interface McpRegistryOptions {
   registerTool?: (tool: Tool) => void;
   connectTimeoutMs?: number;
   requestTimeoutMs?: number;
+  /** Called after a server reaches connected or failed. */
+  onStatusChange?: (status: McpServerStatus) => void;
 }
 
 export interface McpServerStatus {
@@ -54,6 +56,8 @@ interface ServerEntry {
   config: McpServerConfig;
   /** Reconnect attempts already made for the current down period (max 1). */
   reconnectAttempts: number;
+  /** Initial handshake/list operation. Always settles; failures live in status. */
+  ready: Promise<void>;
 }
 
 /** One selectable server tool, as seen by capability discovery. */
@@ -133,11 +137,13 @@ export class McpToolRegistry {
   private readonly registerTool: (tool: Tool) => void;
   private readonly connectTimeoutMs: number | undefined;
   private readonly requestTimeoutMs: number | undefined;
+  private readonly onStatusChange: ((status: McpServerStatus) => void) | undefined;
 
   private constructor(opts: McpRegistryOptions = {}) {
     this.registerTool = opts.registerTool ?? (() => {});
     this.connectTimeoutMs = opts.connectTimeoutMs;
     this.requestTimeoutMs = opts.requestTimeoutMs;
+    this.onStatusChange = opts.onStatusChange;
   }
 
   /**
@@ -149,6 +155,20 @@ export class McpToolRegistry {
     configs: McpServerConfig[],
     opts: McpRegistryOptions = {}
   ): Promise<McpToolRegistry> {
+    const registry = McpToolRegistry.connectInBackground(configs, opts);
+    await registry.waitForConnections();
+    return registry;
+  }
+
+  /**
+   * Create the registry immediately and perform handshakes in the background.
+   * Search meta-tools are available while a server is connecting; invoking
+   * one waits for that server's bounded initial connection.
+   */
+  static connectInBackground(
+    configs: McpServerConfig[],
+    opts: McpRegistryOptions = {}
+  ): McpToolRegistry {
     const registry = new McpToolRegistry(opts);
     for (const config of configs) {
       const client = new McpClient(config, {
@@ -164,24 +184,37 @@ export class McpToolRegistry {
         descriptors: [],
         config,
         reconnectAttempts: 0,
+        ready: Promise.resolve(),
       };
-      try {
-        await client.connect();
-        const tools = await client.listTools();
-        entry.descriptors = tools;
-        status.state = 'connected';
-        status.toolCount = tools.length;
-        log.debug('server connected', { server: config.name, tools: tools.length });
-      } catch (err) {
-        status.state = 'failed';
-        status.error = errorMessage(err).split('\n')[0] ?? 'connection failed';
-        log.warn('server connect failed', { server: config.name, error: status.error });
-      }
-      // Failed servers keep a status entry (degraded, visible to the host) but
-      // contribute no tools.
       registry.entries.push(entry);
+      // Defer even the spawn to a microtask so registry construction and the
+      // caller's first render are synchronous and independent of npx startup.
+      entry.ready = Promise.resolve().then(() => registry.initialize(entry));
     }
     return registry;
+  }
+
+  async waitForConnections(): Promise<void> {
+    await Promise.all(this.entries.map((entry) => entry.ready));
+  }
+
+  private async initialize(entry: ServerEntry): Promise<void> {
+    try {
+      await entry.client.connect();
+      const tools = await entry.client.listTools();
+      entry.descriptors = tools;
+      entry.status.state = 'connected';
+      entry.status.toolCount = tools.length;
+      log.debug('server connected', { server: entry.config.name, tools: tools.length });
+    } catch (err) {
+      entry.status.state = 'failed';
+      entry.status.error = errorMessage(err).split('\n')[0] ?? 'connection failed';
+      log.warn('server connect failed', {
+        server: entry.config.name,
+        error: entry.status.error,
+      });
+    }
+    this.onStatusChange?.({ ...entry.status });
   }
 
   /** Status snapshot (order follows the config). */
@@ -226,9 +259,11 @@ export class McpToolRegistry {
     }
   }
 
-  /** The eagerly-registered tools: one search meta-tool per CONNECTED server. */
+  /** Search tools are available immediately; calls await a bounded handshake. */
   getTools(): Tool[] {
-    return this.entries.filter((e) => e.status.state === 'connected').map((e) => e.searchTool);
+    return this.entries
+      .filter((e) => e.status.state === 'connecting' || e.status.state === 'connected')
+      .map((e) => e.searchTool);
   }
 
   getSearchTool(serverName: string): Tool | undefined {
@@ -285,6 +320,7 @@ export class McpToolRegistry {
   /** Close every connection (stdio children terminated). Never throws. */
   async closeAll(): Promise<void> {
     await Promise.allSettled(this.entries.map((e) => e.client.close()));
+    await Promise.allSettled(this.entries.map((e) => e.ready));
     for (const entry of this.entries) {
       if (entry.status.state === 'connected' || entry.status.state === 'connecting') {
         entry.status.state = 'closed';
@@ -416,6 +452,9 @@ export class McpToolRegistry {
         // server heals on the next search instead of erroring until restart.
         const entry = this.entryFor(client.name);
         let liveClient = entry?.client ?? client;
+        if (entry?.status.state === 'connecting') {
+          await entry.ready;
+        }
         if (entry && entry.status.state !== 'connected') {
           if (!(await this.reconnect(entry))) {
             throw new MossError({
@@ -470,7 +509,9 @@ export class McpToolRegistry {
  * and schemas never enter the system prompt (that is the lazy-loading budget).
  */
 export function buildMcpPromptLayer(registry: McpToolRegistry): string {
-  const servers = registry.getStatuses().filter((s) => s.state === 'connected');
+  const servers = registry
+    .getStatuses()
+    .filter((s) => s.state === 'connecting' || s.state === 'connected');
   if (servers.length === 0) return '';
   const lines = servers.map(
     (s) =>

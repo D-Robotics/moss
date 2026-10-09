@@ -61,6 +61,7 @@ import {
   formatMcpStartupLine,
   rdkDocsAutoConnectEnabled,
   readRdkDocsFlag,
+  resolveRdkDocsPackage,
   withBuiltinRdkDocs,
 } from './cli/rdk-docs-mcp.js';
 import { McpToolRegistry, buildMcpPromptLayer } from './core/mcp/registry.js';
@@ -747,22 +748,23 @@ async function main() {
       env: process.env,
       rdkDocs: readRdkDocsFlag(loadedConfig.config.rdkDocs),
       workspaceDir: workspace,
-    })
+    }),
+    resolveRdkDocsPackage(loadedConfig.config.rdkDocs, process.env)
   );
   if (mcpConfigs.length > 0) {
     try {
-      mcpRegistry = await McpToolRegistry.connectAll(mcpConfigs, {
+      mcpRegistry = McpToolRegistry.connectInBackground(mcpConfigs, {
         // Real MCP tools register on demand: the search meta-tool installs
         // them into the live registry when the model asks for a server's list.
         // Per-server timeouts (rdk-docs: connect 45s, request 20s) live on the
         // config; other servers keep the client defaults.
         registerTool: (tool) => agent.tools.register(tool),
+        onStatusChange: (status) => {
+          const line = formatMcpStartupLine(status, cliDetailForNotices);
+          if (line) console.error(line);
+        },
       });
       for (const searchTool of mcpRegistry.getTools()) agent.tools.register(searchTool);
-      for (const status of mcpRegistry.getStatuses()) {
-        const line = formatMcpStartupLine(status, cliDetailForNotices);
-        if (line) console.error(line);
-      }
       // Lazy-loading budget: the system prompt gets one index line per server,
       // never the tool list itself. The rdk-docs usage pointer sits on that
       // server's line; a failed connect gets only the unavailable sentence.
@@ -770,7 +772,11 @@ async function main() {
       const rdkLayer = rdkDocsKnowledgeLayer(mcpRegistry.getStatuses());
       const rdkConnected = mcpRegistry
         .getStatuses()
-        .some((status) => status.name === RDK_DOCS_SERVER_NAME && status.state === 'connected');
+        .some(
+          (status) =>
+            status.name === RDK_DOCS_SERVER_NAME &&
+            (status.state === 'connecting' || status.state === 'connected')
+        );
       if (mcpLayer && rdkLayer && rdkConnected) {
         extraPromptLayers.push(`${mcpLayer}\n${rdkLayer}`);
       } else {
@@ -797,8 +803,11 @@ async function main() {
     const rdkDocsConnected =
       mcpRegistry
         ?.getStatuses()
-        .some((status) => status.name === RDK_DOCS_SERVER_NAME && status.state === 'connected') ??
-      false;
+        .some(
+          (status) =>
+            status.name === RDK_DOCS_SERVER_NAME &&
+            (status.state === 'connecting' || status.state === 'connected')
+        ) ?? false;
     const skills = includeBundledRdkDocsSkill(
       loadSkills([path.join(workspace, '.moss', 'skills'), path.join(configDir, 'skills')]),
       rdkDocsConnected

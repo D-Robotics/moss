@@ -12,6 +12,9 @@ if (process.argv.includes('--fail')) {
   process.exit(1);
 }
 
+const delayArg = process.argv.find((arg) => arg.startsWith('--delay-ms='));
+const delayMs = Math.max(0, Number(delayArg?.slice('--delay-ms='.length) ?? 0) || 0);
+
 const TOOLS = [
   {
     name: 'list_manuals',
@@ -54,7 +57,9 @@ const TOOLS = [
 ];
 
 function send(msg) {
-  process.stdout.write(`${JSON.stringify(msg)}\n`);
+  const write = () => process.stdout.write(`${JSON.stringify(msg)}\n`);
+  if (delayMs > 0) setTimeout(write, delayMs);
+  else write();
 }
 
 const rl = readline.createInterface({ input: process.stdin, terminal: false });

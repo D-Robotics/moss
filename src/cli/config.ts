@@ -109,12 +109,17 @@ export interface ConfigFile {
   /** Network egress policy for web tools (hostname allowlist). */
   net?: { allowHosts?: string[] };
   /**
-   * Built-in rdk-docs MCP. `true` connects even with no device target;
-   * `false` stays off even when a device is configured. Unset follows the
-   * device-target default. `MOSS_NO_RDK_DOCS=1` opts out for one process.
+   * Built-in rdk-docs MCP. The legacy boolean form remains supported.
+   * `enabled` controls auto-connect; `package` accepts an npm package spec or
+   * local directory/tarball. MOSS_RDK_DOCS_PACKAGE overrides `package`.
    */
-  rdkDocs?: boolean;
+  rdkDocs?: boolean | RdkDocsConfig;
   _examples?: Record<string, unknown>;
+}
+
+export interface RdkDocsConfig {
+  enabled?: boolean;
+  package?: string;
 }
 
 /**
@@ -547,8 +552,24 @@ export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFi
     agent: mergeAgentRuntimeConfig(userConfig.agent, projectConfig.agent),
     hooks: mergeHooksConfig(userConfig.hooks, projectConfig.hooks),
     // A cloned project's config must not override an explicit user choice.
-    // `false` is a choice (nullish-coalescing keeps it).
-    rdkDocs: userConfig.rdkDocs ?? projectConfig.rdkDocs,
+    // Merge object fields so a user can pin the executable package while a
+    // project merely enables the integration (or vice versa).
+    rdkDocs: mergeRdkDocsConfig(userConfig.rdkDocs, projectConfig.rdkDocs),
+  };
+}
+
+function mergeRdkDocsConfig(
+  user: ConfigFile['rdkDocs'],
+  project: ConfigFile['rdkDocs']
+): ConfigFile['rdkDocs'] {
+  if (user === undefined) return project;
+  if (typeof user === 'boolean') return user;
+  if (project === undefined || typeof project === 'boolean') return user;
+  return {
+    ...project,
+    ...user,
+    enabled: user.enabled ?? project.enabled,
+    package: user.package ?? project.package,
   };
 }
 

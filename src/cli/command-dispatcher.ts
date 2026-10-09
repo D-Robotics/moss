@@ -328,20 +328,19 @@ export const COMMANDS: Record<string, CommandConfig> = {
       }
       const configDir = resolveConfigDir();
       const loaded = ctx.loadedConfig;
-      const rdkDocsFlag =
+      const rdkDocsConfig =
         typeof loaded === 'object' &&
         loaded !== null &&
         'config' in loaded &&
         typeof loaded.config === 'object' &&
         loaded.config !== null &&
-        'rdkDocs' in loaded.config &&
-        (loaded.config.rdkDocs === true || loaded.config.rdkDocs === false)
+        'rdkDocs' in loaded.config
           ? loaded.config.rdkDocs
           : undefined;
       const code = await runMcpCommand(ctx.commandArgs, {
         workspaceDir: workspace,
         configDir,
-        ...(rdkDocsFlag !== undefined ? { rdkDocs: rdkDocsFlag } : {}),
+        ...(rdkDocsConfig !== undefined ? { rdkDocs: rdkDocsConfig } : {}),
       });
       if (code !== 0) process.exitCode = code;
     },
