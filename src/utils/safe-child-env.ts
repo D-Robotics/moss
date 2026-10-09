@@ -96,8 +96,15 @@ export function formatDeviceEnvReport(env: NodeJS.ProcessEnv = process.env): str
   );
 }
 
+/**
+ * `env` / `printenv` as the command being run, or a mention of a
+ * `MOSS_DEVICE_*` name. A filename such as `.env` is not the `env` command.
+ */
+const ENV_INSPECT_COMMAND =
+  /(?:^|[\n;&|(`]|&&|\|\|)\s*(?:sudo(?:\s+-\S+)*\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:[/.\w-]+\/)?(?:printenv|env)(?=$|[\s;|&)`])/;
+
 export function commandInspectsProcessEnv(command: string): boolean {
-  return /\b(printenv|env)\b/.test(command) || /MOSS_DEVICE_/.test(command);
+  return ENV_INSPECT_COMMAND.test(command) || /MOSS_DEVICE_/.test(command);
 }
 
 export function deviceEnvFootnote(command: string, env: NodeJS.ProcessEnv = process.env): string {

@@ -19,7 +19,12 @@ import {
 } from '../dist/tools/builtin.js';
 import { ToolHookRegistry } from '../dist/core/tools/tool-hooks.js';
 import { presentToolOutput, redactToolOutput } from '../dist/safety/tool-output-redact.js';
-import { formatDeviceEnvReport, safeChildEnv } from '../dist/utils/safe-child-env.js';
+import {
+  commandInspectsProcessEnv,
+  deviceEnvFootnote,
+  formatDeviceEnvReport,
+  safeChildEnv,
+} from '../dist/utils/safe-child-env.js';
 
 const saved = {
   HOME: process.env.HOME,
@@ -395,6 +400,18 @@ try {
   assert.match(String(inspected), /hidden from shell subprocesses/);
   assert.doesNotMatch(String(inspected), /device-password-should-stay-hidden/);
   assert.doesNotMatch(String(inspected), /should-not-leak\.key/);
+
+  assert.equal(commandInspectsProcessEnv('cat .env'), false);
+  assert.equal(commandInspectsProcessEnv('cat .env | head'), false);
+  assert.equal(commandInspectsProcessEnv('fw_printenv boot'), false);
+  assert.equal(commandInspectsProcessEnv('env'), true);
+  assert.equal(commandInspectsProcessEnv('printenv HOME'), true);
+  assert.equal(commandInspectsProcessEnv('/usr/bin/env python3'), true);
+  assert.equal(commandInspectsProcessEnv('sudo printenv'), true);
+  assert.equal(deviceEnvFootnote('cat .env'), '');
+  const listedEnv = await execTool.execute({ command: 'cat .env' }, ctx());
+  assert.doesNotMatch(String(listedEnv), /hidden from shell subprocesses/);
+  assert.doesNotMatch(String(listedEnv), /MOSS_DEVICE_HOST/);
 
   console.log('[PASS] workspace read scope, credential redaction, device env');
 } finally {

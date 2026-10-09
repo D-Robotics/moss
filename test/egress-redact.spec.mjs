@@ -121,6 +121,34 @@ try {
     assert.match(viewed, /\[REDACTED\]/, `read_file ${path.basename(file)} redacts`);
   }
 
+  const numberedPem = [
+    'alpha',
+    '-----BEGIN OPENSSH PRIVATE KEY-----',
+    PEM_BODY,
+    '-----END OPENSSH PRIVATE KEY-----',
+    `token: ${KUBE_TOKEN}`,
+    'omega',
+  ].join('\n');
+  fs.writeFileSync(path.join(project, 'numbered.pem'), numberedPem);
+  const numberedRaw = String(
+    await readFileTool.execute({ path: path.join(project, 'numbered.pem') }, ctx())
+  );
+  const numberedView = modelView('read_file', { path: 'numbered.pem' }, numberedRaw);
+  const numberedLines = numberedView.split('\n');
+  assert.equal(
+    numberedLines.length,
+    numberedRaw.split('\n').length,
+    'redaction keeps the read_file line count'
+  );
+  assert.match(numberedLines[0], /1\talpha/);
+  assert.match(numberedLines[1], /2\t\[REDACTED\]/);
+  assert.match(numberedLines[2], /3\t\[REDACTED\]/);
+  assert.match(numberedLines[3], /4\t\[REDACTED\]/);
+  assert.match(numberedLines[4], /5\ttoken: \[REDACTED\]/);
+  assert.match(numberedLines[5], /6\tomega/);
+  assert.doesNotMatch(numberedView, new RegExp(PEM_BODY));
+  assert.doesNotMatch(numberedView, new RegExp(KUBE_TOKEN));
+
   const assigned = redactEgress(`SERVICE_TOKEN=${SERVICE}\naws_secret_access_key = ${AWS}\n`);
   assertAbsent(assigned, 'assignment rules');
   assert.match(assigned, /SERVICE_TOKEN=\[REDACTED\]/);
@@ -180,6 +208,42 @@ try {
     stopReason: 'end_turn',
   });
   assertAbsent(JSON.stringify(flushed), 'headless stream');
+
+  const unclosedHeader =
+    'Before.\n-----BEGIN OPENSSH PRIVATE KEY-----\nThe explanation continues after the header.\n';
+  const headlessPem = createHeadlessPrintState({ sessionId: 'egress-pem' });
+  formatHeadlessStreamEvent(headlessPem, { type: 'text_delta', delta: unclosedHeader });
+  const pemFlushed = formatHeadlessStreamEvent(headlessPem, {
+    type: 'turn_end',
+    turn: 1,
+    stopReason: 'end_turn',
+  });
+  assert.match(
+    JSON.stringify(pemFlushed),
+    /explanation continues/,
+    'headless flush keeps prose after an unclosed header'
+  );
+
+  const pemChunks = [];
+  const pemRenderer = createCliRunRenderer({
+    detailMode: 'quiet',
+    interactive: false,
+    workspaceDir: project,
+    stdout: {
+      write: (value) => {
+        pemChunks.push(String(value));
+        return true;
+      },
+    },
+    stderr: { write: () => true, isTTY: false },
+  });
+  pemRenderer.handle({ type: 'text_delta', delta: unclosedHeader });
+  pemRenderer.dispose();
+  assert.match(
+    pemChunks.join(''),
+    /explanation continues/,
+    'REPL flush keeps prose after an unclosed header'
+  );
 
   const chunks = [];
   const renderer = createCliRunRenderer({

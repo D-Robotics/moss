@@ -43,6 +43,9 @@ export async function startInProcessSshDevice(options = {}) {
 
   server.on('connection', (conn) => {
     liveConns.add(conn);
+    // destroy() on a failed handshake emits write EPIPE; swallow it so the
+    // fixture does not crash the spec process.
+    conn.on('error', () => {});
     conn.once('close', () => liveConns.delete(conn));
     conn.on('authentication', (ctx) => {
       if (ctx.method === 'password' && ctx.username === user && ctx.password === password) {

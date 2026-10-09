@@ -86,8 +86,47 @@ function shouldRedactAssignedValue(value: string): boolean {
   return value.length >= 20;
 }
 
+const NUMBERED_READ_LINE = /^(\s*\d+\t)(.*)$/;
+
+/**
+ * Replace a PEM block without collapsing lines. A `read_file` gutter
+ * (`     12\t`) that sits on a line inside the block stays put, so later
+ * line numbers do not jump.
+ */
 function redactPemBlocks(text: string): string {
-  return text.replace(PEM_PRIVATE_KEY, REDACTED);
+  return text.replace(PEM_PRIVATE_KEY, (block) =>
+    block
+      .split('\n')
+      .map((line) => {
+        const numbered = NUMBERED_READ_LINE.exec(line);
+        return `${numbered?.[1] ?? ''}${REDACTED}`;
+      })
+      .join('\n')
+  );
+}
+
+/**
+ * `read_file` prefixes every line with a gutter. Redact each line's body on
+ * its own so a multi-line match cannot swallow the next gutter. A private-key
+ * block keeps one output line per source line.
+ */
+function redactNumberedToolOutput(text: string, env: NodeJS.ProcessEnv): string {
+  let inPem = false;
+  return text
+    .split('\n')
+    .map((line) => {
+      const numbered = NUMBERED_READ_LINE.exec(line);
+      const gutter = numbered?.[1] ?? '';
+      const body = numbered ? numbered[2] : line;
+      const opens = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(body);
+      const closes = /-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(body);
+      if (inPem || opens) {
+        inPem = !closes;
+        return `${gutter}${REDACTED}`;
+      }
+      return `${gutter}${redactEgress(body, env)}`;
+    })
+    .join('\n');
 }
 
 function redactAssignments(text: string): string {
@@ -177,31 +216,35 @@ export function presentToolOutput(args: {
   if (command && commandMentionsMossCredential(command) && /\.apikey-key\b/.test(command)) {
     return CREDENTIAL_WITHHELD;
   }
+  if (args.toolName === 'read_file') return redactNumberedToolOutput(args.text, env);
   return redactEgress(args.text, env);
 }
 
+const PEM_OPENER_AT_LINE_START = /(?:^|\n)([ \t]*-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----)/g;
+
 /**
- * Line-buffer a live stdout stream so a secret that arrives as a full line is
- * redacted before it is shown. The trailing partial line is held until flush.
- * The tool-result post hook redacts the final string again; this writer only
- * covers the live stream.
+ * Index of a still-open private-key header that begins a line. A mention in
+ * the middle of a sentence is not an opener. `-1` when every opener is closed.
  */
+function unclosedPemHoldIndex(raw: string): number {
+  let holdAt = -1;
+  for (const match of raw.matchAll(PEM_OPENER_AT_LINE_START)) {
+    const at = (match.index ?? 0) + (match[0].startsWith('\n') ? 1 : 0);
+    if (!/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(raw.slice(at))) holdAt = at;
+  }
+  return holdAt;
+}
+
 /**
  * Text safe to paint while a stream is still open: every finished line, and
- * nothing from the current partial line or an unclosed PEM block. `flush`
- * includes the tail (commit / turn end). Holding only that tail keeps
- * streaming responsive without letting a secret flash before it is complete.
+ * nothing from the current partial line or an unclosed line-start PEM block.
+ * `flush` never holds — the tail is redacted and emitted (commit / turn end).
  */
 export function visibleStreamPrefix(raw: string, flush: boolean): string {
-  const begin = raw.lastIndexOf('-----BEGIN ');
-  if (begin !== -1) {
-    const after = raw.slice(begin);
-    const openPrivateKey =
-      /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(after) &&
-      !/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(after);
-    if (openPrivateKey) return raw.slice(0, begin);
-  }
-  if (flush || raw.endsWith('\n')) return raw;
+  if (flush) return raw;
+  const holdAt = unclosedPemHoldIndex(raw);
+  if (holdAt !== -1) return raw.slice(0, holdAt);
+  if (raw.endsWith('\n')) return raw;
   const nl = raw.lastIndexOf('\n');
   return nl === -1 ? '' : raw.slice(0, nl + 1);
 }
@@ -219,13 +262,11 @@ const OPEN_STANDALONE =
  */
 export function holdOpenSecretSuffix(line: string, env: NodeJS.ProcessEnv = process.env): string {
   if (!line) return '';
-  const pem = line.lastIndexOf('-----BEGIN ');
-  if (pem !== -1) {
-    const after = line.slice(pem);
-    const openPrivateKey =
-      /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(after) &&
-      !/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(after);
-    if (openPrivateKey) return holdOpenSecretSuffix(line.slice(0, pem), env);
+  if (
+    /^[ \t]*-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(line) &&
+    !/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(line)
+  ) {
+    return '';
   }
   const redacted = redactEgress(line, env);
   let cut = knownSecretPrefixCut(redacted, env);

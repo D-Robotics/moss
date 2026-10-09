@@ -12,8 +12,10 @@ import {
   beginRun,
   createTuiStore,
   endRun,
+  reconcileFinalResponse,
 } from '../dist/cli/tui/render-bridge.js';
 import { renderLive, renderScrollableActivity } from '../dist/cli/tui/transcript.js';
+import { createStreamingTextRedactor } from '../dist/safety/tool-output-redact.js';
 
 const TOKEN = 'kube-token-value-1234567890';
 const head = 'token: kube-token-val';
@@ -66,6 +68,60 @@ const pemBody = 'b3BlbnNzaC1rZXktdmFsdWUtZmFrZS0xMjM0NTY3ODkw';
 const openPem = `-----BEGIN OPENSSH PRIVATE KEY-----\n${pemBody}`;
 assert.doesNotMatch(liveAssistantText(`before\n${openPem}`), new RegExp(pemBody));
 assert.match(liveAssistantText(`before\n${openPem}`), /before/);
+
+const mention = 'The header is -----BEGIN OPENSSH PRIVATE KEY----- and then more prose.';
+assert.match(liveAssistantText(mention), /and then more prose/);
+assert.match(liveAssistantText(mention), /The header is/);
+
+const closedPem = `-----BEGIN OPENSSH PRIVATE KEY-----\n${pemBody}\n-----END OPENSSH PRIVATE KEY-----\nAfter the key.\n`;
+assert.doesNotMatch(liveAssistantText(closedPem), new RegExp(pemBody));
+assert.match(liveAssistantText(closedPem), /\[REDACTED\]/);
+assert.match(liveAssistantText(closedPem), /After the key/);
+
+function flushed(chunks) {
+  const redactor = createStreamingTextRedactor();
+  let out = '';
+  for (const chunk of chunks) out += redactor.push(chunk);
+  out += redactor.flush();
+  return out;
+}
+
+const mentionOut = flushed([mention + '\n']);
+assert.match(mentionOut, /and then more prose/, 'mid-sentence header is not a PEM hold');
+
+const unclosed = flushed([
+  'Before.\n-----BEGIN OPENSSH PRIVATE KEY-----\n',
+  'The explanation continues after the header.\n',
+]);
+assert.match(unclosed, /Before/);
+assert.match(unclosed, /explanation continues/, 'flush emits the prose after an unclosed header');
+assert.doesNotMatch(
+  createStreamingTextRedactor().push(
+    'Before.\n-----BEGIN OPENSSH PRIVATE KEY-----\nThe explanation continues after the header.\n'
+  ),
+  /explanation continues/,
+  'an open line-start header is still held until flush'
+);
+
+const pemOut = flushed([closedPem]);
+assert.doesNotMatch(pemOut, new RegExp(pemBody), 'a real PEM block is redacted');
+assert.match(pemOut, /\[REDACTED\]/);
+assert.match(pemOut, /After the key/);
+
+{
+  const pemStore = createTuiStore();
+  beginRun(pemStore);
+  applyAgentEvent(pemStore, { type: 'text_delta', delta: 'See the header.' });
+  applyAgentEvent(pemStore, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  reconcileFinalResponse(
+    pemStore,
+    'See the header. -----BEGIN OPENSSH PRIVATE KEY----- and the rest of the answer.'
+  );
+  const answers = pemStore.rows.filter((row) => row.kind === 'assistant').map((row) => row.text);
+  assert.equal(answers.length, 1, 'a mismatched prefix replaces the row instead of appending');
+  assert.match(answers[0], /rest of the answer/);
+  assert.match(answers[0], /See the header/);
+}
 
 endRun(store, false);
 const committed = store.rows.map((row) => row.text).join('\n');

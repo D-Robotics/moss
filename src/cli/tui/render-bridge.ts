@@ -300,42 +300,77 @@ export function flushProse(store: TuiStore): void {
   store.run.committedText = '';
 }
 
+function normalizeShown(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/** Assistant text already committed for this run (rows, or the flush memory). */
+function shownAssistantText(store: TuiStore): string {
+  const runRows = store.rows.slice(store.run.rowStart ?? 0);
+  const fromRows = normalizeShown(
+    runRows
+      .filter((row) => row.kind === 'assistant')
+      .map((row) => row.text)
+      .join(' ')
+  );
+  const fromFlushed = normalizeShown((store.run.flushed ?? []).join(' '));
+  return fromRows.length >= fromFlushed.length ? fromRows : fromFlushed;
+}
+
+/**
+ * The on-screen answer is a truncated or divergent prefix of the final
+ * response. Put the response in the first assistant row and drop the copies.
+ */
+function replaceRunAssistantRows(store: TuiStore, text: string): boolean {
+  const start = store.run.rowStart ?? 0;
+  const head = store.rows.slice(0, start);
+  const kept: TranscriptRow[] = [];
+  let replaced = false;
+  for (const row of store.rows.slice(start)) {
+    if (row.kind !== 'assistant') {
+      kept.push(row);
+      continue;
+    }
+    if (!replaced) {
+      kept.push({ ...row, text });
+      replaced = true;
+    }
+  }
+  if (!replaced) return false;
+  store.rows = [...head, ...kept];
+  store.run.flushed = [text];
+  store.run.streamingText = '';
+  store.run.committedText = '';
+  store.version++;
+  return true;
+}
+
 /**
  * The provider's `done` response is the final answer. It is shown once: when the
  * same text was already committed at the turn boundary it is skipped; when the
  * stream carried nothing the response is the answer; when the live tail is a
- * truncated prefix (long answers) the full response replaces it (N-4).
+ * truncated prefix (long answers) the full response replaces it (N-4). A
+ * prefix that does not match the response replaces the rows already shown
+ * instead of appending a second copy.
  */
 export function reconcileFinalResponse(store: TuiStore, response: string | undefined): void {
   if (typeof response !== 'string' || !response.trim()) return;
   const visibleResponse = userFacingAssistantText(response);
   if (!visibleResponse.trim()) return;
+  const want = normalizeShown(visibleResponse);
+  const shown = shownAssistantText(store);
+  const live = store.run.streamingText.trim()
+    ? normalizeShown(userFacingAssistantText(store.run.streamingText))
+    : '';
+  const onScreen = normalizeShown(`${shown} ${live}`.trim());
+  if (onScreen && onScreen.includes(want)) return;
+  if (shown && replaceRunAssistantRows(store, visibleResponse)) return;
   if (!store.run.streamingText.trim()) {
-    // The response is the whole run's answer. When every part of it is already
-    // on screen (one turn, several turns, or text committed around a thought),
-    // it must not appear again.
-    const norm = (text: string): string => text.replace(/\s+/g, ' ').trim();
-    const want = norm(visibleResponse);
-    const runRows = store.rows.slice(store.run.rowStart ?? 0);
-    const fromRows = norm(
-      runRows
-        .filter((row) => row.kind === 'assistant')
-        .map((row) => row.text)
-        .join(' ')
-    );
-    const fromFlushed = norm((store.run.flushed ?? []).join(' '));
-    const shown = fromRows.length >= fromFlushed.length ? fromRows : fromFlushed;
-    if (shown && shown.includes(want)) return;
     appendRow(store, 'assistant', visibleResponse);
     return;
   }
-  if (
-    !store.run.committedText &&
-    visibleResponse.length > userFacingAssistantText(store.run.streamingText).length
-  ) {
-    store.run.streamingText = visibleResponse;
-    store.version++;
-  }
+  store.run.streamingText = visibleResponse;
+  store.version++;
 }
 
 /**
