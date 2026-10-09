@@ -37,6 +37,14 @@ import { parseCliArgs, closestKnownCommand } from '../dist/cli/args.js';
   const args = parseCliArgs(['-p', 'hello']);
   assert.equal(args.print, true, '-p is short for --print');
   assert.equal(args.prompt, 'hello');
+  assert.equal(args.trustWorkspace, false, '-p does not imply workspace trust');
+}
+
+{
+  const args = parseCliArgs(['--trust-workspace', '-p', 'hello']);
+  assert.equal(args.trustWorkspace, true);
+  assert.equal(args.print, true);
+  assert.equal(args.prompt, 'hello');
 }
 
 // ─── Commands ────────────────────────────────────────────────────────────────

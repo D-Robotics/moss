@@ -80,6 +80,10 @@ def run_case(cols, rows):
         "MOSS_CONFIG_FILE": config_file,
         "MOSS_NO_RDK_DOCS": "1",
         "MOSS_NOTIFY": "0",
+        # This probe's mcp.json is a project server named rdk-docs. That name
+        # is project code, so the TUI would otherwise ask before the failure
+        # paints. The flag is this throwaway workspace's own opt-in.
+        "MOSS_TRUST_WORKSPACE": "1",
         "TERM": "xterm-256color",
         "LANG": "en_US.UTF-8",
     }

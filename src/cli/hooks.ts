@@ -1,6 +1,8 @@
 import type { ToolApprovalRequest, ToolApprovalDecision } from '../core/agent/agent-hooks.js';
 import type { ToolCall, ToolResult } from '../core/tools/tool-types.js';
 import type { HooksConfig, HookCommandConfig } from './config.js';
+import { claudeToolInput, claudeToolName, hookMatcherMatches } from './claude-compat.js';
+import { redactEgress } from '../safety/tool-output-redact.js';
 import { CompactHookRegistry } from '../core/loop/compact-hooks.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { errorMessage } from '../errors.js';
@@ -19,6 +21,8 @@ interface HookPayload {
   event:
     | 'PreToolUse'
     | 'PostToolUse'
+    | 'UserPromptSubmit'
+    | 'PermissionRequest'
     | 'SessionStart'
     | 'Stop'
     | 'SubagentStop'
@@ -27,7 +31,13 @@ interface HookPayload {
     | 'SessionEnd'
     | 'Notification';
   toolName?: string;
+  /** Claude-format alias of toolName (Bash, Edit, …). */
+  tool_name?: string;
   input?: Record<string, unknown>;
+  /** Claude-format alias of input. */
+  tool_input?: Record<string, unknown>;
+  /** UserPromptSubmit: the submitted prompt. */
+  prompt?: string;
   result?: string;
   isError?: boolean;
   /** Stop hook: the run's stop subtype (e.g. end_turn, error_budget_exceeded). */
@@ -83,13 +93,106 @@ function runHookCommand(
     });
 }
 
-function toolNameMatches(matcher: string | undefined, toolName: string): boolean {
-  if (!matcher) return true;
-  try {
-    return new RegExp(matcher).test(toolName);
-  } catch {
-    return matcher === toolName;
+function toolNameMatches(hook: HookCommandConfig, toolName: string): boolean {
+  return hookMatcherMatches(hook.matcher, toolName, hook.format === 'claude');
+}
+
+function claudePayload(
+  hook: HookCommandConfig,
+  toolName: string | undefined,
+  input: Record<string, unknown> | undefined
+): Pick<HookPayload, 'tool_name' | 'tool_input'> {
+  if (hook.format !== 'claude' || !toolName) return {};
+  return {
+    tool_name: claudeToolName(toolName),
+    ...(input ? { tool_input: claudeToolInput(toolName, input) } : {}),
+  };
+}
+
+interface ParsedHookJson {
+  decision?: string;
+  reason?: string;
+  additionalContext?: string;
+}
+
+function parseHookJson(stdout: string): ParsedHookJson | undefined {
+  const text = stdout.trim();
+  if (!text) return undefined;
+  const last = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .at(-1);
+  const candidates = last && last !== text ? [text, last] : [text];
+  for (const candidate of candidates) {
+    if (!candidate.startsWith('{') || !candidate.endsWith('}')) continue;
+    try {
+      const value: unknown = JSON.parse(candidate);
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const record = value as Record<string, unknown>;
+      let decision = typeof record.decision === 'string' ? record.decision : undefined;
+      let reason = typeof record.reason === 'string' ? record.reason : undefined;
+      let additionalContext =
+        typeof record.additionalContext === 'string' ? record.additionalContext : undefined;
+      const specific = record.hookSpecificOutput;
+      if (specific && typeof specific === 'object' && !Array.isArray(specific)) {
+        const spec = specific as Record<string, unknown>;
+        if (typeof spec.additionalContext === 'string') additionalContext = spec.additionalContext;
+        const nested = spec.decision;
+        if (typeof nested === 'string') decision = nested;
+        else if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+          const body = nested as Record<string, unknown>;
+          if (typeof body.behavior === 'string') decision = body.behavior;
+          if (typeof body.message === 'string') reason = body.message;
+        }
+        if (typeof spec.permissionDecision === 'string') decision = spec.permissionDecision;
+        if (typeof spec.permissionDecisionReason === 'string') {
+          reason = spec.permissionDecisionReason;
+        }
+      }
+      return {
+        ...(decision ? { decision } : {}),
+        ...(reason ? { reason } : {}),
+        ...(additionalContext ? { additionalContext } : {}),
+      };
+    } catch {
+      continue;
+    }
   }
+  return undefined;
+}
+
+function exitBlocks(hook: HookCommandConfig, exitCode: number): boolean {
+  if (hook.blocking === false) return false;
+  return hook.format === 'claude' ? exitCode === 2 : exitCode !== 0;
+}
+
+function isBlockDecision(decision: string | undefined): boolean {
+  const value = decision?.trim().toLowerCase();
+  return value === 'block' || value === 'deny';
+}
+
+function hookReason(result: HookRunResult, parsed?: ParsedHookJson): string {
+  const fromJson = parsed?.reason?.trim();
+  if (fromJson) return fromJson.slice(0, 500);
+  const stderr = result.stderr.trim();
+  if (stderr) return stderr.slice(0, 500);
+  if (!parsed) {
+    const stdout = result.stdout.trim();
+    if (stdout) return stdout.slice(0, 500);
+  }
+  return `hook exited ${result.exitCode}`;
+}
+
+function promptBlocks(
+  hook: HookCommandConfig,
+  result: HookRunResult,
+  parsed?: ParsedHookJson
+): boolean {
+  return (
+    exitBlocks(hook, result.exitCode) ||
+    (hook.blocking !== false && isBlockDecision(parsed?.decision))
+  );
 }
 
 function timeoutFor(hook: HookCommandConfig): number {
@@ -115,6 +218,21 @@ export interface ConfiguredHookCallbacks {
   runNotification: (info: { reason: string; message: string }) => Promise<void>;
 
   /**
+   * UserPromptSubmit: exit 2, a moss non-zero exit, or `{decision:block}`
+   * rejects the prompt. Other stdout is extra context for the model.
+   */
+  runUserPromptSubmit: (message: string) => Promise<UserPromptSubmitResult>;
+
+  /**
+   * PermissionRequest: deny is honored. Allow is ignored so the caller still
+   * asks the user.
+   */
+  runPermissionRequest: (info: {
+    toolName: string;
+    input: Record<string, unknown>;
+  }) => Promise<PermissionRequestResult>;
+
+  /**
    * PreCompact/PostCompact shell hooks wrapped in the core CompactHookRegistry,
    * ready to hand to MossAgentConfig.compactHooks.
    */
@@ -129,6 +247,8 @@ export function createConfiguredHookCallbacks(
 ): ConfiguredHookCallbacks {
   const pre = hooks?.PreToolUse ?? [];
   const post = hooks?.PostToolUse ?? [];
+  const userPrompt = hooks?.UserPromptSubmit ?? [];
+  const permission = hooks?.PermissionRequest ?? [];
   const sessionStart = hooks?.SessionStart ?? [];
   const stop = hooks?.Stop ?? [];
   const subagentStop = hooks?.SubagentStop ?? [];
@@ -143,19 +263,24 @@ export function createConfiguredHookCallbacks(
       ? undefined
       : async (request: ToolApprovalRequest): Promise<ToolApprovalDecision> => {
           for (const hook of pre) {
-            if (!toolNameMatches(hook.matcher, request.tool.name)) continue;
-            const blocking = hook.blocking !== false;
+            if (!toolNameMatches(hook, request.tool.name)) continue;
             const r = await runHookCommand(
               hook.command,
-              { event: 'PreToolUse', toolName: request.tool.name, input: request.input },
+              {
+                event: 'PreToolUse',
+                toolName: request.tool.name,
+                input: request.input,
+                ...claudePayload(hook, request.tool.name, request.input),
+              },
               cwd,
               timeoutFor(hook)
             );
-            if (blocking && r.exitCode !== 0) {
-              const reason = (r.stderr || r.stdout || `hook exited ${r.exitCode}`)
-                .trim()
-                .slice(0, 500);
-              return { approved: false, reason: `Blocked by PreToolUse hook: ${reason}` };
+            const parsed = parseHookJson(r.stdout);
+            if (promptBlocks(hook, r, parsed)) {
+              return {
+                approved: false,
+                reason: `Blocked by PreToolUse hook: ${hookReason(r, parsed)}`,
+              };
             }
           }
           return { approved: true };
@@ -166,7 +291,7 @@ export function createConfiguredHookCallbacks(
       ? undefined
       : (call: ToolCall, result: ToolResult): void => {
           for (const hook of post) {
-            if (!toolNameMatches(hook.matcher, call.name)) continue;
+            if (!toolNameMatches(hook, call.name)) continue;
             void runHookCommand(
               hook.command,
               {
@@ -218,9 +343,8 @@ export function createConfiguredHookCallbacks(
         cwd,
         timeoutFor(hook)
       );
-      if (hook.blocking !== false && r.exitCode !== 0) {
-        const reason = (r.stderr || r.stdout || `hook exited ${r.exitCode}`).trim().slice(0, 500);
-        return { blocked: true, reason: `Blocked by Stop hook: ${reason}` };
+      if (exitBlocks(hook, r.exitCode)) {
+        return { blocked: true, reason: `Blocked by Stop hook: ${hookReason(r)}` };
       }
       if (r.exitCode !== 0) {
         process.stderr.write(
@@ -334,6 +458,69 @@ export function createConfiguredHookCallbacks(
     }
   };
 
+  const runUserPromptSubmit = async (message: string): Promise<UserPromptSubmitResult> => {
+    const extra: string[] = [];
+    for (const hook of userPrompt) {
+      const r = await runHookCommand(
+        hook.command,
+        { event: 'UserPromptSubmit', prompt: message },
+        cwd,
+        timeoutFor(hook)
+      );
+      const parsed = parseHookJson(r.stdout);
+      if (promptBlocks(hook, r, parsed)) {
+        return {
+          blocked: true,
+          reason: `Blocked by UserPromptSubmit hook: ${hookReason(r, parsed)}`,
+        };
+      }
+      if (r.exitCode !== 0) {
+        process.stderr.write(
+          `[hooks] UserPromptSubmit exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
+        );
+        continue;
+      }
+      const context = parsed?.additionalContext?.trim() || (parsed ? '' : r.stdout.trim());
+      if (context) extra.push(context);
+    }
+    return extra.length > 0
+      ? { blocked: false, extraContext: extra.join('\n') }
+      : { blocked: false };
+  };
+
+  const runPermissionRequest = async (info: {
+    toolName: string;
+    input: Record<string, unknown>;
+  }): Promise<PermissionRequestResult> => {
+    for (const hook of permission) {
+      if (!toolNameMatches(hook, info.toolName)) continue;
+      const r = await runHookCommand(
+        hook.command,
+        {
+          event: 'PermissionRequest',
+          toolName: info.toolName,
+          input: info.input,
+          ...claudePayload(hook, info.toolName, info.input),
+        },
+        cwd,
+        timeoutFor(hook)
+      );
+      const parsed = parseHookJson(r.stdout);
+      if (promptBlocks(hook, r, parsed)) {
+        return {
+          denied: true,
+          reason: `Blocked by PermissionRequest hook: ${hookReason(r, parsed)}`,
+        };
+      }
+      if (r.exitCode !== 0) {
+        process.stderr.write(
+          `[hooks] PermissionRequest exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
+        );
+      }
+    }
+    return { denied: false };
+  };
+
   return {
     onBeforeToolExec,
     onToolResult,
@@ -342,10 +529,14 @@ export function createConfiguredHookCallbacks(
     runSubagentStop,
     runSessionEnd,
     runNotification,
+    runUserPromptSubmit,
+    runPermissionRequest,
     buildCompactHookRegistry,
     hasHooks:
       pre.length +
         post.length +
+        userPrompt.length +
+        permission.length +
         sessionStart.length +
         stop.length +
         subagentStop.length +
@@ -370,6 +561,26 @@ export interface StopHookInfo {
 
 export interface StopHookResult {
   blocked: boolean;
+  reason?: string;
+}
+
+export interface UserPromptSubmitResult {
+  blocked: boolean;
+  reason?: string;
+  extraContext?: string;
+}
+
+/**
+ * Extra context from a successful UserPromptSubmit hook. Redacted, and wrapped
+ * so the text cannot be read as a system instruction.
+ */
+export function formatUserPromptHookContext(userMessage: string, extraContext: string): string {
+  const body = redactEgress(extraContext).replaceAll('</hook-output>', '</hook-output\u200b>');
+  return `${userMessage}\n\n<hook-output source="UserPromptSubmit">\n${body}\n</hook-output>`;
+}
+
+export interface PermissionRequestResult {
+  denied: boolean;
   reason?: string;
 }
 

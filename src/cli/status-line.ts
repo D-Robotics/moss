@@ -190,7 +190,11 @@ export interface StatusCommandResult {
 
 const IS_WIN = process.platform === 'win32';
 
-/** Run the user status command. Failures resolve; they never throw. */
+/**
+ * Run a status command the caller already accepted. A project command reaches
+ * this function only after workspace trust; `mergeConfigFiles` drops it
+ * otherwise. Failures resolve; they never throw.
+ */
 export async function runStatusLineCommand(input: {
   command: string;
   cwd: string;

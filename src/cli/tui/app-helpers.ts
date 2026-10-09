@@ -134,6 +134,11 @@ export interface TuiAppOptions {
    */
   cliRuntime?: CliRuntimeStatus;
   /**
+   * Workspace trust for this process. A project statusLine command runs only
+   * when this is true. Omitted means the command stays off.
+   */
+  workspaceTrusted?: boolean;
+  /**
    * Called once per submitted turn BEFORE streaming starts. The host uses it to
    * open a file checkpoint for the turn, which is what makes `/rewind` able to
    * restore anything later.

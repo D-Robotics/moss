@@ -57,6 +57,8 @@ export interface ParsedCliArgs {
   helpAll: boolean;
   version: boolean;
   print: boolean;
+  /** `--trust-workspace`: this process may run project hooks, stdio MCP, write agents, and plugins. */
+  trustWorkspace: boolean;
   outputFormat: 'text' | 'json' | 'stream-json';
   maxTurns?: number;
 
@@ -342,6 +344,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let helpAll = false;
   let version = false;
   let print = false;
+  let trustWorkspace = false;
   let outputFormat: ParsedCliArgs['outputFormat'] = 'text';
   let maxTurns: number | undefined;
   let promptOnly = false;
@@ -468,6 +471,10 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     }
     if (arg === '--trust-device') {
       configOverrides.deviceTrust = 'full';
+      continue;
+    }
+    if (arg === '--trust-workspace') {
+      trustWorkspace = true;
       continue;
     }
     if (arg === '--quiet') {
@@ -654,6 +661,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     helpAll,
     version,
     print,
+    trustWorkspace,
     outputFormat,
     maxTurns,
     unknownCommand,

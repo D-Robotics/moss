@@ -69,6 +69,7 @@ import { formatMcpStatusLine } from '../rdk-docs-mcp.js';
 import { isZhLocale } from '../cli-locale.js';
 import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
 import { setCliApprovalAsker } from '../approval.js';
+import { wrapApprovalAsker, wrapApprovalViewAsker } from '../permission-request.js';
 import {
   runRegistryCommand,
   type CommandContext,
@@ -629,7 +630,9 @@ export function TuiAppRoot({
   const { store } = handle;
   const sessionChrome = useMemo(() => {
     try {
-      const file = loadCliConfigFile().config;
+      const file = loadCliConfigFile(process.env, process.argv.slice(2), undefined, {
+        allowProjectStatusCommand: options.workspaceTrusted === true,
+      }).config;
       return {
         pricing: pricingOverridesFromConfig(file.pricing),
         status: parseStatusLineConfig(file.statusLine),
@@ -637,7 +640,7 @@ export function TuiAppRoot({
     } catch {
       return { pricing: {}, status: parseStatusLineConfig(undefined) };
     }
-  }, []);
+  }, [options.workspaceTrusted]);
   const [statusCommandText, setStatusCommandText] = useState<string | undefined>(undefined);
   const deviceLabelRef = useRef<string | undefined>(undefined);
   /**
@@ -896,9 +899,11 @@ export function TuiAppRoot({
       });
 
     const uninstallViewAsker = setCliApprovalViewAsker(
-      async (view, abortSignal) =>
-        // The structured port only ever answers with the frozen option values.
-        (await ask(view, abortSignal, undefined)) as CliApprovalAnswer
+      wrapApprovalViewAsker(
+        async (view, abortSignal) =>
+          // The structured port only ever answers with the frozen option values.
+          (await ask(view, abortSignal, undefined)) as CliApprovalAnswer
+      )
     );
     // The legacy string port stays installed because `approval.ts` also mirrors
     // it into the core `ask_user_question` channel; it funnels into the SAME
@@ -906,12 +911,14 @@ export function TuiAppRoot({
     // carries numbered options is a QUESTION: its options render and the chosen
     // option's text is the answer the model receives (N-1), instead of the
     // approval state machine discarding the choice and replying `y`.
-    setCliApprovalAsker(async (question: string, abortSignal) => {
-      const parsed = questionDialogFromPrompt(question);
-      return parsed
-        ? ask(parsed.view, abortSignal, parsed)
-        : ask(legacyApprovalView(question), abortSignal, undefined);
-    });
+    setCliApprovalAsker(
+      wrapApprovalAsker(async (question: string, abortSignal) => {
+        const parsed = questionDialogFromPrompt(question);
+        return parsed
+          ? ask(parsed.view, abortSignal, parsed)
+          : ask(legacyApprovalView(question), abortSignal, undefined);
+      })
+    );
     return () => {
       uninstallViewAsker();
       setCliApprovalAsker(null);
@@ -2217,8 +2224,9 @@ export function TuiAppRoot({
         if (lines.length === 0) {
           lines.push(
             tui('no hooks configured — add a "hooks" object to the config file:'),
-            '  PreToolUse · PostToolUse · SessionStart · Stop · SubagentStop',
-            '  PreCompact · PostCompact · SessionEnd · Notification',
+            '  PreToolUse · PostToolUse · UserPromptSubmit · PermissionRequest',
+            '  SessionStart · Stop · SubagentStop · PreCompact · PostCompact',
+            '  SessionEnd · Notification',
             'each entry: { "command": "…", "matcher": "tool-glob", "timeoutMs": 5000, "blocking": true }'
           );
         }

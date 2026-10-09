@@ -269,9 +269,9 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
   {
     group: 'config & identity',
     vars: [
-      'MOSS_CONFIG_DIR',
-      'MOSS_CONFIG_FILE',
-      'MOSS_CONFIG_PATH (legacy alias of MOSS_CONFIG_FILE)',
+      'MOSS_CONFIG_DIR (process env only; a project .env cannot set this)',
+      'MOSS_CONFIG_FILE (process env or --config-file; a project .env cannot set this)',
+      'MOSS_CONFIG_PATH (legacy alias of MOSS_CONFIG_FILE; a project .env cannot set this)',
       'MOSS_WORKSPACE',
       'MOSS_PROFILE',
       'MOSS_CONFIG_PROFILE (legacy alias of MOSS_PROFILE)',
@@ -331,10 +331,11 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_DEVICE_KIND',
       'MOSS_DEVICE_ID',
       'MOSS_DEVICE_TRUST (full|1|true|yes opts this process into destructive device operations)',
+      'MOSS_TRUST_WORKSPACE (1|true|yes|on; process env or --trust-workspace only, never a project .env)',
       'MOSS_DEVICE_TRUST_DEVICES (comma-separated host or device-id allowlist)',
       'MOSS_DEVICE_ (prefix of every MOSS_DEVICE_* key)',
       'MOSS_NO_RDK_DOCS (1|true|yes|on skips the built-in rdk-docs MCP server)',
-      'MOSS_RDK_DOCS_PACKAGE (npm spec or local directory/tarball for the built-in server)',
+      'MOSS_RDK_DOCS_PACKAGE (npm spec or local path; process env only, not project config or .env)',
     ],
   },
   {

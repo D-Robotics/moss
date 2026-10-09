@@ -3,9 +3,11 @@
  *
  * The default package is pinned to the version audited in
  * docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md. It can be
- * overridden by config/env while an unpublished server build is being tested.
- * A user's mcp.json entry named `rdk-docs` replaces this definition entirely
- * (command, args, and timeouts).
+ * overridden by the user config or the real process env while an unpublished
+ * server build is being tested. A project config cannot set `package`.
+ * A loaded mcp.json entry named `rdk-docs` replaces this definition entirely
+ * (command, args, and timeouts). Project files are loaded only after workspace
+ * trust; this builtin is what Moss injects when they are not.
  *
  * There is no disk cache and no bundled manual. A failed connect is a failed
  * connect.

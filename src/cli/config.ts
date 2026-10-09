@@ -51,13 +51,55 @@ export {
   normalizeProvider,
 };
 
-export function resolveConfigDir(env: NodeJS.ProcessEnv = process.env): string {
-  const explicit = env.MOSS_CONFIG_DIR;
+/**
+ * Copy of `process.env` taken before any project `.env` is applied.
+ * Trust and config-dir resolution read this, so a project `.env` cannot
+ * redirect `XDG_CONFIG_HOME`, `HOME`, `APPDATA`, or `USERPROFILE`.
+ * `MOSS_CONFIG_DIR` / `FILE` / `PATH` stay live: `.env` cannot set them, and
+ * in-process overrides (approval persist, tests) must still select a directory.
+ */
+export const envBeforeDotenv: NodeJS.ProcessEnv = {};
+let homeBeforeDotenv = '';
+
+const LIVE_CONFIG_LOCATION_KEYS = [
+  'MOSS_CONFIG_DIR',
+  'MOSS_CONFIG_FILE',
+  'MOSS_CONFIG_PATH',
+] as const;
+
+export function startupHomeDir(): string {
+  return homeBeforeDotenv;
+}
+
+function locationEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (env !== process.env && env !== envBeforeDotenv) return env;
+  const source: NodeJS.ProcessEnv = { ...envBeforeDotenv };
+  for (const key of LIVE_CONFIG_LOCATION_KEYS) {
+    const live = process.env[key];
+    if (live === undefined) delete source[key];
+    else source[key] = live;
+  }
+  return source;
+}
+
+function homeFrom(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string {
+  const named = platform === 'win32' ? env.USERPROFILE || env.HOME : env.HOME || env.USERPROFILE;
+  if (typeof named === 'string' && named.trim()) return named.trim();
+  return homeBeforeDotenv;
+}
+
+export function resolveConfigDir(
+  env: NodeJS.ProcessEnv = envBeforeDotenv,
+  platform: NodeJS.Platform = process.platform
+): string {
+  const source = locationEnv(env);
+  const explicit = source.MOSS_CONFIG_DIR;
   if (explicit) return explicit;
+  const home = homeFrom(source, platform);
   const base =
-    process.platform === 'win32'
-      ? env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
-      : env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
+    platform === 'win32'
+      ? source.APPDATA || path.join(home, 'AppData', 'Roaming')
+      : source.XDG_CONFIG_HOME || path.join(home, '.config');
   return path.join(base, 'moss');
 }
 
@@ -113,7 +155,8 @@ export interface ConfigFile {
   /**
    * Built-in rdk-docs MCP. On unless `enabled: false` or MOSS_NO_RDK_DOCS=1.
    * The legacy boolean form remains supported. `package` accepts an npm spec
-   * or a local directory/tarball. MOSS_RDK_DOCS_PACKAGE overrides `package`.
+   * or a local directory/tarball. MOSS_RDK_DOCS_PACKAGE (process env only)
+   * overrides `package`. A project config cannot set `package`.
    */
   rdkDocs?: boolean | RdkDocsConfig;
   /**
@@ -212,12 +255,25 @@ export interface HookCommandConfig {
   timeoutMs?: number;
 
   blocking?: boolean;
+
+  /**
+   * Claude-format command hooks block only on exit code 2 and match Claude
+   * tool names (Bash, Edit, …). Moss-native hooks omit this and block on any
+   * non-zero exit.
+   */
+  format?: 'claude';
 }
 
 export interface HooksConfig {
   PreToolUse?: HookCommandConfig[];
 
   PostToolUse?: HookCommandConfig[];
+
+  /** Fires when the user submits a prompt, before the run starts. */
+  UserPromptSubmit?: HookCommandConfig[];
+
+  /** Fires when a tool approval would be shown. Deny is honored; allow is not. */
+  PermissionRequest?: HookCommandConfig[];
 
   SessionStart?: HookCommandConfig[];
 
@@ -239,6 +295,20 @@ export interface HooksConfig {
   /** Fires when user attention is needed (e.g. an approval prompt). */
   Notification?: HookCommandConfig[];
 }
+
+export const HOOK_EVENT_KEYS = [
+  'PreToolUse',
+  'PostToolUse',
+  'UserPromptSubmit',
+  'PermissionRequest',
+  'SessionStart',
+  'Stop',
+  'SubagentStop',
+  'PreCompact',
+  'PostCompact',
+  'SessionEnd',
+  'Notification',
+] as const satisfies readonly (keyof HooksConfig)[];
 
 export interface ResolvedTextGuardrailConfig {
   blockPatterns: string[];
@@ -410,10 +480,11 @@ function resolveExplicitConfigPath(
   env: NodeJS.ProcessEnv = process.env,
   argv: string[] = process.argv.slice(2)
 ): string | null {
-  const fromArgv = resolveCliConfigFileArg(argv, env);
+  const source = locationEnv(env);
+  const fromArgv = resolveCliConfigFileArg(argv, source);
   if (fromArgv) return fromArgv;
-  const explicit = env.MOSS_CONFIG_FILE || env.MOSS_CONFIG_PATH;
-  return explicit && explicit.trim() ? resolvePathFromSafeCwd(explicit, env) : null;
+  const explicit = source.MOSS_CONFIG_FILE || source.MOSS_CONFIG_PATH;
+  return explicit && explicit.trim() ? resolvePathFromSafeCwd(explicit, source) : null;
 }
 
 function hasExplicitConfigPath(
@@ -428,8 +499,11 @@ export function resolveConfigPath(
   env: NodeJS.ProcessEnv = process.env,
   argv: string[] = process.argv.slice(2)
 ): string {
+  const source = locationEnv(env);
   if (configDir) return path.join(configDir, 'config.json');
-  return resolveExplicitConfigPath(env, argv) || path.join(resolveConfigDir(env), 'config.json');
+  return (
+    resolveExplicitConfigPath(source, argv) || path.join(resolveConfigDir(source), 'config.json')
+  );
 }
 
 export function resolveProjectConfigPath(startDir = safeProcessCwd(), maxHops = 16): string | null {
@@ -521,17 +595,27 @@ function mergeAgentRuntimeConfig(
   };
 }
 
-function mergeHooksConfig(user?: HooksConfig, project?: HooksConfig): HooksConfig | undefined {
+export function mergeHooksConfig(
+  user?: HooksConfig,
+  project?: HooksConfig
+): HooksConfig | undefined {
   if (!project && !user) return undefined;
-
-  return {
-    PreToolUse: [...(project?.PreToolUse ?? []), ...(user?.PreToolUse ?? [])],
-    PostToolUse: [...(project?.PostToolUse ?? []), ...(user?.PostToolUse ?? [])],
-    SessionStart: [...(project?.SessionStart ?? []), ...(user?.SessionStart ?? [])],
-  };
+  const merged: HooksConfig = {};
+  let any = false;
+  for (const key of HOOK_EVENT_KEYS) {
+    const list = [...(project?.[key] ?? []), ...(user?.[key] ?? [])];
+    if (list.length === 0) continue;
+    merged[key] = list;
+    any = true;
+  }
+  return any ? merged : undefined;
 }
 
-export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFile): ConfigFile {
+export function mergeConfigFiles(
+  projectConfig: ConfigFile,
+  userConfig: ConfigFile,
+  options?: { allowProjectStatusCommand?: boolean }
+): ConfigFile {
   const projectDeclaresEndpoint =
     projectConfig.provider !== undefined || projectConfig.baseUrl !== undefined;
   const apiKey = projectDeclaresEndpoint
@@ -569,7 +653,11 @@ export function mergeConfigFiles(projectConfig: ConfigFile, userConfig: ConfigFi
     // project merely enables the integration (or vice versa).
     rdkDocs: mergeRdkDocsConfig(userConfig.rdkDocs, projectConfig.rdkDocs),
     pricing: mergePricingConfig(userConfig.pricing, projectConfig.pricing),
-    statusLine: userConfig.statusLine ?? projectConfig.statusLine,
+    statusLine: mergeStatusLine(
+      userConfig.statusLine,
+      projectConfig.statusLine,
+      options?.allowProjectStatusCommand === true
+    ),
   };
 }
 
@@ -581,19 +669,43 @@ function mergePricingConfig(
   return { models: { ...project?.models, ...user?.models } };
 }
 
+/** A project may enable or disable the builtin. It cannot choose the package. */
+function projectRdkDocsWithoutPackage(project: ConfigFile['rdkDocs']): ConfigFile['rdkDocs'] {
+  if (project === undefined || typeof project === 'boolean') return project;
+  const { package: _package, ...rest } = project;
+  return rest;
+}
+
 function mergeRdkDocsConfig(
   user: ConfigFile['rdkDocs'],
   project: ConfigFile['rdkDocs']
 ): ConfigFile['rdkDocs'] {
-  if (user === undefined) return project;
+  const safeProject = projectRdkDocsWithoutPackage(project);
+  if (user === undefined) return safeProject;
   if (typeof user === 'boolean') return user;
-  if (project === undefined || typeof project === 'boolean') return user;
+  if (safeProject === undefined || typeof safeProject === 'boolean') return user;
   return {
-    ...project,
+    ...safeProject,
     ...user,
-    enabled: user.enabled ?? project.enabled,
-    package: user.package ?? project.package,
+    enabled: user.enabled ?? safeProject.enabled,
+    ...(user.package !== undefined ? { package: user.package } : {}),
   };
+}
+
+/**
+ * The user's status line wins outright. A project `command` is shell code, so
+ * it is kept only after workspace trust (`allowProjectStatusCommand`).
+ */
+function mergeStatusLine(
+  user: StatusLineConfig | undefined,
+  project: StatusLineConfig | undefined,
+  allowProjectCommand: boolean
+): StatusLineConfig | undefined {
+  if (user) return user;
+  if (!project) return undefined;
+  if (allowProjectCommand || !project.command?.trim()) return project;
+  const { command: _command, ...rest } = project;
+  return Object.keys(rest).length > 0 ? rest : undefined;
 }
 
 /**
@@ -624,7 +736,8 @@ function mergePermissionsConfig(
 export function loadCliConfigFile(
   env: NodeJS.ProcessEnv = process.env,
   argv: string[] = process.argv.slice(2),
-  startDir = safeProcessCwd(env)
+  startDir = safeProcessCwd(env),
+  options?: { allowProjectStatusCommand?: boolean }
 ): LoadedCliConfigFile {
   const configPath = resolveConfigPath(undefined, env, argv);
   const userConfig = loadConfigFile(configPath);
@@ -637,7 +750,7 @@ export function loadCliConfigFile(
     return { config: userConfig, configPath };
   }
   return {
-    config: mergeConfigFiles(loadConfigFile(projectConfigPath), userConfig),
+    config: mergeConfigFiles(loadConfigFile(projectConfigPath), userConfig, options),
     configPath,
     projectConfigPath,
   };
@@ -1576,6 +1689,23 @@ export function resolveCliConfig(
   };
 }
 
+/**
+ * These decide trust, which directory is the user's, or which rdk-docs
+ * package runs. A project `.env` must not set them. The process environment
+ * captured in `envBeforeDotenv`, plus CLI flags, are the only sources.
+ */
+const ENV_FILE_IGNORED_KEYS = new Set([
+  'MOSS_TRUST_WORKSPACE',
+  'MOSS_CONFIG_DIR',
+  'MOSS_CONFIG_FILE',
+  'MOSS_CONFIG_PATH',
+  'MOSS_RDK_DOCS_PACKAGE',
+  'XDG_CONFIG_HOME',
+  'HOME',
+  'APPDATA',
+  'USERPROFILE',
+]);
+
 export function loadEnvFile(envPath: string): void {
   let content: string;
   try {
@@ -1593,7 +1723,8 @@ export function loadEnvFile(envPath: string): void {
       .slice(eqIdx + 1)
       .trim()
       .replace(/^["']|["']$/g, '');
-    if (key && process.env[key] === undefined) process.env[key] = value;
+    if (!key || ENV_FILE_IGNORED_KEYS.has(key)) continue;
+    if (process.env[key] === undefined) process.env[key] = value;
   }
 }
 
@@ -1607,6 +1738,8 @@ export function loadEnvFromAncestors(startDir: string, maxHops = 16): void {
   }
 }
 
+Object.assign(envBeforeDotenv, process.env);
+homeBeforeDotenv = os.homedir();
 loadEnvFromAncestors(safeProcessCwd());
 loadEnvFromAncestors(path.dirname(fileURLToPath(import.meta.url)));
 

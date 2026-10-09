@@ -76,6 +76,25 @@ function expandServerEntry(
   return config;
 }
 
+export interface McpFileBrief {
+  name: string;
+  transport: McpTransportKind;
+  config: McpServerConfig;
+}
+
+/** Servers declared in one mcp.json. A missing or invalid file is an empty list. */
+export function describeMcpFile(
+  filePath: string,
+  env: NodeJS.ProcessEnv = process.env,
+  onWarning?: (message: string) => void
+): McpFileBrief[] {
+  return [...readServerMap(filePath, env, onWarning).values()].map((config) => ({
+    name: config.name,
+    transport: config.transport,
+    config,
+  }));
+}
+
 function readServerMap(
   filePath: string,
   env: NodeJS.ProcessEnv,
@@ -118,6 +137,18 @@ function readServerMap(
   return out;
 }
 
+export interface LoadMcpConfigOptions {
+  /**
+   * When false, ignore the workspace file and `extraFiles` entirely (stdio
+   * and HTTP). Those entries are project code: an HTTP URL would otherwise
+   * expand `${VAR}` and send the user environment to a project-chosen host.
+   * User `<configDir>/mcp.json` is unchanged. Default true.
+   */
+  projectServers?: boolean;
+  /** Extra mcp.json files (for example a project `.mcp.json`), merged last. */
+  extraFiles?: string[];
+}
+
 /**
  * Load and merge MCP server configs from `<workspace>/.moss/mcp.json` and
  * `<configDir>/mcp.json` (workspace wins on name clashes). Returns [] when
@@ -127,14 +158,18 @@ export function loadMcpConfigs(
   workspaceDir: string,
   configDir: string,
   env: NodeJS.ProcessEnv = process.env,
-  onWarning?: (message: string) => void
+  onWarning?: (message: string) => void,
+  options: LoadMcpConfigOptions = {}
 ): McpServerConfig[] {
   const merged = new Map<string, McpServerConfig>();
-  for (const dir of [configDir, path.join(workspaceDir, '.moss')]) {
-    const map = readServerMap(path.join(dir, 'mcp.json'), env, onWarning);
-    for (const [name, config] of map) {
-      merged.set(name, config); // later dirs (workspace) shadow earlier ones
-    }
+  const apply = (map: Map<string, McpServerConfig>) => {
+    for (const [name, config] of map) merged.set(name, config);
+  };
+  apply(readServerMap(path.join(configDir, 'mcp.json'), env, onWarning));
+  if (options.projectServers === false) return [...merged.values()];
+  apply(readServerMap(path.join(workspaceDir, '.moss', 'mcp.json'), env, onWarning));
+  for (const file of options.extraFiles ?? []) {
+    apply(readServerMap(file, env, onWarning));
   }
   return [...merged.values()];
 }

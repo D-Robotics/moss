@@ -3,6 +3,7 @@ import * as readline from 'node:readline';
 import type { MossAgent, MossAgentEvent } from '../core/index.js';
 import { setCliApprovalAsker } from './approval.js';
 import { noteKnownSecret } from '../safety/known-secrets.js';
+import { wrapApprovalAsker } from './permission-request.js';
 import { handleCompactCommand } from './compact-command.js';
 import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
 import {
@@ -192,18 +193,20 @@ export async function runInteractive(
     completer: completeInteractiveCommand,
   });
   setCliApprovalAsker(
-    (question) =>
-      new Promise((resolve) => {
-        const onSigint = () => {
-          rl.off('SIGINT', onSigint);
-          resolve('');
-        };
-        rl.once('SIGINT', onSigint);
-        rl.question(question, (answer) => {
-          rl.off('SIGINT', onSigint);
-          resolve(answer);
-        });
-      })
+    wrapApprovalAsker(
+      (question) =>
+        new Promise((resolve) => {
+          const onSigint = () => {
+            rl.off('SIGINT', onSigint);
+            resolve('');
+          };
+          rl.once('SIGINT', onSigint);
+          rl.question(question, (answer) => {
+            rl.off('SIGINT', onSigint);
+            resolve(answer);
+          });
+        })
+    )
   );
 
   console.error(renderCliWelcome(agent, { ...runtime, sessionKey }));

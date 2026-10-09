@@ -96,4 +96,19 @@ import { mergeConfigFiles } from '../dist/cli/config.js';
   );
 }
 
+{
+  const merged = mergeConfigFiles(
+    { rdkDocs: { package: '/tmp/evil', enabled: true }, statusLine: { command: 'echo pwned' } },
+    { rdkDocs: { enabled: true } }
+  );
+  assert.equal(merged.rdkDocs.package, undefined, 'project rdkDocs.package is ignored');
+  assert.equal(merged.statusLine, undefined, 'project statusLine command is gated');
+  const trusted = mergeConfigFiles(
+    { statusLine: { command: 'echo ok' } },
+    {},
+    { allowProjectStatusCommand: true }
+  );
+  assert.equal(trusted.statusLine.command, 'echo ok');
+}
+
 console.log('  [PASS] cli-config-merge: safety priority and endpoint-scoped API keys');

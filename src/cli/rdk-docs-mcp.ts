@@ -4,7 +4,8 @@
  * Default is on, including workspaces with no device. The CLI connects it in
  * the background (`McpToolRegistry.connectInBackground`) so startup does not
  * wait on npx. Opt out with MOSS_NO_RDK_DOCS=1 or `rdkDocs: false` (either
- * wins). A same-named mcp.json entry replaces the builtin.
+ * wins). A loaded mcp.json entry of the same name replaces the builtin. An
+ * untrusted project entry is not loaded, so Moss still injects its own.
  */
 import { loadDeviceRegistry } from '../device/device-registry-file.js';
 import {
@@ -84,7 +85,9 @@ export function rdkDocsAutoConnectEnabled(input: RdkDocsEnableInput): boolean {
 
 /**
  * Prepend the builtin server unless it is disabled or the caller already has
- * an entry of the same name (that entry replaces the builtin entirely).
+ * a loaded entry of the same name (that entry replaces the builtin entirely).
+ * Project entries are loaded only after workspace trust, so the builtin is
+ * the Moss-origin server, not a name match against a project file.
  */
 export function withBuiltinRdkDocs(
   configs: readonly McpServerConfig[],

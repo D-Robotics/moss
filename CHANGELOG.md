@@ -13,6 +13,44 @@ turn. `.moss/loop-state.json` and `.moss/loop-journal.jsonl` are no longer read 
 files already in a workspace are left in place. `MOSS_DISABLE_NUDGES=goal-acceptance` is an
 unknown id and is ignored.
 
+### Workspace trust and Claude hook compatibility
+
+Project hooks from `.moss/config.json` now keep every event (`Stop`, `SubagentStop`,
+`PreCompact`, `PostCompact`, `SessionEnd`, `Notification`, `UserPromptSubmit`,
+`PermissionRequest`), not only `PreToolUse` / `PostToolUse` / `SessionStart`.
+`UserPromptSubmit` runs as the input guardrail: exit code 2 or `{decision:"block"}`
+rejects the prompt and the reason is shown. Stdout is extra context only when the
+hook exits 0; it is redacted and wrapped in `<hook-output source="UserPromptSubmit">`.
+`PermissionRequest` runs before the approval prompt and can deny; an allow decision
+does not skip the prompt. Moss-native hooks still block on any non-zero exit.
+Claude-format hooks (`.claude/settings.json`) block only on exit code 2, and
+`PreToolUse` also honors `hookSpecificOutput.permissionDecision: "deny"`. Matchers
+follow Claude Code: `*` matches all, and `Bash, Edit` / `Edit|Write` are exact
+lists. Payloads include Claude `tool_input` names such as `command` and `file_path`.
+Tool names map as `Bash` → `exec`, `Edit` → `edit_file`, `Write` → `write_file`,
+`Read` → `read_file`, `Grep` / `Glob` → the search tools.
+
+Reading `.claude/` (`settings.json`, `settings.local.json`, or `agents`) and
+`.mcp.json` waits for a one-time yes/no (中文 or English) remembered per workspace.
+Project hooks, project MCP servers (stdio and HTTP, `.moss/mcp.json` included),
+a project `statusLine` command, project agents with write tools, and plugins need
+a one-time trust confirmation per workspace path. Untrusted HTTP servers are not
+loaded, so `${VAR}` in a project URL is not expanded. That decision is passed to
+the agent loader as `projectTrust` (`trusted` and `claudeOptIn` stay independent:
+declining Claude compatibility with nothing else project-level is still
+`trusted: true` and `claudeOptIn: false`, so `.claude/agents` write agents stay
+blocked). The built-in rdk-docs server is exempt because Moss injects it, not
+because of its name. A project server named `rdk-docs`, and a project
+`rdkDocs.package`, do not replace that builtin until the workspace is trusted;
+project config cannot set the package. The user's own config
+(`~/.config/moss` and `~/.moss`) does not ask. `MOSS_TRUST_WORKSPACE`,
+`MOSS_CONFIG_DIR`, `MOSS_CONFIG_FILE`, `MOSS_CONFIG_PATH`,
+`MOSS_RDK_DOCS_PACKAGE`, `XDG_CONFIG_HOME`, `HOME`, `APPDATA`, and
+`USERPROFILE` are read from the process environment captured before `.env`
+is loaded, and from CLI flags. A project `.env` cannot set them. Headless `-p` stays untrusted and
+prints one line naming what was skipped. Enable it for that process with
+`--trust-workspace` or `MOSS_TRUST_WORKSPACE=1`.
+
 ### Slash commands follow Claude Code / Codex
 
 The everyday menu shows `/model` `/compact` `/goal` `/plan` `/review` `/doctor` `/diff` `/resume`
@@ -58,6 +96,17 @@ treats version-specific search/ranking/section features as optional. A short `rd
 indexed. The robotics fallback verifies `<installation>/setup.bash` before sourcing it; probe
 scripts, connection steps, and device safety rules stay. See
 `docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`.
+
+### 工作区信任与 Claude hooks
+
+`.moss/config.json` 里的项目 hooks 会合并全部事件，不再丢掉 `Stop` 等类型。
+`UserPromptSubmit` 在输入护栏上拦截（退出码 2 或 `{decision:"block"}`，原因展示给用户）。stdout 只在退出码 0 时作为额外上下文，先脱敏再包进 `<hook-output source="UserPromptSubmit">`。
+`PermissionRequest` 在询问用户之前运行，只接受拒绝。Claude 格式的 hooks 只在退出码 2 时阻断，`PreToolUse` 同时接受 `permissionDecision: "deny"`；`*` 与逗号/管道列表按 Claude Code 匹配，`tool_input` 带上 `command` / `file_path`。
+读取 `.claude/`（settings 或 agents）和 `.mcp.json` 需要一次性确认。项目 hooks、项目 MCP（stdio 与 HTTP，含 `.moss/mcp.json`）、项目 `statusLine` 命令、带写工具的项目 agent 和插件也需要按路径一次性信任。未信任的 HTTP 服务器不会加载，因此不会展开项目 URL 里的 `${VAR}`。
+信任结果传给 agent loader（`trusted` 与 `claudeOptIn` 分开：拒绝 Claude 兼容且没有其他项目内容时仍是 `trusted: true`、`claudeOptIn: false`，`.claude/agents` 里的写代理继续被挡住）。
+内置 rdk-docs 因来源是 Moss 自己注入而免询问；同名的项目服务器和项目 `rdkDocs.package` 不能替换它。用户自己的配置（`~/.config/moss` 与 `~/.moss`）不会询问。
+`MOSS_TRUST_WORKSPACE`、`MOSS_CONFIG_DIR`、`MOSS_CONFIG_FILE`、`MOSS_CONFIG_PATH`、`MOSS_RDK_DOCS_PACKAGE`、`XDG_CONFIG_HOME`、`HOME`、`APPDATA`、`USERPROFILE` 只认加载 `.env` 之前的进程环境和命令行，项目 `.env` 不能设置。
+无头 `-p` 默认不信任，并打印一行说明跳过了什么；用 `--trust-workspace` 或 `MOSS_TRUST_WORKSPACE=1` 启用。
 
 ### 斜杠命令、真实终端与基准
 

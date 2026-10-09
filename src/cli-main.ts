@@ -18,6 +18,7 @@ import {
 import {
   CliConfigFileError,
   CliConfigWriteError,
+  envBeforeDotenv,
   loadCliConfigFile,
   loadEnvFromAncestors,
   resolveCliConfig,
@@ -34,7 +35,13 @@ import {
 } from './cli/permission-rules.js';
 import { displayHelp, displayVersion } from './cli/help.js';
 import { createConfiguredGuardrailHooks } from './cli/guardrails.js';
-import { createConfiguredHookCallbacks, setLifecycleHookRunner } from './cli/hooks.js';
+import {
+  createConfiguredHookCallbacks,
+  formatUserPromptHookContext,
+  setLifecycleHookRunner,
+} from './cli/hooks.js';
+import { resolveProjectCapabilities } from './cli/workspace-trust.js';
+import { runWithApprovalRequest, setPermissionRequestRunner } from './cli/permission-request.js';
 import { resolveSoulIdentity, resolveSoul } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
 import { createCliProvider } from './cli/providers.js';
@@ -608,9 +615,29 @@ async function main() {
   const answerLanguageLayer = buildAnswerLanguageLayer();
   if (answerLanguageLayer) extraPromptLayers.push(answerLanguageLayer);
 
-  const configuredHooks = createConfiguredHookCallbacks(loadedConfig.config.hooks, {
+  const projectCapabilities = await resolveProjectCapabilities({
+    workspaceDir: workspace,
+    configDir,
+    configPath: loadedConfig.configPath,
+    ...(loadedConfig.projectConfigPath
+      ? { projectConfigPath: loadedConfig.projectConfigPath }
+      : {}),
+    interactive: process.stdin.isTTY === true && !parsedArgs.print,
+    headlessUntrusted:
+      parsedArgs.print || (parsedArgs.command === 'chat' && process.stdin.isTTY !== true),
+    trustFlag: parsedArgs.trustWorkspace,
+    env: envBeforeDotenv,
+  });
+  if (projectCapabilities.notice) console.error(projectCapabilities.notice);
+  const configuredHooks = createConfiguredHookCallbacks(projectCapabilities.hooks, {
     workspaceDir: workspace,
   });
+  setPermissionRequestRunner((request) =>
+    configuredHooks.runPermissionRequest({
+      toolName: request.tool.name,
+      input: request.input,
+    })
+  );
   // Lifecycle shell hooks (Stop / SubagentStop) fire from shared run paths
   // that have no access to this wiring — install them as the module runner.
   setLifecycleHookRunner({
@@ -673,15 +700,33 @@ async function main() {
     detailMode: resolveCliDetailMode(argv),
   });
   const configPreHook = configuredHooks.onBeforeToolExec;
-  const onBeforeToolExec: AgentHooks['onBeforeToolExec'] = configPreHook
-    ? async (req) => {
+  const onBeforeToolExec: AgentHooks['onBeforeToolExec'] = (req) =>
+    runWithApprovalRequest(req, async () => {
+      if (configPreHook) {
         const pre = await configPreHook(req);
-        return pre.approved ? approvalHook(req) : pre;
+        if (!pre.approved) return pre;
       }
-    : approvalHook;
+      return approvalHook(req);
+    });
   const hooks = createConfiguredGuardrailHooks(resolvedConfig, {
     onBeforeToolExec,
     onToolResult: configuredHooks.onToolResult,
+    onInputGuardrail: async (request) => {
+      const submitted = await configuredHooks.runUserPromptSubmit(request.userMessage);
+      if (submitted.blocked) {
+        return {
+          approved: false,
+          reason: submitted.reason ?? 'Blocked by UserPromptSubmit hook',
+        };
+      }
+      if (submitted.extraContext) {
+        return {
+          approved: true,
+          userMessage: formatUserPromptHookContext(request.userMessage, submitted.extraContext),
+        };
+      }
+      return { approved: true };
+    },
   });
 
   const cliLlmProvider = parsedArgs.mock
@@ -702,6 +747,11 @@ async function main() {
         workspaceDir: workspace,
         parentModel: model,
         ...(modelTiers ? { modelTiers } : {}),
+        // `trusted: true` with an empty project must not imply Claude opt-in.
+        projectTrust: {
+          trusted: projectCapabilities.trusted,
+          claudeOptIn: projectCapabilities.claudeOptIn,
+        },
       })
     );
   } catch (err) {
@@ -833,10 +883,16 @@ async function main() {
     workspaceDir: workspace,
   });
   const mcpConfigs = withBuiltinRdkDocs(
-    loadMcpConfigs(workspace, configDir, process.env, (warning) => console.error(warning)),
+    loadMcpConfigs(
+      workspace,
+      configDir,
+      process.env,
+      (warning) => console.error(warning),
+      projectCapabilities.mcp
+    ),
     builtinRdkDocsEnabled,
     builtinRdkDocsEnabled
-      ? resolveRdkDocsPackage(loadedConfig.config.rdkDocs, process.env)
+      ? resolveRdkDocsPackage(loadedConfig.config.rdkDocs, envBeforeDotenv)
       : undefined
   );
   if (mcpConfigs.length > 0) {
@@ -1305,6 +1361,7 @@ async function main() {
         // letting every component re-read the environment.
         locale: cliLocale(),
         cliRuntime: liveRuntime,
+        workspaceTrusted: projectCapabilities.trusted,
         noticeSource: tuiNoticeSource,
         contextInfo: Object.assign(sessionContextInfo, {
           soul: (() => {
