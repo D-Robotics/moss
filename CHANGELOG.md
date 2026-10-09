@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+### Slash commands follow Claude Code / Codex
+
+The everyday menu shows `/model` `/compact` `/goal` `/plan` `/review` `/doctor` `/diff` `/resume`
+`/permissions` `/clear` `/help` (plus `/theme` in the TUI); other commands stay typeable but hidden. `/plan [description]`
+enters plan mode. `/goal` is the "work until" entry (`/loop` migrates to it) and, without
+`--accept`, proposes acceptance commands from test entry points that exist in the workspace.
+`/resume` restores a conversation (`/sessions` migrates to it). `/tasks` (aliases `/ps`,
+`/bashes`) lists background shells and sub-agents. `/stop` (alias `/abort`) stops background
+processes this session started; Esc interrupts the run. A message typed during a run steers it
+and falls back to the queue above the composer; `/steer` and `/queue` are hidden aliases for one
+version. The hidden `/task` gains `verify`, which takes one verdict without a model turn.
+
+### Real-terminal checks (TUI P7)
+
+`scripts/tui-feel/real-terminals.py` drives tmux (mouse off and on), GNU screen, and
+Terminal.app, and skips terminals that are not installed. `npm test` runs it only when
+`MOSS_REAL_TERMINALS=1`. Manual checklists for iTerm2, VS Code, Windows Terminal, and IME
+candidate windows are in `docs/cli-parity/tui-real-terminals.md`.
+
+### Benchmarks
+
+- `npm run bench:device` scores RDK board tasks in `bench/device-tasks/` (`--dry`, `--target sim`,
+  `--target real`). A row passes only when the verdict passes and an independent probe matches
+  the evidence; `falseSuccess` is reported separately. See `docs/bench/device-bench.md`.
+- `npm run bench:deepswe` runs Moss on DeepSWE v1.1 through Pier with the model held fixed, for
+  comparison with `bench/boards/deepswe-v1.1-harness.json`.
+- `moss task run` prints an `llm_usage` JSON line when the agent reports tokens.
+
+### RDK knowledge
+
+Board manual facts are not shipped in prompts. The plan to source them from rdk-docs MCP is in
+`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`; until it lands, connect it with
+`moss mcp add rdk-docs npx -y rdk-docs-mcp@latest`.
+
+### 斜杠命令、真实终端与基准
+
+日常菜单与 Claude Code / Codex 对齐，其余命令隐藏但仍可输入。`/plan` 直接进入 plan 模式；
+`/goal` 是"做到为止"的入口（`/loop` 迁移到它），没带 `--accept` 时从工作区已有的测试入口给出验收命令候选；
+`/resume` 恢复会话；`/tasks`（别名 `/ps`）列后台任务；`/stop` 只停本会话的后台进程，打断用 Esc；
+运行中发消息默认 steer，不能 steer 时排队。隐藏的 `/task` 新增 `verify`。
+真实终端核对用 `MOSS_REAL_TERMINALS=1` 打开。新增 `npm run bench:device`（板卡任务成功率）与
+`npm run bench:deepswe`（同模型 DeepSWE 对比）。RDK 手册知识改由 rdk-docs MCP 供给（计划中）。
+
 ### Device safety policy
 
 Full mode still runs read-only probes and reversible device changes without asking

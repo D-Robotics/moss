@@ -54,6 +54,9 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 | `npm run bench:ab -- <engine>`                                                   | hard 层 A/B 对照（`best-of-n` / `reasoning-high` / `model-routing`，`--samples <n>` 可调），输出默认开/关建议                                                        |
 | `npm run bench:noise -- <label1> <label2> [...]`                                 | 同 SHA 重复跑聚合成噪声带（`bench/results/noise-band.json`）                                                                                                         |
 | `npm run bench:swe -- [--samples N --concurrency K --label L --filter s --eval]` | SWE-bench Verified 100 实例锁子集（`bench/boards/swebench-instances.json`）：容器内 moss headless 产 patch + 官方 swebench harness 判分；密钥经 `MOSS_BENCH_API_KEY` |
+| `npm run bench:deepswe -- --tasks <dir> [--samples 8]`                           | DeepSWE v1.1 同模型 harness 对比（经 Pier；已发布分数在 `bench/boards/deepswe-v1.1-harness.json`；默认 1 样本，发布口径 8 样本、temperature 1.0、top_p 0.95）        |
+| `npm run bench:device -- --dry \| --target sim \| --target real`                 | 设备任务成功率（`bench/device-tasks/`）；PASS = Moss 裁决通过且独立探测与证据一致。见 `docs/bench/device-bench.md`                                                   |
+| `MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-terminals`       | P7 真实终端核对（tmux / GNU screen / Terminal.app，先 build）；默认 `npm test` 不跑，缺终端则 skip。见 `docs/cli-parity/tui-real-terminals.md`                       |
 | `npm run bench:tui-feel`                                                         | TUI 体感基准（`scripts/tui-feel/`，PTY + pyte；缺 python/pyte 时跳过）。结果落 `bench/results/`，不入库                                                              |
 
 ## SDK 公共面与 semver（v0.13 起）
@@ -97,6 +100,9 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 | CLI 壳（v0.22 起对齐 Claude Code / codex，动态 import） | `src/cli/tui/`（app.ts 外壳 + transcript.ts 语法投影 + text.ts 单元格宽度 + help.ts 键位表） |
 | MCP 客户端（v0.16 起）                                  | `src/core/mcp/`                                                                              |
 | 轻量 skills（v0.16 起）                                 | `src/core/skills/`                                                                           |
+| 斜杠命令目录（`hidden` = 不进菜单、仍可输入；迁移别名） | `src/cli/interactive-commands.ts`、`src/cli/commands/`                                       |
+| 设备风险分级 / 信任 / 审批文案                          | `src/safety/device-risk.ts`、`src/safety/device-trust.ts`、`src/cli/device-safety-prompt.ts` |
+| 设备任务基准                                            | `bench/device-tasks/`、`scripts/bench-device.mjs`、`scripts/lib/device-bench*.mjs`           |
 | 统一 Task Runtime 协议（状态机/事件/快照）              | `src/contracts/task-runtime.ts`                                                              |
 | 统一 Task Runtime 引擎/存储/裁决/能力发现               | `src/core/task/`（engine、store、verdict、capability、agent-turn）                           |
 | TUI 任务投影层（CLI 壳的读路径）                        | `src/core/task-runtime/`（artifacts + runtime 视图模型）                                     |
@@ -118,6 +124,9 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
   `permissions.trustedDevices` / `MOSS_DEVICE_TRUST_DEVICES` 或匹配的 allow 规则。会话里选 `a`
   只信任提示写明的命令范围。deny 规则在任何模式下都赢。分类器在 `src/safety/device-risk.ts`。
   工具名已被 subagent scope、截断预算、loop-guard 等按保留名引用，改名等于破坏契约。
+- RDK 手册知识（烧录、引脚、TROS / hobot_dnn API、规格）不写进提示或 skill，由 rdk-docs MCP 按需供给
+  （`moss mcp add rdk-docs npx -y rdk-docs-mcp@latest`）；提示里只留连接、探测、安全与验收契约。
+  落地计划见 `docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`。
 - 单测用 `test/helpers/in-process-ssh-device.mjs`（进程内 ssh2 服务器，真协议握手）；
   mock 只准用于单测，能力证明必须打真实设备（参照 `scratch/real-device-verify.mjs` 的做法）。
 
@@ -160,6 +169,7 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 - 新增 spec 文件名包含被测模块名，保证 `--filter` 可命中。
 - Bug 修复需要"修复前失败、修复后通过"的回归测试。
 - 动态 ESM import 一律 `pathToFileURL(...).href`（Windows 兼容）。
+- 依赖真实终端的检查放在 `MOSS_REAL_TERMINALS=1` 之后（`test/tui-real-terminals.spec.mjs`），默认测试与 CI 系统矩阵不跑。
 
 ## 纪律
 

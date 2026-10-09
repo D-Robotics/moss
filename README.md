@@ -94,6 +94,8 @@ moss device fleet info --devices rdk-01,rdk-02,rdk-03 --concurrency 4
 moss --print "定义任务：相机管线保持 30 FPS 持续 60 秒；部署、运行、记录证据、验收"
 ```
 
+板卡手册知识（烧录、引脚、TROS / hobot_dnn API、规格表）不写进提示。需要时接 [rdk-docs MCP](https://github.com/D-Robotics/rdk-docs-mcp)：`moss mcp add rdk-docs npx -y rdk-docs-mcp@latest`。连上服务器后自动注入用法说明还在计划中，见 [`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`](docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md)。
+
 **扩展。** MCP 客户端（stdio + streamable HTTP，工具懒加载）；轻量 skills（`.moss/skills/<name>/SKILL.md`，渐进披露，`$ARGUMENTS` 传参）；自定义斜杠命令（`.moss/commands/<name>.md`）；人设（`.moss/soul.md`）；生命周期 hook。
 
 **嵌入与自动化。** headless 输出是给脚本 / CI 用的稳定契约；把任务跑到裁决位时，**只有 accepted 才退出码 0**：
@@ -126,7 +128,7 @@ moss tasks list                     # 只读查看机器人闭环产物
 
 > `update` / `plugins` / `migrate` / `web` / `agent` 属于已移除的子系统，本构建里会**明确报错**，不会悄悄 fallback。
 
-日常斜杠命令：`/model` `/compact` `/goal` `/plan` `/review` `/doctor` `/diff` `/permissions` `/clear` `/help`。`Shift+Tab` 循环模式；`/plan` 进入 plan 模式；`/goal <条件>` 持续工作直到条件满足，`/goal clear` 取消。`/resume` 恢复已保存的会话；`/tasks` 列出后台 shell 与子代理。`Esc` 中断当前回复；运行中直接发消息会先 steer，无法 steer 时排在输入区上方（`↑` 取回编辑）。`/mode` `/steer` `/queue` `/loop` 保留为隐藏别名一版（`/loop` 已改为 `/goal`）。PASS 只能来自 verdict provider。
+日常斜杠命令：`/model` `/compact` `/goal` `/plan` `/review` `/doctor` `/diff` `/permissions` `/clear` `/help`。`Shift+Tab` 循环模式；`/plan` 进入 plan 模式；`/goal <条件>` 持续工作直到条件满足，`/goal clear` 取消。`/resume` 恢复已保存的会话；`/tasks` 列出后台 shell 与子代理。`Esc` 中断当前回复；运行中直接发消息会先 steer，无法 steer 时排在输入区上方（`↑` 取回编辑）。`/mode` `/steer` `/queue` `/loop` 保留为隐藏别名一版（`/loop` 已改为 `/goal`）。`/goal` 没带 `--accept` 时，从工作区已有的测试入口（`package.json` test、Makefile、pytest、`go.mod`）给出验收命令候选，找不到就直说，不编造。`/stop`（别名 `/abort`）只停本会话启动的后台进程。隐藏的 `/task` 是 Task OS 入口（status / timeline / resume / view / verify），`/task verify` 不调模型，只取一次裁决。PASS 只能来自 verdict provider。
 
 常用 flag：
 
@@ -170,12 +172,21 @@ moss tasks list                     # 只读查看机器人闭环产物
 
 ```bash
 npm run check    # prettier + eslint（0 warning）+ typecheck
-npm run test     # build + 全部 test/*.spec.mjs（当前 200 个，面向 dist 跑）
+npm run test     # build + 全部 test/*.spec.mjs（当前 235 个，面向 dist 跑）
 npm run smoke    # CLI 冒烟：--version / --help / PTY 启动
 npm run verify   # check + test + smoke —— 发版前必须全绿
+
+# 真实终端（tmux / GNU screen / Terminal.app），默认不跑；缺哪个终端就跳过哪项
+npm run build && MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-terminals
 ```
 
-基准结果留在 `bench/results/`（不入库）：`npm run bench` · `npm run bench:ab -- reasoning-high` · `npm run bench:swe` · `npm run bench:tb` · `node scripts/task-os-metrics.mjs`（Task OS 指标：轮次 / 工具 / 成功率）。
+基准结果留在 `bench/results/`（不入库）：
+
+- `npm run bench` · `npm run bench:ab -- reasoning-high` · `npm run bench:noise`：agent 能力、A/B 与噪声带
+- `npm run bench:swe` · `npm run bench:tb`：SWE-bench Verified 锁定子集 · Terminal-Bench
+- `npm run bench:deepswe`：DeepSWE v1.1，同一模型下和其他 harness 比（经 Pier 跑，已发布分数在 `bench/boards/deepswe-v1.1-harness.json`）
+- `npm run bench:device -- --dry`（或 `--target sim` / `--target real`）：RDK 板卡任务成功率。Moss 裁决通过、且独立探测与证据一致才算 PASS，见 [`docs/bench/device-bench.md`](docs/bench/device-bench.md)
+- `npm run bench:tui-feel`：TUI 体感 · `node scripts/task-os-metrics.mjs`：Task OS 指标（轮次 / 工具 / 成功率）
 
 版本号表示**当前能力级别**：`main` 是滚动线，tag 只在 `verify` 全绿且 `examples/` 实跑通过后打。详见 [`docs/release-policy.md`](docs/release-policy.md)。
 
@@ -193,7 +204,9 @@ npm run verify   # check + test + smoke —— 发版前必须全绿
 - [`AGENTS.md`](AGENTS.md) —— 架构、分层规则、子系统导航、工程约定（工作合同）
 - [`docs/release-policy.md`](docs/release-policy.md) —— 一个版本 / tag 声称了什么，又没声称什么
 - [`docs/capability-layer.md`](docs/capability-layer.md) —— MCP / device / skill 能力层
-- [`docs/cli-parity/`](docs/cli-parity/) —— 与 Claude Code / codex 的命令面基线对照
+- [`docs/cli-parity/`](docs/cli-parity/) —— 与 Claude Code / codex 的命令面基线对照；真实终端清单见 [`tui-real-terminals.md`](docs/cli-parity/tui-real-terminals.md)
+- [`docs/bench/device-bench.md`](docs/bench/device-bench.md) —— 设备任务基准怎么跑、指标怎么算
+- [`CHANGELOG.md`](CHANGELOG.md) —— 未发版改动
 - [`docs/superpowers/plans/`](docs/superpowers/plans/) —— 设计与路线图记录
 
 ## License
@@ -293,6 +306,11 @@ moss device fleet info --devices rdk-01,rdk-02,rdk-03 --concurrency 4
 moss --print "define a task: camera pipeline keeps 30 FPS for 60s; deploy, run, record evidence, accept"
 ```
 
+Board manual knowledge (flashing, pinouts, TROS / hobot_dnn APIs, spec tables) is not baked into
+the prompt. Connect [rdk-docs MCP](https://github.com/D-Robotics/rdk-docs-mcp) when you need it:
+`moss mcp add rdk-docs npx -y rdk-docs-mcp@latest`. Injecting usage guidance automatically once the
+server is connected is still planned — see [`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`](docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md).
+
 **Extensibility.** MCP client (stdio + streamable HTTP, lazy tool loading), lightweight skills
 (`.moss/skills/<name>/SKILL.md`, `$ARGUMENTS` interpolation), custom slash commands
 (`.moss/commands/<name>.md`), persona (`.moss/soul.md`), lifecycle hooks.
@@ -336,7 +354,12 @@ works until the condition is met and `/goal clear` cancels it. `/resume` restore
 conversation; `/tasks` lists background shell jobs and sub-agents. Esc interrupts the current
 reply; a message typed during a run steers it, and queues above the composer when steering is
 refused (Up edits that queue). `/mode` `/steer` `/queue` `/loop` stay as hidden aliases for one
-version (`/loop` is now `/goal`). A PASS still comes only from the verdict provider.
+version (`/loop` is now `/goal`). Without `--accept`, `/goal` proposes acceptance commands from
+test entry points that exist in the workspace (`package.json` test, Makefile, pytest, `go.mod`)
+and says so when it finds none. `/stop` (alias `/abort`) stops only background processes this
+session started. The hidden `/task` is the Task OS entry (status / timeline / resume / view /
+verify); `/task verify` takes one verdict without a model turn. A PASS still comes only from the
+verdict provider.
 
 Key flags: `-m/--model`, `--provider`, `--base-url`, `-C/--cd`, `-c/--config k=v`,
 `--read-only` · `--workspace-write` · `--full-access`, `--trust-device`, `--accept-edits`,
@@ -398,14 +421,25 @@ Key env vars (full list: `moss config env`): `MOSS_PROFILE` · `MOSS_WORKSPACE` 
 
 ```bash
 npm run check    # prettier + eslint (0 warning) + typecheck
-npm run test     # build + every test/*.spec.mjs (200 specs, run against dist/)
+npm run test     # build + every test/*.spec.mjs (235 specs, run against dist/)
 npm run smoke    # CLI smoke: --version / --help / PTY startup
 npm run verify   # check + test + smoke — required before any release
+
+# Real terminals (tmux / GNU screen / Terminal.app); off by default, missing terminals are skipped
+npm run build && MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-terminals
 ```
 
-Benchmarks stay out of git in `bench/results/`: `npm run bench`, `npm run bench:ab -- reasoning-high`,
-`npm run bench:swe`, `npm run bench:tb`, `node scripts/task-os-metrics.mjs` (Task OS metrics:
-turns / tools / success rate).
+Benchmarks stay out of git in `bench/results/`:
+
+- `npm run bench` · `npm run bench:ab -- reasoning-high` · `npm run bench:noise`: agent capability, A/B, noise band
+- `npm run bench:swe` · `npm run bench:tb`: locked SWE-bench Verified subset · Terminal-Bench
+- `npm run bench:deepswe`: DeepSWE v1.1 with the model held fixed against other harnesses (runs
+  through Pier; published scores in `bench/boards/deepswe-v1.1-harness.json`)
+- `npm run bench:device -- --dry` (or `--target sim` / `--target real`): RDK board-task success
+  rate. A row passes only when Moss's verdict passes and an independent probe matches the
+  evidence — see [`docs/bench/device-bench.md`](docs/bench/device-bench.md)
+- `npm run bench:tui-feel`: TUI feel · `node scripts/task-os-metrics.mjs`: Task OS metrics
+  (turns / tools / success rate)
 
 A version number states the **current capability level**: `main` is the rolling line, tags are cut
 only after `verify` is green and `examples/` pass for real — see
@@ -425,7 +459,10 @@ only after `verify` is green and `examples/` pass for real — see
 [`AGENTS.md`](AGENTS.md) (architecture and conventions) ·
 [`docs/release-policy.md`](docs/release-policy.md) ·
 [`docs/capability-layer.md`](docs/capability-layer.md) ·
-[`docs/cli-parity/`](docs/cli-parity/) ·
+[`docs/cli-parity/`](docs/cli-parity/) (real-terminal checklist:
+[`tui-real-terminals.md`](docs/cli-parity/tui-real-terminals.md)) ·
+[`docs/bench/device-bench.md`](docs/bench/device-bench.md) ·
+[`CHANGELOG.md`](CHANGELOG.md) ·
 [`docs/superpowers/plans/`](docs/superpowers/plans/).
 
 ### License
