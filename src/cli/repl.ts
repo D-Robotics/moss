@@ -4,10 +4,21 @@ import type { MossAgent, MossAgentEvent } from '../core/index.js';
 import { setCliApprovalAsker } from './approval.js';
 import { handleCompactCommand } from './compact-command.js';
 import { resolveLoopMaxIterations } from './loop-tui-events.js';
-import { parseGoalCommandLine } from '../core/loop/goal-loop.js';
 import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
-import { loadCustomCommands, reservedBuiltinNames } from './commands/custom-commands.js';
-import { INTERACTIVE_COMPLETION_COMMANDS } from './interactive-commands.js';
+import {
+  loadCustomCommands,
+  reservedBuiltinNames,
+  resolveUserCommand,
+} from './commands/custom-commands.js';
+import { formatBackgroundJobLines } from './commands/background-jobs.js';
+import { abandonLiveGoal, GOAL_USAGE, goalRunArgs, planGoalInvocation } from './commands/goal-propose.js';
+import {
+  INTERACTIVE_COMPLETION_COMMANDS,
+  rewriteSlashInput,
+  SLASH_MENU_ROWS,
+  slashAliasHelpLines,
+} from './interactive-commands.js';
+import { listBackgroundProcessSnapshots } from '../core/tools/background-process-registry.js';
 import { CliServices } from './cli-services.js';
 import { resolveRealModel } from './model-resolution.js';
 import { resolveContextTokensForModel } from './model-catalog.js';
@@ -17,9 +28,9 @@ import { runOneShot } from './oneshot.js';
 import { createSessionUsageAccumulator } from './session-usage.js';
 import { createCliRunRenderer } from './output.js';
 import { renderCliInteractiveHelp, renderCliWelcome, type CliRuntimeStatus } from './onboarding.js';
-import { createCliSessionKey } from './session.js';
+import { createCliSessionKey, selectSessionForResume } from './session.js';
 import { compactPath, label, ui } from './ui.js';
-import { formatTuiSessions, runLocalShellCommand } from './tui-utils.js';
+import { runLocalShellCommand } from './tui-utils.js';
 import { FileCheckpointStore, checkpointTargetPaths } from './file-checkpoint.js';
 import { errorMessage } from '../errors.js';
 
@@ -108,15 +119,6 @@ export function completeInteractiveCommand(line: string): [string[], string] {
   return [hits.length ? hits : INTERACTIVE_COMMANDS, line];
 }
 
-function basicReplUnsupportedMessage(command: string): string {
-  const token = command.split(/\s+/, 1)[0] || command;
-  if (token === '/stop' || token === '/abort')
-    return '[help] Press Ctrl+C to interrupt the terminal process in this basic REPL.';
-  if (token === '/init')
-    return '[help] /init is not available in this REPL. Create AGENTS.md in your workspace manually.';
-  return '[help] This control is not available in this REPL.';
-}
-
 export async function runInteractive(
   agent: MossAgent,
   runtime?: CliRuntimeStatus,
@@ -201,11 +203,30 @@ export async function runInteractive(
   );
   rl.prompt();
 
+  let pendingGoal: { goal: string } | null = null;
+
   for await (const line of rl) {
     let msg = line.trim();
     if (!msg) {
       rl.prompt();
       continue;
+    }
+    if (pendingGoal && !msg.startsWith('/')) {
+      const goal = pendingGoal.goal;
+      pendingGoal = null;
+      if (/^n$/i.test(msg)) {
+        console.error(
+          'Skipped the acceptance command. Only the contract verdict will apply.'
+        );
+        msg = `/task ${goalRunArgs(goal)}`;
+      } else {
+        msg = `/task ${goalRunArgs(goal, { acceptance: msg })}`;
+      }
+    } else if (msg.startsWith('/')) {
+      pendingGoal = null;
+      const rewritten = rewriteSlashInput(msg);
+      if (rewritten.migration) console.error(rewritten.migration);
+      msg = rewritten.text;
     }
     if (msg === '/quit' || msg === '/exit') break;
 
@@ -256,8 +277,9 @@ export async function runInteractive(
       }
     }
 
-    if (msg === '/help') {
+    if (msg === '/help' || msg === '/help --all') {
       console.error(renderCliInteractiveHelp());
+      if (msg === '/help --all') console.error(slashAliasHelpLines().join('\n'));
       if (customCommands.length) {
         console.error(`\n  Custom commands (.moss/commands/*.md)`);
         for (const command of customCommands) {
@@ -359,13 +381,33 @@ export async function runInteractive(
       continue;
     }
 
-    if (msg === '/sessions' || msg === '/session') {
+    if (msg === '/resume' || msg.startsWith('/resume ')) {
+      const query = msg.slice('/resume'.length).trim();
       try {
-        const sessions = await agent.config.sessionStore.listSessions();
-        console.error(formatTuiSessions(sessions, sessionKey));
+        const selected = await selectSessionForResume(agent.config.sessionStore, query);
+        console.error(selected.notice);
+        if (selected.sessionKey && selected.sessionKey !== sessionKey) {
+          sessionKey = selected.sessionKey;
+          checkpointStore = new FileCheckpointStore({ runtimeDir, sessionKey });
+        }
       } catch (err) {
-        console.error(`[sessions] ${errorMessage(err)}`);
+        console.error(`[resume] ${errorMessage(err)}`);
       }
+      rl.prompt();
+      continue;
+    }
+
+    if (msg === '/tasks') {
+      const subagents = (agent.asyncTasks?.list() ?? []).map((task) => ({
+        taskId: task.taskId,
+        status: task.status,
+      }));
+      console.error(
+        formatBackgroundJobLines({
+          processes: listBackgroundProcessSnapshots(),
+          subagents,
+        }).join('\n')
+      );
       rl.prompt();
       continue;
     }
@@ -417,12 +459,6 @@ export async function runInteractive(
       continue;
     }
 
-    if (msg === '/stop' || msg === '/abort' || msg === '/init') {
-      console.error(basicReplUnsupportedMessage(msg));
-      rl.prompt();
-      continue;
-    }
-
     if (msg === '/model' || msg.startsWith('/model ')) {
       const newModel = msg === '/model' ? '' : msg.slice(7).trim();
       if (newModel === 'config' || newModel.startsWith('config ')) {
@@ -469,72 +505,52 @@ export async function runInteractive(
       continue;
     }
 
-    // ── One autonomous engine ─────────────────────────────────────────────
-    // /loop and /goal are translators onto /task run (plan → execute → verify
-    // → repair → accept). Loop runs ARE tasks now: /task status, /task
-    // timeline, /task resume, and the TUI all see them, and PASS can only come
-    // from the verdict provider — never from the agent judging its own prose.
-    if (
-      msg === '/loop stop' ||
-      msg === '/loop abort' ||
-      msg === '/goal stop' ||
-      msg === '/goal abort'
-    ) {
-      process.stderr.write(
-        'A running task is interrupted with Ctrl+C; it stays resumable — /task status lists ids, /task resume <id> continues it.\n'
-      );
-      rl.prompt();
-      continue;
-    }
-    if (msg === '/loop resume' || msg === '/goal resume') {
-      const { listTaskStateSnapshots } = await import('../core/index.js');
-      const resumable = (await listTaskStateSnapshots(workspace))
-        .filter((s) => ['failed', 'abandoned', 'blocked'].includes(s.phase))
-        .sort((a, b) => b.updatedAt - a.updatedAt)[0];
-      if (!resumable) {
-        process.stderr.write('No resumable task found. Start one with /task run <goal>.\n');
+    // `/goal` is the everyday "work until" entry. `/loop` is rewritten to it
+    // (with the migration line) before this branch. Clear-words abandon the
+    // live task; a missing `--accept` proposes a command from the workspace.
+    if (msg === '/goal' || msg.startsWith('/goal ')) {
+      const plan = planGoalInvocation(msg.slice('/goal'.length).trim(), workspace);
+      if (plan.kind === 'usage') {
+        process.stderr.write(`${GOAL_USAGE}\n`);
         rl.prompt();
         continue;
       }
-      msg = `/task resume ${resumable.taskId}`;
-      // fall through to the /task branch below
-    } else if (
-      msg === '/loop' ||
-      msg.startsWith('/loop ') ||
-      msg === '/goal' ||
-      msg.startsWith('/goal ')
-    ) {
-      const isGoal = msg.startsWith('/goal');
-      let rest: string;
-      if (isGoal) {
-        const parsed = parseGoalCommandLine(msg.slice('/goal '.length));
-        if (!parsed) {
-          process.stderr.write(
-            'Usage: /goal <goal> [--accept "<verification command>"] — same as /task run with an acceptance gate.\n'
-          );
-          rl.prompt();
-          continue;
-        }
-        rest = [
-          'run',
-          parsed.goal,
-          ...(parsed.acceptance ? ['--accept', `"${parsed.acceptance.command}"`] : []),
-        ].join(' ');
-      } else {
-        const goal = msg.slice('/loop '.length).trim();
-        if (!goal) {
-          process.stderr.write('Usage: /loop <goal> — same as /task run <goal>.\n');
-          rl.prompt();
-          continue;
-        }
-        rest = `run ${goal}`;
+      if (plan.kind === 'clear') {
+        process.stderr.write(`${await abandonLiveGoal(workspace)}\n`);
+        rl.prompt();
+        continue;
       }
-      // The loop caps keep their anti-runaway meaning as the task turn budget
-      // (only when the user set them; the default is uncapped).
-      const maxTurns = resolveLoopMaxIterations(process.env, isGoal);
-      if (maxTurns > 0) rest = `${rest} --max-turns ${maxTurns}`;
-      msg = `/task ${rest}`;
-      // fall through to the /task branch below
+      if (plan.kind === 'resume') {
+        const { listTaskStateSnapshots } = await import('../core/index.js');
+        const resumable = (await listTaskStateSnapshots(workspace))
+          .filter((s) => ['failed', 'abandoned', 'blocked'].includes(s.phase))
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+        if (!resumable) {
+          process.stderr.write('No resumable task found. Start one with /goal <condition>.\n');
+          rl.prompt();
+          continue;
+        }
+        msg = `/task resume ${resumable.taskId}`;
+      } else if (plan.kind === 'propose') {
+        process.stderr.write(`Acceptance command for: ${plan.goal}\n`);
+        plan.candidates.forEach((candidate, index) => {
+          process.stderr.write(`${index + 1}. ${candidate}\n`);
+        });
+        process.stderr.write(
+          'Enter accepts the first (edit it first if you want). n skips — only the contract verdict will apply.\n'
+        );
+        pendingGoal = { goal: plan.goal };
+        rl.prompt();
+        rl.write(plan.candidates[0] ?? '');
+        continue;
+      } else {
+        if (plan.notice) process.stderr.write(`${plan.notice}\n`);
+        const maxTurns = resolveLoopMaxIterations(process.env, true);
+        msg = `/task ${goalRunArgs(plan.goal, {
+          ...(plan.acceptance ? { acceptance: plan.acceptance } : {}),
+          ...(maxTurns > 0 ? { maxTurns } : {}),
+        })}`;
+      }
     }
 
     // Task OS M5: unified task runtime entry — one goal in, one verified
@@ -545,9 +561,9 @@ export async function runInteractive(
     if (msg === '/task' || msg.startsWith('/task ')) {
       const rest = msg.slice('/task'.length).trim();
       const sub = rest.split(/\s+/)[0];
-      if (!['run', 'resume', 'status', 'timeline'].includes(sub)) {
+      if (!['run', 'resume', 'status', 'timeline', 'view', 'verify'].includes(sub ?? '')) {
         process.stderr.write(
-          'Usage: /task run <goal...> [--accept "<cmd>"] [--max-repairs N] | /task status [id] | /task timeline [id] | /task resume <id>\n'
+          'Usage: /task run <goal...> [--accept "<cmd>"] | /task status [id] | /task timeline [id] | /task resume <id> | /task view [kind] | /task verify [id]\n'
         );
         rl.prompt();
         continue;
@@ -582,12 +598,34 @@ export async function runInteractive(
     }
 
     if (msg.startsWith('/')) {
-      for (const line of unknownSlashCommandLines(msg, { locale: cliLocale() })) {
-        console.error(`[help] ${line}`);
+      const resolved = resolveUserCommand(msg, {
+        builtinNames: reservedBuiltinNames(),
+        customCommands,
+        skills: options.skills ?? [],
+      });
+      if (resolved.kind === 'custom' || resolved.kind === 'skill') {
+        checkpointStore.open(`${resolved.kind}: ${resolved.prompt.slice(0, 60)}`);
+        const stop = await runOneShot(agent, resolved.prompt, {
+          sessionKey,
+          onAgentEvent: (event) => usage.record(event),
+        });
+        if (stop?.blocked) {
+          await runOneShot(
+            agent,
+            `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`,
+            { sessionKey, onAgentEvent: (event) => usage.record(event) }
+          );
+        }
+        rl.prompt();
+        continue;
+      }
+      for (const helpLine of unknownSlashCommandLines(msg, { locale: cliLocale() })) {
+        console.error(`[help] ${helpLine}`);
       }
       const availableCommands = [
-        ...INTERACTIVE_COMMANDS.filter((cmd) => !cmd.includes(' ')),
+        ...SLASH_MENU_ROWS.map((row) => row.command),
         ...customCommands.map((command) => command.name),
+        ...(options.skills ?? []).map((skill) => `/${skill.name}`),
       ];
       console.error(`[help] Available: ${availableCommands.join(' ')}`);
       rl.prompt();

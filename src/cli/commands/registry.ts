@@ -1,9 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { estimateTokensForText } from '../../context/tokens.js';
 import type { MossAgent } from '../../core/index.js';
 import type { CompactionRecord, SessionUsageSummary } from '../session-usage.js';
 import {
   renderCliPermissions,
-  renderCliQuickStart,
   renderCliSessionDoctor,
   renderCliStatus,
   type CliRuntimeStatus,
@@ -21,6 +23,7 @@ import {
 } from '../approval.js';
 import { parsePermissionRuleSpec } from '../permission-rules.js';
 import { appendUserPermissionRule } from '../config-commands.js';
+import { stopAllBackgroundProcesses } from '../../core/tools/background-process-registry.js';
 
 export interface CommandInputOptions {
   label: string;
@@ -30,7 +33,7 @@ export interface CommandInputOptions {
 
 export type CommandInputPrompt = (options: CommandInputOptions) => Promise<string | null>;
 
-export type CommandSurface = 'repl';
+export type CommandSurface = 'repl' | 'tui';
 
 export interface CommandContext {
   agent: MossAgent;
@@ -60,17 +63,10 @@ export interface CommandSpec {
   aliases?: readonly `/${string}`[];
 
   summary: string;
+  /** Raw prompt body for a file-based command. Built-ins omit it. */
+  body?: string;
   run(ctx: CommandContext, args: string): Promise<void> | void;
 }
-
-const quickstartCommand: CommandSpec = {
-  name: '/quickstart',
-  aliases: ['/quick_start', '/start'],
-  summary: 'show setup and next-steps guidance',
-  run(ctx) {
-    ctx.say('system', renderCliQuickStart(ctx.agent, ctx.runtime));
-  },
-};
 
 const statusCommand: CommandSpec = {
   name: '/status',
@@ -235,7 +231,6 @@ const permissionsCommand: CommandSpec = {
 
 const modeCommand: CommandSpec = {
   name: '/mode',
-  aliases: ['/plan'],
   summary: 'show or set interaction mode: manual | accept-edits | plan | full',
   run(ctx, args) {
     const zh = isZh(ctx.locale);
@@ -541,6 +536,7 @@ const reviewCommand: CommandSpec = {
 
 const usageCommand: CommandSpec = {
   name: '/usage',
+  aliases: ['/cost', '/stats'],
   summary: 'show cumulative token usage for this session',
   run(ctx) {
     const zh = isZh(ctx.locale);
@@ -629,13 +625,94 @@ const exportCommand: CommandSpec = {
   },
 };
 
+function buildInitPrompt(workspace: string): string {
+  const agentsPath = path.join(workspace, 'AGENTS.md');
+  if (!fs.existsSync(agentsPath)) {
+    return [
+      'Analyze this repository and create an AGENTS.md project memory file at the workspace root.',
+      'Cover the build, test, and layout facts you can verify by reading the repo.',
+      'Do not invent commands or conventions you did not observe.',
+    ].join('\n');
+  }
+  return [
+    'AGENTS.md already exists. Review it against the current repository and update it incrementally.',
+    'Keep instructions that are still accurate, fix stale ones, and do not rewrite unrelated sections.',
+    'The file to edit is AGENTS.md.',
+  ].join('\n');
+}
+
+const initCommand: CommandSpec = {
+  name: '/init',
+  summary: 'create or incrementally review AGENTS.md',
+  run(ctx) {
+    if (!ctx.submitPrompt) {
+      ctx.say('error', '/init needs a session that can start a run.');
+      return;
+    }
+    ctx.say(
+      'system',
+      fs.existsSync(path.join(ctx.workspace, 'AGENTS.md'))
+        ? 'Reviewing the existing AGENTS.md…'
+        : 'Drafting AGENTS.md from the repository…'
+    );
+    ctx.submitPrompt(buildInitPrompt(ctx.workspace));
+  },
+};
+
+const planCommand: CommandSpec = {
+  name: '/plan',
+  summary: 'enter plan mode; /plan <description> starts planning immediately',
+  run(ctx, args) {
+    const zh = isZh(ctx.locale);
+    setCliInteractionMode('plan');
+    ctx.setInteractionMode?.('plan');
+    ctx.say(
+      'system',
+      zh
+        ? '已进入 plan 模式：只读规划。退出：Shift+Tab、/mode manual，或 /permissions。'
+        : 'Plan mode: read-only planning. Leave with Shift+Tab, /mode manual, or /permissions.'
+    );
+    const description = args.trim();
+    if (!description) return;
+    if (ctx.submitPrompt) ctx.submitPrompt(description);
+    else ctx.prefillInput(description);
+  },
+};
+
+const stopCommand: CommandSpec = {
+  name: '/stop',
+  aliases: ['/abort'],
+  summary: 'stop background processes; Esc or Ctrl+C interrupts the current run',
+  run(ctx) {
+    const zh = isZh(ctx.locale);
+    const stopped = stopAllBackgroundProcesses();
+    if (stopped.length === 0) {
+      ctx.say(
+        'system',
+        zh
+          ? '没有正在运行的后台进程。Esc（或 Ctrl+C）中断当前回复。'
+          : 'No background processes running. Esc (or Ctrl+C) interrupts the current run.'
+      );
+      return;
+    }
+    ctx.say(
+      'system',
+      zh
+        ? `已停止 ${stopped.length} 个后台进程：${stopped.join(', ')}。当前回复不受影响；Esc 才会中断它。`
+        : `Stopped ${stopped.length} background process(es): ${stopped.join(', ')}. The current run is still going; Esc interrupts it.`
+    );
+  },
+};
+
 const COMMANDS: readonly CommandSpec[] = [
-  quickstartCommand,
   statusCommand,
   doctorCommand,
   reviewCommand,
   permissionsCommand,
   modeCommand,
+  planCommand,
+  initCommand,
+  stopCommand,
   contextCommand,
   usageCommand,
   exportCommand,

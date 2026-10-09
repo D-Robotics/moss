@@ -29,7 +29,7 @@ import {
   useWindowSize,
 } from 'ink';
 import type { MossAgent } from '../../core/agent/moss-agent.js';
-import { parseGoalCommandLine } from '../../core/loop/goal-loop.js';
+import { planGateEnabled } from '../../tools/plan-gate.js';
 import { TaskRuntime, formatDeploymentLine } from '../../core/task-runtime/runtime.js';
 import { errorMessage } from '../../errors.js';
 import {
@@ -68,6 +68,20 @@ import {
   type CommandContext,
   type CommandSurface,
 } from '../commands/registry.js';
+import {
+  loadCustomCommands,
+  reservedBuiltinNames,
+  resolveUserCommand,
+} from '../commands/custom-commands.js';
+import { formatBackgroundJobLines } from '../commands/background-jobs.js';
+import {
+  abandonLiveGoal,
+  GOAL_USAGE,
+  goalRunArgs,
+  planGoalInvocation,
+} from '../commands/goal-propose.js';
+import { availabilityFor, rewriteSlashInput } from '../interactive-commands.js';
+import { resolveLoopMaxIterations } from '../loop-tui-events.js';
 import { cliLocale } from '../cli-locale.js';
 import { handleCompactCommand } from '../compact-command.js';
 import { createCliSessionKey } from '../session.js';
@@ -336,13 +350,8 @@ function collectStrings(value: unknown, out: string[] = []): string[] {
   return out;
 }
 
-/**
- * The registry's `CommandSurface` vocabulary has no shell member and no command
- * branches on it, so `'repl'` is the only type-legal value today. Widening the
- * union is a `src/cli/commands/registry.ts` change owned outside this task (the
- * registry spec already passes `'tui'`).
- */
-const COMMAND_SURFACE: CommandSurface = 'repl';
+/** The shell tells the registry it is the TUI, so surface-specific copy can diverge later. */
+const COMMAND_SURFACE: CommandSurface = 'tui';
 
 /** How long the scroll bar stays visible after the pointer or a scroll last touched it. */
 const SCROLLBAR_HIDE_MS = 1500;
@@ -517,6 +526,20 @@ export function TuiAppRoot({
   const quitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const queueRef = useRef<Array<{ display: string; text: string }>>([]);
   const queuePausedRef = useRef(false);
+  /** `/goal` proposal waiting for Enter (accept) or `n` (contract verdict only). */
+  const pendingGoalRef = useRef<{ goal: string } | null>(null);
+  const customCommands = useMemo(
+    () =>
+      loadCustomCommands(
+        {
+          workspace: options.workspaceDir,
+          configDir: options.cliRuntime?.configDir ?? path.join(options.workspaceDir, '.moss'),
+          reservedNames: reservedBuiltinNames(),
+        },
+        () => undefined
+      ),
+    [options.workspaceDir, options.cliRuntime?.configDir]
+  );
   const [queueRevision, setQueueRevision] = useState(0);
   void queueRevision;
   /** Kill ring: the text the last Ctrl+U/K/W removed, pasted back by Ctrl+Y. */
@@ -1071,7 +1094,7 @@ export function TuiAppRoot({
         (rowsThisRun.some((row) => row.kind === 'tool') ||
           rowsThisRun.some((row) => row.kind === 'assistant' && row.text.length > 300));
       handle.notify();
-      if (producedPlan) planGateRef.current?.();
+      if (producedPlan && planGateEnabled()) planGateRef.current?.();
     },
     [
       appendTaskVerdictIfAny,
@@ -1636,40 +1659,38 @@ export function TuiAppRoot({
         },
       };
 
-      // One autonomous engine — /loop and /goal translate onto /task run
-      // (the same delegation the readline REPL performs), so every shell has
-      // one completion mechanism: verdict-backed Task OS runs.
-      if (head === '/loop' || head === '/goal') {
-        const rest = text.slice(head.length).trim();
-        if (head === '/goal') {
-          const parsed = parseGoalCommandLine(rest);
-          if (!parsed) {
-            printCommandError(
-              'Goal',
-              'Usage: /goal <goal> [--accept "<verification command>"] — same as /task run with an acceptance gate.'
-            );
-            return true;
-          }
-          const translated = [
-            '/task run',
-            parsed.goal,
-            ...(parsed.acceptance ? ['--accept', `"${parsed.acceptance.command}"`] : []),
-          ].join(' ');
-          await runTaskShellCommand(translated.slice('/task'.length).trim());
+      if (head === '/goal') {
+        const plan = planGoalInvocation(args, options.workspaceDir);
+        if (plan.kind === 'usage') {
+          printBlock('Goal', [GOAL_USAGE]);
           return true;
         }
-        if (!rest || rest === 'stop' || rest === 'abort' || rest === 'resume') {
-          if (rest === 'resume') {
-            await runTaskShellCommand('resume');
-            return true;
-          }
-          printCommandError(
-            'Loop',
-            'A running task is interrupted with Esc; it stays resumable — /task status lists ids, /task resume <id> continues it.'
-          );
+        if (plan.kind === 'clear') {
+          printBlock('Goal', [await abandonLiveGoal(options.workspaceDir)]);
           return true;
         }
-        await runTaskShellCommand(`run ${rest}`);
+        if (plan.kind === 'resume') {
+          await runTaskShellCommand('resume');
+          return true;
+        }
+        if (plan.kind === 'propose') {
+          printBlock('Goal', [
+            `Acceptance command for: ${plan.goal}`,
+            ...plan.candidates.map((candidate, index) => `${index + 1}. ${candidate}`),
+            'Enter accepts the first (edit it first if you want). n skips — only the contract verdict will apply.',
+          ]);
+          pendingGoalRef.current = { goal: plan.goal };
+          setInput(plan.candidates[0] ?? '');
+          return true;
+        }
+        if (plan.notice) printBlock('Goal', [plan.notice]);
+        const maxTurns = resolveLoopMaxIterations(process.env, true);
+        await runTaskShellCommand(
+          goalRunArgs(plan.goal, {
+            ...(plan.acceptance ? { acceptance: plan.acceptance } : {}),
+            ...(maxTurns > 0 ? { maxTurns } : {}),
+          })
+        );
         return true;
       }
 
@@ -1698,7 +1719,7 @@ export function TuiAppRoot({
       }
 
       try {
-        if (await runRegistryCommand(text, context)) return true;
+        if (await runRegistryCommand(text, context, customCommands)) return true;
       } catch (err) {
         printCommandError(title, `${head} failed: ${errorMessage(err)}`);
         return true;
@@ -1716,24 +1737,17 @@ export function TuiAppRoot({
         await runDiffCommand();
         return true;
       }
-      if (head === '/stop' || head === '/abort') {
-        if (abortRef.current) {
-          abortRef.current.abort();
-          printBlock('Stop', [tui('interrupted the active run')]);
-        } else {
-          printBlock('Stop', [tui('no run in flight — nothing to interrupt')]);
-        }
-        return true;
-      }
       return false;
     },
     [
+      customCommands,
       dispatchRun,
       options,
       printBlock,
       printCommandError,
       runCompactCommand,
       runDiffCommand,
+      runTaskShellCommand,
       runModelCommand,
       sessionKey,
       setInput,
@@ -1744,8 +1758,36 @@ export function TuiAppRoot({
   const submit = useCallback(
     async (raw: string) => {
       const submittedTokens = tokensRef.current.slice();
-      const text = raw.trim();
+      let text = raw.trim();
       if (!text) return;
+      if (pendingGoalRef.current && !text.startsWith('/')) {
+        const pending = pendingGoalRef.current;
+        pendingGoalRef.current = null;
+        setInput('');
+        setHistoryCursor({ index: undefined, draft: '' });
+        setStatusLine(undefined);
+        if (/^n$/i.test(text)) {
+          appendRow(
+            store,
+            'summary',
+            'Skipped the acceptance command. Only the contract verdict will apply.'
+          );
+          handle.notify();
+          await runTaskShellCommand(goalRunArgs(pending.goal));
+          return;
+        }
+        await runTaskShellCommand(goalRunArgs(pending.goal, { acceptance: text }));
+        return;
+      }
+      if (text.startsWith('/')) {
+        pendingGoalRef.current = null;
+        const rewritten = rewriteSlashInput(text);
+        if (rewritten.migration) {
+          appendRow(store, 'summary', rewritten.migration);
+          handle.notify();
+        }
+        text = rewritten.text;
+      }
       setInput('');
       setHistoryCursor({ index: undefined, draft: '' });
       setStatusLine(undefined);
@@ -1774,41 +1816,6 @@ export function TuiAppRoot({
       }
       if (text === '/usage') {
         printBlock('Usage', usageBlock(store.usage));
-        return;
-      }
-      if (text === '/log') {
-        // The session's full I/O is persisted on disk all along — the
-        // conversation log (every message: user text, assistant text +
-        // thinking, complete tool input/output) and the run-event log (steps,
-        // tool calls, retries, failures). Nobody could find them, so this is
-        // the map.
-        const paths = getMossWorkspacePaths(options.workspaceDir);
-        const conversation = path.join(paths.sessionsDir, `${sessionKey}.jsonl`);
-        const events = path.join(
-          paths.runtimeDir,
-          'events',
-          `${encodeURIComponent(sessionKey)}.jsonl`
-        );
-        const lines: string[] = [
-          `session        ${sessionKey}`,
-          `conversation   ${conversation}${fs.existsSync(conversation) ? '' : '  (after the first turn)'}`,
-          `run events     ${events}${fs.existsSync(events) ? '' : '  (after the first run)'}`,
-          '',
-          `tail -f ${conversation}`,
-        ];
-        try {
-          const tail = fs
-            .readFileSync(conversation, 'utf8')
-            .trim()
-            .split('\n')
-            .slice(-6)
-            .map((raw) => describeConversationLogEntry(raw))
-            .filter((line): line is string => Boolean(line));
-          if (tail.length > 0) lines.push('', ...tail);
-        } catch {
-          // Not created yet — the paths above already say so.
-        }
-        printBlock('Log', lines);
         return;
       }
       if (text === '/clear') {
@@ -1854,34 +1861,18 @@ export function TuiAppRoot({
         handle.notify();
         return;
       }
-      if (text === '/jobs') {
-        printBlock('Jobs', [
-          tui('background shell:'),
-          ...(await sessionInfo('bg')).map((l) => `  ${l}`),
-          '',
-          tui('sub-agents:'),
-          ...(await sessionInfo('subs')).map((l) => `  ${l}`),
-        ]);
-        return;
-      }
       if (text === '/tasks') {
-        await showBlock('tasks');
-        return;
-      }
-      if (text === '/history') {
-        await showBlock('history');
-        return;
-      }
-      if (text === '/evidence') {
-        await showBlock('evidence');
-        return;
-      }
-      if (text === '/deployments') {
-        await showBlock('deployments');
-        return;
-      }
-      if (text === '/failures') {
-        await showBlock('failures');
+        const subagents = (options.agent.asyncTasks?.list() ?? []).map((task) => ({
+          taskId: task.taskId,
+          status: String(task.status),
+        }));
+        printBlock(
+          'Tasks',
+          formatBackgroundJobLines({
+            processes: listBackgroundProcessSnapshots(),
+            subagents,
+          })
+        );
         return;
       }
       if (text === '/hooks') {
@@ -1934,8 +1925,8 @@ export function TuiAppRoot({
         printBlock('Hooks', lines);
         return;
       }
-      if (text === '/sessions' || text === '/mcp' || text === '/subs' || text === '/bg') {
-        await showBlock(text.slice(1) as 'sessions');
+      if (text === '/mcp') {
+        await showBlock('mcp');
         return;
       }
       if (text === '/skills') {
@@ -1953,7 +1944,37 @@ export function TuiAppRoot({
         return;
       }
       if (text === '/resume' || text.startsWith('/resume ')) {
-        await runTaskShellCommand(`resume${text.slice('/resume'.length)}`);
+        const query = text.slice('/resume'.length).trim();
+        const sessions = (await options.listSessions?.()) ?? [];
+        setPickerSessions(sessions);
+        if (sessions.length === 0) {
+          printBlock('Resume', [tui('no saved sessions')]);
+          return;
+        }
+        const matches = filterPickerSessions(sessions, query);
+        if (query && matches.length === 1) {
+          const pick = matches[0];
+          if (pick) {
+            try {
+              const sessionStore = (
+                options.agent.config as {
+                  sessionStore?: { loadMessages: (key: string) => Promise<unknown[]> };
+                }
+              ).sessionStore;
+              const messages = sessionStore ? await sessionStore.loadMessages(pick.key) : [];
+              const replay = buildResumeReplay(messages as Parameters<typeof buildResumeReplay>[0]);
+              for (const item of replay.items) appendRow(store, item.kind, item.text);
+              appendRow(store, 'result', `resumed ${pick.key} — replayed ${replay.items.length} rows`);
+              setActiveSession(pick.key);
+            } catch (err) {
+              appendRow(store, 'error', `could not resume ${pick.key}: ${errorMessage(err)}`);
+            }
+            handle.notify();
+          }
+          return;
+        }
+        setSessionPicker({ query, cursor: 0 });
+        printBlock('Resume', await sessionInfo('sessions'));
         return;
       }
       if (

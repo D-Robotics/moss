@@ -214,6 +214,7 @@ import { searchFilesTool, searchCodeTool } from './search-tools.js';
 import { applyPatchTool } from './patch-tool.js';
 import { todoWriteTool } from './todo-tool.js';
 import { askUserQuestionTool } from './ask-user-question.js';
+import { exitPlanTool } from './plan-gate.js';
 
 // Tool naming convention:
 // - Function/const names use camelCase (e.g., editFileTool, webFetchTool)
@@ -233,6 +234,7 @@ export const builtinTools: Tool[] = [
   searchCodeTool,
   todoWriteTool,
   askUserQuestionTool,
+  exitPlanTool,
   webFetchTool,
   webSearchTool,
   applyPatchTool,

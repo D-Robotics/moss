@@ -267,6 +267,17 @@ export function stopBackgroundProcess(id: string): boolean {
   return true;
 }
 
+/** Stop every running background process. Returns the ids that were signaled. */
+export function stopAllBackgroundProcesses(): string[] {
+  const ids: string[] = [];
+  for (const proc of [...backgroundProcesses.values()]) {
+    if (proc.status !== 'running') continue;
+    ids.push(proc.id);
+    killProc(proc);
+  }
+  return ids;
+}
+
 export function tailLines(text: string, n: number): string {
   const lines = text.split('\n');
 

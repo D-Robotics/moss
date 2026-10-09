@@ -14,13 +14,17 @@ import { runTask, resumeTask, summarizeTaskRun } from '../core/task/task-engine.
 import { createAgentTurnRunner } from '../core/task/agent-turn.js';
 import {
   getTaskStateSnapshot,
+  listFailures,
   listTaskEvents,
   listTaskStateSnapshots,
   buildTaskTimeline,
   formatTaskTimeline,
 } from '../core/task/task-store.js';
+import { listEvidenceRecords } from '../core/task-runtime/artifacts.js';
+import { listDeploymentRecords } from '../device/deployment.js';
 import type { TaskStateSnapshot } from '../contracts/task-runtime.js';
 import { cliLocale, isZhLocale } from './cli-locale.js';
+import { verifyTaskOnce } from './commands/task-verify.js';
 
 export interface TaskCommandContext {
   agent: unknown;
@@ -59,6 +63,8 @@ function usage(zh: boolean = isZhLocale()): string {
       '  resume <task_id>     恢复一个失败/中断/阻塞的任务',
       '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新）',
       '  timeline [task_id]   完整生命周期时间线（默认：最新）',
+      '  view [kind]          只读工件：tasks | history | evidence | deployments | failures',
+      '  verify [task_id]     用裁决器复验一次（不发起模型回合）',
       '',
       '只有任务被验收（PASS）时退出码才是 0。',
     ].join('\n');
@@ -74,6 +80,8 @@ function usage(zh: boolean = isZhLocale()): string {
     '  resume <task_id>     resume a failed/abandoned/blocked task',
     '  status [task_id]     current phase, plan, failures, verdict (default: latest)',
     '  timeline [task_id]   full lifecycle timeline (default: latest)',
+    '  view [kind]          read-only artifacts: tasks | history | evidence | deployments | failures',
+    '  verify [task_id]     re-run the verdict once (no model turn)',
     '',
     'Exit code is 0 only when the task is accepted (PASS).',
   ].join('\n');
@@ -426,6 +434,83 @@ export async function runTaskCommand(
     }
     const events = await listTaskEvents(ctx.workspace, snapshot.taskId);
     output('stdout', formatTaskTimeline(buildTaskTimeline(events)) + '\n');
+    return 0;
+  }
+
+  if (sub === 'verify') {
+    const result = await verifyTaskOnce(ctx.workspace, {
+      ...(commandArgs[1] ? { taskId: commandArgs[1] } : {}),
+    });
+    output(result.exitCode === 0 ? 'stdout' : 'stderr', result.summary + '\n');
+    return result.exitCode;
+  }
+
+  if (sub === 'view') {
+    const kind = commandArgs[1] || 'tasks';
+    const known = ['tasks', 'history', 'evidence', 'deployments', 'failures'];
+    if (!known.includes(kind)) {
+      output(
+        'stderr',
+        `unknown kind "${kind}" — use tasks | history | evidence | deployments | failures\n`
+      );
+      return 2;
+    }
+    if (kind === 'tasks' || kind === 'history') {
+      const snapshots = await listTaskStateSnapshots(ctx.workspace);
+      if (snapshots.length === 0) {
+        output('stdout', 'No tasks in this workspace.\n');
+        return 0;
+      }
+      if (kind === 'tasks') {
+        output(
+          'stdout',
+          snapshots
+            .map((snapshot) => `${snapshot.taskId}  ${snapshot.phase}  ${snapshot.goal}`)
+            .join('\n') + '\n'
+        );
+        return 0;
+      }
+      const blocks: string[] = [];
+      for (const snapshot of snapshots) {
+        const events = await listTaskEvents(ctx.workspace, snapshot.taskId);
+        blocks.push(
+          `${snapshot.taskId}\n${formatTaskTimeline(buildTaskTimeline(events))}`
+        );
+      }
+      output('stdout', blocks.join('\n') + '\n');
+      return 0;
+    }
+    if (kind === 'evidence') {
+      const records = await listEvidenceRecords(ctx.workspace, 200);
+      output(
+        'stdout',
+        (records.length === 0
+          ? 'No evidence recorded.\n'
+          : records
+              .map((record) => `${record.result}  ${record.metric} = ${record.observed ?? '?'}`)
+              .join('\n') + '\n')
+      );
+      return 0;
+    }
+    if (kind === 'deployments') {
+      const records = await listDeploymentRecords(ctx.workspace);
+      output(
+        'stdout',
+        (records.length === 0
+          ? 'No deployments recorded.\n'
+          : records
+              .map((record) => `${record.deploymentId}  ${record.status}  ${record.remotePath}`)
+              .join('\n') + '\n')
+      );
+      return 0;
+    }
+    const failures = await listFailures(ctx.workspace);
+    output(
+      'stdout',
+      (failures.length === 0
+        ? 'No failures recorded.\n'
+        : failures.map((failure) => `${failure.taskId}  ${failure.symptom}`).join('\n') + '\n')
+    );
     return 0;
   }
 
