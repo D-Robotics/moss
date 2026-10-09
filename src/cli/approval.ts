@@ -1059,18 +1059,6 @@ function classifyHookDeviceCall(
   });
 }
 
-function persistTrustedDevice(host: string): void {
-  try {
-    const current = loadConfigFile();
-    const permissions = current.permissions ?? {};
-    const trustedDevices = [...new Set([...(permissions.trustedDevices ?? []), host])];
-    if (trustedDevices.length === (permissions.trustedDevices ?? []).length) return;
-    saveConfigFile({ ...current, permissions: { ...permissions, trustedDevices } });
-  } catch {
-    /* a failed save only costs re-asking next session */
-  }
-}
-
 export function createCliToolApprovalHook(
   mode: CliSafetyMode,
   env: NodeJS.ProcessEnv = process.env,
@@ -1081,7 +1069,8 @@ export function createCliToolApprovalHook(
   // edit family is a workspace-wide grant, design §3.4).
   const sessionAllowRules = new Set<string>();
   const sessionTrustedWorkspaces = new Set<string>();
-  const sessionTrustedDevices = new Set<string>();
+  /** `${deviceKey}\0${scopeId}` — `a` trusts one command scope, not the whole tier. */
+  const sessionTrustedScopes = new Set<string>();
   const workspaceRoot = workspaceTrustRoot(options.workspaceDir);
   let instanceAsker: AskUser | null = null;
   let instanceInteractionMode: (() => CliInteractionMode) | null = null;
@@ -1145,9 +1134,12 @@ export function createCliToolApprovalHook(
       options.deviceTrust === 'full' ||
       isDeviceTrustEnv(env) ||
       deviceIdsMatchTrustList(deviceKeys, options.trustedDevices ?? []) ||
-      deviceIdsMatchTrustList(deviceKeys, parseDeviceTrustList(env.MOSS_DEVICE_TRUST_DEVICES)) ||
-      deviceIdsMatchTrustList(deviceKeys, [...sessionTrustedDevices]) ||
-      sessionTrustedDevices.has('*');
+      deviceIdsMatchTrustList(deviceKeys, parseDeviceTrustList(env.MOSS_DEVICE_TRUST_DEVICES));
+    const scopeId = classification?.trust?.id;
+    const scopeDevices = deviceKeys.length > 0 ? deviceKeys : ['*'];
+    const deviceScopeTrusted = Boolean(
+      scopeId && scopeDevices.some((key) => sessionTrustedScopes.has(`${key}\0${scopeId}`))
+    );
 
     const decisionInput = {
       toolName: tool.name,
@@ -1161,6 +1153,7 @@ export function createCliToolApprovalHook(
       planModeAllowed: tool.metadata?.planMode === 'allow',
       ...(classification ? { deviceRiskTier: classification.tier } : {}),
       ...(deviceFullTrust ? { deviceFullTrust: true } : {}),
+      ...(deviceScopeTrusted ? { deviceScopeTrusted: true } : {}),
     };
 
     const settle = async (decision: ToolApprovalDecision): Promise<ToolApprovalDecision> => {
@@ -1252,6 +1245,7 @@ export function createCliToolApprovalHook(
             tier: classification.tier === 'sensitive' ? 'sensitive' : 'destructive',
             operand: classification.operand,
             reason: classification.reason,
+            ...(classification.trust ? { trustLabel: classification.trust.en } : {}),
             ...(deviceKeys[0] ? { deviceLabel: deviceKeys[0] } : {}),
           })
         : undefined;
@@ -1340,11 +1334,11 @@ export function createCliToolApprovalHook(
     }
     if (answer === 'a' || answer === 'always') {
       if (deviceGatedAsk) {
-        // Trust the device, not every future device_exec. A whole-tool allow
-        // would also skip the next reboot after a single confirmation.
-        if (deviceKeys.length === 0) sessionTrustedDevices.add('*');
-        for (const key of deviceKeys) sessionTrustedDevices.add(key);
-        if (options.persistTrust && deviceKeys[0]) persistTrustedDevice(deviceKeys[0]);
+        // Trust this command scope on this device, not every destructive call.
+        const trustedScope = classification?.trust?.id;
+        if (trustedScope) {
+          for (const key of scopeDevices) sessionTrustedScopes.add(`${key}\0${trustedScope}`);
+        }
       } else if (isWorkspaceTrustEligible(preview)) {
         sessionTrustedWorkspaces.add(workspaceRoot);
       } else {

@@ -197,40 +197,39 @@ test('modes: manual and acceptEdits ask, plan blocks, full asks only the destruc
   setCliInteractionMode('manual');
 });
 
-test('TTY confirmation and session device trust', async () => {
+test('TTY confirmation trusts the command scope, not the whole device', async () => {
   setCliInteractionMode('full');
-  const answers = ['n', 'y', 'a', ''];
-  setCliApprovalAsker(async () => answers.shift() ?? 'n');
+  const answers = ['n', 'y', 'a', 'a', 'n'];
+  const prompts = [];
+  setCliApprovalAsker(async (question) => {
+    prompts.push(question);
+    return answers.shift() ?? 'n';
+  });
   const ws = await tmpWorkspace();
   const hook = createCliToolApprovalHook(
     'workspace-write',
     {},
     { workspaceDir: ws, device: { host: '192.168.1.10' } }
   );
-  const denied = await hook({
-    tool: tool('device_exec'),
-    input: { command: 'reboot' },
-    sessionKey: 'no',
-  });
-  assert.equal(denied.approved, false);
-  const once = await hook({
-    tool: tool('device_exec'),
-    input: { command: 'reboot' },
-    sessionKey: 'yes',
-  });
-  assert.equal(once.approved, true, 'y allows this destructive call');
-  const trusted = await hook({
-    tool: tool('device_exec'),
-    input: { command: 'poweroff' },
-    sessionKey: 'trust',
-  });
-  assert.equal(trusted.approved, true, 'a trusts the device');
-  const later = await hook({
-    tool: tool('device_exec'),
-    input: { command: 'systemctl stop ssh' },
-    sessionKey: 'later',
-  });
-  assert.equal(later.approved, true, 'session device trust covers the next destructive call');
+  const call = (command, sessionKey) =>
+    hook({
+      tool: tool('device_exec'),
+      input: { command },
+      sessionKey,
+    });
+  assert.equal((await call('reboot', 'no')).approved, false);
+  assert.equal((await call('reboot', 'yes')).approved, true, 'y allows this call only');
+  assert.equal((await call('poweroff', 'trust-power')).approved, true, 'a trusts the power scope');
+  assert.match(prompts.at(-1) ?? '', /reboot, shutdown, poweroff, and halt/);
+  const promptsAfterPower = prompts.length;
+  assert.equal((await call('shutdown -h now', 'later-power')).approved, true);
+  assert.equal(prompts.length, promptsAfterPower, 'power scope does not ask again');
+  assert.equal((await call('systemctl stop ssh', 'ssh-stop')).approved, true);
+  assert.match(prompts.at(-1) ?? '', /systemctl restart or stop of ssh/);
+  assert.equal((await call('systemctl stop ssh.service', 'ssh-again')).approved, true);
+  assert.equal((await call('systemctl stop sshd', 'sshd')).approved, false);
+  assert.equal((await call('systemctl disable ssh', 'ssh-disable')).approved, false);
+  assert.equal((await call('reboot', 'reboot-again')).approved, true, 'power scope still holds');
   setCliApprovalAsker(null);
   setCliInteractionMode('manual');
 });

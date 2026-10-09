@@ -25,6 +25,18 @@ export interface DeviceRiskClassification {
   reason: string;
   /** Grant key operand. Callers must pass this back to the trust ledger. */
   operand: string;
+  /**
+   * What answering `a` trusts for this device until the process exits.
+   * Present on sensitive and destructive classifications.
+   */
+  trust?: DeviceSessionTrustScope;
+}
+
+/** Session scope for one `a` answer. `id` is the match key; labels are shown verbatim. */
+export interface DeviceSessionTrustScope {
+  id: string;
+  en: string;
+  zh: string;
 }
 
 export interface DeviceOperationInput {
@@ -1040,6 +1052,107 @@ function classifyWritePath(path: string): SegmentJudgement {
   return hit('reversible', 'write-app-path', `write to ${path}`);
 }
 
+const SYSTEMD_VERBS = new Set([
+  'start',
+  'stop',
+  'restart',
+  'reload',
+  'try-restart',
+  'reload-or-restart',
+  'enable',
+  'disable',
+  'mask',
+  'unmask',
+  'kill',
+  'status',
+  'reboot',
+  'poweroff',
+  'halt',
+]);
+
+function unitBaseName(name: string): string {
+  const bare = name.split('/').pop() ?? name;
+  return bare
+    .replace(/@.*/, '')
+    .replace(/\.(service|socket|target|device|mount|timer|path|slice)$/i, '');
+}
+
+function prefixTrustScope(command: string): DeviceSessionTrustScope {
+  const tokens = tokenize(stripWrappers(command.split('\n')[0] ?? command));
+  const prefix = tokens.slice(0, Math.min(4, tokens.length)).join(' ') || command.trim();
+  return {
+    id: `prefix:${prefix}`,
+    en: `commands starting with "${prefix}" on this device`,
+    zh: `本机上以「${prefix}」开头的命令`,
+  };
+}
+
+function powerTrustScope(): DeviceSessionTrustScope {
+  return {
+    id: 'power',
+    en: 'reboot, shutdown, poweroff, and halt on this device',
+    zh: '本机上的 reboot、shutdown、poweroff 和 halt',
+  };
+}
+
+/**
+ * What `a` trusts. Power commands share one scope. systemctl stop/restart of
+ * one unit share one scope; disable/mask of that unit is a different scope.
+ * Everything else is the command's leading words, not the whole destructive tier.
+ */
+export function deviceSessionTrustScope(classification: {
+  tier: DeviceRiskTier;
+  signal: string;
+  operand: string;
+}): DeviceSessionTrustScope | null {
+  if (classification.tier !== 'destructive' && classification.tier !== 'sensitive') return null;
+  const command = classification.operand.split('\n')[0] ?? classification.operand;
+  if (classification.tier === 'sensitive') {
+    const tokens = tokenize(command);
+    const path = tokens.find((token) => isSensitiveCredentialPath(token)) ?? command.trim();
+    return {
+      id: `read:${path}`,
+      en: `reading ${path} on this device`,
+      zh: `读取本机上的 ${path}`,
+    };
+  }
+  if (classification.signal === 'reboot') return powerTrustScope();
+  const tokens = tokenize(stripWrappers(command));
+  const base = commandBase(tokens[0] ?? '');
+  if (base === 'systemctl' || base === 'service') {
+    const args = tokens.slice(1);
+    const user = args.includes('--user');
+    const words = args.filter((arg) => !arg.startsWith('-'));
+    const verb = base === 'service' ? words[1] : words.find((word) => SYSTEMD_VERBS.has(word));
+    const unit = base === 'service' ? words[0] : words.find((word) => word !== verb);
+    if (verb === 'reboot' || verb === 'poweroff' || verb === 'halt') return powerTrustScope();
+    if (unit && (verb === 'stop' || verb === 'restart' || verb === 'start' || verb === 'kill')) {
+      const name = unitBaseName(unit);
+      const who = user ? ' (user unit)' : '';
+      const whoZh = user ? '（用户单元）' : '';
+      return {
+        id: `systemd:cycle:${user ? 'user:' : ''}${name}`,
+        en: `systemctl restart or stop of ${name}${who} on this device`,
+        zh: `本机上 systemctl restart 或 stop ${name}${whoZh}`,
+      };
+    }
+    if (unit && (verb === 'disable' || verb === 'mask')) {
+      const name = unitBaseName(unit);
+      return {
+        id: `systemd:persist:${user ? 'user:' : ''}${name}`,
+        en: `systemctl disable or mask of ${name} on this device`,
+        zh: `本机上 systemctl disable 或 mask ${name}`,
+      };
+    }
+  }
+  return prefixTrustScope(command);
+}
+
+function withTrust(body: Omit<DeviceRiskClassification, 'trust'>): DeviceRiskClassification {
+  const trust = deviceSessionTrustScope(body);
+  return trust ? { ...body, trust } : body;
+}
+
 /**
  * Classify one device tool call. Returns null for tools that are not device
  * operations. Unknown `device_mutation` tools (no command/path shape) are
@@ -1051,29 +1164,29 @@ export function classifyDeviceOperation(
   if (input.toolName === 'device_file_read') {
     const path = input.path ?? '';
     if (isSensitiveCredentialPath(path)) {
-      return {
+      return withTrust({
         tier: 'sensitive',
         signal: 'credential-read',
         reason: `read of credential or ssh file ${path}`,
         operand: path,
-      };
+      });
     }
   }
   if (READONLY_DEVICE_TOOLS.has(input.toolName)) {
-    return {
+    return withTrust({
       tier: 'readonly',
       signal: 'device-readonly-tool',
       reason: `${input.toolName} is a read-only device probe`,
       operand: input.path ?? '',
-    };
+    });
   }
   if (input.toolName === 'device_exec') {
     const judged = classifyCommand(input.command ?? '');
-    return { ...judged.judgement, operand: judged.operand };
+    return withTrust({ ...judged.judgement, operand: judged.operand });
   }
   if (input.toolName === 'device_file_write') {
     const path = input.path ?? '';
-    return { ...classifyWritePath(path), operand: path };
+    return withTrust({ ...classifyWritePath(path), operand: path });
   }
   if (input.toolName === 'device_deploy') {
     const remote = input.remotePath ?? '';
@@ -1081,15 +1194,15 @@ export function classifyDeviceOperation(
     if (input.startCommand) best = higher(best, classifyCommand(input.startCommand).judgement);
     if (input.healthCommand) best = higher(best, classifyCommand(input.healthCommand).judgement);
     const operand = [remote, input.startCommand ?? ''].filter((part) => part !== '').join('\n');
-    return { ...best, operand };
+    return withTrust({ ...best, operand });
   }
   if (input.sideEffect === 'device_mutation') {
-    return {
+    return withTrust({
       tier: 'reversible',
       signal: 'device-mutation-unclassified',
       reason: 'device mutation with no recognized lockout pattern',
       operand: input.command ?? input.path ?? input.remotePath ?? '',
-    };
+    });
   }
   return null;
 }
