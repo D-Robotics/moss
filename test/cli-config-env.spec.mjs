@@ -60,4 +60,5 @@ for (const l of listed) {
 
 assert.ok(renderConfigEnv().includes('IGNORED'), 'the ignored model-settings group is called out');
 assert.ok(renderConfigEnv().includes('MOSS_DEVICE_HOST'), 'device vars are documented');
+assert.ok(renderConfigEnv().includes('MOSS_TOP_P'), 'nucleus sampling is documented');
 console.log('[PASS] config env reference coverage');

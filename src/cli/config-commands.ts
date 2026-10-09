@@ -343,6 +343,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_MODEL_CHEAP',
       'MOSS_MODEL_STRONG',
       'MOSS_TEMPERATURE',
+      'MOSS_TOP_P',
       'MOSS_FALLBACK_PROVIDERS',
       'MOSS_FALLBACK_MAX_RETRIES',
       'MOSS_FALLBACK_COOLDOWN_MS',
