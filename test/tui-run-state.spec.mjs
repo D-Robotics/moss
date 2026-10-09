@@ -72,20 +72,35 @@ const THINKING = 'The user wants one word. ';
     'live reasoning is never rendered as an answer row'
   );
   const reasoningLine = live.find((entry) => entry.text.includes('one word'));
-  assert.ok(reasoningLine.text.startsWith('· '), 'reasoning rides the dim activity prefix');
+  assert.ok(reasoningLine.text.startsWith('│ '), 'reasoning rides the dim gutter');
 
-  const longThought = `${'consider the design '.repeat(40)}tail`;
+  const longThought = `${'consider the design '.repeat(500)}tail`;
   const growing = createTuiStore();
   beginRun(growing);
   applyAgentEvent(growing, { type: 'thinking_delta', delta: longThought });
-  assert.ok(growing.run.thinkingText.length <= 360, 'the live tail stays bounded');
-  assert.ok(growing.run.thinkingText.includes('tail'), 'the newest tokens stay live');
-  assert.ok(
-    growing.rows.some((row) => row.kind === 'detail' && row.text.includes('consider the design')),
-    'the head of a long thought is committed where it can be scrolled back to'
+  assert.ok(growing.run.thinkingText.length <= 6000, 'the reasoning buffer stays bounded');
+  assert.ok(growing.run.thinkingText.includes('tail'), 'the newest tokens are kept');
+  assert.equal(
+    growing.rows.filter((row) => row.kind === 'detail').length,
+    0,
+    'reasoning never floods the transcript with committed rows'
   );
+  const hidden = renderLive(
+    {
+      running: true,
+      startedAt: Date.now(),
+      streaming: '',
+      thinking: '',
+      thinkingActive: true,
+      tokensOut: 0,
+      queued: 0,
+    },
+    80
+  );
+  assert.equal(hidden.length, 1, 'hidden reasoning leaves only the spinner row');
+  assert.match(hidden[0].text, /Thinking… \d+s/, 'the spinner names the phase');
   const activity = renderScrollableActivity(growing.run.thinkingText, 'answer so far', 40);
-  assert.ok(activity.filter((entry) => entry.text.startsWith('· ')).length > 2);
+  assert.ok(activity.filter((entry) => entry.text.startsWith('│ ')).length > 2);
   assert.ok(activity.some((entry) => entry.text.includes('answer so far')));
 
   endRun(store, false);
@@ -324,3 +339,94 @@ const THINKING = 'The user wants one word. ';
 }
 
 console.log('OK tui-run-state');
+
+// ─── N7: prose of separate assistant turns never runs together ───────────
+// A turn that ends without a tool call (text, then turn_end, then the next turn)
+// used to leave both messages in one buffer: "Step 2.Step 3.Done." in the transcript.
+{
+  const store = createTuiStore();
+  beginRun(store);
+  applyAgentEvent(store, { type: 'text_delta', delta: 'Step 2.' });
+  applyAgentEvent(store, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  applyAgentEvent(store, { type: 'turn_start', turn: 2 });
+  applyAgentEvent(store, { type: 'text_delta', delta: 'Step 3.' });
+  applyAgentEvent(store, { type: 'turn_end', turn: 2, stopReason: 'stop' });
+  const answers = store.rows.filter((row) => row.kind === 'assistant').map((row) => row.text);
+  assert.deepEqual(answers, ['Step 2.', 'Step 3.'], 'each assistant turn is its own row (N7)');
+  assert.equal(store.run.streamingText, '', 'nothing is left pending between turns');
+}
+
+// ─── N7 follow-up: the final response is not shown twice ─────────────────
+// turn_end commits the last turn's prose; the `done` event then carries the same
+// final response and must not append it again.
+{
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const store = createTuiStore();
+  beginRun(store);
+  applyAgentEvent(store, { type: 'text_delta', delta: 'Done.' });
+  applyAgentEvent(store, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  reconcileFinalResponse(store, 'Done.');
+  assert.deepEqual(
+    store.rows.filter((row) => row.kind === 'assistant').map((row) => row.text),
+    ['Done.'],
+    'a final response already committed at turn end is not repeated'
+  );
+}
+{
+  // A response that was never streamed (non-streaming provider) is still shown.
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const store = createTuiStore();
+  beginRun(store);
+  reconcileFinalResponse(store, 'Whole answer');
+  assert.equal(store.rows.at(-1)?.text, 'Whole answer');
+}
+
+// ─── Duplicate answer: a multi-turn run's final response is the whole text ──
+// Live capture (qwen3.8-max): turn 1 "Hi! I'm Moss…" and turn 2 "I can see…" were each
+// committed at their turn end, then the done response (both turns) was appended again.
+{
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const store = createTuiStore();
+  beginRun(store);
+  applyAgentEvent(store, { type: 'text_delta', delta: "Hi! I'm Moss, ready to help." });
+  applyAgentEvent(store, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  applyAgentEvent(store, { type: 'turn_start', turn: 2 });
+  applyAgentEvent(store, { type: 'thinking_delta', delta: 'checking the repo' });
+  applyAgentEvent(store, { type: 'text_delta', delta: 'I can see the repo.' });
+  applyAgentEvent(store, { type: 'turn_end', turn: 2, stopReason: 'stop' });
+  reconcileFinalResponse(store, "Hi! I'm Moss, ready to help.\n\nI can see the repo.");
+  const answers = store.rows.filter((row) => row.kind === 'assistant').map((row) => row.text);
+  assert.deepEqual(
+    answers,
+    ["Hi! I'm Moss, ready to help.", 'I can see the repo.'],
+    'a final response spanning several committed turns is not shown a second time'
+  );
+}
+
+// Live reasoning in the detailed view: a long thought streams as a bounded tail
+// with a marker, not as a wall that pushes the answer and the spinner off screen.
+{
+  const longThought = Array.from({ length: 60 }, (_, i) => `step ${i} of the plan`).join('\n');
+  const live = renderLive(
+    {
+      running: true,
+      startedAt: Date.now(),
+      streaming: '',
+      thinking: longThought,
+      tokensOut: 900,
+      queued: 0,
+    },
+    80,
+    true
+  );
+  const reasoning = live.filter((entry) => entry.text.startsWith('│ '));
+  assert.ok(reasoning.length <= 13, `the live thought is bounded (${reasoning.length} rows)`);
+  assert.ok(
+    live.some((entry) => entry.text.includes('earlier lines')),
+    'the cut is marked, so the reader knows the thought continues'
+  );
+  assert.ok(
+    live.some((entry) => entry.text.includes('step 59')),
+    'the newest reasoning stays visible'
+  );
+}

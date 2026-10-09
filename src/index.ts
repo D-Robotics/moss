@@ -5,6 +5,7 @@ export {
   sanitizeSecrets,
   containsSecrets,
   isCommandDangerous,
+  classifyDeviceOperation,
   isPathProtected,
   registerProtectedPaths,
   matchTextApproval,
@@ -12,6 +13,11 @@ export {
   stripShellPrefixBeforeHeredoc,
 } from './safety/index.js';
 export type { ChannelSource, ChannelSafetyResult, TextApprovalResult } from './safety/index.js';
+export type {
+  DeviceRiskTier,
+  DeviceRiskClassification,
+  DeviceOperationInput,
+} from './safety/index.js';
 
 export {
   hashSystemPromptForTelemetry,

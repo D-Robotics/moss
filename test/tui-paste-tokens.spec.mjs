@@ -38,3 +38,15 @@ assert.equal(small.tokens.length, 0);
 let jumped = insertPaste(emptyPasteDoc(), body, 3);
 jumped = moveCaret(jumped, 'left');
 assert.equal(jumped.state.caret, 0);
+
+// P6 paste boundary: tabs and newlines survive a paste byte-for-byte, and the
+// model receives exactly what was pasted (no collapsed indent, no lost break).
+{
+  const pasted = 'def main():\n\tnode = Listener()\n    rclpy.spin(node)\n';
+  const doc = insertPaste({ state: { value: '', caret: 0 }, tokens: [] }, pasted, 1);
+  assert.equal(
+    expandPasteTokens(doc.state.value, doc.tokens),
+    pasted,
+    'a paste with tabs and newlines round-trips'
+  );
+}

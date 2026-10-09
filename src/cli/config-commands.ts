@@ -205,14 +205,26 @@ function setPermissionsKey(config: ConfigFile, key: string, value: string): bool
     key !== 'permissions.defaultMode' &&
     key !== 'permissions.allow' &&
     key !== 'permissions.ask' &&
-    key !== 'permissions.deny'
+    key !== 'permissions.deny' &&
+    key !== 'permissions.deviceTrust' &&
+    key !== 'permissions.trustedDevices'
   ) {
     return false;
   }
-  const subKey = key.split('.')[1] as 'defaultMode' | 'allow' | 'ask' | 'deny';
+  const subKey = key.split('.')[1] as
+    | 'defaultMode'
+    | 'allow'
+    | 'ask'
+    | 'deny'
+    | 'deviceTrust'
+    | 'trustedDevices';
   const permissions = { ...(config.permissions ?? {}) };
   if (subKey === 'defaultMode') {
     permissions.defaultMode = value;
+  } else if (subKey === 'deviceTrust') {
+    permissions.deviceTrust = value;
+  } else if (subKey === 'trustedDevices') {
+    permissions.trustedDevices = parseConfigPatternList(value, key);
   } else {
     permissions[subKey] = parseConfigPatternList(value, key);
   }
@@ -294,6 +306,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_LOOP_MAX',
       'MOSS_GOAL_VERIFY_CMD',
       'MOSS_GOAL_VERIFY_LOOP',
+      'MOSS_PLAN_GATE (1 enables the /plan approval gate; default off)',
       'MOSS_GOAL_AUTO_MAX_RUNS',
       'MOSS_BUDGET_MAX_TOKENS',
       'MOSS_BUDGET_MAX_TOOL_CALLS',
@@ -315,6 +328,8 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_DEVICE_KEY_PASSPHRASE',
       'MOSS_DEVICE_KIND',
       'MOSS_DEVICE_ID',
+      'MOSS_DEVICE_TRUST (full|1|true|yes opts this process into destructive device operations)',
+      'MOSS_DEVICE_TRUST_DEVICES (comma-separated host or device-id allowlist)',
       'MOSS_DEVICE_ (prefix of every MOSS_DEVICE_* key)',
     ],
   },
@@ -386,10 +401,12 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
     group: 'ui, logging & notifications',
     vars: [
       'MOSS_NO_TUI',
+      'MOSS_TUI_DEBUG',
       'MOSS_TUI_HW_CURSOR',
       'MOSS_TUI_INCREMENTAL',
       'MOSS_TUI_RENDERER',
       'MOSS_TUI_RENDERER_CONFIG',
+      'MOSS_TUI_THEME',
       'MOSS_NO_COLOR',
       'MOSS_LOG_LEVEL',
       'MOSS_LOG_JSON',
@@ -536,6 +553,18 @@ export function runConfigValidate(args: string[] = [], startDir = process.cwd())
           });
         }
       }
+      if (
+        permissions.deviceTrust !== undefined &&
+        permissions.deviceTrust !== 'full' &&
+        permissions.deviceTrust !== 'gated'
+      ) {
+        warnings.push({
+          code: 'permissions.device_trust',
+          severity: 'warn',
+          source: 'config',
+          message: `permissions.deviceTrust "${permissions.deviceTrust}" is not full or gated`,
+        });
+      }
       for (const level of ['allow', 'ask', 'deny'] as const) {
         for (const spec of permissions[level] ?? []) {
           try {
@@ -677,7 +706,7 @@ function buildProjectConfigTemplate(): ConfigFile {
 }
 
 function supportedConfigKeys(): string {
-  return 'Supported keys — model: provider, model, baseUrl, apiKey; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens';
+  return 'Supported keys — model: provider, model, baseUrl, apiKey; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens';
 }
 
 function removeEmptyNestedConfig(config: ConfigFile): ConfigFile {
@@ -810,6 +839,19 @@ function applyConfigSetPair(
       };
     }
     next.permissions = { ...next.permissions, defaultMode: mode };
+  } else if (key === 'permissions.deviceTrust') {
+    const trust = value.trim().toLowerCase();
+    if (trust !== 'full' && trust !== 'gated') {
+      return {
+        ok: false,
+        messages: ['Supported permissions.deviceTrust values: gated, full'],
+      };
+    }
+    next.permissions = { ...next.permissions, deviceTrust: trust };
+  } else if (key === 'permissions.trustedDevices') {
+    if (!setPermissionsKey(next, key, value)) {
+      return { ok: false, messages: [supportedConfigKeys()] };
+    }
   } else if (
     key === 'permissions.allow' ||
     key === 'permissions.ask' ||
@@ -1079,7 +1121,13 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
   else if (key === 'approvalPolicy') delete next.approvalPolicy;
   else if (key === 'trustedTools') delete next.trustedTools;
   else if (key === 'deniedTools') delete next.deniedTools;
-  else if (key === 'promptCache') {
+  else if (key === 'permissions.deviceTrust') {
+    next.permissions = { ...current.permissions };
+    delete next.permissions.deviceTrust;
+  } else if (key === 'permissions.trustedDevices') {
+    next.permissions = { ...current.permissions };
+    delete next.permissions.trustedDevices;
+  } else if (key === 'promptCache') {
     if (typeof current.promptCache === 'object' && current.promptCache !== null) {
       next.promptCache = { ...current.promptCache };
       delete next.promptCache.enabled;

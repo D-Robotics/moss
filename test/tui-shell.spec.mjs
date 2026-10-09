@@ -32,7 +32,7 @@ import {
 } from '../dist/core/task-runtime/artifacts.js';
 import { appendDeploymentRecord } from '../dist/device/deployment.js';
 import { appendRow, createTuiStore } from '../dist/cli/tui/render-bridge.js';
-import { CTRL_BINDINGS, ctrlBinding } from '../dist/cli/tui/help.js';
+import { commandForKey, DEFAULT_KEYBINDINGS } from '../dist/cli/tui/keymap.js';
 import {
   ANSWER_MARK,
   APPROVAL_OPTIONS,
@@ -264,16 +264,21 @@ for (const width of [40, 80, 120]) {
   assertFits(typing, width, `composer(cjk)@${width}`);
 
   const hint = renderHint({ running: true, tokens: 0, taskCount: 2, queueLength: 1 }, width);
-  assert.ok(hint.text.includes('? for shortcuts'), 'the hint advertises the key reference');
+  // Contract (plan v3 P2, intentional): the mode label is never dropped; the
+  // lower-priority items give way on a narrow pane instead of being clipped.
+  assert.ok(hint.text.includes('full mode on'), 'the mode label survives every width');
+  if (width >= 60) {
+    assert.ok(hint.text.includes('? for shortcuts'), 'the hint advertises the key reference');
+  }
   assertFits([hint], width, `hint@${width}`);
   if (width >= 80) {
     assert.ok(hint.text.includes('Esc to interrupt'), 'the hint advertises how to stop a run');
     assert.ok(hint.text.includes('1 queued'), 'the hint carries the queue depth');
     assert.ok(hint.text.includes('2 tasks'), 'the hint carries the task count');
   } else {
-    // A 40-cell pane cannot show every hint: it must truncate honestly, never
-    // overflow the row.
-    assert.equal(cells(hint.text), width, 'a narrow hint is clipped to exactly the pane width');
+    // A 40-cell pane keeps what the keys do now before the generic shortcut hint.
+    assert.ok(hint.text.includes('Esc to interrupt'), 'a narrow run still says how to stop');
+    assert.ok(cells(hint.text) <= width, 'a narrow hint never overflows the row');
   }
   assertFits(
     [
@@ -713,9 +718,13 @@ instance.unmount();
     );
   }
 
-  // 3b. Slash commands print the task-runtime blocks into the transcript.
-  await type('/tasks');
-  assert.ok(await waitFor(() => toolTitles().includes('Tasks (2)')), '/tasks prints the task list');
+  // 3b. Task OS artifacts answer on `/task view`. `/tasks` is background work.
+  // Retired names print a migration line and then the same view.
+  await type('/task view');
+  assert.ok(
+    await waitFor(() => toolTitles().includes('Tasks (2)')),
+    '/task view prints the task list'
+  );
   assert.ok(
     detailRows().some((line) => line.includes('CAMERA') && line.includes('PASS')),
     'task kind + verdict'
@@ -725,13 +734,18 @@ instance.unmount();
     'second task listed'
   );
 
-  // Ctrl+R is the prompt-SEARCH key (A2.22) — the task-history block answers
-  // to /history, which drives the same showBlock('history') path the chord
-  // used to take.
+  // Ctrl+R is the prompt-SEARCH key (A2.22). Task history is `/task view history`;
+  // `/history` remains a hidden alias that says so and then prints the same block.
   await type('/history');
   assert.ok(
+    await waitFor(() =>
+      rowsOf('summary').some((row) => row.text.includes('/history is now /task view history.'))
+    ),
+    '/history prints the migration hint'
+  );
+  assert.ok(
     await waitFor(() => toolTitles().includes('History (2)')),
-    '/history prints the history'
+    '/history still prints the history after the migration line'
   );
   assert.ok(
     detailRows().some((line) => line.includes('task_cam1')),
@@ -774,26 +788,34 @@ instance.unmount();
     'the recorded failure is the same one acceptance repaired'
   );
 
-  // 3c. The advertised command and the shortcut print the same block.
+  // 3c. `/tasks` is background shell + sub-agents, not a second Task OS board.
   await type('/tasks');
+  assert.ok(
+    await waitFor(() => toolTitles().includes('Tasks')),
+    '/tasks prints the background-job block'
+  );
+  assert.ok(
+    detailRows().some((line) => line.includes('background shell:')),
+    '/tasks names the background shell section'
+  );
   assert.equal(
     toolTitles().filter((title) => title === 'Tasks (2)').length,
-    2,
-    '/tasks prints the same block Ctrl+T does'
+    1,
+    '/tasks does not reprint the Task OS list'
   );
 
-  // `/resume` is the strict Task OS recovery path. It selects the latest
-  // failed/blocked task and reports the real recovery result instead of staging
-  // an editable prompt that never changes task state.
+  // `/resume` restores a conversation. With no saved sessions it says so and
+  // does not call Task OS resume.
   await type('/resume task_ros2');
   assert.ok(
-    await waitFor(() => toolTitles().includes('Task')),
-    `resume renders a Task block: ${JSON.stringify(frame().slice(-300))}`
+    await waitFor(() => toolTitles().includes('Resume')),
+    `resume renders a Resume block: ${JSON.stringify(frame().slice(-300))}`
   );
   assert.ok(
-    detailRows().some((line) => line.includes('task_ros2') || line.includes('task_id')),
-    'resume output identifies the task being recovered'
+    detailRows().some((line) => line.includes('no saved sessions')),
+    'resume with no sessions does not recover a Task OS task'
   );
+  assert.ok(!toolTitles().includes('Task'), 'resume does not dispatch /task');
 
   // 3d. Ctrl+L clears the composer; `?` prints the complete reference.
   await typeOnly('a draft goal');
@@ -810,12 +832,12 @@ instance.unmount();
   assert.ok(shortcuts.includes('prefixes'), 'the reference explains input prefixes');
   assert.ok(shortcuts.includes('shortcuts'), 'the reference explains keyboard shortcuts');
   assert.ok(!shortcuts.includes('Ctrl+H'), 'the unreachable Ctrl+H is never advertised');
-  assert.equal(ctrlBinding('h'), undefined, 'Ctrl+H is not a binding');
-  for (const binding of CTRL_BINDINGS) {
+  assert.equal(commandForKey(DEFAULT_KEYBINDINGS, 'ctrl+h'), undefined, 'Ctrl+H is not a binding');
+  for (const binding of DEFAULT_KEYBINDINGS) {
     assert.equal(
-      ctrlBinding(binding.letter),
-      binding.action,
-      `binding resolves: ${binding.letter}`
+      commandForKey(DEFAULT_KEYBINDINGS, binding.key),
+      binding.command,
+      `binding resolves: ${binding.key}`
     );
   }
   assert.ok(

@@ -102,6 +102,7 @@ export function fullHelpLines(c: Colors, configPath: string): string[] {
     `    ${c.yellow('--session')} <key> · ${c.yellow('--last')}      named / latest session`,
     `    ${c.yellow('-C, --cd')} <dir>       use a different workspace`,
     `    ${c.yellow('--read-only')} · ${c.yellow('--workspace-write')} · ${c.yellow('--full-access')}   mode overrides: manual+ceiling / manual / full (the v0.26 default equivalent; deny rules + hard blocks still apply)`,
+    `    ${c.yellow('--trust-device')}   this process may run destructive device operations (reboot, flash, /etc, network)`,
     `    ${c.yellow('--accept-edits')} · ${c.yellow('--plan')} · ${c.yellow('--ask-for-approval')} <never|prompt>   other mode overrides (mutually exclusive)`,
     `    ${c.yellow('--mock')} · ${c.yellow('--json')} · ${c.yellow('--output-format')} <f>   offline · machine-readable output`,
     `    ${c.yellow('--quiet')} · ${c.yellow('--verbose')} · ${c.yellow('--debug')} · ${c.yellow('--no-color')}`,

@@ -22,11 +22,14 @@ import {
 } from '../approval-view.js';
 import { resolveCliConfig, type ResolvedCliConfig } from '../config.js';
 import type { CliInteractionMode } from '../interaction-mode.js';
+import { slashAliasHelpLines } from '../interactive-commands.js';
 import type { CliRuntimeStatus } from '../onboarding.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
 import { tui } from './copy.js';
+import { paintColor, TONE } from './theme.js';
+import { DEFAULT_KEYBINDINGS, type KeyBinding } from './keymap.js';
 import {
-  HELP_KEYS,
+  helpKeyRows,
   HELP_PREFIXES,
   ALL_SHELL_COMMANDS,
   SHELL_COMMANDS,
@@ -206,8 +209,9 @@ export function inkTextStyle(style: {
   underline?: boolean;
   dim?: boolean;
 }): Record<string, unknown> {
+  const color = paintColor(style.color);
   return {
-    ...(style.color ? { color: style.color } : {}),
+    ...(color ? { color } : {}),
     ...(style.bold ? { bold: true } : {}),
     ...(style.italic ? { italic: true } : {}),
     ...(style.underline ? { underline: true } : {}),
@@ -318,20 +322,23 @@ export function commandBlockTitle(head: string): string {
 }
 
 const COMMON_HELP_COMMANDS = [
-  '/status',
   '/model',
-  '/mode',
   '/compact',
-  '/task',
-  '/resume',
+  '/goal',
+  '/plan',
+  '/review',
+  '/doctor',
   '/diff',
   '/permissions',
-  '/help',
   '/clear',
+  '/help',
 ];
 
 /** Compact help (prefixes + shortcuts + common commands) or the full reference. */
-export function buildHelpOverlayLines(all: boolean): string[] {
+export function buildHelpOverlayLines(
+  all: boolean,
+  bindings: readonly KeyBinding[] = DEFAULT_KEYBINDINGS
+): string[] {
   // The labels, keys and usages stay as-is (they are command/key surfaces); only
   // moss's own descriptions are localized, at the render site.
   return [
@@ -339,14 +346,16 @@ export function buildHelpOverlayLines(all: boolean): string[] {
     ...HELP_PREFIXES.map(([prefix, what]) => `  ${prefix.padEnd(3)} ${tui(what)}`),
     '',
     tui('shortcuts'),
-    ...HELP_KEYS.map(([keys, what]) => `${keys.padEnd(12)} ${tui(what)}`),
+    ...helpKeyRows(bindings).map(([keys, what]) => `${keys.padEnd(12)} ${tui(what)}`),
     '',
     all ? tui('all commands') : tui('common commands'),
     ...(all
       ? ALL_SHELL_COMMANDS
       : SHELL_COMMANDS.filter((entry) => COMMON_HELP_COMMANDS.includes(entry.command))
     ).map((entry) => `  ${entry.usage.padEnd(24)} ${tui(entry.description)}`),
-    ...(all ? [] : ['', tui('type / to browse commands · /help --all for the rest')]),
+    ...(all
+      ? ['', tui('aliases'), ...slashAliasHelpLines()]
+      : ['', tui('type / to browse commands · /help --all for the rest')]),
   ];
 }
 
@@ -381,7 +390,10 @@ export function renderSessionPicker(
   maxRows = 8
 ): TuiLine[] {
   const out: TuiLine[] = [
-    line(clip(tui('Resume session  ⌕ {query}▌', { query }), width), { color: 'cyan', bold: true }),
+    line(clip(tui('Resume session  ⌕ {query}', { query }), width), {
+      color: TONE.accent,
+      bold: true,
+    }),
   ];
   const sel = Math.max(0, Math.min(selected, matches.length - 1));
   matches.slice(0, maxRows).forEach((s, index) => {

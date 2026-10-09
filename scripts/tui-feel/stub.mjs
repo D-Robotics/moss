@@ -65,6 +65,33 @@ http
         res.on('close', () => clearInterval(timer));
         return;
       }
+      if (/approvewrite/i.test(text) && toolResults < 1) {
+        const id = `call_${++seq}`;
+        send(res, {
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id,
+                    type: 'function',
+                    function: {
+                      name: 'write_file',
+                      arguments: JSON.stringify({ path: 'note.txt', content: 'hello\n' }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        });
+        send(res, { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage });
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
       if (/toolstorm/i.test(text) && toolResults < 20) {
         const id = `call_${++seq}`;
         send(res, { choices: [{ index: 0, delta: { content: `Step ${toolResults + 1}. ` } }] });

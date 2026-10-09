@@ -344,7 +344,7 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
 
   // An exec tail that is only the program's own `exit=0` line is noise: the
   // summary must reach past it to the real conclusion.
-  const noisyTail = `${Array.from({ length: 30 }, (_, i) => `step ${i}`).join('\n')}\nexit=0`;
+  const noisyTail = `${Array.from({ length: 29 }, (_, i) => `step ${i}`).join('\n')}\nbuild finished\nexit=0`;
   applyAgentEvent(store, {
     type: 'tool_start',
     toolName: 'exec',
@@ -360,8 +360,8 @@ async function waitFor(predicate, timeoutMs = 4000, stepMs = 40) {
   });
   assert.equal(
     store.rows.at(-1).tool?.summary,
-    'step 29',
-    'the tail summary skips a bare exit= line'
+    'build finished',
+    'the tail summary skips a bare exit= line and reaches the conclusion'
   );
 
   // A classified provider failure renders its sanitized surface (user message
@@ -1054,20 +1054,45 @@ async function type(instance, text) {
     await sleep(150);
   }
 
-  // 4p. Plan-mode exit ritual: a plan run that produced a plan gets the
-  // `Ready to code?` gate; option 1 flips to accept-edits and dispatches the
-  // execution run (A7.60-62). Esc keeps planning.
+  // 4p. Plan-mode exit ritual is opt-in (`MOSS_PLAN_GATE=1`, default off).
+  // With the gate on, a plan run gets `Ready to code?`; option 1 flips to
+  // accept-edits and dispatches the execution run (A7.60-62).
   {
     const { getCliInteractionMode, setCliInteractionMode } =
       await import('../dist/cli/interaction-mode.js');
     const before = getCliInteractionMode();
+    const previousGate = process.env.MOSS_PLAN_GATE;
+    const planBody = `## Plan\n${'step for the refactor. '.repeat(30)}`;
+    delete process.env.MOSS_PLAN_GATE;
     setCliInteractionMode('plan');
+    const offCalls = [];
+    const offAgent = {
+      async *streamChat() {
+        offCalls.push(1);
+        yield { type: 'text_delta', delta: planBody };
+        yield { type: 'done', result: { response: planBody, stopReason: 'end_turn' } };
+      },
+    };
+    const off = mount({ agent: offAgent, workspaceDir: '/tmp/ws' });
+    await type(off.instance, 'plan the refactor');
+    assert.ok(
+      await waitFor(() => offCalls.length === 1),
+      'the plan run finishes with the gate off'
+    );
+    await sleep(200);
+    assert.ok(
+      !off.instance.lastFrame().includes('Ready to code?'),
+      'MOSS_PLAN_GATE defaults off — a plan run does not open the gate'
+    );
+    off.instance.unmount();
+    await sleep(80);
+
+    process.env.MOSS_PLAN_GATE = '1';
     const planCalls = [];
     const planAgent = {
       async *streamChat(_sk, message) {
         planCalls.push(message);
-        const answer =
-          planCalls.length > 1 ? 'executing' : `## Plan\n${'step for the refactor. '.repeat(30)}`;
+        const answer = planCalls.length > 1 ? 'executing' : planBody;
         yield { type: 'text_delta', delta: answer };
         yield { type: 'done', result: { response: answer, stopReason: 'end_turn' } };
       },
@@ -1075,7 +1100,10 @@ async function type(instance, text) {
     const { instance } = mount({ agent: planAgent, workspaceDir: '/tmp/ws' });
     await type(instance, 'plan the refactor');
     const gated = await waitFor(() => instance.lastFrame().includes('Ready to code?'));
-    assert.ok(gated, `the plan gate opens after a plan run: ${instance.lastFrame().slice(0, 160)}`);
+    assert.ok(
+      gated,
+      `the plan gate opens after a plan run when MOSS_PLAN_GATE=1: ${instance.lastFrame().slice(0, 160)}`
+    );
     instance.stdin.write('1'); // Direct option key — proceed with accept-edits
     const executed = await waitFor(() => planCalls.length === 2);
     assert.ok(executed, `the approved plan dispatches execution: ${JSON.stringify(planCalls)}`);
@@ -1087,6 +1115,8 @@ async function type(instance, text) {
     );
     await waitFor(() => instance.lastFrame().includes('executing'));
     setCliInteractionMode(before || 'default');
+    if (previousGate === undefined) delete process.env.MOSS_PLAN_GATE;
+    else process.env.MOSS_PLAN_GATE = previousGate;
     instance.unmount();
     await sleep(150);
   }

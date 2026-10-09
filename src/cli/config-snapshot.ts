@@ -101,16 +101,24 @@ const FIELDS = {
         allow: [],
         ask: [],
         deny: [],
+        deviceTrust: 'gated',
+        trustedDevices: [],
         legacyKeysUsed: [],
         source: 'default',
       };
       const counts = `allow ${view.allow.length} · ask ${view.ask.length} · deny ${view.deny.length}`;
+      const deviceTrust =
+        view.deviceTrust === 'full'
+          ? ', device trust full'
+          : view.trustedDevices?.length
+            ? `, trusted devices ${view.trustedDevices.length}`
+            : '';
       const ceiling = view.readOnlyCeiling ? ' + read-only ceiling' : '';
       const legacy =
         view.legacyKeysUsed.length > 0
           ? `; legacy keys migrated: ${view.legacyKeysUsed.join(', ')}`
           : '';
-      return `mode ${view.defaultMode}${ceiling} (${view.source}), ${counts}${legacy}`;
+      return `mode ${view.defaultMode}${ceiling} (${view.source}), ${counts}${deviceTrust}${legacy}`;
     },
   ],
   trustedTools: [

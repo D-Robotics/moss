@@ -63,6 +63,7 @@ export const ZH: Readonly<Record<string, string>> = {
   // ── collapsed-preview markers (transcript.ts) ──────────────────────────
   '… {count} more lines · ctrl+o': '… 还有 {count} 行 · ctrl+o',
   '… {count} lines · ctrl+o': '… {count} 行 · ctrl+o',
+  '  ⎿ thought for {seconds}s · click or ctrl+o': '  ⎿ 思考了 {seconds} 秒 · 点击或 ctrl+o 展开',
   '  ⎿ thinking · click or ctrl+o': '  ⎿ 思考过程 · 点击或 ctrl+o',
 
   // ── live region (transcript.ts) ────────────────────────────────────────
@@ -158,15 +159,20 @@ export const ZH: Readonly<Record<string, string>> = {
   'interrupt the run · cancel `!` shell mode · press again to clear the composer':
     '中断运行 · 取消 `!` shell 模式 · 再按清空输入框',
   'walk back through what you typed': '回溯你输入过的内容',
+  'scroll the transcript · at the top, walk back through what you typed':
+    '滚动对话记录 · 到顶后回溯你输入过的内容',
   'caret to line start / end': '光标移到行首 / 行尾',
   'delete to line start · paste deleted text': '删除到行首 · 粘贴已删除文本',
   'stash the draft · press again to bring it back': '暂存草稿 · 再按取回',
   'search your earlier prompts': '搜索早先的提示',
   'edit the draft in $EDITOR': '用 $EDITOR 编辑草稿',
   'scroll the transcript': '滚动对话记录',
+  'scroll the transcript · End jumps to the latest': '滚动对话记录 · End 跳到最新',
   'expand a collapsed block · drag to copy': '展开被折叠的块 · 拖动复制',
   'print failures · deployments are /deployments': '打印 failures · deployments 用 /deployments',
   'print task artifacts': '打印任务工件',
+  'work until a condition is met · enter plan mode': '做到条件满足 · 进入 plan 模式',
+  aliases: '别名',
   'clear the composer': '清空输入框',
   'interrupt the run · press again to quit': '中断运行 · 再按退出',
   quit: '退出',
@@ -200,6 +206,19 @@ export const ZH: Readonly<Record<string, string>> = {
     '列出已发现的 skills；用 moss skill create 创建更多',
   'show safety and approval settings; --verbose prints every knob':
     '显示安全与审批设置；--verbose 打印每个开关',
+  'show or set the terminal colour theme for this session': '显示或设置本会话的终端配色',
+  'caret to line start': '光标移到行首',
+  'caret to line end': '光标移到行尾',
+  'delete to line start': '删除到行首',
+  'delete to line end': '删除到行尾',
+  'delete the previous word': '删除上一个词',
+  'paste deleted text': '粘贴刚删除的文字',
+  'detailed transcript (full output, reasoning)': '详细记录（完整输出与思考）',
+  'NO_COLOR is set — the theme stays mono': '已设置 NO_COLOR — 主题保持单色',
+  'current theme: {name}': '当前主题：{name}',
+  '/theme <name> switches it for this session': '/theme <name> 只在本会话内切换',
+  'unknown theme "{name}" — dark, light, or mono': '未知主题“{name}” — 只能是 dark、light 或 mono',
+  'theme: {name}': '主题：{name}',
   'list configured lifecycle hooks and where to edit them':
     '列出已配置的生命周期 hooks 及其编辑位置',
   'interrupt the active run': '中断当前运行',
@@ -209,6 +228,14 @@ export const ZH: Readonly<Record<string, string>> = {
   'list background shell and sub-agent jobs': '列出后台 shell 与子 agent 任务',
   'inspect or control the input queue': '查看或控制输入队列',
   'inject a constraint into the live run': '向正在运行的 run 注入一条约束',
+  'work until a condition is met; /goal clear cancels': '持续工作直到条件满足；/goal clear 取消',
+  'enter plan mode; with a description, start planning immediately':
+    '进入 plan 模式；带描述则立即开始规划',
+  'Task OS entry (hidden): status, timeline, resume, view, and verify — everyday work is /goal':
+    'Task OS 入口（隐藏）：status、timeline、resume、view、verify — 日常用 /goal',
+  'resume a saved conversation': '恢复已保存的会话',
+  'stop background processes; Esc interrupts the current run': '停止后台进程；Esc 中断当前运行',
+  'create or update an AGENTS.md project memory file': '创建或更新 AGENTS.md 项目记忆文件',
 
   // ── app.ts chrome ──────────────────────────────────────────────────────
   'Approval required': '需要审批',
@@ -226,7 +253,7 @@ export const ZH: Readonly<Record<string, string>> = {
   '{n}d': '{n}天',
 
   // ── resume picker + session meta (app.ts) ──────────────────────────────
-  'Resume session  ⌕ {query}▌': '恢复会话  ⌕ {query}▌',
+  'Resume session  ⌕ {query}': '恢复会话  ⌕ {query}',
   '{count} messages': '{count} 条消息',
   '  … {count} more': '  … 还有 {count} 条',
   '  no matching session': '  没有匹配的会话',
@@ -310,7 +337,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'set $EDITOR to edit the draft externally': '设置 $EDITOR 后可在外部编辑草稿',
   'could not read the edited draft': '读不回编辑后的草稿',
   'copied {count} chars to clipboard': '已复制 {count} 个字符到剪贴板',
-  'Jump to bottom (click) ↓': '跳到底部（点击）↓',
+  '  ↓ Jump to bottom (click or End)': '  ↓ 跳到底部（点击或按 End）',
   'Ctrl+D quits — press Esc twice to drop the draft first': 'Ctrl+D 退出 — 先连按两次 Esc 丢弃草稿',
   'finish the pending approval before changing interaction mode':
     '请先处理待审批项，再切换交互模式',
@@ -353,6 +380,9 @@ export const ZH: Readonly<Record<string, string>> = {
     'transcript 已清空 — 新对话，上下文为空（上一段：`moss --continue`）',
   'a run is in flight — press Esc to interrupt it, then /clear':
     '有 run 正在运行 — 先按 Esc 中断，再 /clear',
+  '{command} is not available while a run is in flight — press Esc to interrupt, then retry':
+    '{command} 在运行中不可用 — 先按 Esc 中断，再重试',
+  '  queued {n}. {text}': '  排队 {n}. {text}',
   'a run is in flight — press Esc to interrupt it, then /compact':
     '有 run 正在运行 — 先按 Esc 中断，再 /compact',
   'a run is in flight — press Esc to interrupt it before switching models':

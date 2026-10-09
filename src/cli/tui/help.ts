@@ -1,4 +1,5 @@
 import { rowsForSurface, type InteractiveCommandRow } from '../interactive-commands.js';
+import { shortcutRows, type KeyBinding } from './keymap.js';
 
 /**
  * The key/command reference. Single source of truth: the input handler and the
@@ -10,40 +11,15 @@ import { rowsForSurface, type InteractiveCommandRow } from '../interactive-comma
  * (node_modules/ink/build/parse-keypress.js: name = 'backspace' for '\b'), so it
  * is unreachable. History rides Ctrl+R instead.
  */
-export const CTRL_BINDINGS = [
-  // Task artifacts are slash commands (`/tasks`, `/evidence`, `/failures`,
-  // `/deployments`). Ctrl+R searches prompts; Ctrl+G opens $EDITOR.
-  { letter: 'l', action: 'clear', label: 'clear the composer' },
-] as const;
-
-export type CtrlAction = (typeof CTRL_BINDINGS)[number]['action'];
-
-export function ctrlBinding(letter: string): CtrlAction | undefined {
-  return CTRL_BINDINGS.find((binding) => binding.letter === letter)?.action;
-}
-
-export function ctrlHintFor(action: CtrlAction): string | undefined {
-  const binding = CTRL_BINDINGS.find((candidate) => candidate.action === action);
-  return binding ? `Ctrl+${binding.letter.toUpperCase()}` : undefined;
-}
-
 export const HELP_KEYS: ReadonlyArray<readonly [string, string]> = [
   ['Enter', 'send the goal · run the shell command in `!` mode'],
   ['Shift+Tab', 'cycle the interaction mode (manual → accept-edits → plan → full)'],
   ['!', 'first character only: run a shell command inline'],
   ['Esc', 'interrupt the run · cancel `!` shell mode · press again to clear the composer'],
-  ['↑ ↓', 'walk back through what you typed'],
-  ['PgUp / wheel', 'scroll the transcript'],
+  ['↑ ↓', 'scroll the transcript · at the top, walk back through what you typed'],
+  ['PgUp / PgDn / wheel', 'scroll the transcript · End jumps to the latest'],
   ['click', 'expand a collapsed block · drag to copy'],
-  ['Ctrl+A / Ctrl+E', 'caret to line start / end'],
-  ['Ctrl+U / Ctrl+Y', 'delete to line start · paste deleted text'],
-  ['Ctrl+S', 'stash the draft · press again to bring it back'],
-  ['Ctrl+R', 'search your earlier prompts'],
-  ['Ctrl+G', 'edit the draft in $EDITOR'],
-  ['Ctrl+C', 'interrupt the run · press again to quit'],
-  ['Ctrl+D', 'quit'],
-  ['Ctrl+L', 'clear the composer'],
-  ['/tasks /evidence /failures', 'print task artifacts'],
+  ['/goal /plan', 'work until a condition is met · enter plan mode'],
   ['?', 'this list'],
 ];
 
@@ -57,6 +33,18 @@ export const HELP_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ['/', 'run a moss command (/help lists them all)'],
   ['@', 'reference a workspace file or directory'],
 ];
+
+/**
+ * The shortcut rows: the non-Ctrl keys from HELP_KEYS, with the Ctrl rows generated
+ * from the active registry (keymap.ts) in the position the Ctrl group always had.
+ */
+export function helpKeyRows(
+  bindings: readonly KeyBinding[]
+): ReadonlyArray<readonly [string, string]> {
+  const ctrl = shortcutRows(bindings).map((row) => [row.keys, row.label] as const);
+  const at = HELP_KEYS.findIndex(([keys]) => keys.startsWith('/goal'));
+  return [...HELP_KEYS.slice(0, at), ...ctrl, ...HELP_KEYS.slice(at)];
+}
 
 /** One entry of the shell's command surface. */
 export interface ShellCommand {

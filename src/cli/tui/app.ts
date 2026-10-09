@@ -12,7 +12,7 @@
  * entry point must dynamically import it so headless/SDK paths never load UI
  * dependencies. Non-TTY or `--no-tty` sessions fall back to the readline REPL.
  */
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -29,11 +29,13 @@ import {
   useWindowSize,
 } from 'ink';
 import type { MossAgent } from '../../core/agent/moss-agent.js';
-import { parseGoalCommandLine } from '../../core/loop/goal-loop.js';
+import { planGateEnabled } from '../../tools/plan-gate.js';
 import { TaskRuntime, formatDeploymentLine } from '../../core/task-runtime/runtime.js';
 import { errorMessage } from '../../errors.js';
 import {
   applyAgentEvent,
+  flushProse,
+  reconcileFinalResponse,
   appendRow,
   beginRun,
   createTuiStore,
@@ -66,6 +68,26 @@ import {
   type CommandContext,
   type CommandSurface,
 } from '../commands/registry.js';
+import {
+  loadCustomCommands,
+  reservedBuiltinNames,
+  resolveUserCommand,
+} from '../commands/custom-commands.js';
+import { formatBackgroundJobLines } from '../commands/background-jobs.js';
+import {
+  abandonLiveGoal,
+  acceptanceProposalLines,
+  GOAL_USAGE,
+  goalRunArgs,
+  planGoalInvocation,
+  skippedAcceptanceNotice,
+} from '../commands/goal-propose.js';
+import {
+  availabilityFor,
+  isExactSlashCommand,
+  rewriteSlashInput,
+} from '../interactive-commands.js';
+import { resolveLoopMaxIterations } from '../loop-tui-events.js';
 import { cliLocale } from '../cli-locale.js';
 import { handleCompactCommand } from '../compact-command.js';
 import { createCliSessionKey } from '../session.js';
@@ -104,24 +126,49 @@ import {
   foldReadonlyRows,
   stripSgr,
   CONTEXT_WARN_PCT,
+  INTERACTION_MODE_TONES,
   SHELL_MODE_TONE,
   type LiveView,
   PLACEHOLDER_TEXT,
   type StatusView,
 } from './transcript.js';
-import { clip, line, rule, type TuiLine } from './text.js';
+import { clip, line, padEndTo, rule, type TuiLine } from './text.js';
+import { displayWidth } from '../terminal-text.js';
 import { isTuiZh, setTuiLocale, transientStatus, tui } from './copy.js';
 import { allocateFrame } from './layout.js';
 import {
   MOUSE_TRACKING_ON,
+  TUI_KITTY_KEYBOARD,
   installTerminalRestore,
   osc52,
+  readTmuxMouse,
   restoreTerminalModes,
   selectTuiRenderer,
 } from './renderer.js';
 import { installTuiLogSink } from './terminal-io.js';
+import { noteFrameHeight } from './frame-invariant.js';
 import { needsTestHint, type VerifyHintState } from '../verify-hint.js';
-import { createViewport, scrollViewport, viewportWindow, type ViewportLine } from './viewport.js';
+import {
+  createViewport,
+  moveTranscript,
+  scrollThumb,
+  scrollViewport,
+  viewportAtRatio,
+  viewportWindow,
+  type ViewportLine,
+} from './viewport.js';
+import { createProjectionCache } from './projection-cache.js';
+import {
+  currentTuiTheme,
+  detectTheme,
+  setTuiTheme,
+  themeFromOsc11,
+  themeLockedByEnv,
+  THEME_NAMES,
+  TONE,
+  type TuiThemeName,
+} from './theme.js';
+import { caretLine, externalEditorArgs, splitEditorCommand } from './external-editor.js';
 import {
   COMPOSER_MAX_ROWS,
   composerDelete,
@@ -135,7 +182,7 @@ import {
   type ComposerRun,
   type ComposerState,
 } from './composer.js';
-import { ctrlBinding, type CtrlAction } from './help.js';
+import { commandForKey, loadKeybindings } from './keymap.js';
 import {
   movePaletteSelection,
   PALETTE_MAX_ROWS,
@@ -310,13 +357,11 @@ function collectStrings(value: unknown, out: string[] = []): string[] {
   return out;
 }
 
-/**
- * The registry's `CommandSurface` vocabulary has no shell member and no command
- * branches on it, so `'repl'` is the only type-legal value today. Widening the
- * union is a `src/cli/commands/registry.ts` change owned outside this task (the
- * registry spec already passes `'tui'`).
- */
-const COMMAND_SURFACE: CommandSurface = 'repl';
+/** The shell tells the registry it is the TUI, so surface-specific copy can diverge later. */
+const COMMAND_SURFACE: CommandSurface = 'tui';
+
+/** How long the scroll bar stays visible after the pointer or a scroll last touched it. */
+const SCROLLBAR_HIDE_MS = 1500;
 
 export function TuiAppRoot({
   options,
@@ -336,6 +381,25 @@ export function TuiAppRoot({
   const { setCursorPosition } = useCursor();
   const fullscreen = options.renderer === 'fullscreen';
   const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
+  // The scroll bar is shown while the pointer is on it, while the transcript is
+  // being scrolled or dragged, and for a moment after that (plan v3 P1).
+  const barTouchedRef = useRef(0);
+  const barTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const touchScrollBar = useCallback((): void => {
+    barTouchedRef.current = Date.now();
+    if (barTimerRef.current !== undefined) clearTimeout(barTimerRef.current);
+    barTimerRef.current = setTimeout(() => {
+      barTimerRef.current = undefined;
+      forceUpdate();
+    }, SCROLLBAR_HIDE_MS + 50);
+    forceUpdate();
+  }, []);
+  useEffect(
+    () => () => {
+      if (barTimerRef.current !== undefined) clearTimeout(barTimerRef.current);
+    },
+    []
+  );
   const [composer, setComposer] = useState<ComposerState>(() => createComposer());
   const input = composer.value;
   // Bulk edits (history recall, staged prompts, paste) replace the whole value
@@ -391,7 +455,28 @@ export function TuiAppRoot({
    * `· ctrl+o` marker a false affordance (D-5). A new `key` remounts the Static
    * with index 0, which re-emits the whole transcript in the new state.
    */
+  // ~/.config/moss/keybindings.json, read once per config dir. Problems are shown
+  // in the status row on mount, never silently dropped.
+  const keymap = useMemo(() => {
+    const dir = options.cliRuntime?.configDir;
+    let text: string | undefined;
+    if (dir) {
+      try {
+        text = fs.readFileSync(path.join(dir, 'keybindings.json'), 'utf8');
+      } catch {
+        text = undefined;
+      }
+    }
+    return loadKeybindings(text);
+  }, [options.cliRuntime?.configDir]);
+  useEffect(() => {
+    const [first, ...rest] = keymap.warnings;
+    if (first) {
+      setStatusLine(rest.length > 0 ? `${first} (+${rest.length} more)` : first);
+    }
+  }, [keymap]);
   const [viewport, setViewport] = useState(createViewport);
+  const projectionCacheRef = useRef(createProjectionCache());
   const viewportLinesRef = useRef(0);
   const mouseLayoutRef = useRef<MouseLayout>({
     composerTop: 0,
@@ -448,6 +533,25 @@ export function TuiAppRoot({
   const quitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const queueRef = useRef<Array<{ display: string; text: string }>>([]);
   const queuePausedRef = useRef(false);
+  /** Re-entry guard: draining a queued line must not start a second drain. */
+  const drainingRef = useRef(false);
+  /** The line being executed came from the queue, so the composer stays put. */
+  const fromQueueRef = useRef(false);
+  const submitRef = useRef<(text: string) => Promise<void>>(async () => undefined);
+  /** `/goal` proposal waiting for Enter (accept) or `n` (contract verdict only). */
+  const pendingGoalRef = useRef<{ goal: string } | null>(null);
+  const customCommands = useMemo(
+    () =>
+      loadCustomCommands(
+        {
+          workspace: options.workspaceDir,
+          configDir: options.cliRuntime?.configDir ?? path.join(options.workspaceDir, '.moss'),
+          reservedNames: reservedBuiltinNames(),
+        },
+        () => undefined
+      ),
+    [options.workspaceDir, options.cliRuntime?.configDir]
+  );
   const [queueRevision, setQueueRevision] = useState(0);
   void queueRevision;
   /** Kill ring: the text the last Ctrl+U/K/W removed, pasted back by Ctrl+Y. */
@@ -523,6 +627,14 @@ export function TuiAppRoot({
       restoreTerminalModes(stdout);
     };
   }, [stdout, writeStdout]);
+  useEffect(() => {
+    // Ask the terminal for its background (OSC 11). A reply that never comes
+    // leaves the theme from COLORFGBG / the dark default. NO_COLOR and an
+    // explicit MOSS_TUI_THEME are not overridden.
+    if (themeLockedByEnv() || process.env.MOSS_TUI_THEME) return undefined;
+    writeStdout('\x1b]11;?\x07');
+    return undefined;
+  }, [writeStdout]);
   useEffect(() => {
     if (!fullscreen) return undefined;
     writeStdout(MOUSE_TRACKING_ON);
@@ -912,6 +1024,33 @@ export function TuiAppRoot({
     [handle, runtime, store]
   );
 
+  /**
+   * A steer that landed after the loop's last poll must not vanish. A finished
+   * run queues it (the drain sends it). An aborted run returns it to the
+   * composer, the same way Esc hands the visible queue back.
+   */
+  const absorbDeferredSteers = useCallback(
+    (halted: boolean) => {
+      const take = options.agent.takeDeferredSteers;
+      if (typeof take !== 'function') return;
+      const prompts = take
+        .call(options.agent, sessionKey)
+        .map((text) => text.trim())
+        .filter((text) => text.length > 0);
+      if (prompts.length === 0) return;
+      if (halted) {
+        setInput((current) => {
+          const extra = prompts.join('\n');
+          return current.trim() ? `${current.replace(/\s+$/, '')}\n${extra}` : extra;
+        });
+        return;
+      }
+      for (const text of prompts) queueRef.current.push({ display: text, text });
+      setQueueRevision((n) => n + 1);
+    },
+    [options.agent, sessionKey, setInput]
+  );
+
   const runTurn = useCallback(
     async (message: string) => {
       options.onTurnStart?.(message);
@@ -936,58 +1075,18 @@ export function TuiAppRoot({
             handle.notify();
             continue;
           }
-          if (event.type === 'tool_start' && store.run.streamingText.trim()) {
-            // D-6: prose that introduced a tool call belongs to the step that
-            // announced it. `endRun` commits one assistant row from the whole
-            // run, which concatenated pre-tool and post-tool prose into a single
-            // run-on line (`⏺ Planning the refactor.Todo list is live.`). Flush
-            // the pending prose into its own row at the tool boundary; the rest
-            // of the run streams into a fresh buffer.
-            appendRow(store, 'assistant', store.run.streamingText, {
-              ...(store.run.committedText ? { continuation: true } : {}),
-              ...(store.run.thinkingText.trim() ? { reasoning: store.run.thinkingText } : {}),
-            });
-            store.run.streamingText = '';
-            store.run.committedText = '';
-            store.run.thinkingText = '';
-            store.version++;
-          }
-          if (event.type === 'retry' && store.run.streamingText.trim()) {
-            // Same boundary rule as D-6: a retried call REGENERATES from
-            // scratch, so keeping the stalled call's partial text in the buffer
-            // would splice two generations into one duplicated row. Commit the
-            // partial as its own row; the retry marker row (bridge) separates
-            // the two generations visually.
-            appendRow(store, 'assistant', store.run.streamingText, {
-              ...(store.run.committedText ? { continuation: true } : {}),
-              ...(store.run.thinkingText.trim() ? { reasoning: store.run.thinkingText } : {}),
-            });
-            store.run.streamingText = '';
-            store.run.committedText = '';
-            store.run.thinkingText = '';
-            store.version++;
+          // Prose that introduced a tool call, or a stalled call that is about to
+          // regenerate, is a finished message: commit it before the boundary.
+          if (
+            (event.type === 'tool_start' || event.type === 'retry') &&
+            store.run.streamingText.trim()
+          ) {
+            flushProse(store);
           }
           applyAgentEvent(store, event);
           runtime.applyEvent(event);
           if (event.type === 'done') {
-            const response = event.result?.response;
-            if (typeof response === 'string' && response.trim()) {
-              if (!store.run.streamingText.trim()) {
-                appendRow(store, 'assistant', response);
-              } else if (
-                !store.run.committedText &&
-                response.length > store.run.streamingText.length
-              ) {
-                // N-4 (found while reproducing D-12): the live tail is capped
-                // (`render-bridge` keeps the last 400 chars), and `endRun` commits
-                // that tail — so an answer longer than 400 chars lost its HEAD in
-                // the transcript (`⏺ ith bold, …` for a paragraph starting
-                // "A paragraph w…"). The provider's final response is
-                // authoritative: commit that instead of the truncated tail.
-                store.run.streamingText = response;
-                store.version++;
-              }
-            }
+            reconcileFinalResponse(store, event.result?.response);
           }
           handle.notify();
         }
@@ -1034,9 +1133,11 @@ export function TuiAppRoot({
         (rowsThisRun.some((row) => row.kind === 'tool') ||
           rowsThisRun.some((row) => row.kind === 'assistant' && row.text.length > 300));
       handle.notify();
-      if (producedPlan) planGateRef.current?.();
+      if (producedPlan && planGateEnabled()) planGateRef.current?.();
+      absorbDeferredSteers(halted);
     },
     [
+      absorbDeferredSteers,
       appendTaskVerdictIfAny,
       handle,
       notifyAttention,
@@ -1050,16 +1151,32 @@ export function TuiAppRoot({
   );
 
   const drainQueue = useCallback(async (): Promise<void> => {
-    while (queueRef.current.length > 0 && !queuePausedRef.current) {
-      const next = queueRef.current.shift();
-      if (!next) break;
-      setQueueRevision((n) => n + 1);
-      appendRow(store, 'user', next.display);
-      handle.notify();
-      await runTurn(next.text);
+    if (drainingRef.current) return;
+    drainingRef.current = true;
+    try {
+      // Stop when a run is already in flight. Submitting again would push the
+      // same line back onto the queue and spin. That run's own drain continues it.
+      while (queueRef.current.length > 0 && !queuePausedRef.current && !store.run.running) {
+        const next = queueRef.current.shift();
+        if (!next) break;
+        setQueueRevision((n) => n + 1);
+        fromQueueRef.current = true;
+        try {
+          await submitRef.current(next.text);
+        } finally {
+          fromQueueRef.current = false;
+        }
+        if (store.run.running) break;
+      }
+    } finally {
+      drainingRef.current = false;
+      if (queueRef.current.length > 0 && !queuePausedRef.current && !store.run.running) {
+        void drainQueue();
+      } else if (queueRef.current.length === 0) {
+        setQueueRevision((n) => n + 1);
+      }
     }
-    if (queueRef.current.length === 0) setQueueRevision((n) => n + 1);
-  }, [handle, runTurn, store]);
+  }, [store]);
 
   const sessionInfo = useCallback(
     async (command: 'sessions' | 'mcp' | 'subs' | 'bg'): Promise<string[]> => {
@@ -1101,7 +1218,6 @@ export function TuiAppRoot({
   const showBlock = useCallback(
     async (
       action:
-        | CtrlAction
         | 'tasks'
         | 'history'
         | 'sessions'
@@ -1188,13 +1304,15 @@ export function TuiAppRoot({
 
   /** Run a message the shell itself composed (e.g. `/review`'s review prompt). */
   const dispatchRun = useCallback(
-    (message: string) => {
+    (message: string): Promise<void> => {
       if (store.run.running) {
         queueRef.current.push({ display: message, text: message });
         setQueueRevision((n) => n + 1);
-        return;
+        return Promise.resolve();
       }
-      void runTurn(message).then(() => void drainQueue());
+      const turn = runTurn(message);
+      if (drainingRef.current) return turn;
+      return turn.then(() => drainQueue());
     },
     [drainQueue, runTurn, store]
   );
@@ -1264,17 +1382,24 @@ export function TuiAppRoot({
           printCommandError('Task', errorMessage(err));
         } finally {
           abortRef.current = undefined;
-          const unverifiedTask =
-            !controller.signal.aborted && needsTestHint(store.run as VerifyHintState);
-          endRun(store, controller.signal.aborted);
+          const halted = controller.signal.aborted;
+          const unverifiedTask = !halted && needsTestHint(store.run as VerifyHintState);
+          endRun(store, halted);
           if (unverifiedTask) {
             appendRow(store, 'summary', tui('edited JS/TS files but did not run tests'));
           }
-          await runtime.endRun(controller.signal.aborted);
+          await runtime.endRun(halted);
           appendTaskVerdictIfAny(runStartedAtRef.current ?? 0);
           runStartedAtRef.current = undefined;
+          absorbDeferredSteers(halted);
           setStatusLine(undefined);
           handle.notify();
+          // A chat turn drains from its own completion. A task run does not go
+          // through that path, so messages queued while it was in flight would
+          // otherwise sit above the composer forever.
+          if (!halted && queueRef.current.length > 0 && !drainingRef.current) {
+            void drainQueue();
+          }
         }
         return;
       }
@@ -1292,6 +1417,8 @@ export function TuiAppRoot({
       }
     },
     [
+      absorbDeferredSteers,
+      drainQueue,
       handle,
       options.agent,
       options.workspaceDir,
@@ -1322,14 +1449,14 @@ export function TuiAppRoot({
       resolve: (value) => {
         if (value === PROCEED_AUTO) {
           setCliInteractionMode('acceptEdits');
-          dispatchRun('The plan above is approved — proceed with execution now.');
+          void dispatchRun('The plan above is approved — proceed with execution now.');
         } else if (value === PROCEED_MANUAL) {
           setCliInteractionMode('manual');
-          dispatchRun(
+          void dispatchRun(
             'The plan above is approved — proceed with execution now (manual approvals stay on).'
           );
         } else if (value.trim()) {
-          dispatchRun(`Plan feedback — revise the plan accordingly: ${value}`);
+          void dispatchRun(`Plan feedback — revise the plan accordingly: ${value}`);
         }
       },
       optionAnswers: [PROCEED_AUTO, PROCEED_MANUAL, ''],
@@ -1587,7 +1714,9 @@ export function TuiAppRoot({
         say: (kind, out) =>
           kind === 'error' ? printCommandError(title, out) : printBlock(title, out.split('\n')),
         prefillInput: (value) => setInput(value),
-        submitPrompt: (value) => dispatchRun(value),
+        submitPrompt: (value) => {
+          void dispatchRun(value);
+        },
         getContextUsage: () => shellContextUsage(store.usage),
         setInteractionMode: (mode: CliInteractionMode) => {
           // The policy layer already switched the mode; surface it so the change
@@ -1600,40 +1729,34 @@ export function TuiAppRoot({
         },
       };
 
-      // One autonomous engine — /loop and /goal translate onto /task run
-      // (the same delegation the readline REPL performs), so every shell has
-      // one completion mechanism: verdict-backed Task OS runs.
-      if (head === '/loop' || head === '/goal') {
-        const rest = text.slice(head.length).trim();
-        if (head === '/goal') {
-          const parsed = parseGoalCommandLine(rest);
-          if (!parsed) {
-            printCommandError(
-              'Goal',
-              'Usage: /goal <goal> [--accept "<verification command>"] — same as /task run with an acceptance gate.'
-            );
-            return true;
-          }
-          const translated = [
-            '/task run',
-            parsed.goal,
-            ...(parsed.acceptance ? ['--accept', `"${parsed.acceptance.command}"`] : []),
-          ].join(' ');
-          await runTaskShellCommand(translated.slice('/task'.length).trim());
+      if (head === '/goal') {
+        const plan = planGoalInvocation(args, options.workspaceDir);
+        if (plan.kind === 'usage') {
+          printBlock('Goal', [GOAL_USAGE]);
           return true;
         }
-        if (!rest || rest === 'stop' || rest === 'abort' || rest === 'resume') {
-          if (rest === 'resume') {
-            await runTaskShellCommand('resume');
-            return true;
-          }
-          printCommandError(
-            'Loop',
-            'A running task is interrupted with Esc; it stays resumable — /task status lists ids, /task resume <id> continues it.'
-          );
+        if (plan.kind === 'clear') {
+          printBlock('Goal', [await abandonLiveGoal(options.workspaceDir, locale)]);
           return true;
         }
-        await runTaskShellCommand(`run ${rest}`);
+        if (plan.kind === 'resume') {
+          await runTaskShellCommand('resume');
+          return true;
+        }
+        if (plan.kind === 'propose') {
+          printBlock('Goal', acceptanceProposalLines(plan.goal, plan.candidates, locale));
+          pendingGoalRef.current = { goal: plan.goal };
+          setInput(plan.candidates[0] ?? '');
+          return true;
+        }
+        if (plan.notice) printBlock('Goal', [plan.notice]);
+        const maxTurns = resolveLoopMaxIterations(process.env, true);
+        await runTaskShellCommand(
+          goalRunArgs(plan.goal, {
+            ...(plan.acceptance ? { acceptance: plan.acceptance } : {}),
+            ...(maxTurns > 0 ? { maxTurns } : {}),
+          })
+        );
         return true;
       }
 
@@ -1662,7 +1785,7 @@ export function TuiAppRoot({
       }
 
       try {
-        if (await runRegistryCommand(text, context)) return true;
+        if (await runRegistryCommand(text, context, customCommands)) return true;
       } catch (err) {
         printCommandError(title, `${head} failed: ${errorMessage(err)}`);
         return true;
@@ -1680,24 +1803,17 @@ export function TuiAppRoot({
         await runDiffCommand();
         return true;
       }
-      if (head === '/stop' || head === '/abort') {
-        if (abortRef.current) {
-          abortRef.current.abort();
-          printBlock('Stop', [tui('interrupted the active run')]);
-        } else {
-          printBlock('Stop', [tui('no run in flight — nothing to interrupt')]);
-        }
-        return true;
-      }
       return false;
     },
     [
+      customCommands,
       dispatchRun,
       options,
       printBlock,
       printCommandError,
       runCompactCommand,
       runDiffCommand,
+      runTaskShellCommand,
       runModelCommand,
       sessionKey,
       setInput,
@@ -1708,71 +1824,92 @@ export function TuiAppRoot({
   const submit = useCallback(
     async (raw: string) => {
       const submittedTokens = tokensRef.current.slice();
-      const text = raw.trim();
+      let text = raw.trim();
       if (!text) return;
-      setInput('');
-      setHistoryCursor({ index: undefined, draft: '' });
-      setStatusLine(undefined);
+      if (pendingGoalRef.current && !text.startsWith('/')) {
+        const pending = pendingGoalRef.current;
+        pendingGoalRef.current = null;
+        setInput('');
+        setHistoryCursor({ index: undefined, draft: '' });
+        setStatusLine(undefined);
+        if (/^n$/i.test(text)) {
+          appendRow(store, 'summary', skippedAcceptanceNotice(cliLocale()));
+          handle.notify();
+          await runTaskShellCommand(goalRunArgs(pending.goal));
+          return;
+        }
+        await runTaskShellCommand(goalRunArgs(pending.goal, { acceptance: text }));
+        return;
+      }
+      if (text.startsWith('/')) {
+        pendingGoalRef.current = null;
+        const rewritten = rewriteSlashInput(text);
+        if (rewritten.migration) {
+          appendRow(store, 'summary', rewritten.migration);
+          handle.notify();
+        }
+        text = rewritten.text;
+      }
+      if (!fromQueueRef.current) {
+        setInput('');
+        setHistoryCursor({ index: undefined, draft: '' });
+        setStatusLine(undefined);
+      }
 
       // `!` shell mode is checked FIRST: `/quit` typed in shell mode is a shell
       // command, not the shell's quit. Shell commands are also not prompt
-      // history (↑ recalls goals), so nothing is pushed here.
-      if (shellMode) {
+      // history (↑ recalls goals), so nothing is pushed here. A line drained
+      // from the queue is never a shell command — the user already left `!`.
+      if (shellMode && !fromQueueRef.current) {
         setShellMode(false);
         await runShellSubmission(text);
         return;
       }
-      setHistory((entries) => [...entries.filter((entry) => entry !== text), text].slice(-100));
+      if (!fromQueueRef.current) {
+        setHistory((entries) => [...entries.filter((entry) => entry !== text), text].slice(-100));
+      }
+
+      // Running-turn policy comes from the catalog (`availableDuringRun`), the
+      // same table the REPL reads. Codex disables Plan/Review/Compact/Init/Clear
+      // during a task: those are `reject`. Status/Diff/Model/Tasks stay immediate.
+      if (text.startsWith('/') && store.run.running) {
+        const policy = availabilityFor(text);
+        if (policy === 'queue') {
+          queueRef.current.push({ display: text, text });
+          setQueueRevision((n) => n + 1);
+          return;
+        }
+        if (policy === 'reject') {
+          const head = (text.split(/\s+/, 1)[0] ?? text).toLowerCase();
+          appendRow(
+            store,
+            'summary',
+            head === '/clear'
+              ? tui('a run is in flight — press Esc to interrupt it, then /clear')
+              : tui(
+                  '{command} is not available while a run is in flight — press Esc to interrupt, then retry',
+                  { command: head }
+                )
+          );
+          handle.notify();
+          return;
+        }
+      }
 
       if (text === '/quit' || text === '/exit') {
         exit();
         return;
       }
       if (text === '/help --all') {
-        setHelpOverlay({ lines: buildHelpOverlayLines(true), all: true });
+        setHelpOverlay({ lines: buildHelpOverlayLines(true, keymap.bindings), all: true });
         return;
       }
       if (text === '/help' || text === '?') {
-        setHelpOverlay({ lines: buildHelpOverlayLines(false), all: false });
+        setHelpOverlay({ lines: buildHelpOverlayLines(false, keymap.bindings), all: false });
         return;
       }
       if (text === '/usage') {
         printBlock('Usage', usageBlock(store.usage));
-        return;
-      }
-      if (text === '/log') {
-        // The session's full I/O is persisted on disk all along — the
-        // conversation log (every message: user text, assistant text +
-        // thinking, complete tool input/output) and the run-event log (steps,
-        // tool calls, retries, failures). Nobody could find them, so this is
-        // the map.
-        const paths = getMossWorkspacePaths(options.workspaceDir);
-        const conversation = path.join(paths.sessionsDir, `${sessionKey}.jsonl`);
-        const events = path.join(
-          paths.runtimeDir,
-          'events',
-          `${encodeURIComponent(sessionKey)}.jsonl`
-        );
-        const lines: string[] = [
-          `session        ${sessionKey}`,
-          `conversation   ${conversation}${fs.existsSync(conversation) ? '' : '  (after the first turn)'}`,
-          `run events     ${events}${fs.existsSync(events) ? '' : '  (after the first run)'}`,
-          '',
-          `tail -f ${conversation}`,
-        ];
-        try {
-          const tail = fs
-            .readFileSync(conversation, 'utf8')
-            .trim()
-            .split('\n')
-            .slice(-6)
-            .map((raw) => describeConversationLogEntry(raw))
-            .filter((line): line is string => Boolean(line));
-          if (tail.length > 0) lines.push('', ...tail);
-        } catch {
-          // Not created yet — the paths above already say so.
-        }
-        printBlock('Log', lines);
         return;
       }
       if (text === '/clear') {
@@ -1780,16 +1917,8 @@ export function TuiAppRoot({
         // task: empty model context, new session key. `/compact` is the command
         // that keeps the same task and shrinks it. The banner stays; committed
         // <Static> rows live in scrollback, so an ANSI clear plus remount is
-        // what actually empties the screen.
-        if (store.run.running) {
-          appendRow(
-            store,
-            'summary',
-            tui('a run is in flight — press Esc to interrupt it, then /clear')
-          );
-          handle.notify();
-          return;
-        }
+        // what actually empties the screen. A run in flight never reaches here:
+        // the catalog marks `/clear` `reject` (Codex disables Clear mid-task).
         const next = createCliSessionKey();
         setActiveSession(next);
         options.onNewSession?.(next);
@@ -1818,34 +1947,18 @@ export function TuiAppRoot({
         handle.notify();
         return;
       }
-      if (text === '/jobs') {
-        printBlock('Jobs', [
-          tui('background shell:'),
-          ...(await sessionInfo('bg')).map((l) => `  ${l}`),
-          '',
-          tui('sub-agents:'),
-          ...(await sessionInfo('subs')).map((l) => `  ${l}`),
-        ]);
-        return;
-      }
       if (text === '/tasks') {
-        await showBlock('tasks');
-        return;
-      }
-      if (text === '/history') {
-        await showBlock('history');
-        return;
-      }
-      if (text === '/evidence') {
-        await showBlock('evidence');
-        return;
-      }
-      if (text === '/deployments') {
-        await showBlock('deployments');
-        return;
-      }
-      if (text === '/failures') {
-        await showBlock('failures');
+        const subagents = (options.agent.asyncTasks?.list() ?? []).map((task) => ({
+          taskId: task.taskId,
+          status: String(task.status),
+        }));
+        printBlock(
+          'Tasks',
+          formatBackgroundJobLines({
+            processes: listBackgroundProcessSnapshots(),
+            subagents,
+          })
+        );
         return;
       }
       if (text === '/hooks') {
@@ -1898,8 +2011,8 @@ export function TuiAppRoot({
         printBlock('Hooks', lines);
         return;
       }
-      if (text === '/sessions' || text === '/mcp' || text === '/subs' || text === '/bg') {
-        await showBlock(text.slice(1) as 'sessions');
+      if (text === '/mcp') {
+        await showBlock('mcp');
         return;
       }
       if (text === '/skills') {
@@ -1917,7 +2030,41 @@ export function TuiAppRoot({
         return;
       }
       if (text === '/resume' || text.startsWith('/resume ')) {
-        await runTaskShellCommand(`resume${text.slice('/resume'.length)}`);
+        const query = text.slice('/resume'.length).trim();
+        const sessions = (await options.listSessions?.()) ?? [];
+        setPickerSessions(sessions);
+        if (sessions.length === 0) {
+          printBlock('Resume', [tui('no saved sessions')]);
+          return;
+        }
+        const matches = filterPickerSessions(sessions, query);
+        if (query && matches.length === 1) {
+          const pick = matches[0];
+          if (pick) {
+            try {
+              const sessionStore = (
+                options.agent.config as {
+                  sessionStore?: { loadMessages: (key: string) => Promise<unknown[]> };
+                }
+              ).sessionStore;
+              const messages = sessionStore ? await sessionStore.loadMessages(pick.key) : [];
+              const replay = buildResumeReplay(messages as Parameters<typeof buildResumeReplay>[0]);
+              for (const item of replay.items) appendRow(store, item.kind, item.text);
+              appendRow(
+                store,
+                'result',
+                `resumed ${pick.key} — replayed ${replay.items.length} rows`
+              );
+              setActiveSession(pick.key);
+            } catch (err) {
+              appendRow(store, 'error', `could not resume ${pick.key}: ${errorMessage(err)}`);
+            }
+            handle.notify();
+          }
+          return;
+        }
+        setSessionPicker({ query, cursor: 0 });
+        printBlock('Resume', await sessionInfo('sessions'));
         return;
       }
       if (
@@ -2000,53 +2147,48 @@ export function TuiAppRoot({
         setPermissionCursor(0);
         return;
       }
+      if (text === '/theme' || text.startsWith('/theme ')) {
+        const asked = text.slice('/theme'.length).trim().toLowerCase();
+        if (themeLockedByEnv()) {
+          printBlock('Theme', [tui('NO_COLOR is set — the theme stays mono')]);
+          return;
+        }
+        if (!asked) {
+          printBlock('Theme', [
+            tui('current theme: {name}', { name: currentTuiTheme() }),
+            THEME_NAMES.join(' · '),
+            tui('/theme <name> switches it for this session'),
+          ]);
+          return;
+        }
+        if (!(THEME_NAMES as readonly string[]).includes(asked)) {
+          printBlock('Theme', [
+            tui('unknown theme "{name}" — dark, light, or mono', { name: asked }),
+          ]);
+          return;
+        }
+        setTuiTheme(asked as TuiThemeName);
+        forceUpdate();
+        printBlock('Theme', [tui('theme: {name}', { name: asked })]);
+        return;
+      }
       if (text.startsWith('/')) {
         // Shared registry first (status/doctor/permissions/mode/context/export/
-        // review/quickstart), then the shell-local control commands, then
-        // skills as first-class commands, then the honest unknown-command path.
-        if (store.run.running) {
-          const head = (text.split(/\s+/, 1)[0] ?? text).toLowerCase();
-          const immediate = new Set([
-            '/help',
-            '/status',
-            '/usage',
-            '/context',
-            '/mode',
-            '/permissions',
-            '/tasks',
-            '/history',
-            '/evidence',
-            '/deployments',
-            '/failures',
-            '/jobs',
-            '/bg',
-            '/subs',
-            '/mcp',
-            '/skills',
-            '/hooks',
-            '/log',
-            '/diff',
-            '/queue',
-            '/steer',
-            '/stop',
-            '/clear',
-            '/tui',
-          ]);
-          if (!immediate.has(head)) {
-            queueRef.current.push({ display: text, text });
-            setQueueRevision((n) => n + 1);
-            return;
-          }
-        }
+        // review), then the shell-local control commands, then file commands
+        // and skills (arguments kept), then the honest unknown-command path.
         if (await runShellCommand(text)) return;
-        const head = text.split(/\s+/, 1)[0] ?? text;
-        const skill = options.skills?.find((entry) => `/${entry.name}` === head);
-        if (skill) {
+        const resolved = resolveUserCommand(text, {
+          builtinNames: reservedBuiltinNames(),
+          customCommands,
+          skills: (options.skills ?? []).map((skill) => ({
+            name: skill.name,
+            description: skill.description,
+          })),
+        });
+        if (resolved.kind === 'custom' || resolved.kind === 'skill') {
           appendRow(store, 'user', text);
           handle.notify();
-          dispatchRun(
-            `Use the "${skill.name}" skill${skill.description ? ` (${skill.description})` : ''} for this task. Read the skill body with the skill tool first, then follow it.`
-          );
+          await dispatchRun(resolved.prompt);
           return;
         }
         appendRow(
@@ -2062,13 +2204,29 @@ export function TuiAppRoot({
       tokensRef.current = [];
       if (!expanded) return;
       if (store.run.running) {
+        // A message typed during a run steers the live turn. Steer is refused
+        // (null: no single active run, or the host has no steer) → queue, and
+        // the queued lines render above the composer for ↑ to edit.
+        const steered = options.agent.steer?.(sessionKey, expanded);
+        if (steered) {
+          appendRow(store, 'summary', tui('queued: {text}', { text: display.slice(0, 80) }));
+          handle.notify();
+          return;
+        }
         queueRef.current.push({ display, text: expanded });
         setQueueRevision((n) => n + 1);
+        // The run can finish between the running check and steer() returning
+        // null. Nothing else will drain that line.
+        if (!store.run.running && !drainingRef.current) void drainQueue();
         return;
       }
       appendRow(store, 'user', display);
       handle.notify();
-      void runTurn(expanded).then(() => void drainQueue());
+      {
+        const turn = runTurn(expanded);
+        if (drainingRef.current) await turn;
+        else void turn.then(() => void drainQueue());
+      }
     },
     [
       drainQueue,
@@ -2077,6 +2235,7 @@ export function TuiAppRoot({
       handle,
       options,
       printBlock,
+      customCommands,
       runShellCommand,
       runShellSubmission,
       runTurn,
@@ -2087,6 +2246,9 @@ export function TuiAppRoot({
       store,
     ]
   );
+  useEffect(() => {
+    submitRef.current = submit;
+  }, [submit]);
 
   const answerApproval = useCallback(
     (answer: CliApprovalAnswer) => {
@@ -2107,10 +2269,11 @@ export function TuiAppRoot({
   // selection and re-opens it (dismissal only lasts until the next keystroke).
   // `shellPaletteRows` is the shell's own surface (the same table `/help` prints),
   // so the menu cannot hide an advertised command or offer an unadvertised one.
-  const paletteRows: PaletteRow[] = shellPaletteRows(
-    input,
-    (options.skills ?? []).map((skill) => [`/${skill.name}`, skill.description] as const)
-  );
+  const paletteRows: PaletteRow[] = shellPaletteRows(input, [
+    // File commands outrank skills on a name collision, matching resolveUserCommand.
+    ...customCommands.map((command) => [command.name, command.summary] as const),
+    ...(options.skills ?? []).map((skill) => [`/${skill.name}`, skill.description] as const),
+  ]);
   const paletteOpen =
     paletteRows.length > 0 &&
     !paletteDismissed &&
@@ -2239,16 +2402,32 @@ export function TuiAppRoot({
   };
 
   useInput((chunk, key) => {
+    const osc = /\]11;([^\u0007\u001b]*)/.exec(chunk);
+    if (osc && !themeLockedByEnv() && !process.env.MOSS_TUI_THEME) {
+      const detected = themeFromOsc11(osc[1] ?? '');
+      if (detected) {
+        setTuiTheme(detected);
+        forceUpdate();
+      }
+      return;
+    }
     if (fullscreen) {
       const mouseEvents = mouseEventsInChunk(chunk);
       if (mouseEvents.length > 0) {
         for (const event of mouseEvents) {
           const action = routeMouse(event, mouseLayoutRef.current);
-          if (action.type === 'scroll') {
+          if (action.type === 'hover') {
+            if (action.x === mouseLayoutRef.current.scrollbarCol) touchScrollBar();
+          } else if (action.type === 'scroll') {
+            touchScrollBar();
             const height = Math.max(1, mouseLayoutRef.current.viewportRows);
             setViewport((current) =>
-              scrollViewport(current, viewportLinesRef.current, action.delta, height)
+              scrollViewport(current, projectedFullRef.current, action.delta, height)
             );
+          } else if (action.type === 'scrollbar') {
+            touchScrollBar();
+            const height = Math.max(1, mouseLayoutRef.current.viewportRows);
+            setViewport(viewportAtRatio(projectedFullRef.current, height, action.y));
           } else if (action.type === 'pin') {
             setViewport(createViewport());
           } else if (action.type === 'caret') {
@@ -2378,15 +2557,27 @@ export function TuiAppRoot({
       }
       return;
     }
+    if (fullscreen && key.end && !approval && input.length === 0) {
+      touchScrollBar();
+      setViewport(createViewport());
+      return;
+    }
+    if (fullscreen && key.home && !approval && input.length === 0) {
+      touchScrollBar();
+      const height = Math.max(1, mouseLayoutRef.current.viewportRows);
+      setViewport(viewportAtRatio(projectedFullRef.current, height, 0));
+      return;
+    }
     if (fullscreen && (key.pageUp || key.pageDown) && !approval) {
+      touchScrollBar();
       const height = Math.max(1, mouseLayoutRef.current.viewportRows);
       setViewport((current) =>
-        scrollViewport(current, viewportLinesRef.current, key.pageUp ? -height : height, height)
+        scrollViewport(current, projectedFullRef.current, key.pageUp ? -height : height, height)
       );
       return;
     }
     if (chunk === '?' && input.length === 0 && !shellMode && !approval && !key.ctrl && !key.meta) {
-      setHelpOverlay({ lines: buildHelpOverlayLines(false), all: false });
+      setHelpOverlay({ lines: buildHelpOverlayLines(false, keymap.bindings), all: false });
       return;
     }
     if (key.ctrl && chunk === 'c') {
@@ -2727,6 +2918,18 @@ export function TuiAppRoot({
         return;
       }
       if (key.return) {
+        // A fully typed command wins over the fuzzy highlight. `/mode` is a
+        // hidden alias and is a subsequence of `/model`; Enter must run `/mode`.
+        const typed = input.trim();
+        const head = (typed.split(/\s+/, 1)[0] ?? '').toLowerCase();
+        const exact =
+          isExactSlashCommand(typed) ||
+          customCommands.some((command) => command.name === head) ||
+          (options.skills ?? []).some((skill) => `/${skill.name}`.toLowerCase() === head);
+        if (exact) {
+          void submit(typed);
+          return;
+        }
         const command = paletteRows[paletteSelection]?.[0];
         if (command) {
           void submit(command);
@@ -2824,6 +3027,23 @@ export function TuiAppRoot({
         if (last) setInput(last.display);
         return;
       }
+      // Fullscreen has no terminal scrollback. Up/Down moves the transcript
+      // one row at a time; history recall remains once the view cannot move
+      // (already at the top, or Down while pinned to the latest row).
+      if (fullscreen && !walking && input.length === 0 && !approval) {
+        touchScrollBar();
+        const height = Math.max(1, mouseLayoutRef.current.viewportRows);
+        const motion = moveTranscript(
+          viewport,
+          projectedFullRef.current,
+          height,
+          key.upArrow ? 'up' : 'down'
+        );
+        if (motion.action === 'scroll') {
+          setViewport(motion.state);
+          return;
+        }
+      }
       const recalled = walkPromptHistory(
         historyRef.current,
         historyCursorRef.current,
@@ -2857,17 +3077,20 @@ export function TuiAppRoot({
     if (key.ctrl && typeof chunk === 'string' && chunk.length === 1) {
       const code = chunk.charCodeAt(0);
       const letter = code >= 1 && code <= 26 ? String.fromCharCode(code + 96) : chunk.toLowerCase();
-      if (letter === 'a') {
+      // The registry (keymap.ts) owns every action key; `x` is the chord prefix
+      // (Ctrl+X Ctrl+S) and stays a plain letter.
+      const command = commandForKey(keymap.bindings, `ctrl+${letter}`);
+      if (command === 'caret.lineStart') {
         setComposer((current) => composerMove(current, 'line-start'));
         return;
       }
-      if (letter === 'e') {
+      if (command === 'caret.lineEnd') {
         // Readline muscle memory (and the reference CLI): end of line. The
         // evidence panel moved to Ctrl+V so this key could be an editor key.
         setComposer((current) => composerMove(current, 'line-end'));
         return;
       }
-      if (letter === 'y') {
+      if (command === 'edit.yank') {
         // Yank the last killed text back (readline's kill ring, depth 1).
         if (killRef.current) {
           const killed = killRef.current;
@@ -2880,7 +3103,7 @@ export function TuiAppRoot({
         }
         return;
       }
-      if (letter === 'r') {
+      if (command === 'history.search') {
         // A2.22: readline/reference muscle memory — search earlier prompts.
         setHistorySearch({ query: '', cursor: 0 });
         return;
@@ -2889,7 +3112,7 @@ export function TuiAppRoot({
         chordRef.current = 'x';
         return;
       }
-      if (letter === 'g') {
+      if (command === 'editor.external') {
         const editor = process.env.VISUAL || process.env.EDITOR;
         if (!editor) {
           setStatusLine(tui('set $EDITOR to edit the draft externally'));
@@ -2900,7 +3123,14 @@ export function TuiAppRoot({
         fs.writeFileSync(file, draft);
         void suspendTerminal(async () => {
           await new Promise<void>((resolve) => {
-            const child = spawnProcess(editor, [file], { stdio: 'inherit' });
+            // EDITOR may carry arguments; the editor opens on the caret's line.
+            const { bin, args: editorArgs } = splitEditorCommand(editor);
+            const line = caretLine(composer.value, composer.caret);
+            const child = spawnProcess(
+              bin,
+              [...editorArgs, ...externalEditorArgs(bin, file, line)],
+              { stdio: 'inherit' }
+            );
             child.on('exit', () => resolve());
             child.on('error', () => resolve());
           });
@@ -2920,7 +3150,7 @@ export function TuiAppRoot({
         return;
       }
       chordRef.current = '';
-      if (letter === 's') {
+      if (command === 'draft.stash') {
         // A2.24: stash the prompt when something urgent arrives; a second
         // Ctrl+S SWAPS — the new draft goes into the stash and the parked
         // one comes back (neither is ever lost).
@@ -2945,8 +3175,17 @@ export function TuiAppRoot({
         }
         return;
       }
-      if (letter === 'w' || letter === 'u' || letter === 'k') {
-        const unit = letter === 'u' ? 'line-start' : letter === 'k' ? 'line-end' : 'word-backward';
+      if (
+        command === 'edit.killWordBack' ||
+        command === 'edit.killLineStart' ||
+        command === 'edit.killLineEnd'
+      ) {
+        const unit =
+          command === 'edit.killLineStart'
+            ? 'line-start'
+            : command === 'edit.killLineEnd'
+              ? 'line-end'
+              : 'word-backward';
         const { doc, killed } = killText({ state: composer, tokens: tokensRef.current }, unit);
         if (killed) {
           killRef.current = killed;
@@ -2957,19 +3196,16 @@ export function TuiAppRoot({
         }
         return;
       }
-      if (letter === 'o') {
+      if (command === 'view.toggleVerbose') {
         // Inline: only later rows pick up the new detail. Remounting <Static>
         // reprinted the whole transcript into scrollback.
         setVerbose((current) => !current);
         return;
       }
-      const action = ctrlBinding(letter);
-      if (action === 'clear') {
+      if (command === 'composer.clear') {
         setInput('');
         setStatusLine(undefined);
-        return;
       }
-      if (action) void showBlock(action);
       return;
     }
     // NB: key.shift must NOT be in this guard — ink reports shift=true for
@@ -3040,9 +3276,10 @@ export function TuiAppRoot({
 
   // ─── render ────────────────────────────────────────────────────────────
 
-  // A short tail of the thinking stream stays visible. MOSS_SHOW_THINKING=false
-  // hides it; otherwise a long silent spinner looks like nothing is happening.
-  const showThinking = process.env.MOSS_SHOW_THINKING !== 'false';
+  // Reasoning is hidden like in Claude Code: the spinner says "Thinking…" and
+  // ctrl+o (verbose) reveals the text. MOSS_SHOW_THINKING=true keeps a short
+  // live preview in the compact view for people who want it.
+  const showThinking = verbose || process.env.MOSS_SHOW_THINKING === 'true';
   const live: LiveView = {
     running,
     startedAt: runStartedAtRef.current,
@@ -3055,6 +3292,7 @@ export function TuiAppRoot({
     ...(store.run.retry ? { retry: store.run.retry } : {}),
     ...(store.run.lastEventAt !== undefined ? { lastEventAt: store.run.lastEventAt } : {}),
     blocked: Boolean(approval),
+    thinkingActive: store.run.thinkingText.trim() !== '' && !store.run.streamingText.trim(),
   };
   const actualModel =
     store.usage.lastModel && store.usage.lastModel !== currentModel
@@ -3077,6 +3315,7 @@ export function TuiAppRoot({
     // A7: the policy layer's live mode is part of the chrome, always.
     mode: interactionMode,
     verbose,
+    collapsed: projectedFullRef.current.some((entry) => isExpandAffordance(entry.text)),
     ...(stashRef.current !== undefined ? { stashed: true } : {}),
     shellMode,
   };
@@ -3157,7 +3396,7 @@ export function TuiAppRoot({
                 `${index === modelPicker.cursor ? '❯' : ' '} ${String(index + 1).padStart(2, ' ')}. ${choice.model}${choice.label ? ` — ${choice.label}` : ''}`,
                 columns
               ),
-              index === modelPicker.cursor ? { color: 'cyan', bold: true } : { dim: true }
+              index === modelPicker.cursor ? { color: TONE.accent, bold: true } : { dim: true }
             );
           }),
         ...(modelPicker.choices.choices.length > 8
@@ -3181,7 +3420,13 @@ export function TuiAppRoot({
       : [];
   // Shell mode tints both rules (E2): the composer sits between them, so the
   // whole input block reads as one state.
-  const ruleTone = shellMode ? { color: SHELL_MODE_TONE } : {};
+  // Plan / accept-edits tint the same two rules as the hint row below them, so
+  // the input block always shows the mode it is in (full / manual stay neutral).
+  const ruleTone = shellMode
+    ? { color: SHELL_MODE_TONE }
+    : interactionMode === 'plan' || interactionMode === 'acceptEdits'
+      ? { color: INTERACTION_MODE_TONES[interactionMode] }
+      : {};
   // Ctrl+R prompt-search overlay (A2.22): query box + matches + footer, in
   // the pinned chrome right above the status row.
   const historySearchMatches = historySearch ? filterHistory(history, historySearch.query) : [];
@@ -3225,9 +3470,10 @@ export function TuiAppRoot({
           }),
           columns
         ),
-        { color: 'yellow' }
+        { color: TONE.warn }
       )
     : undefined;
+  const statusRight = renderStatusRight(status, columns);
   const chromeTop: TuiLine[] = [
     // D-13: the dialog gets a height budget (terminal rows minus the rest of the
     // pinned chrome and any extra composer rows) so a short terminal can never
@@ -3256,7 +3502,7 @@ export function TuiAppRoot({
               ),
               columns
             ),
-            { color: 'yellow' }
+            { color: TONE.warn }
           ),
         ]
       : []),
@@ -3274,19 +3520,42 @@ export function TuiAppRoot({
           cursor: permissionCursor,
         })
       : []),
-    renderStatusRight(status, columns),
+    // An idle status row has nothing to say; a blank row above the rule wastes
+    // a line of the transcript (plan v3 N5).
+    ...(statusRight.text.trim() ? [statusRight] : []),
     ...(historyCursor.index !== undefined
       ? [renderHistoryRule(historyCursor.index + 1, history.length, columns)]
+      : []),
+    // Queued follow-ups sit directly above the composer so ↑ can take one back.
+    ...(!approval && queueRef.current.length > 0
+      ? [
+          ...queueRef.current.slice(0, 5).map((item, index) =>
+            line(
+              clip(
+                tui('  queued {n}. {text}', {
+                  n: index + 1,
+                  text: item.display.replace(/\s+/g, ' ').trim().slice(0, 72),
+                }),
+                columns
+              ),
+              { dim: true }
+            )
+          ),
+          line(clip(`  ${tui('Press up to edit queued messages')}`, columns), { dim: true }),
+        ]
       : []),
     line(rule(columns), ruleTone),
   ];
   const chromeBottom: TuiLine[] = [line(rule(columns), ruleTone), renderHint(status, columns)];
   const rowDetail = (row: { id: number }): boolean => verbose || expandedRows.has(row.id);
+  // Fullscreen reserves the last column for the scroll bar; the body is one cell
+  // narrower so no projected line can wrap into it.
+  const bodyWidth = fullscreen ? Math.max(1, columns - 1) : columns;
   const activityLines = fullscreen
     ? renderScrollableActivity(
         showThinking ? store.run.thinkingText : '',
         store.run.streamingText,
-        columns
+        bodyWidth
       )
     : [];
   const liveLines = renderLive(
@@ -3294,11 +3563,18 @@ export function TuiAppRoot({
     columns,
     verbose
   );
+  // The `Jump to bottom` row is part of the frame budget: leaving it out made
+  // the frame one row taller than the terminal, which scrolled the top away.
+  const showJump = fullscreen && !viewport.pinned && viewport.offsetFromBottom > 0;
+  // The jump row always owns its slot in fullscreen (blank while pinned). A slot
+  // that appears and disappears changed the viewport height with the scroll
+  // state, so a drag target stopped meaning the same row a frame later.
+  const jumpSlot = fullscreen ? 1 : 0;
   const frameLayout = allocateFrame({
     rows: windowSize.rows || 24,
     mode: fullscreen ? 'fullscreen' : 'inline',
     composerLines: approval ? 1 : Math.max(1, editor.lines.length),
-    fixedChrome: chromeTop.length + chromeBottom.length,
+    fixedChrome: chromeTop.length + chromeBottom.length + jumpSlot,
     sections: [
       {
         id: 'live',
@@ -3312,13 +3588,17 @@ export function TuiAppRoot({
   const shownLive = frameLayout.sections[0]?.lines ?? liveLines;
   const projected: ViewportLine[] = [];
   if (fullscreen) {
-    for (const row of foldReadonlyRows(store.rows, verbose)) {
-      renderTranscriptRow(row, columns, rowDetail(row)).forEach((entry, lineIndex) => {
-        projected.push({ rowId: row.id, lineIndex, text: entry.text });
-      });
-    }
+    const folded = foldReadonlyRows(store.rows, verbose);
+    const cache = projectionCacheRef.current;
+    folded.forEach((row, rowIndex) => {
+      cache
+        .render(row, bodyWidth, rowDetail(row), folded[rowIndex - 1])
+        .forEach((entry, lineIndex) => {
+          projected.push({ rowId: row.id, lineIndex, text: entry.text, line: entry });
+        });
+    });
     activityLines.forEach((entry, lineIndex) => {
-      projected.push({ rowId: -1, lineIndex, text: entry.text });
+      projected.push({ rowId: -1, lineIndex, text: entry.text, line: entry });
     });
   }
   projectedFullRef.current = projected;
@@ -3327,7 +3607,37 @@ export function TuiAppRoot({
     ? viewportWindow(projected, viewport, frameLayout.viewportRows)
     : undefined;
   viewportWindowRef.current = view?.lines ?? [];
+  // One cell per viewport row, right-most column: a thumb while the transcript
+  // overflows, nothing otherwise. The thumb follows the same window as the text.
+  // The arrows take the first and last rows, so the thumb moves along the rows between.
+  const thumb =
+    fullscreen && view
+      ? scrollThumb(
+          projected.length,
+          frameLayout.viewportRows,
+          view.start,
+          Math.max(1, frameLayout.viewportRows - 2)
+        )
+      : null;
+  const barShown = Boolean(thumb) && Date.now() - barTouchedRef.current < SCROLLBAR_HIDE_MS;
+  const barCells: Array<{ text: string; color?: TuiLine['color'] } | undefined> =
+    thumb && barShown
+      ? Array.from({ length: frameLayout.viewportRows }, (_, index) => {
+          // The first and last rows are the arrows: a click there goes to the top
+          // or bottom of the transcript (see routeMouse / viewportAtRatio).
+          if (index === 0) return { text: '↑', color: TONE.accent };
+          if (index === frameLayout.viewportRows - 1) return { text: '↓', color: TONE.accent };
+          const track = index - 1;
+          return track >= thumb.top && track < thumb.top + thumb.size
+            ? { text: '┃', color: TONE.accent }
+            : { text: '│', color: TONE.muted };
+        })
+      : [];
   projectedTextRef.current = (view?.lines ?? []).map((entry) => entry.text);
+  // A short transcript leaves the viewport partly empty. The composer belongs at
+  // the bottom edge (like Claude Code's fullscreen), so the gap is explicit rows.
+  const spacerRows =
+    fullscreen && view ? Math.max(0, frameLayout.viewportRows - view.lines.length) : 0;
   const permissionDialog = Boolean(approval && pendingDialogRef.current?.kind !== 'question');
   const detailSource =
     verbose && !fullscreen
@@ -3342,22 +3652,62 @@ export function TuiAppRoot({
   // detail block, then the top chrome. Fullscreen renders the live block too, so
   // it must be counted; dropping it parked the hardware cursor above the prompt.
   const aboveComposer =
-    (view?.lines.length ?? 0) + shownLive.length + detailLines.length + chromeTop.length;
+    (view?.lines.length ?? 0) +
+    spacerRows +
+    jumpSlot +
+    shownLive.length +
+    detailLines.length +
+    chromeTop.length;
   mouseLayoutRef.current = {
     composerTop: aboveComposer,
     composerLines,
     viewportRows: fullscreen ? frameLayout.viewportRows : 0,
-    ...(view && !view.pinned
-      ? {
-          jumpRow: (view.lines.length ?? 0) + shownLive.length + chromeTop.length + composerLines,
-        }
-      : {}),
+    ...(thumb ? { scrollbarCol: columns - 1 } : {}),
+    // The affordance sits directly under the viewport, above the live block.
+    ...(showJump && view ? { jumpRow: view.lines.length } : {}),
   };
-  const hideHardwareCursor = Boolean(permissionDialog || sessionPicker || modelPicker);
-  if (hideHardwareCursor || process.env.MOSS_TUI_HW_CURSOR === '0') {
+  // Overlay query boxes (Ctrl+R search, the session picker) take the hardware
+  // cursor at the end of their query, the same way the composer does.
+  const overlayQueryRow = chromeTop.findIndex((entry) => entry.text.includes('⌕'));
+  const overlayQuery = overlayQueryRow >= 0 && Boolean(historySearch || sessionPicker);
+  // A selector (approval, model list, session list, permissions) owns the caret:
+  // the hardware cursor sits on its `❯` row so IME and screen readers follow the
+  // choice, the same way the composer and the search query do.
+  const selectorOwnsCaret = Boolean(
+    approval || modelPicker || permissionsOpen || (sessionPicker && !overlayQuery)
+  );
+  const selectorRow = selectorOwnsCaret
+    ? chromeTop.findIndex((entry) => /^\s*❯/.test(entry.text))
+    : -1;
+  // ink only appends the trailing newline its cursor maths assumes while the
+  // frame is shorter than the terminal. A frame that fills every row (the
+  // fullscreen viewport, or a narrow/short pane) leaves the real cursor one
+  // row lower, which parked the caret on the rule above the prompt.
+  const frameRows = aboveComposer + composerLines + chromeBottom.length;
+  const fillsTerminal = frameRows >= (windowSize.rows || 24);
+  if (process.env.MOSS_TUI_DEBUG === '1') {
+    noteFrameHeight(options.workspaceDir, frameRows, windowSize.rows || 24, fullscreen);
+  }
+  if (process.env.MOSS_TUI_HW_CURSOR === '0') {
     setCursorPosition(undefined);
+  } else if (overlayQuery) {
+    const queryLine = chromeTop[overlayQueryRow];
+    setCursorPosition({
+      x: displayWidth(queryLine?.text ?? ''),
+      y: aboveComposer - chromeTop.length + overlayQueryRow + (fillsTerminal ? 1 : 0),
+    });
+  } else if (selectorRow >= 0) {
+    const marker = chromeTop[selectorRow]?.text ?? '';
+    const markAt = marker.indexOf('❯');
+    setCursorPosition({
+      x: displayWidth(markAt >= 0 ? marker.slice(0, markAt) : marker),
+      y: aboveComposer - chromeTop.length + selectorRow + (fillsTerminal ? 1 : 0),
+    });
   } else {
-    setCursorPosition({ x: editor.caretCol, y: aboveComposer + editor.caretRow });
+    setCursorPosition({
+      x: editor.caretCol,
+      y: aboveComposer + editor.caretRow + (fillsTerminal ? 1 : 0),
+    });
   }
 
   /**
@@ -3405,7 +3755,7 @@ export function TuiAppRoot({
             Text,
             {
               key: `${key}-${index}-prompt`,
-              color: SHELL_MODE_TONE,
+              ...inkTextStyle({ color: SHELL_MODE_TONE }),
             },
             head
           )
@@ -3440,13 +3790,13 @@ export function TuiAppRoot({
           key: `transcript-${clearRevision}`,
           items: store.rows.slice(),
           // ink types Static's children as (item: unknown, index) => ReactNode.
-          children: (item: unknown) => {
+          children: (item: unknown, rowIndex: number) => {
             const row = item as TranscriptRow;
             return React.createElement(
               Box,
               { key: row.id, flexDirection: 'column' },
-              ...renderTranscriptRow(row, columns, rowDetail(row)).map((l, index) =>
-                inkLine(l, `${row.id}-${index}`)
+              ...renderTranscriptRow(row, columns, rowDetail(row), store.rows[rowIndex - 1]).map(
+                (l, index) => inkLine(l, `${row.id}-${index}`)
               )
             );
           },
@@ -3456,20 +3806,44 @@ export function TuiAppRoot({
           const selected = selectionRef.current;
           const top = selected ? Math.min(selected.anchor.y, selected.head.y) : -1;
           const bottom = selected ? Math.max(selected.anchor.y, selected.head.y) : -1;
-          return inkLine(line(entry.text), `view-${index}`, index >= top && index <= bottom);
+          const bar = barCells[index];
+          const body = entry.line ?? line(entry.text);
+          // Runs are needed whenever the bar is drawn: a single row style would
+          // paint the bar in the body's colour.
+          const runs = body.runs?.length ? body.runs : [{ text: body.text }];
+          const padded = padEndTo(body.text, bodyWidth);
+          const padding = padded.slice(body.text.length);
+          const shown: TuiLine = {
+            ...body,
+            text: `${padded}${bar?.text ?? ''}`,
+            runs: [
+              ...runs,
+              ...(padding ? [{ text: padding }] : []),
+              ...(bar ? [{ text: bar.text, color: bar.color }] : []),
+            ],
+          };
+          return inkLine(shown, `view-${index}`, index >= top && index <= bottom);
         })
+      : []),
+    ...(fullscreen
+      ? [
+          inkLine(
+            showJump ? line(tui('  ↓ Jump to bottom (click or End)'), { dim: true }) : line(''),
+            'jump-bottom'
+          ),
+        ]
       : []),
     ...shownLive.map((l, index) => inkLine(l, `live-${index}`)),
     ...detailLines.map((l, index) => inkLine(l, `detail-${index}`)),
+    // Spare rows sit below the live block: the spinner and the streaming tail stay
+    // right under the last message, and the composer still rests on the bottom edge.
+    ...Array.from({ length: spacerRows }, (_, index) => inkLine(line(''), `spacer-${index}`)),
     ...chromeTop.map((l, index) => inkLine(l, `chrome-top-${index}`)),
     ...(permissionDialog
       ? []
       : composerRuns.map((runs, index) =>
           inkRuns(runs, `composer-${index}`, shellMode && index === 0)
         )),
-    ...(view && !view.pinned
-      ? [inkLine(line(tui('Jump to bottom (click) ↓'), { dim: true }), 'jump-bottom')]
-      : []),
     ...chromeBottom.map((l, index) => inkLine(l, `chrome-bottom-${index}`))
   );
 }
@@ -3484,13 +3858,23 @@ function stdouts(stdout: { columns?: number } | undefined): number {
 export async function runTuiApp(options: TuiAppOptions): Promise<void> {
   installTerminalRestore();
   setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
+  setTuiTheme(detectTheme(process.env));
   const choice = selectTuiRenderer({
     env: process.env,
     rows: process.stdout.rows,
+    columns: process.stdout.columns,
     term: process.env.TERM,
     inTmux: Boolean(process.env.TMUX),
+    tmuxMouse: readTmuxMouse(process.env),
     inScreen: Boolean(process.env.STY),
   });
+  if (!options.renderer && choice.mode === 'inline' && /narrower|shorter/.test(choice.reason)) {
+    // One line, before Ink takes the screen: the fallback is a fact the user can
+    // act on (widen the window), not a silent downgrade.
+    process.stderr.write(
+      `[moss] ${choice.reason} — using the inline view. Resize the window to use fullscreen.\n`
+    );
+  }
   const handle = createStoreHandle();
   const runtime = options.runtime ?? new TaskRuntime({ workspaceDir: options.workspaceDir });
   const instance = render(
@@ -3501,9 +3885,13 @@ export async function runTuiApp(options: TuiAppOptions): Promise<void> {
     }),
     {
       exitOnCtrlC: false,
+      // Ink treats CI=true as non-interactive and then writes only <Static>
+      // (the banner) until exit, so the composer never appears. This entry
+      // point is the live TTY; a real terminal stays interactive in CI.
+      interactive: process.stdout.isTTY === true,
       alternateScreen: (options.renderer ?? choice.mode) === 'fullscreen',
       incrementalRendering: process.env.MOSS_TUI_INCREMENTAL !== '0',
-      kittyKeyboard: { mode: 'auto' },
+      kittyKeyboard: TUI_KITTY_KEYBOARD,
     }
   );
   try {

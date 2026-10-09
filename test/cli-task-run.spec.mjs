@@ -10,7 +10,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { formatTaskStatus, runTaskCommand, splitCommandArgs } from '../dist/cli/task-run.js';
+import {
+  formatTaskStatus,
+  quoteCommandArg,
+  runTaskCommand,
+  splitCommandArgs,
+} from '../dist/cli/task-run.js';
+import { goalRunArgs } from '../dist/cli/commands/goal-propose.js';
 import {
   createDraftTask,
   appendTaskEvent,
@@ -60,6 +66,44 @@ test('splitCommandArgs honors quoted segments', () => {
   ]);
   assert.deepEqual(splitCommandArgs(''), []);
   assert.deepEqual(splitCommandArgs('status'), ['status']);
+  assert.deepEqual(splitCommandArgs('run "say \\"hi\\""'), ['run', 'say "hi"']);
+});
+
+test('goalRunArgs round-trips goals and acceptance commands that contain spaces and quotes', () => {
+  const line = goalRunArgs('ship --accept the design', {
+    acceptance: 'npm test && echo "ok"',
+  });
+  const args = splitCommandArgs(line);
+  assert.equal(args[0], 'run');
+  assert.equal(args[1], 'ship --accept the design');
+  assert.equal(args[2], '--accept');
+  assert.equal(args[3], 'npm test && echo "ok"');
+  assert.equal(quoteCommandArg('npm'), 'npm');
+});
+
+test('a goal whose text is --accept stays the goal', async () => {
+  assert.deepEqual(splitCommandArgs(goalRunArgs('--accept')), ['run', '--', '--accept']);
+  assert.deepEqual(splitCommandArgs(goalRunArgs('--accept', { acceptance: 'true' })), [
+    'run',
+    '--accept',
+    'true',
+    '--',
+    '--accept',
+  ]);
+  const ws = await tmpWorkspace();
+  const chunks = [];
+  const code = await runTaskCommand(splitCommandArgs(goalRunArgs('--accept')), {
+    agent: {
+      chat: async () => ({ response: 'noted', stopReason: 'end_turn' }),
+    },
+    workspace: ws,
+    sessionKey: 'dashdash-goal',
+    onOutput: (_stream, text) => chunks.push(text),
+  });
+  const text = chunks.join('\n');
+  assert.notEqual(code, 2, text);
+  assert.doesNotMatch(text, /a goal is required/);
+  assert.match(text, /--accept/);
 });
 
 test('moss task run exits 0 only on acceptance, printing the real summary', async () => {

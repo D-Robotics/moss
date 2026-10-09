@@ -1,11 +1,25 @@
 import * as path from 'node:path';
 import * as readline from 'node:readline';
 import micromatch from 'micromatch';
-import type { AgentHooks, ToolApprovalRequest } from '../core/agent/agent-hooks.js';
+import type {
+  AgentHooks,
+  ToolApprovalDecision,
+  ToolApprovalRequest,
+} from '../core/agent/agent-hooks.js';
 import type { Tool, ToolSideEffectClass } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
+import { classifyDeviceOperation, type DeviceRiskClassification } from '../safety/device-risk.js';
+import {
+  deviceIdsMatchTrustList,
+  grantDeviceOperation,
+  isDeviceTrustEnv,
+  parseDeviceTrustList,
+} from '../safety/device-trust.js';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
+import { recordDevicePolicyDecision } from './device-policy-log.js';
+import { deviceDestructivePrompt } from './device-safety-prompt.js';
+import { isZhLocale } from './cli-locale.js';
 import {
   normalizeSafetyModeConfig,
   loadConfigFile,
@@ -102,6 +116,15 @@ export interface CliToolApprovalOptions {
    */
   /** Instance-scoped interaction mode for embedded or concurrent agents. */
   interactionMode?: () => CliInteractionMode;
+
+  /**
+   * Device safety policy: `full` opts this process into destructive device
+   * operations (the `--trust-device` flag and `permissions.deviceTrust`).
+   * Absent stays gated. Env `MOSS_DEVICE_TRUST` is also consulted directly.
+   */
+  deviceTrust?: 'gated' | 'full';
+  /** Hosts / device ids that may run the destructive tier without a prompt. */
+  trustedDevices?: readonly string[];
 
   /**
    * v0.26 (T03): live rule-table getter — user + workspace + SESSION rules
@@ -1000,6 +1023,43 @@ function persistAllowRule(preview: CliToolApprovalPreview, toolName: string): vo
   }
 }
 
+function stringField(input: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === 'string') return value;
+  }
+  return undefined;
+}
+
+function deviceTrustKeys(
+  device: { host: string } | null | undefined,
+  env: NodeJS.ProcessEnv
+): string[] {
+  return [
+    ...new Set(
+      [device?.host, env.MOSS_DEVICE_HOST, env.MOSS_DEVICE_ID]
+        .map((value) => (value ?? '').trim())
+        .filter((value) => value.length > 0)
+    ),
+  ];
+}
+
+function classifyHookDeviceCall(
+  toolName: string,
+  sideEffect: string,
+  input: Record<string, unknown>
+): DeviceRiskClassification | null {
+  return classifyDeviceOperation({
+    toolName,
+    sideEffect,
+    command: stringField(input, 'command'),
+    path: stringField(input, 'path'),
+    remotePath: stringField(input, 'remote_path', 'remotePath'),
+    startCommand: stringField(input, 'start_command'),
+    healthCommand: stringField(input, 'health_command'),
+  });
+}
+
 export function createCliToolApprovalHook(
   mode: CliSafetyMode,
   env: NodeJS.ProcessEnv = process.env,
@@ -1010,6 +1070,8 @@ export function createCliToolApprovalHook(
   // edit family is a workspace-wide grant, design §3.4).
   const sessionAllowRules = new Set<string>();
   const sessionTrustedWorkspaces = new Set<string>();
+  /** `${deviceKey}\0${scopeId}` — `a` trusts one command scope, not the whole tier. */
+  const sessionTrustedScopes = new Set<string>();
   const workspaceRoot = workspaceTrustRoot(options.workspaceDir);
   let instanceAsker: AskUser | null = null;
   let instanceInteractionMode: (() => CliInteractionMode) | null = null;
@@ -1067,6 +1129,18 @@ export function createCliToolApprovalHook(
     const requiresApproval = needsApproval(request, sideEffect);
     const workspaceFileMutation = isWorkspaceFileMutation(tool.name, sideEffect);
     const operand = extractRuleOperand(tool.name, request.input);
+    const classification = classifyHookDeviceCall(tool.name, sideEffect, request.input);
+    const deviceKeys = deviceTrustKeys(options.device, env);
+    const deviceFullTrust =
+      options.deviceTrust === 'full' ||
+      isDeviceTrustEnv(env) ||
+      deviceIdsMatchTrustList(deviceKeys, options.trustedDevices ?? []) ||
+      deviceIdsMatchTrustList(deviceKeys, parseDeviceTrustList(env.MOSS_DEVICE_TRUST_DEVICES));
+    const scopeId = classification?.trust?.id;
+    const scopeDevices = deviceKeys.length > 0 ? deviceKeys : ['*'];
+    const deviceScopeTrusted = Boolean(
+      scopeId && scopeDevices.some((key) => sessionTrustedScopes.has(`${key}\0${scopeId}`))
+    );
 
     const decisionInput = {
       toolName: tool.name,
@@ -1078,6 +1152,33 @@ export function createCliToolApprovalHook(
       boardMode: options.boardMode?.() === true,
       acceptEditsEligible: workspaceFileMutation,
       planModeAllowed: tool.metadata?.planMode === 'allow',
+      ...(classification ? { deviceRiskTier: classification.tier } : {}),
+      ...(deviceFullTrust ? { deviceFullTrust: true } : {}),
+      ...(deviceScopeTrusted ? { deviceScopeTrusted: true } : {}),
+    };
+
+    const settle = async (decision: ToolApprovalDecision): Promise<ToolApprovalDecision> => {
+      if (
+        classification &&
+        decision.approved &&
+        (classification.tier === 'destructive' || classification.tier === 'sensitive')
+      ) {
+        grantDeviceOperation(tool.name, classification.operand, request.toolCallId);
+      }
+      if (classification) {
+        const deviceId = deviceKeys[0];
+        await recordDevicePolicyDecision({
+          workspaceDir: options.workspaceDir,
+          toolName: tool.name,
+          tier: classification.tier,
+          decision: decision.approved ? 'allow' : 'deny',
+          signal: classification.signal,
+          reason: decision.approved ? classification.reason : decision.reason,
+          ...(classification.operand ? { operand: classification.operand } : {}),
+          ...(deviceId ? { deviceId } : {}),
+        });
+      }
+      return decision;
     };
 
     const preview = describeCliToolApproval(request, liveMode, env, {
@@ -1094,10 +1195,10 @@ export function createCliToolApprovalHook(
       options.workspaceDir
     );
     if (workspaceBlockReason) {
-      return { approved: false, reason: workspaceBlockReason };
+      return settle({ approved: false, reason: workspaceBlockReason });
     }
     if (preview.hardBlockReason) {
-      return { approved: false, reason: preview.hardBlockReason };
+      return settle({ approved: false, reason: preview.hardBlockReason });
     }
 
     // ── the permission decision order (single implementation) ──
@@ -1105,54 +1206,74 @@ export function createCliToolApprovalHook(
 
     switch (outcome.decision) {
       case 'deny':
-        return { approved: false, reason: `Tool "${tool.name}" ${outcome.reason}.` };
+        return settle({ approved: false, reason: `Tool "${tool.name}" ${outcome.reason}.` });
       case 'block':
-        return {
+        return settle({
           approved: false,
           reason: `Tool "${tool.name}" is blocked (${outcome.reason}). ${
             effectiveMode === 'plan'
               ? 'Switch to "manual", "accept-edits", or "full" mode (use Shift+Tab) to execute changes. '
               : 'The read-only ceiling only lifts with --workspace-write/--full-access. '
           }Then run "${tool.name}" again.`,
-        };
+        });
       case 'allow':
         // Workspace file trust (the 'a' family grant) rides on top of the
         // ordered allow — same outcome, kept for the sandboxed edit family.
-        if (outcome.reason === 'no-approval-needed') return { approved: true };
-        return { approved: true };
+        if (outcome.reason === 'no-approval-needed') return settle({ approved: true });
+        return settle({ approved: true });
       case 'ask-rule':
       case 'ask':
         break;
     }
 
     if (trustedWorkspace) {
-      return { approved: true };
+      return settle({ approved: true });
     }
 
     // read-only tools with planMode: 'allow' (planning helpers) run without a
     // second confirmation (plan ceiling already let them through above).
     if (effectiveMode === 'plan' && tool.metadata?.planMode === 'allow') {
-      return { approved: true };
+      return settle({ approved: true });
     }
+
+    const deviceGatedAsk =
+      outcome.decision === 'ask' &&
+      (outcome.reason === 'device-destructive' || outcome.reason === 'device-sensitive');
+    const destructiveCopy =
+      deviceGatedAsk && classification
+        ? deviceDestructivePrompt({
+            toolName: tool.name,
+            tier: classification.tier === 'sensitive' ? 'sensitive' : 'destructive',
+            operand: classification.operand,
+            reason: classification.reason,
+            ...(classification.trust
+              ? { trustEn: classification.trust.en, trustZh: classification.trust.zh }
+              : {}),
+            ...(deviceKeys[0] ? { deviceLabel: deviceKeys[0] } : {}),
+          })
+        : undefined;
 
     const asker = instanceAsker ?? interactiveAsker;
     if (!process.stdin.isTTY && asker === null) {
       if (options.detailMode !== 'quiet' && !headlessNoticeShown) {
         console.error(
-          `[moss] Approval required but no interactive terminal is available: ${tool.name}`
+          deviceGatedAsk && isZhLocale()
+            ? `[moss] 需要确认，但当前没有交互终端：${tool.name}`
+            : `[moss] Approval required but no interactive terminal is available: ${tool.name}`
         );
         headlessNoticeShown = true;
       }
-      return {
+      return settle({
         approved: false,
-        reason:
-          `Tool "${tool.name}" requires approval, but Moss is running non-interactively. ` +
-          'To let it run: switch the mode to full — `/mode full` in an interactive session, ' +
-          '`--full-access` (this process only), or `moss config set permissions.defaultMode=full` ' +
-          '(persistent); add narrow allow rules with /permissions for single tools. ' +
-          'This gate is inherited by sub-agents: delegating the same call via ' +
-          'create_subagent or fan_out_subagents will be denied too, so do not retry it that way.',
-      };
+        reason: destructiveCopy
+          ? destructiveCopy.headlessReason
+          : `Tool "${tool.name}" requires approval, but Moss is running non-interactively. ` +
+            'To let it run: switch the mode to full — `/mode full` in an interactive session, ' +
+            '`--full-access` (this process only), or `moss config set permissions.defaultMode=full` ' +
+            '(persistent); add narrow allow rules with /permissions for single tools. ' +
+            'This gate is inherited by sub-agents: delegating the same call via ' +
+            'create_subagent or fan_out_subagents will be denied too, so do not retry it that way.',
+      });
     }
 
     // Task OS §11: attach the live task context so approvals read as task
@@ -1176,21 +1297,34 @@ export function createCliToolApprovalHook(
       /* task context is enrichment — approvals work without it */
     }
 
-    const prompt = renderCliApprovalPrompt(
-      preview,
-      request.input,
-      {
-        workspaceDir: options.workspaceDir,
-        device: options.device,
-      },
-      taskCtx
-    );
-    const dialog = describeApprovalDialog(
+    const prompt =
+      destructiveCopy?.text ??
+      renderCliApprovalPrompt(
+        preview,
+        request.input,
+        {
+          workspaceDir: options.workspaceDir,
+          device: options.device,
+        },
+        taskCtx
+      );
+    const baseDialog = describeApprovalDialog(
       preview,
       request.input,
       { workspaceDir: options.workspaceDir, device: options.device },
       { persistTrust: options.persistTrust }
     );
+    const dialog = destructiveCopy
+      ? {
+          ...baseDialog,
+          title: destructiveCopy.title,
+          subject: destructiveCopy.subject,
+          detail: destructiveCopy.detail,
+          question: destructiveCopy.question,
+          trustOptionLabel: destructiveCopy.trustOptionLabel,
+          trustOptionAvailable: true,
+        }
+      : baseDialog;
     // Precedence: a structured UI (which renders the dialog itself) wins over
     // the flattened-prompt asker; headless/tests keep using the string path.
     const viewAsker = getCliApprovalViewAsker();
@@ -1201,10 +1335,16 @@ export function createCliToolApprovalHook(
     // "Yes, but let me add something first": run the tool, and the UI stages the
     // composer for the user's follow-up. Not a session-wide trust grant.
     if (answer === 'amend') {
-      return { approved: true };
+      return settle({ approved: true });
     }
     if (answer === 'a' || answer === 'always') {
-      if (isWorkspaceTrustEligible(preview)) {
+      if (deviceGatedAsk) {
+        // Trust this command scope on this device, not every destructive call.
+        const trustedScope = classification?.trust?.id;
+        if (trustedScope) {
+          for (const key of scopeDevices) sessionTrustedScopes.add(`${key}\0${trustedScope}`);
+        }
+      } else if (isWorkspaceTrustEligible(preview)) {
         sessionTrustedWorkspaces.add(workspaceRoot);
       } else {
         // v0.26 (T03): 'a' writes a session allow rule for the whole tool —
@@ -1213,14 +1353,17 @@ export function createCliToolApprovalHook(
         // the live rule table without prompting.
         sessionAllowRules.add(tool.name);
       }
-      if (options.persistTrust) persistAllowRule(preview, tool.name);
+      if (options.persistTrust && !deviceGatedAsk) persistAllowRule(preview, tool.name);
 
-      return { approved: true };
+      return settle({ approved: true });
     }
     if (answer === 'y' || answer === 'yes') {
-      return { approved: true };
+      return settle({ approved: true });
     }
-    return { approved: false, reason: `User denied ${tool.name}.` };
+    if (deviceGatedAsk && isZhLocale()) {
+      return settle({ approved: false, reason: `用户拒绝了 ${tool.name}。` });
+    }
+    return settle({ approved: false, reason: `User denied ${tool.name}.` });
   };
   const configurable = hook as CliToolApprovalHook;
   configurable.setAsker = (asker: AskUser | null) => {

@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 
+import { runProcessSync } from '../../utils/run-process.js';
+
 /**
  * Which terminal renderer a TTY session uses.
  *
@@ -12,6 +14,8 @@ export type TuiRendererMode = 'inline' | 'fullscreen';
 export interface RendererProbe {
   env?: Record<string, string | undefined>;
   rows?: number;
+  /** Terminal width; below MIN_FULLSCREEN_COLUMNS the fullscreen frame cannot hold its chrome. */
+  columns?: number;
   term?: string;
   /** `tmux show -gv mouse` result; undefined when not inside tmux. */
   tmuxMouse?: string | undefined;
@@ -23,6 +27,9 @@ export interface RendererChoice {
   mode: TuiRendererMode;
   reason: string;
 }
+
+/** Below this width the fullscreen chrome (rules, hint, status) cannot stay on one row each. */
+export const MIN_FULLSCREEN_COLUMNS = 40;
 
 export function selectTuiRenderer(probe: RendererProbe = {}): RendererChoice {
   const env = probe.env ?? {};
@@ -39,6 +46,13 @@ export function selectTuiRenderer(probe: RendererProbe = {}): RendererChoice {
     return { mode: 'inline', reason: 'TERM cannot host a fullscreen UI' };
   const rows = probe.rows ?? 24;
   if (rows < 10) return { mode: 'inline', reason: 'terminal is shorter than 10 rows' };
+  const columns = probe.columns ?? 80;
+  if (columns < MIN_FULLSCREEN_COLUMNS) {
+    return {
+      mode: 'inline',
+      reason: `terminal is narrower than ${MIN_FULLSCREEN_COLUMNS} columns`,
+    };
+  }
   if (probe.inScreen || env.STY) return { mode: 'inline', reason: 'GNU screen' };
   if (probe.inTmux || env.TMUX) {
     const mouse = (probe.tmuxMouse ?? 'off').trim().toLowerCase();
@@ -47,7 +61,48 @@ export function selectTuiRenderer(probe: RendererProbe = {}): RendererChoice {
   return { mode: 'fullscreen', reason: 'default' };
 }
 
-export const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?1004h';
+function tmuxShow(args: string[], env: Record<string, string>): string {
+  const result = runProcessSync('tmux', args, {
+    encoding: 'utf8',
+    timeout: 1_000,
+    env,
+    windowsHide: true,
+  });
+  if (result.error || result.status !== 0) return '';
+  return String(result.stdout ?? '')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Effective tmux mouse option, or `undefined` when this process is not inside
+ * tmux. A session value wins over the global one (`set -g mouse on` leaves the
+ * session option empty). A failed probe is `off`: fullscreen mouse tracking
+ * inside tmux without the mouse option eats clicks, so the safe fallback is
+ * the inline renderer.
+ */
+export function readTmuxMouse(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (!env.TMUX) return undefined;
+  const childEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === 'string') childEnv[key] = value;
+  }
+  const session = tmuxShow(['show', '-v', 'mouse'], childEnv);
+  if (session) return session;
+  return tmuxShow(['show', '-gv', 'mouse'], childEnv) || 'off';
+}
+
+/**
+ * Ink `auto` asks the terminal `CSI ? u` and, until that probe ends, copies
+ * stdin into a side buffer it later unshifts. A keystroke in that window is
+ * delivered twice — `测` becomes `测测`, so the hardware cursor (and an IME
+ * candidate window sitting on it) lands a cell too far. Force-enable skips
+ * the probe. Terminals that do not speak the protocol ignore `CSI > flags u`.
+ */
+export const TUI_KITTY_KEYBOARD = { mode: 'enabled' as const };
+
+// 1003 (any-event) reports motion without a button: the scroll bar appears on hover.
+export const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h\x1b[?1004h';
 export const MOUSE_TRACKING_OFF =
   '\x1b[?1004l\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1003l\x1b[?1015l';
 

@@ -243,7 +243,9 @@ function assertFits(lines, width, label) {
     { running: true, model: 'deepseek-flash', tokens: 1500, taskCount: 0, queueLength: 0 },
     60
   );
-  assert.equal(cells(status.text), 60, 'status right occupies the full pane width');
+  // Contract (live capture): the right-most column stays empty, so a wide glyph in
+  // the status cannot push the last character off the row.
+  assert.equal(cells(status.text), 59, 'status right leaves the last column empty');
   assert.ok(status.text.endsWith('deepseek-flash · 1.5k out'), 'status content is flush right');
 
   // Bottom chrome contract: full-width rules bracket the composer, and the
