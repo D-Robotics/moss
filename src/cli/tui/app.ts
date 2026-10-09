@@ -100,7 +100,7 @@ import {
   splitCommandArgs,
 } from '../task-run.js';
 import { messageRequestsTaskContract } from '../task-flow.js';
-import { userFacingAssistantText } from '../user-facing-text.js';
+import { liveAssistantText } from '../user-facing-text.js';
 import {
   formatCliInteractionModeLabel,
   getCliInteractionMode,
@@ -3485,7 +3485,7 @@ export function TuiAppRoot({
     running,
     startedAt: runStartedAtRef.current,
     toolLine: store.run.toolLine,
-    streaming: userFacingAssistantText(store.run.streamingText),
+    streaming: liveAssistantText(store.run.streamingText),
     thinking: showThinking ? store.run.thinkingText : '',
     tokensOut: store.usage.runTokensOut,
     queued: queueRef.current.length,
@@ -3819,7 +3819,7 @@ export function TuiAppRoot({
   const activityLines = fullscreen
     ? renderScrollableActivity(
         showThinking ? store.run.thinkingText : '',
-        store.run.streamingText,
+        liveAssistantText(store.run.streamingText),
         bodyWidth
       )
     : [];

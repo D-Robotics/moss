@@ -3,7 +3,11 @@
  * The tool result the model reads is unchanged; only the transcript is.
  * Assistant prose is passed through the shared egress redactor before it is shown.
  */
-import { redactEgress } from '../safety/tool-output-redact.js';
+import {
+  holdOpenSecretSuffix,
+  redactEgress,
+  visibleStreamPrefix,
+} from '../safety/tool-output-redact.js';
 
 const MODEL_HINT_LINE = 'Verify with tests instead of re-reading every file.';
 
@@ -45,6 +49,22 @@ export function userFacingToolResult(result: string, toolName?: string): string 
     );
   }
   return text;
+}
+
+/**
+ * Live TUI tail. Finished lines go through the same redactor as a committed
+ * row. On the open line, only a still-growing secret is held back, so ordinary
+ * tokens stay visible and a secret split across chunks cannot flash.
+ */
+export function liveAssistantText(text: string): string {
+  const normalized = text.replace(/\r\n/g, '\n');
+  const prefix = visibleStreamPrefix(normalized, false);
+  const partial = normalized.slice(prefix.length);
+  const finished = prefix ? userFacingAssistantText(prefix) : '';
+  const open = holdOpenSecretSuffix(partial);
+  if (!finished) return open;
+  if (!open) return finished;
+  return `${finished}\n${open}`;
 }
 
 /** Strip lines the harness injected. Model prose that quotes those prefixes stays. */

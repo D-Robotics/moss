@@ -22,6 +22,25 @@ export function noteKnownSecret(value: string | undefined): void {
   storedCache = null;
 }
 
+/**
+ * If the text ends with a proper prefix of a known secret, return the index
+ * where that prefix starts so the caller can keep it off screen until the
+ * value is complete. A full secret is left in place for exact-match redaction.
+ */
+export function knownSecretPrefixCut(text: string, env: NodeJS.ProcessEnv = process.env): number {
+  let cut = text.length;
+  for (const secret of collectKnownSecretValues(env)) {
+    const max = Math.min(text.length, secret.length - 1);
+    for (let len = max; len >= 4; len -= 1) {
+      if (secret.startsWith(text.slice(text.length - len))) {
+        cut = Math.min(cut, text.length - len);
+        break;
+      }
+    }
+  }
+  return cut;
+}
+
 export function redactKnownSecretValues(
   text: string,
   env: NodeJS.ProcessEnv = process.env

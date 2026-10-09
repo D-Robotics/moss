@@ -12,7 +12,7 @@
  * Writing the `[REDACTED]` placeholder back into a file is rejected separately.
  */
 import path from 'node:path';
-import { redactKnownSecretValues } from './known-secrets.js';
+import { knownSecretPrefixCut, redactKnownSecretValues } from './known-secrets.js';
 import {
   commandMentionsMossCredential,
   isMossCredentialPath,
@@ -186,7 +186,13 @@ export function presentToolOutput(args: {
  * The tool-result post hook redacts the final string again; this writer only
  * covers the live stream.
  */
-function visibleStreamPrefix(raw: string, flush: boolean): string {
+/**
+ * Text safe to paint while a stream is still open: every finished line, and
+ * nothing from the current partial line or an unclosed PEM block. `flush`
+ * includes the tail (commit / turn end). Holding only that tail keeps
+ * streaming responsive without letting a secret flash before it is complete.
+ */
+export function visibleStreamPrefix(raw: string, flush: boolean): string {
   const begin = raw.lastIndexOf('-----BEGIN ');
   if (begin !== -1) {
     const after = raw.slice(begin);
@@ -198,6 +204,40 @@ function visibleStreamPrefix(raw: string, flush: boolean): string {
   if (flush || raw.endsWith('\n')) return raw;
   const nl = raw.lastIndexOf('\n');
   return nl === -1 ? '' : raw.slice(0, nl + 1);
+}
+
+const OPEN_ASSIGNMENT =
+  /(aws_secret_access_key|aws_access_key_id|client-key-data|client_key_data|api[_-]?key|access[_-]?key|private[_-]?key|secret|token|password|passwd|credential|authorization|bearer)(["']?\s*[:=]\s*["']?)(\S*)$/i;
+
+const OPEN_STANDALONE =
+  /(?:sk-|github_pat_|ghp_|glpat-|xox[baprs]-|AKIA|AIza|enc:)[A-Za-z0-9_+/=-]*$/;
+
+/**
+ * Paint an unfinished line except a secret that is still growing. A finished
+ * value is already `[REDACTED]`. Ordinary prose, including a token stream with
+ * no secret shape, is returned as-is so the live tail stays responsive.
+ */
+export function holdOpenSecretSuffix(line: string, env: NodeJS.ProcessEnv = process.env): string {
+  if (!line) return '';
+  const pem = line.lastIndexOf('-----BEGIN ');
+  if (pem !== -1) {
+    const after = line.slice(pem);
+    const openPrivateKey =
+      /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(after) &&
+      !/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(after);
+    if (openPrivateKey) return holdOpenSecretSuffix(line.slice(0, pem), env);
+  }
+  const redacted = redactEgress(line, env);
+  let cut = knownSecretPrefixCut(redacted, env);
+  const assign = OPEN_ASSIGNMENT.exec(redacted);
+  if (assign && assign[3] !== '[REDACTED]') {
+    const start = assign.index;
+    const bounded = start === 0 || !/[A-Za-z0-9_]/.test(redacted.charAt(start - 1));
+    if (bounded) cut = Math.min(cut, start);
+  }
+  const standalone = OPEN_STANDALONE.exec(redacted);
+  if (standalone) cut = Math.min(cut, standalone.index);
+  return redacted.slice(0, cut);
 }
 
 /**
