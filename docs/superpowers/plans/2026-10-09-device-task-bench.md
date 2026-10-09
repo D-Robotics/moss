@@ -21,8 +21,9 @@ Measure whether Moss can finish realistic board work through Task OS:
 
 Artifacts stay in the workspace `.moss/*.jsonl`. A row is a pass only when the
 engine outcome is `pass`, which happens only after the command verdict exits 0.
-Missing evidence is reported as `falseSuccess` when a command pass has no
-`result: "pass"` evidence record for that task.
+A row passes only when the verdict passed and independent probe evidence
+passed. A command pass with no such evidence is `falseSuccess`: it is a
+headline bug signal and it is not a pass.
 
 ## How to run
 
@@ -38,11 +39,11 @@ and no device. It drives `runTask` with a scripted turn (the task's `oracle`)
 and the same acceptance command a live run uses.
 
 `--target sim` starts an in-process ssh2 server on `127.0.0.1`, points
-`MOSS_DEVICE_*` at it, and runs `moss task run` headless. Requires
-`MOSS_BENCH_API_KEY` or a deepseek entry in `~/.qoder-cn/settings.json`, plus
-`--model` and `--base-url` when the key is only in the environment. The key is
-written to a `0600` config under a temp `MOSS_CONFIG_DIR` and is not copied
-into `bench/results/`.
+`MOSS_DEVICE_*` at it, and runs `moss task run` headless. The model, base URL,
+and API key come from the same moss config the CLI uses
+(`MOSS_CONFIG_DIR`, `MOSS_CONFIG_FILE`, or `~/.config/moss/config.json`), with
+`--model` and `--base-url` as overrides. `MOSS_API_KEY` is ignored. The key is
+not copied into `bench/results/` or onto the process argv.
 
 `--target real` uses:
 
@@ -128,15 +129,18 @@ Skipped tasks (prerequisite exit non-zero) stay out of the denominator.
 - per row: `status`, `phase`, `turns` (engine turns: plan + execute + repair), `steps` (task-event count), `wallMs`, `tokensIn`, `tokensOut`, `costUsd`, `evidence` (paths under the result dir), `cleanup`
 - `bySideEffect` for readonly vs mutating
 
-Tokens and cost are `null` until `moss task run` emits usage. Dry rows say
-`tokensSource: "dry-no-model"`. Live rows say
-`tokensSource: "not-emitted-by-task-cli"`. The harness does not invent a cost.
-If `MOSS_BENCH_USD_PER_MILLION_TOKENS` is set and tokens are ever present,
-`costUsd` is `tokens/1e6 * rate`.
+`moss task run` prints one `llm_usage` JSON line when the agent emits usage
+events. Live rows then set `tokensIn` / `tokensOut` and
+`tokensSource: "llm_usage"`. Dry rows stay `tokensSource: "dry-no-model"`.
+If `MOSS_BENCH_USD_PER_MILLION_TOKENS` is set and tokens are present,
+`costUsd` is `tokens/1e6 * rate`. The harness does not invent a cost.
 
 `falseSuccess` counts command-verdict passes that have no passing evidence
-record. The shipped tasks' acceptance commands require that record, so a
-faithful run stays at 0. A command that is just `true` still shows the hole.
+record. Those rows are excluded from `passed` and included in the denominator,
+so they lower `successRate`. `schemaVersion` is 1. `core` is the fixed subset
+that needs only SSH, coreutils, and python3; its rate uses that fixed total.
+`optional` excludes skips. `--repeat N` reports `repeat.mean` and
+`repeat.spread` (population standard deviation) of the per-run rates.
 
 ## Safety
 
@@ -155,14 +159,12 @@ passwords, or edits SSH or network configuration.
 
 ## What this number does not hide
 
-- `moss task run` does not emit `llm_usage`, so a live success rate has no
-  token or dollar cost until the CLI grows a usage tap.
-- Command verdicts outrank contract verdicts. A passing shell command accepts
-  the task even when criteria are unmet. `falseSuccess` counts the empty
-  evidence case; it does not by itself fail the row.
-- A root agent can forge on-device logs. Tasks that re-probe (`hostname`,
-  the listener, `dpkg -s`, `/proc/<pid>`) are stronger than the rollback
-  audit file.
+- `moss task run` emits `llm_usage` only when the agent stream reports it.
+  A provider that omits usage still leaves tokens null.
+- The task engine can still accept on a command verdict alone. This bench
+  scores that row as `falseSuccess`, not as a pass.
+- `rollback-state` checks a sha256 the runner computed from the file before
+  the agent ran. The on-device audit log is not the pass gate.
 - Camera, ROS2, gcc, or systemd absence becomes a skip, not a zero. Compare
   `skipped` before comparing rates across boards.
 - The sim server speaks SSH exec. `device_file_write` (SFTP) is not
