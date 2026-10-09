@@ -120,6 +120,7 @@ import {
   MOUSE_TRACKING_ON,
   installTerminalRestore,
   osc52,
+  readTmuxMouse,
   restoreTerminalModes,
   selectTuiRenderer,
 } from './renderer.js';
@@ -3733,6 +3734,7 @@ export async function runTuiApp(options: TuiAppOptions): Promise<void> {
     columns: process.stdout.columns,
     term: process.env.TERM,
     inTmux: Boolean(process.env.TMUX),
+    tmuxMouse: readTmuxMouse(process.env),
     inScreen: Boolean(process.env.STY),
   });
   if (!options.renderer && choice.mode === 'inline' && /narrower|shorter/.test(choice.reason)) {

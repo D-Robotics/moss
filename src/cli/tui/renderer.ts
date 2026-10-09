@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 
+import { runProcessSync } from '../../utils/run-process.js';
+
 /**
  * Which terminal renderer a TTY session uses.
  *
@@ -57,6 +59,37 @@ export function selectTuiRenderer(probe: RendererProbe = {}): RendererChoice {
     if (mouse !== 'on') return { mode: 'inline', reason: 'tmux mouse is off' };
   }
   return { mode: 'fullscreen', reason: 'default' };
+}
+
+function tmuxShow(args: string[], env: Record<string, string>): string {
+  const result = runProcessSync('tmux', args, {
+    encoding: 'utf8',
+    timeout: 1_000,
+    env,
+    windowsHide: true,
+  });
+  if (result.error || result.status !== 0) return '';
+  return String(result.stdout ?? '')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Effective tmux mouse option, or `undefined` when this process is not inside
+ * tmux. A session value wins over the global one (`set -g mouse on` leaves the
+ * session option empty). A failed probe is `off`: fullscreen mouse tracking
+ * inside tmux without the mouse option eats clicks, so the safe fallback is
+ * the inline renderer.
+ */
+export function readTmuxMouse(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (!env.TMUX) return undefined;
+  const childEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === 'string') childEnv[key] = value;
+  }
+  const session = tmuxShow(['show', '-v', 'mouse'], childEnv);
+  if (session) return session;
+  return tmuxShow(['show', '-gv', 'mouse'], childEnv) || 'off';
 }
 
 // 1003 (any-event) reports motion without a button: the scroll bar appears on hover.
