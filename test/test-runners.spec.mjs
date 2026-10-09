@@ -146,19 +146,57 @@ const FIXTURES = [
     exitCode: 1,
     match: [/tests_pass=false/, /Tests: 3 total, 2 passed, 1 failed/],
   },
+  {
+    name: 'pytest module missing',
+    command: 'python3 -m pytest',
+    output: '/usr/bin/python3: No module named pytest\n',
+    exitCode: 1,
+    match: [/Test Results: not run/, /pytest not installed/, /tests_pass=false/],
+    not: [/❌/, /tests_pass=true/, /ISSUES FOUND/],
+    notRed: true,
+  },
+  {
+    name: 'pytest command not found',
+    command: 'pytest',
+    output: '/bin/sh: 1: pytest: not found\n',
+    exitCode: 127,
+    match: [/not run/, /pytest not installed/],
+    not: [/❌/, /tests_pass=true/],
+    notRed: true,
+  },
+  {
+    name: 'go plain packages',
+    command: 'go test ./...',
+    output:
+      'ok  \texample.com/ok\t0.012s\n' +
+      '--- FAIL: TestBoom (0.00s)\n' +
+      '\tdemo_test.go:8: bad\n' +
+      'FAIL\texample.com/bad\t0.020s\n' +
+      'FAIL\n',
+    exitCode: 1,
+    match: [/tests_pass=false/, /2 total, 1 passed, 1 failed/, /example\.com\/bad/, /TestBoom/],
+    not: [/tests_pass=true/, /ALL PASSED/],
+  },
+  {
+    name: 'go plain ok',
+    command: 'go test ./...',
+    output: 'ok  \texample.com/ok\t0.01s\nok  \texample.com/other\t(cached)\n',
+    match: [/tests_pass=true/, /2 total, 2 passed, 0 failed/],
+    not: [/❌/, /no tests/],
+  },
 ];
 
 for (const row of FIXTURES) {
   test(`parse ${row.name}`, () => {
     const text = renderCommandResult(
-      'echo fixture',
+      row.command ?? 'echo fixture',
       row.exitCode ?? 0,
       row.output,
       row.timedOut ?? false
     );
     for (const re of row.match) assert.match(text, re, text);
     for (const re of row.not ?? []) assert.doesNotMatch(text, re, text);
-    if (row.name === 'echo unknown') assert.equal(RED.test(text), false);
+    if (row.name === 'echo unknown' || row.notRed) assert.equal(RED.test(text), false, text);
   });
 }
 
@@ -206,9 +244,13 @@ test('detection order skips make unless it is alone', async () => {
   );
 });
 
-test('loose python is pytest even beside an npm test script', async () => {
+test('loose python is pytest only when the probe says it is installed', async () => {
   await withDir({ 'tests/test_one.py': 'def test_one():\n    assert True\n' }, async (dir) => {
-    assert.deepEqual((await planTestRunners(dir)).run, [`${py} -m pytest`]);
+    const absent = await planTestRunners(dir, async () => false);
+    assert.deepEqual(absent.run, []);
+    assert.match(absent.skipped.join('\n'), /pytest not installed/);
+    const present = await planTestRunners(dir, async () => true);
+    assert.deepEqual(present.run, [`${py} -m pytest`]);
   });
   await withDir(
     {
@@ -216,7 +258,71 @@ test('loose python is pytest even beside an npm test script', async () => {
       'tests/test_one.py': 'def test_one():\n    assert True\n',
     },
     async (dir) => {
-      assert.deepEqual((await planTestRunners(dir)).run, [`${py} -m pytest`, 'npm test --silent']);
+      const absent = await planTestRunners(dir, async () => false);
+      assert.deepEqual(absent.run, ['npm test --silent']);
+      assert.match(absent.skipped.join('\n'), /pytest not installed/);
+      const present = await planTestRunners(dir, async () => true);
+      assert.deepEqual(present.run, [`${py} -m pytest`, 'npm test --silent']);
+    }
+  );
+  await withDir(
+    {
+      'pytest.ini': '[pytest]\n',
+      'tests/test_one.py': 'def test_one():\n    assert True\n',
+    },
+    async (dir) => {
+      const signaled = await planTestRunners(dir, async () => false);
+      assert.deepEqual(signaled.run, [`${py} -m pytest`]);
+      assert.equal(
+        signaled.skipped.some((line) => line.includes('pytest not installed')),
+        false
+      );
+    }
+  );
+});
+
+test('missing pytest beside npm is not a red verify', async () => {
+  await withDir(
+    {
+      'package.json': JSON.stringify({
+        scripts: {
+          test: 'node -e "process.stdout.write(\'ℹ tests 1\\nℹ pass 1\\nℹ fail 0\\nℹ skipped 0\\n\')"',
+        },
+      }),
+      'tests/test_one.py': 'def test_one():\n    assert True\n',
+    },
+    async (dir) => {
+      const bin = path.join(dir, 'bin');
+      await fs.mkdir(bin);
+      await fs.writeFile(
+        path.join(bin, 'python3'),
+        '#!/bin/sh\necho "No module named pytest" >&2\nexit 1\n'
+      );
+      await fs.writeFile(
+        path.join(bin, 'python'),
+        '#!/bin/sh\necho "No module named pytest" >&2\nexit 1\n'
+      );
+      await fs.chmod(path.join(bin, 'python3'), 0o755);
+      await fs.chmod(path.join(bin, 'python'), 0o755);
+      const saved = process.env.PATH;
+      process.env.PATH = [bin, saved].filter(Boolean).join(path.delimiter);
+      try {
+        const output = await runTestsTool.execute({}, ctx(dir));
+        assert.match(output, /pytest not installed/);
+        assert.match(output, /overall tests_pass=true/);
+        assert.match(output, /Command: npm test/);
+        assert.equal(RED.test(output), false, output);
+        const verify = await verifyFixTool.execute(
+          { build_command: '', typecheck_command: '' },
+          ctx(dir)
+        );
+        assert.match(verify, /pytest not installed/);
+        assert.doesNotMatch(verify, /ISSUES FOUND/);
+        assert.doesNotMatch(verify, /❌/);
+        assert.match(verify, /ALL PASSED/);
+      } finally {
+        process.env.PATH = saved;
+      }
     }
   );
 });

@@ -96,7 +96,7 @@ function blank(output: string): TestResult {
   };
 }
 
-function view(verdict: 'pass' | 'fail' | 'unknown', result: TestResult, text: string) {
+function view(verdict: 'pass' | 'fail' | 'unknown' | 'notRun', result: TestResult, text: string) {
   return { verdict, result, text };
 }
 
@@ -241,7 +241,36 @@ function parseGo(output: string, result: TestResult): boolean {
     next.total = next.passed + next.failed + next.skipped;
     return take(result, next);
   }
-  return /\[no test files\]/.test(output) ? take(result, next) : false;
+  return parseGoPlain(output, result);
+}
+
+/** `go test` without `-json`: `ok` / `FAIL` package lines, plus `--- FAIL` names. */
+function parseGoPlain(output: string, result: TestResult): boolean {
+  const next = blank(output);
+  const tests: string[] = [];
+  let saw = false;
+  for (const raw of output.split('\n')) {
+    const line = raw.trim();
+    const named = line.match(/^--- FAIL:\s+(\S+)/);
+    if (named?.[1]) {
+      tests.push(named[1]);
+      saw = true;
+      continue;
+    }
+    const pkg = line.match(/^(ok|FAIL)\s+(\S+)/);
+    if (!pkg?.[2]) continue;
+    saw = true;
+    if (pkg[1] === 'ok') next.passed += 1;
+    else {
+      next.failed += 1;
+      next.failures.push({ name: pkg[2], message: 'package failed' });
+    }
+  }
+  if (!saw) return /\[no test files\]/.test(output) ? take(result, next) : false;
+  if (next.failed === 0 && tests.length > 0) next.failed = tests.length;
+  for (const name of tests) next.failures.push({ name, message: 'failed' });
+  next.total = next.passed + next.failed + next.skipped;
+  return take(result, next);
 }
 
 function parseCargo(output: string, result: TestResult): boolean {
@@ -259,25 +288,70 @@ function parseCargo(output: string, result: TestResult): boolean {
   return take(result, next);
 }
 
-async function detectPytest(root: string): Promise<boolean> {
+type PytestKind = 'none' | 'signal' | 'loose';
+
+async function pytestKind(root: string): Promise<PytestKind> {
   for (const name of ['pytest.ini', 'pytest.toml', 'conftest.py']) {
-    if (pathExists(path.join(root, name))) return true;
+    if (pathExists(path.join(root, name))) return 'signal';
   }
   for (const name of ['pyproject.toml', 'setup.cfg', 'tox.ini']) {
-    if (/pytest/i.test((await readText(path.join(root, name))) ?? '')) return true;
+    if (/pytest/i.test((await readText(path.join(root, name))) ?? '')) return 'signal';
   }
   for (const dir of [root, path.join(root, 'tests'), path.join(root, 'test')]) {
     const names = await fs.readdir(dir).then(
       (value) => value,
       () => [] as string[]
     );
-    if (names.some((name) => /^test_.+\.py$/.test(name) || /^.+_test\.py$/.test(name))) return true;
+    if (names.some((name) => /^test_.+\.py$/.test(name) || /^.+_test\.py$/.test(name))) {
+      return 'loose';
+    }
   }
-  return false;
+  return 'none';
+}
+
+function pytestMissing(text: string): boolean {
+  return (
+    /No module named ['"]?pytest\b/i.test(text) ||
+    /\bpytest\b[^\n]{0,48}\b(?:command not found|not found|not recognized)\b/i.test(text) ||
+    /\b(?:command not found|not found|not recognized)\b[^\n]{0,48}\bpytest\b/i.test(text)
+  );
+}
+
+async function exitsZero(
+  ctx: ToolContext,
+  cmd: string,
+  args: string[],
+  timeout: number
+): Promise<boolean> {
+  if (timeout <= 0 || ctx.abortSignal?.aborted) return false;
+  try {
+    const result = await runProcess(cmd, {
+      args,
+      timeout,
+      signal: ctx.abortSignal,
+      env: childEnv(),
+      cwd: ctx.workspaceDir,
+      maxBuffer: 1024 * 1024,
+    });
+    return (result.exitCode ?? 1) === 0;
+  } catch (err) {
+    if (ctx.abortSignal?.aborted) throw err;
+    return false;
+  }
+}
+
+/** `command -v pytest`, then `python -m pytest --version`, inside the call budget. */
+async function pytestImportable(ctx: ToolContext, deadline: number): Promise<boolean> {
+  const left = (): number => deadline - Date.now();
+  const shell = shellOf();
+  const which = process.platform === 'win32' ? ['/c', 'where pytest'] : ['-c', 'command -v pytest'];
+  if (await exitsZero(ctx, shell, which, Math.min(left(), 1000))) return true;
+  if (left() <= 0 || ctx.abortSignal?.aborted) return false;
+  return exitsZero(ctx, pyBin(), ['-m', 'pytest', '--version'], Math.min(left(), 1500));
 }
 
 const RUNNERS: readonly Runner[] = [
-  { cmd: () => `${pyBin()} -m pytest`, detect: detectPytest, emptyNone: true, parse: parsePytest },
+  { cmd: () => `${pyBin()} -m pytest`, detect: () => false, emptyNone: true, parse: parsePytest },
   {
     cmd: () => 'npm test --silent',
     detect: async (root) => Boolean((await readPackageScripts(root))?.test),
@@ -303,8 +377,20 @@ const RUNNERS: readonly Runner[] = [
   },
 ];
 
-export async function planTestRunners(root: string): Promise<PlannedTestRun> {
+export async function planTestRunners(
+  root: string,
+  confirmLoosePytest?: () => Promise<boolean>
+): Promise<PlannedTestRun> {
   const run: string[] = [];
+  const skipped: string[] = [];
+  const pytestCmd = `${pyBin()} -m pytest`;
+  const kind = await pytestKind(root);
+  if (kind === 'signal') run.push(pytestCmd);
+  else if (kind === 'loose') {
+    const ok = confirmLoosePytest ? await confirmLoosePytest() : false;
+    if (ok) run.push(pytestCmd);
+    else skipped.push(`${pytestCmd} (pytest not installed)`);
+  }
   let make: string | null = null;
   for (const row of RUNNERS) {
     if (!(await row.detect(root))) continue;
@@ -312,8 +398,9 @@ export async function planTestRunners(root: string): Promise<PlannedTestRun> {
     if (row.alone) make = command;
     else run.push(command);
   }
-  if (make && run.length === 0) return { run: [make], skipped: [] };
-  return { run, skipped: make ? [make] : [] };
+  if (make && run.length === 0) return { run: [make], skipped };
+  if (make) skipped.push(make);
+  return { run, skipped };
 }
 
 function matchOutput(
@@ -388,6 +475,13 @@ function judge(
   timedOut = false,
   spawnError?: string
 ) {
+  if (!timedOut && /\bpytest\b/.test(command) && pytestMissing(`${output}\n${spawnError ?? ''}`)) {
+    return view(
+      'notRun',
+      blank(output),
+      `Test Results: not run\nCommand: ${command}\npytest not installed\ntests_pass=false`
+    );
+  }
   const matched = matchOutput(command, output);
   if (!matched) {
     if (exitCode === 0 && !timedOut) {
@@ -527,25 +621,30 @@ async function executePlan(
       await spawnOne(ctx, plan.commands[i] ?? '', remaining, plan.env, i === 0 ? plan.direct : null)
     );
   }
-  const note = [
+  const displayNote = [
     plan.skipped.length > 0 ? `skipped: ${plan.skipped.join(', ')}` : '',
     held.length > 0 ? `not run (timeout budget): ${held.join(', ')}` : '',
   ]
     .filter(Boolean)
     .join('\n');
-  const failed = held.length > 0 || views.some((view) => view.verdict === 'fail');
-  const unknown = !failed && views.some((view) => view.verdict === 'unknown');
-  const passed = views.length > 0 && !failed && views.every((view) => view.verdict === 'pass');
+  const actionable = views.filter((view) => view.verdict !== 'notRun');
+  const failed = held.length > 0 || actionable.some((view) => view.verdict === 'fail');
+  const unknown = !failed && actionable.some((view) => view.verdict === 'unknown');
+  const passed =
+    actionable.length > 0 && !failed && actionable.every((view) => view.verdict === 'pass');
+  const pytestNotRun = views.some((view) => view.verdict === 'notRun');
+  const note = [displayNote, pytestNotRun ? 'pytest not installed' : ''].filter(Boolean).join('\n');
   const noTests =
     !unknown &&
+    !pytestNotRun &&
     held.length === 0 &&
     views.length > 0 &&
     views.every(
       (view) => view.text.includes('\nno tests\n') || view.text.includes('NO TESTS EXECUTED')
     );
-  const blocks = [...views.map((view) => view.text), note].filter(Boolean);
+  const blocks = [...views.map((view) => view.text), displayNote].filter(Boolean);
   const text =
-    views.length === 1 && note.length === 0
+    views.length === 1 && displayNote.length === 0
       ? (views[0]?.text ?? '')
       : `${blocks.join('\n\n')}\n\noverall tests_pass=${passed}`;
   const result = blank('');
@@ -567,7 +666,11 @@ async function executePlan(
     unknown,
     noTests,
     skipped: false,
-    notRun: views.length === 0 && held.length > 0,
+    notRun:
+      (views.length === 0 && held.length > 0) ||
+      (!failed &&
+        actionable.length === 0 &&
+        (pytestNotRun || plan.skipped.some((line) => line.includes('pytest not installed')))),
     note,
     result,
   };
@@ -593,7 +696,8 @@ function noRunnerMessage(): string {
 async function planFromInput(
   ctx: ToolContext,
   input: Record<string, unknown> | undefined,
-  source: 'run' | 'verify'
+  source: 'run' | 'verify',
+  deadline: number
 ): Promise<Plan> {
   const env = childEnv();
   if (source === 'verify') {
@@ -631,8 +735,11 @@ async function planFromInput(
       return { commands: [String(input.command).trim()], skipped: [], env, direct: null };
     }
   }
-  const detected = await planTestRunners(ctx.workspaceDir);
+  const detected = await planTestRunners(ctx.workspaceDir, () => pytestImportable(ctx, deadline));
   if (detected.run.length === 0) {
+    if (detected.skipped.some((line) => line.includes('pytest not installed'))) {
+      return { commands: [], skipped: detected.skipped, env, direct: null };
+    }
     return source === 'verify' ? { skip: true } : { message: noRunnerMessage() };
   }
   return { commands: detected.run, skipped: detected.skipped, env, direct: null };
@@ -645,9 +752,10 @@ export async function runWorkspaceTests(
   input: Record<string, unknown> | undefined,
   timeoutMs: number
 ): Promise<string> {
-  const plan = await planFromInput(ctx, input, 'run');
+  const deadline = Date.now() + timeoutMs;
+  const plan = await planFromInput(ctx, input, 'run', deadline);
   if (!isRunPlan(plan)) return 'message' in plan ? plan.message : noRunnerMessage();
-  return (await executePlan(ctx, plan, timeoutMs)).text;
+  return (await executePlan(ctx, plan, Math.max(0, deadline - Date.now()))).text;
 }
 
 export async function runVerifyTests(
@@ -655,7 +763,8 @@ export async function runVerifyTests(
   input: Record<string, unknown> | undefined,
   timeoutMs: number
 ): Promise<SuiteOutcome> {
-  const plan = await planFromInput(ctx, input, 'verify');
+  const deadline = Date.now() + timeoutMs;
+  const plan = await planFromInput(ctx, input, 'verify', deadline);
   if (!isRunPlan(plan)) return skippedOutcome();
-  return executePlan(ctx, plan, timeoutMs);
+  return executePlan(ctx, plan, Math.max(0, deadline - Date.now()));
 }

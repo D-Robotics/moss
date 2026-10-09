@@ -466,8 +466,11 @@ function formatVerifyResult(result: VerifyResult): string {
   else if (allSkipped) statusLine = '⚠️ NO STEPS EXECUTED';
   else if (countsUnknown) statusLine = 'exit 0, counts unknown';
   else if (testsEmpty && result.buildOk && result.typecheckOk) statusLine = '⚠️ NO TESTS EXECUTED';
-  else if (budgetHold) statusLine = 'not run (timeout budget)';
-  else statusLine = '❌ ISSUES FOUND';
+  else if (budgetHold) {
+    statusLine = result.testNote?.includes('timeout budget')
+      ? 'not run (timeout budget)'
+      : 'not run';
+  } else statusLine = '❌ ISSUES FOUND';
 
   let output = `Verify Fix: ${statusLine}\n`;
   output += steps.join(' | ') + '\n';
