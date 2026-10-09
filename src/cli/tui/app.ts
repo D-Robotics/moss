@@ -118,6 +118,7 @@ import { isTuiZh, setTuiLocale, transientStatus, tui } from './copy.js';
 import { allocateFrame } from './layout.js';
 import {
   MOUSE_TRACKING_ON,
+  TUI_KITTY_KEYBOARD,
   installTerminalRestore,
   osc52,
   readTmuxMouse,
@@ -3756,7 +3757,7 @@ export async function runTuiApp(options: TuiAppOptions): Promise<void> {
       exitOnCtrlC: false,
       alternateScreen: (options.renderer ?? choice.mode) === 'fullscreen',
       incrementalRendering: process.env.MOSS_TUI_INCREMENTAL !== '0',
-      kittyKeyboard: { mode: 'auto' },
+      kittyKeyboard: TUI_KITTY_KEYBOARD,
     }
   );
   try {
