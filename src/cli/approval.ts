@@ -1164,7 +1164,11 @@ export function createCliToolApprovalHook(
     };
 
     const settle = async (decision: ToolApprovalDecision): Promise<ToolApprovalDecision> => {
-      if (classification && decision.approved && classification.tier === 'destructive') {
+      if (
+        classification &&
+        decision.approved &&
+        (classification.tier === 'destructive' || classification.tier === 'sensitive')
+      ) {
         grantDeviceOperation(tool.name, classification.operand);
       }
       if (classification) {
@@ -1238,12 +1242,14 @@ export function createCliToolApprovalHook(
       return settle({ approved: true });
     }
 
-    const deviceDestructiveAsk =
-      outcome.decision === 'ask' && outcome.reason === 'device-destructive';
+    const deviceGatedAsk =
+      outcome.decision === 'ask' &&
+      (outcome.reason === 'device-destructive' || outcome.reason === 'device-sensitive');
     const destructiveCopy =
-      deviceDestructiveAsk && classification
+      deviceGatedAsk && classification
         ? deviceDestructivePrompt({
             toolName: tool.name,
+            tier: classification.tier === 'sensitive' ? 'sensitive' : 'destructive',
             operand: classification.operand,
             reason: classification.reason,
             ...(deviceKeys[0] ? { deviceLabel: deviceKeys[0] } : {}),
@@ -1333,7 +1339,7 @@ export function createCliToolApprovalHook(
       return settle({ approved: true });
     }
     if (answer === 'a' || answer === 'always') {
-      if (deviceDestructiveAsk) {
+      if (deviceGatedAsk) {
         // Trust the device, not every future device_exec. A whole-tool allow
         // would also skip the next reboot after a single confirmation.
         if (deviceKeys.length === 0) sessionTrustedDevices.add('*');
@@ -1348,7 +1354,7 @@ export function createCliToolApprovalHook(
         // the live rule table without prompting.
         sessionAllowRules.add(tool.name);
       }
-      if (options.persistTrust && !deviceDestructiveAsk) persistAllowRule(preview, tool.name);
+      if (options.persistTrust && !deviceGatedAsk) persistAllowRule(preview, tool.name);
 
       return settle({ approved: true });
     }

@@ -8,13 +8,15 @@
  * - readonly: probes and commands that do not change device state
  * - reversible: mutations that do not brick the board or drop access
  *   (app deploy, package install, systemctl restart, rm of a build dir)
+ * - sensitive: reads of secrets (shadow, private keys, sshd_config,
+ *   authorized_keys). Not damage, but still confirms / refuses headless.
  * - destructive: lockout or hard-to-undo damage (reboot, flash, system
  *   paths, network changes, package removal, ssh/account changes)
  *
  * Opaque scripts (`./flash.sh`, `python app.py`) stay reversible: their
  * bodies are not inspected. `bash -c '...'` is, because the payload is shell.
  */
-export type DeviceRiskTier = 'readonly' | 'reversible' | 'destructive';
+export type DeviceRiskTier = 'readonly' | 'reversible' | 'sensitive' | 'destructive';
 
 export interface DeviceRiskClassification {
   tier: DeviceRiskTier;
@@ -50,7 +52,8 @@ const READONLY_DEVICE_TOOLS = new Set([
 const TIER_RANK: Record<DeviceRiskTier, number> = {
   readonly: 0,
   reversible: 1,
-  destructive: 2,
+  sensitive: 2,
+  destructive: 3,
 };
 
 interface SegmentJudgement {
@@ -847,7 +850,7 @@ function classifyNamedCommand(
   }
 
   if (READERS.has(base) && args.some((arg) => isSensitiveCredentialPath(arg))) {
-    return hit('destructive', 'credential-read', `${base} reads a credential or ssh file`);
+    return hit('sensitive', 'credential-read', `${base} reads a credential or ssh file`);
   }
 
   if (base === 'git') {
@@ -1045,6 +1048,17 @@ function classifyWritePath(path: string): SegmentJudgement {
 export function classifyDeviceOperation(
   input: DeviceOperationInput
 ): DeviceRiskClassification | null {
+  if (input.toolName === 'device_file_read') {
+    const path = input.path ?? '';
+    if (isSensitiveCredentialPath(path)) {
+      return {
+        tier: 'sensitive',
+        signal: 'credential-read',
+        reason: `read of credential or ssh file ${path}`,
+        operand: path,
+      };
+    }
+  }
   if (READONLY_DEVICE_TOOLS.has(input.toolName)) {
     return {
       tier: 'readonly',

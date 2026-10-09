@@ -79,18 +79,21 @@ export interface PermissionDecisionInput {
   planModeAllowed?: boolean;
   /**
    * Device safety policy tier (src/safety/device-risk.ts). Absent for tools
-   * that are not device operations. `destructive` is not covered by full-mode
-   * auto-allow unless `deviceFullTrust` is set or an allow rule matched.
+   * that are not device operations. `destructive` and `sensitive` are not
+   * covered by full-mode auto-allow unless `deviceFullTrust` is set, the
+   * call's session scope matched, or an allow rule matched.
    */
-  deviceRiskTier?: 'readonly' | 'reversible' | 'destructive';
-  /** Flag, env, config, per-device allowlist, or session device trust. */
+  deviceRiskTier?: 'readonly' | 'reversible' | 'sensitive' | 'destructive';
+  /** Flag, env, config, or per-device allowlist. Not session command scope. */
   deviceFullTrust?: boolean;
+  /** This call's trust scope was confirmed for this device earlier in the session. */
+  deviceScopeTrusted?: boolean;
 }
 
 export type PermissionDecisionOutcome =
   | { decision: 'deny'; reason: string; matchedRule?: PermissionRule }
   | { decision: 'block'; reason: string }
-  | { decision: 'ask'; reason?: 'device-destructive' }
+  | { decision: 'ask'; reason?: 'device-destructive' | 'device-sensitive' }
   | { decision: 'ask-rule'; matchedRule: PermissionRule }
   | {
       decision: 'allow';
@@ -439,7 +442,13 @@ export function resolvePermissionDecision(
 
   // readonly tools need no approval — short-circuit right after the deny
   // check (and the plan ceiling) so read_file denies stay effective (§7-4).
-  if (!input.requiresApproval && input.sideEffect === 'readonly') {
+  // Sensitive device reads (shadow, private keys) stay gated even though the
+  // tool's side effect is readonly.
+  if (
+    !input.requiresApproval &&
+    input.sideEffect === 'readonly' &&
+    input.deviceRiskTier !== 'sensitive'
+  ) {
     return { decision: 'allow', reason: 'no-approval-needed' };
   }
 
@@ -461,16 +470,19 @@ export function resolvePermissionDecision(
     }
   }
 
-  // 4b. Destructive device operations are not part of full-mode auto-allow.
-  //     Explicit allow rules already returned above. Plan mode and the
-  //     read-only ceiling have already blocked non-readonly work.
+  // 4b. Destructive and sensitive device operations are not part of full-mode
+  //     auto-allow. Explicit allow rules already returned above. Plan mode and
+  //     the read-only ceiling have already blocked non-readonly work; sensitive
+  //     reads are readonly, so they are gated here in every mode including plan.
   if (
-    input.deviceRiskTier === 'destructive' &&
+    (input.deviceRiskTier === 'destructive' || input.deviceRiskTier === 'sensitive') &&
     input.deviceFullTrust !== true &&
-    input.mode !== 'plan' &&
-    !input.readOnlyCeiling
+    input.deviceScopeTrusted !== true
   ) {
-    return { decision: 'ask', reason: 'device-destructive' };
+    return {
+      decision: 'ask',
+      reason: input.deviceRiskTier === 'sensitive' ? 'device-sensitive' : 'device-destructive',
+    };
   }
 
   // 5. mode defaults.

@@ -201,6 +201,14 @@ export const deviceFileReadTool: Tool = {
   async execute(input) {
     const resolved = await connectDefaultDevice('device_file_read');
     if (typeof resolved === 'string') return resolved;
+    const path = String(input.path ?? '');
+    const readRisk = classifyDeviceOperation({
+      toolName: 'device_file_read',
+      path,
+    });
+    if (readRisk && !permitDeviceOperation(readRisk, 'device_file_read')) {
+      return `Command blocked: ${readRisk.reason}`;
+    }
     try {
       const content = await resolved.conn.readFile(String(input.path ?? ''), {
         maxBytes: Number(input.max_bytes) || undefined,

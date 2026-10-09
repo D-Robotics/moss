@@ -98,6 +98,21 @@ test('decision order: destructive tier asks in full unless trusted or allowed', 
     ).decision,
     'block'
   );
+  assert.deepEqual(
+    resolvePermissionDecision(
+      {
+        ...baseInput,
+        toolName: 'device_file_read',
+        sideEffect: 'readonly',
+        requiresApproval: false,
+        mode: 'full',
+        deviceRiskTier: 'sensitive',
+        operand: '/etc/shadow',
+      },
+      noRules
+    ),
+    { decision: 'ask', reason: 'device-sensitive' }
+  );
 });
 
 test('full mode runs reversible device work and refuses destructive headless', async () => {
@@ -139,6 +154,22 @@ test('full mode runs reversible device work and refuses destructive headless', a
   );
   assert.ok(
     decisions.some((record) => record.observed === 'reversible:allow' && record.result === 'pass')
+  );
+  const shadow = await hook({
+    tool: tool('device_exec'),
+    input: { command: 'cat /etc/shadow' },
+    sessionKey: 'shadow',
+  });
+  assert.equal(shadow.approved, false);
+  assert.match(shadow.reason, /sensitive device read/i);
+  assert.doesNotMatch(shadow.reason, /destructive tier/i);
+  const shadowEvidence = await listEvidenceRecords(ws, 30);
+  assert.ok(
+    shadowEvidence.some(
+      (record) =>
+        record.observed === 'sensitive:deny' &&
+        record.expected === 'sensitive-requires-explicit-trust'
+    )
   );
   setCliInteractionMode('manual');
 });

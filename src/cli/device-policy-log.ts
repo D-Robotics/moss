@@ -36,7 +36,12 @@ export async function recordDevicePolicyDecision(input: DevicePolicyLogInput): P
       ...(input.deviceId ? { deviceId: input.deviceId } : {}),
       source: 'device_policy',
       metric: 'device_policy',
-      expected: 'destructive-requires-explicit-trust',
+      expected:
+        input.tier === 'sensitive'
+          ? 'sensitive-requires-explicit-trust'
+          : input.tier === 'destructive'
+            ? 'destructive-requires-explicit-trust'
+            : 'auto-allow',
       observed: `${input.tier}:${input.decision}`,
       result: input.decision === 'allow' ? 'pass' : 'fail',
       timestamp: Date.now(),

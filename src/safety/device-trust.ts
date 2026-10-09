@@ -73,7 +73,7 @@ export function permitDeviceOperation(
   toolName: string,
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  if (classification.tier !== 'destructive') return true;
+  if (classification.tier !== 'destructive' && classification.tier !== 'sensitive') return true;
   if (isDeviceTrustEnv(env)) return true;
   if (
     deviceIdsMatchTrustList(
