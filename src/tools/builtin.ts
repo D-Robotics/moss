@@ -214,7 +214,7 @@ import { searchFilesTool, searchCodeTool } from './search-tools.js';
 import { applyPatchTool } from './patch-tool.js';
 import { todoWriteTool } from './todo-tool.js';
 import { askUserQuestionTool } from './ask-user-question.js';
-import { exitPlanTool } from './plan-gate.js';
+import { exitPlanTool, planGateEnabled } from './plan-gate.js';
 
 // Tool naming convention:
 // - Function/const names use camelCase (e.g., editFileTool, webFetchTool)
@@ -253,6 +253,11 @@ export const builtinTools: Tool[] = [
 
 export function registerBuiltinTools(agent: { tools: { register: (tool: Tool) => void } }): void {
   for (const tool of builtinTools) {
+    // exit_plan is only useful while the plan gate is on. Leaving it in the
+    // prompt when MOSS_PLAN_GATE is unset spends tokens and invites a call
+    // that cannot open the dialog. bench:ab plan-gate sets the env before
+    // the process registers tools, so the on arm still receives it.
+    if (tool.name === 'exit_plan' && !planGateEnabled()) continue;
     agent.tools.register(tool);
   }
 }
