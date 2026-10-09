@@ -128,7 +128,8 @@ assert 27 in fullscreen_prompts, (
 assert any("rdk-docs" in line and ("unreachable" in line or "failed" in line) for line in fullscreen)
 
 inline = run_case(30, 12)
-assert any("using the inline view" in line for line in inline), (
+inline_text = "".join(line.strip() for line in inline)
+assert "using the inline view" in inline_text, (
     "inline fallback notice disappeared after MCP failure\n" + "\n".join(inline)
 )
 inline_prompts = [index for index, line in enumerate(inline) if line.lstrip().startswith(PROMPT)]
