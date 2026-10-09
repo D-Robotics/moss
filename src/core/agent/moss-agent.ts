@@ -127,6 +127,11 @@ export class MossAgent {
   private readonly toolHooks: ToolHookRegistry;
   private readonly inboxes = new Map<string, SessionInbox>();
   private readonly activeRunIds = new Map<string, Set<string>>();
+  /**
+   * Steers admitted after the loop's last poll. The host queue (`takeDeferredSteers`)
+   * owns them; a later run on this session re-arms anything the host did not take.
+   */
+  private readonly deferredSteers = new Map<string, string[]>();
   private userQuestionAsker?: NonNullable<ToolContext['askUserQuestion']>;
   /** Per-agent run epochs stop parallel instances overwriting shared-session streams. */
   private readonly runEpochStore = new Map<string, number>();
@@ -371,6 +376,17 @@ export class MossAgent {
     return entry;
   }
 
+  /**
+   * Prompts that missed the run they were aimed at. Clears the stash.
+   * The TUI queues these; a host that never calls this still gets them
+   * re-armed on the next run of the same session.
+   */
+  takeDeferredSteers(sessionKey: string): string[] {
+    const prompts = this.deferredSteers.get(sessionKey) ?? [];
+    if (prompts.length > 0) this.deferredSteers.delete(sessionKey);
+    return prompts.slice();
+  }
+
   private takeSteeringMessages(sessionKey: string, runId: string): InternalMessage[] {
     const inbox = this.inboxFor(sessionKey);
     const entries = inbox.promotableSteers().filter((entry) => {
@@ -396,16 +412,34 @@ export class MossAgent {
     return messages;
   }
 
-  private retireSteeringMessages(sessionKey: string, runId: string): void {
+  /** Unconsumed steers for a finished run are deferred, not discarded. */
+  private deferUnconsumedSteers(sessionKey: string, runId: string): void {
     const inbox = this.inboxes.get(sessionKey);
     if (!inbox) return;
+    const prompts: string[] = [];
     let changed = false;
     for (const entry of inbox.promotableSteers()) {
       if (entry.metadata?.runId !== runId) continue;
+      prompts.push(entry.prompt);
       inbox.promote(entry.id);
       changed = true;
     }
     if (changed) this.persistInbox(sessionKey);
+    if (prompts.length === 0) return;
+    const existing = this.deferredSteers.get(sessionKey) ?? [];
+    this.deferredSteers.set(sessionKey, existing.concat(prompts));
+  }
+
+  /** Hand deferred steers to a new run so a host that did not queue them still delivers them once. */
+  private rearmDeferredSteers(sessionKey: string, runId: string): void {
+    const prompts = this.deferredSteers.get(sessionKey);
+    if (!prompts || prompts.length === 0) return;
+    this.deferredSteers.delete(sessionKey);
+    const inbox = this.inboxFor(sessionKey);
+    for (const prompt of prompts) {
+      inbox.admit({ prompt, delivery: 'steer', metadata: { runId } });
+    }
+    this.persistInbox(sessionKey);
   }
 
   private noteRunStarted(sessionKey: string, runId: string): void {
@@ -1381,6 +1415,7 @@ ${result.stderr ?? ''}`.trim();
     try {
       run = await this.createAgentLoopRun(sessionKey, userMessage, options);
       this.noteRunStarted(sessionKey, run.params.runId);
+      this.rearmDeferredSteers(sessionKey, run.params.runId);
       miniStream = runAgentLoop(run.params);
       for await (const ev of this.adaptMiniStreamEvents(miniStream, run)) {
         yield ev;
@@ -1390,7 +1425,7 @@ ${result.stderr ?? ''}`.trim();
     } finally {
       if (run) {
         this.noteRunFinished(sessionKey, run.params.runId);
-        this.retireSteeringMessages(sessionKey, run.params.runId);
+        this.deferUnconsumedSteers(sessionKey, run.params.runId);
       }
     }
 

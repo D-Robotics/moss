@@ -190,4 +190,67 @@ function agentWith(steerImpl) {
   await sleep(80);
 }
 
+{
+  // A message queued while /goal's task run is in flight must be sent when
+  // that run ends. The task path does not share the chat turn's drain.
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const streamCalls = [];
+  let calls = 0;
+  const agent = {
+    steer() {
+      return null;
+    },
+    asyncTasks: { list: () => [] },
+    config: {
+      model: 'spec-model',
+      contextTokens: 1000,
+      sessionStore: { loadMessages: async () => [] },
+    },
+    tools: { getAll: () => [], getNames: () => [], size: 0 },
+    async *streamChat(_sessionKey, message) {
+      streamCalls.push(message);
+      calls += 1;
+      if (calls === 1) await gate;
+      yield { type: 'done', result: { response: 'ok', stopReason: 'end_turn' } };
+    },
+  };
+  const { instance, handle } = mount(agent);
+  assert.ok(await waitFor(() => handle.store.rows.some((row) => row.kind === 'banner')));
+  await type(instance, '/goal ship --accept "true"');
+  assert.ok(
+    await waitFor(() => streamCalls.length >= 1 && handle.store.run.running),
+    'the goal run is in flight'
+  );
+  await type(instance, 'afterwards');
+  release();
+  assert.ok(
+    await waitFor(() => streamCalls.includes('afterwards'), 15_000),
+    `queued follow-up was not sent after the task (calls: ${JSON.stringify(streamCalls.map((m) => m.slice(0, 40)))})`
+  );
+  instance.unmount();
+  await sleep(80);
+}
+
+{
+  const { agent, streamCalls } = agentWith(() => null);
+  let handed = false;
+  agent.takeDeferredSteers = () => {
+    if (handed) return [];
+    handed = true;
+    return ['do not drop me'];
+  };
+  const { instance, handle } = mount(agent);
+  assert.ok(await waitFor(() => handle.store.rows.some((row) => row.kind === 'banner')));
+  await type(instance, 'hello');
+  assert.ok(
+    await waitFor(() => streamCalls.includes('do not drop me')),
+    'a steer that missed the run is sent as the next turn'
+  );
+  instance.unmount();
+  await sleep(80);
+}
+
 console.log('[PASS] tui steer default');

@@ -76,9 +76,11 @@ import {
 import { formatBackgroundJobLines } from '../commands/background-jobs.js';
 import {
   abandonLiveGoal,
+  acceptanceProposalLines,
   GOAL_USAGE,
   goalRunArgs,
   planGoalInvocation,
+  skippedAcceptanceNotice,
 } from '../commands/goal-propose.js';
 import {
   availabilityFor,
@@ -1022,6 +1024,33 @@ export function TuiAppRoot({
     [handle, runtime, store]
   );
 
+  /**
+   * A steer that landed after the loop's last poll must not vanish. A finished
+   * run queues it (the drain sends it). An aborted run returns it to the
+   * composer, the same way Esc hands the visible queue back.
+   */
+  const absorbDeferredSteers = useCallback(
+    (halted: boolean) => {
+      const take = options.agent.takeDeferredSteers;
+      if (typeof take !== 'function') return;
+      const prompts = take
+        .call(options.agent, sessionKey)
+        .map((text) => text.trim())
+        .filter((text) => text.length > 0);
+      if (prompts.length === 0) return;
+      if (halted) {
+        setInput((current) => {
+          const extra = prompts.join('\n');
+          return current.trim() ? `${current.replace(/\s+$/, '')}\n${extra}` : extra;
+        });
+        return;
+      }
+      for (const text of prompts) queueRef.current.push({ display: text, text });
+      setQueueRevision((n) => n + 1);
+    },
+    [options.agent, sessionKey, setInput]
+  );
+
   const runTurn = useCallback(
     async (message: string) => {
       options.onTurnStart?.(message);
@@ -1105,8 +1134,10 @@ export function TuiAppRoot({
           rowsThisRun.some((row) => row.kind === 'assistant' && row.text.length > 300));
       handle.notify();
       if (producedPlan && planGateEnabled()) planGateRef.current?.();
+      absorbDeferredSteers(halted);
     },
     [
+      absorbDeferredSteers,
       appendTaskVerdictIfAny,
       handle,
       notifyAttention,
@@ -1123,7 +1154,9 @@ export function TuiAppRoot({
     if (drainingRef.current) return;
     drainingRef.current = true;
     try {
-      while (queueRef.current.length > 0 && !queuePausedRef.current) {
+      // Stop when a run is already in flight. Submitting again would push the
+      // same line back onto the queue and spin. That run's own drain continues it.
+      while (queueRef.current.length > 0 && !queuePausedRef.current && !store.run.running) {
         const next = queueRef.current.shift();
         if (!next) break;
         setQueueRevision((n) => n + 1);
@@ -1133,12 +1166,17 @@ export function TuiAppRoot({
         } finally {
           fromQueueRef.current = false;
         }
+        if (store.run.running) break;
       }
     } finally {
       drainingRef.current = false;
-      if (queueRef.current.length === 0) setQueueRevision((n) => n + 1);
+      if (queueRef.current.length > 0 && !queuePausedRef.current && !store.run.running) {
+        void drainQueue();
+      } else if (queueRef.current.length === 0) {
+        setQueueRevision((n) => n + 1);
+      }
     }
-  }, []);
+  }, [store]);
 
   const sessionInfo = useCallback(
     async (command: 'sessions' | 'mcp' | 'subs' | 'bg'): Promise<string[]> => {
@@ -1344,17 +1382,24 @@ export function TuiAppRoot({
           printCommandError('Task', errorMessage(err));
         } finally {
           abortRef.current = undefined;
-          const unverifiedTask =
-            !controller.signal.aborted && needsTestHint(store.run as VerifyHintState);
-          endRun(store, controller.signal.aborted);
+          const halted = controller.signal.aborted;
+          const unverifiedTask = !halted && needsTestHint(store.run as VerifyHintState);
+          endRun(store, halted);
           if (unverifiedTask) {
             appendRow(store, 'summary', tui('edited JS/TS files but did not run tests'));
           }
-          await runtime.endRun(controller.signal.aborted);
+          await runtime.endRun(halted);
           appendTaskVerdictIfAny(runStartedAtRef.current ?? 0);
           runStartedAtRef.current = undefined;
+          absorbDeferredSteers(halted);
           setStatusLine(undefined);
           handle.notify();
+          // A chat turn drains from its own completion. A task run does not go
+          // through that path, so messages queued while it was in flight would
+          // otherwise sit above the composer forever.
+          if (!halted && queueRef.current.length > 0 && !drainingRef.current) {
+            void drainQueue();
+          }
         }
         return;
       }
@@ -1372,6 +1417,8 @@ export function TuiAppRoot({
       }
     },
     [
+      absorbDeferredSteers,
+      drainQueue,
       handle,
       options.agent,
       options.workspaceDir,
@@ -1689,7 +1736,7 @@ export function TuiAppRoot({
           return true;
         }
         if (plan.kind === 'clear') {
-          printBlock('Goal', [await abandonLiveGoal(options.workspaceDir)]);
+          printBlock('Goal', [await abandonLiveGoal(options.workspaceDir, locale)]);
           return true;
         }
         if (plan.kind === 'resume') {
@@ -1697,11 +1744,7 @@ export function TuiAppRoot({
           return true;
         }
         if (plan.kind === 'propose') {
-          printBlock('Goal', [
-            `Acceptance command for: ${plan.goal}`,
-            ...plan.candidates.map((candidate, index) => `${index + 1}. ${candidate}`),
-            'Enter accepts the first (edit it first if you want). n skips — only the contract verdict will apply.',
-          ]);
+          printBlock('Goal', acceptanceProposalLines(plan.goal, plan.candidates, locale));
           pendingGoalRef.current = { goal: plan.goal };
           setInput(plan.candidates[0] ?? '');
           return true;
@@ -1790,11 +1833,7 @@ export function TuiAppRoot({
         setHistoryCursor({ index: undefined, draft: '' });
         setStatusLine(undefined);
         if (/^n$/i.test(text)) {
-          appendRow(
-            store,
-            'summary',
-            'Skipped the acceptance command. Only the contract verdict will apply.'
-          );
+          appendRow(store, 'summary', skippedAcceptanceNotice(cliLocale()));
           handle.notify();
           await runTaskShellCommand(goalRunArgs(pending.goal));
           return;
@@ -2176,6 +2215,9 @@ export function TuiAppRoot({
         }
         queueRef.current.push({ display, text: expanded });
         setQueueRevision((n) => n + 1);
+        // The run can finish between the running check and steer() returning
+        // null. Nothing else will drain that line.
+        if (!store.run.running && !drainingRef.current) void drainQueue();
         return;
       }
       appendRow(store, 'user', display);

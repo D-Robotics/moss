@@ -200,3 +200,78 @@ test('steer rejects an ambiguous same-session concurrent target', async () => {
   releases[1]();
   await Promise.all([first, second]);
 });
+
+test('a steer that misses the last poll is deferred, not dropped', async () => {
+  let providerEntered;
+  const entered = new Promise((resolve) => {
+    providerEntered = resolve;
+  });
+  let phase = 'block';
+  const requests = [];
+  const provider = {
+    id: 'steering-deferred-test',
+    displayName: 'steering-deferred-test',
+    async stream(options, onEvent) {
+      if (phase === 'block') {
+        providerEntered();
+        await new Promise((_resolve, reject) => {
+          const fail = () => reject(new Error('aborted'));
+          if (options.abortSignal?.aborted) {
+            fail();
+            return;
+          }
+          options.abortSignal?.addEventListener('abort', fail, { once: true });
+        });
+      }
+      requests.push(options.messages);
+      const text = 'second answer';
+      onEvent({ type: 'message_start' });
+      onEvent({ type: 'content_block_start' });
+      onEvent({ type: 'content_block_delta', text });
+      onEvent({ type: 'content_block_stop' });
+      onEvent({ type: 'message_delta', stopReason: 'end_turn' });
+      onEvent({ type: 'message_stop' });
+      return { stopReason: 'end_turn', content: [{ type: 'text', text }] };
+    },
+  };
+  const agent = new MossAgent({
+    llmProvider: provider,
+    sessionStore: new InMemorySessionStore(),
+    baseSystemPrompt: 'test',
+    domainPrompt: false,
+    includeAgentBehaviorPrompt: false,
+    includeLanguagePolicyPrompt: false,
+    enableSteering: false,
+    enableFollowUpGuard: false,
+    maxAgentTurns: 2,
+  });
+  const controller = new AbortController();
+  const blocked = agent.chat('deferred-session', 'first', { abortSignal: controller.signal });
+  await entered;
+  assert.ok(agent.steer('deferred-session', 'keep this'));
+  controller.abort();
+  await blocked.catch(() => {});
+  assert.deepEqual(agent.takeDeferredSteers('deferred-session'), ['keep this']);
+  assert.deepEqual(agent.takeDeferredSteers('deferred-session'), []);
+
+  phase = 'block';
+  let enteredAgain;
+  const entered2 = new Promise((resolve) => {
+    enteredAgain = resolve;
+  });
+  providerEntered = enteredAgain;
+  const controller2 = new AbortController();
+  const blocked2 = agent.chat('deferred-session', 'first again', {
+    abortSignal: controller2.signal,
+  });
+  await entered2;
+  assert.ok(agent.steer('deferred-session', 'keep this too'));
+  controller2.abort();
+  await blocked2.catch(() => {});
+  phase = 'go';
+  const result = await agent.chat('deferred-session', 'second');
+  assert.equal(result.response, 'second answer');
+  assert.match(visibleText(requests.at(-1) ?? []), /keep this too/);
+  assert.equal(agent.takeDeferredSteers('deferred-session').length, 0);
+  assert.equal(agent.inboxPending('deferred-session').length, 0);
+});
