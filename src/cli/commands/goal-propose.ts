@@ -8,11 +8,20 @@ import path from 'node:path';
 
 import { parseGoalCommandLine } from '../../core/loop/goal-loop.js';
 import { appendTaskEvent, findLatestLiveTaskSnapshot } from '../../core/task/task-store.js';
+import { isZhLocale } from '../cli-locale.js';
+import { quoteCommandArg } from '../task-run.js';
 
 const CLEAR_WORDS = new Set(['clear', 'stop', 'off', 'reset', 'none', 'cancel']);
 
-const EMPTY_NOTICE =
+const EMPTY_NOTICE_EN =
   'No acceptance command found in this workspace (no package.json test script, Makefile test target, pytest project, or go.mod). Only the contract verdict will apply — moss will not invent a command.';
+
+const EMPTY_NOTICE_ZH =
+  '这个工作区里没有找到验收命令（没有 package.json 的 test 脚本、Makefile 的 test 目标、pytest 工程或 go.mod）。只会使用契约裁决 — moss 不会编造命令。';
+
+export function emptyAcceptanceNotice(locale?: string): string {
+  return isZhLocale(locale) ? EMPTY_NOTICE_ZH : EMPTY_NOTICE_EN;
+}
 
 export interface AcceptanceProposal {
   candidates: string[];
@@ -58,7 +67,7 @@ export function proposeAcceptanceCommands(workspace: string): AcceptanceProposal
     pushCandidate(candidates, 'pytest');
   }
   if (fs.existsSync(path.join(workspace, 'go.mod'))) pushCandidate(candidates, 'go test ./...');
-  return { candidates, emptyNotice: EMPTY_NOTICE };
+  return { candidates, emptyNotice: emptyAcceptanceNotice() };
 }
 
 export type GoalInvocation =
@@ -89,12 +98,39 @@ export function planGoalInvocation(rest: string, workspace: string): GoalInvocat
 export const GOAL_USAGE =
   'Usage: /goal <condition> [--accept "<verification command>"] | /goal clear';
 
+export function acceptanceProposalLines(
+  goal: string,
+  candidates: readonly string[],
+  locale?: string
+): string[] {
+  const numbered = candidates.map((candidate, index) => `${index + 1}. ${candidate}`);
+  if (isZhLocale(locale)) {
+    return [
+      `验收命令，对应目标：${goal}`,
+      ...numbered,
+      'Enter 接受第一条（想改就先编辑）。输入 n 则跳过，只走契约裁决。',
+    ];
+  }
+  return [
+    `Acceptance command for: ${goal}`,
+    ...numbered,
+    'Enter accepts the first (edit it first if you want). n skips — only the contract verdict will apply.',
+  ];
+}
+
+export function skippedAcceptanceNotice(locale?: string): string {
+  return isZhLocale(locale)
+    ? '已跳过验收命令。只会使用契约裁决。'
+    : 'Skipped the acceptance command. Only the contract verdict will apply.';
+}
+
 /** `/goal clear` (and the clear-words) abandons the latest live task, if any. */
-export async function abandonLiveGoal(workspace: string): Promise<string> {
+export async function abandonLiveGoal(workspace: string, locale?: string): Promise<string> {
+  const zh = isZhLocale(locale);
   const snapshot = await findLatestLiveTaskSnapshot(workspace);
-  if (!snapshot) return 'No live goal to clear.';
+  if (!snapshot) return zh ? '没有可清除的进行中目标。' : 'No live goal to clear.';
   await appendTaskEvent(workspace, snapshot.taskId, 'task_abandoned', { reason: '/goal clear' });
-  return `Cleared goal ${snapshot.taskId}.`;
+  return zh ? `已清除目标 ${snapshot.taskId}。` : `Cleared goal ${snapshot.taskId}.`;
 }
 
 /** Arguments for `runTaskCommand` (`run <goal> [--accept "…"]`). */
@@ -102,8 +138,8 @@ export function goalRunArgs(
   goal: string,
   options: { acceptance?: string; maxTurns?: number } = {}
 ): string {
-  const parts = ['run', goal];
-  if (options.acceptance) parts.push('--accept', JSON.stringify(options.acceptance));
+  const parts = ['run', quoteCommandArg(goal)];
+  if (options.acceptance) parts.push('--accept', quoteCommandArg(options.acceptance));
   if (options.maxTurns && options.maxTurns > 0) {
     parts.push('--max-turns', String(options.maxTurns));
   }

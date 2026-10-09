@@ -13,9 +13,11 @@ import {
 import { formatBackgroundJobLines } from './commands/background-jobs.js';
 import {
   abandonLiveGoal,
+  acceptanceProposalLines,
   GOAL_USAGE,
   goalRunArgs,
   planGoalInvocation,
+  skippedAcceptanceNotice,
 } from './commands/goal-propose.js';
 import {
   INTERACTIVE_COMPLETION_COMMANDS,
@@ -220,7 +222,7 @@ export async function runInteractive(
       const goal = pendingGoal.goal;
       pendingGoal = null;
       if (/^n$/i.test(msg)) {
-        console.error('Skipped the acceptance command. Only the contract verdict will apply.');
+        console.error(skippedAcceptanceNotice());
         msg = `/task ${goalRunArgs(goal)}`;
       } else {
         msg = `/task ${goalRunArgs(goal, { acceptance: msg })}`;
@@ -535,13 +537,9 @@ export async function runInteractive(
         }
         msg = `/task resume ${resumable.taskId}`;
       } else if (plan.kind === 'propose') {
-        process.stderr.write(`Acceptance command for: ${plan.goal}\n`);
-        plan.candidates.forEach((candidate, index) => {
-          process.stderr.write(`${index + 1}. ${candidate}\n`);
-        });
-        process.stderr.write(
-          'Enter accepts the first (edit it first if you want). n skips — only the contract verdict will apply.\n'
-        );
+        for (const line of acceptanceProposalLines(plan.goal, plan.candidates)) {
+          process.stderr.write(`${line}\n`);
+        }
         pendingGoal = { goal: plan.goal };
         rl.prompt();
         rl.write(plan.candidates[0] ?? '');

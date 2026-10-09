@@ -88,26 +88,53 @@ function usage(zh: boolean = isZhLocale()): string {
 }
 
 /**
- * Minimal shell-ish tokenizer: splits on whitespace but honors double-quoted
- * segments (for --accept "npm test && npm run check").
+ * Quote one argument for `splitCommandArgs`. Spaces, quotes, and backslashes
+ * are wrapped so they survive the round trip; a bare token is left alone.
+ * A goal that itself contains `--accept` stays one token, so the flag parser
+ * does not steal it.
  */
+export function quoteCommandArg(value: string): string {
+  if (value.length > 0 && !/[\s"\\]/.test(value)) return value;
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * Minimal shell-ish tokenizer: splits on whitespace but honors double-quoted
+ * segments and backslash escapes inside quotes (for --accept "npm test && echo \"ok\"").
+ */
+
 export function splitCommandArgs(line: string): string[] {
   const args: string[] = [];
   let current = '';
   let inQuotes = false;
-  for (const char of line.trim()) {
+  let started = false;
+  const raw = line.trim();
+  for (let i = 0; i < raw.length; i += 1) {
+    const char = raw[i] ?? '';
+    if (inQuotes && char === '\\') {
+      const next = raw[i + 1];
+      if (next === '"' || next === '\\') {
+        current += next;
+        started = true;
+        i += 1;
+        continue;
+      }
+    }
     if (char === '"') {
       inQuotes = !inQuotes;
+      started = true;
       continue;
     }
     if (!inQuotes && /\s/.test(char)) {
-      if (current) args.push(current);
+      if (started) args.push(current);
       current = '';
+      started = false;
       continue;
     }
     current += char;
+    started = true;
   }
-  if (current) args.push(current);
+  if (started) args.push(current);
   return args;
 }
 

@@ -10,9 +10,12 @@ import path from 'node:path';
 
 import {
   abandonLiveGoal,
+  acceptanceProposalLines,
+  emptyAcceptanceNotice,
   GOAL_USAGE,
   planGoalInvocation,
   proposeAcceptanceCommands,
+  skippedAcceptanceNotice,
 } from '../dist/cli/commands/goal-propose.js';
 import { createDraftTask, listTaskEvents } from '../dist/core/task/task-store.js';
 import { SLASH_MENU_ROWS } from '../dist/cli/interactive-commands.js';
@@ -25,6 +28,18 @@ const menu = SLASH_MENU_ROWS.map((row) => row.command);
 assert.ok(menu.includes('/goal'), 'the everyday menu offers /goal');
 assert.ok(!menu.includes('/task'), 'the everyday menu does not offer /task');
 assert.match(GOAL_USAGE, /\/goal clear/);
+{
+  const zh = acceptanceProposalLines('ship', ['npm test'], 'zh_CN').join('\n');
+  assert.match(zh, /验收命令/);
+  assert.match(zh, /npm test/);
+  assert.match(zh, /契约裁决/);
+  const en = acceptanceProposalLines('ship', ['npm test'], 'C').join('\n');
+  assert.match(en, /Acceptance command for: ship/);
+  assert.match(skippedAcceptanceNotice('zh_CN'), /已跳过验收命令/);
+  assert.match(skippedAcceptanceNotice('C'), /Skipped the acceptance command/);
+  assert.match(emptyAcceptanceNotice('zh_CN'), /不会编造命令/);
+  assert.match(emptyAcceptanceNotice('C'), /will not invent a command/);
+}
 
 {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-goal-pkg-'));
