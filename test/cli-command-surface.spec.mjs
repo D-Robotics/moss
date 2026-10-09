@@ -45,19 +45,34 @@ const { SLASH_MENU_ROWS, INTERACTIVE_COMPLETION_COMMANDS, REPL_COMMAND_SECTIONS 
   pathToFileURL(path.join(here, '..', 'dist', 'cli', 'interactive-commands.js')).href
 );
 
-// /steer /queue /history /resume have no REPL handler. They live in the
-// shared catalog marked surfaces:['tui'] (the TUI control plane answers them),
-// so no REPL-facing projection may list them. /clear does have a REPL handler:
-// it starts a new conversation, same as the TUI.
-const DEAD = ['/steer', '/queue', '/history', '/resume'];
-const tokens = new Set([
+// The everyday menu is the commands a person sees by typing `/`. Hidden
+// aliases (/steer /queue /mode /task) and retired names (/history /loop /log)
+// stay out of it. /resume and /goal are real REPL commands.
+const menu = new Set([
   ...SLASH_MENU_ROWS.map((row) => row.command),
   ...SLASH_MENU_ROWS.flatMap((row) => row.aliases ?? []),
   ...INTERACTIVE_COMPLETION_COMMANDS,
-  ...REPL_COMMAND_SECTIONS.flatMap((section) => section.rows.map((row) => row.command)),
 ]);
-for (const dead of DEAD) {
-  assert.ok(!tokens.has(dead), `tui-only command "${dead}" must not be advertised to the REPL`);
+for (const hidden of [
+  '/steer',
+  '/queue',
+  '/history',
+  '/loop',
+  '/log',
+  '/quickstart',
+  '/mode',
+  '/task',
+]) {
+  assert.ok(!menu.has(hidden), `"${hidden}" must not be in the everyday REPL menu`);
+}
+for (const shown of ['/goal', '/plan', '/resume', '/clear', '/help', '/model']) {
+  assert.ok(menu.has(shown), `"${shown}" is an everyday command`);
+}
+const replCommands = new Set(
+  REPL_COMMAND_SECTIONS.flatMap((section) => section.rows.map((row) => row.command))
+);
+for (const both of ['/goal', '/plan', '/resume', '/clear', '/steer', '/queue']) {
+  assert.ok(replCommands.has(both), `"${both}" is in the REPL catalog (it dispatches)`);
 }
 
 // ─── The dead queued-input module is gone ─────────────────────────────────────

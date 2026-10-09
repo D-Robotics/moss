@@ -339,8 +339,9 @@ assert.deepEqual(
 
 for (const command of [
   '/model',
-  '/mode',
   '/compact',
+  '/goal',
+  '/plan',
   '/diff',
   '/doctor',
   '/permissions',
@@ -353,7 +354,7 @@ for (const command of [
     `${command} is advertised by the shell`
   );
 }
-for (const hidden of ['/status', '/context', '/export']) {
+for (const hidden of ['/status', '/context', '/export', '/mode']) {
   assert.ok(
     !HELP_COMMANDS.some((entry) => entry.split(' ')[0] === hidden),
     `${hidden} stays out of the everyday menu`
