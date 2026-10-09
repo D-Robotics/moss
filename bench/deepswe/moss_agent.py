@@ -82,10 +82,10 @@ class MossHarnessAgent(BaseInstalledAgent):
 
     async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
         del context
-        note = (
-            "Work only in /app. Do not modify /tests. Leave the fix uncommitted.\n\n"
-        )
-        body = note + instruction
+        # The task instruction is the grader's prompt, including its commit rule.
+        # Do not prepend a conflicting "leave uncommitted" note: the verifier
+        # collects `git diff <base> HEAD`.
+        body = instruction
         if "MOSS_TASK_EOF" in body:
             body = body.replace("MOSS_TASK_EOF", "MOSS_TASK_END")
         await self.exec_as_root(
@@ -124,6 +124,7 @@ class MossHarnessAgent(BaseInstalledAgent):
         command = "\n".join(
             [
                 "export PATH=/opt/node/bin:$PATH",
+                "export NODE_OPTIONS='--dns-result-order=ipv4first'",
                 "test -f /opt/moss/cli.js",
                 "export MOSS_CONFIG_DIR=/tmp/moss-config",
                 "export MOSS_TEMPERATURE=${MOSS_TEMPERATURE:-1}",
@@ -132,9 +133,10 @@ class MossHarnessAgent(BaseInstalledAgent):
                 "export MOSS_APPROVAL_POLICY=never",
                 "export MOSS_NO_COLOR=1",
                 "cd /app",
+                "mkdir -p /logs/agent",
                 "/opt/node/bin/node /opt/moss/cli.js -p --output-format stream-json --ask-for-approval never "
                 + f"--model {shlex.quote(model)} --base-url {shlex.quote(base_url)} "
-                + "--max-turns ${MOSS_DEEPSWE_MAX_TURNS:-40} \"$(cat /tmp/moss-task.md)\" "
+                + "--max-turns ${MOSS_DEEPSWE_MAX_TURNS:-80} \"$(cat /tmp/moss-task.md)\" "
                 + "> /logs/agent/moss-run.log 2>&1 || true",
             ]
         )

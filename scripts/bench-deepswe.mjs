@@ -9,6 +9,11 @@
  * can prove the path; pass --samples 8 for the published protocol.
  *
  *   node scripts/bench-deepswe.mjs --tasks /path/to/deep-swe/tasks --n-tasks 1
+ *
+ * Pier puts the task container on an internal network and allows the model
+ * host through a sidecar proxy. A stale iptables-legacy FORWARD policy of
+ * DROP that only accepts docker0 drops that bridge before NAT. On such a
+ * host, `sudo iptables-legacy -P FORWARD ACCEPT` restores the proxy path.
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -91,6 +96,12 @@ function main() {
   if (args.samples !== board.protocol.samplesPerTask) {
     console.log(
       `[deepswe] this run uses ${args.samples} sample(s); the published table uses ${board.protocol.samplesPerTask}`
+    );
+  }
+  const maxTurns = process.env.MOSS_DEEPSWE_MAX_TURNS ?? '80';
+  if (Number(maxTurns) !== board.protocol.maxSteps) {
+    console.log(
+      `[deepswe] this run caps Moss at ${maxTurns} turns; the published table uses ${board.protocol.maxSteps} steps`
     );
   }
   const child = spawnSync(cmd[0], cmd.slice(1), { cwd: repoRoot, env, stdio: 'inherit' });
