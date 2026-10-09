@@ -91,6 +91,14 @@ function reportOf(repo, round) {
   );
 }
 
+function measuredFixture(name) {
+  const value = JSON.parse(fs.readFileSync(path.join(fixture, name), 'utf8'));
+  delete value.synthetic;
+  if (value.meta) delete value.meta.synthetic;
+  if (value.meta?.kind === 'device-bench') value.repeat.n = 3;
+  return value;
+}
+
 function devArgs(round) {
   return [
     '--round',
@@ -336,7 +344,8 @@ test('synthetic verify-nudge regression fails G2 and G6', () => {
   assert.equal(report.gates.G2.status, 'fail');
   assert.ok(report.gates.G2.reasons.some((reason) => reason.includes('safety-boundary')));
   assert.ok(report.gates.G2.reasons.some((reason) => reason.includes('hard-verify-loop')));
-  assert.equal(report.gates.G3.status, 'pass');
+  assert.equal(report.gates.G3.status, 'fail');
+  assert.ok(report.gates.G3.reasons.some((reason) => reason.includes('synthetic')));
   assert.equal(report.gates.G4.status, 'pass');
   assert.equal(report.gates.G5.status, 'not-applicable');
   assert.equal(report.gates.G6.status, 'fail');
@@ -375,6 +384,11 @@ test('holdout split reuses a dev gate and will not accept without scores', () =>
   assert.equal(reportOf(repo, 4).gates.G6.status, 'skipped');
 
   fs.writeFileSync(path.join(roundDir, 'gate.json'), `${JSON.stringify(prior)}\n`);
+  const measuredHoldout = path.join(repo, 'holdout-improved.json');
+  fs.writeFileSync(
+    measuredHoldout,
+    `${JSON.stringify(measuredFixture('holdout-improved.json'))}\n`
+  );
   const accepted = runCli(repo, [
     '--round',
     '4',
@@ -384,7 +398,7 @@ test('holdout split reuses a dev gate and will not accept without scores', () =>
     'holdout',
     '--from-results',
     '--holdout-scores',
-    path.join(fixture, 'holdout-improved.json'),
+    measuredHoldout,
   ]);
   assert.equal(accepted.status, 0, `${accepted.stderr}\n${accepted.stdout}`);
   assert.equal(reportOf(repo, 4).decision, 'accept');
@@ -421,11 +435,9 @@ test('a STOP created by a child runner aborts the gate', async () => {
 });
 
 test('score rules and the acceptance decision', () => {
-  const baseline = JSON.parse(fs.readFileSync(path.join(fixture, 'baseline-summary.json'), 'utf8'));
-  const candidate = JSON.parse(
-    fs.readFileSync(path.join(fixture, 'candidate-summary.json'), 'utf8')
-  );
-  const band = JSON.parse(fs.readFileSync(path.join(fixture, 'noise-band.json'), 'utf8'));
+  const baseline = measuredFixture('baseline-summary.json');
+  const candidate = measuredFixture('candidate-summary.json');
+  const band = measuredFixture('noise-band.json');
   const regressed = evaluateDevRegression(candidate, baseline, band);
   assert.equal(regressed.status, 'fail');
   const same = evaluateDevRegression(baseline, baseline, band);
@@ -438,7 +450,7 @@ test('score rules and the acceptance decision', () => {
   assert.equal(wide.status, 'fail');
   assert.ok(wide.reasons.some((reason) => reason.includes('safety-boundary')));
 
-  const device = JSON.parse(fs.readFileSync(path.join(fixture, 'device-ok.json'), 'utf8'));
+  const device = measuredFixture('device-ok.json');
   assert.equal(evaluateDevice(device, device).status, 'pass');
   const slipped = structuredClone(device);
   slipped.repeat.coreMean = 0.5;
@@ -454,20 +466,12 @@ test('score rules and the acceptance decision', () => {
   assert.equal(evaluateCost(expensive, baseline).status, 'fail');
 
   assert.equal(evaluateHoldout(null).status, 'skipped');
+  assert.equal(evaluateHoldout(measuredFixture('holdout-improved.json')).status, 'pass');
+  assert.equal(evaluateHoldout(measuredFixture('holdout-flat.json')).status, 'flat');
+  assert.equal(evaluateHoldout(measuredFixture('holdout-regressed.json')).status, 'fail');
   assert.equal(
     evaluateHoldout(
       JSON.parse(fs.readFileSync(path.join(fixture, 'holdout-improved.json'), 'utf8'))
-    ).status,
-    'pass'
-  );
-  assert.equal(
-    evaluateHoldout(JSON.parse(fs.readFileSync(path.join(fixture, 'holdout-flat.json'), 'utf8')))
-      .status,
-    'flat'
-  );
-  assert.equal(
-    evaluateHoldout(
-      JSON.parse(fs.readFileSync(path.join(fixture, 'holdout-regressed.json'), 'utf8'))
     ).status,
     'fail'
   );

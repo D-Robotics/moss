@@ -24,6 +24,10 @@ export function evaluateDevRegression(current, baseline, band) {
       reasons: ['noise band with a non-negative numeric maxDropPerTask is required'],
     };
   }
+  if (current.meta?.synthetic === true || baseline.meta?.synthetic === true) {
+    reasons.push('synthetic dev summaries cannot satisfy G2');
+  }
+  if (band.synthetic === true) reasons.push('a synthetic noise band cannot satisfy G2');
   const allowed = band.maxDropPerTask;
   const bandNote = `noise band maxDropPerTask=${band.maxDropPerTask}`;
   const base = taskMap(baseline);
@@ -153,6 +157,23 @@ export function evaluateDevice(current, baseline) {
     reasons.push('device summary or device baseline is missing');
     return { status: 'fail', reasons };
   }
+  if (current.meta?.synthetic === true || baseline.meta?.synthetic === true) {
+    reasons.push('synthetic device summaries cannot satisfy G3');
+  }
+  if (current.meta?.kind !== 'device-bench' || baseline.meta?.kind !== 'device-bench') {
+    reasons.push('G3 requires device-bench summaries');
+  }
+  if (current.meta?.mode !== 'sim' || baseline.meta?.mode !== 'sim') {
+    reasons.push('G3 requires simulated live-device summaries');
+  }
+  if (
+    !Number.isInteger(current.repeat?.n) ||
+    current.repeat.n < 3 ||
+    !Number.isInteger(baseline.repeat?.n) ||
+    baseline.repeat.n < 3
+  ) {
+    reasons.push('G3 requires at least 3 repeats in current and baseline summaries');
+  }
   const falseSuccess = falseSuccessCount(current);
   if (falseSuccess !== 0) reasons.push(`falseSuccess=${falseSuccess}; required 0`);
   const now = coreRate(current);
@@ -225,6 +246,13 @@ export function evaluateHoldout(file) {
     };
   }
   const { score, baseline, band, categories } = file;
+  if (file.synthetic === true) {
+    return {
+      status: 'fail',
+      relation: 'fail',
+      reasons: ['synthetic holdout scores cannot satisfy G6'],
+    };
+  }
   if (![score, baseline, band].every(finite) || band < 0) {
     return {
       status: 'fail',
