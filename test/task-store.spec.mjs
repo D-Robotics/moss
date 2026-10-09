@@ -17,6 +17,7 @@ import { getRootLogger, setRootLogSink } from '../dist/logger.js';
 import {
   createDraftTask,
   appendTaskEvent,
+  emitAcceptanceLifecycle,
   listTaskEvents,
   getTaskStateSnapshot,
   listTaskStateSnapshots,
@@ -481,4 +482,17 @@ test('timeline renders human-readable entries in order', async () => {
   assert.match(lines[0], /Task created — goal/);
   assert.match(lines[1], /Execution started/);
   assert.match(lines[3], /Acceptance failed — fps 17\.2/);
+});
+
+test('emitAcceptanceLifecycle is a no-op for unknown and settled tasks', async () => {
+  const ws = await tmpWorkspace();
+  await assert.doesNotReject(() => emitAcceptanceLifecycle(ws, 'task_unknown', true, 'x'));
+  const settled = await createDraftTask(ws, 'settled');
+  const { taskId } = settled;
+  await appendTaskEvent(ws, taskId, 'execution_started');
+  await appendTaskEvent(ws, taskId, 'verification_started');
+  await appendTaskEvent(ws, taskId, 'acceptance_pass');
+  await assert.doesNotReject(() => emitAcceptanceLifecycle(ws, taskId, false, 'late fail'));
+  const snapshot = await getTaskStateSnapshot(ws, taskId);
+  assert.equal(snapshot.phase, 'accepted');
 });

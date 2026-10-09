@@ -1,7 +1,7 @@
 /**
  * Agent turn adapter (Task OS M5) — the ONE way an engine turn talks to a
- * MossAgent. Duck-types streamChat/chat exactly like LoopScheduler does, so
- * REPL / headless / SDK / TUI drive identical behavior per interface parity.
+ * MossAgent. Duck-types streamChat/chat so REPL / headless / SDK / TUI drive
+ * identical behavior per interface parity, including the stop reason.
  */
 import type { MossAgentEvent } from '../agent/moss-agent-types.js';
 

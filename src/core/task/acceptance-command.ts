@@ -1,15 +1,9 @@
 /**
- * Goal loop — acceptance-driven autonomous execution.
- *
- * In goal mode the loop only counts as complete when an external acceptance
- * command (the compiled "Done") exits 0. The acceptance verdict is
- * authoritative: it outranks the model's self-judgement, so a failing command
- * vetoes a DONE claim and redirects the next iteration to the failure
- * evidence. Pure helpers here; the scheduling lives in loop-scheduler.ts.
+ * Exit-code acceptance command. The task engine's command verdict runs this
+ * and treats exit 0 as pass. The output tail is the failure evidence.
  */
-import { runProcess } from '../../utils/run-process.js';
 import { errorMessage } from '../../errors.js';
-import { isNudgeDisabled } from './nudges/disable.js';
+import { runProcess } from '../../utils/run-process.js';
 
 export interface AcceptanceSpec {
   /** Shell command that must exit 0 for the goal to be complete. */
@@ -20,7 +14,7 @@ export interface AcceptanceSpec {
 export interface AcceptanceResult {
   passed: boolean;
   exitCode: number;
-  /** Tail of combined stdout/stderr — injected into the next iteration. */
+  /** Tail of combined stdout/stderr. */
   tail: string;
   timedOut: boolean;
   endedAt: number;
@@ -89,52 +83,4 @@ export async function runAcceptanceCommand(
       endedAt,
     };
   }
-}
-
-export function buildAcceptanceFailurePrompt(goal: string, result: AcceptanceResult): string {
-  if (isNudgeDisabled('goal-acceptance')) return goal;
-  return [
-    `The acceptance command for the goal still fails (exit ${result.exitCode}${
-      result.timedOut ? ', timed out' : ''
-    }).`,
-    'Fix the underlying cause — do not work around, disable, or edit the acceptance command or its fixtures.',
-    '',
-    'Last acceptance output (tail):',
-    result.tail || '(no output)',
-    '',
-    `Original goal: ${goal}`,
-  ].join('\n');
-}
-
-export interface ParsedGoalCommand {
-  goal: string;
-  acceptance?: { command: string };
-}
-
-/**
- * Parse a `/goal <goal text> [--accept "<verification command>"]` line.
- * Returns null for a malformed line (empty goal, or --accept without a
- * command).
- */
-export function parseGoalCommandLine(line: string): ParsedGoalCommand | null {
-  const raw = line.trim();
-  if (!raw) return null;
-  const idx = raw.search(/(^|\s)--accept(\s+|=|$)/);
-  if (idx === -1) return { goal: raw };
-  const goal = raw.slice(0, idx).trim();
-  if (!goal) return null;
-  let rest = raw
-    .slice(idx)
-    .replace(/^\s*--accept(\s+|=|$)/, '')
-    .trim();
-  if (!rest) return null;
-  if (
-    (rest.startsWith('"') && rest.endsWith('"')) ||
-    (rest.startsWith("'") && rest.endsWith("'"))
-  ) {
-    rest = rest.slice(1, -1);
-  }
-  rest = rest.trim();
-  if (!rest) return null;
-  return { goal, acceptance: { command: rest } };
 }

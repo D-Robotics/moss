@@ -6,7 +6,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { parseGoalCommandLine } from '../../core/loop/goal-loop.js';
 import { appendTaskEvent, findLatestLiveTaskSnapshot } from '../../core/task/task-store.js';
 import { isZhLocale } from '../cli-locale.js';
 import { quoteCommandArg } from '../task-run.js';
@@ -70,6 +69,39 @@ export function proposeAcceptanceCommands(workspace: string): AcceptanceProposal
   return { candidates, emptyNotice: emptyAcceptanceNotice() };
 }
 
+export interface ParsedGoalCommand {
+  goal: string;
+  acceptance?: { command: string };
+}
+
+/**
+ * Parse a `/goal <goal text> [--accept "<verification command>"]` line.
+ * Returns null for a malformed line (empty goal, or --accept without a
+ * command).
+ */
+export function parseGoalCommandLine(line: string): ParsedGoalCommand | null {
+  const raw = line.trim();
+  if (!raw) return null;
+  const idx = raw.search(/(^|\s)--accept(\s+|=|$)/);
+  if (idx === -1) return { goal: raw };
+  const goal = raw.slice(0, idx).trim();
+  if (!goal) return null;
+  let rest = raw
+    .slice(idx)
+    .replace(/^\s*--accept(\s+|=|$)/, '')
+    .trim();
+  if (!rest) return null;
+  if (
+    (rest.startsWith('"') && rest.endsWith('"')) ||
+    (rest.startsWith("'") && rest.endsWith("'"))
+  ) {
+    rest = rest.slice(1, -1);
+  }
+  rest = rest.trim();
+  if (!rest) return null;
+  return { goal, acceptance: { command: rest } };
+}
+
 export type GoalInvocation =
   | { kind: 'usage' }
   | { kind: 'clear' }
@@ -131,6 +163,20 @@ export async function abandonLiveGoal(workspace: string, locale?: string): Promi
   if (!snapshot) return zh ? '没有可清除的进行中目标。' : 'No live goal to clear.';
   await appendTaskEvent(workspace, snapshot.taskId, 'task_abandoned', { reason: '/goal clear' });
   return zh ? `已清除目标 ${snapshot.taskId}。` : `Cleared goal ${snapshot.taskId}.`;
+}
+
+/**
+ * Turn cap for `/goal`. `MOSS_GOAL_AUTO_MAX_RUNS` wins for a goal run;
+ * `MOSS_LOOP_MAX` is the fallback. Missing or invalid values mean no cap (0).
+ */
+export function resolveLoopMaxIterations(
+  env: Record<string, string | undefined>,
+  goal = false
+): number {
+  const value = goal ? (env.MOSS_GOAL_AUTO_MAX_RUNS ?? env.MOSS_LOOP_MAX) : env.MOSS_LOOP_MAX;
+  if (value === undefined || value.trim() === '') return 0;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
 /** Arguments for `runTaskCommand` (`run <goal> [--accept "…"]`). */

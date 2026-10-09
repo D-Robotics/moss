@@ -4,7 +4,6 @@ import type { MossAgent, MossAgentEvent } from '../core/index.js';
 import { setCliApprovalAsker } from './approval.js';
 import { noteKnownSecret } from '../safety/known-secrets.js';
 import { handleCompactCommand } from './compact-command.js';
-import { resolveLoopMaxIterations } from './loop-tui-events.js';
 import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
 import {
   loadCustomCommands,
@@ -18,6 +17,7 @@ import {
   GOAL_USAGE,
   goalRunArgs,
   planGoalInvocation,
+  resolveLoopMaxIterations,
   skippedAcceptanceNotice,
 } from './commands/goal-propose.js';
 import {

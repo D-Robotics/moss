@@ -89,7 +89,7 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 | 想改什么                                                | 去哪                                                                                         |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | Agent loop / 轮次控制 / nudge                           | `src/core/loop/`                                                                             |
-| 达标驱动自主执行（/goal 验收门）                        | `src/core/loop/goal-loop.ts`                                                                 |
+| 达标驱动自主执行（/goal 验收门）                        | `src/core/task/task-engine.ts`、`src/core/task/acceptance-command.ts`                        |
 | MossAgent / 配置 / 事件                                 | `src/core/agent/`                                                                            |
 | 工具注册与执行管线                                      | `src/tools/builtin.ts`、`src/core/tools/`                                                    |
 | 内置工具实现                                            | `src/tools/*.ts`                                                                             |
@@ -142,14 +142,13 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
   （`contracts/task-runtime.ts`：draft→…→verifying→diagnosing→repairing→reverifying→accepted/failed；
   非法转移抛 `EXECUTION_STATE_INVALID`，PASS 只能来自 verdict provider，模型散文永远不是事件）。
   - 引擎 `core/task/task-engine.ts`：runTask/resumeTask 驱动 plan→execute→verify→repair→accept；
-    goal-loop 与 robotics 验收统一为 VerdictProvider（命令裁决 > 契约裁决，`core/task/verdict.ts`）。
+    命令验收与 robotics 验收统一为 VerdictProvider（命令裁决 > 契约裁决，`core/task/verdict.ts`，命令在 `acceptance-command.ts`）。
   - `task_define` 新建任务即入状态机（task*created→plan_ready）；`task_acceptance` 落
     verification_started/acceptance*\* 事件；`record_failure`/`record_repair`/`task_plan_update`
     是一等公民工具；`record_evidence`/`device_deploy` 落 info 事件到 timeline。
   - 四入口同一行为：`moss task run/resume/status/timeline`（headless，exit 0 仅当 accepted）、
     REPL `/task`、SDK（`runTask` 等，semver 保护）、TUI（读同一份 `.moss/` 工件）。
   - `runtime_state` 类工具不进审批（moss 自身 `.moss/` 记账）；危险类不变。
-  - LoopScheduler `onAcceptanceVerdict` 把 /goal 与 MOSS_GOAL_VERIFY_LOOP 的裁决镜像进统一 runtime。
   - 能力发现：`core/task/capability.ts` 按 goal 匹配 skills/内置工具/MCP，注入 planning 上下文。
 - Agent 不得以散文宣布任务成功；成功 = acceptance PASS + 背后 evidence。verify 子代理 scope 已带
   `record_evidence` / `task_acceptance`。

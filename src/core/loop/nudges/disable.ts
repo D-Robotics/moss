@@ -44,7 +44,6 @@ export const NUDGE_IDS = [
   'acceptance-gate',
   'follow-up-guard',
   'truncated-tool-json',
-  'goal-acceptance',
 ] as const;
 
 export type NudgeId = (typeof NUDGE_IDS)[number];

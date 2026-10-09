@@ -226,7 +226,7 @@ export async function findLatestLiveTaskSnapshot(
  * verification from execution/diagnosis/repair, then the verdict. Tolerant on
  * unsettled (draft/understanding/planning — no execution yet) and settled
  * (terminal) tasks — the verdict itself remains the source of truth. Shared
- * by the task tools, the goal-loop mirror and the headless verify path.
+ * by the task tools and the headless verify path.
  */
 export async function emitAcceptanceLifecycle(
   workspaceDir: string,

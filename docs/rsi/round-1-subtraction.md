@@ -47,7 +47,7 @@ Paired baseline: the same flags and task list, variable unset, label `abl-<famil
 | subagent   | fan-out, subagent-running, subagent-stopped, background-completion                          | 2       | subagent-fanout, background-process + the three controls                                                                                                                              | 0.91M    |
 | retry      | reasoning-only, output-continuation, missing-tool-call, empty-response, truncated-tool-json | 1       | search-locate-fix, hard-long-recall, long-horizon-refactor, hard-dependency-conflict, multi-file-consistency, compaction-recall + the three controls                                  | 1.96M    |
 | steering   | the five `steering-*` rules                                                                 | 1       | error-recovery, search-locate-fix, long-horizon-refactor, hard-long-recall, compaction-recall + skills-usage, no-interaction, capability-mcp-ledger                                   | 1.79M    |
-| acceptance | acceptance-gate, task-repair, goal-acceptance                                               | 2       | task-os-a-coding, task-os-c-failure-repair, safety-boundary + the three controls                                                                                                      | 0.95M    |
+| acceptance | acceptance-gate, task-repair, goal-acceptance（已随 LoopScheduler 退役）                    | 2       | task-os-a-coding, task-os-c-failure-repair, safety-boundary + the three controls                                                                                                      | 0.95M    |
 | plan       | todo, ambiguity, follow-up-guard                                                            | 2       | long-horizon-refactor, multi-file-consistency, single-edit, test-fix-loop, error-recovery, no-interaction, hard-ambiguous-spec + skills-usage, capability-mcp-ledger                  | 1.63M    |
 
 The seven family runs are about 9.9M tokens. Seven paired baselines are another 9.9M. Splitting every family (only if each one is neutral-or-better) is about 39M more. Worst case for the round is about 59M tokens, not 300M.
@@ -103,7 +103,7 @@ MOSS_DISABLE_NUDGES=steering-error-recovery,steering-local-exploration-loop,stee
 
 ### `acceptance`
 
-Mechanism: a task contract exists and the loop will not let the run end without a verdict, a repair, or (only when `MOSS_GOAL_VERIFY_LOOP=1`, which these commands do not set) the goal-failure tail. `goal-acceptance` is predicted neutral on this slice. `safety-boundary` is here so a family that drops it below 100% fails the round.
+Mechanism: a task contract exists and the loop will not let the run end without a verdict, a repair, or (only when `MOSS_GOAL_VERIFY_LOOP=1`, which these commands do not set) the goal-failure tail. `goal-acceptance` 已随 LoopScheduler 退役：未知 id 会被忽略，下面的命令仍能跑，但不再关掉任何注入。`safety-boundary` is here so a family that drops it below 100% fails the round.
 
 ```bash
 npm run bench -- --samples 2 --label abl-acceptance-base --keep-artifacts --model <model> --base-url <url> --task task-os-a-coding --task task-os-c-failure-repair --task safety-boundary --task skills-usage --task no-interaction --task error-recovery
@@ -474,7 +474,9 @@ Each id keeps its trigger, text, and prediction. The run is the family slice abo
 
 ### `goal-acceptance`
 
-- **Where:** `src/core/loop/goal-loop.ts:97` (`buildAcceptanceFailurePrompt`, line 94). Injected by `LoopScheduler` after a failing acceptance command.
+已随 LoopScheduler 退役。`buildAcceptanceFailurePrompt` 已删除；`MOSS_DISABLE_NUDGES=goal-acceptance` 是未知 id，调用处会忽略。
+
+- **Where:** was `src/core/loop/goal-loop.ts` (`buildAcceptanceFailurePrompt`). Injected by `LoopScheduler` after a failing acceptance command. That scheduler is gone.
 - **Trigger:** goal mode has an acceptance command and it exited non-zero. Disabling it sets the next iteration prompt to the original goal only: the failure tail and the "do not edit the acceptance command" line are omitted. The default `npm run bench` does **not** set `MOSS_GOAL_VERIFY_LOOP`, so this prompt is not on the dev-bench path.
 - **Text:** `The acceptance command for the goal still fails (exit <code>). Fix the underlying cause — do not work around, disable, or edit the acceptance command or its fixtures.` plus up to 2000 characters of output and the original goal.
 - **Tokens:** ~50 for the instruction, plus the tail (up to ~500) and the goal text. Once per failed iteration.
@@ -538,6 +540,7 @@ MOSS_DISABLE_NUDGES=steering-context-pressure npm run bench -- --samples 1 --lab
 ```bash
 MOSS_DISABLE_NUDGES=acceptance-gate npm run bench -- --samples 2 --label abl-acceptance-gate --keep-artifacts --model <model> --base-url <url> --task task-os-a-coding --task task-os-c-failure-repair --task safety-boundary --task skills-usage --task no-interaction --task error-recovery
 MOSS_DISABLE_NUDGES=task-repair npm run bench -- --samples 2 --label abl-task-repair --keep-artifacts --model <model> --base-url <url> --task task-os-a-coding --task task-os-c-failure-repair --task safety-boundary --task skills-usage --task no-interaction --task error-recovery
+# goal-acceptance 已随 LoopScheduler 退役（未知 id，忽略）
 MOSS_DISABLE_NUDGES=goal-acceptance npm run bench -- --samples 2 --label abl-goal-acceptance --keep-artifacts --model <model> --base-url <url> --task task-os-a-coding --task task-os-c-failure-repair --task safety-boundary --task skills-usage --task no-interaction --task error-recovery
 ```
 

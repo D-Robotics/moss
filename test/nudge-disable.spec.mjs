@@ -25,7 +25,6 @@ import {
 } from '../dist/core/loop/background-completion.js';
 import { enqueueBackgroundCompletion } from '../dist/core/tools/background-completion-state.js';
 import { evaluateAcceptanceCompletionGate } from '../dist/core/loop/acceptance-completion-gate.js';
-import { buildAcceptanceFailurePrompt } from '../dist/core/loop/goal-loop.js';
 import { correctionTextForTurnError } from '../dist/core/loop/agent-loop.js';
 import { gateFollowUpInjections } from '../dist/core/loop/follow-up-guard.js';
 import { appendShellContinueHint } from '../dist/safety/shell-soft-failure-hint.js';
@@ -395,24 +394,12 @@ withDisabled('task-repair', () => {
   assert.equal(evaluateAcceptanceCompletionGate(gateRequest).ok, false);
 });
 
-const failure = { passed: false, exitCode: 2, tail: 'TAIL_MARKER', timedOut: false, endedAt: 1 };
-assert.match(buildAcceptanceFailurePrompt('GOAL_MARKER', failure), /TAIL_MARKER/);
-withDisabled('goal-acceptance', () => {
-  assert.equal(buildAcceptanceFailurePrompt('GOAL_MARKER', failure), 'GOAL_MARKER');
-});
-withDisabled('acceptance-gate', () => {
-  assert.match(buildAcceptanceFailurePrompt('GOAL_MARKER', failure), /TAIL_MARKER/);
-});
-
 const truncated = new Error('Unterminated string in JSON');
 assert.match(correctionTextForTurnError(truncated), /smaller pieces/);
 withDisabled('truncated-tool-json', () => {
   const text = correctionTextForTurnError(truncated);
   assert.match(text, /internal error/);
   assert.doesNotMatch(text, /smaller pieces/);
-});
-withDisabled('goal-acceptance', () => {
-  assert.match(correctionTextForTurnError(truncated), /smaller pieces/);
 });
 
 const followUps = [{ guidance: 'use the exec tool' }];
@@ -509,7 +496,6 @@ const covered = new Set([
   'acceptance-gate',
   'follow-up-guard',
   'truncated-tool-json',
-  'goal-acceptance',
 ]);
 assert.deepEqual([...covered].sort(), [...NUDGE_IDS].sort());
 

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Legacy loop scheduler removed
+
+`LoopScheduler`, its acceptance-failure prompt, and the loop TUI event bridge are gone.
+`/goal`, `/task`, `moss task`, and `MOSS_GOAL_VERIFY_LOOP` behave as before. `/loop` still
+rewrites to `/goal`. Acceptance commands run from `core/task/acceptance-command.ts`. A token
+or tool-call budget stop ends the task (`run budget exceeded (…)`) instead of opening another
+turn. `.moss/loop-state.json` and `.moss/loop-journal.jsonl` are no longer read or written;
+files already in a workspace are left in place. `MOSS_DISABLE_NUDGES=goal-acceptance` is an
+unknown id and is ignored.
+
 ### Slash commands follow Claude Code / Codex
 
 The everyday menu shows `/model` `/compact` `/goal` `/plan` `/review` `/doctor` `/diff` `/resume`

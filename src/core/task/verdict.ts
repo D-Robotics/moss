@@ -8,7 +8,7 @@
  */
 import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
 import { evaluateAcceptance, formatAcceptanceVerdict } from '../../contracts/task.js';
-import { runAcceptanceCommand } from '../loop/goal-loop.js';
+import { runAcceptanceCommand } from './acceptance-command.js';
 import {
   appendAcceptanceVerdict,
   appendTaskRecord,
@@ -34,8 +34,8 @@ export interface VerdictProvider {
 }
 
 /**
- * Exit-code acceptance (the goal-loop mechanism): pass = exit 0, fail detail
- * = combined output tail. Used as-is by the engine's VERIFYING phase.
+ * Exit-code acceptance: pass = exit 0, fail detail = combined output tail.
+ * Used as-is by the engine's VERIFYING phase.
  */
 export function createCommandVerdictProvider(
   command: string,
@@ -146,7 +146,7 @@ export function createContractVerdictProvider(workspaceDir: string): VerdictProv
 /**
  * Command verdicts are authoritative when configured; the contract provider
  * covers tasks whose "done" is criteria-based. This is the single provider
- * the engine consults — goal-loop and robotics tasks stop being two systems.
+ * the engine consults — command acceptance and robotics tasks share it.
  */
 export function createTaskVerdictProvider(options: {
   workspaceDir: string;

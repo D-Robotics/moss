@@ -6,8 +6,8 @@
  *
  * It used to be merged, so the committed answer row (and therefore the panel
  * labelled "LAST EXCHANGE") showed the model's inner monologue as if it were the
- * reply. The loop's own bridge (cli/loop-tui-events.ts) treats thinking as
- * activity only; this keeps the shell consistent with it.
+ * reply. Thinking stays activity-only so the shell does not show it as the
+ * answer.
  *
  * Retargeted from the deleted Mission Control canvas to transcript.renderLive +
  * render-bridge.

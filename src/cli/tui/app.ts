@@ -82,6 +82,7 @@ import {
   GOAL_USAGE,
   goalRunArgs,
   planGoalInvocation,
+  resolveLoopMaxIterations,
   skippedAcceptanceNotice,
 } from '../commands/goal-propose.js';
 import {
@@ -89,7 +90,6 @@ import {
   isExactSlashCommand,
   rewriteSlashInput,
 } from '../interactive-commands.js';
-import { resolveLoopMaxIterations } from '../loop-tui-events.js';
 import { cliLocale } from '../cli-locale.js';
 import { handleCompactCommand } from '../compact-command.js';
 import { createCliSessionKey } from '../session.js';

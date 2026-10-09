@@ -68,10 +68,9 @@ export interface TranscriptRow {
 export interface TuiRunState {
   running: boolean;
   /**
-   * Reasoning stream (thinking). Kept OUT of `streamingText`: the loop's own
-   * bridge (cli/loop-tui-events.ts) treats thinking as activity only, and
-   * merging the two put the model's inner monologue inside the final answer
-   * row that the canvas then shows as the answer.
+   * Reasoning stream (thinking). Kept OUT of `streamingText`: thinking is
+   * activity only, and merging the two put the model's inner monologue inside
+   * the final answer row that the canvas then shows as the answer.
    */
   thinkingText: string;
   /** When the current reasoning stream started, and how long it lasted once it ended. */

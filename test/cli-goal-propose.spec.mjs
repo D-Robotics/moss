@@ -15,6 +15,7 @@ import {
   GOAL_USAGE,
   planGoalInvocation,
   proposeAcceptanceCommands,
+  resolveLoopMaxIterations,
   skippedAcceptanceNotice,
 } from '../dist/cli/commands/goal-propose.js';
 import { createDraftTask, listTaskEvents } from '../dist/core/task/task-store.js';
@@ -102,5 +103,13 @@ assert.match(GOAL_USAGE, /\/goal clear/);
     assert.match(prompt, /deployments\.jsonl/);
   }
 }
+
+assert.equal(resolveLoopMaxIterations({}), 0, 'loop is unlimited by default');
+assert.equal(resolveLoopMaxIterations({ MOSS_LOOP_MAX: '12' }), 12, 'explicit loop limit wins');
+assert.equal(
+  resolveLoopMaxIterations({ MOSS_LOOP_MAX: '12', MOSS_GOAL_AUTO_MAX_RUNS: '7' }, true),
+  7,
+  'goal-specific limit wins'
+);
 
 console.log('[PASS] cli goal propose');
