@@ -759,14 +759,17 @@ async function main() {
       extraPromptLayers[mcpPromptLayerIndex] = combined;
     }
   };
+  const builtinRdkDocsEnabled = rdkDocsAutoConnectEnabled({
+    env: process.env,
+    rdkDocs: readRdkDocsFlag(loadedConfig.config.rdkDocs),
+    workspaceDir: workspace,
+  });
   const mcpConfigs = withBuiltinRdkDocs(
     loadMcpConfigs(workspace, configDir, process.env, (warning) => console.error(warning)),
-    rdkDocsAutoConnectEnabled({
-      env: process.env,
-      rdkDocs: readRdkDocsFlag(loadedConfig.config.rdkDocs),
-      workspaceDir: workspace,
-    }),
-    resolveRdkDocsPackage(loadedConfig.config.rdkDocs, process.env)
+    builtinRdkDocsEnabled,
+    builtinRdkDocsEnabled
+      ? resolveRdkDocsPackage(loadedConfig.config.rdkDocs, process.env)
+      : undefined
   );
   if (mcpConfigs.length > 0) {
     try {

@@ -223,16 +223,15 @@ export async function runMcpCommand(argv: string[], ctx: McpCommandContext): Pro
 
   const env = ctx.env ?? process.env;
   const rdkDocs = readRdkDocsFlag(ctx.rdkDocs);
-  const rdkDocsPackage = resolveRdkDocsPackage(ctx.rdkDocs, env);
   const enableInput = { env, rdkDocs, workspaceDir: ctx.workspaceDir };
   const effectiveConfigs = (purpose: 'session' | 'test', testName?: string): McpServerConfig[] => {
     const loaded = loadMcpConfigs(ctx.workspaceDir, ctx.configDir, env);
     if (rdkDocsOptOut(env, rdkDocs)) return loaded;
     if (rdkDocsAutoConnectEnabled(enableInput))
-      return withBuiltinRdkDocs(loaded, true, rdkDocsPackage);
+      return withBuiltinRdkDocs(loaded, true, resolveRdkDocsPackage(ctx.rdkDocs, env));
     // `moss mcp test rdk-docs` health-checks the builtin even with no device.
     if (purpose === 'test' && testName === RDK_DOCS_SERVER_NAME) {
-      return withBuiltinRdkDocs(loaded, true, rdkDocsPackage);
+      return withBuiltinRdkDocs(loaded, true, resolveRdkDocsPackage(ctx.rdkDocs, env));
     }
     return loaded;
   };
