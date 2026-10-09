@@ -8,24 +8,39 @@
  */
 import type { DeviceRiskClassification } from './device-risk.js';
 
-const grants = new Map<string, number>();
-
-export function deviceGrantKey(toolName: string, operand: string): string {
-  return `${toolName}\0${operand}`;
+interface DeviceOperationGrant {
+  toolName: string;
+  operand: string;
 }
 
-export function grantDeviceOperation(toolName: string, operand: string): void {
-  const key = deviceGrantKey(toolName, operand);
-  grants.set(key, (grants.get(key) ?? 0) + 1);
+/** Keyed by tool call id. A grant cannot be spent by a later identical command. */
+const grants = new Map<string, DeviceOperationGrant>();
+
+export function grantDeviceOperation(toolName: string, operand: string, toolCallId: string): void {
+  if (!toolCallId) return;
+  grants.delete(toolCallId);
+  grants.set(toolCallId, { toolName, operand });
+  while (grants.size > 32) {
+    const oldest = grants.keys().next().value;
+    if (oldest === undefined) break;
+    grants.delete(oldest);
+  }
 }
 
-export function consumeDeviceGrant(toolName: string, operand: string): boolean {
-  const key = deviceGrantKey(toolName, operand);
-  const left = grants.get(key) ?? 0;
-  if (left <= 0) return false;
-  if (left === 1) grants.delete(key);
-  else grants.set(key, left - 1);
-  return true;
+/**
+ * Consume the grant for this tool call. The entry is deleted even when the
+ * operand does not match, so a call id cannot be replayed.
+ */
+export function consumeDeviceGrant(
+  toolName: string,
+  operand: string,
+  toolCallId: string | undefined
+): boolean {
+  if (!toolCallId) return false;
+  const grant = grants.get(toolCallId);
+  if (!grant) return false;
+  grants.delete(toolCallId);
+  return grant.toolName === toolName && grant.operand === operand;
 }
 
 /** Test isolation. Production callers do not need this. */
@@ -71,7 +86,8 @@ export function currentDeviceIds(env: NodeJS.ProcessEnv = process.env): string[]
 export function permitDeviceOperation(
   classification: DeviceRiskClassification,
   toolName: string,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  toolCallId?: string
 ): boolean {
   if (classification.tier !== 'destructive' && classification.tier !== 'sensitive') return true;
   if (isDeviceTrustEnv(env)) return true;
@@ -83,5 +99,5 @@ export function permitDeviceOperation(
   ) {
     return true;
   }
-  return consumeDeviceGrant(toolName, classification.operand);
+  return consumeDeviceGrant(toolName, classification.operand, toolCallId);
 }

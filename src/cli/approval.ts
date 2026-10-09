@@ -1162,7 +1162,7 @@ export function createCliToolApprovalHook(
         decision.approved &&
         (classification.tier === 'destructive' || classification.tier === 'sensitive')
       ) {
-        grantDeviceOperation(tool.name, classification.operand);
+        grantDeviceOperation(tool.name, classification.operand, request.toolCallId);
       }
       if (classification) {
         const deviceId = deviceKeys[0];

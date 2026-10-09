@@ -140,7 +140,10 @@ export const deviceExecTool: Tool = {
       sideEffect: 'device_mutation',
       command,
     });
-    if (classification && !permitDeviceOperation(classification, 'device_exec')) {
+    if (
+      classification &&
+      !permitDeviceOperation(classification, 'device_exec', process.env, ctx.toolCallId)
+    ) {
       return `Command blocked: ${classification.reason}`;
     }
     const timeoutMs = Number(input.timeout_ms) || EXEC_DEFAULT_TIMEOUT_MS;
@@ -198,7 +201,7 @@ export const deviceFileReadTool: Tool = {
     },
     required: ['path'],
   },
-  async execute(input) {
+  async execute(input, ctx) {
     const resolved = await connectDefaultDevice('device_file_read');
     if (typeof resolved === 'string') return resolved;
     const path = String(input.path ?? '');
@@ -206,7 +209,10 @@ export const deviceFileReadTool: Tool = {
       toolName: 'device_file_read',
       path,
     });
-    if (readRisk && !permitDeviceOperation(readRisk, 'device_file_read')) {
+    if (
+      readRisk &&
+      !permitDeviceOperation(readRisk, 'device_file_read', process.env, ctx.toolCallId)
+    ) {
       return `Command blocked: ${readRisk.reason}`;
     }
     try {
@@ -300,7 +306,10 @@ export const deviceFileWriteTool: Tool = {
       sideEffect: 'device_mutation',
       path: remotePath,
     });
-    if (writeRisk && !permitDeviceOperation(writeRisk, 'device_file_write')) {
+    if (
+      writeRisk &&
+      !permitDeviceOperation(writeRisk, 'device_file_write', process.env, ctx.toolCallId)
+    ) {
       return `Command blocked: ${writeRisk.reason}`;
     }
     let localAbs: string | undefined;
@@ -472,7 +481,10 @@ export const deviceDeployTool: Tool = {
       startCommand: input.start_command ? String(input.start_command) : undefined,
       healthCommand: input.health_command ? String(input.health_command) : undefined,
     });
-    if (deployRisk && !permitDeviceOperation(deployRisk, 'device_deploy')) {
+    if (
+      deployRisk &&
+      !permitDeviceOperation(deployRisk, 'device_deploy', process.env, ctx.toolCallId)
+    ) {
       return `Command blocked: ${deployRisk.reason}`;
     }
     const record = await runDeployment(

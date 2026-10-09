@@ -366,9 +366,22 @@ test('device_exec backstop blocks destructive calls the hook did not grant', asy
   assert.match(blocked, /^Command blocked:/);
   const benign = await deviceExecTool.execute({ command: 'echo ok' }, ctx);
   assert.match(benign, /ok/);
-  grantDeviceOperation('device_exec', 'reboot');
-  const granted = await deviceExecTool.execute({ command: 'reboot' }, ctx);
+  grantDeviceOperation('device_exec', 'reboot', 'call-reboot');
+  const otherCall = await deviceExecTool.execute(
+    { command: 'reboot' },
+    { ...ctx, toolCallId: 'call-other' }
+  );
+  assert.match(otherCall, /^Command blocked:/, 'a grant does not apply to a different tool call');
+  const granted = await deviceExecTool.execute(
+    { command: 'reboot' },
+    { ...ctx, toolCallId: 'call-reboot' }
+  );
   assert.match(granted, /rebooting/);
+  const replay = await deviceExecTool.execute(
+    { command: 'reboot' },
+    { ...ctx, toolCallId: 'call-reboot' }
+  );
+  assert.match(replay, /^Command blocked:/, 'a consumed grant cannot run the command again');
   process.env.MOSS_DEVICE_TRUST = 'full';
   const trusted = await deviceExecTool.execute({ command: 'reboot' }, ctx);
   assert.match(trusted, /rebooting/);
