@@ -742,6 +742,23 @@ async function main() {
   // it connects when a device target exists (or rdkDocs: true) and a failure
   // is one line, not a crashed CLI. No cache, no bundled manual.
   let mcpRegistry: McpToolRegistry | null = null;
+  let mcpPromptLayerIndex: number | undefined;
+  const refreshMcpPromptLayer = (): void => {
+    if (!mcpRegistry) return;
+    const layers = [
+      buildMcpPromptLayer(mcpRegistry),
+      rdkDocsKnowledgeLayer(mcpRegistry.getStatuses()),
+    ].filter(Boolean);
+    const combined = layers.join('\n');
+    if (mcpPromptLayerIndex === undefined) {
+      mcpPromptLayerIndex = extraPromptLayers.length;
+      extraPromptLayers.push(combined);
+    } else {
+      // MossAgent keeps this array by reference, so a background connection
+      // failure replaces optimistic guidance before the next model turn.
+      extraPromptLayers[mcpPromptLayerIndex] = combined;
+    }
+  };
   const mcpConfigs = withBuiltinRdkDocs(
     loadMcpConfigs(workspace, configDir, process.env, (warning) => console.error(warning)),
     rdkDocsAutoConnectEnabled({
@@ -762,27 +779,14 @@ async function main() {
         onStatusChange: (status) => {
           const line = formatMcpStartupLine(status, cliDetailForNotices);
           if (line) console.error(line);
+          refreshMcpPromptLayer();
         },
       });
       for (const searchTool of mcpRegistry.getTools()) agent.tools.register(searchTool);
       // Lazy-loading budget: the system prompt gets one index line per server,
       // never the tool list itself. The rdk-docs usage pointer sits on that
       // server's line; a failed connect gets only the unavailable sentence.
-      const mcpLayer = buildMcpPromptLayer(mcpRegistry);
-      const rdkLayer = rdkDocsKnowledgeLayer(mcpRegistry.getStatuses());
-      const rdkConnected = mcpRegistry
-        .getStatuses()
-        .some(
-          (status) =>
-            status.name === RDK_DOCS_SERVER_NAME &&
-            (status.state === 'connecting' || status.state === 'connected')
-        );
-      if (mcpLayer && rdkLayer && rdkConnected) {
-        extraPromptLayers.push(`${mcpLayer}\n${rdkLayer}`);
-      } else {
-        if (mcpLayer) extraPromptLayers.push(mcpLayer);
-        if (rdkLayer) extraPromptLayers.push(rdkLayer);
-      }
+      refreshMcpPromptLayer();
     } catch (err) {
       console.error(`[mcp] initialization failed: ${errorMessage(err)}`);
       mcpRegistry = null;

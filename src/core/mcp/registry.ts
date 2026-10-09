@@ -214,7 +214,14 @@ export class McpToolRegistry {
         error: entry.status.error,
       });
     }
-    this.onStatusChange?.({ ...entry.status });
+    try {
+      this.onStatusChange?.({ ...entry.status });
+    } catch (err) {
+      log.warn('status callback failed', {
+        server: entry.config.name,
+        error: errorMessage(err),
+      });
+    }
   }
 
   /** Status snapshot (order follows the config). */
