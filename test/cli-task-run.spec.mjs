@@ -81,6 +81,31 @@ test('goalRunArgs round-trips goals and acceptance commands that contain spaces 
   assert.equal(quoteCommandArg('npm'), 'npm');
 });
 
+test('a goal whose text is --accept stays the goal', async () => {
+  assert.deepEqual(splitCommandArgs(goalRunArgs('--accept')), ['run', '--', '--accept']);
+  assert.deepEqual(splitCommandArgs(goalRunArgs('--accept', { acceptance: 'true' })), [
+    'run',
+    '--accept',
+    'true',
+    '--',
+    '--accept',
+  ]);
+  const ws = await tmpWorkspace();
+  const chunks = [];
+  const code = await runTaskCommand(splitCommandArgs(goalRunArgs('--accept')), {
+    agent: {
+      chat: async () => ({ response: 'noted', stopReason: 'end_turn' }),
+    },
+    workspace: ws,
+    sessionKey: 'dashdash-goal',
+    onOutput: (_stream, text) => chunks.push(text),
+  });
+  const text = chunks.join('\n');
+  assert.notEqual(code, 2, text);
+  assert.doesNotMatch(text, /a goal is required/);
+  assert.match(text, /--accept/);
+});
+
 test('moss task run exits 0 only on acceptance, printing the real summary', async () => {
   const ws = await tmpWorkspace();
   const ref = { ws };

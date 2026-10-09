@@ -138,10 +138,14 @@ export function goalRunArgs(
   goal: string,
   options: { acceptance?: string; maxTurns?: number } = {}
 ): string {
-  const parts = ['run', quoteCommandArg(goal)];
-  if (options.acceptance) parts.push('--accept', quoteCommandArg(options.acceptance));
+  const flags: string[] = [];
+  if (options.acceptance) flags.push('--accept', quoteCommandArg(options.acceptance));
   if (options.maxTurns && options.maxTurns > 0) {
-    parts.push('--max-turns', String(options.maxTurns));
+    flags.push('--max-turns', String(options.maxTurns));
   }
-  return parts.join(' ');
+  const goalToken = quoteCommandArg(goal);
+  // A goal whose text is itself a flag (`--accept`) must sit after `--`,
+  // or the flag parser consumes it. Flags stay in front of that marker.
+  if (goal.startsWith('-')) return ['run', ...flags, '--', goalToken].join(' ');
+  return ['run', goalToken, ...flags].join(' ');
 }

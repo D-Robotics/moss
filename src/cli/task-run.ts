@@ -150,8 +150,17 @@ function parseFlags(args: string[]): {
   let maxRepairs: number | undefined;
   let maxTurns: number | undefined;
   let device: string | undefined;
+  let endOfOptions = false;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
+    if (endOfOptions) {
+      goal.push(arg ?? '');
+      continue;
+    }
+    if (arg === '--') {
+      endOfOptions = true;
+      continue;
+    }
     if (arg === '--accept') accept = args[++i];
     else if (arg.startsWith('--accept=')) accept = arg.slice('--accept='.length);
     else if (arg === '--max-repairs') maxRepairs = Number(args[++i]);
@@ -161,7 +170,7 @@ function parseFlags(args: string[]): {
     else if (arg.startsWith('--max-turns=')) maxTurns = Number(arg.slice('--max-turns='.length));
     else if (arg === '--device') device = args[++i];
     else if (arg.startsWith('--device=')) device = arg.slice('--device='.length);
-    else goal.push(arg);
+    else goal.push(arg ?? '');
   }
   return { goal, accept, maxRepairs, maxTurns, device };
 }
