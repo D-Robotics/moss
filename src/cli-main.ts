@@ -648,6 +648,8 @@ async function main() {
     // (flags/env/migrated cautious all resolved into the config view).
     permissionRules: livePermissionRules,
     readOnlyCeiling: resolvedConfig.permissions.readOnlyCeiling,
+    deviceTrust: resolvedConfig.permissions.deviceTrust,
+    trustedDevices: resolvedConfig.permissions.trustedDevices,
     detailMode: resolveCliDetailMode(argv),
   });
   const configPreHook = configuredHooks.onBeforeToolExec;

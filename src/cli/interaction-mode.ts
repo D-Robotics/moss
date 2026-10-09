@@ -24,7 +24,9 @@ export interface EngineQuantas {
  * - acceptEdits: same base as manual but eligible for edit auto-approval
  * - plan:        workspace-write base + device class-level deny (decisions go
  *               through isAllowedDuringPlanMode, all current semantics kept)
- * - full:        full-access + never + device allow + eligible
+ * - full:        full-access + never + device allow for read-only and reversible
+ *                tiers (destructive still asks unless device trust is
+ *                explicit — see src/safety/device-risk.ts) + eligible
  */
 export function deriveEngineQuantas(mode: CliInteractionMode): EngineQuantas {
   switch (mode) {

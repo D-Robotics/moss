@@ -2,7 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { DeviceConnection, DeviceTarget } from '../contracts/device.js';
 import { errorMessage } from '../errors.js';
-import { isCommandDangerous } from '../safety/channel-safety.js';
+import { classifyDeviceOperation } from '../safety/device-risk.js';
+import { permitDeviceOperation } from '../safety/device-trust.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { getDeviceConnection } from '../device/device-registry.js';
 import {
@@ -106,12 +107,13 @@ export const deviceExecTool: Tool = {
   description:
     'Execute a shell command on the configured remote device (RDK board / Linux host) over SSH and return stdout + stderr with the exit code. Use for device-side work: builds, service control, diagnostics, ROS commands.\n' +
     '- Prefer one focused command per call; prefer the read-only device_* tools for standard observation (info/processes/resources/temperature/files).\n' +
+    '- Destructive or lockout-risk commands (reboot/shutdown, flashing, rm of system paths, writes to /boot or /etc, network changes, package removal, systemctl stop/disable/mask, ssh or account edits) stay gated even in full mode until the user confirms or opts into device trust.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
     sideEffectClass: 'device_mutation',
     planMode: 'requires_user_confirmation',
     permissionBoundary:
-      'Host must enforce approval via AgentHooks.onBeforeToolExec (device_mutation class). Unattended device commands require an explicit autonomous policy.',
+      'Host enforces the device safety policy via AgentHooks.onBeforeToolExec. Read-only and reversible mutations run in full mode; the destructive tier requires confirmation or an explicit trust grant (MOSS_DEVICE_TRUST, --trust-device, permissions.deviceTrust, trustedDevices, or an allow rule).',
   },
   inputSchema: {
     type: 'object',
@@ -133,9 +135,16 @@ export const deviceExecTool: Tool = {
     const resolved = await connectDefaultDevice('device_exec');
     if (typeof resolved === 'string') return resolved;
     const command = String(input.command ?? '');
-    const safetyCheck = isCommandDangerous(command);
-    if (safetyCheck.blocked) {
-      return `Command blocked: ${safetyCheck.reason}`;
+    const classification = classifyDeviceOperation({
+      toolName: 'device_exec',
+      sideEffect: 'device_mutation',
+      command,
+    });
+    if (
+      classification &&
+      !permitDeviceOperation(classification, 'device_exec', process.env, ctx.toolCallId)
+    ) {
+      return `Command blocked: ${classification.reason}`;
     }
     const timeoutMs = Number(input.timeout_ms) || EXEC_DEFAULT_TIMEOUT_MS;
     try {
@@ -192,9 +201,20 @@ export const deviceFileReadTool: Tool = {
     },
     required: ['path'],
   },
-  async execute(input) {
+  async execute(input, ctx) {
     const resolved = await connectDefaultDevice('device_file_read');
     if (typeof resolved === 'string') return resolved;
+    const path = String(input.path ?? '');
+    const readRisk = classifyDeviceOperation({
+      toolName: 'device_file_read',
+      path,
+    });
+    if (
+      readRisk &&
+      !permitDeviceOperation(readRisk, 'device_file_read', process.env, ctx.toolCallId)
+    ) {
+      return `Command blocked: ${readRisk.reason}`;
+    }
     try {
       const content = await resolved.conn.readFile(String(input.path ?? ''), {
         maxBytes: Number(input.max_bytes) || undefined,
@@ -281,6 +301,17 @@ export const deviceFileWriteTool: Tool = {
     const resolved = await connectDefaultDevice('device_file_write');
     if (typeof resolved === 'string') return resolved;
     const remotePath = String(input.path ?? '');
+    const writeRisk = classifyDeviceOperation({
+      toolName: 'device_file_write',
+      sideEffect: 'device_mutation',
+      path: remotePath,
+    });
+    if (
+      writeRisk &&
+      !permitDeviceOperation(writeRisk, 'device_file_write', process.env, ctx.toolCallId)
+    ) {
+      return `Command blocked: ${writeRisk.reason}`;
+    }
     let localAbs: string | undefined;
     if (input.content === undefined) {
       if (!input.local_path) {
@@ -441,6 +472,20 @@ export const deviceDeployTool: Tool = {
       await fs.access(artifactAbs);
     } catch (err) {
       return `Error: device_deploy artifact_path ${input.artifact_path}: ${errorMessage(err)}`;
+    }
+    const remotePath = String(input.remote_path ?? '');
+    const deployRisk = classifyDeviceOperation({
+      toolName: 'device_deploy',
+      sideEffect: 'device_mutation',
+      remotePath,
+      startCommand: input.start_command ? String(input.start_command) : undefined,
+      healthCommand: input.health_command ? String(input.health_command) : undefined,
+    });
+    if (
+      deployRisk &&
+      !permitDeviceOperation(deployRisk, 'device_deploy', process.env, ctx.toolCallId)
+    ) {
+      return `Command blocked: ${deployRisk.reason}`;
     }
     const record = await runDeployment(
       resolved.conn,

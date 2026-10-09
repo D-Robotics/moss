@@ -77,12 +77,23 @@ export interface PermissionDecisionInput {
   acceptEditsEligible?: boolean;
   /** planMode metadata of the tool (plan ceiling consults it). */
   planModeAllowed?: boolean;
+  /**
+   * Device safety policy tier (src/safety/device-risk.ts). Absent for tools
+   * that are not device operations. `destructive` and `sensitive` are not
+   * covered by full-mode auto-allow unless `deviceFullTrust` is set, the
+   * call's session scope matched, or an allow rule matched.
+   */
+  deviceRiskTier?: 'readonly' | 'reversible' | 'sensitive' | 'destructive';
+  /** Flag, env, config, or per-device allowlist. Not session command scope. */
+  deviceFullTrust?: boolean;
+  /** This call's trust scope was confirmed for this device earlier in the session. */
+  deviceScopeTrusted?: boolean;
 }
 
 export type PermissionDecisionOutcome =
   | { decision: 'deny'; reason: string; matchedRule?: PermissionRule }
   | { decision: 'block'; reason: string }
-  | { decision: 'ask' }
+  | { decision: 'ask'; reason?: 'device-destructive' | 'device-sensitive' }
   | { decision: 'ask-rule'; matchedRule: PermissionRule }
   | {
       decision: 'allow';
@@ -383,7 +394,11 @@ function isBoardScopedSideEffect(sideEffect: RuleSideEffectClass): boolean {
  *   3. ask rules — manual/acceptEdits go interactive ('ask-rule'); full skips
  *      them (PRD decision 3); plan already fell out at step 2.
  *   4. allow rules → allow (incl. device_mutation — the old trusted-tool
- *      special case is subsumed here).
+ *      special case is subsumed here). An allow rule is an explicit grant,
+ *      so it also covers the destructive device tier.
+ *   4b. destructive device tier, unless deviceFullTrust — ask even in full
+ *      mode (headless maps ask to deny). Read-only and reversible tiers
+ *      fall through to the mode default.
  *   5. mode defaults — full → allow(mode); acceptEditsEligible →
  *      allow(accept-edits); boardMode + board-scoped side effect →
  *      allow(board); requiresApproval=false → allow(no-approval-needed).
@@ -427,7 +442,13 @@ export function resolvePermissionDecision(
 
   // readonly tools need no approval — short-circuit right after the deny
   // check (and the plan ceiling) so read_file denies stay effective (§7-4).
-  if (!input.requiresApproval && input.sideEffect === 'readonly') {
+  // Sensitive device reads (shadow, private keys) stay gated even though the
+  // tool's side effect is readonly.
+  if (
+    !input.requiresApproval &&
+    input.sideEffect === 'readonly' &&
+    input.deviceRiskTier !== 'sensitive'
+  ) {
     return { decision: 'allow', reason: 'no-approval-needed' };
   }
 
@@ -447,6 +468,21 @@ export function resolvePermissionDecision(
     if (matchPermissionRule(rule, input.toolName, input.operand)) {
       return { decision: 'allow', reason: 'rule', matchedRule: rule };
     }
+  }
+
+  // 4b. Destructive and sensitive device operations are not part of full-mode
+  //     auto-allow. Explicit allow rules already returned above. Plan mode and
+  //     the read-only ceiling have already blocked non-readonly work; sensitive
+  //     reads are readonly, so they are gated here in every mode including plan.
+  if (
+    (input.deviceRiskTier === 'destructive' || input.deviceRiskTier === 'sensitive') &&
+    input.deviceFullTrust !== true &&
+    input.deviceScopeTrusted !== true
+  ) {
+    return {
+      decision: 'ask',
+      reason: input.deviceRiskTier === 'sensitive' ? 'device-sensitive' : 'device-destructive',
+    };
   }
 
   // 5. mode defaults.
