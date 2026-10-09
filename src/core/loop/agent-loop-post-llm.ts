@@ -25,10 +25,19 @@ export interface PostLlmContext {
   abortAborted: boolean;
 }
 
+/** Consecutive reasoning-only turns that get another chance before the run stops. */
+export const THINKING_ONLY_RETRY_BUDGET = 1;
+
+export function nextThinkingOnlyRetryAttempts(action: PostLlmAction, current: number): number {
+  if (action.kind === 'thinking_retry') return current + 1;
+  if (action.kind === 'thinking_only_complete') return current;
+  return 0;
+}
+
 export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
   if (ctx.hasThinkingOnly) {
     if (
-      ctx.postToolThinkingOnlyRetryAttempts < 1 &&
+      ctx.postToolThinkingOnlyRetryAttempts < THINKING_ONLY_RETRY_BUDGET &&
       ctx.turns < ctx.maxTurns &&
       !ctx.abortAborted
     ) {
@@ -36,9 +45,8 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
         kind: 'thinking_retry',
         systemText:
           ctx.totalToolCalls > 0
-            ? '[System] The tools already ran, but your previous assistant turn had no visible answer. ' +
-              'Read the latest tool results and produce a concise visible user-facing summary now. ' +
-              'Do not call more tools unless absolutely necessary.'
+            ? '[System] Your previous turn produced only private reasoning and no tool call. ' +
+              'Continue the task now: call the next tool, or write the visible answer if the task is done.'
             : '[System] Your previous turn produced only private reasoning with no visible answer. ' +
               'Produce a concise visible user-facing answer now.',
       };

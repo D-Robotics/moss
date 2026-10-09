@@ -358,6 +358,14 @@ export function resolveTemperatureFromEnv(
   return Number.isFinite(parsed) && parsed >= 0 && parsed <= 2 ? parsed : undefined;
 }
 
+/** `MOSS_TOP_P` for harness comparisons that pin nucleus sampling. */
+export function resolveTopPFromEnv(env: NodeJS.ProcessEnv = process.env): number | undefined {
+  const raw = env.MOSS_TOP_P;
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const parsed = Number(raw.trim());
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= 1 ? parsed : undefined;
+}
+
 export function isBriefOneShotRequest(message: string): boolean {
   const text = message.trim();
   if (!text) return false;
@@ -450,12 +458,17 @@ export async function runOneShot(
     const pureChat = isPureChatOneShotRequest(message);
     const cancellationOptions = options.abortSignal ? { abortSignal: options.abortSignal } : {};
     const temperature = resolveTemperatureFromEnv();
+    const topP = resolveTopPFromEnv();
+    const sampling = {
+      ...(temperature !== undefined ? { temperature } : {}),
+      ...(topP !== undefined ? { topP } : {}),
+    };
     const streamOptions =
       brief || focusedInspection || fastNews
         ? {
             ...cancellationOptions,
             ...(options.runId ? { runId: options.runId } : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
+            ...sampling,
             maxTurns: brief ? BRIEF_ONE_SHOT_MAX_TURNS : focusedInspection?.maxTurns,
             maxToolCalls: brief
               ? BRIEF_ONE_SHOT_MAX_TOOL_CALLS
@@ -476,7 +489,7 @@ export async function runOneShot(
         : {
             ...cancellationOptions,
             ...(options.runId ? { runId: options.runId } : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
+            ...sampling,
             ...(mergedExtraContext ? { extraContext: mergedExtraContext } : {}),
             toolFilter,
             ...(pureChat ? { omitExtraPromptLayers: true as const } : {}),
