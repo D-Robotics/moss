@@ -151,3 +151,9 @@ PR #9 的选择规则把聚合增益 ΔS 和 `maxDropPerTask` 比。同 SHA 三�
 这次改的是冻结路径 `scripts/rsi/**`、`scripts/bench-noise.mjs`、`scripts/run-benchmark.mjs`（`--tasks` / `--seed`）。用合并前的 `main` 当 `--base` 跑门，完整性必须拒绝。不能为了让这次过门而删冻结项或放宽检查。
 
 这是编排者批准的 bootstrap 修复，和 PR #9 一样：由人审查，不合并到 D-Robotics。合并之后，后续轮次仍以包含这道门的 `main` 为 base。
+
+## Harness maintenance 例外（round 1）
+
+`scripts/run-benchmark.mjs` 仍在冻结清单里。Round 1 在 main 的 runner 上只加了一处 allowlist：父进程设置了 `MOSS_DISABLE_NUDGES` 时，把它抄进子 Moss 的环境。编排者批准这是 harness 维护，形状和上面的 bootstrap 例外相同：diff 保持这一行，不改 `.rsi/frozen.txt`，不放宽完整性检查。用合并前的 `main` 当 `--base`，完整性仍然拒绝这条路径。
+
+门自己从 base worktree 跑 `scripts/run-benchmark.mjs`。合并前，门拉起的 bench 不会转发这个变量；`docs/rsi/round-1-subtraction.md` 里的消融命令是在候选树上直接跑 `npm run bench`，用的是本 PR 的 runner。合并之后，base 里的 runner 带上这一行，后面的轮次不要再改这个文件。

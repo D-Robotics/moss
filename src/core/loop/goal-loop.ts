@@ -9,6 +9,7 @@
  */
 import { runProcess } from '../../utils/run-process.js';
 import { errorMessage } from '../../errors.js';
+import { isNudgeDisabled } from './nudges/disable.js';
 
 export interface AcceptanceSpec {
   /** Shell command that must exit 0 for the goal to be complete. */
@@ -91,6 +92,7 @@ export async function runAcceptanceCommand(
 }
 
 export function buildAcceptanceFailurePrompt(goal: string, result: AcceptanceResult): string {
+  if (isNudgeDisabled('goal-acceptance')) return goal;
   return [
     `The acceptance command for the goal still fails (exit ${result.exitCode}${
       result.timedOut ? ', timed out' : ''

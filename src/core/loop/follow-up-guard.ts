@@ -1,4 +1,5 @@
 import type { LLMMessage, LLMContentBlock } from '../llm/llm-provider.js';
+import { isNudgeDisabled } from './nudges/disable.js';
 import { stripThinkingTagsKeepVisible } from '../llm/inline-thinking-stream.js';
 import {
   CHINESE_PLAN_NEGATION_BEFORE_RE,
@@ -194,3 +195,9 @@ export const DEFAULT_FOLLOW_UP_GUARD_CONFIG: FollowUpGuardConfig = {
   enabled: true,
   maxFollowUps: 1,
 };
+
+/** Drop follow-up guidance when the `follow-up-guard` ablation id is set. */
+export function gateFollowUpInjections<T>(followUps: readonly T[]): T[] {
+  if (isNudgeDisabled('follow-up-guard')) return [];
+  return [...followUps];
+}

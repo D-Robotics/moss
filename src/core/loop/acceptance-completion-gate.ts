@@ -8,6 +8,7 @@
 
 import type { Message } from '../session/session-jsonl.js';
 import type { AgentLoopExtensions } from './agent-loop-types.js';
+import { isNudgeDisabled } from './nudges/disable.js';
 
 export const TASK_ACCEPTANCE_VERDICT_MARKER = 'Task acceptance (';
 export const TASK_ACCEPTANCE_PASS_MARKER = 'FINAL: PASS';
@@ -138,6 +139,7 @@ export function evaluateAcceptanceCompletionGate(request: {
   messages: Message[];
   toolCallsByName: Record<string, number>;
 }): AcceptanceGateDecision {
+  if (isNudgeDisabled('acceptance-gate')) return { ok: true };
   if ((request.toolCallsByName['task_define'] ?? 0) === 0) {
     return { ok: true };
   }

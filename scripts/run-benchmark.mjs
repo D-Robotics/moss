@@ -427,7 +427,7 @@ async function main() {
             : {}),
           ...task.env,
         };
-        for (const key of task.passEnv) {
+        for (const key of ['MOSS_DISABLE_NUDGES', ...task.passEnv]) {
           if (process.env[key] !== undefined) mossEnv[key] = process.env[key];
         }
         const cliArgs = [

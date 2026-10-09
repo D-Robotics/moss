@@ -42,6 +42,7 @@ import {
   ensureBackgroundCompletionTracker,
 } from './background-completion.js';
 import { collectNudgeInjections } from './nudges/registry.js';
+import { isNudgeDisabled } from './nudges/disable.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -105,6 +106,7 @@ function buildCorrectionMessage(systemText: string): Message {
 export function correctionTextForTurnError(err: unknown): string {
   const message = errorMessage(err);
   if (
+    !isNudgeDisabled('truncated-tool-json') &&
     /malformed tool call arguments|Unterminated string in JSON|Unexpected end of (?:JSON|input)/i.test(
       message
     )

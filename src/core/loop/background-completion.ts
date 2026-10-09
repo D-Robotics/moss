@@ -13,6 +13,7 @@ import {
   subscribeBackgroundLifecycle,
   type BackgroundProcSnapshot,
 } from '../tools/background-process-registry.js';
+import { isNudgeDisabled } from './nudges/disable.js';
 import {
   backgroundCompletionPending,
   backgroundCompletionReportedIds,
@@ -133,6 +134,11 @@ export function hasPendingBackgroundCompletions(): boolean {
  * Returns null when there is nothing new to report.
  */
 export function buildBackgroundCompletionSystemText(): string | null {
+  if (isNudgeDisabled('background-completion')) {
+    // Drop the queue so a disabled run cannot inject the reminder later.
+    drainBackgroundCompletionReminders();
+    return null;
+  }
   const parts = drainBackgroundCompletionReminders();
   if (parts.length === 0) return null;
   return (

@@ -1,3 +1,5 @@
+import { isNudgeDisabled } from './nudges/disable.js';
+
 export type PostLlmAction =
   | { kind: 'thinking_retry'; systemText: string }
   | { kind: 'thinking_only_complete' }
@@ -37,6 +39,7 @@ export function nextThinkingOnlyRetryAttempts(action: PostLlmAction, current: nu
 export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
   if (ctx.hasThinkingOnly) {
     if (
+      !isNudgeDisabled('reasoning-only') &&
       ctx.postToolThinkingOnlyRetryAttempts < THINKING_ONLY_RETRY_BUDGET &&
       ctx.turns < ctx.maxTurns &&
       !ctx.abortAborted
@@ -59,6 +62,7 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
   // of context pressure. Steering guidance, when relevant, is injected on the
   // tool-execution path where the model is still working.
   if (
+    !isNudgeDisabled('output-continuation') &&
     ctx.streamStopReason === 'length' &&
     ctx.toolCallCount === 0 &&
     ctx.outputContinuationCount < ctx.maxOutputContinuations &&
@@ -76,7 +80,12 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
     return { kind: 'tool_execute' };
   }
 
-  if (ctx.missingToolNudgeAttempts < 1 && ctx.turns < ctx.maxTurns && ctx.shouldNudge) {
+  if (
+    !isNudgeDisabled('missing-tool-call') &&
+    ctx.missingToolNudgeAttempts < 1 &&
+    ctx.turns < ctx.maxTurns &&
+    ctx.shouldNudge
+  ) {
     return {
       kind: 'nudge',
       systemText:
@@ -89,7 +98,12 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
   }
 
   if (!ctx.finalText.trim()) {
-    if (ctx.emptyResponseRetryAttempts < 1 && ctx.turns < ctx.maxTurns && !ctx.abortAborted) {
+    if (
+      !isNudgeDisabled('empty-response') &&
+      ctx.emptyResponseRetryAttempts < 1 &&
+      ctx.turns < ctx.maxTurns &&
+      !ctx.abortAborted
+    ) {
       return { kind: 'empty_retry' };
     }
     return { kind: 'empty_complete' };

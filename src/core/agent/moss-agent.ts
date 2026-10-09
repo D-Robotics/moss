@@ -28,6 +28,7 @@ import { SteeringEngine, DEFAULT_STEERING_RULES } from '../loop/steering.js';
 import {
   detectUnexecutedToolIntents,
   DEFAULT_FOLLOW_UP_GUARD_CONFIG,
+  gateFollowUpInjections,
 } from '../loop/follow-up-guard.js';
 import { buildCompactionCheckpointOutline } from '../loop/compact-hooks.js';
 import { runAgentLoop } from '../loop/agent-loop.js';
@@ -1304,10 +1305,12 @@ ${result.stderr ?? ''}`.trim();
                 ...this.config.followUpGuardConfig,
               };
               if (!followUpConfig.enabled) return [];
-              const followUps = detectUnexecutedToolIntents(
-                toLLMMessages(messages),
-                followUpConfig.extraPatterns,
-                followUpConfig.maxFollowUps
+              const followUps = gateFollowUpInjections(
+                detectUnexecutedToolIntents(
+                  toLLMMessages(messages),
+                  followUpConfig.extraPatterns,
+                  followUpConfig.maxFollowUps
+                )
               );
               if (followUps.length === 0) return [];
               const now = Date.now();

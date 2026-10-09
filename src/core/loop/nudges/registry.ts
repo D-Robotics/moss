@@ -24,6 +24,7 @@ import { evaluateRunTestsToolsNudge } from './run-tests-tools-nudge.js';
 import { evaluateBuildToolsNudge } from './build-tools-nudge.js';
 import { evaluateBackgroundServerNudge } from './background-server-nudge.js';
 import { evaluateTaskRepairNudge } from './task-repair-nudge.js';
+import { isNudgeDisabled, type NudgeId } from './disable.js';
 
 /** Inputs the registry needs from the agent loop host. */
 export interface NudgeBuildContext {
@@ -66,11 +67,15 @@ interface NudgeStepOptions {
  * Pure counter plumbing only — guards live inside `evaluate`.
  */
 function runNudgeStep(
+  id: NudgeId,
   buildCorrectionMessage: NudgeBuildContext['buildCorrectionMessage'],
   counter: NudgeCounter,
   evaluate: () => NudgeDecision,
   opts?: NudgeStepOptions
 ): Message | null {
+  // Skip the evaluator entirely so a disabled nudge neither injects nor
+  // advances its once-per-run counter (including red-wave resets).
+  if (isNudgeDisabled(id)) return null;
   const decision = evaluate();
   if (opts?.resetOnResetAttempts && decision.resetAttempts) {
     counter.set(0);
@@ -93,6 +98,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // have already run so we only fire on real multi-tool coding work.
   push(
     runNudgeStep(
+      'todo',
       ctx.buildCorrectionMessage,
       {
         get: () => state.todoNudgeAttempts,
@@ -114,6 +120,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // 2. Soft mid-run verification reminder after several edits with no tests.
   push(
     runNudgeStep(
+      'verify',
       ctx.buildCorrectionMessage,
       {
         get: () => state.verifyNudgeAttempts,
@@ -136,6 +143,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // alone is silenced once any verify tool has been called).
   push(
     runNudgeStep(
+      'red-verify',
       ctx.buildCorrectionMessage,
       {
         get: () => state.redVerifyNudgeAttempts,
@@ -156,6 +164,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // before more unrelated work (pairs with end-of-turn FanOutMergeGate).
   push(
     runNudgeStep(
+      'fan-out',
       ctx.buildCorrectionMessage,
       {
         get: () => state.fanOutNudgeAttempts,
@@ -176,6 +185,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // 5. Multi-interpretation coding + edits without clarify/assumption.
   push(
     runNudgeStep(
+      'ambiguity',
       ctx.buildCorrectionMessage,
       {
         get: () => state.ambiguityNudgeAttempts,
@@ -195,6 +205,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // 6. Background create_subagent still STARTED without terminal status.
   push(
     runNudgeStep(
+      'subagent-running',
       ctx.buildCorrectionMessage,
       {
         get: () => state.subagentRunningNudgeAttempts,
@@ -213,6 +224,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // 7. subagent_stop is not a successful fix — remind before claiming done.
   push(
     runNudgeStep(
+      'subagent-stopped',
       ctx.buildCorrectionMessage,
       {
         get: () => state.subagentStoppedNudgeAttempts,
@@ -232,6 +244,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // 8. Online research asked but no web_search/web_fetch yet.
   push(
     runNudgeStep(
+      'web-tools',
       ctx.buildCorrectionMessage,
       {
         get: () => state.webToolsNudgeAttempts,
@@ -252,6 +265,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // 9. Commit/push asked but no git/gh exec yet.
   push(
     runNudgeStep(
+      'git-tools',
       ctx.buildCorrectionMessage,
       {
         get: () => state.gitToolsNudgeAttempts,
@@ -273,6 +287,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // 10. Install deps asked but no package-manager install exec yet.
   push(
     runNudgeStep(
+      'install-tools',
       ctx.buildCorrectionMessage,
       {
         get: () => state.installToolsNudgeAttempts,
@@ -294,6 +309,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // 11. User explicitly asked to run tests but no verify tools yet.
   push(
     runNudgeStep(
+      'run-tests',
       ctx.buildCorrectionMessage,
       {
         get: () => state.runTestsToolsNudgeAttempts,
@@ -315,6 +331,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // 12. User asked to build/compile but no build-shaped exec yet.
   push(
     runNudgeStep(
+      'build-tools',
       ctx.buildCorrectionMessage,
       {
         get: () => state.buildToolsNudgeAttempts,
@@ -336,6 +353,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // 13. Dev server/watcher start asked but no exec_background yet.
   push(
     runNudgeStep(
+      'background-server',
       ctx.buildCorrectionMessage,
       {
         get: () => state.backgroundServerNudgeAttempts,
@@ -359,6 +377,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // repair on record, a DIFFERENT root-cause hypothesis instead of a repeat).
   push(
     runNudgeStep(
+      'task-repair',
       ctx.buildCorrectionMessage,
       {
         get: () => state.taskRepairNudgeAttempts,

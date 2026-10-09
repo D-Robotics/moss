@@ -1,4 +1,5 @@
 import type { LLMMessage, LLMContentBlock } from '../llm/llm-provider.js';
+import { isNudgeDisabled } from './nudges/disable.js';
 
 export interface SteeringContext {
   messages: LLMMessage[];
@@ -177,6 +178,7 @@ export class SteeringEngine {
     const firedRules: string[] = [];
 
     for (const rule of this.rules) {
+      if (isNudgeDisabled(`steering-${rule.id}`)) continue;
       const lastFired = this.lastFiredTurn.get(rule.id) ?? -Infinity;
       if (ctx.turn - lastFired < rule.cooldownTurns) continue;
 
