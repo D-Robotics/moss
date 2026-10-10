@@ -1,4 +1,5 @@
 import { isZhLocale } from './cli-locale.js';
+import { tui } from './tui/copy.js';
 
 /**
  * THE command catalog — one table both interaction surfaces derive from:
@@ -178,6 +179,13 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         command: '/permissions',
         args: '[--verbose]',
         description: 'show safety and approval settings; --verbose prints every knob',
+        availableDuringRun: 'immediate',
+      },
+      {
+        command: '/language',
+        args: '[en|zh|auto] [save]',
+        description: 'show or switch the UI language for this session',
+        aliases: ['/lang'],
         availableDuringRun: 'immediate',
       },
       {
@@ -531,7 +539,7 @@ export function formatInteractiveCommandSections(
     for (const row of section.rows) {
       if (row.hidden && !options.includeHidden) continue;
       const usage = row.args ? `${row.command} ${row.args}` : row.command;
-      lines.push(`${indent}${usage.padEnd(commandWidth)} ${row.description}`);
+      lines.push(`${indent}${usage.padEnd(commandWidth)} ${tui(row.description)}`);
     }
   }
   return lines;

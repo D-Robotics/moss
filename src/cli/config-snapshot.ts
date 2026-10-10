@@ -5,9 +5,9 @@
  */
 import { auditResolvedCliConfig, BASE_URL, type ResolvedCliConfig } from './config.js';
 import { buildApiV1Url } from '../provider/api-v1-url.js';
-import { isZhLocale } from './cli-locale.js';
+import { isZhLocale, uiText } from './cli-locale.js';
 import { label } from './ui.js';
-import { WORKSPACE_WRITE_LIMIT_EN } from './workspace-write-copy.js';
+import { workspaceWriteLimit } from './workspace-write-copy.js';
 
 export interface GuardrailCounts {
   input: number;
@@ -26,7 +26,9 @@ export function guardrailSummary(config: ResolvedCliConfig): string {
   const { input, output } = guardrailCounts(config);
   if (input === 0 && output === 0)
     return `${displayWord('none')} ${sourceNote(config.guardrailsSource)}`;
-  return `input ${input}, output ${output} ${sourceNote(config.guardrailsSource)}`;
+  return isZhLocale()
+    ? `输入 ${input}，输出 ${output} ${sourceNote(config.guardrailsSource)}`
+    : `input ${input}, output ${output} ${sourceNote(config.guardrailsSource)}`;
 }
 
 export function configAuditSummary(config: ResolvedCliConfig): string {
@@ -44,7 +46,7 @@ export function withoutSecret(value: string): string {
     url.hash = '';
     return url.toString().replace(/\/$/, '');
   } catch {
-    return value || '(not configured)';
+    return value || (isZhLocale() ? '（未配置）' : '(not configured)');
   }
 }
 
@@ -101,6 +103,7 @@ const ZH_SOURCE: Record<string, string> = {
   config: '配置文件',
   cli: '命令行',
   'built-in': '内置',
+  unprobed: '未探测',
 };
 
 const TYPED_GLOSS: Record<string, string> = {
@@ -187,7 +190,9 @@ const FIELDS = {
     (c: ResolvedCliConfig) => {
       const base = `${showTyped(c.safetyMode)} ${sourceNote(c.safetyModeSource, c.safetyModeSource === 'derived:mode' ? ', from permissions.defaultMode' : '')}`;
       // The mode name is not an OS sandbox. Say so next to the value.
-      return c.safetyMode === 'workspace-write' ? `${base}. ${WORKSPACE_WRITE_LIMIT_EN}` : base;
+      return c.safetyMode === 'workspace-write'
+        ? `${base}. ${workspaceWriteLimit(isZhLocale())}`
+        : base;
     },
   ],
   approvalPolicy: [
@@ -214,16 +219,28 @@ const FIELDS = {
       const counts = `allow ${view.allow.length} · ask ${view.ask.length} · deny ${view.deny.length}`;
       const deviceTrust =
         view.deviceTrust === 'full'
-          ? ', device trust full'
+          ? isZhLocale()
+            ? '，设备信任 full'
+            : ', device trust full'
           : view.trustedDevices?.length
-            ? `, trusted devices ${view.trustedDevices.length}`
+            ? isZhLocale()
+              ? `，已信任设备 ${view.trustedDevices.length}`
+              : `, trusted devices ${view.trustedDevices.length}`
             : '';
-      const ceiling = view.readOnlyCeiling ? ' + read-only ceiling' : '';
+      const ceiling = view.readOnlyCeiling
+        ? isZhLocale()
+          ? ' + 只读上限'
+          : ' + read-only ceiling'
+        : '';
       const legacy =
         view.legacyKeysUsed.length > 0
-          ? `; legacy keys migrated: ${view.legacyKeysUsed.join(', ')}`
+          ? isZhLocale()
+            ? `；已迁移旧键：${view.legacyKeysUsed.join(', ')}`
+            : `; legacy keys migrated: ${view.legacyKeysUsed.join(', ')}`
           : '';
-      return `mode ${showTyped(view.defaultMode)}${ceiling} ${sourceNote(view.source)}, ${counts}${deviceTrust}${legacy}`;
+      return isZhLocale()
+        ? `模式 ${showTyped(view.defaultMode)}${ceiling} ${sourceNote(view.source)}，${counts}${deviceTrust}${legacy}`
+        : `mode ${showTyped(view.defaultMode)}${ceiling} ${sourceNote(view.source)}, ${counts}${deviceTrust}${legacy}`;
     },
   ],
   trustedTools: [
@@ -258,12 +275,20 @@ const FIELDS = {
   maxOutput: [
     'max output',
     (c: ResolvedCliConfig) =>
-      `${c.maxOutputTokens ?? 'derived from context window (contextTokens/4, cap 8k)'}`,
+      `${
+        c.maxOutputTokens ??
+        uiText(
+          'derived from context window (contextTokens/4, cap 8k)',
+          '由上下文窗口推算（contextTokens/4，上限 8k）'
+        )
+      }`,
   ],
   compaction: [
     'compaction',
     (c: ResolvedCliConfig) =>
-      `reserve ${c.compactionSettings?.reserveTokens ?? 20000}, keepRecent ${c.compactionSettings?.keepRecentTokens ?? 20000} ${sourceNote(c.compactionSettingsSource)}`,
+      isZhLocale()
+        ? `预留 ${c.compactionSettings?.reserveTokens ?? 20000}，保留最近 ${c.compactionSettings?.keepRecentTokens ?? 20000} ${sourceNote(c.compactionSettingsSource)}`
+        : `reserve ${c.compactionSettings?.reserveTokens ?? 20000}, keepRecent ${c.compactionSettings?.keepRecentTokens ?? 20000} ${sourceNote(c.compactionSettingsSource)}`,
   ],
   warnings: ['config warnings', configAuditSummary],
 } as const;
@@ -274,6 +299,7 @@ export type SnapshotField = keyof typeof FIELDS;
  * Snapshot lines in one of two styles: `labeled` (interactive views, keys
  * aligned via ui.label) or `plain` (`key: value`, for headless output).
  */
+
 export function configSnapshotLines(
   config: ResolvedCliConfig,
   fields: readonly SnapshotField[],
@@ -284,6 +310,6 @@ export function configSnapshotLines(
     const shown = fieldLabel(key);
     return style === 'labeled'
       ? `  ${label(shown)} ${value(config)}`
-      : `  ${shown}: ${value(config)}`;
+      : `  ${shown}${isZhLocale() ? '：' : ':'} ${value(config)}`;
   });
 }

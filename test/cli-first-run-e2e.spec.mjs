@@ -382,6 +382,8 @@ try {
   const zhPrefix = [
     { kind: 'wait', payload: '现在开始设置' },
     { kind: 'send', payload: '\\r' },
+    { kind: 'wait', payload: '界面语言' },
+    { kind: 'send', payload: 'x' },
     { kind: 'wait', payload: '服务商' },
     { kind: 'send', payload: '6\\r' },
     { kind: 'wait', payload: '网关地址' },
@@ -466,7 +468,13 @@ try {
       assert.doesNotMatch(result.text, pattern, journey.name);
     const configPath = path.join(configDir, 'config.json');
     if (!journey.saved) {
-      assert.equal(fs.existsSync(configPath), false, journey.name);
+      if (fs.existsSync(configPath)) {
+        const stored = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        assert.equal(stored.language, 'auto', journey.name);
+        assert.equal(stored.apiKey, undefined, journey.name);
+        assert.equal(stored.provider, undefined, journey.name);
+        assert.equal(stored.model, undefined, journey.name);
+      }
       continue;
     }
     const forced = JSON.parse(fs.readFileSync(configPath, 'utf8'));

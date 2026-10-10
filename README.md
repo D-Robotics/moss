@@ -154,6 +154,21 @@ moss tasks list                     # 只读查看机器人闭环产物
 
 未指定配置文件时，Moss 读取用户配置，并把工作区 `.moss/config.json` 当作项目默认值合并进去（用户配置优先）。`--config-file` 或 `MOSS_CONFIG_FILE` 只加载那个文件，项目 `.moss/config.json` 这一层不会进入本次配置。
 
+## 界面语言
+
+**英文是默认界面语言。** 中文是完整的可选界面语言，只影响界面文案、帮助、错误和配置向导。助手回复仍跟随用户消息的语言，不跟这个设置走。
+
+```bash
+moss --lang zh                         # 仅本次运行
+MOSS_LANG=zh moss                      # 进程环境变量（项目 .env 不能设置）
+moss config set language zh            # 记在用户配置 ~/.config/moss/config.json
+moss config set language auto          # 默认：仅当系统区域以 zh 开头时用中文
+```
+
+优先级：`--lang` > `MOSS_LANG` > 用户配置 `language` > 系统区域。`C`、`POSIX`、`C.UTF-8` 不是语言，会落到下一个变量（`LC_ALL`、`LC_MESSAGES`、`LANG`）；都不是语言时界面保持英文。项目 `.moss/config.json` 和项目 `.env` 不能设置界面语言。
+
+交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为 English。
+
 ## 安全与隐私
 
 - **v0.26 起默认 full**：本地写操作与**可逆**设备变更跳过逐次询问。毁灭性设备操作（重启、刷机、写入 `/boot` 或 `/etc`、改网络、卸系统包、停掉 ssh）仍要确认——full 对齐的是 Claude Code 的「默认少问」，不是对真机的 `--dangerously-skip-permissions`。
@@ -173,7 +188,7 @@ moss tasks list                     # 只读查看机器人闭环产物
   - 会话级规则下一个工具调用即生效；`/permissions persist` 写用户配置重启仍生效；
   - `--read-only` / `MOSS_SAFETY_MODE=read-only` 是压过任何模式（含 full）的只读上限。
 - **本机硬拦截永不撤**：本机 `exec` 的毁灭性命令（`rm -rf /` 等）与路径逃逸在 full 模式下同样被拦——full 跳过的是询问，不是检查。设备侧的同一类命令不硬拦死：TTY 确认、allow 规则，或显式信任之后会真的执行。
-- **显式信任设备**（任一即可；deny 仍赢）：`--trust-device`（仅本进程）、`MOSS_DEVICE_TRUST=full`、`permissions.deviceTrust=full`、`permissions.trustedDevices` 或 `MOSS_DEVICE_TRUST_DEVICES`（逗号分隔的 host / device id）。确认框里选 `a` 只信任提示里写明的范围（例如同一 unit 的 `systemctl restart` 或 `stop`，或同一命令前缀），不是整台设备的全部毁灭性操作。读取 `/etc/shadow`、私钥、`sshd_config`、`authorized_keys` 归入 `sensitive`：同样要确认，但文案和证据不把它叫成毁灭性修改。中文 locale（`LANG` / `LC_ALL` 以 `zh` 开头）下，确认与拒绝文案为简体中文。每次决定写入 `.moss/evidence.jsonl`（`metric: device_policy`），有进行中的任务时同时写入时间线 `note`。策略说明见 [`docs/superpowers/plans/2026-10-09-device-safety-policy.md`](docs/superpowers/plans/2026-10-09-device-safety-policy.md)。
+- **显式信任设备**（任一即可；deny 仍赢）：`--trust-device`（仅本进程）、`MOSS_DEVICE_TRUST=full`、`permissions.deviceTrust=full`、`permissions.trustedDevices` 或 `MOSS_DEVICE_TRUST_DEVICES`（逗号分隔的 host / device id）。确认框里选 `a` 只信任提示里写明的范围（例如同一 unit 的 `systemctl restart` 或 `stop`，或同一命令前缀），不是整台设备的全部毁灭性操作。读取 `/etc/shadow`、私钥、`sshd_config`、`authorized_keys` 归入 `sensitive`：同样要确认，但文案和证据不把它叫成毁灭性修改。确认与拒绝文案跟随界面语言（`--lang`、`MOSS_LANG` 或用户配置 `language`；否则系统区域以 `zh` 开头时为简体中文）。每次决定写入 `.moss/evidence.jsonl`（`metric: device_policy`），有进行中的任务时同时写入时间线 `note`。策略说明见 [`docs/superpowers/plans/2026-10-09-device-safety-policy.md`](docs/superpowers/plans/2026-10-09-device-safety-policy.md)。
 - **旧键兼容**（一版宽限）：`profile` / `trustedTools` / `deniedTools` / `safetyMode` / `approvalPolicy` 读入即按映射表翻译（cautious→manual+只读上限、balanced→manual、autonomous→full、trustedTools→allow 规则、deniedTools→deny 规则），写侧提示 deprecated，新配置请用 `permissions.*` 块。
 - 凭据只从 `.env` 或环境变量读，绝不硬编码、不进日志、不传子进程、不写设备清单。
 - 无账号、无云服务、无遥测；provider 是普通 HTTP 端点。
@@ -402,6 +417,28 @@ Without an explicit file, Moss reads the user config and merges `.moss/config.js
 workspace as project defaults (the user file wins). `--config-file` or `MOSS_CONFIG_FILE` loads
 only that file, so the project `.moss/config.json` layer is not part of the run.
 
+### UI language
+
+**English is the default UI language.** Chinese is a complete, optional UI language. It covers
+chrome, help, errors, and setup text. Assistant replies still follow the language of the user's
+message.
+
+```bash
+moss --lang zh                         # this run only
+MOSS_LANG=zh moss                      # process env (a project .env cannot set this)
+moss config set language zh            # user config ~/.config/moss/config.json
+moss config set language auto          # default: Chinese only when the locale starts with zh
+```
+
+Precedence: `--lang` > `MOSS_LANG` > user config `language` > system locale. Neutral tags
+(`C`, `POSIX`, `C.UTF-8`) are not a language and fall through to the next of `LC_ALL`,
+`LC_MESSAGES`, and `LANG`. If none names a language, the UI stays English. A project
+`.moss/config.json` and a project `.env` cannot set the UI language.
+
+In the shell, `/language` (alias `/lang`) switches the session. `/language zh save` writes the
+user config. On a Chinese system locale that has not chosen yet, the first `moss setup` offers
+one line: press `e` to switch to English.
+
 ### Safety and privacy
 
 - **Full by default since v0.26**: local writes and **reversible** device changes skip the
@@ -436,8 +473,9 @@ only that file, so the project `.moss/config.json` layer is not part of the run.
   scope named in the prompt (for example `systemctl restart` or `stop` of that unit, or the same
   command prefix) until the session ends. Reading `/etc/shadow`, private keys, `sshd_config`, or
   `authorized_keys` is a `sensitive` tier: it still confirms, and the copy does not call it
-  destructive. Prompts and refusals follow the CLI locale (Simplified Chinese when `LANG` /
-  `LC_ALL` starts with `zh`). Every decision is appended to `.moss/evidence.jsonl`
+  destructive. Prompts and refusals follow the UI language (`--lang`, `MOSS_LANG`, or the user
+  config `language`; otherwise Simplified Chinese when the system locale starts with `zh`).
+  Every decision is appended to `.moss/evidence.jsonl`
   (`metric: device_policy`) and, when a task is in progress, to its timeline as a `note`.
   Policy: [`docs/superpowers/plans/2026-10-09-device-safety-policy.md`](docs/superpowers/plans/2026-10-09-device-safety-policy.md).
 - **Legacy keys** (one release of grace): `profile` / `trustedTools` / `deniedTools` /

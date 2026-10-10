@@ -11,6 +11,7 @@ import type {
   DeviceWriteFileOptions,
 } from '../contracts/device.js';
 import { ErrorCode, MossError } from '../errors.js';
+import { uiText } from '../utils/ui-language.js';
 
 /** Max simultaneous remote channels (exec streams / sftp sessions). */
 const MAX_INFLIGHT = 4;
@@ -71,7 +72,7 @@ export interface SshConnectOptions {
   connectTimeoutMs?: number;
 }
 
-/** host:port plus what to try next, in English and Chinese. */
+/** host:port plus what to try next, in the active UI language. */
 export function deviceUnreachableCopy(
   target: DeviceTarget,
   timeoutMs: number
@@ -79,10 +80,14 @@ export function deviceUnreachableCopy(
   const where = `${target.host}:${target.port ?? 22}`;
   const seconds = Math.max(1, Math.round(timeoutMs / 1000));
   return {
-    message: `Cannot reach ${where} within ${seconds}s. 无法在 ${seconds} 秒内连接 ${where}。`,
-    hint:
-      'Check the board is powered on, the address is correct, and this machine can reach it, then retry. ' +
-      '请确认开发板已开机、地址正确，且本机能访问该地址，然后再试。',
+    message: uiText(
+      `Cannot reach ${where} within ${seconds}s.`,
+      `无法在 ${seconds} 秒内连接 ${where}。`
+    ),
+    hint: uiText(
+      'Check the board is powered on, the address is correct, and this machine can reach it, then retry.',
+      '请确认开发板已开机、地址正确，且本机能访问该地址，然后再试。'
+    ),
   };
 }
 
@@ -119,8 +124,14 @@ export class SshDeviceConnection implements DeviceConnection {
       if (!auth.password && !auth.privateKey) {
         throw new MossError({
           code: ErrorCode.CONFIG_IO_FAILED,
-          message: `No credentials for device ${this.target.deviceId}: set MOSS_DEVICE_PASSWORD or MOSS_DEVICE_KEY.`,
-          hint: 'Credentials come from env / .env only; they are never stored in the device target.',
+          message: uiText(
+            `No credentials for device ${this.target.deviceId}: set MOSS_DEVICE_PASSWORD or MOSS_DEVICE_KEY.`,
+            `设备 ${this.target.deviceId} 没有凭据：请设置 MOSS_DEVICE_PASSWORD 或 MOSS_DEVICE_KEY。`
+          ),
+          hint: uiText(
+            'Credentials come from env / .env only; they are never stored in the device target.',
+            '凭据只来自环境变量或 .env，不会写入设备目标。'
+          ),
           recoverable: true,
         });
       }
@@ -160,10 +171,16 @@ export class SshDeviceConnection implements DeviceConnection {
                 code: ErrorCode.TOOL_EXECUTION_FAILED,
                 message: copy
                   ? copy.message
-                  : `Cannot connect to ${this.target.user || 'root'}@${where}: ${err.message}`,
+                  : uiText(
+                      `Cannot connect to ${this.target.user || 'root'}@${where}: ${err.message}`,
+                      `无法连接 ${this.target.user || 'root'}@${where}：${err.message}`
+                    ),
                 hint: copy
                   ? copy.hint
-                  : 'Check host/port reachability and credentials (MOSS_DEVICE_USER / MOSS_DEVICE_PASSWORD / MOSS_DEVICE_KEY).',
+                  : uiText(
+                      'Check host/port reachability and credentials (MOSS_DEVICE_USER / MOSS_DEVICE_PASSWORD / MOSS_DEVICE_KEY).',
+                      '请检查主机、端口是否可达，以及凭据（MOSS_DEVICE_USER / MOSS_DEVICE_PASSWORD / MOSS_DEVICE_KEY）。'
+                    ),
                 recoverable: true,
                 context: {
                   deviceId: this.target.deviceId,
@@ -179,7 +196,7 @@ export class SshDeviceConnection implements DeviceConnection {
             this.client = client;
             this._status = 'connected';
             this._lastError = undefined;
-            client.on('close', () => this.handleDown('connection closed'));
+            client.on('close', () => this.handleDown(uiText('connection closed', '连接已关闭')));
             client.on('error', (err: Error) => this.handleDown(err.message));
             resolve(client);
           });
@@ -240,7 +257,10 @@ export class SshDeviceConnection implements DeviceConnection {
               reject(
                 new MossError({
                   code: ErrorCode.TOOL_EXECUTION_FAILED,
-                  message: `Device exec failed on ${this.target.deviceId}: ${err.message}`,
+                  message: uiText(
+                    `Device exec failed on ${this.target.deviceId}: ${err.message}`,
+                    `设备 ${this.target.deviceId} 执行失败：${err.message}`
+                  ),
                   recoverable: true,
                   context: { deviceId: this.target.deviceId, command },
                 })
@@ -285,7 +305,10 @@ export class SshDeviceConnection implements DeviceConnection {
               reject(
                 new MossError({
                   code: ErrorCode.TOOL_EXECUTION_FAILED,
-                  message: `Device exec stream error on ${this.target.deviceId}: ${streamErr.message}`,
+                  message: uiText(
+                    `Device exec stream error on ${this.target.deviceId}: ${streamErr.message}`,
+                    `设备 ${this.target.deviceId} 执行流错误：${streamErr.message}`
+                  ),
                   recoverable: true,
                   context: { deviceId: this.target.deviceId, command },
                 })
@@ -305,7 +328,10 @@ export class SshDeviceConnection implements DeviceConnection {
               reject(
                 new MossError({
                   code: ErrorCode.TOOL_EXECUTION_FAILED,
-                  message: `SFTP session failed on ${this.target.deviceId}: ${err.message}`,
+                  message: uiText(
+                    `SFTP session failed on ${this.target.deviceId}: ${err.message}`,
+                    `设备 ${this.target.deviceId} 的 SFTP 会话失败：${err.message}`
+                  ),
                   recoverable: true,
                   context: { deviceId: this.target.deviceId },
                 })
@@ -338,15 +364,24 @@ export class SshDeviceConnection implements DeviceConnection {
       } catch (err) {
         throw new MossError({
           code: ErrorCode.TOOL_EXECUTION_FAILED,
-          message: `Cannot stat ${remotePath} on ${this.target.deviceId}: ${err instanceof Error ? err.message : String(err)}`,
+          message: uiText(
+            `Cannot stat ${remotePath} on ${this.target.deviceId}: ${err instanceof Error ? err.message : String(err)}`,
+            `无法读取 ${this.target.deviceId} 上 ${remotePath} 的状态：${err instanceof Error ? err.message : String(err)}`
+          ),
           recoverable: true,
         });
       }
       if (stat.size > maxBytes) {
         throw new MossError({
           code: ErrorCode.TOOL_EXECUTION_FAILED,
-          message: `Remote file ${remotePath} is ${stat.size} bytes, above the ${maxBytes}-byte read cap.`,
-          hint: 'Raise max_bytes, or copy/slice it on the device first.',
+          message: uiText(
+            `Remote file ${remotePath} is ${stat.size} bytes, above the ${maxBytes}-byte read cap.`,
+            `远程文件 ${remotePath} 有 ${stat.size} 字节，超过 ${maxBytes} 字节的读取上限。`
+          ),
+          hint: uiText(
+            'Raise max_bytes, or copy/slice it on the device first.',
+            '调高 max_bytes，或先在设备上复制、截取该文件。'
+          ),
           recoverable: true,
         });
       }
@@ -365,7 +400,10 @@ export class SshDeviceConnection implements DeviceConnection {
     if (options.content === undefined && !options.localPath) {
       throw new MossError({
         code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: 'writeFile requires content or localPath.',
+        message: uiText(
+          'writeFile requires content or localPath.',
+          'writeFile 需要 content 或 localPath。'
+        ),
         recoverable: true,
       });
     }

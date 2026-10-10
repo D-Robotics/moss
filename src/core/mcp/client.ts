@@ -5,6 +5,7 @@
  * `listTools` / `callTool` with a session-scoped tools/list cache.
  */
 import { MossError, ErrorCode } from '../../errors.js';
+import { uiText } from '../../utils/ui-language.js';
 import { getRootLogger } from '../../logger.js';
 import type {
   McpServerConfig,
@@ -172,7 +173,10 @@ export class McpClient {
     if (!this.initialized) {
       throw new MossError({
         code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: `mcp client for "${this.name}" is not initialized`,
+        message: uiText(
+          `mcp client for "${this.name}" is not initialized`,
+          `「${this.name}」的 mcp 客户端尚未初始化`
+        ),
         recoverable: false,
       });
     }
