@@ -52,12 +52,18 @@ export function guardMiniAgentStreamPush(
   stream: EventStream<MiniAgentEvent, MiniAgentResult>,
   sessionKey: string,
   runEpoch: number,
-  store: Map<string, number> = runEpochBySessionKey
+  store: Map<string, number> = runEpochBySessionKey,
+  onEvent?: (event: Readonly<MiniAgentEvent>) => void
 ): void {
   const protoPush = stream.push.bind(stream) as (e: MiniAgentEvent) => void;
 
   (stream as unknown as { push: (e: MiniAgentEvent) => void }).push = (e: MiniAgentEvent) => {
     if ((store.get(sessionKey) ?? 0) !== runEpoch) return;
+    try {
+      onEvent?.(e);
+    } catch {
+      // Host diagnostics must not interrupt persistence or event delivery.
+    }
     protoPush(e);
   };
 }

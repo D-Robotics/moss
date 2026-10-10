@@ -172,7 +172,9 @@ export function runAgentLoop(
     };
 
     const runEpoch = bumpAgentLoopRunEpoch(sessionKey, params.runEpochStore);
-    guardMiniAgentStreamPush(stream, sessionKey, runEpoch, params.runEpochStore);
+    guardMiniAgentStreamPush(stream, sessionKey, runEpoch, params.runEpochStore, (event) => {
+      params.onAgentLoopEvent?.(event, { runId, sessionKey, agentId: params.agentId });
+    });
 
     const parallelSafeTools = platform?.parallelSafeTools ?? new Set<string>();
     const toolTimeoutMs = platform?.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;

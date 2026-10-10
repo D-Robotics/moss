@@ -41,6 +41,36 @@ export type {
   ContextWindowGuardResult,
 } from './context/index.js';
 
+// Embedded hosts use the same context policy and summarizer as the CLI.
+export {
+  buildCompactionSummary,
+  estimateMessagesTokens,
+  DEFAULT_CONTEXT_WINDOW_TOKENS,
+  getEffectiveContextWindowTokens,
+  getProactiveCompactThreshold,
+  getContextWarningThreshold,
+  shouldProactiveCompactByWindowEconomics,
+  AUTOCOMPACT_BUFFER_TOKENS,
+  SUMMARY_OUTPUT_CAP_TOKENS,
+} from './context/index.js';
+export type { SummarizeFn, ContextPruningSettings } from './context/index.js';
+
+// Hosts may wrap their own file and shell tools without copying these policies.
+export {
+  assertSandboxPath,
+  resolveSandboxPath,
+  redactSecretsInText,
+  appendShellContinueHint,
+} from './safety/index.js';
+export {
+  atomicWriteFile,
+  parsePatch,
+  applyUpdateHunk,
+  extractAddContent,
+  mossRunTrace,
+} from './utils/index.js';
+export type { ParsedPatch, PatchHunk } from './utils/index.js';
+
 export * from './provider/index.js';
 
 export {

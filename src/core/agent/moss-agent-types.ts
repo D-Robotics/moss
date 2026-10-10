@@ -204,6 +204,7 @@ export interface MossAgentConfig
   steeringRules?: SteeringRule[];
 
   completionGate?: AgentLoopExtensions['completionGate'];
+  onAgentLoopEvent?: AgentLoopExtensions['onAgentLoopEvent'];
   /**
    * Force buffering of assistant text until turn end (disables live
    * message_delta streaming). Prefer leaving this unset: structured-output

@@ -141,7 +141,7 @@ export const execBackgroundTool: Tool = {
     const settleMs =
       goalWaitMs ?? Math.min(Math.max(0, Number(input.settle_ms) || DEFAULT_SETTLE_MS), 10_000);
     const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
-    const args = IS_WIN ? ['/c', command] : ['-c', command];
+    const args = IS_WIN ? ['/d', '/s', '/c', `"${command}"`] : ['-c', command];
 
     let child: ChildProcess;
     try {
@@ -151,6 +151,7 @@ export const execBackgroundTool: Tool = {
         env: safeChildEnv({ LANG: process.env.LANG || 'en_US.UTF-8' }),
         detached: !IS_WIN,
         windowsHide: true,
+        windowsVerbatimArguments: IS_WIN,
       });
     } catch (err) {
       let hint = '';

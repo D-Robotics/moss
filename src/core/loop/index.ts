@@ -16,7 +16,7 @@ export type {
   AgentLoopToolInput,
 } from './agent-loop.js';
 export { resolveRoutedModel } from './agent-loop-types.js';
-export type { ModelTiers } from './agent-loop-types.js';
+export type { ModelTiers, AgentLoopEventObserver } from './agent-loop-types.js';
 export { PendingToolAbortStore } from './pending-tool-aborts.js';
 export { CompactHookRegistry, buildCompactionCheckpointOutline } from './compact-hooks.js';
 export type {
