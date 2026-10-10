@@ -200,6 +200,20 @@ class Session:
         self.send(KEYS.get(name, name))
         self.pump(0.4)
 
+    def wait_for(self, predicate, timeout: float = 5.0) -> bool:
+        """Pump until `predicate` is true or `timeout` elapses.
+
+        A fixed pump after a key misses the frame on a slow machine: the
+        history search overlay can land after 0.7s, and the check then reads
+        a screen that has not opened yet.
+        """
+        end = time.time() + timeout
+        while time.time() < end:
+            if predicate():
+                return True
+            self.pump(0.05)
+        return bool(predicate())
+
     def wait_for_prompt(self, timeout: float = 20.0) -> None:
         """Pump until the composer glyph is painted.
 

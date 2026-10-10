@@ -25,14 +25,15 @@ import { presentToolOutput, redactEgress } from '../dist/safety/tool-output-reda
 /**
  * The 12 lines main redacts in Moss src, one file:line entry each.
  * The config-commands example-key lines moved down by the MOSS_SOURCE_DIR
- * env rows. The pi-ai-wire-format matches sit two lines lower because
+ * env rows, the folder-trust env rows, and the MOSS_WAIT_MCP_STARTUP note.
+ * The pi-ai-wire-format matches sit two lines lower because
  * `responseModel` was inserted above `rejectAnthropicOAuthToken`. The two
  * safety files are the same false matches (provider-token examples and
  * `secret = match?.[5]`), at their current lines.
  */
 const MAIN_REDACTED_LINES = [
-  'src/cli/config-commands.ts:818',
-  'src/cli/config-commands.ts:845',
+  'src/cli/config-commands.ts:824',
+  'src/cli/config-commands.ts:851',
   'src/context/remote-compaction.ts:342',
   'src/provider/pi-ai-wire-format.ts:116',
   'src/provider/pi-ai-wire-format.ts:118',
