@@ -163,7 +163,8 @@ export const execTool: Tool = {
     const streamer = hideCredentialStream ? null : createRedactingChunkWriter(ctx.onToolOutput);
     const footnote = deviceEnvFootnote(String(input.command ?? ''));
     const opened = await openChildEnv(ctx.workspaceDir, ctx.abortSignal);
-    const hooksNotice = (): string => takeShellNotices(ctx.sessionKey, opened, commandText);
+    const hooksNotice = (output = ''): string =>
+      takeShellNotices(ctx.sessionKey, opened, commandText, output);
     try {
       const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
       const result = await runProcess(shell, {
@@ -233,7 +234,7 @@ export const execTool: Tool = {
         }
       }
       streamer?.flush();
-      return text + writebackWarning + footnote + hooksNotice();
+      return text + writebackWarning + footnote + hooksNotice(`${result.stdout}\n${result.stderr}`);
     } catch (err) {
       streamer?.flush();
       const writebackWarning = formatRedactedWritebackWarning(
@@ -248,7 +249,7 @@ export const execTool: Tool = {
         return (
           `Command failed (exit ${err.exitCode}):\n${output || err.message}${timedOut}${writebackWarning}` +
           footnote +
-          hooksNotice()
+          hooksNotice(`${err.stdout}\n${err.stderr}`)
         );
       }
       throw err;

@@ -143,7 +143,8 @@ export const execBackgroundTool: Tool = {
     const args = IS_WIN ? ['/c', command] : ['-c', command];
 
     const opened = await openChildEnv(ctx.workspaceDir, ctx.abortSignal);
-    const hooksNotice = (): string => takeShellNotices(ctx.sessionKey, opened, command);
+    const hooksNotice = (output = ''): string =>
+      takeShellNotices(ctx.sessionKey, opened, command, output);
     let child: ChildProcess;
     try {
       child = spawnProcess(shell, args, {
@@ -301,18 +302,18 @@ export const execBackgroundTool: Tool = {
         return (
           `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms — backgrounded at the wait timeout. ` +
           `Wait with exec_wait({"ids":["${id}"]}) before treating the goal as finished; ` +
-          `use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}${hooksNotice()}`
+          `use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}${hooksNotice(proc.buffer)}`
         );
       }
-      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. You will be notified when it finishes; use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}${hooksNotice()}`;
+      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. You will be notified when it finishes; use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}${hooksNotice(proc.buffer)}`;
     }
     // Terminal during settle — already fully reported in this tool result; suppress
     // a later system-reminder duplicate (lifecycle already enqueued the snapshot).
     markBackgroundIdReported(id);
     if (proc.status === 'error') {
-      return `Background command ${id} failed to start: ${proc.errorMessage}${outputSection}${footnote}${hooksNotice()}`;
+      return `Background command ${id} failed to start: ${proc.errorMessage}${outputSection}${footnote}${hooksNotice(proc.buffer)}`;
     }
-    return `Background command ${id} exited immediately (exit ${proc.exitCode}${proc.signal ? `, signal ${proc.signal}` : ''}).${outputSection}${footnote}${hooksNotice()}`;
+    return `Background command ${id} exited immediately (exit ${proc.exitCode}${proc.signal ? `, signal ${proc.signal}` : ''}).${outputSection}${footnote}${hooksNotice(proc.buffer)}`;
   },
 };
 

@@ -247,7 +247,9 @@ function zhNotices(): boolean {
  * True when `command` invokes git: a command word whose basename is `git`
  * (or `git.exe`), including after a path prefix and after shell separators.
  * Leading `NAME=value` assignments are skipped. A `git` inside `echo "git"`
- * or a name like `gitignore` does not count.
+ * or a name like `gitignore` does not count. `bash -c "git …"` / `sh -c`
+ * (and `-lc`) scan the command string. `xargs git` counts; `xargs echo git`
+ * does not.
  */
 export function commandInvokesGit(command: string): boolean {
   return scanShellCommands(command, 0, command.length);
@@ -296,16 +298,130 @@ function scanShellCommands(command: string, start: number, end: number): boolean
       continue;
     }
     if (atCommand && isGitCommandToken(word.text)) return true;
+    if (atCommand && shellDashCInvokesGit(command, word)) return true;
+    if (atCommand && xargsInvokesGit(command, word)) return true;
     i = word.next;
     atCommand = false;
   }
   return false;
 }
 
+function commandBase(word: string): string {
+  return word.split(/[/\\]/).pop() ?? word;
+}
+
 function isGitCommandToken(word: string): boolean {
   if (!word || word.includes('=')) return false;
-  const base = word.split(/[/\\]/).pop() ?? word;
+  const base = commandBase(word);
   return base === 'git' || base.toLowerCase() === 'git.exe';
+}
+
+const SHELL_INTERPRETERS = new Set(['sh', 'bash', 'dash', 'zsh', 'ksh', 'ash']);
+
+function isShellInterpreter(word: string): boolean {
+  return SHELL_INTERPRETERS.has(commandBase(word));
+}
+
+function skipShellSpace(command: string, i: number, end: number): number {
+  while (i < end) {
+    const ch = command[i] ?? '';
+    if (ch !== ' ' && ch !== '\t' && ch !== '\r') break;
+    i += 1;
+  }
+  return i;
+}
+
+function isShellBoundary(ch: string): boolean {
+  return ch === '\n' || ch === ';' || ch === '|' || ch === '&' || ch === '(' || ch === ')';
+}
+
+/** `sh -c` / `bash -lc` script. Other positional arguments are not scanned. */
+function shellDashCInvokesGit(command: string, word: { text: string; next: number }): boolean {
+  if (!isShellInterpreter(word.text)) return false;
+  let j = word.next;
+  let sawC = false;
+  const end = command.length;
+  while (j < end) {
+    j = skipShellSpace(command, j, end);
+    if (j >= end || isShellBoundary(command[j] ?? '')) return false;
+    const next = readShellWord(command, j, end);
+    if (next.next === j) return false;
+    if (!sawC) {
+      if (/^-[A-Za-z]*c[A-Za-z]*$/.test(next.text)) {
+        sawC = true;
+        j = next.next;
+        continue;
+      }
+      if (next.text.startsWith('-')) {
+        j = next.next;
+        continue;
+      }
+      return false;
+    }
+    return scanShellCommands(next.text, 0, next.text.length);
+  }
+  return false;
+}
+
+const XARGS_OPTIONS_WITH_ARG = new Set([
+  '-a',
+  '-d',
+  '-E',
+  '-e',
+  '-I',
+  '-i',
+  '-L',
+  '-l',
+  '-n',
+  '-P',
+  '-s',
+  '--arg-file',
+  '--delimiter',
+  '--eof',
+  '--replace',
+  '--max-lines',
+  '--max-args',
+  '--max-procs',
+  '--max-chars',
+]);
+
+function xargsOptionTakesArg(text: string): boolean {
+  if (text.startsWith('--')) return !text.includes('=') && XARGS_OPTIONS_WITH_ARG.has(text);
+  if (!/^-[A-Za-z]+$/.test(text)) return false;
+  const last = text[text.length - 1] ?? '';
+  return 'adEeIiLlnPs'.includes(last);
+}
+
+/** `xargs git` and `xargs -n 1 git`. The utility is the first non-option word. */
+function xargsInvokesGit(command: string, word: { text: string; next: number }): boolean {
+  if (commandBase(word.text) !== 'xargs') return false;
+  let j = word.next;
+  let afterDoubleDash = false;
+  const end = command.length;
+  while (j < end) {
+    j = skipShellSpace(command, j, end);
+    if (j >= end || isShellBoundary(command[j] ?? '')) return false;
+    const next = readShellWord(command, j, end);
+    if (next.next === j) return false;
+    if (!afterDoubleDash && next.text === '--') {
+      afterDoubleDash = true;
+      j = next.next;
+      continue;
+    }
+    if (!afterDoubleDash && next.text.startsWith('-')) {
+      j = next.next;
+      if (xargsOptionTakesArg(next.text)) {
+        j = skipShellSpace(command, j, end);
+        if (j >= end || isShellBoundary(command[j] ?? '')) return false;
+        const arg = readShellWord(command, j, end);
+        if (arg.next === j) return false;
+        j = arg.next;
+      }
+      continue;
+    }
+    return isGitCommandToken(next.text);
+  }
+  return false;
 }
 
 function envAssignmentEnd(command: string, i: number, end: number): number {
@@ -443,25 +559,33 @@ function externalDiffDisabledNoticeLine(): string {
     : "[moss] The repo's external diff was disabled.";
 }
 
+const EXTERNAL_DIFF_DIED = /external diff died/i;
+
 /**
  * Notices for an untrusted shell, appended to the tool result. The once-per
  * session flag is consumed only when `command` actually invokes git, so an
- * earlier `ls` does not hide the line from the next `git` command. The TUI
- * peels a trailing `[moss]` line into its own row.
+ * earlier `ls` does not hide the line from the next `git` command. When git
+ * prints `external diff died` after the drivers were pointed at `false`, the
+ * disabled explanation is attached again even if `git status` already spent
+ * the once-per-session notice. The TUI peels a trailing `[moss]` line into
+ * its own row.
  */
 export function takeShellNotices(
   sessionKey: string | undefined,
   opened: Pick<OpenedChildEnv, 'repoHooksSkipped' | 'externalDiffDisabled'>,
-  command: string
+  command: string,
+  output = ''
 ): string {
-  if (!commandInvokesGit(command)) return '';
+  const invokes = commandInvokesGit(command);
+  const died = opened.externalDiffDisabled && EXTERNAL_DIFF_DIED.test(output);
+  if (!invokes && !died) return '';
   const id = sessionNoticeId(sessionKey);
   const lines: string[] = [];
-  if (opened.repoHooksSkipped && !repoHooksNotified.has(id)) {
+  if (invokes && opened.repoHooksSkipped && !repoHooksNotified.has(id)) {
     repoHooksNotified.add(id);
     lines.push(repoHooksNoticeLine());
   }
-  if (opened.externalDiffDisabled && !externalDiffNotified.has(id)) {
+  if (opened.externalDiffDisabled && (died || (invokes && !externalDiffNotified.has(id)))) {
     externalDiffNotified.add(id);
     lines.push(externalDiffDisabledNoticeLine());
   }

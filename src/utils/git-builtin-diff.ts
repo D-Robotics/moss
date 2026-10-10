@@ -10,11 +10,12 @@
  *
  * The script is written under the per-user Moss config directory
  * (`MOSS_CONFIG_DIR`, else the XDG/home config dir), in a `0700` directory.
- * Owner and mode are checked before use. A shared temp path is not used: another
- * local user can pre-create `os.tmpdir()/moss-git-builtin-diff.sh`. When the
- * file cannot be installed safely, or `sh` is missing, callers point
- * `diff.external` and `diff.<name>.command` at `false` instead of leaving the
- * repo command in place.
+ * That parent must be owned by the current user and not group/other writable,
+ * and the script directory's owner and mode are checked before use. A shared
+ * temp path is not used: another local user can pre-create
+ * `os.tmpdir()/moss-git-builtin-diff.sh`. When the file cannot be installed
+ * safely, or `sh` is missing, callers point `diff.external` and
+ * `diff.<name>.command` at `false` instead of leaving the repo command in place.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -103,6 +104,28 @@ function lstatOrNull(file: string): fs.Stats | null {
     if (errnoCode(err) === 'ENOENT') return null;
     return null;
   }
+}
+
+/**
+ * Moss config directory: owned by this user, not a symlink, and not
+ * group/other writable. `0755` is fine. A group-writable or foreign parent
+ * is refused rather than repaired, because another user could replace the
+ * script directory underneath it.
+ */
+function configDirIsSafe(dir: string): boolean {
+  let st = lstatOrNull(dir);
+  if (!st) {
+    try {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    } catch {
+      return false;
+    }
+    st = lstatOrNull(dir);
+  }
+  if (!st || st.isSymbolicLink() || !st.isDirectory()) return false;
+  if (!ownedByCurrentUser(st)) return false;
+  if (process.platform !== 'win32' && (st.mode & 0o022) !== 0) return false;
+  return true;
 }
 
 /**
@@ -210,7 +233,11 @@ export function builtinExternalDiffCommand(): BuiltinExternalDiff {
   if (!shellAvailable()) {
     return { command: EXTERNAL_DIFF_DISABLED_COMMAND, disabled: true };
   }
-  const installed = installScript(path.join(mossConfigDir(), SCRIPT_DIR));
+  const configDir = mossConfigDir();
+  if (!configDirIsSafe(configDir)) {
+    return { command: EXTERNAL_DIFF_DISABLED_COMMAND, disabled: true };
+  }
+  const installed = installScript(path.join(configDir, SCRIPT_DIR));
   if (!installed) {
     return { command: EXTERNAL_DIFF_DISABLED_COMMAND, disabled: true };
   }
