@@ -7,6 +7,7 @@ import { auditResolvedCliConfig, BASE_URL, type ResolvedCliConfig } from './conf
 import { buildApiV1Url } from '../provider/api-v1-url.js';
 import { isZhLocale } from './cli-locale.js';
 import { label } from './ui.js';
+import { WORKSPACE_WRITE_LIMIT_EN } from './workspace-write-copy.js';
 
 export interface GuardrailCounts {
   input: number;
@@ -183,8 +184,11 @@ const FIELDS = {
   ],
   safetyMode: [
     'safety',
-    (c: ResolvedCliConfig) =>
-      `${showTyped(c.safetyMode)} ${sourceNote(c.safetyModeSource, c.safetyModeSource === 'derived:mode' ? ', from permissions.defaultMode' : '')}`,
+    (c: ResolvedCliConfig) => {
+      const base = `${showTyped(c.safetyMode)} ${sourceNote(c.safetyModeSource, c.safetyModeSource === 'derived:mode' ? ', from permissions.defaultMode' : '')}`;
+      // The mode name is not an OS sandbox. Say so next to the value.
+      return c.safetyMode === 'workspace-write' ? `${base}. ${WORKSPACE_WRITE_LIMIT_EN}` : base;
+    },
   ],
   approvalPolicy: [
     'approval',

@@ -603,8 +603,8 @@ const tool = (name, sideEffectClass) => ({
   assert.match(question, /\+ hello/, 'workspace approval previews the content change');
   assert.match(
     question,
-    /\[a\]lways trusts sandboxed workspace file edits/,
-    'persistent option names only sandboxed file edits'
+    /\[a\]lways trusts workspace file-tool edits/,
+    'persistent option names workspace file-tool edits, not an OS sandbox'
   );
   assert.match(
     question,

@@ -34,6 +34,14 @@ export function renderMcpUsage(zh: boolean = isZhLocale()): string {
       '  moss mcp test <name>                        立即连接并列出工具',
       '',
       '值支持 ${ENV_VAR} 引用——凭据只留在环境变量里。',
+      '',
+      '选项：',
+      '  --project       写入工作区 .moss/mcp.json，而不是用户级文件',
+      '  --header k=v    HTTP 服务器的请求头（可重复）',
+      '',
+      '示例：',
+      '  moss mcp add rdk-docs npx -y rdk-docs-mcp@0.2.0',
+      '  moss mcp add docs https://example.test/mcp --header Authorization=${TOKEN}',
     ].join('\n');
   }
   return [
@@ -46,6 +54,14 @@ export function renderMcpUsage(zh: boolean = isZhLocale()): string {
     '  moss mcp test <name>                        connect + tools/list now',
     '',
     'Values support ${ENV_VAR} references — credentials stay in the environment.',
+    '',
+    'Options:',
+    '  --project       write .moss/mcp.json instead of the user file',
+    '  --header k=v    request header for an HTTP server (repeatable)',
+    '',
+    'Examples:',
+    '  moss mcp add rdk-docs npx -y rdk-docs-mcp@0.2.0',
+    '  moss mcp add docs https://example.test/mcp --header Authorization=${TOKEN}',
   ].join('\n');
 }
 

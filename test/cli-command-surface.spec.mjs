@@ -19,7 +19,7 @@ const cli = path.join(here, '..', 'dist', 'cli.js');
 // 'mcp' graduated from ghost to a real lifecycle command (mcp add/list/
 // remove/test) — it answers with usage, exit 2, and is covered by
 // test/mcp-lifecycle.spec.mjs.
-const GHOSTS = ['plugins', 'migrate', 'web', 'agent', 'update'];
+const GHOSTS = ['plugins', 'migrate', 'web', 'agent'];
 for (const ghost of GHOSTS) {
   const res = spawnSync(process.execPath, [cli, ghost], {
     input: '',

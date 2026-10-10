@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### `workspace-write` copy no longer implies an OS sandbox
+
+`workspace-write` confines Moss's own file tools. Shell commands run normally
+without an OS sandbox. `/permissions`, `config show`, help, the README (en and
+zh), and the startup full-mode notice say so. Behaviour is unchanged. An
+opt-in OS sandbox (default off) is specified in `docs/design/os-sandbox.md`.
+
 ### Legacy loop scheduler removed
 
 `LoopScheduler`, its acceptance-failure prompt, and the loop TUI event bridge are gone.

@@ -67,6 +67,8 @@ export interface DeviceInfoSnapshot {
   cpuModel?: string;
   /** Board hardware line (RDK boards expose this in /proc/cpuinfo). */
   hardware?: string;
+  /** `/proc/device-tree/model` when that file is readable. */
+  boardModel?: string;
   cpuCores?: number;
   memTotalBytes?: number;
   memAvailableBytes?: number;
