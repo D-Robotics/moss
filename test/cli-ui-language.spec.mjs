@@ -48,9 +48,11 @@ import { ZH, setTuiLocale, tui } from '../dist/cli/tui/copy.js';
 import { renderApproval, renderTranscriptRows } from '../dist/cli/tui/transcript.js';
 import {
   appendTaskEvent,
+  createDraftTask,
   formatTaskTimeline,
   localizeTaskDetail,
 } from '../dist/core/task/task-store.js';
+import { createContractVerdictProvider } from '../dist/core/task/verdict.js';
 import { installUiLanguage } from '../dist/utils/ui-language.js';
 import { formatDeviceConnectError } from '../dist/device/device-connect-error.js';
 import { SshDeviceConnection } from '../dist/device/ssh-device-connection.js';
@@ -83,6 +85,26 @@ async function withUi(language, fn) {
 
 function assertNoHan(text, label) {
   assert.equal(HAN.test(text), false, `${label} leaked CJK:\n${text}`);
+}
+
+/**
+ * Han, CJK punctuation, and Chinese brackets. A non-zh user-visible string
+ * that contains any of these is mixed.
+ */
+const CHINESE_RESIDUE_RE =
+  /\p{Script=Han}|[\u3000-\u303F\uFF01\uFF0C\uFF1A-\uFF1B\uFF1F]|[\u201C\u201D]/u;
+
+function chineseResidueHits(text) {
+  const hits = [];
+  for (const rawLine of stripAnsi(text).split('\n')) {
+    if (CHINESE_RESIDUE_RE.test(rawLine)) hits.push(rawLine.trim());
+  }
+  return hits;
+}
+
+function assertNoChineseResidue(text, label) {
+  const hits = chineseResidueHits(text);
+  assert.deepEqual(hits, [], `${label} leaked Chinese residue:\n${hits.join('\n')}`);
 }
 
 function assertHan(text, label) {
@@ -609,7 +631,7 @@ save clear plan goal diff model provider config doctor key name id file text hos
 baseurl apikey apikeyenv profile workspace safetymode approvalpolicy trustedtools deniedtools
 permissions defaultmode allow ask deny devicetrust trusteddevices rdkdocs enabled package
 promptcache promptcachedebug guardrails input output blockpatterns redactpatterns agent
-maxturns contexttokens compaction reservetokens keeprecenttokens language
+maxturns contexttokens maxoutputtokens compaction reservetokens keeprecenttokens language
 task_define record_evidence device_deploy search_code workspace-write
 balanced cautious autonomous manual acceptedits full never prompt
 moss_lang moss_config_dir moss_config_file moss_no_bundled_default editor
@@ -701,6 +723,59 @@ const EXEMPTION_MUTATIONS = [
   (text) => spliceEnglish(text, 'enter home end pass fail auto english'),
   (text) => spliceEnglish(text, '中文;'),
   (text) => spliceEnglish(text, '中文!'),
+];
+
+/**
+ * Forty-five Chinese UI fragments. Each one must be detected when it is
+ * appended to a real English screen, and none of them may appear in a
+ * non-zh user-visible string.
+ */
+const CHINESE_RESIDUE_VARIANTS = [
+  '失败',
+  '通过',
+  '阻塞',
+  '已中止',
+  '草稿',
+  '未通过',
+  '界面语言',
+  '中文',
+  '最常用',
+  '诊断',
+  '会话',
+  '任务标识',
+  '裁决',
+  '验收命令失败',
+  '不是 git 仓库',
+  '词元',
+  '上下文窗口',
+  '最大输出',
+  '输出已到上限',
+  '正在续写',
+  '命令历史',
+  '用户配置',
+  '项目配置',
+  '未生效',
+  '已保存',
+  '服务商',
+  '凭据',
+  '工作区',
+  '审批',
+  '信任',
+  '环境变量',
+  '没有拒绝规则',
+  '未探测',
+  '需要先配好模型',
+  '用法：',
+  '未知命令',
+  '此工作区没有已保存的会话',
+  '更新时间',
+  '时间线',
+  '最终裁决',
+  '目标验证命令失败',
+  '运行预算已用尽',
+  '登录环境',
+  '，',
+  '。',
 ];
 
 function zhScreenArgs() {
@@ -1226,6 +1301,89 @@ assert.equal(
 console.log(`[PASS] mutation catch rate ${mutationCaught}/${mutationAttempts}`);
 
 {
+  assert.equal(CHINESE_RESIDUE_VARIANTS.length, 45);
+  const englishHelp = runCli(['--lang', 'en', '--help'], {
+    LANG: 'zh_CN.UTF-8',
+    LC_ALL: 'zh_CN.UTF-8',
+  });
+  assert.equal(englishHelp.status, 0, englishHelp.text);
+  assertNoChineseResidue(englishHelp.text, 'en --help');
+  const missed = [];
+  for (const variant of CHINESE_RESIDUE_VARIANTS) {
+    if (chineseResidueHits(`${englishHelp.text}\n${variant}`).length === 0) missed.push(variant);
+  }
+  assert.deepEqual(missed, [], `Chinese residue variants not blocked: ${missed.join(' | ')}`);
+
+  const enHits = [];
+  for (const args of zhScreenArgs()) {
+    const shown = runCli(['--lang', 'en', ...args], {
+      LANG: 'zh_CN.UTF-8',
+      LC_ALL: 'zh_CN.UTF-8',
+    });
+    assert.notEqual(shown.status, null, `en ${args.join(' ')} timed out`);
+    const hits = chineseResidueHits(shown.text);
+    if (hits.length > 0) enHits.push(`-- ${args.join(' ')}\n${hits.join('\n')}`);
+  }
+  clearUiLanguage();
+  installUiLanguage({ language: 'en', source: 'flag', setting: 'en' });
+  setTuiLocale(false);
+  try {
+    const enCards = followupSurfaces(false);
+    for (const card of enCards) {
+      const hits = chineseResidueHits(card.text);
+      if (hits.length > 0) enHits.push(`-- ${card.name}\n${hits.join('\n')}`);
+    }
+  } finally {
+    clearUiLanguage();
+    setTuiLocale(false);
+  }
+  assert.deepEqual(enHits, [], `en surfaces leaked Chinese:\n${enHits.join('\n')}`);
+
+  const autoEn = runCli(['--help'], { MOSS_LANG: 'auto', LANG: 'C', LC_ALL: 'C' });
+  assert.equal(autoEn.status, 0, autoEn.text);
+  assertNoChineseResidue(autoEn.text, 'auto under C is English');
+  assert.match(autoEn.text, /Most useful/);
+  assert.equal(autoEn.text.includes('最常用'), false);
+
+  const autoZh = runCli(['--help'], {
+    MOSS_LANG: 'auto',
+    LANG: 'zh_CN.UTF-8',
+    LC_ALL: 'zh_CN.UTF-8',
+  });
+  assert.equal(autoZh.status, 0, autoZh.text);
+  assert.match(autoZh.text, /最常用/);
+  assert.equal(autoZh.text.includes('Most useful'), false);
+  assert.deepEqual(englishSentences(autoZh.text), [], autoZh.text);
+
+  const autoConfigEn = runCli(['--help'], {
+    LANG: 'C',
+    LC_ALL: 'C',
+    config: '{"language":"auto"}\n',
+  });
+  assertNoChineseResidue(autoConfigEn.text, 'config auto under C is English');
+  const autoConfigZh = runCli(['--help'], {
+    LANG: 'zh_CN.UTF-8',
+    LC_ALL: 'zh_CN.UTF-8',
+    config: '{"language":"auto"}\n',
+  });
+  assert.match(autoConfigZh.text, /最常用/);
+  assert.equal(autoConfigZh.text.includes('Most useful'), false);
+  assert.deepEqual(englishSentences(autoConfigZh.text), [], autoConfigZh.text);
+}
+
+{
+  const workspace = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-lang-verdict-')));
+  const task = await withUi('zh', () => createDraftTask(workspace, '写一个文件'));
+  const verdict = await withUi('zh', () =>
+    createContractVerdictProvider(workspace).evaluate(task.taskId)
+  );
+  assert.equal(verdict.passed, false);
+  assertNoChineseResidue(verdict.detail, 'stored verdict detail stays English');
+  assert.match(localizeTaskDetail(verdict.detail, true), /任务没有验收标准/);
+  assertNoChineseResidue(localizeTaskDetail(verdict.detail, false), 'en verdict display');
+}
+
+{
   const unknown = runCli(['help', 'nope'], { LANG: 'C', LC_ALL: 'C' });
   assert.equal(unknown.status, 2, unknown.text);
   assert.match(unknown.stderr ?? '', /unknown command 'nope'/);
@@ -1339,7 +1497,7 @@ if (requirePyLayout('cli-ui-language')) {
     {
       cwd: repoRoot,
       encoding: 'utf8',
-      timeout: 90_000,
+      timeout: 150_000,
       env: { ...process.env, HOME: process.env.HOME },
     }
   );
@@ -1347,10 +1505,11 @@ if (requirePyLayout('cli-ui-language')) {
   assert.equal(shot.status, 0, shotText);
   assert.match(shotText, /\[PASS\] zh TUI/);
   const screens = [];
-  for (const match of shotText.matchAll(/===SCREEN ([a-z]+)===([\s\S]*?)===END===/g)) {
+  for (const match of shotText.matchAll(/===SCREEN ([a-z-]+)===([\s\S]*?)===END===/g)) {
     screens.push({ name: match[1], text: match[2] ?? '' });
   }
   const wanted = ['welcome', 'language', 'status', 'help', 'doctor'];
+  const enWanted = ['en-language', 'en-help', 'en-doctor'];
   const tuiHits = [];
   const tuiScreens = [];
   for (const name of wanted) {
@@ -1369,6 +1528,17 @@ if (requirePyLayout('cli-ui-language')) {
   assert.match(doctor.text, /模型/);
   assert.match(doctor.text, /版本/);
   assert.deepEqual(tuiHits, [], `zh TUI screens still have English:\n${tuiHits.join('\n')}`);
+  const enTuiHits = [];
+  for (const name of enWanted) {
+    const screen = screens.find((entry) => entry.name === name);
+    assert.ok(screen, `missing TUI screen ${name}\n${shotText}`);
+    const hits = chineseResidueHits(screen.text);
+    if (hits.length > 0) enTuiHits.push(`-- ${name}\n${hits.join('\n')}`);
+    for (const variant of CHINESE_RESIDUE_VARIANTS) {
+      if (screen.text.includes(variant)) enTuiHits.push(`-- ${name} variant ${variant}`);
+    }
+  }
+  assert.deepEqual(enTuiHits, [], `en TUI leaked Chinese:\n${enTuiHits.join('\n')}`);
   let tuiAttempts = 0;
   let tuiCaught = 0;
   const tuiMisses = [];
