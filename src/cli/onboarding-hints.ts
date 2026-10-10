@@ -1,42 +1,116 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveConfigDir } from './config.js';
+import { setupCopy } from './cli-locale.js';
+import {
+  detectEnvCredentials,
+  offerUsesOfficialHost,
+  type DetectedCredential,
+} from './env-credentials.js';
+import { probeModel } from './connection-probe.js';
+import { saveUserModelConfig } from './first-run.js';
 import { print, question, runSetupWizard } from './setup-wizard.js';
+
+function L(en: string, vars?: Record<string, string | number>): string {
+  return setupCopy(undefined, en, vars);
+}
+
+function officialOffers(offers: readonly DetectedCredential[]): DetectedCredential[] {
+  return offers.filter((offer) => offerUsesOfficialHost(offer));
+}
 
 export function printMissingConfigGuidance(
   interactive: boolean,
   options: { bundledDefaultSuppressedBy?: string } = {}
 ): void {
-  print('Moss needs a model configuration before it can run.');
+  const offers = detectEnvCredentials();
+  const official = officialOffers(offers);
+  if (official.length > 0) {
+    const names = official.map((offer) => offer.keyVar).join(', ');
+    print(
+      L('{names} is set. Run `moss` and press Enter to use it (the value is not printed).', {
+        names,
+      })
+    );
+  } else if (offers.length > 0) {
+    print(
+      L(
+        '{names} is set for {host}. Run `moss` and press its number to use that host. Enter will not send the key there.',
+        {
+          names: offers.map((offer) => offer.keyVar).join(', '),
+          host: offers.map((offer) => offer.baseUrl).join(', '),
+        }
+      )
+    );
+  }
+  print(L('Moss needs a model configuration before it can run.'));
   if (options.bundledDefaultSuppressedBy) {
     print(
-      `Note: the built-in model gateway is disabled because ${options.bundledDefaultSuppressedBy} already sets model settings — remove them (moss config unset provider|model|baseUrl) or add an API key.`
+      L(
+        'Note: the built-in model gateway is disabled because {reason} already sets model settings — remove them (moss config unset provider|model|baseUrl) or add an API key.',
+        { reason: options.bundledDefaultSuppressedBy }
+      )
     );
   }
   print('');
-  print('  moss setup                                      # interactive: provider + model + key');
-  print('  moss config set provider <p> && moss config set model <m>   # script path (no TTY)');
-  print(
-    '  # API key: prefer `moss setup` (hidden prompt) — `config set apiKey` stays in shell history.'
-  );
+  print(L('  moss                          # interactive setup, then the prompt'));
+  print(L('  moss setup                    # same setup, without opening the chat'));
   print('');
   print(
     interactive
-      ? 'Run setup, then start `moss` again.'
-      : 'Configure a model, then retry your command.'
+      ? L('Finish setup, then ask moss to look around this folder.')
+      : L('Configure a model, then retry your command.')
   );
 }
 
 export async function offerSetupForInteractiveMissingConfig(
   options: { bundledDefaultSuppressedBy?: string } = {}
 ): Promise<boolean> {
+  const offers = detectEnvCredentials();
+  if (
+    offers.length === 1 &&
+    offers[0] &&
+    !offers[0].needsModelList &&
+    offerUsesOfficialHost(offers[0])
+  ) {
+    const offer = offers[0];
+    print(
+      L(
+        'Found {label}. Press Enter to use it, or n to choose a provider. The value is not shown.',
+        {
+          label: offer.label,
+        }
+      )
+    );
+    const answer = await question(L('Use it? [Y/n] '));
+    if (!answer || /^y(es)?$/i.test(answer)) {
+      const probe = await probeModel({
+        provider: offer.provider,
+        baseUrl: offer.baseUrl,
+        apiKey: offer.apiKey,
+        model: offer.model,
+      });
+      print(probe.message);
+      if (probe.ok) {
+        const savedPath = saveUserModelConfig({
+          provider: offer.provider,
+          model: offer.model,
+          baseUrl: offer.baseUrl,
+          apiKeyEnv: offer.keyVar,
+        });
+        print(L('Saved → {path}', { path: savedPath }));
+        return true;
+      }
+      print(L('That key did not connect. Starting provider setup.'));
+    }
+  }
   printMissingConfigGuidance(true, options);
-  const answer = await question('Start setup now? [Y/n] ');
+  const answer = await question(L('Start setup now? [Y/n] '));
   if (!answer || /^y(es)?$/i.test(answer)) {
     await runSetupWizard();
     return true;
   }
-  print('Setup skipped. Run `moss setup` when you are ready.');
+  print(L('Setup skipped. Run `moss` when you are ready.'));
   process.exitCode = 1;
   return false;
 }
@@ -67,9 +141,34 @@ export function markOneShotOnboardingShown(env: NodeJS.ProcessEnv = process.env)
 }
 
 export function renderOneShotOnboardingHint(): string {
+  const offers = detectEnvCredentials();
+  const official = officialOffers(offers);
+  if (official.length > 0) {
+    const names = official.map((offer) => offer.keyVar).join(', ');
+    return [
+      L('[moss] No model configured yet.'),
+      L('  {names} is set. Run `moss` and press Enter to use it (the value is not printed).', {
+        names,
+      }),
+      L('  (This hint appears only once.)'),
+    ].join('\n');
+  }
+  if (offers.length > 0) {
+    return [
+      L('[moss] No model configured yet.'),
+      L(
+        '  {names} is set for {host}. Run `moss` and press its number to use that host. Enter will not send the key there.',
+        {
+          names: offers.map((offer) => offer.keyVar).join(', '),
+          host: offers.map((offer) => offer.baseUrl).join(', '),
+        }
+      ),
+      L('  (This hint appears only once.)'),
+    ].join('\n');
+  }
   return [
-    '[moss] No model configured yet.',
-    '  Run `moss setup` to configure one, or tell me: "help me add a model configuration."',
-    '  (This hint appears only once.)',
+    L('[moss] No model configured yet.'),
+    L('  Run `moss` to set up a provider, model, and API key.'),
+    L('  (This hint appears only once.)'),
   ].join('\n');
 }

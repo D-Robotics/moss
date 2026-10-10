@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import * as readline from 'node:readline';
 import { stdin as input, stderr as output } from 'node:process';
-import { buildApiV1Url, isHttpUrl, stripEndpointSuffix } from '../provider/api-v1-url.js';
+import { cleanGatewayUrl } from '../provider/api-v1-url.js';
+import { isZhLocale, setupCopy } from './cli-locale.js';
 import {
   loadCliConfigFile,
   loadConfigFile,
@@ -15,65 +16,54 @@ import {
   type ResolvedCliConfig,
 } from './config.js';
 import { configSnapshotLines } from './config-snapshot.js';
-import { isZhLocale } from './cli-locale.js';
-import { loadModelChoicesForRuntime } from './model-catalog.js';
+import { probeModel } from './connection-probe.js';
+import {
+  isSaveAnywayAnswer,
+  pendingUserApiKeyEnv,
+  reduceFirstRun,
+  renderFirstRunLines,
+  saveUserModelConfig,
+  settleFirstRunJob,
+  SETUP_PROVIDERS,
+  type FirstRunSaved,
+  type FirstRunView,
+} from './first-run.js';
 
-function L(en: string, zh: string, locale?: string): string {
-  return isZhLocale(locale) ? zh : en;
+function L(en: string, locale?: string, vars?: Record<string, string | number>): string {
+  return setupCopy(locale, en, vars);
 }
 
 /** The provider menu `moss setup` prints. Localized when the locale is Chinese. */
 export function setupMenuLines(locale?: string): string[] {
   return [
-    L('Moss model setup', 'Moss 模型配置', locale),
+    L('Moss model setup', locale),
     '',
-    L('Choose provider:', '选择提供方：', locale),
-    L('  1. DeepSeek (recommended)', '  1. DeepSeek（推荐）', locale),
-    L('  2. Aliyun / Qwen', '  2. 阿里云 / Qwen', locale),
-    '  3. OpenAI',
-    '  4. Anthropic',
-    L('  5. OpenAI-compatible', '  5. OpenAI 兼容', locale),
+    L('Choose provider:', locale),
+    ...SETUP_PROVIDERS.map((item) => {
+      const label = isZhLocale(locale) ? item.zh : item.en;
+      const extra = item.id === 'd-robotics' ? L(' (recommended)', locale) : '';
+      return `  ${item.key}. ${label}${extra}`;
+    }),
   ];
 }
 
 export async function probeSetupReachability(
   config: Partial<ResolvedCliConfig>,
-  options: { fetchImpl?: typeof fetch; timeoutMs?: number; locale?: string } = {}
+  options: { fetchImpl?: typeof fetch; timeoutMs?: number } = {}
 ): Promise<string> {
-  const locale = options.locale;
-  let result;
-  try {
-    result = await loadModelChoicesForRuntime(config, config.model ?? '', {
-      timeoutMs: options.timeoutMs ?? 2500,
-      fetchImpl: options.fetchImpl,
-    });
-  } catch {
-    return L(
-      'Saved, but could not reach the gateway with this key — check baseUrl/key, then re-run `moss setup`.',
-      '已保存，但用这把密钥连不上网关 — 请检查 baseUrl/密钥，然后重新运行 `moss setup`。',
-      locale
-    );
+  if (!config.provider || !config.baseUrl || !config.apiKey || !config.model) {
+    return L('Saved. Pick a model with /model before the first prompt.');
   }
-  if (result.source === 'live') {
-    const count = result.choices.length;
-    return L(
-      `Configured and reachable — ${count} model(s) available from the gateway.`,
-      `已配置且可连通 — 网关提供 ${count} 个模型。`,
-      locale
-    );
-  }
-  if (result.warning) {
-    return L(
-      'Saved, but could not reach the gateway with this key — check baseUrl/key, then re-run `moss setup`.',
-      '已保存，但用这把密钥连不上网关 — 请检查 baseUrl/密钥，然后重新运行 `moss setup`。',
-      locale
-    );
-  }
-  return L(
-    `Key saved (${result.providerLabel} — skipping live reachability check).`,
-    `密钥已保存（${result.providerLabel} — 跳过实时连通性检查）。`,
-    locale
-  );
+  const result = await probeModel({
+    provider: config.provider,
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    model: config.model,
+    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+  });
+  if (result.ok) return result.message;
+  return `${result.message} ${L('The config was saved. Fix this, then run moss.')}`;
 }
 
 /** How many gateway models `moss setup` prints before it says "showing N of M". */
@@ -108,31 +98,37 @@ export function formatDiscoveredModels(
 }
 
 export function renderSetupHelp(): string {
+  const zh = isZhLocale();
   return [
-    'Usage:',
+    zh ? '用法：' : 'Usage:',
     '  moss setup',
     '',
-    'Configure the provider, model, and API key and save them to the moss config file.',
-    'The API key is read from a hidden prompt and is never printed.',
+    zh
+      ? '配置服务商、模型和 API key，并保存到 moss 配置文件。'
+      : 'Configure the provider, model, and API key and save them to the moss config file.',
+    zh
+      ? 'API key 从隐藏输入读取，不会被打印。'
+      : 'The API key is read from a hidden prompt and is never printed.',
     '',
-    'Providers (enter the number or the name):',
-    '  1  deepseek            DeepSeek',
-    '  2  qwen                Aliyun / Qwen',
-    '  3  openai              OpenAI',
-    '  4  anthropic           Anthropic',
-    '  5  openai-compatible   gateway URL, then the models that gateway lists',
+    zh ? '服务商（输入序号或名字）：' : 'Providers (enter the number or the name):',
+    ...SETUP_PROVIDERS.map((item) => {
+      if (item.id === 'openai-compatible') {
+        return zh
+          ? `  ${item.key}  openai-compatible   网关地址，然后选择网关列出的模型`
+          : `  ${item.key}  openai-compatible   gateway URL, then the models that gateway lists`;
+      }
+      if (item.id === 'd-robotics') {
+        return zh
+          ? `  ${item.key}  d-robotics          D-Robotics 地瓜网关（只问 key）`
+          : `  ${item.key}  d-robotics          D-Robotics gateway (asks only for the key)`;
+      }
+      return `  ${item.key}  ${item.id}`;
+    }),
     '',
-    'OpenAI-compatible lists models from /v1/models. The "Found N model(s)" count',
-    'matches the list; a longer catalog says how many rows are shown.',
-    'Answer with a number or a model name. A base URL is stored as the API root:',
-    '/v1, /chat/completions, query strings, and credentials are stripped.',
-    '',
-    'Non-interactive: pipe one answer per line (provider, then each prompt).',
-    'Change a saved value later with `moss config` (`moss config --help`).',
-    '',
-    'Examples:',
-    '  moss setup',
-    "  printf '5\\nhttps://gateway.example\\nYOUR_KEY\\nmy-model\\n' | moss setup",
+    zh
+      ? '连接测试失败时不会写入配置。认证失败后回到隐藏的 API key；仍然保存是单独的 y/N，不会回显 key。'
+      : 'A failed connection check does not write the config. After an auth error the next prompt is the hidden API key. Save anyway is a separate y/N and never echoes a key.',
+    zh ? '以后用 `moss config` 修改。' : 'Change a saved value later with `moss config`.',
   ].join('\n');
 }
 
@@ -140,7 +136,18 @@ export function print(line = ''): void {
   output.write(`${line}\n`);
 }
 
-export function question(prompt: string): Promise<string> {
+type EchoMode = 'hidden' | 'guard' | 'choice';
+
+const CHOICE_CHARS = new Set(['y', 'Y', 'n', 'N', '1', '2']);
+
+/** `sk-…` or a long token. Visible prompts must not echo this. */
+export function looksLikeApiKey(value: string): boolean {
+  const text = value.trim();
+  if (/^sk[-_]/i.test(text)) return true;
+  return text.length >= 20 && !/\s/.test(text) && /^[A-Za-z0-9_\-./+=]+$/.test(text);
+}
+
+function echoingQuestion(prompt: string): Promise<string> {
   const rl = readline.createInterface({ input, output });
   return new Promise((resolve) => {
     rl.question(prompt, (answer) => {
@@ -150,15 +157,7 @@ export function question(prompt: string): Promise<string> {
   });
 }
 
-function questionWith(rl: readline.Interface, prompt: string): Promise<string> {
-  return new Promise((resolve) => {
-    rl.question(prompt, (answer) => resolve(answer.trim()));
-  });
-}
-
-function hiddenQuestion(prompt: string): Promise<string> {
-  if (!input.isTTY) return question(prompt);
-
+function readRaw(prompt: string, mode: EchoMode): Promise<string> {
   return new Promise((resolve) => {
     readline.emitKeypressEvents(input);
     const wasRaw = input.isRaw;
@@ -166,6 +165,20 @@ function hiddenQuestion(prompt: string): Promise<string> {
     input.resume();
     output.write(prompt);
     let value = '';
+    let echoed = '';
+
+    function paint(next: string) {
+      if (next === echoed) return;
+      if (echoed.length > 0) output.write('\b \b'.repeat(echoed.length));
+      if (next.length > 0) output.write(next);
+      echoed = next;
+    }
+
+    function visibleEcho(): string {
+      if (mode === 'hidden' || looksLikeApiKey(value)) return '';
+      if (mode === 'choice') return value.length === 1 && CHOICE_CHARS.has(value) ? value : '';
+      return value;
+    }
 
     function cleanup() {
       input.off('keypress', onKeypress);
@@ -185,10 +198,12 @@ function hiddenQuestion(prompt: string): Promise<string> {
       }
       if (key.name === 'backspace') {
         value = value.slice(0, -1);
+        paint(visibleEcho());
         return;
       }
-      if (!key.ctrl && !key.meta && str) {
+      if (!key.ctrl && !key.meta && str && str !== '\r' && str !== '\n') {
         value += str;
+        paint(visibleEcho());
       }
     }
 
@@ -196,30 +211,23 @@ function hiddenQuestion(prompt: string): Promise<string> {
   });
 }
 
-function providerFromChoice(choice: string): CliProviderPreset {
-  const normalized = choice.trim().toLowerCase();
-  if (normalized === '1' || normalized === 'deepseek' || normalized === 'ds') return 'deepseek';
-  if (normalized === '2' || normalized === 'qwen' || normalized === 'aliyun') return 'qwen';
-  if (normalized === '3' || normalized === 'openai') return 'openai';
-  if (normalized === '4' || normalized === 'anthropic' || normalized === 'claude')
-    return 'anthropic';
-  if (normalized === '5' || normalized === 'compatible' || normalized === 'openai-compatible')
-    return 'openai-compatible';
-  return 'deepseek';
+export function question(prompt: string): Promise<string> {
+  if (!input.isTTY) return echoingQuestion(prompt);
+  return readRaw(prompt, 'guard');
+}
+
+function hiddenQuestion(prompt: string): Promise<string> {
+  if (!input.isTTY) return echoingQuestion(prompt);
+  return readRaw(prompt, 'hidden');
+}
+
+function choiceQuestion(prompt: string): Promise<string> {
+  if (!input.isTTY) return echoingQuestion(prompt);
+  return readRaw(prompt, 'choice');
 }
 
 export function sanitizeBaseUrl(value: string): string {
-  const trimmed = value.trim();
-  try {
-    const url = new URL(trimmed);
-    url.username = '';
-    url.password = '';
-    url.search = '';
-    url.hash = '';
-    return stripEndpointSuffix(url.toString());
-  } catch {
-    return stripEndpointSuffix(trimmed);
-  }
+  return cleanGatewayUrl(value);
 }
 
 const MODEL_SIGNATURES: Record<CliProviderPreset, { prefixes: string[]; names: string[] }> = {
@@ -254,6 +262,7 @@ const MODEL_SIGNATURES: Record<CliProviderPreset, { prefixes: string[]; names: s
     ],
   },
   'openai-compatible': { prefixes: [], names: [] },
+  'd-robotics': { prefixes: [], names: ['deepseek-flash'] },
 };
 
 export function guessModelProvider(model: string): CliProviderPreset | null {
@@ -325,279 +334,187 @@ async function printSetupSuccess({
   probe,
 }: SetupSuccessInfo): Promise<void> {
   print('');
-  print(
-    L(
-      `Saved ${preset.displayName}${model ? ` · model ${model}` : ' · model not set — pick one inside moss with /model'} → ${resolveConfigPath()}`,
-      `已保存 ${preset.displayName}${model ? ` · 模型 ${model}` : ' · 尚未选择模型 — 在 moss 里用 /model 选择'} → ${resolveConfigPath()}`
-    )
-  );
+  const path = resolveConfigPath();
+  const saved = model
+    ? L('Saved {name} · model {model} → {path}', undefined, {
+        name: preset.displayName,
+        model,
+        path,
+      })
+    : L('Saved {name} · model not set — pick one inside moss with /model → {path}', undefined, {
+        name: preset.displayName,
+        path,
+      });
+  print(saved);
   if (probe) {
     print(await probeSetupReachability({ provider, model, baseUrl, apiKey }));
   }
   print(
     L(
-      'Security note: the API key is stored encrypted in the config file (file mode 600).',
-      '安全说明：API 密钥以加密形式存在配置文件中（文件权限 600）。'
+      'Security note: a pasted key is stored in the config file (mode 0600). Set apiKeyEnv to a variable name to keep the key out of that file.'
     )
   );
-  print(
-    L(
-      'Avoid sharing or committing this file. Run `moss auth logout` to remove the key.',
-      '不要分享或提交这个文件。运行 `moss auth logout` 可删除密钥。'
-    )
-  );
-  print(
-    L(
-      'Try `moss "explain this project and how to run it"` or run `moss` for interactive mode.',
-      '试试 `moss "explain this project and how to run it"`，或直接运行 `moss` 进入交互模式。'
-    )
-  );
+  print(L('Avoid sharing or committing this file. Run `moss auth logout` to remove the key.'));
+  print(L('Next: ask moss to look around this folder (`moss` or `moss "explain this project"`).'));
 }
 
+/** Readline driver over `reduceFirstRun`. Prompts are the state machine's lines. */
 export async function runSetupWizard(): Promise<void> {
-  const current = loadConfigFile();
-  for (const menuLine of setupMenuLines()) print(menuLine);
-
-  const pipedAnswers = input.isTTY ? null : fs.readFileSync(0, 'utf-8').split(/\r?\n/);
-  let answerIndex = 0;
-  const nextPipedAnswer = () => (pipedAnswers ? (pipedAnswers[answerIndex++] ?? '').trim() : '');
-
-  const rl = input.isTTY ? readline.createInterface({ input, output }) : null;
-  const providerAnswer = rl
-    ? await questionWith(rl, L('Provider [1]: ', '提供方 [1]：'))
-    : nextPipedAnswer();
-  const provider = providerFromChoice(providerAnswer || '1');
-  const preset = PROVIDER_PRESETS[provider];
-
-  const defaultModel = current.model || preset.defaultModel;
-  const defaultBaseUrl = current.baseUrl || preset.defaultBaseUrl;
-
-  if (provider === 'openai-compatible') {
-    const baseUrlPrompt = defaultBaseUrl
-      ? L(`Gateway URL [${defaultBaseUrl}]: `, `网关 URL [${defaultBaseUrl}]：`)
-      : L('Gateway URL: ', '网关 URL：');
-    const baseUrlAnswer = rl ? await questionWith(rl, baseUrlPrompt) : nextPipedAnswer();
-    const baseUrlInput = baseUrlAnswer || defaultBaseUrl;
-    if (!isHttpUrl(baseUrlInput)) {
-      rl?.close();
-      print(
-        L(
-          `Setup cancelled: base URL must be a full http(s) URL, got: ${baseUrlInput}`,
-          `配置已取消：base URL 必须是完整的 http(s) URL，收到：${baseUrlInput}`
-        )
-      );
-      process.exitCode = 1;
-      return;
-    }
-    const baseUrl = sanitizeBaseUrl(baseUrlInput);
-    if (baseUrl !== baseUrlInput.trim().replace(/\/+$/, '')) {
-      print('');
-      print(
-        L(
-          `Note: base URL normalized to "${baseUrl}" (endpoint paths, query strings, and credentials stripped).`,
-          `注意：base URL 已规范为 "${baseUrl}"（已去掉端点路径、查询串和凭据）。`
-        )
-      );
-    }
-
-    if (input.isTTY) rl?.close();
-    const apiKey = input.isTTY
-      ? await hiddenQuestion(L('API key (hidden): ', 'API 密钥（隐藏）：'))
-      : nextPipedAnswer();
-    if (!apiKey) {
-      print(L('Setup cancelled: API key is required.', '配置已取消：必须填写 API 密钥。'));
-      process.exitCode = 1;
-      return;
-    }
-
-    let model = defaultModel;
-    let skipPostProbe = false;
-    if (input.isTTY) {
-      print('');
-      print(L('Checking available models on your gateway…', '正在查询网关上的可用模型…'));
-      const liveModels = await (async () => {
-        try {
-          const res = await fetch(buildApiV1Url(baseUrl, 'models'), {
-            headers: { Authorization: `Bearer ${apiKey}` },
-            signal: AbortSignal.timeout(5000),
-          });
-          if (!res.ok) return [];
-          const json = (await res.json()) as { data?: { id?: string; name?: string }[] };
-          return (json?.data ?? []).flatMap((item) => {
-            const id = item?.id ?? item?.name ?? '';
-            return typeof id === 'string' && id.trim() ? [id.trim()] : [];
-          });
-        } catch {
-          return [];
-        }
-      })();
-      const listed = formatDiscoveredModels(liveModels);
-      const rl2 = readline.createInterface({ input, output });
-      if (listed.choices.length > 0) {
-        skipPostProbe = true;
-        const shown = listed.choices.length;
-        const total = Number(/^Found (\d+) model/.exec(listed.heading)?.[1] ?? shown);
-        print(
-          L(
-            listed.heading,
-            total > shown
-              ? `找到 ${total} 个模型，显示其中 ${shown} 个：`
-              : `找到 ${shown} 个模型：`
-          )
-        );
-        for (const line of listed.lines) print(line);
-        const defaultChoice = defaultModel || listed.choices[0]!;
-        const ans = (
-          await questionWith(
-            rl2,
-            L(`Choose model [${defaultChoice}]: `, `选择模型 [${defaultChoice}]：`)
-          )
-        ).trim();
-        if (/^\d+$/.test(ans)) {
-          model = listed.choices[parseInt(ans, 10) - 1] ?? defaultChoice;
-        } else {
-          model = ans || defaultChoice;
-        }
-      } else {
-        print(
-          L(
-            'Note: could not reach /v1/models — enter your model name manually.',
-            '注意：无法访问 /v1/models — 请手动输入模型名。'
-          )
-        );
-        const ans = (
-          await questionWith(
-            rl2,
-            L(
-              `Model name${defaultModel ? ` [${defaultModel}]` : ''}: `,
-              `模型名${defaultModel ? ` [${defaultModel}]` : ''}：`
-            )
-          )
-        ).trim();
-        model = ans || defaultModel;
-      }
-      rl2.close();
-    } else {
-      const ans = nextPipedAnswer();
-      model = ans || defaultModel;
-    }
-
-    const next: ConfigFile = {
-      ...current,
-      provider,
-      baseUrl,
-      apiKey,
-      promptCache: current.promptCache ?? { enabled: true, debug: false },
-      ...(model ? { model } : {}),
-    };
-    saveConfigFile(next);
-    await printSetupSuccess({
-      preset,
-      model,
-      baseUrl,
-      provider,
-      apiKey,
-      probe: !skipPostProbe && input.isTTY,
-    });
-    return;
-  }
-
-  const fastPath = Boolean(rl);
-  let model: string;
-  let baseUrlInput: string;
-  if (fastPath) {
-    model = defaultModel;
-    baseUrlInput = defaultBaseUrl;
-    print(
-      L(
-        `Using ${preset.displayName} defaults — model ${defaultModel}, base URL ${defaultBaseUrl}.`,
-        `使用 ${preset.displayName} 的默认值 — 模型 ${defaultModel}，base URL ${defaultBaseUrl}。`
-      )
-    );
-    print(
-      L(
-        '(Change later with `moss config set model <name>` or `moss config set baseUrl <url>`.)',
-        '（之后可用 `moss config set model <name>` 或 `moss config set baseUrl <url>` 修改。）'
-      )
-    );
-  } else {
-    const modelAnswer = rl
-      ? await questionWith(rl, L(`Model [${defaultModel}]: `, `模型 [${defaultModel}]：`))
-      : nextPipedAnswer();
-    model = modelAnswer || defaultModel;
-    const baseUrlAnswer = rl
-      ? await questionWith(
-          rl,
-          L(`Base URL [${defaultBaseUrl}]: `, `Base URL [${defaultBaseUrl}]：`)
-        )
-      : nextPipedAnswer();
-    baseUrlInput = baseUrlAnswer || defaultBaseUrl;
-  }
-  if (!isHttpUrl(baseUrlInput)) {
-    rl?.close();
-    print(
-      L(
-        `Setup cancelled: base URL must be a full http(s) URL, got: ${baseUrlInput}`,
-        `配置已取消：base URL 必须是完整的 http(s) URL，收到：${baseUrlInput}`
-      )
-    );
-    process.exitCode = 1;
-    return;
-  }
-  const baseUrl = sanitizeBaseUrl(baseUrlInput);
-  const wasNormalized = baseUrl !== baseUrlInput.trim().replace(/\/+$/, '');
-  if (wasNormalized) {
-    print('');
-    print(
-      L(
-        `Note: the base URL was normalized from "${baseUrlInput.trim()}" to "${baseUrl}".`,
-        `注意：base URL 已从 "${baseUrlInput.trim()}" 规范为 "${baseUrl}"。`
-      )
-    );
-    print(
-      L(
-        'Endpoint paths (/v1/chat/completions, /v1), query strings (?foo=bar), and credentials were stripped.',
-        '已去掉端点路径（/v1/chat/completions、/v1）、查询串（?foo=bar）和凭据。'
-      )
-    );
-    print(
-      L(
-        'Moss appends /v1/chat/completions itself — the saved value above is your API root.',
-        'Moss 会自己追加 /v1/chat/completions — 上面保存的值是 API 根地址。'
-      )
-    );
-  }
-  let apiKey: string;
-  if (input.isTTY) {
-    rl?.close();
-    apiKey = await hiddenQuestion(L('API key (hidden): ', 'API 密钥（隐藏）：'));
-  } else {
-    apiKey = nextPipedAnswer();
-  }
-
-  if (!apiKey) {
-    print(L('Setup cancelled: API key is required.', '配置已取消：必须填写 API 密钥。'));
-    process.exitCode = 1;
-    return;
-  }
-
-  const next: ConfigFile = {
-    ...current,
-    provider,
-    model,
-    baseUrl,
-    apiKey,
-    promptCache: current.promptCache ?? { enabled: true, debug: false },
+  const piped = input.isTTY ? null : fs.readFileSync(0, 'utf8').split(/\r?\n/);
+  let lineNo = 0;
+  const readAnswer = async (prompt: string, hidden = false): Promise<string> => {
+    if (piped) return (piped[lineNo++] ?? '').trim();
+    return hidden ? hiddenQuestion(prompt) : question(prompt);
   };
-  saveConfigFile(next);
-  await printSetupSuccess({
-    preset,
-    model,
-    baseUrl,
-    provider,
-    apiKey,
-    probe: input.isTTY,
-  });
+
+  const pendingEnv = pendingUserApiKeyEnv();
+  let view: FirstRunView = {
+    step: 'provider',
+    offers: [],
+    cursor: 0,
+    ...(pendingEnv ? { apiKeyEnv: pendingEnv } : {}),
+  };
+  let secret = pendingEnv ? (process.env[pendingEnv] ?? '').trim() : '';
+
+  const acceptKey = (value: string): void => {
+    secret = value;
+    view = reduceFirstRun(
+      { ...view, step: 'key', apiKeyEnv: undefined, error: undefined },
+      { type: 'enter', draft: '' },
+      secret
+    ).view;
+  };
+
+  const commit = async (saved: FirstRunSaved): Promise<void> => {
+    saveUserModelConfig({
+      provider: saved.provider,
+      model: saved.model,
+      baseUrl: saved.baseUrl,
+      ...(saved.apiKeyEnv ? { apiKeyEnv: saved.apiKeyEnv } : { apiKey: secret }),
+    });
+    await printSetupSuccess({
+      preset: PROVIDER_PRESETS[saved.provider],
+      model: saved.model,
+      baseUrl: saved.baseUrl,
+      provider: saved.provider,
+      apiKey: secret,
+      probe: false,
+    });
+  };
+
+  const commitAnyway = async (): Promise<'saved' | 'continue' | 'abort'> => {
+    let model = view.model ?? '';
+    if (!model) {
+      const typed = await readAnswer(L('Model name: '));
+      if (looksLikeApiKey(typed)) {
+        acceptKey(typed);
+        return 'continue';
+      }
+      model = typed;
+    }
+    const provider = view.provider ?? 'openai-compatible';
+    const baseUrl = view.baseUrl ?? '';
+    if (!secret.trim() || !baseUrl || !model) {
+      print(L('An API key is required.'));
+      process.exitCode = 1;
+      return 'abort';
+    }
+    await commit({
+      provider,
+      baseUrl,
+      model,
+      ...(view.apiKeyEnv ? { apiKeyEnv: view.apiKeyEnv } : {}),
+    });
+    return 'saved';
+  };
+
+  const readExplicitChoice = async (
+    prompt: string
+  ): Promise<{ kind: 'yes' } | { kind: 'no' } | { kind: 'key'; value: string }> => {
+    const answer = piped ? await readAnswer(prompt) : await choiceQuestion(prompt);
+    if (looksLikeApiKey(answer)) return { kind: 'key', value: answer };
+    if (isSaveAnywayAnswer(answer) || /^y(es)?$/i.test(answer) || answer === '2') {
+      return { kind: 'yes' };
+    }
+    return { kind: 'no' };
+  };
+
+  const applyChoice = async (
+    choice: { kind: 'yes' } | { kind: 'no' } | { kind: 'key'; value: string }
+  ): Promise<'saved' | 'continue' | 'abort'> => {
+    if (choice.kind === 'key') {
+      acceptKey(choice.value);
+      return 'continue';
+    }
+    if (choice.kind === 'yes') return commitAnyway();
+    if (view.step === 'error') {
+      const back = view.failStep ?? 'provider';
+      if (back === 'key') secret = '';
+      view = { ...view, step: back, error: undefined, keyDots: 0 };
+    } else {
+      view = { ...view, error: undefined };
+    }
+    return 'continue';
+  };
+
+  for (let guard = 0; guard < 24; guard += 1) {
+    if (view.step === 'working' && view.pending) {
+      const applied = await settleFirstRunJob(view, view.pending, secret);
+      if (applied.message) print(applied.message);
+      if (applied.saved) {
+        await commit(applied.saved);
+        return;
+      }
+      view = applied.view;
+      continue;
+    }
+    const keyPrompt = L('API key (hidden): {dots}', undefined, { dots: '' });
+    for (const row of renderFirstRunLines(view, undefined, 'readline')) {
+      if (view.step === 'key' && (row === keyPrompt || row.startsWith(keyPrompt))) continue;
+      print(row);
+    }
+    if (view.step === 'error' && view.failStep === 'key') {
+      const pasted = await readAnswer(keyPrompt, true);
+      if (pasted) {
+        acceptKey(pasted);
+        continue;
+      }
+      const outcome = await applyChoice(
+        await readExplicitChoice(L('Save this config anyway? [y/N] '))
+      );
+      if (outcome !== 'continue') return;
+      continue;
+    }
+    if (view.step === 'error' || (view.error && view.step !== 'key')) {
+      const outcome = await applyChoice(
+        await readExplicitChoice(L('Save this config anyway? [y/N] '))
+      );
+      if (outcome !== 'continue') return;
+      continue;
+    }
+    const hidden = view.step === 'key';
+    const answer = await readAnswer(hidden ? keyPrompt : '', hidden);
+    if (!hidden && looksLikeApiKey(answer)) {
+      acceptKey(answer);
+      continue;
+    }
+    if (hidden) {
+      secret = answer;
+      view = reduceFirstRun(
+        { ...view, apiKeyEnv: undefined },
+        { type: 'enter', draft: '' },
+        secret
+      ).view;
+      continue;
+    }
+    const reduced = reduceFirstRun(view, { type: 'enter', draft: answer }, secret);
+    if (reduced.saved) {
+      await commit(reduced.saved);
+      return;
+    }
+    view = reduced.view;
+  }
+  process.exitCode = 1;
 }
 
 export async function runAuthLogout(): Promise<void> {

@@ -7,7 +7,7 @@ import type {
   LLMSystemPromptParts,
 } from '../core/llm/llm-provider.js';
 import { envPreferMoss } from '../utils/env-compat.js';
-import { getRootLogger } from '../logger.js';
+import { providerLogger } from './redacted-log.js';
 import {
   convertMessages,
   defaultRepairToolCallUrl,
@@ -22,9 +22,40 @@ import {
 } from './pi-ai-wire-format.js';
 import { processEvent, convertStreamEvent } from './pi-ai-stream-parser.js';
 import { PiAiFirstEventTimeoutError, startFirstEventWatchdog } from './pi-ai-watchdog.js';
-import { createProviderErrorResponse, throwProviderErrorResponse } from './errors.js';
+import { ErrorCode, isMossError, MossError } from '../errors.js';
+import { classifyProviderError, renderProviderErrorSurface } from './error-classify.js';
 
-const log = getRootLogger().child('provider:pi-ai');
+const log = providerLogger('provider:pi-ai');
+
+function throwUserFacingProviderError(err: unknown): never {
+  const moss = isMossError(err) ? err : undefined;
+  const status = typeof moss?.context?.status === 'number' ? moss.context.status : undefined;
+  const message = moss
+    ? moss.hint
+      ? `${moss.message}\n${moss.hint}`
+      : moss.message
+    : err instanceof Error
+      ? err.message
+      : String(err);
+  const surface = classifyProviderError({
+    errorMessage: message,
+    ...(status !== undefined ? { status } : {}),
+  });
+  const surfaced = new MossError({
+    code:
+      surface.category === 'auth'
+        ? ErrorCode.PROVIDER_AUTH_FAILED
+        : surface.category === 'rate_limit'
+          ? ErrorCode.PROVIDER_RATE_LIMITED
+          : (moss?.code ?? ErrorCode.PROVIDER_UPSTREAM_ERROR),
+    message: renderProviderErrorSurface(surface),
+    recoverable: surface.retryable,
+    cause: err,
+    ...(moss?.context ? { context: moss.context } : {}),
+  });
+  Object.defineProperty(surfaced, 'surface', { value: surface });
+  throw surfaced;
+}
 
 const DEFAULT_ANTHROPIC_CACHE_CONTROL = { type: 'ephemeral' } as const;
 
@@ -265,10 +296,6 @@ export class PiAiLLMProvider implements LLMProvider {
         throw translated;
       }
       streamError = translated instanceof Error ? translated : new Error(String(translated));
-      log.warn('stream threw after processing events', {
-        error: streamError.message,
-        model: this.model.id,
-      });
     } finally {
       watchdog.dispose();
     }
@@ -285,14 +312,7 @@ export class PiAiLLMProvider implements LLMProvider {
           'stream error with only thinking content; model reasoned but was interrupted before response',
           { thinkingChars: thinkingText.length, error: streamError.message }
         );
-        throwProviderErrorResponse(
-          createProviderErrorResponse(
-            'pi-ai',
-            `model completed reasoning but was interrupted before producing a response. ` +
-              `This is usually a gateway timeout or upstream error. Original: ${streamError.message}`,
-            { originalError: streamError }
-          )
-        );
+        throwUserFacingProviderError(streamError);
       }
 
       if (!hasVisibleText && !hasToolUse) {
@@ -320,9 +340,7 @@ export class PiAiLLMProvider implements LLMProvider {
     if (streamError) {
       const hasVisibleContent = content.length > 0;
       if (!hasVisibleContent) {
-        throwProviderErrorResponse(
-          createProviderErrorResponse('pi-ai', streamError.message, { originalError: streamError })
-        );
+        throwUserFacingProviderError(streamError);
       }
       log.warn('returning partial content after mid-stream error', {
         error: streamError.message,

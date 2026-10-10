@@ -78,7 +78,7 @@ const EXPECTED_USAGE = [
 
 // Verbatim current "supported keys" help text (probe: unknown-key error path).
 const EXPECTED_SUPPORTED_KEYS = [
-  'Supported keys — model: provider, model, baseUrl, apiKey; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens',
+  'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens',
   'Run `moss config --help` for supported keys and usage.',
   '',
 ].join('\n');
@@ -150,6 +150,32 @@ test('runConfigSet batch key=value pairs write all keys (characterization)', () 
     );
     const written = fs.readFileSync(projectConfigPath(dir), 'utf8');
     assert.equal(written, '{\n  "model": "x-model",\n  "profile": "autonomous"\n}\n');
+  });
+});
+
+test('runConfigSet apiKeyEnv stores the variable name, not a secret', () => {
+  withProjectDir((dir) => {
+    const { err, exitCode } = withCapturedStreams(() =>
+      setup.runConfigSet(['--project', 'apiKeyEnv', 'DEEPSEEK_API_KEY'], dir)
+    );
+    assert.equal(exitCode, 0);
+    assert.match(err, /apiKeyEnv updated/);
+    const written = JSON.parse(fs.readFileSync(projectConfigPath(dir), 'utf8'));
+    assert.equal(written.apiKeyEnv, 'DEEPSEEK_API_KEY');
+    assert.equal(written.apiKey, undefined);
+    const bad = withCapturedStreams(() =>
+      setup.runConfigSet(['--project', 'apiKeyEnv', '1bad'], dir)
+    );
+    assert.equal(bad.exitCode, 1);
+    assert.match(bad.err, /apiKeyEnv must be an environment variable name/);
+    const still = JSON.parse(fs.readFileSync(projectConfigPath(dir), 'utf8'));
+    assert.equal(still.apiKeyEnv, 'DEEPSEEK_API_KEY');
+    setup.runConfigSet(['--project', 'model', 'deepseek-flash'], dir);
+    const provider = withCapturedStreams(() =>
+      setup.runConfigSet(['--project', 'provider', 'd-robotics'], dir)
+    );
+    assert.equal(provider.exitCode, 0);
+    assert.doesNotMatch(provider.err, /Mismatch/);
   });
 });
 

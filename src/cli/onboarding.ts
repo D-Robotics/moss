@@ -19,7 +19,7 @@ import { configSnapshotLines } from './config-snapshot.js';
 import {
   ok as doctorOk,
   warn as doctorWarn,
-  fail as doctorFail,
+  renderAuthDoctorLine,
   renderNodeDoctorLine,
 } from './doctor.js';
 import { isZhLocale } from './cli-locale.js';
@@ -214,8 +214,8 @@ export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {
     `${label(zh ? '工作区' : 'workspace')} ${compactPath(rt.workspace)}`,
     `${label(zh ? '模型密钥' : 'model key')} ${authState}`,
     zh
-      ? `${ui.dim('下一步')} /status 查看配置、/model 切换模型，或 moss setup 配置自有服务商 API key`
-      : `${ui.dim('next')} /status for the setup, /model to switch, or moss setup for your own provider key`,
+      ? `${ui.dim('下一步')} 让我看看这个目录里有什么。`
+      : `${ui.dim('Next')} ask me to look around this folder.`,
   ].join('\n');
 }
 
@@ -250,7 +250,7 @@ export function renderCliQuickStart(agent: MossAgent, runtime: CliRuntimeStatus 
       : auth.apiKey
         ? '      Change it anytime: run `moss setup` (interactive), or `/model` to choose a model for this session.'
         : '      Configure it: run `moss setup` — choose a provider, choose a model, and paste your API key.',
-    '      Model settings live in moss config only — env vars (DEEPSEEK_API_KEY, MOSS_PROVIDER, ...) are ignored.',
+    '      A saved moss config wins. On a blank first run, moss offers OPENAI_API_KEY, DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, and DASHSCOPE_API_KEY (the value is not printed). Set apiKeyEnv to read a key from the environment instead of storing it.',
     `      Settings are saved to ${compactPath(auth.configPath)} — inspect them with /permissions.`,
     '',
     `  ${label('2/3 Workspace')} ${compactPath(rt.workspace)} · safety ${rt.safetyMode}`,
@@ -328,20 +328,11 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
 
   if (auth.usingBundledDefault) {
     lines.push(doctorOk('model', `${agent.config.model} (built-in model gateway)`));
-    lines.push(doctorOk('auth', 'built-in gateway (no API key needed)'));
   } else {
     lines.push(doctorOk('model', `${agent.config.model} (${auth.providerSource})`));
     lines.push(doctorOk('provider', `${auth.provider} (${auth.providerSource})`));
-    const authKeyDetail =
-      auth.apiKeySource === 'built-in'
-        ? 'built-in, shared gateway key'
-        : `${auth.apiKeySource}, ${auth.apiKeyEncrypted ? 'encrypted' : 'plain text'}`;
-    lines.push(
-      auth.apiKey
-        ? doctorOk('auth', `API key configured (${authKeyDetail})`)
-        : doctorFail('auth', 'no API key; run `moss setup` or `moss config set apiKey ...`')
-    );
   }
+  lines.push(renderAuthDoctorLine(auth));
 
   const proxy =
     process.env.HTTPS_PROXY ||

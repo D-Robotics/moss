@@ -1,5 +1,5 @@
 import type { LLMResponse, LLMStreamEvent, LLMContentBlock } from '../core/llm/llm-provider.js';
-import { getRootLogger } from '../logger.js';
+import { providerLogger } from './redacted-log.js';
 import { classifyProviderError } from './error-classify.js';
 import { isContextOverflowError } from './errors.js';
 import {
@@ -14,7 +14,7 @@ import {
   type PiErrAssistantBlock,
 } from './pi-ai-wire-format.js';
 
-const log = getRootLogger().child('provider:pi-ai');
+const log = providerLogger('provider:pi-ai');
 
 function mapPiUsage(evtUsage: { input?: number; output?: number } | undefined):
   | {

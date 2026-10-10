@@ -15,10 +15,15 @@
 import type { Tool, ToolContext } from '../tools/tool-types.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import { getRootLogger } from '../../logger.js';
+import { preferredLocale } from '../../utils/locale-preference.js';
 import { McpClient } from './client.js';
 import type { McpServerConfig, McpToolCallResult, McpToolDescriptor } from './types.js';
 
 const log = getRootLogger().child('mcp:registry');
+
+function mcpConnectFailedMessage(): string {
+  return /^zh/i.test(preferredLocale() ?? '') ? '服务器连接失败' : 'server connect failed';
+}
 
 /** Providers cap tool names at 64 chars ([a-zA-Z0-9_-]). */
 const MAX_TOOL_NAME_LENGTH = 64;
@@ -213,7 +218,7 @@ export class McpToolRegistry {
       // example, handshake or tools/list timeout). Reap it immediately rather
       // than leaving an idle npx process alive until the CLI exits.
       await entry.client.close().catch(() => undefined);
-      log.warn('server connect failed', {
+      log.warn(mcpConnectFailedMessage(), {
         server: entry.config.name,
         error: entry.status.error,
       });

@@ -23,13 +23,18 @@ Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器
 
 ## 快速开始
 
-> 仓库尚未发布到 npm（`private: true`），从源码构建：
+装上这一版，运行 `moss`，在界面里完成设置，然后要一个回答：
 
 ```bash
 git clone https://github.com/D-Robotics/moss && cd moss
-npm install && npm run build && npm link   # npm link 可选：把 `moss` 装到 PATH 上
-moss setup                                 # 配置 provider / 模型 / API key（输入不回显）
-moss                                       # 进入交互界面
+npm install && npm run build && npm link
+moss
+```
+
+没有可用配置时，`moss` 就在这个界面里设置（按数字选服务商，或按 Enter 使用环境里已有的 key，内容不会显示）。D-Robotics 地瓜网关是第一项，已经预选（地址 `https://ai-api.d-robotics.cc/v1`，默认模型 `deepseek-flash`，只问 key）。不想把 key 写进文件时，先指定服务商再写变量名：`moss config set provider d-robotics`，然后 `moss config set apiKeyEnv <变量名>`。只写 `apiKeyEnv`、不写服务商或地址时，会先问选哪一家，不会把 key 发给默认的 DeepSeek。设好后在同一会话里说：
+
+```text
+看一下这个目录里有什么
 ```
 
 进到交互界面后：
@@ -235,13 +240,18 @@ mean _the board actually did it_.
 
 ### Quick start
 
-> Not on npm yet (`private: true`) — build from source:
+Install this tree, run `moss`, finish setup in the screen, then ask for an answer:
 
 ```bash
 git clone https://github.com/D-Robotics/moss && cd moss
-npm install && npm run build && npm link   # npm link is optional
-moss setup                                 # configure provider / model / API key (hidden input)
-moss                                       # start the interactive shell
+npm install && npm run build && npm link
+moss
+```
+
+With no usable config, `moss` sets itself up in that screen (press a number to pick a provider, or Enter to use a key already in the environment; the value is not shown). The D-Robotics gateway is listed first and preselected (`https://ai-api.d-robotics.cc/v1`, default model `deepseek-flash`, key only). To keep the key out of the file, set the provider and then the variable name: `moss config set provider d-robotics`, then `moss config set apiKeyEnv <VAR>`. A file that names only `apiKeyEnv` is not configured: setup asks which provider, and the key is not sent to the default DeepSeek endpoint. Then, in the same session:
+
+```text
+look around this folder and tell me what it is
 ```
 
 Inside Moss: give it a job (`@` to reference files, `!` for shell), `Shift+Tab` to cycle modes

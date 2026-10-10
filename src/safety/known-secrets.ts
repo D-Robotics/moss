@@ -61,8 +61,39 @@ function collectKnownSecretValues(env: NodeJS.ProcessEnv): string[] {
     if (!SECRET_NAME.test(name) || !isUsableSecret(value)) continue;
     found.add(value);
   }
+  for (const value of userApiKeyEnvValues(env)) found.add(value);
   for (const value of mossStoredSecrets(env)) found.add(value);
   return [...found].sort((a, b) => b.length - a.length);
+}
+
+/** User-level `apiKeyEnv` only. A project `.moss/config.json` must not name a var to read. */
+function userApiKeyEnvValues(env: NodeJS.ProcessEnv): string[] {
+  const values: string[] = [];
+  const home = (env.HOME || env.USERPROFILE || '').trim();
+  const paths: string[] = [];
+  const explicit = (env.MOSS_CONFIG_DIR || '').trim();
+  if (explicit) paths.push(path.join(explicit, 'config.json'));
+  const xdg = (env.XDG_CONFIG_HOME || '').trim();
+  if (xdg) paths.push(path.join(xdg, 'moss', 'config.json'));
+  if (home) paths.push(path.join(home, '.config', 'moss', 'config.json'));
+  for (const file of paths) {
+    let raw: string;
+    try {
+      raw = fs.readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(raw) as { apiKeyEnv?: unknown };
+      const name = typeof parsed.apiKeyEnv === 'string' ? parsed.apiKeyEnv.trim() : '';
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) continue;
+      const value = env[name];
+      if (isUsableSecret(value)) values.push(value);
+    } catch {
+      // Not a config document.
+    }
+  }
+  return values;
 }
 
 function isUsableSecret(value: string | undefined): value is string {

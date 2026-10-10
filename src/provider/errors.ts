@@ -131,10 +131,11 @@ export function createProviderErrorResponse(
  */
 export function throwProviderErrorResponse(response: ProviderErrorResponse): never {
   const retryHint = response.retryAfterMs ? ` (Retry-After: ${response.retryAfterMs}ms)` : '';
+  const label = response.provider === 'pi-ai' ? 'gateway' : response.provider;
   throw new MossError({
     code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
-    message: `${response.provider} API error ${response.status || 'unknown'}${retryHint}: ${response.message}`,
-    hint: `The upstream ${response.provider} API returned an error during streaming.`,
+    message: `${label} API error ${response.status || 'unknown'}${retryHint}: ${response.message}`,
+    hint: `The upstream ${label} API returned an error during streaming.`,
     recoverable: response.retryable,
     cause: response.originalError,
     context: {
@@ -235,9 +236,12 @@ const QUOTA_EXHAUSTED_PATTERNS = [
   'insufficient credits',
   'credit balance',
   'insufficient_quota',
+  'insufficient balance',
+  'insufficient_balance',
   'out of credits',
   'plan quota',
   'plan limit',
+  '余额不足',
 ];
 
 export function isQuotaExceededError(message?: string): boolean {
@@ -282,6 +286,10 @@ export function isTransientError(message?: string): boolean {
 
 export function isAuthError(message?: string): boolean {
   if (!message) return false;
+  // Kept on purpose. `isAuthFailure` runs before the model-not-found branch,
+  // and a 403 whose body is "Tried to access <model>" is a bad model name.
+  // Dropping this check turns that 403 into "paste a new key".
+  if (isModelAccessMessage(message)) return false;
   if (matchesAny(message, AUTH_PATTERNS)) return true;
   // "API key is invalid" / "API key not found" word orders (from the
   // error-classify auth vocabulary merged in T5.1).
@@ -294,7 +302,17 @@ export function isAuthError(message?: string): boolean {
 
 /** Authentication/authorization failure (401/403 or auth-key message patterns). */
 export function isAuthFailure(message?: string, status?: number): boolean {
+  if (status !== 401 && message && !isAuthError(message) && isModelAccessMessage(message)) {
+    return false;
+  }
+  if (status === 403 && message && isModelAccessMessage(message)) return false;
   return isAuthStatus(status) || isAuthError(message);
+}
+
+function isModelAccessMessage(message: string): boolean {
+  return /tried to access|model[^\n]{0,120}(not found|does not exist|unknown|unsupported|no such|not available)|invalid model|no access to (?:the )?model/i.test(
+    message
+  );
 }
 
 /** Rate limiting (429 or rate-limit message patterns). */

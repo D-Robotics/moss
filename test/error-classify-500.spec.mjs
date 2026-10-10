@@ -65,4 +65,26 @@ for (const errorMessage of [
   assert.equal(r.category, 'context_length_exceeded', 'context overflow is classified correctly');
 }
 
+{
+  const gateway = 'Tried to access deepseek-flsh';
+  const r = classifyProviderError({
+    errorMessage: `OpenAI-compatible provider returned HTTP 403: ${gateway}`,
+    status: 403,
+  });
+  assert.equal(r.category, 'model_not_found');
+  assert.match(r.userMessage, /Tried to access deepseek-flsh/);
+  assert.doesNotMatch(r.userMessage, /API key was rejected/);
+  assert.doesNotMatch(r.userMessage, /pi-ai/);
+}
+
+{
+  const r = classifyProviderError({
+    errorMessage: 'connect ECONNREFUSED 127.0.0.1:9',
+    status: undefined,
+  });
+  assert.equal(r.category, 'network');
+  assert.match(r.userMessage, /Fix the base URL/);
+  assert.doesNotMatch(r.userMessage, /Gateway text|网关原文|Details:|详细信息/);
+}
+
 console.error('error-classify: HTTP 500 is now retryable (was non-retryable unknown) ✓');

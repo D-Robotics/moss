@@ -1,4 +1,5 @@
 import { DEFAULT_MODEL } from '../contracts/index.js';
+import { cleanGatewayUrl } from './api-v1-url.js';
 
 /**
  * Provider preset definitions — embedded without CLI dependencies.
@@ -8,13 +9,27 @@ import { DEFAULT_MODEL } from '../contracts/index.js';
  * in the CLI config layer.
  */
 
-export type CliProviderPreset = 'deepseek' | 'qwen' | 'openai' | 'anthropic' | 'openai-compatible';
+export type CliProviderPreset =
+  | 'deepseek'
+  | 'qwen'
+  | 'openai'
+  | 'anthropic'
+  | 'openai-compatible'
+  | 'd-robotics';
 
 export interface ProviderPreset {
   id: CliProviderPreset;
   displayName: string;
   defaultModel: string;
   defaultBaseUrl: string;
+  /**
+   * Environment variables that hold this provider's own key, in offer order.
+   * A custom base URL does not read these unless the user config names one
+   * with `apiKeyEnv`.
+   */
+  envKeys?: readonly string[];
+  /** Optional env var that overrides the preset base URL for first-run offers. */
+  envBaseUrl?: string;
 }
 
 export const PROVIDER_PRESETS: Record<CliProviderPreset, ProviderPreset> = {
@@ -23,24 +38,32 @@ export const PROVIDER_PRESETS: Record<CliProviderPreset, ProviderPreset> = {
     displayName: 'DeepSeek',
     defaultModel: 'deepseek-v4-flash',
     defaultBaseUrl: 'https://api.deepseek.com',
+    envKeys: ['DEEPSEEK_API_KEY'],
+    envBaseUrl: 'DEEPSEEK_BASE_URL',
   },
   qwen: {
     id: 'qwen',
     displayName: 'Aliyun / Qwen',
     defaultModel: 'qwen3.6-plus',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode',
+    envKeys: ['DASHSCOPE_API_KEY', 'ALIYUN_API_KEY', 'QWEN_API_KEY'],
+    envBaseUrl: 'DASHSCOPE_BASE_URL',
   },
   openai: {
     id: 'openai',
     displayName: 'OpenAI',
     defaultModel: 'gpt-4o-mini',
     defaultBaseUrl: 'https://api.openai.com',
+    envKeys: ['OPENAI_API_KEY'],
+    envBaseUrl: 'OPENAI_BASE_URL',
   },
   anthropic: {
     id: 'anthropic',
     displayName: 'Anthropic',
     defaultModel: DEFAULT_MODEL,
     defaultBaseUrl: 'https://api.anthropic.com',
+    envKeys: ['ANTHROPIC_API_KEY'],
+    envBaseUrl: 'ANTHROPIC_BASE_URL',
   },
   'openai-compatible': {
     id: 'openai-compatible',
@@ -48,6 +71,12 @@ export const PROVIDER_PRESETS: Record<CliProviderPreset, ProviderPreset> = {
 
     defaultModel: '',
     defaultBaseUrl: '',
+  },
+  'd-robotics': {
+    id: 'd-robotics',
+    displayName: 'D-Robotics 地瓜网关',
+    defaultModel: 'deepseek-flash',
+    defaultBaseUrl: 'https://ai-api.d-robotics.cc/v1',
   },
 };
 
@@ -64,6 +93,9 @@ export function parseProviderPreset(value: string | undefined): CliProviderPrese
   if (raw === 'openai-compatible' || raw === 'compatible' || raw === 'custom') {
     return 'openai-compatible';
   }
+  if (raw === 'd-robotics' || raw === 'drobotics' || raw === 'digua' || raw === '地瓜') {
+    return 'd-robotics';
+  }
   return null;
 }
 
@@ -79,6 +111,17 @@ export function normalizeProvider(value: string | undefined): CliProviderPreset 
  * Try to infer the provider id from a base-url string.  Returns null when the
  * url is empty or doesn't match any known pattern.
  */
+function canonicalBase(value: string): string {
+  return cleanGatewayUrl(value).toLowerCase();
+}
+
+/** True when `baseUrl` is that preset's published endpoint, not a custom host. */
+export function isOfficialPresetBaseUrl(provider: CliProviderPreset, baseUrl: string): boolean {
+  const official = PROVIDER_PRESETS[provider]?.defaultBaseUrl ?? '';
+  if (!official || !baseUrl.trim()) return false;
+  return canonicalBase(baseUrl) === canonicalBase(official);
+}
+
 export function inferProviderFromBaseUrl(baseUrl: string | undefined): CliProviderPreset | null {
   const raw = (baseUrl || '').toLowerCase();
   if (!raw) return null;
@@ -86,6 +129,7 @@ export function inferProviderFromBaseUrl(baseUrl: string | undefined): CliProvid
   if (raw.includes('aliyuncs.com') || raw.includes('dashscope') || raw.includes('token-plan')) {
     return 'qwen';
   }
+  if (raw.includes('d-robotics.cc')) return 'd-robotics';
   if (raw.includes('api.openai.com')) return 'openai';
   if (raw.includes('anthropic.com')) return 'anthropic';
   return 'openai-compatible';
