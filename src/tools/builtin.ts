@@ -168,7 +168,7 @@ export const execTool: Tool = {
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
         signal: ctx.abortSignal,
-        env: childEnv(ctx.workspaceDir),
+        env: await childEnv(ctx.workspaceDir, ctx.abortSignal),
         cwd: ctx.workspaceDir,
         // Live streaming: forward stdout chunks to the host (TUI/headless
         // renderer) so long-running commands show output incrementally.
