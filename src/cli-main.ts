@@ -49,6 +49,7 @@ import {
   summarizeTrustItems,
   untrustedFolderLine,
 } from './cli/workspace-trust.js';
+import { deliverDotenvSafetyEnvNotices } from './cli/safety-env-notice.js';
 import { runWithApprovalRequest, setPermissionRequestRunner } from './cli/permission-request.js';
 import { resolveSoulIdentity, resolveSoul } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
@@ -432,6 +433,7 @@ async function main() {
 
   // CliPhase.None: no initialization needed (e.g., setup, --help, --version)
   if (requiredPhase === CliPhase.None && commandConfig) {
+    deliverDotenvSafetyEnvNotices(false, () => {});
     const ctx: CommandContext = {
       argv,
       commandArgs: parsedArgs.commandArgs,
@@ -460,6 +462,7 @@ async function main() {
       loadedConfig
     );
 
+    deliverDotenvSafetyEnvNotices(false, () => {});
     const ctx: CommandContext = {
       argv,
       commandArgs: parsedArgs.commandArgs,
@@ -514,6 +517,7 @@ async function main() {
       process.exit(ExitCode.CONFIG);
     }
 
+    deliverDotenvSafetyEnvNotices(false, () => {});
     const ctx: CommandContext = {
       argv,
       commandArgs: parsedArgs.commandArgs,
@@ -1055,6 +1059,7 @@ async function main() {
     if (useTui) emitTuiNotice(line);
     else console.error(line);
   }
+  deliverDotenvSafetyEnvNotices(useTui, emitTuiNotice);
   // v0.16 MCP client: connect servers declared in `.moss/mcp.json` /
   // `<configDir>/mcp.json` (credentials only via ${ENV_VAR} expansion).
   // User servers stay zero-config = zero overhead. rdk-docs is the one builtin:

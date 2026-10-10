@@ -37,6 +37,16 @@ send the primary key to another host is dropped with a warning instead of
 exiting. `PIP_TRUSTED_HOST`, `UV_INSECURE_HOST`, and `DENO_CERT` from a
 project `.env` stay deferred with the other routing variables.
 
+### Project `.env` cannot change approval or other safety controls
+
+`MOSS_AUTO_APPROVE` and the other approval, trust, redaction, and tool-permission
+variables are ignored when they come from a project `.env` or an ancestor
+directory's `.env`, whether or not that folder is trusted. They still work from
+the real process environment and from CLI flags. Moss prints one line naming
+the ignored keys and the `.env` path (`-p` and the REPL on stderr; the
+fullscreen TUI in the transcript, because the alternate screen hides earlier
+stderr).
+
 ### Install and upgrade from a clone
 
 `npm install -g github:D-Robotics/moss` fails on a clean machine (npm 10.9.2 and

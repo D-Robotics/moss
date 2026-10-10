@@ -529,7 +529,10 @@ export function renderConfigEnv(): string {
     '',
     zh
       ? '凭据放在配置文件或服务商自己的密钥变量里 — 不要写进 shell 历史。'
-      : 'Credentials belong in the config file or a provider-specific key var — never in shell history.'
+      : 'Credentials belong in the config file or a provider-specific key var — never in shell history.',
+    zh
+      ? '审批、沙箱、信任、脱敏、钩子和工具权限变量只认真实进程环境和命令行。项目或上级目录的 .env 不能设置它们。'
+      : 'Approval, sandbox, trust, redaction, hook, and tool-permission variables are read from the real process environment and CLI flags only. A project or ancestor .env cannot set them.'
   );
   return lines.join('\n');
 }
