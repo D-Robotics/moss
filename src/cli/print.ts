@@ -174,7 +174,8 @@ export interface HeadlessInitInput {
 
 export interface HeadlessPrintState {
   readonly sessionId: string;
-  readonly model?: string;
+  /** Configured id at start; replaced by the gateway `model` when a reply names one. */
+  model?: string;
   readonly startTime: number;
   pendingAssistantText: string;
   pendingAssistantThinking: string[];
@@ -503,7 +504,11 @@ export function formatHeadlessStreamEvent(
       if (event.ttftMs !== undefined) usage.ttft_ms = event.ttftMs;
       if (event.generationMs !== undefined) usage.generation_ms = event.generationMs;
       if (event.turnGapMs !== undefined) usage.turn_gap_ms = event.turnGapMs;
-      if (event.model !== undefined) usage.model = event.model;
+      if (event.model !== undefined) {
+        usage.model = event.model;
+        const served = event.model.trim();
+        if (served) state.model = served;
+      }
       state.usageSlices.push({
         ...(event.model?.trim()
           ? { model: event.model.trim() }

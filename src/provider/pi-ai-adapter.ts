@@ -196,6 +196,7 @@ export class PiAiLLMProvider implements LLMProvider {
     const thinkingChunks: string[] = [];
     let stopReason: LLMResponse['stopReason'] = 'end_turn';
     let usage: NonNullable<LLMResponse['usage']> = { inputTokens: 0, outputTokens: 0 };
+    let responseModel: string | undefined;
 
     const requestThinkingMode = hasThinkingModeConfigured(
       this.model,
@@ -226,6 +227,7 @@ export class PiAiLLMProvider implements LLMProvider {
         const parsed = processEvent(event, content, this.repairToolCallUrl, thinkingChunks);
         if (parsed.stopReason) stopReason = parsed.stopReason;
         if (parsed.usage) usage = parsed.usage;
+        if (parsed.model) responseModel = parsed.model;
       }
     } catch (err) {
       throw watchdog.translateError(err);
@@ -249,6 +251,7 @@ export class PiAiLLMProvider implements LLMProvider {
       stopReason,
       content,
       usage,
+      ...(responseModel ? { model: responseModel } : {}),
       ...(thinkingChunks.length > 0 ? { thinking: thinkingChunks } : {}),
     };
   }
@@ -261,6 +264,7 @@ export class PiAiLLMProvider implements LLMProvider {
     const thinkingChunks: string[] = [];
     let stopReason: LLMResponse['stopReason'] = 'end_turn';
     let usage: NonNullable<LLMResponse['usage']> = { inputTokens: 0, outputTokens: 0 };
+    let responseModel: string | undefined;
     let incomplete: LLMResponse['incomplete'] | undefined;
 
     const requestThinkingMode = hasThinkingModeConfigured(
@@ -304,6 +308,7 @@ export class PiAiLLMProvider implements LLMProvider {
         const parsed = processEvent(event, content, this.repairToolCallUrl, thinkingChunks);
         if (parsed.stopReason) stopReason = parsed.stopReason;
         if (parsed.usage) usage = parsed.usage;
+        if (parsed.model) responseModel = parsed.model;
       }
     } catch (err) {
       const translated = watchdog.translateError(err);
@@ -388,6 +393,7 @@ export class PiAiLLMProvider implements LLMProvider {
       stopReason,
       content,
       usage,
+      ...(responseModel ? { model: responseModel } : {}),
       ...(incomplete ? { incomplete } : {}),
       ...(thinkingChunks.length > 0 ? { thinking: thinkingChunks } : {}),
     };

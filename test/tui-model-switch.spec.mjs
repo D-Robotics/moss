@@ -58,14 +58,27 @@ async function type(instance, text) {
 }
 
 function mockAgent() {
+  const config = {
+    model: 'spec-model',
+    contextTokens: 100_000,
+    llmProvider: { id: 'spec-model' },
+    sessionStore: { loadMessages: async () => [] },
+  };
   return {
     steer: () => null,
     asyncTasks: { list: () => [] },
-    config: {
-      model: 'spec-model',
-      contextTokens: 100_000,
-      llmProvider: { id: 'spec-model' },
-      sessionStore: { loadMessages: async () => [] },
+    config,
+    switchModel(next) {
+      config.model = next.model;
+      if (next.provider !== undefined) config.provider = next.provider;
+      if (next.baseUrl !== undefined) config.baseUrl = next.baseUrl;
+      config.llmProvider = next.llmProvider;
+      if (next.usingBundledDefault !== undefined) {
+        config.usingBundledDefault = next.usingBundledDefault;
+      }
+      if (typeof config.identityFactory === 'function') {
+        config.baseSystemPrompt = config.identityFactory(next.model);
+      }
     },
     tools: { getAll: () => [], getNames: () => [], size: 0 },
     async *streamChat() {

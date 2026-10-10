@@ -1852,16 +1852,18 @@ export function TuiAppRoot({
         return;
       }
       try {
-        options.agent.config.model = model;
-        const mutable = options.agent.config as { provider?: string; baseUrl?: string };
-        mutable.provider = provider;
-        mutable.baseUrl = config.baseUrl;
-        options.agent.config.llmProvider = createCliProvider({
-          provider,
-          apiKey: config.apiKey,
+        options.agent.switchModel({
           model,
+          provider,
           baseUrl: config.baseUrl,
-          ...(config.usingBundledDefault ? { usingBundledDefault: true } : {}),
+          llmProvider: createCliProvider({
+            provider,
+            apiKey: config.apiKey,
+            model,
+            baseUrl: config.baseUrl,
+            ...(config.usingBundledDefault ? { usingBundledDefault: true } : {}),
+          }),
+          usingBundledDefault: config.usingBundledDefault,
         });
         writePreferredModel(config.baseUrl, model);
       } catch (err) {
@@ -2711,11 +2713,13 @@ export function TuiAppRoot({
         );
         return;
       }
-      options.agent.config.model = bundle.model;
-      const mutable = options.agent.config as { provider?: string; baseUrl?: string };
-      mutable.provider = bundle.provider;
-      mutable.baseUrl = bundle.baseUrl;
-      options.agent.config.llmProvider = createCliProvider(bundle);
+      options.agent.switchModel({
+        model: bundle.model,
+        provider: bundle.provider,
+        baseUrl: bundle.baseUrl,
+        llmProvider: createCliProvider(bundle),
+        usingBundledDefault: false,
+      });
       setCurrentModel(bundle.model);
       options.onFirstRunReady?.(bundle);
       setupSecretRef.current = '';
@@ -3698,7 +3702,7 @@ export function TuiAppRoot({
     blocked: Boolean(approval),
     thinkingActive: store.run.thinkingText.trim() !== '' && !store.run.streamingText.trim(),
   };
-  const actualModel = store.usage.lastModel || currentModel;
+  const actualModel = currentModel || store.usage.sessionModel || store.usage.lastModel;
   const home = process.env.HOME ?? '';
   const cwdLabel =
     home && options.workspaceDir.startsWith(home)

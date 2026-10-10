@@ -95,14 +95,17 @@ function applyCustomModelConfigForRepl(
   }
 
   currentModel = nextConfig.model;
-  agent.config.model = nextConfig.model;
-  (agent.config as { provider?: string; baseUrl?: string }).provider = nextConfig.provider;
-  (agent.config as { provider?: string; baseUrl?: string }).baseUrl = nextConfig.baseUrl;
-  agent.config.llmProvider = createCliProvider({
-    provider: nextConfig.provider,
-    apiKey: nextConfig.apiKey,
+  agent.switchModel({
     model: nextConfig.model,
+    provider: nextConfig.provider,
     baseUrl: nextConfig.baseUrl,
+    llmProvider: createCliProvider({
+      provider: nextConfig.provider,
+      apiKey: nextConfig.apiKey,
+      model: nextConfig.model,
+      baseUrl: nextConfig.baseUrl,
+    }),
+    usingBundledDefault: false,
   });
 
   // Probe the new model's context window so compaction and display reflect the
@@ -514,7 +517,15 @@ export async function runInteractive(
         const selected = services.models.resolveModelSelection(newModel, modelChoices.choices);
         const model = selected?.model ?? newModel;
         currentModel = model;
-        agent.config.model = model;
+        agent.switchModel({
+          model,
+          provider:
+            agent.config.provider ??
+            (typeof modelChoices.provider === 'string' ? modelChoices.provider : undefined),
+          ...(runtime?.config?.baseUrl ? { baseUrl: runtime.config.baseUrl } : {}),
+          llmProvider: agent.config.llmProvider,
+          ...(runtime?.config ? { usingBundledDefault: runtime.config.usingBundledDefault } : {}),
+        });
         if (runtime?.config) {
           runtime.config.model = model;
           runtime.config.modelSource = 'cli';

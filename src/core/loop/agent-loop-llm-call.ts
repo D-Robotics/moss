@@ -66,6 +66,8 @@ export interface ExecuteLlmTurnResult {
   toolCalls: { id: string; name: string; input: Record<string, unknown> }[];
   turnTextParts: string[];
   streamStopReason: StopReason | undefined;
+  /** Model id the gateway put on the response, when it sent one. */
+  responseModel?: string;
 }
 
 function emptyResult(control: LoopControlSignal): ExecuteLlmTurnResult {
@@ -162,6 +164,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
 
     state.firstTokenMs = llmTurn.firstTokenMs;
     state.lastLlmActivityMs = Date.now();
+    const servedModel = llmTurn.responseModel?.trim();
     if (llmTurn.usage) {
       state.budgetTokensUsed +=
         totalPromptTokens(llmTurn.usage) + (llmTurn.usage.outputTokens ?? 0);
@@ -176,7 +179,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
         ttftMs: llmTurn.ttftMs,
         generationMs: llmTurn.generationMs,
         turnGapMs,
-        model: routedModel,
+        model: servedModel || routedModel,
       });
     }
 
@@ -187,6 +190,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
       toolCalls: llmTurn.toolCalls,
       turnTextParts: llmTurn.turnTextParts,
       streamStopReason: llmTurn.streamStopReason,
+      ...(servedModel ? { responseModel: servedModel } : {}),
     };
   } catch (llmError) {
     const errorText = describeError(llmError);

@@ -288,6 +288,9 @@ const agent = {
       instructions,
     };
   },
+  reportedModel() {
+    return undefined;
+  },
   config: {
     model: 'spec-model',
     contextTokens: 100_000,

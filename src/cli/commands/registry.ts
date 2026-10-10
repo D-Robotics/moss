@@ -389,6 +389,12 @@ const contextCommand: CommandSpec = {
           );
         }
       }
+      const configuredModel = ctx.agent.config.model ?? '';
+      const reportedModel = ctx.agent.reportedModel();
+      const modelLine =
+        reportedModel && configuredModel && reportedModel !== configuredModel
+          ? `configured ${configuredModel}, gateway reported ${reportedModel}`
+          : configuredModel;
       ctx.say(
         'system',
         [
@@ -404,7 +410,7 @@ const contextCommand: CommandSpec = {
           `    compact keep   ${fmt(reserveTokens)} (auto-compact reserve)`,
           ...detailLines,
           ...compactionLines,
-          `  model      ${ctx.agent.config.model ?? ''}`,
+          `  model      ${modelLine}`,
         ].join('\n')
       );
     } catch (err) {

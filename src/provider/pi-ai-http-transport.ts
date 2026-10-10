@@ -606,6 +606,7 @@ async function* streamOpenAiChat(
   let inputTokens = 0;
   let outputTokens = 0;
   let cachedTokens = 0;
+  let responseModel: string | undefined;
   let sawDone = false;
   let sawFinishReason = false;
 
@@ -628,6 +629,10 @@ async function* streamOpenAiChat(
       throw new Error(
         `OpenAI-compatible stream error (${label}): ${chunk.error.message ?? 'unknown'}`
       );
+    }
+
+    if (typeof chunk.model === 'string' && chunk.model.trim()) {
+      responseModel = chunk.model.trim();
     }
 
     if (chunk.usage) {
@@ -716,11 +721,17 @@ async function* streamOpenAiChat(
   if (cachedTokens > 0) {
     (doneUsage as Record<string, number>).cacheRead = cachedTokens;
   }
-  yield { type: 'done', stopReason, usage: doneUsage };
+  yield {
+    type: 'done',
+    stopReason,
+    usage: doneUsage,
+    ...(responseModel ? { responseModel } : {}),
+  };
 }
 
 async function* parseOpenAiBuffered(res: Response): AsyncGenerator<PiAiStreamEvent> {
   const data = (await res.json()) as {
+    model?: string;
     choices?: Array<{
       message?: {
         content?: string;
@@ -766,10 +777,12 @@ async function* parseOpenAiBuffered(res: Response): AsyncGenerator<PiAiStreamEve
   if (bufferedCached > 0) {
     (bufferedUsage as Record<string, number>).cacheRead = bufferedCached;
   }
+  const bufferedModel = typeof data.model === 'string' ? data.model.trim() : '';
   yield {
     type: 'done',
     stopReason: mapOpenAiFinishReason(choice?.finish_reason),
     usage: bufferedUsage,
+    ...(bufferedModel ? { responseModel: bufferedModel } : {}),
   };
 }
 
@@ -780,7 +793,7 @@ interface AnthropicSseEvent {
   index?: number;
   delta?: Record<string, unknown>;
   content_block?: Record<string, unknown>;
-  message?: { usage?: Record<string, number> };
+  message?: { usage?: Record<string, number>; model?: string };
   usage?: Record<string, number>;
   error?: { type?: string; message?: string };
 }
@@ -865,6 +878,7 @@ async function* streamAnthropicMessages(
   let outputTokens = 0;
   let cacheReadTokens = 0;
   let cacheCreationTokens = 0;
+  let responseModel: string | undefined;
   let stopReason = 'stop';
 
   for await (const payload of sseDataLines(res.body)) {
@@ -886,6 +900,8 @@ async function* streamAnthropicMessages(
 
     switch (event.type) {
       case 'message_start': {
+        const reported = event.message?.model?.trim();
+        if (reported) responseModel = reported;
         const usage = event.message?.usage;
         if (usage) {
           inputTokens = usage.input_tokens ?? 0;
@@ -969,7 +985,12 @@ async function* streamAnthropicMessages(
         const loose = usage as Record<string, number>;
         loose.cacheRead = cacheReadTokens;
         loose.cacheWrite = cacheCreationTokens;
-        yield { type: 'done', stopReason, usage };
+        yield {
+          type: 'done',
+          stopReason,
+          usage,
+          ...(responseModel ? { responseModel } : {}),
+        };
         break;
       }
       case 'error': {

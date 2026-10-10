@@ -74,6 +74,13 @@ export interface ToolExecutionConfig {
 export interface PromptConfig {
   baseSystemPrompt?: string;
 
+  /**
+   * Rebuilds {@link baseSystemPrompt} for the model that will serve the next
+   * turn. `MossAgent.switchModel` calls this so a mid-session switch cannot
+   * leave the persona naming the startup model.
+   */
+  identityFactory?: (model: string) => string;
+
   domainPrompt?: (() => string) | false;
 
   extraPromptLayers?: string[];
@@ -134,6 +141,15 @@ export interface PromptCacheConfig {
 export interface MossAgentConfig
   extends ProviderConfig, ContextManagementConfig, ToolExecutionConfig, PromptConfig {
   sessionStore: SessionStore;
+
+  /** Host provider id (`deepseek`, `openai-compatible`, …). Updated by `switchModel`. */
+  provider?: string;
+
+  /** Gateway base URL. Updated by `switchModel`. */
+  baseUrl?: string;
+
+  /** True while the bundled Moss gateway is the active endpoint. */
+  usingBundledDefault?: boolean;
 
   workspaceDir?: string;
 

@@ -53,4 +53,27 @@ liveProvider = { complete: async () => ({ model: 'HORIZON-GLM' }) };
   );
 }
 
+// ─── Gateway-reported id that differs from the configured model ───────────────
+{
+  const differed = createModelInfoTool({
+    provider: () => ({ complete: async () => ({ model: 'configured-only' }) }),
+    config: () => ({
+      model: 'configured-only',
+      baseUrl: 'https://example.com',
+      usingBundledDefault: false,
+    }),
+    getReportedModel: () => 'gateway-served-id',
+  });
+  const result = await differed.execute({ input: {} });
+  assert.match(
+    result,
+    /configured configured-only, gateway reported gateway-served-id/,
+    `differing gateway model should be named, got: ${result}`
+  );
+  assert.ok(
+    !result.endsWith('configured-only.'),
+    `must not collapse to the configured id alone, got: ${result}`
+  );
+}
+
 console.log('✓ model-info-tool: reports live model after in-session switch');

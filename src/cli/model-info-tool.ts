@@ -9,6 +9,8 @@ export function createModelInfoTool(deps: {
   getContextTokens?: () => number | undefined;
   /** Dynamic getter for the current max output tokens (derived from context window or user-pinned). */
   getMaxOutputTokens?: () => number | undefined;
+  /** Model id from the latest gateway response, when the provider sent one. */
+  getReportedModel?: () => string | undefined;
 }): Tool {
   return {
     name: 'current_model',
@@ -34,6 +36,11 @@ export function createModelInfoTool(deps: {
         maxOut && maxOut > 0
           ? ` Max output per response: ${(maxOut / 1000).toFixed(0)}k tokens.`
           : '';
+      const configured = config.model?.trim();
+      const reported = deps.getReportedModel?.()?.trim();
+      if (reported && configured && reported !== configured) {
+        return `Underlying model: configured ${configured}, gateway reported ${reported}.${ctxLine}${outLine}`;
+      }
       if (real) {
         return config.usingBundledDefault
           ? `Underlying model: ${real} (served via the built-in model gateway).${ctxLine}${outLine}`

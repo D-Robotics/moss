@@ -803,6 +803,7 @@ async function main() {
     llmProvider: cliLlmProvider,
     sessionStore,
     model,
+    usingBundledDefault: resolvedConfig.usingBundledDefault,
     workspaceDir: workspace,
     // v0.9 W1: shell-write confinement. workspace-write/read-only confine
     // statically-extracted exec write targets to the workspace (same
@@ -849,7 +850,17 @@ async function main() {
         .catch(() => undefined),
     hooks,
   });
-  (agent.config as { baseUrl?: string }).baseUrl = baseUrl;
+  agent.config.baseUrl = baseUrl;
+  agent.config.provider = providerConfig.provider;
+  // Rebuilt on every switchModel so the persona names the live model, including
+  // a soul file's prepend body and the non-overridable honesty footer.
+  agent.config.identityFactory = (nextModel: string) =>
+    resolveSoulIdentity({
+      configDir,
+      workspaceDir: workspace,
+      model: nextModel,
+      usingBundledDefault: agent.config.usingBundledDefault,
+    });
   await registerBuiltinTools(agent);
   // Device targets resolve host > env > .moss/devices.json (registered via
   // `moss device add`); declaring the workspace turns the registry tier on.
@@ -1029,6 +1040,7 @@ async function main() {
       }),
       getContextTokens: () => agent.config.contextTokens,
       getMaxOutputTokens: () => agent.config.maxTokens,
+      getReportedModel: () => agent.reportedModel(),
     })
   );
   // Track the locale-derived region for web_search.
@@ -1400,15 +1412,17 @@ async function main() {
             parsedArgs.configOverrides,
             refreshed
           );
-          agent.config.model = saved.model;
-          const mutable = agent.config as { provider?: string; baseUrl?: string };
-          mutable.provider = saved.provider;
-          mutable.baseUrl = saved.baseUrl;
-          agent.config.llmProvider = createCliProvider({
-            provider: saved.provider,
-            apiKey: saved.apiKey,
+          agent.switchModel({
             model: saved.model,
+            provider: saved.provider,
             baseUrl: saved.baseUrl,
+            llmProvider: createCliProvider({
+              provider: saved.provider,
+              apiKey: saved.apiKey,
+              model: saved.model,
+              baseUrl: saved.baseUrl,
+            }),
+            usingBundledDefault: false,
           });
         },
         // Part B: hand the shell the resolved locale explicitly instead of

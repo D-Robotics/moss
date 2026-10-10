@@ -58,6 +58,8 @@ export interface ProcessLlmResponseParams {
   toolCalls: { id: string; name: string; input: Record<string, unknown> }[];
   turnTextParts: string[];
   streamStopReason: StopReason | undefined;
+  /** Gateway-reported model for this turn, recorded on the assistant message. */
+  responseModel?: string;
   maxTurns: number;
   maxOutputContinuations: number;
   abortSignal: AbortSignal;
@@ -118,6 +120,7 @@ export async function processLlmResponse(
     toolCalls,
     turnTextParts,
     streamStopReason,
+    responseModel,
     maxTurns,
     maxOutputContinuations,
     abortSignal,
@@ -191,11 +194,13 @@ export async function processLlmResponse(
       ? ''
       : extractThinkingTextFromMessage(messageThinkingChunks, assistantContent);
 
+  const servedModel = responseModel?.trim();
   const assistantMsg: Message = {
     role: 'assistant',
     content: assistantContent,
     timestamp: Date.now(),
     ...(messageThinkingChunks.length > 0 ? { thinking: [...messageThinkingChunks] } : {}),
+    ...(servedModel ? { model: servedModel } : {}),
   };
 
   if (!hasThinkingOnly) {
