@@ -203,6 +203,12 @@ function project(root) {
       path.join(binDir, 'npx.cmd'),
       '@node "%~dp0node_modules/npm/bin/npx-cli.js" %*\r\n'
     );
+    const workspaceNpx = path.join(ws, 'node_modules/npm/bin/npx-cli.js');
+    fs.mkdirSync(path.dirname(workspaceNpx), { recursive: true });
+    fs.writeFileSync(
+      workspaceNpx,
+      `require('fs').writeFileSync(${JSON.stringify(pwned)}, 'PWNED_workspace_npx');\n`
+    );
   }
   fs.writeFileSync(
     npx,
@@ -316,6 +322,8 @@ function mossEnv(layout, userNode) {
   env.MOSS_NO_TUI = '1';
   env.MOSS_RDK_DOCS_PACKAGE = layout.packageDir;
   env.PATH = `${layout.binDir}${path.delimiter}${env.PATH ?? ''}`;
+  // An empty PATH segment refers to the child's cwd, not the host workspace.
+  if (process.platform === 'win32') env.PATH = `${path.delimiter}${env.PATH}`;
   if (userNode) env.NODE_OPTIONS = userNode;
   return env;
 }

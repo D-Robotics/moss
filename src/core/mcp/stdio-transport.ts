@@ -95,7 +95,16 @@ export class McpStdioTransport implements McpTransport {
       const npxScript =
         process.platform === 'win32' && command === 'npx'
           ? [...(env.PATH ?? env.Path ?? '').split(path.delimiter), path.dirname(process.execPath)]
-              .map((dir) => path.join(dir, 'node_modules', 'npm', 'bin', 'npx-cli.js'))
+              .map((dir) =>
+                path.resolve(
+                  this.config.cwd ?? process.cwd(),
+                  dir,
+                  'node_modules',
+                  'npm',
+                  'bin',
+                  'npx-cli.js'
+                )
+              )
               .find((candidate) => fs.existsSync(candidate))
           : undefined;
       child = spawnProcess(
