@@ -303,6 +303,16 @@ test('a timed-out tool cannot start native acceptance later from its inherited s
       '',
       'no native acceptance record may be dispatched from the ended tool scope'
     );
+    const next = await createContractVerdictProvider(workspaceDir).evaluate(task.taskId);
+    assert.equal(
+      next.passed,
+      true,
+      'a rejected undispatched attempt must not poison the next real acceptance'
+    );
+    await assert.rejects(fs.stat(path.join(workspaceDir, '.moss', 'acceptance.jsonl.pending')), {
+      code: 'ENOENT',
+    });
+    assert.equal((await getTaskStateSnapshot(workspaceDir, task.taskId)).phase, 'accepted');
   } finally {
     release();
     clearTimeout(timer);

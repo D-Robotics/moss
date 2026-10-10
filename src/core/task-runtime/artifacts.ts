@@ -161,10 +161,12 @@ export async function appendJsonlFile(
   const pendingFile = `${file}.pending`;
   await prepareAppend(pendingFile, originalSize);
   let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+  let dispatched = false;
   try {
     signal?.throwIfAborted();
     if (path.basename(file) === 'acceptance.jsonl')
       acceptanceAppendDispatched(path.dirname(path.dirname(file)));
+    dispatched = true;
     await fs.appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
     handle = await fs.open(file, 'r+');
     await handle.sync();
@@ -192,6 +194,25 @@ export async function appendJsonlFile(
           if (unlinkError.code !== 'ENOENT') throw unlinkError;
         });
         await syncParentDirectory(pendingFile);
+      } else if (!dispatched && !previous && (await readPendingAppend(file)) === 0) {
+        // No append was issued. Under the workspace mutex, a still absent new
+        // data file proves this prepare has no uncertain tail to retain.
+        const absent = await fs.stat(file).then(
+          () => false,
+          (statError: NodeJS.ErrnoException) => {
+            if (statError.code === 'ENOENT') return true;
+            throw statError;
+          }
+        );
+        if (absent) {
+          try {
+            await fs.unlink(pendingFile);
+            await syncParentDirectory(pendingFile);
+          } catch (cleanupError) {
+            if ((await readPendingAppend(file)) === undefined) await prepareAppend(pendingFile, 0);
+            throw cleanupError;
+          }
+        }
       }
     } catch {
       // Preserve the original IO failure; failed compensation never attests PASS.
