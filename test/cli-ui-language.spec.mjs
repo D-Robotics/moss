@@ -434,8 +434,23 @@ function runCli(args, extraEnv = {}) {
     LC_ALL: extraEnv.LC_ALL ?? extraEnv.LANG ?? 'C',
     LC_MESSAGES: extraEnv.LC_MESSAGES ?? extraEnv.LANG ?? 'C',
   };
+  // Host provider keys must not turn a language check into an auto-config check.
+  for (const name of [
+    'DEEPSEEK_API_KEY',
+    'DASHSCOPE_API_KEY',
+    'ALIYUN_API_KEY',
+    'QWEN_API_KEY',
+    'OPENAI_API_KEY',
+    'ANTHROPIC_API_KEY',
+  ]) {
+    delete env[name];
+  }
   delete env.MOSS_LANG;
   if (extraEnv.MOSS_LANG) env.MOSS_LANG = extraEnv.MOSS_LANG;
+  for (const [key, value] of Object.entries(extraEnv)) {
+    if (key === 'config' || key === 'dotenv' || key === 'cwd' || value === undefined) continue;
+    env[key] = value;
+  }
   const result = spawnSync(process.execPath, [cli, ...args], {
     encoding: 'utf8',
     timeout: 30_000,
@@ -495,6 +510,15 @@ for (const args of zhSurfaces) {
   const enGuide = runCli(['--lang', 'en'], { LANG: 'zh_CN.UTF-8', LC_ALL: 'zh_CN.UTF-8' });
   assertNoHan(enGuide.text, 'en startup guidance');
   assert.match(enGuide.text, /Moss needs a model configuration/);
+  const zhKeys = runCli(['--lang', 'zh'], {
+    LANG: 'C',
+    LC_ALL: 'C',
+    DEEPSEEK_API_KEY: 'sk-fake-deepseek',
+    DASHSCOPE_API_KEY: 'sk-fake-dashscope',
+  });
+  assert.match(zhKeys.text, /设置了多个服务商 key/);
+  assert.match(zhKeys.text, /--provider <名称>/);
+  assert.equal(zhKeys.text.includes('需要先配好模型'), false);
 }
 
 {
@@ -1333,6 +1357,17 @@ console.log(`[PASS] mutation catch rate ${mutationCaught}/${mutationAttempts}`);
 }
 
 if (requirePyLayout('cli-ui-language')) {
+  const tuiEnv = { ...process.env, HOME: process.env.HOME };
+  for (const name of [
+    'DEEPSEEK_API_KEY',
+    'DASHSCOPE_API_KEY',
+    'ALIYUN_API_KEY',
+    'QWEN_API_KEY',
+    'OPENAI_API_KEY',
+    'ANTHROPIC_API_KEY',
+  ]) {
+    delete tuiEnv[name];
+  }
   const shot = spawnSync(
     'python3',
     [path.join(repoRoot, 'test', 'fixtures', 'tui-ui-language.py')],
@@ -1340,7 +1375,7 @@ if (requirePyLayout('cli-ui-language')) {
       cwd: repoRoot,
       encoding: 'utf8',
       timeout: 90_000,
-      env: { ...process.env, HOME: process.env.HOME },
+      env: tuiEnv,
     }
   );
   const shotText = `${shot.stdout ?? ''}${shot.stderr ?? ''}`;

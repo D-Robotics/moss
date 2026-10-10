@@ -101,7 +101,7 @@ for (const command of known) {
   assert.notEqual(zh.stdout.trim(), help.stdout.trim(), `${command} zh help should differ from en`);
   assert.equal(zh.stdout.trim(), renderSubcommandHelp(command, true));
   for (const mark of OWN_OPTIONS[command]) {
-    const zhMark = mark === 'not implemented' ? '尚未实现' : mark;
+    const zhMark = mark === 'not implemented' ? '尚未实现' : mark === 'HOME' ? '主目录' : mark;
     assert.ok(zh.stdout.includes(zhMark), `zh ${command} --help should mention ${zhMark}`);
   }
 }
