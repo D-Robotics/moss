@@ -43,7 +43,11 @@ import {
   primaryKeyAllowedForHost,
 } from '../provider/primary-key-host.js';
 import { isFolderTrusted, folderPathKey } from './folder-trust-store.js';
-import { captureEnvBeforeDotenv, envBeforeDotenv } from '../utils/startup-env.js';
+import {
+  captureEnvBeforeDotenv,
+  envBeforeDotenv,
+  recordDotenvOrigin,
+} from '../utils/startup-env.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
 import type { PricingConfig } from './model-pricing.js';
 import type { StatusLineConfig } from './status-line.js';
@@ -2203,6 +2207,7 @@ export function loadEnvFile(envPath: string): void {
       continue;
     }
     process.env[key] = value;
+    recordDotenvOrigin(key, envPath, isUserRoutingEnvFile(envPath, homeBeforeDotenv));
   }
 }
 
@@ -2264,6 +2269,7 @@ export function commitProjectRoutingEnv(input: {
       continue;
     }
     process.env[item.key] = item.value;
+    recordDotenvOrigin(item.key, item.envFile, isUserRoutingEnvFile(item.envFile, homeDir));
     claimed.add(item.key);
   }
   deferredRoutingEnv.length = 0;

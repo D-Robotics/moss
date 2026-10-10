@@ -151,7 +151,7 @@ function hookWorkspace(root) {
   assert.equal(declined.trusted, false);
   assert.equal(declined.prompted, true);
   assert.match(lines[0], /no hooks, MCP servers, agents, or plugins/);
-  assert.match(lines[0], /model gateway, proxy, and TLS/);
+  assert.match(lines[0], /model gateway, proxy, TLS, and device target/);
   assert.match(lines[0], /Trust this folder\?/);
   assert.match(lines[0], /1 {2}Yes, trust this folder/);
   assert.match(lines[0], /2 {2}No, exit/);
@@ -164,7 +164,7 @@ function hookWorkspace(root) {
     items: [{ kind: 'hook', label: 'project hooks (2)' }],
   });
   assert.match(zh, /信任后将加载 项目钩子（2）。/);
-  assert.match(zh, /受信任的项目可以更改模型网关、流量代理和 TLS。/);
+  assert.match(zh, /受信任的项目可以更改模型网关、流量代理、TLS 和设备目标。/);
   assert.match(zh, /信任此文件夹？/);
   const emptyZh = folderTrustPrompt({
     folderKey: '/tmp/proj',
@@ -202,7 +202,10 @@ function hookWorkspace(root) {
     lines[0],
     /Trusting loads project hooks \(1\), status line, stdio MCP \(warehouse\)\./
   );
-  assert.match(lines[0], /A trusted project can change the model gateway, proxy, and TLS\./);
+  assert.match(
+    lines[0],
+    /A trusted project can change the model gateway, proxy, TLS, and device target\./
+  );
   assert.doesNotMatch(lines[0], /no hooks, MCP servers/);
 }
 

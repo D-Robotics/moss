@@ -670,8 +670,10 @@ if (process.platform !== 'win32') {
   trust(tui);
   const screen = await runTui(tui.workspace, childEnv(tui));
   const plain = screen.replace(new RegExp(String.raw`\u001B\[[0-9;?]*[ -/]*[@-~]`, 'g'), '');
-  fs.mkdirSync('/opt/cursor/artifacts', { recursive: true });
-  fs.writeFileSync('/opt/cursor/artifacts/tui-safety-env.txt', plain);
+  if (process.env.MOSS_TEST_ARTIFACT_DIR) {
+    fs.mkdirSync(process.env.MOSS_TEST_ARTIFACT_DIR, { recursive: true });
+    fs.writeFileSync(path.join(process.env.MOSS_TEST_ARTIFACT_DIR, 'tui-safety-env.txt'), plain);
+  }
   assert.match(plain, /Ignored safety env/);
   assert.ok(plain.includes(envFile), plain.slice(0, 2000));
   assert.match(plain, /MOSS_AUTO_APPROVE/);
