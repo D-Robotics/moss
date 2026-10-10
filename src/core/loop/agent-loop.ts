@@ -131,9 +131,10 @@ export function runAgentLoop(
   const stream = createMiniAgentStream();
   const pendingToolAborts = params.pendingToolAborts ?? defaultPendingToolAborts;
 
-  void ensureKeepAliveDispatcherInstalled();
-
   (async () => {
+    // The first model request must see HTTPS_PROXY. Installing in the
+    // background let that request leave before the dispatcher existed.
+    await ensureKeepAliveDispatcherInstalled();
     const {
       runId,
       sessionKey,
