@@ -137,8 +137,8 @@ export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = {}): string
       '',
       '示例：',
       '  moss update',
-      `  npm install -g ${spec}`,
-      '  git -C <clone> pull && npm --prefix <clone> run build',
+      `  \`npm install -g ${spec}\``,
+      '  `git -C <clone> pull && npm --prefix <clone> run build`',
     ].join('\n');
   }
   return [

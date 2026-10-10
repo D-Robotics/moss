@@ -11,6 +11,7 @@ import path from 'node:path';
 
 import { MossError, ErrorCode } from '../../errors.js';
 import { getRootLogger } from '../../logger.js';
+import { uiText } from '../../utils/ui-language.js';
 import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
 import {
   nextTaskPhase,
@@ -459,28 +460,50 @@ export async function buildTaskContextBrief(workspaceDir: string): Promise<strin
 
 // --- timeline -----------------------------------------------------------------
 
-const TIMELINE_LABELS: Record<TaskEventType, string> = {
-  task_created: 'Task created',
-  task_understood: 'Goal understood',
-  planning_started: 'Planning',
-  plan_ready: 'Plan ready',
-  execution_started: 'Execution started',
-  plan_step_updated: 'Plan updated',
-  evidence_recorded: 'Evidence recorded',
-  deployment_recorded: 'Deployment recorded',
-  verification_started: 'Verification started',
-  verification_failed: 'Verification failed',
-  acceptance_pass: 'Acceptance passed',
-  acceptance_fail: 'Acceptance failed',
-  diagnosis_recorded: 'Diagnosis',
-  repair_applied: 'Repair applied',
-  blocked_on_user: 'Blocked — needs user',
-  unblocked: 'Unblocked',
-  task_failed: 'Task failed',
-  task_abandoned: 'Abandoned',
-  task_resumed: 'Resumed',
-  note: 'Note',
-};
+function timelineLabel(type: TaskEventType): string {
+  switch (type) {
+    case 'task_created':
+      return uiText('Task created', '任务已创建');
+    case 'task_understood':
+      return uiText('Goal understood', '已理解目标');
+    case 'planning_started':
+      return uiText('Planning', '计划中');
+    case 'plan_ready':
+      return uiText('Plan ready', '计划就绪');
+    case 'execution_started':
+      return uiText('Execution started', '开始执行');
+    case 'plan_step_updated':
+      return uiText('Plan updated', '计划已更新');
+    case 'evidence_recorded':
+      return uiText('Evidence recorded', '已记录证据');
+    case 'deployment_recorded':
+      return uiText('Deployment recorded', '已记录部署');
+    case 'verification_started':
+      return uiText('Verification started', '开始验证');
+    case 'verification_failed':
+      return uiText('Verification failed', '验证失败');
+    case 'acceptance_pass':
+      return uiText('Acceptance passed', '验收通过');
+    case 'acceptance_fail':
+      return uiText('Acceptance failed', '验收失败');
+    case 'diagnosis_recorded':
+      return uiText('Diagnosis', '诊断');
+    case 'repair_applied':
+      return uiText('Repair applied', '已修复');
+    case 'blocked_on_user':
+      return uiText('Blocked — needs user', '阻塞 — 需要用户');
+    case 'unblocked':
+      return uiText('Unblocked', '已解除阻塞');
+    case 'task_failed':
+      return uiText('Task failed', '任务失败');
+    case 'task_abandoned':
+      return uiText('Abandoned', '已放弃');
+    case 'task_resumed':
+      return uiText('Resumed', '已恢复');
+    case 'note':
+      return uiText('Note', '备注');
+  }
+}
 
 export interface TaskTimelineEntry {
   at: number;
@@ -492,7 +515,7 @@ export interface TaskTimelineEntry {
 export function buildTaskTimeline(events: TaskEvent[]): TaskTimelineEntry[] {
   return foldTaskEvents(events).applied.map((event) => {
     const aborted = event.type === 'task_failed' && event.data?.detail === 'aborted';
-    const label = aborted ? 'Task aborted' : TIMELINE_LABELS[event.type];
+    const label = aborted ? uiText('Task aborted', '任务已中止') : timelineLabel(event.type);
     const detail = aborted
       ? undefined
       : typeof event.data?.detail === 'string'

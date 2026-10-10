@@ -560,33 +560,25 @@ for (const args of zhSurfaces) {
   assert.equal(strict.status, 1, strict.text);
 }
 
-// Commands, flags, env names, and product identifiers. Prose is not exempt:
-// a leftover label (node, version, auth, baseUrl, Skills, harness, config)
-// fails this check on its own.
-const ALLOWED_EN = new Set(
-  `moss setup doctor update resume fork mcp device skill plugins migrate sessions tasks task web agent
-help model status language lang permissions mode plan goal compact clear diff export init stop context usage agents review
-en zh auto json http https api repl tui mcp npm git github linux macos windows posix
-deepseek openai anthropic qwen ripgrep path token url key env var
-ok warn fail pass full manual plan stdio bash ssh id dir cwd true false yes no default
-add list remove test show set unset validate create delete search export run status timeline resume view verify fork init
-unprobed bing bocha brave exa npx ctrl tab esc enter home opt tmp boot etc
-provider profile workspace runtime search detail quiet verbose mock json
-accept edits read only workspace write full access never prompt
-info processes resources temperature robotics network cameras fleet
-allow ask deny none enabled disabled
-mit
-soul commands agents persona
-stdin stdout stderr tty pty
-grep mkdir chmod printf
-d robotics rdk docs
-xclip powershell finder shell
-evidence deployments acceptance
-balanced cautious autonomous
-npx`
+// Product nouns and protocol names only. Ordinary English words are not exempt.
+const PRODUCT_NOUNS = new Set(
+  `moss mcp rdk api ssh url json jsonl repl tui pty tty npm npx git github linux macos windows posix
+powershell deepseek openai anthropic qwen openai-compatible d-robotics http https mit stdin stdout stderr
+ripgrep xclip finder bash ctrl esc tab enter shift alt home end pgup pgdn en zh auto pass fail bing markdown english`
     .split(/\s+/)
-    .map((word) => word.toLowerCase())
+    .filter((word) => word.length > 0)
 );
+
+const MUTATION_SENTENCE = 'No model provider set, run setup or add a key.';
+
+function mutated(text) {
+  const lines = text.split('\n');
+  const idx = lines.findIndex((line) => HAN.test(stripAnsi(line)));
+  if (idx < 0) return `${text}\n${MUTATION_SENTENCE}`;
+  lines[idx] = `${lines[idx]} ${MUTATION_SENTENCE}`;
+  return lines.join('\n');
+}
+
 function stripAnsi(text) {
   let out = '';
   for (let i = 0; i < text.length; i += 1) {
@@ -600,38 +592,50 @@ function stripAnsi(text) {
   return out;
 }
 
+const EXACT_PHRASES = ['api key', 'node.js', 'task os'];
+
 function englishSentences(text) {
   const hits = [];
-  for (const rawLine of text.split('\n')) {
-    const plain = stripAnsi(rawLine);
-    if (/^\s*(\$ )?(moss\b|\/[a-z]|git\b|npm\b|npx\b|printf\b|echo\b|node\b)/i.test(plain))
-      continue;
-    // Help tables put the command name in the first column (`config    show|…`).
-    // A doctor label sits after ok/warn/fail, so `node` / `baseUrl` / `config` there still fail.
-    const row = plain.replace(/^\s*[A-Za-z][\w-]*\s{2,}/, ' ');
-    const stripped = row
-      .replace(/`[^`]*`/g, ' ')
-      .replace(/https?:\/\/\S+/g, ' ')
-      .replace(/\bmoss\b(?:\s+[a-z][\w-]*)?/gi, ' ')
-      .replace(/\[[A-Za-z][\w.-]*\]/g, ' ')
-      .replace(/\b[A-Za-z][\w-]*(?:\.[A-Za-z0-9_*-]+)+\b/g, ' ')
-      .replace(/\b[A-Za-z][\w-]*:[A-Za-z][\w.-]*/g, ' ')
-      .replace(/--?[A-Za-z0-9][\w-]*/g, ' ')
-      .replace(/<[^>\n]*>/g, ' ')
-      .replace(/\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/g, ' ')
-      .replace(/\b[A-Z][A-Z0-9_]{2,}\b/g, ' ')
-      .replace(/[~./][\w./~-]*/g, ' ')
-      .replace(/[<>]/g, ' ');
-    const words = stripped.match(/[A-Za-z][A-Za-z0-9_'-]{2,}/g) ?? [];
-    const leftover = words.filter((word) => {
-      const lower = word.toLowerCase();
-      if (ALLOWED_EN.has(lower)) return false;
-      if (/^[a-z]+[-_][a-z0-9_-]+$/i.test(word)) return false;
-      return true;
-    });
-    if (leftover.length > 0) {
-      hits.push(`${plain.trim()}  << ${leftover.join(' ')}`);
+  for (const rawLine of stripAnsi(text).split('\n')) {
+    const visible = rawLine.replace(/`[^`]*`/g, ' ').replace(/https?:\/\/\S+/g, ' ');
+    if (/[\u4e00-\u9fff]\s*[,:()]|[,:()]\s*[\u4e00-\u9fff]/.test(visible)) {
+      hits.push(`${rawLine.trim()}  << punctuation`);
     }
+    let line = rawLine;
+    line = line.replace(/`[^`]*`/g, ' ');
+    line = line.replace(/https?:\/\/\S+/g, ' ');
+    for (const phrase of EXACT_PHRASES) {
+      line = line.replace(new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ');
+    }
+    line = line.replace(/\b(?!AM\b|PM\b)[A-Z][A-Z0-9_]{1,}\b/g, ' ');
+    line = line.replace(/\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/g, ' ');
+    line = line.replace(/\[(?:y\/N|Y\/n|y\/n)\]/gi, ' ');
+    line = line.replace(/\by\/N\b/g, ' ');
+    line = line.replace(
+      /\bmoss\b(?:\s+--?[A-Za-z0-9][\w-]*(?:\s+[A-Za-z0-9][\w.-]*)?)*(?:\s+[a-z][\w.-]*){0,4}(?:\s+--?[A-Za-z0-9][\w-]*(?:\s+[A-Za-z0-9][\w.-]*)?)*/gi,
+      ' '
+    );
+    line = line.replace(/\[[A-Za-z][\w.|-]*\]/g, ' ');
+    line = line.replace(/\b[A-Za-z0-9]+(?:\|[A-Za-z0-9]+)+\b/g, ' ');
+    line = line.replace(/\|\s*[A-Za-z][\w-]*/g, ' ');
+    line = line.replace(/\b[A-Za-z][\w-]*(?:\.[A-Za-z0-9_*-]+)+\b/g, ' ');
+    line = line.replace(/\b[A-Za-z][\w-]*:[A-Za-z0-9][\w.-]*/g, ' ');
+    line = line.replace(/\b[A-Za-z][\w-]*=\S+/g, ' ');
+    line = line.replace(/--?[A-Za-z0-9][\w-]*(?:\s+[A-Za-z0-9][\w.-]*)?/g, ' ');
+    line = line.replace(/\b[a-z][\w-]*\s*\/\s*[a-z][\w-]*/gi, ' ');
+    line = line.replace(/\/[A-Za-z][\w-]*(?:\s+[a-z][\w-]*)?/g, ' ');
+    line = line.replace(/<[^>\n]*>/g, ' ');
+    line = line.replace(/\b(?:Ctrl|Shift|Alt|Opt|Cmd)(?:\+[A-Za-z0-9]+)+/gi, ' ');
+    line = line.replace(/[~./][\w./~-]*/g, ' ');
+    line = line.replace(/\b\d+(?:\.\d+)?[A-Za-z0-9-]*/g, ' ');
+    line = line.replace(/^\s*(?:ok|warn|fail)\b/i, ' ');
+    if (HAN.test(line)) line = line.replace(/^\s*[A-Za-z][\w-]*/, ' ');
+    const words = line.match(/[A-Za-z][A-Za-z0-9_'-]*/g) ?? [];
+    const leftover = words.filter((word) => {
+      if (word.length < 2) return false;
+      return !PRODUCT_NOUNS.has(word.toLowerCase());
+    });
+    if (leftover.length > 0) hits.push(`${rawLine.trim()}  << ${leftover.join(' ')}`);
   }
   return hits;
 }
@@ -642,6 +646,7 @@ const zhSurfacesAll = [
   ['config', '--help'],
   ['config', 'env'],
   ['config', 'show'],
+  ['config', 'validate'],
   ['doctor'],
   ['setup', '--help'],
   ['auth', '--help'],
@@ -659,11 +664,38 @@ const zhSurfacesAll = [
   ['web', '--help'],
   ['agent', '--help'],
 ];
+const mutationMisses = [];
+const surfaceHits = [];
 for (const args of zhSurfacesAll) {
   const shown = runCli(['--lang', 'zh', ...args], { LANG: 'C', LC_ALL: 'C' });
   assert.notEqual(shown.status, null, `${args.join(' ')} timed out`);
+  const name = args.join(' ');
   const hits = englishSentences(shown.text);
-  assert.deepEqual(hits, [], `--lang zh ${args.join(' ')} still has English:\n${hits.join('\n')}`);
+  if (hits.length > 0) surfaceHits.push(`-- ${name}\n${hits.join('\n')}`);
+  const mutatedHits = englishSentences(mutated(shown.text));
+  if (mutatedHits.length === 0) mutationMisses.push(name);
+}
+assert.deepEqual(surfaceHits, [], `zh surfaces still have English:\n${surfaceHits.join('\n')}`);
+assert.deepEqual(
+  mutationMisses,
+  [],
+  `mutation sentence was not caught on: ${mutationMisses.join(', ')}`
+);
+console.log(
+  `[PASS] mutation self-test caught the English sentence on ${zhSurfacesAll.length} CLI surfaces`
+);
+
+{
+  const unknown = runCli(['help', 'nope'], { LANG: 'C', LC_ALL: 'C' });
+  assert.equal(unknown.status, 2, unknown.text);
+  assert.match(unknown.stderr ?? '', /unknown command 'nope'/);
+  assert.equal((unknown.stdout ?? '').trim(), '', unknown.stdout);
+  const unknownZh = runCli(['--lang', 'zh', 'help', 'notacommand'], { LANG: 'C', LC_ALL: 'C' });
+  assert.equal(unknownZh.status, 2, unknownZh.text);
+  assert.match(unknownZh.stderr ?? '', /未知命令「notacommand」/);
+  const known = runCli(['help', 'config'], { LANG: 'C', LC_ALL: 'C' });
+  assert.equal(known.status, 0, known.text);
+  assert.match(known.stdout ?? '', /Usage:/);
 }
 
 {
@@ -682,8 +714,13 @@ for (const args of zhSurfacesAll) {
       }),
       true
     );
+    assert.match(english.join('\n'), /UI language: English/);
     assert.match(english.join('\n'), /MOSS_LANG=zh will override this on the next start/);
     assert.match(english.join('\n'), /--lang=en overrides the saved setting/);
+    assert.match(
+      english.join('\n'),
+      /next start uses the saved setting unless --lang or MOSS_LANG is set/
+    );
 
     envBeforeDotenv.MOSS_LANG = 'en';
     installUiLanguage({ language: 'zh', source: 'flag', setting: 'zh' });
@@ -693,6 +730,7 @@ for (const args of zhSurfacesAll) {
     });
     assert.match(chinese.join('\n'), /下次启动时 MOSS_LANG=en 会覆盖它/);
     assert.match(chinese.join('\n'), /--lang=zh 会覆盖已保存的设置/);
+    assert.match(chinese.join('\n'), /下次启动若不带 --lang、也不设 MOSS_LANG，则使用已保存的值/);
     const saved = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
     assert.equal(saved.language, 'zh');
 
@@ -728,6 +766,29 @@ if (requirePyLayout('cli-ui-language')) {
   const shotText = `${shot.stdout ?? ''}${shot.stderr ?? ''}`;
   assert.equal(shot.status, 0, shotText);
   assert.match(shotText, /\[PASS\] zh TUI/);
+  const screens = [];
+  for (const match of shotText.matchAll(/===SCREEN ([a-z]+)===([\s\S]*?)===END===/g)) {
+    screens.push({ name: match[1], text: match[2] ?? '' });
+  }
+  const wanted = ['welcome', 'language', 'status', 'help', 'doctor'];
+  const tuiMisses = [];
+  const tuiHits = [];
+  for (const name of wanted) {
+    const screen = screens.find((entry) => entry.name === name);
+    assert.ok(screen, `missing TUI screen ${name}\n${shotText}`);
+    const hits = englishSentences(screen.text);
+    if (hits.length > 0) tuiHits.push(`-- ${name}\n${hits.join('\n')}`);
+    if (englishSentences(mutated(screen.text)).length === 0) tuiMisses.push(name);
+  }
+  assert.deepEqual(tuiHits, [], `zh TUI screens still have English:\n${tuiHits.join('\n')}`);
+  assert.deepEqual(
+    tuiMisses,
+    [],
+    `TUI mutation sentence was not caught on: ${tuiMisses.join(', ')}`
+  );
+  console.log(
+    `[PASS] mutation self-test caught the English sentence on ${zhSurfacesAll.length} CLI surfaces and ${wanted.length} TUI screens`
+  );
 }
 
 console.log('[PASS] cli ui language');

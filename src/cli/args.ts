@@ -65,6 +65,9 @@ export interface ParsedCliArgs {
 
   unknownCommand?: { token: string; suggestion: string };
 
+  /** `moss help <unknown>` — not a prompt, and not root help. */
+  unknownHelpTopic?: string;
+
   interactiveOnlyCommand?: string;
 
   unknownOption?: string;
@@ -317,14 +320,24 @@ function flagConsumesNext(arg: string): boolean {
   );
 }
 
-function findCommand(argv: string[]): { command: CliCommand; index: number; helpWord?: number } {
+function findCommand(argv: string[]): {
+  command: CliCommand;
+  index: number;
+  helpWord?: number;
+  unknownHelpTopic?: string;
+} {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--') break;
     // `moss help config` is `moss config --help` and exits 0.
+    // `moss help <unknown>` is a usage error, not a chat prompt.
     if (arg.toLowerCase() === 'help') {
-      const named = asCommand(argv[i + 1]?.toLowerCase());
-      if (named) return { command: named, index: i + 1, helpWord: i };
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith('-')) {
+        const named = asCommand(next.toLowerCase());
+        if (named) return { command: named, index: i + 1, helpWord: i };
+        return { command: 'chat', index: -1, helpWord: i, unknownHelpTopic: next };
+      }
     }
     const command = asCommand(arg);
     if (command) return { command, index: i };
@@ -349,7 +362,11 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let forkSource: string | undefined;
   let detailMode: ParsedCliArgs['detailMode'];
   let mock = false;
-  let help = foundCommand.helpWord !== undefined;
+  let help = foundCommand.helpWord !== undefined && foundCommand.unknownHelpTopic === undefined;
+  const unknownHelpIndex =
+    foundCommand.unknownHelpTopic !== undefined && foundCommand.helpWord !== undefined
+      ? foundCommand.helpWord + 1
+      : -1;
   let helpAll = false;
   let version = false;
   let print = false;
@@ -394,7 +411,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (i === foundCommand.index || i === foundCommand.helpWord) continue;
+    if (i === foundCommand.index || i === foundCommand.helpWord || i === unknownHelpIndex) continue;
     if (promptOnly) {
       promptParts.push(arg);
       continue;
@@ -690,6 +707,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     outputFormat,
     maxTurns,
     unknownCommand,
+    unknownHelpTopic: foundCommand.unknownHelpTopic,
     interactiveOnlyCommand,
     unknownOption,
     lang,

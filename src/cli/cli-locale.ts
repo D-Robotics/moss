@@ -58,7 +58,7 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   'Moss setup': 'Moss 设置',
   ' or ': ' 或 ',
   'About a minute. A pasted key is stored in the config file (mode 0600). Set apiKeyEnv to a variable name to keep the key out of that file.':
-    '大约一分钟。粘贴的 key 存在配置文件里（权限 0600）。把 apiKeyEnv 设成变量名就不会写入文件。',
+    '大约一分钟。粘贴的密钥存在配置文件里（权限 0600）。把 `apiKeyEnv` 设成变量名就不会写入文件。',
   'That number is not in the list.': '序号不在列表里。',
   '"{text}" is not in the list. Closest match: {suggested}. Type its number, or press Enter to use {suggested}.':
     '「{text}」不在列表里。最接近的是 {suggested}。输入它的序号，或按 Enter 使用 {suggested}。',
@@ -72,9 +72,9 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   'Type a model name or its number.': '请输入模型名或序号。',
   'No models were listed. Type the model name.': '网关没有返回模型。请直接输入模型名。',
   'A key is already in the environment. Press Enter to use it (the value is not shown).':
-    '环境里已经有 key。按 Enter 使用（不会显示内容）。',
+    '环境里已经有密钥。按 Enter 使用（不会显示内容）。',
   'A key is already in the environment. Press its number to use that host (the value is not shown). Enter chooses a provider.':
-    '环境里已经有 key。按数字使用那个地址（不会显示内容）。Enter 改为选择服务商。',
+    '环境里已经有密钥。按数字使用那个地址（不会显示内容）。Enter 改为选择服务商。',
   'n  choose a provider instead': 'n  改为选择服务商',
   'Choose a provider. Press its number.': '选择服务商，按数字。',
   'Gateway URL (https://host). A trailing /v1 is removed.':
@@ -87,7 +87,7 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   'Fetching the model list…': '正在获取模型列表…',
   'Testing the connection (1 token)…': '正在测试连接（1 token）…',
   'Esc returns to the URL.': 'Esc 返回修改地址。',
-  'Esc returns to the key.': 'Esc 返回修改 key。',
+  'Esc returns to the key.': 'Esc 返回修改密钥。',
   'Esc picks a provider again.': 'Esc 重新选择服务商。',
   'Enter retries. {back} Type "save anyway" or press 1 to write this config.':
     'Enter 重试。{back}输入「仍然保存」或按 1 则写入配置。',
@@ -98,9 +98,9 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   'Model name: ': '模型名：',
   'The gateway returned HTTP {status} without a model reply. Check the base URL.':
     '网关返回 HTTP {status}，但没有模型回复。请检查地址。',
-  'Connected — {model} replied in {latencyMs}ms.': '已连通 — {model} 在 {latencyMs}ms 内有回复。',
+  'Connected — {model} replied in {latencyMs}ms.': '已连通 — {model} 在 {latencyMs} 毫秒内有回复。',
   'Moss model setup': 'Moss 模型配置',
-  'Choose provider:': '选择提供方：',
+  'Choose provider:': '选择服务商：',
   ' (recommended)': '（推荐）',
   'Saved. Pick a model with /model before the first prompt.':
     '已保存。第一次提问前用 /model 选一个模型。',
@@ -109,9 +109,9 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   'Saved {name} · model not set — pick one inside moss with /model → {path}':
     '已保存 {name} · 尚未选择模型 — 在 moss 里用 /model 选择 → {path}',
   'Security note: a pasted key is stored in the config file (mode 0600). Set apiKeyEnv to a variable name to keep the key out of that file.':
-    '安全说明：粘贴的 key 存在配置文件里（权限 0600）。把 apiKeyEnv 设成变量名就不会写入文件。',
+    '安全说明：粘贴的密钥存在配置文件里（权限 0600）。把 `apiKeyEnv` 设成变量名就不会写入文件。',
   'Avoid sharing or committing this file. Run `moss auth logout` to remove the key.':
-    '不要分享或提交这个文件。运行 `moss auth logout` 可以删掉 key。',
+    '不要分享或提交这个文件。运行 `moss auth logout` 可以删掉密钥。',
   'Next: ask moss to look around this folder (`moss` or `moss "explain this project"`).':
     '下一步：让 moss 看看这个目录（运行 `moss`，或 `moss "介绍一下这个项目"`）。',
   [WORKSPACE_WRITE_LIMIT_EN]: WORKSPACE_WRITE_LIMIT_ZH,
@@ -130,21 +130,21 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
     '发现 {label}。按 Enter 使用，或输入 n 选择服务商。不会显示内容。',
   'Use it? [Y/n] ': '使用它？[Y/n] ',
   'Saved → {path}': '已保存 → {path}',
-  'That key did not connect. Starting provider setup.': '这个 key 没连上。改为选择服务商。',
+  'That key did not connect. Starting provider setup.': '这个密钥没连上。改为选择服务商。',
   'Start setup now? [Y/n] ': '现在开始设置？[Y/n] ',
   'Setup skipped. Run `moss` when you are ready.': '已跳过设置。准备好后运行 `moss`。',
   '[moss] No model configured yet.': '[moss] 还没有配置模型。',
   '  {names} is set. Run `moss` and press Enter to use it (the value is not printed).':
     '  已设置 {names}。运行 `moss` 并按 Enter 使用（不会打印内容）。',
   '{names} is set for {host}. Run `moss` and press its number to use that host. Enter will not send the key there.':
-    '{names} 已设置，地址是 {host}。运行 `moss` 并按数字使用该地址。Enter 不会把 key 发到那里。',
+    '{names} 已设置，地址是 {host}。运行 `moss` 并按数字使用该地址。Enter 不会把密钥发到那里。',
   '  {names} is set for {host}. Run `moss` and press its number to use that host. Enter will not send the key there.':
-    '  {names} 已设置，地址是 {host}。运行 `moss` 并按数字使用该地址。Enter 不会把 key 发到那里。',
+    '  {names} 已设置，地址是 {host}。运行 `moss` 并按数字使用该地址。Enter 不会把密钥发到那里。',
   '  (This hint appears only once.)': '  （此提示只显示一次。）',
   '  Run `moss` to set up a provider, model, and API key.':
     '  运行 `moss` 设置服务商、模型和 API key。',
   'built-in gateway (no API key needed)': '内置网关（不需要 API key）',
-  'built-in, shared gateway key': '内置共享网关 key',
+  'built-in, shared gateway key': '内置共享网关密钥',
   'from {name} (not stored)': '来自 {name}（未写入配置）',
   'stored in config file (0600)': '已存入配置文件（0600）',
   'plain text': '明文',
@@ -168,7 +168,7 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   '[config] not reading {names}. Fix: `moss config set provider <name>` (these MOSS_* variables are not read). using {provider} / {model}.':
     '[config] 不读取环境变量 {names}。修复：用 moss config set 写入（例如 moss config set provider deepseek）。当前是 {provider} / {model}。',
   '[moss] No API key configured. Run `moss` to set one up (a key already in the environment is offered there; the value is not printed).':
-    '[moss] 还没有 API key。运行 `moss` 进行设置（环境里已有的 key 会在那里提供，内容不会显示）。',
+    '[moss] 还没有 API key。运行 `moss` 进行设置（环境里已有的密钥会在那里提供，内容不会显示）。',
   '[moss] sending "{text}" to the model...': '[moss] 正在把「{text}」发给模型…',
   '[moss] --print requires a prompt argument or non-empty piped stdin':
     '[moss] --print 需要一段提示，或非空的管道输入',
@@ -331,7 +331,7 @@ export function formatFullModeNotice(locale?: string): string {
   const zh = isZhLocale(locale);
   const limit = setupCopy(locale, WORKSPACE_WRITE_LIMIT_EN);
   return zh
-    ? `[moss] 默认 full 模式没有拒绝规则；用 /permissions 添加（例如 deny read_file(./.env)）以继续拦截敏感工具。${limit}此提示只显示一次。`
+    ? `[moss] 默认完全访问模式没有拒绝规则；用 /permissions 添加（例如 \`deny read_file(./.env)\`）以继续拦截敏感工具。${limit}此提示只显示一次。`
     : '[moss] Default full mode has no deny rules; add them with /permissions ' +
         '(e.g. deny read_file(./.env)) to keep sensitive tools gated. ' +
         `${limit} This notice shows once.`;

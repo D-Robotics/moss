@@ -34,7 +34,9 @@ export function guardrailSummary(config: ResolvedCliConfig): string {
 export function configAuditSummary(config: ResolvedCliConfig): string {
   const warnings = auditResolvedCliConfig(config);
   if (warnings.length === 0) return displayWord('none');
-  return warnings.map((warning) => `${warning.code}: ${warning.message}`).join('; ');
+  return warnings
+    .map((warning) => `${warning.code}${isZhLocale() ? '：' : ':'} ${warning.message}`)
+    .join(isZhLocale() ? '；' : '; ');
 }
 
 export function withoutSecret(value: string): string {
@@ -84,7 +86,7 @@ const ZH_FIELD: Record<string, string> = {
   'prompt cache debug': '提示缓存调试',
   guardrails: '护栏',
   'max turns': '最大轮次',
-  'context tokens': '上下文 token',
+  'context tokens': '上下文词元',
   'max output': '最大输出',
   compaction: '压缩',
   'config warnings': '配置警告',
@@ -104,7 +106,23 @@ const ZH_SOURCE: Record<string, string> = {
   cli: '命令行',
   'built-in': '内置',
   unprobed: '未探测',
+  cwd: '当前目录',
+  'provider-api': '服务商接口',
 };
+
+/** Doctor and onboarding reuse this map so a source id is not printed in English. */
+export function localizeConfigSource(source: string): string {
+  if (!isZhLocale()) return source;
+  if (source.startsWith('env:')) return `环境变量 ${source.slice(4)}`;
+  if (source.startsWith('MOSS_')) return `环境变量 ${source}`;
+  return ZH_SOURCE[source] ?? source;
+}
+
+/** Gloss a typed config value. Unknown values stay literal. */
+export function glossConfigValue(value: string): string {
+  if (!isZhLocale()) return value;
+  return TYPED_GLOSS[value] ?? value;
+}
 
 const TYPED_GLOSS: Record<string, string> = {
   balanced: '均衡',
@@ -138,7 +156,7 @@ function showTyped(value: string): string {
 function sourceNote(source: string | undefined, extra = ''): string {
   const value = source ?? 'default';
   if (!isZhLocale()) return `(${value}${extra})`;
-  const shown = ZH_SOURCE[value] ?? value;
+  const shown = localizeConfigSource(value);
   const extraZh =
     extra === ', from permissions.defaultMode' ? '，来自 permissions.defaultMode' : extra;
   return `（${shown}${extraZh}）`;

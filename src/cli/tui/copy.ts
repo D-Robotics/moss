@@ -121,7 +121,7 @@ export const ZH: Readonly<Record<string, string>> = {
   '  ⎿ thinking · click or ctrl+o': '  ⎿ 思考过程 · 点击或 ctrl+o',
 
   // ── live region (transcript.ts) ────────────────────────────────────────
-  '  ↻ provider retry {attempt} — {error}': '  ↻ 提供方重试 {attempt} — {error}',
+  '  ↻ provider retry {attempt} — {error}': '  ↻ 服务商重试 {attempt} — {error}',
   ' · {count} out': ' · 输出 {count}',
   ' · {count} queued': ' · {count} 排队',
   '  … stream quiet for {seconds}s — the gateway may be stuck': '  … 流已静默 {seconds} 秒',
@@ -168,7 +168,7 @@ export const ZH: Readonly<Record<string, string>> = {
   // ── composer placeholder (transcript.ts) ───────────────────────────────
   'Next: ask me to look around this folder.': '下一步：让我看看这个目录里有什么。',
   "workspace-write confines Moss's own file tools. Shell commands run normally without an OS sandbox.":
-    'workspace-write 只约束 Moss 自己的文件工具。shell 命令照常运行，没有操作系统沙箱。',
+    '`workspace-write` 只约束 Moss 自己的文件工具。终端命令照常运行，没有操作系统沙箱。',
   'terminal is shorter than 10 rows': '终端高度不足 10 行',
   'terminal is narrower than {min} columns': '终端宽度不足 {min} 列',
   '{reason} — using the inline view. Resize the window to use fullscreen.':
@@ -192,7 +192,7 @@ export const ZH: Readonly<Record<string, string>> = {
   '{in} in / {out} out': '{in} 入 / {out} 出',
 
   // ── hint row (transcript.ts) ───────────────────────────────────────────
-  '! for shell mode': '! 进入 shell 模式',
+  '! for shell mode': '! 进入终端模式',
   'Esc to cancel': 'Esc 取消',
   '? for shortcuts': '? 查看快捷键',
   '1/2/3 to answer': '1/2/3 作答',
@@ -208,13 +208,13 @@ export const ZH: Readonly<Record<string, string>> = {
   '{count} tasks': '{count} 个任务',
 
   // ── render bridge (render-bridge.ts) ───────────────────────────────────
-  '↻ provider retry {attempt} — {error}': '↻ 提供方重试 {attempt} — {error}',
+  '↻ provider retry {attempt} — {error}': '↻ 服务商重试 {attempt} — {error}',
   'aborted ({by})': '已中止（{by}）',
   'compressed {count} old tool result': '压缩了 {count} 条旧工具结果',
   'compressed {count} old tool results': '压缩了 {count} 条旧工具结果',
-  ' · saved ~{count} tokens': ' · 省下约 {count} tokens',
+  ' · saved ~{count} tokens': ' · 省下约 {count} 词元',
   'compacted {count} earlier messages': '已合并 {count} 条更早消息',
-  ' · now ~{count} tokens': ' · 现在约 {count} tokens',
+  ' · now ~{count} tokens': ' · 现在约 {count} 词元',
 
   // ── help overlay (app.ts / help.ts) ────────────────────────────────────
   Language: '语言',
@@ -228,15 +228,15 @@ export const ZH: Readonly<Record<string, string>> = {
     '输入 / 浏览命令 · /help --all 查看其余命令',
   'edited JS/TS files but did not run tests': '改过 JS/TS 文件，但没有跑测试',
   'run a shell command inline (result lands in the transcript)':
-    '内联执行 shell 命令（结果进入对话记录）',
+    '内联执行终端命令（结果进入对话记录）',
   'run a moss command (/help lists them all)': '执行 moss 命令（/help 列出全部）',
   'reference a workspace file or directory': '引用工作区文件或目录',
-  'send the goal · run the shell command in `!` mode': '发送目标 · 在 `!` 模式下执行 shell 命令',
+  'send the goal · run the shell command in `!` mode': '发送目标 · 在 `!` 模式下执行终端命令',
   'cycle the interaction mode (manual → accept-edits → plan → full)':
-    '循环切换交互模式（manual → accept-edits → plan → full）',
-  'first character only: run a shell command inline': '仅限首字符：内联执行 shell 命令',
+    '循环切换交互模式（手动 → 接受编辑 → 计划 → 完全访问）',
+  'first character only: run a shell command inline': '仅限首字符：内联执行终端命令',
   'interrupt the run · cancel `!` shell mode · press again to clear the composer':
-    '中断运行 · 取消 `!` shell 模式 · 再按清空输入框',
+    '中断运行 · 取消 `!` 终端模式 · 再按清空输入框',
   'walk back through what you typed': '回溯你输入过的内容',
   'scroll the transcript · at the top, walk back through what you typed':
     '滚动对话记录 · 到顶后回溯你输入过的内容',
@@ -248,34 +248,34 @@ export const ZH: Readonly<Record<string, string>> = {
   'scroll the transcript': '滚动对话记录',
   'scroll the transcript · End jumps to the latest': '滚动对话记录 · End 跳到最新',
   'expand a collapsed block · drag to copy': '展开被折叠的块 · 拖动复制',
-  'print failures · deployments are /deployments': '打印 failures · deployments 用 /deployments',
+  'print failures · deployments are /deployments': '打印失败记录 · 部署记录用 /deployments',
   'print task artifacts': '打印任务工件',
-  'work until a condition is met · enter plan mode': '做到条件满足 · 进入 plan 模式',
+  'work until a condition is met · enter plan mode': '做到条件满足 · 进入计划模式',
   aliases: '别名',
   'clear the composer': '清空输入框',
   'interrupt the run · press again to quit': '中断运行 · 再按退出',
   quit: '退出',
-  'print tasks · evidence': '打印 tasks · evidence',
-  'print deployments · failures': '打印 deployments · failures',
+  'print tasks · evidence': '打印任务 · 证据',
+  'print deployments · failures': '打印部署 · 失败',
   'this list': '本列表',
 
   // ── catalog command descriptions (interactive-commands.ts) ─────────────
   'view model, workspace, and tool state': '查看模型、工作区与工具状态',
   'choose or switch the active model for this session': '为本会话选择或切换当前模型',
   'show or set interaction mode (plan = read-only planning; Shift+Tab cycles)':
-    '查看或设置交互模式（plan = 只读规划；Shift+Tab 循环切换）',
+    '查看或设置交互模式（计划 = 只读规划；Shift+Tab 循环切换）',
   'compress older conversation history into a summary': '将较早的对话历史压缩为摘要',
   'run or inspect a verified Task OS task; view [tasks|history|evidence|deployments|failures] prints its artifacts':
-    '运行或查看已校验的 Task OS 任务；view [tasks|history|evidence|deployments|failures] 打印其工件',
+    '运行或查看已校验的 Task OS 任务；`view` 打印其工件（`tasks`、`history`、`evidence`、`deployments`、`failures`）',
   'resume a failed, blocked, or abandoned task through Task OS':
     '通过 Task OS 恢复失败、受阻或已放弃的任务',
   'show current context-window usage': '查看当前上下文窗口用量',
   Usage: '用量',
-  'show cumulative token usage for this session': '查看本会话累计 token 用量',
+  'show cumulative token usage for this session': '查看本会话累计词元用量',
   'export this session to markdown (path optional; - prints to stdout)':
-    '将会话导出为 markdown（路径可选；- 打印到标准输出）',
+    '将会话导出为 Markdown（路径可选；- 打印到标准输出）',
   'review the working-tree diff (or a GitHub PR) for bugs and security':
-    '审查工作区 diff（或 GitHub PR）中的 bug 与安全问题',
+    '审查工作区差异（或 GitHub PR）中的缺陷与安全问题',
   'list saved conversations': '列出已保存的会话',
   'health-check model, egress, and config in this session':
     '在本会话中对模型、出口与配置做健康检查',
@@ -300,22 +300,22 @@ export const ZH: Readonly<Record<string, string>> = {
   'NO_COLOR is set — the theme stays mono': '已设置 NO_COLOR — 主题保持单色',
   'current theme: {name}': '当前主题：{name}',
   '/theme <name> switches it for this session': '/theme <name> 只在本会话内切换',
-  'unknown theme "{name}" — dark, light, or mono': '未知主题“{name}” — 只能是 dark、light 或 mono',
+  'unknown theme "{name}" — dark, light, or mono':
+    '未知主题“{name}” — 只能是 `dark`、`light` 或 `mono`',
   'theme: {name}': '主题：{name}',
-  'list configured lifecycle hooks and where to edit them':
-    '列出已配置的生命周期 hooks 及其编辑位置',
+  'list configured lifecycle hooks and where to edit them': '列出已配置的生命周期钩子及其编辑位置',
   'interrupt the active run': '中断当前运行',
   'show the key and command reference': '显示快捷键与命令参考',
   'exit moss': '退出 moss',
   'start a new conversation with an empty context': '开始一段空上下文的新对话',
-  'list background shell and sub-agent jobs': '列出后台 shell 与子 agent 任务',
+  'list background shell and sub-agent jobs': '列出后台终端与子代理任务',
   'inspect or control the input queue': '查看或控制输入队列',
   'inject a constraint into the live run': '向当前运行注入一条约束',
-  'work until a condition is met; /goal clear cancels': '持续工作直到条件满足；/goal clear 取消',
+  'work until a condition is met; /goal clear cancels': '持续工作直到条件满足；`/goal clear` 取消',
   'enter plan mode; with a description, start planning immediately':
-    '进入 plan 模式；带描述则立即开始规划',
+    '进入计划模式；带描述则立即开始规划',
   'Task OS entry (hidden): status, timeline, resume, view, and verify — everyday work is /goal':
-    'Task OS 入口（隐藏）：status、timeline、resume、view、verify — 日常用 /goal',
+    'Task OS 入口（隐藏）：`status`、`timeline`、`resume`、`view`、`verify` — 日常用 /goal',
   'resume a saved conversation': '恢复已保存的会话',
   'stop background processes; Esc interrupts the current run': '停止后台进程；Esc 中断当前运行',
   'create or update an AGENTS.md project memory file': '创建或更新 AGENTS.md 项目记忆文件',
@@ -393,6 +393,17 @@ export const ZH: Readonly<Record<string, string>> = {
   '◇ task {id} — FAIL ({criteria} criteria met) · /task resume {task} to repair':
     '◇ 任务 {id} — FAIL（达成 {criteria} 项）· /task resume {task} 修复',
   '◇ task {phase} — {text}': '◇ 任务 {phase} — {text}',
+  Doctor: '诊断',
+  Task: '任务',
+  Resume: '恢复',
+  Diff: '差异',
+  'Create file': '创建文件',
+  'Edit file': '编辑文件',
+  Fetch: '获取',
+  'Bash command': '终端命令',
+  'Write file on device': '在设备上写文件',
+  'Run command on device': '在设备上运行命令',
+  Approve: '审批',
   '◇ task {id} blocked — {reason} · /task resume {task}':
     '◇ 任务 {id} 受阻 — {reason} · /task resume {task}',
   'user decision required': '需要用户决策',
@@ -438,9 +449,8 @@ export const ZH: Readonly<Record<string, string>> = {
   Permissions: '权限',
   '  mode  {mode}    Shift+Tab cycles': '  模式  {mode}    Shift+Tab 循环',
   "  workspace-write confines Moss's own file tools.":
-    '  workspace-write 只约束 Moss 自己的文件工具。',
-  '  Shell commands run normally without an OS sandbox.':
-    '  shell 命令照常运行，没有操作系统沙箱。',
+    '  `workspace-write` 只约束 Moss 自己的文件工具。',
+  '  Shell commands run normally without an OS sandbox.': '  终端命令照常运行，没有操作系统沙箱。',
   '  no rules — full allows tools; deny still wins everywhere':
     '  无规则 — full 放行工具；deny 在任何模式都优先',
   session: '会话',

@@ -16,7 +16,8 @@ import {
   getRecentFailoverEvents,
   parseFallbackProvidersEnv,
 } from '../provider/multi-provider-router.js';
-import { setupCopy } from './cli-locale.js';
+import { isZhLocale, setupCopy } from './cli-locale.js';
+import { glossConfigValue, localizeConfigSource } from './config-snapshot.js';
 import { detectEnvCredentials } from './env-credentials.js';
 
 function doctorL(en: string, vars?: Record<string, string | number>): string {
@@ -24,7 +25,7 @@ function doctorL(en: string, vars?: Record<string, string | number>): string {
 }
 
 function doctorParen(inner: string): string {
-  return uiText(`(${inner})`, `（${inner}）`);
+  return uiText(`(${inner})`, `（${localizeConfigSource(inner)}）`);
 }
 
 function detailModeLabel(mode: string): string {
@@ -160,14 +161,14 @@ export function renderSearchDoctor(rgAvailable: boolean): string {
         uiText('search', '搜索'),
         uiText(
           'ripgrep (rg) available — fast, .gitignore-aware',
-          'ripgrep（rg）可用 — 更快，并识别 .gitignore'
+          'ripgrep（`rg`）可用 — 更快，并识别 .gitignore'
         )
       )
     : warn(
         uiText('search', '搜索'),
         uiText(
           'ripgrep (rg) not found on PATH — search_code uses a slower in-process walk; install rg for fast, .gitignore-aware search',
-          'PATH 上没有 ripgrep（rg）— search_code 会走较慢的进程内扫描；安装 rg 可获得更快、识别 .gitignore 的搜索'
+          'PATH 上没有 ripgrep（`rg`）— `search_code` 会走较慢的进程内扫描；安装 `rg` 可获得更快、识别 .gitignore 的搜索'
         )
       );
 }
@@ -195,15 +196,15 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
         `default ${permissionsView.defaultMode} (${permissionsView.source})${
           permissionsView.readOnlyCeiling ? ' + read-only ceiling' : ''
         }`,
-        `默认 ${permissionsView.defaultMode}（${permissionsView.source}）${
+        `默认 ${glossConfigValue(permissionsView.defaultMode)}（${localizeConfigSource(permissionsView.source)}）${
           permissionsView.readOnlyCeiling ? ' + 只读上限' : ''
         }`
       )
-    : uiText('default full (default)', '默认 full（默认）');
+    : uiText('default full (default)', '默认完全访问（默认）');
   const lines: string[] = [
     ok(
       uiText('approval', '审批'),
-      `${config.approvalPolicy} ${doctorParen(config.approvalPolicySource)}`
+      `${isZhLocale() ? glossConfigValue(config.approvalPolicy) : config.approvalPolicy} ${doctorParen(config.approvalPolicySource)}`
     ),
     ok(uiText('mode', '模式'), modeLine),
   ];
@@ -213,7 +214,7 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
     const label = auditWarning.code.startsWith('trustedTools.')
       ? 'trustedTools'
       : auditWarning.code === 'approval.full_default_no_deny'
-        ? uiText('full mode', 'full 模式')
+        ? uiText('full mode', '完全访问模式')
         : uiText('approval policy', '审批策略');
     lines.push(warn(label, auditWarning.message));
   }
@@ -242,7 +243,7 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
         uiText('trustedTools', '信任工具'),
         uiText(
           `${config.trustedTools.length} configured (${config.trustedToolsSource}); wildcard patterns are narrow`,
-          `已配置 ${config.trustedTools.length} 项（${config.trustedToolsSource}）；通配较窄`
+          `已配置 ${config.trustedTools.length} 项（${localizeConfigSource(config.trustedToolsSource)}）；通配较窄`
         )
       )
     );
@@ -252,7 +253,7 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
         uiText('trustedTools', '信任工具'),
         uiText(
           `${config.trustedTools.length ? config.trustedTools.join(', ') : 'none'} (${config.trustedToolsSource})`,
-          `${config.trustedTools.length ? config.trustedTools.join('、') : '无'}（${config.trustedToolsSource}）`
+          `${config.trustedTools.length ? config.trustedTools.join('、') : '无'}（${localizeConfigSource(config.trustedToolsSource)}）`
         )
       )
     );
@@ -314,7 +315,7 @@ async function renderSearchBackendDoctor(): Promise<string[]> {
           uiText('search keys', '搜索密钥'),
           uiText(
             'none — web_search relies on the keyless chain (BOCHA/BRAVE/EXA_API_KEY recommended for reliability)',
-            '无 — web_search 依赖免密钥链路（建议配置 BOCHA/BRAVE/EXA_API_KEY，更稳）'
+            '无 — `web_search` 依赖免密钥链路（建议配置 BOCHA/BRAVE/EXA_API_KEY，更稳）'
           )
         ),
   ];
@@ -515,7 +516,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
             uiText('context window', '上下文窗口'),
             uiText(
               `not yet probed — using conservative default of ${humanTokens(tokens)} tokens. Run /model to auto-probe, or set agent.contextTokens in moss config`,
-              `尚未探测 — 正在使用保守默认值 ${humanTokens(tokens)} token。运行 /model 自动探测，或在 moss 配置里设置 \`agent.contextTokens\``
+              `尚未探测 — 正在使用保守默认值 ${humanTokens(tokens)} 词元。运行 /model 自动探测，或在 moss 配置里设置 \`agent.contextTokens\``
             )
           )
         );
@@ -525,7 +526,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
             uiText('context window', '上下文窗口'),
             uiText(
               `${humanTokens(tokens)} tokens (provider-api)`,
-              `${humanTokens(tokens)} token（provider-api）`
+              `${humanTokens(tokens)} 词元（${localizeConfigSource('provider-api')}）`
             )
           )
         );
@@ -536,7 +537,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
             uiText('context window', '上下文窗口'),
             uiText(
               `${humanTokens(tokens)} tokens (pinned via ${src})`,
-              `${humanTokens(tokens)} token（由 ${src} 固定）`
+              `${humanTokens(tokens)} 词元（由 ${localizeConfigSource(src)} 固定）`
             )
           )
         );
@@ -551,7 +552,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
             uiText('max output', '最大输出'),
             uiText(
               `${humanTokens(pinned)} tokens (pinned via config)`,
-              `${humanTokens(pinned)} token（由配置固定）`
+              `${humanTokens(pinned)} 词元（由配置固定）`
             )
           )
         );
@@ -568,7 +569,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
             uiText('max output', '最大输出'),
             uiText(
               `${humanTokens(derived)} tokens (derived from context window — contextTokens/4, cap 8k)`,
-              `${humanTokens(derived)} token（由上下文窗口推算 — \`contextTokens\`/4，上限 8k）`
+              `${humanTokens(derived)} 词元（由上下文窗口推算 — \`contextTokens\`/4，上限 8k）`
             )
           )
         );

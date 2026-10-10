@@ -54,7 +54,7 @@ function authHelp(zh: boolean): string {
       '查看是否存了 API 密钥，或删掉它。',
       '',
       '选项：',
-      '  status    打印提供方、模型，以及是否存了密钥',
+      '  status    打印服务商、模型，以及是否存了密钥',
       '  logout    确认 [y/N] 后删除已存的 API 密钥',
       '',
       '示例：',
@@ -127,11 +127,11 @@ function resumeHelp(zh: boolean): string {
       '  moss resume <session>',
       '  moss resume --session <key>',
       '',
-      '继续一个已保存的会话。TTY 上不带 key 时，界面会打开会话选择器。',
+      '继续一个已保存的会话。TTY 上不带密钥时，界面会打开会话选择器。',
       '',
       '选项：',
       '  --last            继续最近一次会话',
-      '  --session <key>   继续这个会话 key',
+      '  --session <key>   继续这个会话密钥',
       '  <session>         与 --session 相同的位置参数',
       '',
       '示例：',
@@ -284,7 +284,7 @@ export function renderSubcommandHelp(command: string, zh: boolean = isZhLocale()
     case 'web':
       return removed('web', zh, {
         en: 'The web UI subsystem is not implemented in this build.',
-        zh: '这个构建没有 web UI 子系统。',
+        zh: '这个构建没有网页界面子系统。',
       });
     case 'agent':
       return removed('agent', zh, {

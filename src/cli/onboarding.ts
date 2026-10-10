@@ -15,7 +15,7 @@ import { formatInteractiveCommandSections } from './interactive-commands.js';
 import { resolveCliDetailMode, type CliDetailMode } from './output.js';
 import { getPackageVersion } from './package-info.js';
 import { compactPath, label, ui } from './ui.js';
-import { configSnapshotLines } from './config-snapshot.js';
+import { configSnapshotLines, localizeConfigSource } from './config-snapshot.js';
 import {
   ok as doctorOk,
   warn as doctorWarn,
@@ -110,9 +110,14 @@ function shortBaseUrl(value: string): string {
 }
 
 function describeDetail(mode: CliDetailMode): string {
-  if (mode === 'quiet') return 'quiet';
-  if (mode === 'verbose') return 'verbose';
-  return 'progress';
+  if (!isZhLocale()) {
+    if (mode === 'quiet') return 'quiet';
+    if (mode === 'verbose') return 'verbose';
+    return 'progress';
+  }
+  if (mode === 'quiet') return '安静';
+  if (mode === 'verbose') return '详细';
+  return '进度';
 }
 
 interface ToolGroupDef {
@@ -299,7 +304,7 @@ export function renderCliStatus(
     `  ${label(zh ? '执行' : 'exec')} ${rt.execBackend}`,
     `  ${label(zh ? '记忆' : 'memory')} ${memoryCount} ${zh ? '条' : 'entries'}`,
     `  ${label(zh ? '技能' : 'skills')} ${skillCount}`,
-    `  ${label(zh ? '工具' : 'tools')} ${agent.tools.size} (${toolGroups.map((g) => groupTitle(g.title)).join(', ')})`,
+    `  ${label(zh ? '工具' : 'tools')} ${agent.tools.size}${zh ? '（' : ' ('}${toolGroups.map((g) => groupTitle(g.title)).join(zh ? '、' : ', ')}${zh ? '）' : ')'}`,
   ].join('\n');
 }
 
@@ -319,8 +324,22 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
       )
     );
   } else {
-    lines.push(doctorOk(zh ? '模型' : 'model', `${agent.config.model} (${auth.providerSource})`));
-    lines.push(doctorOk(zh ? '服务商' : 'provider', `${auth.provider} (${auth.providerSource})`));
+    lines.push(
+      doctorOk(
+        zh ? '模型' : 'model',
+        zh
+          ? `${agent.config.model}（${localizeConfigSource(auth.providerSource)}）`
+          : `${agent.config.model} (${auth.providerSource})`
+      )
+    );
+    lines.push(
+      doctorOk(
+        zh ? '服务商' : 'provider',
+        zh
+          ? `${auth.provider}（${localizeConfigSource(auth.providerSource)}）`
+          : `${auth.provider} (${auth.providerSource})`
+      )
+    );
   }
   lines.push(renderAuthDoctorLine(auth));
 

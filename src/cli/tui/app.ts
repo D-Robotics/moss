@@ -110,6 +110,7 @@ import { handleCompactCommand } from '../compact-command.js';
 import { createCliSessionKey } from '../session.js';
 import {
   interactiveTaskUsageLines,
+  localizeTaskWord,
   parseLlmUsageStdout,
   runTaskCommand,
   splitCommandArgs,
@@ -1514,12 +1515,12 @@ export function TuiAppRoot({
   const runTaskShellCommand = useCallback(
     async (args: string, display?: string): Promise<void> => {
       if (store.run.running) {
-        printBlock('Task', [tui('a run is in flight — press Esc to interrupt it first')]);
+        printBlock(tui('Task'), [tui('a run is in flight — press Esc to interrupt it first')]);
         return;
       }
       const parsed = splitCommandArgs(args);
       if (parsed.length === 0) {
-        printBlock('Task', [...interactiveTaskUsageLines()]);
+        printBlock(tui('Task'), [...interactiveTaskUsageLines()]);
         return;
       }
       if (parsed[0] === 'resume' && !parsed[1]) {
@@ -1528,7 +1529,7 @@ export function TuiAppRoot({
           .filter((task) => isGoalResumeCandidate(task))
           .sort((left, right) => right.updatedAt - left.updatedAt)[0];
         if (!candidate) {
-          printBlock('Resume', [
+          printBlock(tui('Resume'), [
             tui('no failed, blocked, abandoned, or in-progress task is available to resume'),
           ]);
           return;
@@ -1562,11 +1563,14 @@ export function TuiAppRoot({
                   appendRow(
                     store,
                     'summary',
-                    tui('◇ task {phase} — {text}', { phase: phase[1]!, text: phase[2]! })
+                    tui('◇ task {phase} — {text}', {
+                      phase: localizeTaskWord(phase[1]!),
+                      text: phase[2]!,
+                    })
                   );
                 }
               } else if (!parseLlmUsageStdout(text)) {
-                printBlock('Task', text.trimEnd().split('\n'));
+                printBlock(tui('Task'), text.trimEnd().split('\n'));
               }
             },
           });
@@ -1579,7 +1583,7 @@ export function TuiAppRoot({
             }
             handle.notify();
           } else {
-            printCommandError('Task', message);
+            printCommandError(tui('Task'), message);
           }
         } finally {
           abortRef.current = undefined;
@@ -1611,12 +1615,12 @@ export function TuiAppRoot({
           sessionKey,
           onOutput: (stream, text) => {
             if (stream === 'stdout' && !parseLlmUsageStdout(text)) {
-              printBlock('Task', text.trimEnd().split('\n'));
+              printBlock(tui('Task'), text.trimEnd().split('\n'));
             }
           },
         });
       } catch (err) {
-        printCommandError('Task', errorMessage(err));
+        printCommandError(tui('Task'), errorMessage(err));
       }
     },
     [
@@ -1711,7 +1715,7 @@ export function TuiAppRoot({
       appendRow(store, 'result', output.trim() || tui('(no unstaged working-tree changes)'));
       handle.notify();
     } catch (err) {
-      printCommandError('Diff', tui('git diff failed: {error}', { error: errorMessage(err) }));
+      printCommandError(tui('Diff'), tui('git diff failed: {error}', { error: errorMessage(err) }));
     }
   }, [handle, options.workspaceDir, printBlock, printCommandError, store]);
 
@@ -2321,7 +2325,7 @@ export function TuiAppRoot({
         const sessions = (await options.listSessions?.()) ?? [];
         setPickerSessions(sessions);
         if (sessions.length === 0) {
-          printBlock('Resume', [tui('no saved sessions')]);
+          printBlock(tui('Resume'), [tui('no saved sessions')]);
           return;
         }
         const matches = filterPickerSessions(sessions, query);
@@ -2358,7 +2362,7 @@ export function TuiAppRoot({
           return;
         }
         setSessionPicker({ query, cursor: 0 });
-        printBlock('Resume', await sessionInfo('sessions'));
+        printBlock(tui('Resume'), await sessionInfo('sessions'));
         return;
       }
       if (

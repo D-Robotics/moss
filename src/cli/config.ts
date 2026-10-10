@@ -1088,6 +1088,22 @@ function findConflictingToolPatterns(
   return trustedTools.filter((pattern) => denied.has(pattern));
 }
 
+function zhAuditSource(source: string): string {
+  const known: Record<string, string> = {
+    config: '配置文件',
+    default: '默认',
+    'derived:mode': '由权限模式推导',
+    cli: '命令行',
+    missing: '缺失',
+    unconfigured: '未配置',
+    unprobed: '未探测',
+  };
+  if (known[source]) return known[source];
+  if (source.startsWith('env:')) return `环境变量 ${source.slice(4)}`;
+  if (source.startsWith('MOSS_')) return `环境变量 ${source}`;
+  return source;
+}
+
 export function auditResolvedCliConfig(
   config: Pick<
     ResolvedCliConfig,
@@ -1119,7 +1135,7 @@ export function auditResolvedCliConfig(
       source: config.approvalPolicySource,
       message: uiText(
         `auto-approval is enabled via ${config.permissions.source} (${config.approvalPolicySource}); keep deniedTools current for risky tools`,
-        `已通过 ${config.permissions.source}（${config.approvalPolicySource}）开启自动审批；请为高风险工具保持 deniedTools`
+        `已通过 ${zhAuditSource(config.permissions.source)}（${zhAuditSource(config.approvalPolicySource)}）开启自动审批；请为高风险工具保持 \`deniedTools\``
       ),
     });
     if (config.deniedTools.length === 0) {
@@ -1129,7 +1145,7 @@ export function auditResolvedCliConfig(
         source: config.deniedToolsSource,
         message: uiText(
           `auto-approval has no deniedTools guardrail (${config.deniedToolsSource}); add high-risk tools or globs to deniedTools`,
-          `自动审批没有 deniedTools 护栏（${config.deniedToolsSource}）；请把高风险工具或通配加入 deniedTools`
+          `自动审批没有 \`deniedTools\` 护栏（${zhAuditSource(config.deniedToolsSource)}）；请把高风险工具或通配加入 \`deniedTools\``
         ),
       });
     }
@@ -1147,7 +1163,7 @@ export function auditResolvedCliConfig(
       source: 'default',
       message: uiText(
         'default full mode has no deny rules; add rules with /permissions (e.g. deny read_file(./.env)) to keep sensitive tools gated',
-        '默认 full 模式没有拒绝规则；用 /permissions 添加（例如 deny read_file(./.env)）以继续拦截敏感工具'
+        '默认完全访问模式没有拒绝规则；用 /permissions 添加（例如 `deny read_file(./.env)`）以继续拦截敏感工具'
       ),
     });
   }
@@ -1160,7 +1176,7 @@ export function auditResolvedCliConfig(
       source: `${config.trustedToolsSource}, ${config.deniedToolsSource}`,
       message: uiText(
         `trustedTools also appear in deniedTools: ${conflictingPatterns.join(', ')}; deniedTools takes precedence`,
-        `trustedTools 与 deniedTools 冲突：${conflictingPatterns.join(', ')}；以 deniedTools 为准`
+        `\`trustedTools\` 与 \`deniedTools\` 冲突：${conflictingPatterns.join('、')}；以 \`deniedTools\` 为准`
       ),
     });
   }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Chinese TUI chrome: welcome, hint row, /help, /language title, /doctor."""
+"""Chinese TUI chrome. Each snapshot is printed so the JS scanner can read it."""
 
 import os
 import sys
@@ -13,6 +13,12 @@ from screen import Session  # noqa: E402
 
 def text(session) -> str:
     return "\n".join(session.lines())
+
+
+def dump(name: str, body: str) -> None:
+    print(f"===SCREEN {name}===")
+    print(body)
+    print("===END===")
 
 
 def wait_for(session, needle: str, timeout: float = 20.0) -> str:
@@ -33,16 +39,22 @@ def welcome() -> None:
         "LC_MESSAGES": "zh_CN.UTF-8",
         "MOSS_NO_BUNDLED_DEFAULT": "1",
     }
-    with Session(cols=100, rows=36, extra_env=zh, config={"apiKey": ""}) as session:
+    with Session(
+        cols=100,
+        rows=36,
+        extra_env=zh,
+        config={"apiKey": "", "model": "deepseek"},
+    ) as session:
         seen = wait_for(session, "选择服务商")
         if "Moss 设置" not in seen:
             raise AssertionError(f"welcome title missing\n{seen}")
         if "界面语言：中文" not in seen:
             raise AssertionError(f"first-run English offer missing\n{seen}")
+        dump("welcome", seen)
 
 
 def chrome() -> None:
-    with Session(cols=120, rows=40) as session:
+    with Session(cols=120, rows=40, config={"model": "deepseek"}) as session:
         session.wait_for_prompt()
         session.submit("/language zh", wait=1.5)
         seen = wait_for(session, "界面语言")
@@ -50,18 +62,24 @@ def chrome() -> None:
             raise AssertionError(f"/language card title stayed in the old language\n{seen}")
         if "Language" in seen:
             raise AssertionError(f"/language title still English\n{seen}")
+        dump("language", seen)
         seen = wait_for(session, "全开已开启")
+        dump("status", seen)
         session.submit("/help", wait=1.0)
         seen = wait_for(session, "快捷键")
         if "帮助" not in seen:
             raise AssertionError(f"/help title missing\n{seen}")
         if "为本会话选择或切换当前模型" not in seen:
             raise AssertionError(f"/help commands stayed in English\n{seen}")
+        dump("help", seen)
         session.key("esc")
         session.submit("/doctor", wait=2.0)
         seen = wait_for(session, "诊断")
         if "模型" not in seen:
             raise AssertionError(f"/doctor missing model row\n{seen}")
+        if "Doctor" in seen:
+            raise AssertionError(f"/doctor title still English\n{seen}")
+        dump("doctor", seen)
 
 
 def main() -> None:

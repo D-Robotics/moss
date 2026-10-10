@@ -53,8 +53,42 @@ export interface TaskCommandContext {
   };
 }
 
+const TASK_WORD_ZH: Record<string, string> = {
+  draft: '草稿',
+  understanding: '理解中',
+  planning: '计划中',
+  ready: '就绪',
+  executing: '执行中',
+  verifying: '验证中',
+  diagnosing: '诊断中',
+  repairing: '修复中',
+  reverifying: '复验中',
+  accepted: '已验收',
+  failed: '失败',
+  blocked: '阻塞',
+  abandoned: '已放弃',
+  idle: '空闲',
+  completed: '已完成',
+  aborted: '已中止',
+};
+
+/** Phase and status words. English stays the raw id so CLI tests keep their tokens. */
+export function localizeTaskWord(word: string, zh: boolean = isZhLocale()): string {
+  if (!zh) return word;
+  return TASK_WORD_ZH[word] ?? word;
+}
+
 /** Bare `/task` in the shell. `verify` and `view` are real subcommands. */
 export function interactiveTaskUsageLines(): readonly string[] {
+  if (isZhLocale()) {
+    return [
+      '用法：/task run <目标...> [--accept "<命令>"]',
+      '/task status|timeline [标识]',
+      '/task resume [标识]',
+      '/task verify [标识]',
+      '/task view [种类]',
+    ];
+  }
   return [
     'usage: /task run <goal...> [--accept "<cmd>"]',
     '/task status|timeline [id]',
@@ -72,8 +106,8 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       '  run <goal...>        端到端跑一个任务（计划 → 执行 → 验证 → 修复 → 验收）',
       '      --accept "<cmd>"  验收权威：命令必须以退出码 0 结束',
       '      --max-repairs N  诚实 FAIL 前的修复尝试次数（默认 2）',
-      '      --max-turns N    agent 轮次预算（默认 8）',
-      '      --device ID      契约指定的目标设备 id',
+      '      --max-turns N    模型轮次预算（默认 8）',
+      '      --device ID      契约指定的目标设备标识',
       '  resume <task_id>     恢复一个失败/中断/阻塞的任务',
       '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新）',
       '  timeline [task_id]   完整生命周期时间线（默认：最新）',
@@ -85,11 +119,11 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       '选项：',
       '  --accept "<cmd>"   验收命令（退出码必须是 0）',
       '  --max-repairs N    诚实 FAIL 前的修复次数（默认 2）',
-      '  --max-turns N      agent 轮次预算（默认 8）',
-      '  --device ID        目标设备 id',
+      '  --max-turns N      模型轮次预算（默认 8）',
+      '  --device ID        目标设备标识',
       '',
       '示例：',
-      '  moss task run "创建 hello.txt" --accept "grep -q hello hello.txt"',
+      '  `moss task run "创建 hello.txt" --accept "grep -q hello hello.txt"`',
       '  moss task status',
     ].join('\n');
   }
@@ -223,7 +257,9 @@ export function formatTaskStatus(
       ? zh
         ? '已中止'
         : 'aborted'
-      : `${snapshot.phase} (${snapshot.statusView}${snapshot.outcome ? ` · ${snapshot.outcome}` : ''})`;
+      : zh
+        ? `${localizeTaskWord(snapshot.phase, true)}（${localizeTaskWord(snapshot.statusView, true)}${snapshot.outcome ? ` · ${localizeTaskWord(snapshot.outcome, true)}` : ''}）`
+        : `${snapshot.phase} (${snapshot.statusView}${snapshot.outcome ? ` · ${snapshot.outcome}` : ''})`;
   const lines: string[] = [
     `${label('TASK', '任务')}${snapshot.taskId}`,
     `${label('GOAL', '目标')}${snapshot.goal}`,

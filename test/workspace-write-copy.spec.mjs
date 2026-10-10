@@ -40,7 +40,7 @@ assert.equal(
 );
 assert.equal(
   WORKSPACE_WRITE_LIMIT_ZH,
-  'workspace-write 只约束 Moss 自己的文件工具。shell 命令照常运行，没有操作系统沙箱。'
+  '`workspace-write` 只约束 Moss 自己的文件工具。终端命令照常运行，没有操作系统沙箱。'
 );
 
 const runtime = {
@@ -188,16 +188,16 @@ const runtime = {
       .map((entry) => entry.text)
       .join('\n');
     assert.ok(
-      zhPanel.includes('workspace-write 只约束 Moss 自己的文件工具。'),
+      zhPanel.includes('`workspace-write` 只约束 Moss 自己的文件工具。'),
       '/permissions panel localizes the file-tool limit'
     );
     assert.ok(
-      zhPanel.includes('shell 命令照常运行，没有操作系统沙箱。'),
+      zhPanel.includes('终端命令照常运行，没有操作系统沙箱。'),
       '/permissions panel localizes the shell limit'
     );
     assert.equal(
       tui("  workspace-write confines Moss's own file tools."),
-      '  workspace-write 只约束 Moss 自己的文件工具。'
+      '  `workspace-write` 只约束 Moss 自己的文件工具。'
     );
     assert.equal(
       tui(WORKSPACE_WRITE_LIMIT_EN),

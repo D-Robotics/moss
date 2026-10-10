@@ -255,7 +255,7 @@ function tempDir(prefix) {
   );
   assert.ok(shown.some((line) => line.includes('请重新粘贴')));
   assert.ok(shown.some((line) => line.includes('Received API Key')));
-  assert.ok(shown.some((line) => line.includes('Esc 返回修改 key')));
+  assert.ok(shown.some((line) => line.includes('Esc 返回修改密钥')));
   assert.notEqual(
     shown.find((line) => line.includes('请重新粘贴')),
     shown.find((line) => line.includes('Received API Key'))

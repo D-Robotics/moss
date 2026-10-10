@@ -235,6 +235,14 @@ if (parsedArgs.help && parsedArgs.command !== 'chat') {
 if (parsedArgs.help) displayHelp(c, { all: parsedArgs.helpAll });
 if (parsedArgs.version) displayVersion(c);
 
+// `moss help <unknown>` must not be sent to the model as a prompt.
+if (parsedArgs.unknownHelpTopic) {
+  const token = parsedArgs.unknownHelpTopic;
+  console.error(uiText(`[moss] unknown command '${token}'`, `[moss] 未知命令「${token}」`));
+  console.error(uiText('Run `moss --help` for usage.', '运行 `moss --help` 查看用法。'));
+  process.exit(ExitCode.USAGE);
+}
+
 // `moss version` / `moss help` / `moss status` are COMMAND_LIKE_REDIRECTS
 // that should produce the expected output, not an error.
 if (parsedArgs.unknownCommand) {

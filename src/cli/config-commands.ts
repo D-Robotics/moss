@@ -458,7 +458,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
 const ENV_GROUP_ZH: Record<string, string> = {
   'config & identity': '配置与身份',
   'safety & approval (v0.26: these are MODE overrides — read-only arms the read-only ceiling, never/ full, prompt/manual; rules live in permissions.*, not env)':
-    '安全与审批（v0.26：这些是模式覆盖 — read-only 打开只读上限，never 对应 full，prompt 对应 manual；规则在 permissions.*，不在环境变量）',
+    '安全与审批（这些是模式覆盖：只读会打开只读上限，从不询问对应完全访问，每次询问对应手动确认；规则在权限表里，不在环境变量里）',
   'runs, loops & budgets': '运行、循环与预算',
   'device (robotics closed loop)': '设备（机器人闭环）',
   'context & compaction': '上下文与压缩',
@@ -479,8 +479,8 @@ const ENV_NOTE_ZH: Record<string, string> = {
   'legacy alias of MOSS_PROFILE': 'MOSS_PROFILE 的旧别名',
   'legacy alias of MOSS_SAFETY_MODE': 'MOSS_SAFETY_MODE 的旧别名',
   'legacy alias of MOSS_APPROVAL_POLICY': 'MOSS_APPROVAL_POLICY 的旧别名',
-  'legacy — translated to allow rules on read': '旧键 — 读取时译成 allow 规则',
-  'legacy — translated to deny rules on read': '旧键 — 读取时译成 deny 规则',
+  'legacy — translated to allow rules on read': '旧键 — 读取时译成允许规则',
+  'legacy — translated to deny rules on read': '旧键 — 读取时译成拒绝规则',
   'legacy alias of MOSS_CLI_AUTO_APPROVE': 'MOSS_CLI_AUTO_APPROVE 的旧别名',
   'comma-separated nudge ids to suppress; unset leaves every nudge on':
     '逗号分隔的要关掉的提示编号；不设置则全部开启',
@@ -491,7 +491,7 @@ const ENV_NOTE_ZH: Record<string, string> = {
     'full|1|true|yes 让本进程允许毁灭性设备操作',
   '1|true|yes|on; process env or --trust-workspace only, never a project .env':
     '1|true|yes|on；仅进程环境或 --trust-workspace，不能写进项目 .env',
-  'comma-separated host or device-id allowlist': '逗号分隔的主机或设备 id 允许列表',
+  'comma-separated host or device-id allowlist': '逗号分隔的主机或设备标识允许列表',
   'prefix of every MOSS_DEVICE_* key': '所有 MOSS_DEVICE_* 键的前缀',
   '1|true|yes|on skips the built-in rdk-docs MCP server':
     '1|true|yes|on 跳过内置 rdk-docs MCP 服务器',
@@ -499,7 +499,7 @@ const ENV_NOTE_ZH: Record<string, string> = {
     'npm 规格或本地路径；仅进程环境，不是项目配置或 .env',
   'legacy alias': '旧别名',
   'auto|en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale':
-    'auto|en|zh；进程环境或 --lang；项目 .env 不能设置；优先级为参数、环境变量、配置 language、系统区域',
+    'auto|en|zh；进程环境或 --lang；项目 .env 不能设置；优先级为参数、环境变量、配置里的 `language`、系统区域',
 };
 
 function localizeEnvEntry(entry: string): string {
@@ -507,7 +507,9 @@ function localizeEnvEntry(entry: string): string {
   const withLimit = entry.replace(WORKSPACE_WRITE_LIMIT_EN, WORKSPACE_WRITE_LIMIT_ZH);
   return withLimit.replace(/\(([^)]*)\)/g, (full, inner: string) => {
     const note = ENV_NOTE_ZH[inner];
-    return note ? `（${note}）` : full;
+    if (note) return `（${note}）`;
+    if (/[\u4e00-\u9fff]/.test(inner)) return `（${inner}）`;
+    return full;
   });
 }
 
@@ -621,14 +623,14 @@ function renderConfigHelpZh(): string {
     '示例：',
     '  moss config init --project',
     '  moss config validate --strict',
-    '  moss config set --project safetyMode workspace-write',
+    '  `moss config set --project safetyMode workspace-write`',
     `  # ${WORKSPACE_WRITE_LIMIT_ZH}`,
-    '  moss config set provider openai-compatible',
-    '  moss config set model <your-model>',
-    '  moss config set rdkDocs false',
-    '  moss config set rdkDocs.package ../rdk-docs-mcp',
-    '  moss config set language auto|en|zh   # 只写用户配置（不能 --project，项目 .env 也不能设置）',
-    '  # 界面语言优先级：--lang > MOSS_LANG > language > 系统区域。auto 仅在区域以 zh 开头时用中文。',
+    '  `moss config set provider openai-compatible`',
+    '  `moss config set model <your-model>`',
+    '  `moss config set rdkDocs false`',
+    '  `moss config set rdkDocs.package ../rdk-docs-mcp`',
+    '  `moss config set language auto|en|zh`   # 只写用户配置（不能 --project，项目 .env 也不能设置）',
+    '  # 界面语言优先级：--lang > MOSS_LANG > `language` > 系统区域。auto 仅在区域以 zh 开头时用中文。',
   ].join('\n');
 }
 
@@ -671,7 +673,7 @@ export function runConfigValidate(args: string[] = [], startDir = process.cwd())
       source: 'config',
       message: uiText(
         `language "${value}" is not auto|en|zh`,
-        `language「${value}」不是 auto、en 或 zh`
+        `语言「${value}」不是 auto、en 或 zh`
       ),
     });
   }
@@ -680,7 +682,10 @@ export function runConfigValidate(args: string[] = [], startDir = process.cwd())
       code: 'model.missing',
       severity: 'warn',
       source: 'default',
-      message: `no model configured for provider "${resolved.provider}"; run \`moss config set model=<name>\` or \`moss setup\``,
+      message: uiText(
+        `no model configured for provider "${resolved.provider}"; run \`moss config set model=<name>\` or \`moss setup\``,
+        `服务商「${resolved.provider}」没有配置模型；运行 \`moss config set model=<name>\` 或 \`moss setup\``
+      ),
     });
   }
   if (!resolved.usingBundledDefault && !resolved.apiKey) {
@@ -688,7 +693,10 @@ export function runConfigValidate(args: string[] = [], startDir = process.cwd())
       code: 'model.missing_api_key',
       severity: 'warn',
       source: 'default',
-      message: `no API key configured for provider "${resolved.provider}"; moss will fail at runtime — run \`moss setup\` to add one`,
+      message: uiText(
+        `no API key configured for provider "${resolved.provider}"; moss will fail at runtime — run \`moss setup\` to add one`,
+        `服务商「${resolved.provider}」没有配置 API key；运行时会失败 — 运行 \`moss setup\` 补上`
+      ),
     });
   }
   // v0.26 (T04): validate the permissions block — spec syntax per rule and
@@ -744,6 +752,19 @@ export function runConfigValidate(args: string[] = [], startDir = process.cwd())
     return;
   }
 
+  if (isZhLocale()) {
+    print(`[配置] 有效 ${resolved.configPath}`);
+    if (resolved.projectConfigPath) print(`[配置] 项目配置 ${resolved.projectConfigPath}`);
+    if (warnings.length === 0) {
+      print('[配置] 警告 无');
+      return;
+    }
+    for (const warning of warnings) {
+      print(`[配置] 警告 ${warning.code}：${warning.message}`);
+    }
+    if (strict) print('[配置] 严格校验失败，因为存在警告。');
+    return;
+  }
   print(`[config] valid: ${resolved.configPath}`);
   if (resolved.projectConfigPath) print(`[config] project config: ${resolved.projectConfigPath}`);
   if (warnings.length === 0) {

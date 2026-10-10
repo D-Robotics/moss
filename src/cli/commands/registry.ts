@@ -794,12 +794,13 @@ const languageCommand: CommandSpec = {
       const language = effectiveUiLanguage();
       const setting = uiLanguageResolution()?.setting ?? 'auto';
       const source = uiLanguageSourceLabel();
+      const name = language === 'zh' ? uiText('Chinese', '中文') : 'English';
       ctx.say(
         'system',
         [
           uiText(
-            `UI language: ${language} (setting ${setting}, source ${source})`,
-            `界面语言：${language === 'zh' ? '中文' : 'English'}（设置 ${setting}，来源 ${source}）`
+            `UI language: ${name} (setting ${setting}, source ${source})`,
+            `界面语言：${name}（设置 ${setting}，来源 ${source}）`
           ),
           uiText(
             '  /language en|zh|auto     switch for this session',
@@ -840,13 +841,14 @@ const languageCommand: CommandSpec = {
       }
     }
     const language = effectiveUiLanguage();
+    const languageName = language === 'zh' ? uiText('Chinese', '中文') : 'English';
     const resolution = uiLanguageResolution();
     const notes: string[] = [];
     if (save && resolution?.source === 'flag') {
       notes.push(
         uiText(
-          ` --lang=${resolution.language} overrides the saved setting for this process.`,
-          ` 本次进程的 --lang=${resolution.language} 会覆盖已保存的设置。`
+          ` --lang=${resolution.language} overrides the saved setting for this process. The next start uses the saved setting unless --lang or MOSS_LANG is set.`,
+          ` 本次进程的 --lang=${resolution.language} 会覆盖已保存的设置。下次启动若不带 --lang、也不设 MOSS_LANG，则使用已保存的值。`
         )
       );
     }
@@ -863,8 +865,8 @@ const languageCommand: CommandSpec = {
     ctx.say(
       'system',
       uiText(
-        `UI language: ${language}${save ? ' (saved to the user config)' : ' (this session)'}${override}`,
-        `界面语言：${language === 'zh' ? '中文' : 'English'}${save ? '（已写入用户配置）' : '（仅本会话）'}${override}`
+        `UI language: ${languageName}${save ? ' (saved to the user config)' : ' (this session)'}${override}`,
+        `界面语言：${languageName}${save ? '（已写入用户配置）' : '（仅本会话）'}${override}`
       )
     );
   },
