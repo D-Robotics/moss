@@ -574,6 +574,16 @@ async function main() {
     );
     process.exit(ExitCode.CONFIG);
   }
+  if (resolvedConfig.envProviderCandidates && resolvedConfig.envProviderCandidates.length > 1) {
+    console.error(
+      mossLine('[moss] Multiple provider keys are set: {names}.', {
+        names: resolvedConfig.envProviderCandidates.join(', '),
+      })
+    );
+    console.error(mossLine('[moss] Pass --provider <name> to choose one.'));
+    process.exit(ExitCode.CONFIG);
+  }
+  if (resolvedConfig.autoEnvNotice) console.error(resolvedConfig.autoEnvNotice);
   // Model settings are config-only (decision 2026-06). Say so once when a
   // leftover provider env var is present, instead of silently ignoring it —
   // doctor shows the same list as a structured `env ignored` line.
@@ -1142,8 +1152,8 @@ async function main() {
       mcpRegistry = McpToolRegistry.connectInBackground(mcpConfigs, {
         // Real MCP tools register on demand: the search meta-tool installs
         // them into the live registry when the model asks for a server's list.
-        // Per-server timeouts (rdk-docs: connect 45s, request 20s) live on the
-        // config; other servers keep the client defaults.
+        // Per-server timeouts (rdk-docs lazy connect: 15s, request 20s) live
+        // on the config; other servers keep the client defaults.
         registerTool: (tool) => agent.tools.register(tool),
         onStatusChange: (status) => {
           refreshMcpPromptLayer();
@@ -1159,6 +1169,14 @@ async function main() {
         },
       });
       for (const searchTool of mcpRegistry.getTools()) agent.tools.register(searchTool);
+      // setTimeout(0) still starts npx immediately each session. It does not
+      // wait for the first question. The timer is unref'd so a failed warm
+      // does not hold the process open by itself.
+      const warming = mcpRegistry;
+      const warmTimer = setTimeout(() => {
+        warming.startDeferred(RDK_DOCS_SERVER_NAME);
+      }, 0);
+      if (typeof warmTimer.unref === 'function') warmTimer.unref();
       // Lazy-loading budget: the system prompt gets one index line per server,
       // never the tool list itself. The rdk-docs usage pointer sits on that
       // server's line; a failed connect gets only the unavailable sentence.
@@ -1715,12 +1733,15 @@ async function main() {
         },
         listMcpServers: () =>
           mcpRegistry
-            ? mcpRegistry.getStatuses().map((s) => ({
-                name: s.name,
-                state: s.state,
-                ...(s.toolCount !== undefined ? { toolCount: s.toolCount } : {}),
-                ...(s.error ? { error: s.error } : {}),
-              }))
+            ? mcpRegistry
+                .getStatuses()
+                .filter((s) => s.state !== 'deferred')
+                .map((s) => ({
+                  name: s.name,
+                  state: s.state,
+                  ...(s.toolCount !== undefined ? { toolCount: s.toolCount } : {}),
+                  ...(s.error ? { error: s.error } : {}),
+                }))
             : [],
         onMcpUiReady: () => {
           announceMcpStatus = true;

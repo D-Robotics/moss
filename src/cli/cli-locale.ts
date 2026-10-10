@@ -220,6 +220,9 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   'Kept config: {path}': '已保留配置：{path}',
   'Could not delete config: {path}': '无法删除配置：{path}',
   'Deleted config: {path}': '已删除配置：{path}',
+  '[moss] Multiple provider keys are set: {names}.': '[moss] 设置了多个服务商 key：{names}。',
+  '[moss] Pass --provider <name> to choose one.': '[moss] 请用 --provider <名称> 指定一个。',
+  '[moss] Using {key} → {provider} @ {baseUrl}': '[moss] 使用 {key} → {provider} @ {baseUrl}',
 };
 
 /** Localized setup, doctor, and startup copy. English is the key. */

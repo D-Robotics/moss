@@ -49,6 +49,8 @@ import {
   isStartupEnvCaptured,
   recordDotenvOrigin,
 } from '../utils/startup-env.js';
+import { officialEnvOffers } from './env-credentials.js';
+import { setupCopy } from './cli-locale.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
 import type { PricingConfig } from './model-pricing.js';
 import type { StatusLineConfig } from './status-line.js';
@@ -1458,6 +1460,16 @@ export interface ResolvedCliConfig {
   projectConfigPath?: string;
 
   apiKeyEncrypted: boolean;
+  /**
+   * More than one official provider key is set and nothing chose a provider.
+   * The CLI exits before a request; it does not pick one.
+   */
+  envProviderCandidates?: string[];
+  /**
+   * Printed when a single official env key selected the provider. The choice
+   * is not written to config.
+   */
+  autoEnvNotice?: string;
 }
 
 export type CliConfigAuditSeverity = 'warn';
@@ -1698,8 +1710,16 @@ function userDeclaresEndpoint(config: ConfigFile | undefined): boolean {
   return config?.provider !== undefined || config?.baseUrl !== undefined;
 }
 
-/** Named and auto keys come from the process env captured before project `.env`. */
-function credentialEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+/** Official provider env names. A project host must not receive one of these. */
+function isOfficialEnvKeyName(name: string): boolean {
+  return Object.values(PROVIDER_PRESETS).some((preset) => preset.envKeys?.includes(name));
+}
+
+/**
+ * Keys are read from the process env captured before a project `.env`.
+ * A caller that passes its own object (tests, an explicit env) is used as-is.
+ */
+function startupCredentialEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   if (isStartupEnvCaptured() && (env === process.env || env === envBeforeDotenv)) {
     return envBeforeDotenv;
   }
@@ -1707,14 +1727,16 @@ function credentialEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 /**
- * An env key is sent only in two cases:
- * - the user file names `apiKeyEnv` AND a provider or base URL, or
- * - the request's base URL is that provider's official preset and the
- *   matching provider env var is set.
- * A named `apiKeyEnv` with neither provider nor base URL is not configured:
- * it must not be bound to the default provider.
- * A project file never triggers a read. There is no "only one key" fallback.
- * A blank config stays blank so first-run setup can still ask.
+ * An env key is sent only in these cases:
+ * - the user file names `apiKeyEnv` AND a provider or base URL, and the
+ *   request host is one `primaryKeyAllowedForHost` allows for that user, or
+ * - the request URL is that provider's official preset, or a CLI `--provider`
+ *   plus `--base-url` wrote the host, and the matching provider env var is set.
+ * A base URL with no provider does not borrow an official key.
+ * A named `apiKeyEnv` with neither provider nor base URL is not configured.
+ * A project provider, base URL, or `apiKeyEnv` never triggers a read.
+ * One official key on a blank config is applied by `resolveCliConfig` before
+ * this function runs; several keys are not picked.
  */
 function apiKeyFromEnv(
   activeConfig: ConfigFile,
@@ -1722,20 +1744,42 @@ function apiKeyFromEnv(
   projectConfig: ConfigFile | undefined,
   env: NodeJS.ProcessEnv,
   provider: CliProviderPreset,
-  baseUrl: string
+  baseUrl: string,
+  overrides: CliConfigOverrides
 ): { apiKey: string; source: string } | undefined {
   if (projectDeclaresEndpoint(projectConfig)) return undefined;
+  const creds = startupCredentialEnv(env);
+  const writtenBase = overrides.baseUrl || userConfig.baseUrl;
+  const writtenProvider = overrides.provider || userConfig.provider;
+  const host = endpointHost(baseUrl);
+  const hostAllowed =
+    host !== null &&
+    primaryKeyAllowedForHost(host, {
+      ...(writtenBase ? { baseUrl: writtenBase } : {}),
+      ...(writtenProvider ? { provider: writtenProvider } : {}),
+    });
   const named = namedEnvVar(userConfig);
   if (named && !userDeclaresEndpoint(userConfig)) return undefined;
   if (named) {
-    const value = (credentialEnv(env)[named] ?? '').trim();
+    if (!hostAllowed) return undefined;
+    const value = (creds[named] ?? '').trim();
     if (value) return { apiKey: value, source: `env:${named}` };
   }
   if ((activeConfig.apiKey ?? '').trim()) return undefined;
-  if (!activeConfig.provider && !activeConfig.baseUrl) return undefined;
-  if (!isOfficialPresetBaseUrl(provider, baseUrl)) return undefined;
+  if ((writtenBase ?? '').trim() && !writtenProvider) return undefined;
+  const cliHost = Boolean(overrides.provider && (overrides.baseUrl ?? '').trim() && hostAllowed);
+  if (!isOfficialPresetBaseUrl(provider, baseUrl) && !cliHost) return undefined;
+  if (!hostAllowed) return undefined;
+  if (
+    !activeConfig.provider &&
+    !activeConfig.baseUrl &&
+    !overrides.provider &&
+    !overrides.baseUrl
+  ) {
+    return undefined;
+  }
   for (const name of PROVIDER_PRESETS[provider].envKeys ?? []) {
-    const value = (env[name] ?? '').trim();
+    const value = (creds[name] ?? '').trim();
     if (value) return { apiKey: value, source: `env:${name}` };
   }
   return undefined;
@@ -1765,6 +1809,42 @@ export function resolveCliConfig(
   let bundledDefaultSuppressedBy: string | undefined;
   const configPaths = loadedConfig ?? defaultLoadedConfig;
   const userLayer = configPaths?.userConfig ?? config ?? {};
+  const credEnv = startupCredentialEnv(env);
+  const projectEndpoint = projectDeclaresEndpoint(configPaths?.projectConfig);
+  const userBlocksAuto =
+    userDeclaresEndpoint(userLayer) ||
+    Boolean((userLayer.apiKey ?? '').trim()) ||
+    namedEnvVar(userLayer).length > 0 ||
+    Boolean((userLayer.model ?? '').trim());
+  const cliBlocksAuto = Boolean(overrides.provider || overrides.baseUrl || overrides.model);
+  const officialOffers =
+    userBlocksAuto || cliBlocksAuto || projectEndpoint ? [] : officialEnvOffers(credEnv);
+  let envProviderCandidates: string[] | undefined;
+  let autoEnvNotice: string | undefined;
+  let autoEnvKey: { apiKey: string; source: string } | undefined;
+  const autoEnvKeys = new Set<keyof ConfigFile>();
+  if (officialOffers.length > 1) {
+    envProviderCandidates = officialOffers.map((offer) => offer.keyVar);
+  } else if (officialOffers.length === 1) {
+    const offer = officialOffers[0];
+    if (offer) {
+      activeConfig = {
+        ...activeConfig,
+        provider: offer.provider,
+        model: offer.model,
+        baseUrl: offer.baseUrl,
+      };
+      autoEnvKey = { apiKey: offer.apiKey, source: `env:${offer.keyVar}` };
+      autoEnvNotice = setupCopy(undefined, '[moss] Using {key} → {provider} @ {baseUrl}', {
+        key: offer.keyVar,
+        provider: offer.provider,
+        baseUrl: offer.baseUrl,
+      });
+      autoEnvKeys.add('provider');
+      autoEnvKeys.add('model');
+      autoEnvKeys.add('baseUrl');
+    }
+  }
   const namedWithoutEndpoint =
     namedEnvVar(userLayer).length > 0 &&
     !userDeclaresEndpoint(userLayer) &&
@@ -1772,14 +1852,24 @@ export function resolveCliConfig(
     !overrides.provider &&
     !overrides.baseUrl;
 
-  if (!hasUserModelConfig(activeConfig) && !namedWithoutEndpoint) {
+  if (
+    !autoEnvKey &&
+    !envProviderCandidates &&
+    !hasUserModelConfig(activeConfig) &&
+    !namedWithoutEndpoint
+  ) {
     const bundled = readBundledZeroConfigDefault(env);
     if (bundled) {
       activeConfig = { ...activeConfig, ...bundled };
       bundledDefaultKeys = new Set(Object.keys(bundled) as Array<keyof ConfigFile>);
       usingBundledDefault = true;
     }
-  } else if (!namedWithoutEndpoint && readBundledZeroConfigDefault(env)) {
+  } else if (
+    !autoEnvKey &&
+    !envProviderCandidates &&
+    !namedWithoutEndpoint &&
+    readBundledZeroConfigDefault(env)
+  ) {
     bundledDefaultSuppressedBy = 'moss config file';
   }
   const fileLayer = (field: string): string => configPaths?.fieldSources?.[field] ?? 'config';
@@ -1808,7 +1898,11 @@ export function resolveCliConfig(
   const ignoredModelEnvVars = listIgnoredModelEnvVars(env);
   const inferredProvider = inferProviderFromBaseUrl(overrides.baseUrl || activeConfig.baseUrl);
   const activeConfigSource = (key: keyof ConfigFile): string =>
-    usingBundledDefault && bundledDefaultKeys.has(key) ? 'built-in' : fileLayer(key);
+    autoEnvKeys.has(key)
+      ? 'env'
+      : usingBundledDefault && bundledDefaultKeys.has(key)
+        ? 'built-in'
+        : fileLayer(key);
   const provider =
     overrides.provider || activeConfig.provider
       ? normalizeProvider(overrides.provider || activeConfig.provider)
@@ -2175,7 +2269,8 @@ export function resolveCliConfig(
         ...(configPaths?.userBaseUrl ? { baseUrl: configPaths.userBaseUrl } : {}),
         ...(configPaths?.userProvider ? { provider: configPaths.userProvider } : {}),
       });
-    if (fromEnv && (allowed || fromEnv !== userKey)) {
+    const officialShellKey = isOfficialEnvKeyName(apiKeyEnvName);
+    if (fromEnv && (allowed || (fromEnv !== userKey && !officialShellKey))) {
       resolvedApiKey = fromEnv;
       apiKeyFromProjectEnv = true;
     }
@@ -2203,29 +2298,36 @@ export function resolveCliConfig(
     ? ''
     : overrides.baseUrl || activeConfig.baseUrl || preset.defaultBaseUrl;
   const userNamed = namedEnvVar(userLayer);
-  const projectEndpoint = projectDeclaresEndpoint(configPaths?.projectConfig);
   const namedMissing =
-    userNamed.length > 0 && !projectEndpoint && !(credentialEnv(env)[userNamed] ?? '').trim();
-  const envKey =
-    namedWithoutEndpoint || namedMissing
-      ? undefined
-      : apiKeyFromEnv(activeConfig, userLayer, configPaths?.projectConfig, env, provider, baseUrl);
+    userNamed.length > 0 && !projectEndpoint && !(startupCredentialEnv(env)[userNamed] ?? '').trim();
+  const blockAutoKey = namedWithoutEndpoint || namedMissing || Boolean(envProviderCandidates);
+  const envKey = blockAutoKey
+    ? undefined
+    : (autoEnvKey ??
+      apiKeyFromEnv(
+        activeConfig,
+        userLayer,
+        configPaths?.projectConfig,
+        env,
+        provider,
+        baseUrl,
+        overrides
+      ));
   return {
     profile,
     profileSource,
     provider,
     providerSource,
-    apiKey: namedWithoutEndpoint || namedMissing ? '' : envKey?.apiKey || resolvedApiKey,
-    apiKeySource:
-      namedWithoutEndpoint || namedMissing
-        ? 'missing'
-        : envKey
-          ? envKey.source
-          : resolvedApiKey
-            ? apiKeyFromProjectEnv
-              ? fileLayer('apiKey')
-              : activeConfigSource('apiKey')
-            : 'missing',
+    apiKey: blockAutoKey ? '' : envKey?.apiKey || resolvedApiKey,
+    apiKeySource: blockAutoKey
+      ? 'missing'
+      : envKey
+        ? envKey.source
+        : resolvedApiKey
+          ? apiKeyFromProjectEnv
+            ? fileLayer('apiKey')
+            : activeConfigSource('apiKey')
+          : 'missing',
     ...(userNamed && !projectEndpoint ? { apiKeyEnv: userNamed } : {}),
     ...(namedMissing ? { apiKeyEnvUnset: true } : {}),
     usingBundledDefault,
@@ -2291,6 +2393,8 @@ export function resolveCliConfig(
     configPath: configPaths?.configPath ?? resolveConfigPath(undefined, env),
     projectConfigPath: configPaths?.projectConfigPath,
     apiKeyEncrypted: envKey ? false : activeConfig._apiKeyEncrypted || false,
+    ...(envProviderCandidates ? { envProviderCandidates } : {}),
+    ...(autoEnvNotice ? { autoEnvNotice } : {}),
   };
 }
 

@@ -674,9 +674,13 @@ const cliCases = [
     prefix: 'moss-doctor-home-',
     args: ['doctor'],
     extra: { OPENAI_API_KEY: SECRET },
-    status: 1,
-    match: [/OPENAI_API_KEY/, /Fix:/],
-    absent: [/sk-firstrun/],
+    status: 0,
+    match: [
+      /OPENAI_API_KEY \(not stored\)/,
+      /provider: openai \(env\)/,
+      /https:\/\/api\.openai\.com/,
+    ],
+    absent: [/sk-firstrun/, /缺少 API key/, /No API key/],
   },
   {
     prefix: 'moss-doctor-zh-',
