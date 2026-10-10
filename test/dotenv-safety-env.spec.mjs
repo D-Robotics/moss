@@ -183,6 +183,12 @@ function childEnv(layoutInfo, overrides = {}) {
     'MOSS_DEVICE_KIND',
     'MOSS_DEVICE_KEY',
     'MOSS_DEVICE_PASSWORD',
+    'DEEPSEEK_API_KEY',
+    'DASHSCOPE_API_KEY',
+    'ALIYUN_API_KEY',
+    'QWEN_API_KEY',
+    'OPENAI_API_KEY',
+    'ANTHROPIC_API_KEY',
   ]) {
     if (!(key in overrides)) delete env[key];
   }
@@ -212,7 +218,11 @@ function trust(layoutInfo) {
 }
 
 function ignoredLines(stderr) {
-  return stderr.split('\n').filter((line) => line.includes('Ignored safety env'));
+  // macOS process.cwd() resolves /var and /tmp through /private.
+  return stderr
+    .split('\n')
+    .filter((line) => line.includes('Ignored safety env'))
+    .map((line) => line.replaceAll('/private/', '/'));
 }
 
 function runCli(cwd, env, args) {
@@ -683,7 +693,7 @@ if (process.platform !== 'win32') {
   ];
   assert.equal(tuiLines.length, 1, plain);
   assert.ok(tuiLines[0].includes(envFile), tuiLines[0]);
-  assert.equal(tuiLines[0].split('MOSS_AUTO_APPROVE').length - 1, 1);
+  assert.equal(plain.split('MOSS_AUTO_APPROVE').length - 1, 1);
   assert.equal(readDump(tui.dumpPath).auto, null);
   assert.equal(readDump(tui.dumpPath).kept, 'from-tui');
 }
