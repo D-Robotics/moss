@@ -88,14 +88,19 @@ import { setCliApprovalAsker } from '../approval.js';
 import { wrapApprovalAsker, wrapApprovalViewAsker } from '../permission-request.js';
 import {
   runRegistryCommand,
+  unknownSlashCommandLines,
   type CommandContext,
   type CommandSurface,
 } from '../commands/registry.js';
 import {
+  isSlashCommandInput,
   loadCustomCommands,
   reservedBuiltinNames,
   resolveUserCommand,
+  skillSlashToken,
 } from '../commands/custom-commands.js';
+import { closestSlashCommands } from '../command-completion.js';
+import { isCatalogSkipNotice } from '../catalog-skip-notice.js';
 import { formatBackgroundJobLines } from '../commands/background-jobs.js';
 import {
   abandonLiveGoal,
@@ -639,18 +644,20 @@ export function TuiAppRoot({
   const submitRef = useRef<(text: string) => Promise<void>>(async () => undefined);
   /** `/goal` proposal waiting for Enter (accept) or `n` (contract verdict only). */
   const pendingGoalRef = useRef<{ goal: string } | null>(null);
-  const customCommands = useMemo(
-    () =>
-      loadCustomCommands(
-        {
-          workspace: options.workspaceDir,
-          configDir: options.cliRuntime?.configDir ?? path.join(options.workspaceDir, '.moss'),
-          reservedNames: reservedBuiltinNames(),
-        },
-        () => undefined
-      ),
-    [options.workspaceDir, options.cliRuntime?.configDir]
-  );
+  const customCommandLoad = useMemo(() => {
+    const notices: string[] = [];
+    const commands = loadCustomCommands(
+      {
+        workspace: options.workspaceDir,
+        configDir: options.cliRuntime?.configDir ?? path.join(options.workspaceDir, '.moss'),
+        reservedNames: reservedBuiltinNames(),
+      },
+      (message) => notices.push(message),
+      options.locale ?? cliLocale()
+    );
+    return { commands, notices };
+  }, [options.workspaceDir, options.cliRuntime?.configDir, options.locale]);
+  const customCommands = customCommandLoad.commands;
   const [queueRevision, setQueueRevision] = useState(0);
   void queueRevision;
   /** Kill ring: the text the last Ctrl+U/K/W removed, pasted back by Ctrl+Y. */
@@ -674,6 +681,15 @@ export function TuiAppRoot({
   const [activeSession, setActiveSession] = useState(options.sessionKey ?? 'tui');
   const sessionKey = activeSession;
   const { store } = handle;
+  useEffect(() => {
+    let added = false;
+    for (const message of customCommandLoad.notices) {
+      if (store.rows.some((row) => row.text === message)) continue;
+      appendRow(store, 'summary', message);
+      added = true;
+    }
+    if (added) handle.notify();
+  }, [customCommandLoad, handle, store]);
   const sessionChrome = useMemo(() => {
     try {
       const file = loadCliConfigFile(process.env, process.argv.slice(2), undefined, {
@@ -804,7 +820,7 @@ export function TuiAppRoot({
   useEffect(
     () =>
       options.noticeSource?.subscribe((message) => {
-        appendRow(store, 'system', message);
+        appendRow(store, isCatalogSkipNotice(message) ? 'summary' : 'system', message);
         handle.notify();
       }),
     [handle, options.noticeSource, store]
@@ -1998,7 +2014,7 @@ export function TuiAppRoot({
       const submittedTokens = tokensRef.current.slice();
       let text = raw.trim();
       if (!text) return;
-      if (pendingGoalRef.current && !text.startsWith('/')) {
+      if (pendingGoalRef.current && !isSlashCommandInput(text)) {
         const pending = pendingGoalRef.current;
         pendingGoalRef.current = null;
         setInput('');
@@ -2016,7 +2032,7 @@ export function TuiAppRoot({
         );
         return;
       }
-      if (text.startsWith('/')) {
+      if (isSlashCommandInput(text)) {
         pendingGoalRef.current = null;
         const rewritten = rewriteSlashInput(text, isTuiZh() ? 'zh' : 'en');
         if (rewritten.suggestion) {
@@ -2062,7 +2078,7 @@ export function TuiAppRoot({
       // Running-turn policy comes from the catalog (`availableDuringRun`), the
       // same table the REPL reads. Codex disables Plan/Review/Compact/Init/Clear
       // during a task: those are `reject`. Status/Diff/Model/Tasks stay immediate.
-      if (text.startsWith('/') && store.run.running) {
+      if (isSlashCommandInput(text) && store.run.running) {
         const policy = availabilityFor(text);
         if (policy === 'queue') {
           queueRef.current.push({ display: text, text });
@@ -2386,10 +2402,11 @@ export function TuiAppRoot({
         printBlock('Theme', [tui('theme: {name}', { name: asked })]);
         return;
       }
-      if (text.startsWith('/')) {
+      if (isSlashCommandInput(text)) {
         // Shared registry first (status/doctor/permissions/mode/context/export/
         // review), then the shell-local control commands, then file commands
         // and skills (arguments kept), then the honest unknown-command path.
+        // A path (`/usr/bin/foo`) or `/` followed by whitespace is not a command.
         if (await runShellCommand(text)) return;
         const resolved = resolveUserCommand(text, {
           builtinNames: reservedBuiltinNames(),
@@ -2405,10 +2422,22 @@ export function TuiAppRoot({
           await dispatchRun(resolved.prompt);
           return;
         }
+        const head = text.split(/\s+/, 1)[0] ?? text;
+        const suggestions = closestSlashCommands(head, [
+          ...reservedBuiltinNames(),
+          ...customCommands.map((command) => command.name),
+          ...(options.skills ?? []).flatMap((skill) => {
+            const token = skillSlashToken(skill);
+            return token ? [token] : [];
+          }),
+        ]);
         appendRow(
           store,
           'error',
-          tui('unknown command "{name}" — try /help', { name: text.split(' ')[0] ?? '' })
+          unknownSlashCommandLines(head, {
+            suggestions,
+            locale: options.locale ?? cliLocale(),
+          }).join('\n')
         );
         handle.notify();
         return;
@@ -2486,7 +2515,10 @@ export function TuiAppRoot({
   const paletteRows: PaletteRow[] = shellPaletteRows(input, [
     // File commands outrank skills on a name collision, matching resolveUserCommand.
     ...customCommands.map((command) => [command.name, command.summary] as const),
-    ...(options.skills ?? []).map((skill) => [`/${skill.name}`, skill.description] as const),
+    ...(options.skills ?? []).flatMap((skill) => {
+      const token = skillSlashToken(skill);
+      return token ? [[token, skill.description] as const] : [];
+    }),
   ]);
   const paletteOpen =
     paletteRows.length > 0 &&
@@ -3276,7 +3308,7 @@ export function TuiAppRoot({
         const exact =
           isExactSlashCommand(typed) ||
           customCommands.some((command) => command.name === head) ||
-          (options.skills ?? []).some((skill) => `/${skill.name}`.toLowerCase() === head);
+          (options.skills ?? []).some((skill) => skillSlashToken(skill)?.toLowerCase() === head);
         if (exact) {
           void submit(typed);
           return;

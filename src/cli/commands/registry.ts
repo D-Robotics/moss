@@ -934,20 +934,25 @@ export async function runRegistryCommand(
 
 export function unknownSlashCommandLines(
   input: string,
-  options: { suggestion?: string | null; locale?: string } = {}
+  options: { suggestion?: string | null; suggestions?: readonly string[]; locale?: string } = {}
 ): string[] {
   const zh = isZh(options.locale);
-  return [
-    zh ? `未知命令：${input}` : `Unknown command: ${input}`,
-    options.suggestion
-      ? zh
-        ? `是想输入 ${options.suggestion} 吗？`
-        : `Did you mean ${options.suggestion}?`
-      : zh
-        ? '用 /help 查看全部命令。'
-        : 'Use /help for available commands.',
+  const head = input.trim().split(/\s+/, 1)[0] ?? input.trim();
+  const suggestions = (options.suggestions ?? (options.suggestion ? [options.suggestion] : []))
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .slice(0, 3);
+  const lines = [zh ? `未知命令：${head}` : `unknown command "${head}"`];
+  if (suggestions.length > 0) {
+    lines.push(
+      zh ? `是想输入 ${suggestions.join('、')} 吗？` : `Did you mean ${suggestions.join(', ')}?`
+    );
+  }
+  lines.push(zh ? '输入 /help 查看全部命令。' : 'Type /help for available commands.');
+  lines.push(
     zh
       ? '提示：以 / 开头的输入是 CLI 命令，不会发给模型。想让模型处理这句话，去掉行首的 / 重新发送。'
-      : 'Note: "/" input is a CLI command and never reaches the model. To let the model handle it, resend without the leading "/".',
-  ];
+      : 'Note: "/" input is a CLI command and never reaches the model. To let the model handle it, resend without the leading "/".'
+  );
+  return lines;
 }

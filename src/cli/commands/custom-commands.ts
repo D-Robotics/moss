@@ -1,6 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { INTERACTIVE_COMMAND_SECTIONS } from '../interactive-commands.js';
+import { announceCatalogSkip } from '../catalog-skip-notice.js';
+import {
+  CATALOG_NAME_RE,
+  containsTemplatePlaceholder,
+  skillSkipReason,
+  skillSlashName,
+  type SkillSkipReason,
+} from '../../core/skills/skill-registry.js';
 import { registryCommandNames, type CommandSpec } from './registry.js';
 
 export function reservedBuiltinNames(): ReadonlySet<string> {
@@ -26,7 +34,55 @@ export function reservedBuiltinNames(): ReadonlySet<string> {
   return names;
 }
 
-const NAME_RE = /^[a-z0-9][a-z0-9_-]*$/i;
+/** First token of a typed line, so `/modle kimi-k2` is `/modle`. */
+export function slashHead(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.split(/\s+/, 1)[0] ?? trimmed;
+}
+
+/**
+ * A typed `/…` line is a slash command unless it is a filesystem path or a
+ * slash followed only by whitespace. A token with another `/` (`/usr/bin/foo`)
+ * is a path and stays an ordinary prompt. Anything else that is not a path,
+ * including an unfilled `/{{name}}`, is still a command attempt and must not
+ * reach the model.
+ */
+export function isSlashCommandInput(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('/')) return false;
+  const token = slashHead(trimmed);
+  if (token === '/') return false;
+  const name = token.slice(1);
+  // `/usr/bin/foo` — a path, not a command name.
+  if (name.includes('/')) return false;
+  return true;
+}
+
+/**
+ * A loaded skill is dispatched only from the interactive shell. `-p "/greet"`
+ * must say so instead of calling the skill unknown.
+ */
+export function isLoadedSkillSlash(token: string, skills: readonly { name: string }[]): boolean {
+  const head = slashHead(token).toLowerCase();
+  const name = head.startsWith('/') ? head.slice(1) : head;
+  if (!name || name.includes('/')) return false;
+  return skills.some((skill) => {
+    const raw = skill.name.toLowerCase();
+    const alias = skillSlashName(skill.name).toLowerCase();
+    return raw === name || alias === name;
+  });
+}
+
+/**
+ * `/` token for a skill, using the slash alias. Undefined when that alias is
+ * still not a command name (`c++-helper`, `Deploy (prod)`): the skill tool
+ * keeps the original name, and no slash entry is offered.
+ */
+export function skillSlashToken(skill: { name: string; description: string }): string | undefined {
+  const alias = skillSlashName(skill.name);
+  if (skillSkipReason(alias, skill.description) !== undefined) return undefined;
+  return `/${alias}`;
+}
 
 export interface CustomCommandSource {
   workspace: string;
@@ -92,7 +148,21 @@ export function resolveUserCommand(
   if (custom?.body) {
     return { kind: 'custom', name: head, args, prompt: expandCommandBody(custom.body, args) };
   }
-  const skill = options.skills.find((entry) => `/${entry.name}`.toLowerCase() === head);
+  const exact = options.skills.find(
+    (entry) =>
+      `/${entry.name}`.toLowerCase() === head &&
+      skillSkipReason(entry.name, entry.description) === undefined
+  );
+  const skill =
+    exact ??
+    options.skills.find((entry) => {
+      const alias = skillSlashName(entry.name);
+      return (
+        `/${alias}`.toLowerCase() === head &&
+        alias.toLowerCase() !== entry.name.toLowerCase() &&
+        skillSkipReason(alias, entry.description) === undefined
+      );
+    });
   if (skill) {
     const base = `Use the "${skill.name}" skill${skill.description ? ` (${skill.description})` : ''} for this task. Read the skill body with the skill tool first, then follow it.`;
     return {
@@ -127,7 +197,23 @@ interface CommandFileEntry {
   parsed: ParsedCommandFile;
 }
 
-function readCommandsFromDir(dir: string): CommandFileEntry[] {
+function commandSkipReason(
+  name: string,
+  description: string | undefined
+): SkillSkipReason | undefined {
+  if (containsTemplatePlaceholder(name)) return 'placeholder';
+  if (!CATALOG_NAME_RE.test(name)) return 'invalid-name';
+  if (description === undefined) return undefined;
+  const trimmed = description.trim();
+  if (!trimmed) return 'empty';
+  if (containsTemplatePlaceholder(trimmed)) return 'placeholder';
+  return undefined;
+}
+
+function readCommandsFromDir(
+  dir: string,
+  onSkip?: (file: string, reason: SkillSkipReason) => void
+): CommandFileEntry[] {
   let entries: string[];
   try {
     entries = fs.readdirSync(dir);
@@ -138,32 +224,44 @@ function readCommandsFromDir(dir: string): CommandFileEntry[] {
   for (const entry of entries.sort()) {
     if (!entry.endsWith('.md')) continue;
     const name = entry.slice(0, -3);
-    if (!NAME_RE.test(name)) continue;
+    const file = path.join(dir, entry);
     let raw: string;
     try {
-      raw = fs.readFileSync(path.join(dir, entry), 'utf-8');
+      raw = fs.readFileSync(file, 'utf-8');
     } catch {
       continue;
     }
     const parsed = parseCommandFile(raw);
+    const reason = commandSkipReason(name, parsed.description);
+    if (reason) {
+      onSkip?.(file, reason);
+      continue;
+    }
     if (!parsed.body) continue;
-    out.push({ name, file: path.join(dir, entry), parsed });
+    out.push({ name, file, parsed });
   }
   return out;
 }
 
 export function loadCustomCommands(
   source: CustomCommandSource,
-  onWarning?: (message: string) => void
+  onWarning?: (message: string) => void,
+  locale?: string
 ): CommandSpec[] {
   const seen = new Set<string>();
+  const announced = new Set<string>();
   const specs: CommandSpec[] = [];
   const dirs = [
     path.join(source.workspace, '.moss', 'commands'),
     path.join(source.configDir, 'commands'),
   ];
   for (const dir of dirs) {
-    for (const { name, file, parsed } of readCommandsFromDir(dir)) {
+    for (const { name, file, parsed } of readCommandsFromDir(dir, (skipped, reason) => {
+      if (announced.has(skipped)) return;
+      announced.add(skipped);
+      if (!onWarning) return;
+      announceCatalogSkip(source.workspace, skipped, reason, locale, onWarning);
+    })) {
       const slash = `/${name}` as const;
       if (source.reservedNames.has(slash)) {
         onWarning?.(
