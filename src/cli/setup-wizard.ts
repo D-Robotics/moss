@@ -107,7 +107,37 @@ export function formatDiscoveredModels(
   };
 }
 
-export function renderSetupHelp(): string {
+export function renderSetupHelp(zh = false): string {
+  if (zh) {
+    return [
+      '用法：',
+      '  moss setup',
+      '',
+      '配置提供方、模型和 API 密钥，并写入 moss 配置文件。',
+      'API 密钥从隐藏输入读取，不会打印。',
+      '',
+      '提供方（输入序号或名称）：',
+      '  1  deepseek            DeepSeek',
+      '  2  qwen                阿里云 / Qwen',
+      '  3  openai              OpenAI',
+      '  4  anthropic           Anthropic',
+      '  5  openai-compatible   网关 URL，然后是该网关列出的模型',
+      '',
+      'openai-compatible 从 /v1/models 列出模型。"Found N model(s)" 的数量与列表一致；',
+      '更长的目录会说明展示了多少行。用序号或模型名回答。base URL 存成 API 根地址：',
+      '/v1、/chat/completions、查询串和凭据会被去掉。',
+      '',
+      '非交互：每行一个答案（先是提供方，然后每个提示）。',
+      '之后用 `moss config` 修改（`moss config --help`）。',
+      '',
+      '选项：',
+      '  --config-file <path>   读写这个配置文件，而不是默认路径',
+      '',
+      '示例：',
+      '  moss setup',
+      "  printf '5\\nhttps://gateway.example\\nYOUR_KEY\\nmy-model\\n' | moss setup",
+    ].join('\n');
+  }
   return [
     'Usage:',
     '  moss setup',
@@ -129,6 +159,9 @@ export function renderSetupHelp(): string {
     '',
     'Non-interactive: pipe one answer per line (provider, then each prompt).',
     'Change a saved value later with `moss config` (`moss config --help`).',
+    '',
+    'Options:',
+    '  --config-file <path>   read and write this file instead of the default config',
     '',
     'Examples:',
     '  moss setup',

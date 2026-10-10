@@ -455,7 +455,8 @@ export function runConfigEnv(): void {
 }
 
 /** Full reference — the single home for settable keys and examples. */
-export function renderConfigHelp(): string {
+export function renderConfigHelp(zh = false): string {
+  if (zh) return renderConfigHelpZh();
   return [
     'Usage:',
     '  moss config',
@@ -495,6 +496,51 @@ export function renderConfigHelp(): string {
     '  moss config set agent.maxTurns 96',
     '  moss config set agent.contextTokens 200000',
     '  moss config set agent.compaction.reserveTokens 20000',
+    '  moss config set rdkDocs false',
+    '  moss config set rdkDocs.package ../rdk-docs-mcp',
+    '',
+    'Options:',
+    '  --project              init/set/unset write .moss/config.json in the workspace',
+    '  --force                init overwrites an existing config file',
+    '  --json                 machine-readable show or validate output',
+    '  --strict               validate fails on warnings',
+    '  --config-file <path>   load only that file; the project layer is not merged',
+  ].join('\n');
+}
+
+function renderConfigHelpZh(): string {
+  return [
+    '用法：',
+    '  moss config',
+    '  moss config init [--project] [--force]',
+    '  moss config show',
+    '  moss config show --json',
+    '  moss config validate [--strict] [--json]',
+    '  moss config set <provider|model|baseUrl|apiKey> <value>',
+    '  moss config set <profile|safetyMode|approvalPolicy|trustedTools|deniedTools|promptCache|promptCacheDebug|guardrails.*|agent.*> <value>',
+    '  moss config set <key>=<value> [<key>=<value>...]',
+    '  moss config set --project <key>=<value> [<key>=<value>...]',
+    '  moss config unset <key>',
+    '  moss config unset --project <key>',
+    '',
+    '配置文件：',
+    '  未指定文件时，Moss 读取用户配置，并把当前工作区的',
+    '  .moss/config.json 当作项目默认值合并。',
+    '  --config-file 与 MOSS_CONFIG_FILE 只加载那个文件，',
+    '  项目 .moss/config.json 这一层不会进入本次配置。',
+    '',
+    '选项：',
+    '  --project              init/set/unset 写入工作区 .moss/config.json',
+    '  --force                init 覆盖已有配置文件',
+    '  --json                 show / validate 的机器可读输出',
+    '  --strict               validate 把警告也当成失败',
+    '  --config-file <path>   只加载该文件，不合并项目层',
+    '',
+    '示例：',
+    '  moss config init --project',
+    '  moss config validate --strict',
+    '  moss config set provider openai-compatible',
+    '  moss config set model <your-model>',
     '  moss config set rdkDocs false',
     '  moss config set rdkDocs.package ../rdk-docs-mcp',
   ].join('\n');

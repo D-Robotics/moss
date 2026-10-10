@@ -1,12 +1,28 @@
 {
-  "name": "moss",
+  "name": "@rdk-moss/agent",
   "version": "0.26.0",
   "private": true,
   "type": "module",
   "license": "MIT",
   "description": "Moss: a minimal cross-platform coding agent harness (agent loop, tools, context management, providers) with a `moss` CLI.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/QiaolongLi1201/moss.git"
+  },
+  "homepage": "https://github.com/QiaolongLi1201/moss#readme",
+  "bugs": {
+    "url": "https://github.com/QiaolongLi1201/moss/issues"
+  },
   "bin": {
     "moss": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "exports": {
     ".": {
@@ -16,6 +32,8 @@
     }
   },
   "scripts": {
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build && npm run verify",
     "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc -p tsconfig.build.json && node -e \"const fs=require('fs');fs.chmodSync('dist/cli.js',0o755)\"",
     "typecheck": "tsc --noEmit",
