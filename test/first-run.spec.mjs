@@ -547,7 +547,7 @@ function tempDir(prefix) {
   assert.match(formatInteractionModeNotice('full', 'C'), /full \(v0\.26 default/);
 }
 
-// ─── "shown once" is in-memory for this process (#17) ──────────────────────
+// ─── "shown once" is persisted in the config dir ───────────────────────────
 
 {
   const dir = tempDir('moss-notice-');
@@ -558,7 +558,7 @@ function tempDir(prefix) {
   };
   const env = { MOSS_CONFIG_DIR: dir };
   assert.equal(shouldShowFullDefaultNotice(config, env), true);
-  assert.equal(fs.existsSync(path.join(dir, '.full_default_notice_shown')), false);
+  assert.equal(fs.existsSync(path.join(dir, '.full_default_notice_shown')), true);
   assert.equal(shouldShowFullDefaultNotice(config, env), false);
 }
 
@@ -687,15 +687,16 @@ const cliCases = [
     prefix: 'moss-once-home-',
     args: [],
     runs: 2,
-    noticeFile: false,
-    firstMatch: [/This notice shows once/, /Interaction mode: full \(v0\.26 default/],
-    eachMatch: [/This notice shows once/, /Interaction mode:/],
+    noticeFile: true,
+    firstMatch: [/This\s+notice shows once/, /Interaction mode: full \(v0\.26 default/],
+    eachMatch: [/Interaction mode:/],
+    laterAbsent: [/This\s+notice shows once/],
   },
   {
     prefix: 'moss-once-zh-',
     args: [],
     extra: { LANG: 'zh_CN.UTF-8', LC_ALL: 'zh_CN.UTF-8' },
-    match: [/只显示一次/, /交互模式/],
+    match: [/此\s*提\s*示\s*只\s*显\s*示\s*一\s*次/, /交互模式/],
     absent: [/This notice shows once/],
   },
 ];
@@ -719,8 +720,11 @@ for (const row of cliCases) {
   for (const pattern of row.eachMatch ?? []) {
     for (const item of texts) assert.match(item, pattern, row.prefix);
   }
-  if (row.noticeFile === false) {
-    assert.equal(fs.existsSync(path.join(configDir, '.full_default_notice_shown')), false);
+  if (row.noticeFile === true) {
+    assert.equal(fs.existsSync(path.join(configDir, '.full_default_notice_shown')), true);
+  }
+  for (const pattern of row.laterAbsent ?? []) {
+    for (const item of texts.slice(1)) assert.doesNotMatch(item, pattern, row.prefix);
   }
 }
 

@@ -1,6 +1,6 @@
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { redactGatewayText } from '../safety/tool-output-redact.js';
-import { preferredLocale } from '../utils/locale-preference.js';
+import { isEffectiveUiZh } from '../utils/ui-language.js';
 import type { ProviderErrorResponse } from './errors.js';
 import {
   isAbortFailure,
@@ -84,11 +84,12 @@ const SILENT_USER_ABORT: ProviderErrorSurface = {
   retryable: false,
 };
 
-/** Chosen once per call. Action labels are fixed at module load. */
+/** Set for the duration of one classify call. An explicit locale overrides the UI language. */
 let activeLocale: string | undefined;
 
 function isZhEnv(env: NodeJS.ProcessEnv = process.env): boolean {
-  return /^zh/i.test(activeLocale ?? preferredLocale(env) ?? '');
+  if (activeLocale !== undefined) return /^zh/i.test(activeLocale);
+  return isEffectiveUiZh(env);
 }
 
 function msg(zh: string, en: string): string {
@@ -104,15 +105,34 @@ function action(
   return { id, label: msg(zh, en), variant };
 }
 
-const RETRY = action('retry', '重试', 'Retry', 'primary');
-const SETTINGS = action('openSettings', '打开设置', 'Open settings', 'secondary');
-const BOARD = action('openBoardAgent', '检查板端智能体', 'Check board agent', 'primary');
-const SWITCH = action('switchModel', '换个模型', 'Switch model', 'ghost');
-const NEW_SESSION = action('newSession', '开新对话', 'New session', 'ghost');
-const RETRY_SWITCH = [RETRY, SWITCH];
-const SETTINGS_SWITCH = [SETTINGS, SWITCH];
-const RETRY_SETTINGS = [RETRY, SETTINGS];
-const SETTINGS_RETRY = [SETTINGS, RETRY];
+function actionSet(): {
+  RETRY: ProviderErrorAction;
+  SETTINGS: ProviderErrorAction;
+  BOARD: ProviderErrorAction;
+  SWITCH: ProviderErrorAction;
+  NEW_SESSION: ProviderErrorAction;
+  RETRY_SWITCH: ProviderErrorAction[];
+  SETTINGS_SWITCH: ProviderErrorAction[];
+  RETRY_SETTINGS: ProviderErrorAction[];
+  SETTINGS_RETRY: ProviderErrorAction[];
+} {
+  const RETRY = action('retry', '重试', 'Retry', 'primary');
+  const SETTINGS = action('openSettings', '打开设置', 'Open settings', 'secondary');
+  const BOARD = action('openBoardAgent', '检查板端智能体', 'Check board agent', 'primary');
+  const SWITCH = action('switchModel', '换个模型', 'Switch model', 'ghost');
+  const NEW_SESSION = action('newSession', '开新对话', 'New session', 'ghost');
+  return {
+    RETRY,
+    SETTINGS,
+    BOARD,
+    SWITCH,
+    NEW_SESSION,
+    RETRY_SWITCH: [RETRY, SWITCH],
+    SETTINGS_SWITCH: [SETTINGS, SWITCH],
+    RETRY_SETTINGS: [RETRY, SETTINGS],
+    SETTINGS_RETRY: [SETTINGS, RETRY],
+  };
+}
 
 function matchContextCorruption(text: string): {
   hit: boolean;
@@ -468,6 +488,22 @@ const COPY = {
     '模型暂时不可用。若当前对话反复失败，请开启新对话并让 Moss 查看上一个会话内容后继续。',
     'The model is temporarily unavailable. If this conversation keeps failing, start a new session and let Moss pick up from the previous one.',
   ],
+  streaming: [
+    '当前模型/网关不支持流式输出，请到设置中换一个支持 stream 的模型。',
+    'This model or gateway does not support streaming. Pick a model that supports stream in settings.',
+  ],
+  tools: [
+    '当前模型不支持工具调用，工具任务可能失败；请到设置换用支持 tools 的模型（推荐 qwen3 / qwen3-coder / llama3.1 / gpt-4.x 或同类工具模型）。',
+    'This model does not support tool calls, so tool tasks may fail. Switch to a tools-capable model in settings (qwen3, qwen3-coder, llama3.1, gpt-4.x, or similar).',
+  ],
+  empty: [
+    '模型返回空内容（常见于思考类模型把所有输出放进 reasoning）。请到设置把「推理可见度」改为「stream」让思考过程可见，或换一个非纯思考模型。',
+    'The model returned empty content (common when a reasoning model puts everything in reasoning). In settings, set reasoning visibility to stream, or switch to a model that is not reasoning-only.',
+  ],
+  runtime: [
+    '板端协作运行时没有准备好，Moss 需要先恢复板端智能体或 Gateway 后才能继续。',
+    'The board runtime is not ready. Restore the board agent or gateway before Moss can continue.',
+  ],
 } as const;
 
 type CopyId = keyof typeof COPY;
@@ -478,6 +514,17 @@ function say(id: CopyId): string {
 }
 
 function classifyProviderErrorNow(input: ProviderErrorInput): ProviderErrorSurface {
+  const {
+    RETRY,
+    SETTINGS,
+    BOARD,
+    SWITCH,
+    NEW_SESSION,
+    RETRY_SWITCH,
+    SETTINGS_SWITCH,
+    RETRY_SETTINGS,
+    SETTINGS_RETRY,
+  } = actionSet();
   const resp = input.providerErrorResponse;
   const raw = String(resp?.message ?? input.errorMessage ?? '').trim();
   const status = resp?.status ?? input.status;
@@ -567,36 +614,16 @@ function classifyProviderErrorNow(input: ProviderErrorInput): ProviderErrorSurfa
     return hit('service_unavailable', 'upstream', RETRY_SWITCH, true);
   }
   if (matchStreamingUnsupported(raw)) {
-    return gate(
-      'streaming_not_supported',
-      '当前模型/网关不支持流式输出，请到设置中换一个支持 stream 的模型。',
-      SETTINGS_SWITCH,
-      false
-    );
+    return hit('streaming_not_supported', 'streaming', SETTINGS_SWITCH, false);
   }
   if (matchToolUnsupported(raw)) {
-    return gate(
-      'tools_not_supported',
-      '当前模型不支持工具调用，工具任务可能失败；请到设置换用支持 tools 的模型（推荐 qwen3 / qwen3-coder / llama3.1 / gpt-4.x 或同类工具模型）。',
-      SETTINGS_SWITCH,
-      false
-    );
+    return hit('tools_not_supported', 'tools', SETTINGS_SWITCH, false);
   }
   if (matchEmptyResponse(raw)) {
-    return gate(
-      'empty_response',
-      '模型返回空内容（常见于思考类模型把所有输出放进 reasoning）。请到设置把「推理可见度」改为「stream」让思考过程可见，或换一个非纯思考模型。',
-      SETTINGS_SWITCH,
-      true
-    );
+    return hit('empty_response', 'empty', SETTINGS_SWITCH, true);
   }
   if (matchRuntimeLifecycle(raw)) {
-    return gate(
-      'runtime_lifecycle',
-      '板端协作运行时没有准备好，Moss 需要先恢复板端智能体或 Gateway 后才能继续。',
-      [BOARD, RETRY, SETTINGS],
-      true
-    );
+    return hit('runtime_lifecycle', 'runtime', [BOARD, RETRY, SETTINGS], true);
   }
   return hit('unknown', 'unknown', [RETRY, NEW_SESSION, SWITCH], false, 'body');
 }

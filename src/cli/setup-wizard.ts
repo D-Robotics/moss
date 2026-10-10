@@ -5,6 +5,7 @@ import { cleanGatewayUrl } from '../provider/api-v1-url.js';
 import { isZhLocale, setupCopy } from './cli-locale.js';
 import { WORKSPACE_WRITE_LIMIT_EN } from './workspace-write-copy.js';
 import {
+  envBeforeDotenv,
   loadCliConfigFile,
   loadConfigFile,
   PROVIDER_PRESETS,
@@ -17,6 +18,16 @@ import {
   type ResolvedCliConfig,
 } from './config.js';
 import { configSnapshotLines } from './config-snapshot.js';
+import {
+  formatUiLanguageLine,
+  setSessionUiLanguage,
+  shouldOfferEnglishUi,
+  systemLocale,
+  uiLanguageResolution,
+  uiText,
+  writeUserLanguageSetting,
+} from './cli-locale.js';
+import { setTuiLocale } from './tui/copy.js';
 import { probeModel } from './connection-probe.js';
 import {
   isSaveAnywayAnswer,
@@ -89,8 +100,11 @@ export function formatDiscoveredModels(
   const total = seen.size;
   const heading =
     total > choices.length
-      ? `Found ${total} model(s), showing ${choices.length} of ${total}:`
-      : `Found ${choices.length} model(s):`;
+      ? uiText(
+          `Found ${total} model(s), showing ${choices.length} of ${total}:`,
+          `找到 ${total} 个模型，显示其中 ${choices.length} 个：`
+        )
+      : uiText(`Found ${choices.length} model(s):`, `找到 ${choices.length} 个模型：`);
   return {
     heading,
     choices,
@@ -317,6 +331,7 @@ export function renderAuthStatus(
       ],
       'plain'
     ),
+    formatUiLanguageLine(),
   ].join('\n');
 }
 
@@ -365,8 +380,74 @@ async function printSetupSuccess({
   print(L(WORKSPACE_WRITE_LIMIT_EN));
 }
 
+function readOneKey(prompt: string): Promise<string> {
+  if (!input.isTTY || typeof input.setRawMode !== 'function') return Promise.resolve('');
+  return new Promise((resolve) => {
+    readline.emitKeypressEvents(input);
+    const wasRaw = input.isRaw;
+    try {
+      input.setRawMode(true);
+    } catch {
+      resolve('');
+      return;
+    }
+    input.resume();
+    output.write(prompt);
+    function finish(value: string): void {
+      input.off('keypress', onKeypress);
+      try {
+        if (wasRaw !== undefined) input.setRawMode(wasRaw);
+      } catch {
+        /* the terminal is already going away */
+      }
+      output.write('\n');
+      resolve(value);
+    }
+    function onKeypress(str: string, key: readline.Key) {
+      if (key.ctrl && key.name === 'c') {
+        output.write('\n');
+        process.exit(130);
+      }
+      finish(str ?? '');
+    }
+    input.on('keypress', onKeypress);
+  });
+}
+
+/** One keypress on a Chinese system locale: `e` switches the UI to English. */
+export async function offerEnglishUiIfNeeded(): Promise<void> {
+  let configLanguage: string | undefined;
+  try {
+    const stored = loadConfigFile();
+    if (typeof stored.language === 'string') configLanguage = stored.language;
+  } catch {
+    configLanguage = undefined;
+  }
+  const resolution = uiLanguageResolution();
+  if (
+    !shouldOfferEnglishUi({
+      tty: input.isTTY === true,
+      systemLocale: systemLocale(envBeforeDotenv),
+      configLanguage,
+      source: resolution?.source,
+    })
+  ) {
+    return;
+  }
+  const key = await readOneKey('界面语言：中文。按 e 切换为 English，其他键继续。');
+  if (key === 'e' || key === 'E') {
+    writeUserLanguageSetting('en');
+    setSessionUiLanguage('en');
+    setTuiLocale(false);
+    print(uiText('UI language: English.', '界面语言：English。'));
+    return;
+  }
+  writeUserLanguageSetting('auto');
+}
+
 /** Readline driver over `reduceFirstRun`. Prompts are the state machine's lines. */
 export async function runSetupWizard(): Promise<void> {
+  await offerEnglishUiIfNeeded();
   const piped = input.isTTY ? null : fs.readFileSync(0, 'utf8').split(/\r?\n/);
   let lineNo = 0;
   const readAnswer = async (prompt: string, hidden = false): Promise<string> => {
@@ -520,16 +601,26 @@ export async function runSetupWizard(): Promise<void> {
 export async function runAuthLogout(): Promise<void> {
   const current = loadConfigFile();
   if (!current.apiKey) {
-    print('[auth] No API key is stored.');
+    print(uiText('[auth] No API key is stored.', '[auth] 没有已保存的 API 密钥。'));
     return;
   }
-  const answer = await question('Remove stored API key from Moss config? [y/N] ');
+  const answer = await question(
+    uiText(
+      'Remove stored API key from Moss config? [y/N] ',
+      '从 Moss 配置中删除已保存的 API 密钥？[y/N] '
+    )
+  );
   if (!/^y(es)?$/i.test(answer)) {
-    print('[auth] Cancelled.');
+    print(uiText('[auth] Cancelled.', '[auth] 已取消。'));
     return;
   }
   const next = { ...current };
   delete next.apiKey;
   saveConfigFile(next);
-  print('[auth] Stored API key removed. Model and baseUrl were preserved.');
+  print(
+    uiText(
+      '[auth] Stored API key removed. Model and baseUrl were preserved.',
+      '[auth] 已删除保存的 API 密钥。模型和 baseUrl 保留。'
+    )
+  );
 }

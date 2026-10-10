@@ -28,6 +28,7 @@ import {
   slashAliasHelpLines,
 } from './interactive-commands.js';
 import { isResumableTaskPhase } from '../contracts/task-runtime.js';
+import { cliLocale } from './cli-locale.js';
 import { listBackgroundProcessSnapshots } from '../core/tools/background-process-registry.js';
 import { CliServices } from './cli-services.js';
 import { resolveRealModel } from './model-resolution.js';
@@ -41,7 +42,6 @@ import { createCliProvider } from './providers.js';
 import { runOneShot } from './oneshot.js';
 import { messageRequestsTaskContract } from './task-flow.js';
 import { createSessionUsageAccumulator } from './session-usage.js';
-import { cliLocale } from './cli-locale.js';
 import { createCliRunRenderer } from './output.js';
 import { renderCliInteractiveHelp, renderCliWelcome, type CliRuntimeStatus } from './onboarding.js';
 import { createCliSessionKey, selectSessionForResume } from './session.js';

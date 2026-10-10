@@ -38,10 +38,21 @@ export function selectNudgeUserText(candidatesNewestFirst: readonly string[]): s
   return '';
 }
 
+/**
+ * Drop a `<turn-context>` block (and a title clipped inside an unclosed one)
+ * so session previews show the user's words, not the environment preamble.
+ */
+export function userTextWithoutTurnContext(text: string): string {
+  const closed = text.replace(/<turn-context>[\s\S]*?<\/turn-context>/g, ' ');
+  const open = closed.indexOf('<turn-context>');
+  const cut = open === -1 ? closed : closed.slice(0, open);
+  return cut.replace(/\s+/g, ' ').trim();
+}
+
 /** Session list title: the user's goal, never the engine's phase prompt. */
 export function sessionTitleFromTexts(texts: readonly string[]): string | undefined {
   const clip = (value: string): string => {
-    const cleaned = value.replace(/\s+/g, ' ').trim();
+    const cleaned = userTextWithoutTurnContext(value);
     if (!cleaned) return '';
     return cleaned.length > 80 ? `${cleaned.slice(0, 79)}…` : cleaned;
   };

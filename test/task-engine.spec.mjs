@@ -483,9 +483,9 @@ test('full chain: fail → repair → reverify → accepted, driven only by evid
   // stay verbatim. Default (no locale) stays English for SDK callers.
   const zhSummary = summarizeTaskRun(result, 'zh_CN.UTF-8');
   assert.match(zhSummary, /任务 task_\S+ — PASS/);
-  assert.match(zhSummary, /目标: camera FPS >=30 on device/);
-  assert.match(zhSummary, /尝试: 2 · 修复: 1 · 失败: 1/);
-  assert.match(zhSummary, /最终裁决:/);
+  assert.match(zhSummary, /目标：camera FPS >=30 on device/);
+  assert.match(zhSummary, /尝试：2 · 修复：1 · 失败：1/);
+  assert.match(zhSummary, /最终裁决：/);
   assert.match(zhSummary, /Acceptance passed/, 'verdict body stays verbatim under zh');
   assert.doesNotMatch(summarizeTaskRun(result), /任务/, 'no locale → English default');
   assert.match(summarizeTaskRun(result, 'en_US.UTF-8'), /^Task task_/, 'explicit en stays English');
@@ -794,7 +794,7 @@ test('esc during the resumed execution turn is aborted, not crashed, and resumab
   assert.doesNotMatch(summary, /Task failed/);
   assert.deepEqual(summary.match(/\/goal resume/g), ['/goal resume']);
   const zhSummary = summarizeTaskRun(result, 'zh-CN');
-  assert.match(zhSummary, /阶段: 已中止/);
+  assert.match(zhSummary, /阶段：已中止/);
   assert.doesNotMatch(zhSummary, /failed|\bFAIL\b|\/task resume/);
   assert.deepEqual(zhSummary.match(/\/goal resume/g), ['/goal resume']);
   await finishAfterAbort(ws, taskId);
