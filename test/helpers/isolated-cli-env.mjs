@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { trackTempDir } from './temp-home.mjs';
+
 /**
  * Build a hermetic environment for specs that launch the real Moss CLI.
  * Host device targets and user-level config must never change test behavior.
@@ -31,7 +33,7 @@ export function isolatedCliEnv({
     MOSS_NO_RDK_DOCS: '1',
     ...(isolateHome
       ? (() => {
-          const home = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+          const home = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
           const configHome = path.join(home, '.config');
           return {
             HOME: home,

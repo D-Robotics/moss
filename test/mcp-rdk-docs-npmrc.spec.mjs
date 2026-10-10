@@ -11,6 +11,7 @@ import { builtinRdkDocsServerConfig, rdkDocsNpxCwd } from '../dist/core/mcp/rdk-
 import { McpToolRegistry } from '../dist/core/mcp/registry.js';
 import { isDotenvDeniedEnvKey } from '../dist/utils/dotenv-denied-env.js';
 import { pinNpmUserConfig } from '../dist/utils/safe-child-env.js';
+import { trackTempDir } from './helpers/temp-home.mjs';
 
 for (const key of ['TMPDIR', 'TMP', 'TEMP', 'npm_config_userconfig', 'NPM_CONFIG_USERCONFIG']) {
   assert.equal(isDotenvDeniedEnvKey(key), true, key);
@@ -27,7 +28,7 @@ function listen(bucket, hits) {
   });
 }
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-npmrc-'));
+const root = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-npmrc-')));
 const hits = { user: [], project: [] };
 const userServer = await listen('user', hits);
 const projectServer = await listen('project', hits);

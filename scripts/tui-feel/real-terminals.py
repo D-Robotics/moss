@@ -80,6 +80,16 @@ def macos_app(*names):
 
 class Stub:
     def __init__(self):
+        self.proc = None
+        self.home = None
+        self.ws = None
+        try:
+            self._start()
+        except Exception:
+            self.close()
+            raise
+
+    def _start(self):
         port = free_port()
         self.proc = subprocess.Popen(
             ["node", os.path.join(ROOT, "scripts/tui-feel/stub.mjs"), str(port)],
@@ -119,11 +129,22 @@ class Stub:
         time.sleep(0.3)
 
     def close(self):
-        self.proc.terminate()
-        try:
-            self.proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
+        proc = self.proc
+        self.proc = None
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        home = self.home
+        ws = self.ws
+        self.home = None
+        self.ws = None
+        if home:
+            shutil.rmtree(home, ignore_errors=True)
+        if ws:
+            shutil.rmtree(ws, ignore_errors=True)
 
 
 def wait_until(read, predicate, timeout, label):

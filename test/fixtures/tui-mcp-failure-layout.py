@@ -6,6 +6,7 @@ import json
 import os
 import pty
 import select
+import shutil
 import struct
 import subprocess
 import sys
@@ -29,14 +30,22 @@ def free_port():
 
 
 def run_case(cols, rows):
+    home = tempfile.mkdtemp(prefix="moss-mcp-layout-home-")
+    workspace = tempfile.mkdtemp(prefix="moss-mcp-layout-ws-")
+    try:
+        return _run_mcp_case(cols, rows, home, workspace)
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
+def _run_mcp_case(cols, rows, home, workspace):
     port = free_port()
     stub = subprocess.Popen(
         ["node", os.path.join(ROOT, "scripts", "tui-feel", "stub.mjs"), str(port)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    home = tempfile.mkdtemp(prefix="moss-mcp-layout-home-")
-    workspace = tempfile.mkdtemp(prefix="moss-mcp-layout-ws-")
     config_dir = os.path.join(home, ".config", "moss")
     os.makedirs(config_dir)
     config_file = os.path.join(config_dir, "config.json")

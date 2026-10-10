@@ -10,6 +10,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { trackTempDir } from './helpers/temp-home.mjs';
+
 import {
   resolveConfigDir,
   loadConfigFile,
@@ -542,7 +544,7 @@ const execFileAsync = promisify(execFile);
 {
   // The sentence says the tip is shown once. A marker in the config dir
   // keeps the next process from printing it again.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-notice-config-'));
+  const dir = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-notice-config-')));
   const env = { MOSS_CONFIG_DIR: dir, MOSS_NO_BUNDLED_DEFAULT: '1' };
   const resolved = resolveCliConfig(env, {});
   assert.equal(resolved.approvalPolicy, 'never');
@@ -557,7 +559,7 @@ const execFileAsync = promisify(execFile);
 }
 
 {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-config-mode-'));
+  const dir = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-config-mode-')));
   const configDir = path.join(dir, 'cfg');
   writePreferredModel('https://example.test/v1', 'model-a', {
     MOSS_CONFIG_DIR: configDir,

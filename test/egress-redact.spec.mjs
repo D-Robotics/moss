@@ -25,6 +25,7 @@ import { createCliRunRenderer } from '../dist/cli/output.js';
 import { createHeadlessPrintState, formatHeadlessStreamEvent } from '../dist/cli/print.js';
 import { userFacingAssistantText } from '../dist/cli/user-facing-text.js';
 import { presentToolOutput, redactEgress } from '../dist/safety/tool-output-redact.js';
+import { trackTempDir } from './helpers/temp-home.mjs';
 
 const SERVICE = 'Abcd1234efgh5678';
 const AWS = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
@@ -627,14 +628,14 @@ try {
   assert.equal(fs.readFileSync(path.join(project, 'idents.ts'), 'utf8'), afterEdit);
 
   const pat = 'ci-pat-value-not-a-key-99';
-  const userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-egress-user-'));
+  const userHome = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-egress-user-')));
   const userConfigDir = path.join(userHome, 'config');
   fs.mkdirSync(userConfigDir, { recursive: true });
   fs.writeFileSync(
     path.join(userConfigDir, 'config.json'),
     JSON.stringify({ apiKeyEnv: 'MY_CI_PAT' })
   );
-  const projectOnly = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-egress-project-'));
+  const projectOnly = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-egress-project-')));
   fs.mkdirSync(path.join(projectOnly, '.moss'), { recursive: true });
   fs.writeFileSync(
     path.join(projectOnly, '.moss', 'config.json'),
@@ -642,7 +643,7 @@ try {
   );
   const userEnv = { HOME: userHome, MOSS_CONFIG_DIR: userConfigDir, MY_CI_PAT: pat };
   assert.equal(redactEgress(`token ${pat} end`, userEnv).includes(pat), false);
-  const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-egress-empty-'));
+  const emptyHome = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-egress-empty-')));
   const projectEnv = { HOME: emptyHome, MY_CI_PAT: pat };
   const previousCwd = process.cwd();
   process.chdir(projectOnly);

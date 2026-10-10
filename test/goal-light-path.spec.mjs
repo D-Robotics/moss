@@ -82,6 +82,60 @@ test('a suite run satisfies only tests_pass, build_ok, and typecheck_ok', async 
   }
 });
 
+test('suite evidence boolean true satisfies tests_pass == pass', async () => {
+  const dir = await workspace();
+  const { createDraftTask } = await import('../dist/core/task/task-store.js');
+  const draft = await createDraftTask(dir, SMALL);
+  await define(dir, draft.taskId, SMALL, [
+    { metric: 'tests_pass', expected: '==pass', required: true },
+  ]);
+  const wrote = await recordHarnessSuiteEvidence({
+    workspaceDir: dir,
+    taskId: draft.taskId,
+    source: 'run_tests',
+    testsPassed: true,
+    output: 'tests_pass=true',
+  });
+  assert.equal(wrote, 1);
+  const records = await listEvidenceRecords(dir, 20);
+  assert.equal(records[0].metric, 'tests_pass');
+  assert.equal(records[0].observed, true);
+  const judged = await evaluateContractAcceptance(dir, draft.taskId);
+  assert.equal(judged.verdict.verdict, 'pass', judged.verdict.criteriaResults[0].explanation);
+  assert.equal(judged.verdict.criteriaResults[0].result, 'pass');
+
+  const failDir = await workspace();
+  const failed = await createDraftTask(failDir, SMALL);
+  await define(failDir, failed.taskId, SMALL, [
+    { metric: 'tests_pass', expected: '==passed', required: true },
+  ]);
+  await recordHarnessSuiteEvidence({
+    workspaceDir: failDir,
+    taskId: failed.taskId,
+    source: 'run_tests',
+    testsPassed: false,
+    output: 'tests_pass=false',
+  });
+  const rejected = await evaluateContractAcceptance(failDir, failed.taskId);
+  assert.equal(rejected.verdict.verdict, 'fail');
+  assert.equal(rejected.verdict.criteriaResults[0].observed, false);
+
+  const synonymDir = await workspace();
+  const synonym = await createDraftTask(synonymDir, SMALL);
+  await define(synonymDir, synonym.taskId, SMALL, [
+    { metric: 'tests_pass', expected: '==failed', required: true },
+  ]);
+  await recordHarnessSuiteEvidence({
+    workspaceDir: synonymDir,
+    taskId: synonym.taskId,
+    source: 'run_tests',
+    testsPassed: false,
+    output: 'tests_pass=false',
+  });
+  const matched = await evaluateContractAcceptance(synonymDir, synonym.taskId);
+  assert.equal(matched.verdict.verdict, 'pass');
+});
+
 test('ordinary chat does not attach a test run to a live goal', async () => {
   const dir = await workspace();
   const { createDraftTask } = await import('../dist/core/task/task-store.js');

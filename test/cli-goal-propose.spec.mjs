@@ -101,6 +101,23 @@ assert.match(GOAL_USAGE, /\/goal clear/);
 }
 
 {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-goal-pytest-'));
+  fs.writeFileSync(path.join(workspace, 'pytest.ini'), '[pytest]\n');
+  fs.writeFileSync(path.join(workspace, 'test_app.py'), 'def test_ok():\n    assert True\n');
+  const proposal = proposeAcceptanceCommands(workspace);
+  const py = process.platform === 'win32' ? 'python' : 'python3';
+  assert.ok(
+    proposal.candidates.includes(`${py} -m pytest`),
+    `pytest tree proposes the interpreter module: ${proposal.candidates.join(', ')}`
+  );
+  assert.equal(
+    proposal.candidates.includes('pytest'),
+    false,
+    'a pytest tree does not propose a bare pytest'
+  );
+}
+
+{
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-goal-empty-'));
   const proposal = proposeAcceptanceCommands(workspace);
   assert.deepEqual(proposal.candidates, [], 'an empty workspace invents no command');

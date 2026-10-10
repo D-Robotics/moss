@@ -31,8 +31,10 @@ import {
   untrustedWorkspaceLine,
 } from '../dist/cli/workspace-trust.js';
 
+import { trackTempDir } from './helpers/temp-home.mjs';
+
 const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
-const tempRoot = () => fs.mkdtempSync(path.join(os.tmpdir(), 'moss-trust-'));
+const tempRoot = () => trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-trust-')));
 function put(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value));

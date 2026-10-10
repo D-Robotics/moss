@@ -6,6 +6,7 @@ import json
 import os
 import pty
 import select
+import shutil
 import struct
 import subprocess
 import sys
@@ -60,14 +61,22 @@ def wait_until(master, stream, screen, raw, predicate, timeout, label):
 
 
 def main():
+    home = tempfile.mkdtemp(prefix="moss-inline-exit-home-")
+    workspace = tempfile.mkdtemp(prefix="moss-inline-exit-ws-")
+    try:
+        _run_inline_exit(home, workspace)
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
+def _run_inline_exit(home, workspace):
     port = free_port()
     stub = subprocess.Popen(
         ["node", os.path.join(ROOT, "scripts", "tui-feel", "stub.mjs"), str(port)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    home = tempfile.mkdtemp(prefix="moss-inline-exit-home-")
-    workspace = tempfile.mkdtemp(prefix="moss-inline-exit-ws-")
     config_dir = os.path.join(home, ".config", "moss")
     os.makedirs(config_dir)
     config_file = os.path.join(config_dir, "config.json")

@@ -12,6 +12,16 @@ import path from 'node:path';
 
 export type PythonTestLayout = 'pytest' | 'unittest' | 'loose' | 'none';
 
+/** Interpreter `run_tests` and `/goal` both invoke. A bare `pytest` is not on PATH for a user-site install. */
+export function pythonBin(): string {
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+/** Same command `run_tests` plans for a pytest tree. */
+export function pytestCommand(): string {
+  return `${pythonBin()} -m pytest`;
+}
+
 export const UNITTEST_IMPORT = /(?:^|\n)\s*(?:import\s+unittest\b|from\s+unittest\b)/;
 
 const PYTEST_CONFIG_FILES = ['pytest.ini', 'pytest.toml', 'conftest.py'] as const;

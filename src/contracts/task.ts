@@ -60,6 +60,17 @@ export interface AcceptanceVerdict {
 }
 
 /**
+ * The row task status should show. Acceptance lines are appended in order, so
+ * the last line is the latest verdict. A missing, string, or rewound
+ * `acceptedAt` must not resurrect an earlier row.
+ */
+export function latestAcceptanceVerdict(
+  verdicts: readonly AcceptanceVerdict[]
+): AcceptanceVerdict | undefined {
+  return verdicts.at(-1);
+}
+
+/**
  * Evaluate a task's acceptance criteria against its recorded evidence.
  * Latest evidence per metric wins — a repaired re-measurement supersedes the
  * earlier failure. Missing evidence for a required criterion is 'no-evidence'

@@ -12,6 +12,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { trackTempDir } from './helpers/temp-home.mjs';
+
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cli = path.join(repoRoot, 'dist', 'cli.js');
 
@@ -23,7 +25,7 @@ const CI_PAT = 'ci-scope-token-0003';
 const GATEWAY = 'sk-scope-gateway-0004';
 
 function tempDir(prefix) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  return trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }
 
 function writeJson(file, value) {

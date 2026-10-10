@@ -490,6 +490,8 @@ try {
     else process.env.USERPROFILE = savedProfileForEnv;
     if (savedGateway === undefined) delete process.env.MY_USER_CFG;
     else process.env.MY_USER_CFG = savedGateway;
+    fs.rmSync(envHome, { recursive: true, force: true });
+    fs.rmSync(envWs, { recursive: true, force: true });
   }
 
   // ── key-like tool output is redacted; source expressions are not ─────────

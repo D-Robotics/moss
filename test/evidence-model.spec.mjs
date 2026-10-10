@@ -66,6 +66,32 @@ test('evaluateExpectation: == and != compare strings only when the operand is no
   assert.notEqual(evaluateExpectation('!=0', '0 fps').result, 'pass');
 });
 
+test('evaluateExpectation: boolean evidence treats pass/passed/ok like true', () => {
+  for (const expected of ['==true', '==TRUE', '== pass', '==passed', '==OK', '==Ok']) {
+    assert.equal(evaluateExpectation(expected, true).result, 'pass', `${expected} vs true`);
+    assert.equal(evaluateExpectation(expected, 'true').result, 'pass', `${expected} vs "true"`);
+    assert.equal(evaluateExpectation(expected, 'Passed').result, 'pass', `${expected} vs "Passed"`);
+  }
+  for (const expected of ['==false', '==FALSE', '==fail', '==FAILED']) {
+    assert.equal(evaluateExpectation(expected, false).result, 'pass', `${expected} vs false`);
+    assert.equal(evaluateExpectation(expected, 'false').result, 'pass', `${expected} vs "false"`);
+    assert.equal(evaluateExpectation(expected, 'Failed').result, 'pass', `${expected} vs "Failed"`);
+  }
+  assert.equal(evaluateExpectation('==pass', false).result, 'fail');
+  assert.equal(evaluateExpectation('==fail', true).result, 'fail');
+  assert.equal(evaluateExpectation('==ok', 'true').result, 'pass');
+  assert.equal(evaluateExpectation('==passed', 'ok').result, 'pass');
+  assert.equal(evaluateExpectation('!=pass', true).result, 'fail');
+  assert.equal(evaluateExpectation('!=fail', true).result, 'pass');
+  assert.equal(evaluateExpectation('!=failed', false).result, 'fail');
+  assert.equal(evaluateExpectation('==ok', 'ready').result, 'fail');
+  assert.equal(evaluateExpectation('==pass', 'not pass').result, 'fail');
+  assert.equal(evaluateExpectation('pass', true).result, 'pass');
+  assert.equal(evaluateExpectation('failed', false).result, 'pass');
+  assert.equal(evaluateExpectation('PASS', 'ok').result, 'pass');
+  assert.match(evaluateExpectation('==pass', true).explanation, /boolean true == "pass"/);
+});
+
 test('evaluateExpectation: never silently passes on garbage', () => {
   assert.deepEqual(evaluateExpectation('>=30', 'not-a-number').result, 'inconclusive');
   assert.deepEqual(evaluateExpectation(undefined, 1).result, 'inconclusive');

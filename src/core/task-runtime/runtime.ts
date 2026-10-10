@@ -12,7 +12,7 @@
 import type { DeploymentRecord } from '../../contracts/deployment.js';
 import type { EvidenceRecord } from '../../contracts/evidence.js';
 import type { AcceptanceVerdict, CriterionVerdict, TaskContract } from '../../contracts/task.js';
-import { evaluateAcceptance } from '../../contracts/task.js';
+import { evaluateAcceptance, latestAcceptanceVerdict } from '../../contracts/task.js';
 import type { MossAgentEvent } from '../agent/moss-agent-types.js';
 import { loadTaskArtifacts, type TaskArtifacts } from './artifacts.js';
 import { listTaskStateSnapshots } from '../task/task-store.js';
@@ -435,8 +435,7 @@ export class TaskRuntime {
   }
 
   private latestVerdict(taskId: string): AcceptanceVerdict | undefined {
-    const verdicts = this.verdictsFor(taskId);
-    return verdicts.length > 0 ? verdicts[verdicts.length - 1] : undefined;
+    return latestAcceptanceVerdict(this.verdictsFor(taskId));
   }
 
   private deriveState(
@@ -625,6 +624,7 @@ export class TaskRuntime {
     const observations = this.live.focusTaskId === task.taskId ? this.observations.slice(-8) : [];
 
     const summary = this.summarize(task);
+    const acceptance = latestAcceptanceVerdict(verdicts);
     const failures = this.failuresFor(task, verdicts, evidence, deployments);
     const repairs = this.repairsFor(verdicts, evidence, deployments);
 
@@ -687,7 +687,7 @@ export class TaskRuntime {
         : {}),
       repair: repairs,
       verification: evidence,
-      ...(verdicts.length > 0 ? { acceptance: verdicts[verdicts.length - 1] } : {}),
+      ...(acceptance ? { acceptance } : {}),
       history,
       ...(deviceId || observations.length > 0
         ? {

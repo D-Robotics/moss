@@ -157,6 +157,30 @@ export function createContractVerdictProvider(workspaceDir: string): VerdictProv
   };
 }
 
+async function recordCommandVerdictRow(
+  workspaceDir: string,
+  taskId: string,
+  passed: boolean,
+  detail: string
+): Promise<void> {
+  await appendAcceptanceVerdict(workspaceDir, {
+    taskId,
+    verdict: passed ? 'pass' : 'fail',
+    acceptedAt: Date.now(),
+    criteriaResults: [
+      {
+        metric: 'acceptance_command',
+        expected: 'exit 0',
+        required: true,
+        result: passed ? 'pass' : 'fail',
+        explanation: detail.slice(0, 300),
+      },
+    ],
+    unmetRequired: passed ? 0 : 1,
+    evidenceConsidered: 0,
+  });
+}
+
 /**
  * Command verdicts are authoritative when configured; the contract provider
  * covers tasks whose "done" is criteria-based. This is the single provider
@@ -177,28 +201,18 @@ export function createTaskVerdictProvider(options: {
       const commandVerdict = await command.evaluate(taskId, signal);
       if (commandVerdict.passed) {
         // Command passed — still record the contract evaluation for the trail.
+        // The command row is written after that so it stays the latest verdict.
         await contract.evaluate(taskId).catch(() => undefined);
-        return commandVerdict;
       }
-      // A failing re-run must replace the previous PASS in acceptance.jsonl.
-      // Scoring the contract here can rewrite that PASS when older evidence
-      // still matches criteria the command does not cover.
-      await appendAcceptanceVerdict(options.workspaceDir, {
+      // A later command result replaces the previous row in acceptance.jsonl.
+      // Scoring the contract on failure can rewrite a FAIL into PASS when older
+      // evidence still matches criteria the command does not cover.
+      await recordCommandVerdictRow(
+        options.workspaceDir,
         taskId,
-        verdict: 'fail',
-        acceptedAt: Date.now(),
-        criteriaResults: [
-          {
-            metric: 'acceptance_command',
-            expected: 'exit 0',
-            required: true,
-            result: 'fail',
-            explanation: commandVerdict.detail.slice(0, 300),
-          },
-        ],
-        unmetRequired: 1,
-        evidenceConsidered: 0,
-      }).catch(() => undefined);
+        commandVerdict.passed,
+        commandVerdict.detail
+      ).catch(() => undefined);
       return commandVerdict;
     },
   };

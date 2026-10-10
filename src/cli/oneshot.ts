@@ -660,7 +660,7 @@ export async function runOneShot(
       const shellArgs =
         process.platform === 'win32'
           ? ['/d', '/s', '/c', process.env.MOSS_GOAL_VERIFY_CMD]
-          : ['-lc', process.env.MOSS_GOAL_VERIFY_CMD];
+          : ['-c', process.env.MOSS_GOAL_VERIFY_CMD];
       const verify = await runProcess(shell, {
         args: shellArgs,
         cwd: workspaceDir,

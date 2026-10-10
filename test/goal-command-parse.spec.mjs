@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 
 import { parseGoalCommandLine } from '../dist/cli/commands/goal-propose.js';
-import { acceptanceShell } from '../dist/core/task/acceptance-command.js';
+import { acceptanceShell, runAcceptanceCommand } from '../dist/core/task/acceptance-command.js';
 
 {
   assert.deepEqual(parseGoalCommandLine('fix the parser'), { goal: 'fix the parser' });
@@ -39,7 +39,21 @@ import { acceptanceShell } from '../dist/core/task/acceptance-command.js';
   assert.deepEqual(win.args, ['/d', '/s', '/c', `"${command}"`]);
   assert.match(win.cmd, /cmd(\.exe)?$/i);
   const posix = acceptanceShell('exit 0', 'linux');
-  assert.deepEqual(posix, { cmd: 'bash', args: ['-lc', 'exit 0'] });
+  assert.deepEqual(posix, { cmd: 'bash', args: ['-c', 'exit 0'] });
+}
+
+{
+  const sentinel = `/moss-venv-${process.pid}/bin`;
+  const previous = process.env.PATH;
+  process.env.PATH = `${sentinel}:${previous ?? ''}`;
+  try {
+    const result = await runAcceptanceCommand({ command: 'printf %s "$PATH"' });
+    assert.equal(result.passed, true, result.tail);
+    assert.ok(result.tail.startsWith(sentinel), result.tail);
+  } finally {
+    if (previous === undefined) delete process.env.PATH;
+    else process.env.PATH = previous;
+  }
 }
 
 console.log('[PASS] goal command parse');

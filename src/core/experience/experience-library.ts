@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { estimateTokensForText } from '../../context/tokens.js';
+import type { AcceptanceVerdict } from '../../contracts/task.js';
 import type { TaskEvent } from '../../contracts/task-runtime.js';
 import { listAcceptanceVerdicts, listTaskRecords } from '../task-runtime/artifacts.js';
 
@@ -182,6 +183,39 @@ async function saveRecord(workspaceDir: string, incoming: ExperienceRecord): Pro
   });
 }
 
+function isCommandSummary(verdict: AcceptanceVerdict): boolean {
+  return (
+    verdict.evidenceConsidered === 0 &&
+    verdict.criteriaResults.length === 1 &&
+    verdict.criteriaResults[0]?.metric === 'acceptance_command'
+  );
+}
+
+function criteriaDetail(verdict: AcceptanceVerdict | undefined): verdict is AcceptanceVerdict {
+  return (
+    verdict !== undefined &&
+    verdict.verdict === 'pass' &&
+    verdict.evidenceConsidered > 0 &&
+    verdict.criteriaResults.length > 0 &&
+    verdict.criteriaResults.every((result) => result.result === 'pass') &&
+    verdict.criteriaResults.some((result) => result.metric !== 'acceptance_command')
+  );
+}
+
+/**
+ * A criteria pass writes the detail line, then the command summary. Status
+ * uses the summary (the last line). Experience keeps the detail line.
+ */
+function verdictForExperience(
+  verdicts: readonly AcceptanceVerdict[]
+): AcceptanceVerdict | undefined {
+  const latest = verdicts.at(-1);
+  if (!latest) return undefined;
+  const prior = verdicts.at(-2);
+  if (isCommandSummary(latest) && prior && criteriaDetail(prior)) return prior;
+  return latest;
+}
+
 function acceptedByCommand(data: TaskEvent['data']): boolean {
   return (
     data?.acceptanceSource === 'command' &&
@@ -203,12 +237,10 @@ export async function recordAcceptedExperience(
   ]);
   const task = tasks.find((candidate) => candidate.taskId === event.taskId);
   if (!task) return;
-  const verdict = verdicts.filter((candidate) => candidate.taskId === event.taskId).at(-1);
-  const evidenceAccepted =
-    verdict?.verdict === 'pass' &&
-    verdict.evidenceConsidered > 0 &&
-    verdict.criteriaResults.length > 0 &&
-    verdict.criteriaResults.every((result) => result.result === 'pass');
+  const verdict = verdictForExperience(
+    verdicts.filter((candidate) => candidate.taskId === event.taskId)
+  );
+  const evidenceAccepted = criteriaDetail(verdict);
   if (!evidenceAccepted && !acceptedByCommand(event.data)) return;
 
   const plan = task.verificationPlan ?? [];

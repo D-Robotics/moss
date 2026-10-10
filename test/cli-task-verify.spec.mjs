@@ -10,11 +10,13 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { verifyTaskOnce } from '../dist/cli/commands/task-verify.js';
+import { formatTaskStatus } from '../dist/cli/task-run.js';
 import { appendTaskRecord, listTaskRecords } from '../dist/core/task-runtime/artifacts.js';
 import {
   appendTaskEvent,
   createDraftTask,
   getTaskStateSnapshot,
+  listAcceptanceVerdicts,
   listTaskEvents,
 } from '../dist/core/task/task-store.js';
 
@@ -205,6 +207,39 @@ assert.equal(latest?.status, 'active', 'an accepted contract is reopened, not re
   assert.equal(reopened?.status, 'active');
   const notes = await listTaskEvents(brokenDir, broken.taskId);
   assert.ok(notes.some((event) => event.type === 'note' && event.data?.kind === 'regression'));
+}
+
+{
+  // PASS, then a failing re-verify, then PASS again. Status must follow the
+  // latest acceptance.jsonl row, not the stale FAIL left behind by #55.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-task-verify-repass-'));
+  const task = await createDraftTask(dir, 'stay green after a regression', {
+    acceptanceCommand: 'true',
+  });
+  const first = await verifyTaskOnce(dir, { taskId: task.taskId });
+  assert.equal(first.exitCode, 0, first.summary);
+  let snap = await getTaskStateSnapshot(dir, task.taskId);
+  assert.equal(snap?.lastVerdict?.verdict, 'pass');
+
+  const failed = await verifyTaskOnce(dir, { taskId: task.taskId, command: 'false' });
+  assert.equal(failed.exitCode, 1, failed.summary);
+  snap = await getTaskStateSnapshot(dir, task.taskId);
+  assert.equal(snap?.lastVerdict?.verdict, 'fail');
+
+  const again = await verifyTaskOnce(dir, { taskId: task.taskId, command: 'true' });
+  assert.equal(again.exitCode, 0, again.summary);
+  snap = await getTaskStateSnapshot(dir, task.taskId);
+  assert.equal(snap?.phase, 'accepted');
+  assert.equal(snap?.lastVerdict?.verdict, 'pass');
+  const rows = await listAcceptanceVerdicts(dir, task.taskId);
+  assert.deepEqual(
+    rows.map((row) => row.verdict),
+    ['pass', 'fail', 'pass'],
+    'acceptance.jsonl keeps the pass, the fail, and the repaired pass'
+  );
+  const status = formatTaskStatus(snap, '');
+  assert.match(status, /VERDICT\s+PASS/);
+  assert.doesNotMatch(status, /VERDICT\s+FAIL/);
 }
 
 console.log('[PASS] cli task verify');

@@ -13,6 +13,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { trackTempDir } from './helpers/temp-home.mjs';
+
 import { auditResolvedCliConfig, envBeforeDotenv, mergeConfigFiles } from '../dist/cli/config.js';
 import { runRegistryCommand } from '../dist/cli/commands/registry.js';
 import {
@@ -371,7 +373,7 @@ function providerErrors() {
 }
 
 function runCli(args, extraEnv = {}) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-lang-'));
+  const home = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-lang-')));
   const configDir = path.join(home, 'config');
   fs.mkdirSync(configDir, { recursive: true });
   const workspace = path.join(home, 'ws');
@@ -635,7 +637,7 @@ for (const args of zhSurfacesAll) {
 }
 
 {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-lang-save-'));
+  const dir = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-lang-save-')));
   const prevConfig = process.env.MOSS_CONFIG_DIR;
   const prevEnvLang = envBeforeDotenv.MOSS_LANG;
   process.env.MOSS_CONFIG_DIR = dir;
