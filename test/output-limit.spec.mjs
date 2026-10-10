@@ -79,6 +79,39 @@ assert.equal(providerStopSignal(''), 'stop');
   assert.equal(anthropic?.stopReason, 'max_tokens');
   const toolDone = convertStreamEvent({ type: 'done', stopReason: 'toolUse' });
   assert.equal(toolDone?.stopReason, 'tool_use');
+
+  const errorContent = [];
+  const errored = processEvent(
+    {
+      type: 'error',
+      error: {
+        stopReason: 'length',
+        usage: { input: 3, output: 5 },
+        content: [
+          { type: 'toolCall', id: 'a', name: 'write_alpha', arguments: { text: 'complete' } },
+          {
+            type: 'toolCall',
+            id: 'b',
+            name: 'write_beta',
+            arguments: { text: 'cut' },
+            partial: true,
+          },
+        ],
+      },
+    },
+    errorContent,
+    (url) => url
+  );
+  assert.equal(
+    errored.stopReason,
+    'max_tokens',
+    'an error frame that hit the output limit does not become tool_use'
+  );
+  assert.equal(
+    errorContent.filter((block) => block.type === 'tool_use').length,
+    2,
+    'both calls in the truncated batch stay visible to the discard path'
+  );
 }
 
 {

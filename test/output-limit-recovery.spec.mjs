@@ -386,6 +386,8 @@ try {
     assert.match(stderr, /Output limit reached/);
     assert.match(stderr, /maxOutputTokens/);
     assert.equal(script.calls(), 4);
+    assert.notEqual(process.exitCode, 0, 'a text run cut off by the output limit is not exit 0');
+    assert.notEqual(process.exitCode, undefined);
     console.log('[PASS] text -p run completes and prints the output-limit notice');
   }
 

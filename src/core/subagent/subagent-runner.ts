@@ -339,8 +339,15 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       });
 
       let miniResult: { turns: number; finalText: string } | undefined;
+      let outputLimited = false;
+      const noteOutputLimit = (event: { type: string; reason?: string }): void => {
+        if (event.type === 'turn_transition' && event.reason === 'output_limit') {
+          outputLimited = true;
+        }
+      };
       try {
         for await (const event of childStream) {
+          noteOutputLimit(event);
           if (event.type === 'message_delta') {
             partialText = `${partialText}${event.delta}`.slice(-400);
           }
@@ -382,7 +389,9 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       // that evidence exactly one tool-free synthesis pass. This is deliberately
       // outside the child completion gate: it may report partial work, but it
       // cannot claim verified coding completion or perform additional changes.
-      if ((!finalSummary || needsContractRepair) && !signal.aborted) {
+      // A cutoff already ended the child. Another synthesis call would replace
+      // the fragment with prose the parent could read as a finished report.
+      if ((!finalSummary || needsContractRepair) && !signal.aborted && !outputLimited) {
         const finalizationMessages: Message[] = [
           ...inMemoryMessages,
           { role: 'user', content: FORCED_FINALIZATION_PROMPT, timestamp: Date.now() },
@@ -441,6 +450,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         });
 
         for await (const event of finalizationStream) {
+          noteOutputLimit(event);
           if (event.type === 'message_delta') {
             partialText = `${partialText}${event.delta}`.slice(-400);
           }
@@ -448,6 +458,33 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         const finalizationResult = await finalizationStream.result();
         turnCount += finalizationResult.turns;
         finalSummary = finalizationResult.finalText.trim();
+      }
+
+      if (outputLimited) {
+        const message = finalSummary
+          ? `Sub-agent output was cut off before it finished.\n${finalSummary}`
+          : `Sub-agent output was cut off before a visible answer (${turnCount} turn${turnCount === 1 ? '' : 's'}, ${toolResultCount} tool result${toolResultCount === 1 ? '' : 's'}).`;
+        log.warn('child agent hit output limit', {
+          runId: childRunId,
+          turns: turnCount,
+          toolResults: toolResultCount,
+          durationMs: Date.now() - startedAt,
+        });
+        emitProgress({
+          status: 'failed',
+          phase: 'failed',
+          error: message,
+          ...(finalSummary ? { summaryPreview: finalSummary.slice(0, 240) } : {}),
+        });
+        return {
+          runId: childRunId,
+          summary: message,
+          toolResults: toolResultCount,
+          turns: turnCount,
+          durationMs: Date.now() - startedAt,
+          success: false,
+          error: message,
+        };
       }
 
       if (!finalSummary) {

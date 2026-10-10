@@ -240,6 +240,15 @@ export function processEvent(
     }
 
     const errUsage = errPayload?.usage;
+    // Same rule as a normal `done`: a cutoff must stay max_tokens even when
+    // this error frame already buffered tool calls. Returning tool_use here
+    // made the loop execute a partial call, including one inside a batch.
+    if (isOutputLimitStopReason(errPayload?.stopReason)) {
+      return {
+        stopReason: 'max_tokens',
+        usage: mapPiUsage(errUsage),
+      };
+    }
     const hasToolUseAfterErr = content.some((b) => b.type === 'tool_use');
     if (hasToolUseAfterErr) {
       return {
