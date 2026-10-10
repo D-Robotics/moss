@@ -27,23 +27,8 @@ import { injectExperienceIntoPrompt } from '../experience/experience-library.js'
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
 import type { AgentTurnResult } from './agent-turn.js';
 import { acceptanceAlreadySatisfied, createTaskVerdictProvider } from './verdict.js';
-import { classifyGoalScale, countRepoFiles, type GoalScale } from './goal-scale.js';
 
 const log = getRootLogger().child('task-engine');
-
-async function goalScale(workspaceDir: string, goal: string, taskId?: string): Promise<GoalScale> {
-  let planSteps: number | undefined;
-  if (taskId) {
-    const snapshot = await getTaskStateSnapshot(workspaceDir, taskId);
-    if (snapshot && snapshot.plan.length > 0) planSteps = snapshot.plan.length;
-  }
-  const repoFileCount = planSteps === undefined ? await countRepoFiles(workspaceDir) : 0;
-  return classifyGoalScale({
-    goal,
-    repoFileCount,
-    ...(planSteps !== undefined ? { planSteps } : {}),
-  });
-}
 
 export interface TaskEngineDeps {
   workspaceDir: string;
@@ -93,13 +78,12 @@ function planningPrompt(
   goal: string,
   taskId: string,
   acceptanceCommand?: string,
-  capabilityLayer?: string,
-  scale: GoalScale = 'full'
+  capabilityLayer?: string
 ): string {
   const authority = acceptanceCommand
     ? `Acceptance authority: the command "${acceptanceCommand}" must exit 0. Define acceptance criteria that mirror what it checks, then make that command pass.`
     : 'Acceptance authority: criteria × recorded evidence. Define machine-checkable acceptance criteria (metric + expectation, e.g. camera_fps >=30).';
-  const head = [
+  return [
     '[task-phase:planning]',
     'You are working one moss goal. Complete it in order: plan, then implement, then verify.',
     'Do not stop after the plan. Do not ask the user whether to continue — this goal already includes implementation and verification.',
@@ -109,44 +93,22 @@ function planningPrompt(
     authority,
     ...(capabilityLayer ? ['', capabilityLayer] : []),
     '',
-  ];
-  if (scale === 'light') {
-    return [
-      ...head,
-      'This is a small change. Keep it minimal and scoped to the request: do not add features, files, or refactors that were not asked for.',
-      'Plan as a short list of at most 3 steps, not a design document.',
-      '',
-      'Do all of the following in this turn:',
-      `1. task_define with task_id="${taskId}" — goal and the few acceptance criteria this change needs.`,
-      `2. task_plan_update with task_id="${taskId}" — at most 3 steps (change → verify → accept).`,
-      '3. Implement only that change now.',
-      '4. Run the acceptance command, or run_tests / verify_fix once. A passing run is the evidence for every acceptance item it covers. Then run task_acceptance and report that verdict. Do not claim the goal is done before it passes.',
-    ].join('\n');
-  }
-  return [
-    ...head,
+    'Keep the change minimal and scoped to the request: do not add features, files, or refactors that were not asked for.',
+    'Plan as a short list of at most 3 steps, not a design document.',
+    '',
     'Do all of the following in this turn:',
-    `1. task_define with task_id="${taskId}" — goal, acceptance_criteria, target_device if a device is involved, verification_plan.`,
-    `2. task_plan_update with task_id="${taskId}" — 3-8 concrete steps (inspect → change → build/deploy → verify → accept).`,
-    '3. Implement the plan now (edit files and run the commands the plan names).',
-    '4. Record evidence for each acceptance metric (record_evidence) and run task_acceptance. Report that verdict. Do not claim the goal is done before it passes.',
+    `1. task_define with task_id="${taskId}" — goal and the few acceptance criteria this change needs.`,
+    `2. task_plan_update with task_id="${taskId}" — at most 3 steps (change → verify → accept).`,
+    '3. Implement only that change now.',
+    '4. Run the acceptance command, or run_tests / verify_fix once. That records tests_pass, build_ok, or typecheck_ok when a criterion uses that exact name. Any other metric still needs record_evidence. Then run task_acceptance and report that verdict. Do not claim the goal is done before it passes.',
   ].join('\n');
 }
 
-function executionPrompt(
-  goal: string,
-  taskId: string,
-  round: number,
-  scale: GoalScale = 'full'
-): string {
+function executionPrompt(goal: string, taskId: string, round: number): string {
   const evidenceLine =
-    scale === 'light'
-      ? round === 1
-        ? 'Work through the short plan. One passing run_tests, verify_fix, or acceptance command covers every acceptance item that run checks. Do not record a separate evidence row per item.'
-        : 'Continue from where you left off. Re-run the same check; the new result replaces the previous one for every item that run covers.'
-      : round === 1
-        ? 'Work through the plan step by step. Record evidence (record_evidence) for every acceptance metric you can measure — real probes only, no asserted values.'
-        : 'Continue from where you left off. Fix what failed, re-measure, and record fresh evidence (latest evidence per metric wins).';
+    round === 1
+      ? 'Work through the short plan. run_tests, verify_fix, or the acceptance command records tests_pass, build_ok, or typecheck_ok. Use record_evidence for any other metric — real probes only, no asserted values.'
+      : 'Continue from where you left off. Re-run the failing check so tests_pass, build_ok, or typecheck_ok stay current, and record_evidence again for any other metric (latest evidence per metric wins).';
   return [
     '[task-phase:executing]',
     `Continue the same goal: implement, then verify. Goal: ${goal}`,
@@ -186,8 +148,7 @@ function repairPrompt(
   goal: string,
   verdictDetail: string,
   attempt: number,
-  history: RepairHistory = { repairs: [], openFailures: [] },
-  scale: GoalScale = 'full'
+  history: RepairHistory = { repairs: [], openFailures: [] }
 ): string {
   const lines = [
     '[task-phase:repairing]',
@@ -219,9 +180,7 @@ function repairPrompt(
     '1. Identify the root cause from the verdict and any logs/probes you need — state it as a hypothesis you can check before editing.',
     '2. record_failure with the symptom and your diagnosis (include task_id).',
     '3. Apply the minimal fix; record_repair with what you changed (include task_id).',
-    scale === 'light'
-      ? '4. Re-run the failing check. That refreshes evidence for every acceptance item the run covers (record_evidence with task_id only for a metric the run does not cover).'
-      : '4. Re-measure and record fresh evidence for the failing metrics (record_evidence with task_id).',
+    '4. Re-run the failing check. That refreshes tests_pass, build_ok, or typecheck_ok. record_evidence with task_id for any other metric the run does not cover.',
     'Do not work around or weaken the acceptance criteria. Do not claim success without recorded evidence.'
   );
   return lines.join('\n');
@@ -306,12 +265,7 @@ async function verifyRepairLoop(
     const executed = await runAgentTurn(
       deps,
       state,
-      executionPrompt(
-        current.goal ?? '',
-        state.taskId,
-        state.repairsUsed + 1,
-        await goalScale(deps.workspaceDir, current.goal ?? '', state.taskId)
-      ),
+      executionPrompt(current.goal ?? '', state.taskId, state.repairsUsed + 1),
       'executing'
     );
     if (executed === 'budget') return 'budget';
@@ -400,8 +354,7 @@ async function verifyRepairLoop(
         current?.goal ?? '',
         verdict.detail,
         state.repairsUsed,
-        repairHistoryFrom(historySnapshot),
-        await goalScale(deps.workspaceDir, current?.goal ?? '', state.taskId)
+        repairHistoryFrom(historySnapshot)
       ),
       'repairing'
     );
@@ -564,7 +517,6 @@ export async function runTask(
     });
   const maxRepairAttempts = deps.maxRepairAttempts ?? DEFAULT_MAX_REPAIR_ATTEMPTS;
 
-  const scale = await goalScale(deps.workspaceDir, goal);
   const contract = await createDraftTask(deps.workspaceDir, goal, {
     ...(options.targetDeviceId ? { targetDeviceId: options.targetDeviceId } : {}),
     ...(options.constraints?.length ? { constraints: options.constraints } : {}),
@@ -583,13 +535,7 @@ export async function runTask(
   });
   state.turns += 1;
   try {
-    const prompt = planningPrompt(
-      goal,
-      taskId,
-      options.acceptanceCommand,
-      options.capabilityLayer,
-      scale
-    );
+    const prompt = planningPrompt(goal, taskId, options.acceptanceCommand, options.capabilityLayer);
     const planning = await runAgentTurn(
       deps,
       state,

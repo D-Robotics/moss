@@ -3,7 +3,11 @@ import path from 'node:path';
 import type { ToolContext } from '../core/tools/tool-types.js';
 import { errorMessage } from '../errors.js';
 import { ProcessError, runProcess } from '../utils/run-process.js';
-import { pythonTestLayout } from '../utils/python-test-layout.js';
+import {
+  UNITTEST_IMPORT,
+  pythonTestLayout,
+  unittestDiscoverArgs,
+} from '../utils/python-test-layout.js';
 import { pathExists } from '../utils/workspace-paths.js';
 
 export interface TestResult {
@@ -200,11 +204,13 @@ function parseUnittest(output: string, result: TestResult): boolean {
   const okLine = output.match(/^OK(?:\s+\(([^)]+)\))?$/m);
   if (failedLine) {
     const body = failedLine[1] ?? '';
-    const failures = Number(body.match(/failures=(\d+)/)?.[1] ?? 0);
-    const errors = Number(body.match(/errors=(\d+)/)?.[1] ?? 0);
-    next.skipped = Number(body.match(/skipped=(\d+)/)?.[1] ?? 0);
-    next.failed = failures + errors;
-    next.passed = Math.max(0, next.total - next.failed - next.skipped);
+    const count = (label: string): number =>
+      Number(new RegExp(`${label}=(\\d+)`).exec(body)?.[1] ?? 0);
+    next.skipped = count('skipped');
+    const rawFailed = count('failures') + count('errors') + count('unexpected successes');
+    const room = Math.max(0, next.total - next.skipped);
+    next.failed = Math.min(rawFailed, room);
+    next.passed = room - next.failed;
   } else if (okLine) {
     next.skipped = Number(okLine[1]?.match(/skipped=(\d+)/)?.[1] ?? 0);
     next.passed = Math.max(0, next.total - next.skipped);
@@ -215,7 +221,7 @@ function parseUnittest(output: string, result: TestResult): boolean {
   } else {
     return false;
   }
-  for (const match of output.matchAll(/^(?:FAIL|ERROR):\s+(.+)$/gm)) {
+  for (const match of output.matchAll(/^(?:FAIL|ERROR|UNEXPECTED SUCCESS):\s+(.+)$/gm)) {
     const name = (match[1] ?? '').trim().slice(0, 200);
     if (name) next.failures.push({ name, message: 'failed' });
   }
@@ -227,12 +233,12 @@ function parsePytest(output: string, result: TestResult): boolean {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i] ?? '';
     if (/test result:/i.test(line) || !/\bin\s+[\d.]+s\b/.test(line)) continue;
-    if (!/\b(?:passed|failed|errors?|skipped|no tests ran)\b/i.test(line)) continue;
+    if (!/\b(?:xfailed|xpassed|passed|failed|errors?|skipped|no tests ran)\b/i.test(line)) continue;
     const next = blank(output);
     if (!/no tests ran/i.test(line)) {
       const errors = labeled(line, 'errors?');
-      next.passed = labeled(line, 'passed');
-      next.failed = labeled(line, 'failed') + errors;
+      next.passed = labeled(line, 'passed') + labeled(line, 'xfailed');
+      next.failed = labeled(line, 'failed') + errors + labeled(line, 'xpassed');
       next.skipped = labeled(line, 'skipped');
       next.total = next.passed + next.failed + next.skipped;
       const duration = line.match(/\bin\s+([\d.]+)s\b/);
@@ -326,8 +332,8 @@ function parseCargo(output: string, result: TestResult): boolean {
   return take(result, next);
 }
 
-function unittestCommand(): string {
-  return `${pyBin()} -m unittest discover -s .`;
+function unittestCommand(root: string): string {
+  return `${pyBin()} -m unittest discover ${unittestDiscoverArgs(root)}`;
 }
 
 function pytestMissing(text: string): boolean {
@@ -447,11 +453,11 @@ export async function planTestRunners(
   const skipped: string[] = [];
   const pytestCmd = `${pyBin()} -m pytest`;
   const layout = pythonTestLayout(root);
-  if (layout === 'pytest') run.push(pytestCmd);
-  else if (layout === 'unittest') run.push(unittestCommand());
-  else if (layout === 'loose') {
-    const ok = confirmLoosePytest ? await confirmLoosePytest() : false;
-    if (ok) run.push(pytestCmd);
+  if (layout === 'pytest' || layout === 'loose' || layout === 'unittest') {
+    const pytestReady =
+      layout === 'pytest' || (confirmLoosePytest ? await confirmLoosePytest() : false);
+    if (layout === 'pytest' || pytestReady) run.push(pytestCmd);
+    else if (layout === 'unittest') run.push(unittestCommand(root));
     else skipped.push(`${pytestCmd} (pytest not installed)`);
   }
   let make: string | null = null;
@@ -553,14 +559,23 @@ function judge(
   }
   const matched = matchOutput(command, output);
   if (!matched) {
-    if (exitCode === 0 && !timedOut) {
+    if (timedOut) {
+      const body = output.trim();
+      const shown = body ? `\n\nOutput:\n${body.slice(0, 2000)}\n` : '\n';
+      return view(
+        'fail',
+        blank(output),
+        `Test Results: ❌ timed out\nCommand: ${command}${shown}tests_pass=false`
+      );
+    }
+    if (exitCode === 0) {
       return view(
         'unknown',
         blank(output),
         `Test Results:\nCommand: ${command}\nexit 0, counts unknown\ntests_pass=false`
       );
     }
-    const why = timedOut ? 'timed out' : (spawnError ?? `exit ${exitCode}`);
+    const why = spawnError ?? `exit ${exitCode}`;
     return view(
       'fail',
       blank(output),
@@ -648,15 +663,14 @@ async function spawnOne(
     );
   } catch (err) {
     const failed = err instanceof ProcessError ? err : null;
-    const output = failed
-      ? `${failed.stdout}\n${failed.stderr}`.trim() || errorMessage(err)
-      : errorMessage(err);
+    const timedOut = failed?.timedOut === true;
+    const raw = failed ? `${failed.stdout}\n${failed.stderr}`.trim() : '';
     return judge(
       command,
       failed?.exitCode ?? 1,
-      output,
-      failed?.timedOut === true,
-      errorMessage(err)
+      timedOut ? raw : raw || errorMessage(err),
+      timedOut,
+      timedOut ? undefined : errorMessage(err)
     );
   }
 }
@@ -786,13 +800,14 @@ async function planFromInput(
       // Direct spawn avoids shell quoting. node --test must not inherit its IPC env.
       if (fileRaw.endsWith('.py')) {
         const bin = pyBin();
-        const unittest = pythonTestLayout(root) === 'unittest';
-        const flag = unittest ? 'unittest' : 'pytest';
+        const pytestOk = await pytestImportable(ctx, deadline);
+        const source = pytestOk ? null : await readText(abs);
+        const flag = !pytestOk && source && UNITTEST_IMPORT.test(source) ? 'unittest' : 'pytest';
         return {
           commands: [`${bin} -m ${flag} ${fileRaw}`],
           skipped: [],
           env,
-          direct: { cmd: bin, args: ['-m', flag, abs] },
+          direct: { cmd: bin, args: ['-m', flag, fileRaw] },
         };
       }
       delete env.NODE_TEST_CONTEXT;

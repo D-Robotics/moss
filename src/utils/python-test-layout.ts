@@ -1,9 +1,11 @@
 /**
  * Pytest vs unittest layout, read from the files that are actually present.
- * A pytest config wins. Otherwise `import unittest` in test modules selects
- * `python -m unittest discover`. A bare `test_*.py` with neither signal is
- * `loose` (the caller may confirm pytest). Sync and bounded so /goal can
- * propose a command without spawning a runner.
+ * A pytest config wins. A tree is `unittest` only when every test module
+ * imports unittest — one unittest import must not hide a pytest-style
+ * `assert` in another file. The caller prefers pytest when it is installed
+ * (pytest runs unittest.TestCase too) and uses {@link unittestDiscoverArgs}
+ * only as the fallback. Sync and bounded so /goal can propose a command
+ * without spawning a runner.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -59,14 +61,41 @@ function listTestModules(root: string): string[] {
   return files;
 }
 
+function dirHasTestModule(root: string, dir: string): boolean {
+  let names: string[] = [];
+  try {
+    names = fs.readdirSync(path.join(root, dir));
+  } catch {
+    return false;
+  }
+  return names.some(isTestModule);
+}
+
+/**
+ * Arguments for `python -m unittest discover` when pytest is not installed.
+ * `-s .` does not enter `tests/` or `test/` without `__init__.py`. Python
+ * 3.11+ also rejects `-s tests -t .` for a non-package, so `-t .` is added
+ * only when that directory is a package.
+ */
+export function unittestDiscoverArgs(root: string): string {
+  for (const dir of ['tests', 'test'] as const) {
+    if (!dirHasTestModule(root, dir)) continue;
+    const packaged = fs.existsSync(path.join(root, dir, '__init__.py'));
+    return packaged ? `-s ${dir} -t .` : `-s ${dir}`;
+  }
+  return '-s .';
+}
+
 /** Which Python test command this tree supports, if any. */
 export function pythonTestLayout(root: string): PythonTestLayout {
   if (pytestSignal(root)) return 'pytest';
   const modules = listTestModules(root);
   if (modules.length === 0) return 'none';
+  let unittestModules = 0;
   for (const filePath of modules) {
     const text = readText(filePath);
-    if (text && UNITTEST_IMPORT.test(text)) return 'unittest';
+    if (text && UNITTEST_IMPORT.test(text)) unittestModules += 1;
   }
+  if (unittestModules === modules.length) return 'unittest';
   return 'loose';
 }

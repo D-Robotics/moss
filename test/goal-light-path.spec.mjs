@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * Small goals finish from one test run. A large goal still wants evidence
- * per metric. Turn counts are the tool rounds the planning prompt asks for,
- * plus the engine turn count on a stub that follows that prompt.
+ * A test run records tests_pass / build_ok / typecheck_ok only, and only on
+ * a task turn. It does not accept an unrelated criterion.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,38 +9,19 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { classifyGoalScale } from '../dist/core/task/goal-scale.js';
 import { runTask } from '../dist/core/task/task-engine.js';
 import { recordHarnessSuiteEvidence } from '../dist/core/task/suite-evidence.js';
 import { evaluateContractAcceptance } from '../dist/core/task/verdict.js';
-import { appendTaskEvent, listTaskEvents } from '../dist/core/task/task-store.js';
+import { listTaskEvents } from '../dist/core/task/task-store.js';
 import { appendTaskRecord, listEvidenceRecords } from '../dist/core/task-runtime/artifacts.js';
 
 const SMALL = 'fix the twenty-line helper and its tests';
-const LARGE =
-  'refactor the camera firmware deploy and migrate the architecture across utils.js app.js driver.js and net.js';
-const CRITERIA = 8;
-
-function protocolTurns(prompt, criteriaCount) {
-  const perItem = prompt.includes('Record evidence for each acceptance metric');
-  // One model response each: define, plan, read, edit, then either one test
-  // run or one evidence record per criterion, then task_acceptance.
-  return 4 + (perItem ? criteriaCount : 1) + 1;
-}
-
-function criteria(prefix, expected) {
-  return Array.from({ length: CRITERIA }, (_, index) => ({
-    metric: `${prefix}_${index}`,
-    expected,
-    required: true,
-  }));
-}
 
 async function workspace() {
-  return fs.mkdtemp(path.join(os.tmpdir(), 'moss-goal-light-'));
+  return fs.mkdtemp(path.join(os.tmpdir(), 'moss-goal-suite-'));
 }
 
-async function define(dir, taskId, goal, acceptanceCriteria, steps) {
+async function define(dir, taskId, goal, acceptanceCriteria) {
   const now = Date.now();
   await appendTaskRecord(dir, {
     taskId,
@@ -51,141 +31,147 @@ async function define(dir, taskId, goal, acceptanceCriteria, steps) {
     createdAt: now,
     updatedAt: now,
   });
-  if (steps) {
-    await appendTaskEvent(dir, taskId, 'plan_step_updated', { steps });
-  }
 }
 
-test('scale: short text and a 3-step plan are light; a device refactor is full', () => {
-  assert.equal(classifyGoalScale({ goal: SMALL, repoFileCount: 12 }), 'light');
-  assert.equal(classifyGoalScale({ goal: LARGE, repoFileCount: 12 }), 'full');
-  const medium = 'ship the feature. '.repeat(20);
-  assert.equal(classifyGoalScale({ goal: medium, repoFileCount: 400 }), 'full');
-  assert.equal(classifyGoalScale({ goal: medium, repoFileCount: 12 }), 'light');
-  assert.equal(
-    classifyGoalScale({ goal: LARGE, repoFileCount: 400, planSteps: 3 }),
-    'light',
-    'a plan of at most 3 steps uses the light path'
-  );
-  assert.equal(classifyGoalScale({ goal: SMALL, repoFileCount: 12, planSteps: 8 }), 'light');
-});
-
-test('one passing test covers a small goal and does not cover a device metric', async () => {
+test('a suite run satisfies only tests_pass, build_ok, and typecheck_ok', async () => {
   const dir = await workspace();
   const { createDraftTask } = await import('../dist/core/task/task-store.js');
   const draft = await createDraftTask(dir, SMALL);
-  await define(dir, draft.taskId, SMALL, criteria('item', 'exists'));
+  await define(dir, draft.taskId, SMALL, [
+    { metric: 'tests_pass', expected: '==true', required: true },
+    { metric: 'readme_documents_verbose', expected: 'exists', required: true },
+    { metric: 'verbose_flag_prints_debug', expected: '==true', required: true },
+    { metric: 'motor_spins', expected: '==true', required: true },
+    { metric: 'lidar_scan_published', expected: '==true', required: true },
+    { metric: 'servo_angle_ok', expected: '==pass', required: true },
+    { metric: '电机转速正常', expected: '==true', required: true },
+    { metric: '相机画面', expected: 'exists', required: true },
+    { metric: 'unknown_route_returns_404', expected: '==true', required: true },
+    { metric: 'build_ok', expected: '==true', required: true },
+    { metric: 'typecheck_ok', expected: '==true', required: true },
+  ]);
   const wrote = await recordHarnessSuiteEvidence({
     workspaceDir: dir,
     taskId: draft.taskId,
     source: 'run_tests',
     testsPassed: true,
-    output: 'tests_pass=true\nOK',
+    buildPassed: true,
+    typecheckPassed: false,
+    output: 'tests_pass=true',
   });
-  assert.ok(wrote >= CRITERIA, `suite wrote a row per item (${wrote})`);
+  assert.equal(wrote, 3);
   const judged = await evaluateContractAcceptance(dir, draft.taskId);
-  assert.equal(judged.verdict.verdict, 'pass');
-  const evidence = await listEvidenceRecords(dir, 100);
-  assert.equal(
-    evidence.filter((row) => row.source === 'record_evidence').length,
-    0,
-    'acceptance did not need a model record_evidence call'
+  assert.equal(judged.verdict.verdict, 'fail');
+  const byMetric = Object.fromEntries(
+    judged.verdict.criteriaResults.map((row) => [row.metric, row.result])
   );
+  assert.equal(byMetric.tests_pass, 'pass');
+  assert.equal(byMetric.build_ok, 'pass');
+  assert.equal(byMetric.typecheck_ok, 'fail');
+  for (const metric of [
+    'readme_documents_verbose',
+    'verbose_flag_prints_debug',
+    'motor_spins',
+    'lidar_scan_published',
+    'servo_angle_ok',
+    '电机转速正常',
+    '相机画面',
+    'unknown_route_returns_404',
+  ]) {
+    assert.equal(byMetric[metric], 'no-evidence', metric);
+  }
+});
 
-  const device = await createDraftTask(dir, 'camera stays at 30 fps');
-  await define(dir, device.taskId, 'camera stays at 30 fps', [
-    { metric: 'camera_fps', expected: '>=30', required: true },
+test('ordinary chat does not attach a test run to a live goal', async () => {
+  const dir = await workspace();
+  const { createDraftTask } = await import('../dist/core/task/task-store.js');
+  const draft = await createDraftTask(dir, SMALL);
+  await define(dir, draft.taskId, SMALL, [
+    { metric: 'tests_pass', expected: '==true', required: true },
   ]);
-  await recordHarnessSuiteEvidence({
+  const wrote = await recordHarnessSuiteEvidence({
     workspaceDir: dir,
-    taskId: device.taskId,
     source: 'run_tests',
     testsPassed: true,
     output: 'tests_pass=true',
   });
-  const deviceJudged = await evaluateContractAcceptance(dir, device.taskId);
-  assert.notEqual(deviceJudged.verdict.verdict, 'pass');
+  assert.equal(wrote, 0);
+  assert.equal((await listEvidenceRecords(dir, 20)).length, 0);
+  const judged = await evaluateContractAcceptance(dir, draft.taskId);
+  assert.equal(judged.verdict.verdict, 'fail');
+  assert.equal(judged.verdict.criteriaResults[0].result, 'no-evidence');
+
+  const onTurn = await recordHarnessSuiteEvidence({
+    workspaceDir: dir,
+    taskTurn: true,
+    source: 'run_tests',
+    testsPassed: true,
+    output: 'tests_pass=true',
+  });
+  assert.equal(onTurn, 1);
+  const passed = await evaluateContractAcceptance(dir, draft.taskId);
+  assert.equal(passed.verdict.verdict, 'pass');
 });
 
-test('small fixture: light prompt, one engine turn; full prompt still bills per item', async () => {
-  const smallDir = await workspace();
-  let lightPrompt = '';
-  const small = await runTask(
+test('one planning prompt stays lean, and only an exact suite metric accepts early', async () => {
+  const prompts = [];
+  const exactDir = await workspace();
+  const exact = await runTask(
     {
-      workspaceDir: smallDir,
-      maxTurns: 8,
+      workspaceDir: exactDir,
+      maxTurns: 4,
       runTurn: async (prompt) => {
-        lightPrompt = prompt;
-        const taskId = (await listTaskEvents(smallDir))[0].taskId;
-        await define(smallDir, taskId, SMALL, criteria('item', 'exists'), [
-          { stepId: '1', title: 'edit the helper', status: 'done' },
-          { stepId: '2', title: 'run tests', status: 'done' },
-          { stepId: '3', title: 'accept', status: 'pending' },
+        prompts.push(prompt);
+        const taskId = (await listTaskEvents(exactDir))[0].taskId;
+        await define(exactDir, taskId, SMALL, [
+          { metric: 'tests_pass', expected: '==true', required: true },
         ]);
         await recordHarnessSuiteEvidence({
-          workspaceDir: smallDir,
+          workspaceDir: exactDir,
           taskId,
           source: 'run_tests',
           testsPassed: true,
           output: 'tests_pass=true',
         });
-        return 'implemented and tested';
+        return 'tested';
       },
     },
     SMALL
   );
-  assert.match(lightPrompt, /at most 3 steps/);
-  assert.match(lightPrompt, /minimal and scoped/);
-  assert.doesNotMatch(lightPrompt, /Record evidence for each acceptance metric/);
-  assert.equal(small.outcome, 'pass');
-  assert.equal(small.turns, 1, 'the planning turn is enough once the suite covers the items');
+  assert.equal(exact.outcome, 'pass');
+  assert.equal(exact.turns, 1);
+  assert.match(prompts[0], /at most 3 steps/);
+  assert.match(prompts[0], /minimal and scoped/);
+  assert.match(prompts[0], /Implement only that change now/);
+  assert.doesNotMatch(prompts[0], /Record evidence for each acceptance metric/);
+  assert.doesNotMatch(prompts[0], /3-8 concrete steps/);
 
-  const largeDir = await workspace();
-  let fullPrompt = '';
-  const large = await runTask(
+  const openDir = await workspace();
+  const open = await runTask(
     {
-      workspaceDir: largeDir,
-      maxTurns: 1,
+      workspaceDir: openDir,
+      maxTurns: 2,
       maxRepairAttempts: 0,
       runTurn: async (prompt) => {
-        fullPrompt = prompt;
-        const taskId = (await listTaskEvents(largeDir))[0].taskId;
-        await define(largeDir, taskId, LARGE, criteria('item', 'exists'));
+        prompts.push(prompt);
+        const taskId = (await listTaskEvents(openDir))[0].taskId;
+        await define(openDir, taskId, 'deploy the motor controller', [
+          { metric: 'motor_spins', expected: '==true', required: true },
+        ]);
         await recordHarnessSuiteEvidence({
-          workspaceDir: largeDir,
+          workspaceDir: openDir,
           taskId,
           source: 'run_tests',
           testsPassed: true,
-          output: 'tests_pass=true',
+          output: 'assert 1+1==2',
         });
-        return 'tests passed, evidence still per metric';
+        return 'tests passed';
       },
     },
-    LARGE
+    'deploy the motor controller'
   );
-  assert.match(fullPrompt, /Record evidence for each acceptance metric/);
-  assert.match(fullPrompt, /3-8 concrete steps/);
-  assert.notEqual(large.outcome, 'pass', 'a large goal does not accept from the suite alone');
-
-  const beforeTurns = protocolTurns(fullPrompt, CRITERIA);
-  const afterTurns = protocolTurns(lightPrompt, CRITERIA);
-  assert.ok(afterTurns <= 8, `small fixture tool rounds ${afterTurns}`);
-  assert.ok(beforeTurns > afterTurns);
-  const report = {
-    criteria: CRITERIA,
-    beforeTurns,
-    afterTurns,
-    beforeEngineTurns: large.turns,
-    afterEngineTurns: small.turns,
-    beforePromptChars: fullPrompt.length,
-    afterPromptChars: lightPrompt.length,
-    beforePromptTokens: Math.ceil(fullPrompt.length / 4),
-    afterPromptTokens: Math.ceil(lightPrompt.length / 4),
-  };
-  console.log(`[goal-light] ${JSON.stringify(report)}`);
-  await fs.mkdir('/opt/cursor/artifacts', { recursive: true });
-  await fs.writeFile(
-    '/opt/cursor/artifacts/goal-light-turns.json',
-    `${JSON.stringify(report, null, 2)}\n`
-  );
+  assert.notEqual(open.outcome, 'pass');
+  assert.match(prompts[1], /minimal and scoped/);
+  assert.doesNotMatch(prompts[1], /3-8 concrete steps/);
+  assert.equal(prompts.length, 3);
 });

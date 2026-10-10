@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { appendTaskEvent, findLatestLiveTaskSnapshot } from '../../core/task/task-store.js';
-import { pythonTestLayout } from '../../utils/python-test-layout.js';
+import { pythonTestLayout, unittestDiscoverArgs } from '../../utils/python-test-layout.js';
 import { isZhLocale } from '../cli-locale.js';
 import { quoteCommandArg } from '../task-run.js';
 
@@ -62,7 +62,7 @@ export function proposeAcceptanceCommands(workspace: string): AcceptanceProposal
   const python = pythonTestLayout(workspace);
   const py = process.platform === 'win32' ? 'python' : 'python3';
   if (python === 'unittest') {
-    pushCandidate(candidates, `${py} -m unittest discover -s .`);
+    pushCandidate(candidates, `${py} -m unittest discover ${unittestDiscoverArgs(workspace)}`);
   } else if (
     python === 'pytest' ||
     python === 'loose' ||

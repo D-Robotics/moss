@@ -8,13 +8,8 @@
  */
 import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
 import { evaluateAcceptance, formatAcceptanceVerdict } from '../../contracts/task.js';
-import type { EvidenceRecord } from '../../contracts/evidence.js';
 import { runAcceptanceCommand } from './acceptance-command.js';
-import {
-  expandSuiteEvidence,
-  goalScaleForWorkspace,
-  recordHarnessSuiteEvidence,
-} from './suite-evidence.js';
+import { recordHarnessSuiteEvidence } from './suite-evidence.js';
 import {
   appendAcceptanceVerdict,
   appendTaskRecord,
@@ -96,17 +91,8 @@ export async function acceptanceAlreadySatisfied(
   const tasks = await listTaskRecords(workspaceDir);
   const task = tasks.find((candidate) => candidate.taskId === taskId);
   if (!task || task.acceptanceCriteria.length === 0) return false;
-  const evidence = await evidenceForAcceptance(workspaceDir, task);
-  return evaluateAcceptance(task, evidence).verdict === 'pass';
-}
-
-async function evidenceForAcceptance(
-  workspaceDir: string,
-  task: TaskContract
-): Promise<EvidenceRecord[]> {
   const evidence = await listEvidenceRecords(workspaceDir, 1000);
-  const scale = await goalScaleForWorkspace(workspaceDir, task);
-  return expandSuiteEvidence(task, evidence, scale);
+  return evaluateAcceptance(task, evidence).verdict === 'pass';
 }
 
 export async function evaluateContractAcceptance(
@@ -122,7 +108,7 @@ export async function evaluateContractAcceptance(
       );
   if (!task) return null;
 
-  const evidence = await evidenceForAcceptance(workspaceDir, task);
+  const evidence = await listEvidenceRecords(workspaceDir, 1000);
   const verdict = evaluateAcceptance(task, evidence);
   await appendAcceptanceVerdict(workspaceDir, verdict);
 

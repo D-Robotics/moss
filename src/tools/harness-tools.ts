@@ -69,8 +69,8 @@ export const runTestsTool: Tool = {
       file: {
         type: 'string',
         description:
-          'Run one file instead of the full suite. Python files use pytest, or unittest ' +
-          'when the tree imports unittest; other ' +
+          'Run one file instead of the full suite. Python files use pytest when it ' +
+          'is installed, otherwise unittest for unittest modules; other ' +
           'files use `node --test`. Path is relative to the workspace and must stay ' +
           'inside it. When set, `command` is ignored.',
       },
@@ -88,6 +88,7 @@ export const runTestsTool: Tool = {
     if (testsPassed !== undefined) {
       await recordHarnessSuiteEvidence({
         workspaceDir: ctx.workspaceDir,
+        taskTurn: ctx.goalExecWait === true,
         source: 'run_tests',
         testsPassed,
         output: text,
@@ -237,6 +238,7 @@ export const verifyFixTool: Tool = {
     const text = formatVerifyResult(result);
     await recordHarnessSuiteEvidence({
       workspaceDir: ctx.workspaceDir,
+      taskTurn: ctx.goalExecWait === true,
       source: 'verify_fix',
       ...(result.buildSkipped || result.buildNotRun ? {} : { buildPassed: result.buildOk }),
       ...(result.typecheckSkipped || result.typecheckNotRun
