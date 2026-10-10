@@ -352,6 +352,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_DEVICE_TRUST_DEVICES (comma-separated host or device-id allowlist)',
       'MOSS_DEVICE_ (prefix of every MOSS_DEVICE_* key)',
       'MOSS_NO_RDK_DOCS (1|true|yes|on skips the built-in rdk-docs MCP server)',
+      'MOSS_WAIT_MCP_STARTUP (1 waits for the in-flight MCP connect before shutdown; default does not)',
       'MOSS_RDK_DOCS_PACKAGE (npm spec or local path; process env only, not project config or .env)',
     ],
   },
