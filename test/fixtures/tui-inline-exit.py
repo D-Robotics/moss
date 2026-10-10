@@ -105,6 +105,8 @@ def _run_inline_exit(home, workspace):
         "MOSS_CONFIG_FILE": config_file,
         "MOSS_NO_RDK_DOCS": "1",
         "MOSS_NOTIFY": "0",
+        # This probe measures the exit screen, not the first-launch folder prompt.
+        "MOSS_TRUST_WORKSPACE": "1",
         "MOSS_TUI_RENDERER": "inline",
         "TERM": "xterm-256color",
         "LANG": "en_US.UTF-8",

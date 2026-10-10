@@ -328,6 +328,7 @@ export function renderAuthStatus(
         'maxTurns',
         'contextTokens',
         'compaction',
+        'modelTiers',
         'warnings',
         'configPath',
         'projectConfig',

@@ -39,7 +39,9 @@ import { appendUserPermissionRule } from '../config-commands.js';
 import { stopAllBackgroundProcesses } from '../../core/tools/background-process-registry.js';
 import { probeDoctorModelPing } from '../doctor-model-ping.js';
 import { reportedModelMatchesConfigured } from '../model-resolution.js';
-import { envBeforeDotenv, loadCliConfigFile } from '../config.js';
+import { envBeforeDotenv, loadCliConfigFile, resolveConfigDir } from '../config.js';
+import { isFilesystemRoot, forgetFolderTrust, rememberFolderTrust } from '../folder-trust-store.js';
+import { resolveFolderKey } from '../workspace-trust.js';
 import {
   configuredBaseUrl,
   formatCostEstimate,
@@ -890,6 +892,50 @@ const languageCommand: CommandSpec = {
   },
 };
 
+const trustCommand: CommandSpec = {
+  name: '/trust',
+  summary: 'trust this folder for project settings',
+  async run(ctx) {
+    const key = await resolveFolderKey(ctx.workspace);
+    if (isFilesystemRoot(key)) {
+      ctx.say(
+        'system',
+        uiText(
+          'The filesystem root is not remembered as trusted.',
+          '文件系统根目录不会被记为已信任。'
+        )
+      );
+      return;
+    }
+    const configDir = resolveConfigDir();
+    rememberFolderTrust(configDir, key);
+    ctx.say(
+      'system',
+      uiText(
+        `Trusted ${key}. It applies the next time Moss starts.`,
+        `已信任 ${key}。下次启动 Moss 时生效。`
+      )
+    );
+  },
+};
+
+const untrustCommand: CommandSpec = {
+  name: '/untrust',
+  summary: 'forget trust for this folder',
+  async run(ctx) {
+    const removed = forgetFolderTrust(resolveConfigDir(), ctx.workspace);
+    ctx.say(
+      'system',
+      removed
+        ? uiText(
+            `Removed trust for ${removed}. It applies the next time Moss starts.`,
+            `已取消对 ${removed} 的信任。下次启动 Moss 时生效。`
+          )
+        : uiText('This folder is not trusted.', '此文件夹未被信任。')
+    );
+  },
+};
+
 const agentsCommand: CommandSpec = {
   name: '/agents',
   summary: 'list file-defined sub-agents with source paths and warnings',
@@ -904,6 +950,8 @@ const COMMANDS: readonly CommandSpec[] = [
   statusCommand,
   doctorCommand,
   languageCommand,
+  trustCommand,
+  untrustCommand,
   agentsCommand,
   reviewCommand,
   permissionsCommand,

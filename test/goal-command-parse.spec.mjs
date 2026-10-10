@@ -47,7 +47,9 @@ import { acceptanceShell, runAcceptanceCommand } from '../dist/core/task/accepta
   const previous = process.env.PATH;
   process.env.PATH = `${sentinel}:${previous ?? ''}`;
   try {
-    const result = await runAcceptanceCommand({ command: 'printf %s "$PATH"' });
+    // Print only the first PATH entry: `tail` keeps the end of the output, and
+    // under `npm run verify` a long PATH pushes the sentinel out of it.
+    const result = await runAcceptanceCommand({ command: 'printf %s "${PATH%%:*}"' });
     assert.equal(result.passed, true, result.tail);
     assert.ok(result.tail.startsWith(sentinel), result.tail);
   } finally {

@@ -109,6 +109,7 @@ env = {
     'MOSS_CONFIG_DIR': config_dir,
     'MOSS_RUNTIME_DIR': os.path.join(home, 'runtime'),
     'MOSS_NO_BUNDLED_DEFAULT': '1',
+    'MOSS_TRUST_WORKSPACE': '1',
     'NO_COLOR': '1',
 }
 extra = os.environ.get('MOSS_E2E_EXTRA', '')

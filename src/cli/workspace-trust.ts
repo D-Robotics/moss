@@ -15,20 +15,30 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import readline from 'node:readline';
 import { isZhLocale } from './cli-locale.js';
+import { ExitCode } from './exit-codes.js';
+import {
+  folderPathKey,
+  forgetFolderTrust,
+  isFilesystemRoot,
+  isFolderTrusted,
+  listTrustedFolders,
+  rememberFolderTrust,
+} from './folder-trust-store.js';
 import { chrome } from './tui/copy.js';
+import { runGit } from '../utils/git-spawn.js';
 import {
   claudeMcpPath,
+  claudeProjectConfigExists,
   describeClaudeMcp,
   readClaudeProjectHooks,
-  resolveClaudeCompatOptIn,
 } from './claude-compat.js';
 import {
   HOOK_EVENT_KEYS,
   envBeforeDotenv,
   loadConfigFile,
   mergeHooksConfig,
+  resolveProjectConfigPath,
   startupHomeDir,
   type HooksConfig,
 } from './config.js';
@@ -43,15 +53,13 @@ export interface TrustItem {
   label: string;
 }
 
-const TRUST_FILE = 'workspace-trust.json';
-
-function workspaceKey(workspaceDir: string): string {
-  try {
-    return fs.realpathSync.native(workspaceDir);
-  } catch {
-    return path.resolve(workspaceDir);
-  }
-}
+export {
+  forgetFolderTrust,
+  isFilesystemRoot,
+  isFolderTrusted,
+  listTrustedFolders,
+  rememberFolderTrust,
+};
 
 /** Live `process.env` has already applied `.env`. Trust uses the pre-dotenv copy. */
 function resolvedEnv(env: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
@@ -90,25 +98,6 @@ function isInsideDir(root: string, target: string): boolean {
  */
 function workspaceUsesUserMoss(workspaceDir: string, env: NodeJS.ProcessEnv): boolean {
   return isInsideDir(userMossDir(env), path.join(workspaceDir, '.moss'));
-}
-
-function readStore(configDir: string): Record<string, boolean> {
-  try {
-    const raw: unknown = JSON.parse(fs.readFileSync(path.join(configDir, TRUST_FILE), 'utf8'));
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-    const out: Record<string, boolean> = {};
-    for (const [key, value] of Object.entries(raw)) {
-      if (typeof value === 'boolean') out[key] = value;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-function writeStore(configDir: string, store: Record<string, boolean>): void {
-  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(path.join(configDir, TRUST_FILE), `${JSON.stringify(store, null, 2)}\n`);
 }
 
 export function trustEnvEnabled(env: NodeJS.ProcessEnv): boolean {
@@ -291,22 +280,236 @@ export function untrustedWorkspaceLine(summary: string, zh: boolean): string {
     : `[moss] Untrusted workspace — skipped ${summary}. Enable with --trust-workspace or MOSS_TRUST_WORKSPACE=1.`;
 }
 
-function isYes(answer: string): boolean {
-  return /^(y|yes|是)$/i.test(answer.trim());
+/**
+ * Keys left unset from an ancestor `.env` when this folder is already trusted.
+ * Trusting the child does not apply the parent file.
+ */
+export function ancestorRoutingIgnoredLine(
+  keys: readonly string[],
+  directories: readonly string[],
+  zh: boolean
+): string {
+  const list = keys.filter((key) => key.trim()).join(zh ? '、' : ', ');
+  const dir = directories.filter((item) => item.trim()).join(zh ? '、' : ', ');
+  return chrome(
+    '[moss] Ancestor .env routing keys ignored from {dir}: {list}. Trust that directory to apply them.',
+    zh,
+    { dir, list }
+  );
 }
 
-function askYesNo(question: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-    const finish = (answer: string) => {
-      rl.close();
-      resolve(isYes(answer));
-    };
-    rl.once('SIGINT', () => finish(''));
-    rl.question(question, finish);
+/** One stderr line for a folder that was not trusted. `-p` prints this and continues. */
+export function untrustedFolderLine(parts: readonly string[], zh: boolean): string {
+  const list = parts.filter((part) => part.trim()).join(zh ? '、' : ', ');
+  if (list) {
+    return chrome(
+      '[moss] Untrusted folder — ignored project settings: {list}. Trust this folder with --trust-workspace or MOSS_TRUST_WORKSPACE=1.',
+      zh,
+      { list }
+    );
+  }
+  return chrome(
+    '[moss] Untrusted folder — project settings that change where traffic goes stay ignored. Trust this folder with --trust-workspace or MOSS_TRUST_WORKSPACE=1.',
+    zh
+  );
+}
+
+/**
+ * Folder key: the git toplevel when `dir` is inside a work tree, otherwise
+ * `dir` itself. Both are real paths. Git failure means "not a work tree".
+ */
+export async function resolveFolderKey(dir: string): Promise<string> {
+  const cwd = folderPathKey(dir);
+  try {
+    const result = await runGit(['rev-parse', '--show-toplevel'], {
+      cwd,
+      timeout: 5_000,
+      readOnly: true,
+    });
+    const top = result.stdout.trim();
+    if (top) return folderPathKey(top);
+  } catch {
+    /* not a git work tree */
+  }
+  return cwd;
+}
+
+function sameFolder(a: string, b: string): boolean {
+  try {
+    return folderPathKey(a) === folderPathKey(b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What trusting `workspaceDir` would load. Reads project files only; it does
+ * not run hooks or start MCP servers. Claude project files are included so
+ * the one prompt can name them.
+ */
+export function discoverFolderTrustItems(input: {
+  workspaceDir: string;
+  configDir: string;
+  env: NodeJS.ProcessEnv;
+}): TrustItem[] {
+  const userFile = loadConfigFile(path.join(input.configDir, 'config.json'));
+  const projectConfigPath = resolveProjectConfigPath(input.workspaceDir) ?? undefined;
+  const inheritedUser =
+    projectConfigPath !== undefined && isInsideDir(userMossDir(input.env), projectConfigPath);
+  const userOwned = workspaceUsesUserMoss(input.workspaceDir, input.env);
+  const projectFile =
+    projectConfigPath && !inheritedUser && !userOwned
+      ? loadConfigFile(projectConfigPath)
+      : undefined;
+  const statusCommand =
+    userFile.statusLine === undefined && Boolean(projectFile?.statusLine?.command?.trim());
+  const mcpBrief = (file: string) =>
+    describeMcpFile(file, {}).map((brief) => ({
+      name: brief.name,
+      transport: brief.transport,
+    }));
+  return listProjectTrustItems({
+    workspaceDir: input.workspaceDir,
+    ...(projectFile?.hooks ? { projectHooks: projectFile.hooks } : {}),
+    claudeHooks: readClaudeProjectHooks(input.workspaceDir),
+    projectMcp: userOwned ? [] : mcpBrief(path.join(input.workspaceDir, '.moss', 'mcp.json')),
+    claudeMcp: describeClaudeMcp(input.workspaceDir),
+    statusCommand,
+    includeClaudeAgents: true,
+    scanMossExtensions: !userOwned,
+    homeDir: homeDir(input.env),
   });
 }
 
+export function folderTrustPrompt(input: {
+  folderKey: string;
+  home: boolean;
+  root: boolean;
+  zh: boolean;
+  items?: readonly TrustItem[];
+}): string {
+  const lines: string[] = [];
+  if (input.home) lines.push(chrome('This folder is your home directory.', input.zh));
+  if (input.root) {
+    lines.push(
+      chrome('This folder is the filesystem root. Trusting it is not remembered.', input.zh)
+    );
+  }
+  const summary = summarizeTrustItems(input.items ?? [], input.zh);
+  lines.push(
+    summary
+      ? chrome('Trusting loads {summary}.', input.zh, { summary })
+      : chrome('This project has no hooks, MCP servers, agents, or plugins.', input.zh)
+  );
+  lines.push(chrome('A trusted project can change the model gateway, proxy, and TLS.', input.zh));
+  lines.push(chrome('Trust this folder?', input.zh));
+  lines.push(`  ${input.folderKey}`);
+  lines.push(`  1  ${chrome('Yes, trust this folder', input.zh)}`);
+  lines.push(`  2  ${chrome('No, exit', input.zh)}`);
+  return lines.join('\n');
+}
+
+export type FolderTrustKey = 'yes' | 'no';
+
+function classifyTrustKey(text: string): FolderTrustKey | undefined {
+  if (text.includes('\u0003')) return 'no';
+  const token = text
+    .replace(/[\r\n]/g, '')
+    .trim()
+    .toLowerCase();
+  const entered = text.includes('\r') || text.includes('\n');
+  if (entered && (token === '' || token === '1' || token === 'y' || token === 'yes')) return 'yes';
+  if (entered && (token === '2' || token === 'n' || token === 'no')) return 'no';
+  if (!entered && (token === '1' || token === 'y')) return 'yes';
+  if (!entered && (token === '2' || token === 'n')) return 'no';
+  return undefined;
+}
+
+/** One keypress. Enter is Yes. Anything else waits. */
+function readTrustKey(): Promise<FolderTrustKey> {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    const raw = Boolean(stdin.isTTY && typeof stdin.setRawMode === 'function');
+    let settled = false;
+    const finish = (answer: FolderTrustKey) => {
+      if (settled) return;
+      settled = true;
+      stdin.off('data', onData);
+      if (raw) stdin.setRawMode(false);
+      stdin.pause();
+      resolve(answer);
+    };
+    const onData = (chunk: Buffer | string) => {
+      const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      const answer = classifyTrustKey(text);
+      if (answer) finish(answer);
+    };
+    if (raw) stdin.setRawMode(true);
+    stdin.resume();
+    stdin.on('data', onData);
+  });
+}
+
+export interface FolderTrustDecision {
+  trusted: boolean;
+  folderKey: string;
+  prompted: boolean;
+  /** False when the folder is `/`. A yes still trusts this process. */
+  persisted: boolean;
+}
+
+/**
+ * Decide folder trust before any tool, hook, or model call.
+ * Interactive: one prompt. Yes is stored on the user (never for `/`).
+ * No exits. Non-interactive never prompts.
+ */
+export async function resolveFolderTrust(input: {
+  startDir: string;
+  configDir: string;
+  interactive: boolean;
+  trustFlag: boolean;
+  env?: NodeJS.ProcessEnv;
+  zh?: boolean;
+  readKey?: () => Promise<FolderTrustKey>;
+  /** Tests pass `return` so a decline does not exit the test runner. */
+  onDecline?: 'exit' | 'return';
+  write?: (text: string) => void;
+}): Promise<FolderTrustDecision> {
+  const env = resolvedEnv(input.env);
+  const folderKey = await resolveFolderKey(input.startDir);
+  const zh = input.zh ?? isZhLocale();
+  const write = input.write ?? ((text: string) => console.error(text));
+  const granted =
+    input.trustFlag || trustEnvEnabled(env) || isFolderTrusted(input.configDir, input.startDir);
+  if (granted) return { trusted: true, folderKey, prompted: false, persisted: false };
+  const canPrompt =
+    input.interactive && (input.readKey !== undefined || process.stdin.isTTY === true);
+  if (!canPrompt) return { trusted: false, folderKey, prompted: false, persisted: false };
+  const home = sameFolder(folderKey, homeDir(env));
+  const root = isFilesystemRoot(folderKey);
+  const items = discoverFolderTrustItems({
+    workspaceDir: folderKey,
+    configDir: input.configDir,
+    env,
+  });
+  write(folderTrustPrompt({ folderKey, home, root, zh, items }));
+  const answer = await (input.readKey ?? readTrustKey)();
+  if (answer !== 'yes') {
+    write(chrome('[moss] This folder was not trusted. Exiting.', zh));
+    if (input.onDecline === 'return') {
+      return { trusted: false, folderKey, prompted: true, persisted: false };
+    }
+    process.exit(ExitCode.USER_ABORTED);
+  }
+  const remembered = root ? { persisted: false } : rememberFolderTrust(input.configDir, folderKey);
+  return { trusted: true, folderKey, prompted: true, persisted: remembered.persisted };
+}
+
+/**
+ * Folder trust replaces the per-item prompt. A stored `true` (including a
+ * legacy workspace path) covers that folder and its subdirectories. A stored
+ * `false` is not a decision. Declining is not remembered.
+ */
 export async function resolveWorkspaceTrust(input: {
   workspaceDir: string;
   configDir: string;
@@ -317,25 +520,24 @@ export async function resolveWorkspaceTrust(input: {
   env?: NodeJS.ProcessEnv;
   ask?: (question: string) => Promise<boolean>;
   zh?: boolean;
+  folderTrusted?: boolean;
 }): Promise<{ trusted: boolean; skipped: TrustItem[] }> {
-  if (input.items.length === 0) return { trusted: true, skipped: [] };
+  void input.interactive;
+  void input.ask;
+  void input.zh;
   const env = resolvedEnv(input.env);
-  if (input.trustFlag || trustEnvEnabled(env)) return { trusted: true, skipped: [] };
-  const key = workspaceKey(input.workspaceDir);
-  const store = readStore(input.configDir);
-  if (store[key] === true) return { trusted: true, skipped: [] };
-  if (store[key] === false) return { trusted: false, skipped: [...input.items] };
-  if (input.interactive) {
-    const zh = input.zh ?? isZhLocale();
-    const yes = await (input.ask ?? askYesNo)(
-      trustQuestion(summarizeTrustItems(input.items, zh), zh)
-    );
-    store[key] = yes;
-    writeStore(input.configDir, store);
-    return { trusted: yes, skipped: yes ? [] : [...input.items] };
+  const trusted =
+    input.folderTrusted !== undefined
+      ? input.folderTrusted
+      : input.trustFlag ||
+        trustEnvEnabled(env) ||
+        isFolderTrusted(input.configDir, input.workspaceDir) ||
+        (input.items.length === 0 && !input.headlessUntrusted);
+  if (input.items.length === 0 && input.folderTrusted !== false) {
+    return { trusted: true, skipped: [] };
   }
-  if (input.headlessUntrusted) return { trusted: false, skipped: [...input.items] };
-  return { trusted: true, skipped: [] };
+  if (trusted) return { trusted: true, skipped: [] };
+  return { trusted: false, skipped: [...input.items] };
 }
 
 export interface ResolvedProjectCapabilities {
@@ -345,6 +547,8 @@ export interface ResolvedProjectCapabilities {
   /** Claude project files were accepted for this workspace. */
   claudeOptIn: boolean;
   trusted: boolean;
+  /** Project code left unloaded because the folder is not trusted. */
+  skipped: TrustItem[];
 }
 
 export async function resolveProjectCapabilities(input: {
@@ -358,6 +562,8 @@ export async function resolveProjectCapabilities(input: {
   env?: NodeJS.ProcessEnv;
   ask?: (question: string) => Promise<boolean>;
   zh?: boolean;
+  /** Set by the startup prompt. `false` keeps project code off even when nothing is listed. */
+  folderTrusted?: boolean;
 }): Promise<ResolvedProjectCapabilities> {
   const env = resolvedEnv(input.env);
   const userFile = loadConfigFile(input.configPath);
@@ -375,14 +581,17 @@ export async function resolveProjectCapabilities(input: {
   const statusCommand =
     userFile.statusLine === undefined && Boolean(gatedProjectFile?.statusLine?.command?.trim());
   const userOwnedWorkspace = workspaceUsesUserMoss(input.workspaceDir, env);
-  const claudeOptIn = await resolveClaudeCompatOptIn({
-    workspaceDir: input.workspaceDir,
-    configDir: input.configDir,
-    interactive: input.interactive,
-    ...(input.ask ? { ask: input.ask } : {}),
-    ...(input.zh !== undefined ? { zh: input.zh } : {}),
-  });
-  const claudeHooks = claudeOptIn ? readClaudeProjectHooks(input.workspaceDir) : undefined;
+  const folderAlreadyTrusted =
+    input.folderTrusted === true ||
+    (input.folderTrusted !== false &&
+      (input.trustFlag ||
+        trustEnvEnabled(env) ||
+        isFolderTrusted(input.configDir, input.workspaceDir)));
+  // Folder trust is the only grant. Claude project files load with it; there
+  // is no second question and no second store.
+  const claudePresent = claudeProjectConfigExists(input.workspaceDir);
+  const claudeOptIn = folderAlreadyTrusted && claudePresent;
+  const claudeHooks = claudePresent ? readClaudeProjectHooks(input.workspaceDir) : undefined;
   const mcpBrief = (file: string) =>
     describeMcpFile(file, {}).map((brief) => ({
       name: brief.name,
@@ -391,7 +600,7 @@ export async function resolveProjectCapabilities(input: {
   const projectMcp = userOwnedWorkspace
     ? []
     : mcpBrief(path.join(input.workspaceDir, '.moss', 'mcp.json'));
-  const claudeMcp = claudeOptIn ? describeClaudeMcp(input.workspaceDir) : [];
+  const claudeMcp = claudePresent ? describeClaudeMcp(input.workspaceDir) : [];
   const items = listProjectTrustItems({
     workspaceDir: input.workspaceDir,
     projectHooks: gatedProjectHooks,
@@ -399,7 +608,7 @@ export async function resolveProjectCapabilities(input: {
     projectMcp,
     claudeMcp,
     statusCommand,
-    includeClaudeAgents: claudeOptIn,
+    includeClaudeAgents: claudePresent,
     scanMossExtensions: !userOwnedWorkspace,
     homeDir: homeDir(env),
   });
@@ -411,26 +620,28 @@ export async function resolveProjectCapabilities(input: {
     headlessUntrusted: input.headlessUntrusted,
     trustFlag: input.trustFlag,
     env,
-    ...(input.ask ? { ask: input.ask } : {}),
-    ...(input.zh !== undefined ? { zh: input.zh } : {}),
+    ...(input.folderTrusted !== undefined ? { folderTrusted: input.folderTrusted } : {}),
   });
   // Project hooks run before Claude hooks; both run before the user file.
   // Hooks inherited from `~/.moss/config.json` stay with the user file.
   const projectLayer = decision.trusted
-    ? mergeHooksConfig(claudeHooks, gatedProjectHooks)
+    ? mergeHooksConfig(claudeOptIn ? claudeHooks : undefined, gatedProjectHooks)
     : undefined;
   const hooks = mergeHooksConfig(mergeHooksConfig(userHooks, inheritedUserHooks), projectLayer);
   const extraFiles = claudeOptIn ? [claudeMcpPath(input.workspaceDir)] : [];
   const zh = input.zh ?? isZhLocale();
   const summary = summarizeTrustItems(decision.skipped, zh);
+  // The user's own `~/.moss` is not project code, so it still loads.
+  const projectServers = decision.trusted || userOwnedWorkspace;
   return {
     hooks,
     mcp: {
-      projectServers: decision.trusted,
+      projectServers,
       ...(extraFiles.length > 0 ? { extraFiles } : {}),
     },
     ...(summary && !decision.trusted ? { notice: untrustedWorkspaceLine(summary, zh) } : {}),
     claudeOptIn,
     trusted: decision.trusted,
+    skipped: decision.skipped,
   };
 }

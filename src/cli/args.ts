@@ -29,7 +29,8 @@ export type CliCommand =
   | 'tasks'
   | 'task'
   | 'web'
-  | 'agent';
+  | 'agent'
+  | 'trust';
 export type ApprovalPolicy = 'prompt' | 'never';
 
 export interface ParsedCliArgs {
@@ -223,6 +224,7 @@ export const KNOWN_COMMANDS: readonly CliCommand[] = [
   'sessions',
   'web',
   'agent',
+  'trust',
 ];
 
 function asCommand(value: string | undefined): CliCommand | null {

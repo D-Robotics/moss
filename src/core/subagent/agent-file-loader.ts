@@ -716,16 +716,16 @@ function formatNotice(raw: string, zh: boolean): string {
         ? `用 --trust-workspace 或 ${trustEnv}=1 信任工作区`
         : `Enable with --trust-workspace or ${trustEnv}=1`;
       const claudeHow = zh
-        ? '，并确认启用 Claude 项目代理'
+        ? '，并确认启用 Claude 项目子代理'
         : ', and opt in to Claude project agents';
       if (reason.includes('claude') && reason.includes('workspace')) {
         return zh
-          ? `跳过 ${file}：工作区未信任，且项目 .claude 代理未启用 — 已跳过 ${id}。${how}${claudeHow}。`
+          ? `跳过 ${file}：工作区未信任，且项目 .claude 子代理未启用 — 已跳过 ${id}。${how}${claudeHow}。`
           : `skipped ${file}: untrusted workspace and project .claude agents are off — skipped ${id}. ${how}${claudeHow}.`;
       }
       if (reason.includes('claude')) {
         return zh
-          ? `跳过 ${file}：项目 .claude 代理需要额外确认启用 — 已跳过 ${id}。${how}${claudeHow}。`
+          ? `跳过 ${file}：项目 .claude 子代理需要额外确认启用 — 已跳过 ${id}。${how}${claudeHow}。`
           : `skipped ${file}: project .claude agents need an explicit opt-in — skipped ${id}. ${how}${claudeHow}.`;
       }
       return zh

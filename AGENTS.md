@@ -162,6 +162,14 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
   修复→复验→验收"全链证明（oracle 必须先 FAIL 再修复）；产品指标聚合
   `node scripts/task-os-metrics.mjs [run-dir...]`。
 
+## Portability
+
+Linux CI 不是 macOS。改 shell 片段、临时目录或 git 路径时按这三条核对：
+
+- **BSD awk / sed**：macOS awk 是 BWK。不要把带真实换行的字符串放进 `awk -v`，也不要在 `-v` 里写 `\n`；不要用 gawk 的 `gensub` / `length(数组)`。`sed -i` 在 BSD 上必须写成 `sed -i ''`。
+- **`/tmp` → `/private/tmp`**：`os.tmpdir()` 和 `fs.mkdtemp` 可能给出含 symlink 的路径。git 的 `includeIf gitdir:` 用 git dir 的 realpath 做匹配；子进程的 `cwd` 也要先 `realpath`，否则 macOS `posix_spawn` 会以 `ENOENT` 失败。
+- **TMPDIR**：macOS 的 `TMPDIR` 通常是 `/var/folders/...`（`/var` 同样链到 `/private/var`），不是 `/tmp`。临时文件和 `HOME` 下的缓存目录都可能落在这条 symlink 上。
+
 ## 测试约定
 
 - 测试在 `test/*.spec.mjs`，import 构建产物 `dist/`，由 `scripts/run-package-tests.mjs` 顺序执行。

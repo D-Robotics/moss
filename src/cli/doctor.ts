@@ -393,10 +393,7 @@ function renderFailoverDoctor(): string[] {
         uiText('fallback', '回退'),
         configured
           ? uiText('chain configured, no failovers recorded yet', '链路已配置，还没有回退记录')
-          : uiText(
-              'not configured (optional; set MOSS_FALLBACK_PROVIDERS for multi-provider failover)',
-              '未配置（可选；设置 MOSS_FALLBACK_PROVIDERS 可在多个服务商之间回退）'
-            )
+          : uiText('not configured', '未配置')
       ),
     ];
   }

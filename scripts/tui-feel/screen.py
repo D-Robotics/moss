@@ -117,6 +117,8 @@ class Session:
             "LANG": "en_US.UTF-8",
             "MOSS_NOTIFY": "0",
             "MOSS_NO_RDK_DOCS": "1",
+            # Layout probes measure the TUI, not the first-launch folder prompt.
+            "MOSS_TRUST_WORKSPACE": "1",
             "MOSS_CONFIG_FILE": cfg,
             "MOSS_TUI_RENDERER": self.renderer,
             **self.extra_env,
@@ -197,6 +199,20 @@ class Session:
             raise KeyError(f"unknown key name {name!r}: add it to KEYS so it is not sent as text")
         self.send(KEYS.get(name, name))
         self.pump(0.4)
+
+    def wait_for(self, predicate, timeout: float = 5.0) -> bool:
+        """Pump until `predicate` is true or `timeout` elapses.
+
+        A fixed pump after a key misses the frame on a slow machine: the
+        history search overlay can land after 0.7s, and the check then reads
+        a screen that has not opened yet.
+        """
+        end = time.time() + timeout
+        while time.time() < end:
+            if predicate():
+                return True
+            self.pump(0.05)
+        return bool(predicate())
 
     def wait_for_prompt(self, timeout: float = 20.0) -> None:
         """Pump until the composer glyph is painted.

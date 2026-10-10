@@ -1,12 +1,54 @@
-import { spawn, spawnSync, type SpawnOptions } from 'node:child_process';
+import fs from 'node:fs';
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 
 export type { ChildProcess, SpawnOptions } from 'node:child_process';
+
+/**
+ * macOS `posix_spawn` can fail with `ENOENT` when `cwd` still contains a
+ * symlink (`/tmp` → `/private/tmp`, `/var` → `/private/var`, and the
+ * `TMPDIR` `/var/folders/...` prefix). The directory exists; the spawn does
+ * not. Callers keep passing the path they have. The boundary resolves it.
+ */
+function canonicalCwd(cwd: SpawnOptions['cwd']): SpawnOptions['cwd'] {
+  if (typeof cwd !== 'string' || cwd.length === 0) return cwd;
+  try {
+    return fs.realpathSync(cwd);
+  } catch {
+    return cwd;
+  }
+}
+
+function isSpawnOptions(value: readonly string[] | SpawnOptions): value is SpawnOptions {
+  return !Array.isArray(value);
+}
+
+function withCanonicalCwd(options: SpawnOptions): SpawnOptions {
+  if (options.cwd === undefined) return options;
+  const cwd = canonicalCwd(options.cwd);
+  if (cwd === options.cwd) return options;
+  return { ...options, cwd };
+}
 
 /**
  * Shared low-level spawn boundary for interactive or persistent children whose
  * lifecycle is owned by the caller. Bounded commands should use {@link runProcess}.
  */
-export const spawnProcess: typeof spawn = spawn;
+export function spawnProcess(command: string, options?: SpawnOptions): ChildProcess;
+export function spawnProcess(
+  command: string,
+  args?: readonly string[],
+  options?: SpawnOptions
+): ChildProcess;
+export function spawnProcess(
+  command: string,
+  args?: readonly string[] | SpawnOptions,
+  options?: SpawnOptions
+): ChildProcess {
+  if (args === undefined) return spawn(command);
+  if (isSpawnOptions(args)) return spawn(command, withCanonicalCwd(args));
+  if (options === undefined) return spawn(command, args);
+  return spawn(command, args, withCanonicalCwd(options));
+}
 
 /**
  * Shared synchronous boundary for process-exit cleanup and short capability
@@ -75,7 +117,7 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
     const spawnOpts: SpawnOptions = {
       stdio: [opts.stdin !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       env: opts.env,
-      cwd: opts.cwd,
+      cwd: canonicalCwd(opts.cwd),
       detached: process.platform !== 'win32',
       ...(opts.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     };

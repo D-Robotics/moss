@@ -16,6 +16,27 @@ and `./moss` unless you pass `--dir <clone>` or set `MOSS_SOURCE_DIR`.
 at build time. The uninstall notes include `~/.cache/node-gyp` and an empty
 `@rdk-moss` directory under the npm prefix.
 
+### Folder trust asks once per folder
+
+After upgrading, Moss asks once per folder — including an empty project —
+before it loads that folder's settings. Yes is remembered in the user trust
+store. The next launch in that folder does not ask. `-p` and CI do not ask
+unless `--trust-workspace` or real-environment `MOSS_TRUST_WORKSPACE=1` is
+set. After a folder is trusted, execution stays in full mode: Moss does not
+stop for a per-command approval. An ancestor `.env` still does not apply
+routing keys; Moss prints those key names and the directory that contained
+them, even when this folder is trusted. `MOSS_WORKSPACE` in a project `.env`
+is ignored (any letter case), so it cannot move the workspace or the trust
+decision. Model tiers (`MOSS_MODEL_CHEAP`, `MOSS_MODEL_BALANCED`,
+`MOSS_MODEL_STRONG`) from a project `.env` wait for trust, as do
+`PGSSLROOTCERT`, `HF_HUB_DISABLE_SSL_VERIFY`, `GLOBAL_AGENT_HTTP_PROXY`, and
+`FTP_PROXY`. A trusted project that names the user's key variable
+(`DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, and the other preset key names) on a
+foreign base URL does not receive that key. A fallback provider that would
+send the primary key to another host is dropped with a warning instead of
+exiting. `PIP_TRUSTED_HOST`, `UV_INSECURE_HOST`, and `DENO_CERT` from a
+project `.env` stay deferred with the other routing variables.
+
 ### Install and upgrade from a clone
 
 `npm install -g github:D-Robotics/moss` fails on a clean machine (npm 10.9.2 and

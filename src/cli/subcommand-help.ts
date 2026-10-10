@@ -239,6 +239,41 @@ function sessionsHelp(zh: boolean): string {
   ].join('\n');
 }
 
+function trustHelp(zh: boolean): string {
+  if (zh) {
+    return [
+      '用法：',
+      '  moss trust list',
+      '  moss trust remove [path]',
+      '',
+      '列出或取消已记住的文件夹信任。信任存在用户配置目录，不在项目里。',
+      '',
+      '选项：',
+      '  list           打印已信任的文件夹',
+      '  remove [path]  取消该路径（或当前文件夹）的信任',
+      '',
+      '示例：',
+      '  moss trust list',
+      '  moss trust remove',
+    ].join('\n');
+  }
+  return [
+    'Usage:',
+    '  moss trust list',
+    '  moss trust remove [path]',
+    '',
+    'List or forget remembered folder trust. The store is in the user config directory, not the project.',
+    '',
+    'Options:',
+    '  list           print trusted folders',
+    '  remove [path]  forget trust for that path, or for the current folder',
+    '',
+    'Examples:',
+    '  moss trust list',
+    '  moss trust remove',
+  ].join('\n');
+}
+
 function updateHelp(zh: boolean): string {
   const root = findMossPackageRoot(fileURLToPath(import.meta.url));
   return renderUpdateHelp(zh, readMossPackage(root));
@@ -257,6 +292,8 @@ export function renderSubcommandHelp(command: string, zh: boolean = isZhLocale()
       return doctorHelp(zh);
     case 'update':
       return updateHelp(zh);
+    case 'trust':
+      return trustHelp(zh);
     case 'resume':
       return resumeHelp(zh);
     case 'fork':

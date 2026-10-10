@@ -21,6 +21,7 @@ import { withBuiltinRdkDocs } from '../dist/cli/rdk-docs-mcp.js';
 import { DEFAULT_RDK_DOCS_MCP_PACKAGE } from '../dist/core/mcp/rdk-docs.js';
 import { McpToolRegistry } from '../dist/core/mcp/registry.js';
 import { loadAgentFiles } from '../dist/core/subagent/agent-file-loader.js';
+import { rememberFolderTrust } from '../dist/cli/folder-trust-store.js';
 import {
   deliverWorkspaceTrustNotice,
   listProjectTrustItems,
@@ -98,7 +99,7 @@ const zhItems = [
 const zhSummary = summarizeTrustItems(zhItems, true);
 assert.equal(
   zhSummary,
-  '项目钩子（2）、状态栏、stdio MCP（warehouse）、HTTP MCP（docs）、代理 reviewer、插件 demo-plugin'
+  '项目钩子（2）、状态栏、stdio MCP（warehouse）、HTTP MCP（docs）、子代理 reviewer、插件 demo-plugin'
 );
 assert.equal(zhSummary.includes('project hooks'), false);
 assert.equal(zhSummary.includes('status line'), false);
@@ -213,29 +214,33 @@ assert.equal(delivered.transcript.length, 1);
   const declined = await session(asked, configDir, {
     interactive: true,
     headlessUntrusted: false,
-    ask: async (question) => {
+    ask: async () => {
       prompts += 1;
-      assert.match(question, /project hooks/);
       return false;
     },
   });
-  assert.equal(prompts, 1);
+  assert.equal(prompts, 0, 'folder trust is not a second y/N inside capability resolution');
   assert.equal(declined.trusted, false);
   assert.equal(declined.hooks.SubagentStop, undefined);
-  const remembered = await session(asked, configDir, {
+  const again = await session(asked, configDir, {
     interactive: true,
     headlessUntrusted: false,
     ask: async () => {
-      throw new Error('remembered no must not ask again');
+      throw new Error('an untrusted folder must not ask about hooks');
     },
   });
-  assert.equal(remembered.trusted, false);
+  assert.equal(again.trusted, false);
 
   const taskRun = path.join(root, 'task');
   put(path.join(taskRun, '.moss', 'config.json'), {
     hooks: { PreCompact: [{ command: 'echo compact' }] },
   });
-  const kept = await session(taskRun, path.join(root, 'fresh-cfg'), { headlessUntrusted: false });
+  const freshCfg = path.join(root, 'fresh-cfg');
+  const keptOff = await session(taskRun, freshCfg, { headlessUntrusted: false });
+  assert.equal(keptOff.trusted, false);
+  assert.equal(keptOff.hooks?.PreCompact, undefined);
+  rememberFolderTrust(freshCfg, taskRun);
+  const kept = await session(taskRun, freshCfg, { headlessUntrusted: false });
   assert.equal(kept.trusted, true);
   assert.equal(kept.hooks.PreCompact[0].command, 'echo compact');
 }
@@ -324,21 +329,21 @@ assert.equal(delivered.transcript.length, 1);
   };
   const interactive = { interactive: true, headlessUntrusted: false, env: { HOME: home } };
   const asked = await session(ws, configDir, { ...interactive, ask });
-  assert.match(questions[0], /stdio MCP \(warehouse, rdk-docs\)/);
+  assert.equal(questions.length, 0, 'stdio MCP does not raise a second prompt');
   assert.match(asked.notice, /warehouse/);
   assert.match(asked.notice, /rdk-docs/);
   assert.equal(asked.trusted, false);
   const again = await session(ws, configDir, {
     ...interactive,
     ask: async () => {
-      throw new Error('a project stdio server asks only once');
+      throw new Error('a project stdio server does not ask on its own');
     },
   });
   assert.equal(again.trusted, false);
   const only = path.join(root, 'only-rdk');
   put(path.join(only, '.moss', 'mcp.json'), { mcpServers: { 'rdk-docs': stdio('python') } });
   const quiet = await session(only, configDir, { ...interactive, ask });
-  assert.match(questions.at(-1), /rdk-docs/);
+  assert.equal(questions.length, 0);
   assert.match(quiet.notice, /rdk-docs/);
   assert.equal(quiet.trusted, false);
   const still = loadMcpConfigs(only, configDir, {}, undefined, quiet.mcp);
@@ -354,51 +359,43 @@ assert.equal(delivered.transcript.length, 1);
   const home = path.join(root, 'home');
   const configDir = path.join(root, 'cfg');
   put(path.join(configDir, 'config.json'), {});
-  const cases = [
-    ['with-settings', [false], true, false, ['reader'], 'claude', 1, true],
-    ['agents-only', [false], true, false, [], 'claude', 1, false],
-    ['agents-yes', [true, false], false, true, [], 'workspace', 2, false],
-  ];
-  for (const [name, answers, trusted, claudeOptIn, ids, reason, questions, settings] of cases) {
-    const dir = path.join(root, name);
-    if (settings) {
-      put(path.join(dir, '.claude', 'settings.json'), {
-        hooks: { Stop: [{ command: 'echo claude-stop' }] },
-      });
-    }
-    if (ids.includes('reader')) agent(path.join(dir, '.moss', 'agents'), 'reader', 'Read');
-    agent(path.join(dir, '.claude', 'agents'), 'writer', 'Bash');
-    const seen = [];
-    const result = await session(dir, configDir, {
-      interactive: true,
-      headlessUntrusted: false,
-      env: { HOME: home },
-      ask: async (question) => {
-        seen.push(question);
-        return answers[seen.length - 1];
-      },
-    });
-    assert.equal(seen.length, questions, name);
-    assert.match(seen[0], /Claude config/);
-    if (questions === 2) assert.match(seen[1], /writer/);
-    assert.equal(result.trusted, trusted);
-    assert.equal(result.claudeOptIn, claudeOptIn);
-    if (trusted) assert.equal(result.notice, undefined);
-    const loaded = loadAgentFiles({
-      workspaceDir: dir,
-      homeDir: home,
-      projectTrust: { trusted: result.trusted, claudeOptIn: result.claudeOptIn },
-    });
-    assert.deepEqual(
-      loaded.agents.map((entry) => entry.id),
-      ids
-    );
-    const blocked = loaded.notices
-      .map((line) => JSON.parse(line))
-      .find((entry) => entry.code === 'trust-blocked');
-    assert.equal(blocked.id, 'writer');
-    assert.equal(blocked.reason, reason);
-  }
+  const dir = path.join(root, 'with-claude');
+  put(path.join(dir, '.claude', 'settings.json'), {
+    hooks: { Stop: [{ command: 'echo claude-stop' }] },
+  });
+  agent(path.join(dir, '.moss', 'agents'), 'reader', 'Read');
+  agent(path.join(dir, '.claude', 'agents'), 'writer', 'Bash');
+  const ask = async () => {
+    throw new Error('folder trust is the only question');
+  };
+  const skipped = await session(dir, configDir, {
+    interactive: true,
+    headlessUntrusted: false,
+    folderTrusted: false,
+    env: { HOME: home },
+    ask,
+  });
+  assert.equal(skipped.trusted, false);
+  assert.equal(skipped.claudeOptIn, false);
+  assert.match(skipped.notice, /project hooks/);
+  assert.match(skipped.notice, /writer/);
+  const granted = await session(dir, configDir, {
+    interactive: true,
+    headlessUntrusted: false,
+    folderTrusted: true,
+    env: { HOME: home },
+    ask,
+  });
+  assert.equal(granted.trusted, true);
+  assert.equal(granted.claudeOptIn, true);
+  assert.equal(granted.notice, undefined);
+  assert.equal(fs.existsSync(path.join(configDir, 'claude-compat.json')), false);
+  const loaded = loadAgentFiles({
+    workspaceDir: dir,
+    homeDir: home,
+    projectTrust: { trusted: granted.trusted, claudeOptIn: granted.claudeOptIn },
+  });
+  assert.deepEqual(loaded.agents.map((entry) => entry.id).sort(), ['reader', 'writer']);
 }
 
 {
@@ -527,8 +524,9 @@ async function assertDotenvSkipped(label, dotenv, drop) {
     delete childEnv[name];
   }
   const stderr = await runCli(ws, childEnv);
-  assert.match(stderr, /Untrusted workspace/, label);
+  assert.match(stderr, /Untrusted folder/, label);
   assert.match(stderr, /project hooks/, label);
+  assert.doesNotMatch(stderr, /Trust this folder\?/, label);
   assert.equal(fs.existsSync(marker), false, label);
 }
 
@@ -549,7 +547,7 @@ await Promise.all([
   const configDir = path.join(root, 'cfg');
   const workspace = path.join(root, 'ws');
   fs.mkdirSync(workspace);
-  const result = await resolveWorkspaceTrust({
+  const unanswered = await resolveWorkspaceTrust({
     workspaceDir: workspace,
     configDir,
     items: [{ kind: 'hook', label: 'demo hook' }],
@@ -557,10 +555,25 @@ await Promise.all([
     headlessUntrusted: false,
     trustFlag: false,
     env: { HOME: root },
-    ask: async () => true,
+    ask: async () => {
+      throw new Error('workspace trust does not ask on its own');
+    },
   });
-  assert.equal(result.trusted, true);
+  assert.equal(unanswered.trusted, false);
+  assert.equal(unanswered.skipped.length, 1);
+  rememberFolderTrust(configDir, workspace);
   assert.equal(fs.statSync(configDir).mode & 0o777, 0o700);
+  const granted = await resolveWorkspaceTrust({
+    workspaceDir: workspace,
+    configDir,
+    items: [{ kind: 'hook', label: 'demo hook' }],
+    interactive: false,
+    headlessUntrusted: true,
+    trustFlag: false,
+    env: { HOME: root },
+  });
+  assert.equal(granted.trusted, true);
+  assert.deepEqual(granted.skipped, []);
 }
 
 console.log('[PASS] workspace-trust');
