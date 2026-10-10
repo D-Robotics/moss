@@ -1,4 +1,13 @@
-type SecretRule = { source: string; flags: string; label: string; groupIdx?: number };
+import { quoteOpensValue, REDACTED, SECRET_FIELD_SOURCE } from './redact-patterns.js';
+
+type SecretRule = {
+  source: string;
+  flags: string;
+  label: string;
+  groupIdx?: number;
+  /** The value's opening quote must actually open a string, not close one. */
+  openingQuote?: boolean;
+};
 
 const SECRET_RULES: SecretRule[] = [
   { source: '\\b(sk-ant-[a-zA-Z0-9_-]{20,})\\b', flags: 'g', label: 'Anthropic key' },
@@ -24,10 +33,11 @@ const SECRET_RULES: SecretRule[] = [
   },
   {
     source:
-      '(?:password|passwd|pwd|secret|token|apikey|api_key|api-key|access_key)\\s*[:=]\\s*[\'"]([^\'"]{6,})[\'"]',
-    flags: 'gi',
+      '(?:password|passwd|pwd|secret|token|apikey|api_key|api-key|access_key)\\s*[:=]\\s*[\'"]([^\'"\\r\\n]{6,})(?:[\'"]|$)',
+    flags: 'gim',
     label: 'credential value',
     groupIdx: 1,
+    openingQuote: true,
   },
   // HTTP Authorization Bearer token — `Authorization: Bearer <token>`. The
   // credential-value pattern above only matches when a secret keyword precedes
@@ -77,6 +87,94 @@ function buildPattern(rule: SecretRule): RegExp {
   return new RegExp(rule.source, rule.flags);
 }
 
+function leadingIndent(line: string): number {
+  let i = 0;
+  while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i += 1;
+  return i;
+}
+
+function closesOnLine(line: string, quoteAt: number): boolean {
+  const quote = line[quoteAt];
+  for (let i = quoteAt + 1; i < line.length; i += 1) {
+    if (line[i] === '\\') {
+      i += 1;
+      continue;
+    }
+    if (line[i] === quote) return true;
+  }
+  return false;
+}
+
+function hasUnescapedQuote(line: string, quote: string): boolean {
+  for (let i = 0; i < line.length; i += 1) {
+    if (line[i] === '\\') {
+      i += 1;
+      continue;
+    }
+    if (line[i] === quote) return true;
+  }
+  return false;
+}
+
+const OPEN_QUOTED_SECRET = new RegExp(`(?:${SECRET_FIELD_SOURCE})\\s*[:=]\\s*(['"])`, 'gi');
+
+/**
+ * A quoted secret that is still open at the end of its line, with a closer
+ * on a more-indented line within the next three lines. Each of those lines
+ * becomes `[REDACTED]` so the line count stays put. A quote that merely
+ * closes a string around the key is not an opening quote.
+ */
+export function maskIndentedQuoteContinuations(text: string): string {
+  if (!text.includes('\n')) return text;
+  const lines = text.split('\n');
+  const starts: number[] = [];
+  let offset = 0;
+  for (const line of lines) {
+    starts.push(offset);
+    offset += line.length + 1;
+  }
+  const masked = new Set<number>();
+  for (let i = 0; i < lines.length; i += 1) {
+    if (masked.has(i)) continue;
+    const line = lines[i] ?? '';
+    const lineStart = starts[i] ?? 0;
+    OPEN_QUOTED_SECRET.lastIndex = 0;
+    let openQuote: string | undefined;
+    let quoteAt = -1;
+    for (const match of line.matchAll(OPEN_QUOTED_SECRET)) {
+      const local = (match.index ?? 0) + match[0].length - 1;
+      const abs = lineStart + local;
+      if (!quoteOpensValue(text, abs) || closesOnLine(line, local)) continue;
+      const rest = line.slice(local + 1).trim();
+      if (!rest || rest.startsWith('${') || rest.startsWith('$') || rest.startsWith('<')) continue;
+      openQuote = line[local];
+      quoteAt = local;
+      break;
+    }
+    if (!openQuote || quoteAt < 0) continue;
+    const keyIndent = leadingIndent(line);
+    const follow: number[] = [];
+    let closed = false;
+    for (let j = 1; j <= 3 && i + j < lines.length; j += 1) {
+      const next = lines[i + j] ?? '';
+      if (next.trim() === '') continue;
+      if (leadingIndent(next) <= keyIndent) break;
+      follow.push(i + j);
+      if (hasUnescapedQuote(next, openQuote)) {
+        closed = true;
+        break;
+      }
+    }
+    if (!closed) continue;
+    for (const idx of follow) {
+      const indent = (lines[idx] ?? '').match(/^[ \t]*/)?.[0] ?? '';
+      lines[idx] = `${indent}${REDACTED}`;
+      masked.add(idx);
+    }
+  }
+  return lines.join('\n');
+}
+
 function maskValue(value: string): string {
   if (value.length <= 4) return '***';
   const visible = Math.min(4, Math.floor(value.length * 0.15));
@@ -85,7 +183,7 @@ function maskValue(value: string): string {
 
 export function sanitizeSecrets(text: string): string {
   if (!text || typeof text !== 'string') return text ?? '';
-  let result = text;
+  let result = maskIndentedQuoteContinuations(text);
   for (const rule of SECRET_RULES) {
     const pattern = buildPattern(rule);
     if (rule.groupIdx !== undefined) {
@@ -93,7 +191,14 @@ export function sanitizeSecrets(text: string): string {
       result = result.replace(pattern, (...args) => {
         const full: string = args[0];
         const captured: string = args[gi];
-        if (!captured) return full;
+        if (typeof captured !== 'string' || !captured) return full;
+        if (rule.openingQuote) {
+          const rel = full.lastIndexOf(captured);
+          const offset = args[args.length - 2];
+          const whole = args[args.length - 1];
+          if (typeof offset !== 'number' || typeof whole !== 'string' || rel <= 0) return full;
+          if (!quoteOpensValue(whole, offset + rel - 1)) return full;
+        }
         return full.replace(captured, maskValue(captured));
       });
     } else {
