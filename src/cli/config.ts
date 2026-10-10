@@ -289,9 +289,14 @@ export interface AgentRuntimeConfig {
   /** v0.12 model routing tiers (env MOSS_MODEL_CHEAP/BALANCED/STRONG). */
   modelTiers?: { cheap?: string; balanced?: string; strong?: string };
   /** Max output tokens per LLM response. If unset, moss derives a default from
-   * the probed context window (contextTokens/4, capped to 32k) — NOT a hardcoded
-   * 4096, which truncated long answers on modern large-output models. */
+   * the model and the probed context window. A global pin is also the ceiling:
+   * truncation recovery will not raise it. */
   maxOutputTokens?: number;
+  /**
+   * Per-model output cap. Replaces the built-in table for that model id
+   * (exact or prefix). Example: `{ "glm-5.3": { "maxOutputTokens": 32768 } }`.
+   */
+  models?: Record<string, { maxOutputTokens?: number }>;
   compaction?: Partial<Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>>;
 }
 
@@ -628,11 +633,21 @@ function mergeGuardrailsConfig(
   };
 }
 
+function mergeModelOutputConfigs(
+  user: AgentRuntimeConfig['models'],
+  project: AgentRuntimeConfig['models']
+): AgentRuntimeConfig['models'] {
+  if (!user && !project) return undefined;
+  const merged: NonNullable<AgentRuntimeConfig['models']> = { ...project, ...user };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
 function mergeAgentRuntimeConfig(
   userAgent: ConfigFile['agent'],
   projectAgent: ConfigFile['agent']
 ): ConfigFile['agent'] {
   if (!projectAgent && !userAgent) return undefined;
+  const models = mergeModelOutputConfigs(userAgent?.models, projectAgent?.models);
   return {
     ...userAgent,
     ...projectAgent,
@@ -640,6 +655,7 @@ function mergeAgentRuntimeConfig(
       ...userAgent?.compaction,
       ...projectAgent?.compaction,
     },
+    ...(models ? { models } : {}),
   };
 }
 
@@ -1224,6 +1240,23 @@ function parsePositiveInteger(value: unknown, source: string): number | undefine
   return value;
 }
 
+function parseModelMaxOutputTokens(
+  models: AgentRuntimeConfig['models']
+): Record<string, number> | undefined {
+  if (!models || typeof models !== 'object') return undefined;
+  const out: Record<string, number> = {};
+  for (const [id, spec] of Object.entries(models)) {
+    const key = id.trim();
+    if (!key || !spec || typeof spec !== 'object') continue;
+    const tokens = parsePositiveInteger(
+      spec.maxOutputTokens,
+      `agent.models.${key}.maxOutputTokens`
+    );
+    if (tokens !== undefined) out[key] = tokens;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function parsePositiveIntegerEnv(value: string | undefined): number | undefined {
   if (value === undefined || value.trim() === '') return undefined;
   const parsed = Number(value.trim());
@@ -1322,6 +1355,8 @@ export interface ResolvedCliConfig {
   modelTiersSource?: string;
   /** Max output tokens per LLM response. undefined → runtime derives from contextTokens. */
   maxOutputTokens?: number;
+  /** Per-model caps from `agent.models.<id>.maxOutputTokens`. */
+  modelMaxOutputTokens?: Record<string, number>;
   compactionSettings: Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>;
   compactionSettingsSource: string;
   configPath: string;
@@ -1958,6 +1993,7 @@ export function resolveCliConfig(
   const envMaxOutputTokens = parsePositiveIntegerEnv(env.MOSS_MAX_OUTPUT_TOKENS);
   const maxOutputTokens =
     overrides.maxOutputTokens ?? envMaxOutputTokens ?? configMaxOutputTokens ?? undefined;
+  const modelMaxOutputTokens = parseModelMaxOutputTokens(activeConfig.agent?.models);
   const configCompactionReserve = parsePositiveInteger(
     activeConfig.agent?.compaction?.reserveTokens,
     'agent.compaction.reserveTokens'
@@ -2134,6 +2170,7 @@ export function resolveCliConfig(
     contextTokens,
     contextTokensSource,
     ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+    ...(modelMaxOutputTokens ? { modelMaxOutputTokens } : {}),
     compactionSettings,
     ...(runBudget ? { budget: runBudget } : {}),
     ...(bestOfN !== undefined ? { bestOfN } : {}),

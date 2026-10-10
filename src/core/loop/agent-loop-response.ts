@@ -17,6 +17,11 @@ import {
 } from './agent-loop-assistant-turn.js';
 import { buildNamedWebToolMatcher } from '../../prompts/plan-detection.js';
 import { decidePostLlmAction, nextThinkingOnlyRetryAttempts } from './agent-loop-post-llm.js';
+import {
+  escalateOutputTokens,
+  isOutputLimitStopReason,
+  stitchTruncatedOutput,
+} from './output-limit.js';
 import { executeAgentLoopToolCalls } from './agent-loop-tool-execution.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
 
@@ -179,6 +184,16 @@ export async function processLlmResponse(
     });
   }
 
+  const outputLimited = isOutputLimitStopReason(streamStopReason);
+  let truncatedToolCall = false;
+  if (outputLimited && toolCalls.length > 0) {
+    truncatedToolCall = true;
+    toolCalls.length = 0;
+    for (let i = assistantContent.length - 1; i >= 0; i--) {
+      if (assistantContent[i]?.type === 'tool_use') assistantContent.splice(i, 1);
+    }
+  }
+
   const turnText = turnTextParts.join('');
   const turnTrim = turnText.trim();
 
@@ -239,13 +254,18 @@ export async function processLlmResponse(
     replaceAssistantVisibleText(assistantContent, visibleAssistantText);
   }
 
+  const stitchedAssistantText = stitchTruncatedOutput(
+    state.carriedAssistantText,
+    visibleAssistantText
+  );
   state.hasMoreToolCalls = toolCalls.length > 0;
-  if (!state.hasMoreToolCalls) {
-    state.finalText = visibleAssistantText;
+  if (!state.hasMoreToolCalls && stitchedAssistantText.trim()) {
+    state.finalText = stitchedAssistantText;
   }
 
   if (
     completionGate &&
+    !outputLimited &&
     !state.hasMoreToolCalls &&
     state.finalText.trim().length > 0 &&
     !abortSignal.aborted
@@ -289,7 +309,11 @@ export async function processLlmResponse(
   if (delayedVisibleDeltas && !hasThinkingOnly) {
     pushGuardedMessageDeltas(push, visibleAssistantText);
   }
-  push({ type: 'message_end', message: assistantMsg, text: visibleAssistantText });
+  push({
+    type: 'message_end',
+    message: assistantMsg,
+    text: stitchedAssistantText.trim() ? stitchedAssistantText : visibleAssistantText,
+  });
 
   const toolsForNudge = resolveToolsForRun();
   const namedWebToolRe = buildNamedWebToolMatcher(toolsForNudge.map((x) => x.name));
@@ -320,6 +344,7 @@ export async function processLlmResponse(
     emptyResponseRetryAttempts: state.emptyResponseRetryAttempts,
     totalToolCalls: state.toolExecutionMetrics.totalToolCalls,
     streamStopReason,
+    truncatedToolCall,
     outputContinuationCount: state.outputContinuationCount,
     maxOutputContinuations,
     missingToolNudgeAttempts: state.missingToolNudgeAttempts,
@@ -345,17 +370,50 @@ export async function processLlmResponse(
     case 'thinking_only_complete':
       throw new Error('The model returned private reasoning twice without a visible answer.');
 
-    case 'continuation':
+    case 'continuation': {
       state.outputContinuationCount++;
+      const raised = escalateOutputTokens(state.outputTokenBudget, state.outputTokenCeiling);
+      const grew = raised > state.outputTokenBudget;
+      if (grew) state.outputTokenBudget = raised;
+      if (postLlmAction.mode !== 'thinking') {
+        state.carriedAssistantText = stitchedAssistantText;
+      }
+      const systemText = grew
+        ? `${postLlmAction.systemText} A larger output budget is available for this retry.`
+        : postLlmAction.systemText;
+      // Flush the truncated assistant (stop length → max_tokens) before the
+      // notice so stream-json hosts see the cutoff on that message.
+      state.pendingMessages = [buildCorrectionMessage(systemText)];
+      pushTurnEnd();
       push({
         type: 'output_continuation',
         attempt: state.outputContinuationCount,
         maxAttempts: maxOutputContinuations,
       });
-      state.pendingMessages = [buildCorrectionMessage(postLlmAction.systemText)];
-      pushTurnEnd();
       state.lastTurnEndMs = Date.now();
       return { control: 'continue' };
+    }
+
+    case 'output_limit_exhausted': {
+      state.outputLimitHalted = true;
+      state.carriedAssistantText = '';
+      if (stitchedAssistantText.trim()) state.finalText = stitchedAssistantText;
+      // turn_end records max_tokens on the assistant message. The following
+      // transition is what makes the run a non-success (output_limit); it
+      // must stay after turn_end or the adapter would keep max_tokens and
+      // headless output would report success.
+      pushTurnEnd('length');
+      push({
+        type: 'output_continuation',
+        attempt: state.outputContinuationCount,
+        maxAttempts: maxOutputContinuations,
+        exhausted: true,
+      });
+      push({ type: 'turn_transition', turn: state.turns, reason: 'output_limit' });
+      state.lastTurnEndMs = Date.now();
+      state.pendingMessages = [];
+      return { control: 'break' };
+    }
 
     case 'nudge':
       state.missingToolNudgeAttempts += 1;
@@ -387,6 +445,7 @@ export async function processLlmResponse(
       throw new Error('The model returned an empty response twice without a visible answer.');
 
     case 'steering_or_complete':
+      state.carriedAssistantText = '';
       // The model emitted end_turn with a visible answer and no tool calls.
       // That is the canonical "task complete" signal — the loop must stop
       // here. Injecting a steering message at this point forces a second
@@ -401,6 +460,7 @@ export async function processLlmResponse(
       return { control: 'continue' };
 
     case 'tool_execute':
+      state.carriedAssistantText = '';
       break;
   }
 

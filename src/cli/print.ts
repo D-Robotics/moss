@@ -1,5 +1,7 @@
 import type { ChatResult, MossAgentEvent } from '../core/index.js';
 import { redactSensitiveData } from '../safety/redact.js';
+import { isZhLocale } from './cli-locale.js';
+import { chrome, OUTPUT_CONTINUATION_NOTICE, OUTPUT_LIMIT_EXHAUSTED_NOTICE } from './tui/copy.js';
 import { createStreamingTextRedactor, redactEgress } from '../safety/tool-output-redact.js';
 import { MossError, mossErrorToOutcome, type MossErrorOutcome } from '../errors.js';
 import { quoteUsage } from './model-pricing.js';
@@ -120,7 +122,8 @@ export type HeadlessResultSubtype =
   | 'success'
   | 'error_max_turns'
   | 'error_budget_exceeded'
-  | 'error_during_execution';
+  | 'error_during_execution'
+  | 'error_output_limit';
 
 export type HeadlessResultEvent = {
   type: 'result';
@@ -153,14 +156,26 @@ export type HeadlessResultEvent = {
  * one JSON object per line on stdout. Event set: `system/init` (always
  * first), `assistant` (visible text + tool_use blocks + thinking),
  * `user` (tool_result blocks), `llm_usage`, `cache_metrics`, `compaction`,
+ * `system/output_continuation` (automatic output-limit recovery),
  * `system/background_still_running`, and `result` (ALWAYS last — errors are
  * carried by `result.is_error`/`subtype`/`error`, never by a bare crash).
  * Evolution is additive-only: new event types and optional fields may be
  * added, existing field names and semantics are stable.
  */
+export type HeadlessOutputContinuationEvent = {
+  type: 'system';
+  subtype: 'output_continuation';
+  session_id: string;
+  message: string;
+  attempt: number;
+  max_attempts: number;
+  exhausted?: boolean;
+};
+
 export type HeadlessStreamEvent =
   | HeadlessSystemInitEvent
   | HeadlessSystemBackgroundStillRunningEvent
+  | HeadlessOutputContinuationEvent
   | HeadlessAssistantEvent
   | HeadlessUserEvent
   | HeadlessLlmUsageEvent
@@ -188,6 +203,8 @@ export interface HeadlessPrintState {
   assistantSeq: number;
   finalText: string;
   numTurns: number;
+  /** Recovery cap from the latest output-limit continuation, if one happened. */
+  outputContinuationMax?: number;
   lastError?: string;
   lastErrorDetails?: MossErrorOutcome;
   resultEmitted: boolean;
@@ -326,11 +343,20 @@ function isBudgetStopReason(stopReason: string | undefined): boolean {
   return stopReason?.startsWith('budget_') ?? false;
 }
 
+function isOutputLimitStop(stopReason: string | undefined): boolean {
+  return stopReason === 'output_limit';
+}
+
+function outputLimitNotice(maxAttempts: number): string {
+  return chrome(OUTPUT_LIMIT_EXHAUSTED_NOTICE, isZhLocale(), { max: maxAttempts });
+}
+
 function isErrorStopReason(stopReason: string | undefined): boolean {
   return (
     stopReason === 'error' ||
     stopReason === 'aborted_by_user' ||
     stopReason === 'tool_budget_reached' ||
+    isOutputLimitStop(stopReason) ||
     isBudgetStopReason(stopReason) ||
     isMaxTurnsStopReason(stopReason)
   );
@@ -396,14 +422,17 @@ function formatResult(
       ? 'Tool budget reached before the requested work completed.'
       : undefined);
   const maxTurns = isMaxTurnsStopReason(result?.stopReason);
+  const outputLimit = isOutputLimitStop(result?.stopReason);
   const isError = Boolean(errorMessage) || isErrorStopReason(result?.stopReason);
   const subtype: HeadlessResultSubtype = !isError
     ? 'success'
-    : isBudgetStopReason(result?.stopReason)
-      ? 'error_budget_exceeded'
-      : maxTurns
-        ? 'error_max_turns'
-        : 'error_during_execution';
+    : outputLimit
+      ? 'error_output_limit'
+      : isBudgetStopReason(result?.stopReason)
+        ? 'error_budget_exceeded'
+        : maxTurns
+          ? 'error_max_turns'
+          : 'error_during_execution';
   const quote = quoteUsage(state.usageSlices ?? [], {
     ...(state.pricingOverrides ? { overrides: state.pricingOverrides } : {}),
     ...(state.model ? { fallbackModel: state.model } : {}),
@@ -426,6 +455,9 @@ function formatResult(
   };
   if (result?.usage) event.usage = result.usage;
   if (errorMessage) event.error = redactText(errorMessage);
+  if (subtype === 'error_output_limit') {
+    event.error = errorMessage ?? outputLimitNotice(state.outputContinuationMax ?? 3);
+  }
   if (subtype === 'error_budget_exceeded' && result?.stopReason) {
     event.error =
       errorMessage ??
@@ -468,7 +500,7 @@ export function formatHeadlessStreamEvent(
       });
       return [];
     case 'tool_end': {
-      const assistant = flushAssistant(state);
+      const assistant = flushAssistant(state, 'tool_use');
       const toolResult: HeadlessToolResultBlock = {
         type: 'tool_result',
         tool_use_id: event.toolCallId,
@@ -489,7 +521,26 @@ export function formatHeadlessStreamEvent(
       return [];
     case 'turn_end':
       state.numTurns = Math.max(state.numTurns, event.turn);
-      return flushAssistant(state);
+      return flushAssistant(state, event.stopReason || null);
+    case 'output_continuation': {
+      state.outputContinuationMax = event.maxAttempts;
+      const message = event.exhausted
+        ? outputLimitNotice(event.maxAttempts)
+        : chrome(OUTPUT_CONTINUATION_NOTICE, isZhLocale(), {
+            attempt: event.attempt,
+            max: event.maxAttempts,
+          });
+      const notice: HeadlessOutputContinuationEvent = {
+        type: 'system',
+        subtype: 'output_continuation',
+        session_id: state.sessionId,
+        message,
+        attempt: event.attempt,
+        max_attempts: event.maxAttempts,
+      };
+      if (event.exhausted) notice.exhausted = true;
+      return [notice];
+    }
     case 'error':
       state.lastError = redactText(event.error);
       state.lastErrorDetails = event.errorDetails;

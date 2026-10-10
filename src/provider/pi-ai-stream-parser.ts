@@ -2,6 +2,7 @@ import type { LLMResponse, LLMStreamEvent, LLMContentBlock } from '../core/llm/l
 import { providerLogger } from './redacted-log.js';
 import { classifyProviderError } from './error-classify.js';
 import { isContextOverflowError } from './errors.js';
+import { isOutputLimitStopReason } from './output-limit.js';
 import {
   appendToolUseBlock,
   buildProviderRuntimeErrorMessage,
@@ -106,12 +107,14 @@ export function processEvent(
     });
   } else if (t === 'result' || t === 'done') {
     const sr = event.stopReason ?? event.reason;
+    // A cutoff stays max_tokens even when a partial tool call was buffered.
+    // Overwriting it with tool_use made the loop execute broken arguments.
     const mapped: LLMResponse['stopReason'] =
       sr === 'toolCall' || sr === 'toolUse'
         ? 'tool_use'
         : sr === 'stop'
           ? 'end_turn'
-          : sr === 'length'
+          : isOutputLimitStopReason(sr)
             ? 'max_tokens'
             : 'end_turn';
     const msg = event.message;
@@ -157,7 +160,8 @@ export function processEvent(
     }
 
     const hasToolUse = content.some((b) => b.type === 'tool_use');
-    const stopReasonOut: LLMResponse['stopReason'] = hasToolUse ? 'tool_use' : mapped;
+    const stopReasonOut: LLMResponse['stopReason'] =
+      mapped === 'max_tokens' ? 'max_tokens' : hasToolUse ? 'tool_use' : mapped;
     const reported = event.responseModel?.trim();
 
     return {
@@ -245,8 +249,9 @@ export function processEvent(
     }
     if (errUsage) {
       return {
-        stopReason:
-          errPayload?.stopReason === 'toolCall' || errPayload?.stopReason === 'toolUse'
+        stopReason: isOutputLimitStopReason(errPayload?.stopReason)
+          ? 'max_tokens'
+          : errPayload?.stopReason === 'toolCall' || errPayload?.stopReason === 'toolUse'
             ? 'tool_use'
             : 'end_turn',
         usage: mapPiUsage(errUsage),
@@ -289,7 +294,7 @@ export function convertStreamEvent(event: PiAiStreamEvent): LLMStreamEvent | nul
       stopReason:
         sr === 'toolCall' || sr === 'toolUse'
           ? 'tool_use'
-          : sr === 'length'
+          : isOutputLimitStopReason(sr)
             ? 'max_tokens'
             : 'end_turn',
     };

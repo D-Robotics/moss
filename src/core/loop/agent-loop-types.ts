@@ -77,6 +77,10 @@ export interface AgentLoopProviderInput {
   /** Number of retries after the initial LLM request. */
   maxLLMRetries?: number;
   maxOutputTokens?: number;
+  /** When true, maxOutputTokens is a user pin and truncation will not raise it. */
+  outputTokensPinned?: boolean;
+  /** Per-model ceilings from `agent.models.<id>.maxOutputTokens`. */
+  modelMaxOutputTokens?: Readonly<Record<string, number>>;
 }
 
 export interface AgentLoopHardCaps {

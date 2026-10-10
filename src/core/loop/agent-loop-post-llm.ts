@@ -1,9 +1,13 @@
+import { isOutputLimitStopReason } from './output-limit.js';
 import { isNudgeDisabled } from './nudges/disable.js';
+
+export type OutputLimitContinuationMode = 'text' | 'thinking' | 'tool';
 
 export type PostLlmAction =
   | { kind: 'thinking_retry'; systemText: string }
   | { kind: 'thinking_only_complete' }
-  | { kind: 'continuation'; systemText: string }
+  | { kind: 'continuation'; systemText: string; mode: OutputLimitContinuationMode }
+  | { kind: 'output_limit_exhausted' }
   | { kind: 'nudge'; systemText: string; deltaText: string }
   | { kind: 'empty_retry' }
   | { kind: 'empty_complete' }
@@ -17,6 +21,8 @@ export interface PostLlmContext {
   emptyResponseRetryAttempts: number;
   totalToolCalls: number;
   streamStopReason: string | undefined;
+  /** Set when an output-limit stop discarded a partial tool call. */
+  truncatedToolCall?: boolean;
   outputContinuationCount: number;
   maxOutputContinuations: number;
   missingToolNudgeAttempts: number;
@@ -36,7 +42,47 @@ export function nextThinkingOnlyRetryAttempts(action: PostLlmAction, current: nu
   return 0;
 }
 
+const TEXT_CONTINUATION =
+  '[System] Your previous response was truncated due to max_tokens. ' +
+  'Continue from where you left off without repeating already-output content.';
+
+const THINKING_CONTINUATION =
+  '[System] Your previous turn used the entire output budget on private reasoning and was cut off before a visible answer or tool call. ' +
+  'Stop deliberating and act now: call the next tool, or write a short visible answer.';
+
+const TOOL_CONTINUATION =
+  '[System] Your previous tool call was cut off before its arguments finished, so it was discarded and not executed. ' +
+  'Continue the task with a smaller tool call, or write the visible answer. Do not repeat the truncated arguments.';
+
 export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
+  // Output-limit truncation is checked before "reasoning only". A thinking-only
+  // reply whose stop reason is length/max_tokens ran out of tokens; it is not
+  // a model that refused to act. Exhausting the recovery budget ends the turn
+  // (output_limit_exhausted) instead of reporting the fragment as success.
+  if (isOutputLimitStopReason(ctx.streamStopReason)) {
+    const truncatedTool = ctx.truncatedToolCall === true || ctx.toolCallCount > 0;
+    const canContinue =
+      !isNudgeDisabled('output-continuation') &&
+      ctx.outputContinuationCount < ctx.maxOutputContinuations &&
+      !ctx.abortAborted;
+    if (canContinue) {
+      if (truncatedTool) {
+        return { kind: 'continuation', mode: 'tool', systemText: TOOL_CONTINUATION };
+      }
+      if (ctx.hasThinkingOnly) {
+        return { kind: 'continuation', mode: 'thinking', systemText: THINKING_CONTINUATION };
+      }
+      return { kind: 'continuation', mode: 'text', systemText: TEXT_CONTINUATION };
+    }
+    if (
+      ctx.outputContinuationCount >= ctx.maxOutputContinuations ||
+      ctx.hasThinkingOnly ||
+      truncatedTool
+    ) {
+      return { kind: 'output_limit_exhausted' };
+    }
+  }
+
   if (ctx.hasThinkingOnly) {
     if (
       !isNudgeDisabled('reasoning-only') &&
@@ -55,25 +101,6 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
       };
     }
     return { kind: 'thinking_only_complete' };
-  }
-
-  // Truncated output (max_tokens) — continue from where we left off. This is
-  // independent of steering: a truncated answer must be completed regardless
-  // of context pressure. Steering guidance, when relevant, is injected on the
-  // tool-execution path where the model is still working.
-  if (
-    !isNudgeDisabled('output-continuation') &&
-    ctx.streamStopReason === 'length' &&
-    ctx.toolCallCount === 0 &&
-    ctx.outputContinuationCount < ctx.maxOutputContinuations &&
-    !ctx.abortAborted
-  ) {
-    return {
-      kind: 'continuation',
-      systemText:
-        '[System] Your previous response was truncated due to max_tokens. ' +
-        'Continue from where you left off without repeating already-output content.',
-    };
   }
 
   if (ctx.toolCallCount > 0) {

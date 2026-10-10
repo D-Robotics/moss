@@ -112,6 +112,8 @@ export interface AgentLoopLlmTurnParams {
   runStartMs: number;
   firstTokenMs: number | null;
   suppressVisibleDeltas?: boolean;
+  /** Per-call output cap. Overrides modelDef.maxTokens when recovery escalates. */
+  maxTokens?: number;
   logDebug: (message: string, meta?: Record<string, unknown>) => void;
 }
 
@@ -229,7 +231,7 @@ export async function runAgentLoopLlmTurn(
             );
           }
           const streamOpts: SimpleStreamOptions = {
-            maxTokens: modelDef.maxTokens,
+            maxTokens: params.maxTokens ?? modelDef.maxTokens,
             signal: streamSignal,
             apiKey,
             ...(temperature !== undefined ? { temperature } : {}),
