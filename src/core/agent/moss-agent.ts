@@ -856,17 +856,20 @@ ${result.stderr ?? ''}`.trim();
 
     await store.appendMessage(sessionKey, userMsg as unknown as LLMMessage);
 
-    const composed = this.composeSystemPrompt({
-      ...(options?.platform ? { platform: options.platform } : {}),
-      ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
-    });
-    const dynamic =
-      options?.taskFlow === false ? omitTaskPhasePrompts(composed.dynamic) : composed.dynamic;
-    const composedPrompt = {
-      stable: composed.stable,
-      dynamic,
-      full: dynamic ? `${composed.stable}\n\n${dynamic}` : composed.stable,
+    const composeRunPrompt = (): { stable: string; dynamic: string; full: string } => {
+      const composed = this.composeSystemPrompt({
+        ...(options?.platform ? { platform: options.platform } : {}),
+        ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
+      });
+      if (options?.taskFlow !== false) return composed;
+      const dynamic = omitTaskPhasePrompts(composed.dynamic);
+      return {
+        stable: composed.stable,
+        dynamic,
+        full: dynamic ? `${composed.stable}\n\n${dynamic}` : composed.stable,
+      };
     };
+    const composedPrompt = composeRunPrompt();
     let extraContext = options?.extraContext ?? '';
     if (isFirstUserTurn && experienceEnabled()) {
       const experience = await buildExperienceBlock(
@@ -1293,18 +1296,11 @@ ${result.stderr ?? ''}`.trim();
       compactionSummary: undefined,
       systemPrompt,
       systemPromptParts,
-      getSystemPrompt: () =>
-        this.composeSystemPrompt({
-          ...(options?.platform ? { platform: options.platform } : {}),
-          ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
-        }).full,
+      getSystemPrompt: () => composeRunPrompt().full,
       ...(promptCacheEnabled
         ? {
             getSystemPromptParts: () => {
-              const parts = this.composeSystemPrompt({
-                ...(options?.platform ? { platform: options.platform } : {}),
-                ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
-              });
+              const parts = composeRunPrompt();
               return parts.dynamic
                 ? { stable: parts.stable, dynamic: parts.dynamic }
                 : { stable: parts.stable };

@@ -199,7 +199,7 @@ console.log('[PASS] TUI task projection (phases + verdict last word)');
     })
   );
   assert.ok(
-    await waitFor(() => bInstance.lastFrame().includes('blocked — device credentials missing')),
+    await waitFor(() => bInstance.lastFrame().includes('Blocked — device credentials missing')),
     `the blocked reason is pinned in the chrome: ${JSON.stringify(
       bInstance.lastFrame().slice(0, 400)
     )}`
