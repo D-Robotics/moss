@@ -601,8 +601,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'Trusting loads {summary}.': '信任后将加载 {summary}。',
   'This project has no hooks, MCP servers, agents, or plugins.':
     '此项目没有钩子、MCP 服务、子代理或插件。',
-  'A trusted project can change the model gateway, proxy, and TLS.':
-    '受信任的项目可以更改模型网关、流量代理和 TLS。',
+  'A trusted project can change the model gateway, proxy, TLS, and device target.':
+    '受信任的项目可以更改模型网关、流量代理、TLS 和设备目标。',
   'This folder is your home directory.': '此文件夹是你的主目录。',
   'This folder is the filesystem root. Trusting it is not remembered.':
     '此文件夹是文件系统根目录。这里的信任不会被记住。',

@@ -33,6 +33,7 @@ import {
   type CliInteractionMode,
 } from './interaction-mode.js';
 import { isDotenvDeniedEnvKey } from '../utils/dotenv-denied-env.js';
+import { isDotenvSafetyEnvKey, noteDotenvSafetyEnvKey } from '../safety/dotenv-safety-env.js';
 import { uiText } from '../utils/ui-language.js';
 import { isProjectRoutingEnvKey } from '../utils/project-routing-env.js';
 import { getPackageJsonPath } from '../utils/package-info.js';
@@ -42,7 +43,11 @@ import {
   primaryKeyAllowedForHost,
 } from '../provider/primary-key-host.js';
 import { isFolderTrusted, folderPathKey } from './folder-trust-store.js';
-import { captureEnvBeforeDotenv, envBeforeDotenv } from '../utils/startup-env.js';
+import {
+  captureEnvBeforeDotenv,
+  envBeforeDotenv,
+  recordDotenvOrigin,
+} from '../utils/startup-env.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
 import type { PricingConfig } from './model-pricing.js';
 import type { StatusLineConfig } from './status-line.js';
@@ -2142,16 +2147,16 @@ export function resolveCliConfig(
 }
 
 /**
- * These decide trust, which directory is the user's, which directory is the
+ * These decide which directory is the user's, which directory is the
  * workspace, or which rdk-docs package runs. A project `.env` must not set
- * them. Interpreter and loader variables are refused by `isDotenvDeniedEnvKey`
+ * them. `MOSS_TRUST_WORKSPACE` is refused with the other safety controls.
+ * Interpreter and loader variables are refused by `isDotenvDeniedEnvKey`
  * (shared with child spawns). The process environment captured in
  * `envBeforeDotenv`, plus CLI flags, are the only sources for the keys in
  * this set. Matching is case-insensitive, because Windows environment names are.
  */
 const ENV_FILE_IGNORED_KEYS = new Set(
   [
-    'MOSS_TRUST_WORKSPACE',
     'MOSS_WORKSPACE',
     'MOSS_CONFIG_DIR',
     'MOSS_CONFIG_FILE',
@@ -2190,6 +2195,11 @@ export function loadEnvFile(envPath: string): void {
       .slice(eqIdx + 1)
       .trim()
       .replace(/^["']|["']$/g, '');
+    // Safety controls never come from a project or ancestor .env, trusted or not.
+    if (isDotenvSafetyEnvKey(key)) {
+      noteDotenvSafetyEnvKey(envPath, key);
+      continue;
+    }
     if (!key || ENV_FILE_IGNORED_KEYS.has(key.toUpperCase()) || isDotenvDeniedEnvKey(key)) continue;
     if (process.env[key] !== undefined) continue;
     if (isProjectRoutingEnvKey(key)) {
@@ -2197,6 +2207,7 @@ export function loadEnvFile(envPath: string): void {
       continue;
     }
     process.env[key] = value;
+    recordDotenvOrigin(key, envPath, isUserRoutingEnvFile(envPath, homeBeforeDotenv));
   }
 }
 
@@ -2258,6 +2269,7 @@ export function commitProjectRoutingEnv(input: {
       continue;
     }
     process.env[item.key] = item.value;
+    recordDotenvOrigin(item.key, item.envFile, isUserRoutingEnvFile(item.envFile, homeDir));
     claimed.add(item.key);
   }
   deferredRoutingEnv.length = 0;

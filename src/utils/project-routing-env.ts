@@ -2,6 +2,10 @@
  * Environment variables from a project `.env` that choose where model traffic
  * goes or which model tier handles it: proxies, TLS verification, CA /
  * trust-store paths, model tiers, remote compaction, and fallback providers.
+ * Device target fields are here too. A project-chosen host would receive the
+ * user's real `MOSS_DEVICE_PASSWORD`. The documented device workflow still
+ * names the board from `~/.env`, the install `.env`, or a trusted project
+ * `.env` (`device-target.ts`, the device tool text, and the TUI host hint).
  * An untrusted folder does not apply them. The user's own process environment
  * is untouched.
  */
@@ -43,6 +47,12 @@ const EXACT = new Set([
   'MOSS_FALLBACK_PROVIDERS',
   'MOSS_FALLBACK_MAX_RETRIES',
   'MOSS_FALLBACK_COOLDOWN_MS',
+  'MOSS_DEVICE_HOST',
+  'MOSS_DEVICE_PORT',
+  'MOSS_DEVICE_USER',
+  'MOSS_DEVICE_ID',
+  'MOSS_DEVICE_KIND',
+  'MOSS_DEVICE_KEY',
 ]);
 
 /** Suffixes used by other language runtimes for a CA bundle or directory. */
