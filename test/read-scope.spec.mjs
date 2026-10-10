@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Workspace-default reads, output redaction, credential values withheld,
+ * Workspace-default reads, field-level config redaction, raw key withhold,
  * and the device-env report (names only). Shell commands are not scope-blocked.
  */
 import assert from 'node:assert/strict';
@@ -154,10 +154,14 @@ try {
     assert.doesNotMatch(String(read), /denied|Command blocked/i, `read is allowed: ${target}`);
     assert.match(String(read), /openai-compatible/, `the read itself returns the file: ${target}`);
     const viewed = await modelView(readFileTool, { path: target }, ctx(), read);
-    assert.match(viewed, /Moss credential values withheld/, `model view withholds: ${target}`);
+    assert.match(viewed, /openai-compatible/, `non-secret config stays visible: ${target}`);
+    assert.match(viewed, /\[REDACTED\]/, `secret field is masked: ${target}`);
     assert.doesNotMatch(viewed, encPattern, `ciphertext absent from model view: ${target}`);
-    assert.doesNotMatch(viewed, /openai-compatible/);
-    assert.doesNotMatch(viewed, /\[REDACTED\]/);
+    assert.doesNotMatch(
+      viewed,
+      /Moss credential values withheld/,
+      `config is not fully withheld: ${target}`
+    );
   }
   const tasks = await readFileTool.execute({ path: '.moss/tasks.jsonl' }, ctx());
   assert.match(String(tasks), /"task":"ok"/, 'project task log stays readable');
@@ -188,8 +192,9 @@ try {
     catConfig
   );
   assert.doesNotMatch(catView, encPattern);
-  assert.doesNotMatch(catView, /openai-compatible/);
-  assert.match(catView, /Moss credential values withheld/);
+  assert.match(catView, /openai-compatible/);
+  assert.match(catView, /\[REDACTED\]/);
+  assert.doesNotMatch(catView, /Moss credential values withheld/);
 
   const catKeyFile = await execTool.execute({ command: 'cat ~/.moss/.apikey-key' }, ctx());
   assert.doesNotMatch(String(catKeyFile), /Command blocked:/);
@@ -213,9 +218,46 @@ try {
     env: process.env,
   });
   assert.match(mixed, new RegExp(PROJECT_MARKER));
-  assert.doesNotMatch(mixed, /openai-compatible/);
+  assert.match(mixed, /openai-compatible/);
+  assert.match(mixed, /\[REDACTED\]/);
   assert.doesNotMatch(mixed, encPattern);
-  assert.match(mixed, /Moss credential values withheld/);
+  assert.doesNotMatch(mixed, /Moss credential values withheld/);
+
+  const debugConfig = JSON.stringify({
+    baseUrl: 'https://api.example.test/v1',
+    model: 'deepseek-chat',
+    apiKeyEnv: 'MOSS_API_KEY',
+    apiKey: 'k9f2mQ7xP4wL8nB3',
+    hooks: { post: 'echo ok' },
+    mcp: { rdkDocs: true },
+  });
+  fs.writeFileSync(path.join(home, '.moss', 'config.json'), `${debugConfig}\n`);
+  const debugRead = await readFileTool.execute({ path: '~/.moss/config.json' }, ctx());
+  const debugView = await modelView(
+    readFileTool,
+    { path: '~/.moss/config.json' },
+    ctx(),
+    debugRead
+  );
+  assert.match(debugView, /https:\/\/api\.example\.test\/v1/);
+  assert.match(debugView, /deepseek-chat/);
+  assert.match(debugView, /MOSS_API_KEY/);
+  assert.match(debugView, /echo ok/);
+  assert.match(debugView, /rdkDocs/);
+  assert.match(debugView, /\[REDACTED\]/);
+  assert.doesNotMatch(debugView, /k9f2mQ7xP4wL8nB3/);
+  const debugCat = await execTool.execute({ command: 'cat ~/.moss/config.json' }, ctx());
+  const debugCatView = await modelView(
+    execTool,
+    { command: 'cat ~/.moss/config.json' },
+    ctx(),
+    debugCat
+  );
+  assert.match(debugCatView, /https:\/\/api\.example\.test\/v1/);
+  assert.match(debugCatView, /deepseek-chat/);
+  assert.match(debugCatView, /MOSS_API_KEY/);
+  assert.doesNotMatch(debugCatView, /k9f2mQ7xP4wL8nB3/);
+  assert.match(debugCatView, /\[REDACTED\]/);
 
   // ── key-like tool output is redacted; source expressions are not ─────────
   const sample = `apiKey=${KEY_VALUE}\npassword: "hunter22hunter"\nenc blob ${ENC_VALUE}\nplain text stays`;

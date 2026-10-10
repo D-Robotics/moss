@@ -46,7 +46,11 @@ import { resolveSoulIdentity, resolveSoul } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
 import { createCliProvider } from './cli/providers.js';
 import type { CliProviderRuntimeConfig } from './cli/providers.js';
-import { resolveContextTokensForModel } from './cli/model-catalog.js';
+import {
+  formatModelChoices,
+  loadModelChoicesForRuntime,
+  resolveContextTokensForModel,
+} from './cli/model-catalog.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShotWithCliCancellation } from './cli/run-cancellation.js';
 import { runInteractive } from './cli/repl.js';
@@ -74,7 +78,7 @@ import {
   resolveRdkDocsPackage,
   withBuiltinRdkDocs,
 } from './cli/rdk-docs-mcp.js';
-import { McpToolRegistry, buildMcpPromptLayer } from './core/mcp/registry.js';
+import { McpToolRegistry, buildMcpStableIndex } from './core/mcp/registry.js';
 import { RDK_DOCS_SERVER_NAME, rdkDocsKnowledgeLayer } from './core/mcp/rdk-docs.js';
 import { CONFIGURED_DEVICE_PROMPT } from './device/device-probe-prompt.js';
 import { createWebSearchTool } from './tools/web-search.js';
@@ -102,8 +106,10 @@ import {
   buildAnswerLanguageLayer,
   formatFullModeNotice,
   formatInteractionModeNotice,
+  installCliUiLanguage,
   isZhLocale,
   setupCopy,
+  uiText,
 } from './cli/cli-locale.js';
 import { setTuiLocale } from './cli/tui/copy.js';
 import { gitignoreNoticeForWorkspace } from './cli/gitignore-suggestion.js';
@@ -140,12 +146,18 @@ function parseCliArgsOrExit(argv: string[]): ReturnType<typeof parseCliArgs> {
     return parseCliArgs(argv);
   } catch (err) {
     console.error(`[moss] ${errorMessage(err)}`);
-    console.error('Run `moss --help` for usage.');
+    console.error(uiText('Run `moss --help` for usage.', '运行 `moss --help` 查看用法。'));
     process.exit(exitCodeForError(err));
   }
 }
 
 const parsedArgs = parseCliArgsOrExit(process.argv.slice(2));
+const uiLanguageError = installCliUiLanguage({ flag: parsedArgs.lang });
+if (uiLanguageError) {
+  console.error(uiLanguageError);
+  process.exit(ExitCode.USAGE);
+}
+setTuiLocale(isZhLocale());
 
 const originalEmitWarning = process.emitWarning.bind(process);
 process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
@@ -233,15 +245,28 @@ if (parsedArgs.unknownCommand) {
   // Redirects to known subcommands (e.g. status→doctor)
   if (suggestion === 'doctor') {
     console.error(
-      `[moss] '${token}' is an alias for '${suggestion}'. Run \`moss doctor\` instead.`
+      uiText(
+        `[moss] '${token}' is an alias for '${suggestion}'. Run \`moss doctor\` instead.`,
+        `[moss]「${token}」是「${suggestion}」的别名。请改用 \`moss doctor\`。`
+      )
     );
     process.exit(0);
   }
   // Remaining edit-distance typos (e.g. confgi→config)
   if (!['--version', '--help', 'doctor'].includes(suggestion)) {
-    console.error(`[moss] unknown command '${token}'`);
-    console.error(`Did you mean '${suggestion}'?  Run \`moss --help\` for usage.`);
-    console.error(`To send it to the agent as a prompt instead: moss chat "${token}"`);
+    console.error(uiText(`[moss] unknown command '${token}'`, `[moss] 未知命令「${token}」`));
+    console.error(
+      uiText(
+        `Did you mean '${suggestion}'?  Run \`moss --help\` for usage.`,
+        `是想输入「${suggestion}」吗？运行 \`moss --help\` 查看用法。`
+      )
+    );
+    console.error(
+      uiText(
+        `To send it to the agent as a prompt instead: moss chat "${token}"`,
+        `若要把它当作提示发给模型：moss chat "${token}"`
+      )
+    );
     process.exit(ExitCode.USAGE);
   }
 }
@@ -249,21 +274,41 @@ if (parsedArgs.unknownCommand) {
 // `moss quickstart` / `moss examples` / etc. name in-session commands — point
 // the user at how to run them instead of billing the word as an LLM prompt.
 if (parsedArgs.interactiveOnlyCommand) {
-  const c = parsedArgs.interactiveOnlyCommand;
-  console.error(`'${c}' is an in-session command. Start Moss, then type /${c}:`);
+  const name = parsedArgs.interactiveOnlyCommand;
+  console.error(
+    uiText(
+      `'${name}' is an in-session command. Start Moss, then type /${name}:`,
+      `「${name}」是会话内命令。先启动 Moss，再输入 /${name}：`
+    )
+  );
   console.error('  moss');
-  console.error(`  > /${c}`);
-  console.error(`(Or to send "${c}" to the model as a prompt: moss chat "${c}".)`);
+  console.error(`  > /${name}`);
+  console.error(
+    uiText(
+      `(Or to send "${name}" to the model as a prompt: moss chat "${name}".)`,
+      `（或把「${name}」当作提示发给模型：moss chat "${name}"。）`
+    )
+  );
   process.exit(0);
 }
 
 // A dash-prefixed token that matched no known flag must NOT be billed as a chat
 // prompt (`moss --hepl`) or silently ignored on a subcommand (`doctor --frob`).
 if (parsedArgs.unknownOption) {
-  console.error(`[moss] unknown option '${parsedArgs.unknownOption}'`);
-  console.error('Run `moss --help` for the flag list.');
   console.error(
-    'To pass a prompt that begins with "-", use: moss chat "<your text>"  (or  moss -- <your text>)'
+    uiText(
+      `[moss] unknown option '${parsedArgs.unknownOption}'`,
+      `[moss] 未知选项「${parsedArgs.unknownOption}」`
+    )
+  );
+  console.error(
+    uiText('Run `moss --help` for the flag list.', '运行 `moss --help` 查看选项列表。')
+  );
+  console.error(
+    uiText(
+      'To pass a prompt that begins with "-", use: moss chat "<your text>"  (or  moss -- <your text>)',
+      '要传入以「-」开头的提示，用：moss chat "<你的文本>"（或 moss -- <你的文本>）'
+    )
   );
   process.exit(ExitCode.USAGE);
 }
@@ -548,6 +593,12 @@ async function main() {
     }
   }
 
+  if (oneShotMessage.trim() === '/model') {
+    const choices = await loadModelChoicesForRuntime(resolvedConfig, resolvedConfig.model ?? '');
+    console.error(formatModelChoices(choices));
+    return;
+  }
+
   let inlineFirstRun = false;
   if (!resolvedConfig.apiKey && !parsedArgs.mock) {
     const guidance = { bundledDefaultSuppressedBy: resolvedConfig.bundledDefaultSuppressedBy };
@@ -599,8 +650,18 @@ async function main() {
   }
 
   if (parsedArgs.mock) {
-    console.error('[mock] Offline mock mode — no live LLM, no API key required.');
-    console.error('[mock] Tools and approval flows are available for testing.');
+    console.error(
+      uiText(
+        '[mock] Offline mock mode — no live LLM, no API key required.',
+        '[mock] 离线模拟模式 — 不连接模型，不需要 API 密钥。'
+      )
+    );
+    console.error(
+      uiText(
+        '[mock] Tools and approval flows are available for testing.',
+        '[mock] 工具和审批流程可用于测试。'
+      )
+    );
   }
 
   const configDir = resolveConfigDir();
@@ -894,11 +955,9 @@ async function main() {
   let syncRdkDocsSkills = (): void => {};
   const refreshMcpPromptLayer = (): void => {
     if (!mcpRegistry) return;
-    const layers = [
-      buildMcpPromptLayer(mcpRegistry),
-      rdkDocsKnowledgeLayer(mcpRegistry.getStatuses()),
-    ].filter(Boolean);
-    const combined = layers.join('\n');
+    // Knowledge only. The server index is a stable layer from config names,
+    // so a connect that adds a tool count cannot rewrite the cached prefix.
+    const combined = rdkDocsKnowledgeLayer(mcpRegistry.getStatuses());
     if (mcpPromptLayerIndex === undefined) {
       mcpPromptLayerIndex = dynamicPromptLayers.length;
       dynamicPromptLayers.push(combined);
@@ -927,6 +986,9 @@ async function main() {
       : undefined
   );
   if (mcpConfigs.length > 0) {
+    // Present whenever the search tools are registered, including `moss -p`
+    // which starts before the handshake. No counts: those change on connect.
+    extraPromptLayers.push(buildMcpStableIndex(mcpConfigs.map((config) => config.name)));
     try {
       mcpRegistry = McpToolRegistry.connectInBackground(mcpConfigs, {
         // Real MCP tools register on demand: the search meta-tool installs
@@ -936,7 +998,6 @@ async function main() {
         registerTool: (tool) => agent.tools.register(tool),
         onStatusChange: (status) => {
           refreshMcpPromptLayer();
-          syncRdkDocsSkills();
           if (status.state !== 'connected' && status.state !== 'failed') return;
           if (!announceMcpStatus) return;
           if (useTui) {
@@ -955,9 +1016,10 @@ async function main() {
       refreshMcpPromptLayer();
     } catch (err) {
       console.error(
-        isZhLocale()
-          ? `[mcp] 初始化失败：${errorMessage(err)}`
-          : `[mcp] initialization failed: ${errorMessage(err)}`
+        uiText(
+          `[mcp] initialization failed: ${errorMessage(err)}`,
+          `[mcp] 初始化失败：${errorMessage(err)}`
+        )
       );
       mcpRegistry = null;
     }
@@ -983,13 +1045,11 @@ async function main() {
     let skillsLayerIndex: number | undefined;
     let installedSkillTool: ReturnType<typeof createSkillTool> | undefined;
     const emptySkillsLayer = buildEmptySkillsHintLayer(skillDirs);
+    const rdkDocsConfigured = mcpConfigs.some((config) => config.name === RDK_DOCS_SERVER_NAME);
     syncRdkDocsSkills = () => {
-      const connected =
-        mcpRegistry
-          ?.getStatuses()
-          .some((status) => status.name === RDK_DOCS_SERVER_NAME && status.state === 'connected') ??
-        false;
-      const next = includeBundledRdkDocsSkill(baseSkills, connected);
+      // Register once from config, not from the handshake. Swapping the skill
+      // tool in when rdk-docs connects changes the tool list mid-session.
+      const next = includeBundledRdkDocsSkill(baseSkills, rdkDocsConfigured);
       sessionSkills.splice(0, sessionSkills.length, ...next);
       if (sessionSkills.length > 0) {
         const tool = createSkillTool(sessionSkills);
@@ -1190,8 +1250,12 @@ async function main() {
         const isKnownInteractive = KNOWN_COMMANDS.includes(cmdToken);
         if (isKnownInteractive) {
           console.error(
-            `${cmdToken} is an interactive-mode command and isn't run from a one-shot prompt.\n` +
-              `Start an interactive session with \`moss\` (then type ${cmdToken}), or rephrase as a natural-language prompt (e.g. \`moss "review auth.js for bugs"\`).`
+            uiText(
+              `${cmdToken} is an interactive-mode command and isn't run from a one-shot prompt.\n` +
+                `Start an interactive session with \`moss\` (then type ${cmdToken}), or rephrase as a natural-language prompt (e.g. \`moss "review auth.js for bugs"\`).`,
+              `${cmdToken} 是交互模式命令，不能在一次性提示里运行。\n` +
+                `先运行 \`moss\` 再输入 ${cmdToken}，或改成自然语言提示（例如 \`moss "review auth.js for bugs"\`）。`
+            )
           );
         } else {
           for (const line of unknownSlashCommandLines(oneShotMessage.trim(), {
@@ -1288,8 +1352,11 @@ async function main() {
           const cmdToken = pipedText.split(/\s+/, 1)[0] ?? pipedText;
           if (KNOWN_COMMANDS.includes(cmdToken)) {
             console.error(
-              `${cmdToken} is an interactive-mode command — pipe a natural-language prompt instead,` +
-                ` or run \`moss\` interactively and type ${cmdToken}.`
+              uiText(
+                `${cmdToken} is an interactive-mode command — pipe a natural-language prompt instead,` +
+                  ` or run \`moss\` interactively and type ${cmdToken}.`,
+                `${cmdToken} 是交互模式命令 — 请改为管道传入自然语言提示，或运行 \`moss\` 后输入 ${cmdToken}。`
+              )
             );
           } else {
             for (const line of unknownSlashCommandLines(pipedText, {
@@ -1528,45 +1595,37 @@ main().catch((err) => {
   // Provider-level errors: print a clean, actionable diagnostic — never claim
   // it's a bug. Auth failures, rate limits, network timeouts, and context
   // overflows are external conditions, not code defects.
-  if (code === ExitCode.PROVIDER_AUTH) {
-    console.error(mossLine('[moss] Authentication failed: {message}', { message }));
-    console.error(
-      mossLine('[moss] Check your API key with `moss config show`, or re-run `moss setup`.')
-    );
-    process.exit(code);
-  }
-  if (code === ExitCode.RATE_LIMIT) {
-    console.error(mossLine('[moss] Rate limited: {message}', { message }));
-    console.error(
-      mossLine(
-        '[moss] Wait a moment and try again. Consider setting a lower model or reducing prompt size.'
-      )
-    );
-    process.exit(code);
-  }
-  if (code === ExitCode.PROVIDER_UPSTREAM) {
-    console.error(mossLine('[moss] Provider error: {message}', { message }));
-    console.error(
-      mossLine(
-        '[moss] The upstream API returned an error. Check your network, base URL, and model name.'
-      )
-    );
-    process.exit(code);
-  }
-  if (code === ExitCode.CONFIG) {
-    console.error(mossLine('[moss] Configuration error: {message}', { message }));
-    console.error(
-      mossLine('[moss] Run `moss config show` to inspect settings, or `moss setup` to reconfigure.')
-    );
-    process.exit(code);
-  }
-
-  // Session errors: the user's session data is the problem, not the code.
-  if (code === ExitCode.SESSION) {
-    console.error(mossLine('[moss] Session error: {message}', { message }));
-    console.error(
-      mossLine('[moss] List saved sessions with `moss sessions`, or start a new one with `moss`.')
-    );
+  const fatal: ReadonlyArray<readonly [number, string, string]> = [
+    [
+      ExitCode.PROVIDER_AUTH,
+      '[moss] Authentication failed: {message}',
+      '[moss] Check your API key with `moss config show`, or re-run `moss setup`.',
+    ],
+    [
+      ExitCode.RATE_LIMIT,
+      '[moss] Rate limited: {message}',
+      '[moss] Wait a moment and try again. Consider setting a lower model or reducing prompt size.',
+    ],
+    [
+      ExitCode.PROVIDER_UPSTREAM,
+      '[moss] Provider error: {message}',
+      '[moss] The upstream API returned an error. Check your network, base URL, and model name.',
+    ],
+    [
+      ExitCode.CONFIG,
+      '[moss] Configuration error: {message}',
+      '[moss] Run `moss config show` to inspect settings, or `moss setup` to reconfigure.',
+    ],
+    [
+      ExitCode.SESSION,
+      '[moss] Session error: {message}',
+      '[moss] List saved sessions with `moss sessions`, or start a new one with `moss`.',
+    ],
+  ];
+  for (const [exit, head, tail] of fatal) {
+    if (code !== exit) continue;
+    console.error(mossLine(head, { message }));
+    console.error(mossLine(tail));
     process.exit(code);
   }
 

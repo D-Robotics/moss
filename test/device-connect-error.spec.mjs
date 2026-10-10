@@ -17,85 +17,90 @@ import {
 } from '../dist/device/device-probe-prompt.js';
 import { deviceInfoTool } from '../dist/tools/device-tools.js';
 import { isUnreachableConnectError } from '../dist/device/device-registry.js';
+import { clearUiLanguage, setSessionUiLanguage } from '../dist/utils/ui-language.js';
 
 const WHERE = '10.0.0.8:22';
 
 function english(kind, extra = {}) {
+  setSessionUiLanguage('en');
   return formatDeviceConnectError({
     kind,
     where: WHERE,
     host: '10.0.0.8',
     timeoutMs: 10_000,
-    locale: 'en_US.UTF-8',
     ...extra,
   });
 }
 
 function chinese(kind, extra = {}) {
+  setSessionUiLanguage('zh');
   return formatDeviceConnectError({
     kind,
     where: WHERE,
     host: '10.0.0.8',
     timeoutMs: 10_000,
-    locale: 'zh_CN.UTF-8',
     ...extra,
   });
 }
 
 test('connect errors are distinct and one language each', () => {
-  const cases = [
-    ['connect ECONNREFUSED 10.0.0.8:22', 'refused'],
-    ['Timed out while waiting for handshake (10000ms)', 'timeout'],
-    ['getaddrinfo ENOTFOUND board.local', 'dns'],
-    ['All configured authentication methods failed', 'auth'],
-    ['REMOTE HOST IDENTIFICATION HAS CHANGED', 'host_key'],
-    ['No credentials for device board', 'credentials'],
-  ];
-  for (const [raw, kind] of cases) {
-    assert.equal(classifyDeviceConnectError(raw), kind, raw);
+  try {
+    const cases = [
+      ['connect ECONNREFUSED 10.0.0.8:22', 'refused'],
+      ['Timed out while waiting for handshake (10000ms)', 'timeout'],
+      ['getaddrinfo ENOTFOUND board.local', 'dns'],
+      ['All configured authentication methods failed', 'auth'],
+      ['REMOTE HOST IDENTIFICATION HAS CHANGED', 'host_key'],
+      ['No credentials for device board', 'credentials'],
+    ];
+    for (const [raw, kind] of cases) {
+      assert.equal(classifyDeviceConnectError(raw), kind, raw);
+    }
+
+    const refused = english('refused');
+    assert.match(refused.message, /Connection refused by 10\.0\.0\.8:22/);
+    assert.doesNotMatch(refused.message, /within|无法/);
+    assert.match(refused.hint, /sshd/);
+    assert.doesNotMatch(`${refused.message}\n${refused.hint}`, /[\u4e00-\u9fff]/);
+
+    const timeout = english('timeout');
+    assert.match(timeout.message, /No route to 10\.0\.0\.8:22/);
+    assert.match(timeout.message, /within 10s/);
+    assert.doesNotMatch(timeout.message, /Connection refused|无法/);
+
+    const dns = english('dns');
+    assert.match(dns.message, /Could not resolve 10\.0\.0\.8/);
+    assert.match(dns.hint, /MOSS_DEVICE_HOST/);
+
+    const auth = english('auth');
+    assert.match(auth.message, /Authentication failed for 10\.0\.0\.8:22/);
+    assert.match(auth.hint, /moss device add/);
+    assert.match(auth.hint, /MOSS_DEVICE_PASSWORD/);
+    assert.match(auth.hint, /MOSS_DEVICE_KEY/);
+    assert.doesNotMatch(auth.hint, /Paste (?:your|the) (?:board )?(?:password|key)/);
+
+    const hostKey = english('host_key');
+    assert.match(hostKey.message, /host key for 10\.0\.0\.8:22 changed/);
+    assert.match(hostKey.hint, /known host/);
+    assert.doesNotMatch(hostKey.hint, /Paste (?:your|the) (?:board )?(?:password|key)/);
+
+    const missing = english('credentials');
+    assert.match(missing.message, /No credentials are configured/);
+    assert.match(missing.hint, /moss device add/);
+    assert.doesNotMatch(missing.hint, /Paste (?:your|the) (?:board )?(?:password|key)/);
+
+    const zhRefused = chinese('refused');
+    assert.match(zhRefused.message, /拒绝了连接/);
+    assert.doesNotMatch(`${zhRefused.message}\n${zhRefused.hint}`, /Connection refused|within/);
+    const zhTimeout = chinese('timeout');
+    assert.match(zhTimeout.message, /没有路由/);
+    assert.doesNotMatch(zhTimeout.message, /No route|Connection refused/);
+    const zhDns = chinese('dns');
+    assert.match(zhDns.message, /无法解析/);
+    assert.doesNotMatch(zhDns.message, /Could not resolve/);
+  } finally {
+    clearUiLanguage();
   }
-
-  const refused = english('refused');
-  assert.match(refused.message, /Connection refused by 10\.0\.0\.8:22/);
-  assert.doesNotMatch(refused.message, /within|无法/);
-  assert.match(refused.hint, /sshd/);
-  assert.doesNotMatch(`${refused.message}\n${refused.hint}`, /[\u4e00-\u9fff]/);
-
-  const timeout = english('timeout');
-  assert.match(timeout.message, /No route to 10\.0\.0\.8:22/);
-  assert.match(timeout.message, /within 10s/);
-  assert.doesNotMatch(timeout.message, /Connection refused|无法/);
-
-  const dns = english('dns');
-  assert.match(dns.message, /Could not resolve 10\.0\.0\.8/);
-  assert.match(dns.hint, /MOSS_DEVICE_HOST/);
-
-  const auth = english('auth');
-  assert.match(auth.message, /Authentication failed for 10\.0\.0\.8:22/);
-  assert.match(auth.hint, /moss device add/);
-  assert.match(auth.hint, /MOSS_DEVICE_PASSWORD/);
-  assert.match(auth.hint, /MOSS_DEVICE_KEY/);
-  assert.doesNotMatch(auth.hint, /Paste (?:your|the) (?:board )?(?:password|key)/);
-
-  const hostKey = english('host_key');
-  assert.match(hostKey.message, /host key for 10\.0\.0\.8:22 changed/);
-  assert.match(hostKey.hint, /known host/);
-  assert.doesNotMatch(hostKey.hint, /Paste (?:your|the) (?:board )?(?:password|key)/);
-
-  const missing = english('credentials');
-  assert.match(missing.message, /No credentials are configured/);
-  assert.match(missing.hint, /moss device add/);
-  assert.doesNotMatch(missing.hint, /Paste (?:your|the) (?:board )?(?:password|key)/);
-
-  const zhRefused = chinese('refused');
-  assert.match(zhRefused.message, /拒绝了连接/);
-  assert.doesNotMatch(`${zhRefused.message}\n${zhRefused.hint}`, /Connection refused|within/);
-  const zhTimeout = chinese('timeout');
-  assert.match(zhTimeout.message, /没有路由/);
-  assert.doesNotMatch(zhTimeout.message, /No route|Connection refused/);
-  const zhDns = chinese('dns');
-  assert.match(zhDns.message, /无法解析/);
-  assert.doesNotMatch(zhDns.message, /Could not resolve/);
 });
 
 test('refused, timeout, and DNS are final; auth is not cached as unreachable', () => {

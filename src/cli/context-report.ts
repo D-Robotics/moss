@@ -20,7 +20,8 @@ import { buildProviderToolDeclarations } from '../core/loop/agent-loop-context-p
 import { createInitialLoopState } from '../core/loop/agent-loop-state.js';
 import { collectNudgeInjections } from '../core/loop/nudges/registry.js';
 import { NUDGE_IDS } from '../core/loop/nudges/disable.js';
-import { buildMcpPromptLayer, mcpSearchToolDeclaration } from '../core/mcp/registry.js';
+import { buildMcpStableIndex, mcpSearchToolDeclaration } from '../core/mcp/registry.js';
+import { isDeferredToolName } from '../core/tools/deferred-tool-offer.js';
 import { RDK_DOCS_SERVER_NAME, rdkDocsKnowledgeLayer } from '../core/mcp/rdk-docs.js';
 import {
   buildEmptySkillsHintLayer,
@@ -111,15 +112,13 @@ function toolRow(name: string, payload: string): ContextReportToolRow {
 }
 
 /**
- * MCP prompt layer for a connected rdk-docs server without opening a process.
- * Matches `buildMcpPromptLayer` for one connected server with an unknown count
- * until search runs — the CLI shows the count once the handshake finishes.
- * Pass `toolCount` when the caller knows it.
+ * Stable MCP index for a configured rdk-docs server. No tool counts — those
+ * change when the handshake finishes and must not sit in the cached prefix.
+ * Matches `buildMcpStableIndex` in cli-main, which is pushed as soon as the
+ * server is configured (including `moss -p`, before npx connects).
  */
-export function connectedRdkDocsMcpLayer(toolCount = 4): string {
-  return buildMcpPromptLayer({
-    getStatuses: () => [{ name: RDK_DOCS_SERVER_NAME, state: 'connected', toolCount }],
-  });
+export function connectedRdkDocsMcpLayer(): string {
+  return buildMcpStableIndex([RDK_DOCS_SERVER_NAME]);
 }
 
 export async function buildFreshSessionContextReport(
@@ -215,8 +214,10 @@ export async function buildFreshSessionContextReport(
   }
 
   const runtime = buildRuntimeCapabilitiesPrompt({ tools: agent.tools.getAll() });
-  const stableLayers = [agents, answerLanguage, runtime].filter((layer) => layer.trim().length > 0);
-  const dynamicLayers = [environment, mcpLayer, rdkLayer, skillsLayer, contextWindow].filter(
+  const stableLayers = [agents, answerLanguage, mcpLayer, runtime].filter(
+    (layer) => layer.trim().length > 0
+  );
+  const dynamicLayers = [environment, rdkLayer, skillsLayer, contextWindow].filter(
     (layer) => layer.trim().length > 0
   );
   agent.config.extraPromptLayers = stableLayers;
@@ -239,11 +240,13 @@ export async function buildFreshSessionContextReport(
     section('context window', contextWindow),
   ];
 
-  const offered = agent.tools.getAll().filter((tool) =>
-    toolVisibleForRun(tool.name, {
-      ...(options.taskFlow === undefined ? {} : { taskFlow: options.taskFlow }),
-      deviceConfigured,
-    })
+  const offered = agent.tools.getAll().filter(
+    (tool) =>
+      !isDeferredToolName(tool.name) &&
+      toolVisibleForRun(tool.name, {
+        ...(options.taskFlow === undefined ? {} : { taskFlow: options.taskFlow }),
+        deviceConfigured,
+      })
   );
   const declarations = buildProviderToolDeclarations(offered);
   const tools = declarations.map((tool) => {

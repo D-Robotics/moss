@@ -283,6 +283,7 @@ export const ZH: Readonly<Record<string, string>> = {
     '列出文件定义的子代理、来源路径和加载警告',
   'show safety and approval settings; --verbose prints every knob':
     '显示安全与审批设置；--verbose 打印每个开关',
+  'show or switch the UI language for this session': '显示或切换本会话的界面语言',
   'show or set the terminal colour theme for this session': '显示或设置本会话的终端配色',
   'caret to line start': '光标移到行首',
   'caret to line end': '光标移到行尾',
@@ -402,6 +403,9 @@ export const ZH: Readonly<Record<string, string>> = {
   'observed {observed}': '测得 {observed}',
   '◇ task {id} — PASS ({criteria} met)': '◇ 任务 {id} — PASS（达成 {criteria} 项）',
   '◇ task {id} — FAIL ({criteria} met) · /task resume {task} to repair':
+    '◇ 任务 {id} — FAIL（达成 {criteria} 项）· /task resume {task} 修复',
+  '◇ task {id} — PASS ({criteria} criteria met)': '◇ 任务 {id} — PASS（达成 {criteria} 项）',
+  '◇ task {id} — FAIL ({criteria} criteria met) · /task resume {task} to repair':
     '◇ 任务 {id} — FAIL（达成 {criteria} 项）· /task resume {task} 修复',
   '◇ task {phase} — {text}': '◇ 任务 {phase} — {text}',
   '◇ task {id} blocked — {reason} · /task resume {task}':
@@ -533,6 +537,11 @@ export const ZH: Readonly<Record<string, string>> = {
   '{command} failed: {error}': '{command} 失败：{error}',
   met: '达成',
   'blocked: {reason}': '受阻：{reason}',
+  'Tasks ({count})': '任务（{count}）',
+  'Evidence ({count})': '证据（{count}）',
+  'Deployments ({count})': '部署（{count}）',
+  'History ({count})': '历史（{count}）',
+  'Failures ({count})': '失败（{count}）',
 
   // ── /mcp status (rdk-docs-mcp.ts formatMcpStatusLine) ──────────────────
   '● {name} — connected': '● {name} — 已连接',

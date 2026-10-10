@@ -17,6 +17,7 @@ import type { MossAgentEvent } from '../agent/moss-agent-types.js';
 import { loadTaskArtifacts, type TaskArtifacts } from './artifacts.js';
 import { listTaskStateSnapshots } from '../task/task-store.js';
 import type { TaskStateSnapshot } from '../../contracts/task-runtime.js';
+import { isEffectiveUiZh, uiText } from '../../utils/ui-language.js';
 
 export type MissionState = 'IDLE' | 'PLANNING' | 'EXECUTING' | 'BLOCKED' | 'COMPLETED';
 export type MissionResult = 'PASS' | 'FAIL' | 'NEEDS USER' | 'ABORTED';
@@ -176,47 +177,83 @@ function clip(text: string, max: number): string {
 export function describeToolCall(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
     case 'task_define':
-      return `defining task: ${clip(pickString(input, ['goal']) ?? '', 60)}`;
+      return uiText(
+        `defining task: ${clip(pickString(input, ['goal']) ?? '', 60)}`,
+        `定义任务：${clip(pickString(input, ['goal']) ?? '', 60)}`
+      );
     case 'task_acceptance':
-      return 'evaluating acceptance';
+      return uiText('evaluating acceptance', '正在评估验收');
     case 'record_evidence':
-      return `verifying: ${pickString(input, ['metric']) ?? 'recording evidence'}`;
+      return uiText(
+        `verifying: ${pickString(input, ['metric']) ?? 'recording evidence'}`,
+        `正在验证：${pickString(input, ['metric']) ?? '记录证据'}`
+      );
     case 'device_exec':
-      return `device ▸ ${clip(pickString(input, ['command']) ?? '', 48)}`;
+      return uiText(
+        `device ▸ ${clip(pickString(input, ['command']) ?? '', 48)}`,
+        `设备 ▸ ${clip(pickString(input, ['command']) ?? '', 48)}`
+      );
     case 'device_deploy':
-      return `deploying ${clip(pickString(input, ['artifact_path']) ?? 'artifact', 36)} → device`;
+      return uiText(
+        `deploying ${clip(pickString(input, ['artifact_path']) ?? 'artifact', 36)} → device`,
+        `正在部署 ${clip(pickString(input, ['artifact_path']) ?? '产物', 36)} → 设备`
+      );
     case 'device_file_write':
-      return `device ▸ writing ${clip(pickString(input, ['path', 'remote_path']) ?? '', 40)}`;
+      return uiText(
+        `device ▸ writing ${clip(pickString(input, ['path', 'remote_path']) ?? '', 40)}`,
+        `设备 ▸ 正在写入 ${clip(pickString(input, ['path', 'remote_path']) ?? '', 40)}`
+      );
     case 'device_file_read':
-      return `device ▸ reading ${clip(pickString(input, ['path', 'remote_path']) ?? '', 40)}`;
+      return uiText(
+        `device ▸ reading ${clip(pickString(input, ['path', 'remote_path']) ?? '', 40)}`,
+        `设备 ▸ 正在读取 ${clip(pickString(input, ['path', 'remote_path']) ?? '', 40)}`
+      );
     case 'device_file_list':
-      return `device ▸ listing ${clip(pickString(input, ['path']) ?? '', 40)}`;
+      return uiText(
+        `device ▸ listing ${clip(pickString(input, ['path']) ?? '', 40)}`,
+        `设备 ▸ 正在列出 ${clip(pickString(input, ['path']) ?? '', 40)}`
+      );
     case 'device_info':
-      return 'device ▸ reading system info';
+      return uiText('device ▸ reading system info', '设备 ▸ 正在读取系统信息');
     case 'device_processes':
-      return 'device ▸ listing processes';
+      return uiText('device ▸ listing processes', '设备 ▸ 正在列出进程');
     case 'device_resources':
-      return 'device ▸ sampling cpu/memory';
+      return uiText('device ▸ sampling cpu/memory', '设备 ▸ 正在采样 CPU/内存');
     case 'device_temperature':
-      return 'device ▸ reading temperature';
+      return uiText('device ▸ reading temperature', '设备 ▸ 正在读取温度');
     case 'device_network':
-      return 'device ▸ mapping network';
+      return uiText('device ▸ mapping network', '设备 ▸ 正在查看网络');
     case 'device_cameras':
-      return 'device ▸ probing cameras';
+      return uiText('device ▸ probing cameras', '设备 ▸ 正在探测相机');
     case 'device_robotics_status':
-      return 'device ▸ probing ROS/TROS stack';
+      return uiText('device ▸ probing ROS/TROS stack', '设备 ▸ 正在探测 ROS/TROS');
     case 'run_tests':
-      return `running tests${pickString(input, ['command']) ? ` ▸ ${clip(pickString(input, ['command']) ?? '', 40)}` : ''}`;
+      return uiText(
+        `running tests${pickString(input, ['command']) ? ` ▸ ${clip(pickString(input, ['command']) ?? '', 40)}` : ''}`,
+        `正在跑测试${pickString(input, ['command']) ? ` ▸ ${clip(pickString(input, ['command']) ?? '', 40)}` : ''}`
+      );
     case 'read':
-      return `reading ${clip(pickString(input, ['file_path', 'path']) ?? '', 48)}`;
+      return uiText(
+        `reading ${clip(pickString(input, ['file_path', 'path']) ?? '', 48)}`,
+        `正在读取 ${clip(pickString(input, ['file_path', 'path']) ?? '', 48)}`
+      );
     case 'write':
-      return `writing ${clip(pickString(input, ['file_path', 'path']) ?? '', 48)}`;
+      return uiText(
+        `writing ${clip(pickString(input, ['file_path', 'path']) ?? '', 48)}`,
+        `正在写入 ${clip(pickString(input, ['file_path', 'path']) ?? '', 48)}`
+      );
     case 'edit':
-      return `editing ${clip(pickString(input, ['file_path', 'path']) ?? '', 48)}`;
+      return uiText(
+        `editing ${clip(pickString(input, ['file_path', 'path']) ?? '', 48)}`,
+        `正在编辑 ${clip(pickString(input, ['file_path', 'path']) ?? '', 48)}`
+      );
     case 'bash':
     case 'shell':
     case 'exec':
-      return `running ${clip(pickString(input, ['command']) ?? '', 48)}`;
+      return uiText(
+        `running ${clip(pickString(input, ['command']) ?? '', 48)}`,
+        `正在执行 ${clip(pickString(input, ['command']) ?? '', 48)}`
+      );
     default:
       return toolName.replace(/_/g, ' ');
   }
@@ -361,7 +398,10 @@ export class TaskRuntime {
         if (event.isError) {
           this.live.lastError = {
             tool: event.toolName,
-            message: clip(event.result || event.error?.message || 'tool failed', 160),
+            message: clip(
+              event.result || event.error?.message || uiText('tool failed', '工具失败'),
+              160
+            ),
             at: this.now(),
           };
         }
@@ -481,7 +521,14 @@ export class TaskRuntime {
         items.push({
           at: verdict.acceptedAt,
           source: 'acceptance',
-          label: `${row.metric} ${row.result === 'no-evidence' ? 'missing evidence' : `observed ${row.observed ?? '?'}, expected ${row.expected}`}`,
+          label: `${row.metric} ${
+            row.result === 'no-evidence'
+              ? uiText('missing evidence', '缺少证据')
+              : uiText(
+                  `observed ${row.observed ?? '?'}, expected ${row.expected}`,
+                  `观测 ${row.observed ?? '?'}，期望 ${row.expected}`
+                )
+          }`,
           ...(row.explanation ? { detail: row.explanation } : {}),
         });
       }
@@ -491,7 +538,10 @@ export class TaskRuntime {
       items.push({
         at: record.timestamp,
         source: 'evidence',
-        label: `${record.metric} = ${record.observed ?? '?'} (${record.expected ?? 'no expectation'})`,
+        label: uiText(
+          `${record.metric} = ${record.observed ?? '?'} (${record.expected ?? 'no expectation'})`,
+          `${record.metric} = ${record.observed ?? '?'}（${record.expected ?? '无期望值'}）`
+        ),
         ...(record.details ? { detail: clip(record.details, 160) } : {}),
       });
     }
@@ -500,7 +550,10 @@ export class TaskRuntime {
       items.push({
         at: deployment.startedAt,
         source: 'deployment',
-        label: `deploy ${deployment.artifactPath} failed at ${deployment.steps.find((s) => s.status === 'failed')?.step ?? 'unknown step'}`,
+        label: uiText(
+          `deploy ${deployment.artifactPath} failed at ${deployment.steps.find((s) => s.status === 'failed')?.step ?? 'unknown step'}`,
+          `部署 ${deployment.artifactPath} 失败于 ${deployment.steps.find((s) => s.status === 'failed')?.step ?? '未知步骤'}`
+        ),
         ...(deployment.error ? { detail: clip(deployment.error, 160) } : {}),
       });
     }
@@ -579,22 +632,31 @@ export class TaskRuntime {
       ...evidence.map((record) => ({
         at: record.timestamp,
         kind: 'evidence' as const,
-        label: `${record.metric} → ${record.result.toUpperCase()}${record.observed !== undefined ? ` (${record.observed})` : ''}`,
+        label: uiText(
+          `${record.metric} → ${record.result.toUpperCase()}${record.observed !== undefined ? ` (${record.observed})` : ''}`,
+          `${record.metric} → ${record.result.toUpperCase()}${record.observed !== undefined ? `（${record.observed}）` : ''}`
+        ),
       })),
       ...verdicts.map((verdict) => ({
         at: verdict.acceptedAt,
         kind: 'acceptance' as const,
-        label: `acceptance ${verdict.verdict.toUpperCase()} (${verdict.unmetRequired} required unmet)`,
+        label: uiText(
+          `acceptance ${verdict.verdict.toUpperCase()} (${verdict.unmetRequired} required unmet)`,
+          `验收 ${verdict.verdict.toUpperCase()}（尚缺 ${verdict.unmetRequired} 条必需项）`
+        ),
       })),
       ...deployments.map((deployment) => ({
         at: deployment.startedAt,
         kind: 'deployment' as const,
-        label: `deploy ${deployment.artifactPath} → ${deployment.status}`,
+        label: uiText(
+          `deploy ${deployment.artifactPath} → ${deployment.status}`,
+          `部署 ${deployment.artifactPath} → ${deployment.status}`
+        ),
       })),
       {
         at: task.createdAt,
         kind: 'define' as const,
-        label: `task defined: ${clip(task.goal, 60)}`,
+        label: uiText(`task defined: ${clip(task.goal, 60)}`, `已定义任务：${clip(task.goal, 60)}`),
       },
     ].sort((a, b) => b.at - a.at);
 
@@ -607,14 +669,18 @@ export class TaskRuntime {
       ...(live.running && live.focusTaskId === task.taskId
         ? {
             currentAction:
-              live.currentAction ?? (live.sawToolCall ? undefined : 'reasoning about the goal'),
+              live.currentAction ??
+              (live.sawToolCall ? undefined : uiText('reasoning about the goal', '正在理解目标')),
           }
         : {}),
       progress: evaluateAcceptance(task, evidence).criteriaResults,
       ...(failures.length > 0
         ? {
             failure: {
-              headline: `${failures.length} failure${failures.length === 1 ? '' : 's'} on record`,
+              headline: uiText(
+                `${failures.length} failure${failures.length === 1 ? '' : 's'} on record`,
+                `记录了 ${failures.length} 次失败`
+              ),
               items: failures.slice(0, 12),
             },
           }
@@ -626,7 +692,7 @@ export class TaskRuntime {
       ...(deviceId || observations.length > 0
         ? {
             device: {
-              deviceId: deviceId ?? 'device (live session)',
+              deviceId: deviceId ?? uiText('device (live session)', '设备（当前会话）'),
               deployments: deployments.slice(0, 10),
               observations,
             },
@@ -641,33 +707,83 @@ export class TaskRuntime {
  * read as "running" and "running" read as "verified" — the tail names the
  * stage the record actually proves, including the health-check result.
  */
+const CARD_ZH: Record<string, string> = {
+  IDLE: '空闲',
+  PLANNING: '规划中',
+  EXECUTING: '执行中',
+  BLOCKED: '受阻',
+  COMPLETED: '已完成',
+  'NEEDS USER': '需要你',
+  ABORTED: '已中止',
+  camera: '相机',
+  ros: 'ROS',
+  model: '模型',
+  navigation: '导航',
+  general: '通用',
+};
+
+function cardWord(token: string): string {
+  const zh = CARD_ZH[token];
+  return zh ? uiText(token, zh) : token;
+}
+
+/** One task-navigator row. English padding stays; Chinese uses the translated words. */
+export function formatTaskSummaryLine(summary: TaskSummary): string {
+  const zh = isEffectiveUiZh();
+  const kind = zh ? cardWord(summary.kind) : summary.kind.toUpperCase().padEnd(8);
+  const body =
+    summary.result === 'ABORTED'
+      ? cardWord('ABORTED')
+      : `${zh ? cardWord(summary.result ?? summary.state) : (summary.result ?? summary.state).padEnd(10)} ${summary.criteriaMet}/${summary.criteriaTotal} ${uiText('met', '达成')}`;
+  const reason = summary.blockedReason
+    ? `\n  ${uiText(`blocked: ${summary.blockedReason}`, `受阻：${summary.blockedReason}`)}`
+    : '';
+  return `${kind} ${body}  ${summary.goal}${reason}`;
+}
+
+export function formatEvidenceCardLine(
+  record: Pick<EvidenceRecord, 'result' | 'metric' | 'observed' | 'expected'>
+): string {
+  const want = record.expected
+    ? uiText(` (want ${record.expected})`, `（期望 ${record.expected}）`)
+    : '';
+  return `${record.result.toUpperCase().padEnd(5)} ${record.metric} = ${record.observed ?? '?'}${want}`;
+}
+
 export function formatDeploymentLine(deployment: DeploymentRecord): string {
   const head = `${deployment.status.toUpperCase().padEnd(9)} ${deployment.deviceId} ${deployment.remotePath}`;
   let tail: string;
   switch (deployment.status) {
     case 'uploaded':
-      tail = 'upload ok · not started';
+      tail = uiText('upload ok · not started', '已上传 · 尚未启动');
       break;
     case 'uploading':
     case 'pending':
-      tail = 'upload not confirmed';
+      tail = uiText('upload not confirmed', '上传未确认');
       break;
     case 'starting':
-      tail = 'start command issued';
+      tail = uiText('start command issued', '已发出启动命令');
       break;
     case 'running':
       tail = deployment.healthCheck
-        ? `health ${deployment.healthCheck.passed ? 'PASS' : 'FAIL'} (exit ${deployment.healthCheck.exitCode ?? '?'})`
-        : 'no health check recorded';
+        ? uiText(
+            `health ${deployment.healthCheck.passed ? 'PASS' : 'FAIL'} (exit ${deployment.healthCheck.exitCode ?? '?'})`,
+            `健康检查 ${deployment.healthCheck.passed ? 'PASS' : 'FAIL'}（退出码 ${deployment.healthCheck.exitCode ?? '?'}）`
+          )
+        : uiText('no health check recorded', '没有健康检查记录');
       break;
     case 'failed':
-      tail = deployment.error ? deployment.error : 'failed';
+      tail = deployment.error ? deployment.error : uiText('failed', '失败');
       break;
     case 'stopped':
-      tail = 'stopped by user';
+      tail = uiText('stopped by user', '由用户停止');
       break;
     default:
       tail = deployment.status;
   }
-  return `${head} — ${tail}${deployment.taskId ? ` · task ${deployment.taskId.slice(-6)}` : ''}`;
+  return `${head} — ${tail}${
+    deployment.taskId
+      ? uiText(` · task ${deployment.taskId.slice(-6)}`, ` · 任务 ${deployment.taskId.slice(-6)}`)
+      : ''
+  }`;
 }

@@ -28,6 +28,7 @@ import { guessModelProvider, print, renderAuthStatus, sanitizeBaseUrl } from './
 import { withoutSecret } from './config-snapshot.js';
 import { parsePermissionRuleSpec } from './permission-rules.js';
 import { parseCliInteractionMode } from './interaction-mode.js';
+import { parseLanguageSetting, uiText } from './cli-locale.js';
 
 function serializeResolvedConfig(
   resolved: ReturnType<typeof resolveCliConfig>
@@ -413,6 +414,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_TUI_RENDERER',
       'MOSS_TUI_RENDERER_CONFIG',
       'MOSS_TUI_THEME',
+      'MOSS_LANG (en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale)',
       'MOSS_NO_COLOR',
       'MOSS_LOG_LEVEL',
       'MOSS_LOG_JSON',
@@ -498,6 +500,8 @@ export function renderConfigHelp(): string {
     '  moss config set agent.compaction.reserveTokens 20000',
     '  moss config set rdkDocs false',
     '  moss config set rdkDocs.package ../rdk-docs-mcp',
+    '  moss config set language auto|en|zh   # user config only (not --project, not a project .env)',
+    '  # UI language precedence: --lang > MOSS_LANG > language > system locale. auto = zh only when the locale starts with zh.',
   ].join('\n');
 }
 
@@ -716,7 +720,7 @@ function buildProjectConfigTemplate(): ConfigFile {
 }
 
 function supportedConfigKeys(): string {
-  return 'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens';
+  return 'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language';
 }
 
 function removeEmptyNestedConfig(config: ConfigFile): ConfigFile {
@@ -774,7 +778,18 @@ function applyConfigSetPair(
   value: string
 ): { ok: boolean; messages: string[] } {
   const messages: string[] = [];
-  if (key === 'profile') {
+  if (key === 'language') {
+    const setting = parseLanguageSetting(value);
+    if (!setting) {
+      return {
+        ok: false,
+        messages: [
+          uiText('Supported language values: auto, en, zh', 'language 只能是 auto、en 或 zh。'),
+        ],
+      };
+    }
+    next.language = setting;
+  } else if (key === 'profile') {
     const profile = normalizeConfigProfile(value);
     if (!profile) {
       return { ok: false, messages: ['Supported profile values: cautious, balanced, autonomous'] };
@@ -1122,6 +1137,17 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
     pairs = [{ key, value }];
   }
 
+  if (target.scope === 'project' && pairs.some((pair) => pair.key === 'language')) {
+    print(
+      uiText(
+        'language is a user setting. Omit --project (`moss config set language auto|en|zh`). A project config and a project .env cannot set it.',
+        'language 只能写在用户配置里。去掉 --project（`moss config set language auto|en|zh`）。项目配置和项目 .env 不能设置它。'
+      )
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   const current = loadConfigFile(target.configPath);
   const next = { ...current };
   const allMessages: string[] = [];
@@ -1190,9 +1216,20 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
     process.exitCode = 1;
     return;
   }
+  if (key === 'language' && target.scope === 'project') {
+    print(
+      uiText(
+        'language is a user setting. Omit --project (`moss config unset language`). A project config cannot set it.',
+        'language 只能写在用户配置里。去掉 --project（`moss config unset language`）。项目配置不能设置它。'
+      )
+    );
+    process.exitCode = 1;
+    return;
+  }
   const current = loadConfigFile(target.configPath);
   let next: ConfigFile = { ...current };
-  if (key === 'profile') delete next.profile;
+  if (key === 'language') delete next.language;
+  else if (key === 'profile') delete next.profile;
   else if (key === 'provider') delete next.provider;
   else if (key === 'model') delete next.model;
   else if (key === 'baseUrl') delete next.baseUrl;

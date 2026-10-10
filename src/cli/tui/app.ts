@@ -74,7 +74,7 @@ import {
   formatTaskSummaryLines,
   formatTaskVerdictLine,
 } from '../task-card.js';
-import { isZhLocale } from '../cli-locale.js';
+import { hasSessionUiOverride, isZhLocale } from '../cli-locale.js';
 import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
 import { setCliApprovalAsker } from '../approval.js';
 import { wrapApprovalAsker, wrapApprovalViewAsker } from '../permission-request.js';
@@ -419,6 +419,11 @@ interface PendingDialog {
 /** The shell tells the registry it is the TUI, so surface-specific copy can diverge later. */
 const COMMAND_SURFACE: CommandSurface = 'tui';
 
+/** Session `/language` wins over the locale frozen into the app options. */
+function activeUiLocale(explicit: string | undefined): string | undefined {
+  return hasSessionUiOverride() ? cliLocale() : (explicit ?? cliLocale());
+}
+
 /** How long the scroll bar stays visible after the pointer or a scroll last touched it. */
 const SCROLLBAR_HIDE_MS = 1500;
 
@@ -434,7 +439,7 @@ export function TuiAppRoot({
   // Part B: pin moss's own chrome to the locale the host resolved. Idempotent,
   // so running it on every render is fine; the environment is only the fallback
   // and the host's explicit `locale` is authoritative.
-  setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
+  setTuiLocale(isZhLocale(activeUiLocale(options.locale)));
   const composerProjectKind = useMemo(
     (): ComposerProjectKind =>
       detectComposerProjectKind({
@@ -1346,7 +1351,7 @@ export function TuiAppRoot({
       if (action === 'tasks') {
         const summaries = runtime.taskSummaries();
         printBlock(
-          `Tasks (${summaries.length})`,
+          tui('Tasks ({count})', { count: summaries.length }),
           summaries.flatMap((s) => {
             const detail = runtime.taskDetail(s.taskId);
             return formatTaskSummaryLines(s, detail?.verification.length ?? 0);
@@ -1357,14 +1362,17 @@ export function TuiAppRoot({
       if (action === 'evidence') {
         const records = runtime.getArtifacts().evidence;
         printBlock(
-          `Evidence (${records.length})`,
+          tui('Evidence ({count})', { count: records.length }),
           records.map((r) => formatEvidenceLine(r))
         );
         return;
       }
       if (action === 'deployments') {
         const deployments = runtime.getArtifacts().deployments;
-        printBlock(`Deployments (${deployments.length})`, deployments.map(formatDeploymentLine));
+        printBlock(
+          tui('Deployments ({count})', { count: deployments.length }),
+          deployments.map(formatDeploymentLine)
+        );
         return;
       }
       if (action === 'history') {
@@ -1373,7 +1381,7 @@ export function TuiAppRoot({
           .map((s) => runtime.taskDetail(s.taskId))
           .filter((d): d is NonNullable<typeof d> => Boolean(d));
         printBlock(
-          `History (${details.length})`,
+          tui('History ({count})', { count: details.length }),
           details.flatMap((d) => formatTaskHistoryLines(d))
         );
         return;
@@ -1384,7 +1392,7 @@ export function TuiAppRoot({
           .map((s) => runtime.taskDetail(s.taskId))
           .filter((d): d is NonNullable<typeof d> => Boolean(d?.failure));
         printBlock(
-          `Failures (${details.length})`,
+          tui('Failures ({count})', { count: details.length }),
           details.flatMap((d) => formatTaskFailureLines(d))
         );
         return;
@@ -2638,11 +2646,9 @@ export function TuiAppRoot({
   const runSetupJob = useCallback(
     (view: FirstRunView, job: NonNullable<FirstRunView['pending']>) => {
       const generation = ++setupJobRef.current;
-      const locale = options.locale ?? cliLocale();
+      const locale = activeUiLocale(options.locale);
       void settleFirstRunJob(view, job, setupSecretRef.current, locale).then((applied) => {
         if (generation !== setupJobRef.current) return;
-        if (job.type === 'models' && applied.view.step === 'key') setupSecretRef.current = '';
-        if (applied.clearSecret) setupSecretRef.current = '';
         if (applied.saved) {
           finishFirstRun(applied.saved);
           return;
@@ -2834,7 +2840,7 @@ export function TuiAppRoot({
       const quitChord = key.ctrl && (chunk === 'c' || chunk === 'd');
       if (!quitChord) {
         if (setup.step === 'working') return;
-        const locale = options.locale ?? cliLocale();
+        const locale = activeUiLocale(options.locale);
         const command = key.escape
           ? ({ type: 'escape' } as const)
           : key.return
@@ -3777,7 +3783,7 @@ export function TuiAppRoot({
             );
           }),
         ...(modelPicker.choices.choices.length > 8
-          ? [line(clip('  … type /model <name> for any other model', columns), { dim: true })]
+          ? [line(clip(tui('  … type /model <name> for any other model'), columns), { dim: true })]
           : []),
       ]
     : [];
@@ -3886,7 +3892,7 @@ export function TuiAppRoot({
     ...(!helpOverlay && setupView
       ? [
           line(rule(columns)),
-          ...renderFirstRunLines(setupView, options.locale ?? cliLocale()).map((text) =>
+          ...renderFirstRunLines(setupView, activeUiLocale(options.locale)).map((text) =>
             line(
               clip(`  ${text}`, columns),
               (setupView.error ?? '').split('\n').some((part) => part.trim() === text)
@@ -4271,7 +4277,7 @@ function stdouts(stdout: { columns?: number } | undefined): number {
 /** Boot the TUI; resolves when the user quits. TTY-only entry point. */
 export async function runTuiApp(options: TuiAppOptions): Promise<void> {
   installTerminalRestore();
-  setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
+  setTuiLocale(isZhLocale(activeUiLocale(options.locale)));
   setTuiTheme(detectTheme(process.env));
   const choice = selectTuiRenderer({
     env: process.env,

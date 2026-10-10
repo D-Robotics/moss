@@ -5,7 +5,7 @@
  */
 import { auditResolvedCliConfig, BASE_URL, type ResolvedCliConfig } from './config.js';
 import { buildApiV1Url } from '../provider/api-v1-url.js';
-import { isZhLocale } from './cli-locale.js';
+import { isZhLocale, uiText } from './cli-locale.js';
 import { label } from './ui.js';
 
 export interface GuardrailCounts {
@@ -100,6 +100,7 @@ const ZH_SOURCE: Record<string, string> = {
   config: '配置文件',
   cli: '命令行',
   'built-in': '内置',
+  unprobed: '未探测',
 };
 
 const TYPED_GLOSS: Record<string, string> = {
@@ -254,7 +255,13 @@ const FIELDS = {
   maxOutput: [
     'max output',
     (c: ResolvedCliConfig) =>
-      `${c.maxOutputTokens ?? 'derived from context window (contextTokens/4, cap 8k)'}`,
+      `${
+        c.maxOutputTokens ??
+        uiText(
+          'derived from context window (contextTokens/4, cap 8k)',
+          '由上下文窗口推算（contextTokens/4，上限 8k）'
+        )
+      }`,
   ],
   compaction: [
     'compaction',
@@ -270,6 +277,7 @@ export type SnapshotField = keyof typeof FIELDS;
  * Snapshot lines in one of two styles: `labeled` (interactive views, keys
  * aligned via ui.label) or `plain` (`key: value`, for headless output).
  */
+
 export function configSnapshotLines(
   config: ResolvedCliConfig,
   fields: readonly SnapshotField[],

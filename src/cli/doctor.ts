@@ -11,6 +11,7 @@ import type { ResolvedCliConfig } from './config.js';
 import { humanTokens } from './tui-utils.js';
 import { MIN_NODE_MAJOR, MIN_NODE_MINOR, nodeVersionProblem } from './node-version-check.js';
 import { errorMessage } from '../errors.js';
+import { uiText } from '../utils/ui-language.js';
 import {
   getRecentFailoverEvents,
   parseFallbackProvidersEnv,
@@ -390,12 +391,21 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
       if (src === 'unprobed') {
         lines.push(
           warn(
-            'context window',
-            `not yet probed — using conservative default of ${humanTokens(tokens)} tokens`
+            uiText('context window', '上下文窗口'),
+            uiText(
+              `not yet probed — using conservative default of ${humanTokens(tokens)} tokens`,
+              `尚未探测 — 正在使用保守默认值 ${humanTokens(tokens)} token`
+            )
           )
         );
         lines.push(
-          warn('', '  Run /model to auto-probe, or set agent.contextTokens in moss config')
+          warn(
+            '',
+            uiText(
+              '  Run /model to auto-probe, or set agent.contextTokens in moss config',
+              '  运行 /model 自动探测，或在 moss 配置里设置 agent.contextTokens'
+            )
+          )
         );
       } else if (src === 'provider-api') {
         lines.push(ok('context window', `${humanTokens(tokens)} tokens (provider-api)`));

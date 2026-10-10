@@ -34,7 +34,6 @@ import {
 } from '../context/stale-read-invalidate.js';
 import { deviceEnvFootnote } from '../utils/safe-child-env.js';
 import { createRedactingChunkWriter } from '../safety/tool-output-redact.js';
-import { commandMentionsMossCredential } from '../safety/read-scope.js';
 import {
   filesWithIncreasedPlaceholderCount,
   formatRedactedWritebackWarning,
@@ -158,7 +157,7 @@ export const execTool: Tool = {
       ctx.workspaceDir,
       extractShellMutationPaths(commandText)
     );
-    const hideCredentialStream = commandMentionsMossCredential(commandText);
+    const hideCredentialStream = /\.apikey-key\b/.test(commandText);
     const streamer = hideCredentialStream ? null : createRedactingChunkWriter(ctx.onToolOutput);
     const footnote = deviceEnvFootnote(String(input.command ?? ''));
     try {
@@ -269,6 +268,7 @@ import { applyPatchTool } from './patch-tool.js';
 import { todoWriteTool } from './todo-tool.js';
 import { askUserQuestionTool } from './ask-user-question.js';
 import { exitPlanTool, planGateEnabled } from './plan-gate.js';
+import { toolSearchTool } from './tool-search.js';
 
 // Tool naming convention:
 // - Function/const names use camelCase (e.g., editFileTool, webFetchTool)
@@ -293,6 +293,7 @@ export const builtinTools: Tool[] = [
   webSearchTool,
   applyPatchTool,
   codeDiagnosticsTool,
+  toolSearchTool,
   createSubagentTool,
   mergeSubagentPatchTool,
   fanOutSubagentsTool,

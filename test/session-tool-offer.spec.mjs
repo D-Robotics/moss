@@ -11,6 +11,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { messageRequestsTaskContract } from '../dist/cli/task-flow.js';
 import { toolVisibleForRun } from '../dist/core/agent/session-tool-offer.js';
 import { MossAgent } from '../dist/core/agent/moss-agent.js';
 import { InMemorySessionStore } from '../dist/core/session/session.js';
@@ -19,7 +20,7 @@ import { configureDefaultDeviceTarget } from '../dist/device/device-target.js';
 import { deviceTools } from '../dist/tools/device-tools.js';
 import { recordEvidenceTool } from '../dist/tools/evidence-tools.js';
 import { readFileTool } from '../dist/tools/file-tools.js';
-import { taskDefineTool } from '../dist/tools/task-tools.js';
+import { taskTools } from '../dist/tools/task-tools.js';
 import { runOneShot } from '../dist/cli/oneshot.js';
 
 const DEVICE_NAMES = new Set(DEVICE_TOOL_NAMES);
@@ -57,7 +58,7 @@ function makeAgent(provider, workspaceDir) {
     enableFollowUpGuard: false,
     maxAgentTurns: 2,
   });
-  for (const tool of [readFileTool, taskDefineTool, recordEvidenceTool, ...deviceTools]) {
+  for (const tool of [readFileTool, recordEvidenceTool, ...taskTools, ...deviceTools]) {
     agent.tools.register(tool);
   }
   return agent;
@@ -80,6 +81,8 @@ test('tool visibility: no device hides device tools; plain Q&A hides the ledger'
   assert.equal(toolVisibleForRun('record_failure', { taskFlow: false }), false);
   assert.equal(toolVisibleForRun('record_repair', { taskFlow: false }), false);
   assert.equal(toolVisibleForRun('record_evidence', {}), true);
+  assert.equal(toolVisibleForRun('task_acceptance', {}), true);
+  assert.equal(toolVisibleForRun('record_failure', { taskFlow: true }), true);
   assert.equal(toolVisibleForRun('task_define', { taskFlow: true }), true);
   assert.equal(toolVisibleForRun('task_acceptance', {}), true);
   assert.equal(toolVisibleForRun('search_code', { deviceConfigured: false }), true);
@@ -161,6 +164,73 @@ test('plain Q&A does not receive a task-phase prompt', async () => {
     assert.doesNotMatch(transcript, /Continue the goal/);
     assert.match(transcript, /camera pinout/);
   } finally {
+    await agent.close();
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
+const TASK_LEDGER = [
+  'task_define',
+  'task_acceptance',
+  'task_plan_update',
+  'record_evidence',
+  'record_failure',
+  'record_repair',
+];
+
+test('interactive /goal and /task offer the task ledger on the first model call', async () => {
+  const ws = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-goal-ledger-'));
+  const savedHost = process.env.MOSS_DEVICE_HOST;
+  delete process.env.MOSS_DEVICE_HOST;
+  configureDefaultDeviceTarget(null);
+  try {
+    for (const message of ['/goal ship the parser', '/task inspect the board']) {
+      const seen = [];
+      const agent = makeAgent(capturingProvider(seen), ws);
+      const taskFlow = messageRequestsTaskContract(message);
+      assert.equal(taskFlow, true, message);
+      try {
+        await agent.chat(`ledger-${message}`, message, { taskFlow });
+        assert.equal(seen.length >= 1, true, `${message} reaches the model`);
+        const names = seen[0]?.tools ?? [];
+        for (const name of TASK_LEDGER) {
+          assert.ok(names.includes(name), `${message} first call includes ${name}`);
+        }
+      } finally {
+        await agent.close();
+      }
+    }
+  } finally {
+    configureDefaultDeviceTarget(null);
+    if (savedHost === undefined) delete process.env.MOSS_DEVICE_HOST;
+    else process.env.MOSS_DEVICE_HOST = savedHost;
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
+test('task tools stay offered once a session has shown them', async () => {
+  const ws = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-sticky-ledger-'));
+  const savedHost = process.env.MOSS_DEVICE_HOST;
+  delete process.env.MOSS_DEVICE_HOST;
+  configureDefaultDeviceTarget(null);
+  const seen = [];
+  const agent = makeAgent(capturingProvider(seen), ws);
+  try {
+    await agent.chat('sticky', 'Look up the camera pinout.', { taskFlow: false });
+    assert.ok(!(seen[0]?.tools ?? []).includes('task_define'));
+    seen.length = 0;
+    await agent.chat('sticky', '/goal ship it', { taskFlow: true });
+    assert.ok((seen[0]?.tools ?? []).includes('task_define'));
+    assert.ok((seen[0]?.tools ?? []).includes('record_evidence'));
+    seen.length = 0;
+    await agent.chat('sticky', 'what is the pinout?', { taskFlow: false });
+    const names = seen[0]?.tools ?? [];
+    assert.ok(names.includes('task_define'), 'a later Q&A turn keeps task_define');
+    assert.ok(names.includes('record_evidence'), 'a later Q&A turn keeps record_evidence');
+  } finally {
+    configureDefaultDeviceTarget(null);
+    if (savedHost === undefined) delete process.env.MOSS_DEVICE_HOST;
+    else process.env.MOSS_DEVICE_HOST = savedHost;
     await agent.close();
     await fs.rm(ws, { recursive: true, force: true });
   }
