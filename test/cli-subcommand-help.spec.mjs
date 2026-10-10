@@ -23,6 +23,7 @@ const OWN_OPTIONS = {
   doctor: ['--verbose', '--cd'],
   update: ['npm install -g', 'git pull', '--dir'],
   trust: ['list', 'remove'],
+  uninstall: ['HOME'],
   resume: ['--last', '--session'],
   fork: ['--fork-from'],
   mcp: ['--header', '--project'],

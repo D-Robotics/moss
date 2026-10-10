@@ -378,6 +378,16 @@ export const COMMANDS: Record<string, CommandConfig> = {
     },
   },
 
+  uninstall: {
+    name: 'uninstall',
+    phase: CliPhase.None,
+    description: 'Print removal paths and optionally delete the config directory',
+    handler: async () => {
+      const { runUninstall } = await import('./uninstall.js');
+      await runUninstall();
+    },
+  },
+
   auth: {
     name: 'auth',
     phase: CliPhase.ConfigOnly,

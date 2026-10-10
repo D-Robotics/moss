@@ -196,6 +196,30 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   '  2. If the problem persists, report it to the Moss maintainers with the details below.':
     '  2. 如果问题还在，把下面的细节发给 Moss 维护者。',
   'Technical details (for bug reports):': '技术细节（用于 bug 报告）：',
+  'Refusing to delete config: {path} is the home directory.': '拒绝删除配置：{path} 是主目录。',
+  'Refusing to delete config: {path} is the filesystem root.':
+    '拒绝删除配置：{path} 是文件系统根目录。',
+  'Refusing to delete config: {path} is the current directory.':
+    '拒绝删除配置：{path} 是当前目录。',
+  'Refusing to delete config: {path} is a parent of the home directory.':
+    '拒绝删除配置：{path} 是主目录的上级目录。',
+  'Refusing to delete config: {path} is a parent of the current directory.':
+    '拒绝删除配置：{path} 是当前目录的上级目录。',
+  'Refusing to delete config: {path} is not a directory.': '拒绝删除配置：{path} 不是目录。',
+  'Refusing to delete config: {path} is not a Moss config directory.':
+    '拒绝删除配置：{path} 不是 Moss 配置目录。',
+  'Refusing to delete config: {path} is not a Moss config directory (unexpected: {names}).':
+    '拒绝删除配置：{path} 不是 Moss 配置目录（有意外内容：{names}）。',
+  'Refusing to delete config: {path} is not a Moss config directory (no Moss config files).':
+    '拒绝删除配置：{path} 不是 Moss 配置目录（没有 Moss 配置文件）。',
+  'Config directory is not present: {path}': '配置目录不存在：{path}',
+  'Will delete:': '将删除：',
+  'Kept config: {path} (re-run in a terminal to confirm deletion).':
+    '已保留配置：{path}（在终端里重新运行以确认删除）。',
+  'Delete these files in {path}? [y/N] ': '删除 {path} 里的这些文件？[y/N] ',
+  'Kept config: {path}': '已保留配置：{path}',
+  'Could not delete config: {path}': '无法删除配置：{path}',
+  'Deleted config: {path}': '已删除配置：{path}',
 };
 
 /** Localized setup, doctor, and startup copy. English is the key. */

@@ -26,7 +26,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Tool } from '../core/tools/tool-types.js';
-import { runProcess } from '../utils/run-process.js';
+import { ProcessError, runProcess } from '../utils/run-process.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { errorMessage } from '../errors.js';
 
@@ -123,11 +123,13 @@ export function createFileBasedTool(def: FileBasedToolDefinition): Tool {
         }
         return out || '(no output)';
       } catch (err) {
-        const anyErr = err as { stdout?: string; stderr?: string; exitCode?: number };
-        if (anyErr.stdout !== undefined) {
-          const out = (anyErr.stdout || '').trim();
-          const e = (anyErr.stderr || '').trim();
-          return `Command failed (exit ${anyErr.exitCode}):\n${out || e || '(no output)'}`;
+        if (err instanceof ProcessError) {
+          const out = err.stdout.trim();
+          const detail = err.stderr.trim();
+          const body = out || detail || '(no output)';
+          if (err.signal) return `Command killed by ${err.signal}:\n${body}`;
+          if (err.exitCode === null) return `Command failed:\n${body}`;
+          return `Command failed (exit ${err.exitCode}):\n${body}`;
         }
         return `Error running ${def.name}: ${errorMessage(err)}`;
       }

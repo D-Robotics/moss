@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 
-import { parseCliArgs, closestKnownCommand } from '../dist/cli/args.js';
+import { parseCliArgs, closestKnownCommand, shouldOpenResumePicker } from '../dist/cli/args.js';
 
 // ─── Version and help flags ──────────────────────────────────────────────────
 
@@ -257,6 +257,39 @@ assert.equal(closestKnownCommand(''), null, 'empty string returns null');
   const args = parseCliArgs(['--hepl']);
   assert.ok(args.unknownOption, '--hepl triggers unknown option detection');
   assert.equal(args.unknownOption, '--hepl');
+}
+
+{
+  const args = parseCliArgs(['resume', '--last', 'again']);
+  assert.equal(args.command, 'resume');
+  assert.equal(args.sessionLast, true);
+  assert.equal(args.sessionKey, undefined);
+  assert.equal(args.prompt, 'again');
+  const fork = parseCliArgs(['fork', '--last', 'again']);
+  assert.equal(fork.forkSource, undefined);
+  assert.equal(fork.prompt, 'again');
+  assert.equal(
+    shouldOpenResumePicker({
+      command: 'resume',
+      sessionLast: true,
+      continueLast: false,
+      print: false,
+      stdoutIsTTY: true,
+      noTui: false,
+    }),
+    false
+  );
+  assert.equal(
+    shouldOpenResumePicker({
+      command: 'resume',
+      sessionLast: false,
+      continueLast: false,
+      print: false,
+      stdoutIsTTY: true,
+      noTui: false,
+    }),
+    true
+  );
 }
 
 console.log('[PASS] CLI argument parsing');

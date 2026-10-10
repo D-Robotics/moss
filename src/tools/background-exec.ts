@@ -313,7 +313,8 @@ export const execBackgroundTool: Tool = {
     if (proc.status === 'error') {
       return `Background command ${id} failed to start: ${proc.errorMessage}${outputSection}${footnote}${hooksNotice(proc.buffer)}`;
     }
-    return `Background command ${id} exited immediately (exit ${proc.exitCode}${proc.signal ? `, signal ${proc.signal}` : ''}).${outputSection}${footnote}${hooksNotice(proc.buffer)}`;
+    const how = proc.signal ? `killed by ${proc.signal}` : `exit ${proc.exitCode ?? '?'}`;
+    return `Background command ${id} exited immediately (${how}).${outputSection}${footnote}${hooksNotice(proc.buffer)}`;
   },
 };
 

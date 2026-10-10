@@ -208,6 +208,11 @@ export class McpToolRegistry {
       entry.status.toolCount = this.exposedToolCount(entry);
       log.debug('server connected', { server: entry.config.name, tools: tools.length });
     } catch (err) {
+      if (entry.client.isClosing) {
+        entry.status.state = 'closed';
+        entry.status.error = undefined;
+        return;
+      }
       entry.status.state = 'failed';
       entry.status.error =
         errorMessage(err).split('\n')[0] ?? uiText('connection failed', '连接失败');

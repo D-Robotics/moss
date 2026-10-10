@@ -53,6 +53,8 @@ export class McpStdioTransport implements McpTransport {
 
   private _state: McpConnectionState = 'disconnected';
   private _lastError: string | undefined;
+  /** Set at the start of close() so a connect still in flight is not a failure. */
+  private intentionalClose = false;
 
   constructor(private readonly config: McpServerConfig) {}
 
@@ -65,6 +67,14 @@ export class McpStdioTransport implements McpTransport {
   }
 
   async start(_timeoutMs: number): Promise<void> {
+    if (this.intentionalClose) {
+      this._state = 'closed';
+      throw new MossError({
+        code: ErrorCode.TOOL_EXECUTION_FAILED,
+        message: `mcp server "${this.config.name}" connection closed`,
+        recoverable: false,
+      });
+    }
     if (this._state === 'connected' || this._state === 'connecting') return;
     if (this._state === 'closed') {
       throw new MossError({
@@ -157,6 +167,10 @@ export class McpStdioTransport implements McpTransport {
     try {
       await Promise.race([spawned, exited]);
     } catch (err) {
+      if (this.intentionalClose) {
+        this._state = 'closed';
+        throw err;
+      }
       this._state = 'failed';
       if (!this._lastError) this._lastError = errorMessage(err);
       this.failAllPending(
@@ -369,6 +383,7 @@ export class McpStdioTransport implements McpTransport {
   }
 
   async close(): Promise<void> {
+    this.intentionalClose = true;
     if (this._state === 'closed' || this._state === 'disconnected') {
       this._state = 'closed';
       return;

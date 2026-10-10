@@ -46,6 +46,7 @@ import { isFolderTrusted, folderPathKey } from './folder-trust-store.js';
 import {
   captureEnvBeforeDotenv,
   envBeforeDotenv,
+  isStartupEnvCaptured,
   recordDotenvOrigin,
 } from '../utils/startup-env.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
@@ -1400,6 +1401,10 @@ export interface ResolvedCliConfig {
   providerSource: string;
   apiKey: string;
   apiKeySource: string;
+  /** User-file `apiKeyEnv`, when that file names a variable. */
+  apiKeyEnv?: string;
+  /** The named variable is absent. Do not fall through to a stored or provider key. */
+  apiKeyEnvUnset?: boolean;
 
   usingBundledDefault: boolean;
 
@@ -1693,6 +1698,14 @@ function userDeclaresEndpoint(config: ConfigFile | undefined): boolean {
   return config?.provider !== undefined || config?.baseUrl !== undefined;
 }
 
+/** Named and auto keys come from the process env captured before project `.env`. */
+function credentialEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (isStartupEnvCaptured() && (env === process.env || env === envBeforeDotenv)) {
+    return envBeforeDotenv;
+  }
+  return env;
+}
+
 /**
  * An env key is sent only in two cases:
  * - the user file names `apiKeyEnv` AND a provider or base URL, or
@@ -1715,7 +1728,7 @@ function apiKeyFromEnv(
   const named = namedEnvVar(userConfig);
   if (named && !userDeclaresEndpoint(userConfig)) return undefined;
   if (named) {
-    const value = (env[named] ?? '').trim();
+    const value = (credentialEnv(env)[named] ?? '').trim();
     if (value) return { apiKey: value, source: `env:${named}` };
   }
   if ((activeConfig.apiKey ?? '').trim()) return undefined;
@@ -2189,24 +2202,32 @@ export function resolveCliConfig(
   const baseUrl = namedWithoutEndpoint
     ? ''
     : overrides.baseUrl || activeConfig.baseUrl || preset.defaultBaseUrl;
-  const envKey = namedWithoutEndpoint
-    ? undefined
-    : apiKeyFromEnv(activeConfig, userLayer, configPaths?.projectConfig, env, provider, baseUrl);
+  const userNamed = namedEnvVar(userLayer);
+  const projectEndpoint = projectDeclaresEndpoint(configPaths?.projectConfig);
+  const namedMissing =
+    userNamed.length > 0 && !projectEndpoint && !(credentialEnv(env)[userNamed] ?? '').trim();
+  const envKey =
+    namedWithoutEndpoint || namedMissing
+      ? undefined
+      : apiKeyFromEnv(activeConfig, userLayer, configPaths?.projectConfig, env, provider, baseUrl);
   return {
     profile,
     profileSource,
     provider,
     providerSource,
-    apiKey: namedWithoutEndpoint ? '' : envKey?.apiKey || resolvedApiKey,
-    apiKeySource: namedWithoutEndpoint
-      ? 'missing'
-      : envKey
-        ? envKey.source
-        : resolvedApiKey
-          ? apiKeyFromProjectEnv
-            ? fileLayer('apiKey')
-            : activeConfigSource('apiKey')
-          : 'missing',
+    apiKey: namedWithoutEndpoint || namedMissing ? '' : envKey?.apiKey || resolvedApiKey,
+    apiKeySource:
+      namedWithoutEndpoint || namedMissing
+        ? 'missing'
+        : envKey
+          ? envKey.source
+          : resolvedApiKey
+            ? apiKeyFromProjectEnv
+              ? fileLayer('apiKey')
+              : activeConfigSource('apiKey')
+            : 'missing',
+    ...(userNamed && !projectEndpoint ? { apiKeyEnv: userNamed } : {}),
+    ...(namedMissing ? { apiKeyEnvUnset: true } : {}),
     usingBundledDefault,
     ...(bundledDefaultSuppressedBy ? { bundledDefaultSuppressedBy } : {}),
     ignoredModelEnvVars,
