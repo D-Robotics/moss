@@ -445,7 +445,7 @@ export function renderAuthDoctorLine(
                   ? doctorL('stored in config file (0600)')
                   : doctorL('plain text')
               }`,
-              `${config.apiKeySource === 'config' ? '配置文件' : config.apiKeySource}，${
+              `${localizeConfigSource(config.apiKeySource)}，${
                 config.apiKeyEncrypted
                   ? doctorL('stored in config file (0600)')
                   : doctorL('plain text')

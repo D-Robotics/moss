@@ -34,6 +34,7 @@ import {
 } from './interaction-mode.js';
 import { isDotenvDeniedEnvKey } from '../utils/dotenv-denied-env.js';
 import { uiText } from '../utils/ui-language.js';
+import { zhConfigSource } from './config-source-label.js';
 import { isProjectRoutingEnvKey } from '../utils/project-routing-env.js';
 import { getPackageJsonPath } from '../utils/package-info.js';
 import {
@@ -1355,19 +1356,7 @@ function findConflictingToolPatterns(
 }
 
 function zhAuditSource(source: string): string {
-  const known: Record<string, string> = {
-    config: '配置文件',
-    default: '默认',
-    'derived:mode': '由权限模式推导',
-    cli: '命令行',
-    missing: '缺失',
-    unconfigured: '未配置',
-    unprobed: '未探测',
-  };
-  if (known[source]) return known[source];
-  if (source.startsWith('env:')) return `环境变量 ${source.slice(4)}`;
-  if (source.startsWith('MOSS_')) return `环境变量 ${source}`;
-  return source;
+  return zhConfigSource(source);
 }
 
 export function auditResolvedCliConfig(

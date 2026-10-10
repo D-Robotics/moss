@@ -7,6 +7,7 @@ import { auditResolvedCliConfig, BASE_URL, type ResolvedCliConfig } from './conf
 import { buildApiV1Url } from '../provider/api-v1-url.js';
 import { isZhLocale, uiText } from './cli-locale.js';
 import { label } from './ui.js';
+import { zhConfigSource } from './config-source-label.js';
 import { workspaceWriteLimit } from './workspace-write-copy.js';
 
 export interface GuardrailCounts {
@@ -63,7 +64,7 @@ function apiKeyValue(c: ResolvedCliConfig): string {
     return zh ? '内置网关（共享 key）' : 'configured via built-in (shared gateway key)';
   }
   return zh
-    ? `来自 ${c.apiKeySource}，${c.apiKeyEncrypted ? '已存入配置文件（0600）' : '明文'}`
+    ? `来自 ${localizeConfigSource(c.apiKeySource)}，${c.apiKeyEncrypted ? '已存入配置文件（0600）' : '明文'}`
     : `configured via ${c.apiKeySource}, ${
         c.apiKeyEncrypted ? 'stored in config file (0600)' : 'plain text'
       }`;
@@ -97,34 +98,10 @@ function fieldLabel(key: string): string {
   return isZhLocale() ? (ZH_FIELD[key] ?? key) : key;
 }
 
-const ZH_SOURCE: Record<string, string> = {
-  default: '默认',
-  'provider default': '服务商默认',
-  unconfigured: '未配置',
-  'derived:mode': '由权限模式推导',
-  missing: '缺失',
-  config: '配置文件',
-  user: '用户',
-  project: '项目',
-  env: '环境变量',
-  cli: '命令行',
-  'built-in': '内置',
-  unprobed: '未探测',
-  cwd: '当前目录',
-  'provider-api': '服务商接口',
-};
-
 /** Doctor and onboarding reuse this map so a source id is not printed in English. */
 export function localizeConfigSource(source: string): string {
   if (!isZhLocale()) return source;
-  if (source.startsWith('env:')) return `环境变量 ${source.slice(4)}`;
-  if (source.startsWith('MOSS_')) return `环境变量 ${source}`;
-  if (source.startsWith('profile:')) {
-    const name = source.slice('profile:'.length);
-    const gloss = TYPED_GLOSS[name];
-    return gloss ? `配置档：${gloss}` : `配置档：${name}`;
-  }
-  return ZH_SOURCE[source] ?? source;
+  return zhConfigSource(source, (name) => TYPED_GLOSS[name] ?? name);
 }
 
 /** Gloss a typed config value. Unknown values stay literal. */
