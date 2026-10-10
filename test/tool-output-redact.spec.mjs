@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 /**
- * Key-name redaction table. `token:` / `password:` / `secret:` values are
- * replaced only when the value looks like a credential. Short and low-entropy
- * fixtures stay. Every real secret the older rule caught is still absent.
+ * Key-name redaction table. Password keys redact every real value.
+ * Token, key, secret, and auth keys use the credential-shape rule.
+ * `KEY=value` env dumps and credentials files use the password rule for
+ * every secret-named key.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { redactEgress } from '../dist/safety/tool-output-redact.js';
+import { presentToolOutput, redactEgress } from '../dist/safety/tool-output-redact.js';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-redact-shape-'));
 const env = { HOME: home, MOSS_CONFIG_DIR: path.join(home, 'empty-config') };
@@ -151,14 +152,39 @@ const table = [
   { line: 'token: ALPHA-7741', redact: false, note: 'bench fanout alpha' },
   { line: 'token: BETA-3305', redact: false, note: 'bench fanout beta' },
   { line: 'token: GAMMA-9926', redact: false, note: 'bench fanout gamma' },
-  { line: 'password: hashedPasswordValue', redact: false, note: 'camelCase identifier' },
+  {
+    line: 'password: hashedPasswordValue',
+    secret: 'hashedPasswordValue',
+    redact: true,
+    note: 'password key redacts a camelCase value',
+  },
   { line: 'token = someLongIdentifierName', redact: false, note: 'long identifier' },
-  { line: 'password: changeme', redact: false, note: 'changeme placeholder' },
-  { line: 'password: your-api-key', redact: false, note: 'your-api-key placeholder' },
-  { line: 'password: passwordpassword', redact: false, note: 'repeated word, low entropy' },
+  {
+    line: 'password: changeme',
+    secret: 'changeme',
+    redact: true,
+    note: 'changeme is a real password',
+  },
+  {
+    line: 'password: your-api-key',
+    secret: 'your-api-key',
+    redact: true,
+    note: 'word placeholder is a real password',
+  },
+  {
+    line: 'password: passwordpassword',
+    secret: 'passwordpassword',
+    redact: true,
+    note: 'repeated word on a password key',
+  },
   { line: 'token: count', redact: false, note: 'short word' },
   { line: 'token: test-fixture', redact: false, note: 'fixture word' },
-  { line: 'password: hunter2', redact: false, note: 'short password word' },
+  {
+    line: 'password: hunter2',
+    secret: 'hunter2',
+    redact: true,
+    note: 'short password word',
+  },
   { line: 'token: my-token', redact: false, note: 'short hyphenated word' },
   { line: 'secret: placeholder', redact: false, note: 'placeholder word' },
   { line: 'secret: todo', redact: false, note: 'todo placeholder' },
@@ -184,6 +210,24 @@ const table = [
     redact: false,
     note: 'source property chain',
   },
+  { line: 'password: sunrise', secret: 'sunrise', redact: true, note: 'board password sunrise' },
+  {
+    line: 'ROBOT_PASSWORD=sunrise',
+    secret: 'sunrise',
+    redact: true,
+    note: 'env password assignment',
+  },
+  { line: 'ssh_pass: root', secret: 'root', redact: true, note: 'pass suffix' },
+  { line: 'passwd=123456', secret: '123456', redact: true, note: 'short numeric password' },
+  { line: 'password: <your-password>', redact: false, note: 'angle-bracket password placeholder' },
+  { line: 'password=${DB_PASS}', redact: false, note: 'password env reference' },
+  { line: 'token: sunrise', redact: false, note: 'short token stays under the shape rule' },
+  {
+    line: 'TOKEN=sunrise',
+    secret: 'sunrise',
+    redact: true,
+    note: 'env dump uses the password rule for a secret-named key',
+  },
 ];
 
 for (const row of table) {
@@ -205,6 +249,44 @@ const knownLine = `token: ${KNOWN_SHORT}`;
 const knownOut = redactEgress(knownLine, knownEnv);
 assert.equal(knownOut.includes(KNOWN_SHORT), false, 'known env token value still leaks');
 assert.match(knownOut, /\[REDACTED\]/, 'known env token value is exact-matched');
+
+assert.equal(redactEgress('password: ***', env), 'password: ***');
+assert.equal(redactEgress('password: xxx', env), 'password: xxx');
+assert.equal(redactEgress('password=$DB_PASS', env), 'password=$DB_PASS');
+
+const credBody = '     1\ttoken: sunrise\n     2\tclient_id: app\n';
+const credOut = presentToolOutput({
+  toolName: 'read_file',
+  input: { path: 'service.credentials' },
+  text: credBody,
+  env,
+  workspaceDir: home,
+});
+assert.equal(credOut, '     1\ttoken: [REDACTED]\n     2\tclient_id: app\n');
+const plainOut = presentToolOutput({
+  toolName: 'read_file',
+  input: { path: 'info.txt' },
+  text: credBody,
+  env,
+  workspaceDir: home,
+});
+assert.equal(plainOut, credBody);
+const envCat = presentToolOutput({
+  toolName: 'exec',
+  input: { command: 'cat .env' },
+  text: 'API_KEY=sunrise\nNOTE=sunrise\n',
+  env,
+  workspaceDir: home,
+});
+assert.equal(envCat, 'API_KEY=[REDACTED]\nNOTE=sunrise\n');
+const notCred = presentToolOutput({
+  toolName: 'exec',
+  input: { command: 'cat .environment' },
+  text: 'token: sunrise\n',
+  env,
+  workspaceDir: home,
+});
+assert.equal(notCred, 'token: sunrise\n');
 
 assert.equal(table.length >= 30, true, 'redaction table covers at least 30 values');
 console.log(`[PASS] tool-output redaction table (${table.length} values)`);

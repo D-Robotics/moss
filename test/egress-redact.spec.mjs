@@ -586,13 +586,18 @@ try {
   assert.match(splitOut, /\[REDACTED\]/);
 
   const source = 'password: hashedPasswordValue,\ntoken = someLongIdentifierName\n';
-  assert.equal(redactEgress(source), source, 'bare identifiers stay in source');
+  const sourceRedacted = 'password: [REDACTED],\ntoken = someLongIdentifierName\n';
+  assert.equal(
+    redactEgress(source),
+    sourceRedacted,
+    'password values redact; a token identifier stays'
+  );
   fs.writeFileSync(path.join(project, 'idents.ts'), source);
   const sourceRead = await readFileTool.execute({ path: 'idents.ts' }, ctx());
   const sourceView = modelView('read_file', { path: 'idents.ts' }, sourceRead);
-  assert.match(sourceView, /hashedPasswordValue/);
+  assert.doesNotMatch(sourceView, /hashedPasswordValue/);
   assert.match(sourceView, /someLongIdentifierName/);
-  assert.doesNotMatch(sourceView, /\[REDACTED\]/);
+  assert.match(sourceView, /\[REDACTED\]/);
   const roundTrip = await writeFileTool.execute({ path: 'idents.ts', content: source }, ctx());
   assert.match(String(roundTrip), /Successfully wrote/);
   assert.equal(fs.readFileSync(path.join(project, 'idents.ts'), 'utf8'), source);
