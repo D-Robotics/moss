@@ -26,8 +26,8 @@
  * (`shellGitConfigPairs`) and injects it with `GIT_CONFIG_*` instead of argv.
  * That shell overrides credential, ssh, pager, and fsmonitor only when the
  * repo itself sets them, then restores the user's global and system values.
- * A local `diff.external` is left unset: an empty value still execs, and the
- * shell must not rewrite the command.
+ * A local `diff.external` or `diff.<name>.command` is pointed at a builtin
+ * diff script when `sh` is available. Without `sh` those keys stay unset.
  */
 import { ProcessError, runProcess, type RunProcessResult } from './run-process.js';
 import { safeChildEnv } from './safe-child-env.js';
@@ -75,10 +75,11 @@ const EXEC_CONFIG_KEY =
 /**
  * Git matches `--get-regexp` against the canonical lowercase key, so
  * `sshCommand` and `hooksPath` are lowercase here. `diff.external` is
- * included so the shell can see a local value; it is not turned into an
- * override. `executableConfigKeys` stays case-sensitive so a real
- * `core.hookspath` line is not blanked to an empty path on Moss's own git
- * children (those already force `core.hooksPath` to `/dev/null`).
+ * included so the shell can see a local value. `executableConfigKeys` does
+ * not blank it (an empty value still execs); the shell points it at the
+ * builtin diff script instead. `executableConfigKeys` stays case-sensitive
+ * so a real `core.hookspath` line is not blanked to an empty path on Moss's
+ * own git children (those already force `core.hooksPath` to `/dev/null`).
  */
 const EXEC_CONFIG_REGEXP =
   '^(filter\\..*\\.(clean|smudge|process)|diff\\..*\\.(textconv|command)|diff\\.external|core\\.(fsmonitor|hookspath|sshcommand|pager)|credential\\.helper)$';
@@ -187,37 +188,59 @@ function userScopeValues(lines: readonly ScopedConfigLine[], key: string): strin
   return values;
 }
 
+const DIFF_COMMAND_KEY = /^diff\..+\.command$/i;
+
 export interface ShellGitConfigOptions {
   /**
    * True when `.git/hooks` (or the common git dir's hooks) contains an
    * executable file whose name does not end in `.sample`.
    */
   executableHooks?: boolean;
+  /**
+   * Absolute path of the builtin external-diff script. Omit it (or pass
+   * nothing) when `sh` is unavailable: local `diff.external` and
+   * `diff.<name>.command` are then left unset.
+   */
+  builtinDiff?: string;
+}
+
+/** True when local or worktree config defines `diff.external` or `diff.<name>.command`. */
+export function hasLocalExternalDiff(stdout: string): boolean {
+  return parseScopedConfigLines(stdout).some(
+    (line) =>
+      OVERRIDE_SCOPES.has(line.scope) &&
+      (/^diff\.external$/i.test(line.key) || DIFF_COMMAND_KEY.test(line.key))
+  );
 }
 
 /**
  * Env-config pairs for a model shell in an untrusted workspace.
  *
- * `credential.helper`, `core.sshCommand`, `core.pager`, `core.fsmonitor`, and
- * `diff.external` are overridden only when that key is set in `local` or
- * `worktree` scope (including config included from those files). An untrusted
- * repo is the common case of a user's own checkout with no explicit trust
- * grant, so a global helper or ssh command must keep working.
+ * `credential.helper`, `core.sshCommand`, `core.pager`, and `core.fsmonitor`
+ * are overridden only when that key is set in `local` or `worktree` scope
+ * (including config included from those files). An untrusted repo is the
+ * common case of a user's own checkout with no explicit trust grant, so a
+ * global helper or ssh command must keep working.
  *
  * `credential.helper` is multi-valued: an empty value clears the list,
  * including global helpers, so the empty reset is followed by the user's
  * global and system helpers in listing order. `core.sshCommand`,
  * `core.fsmonitor`, and `core.pager` are single-valued; the override is the
  * last global or system value, or empty / empty / `cat` when the user has
- * none. `core.hooksPath` is forced to `/dev/null` (`NUL` on Windows) only
- * when the repo sets it or has an executable non-sample hook; a global
- * hooks path is left alone.
+ * none.
  *
- * Local `diff.external` is a known gap. An empty value still execs (`cannot
- * run`), and git-spawn only clears it together with `--no-ext-diff`. The
- * shell must not rewrite the command, so a repo-defined external diff still
- * runs. The same is true of `diff.<name>.command`. Filter drivers and
- * `textconv` are `cat` (an empty `textconv` makes `git diff` fail) and
+ * `core.hooksPath` is overridden only when the repo sets it, or when
+ * `.git/hooks` has an executable non-sample file and the user has no global
+ * or system hooks path (those hooks would run). A user hooks path is reused:
+ * git already ignores `.git/hooks` in that case, and a local `core.hooksPath`
+ * is replaced with the user's value instead of `/dev/null`. `/dev/null`
+ * (`NUL` on Windows) is used only when the user has no hooks path.
+ *
+ * Local `diff.external` and `diff.<name>.command` are pointed at
+ * `builtinDiff`, which reproduces `git diff --no-ext-diff`. They are not
+ * given the user's global external diff, and they are left unset when no
+ * builtin script is available. Filter drivers and `textconv` are `cat`
+ * (an empty `textconv` makes `git diff` fail) and
  * `filter.<name>.required=false`.
  */
 export function shellGitConfigPairs(
@@ -233,10 +256,13 @@ export function shellGitConfigPairs(
     seen.add(id);
     pairs.push({ key, value });
   };
+  const externalDiff: string[] = [];
   for (const line of lines) {
     if (!OVERRIDE_SCOPES.has(line.scope)) continue;
-    if (/^diff\.external$/i.test(line.key)) continue;
-    if (/^diff\..+\.command$/i.test(line.key)) continue;
+    if (/^diff\.external$/i.test(line.key) || DIFF_COMMAND_KEY.test(line.key)) {
+      externalDiff.push(line.key);
+      continue;
+    }
     const driver = FILTER_DRIVER.exec(line.key);
     if (driver?.[1]) {
       add(line.key, 'cat');
@@ -244,6 +270,9 @@ export function shellGitConfigPairs(
       continue;
     }
     if (TEXTCONV_KEY.test(line.key)) add(line.key, 'cat');
+  }
+  if (options?.builtinDiff) {
+    for (const key of externalDiff) add(key, options.builtinDiff);
   }
   const single: { name: string; fallback: string }[] = [
     { name: 'core.sshCommand', fallback: '' },
@@ -262,7 +291,11 @@ export function shellGitConfigPairs(
       pairs.push({ key: 'credential.helper', value });
     }
   }
-  if (options?.executableHooks || hasLocalKey(lines, 'core.hooksPath')) {
+  const userHooks = userScopeValues(lines, 'core.hooksPath');
+  const userHooksPath = userHooks.length > 0 ? userHooks[userHooks.length - 1] : undefined;
+  if (hasLocalKey(lines, 'core.hooksPath')) {
+    add('core.hooksPath', userHooksPath === undefined ? HOOKS_PATH : userHooksPath);
+  } else if (options?.executableHooks && userHooksPath === undefined) {
     add('core.hooksPath', HOOKS_PATH);
   }
   return pairs;

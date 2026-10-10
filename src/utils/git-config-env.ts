@@ -7,13 +7,20 @@
  * dir, config mtime (and size), hooks directory, and the user/system git
  * config files the pairs may quote. A discovery failure does not invent
  * credential, ssh, pager, or fsmonitor overrides. An executable non-sample
- * hook still disables `core.hooksPath`, because that is visible without
- * config discovery.
+ * hook disables `core.hooksPath` only when the user has no global or system
+ * hooks path. A local `diff.external` is pointed at the builtin diff script
+ * when `sh` is available.
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { listLocalExecutableConfig, shellGitConfigPairs, type GitConfigPair } from './git-spawn.js';
+import { builtinExternalDiffCommand } from './git-builtin-diff.js';
+import {
+  hasLocalExternalDiff,
+  listLocalExecutableConfig,
+  shellGitConfigPairs,
+  type GitConfigPair,
+} from './git-spawn.js';
 
 export type { GitConfigPair };
 
@@ -198,7 +205,13 @@ async function loadPairs(
   const executableHooks = layout ? repoHasExecutableHooks(layout) : false;
   try {
     const stdout = await listLocalExecutableConfig(cwd, signal);
-    return { pairs: shellGitConfigPairs(stdout, { executableHooks }), cacheable: true };
+    const builtinDiff = hasLocalExternalDiff(stdout)
+      ? (builtinExternalDiffCommand() ?? undefined)
+      : undefined;
+    return {
+      pairs: shellGitConfigPairs(stdout, { executableHooks, builtinDiff }),
+      cacheable: true,
+    };
   } catch {
     return { pairs: shellGitConfigPairs('', { executableHooks }), cacheable: false };
   }

@@ -34,7 +34,7 @@ import {
   type BackgroundProc,
   type BackgroundWaitMode,
 } from '../core/tools/background-process-registry.js';
-import { childEnv, EXEC_DEFAULT_TIMEOUT_MS } from './tool-helpers.js';
+import { EXEC_DEFAULT_TIMEOUT_MS, openChildEnv, takeRepoHooksNotice } from './tool-helpers.js';
 
 /**
  * Wait out a background command only for the runTask/resumeTask that set
@@ -142,12 +142,14 @@ export const execBackgroundTool: Tool = {
     const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
     const args = IS_WIN ? ['/c', command] : ['-c', command];
 
+    const opened = await openChildEnv(ctx.workspaceDir, ctx.abortSignal);
+    const hooksNotice = (): string => takeRepoHooksNotice(ctx.sessionKey, opened.repoHooksSkipped);
     let child: ChildProcess;
     try {
       child = spawnProcess(shell, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         cwd: ctx.workspaceDir,
-        env: await childEnv(ctx.workspaceDir, ctx.abortSignal),
+        env: opened.env,
         detached: !IS_WIN,
         windowsHide: true,
       });
@@ -299,18 +301,18 @@ export const execBackgroundTool: Tool = {
         return (
           `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms — backgrounded at the wait timeout. ` +
           `Wait with exec_wait({"ids":["${id}"]}) before treating the goal as finished; ` +
-          `use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}`
+          `use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}${hooksNotice()}`
         );
       }
-      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. You will be notified when it finishes; use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}`;
+      return `Started ${id} (pid ${proc.pid}). Still running after ${settleMs}ms. You will be notified when it finishes; use exec_logs("${id}") to monitor and exec_stop("${id}") to terminate.${outputSection}${footnote}${hooksNotice()}`;
     }
     // Terminal during settle — already fully reported in this tool result; suppress
     // a later system-reminder duplicate (lifecycle already enqueued the snapshot).
     markBackgroundIdReported(id);
     if (proc.status === 'error') {
-      return `Background command ${id} failed to start: ${proc.errorMessage}${outputSection}${footnote}`;
+      return `Background command ${id} failed to start: ${proc.errorMessage}${outputSection}${footnote}${hooksNotice()}`;
     }
-    return `Background command ${id} exited immediately (exit ${proc.exitCode}${proc.signal ? `, signal ${proc.signal}` : ''}).${outputSection}${footnote}`;
+    return `Background command ${id} exited immediately (exit ${proc.exitCode}${proc.signal ? `, signal ${proc.signal}` : ''}).${outputSection}${footnote}${hooksNotice()}`;
   },
 };
 

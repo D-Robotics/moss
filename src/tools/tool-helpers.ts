@@ -221,22 +221,56 @@ export function looksBinary(text: string): boolean {
   return nonPrintable / sample.length > 0.1;
 }
 
+export interface OpenedChildEnv {
+  env: Record<string, string>;
+  /** Moss replaced or disabled this repo's hooks for the child. */
+  repoHooksSkipped: boolean;
+}
+
+const repoHooksNotified = new Set<string>();
+
+/**
+ * One line the first time this session skips repo hooks. Empty afterwards.
+ * Chinese when `LC_ALL` / `LC_MESSAGES` / `LANG` starts with `zh`.
+ */
+export function takeRepoHooksNotice(sessionKey: string | undefined, skipped: boolean): string {
+  if (!skipped) return '';
+  const id = sessionKey?.trim() || '__moss_session__';
+  if (repoHooksNotified.has(id)) return '';
+  repoHooksNotified.add(id);
+  const locale = process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '';
+  const line = /^zh/i.test(locale)
+    ? '[moss] 未受信任工作区中的仓库钩子未运行。'
+    : '[moss] Repo hooks in an untrusted workspace were not run.';
+  return `\n\n${line}`;
+}
+
 /**
  * Child environment for model shells. Untrusted workspaces get git config
  * overrides appended to any `GIT_CONFIG_COUNT` the user already set. Trusted
- * workspaces are unchanged.
+ * workspaces are unchanged. `repoHooksSkipped` is true when this env disables
+ * the repo's own hooks.
  */
+export async function openChildEnv(
+  workspaceDir?: string,
+  signal?: AbortSignal
+): Promise<OpenedChildEnv> {
+  const env = safeChildEnv({ LANG: process.env.LANG || 'en_US.UTF-8' });
+  const dir =
+    typeof workspaceDir === 'string' && workspaceDir.trim() ? workspaceDir : process.cwd();
+  if (isWorkspaceTrusted(dir)) return { env, repoHooksSkipped: false };
+  const pairs = await untrustedShellGitConfig(dir, signal);
+  appendGitConfigEnv(env, pairs);
+  const repoHooksSkipped = pairs.some((pair) => pair.key.toLowerCase() === 'core.hookspath');
+  return { env, repoHooksSkipped };
+}
+
+/** {@link openChildEnv} without the hooks-skip flag. */
 export async function childEnv(
   workspaceDir?: string,
   signal?: AbortSignal
 ): Promise<Record<string, string>> {
-  const env = safeChildEnv({ LANG: process.env.LANG || 'en_US.UTF-8' });
-  const dir =
-    typeof workspaceDir === 'string' && workspaceDir.trim() ? workspaceDir : process.cwd();
-  if (isWorkspaceTrusted(dir)) return env;
-  const pairs = await untrustedShellGitConfig(dir, signal);
-  appendGitConfigEnv(env, pairs);
-  return env;
+  return (await openChildEnv(workspaceDir, signal)).env;
 }
 
 export async function safePath(inputPath: string, workspaceDir: string): Promise<string> {
