@@ -2731,8 +2731,6 @@ export function TuiAppRoot({
       const locale = options.locale ?? cliLocale();
       void settleFirstRunJob(view, job, setupSecretRef.current, locale).then((applied) => {
         if (generation !== setupJobRef.current) return;
-        if (job.type === 'models' && applied.view.step === 'key') setupSecretRef.current = '';
-        if (applied.clearSecret) setupSecretRef.current = '';
         if (applied.saved) {
           finishFirstRun(applied.saved);
           return;

@@ -220,52 +220,6 @@ export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {
   ].join('\n');
 }
 
-export function renderCliQuickStart(agent: MossAgent, runtime: CliRuntimeStatus = {}): string {
-  const rt = runtimeWithDefaults(runtime);
-  const auth = rt.config;
-  const toolNames = new Set(agent.tools.getNames());
-  const apiKeyState = auth.usingBundledDefault
-    ? 'built-in model (no model key required)'
-    : auth.apiKey
-      ? `configured via ${auth.apiKeySource}`
-      : 'missing';
-  const examples = [
-    'Analyze this project structure and point out the key entry files and next steps',
-    toolNames.has('exec')
-      ? 'Check which scripts package.json defines, then suggest one command to verify the project'
-      : null,
-    toolNames.has('search_code')
-      ? 'Find where the CLI parses arguments and summarize the flow in a few lines'
-      : null,
-    toolNames.has('run_tests')
-      ? 'Run the test suite, then summarize the failures with the smallest next fix'
-      : null,
-  ].filter(Boolean) as string[];
-
-  return [
-    ui.bold(ui.black('Quick start')),
-    '',
-    `  ${label('1/3 Model')} ${agent.config.model} · provider ${auth.usingBundledDefault ? 'built-in model gateway' : auth.provider} · api key ${apiKeyState}`,
-    auth.usingBundledDefault
-      ? '      Built-in model gateway is ready without a model API key. Optional: `moss setup` uses your own provider.'
-      : auth.apiKey
-        ? '      Change it anytime: run `moss setup` (interactive), or `/model` to choose a model for this session.'
-        : '      Configure it: run `moss setup` — choose a provider, choose a model, and paste your API key.',
-    '      A saved moss config wins. On a blank first run, moss offers OPENAI_API_KEY, DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, and DASHSCOPE_API_KEY (the value is not printed). Set apiKeyEnv to read a key from the environment instead of storing it.',
-    `      Settings are saved to ${compactPath(auth.configPath)} — inspect them with /permissions.`,
-    '',
-    `  ${label('2/3 Workspace')} ${compactPath(rt.workspace)} · safety ${rt.safetyMode}`,
-    '      The workspace is the folder you launch Moss in — cd into your project first, then run `moss`.',
-    '      Set it without moving: `moss config set workspace /path/to/project`. See the full picture with /status.',
-    '      Control what Moss may change: `moss config set safetyMode read-only|workspace-write|full-access` (or /permissions).',
-    '',
-    `  ${label('3/3 Try')} ask for an outcome in plain language — Moss chooses the tools automatically:`,
-    ...examples.slice(0, 4).map((example) => `      - ${example}`),
-    '',
-    `  ${label('Customize')} drop an AGENTS.md in your workspace (or run /init) — it is auto-loaded into every session as your project's system prompt (build/test commands, layout, conventions).`,
-  ].join('\n');
-}
-
 export function renderCliStatus(
   agent: MossAgent,
   runtime: CliRuntimeStatus = {},
