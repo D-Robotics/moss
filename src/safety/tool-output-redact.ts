@@ -6,24 +6,19 @@
  * (PEM blocks, assignment values, netrc / docker / kube fields). Redaction
  * is defense in depth.
  *
- * Key-name redaction depends on the kind of key.
+ * Ordinary source keeps identifiers, calls, types, and numbers. A password
+ * key (`password`, `passwd`, `passphrase`, `credential`, or a suffix segment
+ * `ssh_pass` / `DB_PWD`) redacts a quoted literal. Unquoted values use the
+ * shape rule: provider prefix, JWT, PEM, URL userinfo, length ≥ 8 with
+ * letters and digits, or length ≥ 20. Bare `pass` / `pwd` are not keys
+ * (`PWD=`, `PASS=0`, `pass: 3` stay). Fixture labels (`ALPHA-7741`) stay.
  *
- * Password keys (`password`, `passwd`, `pwd`, `pass`, `passphrase`,
- * `credential`, including suffixes such as `ssh_pass` and `ROBOT_PASSWORD`)
- * redact every non-empty value. Real board passwords are short and
- * low-entropy (`sunrise`, `root`, `123456`, `changeme`). Only syntactic
- * placeholders and env references pass through: `<...>`, `${VAR}`, `$VAR`,
- * `***`, and `xxx`.
- *
- * Token, key, secret, and auth keys use the shape rule: a known provider
- * prefix, a JWT, a PEM block, URL userinfo (`user:pass@`), or length ≥ 16
- * with mixed character classes or high entropy. Short fixtures stay visible
- * (`token: abc123`, `token: 42`, `token: ALPHA-7741`).
- *
- * Inside `.env*` / credentials-like files, and on `KEY=value` env-dump lines,
- * every secret-named key uses the password rule. Exact match of env values
- * whose names contain KEY, TOKEN, SECRET, or PASSWORD, and of Moss's own
- * stored credentials, still applies on top of both rules.
+ * Credential files (`.env*`, `.netrc`, `*.credentials`, key files) and reads
+ * that target them set `strictSecrets`. There, every secret-named key
+ * redacts any non-empty value except a syntactic placeholder or env
+ * reference (`<...>`, `${VAR}`, `$VAR`, `***`, `xxx`). The same pass redacts
+ * short `user:pass@` and ≥20-character high-entropy values on ordinary
+ * names (`SESSION=`). Exact match of known secret values still applies.
  *
  * Moss credential files are still read. `.apikey-key` bytes are withheld
  * entirely. Property-access chains (`req.headers.authorization`), `${...}`
@@ -57,29 +52,29 @@ const FIELD_BOUNDARY = String.raw`(?<=\\r\\n|\\n|^|[^A-Za-z0-9])`;
 
 /**
  * Longer names come first so `pass` does not eat `password` / `passphrase`.
- * `pass` is included so `ssh_pass` matches; a letter before it (`compass`)
- * does not, because the field boundary requires a non-alphanumeric.
+ * Bare `pass` and `pwd` are not keys. Only a suffix segment matches
+ * (`ssh_pass`, `DB_PWD`), via the lookbehind in {@link ASSIGNED_SECRET}.
  */
 const SECRET_FIELD_NAMES =
-  'aws_secret_access_key|aws_access_key_id|client-key-data|client_key_data|api[_-]?key|access[_-]?key|private[_-]?key|secret|token|passphrase|password|passwd|pwd|pass|credential|authorization|bearer';
+  'aws_secret_access_key|aws_access_key_id|client-key-data|client_key_data|api[_-]?key|access[_-]?key|private[_-]?key|secret|token|passphrase|password|passwd|credential|authorization|bearer';
 
+const ASSIGNED_VALUE = '([^\\s"\',}\\\\;)]+)';
+const ASSIGNED_SEP = '(["\']?[ \\t]*[:=][ \\t]*["\']?)';
+
+/** Group 1 is a full field name. Group 2 is `pass`/`pwd` only after `_`. */
 const ASSIGNED_SECRET = new RegExp(
-  FIELD_BOUNDARY + '(' + SECRET_FIELD_NAMES + ')(["\']?\\s*[:=]\\s*["\']?)([^\\s"\',}\\\\;)]+)',
+  '(?:' +
+    FIELD_BOUNDARY +
+    '(' +
+    SECRET_FIELD_NAMES +
+    ')|(?<=_)(pwd|pass))' +
+    ASSIGNED_SEP +
+    ASSIGNED_VALUE,
   'gi'
 );
 
-/** Password-kind keys always redact. `credential` is in this set on purpose. */
-const PASSWORD_FIELD = /^(?:passphrase|password|passwd|pwd|pass|credential)$/i;
-
-/**
- * A secret-named env key, as a `_` segment: `TOKEN`, `API_KEY`, `SERVICE_TOKEN`.
- * `MONKEY` and `HOTKEY` do not match.
- */
-const SECRET_ENV_NAME =
-  /(?:^|_)(?:passphrase|password|passwd|pwd|pass|credential|secret|token|apikey|api[-_]?key|access[-_]?key|private[-_]?key|auth|authorization|bearer|key)(?:_|$)/i;
-
-/** `KEY=value` at the start of a line, optionally after `export`. No space before `=`. */
-const ENV_DUMP_LINE = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=/;
+/** Password-kind keys. `pass` / `pwd` arrive here only as suffix captures. */
+const PASSWORD_FIELD = /^(?:passphrase|password|passwd|credential|pwd|pass)$/i;
 
 /** `.netrc` uses `password <value>`, not `password=`. */
 const NETRC_PASSWORD = /(^|[^\w]|\\r\\n|\\n)(password)([ \t]+)(?![=:])([^\s\\]+)/gi;
@@ -140,12 +135,12 @@ const CREDENTIAL_PREFIX =
 
 const JWT_VALUE = /^eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}$/;
 
-/** Assigned values at least this long can be a credential by shape, not by name. */
-const MIN_CREDENTIAL_LENGTH = 16;
-/** Bits per character. English words of this length sit below the line. */
+/** Assigned values at least this long with letters and digits are credentials. */
+const MIN_MIXED_LENGTH = 8;
+/** Any other non-identifier at least this long is treated as secret material. */
+const MIN_OPAQUE_LENGTH = 20;
+/** Ordinary `KEY=` values in a credential file. Shannon bits per character. */
 const HIGH_ENTROPY_BITS = 3.5;
-/** Random strings use most of the alphabet; repeated words do not. */
-const HIGH_ENTROPY_UNIQUE_RATIO = 0.75;
 
 function hasCredentialPrefix(value: string): boolean {
   return CREDENTIAL_PREFIX.test(value);
@@ -165,55 +160,47 @@ function containsUrlUserinfo(value: string): boolean {
   return /^[^/\s:@]+:[^/\s:@]{4,}@/.test(value);
 }
 
-/**
- * Letters plus digits, or a symbol that is not identifier punctuation
- * (`_` `.` `-`). Mixed case with one of those separators is a passphrase
- * (`Correct-Horse-Battery`), not a camelCase identifier.
- */
-function mixedCharacterClasses(value: string): boolean {
-  const lower = /[a-z]/.test(value);
-  const upper = /[A-Z]/.test(value);
-  const digit = /\d/.test(value);
-  const symbol = /[^A-Za-z0-9._-]/.test(value);
-  const letter = lower || upper;
-  if (letter && digit) return true;
-  if (letter && symbol) return true;
-  if (digit && symbol) return true;
-  if (lower && upper && /[._-]/.test(value)) return true;
-  return false;
+/** Bench fixture labels (`ALPHA-7741`). Not a credential shape. */
+function isFixtureLabel(value: string): boolean {
+  return /^[A-Z]+-\d+$/.test(value);
 }
 
-function highEntropy(value: string): boolean {
-  if (value.length < MIN_CREDENTIAL_LENGTH) return false;
+function shannonEntropy(value: string): number {
+  if (!value) return 0;
   const freq = new Map<string, number>();
   for (const ch of value) freq.set(ch, (freq.get(ch) ?? 0) + 1);
-  if (freq.size / value.length < HIGH_ENTROPY_UNIQUE_RATIO) return false;
   let bits = 0;
   for (const count of freq.values()) {
     const p = count / value.length;
     bits -= p * Math.log2(p);
   }
-  return bits >= HIGH_ENTROPY_BITS;
+  return bits;
 }
 
 /**
- * Token / key / secret / auth rule. Redact the value only when it looks like
- * a credential:
+ * `SESSION=aB3kL9mN2pQ7rT5wX8zY` in a credential file. Paths and URLs are not
+ * tokens. Letter-only words usually sit under the entropy line.
+ */
+function isHighEntropyToken(value: string): boolean {
+  if (value.length < MIN_OPAQUE_LENGTH) return false;
+  if (isPlaceholder(value) || isSourceExpression(value)) return false;
+  if (value.includes('/') || value.includes('\\')) return false;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return false;
+  if (!/^[A-Za-z0-9+/=_.~-]{20,}$/.test(value)) return false;
+  return shannonEntropy(value) >= HIGH_ENTROPY_BITS;
+}
+
+/**
+ * Shape rule for token, key, secret, auth, and unquoted password values.
  *
- * - a known provider prefix (`sk-`, `ghp_`, `gho_`, `github_pat_`, `glpat-`,
- *   `xoxb-` / `xoxp-` / `xoxa-` / `xoxr-` / `xoxs-`, `AKIA`, `ASIA`, `AIza`,
- *   `xai-`, `gsk_`, `npm_`, `pypi-`, `dckr_pat_`, `vercel_`, `enc:`, Stripe
- *   `sk_live_` / `sk_test_` / `pk_` / `rk_`)
- * - a JWT (three base64url segments, header starting with `eyJ`)
- * - a PEM private-key header
- * - URL userinfo (`scheme://user:password@host` or `user:password@host`)
- * - length ≥ 16 and mixed character classes, or length ≥ 16 and high entropy
+ * - a known provider prefix (`sk-`, `ghp_`, `github_pat_`, `glpat-`, `xox*`,
+ *   `AKIA`, `ASIA`, `AIza`, and the other prefixes in {@link CREDENTIAL_PREFIX})
+ * - a JWT, a PEM private-key header, or URL userinfo
+ * - length ≥ 8 and both letters and digits (`api_key: abc123def456`)
+ * - length ≥ 20 and not a bare identifier
  *
- * Short values and low-entropy words pass through (`token: abc123`,
- * `token: ALPHA-7741`). Word placeholders (`changeme`, `your-api-key`) and
- * letter-only identifiers stay on this path. Password keys do not: they use
- * {@link shouldRedactPasswordValue}.
- * Exact-match redaction of known secret values is separate and unconditional.
+ * Identifiers, calls, types, keywords, numbers, and `ALPHA-7741` stay.
+ * Exact-match redaction of known secret values is separate.
  */
 function shouldRedactAssignedValue(value: string): boolean {
   if (isPlaceholder(value)) return false;
@@ -233,9 +220,11 @@ function shouldRedactAssignedValue(value: string): boolean {
   // them again would drop the later keys. A secret before the first
   // `[REDACTED]` still redacts.
   if (alreadyRedactedQueryValue(value)) return false;
-  if (value.length < MIN_CREDENTIAL_LENGTH) return false;
-  if (BARE_IDENTIFIER.test(value) && !highEntropy(value)) return false;
-  return mixedCharacterClasses(value) || highEntropy(value);
+  if (value.length < MIN_MIXED_LENGTH) return false;
+  if (BARE_IDENTIFIER.test(value)) return false;
+  if (isFixtureLabel(value)) return false;
+  if (/[A-Za-z]/.test(value) && /\d/.test(value)) return true;
+  return value.length >= MIN_OPAQUE_LENGTH;
 }
 
 /**
@@ -270,12 +259,21 @@ function isSyntacticSecretPlaceholder(value: string): boolean {
 }
 
 /**
- * Password / passphrase / credential keys, and secret-named keys on an env
- * dump or in a credentials file. Any non-empty value is a secret.
+ * Credential-file rule. Any non-empty value is a secret. Syntactic
+ * placeholders and env references stay. `changeme` does not.
  */
 function shouldRedactPasswordValue(value: string): boolean {
   if (!value) return false;
+  if (isSyntacticSecretPlaceholder(value) || isSourceExpression(value)) return false;
+  if (alreadyRedactedQueryValue(value)) return false;
+  return true;
+}
+
+/** Quoted password literal in ordinary source. Keywords and `${VAR}` stay. */
+function shouldRedactQuotedLiteral(value: string): boolean {
+  if (!value) return false;
   if (isSyntacticSecretPlaceholder(value)) return false;
+  if (isPlaceholder(value) || isSourceExpression(value)) return false;
   if (alreadyRedactedQueryValue(value)) return false;
   return true;
 }
@@ -287,18 +285,32 @@ function lineAt(text: string, index: number): string {
   return text.slice(from, end === -1 ? text.length : end).trim();
 }
 
-/** `TOKEN=sunrise` / `export API_KEY=abc`. `token = someLongIdentifierName` is code. */
-function isEnvDumpAssignment(text: string, index: number): boolean {
-  const match = ENV_DUMP_LINE.exec(lineAt(text, index));
-  if (!match?.[1]) return false;
-  return SECRET_ENV_NAME.test(match[1]);
+/** A netrc field, not prose (`Enter your password below`). */
+function isNetrcPasswordLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (/^password\s+\S+$/i.test(trimmed)) return true;
+  return /\b(?:machine|login)\s+\S+/i.test(trimmed) && /\bpassword\s+\S+/i.test(trimmed);
 }
 
-function usePasswordRule(text: string, index: number, name: string, strictFile: boolean): boolean {
-  if (PASSWORD_FIELD.test(name)) return true;
-  // A credentials file: every matched secret field uses the password rule.
-  if (strictFile) return true;
-  return isEnvDumpAssignment(text, index);
+function assignedName(core: string | undefined, suffix: string | undefined): string {
+  return core || suffix || '';
+}
+
+function shouldRedactAssignment(
+  name: string,
+  sep: string,
+  value: string,
+  strictFile: boolean
+): boolean {
+  if (strictFile) return shouldRedactPasswordValue(value);
+  // A quote after `:` / `=` is a literal (`password: "sunrise"`). A suffix
+  // segment (`acceptance_pass: 'Acceptance passed'`) is not a password key
+  // assignment; the shape rule still applies.
+  const quotedValue = /[:=][ \t]*['"]/.test(sep);
+  if (PASSWORD_FIELD.test(name) && !/^(?:pwd|pass)$/i.test(name) && quotedValue) {
+    return shouldRedactQuotedLiteral(value);
+  }
+  return shouldRedactAssignedValue(value);
 }
 
 const NUMBERED_READ_LINE = /^(\s*\d+\t)(.*)$/;
@@ -510,21 +522,24 @@ function redactNumberedToolOutput(
 function redactAssignments(text: string, strictFile: boolean): string {
   return text.replace(
     ASSIGNED_SECRET,
-    (full, name: string, sep: string, value: string, offset: number) => {
-      const redact = usePasswordRule(text, offset, name, strictFile)
-        ? shouldRedactPasswordValue(value)
-        : shouldRedactAssignedValue(value);
-      if (!redact) return full;
+    (full, core: string | undefined, suffix: string | undefined, sep: string, value: string) => {
+      const name = assignedName(core, suffix);
+      if (!name || !shouldRedactAssignment(name, sep, value, strictFile)) return full;
       return `${name}${sep}${REDACTED}`;
     }
   );
 }
 
-function redactNetrcPasswords(text: string): string {
+function redactNetrcPasswords(text: string, strictFile: boolean): string {
   return text.replace(
     NETRC_PASSWORD,
-    (full, lead: string, name: string, sep: string, value: string) => {
-      if (!shouldRedactPasswordValue(value)) return full;
+    (full, lead: string, name: string, sep: string, value: string, offset: number) => {
+      const netrcLine = isNetrcPasswordLine(lineAt(text, offset));
+      const redact =
+        strictFile || netrcLine
+          ? shouldRedactPasswordValue(value)
+          : shouldRedactAssignedValue(value);
+      if (!redact) return full;
       return `${lead}${name}${sep}${REDACTED}`;
     }
   );
@@ -608,7 +623,7 @@ function sanitizeWithoutTouchingPlaceholders(text: string): string {
   ASSIGNED_SECRET.lastIndex = 0;
   const shielded = text.replace(
     ASSIGNED_SECRET,
-    (full, _name: string, _sep: string, value: string) => {
+    (full, _core: string | undefined, _suffix: string | undefined, _sep: string, value: string) => {
       if (!isSyntacticSecretPlaceholder(value)) return full;
       const token = `\u0000S${spans.length}\u0000`;
       spans.push(full);
@@ -630,8 +645,9 @@ function sanitizeWithoutTouchingPlaceholders(text: string): string {
  */
 export interface RedactEgressOptions {
   /**
-   * The text came from a `.env*` or credentials-like file. Every secret-named
-   * key then uses the password rule, not only `KEY=value` lines.
+   * The text came from a `.env*` / credentials-like file, or a tool read that
+   * targets one. Secret-named keys use the password rule. Short URL userinfo
+   * and high-entropy ordinary assignments are redacted too.
    */
   strictSecrets?: boolean;
 }
@@ -646,8 +662,9 @@ export function redactEgress(
   let out = redactUnclosedPrivateKey(redactPemBlocks(text));
   out = redactKnownSecretValues(out, env);
   out = redactUrlSecrets(out);
+  if (strictFile) out = redactStrictCredentialShapes(out);
   out = redactAssignments(out, strictFile);
-  out = redactNetrcPasswords(out);
+  out = redactNetrcPasswords(out, strictFile);
   out = redactDockerAuth(out);
   out = redactStandalone(out);
   out = redactGatewayKeyForms(out);
@@ -661,18 +678,80 @@ export function redactToolOutput(text: string, env?: NodeJS.ProcessEnv): string 
 
 const CREDENTIAL_WITHHELD = 'Moss credential values withheld.\n';
 
-/** `.env`, `.env.local`, `service.credentials`, `credentials`, `.netrc`. */
-function credentialsLikeTarget(filePath: string): boolean {
+/** `.env`, `.env.local`, `service.credentials`, `.netrc`, `id_ed25519`, `.pgpass`. */
+export function isCredentialLikePath(filePath: string): boolean {
   const base = path.posix.basename(filePath.replace(/\\/g, '/')).toLowerCase();
   if (base === '.env' || base.startsWith('.env.') || base.startsWith('.env_')) return true;
-  if (base === 'credentials' || base.endsWith('.credentials') || base.includes('credential')) {
+  if (base === '.netrc' || base === '_netrc' || base === '.pgpass') return true;
+  if (base === 'credentials' || base.startsWith('credentials.') || base.endsWith('.credentials')) {
     return true;
   }
-  return base === '.netrc' || base === '_netrc';
+  if (base.includes('credential')) return true;
+  return base === 'id_rsa' || base === 'id_ed25519' || base === 'id_ecdsa' || base === 'id_dsa';
 }
 
-function commandReadsCredentialsFile(command: string): boolean {
-  return /\.env(?![\w])|\.netrc(?![\w])|credentials/i.test(command);
+function pathTargetsCredentialFile(filePath: string): boolean {
+  if (!filePath) return false;
+  const normalized = filePath.replace(/\\/g, '/');
+  return (
+    isCredentialLikePath(normalized) ||
+    normalized.split('/').some((part) => isCredentialLikePath(part))
+  );
+}
+
+/**
+ * A shell word that names a credential file. The bare search term
+ * `credentials` (`grep -rn credentials src`) does not.
+ */
+function commandTokenIsCredentialFile(token: string): boolean {
+  const normalized = token.replace(/\\/g, '/').replace(/[:=,]+$/, '');
+  if (!normalized || normalized.startsWith('-')) return false;
+  const base = normalized.split('/').pop() ?? normalized;
+  if (!isCredentialLikePath(base)) return false;
+  if (normalized.includes('/')) return true;
+  if (base.startsWith('.') || base.includes('.')) return true;
+  return base !== 'credentials';
+}
+
+function commandTargetsCredentialFile(command: string): boolean {
+  return command.split(/[\s"'`;|&<>()]+/).some(commandTokenIsCredentialFile);
+}
+
+function globTargetsCredentialFile(glob: string): boolean {
+  return /(^|[\\/])\.env(\b|$)|credentials|id_rsa|id_ed25519|id_ecdsa|id_dsa|\.netrc|\.pgpass/.test(
+    glob
+  );
+}
+
+/** True when this tool result is the contents of a credential-like file. */
+export function targetsCredentialFile(toolName: string, input: Record<string, unknown>): boolean {
+  const target = typeof input.path === 'string' ? input.path : '';
+  const glob = typeof input.glob === 'string' ? input.glob : '';
+  if (toolName === 'read_file' || toolName === 'search_code') {
+    if (pathTargetsCredentialFile(target)) return true;
+    return glob !== '' && globTargetsCredentialFile(glob);
+  }
+  if (toolName === 'exec' || toolName === 'exec_background') {
+    const command = typeof input.command === 'string' ? input.command : '';
+    return command !== '' && commandTargetsCredentialFile(command);
+  }
+  return false;
+}
+
+/** Short `user:pass@` and high-entropy `KEY=` values. Credential files only. */
+const LOOSE_USERINFO = /([^\s:='"]{1,128}):([^\s:@'"]+)@/g;
+const PLAIN_ASSIGNMENT = /(\b[A-Za-z_][A-Za-z0-9_]*\s*=\s*['"]?)([^\s#'"]+)/g;
+
+function redactStrictCredentialShapes(text: string): string {
+  const withUserinfo = text.replace(LOOSE_USERINFO, (full, user: string, secret: string) => {
+    if (!secret || secret === REDACTED || isSyntacticSecretPlaceholder(secret)) return full;
+    if (isPlaceholder(secret)) return full;
+    return `${user}:${REDACTED}@`;
+  });
+  return withUserinfo.replace(PLAIN_ASSIGNMENT, (full, prefix: string, value: string) => {
+    if (value.includes(REDACTED)) return full;
+    return isHighEntropyToken(value) ? `${prefix}${REDACTED}` : full;
+  });
 }
 
 /**
@@ -701,9 +780,7 @@ export function presentToolOutput(args: {
   if (command && commandMentionsMossCredential(command) && /\.apikey-key\b/.test(command)) {
     return CREDENTIAL_WITHHELD;
   }
-  const strictSecrets =
-    (args.toolName === 'read_file' && credentialsLikeTarget(String(args.input.path ?? ''))) ||
-    (command !== '' && commandReadsCredentialsFile(command));
+  const strictSecrets = targetsCredentialFile(args.toolName, args.input);
   if (args.toolName === 'read_file') return redactNumberedToolOutput(args.text, env, strictSecrets);
   return redactEgress(args.text, env, { strictSecrets });
 }
@@ -723,7 +800,10 @@ export function visibleStreamPrefix(raw: string, flush: boolean): string {
   return nl === -1 ? '' : raw.slice(0, nl + 1);
 }
 
-const OPEN_ASSIGNMENT = new RegExp(`(${SECRET_FIELD_NAMES})(["']?\\s*[:=]\\s*["']?)(\\S*)$`, 'i');
+const OPEN_ASSIGNMENT = new RegExp(
+  `((?:${SECRET_FIELD_NAMES})|(?<=_)(?:pwd|pass))(["']?\\s*[:=]\\s*["']?)(\\S*)$`,
+  'i'
+);
 
 const OPEN_STANDALONE =
   /(?:sk-|github_pat_|ghp_|glpat-|xox[baprs]-|AKIA|AIza|enc:)[A-Za-z0-9_+/=-]*$/;

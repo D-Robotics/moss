@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { execBackgroundTool } from '../dist/tools/background-exec.js';
-import { execTool, readFileTool, writeFileTool } from '../dist/tools/builtin.js';
+import { editFileTool, execTool, readFileTool, writeFileTool } from '../dist/tools/builtin.js';
 import { recordEvidenceTool } from '../dist/tools/evidence-tools.js';
 import { clearBackgroundRegistryForTests } from '../dist/core/tools/background-process-registry.js';
 import {
@@ -586,21 +586,36 @@ try {
   assert.match(splitOut, /\[REDACTED\]/);
 
   const source = 'password: hashedPasswordValue,\ntoken = someLongIdentifierName\n';
-  const sourceRedacted = 'password: [REDACTED],\ntoken = someLongIdentifierName\n';
-  assert.equal(
-    redactEgress(source),
-    sourceRedacted,
-    'password values redact; a token identifier stays'
-  );
+  assert.equal(redactEgress(source), source, 'bare identifiers stay in source');
   fs.writeFileSync(path.join(project, 'idents.ts'), source);
   const sourceRead = await readFileTool.execute({ path: 'idents.ts' }, ctx());
   const sourceView = modelView('read_file', { path: 'idents.ts' }, sourceRead);
-  assert.doesNotMatch(sourceView, /hashedPasswordValue/);
+  assert.match(sourceView, /hashedPasswordValue/);
   assert.match(sourceView, /someLongIdentifierName/);
-  assert.match(sourceView, /\[REDACTED\]/);
-  const roundTrip = await writeFileTool.execute({ path: 'idents.ts', content: source }, ctx());
+  assert.doesNotMatch(sourceView, /\[REDACTED\]/);
+  const seen = sourceView
+    .split('\n')
+    .filter((line) => /^\s*\d+\t/.test(line))
+    .map((line) => line.replace(/^\s*\d+\t/, ''))
+    .join('\n');
+  const seenBody = seen.endsWith('\n') ? seen : `${seen}\n`;
+  assert.equal(seenBody, source, 'the model view is the file, so an edit can round-trip');
+  const roundTrip = await writeFileTool.execute({ path: 'idents.ts', content: seenBody }, ctx());
   assert.match(String(roundTrip), /Successfully wrote/);
   assert.equal(fs.readFileSync(path.join(project, 'idents.ts'), 'utf8'), source);
+  const viewedLine = seen.split('\n')[0];
+  const edited = await editFileTool.execute(
+    {
+      path: 'idents.ts',
+      old_string: viewedLine,
+      new_string: `${viewedLine} // kept`,
+    },
+    ctx()
+  );
+  assert.match(String(edited), /Edited /);
+  const afterEdit = fs.readFileSync(path.join(project, 'idents.ts'), 'utf8');
+  assert.match(afterEdit, /\/\/ kept/);
+  assert.doesNotMatch(afterEdit, /\[REDACTED\]/);
   const poisoned = await writeFileTool.execute(
     {
       path: 'idents.ts',
@@ -609,7 +624,7 @@ try {
     ctx()
   );
   assert.match(String(poisoned), /refusing to write \[REDACTED\]/);
-  assert.equal(fs.readFileSync(path.join(project, 'idents.ts'), 'utf8'), source);
+  assert.equal(fs.readFileSync(path.join(project, 'idents.ts'), 'utf8'), afterEdit);
 
   const pat = 'ci-pat-value-not-a-key-99';
   const userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-egress-user-'));
