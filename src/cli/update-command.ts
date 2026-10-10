@@ -62,7 +62,11 @@ export function sourceInstallCommands(
   repository?: MossPackageMeta['repository']
 ): readonly string[] {
   const cloneUrl = gitCloneUrl(repository);
-  const repoName = cloneUrl.split('/').pop()?.replace(/\.git$/, '') || 'moss';
+  const repoName =
+    cloneUrl
+      .split('/')
+      .pop()
+      ?.replace(/\.git$/, '') || 'moss';
   return [
     `git clone ${cloneUrl}`,
     `cd ${repoName}`,
@@ -117,9 +121,7 @@ export function adviseMossUpdate(input: {
     return {
       kind: globalInstall ? 'npm-global' : 'npm-local',
       root,
-      commands: globalInstall
-        ? globalInstallCommands(input.pkg)
-        : localInstallCommands(input.pkg),
+      commands: globalInstall ? globalInstallCommands(input.pkg) : localInstallCommands(input.pkg),
     };
   }
   return {
@@ -143,7 +145,11 @@ function oldBinConflictNote(zh: boolean): string {
       ].join('\n');
 }
 
-function finishUpdateAdvice(lines: readonly string[], commands: readonly string[], zh: boolean): string {
+function finishUpdateAdvice(
+  lines: readonly string[],
+  commands: readonly string[],
+  zh: boolean
+): string {
   const tail = zh
     ? 'moss update 只打印命令，不会执行。'
     : 'moss update prints the command and does not run it.';
