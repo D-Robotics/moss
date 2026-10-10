@@ -187,6 +187,7 @@ import {
   transientStatus,
   tui,
 } from './copy.js';
+import { WORKSPACE_WRITE_LIMIT_EN } from '../workspace-write-copy.js';
 import { allocateFrame } from './layout.js';
 import {
   MOUSE_TRACKING_ON,
@@ -2715,6 +2716,7 @@ export function TuiAppRoot({
       setupSecretRef.current = '';
       setSetupView(undefined);
       appendRow(store, 'system', tui('Next: ask me to look around this folder.'));
+      appendRow(store, 'system', tui(WORKSPACE_WRITE_LIMIT_EN));
       handle.notify();
     },
     [handle, options, store]

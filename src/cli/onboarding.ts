@@ -24,6 +24,7 @@ import {
 } from './doctor.js';
 import { isZhLocale } from './cli-locale.js';
 import { PermissionRuleRegistry } from './permission-rules.js';
+import { workspaceWriteLimit } from './workspace-write-copy.js';
 
 export interface CliRuntimeStatus {
   workspace?: string;
@@ -217,6 +218,7 @@ export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {
     zh
       ? `${ui.dim('下一步')} 让我看看这个目录里有什么。`
       : `${ui.dim('Next')} ask me to look around this folder.`,
+    ui.dim(workspaceWriteLimit(zh)),
   ].join('\n');
 }
 
@@ -342,7 +344,7 @@ const PERMISSIONS_HELP_TEXT = [
   '',
   '  One mode axis — /mode (Shift+Tab cycles four states, v0.26):',
   '    /mode manual        approve mutations one by one',
-  '    /mode accept-edits  auto-approve sandboxed workspace edits',
+  '    /mode accept-edits  auto-approve workspace file-tool edits',
   '    /mode plan          read-only planning (mutations blocked)',
   '    /mode full          skip prompts (default) — deny rules still apply',
   '',
@@ -410,6 +412,7 @@ export function renderCliPermissions(
       ...configSnapshotLines(auth, ['configPath', 'profile']),
       `  ${label('workspace')} ${auth.workspace} (${auth.workspaceSource})`,
       `  ${label(zh ? '默认模式' : 'default mode')} ${modeLabel}${ceiling ? ' + read-only ceiling' : ''} (${permissions?.source ?? 'default'})`,
+      `  ${workspaceWriteLimit(zh)}`,
       `  ${label('rules')} allow ${allowCount} · ask ${askCount} · deny ${denyCount}`,
       ...(liveRules.length > 0
         ? [zh ? '  规则表：' : '  Rule table:']
@@ -442,6 +445,7 @@ export function renderCliPermissions(
   return [
     ui.bold(ui.black(zh ? '权限' : 'Permissions')),
     `  ${label(zh ? '默认模式' : 'default mode')} ${modeLabel}${ceiling ? ' (read-only ceiling)' : ''}`,
+    `  ${workspaceWriteLimit(zh)}`,
     `  ${label(zh ? '工作区' : 'workspace')} ${auth.workspace}`,
     `  ${label(zh ? '规则' : 'rules')} ${
       allowCount + askCount + denyCount === 0

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { stdout as standardOutput } from 'node:process';
+import { WORKSPACE_WRITE_LIMIT_EN, WORKSPACE_WRITE_LIMIT_ZH } from './workspace-write-copy.js';
 import { isHttpUrl } from '../provider/api-v1-url.js';
 import {
   auditResolvedCliConfig,
@@ -287,7 +288,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
     group:
       'safety & approval (v0.26: these are MODE overrides — read-only arms the read-only ceiling, never/ full, prompt/manual; rules live in permissions.*, not env)',
     vars: [
-      'MOSS_SAFETY_MODE',
+      `MOSS_SAFETY_MODE (${WORKSPACE_WRITE_LIMIT_EN})`,
       'MOSS_CLI_SAFETY_MODE (legacy alias of MOSS_SAFETY_MODE)',
       'MOSS_APPROVAL_POLICY',
       'MOSS_ASK_FOR_APPROVAL (legacy alias of MOSS_APPROVAL_POLICY)',
@@ -458,7 +459,8 @@ export function runConfigEnv(): void {
 }
 
 /** Full reference — the single home for settable keys and examples. */
-export function renderConfigHelp(): string {
+export function renderConfigHelp(zh = false): string {
+  if (zh) return renderConfigHelpZh();
   return [
     'Usage:',
     '  moss config',
@@ -491,6 +493,7 @@ export function renderConfigHelp(): string {
     '  moss config set baseUrl https://your-gateway.example   # API root, not /v1 or /chat/completions',
     '  moss setup                                     # stores the API key (hidden prompt, safer than command line)',
     '  moss config set --project safetyMode workspace-write',
+    `  # ${WORKSPACE_WRITE_LIMIT_EN}`,
     '  moss config set approvalPolicy prompt',
     '  moss config set trustedTools exec,filesystem__*',
     '  moss config set deniedTools write_file,exec',
@@ -502,6 +505,55 @@ export function renderConfigHelp(): string {
     '  moss config set rdkDocs.package ../rdk-docs-mcp',
     '  moss config set language auto|en|zh   # user config only (not --project, not a project .env)',
     '  # UI language precedence: --lang > MOSS_LANG > language > system locale. auto = zh only when the locale starts with zh.',
+    '',
+    'Options:',
+    '  --project              init/set/unset write .moss/config.json in the workspace',
+    '  --force                init overwrites an existing config file',
+    '  --json                 machine-readable show or validate output',
+    '  --strict               validate fails on warnings',
+    '  --config-file <path>   load only that file; the project layer is not merged',
+  ].join('\n');
+}
+
+function renderConfigHelpZh(): string {
+  return [
+    '用法：',
+    '  moss config',
+    '  moss config init [--project] [--force]',
+    '  moss config show',
+    '  moss config show --json',
+    '  moss config validate [--strict] [--json]',
+    '  moss config set <provider|model|baseUrl|apiKey|apiKeyEnv> <value>',
+    '  moss config set <profile|safetyMode|approvalPolicy|trustedTools|deniedTools|promptCache|promptCacheDebug|guardrails.*|agent.*> <value>',
+    '  moss config set <key>=<value> [<key>=<value>...]',
+    '  moss config set --project <key>=<value> [<key>=<value>...]',
+    '  moss config unset <key>',
+    '  moss config unset --project <key>',
+    '',
+    '配置文件：',
+    '  未指定文件时，Moss 读取用户配置，并把当前工作区的',
+    '  .moss/config.json 当作项目默认值合并。',
+    '  --config-file 与 MOSS_CONFIG_FILE 只加载那个文件，',
+    '  项目 .moss/config.json 这一层不会进入本次配置。',
+    '',
+    '选项：',
+    '  --project              init/set/unset 写入工作区 .moss/config.json',
+    '  --force                init 覆盖已有配置文件',
+    '  --json                 show / validate 的机器可读输出',
+    '  --strict               validate 把警告也当成失败',
+    '  --config-file <path>   只加载该文件，不合并项目层',
+    '',
+    '示例：',
+    '  moss config init --project',
+    '  moss config validate --strict',
+    '  moss config set --project safetyMode workspace-write',
+    `  # ${WORKSPACE_WRITE_LIMIT_ZH}`,
+    '  moss config set provider openai-compatible',
+    '  moss config set model <your-model>',
+    '  moss config set rdkDocs false',
+    '  moss config set rdkDocs.package ../rdk-docs-mcp',
+    '  moss config set language auto|en|zh   # 只写用户配置（不能 --project，项目 .env 也不能设置）',
+    '  # 界面语言优先级：--lang > MOSS_LANG > language > 系统区域。auto 仅在区域以 zh 开头时用中文。',
   ].join('\n');
 }
 

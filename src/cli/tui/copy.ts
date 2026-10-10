@@ -167,6 +167,8 @@ export const ZH: Readonly<Record<string, string>> = {
 
   // ── composer placeholder (transcript.ts) ───────────────────────────────
   'Next: ask me to look around this folder.': '下一步：让我看看这个目录里有什么。',
+  "workspace-write confines Moss's own file tools. Shell commands run normally without an OS sandbox.":
+    'workspace-write 只约束 Moss 自己的文件工具。shell 命令照常运行，没有操作系统沙箱。',
   'terminal is shorter than 10 rows': '终端高度不足 10 行',
   'terminal is narrower than {min} columns': '终端宽度不足 {min} 列',
   '{reason} — using the inline view. Resize the window to use fullscreen.':
@@ -432,6 +434,10 @@ export const ZH: Readonly<Record<string, string>> = {
   'History {n}/{total}': '历史 {n}/{total}',
   Permissions: '权限',
   '  mode  {mode}    Shift+Tab cycles': '  模式  {mode}    Shift+Tab 循环',
+  "  workspace-write confines Moss's own file tools.":
+    '  workspace-write 只约束 Moss 自己的文件工具。',
+  '  Shell commands run normally without an OS sandbox.':
+    '  shell 命令照常运行，没有操作系统沙箱。',
   '  no rules — full allows tools; deny still wins everywhere':
     '  无规则 — full 放行工具；deny 在任何模式都优先',
   session: '会话',

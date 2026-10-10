@@ -64,7 +64,7 @@ export function interactiveTaskUsageLines(): readonly string[] {
   ];
 }
 
-function usage(zh: boolean = isZhLocale()): string {
+export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
   if (zh) {
     return [
       '用法：moss task <command> [options]',
@@ -81,10 +81,21 @@ function usage(zh: boolean = isZhLocale()): string {
       '  verify [task_id]     用裁决器复验一次（不发起模型回合）',
       '',
       '只有任务被验收（PASS）时退出码才是 0。',
+      '',
+      '选项：',
+      '  --accept "<cmd>"   验收命令（退出码必须是 0）',
+      '  --max-repairs N    诚实 FAIL 前的修复次数（默认 2）',
+      '  --max-turns N      agent 轮次预算（默认 8）',
+      '  --device ID        目标设备 id',
+      '',
+      '示例：',
+      '  moss task run "创建 hello.txt" --accept "grep -q hello hello.txt"',
+      '  moss task status',
     ].join('\n');
   }
   return [
-    'Usage: moss task <command> [options]',
+    'Usage:',
+    '  moss task <command> [options]',
     '',
     '  run <goal...>        run a task end to end (plan → execute → verify → repair → accept)',
     '      --accept "<cmd>"  acceptance authority: command must exit 0',
@@ -98,6 +109,16 @@ function usage(zh: boolean = isZhLocale()): string {
     '  verify [task_id]     re-run the verdict once (no model turn)',
     '',
     'Exit code is 0 only when the task is accepted (PASS).',
+    '',
+    'Options:',
+    '  --accept "<cmd>"   acceptance command (must exit 0)',
+    '  --max-repairs N    repair attempts before FAIL (default 2)',
+    '  --max-turns N      agent turn budget (default 8)',
+    '  --device ID        target device id',
+    '',
+    'Examples:',
+    '  moss task run "create hello.txt" --accept "grep -q hello hello.txt"',
+    '  moss task status',
   ].join('\n');
 }
 
@@ -444,7 +465,7 @@ export async function runTaskCommand(
         'stderr',
         'moss task run: ' +
           (zh ? '需要一个目标（goal）。\n\n' : 'a goal is required.\n\n') +
-          usage(zh) +
+          renderTaskCliUsage(zh) +
           '\n'
       );
       return 2;
@@ -625,7 +646,7 @@ export async function runTaskCommand(
   output(
     'stderr',
     (zh ? `未知 task 子命令 "${sub}"。\n\n` : `Unknown task subcommand "${sub}".\n\n`) +
-      usage(zh) +
+      renderTaskCliUsage(zh) +
       '\n'
   );
   return 2;

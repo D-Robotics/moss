@@ -23,11 +23,10 @@ Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器
 
 ## 快速开始
 
-装上这一版，运行 `moss`，在界面里完成设置，然后要一个回答：
+还没发到 npm registry（`"private": true` 先留着）。一条命令装上，运行 `moss`，在界面里完成设置，然后要一个回答：
 
 ```bash
-git clone https://github.com/D-Robotics/moss && cd moss
-npm install && npm run build && npm link
+npm install -g github:D-Robotics/moss   # prepare 会构建；需要 Node ≥ 22.16
 moss
 ```
 
@@ -36,6 +35,8 @@ moss
 ```text
 看一下这个目录里有什么
 ```
+
+从克隆开发：`git clone https://github.com/D-Robotics/moss && cd moss && npm ci && npm run build && npm link`。已安装的 Moss 用 `moss update` 打印升级命令（npm 全局或 git 克隆），它不会自己执行。发到 registry 时删掉 `"private": true`，再 `npm publish --access public`。
 
 进到交互界面后：
 
@@ -99,7 +100,7 @@ moss device fleet info --devices rdk-01,rdk-02,rdk-03 --concurrency 4
 moss --print "定义任务：相机管线保持 30 FPS 持续 60 秒；部署、运行、记录证据、验收"
 ```
 
-板卡手册（烧录、引脚、TROS / hobot_dnn、规格）由内置 rdk-docs MCP 供给，默认钉在 `rdk-docs-mcp@0.2.0`（BM25 + 标题融合、`noGoodMatch`、板型过滤、按 section 读取页面）。有设备目标（`MOSS_DEVICE_HOST` 或 `.moss/devices.json`）或配置 `"rdkDocs": true` 时在后台连接，不阻塞交互界面。自定义或尚未发布的版本可用 `"rdkDocs": {"package": "../rdk-docs-mcp"}` 或 `MOSS_RDK_DOCS_PACKAGE` 指向 npm spec、本地目录或 tarball；该值会作为代码执行，只使用可信来源。`MOSS_NO_RDK_DOCS=1`、`"rdkDocs": false` 或 `"rdkDocs": {"enabled": false}` 关闭；同名 `mcp.json` 条目整段替换内置项。服务器能力随版本而异，Moss 先查询工具清单再按实际 schema 调用。连不上时本会话不查手册，没有缓存，也没有离线副本。审计与保留标准见 [`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`](docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md)。
+板卡手册（烧录、引脚、TROS / hobot_dnn、规格）由内置 rdk-docs MCP 供给，默认钉在 `rdk-docs-mcp@0.2.0`（BM25 + 标题融合、`noGoodMatch`、板型过滤、按 section 读取页面）。默认在后台连接，不需要设备目标（`MOSS_DEVICE_HOST` 或 `.moss/devices.json` 都不是前置条件），也不阻塞交互界面。自定义或尚未发布的版本可用 `"rdkDocs": {"package": "../rdk-docs-mcp"}` 或 `MOSS_RDK_DOCS_PACKAGE` 指向 npm spec、本地目录或 tarball；该值会作为代码执行，只使用可信来源。`MOSS_NO_RDK_DOCS=1`、`"rdkDocs": false` 或 `"rdkDocs": {"enabled": false}` 关闭；同名 `mcp.json` 条目整段替换内置项。服务器能力随版本而异，Moss 先查询工具清单再按实际 schema 调用。连不上时本会话不查手册，没有缓存，也没有离线副本。审计与保留标准见 [`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`](docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md)。
 
 **扩展。** MCP 客户端（stdio + streamable HTTP，工具懒加载）；轻量 skills（`.moss/skills/<name>/SKILL.md`，渐进披露，`$ARGUMENTS` 传参）；自定义斜杠命令（`.moss/commands/<name>.md`）；人设（`.moss/soul.md`）；生命周期 hook。
 
@@ -130,21 +131,22 @@ moss tasks list                     # 只读查看机器人闭环产物
 | `moss device add\|list\|remove\|test\|fleet`                               | 设备清单与多机只读巡检                                                              |
 | `moss mcp add\|list\|remove\|test`                                         | MCP 服务器管理                                                                      |
 | `moss skill create\|list`                                                  | 技能管理                                                                            |
+| `moss update`                                                              | 打印升级命令（npm 全局或 git 克隆）；不执行                                         |
 
-> `update` / `plugins` / `migrate` / `web` / `agent` 属于已移除的子系统，本构建里会**明确报错**，不会悄悄 fallback。
+> `plugins` / `migrate` / `web` / `agent` 属于已移除的子系统，本构建里会**明确报错**，不会悄悄 fallback。`moss <command> --help` 仍给出该子命令自己的用法。
 
 日常斜杠命令：`/model` `/compact` `/goal` `/plan` `/review` `/doctor` `/diff` `/permissions` `/clear` `/help`。`Shift+Tab` 循环模式；`/plan` 进入 plan 模式；`/goal <条件>` 持续工作直到条件满足，`/goal clear` 取消。`/resume` 恢复已保存的会话；`/tasks` 列出后台 shell 与子代理。`Esc` 中断当前回复；运行中直接发消息会先 steer，无法 steer 时排在输入区上方（`↑` 取回编辑）。`/mode` `/steer` `/queue` `/loop` 保留为隐藏别名一版（`/loop` 已改为 `/goal`）。`/goal` 没带 `--accept` 时，从工作区已有的测试入口（`package.json` test、Makefile、pytest、`go.mod`）给出验收命令候选，找不到就直说，不编造。`/stop`（别名 `/abort`）只停本会话启动的后台进程。隐藏的 `/task` 是 Task OS 入口（status / timeline / resume / view / verify），`/task verify` 不调模型，只取一次裁决。PASS 只能来自 verdict provider。
 
 常用 flag：
 
-| Flag                                                  | 作用                                 |
-| ----------------------------------------------------- | ------------------------------------ |
-| `-m/--model` · `--provider` · `--base-url`            | 仅本次运行覆盖                       |
-| `-C/--cd <dir>` · `-c/--config k=v`                   | 换工作区 · 覆盖 profile/model/policy |
-| `--read-only` · `--workspace-write` · `--full-access` | 本次运行的安全上限                   |
-| `--trust-device`                                      | 本进程允许毁灭性设备操作             |
-| `--accept-edits` · `--ask-for-approval <p>`           | 审批行为                             |
-| `-p/--print` · `--json` · `--output-format <f>`       | 一次性 / 机器可读输出                |
+| Flag                                                  | 作用                                                                                     |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `-m/--model` · `--provider` · `--base-url`            | 仅本次运行覆盖                                                                           |
+| `-C/--cd <dir>` · `-c/--config k=v`                   | 换工作区 · 覆盖 profile/model/policy                                                     |
+| `--read-only` · `--workspace-write` · `--full-access` | 本次运行的模式覆盖。`workspace-write` 只约束 Moss 自己的文件工具，shell 没有操作系统沙箱 |
+| `--trust-device`                                      | 本进程允许毁灭性设备操作                                                                 |
+| `--accept-edits` · `--ask-for-approval <p>`           | 审批行为                                                                                 |
+| `-p/--print` · `--json` · `--output-format <f>`       | 一次性 / 机器可读输出                                                                    |
 
 常用环境变量（完整见 `moss config env`）：`MOSS_PROFILE` · `MOSS_WORKSPACE` · `MOSS_SAFETY_MODE` · `MOSS_APPROVAL_POLICY` · `MOSS_MAX_AGENT_TURNS` · `MOSS_CONTEXT_TOKENS` · `MOSS_BUDGET_MAX_*` · `MOSS_DEVICE_*` · `MOSS_NO_RDK_DOCS`。
 
@@ -175,10 +177,11 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
   | 模式           | 行为                                                                                              |
   | -------------- | ------------------------------------------------------------------------------------------------- |
   | `manual`       | 写操作与设备变更逐次询问                                                                          |
-  | `acceptEdits`  | 工作区内文件编辑自动通过，shell 与设备变更仍询问                                                  |
+  | `acceptEdits`  | 工作区内文件工具编辑自动通过，shell 与设备变更仍询问                                              |
   | `plan`         | 只读规划，写操作与设备变更被拦                                                                    |
   | `full`（默认） | 本地写与可逆设备操作跳过询问；毁灭性设备操作 TTY 确认、headless 拒绝。deny 规则与本机硬拦截仍生效 |
 
+- **`workspace-write` 不是操作系统沙箱。** workspace-write 只约束 Moss 自己的文件工具。shell 命令照常运行，没有操作系统沙箱。`write_file`、`edit_file`、`multi_edit`、`move_file`、`apply_patch` 写在工作区内；`exec` 没有 Landlock、bubblewrap 或 seatbelt。静态扫描会拦下它能看见的一部分出区写（重定向、`cp`、`mv`），挡不住子进程里的 `node` / `python`（例如写入 `/tmp`）。shell 的安全来自输出脱敏和写回防护。可选的操作系统沙箱见 [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md)，默认关闭。
 - **权限规则**（`/permissions`，任何模式生效，deny 优先于一切含 full）：
   - 三级 `allow` / `ask` / `deny`，优先级 deny > ask > allow；
   - 语法 `ToolName(pattern)`，用 moss 原生工具名：`/permissions add deny "read_file(./.env)"`、`/permissions add allow "exec(npm run *)"`；
@@ -226,6 +229,7 @@ npm run build && MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-
 - [`AGENTS.md`](AGENTS.md) —— 架构、分层规则、子系统导航、工程约定（工作合同）
 - [`docs/release-policy.md`](docs/release-policy.md) —— 一个版本 / tag 声称了什么，又没声称什么
 - [`docs/capability-layer.md`](docs/capability-layer.md) —— MCP / device / skill 能力层
+- [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md) —— `exec` 的可选操作系统沙箱（默认关）
 - [`docs/cli-parity/`](docs/cli-parity/) —— 与 Claude Code / codex 的命令面基线对照；真实终端清单见 [`tui-real-terminals.md`](docs/cli-parity/tui-real-terminals.md)
 - [`docs/bench/device-bench.md`](docs/bench/device-bench.md) —— 设备任务基准怎么跑、指标怎么算
 - [`CHANGELOG.md`](CHANGELOG.md) —— 未发版改动
@@ -255,11 +259,10 @@ mean _the board actually did it_.
 
 ### Quick start
 
-Install this tree, run `moss`, finish setup in the screen, then ask for an answer:
+Not on the npm registry yet (`"private": true` stays). Install with one command, run `moss`, finish setup in the screen, then ask for an answer:
 
 ```bash
-git clone https://github.com/D-Robotics/moss && cd moss
-npm install && npm run build && npm link
+npm install -g github:D-Robotics/moss   # prepare builds; needs Node ≥ 22.16
 moss
 ```
 
@@ -268,6 +271,8 @@ With no usable config, `moss` sets itself up in that screen (press a number to p
 ```text
 look around this folder and tell me what it is
 ```
+
+From a clone: `git clone https://github.com/D-Robotics/moss && cd moss && npm ci && npm run build && npm link`. `moss update` prints the upgrade command for an npm global install or a git clone and does not run it. To publish, delete `"private": true`, then `npm publish --access public`.
 
 Inside Moss: give it a job (`@` to reference files, `!` for shell), `Shift+Tab` to cycle modes
 (`plan` = read-only planning), `Ctrl+V` to attach a clipboard image / Finder file / local path
@@ -335,9 +340,9 @@ moss --print "define a task: camera pipeline keeps 30 FPS for 60s; deploy, run, 
 
 Board manuals (flashing, pinouts, TROS / hobot_dnn, specs) come from the built-in rdk-docs MCP,
 defaulting to the pinned `rdk-docs-mcp@0.2.0` (BM25 + title fusion, `noGoodMatch`, board filtering,
-and section page reads). Moss starts it in the background when a device target
-is set (`MOSS_DEVICE_HOST` or `.moss/devices.json`) or when `"rdkDocs": true`, so a cold npx download
-does not block the interactive shell. To test an unpublished build, set
+and section page reads). Moss connects it in the background by default, with or
+without a device target (`MOSS_DEVICE_HOST` or `.moss/devices.json` is not required),
+so a cold npx download does not block the interactive shell. To test an unpublished build, set
 `"rdkDocs": {"package": "../rdk-docs-mcp"}` or `MOSS_RDK_DOCS_PACKAGE` to an npm spec, local
 directory, or tarball. Overrides execute code; use only trusted sources. `MOSS_NO_RDK_DOCS=1`,
 `"rdkDocs": false`, or `"rdkDocs": {"enabled": false}` turns it off. A same-named `mcp.json` entry
@@ -378,9 +383,11 @@ The `src/index.ts` export surface is a semver-protected contract, snapshotted by
 | `moss device add\|list\|remove\|test\|fleet`                               | Device registry + read-only fleet probe                                             |
 | `moss mcp add\|list\|remove\|test`                                         | MCP server management                                                               |
 | `moss skill create\|list`                                                  | Skill management                                                                    |
+| `moss update`                                                              | Print the upgrade command (npm global or git clone); it does not run it             |
 
-> `update` / `plugins` / `migrate` / `web` / `agent` belong to removed subsystems and fail loudly
-> in this build rather than silently falling back to chat.
+> `plugins` / `migrate` / `web` / `agent` belong to removed subsystems and fail loudly
+> in this build rather than silently falling back to chat. `moss <command> --help` is that
+> command's own usage.
 
 Everyday slash commands: `/model` `/compact` `/goal` `/plan` `/review` `/doctor` `/diff`
 `/permissions` `/clear` `/help`. Shift+Tab cycles modes; `/plan` enters plan mode; `/goal <condition>`
@@ -396,7 +403,7 @@ verify); `/task verify` takes one verdict without a model turn. A PASS still com
 verdict provider.
 
 Key flags: `-m/--model`, `--provider`, `--base-url`, `-C/--cd`, `-c/--config k=v`,
-`--read-only` · `--workspace-write` · `--full-access`, `--trust-device`, `--accept-edits`,
+`--read-only` · `--workspace-write` · `--full-access` (workspace-write confines Moss's own file tools; shell commands run normally without an OS sandbox), `--trust-device`, `--accept-edits`,
 `--ask-for-approval <p>`, `-p/--print`, `--json`, `--output-format <f>`.
 
 Key env vars (full list: `moss config env`): `MOSS_PROFILE` · `MOSS_WORKSPACE` ·
@@ -443,10 +450,11 @@ one line: press `e` to switch to English.
   | Mode             | Behavior                                                                                                                                                                |
   | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
   | `manual`         | mutations and device changes ask one by one                                                                                                                             |
-  | `acceptEdits`    | sandboxed workspace edits auto-approve; shell and device changes still ask                                                                                              |
+  | `acceptEdits`    | workspace file-tool edits auto-approve; shell and device changes still ask                                                                                              |
   | `plan`           | read-only planning; mutations and device changes blocked                                                                                                                |
   | `full` (default) | local writes and reversible device work skip the prompt; destructive device work confirms on a TTY and is refused headless. Deny rules and host hard blocks still apply |
 
+- **`workspace-write` is not an OS sandbox.** workspace-write confines Moss's own file tools. Shell commands run normally without an OS sandbox. `write_file`, `edit_file`, `multi_edit`, `move_file`, and `apply_patch` stay inside the workspace. `exec` is not wrapped in Landlock, bubblewrap, or seatbelt. A static scan rejects some out-of-workspace shell writes it can see (redirections, `cp`, `mv`); a child `node` or `python` process can still write outside, for example under `/tmp`. Shell safety is output redaction and write-back guards. An opt-in OS sandbox is specified in [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md) and stays off.
 - **Permission rules** (`/permissions`, effective in any mode, deny beats everything incl. full):
   - three levels `allow` / `ask` / `deny`, priority deny > ask > allow;
   - syntax `ToolName(pattern)` with moss-native tool names:
@@ -520,6 +528,7 @@ only after `verify` is green and `examples/` pass for real — see
 [`AGENTS.md`](AGENTS.md) (architecture and conventions) ·
 [`docs/release-policy.md`](docs/release-policy.md) ·
 [`docs/capability-layer.md`](docs/capability-layer.md) ·
+[`docs/design/os-sandbox.md`](docs/design/os-sandbox.md) (opt-in OS sandbox for `exec`, default off) ·
 [`docs/cli-parity/`](docs/cli-parity/) (real-terminal checklist:
 [`tui-real-terminals.md`](docs/cli-parity/tui-real-terminals.md)) ·
 [`docs/bench/device-bench.md`](docs/bench/device-bench.md) ·
