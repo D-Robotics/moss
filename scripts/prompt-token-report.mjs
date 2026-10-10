@@ -115,6 +115,7 @@ function declarationsFor(taskFlow) {
       toolVisibleForRun(tool.name, {
         ...(taskFlow === undefined ? {} : { taskFlow }),
         deviceConfigured: false,
+        requiresUserQuestion: tool.metadata?.requiresUserQuestion === true,
       })
   );
   return buildProviderToolDeclarations(offered).map((tool) => ({

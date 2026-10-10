@@ -8,7 +8,11 @@ const log = getRootLogger().child('agent');
 import { ToolRegistry } from '../tools/tool-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
 import { DeferredToolOffer, TOOL_SEARCH_NAME } from '../tools/deferred-tool-offer.js';
-import { toolVisibleForRun, userQuestionsOffered } from './session-tool-offer.js';
+import {
+  hookProvidesUserQuestionAsker,
+  toolVisibleForRun,
+  userQuestionsOffered,
+} from './session-tool-offer.js';
 import { omitTaskPhasePrompts } from './task-phase-prompt.js';
 import { getUserQuestionAsker } from '../tools/user-question-asker.js';
 import { mergeLeasePatch } from '../subagent/worktree-isolation.js';
@@ -927,12 +931,18 @@ ${result.stderr ?? ''}`.trim();
       agentAsker: this.userQuestionAsker !== undefined,
       processAsker: getUserQuestionAsker() !== undefined,
       stdinIsTTY: process.stdin.isTTY === true,
+      hookAsker: hookProvidesUserQuestionAsker(hooks?.enrichToolContext, {
+        workspaceDir: path.resolve(this.config.workspaceDir ?? process.cwd()),
+        sessionKey,
+        abortSignal,
+      }),
     });
     const visibleForRun = (tool: Tool): boolean =>
       this.deferredTools.isOffered(tool.name) &&
       toolVisibleForRun(tool.name, {
         taskFlow: ledgerVisible ? true : options?.taskFlow,
         userQuestions,
+        requiresUserQuestion: tool.metadata?.requiresUserQuestion === true,
       }) &&
       (options?.toolFilter?.(tool) ?? true);
     const resolveRunTools = (): ReturnType<typeof filterToolsForRun> =>

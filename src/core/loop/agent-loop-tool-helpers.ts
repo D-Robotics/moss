@@ -22,15 +22,6 @@ export function formatToolResultForSsePreview(truncatedResult: string, isError: 
   return truncatedResult.length > 500 ? `${truncatedResult.slice(0, 500)}...` : truncatedResult;
 }
 
-export function skipToolCall(call: { id: string; name: string }): ContentBlock {
-  return {
-    type: 'tool_result',
-    tool_use_id: call.id,
-    name: call.name,
-    content: 'Skipped due to queued user message.',
-  };
-}
-
 export function normalizeToolCallInput(
   call: { name: string; input: Record<string, unknown> },
   toolsForRun: Tool[],

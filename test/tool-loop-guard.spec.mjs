@@ -16,7 +16,6 @@ import {
   shouldShortCircuitToolCall,
   formatToolLoopGuardMessage,
   collectSurgicalEditPathKeys,
-  isToolLoopTotalLimitReached,
 } from '../dist/core/tools/tool-loop-guard.js';
 
 const failureLimit = 3; // DEFAULT_TOOL_FAILURE_LIMIT
@@ -552,25 +551,18 @@ test('device_exec fail twice then short-circuit', () => {
   );
 });
 
-test('total limit defers calls already in this response, then blocks the next one', () => {
+test('total limit blocks the next call in the same response', () => {
   const prev = process.env.MOSS_TOOL_LOOP_TOTAL_LIMIT;
   process.env.MOSS_TOOL_LOOP_TOTAL_LIMIT = '2';
   try {
     const state = createToolLoopGuardState();
     assert.equal(shouldShortCircuitToolCall(state, 'lookup', { q: 'a' }), null);
     assert.equal(shouldShortCircuitToolCall(state, 'lookup', { q: 'b' }), null);
-    assert.equal(isToolLoopTotalLimitReached(state), true);
     const blocked = shouldShortCircuitToolCall(state, 'lookup', { q: 'c' });
     assert.match(blocked, /already requested 2 tool call/);
-    assert.equal(
-      shouldShortCircuitToolCall(state, 'lookup', { q: 'd' }, { deferTotalLimit: true }),
-      null,
-      'a call the model already emitted still runs'
-    );
     assert.match(
-      shouldShortCircuitToolCall(state, 'lookup', { q: 'e' }),
-      /already requested/,
-      'the following response is blocked'
+      shouldShortCircuitToolCall(state, 'write_file', { path: 'a.ts' }),
+      /already requested 2 tool call/
     );
   } finally {
     if (prev === undefined) delete process.env.MOSS_TOOL_LOOP_TOTAL_LIMIT;

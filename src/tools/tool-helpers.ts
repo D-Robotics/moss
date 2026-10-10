@@ -5,6 +5,7 @@ import { appendGitConfigEnv, untrustedShellGitConfig } from '../utils/git-config
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { isWorkspaceTrusted } from '../utils/workspace-trust-state.js';
 import { errorMessage, isMossError, MossError } from '../errors.js';
+import { setFoldedResultListener } from '../context/tool-result-fold.js';
 
 export const IS_WIN = process.platform === 'win32';
 
@@ -132,6 +133,7 @@ export class ToolStateManager {
   clearFileState(): void {
     this.fileReadState.clear();
     this.fileReadRange.clear();
+    this.fileReadTruncated.clear();
   }
 
   /**
@@ -142,6 +144,23 @@ export class ToolStateManager {
   invalidateFileState(resolvedPath: string): void {
     this.fileReadState.delete(resolvedPath);
     this.fileReadRange.delete(resolvedPath);
+    this.fileReadTruncated.delete(resolvedPath);
+  }
+
+  /**
+   * A later fold removed this read from context. The next identical read must
+   * not say the body is still current; it is truncated and has to be re-read.
+   * `pathHint` may be the tool input (relative) while the cache key is absolute.
+   */
+  markFoldedReadTruncated(pathHint: string): void {
+    const hint = pathHint.replaceAll('\\', '/');
+    if (!hint) return;
+    for (const key of this.fileReadState.keys()) {
+      const norm = key.replaceAll('\\', '/');
+      if (norm === hint || norm.endsWith(`/${hint}`) || hint.endsWith(`/${norm}`)) {
+        this.fileReadTruncated.set(key, true);
+      }
+    }
   }
 }
 
@@ -194,6 +213,23 @@ export async function findSimilarFileName(
 
 // Global instance for now; enables future injection per agent/session
 export const globalToolStateManager = new ToolStateManager();
+
+function foldedReadPath(input: Record<string, unknown>): string | null {
+  const filePath = input.file_path;
+  if (typeof filePath === 'string' && filePath.length > 0) return filePath;
+  const rawPath = input.path;
+  if (typeof rawPath === 'string' && rawPath.length > 0) return rawPath;
+  return null;
+}
+
+// Folding a read drops the body. The read cache must stop serving "unchanged,
+// refer to the earlier result" for that path. read / read_file own this cache.
+setFoldedResultListener((toolName, input) => {
+  if (toolName !== 'read' && toolName !== 'read_file') return;
+  const hint = foldedReadPath(input);
+  if (!hint) return;
+  globalToolStateManager.markFoldedReadTruncated(hint);
+});
 
 /**
  * Detect whether captured stdout looks like binary data (e.g. `cat /bin/ls`).

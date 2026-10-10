@@ -7,6 +7,8 @@
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -14,12 +16,16 @@ import {
   TOOL_RESULT_FOLDED_MARKER,
 } from '../dist/context/tool-result-fold.js';
 import { elideOldLargeToolResults } from '../dist/context/tool-result-elision.js';
+import { dedupeUnchangedReadToolResults } from '../dist/context/stale-read-invalidate.js';
+import { findReplayableToolResultContent } from '../dist/core/tools/index.js';
 import { runPerTurnContextManagement } from '../dist/core/loop/per-turn-context-management.js';
 import { MossAgent } from '../dist/core/agent/moss-agent.js';
 import { InMemorySessionStore } from '../dist/core/session/session.js';
+import { globalToolStateManager } from '../dist/tools/tool-helpers.js';
 
-function page(label, chars) {
-  return `${label}\n` + 'x'.repeat(chars);
+function page(label, chars, tail = '') {
+  const body = `${label}\n` + 'x'.repeat(chars);
+  return tail ? `${body}\n${tail}` : body;
 }
 
 function resultMessage(id, name, content) {
@@ -29,10 +35,10 @@ function resultMessage(id, name, content) {
   };
 }
 
-function assistantCall(id, name) {
+function assistantCall(id, name, input) {
   return {
     role: 'assistant',
-    content: [{ type: 'tool_use', id, name, input: { q: id } }],
+    content: [{ type: 'tool_use', id, name, input: input ?? { q: id } }],
   };
 }
 
@@ -40,14 +46,14 @@ test('fold waits for a batch, keeps the pending result, and is stable on the nex
   const messages = [{ role: 'user', content: 'What is the pinmux?' }];
   for (let i = 1; i <= 5; i++) {
     messages.push(assistantCall(`c${i}`, 'get_page'));
-    messages.push(resultMessage(`c${i}`, 'get_page', page(`Page ${i}`, 2000)));
+    messages.push(resultMessage(`c${i}`, 'get_page', page(`Page ${i}`, 5000, `TAIL-${i}`)));
   }
   const early = foldOlderToolResults(messages);
   assert.equal(early.foldedCount, 0, 'five results: one pending, four old, batch not full');
   assert.equal(early.messages, messages);
 
   messages.push(assistantCall('c6', 'get_page'));
-  messages.push(resultMessage('c6', 'get_page', page('Page 6', 2000)));
+  messages.push(resultMessage('c6', 'get_page', page('Page 6', 5000, 'TAIL-6')));
   const folded = foldOlderToolResults(messages);
   assert.equal(folded.foldedCount, 3);
   assert.ok(folded.savedChars > 4000);
@@ -60,6 +66,7 @@ test('fold waits for a batch, keeps the pending result, and is stable on the nex
   assert.ok(texts[4].includes('Page 5'), 'the newest completed page stays in full');
   assert.ok(texts[5].includes('Page 6'), 'the pending page stays in full');
   assert.match(texts[0], /Page 1/);
+  assert.match(texts[0], /TAIL-1/, 'the stub keeps the tail');
 
   const again = foldOlderToolResults(folded.messages);
   assert.equal(again.foldedCount, 0);
@@ -177,21 +184,104 @@ test('checkpoint fold rewrites the cache prefix less often than sliding elision'
       docs.fold
     ),
   ];
-  const text = `${lines.join('\n')}\n`;
-  try {
-    fs.mkdirSync('/opt/cursor/artifacts', { recursive: true });
-    fs.writeFileSync('/opt/cursor/artifacts/docs-qa-fold.log', text);
-  } catch {
-    // The assertions above are the contract. The log is walkthrough evidence.
+  console.log(lines.join('\n'));
+});
+
+test('results under 4k chars are not folded', () => {
+  const bodyFor = (i) => page(`Note ${i}`, 800);
+  const raw = simulate((messages) => ({ messages }), bodyFor);
+  const fold = simulate((messages) => foldOlderToolResults(messages), bodyFor);
+  assert.equal(fold.rewrites, 0);
+  assert.equal(fold.finalChars, raw.finalChars);
+  assert.equal(fold.totalTokens, raw.totalTokens);
+});
+
+test('error results and retainResult tools stay in full', () => {
+  const messages = [{ role: 'user', content: 'q' }];
+  messages.push(assistantCall('e1', 'exec'));
+  messages.push({
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: 'e1',
+        name: 'exec',
+        is_error: true,
+        content: page('ERR', 5000, 'ERROR-CAUSE-TAIL'),
+      },
+    ],
+  });
+  messages.push(assistantCall('t1', 'todo_write'));
+  messages.push(resultMessage('t1', 'todo_write', page('TODO', 5000, 'TODO-STILL-OPEN')));
+  for (let i = 1; i <= 6; i++) {
+    messages.push(assistantCall(`c${i}`, 'get_page'));
+    messages.push(resultMessage(`c${i}`, 'get_page', page(`Page ${i}`, 5000, `TAIL-${i}`)));
   }
-  console.log(text);
+  const folded = foldOlderToolResults(messages, { retainTools: new Set(['todo_write']) });
+  assert.ok(folded.foldedCount >= 3);
+  const texts = folded.messages
+    .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+    .filter((block) => block.type === 'tool_result')
+    .map((block) => block.content);
+  const error = texts.find((text) => text.includes('ERROR-CAUSE-TAIL'));
+  const todo = texts.find((text) => text.includes('TODO-STILL-OPEN'));
+  assert.equal(error.includes(TOOL_RESULT_FOLDED_MARKER), false);
+  assert.equal(todo.includes(TOOL_RESULT_FOLDED_MARKER), false);
+  const stub = texts.find((text) => text.includes(TOOL_RESULT_FOLDED_MARKER));
+  assert.match(stub, /TAIL-/);
+});
+
+test('the savings gate refuses a fold that does not pay for the rewrite', () => {
+  const messages = [{ role: 'user', content: 'q' }];
+  for (let i = 1; i <= 6; i++) {
+    messages.push(assistantCall(`c${i}`, 'get_page'));
+    messages.push(resultMessage(`c${i}`, 'get_page', page(`Page ${i}`, 5000)));
+  }
+  const refused = foldOlderToolResults(messages, { remainingRequests: 1 });
+  assert.equal(refused.foldedCount, 0);
+  assert.equal(refused.messages, messages);
+  const allowed = foldOlderToolResults(messages, { remainingRequests: 64 });
+  assert.equal(allowed.foldedCount, 3);
+});
+
+test('a folded read is not replayed, not deduped to see-below, and marks the cache truncated', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-fold-read-'));
+  const file = path.join(dir, 'page.txt');
+  fs.writeFileSync(file, 'pinmux\n');
+  await globalToolStateManager.recordFileState(file, 'full', false);
+  assert.equal(await globalToolStateManager.readReuseState(file, 'full'), 'fresh');
+
+  const body = page('Same', 5000, 'SAME-TAIL');
+  const messages = [{ role: 'user', content: 'q' }];
+  for (let i = 1; i <= 6; i++) {
+    messages.push(assistantCall(`r${i}`, 'read_file', { path: i === 1 ? file : 'src/a.ts' }));
+    messages.push(resultMessage(`r${i}`, 'read_file', body));
+  }
+  const folded = foldOlderToolResults(messages);
+  assert.ok(folded.foldedCount >= 1);
+  assert.equal(await globalToolStateManager.readReuseState(file, 'full'), 'truncated');
+  assert.equal(
+    findReplayableToolResultContent(folded.messages, 'read_file', { path: file }, 32, 'readonly'),
+    null
+  );
+
+  const deduped = dedupeUnchangedReadToolResults(folded.messages);
+  const texts = deduped.messages
+    .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+    .filter((block) => block.type === 'tool_result')
+    .map((block) => block.content);
+  assert.ok(
+    texts.some((text) => text.includes('SAME-TAIL') && !text.includes(TOOL_RESULT_FOLDED_MARKER))
+  );
+  assert.ok(texts.some((text) => text.includes(TOOL_RESULT_FOLDED_MARKER)));
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('per-turn context management folds at the checkpoint instead of sliding', () => {
   const messages = [{ role: 'user', content: 'Look up the pinmux.' }];
   for (let i = 1; i <= 6; i++) {
     messages.push(assistantCall(`c${i}`, 'get_page'));
-    messages.push(resultMessage(`c${i}`, 'get_page', page(`Page ${i}`, 2000)));
+    messages.push(resultMessage(`c${i}`, 'get_page', page(`Page ${i}`, 5000)));
   }
   const events = [];
   const result = runPerTurnContextManagement({
@@ -247,9 +337,10 @@ test('a docs-style turn folds old pages before the answer and keeps the prefix',
       return this.complete(opts);
     },
   };
+  const store = new InMemorySessionStore();
   const agent = new MossAgent({
     llmProvider: provider,
-    sessionStore: new InMemorySessionStore(),
+    sessionStore: store,
     model: 'fold-capture',
     baseSystemPrompt: 'Answer from the docs.',
     domainPrompt: false,
@@ -257,7 +348,7 @@ test('a docs-style turn folds old pages before the answer and keeps the prefix',
     includeLanguagePolicyPrompt: false,
     enableSteering: false,
     enableFollowUpGuard: false,
-    maxAgentTurns: 12,
+    maxAgentTurns: 64,
     contextTokens: 200_000,
   });
   agent.tools.register({
@@ -272,6 +363,7 @@ test('a docs-style turn folds old pages before the answer and keeps the prefix',
   agent.tools.register({
     name: 'ask_user_question',
     description: 'Ask the user.',
+    metadata: { requiresUserQuestion: true },
     inputSchema: { type: 'object', properties: {} },
     async execute() {
       return 'asked';
@@ -307,13 +399,12 @@ test('a docs-style turn folds old pages before the answer and keeps the prefix',
   const rawBodies = 6 * 12_000;
   assert.ok(payloads[6].length < rawBodies, 'the answer request is smaller than the raw pages');
 
+  const stored = JSON.stringify(await store.loadMessages('fold-qa'));
+  assert.ok(stored.includes(TOOL_RESULT_FOLDED_MARKER), 'folded text is stored for the next turn');
+
   const requestTokens = payloads.map((payload) => Math.ceil(payload.length / 4));
-  const agentLine = `agent docs turn requests=${captured.length} rewrites=${rewrites} tokens=${requestTokens.join(',')} total=${requestTokens.reduce((sum, n) => sum + n, 0)}`;
-  try {
-    fs.appendFileSync('/opt/cursor/artifacts/docs-qa-fold.log', `${agentLine}\n`);
-  } catch {
-    // Walkthrough log only.
-  }
-  console.log(agentLine);
+  console.log(
+    `agent docs turn requests=${captured.length} rewrites=${rewrites} tokens=${requestTokens.join(',')} total=${requestTokens.reduce((sum, n) => sum + n, 0)}`
+  );
   await agent.close();
 });

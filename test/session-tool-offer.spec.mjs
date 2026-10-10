@@ -87,8 +87,19 @@ test('tool visibility: no device hides device tools; plain Q&A hides the ledger'
   assert.equal(toolVisibleForRun('task_acceptance', {}), true);
   assert.equal(toolVisibleForRun('search_code', { deviceConfigured: false }), true);
   assert.equal(toolVisibleForRun('ask_user_question', {}), true);
-  assert.equal(toolVisibleForRun('ask_user_question', { userQuestions: true }), true);
-  assert.equal(toolVisibleForRun('ask_user_question', { userQuestions: false }), false);
+  assert.equal(
+    toolVisibleForRun('ask_user_question', { userQuestions: false, requiresUserQuestion: true }),
+    false
+  );
+  assert.equal(
+    toolVisibleForRun('ask_user_question', { userQuestions: true, requiresUserQuestion: true }),
+    true
+  );
+  assert.equal(
+    toolVisibleForRun('ask_user_question', { userQuestions: false }),
+    true,
+    'the tool name alone does not hide a question tool'
+  );
   assert.equal(toolVisibleForRun('task_define', { userQuestions: false }), true);
 });
 
@@ -99,6 +110,7 @@ test('headless chat omits ask_user_question and keeps the task ledger', async ()
   agent.tools.register({
     name: 'ask_user_question',
     description: 'Ask the user.',
+    metadata: { requiresUserQuestion: true },
     inputSchema: { type: 'object', properties: {} },
     async execute() {
       return 'asked';
@@ -117,6 +129,60 @@ test('headless chat omits ask_user_question and keeps the task ledger', async ()
     const asked = seen[0]?.tools ?? [];
     assert.ok(asked.includes('ask_user_question'));
     assert.ok(asked.includes('task_define'));
+  } finally {
+    await agent.close();
+    await fs.rm(ws, { recursive: true, force: true });
+  }
+});
+
+test('enrichToolContext asker keeps the question tool, including in oneshot', async () => {
+  const ws = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-hook-asker-'));
+  const seen = [];
+  const questionTool = {
+    name: 'ask_user_question',
+    description: 'Ask the user.',
+    metadata: { requiresUserQuestion: true },
+    inputSchema: { type: 'object', properties: {} },
+    async execute() {
+      return 'asked';
+    },
+  };
+  const agent = new MossAgent({
+    llmProvider: capturingProvider(seen),
+    sessionStore: new InMemorySessionStore(),
+    model: 'offer-capture',
+    workspaceDir: ws,
+    baseSystemPrompt: 'Answer the question.',
+    domainPrompt: false,
+    includeAgentBehaviorPrompt: false,
+    includeLanguagePolicyPrompt: false,
+    enableSteering: false,
+    enableFollowUpGuard: false,
+    maxAgentTurns: 2,
+    hooks: {
+      enrichToolContext(base) {
+        return { ...base, askUserQuestion: async () => 'from the host' };
+      },
+    },
+  });
+  agent.tools.register(questionTool);
+  agent.tools.register(recordEvidenceTool);
+  for (const tool of taskTools) agent.tools.register(tool);
+  const sink = { write() {} };
+  try {
+    await agent.chat('hook-asker', 'Which pin is the camera clock?');
+    assert.ok((seen[0]?.tools ?? []).includes('ask_user_question'));
+    assert.ok((seen[0]?.tools ?? []).includes('task_define'));
+
+    seen.length = 0;
+    await runOneShot(agent, 'Look up the camera pinmux in the board docs.', {
+      outputFormat: 'json',
+      stdout: sink,
+      cwd: ws,
+      sessionKey: 'hook-oneshot',
+    });
+    assert.ok((seen[0]?.tools ?? []).includes('ask_user_question'));
+    assert.ok((seen[0]?.tools ?? []).includes('task_define'));
   } finally {
     await agent.close();
     await fs.rm(ws, { recursive: true, force: true });

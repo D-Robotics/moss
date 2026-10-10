@@ -492,6 +492,7 @@ export function runAgentLoop(
               previousPrefixSnapshot,
               previousToolNames,
               prefixDebugEnabled,
+              maxTurns,
             });
 
             previousPrefixSnapshot = ctxResult.updatedSnapshots.previousPrefixSnapshot;

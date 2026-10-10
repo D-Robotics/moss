@@ -177,6 +177,8 @@ export interface PrepareTurnContextParams {
   pruningSettings?: Partial<ContextPruningSettings>;
   hardCapMessageCount: number;
   hardCapTotalTokens: number;
+  /** Agent-loop turn budget. Fold savings use maxTurns - turns. */
+  maxTurns?: number;
   previousPrefixSnapshot: Message[] | null;
   previousToolNames: string[] | null;
   prefixDebugEnabled: boolean;
@@ -228,15 +230,27 @@ export async function prepareTurnContext(
     estPromptTokens = Math.max(estPromptTokens, state.lastReportedPromptTokens);
   }
   {
+    const retainTools = new Set(
+      getToolsForRun()
+        .filter((tool) => tool.metadata?.retainResult === true)
+        .map((tool) => tool.name)
+    );
     const ctxMgmt = runPerTurnContextManagement({
       currentMessages,
       estPromptTokens,
       effectiveContextWindowTokens: effectiveContextTokens,
       pendingToolResultFollowUp,
       turns: state.turns,
+      ...(params.maxTurns !== undefined ? { maxTurns: params.maxTurns } : {}),
+      ...(retainTools.size > 0 ? { retainTools } : {}),
       push,
     });
     state.overflowState.microcompactTotalSavedChars += ctxMgmt.savedChars;
+    // Folds (and the stale-read pass beside them) only live in this array
+    // until they are written back. The next user turn reloads the store.
+    if (ctxMgmt.savedChars > 0) {
+      await persistCurrentMessages();
+    }
   }
 
   const toolsForBudget = getToolsForRun();

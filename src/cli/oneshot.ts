@@ -351,8 +351,9 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
   const needsWeb = isWebEligiblePrompt(text);
 
   return (tool) => {
-    // Headless `-p` cannot show a question. Task tools stay: benches call them.
-    if (tool.name === 'ask_user_question') return false;
+    // Question tools are hidden by requiresUserQuestion + asker presence in
+    // the agent, not by name here. A host that injects an asker keeps the tool.
+    // Task tools stay: benches call them.
     if (!ROUTED_ONE_SHOT_TOOLS.has(tool.name)) return true;
     if (ONE_SHOT_META_TOOLS.has(tool.name)) return needsSubagents || needsBackground;
     if (ONE_SHOT_SUBAGENT_TOOLS.has(tool.name)) return needsSubagents;

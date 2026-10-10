@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Steering guides the next turn. It does not skip tool calls the model
- * already emitted in this response. The total-call ceiling works the same
- * way: the in-flight batch runs, and the next response is blocked.
+ * already emitted in this response. The total-call ceiling still applies
+ * to each call in that response.
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -85,7 +85,7 @@ test('steering does not skip tool calls already emitted in this response', async
   assert.equal(guidance.includes('Skipped due to queued user message'), false);
 });
 
-test('total-call limit runs the in-flight batch, then blocks the next response', async () => {
+test('total-call limit blocks later calls in the same response', async () => {
   const prev = process.env.MOSS_TOOL_LOOP_TOTAL_LIMIT;
   process.env.MOSS_TOOL_LOOP_TOTAL_LIMIT = '1';
   const executed = [];
@@ -100,7 +100,7 @@ test('total-call limit runs the in-flight batch, then blocks the next response',
       state,
       evaluateSteering: () => [],
     });
-    assert.deepEqual(executed, ['a', 'b', 'c']);
+    assert.deepEqual(executed, ['a']);
     await runBatch({
       ids: ['d'],
       tool,
@@ -108,7 +108,7 @@ test('total-call limit runs the in-flight batch, then blocks the next response',
       state,
       evaluateSteering: () => [],
     });
-    assert.deepEqual(executed, ['a', 'b', 'c'], 'the next response does not run another lookup');
+    assert.deepEqual(executed, ['a'], 'the next response does not run another lookup');
   } finally {
     if (prev === undefined) delete process.env.MOSS_TOOL_LOOP_TOTAL_LIMIT;
     else process.env.MOSS_TOOL_LOOP_TOTAL_LIMIT = prev;

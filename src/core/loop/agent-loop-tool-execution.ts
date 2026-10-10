@@ -22,7 +22,6 @@ import {
 } from './agent-loop-tool-helpers.js';
 import {
   formatToolLoopGuardMessage,
-  isToolLoopTotalLimitReached,
   recordToolLoopOutcome,
   shouldShortCircuitToolCall,
   type ToolLoopGuardState,
@@ -107,7 +106,7 @@ function preflightToolCall(
   call: ToolCallRef,
   ctx: PreflightContext,
   resolvedTools: Tool[],
-  options: { parallelBatch?: boolean; deferTotalLimit?: boolean } = {}
+  options: { parallelBatch?: boolean } = {}
 ): ExecuteToolCallOutcome | null {
   if (ctx.maxToolCalls !== undefined && ctx.metrics.totalToolCalls >= ctx.maxToolCalls) {
     return {
@@ -308,9 +307,6 @@ export async function executeAgentLoopToolCalls(
   } = params;
 
   const toolResults: ContentBlock[] = [];
-  // The total-call ceiling blocks the *next* assistant response. Calls this
-  // response already emitted still run, then the guard message guides.
-  const deferTotalLimit = !isToolLoopTotalLimitReached(toolLoopGuard);
 
   // Message[] -> LLMMessage[]: the two types are structurally compatible but TS cannot
   // infer it because Message is the session-jsonl persistence format and LLMMessage is
@@ -389,7 +385,6 @@ export async function executeAgentLoopToolCalls(
           };
           const preflight = preflightToolCall(execCall, preflightCtx, toolsForRun, {
             parallelBatch: true,
-            deferTotalLimit,
           });
           const deps = toolCallDeps(execCall, (input) => {
             execCall.input = input;
@@ -416,7 +411,7 @@ export async function executeAgentLoopToolCalls(
       }
     } else {
       for (const call of group.calls) {
-        const preflight = preflightToolCall(call, preflightCtx, toolsForRun, { deferTotalLimit });
+        const preflight = preflightToolCall(call, preflightCtx, toolsForRun);
         if (preflight) {
           recordToolOutcome(call, preflight, recordCtx, toolResults);
           continue;

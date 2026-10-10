@@ -246,6 +246,7 @@ export async function buildFreshSessionContextReport(
       toolVisibleForRun(tool.name, {
         ...(options.taskFlow === undefined ? {} : { taskFlow: options.taskFlow }),
         deviceConfigured,
+        requiresUserQuestion: tool.metadata?.requiresUserQuestion === true,
       })
   );
   const declarations = buildProviderToolDeclarations(offered);
