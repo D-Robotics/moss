@@ -26,7 +26,7 @@ import {
   safeProcessCwd,
   shouldShowFullDefaultNotice,
 } from './cli/config.js';
-import { parseCliArgs } from './cli/args.js';
+import { parseCliArgs, shouldOpenResumePicker } from './cli/args.js';
 import {
   PermissionRuleRegistry,
   parsePermissionRuleSpec,
@@ -59,6 +59,7 @@ import {
   hasShownOneShotOnboardingHint,
   markOneShotOnboardingShown,
   offerSetupForInteractiveMissingConfig,
+  formatUnsetApiKeyEnv,
   printMissingConfigGuidance,
   renderOneShotOnboardingHint,
 } from './cli/onboarding-hints.js';
@@ -255,7 +256,7 @@ if (parsedArgs.unknownCommand) {
     );
     process.exit(0);
   }
-  // Remaining edit-distance typos (e.g. confgi→config)
+  // Remaining real typos (e.g. confgi→config). Ordinary words are not suggestions.
   if (!['--version', '--help', 'doctor'].includes(suggestion)) {
     console.error(uiText(`[moss] unknown command '${token}'`, `[moss] 未知命令「${token}」`));
     console.error(
@@ -475,6 +476,12 @@ async function main() {
     parsedArgs.configOverrides,
     loadedConfig
   );
+  // A named apiKeyEnv that is unset must not fall through to a stored key,
+  // an official provider key, or the setup wizard (including on a TTY).
+  if (resolvedConfig.apiKeyEnvUnset && resolvedConfig.apiKeyEnv) {
+    console.error(formatUnsetApiKeyEnv(resolvedConfig.apiKeyEnv));
+    process.exit(ExitCode.CONFIG);
+  }
   // Model settings are config-only (decision 2026-06). Say so once when a
   // leftover provider env var is present, instead of silently ignoring it —
   // doctor shows the same list as a structured `env ignored` line.
@@ -565,11 +572,15 @@ async function main() {
   // let the shell's overlay do the choosing (A12.88).
   const interactiveTty =
     Boolean(process.stdout.isTTY) && process.env.MOSS_NO_TUI !== '1' && !parsedArgs.print;
-  const resumeInteractive =
-    parsedArgs.command === 'resume' &&
-    parsedArgs.sessionKey === undefined &&
-    !parsedArgs.continueLast &&
-    interactiveTty;
+  const resumeInteractive = shouldOpenResumePicker({
+    command: parsedArgs.command,
+    sessionKey: parsedArgs.sessionKey,
+    sessionLast: parsedArgs.sessionLast,
+    continueLast: parsedArgs.continueLast,
+    print: parsedArgs.print,
+    stdoutIsTTY: Boolean(process.stdout.isTTY),
+    noTui: process.env.MOSS_NO_TUI === '1',
+  });
   const sessionCommand: 'chat' | 'resume' | 'fork' =
     parsedArgs.command === 'resume' || parsedArgs.command === 'fork'
       ? resumeInteractive

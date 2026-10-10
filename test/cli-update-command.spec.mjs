@@ -25,8 +25,8 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
 {
   assert.equal(pkg.name, '@rdk-moss/agent');
   assert.equal(pkg.private, true);
-  assert.equal(pkg.bin.moss, 'dist/cli.js');
-  assert.deepEqual(pkg.files, ['dist', '!dist/**/*.map', 'README.md', 'LICENSE']);
+  assert.equal(pkg.bin.moss, 'bin/moss.cjs');
+  assert.deepEqual(pkg.files, ['dist', '!dist/**/*.map', 'bin', 'README.md', 'LICENSE']);
   assert.equal(pkg.engines.node, '>=22.16.0');
   assert.equal(pkg.scripts.prepare, 'npm run build');
   assert.equal(pkg.scripts.prepublishOnly, 'npm run build && npm run verify');

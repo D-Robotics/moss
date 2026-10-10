@@ -99,7 +99,7 @@ export function fullHelpLines(c: Colors, configPath: string, zh = false): string
     `    ${c.cyan('$')} moss "check disk usage"    ${c.dim('# one-shot (or pipe: echo "list files" | moss)')}`,
     '',
     `  ${c.bold('Setup, sessions & tasks')}`,
-    `    ${c.green('setup')} / ${c.green('doctor')}         configure · health-check config and runtime`,
+    `    ${c.green('setup')} / ${c.green('doctor')} / ${c.green('uninstall')}  configure · health-check · print removal paths`,
     `    ${c.green('mcp')} ${c.dim('add|list|remove|test')}          manage MCP servers`,
     `    ${c.green('device')} ${c.dim('add|list|remove|test')}       manage robot devices (.moss/devices.json)`,
     `    ${c.green('skill')} ${c.dim('create|list')}                manage skills (.moss/skills)`,

@@ -53,14 +53,26 @@ export class ProcessError extends Error {
   readonly stderr: string;
 
   readonly timedOut: boolean;
+  readonly timeoutMs: number | undefined;
 
-  constructor(exitCode: number, stdout: string, stderr: string, timedOut = false) {
-    super(`Process exited with code ${exitCode}`);
+  constructor(
+    exitCode: number,
+    stdout: string,
+    stderr: string,
+    timedOut = false,
+    timeoutMs?: number
+  ) {
+    super(
+      timedOut && timeoutMs !== undefined && timeoutMs > 0
+        ? `timed out after ${timeoutMs}ms`
+        : `Process exited with code ${exitCode}`
+    );
     this.name = 'ProcessError';
     this.exitCode = exitCode;
     this.stdout = stdout;
     this.stderr = stderr;
     this.timedOut = timedOut;
+    this.timeoutMs = timeoutMs;
   }
 }
 
@@ -166,7 +178,7 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
       if (exitCode === 0) {
         resolve({ stdout, stderr, exitCode });
       } else {
-        reject(new ProcessError(exitCode, stdout, stderr, timedOut));
+        reject(new ProcessError(exitCode, stdout, stderr, timedOut, opts.timeout));
       }
     });
   });

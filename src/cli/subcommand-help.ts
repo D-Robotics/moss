@@ -237,6 +237,37 @@ function sessionsHelp(zh: boolean): string {
   ].join('\n');
 }
 
+function uninstallHelp(zh: boolean): string {
+  if (zh) {
+    return [
+      '用法：',
+      '  moss uninstall',
+      '',
+      '打印全局包和 ~/.moss 路径。只在终端里确认后删除配置目录。',
+      '不会删除 HOME、/、当前目录，也不会删除工作区 .moss/。',
+      '',
+      '选项：',
+      '  （无）',
+      '',
+      '示例：',
+      '  moss uninstall',
+    ].join('\n');
+  }
+  return [
+    'Usage:',
+    '  moss uninstall',
+    '',
+    'Print the global package and ~/.moss paths. The config directory is deleted only after a [y/N] confirm in a terminal.',
+    'Refuses when the config directory is HOME, /, or the current directory. Does not delete a workspace .moss/.',
+    '',
+    'Options:',
+    '  (none)',
+    '',
+    'Examples:',
+    '  moss uninstall',
+  ].join('\n');
+}
+
 function updateHelp(zh: boolean): string {
   const root = findMossPackageRoot(fileURLToPath(import.meta.url));
   return renderUpdateHelp(zh, readMossPackage(root));
@@ -255,6 +286,8 @@ export function renderSubcommandHelp(command: string, zh: boolean = isZhLocale()
       return doctorHelp(zh);
     case 'update':
       return updateHelp(zh);
+    case 'uninstall':
+      return uninstallHelp(zh);
     case 'resume':
       return resumeHelp(zh);
     case 'fork':

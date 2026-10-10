@@ -242,12 +242,16 @@ export const execTool: Tool = {
       );
       if (err instanceof ProcessError) {
         const output = [err.stdout.trim(), err.stderr.trim()].filter(Boolean).join('\n');
-        const timedOut =
-          /timeout|timed out|killed/i.test(err.message) || err.exitCode === null
-            ? `\n(hint: raise timeout_ms or use exec_background for long-running processes; default timeout is ${EXEC_DEFAULT_TIMEOUT_MS}ms)`
-            : '';
+        if (err.timedOut) {
+          const waited = err.timeoutMs && err.timeoutMs > 0 ? err.timeoutMs : timeoutMs;
+          return (
+            `timed out after ${waited}ms (raise timeout_ms or use exec_background)${output ? `\n${output}` : ''}${writebackWarning}` +
+            footnote +
+            hooksNotice(`${err.stdout}\n${err.stderr}`)
+          );
+        }
         return (
-          `Command failed (exit ${err.exitCode}):\n${output || err.message}${timedOut}${writebackWarning}` +
+          `Command failed (exit ${err.exitCode}):\n${output || err.message}${writebackWarning}` +
           footnote +
           hooksNotice(`${err.stdout}\n${err.stderr}`)
         );
