@@ -520,12 +520,18 @@ try {
   assert.doesNotMatch(String(legit), /must be restored from the original source/);
 
   fs.writeFileSync(path.join(project, 'both.txt'), 'alpha SECRET-value-1234\n');
+  // cmd.exe does not expand POSIX $(printf ...); perform the same two real
+  // mutations with Node while still assembling the placeholder at runtime.
+  const bothCommand =
+    process.platform === 'win32'
+      ? `node -e "const fs=require('fs');const text=fs.readFileSync('both.txt','utf8');process.stdout.write(text.replace('alpha','beta').replace('SECRET-value-1234','[REDA'+'CTED]'))" > both-tmp.txt && mv both-tmp.txt both.txt`
+      : sedInPlace(
+          `"s/alpha/beta/; s/SECRET-value-1234/$(printf '%s%s' '[REDA' 'CTED]')/"`,
+          'both.txt'
+        );
   const both = await execTool.execute(
     {
-      command: sedInPlace(
-        `"s/alpha/beta/; s/SECRET-value-1234/$(printf '%s%s' '[REDA' 'CTED]')/"`,
-        'both.txt'
-      ),
+      command: bothCommand,
     },
     ctx()
   );

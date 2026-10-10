@@ -169,7 +169,7 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
 }
 
 {
-  const elsewhere = '/opt/moss-src';
+  const elsewhere = path.resolve('/opt/moss-src');
   const root = path.join('/usr', 'lib', 'node_modules', '@rdk-moss', 'agent');
   const advice = adviseMossUpdate({
     packageRoot: root,

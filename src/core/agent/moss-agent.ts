@@ -1140,6 +1140,7 @@ ${result.stderr ?? ''}`.trim();
       // Child agents inherit host coding gates (verify/todo/false-complete) so
       // fan_out_subagents / create_subagent cannot skip completion honesty.
       ...(this.config.completionGate ? { completionGate: this.config.completionGate } : {}),
+      ...(this.config.onAgentLoopEvent ? { onAgentLoopEvent: this.config.onAgentLoopEvent } : {}),
       // F23: child agents inherit the host approval gate. The runner tags each
       // call with the child sessionKey/runId before consulting this policy.
       ...(hooks?.onBeforeToolExec
@@ -1536,6 +1537,7 @@ ${result.stderr ?? ''}`.trim();
       // Buffer only when a host completionGate may rewrite or discard the answer.
       shouldBufferAssistantOutput: () => this.config.bufferAssistantUntilComplete === true,
       completionGate,
+      onAgentLoopEvent: this.config.onAgentLoopEvent,
       // Per-instance epochs isolate same-session streams across embedded agents.
       runEpochStore: this.runEpochStore,
       pendingToolAborts: this.pendingToolAborts,

@@ -93,6 +93,7 @@ export interface SubAgentRunnerDeps {
    * so fan_out_subagents / create_subagent cannot false-complete coding work.
    */
   completionGate?: import('../loop/agent-loop-types.js').AgentLoopExtensions['completionGate'];
+  onAgentLoopEvent?: import('../loop/agent-loop-types.js').AgentLoopExtensions['onAgentLoopEvent'];
 
   /**
    * Optional host approval gate. When set, every child tool call is checked
@@ -317,6 +318,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         toolHooks: deps.toolHooks,
         // Inherit parent coding completion gates (verify / todo / false-complete).
         ...(deps.completionGate ? { completionGate: deps.completionGate } : {}),
+        onAgentLoopEvent: deps.onAgentLoopEvent,
         // Inherit the parent's approval gate (F23): without it the child loop
         // executes mutating tools the parent was denied. Child identity is
         // injected so approval audit/UI sees the sub-agent context.
@@ -438,6 +440,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           maxOutputTokens: deps.maxOutputTokens,
           platform: deps.platform,
           toolHooks: deps.toolHooks,
+          onAgentLoopEvent: deps.onAgentLoopEvent,
         });
 
         for await (const event of finalizationStream) {

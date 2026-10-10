@@ -11,6 +11,7 @@
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execBackgroundTool, execLogsTool, execStopTool } from '../dist/tools/background-exec.js';
 import { execTool } from '../dist/tools/builtin.js';
@@ -23,9 +24,15 @@ import {
 } from '../dist/core/tools/background-process-registry.js';
 
 const ctx = () => ({ abortSignal: new AbortController().signal });
-const testDir = fs.mkdtempSync(path.join(process.cwd(), '.moss-background-exec-'));
+function cleanupTempDirectory(directory, prefix) {
+  const target = path.resolve(directory);
+  assert.equal(path.dirname(target), path.resolve(os.tmpdir()), 'cleanup stays in system temp');
+  assert.ok(path.basename(target).startsWith(prefix), 'cleanup names a created fixture directory');
+  fs.rmSync(target, { recursive: true, force: true });
+}
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), '.moss-background-exec-'));
 process.on('exit', () => {
-  fs.rmSync(testDir, { recursive: true, force: true });
+  cleanupTempDirectory(testDir, '.moss-background-exec-');
 });
 const quote = (value) =>
   process.platform === 'win32'
@@ -209,7 +216,8 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
 // ─── 6. /goal waits only when this run injected goalExecWait ──────────────
 {
   clearBackgroundRegistryForTests();
-  const ws = fs.mkdtempSync(path.join(process.cwd(), '.moss-goal-exec-wait-'));
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), '.moss-goal-exec-wait-'));
+  process.on('exit', () => cleanupTempDirectory(ws, '.moss-goal-exec-wait-'));
   const sleepMs = 2000;
   const script = path.join(ws, 'sleep.cjs');
   fs.writeFileSync(script, `setTimeout(() => process.exit(0), ${sleepMs});\n`);
@@ -269,7 +277,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   assert.match(capped, /Still running after/, `timeout still returns a handle: ${capped}`);
   assert.ok(capElapsed < 1000, `timeout_ms bounds the wait, elapsed ${capElapsed}`);
   if (capId) await execStopTool.execute({ id: capId }, goalCtx);
-  fs.rmSync(ws, { recursive: true, force: true });
+  cleanupTempDirectory(ws, '.moss-goal-exec-wait-');
 }
 
 // ─── 7. Esc during a goal wait kills the command immediately ───────────────
@@ -301,4 +309,4 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
 
 console.log('  [PASS] background-exec: abort lifecycle, output capture, stop kill, safety gate');
 clearBackgroundRegistryForTests();
-fs.rmSync(testDir, { recursive: true, force: true });
+cleanupTempDirectory(testDir, '.moss-background-exec-');

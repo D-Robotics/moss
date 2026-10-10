@@ -9,6 +9,7 @@
  * for crash diagnostics only.
  */
 import fs from 'node:fs';
+import path from 'node:path';
 import { spawnProcess, type ChildProcess } from '../../utils/run-process.js';
 import { pinNpmUserConfig, safeChildEnv, startupChildEnv } from '../../utils/safe-child-env.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
@@ -99,16 +100,37 @@ export class McpStdioTransport implements McpTransport {
         ? pinNpmUserConfig(startupChildEnv(this.config.env))
         : safeChildEnv(this.config.env ?? {});
       if (this.config.cwd) fs.mkdirSync(this.config.cwd, { recursive: true });
-      child = spawnProcess(command, this.config.args ?? [], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        // Credential-bearing env values come only from the expanded config env
-        // block; the inherited parent env is sanitized by safeChildEnv.
-        // startupEnvOnly children (built-in rdk-docs) also pin npm's userconfig
-        // to the user's own ~/.npmrc and run outside the workspace cwd.
-        env,
-        cwd: this.config.cwd,
-        windowsHide: true,
-      });
+      // Windows npx is a .cmd shim. Run npm's JS entry through Node instead of
+      // a shell, so package paths and arguments keep their literal boundaries.
+      const npxScript =
+        process.platform === 'win32' && command === 'npx'
+          ? [...(env.PATH ?? env.Path ?? '').split(path.delimiter), path.dirname(process.execPath)]
+              .map((dir) =>
+                path.resolve(
+                  this.config.cwd ?? process.cwd(),
+                  dir,
+                  'node_modules',
+                  'npm',
+                  'bin',
+                  'npx-cli.js'
+                )
+              )
+              .find((candidate) => fs.existsSync(candidate))
+          : undefined;
+      child = spawnProcess(
+        npxScript ? process.execPath : command,
+        [...(npxScript ? [npxScript] : []), ...(this.config.args ?? [])],
+        {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          // Credential-bearing env values come only from the expanded config env
+          // block; the inherited parent env is sanitized by safeChildEnv.
+          // startupEnvOnly children (built-in rdk-docs) also pin npm's userconfig
+          // to the user's own ~/.npmrc and run outside the workspace cwd.
+          env,
+          cwd: this.config.cwd,
+          windowsHide: true,
+        }
+      );
     } catch (err) {
       this._state = 'failed';
       this._lastError = errorMessage(err);

@@ -7,6 +7,8 @@
  * model asserted it. Failures and repairs are first-class JSONL records.
  */
 import fs from 'node:fs/promises';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { acquireTaskArtifactWriteLock } from '../session/session-write-lock.js';
 import path from 'node:path';
 
 import { MossError, ErrorCode } from '../../errors.js';
@@ -38,6 +40,7 @@ import {
   readJsonlFile,
 } from '../task-runtime/artifacts.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
+import { ensureDirectoryDurably } from '../session/jsonl-session-store.js';
 
 const log = getRootLogger().child('task-store');
 
@@ -45,7 +48,18 @@ const EVENTS_FILE = 'task-events.jsonl';
 const FAILURES_FILE = 'task-failures.jsonl';
 const REPAIRS_FILE = 'task-repairs.jsonl';
 const EVENT_LOCK_WAIT_MS = 5_000;
-const EVENT_LOCK_STALE_MS = 30_000;
+interface TaskLockScope {
+  key: string;
+  active: boolean;
+  parent?: TaskLockScope;
+}
+const taskLockScope = new AsyncLocalStorage<TaskLockScope>();
+function ownsTaskLock(key: string): boolean {
+  for (let scope = taskLockScope.getStore(); scope; scope = scope.parent) {
+    if (scope.active && scope.key === key) return true;
+  }
+  return false;
+}
 
 /** In-process queue so two writers in one process take the file lock in order. */
 const taskEventWriteChains = new Map<string, Promise<unknown>>();
@@ -56,7 +70,7 @@ function newId(prefix: string): string {
 
 async function mossDir(workspaceDir: string): Promise<string> {
   const dir = path.join(workspaceDir, '.moss');
-  await fs.mkdir(dir, { recursive: true });
+  await ensureDirectoryDurably(dir);
   return dir;
 }
 
@@ -64,12 +78,22 @@ async function readJsonl<T>(file: string): Promise<T[]> {
   return readJsonlFile<T>(file);
 }
 
-async function appendJsonl(workspaceDir: string, name: string, record: unknown): Promise<void> {
-  ensureMossRuntimeGitignore(workspaceDir);
-  const dir = await mossDir(workspaceDir);
-  // Newline repair runs here. Task-event callers already hold the event lock
-  // (withTaskEventLock). That lock is not re-entrant.
-  await appendJsonlFile(path.join(dir, name), record);
+async function appendJsonl(
+  workspaceDir: string,
+  name: string,
+  record: unknown,
+  signal?: AbortSignal
+): Promise<void> {
+  signal?.throwIfAborted();
+  const write = async (): Promise<void> => {
+    ensureMossRuntimeGitignore(workspaceDir);
+    const dir = await mossDir(workspaceDir);
+    await appendJsonlFile(path.join(dir, name), record, signal);
+  };
+  // Event callers already hold the non-reentrant workspace lock. Other task
+  // records join it so a failed durability barrier can safely undo its append.
+  if (name === EVENTS_FILE) await write();
+  else await withTaskEventLock(workspaceDir, write);
 }
 
 // --- events -----------------------------------------------------------------
@@ -145,10 +169,12 @@ export async function appendTaskEvent(
   workspaceDir: string,
   taskId: string,
   type: TaskEventType,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  signal?: AbortSignal
 ): Promise<TaskEvent> {
+  signal?.throwIfAborted();
   return withTaskEventLock(workspaceDir, () =>
-    appendTaskEventUnlocked(workspaceDir, taskId, type, data)
+    appendTaskEventUnlocked(workspaceDir, taskId, type, data, signal)
   );
 }
 
@@ -156,9 +182,12 @@ async function appendTaskEventUnlocked(
   workspaceDir: string,
   taskId: string,
   type: TaskEventType,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  signal?: AbortSignal
 ): Promise<TaskEvent> {
+  signal?.throwIfAborted();
   const events = await listTaskEvents(workspaceDir, taskId);
+  signal?.throwIfAborted();
   const current = events.length > 0 ? replayTaskPhase(events) : 'draft';
   const next = nextTaskPhase(
     current,
@@ -182,7 +211,7 @@ async function appendTaskEventUnlocked(
     phase: next,
     ...(data ? { data } : {}),
   };
-  await appendJsonl(workspaceDir, EVENTS_FILE, event);
+  await appendJsonl(workspaceDir, EVENTS_FILE, event, signal);
   if (experienceEnabled()) {
     await recordAcceptedExperience(workspaceDir, event).catch(() => {
       // Optional bookkeeping must not fail the task state machine.
@@ -202,10 +231,11 @@ export async function tryAppendTaskEvent(
   workspaceDir: string,
   taskId: string,
   type: TaskEventType,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  signal?: AbortSignal
 ): Promise<TaskEvent | null> {
   try {
-    return await appendTaskEvent(workspaceDir, taskId, type, data);
+    return await appendTaskEvent(workspaceDir, taskId, type, data, signal);
   } catch (err) {
     if (err instanceof MossError && err.code === ErrorCode.EXECUTION_STATE_INVALID) {
       return null;
@@ -237,19 +267,27 @@ export async function emitAcceptanceLifecycle(
   taskId: string,
   passed: boolean,
   detail: string,
-  source?: 'command' | 'contract'
+  source?: 'command' | 'contract',
+  signal?: AbortSignal
 ): Promise<void> {
   const events = await listTaskEvents(workspaceDir, taskId);
   if (events.length === 0) return;
   const phase = replayTaskPhase(events);
   if (isTerminalTaskPhase(phase)) return;
+  signal?.throwIfAborted();
   if (['ready', 'executing', 'diagnosing', 'repairing'].includes(phase)) {
-    await tryAppendTaskEvent(workspaceDir, taskId, 'verification_started');
+    await tryAppendTaskEvent(workspaceDir, taskId, 'verification_started', undefined, signal);
   }
-  await tryAppendTaskEvent(workspaceDir, taskId, passed ? 'acceptance_pass' : 'acceptance_fail', {
-    detail: detail.slice(0, 400),
-    ...(source ? { acceptanceSource: source } : {}),
-  });
+  await tryAppendTaskEvent(
+    workspaceDir,
+    taskId,
+    passed ? 'acceptance_pass' : 'acceptance_fail',
+    {
+      detail: detail.slice(0, 400),
+      ...(source ? { acceptanceSource: source } : {}),
+    },
+    signal
+  );
 }
 
 // --- failures & repairs -------------------------------------------------------
@@ -365,47 +403,56 @@ export async function getTaskStateSnapshot(
   workspaceDir: string,
   taskId: string
 ): Promise<TaskStateSnapshot | null> {
-  const tasks = await listTaskRecords(workspaceDir);
-  const contract = tasks.find((task) => task.taskId === taskId);
-  if (!contract) return null;
+  return withTaskArtifactReadLock(workspaceDir, async () => {
+    const tasks = await listTaskRecords(workspaceDir);
+    const contract = tasks.find((task) => task.taskId === taskId);
+    if (!contract) return null;
 
-  const [events, failures, repairs, evidence, verdicts] = await Promise.all([
-    listTaskEvents(workspaceDir, taskId),
-    listFailures(workspaceDir, taskId),
-    listRepairs(workspaceDir, taskId),
-    listEvidenceRecords(workspaceDir, 1000),
-    listAcceptanceVerdicts(workspaceDir, taskId),
-  ]);
+    const reads = [
+      listTaskEvents(workspaceDir, taskId),
+      listFailures(workspaceDir, taskId),
+      listRepairs(workspaceDir, taskId),
+      listEvidenceRecords(workspaceDir, 1000),
+      listAcceptanceVerdicts(workspaceDir, taskId),
+    ] as const;
+    const [events, failures, repairs, evidence, verdicts] = await Promise.all(reads).catch(
+      async (error) => {
+        // Keep ownership until every sibling read has stopped using this snapshot.
+        await Promise.allSettled(reads);
+        throw error;
+      }
+    );
 
-  const folded = foldTaskEvents(events);
-  const phase = folded.phase;
-  const applied = folded.applied;
-  const attempt = applied.filter((event) => event.type === 'verification_started').length;
-  const taskEvidence = evidence.filter((record) => record.taskId === taskId);
-  const aborted = phase === 'failed' && latestTaskFailureDetail(applied) === 'aborted';
-  const outcome = aborted ? 'aborted' : deriveTaskOutcome(phase);
-  const lastVerdict = latestAcceptanceVerdict(verdicts);
+    const folded = foldTaskEvents(events);
+    const phase = folded.phase;
+    const applied = folded.applied;
+    const attempt = applied.filter((event) => event.type === 'verification_started').length;
+    const taskEvidence = evidence.filter((record) => record.taskId === taskId);
+    const aborted = phase === 'failed' && latestTaskFailureDetail(applied) === 'aborted';
+    const outcome = aborted ? 'aborted' : deriveTaskOutcome(phase);
+    const lastVerdict = latestAcceptanceVerdict(verdicts);
 
-  return {
-    taskId,
-    goal: contract.goal,
-    phase,
-    statusView: taskStatusView(phase),
-    ...(outcome ? { outcome } : {}),
-    ...(contract.targetDeviceId ? { targetDeviceId: contract.targetDeviceId } : {}),
-    contractStatus: contract.status,
-    plan: planFromEvents(applied),
-    acceptanceCriteria: contract.acceptanceCriteria,
-    ...(contract.verificationPlan ? { verificationPlan: contract.verificationPlan } : {}),
-    attempt,
-    failures,
-    repairs,
-    evidenceCount: taskEvidence.length,
-    ...(lastVerdict ? { lastVerdict } : {}),
-    ...(phase === 'blocked' ? { blockedReason: blockedReasonFromEvents(applied) } : {}),
-    createdAt: contract.createdAt,
-    updatedAt: Math.max(contract.updatedAt, ...applied.map((event) => event.timestamp), 0),
-  };
+    return {
+      taskId,
+      goal: contract.goal,
+      phase,
+      statusView: taskStatusView(phase),
+      ...(outcome ? { outcome } : {}),
+      ...(contract.targetDeviceId ? { targetDeviceId: contract.targetDeviceId } : {}),
+      contractStatus: contract.status,
+      plan: planFromEvents(applied),
+      acceptanceCriteria: contract.acceptanceCriteria,
+      ...(contract.verificationPlan ? { verificationPlan: contract.verificationPlan } : {}),
+      attempt,
+      failures,
+      repairs,
+      evidenceCount: taskEvidence.length,
+      ...(lastVerdict ? { lastVerdict } : {}),
+      ...(phase === 'blocked' ? { blockedReason: blockedReasonFromEvents(applied) } : {}),
+      createdAt: contract.createdAt,
+      updatedAt: Math.max(contract.updatedAt, ...applied.map((event) => event.timestamp), 0),
+    };
+  });
 }
 
 export async function listTaskStateSnapshots(workspaceDir: string): Promise<TaskStateSnapshot[]> {
@@ -526,15 +573,6 @@ export function isTaskSettled(snapshot: TaskStateSnapshot): boolean {
   return isTerminalTaskPhase(snapshot.phase);
 }
 
-const RETRYABLE_LOCK_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
-
-/** Tokens this process currently holds. A matching lock file is not stale. */
-const heldLockTokens = new Set<string>();
-
-function newLockToken(): string {
-  return `${process.pid}:${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
 /**
  * One queue per real directory. A symlink or (on Windows) a different case
  * must not take a second queue and then delete the holder's lock as stale.
@@ -563,134 +601,45 @@ async function enqueueTaskEventWrite<T>(workspaceDir: string, fn: () => Promise<
   return run;
 }
 
-/**
- * Cross-process lock around task-events.jsonl reads and appends.
- *
- * Not re-entrant. Do not call appendTaskEvent (or anything else that takes
- * this lock) from inside the locked callback: the in-process queue waits on
- * the outer write. The lock body is `pid:nonce`. A recycled container pid is
- * stale only when this process does not currently hold that nonce.
- */
-async function withTaskEventLock<T>(workspaceDir: string, fn: () => Promise<T>): Promise<T> {
+/** One reliable workspace mutex; nested reads may reuse their caller's lock. */
+export async function withTaskEventLock<T>(workspaceDir: string, fn: () => Promise<T>): Promise<T> {
+  const key = await taskEventQueueKey(workspaceDir);
+  if (ownsTaskLock(key)) throw new Error('task artifact write lock is not re-entrant');
   return enqueueTaskEventWrite(workspaceDir, async () => {
     const dir = await mossDir(workspaceDir);
-    const lockPath = path.join(dir, `${EVENTS_FILE}.lock`);
-    const token = await acquireTaskEventLock(lockPath);
+    const lockPath = path.join(dir, EVENTS_FILE);
+    let lock;
     try {
-      return await fn();
+      lock = await acquireTaskArtifactWriteLock(lockPath, EVENT_LOCK_WAIT_MS);
+    } catch (error) {
+      const cause = (error as Error).cause;
+      if (cause instanceof Error && cause.message === 'lock acquisition timed out') {
+        throw new MossError({
+          code: ErrorCode.EXECUTION_LEASE_HELD,
+          message: 'timed out waiting for the task event lock (task-events.jsonl.lock)',
+          context: { lockPath },
+        });
+      }
+      if (cause && ['EPERM', 'EACCES'].includes((cause as NodeJS.ErrnoException).code ?? ''))
+        throw cause;
+      throw error;
+    }
+    const scope: TaskLockScope = { key, active: true, parent: taskLockScope.getStore() };
+    try {
+      return await taskLockScope.run(scope, fn);
     } finally {
-      try {
-        await releaseTaskEventLock(lockPath, token);
-      } finally {
-        heldLockTokens.delete(token);
-      }
+      scope.active = false;
+      await lock.release();
     }
   });
 }
 
-function taskEventLockTimeout(lockPath: string): MossError {
-  return new MossError({
-    code: ErrorCode.EXECUTION_LEASE_HELD,
-    message: `timed out waiting for the task event lock (${path.basename(lockPath)})`,
-    hint: 'Another moss process is writing task events. Retry when it finishes.',
-    context: { lockPath },
-  });
-}
-
-async function acquireTaskEventLock(lockPath: string): Promise<string> {
-  const deadline = Date.now() + EVENT_LOCK_WAIT_MS;
-  const token = newLockToken();
-  for (;;) {
-    if (Date.now() > deadline) throw taskEventLockTimeout(lockPath);
-    try {
-      await fs.writeFile(lockPath, token, { encoding: 'utf8', flag: 'wx' });
-      heldLockTokens.add(token);
-      return token;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      // Those three codes are Windows delete/create races. Elsewhere they
-      // mean the directory is not writable: retrying spins, because reclaim
-      // sees ENOENT and would continue without sleeping.
-      const winRetry =
-        process.platform === 'win32' && code !== undefined && RETRYABLE_LOCK_CODES.has(code);
-      if (code !== 'EEXIST' && !winRetry) throw err;
-      const reclaim = await tryReclaimStaleTaskEventLock(lockPath);
-      if (Date.now() > deadline) throw taskEventLockTimeout(lockPath);
-      if (reclaim !== 'reclaimed') {
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-    }
-  }
-}
-
-type LockReclaim = 'missing' | 'reclaimed' | 'busy';
-
-/**
- * Unlink a stale lock only when the pid is still the one we observed, so two
- * waiters cannot both delete a lock a third writer just created.
- * `missing` means the file is gone (ENOENT): the caller must sleep before
- * retrying, or a non-writable directory tight-loops.
- */
-async function tryReclaimStaleTaskEventLock(lockPath: string): Promise<LockReclaim> {
-  let observed: string;
-  try {
-    observed = await fs.readFile(lockPath, 'utf8');
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'busy';
-  }
-  if (!(await taskEventLockIsStale(lockPath, observed))) return 'busy';
-  let again: string;
-  try {
-    again = await fs.readFile(lockPath, 'utf8');
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'busy';
-  }
-  if (again !== observed) return 'busy';
-  await fs.unlink(lockPath).catch(() => undefined);
-  try {
-    await fs.stat(lockPath);
-    return 'busy';
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'reclaimed' : 'busy';
-  }
-}
-
-function lockPid(raw: string): number {
-  const head = raw.trim().split(':')[0] ?? '';
-  const pid = Number(head);
-  return Number.isInteger(pid) ? pid : Number.NaN;
-}
-
-async function taskEventLockIsStale(lockPath: string, raw: string): Promise<boolean> {
-  const token = raw.trim();
-  if (heldLockTokens.has(token)) return false;
-  try {
-    const stat = await fs.stat(lockPath);
-    if (Date.now() - stat.mtimeMs > EVENT_LOCK_STALE_MS) return true;
-    const pid = lockPid(raw);
-    if (!Number.isInteger(pid) || pid <= 0) return true;
-    // Own pid with a nonce this process is not holding: leftover from pid
-    // reuse, not the lock we just took through another path.
-    if (pid === process.pid) return true;
-    return !processIsAlive(pid);
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'ENOENT';
-  }
-}
-
-function processIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code !== 'ESRCH';
-  }
-}
-
-async function releaseTaskEventLock(lockPath: string, token: string): Promise<void> {
-  const current = await fs.readFile(lockPath, 'utf8').catch(() => '');
-  if (current.trim() !== token) return;
-  const again = await fs.readFile(lockPath, 'utf8').catch(() => '');
-  if (again.trim() !== token) return;
-  await fs.unlink(lockPath).catch(() => undefined);
+/** Read under the writer's mutex, preventing replay of a rolled-back cached tail. */
+export async function withTaskArtifactReadLock<T>(
+  workspaceDir: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const key = await taskEventQueueKey(workspaceDir);
+  if (ownsTaskLock(key)) return fn();
+  return withTaskEventLock(workspaceDir, fn);
 }

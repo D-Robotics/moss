@@ -22,7 +22,7 @@ import {
   shouldShowFullDefaultNotice,
 } from '../dist/cli/config.js';
 import { syncConfigDirectory } from '../dist/cli/config-api-key-crypto.js';
-import { writePreferredModel } from '../dist/cli/preferred-model-store.js';
+import { readPreferredModel, writePreferredModel } from '../dist/cli/preferred-model-store.js';
 import { writeConfigFileAtomic } from '../dist/cli/config-durable-write.js';
 
 const execFileAsync = promisify(execFile);
@@ -561,11 +561,39 @@ const execFileAsync = promisify(execFile);
 {
   const dir = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-config-mode-')));
   const configDir = path.join(dir, 'cfg');
-  writePreferredModel('https://example.test/v1', 'model-a', {
-    MOSS_CONFIG_DIR: configDir,
-    HOME: dir,
-  });
-  assert.equal(fs.statSync(configDir).mode & 0o777, 0o700);
+  const env = { MOSS_CONFIG_DIR: configDir, HOME: dir };
+  const requests = [];
+  const originalMkdir = fs.mkdirSync;
+  if (process.platform === 'win32') {
+    // Windows stat mode does not encode POSIX owner/group permissions. Observe
+    // the actual request while still creating the directory with real Node FS.
+    fs.mkdirSync = function (directory, options) {
+      requests.push({ directory, options });
+      return originalMkdir.call(this, directory, options);
+    };
+  }
+  try {
+    writePreferredModel('https://example.test/v1', 'model-a', env);
+  } finally {
+    fs.mkdirSync = originalMkdir;
+  }
+  assert.equal(fs.statSync(configDir).isDirectory(), true);
+  assert.equal(readPreferredModel('https://example.test/v1', env), 'model-a');
+  if (process.platform === 'win32') {
+    const assertPrivateRequest = (calls) => {
+      const matching = calls.filter((call) => call.directory === configDir);
+      assert.equal(matching.length, 1);
+      assert.equal(matching[0].options.mode, 0o700);
+    };
+    assertPrivateRequest(requests);
+    assert.throws(
+      () => assertPrivateRequest([{ directory: configDir, options: { mode: 0o777 } }]),
+      assert.AssertionError,
+      'a real request for arbitrary permissions would fail this assertion'
+    );
+  } else {
+    assert.equal(fs.statSync(configDir).mode & 0o777, 0o700);
+  }
 }
 
 console.log('[PASS] Configuration management');

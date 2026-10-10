@@ -6,6 +6,7 @@ import type { ToolHookRegistry } from '../tools/tool-hooks.js';
 import type { Tool, ToolContext } from '../tools/tool-types.js';
 import type { SteeringEngine } from './steering.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
+import type { MiniAgentEvent } from '../subagent/agent-events.js';
 
 export interface AgentLoopPlatformConfig {
   parallelSafeTools?: Set<string>;
@@ -31,6 +32,12 @@ export interface AgentLoopIdentity {
   sessionKey: string;
   agentId: string;
 }
+
+/** Synchronous producer-side observation, before an event reaches consumers. */
+export type AgentLoopEventObserver = (
+  event: Readonly<MiniAgentEvent>,
+  identity: Readonly<AgentLoopIdentity>
+) => void;
 
 export interface AgentLoopPromptInput {
   currentMessages: Message[];
@@ -96,6 +103,8 @@ export interface AgentLoopPolicy {
 }
 
 export interface AgentLoopExtensions {
+  /** Observation only; exceptions are ignored and cannot change loop execution. */
+  onAgentLoopEvent?: AgentLoopEventObserver;
   getSteeringMessages?: () => Promise<Message[]>;
   getFollowUpMessages?: () => Promise<Message[]>;
   /** Per-agent-instance run-epoch store. When multiple MossAgent instances

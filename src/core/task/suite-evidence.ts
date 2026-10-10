@@ -7,7 +7,7 @@
  * is required so run_tests cannot close an unfinished goal.
  */
 import type { EvidenceRecord } from '../../contracts/evidence.js';
-import { appendEvidenceRecord } from '../task-runtime/artifacts.js';
+import { appendEvidenceRecordWithSignal } from '../task-runtime/artifacts.js';
 import { findLatestLiveTaskSnapshot } from './task-store.js';
 
 function evidenceId(metric: string): string {
@@ -24,8 +24,10 @@ export async function recordHarnessSuiteEvidence(input: {
   buildPassed?: boolean;
   typecheckPassed?: boolean;
   output?: string;
+  signal?: AbortSignal;
 }): Promise<number> {
   try {
+    input.signal?.throwIfAborted();
     const taskId =
       input.taskId ??
       (input.taskTurn === true
@@ -57,10 +59,11 @@ export async function recordHarnessSuiteEvidence(input: {
         timestamp: base + index,
         ...(output ? { details: output } : {}),
       };
-      await appendEvidenceRecord(input.workspaceDir, record);
+      await appendEvidenceRecordWithSignal(input.workspaceDir, record, input.signal);
     }
     return rows.length;
   } catch {
+    input.signal?.throwIfAborted();
     return 0;
   }
 }

@@ -28,6 +28,7 @@ import {
   type ToolLoopGuardState,
 } from '../tools/tool-loop-guard.js';
 import { buildBackgroundCompletionSystemText } from './background-completion.js';
+import { inAcceptanceScope } from '../task/acceptance-commit-scope.js';
 
 const log = getRootLogger().child('agent:loop');
 
@@ -391,9 +392,22 @@ export async function executeAgentLoopToolCalls(
     effectiveParallelSafeTools,
     loadToolsMetaName
   );
+  const executeScoped = async (
+    call: ToolCallRef,
+    deps: ExecuteToolCallDeps
+  ): Promise<ExecuteToolCallOutcome> => {
+    const executed = await inAcceptanceScope(toolCtx.workspaceDir, () =>
+      executeOneToolCall(call, deps)
+    );
+    if (executed.committed) {
+      state.taskAcceptanceCommitted = true;
+      state.finalText = executed.committed.detail;
+    }
+    return executed.value;
+  };
 
   for (const group of toolGroups) {
-    if (steeringMessages) {
+    if (steeringMessages || state.taskAcceptanceCommitted) {
       await skipRemainingToolCalls(group.calls);
       continue;
     }
@@ -418,7 +432,7 @@ export async function executeAgentLoopToolCalls(
             syncAssistantToolUseInput(assistantContent, execCall);
           });
           if (preflight) return preflight;
-          return executeOneToolCall(execCall, deps).then((outcome) => {
+          return executeScoped(execCall, deps).then((outcome) => {
             call.input = execCall.input;
             return outcome;
           });
@@ -449,7 +463,7 @@ export async function executeAgentLoopToolCalls(
           continue;
         }
 
-        const outcome = await executeOneToolCall(
+        const outcome = await executeScoped(
           call,
           toolCallDeps(call, (input) => {
             syncAssistantToolUseInput(assistantContent, { ...call, input });
@@ -485,6 +499,10 @@ export async function executeAgentLoopToolCalls(
         }
 
         recordToolOutcome(call, outcome, recordCtx, toolResults);
+        if (state.taskAcceptanceCommitted) {
+          await skipRemainingToolCalls(group.calls.slice(gi + 1));
+          break;
+        }
 
         const steering = await checkSteeringAfterCall(
           evaluateSteering,

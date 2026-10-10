@@ -140,6 +140,6 @@ const result = spawnSync(
   }
 );
 assert.equal(result.status, 0, `${result.stderr || ''}\n${result.stdout || ''}`);
-assert.match(result.stdout, /^ok\n?$/);
+assert.match(result.stdout, /^ok(?:\r?\n)?$/);
 
 console.log('[PASS] deepswe bakes host sampling into the container command');

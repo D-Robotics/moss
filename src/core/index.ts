@@ -58,6 +58,7 @@ export {
 export type {
   AgentLoopDeps,
   AgentLoopExtensions,
+  AgentLoopEventObserver,
   AgentLoopHardCaps,
   AgentLoopIdentity,
   AgentLoopParams,

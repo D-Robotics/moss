@@ -3,6 +3,7 @@
  * `/goal` argument parsing and the acceptance-command shell invocation.
  */
 import assert from 'node:assert/strict';
+import path from 'node:path';
 
 import { parseGoalCommandLine } from '../dist/cli/commands/goal-propose.js';
 import { acceptanceShell, runAcceptanceCommand } from '../dist/core/task/acceptance-command.js';
@@ -43,15 +44,33 @@ import { acceptanceShell, runAcceptanceCommand } from '../dist/core/task/accepta
 }
 
 {
-  const sentinel = `/moss-venv-${process.pid}/bin`;
+  const windows = process.platform === 'win32';
+  const sentinel = windows
+    ? path.resolve(`moss-venv-${process.pid}`, 'bin')
+    : `/moss-venv-${process.pid}/bin`;
   const previous = process.env.PATH;
-  process.env.PATH = `${sentinel}:${previous ?? ''}`;
+  process.env.PATH = `${sentinel}${windows ? path.delimiter : ':'}${previous ?? ''}`;
   try {
     // Print only the first PATH entry: `tail` keeps the end of the output, and
     // under `npm run verify` a long PATH pushes the sentinel out of it.
-    const result = await runAcceptanceCommand({ command: 'printf %s "${PATH%%:*}"' });
+    const command = windows
+      ? `"${process.execPath}" -e "process.stdout.write(process.env.PATH.split(require('node:path').delimiter)[0])"`
+      : 'printf %s "${PATH%%:*}"';
+    const result = await runAcceptanceCommand({ command });
     assert.equal(result.passed, true, result.tail);
     assert.ok(result.tail.startsWith(sentinel), result.tail);
+    if (windows) {
+      assert.equal(result.tail, sentinel, 'the real child inherited the native first PATH entry');
+      const other = path.resolve(`moss-other-env-${process.pid}`, 'bin');
+      process.env.PATH = `${other}${path.delimiter}${previous ?? ''}`;
+      const negative = await runAcceptanceCommand({ command });
+      assert.equal(negative.passed, true, negative.tail);
+      assert.equal(negative.tail, other, 'the same real child observes a changed PATH');
+      assert.throws(
+        () => assert.ok(negative.tail.startsWith(sentinel), negative.tail),
+        assert.AssertionError
+      );
+    }
   } finally {
     if (previous === undefined) delete process.env.PATH;
     else process.env.PATH = previous;

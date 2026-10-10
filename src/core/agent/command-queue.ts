@@ -21,11 +21,17 @@ export interface EnqueueOpts {
 
 export class CommandQueueRegistry {
   private lanes = new Map<string, LaneState>();
+  private concurrency = new Map<string, number>();
 
   private getLaneState(lane: string): LaneState {
     const existing = this.lanes.get(lane);
     if (existing) return existing;
-    const created: LaneState = { lane, active: 0, queue: [], maxConcurrent: 1 };
+    const created: LaneState = {
+      lane,
+      active: 0,
+      queue: [],
+      maxConcurrent: this.concurrency.get(lane) ?? 1,
+    };
     this.lanes.set(lane, created);
     return created;
   }
@@ -61,6 +67,7 @@ export class CommandQueueRegistry {
   setConcurrency(lane: string, maxConcurrent: number): void {
     const state = this.getLaneState(lane);
     state.maxConcurrent = Math.max(1, Math.floor(maxConcurrent));
+    this.concurrency.set(lane, state.maxConcurrent);
     this.drainLane(lane);
   }
 
@@ -93,6 +100,7 @@ export class CommandQueueRegistry {
     const state = this.lanes.get(lane);
     if (!state) return false;
     if (state.active > 0 || state.queue.length > 0) return false;
+    // Clearing idle runtime state preserves the host's explicit concurrency policy.
     return this.lanes.delete(lane);
   }
 }

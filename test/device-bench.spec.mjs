@@ -529,6 +529,9 @@ function providerHoldScript(moduleHref) {
     `import { writeBenchProviderConfig } from ${JSON.stringify(moduleHref)};`,
     'const marker = process.argv[2];',
     'const mode = process.argv[3];',
+    // Windows child.kill() terminates without delivering an OS signal. IPC
+    // drives the installed handler in that child; POSIX still receives kill().
+    'process.on("message", signal => { if (signal === "SIGTERM") process.emit("SIGTERM"); });',
     'const { configDir } = writeBenchProviderConfig({',
     `  apiKey: ${JSON.stringify(PROVIDER_KEY)},`,
     '  model: "bench-model",',
@@ -551,7 +554,7 @@ function runProviderHold(mode) {
   const moduleHref = pathToFileURL(path.join(repoRoot, 'scripts/lib/device-bench.mjs')).href;
   fs.writeFileSync(script, providerHoldScript(moduleHref));
   const child = spawn(process.execPath, [script, marker, mode], {
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   let stderr = '';
   child.stderr.on('data', (chunk) => {
@@ -587,7 +590,8 @@ test('provider config dir is removed on process exit and SIGTERM', async () => {
     const info = await waitForMarker(signaled.marker);
     assert.equal(info.hasKey, true, signaled.stderr());
     assert.equal(fs.existsSync(path.join(info.configDir, 'config.json')), true);
-    signaled.child.kill('SIGTERM');
+    if (process.platform === 'win32') signaled.child.send('SIGTERM');
+    else signaled.child.kill('SIGTERM');
     const code = await signaled.exitCode;
     assert.equal(code, 143, signaled.stderr());
     assert.equal(fs.existsSync(info.configDir), false);

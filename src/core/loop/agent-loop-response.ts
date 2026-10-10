@@ -443,5 +443,11 @@ export async function processLlmResponse(
   state.lastTurnEndMs = Date.now();
   state.pendingMessages = toolExecution.pendingMessages;
 
+  if (state.taskAcceptanceCommitted) {
+    state.hasMoreToolCalls = false;
+    state.pendingMessages = [];
+    return { control: 'break' };
+  }
+
   return { control: 'continue' };
 }

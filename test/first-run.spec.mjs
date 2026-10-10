@@ -37,6 +37,44 @@ const { trackTempDir } = await import('./helpers/temp-home.mjs');
 
 const SECRET = 'sk-firstrun-unit-secret';
 
+function observeConfigWrites(directory, callback) {
+  const writes = [];
+  if (process.platform !== 'win32') return { result: callback(), writes };
+  const open = fs.openSync;
+  const chmod = fs.chmodSync;
+  const inDirectory = (file) =>
+    typeof file === 'string' && path.dirname(path.resolve(file)) === path.resolve(directory);
+  fs.openSync = function (file, flags, mode) {
+    const result = open.call(this, file, flags, mode);
+    if (inDirectory(file)) writes.push({ operation: 'open', file, flags, mode });
+    return result;
+  };
+  fs.chmodSync = function (file, mode) {
+    const result = chmod.call(this, file, mode);
+    if (inDirectory(file)) writes.push({ operation: 'chmod', file, mode });
+    return result;
+  };
+  try {
+    return { result: callback(), writes };
+  } finally {
+    fs.openSync = open;
+    fs.chmodSync = chmod;
+  }
+}
+
+function assertPrivateConfigMode(configPath, writes) {
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(configPath).mode & 0o777, 0o600);
+    return;
+  }
+  assert.ok(fs.statSync(configPath).isFile(), 'the real config file was created');
+  const opens = writes.filter((write) => write.operation === 'open' && write.flags === 'wx');
+  const chmods = writes.filter((write) => write.operation === 'chmod' && write.file === configPath);
+  assert.ok(opens.length > 0, 'the real atomic write requested a mode');
+  assert.ok(chmods.length > 0, 'the real config chmod requested a mode');
+  for (const write of [...opens, ...chmods]) assert.equal(write.mode, 0o600);
+}
+
 function tempDir(prefix) {
   return trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }
@@ -611,18 +649,20 @@ function tempDir(prefix) {
 
 {
   const dir = tempDir('moss-save-key-');
-  const savedPath = saveUserModelConfig({
-    provider: 'openai-compatible',
-    model: 'stub-alpha',
-    baseUrl: 'http://127.0.0.1:9',
-    apiKey: SECRET,
-    env: { MOSS_CONFIG_DIR: dir },
-  });
+  const { result: savedPath, writes: pastedWrites } = observeConfigWrites(dir, () =>
+    saveUserModelConfig({
+      provider: 'openai-compatible',
+      model: 'stub-alpha',
+      baseUrl: 'http://127.0.0.1:9',
+      apiKey: SECRET,
+      env: { MOSS_CONFIG_DIR: dir },
+    })
+  );
   const raw = fs.readFileSync(savedPath, 'utf8');
   assert.match(raw, /"apiKey": "enc:/);
   assert.match(raw, /stub-alpha/);
   assert.doesNotMatch(raw, /sk-firstrun/);
-  assert.equal(fs.statSync(savedPath).mode & 0o777, 0o600);
+  assertPrivateConfigMode(savedPath, pastedWrites);
   const again = saveUserModelConfig({
     model: 'stub-beta',
     env: { MOSS_CONFIG_DIR: dir },
@@ -631,15 +671,31 @@ function tempDir(prefix) {
   assert.equal(updated.model, 'stub-beta');
   assert.match(updated.apiKey, /^enc:/);
   assert.equal(updated.provider, 'openai-compatible');
-  const envPath = saveUserModelConfig({
-    model: 'stub-env',
-    apiKeyEnv: 'OPENAI_API_KEY',
-    env: { MOSS_CONFIG_DIR: dir },
-  });
+  const { result: envPath, writes: envWrites } = observeConfigWrites(dir, () =>
+    saveUserModelConfig({
+      model: 'stub-env',
+      apiKeyEnv: 'OPENAI_API_KEY',
+      env: { MOSS_CONFIG_DIR: dir },
+    })
+  );
   const fromEnv = JSON.parse(fs.readFileSync(envPath, 'utf8'));
   assert.equal(fromEnv.apiKeyEnv, 'OPENAI_API_KEY');
   assert.equal(fromEnv.apiKey, undefined);
-  assert.equal(fs.statSync(envPath).mode & 0o777, 0o600);
+  assertPrivateConfigMode(envPath, envWrites);
+  if (process.platform === 'win32') {
+    const wrongPath = path.join(tempDir('moss-save-key-mode-negative-'), 'wrong-mode.json');
+    const { writes } = observeConfigWrites(path.dirname(wrongPath), () => {
+      const descriptor = fs.openSync(wrongPath, 'wx', 0o777);
+      try {
+        fs.writeFileSync(descriptor, '{}\n');
+      } finally {
+        fs.closeSync(descriptor);
+      }
+      fs.chmodSync(wrongPath, 0o777);
+    });
+    assert.equal(fs.readFileSync(wrongPath, 'utf8'), '{}\n');
+    assert.throws(() => assertPrivateConfigMode(wrongPath, writes), assert.AssertionError);
+  }
 }
 
 // ─── CLI: doctor fix text, zh startup, shown-once across processes ─────────

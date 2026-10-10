@@ -17,8 +17,9 @@ import {
   runWorkingTreeDiff,
 } from '../dist/utils/git-spawn.js';
 
-// These tests share process.env (PATH, GIT_CONFIG, GIT_DIR). The runner
-// otherwise executes them in parallel, and a fake git on PATH hides filters.
+// Git config and Git's POSIX hook interpreter use slash paths on Windows.
+const gitPath = (file) => file.split(path.sep).join('/');
+
 describe('git spawn', { concurrency: 1 }, () => {
   test('hardened git args override exec keys and keep system config', () => {
     const readOnly = hardenedGitArgs(['status', '--porcelain']);
@@ -65,8 +66,8 @@ describe('git spawn', { concurrency: 1 }, () => {
     execFileSync('git', ['add', 'README.md'], { cwd: dir, stdio: 'ignore' });
     execFileSync('git', ['commit', '-m', 'init'], { cwd: dir, stdio: 'ignore' });
 
-    const marker = path.join(dir, 'FSMONITOR_RAN');
-    const script = path.join(dir, 'fsmonitor.sh');
+    const marker = gitPath(path.join(dir, 'FSMONITOR_RAN'));
+    const script = gitPath(path.join(dir, 'fsmonitor.sh'));
     await fs.writeFile(script, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\nexit 0\n`);
     await fs.chmod(script, 0o755);
     execFileSync('git', ['config', 'core.fsmonitor', script], { cwd: dir, stdio: 'ignore' });
@@ -139,15 +140,17 @@ describe('git spawn', { concurrency: 1 }, () => {
       stdio: 'ignore',
     });
     execFileSync('git', ['config', 'user.name', 'Moss Test'], { cwd: dir, stdio: 'ignore' });
-    await fs.writeFile(path.join(dir, 'README.md'), 'hello\n');
+    const readme = path.join(dir, 'README.md');
+    await fs.writeFile(readme, 'hello\nbefore!\n');
     await fs.writeFile(path.join(dir, '.gitattributes'), '* filter=mossmarker diff=mossmarker\n');
     execFileSync('git', ['add', 'README.md', '.gitattributes'], { cwd: dir, stdio: 'ignore' });
     execFileSync('git', ['commit', '-m', 'init'], { cwd: dir, stdio: 'ignore' });
+    const committedStat = await fs.stat(readme);
 
-    const cleanMarker = path.join(dir, 'CLEAN_RAN');
-    const textMarker = path.join(dir, 'TEXT_RAN');
-    const cleanScript = path.join(dir, 'clean.sh');
-    const textScript = path.join(dir, 'text.sh');
+    const cleanMarker = gitPath(path.join(dir, 'CLEAN_RAN'));
+    const textMarker = gitPath(path.join(dir, 'TEXT_RAN'));
+    const cleanScript = gitPath(path.join(dir, 'clean.sh'));
+    const textScript = gitPath(path.join(dir, 'text.sh'));
     await fs.writeFile(cleanScript, `#!/bin/sh\necho ran >> ${JSON.stringify(cleanMarker)}\ncat\n`);
     await fs.writeFile(
       textScript,
@@ -159,7 +162,7 @@ describe('git spawn', { concurrency: 1 }, () => {
       cwd: dir,
       stdio: 'ignore',
     });
-    execFileSync('git', ['config', 'filter.mossmarker.smudge', '/bin/cat'], {
+    execFileSync('git', ['config', 'filter.mossmarker.smudge', 'cat'], {
       cwd: dir,
       stdio: 'ignore',
     });
@@ -171,7 +174,8 @@ describe('git spawn', { concurrency: 1 }, () => {
       cwd: dir,
       stdio: 'ignore',
     });
-    await fs.writeFile(path.join(dir, 'README.md'), 'hello\nchanged\n');
+    await fs.writeFile(readme, 'hello\nchanged\n');
+    await fs.utimes(readme, committedStat.atime, new Date(committedStat.mtimeMs + 2_000));
     await fs.rm(cleanMarker, { force: true });
     await fs.rm(textMarker, { force: true });
 
@@ -188,7 +192,10 @@ describe('git spawn', { concurrency: 1 }, () => {
     assert.equal(await markerWritten(textMarker), false, 'startup git status ran diff.textconv');
     assert.match(layer, /Git branch/);
 
-    execFileSync('git', ['--no-pager', 'diff', '--', 'README.md'], { cwd: dir, stdio: 'ignore' });
+    execFileSync('git', ['--no-pager', 'diff', '--', 'README.md'], {
+      cwd: dir,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
     assert.equal(
       await markerWritten(textMarker),
       true,
@@ -210,7 +217,7 @@ describe('git spawn', { concurrency: 1 }, () => {
 
   test('startup git status and /diff do not run an include.path filter', async (t) => {
     const repo = await initDirtyFilterRepo(t, 'moss-include-');
-    const included = path.join(repo.dir, 'included.cfg');
+    const included = gitPath(path.join(repo.dir, 'included.cfg'));
     await fs.writeFile(included, filterConfig(repo.script));
     execFileSync('git', ['config', '--local', 'include.path', included], {
       cwd: repo.dir,
@@ -228,7 +235,7 @@ describe('git spawn', { concurrency: 1 }, () => {
       os.tmpdir(),
       `moss-includeif-link-${process.pid}-${Date.now().toString(36)}`
     );
-    await fs.symlink(realParent, linkParent);
+    await fs.symlink(realParent, linkParent, process.platform === 'win32' ? 'junction' : 'dir');
     t.after(() => fs.rm(linkParent, { force: true }));
     t.after(() => fs.rm(realParent, { recursive: true, force: true }));
 
@@ -251,9 +258,10 @@ describe('git spawn', { concurrency: 1 }, () => {
       const included = path.join(repo.dir, 'included-if.cfg');
       await fs.writeFile(included, filterConfig(repo.script));
       const logicalGitDir = path.join(repo.dir, '.git');
-      const gitDir = await fs.realpath(logicalGitDir);
-      assert.notEqual(gitDir, logicalGitDir);
-      const includedReal = await fs.realpath(included);
+      const realGitDir = await fs.realpath(logicalGitDir);
+      const gitDir = gitPath(realGitDir);
+      assert.notEqual(realGitDir, logicalGitDir);
+      const includedReal = gitPath(await fs.realpath(included));
       await fs.appendFile(
         path.join(gitDir, 'config'),
         `\n[includeIf "${shape.pattern(gitDir)}"]\n\tpath = ${includedReal}\n`
@@ -338,7 +346,7 @@ describe('git spawn', { concurrency: 1 }, () => {
       cwd: evil.dir,
       stdio: 'ignore',
     });
-    execFileSync('git', ['config', 'filter.mossinc.smudge', '/bin/cat'], {
+    execFileSync('git', ['config', 'filter.mossinc.smudge', 'cat'], {
       cwd: evil.dir,
       stdio: 'ignore',
     });
@@ -401,16 +409,50 @@ describe('git spawn', { concurrency: 1 }, () => {
     const bin = path.join(dir, 'bin');
     const marker = path.join(dir, 'FILTER_RAN');
     await fs.mkdir(bin);
-    const fakeGit = path.join(bin, 'git');
-    await fs.writeFile(
-      fakeGit,
-      `#!/bin/sh\nfor arg in "$@"; do\n  if [ "$arg" = "--get-regexp" ]; then\n    echo 'fatal: discovery failed' >&2\n    exit 128\n  fi\ndone\necho ran >> ${JSON.stringify(marker)}\nexit 0\n`
-    );
-    await fs.chmod(fakeGit, 0o755);
+    if (process.platform === 'win32') {
+      // spawn('git') needs a real executable on Windows; .cmd shims are not a
+      // substitute. Use the system compiler to keep the same failing discovery
+      // and otherwise observable execution as the POSIX fixture.
+      const fakeGit = path.join(bin, 'git.exe');
+      const code = `using System; using System.IO;
+public class FakeGit {
+  public static int Main(string[] args) {
+    foreach (string arg in args) if (arg == "--get-regexp") {
+      Console.Error.WriteLine("fatal: discovery failed"); return 128;
+    }
+    File.AppendAllText(${JSON.stringify(marker)}, "ran\\n"); return 0;
+  }
+}`;
+      const literal = (value) => `'${value.replaceAll("'", "''")}'`;
+      const script = `$ProgressPreference='SilentlyContinue'; Add-Type -TypeDefinition ${literal(code)} -OutputAssembly ${literal(fakeGit)} -OutputType ConsoleApplication`;
+      execFileSync(
+        path.join(
+          process.env.SystemRoot ?? 'C:\\Windows',
+          'System32/WindowsPowerShell/v1.0/powershell.exe'
+        ),
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-EncodedCommand',
+          Buffer.from(script, 'utf16le').toString('base64'),
+        ],
+        { windowsHide: true, timeout: 30000 }
+      );
+    } else {
+      const fakeGit = path.join(bin, 'git');
+      await fs.writeFile(
+        fakeGit,
+        `#!/bin/sh\nfor arg in "$@"; do\n  if [ "$arg" = "--get-regexp" ]; then\n    echo 'fatal: discovery failed' >&2\n    exit 128\n  fi\ndone\necho ran >> ${JSON.stringify(marker)}\nexit 0\n`
+      );
+      await fs.chmod(fakeGit, 0o755);
+    }
     const savedPath = process.env.PATH;
     process.env.PATH = `${bin}${path.delimiter}${savedPath ?? ''}`;
     captureEnvBeforeDotenv(process.env);
     try {
+      execFileSync('git', ['status'], { cwd: dir, stdio: 'ignore' });
+      assert.equal(await markerWritten(marker), true, 'fixture: the fake git must execute');
+      await fs.rm(marker, { force: true });
       await assert.rejects(
         () => runWorkingTreeDiff(dir),
         /Refusing read-only git: config discovery exited 128/
@@ -432,9 +474,12 @@ describe('git spawn', { concurrency: 1 }, () => {
       stdio: 'ignore',
     });
     execFileSync('git', ['config', 'user.name', 'Moss Test'], { cwd: dir, stdio: 'ignore' });
-    await fs.writeFile(path.join(dir, 'README.md'), 'hello\n');
+    // Match the foreign index's size to exercise GIT_DIR's real clean filter.
+    const readme = path.join(dir, 'README.md');
+    await fs.writeFile(readme, 'hello\nbefore!\n');
     execFileSync('git', ['add', 'README.md'], { cwd: dir, stdio: 'ignore' });
     execFileSync('git', ['commit', '-m', 'init'], { cwd: dir, stdio: 'ignore' });
+    await fs.utimes(readme, new Date(), new Date(Date.now() + 2000));
     return dir;
   }
 
@@ -447,27 +492,25 @@ describe('git spawn', { concurrency: 1 }, () => {
       stdio: 'ignore',
     });
     execFileSync('git', ['config', 'user.name', 'Moss Test'], { cwd: dir, stdio: 'ignore' });
-    await fs.writeFile(path.join(dir, 'README.md'), 'hello\n');
+    // Keep the edit the same size, with a distinct mtime: Git must compare its
+    // content rather than conclude "dirty" from stat data without the filter.
+    const readme = path.join(dir, 'README.md');
+    await fs.writeFile(readme, 'hello\nbefore!\n');
     await fs.writeFile(path.join(dir, '.gitattributes'), '* filter=mossinc\n');
     execFileSync('git', ['add', 'README.md', '.gitattributes'], { cwd: dir, stdio: 'ignore' });
     execFileSync('git', ['commit', '-m', 'init'], { cwd: dir, stdio: 'ignore' });
-    const readme = path.join(dir, 'README.md');
+    const committed = await fs.stat(readme);
     await fs.writeFile(readme, 'hello\nchanged\n');
-    // git status runs filter.clean only when the index stat cannot prove the
-    // file is unchanged. A same-second rewrite (coarse mtime, matching size)
-    // loses that race and the fixture self-check flakes. A future mtime cannot
-    // match the stat recorded at commit.
-    const future = new Date(Date.now() + 10_000);
-    await fs.utimes(readme, future, future);
-    const marker = path.join(dir, 'FILTER_RAN');
-    const script = path.join(dir, 'clean.sh');
+    await fs.utimes(readme, committed.atime, new Date(committed.mtimeMs + 2000));
+    const marker = gitPath(path.join(dir, 'FILTER_RAN'));
+    const script = gitPath(path.join(dir, 'clean.sh'));
     await fs.writeFile(script, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\ncat\n`);
     await fs.chmod(script, 0o755);
     return { dir, marker, script };
   }
 
   function filterConfig(script, name = 'mossinc') {
-    return `[filter "${name}"]\n\tclean = ${script}\n\tsmudge = /bin/cat\n\trequired = true\n`;
+    return `[filter "${name}"]\n\tclean = ${script}\n\tsmudge = cat\n\trequired = true\n`;
   }
 
   async function assertFilterStaysOff(repo) {

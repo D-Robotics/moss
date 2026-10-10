@@ -30,7 +30,7 @@ case "$cmd" in
   -i | --install)
     deb="${1:?deb path required}"
     tmp="$(mktemp -d)"
-    tar -C "$tmp" -xf "$deb"
+    (cd "$(dirname "$deb")" && tar -C "$tmp" -xf "$(basename "$deb")")
     control="$tmp/DEBIAN/control"
     pkg="$(awk -F': ' '/^Package:/{print $2; exit}' "$control")"
     ver="$(awk -F': ' '/^Version:/{print $2; exit}' "$control")"

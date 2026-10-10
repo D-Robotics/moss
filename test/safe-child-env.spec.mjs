@@ -152,6 +152,7 @@ function writeNpxStub(dest, envFile) {
 }
 
 function parseEnvDump(text) {
+  if (text.trimStart().startsWith('{')) return JSON.parse(text);
   const reported = {};
   for (const line of text.split('\n')) {
     const eq = line.indexOf('=');
@@ -257,8 +258,42 @@ function project(root) {
   writePackage(packageDir, envFile);
   const binDir = path.join(root, 'bin');
   fs.mkdirSync(binDir, { recursive: true });
-  const npx = path.join(binDir, 'npx');
-  writeNpxStub(npx, envFile);
+  const npx =
+    process.platform === 'win32'
+      ? path.join(binDir, 'node_modules/npm/bin/npx-cli.js')
+      : path.join(binDir, 'npx');
+  fs.mkdirSync(path.dirname(npx), { recursive: true });
+  if (process.platform === 'win32') {
+    fs.writeFileSync(
+      path.join(binDir, 'node_modules/npm/package.json'),
+      JSON.stringify({ type: 'module' })
+    );
+    fs.writeFileSync(
+      path.join(binDir, 'npx.cmd'),
+      '@node "%~dp0node_modules/npm/bin/npx-cli.js" %*\r\n'
+    );
+    const workspaceNpx = path.join(ws, 'node_modules/npm/bin/npx-cli.js');
+    fs.mkdirSync(path.dirname(workspaceNpx), { recursive: true });
+    fs.writeFileSync(
+      workspaceNpx,
+      `require('fs').writeFileSync(${JSON.stringify(pwned)}, 'PWNED_workspace_npx');\n`
+    );
+  }
+  fs.writeFileSync(
+    npx,
+    [
+      '#!/usr/bin/env node',
+      "import fs from 'node:fs';",
+      `const keys = ${JSON.stringify(probeKeys)};`,
+      'const out = { argv: process.argv.slice(2) };',
+      'for (const key of keys) if (process.env[key] !== undefined) out[key] = process.env[key];',
+      `fs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify(out));`,
+      'process.exit(1);',
+      '',
+    ].join('\n')
+  );
+  fs.chmodSync(npx, 0o755);
+  if (process.platform !== 'win32') writeNpxStub(npx, envFile);
   return { ws, evil, user, pwned, bashPwned, userOk, envFile, packageDir, binDir };
 }
 
@@ -280,6 +315,8 @@ function assertChild(label, layout, userNode) {
   // --require side effect would need a second process after the marker and
   // would lose the shutdown race the marker exists to avoid.
   assert.ok(reported.argv.includes('rdk-docs-mcp'), label);
+  if (process.platform === 'win32' && userNode)
+    assert.equal(fs.readFileSync(layout.userOk, 'utf8'), 'USER_OK');
 }
 
 {
@@ -366,6 +403,8 @@ function mossEnv(layout, userNode) {
   env.MOSS_WAIT_MCP_STARTUP = '1';
   env.MOSS_RDK_DOCS_PACKAGE = layout.packageDir;
   env.PATH = `${layout.binDir}${path.delimiter}${env.PATH ?? ''}`;
+  // An empty PATH segment refers to the child's cwd, not the host workspace.
+  if (process.platform === 'win32') env.PATH = `${path.delimiter}${env.PATH}`;
   if (userNode) env.NODE_OPTIONS = userNode;
   return env;
 }

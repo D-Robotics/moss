@@ -167,7 +167,8 @@ export const execTool: Tool = {
     try {
       const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
       const result = await runProcess(shell, {
-        args: IS_WIN ? ['/c', input.command] : ['-c', input.command],
+        args: IS_WIN ? ['/d', '/s', '/c', `"${input.command}"`] : ['-c', input.command],
+        windowsVerbatimArguments: IS_WIN,
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
         signal: ctx.abortSignal,

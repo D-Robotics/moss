@@ -561,8 +561,33 @@ await Promise.all([
   });
   assert.equal(unanswered.trusted, false);
   assert.equal(unanswered.skipped.length, 1);
-  rememberFolderTrust(configDir, workspace);
-  assert.equal(fs.statSync(configDir).mode & 0o777, 0o700);
+  if (process.platform === 'win32') {
+    const mkdir = fs.mkdirSync;
+    const requests = [];
+    fs.mkdirSync = function (directory, options) {
+      const result = mkdir.call(this, directory, options);
+      requests.push({ directory, mode: options?.mode });
+      return result;
+    };
+    const assertPrivateRequest = (directory) => {
+      assert.ok(fs.statSync(directory).isDirectory(), 'the real trust directory was created');
+      const matching = requests.filter((request) => request.directory === directory);
+      assert.ok(matching.length > 0, 'the actual directory creation requested a mode');
+      for (const request of matching) assert.equal(request.mode, 0o700);
+    };
+    try {
+      rememberFolderTrust(configDir, workspace);
+      assertPrivateRequest(configDir);
+      const wrongDirectory = path.join(root, 'wrong-mode');
+      fs.mkdirSync(wrongDirectory, { mode: 0o777 });
+      assert.throws(() => assertPrivateRequest(wrongDirectory), assert.AssertionError);
+    } finally {
+      fs.mkdirSync = mkdir;
+    }
+  } else {
+    rememberFolderTrust(configDir, workspace);
+    assert.equal(fs.statSync(configDir).mode & 0o777, 0o700);
+  }
   const granted = await resolveWorkspaceTrust({
     workspaceDir: workspace,
     configDir,

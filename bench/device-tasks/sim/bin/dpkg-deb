@@ -7,5 +7,8 @@ if [ "${1:-}" != "--build" ] || [ -z "${2:-}" ]; then
 fi
 dir="$2"
 dest="${3:-$dir.deb}"
+dir="$(cd "$dir" && pwd)"
 mkdir -p "$(dirname "$dest")"
-tar -C "$dir" -cf "$dest" .
+# A Windows drive prefix in an archive name means a remote host to GNU tar.
+# Relative archive names also work with BSD tar, without GNU-only flags.
+(cd "$(dirname "$dest")" && tar -C "$dir" -cf "$(basename "$dest")" .)
