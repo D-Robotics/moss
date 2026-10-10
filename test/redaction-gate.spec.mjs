@@ -9,9 +9,9 @@
  * 3. The model view can be edited and written back without storing `[REDACTED]`
  *    or losing the bytes that were really in the file.
  *
- * MAIN_REDACTED_CONTENT is main's redactEgress on Moss src TypeScript: the same
- * 12 false matches, compared by file and line text. A later insert can move
- * them. The samples are not secrets.
+ * MAIN_REDACTED_LINES is main's redactEgress on Moss src TypeScript: the same
+ * 12 false matches, compared by file plus the original line text. Inserting a
+ * line does not move the set. The samples are not secrets.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -24,25 +24,24 @@ import { sanitizeSecrets } from '../dist/safety/secret-sanitizer.js';
 import { presentToolOutput, redactEgress } from '../dist/safety/tool-output-redact.js';
 
 /**
- * The 12 lines main redacts in Moss src, one file and the exact source line.
- * config-commands holds the example api key and the project `_apiKey` comment.
- * pi-ai-wire-format names the refused Anthropic token prefixes. The two safety
- * files are the same false matches (provider-token examples and
- * `secret = match?.[5]`).
+ * The 12 lines main redacts in Moss src. The key is the file plus the original
+ * line text, so a later insert does not change the set. These strings are the
+ * file bytes (the sanitizer source line keeps its escaped `\\b`).
  */
-const MAIN_REDACTED_CONTENT = [
-  "src/cli/config-commands.ts\t        apiKey: 'paste-your-api-key',",
-  "src/cli/config-commands.ts\t        _apiKey: 'use moss setup for the key (hidden prompt); stored in config file (0600)',",
-  'src/context/remote-compaction.ts\t    apiKey: process.env.MOSS_REMOTE_COMPACT_API_KEY?.trim(),',
-  "src/provider/pi-ai-wire-format.ts\t  if (typeof apiKey === 'string' && apiKey.includes('sk-ant-oat')) {",
-  "src/provider/pi-ai-wire-format.ts\t      'moss refuses Anthropic OAuth / session tokens (sk-ant-oat*). ' +",
-  "src/provider/pi-ai-wire-format.ts\t        'Please provide an official API key (sk-ant-api03-*) or configure an ' +",
-  "src/safety/secret-sanitizer.ts\t  { source: '\\\\b(sk-ant-[a-zA-Z0-9_-]{20,})\\\\b', flags: 'g', label: 'Anthropic key' },",
-  'src/safety/secret-sanitizer.ts\t  // an API key in `curl -H "Authorization: Bearer sk-ant-…"` would not be',
-  'src/safety/tool-output-redact.ts\t * (`sk-abcd`, `AKIA` + 4, `ghp_` + 4). Real keys are longer.',
-  'src/safety/tool-output-redact.ts\t * Gateway bodies quote the key and a hash (`Received API Key = sk-…`,',
-  'src/safety/tool-output-redact.ts\t * `Key Hash (Token) = 2c58…`). `redactEgress` catches full secrets; this also',
-  'src/safety/tool-output-redact.ts\t      const secret = match?.[5];',
+const MAIN_REDACTED_LINES = [
+  "src/cli/config-commands.ts\n        apiKey: 'paste-your-api-key',",
+  "src/cli/config-commands.ts\n        _apiKey: 'use moss setup for the key (hidden prompt); stored in config file (0600)',",
+  'src/context/remote-compaction.ts\n    apiKey: process.env.MOSS_REMOTE_COMPACT_API_KEY?.trim(),',
+  "src/provider/pi-ai-wire-format.ts\n  if (typeof apiKey === 'string' && apiKey.includes('sk-ant-oat')) {",
+  "src/provider/pi-ai-wire-format.ts\n      'moss refuses Anthropic OAuth / session tokens (sk-ant-oat*). ' +",
+  "src/provider/pi-ai-wire-format.ts\n        'Please provide an official API key (sk-ant-api03-*) or configure an ' +",
+  'src/safety/secret-sanitizer.ts\n' +
+    String.raw`  { source: '\\b(sk-ant-[a-zA-Z0-9_-]{20,})\\b', flags: 'g', label: 'Anthropic key' },`,
+  'src/safety/secret-sanitizer.ts\n  // an API key in `curl -H "Authorization: Bearer sk-ant-\u2026"` would not be',
+  'src/safety/tool-output-redact.ts\n * (`sk-abcd`, `AKIA` + 4, `ghp_` + 4). Real keys are longer.',
+  'src/safety/tool-output-redact.ts\n * Gateway bodies quote the key and a hash (`Received API Key = sk-\u2026`,',
+  'src/safety/tool-output-redact.ts\n * `Key Hash (Token) = 2c58\u2026`). `redactEgress` catches full secrets; this also',
+  'src/safety/tool-output-redact.ts\n      const secret = match?.[5];',
 ];
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -228,6 +227,14 @@ assert.doesNotMatch(sanitizedApiKey, /abcdef123456/);
 
 assert.equal(strict('{"token": "sunrise"}'), '{"token": [REDACTED]}');
 assert.equal(strict('token: "sunrise"'), 'token: [REDACTED]');
+const tokenQuoted = redactEgress('token: "sunrise"', env);
+assert.doesNotMatch(tokenQuoted, /sunrise/);
+assert.ok(
+  tokenQuoted === 'token: "s***se"' ||
+    tokenQuoted === 'token: [REDACTED]' ||
+    tokenQuoted === 'token: "[REDACTED]"',
+  tokenQuoted
+);
 
 assert.equal(redactEgress('api_key: abc123def456', env), 'api_key: [REDACTED]');
 assert.equal(redactEgress('secret: Zq9fK2mP7x', env), 'secret: [REDACTED]');
@@ -253,6 +260,206 @@ assert.equal(redactEgress('password combination.', env), 'password combination.'
 const sshpass = redactEgress('ProxyCommand sshpass -p r00tpw user@host', env);
 assert.match(sshpass, /sshpass -p \[REDACTED\]/);
 assert.doesNotMatch(sshpass, /r00tpw/);
+
+assert.equal(redactEgress('sshpass -psunrise', env), 'sshpass -p[REDACTED]');
+assert.equal(redactEgress('sshpass -p sunrise', env), 'sshpass -p [REDACTED]');
+assert.equal(
+  redactEgress('/usr/bin/sshpass -psunrise ssh host', env),
+  '/usr/bin/sshpass -p[REDACTED] ssh host'
+);
+assert.equal(
+  redactEgress('sshpass -p sunrise ssh -p 22 user@host', env),
+  'sshpass -p [REDACTED] ssh -p 22 user@host'
+);
+assert.equal(redactEgress("['sshpass', '-p', 'sunrise']", env), "['sshpass', '-p', '[REDACTED]']");
+assert.equal(redactEgress('["sshpass", "-psunrise"]', env), '["sshpass", "-p[REDACTED]"]');
+assert.equal(redactEgress('mysql -u root -psecret', env), 'mysql -u root -p[REDACTED]');
+assert.equal(redactEgress('mariadb -u root -psecret', env), 'mariadb -u root -p[REDACTED]');
+assert.equal(
+  redactEgress('curl -u user:pw https://example.com/x', env),
+  'curl -u user:[REDACTED] https://example.com/x'
+);
+assert.equal(
+  redactEgress('wget -u user:pw https://example.com/x', env),
+  'wget -u user:[REDACTED] https://example.com/x'
+);
+assert.equal(
+  redactEgress('curl --user=user:pw https://example.com/x', env),
+  'curl --user=user:[REDACTED] https://example.com/x'
+);
+assert.equal(
+  redactEgress('wget --user user:pw https://example.com/x', env),
+  'wget --user user:[REDACTED] https://example.com/x'
+);
+assert.equal(redactEgress('tool --password sunrise', env), 'tool --password [REDACTED]');
+assert.equal(redactEgress('tool --password=sunrise', env), 'tool --password=[REDACTED]');
+assert.equal(redactEgress('tool --passwd sunrise', env), 'tool --passwd [REDACTED]');
+assert.equal(redactEgress('tool --pass=sunrise', env), 'tool --pass=[REDACTED]');
+assert.equal(
+  redactEgress('psql postgresql://moss:sunrise99@localhost/app', env),
+  'psql postgresql://moss:[REDACTED]@localhost/app'
+);
+
+/** Restoring each `[REDACTED]` with the secret must reproduce the original bytes. */
+function assertSecretOnly(input, secret, times = 1) {
+  const out = redactEgress(input, env);
+  const parts = out.split('[REDACTED]');
+  assert.equal(parts.length - 1, times, `${input} => ${out}`);
+  assert.equal(parts.join(secret), input, `${input} => ${out}`);
+}
+
+for (const glued of [
+  '{"command":"sshpass -p x ssh h"}',
+  'ProxyCommand=sshpass -p x',
+  'cmd=sshpass -p x',
+  '执行：sshpass -p x',
+  'os.system("sshpass -p x")',
+]) {
+  assertSecretOnly(glued, 'x');
+}
+assertSecretOnly(String.raw`echo "sshpass -p secret \"inner host\""`, 'secret');
+assertSecretOnly("bash -lc 'curl --password hunter2 --host prod.internal'", 'hunter2');
+assertSecretOnly('bash -lc `curl --password hunter2`', 'hunter2');
+assertSecretOnly("`bash -lc 'curl --password hunter2'`", 'hunter2');
+assertSecretOnly('tool --password x"}', 'x');
+assertSecretOnly('(sshpass -p x)', 'x');
+assertSecretOnly('wget --http-password=x', 'x');
+assertSecretOnly('SSHPASS=x sshpass -e', 'x');
+assertSecretOnly('MYSQL_PWD=x', 'x');
+assertSecretOnly('curl -su u:p', 'p');
+assertSecretOnly('docker login -p x', 'x');
+assertSecretOnly('Use --password hunter2 now.', 'hunter2');
+// Escaped quotes in JSON or a nested shell string close the value; the bytes
+// after them stay, so the model view still parses.
+assertSecretOnly(String.raw`{"command":"curl -u \"u:sunrise\" https://h"}`, 'sunrise');
+assertSecretOnly(String.raw`{"command":"bash -c \"tool --password sunrise\""}`, 'sunrise');
+assertSecretOnly(
+  JSON.stringify({ arguments: JSON.stringify({ command: 'bash -c "tool --password sunrise"' }) }),
+  'sunrise'
+);
+assertSecretOnly(String.raw`"ship": "bash -c \"tool --password sunrise\"",`, 'sunrise');
+for (const command of [
+  'curl -u "u:sunrise" https://h',
+  'bash -c "tool --password sunrise"',
+  'ssh h "sshpass -p sunrise ssh g"',
+  "ssh h 'mysql -psunrise'",
+]) {
+  for (const wrapped of [
+    JSON.stringify({ command }),
+    JSON.stringify({ arguments: JSON.stringify({ command }) }),
+  ]) {
+    const out = redactEgress(wrapped, env);
+    assert.doesNotMatch(out, /sunrise/, wrapped);
+    assert.doesNotThrow(() => JSON.parse(out), `${wrapped} => ${out}`);
+  }
+}
+const shipJson = [
+  '{',
+  '  "scripts": {',
+  String.raw`    "ship": "bash -c \"tool --password sunrise\"",`,
+  '    "test": "node test.mjs"',
+  '  }',
+  '}',
+];
+const shipRead = presentToolOutput({
+  toolName: 'read_file',
+  input: { path: 'package.json' },
+  text: numbered(shipJson),
+  workspaceDir: project,
+  env,
+});
+assert.doesNotMatch(shipRead, /sunrise/);
+const shipBody = shipRead
+  .split('\n')
+  .map((line) => line.replace(/^\s*\d+\t/, ''))
+  .join('\n');
+assert.equal(shipBody, shipJson.join('\n').replace('sunrise', '[REDACTED]'));
+assert.doesNotThrow(() => JSON.parse(shipBody), shipBody);
+
+// The short-value rule for password env names only covers a literal `NAME=value`.
+// Expansions, lookups, and an empty assignment before a command stay as written.
+assertSecretOnly('SSHPASS=sunrise sshpass -e ssh h', 'sunrise');
+assertSecretOnly('export SSHPASS=x', 'x');
+assertSecretOnly('MYSQL_PWD=x mysql -u root', 'x');
+assertSecretOnly('PGPASSWORD=x psql -h db', 'x');
+assertSecretOnly('podman login -p sunrise registry.example.com', 'sunrise');
+for (const kept of [
+  'elif [[ -n "${SSHPASS:-}" ]]; then',
+  'echo "${MYSQL_PWD:-default}"',
+  'echo "${PGPASSWORD:-}"',
+  ': "${SSHPASS:?set SSHPASS first}"',
+  'export SSHPASS="$(security find-generic-password -w -s robot -a root)"',
+  'export SSHPASS=$(cat ~/.pw)',
+  'SSHPASS=`cat ~/.pw` sshpass -e ssh h',
+  'SSHPASS= sshpass -e ssh h',
+  'SSHPASS=${PW} sshpass -e ssh h',
+  'MYSQL_PWD: the password env var',
+  'process.env.SSHPASS = password;',
+  'tool --password <PASSWORD>"}',
+  'The --pass flag is passed through.',
+]) {
+  assert.equal(redactEgress(kept, env), kept, kept);
+}
+for (const kept of [
+  'elif [[ -n "${SSHPASS:-}" ]]; then',
+  'export SSHPASS=$(cat ~/.pw)',
+  'SSHPASS=`cat ~/.pw` sshpass -e ssh h',
+  'SSHPASS= sshpass -e ssh h',
+  'echo "${PGPASSWORD:-}"',
+]) {
+  assert.equal(strict(kept), kept, `strict ${kept}`);
+}
+assert.equal(strict('SSHPASS=sunrise'), 'SSHPASS=[REDACTED]');
+assert.equal(strict('PGPASSWORD=$3cr3t'), 'PGPASSWORD=[REDACTED]');
+assert.equal(
+  redactEgress('SSHPASS=$3cr3t sshpass -e ssh h', env),
+  'SSHPASS=[REDACTED] sshpass -e ssh h'
+);
+
+// Redaction is idempotent: a second pass leaves `[REDACTED]` alone.
+for (const input of [
+  'sshpass -p sunrise ssh h',
+  "x 'sshpass -p sunrise');",
+  'tool --password sunrise',
+  String.raw`{"command":"curl -u \"u:sunrise\" https://h"}`,
+  'SSHPASS=sunrise sshpass -e ssh h',
+]) {
+  const once = redactEgress(input, env);
+  assert.equal(redactEgress(once, env), once, input);
+}
+
+const experienceCmd =
+  "bash -lc 'TOKEN=ghp_abcdefghijklmnopqrstuvwxyz1234567890 curl https://robot.internal/run --password hunter2 --host prod.internal'";
+assert.equal(
+  redactEgress(experienceCmd, env),
+  "bash -lc 'TOKEN=[REDACTED] curl https://robot.internal/run --password [REDACTED] --host prod.internal'"
+);
+
+for (const kept of [
+  'ssh -p 22',
+  'ssh -p 22 user@host',
+  'scp -P 2222 file host:/tmp',
+  'adb -P 5037 shell getprop',
+  'hdc -p 8710 shell',
+  'hdc tconn 127.0.0.1:8710',
+  'mysql -P 3306',
+  'mysql -u root -p',
+  'mysql -u root -p appdb',
+  'mariadb -p',
+  'psql -p 5432',
+  'curl -U Moss/1.0 https://example.com/x',
+  'sshpass -e ssh -p 22 user@host',
+  'sshpass -p $SSHPASS ssh host',
+  'mysql -u root -p$MYSQL_PWD',
+  'tool --password=$DB_PASS',
+  'tool --password ${DB_PASS}',
+  'moss device add --password-env MOSS_DEVICE_PASSWORD',
+  'moss device add --passphrase-env MOSS_DEVICE_KEY_PASSPHRASE',
+  'docker run -p 8080:80 nginx',
+  'Use --password to set it.',
+]) {
+  assert.equal(redactEgress(kept, env), kept, kept);
+}
 
 for (const kept of [
   'PWD=/home/u/project',
@@ -294,6 +501,78 @@ const searchHit = presentToolOutput({
   env,
 });
 assert.equal(searchHit, '.env.local:1:DB_PASSWORD=[REDACTED]');
+
+function numbered(lines) {
+  return lines.map((line, i) => `${String(i + 1).padStart(6)}\t${line}`).join('\n');
+}
+
+function assertFoldHidden(label, output, input) {
+  assert.equal(output.split('\n').length, input.split('\n').length, `${label} line count`);
+  assert.doesNotMatch(output, /horse|battery|staple/, label);
+}
+
+const yamlFoldLines = ['db:', '  password: "correct horse', '    battery staple"', '  user: bob'];
+const yamlNumbered = numbered(yamlFoldLines);
+const yamlRead = presentToolOutput({
+  toolName: 'read_file',
+  input: { path: 'config.yaml' },
+  text: yamlNumbered,
+  workspaceDir: project,
+  env,
+});
+assertFoldHidden('read_file yaml fold', yamlRead, yamlNumbered);
+assert.match(yamlRead, /user: bob/);
+const yamlCat = presentToolOutput({
+  toolName: 'exec',
+  input: { command: 'cat -n config.yaml' },
+  text: yamlNumbered,
+  workspaceDir: project,
+  env,
+});
+assertFoldHidden('cat -n yaml fold', yamlCat, yamlNumbered);
+assert.match(yamlCat, /user: bob/);
+
+const grepNText = '2:  password: "correct horse\n3-    battery staple"';
+const grepN = presentToolOutput({
+  toolName: 'exec',
+  input: { command: 'grep -n -A1 password config.yaml' },
+  text: grepNText,
+  workspaceDir: project,
+  env,
+});
+assertFoldHidden('grep -n -A1', grepN, grepNText);
+
+const grepRnText =
+  './config.yaml:2:  password: "correct horse\n./config.yaml-3-    battery staple"';
+const grepRn = presentToolOutput({
+  toolName: 'exec',
+  input: { command: 'grep -rn -A1 password .' },
+  text: grepRnText,
+  workspaceDir: project,
+  env,
+});
+assertFoldHidden('grep -rn -A1', grepRn, grepRnText);
+
+const envFold = 'DB_PASSWORD="correct horse\nbattery staple"\nOTHER=1';
+const envCat = presentToolOutput({
+  toolName: 'exec',
+  input: { command: 'cat .env' },
+  text: envFold,
+  workspaceDir: project,
+  env,
+});
+assertFoldHidden('cat .env fold', envCat, envFold);
+assert.match(envCat, /OTHER=1/);
+const envNumbered = numbered(['DB_PASSWORD="correct horse', 'battery staple"', 'OTHER=1']);
+const envRead = presentToolOutput({
+  toolName: 'read_file',
+  input: { path: '.env' },
+  text: envNumbered,
+  workspaceDir: project,
+  env,
+});
+assertFoldHidden('read_file .env fold', envRead, envNumbered);
+assert.match(envRead, /OTHER=1/);
 
 const setCookie = redactEgress('Set-Cookie: sid=abcDEF1234567890xyz; Path=/', env);
 assert.match(setCookie, /\[REDACTED\]/);
@@ -344,18 +623,11 @@ for (const file of corpus) {
   const before = input.split('\n');
   const after = output.split('\n');
   for (let i = 0; i < before.length; i += 1) {
-    if (before[i] !== after[i]) changed.push(`${rel}:${i + 1}`);
+    if (before[i] !== after[i]) changed.push(`${rel}\n${before[i]}`);
   }
 }
-const srcChanged = changed.filter((entry) => entry.startsWith('src/'));
-function changedLineContent(entry) {
-  const cut = entry.lastIndexOf(':');
-  const rel = entry.slice(0, cut);
-  const lineNo = Number(entry.slice(cut + 1));
-  const text = fs.readFileSync(path.join(ROOT, rel), 'utf8').split('\n')[lineNo - 1];
-  return `${rel}\t${text}`;
-}
-assert.deepEqual(srcChanged.map(changedLineContent).sort(), [...MAIN_REDACTED_CONTENT].sort());
+const srcChanged = changed.filter((entry) => entry.startsWith('src/')).sort();
+assert.deepEqual(srcChanged, [...MAIN_REDACTED_LINES].sort());
 assert.deepEqual(
   changed.filter((entry) => !entry.startsWith('src/')),
   [],

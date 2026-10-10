@@ -1746,6 +1746,13 @@ async function main() {
     } finally {
       // Shut MCP server connections (stdio children) down after the agent is
       // done — closeAll absorbs per-server errors internally.
+      // `moss -p` can reach here before the deferred stdio spawn has run.
+      // close() then marks the transport closed, and the child never starts.
+      // MOSS_WAIT_MCP_STARTUP=1 (the safe-child-env spec) waits for that
+      // attempt first. Default shutdown does not.
+      if (envBeforeDotenv.MOSS_WAIT_MCP_STARTUP === '1') {
+        await mcpRegistry?.waitForConnections();
+      }
       await mcpRegistry?.closeAll();
       // SessionEnd lifecycle hook: fires exactly once at CLI shutdown.
       try {
