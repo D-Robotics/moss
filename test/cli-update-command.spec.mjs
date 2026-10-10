@@ -13,7 +13,9 @@ import {
   adviseMossUpdate,
   githubInstallSpec,
   npmInstallSpec,
+  OLD_MOSS_UNINSTALL_COMMAND,
   renderUpdateAdvice,
+  sourceInstallCommands,
 } from '../dist/cli/update-command.js';
 import { isolatedCliEnv } from './helpers/isolated-cli-env.mjs';
 
@@ -32,12 +34,21 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
   assert.equal(pkg.scripts.prepublishOnly, 'npm run build && npm run verify');
   assert.equal(pkg.publishConfig.access, 'public');
   assert.equal(githubInstallSpec(pkg.repository), 'github:D-Robotics/moss');
-  assert.equal(npmInstallSpec(pkg), 'github:D-Robotics/moss');
+  assert.equal(npmInstallSpec(pkg), null);
   assert.equal(
     npmInstallSpec({ private: false, name: '@rdk-moss/agent' }),
     '@rdk-moss/agent@latest'
   );
   assert.equal(githubInstallSpec('git@github.com:D-Robotics/moss.git'), 'github:D-Robotics/moss');
+  assert.deepEqual(sourceInstallCommands(pkg.repository), [
+    'git clone https://github.com/D-Robotics/moss.git',
+    'cd moss',
+    'npm ci',
+    'npm run build',
+    'npm install -g --install-links .',
+  ]);
+  assert.deepEqual(sourceInstallCommands(undefined), sourceInstallCommands(pkg.repository));
+  assert.equal(OLD_MOSS_UNINSTALL_COMMAND, 'npm uninstall -g moss');
 }
 
 {
@@ -69,8 +80,18 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
     exists: () => false,
   });
   assert.equal(advice.kind, 'npm-global');
-  assert.equal(advice.commands[0], 'npm install -g github:D-Robotics/moss');
-  assert.match(renderUpdateAdvice(advice, false), /npm global install/);
+  assert.deepEqual(advice.commands, sourceInstallCommands(repo));
+  const text = renderUpdateAdvice(advice, false);
+  assert.match(text, /npm global install/);
+  assert.match(text, /npm install -g --install-links \./);
+  assert.match(text, /EEXIST/);
+  assert.match(text, /npm uninstall -g moss/);
+  assert.match(text, /does not run it/);
+  assert.doesNotMatch(text, /github:/);
+  const zh = renderUpdateAdvice(advice, true);
+  assert.match(zh, /EEXIST/);
+  assert.match(zh, /npm uninstall -g moss/);
+  assert.match(zh, /不会执行/);
 }
 
 {
@@ -91,9 +112,11 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
     exists: () => false,
   });
   assert.equal(advice.kind, 'unknown');
-  assert.equal(advice.commands.length, 2);
-  assert.match(advice.commands[0], /^git -C /);
-  assert.equal(advice.commands[1], 'npm install -g github:D-Robotics/moss');
+  assert.deepEqual(advice.commands, [
+    'git -C /opt/moss pull && npm --prefix /opt/moss run build',
+    ...sourceInstallCommands(repo),
+  ]);
+  assert.match(renderUpdateAdvice(advice, false), /npm uninstall -g moss/);
 }
 
 {
@@ -111,10 +134,15 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
   assert.match(readme, /connects it in the background by default/);
   assert.doesNotMatch(readme, /有设备目标（`MOSS_DEVICE_HOST`/);
   assert.doesNotMatch(readme, /when a device target\s+is set/);
-  assert.match(readme, /npm install -g github:D-Robotics\/moss/);
-  assert.match(readme, /git clone https:\/\/github\.com\/D-Robotics\/moss /);
+  for (const command of sourceInstallCommands(pkg.repository)) {
+    assert.ok(readme.includes(command), `README is missing: ${command}`);
+  }
+  assert.ok(readme.includes(OLD_MOSS_UNINSTALL_COMMAND));
+  assert.match(readme, /coming soon/);
+  assert.match(readme, /即将发布/);
+  assert.doesNotMatch(readme, /npm install -g github:/);
   assert.doesNotMatch(readme, /QiaolongLi1201/);
-  assert.match(readme, /npm publish --access public/);
+  assert.doesNotMatch(readme, /npm link/);
 }
 
 {

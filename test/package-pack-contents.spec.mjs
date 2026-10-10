@@ -69,6 +69,15 @@ assert.ok(files.includes('dist/cli.js'), 'bin entry is packed');
 assert.ok(files.includes('dist/index.js'), 'SDK entry is packed');
 assert.ok(files.includes('dist/index.d.ts'), 'SDK types are packed');
 
+const pkgJson = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+const binField = pkgJson.bin;
+const binPaths = typeof binField === 'string' ? [binField] : Object.values(binField ?? {});
+for (const binPath of binPaths) {
+  assert.equal(typeof binPath, 'string');
+  const normalized = binPath.replaceAll('\\', '/');
+  assert.ok(files.includes(normalized), `bin script ${normalized} is packed`);
+}
+
 const keyLike = [
   [
     /-----BEGIN (?:RSA |DSA |EC |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY(?: BLOCK)?-----/,

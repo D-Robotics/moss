@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Install from a clone
+
+`npm install -g github:D-Robotics/moss` fails on a clean machine (npm 10.9.2 and
+11.21.0) because a git dependency's prepare inherits global npm config. The README
+(English and 中文) and `moss update` now print:
+
+```bash
+git clone https://github.com/D-Robotics/moss.git
+cd moss
+npm ci
+npm run build
+npm install -g --install-links .
+```
+
+`--install-links` puts a standalone copy in the prefix. If an older unscoped `moss`
+package is installed, run `npm uninstall -g moss` first; npm otherwise stops with
+EEXIST on the shared bin. That uninstall leaves `@rdk-moss/agent` in place.
+`npm install -g @rdk-moss/agent` is coming soon.
+
 ### `workspace-write` copy no longer implies an OS sandbox
 
 `workspace-write` confines Moss's own file tools. Shell commands run normally

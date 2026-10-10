@@ -23,7 +23,10 @@ export interface MossUpdateAdvice {
   commands: readonly string[];
 }
 
-const GITHUB_INSTALL_FALLBACK = 'github:D-Robotics/moss';
+const DEFAULT_CLONE_URL = 'https://github.com/D-Robotics/moss.git';
+
+/** Removes the unscoped package named moss. Leaves `@rdk-moss/agent` in place. */
+export const OLD_MOSS_UNINSTALL_COMMAND = 'npm uninstall -g moss';
 
 export function shellSingleQuote(value: string): string {
   if (value.length > 0 && /^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
@@ -43,14 +46,38 @@ export function githubInstallSpec(repository: MossPackageMeta['repository']): st
   return `github:${match[1]}/${match[2]}`;
 }
 
+/** `https://github.com/owner/repo.git` from package.json, or the public Moss repo. */
+export function gitCloneUrl(repository: MossPackageMeta['repository']): string {
+  const spec = githubInstallSpec(repository);
+  if (!spec) return DEFAULT_CLONE_URL;
+  return `https://github.com/${spec.slice('github:'.length)}.git`;
+}
+
 /**
- * Registry installs upgrade with `<name>@latest`. While `"private": true`,
- * the working one-command install is the GitHub spec.
+ * Working global install while the package is private: clone, `npm ci`, `npm run build`,
+ * then `npm install -g --install-links .` so the prefix holds its own copy.
+ * Verified on npm 10.9.2 and 11.21.0.
  */
-export function npmInstallSpec(pkg: MossPackageMeta): string {
-  if (pkg.private === true) {
-    return githubInstallSpec(pkg.repository) ?? GITHUB_INSTALL_FALLBACK;
-  }
+export function sourceInstallCommands(
+  repository?: MossPackageMeta['repository']
+): readonly string[] {
+  const cloneUrl = gitCloneUrl(repository);
+  const repoName = cloneUrl.split('/').pop()?.replace(/\.git$/, '') || 'moss';
+  return [
+    `git clone ${cloneUrl}`,
+    `cd ${repoName}`,
+    'npm ci',
+    'npm run build',
+    'npm install -g --install-links .',
+  ];
+}
+
+/**
+ * Registry installs upgrade with `<name>@latest`.
+ * While `"private": true`, there is no published spec; use {@link sourceInstallCommands}.
+ */
+export function npmInstallSpec(pkg: MossPackageMeta): string | null {
+  if (pkg.private === true) return null;
   const name = pkg.name?.trim() || '@rdk-moss/agent';
   return `${name}@latest`;
 }
@@ -60,9 +87,16 @@ export function gitUpgradeCommand(root: string): string {
   return `git -C ${quoted} pull && npm --prefix ${quoted} run build`;
 }
 
-export function npmUpgradeCommand(pkg: MossPackageMeta, globalInstall: boolean): string {
+export function globalInstallCommands(pkg: MossPackageMeta): readonly string[] {
   const spec = npmInstallSpec(pkg);
-  return globalInstall ? `npm install -g ${spec}` : `npm install ${spec}`;
+  if (!spec) return sourceInstallCommands(pkg.repository);
+  return [`npm install -g ${spec}`];
+}
+
+export function localInstallCommands(pkg: MossPackageMeta): readonly string[] {
+  const spec = npmInstallSpec(pkg);
+  if (!spec) return sourceInstallCommands(pkg.repository);
+  return [`npm install ${spec}`];
 }
 
 export function adviseMossUpdate(input: {
@@ -83,27 +117,52 @@ export function adviseMossUpdate(input: {
     return {
       kind: globalInstall ? 'npm-global' : 'npm-local',
       root,
-      commands: [npmUpgradeCommand(input.pkg, globalInstall)],
+      commands: globalInstall
+        ? globalInstallCommands(input.pkg)
+        : localInstallCommands(input.pkg),
     };
   }
   return {
     kind: 'unknown',
     root,
-    commands: [gitUpgradeCommand(root), npmUpgradeCommand(input.pkg, true)],
+    commands: [gitUpgradeCommand(root), ...globalInstallCommands(input.pkg)],
   };
+}
+
+function oldBinConflictNote(zh: boolean): string {
+  return zh
+    ? [
+        '如果 npm 报 moss 这个 bin 已存在（EEXIST），先卸掉旧的未加 scope 的包：',
+        '',
+        `  ${OLD_MOSS_UNINSTALL_COMMAND}`,
+      ].join('\n')
+    : [
+        'If npm reports EEXIST for the moss bin, uninstall the older unscoped package first:',
+        '',
+        `  ${OLD_MOSS_UNINSTALL_COMMAND}`,
+      ].join('\n');
+}
+
+function finishUpdateAdvice(lines: readonly string[], commands: readonly string[], zh: boolean): string {
+  const tail = zh
+    ? 'moss update 只打印命令，不会执行。'
+    : 'moss update prints the command and does not run it.';
+  const body = [...lines];
+  if (commands.some((command) => command.startsWith('npm install -g'))) {
+    body.push('', oldBinConflictNote(zh));
+  }
+  body.push('', tail);
+  return body.join('\n');
 }
 
 export function renderUpdateAdvice(advice: MossUpdateAdvice, zh: boolean): string {
   const commandBlock = advice.commands.map((command) => `  ${command}`).join('\n');
-  const tail = zh
-    ? 'moss update 只打印命令，不会执行。'
-    : 'moss update prints the command and does not run it.';
   const run = zh ? '升级请运行：' : 'Upgrade by running:';
   if (advice.kind === 'git-clone') {
     const head = zh
       ? `这个 Moss 是 git 克隆（${advice.root}）。`
       : `This Moss is a git clone (${advice.root}).`;
-    return [head, '', run, '', commandBlock, '', tail].join('\n');
+    return finishUpdateAdvice([head, '', run, '', commandBlock], advice.commands, zh);
   }
   if (advice.kind === 'npm-global' || advice.kind === 'npm-local') {
     const head = zh
@@ -113,32 +172,40 @@ export function renderUpdateAdvice(advice: MossUpdateAdvice, zh: boolean): strin
       : advice.kind === 'npm-global'
         ? `This Moss is an npm global install (${advice.root}).`
         : `This Moss is installed in a project's node_modules (${advice.root}).`;
-    return [head, '', run, '', commandBlock, '', tail].join('\n');
+    return finishUpdateAdvice([head, '', run, '', commandBlock], advice.commands, zh);
   }
   const head = zh
     ? `看不出这个 Moss 是 git 克隆还是 npm 安装（${advice.root}）。`
     : `Could not tell whether this Moss is a git clone or an npm install (${advice.root}).`;
   const choose = zh ? '可以选用：' : 'One of these matches the install:';
-  return [head, '', choose, '', commandBlock, '', tail].join('\n');
+  return finishUpdateAdvice([head, '', choose, '', commandBlock], advice.commands, zh);
 }
 
-export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = {}): string {
-  const spec = npmInstallSpec({ ...pkg, private: pkg.private ?? true });
+export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: true }): string {
+  const globalCommands =
+    pkg.private === false
+      ? globalInstallCommands({ ...pkg, private: false })
+      : sourceInstallCommands(pkg.repository);
+  const examples = [
+    '  moss update',
+    ...globalCommands.map((command) => `  ${command}`),
+    `  ${OLD_MOSS_UNINSTALL_COMMAND}`,
+    '  git -C <clone> pull && npm --prefix <clone> run build',
+  ];
   if (zh) {
     return [
       '用法：',
       '  moss update',
       '',
       '按安装方式打印升级命令。git 克隆打印 git pull 和重新构建；',
-      'npm 全局安装打印 npm install -g。moss update 不会执行这条命令。',
+      '全局安装打印从源码安装的命令（npm install -g --install-links）。',
+      'moss update 不会执行这些命令。',
       '',
       '选项：',
       '  （无）  不接受 flag，也不会拉取、安装或构建',
       '',
       '示例：',
-      '  moss update',
-      `  npm install -g ${spec}`,
-      '  git -C <clone> pull && npm --prefix <clone> run build',
+      ...examples,
     ].join('\n');
   }
   return [
@@ -146,16 +213,14 @@ export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = {}): string
     '  moss update',
     '',
     'Print the upgrade command for this install. A git clone prints git pull',
-    'and a rebuild. An npm global install prints npm install -g.',
-    'moss update does not run that command.',
+    'and a rebuild. A global install prints the source-install commands',
+    '(npm install -g --install-links). moss update does not run those commands.',
     '',
     'Options:',
     '  (none)  no flags; nothing is pulled, installed, or built',
     '',
     'Examples:',
-    '  moss update',
-    `  npm install -g ${spec}`,
-    '  git -C <clone> pull && npm --prefix <clone> run build',
+    ...examples,
   ].join('\n');
 }
 
