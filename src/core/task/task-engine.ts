@@ -668,7 +668,13 @@ export function summarizeTaskRun(result: TaskRunResult, locale?: string): string
       : zh
         ? (phaseZh[snapshot.phase] ?? snapshot.phase)
         : snapshot.phase;
-  const outcomeWord = zh && outcome === 'fail' ? '失败' : outcome.toUpperCase();
+  const outcomeZh: Record<TaskRunResult['outcome'], string> = {
+    pass: '通过',
+    fail: '失败',
+    blocked: '阻塞',
+    aborted: '已中止',
+  };
+  const outcomeWord = zh ? outcomeZh[outcome] : outcome.toUpperCase();
   const lines = zh
     ? [
         `任务 ${snapshot.taskId} — ${outcomeWord}`,

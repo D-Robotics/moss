@@ -395,14 +395,49 @@ export function englishUiOfferPending(tty = true): boolean {
 
 export const ENGLISH_UI_OFFER = '界面语言：中文。按 e 切换为英语，其他键继续。';
 
+/**
+ * Where the active UI language came from, plus the saved user setting. A
+ * flag, MOSS_LANG, or a session switch beats the saved value, and then the
+ * line says the saved value is not in effect instead of implying it is.
+ */
+export function formatUiLanguageStatus(): { name: string; detail: string } {
+  const language = effectiveUiLanguage();
+  const saved = uiLanguageResolution()?.setting ?? 'auto';
+  const source = effectiveUiLanguageSource();
+  const name = language === 'zh' ? uiText('Chinese', '中文') : uiText('English', '英语');
+  const savedName = uiText(saved, saved === 'auto' ? '自动' : saved === 'zh' ? '中文' : '英语');
+  let from: string;
+  switch (source) {
+    case 'flag':
+      from = uiText(`--lang ${language}`, `命令行 --lang ${language}`);
+      break;
+    case 'env':
+      from = uiText(`MOSS_LANG=${language}`, `环境变量 MOSS_LANG=${language}`);
+      break;
+    case 'config':
+      from = uiText('the user config', '用户配置');
+      break;
+    case 'locale':
+      from = uiText('the system locale', '系统区域');
+      break;
+    default:
+      from = uiText('/language in this session', '本会话的 /language');
+  }
+  const overridden = source === 'flag' || source === 'env' || source === 'session';
+  const detail = overridden
+    ? uiText(
+        `from ${from}; saved setting ${savedName} is not in effect`,
+        `来自${from}；已保存的设置「${savedName}」未生效`
+      )
+    : uiText(
+        `from ${from}; saved setting ${savedName}`,
+        `来自${from}；已保存的设置「${savedName}」`
+      );
+  return { name, detail };
+}
+
 /** One config-show line for the resolved UI language. */
 export function formatUiLanguageLine(): string {
-  const language = effectiveUiLanguage();
-  const resolution = uiLanguageResolution();
-  const setting = resolution?.setting ?? 'auto';
-  const source = effectiveUiLanguageSource();
-  return uiText(
-    `  language: ${language} (setting ${setting}, source ${source})`,
-    `  界面语言：${language === 'zh' ? '中文' : '英语'}（设置 ${setting === 'auto' ? '自动' : setting}，来源 ${SOURCE_ZH[source]}）`
-  );
+  const { name, detail } = formatUiLanguageStatus();
+  return uiText(`  language: ${name} (${detail})`, `  界面语言：${name}（${detail}）`);
 }

@@ -29,10 +29,28 @@ import {
 import { setupMenuLines } from '../dist/cli/setup-wizard.js';
 import { formatTaskStatus } from '../dist/cli/task-run.js';
 import { summarizeTaskRun } from '../dist/core/task/task-engine.js';
-import { formatGitDiffFailure } from '../dist/cli/commands/registry.js';
+import {
+  formatDiffRunFailure,
+  formatGitDiffFailure,
+  formatNotGitRepository,
+  reviewNotGitHint,
+} from '../dist/cli/commands/registry.js';
+import {
+  formatBlockedTaskLine,
+  formatTaskProgressLine,
+  formatTaskVerdictLine,
+} from '../dist/cli/task-card.js';
+import { commandBlockTitle } from '../dist/cli/tui/app-helpers.js';
+import { ALL_SHELL_COMMANDS } from '../dist/cli/tui/help.js';
+import { localizeConfigSource } from '../dist/cli/config-snapshot.js';
+import { renderAuthDoctorLine } from '../dist/cli/doctor.js';
 import { ZH, setTuiLocale, tui } from '../dist/cli/tui/copy.js';
 import { renderApproval, renderTranscriptRows } from '../dist/cli/tui/transcript.js';
-import { formatTaskTimeline, localizeTaskDetail } from '../dist/core/task/task-store.js';
+import {
+  appendTaskEvent,
+  formatTaskTimeline,
+  localizeTaskDetail,
+} from '../dist/core/task/task-store.js';
 import { installUiLanguage } from '../dist/utils/ui-language.js';
 import { formatDeviceConnectError } from '../dist/device/device-connect-error.js';
 import { SshDeviceConnection } from '../dist/device/ssh-device-connection.js';
@@ -837,6 +855,7 @@ function cardSurfaces() {
   )
     .map((row) => row.text)
     .join('\n');
+  const extra = followupSurfaces();
   clearUiLanguage();
   setTuiLocale(false);
   return [
@@ -844,6 +863,130 @@ function cardSurfaces() {
     { name: 'approval card', text: approvalLines.join('\n') },
     { name: 'task card', text: taskCard },
     { name: 'error card', text: errorCard },
+    ...extra,
+  ];
+}
+
+const TASK_PHASES = [
+  'planning',
+  'executing',
+  'verifying',
+  'diagnosing',
+  'repairing',
+  'accepted',
+  'failed',
+  'blocked',
+  'other',
+];
+
+/**
+ * Screens the PM recheck found unscanned: the ◇ phase lines, the real /diff
+ * failure line, /review and /diff outside git, command block titles, the
+ * failed acceptance-command verdict, every task outcome word, and the
+ * user/project config source in doctor and the approval audit.
+ */
+function followupSurfaces(zh = true) {
+  const sample = (zhText, enText) => (zh ? zhText : enText);
+  const phases = [
+    ...TASK_PHASES.map((phase) => formatTaskProgressLine(phase)),
+    formatTaskVerdictLine('PASS', 1, 1),
+    formatTaskVerdictLine('FAIL', 0, 1),
+    formatBlockedTaskLine(sample('等待板子', 'waiting for the board')),
+  ].join('\n');
+  const diffRows = renderTranscriptRows(
+    [
+      {
+        id: 1,
+        kind: 'error',
+        text: formatDiffRunFailure(128, sample('索引文件损坏', 'index file is corrupt'), zh),
+      },
+      { id: 2, kind: 'error', text: formatDiffRunFailure(null, '', zh) },
+      { id: 3, kind: 'error', text: formatNotGitRepository('/diff', '/tmp/ws', zh) },
+      { id: 4, kind: 'error', text: formatNotGitRepository('/review', '/tmp/ws', zh) },
+      { id: 5, kind: 'error', text: reviewNotGitHint(zh) },
+    ],
+    80
+  )
+    .map((row) => row.text)
+    .join('\n');
+  const titles = ALL_SHELL_COMMANDS.map((entry) => commandBlockTitle(entry.command)).join('\n');
+  const verdicts = [
+    localizeTaskDetail('acceptance command failed (exit 1)\n'),
+    localizeTaskDetail('acceptance command failed (exit 124, timed out)'),
+    localizeTaskDetail('acceptance command exited 0'),
+    localizeTaskDetail(
+      `goal verify command failed (exit 2): ${sample('测试未通过', 'tests failed')}`
+    ),
+    localizeTaskDetail('run budget exceeded (budget_tokens)'),
+    localizeTaskDetail('understanding goal, defining contract + plan'),
+    localizeTaskDetail('resumed by user'),
+  ].join('\n');
+  const outcomes = ['pass', 'fail', 'blocked', 'aborted']
+    .map((outcome) =>
+      summarizeTaskRun(
+        {
+          snapshot: {
+            taskId: 'task_1',
+            goal: sample('写一个文件', 'write a file'),
+            phase: outcome === 'pass' ? 'accepted' : outcome === 'blocked' ? 'blocked' : 'failed',
+            statusView: 'failed',
+            outcome,
+            attempt: 1,
+            repairs: [],
+            failures: [],
+            evidenceCount: 0,
+            plan: [],
+          },
+          outcome,
+          verdictDetail: 'acceptance command failed (exit 1)\n',
+          timeline: '',
+          turns: 1,
+        },
+        zh ? 'zh' : 'en'
+      )
+    )
+    .join('\n');
+  const sources = ['user', 'project', 'legacy', 'config', 'user, project']
+    .map((source) => `${localizeConfigSource(source)}`)
+    .join('\n');
+  const auth = ['user', 'project', 'config']
+    .map((apiKeySource) =>
+      renderAuthDoctorLine(
+        { apiKey: 'k', apiKeySource, apiKeyEncrypted: false, usingBundledDefault: false },
+        {}
+      )
+    )
+    .join('\n');
+  const approval = auditResolvedCliConfig({
+    approvalPolicy: 'never',
+    approvalPolicySource: 'derived:mode',
+    safetyMode: 'workspace-write',
+    safetyModeSource: 'user',
+    trustedTools: [],
+    trustedToolsSource: 'user',
+    deniedTools: [],
+    deniedToolsSource: 'project',
+    permissions: {
+      defaultMode: 'full',
+      readOnlyCeiling: false,
+      allow: [],
+      ask: [],
+      deny: [],
+      deviceTrust: 'gated',
+      trustedDevices: [],
+      legacyKeysUsed: [],
+      source: 'user',
+    },
+  })
+    .map((warning) => warning.message)
+    .join('\n');
+  return [
+    { name: 'task phase lines', text: phases },
+    { name: 'diff and review failures', text: diffRows },
+    { name: 'command block titles', text: titles },
+    { name: 'task verdict details', text: verdicts },
+    { name: 'task outcomes', text: outcomes },
+    { name: 'config sources', text: `${sources}\n${auth}\n${approval}` },
   ];
 }
 
@@ -889,7 +1032,180 @@ for (const card of cards) {
   }
 }
 
+{
+  // A task whose run failed: the list shows the lifecycle result, not the
+  // contract's untouched `draft`, and `tasks acceptance` has a zh path.
+  const home = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-lang-tasks-')));
+  const workspace = path.join(home, 'ws');
+  fs.mkdirSync(path.join(workspace, '.moss'), { recursive: true });
+  const acceptedAt = new Date(2026, 9, 10, 19, 10, 58).getTime();
+  fs.writeFileSync(
+    path.join(workspace, '.moss', 'tasks.jsonl'),
+    `${JSON.stringify({
+      taskId: 'task_9',
+      goal: '写一个文件',
+      acceptanceCriteria: [],
+      status: 'draft',
+      createdAt: 1,
+      updatedAt: 1,
+    })}\n`
+  );
+  fs.writeFileSync(
+    path.join(workspace, '.moss', 'acceptance.jsonl'),
+    `${JSON.stringify({
+      taskId: 'task_9',
+      verdict: 'fail',
+      acceptedAt,
+      criteriaResults: [],
+      unmetRequired: 1,
+      evidenceConsidered: 0,
+    })}\n`
+  );
+  await appendTaskEvent(workspace, 'task_9', 'execution_started');
+  await appendTaskEvent(workspace, 'task_9', 'task_failed', {
+    detail: 'acceptance command failed (exit 1)',
+  });
+  for (const args of [['tasks'], ['tasks', 'acceptance']]) {
+    const shown = runCli(['--lang', 'zh', ...args], { cwd: workspace, LANG: 'C', LC_ALL: 'C' });
+    assert.equal(shown.status, 0, shown.text);
+    const name = `data failed ${args.join(' ')}`;
+    scanned.push({ name, text: shown.text });
+    const hits = englishSentences(shown.text);
+    if (hits.length > 0) surfaceHits.push(`-- ${name}\n${hits.join('\n')}`);
+    const english = runCli(['--lang', 'en', ...args], {
+      cwd: workspace,
+      LANG: 'zh_CN.UTF-8',
+      LC_ALL: 'zh_CN.UTF-8',
+    });
+    assert.equal(english.status, 0, english.text);
+    const row = english.text.split('\n').find((line) => line.startsWith('task_9')) ?? '';
+    assertNoHan(row.replace('写一个文件', ''), `en ${args.join(' ')} row`);
+    assert.equal(english.text.includes('任务标识'), false);
+    if (args.length === 1) {
+      assert.match(shown.text, /task_9\s+失败/);
+      assert.doesNotMatch(shown.text, /task_9\s+草稿/);
+      assert.match(english.text, /task_9\s+failed/);
+    } else {
+      assert.match(shown.text, /任务标识\s+裁决/);
+      assert.match(shown.text, /task_9\s+未通过\s+1\s+2026-10-10 19:10:58/);
+      assert.match(english.text, /TASK ID\s+VERDICT/);
+      assert.match(english.text, /task_9\s+FAIL/);
+    }
+  }
+}
+
+{
+  // /review outside a git repository speaks the UI language.
+  const dir = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-lang-nogit-')));
+  for (const zh of [true, false]) {
+    clearUiLanguage();
+    installUiLanguage({ language: zh ? 'zh' : 'en', source: 'flag', setting: 'auto' });
+    setTuiLocale(zh);
+    const said = [];
+    try {
+      await runRegistryCommand('/review', {
+        workspace: dir,
+        surface: 'tui',
+        say: (_kind, text) => said.push(text),
+        locale: zh ? 'zh-CN' : 'en-US',
+        submitPrompt: () => {},
+      });
+    } finally {
+      clearUiLanguage();
+      setTuiLocale(false);
+    }
+    const text = said.join('\n');
+    assert.ok(text.length > 0, '/review outside git must report');
+    if (zh) {
+      assert.match(text, /不是 git 仓库/);
+      assert.deepEqual(englishSentences(text), [], text);
+    } else {
+      assertNoHan(text, 'en /review outside git');
+      assert.match(text, /Not a git repository/);
+    }
+  }
+}
+
 assert.deepEqual(surfaceHits, [], `zh cards still have English:\n${surfaceHits.join('\n')}`);
+
+{
+  // Every surface above must render Chinese, not just avoid English.
+  for (const card of cards) assertHan(card.text, `zh ${card.name}`);
+  const byName = Object.fromEntries(cards.map((card) => [card.name, card.text]));
+  assert.match(byName['task verdict details'], /验收命令失败（退出码 1）/);
+  assert.match(byName['task verdict details'], /验收命令失败（退出码 124，已超时）/);
+  assert.doesNotMatch(byName['task outcomes'], /PASS|FAIL|BLOCKED|ABORTED/);
+  assert.match(byName['task outcomes'], /— 通过/);
+  assert.match(byName['task outcomes'], /— 阻塞/);
+  assert.match(byName['config sources'], /用户配置/);
+  assert.match(byName['config sources'], /项目配置/);
+  assert.doesNotMatch(byName['config sources'], /已配置（user|已通过 user|（project/);
+  assert.match(byName['command block titles'], /目标/);
+  assert.match(byName['command block titles'], /评审/);
+  assert.match(byName['diff and review failures'], /git diff 失败（退出码 128）：索引文件损坏/);
+  assert.match(
+    byName['diff and review failures'],
+    /不是 git 仓库：\/tmp\/ws — \/review 需要 git 工作区/
+  );
+
+  // English stays English and free of CJK for the same surfaces.
+  installUiLanguage({ language: 'en', source: 'flag', setting: 'auto' });
+  setTuiLocale(false);
+  try {
+    const en = followupSurfaces(false);
+    for (const card of en) assertNoHan(card.text, `en ${card.name}`);
+    const verdicts = en.find((card) => card.name === 'task verdict details').text;
+    assert.match(verdicts, /acceptance command failed \(exit 1\)/);
+    assert.match(en.find((card) => card.name === 'task outcomes').text, /— PASS/);
+    assert.match(
+      en.find((card) => card.name === 'diff and review failures').text,
+      /git diff failed \(exit 128\)/
+    );
+  } finally {
+    clearUiLanguage();
+  }
+}
+
+{
+  // The PM's real-screen injection: append an English sentence to the zh
+  // catalog entry itself (not to the rendered text). The scan must fail for
+  // each one, otherwise that screen is not really covered.
+  const injected = [
+    '◇ Working out the steps',
+    '◇ Doing the work',
+    '◇ Checking the result',
+    '◇ Looking at what failed',
+    '◇ Fixing it',
+    '◇ Checks passed',
+    '◇ Checks did not pass',
+    '◇ Waiting on you',
+    '◇ Working',
+    'git diff failed (exit {code}): {error}',
+    'Not a git repository: {path} — /diff needs a git workspace.',
+    'Not a git repository: {path} — /review needs a git workspace.',
+    'Open a git repository, or pass a PR number: `/review <PR#>`.',
+    'Goal',
+    'Review',
+    'Diff',
+  ];
+  const catalog = ZH;
+  const misses = [];
+  for (const key of injected) {
+    assert.ok(key in catalog, `ZH has no entry for ${JSON.stringify(key)}`);
+    const original = catalog[key];
+    catalog[key] = `${original} Run this again later.`;
+    try {
+      const shown = cardSurfaces();
+      const hits = shown.flatMap((card) => englishSentences(card.text));
+      // The clean scan above is empty, so any hit is the injected sentence
+      // (a narrow card can wrap it across two rows).
+      if (hits.length === 0) misses.push(key);
+    } finally {
+      catalog[key] = original;
+    }
+  }
+  assert.deepEqual(misses, [], `injected English not caught for: ${misses.join(', ')}`);
+}
 
 let mutationAttempts = 0;
 let mutationCaught = 0;
@@ -957,6 +1273,46 @@ console.log(`[PASS] mutation catch rate ${mutationCaught}/${mutationAttempts}`);
     assert.match(chinese.join('\n'), /下次启动若不带 --lang、也不设 MOSS_LANG，则使用已保存的值/);
     const saved = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
     assert.equal(saved.language, 'zh');
+
+    // MOSS_LANG forces the language: the status names it and says the saved
+    // setting is not in effect, instead of "setting auto, source env".
+    for (const [language, words] of [
+      ['zh', /界面语言：中文（来自环境变量 MOSS_LANG=zh；已保存的设置「自动」未生效）/],
+      ['en', /UI language: English \(from MOSS_LANG=en; saved setting auto is not in effect\)/],
+    ]) {
+      installUiLanguage({ language, source: 'env', setting: 'auto' });
+      const status = [];
+      await runRegistryCommand('/language', { say: (_kind, text) => status.push(text) });
+      assert.match(status.join('\n'), words);
+      assert.doesNotMatch(status.join('\n'), /设置 自动，来源|setting auto, source env/);
+      if (language === 'en') assertNoHan(status.join('\n'), 'en /language status');
+    }
+    installUiLanguage({ language: 'zh', source: 'config', setting: 'zh' });
+    const fromConfig = [];
+    await runRegistryCommand('/language', { say: (_kind, text) => fromConfig.push(text) });
+    assert.match(fromConfig.join('\n'), /来自用户配置；已保存的设置「中文」/);
+    assert.doesNotMatch(fromConfig.join('\n'), /未生效/);
+
+    // Saving auto says auto was stored, not 「中文（已写入）」.
+    delete envBeforeDotenv.MOSS_LANG;
+    process.env.LANG = 'zh_CN.UTF-8';
+    process.env.LC_ALL = 'zh_CN.UTF-8';
+    installUiLanguage({ language: 'zh', source: 'locale', setting: 'auto' });
+    const autoSaved = [];
+    try {
+      await runRegistryCommand('/language auto save', {
+        say: (_kind, text) => autoSaved.push(text),
+      });
+    } finally {
+      process.env.LANG = 'C';
+      process.env.LC_ALL = 'C';
+    }
+    assert.match(autoSaved.join('\n'), /已把「自动」写入用户配置，跟随系统区域/);
+    assert.doesNotMatch(autoSaved.join('\n'), /中文（已写入用户配置）/);
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8')).language,
+      'auto'
+    );
 
     delete envBeforeDotenv.MOSS_LANG;
     installUiLanguage({ language: 'zh', source: 'config', setting: 'zh' });

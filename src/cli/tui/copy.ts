@@ -638,6 +638,38 @@ export const ZH: Readonly<Record<string, string>> = {
   Command: '命令',
   Skills: '技能',
   Enter: '回车',
+  // Command block titles (`⏺ Goal`, `⏺ Review`, …): commandBlockTitle and printBlock.
+  Status: '状态',
+  Compact: '压缩',
+  Goal: '目标',
+  Plan: '计划',
+  Review: '评审',
+  Context: '上下文',
+  Export: '导出',
+  Rewind: '回退',
+  Mcp: 'MCP 服务',
+  Agents: '子代理',
+  Tasks: '任务列表',
+  Theme: '主题',
+  Mode: '模式',
+  Hooks: '钩子',
+  Trust: '信任',
+  Untrust: '取消信任',
+  Stop: '停止',
+  Init: '初始化',
+  Clear: '清空',
+  Quit: '退出',
+  Help: '帮助',
+  Queue: '队列',
+  Steer: '插话',
+  'Task view': '任务视图',
+  'unknown kind "{kind}" — use tasks | history | evidence | deployments | failures':
+    '未知类别“{kind}” — 可用 tasks | history | evidence | deployments | failures',
+  'unknown error': '未知错误',
+  'Not a git repository: {path} — /review needs a git workspace.':
+    '不是 git 仓库：{path} — /review 需要 git 工作区。',
+  'Open a git repository, or pass a PR number: `/review <PR#>`.':
+    '请打开一个 git 仓库，或传入拉取请求号：`/review <拉取请求号>`。',
 };
 
 /**

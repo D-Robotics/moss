@@ -525,6 +525,9 @@ const TASK_DETAIL_ZH: Readonly<Record<string, string>> = {
   'no task contract found — define one with task_define first':
     '没有任务契约。请先用 task_define 定义。',
   'agent execution turn': '模型执行回合',
+  'understanding goal, defining contract + plan': '正在理解目标，定义契约和计划',
+  'resumed by user': '用户已恢复',
+  aborted: '已中止',
 };
 
 /** User-facing timeline/progress text. Stored event details stay English. */
@@ -540,6 +543,18 @@ export function localizeTaskDetail(detail: string, zh: boolean = isEffectiveUiZh
   if (turns) return `轮次已用尽（${turns[1]} 轮）`;
   const repair = /^repair attempt (\d+)$/.exec(detail);
   if (repair) return `第 ${repair[1]} 次修复`;
+  // The verdict keeps the command's output tail after the first line; only
+  // the first line is chrome. Exit may be a number, null, or undefined.
+  const acceptance = /^acceptance command failed \(exit ([^,)]*)(, timed out)?\)(\n[\s\S]*)?$/.exec(
+    detail
+  );
+  if (acceptance) {
+    return `验收命令失败（退出码 ${acceptance[1]}${acceptance[2] ? '，已超时' : ''}）${acceptance[3] ?? ''}`;
+  }
+  const goalVerify = /^goal verify command failed \(exit ([^)]*)\): ([\s\S]*)$/.exec(detail);
+  if (goalVerify) return `目标验证命令失败（退出码 ${goalVerify[1]}）：${goalVerify[2]}`;
+  const budget = /^run budget exceeded \(([^)]*)\)$/.exec(detail);
+  if (budget) return `运行预算已用尽（${budget[1]}）`;
   const crashed = /^run crashed: ([\s\S]+)$/.exec(detail);
   if (crashed) return `运行崩溃：${crashed[1]}`;
   if (detail.startsWith('task has no acceptance criteria')) {
