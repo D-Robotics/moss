@@ -51,6 +51,13 @@ export interface McpServerConfig {
    */
   connectTimeoutMs?: number;
   requestTimeoutMs?: number;
+
+  /**
+   * Register the search tool immediately, but do not spawn until the first
+   * tool call or an explicit background warm. The built-in rdk-docs server
+   * sets this so a prompt is not blocked on npx.
+   */
+  deferStart?: boolean;
 }
 
 /** A tool as reported by the server's `tools/list`. */
@@ -67,7 +74,13 @@ export interface McpToolDescriptor {
 }
 
 /** Lifecycle of one server connection. */
-export type McpConnectionState = 'disconnected' | 'connecting' | 'connected' | 'failed' | 'closed';
+export type McpConnectionState =
+  | 'disconnected'
+  | 'deferred'
+  | 'connecting'
+  | 'connected'
+  | 'failed'
+  | 'closed';
 
 // ── JSON-RPC 2.0 message shapes (narrowed, no any) ─────────────────────────
 

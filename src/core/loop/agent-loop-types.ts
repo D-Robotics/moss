@@ -77,6 +77,10 @@ export interface AgentLoopProviderInput {
   /** Number of retries after the initial LLM request. */
   maxLLMRetries?: number;
   maxOutputTokens?: number;
+  /** When true, maxOutputTokens is a user pin and truncation will not raise it. */
+  outputTokensPinned?: boolean;
+  /** Per-model ceilings from `agent.models.<id>.maxOutputTokens`. */
+  modelMaxOutputTokens?: Readonly<Record<string, number>>;
 }
 
 export interface AgentLoopHardCaps {
@@ -138,6 +142,11 @@ export interface AgentLoopExtensions {
    * buffering is actually required this turn (e.g. pending schema validation).
    */
   shouldBufferAssistantOutput?: () => boolean;
+  /**
+   * Plain Q&A (`taskFlow: false`) sets this false so task-repair nudges stay
+   * out of the turn. Unset keeps them — headless benches rely on that.
+   */
+  taskPhaseNudges?: boolean;
 }
 
 export interface AgentLoopDeps {

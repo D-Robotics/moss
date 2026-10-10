@@ -26,12 +26,12 @@ export function renderMcpUsage(zh: boolean = isZhLocale()): string {
   if (zh) {
     return [
       '用法：',
-      '  moss mcp add <name> <command...>            stdio 服务器（参数跟在命令后）',
-      '  moss mcp add <name> <url> [--header k=v]    http 服务器',
-      '  moss mcp add --project <name> <command...>  写入 .moss/mcp.json 而非用户级文件',
+      '  moss mcp add <名称> <命令...>               stdio 服务器（参数跟在命令后）',
+      '  moss mcp add <名称> <url> [--header k=v]    http 服务器',
+      '  moss mcp add --project <名称> <命令...>     写入 .moss/mcp.json 而非用户级文件',
       '  moss mcp list                               查看已配置的服务器与文件',
-      '  moss mcp remove <name> [--project]          删除一个服务器',
-      '  moss mcp test <name>                        立即连接并列出工具',
+      '  moss mcp remove <名称> [--project]          删除一个服务器',
+      '  moss mcp test <名称>                        立即连接并列出工具',
       '',
       '值支持 ${ENV_VAR} 引用——凭据只留在环境变量里。',
       '',
@@ -41,7 +41,7 @@ export function renderMcpUsage(zh: boolean = isZhLocale()): string {
       '',
       '示例：',
       '  moss mcp add rdk-docs npx -y rdk-docs-mcp@0.3.0',
-      '  moss mcp add docs https://example.test/mcp --header Authorization=${TOKEN}',
+      '  moss mcp add rdk-docs https://example.test/mcp --header Authorization=${TOKEN}',
     ].join('\n');
   }
   return [

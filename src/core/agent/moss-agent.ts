@@ -34,6 +34,7 @@ import { createAcceptanceCompletionGate } from '../loop/acceptance-completion-ga
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
 import { resolveContextCharsPerTokenUnit, estimateMessagesTokens } from '../../context/tokens.js';
 import { getEffectiveContextWindowTokens } from '../../context/window-economics.js';
+import { resolveModelOutputBudget } from '../loop/output-limit.js';
 import { resolveMossMaxAgentTurns } from '../../utils/max-agent-turns.js';
 import { SteeringEngine, DEFAULT_STEERING_RULES } from '../loop/steering.js';
 import {
@@ -857,10 +858,19 @@ ${result.stderr ?? ''}`.trim();
           ? resolveMossMaxAgentTurns(String(this.config.maxAgentTurns))
           : resolveMossMaxAgentTurns();
     const contextTokens = this.config.contextTokens ?? 32_000; // conservative; real value probed at startup
-    const maxOutputTokens = Math.max(
-      1,
-      Math.floor(options?.maxOutputTokens ?? this.config.maxTokens ?? 4096)
-    );
+    const modelId = this.config.model ?? 'moss-default-model';
+    const explicitOutputTokens = options?.maxOutputTokens ?? this.config.maxTokens;
+    const outputTokensPinned =
+      options?.maxOutputTokens !== undefined || this.config.maxOutputTokensPinned === true;
+    const seededOutputTokens =
+      explicitOutputTokens ??
+      resolveModelOutputBudget({
+        modelId,
+        contextTokens,
+        pinned: false,
+        overrides: this.config.modelMaxOutputTokens,
+      }).initial;
+    const maxOutputTokens = Math.max(1, Math.floor(seededOutputTokens));
     const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOutputTokens);
     const temperature = options?.temperature ?? this.config.temperature;
     const topP = options?.topP ?? this.config.topP;
@@ -1369,9 +1379,14 @@ ${result.stderr ?? ''}`.trim();
     // Robotics loop P0-2/P0-9: hold the final answer until a defined task
     // contract has an acceptance verdict (blocks at most once per run, then
     // an honest FAIL report is allowed through). Runs before the host gate.
-    const acceptanceGate = createAcceptanceCompletionGate({
-      ...(this.config?.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
-    });
+    // The sticky ledger (not the raw taskFlow flag) decides task-phase nudges.
+    // A plain Q&A session never entered the ledger, so the gate stays quiet.
+    // Headless `-p` leaves taskFlow unset and the ledger stays visible.
+    const acceptanceGate = ledgerVisible
+      ? createAcceptanceCompletionGate({
+          ...(this.config?.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
+        })
+      : async () => ({ ok: true as const });
     const hostCompletionGate = this.config.completionGate;
     const completionGate: AgentLoopParams['completionGate'] = hostCompletionGate
       ? async (request) => {
@@ -1426,6 +1441,7 @@ ${result.stderr ?? ''}`.trim();
       maxLLMRetries: Math.max(0, Math.floor(this.config.maxLLMRetries ?? 2)),
       maxTurns,
       ...(options?.maxToolCalls !== undefined ? { maxToolCalls: options.maxToolCalls } : {}),
+      taskPhaseNudges: ledgerVisible,
       contextTokens,
       steeringEngine: this.steeringEngine ?? undefined,
       appendMessage: async (key, msg) => {
@@ -1494,6 +1510,10 @@ ${result.stderr ?? ''}`.trim();
       toolHooks: this.toolHooks,
       abortSignal,
       maxOutputTokens,
+      outputTokensPinned,
+      ...(this.config.modelMaxOutputTokens
+        ? { modelMaxOutputTokens: this.config.modelMaxOutputTokens }
+        : {}),
       pruningSettings: this.config.pruningSettings,
       compactHooks: this.config.compactHooks,
       platform: {

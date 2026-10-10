@@ -8,6 +8,7 @@ import type {
 } from '../core/agent/agent-hooks.js';
 import type { Tool, ToolSideEffectClass } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
+import { shellCommandHasOpaqueWrite } from '../safety/shell-write-sandbox.js';
 import { classifyDeviceOperation, type DeviceRiskClassification } from '../safety/device-risk.js';
 import {
   deviceIdsMatchTrustList,
@@ -362,6 +363,9 @@ function isReadonlyGit(tokens: readonly string[]): boolean {
 function isReadonlyExecCommand(command: unknown): boolean {
   if (typeof command !== 'string') return false;
   if (isCommandDangerous(command).blocked) return false;
+  // iex / -EncodedCommand / nested pwsh -c hide their writes. Same as python -c:
+  // not a readonly command, so the approval layer has to confirm them.
+  if (shellCommandHasOpaqueWrite(command)) return false;
   const tokens = tokenizeReadonlyShellCommand(command);
   if (!tokens) return false;
   const commandName = tokens[0];

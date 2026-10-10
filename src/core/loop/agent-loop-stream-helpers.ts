@@ -33,6 +33,22 @@ interface PiStreamEventExt {
   reason?: string;
 }
 
+/**
+ * `splitThinkingTagsFromAssistantText` trims the visible piece. A cutoff such
+ * as "Hello " needs that trailing space so the next fragment can be concatenated.
+ * Expand back over spaces and tabs only; newlines stay trimmed.
+ */
+function preserveInlineEdgeSpace(raw: string, trimmed: string): string {
+  if (!trimmed) return trimmed;
+  const start = raw.lastIndexOf(trimmed);
+  if (start < 0) return trimmed;
+  let from = start;
+  let to = start + trimmed.length;
+  while (from > 0 && (raw[from - 1] === ' ' || raw[from - 1] === '\t')) from -= 1;
+  while (to < raw.length && (raw[to] === ' ' || raw[to] === '\t')) to += 1;
+  return raw.slice(from, to);
+}
+
 export function resolveLlmFirstChunkTimeoutMs(): number {
   return parseEnvBoundedInt('MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS', 45_000, 0, 3_600_000);
 }
@@ -112,6 +128,8 @@ export interface AgentLoopLlmTurnParams {
   runStartMs: number;
   firstTokenMs: number | null;
   suppressVisibleDeltas?: boolean;
+  /** Per-call output cap. Overrides modelDef.maxTokens when recovery escalates. */
+  maxTokens?: number;
   logDebug: (message: string, meta?: Record<string, unknown>) => void;
 }
 
@@ -229,7 +247,7 @@ export async function runAgentLoopLlmTurn(
             );
           }
           const streamOpts: SimpleStreamOptions = {
-            maxTokens: modelDef.maxTokens,
+            maxTokens: params.maxTokens ?? modelDef.maxTokens,
             signal: streamSignal,
             apiKey,
             ...(temperature !== undefined ? { temperature } : {}),
@@ -294,7 +312,9 @@ export async function runAgentLoopLlmTurn(
 
               case 'text_end': {
                 const raw = String(event.content ?? '');
-                const { thinkingBodies, visible } = splitThinkingTagsFromAssistantText(raw);
+                const { thinkingBodies, visible: trimmedVisible } =
+                  splitThinkingTagsFromAssistantText(raw);
+                const visible = preserveInlineEdgeSpace(raw, trimmedVisible);
 
                 for (const body of thinkingBodies) {
                   const t = body.trim();

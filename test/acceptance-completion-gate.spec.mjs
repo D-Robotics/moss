@@ -242,6 +242,43 @@ test('E2E: gate forces an acceptance run before the agent may finish', async (t)
   assert.equal(tasks[tasks.length - 1].status, 'failed', 'task status flipped to failed');
 });
 
+test('E2E: plain Q&A (taskFlow false) is not held for task acceptance', async (t) => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-gate-e2e-qa-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+
+  const agent = new MossAgent({
+    llmProvider: createMockTranscriptProvider('gate-qa', 'Gate QA', [
+      {
+        toolCalls: [
+          {
+            name: 'task_define',
+            input: {
+              goal: 'answer a pinmux question',
+              acceptance_criteria: [{ metric: 'answered', expected: '>=1' }],
+            },
+          },
+        ],
+      },
+      { text: 'The pin is GPIO 3.' },
+    ]),
+    sessionStore: new InMemorySessionStore(),
+    model: 'gate-qa',
+    workspaceDir: workspace,
+    baseSystemPrompt: 'Answer the question.',
+    domainPrompt: false,
+    includeAgentBehaviorPrompt: false,
+    enableSteering: false,
+    maxAgentTurns: 6,
+  });
+  registerBuiltinTools(agent);
+
+  const result = await agent.chat('gate-qa-run', 'Which pin is the camera clock?', {
+    taskFlow: false,
+  });
+  const text = typeof result === 'string' ? result : result?.response;
+  assert.match(text, /GPIO 3/);
+});
+
 test('E2E: without a task contract the gate never interferes', async (t) => {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-gate-e2e-open-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));

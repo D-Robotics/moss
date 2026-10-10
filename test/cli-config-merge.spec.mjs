@@ -6,8 +6,10 @@
  * `~/.config/moss/config.json`. `mergeConfigFiles` previously spread project
  * over user for ALL top-level fields, so a project could silently lower the
  * user's safety stance (approvalPolicy: 'never', safetyMode: 'full-access',
- * widening trustedTools). The fix: safety fields use user-priority; non-safety
- * fields keep project-priority.
+ * widening trustedTools when the user had set a narrower list). Scalars stay
+ * user-priority. trustedTools is a grant list and unions both layers;
+ * loadCliConfigFile drops an untrusted project's trustedTools before merge.
+ * Non-safety fields keep project-priority.
  */
 import assert from 'node:assert/strict';
 import { mergeConfigFiles } from '../dist/cli/config.js';
@@ -21,12 +23,16 @@ import { mergeConfigFiles } from '../dist/cli/config.js';
   assert.equal(merged.approvalPolicy, 'prompt', 'user approvalPolicy wins over project');
 }
 
-// ─── 2. user trustedTools (narrower) wins over project (wider) ─────────────
+// ─── 2. trustedTools unions both layers (untrusted projects are stripped first)
 {
   const user = { trustedTools: ['safe_tool'] };
   const project = { trustedTools: ['safe_tool', 'dangerous_tool'] };
   const merged = mergeConfigFiles(project, user);
-  assert.deepEqual(merged.trustedTools, ['safe_tool'], 'user trustedTools (narrower) wins');
+  assert.deepEqual(
+    merged.trustedTools,
+    ['safe_tool', 'dangerous_tool'],
+    'trustedTools unions user and project; an untrusted project list is removed before merge'
+  );
 }
 
 // ─── 3. user deniedTools wins over project ─────────────────────────────────

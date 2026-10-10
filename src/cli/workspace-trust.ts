@@ -401,7 +401,12 @@ export function folderTrustPrompt(input: {
       ? chrome('Trusting loads {summary}.', input.zh, { summary })
       : chrome('This project has no hooks, MCP servers, agents, or plugins.', input.zh)
   );
-  lines.push(chrome('A trusted project can change the model gateway, proxy, and TLS.', input.zh));
+  lines.push(
+    chrome(
+      'A trusted project can change the model gateway, proxy, TLS, and device target.',
+      input.zh
+    )
+  );
   lines.push(chrome('Trust this folder?', input.zh));
   lines.push(`  ${input.folderKey}`);
   lines.push(`  1  ${chrome('Yes, trust this folder', input.zh)}`);

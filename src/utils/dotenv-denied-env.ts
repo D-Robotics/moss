@@ -1,8 +1,9 @@
 /**
  * Environment variables a project `.env` must not set.
  *
- * They choose an interpreter, a dynamic linker, a shell startup file, shell
- * word-splitting (`IFS`), a temp directory (`TMPDIR` / `TMP` / `TEMP`), a git
+ * They choose an interpreter, an editor command (`VISUAL` / `EDITOR`, run by
+ * the TUI's external-editor key), an exported bash function (`BASH_FUNC_*`),
+ * a dynamic linker, a shell startup file, shell word-splitting (`IFS`), a temp directory (`TMPDIR` / `TMP` / `TEMP`), a git
  * repository or config file (`GIT_*`, including `GIT_DIR`, `GIT_CONFIG`,
  * `GIT_WORK_TREE`, `GIT_COMMON_DIR`, and `GIT_OBJECT_DIRECTORY`), or a
  * package manager that can execute code. Provider `*_BASE_URL` and `*_API_BASE`
@@ -37,9 +38,11 @@ const EXACT_KEYS = new Set([
   'TMPDIR',
   'TMP',
   'TEMP',
+  'VISUAL',
+  'EDITOR',
 ]);
 
-const PREFIXES = ['DYLD_', 'GIT_', 'NPM_CONFIG_'];
+const PREFIXES = ['DYLD_', 'GIT_', 'NPM_CONFIG_', 'BASH_FUNC_'];
 
 /** A project `.env` must not choose where an existing provider key is sent. */
 const PROVIDER_BASE_URL_KEYS = new Set([

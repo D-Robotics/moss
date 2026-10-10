@@ -10,6 +10,7 @@
 import assert from 'node:assert/strict';
 
 import { createModelInfoTool } from '../dist/cli/model-info-tool.js';
+import { reportedModelMatchesConfigured } from '../dist/cli/model-resolution.js';
 
 // ─── Live config holder (simulates agent.config + providerConfig) ──────────────
 // The tool receives getters, so it reads whatever these hold *at call time*.
@@ -76,11 +77,15 @@ liveProvider = { complete: async () => ({ model: 'HORIZON-GLM' }) };
   );
 }
 
-// ─── Date suffix and vendor prefix are the same model ────────────────────────
+// ─── Date/version suffix and vendor prefix are the same model ────────────────
 for (const [configured, reported] of [
   ['gpt-4o', 'gpt-4o-2024-08-06'],
   ['kimi-k2.8-preview', 'moonshotai/kimi-k2.8-preview-20260901'],
   ['gpt-4o', 'openai/gpt-4o'],
+  ['gpt-4', 'gpt-4-0613'],
+  ['glm-5.3', 'glm-5.3@2026-09-01'],
+  ['glm-5.3', 'zhipu/glm-5.3-latest'],
+  ['gpt-4', 'openai/gpt-4-0613@2026-09-01'],
 ]) {
   const aliased = createModelInfoTool({
     provider: () => ({ complete: async () => ({ model: configured }) }),
@@ -98,6 +103,38 @@ for (const [configured, reported] of [
     `${configured} vs ${reported} should not be a mismatch, got: ${result}`
   );
   assert.match(result, new RegExp(configured.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+}
+
+// ─── Matcher unit: alias suffixes match, real renames do not ────────────────
+{
+  const same = [
+    ['gpt-4o', 'gpt-4o-2024-08-06'],
+    ['kimi-k2.8-preview', 'moonshotai/kimi-k2.8-preview-20260901'],
+    ['gpt-4o', 'openai/gpt-4o'],
+    ['gpt-4', 'gpt-4-0613'],
+    ['glm-5.3', 'glm-5.3@2026-09-01'],
+    ['glm-5.3', 'zhipu/glm-5.3-latest'],
+    ['glm-5.3', 'zhipu/glm-5.3@latest'],
+    ['gpt-4', 'openai/gpt-4-0613@2026-09-01'],
+  ];
+  for (const [configured, reported] of same) {
+    assert.ok(
+      reportedModelMatchesConfigured(configured, reported),
+      `${configured} vs ${reported} should match`
+    );
+  }
+  const different = [
+    ['gpt-4o', 'gpt-4o-mini'],
+    ['kimi-k2.8-preview', 'kimi-k2.8'],
+    ['gpt-4', 'gpt-4o'],
+    ['configured-only', 'gateway-served-id'],
+  ];
+  for (const [configured, reported] of different) {
+    assert.ok(
+      !reportedModelMatchesConfigured(configured, reported),
+      `${configured} vs ${reported} must stay a mismatch`
+    );
+  }
 }
 
 // ─── Built-in gateway wording wins over a differing reported id ──────────────

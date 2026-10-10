@@ -37,6 +37,33 @@ send the primary key to another host is dropped with a warning instead of
 exiting. `PIP_TRUSTED_HOST`, `UV_INSECURE_HOST`, and `DENO_CERT` from a
 project `.env` stay deferred with the other routing variables.
 
+### A `.env` file cannot change approval or other safety controls
+
+`MOSS_AUTO_APPROVE`, `MOSS_PROFILE`, `MOSS_CONFIG_PROFILE`,
+`MOSS_GOAL_VERIFY_LOOP`, `MOSS_GOAL_VERIFY_CMD`, and the other approval, trust,
+redaction, and tool-permission variables (26 keys) are ignored when they come
+from any `.env` file: a project `.env`, an ancestor directory's `.env`,
+`~/.env`, or the install directory's `.env`, whether or not that folder is
+trusted. They still work from the real process environment and from CLI flags.
+Moss prints one line naming the ignored keys and the `.env` path (`-p` and the
+REPL on stderr; the fullscreen TUI in the transcript, because the alternate
+screen hides earlier stderr). `MOSS_DEVICE_HOST`, `MOSS_DEVICE_PORT`,
+`MOSS_DEVICE_USER`, `MOSS_DEVICE_ID`, `MOSS_DEVICE_KIND`, and `MOSS_DEVICE_KEY`
+wait for folder trust with the other routing variables, so an untrusted project
+cannot point the user's `MOSS_DEVICE_PASSWORD` at another host. `~/.env` and
+the install directory's `.env` still apply those device fields. That is the
+documented way to name a board.
+
+When a project `.env` (even in a trusted folder) sets `MOSS_DEVICE_HOST`, Moss
+sends that host only a `MOSS_DEVICE_PASSWORD` written in the same `.env`. Your
+own password from the real environment, `~/.env`, or the install `.env` is not
+sent, and Moss prints a line saying so. A project's `.moss/devices.json` is
+ignored until the folder is trusted (the untrusted-folder line lists it), and a
+registry entry whose `passwordEnvVar` or `passphraseEnvVar` names an API key,
+token, secret, credential, or auth variable loses its auth. `VISUAL`, `EDITOR`,
+and `BASH_FUNC_*` join the variables a project `.env` cannot set. The trust
+prompt now says a trusted project can change the device target.
+
 ### Install and upgrade from a clone
 
 `npm install -g github:D-Robotics/moss` fails on a clean machine (npm 10.9.2 and

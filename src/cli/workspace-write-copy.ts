@@ -16,9 +16,9 @@ export const WORKSPACE_WRITE_SHELL_EN = 'Shell commands run normally without an 
 /** One sentence pair. Locked by test/workspace-write-copy.spec.mjs. */
 export const WORKSPACE_WRITE_LIMIT_EN = `${WORKSPACE_WRITE_FILE_TOOLS_EN} ${WORKSPACE_WRITE_SHELL_EN}`;
 
-export const WORKSPACE_WRITE_FILE_TOOLS_ZH = 'workspace-write 只约束 Moss 自己的文件工具。';
+export const WORKSPACE_WRITE_FILE_TOOLS_ZH = '`workspace-write` 只约束 Moss 自己的文件工具。';
 
-export const WORKSPACE_WRITE_SHELL_ZH = 'shell 命令照常运行，没有操作系统沙箱。';
+export const WORKSPACE_WRITE_SHELL_ZH = '终端命令照常运行，没有操作系统沙箱。';
 
 /** One sentence pair. Locked by test/workspace-write-copy.spec.mjs. */
 export const WORKSPACE_WRITE_LIMIT_ZH = `${WORKSPACE_WRITE_FILE_TOOLS_ZH}${WORKSPACE_WRITE_SHELL_ZH}`;

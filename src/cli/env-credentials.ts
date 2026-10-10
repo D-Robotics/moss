@@ -99,6 +99,11 @@ export function detectEnvCredentials(
   return found;
 }
 
+/** Official-host offers only. A custom base URL is not an auto-select candidate. */
+export function officialEnvOffers(env: NodeJS.ProcessEnv = envBeforeDotenv): DetectedCredential[] {
+  return detectEnvCredentials(env).filter(offerUsesOfficialHost);
+}
+
 export function credentialById(
   id: string,
   env: NodeJS.ProcessEnv = envBeforeDotenv

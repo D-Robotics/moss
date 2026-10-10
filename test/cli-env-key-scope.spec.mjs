@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
- * An env key is sent only to its own provider's official preset URL, or when
- * the user file names apiKeyEnv. A project file never triggers a read.
+ * An env key is sent only to its own provider's official preset URL, to a
+ * host the user or CLI wrote, or when the user file names apiKeyEnv. A
+ * project file never triggers a read. A blank config with one official key
+ * selects that provider and does not write config.
  * Real runs use a clean env (no inherited keys) and a temp HOME.
  */
 import assert from 'node:assert/strict';
@@ -108,8 +110,10 @@ function runMoss(env, workspace) {
 
 const stub = await startStub();
 try {
-  // A–D: an env key is not sent. A custom user URL, a project endpoint, a
-  // project apiKeyEnv, and a project baseUrl-only file all stay silent.
+  // A and C stay silent: a user-written custom URL does not borrow an official
+  // key, and a project apiKeyEnv is not a shell key. B and D are untrusted
+  // project endpoints, so they are ignored and the one official key selects
+  // the official host instead of the project stub.
   const blocked = [
     {
       id: 'A',
@@ -124,6 +128,7 @@ try {
       file: { provider: 'openai', model: 'gpt-4o-mini', baseUrl: stub.baseUrl },
       envKey: ['OPENAI_API_KEY', OPENAI],
       secret: OPENAI,
+      official: 'https://api.openai.com',
     },
     {
       id: 'C',
@@ -144,6 +149,7 @@ try {
       file: { baseUrl: stub.baseUrl },
       envKey: ['DEEPSEEK_API_KEY', DEEPSEEK],
       secret: DEEPSEEK,
+      official: 'https://api.deepseek.com',
     },
   ];
   for (const row of blocked) {
@@ -156,14 +162,43 @@ try {
     writeJson(file, row.file);
     const env = cleanEnv(home, { [row.envKey[0]]: row.envKey[1] });
     const { loaded, resolved } = resolveAt(env, workspace);
-    assert.equal(resolved.apiKey, '', row.id);
+    if (row.official) {
+      assert.equal(resolved.apiKey, row.secret, row.id);
+      assert.equal(resolved.baseUrl, row.official, row.id);
+    } else {
+      assert.equal(resolved.apiKey, '', row.id);
+    }
     if (row.dropApiKeyEnv) assert.equal(loaded.config.apiKeyEnv, undefined, row.id);
     if (row.id === 'A') assert.notEqual(resolved.apiKeySource, 'env:DEEPSEEK_API_KEY');
     stub.seen.length = 0;
+    if (row.official) continue;
     const ran = await runMoss(env, workspace);
     assert.equal(ran.status, 3, `${row.id}\n${ran.stdout}\n${ran.stderr}`);
     assert.equal(stub.seen.length, 0, row.id);
     assert.equal(`${ran.stdout}${ran.stderr}`.includes(row.secret), false, row.id);
+  }
+
+  // A trusted project endpoint still does not receive the shell key.
+  {
+    const home = tempDir('moss-scope-trusted-');
+    const workspace = tempDir('moss-scope-trusted-ws-');
+    writeJson(path.join(workspace, '.moss', 'config.json'), {
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      baseUrl: stub.baseUrl,
+    });
+    const env = cleanEnv(home, {
+      OPENAI_API_KEY: OPENAI,
+      MOSS_TRUST_WORKSPACE: '1',
+    });
+    const { resolved } = resolveAt(env, workspace);
+    assert.equal(resolved.apiKey, '');
+    assert.equal(resolved.baseUrl, stub.baseUrl);
+    stub.seen.length = 0;
+    const ran = await runMoss(env, workspace);
+    assert.equal(ran.status, 3, `${ran.stdout}\n${ran.stderr}`);
+    assert.equal(stub.seen.length, 0);
+    assert.equal(`${ran.stdout}${ran.stderr}`.includes(OPENAI), false);
   }
 
   // Official preset still reads that provider's own env key.
@@ -182,12 +217,22 @@ try {
     assert.equal(wrong.apiKey, '');
   }
 
-  // A blank user file does not auto-send the only key present.
+  // A blank user file with one official key selects that provider. It does
+  // not write config and the URL is the official one.
   {
     const home = tempDir('moss-scope-blank-');
     const workspace = tempDir('moss-scope-blank-ws-');
     const { resolved } = resolveAt(cleanEnv(home, { DEEPSEEK_API_KEY: DEEPSEEK }), workspace);
-    assert.equal(resolved.apiKey, '');
+    assert.equal(resolved.apiKey, DEEPSEEK);
+    assert.equal(resolved.apiKeySource, 'env:DEEPSEEK_API_KEY');
+    assert.equal(resolved.provider, 'deepseek');
+    assert.equal(resolved.baseUrl, 'https://api.deepseek.com');
+    assert.equal(resolved.providerSource, 'env');
+    assert.equal(
+      resolved.autoEnvNotice,
+      '[moss] Using DEEPSEEK_API_KEY → deepseek @ https://api.deepseek.com'
+    );
+    assert.equal(fs.existsSync(path.join(home, 'config', 'config.json')), false);
   }
 
   // User-level apiKeyEnv is the only way a custom base URL reads an env var.

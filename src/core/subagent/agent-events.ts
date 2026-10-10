@@ -76,7 +76,13 @@ type MiniAgentEventPayload =
       /** Gateway-reported id for display and session records. Not a price key. */
       servedModel?: string;
     }
-  | { type: 'output_continuation'; attempt: number; maxAttempts: number }
+  | {
+      type: 'output_continuation';
+      attempt: number;
+      maxAttempts: number;
+      /** True when the automatic recovery budget is used up and the turn is ending. */
+      exhausted?: boolean;
+    }
   | {
       type: 'context_action';
       reason: ContextBudgetActionReason;
