@@ -19,6 +19,11 @@ assert.equal(
   'moss v0.26.0 (e8dc2e3, 2026-10-10)'
 );
 assert.equal(formatVersionLine('0.26.0', { commit: 'e8dc2e3' }), 'moss v0.26.0 (e8dc2e3)');
+assert.equal(
+  formatVersionLine('0.26.0', { commit: 'e8dc2e3', date: '2026-10-10', dirty: true }),
+  'moss v0.26.0 (e8dc2e3+dirty, 2026-10-10)'
+);
+assert.equal(formatVersionLine('0.26.0', { date: '2026-10-10', dirty: true }), 'moss v0.26.0');
 assert.equal(formatVersionLine('0.26.0', { date: '2026-10-10' }), 'moss v0.26.0');
 assert.equal(formatVersionLine('0.26.0', null), 'moss v0.26.0');
 
@@ -38,6 +43,9 @@ assert.equal(formatVersionLine('0.26.0', null), 'moss v0.26.0');
   const full = path.join(dir, 'full.json');
   fs.writeFileSync(full, JSON.stringify({ commit: 'E8DC2E3', date: '2026-10-10' }));
   assert.deepEqual(readBuildStamp(full), { commit: 'e8dc2e3', date: '2026-10-10' });
+  const dirty = path.join(dir, 'dirty.json');
+  fs.writeFileSync(dirty, JSON.stringify({ commit: 'e8dc2e3', date: '2026-10-10', dirty: true }));
+  assert.deepEqual(readBuildStamp(dirty), { commit: 'e8dc2e3', date: '2026-10-10', dirty: true });
   fs.rmSync(dir, { recursive: true, force: true });
 }
 

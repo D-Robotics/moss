@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { redactEgress } from '../dist/safety/tool-output-redact.js';
+import { trackTempDir } from './helpers/temp-home.mjs';
 
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cli = path.join(repoRoot, 'dist', 'cli.js');
@@ -36,9 +37,9 @@ const port = await new Promise((resolve) => {
   server.listen(0, '127.0.0.1', () => resolve(server.address().port));
 });
 
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-print-redact-'));
+const home = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-print-redact-')));
 const configDir = path.join(home, 'config');
-const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-print-redact-ws-'));
+const workspace = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-print-redact-ws-')));
 fs.mkdirSync(configDir, { recursive: true });
 fs.writeFileSync(
   path.join(configDir, 'config.json'),

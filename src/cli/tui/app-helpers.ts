@@ -13,6 +13,7 @@
  * honest.
  */
 import type { MossAgent } from '../../core/agent/moss-agent.js';
+import { skillSkipReason } from '../../core/skills/skill-registry.js';
 import { userTextWithoutTurnContext } from '../../core/session/internal-transcript.js';
 import type { TaskRuntime } from '../../core/task-runtime/runtime.js';
 import { errorMessage } from '../../errors.js';
@@ -575,6 +576,11 @@ export function shellPaletteRows(
   const extraNames = new Set(extra.map((row) => row[0]));
   for (const row of slashPaletteRows(input, extra)) {
     if (!extraNames.has(row[0]) || byCommand.has(row[0])) continue;
+    // The same check that registers a skill: an entire `{{…}}` placeholder,
+    // an empty name or description, or a name outside the catalog pattern.
+    // A description that only mentions `{{var}}` stays visible.
+    const bare = row[0].startsWith('/') ? row[0].slice(1) : row[0];
+    if (skillSkipReason(bare, row[1]) !== undefined) continue;
     byCommand.set(row[0], row);
   }
   return [...byCommand.values()];

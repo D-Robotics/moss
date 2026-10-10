@@ -258,7 +258,6 @@ const ONE_SHOT_CODING_HEAVY_TOOLS = new Set([
   'run_tests',
   'verify_fix',
   'todo_write',
-  'ask_user_question',
 ]);
 const ROUTED_ONE_SHOT_TOOLS = new Set([
   ...ONE_SHOT_SUBAGENT_TOOLS,
@@ -352,6 +351,9 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
   const needsWeb = isWebEligiblePrompt(text);
 
   return (tool) => {
+    // Question tools are hidden by requiresUserQuestion + asker presence in
+    // the agent, not by name here. A host that injects an asker keeps the tool.
+    // Task tools stay: benches call them.
     if (!ROUTED_ONE_SHOT_TOOLS.has(tool.name)) return true;
     if (ONE_SHOT_META_TOOLS.has(tool.name)) return needsSubagents || needsBackground;
     if (ONE_SHOT_SUBAGENT_TOOLS.has(tool.name)) return needsSubagents;
@@ -658,7 +660,7 @@ export async function runOneShot(
       const shellArgs =
         process.platform === 'win32'
           ? ['/d', '/s', '/c', process.env.MOSS_GOAL_VERIFY_CMD]
-          : ['-lc', process.env.MOSS_GOAL_VERIFY_CMD];
+          : ['-c', process.env.MOSS_GOAL_VERIFY_CMD];
       const verify = await runProcess(shell, {
         args: shellArgs,
         cwd: workspaceDir,

@@ -121,6 +121,37 @@ describe('experience library', { concurrency: false }, () => {
     assert.deepEqual(records[0].commands, ['python3 verify_camera.py']);
   });
 
+  test('a command summary after a criteria pass keeps the detail line', async () => {
+    process.env.MOSS_EXPERIENCE = '1';
+    const workspace = await temporary('experience-detail-');
+    const task = await createAcceptedTask(workspace, 3, {
+      goal: 'repeat camera calibration',
+      plan: ['python3 verify_camera.py'],
+    });
+    await appendAcceptanceVerdict(workspace, {
+      taskId: task.taskId,
+      verdict: 'pass',
+      acceptedAt: Date.now() + 10_000,
+      criteriaResults: [
+        {
+          metric: 'acceptance_command',
+          expected: 'exit 0',
+          required: true,
+          result: 'pass',
+        },
+      ],
+      unmetRequired: 0,
+      evidenceConsidered: 0,
+    });
+    await recordAcceptedExperience(workspace, acceptedEvent(task.taskId));
+    const records = await loadExperienceRecords(workspace);
+    assert.equal(records.length, 1);
+    assert.deepEqual(
+      records[0].evidence.map((note) => note.metric),
+      ['camera_fps']
+    );
+  });
+
   test('redacts command/env secrets and hostnames before persistence', async () => {
     process.env.MOSS_EXPERIENCE = '1';
     const workspace = await temporary('experience-redaction-');

@@ -115,6 +115,9 @@ function declarationsFor(taskFlow) {
       toolVisibleForRun(tool.name, {
         ...(taskFlow === undefined ? {} : { taskFlow }),
         deviceConfigured: false,
+        // Interactive chat has the TUI asker. Headless `-p` (taskFlow unset) does not.
+        userQuestions: taskFlow === false,
+        requiresUserQuestion: tool.metadata?.requiresUserQuestion === true,
       })
   );
   return buildProviderToolDeclarations(offered).map((tool) => ({
@@ -173,11 +176,13 @@ export async function measurePromptTokens(workspaceDir) {
     workspaceDir,
     rdkDocsConnected: true,
     taskFlow: false,
+    userQuestions: true,
     now: new Date('2026-10-10T00:00:00.000Z'),
   });
   const printReport = await buildFreshSessionContextReport({
     workspaceDir,
     rdkDocsConnected: true,
+    userQuestions: false,
     now: new Date('2026-10-10T00:00:00.000Z'),
   });
   const behavior = buildAgentBehaviorPromptQuick();

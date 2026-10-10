@@ -21,7 +21,36 @@ import type { McpServerConfig } from './types.js';
 export const RDK_DOCS_SERVER_NAME = 'rdk-docs';
 
 /** Audited default. Keep this as the single bump point; never use `@latest`. */
-export const DEFAULT_RDK_DOCS_MCP_PACKAGE = 'rdk-docs-mcp@0.2.0';
+export const DEFAULT_RDK_DOCS_MCP_PACKAGE = 'rdk-docs-mcp@0.3.0';
+
+const RDK_DOCS_NPM_VERSION = /^rdk-docs-mcp@(\d+\.\d+\.\d+)$/;
+
+/** `0.3.0` from `rdk-docs-mcp@0.3.0`. Undefined when the spec is not that shape. */
+export function rdkDocsPinnedNpmVersion(
+  spec: string = DEFAULT_RDK_DOCS_MCP_PACKAGE
+): string | undefined {
+  return RDK_DOCS_NPM_VERSION.exec(spec)?.[1];
+}
+
+export type RdkDocsPinDrift = 'same' | 'latest-newer' | 'pin-newer' | 'unparsed';
+
+function parseSemver(version: string): [number, number, number] | undefined {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  if (!match) return undefined;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+/** Compare the pinned release with the version npm reports as latest. No I/O. */
+export function rdkDocsPinDrift(pinnedVersion: string, latestVersion: string): RdkDocsPinDrift {
+  const pinned = parseSemver(pinnedVersion);
+  const latest = parseSemver(latestVersion);
+  if (!pinned || !latest) return 'unparsed';
+  for (let index = 0; index < 3; index += 1) {
+    if (latest[index] > pinned[index]) return 'latest-newer';
+    if (latest[index] < pinned[index]) return 'pin-newer';
+  }
+  return 'same';
+}
 
 /**
  * Cold `npx` measured ~3.4s; 20s was tight. 45s covers a cold start.
@@ -86,12 +115,10 @@ export function builtinRdkDocsServerConfig(
  */
 export const RDK_DOCS_CONNECTED_LAYER = [
   '### RDK manuals',
-  'Board facts come from rdk-docs. Call `mcp__rdk-docs__search` first (skill `rdk-docs`).',
+  'For a question: call `mcp__rdk-docs__search` once, open at most 2 pages, then answer with the source link. Stop.',
   "Pass board and manual-worded alt_queries when the search schema has them; do not answer from another board's page.",
-  'Judge the snippet: prefer role=official-start; forum is unofficial and loses to the manual.',
-  'Follow the returned schema. Cite the page URL.',
-  'Call record_evidence only when a task contract is already open.',
-  'Do not invent pin tables. Probes and approval do not wait on docs.',
+  'Judge the snippet: title, url, anchor. role=official-start is verbose-only; forum loses to the manual.',
+  'Open the hit url with its anchor. full reads the whole page. Cite the page URL. Do not invent pin tables. Probes and approval do not wait on docs.',
 ].join(' ');
 
 /** Injected when the server was configured but the connect failed. No usage guide. */

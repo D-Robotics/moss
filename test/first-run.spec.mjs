@@ -33,11 +33,12 @@ const { renderAuthDoctorLine } = await import('../dist/cli/doctor.js');
 const { probeDoctorModelPing } = await import('../dist/cli/doctor-model-ping.js');
 const { formatFullModeNotice, formatInteractionModeNotice } =
   await import('../dist/cli/cli-locale.js');
+const { trackTempDir } = await import('./helpers/temp-home.mjs');
 
 const SECRET = 'sk-firstrun-unit-secret';
 
 function tempDir(prefix) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  return trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }
 
 // ─── env credentials: the offer names the variable and hides the value ─────

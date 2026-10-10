@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * The publishable tarball holds only package.json, README.md, LICENSE, the
- * package bin paths, and the built .js / .d.ts files. No tests, scripts,
- * workspace state, env files, source maps, or key material.
+ * package bin paths, the built .js / .d.ts files, and any file a package.json
+ * lifecycle hook runs with `node <path>`. No tests, other scripts, workspace
+ * state, env files, source maps, or key material.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,7 +11,41 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+/**
+ * Hooks npm runs inside the unpacked package (`npm install -g` of the tarball).
+ * `prepare`, `prepublishOnly`, and `test` run in the source tree and are not
+ * packed. `build` is not a hook.
+ */
+const LIFECYCLE_HOOKS = new Set([
+  'preinstall',
+  'install',
+  'postinstall',
+  'preuninstall',
+  'uninstall',
+  'postuninstall',
+]);
+
+/**
+ * Relative files a lifecycle hook executes via `node <path>`. Inline
+ * `node -e` / `--eval` / `-p` are not files. `npm run <name>` is not expanded.
+ */
+function lifecycleNodeScripts(pkg) {
+  const scripts = pkg.scripts ?? {};
+  const paths = [];
+  for (const [name, command] of Object.entries(scripts)) {
+    if (!LIFECYCLE_HOOKS.has(name) || typeof command !== 'string') continue;
+    const re = /(?:^|&&|\|\||;)\s*node\s+(?!(?:-e|--eval|-p)\b)(\S+)/g;
+    for (const match of command.matchAll(re)) {
+      const rel = match[1].replaceAll('\\', '/').replace(/^\.\//, '');
+      if (!rel.startsWith('-')) paths.push(rel);
+    }
+  }
+  return [...new Set(paths)];
+}
+
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const pkgJson = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+const lifecycleScripts = lifecycleNodeScripts(pkgJson);
 
 // npm runs `prepare` (a clean rebuild of dist/) before packing, even with
 // --ignore-scripts, so this checks what a publish would actually ship.
@@ -51,11 +86,15 @@ const forbidden = [
 ];
 for (const file of files) {
   for (const [pattern, label] of forbidden) {
+    if (label === 'scripts/' && lifecycleScripts.includes(file)) continue;
     assert.doesNotMatch(file, pattern, `${file} is packed (${label})`);
   }
 }
 
-const pkgJson = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+assert.ok(
+  lifecycleScripts.includes('scripts/check-node-version.cjs'),
+  'preinstall runs scripts/check-node-version.cjs'
+);
 const binField = pkgJson.bin;
 const binPaths = (typeof binField === 'string' ? [binField] : Object.values(binField ?? {})).map(
   (binPath) => {
@@ -70,12 +109,13 @@ const allowed = (file) =>
   file === 'README.md' ||
   file === 'LICENSE' ||
   file === 'dist/utils/build-stamp.json' ||
+  lifecycleScripts.includes(file) ||
   binPaths.includes(file) ||
   (file.startsWith('dist/') && (file.endsWith('.js') || file.endsWith('.d.ts')));
 assert.deepEqual(
   files.filter((file) => !allowed(file)),
   [],
-  'only package.json, README.md, LICENSE, package bin paths, dist/utils/build-stamp.json, and dist/**/*.{js,d.ts}'
+  'only package.json, README.md, LICENSE, lifecycle hook scripts, package bin paths, dist/utils/build-stamp.json, and dist/**/*.{js,d.ts}'
 );
 assert.ok(files.includes('dist/utils/build-stamp.json'), 'build stamp is packed');
 assert.ok(files.includes('dist/cli.js'), 'ESM CLI is packed');
@@ -84,6 +124,9 @@ assert.ok(files.includes('dist/index.d.ts'), 'SDK types are packed');
 
 for (const binPath of binPaths) {
   assert.ok(files.includes(binPath), `bin script ${binPath} is packed`);
+}
+for (const rel of lifecycleScripts) {
+  assert.ok(files.includes(rel), `lifecycle hook script ${rel} is packed`);
 }
 
 const keyLike = [

@@ -40,8 +40,8 @@ export function renderMcpUsage(zh: boolean = isZhLocale()): string {
       '  --header k=v    HTTP 服务器的请求头（可重复）',
       '',
       '示例：',
-      '  moss mcp add rdk-docs npx -y rdk-docs-mcp@0.2.0',
-      '  moss mcp add docs_demo https://example.test/mcp --header Authorization=${TOKEN}',
+      '  moss mcp add rdk-docs npx -y rdk-docs-mcp@0.3.0',
+      '  moss mcp add docs https://example.test/mcp --header Authorization=${TOKEN}',
     ].join('\n');
   }
   return [
@@ -60,7 +60,7 @@ export function renderMcpUsage(zh: boolean = isZhLocale()): string {
     '  --header k=v    request header for an HTTP server (repeatable)',
     '',
     'Examples:',
-    '  moss mcp add rdk-docs npx -y rdk-docs-mcp@0.2.0',
+    '  moss mcp add rdk-docs npx -y rdk-docs-mcp@0.3.0',
     '  moss mcp add docs https://example.test/mcp --header Authorization=${TOKEN}',
   ].join('\n');
 }

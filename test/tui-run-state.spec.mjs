@@ -640,3 +640,121 @@ console.log('OK tui-run-state');
     false
   );
 }
+
+// A non-tool answer whose final text only differs by blank lines and list
+// markers used to be appended under the streamed rows: the spaced `-` copy,
+// then the compacted `*` copy. Normalization makes those one answer.
+{
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const intro = 'These names are still unfilled template placeholders.';
+  const follow = 'Available skills are listed below.';
+  const items = ['skill-creator', 'rdk-docs', 'host-software-dev'];
+  const streamed = `${intro}\n\n${follow}\n\n${items.map((item) => `- ${item}`).join('\n')}`;
+  const finalText = `${intro}\n\n${follow}\n\n${items.map((item) => `* ${item}`).join('\n\n')}`;
+  const count = (haystack, needle) => haystack.split(needle).length - 1;
+  const paint = (store) =>
+    renderTranscriptRows(
+      store.rows.filter((row) => row.kind === 'assistant'),
+      80
+    )
+      .map((entry) => entry.text)
+      .join('\n');
+
+  const store = createTuiStore();
+  beginRun(store);
+  for (let index = 0; index < streamed.length; index += 24) {
+    applyAgentEvent(store, { type: 'text_delta', delta: streamed.slice(index, index + 24) });
+  }
+  applyAgentEvent(store, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  // The provider's done text is still the live tail, reformatted.
+  store.run.streamingText = finalText;
+  reconcileFinalResponse(store, finalText);
+  assert.equal(store.run.streamingText, '', 'a matching final tail is not left to append');
+  endRun(store, false);
+  const painted = paint(store);
+  for (const needle of [intro, follow, ...items]) {
+    assert.equal(count(painted, needle), 1, `a streamed bullet list is painted once (${needle})`);
+  }
+
+  const extended = `${finalText}\n\nThe board still answers ping.`;
+  const again = createTuiStore();
+  beginRun(again);
+  applyAgentEvent(again, { type: 'text_delta', delta: streamed });
+  applyAgentEvent(again, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  reconcileFinalResponse(again, extended);
+  endRun(again, false);
+  const extendedPaint = paint(again);
+  assert.equal(
+    count(extendedPaint, intro),
+    1,
+    'a longer final answer does not duplicate the stream'
+  );
+  assert.equal(count(extendedPaint, 'The board still answers ping.'), 1);
+}
+
+// A numbered plan and a later bullet list of the same items are two texts.
+// Marker-stripped comparison used to call them one answer and delete the plan
+// plus the note between them. Numbering that only differs (`1.`/`2.` vs `3.`/`4.`)
+// is kept too. Whitespace-only comparison is what may collapse a real duplicate.
+{
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const assistantText = (store) =>
+    store.rows
+      .filter((row) => row.kind === 'assistant')
+      .map((row) => row.text)
+      .join('\n');
+  const plan = '1. 检查 GPIO 配置\n2. 重启 hobot 服务';
+  const note = '引脚 12 被占用，先释放再测。';
+  const summary = '- 检查 GPIO 配置\n- 重启 hobot 服务';
+
+  const store = createTuiStore();
+  beginRun(store);
+  applyAgentEvent(store, { type: 'text_delta', delta: `${plan}\n\n` });
+  applyAgentEvent(store, { type: 'text_delta', delta: `${note}\n\n` });
+  applyAgentEvent(store, { type: 'text_delta', delta: summary });
+  applyAgentEvent(store, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  reconcileFinalResponse(store, summary);
+  endRun(store, false);
+  const kept = assistantText(store);
+  assert.match(kept, /1\. 检查 GPIO 配置/);
+  assert.match(kept, /2\. 重启 hobot 服务/);
+  assert.match(kept, /引脚 12 被占用/);
+  assert.match(kept, /- 检查 GPIO 配置/);
+  assert.match(kept, /- 重启 hobot 服务/);
+
+  const numbered = '1. 检查 GPIO 配置\n2. 重启 hobot 服务';
+  const renumbered = '3. 检查 GPIO 配置\n4. 重启 hobot 服务';
+  const lists = createTuiStore();
+  beginRun(lists);
+  applyAgentEvent(lists, { type: 'text_delta', delta: `${numbered}\n\n` });
+  applyAgentEvent(lists, { type: 'text_delta', delta: renumbered });
+  applyAgentEvent(lists, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  reconcileFinalResponse(lists, renumbered);
+  endRun(lists, false);
+  const both = assistantText(lists);
+  assert.match(both, /1\. 检查 GPIO 配置/);
+  assert.match(both, /2\. 重启 hobot 服务/);
+  assert.match(both, /3\. 检查 GPIO 配置/);
+  assert.match(both, /4\. 重启 hobot 服务/);
+}
+
+// A bullet summary that arrives only in `done` (no live tail, including after
+// an interrupt cleared the stream) must still be shown. Marker stripping used
+// to treat the numbered plan as that summary and drop the final text.
+{
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const plan = '1. 检查 GPIO 配置\n2. 重启 hobot 服务';
+  const summary = '- 检查 GPIO 配置\n- 重启 hobot 服务';
+  const store = createTuiStore();
+  beginRun(store);
+  applyAgentEvent(store, { type: 'text_delta', delta: `${plan}\n\n` });
+  applyAgentEvent(store, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  assert.equal(store.run.streamingText, '');
+  reconcileFinalResponse(store, summary);
+  const kept = store.rows
+    .filter((row) => row.kind === 'assistant')
+    .map((row) => row.text)
+    .join('\n');
+  assert.match(kept, /- 检查 GPIO 配置/);
+  assert.match(kept, /- 重启 hobot 服务/);
+}

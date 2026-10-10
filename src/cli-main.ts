@@ -79,6 +79,7 @@ import {
 } from './cli/rdk-docs-mcp.js';
 import { McpToolRegistry, buildMcpStableIndex } from './core/mcp/registry.js';
 import { RDK_DOCS_SERVER_NAME, rdkDocsKnowledgeLayer } from './core/mcp/rdk-docs.js';
+import { CONFIGURED_DEVICE_PROMPT } from './device/device-probe-prompt.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import {
@@ -99,7 +100,16 @@ import {
   unknownSlashCommandLines,
   type CommandContext as RegistryCommandContext,
 } from './cli/commands/registry.js';
-import { commandSuggestion, cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
+import { cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
+import { closestSlashCommands } from './cli/command-completion.js';
+import {
+  isLoadedSkillSlash,
+  isSlashCommandInput,
+  loadCustomCommands,
+  reservedBuiltinNames,
+  skillSlashToken,
+} from './cli/commands/custom-commands.js';
+import { announceCatalogSkip } from './cli/catalog-skip-notice.js';
 import {
   buildAnswerLanguageLayer,
   formatFullModeNotice,
@@ -777,6 +787,7 @@ async function main() {
     sources: permissionRuleSources,
   });
   const deviceTarget = resolveDefaultDeviceTarget();
+  if (deviceTarget) dynamicPromptLayers.push(CONFIGURED_DEVICE_PROMPT);
   const approvalHook = createCliToolApprovalHook(safetyMode, process.env, {
     approvalPolicy: resolvedConfig.approvalPolicy,
     trustedTools: resolvedConfig.trustedTools,
@@ -1068,7 +1079,18 @@ async function main() {
   const sessionContextInfo: { skills?: number; soul?: string; branch?: string } = {};
   {
     const skillDirs = [path.join(workspace, '.moss', 'skills'), path.join(configDir, 'skills')];
-    const baseSkills = loadSkills(skillDirs);
+    const announcedSkillSkips = new Set<string>();
+    const baseSkills = loadSkills(skillDirs, {
+      onSkip(skip) {
+        if (announcedSkillSkips.has(skip.file)) return;
+        announcedSkillSkips.add(skip.file);
+        const emit = (line: string) => {
+          if (useTui) emitTuiNotice(line);
+          else console.error(line);
+        };
+        announceCatalogSkip(workspace, skip.file, skip.reason, cliLocale(), emit);
+      },
+    });
     const sessionSkills = [...baseSkills];
     let skillsLayerIndex: number | undefined;
     let installedSkillTool: ReturnType<typeof createSkillTool> | undefined;
@@ -1230,6 +1252,19 @@ async function main() {
       return;
     }
 
+    const fileCommands = loadCustomCommands(
+      { workspace, configDir, reservedNames: reservedBuiltinNames() },
+      (message) => {
+        if (useTui) emitTuiNotice(message);
+        else console.error(message);
+      },
+      cliLocale()
+    );
+    const skillSlashSuggestions = loadedSkills.flatMap((skill) => {
+      const token = skillSlashToken(skill);
+      return token ? [token] : [];
+    });
+
     if (oneShotMessage) {
       // Slash-command dispatch in oneshot mode. Previously a prompt like
       // `moss "/review"` or `moss "/skills"` was sent verbatim to the LLM,
@@ -1240,7 +1275,7 @@ async function main() {
       // and we run THAT prompt through runOneShot. Commands that handle
       // themselves (e.g. /help, /skills printing) just print and exit. An
       // unknown `/foo` gets a did-you-mean hint instead of burning an LLM call.
-      if (oneShotMessage.trimStart().startsWith('/')) {
+      if (isSlashCommandInput(oneShotMessage)) {
         let pendingPrompt: string | null = null;
         const oneshotCmdCtx: RegistryCommandContext = {
           agent,
@@ -1255,7 +1290,11 @@ async function main() {
             pendingPrompt = text;
           },
         };
-        const handled = await runRegistryCommand(oneShotMessage.trim(), oneshotCmdCtx);
+        const handled = await runRegistryCommand(
+          oneShotMessage.trim(),
+          oneshotCmdCtx,
+          fileCommands
+        );
         if (handled) {
           if (pendingPrompt) {
             // The command (e.g. /review) gathered context and built a prompt
@@ -1276,7 +1315,8 @@ async function main() {
         //      tell the user to run `moss` interactively;
         //  (b) genuinely unknown — give a did-you-mean hint.
         const cmdToken = oneShotMessage.trim().split(/\s+/, 1)[0] ?? oneShotMessage.trim();
-        const isKnownInteractive = KNOWN_COMMANDS.includes(cmdToken);
+        const isKnownInteractive =
+          KNOWN_COMMANDS.includes(cmdToken) || isLoadedSkillSlash(cmdToken, loadedSkills);
         if (isKnownInteractive) {
           console.error(
             uiText(
@@ -1288,7 +1328,11 @@ async function main() {
           );
         } else {
           for (const line of unknownSlashCommandLines(oneShotMessage.trim(), {
-            suggestion: commandSuggestion(oneShotMessage.trim()),
+            suggestions: closestSlashCommands(cmdToken, [
+              ...KNOWN_COMMANDS,
+              ...fileCommands.map((command) => command.name),
+              ...skillSlashSuggestions,
+            ]),
             locale: cliLocale(),
           })) {
             console.error(line);
@@ -1351,7 +1395,7 @@ async function main() {
         // mode dispatch (b76a7ef). `echo "/review" | moss` previously sent the
         // slash verbatim to the LLM (hallucinated command table). Now piped
         // slash-commands go through the registry first.
-        if (pipedText.startsWith('/')) {
+        if (isSlashCommandInput(pipedText)) {
           let pendingPrompt: string | null = null;
           const pipedCmdCtx: RegistryCommandContext = {
             agent,
@@ -1366,7 +1410,7 @@ async function main() {
               pendingPrompt = text;
             },
           };
-          const handled = await runRegistryCommand(pipedText, pipedCmdCtx);
+          const handled = await runRegistryCommand(pipedText, pipedCmdCtx, fileCommands);
           if (handled) {
             if (pendingPrompt) {
               await runOneShotWithCliCancellation(agent, pendingPrompt, {
@@ -1379,7 +1423,7 @@ async function main() {
             return;
           }
           const cmdToken = pipedText.split(/\s+/, 1)[0] ?? pipedText;
-          if (KNOWN_COMMANDS.includes(cmdToken)) {
+          if (KNOWN_COMMANDS.includes(cmdToken) || isLoadedSkillSlash(cmdToken, loadedSkills)) {
             console.error(
               uiText(
                 `${cmdToken} is an interactive-mode command — pipe a natural-language prompt instead,` +
@@ -1388,8 +1432,13 @@ async function main() {
               )
             );
           } else {
+            const pipedToken = pipedText.split(/\s+/, 1)[0] ?? pipedText;
             for (const line of unknownSlashCommandLines(pipedText, {
-              suggestion: commandSuggestion(pipedText),
+              suggestions: closestSlashCommands(pipedToken, [
+                ...KNOWN_COMMANDS,
+                ...fileCommands.map((command) => command.name),
+                ...skillSlashSuggestions,
+              ]),
               locale: cliLocale(),
             })) {
               console.error(line);

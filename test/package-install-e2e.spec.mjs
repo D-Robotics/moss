@@ -2,7 +2,8 @@
 /**
  * Opt-in install of the documented source commands into a temp prefix.
  * Off unless MOSS_INSTALL_E2E=1: npm ci (which builds via prepare) is too slow
- * for the default suite.
+ * for the default suite. The local clone installs committed HEAD only, so
+ * uncommitted packaging changes are covered by the pack-contents test instead.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

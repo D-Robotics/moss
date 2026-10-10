@@ -34,8 +34,6 @@ import { userTextWithoutTurnContext } from '../../core/session/internal-transcri
 import {
   TaskRuntime,
   formatDeploymentLine,
-  formatEvidenceCardLine,
-  formatTaskSummaryLine,
   isGoalResumeCandidate,
 } from '../../core/task-runtime/runtime.js';
 import { errorMessage } from '../../errors.js';
@@ -70,6 +68,14 @@ import { formatBackgroundCompletionFlash } from '../background-completion-ui.js'
 import { redactEgress } from '../../safety/tool-output-redact.js';
 import { formatMcpStatusLine } from '../rdk-docs-mcp.js';
 import {
+  formatBlockedTaskLine,
+  formatEvidenceLine,
+  formatTaskFailureLines,
+  formatTaskHistoryLines,
+  formatTaskSummaryLines,
+  formatTaskVerdictLine,
+} from '../task-card.js';
+import {
   ENGLISH_UI_OFFER,
   englishUiOfferPending,
   hasSessionUiOverride,
@@ -82,14 +88,19 @@ import { setCliApprovalAsker } from '../approval.js';
 import { wrapApprovalAsker, wrapApprovalViewAsker } from '../permission-request.js';
 import {
   runRegistryCommand,
+  unknownSlashCommandLines,
   type CommandContext,
   type CommandSurface,
 } from '../commands/registry.js';
 import {
+  isSlashCommandInput,
   loadCustomCommands,
   reservedBuiltinNames,
   resolveUserCommand,
+  skillSlashToken,
 } from '../commands/custom-commands.js';
+import { closestSlashCommands } from '../command-completion.js';
+import { isCatalogSkipNotice } from '../catalog-skip-notice.js';
 import { formatBackgroundJobLines } from '../commands/background-jobs.js';
 import {
   abandonLiveGoal,
@@ -110,7 +121,6 @@ import { handleCompactCommand } from '../compact-command.js';
 import { createCliSessionKey } from '../session.js';
 import {
   interactiveTaskUsageLines,
-  localizeTaskWord,
   parseLlmUsageStdout,
   runTaskCommand,
   splitCommandArgs,
@@ -420,12 +430,6 @@ interface PendingDialog {
   label?: string;
 }
 
-function collectStrings(value: unknown, out: string[] = []): string[] {
-  if (typeof value === 'string') out.push(value);
-  else if (Array.isArray(value)) for (const item of value) collectStrings(item, out);
-  return out;
-}
-
 /** The shell tells the registry it is the TUI, so surface-specific copy can diverge later. */
 const COMMAND_SURFACE: CommandSurface = 'tui';
 
@@ -640,18 +644,20 @@ export function TuiAppRoot({
   const submitRef = useRef<(text: string) => Promise<void>>(async () => undefined);
   /** `/goal` proposal waiting for Enter (accept) or `n` (contract verdict only). */
   const pendingGoalRef = useRef<{ goal: string } | null>(null);
-  const customCommands = useMemo(
-    () =>
-      loadCustomCommands(
-        {
-          workspace: options.workspaceDir,
-          configDir: options.cliRuntime?.configDir ?? path.join(options.workspaceDir, '.moss'),
-          reservedNames: reservedBuiltinNames(),
-        },
-        () => undefined
-      ),
-    [options.workspaceDir, options.cliRuntime?.configDir]
-  );
+  const customCommandLoad = useMemo(() => {
+    const notices: string[] = [];
+    const commands = loadCustomCommands(
+      {
+        workspace: options.workspaceDir,
+        configDir: options.cliRuntime?.configDir ?? path.join(options.workspaceDir, '.moss'),
+        reservedNames: reservedBuiltinNames(),
+      },
+      (message) => notices.push(message),
+      options.locale ?? cliLocale()
+    );
+    return { commands, notices };
+  }, [options.workspaceDir, options.cliRuntime?.configDir, options.locale]);
+  const customCommands = customCommandLoad.commands;
   const [queueRevision, setQueueRevision] = useState(0);
   void queueRevision;
   /** Kill ring: the text the last Ctrl+U/K/W removed, pasted back by Ctrl+Y. */
@@ -675,6 +681,15 @@ export function TuiAppRoot({
   const [activeSession, setActiveSession] = useState(options.sessionKey ?? 'tui');
   const sessionKey = activeSession;
   const { store } = handle;
+  useEffect(() => {
+    let added = false;
+    for (const message of customCommandLoad.notices) {
+      if (store.rows.some((row) => row.text === message)) continue;
+      appendRow(store, 'summary', message);
+      added = true;
+    }
+    if (added) handle.notify();
+  }, [customCommandLoad, handle, store]);
   const sessionChrome = useMemo(() => {
     try {
       const file = loadCliConfigFile(process.env, process.argv.slice(2), undefined, {
@@ -805,7 +820,7 @@ export function TuiAppRoot({
   useEffect(
     () =>
       options.noticeSource?.subscribe((message) => {
-        appendRow(store, 'system', message);
+        appendRow(store, isCatalogSkipNotice(message) ? 'summary' : 'system', message);
         handle.notify();
       }),
     [handle, options.noticeSource, store]
@@ -1009,84 +1024,22 @@ export function TuiAppRoot({
     // context line; moss used to load all of it silently.
     const info = options.contextInfo;
     const liveMcpServers = options.listMcpServers?.() ?? options.mcpServers;
-    const mcpSummary =
-      liveMcpServers && liveMcpServers.length > 0
-        ? {
-            connected: liveMcpServers.filter((s) => s.state === 'connected').length,
-            connecting: liveMcpServers.filter((s) => s.state === 'connecting').length,
-            total: liveMcpServers.length,
-          }
-        : info?.mcp
-          ? {
-              connected: info.mcp.connected,
-              connecting: info.mcp.connecting ?? 0,
-              total: info.mcp.total,
-            }
-          : undefined;
-    if (info || mcpSummary) {
+    if (info) {
       const parts: string[] = [];
-      if (info?.branch) parts.push(`git:${info.branch}`);
-      if (info?.skills) {
+      if (info.branch) parts.push(`git:${info.branch}`);
+      if (info.skills) {
         parts.push(
           tui(info.skills === 1 ? '{count} skill' : '{count} skills', { count: info.skills })
         );
-      }
-      if (mcpSummary && mcpSummary.total > 0) {
-        if (mcpSummary.connecting > 0) {
-          parts.push(
-            tui(
-              mcpSummary.connecting === 1
-                ? '{count} MCP server connecting'
-                : '{count} MCP servers connecting',
-              { count: mcpSummary.connecting }
-            )
-          );
-        } else if (mcpSummary.connected === mcpSummary.total) {
-          parts.push(
-            tui(mcpSummary.total === 1 ? '{count} MCP server' : '{count} MCP servers', {
-              count: mcpSummary.total,
-            })
-          );
-        } else {
-          parts.push(
-            tui('{connected}/{total} MCP servers connected', {
-              connected: mcpSummary.connected,
-              total: mcpSummary.total,
-            })
-          );
-        }
       }
       if (parts.length > 0) {
         appendRow(store, 'detail', tui('context: {parts}', { parts: parts.join(' · ') }));
       }
     }
-    // Only a terminal failure is a boot warning. `connecting` is not failed;
-    // the registry notifies once the handshake settles.
-    const failedMcp = (liveMcpServers ?? []).filter((s) => s.state === 'failed');
-    if (failedMcp.length > 0) {
-      const names = failedMcp
-        .slice(0, 3)
-        .map((s) => s.name)
-        .join(', ');
-      const reasons = failedMcp
-        .slice(0, 3)
-        .map((s) => s.error?.trim().split('\n')[0])
-        .filter((reason): reason is string => Boolean(reason))
-        .join('; ')
-        .slice(0, 160);
-      appendRow(
-        store,
-        'system',
-        tui(
-          failedMcp.length === 1
-            ? '⚠ {count} MCP server failed to start'
-            : '⚠ {count} MCP servers failed to start',
-          { count: failedMcp.length }
-        ) +
-          `${names ? ` (${names})` : ''}` +
-          `${reasons ? `: ${reasons}` : ''}` +
-          tui(' — /mcp for details')
-      );
+    // One status line per server — the same wording as /mcp. Counts and a
+    // separate failure warning described the same servers twice.
+    for (const server of liveMcpServers ?? []) {
+      appendRow(store, 'system', formatMcpStatusLine(server));
     }
     options.onMcpUiReady?.();
     // Crash/quit recovery: history survives per-message, but a bare `moss`
@@ -1206,19 +1159,14 @@ export function TuiAppRoot({
         )
         .sort((a, b) => b.updatedAt - a.updatedAt)[0];
       if (!decided) return;
-      const short = decided.taskId.slice(-6);
-      const criteria = `${decided.criteriaMet}/${decided.criteriaTotal}`;
-      // The verdict token (PASS/FAIL), task id and recover command stay raw.
       appendRow(
         store,
         'summary',
-        decided.result === 'PASS'
-          ? tui('◇ task {id} — PASS ({criteria} criteria met)', { id: short, criteria })
-          : tui('◇ task {id} — FAIL ({criteria} criteria met) · /task resume {task} to repair', {
-              id: short,
-              criteria,
-              task: decided.taskId,
-            })
+        formatTaskVerdictLine(
+          decided.result === 'PASS' ? 'PASS' : 'FAIL',
+          decided.criteriaMet,
+          decided.criteriaTotal
+        )
       );
       handle.notify();
     },
@@ -1434,7 +1382,10 @@ export function TuiAppRoot({
         const summaries = runtime.taskSummaries();
         printBlock(
           tui('Tasks ({count})', { count: summaries.length }),
-          summaries.map((s) => formatTaskSummaryLine(s))
+          summaries.flatMap((s) => {
+            const detail = runtime.taskDetail(s.taskId);
+            return formatTaskSummaryLines(s, detail?.verification.length ?? 0);
+          })
         );
         return;
       }
@@ -1442,7 +1393,7 @@ export function TuiAppRoot({
         const records = runtime.getArtifacts().evidence;
         printBlock(
           tui('Evidence ({count})', { count: records.length }),
-          records.map((r) => formatEvidenceCardLine(r))
+          records.map((r) => formatEvidenceLine(r))
         );
         return;
       }
@@ -1461,10 +1412,7 @@ export function TuiAppRoot({
           .filter((d): d is NonNullable<typeof d> => Boolean(d));
         printBlock(
           tui('History ({count})', { count: details.length }),
-          details.flatMap((d) => [
-            `${d.summary.taskId}`,
-            ...d.history.slice(-6).map((entry) => `  ${entry.kind.padEnd(11)} ${entry.label}`),
-          ])
+          details.flatMap((d) => formatTaskHistoryLines(d))
         );
         return;
       }
@@ -1475,10 +1423,7 @@ export function TuiAppRoot({
           .filter((d): d is NonNullable<typeof d> => Boolean(d?.failure));
         printBlock(
           tui('Failures ({count})', { count: details.length }),
-          details.flatMap((d) => [
-            `${d.summary.taskId}: ${d.failure?.headline ?? ''}`,
-            ...collectStrings(d.failure?.items.map((i) => `  ${i.label}`) ?? []),
-          ])
+          details.flatMap((d) => formatTaskFailureLines(d))
         );
         return;
       }
@@ -1558,17 +1503,7 @@ export function TuiAppRoot({
                 setStatusLine(line);
                 // Phase transitions are transcript history, not a rotating
                 // status: a minute-long device task must stay reviewable.
-                const phase = /^\[task ([a-z]+)\] (.+)$/.exec(line);
-                if (phase) {
-                  appendRow(
-                    store,
-                    'summary',
-                    tui('◇ task {phase} — {text}', {
-                      phase: localizeTaskWord(phase[1]!),
-                      text: phase[2]!,
-                    })
-                  );
-                }
+                if (line.startsWith('◇ ')) appendRow(store, 'summary', line);
               } else if (!parseLlmUsageStdout(text)) {
                 printBlock(tui('Task'), text.trimEnd().split('\n'));
               }
@@ -2084,7 +2019,7 @@ export function TuiAppRoot({
       const submittedTokens = tokensRef.current.slice();
       let text = raw.trim();
       if (!text) return;
-      if (pendingGoalRef.current && !text.startsWith('/')) {
+      if (pendingGoalRef.current && !isSlashCommandInput(text)) {
         const pending = pendingGoalRef.current;
         pendingGoalRef.current = null;
         setInput('');
@@ -2102,7 +2037,7 @@ export function TuiAppRoot({
         );
         return;
       }
-      if (text.startsWith('/')) {
+      if (isSlashCommandInput(text)) {
         pendingGoalRef.current = null;
         const rewritten = rewriteSlashInput(text, isTuiZh() ? 'zh' : 'en');
         if (rewritten.suggestion) {
@@ -2148,7 +2083,7 @@ export function TuiAppRoot({
       // Running-turn policy comes from the catalog (`availableDuringRun`), the
       // same table the REPL reads. Codex disables Plan/Review/Compact/Init/Clear
       // during a task: those are `reject`. Status/Diff/Model/Tasks stay immediate.
-      if (text.startsWith('/') && store.run.running) {
+      if (isSlashCommandInput(text) && store.run.running) {
         const policy = availabilityFor(text);
         if (policy === 'queue') {
           queueRef.current.push({ display: text, text });
@@ -2472,10 +2407,11 @@ export function TuiAppRoot({
         printBlock('Theme', [tui('theme: {name}', { name: asked })]);
         return;
       }
-      if (text.startsWith('/')) {
+      if (isSlashCommandInput(text)) {
         // Shared registry first (status/doctor/permissions/mode/context/export/
         // review), then the shell-local control commands, then file commands
         // and skills (arguments kept), then the honest unknown-command path.
+        // A path (`/usr/bin/foo`) or `/` followed by whitespace is not a command.
         if (await runShellCommand(text)) return;
         const resolved = resolveUserCommand(text, {
           builtinNames: reservedBuiltinNames(),
@@ -2491,10 +2427,22 @@ export function TuiAppRoot({
           await dispatchRun(resolved.prompt);
           return;
         }
+        const head = text.split(/\s+/, 1)[0] ?? text;
+        const suggestions = closestSlashCommands(head, [
+          ...reservedBuiltinNames(),
+          ...customCommands.map((command) => command.name),
+          ...(options.skills ?? []).flatMap((skill) => {
+            const token = skillSlashToken(skill);
+            return token ? [token] : [];
+          }),
+        ]);
         appendRow(
           store,
           'error',
-          tui('unknown command "{name}" — try /help', { name: text.split(' ')[0] ?? '' })
+          unknownSlashCommandLines(head, {
+            suggestions,
+            locale: options.locale ?? cliLocale(),
+          }).join('\n')
         );
         handle.notify();
         return;
@@ -2572,7 +2520,10 @@ export function TuiAppRoot({
   const paletteRows: PaletteRow[] = shellPaletteRows(input, [
     // File commands outrank skills on a name collision, matching resolveUserCommand.
     ...customCommands.map((command) => [command.name, command.summary] as const),
-    ...(options.skills ?? []).map((skill) => [`/${skill.name}`, skill.description] as const),
+    ...(options.skills ?? []).flatMap((skill) => {
+      const token = skillSlashToken(skill);
+      return token ? [[token, skill.description] as const] : [];
+    }),
   ]);
   const paletteOpen =
     paletteRows.length > 0 &&
@@ -3362,7 +3313,7 @@ export function TuiAppRoot({
         const exact =
           isExactSlashCommand(typed) ||
           customCommands.some((command) => command.name === head) ||
-          (options.skills ?? []).some((skill) => `/${skill.name}`.toLowerCase() === head);
+          (options.skills ?? []).some((skill) => skillSlashToken(skill)?.toLowerCase() === head);
         if (exact) {
           void submit(typed);
           return;
@@ -3964,11 +3915,7 @@ export function TuiAppRoot({
   const blockedLine = blockedTask
     ? line(
         clip(
-          tui('◇ task {id} blocked — {reason} · /task resume {task}', {
-            id: blockedTask.taskId.slice(-6),
-            reason: blockedTask.blockedReason ?? tui('user decision required'),
-            task: blockedTask.taskId,
-          }),
+          formatBlockedTaskLine(blockedTask.blockedReason ?? tui('user decision required')),
           columns
         ),
         { color: TONE.warn }

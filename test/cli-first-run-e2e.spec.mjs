@@ -12,12 +12,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { trackTempDir } from './helpers/temp-home.mjs';
+
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cli = path.join(repoRoot, 'dist', 'cli.js');
 const SECRET = 'sk-firstrun-e2e-secret';
 
 function tempDir(prefix) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  return trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }
 
 function startStub() {

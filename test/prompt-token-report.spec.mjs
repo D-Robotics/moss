@@ -43,6 +43,15 @@ test('fresh interactive request is at least 35% under the cl100k baseline', asyn
       false,
       'coding -p does not pay for tool_search'
     );
+    assert.equal(
+      measured.print.toolRows.some((tool) => tool.name === 'ask_user_question'),
+      false,
+      'moss -p does not pay for ask_user_question'
+    );
+    assert.ok(
+      measured.interactive.toolRows.some((tool) => tool.name === 'ask_user_question'),
+      'interactive chat still offers ask_user_question'
+    );
     assert.ok(measured.interactive.doingTasksTokens < 627);
     assert.ok(measured.interactive.mcpTokens < 306);
   } finally {

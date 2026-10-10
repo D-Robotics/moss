@@ -103,14 +103,51 @@ const EXISTS_POSITIVE_PREFIX =
   /^(?:exists?|existing|present|found|active|alive|connected|available|ok|okay|yes|true|there)\b/;
 const EXISTS_COUNT_PATTERN = /^\d+(?:\.\d+)?$/;
 
+/** Boolean evidence and the words models write in `== pass` criteria. */
+const BOOLEAN_PASS_WORDS = new Set(['true', 'pass', 'passed', 'ok']);
+const BOOLEAN_FAIL_WORDS = new Set(['false', 'fail', 'failed']);
+
+/**
+ * true / "true" / "pass" / "passed" / "ok" share one polarity.
+ * false / "false" / "fail" / "failed" share the other. Matching is
+ * case-insensitive and only when both sides are in this vocabulary.
+ */
+function booleanPolarity(value: string | number | boolean | undefined): boolean | undefined {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return undefined;
+  const text = value.trim().toLowerCase();
+  if (BOOLEAN_PASS_WORDS.has(text)) return true;
+  if (BOOLEAN_FAIL_WORDS.has(text)) return false;
+  return undefined;
+}
+
+function booleanEquality(
+  comparator: '==' | '!=',
+  observed: string | number | boolean | undefined,
+  operand: string
+): ExpectationEvaluation | undefined {
+  const observedPolarity = booleanPolarity(observed);
+  const operandPolarity = booleanPolarity(operand);
+  if (observedPolarity === undefined || operandPolarity === undefined) return undefined;
+  const same = observedPolarity === operandPolarity;
+  const ok = comparator === '==' ? same : !same;
+  return {
+    comparator,
+    result: ok ? 'pass' : 'fail',
+    explanation: `boolean ${observedPolarity} ${comparator} "${operand}" → ${ok ? 'pass' : 'fail'}`,
+  };
+}
+
 /**
  * Evaluate an expectation expression against an observed value.
  * Supported: numeric comparisons (>=30, <=5, >0, <100, ==4, !=1), string
  * equality (==hi, !=bye — only when the operand itself is not a finite
  * number; a numeric operand against a non-numeric observation stays
  * inconclusive, for example ==42 vs 42ms or !=0 vs 0 fps),
- * containment (contains err / not-contains fail), presence (exists), and
- * regex matching (matches ^active$). Line-anchored regexes follow grep
+ * boolean equality (true, "true", "pass", "passed", and "ok" match each
+ * other; false, "false", "fail", and "failed" match each other, ignoring
+ * case), containment (contains err / not-contains fail), presence (exists),
+ * and regex matching (matches ^active$). Line-anchored regexes follow grep
  * semantics so trailing newlines do not break device output checks.
  * Anything unparseable is 'inconclusive' — never a silent pass.
  */
@@ -137,6 +174,8 @@ export function evaluateExpectation(
         explanation: `${observed} == ${expected} → ${ok ? 'pass' : 'fail'}`,
       };
     }
+    const booleanBare = booleanEquality('==', observed, expected.trim());
+    if (booleanBare) return booleanBare;
     const ok = observedText.trim() === expected.trim();
     return {
       comparator: '==',
@@ -195,6 +234,8 @@ export function evaluateExpectation(
           explanation: `non-numeric comparison: observed="${observedText}" ${comparator} ${operand}`,
         };
       }
+      const booleanCompared = booleanEquality(comparator, observed, operand);
+      if (booleanCompared) return booleanCompared;
       const left = observedText.trim();
       const ok = comparator === '==' ? left === operand : left !== operand;
       return {

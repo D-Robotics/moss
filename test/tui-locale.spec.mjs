@@ -312,6 +312,7 @@ import {
   addTs(path.join(process.cwd(), 'src', 'cli', 'tui'));
   addTs(path.join(process.cwd(), 'src', 'cli', 'rdk-docs-mcp.ts'));
   addTs(path.join(process.cwd(), 'src', 'cli', 'workspace-trust.ts'));
+  addTs(path.join(process.cwd(), 'src', 'cli', 'task-card.ts'));
   assert.ok(
     files.some((file) => file.endsWith(`${path.sep}rdk-docs-mcp.ts`)),
     'the scan covers formatMcpStatusLine'

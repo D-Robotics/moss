@@ -7,10 +7,14 @@ import { wrapApprovalAsker } from './permission-request.js';
 import { handleCompactCommand } from './compact-command.js';
 import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
 import {
+  isSlashCommandInput,
+  slashHead,
   loadCustomCommands,
   reservedBuiltinNames,
   resolveUserCommand,
+  skillSlashToken,
 } from './commands/custom-commands.js';
+import { closestSlashCommands } from './command-completion.js';
 import { formatBackgroundJobLines } from './commands/background-jobs.js';
 import {
   abandonLiveGoal,
@@ -189,7 +193,8 @@ export async function runInteractive(
       configDir: runtime?.configDir ?? services.config.resolveConfigDir(),
       reservedNames: reservedBuiltinNames(),
     },
-    (msg) => console.warn(`[moss] ${msg}`)
+    (msg) => console.warn(`[moss] ${msg}`),
+    cliLocale()
   );
   const rl = readline.createInterface({
     input: process.stdin,
@@ -231,7 +236,7 @@ export async function runInteractive(
       rl.prompt();
       continue;
     }
-    if (pendingGoal && !msg.startsWith('/')) {
+    if (pendingGoal && !isSlashCommandInput(msg)) {
       const goal = pendingGoal.goal;
       pendingGoal = null;
       if (/^n$/i.test(msg)) {
@@ -240,7 +245,7 @@ export async function runInteractive(
       } else {
         msg = `/task ${goalRunArgs(goal, { acceptance: msg })}`;
       }
-    } else if (msg.startsWith('/')) {
+    } else if (isSlashCommandInput(msg)) {
       pendingGoal = null;
       const rewritten = rewriteSlashInput(msg, cliLocale());
       if (rewritten.suggestion) {
@@ -676,7 +681,7 @@ export async function runInteractive(
       continue;
     }
 
-    if (msg.startsWith('/')) {
+    if (isSlashCommandInput(msg)) {
       const resolved = resolveUserCommand(msg, {
         builtinNames: reservedBuiltinNames(),
         customCommands,
@@ -700,13 +705,27 @@ export async function runInteractive(
         rl.prompt();
         continue;
       }
-      for (const helpLine of unknownSlashCommandLines(msg, { locale: cliLocale() })) {
+      const suggestions = closestSlashCommands(slashHead(msg), [
+        ...reservedBuiltinNames(),
+        ...customCommands.map((command) => command.name),
+        ...(options.skills ?? []).flatMap((skill) => {
+          const token = skillSlashToken(skill);
+          return token ? [token] : [];
+        }),
+      ]);
+      for (const helpLine of unknownSlashCommandLines(msg, {
+        suggestions,
+        locale: cliLocale(),
+      })) {
         console.error(`[help] ${helpLine}`);
       }
       const availableCommands = [
         ...SLASH_MENU_ROWS.map((row) => row.command),
         ...customCommands.map((command) => command.name),
-        ...(options.skills ?? []).map((skill) => `/${skill.name}`),
+        ...(options.skills ?? []).flatMap((skill) => {
+          const token = skillSlashToken(skill);
+          return token ? [token] : [];
+        }),
       ];
       console.error(`[help] Available: ${availableCommands.join(' ')}`);
       rl.prompt();

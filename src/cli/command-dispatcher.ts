@@ -362,9 +362,9 @@ export const COMMANDS: Record<string, CommandConfig> = {
     name: 'update',
     phase: CliPhase.None,
     description: 'Print the upgrade command for this install (does not run it)',
-    handler: async () => {
+    handler: async (ctx) => {
       const { runUpdateCommand } = await import('./update-command.js');
-      runUpdateCommand();
+      runUpdateCommand(undefined, ctx.commandArgs);
     },
   },
 

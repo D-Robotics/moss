@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Install follow-ups
+
+`npm ci` runs `scripts/check-node-version.cjs` as `preinstall`. The script is
+listed in `files`, so the packed global copy can run it. npm installs
+dependencies before that hook; on Node older than 22.16 the script prints the
+upgrade steps and exits 1, with those packages already on disk. The README
+says not to follow
+npm's notice to upgrade to npm 12 on Node 22.16. macOS git needs
+`xcode-select --install`. `moss update` looks only in the current directory
+and `./moss` unless you pass `--dir <clone>` or set `MOSS_SOURCE_DIR`.
+`moss --version` appends `+dirty` when the worktree had uncommitted changes
+at build time. The uninstall notes include `~/.cache/node-gyp` and an empty
+`@rdk-moss` directory under the npm prefix.
+
 ### Install and upgrade from a clone
 
 `npm install -g github:D-Robotics/moss` fails on a clean machine (npm 10.9.2 and
@@ -154,8 +168,12 @@ candidate windows are in `docs/cli-parity/tui-real-terminals.md`.
 ### RDK knowledge
 
 Board manuals come from the built-in rdk-docs MCP, defaulting to the pinned
-`rdk-docs-mcp@0.2.0`, with BM25 + title fusion, `noGoodMatch`, board filtering, and section page
-reads. Moss connects it in the background when a device target is configured
+`rdk-docs-mcp@0.3.0`. Search stays BM25 with title fusion, `noGoodMatch`, and board filtering.
+`search_docs` accepts `alt_queries` and returns compact hits (title, url, anchor, snippet) unless
+`verbose` is set. `get_page` returns the matching section unless `full` is set. `search_skills`
+and `get_skill` read the skill catalog. `MOSS_RDK_DOCS_PIN_CHECK=1` makes `moss doctor` ask npm
+whether a newer `rdk-docs-mcp` is published; the check is off by default and does not run at
+startup. Moss connects it in the background when a device target is configured
 (`MOSS_DEVICE_HOST` or `.moss/devices.json`) or when `rdkDocs` is true. `rdkDocs.package` and
 `MOSS_RDK_DOCS_PACKAGE` accept a trusted npm spec, local directory, or tarball for unpublished
 server builds. Opt out with `MOSS_NO_RDK_DOCS=1` or `"rdkDocs": false`. A same-named `mcp.json`
@@ -165,7 +183,7 @@ timeout does not delay the interactive shell. A failed connect prints
 prompt tells the agent the manual could not be checked. There is no cache and no offline copy.
 When the server is up, the prompt points only at the registered `mcp__rdk-docs__search` tool and
 treats version-specific search/ranking/section features as optional. A short `rdk-docs` skill is
-indexed. The robotics fallback verifies `<installation>/setup.bash` before sourcing it; probe
+indexed and follows the compact hit and section-read shape. The robotics fallback verifies `<installation>/setup.bash` before sourcing it; probe
 scripts, connection steps, and device safety rules stay. See
 `docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`.
 
@@ -187,7 +205,7 @@ scripts, connection steps, and device safety rules stay. See
 `/resume` 恢复会话；`/tasks`（别名 `/ps`）列后台任务；`/stop` 只停本会话的后台进程，打断用 Esc；
 运行中发消息默认 steer，不能 steer 时排队。隐藏的 `/task` 新增 `verify`。
 真实终端核对用 `MOSS_REAL_TERMINALS=1` 打开。新增 `npm run bench:device`（板卡任务成功率）与
-`npm run bench:deepswe`（同模型 DeepSWE 对比）。RDK 手册由内置 rdk-docs MCP 供给（设备会话默认连接，
+`npm run bench:deepswe`（同模型 DeepSWE 对比）。RDK 手册由内置 rdk-docs MCP 供给，默认钉在 `rdk-docs-mcp@0.3.0`（设备会话默认连接，
 `MOSS_NO_RDK_DOCS=1` 或 `rdkDocs: false` 关闭；连不上只报一行错误，不缓存）。
 
 ### Device safety policy

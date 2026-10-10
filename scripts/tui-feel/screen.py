@@ -10,6 +10,7 @@ import json
 import os
 import pty
 import select
+import shutil
 import socket
 import struct
 import subprocess
@@ -61,13 +62,18 @@ class Session:
         self.proc = None
         self.stub = None
         self.master = None
+        self.home = None
         self.workspace = None
         self.screen = pyte.HistoryScreen(cols, rows, history=5000)
         self.stream = pyte.Stream(self.screen)
         self.raw = bytearray()
 
     def __enter__(self):
-        self.start()
+        try:
+            self.start()
+        except Exception:
+            self.close()
+            raise
         return self
 
     def __exit__(self, *exc):
@@ -81,9 +87,10 @@ class Session:
             stderr=subprocess.DEVNULL,
         )
         time.sleep(0.4)
-        home = tempfile.mkdtemp(prefix="moss-screen-home-")
-        ws = tempfile.mkdtemp(prefix="moss-screen-ws-")
-        self.workspace = ws
+        self.home = tempfile.mkdtemp(prefix="moss-screen-home-")
+        self.workspace = tempfile.mkdtemp(prefix="moss-screen-ws-")
+        home = self.home
+        ws = self.workspace
         cfg_dir = os.path.join(home, ".config", "moss")
         os.makedirs(cfg_dir)
         cfg = os.path.join(cfg_dir, "config.json")
@@ -128,14 +135,30 @@ class Session:
         self.pump(2.0)
 
     def close(self):
-        if self.proc is not None:
-            self.proc.kill()
-            self.proc.wait(timeout=5)
-        if self.stub is not None:
-            self.stub.terminate()
-            self.stub.wait(timeout=5)
-        if self.master is not None:
-            os.close(self.master)
+        try:
+            if self.proc is not None:
+                self.proc.kill()
+                self.proc.wait(timeout=5)
+            if self.stub is not None:
+                self.stub.terminate()
+                self.stub.wait(timeout=5)
+            if self.master is not None:
+                try:
+                    os.close(self.master)
+                except OSError:
+                    pass
+        finally:
+            self.proc = None
+            self.stub = None
+            self.master = None
+            home = self.home
+            workspace = self.workspace
+            self.home = None
+            self.workspace = None
+            if home:
+                shutil.rmtree(home, ignore_errors=True)
+            if workspace:
+                shutil.rmtree(workspace, ignore_errors=True)
 
     def pump(self, seconds: float) -> None:
         end = time.time() + seconds

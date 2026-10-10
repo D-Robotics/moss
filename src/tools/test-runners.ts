@@ -5,7 +5,9 @@ import { errorMessage } from '../errors.js';
 import { ProcessError, runProcess } from '../utils/run-process.js';
 import {
   UNITTEST_IMPORT,
+  pythonBin,
   pythonTestLayout,
+  pytestCommand,
   unittestDiscoverArgs,
 } from '../utils/python-test-layout.js';
 import { pathExists } from '../utils/workspace-paths.js';
@@ -59,8 +61,6 @@ interface RunPlan {
 }
 
 type Plan = { message: string } | { skip: true } | RunPlan;
-
-const pyBin = (): string => (process.platform === 'win32' ? 'python' : 'python3');
 
 const childEnv = (): Record<string, string> => ({ ...process.env }) as Record<string, string>;
 
@@ -332,7 +332,7 @@ function parseCargo(output: string, result: TestResult): boolean {
 }
 
 function unittestCommand(root: string): string {
-  return `${pyBin()} -m unittest discover ${unittestDiscoverArgs(root)}`;
+  return `${pythonBin()} -m unittest discover ${unittestDiscoverArgs(root)}`;
 }
 
 function pytestMissing(text: string): boolean {
@@ -411,11 +411,11 @@ async function exitsZero(
 async function pytestImportable(ctx: ToolContext, deadline: number): Promise<boolean> {
   const left = deadline - Date.now();
   if (left <= 0 || ctx.abortSignal?.aborted) return false;
-  return exitsZero(ctx, pyBin(), ['-m', 'pytest', '--version'], Math.min(left, 1500));
+  return exitsZero(ctx, pythonBin(), ['-m', 'pytest', '--version'], Math.min(left, 1500));
 }
 
 const RUNNERS: readonly Runner[] = [
-  { cmd: () => `${pyBin()} -m pytest`, detect: () => false, emptyNone: true, parse: parsePytest },
+  { cmd: () => pytestCommand(), detect: () => false, emptyNone: true, parse: parsePytest },
   {
     cmd: () => 'npm test --silent',
     detect: async (root) => Boolean((await readPackageScripts(root))?.test),
@@ -447,7 +447,7 @@ export async function planTestRunners(
 ): Promise<PlannedTestRun> {
   const run: string[] = [];
   const skipped: string[] = [];
-  const pytestCmd = `${pyBin()} -m pytest`;
+  const pytestCmd = pytestCommand();
   const layout = pythonTestLayout(root);
   if (layout === 'pytest' || layout === 'loose' || layout === 'unittest') {
     const pytestReady =
@@ -795,7 +795,7 @@ async function planFromInput(
       }
       // Direct spawn avoids shell quoting. node --test must not inherit its IPC env.
       if (fileRaw.endsWith('.py')) {
-        const bin = pyBin();
+        const bin = pythonBin();
         const pytestOk = await pytestImportable(ctx, deadline);
         const source = pytestOk ? null : await readText(abs);
         const flag = !pytestOk && source && UNITTEST_IMPORT.test(source) ? 'unittest' : 'pytest';

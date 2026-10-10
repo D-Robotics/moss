@@ -138,6 +138,26 @@ import {
   );
 }
 
+{
+  const lines = unknownSlashCommandLines('/modle', {
+    suggestions: ['/model', '/mode', '/moss', '/more'],
+  });
+  assert.match(lines[0], /unknown command "\/modle"/);
+  assert.match(lines[1], /Did you mean \/model, \/mode, \/moss\?/);
+  assert.equal(lines[1].includes('/more'), false, 'at most 3 closest commands are offered');
+  assert.match(lines.join('\n'), /Type \/help for available commands/);
+}
+
+{
+  const lines = unknownSlashCommandLines('/modle', {
+    suggestions: ['/model'],
+    locale: 'zh-CN',
+  });
+  assert.match(lines[0], /未知命令：\/modle/);
+  assert.match(lines.join('\n'), /是想输入 \/model 吗？/);
+  assert.match(lines.join('\n'), /输入 \/help 查看全部命令。/);
+}
+
 // ─── /review in a non-git workspace: classified, not crashed ───────────────
 
 {

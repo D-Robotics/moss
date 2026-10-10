@@ -71,7 +71,7 @@ test('builtin rdk-docs uses one pinned default and hardened npx arguments', () =
   assert.equal(typeof config.cwd, 'string');
   assert.ok(config.cwd && path.isAbsolute(config.cwd));
   assert.ok(config.cwd?.includes(`${path.sep}.moss${path.sep}cache${path.sep}npx${path.sep}`));
-  assert.equal(DEFAULT_RDK_DOCS_MCP_PACKAGE, 'rdk-docs-mcp@0.2.0');
+  assert.equal(DEFAULT_RDK_DOCS_MCP_PACKAGE, 'rdk-docs-mcp@0.3.0');
   assert.deepEqual(resolveMcpClientTimeouts(config), {
     connectTimeoutMs: 45_000,
     requestTimeoutMs: 20_000,
@@ -96,7 +96,7 @@ test('no user mcp.json still injects rdk-docs when the session asks for it', () 
   assert.deepEqual(merged[0].args, [
     '--yes',
     '--ignore-scripts',
-    '--package=rdk-docs-mcp@0.2.0',
+    '--package=rdk-docs-mcp@0.3.0',
     '--',
     'rdk-docs-mcp',
   ]);
@@ -113,7 +113,7 @@ test('rdk-docs package accepts config/env npm specs and local paths', () => {
   );
   assert.equal(
     resolveRdkDocsPackage(
-      { package: 'rdk-docs-mcp@0.2.0' },
+      { package: 'rdk-docs-mcp@0.3.0' },
       { MOSS_RDK_DOCS_PACKAGE: '../rdk-docs-mcp.tgz' }
     ),
     '../rdk-docs-mcp.tgz'
@@ -263,7 +263,10 @@ test('a connected fixture adds the usage pointer and the skill index', async () 
     assert.match(knowledge, /Judge the snippet/);
     assert.match(knowledge, /do not answer from another board's page/);
     assert.equal(knowledge, RDK_DOCS_CONNECTED_LAYER);
-    assert.match(knowledge, /record_evidence only when a task contract is already open/);
+    assert.match(knowledge, /at most 2 pages/);
+    assert.match(knowledge, /source link/);
+    assert.doesNotMatch(knowledge, /record_evidence/);
+    assert.doesNotMatch(knowledge, /task contract/);
     assert.doesNotMatch(knowledge, /copy it into observed/);
     const skills = includeBundledRdkDocsSkill([], true);
     const skillLayer = buildSkillsPromptLayer(skills);
@@ -271,7 +274,10 @@ test('a connected fixture adds the usage pointer and the skill index', async () 
     const body = await createSkillTool(skills).execute({ name: 'rdk-docs' });
     assert.match(body, /mcp__rdk-docs__search/);
     assert.match(body, /official-start/);
-    assert.match(body, /only when a task contract is already open/);
+    assert.match(body, /at most 2 pages/);
+    assert.match(body, /source link/);
+    assert.doesNotMatch(body, /task contract/);
+    assert.doesNotMatch(body, /record_evidence/);
     assert.match(body, /do not call device tools/);
     const concreteToolReferences =
       `${combined}\n${body}`.match(/mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+/g) ?? [];
@@ -385,10 +391,8 @@ test('a failed rdk-docs connect does not throw and the prompt says unavailable',
     assert.equal(status.state, 'failed');
     assert.equal(registry.getTools().length, 0);
     const line = formatMcpStartupLine(status, 'normal');
-    assert.match(
-      line,
-      /^\[mcp\] rdk-docs unreachable \(.+\) — RDK manual lookup is off this session\.$/
-    );
+    assert.match(line, /^○ rdk-docs — failed:/);
+    assert.equal(line, formatMcpStatusLine(status));
     const knowledge = rdkDocsKnowledgeLayer(registry.getStatuses());
     assert.equal(knowledge, RDK_DOCS_UNAVAILABLE_LAYER);
     assert.doesNotMatch(knowledge, /mcp__rdk-docs__search/);
@@ -406,7 +410,7 @@ test('a failed rdk-docs connect does not throw and the prompt says unavailable',
       { name: 'formatter', state: 'failed', error: 'boom' },
       'quiet'
     );
-    assert.match(other, /server "formatter" unavailable: boom/);
+    assert.equal(other, '○ formatter — failed: boom');
   } finally {
     await registry.closeAll();
   }
@@ -462,6 +466,13 @@ test('device safety rules, probes, and verified setup fallback stay', () => {
   assert.match(skill.body, /If the schema has `alt_queries`/);
   assert.match(skill.body, /add no facts the user did not state/);
   assert.match(skill.body, /only when the returned schema has them/);
+  assert.match(skill.body, /title, url, anchor, and snippet/);
+  assert.match(skill.body, /verbose/);
+  assert.match(skill.body, /`full`/);
+  assert.match(skill.body, /search_skills/);
+  assert.match(RDK_DOCS_CONNECTED_LAYER, /title, url, anchor/);
+  assert.match(RDK_DOCS_CONNECTED_LAYER, /verbose-only/);
+  assert.match(RDK_DOCS_CONNECTED_LAYER, /full reads the whole page/);
   assert.doesNotMatch(skill.body, /内存卡|扬声器|可视化界面/);
   const skillsLayer = buildSkillsPromptLayer([skill]);
   assert.equal(skillsLayer.includes(skill.body), false);

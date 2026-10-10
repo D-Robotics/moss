@@ -31,8 +31,10 @@ import {
   untrustedWorkspaceLine,
 } from '../dist/cli/workspace-trust.js';
 
+import { trackTempDir } from './helpers/temp-home.mjs';
+
 const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
-const tempRoot = () => fs.mkdtempSync(path.join(os.tmpdir(), 'moss-trust-'));
+const tempRoot = () => trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-trust-')));
 function put(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value));
@@ -445,9 +447,9 @@ assert.equal(delivered.transcript.length, 1);
   assert.equal(allowed.statusLine.command, 'echo ok');
   const userPackage = mergeConfigFiles(
     { rdkDocs: { package: '/tmp/evil-rdk' } },
-    { rdkDocs: { package: 'rdk-docs-mcp@0.2.0' } }
+    { rdkDocs: { package: 'rdk-docs-mcp@0.3.0' } }
   );
-  assert.equal(userPackage.rdkDocs.package, 'rdk-docs-mcp@0.2.0');
+  assert.equal(userPackage.rdkDocs.package, 'rdk-docs-mcp@0.3.0');
 }
 
 {

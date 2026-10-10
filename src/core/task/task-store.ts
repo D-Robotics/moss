@@ -13,6 +13,7 @@ import { MossError, ErrorCode } from '../../errors.js';
 import { getRootLogger } from '../../logger.js';
 import { isEffectiveUiZh, uiText } from '../../utils/ui-language.js';
 import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
+import { latestAcceptanceVerdict } from '../../contracts/task.js';
 import {
   nextTaskPhase,
   taskStatusView,
@@ -384,6 +385,7 @@ export async function getTaskStateSnapshot(
   const taskEvidence = evidence.filter((record) => record.taskId === taskId);
   const aborted = phase === 'failed' && latestTaskFailureDetail(applied) === 'aborted';
   const outcome = aborted ? 'aborted' : deriveTaskOutcome(phase);
+  const lastVerdict = latestAcceptanceVerdict(verdicts);
 
   return {
     taskId,
@@ -400,7 +402,7 @@ export async function getTaskStateSnapshot(
     failures,
     repairs,
     evidenceCount: taskEvidence.length,
-    ...(verdicts.length > 0 ? { lastVerdict: verdicts[verdicts.length - 1] } : {}),
+    ...(lastVerdict ? { lastVerdict } : {}),
     ...(phase === 'blocked' ? { blockedReason: blockedReasonFromEvents(applied) } : {}),
     createdAt: contract.createdAt,
     updatedAt: Math.max(contract.updatedAt, ...applied.map((event) => event.timestamp), 0),

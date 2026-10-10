@@ -19,6 +19,8 @@ import {
 import { isZhLocale, setupCopy } from './cli-locale.js';
 import { glossConfigValue, localizeConfigSource } from './config-snapshot.js';
 import { detectEnvCredentials } from './env-credentials.js';
+import { rdkDocsPinNote } from './rdk-docs-pin-check.js';
+import type { RdkDocsPinNote } from './rdk-docs-pin-check.js';
 
 function doctorL(en: string, vars?: Record<string, string | number>): string {
   return setupCopy(undefined, en, vars);
@@ -135,6 +137,35 @@ export function fail(label: string, detail: string): string {
 
 export function cliDoctorHasFailure(report: string): boolean {
   return report.split('\n').some((line) => line.startsWith('  fail '));
+}
+
+/** Informational. A newer npm release is a warning, never a `fail` line. */
+export function renderRdkDocsPinDoctorLine(note: RdkDocsPinNote): string {
+  if (note.kind === 'latest-newer') {
+    return warn(
+      'rdk-docs',
+      uiText(
+        `pinned ${note.pinned}; npm latest is ${note.latest}`,
+        `钉在 ${note.pinned}；npm latest 是 ${note.latest}`
+      )
+    );
+  }
+  if (note.kind === 'unchecked') {
+    return warn(
+      'rdk-docs',
+      uiText(
+        `pinned ${note.pinned}; npm latest was not checked (${note.reason})`,
+        `钉在 ${note.pinned}；没有核对 npm latest（${note.reason}）`
+      )
+    );
+  }
+  return ok(
+    'rdk-docs',
+    uiText(
+      `pinned ${note.pinned}; npm latest is ${note.latest}`,
+      `钉在 ${note.pinned}；npm latest 是 ${note.latest}`
+    )
+  );
 }
 
 export function renderNodeDoctorLine(version: string = process.version): string {
@@ -444,6 +475,8 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   const lines = [uiText('[doctor] Moss', '[诊断] Moss')];
   lines.push(renderNodeDoctorLine());
   lines.push(ok(uiText('version', '版本'), options.currentVersion));
+  const pinNote = await rdkDocsPinNote(process.env);
+  if (pinNote) lines.push(renderRdkDocsPinDoctorLine(pinNote));
   lines.push(renderAuthDoctorLine(options.config));
   const usedEnvVar = options.config.apiKeySource.startsWith('env:')
     ? options.config.apiKeySource.slice('env:'.length)

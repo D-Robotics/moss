@@ -33,6 +33,10 @@ export const DEFAULT_ACCEPTANCE_TIMEOUT_MS = 5 * 60_000;
  * `child_process.exec` avoids this by wrapping the command in one extra pair of
  * quotes and setting `windowsVerbatimArguments`: `/s` strips exactly that
  * wrapper and cmd parses the original command.
+ *
+ * POSIX uses `bash -c` so the PATH moss inherited stays in place. A login
+ * shell sources the profile and replaces PATH, which drops an activated
+ * virtualenv.
  */
 export function acceptanceShell(
   command: string,
@@ -45,7 +49,7 @@ export function acceptanceShell(
       windowsVerbatimArguments: true,
     };
   }
-  return { cmd: 'bash', args: ['-lc', command] };
+  return { cmd: 'bash', args: ['-c', command] };
 }
 
 export async function runAcceptanceCommand(

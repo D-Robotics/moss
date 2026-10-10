@@ -7,7 +7,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { appendTaskEvent, findLatestLiveTaskSnapshot } from '../../core/task/task-store.js';
-import { pythonTestLayout, unittestDiscoverArgs } from '../../utils/python-test-layout.js';
+import {
+  pythonBin,
+  pythonTestLayout,
+  pytestCommand,
+  unittestDiscoverArgs,
+} from '../../utils/python-test-layout.js';
 import { isZhLocale } from '../cli-locale.js';
 import { quoteCommandArg } from '../task-run.js';
 
@@ -60,7 +65,7 @@ export function proposeAcceptanceCommands(workspace: string): AcceptanceProposal
   if (packageTestScript(workspace)) pushCandidate(candidates, 'npm test');
   if (makefileHasTest(workspace)) pushCandidate(candidates, 'make test');
   const python = pythonTestLayout(workspace);
-  const py = process.platform === 'win32' ? 'python' : 'python3';
+  const py = pythonBin();
   if (python === 'unittest') {
     pushCandidate(candidates, `${py} -m unittest discover ${unittestDiscoverArgs(workspace)}`);
   } else if (
@@ -70,7 +75,7 @@ export function proposeAcceptanceCommands(workspace: string): AcceptanceProposal
     fs.existsSync(path.join(workspace, 'pytest.ini')) ||
     fs.existsSync(path.join(workspace, 'setup.cfg'))
   ) {
-    pushCandidate(candidates, 'pytest');
+    pushCandidate(candidates, pytestCommand());
   }
   if (fs.existsSync(path.join(workspace, 'go.mod'))) pushCandidate(candidates, 'go test ./...');
   return { candidates, emptyNotice: emptyAcceptanceNotice() };

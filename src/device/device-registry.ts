@@ -3,6 +3,7 @@ import type {
   DeviceConnectionSnapshot,
   DeviceTarget,
 } from '../contracts/device.js';
+import { isFinalDeviceConnectError } from './device-connect-error.js';
 import { SshDeviceConnection, type SshConnectOptions } from './ssh-device-connection.js';
 import { deviceTargetKey } from './device-target.js';
 
@@ -27,17 +28,15 @@ const FAILURE_TTL_MS = 30_000;
  */
 const TRANSIENT_CONNECT_PATTERN =
   /maxstartups|connection reset|econnreset|eagain|handshake|pre-authentication/i;
-/** A dead route, refused port, or our own connect timer. Retrying these is a reconnect storm. */
-const UNREACHABLE_CONNECT_PATTERN =
-  /timed out|etimedout|econnrefused|ehostunreach|enetunreach|enotfound|eai_again|network is unreachable|cannot reach|无法在/i;
 const CONNECT_BACKOFF_MS = [1500, 4000, 9000];
 
 export function isTransientConnectError(message: string): boolean {
   return TRANSIENT_CONNECT_PATTERN.test(message) && !isUnreachableConnectError(message);
 }
 
+/** A dead route, refused port, or DNS failure. Retrying these is a reconnect storm. */
 export function isUnreachableConnectError(message: string): boolean {
-  return UNREACHABLE_CONNECT_PATTERN.test(message);
+  return isFinalDeviceConnectError(message);
 }
 
 async function defaultSleep(ms: number): Promise<void> {

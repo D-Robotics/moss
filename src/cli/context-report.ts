@@ -91,6 +91,12 @@ export interface FreshSessionContextReportOptions {
    * `false` matches interactive chat that did not ask for a task contract.
    */
   taskFlow?: boolean;
+  /**
+   * Question tools are offered when an asker exists. Unset follows the
+   * surface: interactive chat (`taskFlow: false`) keeps them; headless `-p`
+   * omits them.
+   */
+  userQuestions?: boolean;
   deviceConfigured?: boolean;
   contextTokens?: number;
   userMessage?: string;
@@ -248,12 +254,15 @@ export async function buildFreshSessionContextReport(
     section('context window', contextWindow),
   ];
 
+  const userQuestions = options.userQuestions ?? options.taskFlow === false;
   const offered = agent.tools.getAll().filter(
     (tool) =>
       !isDeferredToolName(tool.name) &&
       toolVisibleForRun(tool.name, {
         ...(options.taskFlow === undefined ? {} : { taskFlow: options.taskFlow }),
         deviceConfigured,
+        userQuestions,
+        requiresUserQuestion: tool.metadata?.requiresUserQuestion === true,
       })
   );
   const declarations = buildProviderToolDeclarations(offered);

@@ -1,7 +1,7 @@
 /**
- * Ordinary chat does not open a task contract. `/goal`, `moss task`, and a
- * message that explicitly asks for a task contract do.
+ * Ordinary chat does not open a task contract. Only the `/goal` and `/task`
+ * entry points do. The task engine sets `taskFlow` itself.
  */
 export function messageRequestsTaskContract(message: string): boolean {
-  return /(?:^|\s)\/(?:goal|task)\b|\btask_define\b|创建任务|定义任务|任务契约/u.test(message);
+  return /(?:^|\s)\/(?:goal|task)\b/u.test(message);
 }
