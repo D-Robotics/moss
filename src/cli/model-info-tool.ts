@@ -1,6 +1,10 @@
 import type { LLMProvider } from '../core/llm/llm-provider.js';
 import type { Tool } from '../core/tools/tool-types.js';
-import { resolveRealModel, type RealModelConfigView } from './model-resolution.js';
+import {
+  reportedModelMatchesConfigured,
+  resolveRealModel,
+  type RealModelConfigView,
+} from './model-resolution.js';
 
 export function createModelInfoTool(deps: {
   provider: () => Pick<LLMProvider, 'complete'>;
@@ -38,16 +42,16 @@ export function createModelInfoTool(deps: {
           : '';
       const configured = config.model?.trim();
       const reported = deps.getReportedModel?.()?.trim();
-      if (reported && configured && reported !== configured) {
+      if (config.usingBundledDefault) {
+        return real
+          ? `Underlying model: ${real} (served via the built-in model gateway).${ctxLine}${outLine}`
+          : `Running on the built-in model gateway; the exact backing model could not be confirmed right now (the gateway is unreachable or did not report it). Try again shortly.${ctxLine}${outLine}`;
+      }
+      if (reported && configured && !reportedModelMatchesConfigured(configured, reported)) {
         return `Underlying model: configured ${configured}, gateway reported ${reported}.${ctxLine}${outLine}`;
       }
       if (real) {
-        return config.usingBundledDefault
-          ? `Underlying model: ${real} (served via the built-in model gateway).${ctxLine}${outLine}`
-          : `Underlying model: ${real}.${ctxLine}${outLine}`;
-      }
-      if (config.usingBundledDefault) {
-        return `Running on the built-in model gateway; the exact backing model could not be confirmed right now (the gateway is unreachable or did not report it). Try again shortly.${ctxLine}${outLine}`;
+        return `Underlying model: ${real}.${ctxLine}${outLine}`;
       }
       return config.model
         ? `Underlying model: ${config.model}.${ctxLine}${outLine}`

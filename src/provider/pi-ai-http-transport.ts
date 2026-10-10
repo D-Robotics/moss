@@ -21,6 +21,19 @@ import { buildApiV1Url } from './api-v1-url.js';
 import { fetchWithConnectionContext } from './connection-error.js';
 import { ErrorCode, errorMessage, MossError } from '../errors.js';
 
+/**
+ * Gateway `model` ids are copied into tool results, the terminal, and session
+ * JSONL. Keep only a short token of model-id characters; drop ANSI, newlines,
+ * markup, NULs, and oversized strings.
+ */
+const REPORTED_MODEL_ID = /^[\w.:@/+-]{1,128}$/;
+
+export function acceptReportedModelId(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return REPORTED_MODEL_ID.test(trimmed) ? trimmed : undefined;
+}
+
 export interface HttpTransportConfig {
   /** Human-facing provider label used in error messages (e.g. 'Anthropic'). */
   providerLabel: string;
@@ -631,9 +644,8 @@ async function* streamOpenAiChat(
       );
     }
 
-    if (typeof chunk.model === 'string' && chunk.model.trim()) {
-      responseModel = chunk.model.trim();
-    }
+    const reported = acceptReportedModelId(chunk.model);
+    if (reported) responseModel = reported;
 
     if (chunk.usage) {
       inputTokens = chunk.usage.prompt_tokens ?? 0;
@@ -777,7 +789,7 @@ async function* parseOpenAiBuffered(res: Response): AsyncGenerator<PiAiStreamEve
   if (bufferedCached > 0) {
     (bufferedUsage as Record<string, number>).cacheRead = bufferedCached;
   }
-  const bufferedModel = typeof data.model === 'string' ? data.model.trim() : '';
+  const bufferedModel = acceptReportedModelId(data.model);
   yield {
     type: 'done',
     stopReason: mapOpenAiFinishReason(choice?.finish_reason),
@@ -900,7 +912,7 @@ async function* streamAnthropicMessages(
 
     switch (event.type) {
       case 'message_start': {
-        const reported = event.message?.model?.trim();
+        const reported = acceptReportedModelId(event.message?.model);
         if (reported) responseModel = reported;
         const usage = event.message?.usage;
         if (usage) {

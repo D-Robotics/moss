@@ -38,6 +38,7 @@ import { parsePermissionRuleSpec } from '../permission-rules.js';
 import { appendUserPermissionRule } from '../config-commands.js';
 import { stopAllBackgroundProcesses } from '../../core/tools/background-process-registry.js';
 import { probeDoctorModelPing } from '../doctor-model-ping.js';
+import { reportedModelMatchesConfigured } from '../model-resolution.js';
 import { envBeforeDotenv, loadCliConfigFile } from '../config.js';
 import {
   configuredBaseUrl,
@@ -402,7 +403,9 @@ const contextCommand: CommandSpec = {
       const configuredModel = ctx.agent.config.model ?? '';
       const reportedModel = ctx.agent.reportedModel();
       const modelLine =
-        reportedModel && configuredModel && reportedModel !== configuredModel
+        reportedModel &&
+        configuredModel &&
+        !reportedModelMatchesConfigured(configuredModel, reportedModel)
           ? `configured ${configuredModel}, gateway reported ${reportedModel}`
           : configuredModel;
       ctx.say(

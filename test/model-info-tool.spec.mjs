@@ -76,4 +76,58 @@ liveProvider = { complete: async () => ({ model: 'HORIZON-GLM' }) };
   );
 }
 
+// ─── Date suffix and vendor prefix are the same model ────────────────────────
+for (const [configured, reported] of [
+  ['gpt-4o', 'gpt-4o-2024-08-06'],
+  ['kimi-k2.8-preview', 'moonshotai/kimi-k2.8-preview-20260901'],
+  ['gpt-4o', 'openai/gpt-4o'],
+]) {
+  const aliased = createModelInfoTool({
+    provider: () => ({ complete: async () => ({ model: configured }) }),
+    config: () => ({
+      model: configured,
+      baseUrl: 'https://example.com',
+      usingBundledDefault: false,
+    }),
+    getReportedModel: () => reported,
+  });
+  const result = await aliased.execute({ input: {} });
+  assert.doesNotMatch(
+    result,
+    /gateway reported/,
+    `${configured} vs ${reported} should not be a mismatch, got: ${result}`
+  );
+  assert.match(result, new RegExp(configured.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+}
+
+// ─── Built-in gateway wording wins over a differing reported id ──────────────
+{
+  const previousConfigDir = process.env.MOSS_CONFIG_DIR;
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const fs = await import('node:fs');
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-model-info-'));
+  process.env.MOSS_CONFIG_DIR = configDir;
+  try {
+    const bundled = createModelInfoTool({
+      provider: () => ({
+        complete: async () => ({ stopReason: 'end_turn', content: [], model: 'real-backing' }),
+      }),
+      config: () => ({
+        model: 'Moss',
+        baseUrl: 'https://example.com',
+        usingBundledDefault: true,
+      }),
+      getReportedModel: () => 'some-other-id',
+    });
+    const result = await bundled.execute({ input: {} });
+    assert.match(result, /real-backing \(served via the built-in model gateway\)/);
+    assert.doesNotMatch(result, /gateway reported/);
+  } finally {
+    if (previousConfigDir === undefined) delete process.env.MOSS_CONFIG_DIR;
+    else process.env.MOSS_CONFIG_DIR = previousConfigDir;
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
 console.log('✓ model-info-tool: reports live model after in-session switch');

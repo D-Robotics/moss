@@ -76,8 +76,9 @@ export interface PromptConfig {
 
   /**
    * Rebuilds {@link baseSystemPrompt} for the model that will serve the next
-   * turn. `MossAgent.switchModel` calls this so a mid-session switch cannot
-   * leave the persona naming the startup model.
+   * turn. When this is set it overrides `baseSystemPrompt`: the constructor
+   * and every `switchModel` replace that string with `identityFactory(model)`.
+   * Omit it to keep the `baseSystemPrompt` you passed.
    */
   identityFactory?: (model: string) => string;
 
@@ -367,7 +368,10 @@ export type MossAgentEvent =
       ttftMs?: number;
       generationMs?: number;
       turnGapMs?: number;
+      /** Routed or configured id. Pricing keys off this name. */
       model?: string;
+      /** Gateway-reported id for display and session records. Not a price key. */
+      servedModel?: string;
     }
   | {
       type: 'cache_metrics';

@@ -160,14 +160,23 @@ async function chatSwitchChat({ workspaceDir, label }) {
   });
 
   const usageModels = [];
+  const servedModels = [];
   try {
     for await (const event of agent.streamChat(sessionKey, 'which model are you')) {
-      if (event.type === 'llm_usage' && event.model) usageModels.push(event.model);
+      if (event.type === 'llm_usage') {
+        if (event.model) usageModels.push(event.model);
+        if (event.servedModel) servedModels.push(event.servedModel);
+      }
     }
     assert.equal(stub.requests.length, 1, `${label}: startup chat should be one request`);
     assert.equal(stub.requests[0].model, STARTUP, `${label}: request 1 model`);
     assertPromptNames(stub.requests[0].system, STARTUP, SWITCHED);
-    assert.equal(usageModels[0], `gateway-${STARTUP}`, `${label}: usage records the gateway model`);
+    assert.equal(usageModels[0], STARTUP, `${label}: usage.model stays the configured name`);
+    assert.equal(
+      servedModels[0],
+      `gateway-${STARTUP}`,
+      `${label}: servedModel records the gateway id`
+    );
 
     agent.switchModel({
       model: SWITCHED,
@@ -183,12 +192,16 @@ async function chatSwitchChat({ workspaceDir, label }) {
     assert.equal(agent.reportedModel(), undefined, 'switch clears the previous gateway model');
 
     for await (const event of agent.streamChat(sessionKey, 'which model are you now')) {
-      if (event.type === 'llm_usage' && event.model) usageModels.push(event.model);
+      if (event.type === 'llm_usage') {
+        if (event.model) usageModels.push(event.model);
+        if (event.servedModel) servedModels.push(event.servedModel);
+      }
     }
     assert.equal(stub.requests.length, 2, `${label}: switch should not add a hidden request`);
     assert.equal(stub.requests[1].model, SWITCHED, `${label}: request 2 model`);
     assertPromptNames(stub.requests[1].system, SWITCHED, STARTUP);
-    assert.equal(usageModels[1], `gateway-${SWITCHED}`);
+    assert.equal(usageModels[1], SWITCHED);
+    assert.equal(servedModels[1], `gateway-${SWITCHED}`);
 
     const reported = await modelTool.execute({ input: {} });
     assert.match(

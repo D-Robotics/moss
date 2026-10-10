@@ -179,7 +179,8 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
         ttftMs: llmTurn.ttftMs,
         generationMs: llmTurn.generationMs,
         turnGapMs,
-        model: servedModel || routedModel,
+        model: routedModel,
+        ...(servedModel ? { servedModel } : {}),
       });
     }
 
