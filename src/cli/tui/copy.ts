@@ -44,6 +44,16 @@ export const INTERRUPT_NOTICE = 'Interrupted — /goal resume to continue';
 /** Esc in ordinary chat. Must not tell the user to resume a goal. */
 export const CHAT_INTERRUPT_NOTICE = 'Interrupted';
 
+/** Shown while the loop automatically continues a max_tokens cutoff. */
+export const OUTPUT_CONTINUATION_NOTICE = 'Output limit reached — continuing ({attempt}/{max})';
+
+/**
+ * Shown when automatic output-limit recovery is exhausted. The run ends as a
+ * non-success; the partial answer is kept and this notice explains the cap.
+ */
+export const OUTPUT_LIMIT_EXHAUSTED_NOTICE =
+  'Output limit reached after {max} automatic continuations. The answer above is incomplete. Raise agent.maxOutputTokens (or the per-model maxOutputTokens) and run again.';
+
 const USER_ABORT_RESULT_PREFIX = 'Execution error: aborted_by_user';
 
 /**
@@ -209,6 +219,10 @@ export const ZH: Readonly<Record<string, string>> = {
 
   // ── render bridge (render-bridge.ts) ───────────────────────────────────
   '↻ provider retry {attempt} — {error}': '↻ 服务商重试 {attempt} — {error}',
+  'Output limit reached — continuing ({attempt}/{max})':
+    '输出已到上限 — 正在续写（{attempt}/{max}）',
+  'Output limit reached after {max} automatic continuations. The answer above is incomplete. Raise agent.maxOutputTokens (or the per-model maxOutputTokens) and run again.':
+    '已自动续写 {max} 次，仍达到输出上限。上面的回答不完整。请提高 agent.maxOutputTokens（或该模型的 maxOutputTokens）后再运行。',
   'aborted ({by})': '已中止（{by}）',
   'compressed {count} old tool result': '压缩了 {count} 条旧工具结果',
   'compressed {count} old tool results': '压缩了 {count} 条旧工具结果',
@@ -611,8 +625,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'Trusting loads {summary}.': '信任后将加载 {summary}。',
   'This project has no hooks, MCP servers, agents, or plugins.':
     '此项目没有钩子、MCP 服务、子代理或插件。',
-  'A trusted project can change the model gateway, proxy, and TLS.':
-    '受信任的项目可以更改模型网关、流量代理和 TLS。',
+  'A trusted project can change the model gateway, proxy, TLS, and device target.':
+    '受信任的项目可以更改模型网关、流量代理、TLS 和设备目标。',
   'This folder is your home directory.': '此文件夹是你的主目录。',
   'This folder is the filesystem root. Trusting it is not remembered.':
     '此文件夹是文件系统根目录。这里的信任不会被记住。',

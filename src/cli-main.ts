@@ -49,6 +49,7 @@ import {
   summarizeTrustItems,
   untrustedFolderLine,
 } from './cli/workspace-trust.js';
+import { deliverDotenvSafetyEnvNotices } from './cli/safety-env-notice.js';
 import { runWithApprovalRequest, setPermissionRequestRunner } from './cli/permission-request.js';
 import { resolveSoulIdentity, resolveSoul } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
@@ -132,7 +133,12 @@ import { chrome, setTuiLocale } from './cli/tui/copy.js';
 import { gitignoreNoticeForWorkspace } from './cli/gitignore-suggestion.js';
 import { buildEnvironmentContextLayer, getGitBranch } from './context/environment.js';
 import { disconnectAllDevices } from './device/device-registry.js';
-import { configureDeviceWorkspace, resolveDefaultDeviceTarget } from './device/device-target.js';
+import {
+  configureDeviceWorkspace,
+  projectDeviceHostWithholdsPassword,
+  resolveDefaultDeviceTarget,
+} from './device/device-target.js';
+import { loadDeviceRegistry } from './device/device-registry-file.js';
 import { buildRuntimeCapabilitiesPrompt } from './context/runtime-capabilities.js';
 import { buildSoftwareEngineeringPromptQuick } from './contracts/index.js';
 import type { CliRuntimeStatus } from './cli/onboarding.js';
@@ -440,6 +446,7 @@ async function main() {
 
   // CliPhase.None: no initialization needed (e.g., setup, --help, --version)
   if (requiredPhase === CliPhase.None && commandConfig) {
+    deliverDotenvSafetyEnvNotices(false, () => {});
     const ctx: CommandContext = {
       argv,
       commandArgs: parsedArgs.commandArgs,
@@ -468,6 +475,7 @@ async function main() {
       loadedConfig
     );
 
+    deliverDotenvSafetyEnvNotices(false, () => {});
     const ctx: CommandContext = {
       argv,
       commandArgs: parsedArgs.commandArgs,
@@ -522,6 +530,7 @@ async function main() {
       process.exit(ExitCode.CONFIG);
     }
 
+    deliverDotenvSafetyEnvNotices(false, () => {});
     const ctx: CommandContext = {
       argv,
       commandArgs: parsedArgs.commandArgs,
@@ -1033,7 +1042,9 @@ async function main() {
   await registerBuiltinTools(agent);
   // Device targets resolve host > env > .moss/devices.json (registered via
   // `moss device add`); declaring the workspace turns the registry tier on.
-  configureDeviceWorkspace(workspace);
+  // A project's .moss/devices.json picks a host and an env var whose value is
+  // sent as the SSH password, so it waits for trust like project routing.
+  configureDeviceWorkspace(startup.trusted ? workspace : null);
   const useTui =
     Boolean(process.stdout.isTTY) && process.env.MOSS_NO_TUI !== '1' && !parsedArgs.print;
   const pendingTuiNotices: string[] = [];
@@ -1056,7 +1067,9 @@ async function main() {
     const summary = summarizeTrustItems(projectCapabilities.skipped, isZhLocale());
     const parts = [
       ...(loadedConfig.ignoredProjectRouting ?? []),
+      ...(loadedConfig.droppedProjectPermissions ?? []),
       ...startup.ignoredRoutingEnv,
+      ...(loadDeviceRegistry(workspace).length > 0 ? ['.moss/devices.json'] : []),
       ...(summary ? [summary] : []),
     ];
     const line = untrustedFolderLine(parts, isZhLocale());
@@ -1070,6 +1083,17 @@ async function main() {
     );
     if (useTui) emitTuiNotice(line);
     else console.error(line);
+  }
+  deliverDotenvSafetyEnvNotices(useTui, emitTuiNotice);
+  {
+    const withheld = projectDeviceHostWithholdsPassword();
+    if (withheld) {
+      const line = isZhLocale()
+        ? `[moss] MOSS_DEVICE_HOST 来自项目 .env（${withheld}），不会把你自己的 MOSS_DEVICE_PASSWORD 发给它。请把该板子的密码写进同一个 .env，或在 ~/.env / moss device add 里指定主机。`
+        : `[moss] MOSS_DEVICE_HOST comes from a project .env (${withheld}); your own MOSS_DEVICE_PASSWORD is not sent to it. Put that board's password in the same .env, or name the host in ~/.env or with moss device add.`;
+      if (useTui) emitTuiNotice(line);
+      else console.error(line);
+    }
   }
   // v0.16 MCP client: connect servers declared in `.moss/mcp.json` /
   // `<configDir>/mcp.json` (credentials only via ${ENV_VAR} expansion).
@@ -1284,7 +1308,7 @@ async function main() {
           // Also re-derive maxTokens from the freshly-probed context window,
           // but only if the user didn't pin agent.maxOutputTokens explicitly.
           if (resolvedConfig.maxOutputTokens === undefined) {
-            const derived = deriveMaxOutputTokens(probed.contextTokens);
+            const derived = deriveMaxOutputTokens(probed.contextTokens, resolvedConfig.model);
             if (derived) agent.config.maxTokens = derived;
           }
         }

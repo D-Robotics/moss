@@ -281,10 +281,7 @@ const FIELDS = {
     (c: ResolvedCliConfig) =>
       `${
         c.maxOutputTokens ??
-        uiText(
-          'derived from context window (contextTokens/4, cap 8k)',
-          '由上下文窗口推算（contextTokens/4，上限 8k）'
-        )
+        uiText('derived from the model and context window', '由模型和上下文窗口推算')
       }`,
   ],
   compaction: [

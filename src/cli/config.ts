@@ -33,6 +33,7 @@ import {
   type CliInteractionMode,
 } from './interaction-mode.js';
 import { isDotenvDeniedEnvKey } from '../utils/dotenv-denied-env.js';
+import { isDotenvSafetyEnvKey, noteDotenvSafetyEnvKey } from '../safety/dotenv-safety-env.js';
 import { uiText } from '../utils/ui-language.js';
 import { zhConfigSource } from './config-source-label.js';
 import { isProjectRoutingEnvKey } from '../utils/project-routing-env.js';
@@ -43,7 +44,11 @@ import {
   primaryKeyAllowedForHost,
 } from '../provider/primary-key-host.js';
 import { isFolderTrusted, folderPathKey } from './folder-trust-store.js';
-import { captureEnvBeforeDotenv, envBeforeDotenv } from '../utils/startup-env.js';
+import {
+  captureEnvBeforeDotenv,
+  envBeforeDotenv,
+  recordDotenvOrigin,
+} from '../utils/startup-env.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
 import type { PricingConfig } from './model-pricing.js';
 import type { StatusLineConfig } from './status-line.js';
@@ -234,6 +239,11 @@ export interface LoadedCliConfigFile {
   /** Project routing fields dropped because the folder is not trusted. */
   ignoredProjectRouting?: string[];
   /**
+   * Project permission fields that would loosen the user's mode, dropped
+   * because the folder is not trusted. `deny` and `ask` are not in this list.
+   */
+  droppedProjectPermissions?: string[];
+  /**
    * Project base URL whose host is neither the user's nor an official
    * provider URL, and which did not bring its own key.
    */
@@ -285,9 +295,14 @@ export interface AgentRuntimeConfig {
   /** v0.12 model routing tiers (env MOSS_MODEL_CHEAP/BALANCED/STRONG). */
   modelTiers?: { cheap?: string; balanced?: string; strong?: string };
   /** Max output tokens per LLM response. If unset, moss derives a default from
-   * the probed context window (contextTokens/4, capped to 32k) — NOT a hardcoded
-   * 4096, which truncated long answers on modern large-output models. */
+   * the model and the probed context window. A global pin is also the ceiling:
+   * truncation recovery will not raise it. */
   maxOutputTokens?: number;
+  /**
+   * Per-model output cap. Replaces the built-in table for that model id
+   * (exact or prefix). Example: `{ "glm-5.3": { "maxOutputTokens": 32768 } }`.
+   */
+  models?: Record<string, { maxOutputTokens?: number }>;
   compaction?: Partial<Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>>;
 }
 
@@ -624,11 +639,21 @@ function mergeGuardrailsConfig(
   };
 }
 
+function mergeModelOutputConfigs(
+  user: AgentRuntimeConfig['models'],
+  project: AgentRuntimeConfig['models']
+): AgentRuntimeConfig['models'] {
+  if (!user && !project) return undefined;
+  const merged: NonNullable<AgentRuntimeConfig['models']> = { ...project, ...user };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
 function mergeAgentRuntimeConfig(
   userAgent: ConfigFile['agent'],
   projectAgent: ConfigFile['agent']
 ): ConfigFile['agent'] {
   if (!projectAgent && !userAgent) return undefined;
+  const models = mergeModelOutputConfigs(userAgent?.models, projectAgent?.models);
   return {
     ...userAgent,
     ...projectAgent,
@@ -636,6 +661,7 @@ function mergeAgentRuntimeConfig(
       ...userAgent?.compaction,
       ...projectAgent?.compaction,
     },
+    ...(models ? { models } : {}),
   };
 }
 
@@ -671,16 +697,88 @@ export function listProjectRoutingConfigFields(project: ConfigFile): string[] {
   }
   const tiers = project.agent?.modelTiers;
   if (tiers && Object.keys(tiers).length > 0) ignored.push('modelTiers');
+  if (project.agent?.maxOutputTokens !== undefined) ignored.push('maxOutputTokens');
+  const models = project.agent?.models;
+  if (models && Object.keys(models).length > 0) ignored.push('models');
   return ignored;
 }
 
 function omitProjectRoutingConfig(project: ConfigFile): ConfigFile {
   const next: ConfigFile = { ...project };
   for (const key of PROJECT_ROUTING_CONFIG_KEYS) delete next[key];
-  if (next.agent?.modelTiers) {
-    const { modelTiers: _tiers, ...rest } = next.agent;
+  if (next.agent) {
+    // A project cap can force a truncation or reserve most of the context
+    // window. An untrusted folder does not get to set either knob. User
+    // config, the process environment, and a trusted project still can.
+    const { modelTiers: _tiers, maxOutputTokens: _cap, models: _models, ...rest } = next.agent;
     next.agent = Object.keys(rest).length > 0 ? rest : undefined;
   }
+  return next;
+}
+
+function permissionRuleListLoosens(value: unknown): boolean {
+  return (
+    Array.isArray(value) && value.some((item) => typeof item === 'string' && item.trim().length > 0)
+  );
+}
+
+const PROFILE_PERMISSIVENESS: Record<CliConfigProfile, number> = {
+  cautious: 0,
+  balanced: 1,
+  autonomous: 2,
+};
+
+/**
+ * `autonomous` injects exec/apply_patch grants. A higher project profile also
+ * replaces a stricter user profile via the project-over-user spread. cautious
+ * and balanced only tighten an unset user profile, so those stay.
+ */
+function projectProfileLoosens(user: ConfigFile, project: ConfigFile): boolean {
+  const projectProfile = normalizeConfigProfile(
+    typeof project.profile === 'string' ? project.profile : undefined
+  );
+  if (!projectProfile) return false;
+  const userProfile = normalizeConfigProfile(
+    typeof user.profile === 'string' ? user.profile : undefined
+  );
+  if (!userProfile) return projectProfile === 'autonomous';
+  return PROFILE_PERMISSIVENESS[projectProfile] > PROFILE_PERMISSIVENESS[userProfile];
+}
+
+/**
+ * Project fields that grant tools or replace the permission mode.
+ * An untrusted folder drops these. `permissions.ask` and `permissions.deny`
+ * only tighten, so they are not listed. A project profile is listed only
+ * when it is looser than the user's.
+ */
+function listDroppedProjectPermissionFields(user: ConfigFile, project: ConfigFile): string[] {
+  const dropped: string[] = [];
+  if (permissionRuleListLoosens(project.permissions?.allow)) dropped.push('permissions.allow');
+  if (permissionRuleListLoosens(project.trustedTools)) dropped.push('trustedTools');
+  const mode = project.permissions?.defaultMode;
+  if (typeof mode === 'string' && mode.trim().length > 0) dropped.push('permissions.defaultMode');
+  if (projectProfileLoosens(user, project)) dropped.push('profile');
+  return dropped;
+}
+
+function omitLooseningProjectPermissions(user: ConfigFile, project: ConfigFile): ConfigFile {
+  const next: ConfigFile = { ...project };
+  if (permissionRuleListLoosens(next.trustedTools)) delete next.trustedTools;
+  if (projectProfileLoosens(user, project)) delete next.profile;
+  if (!next.permissions) return next;
+  const permissions: PermissionsConfig = { ...next.permissions };
+  let changed = false;
+  if (permissionRuleListLoosens(permissions.allow)) {
+    delete permissions.allow;
+    changed = true;
+  }
+  if (typeof permissions.defaultMode === 'string' && permissions.defaultMode.trim().length > 0) {
+    delete permissions.defaultMode;
+    changed = true;
+  }
+  if (!changed) return next;
+  const remaining = Object.values(permissions).some((value) => value !== undefined);
+  next.permissions = remaining ? permissions : undefined;
   return next;
 }
 
@@ -818,16 +916,18 @@ export function mergeConfigFiles(
   });
   return {
     ...merged,
-    // Safety-sensitive fields: the USER's config wins over the PROJECT's.
-    // A cloned repo's .moss/config.json is less trusted than the user's
-    // ~/.config/moss/config.json — it must not silently lower the user's
-    // safety stance (e.g. approvalPolicy: 'never', safetyMode: 'full-access',
-    // or widening trustedTools). If the user hasn't set a field, the project
-    // value is still used (project defaults are fine); the user's explicit
-    // choice always wins. CLI flags and env vars override both (resolveCliConfig).
+    // Safety-sensitive scalars: the user's config wins over the project's.
+    // A cloned repo's .moss/config.json must not silently lower the user's
+    // safety stance (e.g. approvalPolicy: 'never', safetyMode: 'full-access').
+    // If the user hasn't set a scalar, the project value is still used.
+    // trustedTools is a grant list, so a trusted project unions with the user.
+    // loadCliConfigFile removes an untrusted project's trustedTools,
+    // permissions.allow, permissions.defaultMode, and a looser profile before
+    // this merge, so those grants cannot widen the user's mode. CLI flags and
+    // env vars override both (resolveCliConfig).
     safetyMode: userConfig.safetyMode ?? projectConfig.safetyMode,
     approvalPolicy: userConfig.approvalPolicy ?? projectConfig.approvalPolicy,
-    trustedTools: userConfig.trustedTools ?? projectConfig.trustedTools,
+    trustedTools: unionOptionalStringList(userConfig.trustedTools, projectConfig.trustedTools),
     deniedTools: userConfig.deniedTools ?? projectConfig.deniedTools,
     permissions: mergePermissionsConfig(userConfig.permissions, projectConfig.permissions),
     promptCache: mergePromptCacheConfig(userConfig.promptCache, projectConfig.promptCache),
@@ -896,28 +996,33 @@ function mergeStatusLine(
   return Object.keys(rest).length > 0 ? rest : undefined;
 }
 
+function unionOptionalStringList(
+  user: string[] | undefined,
+  project: string[] | undefined
+): string[] | undefined {
+  if (!user && !project) return undefined;
+  return [...new Set([...(user ?? []), ...(project ?? [])])];
+}
+
 /**
  * v0.26 permission-block merge, safety-directional like the other safety
  * fields: user-wins on every scalar knob; rule lists union BOTH layers
  * (deny rules union across levels by design — a project cannot silently
- * remove the user's deny; allow/ask dedupe).
+ * remove the user's deny; allow/ask dedupe). An untrusted project's
+ * `allow` and `defaultMode` are removed before this function runs.
  */
 function mergePermissionsConfig(
   user: PermissionsConfig | undefined,
   project: PermissionsConfig | undefined
 ): PermissionsConfig | undefined {
   if (!user && !project) return undefined;
-  const unionList = (a: string[] | undefined, b: string[] | undefined): string[] | undefined => {
-    if (!a && !b) return undefined;
-    return [...new Set([...(a ?? []), ...(b ?? [])])];
-  };
   return {
     ...(user ?? {}),
     ...(project ?? {}),
     defaultMode: user?.defaultMode ?? project?.defaultMode,
-    allow: unionList(user?.allow, project?.allow),
-    ask: unionList(user?.ask, project?.ask),
-    deny: unionList(user?.deny, project?.deny),
+    allow: unionOptionalStringList(user?.allow, project?.allow),
+    ask: unionOptionalStringList(user?.ask, project?.ask),
+    deny: unionOptionalStringList(user?.deny, project?.deny),
   };
 }
 
@@ -1021,7 +1126,12 @@ export function loadCliConfigFile(
   const rawProject = loadConfigFile(projectConfigPath);
   const trusted = projectRoutingTrusted(env, argv, startDir, options?.trustProjectRouting);
   const ignoredProjectRouting = trusted ? [] : listProjectRoutingConfigFields(rawProject);
-  const projectConfig = trusted ? rawProject : omitProjectRoutingConfig(rawProject);
+  const droppedProjectPermissions = trusted
+    ? []
+    : listDroppedProjectPermissionFields(userConfig, rawProject);
+  const projectConfig = trusted
+    ? rawProject
+    : omitLooseningProjectPermissions(userConfig, omitProjectRoutingConfig(rawProject));
   const merged = mergeConfigFiles(projectConfig, userConfig, options);
   const sources = fieldSourcesFor(userConfig, projectConfig);
   const keyLayer =
@@ -1040,6 +1150,7 @@ export function loadCliConfigFile(
     projectConfig,
     fieldSources: sources,
     ...(ignoredProjectRouting.length > 0 ? { ignoredProjectRouting } : {}),
+    ...(droppedProjectPermissions.length > 0 ? { droppedProjectPermissions } : {}),
     ...(blocked ? { blockedProjectBaseUrl: blocked } : {}),
     ...userIdentity,
   };
@@ -1220,6 +1331,23 @@ function parsePositiveInteger(value: unknown, source: string): number | undefine
   return value;
 }
 
+function parseModelMaxOutputTokens(
+  models: AgentRuntimeConfig['models']
+): Record<string, number> | undefined {
+  if (!models || typeof models !== 'object') return undefined;
+  const out: Record<string, number> = {};
+  for (const [id, spec] of Object.entries(models)) {
+    const key = id.trim();
+    if (!key || !spec || typeof spec !== 'object') continue;
+    const tokens = parsePositiveInteger(
+      spec.maxOutputTokens,
+      `agent.models.${key}.maxOutputTokens`
+    );
+    if (tokens !== undefined) out[key] = tokens;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function parsePositiveIntegerEnv(value: string | undefined): number | undefined {
   if (value === undefined || value.trim() === '') return undefined;
   const parsed = Number(value.trim());
@@ -1318,6 +1446,8 @@ export interface ResolvedCliConfig {
   modelTiersSource?: string;
   /** Max output tokens per LLM response. undefined → runtime derives from contextTokens. */
   maxOutputTokens?: number;
+  /** Per-model caps from `agent.models.<id>.maxOutputTokens`. */
+  modelMaxOutputTokens?: Record<string, number>;
   compactionSettings: Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>;
   compactionSettingsSource: string;
   configPath: string;
@@ -1958,6 +2088,7 @@ export function resolveCliConfig(
   const envMaxOutputTokens = parsePositiveIntegerEnv(env.MOSS_MAX_OUTPUT_TOKENS);
   const maxOutputTokens =
     overrides.maxOutputTokens ?? envMaxOutputTokens ?? configMaxOutputTokens ?? undefined;
+  const modelMaxOutputTokens = parseModelMaxOutputTokens(activeConfig.agent?.models);
   const configCompactionReserve = parsePositiveInteger(
     activeConfig.agent?.compaction?.reserveTokens,
     'agent.compaction.reserveTokens'
@@ -2134,6 +2265,7 @@ export function resolveCliConfig(
     contextTokens,
     contextTokensSource,
     ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+    ...(modelMaxOutputTokens ? { modelMaxOutputTokens } : {}),
     compactionSettings,
     ...(runBudget ? { budget: runBudget } : {}),
     ...(bestOfN !== undefined ? { bestOfN } : {}),
@@ -2147,16 +2279,16 @@ export function resolveCliConfig(
 }
 
 /**
- * These decide trust, which directory is the user's, which directory is the
+ * These decide which directory is the user's, which directory is the
  * workspace, or which rdk-docs package runs. A project `.env` must not set
- * them. Interpreter and loader variables are refused by `isDotenvDeniedEnvKey`
+ * them. `MOSS_TRUST_WORKSPACE` is refused with the other safety controls.
+ * Interpreter and loader variables are refused by `isDotenvDeniedEnvKey`
  * (shared with child spawns). The process environment captured in
  * `envBeforeDotenv`, plus CLI flags, are the only sources for the keys in
  * this set. Matching is case-insensitive, because Windows environment names are.
  */
 const ENV_FILE_IGNORED_KEYS = new Set(
   [
-    'MOSS_TRUST_WORKSPACE',
     'MOSS_WORKSPACE',
     'MOSS_CONFIG_DIR',
     'MOSS_CONFIG_FILE',
@@ -2195,6 +2327,11 @@ export function loadEnvFile(envPath: string): void {
       .slice(eqIdx + 1)
       .trim()
       .replace(/^["']|["']$/g, '');
+    // Safety controls never come from a project or ancestor .env, trusted or not.
+    if (isDotenvSafetyEnvKey(key)) {
+      noteDotenvSafetyEnvKey(envPath, key);
+      continue;
+    }
     if (!key || ENV_FILE_IGNORED_KEYS.has(key.toUpperCase()) || isDotenvDeniedEnvKey(key)) continue;
     if (process.env[key] !== undefined) continue;
     if (isProjectRoutingEnvKey(key)) {
@@ -2202,6 +2339,7 @@ export function loadEnvFile(envPath: string): void {
       continue;
     }
     process.env[key] = value;
+    recordDotenvOrigin(key, envPath, isUserRoutingEnvFile(envPath, homeBeforeDotenv));
   }
 }
 
@@ -2263,6 +2401,7 @@ export function commitProjectRoutingEnv(input: {
       continue;
     }
     process.env[item.key] = item.value;
+    recordDotenvOrigin(item.key, item.envFile, isUserRoutingEnvFile(item.envFile, homeDir));
     claimed.add(item.key);
   }
   deferredRoutingEnv.length = 0;
