@@ -25,7 +25,6 @@ import { setTuiLocale } from '../dist/cli/tui/copy.js';
 import { installUiLanguage } from '../dist/utils/ui-language.js';
 import { formatDeviceConnectError } from '../dist/device/device-connect-error.js';
 import { SshDeviceConnection } from '../dist/device/ssh-device-connection.js';
-import { setTuiLocale } from '../dist/cli/tui/copy.js';
 import { formatMcpStartupLine } from '../dist/cli/rdk-docs-mcp.js';
 import {
   describeToolCall,
