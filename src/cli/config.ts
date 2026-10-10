@@ -2304,7 +2304,9 @@ export function resolveCliConfig(
     : overrides.baseUrl || activeConfig.baseUrl || preset.defaultBaseUrl;
   const userNamed = namedEnvVar(userLayer);
   const namedMissing =
-    userNamed.length > 0 && !projectEndpoint && !(startupCredentialEnv(env)[userNamed] ?? '').trim();
+    userNamed.length > 0 &&
+    !projectEndpoint &&
+    !(startupCredentialEnv(env)[userNamed] ?? '').trim();
   const blockAutoKey = namedWithoutEndpoint || namedMissing || Boolean(envProviderCandidates);
   const envKey = blockAutoKey
     ? undefined
