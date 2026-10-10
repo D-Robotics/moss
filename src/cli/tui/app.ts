@@ -87,6 +87,8 @@ import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
 import { setCliApprovalAsker } from '../approval.js';
 import { wrapApprovalAsker, wrapApprovalViewAsker } from '../permission-request.js';
 import {
+  formatDiffRunFailure,
+  formatNotGitRepository,
   runRegistryCommand,
   unknownSlashCommandLines,
   type CommandContext,
@@ -829,7 +831,9 @@ export function TuiAppRoot({
 
   /** Inline information block: a ⏺ title plus ⎿ rows, right in the transcript. */
   const printBlock = useCallback(
-    (title: string, lines: string[]) => {
+    (rawTitle: string, lines: string[]) => {
+      // Titles pass through the catalog: `⏺ Goal` is `⏺ 目标` in zh.
+      const title = tui(rawTitle);
       appendRow(store, 'tool', title);
       const cleaned = lines.map((text) => stripSgr(text));
       const body = cleaned.filter((text, index) => {
@@ -1436,7 +1440,7 @@ export function TuiAppRoot({
   /** Every command answers in its own named block; failures add a loud error row. */
   const printCommandError = useCallback(
     (title: string, message: string) => {
-      appendRow(store, 'tool', title);
+      appendRow(store, 'tool', tui(title));
       appendRow(store, 'error', message);
       handle.notify();
     },
@@ -1461,12 +1465,12 @@ export function TuiAppRoot({
   const runTaskShellCommand = useCallback(
     async (args: string, display?: string): Promise<void> => {
       if (store.run.running) {
-        printBlock('Task', [tui('a run is in flight — press Esc to interrupt it first')]);
+        printBlock(tui('Task'), [tui('a run is in flight — press Esc to interrupt it first')]);
         return;
       }
       const parsed = splitCommandArgs(args);
       if (parsed.length === 0) {
-        printBlock('Task', [...interactiveTaskUsageLines()]);
+        printBlock(tui('Task'), [...interactiveTaskUsageLines()]);
         return;
       }
       if (parsed[0] === 'resume' && !parsed[1]) {
@@ -1475,7 +1479,7 @@ export function TuiAppRoot({
           .filter((task) => isGoalResumeCandidate(task))
           .sort((left, right) => right.updatedAt - left.updatedAt)[0];
         if (!candidate) {
-          printBlock('Resume', [
+          printBlock(tui('Resume'), [
             tui('no failed, blocked, abandoned, or in-progress task is available to resume'),
           ]);
           return;
@@ -1506,7 +1510,7 @@ export function TuiAppRoot({
                 // status: a minute-long device task must stay reviewable.
                 if (line.startsWith('◇ ')) appendRow(store, 'summary', line);
               } else if (!parseLlmUsageStdout(text)) {
-                printBlock('Task', text.trimEnd().split('\n'));
+                printBlock(tui('Task'), text.trimEnd().split('\n'));
               }
             },
           });
@@ -1519,7 +1523,7 @@ export function TuiAppRoot({
             }
             handle.notify();
           } else {
-            printCommandError('Task', message);
+            printCommandError(tui('Task'), message);
           }
         } finally {
           abortRef.current = undefined;
@@ -1551,12 +1555,12 @@ export function TuiAppRoot({
           sessionKey,
           onOutput: (stream, text) => {
             if (stream === 'stdout' && !parseLlmUsageStdout(text)) {
-              printBlock('Task', text.trimEnd().split('\n'));
+              printBlock(tui('Task'), text.trimEnd().split('\n'));
             }
           },
         });
       } catch (err) {
-        printCommandError('Task', errorMessage(err));
+        printCommandError(tui('Task'), errorMessage(err));
       }
     },
     [
@@ -1637,21 +1641,16 @@ export function TuiAppRoot({
         const notRepo = /not a git repository/i.test(output);
         printBlock('Diff', [
           notRepo
-            ? tui('Not a git repository: {path} — /diff needs a git workspace.', {
-                path: options.workspaceDir,
-              })
-            : tui('git diff failed (exit {code}): {error}', {
-                code: result.exitCode ?? tui('signal'),
-                error: output.trim().split('\n')[0] || 'unknown error',
-              }),
+            ? formatNotGitRepository('/diff', options.workspaceDir, isTuiZh())
+            : formatDiffRunFailure(result.exitCode, output, isTuiZh()),
         ]);
         return;
       }
-      appendRow(store, 'tool', 'Diff');
+      appendRow(store, 'tool', tui('Diff'));
       appendRow(store, 'result', output.trim() || tui('(no unstaged working-tree changes)'));
       handle.notify();
     } catch (err) {
-      printCommandError('Diff', tui('git diff failed: {error}', { error: errorMessage(err) }));
+      printCommandError(tui('Diff'), tui('git diff failed: {error}', { error: errorMessage(err) }));
     }
   }, [handle, options.workspaceDir, printBlock, printCommandError, store]);
 
@@ -1881,7 +1880,10 @@ export function TuiAppRoot({
     async (text: string): Promise<boolean> => {
       const head = text.split(/\s+/, 1)[0] ?? text;
       const args = text.slice(head.length).trim();
-      const title = commandBlockTitle(head);
+      // Title is read when the block is printed. `/language` switches the
+      // dictionary before `say`, so a title captured here would stay in the
+      // previous language.
+      const blockTitle = (): string => commandBlockTitle(head);
       const locale = cliLocale();
 
       const context: CommandContext = {
@@ -1896,7 +1898,9 @@ export function TuiAppRoot({
         ...(locale ? { locale } : {}),
         surface: COMMAND_SURFACE,
         say: (kind, out) =>
-          kind === 'error' ? printCommandError(title, out) : printBlock(title, out.split('\n')),
+          kind === 'error'
+            ? printCommandError(blockTitle(), out)
+            : printBlock(blockTitle(), out.split('\n')),
         prefillInput: (value) => setInput(value),
         submitPrompt: (value) => {
           void dispatchRun(value);
@@ -1958,7 +1962,9 @@ export function TuiAppRoot({
         } else {
           printCommandError(
             'Task view',
-            `unknown kind "${kind}" — use tasks | history | evidence | deployments | failures`
+            tui('unknown kind "{kind}" — use tasks | history | evidence | deployments | failures', {
+              kind,
+            })
           );
         }
         return true;
@@ -1973,7 +1979,7 @@ export function TuiAppRoot({
         if (await runRegistryCommand(text, context, customCommands)) return true;
       } catch (err) {
         printCommandError(
-          title,
+          blockTitle(),
           tui('{command} failed: {error}', { command: head, error: errorMessage(err) })
         );
         return true;
@@ -2242,7 +2248,7 @@ export function TuiAppRoot({
       if (text === '/skills') {
         const rows = options.skills ?? [];
         printBlock(
-          'Skills',
+          tui('Skills'),
           rows.length === 0
             ? [tui('no skills found'), tui('create one: moss skill create <name>')]
             : rows
@@ -2258,7 +2264,7 @@ export function TuiAppRoot({
         const sessions = (await options.listSessions?.()) ?? [];
         setPickerSessions(sessions);
         if (sessions.length === 0) {
-          printBlock('Resume', [tui('no saved sessions')]);
+          printBlock(tui('Resume'), [tui('no saved sessions')]);
           return;
         }
         const matches = filterPickerSessions(sessions, query);
@@ -2295,7 +2301,7 @@ export function TuiAppRoot({
           return;
         }
         setSessionPicker({ query, cursor: 0 });
-        printBlock('Resume', await sessionInfo('sessions'));
+        printBlock(tui('Resume'), await sessionInfo('sessions'));
         return;
       }
       if (

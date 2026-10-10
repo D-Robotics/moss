@@ -7,6 +7,7 @@ import { auditResolvedCliConfig, BASE_URL, type ResolvedCliConfig } from './conf
 import { buildApiV1Url } from '../provider/api-v1-url.js';
 import { isZhLocale, uiText } from './cli-locale.js';
 import { label } from './ui.js';
+import { zhConfigSource } from './config-source-label.js';
 import { workspaceWriteLimit } from './workspace-write-copy.js';
 
 export interface GuardrailCounts {
@@ -34,7 +35,9 @@ export function guardrailSummary(config: ResolvedCliConfig): string {
 export function configAuditSummary(config: ResolvedCliConfig): string {
   const warnings = auditResolvedCliConfig(config);
   if (warnings.length === 0) return displayWord('none');
-  return warnings.map((warning) => `${warning.code}: ${warning.message}`).join('; ');
+  return warnings
+    .map((warning) => `${warning.code}${isZhLocale() ? '：' : ':'} ${warning.message}`)
+    .join(isZhLocale() ? '；' : '; ');
 }
 
 export function withoutSecret(value: string): string {
@@ -61,7 +64,7 @@ function apiKeyValue(c: ResolvedCliConfig): string {
     return zh ? '内置网关（共享 key）' : 'configured via built-in (shared gateway key)';
   }
   return zh
-    ? `来自 ${c.apiKeySource}，${c.apiKeyEncrypted ? '已存入配置文件（0600）' : '明文'}`
+    ? `来自 ${localizeConfigSource(c.apiKeySource)}，${c.apiKeyEncrypted ? '已存入配置文件（0600）' : '明文'}`
     : `configured via ${c.apiKeySource}, ${
         c.apiKeyEncrypted ? 'stored in config file (0600)' : 'plain text'
       }`;
@@ -84,7 +87,7 @@ const ZH_FIELD: Record<string, string> = {
   'prompt cache debug': '提示缓存调试',
   guardrails: '护栏',
   'max turns': '最大轮次',
-  'context tokens': '上下文 token',
+  'context tokens': '上下文词元',
   'max output': '最大输出',
   compaction: '压缩',
   'model tiers': '模型分级',
@@ -95,20 +98,17 @@ function fieldLabel(key: string): string {
   return isZhLocale() ? (ZH_FIELD[key] ?? key) : key;
 }
 
-const ZH_SOURCE: Record<string, string> = {
-  default: '默认',
-  'provider default': '服务商默认',
-  unconfigured: '未配置',
-  'derived:mode': '由权限模式推导',
-  missing: '缺失',
-  config: '配置文件',
-  user: '用户',
-  project: '项目',
-  env: '环境变量',
-  cli: '命令行',
-  'built-in': '内置',
-  unprobed: '未探测',
-};
+/** Doctor and onboarding reuse this map so a source id is not printed in English. */
+export function localizeConfigSource(source: string): string {
+  if (!isZhLocale()) return source;
+  return zhConfigSource(source, (name) => TYPED_GLOSS[name] ?? name);
+}
+
+/** Gloss a typed config value. Unknown values stay literal. */
+export function glossConfigValue(value: string): string {
+  if (!isZhLocale()) return value;
+  return TYPED_GLOSS[value] ?? value;
+}
 
 const TYPED_GLOSS: Record<string, string> = {
   balanced: '均衡',
@@ -142,7 +142,7 @@ function showTyped(value: string): string {
 function sourceNote(source: string | undefined, extra = ''): string {
   const value = source ?? 'default';
   if (!isZhLocale()) return `(${value}${extra})`;
-  const shown = ZH_SOURCE[value] ?? value;
+  const shown = localizeConfigSource(value);
   const extraZh =
     extra === ', from permissions.defaultMode' ? '，来自 permissions.defaultMode' : extra;
   return `（${shown}${extraZh}）`;

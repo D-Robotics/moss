@@ -208,6 +208,10 @@ function restoreLocale() {
   assert.ok(all.length <= 60, `--help --all keeps a 60-line budget (got ${all.length})`);
   assert.ok(all.join('\n').includes('Quick start'), '--all keeps the quick start section');
   assert.ok(
+    all.join('\n').includes('--lang > MOSS_LANG > config > system locale'),
+    '--all states language precedence'
+  );
+  assert.ok(
     !all.join('\n').includes('config set agent.compaction'),
     '--all no longer duplicates the config set example list'
   );

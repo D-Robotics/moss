@@ -11,6 +11,7 @@ import path from 'node:path';
 
 import { MossError, ErrorCode } from '../../errors.js';
 import { getRootLogger } from '../../logger.js';
+import { isEffectiveUiZh, uiText } from '../../utils/ui-language.js';
 import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
 import { latestAcceptanceVerdict } from '../../contracts/task.js';
 import {
@@ -461,28 +462,50 @@ export async function buildTaskContextBrief(workspaceDir: string): Promise<strin
 
 // --- timeline -----------------------------------------------------------------
 
-const TIMELINE_LABELS: Record<TaskEventType, string> = {
-  task_created: 'Task created',
-  task_understood: 'Goal understood',
-  planning_started: 'Planning',
-  plan_ready: 'Plan ready',
-  execution_started: 'Execution started',
-  plan_step_updated: 'Plan updated',
-  evidence_recorded: 'Evidence recorded',
-  deployment_recorded: 'Deployment recorded',
-  verification_started: 'Verification started',
-  verification_failed: 'Verification failed',
-  acceptance_pass: 'Acceptance passed',
-  acceptance_fail: 'Acceptance failed',
-  diagnosis_recorded: 'Diagnosis',
-  repair_applied: 'Repair applied',
-  blocked_on_user: 'Blocked — needs user',
-  unblocked: 'Unblocked',
-  task_failed: 'Task failed',
-  task_abandoned: 'Abandoned',
-  task_resumed: 'Resumed',
-  note: 'Note',
-};
+function timelineLabel(type: TaskEventType): string {
+  switch (type) {
+    case 'task_created':
+      return uiText('Task created', '任务已创建');
+    case 'task_understood':
+      return uiText('Goal understood', '已理解目标');
+    case 'planning_started':
+      return uiText('Planning', '计划中');
+    case 'plan_ready':
+      return uiText('Plan ready', '计划就绪');
+    case 'execution_started':
+      return uiText('Execution started', '开始执行');
+    case 'plan_step_updated':
+      return uiText('Plan updated', '计划已更新');
+    case 'evidence_recorded':
+      return uiText('Evidence recorded', '已记录证据');
+    case 'deployment_recorded':
+      return uiText('Deployment recorded', '已记录部署');
+    case 'verification_started':
+      return uiText('Verification started', '开始验证');
+    case 'verification_failed':
+      return uiText('Verification failed', '验证失败');
+    case 'acceptance_pass':
+      return uiText('Acceptance passed', '验收通过');
+    case 'acceptance_fail':
+      return uiText('Acceptance failed', '验收失败');
+    case 'diagnosis_recorded':
+      return uiText('Diagnosis', '诊断');
+    case 'repair_applied':
+      return uiText('Repair applied', '已修复');
+    case 'blocked_on_user':
+      return uiText('Blocked — needs user', '阻塞 — 需要用户');
+    case 'unblocked':
+      return uiText('Unblocked', '已解除阻塞');
+    case 'task_failed':
+      return uiText('Task failed', '任务失败');
+    case 'task_abandoned':
+      return uiText('Abandoned', '已放弃');
+    case 'task_resumed':
+      return uiText('Resumed', '已恢复');
+    case 'note':
+      return uiText('Note', '备注');
+  }
+}
 
 export interface TaskTimelineEntry {
   at: number;
@@ -491,11 +514,60 @@ export interface TaskTimelineEntry {
   phase: TaskPhase;
 }
 
+const TASK_DETAIL_ZH: Readonly<Record<string, string>> = {
+  'evaluating acceptance': '正在评估验收',
+  'acceptance command exited 0': '验收命令退出码为 0',
+  'criteria met with evidence': '标准已满足且有证据',
+  'acceptance passed': '验收通过',
+  'verification failed — diagnosing': '验证失败，正在诊断',
+  'diagnosis + repair turn': '诊断并修复',
+  'goal verify command exited 0': '目标验证命令退出码为 0',
+  'no task contract found — define one with task_define first':
+    '没有任务契约。请先用 task_define 定义。',
+  'agent execution turn': '模型执行回合',
+  'understanding goal, defining contract + plan': '正在理解目标，定义契约和计划',
+  'resumed by user': '用户已恢复',
+  aborted: '已中止',
+};
+
+/** User-facing timeline/progress text. Stored event details stay English. */
+export function localizeTaskDetail(detail: string, zh: boolean = isEffectiveUiZh()): string {
+  if (!zh) return detail;
+  const exact = TASK_DETAIL_ZH[detail];
+  if (exact) return exact;
+  const failed = /^verification failed after (\d+) attempts \(repair budget exhausted\)$/.exec(
+    detail
+  );
+  if (failed) return `验证失败，已尝试 ${failed[1]} 次（修复次数已用尽）`;
+  const turns = /^turn budget exhausted \((\d+) turns\)$/.exec(detail);
+  if (turns) return `轮次已用尽（${turns[1]} 轮）`;
+  const repair = /^repair attempt (\d+)$/.exec(detail);
+  if (repair) return `第 ${repair[1]} 次修复`;
+  // The verdict keeps the command's output tail after the first line; only
+  // the first line is chrome. Exit may be a number, null, or undefined.
+  const acceptance = /^acceptance command failed \(exit ([^,)]*)(, timed out)?\)(\n[\s\S]*)?$/.exec(
+    detail
+  );
+  if (acceptance) {
+    return `验收命令失败（退出码 ${acceptance[1]}${acceptance[2] ? '，已超时' : ''}）${acceptance[3] ?? ''}`;
+  }
+  const goalVerify = /^goal verify command failed \(exit ([^)]*)\): ([\s\S]*)$/.exec(detail);
+  if (goalVerify) return `目标验证命令失败（退出码 ${goalVerify[1]}）：${goalVerify[2]}`;
+  const budget = /^run budget exceeded \(([^)]*)\)$/.exec(detail);
+  if (budget) return `运行预算已用尽（${budget[1]}）`;
+  const crashed = /^run crashed: ([\s\S]+)$/.exec(detail);
+  if (crashed) return `运行崩溃：${crashed[1]}`;
+  if (detail.startsWith('task has no acceptance criteria')) {
+    return '任务没有验收标准。请先用 task_define 写明指标和期望，再做验证。没有可检查的完成定义就不能验收。';
+  }
+  return detail;
+}
+
 export function buildTaskTimeline(events: TaskEvent[]): TaskTimelineEntry[] {
   return foldTaskEvents(events).applied.map((event) => {
     const aborted = event.type === 'task_failed' && event.data?.detail === 'aborted';
-    const label = aborted ? 'Task aborted' : TIMELINE_LABELS[event.type];
-    const detail = aborted
+    const label = aborted ? uiText('Task aborted', '任务已中止') : timelineLabel(event.type);
+    const raw = aborted
       ? undefined
       : typeof event.data?.detail === 'string'
         ? event.data.detail
@@ -504,6 +576,7 @@ export function buildTaskTimeline(events: TaskEvent[]): TaskTimelineEntry[] {
           : typeof event.data?.goal === 'string'
             ? event.data.goal
             : undefined;
+    const detail = raw === undefined ? undefined : localizeTaskDetail(raw);
     return { at: event.timestamp, label, ...(detail ? { detail } : {}), phase: event.phase };
   });
 }
