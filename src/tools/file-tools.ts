@@ -392,6 +392,43 @@ export function applyPreciseEditToContent(
     }
   }
 
+  // No hit on the original bytes. Match an LF view (so `\n` in old_string
+  // finds `\r\n` in the file) and splice only that original span.
+  let adaptNewToSpan = false;
+  if (ranges.length === 0 && (content.includes('\r\n') || oldStr.includes('\r\n'))) {
+    const view = projectCrLf(content);
+    const oldLf = oldStr.replace(/\r\n/g, '\n');
+    if (view.lf !== content || oldLf !== oldStr) {
+      let lfRanges = collectSubstringRanges(view.lf, oldLf);
+      let lfMode: PreciseEditMatchMode = 'exact';
+      if (lfRanges.length === 0) {
+        const normContent = normalizeEditQuotes(view.lf);
+        const normOld = normalizeEditQuotes(oldLf);
+        if (normContent !== view.lf || normOld !== oldLf) {
+          const normRanges = collectSubstringRanges(normContent, normOld);
+          if (normRanges.length > 0) {
+            lfRanges = normRanges;
+            lfMode = 'quotes';
+          }
+        }
+      }
+      if (lfRanges.length === 0) {
+        const tw = findTrailingWsMatches(view.lf, oldLf, Boolean(request.replaceAll));
+        if (tw.length > 0) {
+          lfRanges = tw;
+          lfMode = 'trailing-ws';
+        }
+      }
+      if (lfRanges.length > 0) {
+        ranges = lfRanges.map((range) =>
+          originalRange(view.starts, content.length, range.start, range.end)
+        );
+        matchMode = lfMode;
+        adaptNewToSpan = true;
+      }
+    }
+  }
+
   if (ranges.length === 0) {
     const hints = findClosestLineHints(content, oldStr);
     const hintBlock =
@@ -421,9 +458,59 @@ export function applyPreciseEditToContent(
   const ordered = [...ranges].sort((a, b) => b.start - a.start);
   let updated = content;
   for (const r of ordered) {
-    updated = updated.slice(0, r.start) + newStr + updated.slice(r.end);
+    const span = content.slice(r.start, r.end);
+    const inserted = adaptNewToSpan ? withSpanEnding(newStr, lineEndingForSpan(span)) : newStr;
+    updated = updated.slice(0, r.start) + inserted + updated.slice(r.end);
   }
   return { ok: true, content: updated, occurrences: ranges.length, matchMode };
+}
+
+/** Map `\r\n` to one `\n`. `starts[i]` is the original offset where `lf[i]` begins. */
+function projectCrLf(content: string): { lf: string; starts: number[] } {
+  const starts: number[] = [];
+  let lf = '';
+  for (let i = 0; i < content.length; i += 1) {
+    starts.push(i);
+    if (content[i] === '\r' && content[i + 1] === '\n') {
+      lf += '\n';
+      i += 1;
+    } else {
+      lf += content[i] ?? '';
+    }
+  }
+  return { lf, starts };
+}
+
+function originalRange(
+  starts: number[],
+  contentLength: number,
+  start: number,
+  end: number
+): { start: number; end: number } {
+  return {
+    start: starts[start] ?? contentLength,
+    end: end >= starts.length ? contentLength : (starts[end] ?? contentLength),
+  };
+}
+
+function lineEndingForSpan(span: string): '\n' | '\r\n' | null {
+  let crlf = 0;
+  let lf = 0;
+  for (let i = 0; i < span.length; i += 1) {
+    if (span[i] === '\r' && span[i + 1] === '\n') {
+      crlf += 1;
+      i += 1;
+    } else if (span[i] === '\n') {
+      lf += 1;
+    }
+  }
+  if (crlf === 0 && lf === 0) return null;
+  return crlf >= lf ? '\r\n' : '\n';
+}
+
+function withSpanEnding(text: string, ending: '\n' | '\r\n' | null): string {
+  if (ending !== '\r\n') return text;
+  return text.replace(/\r?\n/g, '\r\n');
 }
 
 export const editFileTool: Tool = {
