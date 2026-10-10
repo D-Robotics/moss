@@ -36,6 +36,11 @@ export interface NudgeBuildContext {
   lastUserText: () => string;
   /** Build the injected correction message from a nudge correction string. */
   buildCorrectionMessage: (systemText: string) => Message;
+  /**
+   * When false, skip task-phase nudges (task-repair). Unset keeps them.
+   * Plain interactive Q&A sets this; headless benches leave it unset.
+   */
+  taskPhaseNudges?: boolean;
 }
 
 /**
@@ -375,24 +380,27 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
   // 14. Red task_acceptance verdict with no repair-path progress after it —
   // force the diagnose→repair→reverify loop (and, after a re-fail with a
   // repair on record, a DIFFERENT root-cause hypothesis instead of a repeat).
-  push(
-    runNudgeStep(
-      'task-repair',
-      ctx.buildCorrectionMessage,
-      {
-        get: () => state.taskRepairNudgeAttempts,
-        set: (v) => {
-          state.taskRepairNudgeAttempts = v;
+  // Plain Q&A turns do not get this nudge.
+  if (ctx.taskPhaseNudges !== false) {
+    push(
+      runNudgeStep(
+        'task-repair',
+        ctx.buildCorrectionMessage,
+        {
+          get: () => state.taskRepairNudgeAttempts,
+          set: (v) => {
+            state.taskRepairNudgeAttempts = v;
+          },
         },
-      },
-      () =>
-        evaluateTaskRepairNudge({
-          messages: currentMessages,
-          attempts: state.taskRepairNudgeAttempts,
-        }),
-      { resetOnResetAttempts: true }
-    )
-  );
+        () =>
+          evaluateTaskRepairNudge({
+            messages: currentMessages,
+            attempts: state.taskRepairNudgeAttempts,
+          }),
+        { resetOnResetAttempts: true }
+      )
+    );
+  }
 
   return out;
 }

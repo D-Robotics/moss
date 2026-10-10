@@ -381,6 +381,7 @@ export function runAgentLoop(
             currentMessages,
             lastUserText: lastUserTextForNudge,
             buildCorrectionMessage,
+            taskPhaseNudges: params.taskPhaseNudges,
           })) {
             state.pendingMessages.push(msg);
           }
@@ -507,6 +508,7 @@ export function runAgentLoop(
               previousPrefixSnapshot,
               previousToolNames,
               prefixDebugEnabled,
+              maxTurns,
             });
 
             previousPrefixSnapshot = ctxResult.updatedSnapshots.previousPrefixSnapshot;

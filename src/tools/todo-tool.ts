@@ -78,6 +78,7 @@ export const todoWriteTool: Tool = {
   metadata: {
     sideEffectClass: 'runtime_state',
     planMode: 'allow',
+    retainResult: true,
   },
   inputSchema: {
     type: 'object',

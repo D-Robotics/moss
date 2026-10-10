@@ -142,6 +142,11 @@ export interface AgentLoopExtensions {
    * buffering is actually required this turn (e.g. pending schema validation).
    */
   shouldBufferAssistantOutput?: () => boolean;
+  /**
+   * Plain Q&A (`taskFlow: false`) sets this false so task-repair nudges stay
+   * out of the turn. Unset keeps them — headless benches rely on that.
+   */
+  taskPhaseNudges?: boolean;
 }
 
 export interface AgentLoopDeps {

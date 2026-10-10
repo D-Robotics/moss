@@ -532,6 +532,9 @@ export class McpToolRegistry {
         'Find tools with the mcp__<server>__search meta-tool.',
       // No sideEffectClass: MCP tools are unknown external effects, so the
       // approval default (local_write) routes every call through approval.
+      // retainResult: documentation and other MCP payloads stay in full when
+      // older tool results are folded (rdk-docs search_docs / get_page included).
+      metadata: { retainResult: true },
       inputSchema: { type: 'object', properties: {} },
       execute: (input: Record<string, unknown>, ctx: ToolContext) =>
         this.executeRealTool(client, descriptor, tool, input, ctx),
@@ -629,6 +632,9 @@ export class McpToolRegistry {
         planMode: 'allow',
         permissionBoundary:
           'Reads the tool index of a connected MCP server; no server-side effects.',
+        // Search listings and server pages (search_docs, get_page, and every
+        // other MCP result) are the evidence the answer cites. Do not fold them.
+        retainResult: true,
       },
       inputSchema: declared.inputSchema,
       execute: async (input: { query?: string; refresh?: boolean }, ctx: ToolContext) => {

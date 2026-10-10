@@ -1379,9 +1379,14 @@ ${result.stderr ?? ''}`.trim();
     // Robotics loop P0-2/P0-9: hold the final answer until a defined task
     // contract has an acceptance verdict (blocks at most once per run, then
     // an honest FAIL report is allowed through). Runs before the host gate.
-    const acceptanceGate = createAcceptanceCompletionGate({
-      ...(this.config?.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
-    });
+    // The sticky ledger (not the raw taskFlow flag) decides task-phase nudges.
+    // A plain Q&A session never entered the ledger, so the gate stays quiet.
+    // Headless `-p` leaves taskFlow unset and the ledger stays visible.
+    const acceptanceGate = ledgerVisible
+      ? createAcceptanceCompletionGate({
+          ...(this.config?.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
+        })
+      : async () => ({ ok: true as const });
     const hostCompletionGate = this.config.completionGate;
     const completionGate: AgentLoopParams['completionGate'] = hostCompletionGate
       ? async (request) => {
@@ -1436,6 +1441,7 @@ ${result.stderr ?? ''}`.trim();
       maxLLMRetries: Math.max(0, Math.floor(this.config.maxLLMRetries ?? 2)),
       maxTurns,
       ...(options?.maxToolCalls !== undefined ? { maxToolCalls: options.maxToolCalls } : {}),
+      taskPhaseNudges: ledgerVisible,
       contextTokens,
       steeringEngine: this.steeringEngine ?? undefined,
       appendMessage: async (key, msg) => {
