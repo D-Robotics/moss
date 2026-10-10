@@ -606,6 +606,32 @@ try {
   assert.match(String(poisoned), /refusing to write \[REDACTED\]/);
   assert.equal(fs.readFileSync(path.join(project, 'idents.ts'), 'utf8'), source);
 
+  const pat = 'ci-pat-value-not-a-key-99';
+  const userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-egress-user-'));
+  const userConfigDir = path.join(userHome, 'config');
+  fs.mkdirSync(userConfigDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(userConfigDir, 'config.json'),
+    JSON.stringify({ apiKeyEnv: 'MY_CI_PAT' })
+  );
+  const projectOnly = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-egress-project-'));
+  fs.mkdirSync(path.join(projectOnly, '.moss'), { recursive: true });
+  fs.writeFileSync(
+    path.join(projectOnly, '.moss', 'config.json'),
+    JSON.stringify({ apiKeyEnv: 'MY_CI_PAT' })
+  );
+  const userEnv = { HOME: userHome, MOSS_CONFIG_DIR: userConfigDir, MY_CI_PAT: pat };
+  assert.equal(redactEgress(`token ${pat} end`, userEnv).includes(pat), false);
+  const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-egress-empty-'));
+  const projectEnv = { HOME: emptyHome, MY_CI_PAT: pat };
+  const previousCwd = process.cwd();
+  process.chdir(projectOnly);
+  try {
+    assert.equal(redactEgress(`token ${pat} end`, projectEnv).includes(pat), true);
+  } finally {
+    process.chdir(previousCwd);
+  }
+
   const userinfo = redactEgress('fetch https://user:p4ssw0rdXYZ@example.com/a');
   assert.match(userinfo, /https:\/\/user:\[REDACTED\]@example.com\/a/);
   assert.doesNotMatch(userinfo, /p4ssw0rdXYZ/);

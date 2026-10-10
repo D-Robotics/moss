@@ -29,6 +29,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { McpServerConfig, McpTransportKind } from '../core/mcp/types.js';
+import { isZhLocale } from './cli-locale.js';
+
+function mcpSkip(name: string, filePath: string, whyEn: string, whyZh: string): string {
+  return isZhLocale()
+    ? `[mcp] 跳过 ${filePath} 里的服务器「${name}」：${whyZh}`
+    : `[mcp] skipping server "${name}" in ${filePath}: ${whyEn}`;
+}
 
 const ENV_REF_RE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
@@ -117,18 +124,18 @@ function readServerMap(
   for (const [name, entry] of Object.entries(servers as Record<string, unknown>)) {
     if (!name.trim()) continue;
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-      onWarning?.(`[mcp] skipping server "${name}" in ${filePath}: entry must be an object`);
+      onWarning?.(mcpSkip(name, filePath, 'entry must be an object', '条目必须是对象'));
       continue;
     }
     const record = entry as Record<string, unknown>;
     const transport: McpTransportKind = record.transport === 'http' ? 'http' : 'stdio';
     if (transport === 'http' && typeof record.url !== 'string') {
-      onWarning?.(`[mcp] skipping server "${name}" in ${filePath}: http transport requires "url"`);
+      onWarning?.(mcpSkip(name, filePath, 'http transport requires "url"', 'http 传输需要 "url"'));
       continue;
     }
     if (transport === 'stdio' && typeof record.command !== 'string') {
       onWarning?.(
-        `[mcp] skipping server "${name}" in ${filePath}: stdio transport requires "command"`
+        mcpSkip(name, filePath, 'stdio transport requires "command"', 'stdio 传输需要 "command"')
       );
       continue;
     }

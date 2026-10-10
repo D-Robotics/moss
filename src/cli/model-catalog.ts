@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import { buildApiV1Url, isHttpUrl, stripEndpointSuffix } from '../provider/api-v1-url.js';
+import { closestModelName } from './first-run.js';
+import { isZhLocale } from './cli-locale.js';
 import { readCachedRealModel } from './model-resolution.js';
 import { readPreferredModel } from './preferred-model-store.js';
 import {
@@ -338,6 +340,45 @@ export async function autoSelectGatewayModel(
   return liveModels[0]!;
 }
 
+/** `/model name --custom` forces a name when the live list could not be checked. */
+export function splitModelCustomFlag(raw: string): { token: string; custom: boolean } {
+  const parts = raw.trim().split(/\s+/).filter(Boolean);
+  const custom = parts.includes('--custom');
+  return { token: parts.filter((part) => part !== '--custom').join(' '), custom };
+}
+
+/**
+ * Reject a name that is not on a live list, and a name we could not check
+ * because the list failed to load. `--custom` is the explicit confirmation.
+ */
+export function unavailableModelNote(
+  token: string,
+  list: ModelChoiceList | undefined,
+  locale?: string,
+  options?: { custom?: boolean }
+): string | undefined {
+  if (options?.custom) return undefined;
+  if (list && resolveModelSelection(token, list.choices)) return undefined;
+  const zh = isZhLocale(locale);
+  if (!list || list.source !== 'live') {
+    return zh
+      ? `暂时核对不了模型列表，不能确认「${token}」是否存在。若仍要使用，请再运行 /model ${token} --custom。`
+      : `The model list could not be checked, so "${token}" was not applied. Run /model ${token} --custom to use it anyway.`;
+  }
+  const suggested = closestModelName(
+    token,
+    list.choices.map((choice) => choice.model)
+  );
+  if (zh) {
+    return suggested
+      ? `「${token}」不在模型列表里。最接近的是 ${suggested}。`
+      : `「${token}」不在模型列表里。请换一个列表中的名字。`;
+  }
+  return suggested
+    ? `"${token}" is not in the model list. Closest match: ${suggested}.`
+    : `"${token}" is not in the model list. Pick one of the listed models.`;
+}
+
 export function resolveModelSelection(
   input: string,
   choices: readonly ModelChoice[]
@@ -390,7 +431,8 @@ export function formatModelChoices(list: ModelChoiceList): string {
     '',
     'Use:',
     '  /model <number>        choose one of the models above',
-    '  /model <model-name>    use a custom model name for this session',
+    '  /model <model-name>    use a name from the list above',
+    '  /model <name> --custom use that name when the list could not be checked',
     '  /model config base_url=<url> key=<api-key> model_name=<model>',
     '  moss setup             change provider, base URL, or API key'
   );

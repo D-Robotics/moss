@@ -165,7 +165,7 @@ assert.deepEqual(
   const providerBefore = agent.config.llmProvider;
   const { instance, handle } = mount({ agent, workspaceDir: '/tmp/ws', model: 'spec-model' });
   await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
-  await type(instance, '/model spec-two');
+  await type(instance, '/model spec-two --custom');
   const switched = await waitFor(() => allText(handle).includes('spec-two'));
   assert.ok(switched, `/model answered: ${JSON.stringify(allText(handle).slice(-200))}`);
   assert.equal(agent.config.model, 'spec-two', 'the session model really changed');

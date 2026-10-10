@@ -236,7 +236,7 @@ function readOptInStore(configDir: string): Record<string, boolean> {
 }
 
 function writeOptInStore(configDir: string, store: Record<string, boolean>): void {
-  fs.mkdirSync(configDir, { recursive: true });
+  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(configDir, OPT_IN_FILE), `${JSON.stringify(store, null, 2)}\n`);
 }
 

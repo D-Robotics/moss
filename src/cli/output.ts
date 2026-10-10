@@ -161,6 +161,38 @@ export function resolveCliDetailMode(
   return 'progress';
 }
 
+/** Break a long error line on spaces. A token wider than `width` is cut. */
+export function wrapCliErrorLine(line: string, width: number): string[] {
+  if (line.length <= width) return [line];
+  const parts: string[] = [];
+  let rest = line;
+  while (rest.length > width) {
+    const cutAt = rest.lastIndexOf(' ', width);
+    const cut = cutAt > 0 ? cutAt : width;
+    const piece = rest.slice(0, cut).trimEnd();
+    if (piece) parts.push(piece);
+    const next = rest.slice(cut).trimStart();
+    if (next === rest) break;
+    rest = next;
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
+/**
+ * `-p` errors. A redirected stdout is not a terminal, so the line stays intact.
+ * A TTY wraps on word boundaries.
+ */
+export function formatCliErrorLines(
+  text: string,
+  options: { tty: boolean; columns?: number }
+): string[] {
+  const lines = text.split('\n');
+  if (!options.tty) return lines;
+  const width = Math.max(40, options.columns || 100);
+  return lines.flatMap((line) => wrapCliErrorLine(line, width));
+}
+
 export function summarizeForCli(value: unknown, maxChars = 280): string {
   const redacted = redactSensitiveData(value, { skipFileContentHeuristic: true });
   const raw =
@@ -896,19 +928,37 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         state.answerStarted = false;
         if (!isQuiet) {
           spinner?.stop();
-          stderrLine(ui.dim(`retrying (attempt ${(event as { attempt: number }).attempt})…`));
+          stderrLine(
+            ui.dim(
+              isZhLocale()
+                ? `重试（第 ${(event as { attempt: number }).attempt} 次）…`
+                : `retrying (attempt ${(event as { attempt: number }).attempt})…`
+            )
+          );
         }
         break;
       }
       case 'error': {
-        const text = summarizeForCli(event.error, 400);
+        const surfaceText = event.errorSurface?.userMessage?.trim();
+        const raw = surfaceText || (typeof event.error === 'string' ? event.error : '');
+        const text = raw.includes('\n')
+          ? raw
+          : summarizeForCli(surfaceText ? raw : event.error, 4000);
         if (isUserAbortErrorText(text)) {
           noteInterrupt();
           break;
         }
         spinner?.stop();
         breakAnswerForStatus();
-        stderrLine(`${mark('fail')} error ${event.retriable ? 'retryable ' : ''}${text}`);
+        const stdoutStream = stdout as { isTTY?: boolean; columns?: number };
+        const lines = formatCliErrorLines(text, {
+          tty: Boolean(stdoutStream.isTTY),
+          ...(stdoutStream.columns ? { columns: stdoutStream.columns } : {}),
+        });
+        const prefix = isZhLocale() ? '错误：' : 'Error: ';
+        const first = lines[0] ?? '';
+        stderrLine(first.startsWith(prefix) ? first : `${prefix}${first}`);
+        for (const extra of lines.slice(1)) stderrLine(extra);
         break;
       }
       case 'done': {

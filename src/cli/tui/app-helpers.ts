@@ -23,6 +23,7 @@ import {
 import { resolveCliConfig, type ResolvedCliConfig } from '../config.js';
 import type { CliInteractionMode } from '../interaction-mode.js';
 import { slashAliasHelpLines } from '../interactive-commands.js';
+import type { FirstRunSaved } from '../first-run.js';
 import type { CliRuntimeStatus } from '../onboarding.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
 import { isTuiZh, tui } from './copy.js';
@@ -150,6 +151,13 @@ export interface TuiAppOptions {
    * stays on disk for `moss --continue`.
    */
   onNewSession?: (sessionKey: string) => void;
+  /**
+   * No usable model config. The shell opens inline setup before the first
+   * prompt instead of telling the user to run another command.
+   */
+  firstRun?: boolean;
+  /** Host refreshes the live CLI config after setup saves a key. */
+  onFirstRunReady?: (saved: FirstRunSaved & { apiKey: string }) => void;
 }
 
 /**
@@ -332,8 +340,8 @@ export function questionDialogFromPrompt(promptText: string): {
 /** `/status` → `Status`: the canonical title of a command's inline block. */
 export function commandBlockTitle(head: string): string {
   const name = head.trim().replace(/^\//, '');
-  if (!name) return 'Command';
-  return name.charAt(0).toUpperCase() + name.slice(1);
+  if (!name) return tui('Command');
+  return tui(name.charAt(0).toUpperCase() + name.slice(1));
 }
 
 const COMMON_HELP_COMMANDS = [

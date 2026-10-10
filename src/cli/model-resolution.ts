@@ -56,7 +56,7 @@ function writeCachedModel(
   try {
     const file = readCacheFile(env);
     file[key] = { model, resolvedAt: Date.now() };
-    fs.mkdirSync(resolveConfigDir(env), { recursive: true });
+    fs.mkdirSync(resolveConfigDir(env), { recursive: true, mode: 0o700 });
     fs.writeFileSync(cachePath(env), JSON.stringify(file, null, 2));
   } catch {}
 }

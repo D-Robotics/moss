@@ -42,6 +42,19 @@ export function providerErrorHint(status: number): string {
   return '';
 }
 
+/** Gateway text that names a model the key cannot call. A 403 of this shape is not an API-key failure. */
+export function isModelAccessText(text: string): boolean {
+  return /tried to access|model[^\n]{0,120}(not found|does not exist|unknown|unsupported|no such|not available)|invalid model|no access to (?:the )?model|does not have access to/i.test(
+    text
+  );
+}
+
+const MODEL_ACCESS_HINT =
+  ' — this model name is not available on the gateway. Run `/model` to pick one from the list, or `moss setup` to reconfigure.';
+
+/** Keep a normal gateway message intact. Only pathological bodies are cut. */
+const PROVIDER_ERROR_DETAIL_CAP = 8000;
+
 /**
  * Extract a supported-models list from an error response body.
  * Many gateways return something like:
@@ -84,12 +97,15 @@ export function providerError(provider: string, status: number, text: string): M
       supportedModelsSuffix = `\n  Supported models: ${list}`;
     }
   }
-  // Allow more text for 400 (to preserve model lists); keep 300 for others.
-  const maxLen = status === 400 ? 600 : 300;
-  if (detail.length > maxLen) detail = `${detail.slice(0, maxLen)}…`;
-  const hint = providerErrorHint(status);
-  const code =
-    status === 401 || status === 403
+  if (detail.length > PROVIDER_ERROR_DETAIL_CAP) {
+    detail = `${detail.slice(0, PROVIDER_ERROR_DETAIL_CAP)}…`;
+  }
+  const modelProblem =
+    status !== 401 && (status === 404 || status === 400 || isModelAccessText(detail));
+  const hint = modelProblem ? MODEL_ACCESS_HINT : providerErrorHint(status);
+  const code = modelProblem
+    ? ErrorCode.PROVIDER_UPSTREAM_ERROR
+    : status === 401 || status === 403
       ? ErrorCode.PROVIDER_AUTH_FAILED
       : status === 429
         ? ErrorCode.PROVIDER_RATE_LIMITED
@@ -104,25 +120,49 @@ export function providerError(provider: string, status: number, text: string): M
 
 // ─── shared SSE line reader ──────────────────────────────────────────────────
 
+function looksLikeLoginPage(text: string): boolean {
+  return /<!doctype\s+html|<html[\s>]|<head[\s>]|captive portal|proxy login|web authentication/i.test(
+    text
+  );
+}
+
 async function* sseDataLines(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let raw = '';
+  let yielded = false;
+  const keep = (chunk: string): void => {
+    if (raw.length >= 8000) return;
+    raw += chunk.slice(0, 8000 - raw.length);
+  };
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+      const decoded = decoder.decode(value, { stream: true });
+      keep(decoded);
+      buffer += decoded;
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
       for (const line of lines) {
         const trimmed = line.trim();
-        if (trimmed.startsWith('data:')) yield trimmed.slice(5).trim();
+        if (!trimmed.startsWith('data:')) continue;
+        yielded = true;
+        yield trimmed.slice(5).trim();
       }
     }
-    buffer += decoder.decode();
+    const tail = decoder.decode();
+    keep(tail);
+    buffer += tail;
     const trimmed = buffer.trim();
-    if (trimmed.startsWith('data:')) yield trimmed.slice(5).trim();
+    if (trimmed.startsWith('data:')) {
+      yielded = true;
+      yield trimmed.slice(5).trim();
+    }
+    if (!yielded && looksLikeLoginPage(raw)) {
+      throw new Error(raw);
+    }
   } finally {
     reader.cancel().catch(() => {});
   }
@@ -497,6 +537,10 @@ async function* streamOpenAiChat(
   if (!contentType.includes('text/event-stream') && contentType.includes('application/json')) {
     yield* parseOpenAiBuffered(res);
     return;
+  }
+  if (/text\/html/i.test(contentType)) {
+    const page = (await res.text()).slice(0, 8000);
+    throw new Error(page);
   }
 
   if (!res.body) {

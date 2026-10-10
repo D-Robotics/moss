@@ -63,6 +63,14 @@ const denied = [
   'npm_config_node_options',
   'PATH',
   'SHELL',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+  'DEEPSEEK_BASE_URL',
+  'DEEPSEEK_API_BASE',
+  'DASHSCOPE_BASE_URL',
+  'DASHSCOPE_API_BASE',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_API_BASE',
 ];
 const allowed = ['NODE_DEBUG', 'HOME', 'FOO', 'npm_config', 'GIT', 'MY_GIT_CONFIG', 'LD_DEBUG'];
 for (const key of denied) assert.equal(isDotenvDeniedEnvKey(key), true, key);

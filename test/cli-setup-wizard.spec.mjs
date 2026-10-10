@@ -53,7 +53,7 @@ function runSetupHelp(args) {
   return spawnSync(process.execPath, [path.join(repoRoot, 'dist', 'cli.js'), ...args], {
     encoding: 'utf8',
     timeout: 20_000,
-    env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
+    env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', LC_ALL: 'C', LANG: 'C' },
   });
 }
 
