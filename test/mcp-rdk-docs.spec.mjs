@@ -73,7 +73,7 @@ test('builtin rdk-docs uses one pinned default and hardened npx arguments', () =
   assert.ok(config.cwd?.includes(`${path.sep}.moss${path.sep}cache${path.sep}npx${path.sep}`));
   assert.equal(DEFAULT_RDK_DOCS_MCP_PACKAGE, 'rdk-docs-mcp@0.3.0');
   assert.deepEqual(resolveMcpClientTimeouts(config), {
-    connectTimeoutMs: 45_000,
+    connectTimeoutMs: 15_000,
     requestTimeoutMs: 20_000,
   });
   assert.deepEqual(resolveMcpClientTimeouts({ name: 'other', transport: 'stdio' }), {

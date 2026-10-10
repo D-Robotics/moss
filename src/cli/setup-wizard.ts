@@ -19,6 +19,7 @@ import {
 } from './config.js';
 import { configSnapshotLines } from './config-snapshot.js';
 import {
+  ENGLISH_UI_OFFER,
   formatUiLanguageLine,
   setSessionUiLanguage,
   shouldOfferEnglishUi,
@@ -133,14 +134,14 @@ export function renderSetupHelp(zh: boolean = isZhLocale()): string {
       }
       if (item.id === 'd-robotics') {
         return zh
-          ? `  ${item.key}  d-robotics          D-Robotics 地瓜网关（只问 key）`
+          ? `  ${item.key}  d-robotics          D-Robotics 地瓜网关（只问密钥）`
           : `  ${item.key}  d-robotics          D-Robotics gateway (asks only for the key)`;
       }
       return `  ${item.key}  ${item.id}`;
     }),
     '',
     zh
-      ? '连接测试失败时不会写入配置。认证失败后回到隐藏的 API key；仍然保存是单独的 y/N，不会回显 key。'
+      ? '连接测试失败时不会写入配置。认证失败后回到隐藏的 API key；仍然保存是单独的 y/N，不会回显密钥。'
       : 'A failed connection check does not write the config. After an auth error the next prompt is the hidden API key. Save anyway is a separate y/N and never echoes a key.',
     zh ? '以后用 `moss config` 修改。' : 'Change a saved value later with `moss config`.',
     '',
@@ -151,7 +152,9 @@ export function renderSetupHelp(zh: boolean = isZhLocale()): string {
     '',
     zh ? '示例：' : 'Examples:',
     '  moss setup',
-    "  printf 'openai-compatible\\nhttps://gateway.example\\nYOUR_KEY\\nmy-model\\n' | moss setup",
+    zh
+      ? "  `printf 'openai-compatible\\nhttps://gateway.example\\nYOUR_KEY\\nmy-model\\n' | moss setup`"
+      : "  printf 'openai-compatible\\nhttps://gateway.example\\nYOUR_KEY\\nmy-model\\n' | moss setup",
   ].join('\n');
 }
 
@@ -435,12 +438,12 @@ export async function offerEnglishUiIfNeeded(): Promise<void> {
   ) {
     return;
   }
-  const key = await readOneKey('界面语言：中文。按 e 切换为 English，其他键继续。');
+  const key = await readOneKey(ENGLISH_UI_OFFER);
   if (key === 'e' || key === 'E') {
     writeUserLanguageSetting('en');
     setSessionUiLanguage('en');
     setTuiLocale(false);
-    print(uiText('UI language: English.', '界面语言：English。'));
+    print(uiText('UI language: English.', '界面语言：英语。'));
     return;
   }
   writeUserLanguageSetting('auto');

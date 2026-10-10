@@ -15,6 +15,15 @@ function L(en: string, vars?: Record<string, string | number>): string {
   return setupCopy(undefined, en, vars);
 }
 
+/** Exit-3 text when config names an env var that is not set. Names the var, never a key. */
+export function formatUnsetApiKeyEnv(name: string): string {
+  return [
+    'Moss needs a model configuration before it can run.',
+    `${name} is not set.`,
+    `Set it with: export ${name}='your-key'`,
+  ].join('\n');
+}
+
 function officialOffers(offers: readonly DetectedCredential[]): DetectedCredential[] {
   return offers.filter((offer) => offerUsesOfficialHost(offer));
 }

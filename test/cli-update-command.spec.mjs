@@ -30,13 +30,9 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
 {
   assert.equal(pkg.name, '@rdk-moss/agent');
   assert.equal(pkg.private, true);
-  assert.equal(typeof pkg.bin.moss, 'string');
-  const binPath = pkg.bin.moss.replaceAll('\\', '/');
-  assert.ok(fs.existsSync(path.join(repoRoot, binPath)), binPath);
-  assert.ok(
-    pkg.files.some((entry) => entry === binPath || binPath.startsWith(`${entry}/`)),
-    `files must include the bin path ${binPath}`
-  );
+  assert.equal(pkg.bin.moss, 'bin/moss.cjs');
+  assert.ok(fs.existsSync(path.join(repoRoot, pkg.bin.moss)), pkg.bin.moss);
+  assert.ok(pkg.files.includes('bin'), 'files must include the bin directory');
   assert.equal(pkg.engines.node, '>=22.16.0');
   assert.equal(pkg.scripts.preinstall, 'node scripts/check-node-version.cjs');
   assert.ok(pkg.files.includes('scripts/check-node-version.cjs'));

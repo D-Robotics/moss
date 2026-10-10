@@ -206,6 +206,20 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   assert.match(out, /block/i, 'dangerous command is blocked by the safety gate');
 }
 
+async function stopAndConfirmGone(out, stopCtx, label) {
+  const id = extractBgId(out);
+  assert.ok(id, `${label}: no background id in ${out}`);
+  const pid = Number(out.match(/pid (\d+)/)?.[1]);
+  await execStopTool.execute({ id }, stopCtx);
+  if (Number.isFinite(pid) && pid > 0) {
+    assert.equal(
+      await waitForProcessExit(pid, 5000),
+      true,
+      `${label}: pid ${pid} survived exec_stop`
+    );
+  }
+}
+
 // ─── 6. /goal waits only when this run injected goalExecWait ──────────────
 {
   clearBackgroundRegistryForTests();
@@ -224,10 +238,9 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   const idleStarted = Date.now();
   const idle = await execBackgroundTool.execute({ command: `node ${quote(sleepScript)}` }, diskCtx);
   const idleElapsed = Date.now() - idleStarted;
-  const idleId = extractBgId(idle);
   assert.match(idle, /Still running after/, 'a diagnosing task on disk does not make exec wait');
   assert.ok(idleElapsed < 1700, `no wait outside /goal, elapsed ${idleElapsed}`);
-  if (idleId) await execStopTool.execute({ id: idleId }, diskCtx);
+  await stopAndConfirmGone(idle, diskCtx, 'idle');
 
   const goalStarted = Date.now();
   const waited = await execTool.execute({ command, run_in_background: true }, goalCtx);
@@ -242,13 +255,12 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
     goalCtx
   );
   const optOutElapsed = Date.now() - optOutStarted;
-  const optOutId = extractBgId(optedOut);
   assert.match(optedOut, /Still running after/, `wait:false returns fast: ${optedOut}`);
   assert.ok(
     optOutElapsed < 1700,
     `dev server with wait:false returns fast, elapsed ${optOutElapsed}`
   );
-  if (optOutId) await execStopTool.execute({ id: optOutId }, goalCtx);
+  await stopAndConfirmGone(optedOut, goalCtx, 'wait:false');
 
   const settleStarted = Date.now();
   const settled = await execTool.execute(
@@ -256,20 +268,28 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
     goalCtx
   );
   const settleElapsed = Date.now() - settleStarted;
-  const settleId = extractBgId(settled);
   assert.match(settled, /Still running after/, `explicit settle_ms stays backgrounded: ${settled}`);
   assert.ok(settleElapsed < 1000, `settle_ms during a goal returns fast, elapsed ${settleElapsed}`);
-  if (settleId) await execStopTool.execute({ id: settleId }, goalCtx);
+  await stopAndConfirmGone(settled, goalCtx, 'settle_ms');
 
   const capStarted = Date.now();
   const capped = await execBackgroundTool.execute({ command, timeout_ms: 300 }, goalCtx);
   const capElapsed = Date.now() - capStarted;
-  const capId = extractBgId(capped);
   assert.match(capped, /exec_wait/, `timeout tells the model how to await: ${capped}`);
   assert.match(capped, /Still running after/, `timeout still returns a handle: ${capped}`);
   assert.ok(capElapsed < 1000, `timeout_ms bounds the wait, elapsed ${capElapsed}`);
-  if (capId) await execStopTool.execute({ id: capId }, goalCtx);
-  fs.rmSync(ws, { recursive: true, force: true });
+  await stopAndConfirmGone(capped, goalCtx, 'timeout_ms cap');
+  // Windows can still hold the stopped child's handles on ws for a moment
+  // (EBUSY or EPERM); rmSync's maxRetries does not cover EPERM.
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      fs.rmSync(ws, { recursive: true, force: true });
+      break;
+    } catch (error) {
+      if (attempt >= 25 || !['EBUSY', 'EPERM'].includes(error?.code)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
 }
 
 // ─── 7. Esc during a goal wait kills the command immediately ───────────────

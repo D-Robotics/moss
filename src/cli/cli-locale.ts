@@ -54,53 +54,53 @@ export function cliLocale(): string | undefined {
   return systemLocale();
 }
 
-const SETUP_ZH: Readonly<Record<string, string>> = {
+export const SETUP_ZH: Readonly<Record<string, string>> = {
   'Moss setup': 'Moss 设置',
   ' or ': ' 或 ',
   'About a minute. A pasted key is stored in the config file (mode 0600). Set apiKeyEnv to a variable name to keep the key out of that file.':
-    '大约一分钟。粘贴的 key 存在配置文件里（权限 0600）。把 apiKeyEnv 设成变量名就不会写入文件。',
+    '大约一分钟。粘贴的密钥存在配置文件里（权限 0600）。把 `apiKeyEnv` 设成变量名就不会写入文件。',
   'That number is not in the list.': '序号不在列表里。',
   '"{text}" is not in the list. Closest match: {suggested}. Type its number, or press Enter to use {suggested}.':
-    '「{text}」不在列表里。最接近的是 {suggested}。输入它的序号，或按 Enter 使用 {suggested}。',
+    '「{text}」不在列表里。最接近的是 {suggested}。输入它的序号，或按 回车 使用 {suggested}。',
   '"{text}" is not in the list. Pick one of the numbered models.':
     '「{text}」不在列表里。请选一个有序号的模型。',
   'Pick 1–6 or a provider name.': '请输入 1–6 或服务商名称。',
   'Base URL must be a full http(s) URL.': '地址必须是完整的 http(s) URL。',
   'Base URL saved as {baseUrl} (/v1 and extra paths removed).':
     '地址已规范为 {baseUrl}（已去掉 /v1 和多余路径）。',
-  'An API key is required.': '需要填写 API key。',
+  'An API key is required.': '需要填写密钥。',
   'Type a model name or its number.': '请输入模型名或序号。',
   'No models were listed. Type the model name.': '网关没有返回模型。请直接输入模型名。',
   'A key is already in the environment. Press Enter to use it (the value is not shown).':
-    '环境里已经有 key。按 Enter 使用（不会显示内容）。',
+    '环境里已经有密钥。按 回车 使用（不会显示内容）。',
   'A key is already in the environment. Press its number to use that host (the value is not shown). Enter chooses a provider.':
-    '环境里已经有 key。按数字使用那个地址（不会显示内容）。Enter 改为选择服务商。',
+    '环境里已经有密钥。按数字使用那个地址（不会显示内容）。回车 改为选择服务商。',
   'n  choose a provider instead': 'n  改为选择服务商',
   'Choose a provider. Press its number.': '选择服务商，按数字。',
   'Gateway URL (https://host). A trailing /v1 is removed.':
     '网关地址（https://主机）。末尾的 /v1 会被去掉。',
   'Esc returns to the provider list.': 'Esc 返回选择服务商。',
-  'API key (hidden): {dots}': 'API key（不显示）：{dots}',
+  'API key (hidden): {dots}': '密钥（不显示）：{dots}',
   'Esc goes back one step.': 'Esc 返回上一步。',
-  'Type the model name, then Enter.': '输入模型名，然后按 Enter。',
+  'Type the model name, then Enter.': '输入模型名，然后按 回车。',
   'Pick a model by number or name ({count} listed).': '用序号或名字选择模型（共 {count} 个）。',
   'Fetching the model list…': '正在获取模型列表…',
   'Testing the connection (1 token)…': '正在测试连接（1 token）…',
   'Esc returns to the URL.': 'Esc 返回修改地址。',
-  'Esc returns to the key.': 'Esc 返回修改 key。',
+  'Esc returns to the key.': 'Esc 返回修改密钥。',
   'Esc picks a provider again.': 'Esc 重新选择服务商。',
   'Enter retries. {back} Type "save anyway" or press 1 to write this config.':
-    'Enter 重试。{back}输入「仍然保存」或按 1 则写入配置。',
+    '回车 重试。{back}输入「仍然保存」或按 1 则写入配置。',
   '{back} Type "save anyway" or press 1 to write this config. Enter goes back.':
-    '{back}输入「仍然保存」或按 1 写入配置。Enter 返回。',
+    '{back}输入「仍然保存」或按 1 写入配置。回车 返回。',
   'save anyway': '仍然保存',
   'Save this config anyway? [y/N] ': '仍然保存？[y/N] ',
   'Model name: ': '模型名：',
   'The gateway returned HTTP {status} without a model reply. Check the base URL.':
     '网关返回 HTTP {status}，但没有模型回复。请检查地址。',
-  'Connected — {model} replied in {latencyMs}ms.': '已连通 — {model} 在 {latencyMs}ms 内有回复。',
+  'Connected — {model} replied in {latencyMs}ms.': '已连通 — {model} 在 {latencyMs} 毫秒内有回复。',
   'Moss model setup': 'Moss 模型配置',
-  'Choose provider:': '选择提供方：',
+  'Choose provider:': '选择服务商：',
   ' (recommended)': '（推荐）',
   'Saved. Pick a model with /model before the first prompt.':
     '已保存。第一次提问前用 /model 选一个模型。',
@@ -109,14 +109,14 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   'Saved {name} · model not set — pick one inside moss with /model → {path}':
     '已保存 {name} · 尚未选择模型 — 在 moss 里用 /model 选择 → {path}',
   'Security note: a pasted key is stored in the config file (mode 0600). Set apiKeyEnv to a variable name to keep the key out of that file.':
-    '安全说明：粘贴的 key 存在配置文件里（权限 0600）。把 apiKeyEnv 设成变量名就不会写入文件。',
+    '安全说明：粘贴的密钥存在配置文件里（权限 0600）。把 `apiKeyEnv` 设成变量名就不会写入文件。',
   'Avoid sharing or committing this file. Run `moss auth logout` to remove the key.':
-    '不要分享或提交这个文件。运行 `moss auth logout` 可以删掉 key。',
+    '不要分享或提交这个文件。运行 `moss auth logout` 可以删掉密钥。',
   'Next: ask moss to look around this folder (`moss` or `moss "explain this project"`).':
     '下一步：让 moss 看看这个目录（运行 `moss`，或 `moss "介绍一下这个项目"`）。',
   [WORKSPACE_WRITE_LIMIT_EN]: WORKSPACE_WRITE_LIMIT_ZH,
   '{names} is set. Run `moss` and press Enter to use it (the value is not printed).':
-    '已设置 {names}。运行 `moss` 并按 Enter 使用（不会打印内容）。',
+    '已设置 {names}。运行 `moss` 并按 回车 使用（不会打印内容）。',
   'Moss needs a model configuration before it can run.': 'Moss 需要先配好模型才能运行。',
   'Note: the built-in model gateway is disabled because {reason} already sets model settings — remove them (moss config unset provider|model|baseUrl) or add an API key.':
     '注意：内置模型网关已关闭，因为 {reason} 已经写了模型设置 — 删掉它们（moss config unset provider|model|baseUrl）或补上 API key。',
@@ -127,30 +127,30 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   'Finish setup, then ask moss to look around this folder.': '完成设置后，让 moss 看看这个目录。',
   'Configure a model, then retry your command.': '配好模型后再重试这条命令。',
   'Found {label}. Press Enter to use it, or n to choose a provider. The value is not shown.':
-    '发现 {label}。按 Enter 使用，或输入 n 选择服务商。不会显示内容。',
+    '发现 {label}。按 回车 使用，或输入 n 选择服务商。不会显示内容。',
   'Use it? [Y/n] ': '使用它？[Y/n] ',
   'Saved → {path}': '已保存 → {path}',
-  'That key did not connect. Starting provider setup.': '这个 key 没连上。改为选择服务商。',
+  'That key did not connect. Starting provider setup.': '这个密钥没连上。改为选择服务商。',
   'Start setup now? [Y/n] ': '现在开始设置？[Y/n] ',
   'Setup skipped. Run `moss` when you are ready.': '已跳过设置。准备好后运行 `moss`。',
   '[moss] No model configured yet.': '[moss] 还没有配置模型。',
   '  {names} is set. Run `moss` and press Enter to use it (the value is not printed).':
-    '  已设置 {names}。运行 `moss` 并按 Enter 使用（不会打印内容）。',
+    '  已设置 {names}。运行 `moss` 并按 回车 使用（不会打印内容）。',
   '{names} is set for {host}. Run `moss` and press its number to use that host. Enter will not send the key there.':
-    '{names} 已设置，地址是 {host}。运行 `moss` 并按数字使用该地址。Enter 不会把 key 发到那里。',
+    '{names} 已设置，地址是 {host}。运行 `moss` 并按数字使用该地址。回车 不会把密钥发到那里。',
   '  {names} is set for {host}. Run `moss` and press its number to use that host. Enter will not send the key there.':
-    '  {names} 已设置，地址是 {host}。运行 `moss` 并按数字使用该地址。Enter 不会把 key 发到那里。',
+    '  {names} 已设置，地址是 {host}。运行 `moss` 并按数字使用该地址。回车 不会把密钥发到那里。',
   '  (This hint appears only once.)': '  （此提示只显示一次。）',
   '  Run `moss` to set up a provider, model, and API key.':
     '  运行 `moss` 设置服务商、模型和 API key。',
   'built-in gateway (no API key needed)': '内置网关（不需要 API key）',
-  'built-in, shared gateway key': '内置共享网关 key',
+  'built-in, shared gateway key': '内置共享网关密钥',
   'from {name} (not stored)': '来自 {name}（未写入配置）',
   'stored in config file (0600)': '已存入配置文件（0600）',
   'plain text': '明文',
   'configured ({detail})': '已配置（{detail}）',
   'missing API key. Fix: run `moss` and press Enter to use {names} (the value is not printed).':
-    '缺少 API key。修复：运行 `moss` 并按 Enter 使用 {names}（不会打印内容）。',
+    '缺少 API key。修复：运行 `moss` 并按 回车 使用 {names}（不会打印内容）。',
   'missing API key. Fix: run `moss` and finish setup, or run `moss setup`.':
     '缺少 API key。修复：运行 `moss` 完成设置，或运行 `moss setup`。',
   'missing. Fix: run `moss setup`, or `moss config set baseUrl https://host`.':
@@ -166,9 +166,9 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   '{names} is not read. Fix: `moss config set provider <name>`, `moss config set model <name>`, or `moss config set baseUrl <url>`.':
     '{names} 不会被读取。修复：`moss config set provider <名称>`、`moss config set model <名称>` 或 `moss config set baseUrl <地址>`。',
   '[config] not reading {names}. Fix: `moss config set provider <name>` (these MOSS_* variables are not read). using {provider} / {model}.':
-    '[config] 不读取环境变量 {names}。修复：用 moss config set 写入（例如 moss config set provider deepseek）。当前是 {provider} / {model}。',
+    '[配置] 不读取环境变量 {names}。修复：用 moss config set 写入（例如 moss config set provider deepseek）。当前是 {provider} / {model}。',
   '[moss] No API key configured. Run `moss` to set one up (a key already in the environment is offered there; the value is not printed).':
-    '[moss] 还没有 API key。运行 `moss` 进行设置（环境里已有的 key 会在那里提供，内容不会显示）。',
+    '[moss] 还没有 API key。运行 `moss` 进行设置（环境里已有的密钥会在那里提供，内容不会显示）。',
   '[moss] sending "{text}" to the model...': '[moss] 正在把「{text}」发给模型…',
   '[moss] --print requires a prompt argument or non-empty piped stdin':
     '[moss] --print 需要一段提示，或非空的管道输入',
@@ -196,6 +196,33 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   '  2. If the problem persists, report it to the Moss maintainers with the details below.':
     '  2. 如果问题还在，把下面的细节发给 Moss 维护者。',
   'Technical details (for bug reports):': '技术细节（用于 bug 报告）：',
+  'Refusing to delete config: {path} is the home directory.': '拒绝删除配置：{path} 是主目录。',
+  'Refusing to delete config: {path} is the filesystem root.':
+    '拒绝删除配置：{path} 是文件系统根目录。',
+  'Refusing to delete config: {path} is the current directory.':
+    '拒绝删除配置：{path} 是当前目录。',
+  'Refusing to delete config: {path} is a parent of the home directory.':
+    '拒绝删除配置：{path} 是主目录的上级目录。',
+  'Refusing to delete config: {path} is a parent of the current directory.':
+    '拒绝删除配置：{path} 是当前目录的上级目录。',
+  'Refusing to delete config: {path} is not a directory.': '拒绝删除配置：{path} 不是目录。',
+  'Refusing to delete config: {path} is not a Moss config directory.':
+    '拒绝删除配置：{path} 不是 Moss 配置目录。',
+  'Refusing to delete config: {path} is not a Moss config directory (unexpected: {names}).':
+    '拒绝删除配置：{path} 不是 Moss 配置目录（有意外内容：{names}）。',
+  'Refusing to delete config: {path} is not a Moss config directory (no Moss config files).':
+    '拒绝删除配置：{path} 不是 Moss 配置目录（没有 Moss 配置文件）。',
+  'Config directory is not present: {path}': '配置目录不存在：{path}',
+  'Will delete:': '将删除：',
+  'Kept config: {path} (re-run in a terminal to confirm deletion).':
+    '已保留配置：{path}（在终端里重新运行以确认删除）。',
+  'Delete these files in {path}? [y/N] ': '删除 {path} 里的这些文件？[y/N] ',
+  'Kept config: {path}': '已保留配置：{path}',
+  'Could not delete config: {path}': '无法删除配置：{path}',
+  'Deleted config: {path}': '已删除配置：{path}',
+  '[moss] Multiple provider keys are set: {names}.': '[moss] 设置了多个服务商 key：{names}。',
+  '[moss] Pass --provider <name> to choose one.': '[moss] 请用 --provider <名称> 指定一个。',
+  '[moss] Using {key} → {provider} @ {baseUrl}': '[moss] 使用 {key} → {provider} @ {baseUrl}',
 };
 
 /** Localized setup, doctor, and startup copy. English is the key. */
@@ -230,22 +257,26 @@ export function uiText(en: string, zh: string): string {
  * Precedence: `--lang` > `MOSS_LANG` > user config `language` > system locale.
  * `MOSS_LANG` and the system locale are read from the environment captured
  * before a project `.env` is applied. An invalid `MOSS_LANG` warns once and
- * falls through to auto so it does not break every command; `--lang` still
- * wins. An invalid config `language` warns and is treated as `auto`.
- * Returns an error message only for an invalid `--lang` that reached here.
+ * falls through to auto so it does not break every command; `MOSS_LANG=auto`
+ * is valid and means the same fall-through. `--lang` still wins. An invalid
+ * config `language` warns and is treated as `auto`. The warning is printed
+ * in the resolved UI language, not the system locale. Returns an error
+ * message only for an invalid `--lang` that reached here.
  */
 export function installCliUiLanguage(options: { flag?: string } = {}): string | undefined {
   const env = envBeforeDotenv;
   let envLang = env.MOSS_LANG;
-  const warnings: string[] = [];
-  const systemIsZh = uiLanguageFromSystemLocale(systemLocale(env)) === 'zh';
-  if (envLang !== undefined && envLang.trim() !== '' && !parseExplicitUiLanguage(envLang)) {
-    warnings.push(
-      systemIsZh
-        ? `[moss] MOSS_LANG 只能是 en 或 zh，收到「${envLang}」，已按 auto 处理。`
-        : `[moss] MOSS_LANG must be en|zh, got "${envLang}"; using auto.`
-    );
-    envLang = undefined;
+  const warnings: Array<{ en: string; zh: string }> = [];
+  if (envLang !== undefined && envLang.trim() !== '') {
+    const token = envLang.trim().toLowerCase();
+    if (token === 'auto') envLang = undefined;
+    else if (!parseExplicitUiLanguage(envLang)) {
+      warnings.push({
+        en: `[moss] MOSS_LANG must be auto|en|zh, got "${envLang}"; using auto.`,
+        zh: `[moss] MOSS_LANG 只能是 auto、en 或 zh，收到「${envLang}」，已按 auto 处理。`,
+      });
+      envLang = undefined;
+    }
   }
   let configLanguage: string | undefined;
   try {
@@ -259,26 +290,26 @@ export function installCliUiLanguage(options: { flag?: string } = {}): string | 
     configLanguage.trim() !== '' &&
     !parseLanguageSetting(configLanguage)
   ) {
-    warnings.push(
-      systemIsZh
-        ? `[moss] 配置 language「${configLanguage}」不是 auto、en 或 zh，已按 auto 处理。`
-        : `[moss] config language "${configLanguage}" is not auto|en|zh; using auto.`
-    );
+    warnings.push({
+      en: `[moss] config language "${configLanguage}" is not auto|en|zh; using auto.`,
+      zh: `[moss] 配置 language「${configLanguage}」不是 auto、en 或 zh，已按 auto 处理。`,
+    });
   }
+  let resolution: UiLanguageResolution;
   try {
-    installUiLanguage(
-      resolveUiLanguage({
-        flag: options.flag,
-        envLang,
-        configLanguage,
-        systemLocale: systemLocale(env),
-      })
-    );
+    resolution = resolveUiLanguage({
+      flag: options.flag,
+      envLang,
+      configLanguage,
+      systemLocale: systemLocale(env),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return message;
   }
-  for (const warning of warnings) console.error(warning);
+  installUiLanguage(resolution);
+  const zh = resolution.language === 'zh';
+  for (const warning of warnings) console.error(zh ? warning.zh : warning.en);
   return undefined;
 }
 
@@ -327,7 +358,7 @@ export function formatFullModeNotice(locale?: string): string {
   const zh = isZhLocale(locale);
   const limit = setupCopy(locale, WORKSPACE_WRITE_LIMIT_EN);
   return zh
-    ? `[moss] 默认 full 模式没有拒绝规则；用 /permissions 添加（例如 deny read_file(./.env)）以继续拦截敏感工具。${limit}此提示只显示一次。`
+    ? `[moss] 默认完全访问模式没有拒绝规则；用 /permissions 添加（例如 \`deny read_file(./.env)\`）以继续拦截敏感工具。${limit}此提示只显示一次。`
     : '[moss] Default full mode has no deny rules; add them with /permissions ' +
         '(e.g. deny read_file(./.env)) to keep sensitive tools gated. ' +
         `${limit} This notice shows once.`;
@@ -389,16 +420,51 @@ export function englishUiOfferPending(tty = true): boolean {
   });
 }
 
-export const ENGLISH_UI_OFFER = '界面语言：中文。按 e 切换为 English，其他键继续。';
+export const ENGLISH_UI_OFFER = '界面语言：中文。按 e 切换为英语，其他键继续。';
+
+/**
+ * Where the active UI language came from, plus the saved user setting. A
+ * flag, MOSS_LANG, or a session switch beats the saved value, and then the
+ * line says the saved value is not in effect instead of implying it is.
+ */
+export function formatUiLanguageStatus(): { name: string; detail: string } {
+  const language = effectiveUiLanguage();
+  const saved = uiLanguageResolution()?.setting ?? 'auto';
+  const source = effectiveUiLanguageSource();
+  const name = language === 'zh' ? uiText('Chinese', '中文') : uiText('English', '英语');
+  const savedName = uiText(saved, saved === 'auto' ? '自动' : saved === 'zh' ? '中文' : '英语');
+  let from: string;
+  switch (source) {
+    case 'flag':
+      from = uiText(`--lang ${language}`, `命令行 --lang ${language}`);
+      break;
+    case 'env':
+      from = uiText(`MOSS_LANG=${language}`, `环境变量 MOSS_LANG=${language}`);
+      break;
+    case 'config':
+      from = uiText('the user config', '用户配置');
+      break;
+    case 'locale':
+      from = uiText('the system locale', '系统区域');
+      break;
+    default:
+      from = uiText('/language in this session', '本会话的 /language');
+  }
+  const overridden = source === 'flag' || source === 'env' || source === 'session';
+  const detail = overridden
+    ? uiText(
+        `from ${from}; saved setting ${savedName} is not in effect`,
+        `来自${from}；已保存的设置「${savedName}」未生效`
+      )
+    : uiText(
+        `from ${from}; saved setting ${savedName}`,
+        `来自${from}；已保存的设置「${savedName}」`
+      );
+  return { name, detail };
+}
 
 /** One config-show line for the resolved UI language. */
 export function formatUiLanguageLine(): string {
-  const language = effectiveUiLanguage();
-  const resolution = uiLanguageResolution();
-  const setting = resolution?.setting ?? 'auto';
-  const source = effectiveUiLanguageSource();
-  return uiText(
-    `  language: ${language} (setting ${setting}, source ${source})`,
-    `  界面语言：${language === 'zh' ? '中文' : 'English'}（设置 ${setting}，来源 ${SOURCE_ZH[source]}）`
-  );
+  const { name, detail } = formatUiLanguageStatus();
+  return uiText(`  language: ${name} (${detail})`, `  界面语言：${name}（${detail}）`);
 }

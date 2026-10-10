@@ -397,14 +397,14 @@ try {
       prefix: 'moss-e2e-badkey-',
       steps: [
         { kind: 'send', payload: `${base}\\r` },
-        { kind: 'wait', payload: 'API key（不显示）' },
+        { kind: 'wait', payload: '密钥（不显示）' },
         { kind: 'send', payload: 'sk-wrong-000\\r' },
         { kind: 'wait', payload: '密钥被拒绝' },
         { kind: 'sleep', payload: '0.5' },
         { kind: 'send', payload: 'sk-echo-check-000\\r' },
         { kind: 'sleep', payload: '0.8' },
       ],
-      match: [/密钥被拒绝/, /请重新粘贴/, /API key（不显示）/],
+      match: [/密钥被拒绝/, /请重新粘贴/, /密钥（不显示）/],
       absent: [
         /选择模型/,
         /模型名/,
@@ -421,7 +421,7 @@ try {
       prefix: 'moss-e2e-badurl-',
       steps: [
         { kind: 'send', payload: 'http://127.0.0.1:59999\\r' },
-        { kind: 'wait', payload: 'API key' },
+        { kind: 'wait', payload: '密钥（不显示）' },
         { kind: 'send', payload: 'sk-wrong-000\\r' },
         { kind: 'wait', payload: '连接被拒绝' },
         { kind: 'sleep', payload: '0.8' },
@@ -435,7 +435,7 @@ try {
       prefix: 'moss-e2e-saveanyway-',
       steps: [
         { kind: 'send', payload: `${base}\\r` },
-        { kind: 'wait', payload: 'API key（不显示）' },
+        { kind: 'wait', payload: '密钥（不显示）' },
         { kind: 'send', payload: 'sk-wrong-000\\r' },
         { kind: 'wait', payload: '密钥被拒绝' },
         { kind: 'sleep', payload: '0.5' },

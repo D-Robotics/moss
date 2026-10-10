@@ -14,6 +14,7 @@ import { uiText } from './cli-locale.js';
 export type CliCommand =
   | 'chat'
   | 'setup'
+  | 'uninstall'
   | 'auth'
   | 'config'
   | 'doctor'
@@ -65,6 +66,9 @@ export interface ParsedCliArgs {
   maxTurns?: number;
 
   unknownCommand?: { token: string; suggestion: string };
+
+  /** `moss help <unknown>` — not a prompt, and not root help. */
+  unknownHelpTopic?: string;
 
   interactiveOnlyCommand?: string;
 
@@ -205,6 +209,7 @@ function normalizeDetail(value: string): ParsedCliArgs['detailMode'] {
 
 export const KNOWN_COMMANDS: readonly CliCommand[] = [
   'setup',
+  'uninstall',
   'auth',
   'config',
   'doctor',
@@ -236,6 +241,20 @@ const COMMAND_LIKE_REDIRECTS: Record<string, string> = {
   version: '--version',
 };
 
+/** Exact verbs people type instead of a subcommand. Not fuzzy-matched. */
+const BARE_ALIASES: Record<string, string> = {
+  upgrade: 'update',
+  install: 'setup',
+  login: 'auth',
+  logout: 'auth',
+};
+
+/** `status` is not a subcommand; a typo of it still points at `doctor`. */
+const TYPO_OF: readonly { command: string; suggestion: string }[] = [
+  ...KNOWN_COMMANDS.map((command) => ({ command, suggestion: command })),
+  { command: 'status', suggestion: 'doctor' },
+];
+
 const INTERACTIVE_ONLY_COMMANDS = new Set<string>([
   'quickstart',
   'examples',
@@ -264,37 +283,75 @@ const INTERACTIVE_ONLY_COMMANDS = new Set<string>([
   'eval',
 ]);
 
-function levenshtein(a: string, b: string): number {
+/** Levenshtein with adjacent transposition counted as one edit. */
+function damerauLevenshtein(a: string, b: string): number {
   const m = a.length;
   const n = b.length;
-  if (m === 0) return n;
-  if (n === 0) return m;
-  let prev = Array.from({ length: n + 1 }, (_, i) => i);
-  let curr = new Array<number>(n + 1);
-  for (let i = 1; i <= m; i++) {
-    curr[0] = i;
-    for (let j = 1; j <= n; j++) {
+  const rows = Array.from({ length: m + 1 }, () => Array<number>(n + 1).fill(0));
+  for (let i = 0; i <= m; i += 1) rows[i]![0] = i;
+  for (let j = 0; j <= n; j += 1) rows[0]![j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    for (let j = 1; j <= n; j += 1) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+      let best = Math.min(rows[i - 1]![j]! + 1, rows[i]![j - 1]! + 1, rows[i - 1]![j - 1]! + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        best = Math.min(best, rows[i - 2]![j - 2]! + 1);
+      }
+      rows[i]![j] = best;
     }
-    [prev, curr] = [curr, prev];
   }
-  return prev[n];
+  return rows[m]![n]!;
 }
 
 export function closestKnownCommand(token: string): string | null {
   const candidate = token.toLowerCase().trim();
-  if (!candidate || (KNOWN_COMMANDS as readonly string[]).includes(candidate)) return null;
+  // Short tokens (`ok`, `test`, `push`) are different words, not typos.
+  if (!candidate || candidate.length < 5) return null;
+  if (!/^[a-z][a-z0-9_-]*$/i.test(candidate)) return null;
+  if ((KNOWN_COMMANDS as readonly string[]).includes(candidate)) return null;
   let best: string | null = null;
   let bestDistance = Infinity;
-  for (const command of KNOWN_COMMANDS) {
-    const distance = levenshtein(candidate, command);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = command;
-    }
+  for (const target of TYPO_OF) {
+    const distance = damerauLevenshtein(candidate, target.command);
+    if (distance === 0 || distance > 1 || distance > bestDistance) continue;
+    bestDistance = distance;
+    best = target.suggestion;
   }
-  return bestDistance <= 2 ? best : null;
+  return best;
+}
+
+/**
+ * A single bare word that is a real typo or an exact install-verb alias.
+ * Short words and anything more than one edit from a command stay prompts.
+ */
+export function suggestBareCommand(token: string): string | null {
+  const candidate = token.toLowerCase().trim();
+  if (!candidate || /\s/.test(token)) return null;
+  if (!/^[a-z][a-z0-9_-]*$/i.test(candidate)) return null;
+  if ((KNOWN_COMMANDS as readonly string[]).includes(candidate)) return null;
+  return (
+    COMMAND_LIKE_REDIRECTS[candidate] ?? BARE_ALIASES[candidate] ?? closestKnownCommand(candidate)
+  );
+}
+
+/** `moss resume` with no id and no `--last` opens the in-TUI picker. */
+export function shouldOpenResumePicker(input: {
+  command: CliCommand;
+  sessionKey?: string;
+  sessionLast: boolean;
+  continueLast: boolean;
+  print: boolean;
+  stdoutIsTTY: boolean;
+  noTui: boolean;
+}): boolean {
+  const interactiveTty = input.stdoutIsTTY && !input.noTui && !input.print;
+  return (
+    input.command === 'resume' &&
+    input.sessionKey === undefined &&
+    !input.sessionLast &&
+    !input.continueLast &&
+    interactiveTty
+  );
 }
 
 function flagConsumesNext(arg: string): boolean {
@@ -319,10 +376,25 @@ function flagConsumesNext(arg: string): boolean {
   );
 }
 
-function findCommand(argv: string[]): { command: CliCommand; index: number } {
+function findCommand(argv: string[]): {
+  command: CliCommand;
+  index: number;
+  helpWord?: number;
+  unknownHelpTopic?: string;
+} {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--') break;
+    // `moss help config` is `moss config --help` and exits 0.
+    // `moss help <unknown>` is a usage error, not a chat prompt.
+    if (arg.toLowerCase() === 'help') {
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith('-')) {
+        const named = asCommand(next.toLowerCase());
+        if (named) return { command: named, index: i + 1, helpWord: i };
+        return { command: 'chat', index: -1, helpWord: i, unknownHelpTopic: next };
+      }
+    }
     const command = asCommand(arg);
     if (command) return { command, index: i };
     if (flagConsumesNext(arg)) i++;
@@ -346,7 +418,11 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let forkSource: string | undefined;
   let detailMode: ParsedCliArgs['detailMode'];
   let mock = false;
-  let help = false;
+  let help = foundCommand.helpWord !== undefined && foundCommand.unknownHelpTopic === undefined;
+  const unknownHelpIndex =
+    foundCommand.unknownHelpTopic !== undefined && foundCommand.helpWord !== undefined
+      ? foundCommand.helpWord + 1
+      : -1;
   let helpAll = false;
   let version = false;
   let print = false;
@@ -391,7 +467,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (i === foundCommand.index) continue;
+    if (i === foundCommand.index || i === foundCommand.helpWord || i === unknownHelpIndex) continue;
     if (promptOnly) {
       promptParts.push(arg);
       continue;
@@ -612,16 +688,17 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       continue;
     }
     if (command === 'resume') {
-      if (sessionKey === undefined) {
-        sessionKey = arg;
-      } else {
+      // `moss resume --last again` — the positional is the prompt, not a session id.
+      if (sessionLast || sessionKey !== undefined) {
         promptParts.push(arg);
+      } else {
+        sessionKey = arg;
       }
     } else if (command === 'fork') {
-      if (forkSource === undefined) {
-        forkSource = arg;
-      } else {
+      if (sessionLast || forkSource !== undefined) {
         promptParts.push(arg);
+      } else {
+        forkSource = arg;
       }
     } else if (command === 'chat') {
       promptParts.push(arg);
@@ -644,7 +721,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     if (INTERACTIVE_ONLY_COMMANDS.has(lower)) {
       interactiveOnlyCommand = lower;
     } else {
-      const suggestion = COMMAND_LIKE_REDIRECTS[lower] ?? closestKnownCommand(token);
+      const suggestion = suggestBareCommand(token);
       if (suggestion) unknownCommand = { token, suggestion };
     }
   }
@@ -687,6 +764,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     outputFormat,
     maxTurns,
     unknownCommand,
+    unknownHelpTopic: foundCommand.unknownHelpTopic,
     interactiveOnlyCommand,
     unknownOption,
     lang,

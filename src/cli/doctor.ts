@@ -8,6 +8,7 @@ import {
   CONSERVATIVE_DEFAULT_UNPROBED,
 } from './config.js';
 import type { ResolvedCliConfig } from './config.js';
+import { deriveMaxOutputTokens } from './agent-runtime.js';
 import { humanTokens } from './tui-utils.js';
 import { MIN_NODE_MAJOR, MIN_NODE_MINOR, nodeVersionProblem } from './node-version-check.js';
 import { errorMessage } from '../errors.js';
@@ -16,13 +17,25 @@ import {
   getRecentFailoverEvents,
   parseFallbackProvidersEnv,
 } from '../provider/multi-provider-router.js';
-import { setupCopy } from './cli-locale.js';
+import { isZhLocale, setupCopy } from './cli-locale.js';
+import { glossConfigValue, localizeConfigSource } from './config-snapshot.js';
 import { detectEnvCredentials } from './env-credentials.js';
 import { rdkDocsPinNote } from './rdk-docs-pin-check.js';
 import type { RdkDocsPinNote } from './rdk-docs-pin-check.js';
 
 function doctorL(en: string, vars?: Record<string, string | number>): string {
   return setupCopy(undefined, en, vars);
+}
+
+function doctorParen(inner: string): string {
+  return uiText(`(${inner})`, `（${localizeConfigSource(inner)}）`);
+}
+
+function detailModeLabel(mode: string): string {
+  if (mode === 'quiet') return uiText('quiet', '安静');
+  if (mode === 'verbose') return uiText('verbose', '详细');
+  if (mode === 'progress') return uiText('progress', '进度');
+  return mode;
 }
 
 interface DoctorOptions {
@@ -159,13 +172,13 @@ export function renderRdkDocsPinDoctorLine(note: RdkDocsPinNote): string {
 export function renderNodeDoctorLine(version: string = process.version): string {
   return nodeVersionProblem(version)
     ? fail(
-        'node',
+        uiText('node', '运行时'),
         uiText(
           `${version}; requires >=${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0`,
           `${version}；需要 >=${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0`
         )
       )
-    : ok('node', version);
+    : ok(uiText('node', '运行时'), version);
 }
 
 /**
@@ -177,17 +190,17 @@ export function renderNodeDoctorLine(version: string = process.version): string 
 export function renderSearchDoctor(rgAvailable: boolean): string {
   return rgAvailable
     ? ok(
-        'search',
+        uiText('search', '搜索'),
         uiText(
           'ripgrep (rg) available — fast, .gitignore-aware',
-          'ripgrep（rg）可用 — 更快，并识别 .gitignore'
+          'ripgrep（`rg`）可用 — 更快，并识别 .gitignore'
         )
       )
     : warn(
-        'search',
+        uiText('search', '搜索'),
         uiText(
           'ripgrep (rg) not found on PATH — search_code uses a slower in-process walk; install rg for fast, .gitignore-aware search',
-          'PATH 上没有 ripgrep（rg）— search_code 会走较慢的进程内扫描；安装 rg 可获得更快、识别 .gitignore 的搜索'
+          'PATH 上没有 ripgrep（`rg`）— `search_code` 会走较慢的进程内扫描；安装 `rg` 可获得更快、识别 .gitignore 的搜索'
         )
       );
 }
@@ -215,13 +228,16 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
         `default ${permissionsView.defaultMode} (${permissionsView.source})${
           permissionsView.readOnlyCeiling ? ' + read-only ceiling' : ''
         }`,
-        `默认 ${permissionsView.defaultMode}（${permissionsView.source}）${
+        `默认 ${glossConfigValue(permissionsView.defaultMode)}（${localizeConfigSource(permissionsView.source)}）${
           permissionsView.readOnlyCeiling ? ' + 只读上限' : ''
         }`
       )
-    : uiText('default full (default)', '默认 full（默认）');
+    : uiText('default full (default)', '默认完全访问（默认）');
   const lines: string[] = [
-    ok(uiText('approval', '审批'), `${config.approvalPolicy} (${config.approvalPolicySource})`),
+    ok(
+      uiText('approval', '审批'),
+      `${isZhLocale() ? glossConfigValue(config.approvalPolicy) : config.approvalPolicy} ${doctorParen(config.approvalPolicySource)}`
+    ),
     ok(uiText('mode', '模式'), modeLine),
   ];
 
@@ -230,7 +246,7 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
     const label = auditWarning.code.startsWith('trustedTools.')
       ? 'trustedTools'
       : auditWarning.code === 'approval.full_default_no_deny'
-        ? uiText('full mode', 'full 模式')
+        ? uiText('full mode', '完全访问模式')
         : uiText('approval policy', '审批策略');
     lines.push(warn(label, auditWarning.message));
   }
@@ -256,20 +272,20 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
   if (config.trustedTools.length > 0 && hasTrustedToolWildcard(config) && !hasBroadTrustedPattern) {
     lines.push(
       ok(
-        'trustedTools',
+        uiText('trustedTools', '信任工具'),
         uiText(
           `${config.trustedTools.length} configured (${config.trustedToolsSource}); wildcard patterns are narrow`,
-          `已配置 ${config.trustedTools.length} 项（${config.trustedToolsSource}）；通配较窄`
+          `已配置 ${config.trustedTools.length} 项（${localizeConfigSource(config.trustedToolsSource)}）；通配较窄`
         )
       )
     );
   } else {
     lines.push(
       ok(
-        'trustedTools',
+        uiText('trustedTools', '信任工具'),
         uiText(
           `${config.trustedTools.length ? config.trustedTools.join(', ') : 'none'} (${config.trustedToolsSource})`,
-          `${config.trustedTools.length ? config.trustedTools.join(', ') : '无'}（${config.trustedToolsSource}）`
+          `${config.trustedTools.length ? config.trustedTools.join('、') : '无'}（${localizeConfigSource(config.trustedToolsSource)}）`
         )
       )
     );
@@ -280,15 +296,15 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
 
 function renderBaseUrlDoctor(config: ResolvedCliConfig): string {
   if (config.usingBundledDefault) {
-    return ok('baseUrl', uiText('built-in default (hidden)', '内置默认（不显示）'));
+    return ok(uiText('baseUrl', '地址'), uiText('built-in default (hidden)', '内置默认（不显示）'));
   }
   if (!config.baseUrl) {
     return fail(
-      'baseUrl',
+      uiText('baseUrl', '地址'),
       doctorL('missing. Fix: run `moss setup`, or `moss config set baseUrl https://host`.')
     );
   }
-  return ok('baseUrl', `${config.baseUrl} (${config.baseUrlSource})`);
+  return ok(uiText('baseUrl', '地址'), `${config.baseUrl} ${doctorParen(config.baseUrlSource)}`);
 }
 
 /** Keyless search-chain health (O1): which keyed backends are configured and
@@ -331,7 +347,7 @@ async function renderSearchBackendDoctor(): Promise<string[]> {
           uiText('search keys', '搜索密钥'),
           uiText(
             'none — web_search relies on the keyless chain (BOCHA/BRAVE/EXA_API_KEY recommended for reliability)',
-            '无 — web_search 依赖免密钥链路（建议配置 BOCHA/BRAVE/EXA_API_KEY，更稳）'
+            '无 — `web_search` 依赖免密钥链路（建议配置 BOCHA/BRAVE/EXA_API_KEY，更稳）'
           )
         ),
   ];
@@ -396,7 +412,10 @@ function renderFailoverDoctor(): string[] {
     const time = new Date(event.ts).toLocaleTimeString();
     const target = event.model ? `${event.provider}/${event.model}` : event.provider;
     lines.push(
-      warn('', `  ${time} [${event.stage}] ${target} ${event.ok ? '✓' : '✗'} — ${event.reason}`)
+      warn(
+        uiText('event', '事件'),
+        `${time} [${event.stage}] ${target} ${event.ok ? '✓' : '✗'} — ${event.reason}`
+      )
     );
   }
   return lines;
@@ -411,7 +430,7 @@ export function renderAuthDoctorLine(
   env: NodeJS.ProcessEnv = envBeforeDotenv
 ): string {
   if (config.usingBundledDefault && !config.apiKey) {
-    return ok('auth', doctorL('built-in gateway (no API key needed)'));
+    return ok(uiText('auth', '认证'), doctorL('built-in gateway (no API key needed)'));
   }
   const offers = detectEnvCredentials(env);
   const names = offers.map((offer) => offer.keyVar);
@@ -421,16 +440,23 @@ export function renderAuthDoctorLine(
         ? doctorL('built-in, shared gateway key')
         : config.apiKeySource.startsWith('env:')
           ? doctorL('from {name} (not stored)', { name: config.apiKeySource.slice(4) })
-          : `${config.apiKeySource}, ${
-              config.apiKeyEncrypted
-                ? doctorL('stored in config file (0600)')
-                : doctorL('plain text')
-            }`;
-    return ok('auth', doctorL('configured ({detail})', { detail: authDetail }));
+          : uiText(
+              `${config.apiKeySource}, ${
+                config.apiKeyEncrypted
+                  ? doctorL('stored in config file (0600)')
+                  : doctorL('plain text')
+              }`,
+              `${localizeConfigSource(config.apiKeySource)}，${
+                config.apiKeyEncrypted
+                  ? doctorL('stored in config file (0600)')
+                  : doctorL('plain text')
+              }`
+            );
+    return ok(uiText('auth', '认证'), doctorL('configured ({detail})', { detail: authDetail }));
   }
   if (names.length > 0) {
     return fail(
-      'auth',
+      uiText('auth', '认证'),
       doctorL(
         'missing API key. Fix: run `moss` and press Enter to use {names} (the value is not printed).',
         { names: names.join(setupCopy(undefined, ' or ')) }
@@ -438,15 +464,15 @@ export function renderAuthDoctorLine(
     );
   }
   return fail(
-    'auth',
+    uiText('auth', '认证'),
     doctorL('missing API key. Fix: run `moss` and finish setup, or run `moss setup`.')
   );
 }
 
 export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
-  const lines = ['[doctor] Moss'];
+  const lines = [uiText('[doctor] Moss', '[诊断] Moss')];
   lines.push(renderNodeDoctorLine());
-  lines.push(ok('version', options.currentVersion));
+  lines.push(ok(uiText('version', '版本'), options.currentVersion));
   const pinNote = await rdkDocsPinNote(process.env);
   if (pinNote) lines.push(renderRdkDocsPinDoctorLine(pinNote));
   lines.push(renderAuthDoctorLine(options.config));
@@ -491,7 +517,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   lines.push(
     ok(
       uiText('provider', '服务商'),
-      `${options.config.provider} (${options.config.providerSource})`
+      `${options.config.provider} ${doctorParen(options.config.providerSource)}`
     )
   );
 
@@ -504,7 +530,10 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
     );
   } else {
     lines.push(
-      ok(uiText('model', '模型'), `${options.config.model} (${options.config.modelSource})`)
+      ok(
+        uiText('model', '模型'),
+        `${options.config.model} ${doctorParen(options.config.modelSource)}`
+      )
     );
     // Show the actual probed/configured context window. If it wasn't probed
     // yet (source === 'unprobed'), surface a warn so the user knows compaction
@@ -517,17 +546,8 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
           warn(
             uiText('context window', '上下文窗口'),
             uiText(
-              `not yet probed — using conservative default of ${humanTokens(tokens)} tokens`,
-              `尚未探测 — 正在使用保守默认值 ${humanTokens(tokens)} token`
-            )
-          )
-        );
-        lines.push(
-          warn(
-            '',
-            uiText(
-              '  Run /model to auto-probe, or set agent.contextTokens in moss config',
-              '  运行 /model 自动探测，或在 moss 配置里设置 agent.contextTokens'
+              `not yet probed — using conservative default of ${humanTokens(tokens)} tokens. Run /model to auto-probe, or set agent.contextTokens in moss config`,
+              `尚未探测 — 正在使用保守默认值 ${humanTokens(tokens)} 词元。运行 /model 自动探测，或在 moss 配置里设置 \`agent.contextTokens\``
             )
           )
         );
@@ -537,7 +557,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
             uiText('context window', '上下文窗口'),
             uiText(
               `${humanTokens(tokens)} tokens (provider-api)`,
-              `${humanTokens(tokens)} token（provider-api）`
+              `${humanTokens(tokens)} 词元（${localizeConfigSource('provider-api')}）`
             )
           )
         );
@@ -548,7 +568,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
             uiText('context window', '上下文窗口'),
             uiText(
               `${humanTokens(tokens)} tokens (pinned via ${src})`,
-              `${humanTokens(tokens)} token（由 ${src} 固定）`
+              `${humanTokens(tokens)} 词元（由 ${localizeConfigSource(src)} 固定）`
             )
           )
         );
@@ -563,24 +583,21 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
             uiText('max output', '最大输出'),
             uiText(
               `${humanTokens(pinned)} tokens (pinned via config)`,
-              `${humanTokens(pinned)} token（由配置固定）`
+              `${humanTokens(pinned)} 词元（由配置固定）`
             )
           )
         );
       } else {
-        const derived = Math.max(
-          2_048,
-          Math.min(
-            Math.floor((options.config.contextTokens ?? CONSERVATIVE_DEFAULT_UNPROBED) / 4),
-            8_192
-          )
+        const derived = deriveMaxOutputTokens(
+          options.config.contextTokens ?? CONSERVATIVE_DEFAULT_UNPROBED,
+          options.config.model
         );
         lines.push(
           ok(
             uiText('max output', '最大输出'),
             uiText(
-              `${humanTokens(derived)} tokens (derived from context window — contextTokens/4, cap 8k)`,
-              `${humanTokens(derived)} token（由上下文窗口推算 — contextTokens/4，上限 8k）`
+              `${humanTokens(derived ?? 0)} tokens (derived from the model and context window)`,
+              `${humanTokens(derived ?? 0)} 词元（由模型和上下文窗口推算）`
             )
           )
         );
@@ -593,7 +610,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
     canWriteDir(options.config.workspace)
       ? ok(
           uiText('workspace', '工作区'),
-          `${options.config.workspace} (${options.config.workspaceSource})`
+          `${options.config.workspace} ${doctorParen(options.config.workspaceSource)}`
         )
       : fail(
           uiText('workspace', '工作区'),
@@ -625,7 +642,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   lines.push(...(await renderSearchBackendDoctor()));
 
   lines.push(...renderApprovalDoctor(options.config));
-  lines.push(ok(uiText('detail', '详细程度'), options.detailMode));
+  lines.push(ok(uiText('detail', '详细程度'), detailModeLabel(options.detailMode)));
 
   const sessionsDir = path.join(options.runtimeDir, 'sessions');
   const sessionLines = await checkSessionIntegrity(sessionsDir);

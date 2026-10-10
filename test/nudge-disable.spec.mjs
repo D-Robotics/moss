@@ -265,7 +265,7 @@ function postLlm(overrides) {
   const truncated = { streamStopReason: 'length', finalText: 'partial answer that was cut off' };
   assert.equal(postLlm(truncated).kind, 'continuation');
   withDisabled('output-continuation', () => {
-    assert.equal(postLlm(truncated).kind, 'steering_or_complete');
+    assert.equal(postLlm(truncated).kind, 'output_limit_exhausted');
   });
   withDisabled('reasoning-only', () => {
     assert.equal(postLlm(truncated).kind, 'continuation');
