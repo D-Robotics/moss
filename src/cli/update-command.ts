@@ -23,7 +23,7 @@ export interface MossUpdateAdvice {
   commands: readonly string[];
 }
 
-const GITHUB_INSTALL_FALLBACK = 'github:QiaolongLi1201/moss';
+const GITHUB_INSTALL_FALLBACK = 'github:D-Robotics/moss';
 
 export function shellSingleQuote(value: string): string {
   if (value.length > 0 && /^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;

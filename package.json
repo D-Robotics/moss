@@ -7,11 +7,11 @@
   "description": "Moss: a minimal cross-platform coding agent harness (agent loop, tools, context management, providers) with a `moss` CLI.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/QiaolongLi1201/moss.git"
+    "url": "git+https://github.com/D-Robotics/moss.git"
   },
-  "homepage": "https://github.com/QiaolongLi1201/moss#readme",
+  "homepage": "https://github.com/D-Robotics/moss#readme",
   "bugs": {
-    "url": "https://github.com/QiaolongLi1201/moss/issues"
+    "url": "https://github.com/D-Robotics/moss/issues"
   },
   "bin": {
     "moss": "dist/cli.js"

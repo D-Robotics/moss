@@ -20,7 +20,7 @@ import { isolatedCliEnv } from './helpers/isolated-cli-env.mjs';
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cli = path.join(repoRoot, 'dist', 'cli.js');
 const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
-const repo = { url: 'git+https://github.com/QiaolongLi1201/moss.git' };
+const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
 
 {
   assert.equal(pkg.name, '@rdk-moss/agent');
@@ -31,16 +31,13 @@ const repo = { url: 'git+https://github.com/QiaolongLi1201/moss.git' };
   assert.equal(pkg.scripts.prepare, 'npm run build');
   assert.equal(pkg.scripts.prepublishOnly, 'npm run build && npm run verify');
   assert.equal(pkg.publishConfig.access, 'public');
-  assert.equal(githubInstallSpec(pkg.repository), 'github:QiaolongLi1201/moss');
-  assert.equal(npmInstallSpec(pkg), 'github:QiaolongLi1201/moss');
+  assert.equal(githubInstallSpec(pkg.repository), 'github:D-Robotics/moss');
+  assert.equal(npmInstallSpec(pkg), 'github:D-Robotics/moss');
   assert.equal(
     npmInstallSpec({ private: false, name: '@rdk-moss/agent' }),
     '@rdk-moss/agent@latest'
   );
-  assert.equal(
-    githubInstallSpec('https://github.com/QiaolongLi1201/moss'),
-    'github:QiaolongLi1201/moss'
-  );
+  assert.equal(githubInstallSpec('git@github.com:D-Robotics/moss.git'), 'github:D-Robotics/moss');
 }
 
 {
@@ -72,7 +69,7 @@ const repo = { url: 'git+https://github.com/QiaolongLi1201/moss.git' };
     exists: () => false,
   });
   assert.equal(advice.kind, 'npm-global');
-  assert.equal(advice.commands[0], 'npm install -g github:QiaolongLi1201/moss');
+  assert.equal(advice.commands[0], 'npm install -g github:D-Robotics/moss');
   assert.match(renderUpdateAdvice(advice, false), /npm global install/);
 }
 
@@ -96,7 +93,7 @@ const repo = { url: 'git+https://github.com/QiaolongLi1201/moss.git' };
   assert.equal(advice.kind, 'unknown');
   assert.equal(advice.commands.length, 2);
   assert.match(advice.commands[0], /^git -C /);
-  assert.equal(advice.commands[1], 'npm install -g github:QiaolongLi1201/moss');
+  assert.equal(advice.commands[1], 'npm install -g github:D-Robotics/moss');
 }
 
 {
@@ -114,7 +111,9 @@ const repo = { url: 'git+https://github.com/QiaolongLi1201/moss.git' };
   assert.match(readme, /connects it in the background by default/);
   assert.doesNotMatch(readme, /有设备目标（`MOSS_DEVICE_HOST`/);
   assert.doesNotMatch(readme, /when a device target\s+is set/);
-  assert.match(readme, /npm install -g github:QiaolongLi1201\/moss/);
+  assert.match(readme, /npm install -g github:D-Robotics\/moss/);
+  assert.match(readme, /git clone https:\/\/github\.com\/D-Robotics\/moss /);
+  assert.doesNotMatch(readme, /QiaolongLi1201/);
   assert.match(readme, /npm publish --access public/);
 }
 

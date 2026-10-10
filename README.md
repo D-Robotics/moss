@@ -26,7 +26,7 @@ Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器
 还没发到 npm registry（`"private": true` 先留着）。一条命令装上，运行 `moss`，在界面里完成设置，然后要一个回答：
 
 ```bash
-npm install -g github:QiaolongLi1201/moss   # prepare 会构建；需要 Node ≥ 22.16
+npm install -g github:D-Robotics/moss   # prepare 会构建；需要 Node ≥ 22.16
 moss
 ```
 
@@ -36,7 +36,7 @@ moss
 看一下这个目录里有什么
 ```
 
-从克隆开发：`git clone https://github.com/QiaolongLi1201/moss && cd moss && npm ci && npm run build && npm link`。已安装的 Moss 用 `moss update` 打印升级命令（npm 全局或 git 克隆），它不会自己执行。发到 registry 时删掉 `"private": true`，再 `npm publish --access public`。
+从克隆开发：`git clone https://github.com/D-Robotics/moss && cd moss && npm ci && npm run build && npm link`。已安装的 Moss 用 `moss update` 打印升级命令（npm 全局或 git 克隆），它不会自己执行。发到 registry 时删掉 `"private": true`，再 `npm publish --access public`。
 
 进到交互界面后：
 
@@ -247,7 +247,7 @@ mean _the board actually did it_.
 Not on the npm registry yet (`"private": true` stays). Install with one command, run `moss`, finish setup in the screen, then ask for an answer:
 
 ```bash
-npm install -g github:QiaolongLi1201/moss   # prepare builds; needs Node ≥ 22.16
+npm install -g github:D-Robotics/moss   # prepare builds; needs Node ≥ 22.16
 moss
 ```
 
@@ -257,7 +257,7 @@ With no usable config, `moss` sets itself up in that screen (press a number to p
 look around this folder and tell me what it is
 ```
 
-From a clone: `git clone https://github.com/QiaolongLi1201/moss && cd moss && npm ci && npm run build && npm link`. `moss update` prints the upgrade command for an npm global install or a git clone and does not run it. To publish, delete `"private": true`, then `npm publish --access public`.
+From a clone: `git clone https://github.com/D-Robotics/moss && cd moss && npm ci && npm run build && npm link`. `moss update` prints the upgrade command for an npm global install or a git clone and does not run it. To publish, delete `"private": true`, then `npm publish --access public`.
 
 Inside Moss: give it a job (`@` to reference files, `!` for shell), `Shift+Tab` to cycle modes
 (`plan` = read-only planning), `Ctrl+V` to attach a clipboard image / Finder file / local path
