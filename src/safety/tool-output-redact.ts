@@ -323,6 +323,123 @@ function headerLooksLikeSecret(value: string): boolean {
   return shouldRedactAssignedValue(value);
 }
 
+/** `MYSQL_PWD` and `PGPASSWORD`. `SSHPASS` is a password env name, not one of these. */
+function isDbPasswordEnvName(name: string): boolean {
+  return /^(?:mysql_pwd|pgpassword)$/i.test(name);
+}
+
+/** A `$(...)` or backtick fetch. Leading whitespace is the inside of a quote. */
+function isCommandSubstitution(value: string): boolean {
+  const trimmed = value.trimStart();
+  return trimmed.startsWith('$(') || trimmed.startsWith('`');
+}
+
+/**
+ * End (exclusive) of an unquoted `$(...)` or backtick command at `at`.
+ * Quotes, backticks, and nested `$(...)` stay inside the fetch. An unclosed
+ * fetch runs to the end of the line so a later mask cannot cut it in half.
+ */
+function scanShellCommandSubstitution(text: string, at: number): number | null {
+  if (text.startsWith('$(', at)) return scanDollarCommand(text, at);
+  if (text[at] === '`') return scanBacktickCommand(text, at);
+  return null;
+}
+
+function scanDollarCommand(text: string, at: number): number {
+  const limit = lineEndFrom(text, at);
+  let depth = 1;
+  let i = at + 2;
+  while (i < limit) {
+    const ch = text[i] ?? '';
+    if (ch === '\\') {
+      i += 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      i += 1;
+      while (i < limit) {
+        if (text[i] === '\\' && quote === '"') {
+          i += 2;
+          continue;
+        }
+        if (text[i] === quote) {
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === '`') {
+      i += 1;
+      while (i < limit) {
+        if (text[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (text[i] === '`') {
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === '$' && text[i + 1] === '(') {
+      depth += 1;
+      i += 2;
+      continue;
+    }
+    if (ch === '(') {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (ch === ')') {
+      depth -= 1;
+      i += 1;
+      if (depth === 0) return i;
+      continue;
+    }
+    i += 1;
+  }
+  return limit;
+}
+
+function scanBacktickCommand(text: string, at: number): number {
+  const limit = lineEndFrom(text, at);
+  let i = at + 1;
+  while (i < limit) {
+    if (text[i] === '\\') {
+      i += 2;
+      continue;
+    }
+    if (text[i] === '`') return i + 1;
+    i += 1;
+  }
+  return limit;
+}
+
+/**
+ * Quoted DB-password fetch. Inner quotes belong to the command
+ * (`"$(cat "$HOME/.pgpw")"`). The ordinary quote scan stops at the inner
+ * quote, and the partial star mask then replaces the whole glued line.
+ */
+function scanQuotedDbCommand(text: string, openAt: number): { end: number; inner: string } | null {
+  const quote = text[openAt];
+  if (quote !== '"' && quote !== "'") return null;
+  const limit = lineEndFrom(text, openAt);
+  let start = openAt + 1;
+  while (start < limit && (text[start] === ' ' || text[start] === '\t')) start += 1;
+  const subEnd = scanShellCommandSubstitution(text, start);
+  if (subEnd === null) return null;
+  let end = subEnd;
+  while (end < limit && (text[end] === ' ' || text[end] === '\t')) end += 1;
+  if (text[end] !== quote) return null;
+  return { end: end + 1, inner: text.slice(openAt + 1, end) };
+}
+
 function readAssignedValue(text: string, at: number, name: string): AssignedSpan | null {
   let i = at;
   while (i < text.length && (text[i] === ' ' || text[i] === '\t')) i += 1;
@@ -330,12 +447,22 @@ function readAssignedValue(text: string, at: number, name: string): AssignedSpan
   const ch = text[i];
   if (ch === '"' || ch === "'") {
     if (!quoteOpensValue(text, i)) return null;
+    if (isDbPasswordEnvName(name)) {
+      const command = scanQuotedDbCommand(text, i);
+      if (command) return { end: command.end, value: command.inner, sepExtra: ws, quoted: true };
+    }
     const quoted = scanQuoted(text, i);
     if (quoted) return { end: quoted.end, value: quoted.inner, sepExtra: ws, quoted: true };
     const end = lineEndFrom(text, i + 1);
     const value = text.slice(i + 1, end);
     if (!value) return null;
     return { end, value, sepExtra: ws, quoted: true };
+  }
+  if (isDbPasswordEnvName(name)) {
+    const subEnd = scanShellCommandSubstitution(text, i);
+    if (subEnd !== null && subEnd > i) {
+      return { end: subEnd, value: text.slice(i, subEnd), sepExtra: ws, quoted: false };
+    }
   }
   if (isAuthField(name)) {
     const end = lineEndFrom(text, i);
@@ -428,11 +555,12 @@ const PASSWORD_ENV_COMMAND =
 
 function shouldRedactAssignment(hit: AssignmentHit, strictFile: boolean): boolean {
   // `export SSHPASS="$(security …)"` and `SSHPASS=`cat f`` fetch the password.
-  // MYSQL_PWD / PGPASSWORD keep the general password-field rule below, so a
-  // lookup is still masked as a whole (`[REDACTED]`) instead of falling through
-  // to the partial `***` sanitizer, which the write guard does not recognise.
+  // MYSQL_PWD / PGPASSWORD command substitutions and backtick fetches are one
+  // whole `[REDACTED]`. A partial star mask is not enough: the write guard
+  // only recognises `[REDACTED]`. `$VAR` and `${VAR}` are not those fetches.
   const lookup = isPasswordEnvName(hit.name) && SHELL_LOOKUP.test(hit.value);
   if (lookup && /^sshpass$/i.test(hit.name)) return false;
+  if (isDbPasswordEnvName(hit.name) && isCommandSubstitution(hit.value)) return true;
   // `SSHPASS= sshpass -e ssh h` clears the variable; the next word is the command.
   if (
     isPasswordEnvName(hit.name) &&
