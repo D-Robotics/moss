@@ -210,6 +210,29 @@ async function stopAndConfirmGone(out, stopCtx, label, pidFile) {
   const id = extractBgId(out);
   assert.ok(id, `${label}: no background id in ${out}`);
   const pid = Number(out.match(/pid (\d+)/)?.[1]);
+  // On Windows, cmd.exe can publish the shell pid before it starts the node
+  // grandchild. Stop only after that grandchild has written its pid, or the
+  // exit check races a process that was never started.
+  let scriptPid = 0;
+  if (pidFile) {
+    const deadline = Date.now() + 10000;
+    while (scriptPid <= 0) {
+      if (fs.existsSync(pidFile)) {
+        try {
+          const parsed = Number(fs.readFileSync(pidFile, 'utf8').trim());
+          if (Number.isInteger(parsed) && parsed > 0) scriptPid = parsed;
+        } catch {
+          // The writer may still hold the file. Keep polling until the deadline.
+        }
+      }
+      if (scriptPid > 0 || Date.now() >= deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(
+      Number.isInteger(scriptPid) && scriptPid > 0,
+      `${label}: script never wrote its pid before exec_stop`
+    );
+  }
   await execStopTool.execute({ id }, stopCtx);
   if (Number.isFinite(pid) && pid > 0) {
     assert.equal(
@@ -219,16 +242,6 @@ async function stopAndConfirmGone(out, stopCtx, label, pidFile) {
     );
   }
   if (pidFile) {
-    const deadline = Date.now() + 5000;
-    while (!fs.existsSync(pidFile) && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    assert.equal(fs.existsSync(pidFile), true, `${label}: script pid file missing after exec_stop`);
-    const scriptPid = Number(fs.readFileSync(pidFile, 'utf8').trim());
-    assert.ok(
-      Number.isInteger(scriptPid) && scriptPid > 0,
-      `${label}: script pid file did not contain a pid`
-    );
     assert.equal(
       await waitForProcessExit(scriptPid, 15000),
       true,
