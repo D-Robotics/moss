@@ -238,6 +238,11 @@ export interface LoadedCliConfigFile {
   /** Project routing fields dropped because the folder is not trusted. */
   ignoredProjectRouting?: string[];
   /**
+   * Project permission fields that would loosen the user's mode, dropped
+   * because the folder is not trusted. `deny` and `ask` are not in this list.
+   */
+  droppedProjectPermissions?: string[];
+  /**
    * Project base URL whose host is neither the user's nor an official
    * provider URL, and which did not bring its own key.
    */
@@ -710,6 +715,72 @@ function omitProjectRoutingConfig(project: ConfigFile): ConfigFile {
   return next;
 }
 
+function permissionRuleListLoosens(value: unknown): boolean {
+  return (
+    Array.isArray(value) && value.some((item) => typeof item === 'string' && item.trim().length > 0)
+  );
+}
+
+const PROFILE_PERMISSIVENESS: Record<CliConfigProfile, number> = {
+  cautious: 0,
+  balanced: 1,
+  autonomous: 2,
+};
+
+/**
+ * `autonomous` injects exec/apply_patch grants. A higher project profile also
+ * replaces a stricter user profile via the project-over-user spread. cautious
+ * and balanced only tighten an unset user profile, so those stay.
+ */
+function projectProfileLoosens(user: ConfigFile, project: ConfigFile): boolean {
+  const projectProfile = normalizeConfigProfile(
+    typeof project.profile === 'string' ? project.profile : undefined
+  );
+  if (!projectProfile) return false;
+  const userProfile = normalizeConfigProfile(
+    typeof user.profile === 'string' ? user.profile : undefined
+  );
+  if (!userProfile) return projectProfile === 'autonomous';
+  return PROFILE_PERMISSIVENESS[projectProfile] > PROFILE_PERMISSIVENESS[userProfile];
+}
+
+/**
+ * Project fields that grant tools or replace the permission mode.
+ * An untrusted folder drops these. `permissions.ask` and `permissions.deny`
+ * only tighten, so they are not listed. A project profile is listed only
+ * when it is looser than the user's.
+ */
+function listDroppedProjectPermissionFields(user: ConfigFile, project: ConfigFile): string[] {
+  const dropped: string[] = [];
+  if (permissionRuleListLoosens(project.permissions?.allow)) dropped.push('permissions.allow');
+  if (permissionRuleListLoosens(project.trustedTools)) dropped.push('trustedTools');
+  const mode = project.permissions?.defaultMode;
+  if (typeof mode === 'string' && mode.trim().length > 0) dropped.push('permissions.defaultMode');
+  if (projectProfileLoosens(user, project)) dropped.push('profile');
+  return dropped;
+}
+
+function omitLooseningProjectPermissions(user: ConfigFile, project: ConfigFile): ConfigFile {
+  const next: ConfigFile = { ...project };
+  if (permissionRuleListLoosens(next.trustedTools)) delete next.trustedTools;
+  if (projectProfileLoosens(user, project)) delete next.profile;
+  if (!next.permissions) return next;
+  const permissions: PermissionsConfig = { ...next.permissions };
+  let changed = false;
+  if (permissionRuleListLoosens(permissions.allow)) {
+    delete permissions.allow;
+    changed = true;
+  }
+  if (typeof permissions.defaultMode === 'string' && permissions.defaultMode.trim().length > 0) {
+    delete permissions.defaultMode;
+    changed = true;
+  }
+  if (!changed) return next;
+  const remaining = Object.values(permissions).some((value) => value !== undefined);
+  next.permissions = remaining ? permissions : undefined;
+  return next;
+}
+
 function setFieldSource(
   sources: Record<string, 'user' | 'project'>,
   field: string,
@@ -844,16 +915,18 @@ export function mergeConfigFiles(
   });
   return {
     ...merged,
-    // Safety-sensitive fields: the USER's config wins over the PROJECT's.
-    // A cloned repo's .moss/config.json is less trusted than the user's
-    // ~/.config/moss/config.json — it must not silently lower the user's
-    // safety stance (e.g. approvalPolicy: 'never', safetyMode: 'full-access',
-    // or widening trustedTools). If the user hasn't set a field, the project
-    // value is still used (project defaults are fine); the user's explicit
-    // choice always wins. CLI flags and env vars override both (resolveCliConfig).
+    // Safety-sensitive scalars: the user's config wins over the project's.
+    // A cloned repo's .moss/config.json must not silently lower the user's
+    // safety stance (e.g. approvalPolicy: 'never', safetyMode: 'full-access').
+    // If the user hasn't set a scalar, the project value is still used.
+    // trustedTools is a grant list, so a trusted project unions with the user.
+    // loadCliConfigFile removes an untrusted project's trustedTools,
+    // permissions.allow, permissions.defaultMode, and a looser profile before
+    // this merge, so those grants cannot widen the user's mode. CLI flags and
+    // env vars override both (resolveCliConfig).
     safetyMode: userConfig.safetyMode ?? projectConfig.safetyMode,
     approvalPolicy: userConfig.approvalPolicy ?? projectConfig.approvalPolicy,
-    trustedTools: userConfig.trustedTools ?? projectConfig.trustedTools,
+    trustedTools: unionOptionalStringList(userConfig.trustedTools, projectConfig.trustedTools),
     deniedTools: userConfig.deniedTools ?? projectConfig.deniedTools,
     permissions: mergePermissionsConfig(userConfig.permissions, projectConfig.permissions),
     promptCache: mergePromptCacheConfig(userConfig.promptCache, projectConfig.promptCache),
@@ -922,28 +995,33 @@ function mergeStatusLine(
   return Object.keys(rest).length > 0 ? rest : undefined;
 }
 
+function unionOptionalStringList(
+  user: string[] | undefined,
+  project: string[] | undefined
+): string[] | undefined {
+  if (!user && !project) return undefined;
+  return [...new Set([...(user ?? []), ...(project ?? [])])];
+}
+
 /**
  * v0.26 permission-block merge, safety-directional like the other safety
  * fields: user-wins on every scalar knob; rule lists union BOTH layers
  * (deny rules union across levels by design — a project cannot silently
- * remove the user's deny; allow/ask dedupe).
+ * remove the user's deny; allow/ask dedupe). An untrusted project's
+ * `allow` and `defaultMode` are removed before this function runs.
  */
 function mergePermissionsConfig(
   user: PermissionsConfig | undefined,
   project: PermissionsConfig | undefined
 ): PermissionsConfig | undefined {
   if (!user && !project) return undefined;
-  const unionList = (a: string[] | undefined, b: string[] | undefined): string[] | undefined => {
-    if (!a && !b) return undefined;
-    return [...new Set([...(a ?? []), ...(b ?? [])])];
-  };
   return {
     ...(user ?? {}),
     ...(project ?? {}),
     defaultMode: user?.defaultMode ?? project?.defaultMode,
-    allow: unionList(user?.allow, project?.allow),
-    ask: unionList(user?.ask, project?.ask),
-    deny: unionList(user?.deny, project?.deny),
+    allow: unionOptionalStringList(user?.allow, project?.allow),
+    ask: unionOptionalStringList(user?.ask, project?.ask),
+    deny: unionOptionalStringList(user?.deny, project?.deny),
   };
 }
 
@@ -1047,7 +1125,12 @@ export function loadCliConfigFile(
   const rawProject = loadConfigFile(projectConfigPath);
   const trusted = projectRoutingTrusted(env, argv, startDir, options?.trustProjectRouting);
   const ignoredProjectRouting = trusted ? [] : listProjectRoutingConfigFields(rawProject);
-  const projectConfig = trusted ? rawProject : omitProjectRoutingConfig(rawProject);
+  const droppedProjectPermissions = trusted
+    ? []
+    : listDroppedProjectPermissionFields(userConfig, rawProject);
+  const projectConfig = trusted
+    ? rawProject
+    : omitLooseningProjectPermissions(userConfig, omitProjectRoutingConfig(rawProject));
   const merged = mergeConfigFiles(projectConfig, userConfig, options);
   const sources = fieldSourcesFor(userConfig, projectConfig);
   const keyLayer =
@@ -1066,6 +1149,7 @@ export function loadCliConfigFile(
     projectConfig,
     fieldSources: sources,
     ...(ignoredProjectRouting.length > 0 ? { ignoredProjectRouting } : {}),
+    ...(droppedProjectPermissions.length > 0 ? { droppedProjectPermissions } : {}),
     ...(blocked ? { blockedProjectBaseUrl: blocked } : {}),
     ...userIdentity,
   };
