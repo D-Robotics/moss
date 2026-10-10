@@ -21,7 +21,7 @@
  * `Proxy-Authorization`, `Set-Cookie`). Command argv masks sshpass `-p`
  * (attached or spaced, including a prefix glued onto the command),
  * mysql/mariadb attached `-p`, curl/wget userinfo (a short cluster ending in
- * `-u`), `docker login -p`, `--http-password`, and `--password` / `--passwd` /
+ * `-u`), `docker` / `podman login -p`, `--http-password`, and `--password` / `--passwd` /
  * `--pass`. A function word after a flag stays. Port flags stay. Nested quotes
  * and escapes stay.
  */
@@ -393,14 +393,54 @@ function forEachAssignment(
   return out;
 }
 
-/** `SSHPASS` and `MYSQL_PWD` are passwords even when the value is one character. */
+/**
+ * `SSHPASS`, `MYSQL_PWD`, and `PGPASSWORD` are passwords even when the value is
+ * one character.
+ */
 function isPasswordEnvName(name: string): boolean {
-  return /^(?:sshpass|mysql_pwd)$/i.test(name);
+  return /^(?:sshpass|mysql_pwd|pgpassword)$/i.test(name);
 }
 
+/** `$(cmd)`, `${VAR}`, `$VAR`, or a backtick command: the shell fetches the value. */
+const SHELL_LOOKUP = /^(?:\$[({A-Za-z_]|`)/;
+
+/**
+ * `${NAME:-}`, `${NAME:?message}`, `${NAME:-$OTHER}`: a shell parameter
+ * expansion reads the variable. The word after the operator is empty, an error
+ * message, or another lookup, not a stored secret. A literal default
+ * (`${NAME:-hunter2}`) still counts.
+ */
+function isParameterExpansionLookup(text: string, hit: AssignmentHit): boolean {
+  if (hit.sep !== ':') return false;
+  let at = hit.start;
+  while (at > 0 && /[A-Za-z0-9_]/.test(text[at - 1] ?? '')) at -= 1;
+  if (text.slice(at - 2, at) !== '${') return false;
+  const op = hit.value[0] ?? '';
+  if (op === '?') return true;
+  if (!/^[-+=]?$/.test(op)) return false;
+  const word = hit.value.slice(1);
+  return !word || SHELL_LOOKUP.test(word);
+}
+
+/** Commands that read `SSHPASS`, `MYSQL_PWD`, or `PGPASSWORD` from the environment. */
+const PASSWORD_ENV_COMMAND =
+  /^(?:sshpass|mysql|mysqldump|mariadb|mariadb-dump|psql|pg_dump|pg_restore|pg_dumpall|ssh|scp|rsync|env|exec)$/;
+
 function shouldRedactAssignment(hit: AssignmentHit, strictFile: boolean): boolean {
+  // `export SSHPASS="$(security …)"` and `SSHPASS=`cat f`` fetch the password.
+  if (isPasswordEnvName(hit.name) && SHELL_LOOKUP.test(hit.value)) return false;
+  // `SSHPASS= sshpass -e ssh h` clears the variable; the next word is the command.
+  if (
+    isPasswordEnvName(hit.name) &&
+    /^=[ \t]/.test(hit.sep) &&
+    PASSWORD_ENV_COMMAND.test(hit.value)
+  ) {
+    return false;
+  }
   if (strictFile) return shouldRedactPasswordValue(hit.value);
-  if (isPasswordEnvName(hit.name)) {
+  // Short values count only in a plain shell assignment: not a `${NAME:-…}` default,
+  // an empty value before a command, a spaced code assignment, or a `$(…)` lookup.
+  if (isPasswordEnvName(hit.name) && /^=["']?$/.test(hit.sep)) {
     if (isPlaceholder(hit.value) || isSourceExpression(hit.value)) return false;
     return shouldRedactPasswordValue(hit.value);
   }
@@ -428,6 +468,8 @@ interface ArgvWord {
   value: string;
   /** Source index of each character in `value` (quotes and escapes are skipped). */
   valueMap: number[];
+  /** The text `valueMap` points into. */
+  source: string;
 }
 
 interface ArgvSep {
@@ -545,7 +587,7 @@ function tokenizeArgv(line: string): ArgvToken[] {
       valueMap.push(i);
       i += 1;
     }
-    if (value) tokens.push({ start, end: i, value, valueMap });
+    if (value) tokens.push({ start, end: i, value, valueMap, source: line });
   }
   return tokens;
 }
@@ -567,9 +609,32 @@ function argvSegments(tokens: readonly ArgvToken[]): ArgvWord[][] {
 
 function shouldMaskArg(value: string): boolean {
   if (!value || value.includes(REDACTED)) return false;
+  // A list tokenizer splits `[REDACTED]` at the brackets; masking the word again
+  // would grow `[[REDACTED]]` on every pass.
+  if (value === REDACTED.slice(1, -1)) return false;
   // A flag separator (`--password` /) is not a secret. Real values have a letter or digit.
   if (!/[A-Za-z0-9]/.test(value)) return false;
   return !isSyntacticSecretPlaceholder(value);
+}
+
+/**
+ * Last value index whose source bytes are contiguous with `from`, allowing an
+ * in-string escape (`\\"`). A closing quote ends the run, so the bytes after it
+ * (`\\"",` or `"}`) stay as written.
+ */
+function contiguousValueEnd(token: ArgvWord, from: number, to: number): number {
+  let k = from;
+  while (k < to) {
+    const a = token.valueMap[k];
+    const b = token.valueMap[k + 1];
+    if (a === undefined || b === undefined) break;
+    if (b === a + 1 || (b === a + 2 && token.source[a + 1] === '\\')) {
+      k += 1;
+      continue;
+    }
+    break;
+  }
+  return k;
 }
 
 function pushValueSlice(
@@ -578,14 +643,29 @@ function pushValueSlice(
   length: number,
   replacements: ArgvReplacement[]
 ): void {
-  const slice = token.value.slice(valueIndex, valueIndex + length);
+  let slice = token.value.slice(valueIndex, valueIndex + length);
+  // An escaped quote (`\"admin:pw\"` in JSON or a nested shell string) is a
+  // delimiter, not part of the password: keep it and everything after it.
+  const lead = /^(?:\\+["'`])+/.exec(slice)?.[0] ?? '';
+  if (lead) {
+    valueIndex += lead.length;
+    length -= lead.length;
+    slice = slice.slice(lead.length);
+  }
+  const escapedQuote = slice.search(/\\+["'`](?![A-Za-z0-9])/);
+  if (escapedQuote >= 0) {
+    length = escapedQuote;
+    slice = slice.slice(0, escapedQuote);
+  }
   const trailing = /["'`)\]}]+$/.exec(slice)?.[0] ?? '';
   if (trailing && !/["'`(\[{]/.test(slice.slice(0, slice.length - trailing.length))) {
     length -= trailing.length;
   }
   if (length <= 0) return;
+  // Judge a placeholder (`<PASSWORD>`) after the closing quote and brace are trimmed.
+  if (isSyntacticSecretPlaceholder(token.value.slice(valueIndex, valueIndex + length))) return;
   const start = token.valueMap[valueIndex];
-  const end = token.valueMap[valueIndex + length - 1];
+  const end = token.valueMap[contiguousValueEnd(token, valueIndex, valueIndex + length - 1)];
   if (start === undefined || end === undefined) return;
   replacements.push({ start, end: end + 1, text: REDACTED });
 }
@@ -644,6 +724,8 @@ const PROSE_FLAG_WORDS = new Set([
   'just',
   'only',
   'also',
+  'flag',
+  'option',
 ]);
 
 function isProseFlagValue(value: string): boolean {
@@ -786,7 +868,7 @@ function redactUserinfoArgv(
   }
 }
 
-/** `docker login -p` is a password. `docker run -p` publishes a port. */
+/** `docker login -p` / `podman login -p` is a password. `docker run -p` publishes a port. */
 function redactDockerLoginArgv(
   segments: readonly ArgvWord[][],
   replacements: ArgvReplacement[]
@@ -794,7 +876,7 @@ function redactDockerLoginArgv(
   for (const segment of segments) {
     for (let i = 0; i < segment.length; i += 1) {
       const name = segment[i] ? commandTokenName(segment[i].value) : '';
-      if (name !== 'docker') continue;
+      if (name !== 'docker' && name !== 'podman') continue;
       const sub = segment[i + 1];
       if (!sub || commandTokenName(sub.value) !== 'login') continue;
       for (let j = i + 2; j < segment.length; j += 1) {
@@ -818,7 +900,7 @@ function redactDockerLoginArgv(
 }
 
 const NESTED_ARGV_HINT =
-  /sshpass|\bmysql\b|\bmariadb\b|\bcurl\b|\bwget\b|\bdocker\b|--http-password|--password|--passwd|--pass(?!phrase|word|ed|ive|port)/i;
+  /sshpass|\bmysql\b|\bmariadb\b|\bcurl\b|\bwget\b|\bdocker\b|\bpodman\b|--http-password|--password|--passwd|--pass(?!phrase|word|ed|ive|port)/i;
 
 function spansOverlap(a: ArgvReplacement, start: number, end: number): boolean {
   return a.start < end && a.end > start;
@@ -839,7 +921,7 @@ function redactNestedArgv(
     if (replacements.some((rep) => spansOverlap(rep, start, end))) continue;
     for (const rep of collectArgvReplacements(token.value, depth + 1)) {
       const from = token.valueMap[rep.start];
-      const to = token.valueMap[rep.end - 1];
+      const to = token.valueMap[contiguousValueEnd(token, rep.start, rep.end - 1)];
       if (from === undefined || to === undefined) continue;
       replacements.push({ start: from, end: to + 1, text: rep.text });
     }
@@ -897,6 +979,7 @@ function redactCommandArgv(text: string): string {
 function redactAssignments(text: string, strictFile: boolean): string {
   const continued = maskIndentedQuoteContinuations(text, { strict: strictFile });
   return forEachAssignment(continued, (hit) => {
+    if (isParameterExpansionLookup(continued, hit)) return undefined;
     if (!shouldRedactAssignment(hit, strictFile)) return undefined;
     return `${hit.name}${hit.sep}${REDACTED}`;
   });

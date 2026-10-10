@@ -329,6 +329,105 @@ assertSecretOnly('MYSQL_PWD=x', 'x');
 assertSecretOnly('curl -su u:p', 'p');
 assertSecretOnly('docker login -p x', 'x');
 assertSecretOnly('Use --password hunter2 now.', 'hunter2');
+// Escaped quotes in JSON or a nested shell string close the value; the bytes
+// after them stay, so the model view still parses.
+assertSecretOnly(String.raw`{"command":"curl -u \"u:sunrise\" https://h"}`, 'sunrise');
+assertSecretOnly(String.raw`{"command":"bash -c \"tool --password sunrise\""}`, 'sunrise');
+assertSecretOnly(
+  JSON.stringify({ arguments: JSON.stringify({ command: 'bash -c "tool --password sunrise"' }) }),
+  'sunrise'
+);
+assertSecretOnly(String.raw`"ship": "bash -c \"tool --password sunrise\"",`, 'sunrise');
+for (const command of [
+  'curl -u "u:sunrise" https://h',
+  'bash -c "tool --password sunrise"',
+  'ssh h "sshpass -p sunrise ssh g"',
+  "ssh h 'mysql -psunrise'",
+]) {
+  for (const wrapped of [
+    JSON.stringify({ command }),
+    JSON.stringify({ arguments: JSON.stringify({ command }) }),
+  ]) {
+    const out = redactEgress(wrapped, env);
+    assert.doesNotMatch(out, /sunrise/, wrapped);
+    assert.doesNotThrow(() => JSON.parse(out), `${wrapped} => ${out}`);
+  }
+}
+const shipJson = [
+  '{',
+  '  "scripts": {',
+  String.raw`    "ship": "bash -c \"tool --password sunrise\"",`,
+  '    "test": "node test.mjs"',
+  '  }',
+  '}',
+];
+const shipRead = presentToolOutput({
+  toolName: 'read_file',
+  input: { path: 'package.json' },
+  text: numbered(shipJson),
+  workspaceDir: project,
+  env,
+});
+assert.doesNotMatch(shipRead, /sunrise/);
+const shipBody = shipRead
+  .split('\n')
+  .map((line) => line.replace(/^\s*\d+\t/, ''))
+  .join('\n');
+assert.equal(shipBody, shipJson.join('\n').replace('sunrise', '[REDACTED]'));
+assert.doesNotThrow(() => JSON.parse(shipBody), shipBody);
+
+// The short-value rule for password env names only covers a literal `NAME=value`.
+// Expansions, lookups, and an empty assignment before a command stay as written.
+assertSecretOnly('SSHPASS=sunrise sshpass -e ssh h', 'sunrise');
+assertSecretOnly('export SSHPASS=x', 'x');
+assertSecretOnly('MYSQL_PWD=x mysql -u root', 'x');
+assertSecretOnly('PGPASSWORD=x psql -h db', 'x');
+assertSecretOnly('podman login -p sunrise registry.example.com', 'sunrise');
+for (const kept of [
+  'elif [[ -n "${SSHPASS:-}" ]]; then',
+  'echo "${MYSQL_PWD:-default}"',
+  'echo "${PGPASSWORD:-}"',
+  ': "${SSHPASS:?set SSHPASS first}"',
+  'export SSHPASS="$(security find-generic-password -w -s robot -a root)"',
+  'export SSHPASS=$(cat ~/.pw)',
+  'SSHPASS=`cat ~/.pw` sshpass -e ssh h',
+  'SSHPASS= sshpass -e ssh h',
+  'SSHPASS=${PW} sshpass -e ssh h',
+  'MYSQL_PWD: the password env var',
+  'process.env.SSHPASS = password;',
+  'tool --password <PASSWORD>"}',
+  'The --pass flag is passed through.',
+]) {
+  assert.equal(redactEgress(kept, env), kept, kept);
+}
+for (const kept of [
+  'elif [[ -n "${SSHPASS:-}" ]]; then',
+  'export SSHPASS=$(cat ~/.pw)',
+  'SSHPASS=`cat ~/.pw` sshpass -e ssh h',
+  'SSHPASS= sshpass -e ssh h',
+  'echo "${PGPASSWORD:-}"',
+]) {
+  assert.equal(strict(kept), kept, `strict ${kept}`);
+}
+assert.equal(strict('SSHPASS=sunrise'), 'SSHPASS=[REDACTED]');
+assert.equal(strict('PGPASSWORD=$3cr3t'), 'PGPASSWORD=[REDACTED]');
+assert.equal(
+  redactEgress('SSHPASS=$3cr3t sshpass -e ssh h', env),
+  'SSHPASS=[REDACTED] sshpass -e ssh h'
+);
+
+// Redaction is idempotent: a second pass leaves `[REDACTED]` alone.
+for (const input of [
+  'sshpass -p sunrise ssh h',
+  "x 'sshpass -p sunrise');",
+  'tool --password sunrise',
+  String.raw`{"command":"curl -u \"u:sunrise\" https://h"}`,
+  'SSHPASS=sunrise sshpass -e ssh h',
+]) {
+  const once = redactEgress(input, env);
+  assert.equal(redactEgress(once, env), once, input);
+}
+
 const experienceCmd =
   "bash -lc 'TOKEN=ghp_abcdefghijklmnopqrstuvwxyz1234567890 curl https://robot.internal/run --password hunter2 --host prod.internal'";
 assert.equal(
