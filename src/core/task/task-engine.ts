@@ -26,7 +26,11 @@ import {
 import { injectExperienceIntoPrompt } from '../experience/experience-library.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
 import type { AgentTurnResult } from './agent-turn.js';
-import { acceptanceAlreadySatisfied, createTaskVerdictProvider } from './verdict.js';
+import {
+  acceptanceAlreadySatisfied,
+  createTaskVerdictProvider,
+  isCommittedTaskVerdict,
+} from './verdict.js';
 
 const log = getRootLogger().child('task-engine');
 
@@ -285,16 +289,24 @@ async function verifyRepairLoop(
       detail: 'evaluating acceptance',
     });
     const verdict = await provider.evaluate(state.taskId, deps.signal);
+    // Cancellation while a provider awaits evidence outranks its eventual PASS.
+    if (deps.signal?.aborted && !isCommittedTaskVerdict(verdict)) continue;
     state.lastVerdict = verdict;
 
     if (verdict.passed) {
-      await tryAppendTaskEvent(workspaceDir, state.taskId, 'acceptance_pass', {
-        detail:
-          verdict.source === 'command'
-            ? 'acceptance command exited 0'
-            : 'criteria met with evidence',
-        acceptanceSource: verdict.source,
-      });
+      await tryAppendTaskEvent(
+        workspaceDir,
+        state.taskId,
+        'acceptance_pass',
+        {
+          detail:
+            verdict.source === 'command'
+              ? 'acceptance command exited 0'
+              : 'criteria met with evidence',
+          acceptanceSource: verdict.source,
+        },
+        isCommittedTaskVerdict(verdict) ? undefined : deps.signal
+      );
       deps.onProgress?.({
         taskId: state.taskId,
         phase: 'accepted',
@@ -462,7 +474,9 @@ async function acceptPlanningIfSatisfied(
   const current = await getTaskStateSnapshot(deps.workspaceDir, state.taskId);
   if (!current || current.phase === 'accepted') return current?.phase === 'accepted';
   if (!(await acceptanceAlreadySatisfied(deps.workspaceDir, state.taskId))) return false;
+  deps.signal?.throwIfAborted();
   const verdict = await provider.evaluate(state.taskId, deps.signal);
+  if (!isCommittedTaskVerdict(verdict)) deps.signal?.throwIfAborted();
   if (!verdict.passed) return false;
   state.lastVerdict = verdict;
   deps.onProgress?.({
@@ -476,7 +490,8 @@ async function acceptPlanningIfSatisfied(
     state.taskId,
     true,
     verdict.detail,
-    verdict.source
+    verdict.source,
+    isCommittedTaskVerdict(verdict) ? undefined : deps.signal
   );
   deps.onProgress?.({
     taskId: state.taskId,

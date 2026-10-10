@@ -63,12 +63,18 @@ async function readJsonl<T>(file: string): Promise<T[]> {
   return readJsonlFile<T>(file);
 }
 
-async function appendJsonl(workspaceDir: string, name: string, record: unknown): Promise<void> {
+async function appendJsonl(
+  workspaceDir: string,
+  name: string,
+  record: unknown,
+  signal?: AbortSignal
+): Promise<void> {
+  signal?.throwIfAborted();
   ensureMossRuntimeGitignore(workspaceDir);
   const dir = await mossDir(workspaceDir);
   // Newline repair runs here. Task-event callers already hold the event lock
   // (withTaskEventLock). That lock is not re-entrant.
-  await appendJsonlFile(path.join(dir, name), record);
+  await appendJsonlFile(path.join(dir, name), record, signal);
 }
 
 // --- events -----------------------------------------------------------------
@@ -144,10 +150,12 @@ export async function appendTaskEvent(
   workspaceDir: string,
   taskId: string,
   type: TaskEventType,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  signal?: AbortSignal
 ): Promise<TaskEvent> {
+  signal?.throwIfAborted();
   return withTaskEventLock(workspaceDir, () =>
-    appendTaskEventUnlocked(workspaceDir, taskId, type, data)
+    appendTaskEventUnlocked(workspaceDir, taskId, type, data, signal)
   );
 }
 
@@ -155,9 +163,12 @@ async function appendTaskEventUnlocked(
   workspaceDir: string,
   taskId: string,
   type: TaskEventType,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  signal?: AbortSignal
 ): Promise<TaskEvent> {
+  signal?.throwIfAborted();
   const events = await listTaskEvents(workspaceDir, taskId);
+  signal?.throwIfAborted();
   const current = events.length > 0 ? replayTaskPhase(events) : 'draft';
   const next = nextTaskPhase(
     current,
@@ -181,7 +192,7 @@ async function appendTaskEventUnlocked(
     phase: next,
     ...(data ? { data } : {}),
   };
-  await appendJsonl(workspaceDir, EVENTS_FILE, event);
+  await appendJsonl(workspaceDir, EVENTS_FILE, event, signal);
   if (experienceEnabled()) {
     await recordAcceptedExperience(workspaceDir, event).catch(() => {
       // Optional bookkeeping must not fail the task state machine.
@@ -201,10 +212,11 @@ export async function tryAppendTaskEvent(
   workspaceDir: string,
   taskId: string,
   type: TaskEventType,
-  data?: Record<string, unknown>
+  data?: Record<string, unknown>,
+  signal?: AbortSignal
 ): Promise<TaskEvent | null> {
   try {
-    return await appendTaskEvent(workspaceDir, taskId, type, data);
+    return await appendTaskEvent(workspaceDir, taskId, type, data, signal);
   } catch (err) {
     if (err instanceof MossError && err.code === ErrorCode.EXECUTION_STATE_INVALID) {
       return null;
@@ -236,19 +248,27 @@ export async function emitAcceptanceLifecycle(
   taskId: string,
   passed: boolean,
   detail: string,
-  source?: 'command' | 'contract'
+  source?: 'command' | 'contract',
+  signal?: AbortSignal
 ): Promise<void> {
   const events = await listTaskEvents(workspaceDir, taskId);
   if (events.length === 0) return;
   const phase = replayTaskPhase(events);
   if (isTerminalTaskPhase(phase)) return;
+  signal?.throwIfAborted();
   if (['ready', 'executing', 'diagnosing', 'repairing'].includes(phase)) {
-    await tryAppendTaskEvent(workspaceDir, taskId, 'verification_started');
+    await tryAppendTaskEvent(workspaceDir, taskId, 'verification_started', undefined, signal);
   }
-  await tryAppendTaskEvent(workspaceDir, taskId, passed ? 'acceptance_pass' : 'acceptance_fail', {
-    detail: detail.slice(0, 400),
-    ...(source ? { acceptanceSource: source } : {}),
-  });
+  await tryAppendTaskEvent(
+    workspaceDir,
+    taskId,
+    passed ? 'acceptance_pass' : 'acceptance_fail',
+    {
+      detail: detail.slice(0, 400),
+      ...(source ? { acceptanceSource: source } : {}),
+    },
+    signal
+  );
 }
 
 // --- failures & repairs -------------------------------------------------------

@@ -11,6 +11,25 @@ import { builtinRdkDocsServerConfig, rdkDocsNpxCwd } from '../dist/core/mcp/rdk-
 import { McpToolRegistry } from '../dist/core/mcp/registry.js';
 import { isDotenvDeniedEnvKey } from '../dist/utils/dotenv-denied-env.js';
 import { pinNpmUserConfig } from '../dist/utils/safe-child-env.js';
+import { runProcess } from '../dist/utils/run-process.js';
+
+const dependencyName = `moss-npmrc-probe-${process.pid}-${Date.now()}`;
+let dependencyTarball;
+
+async function packFixture(directory) {
+  const packed = await runProcess(
+    process.platform === 'win32' ? (process.env.COMSPEC ?? 'cmd.exe') : 'npm',
+    {
+      args:
+        process.platform === 'win32'
+          ? ['/d', '/s', '/c', 'npm pack --ignore-scripts --json']
+          : ['pack', '--ignore-scripts', '--json'],
+      cwd: directory,
+      timeout: 30000,
+    }
+  );
+  return path.join(directory, JSON.parse(packed.stdout)[0].filename);
+}
 
 for (const key of ['TMPDIR', 'TMP', 'TEMP', 'npm_config_userconfig', 'NPM_CONFIG_USERCONFIG']) {
   assert.equal(isDotenvDeniedEnvKey(key), true, key);
@@ -20,7 +39,29 @@ function listen(bucket, hits) {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
       hits[bucket].push(`${req.method} ${req.url}`);
-      res.statusCode = 500;
+      if (bucket === 'user' && req.url === `/${dependencyName}`) {
+        res.setHeader('content-type', 'application/json');
+        res.end(
+          JSON.stringify({
+            name: dependencyName,
+            'dist-tags': { latest: '0.0.0' },
+            versions: {
+              '0.0.0': {
+                name: dependencyName,
+                version: '0.0.0',
+                dist: { tarball: `http://${req.headers.host}/${dependencyName}/-/probe.tgz` },
+              },
+            },
+          })
+        );
+        return;
+      }
+      if (bucket === 'user' && req.url === `/${dependencyName}/-/probe.tgz`) {
+        res.setHeader('content-type', 'application/octet-stream');
+        res.end(dependencyTarball);
+        return;
+      }
+      res.statusCode = 404;
       res.end('no');
     });
     server.listen(0, '127.0.0.1', () => resolve(server));
@@ -28,6 +69,21 @@ function listen(bucket, hits) {
 }
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-npmrc-'));
+const dependencyDir = path.join(root, 'dependency');
+fs.mkdirSync(dependencyDir);
+fs.writeFileSync(
+  path.join(dependencyDir, 'package.json'),
+  JSON.stringify({
+    name: dependencyName,
+    version: '0.0.0',
+    main: 'index.js',
+  })
+);
+fs.writeFileSync(
+  path.join(dependencyDir, 'index.js'),
+  'module.exports = "registry dependency installed";\n'
+);
+dependencyTarball = fs.readFileSync(await packFixture(dependencyDir));
 const hits = { user: [], project: [] };
 const userServer = await listen('user', hits);
 const projectServer = await listen('project', hits);
@@ -52,6 +108,7 @@ fs.writeFileSync(
     name: 'rdk-docs-mcp',
     version: '0.0.0',
     bin: { 'rdk-docs-mcp': './probe.mjs' },
+    dependencies: { [dependencyName]: '0.0.0' },
   })
 );
 fs.writeFileSync(
@@ -59,7 +116,8 @@ fs.writeFileSync(
   [
     '#!/usr/bin/env node',
     "import fs from 'node:fs';",
-    `fs.writeFileSync(${JSON.stringify(ran)}, JSON.stringify({ cwd: process.cwd() }));`,
+    `import dependency from ${JSON.stringify(dependencyName)};`,
+    `fs.writeFileSync(${JSON.stringify(ran)}, JSON.stringify({ cwd: process.cwd(), dependency }));`,
     'process.exit(0);',
     '',
   ].join('\n')
@@ -100,7 +158,12 @@ delete process.env.NPM_CONFIG_USERCONFIG;
 
 const previous = process.cwd();
 process.chdir(ws);
-const config = builtinRdkDocsServerConfig(packageDir);
+const config = builtinRdkDocsServerConfig(await packFixture(packageDir));
+config.env = {
+  npm_config_fetch_retries: '0',
+  npm_config_fetch_timeout: '5000',
+  npm_config_audit: 'false',
+};
 assert.equal(config.args.includes('--registry'), false);
 assert.ok(config.cwd);
 assert.ok(config.cwd.startsWith(home + path.sep), config.cwd);
@@ -109,14 +172,41 @@ assert.equal(config.cwd.startsWith(ws + path.sep) || config.cwd === ws, false);
 assert.equal(config.cwd.startsWith(evilTmp), false);
 assert.equal(rdkDocsNpxCwd(), config.cwd);
 
-const registry = McpToolRegistry.connectInBackground([config]);
+async function connectAndClose(serverConfig) {
+  const registry = McpToolRegistry.connectInBackground([serverConfig]);
+  let timeout;
+  try {
+    await Promise.race([
+      registry.waitForConnections(),
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`rdk connect timed out: ${JSON.stringify(hits)}`)),
+          20000
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+    await registry.closeAll();
+  }
+}
 try {
-  await Promise.race([
-    registry.waitForConnections(),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('rdk connect timed out')), 20000)),
-  ]);
+  // An unclean loader using the project's .npmrc fails the same real npx install.
+  await connectAndClose({
+    ...config,
+    cwd: ws,
+    startupEnvOnly: false,
+    env: { ...config.env, npm_config_userconfig: path.join(ws, '.npmrc') },
+  });
+  assert.equal(fs.existsSync(ran), false, 'unsafe project cwd must not start the package');
+  assert.ok(
+    hits.project.some((hit) => hit === `GET /${dependencyName}`),
+    `negative fixture must contact the project registry: ${JSON.stringify(hits)}`
+  );
+  hits.project.length = 0;
+  hits.user.length = 0;
+  await connectAndClose(config);
 } finally {
-  await registry.closeAll();
   process.chdir(previous);
   for (const [key, value] of Object.entries(saved)) {
     if (value === undefined) delete process.env[key];
@@ -129,7 +219,12 @@ try {
 }
 
 assert.equal(fs.existsSync(ran), true, 'rdk-docs npx did not start the package bin');
-assert.ok(hits.user.length > 0, 'user ~/.npmrc registry was not contacted');
+assert.equal(JSON.parse(fs.readFileSync(ran, 'utf8')).dependency, 'registry dependency installed');
+assert.ok(hits.user.includes(`GET /${dependencyName}`), 'user ~/.npmrc registry was not contacted');
+assert.ok(
+  hits.user.includes(`GET /${dependencyName}/-/probe.tgz`),
+  'dependency was not fetched from the user registry'
+);
 assert.deepEqual(
   hits.project,
   [],

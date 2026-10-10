@@ -33,6 +33,13 @@ export interface VerdictProvider {
   evaluate(taskId: string, signal?: AbortSignal): Promise<TaskVerdict>;
 }
 
+// Only a successful durable append can attest acceptance, never a caller's
+// source label. Identity is preserved through host wrappers returning verdicts.
+const committedVerdicts = new WeakSet<TaskVerdict>();
+export function isCommittedTaskVerdict(verdict: TaskVerdict): boolean {
+  return committedVerdicts.has(verdict);
+}
+
 /**
  * Exit-code acceptance: pass = exit 0, fail detail = combined output tail.
  * Used as-is by the engine's VERIFYING phase.
@@ -83,9 +90,12 @@ export async function acceptanceAlreadySatisfied(
 
 export async function evaluateContractAcceptance(
   workspaceDir: string,
-  taskId?: string
+  taskId?: string,
+  signal?: AbortSignal
 ): Promise<{ verdict: AcceptanceVerdict; task: TaskContract } | null> {
+  signal?.throwIfAborted();
   const tasks = await listTaskRecords(workspaceDir);
+  signal?.throwIfAborted();
   if (tasks.length === 0) return null;
   const task = taskId
     ? tasks.find((candidate) => candidate.taskId === taskId)
@@ -95,13 +105,20 @@ export async function evaluateContractAcceptance(
   if (!task) return null;
 
   const evidence = await listEvidenceRecords(workspaceDir, 1000);
+  signal?.throwIfAborted();
   const verdict = evaluateAcceptance(task, evidence);
-  await appendAcceptanceVerdict(workspaceDir, verdict);
+  // The last abort check is at append dispatch. Once the PASS commit starts,
+  // finish its ledger despite later cancellation. Failed IO never attests PASS.
+  await appendAcceptanceVerdict(workspaceDir, verdict, signal);
 
   if (verdict.verdict === 'pass' && task.status !== 'accepted') {
     await appendTaskRecord(workspaceDir, { ...task, status: 'accepted', updatedAt: Date.now() });
   } else if (verdict.verdict === 'fail' && task.status === 'active') {
-    await appendTaskRecord(workspaceDir, { ...task, status: 'failed', updatedAt: Date.now() });
+    await appendTaskRecord(
+      workspaceDir,
+      { ...task, status: 'failed', updatedAt: Date.now() },
+      signal
+    );
   }
   return { verdict, task };
 }
@@ -109,10 +126,12 @@ export async function evaluateContractAcceptance(
 export function createContractVerdictProvider(workspaceDir: string): VerdictProvider {
   return {
     source: 'contract',
-    async evaluate(taskId) {
+    async evaluate(taskId, signal) {
+      signal?.throwIfAborted();
       // Guard: a draft contract with no criteria would trivially "pass"
       // (nothing to fail). No criteria = no defined done = not accepted.
       const tasks = await listTaskRecords(workspaceDir);
+      signal?.throwIfAborted();
       const task = tasks.find((candidate) => candidate.taskId === taskId);
       if (task && task.acceptanceCriteria.length === 0) {
         return {
@@ -123,7 +142,7 @@ export function createContractVerdictProvider(workspaceDir: string): VerdictProv
             'task has no acceptance criteria — define them with task_define (metric + expectation) before verification; a goal without a checkable definition of done cannot be accepted',
         };
       }
-      const result = await evaluateContractAcceptance(workspaceDir, taskId);
+      const result = await evaluateContractAcceptance(workspaceDir, taskId, signal);
       if (!result) {
         return {
           taskId,
@@ -132,13 +151,16 @@ export function createContractVerdictProvider(workspaceDir: string): VerdictProv
           detail: 'no task contract found — define one with task_define first',
         };
       }
-      return {
+      const evaluated: TaskVerdict = {
         taskId,
         passed: result.verdict.verdict === 'pass',
         source: 'contract',
         detail: formatAcceptanceVerdict(result.verdict, result.task),
         verdict: result.verdict,
       };
+      if (evaluated.passed) committedVerdicts.add(evaluated);
+      else signal?.throwIfAborted();
+      return evaluated;
     },
   };
 }
@@ -159,9 +181,12 @@ export function createTaskVerdictProvider(options: {
     source: 'command',
     async evaluate(taskId, signal) {
       const commandVerdict = await command.evaluate(taskId, signal);
+      signal?.throwIfAborted();
       if (commandVerdict.passed) {
         // Command passed — still record the contract evaluation for the trail.
-        await contract.evaluate(taskId).catch(() => undefined);
+        const recorded = await contract.evaluate(taskId, signal).catch(() => undefined);
+        if (recorded && isCommittedTaskVerdict(recorded)) committedVerdicts.add(commandVerdict);
+        else signal?.throwIfAborted();
         return commandVerdict;
       }
       return commandVerdict;

@@ -503,14 +503,18 @@ try {
   assert.doesNotMatch(String(moved), /must be restored from the original source/);
 
   fs.writeFileSync(path.join(project, 'note.txt'), 'alpha [REDACTED] omega\n');
-  const legit = await execTool.execute({ command: "sed -i 's/alpha/beta/' note.txt" }, ctx());
+  const sedInPlace = process.platform === 'darwin' ? "sed -i ''" : 'sed -i';
+  const legit = await execTool.execute(
+    { command: `${sedInPlace} 's/alpha/beta/' note.txt` },
+    ctx()
+  );
   assert.equal(fs.readFileSync(path.join(project, 'note.txt'), 'utf8'), 'beta [REDACTED] omega\n');
   assert.doesNotMatch(String(legit), /must be restored from the original source/);
 
   fs.writeFileSync(path.join(project, 'both.txt'), 'alpha SECRET-value-1234\n');
   const both = await execTool.execute(
     {
-      command: `sed -i "s/alpha/beta/; s/SECRET-value-1234/$(printf '%s%s' '[REDA' 'CTED]')/" both.txt`,
+      command: `${sedInPlace} "s/alpha/beta/; s/SECRET-value-1234/$(printf '%s%s' '[REDA' 'CTED]')/" both.txt`,
     },
     ctx()
   );

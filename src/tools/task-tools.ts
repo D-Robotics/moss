@@ -187,7 +187,7 @@ export const taskAcceptanceTool: Tool = {
     if (!task) {
       return `Error: task_acceptance: task ${taskId} not found — check task ids with the define output, or omit task_id to use the latest contract.`;
     }
-    const result = await evaluateContractAcceptance(ctx.workspaceDir, task.taskId);
+    const result = await evaluateContractAcceptance(ctx.workspaceDir, task.taskId, ctx.abortSignal);
     if (!result) {
       return `Error: task_acceptance: task ${task.taskId} disappeared from the store.`;
     }
@@ -196,7 +196,8 @@ export const taskAcceptanceTool: Tool = {
       task.taskId,
       result.verdict.verdict === 'pass',
       formatAcceptanceVerdict(result.verdict, result.task),
-      'contract'
+      'contract',
+      result.verdict.verdict === 'pass' ? undefined : ctx.abortSignal
     );
     return formatAcceptanceVerdict(result.verdict, result.task);
   },

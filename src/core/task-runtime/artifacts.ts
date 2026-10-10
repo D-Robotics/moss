@@ -87,8 +87,14 @@ async function readJsonl<T>(file: string): Promise<T[]> {
  * share a file across processes must hold their own lock around this; the
  * task-event lock is not re-entrant.
  */
-export async function appendJsonlFile(file: string, record: unknown): Promise<void> {
+export async function appendJsonlFile(
+  file: string,
+  record: unknown,
+  signal?: AbortSignal
+): Promise<void> {
+  signal?.throwIfAborted();
   await ensureTrailingNewline(file);
+  signal?.throwIfAborted();
   await fs.appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
 }
 
@@ -113,15 +119,25 @@ async function ensureTrailingNewline(file: string): Promise<void> {
   }
 }
 
-async function appendJsonl(workspaceDir: string, name: string, record: unknown): Promise<void> {
+async function appendJsonl(
+  workspaceDir: string,
+  name: string,
+  record: unknown,
+  signal?: AbortSignal
+): Promise<void> {
+  signal?.throwIfAborted();
   ensureMossRuntimeGitignore(workspaceDir);
   const dir = path.join(workspaceDir, '.moss');
   await fs.mkdir(dir, { recursive: true });
-  await appendJsonlFile(path.join(dir, name), record);
+  await appendJsonlFile(path.join(dir, name), record, signal);
 }
 
-export async function appendTaskRecord(workspaceDir: string, task: TaskContract): Promise<void> {
-  await appendJsonl(workspaceDir, 'tasks.jsonl', task);
+export async function appendTaskRecord(
+  workspaceDir: string,
+  task: TaskContract,
+  signal?: AbortSignal
+): Promise<void> {
+  await appendJsonl(workspaceDir, 'tasks.jsonl', task, signal);
 }
 
 export async function listTaskRecords(workspaceDir: string, limit = 50): Promise<TaskContract[]> {
@@ -151,9 +167,10 @@ export async function listEvidenceRecords(
 
 export async function appendAcceptanceVerdict(
   workspaceDir: string,
-  verdict: AcceptanceVerdict
+  verdict: AcceptanceVerdict,
+  signal?: AbortSignal
 ): Promise<void> {
-  await appendJsonl(workspaceDir, 'acceptance.jsonl', verdict);
+  await appendJsonl(workspaceDir, 'acceptance.jsonl', verdict, signal);
 }
 
 export async function listAcceptanceVerdicts(
