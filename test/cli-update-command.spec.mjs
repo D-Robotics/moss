@@ -29,8 +29,13 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
 {
   assert.equal(pkg.name, '@rdk-moss/agent');
   assert.equal(pkg.private, true);
-  assert.equal(pkg.bin.moss, 'dist/cli.js');
-  assert.deepEqual(pkg.files, ['dist', '!dist/**/*.map', 'README.md', 'LICENSE']);
+  assert.equal(typeof pkg.bin.moss, 'string');
+  const binPath = pkg.bin.moss.replaceAll('\\', '/');
+  assert.ok(fs.existsSync(path.join(repoRoot, binPath)), binPath);
+  assert.ok(
+    pkg.files.some((entry) => entry === binPath || binPath.startsWith(`${entry}/`)),
+    `files must include the bin path ${binPath}`
+  );
   assert.equal(pkg.engines.node, '>=22.16.0');
   assert.equal(pkg.scripts.prepare, 'npm run build');
   assert.equal(pkg.scripts.prepublishOnly, 'npm run build && npm run verify');

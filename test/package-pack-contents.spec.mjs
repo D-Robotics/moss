@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * The publishable tarball holds only package.json, README.md, LICENSE, and
- * the built .js / .d.ts files. No tests, scripts, workspace state, env files,
- * source maps, or key material.
+ * The publishable tarball holds only package.json, README.md, LICENSE, the
+ * package bin paths, and the built .js / .d.ts files. No tests, scripts,
+ * workspace state, env files, source maps, or key material.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -55,29 +55,35 @@ for (const file of files) {
   }
 }
 
+const pkgJson = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+const binField = pkgJson.bin;
+const binPaths = (typeof binField === 'string' ? [binField] : Object.values(binField ?? {})).map(
+  (binPath) => {
+    assert.equal(typeof binPath, 'string');
+    return binPath.replaceAll('\\', '/');
+  }
+);
+assert.ok(binPaths.length > 0, 'package.json bin declares at least one path');
+
 const allowed = (file) =>
   file === 'package.json' ||
   file === 'README.md' ||
   file === 'LICENSE' ||
   file === 'dist/utils/build-stamp.json' ||
+  binPaths.includes(file) ||
   (file.startsWith('dist/') && (file.endsWith('.js') || file.endsWith('.d.ts')));
 assert.deepEqual(
   files.filter((file) => !allowed(file)),
   [],
-  'only package.json, README.md, LICENSE, dist/utils/build-stamp.json, and dist/**/*.{js,d.ts}'
+  'only package.json, README.md, LICENSE, package bin paths, dist/utils/build-stamp.json, and dist/**/*.{js,d.ts}'
 );
 assert.ok(files.includes('dist/utils/build-stamp.json'), 'build stamp is packed');
-assert.ok(files.includes('dist/cli.js'), 'bin entry is packed');
+assert.ok(files.includes('dist/cli.js'), 'ESM CLI is packed');
 assert.ok(files.includes('dist/index.js'), 'SDK entry is packed');
 assert.ok(files.includes('dist/index.d.ts'), 'SDK types are packed');
 
-const pkgJson = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
-const binField = pkgJson.bin;
-const binPaths = typeof binField === 'string' ? [binField] : Object.values(binField ?? {});
 for (const binPath of binPaths) {
-  assert.equal(typeof binPath, 'string');
-  const normalized = binPath.replaceAll('\\', '/');
-  assert.ok(files.includes(normalized), `bin script ${normalized} is packed`);
+  assert.ok(files.includes(binPath), `bin script ${binPath} is packed`);
 }
 
 const keyLike = [
