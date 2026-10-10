@@ -7,13 +7,21 @@
  * dir, config mtime (and size), hooks directory, and the user/system git
  * config files the pairs may quote. A discovery failure does not invent
  * credential, ssh, pager, or fsmonitor overrides. An executable non-sample
- * hook still disables `core.hooksPath`, because that is visible without
- * config discovery.
+ * hook disables `core.hooksPath` only when the user has no global or system
+ * hooks path. A local `diff.external` is pointed at the builtin diff script.
+ * When that script cannot be installed safely, the key is set to `false`.
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { listLocalExecutableConfig, shellGitConfigPairs, type GitConfigPair } from './git-spawn.js';
+import { builtinExternalDiffCommand } from './git-builtin-diff.js';
+import {
+  hasLocalExternalDiff,
+  isExternalDiffConfigKey,
+  listLocalExecutableConfig,
+  shellGitConfigPairs,
+  type GitConfigPair,
+} from './git-spawn.js';
 
 export type { GitConfigPair };
 
@@ -198,16 +206,36 @@ async function loadPairs(
   const executableHooks = layout ? repoHasExecutableHooks(layout) : false;
   try {
     const stdout = await listLocalExecutableConfig(cwd, signal);
-    return { pairs: shellGitConfigPairs(stdout, { executableHooks }), cacheable: true };
+    const builtinDiff = hasLocalExternalDiff(stdout)
+      ? builtinExternalDiffCommand().command
+      : undefined;
+    return {
+      pairs: shellGitConfigPairs(stdout, { executableHooks, builtinDiff }),
+      cacheable: true,
+    };
   } catch {
     return { pairs: shellGitConfigPairs('', { executableHooks }), cacheable: false };
   }
 }
 
 /**
+ * Re-check the builtin diff script before the pairs are used. A cached path
+ * from a shared or replaced file must not stay in the child env.
+ */
+function applyBuiltinExternalDiff(pairs: GitConfigPair[]): GitConfigPair[] {
+  if (!pairs.some((pair) => isExternalDiffConfigKey(pair.key))) return pairs;
+  const command = builtinExternalDiffCommand().command;
+  for (const pair of pairs) {
+    if (isExternalDiffConfigKey(pair.key)) pair.value = command;
+  }
+  return pairs;
+}
+
+/**
  * Repo filter / textconv overrides, plus credential, ssh, pager, fsmonitor,
  * and hooks overrides when the repo (not the user's global config) sets them.
  * Cached until the repo config, hooks directory, or user gitconfig changes.
+ * External-diff values are refreshed on every call.
  */
 export async function untrustedShellGitConfig(
   cwd: string,
@@ -216,9 +244,9 @@ export async function untrustedShellGitConfig(
   const layout = findGitLayout(cwd);
   const stamp = layoutStamp(layout);
   const hit = cache.get(stamp);
-  if (hit) return hit;
+  if (hit) return applyBuiltinExternalDiff(hit);
   const pending = inflight.get(stamp);
-  if (pending) return pending;
+  if (pending) return applyBuiltinExternalDiff(await pending);
   const run = loadPairs(cwd, signal, layout)
     .then((loaded) => {
       if (loaded.cacheable) remember(stamp, loaded.pairs);
@@ -228,5 +256,5 @@ export async function untrustedShellGitConfig(
       inflight.delete(stamp);
     });
   inflight.set(stamp, run);
-  return run;
+  return applyBuiltinExternalDiff(await run);
 }

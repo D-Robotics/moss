@@ -10,16 +10,48 @@ export interface ToolExecGroup {
   parallel: boolean;
 }
 
+const TRAILING_NOTICE_LINE = /^\[moss\]\s+\S/;
+
+/** Trailing `[moss]` notice lines of a full result (blank lines between them dropped). */
+function trailingNotices(full: string): string[] {
+  const lines = full.split('\n');
+  const notices: string[] = [];
+  while (lines.length > 0) {
+    const last = (lines[lines.length - 1] ?? '').trim();
+    if (last === '') {
+      lines.pop();
+      continue;
+    }
+    if (!TRAILING_NOTICE_LINE.test(last)) break;
+    notices.unshift(last);
+    lines.pop();
+  }
+  return notices;
+}
+
+/** A head-truncated preview keeps the result's trailing `[moss]` notices. */
+function withNotices(full: string, preview: string): string {
+  if (preview === full) return preview;
+  const notices = trailingNotices(full);
+  return notices.length > 0 ? `${preview}\n\n${notices.join('\n')}` : preview;
+}
+
 export function formatToolResultForSsePreview(truncatedResult: string, isError: boolean): string {
   if (isError) {
-    return truncatedResult.length > 500 ? `${truncatedResult.slice(0, 500)}...` : truncatedResult;
+    return withNotices(
+      truncatedResult,
+      truncatedResult.length > 500 ? `${truncatedResult.slice(0, 500)}...` : truncatedResult
+    );
   }
   const trimmed = truncatedResult.trimStart();
   if (trimmed.startsWith('{') && trimmed.includes('"__type"')) {
     const max = 12_000;
     return truncatedResult.length > max ? `${truncatedResult.slice(0, max)}...` : truncatedResult;
   }
-  return truncatedResult.length > 500 ? `${truncatedResult.slice(0, 500)}...` : truncatedResult;
+  return withNotices(
+    truncatedResult,
+    truncatedResult.length > 500 ? `${truncatedResult.slice(0, 500)}...` : truncatedResult
+  );
 }
 
 export function skipToolCall(call: { id: string; name: string }): ContentBlock {

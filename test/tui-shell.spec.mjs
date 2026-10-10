@@ -253,6 +253,21 @@ for (const width of [40, 80, 120]) {
     assert.equal(failed.length, 5, 'errors keep their body unfurled');
   }
 
+  // A long exec result still shows a trailing [moss] notice in compact mode.
+  {
+    const lines = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
+    const row = {
+      kind: 'result',
+      text: `${lines.join('\n')}\n[moss] Repo hooks in an untrusted workspace were not run.`,
+      tool: { name: 'exec', summary: 'git status', durationMs: 20 },
+    };
+    const compact = renderTranscriptRow(row, 80, false)
+      .map((l) => l.text)
+      .join('\n');
+    assert.match(compact, /ctrl\+o/, 'the diff body still folds');
+    assert.match(compact, /\[moss\] Repo hooks in an untrusted workspace were not run/);
+  }
+
   // Composer + rules + hint: the bottom chrome contract.
   const placeholder = renderComposer('', width, true);
   assert.equal(placeholder.length, 1, 'the empty composer is one row');
