@@ -5,6 +5,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { isZhLocale } from './cli-locale.js';
 import { listTaskRecords } from '../tools/task-tools.js';
 import { listEvidenceRecords, summarizeEvidence } from '../tools/evidence-tools.js';
 import { listDeploymentRecords } from '../device/deployment.js';
@@ -24,16 +25,42 @@ function parseJsonl(file: string): unknown[] {
   }
 }
 
-function usage(): string {
+export function renderTasksUsage(zh: boolean = isZhLocale()): string {
+  if (zh) {
+    return [
+      '用法：',
+      '  moss tasks [list|evidence|deployments|acceptance|device] [--json]',
+      '',
+      '  list          任务契约、状态和验收标准（默认）',
+      '  evidence      已记录的证据（metric / expected / observed / result）',
+      '  deployments   部署生命周期记录',
+      '  acceptance    验收裁决历史',
+      '  device        解析出的设备目标与连接状态',
+      '',
+      '选项：',
+      '  --json        机器可读输出',
+      '',
+      '示例：',
+      '  moss tasks list',
+      '  moss tasks evidence --json',
+    ].join('\n');
+  }
   return [
-    'Usage: moss tasks [list|evidence|deployments|acceptance|device] [--json]',
+    'Usage:',
+    '  moss tasks [list|evidence|deployments|acceptance|device] [--json]',
     '',
     '  list          task contracts with status and acceptance criteria (default)',
     '  evidence      recorded evidence records (metric / expected / observed / result)',
     '  deployments   deployment lifecycle records',
     '  acceptance    acceptance verdicts history',
     '  device        resolved device target and connection state',
+    '',
+    'Options:',
     '  --json        machine-readable output',
+    '',
+    'Examples:',
+    '  moss tasks list',
+    '  moss tasks evidence --json',
   ].join('\n');
 }
 
@@ -173,5 +200,5 @@ export async function runTasksCommand(
     return;
   }
 
-  console.error(`Unknown tasks subcommand "${sub}".\n\n${usage()}`);
+  console.error(`Unknown tasks subcommand "${sub}".\n\n${renderTasksUsage()}`);
 }

@@ -199,7 +199,7 @@ function normalizeDetail(value: string): ParsedCliArgs['detailMode'] {
   throw new Error(`Unsupported detail mode "${value}"`);
 }
 
-const KNOWN_COMMANDS: readonly CliCommand[] = [
+export const KNOWN_COMMANDS: readonly CliCommand[] = [
   'setup',
   'auth',
   'config',

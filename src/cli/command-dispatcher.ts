@@ -357,6 +357,16 @@ export const COMMANDS: Record<string, CommandConfig> = {
     },
   },
 
+  update: {
+    name: 'update',
+    phase: CliPhase.None,
+    description: 'Print the upgrade command for this install (does not run it)',
+    handler: async () => {
+      const { runUpdateCommand } = await import('./update-command.js');
+      runUpdateCommand();
+    },
+  },
+
   auth: {
     name: 'auth',
     phase: CliPhase.ConfigOnly,
@@ -641,13 +651,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
  * implementation in this build — subsystems removed before v0.14. Dispatching
  * one must hard-fail instead of silently falling through to chat.
  */
-export const UNIMPLEMENTED_COMMANDS: readonly string[] = [
-  'update',
-  'plugins',
-  'migrate',
-  'web',
-  'agent',
-];
+export const UNIMPLEMENTED_COMMANDS: readonly string[] = ['plugins', 'migrate', 'web', 'agent'];
 
 export function isUnimplementedCommand(commandName: string | undefined): boolean {
   return !!commandName && UNIMPLEMENTED_COMMANDS.includes(commandName);

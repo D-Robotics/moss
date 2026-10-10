@@ -39,7 +39,7 @@ export function briefHelpLines(c: Colors, configPath: string, zh: boolean): stri
         : `    ${c.green('Ctrl+V')}              粘贴剪贴板图片或路径（Linux 需 wl-paste 或 xclip）`,
       '',
       `  ${c.dim(workspaceWriteLimit(true))}`,
-      `  ${c.dim('完整参考：moss --help --all · 配置参考：moss config --help')}`,
+      `  ${c.dim('完整参考：moss --help --all · 配置参考：moss config --help · 子命令：moss <command> --help')}`,
       `  ${c.dim(`配置文件：${configPath}`)}`,
       '',
     ];
@@ -63,7 +63,7 @@ export function briefHelpLines(c: Colors, configPath: string, zh: boolean): stri
       : `    ${c.green('Ctrl+V')}              attach clipboard image or path (install wl-paste or xclip on Linux)`,
     '',
     `  ${c.dim(workspaceWriteLimit(false))}`,
-    `  ${c.dim('Full reference: moss --help --all · config reference: moss config --help')}`,
+    `  ${c.dim('Full reference: moss --help --all · config reference: moss config --help · subcommand: moss <command> --help')}`,
     `  ${c.dim(`Config file: ${configPath}`)}`,
     '',
   ];

@@ -32,6 +32,19 @@ export function renderDeviceUsage(zh: boolean = isZhLocale()): string {
       '',
       '凭据只存环境变量引用（如 --password-env MOSS_DEVICE_PASSWORD）；',
       '实际值放在 .env 或环境变量里，绝不写入 devices.json。',
+      '',
+      '选项：',
+      '  --port N            SSH 端口（默认 22）',
+      '  --user U            SSH 用户',
+      '  --kind rdk|linux    板型',
+      '  --password-env VAR  存放密码的环境变量名（值不会写入文件）',
+      '  --key PATH          私钥路径',
+      '  --devices id1,id2   fleet 的目标设备',
+      '  --concurrency N     fleet 并行度',
+      '',
+      '示例：',
+      '  moss device add rdk-01 192.168.1.10 --user root --kind rdk',
+      '  moss device fleet info --devices rdk-01,rdk-02 --concurrency 4',
     ].join('\n');
   }
   return [
@@ -50,6 +63,19 @@ export function renderDeviceUsage(zh: boolean = isZhLocale()): string {
     '',
     'Credentials are env-var references (e.g. --password-env MOSS_DEVICE_PASSWORD);',
     'values live in .env or the environment — never in devices.json.',
+    '',
+    'Options:',
+    '  --port N            SSH port (default 22)',
+    '  --user U            SSH user',
+    '  --kind rdk|linux    board kind',
+    '  --password-env VAR  env var that holds the password (the value is not stored)',
+    '  --key PATH          private key path',
+    '  --devices id1,id2   fleet target ids',
+    '  --concurrency N     fleet parallelism',
+    '',
+    'Examples:',
+    '  moss device add rdk-01 192.168.1.10 --user root --kind rdk',
+    '  moss device fleet info --devices rdk-01,rdk-02 --concurrency 4',
   ].join('\n');
 }
 
