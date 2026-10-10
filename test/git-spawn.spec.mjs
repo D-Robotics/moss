@@ -133,10 +133,12 @@ test('startup git status and /diff do not run filter.clean or diff.textconv', as
   execFileSync('git', ['init'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.email', 'moss@example.com'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.name', 'Moss Test'], { cwd: dir, stdio: 'ignore' });
-  await fs.writeFile(path.join(dir, 'README.md'), 'hello\n');
+  const readme = path.join(dir, 'README.md');
+  await fs.writeFile(readme, 'hello\nbefore!\n');
   await fs.writeFile(path.join(dir, '.gitattributes'), '* filter=mossmarker diff=mossmarker\n');
   execFileSync('git', ['add', 'README.md', '.gitattributes'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['commit', '-m', 'init'], { cwd: dir, stdio: 'ignore' });
+  const committedStat = await fs.stat(readme);
 
   const cleanMarker = gitPath(path.join(dir, 'CLEAN_RAN'));
   const textMarker = gitPath(path.join(dir, 'TEXT_RAN'));
@@ -165,7 +167,8 @@ test('startup git status and /diff do not run filter.clean or diff.textconv', as
     cwd: dir,
     stdio: 'ignore',
   });
-  await fs.writeFile(path.join(dir, 'README.md'), 'hello\nchanged\n');
+  await fs.writeFile(readme, 'hello\nchanged\n');
+  await fs.utimes(readme, committedStat.atime, new Date(committedStat.mtimeMs + 2_000));
   await fs.rm(cleanMarker, { force: true });
   await fs.rm(textMarker, { force: true });
 

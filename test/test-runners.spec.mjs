@@ -380,6 +380,45 @@ test('make is skipped when npm matches, and one budget stops the next runner', a
   );
 });
 
+test('quoted explicit Node test commands preserve real passing and failing outcomes', async () => {
+  // Nested `node --test` must be an independent runner, not inherit the
+  // parent Node test harness's private worker marker.
+  const parentTestContext = process.env.NODE_TEST_CONTEXT;
+  delete process.env.NODE_TEST_CONTEXT;
+  try {
+    await withDir(
+      { 'quoted test.mjs': `import test from 'node:test'; test('quoted pass',()=>{});` },
+      async (dir) => {
+        const pass = await runTestsTool.execute(
+          {
+            command: 'node --test --test-reporter=tap "quoted test.mjs"',
+          },
+          ctx(dir)
+        );
+        assert.match(pass, /tests_pass=true/);
+        assert.match(pass, /Tests: 1 total, 1 passed, 0 failed/);
+        await fs.writeFile(
+          path.join(dir, 'quoted test.mjs'),
+          `import test from 'node:test'; test('quoted fail',()=>{throw Error('intentional')});`
+        );
+        const fail = await runTestsTool.execute(
+          {
+            command: 'node --test --test-reporter=tap "quoted test.mjs"',
+          },
+          ctx(dir)
+        );
+        assert.match(fail, /tests_pass=false/);
+        assert.match(fail, /Tests: 1 total, 0 passed, 1 failed/);
+        assert.match(fail, /intentional/);
+        assert.doesNotMatch(fail, /tests_pass=true/);
+      }
+    );
+  } finally {
+    if (parentTestContext === undefined) delete process.env.NODE_TEST_CONTEXT;
+    else process.env.NODE_TEST_CONTEXT = parentTestContext;
+  }
+});
+
 test('verify_fix labels a step the budget never started as not run', async () => {
   await withDir({}, async (dir) => {
     const output = await verifyFixTool.execute(

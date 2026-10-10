@@ -251,7 +251,7 @@ async function runCommand(
   timeoutMs: number,
   ctx: ToolContext
 ): Promise<{ exitCode: number; output: string }> {
-  const args = process.platform === 'win32' ? ['/c', command] : ['-c', command];
+  const args = process.platform === 'win32' ? ['/d', '/s', '/c', `"${command}"`] : ['-c', command];
   const result = await runProcess(shell, {
     args,
     timeout: timeoutMs,
@@ -259,6 +259,7 @@ async function runCommand(
     signal: ctx.abortSignal,
     env: { ...process.env } as Record<string, string>,
     cwd: ctx.workspaceDir,
+    windowsVerbatimArguments: process.platform === 'win32',
   });
   return {
     exitCode: result.exitCode ?? 0,

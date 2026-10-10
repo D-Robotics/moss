@@ -633,10 +633,40 @@ async function acquireTaskEventLock(lockPath: string): Promise<string> {
         process.platform === 'win32' && code !== undefined && RETRYABLE_LOCK_CODES.has(code);
       if (code !== 'EEXIST' && !winRetry) throw err;
       const reclaim = await tryReclaimStaleTaskEventLock(lockPath);
+      if (
+        winRetry &&
+        (code === 'EPERM' || code === 'EACCES') &&
+        reclaim === 'missing' &&
+        !(await taskEventDirectoryIsWritable(lockPath))
+      ) {
+        throw err;
+      }
       if (Date.now() > deadline) throw taskEventLockTimeout(lockPath);
       if (reclaim !== 'reclaimed') {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
+    }
+  }
+}
+
+/** A missing lock with EPERM can also mean an ACL denies creating any file. */
+async function taskEventDirectoryIsWritable(lockPath: string): Promise<boolean> {
+  const probePath = `${lockPath}.write-probe-${process.pid}-${Math.random().toString(36).slice(2)}`;
+  let handle: Awaited<ReturnType<typeof fs.open>>;
+  try {
+    handle = await fs.open(probePath, 'wx');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'EPERM' || code === 'EACCES') return false;
+    throw err;
+  }
+  try {
+    return true;
+  } finally {
+    try {
+      await handle.close();
+    } finally {
+      await fs.unlink(probePath);
     }
   }
 }

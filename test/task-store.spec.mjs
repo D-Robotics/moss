@@ -6,7 +6,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -283,20 +283,58 @@ test('a read-only .moss directory throws instead of spinning on the lock', async
   const ws = await tmpWorkspace();
   const { taskId } = await createDraftTask(ws, 'goal');
   const moss = path.join(ws, '.moss');
-  await fs.chmod(moss, 0o555);
-  const started = Date.now();
+  let deniedSid;
   try {
+    if (process.platform === 'win32') {
+      const relative = path.relative(await fs.realpath(os.tmpdir()), await fs.realpath(moss));
+      assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+      assert.equal(path.dirname(moss), ws);
+      deniedSid = execFileSync('whoami.exe', ['/user', '/fo', 'csv', '/nh'], {
+        encoding: 'utf8',
+        timeout: 5000,
+        windowsHide: true,
+      }).match(/S-1-5-[\d-]+/)?.[0];
+      assert.ok(deniedSid, 'current Windows user SID is required for the temporary ACL');
+      execFileSync('icacls.exe', [moss, '/deny', `*${deniedSid}:(W)`], {
+        stdio: 'pipe',
+        timeout: 5000,
+        windowsHide: true,
+      });
+      await assert.rejects(() => fs.writeFile(path.join(moss, 'readonly-probe'), 'denied'), {
+        code: 'EPERM',
+      });
+    } else {
+      await fs.chmod(moss, 0o555);
+    }
+    const started = Date.now();
     await assert.rejects(
       () => appendTaskEvent(ws, taskId, 'execution_started'),
       (err) => {
-        assert.equal(err.code, 'EACCES');
+        assert.equal(err.code, process.platform === 'win32' ? 'EPERM' : 'EACCES');
         return true;
       }
     );
     const elapsed = Date.now() - started;
     assert.ok(elapsed < 5000, `read-only .moss took ${elapsed}ms`);
   } finally {
-    await fs.chmod(moss, 0o755);
+    if (deniedSid) {
+      execFileSync('icacls.exe', [moss, '/remove:d', `*${deniedSid}`], {
+        stdio: 'pipe',
+        timeout: 5000,
+        windowsHide: true,
+      });
+      const restored = path.join(moss, 'writable-probe');
+      await fs.writeFile(restored, 'restored');
+      assert.equal(await fs.readFile(restored, 'utf8'), 'restored');
+      await fs.unlink(restored);
+    } else {
+      await fs.chmod(moss, 0o755);
+    }
+    assert.equal(
+      (await fs.readdir(moss)).some((file) => file.includes('.write-probe-')),
+      false,
+      'permission checks must not leave probe files'
+    );
   }
 });
 

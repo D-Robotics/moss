@@ -205,7 +205,7 @@ export async function runStatusLineCommand(input: {
   if (!command) return { ok: false, reason: 'empty' };
   const timeoutMs = input.timeoutMs ?? DEFAULT_STATUS_COMMAND_TIMEOUT_MS;
   const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
-  const args = IS_WIN ? ['/c', command] : ['-c', command];
+  const args = IS_WIN ? ['/d', '/s', '/c', `"${command}"`] : ['-c', command];
   try {
     const result = await runProcess(shell, {
       args,
@@ -214,6 +214,7 @@ export async function runStatusLineCommand(input: {
       env: safeChildEnv(),
       stdin: JSON.stringify(input.payload ?? {}),
       maxBuffer: 16_384,
+      windowsVerbatimArguments: IS_WIN,
     });
     const text = firstLine(result.stdout);
     if (!text) return { ok: false, reason: 'empty' };
