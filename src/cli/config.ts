@@ -23,6 +23,7 @@ import {
   parseProviderPreset,
   normalizeProvider,
   inferProviderFromBaseUrl,
+  isOfficialPresetBaseUrl,
 } from '../provider/provider-presets.js';
 import {
   DEFAULT_CLI_INTERACTION_MODE,
@@ -133,6 +134,13 @@ export interface ConfigFile {
   profile?: CliConfigProfile | string;
   provider?: CliProviderPreset | string;
   apiKey?: string;
+  /**
+   * Name of an environment variable that holds the API key (for example
+   * `DEEPSEEK_API_KEY`). Only a user-level value is read. A project file
+   * cannot set this, and a project endpoint drops the user's value. The
+   * name is stored, never the key.
+   */
+  apiKeyEnv?: string;
 
   _apiKeyEncrypted?: boolean;
   model?: string;
@@ -204,6 +212,10 @@ export interface LoadedCliConfigFile {
   config: ConfigFile;
   configPath: string;
   projectConfigPath?: string;
+  /** Unmerged user file. Env-key reads use this layer, never the project file. */
+  userConfig?: ConfigFile;
+  /** Unmerged project file. Its apiKeyEnv and endpoint must not read env keys. */
+  projectConfig?: ConfigFile;
 }
 
 export type CliConfigProfile = 'cautious' | 'balanced' | 'autonomous';
@@ -635,6 +647,9 @@ export function mergeConfigFiles(
     ...projectConfig,
     apiKey,
     _apiKeyEncrypted: apiKeyEncrypted,
+    // A project file cannot name an env var to read, and a project endpoint
+    // drops the user's apiKeyEnv the same way it drops the user's stored key.
+    apiKeyEnv: projectDeclaresEndpoint ? undefined : userConfig.apiKeyEnv,
     // Safety-sensitive fields: the USER's config wins over the PROJECT's.
     // A cloned repo's .moss/config.json is less trusted than the user's
     // ~/.config/moss/config.json — it must not silently lower the user's
@@ -745,17 +760,20 @@ export function loadCliConfigFile(
   const configPath = resolveConfigPath(undefined, env, argv);
   const userConfig = loadConfigFile(configPath);
   if (hasExplicitConfigPath(env, argv)) {
-    return { config: userConfig, configPath };
+    return { config: userConfig, configPath, userConfig };
   }
 
   const projectConfigPath = resolveProjectConfigPath(startDir) ?? undefined;
   if (!projectConfigPath) {
-    return { config: userConfig, configPath };
+    return { config: userConfig, configPath, userConfig };
   }
+  const projectConfig = loadConfigFile(projectConfigPath);
   return {
-    config: mergeConfigFiles(loadConfigFile(projectConfigPath), userConfig, options),
+    config: mergeConfigFiles(projectConfig, userConfig, options),
     configPath,
     projectConfigPath,
+    userConfig,
+    projectConfig,
   };
 }
 
@@ -932,19 +950,15 @@ function parsePositiveIntegerEnv(value: string | undefined): number | undefined 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+/**
+ * Moss-specific model env vars stay config-only. Provider keys
+ * (OPENAI_API_KEY, DEEPSEEK_API_KEY, …) are offered at setup instead of ignored.
+ */
 const IGNORED_MODEL_ENV_VARS = [
   'MOSS_PROVIDER',
   'MOSS_MODEL',
   'MOSS_BASE_URL',
   'MOSS_API_KEY',
-  'DEEPSEEK_API_KEY',
-  'OPENAI_API_KEY',
-  'ANTHROPIC_API_KEY',
-  'DASHSCOPE_API_KEY',
-  'ALIYUN_API_KEY',
-  'OPENAI_BASE_URL',
-  'ANTHROPIC_BASE_URL',
-  'DASHSCOPE_BASE_URL',
 ] as const;
 
 function listIgnoredModelEnvVars(env: NodeJS.ProcessEnv): string[] {
@@ -1148,23 +1162,25 @@ export function hasTrustedToolWildcard(config: Pick<ResolvedCliConfig, 'trustedT
 }
 
 /**
- * v0.26 one-shot full-default notice. The factory-default full user with no
- * deny rules hears it once per process. Doctor / config show keep their own
- * warning. The latch is not written to disk.
+ * Startup notice for factory-default full mode. Shown once per process
+ * (#17: in memory only — a new process may print it again). Doctor still
+ * reports the same condition on every run.
  */
-let fullDefaultNoticeShown = false;
+const shownFullDefaultNotice = new Set<string>();
 
 export function shouldShowFullDefaultNotice(
-  config: Pick<ResolvedCliConfig, 'approvalPolicy' | 'deniedTools' | 'permissions'>
+  config: Pick<ResolvedCliConfig, 'approvalPolicy' | 'deniedTools' | 'permissions'>,
+  env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  if (fullDefaultNoticeShown) return false;
   const applicable =
     config.approvalPolicy === 'never' &&
     config.deniedTools.length === 0 &&
     config.permissions !== undefined &&
     config.permissions.source === 'default';
   if (!applicable) return false;
-  fullDefaultNoticeShown = true;
+  const key = resolveConfigDir(env);
+  if (shownFullDefaultNotice.has(key)) return false;
+  shownFullDefaultNotice.add(key);
   return true;
 }
 
@@ -1207,7 +1223,8 @@ function readBundledZeroConfigDefault(env: NodeJS.ProcessEnv): Partial<ConfigFil
 }
 
 function hasUserModelConfig(cfg: ConfigFile): boolean {
-  return Boolean(cfg.model && cfg.apiKey && (cfg.provider || cfg.baseUrl));
+  const namedEnv = typeof cfg.apiKeyEnv === 'string' && cfg.apiKeyEnv.trim().length > 0;
+  return Boolean(cfg.model && (cfg.apiKey || namedEnv) && (cfg.provider || cfg.baseUrl));
 }
 
 /**
@@ -1223,11 +1240,62 @@ function hasUserModelConfig(cfg: ConfigFile): boolean {
  */
 export const CONSERVATIVE_DEFAULT_UNPROBED = 1_000_000; // changed from 32k — modern models are typically 1M+
 
+function projectDeclaresEndpoint(project: ConfigFile | undefined): boolean {
+  return project?.provider !== undefined || project?.baseUrl !== undefined;
+}
+
+function namedEnvVar(config: ConfigFile | undefined): string {
+  const named = typeof config?.apiKeyEnv === 'string' ? config.apiKeyEnv.trim() : '';
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(named) ? named : '';
+}
+
+function userDeclaresEndpoint(config: ConfigFile | undefined): boolean {
+  return config?.provider !== undefined || config?.baseUrl !== undefined;
+}
+
+/**
+ * An env key is sent only in two cases:
+ * - the user file names `apiKeyEnv` AND a provider or base URL, or
+ * - the request's base URL is that provider's official preset and the
+ *   matching provider env var is set.
+ * A named `apiKeyEnv` with neither provider nor base URL is not configured:
+ * it must not be bound to the default provider.
+ * A project file never triggers a read. There is no "only one key" fallback.
+ * A blank config stays blank so first-run setup can still ask.
+ */
+function apiKeyFromEnv(
+  activeConfig: ConfigFile,
+  userConfig: ConfigFile,
+  projectConfig: ConfigFile | undefined,
+  env: NodeJS.ProcessEnv,
+  provider: CliProviderPreset,
+  baseUrl: string
+): { apiKey: string; source: string } | undefined {
+  if (projectDeclaresEndpoint(projectConfig)) return undefined;
+  const named = namedEnvVar(userConfig);
+  if (named && !userDeclaresEndpoint(userConfig)) return undefined;
+  if (named) {
+    const value = (env[named] ?? '').trim();
+    if (value) return { apiKey: value, source: `env:${named}` };
+  }
+  if ((activeConfig.apiKey ?? '').trim()) return undefined;
+  if (!activeConfig.provider && !activeConfig.baseUrl) return undefined;
+  if (!isOfficialPresetBaseUrl(provider, baseUrl)) return undefined;
+  for (const name of PROVIDER_PRESETS[provider].envKeys ?? []) {
+    const value = (env[name] ?? '').trim();
+    if (value) return { apiKey: value, source: `env:${name}` };
+  }
+  return undefined;
+}
+
 export function resolveCliConfig(
   env: NodeJS.ProcessEnv = process.env,
   config?: ConfigFile,
   overrides: CliConfigOverrides = {},
-  loadedConfig?: Pick<LoadedCliConfigFile, 'configPath' | 'projectConfigPath'>
+  loadedConfig?: Pick<
+    LoadedCliConfigFile,
+    'configPath' | 'projectConfigPath' | 'userConfig' | 'projectConfig'
+  >
 ): ResolvedCliConfig {
   const safeCwd = resolveSafeCwd(env);
   const defaultLoadedConfig = config === undefined ? loadCliConfigFile(env) : undefined;
@@ -1235,18 +1303,25 @@ export function resolveCliConfig(
   let usingBundledDefault = false;
   let bundledDefaultKeys = new Set<keyof ConfigFile>();
   let bundledDefaultSuppressedBy: string | undefined;
+  const configPaths = loadedConfig ?? defaultLoadedConfig;
+  const userLayer = configPaths?.userConfig ?? config ?? {};
+  const namedWithoutEndpoint =
+    namedEnvVar(userLayer).length > 0 &&
+    !userDeclaresEndpoint(userLayer) &&
+    !projectDeclaresEndpoint(configPaths?.projectConfig) &&
+    !overrides.provider &&
+    !overrides.baseUrl;
 
-  if (!hasUserModelConfig(activeConfig)) {
+  if (!hasUserModelConfig(activeConfig) && !namedWithoutEndpoint) {
     const bundled = readBundledZeroConfigDefault(env);
     if (bundled) {
       activeConfig = { ...activeConfig, ...bundled };
       bundledDefaultKeys = new Set(Object.keys(bundled) as Array<keyof ConfigFile>);
       usingBundledDefault = true;
     }
-  } else if (readBundledZeroConfigDefault(env)) {
+  } else if (!namedWithoutEndpoint && readBundledZeroConfigDefault(env)) {
     bundledDefaultSuppressedBy = 'moss config file';
   }
-  const configPaths = loadedConfig ?? defaultLoadedConfig;
   const profileEnv = env.MOSS_PROFILE || env.MOSS_CONFIG_PROFILE;
   const configProfile = parseConfigProfile(
     typeof activeConfig.profile === 'string' ? activeConfig.profile : undefined,
@@ -1278,13 +1353,15 @@ export function resolveCliConfig(
       ? normalizeProvider(overrides.provider || activeConfig.provider)
       : inferredProvider || 'deepseek';
   const preset = PROVIDER_PRESETS[provider];
-  const providerSource = overrides.provider
-    ? 'cli'
-    : activeConfig.provider
-      ? activeConfigSource('provider')
-      : inferredProvider
-        ? 'baseUrl'
-        : 'default';
+  const providerSource = namedWithoutEndpoint
+    ? 'unconfigured'
+    : overrides.provider
+      ? 'cli'
+      : activeConfig.provider
+        ? activeConfigSource('provider')
+        : inferredProvider
+          ? 'baseUrl'
+          : 'default';
   const workspaceEnv = env.MOSS_WORKSPACE;
 
   // ── v0.26 permission mode resolution (PRD 2026-10-08 W1 / design §3.3) ──
@@ -1627,31 +1704,50 @@ export function resolveCliConfig(
           ...(budgetMaxWallMs !== undefined ? { maxWallMs: budgetMaxWallMs } : {}),
         }
       : undefined;
+  const baseUrl = namedWithoutEndpoint
+    ? ''
+    : overrides.baseUrl || activeConfig.baseUrl || preset.defaultBaseUrl;
+  const envKey = namedWithoutEndpoint
+    ? undefined
+    : apiKeyFromEnv(activeConfig, userLayer, configPaths?.projectConfig, env, provider, baseUrl);
   return {
     profile,
     profileSource,
     provider,
     providerSource,
-    apiKey: activeConfig.apiKey || '',
-    apiKeySource: activeConfig.apiKey ? activeConfigSource('apiKey') : 'missing',
+    apiKey: namedWithoutEndpoint ? '' : envKey?.apiKey || activeConfig.apiKey || '',
+    apiKeySource: namedWithoutEndpoint
+      ? 'missing'
+      : envKey
+        ? envKey.source
+        : activeConfig.apiKey
+          ? activeConfigSource('apiKey')
+          : 'missing',
     usingBundledDefault,
     ...(bundledDefaultSuppressedBy ? { bundledDefaultSuppressedBy } : {}),
     ignoredModelEnvVars,
-    model: overrides.model || activeConfig.model || preset.defaultModel,
+    model: namedWithoutEndpoint
+      ? overrides.model || activeConfig.model || ''
+      : overrides.model || activeConfig.model || preset.defaultModel,
 
-    modelSource: overrides.model
-      ? 'cli'
-      : activeConfig.model
-        ? activeConfigSource('model')
-        : preset.defaultModel
-          ? 'provider default'
-          : 'missing',
-    baseUrl: overrides.baseUrl || activeConfig.baseUrl || preset.defaultBaseUrl,
-    baseUrlSource: overrides.baseUrl
-      ? 'cli'
-      : activeConfig.baseUrl
-        ? activeConfigSource('baseUrl')
-        : 'provider default',
+    modelSource:
+      namedWithoutEndpoint && !overrides.model && !activeConfig.model
+        ? 'unconfigured'
+        : overrides.model
+          ? 'cli'
+          : activeConfig.model
+            ? activeConfigSource('model')
+            : preset.defaultModel
+              ? 'provider default'
+              : 'missing',
+    baseUrl,
+    baseUrlSource: namedWithoutEndpoint
+      ? 'unconfigured'
+      : overrides.baseUrl
+        ? 'cli'
+        : activeConfig.baseUrl
+          ? activeConfigSource('baseUrl')
+          : 'provider default',
     workspace: overrides.workspace || workspaceEnv || activeConfig.workspace || safeCwd.cwd,
     workspaceSource: overrides.workspace
       ? 'cli'
@@ -1688,7 +1784,7 @@ export function resolveCliConfig(
     compactionSettingsSource,
     configPath: configPaths?.configPath ?? resolveConfigPath(undefined, env),
     projectConfigPath: configPaths?.projectConfigPath,
-    apiKeyEncrypted: activeConfig._apiKeyEncrypted || false,
+    apiKeyEncrypted: envKey ? false : activeConfig._apiKeyEncrypted || false,
   };
 }
 

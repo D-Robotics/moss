@@ -107,7 +107,7 @@ function readStore(configDir: string): Record<string, boolean> {
 }
 
 function writeStore(configDir: string, store: Record<string, boolean>): void {
-  fs.mkdirSync(configDir, { recursive: true });
+  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(configDir, TRUST_FILE), `${JSON.stringify(store, null, 2)}\n`);
 }
 

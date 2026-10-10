@@ -25,6 +25,7 @@ import {
   deliverWorkspaceTrustNotice,
   listProjectTrustItems,
   resolveProjectCapabilities,
+  resolveWorkspaceTrust,
   summarizeTrustItems,
   trustQuestion,
   untrustedWorkspaceLine,
@@ -540,5 +541,24 @@ await Promise.all([
     'XDG_CONFIG_HOME',
   ]),
 ]);
+
+{
+  const root = tempRoot();
+  const configDir = path.join(root, 'cfg');
+  const workspace = path.join(root, 'ws');
+  fs.mkdirSync(workspace);
+  const result = await resolveWorkspaceTrust({
+    workspaceDir: workspace,
+    configDir,
+    items: [{ kind: 'hook', label: 'demo hook' }],
+    interactive: true,
+    headlessUntrusted: false,
+    trustFlag: false,
+    env: { HOME: root },
+    ask: async () => true,
+  });
+  assert.equal(result.trusted, true);
+  assert.equal(fs.statSync(configDir).mode & 0o777, 0o700);
+}
 
 console.log('[PASS] workspace-trust');

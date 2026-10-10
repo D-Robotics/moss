@@ -21,7 +21,18 @@ assert.ok(
   lines.some((text) => text.includes('read_file(./.env)')),
   'session rules are listed'
 );
-assert.ok(lines[2]?.includes('❯'), 'the cursor marks the selected rule');
+assert.ok(
+  lines.some((text) => text.includes('❯') && text.includes('read_file(./.env)')),
+  'the cursor marks the selected rule'
+);
+assert.ok(
+  lines.some((text) => text.includes("workspace-write confines Moss's own file tools.")),
+  'the panel says workspace-write confines file tools'
+);
+assert.ok(
+  lines.some((text) => text.includes('Shell commands run normally without an OS sandbox.')),
+  'the panel says shell commands have no OS sandbox'
+);
 assert.ok(
   lines.some((text) => text.includes('/permissions add')),
   'adding a rule stays a command'

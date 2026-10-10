@@ -366,6 +366,33 @@ function redactUrlSecrets(text: string): string {
 }
 
 /**
+ * LiteLLM and similar gateways quote a fragment and a hash
+ * (`Received API Key = sk-…`, `Key Hash (Token) =f00d…`).
+ */
+function redactGatewayKeyForms(text: string): string {
+  let out = text.replace(/(\bReceived\s+API\s+Key\s*=\s*)([^\s,;]+)/gi, `$1${REDACTED}`);
+  out = out.replace(/(\bKey\s+Hash(?:\s*\([^)\n]{0,40}\))?\s*=\s*)([^\s,;]+)/gi, `$1${REDACTED}`);
+  out = out.replace(/\bsk-(?:[A-Za-z0-9_-]|\.{2,}){4,}/g, REDACTED);
+  return out;
+}
+
+/**
+ * Gateway bodies quote the key and a hash (`Received API Key = sk-…`,
+ * `Key Hash (Token) = 2c58…`). `redactEgress` catches full secrets; this also
+ * strips the short fragments those messages keep.
+ */
+export function redactGatewayText(text: string, env: NodeJS.ProcessEnv = process.env): string {
+  if (!text) return text;
+  let out = redactEgress(text, env);
+  out = out.replace(
+    /((?:api[\s_-]*key|key[\s_-]*hash)(?:\s*\([^)]{0,40}\))?\s*[:=]\s*)([^\s,;]+)/gi,
+    `$1${REDACTED}`
+  );
+  out = out.replace(/\bsk-[A-Za-z0-9_-]{4,}\b/g, REDACTED);
+  return out;
+}
+
+/**
  * `sanitizeSecrets` masks quoted credential values. Hide placeholders first so
  * a value we already replaced is not rewritten as `hunt***er`.
  */
@@ -389,6 +416,7 @@ export function redactEgress(text: string, env: NodeJS.ProcessEnv = process.env)
   out = redactNetrcPasswords(out);
   out = redactDockerAuth(out);
   out = redactStandalone(out);
+  out = redactGatewayKeyForms(out);
   return sanitizeWithoutTouchingPlaceholders(out);
 }
 

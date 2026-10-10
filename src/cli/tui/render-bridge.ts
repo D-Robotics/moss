@@ -305,6 +305,29 @@ function normalizeShown(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * First sentence of the final answer, when it is long enough to be an opening
+ * rather than a short later reply ("30 fps", "Done.", "OK.").
+ */
+function answerOpening(want: string): string {
+  const match = /.{8,}?[.。！!?？]/.exec(want);
+  if (match?.[0]) return match[0];
+  return want.length >= 8 ? want : '';
+}
+
+/**
+ * The run window already contains the final answer, and its opening sentence
+ * shows up again after that copy. `includes` alone treats that as "already
+ * shown" and leaves the second copy on screen.
+ */
+function openingShownAgain(shown: string, want: string): boolean {
+  const opening = answerOpening(want);
+  if (!opening || !shown.includes(want)) return false;
+  const first = shown.indexOf(opening);
+  if (first === -1) return false;
+  return shown.indexOf(opening, first + opening.length) !== -1;
+}
+
 /** Assistant text already committed for this run (rows, or the flush memory). */
 function shownAssistantText(store: TuiStore): string {
   const runRows = store.rows.slice(store.run.rowStart ?? 0);
@@ -364,7 +387,22 @@ export function reconcileFinalResponse(store: TuiStore, response: string | undef
     ? normalizeShown(userFacingAssistantText(store.run.streamingText))
     : '';
   const onScreen = normalizeShown(`${shown} ${live}`.trim());
-  if (onScreen && onScreen.includes(want)) return;
+  // One copy of the answer inside a doubled window still matches `includes`.
+  // Collapse back to the provider response so the opening sentence is not painted twice.
+  if (openingShownAgain(shown, want)) {
+    replaceRunAssistantRows(store, visibleResponse);
+    return;
+  }
+  if (onScreen && onScreen.includes(want)) {
+    // Rows already hold the answer. Drop a live tail that only repeats it;
+    // endRun would otherwise commit that tail as a second copy. A tail that
+    // is the only copy of the ending stays, so endRun can commit it.
+    if (shown.includes(want)) {
+      store.run.streamingText = '';
+      store.run.committedText = '';
+    }
+    return;
+  }
   if (shown && replaceRunAssistantRows(store, visibleResponse)) return;
   if (!store.run.streamingText.trim()) {
     appendRow(store, 'assistant', visibleResponse);
@@ -526,8 +564,11 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
         surface?.actions && surface.actions.length > 0
           ? ` (${surface.actions.map((a) => a.label).join(' · ')})`
           : '';
-      const message = surface?.userMessage
-        ? `${surface.userMessage}${actions}`
+      const reading = surface?.userMessage;
+      const message = reading
+        ? reading.includes('\n')
+          ? reading.replace('\n', `${actions}\n`)
+          : `${reading}${actions}`
         : String(event.error ?? 'error');
       if (isUserAbortErrorText(message)) {
         noteInterrupt(store);
@@ -720,10 +761,16 @@ export function usageBlock(
 export function endRun(store: TuiStore, halted: boolean): void {
   const visible = userFacingAssistantText(store.run.streamingText);
   if (visible.trim()) {
-    appendRow(store, 'assistant', visible, {
-      ...(store.run.committedText ? { continuation: true } : {}),
-      ...takeReasoning(store),
-    });
+    const shown = normalizeShown(shownAssistantText(store));
+    const want = normalizeShown(visible);
+    // This run's rows already contain the live tail (often the whole answer
+    // after a paragraph commit). Appending it paints the opening sentence again.
+    if (!(shown && shown.includes(want))) {
+      appendRow(store, 'assistant', visible, {
+        ...(store.run.committedText ? { continuation: true } : {}),
+        ...takeReasoning(store),
+      });
+    }
   }
   store.run = {
     running: false,

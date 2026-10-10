@@ -23,12 +23,17 @@ Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器
 
 ## 快速开始
 
-> 还没发到 npm registry（`"private": true` 先留着）。一条命令安装：
+还没发到 npm registry（`"private": true` 先留着）。一条命令装上，运行 `moss`，在界面里完成设置，然后要一个回答：
 
 ```bash
 npm install -g github:QiaolongLi1201/moss   # prepare 会构建；需要 Node ≥ 22.16
-moss setup                                 # 配置 provider / 模型 / API key（输入不回显）
-moss                                       # 进入交互界面
+moss
+```
+
+没有可用配置时，`moss` 就在这个界面里设置（按数字选服务商，或按 Enter 使用环境里已有的 key，内容不会显示）。D-Robotics 地瓜网关是第一项，已经预选（地址 `https://ai-api.d-robotics.cc/v1`，默认模型 `deepseek-flash`，只问 key）。不想把 key 写进文件时，先指定服务商再写变量名：`moss config set provider d-robotics`，然后 `moss config set apiKeyEnv <变量名>`。只写 `apiKeyEnv`、不写服务商或地址时，会先问选哪一家，不会把 key 发给默认的 DeepSeek。设好后在同一会话里说：
+
+```text
+看一下这个目录里有什么
 ```
 
 从克隆开发：`git clone https://github.com/QiaolongLi1201/moss && cd moss && npm ci && npm run build && npm link`。已安装的 Moss 用 `moss update` 打印升级命令（npm 全局或 git 克隆），它不会自己执行。发到 registry 时删掉 `"private": true`，再 `npm publish --access public`。
@@ -134,14 +139,14 @@ moss tasks list                     # 只读查看机器人闭环产物
 
 常用 flag：
 
-| Flag                                                  | 作用                                 |
-| ----------------------------------------------------- | ------------------------------------ |
-| `-m/--model` · `--provider` · `--base-url`            | 仅本次运行覆盖                       |
-| `-C/--cd <dir>` · `-c/--config k=v`                   | 换工作区 · 覆盖 profile/model/policy |
-| `--read-only` · `--workspace-write` · `--full-access` | 本次运行的安全上限                   |
-| `--trust-device`                                      | 本进程允许毁灭性设备操作             |
-| `--accept-edits` · `--ask-for-approval <p>`           | 审批行为                             |
-| `-p/--print` · `--json` · `--output-format <f>`       | 一次性 / 机器可读输出                |
+| Flag                                                  | 作用                                                                                     |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `-m/--model` · `--provider` · `--base-url`            | 仅本次运行覆盖                                                                           |
+| `-C/--cd <dir>` · `-c/--config k=v`                   | 换工作区 · 覆盖 profile/model/policy                                                     |
+| `--read-only` · `--workspace-write` · `--full-access` | 本次运行的模式覆盖。`workspace-write` 只约束 Moss 自己的文件工具，shell 没有操作系统沙箱 |
+| `--trust-device`                                      | 本进程允许毁灭性设备操作                                                                 |
+| `--accept-edits` · `--ask-for-approval <p>`           | 审批行为                                                                                 |
+| `-p/--print` · `--json` · `--output-format <f>`       | 一次性 / 机器可读输出                                                                    |
 
 常用环境变量（完整见 `moss config env`）：`MOSS_PROFILE` · `MOSS_WORKSPACE` · `MOSS_SAFETY_MODE` · `MOSS_APPROVAL_POLICY` · `MOSS_MAX_AGENT_TURNS` · `MOSS_CONTEXT_TOKENS` · `MOSS_BUDGET_MAX_*` · `MOSS_DEVICE_*` · `MOSS_NO_RDK_DOCS`。
 
@@ -157,10 +162,11 @@ moss tasks list                     # 只读查看机器人闭环产物
   | 模式           | 行为                                                                                              |
   | -------------- | ------------------------------------------------------------------------------------------------- |
   | `manual`       | 写操作与设备变更逐次询问                                                                          |
-  | `acceptEdits`  | 工作区内文件编辑自动通过，shell 与设备变更仍询问                                                  |
+  | `acceptEdits`  | 工作区内文件工具编辑自动通过，shell 与设备变更仍询问                                              |
   | `plan`         | 只读规划，写操作与设备变更被拦                                                                    |
   | `full`（默认） | 本地写与可逆设备操作跳过询问；毁灭性设备操作 TTY 确认、headless 拒绝。deny 规则与本机硬拦截仍生效 |
 
+- **`workspace-write` 不是操作系统沙箱。** workspace-write 只约束 Moss 自己的文件工具。shell 命令照常运行，没有操作系统沙箱。`write_file`、`edit_file`、`multi_edit`、`move_file`、`apply_patch` 写在工作区内；`exec` 没有 Landlock、bubblewrap 或 seatbelt。静态扫描会拦下它能看见的一部分出区写（重定向、`cp`、`mv`），挡不住子进程里的 `node` / `python`（例如写入 `/tmp`）。shell 的安全来自输出脱敏和写回防护。可选的操作系统沙箱见 [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md)，默认关闭。
 - **权限规则**（`/permissions`，任何模式生效，deny 优先于一切含 full）：
   - 三级 `allow` / `ask` / `deny`，优先级 deny > ask > allow；
   - 语法 `ToolName(pattern)`，用 moss 原生工具名：`/permissions add deny "read_file(./.env)"`、`/permissions add allow "exec(npm run *)"`；
@@ -208,6 +214,7 @@ npm run build && MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-
 - [`AGENTS.md`](AGENTS.md) —— 架构、分层规则、子系统导航、工程约定（工作合同）
 - [`docs/release-policy.md`](docs/release-policy.md) —— 一个版本 / tag 声称了什么，又没声称什么
 - [`docs/capability-layer.md`](docs/capability-layer.md) —— MCP / device / skill 能力层
+- [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md) —— `exec` 的可选操作系统沙箱（默认关）
 - [`docs/cli-parity/`](docs/cli-parity/) —— 与 Claude Code / codex 的命令面基线对照；真实终端清单见 [`tui-real-terminals.md`](docs/cli-parity/tui-real-terminals.md)
 - [`docs/bench/device-bench.md`](docs/bench/device-bench.md) —— 设备任务基准怎么跑、指标怎么算
 - [`CHANGELOG.md`](CHANGELOG.md) —— 未发版改动
@@ -237,12 +244,17 @@ mean _the board actually did it_.
 
 ### Quick start
 
-> Not on the npm registry yet (`"private": true` stays). One command installs it:
+Not on the npm registry yet (`"private": true` stays). Install with one command, run `moss`, finish setup in the screen, then ask for an answer:
 
 ```bash
 npm install -g github:QiaolongLi1201/moss   # prepare builds; needs Node ≥ 22.16
-moss setup                                 # configure provider / model / API key (hidden input)
-moss                                       # start the interactive shell
+moss
+```
+
+With no usable config, `moss` sets itself up in that screen (press a number to pick a provider, or Enter to use a key already in the environment; the value is not shown). The D-Robotics gateway is listed first and preselected (`https://ai-api.d-robotics.cc/v1`, default model `deepseek-flash`, key only). To keep the key out of the file, set the provider and then the variable name: `moss config set provider d-robotics`, then `moss config set apiKeyEnv <VAR>`. A file that names only `apiKeyEnv` is not configured: setup asks which provider, and the key is not sent to the default DeepSeek endpoint. Then, in the same session:
+
+```text
+look around this folder and tell me what it is
 ```
 
 From a clone: `git clone https://github.com/QiaolongLi1201/moss && cd moss && npm ci && npm run build && npm link`. `moss update` prints the upgrade command for an npm global install or a git clone and does not run it. To publish, delete `"private": true`, then `npm publish --access public`.
@@ -376,7 +388,7 @@ verify); `/task verify` takes one verdict without a model turn. A PASS still com
 verdict provider.
 
 Key flags: `-m/--model`, `--provider`, `--base-url`, `-C/--cd`, `-c/--config k=v`,
-`--read-only` · `--workspace-write` · `--full-access`, `--trust-device`, `--accept-edits`,
+`--read-only` · `--workspace-write` · `--full-access` (workspace-write confines Moss's own file tools; shell commands run normally without an OS sandbox), `--trust-device`, `--accept-edits`,
 `--ask-for-approval <p>`, `-p/--print`, `--json`, `--output-format <f>`.
 
 Key env vars (full list: `moss config env`): `MOSS_PROFILE` · `MOSS_WORKSPACE` ·
@@ -401,10 +413,11 @@ only that file, so the project `.moss/config.json` layer is not part of the run.
   | Mode             | Behavior                                                                                                                                                                |
   | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
   | `manual`         | mutations and device changes ask one by one                                                                                                                             |
-  | `acceptEdits`    | sandboxed workspace edits auto-approve; shell and device changes still ask                                                                                              |
+  | `acceptEdits`    | workspace file-tool edits auto-approve; shell and device changes still ask                                                                                              |
   | `plan`           | read-only planning; mutations and device changes blocked                                                                                                                |
   | `full` (default) | local writes and reversible device work skip the prompt; destructive device work confirms on a TTY and is refused headless. Deny rules and host hard blocks still apply |
 
+- **`workspace-write` is not an OS sandbox.** workspace-write confines Moss's own file tools. Shell commands run normally without an OS sandbox. `write_file`, `edit_file`, `multi_edit`, `move_file`, and `apply_patch` stay inside the workspace. `exec` is not wrapped in Landlock, bubblewrap, or seatbelt. A static scan rejects some out-of-workspace shell writes it can see (redirections, `cp`, `mv`); a child `node` or `python` process can still write outside, for example under `/tmp`. Shell safety is output redaction and write-back guards. An opt-in OS sandbox is specified in [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md) and stays off.
 - **Permission rules** (`/permissions`, effective in any mode, deny beats everything incl. full):
   - three levels `allow` / `ask` / `deny`, priority deny > ask > allow;
   - syntax `ToolName(pattern)` with moss-native tool names:
@@ -477,6 +490,7 @@ only after `verify` is green and `examples/` pass for real — see
 [`AGENTS.md`](AGENTS.md) (architecture and conventions) ·
 [`docs/release-policy.md`](docs/release-policy.md) ·
 [`docs/capability-layer.md`](docs/capability-layer.md) ·
+[`docs/design/os-sandbox.md`](docs/design/os-sandbox.md) (opt-in OS sandbox for `exec`, default off) ·
 [`docs/cli-parity/`](docs/cli-parity/) (real-terminal checklist:
 [`tui-real-terminals.md`](docs/cli-parity/tui-real-terminals.md)) ·
 [`docs/bench/device-bench.md`](docs/bench/device-bench.md) ·

@@ -297,7 +297,13 @@ async function loadCliConfigModule() {
  */
 export async function resolveBenchProvider(options = {}) {
   const { resolveCliConfig } = await loadCliConfigModule();
-  const env = { ...process.env, ...(options.env ?? {}) };
+  // Start empty so a developer's OPENAI_API_KEY / DEEPSEEK_API_KEY / home
+  // config cannot become the bench key. Callers pass MOSS_BENCH_API_KEY.
+  const env = {};
+  for (const key of ['PATH', 'TMPDIR', 'TEMP', 'TMP', 'SystemRoot', 'COMSPEC']) {
+    if (process.env[key]) env[key] = process.env[key];
+  }
+  Object.assign(env, options.env ?? {});
   if (options.isolateConfig) {
     env.MOSS_NO_BUNDLED_DEFAULT = '1';
     env.MOSS_CONFIG_DIR =
@@ -454,7 +460,7 @@ async function runLiveMoss(task, ctx, provider, approval) {
   ];
   const env = {
     PATH: process.env.PATH,
-    HOME: process.env.HOME,
+    HOME: provider.configDir,
     LANG: 'C',
     LC_ALL: 'C',
     TMPDIR: os.tmpdir(),

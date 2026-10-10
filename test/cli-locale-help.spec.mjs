@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 
 import { briefHelpLines, fullHelpLines } from '../dist/cli/help.js';
 import { isZhLocale } from '../dist/cli/cli-locale.js';
+import { configSnapshotLines } from '../dist/cli/config-snapshot.js';
+import { setTuiLocale, tui } from '../dist/cli/tui/copy.js';
 
 const identity = (s) => s;
 const colors = {
@@ -48,6 +50,139 @@ function restoreLocale() {
   pinEnLocale();
   try {
     assert.equal(isZhLocale(undefined), false);
+  } finally {
+    restoreLocale();
+  }
+  process.env.LC_ALL = 'C.UTF-8';
+  process.env.LANG = 'zh_CN.UTF-8';
+  delete process.env.LC_MESSAGES;
+  try {
+    assert.equal(
+      isZhLocale(undefined),
+      true,
+      'C.UTF-8 is not a language and falls through to LANG'
+    );
+    setTuiLocale(isZhLocale());
+    assert.equal(tui('Model'), '模型');
+    const shown = configSnapshotLines(
+      { model: '', modelSource: 'default', provider: 'deepseek', providerSource: 'default' },
+      ['model', 'provider'],
+      'plain'
+    ).join('\n');
+    assert.match(shown, /（未设置）/);
+    assert.match(shown, /（默认）/);
+    assert.doesNotMatch(shown, /\(not set\)|\(default\)/);
+    const values = configSnapshotLines(
+      {
+        model: 'deepseek-v4-flash',
+        modelSource: 'provider default',
+        provider: 'deepseek',
+        providerSource: 'unconfigured',
+        profile: 'balanced',
+        profileSource: 'default',
+        safetyMode: 'full-access',
+        safetyModeSource: 'derived:mode',
+        approvalPolicy: 'never',
+        approvalPolicySource: 'derived:mode',
+        trustedTools: [],
+        trustedToolsSource: 'default',
+        deniedTools: [],
+        deniedToolsSource: 'default',
+        promptCacheEnabled: true,
+        promptCacheSource: 'default',
+        promptCacheDebug: false,
+        promptCacheDebugSource: 'default',
+        guardrails: {
+          input: { blockPatterns: [], redactPatterns: [] },
+          output: { blockPatterns: [], redactPatterns: [] },
+        },
+        guardrailsSource: 'default',
+        permissions: {
+          defaultMode: 'full',
+          readOnlyCeiling: false,
+          allow: [],
+          ask: [],
+          deny: [],
+          deviceTrust: 'gated',
+          trustedDevices: [],
+          legacyKeysUsed: [],
+          source: 'default',
+        },
+      },
+      [
+        'provider',
+        'model',
+        'profile',
+        'safetyMode',
+        'approvalPolicy',
+        'trustedTools',
+        'promptCache',
+        'guardrails',
+        'permissions',
+      ],
+      'plain'
+    ).join('\n');
+    assert.match(values, /未配置/);
+    assert.match(values, /服务商默认/);
+    assert.match(values, /`balanced`（均衡）/);
+    assert.match(values, /`full-access`（完全访问）/);
+    assert.match(values, /`never`（从不询问）/);
+    assert.match(values, /由权限模式推导，来自 permissions.defaultMode/);
+    assert.match(values, /无 （默认）/);
+    assert.match(values, /已启用 （默认）/);
+    assert.doesNotMatch(values, /\(provider default\)|\(unconfigured\)|\(derived:mode/);
+  } finally {
+    setTuiLocale(false);
+    restoreLocale();
+  }
+  process.env.LC_ALL = 'en_US.UTF-8';
+  process.env.LANG = 'zh_CN.UTF-8';
+  delete process.env.LC_MESSAGES;
+  try {
+    assert.equal(isZhLocale(undefined), false, 'a real LC_ALL language still wins over LANG');
+  } finally {
+    restoreLocale();
+  }
+  process.env.LC_ALL = 'C';
+  process.env.LC_MESSAGES = 'POSIX';
+  process.env.LANG = 'zh_CN.UTF-8';
+  try {
+    assert.equal(isZhLocale(undefined), true);
+  } finally {
+    restoreLocale();
+  }
+}
+
+{
+  pinEnLocale();
+  try {
+    const values = configSnapshotLines(
+      {
+        profile: 'balanced',
+        profileSource: 'default',
+        safetyMode: 'full-access',
+        safetyModeSource: 'derived:mode',
+        approvalPolicy: 'never',
+        approvalPolicySource: 'derived:mode',
+        trustedTools: [],
+        trustedToolsSource: 'default',
+        promptCacheEnabled: true,
+        promptCacheSource: 'default',
+        guardrails: {
+          input: { blockPatterns: [], redactPatterns: [] },
+          output: { blockPatterns: [], redactPatterns: [] },
+        },
+        guardrailsSource: 'default',
+      },
+      ['profile', 'safetyMode', 'approvalPolicy', 'trustedTools', 'promptCache', 'guardrails'],
+      'plain'
+    ).join('\n');
+    assert.match(values, /balanced \(default\)/);
+    assert.match(values, /full-access \(derived:mode, from permissions.defaultMode\)/);
+    assert.match(values, /never \(derived:mode, from permissions.defaultMode\)/);
+    assert.match(values, /none \(default\)/);
+    assert.match(values, /enabled \(default\)/);
+    assert.doesNotMatch(values, /均衡|完全访问|从不询问|服务商默认/);
   } finally {
     restoreLocale();
   }

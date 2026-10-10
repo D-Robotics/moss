@@ -739,12 +739,24 @@ export function renderTranscriptRow(
       return out;
     }
     case 'error': {
-      const body = wrap(row.text, width - 2);
-      out.push(
-        line(clip(`${ANSWER_MARK} ${body[0] ?? ''}`, width), { color: TONE.err, bold: true })
-      );
-      for (const extra of body.slice(1)) {
-        out.push(line(clip(`${CONTINUATION}${extra}`, width), { color: TONE.err }));
+      // `wrap()` collapses newlines. Split first so 网关原文 stays its own line.
+      const paragraphs = row.text.split('\n');
+      const limit = Math.max(8, width - 4);
+      let first = true;
+      for (const paragraph of paragraphs) {
+        if (!paragraph.trim()) continue;
+        const body = wrap(paragraph, limit);
+        for (const [index, extra] of body.entries()) {
+          if (first && index === 0) {
+            out.push(line(clip(`${ANSWER_MARK} ${extra}`, width), { color: TONE.err, bold: true }));
+          } else {
+            out.push(line(`${CONTINUATION}${extra}`, { color: TONE.err }));
+          }
+        }
+        first = false;
+      }
+      if (first) {
+        out.push(line(clip(ANSWER_MARK, width), { color: TONE.err, bold: true }));
       }
       return out;
     }
@@ -1428,7 +1440,7 @@ export function renderHint(view: StatusView, width: number): TuiLine {
   // Each item carries a priority. A narrow pane drops the lowest-priority items
   // whole (never a half-word) and keeps the mode label, which is the one thing
   // that must always be readable: what the next Shift+Tab will change.
-  // Priority: mode (always) > what the keys do now > ? for shortcuts > counts.
+  // Priority: mode (always) > what the keys do now > model > ? for shortcuts > counts.
   const items: Array<{ text: string; priority: number }> = [{ text: modeLabel, priority: 0 }];
   if (view.blocked) {
     if (view.dialogKind === 'question') {
@@ -1448,6 +1460,7 @@ export function renderHint(view: StatusView, width: number): TuiLine {
       );
     }
   } else if (view.running) items.push({ text: tui('Esc to interrupt'), priority: 1 });
+  if (view.model) items.push({ text: view.model, priority: 2 });
   items.push({ text: tui('? for shortcuts'), priority: 3 });
   if (view.verbose) items.push({ text: tui('verbose transcript · ctrl+o to exit'), priority: 4 });
   else if (view.collapsed) items.push({ text: tui('ctrl+o to expand'), priority: 2 });
@@ -1506,8 +1519,16 @@ export function foldReadonlyRows(
       }
       if (reads + lists > 1) {
         const parts = [
-          reads > 0 ? `read ${reads} file${reads === 1 ? '' : 's'}` : '',
-          lists > 0 ? `listed ${lists} director${lists === 1 ? 'y' : 'ies'}` : '',
+          reads > 0
+            ? isTuiZh()
+              ? `读取 ${reads} 个文件`
+              : `read ${reads} file${reads === 1 ? '' : 's'}`
+            : '',
+          lists > 0
+            ? isTuiZh()
+              ? `列出 ${lists} 个目录`
+              : `listed ${lists} director${lists === 1 ? 'y' : 'ies'}`
+            : '',
         ].filter(Boolean);
         out.push({ id: row.id, kind: 'summary', text: parts.join(', ') });
         index = cursor;

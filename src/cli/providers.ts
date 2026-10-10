@@ -44,6 +44,9 @@ export function normalizeProviderForRuntime(raw: string): CliProviderPreset {
   if (lower === 'anthropic' || lower === 'claude') return 'anthropic';
   if (lower === 'openai-compatible' || lower === 'compatible' || lower === 'custom')
     return 'openai-compatible';
+  if (lower === 'd-robotics' || lower === 'drobotics' || lower === 'digua' || lower === '地瓜') {
+    return 'd-robotics';
+  }
   return 'deepseek';
 }
 
@@ -61,6 +64,7 @@ const PROVIDER_ERROR_LABELS: Record<CliProviderPreset, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
   'openai-compatible': 'OpenAI-compatible',
+  'd-robotics': 'D-Robotics',
 };
 
 export function createCliProvider(config: CliProviderRuntimeConfig): LLMProvider {

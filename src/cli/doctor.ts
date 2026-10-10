@@ -3,6 +3,7 @@ import path from 'node:path';
 import { isRgAvailable } from '../tools/search-tools.js';
 import {
   auditResolvedCliConfig,
+  envBeforeDotenv,
   hasTrustedToolWildcard,
   CONSERVATIVE_DEFAULT_UNPROBED,
 } from './config.js';
@@ -14,6 +15,12 @@ import {
   getRecentFailoverEvents,
   parseFallbackProvidersEnv,
 } from '../provider/multi-provider-router.js';
+import { setupCopy } from './cli-locale.js';
+import { detectEnvCredentials } from './env-credentials.js';
+
+function doctorL(en: string, vars?: Record<string, string | number>): string {
+  return setupCopy(undefined, en, vars);
+}
 
 interface DoctorOptions {
   config: ResolvedCliConfig;
@@ -193,6 +200,12 @@ function renderBaseUrlDoctor(config: ResolvedCliConfig): string {
   if (config.usingBundledDefault) {
     return ok('baseUrl', 'built-in default (hidden)');
   }
+  if (!config.baseUrl) {
+    return fail(
+      'baseUrl',
+      doctorL('missing. Fix: run `moss setup`, or `moss config set baseUrl https://host`.')
+    );
+  }
   return ok('baseUrl', `${config.baseUrl} (${config.baseUrlSource})`);
 }
 
@@ -284,19 +297,71 @@ function renderFailoverDoctor(): string[] {
   return lines;
 }
 
+/** Exact next step for a missing or unused key. The value is never included. */
+export function renderAuthDoctorLine(
+  config: Pick<
+    ResolvedCliConfig,
+    'apiKey' | 'apiKeySource' | 'apiKeyEncrypted' | 'usingBundledDefault'
+  >,
+  env: NodeJS.ProcessEnv = envBeforeDotenv
+): string {
+  if (config.usingBundledDefault && !config.apiKey) {
+    return ok('auth', doctorL('built-in gateway (no API key needed)'));
+  }
+  const offers = detectEnvCredentials(env);
+  const names = offers.map((offer) => offer.keyVar);
+  if (config.apiKey) {
+    const authDetail =
+      config.apiKeySource === 'built-in'
+        ? doctorL('built-in, shared gateway key')
+        : config.apiKeySource.startsWith('env:')
+          ? doctorL('from {name} (not stored)', { name: config.apiKeySource.slice(4) })
+          : `${config.apiKeySource}, ${
+              config.apiKeyEncrypted
+                ? doctorL('stored in config file (0600)')
+                : doctorL('plain text')
+            }`;
+    return ok('auth', doctorL('configured ({detail})', { detail: authDetail }));
+  }
+  if (names.length > 0) {
+    return fail(
+      'auth',
+      doctorL(
+        'missing API key. Fix: run `moss` and press Enter to use {names} (the value is not printed).',
+        { names: names.join(setupCopy(undefined, ' or ')) }
+      )
+    );
+  }
+  return fail(
+    'auth',
+    doctorL('missing API key. Fix: run `moss` and finish setup, or run `moss setup`.')
+  );
+}
+
 export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   const lines = ['[doctor] Moss'];
   lines.push(renderNodeDoctorLine());
   lines.push(ok('version', options.currentVersion));
-  const authDetail =
-    options.config.apiKeySource === 'built-in'
-      ? 'built-in, shared gateway key'
-      : `${options.config.apiKeySource}, ${options.config.apiKeyEncrypted ? 'encrypted' : 'plain text'}`;
-  lines.push(
-    options.config.apiKey
-      ? ok('auth', `configured (${authDetail})`)
-      : fail('auth', 'missing API key; run moss setup')
-  );
+  lines.push(renderAuthDoctorLine(options.config));
+  const usedEnvVar = options.config.apiKeySource.startsWith('env:')
+    ? options.config.apiKeySource.slice('env:'.length)
+    : '';
+  const unusedEnvKeys = options.config.apiKey
+    ? detectEnvCredentials(envBeforeDotenv)
+        .map((offer) => offer.keyVar)
+        .filter((name) => name !== usedEnvVar)
+    : [];
+  if (unusedEnvKeys.length > 0) {
+    lines.push(
+      warn(
+        'env key',
+        doctorL(
+          '{names} is set and was not applied. Fix: the saved moss config is in use — run `moss setup` to switch.',
+          { names: unusedEnvKeys.join(', ') }
+        )
+      )
+    );
+  }
 
   if (options.config.usingBundledDefault) {
     lines.push(ok('built-in model', 'active (no API key needed)'));
@@ -311,7 +376,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
     lines.push(
       warn(
         'model',
-        'no default model set; pick one at runtime with `/model`, or set a default via `moss config set model=<name>`'
+        doctorL('no default model. Fix: run `/model`, highlight one, and press d to save it.')
       )
     );
   } else {
@@ -366,12 +431,24 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   lines.push(
     canWriteDir(options.config.workspace)
       ? ok('workspace', `${options.config.workspace} (${options.config.workspaceSource})`)
-      : fail('workspace', `${options.config.workspace} is not writable`)
+      : fail(
+          'workspace',
+          doctorL(
+            '{path} is not writable. Fix: run `moss -C <existing-dir>` or `chmod u+w {path}`.',
+            { path: options.config.workspace }
+          )
+        )
   );
   lines.push(
     canWriteDir(options.runtimeDir)
       ? ok('runtime', options.runtimeDir)
-      : fail('runtime', `${options.runtimeDir} is not writable`)
+      : fail(
+          'runtime',
+          doctorL(
+            '{path} is not writable. Fix: `mkdir -p {path}` or pick another workspace with `moss -C`.',
+            { path: options.runtimeDir }
+          )
+        )
   );
   lines.push(ok('config', options.config.configPath));
 
@@ -396,13 +473,14 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   }
 
   if (options.config.ignoredModelEnvVars.length > 0) {
-    const guidance = options.config.apiKey
-      ? 'your moss config is already in use — these env vars are intentionally ignored'
-      : 'run moss setup or moss config set to configure a model';
+    const names = options.config.ignoredModelEnvVars.join(', ');
     lines.push(
       warn(
         'env ignored',
-        `${options.config.ignoredModelEnvVars.join(', ')} — model settings come only from moss config; ${guidance}`
+        doctorL(
+          '{names} is not read. Fix: `moss config set provider <name>`, `moss config set model <name>`, or `moss config set baseUrl <url>`.',
+          { names }
+        )
       )
     );
   }

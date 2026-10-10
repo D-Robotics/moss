@@ -73,7 +73,7 @@ import {
   resolveRdkDocsPackage,
   withBuiltinRdkDocs,
 } from './cli/rdk-docs-mcp.js';
-import { McpToolRegistry, buildMcpPromptLayer } from './core/mcp/registry.js';
+import { McpToolRegistry, buildMcpStableIndex } from './core/mcp/registry.js';
 import { RDK_DOCS_SERVER_NAME, rdkDocsKnowledgeLayer } from './core/mcp/rdk-docs.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
@@ -101,8 +101,9 @@ import {
   formatFullModeNotice,
   formatInteractionModeNotice,
   isZhLocale,
+  setupCopy,
 } from './cli/cli-locale.js';
-import { setTuiLocale, tui } from './cli/tui/copy.js';
+import { setTuiLocale } from './cli/tui/copy.js';
 import { gitignoreNoticeForWorkspace } from './cli/gitignore-suggestion.js';
 import { buildEnvironmentContextLayer, getGitBranch } from './context/environment.js';
 import { disconnectAllDevices } from './device/device-registry.js';
@@ -125,6 +126,10 @@ import {
   getCommandConfig,
   type CommandContext,
 } from './cli/command-dispatcher.js';
+
+function mossLine(en: string, vars?: Record<string, string | number>): string {
+  return setupCopy(undefined, en, vars);
+}
 
 // Argument errors must be a one-line message, not an uncaught stack trace
 // (`moss -m` used to dump a raw Node throw at module load).
@@ -436,11 +441,12 @@ async function main() {
     (cliLogLevel === 'debug' || cliLogLevel === 'info') &&
     cliDetailForNotices !== 'quiet'
   ) {
+    const ignored = resolvedConfig.ignoredModelEnvVars.join(', ');
     console.error(
-      `[config] ignoring model env var(s): ${resolvedConfig.ignoredModelEnvVars.join(', ')} — ` +
-        `model settings come only from moss config, not env vars. ` +
-        `using ${resolvedConfig.provider} / ${resolvedConfig.model} ` +
-        '(change with moss setup / moss config set)'
+      mossLine(
+        '[config] not reading {names}. Fix: `moss config set provider <name>` (these MOSS_* variables are not read). using {provider} / {model}.',
+        { names: ignored, provider: resolvedConfig.provider, model: resolvedConfig.model }
+      )
     );
   }
   // v0.26 mode engine (T01): the mode is the first axis. Startup mode =
@@ -460,8 +466,8 @@ async function main() {
       console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));
     }
   }
-  // v0.26 one-shot full-default notice: once per process for the factory-default
-  // full user with no deny rules. Not persisted across launches.
+  // The sentence says it is shown once. The latch is in memory (#17), so a
+  // new process may print it again. Doctor still reports the condition.
   if (cliDetailForNotices !== 'quiet' && shouldShowFullDefaultNotice(resolvedConfig)) {
     console.error(formatFullModeNotice());
   }
@@ -492,8 +498,10 @@ async function main() {
     const gitignoreNotice = gitignoreNoticeForWorkspace(workspace);
     if (gitignoreNotice) console.error(gitignoreNotice);
   }
-  const model = resolvedConfig.model;
-  const baseUrl = resolvedConfig.baseUrl;
+  // Refreshed after the setup wizard. A const here used to freeze the preset
+  // default, so the first question ignored the model the wizard had just saved.
+  let model = resolvedConfig.model;
+  let baseUrl = resolvedConfig.baseUrl;
   const workspacePathMigration = migrateLegacyWorkspacePaths(workspace);
   const runtimeDir = workspacePathMigration.paths.runtimeDir;
 
@@ -537,10 +545,16 @@ async function main() {
     }
   }
 
+  let inlineFirstRun = false;
   if (!resolvedConfig.apiKey && !parsedArgs.mock) {
     const guidance = { bundledDefaultSuppressedBy: resolvedConfig.bundledDefaultSuppressedBy };
     let setupCompleted = false;
-    if (process.stdin.isTTY && !oneShotMessage) {
+    const inlineSetup = interactiveTty && Boolean(process.stdin.isTTY) && !oneShotMessage;
+    if (inlineSetup) {
+      // The TUI owns setup. Do not print "run moss setup" and exit.
+      inlineFirstRun = true;
+      setupCompleted = true;
+    } else if (process.stdin.isTTY && !oneShotMessage) {
       const setupStarted = await offerSetupForInteractiveMissingConfig(guidance);
       if (!setupStarted) return;
       const refreshed = loadCliConfigFile(process.env, process.argv.slice(2), configStartDir);
@@ -556,6 +570,8 @@ async function main() {
         });
         process.exit(ExitCode.CONFIG);
       }
+      model = resolvedConfig.model;
+      baseUrl = resolvedConfig.baseUrl;
       setupCompleted = true;
     }
     if (!setupCompleted) {
@@ -570,7 +586,9 @@ async function main() {
         printMissingConfigGuidance(false, guidance);
       } else {
         console.error(
-          '[moss] No API key configured. Run `moss setup` to add one (model settings are config-only — env keys are ignored).'
+          mossLine(
+            '[moss] No API key configured. Run `moss` to set one up (a key already in the environment is offered there; the value is not printed).'
+          )
         );
       }
       process.exit(ExitCode.CONFIG);
@@ -872,11 +890,9 @@ async function main() {
   let syncRdkDocsSkills = (): void => {};
   const refreshMcpPromptLayer = (): void => {
     if (!mcpRegistry) return;
-    const layers = [
-      buildMcpPromptLayer(mcpRegistry),
-      rdkDocsKnowledgeLayer(mcpRegistry.getStatuses()),
-    ].filter(Boolean);
-    const combined = layers.join('\n');
+    // Knowledge only. The server index is a stable layer from config names,
+    // so a connect that adds a tool count cannot rewrite the cached prefix.
+    const combined = rdkDocsKnowledgeLayer(mcpRegistry.getStatuses());
     if (mcpPromptLayerIndex === undefined) {
       mcpPromptLayerIndex = dynamicPromptLayers.length;
       dynamicPromptLayers.push(combined);
@@ -905,6 +921,9 @@ async function main() {
       : undefined
   );
   if (mcpConfigs.length > 0) {
+    // Present whenever the search tools are registered, including `moss -p`
+    // which starts before the handshake. No counts: those change on connect.
+    extraPromptLayers.push(buildMcpStableIndex(mcpConfigs.map((config) => config.name)));
     try {
       mcpRegistry = McpToolRegistry.connectInBackground(mcpConfigs, {
         // Real MCP tools register on demand: the search meta-tool installs
@@ -914,7 +933,6 @@ async function main() {
         registerTool: (tool) => agent.tools.register(tool),
         onStatusChange: (status) => {
           refreshMcpPromptLayer();
-          syncRdkDocsSkills();
           if (status.state !== 'connected' && status.state !== 'failed') return;
           if (!announceMcpStatus) return;
           if (useTui) {
@@ -932,7 +950,11 @@ async function main() {
       // server's line; a failed connect gets only the unavailable sentence.
       refreshMcpPromptLayer();
     } catch (err) {
-      console.error(`[mcp] initialization failed: ${errorMessage(err)}`);
+      console.error(
+        isZhLocale()
+          ? `[mcp] 初始化失败：${errorMessage(err)}`
+          : `[mcp] initialization failed: ${errorMessage(err)}`
+      );
       mcpRegistry = null;
     }
   }
@@ -957,13 +979,11 @@ async function main() {
     let skillsLayerIndex: number | undefined;
     let installedSkillTool: ReturnType<typeof createSkillTool> | undefined;
     const emptySkillsLayer = buildEmptySkillsHintLayer(skillDirs);
+    const rdkDocsConfigured = mcpConfigs.some((config) => config.name === RDK_DOCS_SERVER_NAME);
     syncRdkDocsSkills = () => {
-      const connected =
-        mcpRegistry
-          ?.getStatuses()
-          .some((status) => status.name === RDK_DOCS_SERVER_NAME && status.state === 'connected') ??
-        false;
-      const next = includeBundledRdkDocsSkill(baseSkills, connected);
+      // Register once from config, not from the handshake. Swapping the skill
+      // tool in when rdk-docs connects changes the tool list mid-session.
+      const next = includeBundledRdkDocsSkill(baseSkills, rdkDocsConfigured);
       sessionSkills.splice(0, sessionSkills.length, ...next);
       if (sessionSkills.length > 0) {
         const tool = createSkillTool(sessionSkills);
@@ -1012,7 +1032,7 @@ async function main() {
     })
   );
   // Track the locale-derived region for web_search.
-  const searchLocale = process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '';
+  const searchLocale = cliLocale() ?? '';
   const searchRegion = /zh|_cn|-cn|\.cn/i.test(searchLocale) ? 'zh-CN' : undefined;
   // Region-aware re-registration: ToolRegistry.register is overwrite-by-name,
   // so the builtin web_search registered above is replaced by the localized one.
@@ -1183,7 +1203,9 @@ async function main() {
       // valid but ambiguous — a brief notice makes the user aware they're about
       // to be billed for an LLM call. Suppressed in quiet mode for scripting.
       if (cliDetailForNotices !== 'quiet' && !oneShotMessage.includes(' ')) {
-        console.error(`[moss] sending "${oneShotMessage}" to the model...`);
+        console.error(
+          mossLine('[moss] sending "{text}" to the model...', { text: oneShotMessage })
+        );
       }
       await runOneShotWithCliCancellation(agent, oneShotMessage, {
         sessionKey: session.sessionKey,
@@ -1286,13 +1308,15 @@ async function main() {
       // instead of silently succeeding — silent exit on `echo "" | moss --print`
       // looks like a successful empty result and hides the user's mistake.
       if (parsedArgs.print || parsedArgs.maxTurns !== undefined) {
-        console.error('[moss] --print requires a prompt argument or non-empty piped stdin');
+        console.error(
+          mossLine('[moss] --print requires a prompt argument or non-empty piped stdin')
+        );
         process.exitCode = ExitCode.USAGE;
       }
       return;
     }
     if (parsedArgs.print) {
-      console.error('[moss] --print requires a prompt argument or piped stdin');
+      console.error(mossLine('[moss] --print requires a prompt argument or piped stdin'));
       process.exitCode = ExitCode.USAGE;
       return;
     }
@@ -1366,7 +1390,27 @@ async function main() {
         agent,
         workspaceDir: workspace,
         sessionKey: session.sessionKey,
-        model: typeof model === 'string' ? model : undefined,
+        model: inlineFirstRun ? undefined : typeof model === 'string' ? model : undefined,
+        ...(inlineFirstRun ? { firstRun: true } : {}),
+        onFirstRunReady: (saved) => {
+          const refreshed = loadCliConfigFile(process.env, process.argv.slice(2), configStartDir);
+          liveRuntime.config = resolveCliConfig(
+            process.env,
+            refreshed.config,
+            parsedArgs.configOverrides,
+            refreshed
+          );
+          agent.config.model = saved.model;
+          const mutable = agent.config as { provider?: string; baseUrl?: string };
+          mutable.provider = saved.provider;
+          mutable.baseUrl = saved.baseUrl;
+          agent.config.llmProvider = createCliProvider({
+            provider: saved.provider,
+            apiKey: saved.apiKey,
+            model: saved.model,
+            baseUrl: saved.baseUrl,
+          });
+        },
         // Part B: hand the shell the resolved locale explicitly instead of
         // letting every component re-read the environment.
         locale: cliLocale(),
@@ -1478,48 +1522,46 @@ main().catch((err) => {
   // Provider-level errors: print a clean, actionable diagnostic — never claim
   // it's a bug. Auth failures, rate limits, network timeouts, and context
   // overflows are external conditions, not code defects.
-  if (code === ExitCode.PROVIDER_AUTH) {
-    console.error(`[moss] Authentication failed: ${message}`);
-    console.error('[moss] Check your API key with `moss config show`, or re-run `moss setup`.');
-    process.exit(code);
-  }
-  if (code === ExitCode.RATE_LIMIT) {
-    console.error(`[moss] Rate limited: ${message}`);
-    console.error(
-      '[moss] Wait a moment and try again. Consider setting a lower model or reducing prompt size.'
-    );
-    process.exit(code);
-  }
-  if (code === ExitCode.PROVIDER_UPSTREAM) {
-    console.error(`[moss] Provider error: ${message}`);
-    console.error(
-      '[moss] The upstream API returned an error. Check your network, base URL, and model name.'
-    );
-    process.exit(code);
-  }
-  if (code === ExitCode.CONFIG) {
-    console.error(`[moss] Configuration error: ${message}`);
-    console.error(
-      '[moss] Run `moss config show` to inspect settings, or `moss setup` to reconfigure.'
-    );
-    process.exit(code);
-  }
-
-  // Session errors: the user's session data is the problem, not the code.
-  if (code === ExitCode.SESSION) {
-    console.error(`[moss] Session error: ${message}`);
-    console.error(
-      '[moss] List saved sessions with `moss sessions`, or start a new one with `moss`.'
-    );
+  const fatal: ReadonlyArray<readonly [number, string, string]> = [
+    [
+      ExitCode.PROVIDER_AUTH,
+      '[moss] Authentication failed: {message}',
+      '[moss] Check your API key with `moss config show`, or re-run `moss setup`.',
+    ],
+    [
+      ExitCode.RATE_LIMIT,
+      '[moss] Rate limited: {message}',
+      '[moss] Wait a moment and try again. Consider setting a lower model or reducing prompt size.',
+    ],
+    [
+      ExitCode.PROVIDER_UPSTREAM,
+      '[moss] Provider error: {message}',
+      '[moss] The upstream API returned an error. Check your network, base URL, and model name.',
+    ],
+    [
+      ExitCode.CONFIG,
+      '[moss] Configuration error: {message}',
+      '[moss] Run `moss config show` to inspect settings, or `moss setup` to reconfigure.',
+    ],
+    [
+      ExitCode.SESSION,
+      '[moss] Session error: {message}',
+      '[moss] List saved sessions with `moss sessions`, or start a new one with `moss`.',
+    ],
+  ];
+  for (const [exit, head, tail] of fatal) {
+    if (code !== exit) continue;
+    console.error(mossLine(head, { message }));
+    console.error(mossLine(tail));
     process.exit(code);
   }
 
   // User aborted: they hit Ctrl+C or cancelled — not a bug.
   if (code === ExitCode.USER_ABORTED) {
     console.error(
-      `[moss] ${tui('Cancelled: {message}', {
-        message: message || tui('operation was interrupted'),
-      })}`
+      mossLine('[moss] Cancelled: {message}', {
+        message: message || mossLine('operation was interrupted'),
+      })
     );
     process.exit(code);
   }
@@ -1527,14 +1569,16 @@ main().catch((err) => {
   // For unexpected / internal errors, show the bug-report notice.
   console.error(`[moss] ${message}`);
   console.error('');
-  console.error('This looks like a bug. Please help us fix it:');
-  console.error('  1. Run `moss doctor` to check your environment');
+  console.error(mossLine('This looks like a bug. Please help us fix it:'));
+  console.error(mossLine('  1. Run `moss doctor` to check your environment'));
   console.error(
-    '  2. If the problem persists, report it to the Moss maintainers with the details below.'
+    mossLine(
+      '  2. If the problem persists, report it to the Moss maintainers with the details below.'
+    )
   );
   if (err instanceof Error && err.stack) {
     console.error('');
-    console.error('Technical details (for bug reports):');
+    console.error(mossLine('Technical details (for bug reports):'));
     console.error(err.stack);
   }
   process.exit(code);

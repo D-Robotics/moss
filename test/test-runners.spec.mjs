@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -161,7 +162,35 @@ const FIXTURES = [
     output: '/bin/sh: 1: pytest: not found\n',
     exitCode: 127,
     match: [/not run/, /pytest not installed/],
-    not: [/❌/, /tests_pass=true/],
+    not: [/❌/, /tests_pass=true/, /exit 127/],
+    notRed: true,
+  },
+  {
+    name: 'go command not found',
+    command: 'go test -json ./...',
+    output: '/bin/sh: 1: go: not found\n',
+    exitCode: 127,
+    match: [/Test Results: not run/, /go not installed/, /tests_pass=false/],
+    not: [/❌/, /tests_pass=true/, /exit 127/],
+    notRed: true,
+  },
+  {
+    name: 'jest command not found',
+    command: 'npm test --silent',
+    output: 'sh: 1: jest: not found\n',
+    exitCode: 127,
+    match: [/Test Results: not run/, /jest not installed/, /tests_pass=false/],
+    not: [/❌/, /tests_pass=true/, /exit 127/],
+    notRed: true,
+  },
+  {
+    name: 'windows runner not recognized',
+    command: 'go test -json ./...',
+    output:
+      "'go' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+    exitCode: 1,
+    match: [/Test Results: not run/, /go not installed/],
+    not: [/❌/, /exit 1/],
     notRed: true,
   },
   {
@@ -338,19 +367,23 @@ test('run_tests with no runner points at exec', async () => {
   });
 });
 
-test('echo-only make test is unknown and not an overall pass', async () => {
-  await withDir({ Makefile: 'test:\n\t@echo suite-ok\n' }, async (dir) => {
-    const output = await runTestsTool.execute({}, ctx(dir));
-    assert.match(output, /Command: make test/);
-    assert.match(output, /exit 0, counts unknown/);
-    assert.match(output, /tests_pass=false/);
-    assert.doesNotMatch(output, /overall tests_pass/);
-    assert.doesNotMatch(output, /tests_pass=true/);
-    assert.equal(RED.test(output), false);
-    assert.equal(output.includes('NO TESTS EXECUTED'), false);
-    assert.equal(output.includes('node --test'), false);
-  });
-});
+test(
+  'echo-only make test is unknown and not an overall pass',
+  { skip: !hasBin('make') },
+  async () => {
+    await withDir({ Makefile: 'test:\n\t@echo suite-ok\n' }, async (dir) => {
+      const output = await runTestsTool.execute({}, ctx(dir));
+      assert.match(output, /Command: make test/);
+      assert.match(output, /exit 0, counts unknown/);
+      assert.match(output, /tests_pass=false/);
+      assert.doesNotMatch(output, /overall tests_pass/);
+      assert.doesNotMatch(output, /tests_pass=true/);
+      assert.equal(RED.test(output), false);
+      assert.equal(output.includes('NO TESTS EXECUTED'), false);
+      assert.equal(output.includes('node --test'), false);
+    });
+  }
+);
 
 test('make is skipped when npm matches, and one budget stops the next runner', async () => {
   await withDir(
@@ -409,6 +442,57 @@ test('verify_fix does not paint an unparsed exit 0 as FAIL or ALL PASSED', async
     assert.doesNotMatch(output, /ALL PASSED/);
     assert.doesNotMatch(output, /Test Failures/);
     assert.doesNotMatch(output, /verification is red/);
+  });
+});
+
+function pathWithout(names) {
+  const parts = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  return parts
+    .filter((entry) =>
+      names.every(
+        (name) =>
+          !existsSync(path.join(entry, name)) &&
+          !existsSync(path.join(entry, `${name}.exe`)) &&
+          !existsSync(path.join(entry, `${name}.cmd`))
+      )
+    )
+    .join(path.delimiter);
+}
+
+test('missing go is not run and not a red verify', async () => {
+  await withDir({ 'go.mod': 'module example.com/demo\n\ngo 1.22\n' }, async (dir) => {
+    const saved = process.env.PATH;
+    process.env.PATH = pathWithout(['go']);
+    try {
+      const output = await runTestsTool.execute({}, ctx(dir));
+      assert.match(output, /Test Results: not run/);
+      assert.match(output, /go not installed/);
+      assert.equal(RED.test(output), false, output);
+      assert.doesNotMatch(output, /exit 127/);
+      assert.doesNotMatch(output, /❌/);
+      const verify = await verifyFixTool.execute(
+        { build_command: '', typecheck_command: '' },
+        ctx(dir)
+      );
+      assert.match(verify, /not run/);
+      assert.match(verify, /go not installed/);
+      assert.equal(RED.test(verify), false, verify);
+      assert.doesNotMatch(verify, /ISSUES FOUND/);
+      assert.doesNotMatch(verify, /❌/);
+    } finally {
+      process.env.PATH = saved;
+    }
+  });
+});
+
+test('missing jest is not run', async () => {
+  await withDir({ 'package.json': JSON.stringify({ scripts: { test: 'jest' } }) }, async (dir) => {
+    const output = await runTestsTool.execute({}, ctx(dir));
+    assert.match(output, /Test Results: not run/);
+    assert.match(output, /jest not installed/);
+    assert.equal(RED.test(output), false, output);
+    assert.doesNotMatch(output, /❌/);
+    assert.doesNotMatch(output, /exit 127/);
   });
 });
 

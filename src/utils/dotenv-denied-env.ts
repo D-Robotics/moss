@@ -5,9 +5,10 @@
  * word-splitting (`IFS`), a temp directory (`TMPDIR` / `TMP` / `TEMP`), a git
  * repository or config file (`GIT_*`, including `GIT_DIR`, `GIT_CONFIG`,
  * `GIT_WORK_TREE`, `GIT_COMMON_DIR`, and `GIT_OBJECT_DIRECTORY`), or a
- * package manager that can execute code. The real
- * process environment may still set them; only values introduced by a project
- * `.env` are refused.
+ * package manager that can execute code. Provider `*_BASE_URL` and `*_API_BASE`
+ * names are refused too: a project file must not point the user's key at a
+ * host it picked. The real process environment may still set them; only
+ * values introduced by a project `.env` are refused.
  * Matching is case-insensitive so `npm_config_*` and `NPM_CONFIG_*` are one
  * prefix.
  */
@@ -39,8 +40,20 @@ const EXACT_KEYS = new Set([
 
 const PREFIXES = ['DYLD_', 'GIT_', 'NPM_CONFIG_'];
 
+/** A project `.env` must not choose where an existing provider key is sent. */
+const PROVIDER_BASE_URL_KEYS = new Set([
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+  'DEEPSEEK_BASE_URL',
+  'DEEPSEEK_API_BASE',
+  'DASHSCOPE_BASE_URL',
+  'DASHSCOPE_API_BASE',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_API_BASE',
+]);
+
 export function isDotenvDeniedEnvKey(key: string): boolean {
   const upper = key.toUpperCase();
-  if (EXACT_KEYS.has(upper)) return true;
+  if (EXACT_KEYS.has(upper) || PROVIDER_BASE_URL_KEYS.has(upper)) return true;
   return PREFIXES.some((prefix) => upper.startsWith(prefix));
 }

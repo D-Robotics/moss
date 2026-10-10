@@ -96,8 +96,13 @@ function blank(output: string): TestResult {
   };
 }
 
-function view(verdict: 'pass' | 'fail' | 'unknown' | 'notRun', result: TestResult, text: string) {
-  return { verdict, result, text };
+function view(
+  verdict: 'pass' | 'fail' | 'unknown' | 'notRun',
+  result: TestResult,
+  text: string,
+  hint = ''
+) {
+  return { verdict, result, text, hint };
 }
 
 const labeled = (line: string, label: string): number =>
@@ -317,6 +322,47 @@ function pytestMissing(text: string): boolean {
   );
 }
 
+function programName(command: string): string {
+  const token = command.trim().split(/\s+/)[0] ?? 'command';
+  const base = token.split(/[/\\]/).pop() ?? token;
+  return base || 'command';
+}
+
+/** Name of a runner binary the shell or spawn could not find. */
+function missingBinaryName(text: string): string | null {
+  const patterns = [
+    /(?:^|[\n])[^\n]*?:\s*([A-Za-z0-9_.+-]+):\s*(?:command )?not found\b/,
+    /'([A-Za-z0-9_.+-]+)' is not recognized as an internal or external command/i,
+    /\bspawn(?:Sync)?\s+([A-Za-z0-9_.+-]+)\s+ENOENT\b/,
+  ];
+  for (const pattern of patterns) {
+    const name = pattern.exec(text)?.[1];
+    if (!name || name === 'sh' || name === 'bash' || name === 'dash') continue;
+    return name;
+  }
+  return null;
+}
+
+/**
+ * Missing runner binaries are not a failed suite. Exit 127, spawn ENOENT, and
+ * the Windows "not recognized" line are the same outcome pytest already
+ * reports: `not run`, with `<program> not installed`.
+ */
+function missingRunnerHint(command: string, exitCode: number, text: string): string | null {
+  if (/\bpytest\b/.test(command) && pytestMissing(text)) return 'pytest not installed';
+  const enoent = /\bspawn(?:Sync)?\s+([A-Za-z0-9_.+-]+)\s+ENOENT\b/.exec(text)?.[1];
+  if (enoent) return `${enoent} not installed`;
+  const unrecognized =
+    /'([A-Za-z0-9_.+-]+)' is not recognized as an internal or external command/i.exec(text)?.[1];
+  if (unrecognized) return `${unrecognized} not installed`;
+  if (exitCode !== 127) return null;
+  return `${missingBinaryName(text) ?? programName(command)} not installed`;
+}
+
+function notRunText(command: string, hint: string): string {
+  return `Test Results: not run\nCommand: ${command}\n${hint}\ntests_pass=false`;
+}
+
 async function exitsZero(
   ctx: ToolContext,
   cmd: string,
@@ -475,12 +521,11 @@ function judge(
   timedOut = false,
   spawnError?: string
 ) {
-  if (!timedOut && /\bpytest\b/.test(command) && pytestMissing(`${output}\n${spawnError ?? ''}`)) {
-    return view(
-      'notRun',
-      blank(output),
-      `Test Results: not run\nCommand: ${command}\npytest not installed\ntests_pass=false`
-    );
+  const blob = `${output}\n${spawnError ?? ''}`;
+  if (!timedOut) {
+    const hint = missingRunnerHint(command, exitCode, blob);
+    const parsed = hint ? matchOutput(command, output) : null;
+    if (hint && !parsed) return view('notRun', blank(output), notRunText(command, hint), hint);
   }
   const matched = matchOutput(command, output);
   if (!matched) {
@@ -632,11 +677,12 @@ async function executePlan(
   const unknown = !failed && actionable.some((view) => view.verdict === 'unknown');
   const passed =
     actionable.length > 0 && !failed && actionable.every((view) => view.verdict === 'pass');
-  const pytestNotRun = views.some((view) => view.verdict === 'notRun');
-  const note = [displayNote, pytestNotRun ? 'pytest not installed' : ''].filter(Boolean).join('\n');
+  const notRunViews = views.filter((view) => view.verdict === 'notRun');
+  const installNotes = [...new Set(notRunViews.map((view) => view.hint).filter(Boolean))];
+  const note = [displayNote, ...installNotes].filter(Boolean).join('\n');
   const noTests =
     !unknown &&
-    !pytestNotRun &&
+    notRunViews.length === 0 &&
     held.length === 0 &&
     views.length > 0 &&
     views.every(
@@ -670,7 +716,8 @@ async function executePlan(
       (views.length === 0 && held.length > 0) ||
       (!failed &&
         actionable.length === 0 &&
-        (pytestNotRun || plan.skipped.some((line) => line.includes('pytest not installed')))),
+        (notRunViews.length > 0 ||
+          plan.skipped.some((line) => line.includes('pytest not installed')))),
     note,
     result,
   };

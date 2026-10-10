@@ -15,10 +15,15 @@
 import type { Tool, ToolContext } from '../tools/tool-types.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import { getRootLogger } from '../../logger.js';
+import { preferredLocale } from '../../utils/locale-preference.js';
 import { McpClient } from './client.js';
 import type { McpServerConfig, McpToolCallResult, McpToolDescriptor } from './types.js';
 
 const log = getRootLogger().child('mcp:registry');
+
+function mcpConnectFailedMessage(): string {
+  return /^zh/i.test(preferredLocale() ?? '') ? '服务器连接失败' : 'server connect failed';
+}
 
 /** Providers cap tool names at 64 chars ([a-zA-Z0-9_-]). */
 const MAX_TOOL_NAME_LENGTH = 64;
@@ -213,7 +218,7 @@ export class McpToolRegistry {
       // example, handshake or tools/list timeout). Reap it immediately rather
       // than leaving an idle npx process alive until the CLI exits.
       await entry.client.close().catch(() => undefined);
-      log.warn('server connect failed', {
+      log.warn(mcpConnectFailedMessage(), {
         server: entry.config.name,
         error: entry.status.error,
       });
@@ -636,24 +641,33 @@ export function mcpSearchToolDeclaration(serverName: string): {
 }
 
 /**
- * The system-prompt MCP index layer. Deliberately minimal — one line per
- * connected server pointing at its search meta-tool. Tool names, descriptions,
- * and schemas never enter the system prompt (that is the lazy-loading budget).
+ * Cache-stable MCP index. Names only: no tool counts and no connection state,
+ * both of which change when a handshake finishes and bust the prefix.
+ * Empty when nothing is configured.
+ */
+export function buildMcpStableIndex(serverNames: readonly string[]): string {
+  const names = [
+    ...new Set(serverNames.map((name) => name.trim()).filter((name) => name.length > 0)),
+  ].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  if (names.length === 0) return '';
+  const lines = names.map((name) => `- ${name}: \`${mcpServerWirePrefix(name)}search\``);
+  return [
+    '## MCP Tool Servers',
+    'Server tools are not inlined. Call `mcp__<server>__search`, then `mcp__<server>__<tool>`.',
+    ...lines,
+  ].join('\n');
+}
+
+/**
+ * Prompt layer for servers that have finished connecting. Still empty while
+ * a server is connecting or failed, so a late handshake test can tell the
+ * states apart. The CLI caches {@link buildMcpStableIndex} from config names
+ * separately; this function must not grow a count or a connecting line.
  */
 export function buildMcpPromptLayer(registry: {
   getStatuses(): readonly { name: string; state: string; toolCount?: number }[];
 }): string {
   const servers = registry.getStatuses().filter((s) => s.state === 'connected');
   if (servers.length === 0) return '';
-  const lines = servers.map(
-    (s) =>
-      `- ${s.name}: ${s.toolCount ?? '?'} tool(s) — list/filter with \`${mcpServerWirePrefix(s.name)}search\`, then call \`mcp__${sanitizeSegment(s.name)}__<tool>\` by name`
-  );
-  return [
-    '## MCP Tool Servers',
-    'External MCP tool servers are connected. Their tools are NOT listed here (lazy loading): ' +
-      'search a server first with its `mcp__<server>__search` meta-tool (optional {query} filter), ' +
-      'which registers the tools and returns their names + descriptions; then call `mcp__<server>__<tool>` directly.',
-    ...lines,
-  ].join('\n');
+  return buildMcpStableIndex(servers.map((server) => server.name));
 }
