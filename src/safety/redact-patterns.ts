@@ -49,3 +49,28 @@ export function quoteOpensValue(text: string, openAt: number): boolean {
   }
   return count % 2 === 0;
 }
+
+/**
+ * Argv password flags. Exact names, so `--password-env` and `--passphrase`
+ * stay. The `=` form's first group is the value.
+ */
+export const PASSWORD_LONG_FLAG = /^--(?:password|passwd|pass)$/;
+export const PASSWORD_LONG_EQUALS = /^--(?:password|passwd|pass)=(.*)$/;
+
+/** Attached short password for sshpass, mysql, and mariadb. A bare short flag does not match. */
+export const ATTACHED_P_PASSWORD = /^-p(.+)$/;
+
+/** curl and wget userinfo. Group 1 is the value of the attached form and the equals form. */
+export const USER_FLAG = /^(?:-u|--user)$/;
+export const ATTACHED_USER_FLAG = /^-u(.+)$/;
+export const USER_EQUALS_FLAG = /^--user=(.*)$/;
+
+const COMMAND_NOISE = /^[+$`({]+/;
+
+/** Basename of a path-qualified argv word (`/usr/bin/sshpass`, `sshpass.exe`). */
+export function commandTokenName(token: string): string {
+  const stripped = token.replace(COMMAND_NOISE, '');
+  const slash = Math.max(stripped.lastIndexOf('/'), stripped.lastIndexOf('\\'));
+  const base = slash >= 0 ? stripped.slice(slash + 1) : stripped;
+  return base.replace(/\.exe$/i, '').toLowerCase();
+}

@@ -24,25 +24,25 @@ import { presentToolOutput, redactEgress } from '../dist/safety/tool-output-reda
 
 /**
  * The 12 lines main redacts in Moss src, one file:line entry each.
- * The config-commands example-key lines moved down by the MOSS_SOURCE_DIR
- * env rows. The pi-ai-wire-format matches sit two lines lower because
- * `responseModel` was inserted above `rejectAnthropicOAuthToken`. The two
- * safety files are the same false matches (provider-token examples and
- * `secret = match?.[5]`), at their current lines.
+ * config-commands and remote-compaction match main. The pi-ai-wire-format
+ * matches sit two lines lower because `responseModel` was inserted above
+ * `rejectAnthropicOAuthToken`. The two safety files are the same false matches
+ * (provider-token examples and `secret = match?.[5]`), at their current lines.
+ * The tool-output-redact entries moved when the argv password rule was added.
  */
 const MAIN_REDACTED_LINES = [
-  'src/cli/config-commands.ts:818',
-  'src/cli/config-commands.ts:845',
+  'src/cli/config-commands.ts:816',
+  'src/cli/config-commands.ts:843',
   'src/context/remote-compaction.ts:342',
   'src/provider/pi-ai-wire-format.ts:116',
   'src/provider/pi-ai-wire-format.ts:118',
   'src/provider/pi-ai-wire-format.ts:119',
   'src/safety/secret-sanitizer.ts:13',
   'src/safety/secret-sanitizer.ts:45',
-  'src/safety/tool-output-redact.ts:117',
-  'src/safety/tool-output-redact.ts:474',
-  'src/safety/tool-output-redact.ts:475',
-  'src/safety/tool-output-redact.ts:556',
+  'src/safety/tool-output-redact.ts:126',
+  'src/safety/tool-output-redact.ts:831',
+  'src/safety/tool-output-redact.ts:832',
+  'src/safety/tool-output-redact.ts:913',
 ];
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -253,6 +253,69 @@ assert.equal(redactEgress('password combination.', env), 'password combination.'
 const sshpass = redactEgress('ProxyCommand sshpass -p r00tpw user@host', env);
 assert.match(sshpass, /sshpass -p \[REDACTED\]/);
 assert.doesNotMatch(sshpass, /r00tpw/);
+
+assert.equal(redactEgress('sshpass -psunrise', env), 'sshpass -p[REDACTED]');
+assert.equal(redactEgress('sshpass -p sunrise', env), 'sshpass -p [REDACTED]');
+assert.equal(
+  redactEgress('/usr/bin/sshpass -psunrise ssh host', env),
+  '/usr/bin/sshpass -p[REDACTED] ssh host'
+);
+assert.equal(
+  redactEgress('sshpass -p sunrise ssh -p 22 user@host', env),
+  'sshpass -p [REDACTED] ssh -p 22 user@host'
+);
+assert.equal(redactEgress("['sshpass', '-p', 'sunrise']", env), "['sshpass', '-p', '[REDACTED]']");
+assert.equal(redactEgress('["sshpass", "-psunrise"]', env), '["sshpass", "-p[REDACTED]"]');
+assert.equal(redactEgress('mysql -u root -psecret', env), 'mysql -u root -p[REDACTED]');
+assert.equal(redactEgress('mariadb -u root -psecret', env), 'mariadb -u root -p[REDACTED]');
+assert.equal(
+  redactEgress('curl -u user:pw https://example.com/x', env),
+  'curl -u user:[REDACTED] https://example.com/x'
+);
+assert.equal(
+  redactEgress('wget -u user:pw https://example.com/x', env),
+  'wget -u user:[REDACTED] https://example.com/x'
+);
+assert.equal(
+  redactEgress('curl --user=user:pw https://example.com/x', env),
+  'curl --user=user:[REDACTED] https://example.com/x'
+);
+assert.equal(
+  redactEgress('wget --user user:pw https://example.com/x', env),
+  'wget --user user:[REDACTED] https://example.com/x'
+);
+assert.equal(redactEgress('tool --password sunrise', env), 'tool --password [REDACTED]');
+assert.equal(redactEgress('tool --password=sunrise', env), 'tool --password=[REDACTED]');
+assert.equal(redactEgress('tool --passwd sunrise', env), 'tool --passwd [REDACTED]');
+assert.equal(redactEgress('tool --pass=sunrise', env), 'tool --pass=[REDACTED]');
+assert.equal(
+  redactEgress('psql postgresql://moss:sunrise99@localhost/app', env),
+  'psql postgresql://moss:[REDACTED]@localhost/app'
+);
+
+for (const kept of [
+  'ssh -p 22',
+  'ssh -p 22 user@host',
+  'scp -P 2222 file host:/tmp',
+  'adb -P 5037 shell getprop',
+  'hdc -p 8710 shell',
+  'hdc tconn 127.0.0.1:8710',
+  'mysql -P 3306',
+  'mysql -u root -p',
+  'mysql -u root -p appdb',
+  'mariadb -p',
+  'psql -p 5432',
+  'curl -U Moss/1.0 https://example.com/x',
+  'sshpass -e ssh -p 22 user@host',
+  'sshpass -p $SSHPASS ssh host',
+  'mysql -u root -p$MYSQL_PWD',
+  'tool --password=$DB_PASS',
+  'tool --password ${DB_PASS}',
+  'moss device add --password-env MOSS_DEVICE_PASSWORD',
+  'moss device add --passphrase-env MOSS_DEVICE_KEY_PASSPHRASE',
+]) {
+  assert.equal(redactEgress(kept, env), kept, kept);
+}
 
 for (const kept of [
   'PWD=/home/u/project',
