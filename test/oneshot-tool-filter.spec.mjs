@@ -19,6 +19,18 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
     );
   }
   assert.equal(allow(tool('custom_company_tool')), true, 'unknown/custom tools are never hidden');
+  assert.equal(
+    allow({
+      name: 'ask_user_question',
+      description: '',
+      metadata: { requiresUserQuestion: true },
+      inputSchema: { type: 'object', properties: {} },
+    }),
+    true,
+    'oneshot does not hide the question tool by name; the asker check does'
+  );
+  assert.equal(allow(tool('task_define')), true, 'task tools stay available in -p');
+  assert.equal(allow(tool('record_evidence')), true, 'task tools stay available in -p');
 }
 
 {

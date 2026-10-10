@@ -8,8 +8,14 @@ const log = getRootLogger().child('agent');
 import { ToolRegistry } from '../tools/tool-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
 import { DeferredToolOffer, TOOL_SEARCH_NAME } from '../tools/deferred-tool-offer.js';
-import { toolVisibleForRun } from './session-tool-offer.js';
+import {
+  enrichRunToolContext,
+  hiddenUserQuestionMessage,
+  toolVisibleForRun,
+  userQuestionsOffered,
+} from './session-tool-offer.js';
 import { omitTaskPhasePrompts } from './task-phase-prompt.js';
+import { getUserQuestionAsker } from '../tools/user-question-asker.js';
 import { mergeLeasePatch } from '../subagent/worktree-isolation.js';
 import type { AgentLoopRun } from './agent-loop-run-state.js';
 import {
@@ -969,9 +975,41 @@ ${result.stderr ?? ''}`.trim();
     }
     if (options?.taskFlow !== false) this.taskLedgerSessions.add(sessionKey);
     const ledgerVisible = this.taskLedgerSessions.has(sessionKey);
+    const workspaceDir = path.resolve(this.config.workspaceDir ?? process.cwd());
+    const hostDescribeMissingTool = this.config.describeMissingTool;
+    const enrichedRun = enrichRunToolContext(hooks?.enrichToolContext, {
+      workspaceDir,
+      runId,
+      sessionKey,
+      abortSignal,
+      ...(options?.toolInputLimits ? { toolInputLimits: options.toolInputLimits } : {}),
+      ...(options?.toolInputOverrides ? { toolInputOverrides: options.toolInputOverrides } : {}),
+      ...(options?.taskFlow === false ? { taskContracts: 'deny' as const } : {}),
+      ...(options?.taskFlow === true ? { taskContracts: 'allow' as const } : {}),
+      ...(options?.goalExecWait === true ? { goalExecWait: true as const } : {}),
+      ...(this.config.execWriteRoots ? { execWriteRoots: this.config.execWriteRoots } : {}),
+      mergeWorkspacePatch: async (leaseId, patchId) => {
+        const result = await mergeLeasePatch({ parentWorkspace: workspaceDir, leaseId, patchId });
+        return {
+          status: result.status,
+          conflictingPaths: result.status === 'merge_conflict' ? result.conflictingPaths : [],
+        };
+      },
+      asyncTaskRegistry: this.asyncTasks,
+    });
+    const userQuestions = userQuestionsOffered({
+      agentAsker: this.userQuestionAsker !== undefined,
+      processAsker: getUserQuestionAsker() !== undefined,
+      stdinIsTTY: process.stdin.isTTY === true,
+      hookAsker: enrichedRun.askUserQuestion !== undefined,
+    });
     const visibleForRun = (tool: Tool): boolean =>
       this.deferredTools.isOffered(tool.name) &&
-      toolVisibleForRun(tool.name, { taskFlow: ledgerVisible ? true : options?.taskFlow }) &&
+      toolVisibleForRun(tool.name, {
+        taskFlow: ledgerVisible ? true : options?.taskFlow,
+        userQuestions,
+        requiresUserQuestion: tool.metadata?.requiresUserQuestion === true,
+      }) &&
       (options?.toolFilter?.(tool) ?? true);
     const resolveRunTools = (): ReturnType<typeof filterToolsForRun> =>
       filterToolsForRun(
@@ -982,7 +1020,8 @@ ${result.stderr ?? ''}`.trim();
     const hostResolveMissingTool = this.config.resolveMissingTool;
     // A name that appears after the tool list was built (MCP handshake, or
     // tool_search earlier in this turn) still has to pass this run's filter.
-    // Filtered-out tools stay unknown.
+    // Filtered-out tools stay unknown. A hidden question tool is the exception:
+    // the model is told that no user is available.
     const resolveMissingToolForRun = async (
       name: string,
       signal?: AbortSignal
@@ -995,33 +1034,13 @@ ${result.stderr ?? ''}`.trim();
       return filterToolsForRun([resolved], visibleForRun)[0];
     };
 
-    const workspaceDir = path.resolve(this.config.workspaceDir ?? process.cwd());
     const toolCtx: ToolContext = {
-      workspaceDir,
-      runId,
-      sessionKey,
-      abortSignal,
-      ...(options?.toolInputLimits ? { toolInputLimits: options.toolInputLimits } : {}),
-      ...(options?.toolInputOverrides ? { toolInputOverrides: options.toolInputOverrides } : {}),
-      ...(options?.taskFlow === false ? { taskContracts: 'deny' as const } : {}),
-      ...(options?.taskFlow === true ? { taskContracts: 'allow' as const } : {}),
-      ...(options?.goalExecWait === true ? { goalExecWait: true as const } : {}),
-      ...(this.config.execWriteRoots ? { execWriteRoots: this.config.execWriteRoots } : {}),
-      // Worktree-lease merge host (merge_subagent_patch tool target): applies
-      // a collected sub-agent patch back into this workspace with 3-way merge.
-      mergeWorkspacePatch: async (leaseId, patchId) => {
-        const result = await mergeLeasePatch({ parentWorkspace: workspaceDir, leaseId, patchId });
-        return {
-          status: result.status,
-          conflictingPaths: result.status === 'merge_conflict' ? result.conflictingPaths : [],
-        };
-      },
-      asyncTaskRegistry: this.asyncTasks,
+      ...enrichedRun,
       resolveMissingTool: resolveMissingToolForRun,
       revealDeferredTools: (group) => this.deferredTools.reveal(group),
-      ...(this.config.describeMissingTool
-        ? { describeMissingTool: this.config.describeMissingTool }
-        : {}),
+      describeMissingTool: (name) =>
+        hiddenUserQuestionMessage(this.tools.get(name), userQuestions) ??
+        hostDescribeMissingTool?.(name),
     };
 
     const adapter = createMossAgentLoopEventAdapter({
@@ -1468,12 +1487,10 @@ ${result.stderr ?? ''}`.trim();
       },
       checkToolApproval: buildToolApprovalCheck(sessionKey, runId),
       toolAbortSignalFor: options?.toolAbortSignalFor,
-      enrichToolContext: (baseContext, activeSessionKey) => {
-        const enriched = hooks?.enrichToolContext?.(baseContext, activeSessionKey) ?? baseContext;
-        return this.userQuestionAsker
-          ? { ...enriched, askUserQuestion: this.userQuestionAsker }
-          : enriched;
-      },
+      enrichToolContext: (baseContext) =>
+        this.userQuestionAsker
+          ? { ...baseContext, askUserQuestion: this.userQuestionAsker }
+          : baseContext,
       toolHooks: this.toolHooks,
       abortSignal,
       maxOutputTokens,
