@@ -417,7 +417,7 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
         'You already have that discovery result in this turn — do not re-list or re-search the same target.',
         'Next: open the specific paths you need with `read_file`, refine with a *different* glob/pattern/path, or answer from evidence already gathered.',
-        'If stuck, use create_subagent scope=explore for an open-ended pass instead of repeating the same listing.',
+        'If stuck, call tool_search group=subagent, then create_subagent scope=explore, instead of repeating the same listing.',
       ].join(' ');
     }
   }
@@ -523,7 +523,7 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
       return [
         `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
         'Discovery is failing repeatedly — STOP retrying the same list/search/read/codegraph hop.',
-        'Change the path/pattern/symbol, use a different tool (`search_files` vs `search_code` vs `codegraph_*` vs `list_directory`), or spawn create_subagent scope=explore.',
+        'Change the path/pattern/symbol, use a different tool (`search_files` vs `search_code` vs `codegraph_*` vs `list_directory`), or call tool_search group=subagent and then create_subagent scope=explore.',
         'Answer with what you already have; never invent file listings, call graphs, or search hits you did not observe.',
       ].join(' ');
     }

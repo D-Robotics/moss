@@ -19,30 +19,33 @@ function officialOffers(offers: readonly DetectedCredential[]): DetectedCredenti
   return offers.filter((offer) => offerUsesOfficialHost(offer));
 }
 
+/** Same sentence in the guidance block and the one-shot hint. The hint indents it. */
+function offerLine(padded: boolean): string | undefined {
+  const offers = detectEnvCredentials();
+  const official = officialOffers(offers);
+  const pad = padded ? '  ' : '';
+  if (official.length > 0) {
+    return L(
+      `${pad}{names} is set. Run \`moss\` and press Enter to use it (the value is not printed).`,
+      { names: official.map((offer) => offer.keyVar).join(', ') }
+    );
+  }
+  if (offers.length === 0) return undefined;
+  return L(
+    `${pad}{names} is set for {host}. Run \`moss\` and press its number to use that host. Enter will not send the key there.`,
+    {
+      names: offers.map((offer) => offer.keyVar).join(', '),
+      host: offers.map((offer) => offer.baseUrl).join(', '),
+    }
+  );
+}
+
 export function printMissingConfigGuidance(
   interactive: boolean,
   options: { bundledDefaultSuppressedBy?: string } = {}
 ): void {
-  const offers = detectEnvCredentials();
-  const official = officialOffers(offers);
-  if (official.length > 0) {
-    const names = official.map((offer) => offer.keyVar).join(', ');
-    print(
-      L('{names} is set. Run `moss` and press Enter to use it (the value is not printed).', {
-        names,
-      })
-    );
-  } else if (offers.length > 0) {
-    print(
-      L(
-        '{names} is set for {host}. Run `moss` and press its number to use that host. Enter will not send the key there.',
-        {
-          names: offers.map((offer) => offer.keyVar).join(', '),
-          host: offers.map((offer) => offer.baseUrl).join(', '),
-        }
-      )
-    );
-  }
+  const line = offerLine(false);
+  if (line) print(line);
   print(L('Moss needs a model configuration before it can run.'));
   if (options.bundledDefaultSuppressedBy) {
     print(
@@ -141,34 +144,9 @@ export function markOneShotOnboardingShown(env: NodeJS.ProcessEnv = process.env)
 }
 
 export function renderOneShotOnboardingHint(): string {
-  const offers = detectEnvCredentials();
-  const official = officialOffers(offers);
-  if (official.length > 0) {
-    const names = official.map((offer) => offer.keyVar).join(', ');
-    return [
-      L('[moss] No model configured yet.'),
-      L('  {names} is set. Run `moss` and press Enter to use it (the value is not printed).', {
-        names,
-      }),
-      L('  (This hint appears only once.)'),
-    ].join('\n');
-  }
-  if (offers.length > 0) {
-    return [
-      L('[moss] No model configured yet.'),
-      L(
-        '  {names} is set for {host}. Run `moss` and press its number to use that host. Enter will not send the key there.',
-        {
-          names: offers.map((offer) => offer.keyVar).join(', '),
-          host: offers.map((offer) => offer.baseUrl).join(', '),
-        }
-      ),
-      L('  (This hint appears only once.)'),
-    ].join('\n');
-  }
   return [
     L('[moss] No model configured yet.'),
-    L('  Run `moss` to set up a provider, model, and API key.'),
+    offerLine(true) ?? L('  Run `moss` to set up a provider, model, and API key.'),
     L('  (This hint appears only once.)'),
   ].join('\n');
 }

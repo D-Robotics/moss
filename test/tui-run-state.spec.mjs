@@ -31,6 +31,7 @@ import {
   renderRunSummary,
   renderStatusRight,
   renderTranscriptRow,
+  renderTranscriptRows,
   spinnerFrame,
 } from '../dist/cli/tui/transcript.js';
 
@@ -336,6 +337,41 @@ const THINKING = 'The user wants one word. ';
   const failedRow = failed.rows.find((row) => row.kind === 'result');
   assert.ok(failedRow?.tool?.isError, 'the failed todo_write row is marked as an error');
   assert.doesNotMatch(failedRow?.tool?.summary ?? '', /done$/, 'no progress count on failure');
+
+  // A trailing [moss] line is its own row, so the 3-line result fold cannot hide it.
+  const noticed = createTuiStore();
+  beginRun(noticed);
+  applyAgentEvent(noticed, {
+    type: 'tool_start',
+    toolName: 'exec',
+    toolCallId: 'git-diff',
+    input: { command: 'git diff' },
+  });
+  const diffBody = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta'].join('\n');
+  applyAgentEvent(noticed, {
+    type: 'tool_end',
+    toolName: 'exec',
+    toolCallId: 'git-diff',
+    isError: false,
+    result: `${diffBody}\n\n[moss] Repo hooks in an untrusted workspace were not run.`,
+  });
+  const noticeRow = noticed.rows.find((row) => row.kind === 'system');
+  assert.equal(
+    noticeRow?.text,
+    '[moss] Repo hooks in an untrusted workspace were not run.',
+    'the hook notice is its own transcript row'
+  );
+  const resultRow = noticed.rows.find((row) => row.kind === 'result');
+  assert.doesNotMatch(
+    resultRow?.text ?? '',
+    /\[moss\]/,
+    'the folded result does not keep the notice'
+  );
+  const painted = renderTranscriptRows(noticed.rows, 80, false)
+    .map((line) => line.text)
+    .join('\n');
+  assert.match(painted, /\[moss\] Repo hooks in an untrusted workspace were not run/);
+  assert.match(painted, /ctrl\+o/);
 }
 
 console.log('OK tui-run-state');

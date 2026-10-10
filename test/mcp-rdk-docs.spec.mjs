@@ -258,7 +258,10 @@ test('a connected fixture adds the usage pointer and the skill index', async () 
     const combined = `${mcpLayer}\n${knowledge}`;
     assert.match(combined, /mcp__rdk-docs__search/);
     assert.match(knowledge, /official-start/);
-    assert.match(knowledge, /manual filter/);
+    assert.match(knowledge, /alt_queries/);
+    assert.match(knowledge, /when the search schema has them/);
+    assert.match(knowledge, /Judge the snippet/);
+    assert.match(knowledge, /do not answer from another board's page/);
     assert.equal(knowledge, RDK_DOCS_CONNECTED_LAYER);
     assert.match(knowledge, /record_evidence only when a task contract is already open/);
     assert.doesNotMatch(knowledge, /copy it into observed/);
@@ -449,4 +452,19 @@ test('device safety rules, probes, and verified setup fallback stay', () => {
   };
   assert.ok(report.connectedLayerTokensApprox < 220);
   assert.ok(report.unavailableLayerTokensApprox < 80);
+  // Per-turn note before alt_queries was 505 UTF-8 bytes. Non-rdk turns omit
+  // this layer; it must not grow when the search hint changes.
+  assert.ok(Buffer.byteLength(RDK_DOCS_CONNECTED_LAYER) <= 505);
+  assert.match(RDK_DOCS_CONNECTED_LAYER, /when the search schema has them/);
+  assert.doesNotMatch(RDK_DOCS_CONNECTED_LAYER, /Use the user's words/);
+  assert.match(skill.body, /call device_info/);
+  assert.match(skill.body, /ask one short question/);
+  assert.match(skill.body, /If the schema has `alt_queries`/);
+  assert.match(skill.body, /add no facts the user did not state/);
+  assert.match(skill.body, /only when the returned schema has them/);
+  assert.doesNotMatch(skill.body, /内存卡|扬声器|可视化界面/);
+  const skillsLayer = buildSkillsPromptLayer([skill]);
+  assert.equal(skillsLayer.includes(skill.body), false);
+  assert.equal(skillsLayer.includes('alt_queries'), false);
+  assert.equal(Buffer.byteLength(skillsLayer), 202);
 });

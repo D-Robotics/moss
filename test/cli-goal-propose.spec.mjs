@@ -125,6 +125,8 @@ assert.match(GOAL_USAGE, /\/goal clear/);
     assert.match(prompt, /task-failures\.jsonl/);
     assert.match(prompt, /deployments\.jsonl/);
   }
+  assert.match(quick, /non-finite numbers when the runtime can receive them/);
+  assert.match(quick, /an `exec` that is clearly a test, build, typecheck, or lint/);
 }
 
 assert.equal(resolveLoopMaxIterations({}), 0, 'loop is unlimited by default');

@@ -58,8 +58,7 @@ import {
   printMissingConfigGuidance,
   renderOneShotOnboardingHint,
 } from './cli/onboarding-hints.js';
-import { renderConfigHelp } from './cli/config-commands.js';
-import { renderSetupHelp } from './cli/setup-wizard.js';
+import { renderSubcommandHelp } from './cli/subcommand-help.js';
 import { MossAgent, JsonlSessionStore } from './core/index.js';
 import { configureRootLogger, getRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
@@ -74,7 +73,7 @@ import {
   resolveRdkDocsPackage,
   withBuiltinRdkDocs,
 } from './cli/rdk-docs-mcp.js';
-import { McpToolRegistry, buildMcpPromptLayer } from './core/mcp/registry.js';
+import { McpToolRegistry, buildMcpStableIndex } from './core/mcp/registry.js';
 import { RDK_DOCS_SERVER_NAME, rdkDocsKnowledgeLayer } from './core/mcp/rdk-docs.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
@@ -206,15 +205,14 @@ configureRootLogger({
   json: process.env.MOSS_LOG_JSON === '1',
 });
 
-// Subcommand-specific --help: show the subcommand's own usage, not the global
-// banner, so `moss config --help` answers the actual question.
-if (parsedArgs.help && parsedArgs.command === 'config') {
-  console.log(renderConfigHelp());
-  process.exit(0);
-}
-if (parsedArgs.help && parsedArgs.command === 'setup') {
-  console.log(renderSetupHelp());
-  process.exit(0);
+// Subcommand-specific --help: show that command's usage, options, and examples,
+// not the root banner. `moss --help` (command === 'chat') stays the root help.
+if (parsedArgs.help && parsedArgs.command !== 'chat') {
+  const subcommandHelp = renderSubcommandHelp(parsedArgs.command);
+  if (subcommandHelp) {
+    console.log(subcommandHelp);
+    process.exit(0);
+  }
 }
 if (parsedArgs.help) displayHelp(c, { all: parsedArgs.helpAll });
 if (parsedArgs.version) displayVersion(c);
@@ -892,11 +890,9 @@ async function main() {
   let syncRdkDocsSkills = (): void => {};
   const refreshMcpPromptLayer = (): void => {
     if (!mcpRegistry) return;
-    const layers = [
-      buildMcpPromptLayer(mcpRegistry),
-      rdkDocsKnowledgeLayer(mcpRegistry.getStatuses()),
-    ].filter(Boolean);
-    const combined = layers.join('\n');
+    // Knowledge only. The server index is a stable layer from config names,
+    // so a connect that adds a tool count cannot rewrite the cached prefix.
+    const combined = rdkDocsKnowledgeLayer(mcpRegistry.getStatuses());
     if (mcpPromptLayerIndex === undefined) {
       mcpPromptLayerIndex = dynamicPromptLayers.length;
       dynamicPromptLayers.push(combined);
@@ -925,6 +921,9 @@ async function main() {
       : undefined
   );
   if (mcpConfigs.length > 0) {
+    // Present whenever the search tools are registered, including `moss -p`
+    // which starts before the handshake. No counts: those change on connect.
+    extraPromptLayers.push(buildMcpStableIndex(mcpConfigs.map((config) => config.name)));
     try {
       mcpRegistry = McpToolRegistry.connectInBackground(mcpConfigs, {
         // Real MCP tools register on demand: the search meta-tool installs
@@ -934,7 +933,6 @@ async function main() {
         registerTool: (tool) => agent.tools.register(tool),
         onStatusChange: (status) => {
           refreshMcpPromptLayer();
-          syncRdkDocsSkills();
           if (status.state !== 'connected' && status.state !== 'failed') return;
           if (!announceMcpStatus) return;
           if (useTui) {
@@ -981,13 +979,11 @@ async function main() {
     let skillsLayerIndex: number | undefined;
     let installedSkillTool: ReturnType<typeof createSkillTool> | undefined;
     const emptySkillsLayer = buildEmptySkillsHintLayer(skillDirs);
+    const rdkDocsConfigured = mcpConfigs.some((config) => config.name === RDK_DOCS_SERVER_NAME);
     syncRdkDocsSkills = () => {
-      const connected =
-        mcpRegistry
-          ?.getStatuses()
-          .some((status) => status.name === RDK_DOCS_SERVER_NAME && status.state === 'connected') ??
-        false;
-      const next = includeBundledRdkDocsSkill(baseSkills, connected);
+      // Register once from config, not from the handshake. Swapping the skill
+      // tool in when rdk-docs connects changes the tool list mid-session.
+      const next = includeBundledRdkDocsSkill(baseSkills, rdkDocsConfigured);
       sessionSkills.splice(0, sessionSkills.length, ...next);
       if (sessionSkills.length > 0) {
         const tool = createSkillTool(sessionSkills);
@@ -1526,45 +1522,37 @@ main().catch((err) => {
   // Provider-level errors: print a clean, actionable diagnostic — never claim
   // it's a bug. Auth failures, rate limits, network timeouts, and context
   // overflows are external conditions, not code defects.
-  if (code === ExitCode.PROVIDER_AUTH) {
-    console.error(mossLine('[moss] Authentication failed: {message}', { message }));
-    console.error(
-      mossLine('[moss] Check your API key with `moss config show`, or re-run `moss setup`.')
-    );
-    process.exit(code);
-  }
-  if (code === ExitCode.RATE_LIMIT) {
-    console.error(mossLine('[moss] Rate limited: {message}', { message }));
-    console.error(
-      mossLine(
-        '[moss] Wait a moment and try again. Consider setting a lower model or reducing prompt size.'
-      )
-    );
-    process.exit(code);
-  }
-  if (code === ExitCode.PROVIDER_UPSTREAM) {
-    console.error(mossLine('[moss] Provider error: {message}', { message }));
-    console.error(
-      mossLine(
-        '[moss] The upstream API returned an error. Check your network, base URL, and model name.'
-      )
-    );
-    process.exit(code);
-  }
-  if (code === ExitCode.CONFIG) {
-    console.error(mossLine('[moss] Configuration error: {message}', { message }));
-    console.error(
-      mossLine('[moss] Run `moss config show` to inspect settings, or `moss setup` to reconfigure.')
-    );
-    process.exit(code);
-  }
-
-  // Session errors: the user's session data is the problem, not the code.
-  if (code === ExitCode.SESSION) {
-    console.error(mossLine('[moss] Session error: {message}', { message }));
-    console.error(
-      mossLine('[moss] List saved sessions with `moss sessions`, or start a new one with `moss`.')
-    );
+  const fatal: ReadonlyArray<readonly [number, string, string]> = [
+    [
+      ExitCode.PROVIDER_AUTH,
+      '[moss] Authentication failed: {message}',
+      '[moss] Check your API key with `moss config show`, or re-run `moss setup`.',
+    ],
+    [
+      ExitCode.RATE_LIMIT,
+      '[moss] Rate limited: {message}',
+      '[moss] Wait a moment and try again. Consider setting a lower model or reducing prompt size.',
+    ],
+    [
+      ExitCode.PROVIDER_UPSTREAM,
+      '[moss] Provider error: {message}',
+      '[moss] The upstream API returned an error. Check your network, base URL, and model name.',
+    ],
+    [
+      ExitCode.CONFIG,
+      '[moss] Configuration error: {message}',
+      '[moss] Run `moss config show` to inspect settings, or `moss setup` to reconfigure.',
+    ],
+    [
+      ExitCode.SESSION,
+      '[moss] Session error: {message}',
+      '[moss] List saved sessions with `moss sessions`, or start a new one with `moss`.',
+    ],
+  ];
+  for (const [exit, head, tail] of fatal) {
+    if (code !== exit) continue;
+    console.error(mossLine(head, { message }));
+    console.error(mossLine(tail));
     process.exit(code);
   }
 

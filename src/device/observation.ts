@@ -20,6 +20,7 @@ export const INFO_PROBE_SCRIPT = [
   'printf "S|%s|%s|%s|%s\\n" "$(uname -s 2>/dev/null)" "$(uname -n 2>/dev/null)" "$(uname -r 2>/dev/null)" "$(uname -m 2>/dev/null)"',
   'awk -F": " \'/^model name/{print "CPU|"$2; exit}\' /proc/cpuinfo 2>/dev/null',
   'awk -F": " \'/^Hardware/{print "HW|"$2; exit}\' /proc/cpuinfo 2>/dev/null',
+  '[ -r /proc/device-tree/model ] && printf "MODEL|%s\\n" "$(tr -d "\\000" < /proc/device-tree/model)"',
   'if [ -r /etc/os-release ]; then . /etc/os-release 2>/dev/null; printf "OS|%s\\n" "$PRETTY_NAME"; fi',
   'printf "CORES|%s\\n" "$(nproc 2>/dev/null)"',
   'awk \'/^MemTotal/{print "MEMTOTAL|"$2} /^MemAvailable/{print "MEMAVAIL|"$2}\' /proc/meminfo 2>/dev/null',
@@ -166,6 +167,11 @@ export function parseInfoProbe(
       case 'HW':
         if (value) snapshot.hardware = value.trim();
         break;
+      case 'MODEL': {
+        const model = value.replaceAll('\0', '').trim();
+        if (model) snapshot.boardModel = model;
+        break;
+      }
       case 'OS':
         if (value) snapshot.osPrettyName = value.trim();
         break;
@@ -300,6 +306,7 @@ export function formatInfoSnapshot(info: DeviceInfoSnapshot, endpoint: string): 
     `hostname: ${info.hostname ?? 'unknown'}`,
     `os: ${info.osPrettyName ?? 'unknown'} | kernel: ${info.kernel ?? 'unknown'} | arch: ${info.arch ?? 'unknown'}`,
   ];
+  if (info.boardModel) lines.push(`board: ${info.boardModel}`);
   const cpuBits: string[] = [];
   if (info.cpuCores) cpuBits.push(`${info.cpuCores} cores`);
   if (info.cpuModel) cpuBits.push(info.cpuModel);

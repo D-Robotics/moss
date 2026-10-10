@@ -22,7 +22,7 @@ import {
   tui,
 } from './copy.js';
 import { nextStreamCommit } from './stream-commit.js';
-import { toolLabel } from './transcript.js';
+import { splitTrailingMossNotices, toolLabel } from './transcript.js';
 import { summarizeToolCompletion } from './tool-summary.js';
 import { userFacingAssistantText, userFacingToolResult } from '../user-facing-text.js';
 
@@ -523,10 +523,13 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       const abortedBy = event.aborted?.by;
       const abortNotice = isStructuredUserAbort(event);
       if (abortNotice) noteInterrupt(store);
+      // Trailing `[moss]` lines are their own rows. Leaving them on the result
+      // hides them: compact mode keeps only the first three result lines.
+      const peeled = splitTrailingMossNotices(event.result ?? '');
       const completion = summarizeToolCompletion(
         event.toolName,
         input,
-        event.result,
+        peeled.body,
         Boolean(event.isError)
       );
       const summary = abortedBy
@@ -541,7 +544,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       const body =
         abortNotice || completion.dropBody
           ? ''
-          : (completion.diff ?? resultBody(event.result, event.toolName));
+          : (completion.diff ?? resultBody(peeled.body, event.toolName));
       appendRow(store, 'result', body, {
         tool: {
           name: event.toolName,
@@ -551,6 +554,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
           ...(abortedBy ? { abortedBy } : {}),
         },
       });
+      for (const notice of peeled.notices) appendRow(store, 'system', notice);
       store.run.toolLine = undefined;
       store.version++;
       break;
