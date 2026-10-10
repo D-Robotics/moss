@@ -447,16 +447,17 @@ while time.time() < deadline:
         buf += chunk
     if proc.poll() is not None:
         break
+# macOS killpg returns EPERM once the group leader has exited (zombie).
 try:
     os.killpg(proc.pid, signal.SIGTERM)
-except ProcessLookupError:
+except (ProcessLookupError, PermissionError):
     pass
 try:
     proc.wait(timeout=3)
 except subprocess.TimeoutExpired:
     try:
         os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         pass
     proc.wait(timeout=3)
 sys.stdout.buffer.write(buf)
