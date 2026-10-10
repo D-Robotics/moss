@@ -19,8 +19,11 @@
  * withheld before that decision. `Authorization` and `cookie` headers mask
  * through the end of the line (`Bearer`, `Basic`, `Token`, `Digest`,
  * `Proxy-Authorization`, `Set-Cookie`). Command argv masks sshpass `-p`
- * (attached or spaced), mysql/mariadb attached `-p`, curl/wget userinfo,
- * and `--password` / `--passwd` / `--pass`. Port flags stay.
+ * (attached or spaced, including a prefix glued onto the command),
+ * mysql/mariadb attached `-p`, curl/wget userinfo (a short cluster ending in
+ * `-u`), `docker login -p`, `--http-password`, and `--password` / `--passwd` /
+ * `--pass`. A function word after a flag stays. Port flags stay. Nested quotes
+ * and escapes stay.
  */
 import {
   CREDENTIAL_WITHHELD,
@@ -73,7 +76,7 @@ const ASSIGNED_HEAD = new RegExp(
 
 /** Password-kind keys. `pass` / `pwd` arrive here only as suffix captures. */
 const PASSWORD_FIELD =
-  /^(?:passphrase|password|passwd|credential|pwd|pass|pgpassword|pgpass|dbpass|mysql_pwd)$/i;
+  /^(?:passphrase|password|passwd|credential|pwd|pass|pgpassword|pgpass|dbpass|mysql_pwd|sshpass)$/i;
 
 /** `.netrc` uses `password <value>`, not `password=`. */
 const NETRC_PASSWORD = /(^|[^\w]|\\r\\n|\\n)(password)([ \t]+)(?![=:])([^\s\\]+)/gi;
@@ -390,8 +393,17 @@ function forEachAssignment(
   return out;
 }
 
+/** `SSHPASS` and `MYSQL_PWD` are passwords even when the value is one character. */
+function isPasswordEnvName(name: string): boolean {
+  return /^(?:sshpass|mysql_pwd)$/i.test(name);
+}
+
 function shouldRedactAssignment(hit: AssignmentHit, strictFile: boolean): boolean {
   if (strictFile) return shouldRedactPasswordValue(hit.value);
+  if (isPasswordEnvName(hit.name)) {
+    if (isPlaceholder(hit.value) || isSourceExpression(hit.value)) return false;
+    return shouldRedactPasswordValue(hit.value);
+  }
   const quotedValue = hit.quoted || /[:=][ \t]*['"]/.test(hit.sep);
   if (PASSWORD_FIELD.test(hit.name) && !/^(?:pwd|pass)$/i.test(hit.name) && quotedValue) {
     return shouldRedactQuotedLiteral(hit.value);
@@ -566,6 +578,11 @@ function pushValueSlice(
   length: number,
   replacements: ArgvReplacement[]
 ): void {
+  const slice = token.value.slice(valueIndex, valueIndex + length);
+  const trailing = /["'`)\]}]+$/.exec(slice)?.[0] ?? '';
+  if (trailing && !/["'`(\[{]/.test(slice.slice(0, slice.length - trailing.length))) {
+    length -= trailing.length;
+  }
   if (length <= 0) return;
   const start = token.valueMap[valueIndex];
   const end = token.valueMap[valueIndex + length - 1];
@@ -584,6 +601,53 @@ function maskColonPassword(
   if (!shouldMaskArg(secret)) return;
   const at = token.value.length - userinfo.length + colon + 1;
   pushValueSlice(token, at, secret.length, replacements);
+}
+
+/**
+ * Closed-class words after a flag in a sentence (`Use --password to set it.`).
+ * `sunrise` and `hunter2` are not in this set.
+ */
+const PROSE_FLAG_WORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'to',
+  'for',
+  'of',
+  'in',
+  'on',
+  'and',
+  'or',
+  'if',
+  'is',
+  'be',
+  'as',
+  'at',
+  'by',
+  'with',
+  'from',
+  'this',
+  'that',
+  'it',
+  'its',
+  'your',
+  'you',
+  'into',
+  'via',
+  'when',
+  'then',
+  'than',
+  'not',
+  'do',
+  'can',
+  'will',
+  'just',
+  'only',
+  'also',
+]);
+
+function isProseFlagValue(value: string): boolean {
+  return PROSE_FLAG_WORDS.has(value.toLowerCase());
 }
 
 /** Long password flags on any command, with an equals sign or a following word. */
@@ -606,6 +670,7 @@ function redactLongPasswordFlags(
       if (!PASSWORD_LONG_FLAG.test(word.value)) continue;
       const next = segment[i + 1];
       if (!next || next.value.startsWith('-') || !shouldMaskArg(next.value)) continue;
+      if (isProseFlagValue(next.value)) continue;
       pushValueSlice(next, 0, next.value.length, replacements);
     }
   }
@@ -666,6 +731,19 @@ function redactMysqlArgv(segments: readonly ArgvWord[][], replacements: ArgvRepl
   }
 }
 
+/**
+ * A short cluster ending in the user flag uses the next word, or the glued
+ * payload when there is one. Bare `-u` stays on the exact flag. `-U` does not.
+ */
+function clusteredCurlUser(value: string): { next: true } | { payload: string } | null {
+  if (value.startsWith('--')) return null;
+  const match = /^-([A-Za-z]*?)u(.*)$/.exec(value);
+  if (!match || !match[1]) return null;
+  const payload = match[2] ?? '';
+  if (!payload) return { next: true };
+  return { payload };
+}
+
 /** curl and wget user flags. The account stays; the secret after the colon does not. */
 function redactUserinfoArgv(
   segments: readonly ArgvWord[][],
@@ -691,14 +769,56 @@ function redactUserinfoArgv(
         maskColonPassword(arg, attached[1], replacements);
         continue;
       }
+      const clustered = clusteredCurlUser(arg.value);
+      if (clustered) {
+        if ('payload' in clustered) {
+          maskColonPassword(arg, clustered.payload, replacements);
+          continue;
+        }
+        const next = segment[j + 1];
+        if (next) maskColonPassword(next, next.value, replacements);
+        j += 1;
+        continue;
+      }
       const equals = USER_EQUALS_FLAG.exec(arg.value);
       if (equals?.[1]) maskColonPassword(arg, equals[1], replacements);
     }
   }
 }
 
+/** `docker login -p` is a password. `docker run -p` publishes a port. */
+function redactDockerLoginArgv(
+  segments: readonly ArgvWord[][],
+  replacements: ArgvReplacement[]
+): void {
+  for (const segment of segments) {
+    for (let i = 0; i < segment.length; i += 1) {
+      const name = segment[i] ? commandTokenName(segment[i].value) : '';
+      if (name !== 'docker') continue;
+      const sub = segment[i + 1];
+      if (!sub || commandTokenName(sub.value) !== 'login') continue;
+      for (let j = i + 2; j < segment.length; j += 1) {
+        const arg = segment[j];
+        if (!arg) continue;
+        if (arg.value === '-p') {
+          const next = segment[j + 1];
+          if (next && !next.value.startsWith('-') && shouldMaskArg(next.value)) {
+            pushValueSlice(next, 0, next.value.length, replacements);
+          }
+          j += 1;
+          continue;
+        }
+        const attached = ATTACHED_P_PASSWORD.exec(arg.value);
+        const payload = attached?.[1];
+        if (!payload || !shouldMaskArg(payload)) continue;
+        pushValueSlice(arg, arg.value.length - payload.length, payload.length, replacements);
+      }
+    }
+  }
+}
+
 const NESTED_ARGV_HINT =
-  /sshpass|\bmysql\b|\bmariadb\b|\bcurl\b|\bwget\b|--password|--passwd|--pass(?!phrase|word|ed|ive|port)/i;
+  /sshpass|\bmysql\b|\bmariadb\b|\bcurl\b|\bwget\b|\bdocker\b|--http-password|--password|--passwd|--pass(?!phrase|word|ed|ive|port)/i;
 
 function spansOverlap(a: ArgvReplacement, start: number, end: number): boolean {
   return a.start < end && a.end > start;
@@ -717,9 +837,12 @@ function redactNestedArgv(
     if (start === undefined || last === undefined) continue;
     const end = last + 1;
     if (replacements.some((rep) => spansOverlap(rep, start, end))) continue;
-    const inner = redactArgvLine(token.value, depth + 1);
-    if (inner === token.value) continue;
-    replacements.push({ start, end, text: inner });
+    for (const rep of collectArgvReplacements(token.value, depth + 1)) {
+      const from = token.valueMap[rep.start];
+      const to = token.valueMap[rep.end - 1];
+      if (from === undefined || to === undefined) continue;
+      replacements.push({ start: from, end: to + 1, text: rep.text });
+    }
   }
 }
 
@@ -735,8 +858,8 @@ function applyArgvReplacements(line: string, replacements: readonly ArgvReplacem
   return out;
 }
 
-function redactArgvLine(line: string, depth: number): string {
-  if (!line || depth > 6) return line;
+function collectArgvReplacements(line: string, depth: number): ArgvReplacement[] {
+  if (!line || depth > 6) return [];
   const tokens = tokenizeArgv(line);
   const segments = argvSegments(tokens);
   const replacements: ArgvReplacement[] = [];
@@ -744,7 +867,13 @@ function redactArgvLine(line: string, depth: number): string {
   redactSshpassArgv(segments, replacements);
   redactMysqlArgv(segments, replacements);
   redactUserinfoArgv(segments, replacements);
+  redactDockerLoginArgv(segments, replacements);
   redactNestedArgv(tokens, replacements, depth);
+  return replacements;
+}
+
+function redactArgvLine(line: string, depth: number): string {
+  const replacements = collectArgvReplacements(line, depth);
   if (replacements.length === 0) return line;
   return applyArgvReplacements(line, replacements);
 }

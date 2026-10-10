@@ -300,6 +300,42 @@ assert.equal(
   'psql postgresql://moss:[REDACTED]@localhost/app'
 );
 
+/** Restoring each `[REDACTED]` with the secret must reproduce the original bytes. */
+function assertSecretOnly(input, secret, times = 1) {
+  const out = redactEgress(input, env);
+  const parts = out.split('[REDACTED]');
+  assert.equal(parts.length - 1, times, `${input} => ${out}`);
+  assert.equal(parts.join(secret), input, `${input} => ${out}`);
+}
+
+for (const glued of [
+  '{"command":"sshpass -p x ssh h"}',
+  'ProxyCommand=sshpass -p x',
+  'cmd=sshpass -p x',
+  '执行：sshpass -p x',
+  'os.system("sshpass -p x")',
+]) {
+  assertSecretOnly(glued, 'x');
+}
+assertSecretOnly(String.raw`echo "sshpass -p secret \"inner host\""`, 'secret');
+assertSecretOnly("bash -lc 'curl --password hunter2 --host prod.internal'", 'hunter2');
+assertSecretOnly('bash -lc `curl --password hunter2`', 'hunter2');
+assertSecretOnly("`bash -lc 'curl --password hunter2'`", 'hunter2');
+assertSecretOnly('tool --password x"}', 'x');
+assertSecretOnly('(sshpass -p x)', 'x');
+assertSecretOnly('wget --http-password=x', 'x');
+assertSecretOnly('SSHPASS=x sshpass -e', 'x');
+assertSecretOnly('MYSQL_PWD=x', 'x');
+assertSecretOnly('curl -su u:p', 'p');
+assertSecretOnly('docker login -p x', 'x');
+assertSecretOnly('Use --password hunter2 now.', 'hunter2');
+const experienceCmd =
+  "bash -lc 'TOKEN=ghp_abcdefghijklmnopqrstuvwxyz1234567890 curl https://robot.internal/run --password hunter2 --host prod.internal'";
+assert.equal(
+  redactEgress(experienceCmd, env),
+  "bash -lc 'TOKEN=[REDACTED] curl https://robot.internal/run --password [REDACTED] --host prod.internal'"
+);
+
 for (const kept of [
   'ssh -p 22',
   'ssh -p 22 user@host',
@@ -320,6 +356,8 @@ for (const kept of [
   'tool --password ${DB_PASS}',
   'moss device add --password-env MOSS_DEVICE_PASSWORD',
   'moss device add --passphrase-env MOSS_DEVICE_KEY_PASSPHRASE',
+  'docker run -p 8080:80 nginx',
+  'Use --password to set it.',
 ]) {
   assert.equal(redactEgress(kept, env), kept, kept);
 }
