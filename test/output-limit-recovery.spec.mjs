@@ -161,9 +161,9 @@ async function runChat(agent, sessionKey, message) {
 
 {
   const script = scriptedProvider('exhausted', [
-    { text: '&&', stopReason: 'length' },
+    { text: '&&', stopReason: 'max_tokens' },
     { text: 'Now', stopReason: 'max_tokens' },
-    { text: ' still', stopReason: 'length' },
+    { text: ' still', stopReason: 'max_tokens' },
     { text: ' going', stopReason: 'max_tokens' },
     { text: 'should-not-run', stopReason: 'end_turn' },
   ]);
@@ -238,9 +238,9 @@ try {
 
   {
     const script = scriptedProvider('headless-exhaust', [
-      { text: '&&', stopReason: 'length' },
+      { text: '&&', stopReason: 'max_tokens' },
       { text: 'Now', stopReason: 'max_tokens' },
-      { text: '!', stopReason: 'length' },
+      { text: '!', stopReason: 'max_tokens' },
       { text: '?', stopReason: 'max_tokens' },
     ]);
     const agent = createAgent(script.provider);
@@ -272,9 +272,9 @@ try {
 
   {
     const script = scriptedProvider('headless-text', [
-      { text: '&&', stopReason: 'length' },
+      { text: '&&', stopReason: 'max_tokens' },
       { text: 'Now', stopReason: 'max_tokens' },
-      { text: '!', stopReason: 'length' },
+      { text: '!', stopReason: 'max_tokens' },
       { text: '?', stopReason: 'max_tokens' },
     ]);
     const agent = createAgent(script.provider);

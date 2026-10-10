@@ -112,6 +112,17 @@ function clampToContext(tokens: number, contextTokens: number | undefined): numb
   return Math.min(Math.max(positive(tokens), MIN_OUTPUT_TOKENS), ceiling);
 }
 
+/**
+ * Starting cap for a model when the caller did not pin one. A flat 16k on a
+ * 32k window reserves so much output that the first turn compacts the prompt.
+ * Use at most a quarter of the window; large windows still get the table default.
+ */
+function fitDefaultToContext(tokens: number, contextTokens: number | undefined): number {
+  if (!contextTokens || contextTokens <= 0) return positive(tokens);
+  const quarter = Math.max(MIN_OUTPUT_TOKENS, Math.floor(contextTokens / 4));
+  return Math.min(clampToContext(tokens, contextTokens), quarter);
+}
+
 export interface ResolveModelOutputBudgetInput {
   modelId?: string;
   contextTokens?: number;
@@ -151,7 +162,7 @@ export function resolveModelOutputBudget(
     const ceiling = Math.max(initial, clampToContext(tableMax, input.contextTokens));
     return { initial, ceiling };
   }
-  const initial = clampToContext(tableDefault, input.contextTokens);
+  const initial = fitDefaultToContext(tableDefault, input.contextTokens);
   const ceiling = Math.max(initial, clampToContext(tableMax, input.contextTokens));
   return { initial, ceiling };
 }

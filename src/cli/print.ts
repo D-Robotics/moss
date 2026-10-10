@@ -1,7 +1,6 @@
 import type { ChatResult, MossAgentEvent } from '../core/index.js';
 import { redactSensitiveData } from '../safety/redact.js';
-import { isZhLocale } from './cli-locale.js';
-import { chrome, OUTPUT_CONTINUATION_NOTICE, OUTPUT_LIMIT_EXHAUSTED_NOTICE } from './tui/copy.js';
+import { OUTPUT_CONTINUATION_NOTICE, OUTPUT_LIMIT_EXHAUSTED_NOTICE, tui } from './tui/copy.js';
 import { createStreamingTextRedactor, redactEgress } from '../safety/tool-output-redact.js';
 import { MossError, mossErrorToOutcome, type MossErrorOutcome } from '../errors.js';
 import { quoteUsage } from './model-pricing.js';
@@ -348,7 +347,7 @@ function isOutputLimitStop(stopReason: string | undefined): boolean {
 }
 
 function outputLimitNotice(maxAttempts: number): string {
-  return chrome(OUTPUT_LIMIT_EXHAUSTED_NOTICE, isZhLocale(), { max: maxAttempts });
+  return tui(OUTPUT_LIMIT_EXHAUSTED_NOTICE, { max: maxAttempts });
 }
 
 function isErrorStopReason(stopReason: string | undefined): boolean {
@@ -526,7 +525,7 @@ export function formatHeadlessStreamEvent(
       state.outputContinuationMax = event.maxAttempts;
       const message = event.exhausted
         ? outputLimitNotice(event.maxAttempts)
-        : chrome(OUTPUT_CONTINUATION_NOTICE, isZhLocale(), {
+        : tui(OUTPUT_CONTINUATION_NOTICE, {
             attempt: event.attempt,
             max: event.maxAttempts,
           });

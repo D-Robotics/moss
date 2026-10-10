@@ -15,8 +15,8 @@ assert.equal(
   16_384,
   'unknown model on a 200k window starts at 16k'
 );
-assert.equal(deriveMaxOutputTokens(16_000), 14_976, 'small window clamps to contextTokens - 1024');
-assert.equal(deriveMaxOutputTokens(4_000), 2_976, 'tiny window clamps to contextTokens - 1024');
+assert.equal(deriveMaxOutputTokens(16_000), 4_000, 'small window uses a quarter of the window');
+assert.equal(deriveMaxOutputTokens(4_000), 2_048, 'tiny window floors at 2k');
 assert.equal(
   deriveMaxOutputTokens(1_000_000, 'glm-5.3'),
   32_768,
@@ -24,8 +24,8 @@ assert.equal(
 );
 assert.equal(
   deriveMaxOutputTokens(20_000, 'glm-5.3'),
-  18_976,
-  'glm-5 still clamps to the context window'
+  5_000,
+  'glm-5 on a small window stays within a quarter of the window'
 );
 
 console.log('[PASS] agent-runtime max output derivation');

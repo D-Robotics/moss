@@ -111,6 +111,10 @@ assert.equal(providerStopSignal(''), 'stop');
   assert.equal(overrideClamped.initial, 30_976);
   assert.equal(overrideClamped.ceiling, 30_976);
 
+  const modest = resolveModelOutputBudget({ modelId: 'glm-5.3', contextTokens: 32_000 });
+  assert.equal(modest.initial, 8_000, 'a 32k window does not start at the full table default');
+  assert.ok(modest.ceiling > modest.initial);
+
   const unpinned = resolveModelOutputBudget({
     modelId: 'glm-5.3',
     contextTokens: 1_000_000,

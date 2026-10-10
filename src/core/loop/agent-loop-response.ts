@@ -225,6 +225,10 @@ export async function processLlmResponse(
   let visibleAssistantText = buildVisibleAssistantText({
     textParts: turnTextParts,
     thinkingFallback,
+    // A cutoff fragment, and the piece that continues one, must keep the
+    // whitespace the model actually emitted so the stitch has no extra gap
+    // and does not eat the gap the model already wrote.
+    trim: !(outputLimited || state.carriedAssistantText.length > 0),
   });
   if (guardAssistantOutput && !hasThinkingOnly) {
     let decision:
