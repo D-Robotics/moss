@@ -46,7 +46,11 @@ import { resolveSoulIdentity, resolveSoul } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
 import { createCliProvider } from './cli/providers.js';
 import type { CliProviderRuntimeConfig } from './cli/providers.js';
-import { resolveContextTokensForModel } from './cli/model-catalog.js';
+import {
+  formatModelChoices,
+  loadModelChoicesForRuntime,
+  resolveContextTokensForModel,
+} from './cli/model-catalog.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShotWithCliCancellation } from './cli/run-cancellation.js';
 import { runInteractive } from './cli/repl.js';
@@ -100,8 +104,11 @@ import {
   buildAnswerLanguageLayer,
   formatFullModeNotice,
   formatInteractionModeNotice,
+  installCliUiLanguage,
   isZhLocale,
   setupCopy,
+  uiText,
+  wrapNoticeLines,
 } from './cli/cli-locale.js';
 import { setTuiLocale } from './cli/tui/copy.js';
 import { gitignoreNoticeForWorkspace } from './cli/gitignore-suggestion.js';
@@ -138,12 +145,23 @@ function parseCliArgsOrExit(argv: string[]): ReturnType<typeof parseCliArgs> {
     return parseCliArgs(argv);
   } catch (err) {
     console.error(`[moss] ${errorMessage(err)}`);
-    console.error('Run `moss --help` for usage.');
-    process.exit(exitCodeForError(err));
+    console.error(uiText('Run `moss --help` for usage.', '运行 `moss --help` 查看用法。'));
+    process.exit(ExitCode.USAGE);
   }
 }
 
+function printWrappedNotice(text: string): void {
+  const columns = process.stderr.columns || process.stdout.columns || 80;
+  for (const line of wrapNoticeLines(text, columns)) console.error(line);
+}
+
 const parsedArgs = parseCliArgsOrExit(process.argv.slice(2));
+const uiLanguageError = installCliUiLanguage({ flag: parsedArgs.lang });
+if (uiLanguageError) {
+  console.error(uiLanguageError);
+  process.exit(ExitCode.USAGE);
+}
+setTuiLocale(isZhLocale());
 
 const originalEmitWarning = process.emitWarning.bind(process);
 process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
@@ -230,15 +248,28 @@ if (parsedArgs.unknownCommand) {
   // Redirects to known subcommands (e.g. status→doctor)
   if (suggestion === 'doctor') {
     console.error(
-      `[moss] '${token}' is an alias for '${suggestion}'. Run \`moss doctor\` instead.`
+      uiText(
+        `[moss] '${token}' is an alias for '${suggestion}'. Run \`moss doctor\` instead.`,
+        `[moss]「${token}」是「${suggestion}」的别名。请改用 \`moss doctor\`。`
+      )
     );
     process.exit(0);
   }
   // Remaining edit-distance typos (e.g. confgi→config)
   if (!['--version', '--help', 'doctor'].includes(suggestion)) {
-    console.error(`[moss] unknown command '${token}'`);
-    console.error(`Did you mean '${suggestion}'?  Run \`moss --help\` for usage.`);
-    console.error(`To send it to the agent as a prompt instead: moss chat "${token}"`);
+    console.error(uiText(`[moss] unknown command '${token}'`, `[moss] 未知命令「${token}」`));
+    console.error(
+      uiText(
+        `Did you mean '${suggestion}'?  Run \`moss --help\` for usage.`,
+        `是想输入「${suggestion}」吗？运行 \`moss --help\` 查看用法。`
+      )
+    );
+    console.error(
+      uiText(
+        `To send it to the agent as a prompt instead: moss chat "${token}"`,
+        `若要把它当作提示发给模型：moss chat "${token}"`
+      )
+    );
     process.exit(ExitCode.USAGE);
   }
 }
@@ -246,21 +277,41 @@ if (parsedArgs.unknownCommand) {
 // `moss quickstart` / `moss examples` / etc. name in-session commands — point
 // the user at how to run them instead of billing the word as an LLM prompt.
 if (parsedArgs.interactiveOnlyCommand) {
-  const c = parsedArgs.interactiveOnlyCommand;
-  console.error(`'${c}' is an in-session command. Start Moss, then type /${c}:`);
+  const name = parsedArgs.interactiveOnlyCommand;
+  console.error(
+    uiText(
+      `'${name}' is an in-session command. Start Moss, then type /${name}:`,
+      `「${name}」是会话内命令。先启动 Moss，再输入 /${name}：`
+    )
+  );
   console.error('  moss');
-  console.error(`  > /${c}`);
-  console.error(`(Or to send "${c}" to the model as a prompt: moss chat "${c}".)`);
+  console.error(`  > /${name}`);
+  console.error(
+    uiText(
+      `(Or to send "${name}" to the model as a prompt: moss chat "${name}".)`,
+      `（或把「${name}」当作提示发给模型：moss chat "${name}"。）`
+    )
+  );
   process.exit(0);
 }
 
 // A dash-prefixed token that matched no known flag must NOT be billed as a chat
 // prompt (`moss --hepl`) or silently ignored on a subcommand (`doctor --frob`).
 if (parsedArgs.unknownOption) {
-  console.error(`[moss] unknown option '${parsedArgs.unknownOption}'`);
-  console.error('Run `moss --help` for the flag list.');
   console.error(
-    'To pass a prompt that begins with "-", use: moss chat "<your text>"  (or  moss -- <your text>)'
+    uiText(
+      `[moss] unknown option '${parsedArgs.unknownOption}'`,
+      `[moss] 未知选项「${parsedArgs.unknownOption}」`
+    )
+  );
+  console.error(
+    uiText('Run `moss --help` for the flag list.', '运行 `moss --help` 查看选项列表。')
+  );
+  console.error(
+    uiText(
+      'To pass a prompt that begins with "-", use: moss chat "<your text>"  (or  moss -- <your text>)',
+      '要传入以「-」开头的提示，用：moss chat "<你的文本>"（或 moss -- <你的文本>）'
+    )
   );
   process.exit(ExitCode.USAGE);
 }
@@ -466,10 +517,9 @@ async function main() {
       console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));
     }
   }
-  // The sentence says it is shown once. The latch is in memory (#17), so a
-  // new process may print it again. Doctor still reports the condition.
+  // Once per config dir. Doctor still reports the condition on every run.
   if (cliDetailForNotices !== 'quiet' && shouldShowFullDefaultNotice(resolvedConfig)) {
-    console.error(formatFullModeNotice());
+    printWrappedNotice(formatFullModeNotice());
   }
   const workspace = resolvedConfig.workspace;
   // Validate the workspace up front so a bad -C/--cd (or MOSS_WORKSPACE) yields
@@ -545,6 +595,12 @@ async function main() {
     }
   }
 
+  if (oneShotMessage.trim() === '/model') {
+    const choices = await loadModelChoicesForRuntime(resolvedConfig, resolvedConfig.model ?? '');
+    console.error(formatModelChoices(choices));
+    return;
+  }
+
   let inlineFirstRun = false;
   if (!resolvedConfig.apiKey && !parsedArgs.mock) {
     const guidance = { bundledDefaultSuppressedBy: resolvedConfig.bundledDefaultSuppressedBy };
@@ -596,8 +652,18 @@ async function main() {
   }
 
   if (parsedArgs.mock) {
-    console.error('[mock] Offline mock mode — no live LLM, no API key required.');
-    console.error('[mock] Tools and approval flows are available for testing.');
+    console.error(
+      uiText(
+        '[mock] Offline mock mode — no live LLM, no API key required.',
+        '[mock] 离线模拟模式 — 不连接模型，不需要 API 密钥。'
+      )
+    );
+    console.error(
+      uiText(
+        '[mock] Tools and approval flows are available for testing.',
+        '[mock] 工具和审批流程可用于测试。'
+      )
+    );
   }
 
   const configDir = resolveConfigDir();
@@ -962,9 +1028,10 @@ async function main() {
       refreshMcpPromptLayer();
     } catch (err) {
       console.error(
-        isZhLocale()
-          ? `[mcp] 初始化失败：${errorMessage(err)}`
-          : `[mcp] initialization failed: ${errorMessage(err)}`
+        uiText(
+          `[mcp] initialization failed: ${errorMessage(err)}`,
+          `[mcp] 初始化失败：${errorMessage(err)}`
+        )
       );
       mcpRegistry = null;
     }
@@ -1196,8 +1263,12 @@ async function main() {
         const isKnownInteractive = KNOWN_COMMANDS.includes(cmdToken);
         if (isKnownInteractive) {
           console.error(
-            `${cmdToken} is an interactive-mode command and isn't run from a one-shot prompt.\n` +
-              `Start an interactive session with \`moss\` (then type ${cmdToken}), or rephrase as a natural-language prompt (e.g. \`moss "review auth.js for bugs"\`).`
+            uiText(
+              `${cmdToken} is an interactive-mode command and isn't run from a one-shot prompt.\n` +
+                `Start an interactive session with \`moss\` (then type ${cmdToken}), or rephrase as a natural-language prompt (e.g. \`moss "review auth.js for bugs"\`).`,
+              `${cmdToken} 是交互模式命令，不能在一次性提示里运行。\n` +
+                `先运行 \`moss\` 再输入 ${cmdToken}，或改成自然语言提示（例如 \`moss "review auth.js for bugs"\`）。`
+            )
           );
         } else {
           for (const line of unknownSlashCommandLines(oneShotMessage.trim(), {
@@ -1294,8 +1365,11 @@ async function main() {
           const cmdToken = pipedText.split(/\s+/, 1)[0] ?? pipedText;
           if (KNOWN_COMMANDS.includes(cmdToken)) {
             console.error(
-              `${cmdToken} is an interactive-mode command — pipe a natural-language prompt instead,` +
-                ` or run \`moss\` interactively and type ${cmdToken}.`
+              uiText(
+                `${cmdToken} is an interactive-mode command — pipe a natural-language prompt instead,` +
+                  ` or run \`moss\` interactively and type ${cmdToken}.`,
+                `${cmdToken} 是交互模式命令 — 请改为管道传入自然语言提示，或运行 \`moss\` 后输入 ${cmdToken}。`
+              )
             );
           } else {
             for (const line of unknownSlashCommandLines(pipedText, {

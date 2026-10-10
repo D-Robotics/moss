@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import { isEffectiveUiZh } from '../utils/ui-language.js';
 
 // Color detection: same logic as syntax-highlight.ts — check stderr.isTTY
 // because Ink intercepts stdout, making stdout.isTTY always false in TUI.
@@ -29,7 +30,7 @@ export const ui = {
 };
 
 export function label(name: string): string {
-  return ui.dim(`${name}:`);
+  return ui.dim(`${name}${isEffectiveUiZh() ? '：' : ':'}`);
 }
 
 export function compactPath(value: string): string {

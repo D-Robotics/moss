@@ -14,7 +14,17 @@ import { runGit } from '../../utils/git-spawn.js';
 import { runProcess } from '../../utils/run-process.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
-import { isZhLocale as isZh } from '../cli-locale.js';
+import {
+  effectiveUiLanguage,
+  isZhLocale as isZh,
+  parseLanguageSetting,
+  setSessionUiLanguage,
+  uiLanguageResolution,
+  uiLanguageSourceLabel,
+  uiText,
+  writeUserLanguageSetting,
+} from '../cli-locale.js';
+import { setTuiLocale } from '../tui/copy.js';
 import { workspaceWriteLimit } from '../workspace-write-copy.js';
 import { GITIGNORE_SUGGESTION } from '../gitignore-suggestion.js';
 import {
@@ -28,7 +38,7 @@ import { parsePermissionRuleSpec } from '../permission-rules.js';
 import { appendUserPermissionRule } from '../config-commands.js';
 import { stopAllBackgroundProcesses } from '../../core/tools/background-process-registry.js';
 import { probeDoctorModelPing } from '../doctor-model-ping.js';
-import { loadCliConfigFile } from '../config.js';
+import { envBeforeDotenv, loadCliConfigFile } from '../config.js';
 import {
   configuredBaseUrl,
   formatCostEstimate,
@@ -778,6 +788,82 @@ const stopCommand: CommandSpec = {
   },
 };
 
+const languageCommand: CommandSpec = {
+  name: '/language',
+  aliases: ['/lang'],
+  summary: 'show or switch the UI language for this session',
+  run(ctx, args) {
+    const tokens = args.split(/\s+/).filter((token) => token.length > 0);
+    const save = tokens.some((token) => token === 'save' || token === '--save');
+    const choice = tokens.find((token) => token !== 'save' && token !== '--save');
+    if (!choice) {
+      const language = effectiveUiLanguage();
+      const setting = uiLanguageResolution()?.setting ?? 'auto';
+      const source = uiLanguageSourceLabel();
+      ctx.say(
+        'system',
+        [
+          uiText(
+            `UI language: ${language} (setting ${setting}, source ${source})`,
+            `界面语言：${language === 'zh' ? '中文' : 'English'}（设置 ${setting}，来源 ${source}）`
+          ),
+          uiText(
+            '  /language en|zh|auto     switch for this session',
+            '  /language en|zh|auto     只切换本会话'
+          ),
+          uiText(
+            '  /language en save        remember it in the user config',
+            '  /language en save        记到用户配置'
+          ),
+          uiText('  /lang                    alias', '  /lang                    别名'),
+        ].join('\n')
+      );
+      return;
+    }
+    const setting = parseLanguageSetting(choice);
+    if (!setting) {
+      ctx.say(
+        'error',
+        uiText('Usage: /language [en|zh|auto] [save]', '用法：/language [en|zh|auto] [save]')
+      );
+      return;
+    }
+    if (setting === 'auto') setSessionUiLanguage('system');
+    else setSessionUiLanguage(setting);
+    setTuiLocale(isZh());
+    if (save) {
+      try {
+        writeUserLanguageSetting(setting);
+      } catch (err) {
+        ctx.say(
+          'error',
+          uiText(
+            `Could not save language: ${errorMessage(err)}`,
+            `无法保存语言：${errorMessage(err)}`
+          )
+        );
+        return;
+      }
+    }
+    const language = effectiveUiLanguage();
+    const envLang = envBeforeDotenv.MOSS_LANG?.trim();
+    const override =
+      save && envLang
+        ? uiText(
+            ` MOSS_LANG=${envLang} will override this on the next start.`,
+            ` 下次启动时 MOSS_LANG=${envLang} 会覆盖它。`
+          )
+        : '';
+    ctx.say(
+      'system',
+      uiText(
+        `UI language: ${language}${save ? ' (saved to the user config)' : ' (this session)'}${override}`,
+        `界面语言：${language === 'zh' ? '中文' : 'English'}${save ? '（已写入用户配置）' : '（仅本会话）'}${override}`
+      )
+    );
+  },
+};
+
 const agentsCommand: CommandSpec = {
   name: '/agents',
   summary: 'list file-defined sub-agents with source paths and warnings',
@@ -791,6 +877,7 @@ const agentsCommand: CommandSpec = {
 const COMMANDS: readonly CommandSpec[] = [
   statusCommand,
   doctorCommand,
+  languageCommand,
   agentsCommand,
   reviewCommand,
   permissionsCommand,

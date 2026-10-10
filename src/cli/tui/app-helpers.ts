@@ -13,6 +13,7 @@
  * honest.
  */
 import type { MossAgent } from '../../core/agent/moss-agent.js';
+import { userTextWithoutTurnContext } from '../../core/session/internal-transcript.js';
 import type { TaskRuntime } from '../../core/task-runtime/runtime.js';
 import { errorMessage } from '../../errors.js';
 import {
@@ -379,7 +380,7 @@ export function buildHelpOverlayLines(
       : ['', tui('type / to browse commands · /help --all for the rest')]),
     '',
     tui('shortcuts'),
-    ...helpKeyRows(bindings).map(([keys, what]) => `${keys.padEnd(12)} ${tui(what)}`),
+    ...helpKeyRows(bindings).map(([keys, what]) => `${tui(keys).padEnd(12)} ${tui(what)}`),
   ];
 }
 
@@ -448,7 +449,7 @@ export function renderSessionPicker(
   ];
   const sel = Math.max(0, Math.min(selected, matches.length - 1));
   matches.slice(0, maxRows).forEach((s, index) => {
-    const title = s.title?.trim() || s.key;
+    const title = userTextWithoutTurnContext(s.title ?? '') || s.key;
     const meta = [
       relativeAge(s.updatedAt),
       s.messageCount !== undefined ? tui('{count} messages', { count: s.messageCount }) : '',

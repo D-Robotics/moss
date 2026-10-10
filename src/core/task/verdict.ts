@@ -9,6 +9,7 @@
 import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
 import { evaluateAcceptance, formatAcceptanceVerdict } from '../../contracts/task.js';
 import { runAcceptanceCommand } from './acceptance-command.js';
+import { recordHarnessSuiteEvidence } from './suite-evidence.js';
 import {
   appendAcceptanceVerdict,
   appendTaskRecord,
@@ -39,15 +40,28 @@ export interface VerdictProvider {
  */
 export function createCommandVerdictProvider(
   command: string,
-  options: { timeoutMs?: number } = {}
+  options: { timeoutMs?: number; workspaceDir?: string } = {}
 ): VerdictProvider {
   return {
     source: 'command',
     async evaluate(taskId, signal) {
       const result = await runAcceptanceCommand(
-        { command, ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) },
+        {
+          command,
+          ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+          ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
+        },
         signal
       );
+      if (options.workspaceDir) {
+        await recordHarnessSuiteEvidence({
+          workspaceDir: options.workspaceDir,
+          taskId,
+          source: 'acceptance_command',
+          testsPassed: result.passed,
+          output: result.tail,
+        });
+      }
       return {
         taskId,
         passed: result.passed,
@@ -154,7 +168,9 @@ export function createTaskVerdictProvider(options: {
 }): VerdictProvider {
   const contract = createContractVerdictProvider(options.workspaceDir);
   if (!options.command) return contract;
-  const command = createCommandVerdictProvider(options.command);
+  const command = createCommandVerdictProvider(options.command, {
+    workspaceDir: options.workspaceDir,
+  });
   return {
     source: 'command',
     async evaluate(taskId, signal) {
@@ -164,6 +180,25 @@ export function createTaskVerdictProvider(options: {
         await contract.evaluate(taskId).catch(() => undefined);
         return commandVerdict;
       }
+      // A failing re-run must replace the previous PASS in acceptance.jsonl.
+      // Scoring the contract here can rewrite that PASS when older evidence
+      // still matches criteria the command does not cover.
+      await appendAcceptanceVerdict(options.workspaceDir, {
+        taskId,
+        verdict: 'fail',
+        acceptedAt: Date.now(),
+        criteriaResults: [
+          {
+            metric: 'acceptance_command',
+            expected: 'exit 0',
+            required: true,
+            result: 'fail',
+            explanation: commandVerdict.detail.slice(0, 300),
+          },
+        ],
+        unmetRequired: 1,
+        evidenceConsidered: 0,
+      }).catch(() => undefined);
       return commandVerdict;
     },
   };

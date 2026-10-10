@@ -9,6 +9,8 @@ export interface AcceptanceSpec {
   /** Shell command that must exit 0 for the goal to be complete. */
   command: string;
   timeoutMs?: number;
+  /** Task workspace. The command runs here, not in the process cwd. */
+  workspaceDir?: string;
 }
 
 export interface AcceptanceResult {
@@ -57,6 +59,7 @@ export async function runAcceptanceCommand(
       args: shell.args,
       timeout: spec.timeoutMs ?? DEFAULT_ACCEPTANCE_TIMEOUT_MS,
       signal,
+      ...(spec.workspaceDir ? { cwd: spec.workspaceDir } : {}),
       ...(shell.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
     const combined = `${res.stdout}\n${res.stderr}`.trim();

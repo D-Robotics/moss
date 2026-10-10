@@ -540,15 +540,15 @@ const execFileAsync = promisify(execFile);
 }
 
 {
-  // The sentence says the tip is shown once. The latch is in memory (#17),
-  // so a later process may print it again and no marker file is written.
+  // The sentence says the tip is shown once. A marker in the config dir
+  // keeps the next process from printing it again.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-notice-config-'));
   const env = { MOSS_CONFIG_DIR: dir, MOSS_NO_BUNDLED_DEFAULT: '1' };
   const resolved = resolveCliConfig(env, {});
   assert.equal(resolved.approvalPolicy, 'never');
   assert.equal(resolved.permissions.source, 'default');
   assert.equal(shouldShowFullDefaultNotice(resolved, env), true, 'first call shows the tip');
-  assert.equal(fs.existsSync(path.join(dir, '.full_default_notice_shown')), false);
+  assert.equal(fs.existsSync(path.join(dir, '.full_default_notice_shown')), true);
   assert.equal(
     shouldShowFullDefaultNotice(resolved, env),
     false,

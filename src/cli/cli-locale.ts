@@ -1,15 +1,59 @@
-import { preferredLocale } from '../utils/locale-preference.js';
+import {
+  envBeforeDotenv,
+  loadConfigFile,
+  resolveConfigPath,
+  saveConfigFileAtPath,
+} from './config.js';
+import {
+  clearUiLanguage,
+  effectiveUiLanguage,
+  effectiveUiLanguageSource,
+  hasSessionUiOverride,
+  installUiLanguage,
+  isEffectiveUiZh,
+  parseExplicitUiLanguage,
+  parseLanguageSetting,
+  resolveUiLanguage,
+  setSessionUiLanguage,
+  systemLocale,
+  uiLanguageFromSystemLocale,
+  uiLanguageResolution,
+  type LanguageSetting,
+  type UiLanguage,
+  type UiLanguageResolution,
+  type UiLanguageSource,
+} from '../utils/ui-language.js';
+import { wrap } from './tui/text.js';
 import { WORKSPACE_WRITE_LIMIT_EN, WORKSPACE_WRITE_LIMIT_ZH } from './workspace-write-copy.js';
 
-/** Resolve the CLI locale from environment variables. */
-export function cliLocale(): string | undefined {
-  return preferredLocale();
-}
+export {
+  clearUiLanguage,
+  effectiveUiLanguage,
+  effectiveUiLanguageSource,
+  hasSessionUiOverride,
+  parseExplicitUiLanguage,
+  parseLanguageSetting,
+  resolveUiLanguage,
+  setSessionUiLanguage,
+  systemLocale,
+  uiLanguageFromSystemLocale,
+  uiLanguageResolution,
+};
+export type { LanguageSetting, UiLanguage, UiLanguageResolution, UiLanguageSource };
 
 /**
- * English sentence → Simplified Chinese. Call sites pass the English key
- * (with `{placeholders}`) so the zh string lives once, here.
+ * Locale the UI layer consults. After startup installation this is the
+ * resolved UI language (`en` or `zh`). Before that, and for callers that
+ * never install, it is the system locale (`LC_ALL` / `LC_MESSAGES` / `LANG`,
+ * skipping neutral `C` / `POSIX` tags).
  */
+export function cliLocale(): string | undefined {
+  if (hasSessionUiOverride() || uiLanguageResolution()) {
+    return effectiveUiLanguage() === 'zh' ? 'zh' : 'en';
+  }
+  return systemLocale();
+}
+
 const SETUP_ZH: Readonly<Record<string, string>> = {
   'Moss setup': 'Moss 设置',
   ' or ': ' 或 ',
@@ -167,19 +211,85 @@ export function setupCopy(
   return text;
 }
 
-/** True when locale prefers Chinese (zh / zh_CN / zh-Hans / …). */
+/** True when the UI language is Chinese. An explicit locale argument wins. */
 export function isZhLocale(locale: string | undefined = cliLocale()): boolean {
-  return /^zh/i.test(locale ?? '');
+  if (locale !== undefined) return /^zh/i.test(locale);
+  return isEffectiveUiZh();
+}
+
+/**
+ * One string from the UI locale. English is the default; Chinese is the
+ * optional UI language. Assistant prose does not go through here.
+ */
+export function uiText(en: string, zh: string): string {
+  return isZhLocale() ? zh : en;
+}
+
+/**
+ * Install UI language for this process.
+ * Precedence: `--lang` > `MOSS_LANG` > user config `language` > system locale.
+ * `MOSS_LANG` and the system locale are read from the environment captured
+ * before a project `.env` is applied. An invalid `MOSS_LANG` warns once and
+ * falls through to auto so it does not break every command; `--lang` still
+ * wins. An invalid config `language` warns and is treated as `auto`.
+ * Returns an error message only for an invalid `--lang` that reached here.
+ */
+export function installCliUiLanguage(options: { flag?: string } = {}): string | undefined {
+  const env = envBeforeDotenv;
+  let envLang = env.MOSS_LANG;
+  const warnings: string[] = [];
+  const systemIsZh = uiLanguageFromSystemLocale(systemLocale(env)) === 'zh';
+  if (envLang !== undefined && envLang.trim() !== '' && !parseExplicitUiLanguage(envLang)) {
+    warnings.push(
+      systemIsZh
+        ? `[moss] MOSS_LANG 只能是 en 或 zh，收到「${envLang}」，已按 auto 处理。`
+        : `[moss] MOSS_LANG must be en|zh, got "${envLang}"; using auto.`
+    );
+    envLang = undefined;
+  }
+  let configLanguage: string | undefined;
+  try {
+    const stored = loadConfigFile(resolveConfigPath(undefined, env));
+    if (typeof stored.language === 'string') configLanguage = stored.language;
+  } catch {
+    configLanguage = undefined;
+  }
+  if (
+    configLanguage !== undefined &&
+    configLanguage.trim() !== '' &&
+    !parseLanguageSetting(configLanguage)
+  ) {
+    warnings.push(
+      systemIsZh
+        ? `[moss] 配置 language「${configLanguage}」不是 auto、en 或 zh，已按 auto 处理。`
+        : `[moss] config language "${configLanguage}" is not auto|en|zh; using auto.`
+    );
+  }
+  try {
+    installUiLanguage(
+      resolveUiLanguage({
+        flag: options.flag,
+        envLang,
+        configLanguage,
+        systemLocale: systemLocale(env),
+      })
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return message;
+  }
+  for (const warning of warnings) console.error(warning);
+  return undefined;
 }
 
 /**
  * Fallback named by the language policy when the latest user message has no
- * language of its own. Chinese locales pin that fallback to Simplified Chinese.
- * Empty for every other locale: the policy already matches the user's language,
- * and an extra English layer only burns tokens.
+ * language of its own. This follows the system locale, not the UI language:
+ * the reply still matches the user's message, and Chinese locales only pin
+ * the no-signal fallback to Simplified Chinese.
  */
-export function buildAnswerLanguageLayer(locale: string | undefined = cliLocale()): string {
-  if (!isZhLocale(locale)) return '';
+export function buildAnswerLanguageLayer(locale: string | undefined = systemLocale()): string {
+  if (!/^zh/i.test(locale ?? '')) return '';
   return [
     '[Answer language]',
     '如果最新的用户消息没有明确的语言信号（只有代码、路径、URL、数字、命令或符号），用简体中文回答。',
@@ -207,6 +317,11 @@ export function formatInteractionModeNotice(mode: string, locale?: string): stri
   return zh ? `[moss] 交互模式：${label}` : `[moss] Interaction mode: ${label}`;
 }
 
+/** Wrap a startup notice to the terminal width so a 60-column screen does not clip it. */
+export function wrapNoticeLines(text: string, columns = 80): string[] {
+  return wrap(text, Math.max(20, columns));
+}
+
 /** One-shot notice when full mode has no deny rules. */
 export function formatFullModeNotice(locale?: string): string {
   const zh = isZhLocale(locale);
@@ -216,4 +331,74 @@ export function formatFullModeNotice(locale?: string): string {
     : '[moss] Default full mode has no deny rules; add them with /permissions ' +
         '(e.g. deny read_file(./.env)) to keep sensitive tools gated. ' +
         `${limit} This notice shows once.`;
+}
+
+const SOURCE_ZH: Record<UiLanguageSource, string> = {
+  flag: '命令行',
+  env: '环境变量',
+  config: '用户配置',
+  locale: '系统区域',
+  session: '本会话',
+};
+
+export function uiLanguageSourceLabel(
+  source: UiLanguageSource = effectiveUiLanguageSource()
+): string {
+  return uiText(source, SOURCE_ZH[source]);
+}
+
+/** Persist `language` in the user config. A project config cannot store it. */
+export function writeUserLanguageSetting(setting: LanguageSetting): void {
+  const configPath = resolveConfigPath();
+  const current = loadConfigFile(configPath);
+  saveConfigFileAtPath({ ...current, language: setting }, configPath);
+}
+
+/**
+ * First-run setup offers English only when the system locale is Chinese and
+ * the user has not chosen a UI language yet. Flag, env, and an explicit
+ * config value skip the offer. Not a TTY skips it so piped setup stays stable.
+ */
+export function shouldOfferEnglishUi(input: {
+  tty: boolean;
+  systemLocale: string | undefined;
+  configLanguage: string | undefined;
+  source: UiLanguageSource | undefined;
+}): boolean {
+  if (!input.tty) return false;
+  if (uiLanguageFromSystemLocale(input.systemLocale) !== 'zh') return false;
+  if (input.configLanguage !== undefined && input.configLanguage.trim() !== '') return false;
+  if (input.source && input.source !== 'locale') return false;
+  return true;
+}
+
+/** True when plain `moss` / `moss setup` should offer the one-key English switch. */
+export function englishUiOfferPending(tty = true): boolean {
+  let configLanguage: string | undefined;
+  try {
+    const stored = loadConfigFile();
+    if (typeof stored.language === 'string') configLanguage = stored.language;
+  } catch {
+    configLanguage = undefined;
+  }
+  return shouldOfferEnglishUi({
+    tty,
+    systemLocale: systemLocale(envBeforeDotenv),
+    configLanguage,
+    source: uiLanguageResolution()?.source,
+  });
+}
+
+export const ENGLISH_UI_OFFER = '界面语言：中文。按 e 切换为 English，其他键继续。';
+
+/** One config-show line for the resolved UI language. */
+export function formatUiLanguageLine(): string {
+  const language = effectiveUiLanguage();
+  const resolution = uiLanguageResolution();
+  const setting = resolution?.setting ?? 'auto';
+  const source = effectiveUiLanguageSource();
+  return uiText(
+    `  language: ${language} (setting ${setting}, source ${source})`,
+    `  界面语言：${language === 'zh' ? '中文' : 'English'}（设置 ${setting}，来源 ${SOURCE_ZH[source]}）`
+  );
 }

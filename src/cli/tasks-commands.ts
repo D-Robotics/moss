@@ -32,7 +32,7 @@ export function renderTasksUsage(zh: boolean = isZhLocale()): string {
       '  moss tasks [list|evidence|deployments|acceptance|device] [--json]',
       '',
       '  list          任务契约、状态和验收标准（默认）',
-      '  evidence      已记录的证据（metric / expected / observed / result）',
+      '  evidence      已记录的证据（指标 / 期望 / 观测 / 结果）',
       '  deployments   部署生命周期记录',
       '  acceptance    验收裁决历史',
       '  device        解析出的设备目标与连接状态',

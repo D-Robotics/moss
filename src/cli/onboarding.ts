@@ -237,26 +237,51 @@ export function renderCliStatus(
   if (!options.verbose) {
     // The human view: what am I running, where, and will it ask me first.
     // Diagnostics (api key, memory/skills counts, sources) live in --verbose.
+    const zh = isZhLocale();
     return [
-      ui.bold(ui.black('Status')),
-      `  ${label('model')} ${agent.config.model} (${auth.usingBundledDefault ? 'built-in' : auth.provider})`,
-      `  ${label('workspace')} ${rt.workspace}`,
-      `  ${label('changes')} ${auth.approvalPolicy === 'never' ? 'runs without asking' : 'asks you first'}`,
-      `  ${label('tools')} ${agent.tools.size} available`,
+      ui.bold(ui.black(zh ? '状态' : 'Status')),
+      `  ${label(zh ? '模型' : 'model')} ${agent.config.model} (${auth.usingBundledDefault ? (zh ? '内置' : 'built-in') : auth.provider})`,
+      `  ${label(zh ? '工作区' : 'workspace')} ${rt.workspace}`,
+      `  ${label(zh ? '变更' : 'changes')} ${
+        auth.approvalPolicy === 'never'
+          ? zh
+            ? '直接执行，不再询问'
+            : 'runs without asking'
+          : zh
+            ? '会先询问'
+            : 'asks you first'
+      }`,
+      `  ${label(zh ? '工具' : 'tools')} ${agent.tools.size} ${zh ? '个可用' : 'available'}`,
       '',
-      '  More: /status --verbose · switch model: /model',
+      zh
+        ? '  更多：/status --verbose · 切换模型：/model'
+        : '  More: /status --verbose · switch model: /model',
     ].join('\n');
   }
 
+  const zh = isZhLocale();
+  const groupTitle = (title: string): string => {
+    if (!zh) return title;
+    const names: Record<string, string> = {
+      Workspace: '工作区',
+      Memory: '记忆',
+      'Sub-agents': '子代理',
+      Web: 'Web',
+      Development: '开发',
+      Background: '后台',
+      Other: '其他',
+    };
+    return names[title] ?? title;
+  };
   return [
-    ui.bold('Status'),
-    `  ${label('session')} ${rt.sessionKey}`,
-    `  ${label('model')} ${agent.config.model}`,
+    ui.bold(zh ? '状态' : 'Status'),
+    `  ${label(zh ? '会话' : 'session')} ${rt.sessionKey}`,
+    `  ${label(zh ? '模型' : 'model')} ${agent.config.model}`,
     ...configSnapshotLines(auth, ['provider', 'baseUrl', 'profile', 'apiKey']),
-    `  ${label('workspace')} ${rt.workspace}`,
-    `  ${label('config')} ${rt.configDir}`,
-    `  ${label('sessions')} ${sessionDir}`,
-    `  ${label('detail')} ${describeDetail(detailMode)}`,
+    `  ${label(zh ? '工作区' : 'workspace')} ${rt.workspace}`,
+    `  ${label(zh ? '配置' : 'config')} ${rt.configDir}`,
+    `  ${label(zh ? '会话目录' : 'sessions')} ${sessionDir}`,
+    `  ${label(zh ? '详细程度' : 'detail')} ${describeDetail(detailMode)}`,
     ...configSnapshotLines(auth, [
       'permissions',
       'safetyMode',
@@ -271,23 +296,31 @@ export function renderCliStatus(
       'maxOutput',
       'compaction',
     ]),
-    `  ${label('exec')} ${rt.execBackend}`,
-    `  ${label('memory')} ${memoryCount} entries`,
-    `  ${label('skills')} ${skillCount}`,
-    `  ${label('tools')} ${agent.tools.size} (${toolGroups.map((g) => g.title).join(', ')})`,
+    `  ${label(zh ? '执行' : 'exec')} ${rt.execBackend}`,
+    `  ${label(zh ? '记忆' : 'memory')} ${memoryCount} ${zh ? '条' : 'entries'}`,
+    `  ${label(zh ? '技能' : 'skills')} ${skillCount}`,
+    `  ${label(zh ? '工具' : 'tools')} ${agent.tools.size} (${toolGroups.map((g) => groupTitle(g.title)).join(', ')})`,
   ].join('\n');
 }
 
 export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStatus = {}): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
-  const lines: string[] = [ui.bold(ui.black('Doctor')), renderNodeDoctorLine()];
+  const zh = isZhLocale();
+  const lines: string[] = [ui.bold(ui.black(zh ? '诊断' : 'Doctor')), renderNodeDoctorLine()];
 
   if (auth.usingBundledDefault) {
-    lines.push(doctorOk('model', `${agent.config.model} (built-in model gateway)`));
+    lines.push(
+      doctorOk(
+        zh ? '模型' : 'model',
+        zh
+          ? `${agent.config.model}（内置模型网关）`
+          : `${agent.config.model} (built-in model gateway)`
+      )
+    );
   } else {
-    lines.push(doctorOk('model', `${agent.config.model} (${auth.providerSource})`));
-    lines.push(doctorOk('provider', `${auth.provider} (${auth.providerSource})`));
+    lines.push(doctorOk(zh ? '模型' : 'model', `${agent.config.model} (${auth.providerSource})`));
+    lines.push(doctorOk(zh ? '服务商' : 'provider', `${auth.provider} (${auth.providerSource})`));
   }
   lines.push(renderAuthDoctorLine(auth));
 
@@ -299,24 +332,34 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
   if (auth.usingBundledDefault) {
     lines.push(
       doctorOk(
-        'egress',
-        proxy ? `built-in gateway via proxy ${shortBaseUrl(proxy)}` : 'built-in gateway (direct)'
+        zh ? '出口' : 'egress',
+        proxy
+          ? zh
+            ? `内置网关经代理 ${shortBaseUrl(proxy)}`
+            : `built-in gateway via proxy ${shortBaseUrl(proxy)}`
+          : zh
+            ? '内置网关（直连）'
+            : 'built-in gateway (direct)'
       )
     );
   } else {
     lines.push(
       doctorOk(
-        'egress',
+        zh ? '出口' : 'egress',
         proxy
-          ? `${shortBaseUrl(auth.baseUrl)} via proxy ${shortBaseUrl(proxy)}`
-          : `${shortBaseUrl(auth.baseUrl)} (direct, no proxy)`
+          ? zh
+            ? `${shortBaseUrl(auth.baseUrl)} 经代理 ${shortBaseUrl(proxy)}`
+            : `${shortBaseUrl(auth.baseUrl)} via proxy ${shortBaseUrl(proxy)}`
+          : zh
+            ? `${shortBaseUrl(auth.baseUrl)}（直连，无代理）`
+            : `${shortBaseUrl(auth.baseUrl)} (direct, no proxy)`
       )
     );
   }
 
   const warnings = auditResolvedCliConfig(auth);
   if (warnings.length === 0) {
-    lines.push(doctorOk('config', 'no warnings'));
+    lines.push(doctorOk(zh ? '配置' : 'config', zh ? '没有警告' : 'no warnings'));
   } else {
     for (const w of warnings) lines.push(doctorWarn(w.code, w.message));
   }
@@ -324,8 +367,10 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
   if ((auth.ignoredModelEnvVars ?? []).length > 0) {
     lines.push(
       doctorWarn(
-        'env ignored',
-        `${auth.ignoredModelEnvVars.join(', ')} — model settings come only from moss config`
+        zh ? '已忽略的环境变量' : 'env ignored',
+        zh
+          ? `${auth.ignoredModelEnvVars.join(', ')} — 模型设置只来自 moss 配置`
+          : `${auth.ignoredModelEnvVars.join(', ')} — model settings come only from moss config`
       )
     );
   }
@@ -334,31 +379,56 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
   const eventLog = path.join(rt.runtimeDir, 'events', `${encodeURIComponent(rt.sessionKey)}.jsonl`);
   lines.push(
     '',
-    `  Session logs: ${sessionLog} · ${eventLog}`,
-    '  Full report: `moss doctor` (adds writable-path and search-backend probes)'
+    zh ? `  会话日志：${sessionLog} · ${eventLog}` : `  Session logs: ${sessionLog} · ${eventLog}`,
+    zh
+      ? '  完整报告：`moss doctor`（另外探测可写路径和搜索后端）'
+      : '  Full report: `moss doctor` (adds writable-path and search-backend probes)'
   );
   return lines.join('\n');
 }
 
-const PERMISSIONS_HELP_TEXT = [
-  '',
-  '  One mode axis — /mode (Shift+Tab cycles four states, v0.26):',
-  '    /mode manual        approve mutations one by one',
-  '    /mode accept-edits  auto-approve workspace file-tool edits',
-  '    /mode plan          read-only planning (mutations blocked)',
-  '    /mode full          skip prompts (default) — deny rules still apply',
-  '',
-  '  Rules manage what the mode cannot (ToolName or ToolName(pattern)):',
-  '    /permissions add deny "read_file(./.env)"     session-level deny',
-  '    /permissions add allow "exec(npm run *)"      session-level allow',
-  '    /permissions add ask "exec(rm *)"             always ask before rm',
-  '    /permissions persist deny "read_file(./.env)" write to user config',
-  '    /permissions remove "read_file(./.env)"       drop a session rule',
-  '  deny wins in ANY mode (full included); allow skips the prompt;',
-  '  ask forces the prompt. Rules take effect on the next tool call.',
-  '',
-  '  Persist or inspect every knob: `moss config --help` (settable keys).',
-].join('\n');
+function permissionsHelpText(): string {
+  if (isZhLocale()) {
+    return [
+      '',
+      '  模式只有一根轴 — /mode（Shift+Tab 在四种状态间循环，v0.26）：',
+      '    /mode manual        逐项确认变更',
+      '    /mode accept-edits  自动接受工作区文件工具的编辑',
+      '    /mode plan          只读规划（变更会被拦住）',
+      '    /mode full          不再询问（默认）— deny 规则仍然生效',
+      '',
+      '  规则管模式管不到的部分（ToolName 或 ToolName(pattern)）：',
+      '    /permissions add deny "read_file(./.env)"     本会话拒绝',
+      '    /permissions add allow "exec(npm run *)"      本会话放行',
+      '    /permissions add ask "exec(rm *)"             执行 rm 前总是询问',
+      '    /permissions persist deny "read_file(./.env)" 写入用户配置',
+      '    /permissions remove "read_file(./.env)"       去掉一条会话规则',
+      '  任何模式（包括 full）里 deny 都优先；allow 跳过询问；',
+      '  ask 强制询问。规则在下一次工具调用时生效。',
+      '',
+      '  查看或保存每一项：`moss config --help`（可设置的键）。',
+    ].join('\n');
+  }
+  return [
+    '',
+    '  One mode axis — /mode (Shift+Tab cycles four states, v0.26):',
+    '    /mode manual        approve mutations one by one',
+    '    /mode accept-edits  auto-approve workspace file-tool edits',
+    '    /mode plan          read-only planning (mutations blocked)',
+    '    /mode full          skip prompts (default) — deny rules still apply',
+    '',
+    '  Rules manage what the mode cannot (ToolName or ToolName(pattern)):',
+    '    /permissions add deny "read_file(./.env)"     session-level deny',
+    '    /permissions add allow "exec(npm run *)"      session-level allow',
+    '    /permissions add ask "exec(rm *)"             always ask before rm',
+    '    /permissions persist deny "read_file(./.env)" write to user config',
+    '    /permissions remove "read_file(./.env)"       drop a session rule',
+    '  deny wins in ANY mode (full included); allow skips the prompt;',
+    '  ask forces the prompt. Rules take effect on the next tool call.',
+    '',
+    '  Persist or inspect every knob: `moss config --help` (settable keys).',
+  ].join('\n');
+}
 
 /**
  * One line per permission rule, with its source level spelled out (user /
@@ -368,12 +438,17 @@ export function permissionRuleLines(
   rules: readonly { level: string; toolName: string; operandPattern?: string; source: string }[],
   sources: { userPath?: string; workspacePath?: string }
 ): string[] {
+  const zh = isZhLocale();
   const describeSource = (source: string): string => {
-    if (source === 'user')
-      return `user (${compactPath(sources.userPath ?? '~/.config/moss/config.json')})`;
-    if (source === 'workspace')
-      return `workspace (${compactPath(sources.workspacePath ?? '.moss/config.json')})`;
-    return 'session (this session only)';
+    if (source === 'user') {
+      const shown = compactPath(sources.userPath ?? '~/.config/moss/config.json');
+      return zh ? `用户（${shown}）` : `user (${shown})`;
+    }
+    if (source === 'workspace') {
+      const shown = compactPath(sources.workspacePath ?? '.moss/config.json');
+      return zh ? `工作区（${shown}）` : `workspace (${shown})`;
+    }
+    return zh ? '会话（仅本会话）' : 'session (this session only)';
   };
   return rules.map((rule) => {
     const spec = rule.operandPattern ? `${rule.toolName}(${rule.operandPattern})` : rule.toolName;
@@ -410,10 +485,10 @@ export function renderCliPermissions(
     return [
       ui.bold(ui.black(zh ? '权限与配置' : 'Permissions & Config')),
       ...configSnapshotLines(auth, ['configPath', 'profile']),
-      `  ${label('workspace')} ${auth.workspace} (${auth.workspaceSource})`,
-      `  ${label(zh ? '默认模式' : 'default mode')} ${modeLabel}${ceiling ? ' + read-only ceiling' : ''} (${permissions?.source ?? 'default'})`,
+      `  ${label(zh ? '工作区' : 'workspace')} ${auth.workspace} (${auth.workspaceSource})`,
+      `  ${label(zh ? '默认模式' : 'default mode')} ${modeLabel}${ceiling ? (zh ? ' + 只读上限' : ' + read-only ceiling') : ''} (${permissions?.source ?? 'default'})`,
       `  ${workspaceWriteLimit(zh)}`,
-      `  ${label('rules')} allow ${allowCount} · ask ${askCount} · deny ${denyCount}`,
+      `  ${label(zh ? '规则' : 'rules')} allow ${allowCount} · ask ${askCount} · deny ${denyCount}`,
       ...(liveRules.length > 0
         ? [zh ? '  规则表：' : '  Rule table:']
         : [
@@ -439,7 +514,7 @@ export function renderCliPermissions(
         'compaction',
         'warnings',
       ]),
-      PERMISSIONS_HELP_TEXT,
+      permissionsHelpText(),
     ].join('\n');
   }
   return [
