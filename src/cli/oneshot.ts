@@ -258,7 +258,6 @@ const ONE_SHOT_CODING_HEAVY_TOOLS = new Set([
   'run_tests',
   'verify_fix',
   'todo_write',
-  'ask_user_question',
 ]);
 const ROUTED_ONE_SHOT_TOOLS = new Set([
   ...ONE_SHOT_SUBAGENT_TOOLS,
@@ -352,6 +351,8 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
   const needsWeb = isWebEligiblePrompt(text);
 
   return (tool) => {
+    // Headless `-p` cannot show a question. Task tools stay: benches call them.
+    if (tool.name === 'ask_user_question') return false;
     if (!ROUTED_ONE_SHOT_TOOLS.has(tool.name)) return true;
     if (ONE_SHOT_META_TOOLS.has(tool.name)) return needsSubagents || needsBackground;
     if (ONE_SHOT_SUBAGENT_TOOLS.has(tool.name)) return needsSubagents;

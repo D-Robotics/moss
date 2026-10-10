@@ -365,6 +365,7 @@ export function runAgentLoop(
             currentMessages,
             lastUserText: lastUserTextForNudge,
             buildCorrectionMessage,
+            taskPhaseNudges: params.taskPhaseNudges,
           })) {
             state.pendingMessages.push(msg);
           }

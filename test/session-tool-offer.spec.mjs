@@ -86,6 +86,41 @@ test('tool visibility: no device hides device tools; plain Q&A hides the ledger'
   assert.equal(toolVisibleForRun('task_define', { taskFlow: true }), true);
   assert.equal(toolVisibleForRun('task_acceptance', {}), true);
   assert.equal(toolVisibleForRun('search_code', { deviceConfigured: false }), true);
+  assert.equal(toolVisibleForRun('ask_user_question', {}), true);
+  assert.equal(toolVisibleForRun('ask_user_question', { userQuestions: true }), true);
+  assert.equal(toolVisibleForRun('ask_user_question', { userQuestions: false }), false);
+  assert.equal(toolVisibleForRun('task_define', { userQuestions: false }), true);
+});
+
+test('headless chat omits ask_user_question and keeps the task ledger', async () => {
+  const ws = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-ask-offer-'));
+  const seen = [];
+  const agent = makeAgent(capturingProvider(seen), ws);
+  agent.tools.register({
+    name: 'ask_user_question',
+    description: 'Ask the user.',
+    inputSchema: { type: 'object', properties: {} },
+    async execute() {
+      return 'asked';
+    },
+  });
+  try {
+    await agent.chat('qa-headless', 'Which pin is the camera clock?');
+    const names = seen[0]?.tools ?? [];
+    assert.ok(!names.includes('ask_user_question'));
+    assert.ok(names.includes('task_define'));
+    assert.ok(names.includes('record_evidence'));
+
+    seen.length = 0;
+    agent.setUserQuestionAsker(async () => 'the camera clock');
+    await agent.chat('qa-asked', 'Which pin is the camera clock?');
+    const asked = seen[0]?.tools ?? [];
+    assert.ok(asked.includes('ask_user_question'));
+    assert.ok(asked.includes('task_define'));
+  } finally {
+    await agent.close();
+    await fs.rm(ws, { recursive: true, force: true });
+  }
 });
 
 test('the model tool list omits device and ledger tools for plain Q&A', async () => {

@@ -8,8 +8,9 @@ const log = getRootLogger().child('agent');
 import { ToolRegistry } from '../tools/tool-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
 import { DeferredToolOffer, TOOL_SEARCH_NAME } from '../tools/deferred-tool-offer.js';
-import { toolVisibleForRun } from './session-tool-offer.js';
+import { toolVisibleForRun, userQuestionsOffered } from './session-tool-offer.js';
 import { omitTaskPhasePrompts } from './task-phase-prompt.js';
+import { getUserQuestionAsker } from '../tools/user-question-asker.js';
 import { mergeLeasePatch } from '../subagent/worktree-isolation.js';
 import type { AgentLoopRun } from './agent-loop-run-state.js';
 import {
@@ -922,9 +923,17 @@ ${result.stderr ?? ''}`.trim();
     }
     if (options?.taskFlow !== false) this.taskLedgerSessions.add(sessionKey);
     const ledgerVisible = this.taskLedgerSessions.has(sessionKey);
+    const userQuestions = userQuestionsOffered({
+      agentAsker: this.userQuestionAsker !== undefined,
+      processAsker: getUserQuestionAsker() !== undefined,
+      stdinIsTTY: process.stdin.isTTY === true,
+    });
     const visibleForRun = (tool: Tool): boolean =>
       this.deferredTools.isOffered(tool.name) &&
-      toolVisibleForRun(tool.name, { taskFlow: ledgerVisible ? true : options?.taskFlow }) &&
+      toolVisibleForRun(tool.name, {
+        taskFlow: ledgerVisible ? true : options?.taskFlow,
+        userQuestions,
+      }) &&
       (options?.toolFilter?.(tool) ?? true);
     const resolveRunTools = (): ReturnType<typeof filterToolsForRun> =>
       filterToolsForRun(
@@ -1301,9 +1310,14 @@ ${result.stderr ?? ''}`.trim();
     // Robotics loop P0-2/P0-9: hold the final answer until a defined task
     // contract has an acceptance verdict (blocks at most once per run, then
     // an honest FAIL report is allowed through). Runs before the host gate.
-    const acceptanceGate = createAcceptanceCompletionGate({
-      ...(this.config?.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
-    });
+    // The sticky ledger (not the raw taskFlow flag) decides task-phase nudges.
+    // A plain Q&A session never entered the ledger, so the gate stays quiet.
+    // Headless `-p` leaves taskFlow unset and the ledger stays visible.
+    const acceptanceGate = ledgerVisible
+      ? createAcceptanceCompletionGate({
+          ...(this.config?.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
+        })
+      : async () => ({ ok: true as const });
     const hostCompletionGate = this.config.completionGate;
     const completionGate: AgentLoopParams['completionGate'] = hostCompletionGate
       ? async (request) => {
@@ -1358,6 +1372,7 @@ ${result.stderr ?? ''}`.trim();
       maxLLMRetries: Math.max(0, Math.floor(this.config.maxLLMRetries ?? 2)),
       maxTurns,
       ...(options?.maxToolCalls !== undefined ? { maxToolCalls: options.maxToolCalls } : {}),
+      taskPhaseNudges: ledgerVisible,
       contextTokens,
       steeringEngine: this.steeringEngine ?? undefined,
       appendMessage: async (key, msg) => {

@@ -3,7 +3,7 @@ import {
   dedupeUnchangedReadToolResults,
 } from '../../context/stale-read-invalidate.js';
 import { snipTailOversizedToolResults } from '../../context/tail-tool-snip.js';
-import { elideOldLargeToolResults } from '../../context/tool-result-elision.js';
+import { foldOlderToolResults } from '../../context/tool-result-fold.js';
 import { microcompact } from '../../context/microcompact.js';
 import type { Message } from '../session/session-jsonl.js';
 import type { ContextActionSummary, MiniAgentEvent } from '../subagent/agent-events.js';
@@ -80,18 +80,22 @@ export function runPerTurnContextManagement(
       continue;
     }
 
+    // Kind name is historical (public planner union). The handler folds a
+    // batch of older results once, at a checkpoint, instead of sliding a
+    // stub forward on every new large result — that rewrote the cached
+    // prefix every turn.
     if (action.kind === 'elide_old_large_tool_results') {
-      const elided = elideOldLargeToolResults(currentMessages);
-      if (elided.savedChars > 0) {
-        currentMessages.splice(0, currentMessages.length, ...elided.messages);
-        savedChars += elided.savedChars;
-        savedTokens += elided.savedTokens;
+      const folded = foldOlderToolResults(currentMessages);
+      if (folded.savedChars > 0) {
+        currentMessages.splice(0, currentMessages.length, ...folded.messages);
+        savedChars += folded.savedChars;
+        savedTokens += folded.savedTokens;
         contextActions.push({
           kind: action.kind,
           reason: action.reason,
-          count: elided.elidedCount,
-          savedChars: elided.savedChars,
-          savedTokens: elided.savedTokens,
+          count: folded.foldedCount,
+          savedChars: folded.savedChars,
+          savedTokens: folded.savedTokens,
         });
       }
       continue;

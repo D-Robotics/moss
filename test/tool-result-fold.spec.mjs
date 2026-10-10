@@ -1,0 +1,319 @@
+#!/usr/bin/env node
+/**
+ * Older tool results fold into a short summary at a checkpoint, not on every
+ * new result. The pending batch and the most recent results stay in full.
+ * A second pass does not rewrite a folded stub, so the prompt-cache prefix
+ * stays stable between checkpoints.
+ */
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import test from 'node:test';
+
+import {
+  foldOlderToolResults,
+  TOOL_RESULT_FOLDED_MARKER,
+} from '../dist/context/tool-result-fold.js';
+import { elideOldLargeToolResults } from '../dist/context/tool-result-elision.js';
+import { runPerTurnContextManagement } from '../dist/core/loop/per-turn-context-management.js';
+import { MossAgent } from '../dist/core/agent/moss-agent.js';
+import { InMemorySessionStore } from '../dist/core/session/session.js';
+
+function page(label, chars) {
+  return `${label}\n` + 'x'.repeat(chars);
+}
+
+function resultMessage(id, name, content) {
+  return {
+    role: 'user',
+    content: [{ type: 'tool_result', tool_use_id: id, name, content }],
+  };
+}
+
+function assistantCall(id, name) {
+  return {
+    role: 'assistant',
+    content: [{ type: 'tool_use', id, name, input: { q: id } }],
+  };
+}
+
+test('fold waits for a batch, keeps the pending result, and is stable on the next pass', () => {
+  const messages = [{ role: 'user', content: 'What is the pinmux?' }];
+  for (let i = 1; i <= 5; i++) {
+    messages.push(assistantCall(`c${i}`, 'get_page'));
+    messages.push(resultMessage(`c${i}`, 'get_page', page(`Page ${i}`, 2000)));
+  }
+  const early = foldOlderToolResults(messages);
+  assert.equal(early.foldedCount, 0, 'five results: one pending, four old, batch not full');
+  assert.equal(early.messages, messages);
+
+  messages.push(assistantCall('c6', 'get_page'));
+  messages.push(resultMessage('c6', 'get_page', page('Page 6', 2000)));
+  const folded = foldOlderToolResults(messages);
+  assert.equal(folded.foldedCount, 3);
+  assert.ok(folded.savedChars > 4000);
+  const texts = folded.messages
+    .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+    .filter((block) => block.type === 'tool_result')
+    .map((block) => block.content);
+  assert.equal(texts.filter((text) => text.includes(TOOL_RESULT_FOLDED_MARKER)).length, 3);
+  assert.ok(texts[3].includes('Page 4'), 'a recent completed page stays in full');
+  assert.ok(texts[4].includes('Page 5'), 'the newest completed page stays in full');
+  assert.ok(texts[5].includes('Page 6'), 'the pending page stays in full');
+  assert.match(texts[0], /Page 1/);
+
+  const again = foldOlderToolResults(folded.messages);
+  assert.equal(again.foldedCount, 0);
+  assert.equal(again.messages, folded.messages);
+  assert.equal(JSON.stringify(again.messages), JSON.stringify(folded.messages));
+});
+
+function cacheStable(prev, next) {
+  // Appending to a JSON array only moves the closing bracket.
+  return next.startsWith(prev.slice(0, -1));
+}
+
+function simulate(apply, bodyFor) {
+  let messages = [{ role: 'user', content: 'What is the camera pinmux?' }];
+  let prev = JSON.stringify(messages);
+  const rows = [];
+  let rewrites = 0;
+  let hitSum = 0;
+  for (let i = 1; i <= 12; i++) {
+    const body = bodyFor(i);
+    const name = body.length > 8_000 ? 'get_page' : 'search_docs';
+    messages.push(assistantCall(`c${i}`, name));
+    messages.push(resultMessage(`c${i}`, name, body));
+    const applied = apply(messages);
+    messages = applied.messages;
+    const payload = JSON.stringify(messages);
+    let shared = 0;
+    const limit = Math.min(prev.length, payload.length);
+    while (shared < limit && prev[shared] === payload[shared]) shared += 1;
+    const hit = shared / prev.length;
+    if (!cacheStable(prev, payload)) rewrites += 1;
+    hitSum += hit;
+    rows.push({
+      step: i,
+      chars: payload.length,
+      tokens: Math.ceil(payload.length / 4),
+      prefixHit: Number(hit.toFixed(4)),
+      rewrite: !cacheStable(prev, payload),
+    });
+    prev = payload;
+  }
+  const totalTokens = rows.reduce((sum, row) => sum + row.tokens, 0);
+  return {
+    rows,
+    rewrites,
+    hitAvg: hitSum / rows.length,
+    finalChars: prev.length,
+    totalTokens,
+  };
+}
+
+function summarize(label, raw, elision, fold) {
+  const lines = [
+    label,
+    'tokens estimated as serialized message chars / 4',
+    'prefixHit is the shared byte prefix of this request over the previous request',
+    `raw     rewrites=${raw.rewrites} hitAvg=${raw.hitAvg.toFixed(3)} finalChars=${raw.finalChars} totalTokens=${raw.totalTokens}`,
+    `elision rewrites=${elision.rewrites} hitAvg=${elision.hitAvg.toFixed(3)} finalChars=${elision.finalChars} totalTokens=${elision.totalTokens}`,
+    `fold    rewrites=${fold.rewrites} hitAvg=${fold.hitAvg.toFixed(3)} finalChars=${fold.finalChars} totalTokens=${fold.totalTokens}`,
+    'step rawTokens elisionTokens foldTokens elisionHit foldHit elisionRewrite foldRewrite',
+  ];
+  for (let i = 0; i < raw.rows.length; i++) {
+    lines.push(
+      [
+        raw.rows[i].step,
+        raw.rows[i].tokens,
+        elision.rows[i].tokens,
+        fold.rows[i].tokens,
+        elision.rows[i].prefixHit,
+        fold.rows[i].prefixHit,
+        elision.rows[i].rewrite ? 1 : 0,
+        fold.rows[i].rewrite ? 1 : 0,
+      ].join(' ')
+    );
+  }
+  return lines;
+}
+
+test('checkpoint fold rewrites the cache prefix less often than sliding elision', () => {
+  const large = (i) => page(`Page ${i} pinmux table`, 14_000);
+  const mixed = (i) =>
+    i % 3 === 1 ? page(`Search hit ${i}`, 5_000) : page(`Page ${i} pinmux table`, 14_000);
+  const run = (bodyFor) => ({
+    raw: simulate((messages) => ({ messages }), bodyFor),
+    elision: simulate((messages) => elideOldLargeToolResults(messages), bodyFor),
+    fold: simulate((messages) => foldOlderToolResults(messages), bodyFor),
+  });
+  const pages = run(large);
+  const docs = run(mixed);
+
+  assert.ok(pages.fold.rewrites <= 3, `fold rewrites ${pages.fold.rewrites}`);
+  assert.ok(pages.elision.rewrites >= 6, `elision rewrites ${pages.elision.rewrites}`);
+  assert.ok(
+    pages.fold.hitAvg > pages.elision.hitAvg + 0.05,
+    `fold hit ${pages.fold.hitAvg.toFixed(3)} vs elision ${pages.elision.hitAvg.toFixed(3)}`
+  );
+  assert.ok(pages.fold.finalChars < pages.raw.finalChars / 2);
+  assert.ok(pages.fold.totalTokens < pages.elision.totalTokens);
+  assert.ok(docs.fold.finalChars < docs.elision.finalChars);
+  assert.ok(docs.fold.totalTokens < docs.raw.totalTokens);
+  assert.ok(docs.fold.rewrites <= pages.elision.rewrites);
+
+  const lines = [
+    ...summarize(
+      'scenario: 12 page dumps, 14k chars each (above the old 8k elision floor)',
+      pages.raw,
+      pages.elision,
+      pages.fold
+    ),
+    '',
+    ...summarize(
+      'scenario: docs Q&A mix, search 5k chars (under the old floor) and pages 14k',
+      docs.raw,
+      docs.elision,
+      docs.fold
+    ),
+  ];
+  const text = `${lines.join('\n')}\n`;
+  try {
+    fs.mkdirSync('/opt/cursor/artifacts', { recursive: true });
+    fs.writeFileSync('/opt/cursor/artifacts/docs-qa-fold.log', text);
+  } catch {
+    // The assertions above are the contract. The log is walkthrough evidence.
+  }
+  console.log(text);
+});
+
+test('per-turn context management folds at the checkpoint instead of sliding', () => {
+  const messages = [{ role: 'user', content: 'Look up the pinmux.' }];
+  for (let i = 1; i <= 6; i++) {
+    messages.push(assistantCall(`c${i}`, 'get_page'));
+    messages.push(resultMessage(`c${i}`, 'get_page', page(`Page ${i}`, 2000)));
+  }
+  const events = [];
+  const result = runPerTurnContextManagement({
+    currentMessages: messages,
+    estPromptTokens: 1000,
+    effectiveContextWindowTokens: 200_000,
+    pendingToolResultFollowUp: true,
+    turns: 6,
+    push: (event) => events.push(event),
+  });
+  assert.ok(result.savedChars > 0);
+  const joined = JSON.stringify(messages);
+  assert.ok(joined.includes(TOOL_RESULT_FOLDED_MARKER));
+  assert.equal(joined.includes('[earlier tool result elided'), false);
+  const action = events.find((event) => event.type === 'context_action');
+  const foldAction = action?.actions?.find((row) => row.kind === 'elide_old_large_tool_results');
+  assert.equal(foldAction?.count, 3);
+});
+
+test('a docs-style turn folds old pages before the answer and keeps the prefix', async () => {
+  const captured = [];
+  let round = 0;
+  const provider = {
+    id: 'fold-capture',
+    displayName: 'fold',
+    capabilities: { streaming: true },
+    async complete(opts) {
+      captured.push(opts);
+      round += 1;
+      const chars = JSON.stringify(opts.messages ?? []).length;
+      if (round <= 6) {
+        return {
+          stopReason: 'tool_use',
+          content: [
+            {
+              type: 'tool_use',
+              id: `c${round}`,
+              name: 'lookup',
+              input: { q: String(round) },
+            },
+          ],
+          usage: { inputTokens: Math.ceil(chars / 4), outputTokens: 20 },
+        };
+      }
+      return {
+        stopReason: 'end_turn',
+        content: [{ type: 'text', text: 'The camera clock is GPIO 3.' }],
+        usage: { inputTokens: Math.ceil(chars / 4), outputTokens: 12 },
+      };
+    },
+    async stream(opts, onEvent) {
+      onEvent?.({ type: 'message_start' });
+      return this.complete(opts);
+    },
+  };
+  const agent = new MossAgent({
+    llmProvider: provider,
+    sessionStore: new InMemorySessionStore(),
+    model: 'fold-capture',
+    baseSystemPrompt: 'Answer from the docs.',
+    domainPrompt: false,
+    includeAgentBehaviorPrompt: false,
+    includeLanguagePolicyPrompt: false,
+    enableSteering: false,
+    enableFollowUpGuard: false,
+    maxAgentTurns: 12,
+    contextTokens: 200_000,
+  });
+  agent.tools.register({
+    name: 'lookup',
+    description: 'Look up a docs page.',
+    metadata: { sideEffectClass: 'readonly' },
+    inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
+    async execute(input) {
+      return page(`Page ${input.q} pinmux`, 12_000);
+    },
+  });
+  agent.tools.register({
+    name: 'ask_user_question',
+    description: 'Ask the user.',
+    inputSchema: { type: 'object', properties: {} },
+    async execute() {
+      return 'asked';
+    },
+  });
+  agent.tools.register({
+    name: 'task_define',
+    description: 'Define a task.',
+    inputSchema: { type: 'object', properties: {} },
+    async execute() {
+      return 'defined';
+    },
+  });
+
+  const result = await agent.chat('fold-qa', 'Which pin is the camera clock?');
+  const text = typeof result === 'string' ? result : result?.response;
+  assert.match(text, /GPIO 3/);
+  assert.equal(captured.length, 7);
+
+  const names = captured[0].tools.map((tool) => tool.name);
+  assert.ok(names.includes('lookup'));
+  assert.ok(names.includes('task_define'));
+  assert.ok(!names.includes('ask_user_question'));
+
+  const payloads = captured.map((opts) => JSON.stringify(opts.messages));
+  let rewrites = 0;
+  for (let i = 1; i < payloads.length; i++) {
+    if (!cacheStable(payloads[i - 1], payloads[i])) rewrites += 1;
+  }
+  assert.ok(rewrites <= 2, `prefix rewrites ${rewrites}`);
+  assert.ok(payloads[6].includes(TOOL_RESULT_FOLDED_MARKER));
+  assert.equal(payloads[5].includes(TOOL_RESULT_FOLDED_MARKER), false);
+  const rawBodies = 6 * 12_000;
+  assert.ok(payloads[6].length < rawBodies, 'the answer request is smaller than the raw pages');
+
+  const requestTokens = payloads.map((payload) => Math.ceil(payload.length / 4));
+  const agentLine = `agent docs turn requests=${captured.length} rewrites=${rewrites} tokens=${requestTokens.join(',')} total=${requestTokens.reduce((sum, n) => sum + n, 0)}`;
+  try {
+    fs.appendFileSync('/opt/cursor/artifacts/docs-qa-fold.log', `${agentLine}\n`);
+  } catch {
+    // Walkthrough log only.
+  }
+  console.log(agentLine);
+  await agent.close();
+});

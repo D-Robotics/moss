@@ -552,11 +552,17 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
   ].join(' ');
 }
 
+/** True when `MOSS_TOOL_LOOP_TOTAL_LIMIT` is set and this turn is already at it. */
+export function isToolLoopTotalLimitReached(state: ToolLoopGuardState): boolean {
+  const totalLimit = resolveOptionalPositiveIntEnv('MOSS_TOOL_LOOP_TOTAL_LIMIT');
+  return totalLimit !== undefined && state.total >= totalLimit;
+}
+
 export function shouldShortCircuitToolCall(
   state: ToolLoopGuardState,
   toolName: string,
   input: Record<string, unknown>,
-  options: { parallelBatch?: boolean } = {}
+  options: { parallelBatch?: boolean; deferTotalLimit?: boolean } = {}
 ): string | null {
   const identicalLimit = resolveOptionalPositiveIntEnv(
     'MOSS_TOOL_LOOP_IDENTICAL_LIMIT',
@@ -638,7 +644,10 @@ export function shouldShortCircuitToolCall(
   ) {
     return `${toolName} has already been requested ${sameToolCount} time(s) in this user turn`;
   }
-  if (totalLimit !== undefined && state.total >= totalLimit) {
+  // Calls the model already emitted in this response still run. The next
+  // response sees the limit and is blocked. Identical-input and failure
+  // limits above are not deferred.
+  if (options.deferTotalLimit !== true && totalLimit !== undefined && state.total >= totalLimit) {
     return `the user turn already requested ${state.total} tool call(s)`;
   }
 

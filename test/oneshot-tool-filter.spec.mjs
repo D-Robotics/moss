@@ -19,6 +19,13 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
     );
   }
   assert.equal(allow(tool('custom_company_tool')), true, 'unknown/custom tools are never hidden');
+  assert.equal(
+    allow(tool('ask_user_question')),
+    false,
+    'headless -p never offers ask_user_question'
+  );
+  assert.equal(allow(tool('task_define')), true, 'task tools stay available in -p');
+  assert.equal(allow(tool('record_evidence')), true, 'task tools stay available in -p');
 }
 
 {

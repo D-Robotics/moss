@@ -8,6 +8,8 @@
  */
 import assert from 'node:assert/strict';
 import { evaluateTaskRepairNudge } from '../dist/core/loop/nudges/task-repair-nudge.js';
+import { collectNudgeInjections } from '../dist/core/loop/nudges/registry.js';
+import { createInitialLoopState } from '../dist/core/loop/agent-loop-state.js';
 
 const FAIL_VERDICT = [
   'Task acceptance (task_1): FAIL',
@@ -274,6 +276,34 @@ function verdictText(taskId, outcome) {
   });
   assert.equal(r.fire, true);
   assert.match(r.correction, /task_B/);
+}
+
+// 15. Plain Q&A (taskPhaseNudges: false) does not inject the repair nudge.
+//     The same history still injects it when the flag is omitted.
+{
+  const messages = [
+    { role: 'user', content: 'repair the monitor' },
+    toolUse('acc1', 'task_acceptance', {}),
+    toolResult('acc1', 'task_acceptance', FAIL_VERDICT),
+  ];
+  const build = (taskPhaseNudges) =>
+    collectNudgeInjections({
+      state: createInitialLoopState(),
+      currentMessages: messages,
+      lastUserText: () => 'repair the monitor',
+      buildCorrectionMessage: (systemText) => ({
+        role: 'user',
+        content: [{ type: 'text', text: systemText }],
+        timestamp: 1,
+      }),
+      ...(taskPhaseNudges === false ? { taskPhaseNudges: false } : {}),
+    });
+  const texts = (injected) =>
+    injected
+      .map((message) => message.content.map((block) => block.text ?? '').join('\n'))
+      .join('\n');
+  assert.match(texts(build(undefined)), /task_acceptance returned FAIL/);
+  assert.doesNotMatch(texts(build(false)), /task_acceptance returned FAIL/);
 }
 
 console.log('task-repair-nudge.spec: all assertions passed');
