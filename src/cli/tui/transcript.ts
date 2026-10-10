@@ -101,7 +101,7 @@ export function isShellCommandRow(text: string): boolean {
  */
 export const RESULT_PREVIEW_LINES = 3;
 
-const MOSS_NOTICE_LINE = /^\[moss\]\s+\S/;
+const HARNESS_NOTICE_LINE = /^\[moss\]\s+\S/;
 
 /** Body plus trailing `[moss]` notices. Blank lines between notices are dropped. */
 export function splitTrailingMossNotices(text: string): { body: string; notices: string[] } {
@@ -113,7 +113,7 @@ export function splitTrailingMossNotices(text: string): { body: string; notices:
       lines.pop();
       continue;
     }
-    if (MOSS_NOTICE_LINE.test(last.trim())) {
+    if (HARNESS_NOTICE_LINE.test(last.trim())) {
       notices.unshift(last.trim());
       lines.pop();
       continue;
@@ -130,7 +130,7 @@ function compactPreview(
   if (source.length <= limit) return { shown: [...source], hidden: 0 };
   const notices: string[] = [];
   let end = source.length;
-  while (end > limit && MOSS_NOTICE_LINE.test(source[end - 1] ?? '')) {
+  while (end > limit && HARNESS_NOTICE_LINE.test(source[end - 1] ?? '')) {
     notices.unshift(source[end - 1] ?? '');
     end -= 1;
   }
