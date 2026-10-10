@@ -6,6 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  INFO_PROBE_SCRIPT,
   parseInfoProbe,
   parseProcessesProbe,
   parseResourcesProbe,
@@ -50,6 +51,27 @@ test('parseInfoProbe extracts a full device identity snapshot', () => {
   assert.equal(snap.memAvailableBytes, 1234567 * 1024);
   assert.equal(snap.uptimeSeconds, 275559);
   assert.deepEqual(snap.loadavg, [0.42, 0.35, 0.3]);
+});
+
+test('parseInfoProbe reads device-tree board models and ignores a missing model file', () => {
+  assert.match(
+    INFO_PROBE_SCRIPT,
+    /\[ -r \/proc\/device-tree\/model \] && printf "MODEL\|%s\\n" "\$\(tr -d "\\000" < \/proc\/device-tree\/model\)"/
+  );
+  assert.doesNotMatch(INFO_PROBE_SCRIPT, />\s*\/proc\/device-tree\/model/);
+  for (const model of ['RDK X3', 'RDK X5', 'RDK S100', 'RDK Ultra']) {
+    const snap = parseInfoProbe(`MODEL|${model}\n`, { deviceId: 'rdk-1', kind: 'rdk' });
+    assert.equal(snap.boardModel, model);
+    const text = formatInfoSnapshot(snap, 'root@10.0.0.1:22');
+    assert.match(text, new RegExp(`^board: ${model}$`, 'm'));
+  }
+  const nul = parseInfoProbe('MODEL|RDK X5\0\n', { deviceId: 'rdk-1', kind: 'rdk' });
+  assert.equal(nul.boardModel, 'RDK X5');
+  const missing = parseInfoProbe(INFO_FIXTURE, { deviceId: 'rdk-1', kind: 'rdk' });
+  assert.equal(missing.boardModel, undefined);
+  assert.doesNotMatch(formatInfoSnapshot(missing, 'root@10.0.0.1:22'), /^board:/m);
+  const blank = parseInfoProbe('MODEL|   \n', { deviceId: 'rdk-1', kind: 'rdk' });
+  assert.equal(blank.boardModel, undefined);
 });
 
 test('parseInfoProbe tolerates partial and garbage lines', () => {

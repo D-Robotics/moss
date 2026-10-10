@@ -25,6 +25,7 @@ import {
   writeUserLanguageSetting,
 } from '../cli-locale.js';
 import { setTuiLocale } from '../tui/copy.js';
+import { workspaceWriteLimit } from '../workspace-write-copy.js';
 import { GITIGNORE_SUGGESTION } from '../gitignore-suggestion.js';
 import {
   formatCliInteractionModeLabel,
@@ -278,18 +279,20 @@ const modeCommand: CommandSpec = {
           ? [
               `当前交互模式：${label}`,
               '  /mode manual        正常编码（逐次审批写操作与设备变更）',
-              '  /mode accept-edits  自动接受工作区内文件编辑',
+              '  /mode accept-edits  自动接受工作区内文件工具编辑',
               '  /mode plan          只读规划（不执行写操作）',
               '  /mode full          全开：跳过询问，仅 deny 规则与硬拦截生效（默认）',
               '  快捷键：Shift+Tab 在四种模式间循环',
+              `  ${workspaceWriteLimit(true)}`,
             ].join('\n')
           : [
               `Interaction mode: ${label}`,
               '  /mode manual        normal coding (approve mutations one by one)',
-              '  /mode accept-edits  auto-approve sandboxed workspace edits',
+              '  /mode accept-edits  auto-approve workspace file-tool edits',
               '  /mode plan          read-only planning (block mutations)',
               '  /mode full          skip prompts — only deny rules and hard blocks apply (default)',
               '  Shortcut: Shift+Tab cycles manual / accept-edits / plan / full',
+              `  ${workspaceWriteLimit(false)}`,
             ].join('\n')
       );
       return;
@@ -313,14 +316,14 @@ const modeCommand: CommandSpec = {
         ? next === 'plan'
           ? `已切换到${label}：只读探索与规划；写文件/副作用命令会被拦截。规划完成后用 /mode manual 或 Shift+Tab 退出。`
           : next === 'acceptEdits'
-            ? `已切换到${label}：工作区内文件编辑自动通过；shell 变更仍会确认。`
+            ? `已切换到${label}：工作区内文件工具编辑自动通过。${workspaceWriteLimit(true)} shell 变更仍会确认。`
             : next === 'full'
               ? `已切换到${label}：跳过询问，deny 规则与危险命令拦截仍生效。`
               : `已切换到${label}：正常编码，写操作与设备变更逐次确认。`
         : next === 'plan'
           ? `Switched to ${label}: explore and plan read-only; file/side-effect tools are blocked. Leave with /mode manual or Shift+Tab when ready to implement.`
           : next === 'acceptEdits'
-            ? `Switched to ${label}: sandboxed workspace edits auto-approve; shell mutations still prompt.`
+            ? `Switched to ${label}: workspace file-tool edits auto-approve. ${workspaceWriteLimit(false)} Shell mutations still prompt.`
             : next === 'full'
               ? `Switched to ${label}: prompts are skipped; deny rules and dangerous-command blocks still apply.`
               : `Switched to ${label}: normal coding; mutations and device changes confirm one by one.`

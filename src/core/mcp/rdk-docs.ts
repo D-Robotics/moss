@@ -86,9 +86,10 @@ export function builtinRdkDocsServerConfig(
  */
 export const RDK_DOCS_CONNECTED_LAYER = [
   '### RDK manuals',
-  'For a question: call `mcp__rdk-docs__search` first, open at most 2 pages, then answer with the source link. Stop.',
-  'Use a board/manual filter when the user named a board. Prefer role=official-start.',
-  'Cite each page URL. Do not invent pin tables. Probes do not wait on docs.',
+  'For a question: call `mcp__rdk-docs__search` once, open at most 2 pages, then answer with the source link. Stop.',
+  "Pass board and manual-worded alt_queries when the search schema has them; do not answer from another board's page.",
+  'Judge the snippet: prefer role=official-start; forum is unofficial and loses to the manual.',
+  'Cite the page URL. Do not invent pin tables. Probes and approval do not wait on docs.',
 ].join(' ');
 
 /** Injected when the server was configured but the connect failed. No usage guide. */

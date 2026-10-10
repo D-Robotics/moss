@@ -62,8 +62,7 @@ import {
   printMissingConfigGuidance,
   renderOneShotOnboardingHint,
 } from './cli/onboarding-hints.js';
-import { renderConfigHelp } from './cli/config-commands.js';
-import { renderSetupHelp } from './cli/setup-wizard.js';
+import { renderSubcommandHelp } from './cli/subcommand-help.js';
 import { MossAgent, JsonlSessionStore } from './core/index.js';
 import { configureRootLogger, getRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
@@ -219,15 +218,14 @@ configureRootLogger({
   json: process.env.MOSS_LOG_JSON === '1',
 });
 
-// Subcommand-specific --help: show the subcommand's own usage, not the global
-// banner, so `moss config --help` answers the actual question.
-if (parsedArgs.help && parsedArgs.command === 'config') {
-  console.log(renderConfigHelp());
-  process.exit(0);
-}
-if (parsedArgs.help && parsedArgs.command === 'setup') {
-  console.log(renderSetupHelp());
-  process.exit(0);
+// Subcommand-specific --help: show that command's usage, options, and examples,
+// not the root banner. `moss --help` (command === 'chat') stays the root help.
+if (parsedArgs.help && parsedArgs.command !== 'chat') {
+  const subcommandHelp = renderSubcommandHelp(parsedArgs.command);
+  if (subcommandHelp) {
+    console.log(subcommandHelp);
+    process.exit(0);
+  }
 }
 if (parsedArgs.help) displayHelp(c, { all: parsedArgs.helpAll });
 if (parsedArgs.version) displayVersion(c);
