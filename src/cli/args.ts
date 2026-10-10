@@ -83,7 +83,7 @@ function readValue(
   if (eqIdx !== -1) return { value: current.slice(eqIdx + 1), nextIndex: index };
   const value = argv[index + 1];
   if (!value || value.startsWith('-')) {
-    throw new Error(`${flag} requires a value`);
+    throw new Error(uiText(`${flag} requires a value`, `${flag} 需要一个值`));
   }
   return { value, nextIndex: index + 1 };
 }

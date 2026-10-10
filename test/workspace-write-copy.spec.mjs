@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { configSnapshotLines } from '../dist/cli/config-snapshot.js';
 import { renderConfigEnv, renderConfigHelp } from '../dist/cli/config-commands.js';
-import { formatFullModeNotice, setupCopy } from '../dist/cli/cli-locale.js';
+import { formatFullModeNotice, setupCopy, wrapNoticeLines } from '../dist/cli/cli-locale.js';
 import { briefHelpLines, fullHelpLines } from '../dist/cli/help.js';
 import { renderCliPermissions, renderCliWelcome } from '../dist/cli/onboarding.js';
 import { renderPermissionsPanel } from '../dist/cli/tui/permissions-panel.js';
@@ -125,6 +125,13 @@ const runtime = {
   assert.ok(
     formatFullModeNotice('zh_CN.UTF-8').includes(WORKSPACE_WRITE_LIMIT_ZH),
     'startup notice (zh) states the limit'
+  );
+  const wrapped = wrapNoticeLines(formatFullModeNotice('C'), 60);
+  assert.ok(wrapped.length > 1, 'a 60-column safety notice wraps');
+  assert.ok(wrapped.join(' ').includes('This notice shows once'));
+  assert.ok(
+    wrapped.every((line) => line.length <= 60),
+    `wrapped notice stays within 60 columns (${wrapped.map((line) => line.length).join(',')})`
   );
   assert.equal(
     setupCopy('en_US.UTF-8', WORKSPACE_WRITE_LIMIT_EN),

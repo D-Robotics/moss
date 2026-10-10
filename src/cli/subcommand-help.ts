@@ -22,7 +22,7 @@ function removed(command: string, zh: boolean, detail: { en: string; zh: string 
       detail.zh,
       '',
       '选项：',
-      '  （无）  不接受其它参数。直接运行会非零退出，并说明 not implemented。',
+      '  （无）  不接受其它参数。直接运行会非零退出，并说明尚未实现。',
       '',
       '示例：',
       `  moss ${command}`,
@@ -90,8 +90,8 @@ function doctorHelp(zh: boolean): string {
       '',
       '选项：',
       '  -C, --cd <dir>       检查另一个工作区',
-      '  --verbose            把报告里的 detail 设为 verbose',
-      '  --quiet              把报告里的 detail 设为 quiet',
+      '  --verbose            把报告的详细程度设为 verbose',
+      '  --quiet              把报告的详细程度设为 quiet',
       '  --config-file <path> 只加载这个配置文件',
       '',
       '示例：',
@@ -268,12 +268,12 @@ export function renderSubcommandHelp(command: string, zh: boolean = isZhLocale()
     case 'plugins':
       return removed('plugins', zh, {
         en: 'The plugin subsystem is not implemented in this build.',
-        zh: '插件子系统在这个构建里 not implemented。',
+        zh: '这个构建没有插件子系统。',
       });
     case 'migrate':
       return removed('migrate', zh, {
         en: 'The migrate subsystem is not implemented in this build.',
-        zh: '迁移子系统在这个构建里 not implemented。',
+        zh: '这个构建没有迁移子系统。',
       });
     case 'tasks':
       return renderTasksUsage(zh);
@@ -284,12 +284,12 @@ export function renderSubcommandHelp(command: string, zh: boolean = isZhLocale()
     case 'web':
       return removed('web', zh, {
         en: 'The web UI subsystem is not implemented in this build.',
-        zh: 'web UI 子系统在这个构建里 not implemented。',
+        zh: '这个构建没有 web UI 子系统。',
       });
     case 'agent':
       return removed('agent', zh, {
         en: 'moss agent is not implemented. Start a session with `moss` or `moss "<prompt>"`.',
-        zh: 'moss agent 在这个构建里 not implemented。用 `moss` 或 `moss "<prompt>"` 开始会话。',
+        zh: '这个构建没有 moss agent。用 `moss` 或 `moss "<prompt>"` 开始会话。',
       });
     default:
       return null;

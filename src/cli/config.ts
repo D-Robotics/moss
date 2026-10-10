@@ -1186,10 +1186,11 @@ export function hasTrustedToolWildcard(config: Pick<ResolvedCliConfig, 'trustedT
 }
 
 /**
- * Startup notice for factory-default full mode. Shown once per process
- * (#17: in memory only — a new process may print it again). Doctor still
+ * Startup notice for factory-default full mode. Shown once per config dir.
+ * The marker lives next to the user config (not the workspace). Doctor still
  * reports the same condition on every run.
  */
+const FULL_DEFAULT_NOTICE_MARKER = '.full_default_notice_shown';
 const shownFullDefaultNotice = new Set<string>();
 
 export function shouldShowFullDefaultNotice(
@@ -1204,7 +1205,22 @@ export function shouldShowFullDefaultNotice(
   if (!applicable) return false;
   const key = resolveConfigDir(env);
   if (shownFullDefaultNotice.has(key)) return false;
+  const marker = path.join(key, FULL_DEFAULT_NOTICE_MARKER);
+  try {
+    if (fs.existsSync(marker)) {
+      shownFullDefaultNotice.add(key);
+      return false;
+    }
+  } catch {
+    /* unreadable marker: still show once in this process */
+  }
   shownFullDefaultNotice.add(key);
+  try {
+    fs.mkdirSync(key, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(marker, '', { encoding: 'utf-8', mode: 0o600, flag: 'wx' });
+  } catch {
+    /* another process wrote it, or the dir is not writable */
+  }
   return true;
 }
 

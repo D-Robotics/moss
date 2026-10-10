@@ -641,8 +641,8 @@ export function summarizeTaskRun(result: TaskRunResult, locale?: string): string
   const lines = zh
     ? [
         `任务 ${snapshot.taskId} — ${outcome.toUpperCase()}`,
-        `目标: ${snapshot.goal}`,
-        `阶段: ${phaseLabel} · 尝试: ${snapshot.attempt} · 修复: ${snapshot.repairs.length} · 失败: ${snapshot.failures.length} · 轮次: ${turns}`,
+        `目标：${snapshot.goal}`,
+        `阶段：${phaseLabel} · 尝试：${snapshot.attempt} · 修复：${snapshot.repairs.length} · 失败：${snapshot.failures.length} · 轮次：${turns}`,
       ]
     : [
         `Task ${snapshot.taskId} — ${outcome.toUpperCase()}`,
@@ -650,8 +650,8 @@ export function summarizeTaskRun(result: TaskRunResult, locale?: string): string
         `phase: ${phaseLabel} · attempts: ${snapshot.attempt} · repairs: ${snapshot.repairs.length} · failures: ${snapshot.failures.length} · turns: ${turns}`,
       ];
   if (outcome === 'aborted') lines.push('/goal resume');
-  if (verdictDetail) lines.push('', zh ? '最终裁决:' : 'Final verdict:', verdictDetail);
+  if (verdictDetail) lines.push('', zh ? '最终裁决：' : 'Final verdict:', verdictDetail);
   const tail = timeline.split('\n').slice(-6).join('\n');
-  if (tail) lines.push('', zh ? '时间线（末尾）:' : 'Timeline (tail):', tail);
+  if (tail) lines.push('', zh ? '时间线（末尾）：' : 'Timeline (tail):', tail);
   return lines.join('\n');
 }
