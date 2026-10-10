@@ -279,14 +279,23 @@ async function stopAndConfirmGone(out, stopCtx, label) {
   assert.match(capped, /Still running after/, `timeout still returns a handle: ${capped}`);
   assert.ok(capElapsed < 1000, `timeout_ms bounds the wait, elapsed ${capElapsed}`);
   await stopAndConfirmGone(capped, goalCtx, 'timeout_ms cap');
-  // Windows can still hold the stopped child's handles on ws for a moment
-  // (EBUSY or EPERM); rmSync's maxRetries does not cover EPERM.
-  for (let attempt = 0; ; attempt += 1) {
+  // Windows can still hold the stopped child's handles on ws (EBUSY or EPERM)
+  // after the pids are gone. Retry for up to 15s. On win32 a leftover directory
+  // under this temp-like prefix is cleanup, not an assertion.
+  const cleanupStarted = Date.now();
+  for (;;) {
     try {
       fs.rmSync(ws, { recursive: true, force: true });
       break;
     } catch (error) {
-      if (attempt >= 25 || !['EBUSY', 'EPERM'].includes(error?.code)) throw error;
+      const retryable = ['EBUSY', 'EPERM'].includes(error?.code);
+      if (!retryable || Date.now() - cleanupStarted >= 15_000) {
+        if (retryable && process.platform === 'win32') {
+          console.warn(`leaving ${ws}: cleanup still failing with ${error?.code}`);
+          break;
+        }
+        throw error;
+      }
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
