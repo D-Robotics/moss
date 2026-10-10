@@ -24,7 +24,28 @@ export const SECRET_FIELD_SOURCE =
 export const OPEN_SECRET_PREFIX = 'sk-|github_pat_|ghp_|glpat-|xox[baprs]-|AKIA|AIza|enc:';
 
 /**
- * `Authorization: Bearer <token>` keeps the scheme and the token as one value.
- * Without the prefix the matcher stops at the space and sees only `Bearer`.
+ * `Authorization: Bearer <token>` keeps the scheme and the next token together.
+ * Group 1 is that token, so `<base64>` stays a placeholder. Callers that need
+ * the rest of a header line extend past this token themselves.
  */
-export const AUTH_SCHEME_VALUE = /^(?:Bearer|Basic|Token|Digest)[ \t]+\S+/i;
+export const AUTH_SCHEME_VALUE = /^(?:Bearer|Basic|Token|Digest)[ \t]+(\S+)/i;
+
+/**
+ * Even count of the same quote on this line (escapes skipped) means `openAt`
+ * starts a value. An odd count means the key itself sits inside a string
+ * (`prompt='Password: '`, `"Password: " + name`) and this quote closes it.
+ */
+export function quoteOpensValue(text: string, openAt: number): boolean {
+  const quote = text[openAt];
+  if (quote !== '"' && quote !== "'") return false;
+  const lineStart = text.lastIndexOf('\n', Math.max(0, openAt - 1)) + 1;
+  let count = 0;
+  for (let i = lineStart; i < openAt; i += 1) {
+    if (text[i] === '\\') {
+      i += 1;
+      continue;
+    }
+    if (text[i] === quote) count += 1;
+  }
+  return count % 2 === 0;
+}

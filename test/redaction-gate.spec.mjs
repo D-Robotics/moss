@@ -4,13 +4,13 @@
  * false match, so this file locks three checks:
  * 1. Fake secrets embedded in grep, cat, json, yaml, env, unclosed-quote, and
  *    multi-line text do not survive in plaintext.
- * 2. Moss `src` plus the checked-in Python/Go sample: changed lines stay at or
- *    under the main baseline, and redaction never drops or adds a line.
+ * 2. Moss `src` plus the checked-in Python/Go sample: changed lines are exactly
+ *    main's allow-list, and redaction never drops or adds a line.
  * 3. The model view can be edited and written back without storing `[REDACTED]`
  *    or losing the bytes that were really in the file.
  *
- * MAIN_CHANGED_LINE_BASELINE is main 635feb1c redactEgress on Moss src
- * TypeScript files: 12 lines across 5 files. The samples are not secrets.
+ * MAIN_REDACTED_LINES is main's redactEgress on Moss src TypeScript: the same
+ * 12 file:line false matches, compared one by one. The samples are not secrets.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,9 +19,29 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { editFileTool, readFileTool, writeFileTool } from '../dist/tools/builtin.js';
+import { sanitizeSecrets } from '../dist/safety/secret-sanitizer.js';
 import { presentToolOutput, redactEgress } from '../dist/safety/tool-output-redact.js';
 
-const MAIN_CHANGED_LINE_BASELINE = 12;
+/**
+ * The 12 lines main redacts in Moss src, one file:line entry each.
+ * config-commands, remote-compaction, and pi-ai-wire-format match main
+ * 635feb1c on this tree. The two safety files are the same false matches
+ * (provider-token examples and `secret = match?.[5]`), at their current lines.
+ */
+const MAIN_REDACTED_LINES = [
+  'src/cli/config-commands.ts:816',
+  'src/cli/config-commands.ts:843',
+  'src/context/remote-compaction.ts:342',
+  'src/provider/pi-ai-wire-format.ts:114',
+  'src/provider/pi-ai-wire-format.ts:116',
+  'src/provider/pi-ai-wire-format.ts:117',
+  'src/safety/secret-sanitizer.ts:13',
+  'src/safety/secret-sanitizer.ts:45',
+  'src/safety/tool-output-redact.ts:117',
+  'src/safety/tool-output-redact.ts:474',
+  'src/safety/tool-output-redact.ts:475',
+  'src/safety/tool-output-redact.ts:556',
+];
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const GHP = 'ghp_FAKEgate0123456789abcdEF';
@@ -182,6 +202,118 @@ assert.equal(
 );
 assert.equal(redactEgress("prompt='Password: '", env), "prompt='Password: '");
 
+const strict = (text) => redactEgress(text, env, { strictSecrets: true });
+
+const yamlFold = 'password: "correct horse\n    battery staple"';
+const yamlOut = redactEgress(yamlFold, env);
+assert.equal(yamlOut.split('\n').length, yamlFold.split('\n').length);
+assert.doesNotMatch(yamlOut, /horse/);
+assert.doesNotMatch(yamlOut, /battery/);
+assert.doesNotMatch(yamlOut, /staple/);
+assert.match(yamlOut, /\[REDACTED\]/);
+
+const unclosedWords = 'password: "correct horse battery';
+const unclosedWordsOut = redactEgress(unclosedWords, env);
+assert.doesNotMatch(unclosedWordsOut, /horse/);
+assert.doesNotMatch(unclosedWordsOut, /battery/);
+const dbPassword = strict('DB_PASSWORD="correct horse battery');
+assert.doesNotMatch(dbPassword, /horse/);
+assert.doesNotMatch(dbPassword, /battery/);
+assert.match(dbPassword, /\[REDACTED\]/);
+
+const sanitizedApiKey = sanitizeSecrets("api_key='abcdef123456\nxyz'");
+assert.doesNotMatch(sanitizedApiKey, /abcdef123456/);
+
+assert.equal(strict('{"token": "sunrise"}'), '{"token": [REDACTED]}');
+assert.equal(strict('token: "sunrise"'), 'token: [REDACTED]');
+
+assert.equal(redactEgress('api_key: abc123def456', env), 'api_key: [REDACTED]');
+assert.equal(redactEgress('secret: Zq9fK2mP7x', env), 'secret: [REDACTED]');
+assert.equal(redactEgress('x-api-key: abc123def456', env), 'x-api-key: [REDACTED]');
+
+const userinfo = redactEgress('https://bob:p4ssw0rdXYZ@h/a', env);
+assert.match(userinfo, /https:\/\/bob:\[REDACTED\]@h\/a/);
+assert.doesNotMatch(userinfo, /p4ssw0rdXYZ/);
+const redis = strict('redis://:sunrise@localhost:6379');
+assert.match(redis, /redis:\/\/:\[REDACTED\]@localhost:6379/);
+assert.doesNotMatch(redis, /sunrise/);
+const robot = strict('ROBOT_LOGIN=root:sunrise@10.0.0.8');
+assert.match(robot, /root:\[REDACTED\]@10\.0\.0\.8/);
+assert.doesNotMatch(robot, /sunrise/);
+
+assert.equal(
+  redactEgress('machine h login u password sunrise', env),
+  'machine h login u password [REDACTED]'
+);
+assert.equal(redactEgress('\tpassword string', env), '\tpassword string');
+assert.equal(redactEgress('password combination.', env), 'password combination.');
+
+const sshpass = redactEgress('ProxyCommand sshpass -p r00tpw user@host', env);
+assert.match(sshpass, /sshpass -p \[REDACTED\]/);
+assert.doesNotMatch(sshpass, /r00tpw/);
+
+for (const kept of [
+  'PWD=/home/u/project',
+  'OLDPWD=/home/u',
+  'PASS=0',
+  'pass: 3',
+  '{"pass": 3, "fail": 0}',
+  "'pass' : 'fail'",
+  'pwd = os.getcwd()',
+  'password = os.getenv("DB_PASSWORD")',
+  'this.password = password',
+  'password: z.string().min(8)',
+  '{"cookie": "🍪"}',
+]) {
+  assert.equal(redactEgress(kept, env), kept, kept);
+}
+
+assert.equal(strict('PGPASS=hunter2'), 'PGPASS=[REDACTED]');
+assert.equal(strict('DBPASS=sunrise'), 'DBPASS=[REDACTED]');
+assert.equal(strict('MYSQL_PWD=sunrise'), 'MYSQL_PWD=[REDACTED]');
+assert.equal(strict('db:5432:app:bob:sunrise'), 'db:5432:app:bob:[REDACTED]');
+
+const grepPaths = presentToolOutput({
+  toolName: 'exec',
+  input: { command: 'grep -n API_TOKEN .' },
+  text: 'C:\\x\\.env:1:API_TOKEN=sunrise\nC:\\x:1:API_TOKEN=sunrise\ncredentials:12:user=bob pass=sunrise99',
+  workspaceDir: project,
+  env,
+});
+assert.equal(
+  grepPaths,
+  'C:\\x\\.env:1:API_TOKEN=[REDACTED]\nC:\\x:1:API_TOKEN=sunrise\ncredentials:12:user=bob pass=sunrise99'
+);
+const searchHit = presentToolOutput({
+  toolName: 'search_code',
+  input: { path: '.', pattern: 'DB_PASSWORD' },
+  text: '.env.local:1:DB_PASSWORD=sunrise',
+  workspaceDir: project,
+  env,
+});
+assert.equal(searchHit, '.env.local:1:DB_PASSWORD=[REDACTED]');
+
+const setCookie = redactEgress('Set-Cookie: sid=abcDEF1234567890xyz; Path=/', env);
+assert.match(setCookie, /\[REDACTED\]/);
+assert.doesNotMatch(setCookie, /abcDEF1234567890xyz/);
+const cookieLine = redactEgress('cookie: sid=abcDEF1234567890xyz', env);
+assert.match(cookieLine, /\[REDACTED\]/);
+assert.doesNotMatch(cookieLine, /abcDEF1234567890xyz/);
+const proxyAuth = redactEgress('Proxy-Authorization: Basic dXNlcjpwYXNzMTIzNA==', env);
+assert.match(proxyAuth, /\[REDACTED\]/);
+assert.doesNotMatch(proxyAuth, /dXNlcjpwYXNz/);
+const digestHeader = redactEgress(
+  'Authorization: Digest username="bob", response="abcdef0123456789WXYZ", uri="/"',
+  env
+);
+assert.doesNotMatch(digestHeader, /abcdef0123456789WXYZ/);
+const aws4 = redactEgress(
+  'Authorization: AWS4-HMAC-SHA256 Credential=AKIAFAKEGATE01234567, Signature=abcdef0123456789WXYZ',
+  env
+);
+assert.doesNotMatch(aws4, /AKIAFAKEGATE01234567/);
+assert.doesNotMatch(aws4, /abcdef0123456789WXYZ/);
+
 function walk(dir) {
   const out = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -192,36 +324,33 @@ function walk(dir) {
   return out;
 }
 
-function changedLines(input, output) {
-  const before = input.split('\n');
-  const after = output.split('\n');
-  const width = Math.max(before.length, after.length);
-  let count = 0;
-  for (let i = 0; i < width; i += 1) {
-    if (before[i] !== after[i]) count += 1;
-  }
-  return count;
-}
-
 const corpus = [
   ...walk(path.join(ROOT, 'src')).filter((file) => file.endsWith('.ts')),
   ...walk(path.join(ROOT, 'test', 'fixtures', 'redaction-gate')),
 ];
-let changed = 0;
+const changed = [];
 for (const file of corpus) {
   const input = fs.readFileSync(file, 'utf8');
   if (input.includes('\0') || input.length > 200_000) continue;
   const output = redactEgress(input, env);
+  const rel = path.relative(ROOT, file).split(path.sep).join('/');
   assert.equal(
     output.split('\n').length,
     input.split('\n').length,
-    `${path.relative(ROOT, file)} changed the line count`
+    `${rel} changed the line count`
   );
-  changed += changedLines(input, output);
+  const before = input.split('\n');
+  const after = output.split('\n');
+  for (let i = 0; i < before.length; i += 1) {
+    if (before[i] !== after[i]) changed.push(`${rel}:${i + 1}`);
+  }
 }
-assert.ok(
-  changed <= MAIN_CHANGED_LINE_BASELINE,
-  `redacted ${changed} lines, baseline is ${MAIN_CHANGED_LINE_BASELINE}`
+const srcChanged = changed.filter((entry) => entry.startsWith('src/'));
+assert.deepEqual(srcChanged, MAIN_REDACTED_LINES);
+assert.deepEqual(
+  changed.filter((entry) => !entry.startsWith('src/')),
+  [],
+  'checked-in samples are not secrets'
 );
 
 const ctx = () => ({
@@ -296,6 +425,30 @@ assert.match(secretAfter, new RegExp(PASSWORD));
 assert.match(secretAfter, /still-here-token/);
 assert.match(secretAfter, /\/\/ kept/);
 
+const credRel = 'src/cli/env-credentials.ts';
+const credSrc = fs.readFileSync(path.join(ROOT, credRel), 'utf8');
+fs.mkdirSync(path.dirname(path.join(project, credRel)), { recursive: true });
+fs.writeFileSync(path.join(project, credRel), credSrc);
+const credRead = await readFileTool.execute({ path: credRel }, ctx());
+const credView = presentToolOutput({
+  toolName: 'read_file',
+  input: { path: credRel },
+  text: String(credRead),
+  workspaceDir: project,
+  env,
+});
+const credBody = modelBody(credView);
+const credSrcLines = credSrc.split('\n');
+const credViewLines = credBody.split('\n');
+assert.equal(credViewLines.length, credSrcLines.length);
+for (let i = 0; i < credSrcLines.length; i += 1) {
+  assert.equal(credViewLines[i], credSrcLines[i], `${credRel}:${i + 1}`);
+}
+const credWrite = await writeFileTool.execute({ path: credRel, content: credBody }, ctx());
+assert.match(String(credWrite), /Successfully wrote/);
+assert.equal(fs.readFileSync(path.join(project, credRel), 'utf8'), credSrc);
+assert.equal(fs.readFileSync(path.join(ROOT, credRel), 'utf8'), credSrc);
+
 console.log(
-  `[PASS] redaction gate (leak set, ${changed} changed lines <= ${MAIN_CHANGED_LINE_BASELINE}, write-back)`
+  `[PASS] redaction gate (leak set, ${srcChanged.length} allow-listed lines, write-back)`
 );

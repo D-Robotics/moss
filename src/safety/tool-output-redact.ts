@@ -12,9 +12,12 @@
  * `${VAR}`, `$VAR`, `***`, `xxx`. Short `user:pass@` and ≥20-character
  * high-entropy values are redacted too. Grep / search hits are judged from
  * the `path:line:` prefix. A netrc password needs `machine` or `login` on
- * the same line. A quoted value stays on one line. `.apikey-key` bytes are
- * withheld before that decision. `Authorization` accepts `Bearer`, `Basic`,
- * `Token`, and `Digest`. `cookie` is a secret field.
+ * the same line. A quoted value stays on one line; an unclosed quote masks
+ * through the end of that line, and up to three deeper-indented continuation
+ * lines are masked when they hold the closer. `.apikey-key` bytes are
+ * withheld before that decision. `Authorization` and `cookie` headers mask
+ * through the end of the line (`Bearer`, `Basic`, `Token`, `Digest`,
+ * `Proxy-Authorization`, `Set-Cookie`). `sshpass -p` masks its password.
  */
 import {
   CREDENTIAL_WITHHELD,
@@ -28,12 +31,13 @@ import { bindRedactEgress } from './redact-bind.js';
 import {
   AUTH_SCHEME_VALUE,
   FIELD_BOUNDARY,
+  quoteOpensValue,
   REDACTED,
   SECRET_FIELD_SOURCE,
 } from './redact-patterns.js';
 import { redactNumberedText, redactPemBlocks, redactUnclosedPrivateKey } from './redact-pem.js';
 import { resolveReadPath } from './read-scope.js';
-import { sanitizeSecrets } from './secret-sanitizer.js';
+import { maskIndentedQuoteContinuations, sanitizeSecrets } from './secret-sanitizer.js';
 
 export { isCredentialLikePath, targetsCredentialFile } from './credential-path.js';
 export { OPEN_SECRET_PREFIX, REDACTED, SECRET_FIELD_SOURCE } from './redact-patterns.js';
@@ -155,10 +159,8 @@ function isHighEntropyToken(value: string): boolean {
  * password values. Identifiers, calls, types, keywords, numbers, and
  * `ALPHA-7741` stay. Exact-match redaction of known secret values is separate.
  */
-const AUTH_PAYLOAD = /^(?:Bearer|Basic|Token|Digest)[ \t]+(\S+)/i;
-
 function shouldRedactAssignedValue(value: string): boolean {
-  const payload = AUTH_PAYLOAD.exec(value)?.[1];
+  const payload = AUTH_SCHEME_VALUE.exec(value)?.[1];
   if (payload && (isPlaceholder(payload) || isSyntacticSecretPlaceholder(payload))) return false;
   if (isPlaceholder(value)) return false;
   if (
@@ -247,24 +249,11 @@ interface AssignedSpan {
   quoted: boolean;
 }
 
-/**
- * Even count of the same quote on this line (escapes skipped) means `openAt`
- * starts a value. An odd count means the key itself sits inside a string
- * (`prompt='Password: '`, `"Password: " + name`) and this quote closes it.
- */
-function quoteOpensValue(text: string, openAt: number): boolean {
-  const quote = text[openAt];
-  if (quote !== '"' && quote !== "'") return false;
-  const lineStart = text.lastIndexOf('\n', Math.max(0, openAt - 1)) + 1;
-  let count = 0;
-  for (let i = lineStart; i < openAt; i += 1) {
-    if (text[i] === '\\') {
-      i += 1;
-      continue;
-    }
-    if (text[i] === quote) count += 1;
-  }
-  return count % 2 === 0;
+/** Index of the line break after `index`, or the end of the text. The break stays outside. */
+function lineEndFrom(text: string, index: number): number {
+  const nl = text.indexOf('\n', index);
+  const end = nl === -1 ? text.length : nl;
+  return end > index && text[end - 1] === '\r' ? end - 1 : end;
 }
 
 /**
@@ -296,6 +285,31 @@ function isAuthField(name: string): boolean {
   return /^(?:authorization|bearer|cookie)$/i.test(name);
 }
 
+/** Shell and template expressions are code, not a header secret. */
+function headerLooksLikeCode(value: string): boolean {
+  if (value.includes('${') || value.includes('$(')) return true;
+  return isSourceExpression(value) || isPlaceholder(value);
+}
+
+/**
+ * The secret name is the header itself (`Authorization:`, `Set-Cookie:`,
+ * `Proxy-Authorization:`), not a mention later in a sentence.
+ */
+function authHeaderAtLineStart(text: string, valueAt: number): boolean {
+  const lineStart = text.lastIndexOf('\n', Math.max(0, valueAt - 1)) + 1;
+  const prefix = text.slice(lineStart, valueAt);
+  return (
+    /^\s*(?:set-|proxy-)?$/i.test(prefix) ||
+    /^\s*(?:set-|proxy-)?(?:authorization|bearer|cookie)[ \t]*[:=][ \t]*$/i.test(prefix)
+  );
+}
+
+/** A real Authorization / Cookie header: mask through the end of the line. */
+function headerLooksLikeSecret(value: string): boolean {
+  if (!value || headerLooksLikeCode(value)) return false;
+  return shouldRedactAssignedValue(value);
+}
+
 function readAssignedValue(text: string, at: number, name: string): AssignedSpan | null {
   let i = at;
   while (i < text.length && (text[i] === ' ' || text[i] === '\t')) i += 1;
@@ -305,13 +319,19 @@ function readAssignedValue(text: string, at: number, name: string): AssignedSpan
     if (!quoteOpensValue(text, i)) return null;
     const quoted = scanQuoted(text, i);
     if (quoted) return { end: quoted.end, value: quoted.inner, sepExtra: ws, quoted: true };
-    const bare = BARE_VALUE.exec(text.slice(i + 1));
-    if (!bare?.[0]) return null;
-    return { end: i + 1 + bare[0].length, value: bare[0], sepExtra: ws + ch, quoted: false };
+    const end = lineEndFrom(text, i + 1);
+    const value = text.slice(i + 1, end);
+    if (!value) return null;
+    return { end, value, sepExtra: ws, quoted: true };
   }
   if (isAuthField(name)) {
-    const scheme = AUTH_SCHEME_VALUE.exec(text.slice(i));
-    if (scheme?.[0]) {
+    const end = lineEndFrom(text, i);
+    const header = text.slice(i, end);
+    if (header && authHeaderAtLineStart(text, i) && headerLooksLikeSecret(header)) {
+      return { end, value: header, sepExtra: ws, quoted: false };
+    }
+    const scheme = AUTH_SCHEME_VALUE.exec(header);
+    if (scheme?.[0] && !headerLooksLikeCode(scheme[0])) {
       return { end: i + scheme[0].length, value: scheme[0], sepExtra: ws, quoted: false };
     }
   }
@@ -377,8 +397,16 @@ function redactNumberedToolOutput(
   return redactNumberedText(text, (body) => redactEgress(body, env, { strictSecrets: strictFile }));
 }
 
+function redactSshpass(text: string): string {
+  return text.replace(/\bsshpass(\s+-p\s+)(\S+)/gi, (full, sep: string, value: string) => {
+    if (!value || isSyntacticSecretPlaceholder(value)) return full;
+    return `sshpass${sep}${REDACTED}`;
+  });
+}
+
 function redactAssignments(text: string, strictFile: boolean): string {
-  return forEachAssignment(text, (hit) => {
+  const continued = maskIndentedQuoteContinuations(text);
+  return forEachAssignment(continued, (hit) => {
     if (!shouldRedactAssignment(hit, strictFile)) return undefined;
     return `${hit.name}${hit.sep}${REDACTED}`;
   });
@@ -561,6 +589,7 @@ export function redactEgress(
   out = redactUrlSecrets(out);
   if (strictFile) out = redactStrictCredentialShapes(out);
   out = redactAssignments(out, strictFile);
+  out = redactSshpass(out);
   out = redactNetrcPasswords(out, strictFile);
   out = redactDockerAuth(out);
   out = redactStandalone(out);
