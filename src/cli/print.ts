@@ -97,7 +97,10 @@ export type HeadlessLlmUsageEvent = {
   ttft_ms?: number;
   generation_ms?: number;
   turn_gap_ms?: number;
+  /** Routed or configured id. Pricing keys off this name. */
   model?: string;
+  /** Gateway id for display. Pricing stays on `model`. */
+  served_model?: string;
 };
 
 export type HeadlessCacheMetricsEvent = {
@@ -174,7 +177,10 @@ export interface HeadlessInitInput {
 
 export interface HeadlessPrintState {
   readonly sessionId: string;
-  readonly model?: string;
+  /** Configured id. Pricing keys off this name. */
+  model?: string;
+  /** Gateway id from the latest usage event. Recorded on the assistant message, not priced. */
+  servedModel?: string;
   readonly startTime: number;
   pendingAssistantText: string;
   pendingAssistantThinking: string[];
@@ -371,7 +377,9 @@ function flushAssistant(
     message.thinking = state.pendingAssistantThinking.map(redactText);
     state.pendingAssistantThinking = [];
   }
-  if (state.model) message.model = state.model;
+  const recordedModel = state.servedModel || state.model;
+  if (state.servedModel) state.servedModel = undefined;
+  if (recordedModel) message.model = recordedModel;
   return [{ type: 'assistant', message, session_id: state.sessionId }];
 }
 
@@ -504,6 +512,10 @@ export function formatHeadlessStreamEvent(
       if (event.generationMs !== undefined) usage.generation_ms = event.generationMs;
       if (event.turnGapMs !== undefined) usage.turn_gap_ms = event.turnGapMs;
       if (event.model !== undefined) usage.model = event.model;
+      if (event.servedModel) {
+        usage.served_model = event.servedModel;
+        state.servedModel = event.servedModel;
+      }
       state.usageSlices.push({
         ...(event.model?.trim()
           ? { model: event.model.trim() }

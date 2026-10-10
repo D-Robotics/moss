@@ -24,6 +24,8 @@ export interface PiAiStreamEvent {
   };
   usage?: { input: number; output: number };
   stopReason?: string;
+  /** Model id from the gateway response body, when the provider sent one. */
+  responseModel?: string;
 
   reason?: string;
   thinking?: string;

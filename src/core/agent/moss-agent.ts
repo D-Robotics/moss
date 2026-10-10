@@ -149,9 +149,15 @@ export class MossAgent {
   private readonly approvedPreflightController = new ApprovedPreflightController();
   /** Sub-agent schemas stay off the wire until `tool_search` reveals them. */
   private readonly deferredTools = new DeferredToolOffer();
+  /** Model id from the latest gateway response body, when the provider sent one. */
+  private gatewayReportedModel: string | undefined;
 
   constructor(config: MossAgentConfig) {
     this.config = config;
+    const startupModel = config.model?.trim();
+    if (config.identityFactory && startupModel) {
+      this.config.baseSystemPrompt = config.identityFactory(startupModel);
+    }
     this.ownsAsyncTaskRegistry = config.asyncTaskRegistry === undefined;
     this.tools = new ToolRegistry();
     this.commandQueues = new CommandQueueRegistry();
@@ -211,6 +217,47 @@ export class MossAgent {
       }
     );
     return this.closePromise;
+  }
+
+  /**
+   * Model id the last gateway response reported, when that response included
+   * one. Cleared by {@link switchModel} until the next reply arrives.
+   */
+  reportedModel(): string | undefined {
+    return this.gatewayReportedModel;
+  }
+
+  /**
+   * Point the agent at another model and rebuild the persona prompt from
+   * `identityFactory` when one was configured. Every host switch (TUI `/model`,
+   * REPL, setup save) goes through here so the system prompt cannot keep the
+   * startup model.
+   */
+  switchModel(next: {
+    model: string;
+    provider?: string;
+    baseUrl?: string;
+    llmProvider: MossAgentConfig['llmProvider'];
+    usingBundledDefault?: boolean;
+  }): void {
+    const model = next.model.trim();
+    if (!model) {
+      throw new MossError({
+        code: ErrorCode.USER_INPUT_INVALID,
+        message: 'switchModel requires a model id',
+      });
+    }
+    this.config.model = model;
+    if (next.provider !== undefined) this.config.provider = next.provider;
+    if (next.baseUrl !== undefined) this.config.baseUrl = next.baseUrl;
+    this.config.llmProvider = next.llmProvider;
+    if (next.usingBundledDefault !== undefined) {
+      this.config.usingBundledDefault = next.usingBundledDefault;
+    }
+    this.gatewayReportedModel = undefined;
+    if (this.config.identityFactory) {
+      this.config.baseSystemPrompt = this.config.identityFactory(model);
+    }
   }
 
   private assertOpen(): void {
@@ -972,6 +1019,8 @@ ${result.stderr ?? ''}`.trim();
         });
       },
       onResponse: (response) => {
+        const reported = response.model?.trim();
+        if (reported) this.gatewayReportedModel = reported;
         hooks?.onLLMResponseEnd?.(response);
       },
       onError: async (error) => {

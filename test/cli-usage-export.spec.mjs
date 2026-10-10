@@ -56,7 +56,10 @@ function makeCtx({ messages = [], usageSummary = undefined }) {
   const said = [];
   return {
     ctx: {
-      agent: { config: { sessionStore: store, contextTokens: 1000, model: 'test-model' } },
+      agent: {
+        reportedModel: () => undefined,
+        config: { sessionStore: store, contextTokens: 1000, model: 'test-model' },
+      },
       runtime: undefined,
       sessionKey: 's1',
       workspace: process.cwd(),

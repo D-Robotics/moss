@@ -38,7 +38,7 @@ import {
   unavailableModelNote,
 } from './model-catalog.js';
 import { writePreferredModel } from './preferred-model-store.js';
-import { createCliProvider } from './providers.js';
+import { createCliProvider, normalizeProviderForRuntime } from './providers.js';
 import { runOneShot } from './oneshot.js';
 import { messageRequestsTaskContract } from './task-flow.js';
 import { createSessionUsageAccumulator } from './session-usage.js';
@@ -95,14 +95,17 @@ function applyCustomModelConfigForRepl(
   }
 
   currentModel = nextConfig.model;
-  agent.config.model = nextConfig.model;
-  (agent.config as { provider?: string; baseUrl?: string }).provider = nextConfig.provider;
-  (agent.config as { provider?: string; baseUrl?: string }).baseUrl = nextConfig.baseUrl;
-  agent.config.llmProvider = createCliProvider({
-    provider: nextConfig.provider,
-    apiKey: nextConfig.apiKey,
+  agent.switchModel({
     model: nextConfig.model,
+    provider: nextConfig.provider,
     baseUrl: nextConfig.baseUrl,
+    llmProvider: createCliProvider({
+      provider: nextConfig.provider,
+      apiKey: nextConfig.apiKey,
+      model: nextConfig.model,
+      baseUrl: nextConfig.baseUrl,
+    }),
+    usingBundledDefault: false,
   });
 
   // Probe the new model's context window so compaction and display reflect the
@@ -513,14 +516,52 @@ export async function runInteractive(
         }
         const selected = services.models.resolveModelSelection(newModel, modelChoices.choices);
         const model = selected?.model ?? newModel;
+        const provider = normalizeProviderForRuntime(
+          selected?.provider ??
+            agent.config.provider ??
+            modelChoices.provider ??
+            runtime?.config?.provider ??
+            'openai-compatible'
+        );
+        const baseUrl = runtime?.config?.baseUrl || agent.config.baseUrl || '';
+        const apiKey = runtime?.config ? runtime.config.apiKey : '';
+        const usingBundledDefault =
+          runtime?.config?.usingBundledDefault ?? agent.config.usingBundledDefault;
         currentModel = model;
-        agent.config.model = model;
+        agent.switchModel({
+          model,
+          provider,
+          ...(baseUrl ? { baseUrl } : {}),
+          llmProvider: createCliProvider({
+            provider,
+            apiKey,
+            model,
+            baseUrl,
+            ...(usingBundledDefault ? { usingBundledDefault: true } : {}),
+          }),
+          ...(usingBundledDefault !== undefined ? { usingBundledDefault } : {}),
+        });
         if (runtime?.config) {
           runtime.config.model = model;
           runtime.config.modelSource = 'cli';
 
           writePreferredModel(runtime.config.baseUrl, model);
         }
+        void (async () => {
+          try {
+            const detected = await resolveContextTokensForModel({
+              model,
+              ...(baseUrl ? { baseUrl } : {}),
+              ...(apiKey ? { apiKey } : {}),
+              provider,
+              timeoutMs: 4000,
+            });
+            agent.config.contextTokens = detected.contextTokens;
+            if (runtime?.config) runtime.config.contextTokens = detected.contextTokens;
+          } catch {
+            // Best-effort — the name-matching fallback already ran during config load.
+          }
+        })();
         console.error(
           selected
             ? `[config] Model switched to: ${model} (${modelChoices.provider})`

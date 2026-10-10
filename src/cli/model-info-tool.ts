@@ -1,6 +1,10 @@
 import type { LLMProvider } from '../core/llm/llm-provider.js';
 import type { Tool } from '../core/tools/tool-types.js';
-import { resolveRealModel, type RealModelConfigView } from './model-resolution.js';
+import {
+  reportedModelMatchesConfigured,
+  resolveRealModel,
+  type RealModelConfigView,
+} from './model-resolution.js';
 
 export function createModelInfoTool(deps: {
   provider: () => Pick<LLMProvider, 'complete'>;
@@ -9,6 +13,8 @@ export function createModelInfoTool(deps: {
   getContextTokens?: () => number | undefined;
   /** Dynamic getter for the current max output tokens (derived from context window or user-pinned). */
   getMaxOutputTokens?: () => number | undefined;
+  /** Model id from the latest gateway response, when the provider sent one. */
+  getReportedModel?: () => string | undefined;
 }): Tool {
   return {
     name: 'current_model',
@@ -34,13 +40,18 @@ export function createModelInfoTool(deps: {
         maxOut && maxOut > 0
           ? ` Max output per response: ${(maxOut / 1000).toFixed(0)}k tokens.`
           : '';
-      if (real) {
-        return config.usingBundledDefault
-          ? `Underlying model: ${real} (served via the built-in model gateway).${ctxLine}${outLine}`
-          : `Underlying model: ${real}.${ctxLine}${outLine}`;
-      }
+      const configured = config.model?.trim();
+      const reported = deps.getReportedModel?.()?.trim();
       if (config.usingBundledDefault) {
-        return `Running on the built-in model gateway; the exact backing model could not be confirmed right now (the gateway is unreachable or did not report it). Try again shortly.${ctxLine}${outLine}`;
+        return real
+          ? `Underlying model: ${real} (served via the built-in model gateway).${ctxLine}${outLine}`
+          : `Running on the built-in model gateway; the exact backing model could not be confirmed right now (the gateway is unreachable or did not report it). Try again shortly.${ctxLine}${outLine}`;
+      }
+      if (reported && configured && !reportedModelMatchesConfigured(configured, reported)) {
+        return `Underlying model: configured ${configured}, gateway reported ${reported}.${ctxLine}${outLine}`;
+      }
+      if (real) {
+        return `Underlying model: ${real}.${ctxLine}${outLine}`;
       }
       return config.model
         ? `Underlying model: ${config.model}.${ctxLine}${outLine}`

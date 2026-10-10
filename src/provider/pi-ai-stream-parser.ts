@@ -68,6 +68,8 @@ export function processEvent(
 ): {
   stopReason?: LLMResponse['stopReason'];
   usage?: NonNullable<LLMResponse['usage']>;
+  /** Gateway-reported model id from the done/result event, when present. */
+  model?: string;
 } {
   const t = event.type;
 
@@ -156,10 +158,12 @@ export function processEvent(
 
     const hasToolUse = content.some((b) => b.type === 'tool_use');
     const stopReasonOut: LLMResponse['stopReason'] = hasToolUse ? 'tool_use' : mapped;
+    const reported = event.responseModel?.trim();
 
     return {
       stopReason: stopReasonOut,
       usage: mapPiUsage(evtUsage),
+      ...(reported ? { model: reported } : {}),
     };
   } else if (
     t === 'start' ||

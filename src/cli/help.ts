@@ -1,6 +1,6 @@
 import { resolveConfigPath } from './config.js';
 import { REPL_COMMAND_SECTIONS } from './interactive-commands.js';
-import { getPackageVersion } from './package-info.js';
+import { formatVersionLine, getPackageVersion, readBuildStamp } from './package-info.js';
 import { isZhLocale } from './cli-locale.js';
 import { tui } from './tui/copy.js';
 import { workspaceWriteLimit } from './workspace-write-copy.js';
@@ -199,8 +199,11 @@ export function displayHelp(c: Colors, options: { all?: boolean } = {}): void {
 
 export function displayVersion(c: Colors): void {
   const version = getPackageVersion();
-  console.log(
-    `${c.bold('moss')} ${version === 'unknown' ? c.dim('(unknown version)') : c.cyan(`v${version}`)}`
-  );
+  if (version === 'unknown') {
+    console.log(`${c.bold('moss')} ${c.dim('(unknown version)')}`);
+    process.exit(0);
+  }
+  const rest = formatVersionLine(version, readBuildStamp()).slice('moss '.length);
+  console.log(`${c.bold('moss')} ${c.cyan(rest)}`);
   process.exit(0);
 }

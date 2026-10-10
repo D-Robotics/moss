@@ -74,6 +74,14 @@ export interface ToolExecutionConfig {
 export interface PromptConfig {
   baseSystemPrompt?: string;
 
+  /**
+   * Rebuilds {@link baseSystemPrompt} for the model that will serve the next
+   * turn. When this is set it overrides `baseSystemPrompt`: the constructor
+   * and every `switchModel` replace that string with `identityFactory(model)`.
+   * Omit it to keep the `baseSystemPrompt` you passed.
+   */
+  identityFactory?: (model: string) => string;
+
   domainPrompt?: (() => string) | false;
 
   extraPromptLayers?: string[];
@@ -134,6 +142,15 @@ export interface PromptCacheConfig {
 export interface MossAgentConfig
   extends ProviderConfig, ContextManagementConfig, ToolExecutionConfig, PromptConfig {
   sessionStore: SessionStore;
+
+  /** Host provider id (`deepseek`, `openai-compatible`, …). Updated by `switchModel`. */
+  provider?: string;
+
+  /** Gateway base URL. Updated by `switchModel`. */
+  baseUrl?: string;
+
+  /** True while the bundled Moss gateway is the active endpoint. */
+  usingBundledDefault?: boolean;
 
   workspaceDir?: string;
 
@@ -351,7 +368,10 @@ export type MossAgentEvent =
       ttftMs?: number;
       generationMs?: number;
       turnGapMs?: number;
+      /** Routed or configured id. Pricing keys off this name. */
       model?: string;
+      /** Gateway-reported id for display and session records. Not a price key. */
+      servedModel?: string;
     }
   | {
       type: 'cache_metrics';

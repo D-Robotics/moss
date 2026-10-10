@@ -600,6 +600,8 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
           Number(event.cacheReadTokens ?? 0) +
           Number(event.cacheCreationTokens ?? 0);
       }
+      // Price and the status fallback use the routed/configured name. The
+      // gateway id (`servedModel`) is for display and session records.
       if (event.model?.trim()) store.usage.lastModel = event.model.trim();
       const model = event.model?.trim() || store.usage.sessionModel;
       store.usage.slices.push({

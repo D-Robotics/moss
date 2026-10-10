@@ -90,6 +90,21 @@ function mockAgent() {
         ],
       },
     },
+    reportedModel() {
+      return undefined;
+    },
+    switchModel(next) {
+      this.config.model = next.model;
+      if (next.provider !== undefined) this.config.provider = next.provider;
+      if (next.baseUrl !== undefined) this.config.baseUrl = next.baseUrl;
+      this.config.llmProvider = next.llmProvider;
+      if (next.usingBundledDefault !== undefined) {
+        this.config.usingBundledDefault = next.usingBundledDefault;
+      }
+      if (typeof this.config.identityFactory === 'function') {
+        this.config.baseSystemPrompt = this.config.identityFactory(next.model);
+      }
+    },
     tools: { getAll: () => [], getNames: () => [], size: 0 },
     async *streamChat(_sessionKey, message) {
       calls.stream.push(message);
