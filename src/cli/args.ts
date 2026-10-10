@@ -9,6 +9,7 @@ import {
   type CliConfigOverrides,
 } from './config.js';
 import type { CliInteractionMode, CliSafetyMode } from './approval.js';
+import { uiText } from './cli-locale.js';
 
 export type CliCommand =
   | 'chat'
@@ -67,6 +68,8 @@ export interface ParsedCliArgs {
   interactiveOnlyCommand?: string;
 
   unknownOption?: string;
+  /** `--lang en|zh`. Wins over `MOSS_LANG`, user config, and the system locale. */
+  lang?: 'en' | 'zh';
   rawArgv: string[];
 }
 
@@ -309,7 +312,8 @@ function flagConsumesNext(arg: string): boolean {
     arg === '--detail' ||
     arg === '--output-format' ||
     arg === '--max-turns' ||
-    arg === '--log-level'
+    arg === '--log-level' ||
+    arg === '--lang'
   );
 }
 
@@ -350,6 +354,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let promptOnly = false;
 
   let unknownOption: string | undefined;
+  let lang: 'en' | 'zh' | undefined;
 
   const requestSafety = (mode: CliSafetyMode, flag: string): void => {
     if (safetyModeOverride !== undefined && safetyModeOverride !== mode) {
@@ -454,6 +459,21 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     }
     if (arg === '--log-level' || arg.startsWith('--log-level=')) {
       const parsed = readValue(argv, i, arg);
+      i = parsed.nextIndex;
+      continue;
+    }
+    if (arg === '--lang' || arg.startsWith('--lang=')) {
+      const parsed = readValue(argv, i, arg);
+      const value = parsed.value.trim().toLowerCase();
+      if (value !== 'en' && value !== 'zh') {
+        throw new Error(
+          uiText(
+            `--lang must be en|zh, got "${parsed.value}"`,
+            `--lang 只能是 en 或 zh，收到「${parsed.value}」。`
+          )
+        );
+      }
+      lang = value;
       i = parsed.nextIndex;
       continue;
     }
@@ -667,6 +687,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
     unknownCommand,
     interactiveOnlyCommand,
     unknownOption,
+    lang,
     rawArgv: argv,
   };
 }

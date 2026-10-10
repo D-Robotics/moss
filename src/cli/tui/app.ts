@@ -33,6 +33,8 @@ import { planGateEnabled } from '../../tools/plan-gate.js';
 import {
   TaskRuntime,
   formatDeploymentLine,
+  formatEvidenceCardLine,
+  formatTaskSummaryLine,
   isGoalResumeCandidate,
 } from '../../core/task-runtime/runtime.js';
 import { errorMessage } from '../../errors.js';
@@ -66,7 +68,7 @@ import {
 import { formatBackgroundCompletionFlash } from '../background-completion-ui.js';
 import { redactEgress } from '../../safety/tool-output-redact.js';
 import { formatMcpStatusLine } from '../rdk-docs-mcp.js';
-import { isZhLocale } from '../cli-locale.js';
+import { hasSessionUiOverride, isZhLocale } from '../cli-locale.js';
 import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
 import { setCliApprovalAsker } from '../approval.js';
 import { wrapApprovalAsker, wrapApprovalViewAsker } from '../permission-request.js';
@@ -421,7 +423,7 @@ export function TuiAppRoot({
   // Part B: pin moss's own chrome to the locale the host resolved. Idempotent,
   // so running it on every render is fine; the environment is only the fallback
   // and the host's explicit `locale` is authoritative.
-  setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
+  setTuiLocale(hasSessionUiOverride() ? isZhLocale() : isZhLocale(options.locale ?? cliLocale()));
   const composerProjectKind = useMemo(
     (): ComposerProjectKind =>
       detectComposerProjectKind({
@@ -1161,14 +1163,14 @@ export function TuiAppRoot({
         .sort((a, b) => b.updatedAt - a.updatedAt)[0];
       if (!decided) return;
       const short = decided.taskId.slice(-6);
-      const criteria = `${decided.criteriaMet}/${decided.criteriaTotal} criteria`;
+      const criteria = `${decided.criteriaMet}/${decided.criteriaTotal}`;
       // The verdict token (PASS/FAIL), task id and recover command stay raw.
       appendRow(
         store,
         'summary',
         decided.result === 'PASS'
-          ? tui('◇ task {id} — PASS ({criteria} met)', { id: short, criteria })
-          : tui('◇ task {id} — FAIL ({criteria} met) · /task resume {task} to repair', {
+          ? tui('◇ task {id} — PASS ({criteria} criteria met)', { id: short, criteria })
+          : tui('◇ task {id} — FAIL ({criteria} criteria met) · /task resume {task} to repair', {
               id: short,
               criteria,
               task: decided.taskId,
@@ -1387,37 +1389,25 @@ export function TuiAppRoot({
       if (action === 'tasks') {
         const summaries = runtime.taskSummaries();
         printBlock(
-          `Tasks (${summaries.length})`,
-          summaries.map(
-            (s) =>
-              `${s.kind.toUpperCase().padEnd(8)} ${
-                s.result === 'ABORTED'
-                  ? 'ABORTED'
-                  : `${(s.result ?? s.state).padEnd(10)} ${s.criteriaMet}/${s.criteriaTotal} ${tui('met')}`
-              }  ${s.goal}` +
-              (s.blockedReason
-                ? `\n         ${tui('blocked: {reason}', { reason: s.blockedReason })}`
-                : '')
-          )
+          tui('Tasks ({count})', { count: summaries.length }),
+          summaries.map((s) => formatTaskSummaryLine(s))
         );
         return;
       }
       if (action === 'evidence') {
         const records = runtime.getArtifacts().evidence;
         printBlock(
-          `Evidence (${records.length})`,
-          records.map(
-            (r) =>
-              `${r.result.toUpperCase().padEnd(5)} ${r.metric} = ${r.observed ?? '?'}${
-                r.expected ? ` (want ${r.expected})` : ''
-              }`
-          )
+          tui('Evidence ({count})', { count: records.length }),
+          records.map((r) => formatEvidenceCardLine(r))
         );
         return;
       }
       if (action === 'deployments') {
         const deployments = runtime.getArtifacts().deployments;
-        printBlock(`Deployments (${deployments.length})`, deployments.map(formatDeploymentLine));
+        printBlock(
+          tui('Deployments ({count})', { count: deployments.length }),
+          deployments.map(formatDeploymentLine)
+        );
         return;
       }
       if (action === 'history') {
@@ -1426,7 +1416,7 @@ export function TuiAppRoot({
           .map((s) => runtime.taskDetail(s.taskId))
           .filter((d): d is NonNullable<typeof d> => Boolean(d));
         printBlock(
-          `History (${details.length})`,
+          tui('History ({count})', { count: details.length }),
           details.flatMap((d) => [
             `${d.summary.taskId}`,
             ...d.history.slice(-6).map((entry) => `  ${entry.kind.padEnd(11)} ${entry.label}`),
@@ -1440,7 +1430,7 @@ export function TuiAppRoot({
           .map((s) => runtime.taskDetail(s.taskId))
           .filter((d): d is NonNullable<typeof d> => Boolean(d?.failure));
         printBlock(
-          `Failures (${details.length})`,
+          tui('Failures ({count})', { count: details.length }),
           details.flatMap((d) => [
             `${d.summary.taskId}: ${d.failure?.headline ?? ''}`,
             ...collectStrings(d.failure?.items.map((i) => `  ${i.label}`) ?? []),
@@ -3689,7 +3679,9 @@ export function TuiAppRoot({
         line(rule(columns)),
         line(
           clip(
-            `  Select model · ${modelPicker.choices.choices.length} available · ↑↓ move · Enter choose · Esc close`,
+            tui('  Select model · {count} available · ↑↓ move · Enter choose · Esc close', {
+              count: modelPicker.choices.choices.length,
+            }),
             columns
           ),
           { dim: true }
@@ -3707,7 +3699,7 @@ export function TuiAppRoot({
             );
           }),
         ...(modelPicker.choices.choices.length > 8
-          ? [line(clip('  … type /model <name> for any other model', columns), { dim: true })]
+          ? [line(clip(tui('  … type /model <name> for any other model'), columns), { dim: true })]
           : []),
       ]
     : [];
@@ -4192,7 +4184,7 @@ function stdouts(stdout: { columns?: number } | undefined): number {
 /** Boot the TUI; resolves when the user quits. TTY-only entry point. */
 export async function runTuiApp(options: TuiAppOptions): Promise<void> {
   installTerminalRestore();
-  setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
+  setTuiLocale(hasSessionUiOverride() ? isZhLocale() : isZhLocale(options.locale ?? cliLocale()));
   setTuiTheme(detectTheme(process.env));
   const choice = selectTuiRenderer({
     env: process.env,

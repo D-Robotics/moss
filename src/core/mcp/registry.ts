@@ -15,6 +15,7 @@
 import type { Tool, ToolContext } from '../tools/tool-types.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import { getRootLogger } from '../../logger.js';
+import { uiText } from '../../utils/ui-language.js';
 import { McpClient } from './client.js';
 import type { McpServerConfig, McpToolCallResult, McpToolDescriptor } from './types.js';
 
@@ -208,12 +209,13 @@ export class McpToolRegistry {
       log.debug('server connected', { server: entry.config.name, tools: tools.length });
     } catch (err) {
       entry.status.state = 'failed';
-      entry.status.error = errorMessage(err).split('\n')[0] ?? 'connection failed';
+      entry.status.error =
+        errorMessage(err).split('\n')[0] ?? uiText('connection failed', '连接失败');
       // A transport can fail after the child was successfully spawned (for
       // example, handshake or tools/list timeout). Reap it immediately rather
       // than leaving an idle npx process alive until the CLI exits.
       await entry.client.close().catch(() => undefined);
-      log.warn('server connect failed', {
+      log.warn(uiText('server connect failed', 'MCP 服务器连接失败'), {
         server: entry.config.name,
         error: entry.status.error,
       });
@@ -221,7 +223,7 @@ export class McpToolRegistry {
     try {
       this.onStatusChange?.({ ...entry.status });
     } catch (err) {
-      log.warn('status callback failed', {
+      log.warn(uiText('status callback failed', 'MCP 状态回调失败'), {
         server: entry.config.name,
         error: errorMessage(err),
       });
@@ -277,12 +279,16 @@ export class McpToolRegistry {
       entry.status.state = 'connected';
       entry.status.toolCount = this.exposedToolCount(entry);
       entry.reconnectAttempts = 0;
-      log.info('server reconnected', { server: entry.config.name });
+      log.info(uiText('server reconnected', 'MCP 服务器已重连'), { server: entry.config.name });
       return true;
     } catch (err) {
       entry.status.state = 'failed';
-      entry.status.error = errorMessage(err).split('\n')[0] ?? 'reconnect failed';
-      log.warn('server reconnect failed', { server: entry.config.name, error: entry.status.error });
+      entry.status.error =
+        errorMessage(err).split('\n')[0] ?? uiText('reconnect failed', '重连失败');
+      log.warn(uiText('server reconnect failed', 'MCP 服务器重连失败'), {
+        server: entry.config.name,
+        error: entry.status.error,
+      });
       return false;
     }
   }
@@ -494,8 +500,14 @@ export class McpToolRegistry {
       if (!reconnected) {
         throw new MossError({
           code: ErrorCode.TOOL_EXECUTION_FAILED,
-          message: `mcp tool "${descriptor.name}" on "${client.name}" is not callable: server state is "${entryBefore.status.state}".`,
-          hint: 'The MCP connection dropped and a reconnect attempt failed; check the server, then retry.',
+          message: uiText(
+            `mcp tool "${descriptor.name}" on "${client.name}" is not callable: server state is "${entryBefore.status.state}".`,
+            `「${client.name}」上的 mcp 工具「${descriptor.name}」不可调用：服务器状态为「${entryBefore.status.state}」。`
+          ),
+          hint: uiText(
+            'The MCP connection dropped and a reconnect attempt failed; check the server, then retry.',
+            'MCP 连接已断开且重连失败；请检查服务器后再试。'
+          ),
           recoverable: true,
         });
       }
@@ -518,12 +530,24 @@ export class McpToolRegistry {
     if (result.isError) {
       throw new MossError({
         code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: `mcp tool "${descriptor.name}" on "${client.name}" reported an error: ${text}`,
-        hint: 'The server executed the call and returned isError=true; fix the arguments or server state.',
+        message: uiText(
+          `mcp tool "${descriptor.name}" on "${client.name}" reported an error: ${text}`,
+          `「${client.name}」上的 mcp 工具「${descriptor.name}」返回错误：${text}`
+        ),
+        hint: uiText(
+          'The server executed the call and returned isError=true; fix the arguments or server state.',
+          '服务器已执行调用并返回 isError=true；请修正参数或服务器状态。'
+        ),
         recoverable: true,
       });
     }
-    return text || `(no content from mcp tool "${descriptor.name}")`;
+    return (
+      text ||
+      uiText(
+        `(no content from mcp tool "${descriptor.name}")`,
+        `（mcp 工具「${descriptor.name}」没有内容）`
+      )
+    );
   }
 
   private buildSearchTool(client: McpClient): Tool {
@@ -550,8 +574,14 @@ export class McpToolRegistry {
           if (!(await this.reconnect(entry))) {
             throw new MossError({
               code: ErrorCode.TOOL_EXECUTION_FAILED,
-              message: `mcp search on "${client.name}" is not callable: server state is "${entry.status.state}".`,
-              hint: 'The MCP connection dropped and a reconnect attempt failed; check the server, then retry.',
+              message: uiText(
+                `mcp search on "${client.name}" is not callable: server state is "${entry.status.state}".`,
+                `「${client.name}」上的 mcp 搜索不可调用：服务器状态为「${entry.status.state}」。`
+              ),
+              hint: uiText(
+                'The MCP connection dropped and a reconnect attempt failed; check the server, then retry.',
+                'MCP 连接已断开且重连失败；请检查服务器后再试。'
+              ),
               recoverable: true,
             });
           }

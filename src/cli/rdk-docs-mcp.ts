@@ -16,6 +16,7 @@ import {
 import type { McpServerConfig } from '../core/mcp/types.js';
 import { ErrorCode, throwMoss } from '../errors.js';
 import { tui } from './tui/copy.js';
+import { uiText } from '../utils/ui-language.js';
 
 export interface RdkDocsConfigValue {
   enabled?: boolean;
@@ -134,15 +135,25 @@ export function formatMcpStartupLine(
   detail: string
 ): string | undefined {
   if (status.state === 'failed' && status.name === RDK_DOCS_SERVER_NAME) {
-    const reason = status.error?.trim() || 'connection failed';
-    return `[mcp] rdk-docs unreachable (${reason}) — RDK manual lookup is off this session.`;
+    const reason = status.error?.trim() || uiText('connection failed', '连接失败');
+    return uiText(
+      `[mcp] rdk-docs unreachable (${reason}) — RDK manual lookup is off this session.`,
+      `[mcp] rdk-docs 无法连接（${reason}）— 本会话不查 RDK 手册。`
+    );
   }
   if (status.state === 'failed') {
-    return `[mcp] server "${status.name}" unavailable: ${status.error} — its tools are disabled for this session.`;
+    return uiText(
+      `[mcp] server "${status.name}" unavailable: ${status.error} — its tools are disabled for this session.`,
+      `[mcp] 服务器「${status.name}」不可用：${status.error} — 本会话已停用它的工具。`
+    );
   }
   if (status.state === 'connected' && detail !== 'quiet') {
     const wire = status.name.replace(/[^a-zA-Z0-9_-]/g, '_');
-    return `[mcp] server "${status.name}" connected (${status.toolCount ?? 0} tools, lazy-loaded — search with mcp__${wire}__search)`;
+    const count = status.toolCount ?? 0;
+    return uiText(
+      `[mcp] server "${status.name}" connected (${count} tools, lazy-loaded — search with mcp__${wire}__search)`,
+      `[mcp] 服务器「${status.name}」已连接（${count} 个工具，懒加载 — 用 mcp__${wire}__search 搜索）`
+    );
   }
   return undefined;
 }

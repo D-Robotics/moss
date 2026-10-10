@@ -3,6 +3,7 @@ import * as readline from 'node:readline';
 import { stdin as input, stderr as output } from 'node:process';
 import { buildApiV1Url, isHttpUrl, stripEndpointSuffix } from '../provider/api-v1-url.js';
 import {
+  envBeforeDotenv,
   loadCliConfigFile,
   loadConfigFile,
   PROVIDER_PRESETS,
@@ -15,7 +16,17 @@ import {
   type ResolvedCliConfig,
 } from './config.js';
 import { configSnapshotLines } from './config-snapshot.js';
-import { isZhLocale } from './cli-locale.js';
+import {
+  formatUiLanguageLine,
+  isZhLocale,
+  setSessionUiLanguage,
+  shouldOfferEnglishUi,
+  systemLocale,
+  uiLanguageResolution,
+  uiText,
+  writeUserLanguageSetting,
+} from './cli-locale.js';
+import { setTuiLocale } from './tui/copy.js';
 import { loadModelChoicesForRuntime } from './model-catalog.js';
 
 function L(en: string, zh: string, locale?: string): string {
@@ -98,8 +109,11 @@ export function formatDiscoveredModels(
   const total = seen.size;
   const heading =
     total > choices.length
-      ? `Found ${total} model(s), showing ${choices.length} of ${total}:`
-      : `Found ${choices.length} model(s):`;
+      ? uiText(
+          `Found ${total} model(s), showing ${choices.length} of ${total}:`,
+          `找到 ${total} 个模型，显示其中 ${choices.length} 个：`
+        )
+      : uiText(`Found ${choices.length} model(s):`, `找到 ${choices.length} 个模型：`);
   return {
     heading,
     choices,
@@ -109,28 +123,55 @@ export function formatDiscoveredModels(
 
 export function renderSetupHelp(): string {
   return [
-    'Usage:',
+    uiText('Usage:', '用法：'),
     '  moss setup',
     '',
-    'Configure the provider, model, and API key and save them to the moss config file.',
-    'The API key is read from a hidden prompt and is never printed.',
+    uiText(
+      'Configure the provider, model, and API key and save them to the moss config file.',
+      '配置提供方、模型和 API 密钥，并保存到 moss 配置文件。'
+    ),
+    uiText(
+      'The API key is read from a hidden prompt and is never printed.',
+      'API 密钥从隐藏提示读取，不会打印。'
+    ),
     '',
-    'Providers (enter the number or the name):',
+    uiText('Providers (enter the number or the name):', '提供方（输入编号或名称）：'),
     '  1  deepseek            DeepSeek',
     '  2  qwen                Aliyun / Qwen',
     '  3  openai              OpenAI',
     '  4  anthropic           Anthropic',
-    '  5  openai-compatible   gateway URL, then the models that gateway lists',
+    uiText(
+      '  5  openai-compatible   gateway URL, then the models that gateway lists',
+      '  5  openai-compatible   网关 URL，然后是该网关列出的模型'
+    ),
     '',
-    'OpenAI-compatible lists models from /v1/models. The "Found N model(s)" count',
-    'matches the list; a longer catalog says how many rows are shown.',
-    'Answer with a number or a model name. A base URL is stored as the API root:',
-    '/v1, /chat/completions, query strings, and credentials are stripped.',
+    uiText(
+      'OpenAI-compatible lists models from /v1/models. The "Found N model(s)" count',
+      'OpenAI 兼容从 /v1/models 列出模型。「找到 N 个模型」的数量'
+    ),
+    uiText(
+      'matches the list; a longer catalog says how many rows are shown.',
+      '与列表一致；更长的目录会说明显示了多少行。'
+    ),
+    uiText(
+      'Answer with a number or a model name. A base URL is stored as the API root:',
+      '用编号或模型名回答。base URL 按 API 根地址保存：'
+    ),
+    uiText(
+      '/v1, /chat/completions, query strings, and credentials are stripped.',
+      '/v1、/chat/completions、查询串和凭据会被去掉。'
+    ),
     '',
-    'Non-interactive: pipe one answer per line (provider, then each prompt).',
-    'Change a saved value later with `moss config` (`moss config --help`).',
+    uiText(
+      'Non-interactive: pipe one answer per line (provider, then each prompt).',
+      '非交互：每行一个答案（先提供方，再各提示）。'
+    ),
+    uiText(
+      'Change a saved value later with `moss config` (`moss config --help`).',
+      '之后用 `moss config` 修改已保存的值（`moss config --help`）。'
+    ),
     '',
-    'Examples:',
+    uiText('Examples:', '示例：'),
     '  moss setup',
     "  printf '5\\nhttps://gateway.example\\nYOUR_KEY\\nmy-model\\n' | moss setup",
   ].join('\n');
@@ -302,6 +343,7 @@ export function renderAuthStatus(
       ],
       'plain'
     ),
+    formatUiLanguageLine(),
   ].join('\n');
 }
 
@@ -354,7 +396,73 @@ async function printSetupSuccess({
   );
 }
 
+function readOneKey(prompt: string): Promise<string> {
+  if (!input.isTTY || typeof input.setRawMode !== 'function') return Promise.resolve('');
+  return new Promise((resolve) => {
+    readline.emitKeypressEvents(input);
+    const wasRaw = input.isRaw;
+    try {
+      input.setRawMode(true);
+    } catch {
+      resolve('');
+      return;
+    }
+    input.resume();
+    output.write(prompt);
+    function finish(value: string): void {
+      input.off('keypress', onKeypress);
+      try {
+        if (wasRaw !== undefined) input.setRawMode(wasRaw);
+      } catch {
+        /* the terminal is already going away */
+      }
+      output.write('\n');
+      resolve(value);
+    }
+    function onKeypress(str: string, key: readline.Key) {
+      if (key.ctrl && key.name === 'c') {
+        output.write('\n');
+        process.exit(130);
+      }
+      finish(str ?? '');
+    }
+    input.on('keypress', onKeypress);
+  });
+}
+
+/** One keypress on a Chinese system locale: `e` switches the UI to English. */
+export async function offerEnglishUiIfNeeded(): Promise<void> {
+  let configLanguage: string | undefined;
+  try {
+    const stored = loadConfigFile();
+    if (typeof stored.language === 'string') configLanguage = stored.language;
+  } catch {
+    configLanguage = undefined;
+  }
+  const resolution = uiLanguageResolution();
+  if (
+    !shouldOfferEnglishUi({
+      tty: input.isTTY === true,
+      systemLocale: systemLocale(envBeforeDotenv),
+      configLanguage,
+      source: resolution?.source,
+    })
+  ) {
+    return;
+  }
+  const key = await readOneKey('界面语言：中文。按 e 切换为 English，其他键继续。');
+  if (key === 'e' || key === 'E') {
+    writeUserLanguageSetting('en');
+    setSessionUiLanguage('en');
+    setTuiLocale(false);
+    print(uiText('UI language: English.', '界面语言：English。'));
+    return;
+  }
+  writeUserLanguageSetting('auto');
+}
+
 export async function runSetupWizard(): Promise<void> {
+  await offerEnglishUiIfNeeded();
   const current = loadConfigFile();
   for (const menuLine of setupMenuLines()) print(menuLine);
 
@@ -603,16 +711,26 @@ export async function runSetupWizard(): Promise<void> {
 export async function runAuthLogout(): Promise<void> {
   const current = loadConfigFile();
   if (!current.apiKey) {
-    print('[auth] No API key is stored.');
+    print(uiText('[auth] No API key is stored.', '[auth] 没有已保存的 API 密钥。'));
     return;
   }
-  const answer = await question('Remove stored API key from Moss config? [y/N] ');
+  const answer = await question(
+    uiText(
+      'Remove stored API key from Moss config? [y/N] ',
+      '从 Moss 配置中删除已保存的 API 密钥？[y/N] '
+    )
+  );
   if (!/^y(es)?$/i.test(answer)) {
-    print('[auth] Cancelled.');
+    print(uiText('[auth] Cancelled.', '[auth] 已取消。'));
     return;
   }
   const next = { ...current };
   delete next.apiKey;
   saveConfigFile(next);
-  print('[auth] Stored API key removed. Model and baseUrl were preserved.');
+  print(
+    uiText(
+      '[auth] Stored API key removed. Model and baseUrl were preserved.',
+      '[auth] 已删除保存的 API 密钥。模型和 baseUrl 保留。'
+    )
+  );
 }

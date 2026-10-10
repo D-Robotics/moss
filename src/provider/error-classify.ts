@@ -1,4 +1,5 @@
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
+import { isEffectiveUiZh } from '../utils/ui-language.js';
 import type { ProviderErrorResponse } from './errors.js';
 import {
   isAbortFailure,
@@ -109,39 +110,32 @@ const SILENT_USER_ABORT: ProviderErrorSurface = {
  * chosen once at module load (a process does not switch locale mid-run).
  */
 function isZhEnv(env: NodeJS.ProcessEnv = process.env): boolean {
-  const locale = env.LC_ALL || env.LC_MESSAGES || env.LANG || '';
-  return /^zh/i.test(locale);
+  return isEffectiveUiZh(env);
 }
 
 function msg(zh: string, en: string): string {
   return isZhEnv() ? zh : en;
 }
 
-const ACTION_RETRY: ProviderErrorAction = {
-  id: 'retry',
-  label: msg('重试', 'Retry'),
-  variant: 'primary',
-};
-const ACTION_OPEN_SETTINGS: ProviderErrorAction = {
-  id: 'openSettings',
-  label: msg('打开设置', 'Open settings'),
-  variant: 'secondary',
-};
-const ACTION_OPEN_BOARD_AGENT: ProviderErrorAction = {
-  id: 'openBoardAgent',
-  label: msg('检查板端智能体', 'Check board agent'),
-  variant: 'primary',
-};
-const ACTION_SWITCH_MODEL: ProviderErrorAction = {
-  id: 'switchModel',
-  label: msg('换个模型', 'Switch model'),
-  variant: 'ghost',
-};
-const ACTION_NEW_SESSION: ProviderErrorAction = {
-  id: 'newSession',
-  label: msg('开新对话', 'New session'),
-  variant: 'ghost',
-};
+function actionRetry(): ProviderErrorAction {
+  return { id: 'retry', label: msg('重试', 'Retry'), variant: 'primary' };
+}
+function actionOpenSettings(): ProviderErrorAction {
+  return { id: 'openSettings', label: msg('打开设置', 'Open settings'), variant: 'secondary' };
+}
+function actionOpenBoardAgent(): ProviderErrorAction {
+  return {
+    id: 'openBoardAgent',
+    label: msg('检查板端智能体', 'Check board agent'),
+    variant: 'primary',
+  };
+}
+function actionSwitchModel(): ProviderErrorAction {
+  return { id: 'switchModel', label: msg('换个模型', 'Switch model'), variant: 'ghost' };
+}
+function actionNewSession(): ProviderErrorAction {
+  return { id: 'newSession', label: msg('开新对话', 'New session'), variant: 'ghost' };
+}
 
 // 判定谓词（abort/auth/rate-limit/timeout/network/5xx/stream-drop/quota/
 // thinking-corruption）以 errors.ts 的共享谓词为单一来源（T5.1 去重）；
@@ -264,7 +258,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
       return {
         category: 'timeout',
         userMessage: msg('模型响应超时，请稍后重试。', 'The model timed out; try again shortly.'),
-        actions: [ACTION_RETRY, ACTION_SWITCH_MODEL],
+        actions: [actionRetry(), actionSwitchModel()],
         silent: false,
         retryable: true,
       };
@@ -275,7 +269,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
         '请求被中断，请稍后重试。',
         'The request was interrupted; try again shortly.'
       ),
-      actions: [ACTION_RETRY],
+      actions: [actionRetry()],
       silent: false,
       retryable: true,
     };
@@ -291,7 +285,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
         '模型响应超时，请稍后重试或在设置里换一个更快的模型。',
         'The model timed out; try again shortly or switch to a faster model in settings.'
       ),
-      actions: [ACTION_RETRY, ACTION_SWITCH_MODEL],
+      actions: [actionRetry(), actionSwitchModel()],
       silent: false,
       retryable: true,
     };
@@ -304,7 +298,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
         '模型访问密钥无效或配置异常，请在设置中校验。',
         'The model API key is invalid or misconfigured; check it in settings.'
       ),
-      actions: [ACTION_OPEN_SETTINGS, ACTION_SWITCH_MODEL],
+      actions: [actionOpenSettings(), actionSwitchModel()],
       silent: false,
       retryable: false,
     };
@@ -319,7 +313,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
           '思考模式历史上下文缺少 reasoning 信息，建议开新对话或重试。',
           'The thinking-mode history is missing reasoning payloads; start a new session or retry.'
         ),
-        actions: [ACTION_NEW_SESSION, ACTION_RETRY],
+        actions: [actionNewSession(), actionRetry()],
         silent: false,
         retryable: false,
       };
@@ -330,7 +324,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
         '工具调用上下文丢失，建议重新提问。',
         'Tool-call context was lost; ask again.'
       ),
-      actions: [ACTION_RETRY, ACTION_NEW_SESSION],
+      actions: [actionRetry(), actionNewSession()],
       silent: false,
       retryable: false,
     };
@@ -343,7 +337,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
         '当前模型的调用额度已用尽，建议换个模型或在设置中调整。',
         "This model's quota is exhausted; switch models or adjust in settings."
       ),
-      actions: [ACTION_SWITCH_MODEL, ACTION_OPEN_SETTINGS],
+      actions: [actionSwitchModel(), actionOpenSettings()],
       silent: false,
       retryable: false,
     };
@@ -353,7 +347,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     return {
       category: 'rate_limit',
       userMessage: msg('访问太频繁，请稍后再试。', 'Rate limited; try again shortly.'),
-      actions: [ACTION_RETRY],
+      actions: [actionRetry()],
       silent: false,
       retryable: true,
     };
@@ -366,7 +360,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
         '网络连接失败，请检查网络或代理配置。',
         'Network connection failed; check the network or proxy configuration.'
       ),
-      actions: [ACTION_RETRY, ACTION_OPEN_SETTINGS],
+      actions: [actionRetry(), actionOpenSettings()],
       silent: false,
       retryable: true,
     };
@@ -398,7 +392,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
     return {
       category: 'model_not_found',
       userMessage,
-      actions: [ACTION_OPEN_SETTINGS, ACTION_SWITCH_MODEL],
+      actions: [actionOpenSettings(), actionSwitchModel()],
       silent: false,
       retryable: false,
     };
@@ -406,7 +400,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
 
   // Context length exceeded — retrying the same prompt WILL overflow again;
   // the only recovery is a new session (with compaction) or a bigger model.
-  // H3 fix: was retryable:true + ACTION_RETRY, which made runtime-retry loop
+  // H3 fix: was retryable:true + actionRetry(), which made runtime-retry loop
   // on the same overflowing prompt. Now retryable:false, actions drop RETRY.
   if (matchContextLengthExceeded(raw, code)) {
     return {
@@ -415,7 +409,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
         '对话上下文已超出模型限制。建议开启新对话（Moss 会保留上一个会话的摘要），或换用更大上下文窗口的模型。',
         "The conversation exceeds the model's context limit; start a new session (Moss keeps a summary of the previous one) or switch to a larger-window model."
       ),
-      actions: [ACTION_NEW_SESSION, ACTION_SWITCH_MODEL],
+      actions: [actionNewSession(), actionSwitchModel()],
       silent: false,
       retryable: false,
     };
@@ -428,7 +422,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
         '厂商服务暂时不可用，请稍后再试或切换深度/快速车道。',
         'The provider is temporarily unavailable; retry shortly or switch between the deep/quick lanes.'
       ),
-      actions: [ACTION_RETRY, ACTION_SWITCH_MODEL],
+      actions: [actionRetry(), actionSwitchModel()],
       silent: false,
       retryable: true,
     };
@@ -437,8 +431,11 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
   if (matchStreamingUnsupported(raw)) {
     return {
       category: 'streaming_not_supported',
-      userMessage: '当前模型/网关不支持流式输出，请到设置中换一个支持 stream 的模型。',
-      actions: [ACTION_OPEN_SETTINGS, ACTION_SWITCH_MODEL],
+      userMessage: msg(
+        '当前模型/网关不支持流式输出，请到设置中换一个支持 stream 的模型。',
+        'This model or gateway does not support streaming. Pick a model that supports stream in settings.'
+      ),
+      actions: [actionOpenSettings(), actionSwitchModel()],
       silent: false,
       retryable: false,
     };
@@ -447,9 +444,11 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
   if (matchToolUnsupported(raw)) {
     return {
       category: 'tools_not_supported',
-      userMessage:
+      userMessage: msg(
         '当前模型不支持工具调用，工具任务可能失败；请到设置换用支持 tools 的模型（推荐 qwen3 / qwen3-coder / llama3.1 / gpt-4.x 或同类工具模型）。',
-      actions: [ACTION_OPEN_SETTINGS, ACTION_SWITCH_MODEL],
+        'This model does not support tool calls, so tool tasks may fail. Switch to a tools-capable model in settings (qwen3, qwen3-coder, llama3.1, gpt-4.x, or similar).'
+      ),
+      actions: [actionOpenSettings(), actionSwitchModel()],
       silent: false,
       retryable: false,
     };
@@ -458,9 +457,11 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
   if (matchEmptyResponse(raw)) {
     return {
       category: 'empty_response',
-      userMessage:
+      userMessage: msg(
         '模型返回空内容（常见于思考类模型把所有输出放进 reasoning）。请到设置把「推理可见度」改为「stream」让思考过程可见，或换一个非纯思考模型。',
-      actions: [ACTION_OPEN_SETTINGS, ACTION_SWITCH_MODEL],
+        'The model returned empty content (common when a reasoning model puts everything in reasoning). In settings, set reasoning visibility to stream, or switch to a model that is not reasoning-only.'
+      ),
+      actions: [actionOpenSettings(), actionSwitchModel()],
       silent: false,
       retryable: true,
     };
@@ -469,8 +470,11 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
   if (matchRuntimeLifecycle(raw)) {
     return {
       category: 'runtime_lifecycle',
-      userMessage: '板端协作运行时没有准备好，Moss 需要先恢复板端智能体或 Gateway 后才能继续。',
-      actions: [ACTION_OPEN_BOARD_AGENT, ACTION_RETRY, ACTION_OPEN_SETTINGS],
+      userMessage: msg(
+        '板端协作运行时没有准备好，Moss 需要先恢复板端智能体或 Gateway 后才能继续。',
+        'The board runtime is not ready. Restore the board agent or gateway before Moss can continue.'
+      ),
+      actions: [actionOpenBoardAgent(), actionRetry(), actionOpenSettings()],
       silent: false,
       retryable: true,
     };
@@ -482,7 +486,7 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorS
       '模型暂时不可用。若当前对话反复失败，请开启新对话并让 Moss 查看上一个会话内容后继续。',
       'The model is temporarily unavailable. If this conversation keeps failing, start a new session and let Moss pick up from the previous one.'
     ),
-    actions: [ACTION_RETRY, ACTION_NEW_SESSION, ACTION_SWITCH_MODEL],
+    actions: [actionRetry(), actionNewSession(), actionSwitchModel()],
     silent: false,
     retryable: false,
   };
@@ -493,7 +497,7 @@ export function renderProviderErrorSurface(surface: ProviderErrorSurface): strin
   const head = surface.userMessage;
   if (surface.actions.length === 0) return head;
   const actionsLine = surface.actions.map((a) => a.label).join(' · ');
-  return `${head}\n\n${msg('下一步', 'Next steps')}：${actionsLine}`;
+  return isZhEnv() ? `${head}\n\n下一步：${actionsLine}` : `${head}\n\nNext steps: ${actionsLine}`;
 }
 
 export function sanitizeRawErrorForDetail(raw: string): string {

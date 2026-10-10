@@ -5,6 +5,7 @@
  */
 import { auditResolvedCliConfig, BASE_URL, type ResolvedCliConfig } from './config.js';
 import { buildApiV1Url } from '../provider/api-v1-url.js';
+import { uiText } from './cli-locale.js';
 import { label } from './ui.js';
 
 export interface GuardrailCounts {
@@ -45,10 +46,19 @@ export function withoutSecret(value: string): string {
   }
 }
 
+function sourceWord(source: string | undefined): string {
+  if (source === 'unprobed') return uiText('unprobed', '未探测');
+  return source ?? 'default';
+}
+
 function apiKeyValue(c: ResolvedCliConfig): string {
-  if (!c.apiKey) return 'missing — run `moss setup`';
-  if (c.apiKeySource === 'built-in') return 'configured via built-in (shared gateway key)';
-  return `configured via ${c.apiKeySource}, ${c.apiKeyEncrypted ? 'encrypted' : 'plain text'}`;
+  if (!c.apiKey) return uiText('missing — run `moss setup`', '缺失 — 请运行 `moss setup`');
+  if (c.apiKeySource === 'built-in')
+    return uiText('configured via built-in (shared gateway key)', '由内置网关配置（共享网关密钥）');
+  return uiText(
+    `configured via ${c.apiKeySource}, ${c.apiKeyEncrypted ? 'encrypted' : 'plain text'}`,
+    `来源 ${c.apiKeySource}，${c.apiKeyEncrypted ? '已加密' : '明文'}`
+  );
 }
 
 const FIELDS = {
@@ -148,12 +158,18 @@ const FIELDS = {
   ],
   contextTokens: [
     'context tokens',
-    (c: ResolvedCliConfig) => `${c.contextTokens} (${c.contextTokensSource ?? 'default'})`,
+    (c: ResolvedCliConfig) => `${c.contextTokens} (${sourceWord(c.contextTokensSource)})`,
   ],
   maxOutput: [
     'max output',
     (c: ResolvedCliConfig) =>
-      `${c.maxOutputTokens ?? 'derived from context window (contextTokens/4, cap 8k)'}`,
+      `${
+        c.maxOutputTokens ??
+        uiText(
+          'derived from context window (contextTokens/4, cap 8k)',
+          '由上下文窗口推算（contextTokens/4，上限 8k）'
+        )
+      }`,
   ],
   compaction: [
     'compaction',
@@ -169,6 +185,33 @@ export type SnapshotField = keyof typeof FIELDS;
  * Snapshot lines in one of two styles: `labeled` (interactive views, keys
  * aligned via ui.label) or `plain` (`key: value`, for headless output).
  */
+const ZH_LABEL: Readonly<Record<string, string>> = {
+  'config file': '配置文件',
+  'project config': '项目配置',
+  provider: '提供方',
+  model: '模型',
+  'base URL': '基址',
+  'api key': 'API 密钥',
+  profile: '配置档',
+  safety: '安全模式',
+  approval: '审批',
+  permissions: '权限',
+  'trusted tools': '信任工具',
+  'denied tools': '拒绝工具',
+  'prompt cache': '提示缓存',
+  'prompt cache debug': '提示缓存调试',
+  guardrails: '护栏',
+  'max turns': '最大轮次',
+  'context tokens': '上下文 token',
+  'max output': '最大输出',
+  compaction: '压缩',
+  'config warnings': '配置警告',
+};
+
+function localizeLabel(key: string): string {
+  return uiText(key, ZH_LABEL[key] ?? key);
+}
+
 export function configSnapshotLines(
   config: ResolvedCliConfig,
   fields: readonly SnapshotField[],
@@ -176,6 +219,9 @@ export function configSnapshotLines(
 ): string[] {
   return fields.map((field) => {
     const [key, value] = FIELDS[field];
-    return style === 'labeled' ? `  ${label(key)} ${value(config)}` : `  ${key}: ${value(config)}`;
+    const shown = localizeLabel(key);
+    return style === 'labeled'
+      ? `  ${label(shown)} ${value(config)}`
+      : `  ${shown}: ${value(config)}`;
   });
 }

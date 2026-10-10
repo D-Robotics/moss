@@ -2,6 +2,7 @@ import { resolveConfigPath } from './config.js';
 import { REPL_COMMAND_SECTIONS } from './interactive-commands.js';
 import { getPackageVersion } from './package-info.js';
 import { isZhLocale } from './cli-locale.js';
+import { tui } from './tui/copy.js';
 
 type ColorFn = (s: string) => string;
 
@@ -72,7 +73,7 @@ export function fullHelpLines(c: Colors, configPath: string): string[] {
     `    ${c.bold(section.title)}`,
     ...section.rows
       .filter((row) => !row.hidden)
-      .map((row) => `      ${c.green(row.command.padEnd(24))} ${row.description}`),
+      .map((row) => `      ${c.green(row.command.padEnd(24))} ${tui(row.description)}`),
   ]);
   return [
     '',
@@ -97,7 +98,7 @@ export function fullHelpLines(c: Colors, configPath: string): string[] {
     ...interactiveLines,
     '',
     `  ${c.bold('Common flags')}`,
-    `    ${c.yellow('-m, --model')} <m> · ${c.yellow('--provider')} <p> · ${c.yellow('--base-url')} <url>   this run only`,
+    `    ${c.yellow('-m, --model')} <m> · ${c.yellow('--provider')} <p> · ${c.yellow('--base-url')} <url> · ${c.yellow('--lang')} <en|zh>   this run only`,
     `    ${c.yellow('-c, --config')} k=v    override profile/model/provider/baseUrl/workspace/policy`,
     `    ${c.yellow('--session')} <key> · ${c.yellow('--last')}      named / latest session`,
     `    ${c.yellow('-C, --cd')} <dir>       use a different workspace`,
@@ -106,9 +107,8 @@ export function fullHelpLines(c: Colors, configPath: string): string[] {
     `    ${c.yellow('--accept-edits')} · ${c.yellow('--plan')} · ${c.yellow('--ask-for-approval')} <never|prompt>   other mode overrides (mutually exclusive)`,
     `    ${c.yellow('--mock')} · ${c.yellow('--json')} · ${c.yellow('--output-format')} <f>   offline · machine-readable output`,
     `    ${c.yellow('--quiet')} · ${c.yellow('--verbose')} · ${c.yellow('--debug')} · ${c.yellow('--no-color')}`,
-    '',
     `  ${c.bold('Environment')}`,
-    `    ${c.magenta('MOSS_PROFILE')} · ${c.magenta('MOSS_SAFETY_MODE')} · ${c.magenta('MOSS_APPROVAL_POLICY')} · ${c.magenta('MOSS_WORKSPACE')} · ${c.magenta('MOSS_CONFIG_FILE')} · ${c.magenta('MOSS_LOG_LEVEL')} ${c.dim('— full list: /permissions --verbose; model settings are config-only; the safety/approval keys are mode overrides (read-only arms the ceiling)')}`,
+    `    ${c.magenta('MOSS_PROFILE')} · ${c.magenta('MOSS_SAFETY_MODE')} · ${c.magenta('MOSS_APPROVAL_POLICY')} · ${c.magenta('MOSS_WORKSPACE')} · ${c.magenta('MOSS_CONFIG_FILE')} · ${c.magenta('MOSS_LANG')} · ${c.magenta('MOSS_LOG_LEVEL')} ${c.dim('— full list: /permissions --verbose; model settings are config-only; the safety/approval keys are mode overrides (read-only arms the ceiling)')}`,
     '',
     `  ${c.bold('Config file')}`,
     `    ${c.gray(configPath)} ${c.dim('(project defaults: .moss/config.json)')}`,

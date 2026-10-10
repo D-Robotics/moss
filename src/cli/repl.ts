@@ -28,6 +28,7 @@ import {
   slashAliasHelpLines,
 } from './interactive-commands.js';
 import { isResumableTaskPhase } from '../contracts/task-runtime.js';
+import { cliLocale } from './cli-locale.js';
 import { listBackgroundProcessSnapshots } from '../core/tools/background-process-registry.js';
 import { CliServices } from './cli-services.js';
 import { resolveRealModel } from './model-resolution.js';
@@ -122,10 +123,6 @@ function applyCustomModelConfigForRepl(
     `[config] Custom model configured: ${nextConfig.model} (${nextConfig.provider})`,
     `[config] Saved to ${configPath}`,
   ].join('\n');
-}
-
-function cliLocale(): string | undefined {
-  return process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG;
 }
 
 export function completeInteractiveCommand(line: string): [string[], string] {
