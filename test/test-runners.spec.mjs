@@ -207,6 +207,31 @@ const FIXTURES = [
     not: [/tests_pass=true/, /ALL PASSED/],
   },
   {
+    name: 'unittest ok',
+    command: 'python3 -m unittest discover -s .',
+    output: 'Ran 2 tests in 0.001s\n\nOK\n',
+    match: [/tests_pass=true/, /Tests: 2 total, 2 passed, 0 failed/],
+    not: [/tests_pass=false/, /counts unknown/, /no tests/],
+  },
+  {
+    name: 'unittest failed',
+    command: 'python3 -m unittest discover -s .',
+    output:
+      'FAIL: test_add (test_math.MathTest.test_add)\n' +
+      'AssertionError: 1 != 2\n\n' +
+      'Ran 3 tests in 0.002s\n\nFAILED (failures=1, skipped=1)\n',
+    exitCode: 1,
+    match: [/tests_pass=false/, /Tests: 3 total, 1 passed, 1 failed, 1 skipped/, /test_add/],
+    not: [/tests_pass=true/, /ALL PASSED/],
+  },
+  {
+    name: 'unittest none',
+    command: 'python3 -m unittest discover -s .',
+    output: 'Ran 0 tests in 0.000s\n\nNO TESTS RAN\n',
+    match: [/no tests/, /tests_pass=false/],
+    not: [/tests_pass=true/, /ALL PASSED/],
+  },
+  {
     name: 'go plain ok',
     command: 'go test ./...',
     output: 'ok  \texample.com/ok\t0.01s\nok  \texample.com/other\t(cached)\n',
@@ -269,6 +294,39 @@ test('detection order skips make unless it is alone', async () => {
         run: [`${py} -m pytest`, 'npm test --silent', 'go test -json ./...', 'cargo test'],
         skipped: ['make test'],
       });
+    }
+  );
+});
+
+test('a real unittest discover run is tests_pass=true', async () => {
+  if (!hasBin(py, ['-c', 'import unittest'])) return;
+  await withDir(
+    {
+      'test_math.py':
+        'import unittest\n\nclass MathTest(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(1 + 1, 2)\n\nif __name__ == "__main__":\n    unittest.main()\n',
+    },
+    async (dir) => {
+      const output = await runTestsTool.execute({}, ctx(dir));
+      assert.match(output, /unittest discover/);
+      assert.match(output, /tests_pass=true/, output);
+      assert.doesNotMatch(output, /tests_pass=false/);
+    }
+  );
+});
+
+test('unittest modules are discovered without a pytest probe', async () => {
+  await withDir(
+    {
+      'tests/test_math.py':
+        'import unittest\n\nclass MathTest(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(1 + 1, 2)\n',
+    },
+    async (dir) => {
+      const planned = await planTestRunners(dir, async () => false);
+      assert.deepEqual(planned.run, [`${py} -m unittest discover -s .`]);
+      assert.equal(
+        planned.skipped.some((line) => line.includes('pytest')),
+        false
+      );
     }
   );
 });

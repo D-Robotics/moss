@@ -62,6 +62,29 @@ assert.match(GOAL_USAGE, /\/goal clear/);
 }
 
 {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-goal-unittest-'));
+  fs.mkdirSync(path.join(workspace, 'tests'));
+  fs.writeFileSync(
+    path.join(workspace, 'tests', 'test_math.py'),
+    'import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n'
+  );
+  const proposal = proposeAcceptanceCommands(workspace);
+  const py = process.platform === 'win32' ? 'python' : 'python3';
+  assert.ok(
+    proposal.candidates.includes(`${py} -m unittest discover -s .`),
+    `unittest tree proposes discover: ${proposal.candidates.join(', ')}`
+  );
+  assert.equal(
+    proposal.candidates.includes('pytest'),
+    false,
+    'a unittest tree does not propose pytest'
+  );
+  const planned = planGoalInvocation('make the math tests pass', workspace);
+  assert.equal(planned.kind, 'propose');
+  assert.ok(planned.candidates.includes(`${py} -m unittest discover -s .`));
+}
+
+{
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-goal-empty-'));
   const proposal = proposeAcceptanceCommands(workspace);
   assert.deepEqual(proposal.candidates, [], 'an empty workspace invents no command');

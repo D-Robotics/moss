@@ -7,16 +7,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { appendTaskEvent, findLatestLiveTaskSnapshot } from '../../core/task/task-store.js';
+import { pythonTestLayout } from '../../utils/python-test-layout.js';
 import { isZhLocale } from '../cli-locale.js';
 import { quoteCommandArg } from '../task-run.js';
 
 const CLEAR_WORDS = new Set(['clear', 'stop', 'off', 'reset', 'none', 'cancel']);
 
 const EMPTY_NOTICE_EN =
-  'No acceptance command found in this workspace (no package.json test script, Makefile test target, pytest project, or go.mod). Only the contract verdict will apply — moss will not invent a command.';
+  'No acceptance command found in this workspace (no package.json test script, Makefile test target, pytest project, unittest modules, or go.mod). Only the contract verdict will apply — moss will not invent a command.';
 
 const EMPTY_NOTICE_ZH =
-  '这个工作区里没有找到验收命令（没有 package.json 的 test 脚本、Makefile 的 test 目标、pytest 工程或 go.mod）。只会使用契约裁决 — moss 不会编造命令。';
+  '这个工作区里没有找到验收命令（没有 package.json 的 test 脚本、Makefile 的 test 目标、pytest 工程、unittest 模块或 go.mod）。只会使用契约裁决 — moss 不会编造命令。';
 
 export function emptyAcceptanceNotice(locale?: string): string {
   return isZhLocale(locale) ? EMPTY_NOTICE_ZH : EMPTY_NOTICE_EN;
@@ -58,7 +59,13 @@ export function proposeAcceptanceCommands(workspace: string): AcceptanceProposal
   const candidates: string[] = [];
   if (packageTestScript(workspace)) pushCandidate(candidates, 'npm test');
   if (makefileHasTest(workspace)) pushCandidate(candidates, 'make test');
-  if (
+  const python = pythonTestLayout(workspace);
+  const py = process.platform === 'win32' ? 'python' : 'python3';
+  if (python === 'unittest') {
+    pushCandidate(candidates, `${py} -m unittest discover -s .`);
+  } else if (
+    python === 'pytest' ||
+    python === 'loose' ||
     fs.existsSync(path.join(workspace, 'pyproject.toml')) ||
     fs.existsSync(path.join(workspace, 'pytest.ini')) ||
     fs.existsSync(path.join(workspace, 'setup.cfg'))

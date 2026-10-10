@@ -156,7 +156,7 @@ export const taskDefineTool: Tool = {
       `goal: ${task.goal}\n` +
       (task.targetDeviceId ? `target device: ${task.targetDeviceId}\n` : '') +
       `acceptance criteria (${task.acceptanceCriteria.length}):\n${rows.join('\n')}\n` +
-      `Record evidence with record_evidence (task_id="${task.taskId}") and gate completion with task_acceptance.`
+      `A passing run_tests / verify_fix / acceptance command covers every acceptance item that run checks (task_id="${task.taskId}"). Use record_evidence only for a metric that run does not measure, then gate completion with task_acceptance.`
     );
   },
 };
