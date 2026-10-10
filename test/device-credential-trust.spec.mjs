@@ -222,8 +222,9 @@ async function runCase(c) {
     );
   }
   const store = {};
-  if (c.trust) store[fs.realpathSync(ws)] = true;
-  if (c.trustParent) store[fs.realpathSync(parent)] = true;
+  // Must match folderPathKey (fs.realpathSync.native).
+  if (c.trust) store[fs.realpathSync.native(ws)] = true;
+  if (c.trustParent) store[fs.realpathSync.native(parent)] = true;
   if (Object.keys(store).length > 0) {
     fs.writeFileSync(path.join(configDir, 'workspace-trust.json'), JSON.stringify(store));
   }

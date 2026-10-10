@@ -504,7 +504,8 @@ async function assertDotenvSkipped(label, dotenv, drop) {
   put(path.join(ws, '.moss', 'config.json'), {
     hooks: { SessionStart: [{ command: 'node hook.mjs' }] },
   });
-  const key = fs.realpathSync(ws);
+  // Must match folderPathKey (fs.realpathSync.native), or the forged entry is vacuous on win32.
+  const key = fs.realpathSync.native(ws);
   for (const configDir of [
     'moss',
     path.join('.config', 'moss'),
