@@ -24,7 +24,7 @@ import {
   globalToolStateManager,
   looksBinary,
   openChildEnv,
-  takeRepoHooksNotice,
+  takeShellNotices,
 } from './tool-helpers.js';
 
 export { looksBinary };
@@ -163,7 +163,7 @@ export const execTool: Tool = {
     const streamer = hideCredentialStream ? null : createRedactingChunkWriter(ctx.onToolOutput);
     const footnote = deviceEnvFootnote(String(input.command ?? ''));
     const opened = await openChildEnv(ctx.workspaceDir, ctx.abortSignal);
-    const hooksNotice = (): string => takeRepoHooksNotice(ctx.sessionKey, opened.repoHooksSkipped);
+    const hooksNotice = (): string => takeShellNotices(ctx.sessionKey, opened, commandText);
     try {
       const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
       const result = await runProcess(shell, {

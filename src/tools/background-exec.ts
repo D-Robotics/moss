@@ -34,7 +34,7 @@ import {
   type BackgroundProc,
   type BackgroundWaitMode,
 } from '../core/tools/background-process-registry.js';
-import { EXEC_DEFAULT_TIMEOUT_MS, openChildEnv, takeRepoHooksNotice } from './tool-helpers.js';
+import { EXEC_DEFAULT_TIMEOUT_MS, openChildEnv, takeShellNotices } from './tool-helpers.js';
 
 /**
  * Wait out a background command only for the runTask/resumeTask that set
@@ -143,7 +143,7 @@ export const execBackgroundTool: Tool = {
     const args = IS_WIN ? ['/c', command] : ['-c', command];
 
     const opened = await openChildEnv(ctx.workspaceDir, ctx.abortSignal);
-    const hooksNotice = (): string => takeRepoHooksNotice(ctx.sessionKey, opened.repoHooksSkipped);
+    const hooksNotice = (): string => takeShellNotices(ctx.sessionKey, opened, command);
     let child: ChildProcess;
     try {
       child = spawnProcess(shell, args, {

@@ -8,8 +8,8 @@
  * config files the pairs may quote. A discovery failure does not invent
  * credential, ssh, pager, or fsmonitor overrides. An executable non-sample
  * hook disables `core.hooksPath` only when the user has no global or system
- * hooks path. A local `diff.external` is pointed at the builtin diff script
- * when `sh` is available.
+ * hooks path. A local `diff.external` is pointed at the builtin diff script.
+ * When that script cannot be installed safely, the key is set to `false`.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,6 +17,7 @@ import path from 'node:path';
 import { builtinExternalDiffCommand } from './git-builtin-diff.js';
 import {
   hasLocalExternalDiff,
+  isExternalDiffConfigKey,
   listLocalExecutableConfig,
   shellGitConfigPairs,
   type GitConfigPair,
@@ -206,7 +207,7 @@ async function loadPairs(
   try {
     const stdout = await listLocalExecutableConfig(cwd, signal);
     const builtinDiff = hasLocalExternalDiff(stdout)
-      ? (builtinExternalDiffCommand() ?? undefined)
+      ? builtinExternalDiffCommand().command
       : undefined;
     return {
       pairs: shellGitConfigPairs(stdout, { executableHooks, builtinDiff }),
@@ -218,9 +219,23 @@ async function loadPairs(
 }
 
 /**
+ * Re-check the builtin diff script before the pairs are used. A cached path
+ * from a shared or replaced file must not stay in the child env.
+ */
+function applyBuiltinExternalDiff(pairs: GitConfigPair[]): GitConfigPair[] {
+  if (!pairs.some((pair) => isExternalDiffConfigKey(pair.key))) return pairs;
+  const command = builtinExternalDiffCommand().command;
+  for (const pair of pairs) {
+    if (isExternalDiffConfigKey(pair.key)) pair.value = command;
+  }
+  return pairs;
+}
+
+/**
  * Repo filter / textconv overrides, plus credential, ssh, pager, fsmonitor,
  * and hooks overrides when the repo (not the user's global config) sets them.
  * Cached until the repo config, hooks directory, or user gitconfig changes.
+ * External-diff values are refreshed on every call.
  */
 export async function untrustedShellGitConfig(
   cwd: string,
@@ -229,9 +244,9 @@ export async function untrustedShellGitConfig(
   const layout = findGitLayout(cwd);
   const stamp = layoutStamp(layout);
   const hit = cache.get(stamp);
-  if (hit) return hit;
+  if (hit) return applyBuiltinExternalDiff(hit);
   const pending = inflight.get(stamp);
-  if (pending) return pending;
+  if (pending) return applyBuiltinExternalDiff(await pending);
   const run = loadPairs(cwd, signal, layout)
     .then((loaded) => {
       if (loaded.cacheable) remember(stamp, loaded.pairs);
@@ -241,5 +256,5 @@ export async function untrustedShellGitConfig(
       inflight.delete(stamp);
     });
   inflight.set(stamp, run);
-  return run;
+  return applyBuiltinExternalDiff(await run);
 }

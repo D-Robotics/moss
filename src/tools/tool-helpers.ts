@@ -1,7 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
+import { EXTERNAL_DIFF_DISABLED_COMMAND } from '../utils/git-builtin-diff.js';
 import { appendGitConfigEnv, untrustedShellGitConfig } from '../utils/git-config-env.js';
+import { isExternalDiffConfigKey } from '../utils/git-spawn.js';
+import { preferredLocale } from '../utils/locale-preference.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { isWorkspaceTrusted } from '../utils/workspace-trust-state.js';
 import { errorMessage, isMossError, MossError } from '../errors.js';
@@ -225,31 +228,253 @@ export interface OpenedChildEnv {
   env: Record<string, string>;
   /** Moss replaced or disabled this repo's hooks for the child. */
   repoHooksSkipped: boolean;
+  /** Local external diff was pointed at `false` because the builtin script was unsafe. */
+  externalDiffDisabled: boolean;
 }
 
 const repoHooksNotified = new Set<string>();
+const externalDiffNotified = new Set<string>();
+
+function sessionNoticeId(sessionKey: string | undefined): string {
+  return sessionKey?.trim() || '__moss_session__';
+}
+
+function zhNotices(): boolean {
+  return /^zh/i.test(preferredLocale() ?? '');
+}
 
 /**
- * One line the first time this session skips repo hooks. Empty afterwards.
- * Chinese when `LC_ALL` / `LC_MESSAGES` / `LANG` starts with `zh`.
+ * True when `command` invokes git: a command word whose basename is `git`
+ * (or `git.exe`), including after a path prefix and after shell separators.
+ * Leading `NAME=value` assignments are skipped. A `git` inside `echo "git"`
+ * or a name like `gitignore` does not count.
  */
-export function takeRepoHooksNotice(sessionKey: string | undefined, skipped: boolean): string {
-  if (!skipped) return '';
-  const id = sessionKey?.trim() || '__moss_session__';
-  if (repoHooksNotified.has(id)) return '';
-  repoHooksNotified.add(id);
-  const locale = process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '';
-  const line = /^zh/i.test(locale)
+export function commandInvokesGit(command: string): boolean {
+  return scanShellCommands(command, 0, command.length);
+}
+
+function scanShellCommands(command: string, start: number, end: number): boolean {
+  let i = start;
+  let atCommand = true;
+  while (i < end) {
+    const ch = command[i] ?? '';
+    if (ch === ' ' || ch === '\t' || ch === '\r') {
+      i += 1;
+      continue;
+    }
+    if (ch === '\n' || ch === ';' || ch === '|' || ch === '&' || ch === '(' || ch === ')') {
+      atCommand = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '`') {
+      const close = command.indexOf('`', i + 1);
+      const innerEnd = close === -1 || close > end ? end : close;
+      if (scanShellCommands(command, i + 1, innerEnd)) return true;
+      i = innerEnd < end ? innerEnd + 1 : end;
+      atCommand = false;
+      continue;
+    }
+    if (command.startsWith('$(', i)) {
+      const innerEnd = matchingParen(command, i + 1, end);
+      if (scanShellCommands(command, i + 2, innerEnd)) return true;
+      i = innerEnd < end ? innerEnd + 1 : end;
+      atCommand = false;
+      continue;
+    }
+    if (atCommand) {
+      const assigned = envAssignmentEnd(command, i, end);
+      if (assigned > i) {
+        i = assigned;
+        continue;
+      }
+    }
+    const word = readShellWord(command, i, end);
+    if (word.invokesGit) return true;
+    if (word.next === i) {
+      i += 1;
+      continue;
+    }
+    if (atCommand && isGitCommandToken(word.text)) return true;
+    i = word.next;
+    atCommand = false;
+  }
+  return false;
+}
+
+function isGitCommandToken(word: string): boolean {
+  if (!word || word.includes('=')) return false;
+  const base = word.split(/[/\\]/).pop() ?? word;
+  return base === 'git' || base.toLowerCase() === 'git.exe';
+}
+
+function envAssignmentEnd(command: string, i: number, end: number): number {
+  const match = /^[A-Za-z_][A-Za-z0-9_]*=/.exec(command.slice(i, end));
+  if (!match) return i;
+  let j = i + match[0].length;
+  const quote = command[j];
+  if (quote === '"' || quote === "'") return skipQuoted(command, j, end);
+  while (j < end) {
+    const ch = command[j] ?? '';
+    if (
+      ch === ' ' ||
+      ch === '\t' ||
+      ch === '\r' ||
+      ch === '\n' ||
+      ch === ';' ||
+      ch === '|' ||
+      ch === '&' ||
+      ch === '(' ||
+      ch === ')' ||
+      ch === '<' ||
+      ch === '>'
+    ) {
+      break;
+    }
+    j += 1;
+  }
+  return j;
+}
+
+function skipQuoted(command: string, i: number, end: number): number {
+  const quote = command[i];
+  let j = i + 1;
+  while (j < end) {
+    const ch = command[j] ?? '';
+    if (quote === '"' && ch === '\\') {
+      j += 2;
+      continue;
+    }
+    if (ch === quote) return j + 1;
+    j += 1;
+  }
+  return end;
+}
+
+function matchingParen(command: string, openIndex: number, end: number): number {
+  let depth = 0;
+  let j = openIndex;
+  while (j < end) {
+    const ch = command[j] ?? '';
+    if (ch === '"' || ch === "'") {
+      j = skipQuoted(command, j, end);
+      continue;
+    }
+    if (ch === '(') depth += 1;
+    else if (ch === ')') {
+      depth -= 1;
+      if (depth === 0) return j;
+    }
+    j += 1;
+  }
+  return end;
+}
+
+function readShellWord(
+  command: string,
+  i: number,
+  end: number
+): { text: string; next: number; invokesGit: boolean } {
+  let text = '';
+  let invokesGit = false;
+  let j = i;
+  while (j < end) {
+    const ch = command[j] ?? '';
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      j += 1;
+      while (j < end && (command[j] ?? '') !== quote) {
+        if (quote === '"' && (command[j] ?? '') === '\\') {
+          text += command[j + 1] ?? '';
+          j += 2;
+          continue;
+        }
+        if (quote === '"' && command.startsWith('$(', j)) {
+          const innerEnd = matchingParen(command, j + 1, end);
+          if (scanShellCommands(command, j + 2, innerEnd)) invokesGit = true;
+          j = innerEnd < end ? innerEnd + 1 : end;
+          continue;
+        }
+        if (quote === '"' && (command[j] ?? '') === '`') {
+          const close = command.indexOf('`', j + 1);
+          const innerEnd = close === -1 || close > end ? end : close;
+          if (scanShellCommands(command, j + 1, innerEnd)) invokesGit = true;
+          j = innerEnd < end ? innerEnd + 1 : end;
+          continue;
+        }
+        text += command[j] ?? '';
+        j += 1;
+      }
+      if (j < end && (command[j] ?? '') === quote) j += 1;
+      continue;
+    }
+    if (
+      ch === ' ' ||
+      ch === '\t' ||
+      ch === '\r' ||
+      ch === '\n' ||
+      ch === ';' ||
+      ch === '|' ||
+      ch === '&' ||
+      ch === '(' ||
+      ch === ')' ||
+      ch === '<' ||
+      ch === '>' ||
+      ch === '`'
+    ) {
+      break;
+    }
+    if (command.startsWith('$(', j)) break;
+    text += ch;
+    j += 1;
+  }
+  return { text, next: j, invokesGit };
+}
+
+function repoHooksNoticeLine(): string {
+  return zhNotices()
     ? '[moss] 未受信任工作区中的仓库钩子未运行。'
     : '[moss] Repo hooks in an untrusted workspace were not run.';
-  return `\n\n${line}`;
+}
+
+function externalDiffDisabledNoticeLine(): string {
+  return zhNotices()
+    ? '[moss] 仓库的外部 diff 已禁用。'
+    : "[moss] The repo's external diff was disabled.";
+}
+
+/**
+ * Notices for an untrusted shell, appended to the tool result. The once-per
+ * session flag is consumed only when `command` actually invokes git, so an
+ * earlier `ls` does not hide the line from the next `git` command. The TUI
+ * peels a trailing `[moss]` line into its own row.
+ */
+export function takeShellNotices(
+  sessionKey: string | undefined,
+  opened: Pick<OpenedChildEnv, 'repoHooksSkipped' | 'externalDiffDisabled'>,
+  command: string
+): string {
+  if (!commandInvokesGit(command)) return '';
+  const id = sessionNoticeId(sessionKey);
+  const lines: string[] = [];
+  if (opened.repoHooksSkipped && !repoHooksNotified.has(id)) {
+    repoHooksNotified.add(id);
+    lines.push(repoHooksNoticeLine());
+  }
+  if (opened.externalDiffDisabled && !externalDiffNotified.has(id)) {
+    externalDiffNotified.add(id);
+    lines.push(externalDiffDisabledNoticeLine());
+  }
+  if (lines.length === 0) return '';
+  return `\n\n${lines.join('\n')}`;
 }
 
 /**
  * Child environment for model shells. Untrusted workspaces get git config
  * overrides appended to any `GIT_CONFIG_COUNT` the user already set. Trusted
  * workspaces are unchanged. `repoHooksSkipped` is true when this env disables
- * the repo's own hooks.
+ * the repo's own hooks. `externalDiffDisabled` is true when a local external
+ * diff was pointed at `false`.
  */
 export async function openChildEnv(
   workspaceDir?: string,
@@ -258,11 +483,16 @@ export async function openChildEnv(
   const env = safeChildEnv({ LANG: process.env.LANG || 'en_US.UTF-8' });
   const dir =
     typeof workspaceDir === 'string' && workspaceDir.trim() ? workspaceDir : process.cwd();
-  if (isWorkspaceTrusted(dir)) return { env, repoHooksSkipped: false };
+  if (isWorkspaceTrusted(dir)) {
+    return { env, repoHooksSkipped: false, externalDiffDisabled: false };
+  }
   const pairs = await untrustedShellGitConfig(dir, signal);
   appendGitConfigEnv(env, pairs);
   const repoHooksSkipped = pairs.some((pair) => pair.key.toLowerCase() === 'core.hookspath');
-  return { env, repoHooksSkipped };
+  const externalDiffDisabled = pairs.some(
+    (pair) => isExternalDiffConfigKey(pair.key) && pair.value === EXTERNAL_DIFF_DISABLED_COMMAND
+  );
+  return { env, repoHooksSkipped, externalDiffDisabled };
 }
 
 /** {@link openChildEnv} without the hooks-skip flag. */

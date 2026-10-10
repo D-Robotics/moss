@@ -11,7 +11,7 @@ import test from 'node:test';
 
 import { execBackgroundTool } from '../dist/tools/background-exec.js';
 import { execTool } from '../dist/tools/builtin.js';
-import { childEnv } from '../dist/tools/tool-helpers.js';
+import { childEnv, commandInvokesGit } from '../dist/tools/tool-helpers.js';
 import { appendGitConfigEnv, untrustedShellGitConfig } from '../dist/utils/git-config-env.js';
 import { GIT_HOOKS_PATH, shellGitConfigPairs } from '../dist/utils/git-spawn.js';
 import { captureEnvBeforeDotenv } from '../dist/utils/startup-env.js';
@@ -184,8 +184,8 @@ test('shell git pairs override repo programs and keep user global config', () =>
     .map((pair) => pair.value);
   assert.equal(value('core.fsmonitor'), '/tmp/sys-fs.sh');
   assert.equal(value('core.hooksPath'), '/tmp/global-hooks');
-  assert.equal(value('diff.external'), undefined);
-  assert.equal(value('diff.x.command'), undefined);
+  assert.equal(value('diff.external'), 'false');
+  assert.equal(value('diff.x.command'), 'false');
   assert.equal(value('core.sshCommand'), '/tmp/global-ssh.sh');
   assert.equal(value('core.pager'), 'cat');
   assert.deepEqual(helpers, ['', '/tmp/sys-helper.sh', '/tmp/global-helper.sh']);
@@ -194,8 +194,8 @@ test('shell git pairs override repo programs and keep user global config', () =>
   assert.equal(value('filter.x.process'), 'cat');
   assert.equal(value('filter.x.required'), 'false');
   assert.equal(value('diff.x.textconv'), 'cat');
-  assert.equal(value('diff.x.command'), undefined);
-  assert.equal(value('diff.external'), undefined);
+  assert.equal(value('diff.x.command'), 'false');
+  assert.equal(value('diff.external'), 'false');
   assert.equal(value('filter.lfs.clean'), undefined);
   assert.equal(value('filter.global.clean'), undefined);
 });
@@ -211,7 +211,7 @@ test('shell git pairs leave user-global keys alone when the repo does not set th
       'local\tdiff.external /tmp/ext.sh',
     ].join('\n')
   );
-  assert.deepEqual(untouched, []);
+  assert.deepEqual(untouched, [{ key: 'diff.external', value: 'false' }]);
   const builtin = '/opt/moss/git-builtin-diff.sh';
   const external = shellGitConfigPairs(
     ['local\tdiff.external /tmp/ext.sh', 'worktree\tdiff.evil.command /tmp/cmd.sh'].join('\n'),
@@ -219,7 +219,9 @@ test('shell git pairs leave user-global keys alone when the repo does not set th
   );
   assert.equal(external.find((pair) => pair.key === 'diff.external')?.value, builtin);
   assert.equal(external.find((pair) => pair.key === 'diff.evil.command')?.value, builtin);
-  assert.deepEqual(shellGitConfigPairs('local\tdiff.external /tmp/ext.sh'), []);
+  assert.deepEqual(shellGitConfigPairs('local\tdiff.external /tmp/ext.sh'), [
+    { key: 'diff.external', value: 'false' },
+  ]);
   const hooks = shellGitConfigPairs('global\tcore.hookspath /tmp/global-hooks', {
     executableHooks: true,
   });
@@ -671,6 +673,13 @@ test('untrusted exec git diff matches --no-ext-diff and does not run repo diff p
     assert.equal(command.length, 1);
     assert.equal(external[0].value, command[0].value);
     assert.match(external[0].value, /moss-git-builtin-diff\.sh$/);
+    assert.ok(external[0].value.includes(`${path.sep}git-builtin-diff${path.sep}`));
+    assert.ok(!external[0].value.startsWith(path.join(os.tmpdir(), 'moss-git-builtin-diff.sh')));
+    const scriptDir = fs.lstatSync(path.dirname(external[0].value));
+    assert.equal(scriptDir.isSymbolicLink(), false);
+    assert.equal(scriptDir.isDirectory(), true);
+    assert.equal(scriptDir.mode & 0o777, 0o700);
+    assert.equal(scriptDir.uid, process.getuid());
 
     const ref = gitText(ws, ['--no-pager', 'diff', '--no-ext-diff', '--no-color']);
     assert.equal(count(marker), 0, 'reference diff ran the repo diff program');
@@ -705,6 +714,186 @@ test('untrusted exec git diff matches --no-ext-diff and does not run repo diff p
     );
     assert.equal(count(marker), 0);
     assert.equal(execDiffBody(gotCached), refCached.stdout.trim());
+
+    git(ws, ['reset', '--hard', '-q']);
+    git(ws, ['mv', 'data.txt', 'renamed.txt']);
+    const refRename = gitText(ws, [
+      '--no-pager',
+      'diff',
+      '--cached',
+      '--find-renames',
+      '--no-ext-diff',
+      '--no-color',
+    ]);
+    const gotRename = await execTool.execute(
+      { command: 'git --no-pager diff --cached --find-renames --no-color', timeout_ms: 20000 },
+      { ...ctx(ws), sessionKey: 'exec-git-extdiff' }
+    );
+    assert.equal(count(marker), 0, 'rename diff ran the repo diff program');
+    assert.match(refRename.stdout, /rename from data\.txt/);
+    assert.equal(execDiffBody(gotRename), refRename.stdout.trim());
+    assert.doesNotMatch(gotRename, /git-blob-/);
+
+    git(ws, ['reset', '--hard', '-q']);
+    git(ws, ['update-index', '--chmod=+x', 'data.txt']);
+    const refMode = gitText(ws, ['--no-pager', 'diff', '--cached', '--no-ext-diff', '--no-color']);
+    const gotMode = await execTool.execute(
+      { command: 'git --no-pager diff --cached --no-color', timeout_ms: 20000 },
+      { ...ctx(ws), sessionKey: 'exec-git-extdiff' }
+    );
+    assert.equal(count(marker), 0, 'chmod diff ran the repo diff program');
+    assert.match(refMode.stdout, /old mode /);
+    assert.match(refMode.stdout, /new mode /);
+    assert.equal(execDiffBody(gotMode), refMode.stdout.trim());
+
+    git(ws, ['reset', '--hard', '-q']);
+    const quotedNames = ['a\tb.txt', 'say"hi.txt', 'café.txt'];
+    for (const name of quotedNames) fs.writeFileSync(path.join(ws, name), 'v1\n');
+    git(ws, ['add', '-A']);
+    git(ws, ['commit', '-qm', 'quoted']);
+    for (const name of quotedNames) fs.writeFileSync(path.join(ws, name), 'v2\n');
+    const refQuoted = gitText(ws, ['--no-pager', 'diff', '--no-ext-diff', '--no-color']);
+    const gotQuoted = await execTool.execute(
+      { command: 'git --no-pager diff --no-color', timeout_ms: 20000 },
+      { ...ctx(ws), sessionKey: 'exec-git-extdiff' }
+    );
+    assert.equal(count(marker), 0, 'quoted-path diff ran the repo diff program');
+    assert.match(refQuoted.stdout, /\\t/);
+    assert.match(refQuoted.stdout, /\\"/);
+    assert.match(refQuoted.stdout, /\\303\\251/);
+    assert.equal(execDiffBody(gotQuoted), refQuoted.stdout.trim());
+    assert.doesNotMatch(gotQuoted, /git-blob-/);
+  } finally {
+    restoreGitConfig();
+    restoreEnv();
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('commandInvokesGit matches a git command word, not a git substring', () => {
+  assert.equal(commandInvokesGit('git status'), true);
+  assert.equal(commandInvokesGit('git'), true);
+  assert.equal(commandInvokesGit('/usr/bin/git diff'), true);
+  assert.equal(commandInvokesGit('FOO=1 BAR=2 /usr/bin/git'), true);
+  assert.equal(commandInvokesGit('ls && git status'), true);
+  assert.equal(commandInvokesGit('ls; git status'), true);
+  assert.equal(commandInvokesGit('echo keep | git apply'), true);
+  assert.equal(commandInvokesGit('(git status)'), true);
+  assert.equal(commandInvokesGit('echo $(git status)'), true);
+  assert.equal(commandInvokesGit('echo "$(git rev-parse HEAD)"'), true);
+  assert.equal(commandInvokesGit('echo git'), false);
+  assert.equal(commandInvokesGit('echo "git status"'), false);
+  assert.equal(commandInvokesGit("echo 'git status'"), false);
+  assert.equal(commandInvokesGit('cat .gitignore'), false);
+  assert.equal(commandInvokesGit('ls gitignore'), false);
+  assert.equal(commandInvokesGit('gitignore'), false);
+  assert.equal(commandInvokesGit('echo git && true'), false);
+});
+
+test('repo hook notice waits for a command that actually runs git', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-notice-'));
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-notice-cfg-'));
+  try {
+    useConfigDir(configDir);
+    useIsolatedGitConfig();
+    const ws = path.join(root, 'ws');
+    initRepo(ws);
+    writeExec(path.join(ws, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n');
+    const session = { ...ctx(ws), sessionKey: 'exec-git-notice-once' };
+    const listed = await execTool.execute(
+      { command: 'echo gitignore && ls .git', timeout_ms: 20000 },
+      session
+    );
+    assert.doesNotMatch(listed, /Repo hooks/);
+    const status = await execTool.execute(
+      { command: 'git status --porcelain', timeout_ms: 20000 },
+      session
+    );
+    assert.match(status, /Repo hooks in an untrusted workspace were not run/);
+    const again = await execTool.execute(
+      { command: 'git status --porcelain', timeout_ms: 20000 },
+      session
+    );
+    assert.doesNotMatch(again, /Repo hooks/);
+  } finally {
+    restoreGitConfig();
+    restoreEnv();
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+});
+
+test('untrusted external diff fails closed when the builtin script path is not safe', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-diff-closed-'));
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-diff-closed-cfg-'));
+  const marker = path.join(root, 'diff.marker');
+  try {
+    useConfigDir(configDir);
+    useIsolatedGitConfig();
+    const attack = path.join(root, 'attack');
+    fs.mkdirSync(attack);
+    writeExec(
+      path.join(attack, 'moss-git-builtin-diff.sh'),
+      `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\nexit 1\n`
+    );
+    fs.symlinkSync(attack, path.join(configDir, 'git-builtin-diff'));
+    const ws = path.join(root, 'ws');
+    initRepo(ws);
+    const evil = path.join(root, 'evil-diff.sh');
+    writeExec(evil, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\nexit 1\n`);
+    fs.writeFileSync(path.join(ws, 'data.txt'), 'one\n');
+    git(ws, ['add', 'data.txt']);
+    git(ws, ['commit', '-qm', 'base']);
+    git(ws, ['config', 'diff.external', evil]);
+    git(ws, ['config', 'diff.evil.command', evil]);
+    fs.writeFileSync(path.join(ws, '.gitattributes'), '* diff=evil\n');
+    fs.writeFileSync(path.join(ws, 'data.txt'), 'two\n');
+    assert.deepEqual(
+      pairsNamed(await childEnv(ws), 'diff.external').map((pair) => pair.value),
+      ['false']
+    );
+    assert.deepEqual(
+      pairsNamed(await childEnv(ws), 'diff.evil.command').map((pair) => pair.value),
+      ['false']
+    );
+    const session = { ...ctx(ws), sessionKey: 'exec-git-diff-closed' };
+    const skipped = await execTool.execute({ command: 'echo git', timeout_ms: 20000 }, session);
+    assert.doesNotMatch(skipped, /external diff was disabled/);
+    const got = await execTool.execute(
+      { command: 'git --no-pager diff --no-color', timeout_ms: 20000 },
+      session
+    );
+    assert.equal(count(marker), 0, 'fail-closed diff ran a repo or planted program');
+    assert.match(got, /The repo's external diff was disabled/);
+    const again = await execTool.execute(
+      { command: 'git --no-pager diff --no-color', timeout_ms: 20000 },
+      session
+    );
+    assert.doesNotMatch(again, /external diff was disabled/);
+
+    const looseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-diff-loose-'));
+    const looseScriptDir = path.join(looseDir, 'git-builtin-diff');
+    fs.mkdirSync(looseScriptDir, { mode: 0o777 });
+    fs.chmodSync(looseScriptDir, 0o777);
+    const planted = path.join(looseScriptDir, 'moss-git-builtin-diff.sh');
+    fs.symlinkSync(evil, planted);
+    useConfigDir(looseDir);
+    const tightened = pairsNamed(await childEnv(ws), 'diff.external');
+    assert.equal(tightened.length, 1);
+    assert.match(tightened[0].value, /moss-git-builtin-diff\.sh$/);
+    const tightenedStat = fs.lstatSync(path.dirname(tightened[0].value));
+    assert.equal(tightenedStat.mode & 0o777, 0o700);
+    assert.equal(tightenedStat.uid, process.getuid());
+    assert.equal(fs.lstatSync(tightened[0].value).isSymbolicLink(), false);
+    assert.match(fs.readFileSync(tightened[0].value, 'utf8'), /xfrm-msg/);
+    const replaced = await execTool.execute(
+      { command: 'git --no-pager diff --no-color', timeout_ms: 20000 },
+      { ...ctx(ws), sessionKey: 'exec-git-diff-tightened' }
+    );
+    assert.equal(count(marker), 0, 'replaced symlink diff ran the planted program');
+    assert.doesNotMatch(replaced, /external diff was disabled/);
+    fs.rmSync(looseDir, { recursive: true, force: true });
   } finally {
     restoreGitConfig();
     restoreEnv();

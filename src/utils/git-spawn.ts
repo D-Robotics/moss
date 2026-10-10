@@ -27,8 +27,10 @@
  * That shell overrides credential, ssh, pager, and fsmonitor only when the
  * repo itself sets them, then restores the user's global and system values.
  * A local `diff.external` or `diff.<name>.command` is pointed at a builtin
- * diff script when `sh` is available. Without `sh` those keys stay unset.
+ * diff script. When that script cannot be installed safely, those keys are
+ * set to `false` so the repo command does not run.
  */
+import { EXTERNAL_DIFF_DISABLED_COMMAND } from './git-builtin-diff.js';
 import { ProcessError, runProcess, type RunProcessResult } from './run-process.js';
 import { safeChildEnv } from './safe-child-env.js';
 import { envBeforeDotenv, isStartupEnvCaptured } from './startup-env.js';
@@ -77,7 +79,8 @@ const EXEC_CONFIG_KEY =
  * `sshCommand` and `hooksPath` are lowercase here. `diff.external` is
  * included so the shell can see a local value. `executableConfigKeys` does
  * not blank it (an empty value still execs); the shell points it at the
- * builtin diff script instead. `executableConfigKeys` stays case-sensitive
+ * builtin diff script, or at `false` when that script cannot be installed.
+ * `executableConfigKeys` stays case-sensitive
  * so a real `core.hookspath` line is not blanked to an empty path on Moss's
  * own git children (those already force `core.hooksPath` to `/dev/null`).
  */
@@ -188,8 +191,6 @@ function userScopeValues(lines: readonly ScopedConfigLine[], key: string): strin
   return values;
 }
 
-const DIFF_COMMAND_KEY = /^diff\..+\.command$/i;
-
 export interface ShellGitConfigOptions {
   /**
    * True when `.git/hooks` (or the common git dir's hooks) contains an
@@ -197,19 +198,25 @@ export interface ShellGitConfigOptions {
    */
   executableHooks?: boolean;
   /**
-   * Absolute path of the builtin external-diff script. Omit it (or pass
-   * nothing) when `sh` is unavailable: local `diff.external` and
-   * `diff.<name>.command` are then left unset.
+   * Value for local `diff.external` and `diff.<name>.command`. Pass the
+   * builtin script path when it was installed safely. Omit it, or pass
+   * `false`, when the script cannot be installed: those keys are set to
+   * `false` so git does not run the repo command.
    */
   builtinDiff?: string;
+}
+
+const DIFF_COMMAND_KEY = /^diff\..+\.command$/i;
+
+/** True for `diff.external` and `diff.<name>.command`. */
+export function isExternalDiffConfigKey(key: string): boolean {
+  return /^diff\.external$/i.test(key) || DIFF_COMMAND_KEY.test(key);
 }
 
 /** True when local or worktree config defines `diff.external` or `diff.<name>.command`. */
 export function hasLocalExternalDiff(stdout: string): boolean {
   return parseScopedConfigLines(stdout).some(
-    (line) =>
-      OVERRIDE_SCOPES.has(line.scope) &&
-      (/^diff\.external$/i.test(line.key) || DIFF_COMMAND_KEY.test(line.key))
+    (line) => OVERRIDE_SCOPES.has(line.scope) && isExternalDiffConfigKey(line.key)
   );
 }
 
@@ -238,8 +245,9 @@ export function hasLocalExternalDiff(stdout: string): boolean {
  *
  * Local `diff.external` and `diff.<name>.command` are pointed at
  * `builtinDiff`, which reproduces `git diff --no-ext-diff`. They are not
- * given the user's global external diff, and they are left unset when no
- * builtin script is available. Filter drivers and `textconv` are `cat`
+ * given the user's global external diff. When no builtin script is available
+ * they are set to `false` so the repo command does not stay active. Filter
+ * drivers and `textconv` are `cat`
  * (an empty `textconv` makes `git diff` fail) and
  * `filter.<name>.required=false`.
  */
@@ -259,7 +267,7 @@ export function shellGitConfigPairs(
   const externalDiff: string[] = [];
   for (const line of lines) {
     if (!OVERRIDE_SCOPES.has(line.scope)) continue;
-    if (/^diff\.external$/i.test(line.key) || DIFF_COMMAND_KEY.test(line.key)) {
+    if (isExternalDiffConfigKey(line.key)) {
       externalDiff.push(line.key);
       continue;
     }
@@ -271,8 +279,9 @@ export function shellGitConfigPairs(
     }
     if (TEXTCONV_KEY.test(line.key)) add(line.key, 'cat');
   }
-  if (options?.builtinDiff) {
-    for (const key of externalDiff) add(key, options.builtinDiff);
+  if (externalDiff.length > 0) {
+    const command = options?.builtinDiff ? options.builtinDiff : EXTERNAL_DIFF_DISABLED_COMMAND;
+    for (const key of externalDiff) add(key, command);
   }
   const single: { name: string; fallback: string }[] = [
     { name: 'core.sshCommand', fallback: '' },
