@@ -410,12 +410,12 @@ export const ZH: Readonly<Record<string, string>> = {
   '{count} measurements hidden — expand to see': '{count} 项测量已折叠 — 展开查看',
   'observed {observed} (want {expected})': '测得 {observed}（期望 {expected}）',
   'observed {observed}': '测得 {observed}',
-  '◇ task {id} — PASS ({criteria} met)': '◇ 任务 {id} — PASS（达成 {criteria} 项）',
+  '◇ task {id} — PASS ({criteria} met)': '◇ 任务 {id} — 通过（达成 {criteria} 项）',
   '◇ task {id} — FAIL ({criteria} met) · /task resume {task} to repair':
-    '◇ 任务 {id} — FAIL（达成 {criteria} 项）· /task resume {task} 修复',
-  '◇ task {id} — PASS ({criteria} criteria met)': '◇ 任务 {id} — PASS（达成 {criteria} 项）',
+    '◇ 任务 {id} — 未通过（达成 {criteria} 项）· /task resume {task} 修复',
+  '◇ task {id} — PASS ({criteria} criteria met)': '◇ 任务 {id} — 通过（达成 {criteria} 项）',
   '◇ task {id} — FAIL ({criteria} criteria met) · /task resume {task} to repair':
-    '◇ 任务 {id} — FAIL（达成 {criteria} 项）· /task resume {task} 修复',
+    '◇ 任务 {id} — 未通过（达成 {criteria} 项）· /task resume {task} 修复',
   '◇ task {phase} — {text}': '◇ 任务 {phase} — {text}',
   Doctor: '诊断',
   Task: '任务',
