@@ -6,6 +6,17 @@
  * (PEM blocks, assignment values, netrc / docker / kube fields). Redaction
  * is defense in depth.
  *
+ * Key-name assignments (`token:`, `password=`, `secret:`, `api_key=`, …)
+ * replace the value only when that value looks like a credential. A known
+ * provider prefix, a JWT, a PEM block, or URL userinfo (`user:pass@`) is
+ * enough. Otherwise the value must be at least 16 characters and either mix
+ * character classes (letters with digits, or a symbol outside `_` `.` `-`)
+ * or have high Shannon entropy. Short or low-entropy fixtures
+ * (`token: abc123`, `token: 42`, `token: ALPHA-7741`, `password: <placeholder>`)
+ * stay visible. Env values whose names contain KEY, TOKEN, SECRET, or
+ * PASSWORD, and Moss's own stored credentials, are removed by exact match
+ * even when they would not match this shape.
+ *
  * Moss credential files are still read. `.apikey-key` bytes are withheld
  * entirely. Property-access chains (`req.headers.authorization`), `${...}`
  * expressions, and bare letter-only identifiers are source text, not secrets.
@@ -42,12 +53,12 @@ const FIELD_BOUNDARY = String.raw`(?<=\\r\\n|\\n|^|[^A-Za-z0-9])`;
 
 const ASSIGNED_SECRET = new RegExp(
   FIELD_BOUNDARY +
-    '(aws_secret_access_key|aws_access_key_id|client-key-data|client_key_data|api[_-]?key|access[_-]?key|private[_-]?key|secret|token|password|passwd|credential|authorization|bearer)(["\']?\\s*[:=]\\s*["\']?)([^\\s"\',}\\\\;)]{8,})',
+    '(aws_secret_access_key|aws_access_key_id|client-key-data|client_key_data|api[_-]?key|access[_-]?key|private[_-]?key|secret|token|password|passwd|credential|authorization|bearer)(["\']?\\s*[:=]\\s*["\']?)([^\\s"\',}\\\\;)]+)',
   'gi'
 );
 
 /** `.netrc` uses `password <value>`, not `password=`. */
-const NETRC_PASSWORD = /(^|[^\w]|\\r\\n|\\n)(password)([ \t]+)(?![=:])([^\s\\]{8,})/gi;
+const NETRC_PASSWORD = /(^|[^\w]|\\r\\n|\\n)(password)([ \t]+)(?![=:])([^\s\\]+)/gi;
 
 const DOCKER_AUTH = /((?:\\"|")auth(?:\\"|")\s*:\s*(?:\\"|"))([^"\\]+)((?:\\"|"))/gi;
 
@@ -75,8 +86,9 @@ function isSourceExpression(value: string): boolean {
 
 /**
  * Letter-only identifiers are code, even when they are long
- * (`hashedPasswordValue`, `someLongIdentifierName`). A value is secret-like
- * when it mixes letters and digits, or when it is long and not an identifier.
+ * (`hashedPasswordValue`, `someLongIdentifierName`). A letter-only value is
+ * secret-like only when it is long and high-entropy (a random password), not
+ * when it is a word or a camelCase name.
  */
 function alreadyRedactedQueryValue(value: string): boolean {
   const parts = value.split('&');
@@ -94,16 +106,126 @@ function alreadyRedactedQueryValue(value: string): boolean {
   });
 }
 
+/**
+ * Known provider token prefixes. The prefix alone is not a secret; at least
+ * four payload characters must follow it (`sk-abcd`, `AKIA` + 4, `ghp_` + 4).
+ * Real keys are longer; the floor only rejects a bare label.
+ */
+const CREDENTIAL_PREFIX =
+  /^(?:sk-|sk_(?:live|test)_|pk_(?:live|test)_|rk_(?:live|test)_|gh[pousr]_|github_pat_|glpat-|xox[baprs]-|AKIA|ASIA|AIza|xai-|gsk_|npm_|pypi-|dckr_pat_|vercel_|enc:)[A-Za-z0-9+/_.=-]{4,}$/;
+
+const JWT_VALUE = /^eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}$/;
+
+/** Assigned values at least this long can be a credential by shape, not by name. */
+const MIN_CREDENTIAL_LENGTH = 16;
+/** Bits per character. English words of this length sit below the line. */
+const HIGH_ENTROPY_BITS = 3.5;
+/** Random strings use most of the alphabet; repeated words do not. */
+const HIGH_ENTROPY_UNIQUE_RATIO = 0.75;
+
+function hasCredentialPrefix(value: string): boolean {
+  return CREDENTIAL_PREFIX.test(value);
+}
+
+function isJwtValue(value: string): boolean {
+  return JWT_VALUE.test(value);
+}
+
+function isPemValue(value: string): boolean {
+  return /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(value);
+}
+
+/** `user:password@host` or `scheme://user:password@host`, including an empty user. */
+function containsUrlUserinfo(value: string): boolean {
+  if (/[a-z][a-z0-9+.-]*:\/\/[^/\s:@]*:[^/\s:@]{4,}@/i.test(value)) return true;
+  return /^[^/\s:@]+:[^/\s:@]{4,}@/.test(value);
+}
+
+/**
+ * Letters plus digits, or a symbol that is not identifier punctuation
+ * (`_` `.` `-`). Mixed case with one of those separators is a passphrase
+ * (`Correct-Horse-Battery`), not a camelCase identifier.
+ */
+function mixedCharacterClasses(value: string): boolean {
+  const lower = /[a-z]/.test(value);
+  const upper = /[A-Z]/.test(value);
+  const digit = /\d/.test(value);
+  const symbol = /[^A-Za-z0-9._-]/.test(value);
+  const letter = lower || upper;
+  if (letter && digit) return true;
+  if (letter && symbol) return true;
+  if (digit && symbol) return true;
+  if (lower && upper && /[._-]/.test(value)) return true;
+  return false;
+}
+
+function highEntropy(value: string): boolean {
+  if (value.length < MIN_CREDENTIAL_LENGTH) return false;
+  const freq = new Map<string, number>();
+  for (const ch of value) freq.set(ch, (freq.get(ch) ?? 0) + 1);
+  if (freq.size / value.length < HIGH_ENTROPY_UNIQUE_RATIO) return false;
+  let bits = 0;
+  for (const count of freq.values()) {
+    const p = count / value.length;
+    bits -= p * Math.log2(p);
+  }
+  return bits >= HIGH_ENTROPY_BITS;
+}
+
+/**
+ * Key-name rule. Redact the assigned value only when it looks like a credential:
+ *
+ * - a known provider prefix (`sk-`, `ghp_`, `gho_`, `github_pat_`, `glpat-`,
+ *   `xoxb-` / `xoxp-` / `xoxa-` / `xoxr-` / `xoxs-`, `AKIA`, `ASIA`, `AIza`,
+ *   `xai-`, `gsk_`, `npm_`, `pypi-`, `dckr_pat_`, `vercel_`, `enc:`, Stripe
+ *   `sk_live_` / `sk_test_` / `pk_` / `rk_`)
+ * - a JWT (three base64url segments, header starting with `eyJ`)
+ * - a PEM private-key header
+ * - URL userinfo (`scheme://user:password@host` or `user:password@host`)
+ * - length ≥ 16 and mixed character classes, or length ≥ 16 and high entropy
+ *
+ * Short values and low-entropy words pass through. Placeholders
+ * (`<placeholder>`, `changeme`, `your-api-key`), source expressions
+ * (`req.headers.authorization`, `${...}`), and letter-only identifiers stay.
+ * Exact-match redaction of known secret values is separate and unconditional.
+ */
 function shouldRedactAssignedValue(value: string): boolean {
-  if (value.length < 8) return false;
-  if (isPlaceholder(value) || isSourceExpression(value)) return false;
+  if (isPlaceholder(value)) return false;
+  // A JWT matches the property-chain shape (`a.b.c`). Recognize credential
+  // shapes before that exemption so the token is not left for a partial mask.
+  if (
+    hasCredentialPrefix(value) ||
+    isJwtValue(value) ||
+    isPemValue(value) ||
+    containsUrlUserinfo(value)
+  ) {
+    return true;
+  }
+  if (isSourceExpression(value)) return false;
   // `credential=[REDACTED]&sig=[REDACTED]` is one assignment because `&` is
   // a legal value character. The query values are already redacted; folding
   // them again would drop the later keys. A secret before the first
   // `[REDACTED]` still redacts.
   if (alreadyRedactedQueryValue(value)) return false;
+  if (value.length < MIN_CREDENTIAL_LENGTH) return false;
+  if (BARE_IDENTIFIER.test(value) && !highEntropy(value)) return false;
+  return mixedCharacterClasses(value) || highEntropy(value);
+}
+
+/**
+ * URL userinfo and sensitive query values are credentials by position.
+ * A short mixed password (`p4ssw0rdXYZ`, `sig9valueXY`) still redacts here.
+ * Placeholders, source expressions, and letter-only identifiers do not.
+ * Key-name assignments use {@link shouldRedactAssignedValue} instead, so a
+ * fixture such as `token: ALPHA-7741` is not treated as a URL secret.
+ */
+function shouldRedactUrlSecret(value: string): boolean {
+  if (value.length < 8) return false;
+  if (isPlaceholder(value) || isSourceExpression(value)) return false;
+  if (alreadyRedactedQueryValue(value)) return false;
   if (BARE_IDENTIFIER.test(value)) return false;
   if (/[A-Za-z]/.test(value) && /\d/.test(value)) return true;
+  if (shouldRedactAssignedValue(value)) return true;
   return value.length >= 20;
 }
 
@@ -358,10 +480,10 @@ const SENSITIVE_QUERY = new RegExp(
 function redactUrlSecrets(text: string): string {
   return text
     .replace(URL_USERINFO_PASSWORD, (full, user: string, secret: string) =>
-      shouldRedactAssignedValue(secret) ? `${user}:${REDACTED}@` : full
+      shouldRedactUrlSecret(secret) ? `${user}:${REDACTED}@` : full
     )
     .replace(SENSITIVE_QUERY, (full, key: string, secret: string) =>
-      shouldRedactAssignedValue(secret) ? `${key}${REDACTED}` : full
+      shouldRedactUrlSecret(secret) ? `${key}${REDACTED}` : full
     );
 }
 
