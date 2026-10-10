@@ -3,9 +3,17 @@
  * `/goal` argument parsing and the acceptance-command shell invocation.
  */
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import { parseGoalCommandLine } from '../dist/cli/commands/goal-propose.js';
-import { acceptanceShell, runAcceptanceCommand } from '../dist/core/task/acceptance-command.js';
+import {
+  acceptanceShell,
+  mergeAcceptancePath,
+  runAcceptanceCommand,
+} from '../dist/core/task/acceptance-command.js';
 
 {
   assert.deepEqual(parseGoalCommandLine('fix the parser'), { goal: 'fix the parser' });
@@ -55,6 +63,52 @@ import { acceptanceShell, runAcceptanceCommand } from '../dist/core/task/accepta
   } finally {
     if (previous === undefined) delete process.env.PATH;
     else process.env.PATH = previous;
+  }
+}
+
+// Profile-only tools (nvm, pyenv, Homebrew shellenv) still resolve when moss
+// starts with a minimal GUI/IDE PATH, and an activated virtualenv stays first.
+{
+  assert.equal(
+    mergeAcceptancePath('/venv/bin:/usr/bin', '/usr/bin:/home/u/.nvm/bin:/usr/bin'),
+    '/venv/bin:/usr/bin:/home/u/.nvm/bin'
+  );
+  assert.equal(mergeAcceptancePath(undefined, ''), '');
+  if (process.platform !== 'win32') {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-accept-login-'));
+    try {
+      const toolDir = path.join(home, 'profile-bin');
+      fs.mkdirSync(toolDir);
+      fs.writeFileSync(
+        path.join(toolDir, 'profile-only-tool'),
+        '#!/bin/sh\necho profile-tool-ok\n',
+        { mode: 0o755 }
+      );
+      fs.writeFileSync(path.join(home, '.bash_profile'), `export PATH="${toolDir}:$PATH"\n`);
+      const venvBin = path.join(home, 'venv', 'bin');
+      const script = `
+        const { runAcceptanceCommand } = await import(${JSON.stringify(new URL('../dist/core/task/acceptance-command.js', import.meta.url).href)});
+        const tool = await runAcceptanceCommand({ command: 'profile-only-tool' });
+        const first = await runAcceptanceCommand({ command: 'printf %s "\${PATH%%:*}"' });
+        console.log(JSON.stringify({ tool: tool.passed, toolTail: tool.tail, first: first.tail }));`;
+      const run = (extra) =>
+        JSON.parse(
+          execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+            env: { HOME: home, SHELL: '/bin/bash', PATH: `${venvBin}:/usr/bin:/bin`, ...extra },
+            encoding: 'utf8',
+          })
+            .trim()
+            .split('\n')
+            .pop()
+        );
+      const on = run({});
+      assert.equal(on.tool, true, on.toolTail);
+      assert.equal(on.first, venvBin, 'inherited PATH (virtualenv) stays first');
+      const off = run({ MOSS_ACCEPT_LOGIN_PATH: '0' });
+      assert.equal(off.tool, false, 'opt-out keeps the plain inherited PATH');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   }
 }
 

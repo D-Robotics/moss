@@ -550,3 +550,22 @@ test('device_exec fail twice then short-circuit', () => {
     /Device|board|Never invent device/i
   );
 });
+
+test('total limit blocks the next call in the same response', () => {
+  const prev = process.env.MOSS_TOOL_LOOP_TOTAL_LIMIT;
+  process.env.MOSS_TOOL_LOOP_TOTAL_LIMIT = '2';
+  try {
+    const state = createToolLoopGuardState();
+    assert.equal(shouldShortCircuitToolCall(state, 'lookup', { q: 'a' }), null);
+    assert.equal(shouldShortCircuitToolCall(state, 'lookup', { q: 'b' }), null);
+    const blocked = shouldShortCircuitToolCall(state, 'lookup', { q: 'c' });
+    assert.match(blocked, /already requested 2 tool call/);
+    assert.match(
+      shouldShortCircuitToolCall(state, 'write_file', { path: 'a.ts' }),
+      /already requested 2 tool call/
+    );
+  } finally {
+    if (prev === undefined) delete process.env.MOSS_TOOL_LOOP_TOTAL_LIMIT;
+    else process.env.MOSS_TOOL_LOOP_TOTAL_LIMIT = prev;
+  }
+});

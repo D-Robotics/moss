@@ -209,7 +209,7 @@ export function adviseMossUpdate(input: {
 function oldBinConflictNote(zh: boolean): string {
   return zh
     ? [
-        '如果 npm 报 moss 这个 bin 已存在（EEXIST），先卸掉旧的未加 scope 的包：',
+        '如果 npm 报 moss 这个 bin 已存在（EEXIST），先卸掉旧的未加作用域的包：',
         '',
         `  ${LEGACY_PACKAGE_UNINSTALL}`,
         '',
@@ -300,13 +300,13 @@ export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: 
       '按安装方式打印升级命令。已有克隆时打印：',
       `  ${UPGRADE_IN_CLONE}`,
       '还没有 moss 目录时才打印 git clone。npm ci 会通过 prepare 构建，',
-      '不需要再跑 npm run build。moss update 不会执行这些命令。',
+      '不需要再单独构建。moss update 不会执行这些命令。',
       '',
       '全局安装只在当前目录和 ./moss 里找克隆。--dir <克隆> 或 MOSS_SOURCE_DIR',
       '可以指定别的目录。--dir 优先于 MOSS_SOURCE_DIR。这个 moss 自己就是',
       'git 克隆、且没有设置这两项时，用它所在的目录。',
       '',
-      '如果 moss 命令来自旧的未加 scope 的包（包括 npm link），先执行',
+      '如果 moss 命令来自旧的未加作用域的包（包括 npm 全局链接），先执行',
       'npm uninstall -g moss。否则会 EEXIST，即使 moss --version 看起来已经是新的。',
       '不要加 --force。--force 会同时留下两个包，之后再 npm uninstall -g moss',
       '会把 moss 命令删掉。',

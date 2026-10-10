@@ -9,7 +9,9 @@ coverage/
 sessions/
 tmp/
 .tmp/
+# Per-directory npm config (registry, tokens). The repo-root file is tracked.
 .npmrc
+!/.npmrc
 .codegraph/
 .mimosa/
 .moss/*

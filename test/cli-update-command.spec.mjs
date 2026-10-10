@@ -30,17 +30,13 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
 {
   assert.equal(pkg.name, '@rdk-moss/agent');
   assert.equal(pkg.private, true);
-  assert.equal(typeof pkg.bin.moss, 'string');
-  const binPath = pkg.bin.moss.replaceAll('\\', '/');
-  assert.ok(fs.existsSync(path.join(repoRoot, binPath)), binPath);
-  assert.ok(
-    pkg.files.some((entry) => entry === binPath || binPath.startsWith(`${entry}/`)),
-    `files must include the bin path ${binPath}`
-  );
+  assert.equal(pkg.bin.moss, 'bin/moss.cjs');
+  assert.ok(fs.existsSync(path.join(repoRoot, pkg.bin.moss)), pkg.bin.moss);
+  assert.ok(pkg.files.includes('bin'), 'files must include the bin directory');
   assert.equal(pkg.engines.node, '>=22.16.0');
   assert.equal(pkg.scripts.preinstall, 'node scripts/check-node-version.cjs');
   assert.ok(pkg.files.includes('scripts/check-node-version.cjs'));
-  assert.equal(pkg.scripts.prepare, 'npm run build');
+  assert.equal(pkg.scripts.prepare, 'node scripts/check-node-version.cjs && npm run build');
   assert.equal(pkg.scripts.prepublishOnly, 'npm run build && npm run verify');
   assert.equal(pkg.publishConfig.access, 'public');
   assert.equal(githubInstallSpec(pkg.repository), 'github:D-Robotics/moss');
@@ -230,6 +226,26 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
   assert.doesNotMatch(readme, /before dependencies are installed/);
   assert.doesNotMatch(readme, /不会把依赖装一半/);
   assert.match(readme, /dependencies before the root `preinstall`/);
+  assert.match(readme, /全局安装会忽略项目里的 `\.npmrc`/);
+  assert.match(readme, /A global install ignores the project `\.npmrc`/);
+  assert.match(readme, /还不会创建全局 `bin\/moss`/);
+  assert.match(readme, /before npm links `bin\/moss`/);
+  assert.doesNotMatch(readme, /including `npm install -g --install-links \.`/);
+  assert.doesNotMatch(readme, /包括 `npm install -g --install-links \.`/);
+  assert.equal(readme.split('engine-strict=true').length - 1, 2);
+  assert.equal(
+    readme.split('curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash')
+      .length - 1,
+    2
+  );
+  assert.equal(readme.split('curl -fsSL https://fnm.vercel.app/install | bash').length - 1, 2);
+  assert.equal(readme.split('fnm install 22 && fnm use 22').length - 1, 2);
+  assert.equal(readme.split('winget install OpenJS.NodeJS.LTS').length - 1, 2);
+  assert.equal(readme.split('winget install Schniz.fnm').length - 1, 2);
+  assert.equal(readme.split('MY_GATEWAY_API_KEY').length - 1, 4);
+  assert.equal(readme.split('/v1/v1').length - 1, 2);
+  assert.match(readme, /自定义 OpenAI 兼容网关/);
+  assert.match(readme, /Custom OpenAI-compatible gateway/);
   for (const [start, end] of [
     ['## 升级', '## 卸载'],
     ['### Upgrade', '### Uninstall'],

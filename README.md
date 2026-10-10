@@ -29,11 +29,39 @@ Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器
 node -v
 ```
 
-需要 **22.16** 或更高。npm 会先装依赖，再跑根包的 `preinstall`（`scripts/check-node-version.cjs`）。Node 低于 22.16 时脚本打印升级步骤并退出 1，这时依赖已经在磁盘上，还没有可用的 `moss`。升级 Node 后再安装一次。Node 22.16 自带 npm 10，不要按 npm 的提示升级到 npm 12：这个 Node 不支持 npm 12。
+需要 **22.16** 或更高。仓库根目录的 `.npmrc` 设置了 `engine-strict=true`。这份配置只对在仓库里执行的 `npm ci` 和 `npm install` 生效：Node 低于 22.16 时，这两条命令会立刻以 `EBADENGINE` 停止，依赖不会下载。全局安装会忽略项目里的 `.npmrc`，所以 `engine-strict` 挡不住 `npm install -g --install-links .`。这条命令会先打包当前目录，并在 `prepare` 里先运行 `scripts/check-node-version.cjs`，再运行 `npm run build`。Node 过低时，脚本打印当前版本和升级命令并退出 1，此时还不会创建全局 `bin/moss`。发布包不含这份 `.npmrc`，那种安装仍会先装依赖，再跑根包的 `preinstall`（同一个脚本）；Node 过低时脚本打印升级命令并退出 1。Node 22.16 自带 npm 10，不要按 npm 的提示升级到 npm 12：这个 Node 不支持 npm 12。
 
-- nvm：`nvm install 22`，装完再跑一次 `node -v`
+还没有版本管理器时，先装一个，再安装 Node 22，然后重新运行 `npm ci`。
+
+nvm：
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+# 重新打开终端，或：
+. ~/.nvm/nvm.sh
+nvm install 22 && nvm use 22
+```
+
+fnm：
+
+```bash
+curl -fsSL https://fnm.vercel.app/install | bash
+# 按安装脚本的提示重新打开终端
+fnm install 22 && fnm use 22
+```
+
+Windows（PowerShell）：
+
+```powershell
+winget install OpenJS.NodeJS.LTS
+# 或 fnm：
+winget install Schniz.fnm
+```
+
 - NodeSource：见 [nodesource/distributions](https://github.com/nodesource/distributions)
-- 国内网络：`npm config set registry https://registry.npmmirror.com`。nvm 下载 Node 可以设 `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+- 国内网络：`npm config set registry https://registry.npmmirror.com`。nvm 下载 Node：`NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node nvm install 22`
+
+装完用 `node -v` 确认是 22.16 或更高，然后重新运行 `npm ci`。
 
 ### macOS
 
@@ -51,7 +79,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 ## 快速开始
 
-从源码安装，运行 `moss`，在界面里完成设置，然后要一个回答。`npm ci` 会跑 `prepare`（也就是 `npm run build`），所以不用再单独构建：
+从源码安装，运行 `moss`，在界面里完成设置，然后要一个回答。`npm ci` 会跑 `prepare`（先检查 Node 版本，再 `npm run build`），所以不用再单独构建：
 
 ```bash
 git clone https://github.com/D-Robotics/moss.git
@@ -78,6 +106,21 @@ npm config set prefix ~/.npm-global
 ```text
 看一下这个目录里有什么
 ```
+
+### 自定义 OpenAI 兼容网关
+
+内置预设之外的网关用 `openai-compatible`。四条命令分别写入服务商、模型、地址和密钥变量名（`apiKeyEnv` 的值是变量名，不是密钥本身）：
+
+```bash
+moss config set provider openai-compatible
+moss config set model your-model-name
+moss config set baseUrl https://gw.example
+moss config set apiKeyEnv MY_GATEWAY_API_KEY
+export MY_GATEWAY_API_KEY=your-key
+moss doctor
+```
+
+`baseUrl` 末尾的 `/v1` 可写可不写。`https://gw.example` 和 `https://gw.example/v1` 都可以。Moss 自己拼接 `/v1/chat/completions`，不会变成 `/v1/v1`。不必写 `/chat/completions`，写了也会被去掉。`moss doctor` 核对服务商、模型、地址，以及密钥变量是否已设置。
 
 进到交互界面后：
 
@@ -240,7 +283,7 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
 
 优先级：`--lang` > `MOSS_LANG` > 用户配置 `language` > 系统区域。`C`、`POSIX`、`C.UTF-8` 不是语言，会落到下一个变量（`LC_ALL`、`LC_MESSAGES`、`LANG`）；都不是语言时界面保持英文。项目 `.moss/config.json` 和项目 `.env` 不能设置界面语言。
 
-交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为 English。
+交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为英语。
 
 ## 安全与隐私
 
@@ -254,7 +297,7 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
   | `plan`         | 只读规划，写操作与设备变更被拦                                                                    |
   | `full`（默认） | 本地写与可逆设备操作跳过询问；毁灭性设备操作 TTY 确认、headless 拒绝。deny 规则与本机硬拦截仍生效 |
 
-- **`workspace-write` 不是操作系统沙箱。** workspace-write 只约束 Moss 自己的文件工具。shell 命令照常运行，没有操作系统沙箱。`write_file`、`edit_file`、`multi_edit`、`move_file`、`apply_patch` 写在工作区内；`exec` 没有 Landlock、bubblewrap 或 seatbelt。静态扫描会拦下它能看见的一部分出区写（重定向、`cp`、`mv`），挡不住子进程里的 `node` / `python`（例如写入 `/tmp`）。shell 的安全来自输出脱敏和写回防护。可选的操作系统沙箱见 [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md)，默认关闭。
+- **`workspace-write` 不是操作系统沙箱。** `workspace-write` 只约束 Moss 自己的文件工具。终端命令照常运行，没有操作系统沙箱。`write_file`、`edit_file`、`multi_edit`、`move_file`、`apply_patch` 写在工作区内；`exec` 没有 Landlock、bubblewrap 或 seatbelt。静态扫描会拦下它能看见的一部分出区写（重定向、`cp`、`mv`），挡不住子进程里的 `node` / `python`（例如写入 `/tmp`）。shell 的安全来自输出脱敏和写回防护。可选的操作系统沙箱见 [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md)，默认关闭。
 - **权限规则**（`/permissions`，任何模式生效，deny 优先于一切含 full）：
   - 三级 `allow` / `ask` / `deny`，优先级 deny > ask > allow；
   - 语法 `ToolName(pattern)`，用 moss 原生工具名：`/permissions add deny "read_file(./.env)"`、`/permissions add allow "exec(npm run *)"`；
@@ -338,11 +381,39 @@ Check Node first:
 node -v
 ```
 
-Moss needs **22.16** or newer. npm installs dependencies before the root `preinstall` (`scripts/check-node-version.cjs`). On Node older than 22.16 that script prints the upgrade steps and exits 1, so those packages can already be on disk and there is no working `moss`. Upgrade Node and run the install again. Node 22.16 ships with npm 10. Do not follow npm's notice to upgrade to npm 12: Node 22.16 does not support npm 12.
+Moss needs **22.16** or newer. The repo-root `.npmrc` sets `engine-strict=true`. That file applies only to `npm ci` and `npm install` run inside the repo: on Node older than 22.16 those commands stop immediately with `EBADENGINE`, and dependencies are not downloaded. A global install ignores the project `.npmrc`, so `engine-strict` does not stop `npm install -g --install-links .`. That command packs this folder and runs the `prepare` script first (`node scripts/check-node-version.cjs`, then `npm run build`). On Node older than 22.16 the script prints the current version and the upgrade commands and exits 1 before npm links `bin/moss`. A published package does not include that `.npmrc`, so npm installs dependencies before the root `preinstall` (the same script). On Node older than 22.16 that script prints the upgrade commands and exits 1. Node 22.16 ships with npm 10. Do not follow npm's notice to upgrade to npm 12: Node 22.16 does not support npm 12.
 
-- nvm: `nvm install 22`, then run `node -v` again
+If you do not have a version manager yet, install one, install Node 22, then rerun `npm ci`.
+
+nvm:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+# Reopen the shell, or:
+. ~/.nvm/nvm.sh
+nvm install 22 && nvm use 22
+```
+
+fnm:
+
+```bash
+curl -fsSL https://fnm.vercel.app/install | bash
+# Reopen the shell the way the installer prints
+fnm install 22 && fnm use 22
+```
+
+Windows (PowerShell):
+
+```powershell
+winget install OpenJS.NodeJS.LTS
+# or fnm:
+winget install Schniz.fnm
+```
+
 - NodeSource: see [nodesource/distributions](https://github.com/nodesource/distributions)
-- In China: `npm config set registry https://registry.npmmirror.com`. For nvm's Node downloads, set `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+- In China: `npm config set registry https://registry.npmmirror.com`. For nvm's Node downloads: `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node nvm install 22`
+
+Then run `node -v` and confirm 22.16 or newer, and rerun `npm ci`.
 
 #### macOS
 
@@ -360,7 +431,7 @@ Put `%APPDATA%\npm` on PATH. That is npm's default global bin directory on Windo
 
 ### Quick start
 
-Install from source, run `moss`, finish setup in the screen, then ask for an answer. `npm ci` runs `prepare` (`npm run build`), so there is no separate build step:
+Install from source, run `moss`, finish setup in the screen, then ask for an answer. `npm ci` runs `prepare` (the Node check, then `npm run build`), so there is no separate build step:
 
 ```bash
 git clone https://github.com/D-Robotics/moss.git
@@ -387,6 +458,21 @@ With no usable config, `moss` sets itself up in that screen (press a number to p
 ```text
 look around this folder and tell me what it is
 ```
+
+### Custom OpenAI-compatible gateway
+
+For a gateway that is not a built-in preset, use `openai-compatible`. These four commands set the provider, model, address, and the key variable name (`apiKeyEnv` stores the name, not the secret):
+
+```bash
+moss config set provider openai-compatible
+moss config set model your-model-name
+moss config set baseUrl https://gw.example
+moss config set apiKeyEnv MY_GATEWAY_API_KEY
+export MY_GATEWAY_API_KEY=your-key
+moss doctor
+```
+
+A trailing `/v1` on `baseUrl` is optional. Both `https://gw.example` and `https://gw.example/v1` work. Moss appends `/v1/chat/completions` itself and never produces `/v1/v1`. Do not include `/chat/completions`; it is not needed, and Moss strips it if it is present. `moss doctor` checks the provider, model, address, and whether the key variable is set.
 
 Inside Moss: give it a job (`@` to reference files, `!` for shell), `Shift+Tab` to cycle modes
 (`plan` = read-only planning), `Ctrl+V` to attach a clipboard image / Finder file / local path

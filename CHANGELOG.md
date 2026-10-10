@@ -4,11 +4,16 @@
 
 ### Install follow-ups
 
-`npm ci` runs `scripts/check-node-version.cjs` as `preinstall`. The script is
-listed in `files`, so the packed global copy can run it. npm installs
-dependencies before that hook; on Node older than 22.16 the script prints the
-upgrade steps and exits 1, with those packages already on disk. The README
-says not to follow
+The repo-root `.npmrc` sets `engine-strict=true`. That applies to `npm ci` and
+`npm install` run inside the repo: they refuse with `EBADENGINE` before
+downloading dependencies when Node is older than 22.16. `npm install -g`
+ignores the project `.npmrc`. `npm install -g --install-links .` packs the
+folder and runs `prepare` (`node scripts/check-node-version.cjs && npm run build`)
+before it links `bin/moss`. On an older Node that script prints the current
+version and the upgrade commands and exits 1. That `.npmrc` is not packed. A
+packed install still runs the same script as `preinstall` after dependencies
+are reified, so it prints the upgrade steps and exits 1 with those packages
+already on disk. The script is listed in `files`. The README says not to follow
 npm's notice to upgrade to npm 12 on Node 22.16. macOS git needs
 `xcode-select --install`. `moss update` looks only in the current directory
 and `./moss` unless you pass `--dir <clone>` or set `MOSS_SOURCE_DIR`.
@@ -37,11 +42,38 @@ send the primary key to another host is dropped with a warning instead of
 exiting. `PIP_TRUSTED_HOST`, `UV_INSECURE_HOST`, and `DENO_CERT` from a
 project `.env` stay deferred with the other routing variables.
 
+### A `.env` file cannot change approval or other safety controls
+
+`MOSS_AUTO_APPROVE`, `MOSS_PROFILE`, `MOSS_CONFIG_PROFILE`,
+`MOSS_GOAL_VERIFY_LOOP`, `MOSS_GOAL_VERIFY_CMD`, and the other approval, trust,
+redaction, and tool-permission variables (26 keys) are ignored when they come
+from any `.env` file: a project `.env`, an ancestor directory's `.env`,
+`~/.env`, or the install directory's `.env`, whether or not that folder is
+trusted. They still work from the real process environment and from CLI flags.
+Moss prints one line naming the ignored keys and the `.env` path (`-p` and the
+REPL on stderr; the fullscreen TUI in the transcript, because the alternate
+screen hides earlier stderr). `MOSS_DEVICE_HOST`, `MOSS_DEVICE_PORT`,
+`MOSS_DEVICE_USER`, `MOSS_DEVICE_ID`, `MOSS_DEVICE_KIND`, and `MOSS_DEVICE_KEY`
+wait for folder trust with the other routing variables, so an untrusted project
+cannot point the user's `MOSS_DEVICE_PASSWORD` at another host. `~/.env` and
+the install directory's `.env` still apply those device fields. That is the
+documented way to name a board.
+
+When a project `.env` (even in a trusted folder) sets `MOSS_DEVICE_HOST`, Moss
+sends that host only a `MOSS_DEVICE_PASSWORD` written in the same `.env`. Your
+own password from the real environment, `~/.env`, or the install `.env` is not
+sent, and Moss prints a line saying so. A project's `.moss/devices.json` is
+ignored until the folder is trusted (the untrusted-folder line lists it), and a
+registry entry whose `passwordEnvVar` or `passphraseEnvVar` names an API key,
+token, secret, credential, or auth variable loses its auth. `VISUAL`, `EDITOR`,
+and `BASH_FUNC_*` join the variables a project `.env` cannot set. The trust
+prompt now says a trusted project can change the device target.
+
 ### Install and upgrade from a clone
 
 `npm install -g github:D-Robotics/moss` fails on a clean machine (npm 10.9.2 and
 11.21.0) because a git dependency's prepare inherits global npm config. Install
-from a clone. `npm ci` runs `prepare` (`npm run build`), so the documented
+from a clone. `npm ci` runs `prepare` (the Node check, then `npm run build`), so the documented
 commands do not build a second time:
 
 ```bash

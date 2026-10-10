@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
+import { uiText } from './cli-locale.js';
 
 export interface ApprovalDetailContext {
   workspaceDir?: string;
@@ -30,7 +31,10 @@ function capLines(lines: string[], max = MAX_DETAIL_LINES): string[] {
   const hidden = lines.length - (max - 1);
   return [
     ...lines.slice(0, max - 1),
-    `  … (+${hidden} more line${hidden === 1 ? '' : 's'} not shown for inline approval)`,
+    uiText(
+      `  … (+${hidden} more line${hidden === 1 ? '' : 's'} not shown for inline approval)`,
+      `  …（另有 ${hidden} 行未在审批里显示）`
+    ),
   ];
 }
 
@@ -141,8 +145,12 @@ function writeFileDetail(
 
   // File doesn't exist yet
   if (existing === null) {
+    const count = newLines.length;
     return [
-      `new file: ${filePath} (${newLines.length} line${newLines.length === 1 ? '' : 's'})`,
+      uiText(
+        `new file: ${filePath} (${count} line${count === 1 ? '' : 's'})`,
+        `新文件：${filePath}（${count} 行）`
+      ),
       ...newLines.map((line) => `+ ${line}`),
     ];
   }
@@ -154,16 +162,19 @@ function writeFileDetail(
   if (!diff) {
     // File too large for diff; show summary
     return [
-      `overwrite: ${filePath} (${existingLines.length} → ${newLines.length} lines; diff not available for large files)`,
+      uiText(
+        `overwrite: ${filePath} (${existingLines.length} → ${newLines.length} lines; diff not available for large files)`,
+        `覆盖：${filePath}（${existingLines.length} → ${newLines.length} 行；文件过大，无法显示差异）`
+      ),
     ];
   }
 
   // Show diff if there are changes; otherwise indicate no change
   if (diff.every((line) => line.startsWith('  …'))) {
-    return [`no content change: ${filePath}`];
+    return [uiText(`no content change: ${filePath}`, `内容无变化：${filePath}`)];
   }
 
-  return [`overwrite: ${filePath}`, ...diff];
+  return [uiText(`overwrite: ${filePath}`, `覆盖：${filePath}`), ...diff];
 }
 
 function applyPatchDetail(input: Record<string, unknown>): string[] | null {
@@ -180,7 +191,7 @@ function applyPatchDetail(input: Record<string, unknown>): string[] | null {
 function deviceDetail(input: Record<string, unknown>, ctx: ApprovalDetailContext): string[] {
   const target = ctx.device
     ? `${ctx.device.user || 'root'}@${ctx.device.host}:${ctx.device.port || 22}`
-    : 'connected device';
+    : uiText('connected device', '已连接的设备');
 
   const parts: string[] = [target];
 
@@ -188,12 +199,17 @@ function deviceDetail(input: Record<string, unknown>, ctx: ApprovalDetailContext
   if (command) {
     // Truncate very long commands to fit inline
     const displayCmd = command.length > 100 ? `${command.slice(0, 97)}…` : command;
-    parts.push(`| command: ${displayCmd}`);
+    parts.push(uiText(`| command: ${displayCmd}`, `| 命令：${displayCmd}`));
   }
 
   const timeout = typeof input.timeout_ms === 'number' ? input.timeout_ms : undefined;
   if (timeout) {
-    parts.push(`| timeout: ${Math.round(timeout / 1000)}s`);
+    parts.push(
+      uiText(
+        `| timeout: ${Math.round(timeout / 1000)}s`,
+        `| 超时：${Math.round(timeout / 1000)} 秒`
+      )
+    );
   }
 
   return [parts.join(' ')];

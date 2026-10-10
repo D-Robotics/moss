@@ -20,11 +20,11 @@ import {
   parseLanguageSetting,
   setSessionUiLanguage,
   uiLanguageResolution,
-  uiLanguageSourceLabel,
+  formatUiLanguageStatus,
   uiText,
   writeUserLanguageSetting,
 } from '../cli-locale.js';
-import { setTuiLocale } from '../tui/copy.js';
+import { chrome, setTuiLocale } from '../tui/copy.js';
 import { workspaceWriteLimit } from '../workspace-write-copy.js';
 import { GITIGNORE_SUGGESTION } from '../gitignore-suggestion.js';
 import {
@@ -62,6 +62,46 @@ export interface CommandInputOptions {
 export type CommandInputPrompt = (options: CommandInputOptions) => Promise<string | null>;
 
 export type CommandSurface = 'repl' | 'tui';
+
+/** The `/review` and `/diff` failure line. English stays the historical sentence. */
+export function formatGitDiffFailure(exitCode: number | null | undefined, detail?: string): string {
+  const zh = isZh();
+  const exit = exitCode === undefined ? '' : zh ? `（退出码 ${exitCode}）` : ` (exit ${exitCode})`;
+  if (detail === undefined) return zh ? `git diff 失败${exit}` : `git diff failed${exit}`;
+  return zh ? `git diff 失败${exit}：${detail}` : `git diff failed${exit}: ${detail}`;
+}
+
+/** `/diff` or `/review` run outside a git repository. */
+export function formatNotGitRepository(
+  command: '/diff' | '/review',
+  workspace: string,
+  zh: boolean = isZh()
+): string {
+  return command === '/review'
+    ? chrome('Not a git repository: {path} — /review needs a git workspace.', zh, {
+        path: workspace,
+      })
+    : chrome('Not a git repository: {path} — /diff needs a git workspace.', zh, {
+        path: workspace,
+      });
+}
+
+/** The `/review` hint under the not-a-repository line. */
+export function reviewNotGitHint(zh: boolean = isZh()): string {
+  return chrome('Open a git repository, or pass a PR number: `/review <PR#>`.', zh);
+}
+
+/** A real `/diff` run that exited non-zero (TUI and REPL): the first line of git's output. */
+export function formatDiffRunFailure(
+  exitCode: number | null | undefined,
+  output: string,
+  zh: boolean = isZh()
+): string {
+  return chrome('git diff failed (exit {code}): {error}', zh, {
+    code: exitCode ?? chrome('signal', zh),
+    error: output.trim().split('\n')[0] || chrome('unknown error', zh),
+  });
+}
 
 export interface CommandContext {
   agent: MossAgent;
@@ -467,10 +507,13 @@ const reviewCommand: CommandSpec = {
   summary:
     'review the working-tree diff (or `/review <PR#>`) for bugs, security, and simplification',
   async run(ctx, args) {
+    const zh = isZh(ctx.locale);
     if (!ctx.submitPrompt) {
       ctx.say(
         'error',
-        '/review needs a session that can start a run; it is unavailable in this context.'
+        zh
+          ? '/review 需要能启动运行的会话；当前环境不可用。'
+          : '/review needs a session that can start a run; it is unavailable in this context.'
       );
       return;
     }
@@ -483,7 +526,9 @@ const reviewCommand: CommandSpec = {
         if (!/^\d+$/.test(prNumber)) {
           ctx.say(
             'error',
-            'Usage: /review            (working tree + staged changes)\n       /review <PR#>     (a GitHub pull request via `gh pr diff`)'
+            zh
+              ? '用法：/review            （工作区与暂存区改动）\n      /review <拉取请求号>   （用 `gh pr diff` 取 GitHub 拉取请求）'
+              : 'Usage: /review            (working tree + staged changes)\n       /review <PR#>     (a GitHub pull request via `gh pr diff`)'
           );
           return;
         }
@@ -522,11 +567,9 @@ const reviewCommand: CommandSpec = {
           throw new MossError({
             code: ErrorCode.TOOL_EXECUTION_FAILED,
             message: notRepo
-              ? `Not a git repository: ${ctx.workspace} — /review needs a git workspace.`
-              : `git diff failed${procErr.exitCode !== undefined ? ` (exit ${procErr.exitCode})` : ''}: ${errorMessage(err)}`,
-            hint: notRepo
-              ? 'Open a git repository, or pass a PR number: `/review <PR#>`.'
-              : undefined,
+              ? formatNotGitRepository('/review', ctx.workspace, zh)
+              : formatGitDiffFailure(procErr.exitCode, errorMessage(err)),
+            hint: notRepo ? reviewNotGitHint(zh) : undefined,
           });
         }
         if (result.exitCode !== 0) {
@@ -534,11 +577,9 @@ const reviewCommand: CommandSpec = {
           throw new MossError({
             code: ErrorCode.TOOL_EXECUTION_FAILED,
             message: notRepo
-              ? `Not a git repository: ${ctx.workspace} — /review needs a git workspace.`
-              : `git diff failed (exit ${result.exitCode})`,
-            hint: notRepo
-              ? 'Open a git repository, or pass a PR number: `/review <PR#>`.'
-              : result.stderr.trim() || undefined,
+              ? formatNotGitRepository('/review', ctx.workspace, zh)
+              : formatGitDiffFailure(result.exitCode),
+            hint: notRepo ? reviewNotGitHint(zh) : result.stderr.trim() || undefined,
           });
         }
         diff = result.stdout;
@@ -548,9 +589,13 @@ const reviewCommand: CommandSpec = {
       if (!diff.trim()) {
         ctx.say(
           'system',
-          arg
-            ? `No changes found in PR ${arg}.`
-            : 'No changes to review (working tree and index are clean). Make some edits, or pass a PR number: /review <PR#>.'
+          zh
+            ? arg
+              ? `拉取请求 ${arg} 没有改动。`
+              : '没有可评审的改动（工作区和暂存区都是干净的）。先改点东西，或传入拉取请求号：/review <拉取请求号>。'
+            : arg
+              ? `No changes found in PR ${arg}.`
+              : 'No changes to review (working tree and index are clean). Make some edits, or pass a PR number: /review <PR#>.'
         );
         return;
       }
@@ -574,7 +619,9 @@ const reviewCommand: CommandSpec = {
           ? err
           : new MossError({
               code: ErrorCode.TOOL_EXECUTION_FAILED,
-              message: `Could not gather a diff for review: ${errorMessage(err)}`,
+              message: zh
+                ? `无法取得要评审的差异：${errorMessage(err)}`
+                : `Could not gather a diff for review: ${errorMessage(err)}`,
             });
       ctx.say('error', moss.hint ? `${moss.message}\n  ${moss.hint}` : moss.message);
     }
@@ -802,15 +849,13 @@ const languageCommand: CommandSpec = {
     const save = tokens.some((token) => token === 'save' || token === '--save');
     const choice = tokens.find((token) => token !== 'save' && token !== '--save');
     if (!choice) {
-      const language = effectiveUiLanguage();
-      const setting = uiLanguageResolution()?.setting ?? 'auto';
-      const source = uiLanguageSourceLabel();
+      const status = formatUiLanguageStatus();
       ctx.say(
         'system',
         [
           uiText(
-            `UI language: ${language} (setting ${setting}, source ${source})`,
-            `界面语言：${language === 'zh' ? '中文' : 'English'}（设置 ${setting}，来源 ${source}）`
+            `UI language: ${status.name} (${status.detail})`,
+            `界面语言：${status.name}（${status.detail}）`
           ),
           uiText(
             '  /language en|zh|auto     switch for this session',
@@ -851,19 +896,33 @@ const languageCommand: CommandSpec = {
       }
     }
     const language = effectiveUiLanguage();
-    const envLang = envBeforeDotenv.MOSS_LANG?.trim();
-    const override =
-      save && envLang
-        ? uiText(
-            ` MOSS_LANG=${envLang} will override this on the next start.`,
-            ` 下次启动时 MOSS_LANG=${envLang} 会覆盖它。`
-          )
-        : '';
+    const languageName = language === 'zh' ? uiText('Chinese', '中文') : uiText('English', '英语');
+    const resolution = uiLanguageResolution();
+    const notes: string[] = [];
+    if (save && resolution?.source === 'flag') {
+      notes.push(
+        uiText(
+          ` --lang=${resolution.language} overrides the saved setting for this process. The next start uses the saved setting unless --lang or MOSS_LANG is set.`,
+          ` 本次进程的 --lang=${resolution.language} 会覆盖已保存的设置。下次启动若不带 --lang、也不设 MOSS_LANG，则使用已保存的值。`
+        )
+      );
+    }
+    const envLang = envBeforeDotenv.MOSS_LANG?.trim().toLowerCase();
+    if (save && (envLang === 'en' || envLang === 'zh')) {
+      notes.push(
+        uiText(
+          ` MOSS_LANG=${envLang} will override this on the next start.`,
+          ` 下次启动时 MOSS_LANG=${envLang} 会覆盖它。`
+        )
+      );
+    }
+    const override = notes.join('');
+    const savedZh = setting === 'auto' ? '自动' : setting === 'zh' ? '中文' : '英语';
     ctx.say(
       'system',
       uiText(
-        `UI language: ${language}${save ? ' (saved to the user config)' : ' (this session)'}${override}`,
-        `界面语言：${language === 'zh' ? '中文' : 'English'}${save ? '（已写入用户配置）' : '（仅本会话）'}${override}`
+        `UI language: ${languageName}${save ? ` (saved ${setting} to the user config${setting === 'auto' ? ': follows the system locale' : ''})` : ' (this session)'}${override}`,
+        `界面语言：${languageName}${save ? `（已把「${savedZh}」写入用户配置${setting === 'auto' ? '，跟随系统区域' : ''}）` : '（仅本会话）'}${override}`
       )
     );
   },
