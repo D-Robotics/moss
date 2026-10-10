@@ -306,7 +306,7 @@ test('project .env GIT_DIR does not run another repo filter', async (t) => {
     cwd: evil.dir,
     stdio: 'ignore',
   });
-  execFileSync('git', ['config', 'filter.mossinc.smudge', '/bin/cat'], {
+  execFileSync('git', ['config', 'filter.mossinc.smudge', 'cat'], {
     cwd: evil.dir,
     stdio: 'ignore',
   });
@@ -431,9 +431,12 @@ async function initPlainRepo(t, prefix) {
   execFileSync('git', ['init'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.email', 'moss@example.com'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.name', 'Moss Test'], { cwd: dir, stdio: 'ignore' });
-  await fs.writeFile(path.join(dir, 'README.md'), 'hello\n');
+  // Match the foreign index's size to exercise GIT_DIR's real clean filter.
+  const readme = path.join(dir, 'README.md');
+  await fs.writeFile(readme, 'hello\nbefore!\n');
   execFileSync('git', ['add', 'README.md'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['commit', '-m', 'init'], { cwd: dir, stdio: 'ignore' });
+  await fs.utimes(readme, new Date(), new Date(Date.now() + 2000));
   return dir;
 }
 
@@ -443,11 +446,16 @@ async function initDirtyFilterRepo(t, prefix) {
   execFileSync('git', ['init'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.email', 'moss@example.com'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.name', 'Moss Test'], { cwd: dir, stdio: 'ignore' });
-  await fs.writeFile(path.join(dir, 'README.md'), 'hello\n');
+  // Keep the edit the same size, with a distinct mtime: Git must compare its
+  // content rather than conclude "dirty" from stat data without the filter.
+  const readme = path.join(dir, 'README.md');
+  await fs.writeFile(readme, 'hello\nbefore!\n');
   await fs.writeFile(path.join(dir, '.gitattributes'), '* filter=mossinc\n');
   execFileSync('git', ['add', 'README.md', '.gitattributes'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['commit', '-m', 'init'], { cwd: dir, stdio: 'ignore' });
-  await fs.writeFile(path.join(dir, 'README.md'), 'hello\nchanged\n');
+  const committed = await fs.stat(readme);
+  await fs.writeFile(readme, 'hello\nchanged\n');
+  await fs.utimes(readme, committed.atime, new Date(committed.mtimeMs + 2000));
   const marker = gitPath(path.join(dir, 'FILTER_RAN'));
   const script = gitPath(path.join(dir, 'clean.sh'));
   await fs.writeFile(script, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\ncat\n`);
