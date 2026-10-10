@@ -91,22 +91,22 @@ test('rdk-docs pin check stays offline unless MOSS_RDK_DOCS_PIN_CHECK is set', a
   assert.equal(calls, 1);
   assert.equal(behind?.kind, 'latest-newer');
   const behindLine = renderRdkDocsPinDoctorLine(behind);
-  assert.match(behindLine, /^  warn  rdk-docs/);
+  assert.match(behindLine, /^ {2}warn {2}rdk-docs/);
   assert.match(behindLine, /9\.9\.9/);
-  assert.doesNotMatch(behindLine, /^  fail /);
+  assert.doesNotMatch(behindLine, /^ {2}fail /);
 
   const same = await rdkDocsPinNote({ MOSS_RDK_DOCS_PIN_CHECK: 'true' }, async () => ({
     version: rdkDocsPinnedNpmVersion(),
   }));
   assert.equal(same?.kind, 'current');
-  assert.match(renderRdkDocsPinDoctorLine(same), /^  ok    rdk-docs/);
+  assert.match(renderRdkDocsPinDoctorLine(same), /^ {2}ok {4}rdk-docs/);
 
   const missed = await rdkDocsPinNote({ MOSS_RDK_DOCS_PIN_CHECK: 'on' }, async () => ({
     error: 'registry unreachable',
   }));
   assert.equal(missed?.kind, 'unchecked');
   const missedLine = renderRdkDocsPinDoctorLine(missed);
-  assert.match(missedLine, /^  warn  rdk-docs/);
+  assert.match(missedLine, /^ {2}warn {2}rdk-docs/);
   assert.match(missedLine, /registry unreachable/);
-  assert.doesNotMatch(missedLine, /^  fail /);
+  assert.doesNotMatch(missedLine, /^ {2}fail /);
 });
