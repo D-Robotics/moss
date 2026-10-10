@@ -479,7 +479,16 @@ async function acceptPlanningIfSatisfied(
   provider: VerdictProvider
 ): Promise<boolean> {
   const current = await getTaskStateSnapshot(deps.workspaceDir, state.taskId);
-  if (!current || current.phase === 'accepted') return current?.phase === 'accepted';
+  if (!current) return false;
+  if (current.phase === 'accepted') {
+    deps.onProgress?.({
+      taskId: state.taskId,
+      phase: 'accepted',
+      turn: state.turns,
+      detail: 'acceptance passed',
+    });
+    return true;
+  }
   if (!(await acceptanceAlreadySatisfied(deps.workspaceDir, state.taskId))) return false;
   deps.signal?.throwIfAborted();
   const verdict = await provider.evaluate(state.taskId, deps.signal);

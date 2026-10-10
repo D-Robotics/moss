@@ -57,7 +57,7 @@ export const GIT_BUILTIN_DIFF_SCRIPT = [
   '  }',
   '  return need ? "\\"" r "\\"" : s',
   '}',
-  'function label(s,   l) { l = q(s); return (l == s && index(s, " ")) ? s "\\t" : l }',
+  'function label(s,   l) { l = q(s); return index(s, " ") ? l "\\t" : l }',
   'BEGIN {',
   '  for (i = 1; i < 256; i++) ord[sprintf("%c", i)] = i',
   '  isnew = (om == "." || om == "0000000"); isdel = (nm == "." || nm == "0000000")',
@@ -314,5 +314,10 @@ export function builtinExternalDiffCommand(): BuiltinExternalDiff {
   if (!installed) {
     return { command: EXTERNAL_DIFF_DISABLED_COMMAND, disabled: true };
   }
-  return { command: installed, disabled: false };
+  // Git interprets this command with its POSIX shell, including on Windows.
+  const commandPath = process.platform === 'win32' ? installed.replaceAll('\\', '/') : installed;
+  const command = /[^a-zA-Z0-9_./:-]/.test(commandPath)
+    ? `'${commandPath.replaceAll("'", "'\\''")}'`
+    : commandPath;
+  return { command, disabled: false };
 }

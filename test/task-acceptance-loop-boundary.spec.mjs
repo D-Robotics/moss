@@ -18,11 +18,19 @@ import {
 } from '../dist/index.js';
 import { createMockTranscriptProvider } from './e2e/mock-transcript-provider.mjs';
 
-for (const sameBatch of [true, false]) {
-  test(`durable native acceptance stops a later write ${sameBatch ? 'in the same tool batch' : 'in the next model cycle'}`, async () => {
+for (const { sameBatch, steerDepth } of [
+  { sameBatch: true },
+  { sameBatch: false },
+  { sameBatch: false, steerDepth: 0 },
+  { sameBatch: false, steerDepth: 3 },
+]) {
+  test(`durable native acceptance stops a later write ${sameBatch ? 'in the same tool batch' : 'in the next model cycle'}${steerDepth === undefined ? '' : ` and defers a queued steer at depth ${steerDepth}`}`, async () => {
     const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-accepted-boundary-'));
     let writes = 0;
     let providerCalls = 0;
+    let queuedSteer;
+    let steerScheduled = false;
+    const steerPrompt = 'write the probe after acceptance';
     try {
       const file = path.join(workspaceDir, 'probe.txt');
       await fs.writeFile(file, '1');
@@ -50,6 +58,15 @@ for (const sameBatch of [true, false]) {
         enableCompaction: false,
         maxAgentTurns: 4,
         hooks: { onBeforeToolExec: async () => ({ approved: true }) },
+        onAgentLoopEvent: (event) => {
+          if (steerDepth === undefined || event.type !== 'turn_end' || steerScheduled) return;
+          steerScheduled = true;
+          const admit = (remaining) => {
+            if (remaining > 0) queueMicrotask(() => admit(remaining - 1));
+            else queuedSteer = agent.steer('boundary', steerPrompt);
+          };
+          admit(steerDepth);
+        },
       });
       agent.tools.register(taskAcceptanceTool);
       agent.tools.register({
@@ -96,6 +113,10 @@ for (const sameBatch of [true, false]) {
       assert.equal(writes, 0, 'no write may start after durable acceptance');
       assert.equal(await fs.readFile(file, 'utf8'), '1');
       assert.equal(providerCalls, 1, 'accepted execution must not open another model cycle');
+      if (steerDepth !== undefined) {
+        assert.ok(queuedSteer, 'the real active run admitted the queued steer');
+        assert.deepEqual(agent.takeDeferredSteers('boundary'), [steerPrompt]);
+      }
     } finally {
       await fs.rm(workspaceDir, { recursive: true, force: true });
     }

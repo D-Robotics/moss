@@ -595,6 +595,10 @@ export function runAgentLoop(
 
             await flushAssistantBuffer(turnAssistantBuffer);
 
+            if (responseResult.control === 'break' && state.taskAcceptanceCommitted) {
+              break outerLoop;
+            }
+
             if (getSteeringMessages) {
               const steeringMessages = await getSteeringMessages();
               if (steeringMessages.length > 0) state.pendingMessages.push(...steeringMessages);
@@ -604,7 +608,6 @@ export function runAgentLoop(
               continue;
             }
             if (responseResult.control === 'break') {
-              if (state.taskAcceptanceCommitted) break;
               // Final text may have been generated while a background build/test
               // finished — inject completion before yielding to the user.
               const bgAtEnd = injectBackgroundCompletions();
