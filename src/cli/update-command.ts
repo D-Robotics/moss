@@ -28,6 +28,12 @@ const DEFAULT_CLONE_URL = 'https://github.com/D-Robotics/moss.git';
 /** Removes the unscoped package named moss. Leaves `@rdk-moss/agent` in place. */
 export const LEGACY_PACKAGE_UNINSTALL = 'npm uninstall -g moss';
 
+/**
+ * Upgrade an existing checkout and reinstall the global copy.
+ * `npm ci` runs `prepare`, which already builds, so this does not call `npm run build`.
+ */
+export const UPGRADE_IN_CLONE = 'cd moss && git pull && npm ci && npm install -g --install-links .';
+
 export function shellSingleQuote(value: string): string {
   if (value.length > 0 && /^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
   return `'${value.replace(/'/g, `'\\''`)}'`;
@@ -54,8 +60,8 @@ export function gitCloneUrl(repository: MossPackageMeta['repository']): string {
 }
 
 /**
- * Working global install while the package is private: clone, `npm ci`, `npm run build`,
- * then `npm install -g --install-links .` so the prefix holds its own copy.
+ * First install while the package is private. `npm ci` runs `prepare` (`npm run build`).
+ * `npm install -g --install-links .` then copies that build into the prefix.
  * Verified on npm 10.9.2 and 11.21.0.
  */
 export function sourceInstallCommands(
@@ -67,13 +73,7 @@ export function sourceInstallCommands(
       .split('/')
       .pop()
       ?.replace(/\.git$/, '') || 'moss';
-  return [
-    `git clone ${cloneUrl}`,
-    `cd ${repoName}`,
-    'npm ci',
-    'npm run build',
-    'npm install -g --install-links .',
-  ];
+  return [`git clone ${cloneUrl}`, `cd ${repoName}`, 'npm ci', 'npm install -g --install-links .'];
 }
 
 /**
@@ -86,9 +86,9 @@ export function npmInstallSpec(pkg: MossPackageMeta): string | null {
   return `${name}@latest`;
 }
 
-export function gitUpgradeCommand(root: string): string {
-  const quoted = shellSingleQuote(root);
-  return `git -C ${quoted} pull && npm --prefix ${quoted} run build`;
+/** Same steps as {@link UPGRADE_IN_CLONE}, from a specific checkout directory. */
+export function upgradeCommand(repoDir: string): string {
+  return `cd ${shellSingleQuote(repoDir)} && git pull && npm ci && npm install -g --install-links .`;
 }
 
 export function globalInstallCommands(pkg: MossPackageMeta): readonly string[] {
@@ -103,16 +103,50 @@ export function localInstallCommands(pkg: MossPackageMeta): readonly string[] {
   return [`npm install ${spec}`];
 }
 
+function hasMossIdentity(pkg: MossPackageMeta): boolean {
+  const bin = pkg.bin;
+  const hasMossBin =
+    bin === 'dist/cli.js' ||
+    (typeof bin === 'object' && bin !== null && typeof bin.moss === 'string');
+  return pkg.name === '@rdk-moss/agent' || pkg.name === 'moss' || hasMossBin;
+}
+
+function isMossGitCheckout(
+  dir: string,
+  exists: (target: string) => boolean,
+  readPackage: (dir: string) => MossPackageMeta
+): boolean {
+  return exists(path.join(dir, '.git')) && hasMossIdentity(readPackage(dir));
+}
+
 export function adviseMossUpdate(input: {
   packageRoot: string;
   pkg: MossPackageMeta;
+  /** Working directory. Used to find an existing checkout when this install has no `.git`. */
+  cwd?: string;
   exists?: (target: string) => boolean;
+  readPackage?: (dir: string) => MossPackageMeta;
 }): MossUpdateAdvice {
   const exists = input.exists ?? fs.existsSync;
+  const readPackage = input.readPackage ?? readMossPackage;
   const root = input.packageRoot;
+  // This root is already the moss package. A `.git` entry here is the checkout,
+  // including when a test double does not re-read package.json.
   if (exists(path.join(root, '.git'))) {
-    return { kind: 'git-clone', root, commands: [gitUpgradeCommand(root)] };
+    return { kind: 'git-clone', root, commands: [upgradeCommand(root)] };
   }
+
+  // A published package upgrades with npm. A private global install upgrades
+  // the checkout next to the user when one is there, and clones only otherwise.
+  if (input.pkg.private === true && input.cwd) {
+    for (const dir of [input.cwd, path.join(input.cwd, 'moss')]) {
+      if (path.resolve(dir) === path.resolve(root)) continue;
+      if (isMossGitCheckout(dir, exists, readPackage)) {
+        return { kind: 'git-clone', root: dir, commands: [upgradeCommand(dir)] };
+      }
+    }
+  }
+
   const parts = root.split(path.sep);
   const nm = parts.lastIndexOf('node_modules');
   if (nm >= 0) {
@@ -127,7 +161,7 @@ export function adviseMossUpdate(input: {
   return {
     kind: 'unknown',
     root,
-    commands: [gitUpgradeCommand(root), ...globalInstallCommands(input.pkg)],
+    commands: globalInstallCommands(input.pkg),
   };
 }
 
@@ -137,11 +171,15 @@ function oldBinConflictNote(zh: boolean): string {
         '如果 npm 报 moss 这个 bin 已存在（EEXIST），先卸掉旧的未加 scope 的包：',
         '',
         `  ${LEGACY_PACKAGE_UNINSTALL}`,
+        '',
+        '不要加 --force。--force 会同时留下旧包和新包，之后再执行 npm uninstall -g moss 会把 moss 命令一起删掉。',
       ].join('\n')
     : [
         'If npm reports EEXIST for the moss bin, uninstall the older unscoped package first:',
         '',
         `  ${LEGACY_PACKAGE_UNINSTALL}`,
+        '',
+        'Do not pass --force. It leaves both packages installed, and a later npm uninstall -g moss removes the moss command.',
       ].join('\n');
 }
 
@@ -154,7 +192,7 @@ function finishUpdateAdvice(
     ? 'moss update 只打印命令，不会执行。'
     : 'moss update prints the command and does not run it.';
   const body = [...lines];
-  if (commands.some((command) => command.startsWith('npm install -g'))) {
+  if (commands.some((command) => command.includes('npm install -g'))) {
     body.push('', oldBinConflictNote(zh));
   }
   body.push('', tail);
@@ -178,7 +216,13 @@ export function renderUpdateAdvice(advice: MossUpdateAdvice, zh: boolean): strin
       : advice.kind === 'npm-global'
         ? `This Moss is an npm global install (${advice.root}).`
         : `This Moss is installed in a project's node_modules (${advice.root}).`;
-    return finishUpdateAdvice([head, '', run, '', commandBlock], advice.commands, zh);
+    const missing = zh
+      ? '当前目录下没有 moss 克隆，所以上面从 git clone 开始。'
+      : 'No moss clone is in the current directory, so the commands above start with git clone.';
+    const lines = advice.commands.some((command) => command.startsWith('git clone '))
+      ? [head, '', missing, '', run, '', commandBlock]
+      : [head, '', run, '', commandBlock];
+    return finishUpdateAdvice(lines, advice.commands, zh);
   }
   const head = zh
     ? `看不出这个 Moss 是 git 克隆还是 npm 安装（${advice.root}）。`
@@ -188,24 +232,28 @@ export function renderUpdateAdvice(advice: MossUpdateAdvice, zh: boolean): strin
 }
 
 export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: true }): string {
-  const globalCommands =
-    pkg.private === false
-      ? globalInstallCommands({ ...pkg, private: false })
-      : sourceInstallCommands(pkg.repository);
+  const published = pkg.private === false;
+  const fresh = published
+    ? globalInstallCommands({ ...pkg, private: false })
+    : sourceInstallCommands(pkg.repository);
   const examples = [
     '  moss update',
-    ...globalCommands.map((command) => `  ${command}`),
+    ...(published ? [] : [`  ${UPGRADE_IN_CLONE}`]),
+    ...fresh.map((command) => `  ${command}`),
     `  ${LEGACY_PACKAGE_UNINSTALL}`,
-    '  git -C <clone> pull && npm --prefix <clone> run build',
   ];
   if (zh) {
     return [
       '用法：',
       '  moss update',
       '',
-      '按安装方式打印升级命令。git 克隆打印 git pull 和重新构建；',
-      '全局安装打印从源码安装的命令（npm install -g --install-links）。',
-      'moss update 不会执行这些命令。',
+      '按安装方式打印升级命令。已有克隆时打印：',
+      `  ${UPGRADE_IN_CLONE}`,
+      '还没有 moss 目录时才打印 git clone。npm ci 会通过 prepare 构建，',
+      '不需要再跑 npm run build。moss update 不会执行这些命令。',
+      '',
+      '如果 npm 报 EEXIST，不要加 --force。先卸掉旧的未加 scope 的包。',
+      '--force 会同时留下两个包，之后再 npm uninstall -g moss 会把 moss 命令删掉。',
       '',
       '选项：',
       '  （无）  不接受 flag，也不会拉取、安装或构建',
@@ -218,9 +266,15 @@ export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: 
     'Usage:',
     '  moss update',
     '',
-    'Print the upgrade command for this install. A git clone prints git pull',
-    'and a rebuild. A global install prints the source-install commands',
-    '(npm install -g --install-links). moss update does not run those commands.',
+    'Print the upgrade command for this install. An existing clone prints:',
+    `  ${UPGRADE_IN_CLONE}`,
+    'git clone is printed only when no moss directory exists yet. npm ci builds',
+    'through prepare, so there is no separate npm run build. moss update does',
+    'not run those commands.',
+    '',
+    'If npm reports EEXIST, do not pass --force. Uninstall the old unscoped',
+    'package first. --force leaves both packages, and a later',
+    'npm uninstall -g moss removes the moss command.',
     '',
     'Options:',
     '  (none)  no flags; nothing is pulled, installed, or built',
@@ -262,6 +316,6 @@ export function findMossPackageRoot(modulePath: string): string {
 export function runUpdateCommand(locale?: string): void {
   const root = findMossPackageRoot(fileURLToPath(import.meta.url));
   const pkg = readMossPackage(root);
-  const advice = adviseMossUpdate({ packageRoot: root, pkg });
+  const advice = adviseMossUpdate({ packageRoot: root, pkg, cwd: process.cwd() });
   process.stdout.write(`${renderUpdateAdvice(advice, isZhLocale(locale))}\n`);
 }

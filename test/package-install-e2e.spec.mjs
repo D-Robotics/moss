@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Opt-in install of the documented source commands into a temp prefix.
- * Off unless MOSS_INSTALL_E2E=1: npm ci plus a build is too slow for the
- * default suite.
+ * Off unless MOSS_INSTALL_E2E=1: npm ci (which builds via prepare) is too slow
+ * for the default suite.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -22,11 +22,8 @@ if (process.env.MOSS_INSTALL_E2E !== '1') {
 } else {
   const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
   const documented = sourceInstallCommands(pkg.repository);
-  assert.deepEqual(documented.slice(2), [
-    'npm ci',
-    'npm run build',
-    'npm install -g --install-links .',
-  ]);
+  assert.deepEqual(documented.slice(2), ['npm ci', 'npm install -g --install-links .']);
+  assert.ok(!documented.includes('npm run build'), 'prepare already builds during npm ci');
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-install-e2e-'));
   const home = path.join(root, 'home');
@@ -99,7 +96,11 @@ if (process.env.MOSS_INSTALL_E2E !== '1') {
       shell,
     });
     assert.equal(version.status, 0, version.stderr);
-    assert.match(version.stdout, new RegExp(`^moss v${pkg.version}\\b`));
+    const versionPattern = pkg.version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.match(
+      version.stdout,
+      new RegExp(`^moss v${versionPattern} \\([0-9a-f]{7,40}, \\d{4}-\\d{2}-\\d{2}\\)`)
+    );
 
     const resolvedPrefix = fs.realpathSync(prefix) + path.sep;
     const target = fs.realpathSync(bin);

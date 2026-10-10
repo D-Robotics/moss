@@ -36,7 +36,7 @@
     "prepare": "npm run build",
     "prepublishOnly": "npm run build && npm run verify",
     "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\"",
-    "build": "npm run clean && tsc -p tsconfig.build.json && node -e \"const fs=require('fs');fs.chmodSync('dist/cli.js',0o755)\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/write-build-stamp.mjs && node -e \"const fs=require('fs');fs.chmodSync('dist/cli.js',0o755)\"",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix --max-warnings 0",

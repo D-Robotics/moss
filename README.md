@@ -21,20 +21,57 @@ Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器
 - 无账号、无云服务、无遥测——provider 就是普通 HTTP 端点
 - 四种交互面：全屏 TUI · readline REPL · headless CLI · 可嵌入 SDK
 
+## 环境
+
+先看 Node 版本：
+
+```bash
+node -v
+```
+
+需要 **22.16** 或更高。
+
+- nvm：`nvm install 22`，装完再跑一次 `node -v`
+- NodeSource：见 [nodesource/distributions](https://github.com/nodesource/distributions)
+- 国内网络：`npm config set registry https://registry.npmmirror.com`。nvm 下载 Node 可以设 `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+
+### macOS
+
+不需要 Xcode Command Line Tools。安装过程不编译 Moss，`cpu-features` 的可选原生构建失败也不影响运行。Node 用 Homebrew 或 nvm，装完用 `node -v` 确认是 22.16 或更高。全局目录没有写权限时，用下面的用户级 prefix。
+
+### Windows
+
+先装 Git for Windows 和 nvm-windows。PowerShell 的执行策略可能拦截 `moss.ps1`。只给当前用户放开脚本：
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+把 `%APPDATA%\npm` 加进 PATH。这是 npm 在 Windows 上的默认全局命令目录。
+
 ## 快速开始
 
-从源码安装（需要 Node ≥ 22.16），运行 `moss`，在界面里完成设置，然后要一个回答：
+从源码安装，运行 `moss`，在界面里完成设置，然后要一个回答。`npm ci` 会跑 `prepare`（也就是 `npm run build`），所以不用再单独构建：
 
 ```bash
 git clone https://github.com/D-Robotics/moss.git
 cd moss
 npm ci
-npm run build
 npm install -g --install-links .
 moss
 ```
 
-如果以前装过旧的未加 scope 的 `moss` 包，先执行 `npm uninstall -g moss`，否则两个包抢同一个 `moss` 命令，npm 会报 EEXIST。`npm install -g @rdk-moss/agent` 即将发布。`moss update` 会打印上面的安装命令，不会自己执行。
+如果以前装过旧的未加 scope 的 `moss` 包，先执行 `npm uninstall -g moss`，否则两个包抢同一个 `moss` 命令，npm 会报 EEXIST。不要加 `--force`：它会同时留下旧包和 `@rdk-moss/agent`，之后再 `npm uninstall -g moss` 会把 `moss` 命令一起删掉。`npm install -g @rdk-moss/agent` 即将发布。
+
+npm 11 可能提示 `@rdk-moss/agent`（prepare）、`ssh2`、`cpu-features` 的安装脚本不在 allow-scripts 里。这是提示，安装仍然成功：`dist/` 已经构建好，ssh2 没有可选的原生模块也能用。不要运行 `npm audit fix --force`，它会改依赖版本，装完不能用。
+
+全局目录没有写权限（EACCES）时，把 prefix 放到用户目录，或改用 nvm（Node 装在家目录里）：
+
+```bash
+npm config set prefix ~/.npm-global
+```
+
+把 `~/.npm-global/bin` 加进 PATH，然后重新打开终端。
 
 没有可用配置时，`moss` 就在这个界面里设置（按数字选服务商，或按 Enter 使用环境里已有的 key，内容不会显示）。D-Robotics 地瓜网关是第一项，已经预选（地址 `https://ai-api.d-robotics.cc/v1`，默认模型 `deepseek-flash`，只问 key）。不想把 key 写进文件时，先指定服务商再写变量名：`moss config set provider d-robotics`，然后 `moss config set apiKeyEnv <变量名>`。只写 `apiKeyEnv`、不写服务商或地址时，会先问选哪一家，不会把 key 发给默认的 DeepSeek。设好后在同一会话里说：
 
@@ -60,6 +97,32 @@ moss --no-tty                                 # 强制使用 readline REPL
 ```
 
 </details>
+
+## 升级
+
+已有 `moss` 克隆时，在它的上一级目录运行：
+
+```bash
+cd moss && git pull && npm ci && npm install -g --install-links .
+```
+
+`npm ci` 会重新构建。`--install-links` 把新的副本装进全局 prefix，而不只是重新编译克隆目录。`moss --version` 带短 commit 和构建日期，例如 `moss v0.26.0 (e8dc2e3, 2026-10-10)`，升级前后可以对上。还没有 `moss` 目录时，用上面的安装步骤。`moss update` 也是这样：找得到克隆就打印这一行，找不到才打印 `git clone`。它只打印命令，不执行。
+
+## 卸载
+
+```bash
+npm uninstall -g @rdk-moss/agent
+```
+
+这条只卸掉命令。下面的东西会留下：
+
+- 配置：Linux / macOS 是 `~/.config/moss`（设了 `XDG_CONFIG_HOME` 时在那里的 `moss`），Windows 是 `%APPDATA%\moss`。也检查 `~/.moss`
+- npx 缓存：`~/.moss/cache/npx`
+- 每个项目里的 `.moss/`（任务、会话、项目配置）
+- 源码克隆目录
+- npm 缓存，一般是 `~/.npm`
+
+可以删：`~/.moss/cache/npx`、npm 缓存（`npm cache clean --force`）、以及你不再需要的克隆目录。删掉 `~/.config/moss`、`~/.moss` 或项目里的 `.moss/` 会同时去掉 key、设置和任务记录；只有确定不要这些数据时再删。
 
 ## 为什么是 Moss
 
@@ -261,20 +324,57 @@ mean _the board actually did it_.
 - No account, no cloud service, no telemetry — providers are plain HTTP endpoints
 - Four surfaces: full-screen TUI · readline REPL · headless CLI · embeddable SDK
 
+### Prerequisites
+
+Check Node first:
+
+```bash
+node -v
+```
+
+Moss needs **22.16** or newer.
+
+- nvm: `nvm install 22`, then run `node -v` again
+- NodeSource: see [nodesource/distributions](https://github.com/nodesource/distributions)
+- In China: `npm config set registry https://registry.npmmirror.com`. For nvm's Node downloads, set `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+
+#### macOS
+
+Xcode Command Line Tools are optional. The install does not compile Moss, and a failed optional native build of `cpu-features` still leaves a working `moss`. Install Node with Homebrew or nvm, then confirm `node -v` is 22.16 or newer. If the global prefix is not writable, use the user-level prefix below.
+
+#### Windows
+
+Install Git for Windows and nvm-windows. PowerShell's execution policy can block `moss.ps1`. Allow scripts for the current user only:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Put `%APPDATA%\npm` on PATH. That is npm's default global bin directory on Windows.
+
 ### Quick start
 
-Install from source (Node ≥ 22.16), run `moss`, finish setup in the screen, then ask for an answer:
+Install from source, run `moss`, finish setup in the screen, then ask for an answer. `npm ci` runs `prepare` (`npm run build`), so there is no separate build step:
 
 ```bash
 git clone https://github.com/D-Robotics/moss.git
 cd moss
 npm ci
-npm run build
 npm install -g --install-links .
 moss
 ```
 
-If an older unscoped `moss` package is already installed, run `npm uninstall -g moss` first. The two packages use the same `moss` bin, and npm stops with EEXIST. `npm install -g @rdk-moss/agent` is coming soon. `moss update` prints the commands above and does not run them.
+If an older unscoped `moss` package is already installed, run `npm uninstall -g moss` first. The two packages use the same `moss` bin, and npm stops with EEXIST. Do not pass `--force`. It leaves both the old package and `@rdk-moss/agent` installed, and a later `npm uninstall -g moss` removes the `moss` command. `npm install -g @rdk-moss/agent` is coming soon.
+
+npm 11 may warn that install scripts for `@rdk-moss/agent` (prepare), `ssh2`, and `cpu-features` are outside allow-scripts. The warning is harmless: `dist/` is already built, and ssh2 works without its optional native addon. Do not run `npm audit fix --force`. It changes dependency versions and breaks the install.
+
+If npm reports EACCES on the global prefix, point prefix at your home directory, or use nvm (Node then lives under your home directory):
+
+```bash
+npm config set prefix ~/.npm-global
+```
+
+Add `~/.npm-global/bin` to PATH and open a new terminal.
 
 With no usable config, `moss` sets itself up in that screen (press a number to pick a provider, or Enter to use a key already in the environment; the value is not shown). The D-Robotics gateway is listed first and preselected (`https://ai-api.d-robotics.cc/v1`, default model `deepseek-flash`, key only). To keep the key out of the file, set the provider and then the variable name: `moss config set provider d-robotics`, then `moss config set apiKeyEnv <VAR>`. A file that names only `apiKeyEnv` is not configured: setup asks which provider, and the key is not sent to the default DeepSeek endpoint. Then, in the same session:
 
@@ -297,6 +397,32 @@ moss --no-tty                                 # force the readline REPL
 ```
 
 </details>
+
+### Upgrade
+
+From the parent of an existing `moss` clone:
+
+```bash
+cd moss && git pull && npm ci && npm install -g --install-links .
+```
+
+`npm ci` rebuilds. `--install-links` installs that new copy into the global prefix, instead of only rebuilding the clone. `moss --version` includes the short commit and the build date, for example `moss v0.26.0 (e8dc2e3, 2026-10-10)`, so the before and after strings differ. If you do not have a `moss` directory yet, use the install steps above. `moss update` prints this upgrade line when it finds a clone, and the `git clone` steps only when it does not. It prints the commands and does not run them.
+
+### Uninstall
+
+```bash
+npm uninstall -g @rdk-moss/agent
+```
+
+That removes the command. These stay behind:
+
+- Config: `~/.config/moss` on Linux and macOS (`$XDG_CONFIG_HOME/moss` when that variable is set), or `%APPDATA%\moss` on Windows. Also check `~/.moss`
+- The npx cache: `~/.moss/cache/npx`
+- Per-project `.moss/` directories (tasks, sessions, project config)
+- The source clone
+- The npm cache, usually `~/.npm`
+
+Safe to delete: `~/.moss/cache/npx`, the npm cache (`npm cache clean --force`), and the clone once you no longer need the source. Deleting `~/.config/moss`, `~/.moss`, or a project's `.moss/` also removes keys, settings, and task history. Delete those only when you want that data gone.
 
 ### Why Moss
 

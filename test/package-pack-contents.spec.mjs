@@ -59,12 +59,14 @@ const allowed = (file) =>
   file === 'package.json' ||
   file === 'README.md' ||
   file === 'LICENSE' ||
+  file === 'dist/utils/build-stamp.json' ||
   (file.startsWith('dist/') && (file.endsWith('.js') || file.endsWith('.d.ts')));
 assert.deepEqual(
   files.filter((file) => !allowed(file)),
   [],
-  'only package.json, README.md, LICENSE, and dist/**/*.{js,d.ts}'
+  'only package.json, README.md, LICENSE, dist/utils/build-stamp.json, and dist/**/*.{js,d.ts}'
 );
+assert.ok(files.includes('dist/utils/build-stamp.json'), 'build stamp is packed');
 assert.ok(files.includes('dist/cli.js'), 'bin entry is packed');
 assert.ok(files.includes('dist/index.js'), 'SDK entry is packed');
 assert.ok(files.includes('dist/index.d.ts'), 'SDK types are packed');
