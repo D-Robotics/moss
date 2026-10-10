@@ -327,6 +327,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_DISABLE_NUDGES (comma-separated nudge ids to suppress; unset leaves every nudge on)',
       'MOSS_PLAN_GATE (1 enables the /plan approval gate; default off)',
       'MOSS_GOAL_AUTO_MAX_RUNS',
+      'MOSS_ACCEPT_LOGIN_PATH (0 stops acceptance commands from appending the login-shell PATH)',
       'MOSS_BUDGET_MAX_TOKENS',
       'MOSS_BUDGET_MAX_TOOL_CALLS',
       'MOSS_BUDGET_MAX_TURNS',
@@ -506,6 +507,8 @@ const ENV_NOTE_ZH: Record<string, string> = {
     'npm 规格或本地路径；仅进程环境，不是项目配置或 .env',
   '1|true|yes|on asks npm if rdk-docs-mcp latest is newer than the pin; off by default, not used at startup':
     '1|true|yes|on 向 npm 查询 rdk-docs-mcp 的 latest 是否新于钉住的版本；默认关闭，启动时不用',
+  '0 stops acceptance commands from appending the login-shell PATH':
+    '设为 0 时，验收命令不再追加登录 shell 的 PATH',
   'legacy alias': '旧别名',
   'en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale':
     'en|zh；进程环境或 --lang；项目 .env 不能设置；优先级 flag > env > 配置 language > 系统区域',
