@@ -108,7 +108,7 @@ const live = await new Promise((resolve) => {
         const messages = JSON.parse(body).messages ?? [];
         toolFollowUp = messages.some((message) => message.role === 'tool');
       } catch {
-        toolFollowUp = false;
+        // Not a chat body. The first response is still the exec tool call.
       }
       const payload = toolFollowUp
         ? {
