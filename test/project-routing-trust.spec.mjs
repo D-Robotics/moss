@@ -643,6 +643,10 @@ try {
     baseUrl: `http://127.0.0.1:${projectStub.port}/v1`,
     apiKey: 'project-secret-key',
   });
+  // The trusted .env proxy is installed before the first request. Keep the
+  // local stubs off that proxy so this check still sees the project host.
+  env.NO_PROXY = '127.0.0.1';
+  env.no_proxy = '127.0.0.1';
   const owned = await runCli(ws, env, ['--trust-workspace', '-p', 'hi', '--max-turns', '1']);
   assert.equal(owned.code, 0, owned.stderr);
   assert.equal(userStub.hits.length, 0, 'user host must not see the project endpoint call');
