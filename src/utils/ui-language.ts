@@ -42,7 +42,7 @@ export function parseLanguageSetting(value: string): LanguageSetting | null {
   return null;
 }
 
-/** `--lang` and `MOSS_LANG` accept only an explicit language, not `auto`. */
+/** `--lang` accepts only `en` or `zh`. `MOSS_LANG=auto` is handled in `resolveUiLanguage`. */
 export function parseExplicitUiLanguage(value: string): UiLanguage | null {
   const raw = value.trim().toLowerCase();
   if (raw === 'en' || raw === 'zh') return raw;
@@ -68,11 +68,15 @@ export function resolveUiLanguage(input: {
     return { language: flag, source: 'flag', setting };
   }
   if (input.envLang !== undefined && input.envLang.trim() !== '') {
-    const envLang = parseExplicitUiLanguage(input.envLang);
-    if (!envLang) {
-      throw new Error(`MOSS_LANG must be en|zh, got "${input.envLang}"`);
+    const raw = input.envLang.trim().toLowerCase();
+    // `auto` is a real setting: fall through to config, then the system locale.
+    if (raw !== 'auto') {
+      const envLang = parseExplicitUiLanguage(input.envLang);
+      if (!envLang) {
+        throw new Error(`MOSS_LANG must be auto|en|zh, got "${input.envLang}"`);
+      }
+      return { language: envLang, source: 'env', setting };
     }
-    return { language: envLang, source: 'env', setting };
   }
   if (setting === 'en' || setting === 'zh') {
     return { language: setting, source: 'config', setting };

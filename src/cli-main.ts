@@ -260,6 +260,14 @@ if (parsedArgs.help && parsedArgs.command !== 'chat') {
 if (parsedArgs.help) displayHelp(c, { all: parsedArgs.helpAll });
 if (parsedArgs.version) displayVersion(c);
 
+// `moss help <unknown>` must not be sent to the model as a prompt.
+if (parsedArgs.unknownHelpTopic) {
+  const token = parsedArgs.unknownHelpTopic;
+  console.error(uiText(`[moss] unknown command '${token}'`, `[moss] 未知命令「${token}」`));
+  console.error(uiText('Run `moss --help` for usage.', '运行 `moss --help` 查看用法。'));
+  process.exit(ExitCode.USAGE);
+}
+
 // `moss version` / `moss help` / `moss status` are COMMAND_LIKE_REDIRECTS
 // that should produce the expected output, not an error.
 if (parsedArgs.unknownCommand) {
@@ -701,9 +709,17 @@ async function main() {
     const existing = await earlySessionStore.listSessions().catch(() => []);
     if (existing.length === 0) {
       console.error(
-        `[session] No saved sessions to ${parsedArgs.command} in this workspace (${workspace}).`
+        uiText(
+          `[session] No saved sessions to ${parsedArgs.command} in this workspace (${workspace}).`,
+          `[会话] 此工作区没有可${parsedArgs.command === 'fork' ? '分叉' : '恢复'}的已保存会话（${workspace}）。`
+        )
       );
-      console.error('[session] Start one with `moss`, then use `moss resume --last`.');
+      console.error(
+        uiText(
+          '[session] Start one with `moss`, then use `moss resume --last`.',
+          '[会话] 先运行 `moss` 开始会话，再用 `moss resume --last`。'
+        )
+      );
       process.exit(ExitCode.SESSION);
     }
   }

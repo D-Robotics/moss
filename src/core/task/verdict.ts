@@ -6,6 +6,7 @@
  * Command verdicts outrank contract verdicts when both are configured, so a
  * failing external check always vetoes a criteria-only pass.
  */
+import { uiText } from '../../utils/ui-language.js';
 import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
 import { evaluateAcceptance, formatAcceptanceVerdict } from '../../contracts/task.js';
 import { runAcceptanceCommand } from './acceptance-command.js';
@@ -133,8 +134,10 @@ export function createContractVerdictProvider(workspaceDir: string): VerdictProv
           taskId,
           passed: false,
           source: 'contract',
-          detail:
+          detail: uiText(
             'task has no acceptance criteria — define them with task_define (metric + expectation) before verification; a goal without a checkable definition of done cannot be accepted',
+            '任务没有验收标准。请先用 task_define 写明指标和期望，再做验证。没有可检查的完成定义就不能验收。'
+          ),
         };
       }
       const result = await evaluateContractAcceptance(workspaceDir, taskId);

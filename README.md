@@ -240,7 +240,7 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
 
 优先级：`--lang` > `MOSS_LANG` > 用户配置 `language` > 系统区域。`C`、`POSIX`、`C.UTF-8` 不是语言，会落到下一个变量（`LC_ALL`、`LC_MESSAGES`、`LANG`）；都不是语言时界面保持英文。项目 `.moss/config.json` 和项目 `.env` 不能设置界面语言。
 
-交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为 English。
+交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为英语。
 
 ## 安全与隐私
 
@@ -254,7 +254,7 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
   | `plan`         | 只读规划，写操作与设备变更被拦                                                                    |
   | `full`（默认） | 本地写与可逆设备操作跳过询问；毁灭性设备操作 TTY 确认、headless 拒绝。deny 规则与本机硬拦截仍生效 |
 
-- **`workspace-write` 不是操作系统沙箱。** workspace-write 只约束 Moss 自己的文件工具。shell 命令照常运行，没有操作系统沙箱。`write_file`、`edit_file`、`multi_edit`、`move_file`、`apply_patch` 写在工作区内；`exec` 没有 Landlock、bubblewrap 或 seatbelt。静态扫描会拦下它能看见的一部分出区写（重定向、`cp`、`mv`），挡不住子进程里的 `node` / `python`（例如写入 `/tmp`）。shell 的安全来自输出脱敏和写回防护。可选的操作系统沙箱见 [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md)，默认关闭。
+- **`workspace-write` 不是操作系统沙箱。** `workspace-write` 只约束 Moss 自己的文件工具。终端命令照常运行，没有操作系统沙箱。`write_file`、`edit_file`、`multi_edit`、`move_file`、`apply_patch` 写在工作区内；`exec` 没有 Landlock、bubblewrap 或 seatbelt。静态扫描会拦下它能看见的一部分出区写（重定向、`cp`、`mv`），挡不住子进程里的 `node` / `python`（例如写入 `/tmp`）。shell 的安全来自输出脱敏和写回防护。可选的操作系统沙箱见 [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md)，默认关闭。
 - **权限规则**（`/permissions`，任何模式生效，deny 优先于一切含 full）：
   - 三级 `allow` / `ask` / `deny`，优先级 deny > ask > allow；
   - 语法 `ToolName(pattern)`，用 moss 原生工具名：`/permissions add deny "read_file(./.env)"`、`/permissions add allow "exec(npm run *)"`；

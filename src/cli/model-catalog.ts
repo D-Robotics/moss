@@ -41,7 +41,7 @@ export function describeModelListSource(list: ModelChoiceList): string {
     list.source === 'live'
       ? list.usingBundledDefault
         ? uiText('live from the built-in Moss gateway', '来自内置 Moss 网关的实时列表')
-        : uiText('live from the provider /v1/models', '来自提供方 /v1/models 的实时列表')
+        : uiText('live from the provider /v1/models', '来自服务商 /v1/models 的实时列表')
       : list.source === 'built-in'
         ? uiText('built-in Moss gateway defaults', '内置 Moss 网关默认项')
         : uiText(
@@ -57,7 +57,7 @@ export function describeModelListSource(list: ModelChoiceList): string {
   if (list.configPath && list.configPathExists === false) {
     return uiText(
       `models: ${origin} · config file deleted (${list.configPath}) — provider fell back to defaults`,
-      `模型：${origin} · 配置文件已删除（${list.configPath}）— 提供方已回退到默认值`
+      `模型：${origin} · 配置文件已删除（${list.configPath}）— 服务商已回退到默认值`
     );
   }
   return uiText(
@@ -423,7 +423,7 @@ export function formatModelChoices(list: ModelChoiceList): string {
     uiText('Models', '模型'),
     uiText(
       `  active provider  ${list.providerLabel} (${list.provider})${list.usingBundledDefault ? ' · built-in Moss gateway' : ''}`,
-      `  当前提供方  ${list.providerLabel} (${list.provider})${list.usingBundledDefault ? ' · 内置 Moss 网关' : ''}`
+      `  当前服务商  ${list.providerLabel}（${list.provider}）${list.usingBundledDefault ? ' · 内置 Moss 网关' : ''}`
     ),
     uiText(
       `  current model    ${list.currentModel || '(not set)'}${list.usingBundledDefault && list.realModel ? ` (real backing model: ${list.realModel})` : ''}`,
@@ -481,7 +481,7 @@ export function formatModelChoices(list: ModelChoiceList): string {
     '  /model config base_url=<url> key=<api-key> model_name=<model>',
     uiText(
       '  moss setup             change provider, base URL, or API key',
-      '  moss setup             修改提供方、基址或 API 密钥'
+      '  moss setup             修改服务商、基址或 API 密钥'
     )
   );
   return lines.join('\n');

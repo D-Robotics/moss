@@ -16,14 +16,41 @@ import { fileURLToPath } from 'node:url';
 import { trackTempDir } from './helpers/temp-home.mjs';
 
 import { auditResolvedCliConfig, envBeforeDotenv, mergeConfigFiles } from '../dist/cli/config.js';
+import { KNOWN_COMMANDS } from '../dist/cli/args.js';
 import { runRegistryCommand } from '../dist/cli/commands/registry.js';
+import { buildApprovalDetailLines } from '../dist/cli/approval-detail.js';
 import {
+  SETUP_ZH,
   buildAnswerLanguageLayer,
   clearUiLanguage,
   resolveUiLanguage,
   shouldOfferEnglishUi,
 } from '../dist/cli/cli-locale.js';
-import { setTuiLocale } from '../dist/cli/tui/copy.js';
+import { setupMenuLines } from '../dist/cli/setup-wizard.js';
+import { formatTaskStatus } from '../dist/cli/task-run.js';
+import { summarizeTaskRun } from '../dist/core/task/task-engine.js';
+import {
+  formatDiffRunFailure,
+  formatGitDiffFailure,
+  formatNotGitRepository,
+  reviewNotGitHint,
+} from '../dist/cli/commands/registry.js';
+import {
+  formatBlockedTaskLine,
+  formatTaskProgressLine,
+  formatTaskVerdictLine,
+} from '../dist/cli/task-card.js';
+import { commandBlockTitle } from '../dist/cli/tui/app-helpers.js';
+import { ALL_SHELL_COMMANDS } from '../dist/cli/tui/help.js';
+import { localizeConfigSource } from '../dist/cli/config-snapshot.js';
+import { renderAuthDoctorLine } from '../dist/cli/doctor.js';
+import { ZH, setTuiLocale, tui } from '../dist/cli/tui/copy.js';
+import { renderApproval, renderTranscriptRows } from '../dist/cli/tui/transcript.js';
+import {
+  appendTaskEvent,
+  formatTaskTimeline,
+  localizeTaskDetail,
+} from '../dist/core/task/task-store.js';
 import { installUiLanguage } from '../dist/utils/ui-language.js';
 import { formatDeviceConnectError } from '../dist/device/device-connect-error.js';
 import { SshDeviceConnection } from '../dist/device/ssh-device-connection.js';
@@ -36,6 +63,7 @@ import {
 } from '../dist/core/task-runtime/runtime.js';
 import { renderFirstRunLines } from '../dist/cli/first-run.js';
 import { classifyProviderError } from '../dist/provider/error-classify.js';
+import { requirePyLayout } from './helpers/require-pyte.mjs';
 
 const HAN = /\p{Script=Han}/u;
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -103,7 +131,12 @@ function assertNoEnglishLeak(text, label) {
   );
   assert.equal(resolveUiLanguage({ configLanguage: 'zh', systemLocale: 'C' }).source, 'config');
   assert.throws(() => resolveUiLanguage({ flag: 'fr' }), /--lang must be en\|zh/);
-  assert.throws(() => resolveUiLanguage({ envLang: 'chinese' }), /MOSS_LANG must be en\|zh/);
+  assert.throws(() => resolveUiLanguage({ envLang: 'chinese' }), /MOSS_LANG must be auto\|en\|zh/);
+  assert.equal(
+    resolveUiLanguage({ envLang: 'auto', configLanguage: 'zh', systemLocale: 'C' }).source,
+    'config'
+  );
+  assert.equal(resolveUiLanguage({ envLang: 'AUTO', systemLocale: 'zh_CN.UTF-8' }).language, 'zh');
   assert.equal(
     mergeConfigFiles({ language: 'zh', model: 'from-project' }, { language: 'en' }).language,
     'en'
@@ -268,6 +301,7 @@ function surfaces() {
 
 function firstRunScreens() {
   const provider = renderFirstRunLines({ step: 'provider', offers: [], cursor: 0 }).join('\n');
+  const key = renderFirstRunLines({ step: 'key', offers: [], cursor: 0, keyDots: 4 }).join('\n');
   const url = renderFirstRunLines({ step: 'url', offers: [], cursor: 0 }).join('\n');
   const failed = renderFirstRunLines({
     step: 'error',
@@ -282,7 +316,7 @@ function firstRunScreens() {
       model: 'x',
     },
   }).join('\n');
-  return [provider, url, failed].join('\n');
+  return [provider, key, url, failed].join('\n');
 }
 
 function providerErrors() {
@@ -305,6 +339,7 @@ function providerErrors() {
     'Moss setup',
     'About a minute',
     'Choose a provider',
+    'API key',
     'Gateway URL',
     'save anyway',
   ]) {
@@ -312,11 +347,13 @@ function providerErrors() {
   }
   assert.match(zh, /Moss 设置/);
   assert.match(zh, /选择服务商/);
+  assert.match(zh, /密钥（不显示）/);
   assert.match(zh, /地瓜网关/);
   const en = await withUi('en', firstRunScreens);
   assertNoHan(en, 'en first-run screens');
   assert.match(en, /Moss setup/);
   assert.match(en, /Choose a provider/);
+  assert.match(en, /API key \(hidden\)/);
   assert.match(en, /D-Robotics gateway/);
 }
 
@@ -510,7 +547,10 @@ for (const args of zhSurfaces) {
 {
   const badEnv = runCli(['--help'], { MOSS_LANG: 'fr', LANG: 'C', LC_ALL: 'C' });
   assert.equal(badEnv.status, 0, badEnv.text);
-  assert.match(badEnv.text, /MOSS_LANG must be en\|zh/);
+  assert.match(badEnv.text, /MOSS_LANG must be auto\|en\|zh/);
+  const autoEnv = runCli(['--help'], { MOSS_LANG: 'auto', LANG: 'C', LC_ALL: 'C' });
+  assert.equal(autoEnv.status, 0, autoEnv.text);
+  assert.doesNotMatch(autoEnv.text, /MOSS_LANG must be/);
   assert.match(badEnv.text, /Most useful/);
   const override = runCli(['--lang', 'en', '--help'], {
     MOSS_LANG: 'fr',
@@ -518,8 +558,13 @@ for (const args of zhSurfaces) {
     LC_ALL: 'zh_CN.UTF-8',
   });
   assert.equal(override.status, 0, override.text);
-  assert.match(override.stderr ?? '', /MOSS_LANG/);
+  assert.match(override.stderr ?? '', /MOSS_LANG must be auto\|en\|zh/);
+  assertNoHan(override.stderr ?? '', 'warning follows --lang en, not the system locale');
   assertNoHan(override.stdout ?? '', '--lang en overrides a bad MOSS_LANG');
+  const flagZh = runCli(['--lang', 'zh', '--help'], { MOSS_LANG: 'fr', LANG: 'C', LC_ALL: 'C' });
+  assert.equal(flagZh.status, 0, flagZh.text);
+  assert.match(flagZh.stderr ?? '', /MOSS_LANG 只能是 auto、en 或 zh/);
+  assert.match(flagZh.stdout ?? '', /最常用/);
   const badFlag = runCli(['--lang', 'fr', '--help'], { LANG: 'C', LC_ALL: 'C' });
   assert.equal(badFlag.status, 2, badFlag.text);
   const missing = runCli(['--lang'], { LANG: 'C', LC_ALL: 'C' });
@@ -535,34 +580,50 @@ for (const args of zhSurfaces) {
   });
   assert.equal(badConfig.status, 0, badConfig.text);
   assert.match(badConfig.text, /config language "fr" is not auto\|en\|zh/);
+  const validated = runCli(['config', 'validate'], {
+    LANG: 'C',
+    LC_ALL: 'C',
+    config: '{"language":"fr"}\n',
+  });
+  assert.match(validated.text, /language\.invalid/);
+  assert.match(validated.text, /language "fr" is not auto\|en\|zh/);
+  const strict = runCli(['config', 'validate', '--strict'], {
+    LANG: 'C',
+    LC_ALL: 'C',
+    config: '{"language":"fr"}\n',
+  });
+  assert.equal(strict.status, 1, strict.text);
 }
 
-const ALLOWED_EN = new Set(
-  `moss setup doctor config auth update resume fork mcp device skill plugins migrate sessions tasks task web agent
-help model status language lang permissions mode plan goal compact clear diff export init stop context usage agents review
-en zh auto json http https api repl tui mcp node npm git github linux macos windows posix
-deepseek openai anthropic qwen ripgrep path token baseurl url key env var
-ok warn fail pass full manual plan stdio bash ssh id dir cwd true false yes no default
-add list remove test show set unset validate create delete search export run status timeline resume view verify fork init
-unprobed bing bocha brave exa npx ctrl tab esc enter home opt tmp boot etc
-provider profile version workspace runtime search detail quiet verbose mock json
-accept edits read only workspace write full access never prompt
-info processes resources temperature robotics network cameras fleet
-allow ask deny none enabled disabled
-mit mit
-skills soul commands agents persona
-stdin stdout stderr tty pty
-grep mkdir chmod printf
-d robotics rdk docs
-npx`
+// Whole tokens only: a command, flag, path, or product name. Never a class that
+// also eats the words around the token. enter/home/end/pass/fail/english are
+// not tokens — a sentence made of them must still be caught. `auto`/`en`/`zh`
+// stay because they are the language setting the user types.
+const LITERAL_TOKENS = new Set(
+  `moss mcp rdk api ssh url json jsonl repl tui pty tty npm npx git github linux macos windows posix
+powershell deepseek openai anthropic qwen openai-compatible d-robotics http https mit stdin stdout stderr
+ripgrep xclip finder bash bing markdown node js eexist esc tab ctrl shift alt opt cmd
+list search delete export create logout show env validate init set unset status add remove serve
+evidence deployments acceptance run cd ci clone pull install uninstall sudo chmod prepare help version
+save clear plan goal diff model provider config doctor key name id file text host path dir
+baseurl apikey apikeyenv profile workspace safetymode approvalpolicy trustedtools deniedtools
+permissions defaultmode allow ask deny devicetrust trusteddevices rdkdocs enabled package
+promptcache promptcachedebug guardrails input output blockpatterns redactpatterns agent
+maxturns contexttokens compaction reservetokens keeprecenttokens language
+task_define record_evidence device_deploy search_code workspace-write
+balanced cautious autonomous manual acceptedits full never prompt
+moss_lang moss_config_dir moss_config_file moss_no_bundled_default editor
+wl-paste xclip echo printf rg grep test timeline stdio rdk-docs full-access
+fleet info processes resources temperature robotics network cameras partial
+all-fail devices description view history failures verify false`
     .split(/\s+/)
-    .map((word) => word.toLowerCase())
+    .filter((word) => word.length > 0)
 );
-const GLUE = new Set(
-  'the and for with from this that are not you your when will can has have was were into than then also only must should but its been they their about after before where which what how does did using used still every other same more without within under over once requires require missing found available install please press type enter choose saved'.split(
-    ' '
-  )
-);
+for (const command of KNOWN_COMMANDS) LITERAL_TOKENS.add(command);
+
+const LANGUAGE_SETTINGS = new Set(['auto', 'en', 'zh']);
+const EXACT_PHRASES = ['api key', 'node.js', 'task os'];
+const MUTATION_SENTENCE = 'No model provider set, run setup or add a key.';
 
 function stripAnsi(text) {
   let out = '';
@@ -579,61 +640,602 @@ function stripAnsi(text) {
 
 function englishSentences(text) {
   const hits = [];
-  for (const rawLine of text.split('\n')) {
-    const plain = stripAnsi(rawLine);
-    if (/^\s*(\$ )?(moss\b|\/[a-z]|git\b|npm\b|npx\b|printf\b|echo\b|node\b)/i.test(plain))
-      continue;
-    const stripped = plain
-      .replace(/`[^`]*`/g, ' ')
-      .replace(/https?:\/\/\S+/g, ' ')
-      .replace(/--?[A-Za-z0-9][\w-]*/g, ' ')
-      .replace(/\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/g, ' ')
-      .replace(/\b[A-Z][A-Z0-9_]{2,}\b/g, ' ')
-      .replace(/[~./][\w./~-]*/g, ' ')
-      .replace(/[<>]/g, ' ');
-    const words = stripped.match(/[A-Za-z][A-Za-z0-9_'-]{2,}/g) ?? [];
-    const leftover = words.filter((word) => {
-      const lower = word.toLowerCase();
-      if (ALLOWED_EN.has(lower)) return false;
-      if (/^[a-z]+[-_][a-z0-9_-]+$/i.test(word)) return false;
-      return true;
-    });
-    const glue = leftover.filter((word) => GLUE.has(word.toLowerCase())).length;
-    if (leftover.length >= 4 || (leftover.length >= 3 && glue >= 1) || glue >= 2) {
-      hits.push(`${plain.trim()}  << ${leftover.join(' ')}`);
+  for (const rawLine of stripAnsi(text).split('\n')) {
+    // `!` before Han is the shell prefix. `中文!` and `中文;` still count.
+    if (/[\u4e00-\u9fff]\s*[,:;!()]|[,:;()]\s*[\u4e00-\u9fff]/.test(rawLine)) {
+      hits.push(`${rawLine.trim()}  << punctuation`);
     }
+    let line = rawLine;
+    for (const phrase of EXACT_PHRASES) {
+      line = line.replace(new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ');
+    }
+    line = line.replace(/https?:\/\/\S+/g, ' ');
+    // A flag token, including an attached =value. The next word stays.
+    line = line.replace(/(^|[^\w-])(--?[A-Za-z0-9][\w-]*)(?:=[^\s,，。；;)]*)?/g, '$1 ');
+    const kept = [];
+    for (const token of line.split(/\s+/)) {
+      if (!token) continue;
+      if (/^\/[A-Za-z][\w-]*$/.test(token)) continue;
+      if (/^[~.]/.test(token) || token.includes('/')) continue;
+      if (/\d/.test(token)) continue;
+      // An identifier or env reference is one token. The words around it stay.
+      if (token.includes('_') || token.includes('$')) continue;
+      kept.push(token);
+    }
+    let body = kept.join(' ');
+    body = body.replace(/^\s*(?:ok|warn|fail)\b/i, ' ');
+    const words = body.match(/[A-Za-z][A-Za-z0-9_'-]*/g) ?? [];
+    const leftover = words.filter((word) => {
+      if (word.length < 2) return false;
+      if (word.includes('_')) return false;
+      const lower = word.toLowerCase();
+      return !LITERAL_TOKENS.has(lower) && !LANGUAGE_SETTINGS.has(lower);
+    });
+    if (leftover.length > 0) hits.push(`${rawLine.trim()}  << ${leftover.join(' ')}`);
   }
   return hits;
 }
 
-const zhSurfacesAll = [
-  ['--help'],
-  ['--help', '--all'],
-  ['config', '--help'],
-  ['config', 'env'],
-  ['config', 'show'],
-  ['doctor'],
-  ['setup', '--help'],
-  ['auth', '--help'],
-  ['update', '--help'],
-  ['resume', '--help'],
-  ['fork', '--help'],
-  ['mcp', '--help'],
-  ['device', '--help'],
-  ['skill', '--help'],
-  ['plugins', '--help'],
-  ['migrate', '--help'],
-  ['tasks', '--help'],
-  ['task', '--help'],
-  ['sessions', '--help'],
-  ['web', '--help'],
-  ['agent', '--help'],
+function spliceEnglish(text, extra) {
+  const lines = text.split('\n');
+  const idx = lines.findIndex((line) => HAN.test(stripAnsi(line)));
+  if (idx < 0) return `${text}\n${extra}`;
+  lines[idx] = `${lines[idx]} ${extra}`;
+  return lines.join('\n');
+}
+
+/** Each form used to hide an English sentence. All of them must be caught. */
+const EXEMPTION_MUTATIONS = [
+  (text) => spliceEnglish(text, MUTATION_SENTENCE),
+  (text) => spliceEnglish(text, `\`${MUTATION_SENTENCE}\``),
+  (text) => spliceEnglish(text, `<${MUTATION_SENTENCE}>`),
+  (text) => spliceEnglish(text, '运行 moss setup to fix it'),
+  (text) => spliceEnglish(text, `--lang ${MUTATION_SENTENCE}`),
+  (text) => spliceEnglish(text, MUTATION_SENTENCE.replace(/ /g, '.')),
+  (text) => spliceEnglish(text, `[${MUTATION_SENTENCE}]`),
+  (text) => spliceEnglish(text, MUTATION_SENTENCE.replace(/ /g, '|')),
+  (text) => spliceEnglish(text, `note=${MUTATION_SENTENCE.split(' ').slice(0, 3).join('-')}`),
+  (text) => spliceEnglish(text, 'Note:run-setup'),
+  (text) => spliceEnglish(text, 'and / or'),
+  (text) => spliceEnglish(text, MUTATION_SENTENCE.toUpperCase()),
+  (text) => spliceEnglish(text, 'enter home end pass fail auto english'),
+  (text) => spliceEnglish(text, '中文;'),
+  (text) => spliceEnglish(text, '中文!'),
 ];
+
+function zhScreenArgs() {
+  const screens = [
+    ['--help'],
+    ['--help', '--all'],
+    ['config', 'env'],
+    ['config', 'show'],
+    ['config', 'validate'],
+    ['doctor'],
+    ['sessions', 'list'],
+    ['sessions', 'search', 'moss'],
+    ['tasks'],
+    ['resume', '--last'],
+    ['config', 'set', 'not-a-real-key', 'x'],
+    ['config', 'init'],
+  ];
+  for (const command of KNOWN_COMMANDS) screens.push([command, '--help']);
+  return screens;
+}
+
+const zhSurfacesAll = zhScreenArgs();
+const surfaceHits = [];
+const scanned = [];
 for (const args of zhSurfacesAll) {
   const shown = runCli(['--lang', 'zh', ...args], { LANG: 'C', LC_ALL: 'C' });
   assert.notEqual(shown.status, null, `${args.join(' ')} timed out`);
+  const name = args.join(' ');
+  scanned.push({ name, text: shown.text });
   const hits = englishSentences(shown.text);
-  assert.deepEqual(hits, [], `--lang zh ${args.join(' ')} still has English:\n${hits.join('\n')}`);
+  if (hits.length > 0) surfaceHits.push(`-- ${name}\n${hits.join('\n')}`);
+}
+assert.deepEqual(surfaceHits, [], `zh surfaces still have English:\n${surfaceHits.join('\n')}`);
+
+function catalogKeyParity() {
+  const missing = [];
+  const srcDir = path.join(repoRoot, 'src');
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.ts')) files.push(full);
+    }
+  };
+  walk(srcDir);
+  const literal = (raw) => raw.replace(/\\'/g, "'").replace(/\\"/g, '"');
+  for (const file of files) {
+    const source = fs.readFileSync(file, 'utf8');
+    const rel = path.relative(repoRoot, file);
+    for (const match of source.matchAll(/\b(?:tui|chrome)\(\s*(['"])((?:\\.|(?!\1).)*)\1/g)) {
+      const key = literal(match[2]);
+      if (key.includes('${')) continue;
+      if (!(key in ZH)) missing.push(`${rel} tui/chrome ${JSON.stringify(key)}`);
+    }
+    for (const match of source.matchAll(/\bdoctorL\(\s*(['"])((?:\\.|(?!\1).)*)\1/g)) {
+      const key = literal(match[2]);
+      if (key.includes('${')) continue;
+      if (!(key in SETUP_ZH)) missing.push(`${rel} doctorL ${JSON.stringify(key)}`);
+    }
+    for (const match of source.matchAll(/\bsetupCopy\(\s*[^,]+,\s*(['"])((?:\\.|(?!\1).)*)\1/g)) {
+      const key = literal(match[2]);
+      if (key.includes('${')) continue;
+      if (!(key in SETUP_ZH)) missing.push(`${rel} setupCopy ${JSON.stringify(key)}`);
+    }
+  }
+  for (const [key, value] of Object.entries(ZH)) {
+    if (value.length === 0) missing.push(`ZH empty ${JSON.stringify(key)}`);
+    if (value === key && /[A-Za-z]{4,}/.test(key))
+      missing.push(`ZH untranslated ${JSON.stringify(key)}`);
+  }
+  for (const [key, value] of Object.entries(SETUP_ZH)) {
+    if (value.length === 0) missing.push(`SETUP_ZH empty ${JSON.stringify(key)}`);
+    if (value === key && /[A-Za-z]{4,}/.test(key)) {
+      missing.push(`SETUP_ZH untranslated ${JSON.stringify(key)}`);
+    }
+  }
+  assert.deepEqual(missing, [], `catalog key parity:\n${missing.join('\n')}`);
+}
+catalogKeyParity();
+
+function cardSurfaces() {
+  installUiLanguage({ language: 'zh', source: 'config', setting: 'zh' });
+  setTuiLocale(true);
+  const menu = [
+    setupMenuLines('zh').join('\n'),
+    renderFirstRunLines({ step: 'provider', offers: [], cursor: 0 }, 'zh').join('\n'),
+    renderFirstRunLines({ step: 'key', offers: [], cursor: 0, keyDots: 3 }, 'zh').join('\n'),
+  ].join('\n');
+  const approvalLines = renderApproval(
+    {
+      title: 'Create file',
+      question: 'Do you want to create ./笔记.txt?',
+      subject: './笔记.txt',
+      cursor: 0,
+      preview: buildApprovalDetailLines(
+        'write_file',
+        'local_write',
+        { path: './笔记.txt', content: '你好\n' },
+        { workspaceDir: fs.mkdtempSync(path.join(os.tmpdir(), 'moss-approval-')) }
+      ),
+    },
+    80
+  ).map((row) => row.text);
+  const timeline = formatTaskTimeline([
+    {
+      at: 1_700_000_000_000,
+      label: '执行',
+      detail: localizeTaskDetail('agent execution turn'),
+      phase: 'executing',
+    },
+  ]);
+  const snapshot = {
+    taskId: 'task_1',
+    goal: '写一个文件',
+    phase: 'failed',
+    statusView: 'failed',
+    outcome: 'fail',
+    attempt: 1,
+    repairs: [],
+    failures: [],
+    evidenceCount: 0,
+    plan: [],
+    lastVerdict: { verdict: 'fail', unmetRequired: 1 },
+  };
+  const taskCard = [
+    formatTaskStatus(snapshot, timeline, true),
+    summarizeTaskRun(
+      {
+        snapshot,
+        outcome: 'fail',
+        verdictDetail: 'agent execution turn',
+        timeline,
+        turns: 1,
+      },
+      'zh'
+    ),
+  ].join('\n');
+  const refused = classifyProviderError({ errorMessage: 'connection refused' }).userMessage;
+  const diffFailed = formatGitDiffFailure(2, '退出码');
+  const errorCard = renderTranscriptRows(
+    [
+      { id: 1, kind: 'error', text: diffFailed },
+      { id: 2, kind: 'error', text: refused },
+      {
+        id: 3,
+        kind: 'error',
+        text: tui('git diff failed: {error}', { error: '退出码' }),
+      },
+    ],
+    80
+  )
+    .map((row) => row.text)
+    .join('\n');
+  const extra = followupSurfaces();
+  clearUiLanguage();
+  setTuiLocale(false);
+  return [
+    { name: 'setup wizard', text: menu },
+    { name: 'approval card', text: approvalLines.join('\n') },
+    { name: 'task card', text: taskCard },
+    { name: 'error card', text: errorCard },
+    ...extra,
+  ];
+}
+
+const TASK_PHASES = [
+  'planning',
+  'executing',
+  'verifying',
+  'diagnosing',
+  'repairing',
+  'accepted',
+  'failed',
+  'blocked',
+  'other',
+];
+
+/**
+ * Screens the PM recheck found unscanned: the ◇ phase lines, the real /diff
+ * failure line, /review and /diff outside git, command block titles, the
+ * failed acceptance-command verdict, every task outcome word, and the
+ * user/project config source in doctor and the approval audit.
+ */
+function followupSurfaces(zh = true) {
+  const sample = (zhText, enText) => (zh ? zhText : enText);
+  const phases = [
+    ...TASK_PHASES.map((phase) => formatTaskProgressLine(phase)),
+    formatTaskVerdictLine('PASS', 1, 1),
+    formatTaskVerdictLine('FAIL', 0, 1),
+    formatBlockedTaskLine(sample('等待板子', 'waiting for the board')),
+  ].join('\n');
+  const diffRows = renderTranscriptRows(
+    [
+      {
+        id: 1,
+        kind: 'error',
+        text: formatDiffRunFailure(128, sample('索引文件损坏', 'index file is corrupt'), zh),
+      },
+      { id: 2, kind: 'error', text: formatDiffRunFailure(null, '', zh) },
+      { id: 3, kind: 'error', text: formatNotGitRepository('/diff', '/tmp/ws', zh) },
+      { id: 4, kind: 'error', text: formatNotGitRepository('/review', '/tmp/ws', zh) },
+      { id: 5, kind: 'error', text: reviewNotGitHint(zh) },
+    ],
+    80
+  )
+    .map((row) => row.text)
+    .join('\n');
+  const titles = ALL_SHELL_COMMANDS.map((entry) => commandBlockTitle(entry.command)).join('\n');
+  const verdicts = [
+    localizeTaskDetail('acceptance command failed (exit 1)\n'),
+    localizeTaskDetail('acceptance command failed (exit 124, timed out)'),
+    localizeTaskDetail('acceptance command exited 0'),
+    localizeTaskDetail(
+      `goal verify command failed (exit 2): ${sample('测试未通过', 'tests failed')}`
+    ),
+    localizeTaskDetail('run budget exceeded (budget_tokens)'),
+    localizeTaskDetail('understanding goal, defining contract + plan'),
+    localizeTaskDetail('resumed by user'),
+  ].join('\n');
+  const outcomes = ['pass', 'fail', 'blocked', 'aborted']
+    .map((outcome) =>
+      summarizeTaskRun(
+        {
+          snapshot: {
+            taskId: 'task_1',
+            goal: sample('写一个文件', 'write a file'),
+            phase: outcome === 'pass' ? 'accepted' : outcome === 'blocked' ? 'blocked' : 'failed',
+            statusView: 'failed',
+            outcome,
+            attempt: 1,
+            repairs: [],
+            failures: [],
+            evidenceCount: 0,
+            plan: [],
+          },
+          outcome,
+          verdictDetail: 'acceptance command failed (exit 1)\n',
+          timeline: '',
+          turns: 1,
+        },
+        zh ? 'zh' : 'en'
+      )
+    )
+    .join('\n');
+  const sources = ['user', 'project', 'legacy', 'config', 'user, project']
+    .map((source) => `${localizeConfigSource(source)}`)
+    .join('\n');
+  const auth = ['user', 'project', 'config']
+    .map((apiKeySource) =>
+      renderAuthDoctorLine(
+        { apiKey: 'k', apiKeySource, apiKeyEncrypted: false, usingBundledDefault: false },
+        {}
+      )
+    )
+    .join('\n');
+  const approval = auditResolvedCliConfig({
+    approvalPolicy: 'never',
+    approvalPolicySource: 'derived:mode',
+    safetyMode: 'workspace-write',
+    safetyModeSource: 'user',
+    trustedTools: [],
+    trustedToolsSource: 'user',
+    deniedTools: [],
+    deniedToolsSource: 'project',
+    permissions: {
+      defaultMode: 'full',
+      readOnlyCeiling: false,
+      allow: [],
+      ask: [],
+      deny: [],
+      deviceTrust: 'gated',
+      trustedDevices: [],
+      legacyKeysUsed: [],
+      source: 'user',
+    },
+  })
+    .map((warning) => warning.message)
+    .join('\n');
+  return [
+    { name: 'task phase lines', text: phases },
+    { name: 'diff and review failures', text: diffRows },
+    { name: 'command block titles', text: titles },
+    { name: 'task verdict details', text: verdicts },
+    { name: 'task outcomes', text: outcomes },
+    { name: 'config sources', text: `${sources}\n${auth}\n${approval}` },
+  ];
+}
+
+const cards = cardSurfaces();
+for (const card of cards) {
+  const hits = englishSentences(card.text);
+  if (hits.length > 0) surfaceHits.push(`-- ${card.name}\n${hits.join('\n')}`);
+  scanned.push(card);
+}
+
+{
+  const home = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-lang-data-')));
+  const workspace = path.join(home, 'ws');
+  const sessionsDir = path.join(workspace, '.moss', 'sessions');
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sessionsDir, 's1.jsonl'),
+    `${JSON.stringify({
+      type: 'message',
+      message: { role: 'user', content: 'moss' },
+      ts: 1,
+    })}\n`
+  );
+  fs.writeFileSync(
+    path.join(workspace, '.moss', 'tasks.jsonl'),
+    `${JSON.stringify({
+      taskId: 'task_1',
+      goal: '写一个文件',
+      acceptanceCriteria: [],
+      status: 'draft',
+      createdAt: 1,
+      updatedAt: 1,
+    })}\n`
+  );
+  const dataScreens = [['sessions', 'list'], ['sessions', 'search', 'moss'], ['tasks']];
+  for (const args of dataScreens) {
+    const shown = runCli(['--lang', 'zh', ...args], { cwd: workspace, LANG: 'C', LC_ALL: 'C' });
+    assert.notEqual(shown.status, null, `${args.join(' ')} timed out`);
+    const name = `data ${args.join(' ')}`;
+    scanned.push({ name, text: shown.text });
+    const hits = englishSentences(shown.text);
+    if (hits.length > 0) surfaceHits.push(`-- ${name}\n${hits.join('\n')}`);
+  }
+}
+
+{
+  // A task whose run failed: the list shows the lifecycle result, not the
+  // contract's untouched `draft`, and `tasks acceptance` has a zh path.
+  const home = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-lang-tasks-')));
+  const workspace = path.join(home, 'ws');
+  fs.mkdirSync(path.join(workspace, '.moss'), { recursive: true });
+  const acceptedAt = new Date(2026, 9, 10, 19, 10, 58).getTime();
+  fs.writeFileSync(
+    path.join(workspace, '.moss', 'tasks.jsonl'),
+    `${JSON.stringify({
+      taskId: 'task_9',
+      goal: '写一个文件',
+      acceptanceCriteria: [],
+      status: 'draft',
+      createdAt: 1,
+      updatedAt: 1,
+    })}\n`
+  );
+  fs.writeFileSync(
+    path.join(workspace, '.moss', 'acceptance.jsonl'),
+    `${JSON.stringify({
+      taskId: 'task_9',
+      verdict: 'fail',
+      acceptedAt,
+      criteriaResults: [],
+      unmetRequired: 1,
+      evidenceConsidered: 0,
+    })}\n`
+  );
+  await appendTaskEvent(workspace, 'task_9', 'execution_started');
+  await appendTaskEvent(workspace, 'task_9', 'task_failed', {
+    detail: 'acceptance command failed (exit 1)',
+  });
+  for (const args of [['tasks'], ['tasks', 'acceptance']]) {
+    const shown = runCli(['--lang', 'zh', ...args], { cwd: workspace, LANG: 'C', LC_ALL: 'C' });
+    assert.equal(shown.status, 0, shown.text);
+    const name = `data failed ${args.join(' ')}`;
+    scanned.push({ name, text: shown.text });
+    const hits = englishSentences(shown.text);
+    if (hits.length > 0) surfaceHits.push(`-- ${name}\n${hits.join('\n')}`);
+    const english = runCli(['--lang', 'en', ...args], {
+      cwd: workspace,
+      LANG: 'zh_CN.UTF-8',
+      LC_ALL: 'zh_CN.UTF-8',
+    });
+    assert.equal(english.status, 0, english.text);
+    const row = english.text.split('\n').find((line) => line.startsWith('task_9')) ?? '';
+    assertNoHan(row.replace('写一个文件', ''), `en ${args.join(' ')} row`);
+    assert.equal(english.text.includes('任务标识'), false);
+    if (args.length === 1) {
+      assert.match(shown.text, /task_9\s+失败/);
+      assert.doesNotMatch(shown.text, /task_9\s+草稿/);
+      assert.match(english.text, /task_9\s+failed/);
+    } else {
+      assert.match(shown.text, /任务标识\s+裁决/);
+      assert.match(shown.text, /task_9\s+未通过\s+1\s+2026-10-10 19:10:58/);
+      assert.match(english.text, /TASK ID\s+VERDICT/);
+      assert.match(english.text, /task_9\s+FAIL/);
+    }
+  }
+}
+
+{
+  // /review outside a git repository speaks the UI language.
+  const dir = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-lang-nogit-')));
+  for (const zh of [true, false]) {
+    clearUiLanguage();
+    installUiLanguage({ language: zh ? 'zh' : 'en', source: 'flag', setting: 'auto' });
+    setTuiLocale(zh);
+    const said = [];
+    try {
+      await runRegistryCommand('/review', {
+        workspace: dir,
+        surface: 'tui',
+        say: (_kind, text) => said.push(text),
+        locale: zh ? 'zh-CN' : 'en-US',
+        submitPrompt: () => {},
+      });
+    } finally {
+      clearUiLanguage();
+      setTuiLocale(false);
+    }
+    const text = said.join('\n');
+    assert.ok(text.length > 0, '/review outside git must report');
+    if (zh) {
+      assert.match(text, /不是 git 仓库/);
+      assert.deepEqual(englishSentences(text), [], text);
+    } else {
+      assertNoHan(text, 'en /review outside git');
+      assert.match(text, /Not a git repository/);
+    }
+  }
+}
+
+assert.deepEqual(surfaceHits, [], `zh cards still have English:\n${surfaceHits.join('\n')}`);
+
+{
+  // Every surface above must render Chinese, not just avoid English.
+  for (const card of cards) assertHan(card.text, `zh ${card.name}`);
+  const byName = Object.fromEntries(cards.map((card) => [card.name, card.text]));
+  assert.match(byName['task verdict details'], /验收命令失败（退出码 1）/);
+  assert.match(byName['task verdict details'], /验收命令失败（退出码 124，已超时）/);
+  assert.doesNotMatch(byName['task outcomes'], /PASS|FAIL|BLOCKED|ABORTED/);
+  assert.match(byName['task outcomes'], /— 通过/);
+  assert.match(byName['task outcomes'], /— 阻塞/);
+  assert.match(byName['config sources'], /用户配置/);
+  assert.match(byName['config sources'], /项目配置/);
+  assert.doesNotMatch(byName['config sources'], /已配置（user|已通过 user|（project/);
+  assert.match(byName['command block titles'], /目标/);
+  assert.match(byName['command block titles'], /评审/);
+  assert.match(byName['diff and review failures'], /git diff 失败（退出码 128）：索引文件损坏/);
+  assert.match(
+    byName['diff and review failures'],
+    /不是 git 仓库：\/tmp\/ws — \/review 需要 git 工作区/
+  );
+
+  // English stays English and free of CJK for the same surfaces.
+  installUiLanguage({ language: 'en', source: 'flag', setting: 'auto' });
+  setTuiLocale(false);
+  try {
+    const en = followupSurfaces(false);
+    for (const card of en) assertNoHan(card.text, `en ${card.name}`);
+    const verdicts = en.find((card) => card.name === 'task verdict details').text;
+    assert.match(verdicts, /acceptance command failed \(exit 1\)/);
+    assert.match(en.find((card) => card.name === 'task outcomes').text, /— PASS/);
+    assert.match(
+      en.find((card) => card.name === 'diff and review failures').text,
+      /git diff failed \(exit 128\)/
+    );
+  } finally {
+    clearUiLanguage();
+  }
+}
+
+{
+  // The PM's real-screen injection: append an English sentence to the zh
+  // catalog entry itself (not to the rendered text). The scan must fail for
+  // each one, otherwise that screen is not really covered.
+  const injected = [
+    '◇ Working out the steps',
+    '◇ Doing the work',
+    '◇ Checking the result',
+    '◇ Looking at what failed',
+    '◇ Fixing it',
+    '◇ Checks passed',
+    '◇ Checks did not pass',
+    '◇ Waiting on you',
+    '◇ Working',
+    'git diff failed (exit {code}): {error}',
+    'Not a git repository: {path} — /diff needs a git workspace.',
+    'Not a git repository: {path} — /review needs a git workspace.',
+    'Open a git repository, or pass a PR number: `/review <PR#>`.',
+    'Goal',
+    'Review',
+    'Diff',
+  ];
+  const catalog = ZH;
+  const misses = [];
+  for (const key of injected) {
+    assert.ok(key in catalog, `ZH has no entry for ${JSON.stringify(key)}`);
+    const original = catalog[key];
+    catalog[key] = `${original} Run this again later.`;
+    try {
+      const shown = cardSurfaces();
+      const hits = shown.flatMap((card) => englishSentences(card.text));
+      // The clean scan above is empty, so any hit is the injected sentence
+      // (a narrow card can wrap it across two rows).
+      if (hits.length === 0) misses.push(key);
+    } finally {
+      catalog[key] = original;
+    }
+  }
+  assert.deepEqual(misses, [], `injected English not caught for: ${misses.join(', ')}`);
+}
+
+let mutationAttempts = 0;
+let mutationCaught = 0;
+const mutationMisses = [];
+for (const surface of scanned) {
+  for (const mutate of EXEMPTION_MUTATIONS) {
+    mutationAttempts += 1;
+    const hits = englishSentences(mutate(surface.text));
+    if (hits.length > 0) mutationCaught += 1;
+    else mutationMisses.push(surface.name);
+  }
+}
+assert.equal(
+  mutationCaught,
+  mutationAttempts,
+  `mutation catch rate ${mutationCaught}/${mutationAttempts}; missed ${mutationMisses.join(', ')}`
+);
+console.log(`[PASS] mutation catch rate ${mutationCaught}/${mutationAttempts}`);
+
+{
+  const unknown = runCli(['help', 'nope'], { LANG: 'C', LC_ALL: 'C' });
+  assert.equal(unknown.status, 2, unknown.text);
+  assert.match(unknown.stderr ?? '', /unknown command 'nope'/);
+  assert.equal((unknown.stdout ?? '').trim(), '', unknown.stdout);
+  const unknownZh = runCli(['--lang', 'zh', 'help', 'notacommand'], { LANG: 'C', LC_ALL: 'C' });
+  assert.equal(unknownZh.status, 2, unknownZh.text);
+  assert.match(unknownZh.stderr ?? '', /未知命令「notacommand」/);
+  const known = runCli(['help', 'config'], { LANG: 'C', LC_ALL: 'C' });
+  assert.equal(known.status, 0, known.text);
+  assert.match(known.stdout ?? '', /Usage:/);
 }
 
 {
@@ -652,7 +1254,13 @@ for (const args of zhSurfacesAll) {
       }),
       true
     );
+    assert.match(english.join('\n'), /UI language: English/);
     assert.match(english.join('\n'), /MOSS_LANG=zh will override this on the next start/);
+    assert.match(english.join('\n'), /--lang=en overrides the saved setting/);
+    assert.match(
+      english.join('\n'),
+      /next start uses the saved setting unless --lang or MOSS_LANG is set/
+    );
 
     envBeforeDotenv.MOSS_LANG = 'en';
     installUiLanguage({ language: 'zh', source: 'flag', setting: 'zh' });
@@ -661,10 +1269,53 @@ for (const args of zhSurfacesAll) {
       say: (_kind, text) => chinese.push(text),
     });
     assert.match(chinese.join('\n'), /下次启动时 MOSS_LANG=en 会覆盖它/);
+    assert.match(chinese.join('\n'), /--lang=zh 会覆盖已保存的设置/);
+    assert.match(chinese.join('\n'), /下次启动若不带 --lang、也不设 MOSS_LANG，则使用已保存的值/);
     const saved = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
     assert.equal(saved.language, 'zh');
 
+    // MOSS_LANG forces the language: the status names it and says the saved
+    // setting is not in effect, instead of "setting auto, source env".
+    for (const [language, words] of [
+      ['zh', /界面语言：中文（来自环境变量 MOSS_LANG=zh；已保存的设置「自动」未生效）/],
+      ['en', /UI language: English \(from MOSS_LANG=en; saved setting auto is not in effect\)/],
+    ]) {
+      installUiLanguage({ language, source: 'env', setting: 'auto' });
+      const status = [];
+      await runRegistryCommand('/language', { say: (_kind, text) => status.push(text) });
+      assert.match(status.join('\n'), words);
+      assert.doesNotMatch(status.join('\n'), /设置 自动，来源|setting auto, source env/);
+      if (language === 'en') assertNoHan(status.join('\n'), 'en /language status');
+    }
+    installUiLanguage({ language: 'zh', source: 'config', setting: 'zh' });
+    const fromConfig = [];
+    await runRegistryCommand('/language', { say: (_kind, text) => fromConfig.push(text) });
+    assert.match(fromConfig.join('\n'), /来自用户配置；已保存的设置「中文」/);
+    assert.doesNotMatch(fromConfig.join('\n'), /未生效/);
+
+    // Saving auto says auto was stored, not 「中文（已写入）」.
     delete envBeforeDotenv.MOSS_LANG;
+    process.env.LANG = 'zh_CN.UTF-8';
+    process.env.LC_ALL = 'zh_CN.UTF-8';
+    installUiLanguage({ language: 'zh', source: 'locale', setting: 'auto' });
+    const autoSaved = [];
+    try {
+      await runRegistryCommand('/language auto save', {
+        say: (_kind, text) => autoSaved.push(text),
+      });
+    } finally {
+      process.env.LANG = 'C';
+      process.env.LC_ALL = 'C';
+    }
+    assert.match(autoSaved.join('\n'), /已把「自动」写入用户配置，跟随系统区域/);
+    assert.doesNotMatch(autoSaved.join('\n'), /中文（已写入用户配置）/);
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8')).language,
+      'auto'
+    );
+
+    delete envBeforeDotenv.MOSS_LANG;
+    installUiLanguage({ language: 'zh', source: 'config', setting: 'zh' });
     const quiet = [];
     await runRegistryCommand('/language zh save', {
       say: (_kind, text) => quiet.push(text),
@@ -679,6 +1330,63 @@ for (const args of zhSurfacesAll) {
     clearUiLanguage();
     setTuiLocale(false);
   }
+}
+
+if (requirePyLayout('cli-ui-language')) {
+  const shot = spawnSync(
+    'python3',
+    [path.join(repoRoot, 'test', 'fixtures', 'tui-ui-language.py')],
+    {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      timeout: 90_000,
+      env: { ...process.env, HOME: process.env.HOME },
+    }
+  );
+  const shotText = `${shot.stdout ?? ''}${shot.stderr ?? ''}`;
+  assert.equal(shot.status, 0, shotText);
+  assert.match(shotText, /\[PASS\] zh TUI/);
+  const screens = [];
+  for (const match of shotText.matchAll(/===SCREEN ([a-z]+)===([\s\S]*?)===END===/g)) {
+    screens.push({ name: match[1], text: match[2] ?? '' });
+  }
+  const wanted = ['welcome', 'language', 'status', 'help', 'doctor'];
+  const tuiHits = [];
+  const tuiScreens = [];
+  for (const name of wanted) {
+    const screen = screens.find((entry) => entry.name === name);
+    assert.ok(screen, `missing TUI screen ${name}\n${shotText}`);
+    tuiScreens.push(screen);
+    const hits = englishSentences(screen.text);
+    if (hits.length > 0) tuiHits.push(`-- ${name}\n${hits.join('\n')}`);
+  }
+  const language = tuiScreens.find((screen) => screen.name === 'language');
+  assert.match(language.text, /只切换本会话/);
+  assert.match(language.text, /记到用户配置/);
+  assert.match(language.text, /界面语言：中文/);
+  const doctor = tuiScreens.find((screen) => screen.name === 'doctor');
+  assert.match(doctor.text, /诊断/);
+  assert.match(doctor.text, /模型/);
+  assert.match(doctor.text, /版本/);
+  assert.deepEqual(tuiHits, [], `zh TUI screens still have English:\n${tuiHits.join('\n')}`);
+  let tuiAttempts = 0;
+  let tuiCaught = 0;
+  const tuiMisses = [];
+  for (const screen of tuiScreens) {
+    for (const mutate of EXEMPTION_MUTATIONS) {
+      tuiAttempts += 1;
+      if (englishSentences(mutate(screen.text)).length > 0) tuiCaught += 1;
+      else tuiMisses.push(screen.name);
+    }
+  }
+  assert.equal(
+    tuiCaught,
+    tuiAttempts,
+    `TUI mutation catch rate ${tuiCaught}/${tuiAttempts}; missed ${tuiMisses.join(', ')}`
+  );
+  const totalCaught = mutationCaught + tuiCaught;
+  const totalAttempts = mutationAttempts + tuiAttempts;
+  console.log(`[PASS] mutation catch rate ${totalCaught}/${totalAttempts}`);
 }
 
 console.log('[PASS] cli ui language');
