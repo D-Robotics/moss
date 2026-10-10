@@ -74,13 +74,11 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
       }
       return { kind: 'continuation', mode: 'text', systemText: TEXT_CONTINUATION };
     }
-    if (
-      ctx.outputContinuationCount >= ctx.maxOutputContinuations ||
-      ctx.hasThinkingOnly ||
-      truncatedTool
-    ) {
-      return { kind: 'output_limit_exhausted' };
-    }
+    // Every cutoff that is not continued ends the run. That includes the
+    // recovery cap, a discarded tool call, thinking-only truncation, and the
+    // output-continuation ablation. Falling through would publish the fragment
+    // as a successful end_turn.
+    return { kind: 'output_limit_exhausted' };
   }
 
   if (ctx.hasThinkingOnly) {

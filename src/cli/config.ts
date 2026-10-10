@@ -691,14 +691,20 @@ export function listProjectRoutingConfigFields(project: ConfigFile): string[] {
   }
   const tiers = project.agent?.modelTiers;
   if (tiers && Object.keys(tiers).length > 0) ignored.push('modelTiers');
+  if (project.agent?.maxOutputTokens !== undefined) ignored.push('maxOutputTokens');
+  const models = project.agent?.models;
+  if (models && Object.keys(models).length > 0) ignored.push('models');
   return ignored;
 }
 
 function omitProjectRoutingConfig(project: ConfigFile): ConfigFile {
   const next: ConfigFile = { ...project };
   for (const key of PROJECT_ROUTING_CONFIG_KEYS) delete next[key];
-  if (next.agent?.modelTiers) {
-    const { modelTiers: _tiers, ...rest } = next.agent;
+  if (next.agent) {
+    // A project cap can force a truncation or reserve most of the context
+    // window. An untrusted folder does not get to set either knob. User
+    // config, the process environment, and a trusted project still can.
+    const { modelTiers: _tiers, maxOutputTokens: _cap, models: _models, ...rest } = next.agent;
     next.agent = Object.keys(rest).length > 0 ? rest : undefined;
   }
   return next;

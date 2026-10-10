@@ -343,7 +343,9 @@ function isBudgetStopReason(stopReason: string | undefined): boolean {
 }
 
 function isOutputLimitStop(stopReason: string | undefined): boolean {
-  return stopReason === 'output_limit';
+  // `output_limit` is the run outcome. `max_tokens` / `length` are the same
+  // cutoff if a path forgot the transition. None of them is a success.
+  return stopReason === 'output_limit' || stopReason === 'max_tokens' || stopReason === 'length';
 }
 
 function outputLimitNotice(maxAttempts: number): string {

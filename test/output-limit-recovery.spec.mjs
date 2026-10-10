@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { MossAgent } from '../dist/core/agent/moss-agent.js';
 import { InMemorySessionStore } from '../dist/core/session/session.js';
 import { runOneShot } from '../dist/cli/oneshot.js';
+import { setTuiLocale } from '../dist/cli/tui/copy.js';
 
 function scriptedProvider(id, steps) {
   let calls = 0;
@@ -38,19 +39,20 @@ function scriptedProvider(id, steps) {
         onEvent({ type: 'message_stop' });
         const content = [];
         if (step.text) content.push({ type: 'text', text: step.text });
-        if (step.tool) {
+        const tools = step.tools ?? (step.tool ? [step.tool] : []);
+        for (const tool of tools) {
           content.push({
             type: 'tool_use',
-            id: `call_${calls}`,
-            name: step.tool.name,
-            input: step.tool.input,
+            id: tool.id ?? `call_${calls}_${tool.name}`,
+            name: tool.name,
+            input: tool.input,
           });
         }
         return {
           stopReason: step.stopReason,
           content,
           ...(step.thinking ? { thinking: [step.thinking] } : {}),
-          usage: { inputTokens: 12, outputTokens: 8 },
+          usage: step.usage ?? { inputTokens: 12, outputTokens: 8 },
         };
       },
     },
@@ -160,12 +162,82 @@ async function runChat(agent, sessionKey, message) {
 }
 
 {
+  const hits = { alpha: 0, beta: 0 };
+  const script = scriptedProvider('parallel-tools', [
+    {
+      tools: [
+        { name: 'write_alpha', input: { text: 'complete-looking' } },
+        { name: 'write_beta', input: { text: 'also-complete' } },
+      ],
+      stopReason: 'max_tokens',
+    },
+    { text: 'did not write', stopReason: 'end_turn' },
+  ]);
+  const agent = createAgent(script.provider);
+  for (const name of ['write_alpha', 'write_beta']) {
+    agent.tools.register({
+      name,
+      description: 'Write a note.',
+      metadata: { sideEffectClass: 'readonly' },
+      inputSchema: { type: 'object', properties: { text: { type: 'string' } } },
+      async execute() {
+        hits[name === 'write_alpha' ? 'alpha' : 'beta'] += 1;
+        return 'noted';
+      },
+    });
+  }
+  const { result, events } = await runChat(agent, 'parallel-tools', 'write both notes');
+  assert.equal(hits.alpha, 0, 'the first parallel tool call is not executed');
+  assert.equal(hits.beta, 0, 'the second parallel tool call is not executed');
+  assert.equal(result.toolCalls.length, 0);
+  assert.equal(
+    events.some((event) => event.type === 'tool_start'),
+    false
+  );
+  assert.equal(result.response, 'did not write');
+  assert.equal(script.calls(), 2);
+  console.log('[PASS] a truncated parallel tool batch is not executed');
+}
+
+{
+  const script = scriptedProvider('stitch-account', [
+    {
+      text: 'abcabc',
+      stopReason: 'max_tokens',
+      usage: { inputTokens: 10, outputTokens: 11 },
+    },
+    {
+      text: 'abc',
+      stopReason: 'end_turn',
+      usage: { inputTokens: 20, outputTokens: 22 },
+    },
+  ]);
+  const agent = createAgent(script.provider);
+  const { result, events } = await runChat(agent, 'stitch-account', 'repeat abc');
+  assert.equal(result.response, 'abcabcabc');
+  assert.equal(result.response.split('abc').length - 1, 3);
+  const usageEvents = events.filter((event) => event.type === 'llm_usage');
+  assert.equal(usageEvents.length, 2);
+  const outputSum = usageEvents.reduce((sum, event) => sum + event.outputTokens, 0);
+  const inputSum = usageEvents.reduce((sum, event) => sum + event.inputTokens, 0);
+  assert.equal(outputSum, 33);
+  assert.equal(inputSum, 30);
+  assert.equal(result.usage?.outputTokens, outputSum);
+  assert.equal(result.usage?.inputTokens, inputSum);
+  console.log('[PASS] continuation stitch and token accounting keep every piece');
+}
+
+{
   const script = scriptedProvider('exhausted', [
-    { text: '&&', stopReason: 'max_tokens' },
-    { text: 'Now', stopReason: 'max_tokens' },
-    { text: ' still', stopReason: 'max_tokens' },
-    { text: ' going', stopReason: 'max_tokens' },
-    { text: 'should-not-run', stopReason: 'end_turn' },
+    { text: '&&', stopReason: 'max_tokens', usage: { inputTokens: 10, outputTokens: 11 } },
+    { text: 'Now', stopReason: 'max_tokens', usage: { inputTokens: 20, outputTokens: 22 } },
+    { text: ' still', stopReason: 'max_tokens', usage: { inputTokens: 30, outputTokens: 33 } },
+    { text: ' going', stopReason: 'max_tokens', usage: { inputTokens: 40, outputTokens: 44 } },
+    {
+      text: 'should-not-run',
+      stopReason: 'end_turn',
+      usage: { inputTokens: 50, outputTokens: 55 },
+    },
   ]);
   const agent = createAgent(script.provider);
   const { result, events } = await runChat(agent, 'exhausted', 'keep going');
@@ -176,6 +248,23 @@ async function runChat(agent, sessionKey, message) {
     (event) => event.type === 'output_continuation' && event.exhausted === true
   );
   assert.equal(exhausted.length, 1);
+  assert.equal(exhausted[0].attempt, 3);
+  assert.equal(exhausted[0].maxAttempts, 3);
+  const continued = events.filter(
+    (event) => event.type === 'output_continuation' && event.exhausted !== true
+  );
+  assert.deepEqual(
+    continued.map((event) => event.attempt),
+    [1, 2, 3]
+  );
+  const usageEvents = events.filter((event) => event.type === 'llm_usage');
+  assert.equal(usageEvents.length, 4, 'every continuation is accounted, and the fifth call is not');
+  const outputSum = usageEvents.reduce((sum, event) => sum + event.outputTokens, 0);
+  const inputSum = usageEvents.reduce((sum, event) => sum + event.inputTokens, 0);
+  assert.equal(outputSum, 110);
+  assert.equal(inputSum, 100);
+  assert.equal(result.usage?.outputTokens, outputSum);
+  assert.equal(result.usage?.inputTokens, inputSum);
   console.log('[PASS] exhausted recovery is a non-success and keeps the stitched fragment');
 }
 
@@ -298,6 +387,85 @@ try {
     assert.match(stderr, /maxOutputTokens/);
     assert.equal(script.calls(), 4);
     console.log('[PASS] text -p run completes and prints the output-limit notice');
+  }
+
+  {
+    const savedDisable = process.env.MOSS_DISABLE_NUDGES;
+    process.env.MOSS_DISABLE_NUDGES = 'output-continuation';
+    try {
+      const script = scriptedProvider('headless-ablation', [
+        { text: 'partial answer', stopReason: 'max_tokens' },
+        { text: 'should-not-run', stopReason: 'end_turn' },
+      ]);
+      const agent = createAgent(script.provider);
+      const output = createWriter();
+      await runOneShot(agent, 'finish', {
+        sessionKey: 'headless-output-limit-ablation',
+        outputFormat: 'stream-json',
+        stdout: output.writer,
+      });
+      const events = output.events();
+      const result = events[events.length - 1];
+      assert.equal(
+        script.calls(),
+        1,
+        'disabling continuation does not start another provider call'
+      );
+      assert.equal(result.type, 'result');
+      assert.equal(result.subtype, 'error_output_limit');
+      assert.equal(result.is_error, true);
+      assert.notEqual(result.subtype, 'success');
+      assert.equal(result.result, 'partial answer');
+      const notices = events.filter(
+        (event) => event.type === 'system' && event.subtype === 'output_continuation'
+      );
+      assert.equal(notices.length, 1);
+      assert.equal(notices[0].exhausted, true);
+      console.log('[PASS] a disabled continuation still ends as error_output_limit');
+    } finally {
+      if (savedDisable === undefined) delete process.env.MOSS_DISABLE_NUDGES;
+      else process.env.MOSS_DISABLE_NUDGES = savedDisable;
+    }
+  }
+
+  {
+    setTuiLocale(true);
+    try {
+      const script = scriptedProvider('headless-zh', [
+        { text: '片段', stopReason: 'max_tokens' },
+        { text: '未发出', stopReason: 'max_tokens' },
+        { text: '仍未', stopReason: 'max_tokens' },
+        { text: '结束', stopReason: 'max_tokens' },
+      ]);
+      const agent = createAgent(script.provider);
+      const output = createWriter();
+      await runOneShot(agent, '用中文结束', {
+        sessionKey: 'headless-output-limit-zh',
+        outputFormat: 'stream-json',
+        stdout: output.writer,
+      });
+      const events = output.events();
+      const notices = events.filter(
+        (event) => event.type === 'system' && event.subtype === 'output_continuation'
+      );
+      assert.ok(notices.length >= 2);
+      for (const notice of notices) {
+        assert.match(notice.message, /输出已到上限|已自动续写/);
+        assert.equal(notice.message.includes('Output limit reached'), false);
+        assert.equal(notice.message.includes('The answer above is incomplete'), false);
+      }
+      const exhausted = notices.find((event) => event.exhausted === true);
+      assert.ok(exhausted);
+      assert.match(exhausted.message, /已自动续写/);
+      assert.match(exhausted.message, /上面的回答不完整/);
+      const result = events[events.length - 1];
+      assert.equal(result.subtype, 'error_output_limit');
+      assert.match(result.error, /已自动续写/);
+      assert.equal(result.error.includes('The answer above is incomplete'), false);
+      console.log('[PASS] zh output-limit notices stay Chinese');
+    } finally {
+      setTuiLocale(false);
+    }
   }
 } finally {
   process.exitCode = savedExitCode;

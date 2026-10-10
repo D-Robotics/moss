@@ -6,6 +6,13 @@
 import assert from 'node:assert/strict';
 import { decidePostLlmAction } from '../dist/core/loop/agent-loop-post-llm.js';
 import {
+  OUTPUT_CONTINUATION_NOTICE,
+  OUTPUT_LIMIT_EXHAUSTED_NOTICE,
+  chrome,
+  setTuiLocale,
+  tui,
+} from '../dist/cli/tui/copy.js';
+import {
   escalateOutputTokens,
   resolveModelOutputBudget,
   stitchTruncatedOutput,
@@ -138,6 +145,10 @@ assert.equal(providerStopSignal(''), 'stop');
   assert.equal(stitchTruncatedOutput('&&', 'Now'), '&&Now');
   assert.equal(stitchTruncatedOutput('', 'Now'), 'Now');
   assert.equal(stitchTruncatedOutput('&&', ''), '&&');
+  // Overlap is kept. Collapsing a shared edge drops text; concatenating the
+  // prefix twice duplicates it. Both mutations fail this exact string.
+  assert.equal(stitchTruncatedOutput('abcabc', 'abc'), 'abcabcabc');
+  assert.equal(stitchTruncatedOutput('abcabcabc', 'abc').split('abc').length - 1, 4);
 }
 
 {
@@ -235,6 +246,42 @@ function postLlm(overrides) {
     outputContinuationCount: 3,
   });
   assert.equal(exhaustedThinking.kind, 'output_limit_exhausted');
+
+  const abortedCutoff = postLlm({
+    streamStopReason: 'length',
+    finalText: 'partial answer that was cut off',
+    abortAborted: true,
+  });
+  assert.equal(abortedCutoff.kind, 'output_limit_exhausted');
+}
+
+{
+  const params = { attempt: 2, max: 3 };
+  const enContinue = chrome(OUTPUT_CONTINUATION_NOTICE, false, params);
+  const zhContinue = chrome(OUTPUT_CONTINUATION_NOTICE, true, params);
+  assert.equal(enContinue, 'Output limit reached — continuing (2/3)');
+  assert.equal(zhContinue, '输出已到上限 — 正在续写（2/3）');
+  assert.equal(/[\u4e00-\u9fff]/.test(enContinue), false);
+  assert.equal(zhContinue.includes('Output limit'), false);
+
+  const enExhausted = chrome(OUTPUT_LIMIT_EXHAUSTED_NOTICE, false, { max: 3 });
+  const zhExhausted = chrome(OUTPUT_LIMIT_EXHAUSTED_NOTICE, true, { max: 3 });
+  assert.match(enExhausted, /The answer above is incomplete/);
+  assert.match(zhExhausted, /上面的回答不完整/);
+  assert.equal(/[\u4e00-\u9fff]/.test(enExhausted), false);
+  assert.equal(zhExhausted.includes('The answer above is incomplete'), false);
+  assert.equal(zhExhausted.includes('automatic continuations'), false);
+  assert.equal(enExhausted.includes('已自动续写'), false);
+  assert.equal(enExhausted.includes('输出已到上限'), false);
+
+  setTuiLocale(true);
+  try {
+    assert.equal(tui(OUTPUT_CONTINUATION_NOTICE, params), zhContinue);
+    assert.equal(tui(OUTPUT_LIMIT_EXHAUSTED_NOTICE, { max: 3 }), zhExhausted);
+  } finally {
+    setTuiLocale(false);
+  }
+  assert.equal(tui(OUTPUT_LIMIT_EXHAUSTED_NOTICE, { max: 3 }), enExhausted);
 }
 
 console.log('[PASS] output-limit detection, budgets, and decision order');
