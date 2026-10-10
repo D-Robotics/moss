@@ -3,17 +3,12 @@
  * PEM block) stays held until `flush`. Writing `[REDACTED]` back into a file
  * is rejected when the placeholder count would rise.
  *
- * `redactEgress` lives in the facade. This module only calls it from
- * functions, after both modules have finished initializing.
+ * `redactEgress` is bound by the facade. This module does not import it.
  */
 import { knownSecretPrefixCut } from './known-secrets.js';
+import { callRedactEgress } from './redact-bind.js';
+import { OPEN_SECRET_PREFIX, REDACTED, SECRET_FIELD_SOURCE } from './redact-patterns.js';
 import { unclosedPrivateKeyLineStart } from './redact-pem.js';
-import {
-  OPEN_SECRET_PREFIX,
-  REDACTED,
-  SECRET_FIELD_SOURCE,
-  redactEgress,
-} from './tool-output-redact.js';
 
 /**
  * Text safe to paint while a stream is still open: every finished line, and
@@ -57,7 +52,7 @@ export function holdOpenSecretSuffix(line: string, env: NodeJS.ProcessEnv = proc
   ) {
     return '';
   }
-  const redacted = redactEgress(line, env);
+  const redacted = callRedactEgress(line, env);
   let cut = knownSecretPrefixCut(redacted, env);
   const assign = openAssignmentPattern().exec(redacted);
   if (assign?.[3] !== undefined && assign[3] !== REDACTED) {
@@ -84,7 +79,7 @@ export function createStreamingTextRedactor(): {
   let raw = '';
   let emitted = '';
   const publish = (flush: boolean): string => {
-    const redacted = redactEgress(visibleStreamPrefix(raw, flush));
+    const redacted = callRedactEgress(visibleStreamPrefix(raw, flush));
     if (!redacted.startsWith(emitted)) return '';
     const more = redacted.slice(emitted.length);
     emitted = redacted;

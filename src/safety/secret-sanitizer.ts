@@ -24,7 +24,7 @@ const SECRET_RULES: SecretRule[] = [
   },
   {
     source:
-      '(?:password|passwd|pwd|secret|token|apikey|api_key|api-key|access_key)\\s*[:=]\\s*[\'"]([^\'"]{6,})[\'"]',
+      '(?:password|passwd|pwd|secret|token|apikey|api_key|api-key|access_key)\\s*[:=]\\s*[\'"]([^\'"\\r\\n]{6,})[\'"]',
     flags: 'gi',
     label: 'credential value',
     groupIdx: 1,

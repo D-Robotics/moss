@@ -446,5 +446,41 @@ assert.equal(
   '     1\tSet token: getToken() and password: hashPassword(x)\n     2\tauth_token: myTokenVariable\n'
 );
 
+assert.equal(
+  redactEgress('console.log("Password: " + user.name + " please retry")', env),
+  'console.log("Password: " + user.name + " please retry")'
+);
+assert.equal(
+  redactEgress("def unix_getpass(prompt='Password: ', stream=None):", env),
+  "def unix_getpass(prompt='Password: ', stream=None):"
+);
+const unclosed = 'password: "abc\nplease-keep-this-line\n';
+const unclosedOut = redactEgress(unclosed, env);
+assert.equal(unclosedOut.split('\n').length, unclosed.split('\n').length);
+assert.match(unclosedOut, /please-keep-this-line/);
+assert.doesNotMatch(unclosedOut, /password: "abc$/m);
+const ghp = `ghp_${'A'.repeat(36)}`;
+const akia = `AKIA${'B'.repeat(16)}`;
+const grepLeak = presentToolOutput({
+  toolName: 'exec',
+  input: { command: 'grep -R password .' },
+  text: `src/app.ts:1:password: "abc\n.env:2:PGPASSWORD=sunrise\nsrc/app.ts:3:${ghp}\nsrc/app.ts:4:${akia}\n`,
+  env,
+  workspaceDir: home,
+});
+assert.equal(grepLeak.split('\n').length, 5);
+assert.doesNotMatch(grepLeak, /sunrise/);
+assert.doesNotMatch(grepLeak, new RegExp(ghp));
+assert.doesNotMatch(grepLeak, new RegExp(akia));
+assert.equal(
+  redactEgress('Authorization: Token tok_FAKE9aB3kL9mN2pQ7', env),
+  'Authorization: [REDACTED]'
+);
+assert.equal(
+  redactEgress('Authorization: Digest abcdef0123456789WXYZ', env),
+  'Authorization: [REDACTED]'
+);
+assert.equal(redactEgress('"Cookie": "session=abcDEF1234567890xyz"', env), '"Cookie": [REDACTED]');
+
 assert.equal(table.length >= 30, true, 'redaction table covers at least 30 values');
 console.log(`[PASS] tool-output redaction table (${table.length} values)`);

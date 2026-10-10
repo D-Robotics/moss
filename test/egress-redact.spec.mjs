@@ -692,6 +692,28 @@ try {
   ].join('\n');
   assert.equal(redactEgress(sourceUrls), sourceUrls);
 
+  const bearer = 'FAKEbearer0123456789abcdefXYZ';
+  const authHeader = redactEgress(`"Authorization": "Bearer ${bearer}"`);
+  assert.match(authHeader, /\[REDACTED\]/);
+  assert.doesNotMatch(authHeader, new RegExp(bearer));
+  assert.doesNotMatch(authHeader, /FAKEbearer01/);
+  const basic = redactEgress('"Authorization": "Basic dXNlcjpwYXNzMTIzNA=="');
+  assert.match(basic, /\[REDACTED\]/);
+  assert.doesNotMatch(basic, /dXNlcjpwYXNz/);
+  const tokenScheme = redactEgress('Authorization: Token tok_FAKE9aB3kL9mN2pQ7');
+  assert.match(tokenScheme, /\[REDACTED\]/);
+  assert.doesNotMatch(tokenScheme, /tok_FAKE9aB3/);
+  const digest = redactEgress('Authorization: Digest abcdef0123456789WXYZ');
+  assert.match(digest, /\[REDACTED\]/);
+  assert.doesNotMatch(digest, /abcdef0123456789WXYZ/);
+  const cookie = redactEgress('"Cookie": "session=abcDEF1234567890xyz"');
+  assert.match(cookie, /\[REDACTED\]/);
+  assert.doesNotMatch(cookie, /abcDEF1234567890xyz/);
+  assert.equal(
+    redactEgress('const token = req.headers.authorization;'),
+    'const token = req.headers.authorization;'
+  );
+
   console.log('[PASS] egress redaction');
 } finally {
   if (savedKey === undefined) delete process.env.EGRESS_SPEC_API_KEY;
