@@ -259,6 +259,56 @@ try {
   assert.doesNotMatch(debugCatView, /k9f2mQ7xP4wL8nB3/);
   assert.match(debugCatView, /\[REDACTED\]/);
 
+  const envHome = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-apikeyenv-home-'));
+  const envWs = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-apikeyenv-ws-'));
+  const savedHomeForEnv = process.env.HOME;
+  const savedProfileForEnv = process.env.USERPROFILE;
+  const savedGateway = process.env.MY_USER_CFG;
+  const savedCwd = process.cwd();
+  process.env.HOME = envHome;
+  process.env.USERPROFILE = envHome;
+  process.env.MY_USER_CFG = 'gateway-secret-value-99';
+  process.chdir(envWs);
+  try {
+    const envFiles = [
+      { file: path.join(envHome, '.moss', 'config.json'), name: 'MY_USER_MOSS' },
+      { file: path.join(envHome, '.config', 'moss', 'config.json'), name: 'MY_USER_CFG' },
+      { file: path.join(envWs, '.moss', 'config.json'), name: 'MY_PROJECT' },
+    ];
+    for (const row of envFiles) {
+      fs.mkdirSync(path.dirname(row.file), { recursive: true });
+      fs.writeFileSync(
+        row.file,
+        `${JSON.stringify({
+          baseUrl: 'https://api.example.test/v1',
+          apiKeyEnv: row.name,
+          apiKey: 'k9f2mQ7xP4wL8nB3',
+        })}\n`
+      );
+    }
+    for (const row of envFiles) {
+      const read = await readFileTool.execute({ path: row.file }, ctx({ workspaceDir: envWs }));
+      const viewed = await modelView(
+        readFileTool,
+        { path: row.file },
+        ctx({ workspaceDir: envWs }),
+        read
+      );
+      assert.match(viewed, new RegExp(row.name), `apiKeyEnv stays visible: ${row.file}`);
+      assert.match(viewed, /api\.example\.test/, row.file);
+      assert.doesNotMatch(viewed, /k9f2mQ7xP4wL8nB3/, row.file);
+      assert.doesNotMatch(viewed, /gateway-secret-value-99/, row.file);
+    }
+  } finally {
+    process.chdir(savedCwd);
+    if (savedHomeForEnv === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHomeForEnv;
+    if (savedProfileForEnv === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = savedProfileForEnv;
+    if (savedGateway === undefined) delete process.env.MY_USER_CFG;
+    else process.env.MY_USER_CFG = savedGateway;
+  }
+
   // ── key-like tool output is redacted; source expressions are not ─────────
   const sample = `apiKey=${KEY_VALUE}\npassword: "hunter22hunter"\nenc blob ${ENC_VALUE}\nplain text stays`;
   const redacted = redactToolOutput(sample);

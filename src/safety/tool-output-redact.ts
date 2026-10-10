@@ -38,9 +38,20 @@ const STANDALONE_SECRET =
  */
 const FIELD_BOUNDARY = String.raw`(?<=\\r\\n|\\n|^|[^A-Za-z0-9])`;
 
+const ASSIGNED_NAME =
+  'aws_secret_access_key|aws_access_key_id|client-key-data|client_key_data|api[_-]?key|access[_-]?key|private[_-]?key|secret|token|password|passwd|credential';
+const ASSIGNED_SEP = String.raw`["']?\s*[:=]\s*["']?`;
+const ASSIGNED_VALUE = String.raw`[^\s"',}\\;)]{8,}`;
+/**
+ * `Authorization: Bearer <token>` keeps the scheme and the token in one value.
+ * Without the scheme prefix the matcher stops at the space and sees only
+ * `Bearer` (6 chars), which is below the secret threshold.
+ */
+const AUTH_VALUE = String.raw`(?:(?:Bearer|Basic|Token|Digest)\s+)?${ASSIGNED_VALUE}`;
+
 const ASSIGNED_SECRET = new RegExp(
   FIELD_BOUNDARY +
-    '(aws_secret_access_key|aws_access_key_id|client-key-data|client_key_data|api[_-]?key|access[_-]?key|private[_-]?key|secret|token|password|passwd|credential|authorization|bearer)(["\']?\\s*[:=]\\s*["\']?)([^\\s"\',}\\\\;)]{8,})',
+    `(?:(${ASSIGNED_NAME})(${ASSIGNED_SEP})(${ASSIGNED_VALUE})|(authorization|bearer|cookie)(${ASSIGNED_SEP})(${AUTH_VALUE}))`,
   'gi'
 );
 
@@ -307,10 +318,25 @@ function redactNumberedToolOutput(text: string, env: NodeJS.ProcessEnv): string 
 }
 
 function redactAssignments(text: string): string {
-  return text.replace(ASSIGNED_SECRET, (full, name: string, sep: string, value: string) => {
-    if (!shouldRedactAssignedValue(value)) return full;
-    return `${name}${sep}${REDACTED}`;
-  });
+  return text.replace(
+    ASSIGNED_SECRET,
+    (
+      full: string,
+      name: string | undefined,
+      sep: string | undefined,
+      value: string | undefined,
+      authName: string | undefined,
+      authSep: string | undefined,
+      authValue: string | undefined
+    ) => {
+      const field = name || authName;
+      const separator = sep || authSep;
+      const secret = value || authValue;
+      if (!field || separator === undefined || secret === undefined) return full;
+      if (!shouldRedactAssignedValue(secret)) return full;
+      return `${field}${separator}${REDACTED}`;
+    }
+  );
 }
 
 function redactNetrcPasswords(text: string): string {

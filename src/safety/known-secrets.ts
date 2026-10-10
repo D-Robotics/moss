@@ -148,7 +148,14 @@ function collectStoredStrings(value: unknown, out: string[], depth: number): voi
     return;
   }
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof entry === 'string' && STORED_FIELD.test(key) && isUsableSecret(entry)) {
+    // `apiKeyEnv` / `passwordEnvVar` name a variable. The name is not a secret;
+    // userApiKeyEnvValues still masks that variable's value.
+    if (
+      typeof entry === 'string' &&
+      STORED_FIELD.test(key) &&
+      !/Env(?:Var)?$/.test(key) &&
+      isUsableSecret(entry)
+    ) {
       out.push(entry);
     } else if (entry && typeof entry === 'object') {
       collectStoredStrings(entry, out, depth + 1);
