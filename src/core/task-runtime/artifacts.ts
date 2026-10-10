@@ -16,7 +16,10 @@ import { redactEgress } from '../../safety/tool-output-redact.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
 import { withTaskEventLock, withTaskArtifactReadLock } from '../task/task-store.js';
 
-import { acceptanceAppendDispatched } from '../task/acceptance-commit-scope.js';
+import {
+  acceptanceAppendDispatched,
+  assertTaskAppendScopeOpen,
+} from '../task/acceptance-commit-scope.js';
 
 const jsonlLog = getRootLogger().child('task-jsonl');
 
@@ -121,14 +124,24 @@ async function syncParentDirectory(file: string): Promise<void> {
   }
 }
 
-async function prepareAppend(file: string, originalSize: number): Promise<void> {
+async function prepareAppend(
+  file: string,
+  originalSize: number,
+  created?: () => void
+): Promise<void> {
   const prepare = await fs.open(file, 'wx');
+  created?.();
+  let failed = false;
   try {
     await prepare.writeFile(JSON.stringify({ originalSize }), 'utf8');
     await prepare.sync();
     await syncParentDirectory(file);
+  } catch (error) {
+    failed = true;
+    throw error;
   } finally {
-    await prepare.close();
+    if (failed) await prepare.close().catch(() => {});
+    else await prepare.close();
   }
 }
 
@@ -159,11 +172,18 @@ export async function appendJsonlFile(
   });
   const originalSize = previous?.size ?? 0;
   const pendingFile = `${file}.pending`;
-  await prepareAppend(pendingFile, originalSize);
+  const workspaceDir = path.dirname(path.dirname(file));
+  const evidence = path.basename(file) === 'evidence.jsonl';
   let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
   let dispatched = false;
+  let ownedPrepare = false;
   try {
+    assertTaskAppendScopeOpen(workspaceDir, evidence);
+    await prepareAppend(pendingFile, originalSize, () => {
+      ownedPrepare = true;
+    });
     signal?.throwIfAborted();
+    assertTaskAppendScopeOpen(workspaceDir, evidence);
     if (path.basename(file) === 'acceptance.jsonl')
       acceptanceAppendDispatched(path.dirname(path.dirname(file)));
     dispatched = true;
@@ -176,6 +196,24 @@ export async function appendJsonlFile(
     await fs.unlink(pendingFile);
     await syncParentDirectory(pendingFile);
   } catch (error) {
+    if (!dispatched) {
+      // wx proves ownership, and no data append has been issued. The workspace
+      // mutex still protects the original prefix, even if prepare itself is torn.
+      if (ownedPrepare) {
+        try {
+          await fs.unlink(pendingFile);
+          await syncParentDirectory(pendingFile);
+        } catch {
+          // An uncertain directory barrier must retain a bounded recovery marker.
+          await readPendingAppend(file)
+            .then(async (pending) => {
+              if (pending === undefined) await prepareAppend(pendingFile, originalSize);
+            })
+            .catch(() => {});
+        }
+      }
+      throw error;
+    }
     // Callers hold the workspace write lock. A failed sync must not leave a
     // process-visible accepted record which replay would mistake for success.
     // If the final directory barrier failed after unlink, restore the bounded
@@ -194,25 +232,6 @@ export async function appendJsonlFile(
           if (unlinkError.code !== 'ENOENT') throw unlinkError;
         });
         await syncParentDirectory(pendingFile);
-      } else if (!dispatched && !previous && (await readPendingAppend(file)) === 0) {
-        // No append was issued. Under the workspace mutex, a still absent new
-        // data file proves this prepare has no uncertain tail to retain.
-        const absent = await fs.stat(file).then(
-          () => false,
-          (statError: NodeJS.ErrnoException) => {
-            if (statError.code === 'ENOENT') return true;
-            throw statError;
-          }
-        );
-        if (absent) {
-          try {
-            await fs.unlink(pendingFile);
-            await syncParentDirectory(pendingFile);
-          } catch (cleanupError) {
-            if ((await readPendingAppend(file)) === undefined) await prepareAppend(pendingFile, 0);
-            throw cleanupError;
-          }
-        }
       }
     } catch {
       // Preserve the original IO failure; failed compensation never attests PASS.
@@ -280,7 +299,16 @@ export async function appendEvidenceRecord(
   workspaceDir: string,
   record: EvidenceRecord
 ): Promise<void> {
-  await appendJsonl(workspaceDir, 'evidence.jsonl', redactEvidenceRecord(record));
+  await appendEvidenceRecordWithSignal(workspaceDir, record);
+}
+
+/** Internal harness path; the public two-argument artifact API stays unchanged. */
+export async function appendEvidenceRecordWithSignal(
+  workspaceDir: string,
+  record: EvidenceRecord,
+  signal?: AbortSignal
+): Promise<void> {
+  await appendJsonl(workspaceDir, 'evidence.jsonl', redactEvidenceRecord(record), signal);
 }
 
 export async function listEvidenceRecords(

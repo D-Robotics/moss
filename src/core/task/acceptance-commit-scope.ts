@@ -45,14 +45,26 @@ export async function inAcceptanceScope<T>(
   return { value, ...(scope.committed ? { committed: scope.committed } : {}) };
 }
 
+/** Closed tools cannot start writes; only an already dispatched commit may settle. */
+export function assertTaskAppendScopeOpen(workspaceDir: string, evidence = false): void {
+  const key = workspaceKey(workspaceDir);
+  const scope = scopes.getStore();
+  const native = nativeSettlements.getStore();
+  if (
+    scope?.workspaceDir === key &&
+    !scope.dispatchOpen &&
+    (evidence || native?.workspaceDir !== key || !native.registered)
+  ) {
+    throw new Error('tool execution ended before native acceptance commit dispatch');
+  }
+}
+
 /** Register only native persistence already dispatched inside the workspace lock. */
 export function acceptanceAppendDispatched(workspaceDir: string): void {
   const native = nativeSettlements.getStore();
   const scope = scopes.getStore();
   if (!native || native.registered || native.workspaceDir !== workspaceKey(workspaceDir)) return;
-  if (scope?.workspaceDir === native.workspaceDir && !scope.dispatchOpen) {
-    throw new Error('tool execution ended before native acceptance commit dispatch');
-  }
+  assertTaskAppendScopeOpen(workspaceDir);
   native.registered = true;
   if (scope?.workspaceDir === native.workspaceDir) scope.settlements.push(native.settled);
 }

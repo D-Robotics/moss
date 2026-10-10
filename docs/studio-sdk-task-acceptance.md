@@ -37,9 +37,11 @@ readers, including fresh processes, replay only its confirmed prefix. Invalid or
 unreadable prepare metadata produces a storage error. A later writer refuses an
 unresolved tail rather than guessing that it committed. Recovery of such a tail
 requires inspection and storage repair; there is no automatic marker deletion.
-If dispatch was rejected before any append, the original prefix was zero, and
-the data file is still proven absent under the mutex, compensation can safely
-remove that attempt's prepare marker. Unknown IO outcomes remain fail closed.
+If dispatch was rejected before any append, successful exclusive marker creation
+proves this writer owns the prepare record. While still holding the mutex, it can
+remove that record without altering the original data prefix, including after
+prepare write, sync or close fails. Failed cleanup retains recovery metadata;
+unknown markers and dispatched IO outcomes remain fail closed.
 
 Session recovery similarly claims the observed dead owner's exact generation
 before rechecking its token and liveness and replacing the recovery gate. Unknown,
@@ -65,7 +67,10 @@ append already dispatched under the lock registers its remaining persistence
 settlement; before another mutation or model cycle, the SDK drains that actual
 settlement and consumes a successful attestation. Failed settlement grants no
 stop. Ordinary tool timeouts, evidence reads, and lock waits do not register this
-drain. A native append cannot begin later from an already ended tool scope. An
+drain. Neither a native append nor queued suite evidence can begin later from an
+already ended tool scope. Acceptance commands propagate cancellation before
+recording suite evidence, and queued evidence checks the signal again under the
+workspace lock immediately before dispatch. An
 already dispatched OS write/fsync that never returns can delay completion even
 after cancellation or a run budget: this is an explicit availability limitation
 of commit priority, not a claim of bounded cancellation for uninterruptible IO.

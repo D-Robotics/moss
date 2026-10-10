@@ -285,7 +285,7 @@ test('an unreadable or malformed prepare marker fails closed', async () => {
   }
 });
 
-for (const barrier of ['prepare-sync', 'prepare-unlink']) {
+for (const barrier of ['prepare-write', 'prepare-sync', 'prepare-close', 'prepare-unlink']) {
   test(`${barrier} failure cannot publish a native PASS`, async () => {
     const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-task-prepare-fault-'));
     const originalOpen = fs.open;
@@ -312,11 +312,26 @@ for (const barrier of ['prepare-sync', 'prepare-unlink']) {
       const marker = path.join(workspaceDir, '.moss', 'acceptance.jsonl.pending');
       fs.open = async function (file, flags, ...args) {
         const handle = await originalOpen.call(this, file, flags, ...args);
-        if (barrier === 'prepare-sync' && String(file) === marker && flags === 'wx') {
-          handle.sync = async () => {
+        if (String(file) === marker && flags === 'wx') {
+          const fail = () => {
             injected = true;
             throw Object.assign(new Error('prepare barrier failed'), { code: 'EIO' });
           };
+          if (barrier === 'prepare-write') {
+            const write = handle.writeFile.bind(handle);
+            handle.writeFile = async () => {
+              await write('{', 'utf8');
+              fail();
+            };
+          } else if (barrier === 'prepare-sync') {
+            handle.sync = async () => fail();
+          } else if (barrier === 'prepare-close') {
+            const close = handle.close.bind(handle);
+            handle.close = async () => {
+              await close();
+              fail();
+            };
+          }
         }
         return handle;
       };
@@ -335,6 +350,16 @@ for (const barrier of ['prepare-sync', 'prepare-unlink']) {
       const artifacts = await loadTaskArtifacts(workspaceDir);
       assert.equal(artifacts.tasks[0].status, 'active');
       assert.equal(artifacts.acceptance.length, 0);
+      if (barrier !== 'prepare-unlink') {
+        await assert.rejects(fs.stat(path.join(workspaceDir, '.moss', 'acceptance.jsonl')), {
+          code: 'ENOENT',
+        });
+      }
+      fs.open = originalOpen;
+      fs.unlink = originalUnlink;
+      await assert.rejects(fs.stat(marker), { code: 'ENOENT' });
+      const retry = await createContractVerdictProvider(workspaceDir).evaluate('one');
+      assert.equal(retry.passed, true, 'a compensated prepare failure must allow a real retry');
     } finally {
       fs.open = originalOpen;
       fs.unlink = originalUnlink;
@@ -342,6 +367,68 @@ for (const barrier of ['prepare-sync', 'prepare-unlink']) {
     }
   });
 }
+
+test('failed cleanup of an owned undispatched prepare retains recovery and the original IO error', async () => {
+  const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-prepare-cleanup-fault-'));
+  const originalOpen = fs.open;
+  const originalUnlink = fs.unlink;
+  try {
+    await appendTaskRecord(workspaceDir, {
+      taskId: 'one',
+      goal: 'one',
+      status: 'active',
+      acceptanceCriteria: [{ metric: 'probe', expected: '==1' }],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await appendEvidenceRecord(workspaceDir, {
+      evidenceId: 'one',
+      taskId: 'one',
+      metric: 'probe',
+      observed: 1,
+      result: 'pass',
+      source: 'exec',
+      timestamp: Date.now(),
+    });
+    const marker = path.join(workspaceDir, '.moss', 'acceptance.jsonl.pending');
+    fs.open = async function (file, flags, ...args) {
+      const handle = await originalOpen.call(this, file, flags, ...args);
+      if (String(file) === marker && flags === 'wx') {
+        handle.sync = async () => {
+          throw Object.assign(new Error('original prepare sync failure'), { code: 'EIO' });
+        };
+      }
+      return handle;
+    };
+    fs.unlink = async function (file, ...args) {
+      if (String(file) === marker) {
+        throw Object.assign(new Error('cleanup denied'), { code: 'EACCES' });
+      }
+      return originalUnlink.call(this, file, ...args);
+    };
+    await assert.rejects(
+      createContractVerdictProvider(workspaceDir).evaluate('one'),
+      /original prepare sync failure/
+    );
+    fs.open = originalOpen;
+    fs.unlink = originalUnlink;
+    assert.equal(JSON.parse(await fs.readFile(marker, 'utf8')).originalSize, 0);
+    await assert.rejects(fs.stat(path.join(workspaceDir, '.moss', 'acceptance.jsonl')), {
+      code: 'ENOENT',
+    });
+    await assert.rejects(
+      createContractVerdictProvider(workspaceDir).evaluate('one'),
+      /requires recovery/
+    );
+    const artifacts = await loadTaskArtifacts(workspaceDir);
+    assert.equal(artifacts.acceptance.length, 0);
+    assert.equal(artifacts.tasks[0].status, 'active');
+  } finally {
+    fs.open = originalOpen;
+    fs.unlink = originalUnlink;
+    await fs.rm(workspaceDir, { recursive: true, force: true });
+  }
+});
 
 test('every platform syncs acceptance files; POSIX directory sync failure rejects settlement', async () => {
   const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-task-directory-sync-'));

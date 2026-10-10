@@ -19,6 +19,7 @@ import {
 import {
   noteCommittedAcceptance,
   inNativeAcceptanceSettlement,
+  assertTaskAppendScopeOpen,
 } from './acceptance-commit-scope.js';
 import { appendTaskEvent, emitAcceptanceLifecycle, getTaskStateSnapshot } from './task-store.js';
 
@@ -70,6 +71,8 @@ function commandVerdictProvider(
         signal,
         workspaceDir
       );
+      signal?.throwIfAborted();
+      if (workspaceDir) assertTaskAppendScopeOpen(workspaceDir, true);
       if (workspaceDir) {
         await recordHarnessSuiteEvidence({
           workspaceDir,
@@ -77,8 +80,11 @@ function commandVerdictProvider(
           source: 'acceptance_command',
           testsPassed: result.passed,
           output: result.tail,
+          signal,
         });
       }
+      signal?.throwIfAborted();
+      if (workspaceDir) assertTaskAppendScopeOpen(workspaceDir, true);
       return {
         taskId,
         passed: result.passed,
