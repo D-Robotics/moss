@@ -177,7 +177,7 @@ export interface PrepareTurnContextParams {
   pruningSettings?: Partial<ContextPruningSettings>;
   hardCapMessageCount: number;
   hardCapTotalTokens: number;
-  /** Agent-loop turn budget. Fold savings use maxTurns - turns. */
+  /** Agent-loop turn budget. The fold horizon does not use it. */
   maxTurns?: number;
   previousPrefixSnapshot: Message[] | null;
   previousToolNames: string[] | null;

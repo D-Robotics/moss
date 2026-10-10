@@ -3,11 +3,10 @@ import {
   dedupeUnchangedReadToolResults,
 } from '../../context/stale-read-invalidate.js';
 import { snipTailOversizedToolResults } from '../../context/tail-tool-snip.js';
-import { foldOlderToolResults } from '../../context/tool-result-fold.js';
+import { foldOlderToolResults, TOOL_RESULT_FOLD_HORIZON } from '../../context/tool-result-fold.js';
 import { microcompact } from '../../context/microcompact.js';
 import type { Message } from '../session/session-jsonl.js';
 import type { ContextActionSummary, MiniAgentEvent } from '../subagent/agent-events.js';
-import { MOSS_DEFAULT_MAX_AGENT_TURNS } from '../../utils/max-agent-turns.js';
 import {
   planContextBudgetActions,
   type ContextBudgetActionReason,
@@ -19,7 +18,7 @@ export interface PerTurnContextMgmtParams {
   effectiveContextWindowTokens: number;
   pendingToolResultFollowUp: boolean;
   turns: number;
-  /** Run budget. Remaining requests are max(1, maxTurns - turns). */
+  /** Run budget. The fold horizon does not use the leftover turn count. */
   maxTurns?: number;
   /** Names with `ToolMetadata.retainResult`. Their results are not folded. */
   retainTools?: ReadonlySet<string>;
@@ -63,7 +62,7 @@ export function runPerTurnContextManagement(
     // rewrites the cached prefix from the first folded message onward, so it
     // runs only when the batch and the savings inequality both pass.
     const folded = foldOlderToolResults(currentMessages, {
-      remainingRequests: Math.max(1, (params.maxTurns ?? MOSS_DEFAULT_MAX_AGENT_TURNS) - turns),
+      remainingRequests: Math.min(turns, TOOL_RESULT_FOLD_HORIZON),
       ...(params.retainTools ? { retainTools: params.retainTools } : {}),
     });
     if (folded.savedChars > 0) {

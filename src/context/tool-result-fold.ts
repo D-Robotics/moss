@@ -16,7 +16,6 @@
  * transcript is append-only. This is not limited to context-window compaction.
  */
 import type { ContentBlock, Message } from '../contracts/messages.js';
-import { MOSS_DEFAULT_MAX_AGENT_TURNS } from '../utils/max-agent-turns.js';
 import { estimateMessagesTokens, estimateTokensForText } from './tokens.js';
 import { TOOL_RESULT_ELIDED_MARKER } from './tool-result-elision.js';
 
@@ -27,6 +26,16 @@ export const TOOL_RESULT_FOLDED_MARKER = '[earlier tool result folded';
  * (write 3.75 / read 0.3, or write 1.25 / read 0.1).
  */
 export const TOOL_RESULT_FOLD_SAVINGS_RATIO = 11.5;
+
+/**
+ * Requests the savings gate may assume are still coming.
+ *
+ * The estimate is how many requests this user turn has already made, capped
+ * here. Five is the smallest cap that still folds a 14k page inside a
+ * 12-result turn; a cap of 4 never does. The leftover turn budget (64) folded
+ * 4k pages whose rewrite was not paid back.
+ */
+export const TOOL_RESULT_FOLD_HORIZON = 5;
 
 export interface ToolResultFoldConfig {
   /** Completed results to keep in full, newest first. */
@@ -42,8 +51,8 @@ export interface ToolResultFoldConfig {
   tailChars: number;
   /**
    * Requests still expected after this one. The loop passes
-   * max(1, maxTurns - turns). The default is the run's max turn budget so a
-   * direct call still folds a large page.
+   * min(turns, TOOL_RESULT_FOLD_HORIZON). The default is that cap, so a
+   * direct call does not assume a long run.
    */
   remainingRequests: number;
   /** Minimum `savedTokens * remainingRequests / suffixTokens`. */
@@ -58,7 +67,7 @@ export const DEFAULT_TOOL_RESULT_FOLD: ToolResultFoldConfig = {
   minBatch: 3,
   headChars: 180,
   tailChars: 240,
-  remainingRequests: MOSS_DEFAULT_MAX_AGENT_TURNS,
+  remainingRequests: TOOL_RESULT_FOLD_HORIZON,
   savingsRatio: TOOL_RESULT_FOLD_SAVINGS_RATIO,
 };
 

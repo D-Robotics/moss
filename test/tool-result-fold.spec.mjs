@@ -14,6 +14,7 @@ import test from 'node:test';
 import {
   foldOlderToolResults,
   TOOL_RESULT_FOLDED_MARKER,
+  TOOL_RESULT_FOLD_HORIZON,
 } from '../dist/context/tool-result-fold.js';
 import { elideOldLargeToolResults } from '../dist/context/tool-result-elision.js';
 import { dedupeUnchangedReadToolResults } from '../dist/context/stale-read-invalidate.js';
@@ -54,7 +55,7 @@ test('fold waits for a batch, keeps the pending result, and is stable on the nex
 
   messages.push(assistantCall('c6', 'get_page'));
   messages.push(resultMessage('c6', 'get_page', page('Page 6', 5000, 'TAIL-6')));
-  const folded = foldOlderToolResults(messages);
+  const folded = foldOlderToolResults(messages, { remainingRequests: 64 });
   assert.equal(folded.foldedCount, 3);
   assert.ok(folded.savedChars > 4000);
   const texts = folded.messages
@@ -164,9 +165,7 @@ test('checkpoint fold rewrites the cache prefix less often than sliding elision'
     `fold hit ${pages.fold.hitAvg.toFixed(3)} vs elision ${pages.elision.hitAvg.toFixed(3)}`
   );
   assert.ok(pages.fold.finalChars < pages.raw.finalChars / 2);
-  assert.ok(pages.fold.totalTokens < pages.elision.totalTokens);
-  assert.ok(docs.fold.finalChars < docs.elision.finalChars);
-  assert.ok(docs.fold.totalTokens < docs.raw.totalTokens);
+  assert.ok(pages.fold.rewrites < pages.elision.rewrites);
   assert.ok(docs.fold.rewrites <= pages.elision.rewrites);
 
   const lines = [
@@ -217,7 +216,10 @@ test('error results and retainResult tools stay in full', () => {
     messages.push(assistantCall(`c${i}`, 'get_page'));
     messages.push(resultMessage(`c${i}`, 'get_page', page(`Page ${i}`, 5000, `TAIL-${i}`)));
   }
-  const folded = foldOlderToolResults(messages, { retainTools: new Set(['todo_write']) });
+  const folded = foldOlderToolResults(messages, {
+    retainTools: new Set(['todo_write']),
+    remainingRequests: 64,
+  });
   assert.ok(folded.foldedCount >= 3);
   const texts = folded.messages
     .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
@@ -242,6 +244,10 @@ test('the savings gate refuses a fold that does not pay for the rewrite', () => 
   assert.equal(refused.messages, messages);
   const allowed = foldOlderToolResults(messages, { remainingRequests: 64 });
   assert.equal(allowed.foldedCount, 3);
+  const horizon = foldOlderToolResults(messages);
+  assert.equal(TOOL_RESULT_FOLD_HORIZON, 5);
+  assert.equal(horizon.foldedCount, 0, 'the default horizon does not fold a 5k batch');
+  assert.equal(horizon.messages, messages);
 });
 
 test('a folded read is not replayed, not deduped to see-below, and marks the cache truncated', async () => {
@@ -257,7 +263,7 @@ test('a folded read is not replayed, not deduped to see-below, and marks the cac
     messages.push(assistantCall(`r${i}`, 'read_file', { path: i === 1 ? file : 'src/a.ts' }));
     messages.push(resultMessage(`r${i}`, 'read_file', body));
   }
-  const folded = foldOlderToolResults(messages);
+  const folded = foldOlderToolResults(messages, { remainingRequests: 64 });
   assert.ok(folded.foldedCount >= 1);
   assert.equal(await globalToolStateManager.readReuseState(file, 'full'), 'truncated');
   assert.equal(
@@ -277,28 +283,42 @@ test('a folded read is not replayed, not deduped to see-below, and marks the cac
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('per-turn context management folds at the checkpoint instead of sliding', () => {
-  const messages = [{ role: 'user', content: 'Look up the pinmux.' }];
-  for (let i = 1; i <= 6; i++) {
-    messages.push(assistantCall(`c${i}`, 'get_page'));
-    messages.push(resultMessage(`c${i}`, 'get_page', page(`Page ${i}`, 5000)));
-  }
+function perTurn(messages, turns) {
   const events = [];
   const result = runPerTurnContextManagement({
     currentMessages: messages,
     estPromptTokens: 1000,
     effectiveContextWindowTokens: 200_000,
     pendingToolResultFollowUp: true,
-    turns: 6,
+    turns,
+    maxTurns: 64,
     push: (event) => events.push(event),
   });
-  assert.ok(result.savedChars > 0);
-  const joined = JSON.stringify(messages);
-  assert.ok(joined.includes(TOOL_RESULT_FOLDED_MARKER));
-  assert.equal(joined.includes('[earlier tool result elided'), false);
-  const action = events.find((event) => event.type === 'context_action');
+  return { result, events, joined: JSON.stringify(messages) };
+}
+
+test('per-turn context management folds a 14k batch and leaves a 4k batch', () => {
+  const small = [{ role: 'user', content: 'Look up the pinmux.' }];
+  for (let i = 1; i <= 6; i++) {
+    small.push(assistantCall(`s${i}`, 'get_page'));
+    small.push(resultMessage(`s${i}`, 'get_page', page(`Page ${i}`, 4000)));
+  }
+  const short = perTurn(small, 6);
+  assert.equal(short.result.savedChars, 0);
+  assert.equal(short.joined.includes(TOOL_RESULT_FOLDED_MARKER), false);
+
+  const large = [{ role: 'user', content: 'Look up the pinmux.' }];
+  for (let i = 1; i <= 11; i++) {
+    large.push(assistantCall(`c${i}`, 'get_page'));
+    large.push(resultMessage(`c${i}`, 'get_page', page(`Page ${i}`, 14_000)));
+  }
+  const folded = perTurn(large, 12);
+  assert.ok(folded.result.savedChars > 0);
+  assert.ok(folded.joined.includes(TOOL_RESULT_FOLDED_MARKER));
+  assert.equal(folded.joined.includes('[earlier tool result elided'), false);
+  const action = folded.events.find((event) => event.type === 'context_action');
   const foldAction = action?.actions?.find((row) => row.kind === 'elide_old_large_tool_results');
-  assert.equal(foldAction?.count, 3);
+  assert.ok(foldAction?.count >= 3);
 });
 
 test('a docs-style turn folds old pages before the answer and keeps the prefix', async () => {
@@ -312,7 +332,7 @@ test('a docs-style turn folds old pages before the answer and keeps the prefix',
       captured.push(opts);
       round += 1;
       const chars = JSON.stringify(opts.messages ?? []).length;
-      if (round <= 6) {
+      if (round <= 11) {
         return {
           stopReason: 'tool_use',
           content: [
@@ -357,7 +377,7 @@ test('a docs-style turn folds old pages before the answer and keeps the prefix',
     metadata: { sideEffectClass: 'readonly' },
     inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
     async execute(input) {
-      return page(`Page ${input.q} pinmux`, 12_000);
+      return page(`Page ${input.q} pinmux`, 14_000);
     },
   });
   agent.tools.register({
@@ -381,7 +401,7 @@ test('a docs-style turn folds old pages before the answer and keeps the prefix',
   const result = await agent.chat('fold-qa', 'Which pin is the camera clock?');
   const text = typeof result === 'string' ? result : result?.response;
   assert.match(text, /GPIO 3/);
-  assert.equal(captured.length, 7);
+  assert.equal(captured.length, 12);
 
   const names = captured[0].tools.map((tool) => tool.name);
   assert.ok(names.includes('lookup'));
@@ -394,10 +414,10 @@ test('a docs-style turn folds old pages before the answer and keeps the prefix',
     if (!cacheStable(payloads[i - 1], payloads[i])) rewrites += 1;
   }
   assert.ok(rewrites <= 2, `prefix rewrites ${rewrites}`);
-  assert.ok(payloads[6].includes(TOOL_RESULT_FOLDED_MARKER));
-  assert.equal(payloads[5].includes(TOOL_RESULT_FOLDED_MARKER), false);
-  const rawBodies = 6 * 12_000;
-  assert.ok(payloads[6].length < rawBodies, 'the answer request is smaller than the raw pages');
+  assert.ok(payloads[11].includes(TOOL_RESULT_FOLDED_MARKER));
+  assert.equal(payloads[10].includes(TOOL_RESULT_FOLDED_MARKER), false);
+  const rawBodies = 11 * 14_000;
+  assert.ok(payloads[11].length < rawBodies, 'the answer request is smaller than the raw pages');
 
   const stored = JSON.stringify(await store.loadMessages('fold-qa'));
   assert.ok(stored.includes(TOOL_RESULT_FOLDED_MARKER), 'folded text is stored for the next turn');
@@ -407,4 +427,100 @@ test('a docs-style turn folds old pages before the answer and keeps the prefix',
     `agent docs turn requests=${captured.length} rewrites=${rewrites} tokens=${requestTokens.join(',')} total=${requestTokens.reduce((sum, n) => sum + n, 0)}`
   );
   await agent.close();
+});
+
+function sizedPage(label, chars) {
+  const head = `${label}\n`;
+  return head + 'x'.repeat(Math.max(0, chars - head.length));
+}
+
+function cacheDollars(rows, price) {
+  let amount = 0;
+  rows.forEach((row, idx) => {
+    if (idx === 0) {
+      amount += (row.tokens * price.write) / 1e6;
+      return;
+    }
+    const write = Math.max(0, row.tokens - row.read);
+    amount += (row.read * price.read + write * price.write) / 1e6;
+  });
+  return amount;
+}
+
+function pricedRun(steps, chars) {
+  const prices = {
+    Anthropic: { write: 3.75, read: 0.3 },
+    DeepSeek: { write: 0.3, read: 0.006 },
+    OpenAI: { write: 1.25, read: 0.125 },
+  };
+  const run = (apply) => {
+    let messages = [{ role: 'user', content: 'What is the camera pinmux?' }];
+    let prev = JSON.stringify(messages);
+    const rows = [];
+    let rewrites = 0;
+    let folded = 0;
+    for (let i = 1; i <= steps; i++) {
+      const body = sizedPage(`Page ${i} pinmux table`, chars);
+      messages.push(assistantCall(`c${i}`, 'get_page'));
+      messages.push(resultMessage(`c${i}`, 'get_page', body));
+      const applied = apply(messages, i);
+      if (applied.foldedCount > 0) folded += applied.foldedCount;
+      messages = applied.messages;
+      const payload = JSON.stringify(messages);
+      let shared = 0;
+      const limit = Math.min(prev.length, payload.length);
+      while (shared < limit && prev[shared] === payload[shared]) shared += 1;
+      const stable = payload.startsWith(prev.slice(0, -1));
+      if (!stable) rewrites += 1;
+      const tokens = Math.ceil(payload.length / 4);
+      rows.push({ tokens, read: Math.min(Math.floor(shared / 4), tokens) });
+      prev = payload;
+    }
+    return { rows, rewrites, folded };
+  };
+  const main = run((messages) => elideOldLargeToolResults(messages));
+  const fold = run((messages, i) =>
+    foldOlderToolResults(messages, {
+      remainingRequests: Math.min(i + 1, TOOL_RESULT_FOLD_HORIZON),
+    })
+  );
+  const cells = {};
+  for (const [name, price] of Object.entries(prices)) {
+    cells[name] = { main: cacheDollars(main.rows, price), fold: cacheDollars(fold.rows, price) };
+  }
+  return { main, fold, cells };
+}
+
+test('the observed horizon is never more expensive than main, including a short turn', () => {
+  const sizes = [800, 4_000, 8_000, 14_000, 30_000];
+  const lines = [
+    `horizon=${TOOL_RESULT_FOLD_HORIZON} (min of requests so far and the cap)`,
+    'tokens = serialized chars / 4; cache read on the shared prefix; cache write on the rest',
+    'main is sliding elision',
+  ];
+  for (const steps of [12, 4]) {
+    lines.push('', `steps=${steps}`);
+    for (const size of sizes) {
+      const priced = pricedRun(steps, size);
+      lines.push(
+        `size=${size} mainRewrites=${priced.main.rewrites} foldRewrites=${priced.fold.rewrites} folded=${priced.fold.folded}`
+      );
+      for (const [name, cell] of Object.entries(priced.cells)) {
+        const delta = ((cell.fold - cell.main) / cell.main) * 100;
+        lines.push(
+          `  ${name} main=$${cell.main.toFixed(6)} fold=$${cell.fold.toFixed(6)} delta=${delta.toFixed(1)}%`
+        );
+        assert.ok(
+          cell.fold <= cell.main + 1e-12,
+          `${steps}x${size} ${name} fold $${cell.fold} > main $${cell.main}`
+        );
+        if (steps === 12 && size >= 14_000) {
+          assert.ok(delta <= -44, `${steps}x${size} ${name} saved only ${delta.toFixed(1)}%`);
+        }
+      }
+      if (steps === 12 && size === 4_000) assert.equal(priced.fold.folded, 0);
+      if (steps === 12 && size >= 14_000) assert.ok(priced.fold.folded > 0);
+    }
+  }
+  console.log(lines.join('\n'));
 });
