@@ -16,6 +16,7 @@ export interface SessionWriteLock {
 }
 
 interface SessionWriteLockOperations {
+  readOwner(ownerPath: string): Promise<LockOwner | undefined>;
   syncDirectory(directoryPath: string): Promise<void>;
 }
 
@@ -60,7 +61,7 @@ async function syncDirectory(directoryPath: string): Promise<void> {
   }
 }
 
-const defaultOperations: SessionWriteLockOperations = { syncDirectory };
+const defaultOperations: SessionWriteLockOperations = { syncDirectory, readOwner };
 
 async function writeOwnerCandidate(
   filePath: string,
@@ -112,7 +113,7 @@ async function releaseOwnedPath(
   token: string,
   operations: SessionWriteLockOperations
 ): Promise<void> {
-  const current = await readOwner(ownerPath);
+  const current = await operations.readOwner(ownerPath);
   if (!current || current.token !== token) {
     throw new MossError({
       code: ErrorCode.SESSION_PERSIST_FAILED,
@@ -149,14 +150,14 @@ async function tryAcquireRecoveryGate(
   operations: SessionWriteLockOperations
 ): Promise<boolean> {
   if (await tryCreateOwner(recoveryPath, nextOwner, operations)) return true;
-  const observed = await readOwner(recoveryPath);
+  const observed = await operations.readOwner(recoveryPath);
   if (!observed || processIsAlive(observed.pid)) return false;
   const generation = crypto.createHash('sha256').update(observed.token).digest('hex');
   const claimPath = `${recoveryPath}.reclaim-${generation}`;
   if (!(await tryCreateOwner(claimPath, nextOwner, operations))) return false;
   let published = false;
   try {
-    const current = await readOwner(recoveryPath);
+    const current = await operations.readOwner(recoveryPath);
     if (!current || current.token !== observed.token || processIsAlive(current.pid)) return false;
     const quarantinePath = `${recoveryPath}.recovered-${nextOwner.token}`;
     try {
@@ -189,7 +190,7 @@ async function tryReplaceDeadCanonical(
   nextOwner: LockOwner,
   operations: SessionWriteLockOperations
 ): Promise<boolean> {
-  const current = await readOwner(lockPath);
+  const current = await operations.readOwner(lockPath);
   if (!current || current.token !== observed.token || processIsAlive(current.pid)) return false;
   const quarantinePath = `${lockPath}.recovered-${nextOwner.token}`;
   try {
@@ -269,7 +270,7 @@ export async function acquireSessionWriteLockWithOperations(params: {
 
       let acquired = false;
       try {
-        const current = await readOwner(lockPath);
+        const current = await operations.readOwner(lockPath);
         if (!current) {
           // A present but malformed canonical owner is unknown, not absent.
           try {
@@ -306,4 +307,25 @@ export async function acquireSessionWriteLockWithOperations(params: {
       cause,
     });
   }
+}
+
+/** Internal task-store reuse, including identifiable legacy pid:nonce owners. */
+export async function acquireTaskArtifactWriteLock(
+  sessionFile: string,
+  timeoutMs: number
+): Promise<SessionWriteLock> {
+  return acquireSessionWriteLockWithOperations({
+    sessionFile,
+    timeoutMs,
+    operations: {
+      async readOwner(ownerPath) {
+        const owner = await readOwner(ownerPath);
+        if (owner) return owner;
+        const raw = await fs.readFile(ownerPath, 'utf8').catch(() => '');
+        const match = /^([1-9]\d*):([A-Za-z0-9_-]+)$/.exec(raw.trim());
+        if (!match || !Number.isSafeInteger(Number(match[1]))) return undefined;
+        return { version: 1, pid: Number(match[1]), token: raw.trim(), createdAt: 'legacy' };
+      },
+    },
+  });
 }

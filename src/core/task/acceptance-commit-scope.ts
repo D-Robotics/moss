@@ -5,7 +5,14 @@ import type { TaskVerdict } from './verdict.js';
 interface AcceptanceScope {
   workspaceDir: string;
   committed?: TaskVerdict;
+  settlements: Promise<void>[];
+  dispatchOpen: boolean;
 }
+const nativeSettlements = new AsyncLocalStorage<{
+  workspaceDir: string;
+  settled: Promise<void>;
+  registered: boolean;
+}>();
 const scopes = new AsyncLocalStorage<AcceptanceScope>();
 const workspaceKey = (workspaceDir: string): string => {
   const resolved = path.resolve(workspaceDir);
@@ -23,7 +30,47 @@ export async function inAcceptanceScope<T>(
   workspaceDir: string,
   action: () => Promise<T>
 ): Promise<{ value: T; committed?: TaskVerdict }> {
-  const scope: AcceptanceScope = { workspaceDir: workspaceKey(workspaceDir) };
-  const value = await scopes.run(scope, action);
+  const scope: AcceptanceScope = {
+    workspaceDir: workspaceKey(workspaceDir),
+    settlements: [],
+    dispatchOpen: true,
+  };
+  let value: T;
+  try {
+    value = await scopes.run(scope, action);
+  } finally {
+    scope.dispatchOpen = false;
+  }
+  await Promise.all(scope.settlements);
   return { value, ...(scope.committed ? { committed: scope.committed } : {}) };
+}
+
+/** Register only native persistence already dispatched inside the workspace lock. */
+export function acceptanceAppendDispatched(workspaceDir: string): void {
+  const native = nativeSettlements.getStore();
+  const scope = scopes.getStore();
+  if (!native || native.registered || native.workspaceDir !== workspaceKey(workspaceDir)) return;
+  if (scope?.workspaceDir === native.workspaceDir && !scope.dispatchOpen) {
+    throw new Error('tool execution ended before native acceptance commit dispatch');
+  }
+  native.registered = true;
+  if (scope?.workspaceDir === native.workspaceDir) scope.settlements.push(native.settled);
+}
+
+export async function inNativeAcceptanceSettlement<T>(
+  workspaceDir: string,
+  action: () => Promise<T>
+): Promise<T> {
+  let finish!: () => void;
+  const settled = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  try {
+    return await nativeSettlements.run(
+      { workspaceDir: workspaceKey(workspaceDir), settled, registered: false },
+      action
+    );
+  } finally {
+    finish();
+  }
 }

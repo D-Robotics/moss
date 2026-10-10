@@ -375,12 +375,22 @@ test('a symlinked workspace does not delete the live task event lock', async () 
   }
 });
 
-test('a lock file stamped with this process pid is reclaimed without waiting', async () => {
+test('a live same-process lock remains owned until explicit release', async () => {
   const ws = await tmpWorkspace();
   const { taskId } = await createDraftTask(ws, 'goal');
-  await fs.writeFile(path.join(ws, '.moss', 'task-events.jsonl.lock'), String(process.pid), 'utf8');
+  const { acquireSessionWriteLock } = await import('../dist/core/session/session-write-lock.js');
+  const lock = await acquireSessionWriteLock({
+    sessionFile: path.join(ws, '.moss', 'task-events.jsonl'),
+  });
   const started = Date.now();
-  await appendTaskEvent(ws, taskId, 'execution_started');
+  let finished = false;
+  const writing = appendTaskEvent(ws, taskId, 'execution_started').then(() => {
+    finished = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(finished, false);
+  await lock.release();
+  await writing;
   const elapsed = Date.now() - started;
   assert.ok(elapsed < 1000, `own-pid lock took ${elapsed}ms`);
   const snapshot = await getTaskStateSnapshot(ws, taskId);

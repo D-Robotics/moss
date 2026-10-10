@@ -45,3 +45,22 @@ Public regressions cover persistent command failure across resume and tool
 acceptance, workspace cwd, native loop completion and nested-agent isolation,
 actual file/directory barriers, second and third append faults, failed rollback
 read from a fresh Node process, cancellation, and competing recovery owners.
+
+Task artifact readers now hold the same generation-protected mutex as writers,
+so a cached tail cannot survive an intervening append rollback unnoticed. Time
+alone never evicts a live task lock. Identifiable legacy pid:nonce owners require
+a real ESRCH probe; unknown ownership is retained. Nested reads reuse only an
+active owner, and inherited callbacks must reacquire after that owner releases.
+Nested workspaces retain their active parent ownership without permitting a
+recursive write.
+
+A tool deadline still fires at its configured time. Only a native acceptance
+append already dispatched under the lock registers its remaining persistence
+settlement; before another mutation or model cycle, the SDK drains that actual
+settlement and consumes a successful attestation. Failed settlement grants no
+stop. Ordinary tool timeouts, evidence reads, and lock waits do not register this
+drain. A native append cannot begin later from an already ended tool scope. An
+already dispatched OS write/fsync that never returns can delay completion even
+after cancellation or a run budget: this is an explicit availability limitation
+of commit priority, not a claim of bounded cancellation for uninterruptible IO.
+No uncertain or failed write is reported as accepted to manufacture an exit.

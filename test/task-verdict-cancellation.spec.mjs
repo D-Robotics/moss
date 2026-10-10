@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { syncBuiltinESMExports } from 'node:module';
 import {
   runTask,
   createContractVerdictProvider,
@@ -175,13 +176,18 @@ test('cancellation while waiting for the real task-event lock writes no accepted
   try {
     fs.readFile = async function (file, ...args) {
       const body = await originalRead.call(this, file, ...args);
-      if (String(file).endsWith('task-events.jsonl.lock')) {
+      if (
+        !waited &&
+        String(file).endsWith('task-events.jsonl.lock') &&
+        body === `${process.ppid}:external-fixture`
+      ) {
         waited = true;
         controller.abort();
         await fs.unlink(file);
       }
       return body;
     };
+    syncBuiltinESMExports();
     const result = await runTask(
       {
         workspaceDir,
@@ -222,6 +228,7 @@ test('cancellation while waiting for the real task-event lock writes no accepted
     );
   } finally {
     fs.readFile = originalRead;
+    syncBuiltinESMExports();
     await fs.rm(workspaceDir, { recursive: true, force: true });
   }
 });

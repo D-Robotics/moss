@@ -14,7 +14,9 @@ import { listDeploymentRecords } from '../../device/deployment.js';
 import { getRootLogger } from '../../logger.js';
 import { redactEgress } from '../../safety/tool-output-redact.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
-import { withTaskEventLock } from '../task/task-store.js';
+import { withTaskEventLock, withTaskArtifactReadLock } from '../task/task-store.js';
+
+import { acceptanceAppendDispatched } from '../task/acceptance-commit-scope.js';
 
 const jsonlLog = getRootLogger().child('task-jsonl');
 
@@ -49,45 +51,47 @@ export interface TaskArtifacts {
  * The first skip for a file warns once; later reads only debug.
  */
 export async function readJsonlFile<T>(file: string): Promise<T[]> {
-  const before = await readPendingAppend(file);
-  let raw: string;
-  try {
-    raw = await fs.readFile(file, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw error;
-  }
-  // An interrupted writer retains a durable prepare record. Never replay its
-  // uncertain tail, including when both the original sync and rollback failed.
-  const after = await readPendingAppend(file);
-  const pending =
-    before === undefined ? after : after === undefined ? before : Math.min(before, after);
-  if (pending !== undefined) {
-    const bytes = Buffer.from(raw);
-    if (pending > bytes.length) throw new Error(`unconfirmed task append: ${file}`);
-    raw = bytes.subarray(0, pending).toString('utf8');
-  }
-  const rows: T[] = [];
-  let skipped = 0;
-  for (const line of raw.split('\n')) {
-    if (line.trim() === '') continue;
+  return withTaskArtifactReadLock(path.dirname(path.dirname(file)), async () => {
+    const before = await readPendingAppend(file);
+    let raw: string;
     try {
-      rows.push(JSON.parse(line) as T);
-    } catch {
-      skipped += 1;
+      raw = await fs.readFile(file, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
     }
-  }
-  if (skipped > 0) {
-    const key = path.resolve(file);
-    const payload = { file: key, skipped };
-    if (jsonlParseWarned.has(key)) {
-      jsonlLog.debug('skipping unparseable jsonl line', payload);
-    } else {
-      jsonlParseWarned.add(key);
-      jsonlLog.warn('skipping unparseable jsonl line', payload);
+    // An interrupted writer retains a durable prepare record. Never replay its
+    // uncertain tail, including when both the original sync and rollback failed.
+    const after = await readPendingAppend(file);
+    const pending =
+      before === undefined ? after : after === undefined ? before : Math.min(before, after);
+    if (pending !== undefined) {
+      const bytes = Buffer.from(raw);
+      if (pending > bytes.length) throw new Error(`unconfirmed task append: ${file}`);
+      raw = bytes.subarray(0, pending).toString('utf8');
     }
-  }
-  return rows;
+    const rows: T[] = [];
+    let skipped = 0;
+    for (const line of raw.split('\n')) {
+      if (line.trim() === '') continue;
+      try {
+        rows.push(JSON.parse(line) as T);
+      } catch {
+        skipped += 1;
+      }
+    }
+    if (skipped > 0) {
+      const key = path.resolve(file);
+      const payload = { file: key, skipped };
+      if (jsonlParseWarned.has(key)) {
+        jsonlLog.debug('skipping unparseable jsonl line', payload);
+      } else {
+        jsonlParseWarned.add(key);
+        jsonlLog.warn('skipping unparseable jsonl line', payload);
+      }
+    }
+    return rows;
+  });
 }
 
 async function readPendingAppend(file: string): Promise<number | undefined> {
@@ -159,6 +163,8 @@ export async function appendJsonlFile(
   let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
   try {
     signal?.throwIfAborted();
+    if (path.basename(file) === 'acceptance.jsonl')
+      acceptanceAppendDispatched(path.dirname(path.dirname(file)));
     await fs.appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
     handle = await fs.open(file, 'r+');
     await handle.sync();
@@ -286,11 +292,20 @@ export async function listAcceptanceVerdicts(
 
 /** Load all task artifacts for a workspace in one pass. */
 export async function loadTaskArtifacts(workspaceDir: string): Promise<TaskArtifacts> {
-  const [tasks, evidence, deployments, acceptance] = await Promise.all([
-    listTaskRecords(workspaceDir, 200),
-    listEvidenceRecords(workspaceDir, 1000),
-    listDeploymentRecords(workspaceDir, 100),
-    listAcceptanceVerdicts(workspaceDir, 200),
-  ]);
-  return { tasks, evidence, deployments, acceptance };
+  return withTaskArtifactReadLock(workspaceDir, async () => {
+    const reads = [
+      listTaskRecords(workspaceDir, 200),
+      listEvidenceRecords(workspaceDir, 1000),
+      listDeploymentRecords(workspaceDir, 100),
+      listAcceptanceVerdicts(workspaceDir, 200),
+    ] as const;
+    const [tasks, evidence, deployments, acceptance] = await Promise.all(reads).catch(
+      async (error) => {
+        // Keep ownership until every sibling read has stopped using this snapshot.
+        await Promise.allSettled(reads);
+        throw error;
+      }
+    );
+    return { tasks, evidence, deployments, acceptance };
+  });
 }
