@@ -86,13 +86,12 @@ export function builtinRdkDocsServerConfig(
  */
 export const RDK_DOCS_CONNECTED_LAYER = [
   '### RDK manuals',
-  'Board facts (flashing, BPU/hobot_dnn, cameras, TROS, apt, network, GPIO, specs) come from rdk-docs.',
-  'Call `mcp__rdk-docs__search` first; it registers and returns the exact names of the server tools to call (skill `rdk-docs`).',
+  'Board facts come from rdk-docs. Call `mcp__rdk-docs__search` first (skill `rdk-docs`).',
   "Use the user's words and, if the returned search schema supports it, a board/manual filter; do not answer from another board's page.",
   'Judge the snippet: prefer role=official-start; forum is unofficial and loses to the manual.',
-  'Treat noGoodMatch, ranked fusion, and section reads as optional server capabilities; follow the returned schema and degrade to ordinary search/page reads.',
-  'Cite each page URL you used from search or get_page. Call record_evidence only when a task contract is already open.',
-  'Do not invent pin tables or figures. Connection, probes, and approval do not wait on docs.',
+  'Follow the returned schema. Cite the page URL.',
+  'Call record_evidence only when a task contract is already open.',
+  'Do not invent pin tables. Probes and approval do not wait on docs.',
 ].join(' ');
 
 /** Injected when the server was configured but the connect failed. No usage guide. */

@@ -1,5 +1,5 @@
 import { MossError, ErrorCode } from '../../errors.js';
-import type { ChatOptions, InternalContentBlock } from './moss-agent-types.js';
+import type { ChatOptions, InternalContentBlock, InternalMessage } from './moss-agent-types.js';
 
 export function buildUserMessageContent(
   text: string,
@@ -12,6 +12,40 @@ export function buildUserMessageContent(
   ];
 }
 
+/** Same bytes the OpenAI wire uses when it folds a dynamic suffix onto a user message. */
+export function turnContextBlock(body: string): string {
+  return `<turn-context>\n${body}\n</turn-context>`;
+}
+
+export function messagePlainText(content: string | InternalContentBlock[]): string {
+  if (typeof content === 'string') return content;
+  return content
+    .map((block) => (block.type === 'text' && typeof block.text === 'string' ? block.text : ''))
+    .join('\n');
+}
+
+/** Body of the last `<turn-context>` block in `text`, if one was already sent. */
+export function lastTurnContextBody(text: string): string | undefined {
+  const pattern = /<turn-context>\n([\s\S]*?)\n<\/turn-context>/g;
+  let last: string | undefined;
+  for (const match of text.matchAll(pattern)) last = match[1];
+  return last;
+}
+
+/**
+ * The dynamic suffix most recently stored on a user message. Undefined when
+ * this session has not sent one yet.
+ */
+export function lastSentTurnContextBody(messages: readonly InternalMessage[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message) continue;
+    const body = lastTurnContextBody(messagePlainText(message.content));
+    if (body !== undefined) return body;
+  }
+  return undefined;
+}
+
 /**
  * Attach per-turn volatile context (git snapshot, focus notes) to the current
  * user message for the LLM only. Never persisted — the stored message keeps
@@ -21,7 +55,7 @@ export function appendTurnExtraContext(
   content: string | InternalContentBlock[],
   extraContext: string
 ): string | InternalContentBlock[] {
-  const tagged = `<turn-context>\n${extraContext}\n</turn-context>`;
+  const tagged = turnContextBlock(extraContext);
   if (typeof content === 'string') return `${content}\n\n${tagged}`;
   return [...content, { type: 'text', text: tagged }];
 }

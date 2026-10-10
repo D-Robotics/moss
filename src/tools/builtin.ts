@@ -269,6 +269,7 @@ import { applyPatchTool } from './patch-tool.js';
 import { todoWriteTool } from './todo-tool.js';
 import { askUserQuestionTool } from './ask-user-question.js';
 import { exitPlanTool, planGateEnabled } from './plan-gate.js';
+import { toolSearchTool } from './tool-search.js';
 
 // Tool naming convention:
 // - Function/const names use camelCase (e.g., editFileTool, webFetchTool)
@@ -293,6 +294,7 @@ export const builtinTools: Tool[] = [
   webSearchTool,
   applyPatchTool,
   codeDiagnosticsTool,
+  toolSearchTool,
   createSubagentTool,
   mergeSubagentPatchTool,
   fanOutSubagentsTool,

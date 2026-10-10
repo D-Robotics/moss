@@ -74,7 +74,7 @@ import {
   resolveRdkDocsPackage,
   withBuiltinRdkDocs,
 } from './cli/rdk-docs-mcp.js';
-import { McpToolRegistry, buildMcpPromptLayer } from './core/mcp/registry.js';
+import { McpToolRegistry, buildMcpStableIndex } from './core/mcp/registry.js';
 import { RDK_DOCS_SERVER_NAME, rdkDocsKnowledgeLayer } from './core/mcp/rdk-docs.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
@@ -892,11 +892,9 @@ async function main() {
   let syncRdkDocsSkills = (): void => {};
   const refreshMcpPromptLayer = (): void => {
     if (!mcpRegistry) return;
-    const layers = [
-      buildMcpPromptLayer(mcpRegistry),
-      rdkDocsKnowledgeLayer(mcpRegistry.getStatuses()),
-    ].filter(Boolean);
-    const combined = layers.join('\n');
+    // Knowledge only. The server index is a stable layer from config names,
+    // so a connect that adds a tool count cannot rewrite the cached prefix.
+    const combined = rdkDocsKnowledgeLayer(mcpRegistry.getStatuses());
     if (mcpPromptLayerIndex === undefined) {
       mcpPromptLayerIndex = dynamicPromptLayers.length;
       dynamicPromptLayers.push(combined);
@@ -925,6 +923,9 @@ async function main() {
       : undefined
   );
   if (mcpConfigs.length > 0) {
+    // Present whenever the search tools are registered, including `moss -p`
+    // which starts before the handshake. No counts: those change on connect.
+    extraPromptLayers.push(buildMcpStableIndex(mcpConfigs.map((config) => config.name)));
     try {
       mcpRegistry = McpToolRegistry.connectInBackground(mcpConfigs, {
         // Real MCP tools register on demand: the search meta-tool installs
@@ -934,7 +935,6 @@ async function main() {
         registerTool: (tool) => agent.tools.register(tool),
         onStatusChange: (status) => {
           refreshMcpPromptLayer();
-          syncRdkDocsSkills();
           if (status.state !== 'connected' && status.state !== 'failed') return;
           if (!announceMcpStatus) return;
           if (useTui) {
@@ -981,13 +981,11 @@ async function main() {
     let skillsLayerIndex: number | undefined;
     let installedSkillTool: ReturnType<typeof createSkillTool> | undefined;
     const emptySkillsLayer = buildEmptySkillsHintLayer(skillDirs);
+    const rdkDocsConfigured = mcpConfigs.some((config) => config.name === RDK_DOCS_SERVER_NAME);
     syncRdkDocsSkills = () => {
-      const connected =
-        mcpRegistry
-          ?.getStatuses()
-          .some((status) => status.name === RDK_DOCS_SERVER_NAME && status.state === 'connected') ??
-        false;
-      const next = includeBundledRdkDocsSkill(baseSkills, connected);
+      // Register once from config, not from the handshake. Swapping the skill
+      // tool in when rdk-docs connects changes the tool list mid-session.
+      const next = includeBundledRdkDocsSkill(baseSkills, rdkDocsConfigured);
       sessionSkills.splice(0, sessionSkills.length, ...next);
       if (sessionSkills.length > 0) {
         const tool = createSkillTool(sessionSkills);

@@ -147,6 +147,7 @@ const TOOL_GROUPS: ToolGroupDef[] = [
     id: 'agent',
     title: 'Sub-agents',
     names: [
+      'tool_search',
       'create_subagent',
       'subagent_status',
       'subagent_stop',
