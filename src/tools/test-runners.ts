@@ -208,9 +208,8 @@ function parseUnittest(output: string, result: TestResult): boolean {
       Number(new RegExp(`${label}=(\\d+)`).exec(body)?.[1] ?? 0);
     next.skipped = count('skipped');
     const rawFailed = count('failures') + count('errors') + count('unexpected successes');
-    const room = Math.max(0, next.total - next.skipped);
-    next.failed = Math.min(rawFailed, room);
-    next.passed = room - next.failed;
+    next.failed = rawFailed;
+    next.passed = Math.max(0, next.total - next.skipped - next.failed);
   } else if (okLine) {
     next.skipped = Number(okLine[1]?.match(/skipped=(\d+)/)?.[1] ?? 0);
     next.passed = Math.max(0, next.total - next.skipped);
@@ -233,12 +232,12 @@ function parsePytest(output: string, result: TestResult): boolean {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i] ?? '';
     if (/test result:/i.test(line) || !/\bin\s+[\d.]+s\b/.test(line)) continue;
-    if (!/\b(?:xfailed|xpassed|passed|failed|errors?|skipped|no tests ran)\b/i.test(line)) continue;
+    if (!/\b(?:xfailed|passed|failed|errors?|skipped|no tests ran)\b/i.test(line)) continue;
     const next = blank(output);
     if (!/no tests ran/i.test(line)) {
       const errors = labeled(line, 'errors?');
       next.passed = labeled(line, 'passed') + labeled(line, 'xfailed');
-      next.failed = labeled(line, 'failed') + errors + labeled(line, 'xpassed');
+      next.failed = labeled(line, 'failed') + errors;
       next.skipped = labeled(line, 'skipped');
       next.total = next.passed + next.failed + next.skipped;
       const duration = line.match(/\bin\s+([\d.]+)s\b/);
@@ -408,14 +407,11 @@ async function exitsZero(
   }
 }
 
-/** `command -v pytest`, then `python -m pytest --version`, inside the call budget. */
+/** `python -m pytest --version` inside the call budget. A pytest binary on PATH is not enough. */
 async function pytestImportable(ctx: ToolContext, deadline: number): Promise<boolean> {
-  const left = (): number => deadline - Date.now();
-  const shell = shellOf();
-  const which = process.platform === 'win32' ? ['/c', 'where pytest'] : ['-c', 'command -v pytest'];
-  if (await exitsZero(ctx, shell, which, Math.min(left(), 1000))) return true;
-  if (left() <= 0 || ctx.abortSignal?.aborted) return false;
-  return exitsZero(ctx, pyBin(), ['-m', 'pytest', '--version'], Math.min(left(), 1500));
+  const left = deadline - Date.now();
+  if (left <= 0 || ctx.abortSignal?.aborted) return false;
+  return exitsZero(ctx, pyBin(), ['-m', 'pytest', '--version'], Math.min(left, 1500));
 }
 
 const RUNNERS: readonly Runner[] = [

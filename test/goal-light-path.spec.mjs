@@ -140,11 +140,14 @@ test('one planning prompt stays lean, and only an exact suite metric accepts ear
   );
   assert.equal(exact.outcome, 'pass');
   assert.equal(exact.turns, 1);
-  assert.match(prompts[0], /at most 3 steps/);
+  assert.match(prompts[0], /small code changes: 1–3 steps/);
+  assert.match(prompts[0], /at most 8 steps/);
+  assert.match(prompts[0], /target_device if a device is involved/);
+  assert.match(prompts[0], /tests_pass == true \(not ==pass\)/);
   assert.match(prompts[0], /minimal and scoped/);
   assert.match(prompts[0], /Implement only that change now/);
   assert.doesNotMatch(prompts[0], /Record evidence for each acceptance metric/);
-  assert.doesNotMatch(prompts[0], /3-8 concrete steps/);
+  assert.doesNotMatch(prompts[0], /at most 3 steps/);
 
   const openDir = await workspace();
   const open = await runTask(

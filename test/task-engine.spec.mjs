@@ -42,8 +42,12 @@ test('planning prompt completes the goal: plan, then implement, then verify', as
   assert.match(prompt, /plan, then implement, then verify/);
   assert.match(prompt, /Goal: add a twenty-line helper/);
   assert.match(prompt, /Implement only that change now/);
-  assert.match(prompt, /at most 3 steps/);
+  assert.match(prompt, /target_device if a device is involved, verification_plan/);
+  assert.match(prompt, /small code changes: 1–3 steps/);
+  assert.match(prompt, /inspect → change → build\/deploy → verify, at most 8 steps/);
+  assert.match(prompt, /tests_pass == true \(not ==pass\)/);
   assert.match(prompt, /minimal and scoped/);
+  assert.doesNotMatch(prompt, /at most 3 steps/);
   assert.doesNotMatch(prompt, /Record evidence for each acceptance metric/);
   assert.match(prompt, /task_acceptance/);
   assert.match(prompt, /do not call ask_user_question/i);
