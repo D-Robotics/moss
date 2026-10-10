@@ -4,4 +4,10 @@
  * version too, and core must not import cli); this path stays stable so the
  * existing CLI imports keep working.
  */
-export { getPackageJsonPath, getPackageVersion } from '../utils/package-info.js';
+export {
+  formatVersionLine,
+  getPackageJsonPath,
+  getPackageVersion,
+  readBuildStamp,
+} from '../utils/package-info.js';
+export type { BuildStamp } from '../utils/package-info.js';

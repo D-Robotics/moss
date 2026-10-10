@@ -109,3 +109,39 @@ jobs:
           MOSS_REAL_TERMINALS: '1'
           MOSS_REAL_TERMINAL_TIMEOUT: '60'
         run: node test/tui-real-terminals.spec.mjs
+
+  # The documented clone → npm ci → npm install -g --install-links path.
+  # One job per OS, npm 10 (the npm that ships with Node 22.16). The spec
+  # imports dist/, so this job installs first; the spec then clones that
+  # tree into a temp prefix. Off in the default test job.
+  install-e2e:
+    name: Install e2e (${{ matrix.os }}, npm 10)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+          cache: npm
+
+      - name: Pin npm 10
+        run: npm install -g npm@10.9.2
+
+      - name: Install
+        run: npm ci
+
+      - name: Documented install into a temp prefix
+        env:
+          MOSS_INSTALL_E2E: '1'
+        run: node test/package-install-e2e.spec.mjs

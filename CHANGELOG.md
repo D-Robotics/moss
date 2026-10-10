@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### Install and upgrade from a clone
+
+`npm install -g github:D-Robotics/moss` fails on a clean machine (npm 10.9.2 and
+11.21.0) because a git dependency's prepare inherits global npm config. Install
+from a clone. `npm ci` runs `prepare` (`npm run build`), so the documented
+commands do not build a second time:
+
+```bash
+git clone https://github.com/D-Robotics/moss.git
+cd moss
+npm ci
+npm install -g --install-links .
+```
+
+Upgrade an existing clone (this reinstalls the global copy, not only the checkout):
+
+```bash
+cd moss && git pull && npm ci && npm install -g --install-links .
+```
+
+`moss update` prints that line when the running package, the working directory,
+or `./moss` is a checkout. Otherwise it prints the clone commands. It does not
+run them. `moss --version` appends the short commit and the UTC build date
+recorded in `dist/utils/build-stamp.json`, for example
+`moss v0.26.0 (e8dc2e3, 2026-10-10)`. With no commit available the parenthetical
+is omitted.
+
+`--install-links` puts a standalone copy in the prefix. If an older unscoped `moss`
+package is installed, run `npm uninstall -g moss` first; npm otherwise stops with
+EEXIST on the shared bin. Do not pass `--force`: both packages stay installed, and
+a later `npm uninstall -g moss` removes the `moss` command. That uninstall leaves
+`@rdk-moss/agent` in place when `--force` was not used.
+`npm install -g @rdk-moss/agent` is coming soon.
+
 ### `workspace-write` copy no longer implies an OS sandbox
 
 `workspace-write` confines Moss's own file tools. Shell commands run normally
