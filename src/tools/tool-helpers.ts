@@ -1,7 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
+import { appendGitConfigEnv, untrustedShellGitConfig } from '../utils/git-config-env.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
+import { isWorkspaceTrusted } from '../utils/workspace-trust-state.js';
 import { errorMessage, isMossError, MossError } from '../errors.js';
 
 export const IS_WIN = process.platform === 'win32';
@@ -219,8 +221,22 @@ export function looksBinary(text: string): boolean {
   return nonPrintable / sample.length > 0.1;
 }
 
-export function childEnv(_workspaceDir: string): Record<string, string> {
-  return safeChildEnv({ LANG: process.env.LANG || 'en_US.UTF-8' });
+/**
+ * Child environment for model shells. Untrusted workspaces get git config
+ * overrides appended to any `GIT_CONFIG_COUNT` the user already set. Trusted
+ * workspaces are unchanged.
+ */
+export async function childEnv(
+  workspaceDir?: string,
+  signal?: AbortSignal
+): Promise<Record<string, string>> {
+  const env = safeChildEnv({ LANG: process.env.LANG || 'en_US.UTF-8' });
+  const dir =
+    typeof workspaceDir === 'string' && workspaceDir.trim() ? workspaceDir : process.cwd();
+  if (isWorkspaceTrusted(dir)) return env;
+  const pairs = await untrustedShellGitConfig(dir, signal);
+  appendGitConfigEnv(env, pairs);
+  return env;
 }
 
 export async function safePath(inputPath: string, workspaceDir: string): Promise<string> {

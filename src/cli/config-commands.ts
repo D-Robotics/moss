@@ -23,6 +23,7 @@ import {
   type ConfigFile,
 } from './config.js';
 import { errorMessage } from '../errors.js';
+import { isZhLocale } from './cli-locale.js';
 import { guessModelProvider, print, renderAuthStatus, sanitizeBaseUrl } from './setup-wizard.js';
 import { withoutSecret } from './config-snapshot.js';
 import { parsePermissionRuleSpec } from './permission-rules.js';
@@ -465,7 +466,7 @@ export function renderConfigHelp(): string {
     '  moss config show',
     '  moss config show --json',
     '  moss config validate [--strict] [--json]',
-    '  moss config set <provider|model|baseUrl|apiKey> <value>                       # model',
+    '  moss config set <provider|model|baseUrl|apiKey|apiKeyEnv> <value>              # model',
     '  moss config set <profile|safetyMode|approvalPolicy|trustedTools|deniedTools|promptCache|promptCacheDebug|guardrails.*|agent.*> <value>   # operational',
     '  moss config set <key>=<value> [<key>=<value>...]                               # batch',
     '  moss config set --project <key>=<value> [<key>=<value>...]',
@@ -712,15 +713,14 @@ function buildProjectConfigTemplate(): ConfigFile {
     _examples: {
       customModel: {
         _comment: 'set these via moss config set --project provider|model|baseUrl <value>',
-        _apiKey:
-          'use moss setup for the key (hidden prompt); apiKey set via config file is encrypted at rest',
+        _apiKey: 'use moss setup for the key (hidden prompt); stored in config file (0600)',
       },
     },
   });
 }
 
 function supportedConfigKeys(): string {
-  return 'Supported keys — model: provider, model, baseUrl, apiKey; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language';
+  return 'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language';
 }
 
 function removeEmptyNestedConfig(config: ConfigFile): ConfigFile {
@@ -807,7 +807,7 @@ function applyConfigSetPair(
         ok: false,
         messages: [
           `Unknown provider: ${value}`,
-          'Supported provider values: deepseek, qwen, openai, anthropic, openai-compatible',
+          'Supported provider values: deepseek, qwen, openai, anthropic, openai-compatible, d-robotics',
           'Run `moss config --help` for supported keys and usage.',
         ],
       };
@@ -816,7 +816,11 @@ function applyConfigSetPair(
     const existingModel = ((next.model ?? '') as string).toLowerCase().trim();
     if (existingModel && provider !== 'openai-compatible') {
       const guessed = guessModelProvider(existingModel);
-      if (guessed && guessed !== provider) {
+      if (
+        guessed &&
+        guessed !== provider &&
+        !(provider === 'd-robotics' && guessed === 'deepseek')
+      ) {
         messages.push(
           `[config] Warning: model "${existingModel}" looks like a ${PROVIDER_PRESETS[guessed].displayName} model, but provider is ${PROVIDER_PRESETS[provider].displayName}. Mismatch?`
         );
@@ -827,7 +831,11 @@ function applyConfigSetPair(
     const resolvedProvider = next.provider ?? current.provider;
     if (resolvedProvider && resolvedProvider !== 'openai-compatible') {
       const guessed = guessModelProvider(value);
-      if (guessed && guessed !== resolvedProvider) {
+      if (
+        guessed &&
+        guessed !== resolvedProvider &&
+        !(resolvedProvider === 'd-robotics' && guessed === 'deepseek')
+      ) {
         messages.push(
           `[config] Warning: model "${value}" looks like a ${PROVIDER_PRESETS[guessed].displayName} model, but provider is ${PROVIDER_PRESETS[resolvedProvider as CliProviderPreset].displayName}. Mismatch?`
         );
@@ -835,6 +843,17 @@ function applyConfigSetPair(
     }
   } else if (key === 'apiKey') {
     next.apiKey = value;
+  } else if (key === 'apiKeyEnv') {
+    const name = value.trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      return {
+        ok: false,
+        messages: [
+          'apiKeyEnv must be an environment variable name (letters, digits, and underscore). The value is the name, not the key.',
+        ],
+      };
+    }
+    next.apiKeyEnv = name;
   } else if (key === 'baseUrl') {
     if (!isHttpUrl(value)) {
       return {
@@ -1155,20 +1174,35 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
 
   saveConfigFileAtPath(next, target.configPath);
   const scope = target.scope === 'project' ? 'project ' : '';
+  const zh = isZhLocale();
   if (isBatch) {
     const keyList = pairs.map((p) => p.key).join(', ');
-    print(`[config] ${scope}updated ${pairs.length} key(s) in ${target.configPath}: ${keyList}`);
+    print(
+      zh
+        ? `[config] ${scope}已更新 ${pairs.length} 项，文件 ${target.configPath}：${keyList}`
+        : `[config] ${scope}updated ${pairs.length} key(s) in ${target.configPath}: ${keyList}`
+    );
   } else {
-    print(`[config] ${scope}${pairs[0].key} updated in ${target.configPath}`);
+    print(
+      zh
+        ? `[config] ${scope}${pairs[0].key} 已更新，文件 ${target.configPath}`
+        : `[config] ${scope}${pairs[0].key} updated in ${target.configPath}`
+    );
   }
   for (const msg of allMessages) print(msg);
   if (pairs.some((p) => p.key === 'baseUrl')) {
-    print(`[config] baseUrl saved: ${next.baseUrl}`);
+    print(zh ? `[config] 地址已保存：${next.baseUrl}` : `[config] baseUrl saved: ${next.baseUrl}`);
   }
   if (apiKeySet) {
-    print(`[config] API key saved (encrypted) at ${target.configPath}.`);
     print(
-      '[config] NOTE: the key was sent via command line and may be in your shell history; for a hidden prompt, use `moss setup` next time.'
+      zh
+        ? `[config] API key 已存入配置文件（0600）：${target.configPath}。`
+        : `[config] API key stored in config file (0600) at ${target.configPath}.`
+    );
+    print(
+      zh
+        ? '[config] 注意：key 是从命令行传入的，可能留在 shell 历史里；下次用 `moss setup` 可以隐藏输入。'
+        : '[config] NOTE: the key was sent via command line and may be in your shell history; for a hidden prompt, use `moss setup` next time.'
     );
   }
 }
@@ -1200,6 +1234,7 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
   else if (key === 'model') delete next.model;
   else if (key === 'baseUrl') delete next.baseUrl;
   else if (key === 'apiKey') delete next.apiKey;
+  else if (key === 'apiKeyEnv') delete next.apiKeyEnv;
   else if (key === 'workspace') delete next.workspace;
   else if (key === 'safetyMode') delete next.safetyMode;
   else if (key === 'approvalPolicy') delete next.approvalPolicy;

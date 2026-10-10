@@ -124,7 +124,7 @@ test('system prompt and tools stay byte-identical across turns; extraContext rid
     'tools JSON byte-identical across turns'
   );
   const toolNames = captured[0].tools.map((t) => t.name);
-  assert.deepEqual(toolNames, ['probe_a', 'probe_b'], 'tool order follows registration order');
+  assert.deepEqual(toolNames, ['probe_a', 'probe_b'], 'tool order is UTF-16 name order');
 
   // 5. prompt cache parts: stable present, dynamic absent
   assert.equal(

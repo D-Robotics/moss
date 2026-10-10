@@ -22,13 +22,21 @@
  * `.env`. A project file cannot point git at another repo or config.
  * `git config --get-regexp` exit 1 means nothing matched. Any other discovery
  * failure refuses the read-only git command instead of running it with those
- * programs still armed.
+ * programs still armed. The model shell reuses this listing
+ * (`shellGitConfigPairs`) and injects it with `GIT_CONFIG_*` instead of argv.
+ * That shell overrides credential, ssh, pager, and fsmonitor only when the
+ * repo itself sets them, then restores the user's global and system values.
+ * A local `diff.external` is left unset: an empty value still execs, and the
+ * shell must not rewrite the command.
  */
 import { ProcessError, runProcess, type RunProcessResult } from './run-process.js';
 import { safeChildEnv } from './safe-child-env.js';
 import { envBeforeDotenv, isStartupEnvCaptured } from './startup-env.js';
 
-const HOOKS_PATH = process.platform === 'win32' ? 'NUL' : '/dev/null';
+/** `core.hooksPath` value that disables hooks. `NUL` on Windows. */
+export const GIT_HOOKS_PATH = process.platform === 'win32' ? 'NUL' : '/dev/null';
+
+const HOOKS_PATH = GIT_HOOKS_PATH;
 
 const ALWAYS_CONFIG = ['-c', 'core.fsmonitor=', '-c', `core.hooksPath=${HOOKS_PATH}`] as const;
 
@@ -64,29 +72,35 @@ function withoutExternalDiff(args: readonly string[]): string[] {
 const EXEC_CONFIG_KEY =
   /^(?:filter\..+\.(?:clean|smudge|process)|diff\..+\.(?:textconv|command)|core\.(?:fsmonitor|hooksPath|sshCommand|pager)|credential\.helper)$/;
 
+/**
+ * Git matches `--get-regexp` against the canonical lowercase key, so
+ * `sshCommand` and `hooksPath` are lowercase here. `diff.external` is
+ * included so the shell can see a local value; it is not turned into an
+ * override. `executableConfigKeys` stays case-sensitive so a real
+ * `core.hookspath` line is not blanked to an empty path on Moss's own git
+ * children (those already force `core.hooksPath` to `/dev/null`).
+ */
 const EXEC_CONFIG_REGEXP =
-  '^(filter\\..*\\.(clean|smudge|process)|diff\\..*\\.(textconv|command)|core\\.(fsmonitor|hooksPath|sshCommand|pager)|credential\\.helper)$';
+  '^(filter\\..*\\.(clean|smudge|process)|diff\\..*\\.(textconv|command)|diff\\.external|core\\.(fsmonitor|hookspath|sshcommand|pager)|credential\\.helper)$';
 
-const FILTER_DRIVER = /^filter\.(.+)\.(?:clean|smudge|process)$/;
+const FILTER_DRIVER = /^filter\.(.+)\.(?:clean|smudge|process)$/i;
 
 /** Scopes a copied checkout can set. System, global, and command stay put. */
 const OVERRIDE_SCOPES = new Set(['local', 'worktree']);
 
+export interface GitConfigPair {
+  key: string;
+  value: string;
+}
+
 /**
- * Blank each executable `local` or `worktree` key from
- * `git config --includes --show-scope --get-regexp` output
- * (`scope<TAB>key value`). A required filter aborts `status` and `diff` when
- * its command is empty, so every driver we touch also sets
- * `filter.<name>.required=false`.
+ * Executable keys from `git config --includes --show-scope --get-regexp`
+ * (`scope<TAB>key value`). Only `local` and `worktree` are returned.
+ * `command`, `system`, and `global` stay put.
  */
-export function configOverridesForExecutableKeys(stdout: string): string[] {
-  const args: string[] = [];
+export function executableConfigKeys(stdout: string): string[] {
+  const keys: string[] = [];
   const seen = new Set<string>();
-  const add = (key: string, value: string): void => {
-    if (seen.has(key)) return;
-    seen.add(key);
-    args.push('-c', `${key}=${value}`);
-  };
   for (const line of stdout.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -98,11 +112,160 @@ export function configOverridesForExecutableKeys(stdout: string): string[] {
     const space = rest.search(/\s/);
     const key = space === -1 ? rest : rest.slice(0, space);
     if (!EXEC_CONFIG_KEY.test(key)) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    keys.push(key);
+  }
+  return keys;
+}
+
+/**
+ * Blank each executable `local` or `worktree` key. A required filter aborts
+ * `status` and `diff` when its command is empty, so every driver we touch
+ * also sets `filter.<name>.required=false`.
+ */
+export function configOverridesForExecutableKeys(stdout: string): string[] {
+  const args: string[] = [];
+  const seen = new Set<string>();
+  const add = (key: string, value: string): void => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    args.push('-c', `${key}=${value}`);
+  };
+  for (const key of executableConfigKeys(stdout)) {
     add(key, '');
     const driver = FILTER_DRIVER.exec(key);
     if (driver?.[1]) add(`filter.${driver[1]}.required`, 'false');
   }
   return args;
+}
+
+const TEXTCONV_KEY = /^diff\..+\.textconv$/i;
+
+/** Scopes that belong to the user, not the repo. */
+const USER_SCOPES = new Set(['global', 'system']);
+
+interface ScopedConfigLine {
+  scope: string;
+  key: string;
+  value: string;
+}
+
+function parseScopedConfigLines(stdout: string): ScopedConfigLine[] {
+  const lines: ScopedConfigLine[] = [];
+  for (const raw of stdout.split('\n')) {
+    const line = raw.replace(/\r$/, '');
+    if (!line.trim()) continue;
+    const tab = line.indexOf('\t');
+    if (tab === -1) continue;
+    const scope = line.slice(0, tab).trim().toLowerCase();
+    const rest = line.slice(tab + 1).trim();
+    if (!rest) continue;
+    const space = rest.search(/\s/);
+    const key = space === -1 ? rest : rest.slice(0, space);
+    const value = space === -1 ? '' : rest.slice(space + 1);
+    if (!key) continue;
+    lines.push({ scope, key, value });
+  }
+  return lines;
+}
+
+function hasLocalKey(lines: readonly ScopedConfigLine[], key: string): boolean {
+  const want = key.toLowerCase();
+  return lines.some((line) => line.key.toLowerCase() === want && OVERRIDE_SCOPES.has(line.scope));
+}
+
+/** Global and system values in the order `git config --show-scope` printed them. */
+function userScopeValues(lines: readonly ScopedConfigLine[], key: string): string[] {
+  const want = key.toLowerCase();
+  const values: string[] = [];
+  for (const line of lines) {
+    if (line.key.toLowerCase() !== want) continue;
+    if (!USER_SCOPES.has(line.scope)) continue;
+    values.push(line.value);
+  }
+  return values;
+}
+
+export interface ShellGitConfigOptions {
+  /**
+   * True when `.git/hooks` (or the common git dir's hooks) contains an
+   * executable file whose name does not end in `.sample`.
+   */
+  executableHooks?: boolean;
+}
+
+/**
+ * Env-config pairs for a model shell in an untrusted workspace.
+ *
+ * `credential.helper`, `core.sshCommand`, `core.pager`, `core.fsmonitor`, and
+ * `diff.external` are overridden only when that key is set in `local` or
+ * `worktree` scope (including config included from those files). An untrusted
+ * repo is the common case of a user's own checkout with no explicit trust
+ * grant, so a global helper or ssh command must keep working.
+ *
+ * `credential.helper` is multi-valued: an empty value clears the list,
+ * including global helpers, so the empty reset is followed by the user's
+ * global and system helpers in listing order. `core.sshCommand`,
+ * `core.fsmonitor`, and `core.pager` are single-valued; the override is the
+ * last global or system value, or empty / empty / `cat` when the user has
+ * none. `core.hooksPath` is forced to `/dev/null` (`NUL` on Windows) only
+ * when the repo sets it or has an executable non-sample hook; a global
+ * hooks path is left alone.
+ *
+ * Local `diff.external` is a known gap. An empty value still execs (`cannot
+ * run`), and git-spawn only clears it together with `--no-ext-diff`. The
+ * shell must not rewrite the command, so a repo-defined external diff still
+ * runs. The same is true of `diff.<name>.command`. Filter drivers and
+ * `textconv` are `cat` (an empty `textconv` makes `git diff` fail) and
+ * `filter.<name>.required=false`.
+ */
+export function shellGitConfigPairs(
+  stdout: string,
+  options?: ShellGitConfigOptions
+): GitConfigPair[] {
+  const lines = parseScopedConfigLines(stdout);
+  const pairs: GitConfigPair[] = [];
+  const seen = new Set<string>();
+  const add = (key: string, value: string): void => {
+    const id = key.toLowerCase();
+    if (seen.has(id)) return;
+    seen.add(id);
+    pairs.push({ key, value });
+  };
+  for (const line of lines) {
+    if (!OVERRIDE_SCOPES.has(line.scope)) continue;
+    if (/^diff\.external$/i.test(line.key)) continue;
+    if (/^diff\..+\.command$/i.test(line.key)) continue;
+    const driver = FILTER_DRIVER.exec(line.key);
+    if (driver?.[1]) {
+      add(line.key, 'cat');
+      add(`filter.${driver[1]}.required`, 'false');
+      continue;
+    }
+    if (TEXTCONV_KEY.test(line.key)) add(line.key, 'cat');
+  }
+  const single: { name: string; fallback: string }[] = [
+    { name: 'core.sshCommand', fallback: '' },
+    { name: 'core.fsmonitor', fallback: '' },
+    { name: 'core.pager', fallback: 'cat' },
+  ];
+  for (const item of single) {
+    if (!hasLocalKey(lines, item.name)) continue;
+    const preserved = userScopeValues(lines, item.name);
+    const last = preserved.length > 0 ? preserved[preserved.length - 1] : undefined;
+    add(item.name, last === undefined ? item.fallback : last);
+  }
+  if (hasLocalKey(lines, 'credential.helper')) {
+    pairs.push({ key: 'credential.helper', value: '' });
+    for (const value of userScopeValues(lines, 'credential.helper')) {
+      pairs.push({ key: 'credential.helper', value });
+    }
+  }
+  if (options?.executableHooks || hasLocalKey(lines, 'core.hooksPath')) {
+    add('core.hooksPath', HOOKS_PATH);
+  }
+  return pairs;
 }
 
 function insertBeforeSubcommand(args: readonly string[], extra: readonly string[]): string[] {
@@ -175,10 +338,18 @@ function refuseConfigDiscovery(err: unknown): Error {
   });
 }
 
-async function executableConfigOverrides(
+/**
+ * `local` / `worktree` executable keys, including ones pulled in by
+ * `include.path`, `includeIf`, or `extensions.worktreeConfig`. Exit 1 (no
+ * key matched) is an empty listing. Any other failure is thrown so the
+ * caller can refuse the git child. The model shell does not invent
+ * credential, ssh, pager, or fsmonitor overrides when this throws: those
+ * would hide the user's global config.
+ */
+export async function listLocalExecutableConfig(
   cwd: string | undefined,
-  signal: AbortSignal | undefined
-): Promise<string[]> {
+  signal?: AbortSignal
+): Promise<string> {
   try {
     const listed = await runProcess('git', {
       args: [
@@ -195,9 +366,21 @@ async function executableConfigOverrides(
       signal,
       env: gitChildEnv({ GIT_PAGER: 'cat' }),
     });
-    return configOverridesForExecutableKeys(listed.stdout);
+    return listed.stdout;
   } catch (err) {
-    if (isEmptyConfigListing(err)) return [];
+    if (isEmptyConfigListing(err)) return '';
+    throw err;
+  }
+}
+
+async function executableConfigOverrides(
+  cwd: string | undefined,
+  signal: AbortSignal | undefined
+): Promise<string[]> {
+  try {
+    const stdout = await listLocalExecutableConfig(cwd, signal);
+    return configOverridesForExecutableKeys(stdout);
+  } catch (err) {
     throw refuseConfigDiscovery(err);
   }
 }

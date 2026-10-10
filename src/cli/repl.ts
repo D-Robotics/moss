@@ -32,7 +32,11 @@ import { cliLocale } from './cli-locale.js';
 import { listBackgroundProcessSnapshots } from '../core/tools/background-process-registry.js';
 import { CliServices } from './cli-services.js';
 import { resolveRealModel } from './model-resolution.js';
-import { resolveContextTokensForModel } from './model-catalog.js';
+import {
+  resolveContextTokensForModel,
+  splitModelCustomFlag,
+  unavailableModelNote,
+} from './model-catalog.js';
 import { writePreferredModel } from './preferred-model-store.js';
 import { createCliProvider } from './providers.js';
 import { runOneShot } from './oneshot.js';
@@ -477,7 +481,8 @@ export async function runInteractive(
     }
 
     if (msg === '/model' || msg.startsWith('/model ')) {
-      const newModel = msg === '/model' ? '' : msg.slice(7).trim();
+      const requested = msg === '/model' ? '' : msg.slice(7).trim();
+      const { token: newModel, custom } = splitModelCustomFlag(requested);
       if (newModel === 'config' || newModel.startsWith('config ')) {
         const rawConfig = newModel === 'config' ? '' : newModel.slice('config'.length).trim();
         try {
@@ -500,6 +505,12 @@ export async function runInteractive(
         }
       );
       if (newModel) {
+        const unavailable = unavailableModelNote(newModel, modelChoices, undefined, { custom });
+        if (unavailable) {
+          console.error(`[config] ${unavailable}`);
+          rl.prompt();
+          continue;
+        }
         const selected = services.models.resolveModelSelection(newModel, modelChoices.choices);
         const model = selected?.model ?? newModel;
         currentModel = model;

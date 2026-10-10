@@ -1,6 +1,5 @@
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { spawnProcess, type ChildProcess } from '../utils/run-process.js';
-import { safeChildEnv } from '../utils/safe-child-env.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { assertShellWritesWithinRoots } from '../safety/shell-write-sandbox.js';
 import { errorMessage } from '../errors.js';
@@ -35,7 +34,7 @@ import {
   type BackgroundProc,
   type BackgroundWaitMode,
 } from '../core/tools/background-process-registry.js';
-import { EXEC_DEFAULT_TIMEOUT_MS } from './tool-helpers.js';
+import { childEnv, EXEC_DEFAULT_TIMEOUT_MS } from './tool-helpers.js';
 
 /**
  * Wait out a background command only for the runTask/resumeTask that set
@@ -148,7 +147,7 @@ export const execBackgroundTool: Tool = {
       child = spawnProcess(shell, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         cwd: ctx.workspaceDir,
-        env: safeChildEnv({ LANG: process.env.LANG || 'en_US.UTF-8' }),
+        env: await childEnv(ctx.workspaceDir, ctx.abortSignal),
         detached: !IS_WIN,
         windowsHide: true,
       });

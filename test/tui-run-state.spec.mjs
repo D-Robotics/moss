@@ -465,6 +465,64 @@ console.log('OK tui-run-state');
   );
 }
 
+// The final answer's first sentence is painted once. A second copy of the same
+// paragraphs (stream catch-up) used to survive: per-run dedupe only checks that
+// the response occurs inside this run, so one copy inside a doubled window
+// counts as already shown. A live tail that still holds the whole answer must
+// not be committed again when the run ends.
+{
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const { renderTranscriptRow } = await import('../dist/cli/tui/transcript.js');
+  const first = 'The board boots cleanly.';
+  const answer = `${first}\n\nPing answers on the first try.`;
+  const count = (haystack, needle) => {
+    let n = 0;
+    let at = 0;
+    while ((at = haystack.indexOf(needle, at)) !== -1) {
+      n += 1;
+      at += needle.length;
+    }
+    return n;
+  };
+  const rendered = (store) =>
+    store.rows
+      .filter((row) => row.kind === 'assistant')
+      .flatMap((row) => renderTranscriptRow(row, 80).map((line) => line.text))
+      .join('\n');
+
+  const doubled = createTuiStore();
+  beginRun(doubled);
+  applyAgentEvent(doubled, { type: 'text_delta', delta: `${answer}\n\n` });
+  applyAgentEvent(doubled, { type: 'text_delta', delta: answer });
+  applyAgentEvent(doubled, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  reconcileFinalResponse(doubled, answer);
+  endRun(doubled, false);
+  assert.equal(
+    count(rendered(doubled), first),
+    1,
+    'a repeated stream of the same answer paints the first sentence once'
+  );
+  assert.equal(
+    count(rendered(doubled), 'Ping answers on the first try.'),
+    1,
+    'the rest of that answer is painted once too'
+  );
+
+  const liveTail = createTuiStore();
+  beginRun(liveTail);
+  applyAgentEvent(liveTail, { type: 'text_delta', delta: `${first}\n\n` });
+  applyAgentEvent(liveTail, { type: 'text_delta', delta: 'Ping answers on the first try.' });
+  applyAgentEvent(liveTail, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  liveTail.run.streamingText = answer;
+  reconcileFinalResponse(liveTail, answer);
+  endRun(liveTail, false);
+  assert.equal(
+    count(rendered(liveTail), first),
+    1,
+    'a live tail that repeats the committed answer is not appended at end of run'
+  );
+}
+
 // Live reasoning in the detailed view: a long thought streams as a bounded tail
 // with a marker, not as a wall that pushes the answer and the spinner off screen.
 {
@@ -527,4 +585,22 @@ console.log('OK tui-run-state');
     .map((entry) => entry.text)
     .join('\n');
   assert.match(gateway, /gateway may be stuck/);
+}
+
+{
+  const lines = renderTranscriptRow(
+    {
+      id: 1,
+      kind: 'error',
+      text: '密钥被拒绝（401）。请核对 API key，或运行 moss setup 重新填写。\n网关原文：invalid api key',
+    },
+    80
+  ).map((entry) => entry.text);
+  const gateway = lines.find((line) => line.includes('网关原文：'));
+  assert.ok(gateway, lines.join('\n'));
+  assert.equal(gateway.includes('密钥被拒绝'), false);
+  assert.equal(
+    lines.some((line) => line.includes('密钥被拒绝') && line.includes('网关原文')),
+    false
+  );
 }

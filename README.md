@@ -23,13 +23,18 @@ Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器
 
 ## 快速开始
 
-> 仓库尚未发布到 npm（`private: true`），从源码构建：
+装上这一版，运行 `moss`，在界面里完成设置，然后要一个回答：
 
 ```bash
 git clone https://github.com/D-Robotics/moss && cd moss
-npm install && npm run build && npm link   # npm link 可选：把 `moss` 装到 PATH 上
-moss setup                                 # 配置 provider / 模型 / API key（输入不回显）
-moss                                       # 进入交互界面
+npm install && npm run build && npm link
+moss
+```
+
+没有可用配置时，`moss` 就在这个界面里设置（按数字选服务商，或按 Enter 使用环境里已有的 key，内容不会显示）。D-Robotics 地瓜网关是第一项，已经预选（地址 `https://ai-api.d-robotics.cc/v1`，默认模型 `deepseek-flash`，只问 key）。不想把 key 写进文件时，先指定服务商再写变量名：`moss config set provider d-robotics`，然后 `moss config set apiKeyEnv <变量名>`。只写 `apiKeyEnv`、不写服务商或地址时，会先问选哪一家，不会把 key 发给默认的 DeepSeek。设好后在同一会话里说：
+
+```text
+看一下这个目录里有什么
 ```
 
 进到交互界面后：
@@ -158,7 +163,7 @@ moss config set language zh            # 记在用户配置 ~/.config/moss/confi
 moss config set language auto          # 默认：仅当系统区域以 zh 开头时用中文
 ```
 
-优先级：`--lang` > `MOSS_LANG` > 用户配置 `language` > 系统区域。`C`、`POSIX`、`C.UTF-8` 和未设置都是英文。项目 `.moss/config.json` 和项目 `.env` 不能设置界面语言。
+优先级：`--lang` > `MOSS_LANG` > 用户配置 `language` > 系统区域。`C`、`POSIX`、`C.UTF-8` 不是语言，会落到下一个变量（`LC_ALL`、`LC_MESSAGES`、`LANG`）；都不是语言时界面保持英文。项目 `.moss/config.json` 和项目 `.env` 不能设置界面语言。
 
 交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为 English。
 
@@ -250,13 +255,18 @@ mean _the board actually did it_.
 
 ### Quick start
 
-> Not on npm yet (`private: true`) — build from source:
+Install this tree, run `moss`, finish setup in the screen, then ask for an answer:
 
 ```bash
 git clone https://github.com/D-Robotics/moss && cd moss
-npm install && npm run build && npm link   # npm link is optional
-moss setup                                 # configure provider / model / API key (hidden input)
-moss                                       # start the interactive shell
+npm install && npm run build && npm link
+moss
+```
+
+With no usable config, `moss` sets itself up in that screen (press a number to pick a provider, or Enter to use a key already in the environment; the value is not shown). The D-Robotics gateway is listed first and preselected (`https://ai-api.d-robotics.cc/v1`, default model `deepseek-flash`, key only). To keep the key out of the file, set the provider and then the variable name: `moss config set provider d-robotics`, then `moss config set apiKeyEnv <VAR>`. A file that names only `apiKeyEnv` is not configured: setup asks which provider, and the key is not sent to the default DeepSeek endpoint. Then, in the same session:
+
+```text
+look around this folder and tell me what it is
 ```
 
 Inside Moss: give it a job (`@` to reference files, `!` for shell), `Shift+Tab` to cycle modes
@@ -413,9 +423,10 @@ moss config set language zh            # user config ~/.config/moss/config.json
 moss config set language auto          # default: Chinese only when the locale starts with zh
 ```
 
-Precedence: `--lang` > `MOSS_LANG` > user config `language` > system locale. `C`, `POSIX`,
-`C.UTF-8`, and unset stay English. A project `.moss/config.json` and a project `.env` cannot set
-the UI language.
+Precedence: `--lang` > `MOSS_LANG` > user config `language` > system locale. Neutral tags
+(`C`, `POSIX`, `C.UTF-8`) are not a language and fall through to the next of `LC_ALL`,
+`LC_MESSAGES`, and `LANG`. If none names a language, the UI stays English. A project
+`.moss/config.json` and a project `.env` cannot set the UI language.
 
 In the shell, `/language` (alias `/lang`) switches the session. `/language zh save` writes the
 user config. On a Chinese system locale that has not chosen yet, the first `moss setup` offers

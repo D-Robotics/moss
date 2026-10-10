@@ -92,10 +92,24 @@ for (const [name, preset] of Object.entries(PROVIDER_PRESETS)) {
 }
 
 {
-  // Very long error bodies should be truncated
-  const longBody = 'x'.repeat(500);
-  const err = providerError('Qwen', 500, longBody);
-  assert.ok(err.message.length < 600, 'long error bodies are truncated to user-readable length');
+  // A normal gateway message is shown in full. Only a pathological body is cut.
+  const sentence =
+    'Tried to access deepseek-flsh. Available models: deepseek-flash, deepseek-v4-flash.';
+  const err = providerError(
+    'OpenAI-compatible',
+    403,
+    JSON.stringify({ error: { message: sentence } })
+  );
+  assert.ok(err.message.includes(sentence), 'gateway text is not truncated');
+  assert.ok(
+    !err.message.includes('check your API key'),
+    'a model 403 is not described as a key problem'
+  );
+  assert.ok(err.message.includes('/model'), 'the hint tells the user how to pick a real model');
+  const huge = 'y'.repeat(9000);
+  const capped = providerError('Qwen', 500, huge);
+  assert.ok(capped.message.length < 9000, 'pathological bodies are still capped');
+  assert.ok(capped.message.includes('y'.repeat(100)), 'the start of the gateway text is kept');
 }
 
 {

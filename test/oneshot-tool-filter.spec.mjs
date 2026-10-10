@@ -115,6 +115,23 @@ for (const [prompt, expected] of [
     assert.equal(allow(tool(name)), true, `${name} enabled for: ${prompt}`);
 }
 
+{
+  const coding = oneShotToolFilterForMessage(
+    'Fix the off-by-one in src/parse.js. Expected behavior is in src/parse.test.js.'
+  );
+  assert.equal(coding({ name: 'tool_search' }), false, 'coding -p hides tool_search');
+  assert.equal(
+    coding({ name: 'merge_subagent_patch' }),
+    false,
+    'coding -p hides merge_subagent_patch'
+  );
+  assert.equal(coding({ name: 'exec_wait' }), false, 'coding -p hides exec_wait');
+  assert.equal(coding({ name: 'read_file' }), true, 'coding -p keeps read_file');
+  const parallel = oneShotToolFilterForMessage('Ask several subagents to review this in parallel');
+  assert.equal(parallel({ name: 'tool_search' }), true, 'parallel -p offers tool_search');
+  assert.equal(parallel({ name: 'merge_subagent_patch' }), true, 'parallel -p offers merge');
+}
+
 console.log('[PASS] one-shot tool routing keeps explicit capabilities discoverable');
 
 {

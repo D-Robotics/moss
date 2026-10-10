@@ -378,13 +378,17 @@ test(
 );
 
 test('sim target without a moss config refuses to invent a score', async (t) => {
-  // scripts/lib/device-bench.mjs is frozen and isolateConfig still copies the host env.
+  // isolateConfig starts from an empty env, so a developer's personal key is ignored.
   const previous = process.env.MOSS_BENCH_API_KEY;
+  const previousDeepseek = process.env.DEEPSEEK_API_KEY;
   t.after(() => {
     if (previous === undefined) delete process.env.MOSS_BENCH_API_KEY;
     else process.env.MOSS_BENCH_API_KEY = previous;
+    if (previousDeepseek === undefined) delete process.env.DEEPSEEK_API_KEY;
+    else process.env.DEEPSEEK_API_KEY = previousDeepseek;
   });
   delete process.env.MOSS_BENCH_API_KEY;
+  process.env.DEEPSEEK_API_KEY = 'sk-developer-personal-key';
   const result = await runDeviceBench({
     mode: 'sim',
     isolateConfig: true,
@@ -409,6 +413,7 @@ test('sim target without a moss config refuses to invent a score', async (t) => 
   assert.ok(result.missing.some((item) => item.includes('MOSS_API_KEY')));
   const resolved = await resolveBenchProvider({ isolateConfig: true });
   assert.equal(resolved.ok, false);
+  assert.equal(JSON.stringify(resolved).includes('sk-developer-personal-key'), false);
 });
 
 test('device bench resolves MOSS_BENCH_API_KEY with model and base-url overrides', async () => {

@@ -423,7 +423,7 @@ function presentSearch(text: string, location: SearchLocation): string {
 export const searchFilesTool: Tool = {
   name: 'search_files',
   description:
-    'Find files by glob (gitignore-aware, newest first). Default root is the workspace. Searches of / or $HOME are capped. Prefer this over exec find. For open-ended search, use create_subagent scope=explore.',
+    'Find files by glob (gitignore-aware, newest first). Default root is the workspace. Searches of / or $HOME are capped. Prefer this over exec find. For an open-ended pass, call tool_search group=subagent, then create_subagent scope=explore.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',

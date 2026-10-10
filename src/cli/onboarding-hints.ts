@@ -1,66 +1,119 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveConfigDir } from './config.js';
-import { uiText } from './cli-locale.js';
+import { setupCopy } from './cli-locale.js';
+import {
+  detectEnvCredentials,
+  offerUsesOfficialHost,
+  type DetectedCredential,
+} from './env-credentials.js';
+import { probeModel } from './connection-probe.js';
+import { saveUserModelConfig } from './first-run.js';
 import { print, question, runSetupWizard } from './setup-wizard.js';
+
+function L(en: string, vars?: Record<string, string | number>): string {
+  return setupCopy(undefined, en, vars);
+}
+
+function officialOffers(offers: readonly DetectedCredential[]): DetectedCredential[] {
+  return offers.filter((offer) => offerUsesOfficialHost(offer));
+}
+
+/** Same sentence in the guidance block and the one-shot hint. The hint indents it. */
+function offerLine(padded: boolean): string | undefined {
+  const offers = detectEnvCredentials();
+  const official = officialOffers(offers);
+  const pad = padded ? '  ' : '';
+  if (official.length > 0) {
+    return L(
+      `${pad}{names} is set. Run \`moss\` and press Enter to use it (the value is not printed).`,
+      { names: official.map((offer) => offer.keyVar).join(', ') }
+    );
+  }
+  if (offers.length === 0) return undefined;
+  return L(
+    `${pad}{names} is set for {host}. Run \`moss\` and press its number to use that host. Enter will not send the key there.`,
+    {
+      names: offers.map((offer) => offer.keyVar).join(', '),
+      host: offers.map((offer) => offer.baseUrl).join(', '),
+    }
+  );
+}
 
 export function printMissingConfigGuidance(
   interactive: boolean,
   options: { bundledDefaultSuppressedBy?: string } = {}
 ): void {
-  print(
-    uiText('Moss needs a model configuration before it can run.', 'Moss 需要先配置模型才能运行。')
-  );
+  const line = offerLine(false);
+  if (line) print(line);
+  print(L('Moss needs a model configuration before it can run.'));
   if (options.bundledDefaultSuppressedBy) {
     print(
-      uiText(
-        `Note: the built-in model gateway is disabled because ${options.bundledDefaultSuppressedBy} already sets model settings — remove them (moss config unset provider|model|baseUrl) or add an API key.`,
-        `说明：内置模型网关已关闭，因为 ${options.bundledDefaultSuppressedBy} 已经设置了模型 — 请去掉它们（moss config unset provider|model|baseUrl）或补上 API 密钥。`
+      L(
+        'Note: the built-in model gateway is disabled because {reason} already sets model settings — remove them (moss config unset provider|model|baseUrl) or add an API key.',
+        { reason: options.bundledDefaultSuppressedBy }
       )
     );
   }
   print('');
-  print(
-    uiText(
-      '  moss setup                                      # interactive: provider + model + key',
-      '  moss setup                                      # 交互：提供方 + 模型 + 密钥'
-    )
-  );
-  print(
-    uiText(
-      '  moss config set provider <p> && moss config set model <m>   # script path (no TTY)',
-      '  moss config set provider <p> && moss config set model <m>   # 脚本路径（无 TTY）'
-    )
-  );
-  print(
-    uiText(
-      '  # API key: prefer `moss setup` (hidden prompt) — `config set apiKey` stays in shell history.',
-      '  # API 密钥：优先用 `moss setup`（隐藏输入）— `config set apiKey` 会留在 shell 历史里。'
-    )
-  );
+  print(L('  moss                          # interactive setup, then the prompt'));
+  print(L('  moss setup                    # same setup, without opening the chat'));
   print('');
   print(
     interactive
-      ? uiText('Run setup, then start `moss` again.', '先完成配置，再重新启动 `moss`。')
-      : uiText('Configure a model, then retry your command.', '配置模型后再重试这条命令。')
+      ? L('Finish setup, then ask moss to look around this folder.')
+      : L('Configure a model, then retry your command.')
   );
 }
 
 export async function offerSetupForInteractiveMissingConfig(
   options: { bundledDefaultSuppressedBy?: string } = {}
 ): Promise<boolean> {
+  const offers = detectEnvCredentials();
+  if (
+    offers.length === 1 &&
+    offers[0] &&
+    !offers[0].needsModelList &&
+    offerUsesOfficialHost(offers[0])
+  ) {
+    const offer = offers[0];
+    print(
+      L(
+        'Found {label}. Press Enter to use it, or n to choose a provider. The value is not shown.',
+        {
+          label: offer.label,
+        }
+      )
+    );
+    const answer = await question(L('Use it? [Y/n] '));
+    if (!answer || /^y(es)?$/i.test(answer)) {
+      const probe = await probeModel({
+        provider: offer.provider,
+        baseUrl: offer.baseUrl,
+        apiKey: offer.apiKey,
+        model: offer.model,
+      });
+      print(probe.message);
+      if (probe.ok) {
+        const savedPath = saveUserModelConfig({
+          provider: offer.provider,
+          model: offer.model,
+          baseUrl: offer.baseUrl,
+          apiKeyEnv: offer.keyVar,
+        });
+        print(L('Saved → {path}', { path: savedPath }));
+        return true;
+      }
+      print(L('That key did not connect. Starting provider setup.'));
+    }
+  }
   printMissingConfigGuidance(true, options);
-  const answer = await question(uiText('Start setup now? [Y/n] ', '现在开始配置？[Y/n] '));
+  const answer = await question(L('Start setup now? [Y/n] '));
   if (!answer || /^y(es)?$/i.test(answer)) {
     await runSetupWizard();
     return true;
   }
-  print(
-    uiText(
-      'Setup skipped. Run `moss setup` when you are ready.',
-      '已跳过配置。准备好后运行 `moss setup`。'
-    )
-  );
+  print(L('Setup skipped. Run `moss` when you are ready.'));
   process.exitCode = 1;
   return false;
 }
@@ -92,11 +145,8 @@ export function markOneShotOnboardingShown(env: NodeJS.ProcessEnv = process.env)
 
 export function renderOneShotOnboardingHint(): string {
   return [
-    uiText('[moss] No model configured yet.', '[moss] 尚未配置模型。'),
-    uiText(
-      '  Run `moss setup` to configure one, or tell me: "help me add a model configuration."',
-      '  运行 `moss setup` 进行配置，或告诉我：「帮我加上模型配置。」'
-    ),
-    uiText('  (This hint appears only once.)', '  （此提示只出现一次。）'),
+    L('[moss] No model configured yet.'),
+    offerLine(true) ?? L('  Run `moss` to set up a provider, model, and API key.'),
+    L('  (This hint appears only once.)'),
   ].join('\n');
 }

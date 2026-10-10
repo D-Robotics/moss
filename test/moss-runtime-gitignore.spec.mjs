@@ -104,6 +104,29 @@ test('an invalid .git does not make a work tree', () => {
     fs.writeFileSync(path.join(dir, '.git'), 'gitdir: /tmp/moss-missing-gitdir\n');
     ensureMossRuntimeGitignore(dir);
     assert.equal(fs.existsSync(path.join(dir, '.moss')), false);
+    fs.rmSync(path.join(dir, '.git'), { force: true });
+    fs.mkdirSync(path.join(dir, '.git'));
+    ensureMossRuntimeGitignore(dir);
+    assert.equal(fs.existsSync(path.join(dir, '.moss')), false, 'empty .git without HEAD');
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-runtime-stray-git-'));
+    const child = path.join(parent, 'child');
+    fs.mkdirSync(path.join(parent, '.git'));
+    fs.mkdirSync(child);
+    try {
+      ensureMossRuntimeGitignore(child);
+      assert.equal(fs.existsSync(path.join(child, '.moss')), false, 'ancestor .git without HEAD');
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
+    const emptyGitdir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-runtime-empty-gitdir-'));
+    try {
+      fs.rmSync(path.join(dir, '.git'), { recursive: true, force: true });
+      fs.writeFileSync(path.join(dir, '.git'), `gitdir: ${emptyGitdir}\n`);
+      ensureMossRuntimeGitignore(dir);
+      assert.equal(fs.existsSync(path.join(dir, '.moss')), false, 'gitdir without HEAD');
+    } finally {
+      fs.rmSync(emptyGitdir, { recursive: true, force: true });
+    }
 
     const real = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-runtime-gitdir-'));
     try {

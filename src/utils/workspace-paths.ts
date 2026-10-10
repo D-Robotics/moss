@@ -138,7 +138,16 @@ task-repairs.jsonl
 *.lock
 `;
 
-/** A `.git` directory, or a gitfile whose `gitdir:` target is a directory. */
+/** A directory that git would accept as a git dir: it has a HEAD file. */
+function isGitDir(dir: string): boolean {
+  try {
+    return fs.statSync(dir).isDirectory() && fs.statSync(path.join(dir, 'HEAD')).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** A `.git` directory, or a gitfile whose `gitdir:` target is a git dir. */
 function resolvesAsGitMetadata(gitPath: string): boolean {
   let st: fs.Stats;
   try {
@@ -146,7 +155,8 @@ function resolvesAsGitMetadata(gitPath: string): boolean {
   } catch {
     return false;
   }
-  if (st.isDirectory()) return true;
+  // git itself ignores a .git directory without HEAD; so do we.
+  if (st.isDirectory()) return isGitDir(gitPath);
   if (!st.isFile()) return false;
   let text: string;
   try {
@@ -157,7 +167,7 @@ function resolvesAsGitMetadata(gitPath: string): boolean {
   const gitdir = /^gitdir:\s*(.+)\s*$/m.exec(text)?.[1]?.trim();
   if (!gitdir) return false;
   try {
-    return fs.statSync(path.resolve(path.dirname(gitPath), gitdir)).isDirectory();
+    return isGitDir(path.resolve(path.dirname(gitPath), gitdir));
   } catch {
     return false;
   }

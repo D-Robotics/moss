@@ -3,6 +3,7 @@
  * of provider); the CLI installs it from flag, env, user config, and the
  * system locale. Assistant reply language does not use this module.
  */
+import { preferredLocale } from './locale-preference.js';
 
 export type UiLanguage = 'en' | 'zh';
 export type LanguageSetting = 'auto' | UiLanguage;
@@ -19,9 +20,12 @@ export interface UiLanguageResolution {
 let session: UiLanguage | 'system' | undefined;
 let installed: UiLanguageResolution | undefined;
 
+/**
+ * System locale for `language: auto`. Neutral tags (`C`, `POSIX`, `C.UTF-8`)
+ * are an encoding, not a language, and fall through to the next variable.
+ */
 export function systemLocale(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  const value = env.LC_ALL || env.LC_MESSAGES || env.LANG;
-  return value && value.trim() ? value.trim() : undefined;
+  return preferredLocale(env);
 }
 
 /**

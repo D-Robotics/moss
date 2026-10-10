@@ -119,10 +119,21 @@ import {
   loadModelChoicesForRuntime,
   resolveContextTokensForModel,
   resolveModelSelection,
+  splitModelCustomFlag,
+  unavailableModelNote,
   type ModelChoiceList,
 } from '../model-catalog.js';
 import { createCliProvider } from '../providers.js';
 import { writePreferredModel } from '../preferred-model-store.js';
+import {
+  initialFirstRunView,
+  lookupOfferSecret,
+  reduceFirstRun,
+  renderFirstRunLines,
+  saveUserModelConfig,
+  settleFirstRunJob,
+  type FirstRunView,
+} from '../first-run.js';
 import { formatLocalCommandOutput, runLocalShellCommand } from '../repl-process.js';
 import { runWorkingTreeDiff } from '../../utils/git-spawn.js';
 import {
@@ -153,7 +164,7 @@ import {
   detectComposerProjectKind,
   type ComposerProjectKind,
 } from '../composer-placeholder.js';
-import { loadCliConfigFile } from '../config.js';
+import { envBeforeDotenv, loadCliConfigFile } from '../config.js';
 import {
   configuredBaseUrl,
   formatCostEstimate,
@@ -408,6 +419,11 @@ function collectStrings(value: unknown, out: string[] = []): string[] {
 /** The shell tells the registry it is the TUI, so surface-specific copy can diverge later. */
 const COMMAND_SURFACE: CommandSurface = 'tui';
 
+/** Session `/language` wins over the locale frozen into the app options. */
+function activeUiLocale(explicit: string | undefined): string | undefined {
+  return hasSessionUiOverride() ? cliLocale() : (explicit ?? cliLocale());
+}
+
 /** How long the scroll bar stays visible after the pointer or a scroll last touched it. */
 const SCROLLBAR_HIDE_MS = 1500;
 
@@ -423,7 +439,7 @@ export function TuiAppRoot({
   // Part B: pin moss's own chrome to the locale the host resolved. Idempotent,
   // so running it on every render is fine; the environment is only the fallback
   // and the host's explicit `locale` is authoritative.
-  setTuiLocale(hasSessionUiOverride() ? isZhLocale() : isZhLocale(options.locale ?? cliLocale()));
+  setTuiLocale(isZhLocale(activeUiLocale(options.locale)));
   const composerProjectKind = useMemo(
     (): ComposerProjectKind =>
       detectComposerProjectKind({
@@ -496,6 +512,19 @@ export function TuiAppRoot({
   );
   /** Active model, so `/model` is reflected in the status row immediately. */
   const [currentModel, setCurrentModel] = useState<string | undefined>(options.model);
+  const [setupView, setSetupView] = useState<FirstRunView | undefined>(() =>
+    options.firstRun ? initialFirstRunView(envBeforeDotenv) : undefined
+  );
+  const setupSecretRef = useRef('');
+  const setupEnvLoaded = useRef(false);
+  if (!setupEnvLoaded.current && setupView?.apiKeyEnv) {
+    setupEnvLoaded.current = true;
+    const value = (envBeforeDotenv[setupView.apiKeyEnv] ?? '').trim();
+    if (value) setupSecretRef.current = value;
+  }
+  const setupViewRef = useRef(setupView);
+  setupViewRef.current = setupView;
+  const setupJobRef = useRef(0);
   const [modelPicker, setModelPicker] = useState<
     { choices: ModelChoiceList; cursor: number } | undefined
   >(undefined);
@@ -1757,8 +1786,9 @@ export function TuiAppRoot({
    */
   const runModelCommand = useCallback(
     async (args: string) => {
+      const modelTitle = tui('Model');
       if (store.run.running) {
-        printBlock('Model', [
+        printBlock(modelTitle, [
           tui('a run is in flight — press Esc to interrupt it before switching models'),
         ]);
         return;
@@ -1773,11 +1803,14 @@ export function TuiAppRoot({
       } catch (err) {
         choices = undefined;
         printCommandError(
-          'Model',
+          modelTitle,
           tui('could not load the model catalog: {error}', { error: errorMessage(err) })
         );
       }
-      const token = args.trim();
+      const rawToken = args.trim();
+      const persistDefault = rawToken === 'save' || rawToken.startsWith('save ');
+      const requested = persistDefault ? rawToken.slice('save'.length).trim() : rawToken;
+      const { token, custom } = splitModelCustomFlag(requested);
       if (!token) {
         if (!choices) return;
         setModelPicker({
@@ -1790,11 +1823,16 @@ export function TuiAppRoot({
         return;
       }
       if (token === 'config' || token.startsWith('config ')) {
-        printBlock('Model', [
+        printBlock(modelTitle, [
           tui('/model config is not wired in the shell — use `moss setup` for a guided'),
           tui('provider/model/key change, or `moss config set model <name>` to persist one.'),
           tui('`/model <name>` still switches the active model for this session.'),
         ]);
+        return;
+      }
+      const unavailable = unavailableModelNote(token, choices, undefined, { custom });
+      if (unavailable) {
+        printCommandError(modelTitle, unavailable);
         return;
       }
       const selected = choices ? resolveModelSelection(token, choices.choices) : null;
@@ -1802,7 +1840,7 @@ export function TuiAppRoot({
       const provider = selected?.provider ?? choices?.provider ?? config?.provider;
       if (!config || !provider) {
         printCommandError(
-          'Model',
+          modelTitle,
           tui('could not resolve the provider config — run `moss setup`.')
         );
         return;
@@ -1822,7 +1860,7 @@ export function TuiAppRoot({
         writePreferredModel(config.baseUrl, model);
       } catch (err) {
         printCommandError(
-          'Model',
+          modelTitle,
           tui('could not switch to {model}: {error}', { model, error: errorMessage(err) })
         );
         return;
@@ -1833,10 +1871,25 @@ export function TuiAppRoot({
       store.usage.contextUsed = 0;
       store.usage.contextTotal = 0;
       const probeGeneration = ++modelProbeGenerationRef.current;
-      printBlock('Model', [
+      let savedNote: string | undefined;
+      if (persistDefault) {
+        try {
+          const savedPath = saveUserModelConfig({
+            model,
+            provider,
+            baseUrl: config.baseUrl,
+            env: process.env,
+          });
+          savedNote = tui('saved {model} as the default ({path})', { model, path: savedPath });
+        } catch (err) {
+          savedNote = tui('could not save the default: {error}', { error: errorMessage(err) });
+        }
+      }
+      printBlock(modelTitle, [
         selected
           ? tui('switched to {model} ({provider})', { model, provider })
           : tui('switched to custom model {model} ({provider})', { model, provider }),
+        savedNote ?? tui('this session only — /model save {model} writes the default', { model }),
         tui('context usage will appear after the first response from this model'),
       ]);
       // Re-probe the new model's context window. Ignore an older probe that
@@ -2002,6 +2055,7 @@ export function TuiAppRoot({
 
   const submit = useCallback(
     async (raw: string) => {
+      if (setupViewRef.current) return;
       const submittedTokens = tokensRef.current.slice();
       let text = raw.trim();
       if (!text) return;
@@ -2622,6 +2676,67 @@ export function TuiAppRoot({
     });
   };
 
+  const finishFirstRun = useCallback(
+    (saved: {
+      provider: NonNullable<FirstRunView['provider']>;
+      model: string;
+      baseUrl: string;
+      apiKeyEnv?: string;
+    }) => {
+      const apiKey = setupSecretRef.current;
+      if (!apiKey) return;
+      const bundle = {
+        provider: saved.provider,
+        model: saved.model,
+        baseUrl: saved.baseUrl,
+        apiKey,
+      };
+      try {
+        saveUserModelConfig({
+          provider: bundle.provider,
+          model: bundle.model,
+          baseUrl: bundle.baseUrl,
+          ...(saved.apiKeyEnv ? { apiKeyEnv: saved.apiKeyEnv } : { apiKey }),
+          env: process.env,
+        });
+      } catch (err) {
+        setSetupView((current) =>
+          current ? { ...current, step: 'error', error: errorMessage(err) } : current
+        );
+        return;
+      }
+      options.agent.config.model = bundle.model;
+      const mutable = options.agent.config as { provider?: string; baseUrl?: string };
+      mutable.provider = bundle.provider;
+      mutable.baseUrl = bundle.baseUrl;
+      options.agent.config.llmProvider = createCliProvider(bundle);
+      setCurrentModel(bundle.model);
+      options.onFirstRunReady?.(bundle);
+      setupSecretRef.current = '';
+      setSetupView(undefined);
+      appendRow(store, 'system', tui('Next: ask me to look around this folder.'));
+      handle.notify();
+    },
+    [handle, options, store]
+  );
+
+  const runSetupJob = useCallback(
+    (view: FirstRunView, job: NonNullable<FirstRunView['pending']>) => {
+      const generation = ++setupJobRef.current;
+      const locale = activeUiLocale(options.locale);
+      void settleFirstRunJob(view, job, setupSecretRef.current, locale).then((applied) => {
+        if (generation !== setupJobRef.current) return;
+        if (applied.saved) {
+          finishFirstRun(applied.saved);
+          return;
+        }
+        setSetupView(applied.view);
+        handle.notify();
+      });
+    },
+    [finishFirstRun, handle, options.locale]
+  );
+
   useInput((chunk, key) => {
     const osc = /\]11;([^\u0007\u001b]*)/.exec(chunk);
     if (osc && !themeLockedByEnv() && !process.env.MOSS_TUI_THEME) {
@@ -2796,6 +2911,46 @@ export function TuiAppRoot({
         scrollViewport(current, projectedFullRef.current, key.pageUp ? -height : height, height)
       );
       return;
+    }
+    const setup = setupViewRef.current;
+    if (setup) {
+      const quitChord = key.ctrl && (chunk === 'c' || chunk === 'd');
+      if (!quitChord) {
+        if (setup.step === 'working') return;
+        const locale = activeUiLocale(options.locale);
+        const command = key.escape
+          ? ({ type: 'escape' } as const)
+          : key.return
+            ? ({ type: 'enter', draft: input } as const)
+            : key.upArrow
+              ? ({ type: 'up' } as const)
+              : key.downArrow
+                ? ({ type: 'down' } as const)
+                : key.backspace
+                  ? ({ type: 'backspace' } as const)
+                  : chunk && !key.ctrl && !key.meta
+                    ? ({ type: 'char', char: chunk } as const)
+                    : null;
+        if (!command) return;
+        const reduced = reduceFirstRun(setup, command, setupSecretRef.current, locale);
+        if (reduced.consume) {
+          if (reduced.offerId) setupSecretRef.current = lookupOfferSecret(reduced.offerId);
+          if (reduced.secretOp === 'clear') setupSecretRef.current = '';
+          else if (reduced.secretOp === 'backspace') {
+            setupSecretRef.current = setupSecretRef.current.slice(0, -1);
+          } else if (reduced.secretOp === 'append' && command.type === 'char') {
+            setupSecretRef.current += command.char;
+          }
+          setSetupView(reduced.view);
+          if (command.type === 'enter') setInput('');
+          if (reduced.saved) {
+            finishFirstRun(reduced.saved);
+            return;
+          }
+          if (reduced.job) runSetupJob(reduced.view, reduced.job);
+          return;
+        }
+      }
     }
     if (chunk === '?' && input.length === 0 && !shellMode && !approval && !key.ctrl && !key.meta) {
       setHelpOverlay({
@@ -3127,10 +3282,13 @@ export function TuiAppRoot({
         setModelPicker(undefined);
         return;
       }
-      if (key.return) {
+      if (key.return || chunk === 'd' || chunk === 'D') {
         const choice = modelPicker.choices.choices[modelPicker.cursor];
         setModelPicker(undefined);
-        if (choice) void runModelCommand(choice.model);
+        if (choice)
+          void runModelCommand(
+            chunk === 'd' || chunk === 'D' ? `save ${choice.model}` : choice.model
+          );
         return;
       }
       return;
@@ -3560,9 +3718,10 @@ export function TuiAppRoot({
     .find(
       (task) => task.state === 'EXECUTING' || task.state === 'PLANNING' || task.state === 'BLOCKED'
     );
-  // A 12-row inline terminal has no spare line. An idle model/cwd row scrolls
-  // the pre-Ink fallback notice off the screen; show the fields once there is
-  // a run, tokens, a cost, a hot context, or a status command.
+  // Kept from #24. A 12-row inline terminal has no spare line. An idle
+  // model/cwd row scrolls the pre-Ink fallback notice off the screen; show
+  // the fields once there is a run, tokens, a cost, a hot context, or a
+  // status command.
   const contextHot =
     store.usage.contextTotal > 0 &&
     store.usage.contextUsed / store.usage.contextTotal >= CONTEXT_WARN_PCT / 100;
@@ -3632,8 +3791,9 @@ export function TuiAppRoot({
   const editor = renderComposerEditor(composer, {
     width: columns,
     maxRows: COMPOSER_MAX_ROWS,
-    placeholder:
-      input.length === 0
+    placeholder: setupView
+      ? undefined
+      : input.length === 0
         ? queueRef.current.length > 0
           ? tui('Press up to edit queued messages')
           : running
@@ -3679,9 +3839,10 @@ export function TuiAppRoot({
         line(rule(columns)),
         line(
           clip(
-            tui('  Select model · {count} available · ↑↓ move · Enter choose · Esc close', {
-              count: modelPicker.choices.choices.length,
-            }),
+            tui(
+              '  Select model · {count} available · ↑↓ move · Enter this session · d save as default · Esc close',
+              { count: modelPicker.choices.choices.length }
+            ),
             columns
           ),
           { dim: true }
@@ -3809,6 +3970,19 @@ export function TuiAppRoot({
     ...(!approval && !helpOverlay ? sessionPickerOverlay : []),
     ...(!approval && !helpOverlay ? historySearchOverlay : []),
     ...(!approval && !helpOverlay ? mentions : []),
+    ...(!helpOverlay && setupView
+      ? [
+          line(rule(columns)),
+          ...renderFirstRunLines(setupView, activeUiLocale(options.locale)).map((text) =>
+            line(
+              clip(`  ${text}`, columns),
+              (setupView.error ?? '').split('\n').some((part) => part.trim() === text)
+                ? { color: TONE.err }
+                : { dim: true }
+            )
+          ),
+        ]
+      : []),
     ...(!helpOverlay ? modelPickerLines : []),
     ...helpOverlayLines,
     ...(permissionsOpen
@@ -4184,7 +4358,7 @@ function stdouts(stdout: { columns?: number } | undefined): number {
 /** Boot the TUI; resolves when the user quits. TTY-only entry point. */
 export async function runTuiApp(options: TuiAppOptions): Promise<void> {
   installTerminalRestore();
-  setTuiLocale(hasSessionUiOverride() ? isZhLocale() : isZhLocale(options.locale ?? cliLocale()));
+  setTuiLocale(isZhLocale(activeUiLocale(options.locale)));
   setTuiTheme(detectTheme(process.env));
   const choice = selectTuiRenderer({
     env: process.env,
@@ -4200,8 +4374,11 @@ export async function runTuiApp(options: TuiAppOptions): Promise<void> {
   if (!options.renderer && choice.mode === 'inline' && /narrower|shorter/.test(choice.reason)) {
     // One line, before Ink takes the screen: the fallback is a fact the user can
     // act on (widen the window), not a silent downgrade.
+    const reason = /shorter/.test(choice.reason)
+      ? tui('terminal is shorter than 10 rows')
+      : tui('terminal is narrower than {min} columns', { min: 40 });
     process.stderr.write(
-      `[moss] ${choice.reason} — using the inline view. Resize the window to use fullscreen.\n`
+      `[moss] ${tui('{reason} — using the inline view. Resize the window to use fullscreen.', { reason })}\n`
     );
   }
   const handle = createStoreHandle();

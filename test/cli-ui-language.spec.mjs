@@ -3,7 +3,8 @@
  * UI language: flag > env > user config > system locale.
  * `--lang en` under a Chinese locale has no CJK in chrome; `--lang zh` under C
  * is Chinese. Device errors, credential hints, task cards, config warnings
- * (including unprobed), and MCP logs follow the same switch.
+ * (including unprobed), MCP logs, first-run setup screens, and provider errors
+ * follow the same switch.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -31,6 +32,8 @@ import {
   formatEvidenceCardLine,
   formatTaskSummaryLine,
 } from '../dist/core/task-runtime/runtime.js';
+import { renderFirstRunLines } from '../dist/cli/first-run.js';
+import { classifyProviderError } from '../dist/provider/error-classify.js';
 
 const HAN = /\p{Script=Han}/u;
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -257,6 +260,75 @@ function surfaces() {
   assert.match(en, /RDK manual lookup is off/);
 }
 
+function firstRunScreens() {
+  const provider = renderFirstRunLines({ step: 'provider', offers: [], cursor: 0 }).join('\n');
+  const url = renderFirstRunLines({ step: 'url', offers: [], cursor: 0 }).join('\n');
+  const failed = renderFirstRunLines({
+    step: 'error',
+    offers: [],
+    cursor: 0,
+    error: 'HTTP 401',
+    failStep: 'key',
+    pending: {
+      type: 'probe',
+      provider: 'deepseek',
+      baseUrl: 'https://api.deepseek.com',
+      model: 'x',
+    },
+  }).join('\n');
+  return [provider, url, failed].join('\n');
+}
+
+function providerErrors() {
+  const gateway = classifyProviderError({
+    status: 400,
+    errorMessage:
+      'OpenAI-compatible provider returned HTTP 400: Model Not Exist — this model name is not available on the gateway.',
+  });
+  const details = classifyProviderError({
+    audience: 'setup',
+    errorMessage: 'connect ETIMEDOUT 10.0.0.1:443',
+  });
+  return { gateway: gateway.userMessage, details: details.userMessage };
+}
+
+{
+  const zh = await withUi('zh', firstRunScreens);
+  assertHan(zh, 'zh first-run screens');
+  for (const phrase of [
+    'Moss setup',
+    'About a minute',
+    'Choose a provider',
+    'Gateway URL',
+    'save anyway',
+  ]) {
+    assert.equal(zh.includes(phrase), false, `zh first-run still has "${phrase}"`);
+  }
+  assert.match(zh, /Moss 设置/);
+  assert.match(zh, /选择服务商/);
+  assert.match(zh, /地瓜网关/);
+  const en = await withUi('en', firstRunScreens);
+  assertNoHan(en, 'en first-run screens');
+  assert.match(en, /Moss setup/);
+  assert.match(en, /Choose a provider/);
+  assert.match(en, /D-Robotics gateway/);
+}
+
+{
+  const zh = await withUi('zh', providerErrors);
+  assert.match(zh.gateway, /网关原文：/);
+  assert.equal(zh.gateway.includes('Gateway text'), false);
+  assert.match(zh.details, /详细信息：/);
+  assert.equal(zh.details.includes('Details:'), false);
+  assertNoEnglishLeak(`${zh.gateway}\n${zh.details}`, 'zh provider errors');
+  const en = await withUi('en', providerErrors);
+  assert.match(en.gateway, /Gateway text: /);
+  assert.equal(en.gateway.includes('网关原文'), false);
+  assert.match(en.details, /Details: /);
+  assert.equal(en.details.includes('详细信息'), false);
+  assertNoHan(`${en.gateway}\n${en.details}`, 'en provider errors');
+}
+
 {
   const missing = await withUi('zh', () => {
     const conn = new SshDeviceConnection({
@@ -367,6 +439,32 @@ for (const args of zhSurfaces) {
   assert.equal(zh.text.includes('(unprobed)'), false);
   assert.match(zh.text, /未探测/);
   assert.match(zh.text, /没有拒绝规则/);
+  assert.equal(zh.text.includes('(not set)'), false);
+  assert.equal(zh.text.includes('(default)'), false);
+}
+
+{
+  const zhGuide = runCli(['--lang', 'zh']);
+  assert.notEqual(zhGuide.status, null, 'zh startup guidance timed out');
+  assertHan(zhGuide.text, 'zh startup guidance');
+  assert.equal(zhGuide.text.includes('Moss needs a model configuration'), false);
+  assert.match(zhGuide.text, /需要先配好模型/);
+  const enGuide = runCli(['--lang', 'en'], { LANG: 'zh_CN.UTF-8', LC_ALL: 'zh_CN.UTF-8' });
+  assertNoHan(enGuide.text, 'en startup guidance');
+  assert.match(enGuide.text, /Moss needs a model configuration/);
+}
+
+{
+  const zhModel = runCli(['--lang', 'zh', '/model'], { LANG: 'C', LC_ALL: 'C' });
+  assert.equal(zhModel.text.includes('choose one of the models above'), false);
+  assert.equal(zhModel.text.includes('Use:'), false);
+  assert.match(zhModel.text, /用法：/);
+  const enModel = runCli(['--lang', 'en', '/model'], {
+    LANG: 'zh_CN.UTF-8',
+    LC_ALL: 'zh_CN.UTF-8',
+  });
+  assert.match(enModel.text, /choose one of the models above/);
+  assertNoHan(enModel.text, 'en /model phrases');
 }
 
 {

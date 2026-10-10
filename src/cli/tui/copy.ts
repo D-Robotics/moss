@@ -166,6 +166,15 @@ export const ZH: Readonly<Record<string, string>> = {
   'Esc to cancel · Tab to amend': 'Esc 取消 · Tab 补充说明',
 
   // ── composer placeholder (transcript.ts) ───────────────────────────────
+  'Next: ask me to look around this folder.': '下一步：让我看看这个目录里有什么。',
+  'terminal is shorter than 10 rows': '终端高度不足 10 行',
+  'terminal is narrower than {min} columns': '终端宽度不足 {min} 列',
+  '{reason} — using the inline view. Resize the window to use fullscreen.':
+    '{reason} — 使用内联视图。把窗口拉大即可全屏。',
+  '  Select model · {count} available · ↑↓ move · Enter this session · d save as default · Esc close':
+    '  选择模型 · {count} 个 · ↑↓ 移动 · Enter 仅本会话 · d 存为默认 · Esc 关闭',
+  'saved {model} as the default ({path})': '已把 {model} 存为默认（{path}）',
+  'could not save the default: {error}': '没能保存默认模型：{error}',
   'Try "stream the camera at 30 fps and verify it"': '试试 “以 30 fps 推流相机并验证”',
   'Try "fix the failing test and explain the change"': '试试 “修好失败的测试，并说明改了什么”',
   'Try "look around and tell me what this folder is"': '试试 “看看这个目录是做什么的”',
@@ -464,6 +473,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'a run is in flight — press Esc to interrupt it before switching models':
     '有运行正在进行 — 切换模型前先按 Esc 中断',
   'switched to {model} ({provider})': '已切换到 {model}（{provider}）',
+  'this session only — /model save {model} writes the default':
+    '仅本次会话 — `/model save {model}` 会写成默认',
   'switched to custom model {model} ({provider})': '已切换到自定义模型 {model}（{provider}）',
   'context usage will appear after the first response from this model':
     '本模型首次响应后将显示上下文用量',
@@ -554,6 +565,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'HTTP MCP ({names})': 'HTTP MCP（{names}）',
   'agent {names}': '代理 {names}',
   'plugin {names}': '插件 {names}',
+  Model: '模型',
+  Command: '命令',
 };
 
 /**
