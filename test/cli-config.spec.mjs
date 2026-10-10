@@ -565,7 +565,10 @@ const execFileAsync = promisify(execFile);
     MOSS_CONFIG_DIR: configDir,
     HOME: dir,
   });
-  assert.equal(fs.statSync(configDir).mode & 0o777, 0o700);
+  // Windows has no POSIX mode bits (stat always reports 0o666 there).
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(configDir).mode & 0o777, 0o700);
+  }
 }
 
 console.log('[PASS] Configuration management');
