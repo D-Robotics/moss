@@ -71,7 +71,7 @@ test('builtin rdk-docs uses one pinned default and hardened npx arguments', () =
   assert.equal(typeof config.cwd, 'string');
   assert.ok(config.cwd && path.isAbsolute(config.cwd));
   assert.ok(config.cwd?.includes(`${path.sep}.moss${path.sep}cache${path.sep}npx${path.sep}`));
-  assert.equal(DEFAULT_RDK_DOCS_MCP_PACKAGE, 'rdk-docs-mcp@0.2.0');
+  assert.equal(DEFAULT_RDK_DOCS_MCP_PACKAGE, 'rdk-docs-mcp@0.3.0');
   assert.deepEqual(resolveMcpClientTimeouts(config), {
     connectTimeoutMs: 45_000,
     requestTimeoutMs: 20_000,
@@ -96,7 +96,7 @@ test('no user mcp.json still injects rdk-docs when the session asks for it', () 
   assert.deepEqual(merged[0].args, [
     '--yes',
     '--ignore-scripts',
-    '--package=rdk-docs-mcp@0.2.0',
+    '--package=rdk-docs-mcp@0.3.0',
     '--',
     'rdk-docs-mcp',
   ]);
@@ -113,7 +113,7 @@ test('rdk-docs package accepts config/env npm specs and local paths', () => {
   );
   assert.equal(
     resolveRdkDocsPackage(
-      { package: 'rdk-docs-mcp@0.2.0' },
+      { package: 'rdk-docs-mcp@0.3.0' },
       { MOSS_RDK_DOCS_PACKAGE: '../rdk-docs-mcp.tgz' }
     ),
     '../rdk-docs-mcp.tgz'
@@ -466,6 +466,13 @@ test('device safety rules, probes, and verified setup fallback stay', () => {
   assert.match(skill.body, /If the schema has `alt_queries`/);
   assert.match(skill.body, /add no facts the user did not state/);
   assert.match(skill.body, /only when the returned schema has them/);
+  assert.match(skill.body, /title, url, anchor, and snippet/);
+  assert.match(skill.body, /verbose/);
+  assert.match(skill.body, /`full`/);
+  assert.match(skill.body, /search_skills/);
+  assert.match(RDK_DOCS_CONNECTED_LAYER, /title, url, anchor/);
+  assert.match(RDK_DOCS_CONNECTED_LAYER, /verbose-only/);
+  assert.match(RDK_DOCS_CONNECTED_LAYER, /full reads the whole page/);
   assert.doesNotMatch(skill.body, /内存卡|扬声器|可视化界面/);
   const skillsLayer = buildSkillsPromptLayer([skill]);
   assert.equal(skillsLayer.includes(skill.body), false);

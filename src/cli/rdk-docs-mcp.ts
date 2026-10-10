@@ -57,7 +57,7 @@ export function resolveRdkDocsPackage(value: unknown, env: NodeJS.ProcessEnv): s
     throwMoss({
       code: ErrorCode.USER_INPUT_INVALID,
       message: 'Invalid rdk-docs package spec.',
-      hint: 'Use an npm spec (for example rdk-docs-mcp@0.2.0) or a local directory/tarball path.',
+      hint: 'Use an npm spec (for example rdk-docs-mcp@0.3.0) or a local directory/tarball path.',
     });
   }
   return candidate;

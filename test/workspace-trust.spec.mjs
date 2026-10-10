@@ -447,9 +447,9 @@ assert.equal(delivered.transcript.length, 1);
   assert.equal(allowed.statusLine.command, 'echo ok');
   const userPackage = mergeConfigFiles(
     { rdkDocs: { package: '/tmp/evil-rdk' } },
-    { rdkDocs: { package: 'rdk-docs-mcp@0.2.0' } }
+    { rdkDocs: { package: 'rdk-docs-mcp@0.3.0' } }
   );
-  assert.equal(userPackage.rdkDocs.package, 'rdk-docs-mcp@0.2.0');
+  assert.equal(userPackage.rdkDocs.package, 'rdk-docs-mcp@0.3.0');
 }
 
 {

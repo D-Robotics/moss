@@ -63,7 +63,7 @@ moss
 
 如果以前装过旧的未加 scope 的 `moss` 包，先执行 `npm uninstall -g moss`，否则两个包抢同一个 `moss` 命令，npm 会报 EEXIST。不要加 `--force`：它会同时留下旧包和 `@rdk-moss/agent`，之后再 `npm uninstall -g moss` 会把 `moss` 命令一起删掉。`npm install -g @rdk-moss/agent` 即将发布。
 
-npm 11 可能打印 `npm warn install-scripts`。`npm ci` 可能会点名 `ssh2` 和 `cpu-features`。接下来的 `npm install -g --install-links .` 还可能点名 `@rdk-moss/agent`（它的 `prepare`）。这是提示，安装仍然成功：ssh2 没有可选的原生模块也能用，全局副本里已经有 `dist/`。不要运行 `npm audit fix --force`，它会改依赖版本，装完不能用。
+npm 11 可能打印 `npm warn install-scripts`。`npm ci` 可能会点名 `ssh2` 和 `cpu-features`。接下来的 `npm install -g --install-links .` 还可能点名 `@rdk-moss/agent`（它的 `preinstall` 和 `prepare`）。这是提示，安装仍然成功：ssh2 没有可选的原生模块也能用，全局副本里已经有 `dist/`。不要运行 `npm audit fix --force`，它会改依赖版本，装完不能用。
 
 全局目录没有写权限（EACCES）时，把 prefix 放到用户目录，或改用 nvm（Node 装在家目录里）：
 
@@ -173,7 +173,7 @@ moss device fleet info --devices rdk-01,rdk-02,rdk-03 --concurrency 4
 moss --print "定义任务：相机管线保持 30 FPS 持续 60 秒；部署、运行、记录证据、验收"
 ```
 
-板卡手册（烧录、引脚、TROS / hobot_dnn、规格）由内置 rdk-docs MCP 供给，默认钉在 `rdk-docs-mcp@0.2.0`（BM25 + 标题融合、`noGoodMatch`、板型过滤、按 section 读取页面）。默认在后台连接，不需要设备目标（`MOSS_DEVICE_HOST` 或 `.moss/devices.json` 都不是前置条件），也不阻塞交互界面。自定义或尚未发布的版本可用 `"rdkDocs": {"package": "../rdk-docs-mcp"}` 或 `MOSS_RDK_DOCS_PACKAGE` 指向 npm spec、本地目录或 tarball；该值会作为代码执行，只使用可信来源。`MOSS_NO_RDK_DOCS=1`、`"rdkDocs": false` 或 `"rdkDocs": {"enabled": false}` 关闭；同名 `mcp.json` 条目整段替换内置项。服务器能力随版本而异，Moss 先查询工具清单再按实际 schema 调用。连不上时本会话不查手册，没有缓存，也没有离线副本。审计与保留标准见 [`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`](docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md)。
+板卡手册（烧录、引脚、TROS / hobot_dnn、规格）由内置 rdk-docs MCP 供给，默认钉在 `rdk-docs-mcp@0.3.0`（BM25 + 标题融合、`noGoodMatch`、`alt_queries`、板型过滤；默认命中是 title/url/anchor/snippet，`verbose` 才带分数；`get_page` 默认返回匹配的 section，`full` 才读整页）。默认在后台连接，不需要设备目标（`MOSS_DEVICE_HOST` 或 `.moss/devices.json` 都不是前置条件），也不阻塞交互界面。自定义或尚未发布的版本可用 `"rdkDocs": {"package": "../rdk-docs-mcp"}` 或 `MOSS_RDK_DOCS_PACKAGE` 指向 npm spec、本地目录或 tarball；该值会作为代码执行，只使用可信来源。`MOSS_NO_RDK_DOCS=1`、`"rdkDocs": false` 或 `"rdkDocs": {"enabled": false}` 关闭；同名 `mcp.json` 条目整段替换内置项。服务器能力随版本而异，Moss 先查询工具清单再按实际 schema 调用。连不上时本会话不查手册，没有缓存，也没有离线副本。审计与保留标准见 [`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`](docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md)。
 
 **扩展。** MCP 客户端（stdio + streamable HTTP，工具懒加载）；轻量 skills（`.moss/skills/<name>/SKILL.md`，渐进披露，`$ARGUMENTS` 传参）；自定义斜杠命令（`.moss/commands/<name>.md`）；人设（`.moss/soul.md`）；生命周期 hook。
 
@@ -372,7 +372,7 @@ moss
 
 If an older unscoped `moss` package is already installed, run `npm uninstall -g moss` first. The two packages use the same `moss` bin, and npm stops with EEXIST. Do not pass `--force`. It leaves both the old package and `@rdk-moss/agent` installed, and a later `npm uninstall -g moss` removes the `moss` command. `npm install -g @rdk-moss/agent` is coming soon.
 
-npm 11 may print `npm warn install-scripts`. `npm ci` may name `ssh2` and `cpu-features`. The following `npm install -g --install-links .` may also name `@rdk-moss/agent` (its `prepare` script). The warning is harmless: ssh2 works without its optional native addon, and the global copy already contains `dist/`. Do not run `npm audit fix --force`. It changes dependency versions and breaks the install.
+npm 11 may print `npm warn install-scripts`. `npm ci` may name `ssh2` and `cpu-features`. The following `npm install -g --install-links .` may also name `@rdk-moss/agent` (its `preinstall` and `prepare` scripts). The warning is harmless: ssh2 works without its optional native addon, and the global copy already contains `dist/`. Do not run `npm audit fix --force`. It changes dependency versions and breaks the install.
 
 If npm reports EACCES on the global prefix, point prefix at your home directory, or use nvm (Node then lives under your home directory):
 
@@ -485,8 +485,9 @@ moss --print "define a task: camera pipeline keeps 30 FPS for 60s; deploy, run, 
 ```
 
 Board manuals (flashing, pinouts, TROS / hobot_dnn, specs) come from the built-in rdk-docs MCP,
-defaulting to the pinned `rdk-docs-mcp@0.2.0` (BM25 + title fusion, `noGoodMatch`, board filtering,
-and section page reads). Moss connects it in the background by default, with or
+defaulting to the pinned `rdk-docs-mcp@0.3.0` (BM25 + title fusion, `noGoodMatch`, `alt_queries`,
+and board filtering; default hits are title, url, anchor, and snippet, with scores only when
+`verbose`; `get_page` returns the matching section unless `full`). Moss connects it in the background by default, with or
 without a device target (`MOSS_DEVICE_HOST` or `.moss/devices.json` is not required),
 so a cold npx download does not block the interactive shell. To test an unpublished build, set
 `"rdkDocs": {"package": "../rdk-docs-mcp"}` or `MOSS_RDK_DOCS_PACKAGE` to an npm spec, local

@@ -185,14 +185,14 @@ void streamCalls;
     {
       name: 'rdk-docs',
       state: 'failed',
-      error: 'npx rdk-docs-mcp@0.2.0: registry unreachable',
+      error: 'npx rdk-docs-mcp@0.3.0: registry unreachable',
     },
   ];
   await type(instance2, '/mcp');
   assert.ok(
     await waitFor(() =>
       texts().some((text) =>
-        text.includes('○ rdk-docs — failed: npx rdk-docs-mcp@0.2.0: registry unreachable')
+        text.includes('○ rdk-docs — failed: npx rdk-docs-mcp@0.3.0: registry unreachable')
       )
     ),
     ` /mcp shows the failure reason: ${JSON.stringify(texts())}`
