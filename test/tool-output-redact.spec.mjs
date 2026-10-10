@@ -9,7 +9,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { presentToolOutput, redactEgress } from '../dist/safety/tool-output-redact.js';
+import {
+  isCredentialLikePath,
+  presentToolOutput,
+  redactEgress,
+  targetsCredentialFile,
+} from '../dist/safety/tool-output-redact.js';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-redact-shape-'));
 const env = { HOME: home, MOSS_CONFIG_DIR: path.join(home, 'empty-config') };
@@ -365,6 +370,81 @@ const envSearch = presentToolOutput({
 assert.equal(envSearch.includes('aB3kL9mN2pQ7rT5wX8zY'), false);
 assert.equal(envSearch.includes('sunrise'), false);
 assert.match(envSearch, /\[REDACTED\]/);
+
+assert.equal(redactEgress('password: "correct horse battery staple"', env), 'password: [REDACTED]');
+assert.equal(redactEgress('password = "hunter 2 x"', env), 'password = [REDACTED]');
+assert.equal(
+  redactEgress('SMTP_PASSWORD="hunter two"', env, { strictSecrets: true }),
+  'SMTP_PASSWORD=[REDACTED]'
+);
+assert.equal(redactEgress('password = "su\\"nrise"', env), 'password = [REDACTED]');
+assert.equal(redactEgress('{"password": "line1\\nline2"}', env), '{"password": [REDACTED]}');
+assert.equal(redactEgress('password = ""', env), 'password = ""');
+
+assert.equal(redactEgress('\tPassword string', env), '\tPassword string');
+assert.equal(redactEgress('password combination.', env), 'password combination.');
+assert.equal(
+  redactEgress('if l.machine != "" && l.login != "" && l.password != "" {', env),
+  'if l.machine != "" && l.login != "" && l.password != "" {'
+);
+assert.equal(
+  redactEgress('machine h login u password sunrise', env),
+  'machine h login u password [REDACTED]'
+);
+
+assert.equal(strict('PGPASSWORD=sunrise'), 'PGPASSWORD=[REDACTED]');
+assert.equal(strict('PGPASS=hunter2'), 'PGPASS=[REDACTED]');
+assert.equal(strict('DBPASS=sunrise'), 'DBPASS=[REDACTED]');
+assert.equal(strict('MYSQL_PWD=sunrise'), 'MYSQL_PWD=[REDACTED]');
+assert.equal(strict('db:5432:app:alice:sunrise'), 'db:5432:app:alice:[REDACTED]');
+assert.equal(redactEgress('PGPASSWORD=sunrise', env), 'PGPASSWORD=sunrise');
+assert.equal(redactEgress('PWD=/home/u/project', env), 'PWD=/home/u/project');
+
+assert.equal(isCredentialLikePath('src/cli/env-credentials.ts'), false);
+assert.equal(isCredentialLikePath('docs/credentials.md'), false);
+assert.equal(isCredentialLikePath('src/credentials/netrc.go'), false);
+assert.equal(isCredentialLikePath('service.credentials'), true);
+assert.equal(isCredentialLikePath('config/.env.production'), true);
+assert.equal(isCredentialLikePath('.netrc'), true);
+assert.equal(targetsCredentialFile('read_file', { path: 'docs/credentials.md' }), false);
+assert.equal(targetsCredentialFile('read_file', { path: 'src/cli/env-credentials.ts' }), false);
+assert.equal(targetsCredentialFile('exec', { command: 'grep -rn credentials src' }), false);
+assert.equal(targetsCredentialFile('exec', { command: 'cat config/.env.production' }), true);
+assert.equal(
+  targetsCredentialFile('exec', { command: 'set -a; . ./.env; env | grep TOKEN' }),
+  true
+);
+
+const searchHits = presentToolOutput({
+  toolName: 'search_code',
+  input: { path: '.', pattern: 'TOKEN' },
+  text: '.env:3:GITHUB_TOKEN=sunrise\nsrc/a.ts:4:const t = 1\n.env.local:1:DB_PASSWORD=sunrise\n',
+  env,
+  workspaceDir: home,
+});
+assert.equal(
+  searchHits,
+  '.env:3:GITHUB_TOKEN=[REDACTED]\nsrc/a.ts:4:const t = 1\n.env.local:1:DB_PASSWORD=[REDACTED]\n'
+);
+const grepHits = presentToolOutput({
+  toolName: 'exec',
+  input: { command: 'grep -rn TOKEN .' },
+  text: './.env:3:GITHUB_TOKEN=sunrise\n./src/a.ts:4:const t = 1\n',
+  env,
+  workspaceDir: home,
+});
+assert.equal(grepHits, './.env:3:GITHUB_TOKEN=[REDACTED]\n./src/a.ts:4:const t = 1\n');
+const docRead = presentToolOutput({
+  toolName: 'read_file',
+  input: { path: 'docs/credentials.md' },
+  text: '     1\tSet token: getToken() and password: hashPassword(x)\n     2\tauth_token: myTokenVariable\n',
+  env,
+  workspaceDir: home,
+});
+assert.equal(
+  docRead,
+  '     1\tSet token: getToken() and password: hashPassword(x)\n     2\tauth_token: myTokenVariable\n'
+);
 
 assert.equal(table.length >= 30, true, 'redaction table covers at least 30 values');
 console.log(`[PASS] tool-output redaction table (${table.length} values)`);
