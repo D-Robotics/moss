@@ -29,7 +29,7 @@ Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器
 node -v
 ```
 
-需要 **22.16** 或更高。仓库根目录的 `.npmrc` 设置了 `engine-strict=true`。Node 低于 22.16 时，`npm ci` 和 `npm install`（包括 `npm install -g --install-links .`）会立刻以 `EBADENGINE` 停止，依赖不会下载。根包的 `preinstall`（`scripts/check-node-version.cjs`）是第二道检查：发布包不含这份 `.npmrc`，那种安装仍会先装依赖再跑脚本；Node 过低时脚本打印升级命令并退出 1。Node 22.16 自带 npm 10，不要按 npm 的提示升级到 npm 12：这个 Node 不支持 npm 12。
+需要 **22.16** 或更高。仓库根目录的 `.npmrc` 设置了 `engine-strict=true`。这份配置只对在仓库里执行的 `npm ci` 和 `npm install` 生效：Node 低于 22.16 时，这两条命令会立刻以 `EBADENGINE` 停止，依赖不会下载。全局安装会忽略项目里的 `.npmrc`，所以 `engine-strict` 挡不住 `npm install -g --install-links .`。这条命令会先打包当前目录，并在 `prepare` 里先运行 `scripts/check-node-version.cjs`，再运行 `npm run build`。Node 过低时，脚本打印当前版本和升级命令并退出 1，此时还不会创建全局 `bin/moss`。发布包不含这份 `.npmrc`，那种安装仍会先装依赖，再跑根包的 `preinstall`（同一个脚本）；Node 过低时脚本打印升级命令并退出 1。Node 22.16 自带 npm 10，不要按 npm 的提示升级到 npm 12：这个 Node 不支持 npm 12。
 
 还没有版本管理器时，先装一个，再安装 Node 22，然后重新运行 `npm ci`。
 
@@ -79,7 +79,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 ## 快速开始
 
-从源码安装，运行 `moss`，在界面里完成设置，然后要一个回答。`npm ci` 会跑 `prepare`（也就是 `npm run build`），所以不用再单独构建：
+从源码安装，运行 `moss`，在界面里完成设置，然后要一个回答。`npm ci` 会跑 `prepare`（先检查 Node 版本，再 `npm run build`），所以不用再单独构建：
 
 ```bash
 git clone https://github.com/D-Robotics/moss.git
@@ -381,7 +381,7 @@ Check Node first:
 node -v
 ```
 
-Moss needs **22.16** or newer. The repo-root `.npmrc` sets `engine-strict=true`. On Node older than 22.16, `npm ci` and `npm install` (including `npm install -g --install-links .`) stop immediately with `EBADENGINE`, and dependencies are not downloaded. The root `preinstall` (`scripts/check-node-version.cjs`) is a second check. A published package does not include that `.npmrc`, so npm installs dependencies before the root `preinstall`. On Node older than 22.16 that script prints the upgrade commands and exits 1. Node 22.16 ships with npm 10. Do not follow npm's notice to upgrade to npm 12: Node 22.16 does not support npm 12.
+Moss needs **22.16** or newer. The repo-root `.npmrc` sets `engine-strict=true`. That file applies only to `npm ci` and `npm install` run inside the repo: on Node older than 22.16 those commands stop immediately with `EBADENGINE`, and dependencies are not downloaded. A global install ignores the project `.npmrc`, so `engine-strict` does not stop `npm install -g --install-links .`. That command packs this folder and runs the `prepare` script first (`node scripts/check-node-version.cjs`, then `npm run build`). On Node older than 22.16 the script prints the current version and the upgrade commands and exits 1 before npm links `bin/moss`. A published package does not include that `.npmrc`, so npm installs dependencies before the root `preinstall` (the same script). On Node older than 22.16 that script prints the upgrade commands and exits 1. Node 22.16 ships with npm 10. Do not follow npm's notice to upgrade to npm 12: Node 22.16 does not support npm 12.
 
 If you do not have a version manager yet, install one, install Node 22, then rerun `npm ci`.
 
@@ -431,7 +431,7 @@ Put `%APPDATA%\npm` on PATH. That is npm's default global bin directory on Windo
 
 ### Quick start
 
-Install from source, run `moss`, finish setup in the screen, then ask for an answer. `npm ci` runs `prepare` (`npm run build`), so there is no separate build step:
+Install from source, run `moss`, finish setup in the screen, then ask for an answer. `npm ci` runs `prepare` (the Node check, then `npm run build`), so there is no separate build step:
 
 ```bash
 git clone https://github.com/D-Robotics/moss.git

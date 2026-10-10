@@ -49,8 +49,25 @@ assert.match(
   /NVM_NODEJS_ORG_MIRROR=https:\/\/npmmirror\.com\/mirrors\/node nvm install 22/
 );
 
-const ok = spawnSync(process.execPath, [script], { encoding: 'utf8', timeout: 10_000 });
+const cleanEnv = { ...process.env };
+delete cleanEnv.MOSS_TEST_FAKE_NODE_VERSION;
+const ok = spawnSync(process.execPath, [script], {
+  encoding: 'utf8',
+  timeout: 10_000,
+  env: cleanEnv,
+});
 assert.equal(ok.status, 0, ok.stderr);
 assert.equal(ok.stderr, '');
+
+const fake = spawnSync(process.execPath, [script], {
+  encoding: 'utf8',
+  timeout: 10_000,
+  env: { ...cleanEnv, MOSS_TEST_FAKE_NODE_VERSION: '20.19.2' },
+});
+assert.notEqual(fake.status, 0);
+assert.match(fake.stderr, /Node 20\.19\.2/);
+assert.match(fake.stderr, /nvm install 22/);
+assert.match(fake.stderr, /fnm install 22/);
+assert.match(fake.stderr, /winget install OpenJS\.NodeJS\.LTS/);
 
 console.log('[PASS] node version preinstall');

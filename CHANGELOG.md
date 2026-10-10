@@ -4,13 +4,16 @@
 
 ### Install follow-ups
 
-The repo-root `.npmrc` sets `engine-strict=true`. `npm ci` and `npm install`
-(including `npm install -g --install-links .`) refuse with `EBADENGINE`
-before downloading dependencies when Node is older than 22.16. That file is
-not packed. `npm ci` still runs `scripts/check-node-version.cjs` as
-`preinstall` after dependencies are reified; the script is listed in `files`,
-so a packed install prints the upgrade steps and exits 1 on an older Node,
-with those packages already on disk. The README says not to follow
+The repo-root `.npmrc` sets `engine-strict=true`. That applies to `npm ci` and
+`npm install` run inside the repo: they refuse with `EBADENGINE` before
+downloading dependencies when Node is older than 22.16. `npm install -g`
+ignores the project `.npmrc`. `npm install -g --install-links .` packs the
+folder and runs `prepare` (`node scripts/check-node-version.cjs && npm run build`)
+before it links `bin/moss`. On an older Node that script prints the current
+version and the upgrade commands and exits 1. That `.npmrc` is not packed. A
+packed install still runs the same script as `preinstall` after dependencies
+are reified, so it prints the upgrade steps and exits 1 with those packages
+already on disk. The script is listed in `files`. The README says not to follow
 npm's notice to upgrade to npm 12 on Node 22.16. macOS git needs
 `xcode-select --install`. `moss update` looks only in the current directory
 and `./moss` unless you pass `--dir <clone>` or set `MOSS_SOURCE_DIR`.
@@ -70,7 +73,7 @@ prompt now says a trusted project can change the device target.
 
 `npm install -g github:D-Robotics/moss` fails on a clean machine (npm 10.9.2 and
 11.21.0) because a git dependency's prepare inherits global npm config. Install
-from a clone. `npm ci` runs `prepare` (`npm run build`), so the documented
+from a clone. `npm ci` runs `prepare` (the Node check, then `npm run build`), so the documented
 commands do not build a second time:
 
 ```bash

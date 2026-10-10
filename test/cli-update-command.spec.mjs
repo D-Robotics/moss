@@ -36,7 +36,7 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
   assert.equal(pkg.engines.node, '>=22.16.0');
   assert.equal(pkg.scripts.preinstall, 'node scripts/check-node-version.cjs');
   assert.ok(pkg.files.includes('scripts/check-node-version.cjs'));
-  assert.equal(pkg.scripts.prepare, 'npm run build');
+  assert.equal(pkg.scripts.prepare, 'node scripts/check-node-version.cjs && npm run build');
   assert.equal(pkg.scripts.prepublishOnly, 'npm run build && npm run verify');
   assert.equal(pkg.publishConfig.access, 'public');
   assert.equal(githubInstallSpec(pkg.repository), 'github:D-Robotics/moss');
@@ -226,6 +226,12 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
   assert.doesNotMatch(readme, /before dependencies are installed/);
   assert.doesNotMatch(readme, /不会把依赖装一半/);
   assert.match(readme, /dependencies before the root `preinstall`/);
+  assert.match(readme, /全局安装会忽略项目里的 `\.npmrc`/);
+  assert.match(readme, /A global install ignores the project `\.npmrc`/);
+  assert.match(readme, /还不会创建全局 `bin\/moss`/);
+  assert.match(readme, /before npm links `bin\/moss`/);
+  assert.doesNotMatch(readme, /including `npm install -g --install-links \.`/);
+  assert.doesNotMatch(readme, /包括 `npm install -g --install-links \.`/);
   assert.equal(readme.split('engine-strict=true').length - 1, 2);
   assert.equal(
     readme.split('curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash')
