@@ -26,7 +26,7 @@ export interface MossUpdateAdvice {
 const DEFAULT_CLONE_URL = 'https://github.com/D-Robotics/moss.git';
 
 /** Removes the unscoped package named moss. Leaves `@rdk-moss/agent` in place. */
-export const OLD_MOSS_UNINSTALL_COMMAND = 'npm uninstall -g moss';
+export const LEGACY_PACKAGE_UNINSTALL = 'npm uninstall -g moss';
 
 export function shellSingleQuote(value: string): string {
   if (value.length > 0 && /^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
@@ -136,12 +136,12 @@ function oldBinConflictNote(zh: boolean): string {
     ? [
         '如果 npm 报 moss 这个 bin 已存在（EEXIST），先卸掉旧的未加 scope 的包：',
         '',
-        `  ${OLD_MOSS_UNINSTALL_COMMAND}`,
+        `  ${LEGACY_PACKAGE_UNINSTALL}`,
       ].join('\n')
     : [
         'If npm reports EEXIST for the moss bin, uninstall the older unscoped package first:',
         '',
-        `  ${OLD_MOSS_UNINSTALL_COMMAND}`,
+        `  ${LEGACY_PACKAGE_UNINSTALL}`,
       ].join('\n');
 }
 
@@ -195,7 +195,7 @@ export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: 
   const examples = [
     '  moss update',
     ...globalCommands.map((command) => `  ${command}`),
-    `  ${OLD_MOSS_UNINSTALL_COMMAND}`,
+    `  ${LEGACY_PACKAGE_UNINSTALL}`,
     '  git -C <clone> pull && npm --prefix <clone> run build',
   ];
   if (zh) {

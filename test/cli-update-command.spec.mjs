@@ -13,7 +13,7 @@ import {
   adviseMossUpdate,
   githubInstallSpec,
   npmInstallSpec,
-  OLD_MOSS_UNINSTALL_COMMAND,
+  LEGACY_PACKAGE_UNINSTALL,
   renderUpdateAdvice,
   sourceInstallCommands,
 } from '../dist/cli/update-command.js';
@@ -48,7 +48,7 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
     'npm install -g --install-links .',
   ]);
   assert.deepEqual(sourceInstallCommands(undefined), sourceInstallCommands(pkg.repository));
-  assert.equal(OLD_MOSS_UNINSTALL_COMMAND, 'npm uninstall -g moss');
+  assert.equal(LEGACY_PACKAGE_UNINSTALL, 'npm uninstall -g moss');
 }
 
 {
@@ -137,7 +137,7 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
   for (const command of sourceInstallCommands(pkg.repository)) {
     assert.ok(readme.includes(command), `README is missing: ${command}`);
   }
-  assert.ok(readme.includes(OLD_MOSS_UNINSTALL_COMMAND));
+  assert.ok(readme.includes(LEGACY_PACKAGE_UNINSTALL));
   assert.match(readme, /coming soon/);
   assert.match(readme, /即将发布/);
   assert.doesNotMatch(readme, /npm install -g github:/);
