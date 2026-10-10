@@ -428,7 +428,11 @@ const PASSWORD_ENV_COMMAND =
 
 function shouldRedactAssignment(hit: AssignmentHit, strictFile: boolean): boolean {
   // `export SSHPASS="$(security …)"` and `SSHPASS=`cat f`` fetch the password.
-  if (isPasswordEnvName(hit.name) && SHELL_LOOKUP.test(hit.value)) return false;
+  // MYSQL_PWD / PGPASSWORD keep the general password-field rule below, so a
+  // lookup is still masked as a whole (`[REDACTED]`) instead of falling through
+  // to the partial `***` sanitizer, which the write guard does not recognise.
+  const lookup = isPasswordEnvName(hit.name) && SHELL_LOOKUP.test(hit.value);
+  if (lookup && /^sshpass$/i.test(hit.name)) return false;
   // `SSHPASS= sshpass -e ssh h` clears the variable; the next word is the command.
   if (
     isPasswordEnvName(hit.name) &&
@@ -440,7 +444,7 @@ function shouldRedactAssignment(hit: AssignmentHit, strictFile: boolean): boolea
   if (strictFile) return shouldRedactPasswordValue(hit.value);
   // Short values count only in a plain shell assignment: not a `${NAME:-…}` default,
   // an empty value before a command, a spaced code assignment, or a `$(…)` lookup.
-  if (isPasswordEnvName(hit.name) && /^=["']?$/.test(hit.sep)) {
+  if (!lookup && isPasswordEnvName(hit.name) && /^=["']?$/.test(hit.sep)) {
     if (isPlaceholder(hit.value) || isSourceExpression(hit.value)) return false;
     return shouldRedactPasswordValue(hit.value);
   }

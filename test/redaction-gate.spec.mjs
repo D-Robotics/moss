@@ -416,6 +416,27 @@ assert.equal(
   'SSHPASS=[REDACTED] sshpass -e ssh h'
 );
 
+// MYSQL_PWD / PGPASSWORD `$(...)` and backtick lookups are a whole `[REDACTED]`,
+// with no partial `***` mask. SSHPASS lookups stay as written.
+for (const [input, expected] of [
+  ['export PGPASSWORD="$(cat ~/.pgpw)"', 'export PGPASSWORD=[REDACTED]'],
+  ["export PGPASSWORD='$(cat ~/.pgpw)'", 'export PGPASSWORD=[REDACTED]'],
+  ['export MYSQL_PWD="$(cat ~/.pgpw)"', 'export MYSQL_PWD=[REDACTED]'],
+  ["export MYSQL_PWD='$(cat ~/.pgpw)'", 'export MYSQL_PWD=[REDACTED]'],
+  ['export PGPASSWORD="`cat ~/.pgpw`"', 'export PGPASSWORD=[REDACTED]'],
+  ["export MYSQL_PWD='`cat ~/.pgpw`'", 'export MYSQL_PWD=[REDACTED]'],
+  ['PGPASSWORD=`hunter2hunter2`', 'PGPASSWORD=[REDACTED]'],
+  ['MYSQL_PWD=`hunter2hunter2`', 'MYSQL_PWD=[REDACTED]'],
+]) {
+  const out = redactEgress(input, env);
+  assert.equal(out, expected, input);
+  assert.doesNotMatch(out, /\*\*\*/, input);
+}
+assert.equal(
+  redactEgress('export SSHPASS="$(security find-generic-password -w -s robot -a root)"', env),
+  'export SSHPASS="$(security find-generic-password -w -s robot -a root)"'
+);
+
 // Redaction is idempotent: a second pass leaves `[REDACTED]` alone.
 for (const input of [
   'sshpass -p sunrise ssh h',
@@ -705,6 +726,46 @@ assert.doesNotMatch(secretAfter, /\[REDACTED\]/);
 assert.match(secretAfter, new RegExp(PASSWORD));
 assert.match(secretAfter, /still-here-token/);
 assert.match(secretAfter, /\/\/ kept/);
+
+// The model view of a DB password lookup is whole `[REDACTED]`, so writing
+// that view back is rejected and the script bytes stay.
+const dbLookupScript = [
+  '#!/bin/sh',
+  'export PGPASSWORD="$(cat ~/.pgpw)"',
+  'export MYSQL_PWD="$(cat ~/.pgpw)"',
+  'export PGPASSWORD="`cat ~/.pgpw`"',
+  "export MYSQL_PWD='`cat ~/.pgpw`'",
+  'export SSHPASS="$(security find-generic-password -w -s robot -a root)"',
+  'echo ok',
+  '',
+].join('\n');
+const dbLookupExpected = [
+  '#!/bin/sh',
+  'export PGPASSWORD=[REDACTED]',
+  'export MYSQL_PWD=[REDACTED]',
+  'export PGPASSWORD=[REDACTED]',
+  'export MYSQL_PWD=[REDACTED]',
+  'export SSHPASS="$(security find-generic-password -w -s robot -a root)"',
+  'echo ok',
+  '',
+].join('\n');
+fs.writeFileSync(path.join(project, 'db-lookup.sh'), dbLookupScript);
+const dbLookupRead = await readFileTool.execute({ path: 'db-lookup.sh' }, ctx());
+const dbLookupView = presentToolOutput({
+  toolName: 'read_file',
+  input: { path: 'db-lookup.sh' },
+  text: String(dbLookupRead),
+  workspaceDir: project,
+  env,
+});
+assert.doesNotMatch(dbLookupView, /\*\*\*/);
+assert.equal(modelBody(dbLookupView), dbLookupExpected);
+const dbLookupRefused = await writeFileTool.execute(
+  { path: 'db-lookup.sh', content: modelBody(dbLookupView) },
+  ctx()
+);
+assert.match(String(dbLookupRefused), /refusing to write \[REDACTED\]/);
+assert.equal(fs.readFileSync(path.join(project, 'db-lookup.sh'), 'utf8'), dbLookupScript);
 
 const credRel = 'src/cli/env-credentials.ts';
 const credSrc = fs.readFileSync(path.join(ROOT, credRel), 'utf8');
