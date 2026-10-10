@@ -87,7 +87,7 @@ function doctorHelp(zh: boolean): string {
       '  moss doctor -C <dir>',
       '',
       '检查配置、凭据、工作区、运行时和搜索后端。',
-      'MOSS_RDK_DOCS_PIN_CHECK=1 时向 npm 查询 rdk-docs-mcp 的 latest，若比内置钉的版本新就记一笔。默认关闭，启动时不查询。',
+      'MOSS_RDK_DOCS_PIN_CHECK=1 时向 npm 查询 rdk-docs-mcp@0.3.0 的最新版，若比内置钉的版本新就记一笔。默认关闭，启动时不查询。',
       '',
       '选项：',
       '  -C, --cd <dir>       检查另一个工作区',

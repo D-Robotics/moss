@@ -499,7 +499,7 @@ const ENV_NOTE_ZH: Record<string, string> = {
   'npm spec or local path; process env only, not project config or .env':
     'npm 规格或本地路径；仅进程环境，不是项目配置或 .env',
   '1|true|yes|on asks npm if rdk-docs-mcp latest is newer than the pin; off by default, not used at startup':
-    '1|true|yes|on 向 npm 查询 rdk-docs-mcp 的 latest 是否新于钉住的版本；默认关闭，启动时不用',
+    '1|true|yes|on 向 npm 查询 rdk-docs-mcp@0.3.0 的最新版是否新于钉住的版本；默认关闭，启动时不用',
   'legacy alias': '旧别名',
   'auto|en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale':
     'auto|en|zh；进程环境或 --lang；项目 .env 不能设置；优先级为参数、环境变量、配置 language、系统区域',

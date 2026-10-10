@@ -261,7 +261,7 @@ async function verifyRepairLoop(
       taskId: state.taskId,
       phase: 'executing',
       turn: state.turns,
-      detail: 'agent execution turn',
+      detail: localizeTaskDetail('agent execution turn'),
     });
     const executed = await runAgentTurn(
       deps,
@@ -635,8 +635,9 @@ export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<
  *
  * Locale (v0.25): the fixed labels (task/goal/phase/attempts/verdict/timeline)
  * follow the caller's locale and match `formatTaskStatus`'s wording. The
- * outcome token (PASS/FAIL/BLOCKED/ABORTED), task id, counts, and the verdict/timeline
- * bodies stay verbatim. Core cannot read the CLI locale (layering), so the
+ * outcome token stays PASS/BLOCKED/ABORTED. A failed run says 失败. Task id,
+ * counts, and the verdict/timeline bodies stay verbatim except display-time
+ * detail translation. Core cannot read the CLI locale (layering), so the
  * caller passes it in — undefined keeps the English default for SDK callers.
  */
 export function summarizeTaskRun(result: TaskRunResult, locale?: string): string {
@@ -667,9 +668,10 @@ export function summarizeTaskRun(result: TaskRunResult, locale?: string): string
       : zh
         ? (phaseZh[snapshot.phase] ?? snapshot.phase)
         : snapshot.phase;
+  const outcomeWord = zh && outcome === 'fail' ? '失败' : outcome.toUpperCase();
   const lines = zh
     ? [
-        `任务 ${snapshot.taskId} — ${outcome.toUpperCase()}`,
+        `任务 ${snapshot.taskId} — ${outcomeWord}`,
         `目标：${snapshot.goal}`,
         `阶段：${phaseLabel} · 尝试：${snapshot.attempt} · 修复：${snapshot.repairs.length} · 失败：${snapshot.failures.length} · 轮次：${turns}`,
       ]

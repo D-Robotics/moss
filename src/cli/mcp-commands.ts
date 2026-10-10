@@ -41,7 +41,7 @@ export function renderMcpUsage(zh: boolean = isZhLocale()): string {
       '',
       '示例：',
       '  moss mcp add rdk-docs npx -y rdk-docs-mcp@0.3.0',
-      '  moss mcp add docs https://example.test/mcp --header Authorization=${TOKEN}',
+      '  moss mcp add rdk-docs https://example.test/mcp --header Authorization=${TOKEN}',
     ].join('\n');
   }
   return [

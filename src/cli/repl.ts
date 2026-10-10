@@ -5,7 +5,11 @@ import { setCliApprovalAsker } from './approval.js';
 import { noteKnownSecret } from '../safety/known-secrets.js';
 import { wrapApprovalAsker } from './permission-request.js';
 import { handleCompactCommand } from './compact-command.js';
-import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
+import {
+  formatGitDiffFailure,
+  runRegistryCommand,
+  unknownSlashCommandLines,
+} from './commands/registry.js';
 import {
   isSlashCommandInput,
   slashHead,
@@ -466,7 +470,7 @@ export async function runInteractive(
           console.error(
             notRepo
               ? `[diff] Not a git repository: ${workspace} — /diff needs a git workspace.`
-              : `[diff] git diff failed (exit ${result.exitCode}): ${output.trim().split('\n')[0] || 'unknown error'}`
+              : `[diff] ${formatGitDiffFailure(result.exitCode, output.trim().split('\n')[0] || 'unknown error')}`
           );
         } else {
           console.error(output.trim() || '(no unstaged working-tree changes)');

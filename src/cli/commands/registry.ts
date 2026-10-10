@@ -61,6 +61,14 @@ export type CommandInputPrompt = (options: CommandInputOptions) => Promise<strin
 
 export type CommandSurface = 'repl' | 'tui';
 
+/** The `/review` and `/diff` failure line. English stays the historical sentence. */
+export function formatGitDiffFailure(exitCode: number | null | undefined, detail?: string): string {
+  const zh = isZh();
+  const exit = exitCode === undefined ? '' : zh ? `（退出码 ${exitCode}）` : ` (exit ${exitCode})`;
+  if (detail === undefined) return zh ? `git diff 失败${exit}` : `git diff failed${exit}`;
+  return zh ? `git diff 失败${exit}：${detail}` : `git diff failed${exit}: ${detail}`;
+}
+
 export interface CommandContext {
   agent: MossAgent;
   runtime: CliRuntimeStatus | undefined;
@@ -521,7 +529,7 @@ const reviewCommand: CommandSpec = {
             code: ErrorCode.TOOL_EXECUTION_FAILED,
             message: notRepo
               ? `Not a git repository: ${ctx.workspace} — /review needs a git workspace.`
-              : `git diff failed${procErr.exitCode !== undefined ? ` (exit ${procErr.exitCode})` : ''}: ${errorMessage(err)}`,
+              : formatGitDiffFailure(procErr.exitCode, errorMessage(err)),
             hint: notRepo
               ? 'Open a git repository, or pass a PR number: `/review <PR#>`.'
               : undefined,
@@ -533,7 +541,7 @@ const reviewCommand: CommandSpec = {
             code: ErrorCode.TOOL_EXECUTION_FAILED,
             message: notRepo
               ? `Not a git repository: ${ctx.workspace} — /review needs a git workspace.`
-              : `git diff failed (exit ${result.exitCode})`,
+              : formatGitDiffFailure(result.exitCode),
             hint: notRepo
               ? 'Open a git repository, or pass a PR number: `/review <PR#>`.'
               : result.stderr.trim() || undefined,

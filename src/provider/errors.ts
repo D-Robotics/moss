@@ -179,6 +179,7 @@ const CONNECTION_PATTERNS = [
   'econnreset',
   'connection reset',
   'econnrefused',
+  'connection refused',
   'socket hang up',
   'network error',
   'networkerror',

@@ -258,6 +258,7 @@ function isTransportOnlyLine(line: string): boolean {
     return true;
   }
   if (/^(?:TypeError: )?fetch failed\b/i.test(flat)) return true;
+  if (/^connection refused\b/i.test(flat)) return true;
   if (/^getaddrinfo\b/i.test(flat)) return true;
   if (/^(?:AbortError|TimeoutError|HeadersTimeoutError|BodyTimeoutError)\b/i.test(flat))
     return true;
@@ -427,7 +428,7 @@ const COPY = {
     'The gateway refused the request (403). This is not a rejected key (401). Check that this key may call the model.',
   ],
   authSetup: [
-    '密钥被拒绝（401）。请重新粘贴 API key。',
+    '密钥被拒绝（401）。请重新粘贴密钥。',
     'The API key was rejected (401). Paste the key again.',
   ],
   authChat: [
@@ -445,11 +446,11 @@ const COPY = {
   ],
   rate: ['访问太频繁，请稍后再试。', 'Rate limited; try again shortly.'],
   refused: [
-    '连接被拒绝。这个地址的主机或端口没有服务在听。请改 base URL，然后重试。',
+    '连接被拒绝。这个地址的主机或端口没有服务在听。请改地址，然后重试。',
     'Connection refused. Nothing is listening at that base URL (wrong host or port). Fix the base URL, then retry.',
   ],
   connect: [
-    '网络连接失败。请检查 base URL 和网络，然后重试。',
+    '网络连接失败。请检查地址和网络，然后重试。',
     'Could not connect. Check the base URL and your network, then retry.',
   ],
   httpNotTls: [
@@ -586,7 +587,7 @@ function classifyProviderErrorNow(input: ProviderErrorInput): ProviderErrorSurfa
   if (isConnectionError(raw)) {
     return hit(
       'network',
-      /econnrefused/i.test(raw) ? 'refused' : 'connect',
+      /econnrefused|connection refused/i.test(raw) ? 'refused' : 'connect',
       RETRY_SETTINGS,
       true,
       'setup'

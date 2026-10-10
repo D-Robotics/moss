@@ -64,6 +64,24 @@ export function renderTasksUsage(zh: boolean = isZhLocale()): string {
   ].join('\n');
 }
 
+function taskStatusWord(status: string): string {
+  if (!isZhLocale()) return status;
+  switch (status) {
+    case 'draft':
+      return '草稿';
+    case 'active':
+      return '进行中';
+    case 'accepted':
+      return '已验收';
+    case 'failed':
+      return '失败';
+    case 'abandoned':
+      return '已放弃';
+    default:
+      return status;
+  }
+}
+
 export async function runTasksCommand(
   commandArgs: string[],
   workspace: string,
@@ -88,12 +106,17 @@ export async function runTasksCommand(
       );
       return;
     }
-    console.log('TASK ID                       STATUS     CRITERIA  GOAL');
+    console.log(
+      uiText(
+        'TASK ID                       STATUS     CRITERIA  GOAL',
+        '任务标识                      状态       验收项    目标'
+      )
+    );
     console.log('─'.repeat(96));
     for (const task of tasks) {
       const goal = task.goal.length > 42 ? `${task.goal.slice(0, 39)}…` : task.goal;
       console.log(
-        `${task.taskId.padEnd(30)} ${task.status.padEnd(10)} ${String(task.acceptanceCriteria.length).padStart(8)}  ${goal}`
+        `${task.taskId.padEnd(30)} ${taskStatusWord(task.status).padEnd(10)} ${String(task.acceptanceCriteria.length).padStart(8)}  ${goal}`
       );
     }
     const evidence = await listEvidenceRecords(workspace, 1000);
@@ -101,8 +124,12 @@ export async function runTasksCommand(
     const deployments = parseJsonl(path.join(mossDir, 'deployments.jsonl')).length;
     const verdicts = parseJsonl(path.join(mossDir, 'acceptance.jsonl')).length;
     console.log(
-      `\n  evidence: ${summary.passed} pass / ${summary.failed} fail / ${summary.inconclusive} inconclusive` +
-        ` · deployments: ${deployments} · acceptance verdicts: ${verdicts}`
+      uiText(
+        `\n  evidence: ${summary.passed} pass / ${summary.failed} fail / ${summary.inconclusive} inconclusive` +
+          ` · deployments: ${deployments} · acceptance verdicts: ${verdicts}`,
+        `\n  证据：${summary.passed} 通过 / ${summary.failed} 失败 / ${summary.inconclusive} 无结论` +
+          ` · 部署：${deployments} · 验收裁决：${verdicts}`
+      )
     );
     return;
   }

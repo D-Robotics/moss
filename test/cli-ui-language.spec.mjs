@@ -28,9 +28,11 @@ import {
 } from '../dist/cli/cli-locale.js';
 import { setupMenuLines } from '../dist/cli/setup-wizard.js';
 import { formatTaskStatus } from '../dist/cli/task-run.js';
+import { summarizeTaskRun } from '../dist/core/task/task-engine.js';
+import { formatGitDiffFailure } from '../dist/cli/commands/registry.js';
 import { ZH, setTuiLocale, tui } from '../dist/cli/tui/copy.js';
 import { renderApproval, renderTranscriptRows } from '../dist/cli/tui/transcript.js';
-import { localizeTaskDetail } from '../dist/core/task/task-store.js';
+import { formatTaskTimeline, localizeTaskDetail } from '../dist/core/task/task-store.js';
 import { installUiLanguage } from '../dist/utils/ui-language.js';
 import { formatDeviceConnectError } from '../dist/device/device-connect-error.js';
 import { SshDeviceConnection } from '../dist/device/ssh-device-connection.js';
@@ -281,6 +283,7 @@ function surfaces() {
 
 function firstRunScreens() {
   const provider = renderFirstRunLines({ step: 'provider', offers: [], cursor: 0 }).join('\n');
+  const key = renderFirstRunLines({ step: 'key', offers: [], cursor: 0, keyDots: 4 }).join('\n');
   const url = renderFirstRunLines({ step: 'url', offers: [], cursor: 0 }).join('\n');
   const failed = renderFirstRunLines({
     step: 'error',
@@ -295,7 +298,7 @@ function firstRunScreens() {
       model: 'x',
     },
   }).join('\n');
-  return [provider, url, failed].join('\n');
+  return [provider, key, url, failed].join('\n');
 }
 
 function providerErrors() {
@@ -318,6 +321,7 @@ function providerErrors() {
     'Moss setup',
     'About a minute',
     'Choose a provider',
+    'API key',
     'Gateway URL',
     'save anyway',
   ]) {
@@ -325,11 +329,13 @@ function providerErrors() {
   }
   assert.match(zh, /Moss 设置/);
   assert.match(zh, /选择服务商/);
+  assert.match(zh, /密钥（不显示）/);
   assert.match(zh, /地瓜网关/);
   const en = await withUi('en', firstRunScreens);
   assertNoHan(en, 'en first-run screens');
   assert.match(en, /Moss setup/);
   assert.match(en, /Choose a provider/);
+  assert.match(en, /API key \(hidden\)/);
   assert.match(en, /D-Robotics gateway/);
 }
 
@@ -761,7 +767,11 @@ catalogKeyParity();
 function cardSurfaces() {
   installUiLanguage({ language: 'zh', source: 'config', setting: 'zh' });
   setTuiLocale(true);
-  const menu = setupMenuLines('zh').join('\n');
+  const menu = [
+    setupMenuLines('zh').join('\n'),
+    renderFirstRunLines({ step: 'provider', offers: [], cursor: 0 }, 'zh').join('\n'),
+    renderFirstRunLines({ step: 'key', offers: [], cursor: 0, keyDots: 3 }, 'zh').join('\n'),
+  ].join('\n');
   const approvalLines = renderApproval(
     {
       title: 'Create file',
@@ -777,24 +787,52 @@ function cardSurfaces() {
     },
     80
   ).map((row) => row.text);
-  const taskCard = formatTaskStatus(
+  const timeline = formatTaskTimeline([
     {
-      taskId: 'task_1',
-      goal: '写一个文件',
-      phase: 'verifying',
-      statusView: 'verifying',
-      attempt: 1,
-      repairs: [],
-      failures: [],
-      evidenceCount: 0,
-      plan: [],
-      lastVerdict: { verdict: 'fail', unmetRequired: 1 },
+      at: 1_700_000_000_000,
+      label: '执行',
+      detail: localizeTaskDetail('agent execution turn'),
+      phase: 'executing',
     },
-    `12:00:00 开始验证 — ${localizeTaskDetail('evaluating acceptance')}`,
-    true
-  );
+  ]);
+  const snapshot = {
+    taskId: 'task_1',
+    goal: '写一个文件',
+    phase: 'failed',
+    statusView: 'failed',
+    outcome: 'fail',
+    attempt: 1,
+    repairs: [],
+    failures: [],
+    evidenceCount: 0,
+    plan: [],
+    lastVerdict: { verdict: 'fail', unmetRequired: 1 },
+  };
+  const taskCard = [
+    formatTaskStatus(snapshot, timeline, true),
+    summarizeTaskRun(
+      {
+        snapshot,
+        outcome: 'fail',
+        verdictDetail: 'agent execution turn',
+        timeline,
+        turns: 1,
+      },
+      'zh'
+    ),
+  ].join('\n');
+  const refused = classifyProviderError({ errorMessage: 'connection refused' }).userMessage;
+  const diffFailed = formatGitDiffFailure(2, '退出码');
   const errorCard = renderTranscriptRows(
-    [{ id: 1, kind: 'error', text: tui('git diff failed: {error}', { error: '退出码 2' }) }],
+    [
+      { id: 1, kind: 'error', text: diffFailed },
+      { id: 2, kind: 'error', text: refused },
+      {
+        id: 3,
+        kind: 'error',
+        text: tui('git diff failed: {error}', { error: '退出码' }),
+      },
+    ],
     80
   )
     .map((row) => row.text)
@@ -815,6 +853,42 @@ for (const card of cards) {
   if (hits.length > 0) surfaceHits.push(`-- ${card.name}\n${hits.join('\n')}`);
   scanned.push(card);
 }
+
+{
+  const home = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-lang-data-')));
+  const workspace = path.join(home, 'ws');
+  const sessionsDir = path.join(workspace, '.moss', 'sessions');
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sessionsDir, 's1.jsonl'),
+    `${JSON.stringify({
+      type: 'message',
+      message: { role: 'user', content: 'moss' },
+      ts: 1,
+    })}\n`
+  );
+  fs.writeFileSync(
+    path.join(workspace, '.moss', 'tasks.jsonl'),
+    `${JSON.stringify({
+      taskId: 'task_1',
+      goal: '写一个文件',
+      acceptanceCriteria: [],
+      status: 'draft',
+      createdAt: 1,
+      updatedAt: 1,
+    })}\n`
+  );
+  const dataScreens = [['sessions', 'list'], ['sessions', 'search', 'moss'], ['tasks']];
+  for (const args of dataScreens) {
+    const shown = runCli(['--lang', 'zh', ...args], { cwd: workspace, LANG: 'C', LC_ALL: 'C' });
+    assert.notEqual(shown.status, null, `${args.join(' ')} timed out`);
+    const name = `data ${args.join(' ')}`;
+    scanned.push({ name, text: shown.text });
+    const hits = englishSentences(shown.text);
+    if (hits.length > 0) surfaceHits.push(`-- ${name}\n${hits.join('\n')}`);
+  }
+}
+
 assert.deepEqual(surfaceHits, [], `zh cards still have English:\n${surfaceHits.join('\n')}`);
 
 let mutationAttempts = 0;

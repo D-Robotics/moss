@@ -19,6 +19,7 @@ import {
   listTaskStateSnapshots,
   buildTaskTimeline,
   formatTaskTimeline,
+  localizeTaskDetail,
 } from '../core/task/task-store.js';
 import { listEvidenceRecords } from '../core/task-runtime/artifacts.js';
 import { listDeploymentRecords } from '../device/deployment.js';
@@ -71,6 +72,8 @@ const TASK_WORD_ZH: Record<string, string> = {
   idle: '空闲',
   completed: '已完成',
   aborted: '已中止',
+  fail: '失败',
+  pass: '通过',
 };
 
 /** Phase and status words. English stays the raw id so CLI tests keep their tokens. */
@@ -325,8 +328,19 @@ export function formatTaskStatus(
   }
   if (timeline) {
     lines.push(zh ? '时间线' : 'TIMELINE');
+    const shown = zh
+      ? timeline
+          .split('\n')
+          .map((line) => {
+            const mark = ' — ';
+            const at = line.lastIndexOf(mark);
+            if (at < 0) return line;
+            return `${line.slice(0, at)}${mark}${localizeTaskDetail(line.slice(at + mark.length), true)}`;
+          })
+          .join('\n')
+      : timeline;
     lines.push(
-      timeline
+      shown
         .split('\n')
         .map((line) => `  ${line}`)
         .join('\n')

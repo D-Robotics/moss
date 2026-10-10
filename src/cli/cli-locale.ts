@@ -68,7 +68,7 @@ export const SETUP_ZH: Readonly<Record<string, string>> = {
   'Base URL must be a full http(s) URL.': '地址必须是完整的 http(s) URL。',
   'Base URL saved as {baseUrl} (/v1 and extra paths removed).':
     '地址已规范为 {baseUrl}（已去掉 /v1 和多余路径）。',
-  'An API key is required.': '需要填写 API key。',
+  'An API key is required.': '需要填写密钥。',
   'Type a model name or its number.': '请输入模型名或序号。',
   'No models were listed. Type the model name.': '网关没有返回模型。请直接输入模型名。',
   'A key is already in the environment. Press Enter to use it (the value is not shown).':
@@ -80,7 +80,7 @@ export const SETUP_ZH: Readonly<Record<string, string>> = {
   'Gateway URL (https://host). A trailing /v1 is removed.':
     '网关地址（https://主机）。末尾的 /v1 会被去掉。',
   'Esc returns to the provider list.': 'Esc 返回选择服务商。',
-  'API key (hidden): {dots}': 'API key（不显示）：{dots}',
+  'API key (hidden): {dots}': '密钥（不显示）：{dots}',
   'Esc goes back one step.': 'Esc 返回上一步。',
   'Type the model name, then Enter.': '输入模型名，然后按 回车。',
   'Pick a model by number or name ({count} listed).': '用序号或名字选择模型（共 {count} 个）。',

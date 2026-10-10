@@ -524,6 +524,7 @@ const TASK_DETAIL_ZH: Readonly<Record<string, string>> = {
   'goal verify command exited 0': '目标验证命令退出码为 0',
   'no task contract found — define one with task_define first':
     '没有任务契约。请先用 task_define 定义。',
+  'agent execution turn': '模型执行回合',
 };
 
 /** User-facing timeline/progress text. Stored event details stay English. */
