@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { stdout as standardOutput } from 'node:process';
+import { WORKSPACE_WRITE_LIMIT_EN } from './workspace-write-copy.js';
 import { isHttpUrl } from '../provider/api-v1-url.js';
 import {
   auditResolvedCliConfig,
@@ -286,7 +287,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
     group:
       'safety & approval (v0.26: these are MODE overrides — read-only arms the read-only ceiling, never/ full, prompt/manual; rules live in permissions.*, not env)',
     vars: [
-      'MOSS_SAFETY_MODE',
+      `MOSS_SAFETY_MODE (${WORKSPACE_WRITE_LIMIT_EN})`,
       'MOSS_CLI_SAFETY_MODE (legacy alias of MOSS_SAFETY_MODE)',
       'MOSS_APPROVAL_POLICY',
       'MOSS_ASK_FOR_APPROVAL (legacy alias of MOSS_APPROVAL_POLICY)',
@@ -489,6 +490,7 @@ export function renderConfigHelp(): string {
     '  moss config set baseUrl https://your-gateway.example   # API root, not /v1 or /chat/completions',
     '  moss setup                                     # stores the API key (hidden prompt, safer than command line)',
     '  moss config set --project safetyMode workspace-write',
+    `  # ${WORKSPACE_WRITE_LIMIT_EN}`,
     '  moss config set approvalPolicy prompt',
     '  moss config set trustedTools exec,filesystem__*',
     '  moss config set deniedTools write_file,exec',

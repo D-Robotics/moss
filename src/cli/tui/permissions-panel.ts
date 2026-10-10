@@ -9,6 +9,10 @@
 import { clip, line, type TuiLine } from './text.js';
 import { tui } from './copy.js';
 import { TONE } from './theme.js';
+import {
+  WORKSPACE_WRITE_FILE_TOOLS_EN,
+  WORKSPACE_WRITE_SHELL_EN,
+} from '../workspace-write-copy.js';
 
 export interface PermissionPanelRule {
   level: string;
@@ -34,6 +38,8 @@ export function renderPermissionsPanel(view: PermissionPanelView): TuiLine[] {
     line(clip(tui('  mode  {mode}    Shift+Tab cycles', { mode: view.mode }), width), {
       dim: true,
     }),
+    line(clip(tui(`  ${WORKSPACE_WRITE_FILE_TOOLS_EN}`), width), { dim: true }),
+    line(clip(tui(`  ${WORKSPACE_WRITE_SHELL_EN}`), width), { dim: true }),
   ];
   if (view.rules.length === 0) {
     out.push(

@@ -3,6 +3,7 @@ import * as readline from 'node:readline';
 import { stdin as input, stderr as output } from 'node:process';
 import { cleanGatewayUrl } from '../provider/api-v1-url.js';
 import { isZhLocale, setupCopy } from './cli-locale.js';
+import { WORKSPACE_WRITE_LIMIT_EN } from './workspace-write-copy.js';
 import {
   loadCliConfigFile,
   loadConfigFile,
@@ -353,6 +354,7 @@ async function printSetupSuccess({
   );
   print(L('Avoid sharing or committing this file. Run `moss auth logout` to remove the key.'));
   print(L('Next: ask moss to look around this folder (`moss` or `moss "explain this project"`).'));
+  print(L(WORKSPACE_WRITE_LIMIT_EN));
 }
 
 /** Readline driver over `reduceFirstRun`. Prompts are the state machine's lines. */
