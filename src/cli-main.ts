@@ -109,6 +109,7 @@ import {
   isZhLocale,
   setupCopy,
   uiText,
+  wrapNoticeLines,
 } from './cli/cli-locale.js';
 import { setTuiLocale } from './cli/tui/copy.js';
 import { gitignoreNoticeForWorkspace } from './cli/gitignore-suggestion.js';
@@ -146,8 +147,13 @@ function parseCliArgsOrExit(argv: string[]): ReturnType<typeof parseCliArgs> {
   } catch (err) {
     console.error(`[moss] ${errorMessage(err)}`);
     console.error(uiText('Run `moss --help` for usage.', '运行 `moss --help` 查看用法。'));
-    process.exit(exitCodeForError(err));
+    process.exit(ExitCode.USAGE);
   }
+}
+
+function printWrappedNotice(text: string): void {
+  const columns = process.stderr.columns || process.stdout.columns || 80;
+  for (const line of wrapNoticeLines(text, columns)) console.error(line);
 }
 
 const parsedArgs = parseCliArgsOrExit(process.argv.slice(2));
@@ -512,10 +518,9 @@ async function main() {
       console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));
     }
   }
-  // The sentence says it is shown once. The latch is in memory (#17), so a
-  // new process may print it again. Doctor still reports the condition.
+  // Once per config dir. Doctor still reports the condition on every run.
   if (cliDetailForNotices !== 'quiet' && shouldShowFullDefaultNotice(resolvedConfig)) {
-    console.error(formatFullModeNotice());
+    printWrappedNotice(formatFullModeNotice());
   }
   const workspace = resolvedConfig.workspace;
   // Validate the workspace up front so a bad -C/--cd (or MOSS_WORKSPACE) yields

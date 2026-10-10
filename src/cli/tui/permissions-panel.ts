@@ -6,7 +6,7 @@
  * session rule. Adding a rule stays a command (`/permissions add …`) because
  * the spec has to be typed.
  */
-import { clip, line, type TuiLine } from './text.js';
+import { clip, line, wrap, type TuiLine } from './text.js';
 import { tui } from './copy.js';
 import { TONE } from './theme.js';
 import {
@@ -38,14 +38,18 @@ export function renderPermissionsPanel(view: PermissionPanelView): TuiLine[] {
     line(clip(tui('  mode  {mode}    Shift+Tab cycles', { mode: view.mode }), width), {
       dim: true,
     }),
-    line(clip(tui(`  ${WORKSPACE_WRITE_FILE_TOOLS_EN}`), width), { dim: true }),
-    line(clip(tui(`  ${WORKSPACE_WRITE_SHELL_EN}`), width), { dim: true }),
+    ...wrap(tui(`  ${WORKSPACE_WRITE_FILE_TOOLS_EN}`), width).map((text) =>
+      line(clip(text, width), { dim: true })
+    ),
+    ...wrap(tui(`  ${WORKSPACE_WRITE_SHELL_EN}`), width).map((text) =>
+      line(clip(text, width), { dim: true })
+    ),
   ];
   if (view.rules.length === 0) {
     out.push(
-      line(clip(tui('  no rules — full allows tools; deny still wins everywhere'), width), {
-        dim: true,
-      })
+      ...wrap(tui('  no rules — full allows tools; deny still wins everywhere'), width).map(
+        (text) => line(clip(text, width), { dim: true })
+      )
     );
   }
   view.rules.forEach((rule, index) => {

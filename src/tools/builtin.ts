@@ -21,9 +21,10 @@ import { taskTools } from './task-tools.js';
 import {
   IS_WIN,
   EXEC_DEFAULT_TIMEOUT_MS,
-  childEnv,
   globalToolStateManager,
   looksBinary,
+  openChildEnv,
+  takeShellNotices,
 } from './tool-helpers.js';
 
 export { looksBinary };
@@ -160,6 +161,9 @@ export const execTool: Tool = {
     const hideCredentialStream = /\.apikey-key\b/.test(commandText);
     const streamer = hideCredentialStream ? null : createRedactingChunkWriter(ctx.onToolOutput);
     const footnote = deviceEnvFootnote(String(input.command ?? ''));
+    const opened = await openChildEnv(ctx.workspaceDir, ctx.abortSignal);
+    const hooksNotice = (output = ''): string =>
+      takeShellNotices(ctx.sessionKey, opened, commandText, output);
     try {
       const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
       const result = await runProcess(shell, {
@@ -167,7 +171,7 @@ export const execTool: Tool = {
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
         signal: ctx.abortSignal,
-        env: await childEnv(ctx.workspaceDir, ctx.abortSignal),
+        env: opened.env,
         cwd: ctx.workspaceDir,
         // Live streaming: forward stdout chunks to the host (TUI/headless
         // renderer) so long-running commands show output incrementally.
@@ -229,7 +233,7 @@ export const execTool: Tool = {
         }
       }
       streamer?.flush();
-      return text + writebackWarning + footnote;
+      return text + writebackWarning + footnote + hooksNotice(`${result.stdout}\n${result.stderr}`);
     } catch (err) {
       streamer?.flush();
       const writebackWarning = formatRedactedWritebackWarning(
@@ -243,7 +247,8 @@ export const execTool: Tool = {
             : '';
         return (
           `Command failed (exit ${err.exitCode}):\n${output || err.message}${timedOut}${writebackWarning}` +
-          footnote
+          footnote +
+          hooksNotice(`${err.stdout}\n${err.stderr}`)
         );
       }
       throw err;

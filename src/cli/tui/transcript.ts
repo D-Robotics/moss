@@ -95,9 +95,47 @@ export function isShellCommandRow(text: string): boolean {
  * Compact tool results are a preview, not a dump — the reference CLI collapses
  * long output and expands it with ctrl+o (`claude-code-surface.md` §9). Verbose
  * shows the whole thing; compact keeps the first few lines plus a marker
- * pointing at the key that reveals the rest.
+ * pointing at the key that reveals the rest. Trailing `[moss]` lines stay
+ * visible: a long `git diff` must not hide the untrusted-workspace notice.
+ * The render bridge also peels those lines into their own rows.
  */
 export const RESULT_PREVIEW_LINES = 3;
+
+const HARNESS_NOTICE_LINE = /^\[moss\]\s+\S/;
+
+/** Body plus trailing `[moss]` notices. Blank lines between notices are dropped. */
+export function splitTrailingMossNotices(text: string): { body: string; notices: string[] } {
+  const lines = text.split('\n');
+  const notices: string[] = [];
+  while (lines.length > 0) {
+    const last = lines[lines.length - 1] ?? '';
+    if (last.trim() === '') {
+      lines.pop();
+      continue;
+    }
+    if (HARNESS_NOTICE_LINE.test(last.trim())) {
+      notices.unshift(last.trim());
+      lines.pop();
+      continue;
+    }
+    break;
+  }
+  return { body: lines.join('\n'), notices };
+}
+
+function compactPreview(
+  source: readonly string[],
+  limit: number
+): { shown: string[]; hidden: number } {
+  if (source.length <= limit) return { shown: [...source], hidden: 0 };
+  const notices: string[] = [];
+  let end = source.length;
+  while (end > limit && HARNESS_NOTICE_LINE.test(source[end - 1] ?? '')) {
+    notices.unshift(source[end - 1] ?? '');
+    end -= 1;
+  }
+  return { shown: source.slice(0, limit).concat(notices), hidden: end - limit };
+}
 /** Source dumps (writes, patches) stay readable without ctrl+o. */
 const CODE_PREVIEW_LINES = 24;
 /** Diff blocks get a larger window: a hunk with its context is one thought. */
@@ -649,9 +687,11 @@ export function renderTranscriptRow(
       const codeLike = source.some((raw) =>
         /^\s*(\+\s|-\s)?(#include|\/\/|\/\*|\*|template\b|namespace\b)/.test(raw)
       );
-      const shown = verbose
-        ? source
-        : source.slice(0, codeLike ? CODE_PREVIEW_LINES : RESULT_PREVIEW_LINES);
+      const preview = compactPreview(
+        source,
+        verbose ? source.length : codeLike ? CODE_PREVIEW_LINES : RESULT_PREVIEW_LINES
+      );
+      const shown = preview.shown;
       out.push(...headline);
       shown.forEach((raw, index) => {
         const tone = diffTone(raw);
@@ -685,11 +725,11 @@ export function renderTranscriptRow(
           out.push(line(clipped, codeLike ? {} : tone));
         });
       });
-      if (shown.length < source.length) {
+      if (preview.hidden > 0) {
         out.push(
           line(
             clip(
-              `${RESULT_INDENT}${tui('… {count} more lines · ctrl+o', { count: source.length - shown.length })}`,
+              `${RESULT_INDENT}${tui('… {count} more lines · ctrl+o', { count: preview.hidden })}`,
               width
             ),
             { dim: true }

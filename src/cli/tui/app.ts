@@ -30,6 +30,7 @@ import {
 } from 'ink';
 import type { MossAgent } from '../../core/agent/moss-agent.js';
 import { planGateEnabled } from '../../tools/plan-gate.js';
+import { userTextWithoutTurnContext } from '../../core/session/internal-transcript.js';
 import {
   TaskRuntime,
   formatDeploymentLine,
@@ -74,7 +75,14 @@ import {
   formatTaskSummaryLines,
   formatTaskVerdictLine,
 } from '../task-card.js';
-import { hasSessionUiOverride, isZhLocale } from '../cli-locale.js';
+import {
+  ENGLISH_UI_OFFER,
+  englishUiOfferPending,
+  hasSessionUiOverride,
+  isZhLocale,
+  setSessionUiLanguage,
+  writeUserLanguageSetting,
+} from '../cli-locale.js';
 import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
 import { setCliApprovalAsker } from '../approval.js';
 import { wrapApprovalAsker, wrapApprovalViewAsker } from '../permission-request.js';
@@ -182,7 +190,7 @@ import {
   runStatusLineCommand,
   type StatusCommandPayload,
 } from '../status-line.js';
-import { clip, line, padEndTo, rule, type TuiLine } from './text.js';
+import { clip, line, padEndTo, rule, wrap, type TuiLine } from './text.js';
 import { displayWidth } from '../terminal-text.js';
 import {
   chatInterruptNoticeLine,
@@ -516,6 +524,11 @@ export function TuiAppRoot({
   const [setupView, setSetupView] = useState<FirstRunView | undefined>(() =>
     options.firstRun ? initialFirstRunView(envBeforeDotenv) : undefined
   );
+  const [englishOffer, setEnglishOffer] = useState(
+    () => options.firstRun === true && englishUiOfferPending(true)
+  );
+  const englishOfferRef = useRef(englishOffer);
+  englishOfferRef.current = englishOffer;
   const setupSecretRef = useRef('');
   const setupEnvLoaded = useRef(false);
   if (!setupEnvLoaded.current && setupView?.apiKeyEnv) {
@@ -1023,7 +1036,7 @@ export function TuiAppRoot({
           const sessions = (await options.listSessions?.()) ?? [];
           const previous = sessions.find((s) => !s.current);
           if (previous) {
-            const title = previous.title?.trim() || previous.key;
+            const title = userTextWithoutTurnContext(previous.title ?? '') || previous.key;
             appendRow(
               store,
               'system',
@@ -2840,6 +2853,19 @@ export function TuiAppRoot({
     const setup = setupViewRef.current;
     if (setup) {
       const quitChord = key.ctrl && (chunk === 'c' || chunk === 'd');
+      if (!quitChord && englishOfferRef.current) {
+        if (chunk === 'e' || chunk === 'E') {
+          writeUserLanguageSetting('en');
+          setSessionUiLanguage('en');
+          setTuiLocale(false);
+        } else if (chunk || key.return || key.escape || key.upArrow || key.downArrow) {
+          writeUserLanguageSetting('auto');
+        } else {
+          return;
+        }
+        setEnglishOffer(false);
+        return;
+      }
       if (!quitChord) {
         if (setup.step === 'working') return;
         const locale = activeUiLocale(options.locale);
@@ -3894,14 +3920,18 @@ export function TuiAppRoot({
     ...(!helpOverlay && setupView
       ? [
           line(rule(columns)),
-          ...renderFirstRunLines(setupView, activeUiLocale(options.locale)).map((text) =>
-            line(
-              clip(`  ${text}`, columns),
-              (setupView.error ?? '').split('\n').some((part) => part.trim() === text)
-                ? { color: TONE.err }
-                : { dim: true }
-            )
-          ),
+          ...(englishOffer ? [ENGLISH_UI_OFFER] : [])
+            .concat(renderFirstRunLines(setupView, activeUiLocale(options.locale)))
+            .flatMap((text) =>
+              wrap(text, Math.max(8, columns - 2)).map((chunk) =>
+                line(
+                  clip(`  ${chunk}`, columns),
+                  (setupView.error ?? '').split('\n').some((part) => part.trim() === text)
+                    ? { color: TONE.err }
+                    : { dim: true }
+                )
+              )
+            ),
         ]
       : []),
     ...(!helpOverlay ? modelPickerLines : []),

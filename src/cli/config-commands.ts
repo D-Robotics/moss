@@ -249,6 +249,20 @@ export function renderConfigJson(
 
 /** Short usage — printed on error paths; points at `moss config --help`. */
 export function renderConfigUsage(): string {
+  if (isZhLocale()) {
+    return [
+      '用法：',
+      '  moss config                          显示解析后的值和来源',
+      '  moss config init [--project] [--force]',
+      '  moss config show [--json]',
+      '  moss config validate [--strict] [--json]',
+      '  moss config env                      Moss 实际读取的每个 MOSS_* 覆盖',
+      '  moss config set <key> <value>|<key>=<value> [--project]',
+      '  moss config unset <key> [--project]',
+      '',
+      '每个可设置的键和示例：moss config --help',
+    ].join('\n');
+  }
   return [
     'Usage:',
     '  moss config                          show resolved values and sources',
@@ -441,15 +455,76 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
   },
 ];
 
+const ENV_GROUP_ZH: Record<string, string> = {
+  'config & identity': '配置与身份',
+  'safety & approval (v0.26: these are MODE overrides — read-only arms the read-only ceiling, never/ full, prompt/manual; rules live in permissions.*, not env)':
+    '安全与审批（v0.26：这些是模式覆盖 — read-only 打开只读上限，never 对应 full，prompt 对应 manual；规则在 permissions.*，不在环境变量）',
+  'runs, loops & budgets': '运行、循环与预算',
+  'device (robotics closed loop)': '设备（机器人闭环）',
+  'context & compaction': '上下文与压缩',
+  'providers, models & fallback': '服务商、模型与回退',
+  'tools, exec & guardrails': '工具、执行与护栏',
+  'ui, logging & notifications': '界面、日志与通知',
+  'network & telemetry': '网络与遥测',
+  'test-only': '仅测试',
+  'read but IGNORED (model settings are config-only)': '会读到但忽略（模型设置只来自配置）',
+};
+
+const ENV_NOTE_ZH: Record<string, string> = {
+  'process env only; a project .env cannot set this': '仅进程环境；项目 .env 不能设置',
+  'process env or --config-file; a project .env cannot set this':
+    '进程环境或 --config-file；项目 .env 不能设置',
+  'legacy alias of MOSS_CONFIG_FILE; a project .env cannot set this':
+    'MOSS_CONFIG_FILE 的旧别名；项目 .env 不能设置',
+  'legacy alias of MOSS_PROFILE': 'MOSS_PROFILE 的旧别名',
+  'legacy alias of MOSS_SAFETY_MODE': 'MOSS_SAFETY_MODE 的旧别名',
+  'legacy alias of MOSS_APPROVAL_POLICY': 'MOSS_APPROVAL_POLICY 的旧别名',
+  'legacy — translated to allow rules on read': '旧键 — 读取时译成 allow 规则',
+  'legacy — translated to deny rules on read': '旧键 — 读取时译成 deny 规则',
+  'legacy alias of MOSS_CLI_AUTO_APPROVE': 'MOSS_CLI_AUTO_APPROVE 的旧别名',
+  'comma-separated nudge ids to suppress; unset leaves every nudge on':
+    '逗号分隔的要关掉的 nudge id；不设置则全部开启',
+  '1 enables the /plan approval gate; default off': '设为 1 打开 /plan 审批门；默认关闭',
+  'prefix of the MOSS_BUDGET_MAX_* keys': 'MOSS_BUDGET_MAX_* 键的前缀',
+  '1 enables the project-local experience experiment': '设为 1 打开项目本地经验实验',
+  'full|1|true|yes opts this process into destructive device operations':
+    'full|1|true|yes 让本进程允许毁灭性设备操作',
+  '1|true|yes|on; process env or --trust-workspace only, never a project .env':
+    '1|true|yes|on；仅进程环境或 --trust-workspace，不能写进项目 .env',
+  'comma-separated host or device-id allowlist': '逗号分隔的主机或设备 id 允许列表',
+  'prefix of every MOSS_DEVICE_* key': '所有 MOSS_DEVICE_* 键的前缀',
+  '1|true|yes|on skips the built-in rdk-docs MCP server':
+    '1|true|yes|on 跳过内置 rdk-docs MCP 服务器',
+  'npm spec or local path; process env only, not project config or .env':
+    'npm 规格或本地路径；仅进程环境，不是项目配置或 .env',
+  'legacy alias': '旧别名',
+  'en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale':
+    'en|zh；进程环境或 --lang；项目 .env 不能设置；优先级 flag > env > 配置 language > 系统区域',
+};
+
+function localizeEnvEntry(entry: string): string {
+  if (!isZhLocale()) return entry;
+  const withLimit = entry.replace(WORKSPACE_WRITE_LIMIT_EN, WORKSPACE_WRITE_LIMIT_ZH);
+  return withLimit.replace(/\(([^)]*)\)/g, (full, inner: string) => {
+    const note = ENV_NOTE_ZH[inner];
+    return note ? `（${note}）` : full;
+  });
+}
+
 export function renderConfigEnv(): string {
-  const lines: string[] = ['MOSS_* environment variables moss actually reads:'];
+  const zh = isZhLocale();
+  const lines: string[] = [
+    zh ? 'Moss 实际读取的 MOSS_* 环境变量：' : 'MOSS_* environment variables moss actually reads:',
+  ];
   for (const { group, vars } of MOSS_ENV_REFERENCE) {
-    lines.push('', `  ${group}`);
-    for (const v of vars) lines.push(`    ${v}`);
+    lines.push('', `  ${zh ? (ENV_GROUP_ZH[group] ?? group) : group}`);
+    for (const v of vars) lines.push(`    ${localizeEnvEntry(v)}`);
   }
   lines.push(
     '',
-    'Credentials belong in the config file or a provider-specific key var — never in shell history.'
+    zh
+      ? '凭据放在配置文件或服务商自己的密钥变量里 — 不要写进 shell 历史。'
+      : 'Credentials belong in the config file or a provider-specific key var — never in shell history.'
   );
   return lines.join('\n');
 }
@@ -552,6 +627,8 @@ function renderConfigHelpZh(): string {
     '  moss config set model <your-model>',
     '  moss config set rdkDocs false',
     '  moss config set rdkDocs.package ../rdk-docs-mcp',
+    '  moss config set language auto|en|zh   # 只写用户配置（不能 --project，项目 .env 也不能设置）',
+    '  # 界面语言优先级：--lang > MOSS_LANG > language > 系统区域。auto 仅在区域以 zh 开头时用中文。',
   ].join('\n');
 }
 

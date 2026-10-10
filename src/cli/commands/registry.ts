@@ -38,7 +38,7 @@ import { parsePermissionRuleSpec } from '../permission-rules.js';
 import { appendUserPermissionRule } from '../config-commands.js';
 import { stopAllBackgroundProcesses } from '../../core/tools/background-process-registry.js';
 import { probeDoctorModelPing } from '../doctor-model-ping.js';
-import { loadCliConfigFile } from '../config.js';
+import { envBeforeDotenv, loadCliConfigFile } from '../config.js';
 import {
   configuredBaseUrl,
   formatCostEstimate,
@@ -840,11 +840,19 @@ const languageCommand: CommandSpec = {
       }
     }
     const language = effectiveUiLanguage();
+    const envLang = envBeforeDotenv.MOSS_LANG?.trim();
+    const override =
+      save && envLang
+        ? uiText(
+            ` MOSS_LANG=${envLang} will override this on the next start.`,
+            ` 下次启动时 MOSS_LANG=${envLang} 会覆盖它。`
+          )
+        : '';
     ctx.say(
       'system',
       uiText(
-        `UI language: ${language}${save ? ' (saved to the user config)' : ' (this session)'}`,
-        `界面语言：${language === 'zh' ? '中文' : 'English'}${save ? '（已写入用户配置）' : '（仅本会话）'}`
+        `UI language: ${language}${save ? ' (saved to the user config)' : ' (this session)'}${override}`,
+        `界面语言：${language === 'zh' ? '中文' : 'English'}${save ? '（已写入用户配置）' : '（仅本会话）'}${override}`
       )
     );
   },

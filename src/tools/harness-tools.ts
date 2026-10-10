@@ -21,6 +21,7 @@ import {
   runWorkspaceTests,
 } from './test-runners.js';
 import type { TestResult } from './test-runners.js';
+import { recordHarnessSuiteEvidence } from '../core/task/suite-evidence.js';
 
 const DEFAULT_TEST_TIMEOUT_MS = 120_000;
 const DEFAULT_BUILD_TIMEOUT_MS = 120_000;
@@ -49,7 +50,7 @@ export interface VerifyResult {
 export const runTestsTool: Tool = {
   name: 'run_tests',
   description:
-    'Run tests and return structured pass/fail counts and failing names. With no command, detect pytest, go test, cargo test, npm test, or make test. Pass file to run one spec (Python under pytest, otherwise node --test). Prefer file while iterating on a single spec.',
+    'Run tests and return structured pass/fail counts and failing names. With no command, detect pytest, unittest, go test, cargo test, npm test, or make test. Pass file to run one spec (Python under pytest or unittest, otherwise node --test). Prefer file while iterating on a single spec.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -68,7 +69,8 @@ export const runTestsTool: Tool = {
       file: {
         type: 'string',
         description:
-          'Run one file instead of the full suite. Python files use pytest; other ' +
+          'Run one file instead of the full suite. Python files use pytest when it ' +
+          'is installed, otherwise unittest for unittest modules; other ' +
           'files use `node --test`. Path is relative to the workspace and must stay ' +
           'inside it. When set, `command` is ignored.',
       },
@@ -81,7 +83,18 @@ export const runTestsTool: Tool = {
   async execute(input, ctx: ToolContext) {
     // Floor is 5s so a caller cannot set a budget shorter than one scheduler slice.
     const timeoutMs = Math.max(5000, Number(input?.timeout_ms) || DEFAULT_TEST_TIMEOUT_MS);
-    return runWorkspaceTests(ctx, input, timeoutMs);
+    const text = await runWorkspaceTests(ctx, input, timeoutMs);
+    const testsPassed = suitePassedFlag(text);
+    if (testsPassed !== undefined) {
+      await recordHarnessSuiteEvidence({
+        workspaceDir: ctx.workspaceDir,
+        taskTurn: ctx.goalExecWait === true,
+        source: 'run_tests',
+        testsPassed,
+        output: text,
+      });
+    }
+    return text;
   },
 };
 
@@ -222,9 +235,31 @@ export const verifyFixTool: Tool = {
     }
 
     result.durationMs = Date.now() - startedAt;
-    return formatVerifyResult(result);
+    const text = formatVerifyResult(result);
+    await recordHarnessSuiteEvidence({
+      workspaceDir: ctx.workspaceDir,
+      taskTurn: ctx.goalExecWait === true,
+      source: 'verify_fix',
+      ...(result.buildSkipped || result.buildNotRun ? {} : { buildPassed: result.buildOk }),
+      ...(result.typecheckSkipped || result.typecheckNotRun
+        ? {}
+        : { typecheckPassed: result.typecheckOk }),
+      ...(result.testsSkipped || result.testsNotRun || result.testsUnknown
+        ? {}
+        : { testsPassed: result.testsOk }),
+      output: text,
+    });
+    return text;
   },
 };
+
+function suitePassedFlag(text: string): boolean | undefined {
+  const overall = text.match(/overall tests_pass=(true|false)/);
+  if (overall) return overall[1] === 'true';
+  if (text.includes('tests_pass=true') && !text.includes('tests_pass=false')) return true;
+  if (text.includes('tests_pass=false')) return false;
+  return undefined;
+}
 
 export const harnessTools: Tool[] = [runTestsTool, verifyFixTool];
 

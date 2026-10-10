@@ -23,6 +23,7 @@ import {
   type UiLanguageResolution,
   type UiLanguageSource,
 } from '../utils/ui-language.js';
+import { wrap } from './tui/text.js';
 import { WORKSPACE_WRITE_LIMIT_EN, WORKSPACE_WRITE_LIMIT_ZH } from './workspace-write-copy.js';
 
 export {
@@ -228,17 +229,23 @@ export function uiText(en: string, zh: string): string {
  * Install UI language for this process.
  * Precedence: `--lang` > `MOSS_LANG` > user config `language` > system locale.
  * `MOSS_LANG` and the system locale are read from the environment captured
- * before a project `.env` is applied. Returns an error message when
- * `MOSS_LANG` is set to something other than `en` or `zh`.
+ * before a project `.env` is applied. An invalid `MOSS_LANG` warns once and
+ * falls through to auto so it does not break every command; `--lang` still
+ * wins. An invalid config `language` warns and is treated as `auto`.
+ * Returns an error message only for an invalid `--lang` that reached here.
  */
 export function installCliUiLanguage(options: { flag?: string } = {}): string | undefined {
   const env = envBeforeDotenv;
-  const envLang = env.MOSS_LANG;
+  let envLang = env.MOSS_LANG;
+  const warnings: string[] = [];
+  const systemIsZh = uiLanguageFromSystemLocale(systemLocale(env)) === 'zh';
   if (envLang !== undefined && envLang.trim() !== '' && !parseExplicitUiLanguage(envLang)) {
-    const systemIsZh = uiLanguageFromSystemLocale(systemLocale(env)) === 'zh';
-    return systemIsZh
-      ? `MOSS_LANG 只能是 en 或 zh，收到「${envLang}」。`
-      : `MOSS_LANG must be en|zh, got "${envLang}".`;
+    warnings.push(
+      systemIsZh
+        ? `[moss] MOSS_LANG 只能是 en 或 zh，收到「${envLang}」，已按 auto 处理。`
+        : `[moss] MOSS_LANG must be en|zh, got "${envLang}"; using auto.`
+    );
+    envLang = undefined;
   }
   let configLanguage: string | undefined;
   try {
@@ -246,6 +253,17 @@ export function installCliUiLanguage(options: { flag?: string } = {}): string | 
     if (typeof stored.language === 'string') configLanguage = stored.language;
   } catch {
     configLanguage = undefined;
+  }
+  if (
+    configLanguage !== undefined &&
+    configLanguage.trim() !== '' &&
+    !parseLanguageSetting(configLanguage)
+  ) {
+    warnings.push(
+      systemIsZh
+        ? `[moss] 配置 language「${configLanguage}」不是 auto、en 或 zh，已按 auto 处理。`
+        : `[moss] config language "${configLanguage}" is not auto|en|zh; using auto.`
+    );
   }
   try {
     installUiLanguage(
@@ -260,6 +278,7 @@ export function installCliUiLanguage(options: { flag?: string } = {}): string | 
     const message = err instanceof Error ? err.message : String(err);
     return message;
   }
+  for (const warning of warnings) console.error(warning);
   return undefined;
 }
 
@@ -296,6 +315,11 @@ export function formatInteractionModeNotice(mode: string, locale?: string): stri
       };
   const label = labels[mode] ?? mode;
   return zh ? `[moss] 交互模式：${label}` : `[moss] Interaction mode: ${label}`;
+}
+
+/** Wrap a startup notice to the terminal width so a 60-column screen does not clip it. */
+export function wrapNoticeLines(text: string, columns = 80): string[] {
+  return wrap(text, Math.max(20, columns));
 }
 
 /** One-shot notice when full mode has no deny rules. */
@@ -347,6 +371,25 @@ export function shouldOfferEnglishUi(input: {
   if (input.source && input.source !== 'locale') return false;
   return true;
 }
+
+/** True when plain `moss` / `moss setup` should offer the one-key English switch. */
+export function englishUiOfferPending(tty = true): boolean {
+  let configLanguage: string | undefined;
+  try {
+    const stored = loadConfigFile();
+    if (typeof stored.language === 'string') configLanguage = stored.language;
+  } catch {
+    configLanguage = undefined;
+  }
+  return shouldOfferEnglishUi({
+    tty,
+    systemLocale: systemLocale(envBeforeDotenv),
+    configLanguage,
+    source: uiLanguageResolution()?.source,
+  });
+}
+
+export const ENGLISH_UI_OFFER = '界面语言：中文。按 e 切换为 English，其他键继续。';
 
 /** One config-show line for the resolved UI language. */
 export function formatUiLanguageLine(): string {

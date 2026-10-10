@@ -217,6 +217,9 @@ export const ZH: Readonly<Record<string, string>> = {
   ' · now ~{count} tokens': ' · 现在约 {count} tokens',
 
   // ── help overlay (app.ts / help.ts) ────────────────────────────────────
+  Language: '语言',
+  'PgUp / PgDn / wheel': 'PgUp / PgDn / 滚轮',
+  click: '点击',
   prefixes: '前缀',
   shortcuts: '快捷键',
   'all commands': '全部命令',

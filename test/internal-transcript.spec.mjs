@@ -20,6 +20,13 @@ const planning = [
 assert.equal(sessionTitleFromTexts([planning, '[System] keep going']), 'add a twenty-line helper');
 assert.equal(sessionTitleFromTexts(['[System] only']), undefined);
 assert.equal(sessionTitleFromTexts(['what is the board status?']), 'what is the board status?');
+assert.equal(
+  sessionTitleFromTexts([
+    'check the camera\n\n<turn-context>\n# Environment\nworkspace: /tmp\n</turn-context>',
+  ]),
+  'check the camera'
+);
+assert.equal(sessionTitleFromTexts(['hi <turn-context> # Environment workspace /tmp']), 'hi');
 
 assert.equal(
   selectNudgeUserText([planning, '[System] npm test', 'what is the board status?']),

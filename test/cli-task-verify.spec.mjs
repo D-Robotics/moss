@@ -180,4 +180,31 @@ assert.equal(latest?.status, 'active', 'an accepted contract is reopened, not re
   );
 }
 
+{
+  // The acceptance command must run in the task workspace. A marker that
+  // exists only there fails the command; the process cwd does not have it,
+  // so a cwd-less re-run would stay PASS.
+  const brokenDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-task-verify-cwd-'));
+  const marker = 'BROKEN_MARKER';
+  const command = `node -e "process.exit(require('node:fs').existsSync('${marker}')?1:0)"`;
+  const broken = await createDraftTask(brokenDir, 'npm test stays green', {
+    acceptanceCommand: command,
+  });
+  const first = await verifyTaskOnce(brokenDir, { taskId: broken.taskId });
+  assert.equal(first.exitCode, 0, first.summary);
+  assert.equal((await getTaskStateSnapshot(brokenDir, broken.taskId)).phase, 'accepted');
+  const accepted = (await listTaskRecords(brokenDir)).find((task) => task.taskId === broken.taskId);
+  await appendTaskRecord(brokenDir, { ...accepted, status: 'accepted', updatedAt: Date.now() });
+  fs.writeFileSync(path.join(brokenDir, marker), 'broken\n');
+  const again = await verifyTaskOnce(brokenDir, { taskId: broken.taskId });
+  assert.equal(again.exitCode, 1, again.summary);
+  assert.match(again.summary, /Regression/);
+  assert.match(again.summary, /previously PASS, now FAIL/);
+  assert.equal((await getTaskStateSnapshot(brokenDir, broken.taskId)).phase, 'diagnosing');
+  const reopened = (await listTaskRecords(brokenDir)).find((task) => task.taskId === broken.taskId);
+  assert.equal(reopened?.status, 'active');
+  const notes = await listTaskEvents(brokenDir, broken.taskId);
+  assert.ok(notes.some((event) => event.type === 'note' && event.data?.kind === 'regression'));
+}
+
 console.log('[PASS] cli task verify');

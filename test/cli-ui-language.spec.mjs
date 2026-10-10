@@ -13,13 +13,15 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { auditResolvedCliConfig, mergeConfigFiles } from '../dist/cli/config.js';
+import { auditResolvedCliConfig, envBeforeDotenv, mergeConfigFiles } from '../dist/cli/config.js';
+import { runRegistryCommand } from '../dist/cli/commands/registry.js';
 import {
   buildAnswerLanguageLayer,
   clearUiLanguage,
   resolveUiLanguage,
   shouldOfferEnglishUi,
 } from '../dist/cli/cli-locale.js';
+import { setTuiLocale } from '../dist/cli/tui/copy.js';
 import { installUiLanguage } from '../dist/utils/ui-language.js';
 import { formatDeviceConnectError } from '../dist/device/device-connect-error.js';
 import { SshDeviceConnection } from '../dist/device/ssh-device-connection.js';
@@ -502,6 +504,180 @@ for (const args of zhSurfaces) {
   assert.match(rejected.text, /user setting|用户配置/);
   const projectFile = path.join(rejected.workspace, '.moss', 'config.json');
   assert.equal(fs.existsSync(projectFile), false);
+}
+
+{
+  const badEnv = runCli(['--help'], { MOSS_LANG: 'fr', LANG: 'C', LC_ALL: 'C' });
+  assert.equal(badEnv.status, 0, badEnv.text);
+  assert.match(badEnv.text, /MOSS_LANG must be en\|zh/);
+  assert.match(badEnv.text, /Most useful/);
+  const override = runCli(['--lang', 'en', '--help'], {
+    MOSS_LANG: 'fr',
+    LANG: 'zh_CN.UTF-8',
+    LC_ALL: 'zh_CN.UTF-8',
+  });
+  assert.equal(override.status, 0, override.text);
+  assert.match(override.stderr ?? '', /MOSS_LANG/);
+  assertNoHan(override.stdout ?? '', '--lang en overrides a bad MOSS_LANG');
+  const badFlag = runCli(['--lang', 'fr', '--help'], { LANG: 'C', LC_ALL: 'C' });
+  assert.equal(badFlag.status, 2, badFlag.text);
+  const missing = runCli(['--lang'], { LANG: 'C', LC_ALL: 'C' });
+  assert.equal(missing.status, 2, missing.text);
+  assert.match(missing.text, /--lang requires a value/);
+  const missingZh = runCli(['--lang'], { LANG: 'zh_CN.UTF-8', LC_ALL: 'zh_CN.UTF-8' });
+  assert.equal(missingZh.status, 2, missingZh.text);
+  assert.match(missingZh.text, /--lang 需要一个值/);
+  const badConfig = runCli(['--help'], {
+    LANG: 'C',
+    LC_ALL: 'C',
+    config: '{"language":"fr"}\n',
+  });
+  assert.equal(badConfig.status, 0, badConfig.text);
+  assert.match(badConfig.text, /config language "fr" is not auto\|en\|zh/);
+}
+
+const ALLOWED_EN = new Set(
+  `moss setup doctor config auth update resume fork mcp device skill plugins migrate sessions tasks task web agent
+help model status language lang permissions mode plan goal compact clear diff export init stop context usage agents review
+en zh auto json http https api repl tui mcp node npm git github linux macos windows posix
+deepseek openai anthropic qwen ripgrep path token baseurl url key env var
+ok warn fail pass full manual plan stdio bash ssh id dir cwd true false yes no default
+add list remove test show set unset validate create delete search export run status timeline resume view verify fork init
+unprobed bing bocha brave exa npx ctrl tab esc enter home opt tmp boot etc
+provider profile version workspace runtime search detail quiet verbose mock json
+accept edits read only workspace write full access never prompt
+info processes resources temperature robotics network cameras fleet
+allow ask deny none enabled disabled
+mit mit
+skills soul commands agents persona
+stdin stdout stderr tty pty
+grep mkdir chmod printf
+d robotics rdk docs
+npx`
+    .split(/\s+/)
+    .map((word) => word.toLowerCase())
+);
+const GLUE = new Set(
+  'the and for with from this that are not you your when will can has have was were into than then also only must should but its been they their about after before where which what how does did using used still every other same more without within under over once requires require missing found available install please press type enter choose saved'.split(
+    ' '
+  )
+);
+
+function stripAnsi(text) {
+  let out = '';
+  for (let i = 0; i < text.length; i += 1) {
+    if (text.charCodeAt(i) !== 0x1b) {
+      out += text[i];
+      continue;
+    }
+    const end = text.indexOf('m', i);
+    i = end === -1 ? text.length : end;
+  }
+  return out;
+}
+
+function englishSentences(text) {
+  const hits = [];
+  for (const rawLine of text.split('\n')) {
+    const plain = stripAnsi(rawLine);
+    if (/^\s*(\$ )?(moss\b|\/[a-z]|git\b|npm\b|npx\b|printf\b|echo\b|node\b)/i.test(plain))
+      continue;
+    const stripped = plain
+      .replace(/`[^`]*`/g, ' ')
+      .replace(/https?:\/\/\S+/g, ' ')
+      .replace(/--?[A-Za-z0-9][\w-]*/g, ' ')
+      .replace(/\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/g, ' ')
+      .replace(/\b[A-Z][A-Z0-9_]{2,}\b/g, ' ')
+      .replace(/[~./][\w./~-]*/g, ' ')
+      .replace(/[<>]/g, ' ');
+    const words = stripped.match(/[A-Za-z][A-Za-z0-9_'-]{2,}/g) ?? [];
+    const leftover = words.filter((word) => {
+      const lower = word.toLowerCase();
+      if (ALLOWED_EN.has(lower)) return false;
+      if (/^[a-z]+[-_][a-z0-9_-]+$/i.test(word)) return false;
+      return true;
+    });
+    const glue = leftover.filter((word) => GLUE.has(word.toLowerCase())).length;
+    if (leftover.length >= 4 || (leftover.length >= 3 && glue >= 1) || glue >= 2) {
+      hits.push(`${plain.trim()}  << ${leftover.join(' ')}`);
+    }
+  }
+  return hits;
+}
+
+const zhSurfacesAll = [
+  ['--help'],
+  ['--help', '--all'],
+  ['config', '--help'],
+  ['config', 'env'],
+  ['config', 'show'],
+  ['doctor'],
+  ['setup', '--help'],
+  ['auth', '--help'],
+  ['update', '--help'],
+  ['resume', '--help'],
+  ['fork', '--help'],
+  ['mcp', '--help'],
+  ['device', '--help'],
+  ['skill', '--help'],
+  ['plugins', '--help'],
+  ['migrate', '--help'],
+  ['tasks', '--help'],
+  ['task', '--help'],
+  ['sessions', '--help'],
+  ['web', '--help'],
+  ['agent', '--help'],
+];
+for (const args of zhSurfacesAll) {
+  const shown = runCli(['--lang', 'zh', ...args], { LANG: 'C', LC_ALL: 'C' });
+  assert.notEqual(shown.status, null, `${args.join(' ')} timed out`);
+  const hits = englishSentences(shown.text);
+  assert.deepEqual(hits, [], `--lang zh ${args.join(' ')} still has English:\n${hits.join('\n')}`);
+}
+
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-lang-save-'));
+  const prevConfig = process.env.MOSS_CONFIG_DIR;
+  const prevEnvLang = envBeforeDotenv.MOSS_LANG;
+  process.env.MOSS_CONFIG_DIR = dir;
+  clearUiLanguage();
+  try {
+    envBeforeDotenv.MOSS_LANG = 'zh';
+    installUiLanguage({ language: 'en', source: 'flag', setting: 'en' });
+    const english = [];
+    assert.equal(
+      await runRegistryCommand('/language en save', {
+        say: (_kind, text) => english.push(text),
+      }),
+      true
+    );
+    assert.match(english.join('\n'), /MOSS_LANG=zh will override this on the next start/);
+
+    envBeforeDotenv.MOSS_LANG = 'en';
+    installUiLanguage({ language: 'zh', source: 'flag', setting: 'zh' });
+    const chinese = [];
+    await runRegistryCommand('/language zh save', {
+      say: (_kind, text) => chinese.push(text),
+    });
+    assert.match(chinese.join('\n'), /下次启动时 MOSS_LANG=en 会覆盖它/);
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
+    assert.equal(saved.language, 'zh');
+
+    delete envBeforeDotenv.MOSS_LANG;
+    const quiet = [];
+    await runRegistryCommand('/language zh save', {
+      say: (_kind, text) => quiet.push(text),
+    });
+    assert.equal(quiet.join('\n').includes('会覆盖'), false);
+    assert.equal(quiet.join('\n').includes('will override'), false);
+  } finally {
+    if (prevEnvLang === undefined) delete envBeforeDotenv.MOSS_LANG;
+    else envBeforeDotenv.MOSS_LANG = prevEnvLang;
+    if (prevConfig === undefined) delete process.env.MOSS_CONFIG_DIR;
+    else process.env.MOSS_CONFIG_DIR = prevConfig;
+    clearUiLanguage();
+    setTuiLocale(false);
+  }
 }
 
 console.log('[PASS] cli ui language');
