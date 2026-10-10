@@ -1,5 +1,4 @@
 import type { AcceptanceCriterion, TaskContract, TaskContractStatus } from '../contracts/task.js';
-import { formatAcceptanceVerdict } from '../contracts/task.js';
 import type { TaskPlanStep } from '../contracts/task-runtime.js';
 import { isTerminalTaskPhase } from '../contracts/task-runtime.js';
 import type { Tool } from '../core/tools/tool-types.js';
@@ -13,7 +12,8 @@ import {
   tryAppendTaskEvent,
   emitAcceptanceLifecycle,
 } from '../core/task/task-store.js';
-import { evaluateContractAcceptance } from '../core/task/verdict.js';
+import { createTaskVerdictProvider, isCommittedTaskVerdict } from '../core/task/verdict.js';
+import { persistedAcceptanceCommand } from '../core/task/acceptance-authority.js';
 
 // Canonical artifact IO lives in core (shared task runtime); re-exported here
 // to keep the SDK surface stable.
@@ -187,19 +187,20 @@ export const taskAcceptanceTool: Tool = {
     if (!task) {
       return `Error: task_acceptance: task ${taskId} not found — check task ids with the define output, or omit task_id to use the latest contract.`;
     }
-    const result = await evaluateContractAcceptance(ctx.workspaceDir, task.taskId, ctx.abortSignal);
-    if (!result) {
-      return `Error: task_acceptance: task ${task.taskId} disappeared from the store.`;
-    }
+    const command = await persistedAcceptanceCommand(ctx.workspaceDir, task.taskId);
+    const result = await createTaskVerdictProvider({
+      workspaceDir: ctx.workspaceDir,
+      ...(command ? { command } : {}),
+    }).evaluate(task.taskId, ctx.abortSignal);
     await emitAcceptanceLifecycle(
       ctx.workspaceDir,
       task.taskId,
-      result.verdict.verdict === 'pass',
-      formatAcceptanceVerdict(result.verdict, result.task),
-      'contract',
-      result.verdict.verdict === 'pass' ? undefined : ctx.abortSignal
+      result.passed,
+      result.detail,
+      result.source,
+      isCommittedTaskVerdict(result) ? undefined : ctx.abortSignal
     );
-    return formatAcceptanceVerdict(result.verdict, result.task);
+    return result.detail;
   },
 };
 

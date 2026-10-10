@@ -45,6 +45,7 @@ export interface AgentLoopMutableState {
   promptPruneCompactionAttempted: boolean;
   promptPruneCompactionSucceeded: boolean;
   hasMoreToolCalls: boolean;
+  taskAcceptanceCommitted: boolean;
   compactionSummary: Message | undefined;
   pendingMessages: Message[];
   finalText: string;
@@ -100,6 +101,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     promptPruneCompactionAttempted: false,
     promptPruneCompactionSucceeded: false,
     hasMoreToolCalls: true,
+    taskAcceptanceCommitted: false,
     compactionSummary: undefined,
     pendingMessages: [],
     finalText: '',

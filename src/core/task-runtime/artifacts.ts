@@ -14,6 +14,7 @@ import { listDeploymentRecords } from '../../device/deployment.js';
 import { getRootLogger } from '../../logger.js';
 import { redactEgress } from '../../safety/tool-output-redact.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
+import { withTaskEventLock } from '../task/task-store.js';
 
 const jsonlLog = getRootLogger().child('task-jsonl');
 
@@ -48,11 +49,23 @@ export interface TaskArtifacts {
  * The first skip for a file warns once; later reads only debug.
  */
 export async function readJsonlFile<T>(file: string): Promise<T[]> {
+  const before = await readPendingAppend(file);
   let raw: string;
   try {
     raw = await fs.readFile(file, 'utf8');
-  } catch {
-    return [];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+  // An interrupted writer retains a durable prepare record. Never replay its
+  // uncertain tail, including when both the original sync and rollback failed.
+  const after = await readPendingAppend(file);
+  const pending =
+    before === undefined ? after : after === undefined ? before : Math.min(before, after);
+  if (pending !== undefined) {
+    const bytes = Buffer.from(raw);
+    if (pending > bytes.length) throw new Error(`unconfirmed task append: ${file}`);
+    raw = bytes.subarray(0, pending).toString('utf8');
   }
   const rows: T[] = [];
   let skipped = 0;
@@ -77,6 +90,44 @@ export async function readJsonlFile<T>(file: string): Promise<T[]> {
   return rows;
 }
 
+async function readPendingAppend(file: string): Promise<number | undefined> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(`${file}.pending`, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+  const pending = JSON.parse(raw) as { originalSize?: unknown };
+  if (!Number.isSafeInteger(pending.originalSize) || Number(pending.originalSize) < 0) {
+    throw new Error(`unconfirmed task append: ${file}`);
+  }
+  return Number(pending.originalSize);
+}
+
+async function syncParentDirectory(file: string): Promise<void> {
+  // Windows does not expose directory fsync through Node. File barriers still
+  // run on Windows; POSIX additionally persists directory entries.
+  if (process.platform === 'win32') return;
+  const directory = await fs.open(path.dirname(file), 'r');
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
+}
+
+async function prepareAppend(file: string, originalSize: number): Promise<void> {
+  const prepare = await fs.open(file, 'wx');
+  try {
+    await prepare.writeFile(JSON.stringify({ originalSize }), 'utf8');
+    await prepare.sync();
+    await syncParentDirectory(file);
+  } finally {
+    await prepare.close();
+  }
+}
+
 async function readJsonl<T>(file: string): Promise<T[]> {
   return readJsonlFile<T>(file);
 }
@@ -93,9 +144,58 @@ export async function appendJsonlFile(
   signal?: AbortSignal
 ): Promise<void> {
   signal?.throwIfAborted();
+  if ((await readPendingAppend(file)) !== undefined) {
+    throw new Error(`unconfirmed task append requires recovery: ${file}`);
+  }
   await ensureTrailingNewline(file);
   signal?.throwIfAborted();
-  await fs.appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
+  const previous = await fs.stat(file).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined;
+    throw error;
+  });
+  const originalSize = previous?.size ?? 0;
+  const pendingFile = `${file}.pending`;
+  await prepareAppend(pendingFile, originalSize);
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+  try {
+    signal?.throwIfAborted();
+    await fs.appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
+    handle = await fs.open(file, 'r+');
+    await handle.sync();
+    if (!previous) await syncParentDirectory(file);
+    await handle.close();
+    handle = undefined;
+    await fs.unlink(pendingFile);
+    await syncParentDirectory(pendingFile);
+  } catch (error) {
+    // Callers hold the workspace write lock. A failed sync must not leave a
+    // process-visible accepted record which replay would mistake for success.
+    // If the final directory barrier failed after unlink, restore the bounded
+    // prepare record before attempting compensation.
+    await readPendingAppend(file)
+      .then(async (pending) => {
+        if (pending === undefined) await prepareAppend(pendingFile, originalSize);
+      })
+      .catch(() => {});
+    const rollback = handle ?? (await fs.open(file, 'r+').catch(() => undefined));
+    try {
+      if (rollback) {
+        await rollback.truncate(originalSize);
+        await rollback.sync();
+        await fs.unlink(pendingFile).catch((unlinkError: NodeJS.ErrnoException) => {
+          if (unlinkError.code !== 'ENOENT') throw unlinkError;
+        });
+        await syncParentDirectory(pendingFile);
+      }
+    } catch {
+      // Preserve the original IO failure; failed compensation never attests PASS.
+    } finally {
+      if (rollback !== handle) await rollback?.close().catch(() => {});
+    }
+    throw error;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
 }
 
 async function ensureTrailingNewline(file: string): Promise<void> {
@@ -126,10 +226,11 @@ async function appendJsonl(
   signal?: AbortSignal
 ): Promise<void> {
   signal?.throwIfAborted();
-  ensureMossRuntimeGitignore(workspaceDir);
-  const dir = path.join(workspaceDir, '.moss');
-  await fs.mkdir(dir, { recursive: true });
-  await appendJsonlFile(path.join(dir, name), record, signal);
+  await withTaskEventLock(workspaceDir, async () => {
+    ensureMossRuntimeGitignore(workspaceDir);
+    const dir = path.join(workspaceDir, '.moss');
+    await appendJsonlFile(path.join(dir, name), record, signal);
+  });
 }
 
 export async function appendTaskRecord(

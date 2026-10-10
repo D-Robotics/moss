@@ -139,9 +139,9 @@ async function compensatePublishedOwner(
 
 /**
  * Acquire the single recovery gate. A crashed gate owner is replaced only
- * after exact token revalidation plus an ESRCH probe. Every canonical-lock
- * operation goes through this gate, so the rename gap cannot admit a second
- * writer; contenders race to hard-link exactly one complete successor owner.
+ * after claiming that dead owner's generation, then revalidating its token
+ * and ESRCH. A stranded reclaim claim remains fail-closed: recursively
+ * reclaiming that guard would recreate the same unprotected rename race.
  */
 async function tryAcquireRecoveryGate(
   recoveryPath: string,
@@ -151,21 +151,34 @@ async function tryAcquireRecoveryGate(
   if (await tryCreateOwner(recoveryPath, nextOwner, operations)) return true;
   const observed = await readOwner(recoveryPath);
   if (!observed || processIsAlive(observed.pid)) return false;
-
-  const current = await readOwner(recoveryPath);
-  if (!current || current.token !== observed.token || processIsAlive(current.pid)) return false;
-  const quarantinePath = `${recoveryPath}.recovered-${nextOwner.token}`;
+  const generation = crypto.createHash('sha256').update(observed.token).digest('hex');
+  const claimPath = `${recoveryPath}.reclaim-${generation}`;
+  if (!(await tryCreateOwner(claimPath, nextOwner, operations))) return false;
+  let published = false;
   try {
-    await fs.rename(recoveryPath, quarantinePath);
-    await operations.syncDirectory(path.dirname(recoveryPath));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
-    throw error;
-  }
-  try {
-    return await tryCreateOwner(recoveryPath, nextOwner, operations);
+    const current = await readOwner(recoveryPath);
+    if (!current || current.token !== observed.token || processIsAlive(current.pid)) return false;
+    const quarantinePath = `${recoveryPath}.recovered-${nextOwner.token}`;
+    try {
+      await fs.rename(recoveryPath, quarantinePath);
+      await operations.syncDirectory(path.dirname(recoveryPath));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+    try {
+      published = await tryCreateOwner(recoveryPath, nextOwner, operations);
+      return published;
+    } finally {
+      await fs.rm(quarantinePath, { force: true }).catch(() => {});
+    }
   } finally {
-    await fs.rm(quarantinePath, { force: true }).catch(() => {});
+    try {
+      await releaseOwnedPath(claimPath, nextOwner.token, operations);
+    } catch (error) {
+      if (published) await compensatePublishedOwner(recoveryPath, nextOwner.token, operations);
+      throw error;
+    }
   }
 }
 

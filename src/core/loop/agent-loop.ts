@@ -603,6 +603,7 @@ export function runAgentLoop(
               continue;
             }
             if (responseResult.control === 'break') {
+              if (state.taskAcceptanceCommitted) break;
               // Final text may have been generated while a background build/test
               // finished — inject completion before yielding to the user.
               const bgAtEnd = injectBackgroundCompletions();

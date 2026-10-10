@@ -24,6 +24,7 @@ import {
   tryAppendTaskEvent,
 } from './task-store.js';
 import { injectExperienceIntoPrompt } from '../experience/experience-library.js';
+import { persistedAcceptanceCommand } from './acceptance-authority.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
 import type { AgentTurnResult } from './agent-turn.js';
 import {
@@ -585,7 +586,7 @@ export async function runTask(
       // `resumeTask` refuses to re-enter.
       await tryAppendTaskEvent(deps.workspaceDir, taskId, 'task_failed', {
         detail: `run crashed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200),
-      });
+      }).catch(() => {}); // A failed store must not mask the original IO error.
     }
     throw err;
   }
@@ -612,8 +613,13 @@ export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<
   ) {
     await appendTaskEvent(deps.workspaceDir, taskId, 'task_resumed', { detail: 'resumed by user' });
   }
+  const command = await persistedAcceptanceCommand(deps.workspaceDir, taskId);
   const provider =
-    deps.verdictProvider ?? createTaskVerdictProvider({ workspaceDir: deps.workspaceDir });
+    deps.verdictProvider ??
+    createTaskVerdictProvider({
+      workspaceDir: deps.workspaceDir,
+      ...(command ? { command } : {}),
+    });
   const state: RunLoopState = { taskId, turns: 0, repairsUsed: 0 };
   try {
     await verifyRepairLoop(
@@ -630,7 +636,7 @@ export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<
     if (!isTaskEventLockTimeout(err)) {
       await tryAppendTaskEvent(deps.workspaceDir, taskId, 'task_failed', {
         detail: `run crashed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200),
-      });
+      }).catch(() => {}); // A failed store must not mask the original IO error.
     }
     throw err;
   }

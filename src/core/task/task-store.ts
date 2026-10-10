@@ -37,6 +37,7 @@ import {
   readJsonlFile,
 } from '../task-runtime/artifacts.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
+import { ensureDirectoryDurably } from '../session/jsonl-session-store.js';
 
 const log = getRootLogger().child('task-store');
 
@@ -55,7 +56,7 @@ function newId(prefix: string): string {
 
 async function mossDir(workspaceDir: string): Promise<string> {
   const dir = path.join(workspaceDir, '.moss');
-  await fs.mkdir(dir, { recursive: true });
+  await ensureDirectoryDurably(dir);
   return dir;
 }
 
@@ -70,11 +71,15 @@ async function appendJsonl(
   signal?: AbortSignal
 ): Promise<void> {
   signal?.throwIfAborted();
-  ensureMossRuntimeGitignore(workspaceDir);
-  const dir = await mossDir(workspaceDir);
-  // Newline repair runs here. Task-event callers already hold the event lock
-  // (withTaskEventLock). That lock is not re-entrant.
-  await appendJsonlFile(path.join(dir, name), record, signal);
+  const write = async (): Promise<void> => {
+    ensureMossRuntimeGitignore(workspaceDir);
+    const dir = await mossDir(workspaceDir);
+    await appendJsonlFile(path.join(dir, name), record, signal);
+  };
+  // Event callers already hold the non-reentrant workspace lock. Other task
+  // records join it so a failed durability barrier can safely undo its append.
+  if (name === EVENTS_FILE) await write();
+  else await withTaskEventLock(workspaceDir, write);
 }
 
 // --- events -----------------------------------------------------------------
@@ -589,7 +594,7 @@ async function enqueueTaskEventWrite<T>(workspaceDir: string, fn: () => Promise<
  * the outer write. The lock body is `pid:nonce`. A recycled container pid is
  * stale only when this process does not currently hold that nonce.
  */
-async function withTaskEventLock<T>(workspaceDir: string, fn: () => Promise<T>): Promise<T> {
+export async function withTaskEventLock<T>(workspaceDir: string, fn: () => Promise<T>): Promise<T> {
   return enqueueTaskEventWrite(workspaceDir, async () => {
     const dir = await mossDir(workspaceDir);
     const lockPath = path.join(dir, `${EVENTS_FILE}.lock`);
