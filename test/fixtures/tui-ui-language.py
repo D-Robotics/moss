@@ -85,9 +85,38 @@ def chrome() -> None:
         dump("doctor", seen)
 
 
+def english_chrome() -> None:
+    """English UI under a Chinese locale must not keep Chinese chrome."""
+    with Session(
+        cols=120,
+        rows=40,
+        extra_env={
+            "MOSS_LANG": "en",
+            "LANG": "zh_CN.UTF-8",
+            "LC_ALL": "zh_CN.UTF-8",
+            "LC_MESSAGES": "zh_CN.UTF-8",
+        },
+        config={"model": "deepseek"},
+    ) as session:
+        session.wait_for_prompt()
+        session.submit("/language", wait=1.5)
+        seen = wait_for(session, "UI language")
+        if "switch for this session" not in seen:
+            raise AssertionError(f"en /language card missing\n{seen}")
+        dump("en-language", seen)
+        session.submit("/help", wait=1.0)
+        seen = wait_for(session, "Help")
+        dump("en-help", seen)
+        session.key("esc")
+        session.submit("/doctor", wait=2.0)
+        seen = wait_for(session, "version")
+        dump("en-doctor", seen)
+
+
 def main() -> None:
     welcome()
     chrome()
+    english_chrome()
     print("[PASS] zh TUI welcome /help /language status doctor")
 
 
