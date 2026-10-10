@@ -14,6 +14,7 @@ import {
   dynamicTurnContextBlock,
   openAiChatMessages,
 } from '../dist/provider/pi-ai-http-transport.js';
+import { RDK_DOCS_CONNECTED_LAYER } from '../dist/core/mcp/rdk-docs.js';
 import { countTokens } from '../scripts/prompt-token-report.mjs';
 
 function capturingProvider(captured) {
@@ -47,6 +48,16 @@ function toolPayload(request) {
     }))
   );
 }
+
+test('rdk-docs connected layer does not grow the per-turn note', () => {
+  // Byte length of RDK_DOCS_CONNECTED_LAYER before the alt_queries rewrite.
+  // The layer is injected on every connected turn, including non-RDK questions.
+  assert.ok(
+    Buffer.byteLength(RDK_DOCS_CONNECTED_LAYER) <= 505,
+    `connected layer grew to ${Buffer.byteLength(RDK_DOCS_CONNECTED_LAYER)} bytes`
+  );
+  assert.equal(RDK_DOCS_CONNECTED_LAYER.includes("Use the user's words"), false);
+});
 
 test('dynamic layers do not change the stable system prompt or tool prefix', async () => {
   const captured = [];

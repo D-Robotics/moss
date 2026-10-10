@@ -87,7 +87,7 @@ export function builtinRdkDocsServerConfig(
 export const RDK_DOCS_CONNECTED_LAYER = [
   '### RDK manuals',
   'Board facts come from rdk-docs. Call `mcp__rdk-docs__search` first (skill `rdk-docs`).',
-  "Use the user's words and, if the returned search schema supports it, a board/manual filter; do not answer from another board's page.",
+  "Pass board and manual-worded alt_queries when the search schema has them; do not answer from another board's page.",
   'Judge the snippet: prefer role=official-start; forum is unofficial and loses to the manual.',
   'Follow the returned schema. Cite the page URL.',
   'Call record_evidence only when a task contract is already open.',
