@@ -73,7 +73,8 @@ for (const word of [
     env: { ...process.env, MOSS_NO_RDK_DOCS: '1' },
   });
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /unknown command, did you mean 'config'\?/);
+  assert.match(result.stderr, /unknown command 'confgi'/);
+  assert.match(result.stderr, /Did you mean 'config'\?/);
 }
 
 {

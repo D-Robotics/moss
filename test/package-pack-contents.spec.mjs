@@ -60,6 +60,7 @@ const allowed = (file) =>
   file === 'README.md' ||
   file === 'LICENSE' ||
   file === 'bin/moss.cjs' ||
+  file === 'bin/node-version-message.cjs' ||
   (file.startsWith('dist/') && (file.endsWith('.js') || file.endsWith('.d.ts')));
 assert.deepEqual(
   files.filter((file) => !allowed(file)),

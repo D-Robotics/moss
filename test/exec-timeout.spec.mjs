@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** A timed-out exec says it timed out. It does not report exit 1. */
+/** A timed-out exec says it timed out. A signal kill does not say "exit null". */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -29,6 +29,34 @@ import { ProcessError, runProcess } from '../dist/utils/run-process.js';
   assert.match(text, /timed out after 200ms \(raise timeout_ms or use exec_background\)/);
   assert.doesNotMatch(text, /exit 1/);
   assert.doesNotMatch(text, /Command failed/);
+  assert.doesNotMatch(text, /exit null/);
+}
+
+{
+  let caught;
+  try {
+    await runProcess(process.execPath, {
+      args: ['-e', 'process.kill(process.pid, "SIGTERM")'],
+    });
+  } catch (err) {
+    caught = err;
+  }
+  assert.ok(caught instanceof ProcessError);
+  assert.equal(caught.signal, 'SIGTERM');
+  assert.equal(caught.exitCode, null);
+  assert.match(caught.message, /killed by SIGTERM/);
+  assert.doesNotMatch(caught.message, /exit null/);
+}
+
+{
+  const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-signal-'));
+  const text = await execTool.execute(
+    { command: 'kill -TERM $$' },
+    { workspaceDir, sessionKey: 'signal', abortSignal: new AbortController().signal }
+  );
+  assert.match(text, /killed by SIGTERM/);
+  assert.doesNotMatch(text, /exit null/);
+  assert.doesNotMatch(text, /Command failed \(exit/);
 }
 
 console.log('[PASS] exec timeout');

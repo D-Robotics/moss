@@ -244,36 +244,6 @@ const BARE_ALIASES: Record<string, string> = {
   logout: 'auth',
 };
 
-/**
- * Ordinary words that sit within a short edit of a real command
- * (`test`/`task`, `push`/`auth`, `ok`/`fork`, `hello`/`help`). They stay prompts.
- */
-const NOT_A_COMMAND_TYPO = new Set([
-  'test',
-  'lint',
-  'fix',
-  'build',
-  'deploy',
-  'hello',
-  'continue',
-  'review',
-  'commit',
-  'push',
-  'explain',
-  'refactor',
-  'docs',
-  'plan',
-  'run',
-  'start',
-  'stop',
-  'clean',
-  'init',
-  'go',
-  'yes',
-  'ok',
-  'x',
-]);
-
 /** `status` is not a subcommand; a typo of it still points at `doctor`. */
 const TYPO_OF: readonly { command: string; suggestion: string }[] = [
   ...KNOWN_COMMANDS.map((command) => ({ command, suggestion: command })),
@@ -347,14 +317,13 @@ export function closestKnownCommand(token: string): string | null {
 
 /**
  * A single bare word that is a real typo or an exact install-verb alias.
- * Ordinary English (`hello`, `test`, `push`, `ok`) returns null so it can be a prompt.
+ * Short words and anything more than one edit from a command stay prompts.
  */
 export function suggestBareCommand(token: string): string | null {
   const candidate = token.toLowerCase().trim();
   if (!candidate || /\s/.test(token)) return null;
   if (!/^[a-z][a-z0-9_-]*$/i.test(candidate)) return null;
   if ((KNOWN_COMMANDS as readonly string[]).includes(candidate)) return null;
-  if (NOT_A_COMMAND_TYPO.has(candidate)) return null;
   return (
     COMMAND_LIKE_REDIRECTS[candidate] ?? BARE_ALIASES[candidate] ?? closestKnownCommand(candidate)
   );

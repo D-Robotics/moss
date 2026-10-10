@@ -250,11 +250,18 @@ export const execTool: Tool = {
             hooksNotice(`${err.stdout}\n${err.stderr}`)
           );
         }
-        return (
-          `Command failed (exit ${err.exitCode}):\n${output || err.message}${writebackWarning}` +
-          footnote +
-          hooksNotice(`${err.stdout}\n${err.stderr}`)
-        );
+        if (err.signal) {
+          return (
+            `Command killed by ${err.signal}:\n${output || err.message}${writebackWarning}` +
+            footnote +
+            hooksNotice(`${err.stdout}\n${err.stderr}`)
+          );
+        }
+        const failure =
+          err.exitCode === null
+            ? `Command failed:\n${output || err.message}`
+            : `Command failed (exit ${err.exitCode}):\n${output || err.message}`;
+        return failure + writebackWarning + footnote + hooksNotice(`${err.stdout}\n${err.stderr}`);
       }
       throw err;
     }

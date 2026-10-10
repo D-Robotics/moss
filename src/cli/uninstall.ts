@@ -1,13 +1,16 @@
 /**
  * `moss uninstall` — print the global package and ~/.moss paths, and delete
- * the config directory only after an explicit yes. Never deletes the home
- * directory, `/`, or the current working directory.
+ * known Moss config files only after an explicit yes. Refuses HOME, every
+ * ancestor of HOME and of the working directory, the filesystem root, and any
+ * directory that is not a Moss config directory.
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { setupCopy } from './cli-locale.js';
 import { resolveConfigDir } from './config.js';
 import { getPackageJsonPath } from './package-info.js';
+import { preferredLocale } from '../utils/locale-preference.js';
 
 export interface UninstallPlan {
   /** Global uninstall command for this package. */
@@ -27,6 +30,27 @@ export interface UninstallIo {
   ask?: (prompt: string) => Promise<string>;
   log?: (line: string) => void;
 }
+
+/** Top-level names Moss writes in the user config directory. */
+const MOSS_CONFIG_ENTRY_NAMES = new Set([
+  '.apikey-key',
+  '.env',
+  '.moss_onboarding_shown',
+  'SOUL.md',
+  'agents',
+  'claude-compat.json',
+  'commands',
+  'config.json',
+  'git-builtin-diff',
+  'keybindings.json',
+  'mcp.json',
+  'preferred-model.json',
+  'real-model-cache.json',
+  'skills',
+  'soul.md',
+  'tools',
+  'workspace-trust.json',
+]);
 
 function homeDir(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string {
   const named = platform === 'win32' ? env.USERPROFILE || env.HOME : env.HOME || env.USERPROFILE;
@@ -53,7 +77,19 @@ function canonical(target: string): string {
   }
 }
 
-/** Why `configDir` must not be deleted, or null when deletion is safe to ask about. */
+function copy(env: NodeJS.ProcessEnv, en: string, vars?: Record<string, string | number>): string {
+  return setupCopy(preferredLocale(env) ?? 'en', en, vars);
+}
+
+/** True when `dir` strictly contains `child` (a parent, not the same path). */
+function isStrictAncestor(dir: string, child: string): boolean {
+  const rel = path.relative(dir, child);
+  if (!rel || rel === '.') return false;
+  if (path.isAbsolute(rel)) return false;
+  return rel !== '..' && !rel.startsWith(`..${path.sep}`);
+}
+
+/** Why `configDir` must not be deleted, or null when the path itself is safe to inspect. */
 export function configDirDeletionRefusal(
   configDir: string,
   env: NodeJS.ProcessEnv,
@@ -65,15 +101,93 @@ export function configDirDeletionRefusal(
   const root = canonical(path.parse(config).root);
   const here = canonical(cwd);
   if (config === home) {
-    return `Refusing to delete config: ${configDir} is the home directory.`;
+    return copy(env, 'Refusing to delete config: {path} is the home directory.', {
+      path: configDir,
+    });
   }
   if (config === root) {
-    return `Refusing to delete config: ${configDir} is the filesystem root.`;
+    return copy(env, 'Refusing to delete config: {path} is the filesystem root.', {
+      path: configDir,
+    });
   }
   if (config === here) {
-    return `Refusing to delete config: ${configDir} is the current directory.`;
+    return copy(env, 'Refusing to delete config: {path} is the current directory.', {
+      path: configDir,
+    });
+  }
+  if (isStrictAncestor(config, home)) {
+    return copy(env, 'Refusing to delete config: {path} is a parent of the home directory.', {
+      path: configDir,
+    });
+  }
+  if (isStrictAncestor(config, here)) {
+    return copy(env, 'Refusing to delete config: {path} is a parent of the current directory.', {
+      path: configDir,
+    });
   }
   return null;
+}
+
+/**
+ * Absolute paths of the known Moss entries that would be deleted, or a refusal
+ * when the directory has unexpected names or no Moss config files.
+ */
+export function mossConfigDeletionList(
+  configDir: string,
+  env: NodeJS.ProcessEnv = process.env
+): { paths: string[] } | { refusal: string } {
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(configDir);
+  } catch {
+    return {
+      refusal: copy(env, 'Refusing to delete config: {path} is not a directory.', {
+        path: configDir,
+      }),
+    };
+  }
+  if (!stat.isDirectory()) {
+    return {
+      refusal: copy(env, 'Refusing to delete config: {path} is not a directory.', {
+        path: configDir,
+      }),
+    };
+  }
+  let names: string[];
+  try {
+    names = fs.readdirSync(configDir);
+  } catch {
+    return {
+      refusal: copy(env, 'Refusing to delete config: {path} is not a Moss config directory.', {
+        path: configDir,
+      }),
+    };
+  }
+  const known = names.filter((name) => MOSS_CONFIG_ENTRY_NAMES.has(name));
+  const unexpected = names.filter((name) => !MOSS_CONFIG_ENTRY_NAMES.has(name));
+  if (unexpected.length > 0) {
+    const shown = unexpected.slice(0, 5);
+    const extra = unexpected.length - shown.length;
+    const list = extra > 0 ? `${shown.join(', ')}, +${extra}` : shown.join(', ');
+    return {
+      refusal: copy(
+        env,
+        'Refusing to delete config: {path} is not a Moss config directory (unexpected: {names}).',
+        { path: configDir, names: list }
+      ),
+    };
+  }
+  if (known.length === 0) {
+    return {
+      refusal: copy(
+        env,
+        'Refusing to delete config: {path} is not a Moss config directory (no Moss config files).',
+        { path: configDir }
+      ),
+    };
+  }
+  const root = canonical(configDir);
+  return { paths: known.map((name) => path.join(root, name)).sort() };
 }
 
 export function uninstallPlan(
@@ -123,31 +237,49 @@ export async function runUninstall(io: UninstallIo = {}): Promise<{ deletedConfi
 
   const existed = fs.existsSync(plan.configDir);
   if (!existed) {
-    log(`Config directory is not present: ${plan.configDir}`);
+    log(copy(env, 'Config directory is not present: {path}', { path: plan.configDir }));
     return { deletedConfig: false };
   }
+
+  const listed = mossConfigDeletionList(plan.configDir, env);
+  if ('refusal' in listed) {
+    log(listed.refusal);
+    return { deletedConfig: false };
+  }
+
+  log(`${copy(env, 'Will delete:')}\n${listed.paths.map((entry) => `  ${entry}`).join('\n')}`);
 
   const tty = io.isTTY ?? Boolean(process.stdin.isTTY);
   if (!tty) {
-    log(`Kept config: ${plan.configDir} (re-run in a terminal to confirm deletion).`);
+    log(
+      copy(env, 'Kept config: {path} (re-run in a terminal to confirm deletion).', {
+        path: plan.configDir,
+      })
+    );
     return { deletedConfig: false };
   }
 
+  const prompt = copy(env, 'Delete these files in {path}? [y/N] ', { path: plan.configDir });
   const ask = io.ask;
-  const answer = ask
-    ? await ask(`Delete config at ${plan.configDir}? [y/N] `)
-    : await askOnTTY(`Delete config at ${plan.configDir}? [y/N] `);
+  const answer = ask ? await ask(prompt) : await askOnTTY(prompt);
   if (!/^y(es)?$/i.test(answer.trim())) {
-    log(`Kept config: ${plan.configDir}`);
+    log(copy(env, 'Kept config: {path}', { path: plan.configDir }));
     return { deletedConfig: false };
   }
 
-  fs.rmSync(plan.configDir, { recursive: true, force: true });
+  for (const entry of listed.paths) {
+    fs.rmSync(entry, { recursive: true, force: true });
+  }
+  try {
+    fs.rmdirSync(plan.configDir);
+  } catch {
+    // A file appeared after the listing, or the directory was already gone.
+  }
   if (fs.existsSync(plan.configDir)) {
-    log(`Could not delete config: ${plan.configDir}`);
+    log(copy(env, 'Could not delete config: {path}', { path: plan.configDir }));
     return { deletedConfig: false };
   }
-  log(`Deleted config: ${plan.configDir}`);
+  log(copy(env, 'Deleted config: {path}', { path: plan.configDir }));
   return { deletedConfig: true };
 }
 
