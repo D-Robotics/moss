@@ -11,6 +11,7 @@ import {
   formatDeploymentRecord,
   runDeployment,
 } from '../device/deployment.js';
+import { DEVICE_CREDENTIAL_RULE, DEVICE_PROBE_FIRST } from '../device/device-probe-prompt.js';
 import {
   formatDeviceTarget,
   missingTargetHelp,
@@ -75,12 +76,15 @@ function deviceConnectionDown(toolName: string, endpoint: string, err: unknown):
 }
 
 const DEVICE_TOOLS_DESCRIPTION_NOTE =
-  'The device target comes from MOSS_DEVICE_HOST/PORT/USER/KIND plus MOSS_DEVICE_PASSWORD or MOSS_DEVICE_KEY (env / .env).';
+  'The device target comes from MOSS_DEVICE_HOST/PORT/USER/KIND plus MOSS_DEVICE_PASSWORD or MOSS_DEVICE_KEY (env / .env). ' +
+  DEVICE_CREDENTIAL_RULE;
 
 export const deviceInfoTool: Tool = {
   name: 'device_info',
   description:
-    'Connect to the configured device (RDK board or Linux host) and report identity + system facts: hostname, OS, kernel, arch, CPU, memory, uptime, load. Also serves as the connectivity probe — call this first when starting device work.\n' +
+    'Connect to the configured device (RDK board or Linux host) and report identity + system facts: hostname, OS, kernel, arch, CPU, memory, uptime, load. Also serves as the connectivity probe — call this first when the user asks about the board or device.\n' +
+    DEVICE_PROBE_FIRST +
+    '\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: { sideEffectClass: 'readonly', transientRetry: true },
   inputSchema: {

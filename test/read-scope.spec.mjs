@@ -152,13 +152,18 @@ try {
   for (const target of ['~/.moss/config.json', '~/.config/moss/config.json', '.moss/config.json']) {
     const read = await readFileTool.execute({ path: target }, ctx());
     assert.doesNotMatch(String(read), /denied|Command blocked/i, `read is allowed: ${target}`);
+    assert.match(String(read), /openai-compatible/, `the read itself returns the file: ${target}`);
     const viewed = await modelView(readFileTool, { path: target }, ctx(), read);
+    assert.match(viewed, /Moss credential values withheld/, `model view withholds: ${target}`);
     assert.doesNotMatch(viewed, encPattern, `ciphertext absent from model view: ${target}`);
-    assert.match(viewed, /\[REDACTED\]/);
-    assert.match(viewed, /openai-compatible/);
+    assert.doesNotMatch(viewed, /openai-compatible/);
+    assert.doesNotMatch(viewed, /\[REDACTED\]/);
   }
   const tasks = await readFileTool.execute({ path: '.moss/tasks.jsonl' }, ctx());
   assert.match(String(tasks), /"task":"ok"/, 'project task log stays readable');
+  const tasksView = await modelView(readFileTool, { path: '.moss/tasks.jsonl' }, ctx(), tasks);
+  assert.match(tasksView, /"task":"ok"/, 'project task log is shown to the model');
+  assert.doesNotMatch(tasksView, /Moss credential values withheld/);
 
   fs.writeFileSync(path.join(home, '.moss', '.apikey-key'), 'raw-key-material-not-a-pattern\n');
   const keyFile = await readFileTool.execute(
@@ -183,7 +188,8 @@ try {
     catConfig
   );
   assert.doesNotMatch(catView, encPattern);
-  assert.match(catView, /\[REDACTED\]/);
+  assert.doesNotMatch(catView, /openai-compatible/);
+  assert.match(catView, /Moss credential values withheld/);
 
   const catKeyFile = await execTool.execute({ command: 'cat ~/.moss/.apikey-key' }, ctx());
   assert.doesNotMatch(String(catKeyFile), /Command blocked:/);
@@ -195,6 +201,21 @@ try {
   );
   assert.doesNotMatch(catKeyView, /raw-key-material-not-a-pattern/);
   assert.match(catKeyView, /Moss credential values withheld/);
+
+  const mixed = presentToolOutput({
+    toolName: 'search_code',
+    input: { query: 'apiKey' },
+    text: [
+      `${path.join(home, '.moss', 'config.json')}:1: ${mossConfig}`,
+      `${path.join(project, 'note.txt')}:1: hello ${PROJECT_MARKER}`,
+    ].join('\n'),
+    workspaceDir: project,
+    env: process.env,
+  });
+  assert.match(mixed, new RegExp(PROJECT_MARKER));
+  assert.doesNotMatch(mixed, /openai-compatible/);
+  assert.doesNotMatch(mixed, encPattern);
+  assert.match(mixed, /Moss credential values withheld/);
 
   // ── key-like tool output is redacted; source expressions are not ─────────
   const sample = `apiKey=${KEY_VALUE}\npassword: "hunter22hunter"\nenc blob ${ENC_VALUE}\nplain text stays`;

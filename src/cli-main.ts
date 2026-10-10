@@ -76,6 +76,7 @@ import {
 } from './cli/rdk-docs-mcp.js';
 import { McpToolRegistry, buildMcpPromptLayer } from './core/mcp/registry.js';
 import { RDK_DOCS_SERVER_NAME, rdkDocsKnowledgeLayer } from './core/mcp/rdk-docs.js';
+import { CONFIGURED_DEVICE_PROMPT } from './device/device-probe-prompt.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import {
@@ -697,6 +698,7 @@ async function main() {
     sources: permissionRuleSources,
   });
   const deviceTarget = resolveDefaultDeviceTarget();
+  if (deviceTarget) dynamicPromptLayers.push(CONFIGURED_DEVICE_PROMPT);
   const approvalHook = createCliToolApprovalHook(safetyMode, process.env, {
     approvalPolicy: resolvedConfig.approvalPolicy,
     trustedTools: resolvedConfig.trustedTools,

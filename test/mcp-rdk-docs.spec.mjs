@@ -260,7 +260,10 @@ test('a connected fixture adds the usage pointer and the skill index', async () 
     assert.match(knowledge, /official-start/);
     assert.match(knowledge, /manual filter/);
     assert.equal(knowledge, RDK_DOCS_CONNECTED_LAYER);
-    assert.match(knowledge, /record_evidence only when a task contract is already open/);
+    assert.match(knowledge, /at most 2 pages/);
+    assert.match(knowledge, /source link/);
+    assert.doesNotMatch(knowledge, /record_evidence/);
+    assert.doesNotMatch(knowledge, /task contract/);
     assert.doesNotMatch(knowledge, /copy it into observed/);
     const skills = includeBundledRdkDocsSkill([], true);
     const skillLayer = buildSkillsPromptLayer(skills);
@@ -268,7 +271,10 @@ test('a connected fixture adds the usage pointer and the skill index', async () 
     const body = await createSkillTool(skills).execute({ name: 'rdk-docs' });
     assert.match(body, /mcp__rdk-docs__search/);
     assert.match(body, /official-start/);
-    assert.match(body, /only when a task contract is already open/);
+    assert.match(body, /at most 2 pages/);
+    assert.match(body, /source link/);
+    assert.doesNotMatch(body, /task contract/);
+    assert.doesNotMatch(body, /record_evidence/);
     assert.match(body, /do not call device tools/);
     const concreteToolReferences =
       `${combined}\n${body}`.match(/mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+/g) ?? [];
@@ -382,10 +388,8 @@ test('a failed rdk-docs connect does not throw and the prompt says unavailable',
     assert.equal(status.state, 'failed');
     assert.equal(registry.getTools().length, 0);
     const line = formatMcpStartupLine(status, 'normal');
-    assert.match(
-      line,
-      /^\[mcp\] rdk-docs unreachable \(.+\) — RDK manual lookup is off this session\.$/
-    );
+    assert.match(line, /^○ rdk-docs — failed:/);
+    assert.equal(line, formatMcpStatusLine(status));
     const knowledge = rdkDocsKnowledgeLayer(registry.getStatuses());
     assert.equal(knowledge, RDK_DOCS_UNAVAILABLE_LAYER);
     assert.doesNotMatch(knowledge, /mcp__rdk-docs__search/);
@@ -403,7 +407,7 @@ test('a failed rdk-docs connect does not throw and the prompt says unavailable',
       { name: 'formatter', state: 'failed', error: 'boom' },
       'quiet'
     );
-    assert.match(other, /server "formatter" unavailable: boom/);
+    assert.equal(other, '○ formatter — failed: boom');
   } finally {
     await registry.closeAll();
   }

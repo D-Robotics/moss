@@ -1086,14 +1086,13 @@ async function type(instance, text) {
         { name: 'broken-server', state: 'failed', error: 'spawn ENOENT' },
       ],
     });
-    const ok = await waitFor(() =>
-      handle.store.rows.some(
-        (row) =>
-          row.kind === 'system' &&
-          row.text.includes('⚠ 1 MCP server failed to start (broken-server)') &&
-          row.text.includes('/mcp for details')
-      )
-    );
+    const ok = await waitFor(() => {
+      const text = handle.store.rows.map((row) => row.text).join('\n');
+      return (
+        text.includes('○ broken-server — failed: spawn ENOENT') &&
+        text.includes('● docs — connected')
+      );
+    });
     assert.ok(
       ok,
       `the boot row names the failure: ${JSON.stringify(
@@ -1112,7 +1111,7 @@ async function type(instance, text) {
       mcpServers: [{ name: 'rdk-docs', state: 'connecting' }],
     });
     const connecting = await waitFor(() =>
-      handle.store.rows.some((row) => row.text.includes('1 MCP server connecting'))
+      handle.store.rows.some((row) => row.text.includes('○ rdk-docs — connecting'))
     );
     assert.ok(
       connecting,

@@ -6,12 +6,12 @@
  * (PEM blocks, assignment values, netrc / docker / kube fields). Redaction
  * is defense in depth.
  *
- * Moss credential files are still read. `.apikey-key` bytes are withheld
- * entirely. Property-access chains (`req.headers.authorization`), `${...}`
+ * Moss credential files are still read. Their contents (`~/.config/moss`,
+ * `~/.moss`, project `.moss/config.json`, `.apikey-key`) are withheld
+ * entirely from tool output. Property-access chains (`req.headers.authorization`), `${...}`
  * expressions, and bare letter-only identifiers are source text, not secrets.
  * Writing the `[REDACTED]` placeholder back into a file is rejected separately.
  */
-import path from 'node:path';
 import { knownSecretPrefixCut, redactKnownSecretValues } from './known-secrets.js';
 import {
   commandMentionsMossCredential,
@@ -427,9 +427,49 @@ export function redactToolOutput(text: string, env?: NodeJS.ProcessEnv): string 
 
 const CREDENTIAL_WITHHELD = 'Moss credential values withheld.\n';
 
+function credentialPathCandidate(line: string): string | undefined {
+  const trimmed = line.trim();
+  if (!trimmed) return undefined;
+  const indexed = /^(.+?):\d+(?::|>|\s)/.exec(trimmed);
+  const head = (indexed?.[1] ?? '').trim();
+  if (!head || head.length > 512 || /\s/.test(head)) return undefined;
+  if (!head.includes('.moss') && !head.includes('.config') && !head.includes('.apikey-key')) {
+    return undefined;
+  }
+  return head;
+}
+
+/** Drop search/grep lines whose path is Moss's own credential file. */
+function scrubMossCredentialLines(
+  text: string,
+  workspaceDir: string,
+  env: NodeJS.ProcessEnv
+): string {
+  let dropped = false;
+  const kept: string[] = [];
+  for (const line of text.split('\n')) {
+    const candidate = credentialPathCandidate(line);
+    if (candidate) {
+      try {
+        if (isMossCredentialPath(resolveReadPath(candidate, workspaceDir, env), env)) {
+          dropped = true;
+          continue;
+        }
+      } catch {
+        // A colon-prefixed line that is not a path stays visible.
+      }
+    }
+    kept.push(line);
+  }
+  if (!dropped) return text;
+  const body = kept.join('\n').replace(/\n+$/, '');
+  return body ? `${body}\n${CREDENTIAL_WITHHELD}` : CREDENTIAL_WITHHELD;
+}
+
 /**
  * Tool result the model is allowed to see. Ordinary secrets are redacted.
- * Moss's own key file is replaced entirely so raw key bytes never appear.
+ * Moss's own config and key files are replaced entirely so their contents
+ * never appear. The read itself is not blocked.
  */
 export function presentToolOutput(args: {
   toolName: string;
@@ -442,19 +482,16 @@ export function presentToolOutput(args: {
   const workspaceDir = args.workspaceDir || process.cwd();
   if (args.toolName === 'read_file') {
     const resolved = resolveReadPath(String(args.input.path ?? ''), workspaceDir, env);
-    if (isMossCredentialPath(resolved, env) && path.basename(resolved) === '.apikey-key') {
-      return CREDENTIAL_WITHHELD;
-    }
+    if (isMossCredentialPath(resolved, env)) return CREDENTIAL_WITHHELD;
   }
   const command =
     args.toolName === 'exec' || args.toolName === 'exec_background'
       ? String(args.input.command ?? '')
       : '';
-  if (command && commandMentionsMossCredential(command) && /\.apikey-key\b/.test(command)) {
-    return CREDENTIAL_WITHHELD;
-  }
-  if (args.toolName === 'read_file') return redactNumberedToolOutput(args.text, env);
-  return redactEgress(args.text, env);
+  if (command && commandMentionsMossCredential(command)) return CREDENTIAL_WITHHELD;
+  const scrubbed = scrubMossCredentialLines(args.text, workspaceDir, env);
+  if (args.toolName === 'read_file') return redactNumberedToolOutput(scrubbed, env);
+  return redactEgress(scrubbed, env);
 }
 
 /**

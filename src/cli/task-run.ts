@@ -25,6 +25,7 @@ import { listDeploymentRecords } from '../device/deployment.js';
 import { resolveDefaultDeviceTarget } from '../device/device-target.js';
 import type { TaskStateSnapshot } from '../contracts/task-runtime.js';
 import { cliLocale, isZhLocale } from './cli-locale.js';
+import { formatTaskProgressLine } from './task-card.js';
 import { createSessionUsageAccumulator } from './session-usage.js';
 import type { MossAgentEvent } from '../core/agent/moss-agent-types.js';
 import { verifyTaskOnce } from './commands/task-verify.js';
@@ -466,7 +467,7 @@ export async function runTaskCommand(
           : {}),
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         onProgress: (progress) => {
-          output('stderr', `[task ${progress.phase}] ${progress.detail}\n`);
+          output('stderr', `${formatTaskProgressLine(progress.phase)}\n`);
         },
       },
       goal,
@@ -502,7 +503,7 @@ export async function runTaskCommand(
         runTurn,
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         onProgress: (progress) => {
-          output('stderr', `[task ${progress.phase}] ${progress.detail}\n`);
+          output('stderr', `${formatTaskProgressLine(progress.phase)}\n`);
         },
       },
       taskId

@@ -66,6 +66,14 @@ import {
 import { formatBackgroundCompletionFlash } from '../background-completion-ui.js';
 import { redactEgress } from '../../safety/tool-output-redact.js';
 import { formatMcpStatusLine } from '../rdk-docs-mcp.js';
+import {
+  formatBlockedTaskLine,
+  formatEvidenceLine,
+  formatTaskFailureLines,
+  formatTaskHistoryLines,
+  formatTaskSummaryLines,
+  formatTaskVerdictLine,
+} from '../task-card.js';
 import { isZhLocale } from '../cli-locale.js';
 import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
 import { setCliApprovalAsker } from '../approval.js';
@@ -406,12 +414,6 @@ interface PendingDialog {
    * told the user nothing; the commit row names what was decided.
    */
   label?: string;
-}
-
-function collectStrings(value: unknown, out: string[] = []): string[] {
-  if (typeof value === 'string') out.push(value);
-  else if (Array.isArray(value)) for (const item of value) collectStrings(item, out);
-  return out;
 }
 
 /** The shell tells the registry it is the TUI, so surface-specific copy can diverge later. */
@@ -987,84 +989,22 @@ export function TuiAppRoot({
     // context line; moss used to load all of it silently.
     const info = options.contextInfo;
     const liveMcpServers = options.listMcpServers?.() ?? options.mcpServers;
-    const mcpSummary =
-      liveMcpServers && liveMcpServers.length > 0
-        ? {
-            connected: liveMcpServers.filter((s) => s.state === 'connected').length,
-            connecting: liveMcpServers.filter((s) => s.state === 'connecting').length,
-            total: liveMcpServers.length,
-          }
-        : info?.mcp
-          ? {
-              connected: info.mcp.connected,
-              connecting: info.mcp.connecting ?? 0,
-              total: info.mcp.total,
-            }
-          : undefined;
-    if (info || mcpSummary) {
+    if (info) {
       const parts: string[] = [];
-      if (info?.branch) parts.push(`git:${info.branch}`);
-      if (info?.skills) {
+      if (info.branch) parts.push(`git:${info.branch}`);
+      if (info.skills) {
         parts.push(
           tui(info.skills === 1 ? '{count} skill' : '{count} skills', { count: info.skills })
         );
-      }
-      if (mcpSummary && mcpSummary.total > 0) {
-        if (mcpSummary.connecting > 0) {
-          parts.push(
-            tui(
-              mcpSummary.connecting === 1
-                ? '{count} MCP server connecting'
-                : '{count} MCP servers connecting',
-              { count: mcpSummary.connecting }
-            )
-          );
-        } else if (mcpSummary.connected === mcpSummary.total) {
-          parts.push(
-            tui(mcpSummary.total === 1 ? '{count} MCP server' : '{count} MCP servers', {
-              count: mcpSummary.total,
-            })
-          );
-        } else {
-          parts.push(
-            tui('{connected}/{total} MCP servers connected', {
-              connected: mcpSummary.connected,
-              total: mcpSummary.total,
-            })
-          );
-        }
       }
       if (parts.length > 0) {
         appendRow(store, 'detail', tui('context: {parts}', { parts: parts.join(' · ') }));
       }
     }
-    // Only a terminal failure is a boot warning. `connecting` is not failed;
-    // the registry notifies once the handshake settles.
-    const failedMcp = (liveMcpServers ?? []).filter((s) => s.state === 'failed');
-    if (failedMcp.length > 0) {
-      const names = failedMcp
-        .slice(0, 3)
-        .map((s) => s.name)
-        .join(', ');
-      const reasons = failedMcp
-        .slice(0, 3)
-        .map((s) => s.error?.trim().split('\n')[0])
-        .filter((reason): reason is string => Boolean(reason))
-        .join('; ')
-        .slice(0, 160);
-      appendRow(
-        store,
-        'system',
-        tui(
-          failedMcp.length === 1
-            ? '⚠ {count} MCP server failed to start'
-            : '⚠ {count} MCP servers failed to start',
-          { count: failedMcp.length }
-        ) +
-          `${names ? ` (${names})` : ''}` +
-          `${reasons ? `: ${reasons}` : ''}` +
-          tui(' — /mcp for details')
-      );
+    // One status line per server — the same wording as /mcp. Counts and a
+    // separate failure warning described the same servers twice.
+    for (const server of liveMcpServers ?? []) {
+      appendRow(store, 'system', formatMcpStatusLine(server));
     }
     options.onMcpUiReady?.();
     // Crash/quit recovery: history survives per-message, but a bare `moss`
@@ -1184,19 +1124,14 @@ export function TuiAppRoot({
         )
         .sort((a, b) => b.updatedAt - a.updatedAt)[0];
       if (!decided) return;
-      const short = decided.taskId.slice(-6);
-      const criteria = `${decided.criteriaMet}/${decided.criteriaTotal} criteria`;
-      // The verdict token (PASS/FAIL), task id and recover command stay raw.
       appendRow(
         store,
         'summary',
-        decided.result === 'PASS'
-          ? tui('◇ task {id} — PASS ({criteria} met)', { id: short, criteria })
-          : tui('◇ task {id} — FAIL ({criteria} met) · /task resume {task} to repair', {
-              id: short,
-              criteria,
-              task: decided.taskId,
-            })
+        formatTaskVerdictLine(
+          decided.result === 'PASS' ? 'PASS' : 'FAIL',
+          decided.criteriaMet,
+          decided.criteriaTotal
+        )
       );
       handle.notify();
     },
@@ -1412,17 +1347,10 @@ export function TuiAppRoot({
         const summaries = runtime.taskSummaries();
         printBlock(
           `Tasks (${summaries.length})`,
-          summaries.map(
-            (s) =>
-              `${s.kind.toUpperCase().padEnd(8)} ${
-                s.result === 'ABORTED'
-                  ? 'ABORTED'
-                  : `${(s.result ?? s.state).padEnd(10)} ${s.criteriaMet}/${s.criteriaTotal} ${tui('met')}`
-              }  ${s.goal}` +
-              (s.blockedReason
-                ? `\n         ${tui('blocked: {reason}', { reason: s.blockedReason })}`
-                : '')
-          )
+          summaries.flatMap((s) => {
+            const detail = runtime.taskDetail(s.taskId);
+            return formatTaskSummaryLines(s, detail?.verification.length ?? 0);
+          })
         );
         return;
       }
@@ -1430,12 +1358,7 @@ export function TuiAppRoot({
         const records = runtime.getArtifacts().evidence;
         printBlock(
           `Evidence (${records.length})`,
-          records.map(
-            (r) =>
-              `${r.result.toUpperCase().padEnd(5)} ${r.metric} = ${r.observed ?? '?'}${
-                r.expected ? ` (want ${r.expected})` : ''
-              }`
-          )
+          records.map((r) => formatEvidenceLine(r))
         );
         return;
       }
@@ -1451,10 +1374,7 @@ export function TuiAppRoot({
           .filter((d): d is NonNullable<typeof d> => Boolean(d));
         printBlock(
           `History (${details.length})`,
-          details.flatMap((d) => [
-            `${d.summary.taskId}`,
-            ...d.history.slice(-6).map((entry) => `  ${entry.kind.padEnd(11)} ${entry.label}`),
-          ])
+          details.flatMap((d) => formatTaskHistoryLines(d))
         );
         return;
       }
@@ -1465,10 +1385,7 @@ export function TuiAppRoot({
           .filter((d): d is NonNullable<typeof d> => Boolean(d?.failure));
         printBlock(
           `Failures (${details.length})`,
-          details.flatMap((d) => [
-            `${d.summary.taskId}: ${d.failure?.headline ?? ''}`,
-            ...collectStrings(d.failure?.items.map((i) => `  ${i.label}`) ?? []),
-          ])
+          details.flatMap((d) => formatTaskFailureLines(d))
         );
         return;
       }
@@ -1548,14 +1465,7 @@ export function TuiAppRoot({
                 setStatusLine(line);
                 // Phase transitions are transcript history, not a rotating
                 // status: a minute-long device task must stay reviewable.
-                const phase = /^\[task ([a-z]+)\] (.+)$/.exec(line);
-                if (phase) {
-                  appendRow(
-                    store,
-                    'summary',
-                    tui('◇ task {phase} — {text}', { phase: phase[1]!, text: phase[2]! })
-                  );
-                }
+                if (line.startsWith('◇ ')) appendRow(store, 'summary', line);
               } else if (!parseLlmUsageStdout(text)) {
                 printBlock('Task', text.trimEnd().split('\n'));
               }
@@ -3930,11 +3840,7 @@ export function TuiAppRoot({
   const blockedLine = blockedTask
     ? line(
         clip(
-          tui('◇ task {id} blocked — {reason} · /task resume {task}', {
-            id: blockedTask.taskId.slice(-6),
-            reason: blockedTask.blockedReason ?? tui('user decision required'),
-            task: blockedTask.taskId,
-          }),
+          formatBlockedTaskLine(blockedTask.blockedReason ?? tui('user decision required')),
           columns
         ),
         { color: TONE.warn }

@@ -8,6 +8,7 @@ const log = getRootLogger().child('agent');
 import { ToolRegistry } from '../tools/tool-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
 import { toolVisibleForRun } from './session-tool-offer.js';
+import { omitTaskPhasePrompts } from './task-phase-prompt.js';
 import { mergeLeasePatch } from '../subagent/worktree-isolation.js';
 import type { AgentLoopRun } from './agent-loop-run-state.js';
 import {
@@ -855,10 +856,17 @@ ${result.stderr ?? ''}`.trim();
 
     await store.appendMessage(sessionKey, userMsg as unknown as LLMMessage);
 
-    const composedPrompt = this.composeSystemPrompt({
+    const composed = this.composeSystemPrompt({
       ...(options?.platform ? { platform: options.platform } : {}),
       ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
     });
+    const dynamic =
+      options?.taskFlow === false ? omitTaskPhasePrompts(composed.dynamic) : composed.dynamic;
+    const composedPrompt = {
+      stable: composed.stable,
+      dynamic,
+      full: dynamic ? `${composed.stable}\n\n${dynamic}` : composed.stable,
+    };
     let extraContext = options?.extraContext ?? '';
     if (isFirstUserTurn && experienceEnabled()) {
       const experience = await buildExperienceBlock(
@@ -866,6 +874,9 @@ ${result.stderr ?? ''}`.trim();
         activeUserMessage
       );
       if (experience) extraContext = extraContext ? `${extraContext}\n\n${experience}` : experience;
+    }
+    if (options?.taskFlow === false && extraContext) {
+      extraContext = omitTaskPhasePrompts(extraContext);
     }
     // Prefix-cache invariant: the system prompt must stay byte-identical
     // across turns — implicit prefix caches match the messages array, and any

@@ -95,19 +95,24 @@ assert.ok(await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner')
 await type('/task run keep the board alive --accept true');
 
 // A1: phase transitions are transcript rows, not just the status line.
-const phaseRows = () => handle.store.rows.filter((r) => r.text.startsWith('◇ task '));
+const phaseRows = () => handle.store.rows.filter((r) => r.text.startsWith('◇ '));
 assert.ok(
-  await waitFor(() => phaseRows().some((r) => r.text.includes('task planning'))),
+  await waitFor(() => phaseRows().some((r) => r.text.includes('Working out the steps'))),
   `planning phase lands in the transcript: ${JSON.stringify(phaseRows().map((r) => r.text))}`
 );
 assert.ok(
-  await waitFor(() => phaseRows().some((r) => r.text.includes('task verifying'))),
+  await waitFor(() => phaseRows().some((r) => r.text.includes('Checking the result'))),
   'verifying phase lands in the transcript'
 );
+assert.equal(
+  phaseRows().some((r) => /\[task |task_\w*\d/.test(r.text)),
+  false,
+  'phase rows do not show internal markers or ids'
+);
 
-// A2: the last task word is the verdict, with criteria and short id.
+// A2: the last task word is the verdict, with criteria and no internal id.
 const verdictRow = () =>
-  handle.store.rows.find((r) => /^◇ task \w+ — PASS \(\d+\/\d+ criteria met\)$/.test(r.text));
+  handle.store.rows.find((r) => /^◇ Checks passed \(\d+\/\d+\)$/.test(r.text));
 assert.ok(
   await waitFor(() => verdictRow() !== undefined),
   `the acceptance verdict is the transcript's last task word: ${JSON.stringify(
@@ -147,9 +152,12 @@ const typeFail = async (text) => {
   await sleep(30);
 };
 await typeFail('/task run unsatisfiable goal --accept false');
-const failRow = () => failHandle.store.rows.find((r) => /^◇ task \w+ — FAIL /.test(r.text));
+const failRow = () =>
+  failHandle.store.rows.find((r) =>
+    /^◇ Checks did not pass \(\d+\/\d+\) · \/task resume$/.test(r.text)
+  );
 assert.ok(await waitFor(() => failRow() !== undefined), 'a FAIL verdict lands in the transcript');
-assert.match(failRow().text, /\/task resume task_\w+ to repair/, 'FAIL names the recovery command');
+assert.doesNotMatch(failRow().text, /task_\w*\d/, 'FAIL does not show the internal task id');
 
 const shown = `${instance.lastFrame()}\n${handle.store.rows.map((row) => row.text).join('\n')}`;
 assert.doesNotMatch(
@@ -198,8 +206,13 @@ console.log('[PASS] TUI task projection (phases + verdict last word)');
   );
   assert.match(
     bInstance.lastFrame(),
-    new RegExp(`/task resume ${contract.taskId}`),
+    /\/task resume/,
     'the pinned line names the recovery command'
+  );
+  assert.equal(
+    bInstance.lastFrame().includes(contract.taskId),
+    false,
+    'the pinned line does not show the internal task id'
   );
   bInstance.unmount();
   await sleep(150);

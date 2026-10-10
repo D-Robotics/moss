@@ -9,7 +9,14 @@
 import { deviceTargetConfigured, isDeviceToolName } from '../../device/device-tool-offer.js';
 
 /** Opening or writing the task ledger. Hidden for plain Q&A. */
-const TASK_LEDGER_TOOL_NAMES = new Set(['task_define', 'record_evidence']);
+const TASK_LEDGER_TOOL_NAMES = new Set([
+  'task_define',
+  'task_acceptance',
+  'task_plan_update',
+  'record_evidence',
+  'record_failure',
+  'record_repair',
+]);
 
 export function toolVisibleForRun(
   toolName: string,
