@@ -429,7 +429,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_TUI_RENDERER',
       'MOSS_TUI_RENDERER_CONFIG',
       'MOSS_TUI_THEME',
-      'MOSS_LANG (en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale)',
+      'MOSS_LANG (auto|en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale)',
       'MOSS_NO_COLOR',
       'MOSS_LOG_LEVEL',
       'MOSS_LOG_JSON',
@@ -483,7 +483,7 @@ const ENV_NOTE_ZH: Record<string, string> = {
   'legacy — translated to deny rules on read': '旧键 — 读取时译成 deny 规则',
   'legacy alias of MOSS_CLI_AUTO_APPROVE': 'MOSS_CLI_AUTO_APPROVE 的旧别名',
   'comma-separated nudge ids to suppress; unset leaves every nudge on':
-    '逗号分隔的要关掉的 nudge id；不设置则全部开启',
+    '逗号分隔的要关掉的提示编号；不设置则全部开启',
   '1 enables the /plan approval gate; default off': '设为 1 打开 /plan 审批门；默认关闭',
   'prefix of the MOSS_BUDGET_MAX_* keys': 'MOSS_BUDGET_MAX_* 键的前缀',
   '1 enables the project-local experience experiment': '设为 1 打开项目本地经验实验',
@@ -498,8 +498,8 @@ const ENV_NOTE_ZH: Record<string, string> = {
   'npm spec or local path; process env only, not project config or .env':
     'npm 规格或本地路径；仅进程环境，不是项目配置或 .env',
   'legacy alias': '旧别名',
-  'en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale':
-    'en|zh；进程环境或 --lang；项目 .env 不能设置；优先级 flag > env > 配置 language > 系统区域',
+  'auto|en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale':
+    'auto|en|zh；进程环境或 --lang；项目 .env 不能设置；优先级为参数、环境变量、配置 language、系统区域',
 };
 
 function localizeEnvEntry(entry: string): string {
@@ -523,7 +523,7 @@ export function renderConfigEnv(): string {
   lines.push(
     '',
     zh
-      ? '凭据放在配置文件或服务商自己的密钥变量里 — 不要写进 shell 历史。'
+      ? '凭据放在配置文件或服务商自己的密钥变量里 — 不要写进命令历史。'
       : 'Credentials belong in the config file or a provider-specific key var — never in shell history.'
   );
   return lines.join('\n');
@@ -663,6 +663,18 @@ export function runConfigValidate(args: string[] = [], startDir = process.cwd())
   const loaded = loadCliConfigFile(process.env, process.argv.slice(2), startDir);
   const resolved = resolveCliConfig(process.env, loaded.config, {}, loaded);
   const warnings = [...auditResolvedCliConfig(resolved)];
+  for (const value of [loaded.userConfig?.language, loaded.projectConfig?.language]) {
+    if (typeof value !== 'string' || value.trim() === '' || parseLanguageSetting(value)) continue;
+    warnings.push({
+      code: 'language.invalid',
+      severity: 'warn',
+      source: 'config',
+      message: uiText(
+        `language "${value}" is not auto|en|zh`,
+        `language「${value}」不是 auto、en 或 zh`
+      ),
+    });
+  }
   if (!resolved.usingBundledDefault && !resolved.model) {
     warnings.push({
       code: 'model.missing',

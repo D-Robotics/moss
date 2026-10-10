@@ -99,7 +99,7 @@ export function localizeAbortActor(by: string | undefined): string {
 export const ZH: Readonly<Record<string, string>> = {
   // ── interaction mode hint (transcript.ts) ──────────────────────────────
   '⏵⏵ {label} mode on': '⏵⏵ {label}已开启',
-  '{glyph} {label} mode on (shift+tab to cycle)': '{glyph} {label}已开启 (shift+tab 切换)',
+  '{glyph} {label} mode on (shift+tab to cycle)': '{glyph} {label}已开启（shift+tab 切换）',
 
   // ── run verbs (transcript.ts) ──────────────────────────────────────────
   Working: '处理中',

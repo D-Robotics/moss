@@ -1939,7 +1939,10 @@ export function TuiAppRoot({
     async (text: string): Promise<boolean> => {
       const head = text.split(/\s+/, 1)[0] ?? text;
       const args = text.slice(head.length).trim();
-      const title = commandBlockTitle(head);
+      // Title is read when the block is printed. `/language` switches the
+      // dictionary before `say`, so a title captured here would stay in the
+      // previous language.
+      const blockTitle = (): string => commandBlockTitle(head);
       const locale = cliLocale();
 
       const context: CommandContext = {
@@ -1954,7 +1957,9 @@ export function TuiAppRoot({
         ...(locale ? { locale } : {}),
         surface: COMMAND_SURFACE,
         say: (kind, out) =>
-          kind === 'error' ? printCommandError(title, out) : printBlock(title, out.split('\n')),
+          kind === 'error'
+            ? printCommandError(blockTitle(), out)
+            : printBlock(blockTitle(), out.split('\n')),
         prefillInput: (value) => setInput(value),
         submitPrompt: (value) => {
           void dispatchRun(value);
@@ -2031,7 +2036,7 @@ export function TuiAppRoot({
         if (await runRegistryCommand(text, context, customCommands)) return true;
       } catch (err) {
         printCommandError(
-          title,
+          blockTitle(),
           tui('{command} failed: {error}', { command: head, error: errorMessage(err) })
         );
         return true;

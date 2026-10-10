@@ -67,7 +67,7 @@ export function interactiveTaskUsageLines(): readonly string[] {
 export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
   if (zh) {
     return [
-      '用法：moss task <command> [options]',
+      '用法：moss task <命令> [选项]',
       '',
       '  run <goal...>        端到端跑一个任务（计划 → 执行 → 验证 → 修复 → 验收）',
       '      --accept "<cmd>"  验收权威：命令必须以退出码 0 结束',

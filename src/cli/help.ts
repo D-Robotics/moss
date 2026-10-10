@@ -24,7 +24,7 @@ export function briefHelpLines(c: Colors, configPath: string, zh: boolean): stri
   if (zh) {
     return [
       '',
-      `  ${c.bold(c.cyan('moss'))}  ${c.dim('— 跨平台 coding agent harness：对话、工具、上下文管理、会话')}`,
+      `  ${c.bold(c.cyan('moss'))}  ${c.dim('— 跨平台编程代理框架：对话、工具、上下文管理、会话')}`,
       '',
       `  ${c.bold('最常用')}`,
       `    ${c.cyan('$')} moss                          ${c.dim('# 启动交互式 Moss')}`,
@@ -41,7 +41,7 @@ export function briefHelpLines(c: Colors, configPath: string, zh: boolean): stri
       '',
       `  ${c.dim(workspaceWriteLimit(true))}`,
       `  ${c.dim('界面语言优先级：--lang > MOSS_LANG > 配置 > 系统区域。')}`,
-      `  ${c.dim('完整参考：moss --help --all · 配置参考：moss config --help · 子命令：moss <command> --help')}`,
+      `  ${c.dim('完整参考：moss --help --all · 配置参考：moss config --help · 子命令：moss <命令> --help')}`,
       `  ${c.dim(`配置文件：${configPath}`)}`,
       '',
     ];
@@ -131,7 +131,7 @@ export function fullHelpLines(c: Colors, configPath: string, zh = false): string
     `    ${c.green('Slash commands')}  .moss/commands/<name>.md — reusable prompt expansions`,
     `    ${c.green('Skills')}          .moss/skills/<name>/SKILL.md — indexed, loaded on demand`,
     `    ${c.green('Sub-agents')}      .moss/agents/*.md and .claude/agents/*.md — /agents lists them`,
-    `  ${c.dim('License: MIT')}`,
+    `  ${c.dim('License: MIT · language: --lang > MOSS_LANG > config > system locale.')}`,
     '',
   ];
 }
@@ -139,7 +139,7 @@ export function fullHelpLines(c: Colors, configPath: string, zh = false): string
 function fullHelpLinesZh(c: Colors, configPath: string, interactiveLines: string[]): string[] {
   return [
     '',
-    `  ${c.bold(c.cyan('moss'))}  ${c.dim('— 跨平台 coding agent harness：对话、工具、上下文管理、会话')}`,
+    `  ${c.bold(c.cyan('moss'))}  ${c.dim('— 跨平台编程代理框架：对话、工具、上下文管理、会话')}`,
     '',
     `  ${c.bold('快速开始')}`,
     `    ${c.cyan('$')} moss                       ${c.dim('# 交互式外壳（REPL 或 TUI）')}`,
@@ -151,7 +151,7 @@ function fullHelpLinesZh(c: Colors, configPath: string, interactiveLines: string
     `    ${c.green('setup')} / ${c.green('doctor')}         配置 · 检查配置和运行时`,
     `    ${c.green('mcp')} ${c.dim('add|list|remove|test')}          管理 MCP 服务器`,
     `    ${c.green('device')} ${c.dim('add|list|remove|test')}       管理机器人设备（.moss/devices.json）`,
-    `    ${c.green('skill')} ${c.dim('create|list')}                管理 skills（.moss/skills）`,
+    `    ${c.green('skill')} ${c.dim('create|list')}                管理技能（.moss/skills）`,
     `    ${c.green('sessions')} ${c.dim('list|delete|search|export')}  管理已保存的会话`,
     `    ${c.green('task')} ${c.dim('run|resume|status|timeline')}      带验收的 Task OS 任务（${c.green('tasks')} 查看机器人工件）`,
     `    ${c.green('config')}                ${c.dim('show|init|set|unset|validate')} — 键说明：\`moss config --help\``,
@@ -161,7 +161,7 @@ function fullHelpLinesZh(c: Colors, configPath: string, interactiveLines: string
     '',
     `  ${c.bold('常用参数')}`,
     `    ${c.yellow('-m, --model')} <m> · ${c.yellow('--provider')} <p> · ${c.yellow('--base-url')} <url> · ${c.yellow('--lang')} <en|zh>   仅本次运行`,
-    `    ${c.yellow('-c, --config')} k=v    覆盖 profile/model/provider/baseUrl/workspace/policy`,
+    `    ${c.yellow('-c, --config')} k=v    覆盖 \`profile/model/provider/baseUrl/workspace/policy\``,
     `    ${c.yellow('--session')} <key> · ${c.yellow('--last')}      指定会话 / 最近一次会话`,
     `    ${c.yellow('-C, --cd')} <dir>       换一个工作区`,
     `    ${c.yellow('--read-only')} · ${c.yellow('--workspace-write')} · ${c.yellow('--full-access')}   模式覆盖：manual+上限 / manual / full（deny 规则和硬拦截仍然生效）。${workspaceWriteLimit(true)}`,
@@ -178,7 +178,7 @@ function fullHelpLinesZh(c: Colors, configPath: string, interactiveLines: string
     `  ${c.bold('定制 moss')}`,
     `    ${c.green('人格')}           .moss/soul.md（或全局）— 替换或前置身份说明`,
     `    ${c.green('斜杠命令')}       .moss/commands/<name>.md — 可复用的提示展开`,
-    `    ${c.green('Skills')}        .moss/skills/<name>/SKILL.md — 建立索引，按需加载`,
+    `    ${c.green('技能')}          .moss/skills/<name>/SKILL.md — 建立索引，按需加载`,
     `    ${c.green('子代理')}         .moss/agents/*.md 与 .claude/agents/*.md — /agents 列出它们`,
     `  ${c.dim('界面语言优先级：--lang > MOSS_LANG > 配置 > 系统区域。')}`,
     `  ${c.dim('许可证：MIT')}`,

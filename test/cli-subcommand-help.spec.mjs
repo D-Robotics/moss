@@ -104,4 +104,10 @@ for (const command of known) {
   }
 }
 
+const helped = run(['help', 'config'], 'C');
+assert.equal(helped.status, 0, helped.stderr || helped.stdout);
+assert.match(helped.stdout, /moss config/);
+assert.match(helped.stdout, /Usage:/);
+assert.equal(helped.stdout, run(['config', '--help'], 'C').stdout);
+
 console.log(`[PASS] subcommand help (${known.length} commands)`);

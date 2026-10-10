@@ -840,14 +840,26 @@ const languageCommand: CommandSpec = {
       }
     }
     const language = effectiveUiLanguage();
-    const envLang = envBeforeDotenv.MOSS_LANG?.trim();
-    const override =
-      save && envLang
-        ? uiText(
-            ` MOSS_LANG=${envLang} will override this on the next start.`,
-            ` 下次启动时 MOSS_LANG=${envLang} 会覆盖它。`
-          )
-        : '';
+    const resolution = uiLanguageResolution();
+    const notes: string[] = [];
+    if (save && resolution?.source === 'flag') {
+      notes.push(
+        uiText(
+          ` --lang=${resolution.language} overrides the saved setting for this process.`,
+          ` 本次进程的 --lang=${resolution.language} 会覆盖已保存的设置。`
+        )
+      );
+    }
+    const envLang = envBeforeDotenv.MOSS_LANG?.trim().toLowerCase();
+    if (save && (envLang === 'en' || envLang === 'zh')) {
+      notes.push(
+        uiText(
+          ` MOSS_LANG=${envLang} will override this on the next start.`,
+          ` 下次启动时 MOSS_LANG=${envLang} 会覆盖它。`
+        )
+      );
+    }
+    const override = notes.join('');
     ctx.say(
       'system',
       uiText(

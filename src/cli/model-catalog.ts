@@ -423,7 +423,7 @@ export function formatModelChoices(list: ModelChoiceList): string {
     uiText('Models', '模型'),
     uiText(
       `  active provider  ${list.providerLabel} (${list.provider})${list.usingBundledDefault ? ' · built-in Moss gateway' : ''}`,
-      `  当前提供方  ${list.providerLabel} (${list.provider})${list.usingBundledDefault ? ' · 内置 Moss 网关' : ''}`
+      `  当前提供方  ${list.providerLabel}（${list.provider}）${list.usingBundledDefault ? ' · 内置 Moss 网关' : ''}`
     ),
     uiText(
       `  current model    ${list.currentModel || '(not set)'}${list.usingBundledDefault && list.realModel ? ` (real backing model: ${list.realModel})` : ''}`,

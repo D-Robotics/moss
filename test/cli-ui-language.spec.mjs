@@ -36,6 +36,7 @@ import {
 } from '../dist/core/task-runtime/runtime.js';
 import { renderFirstRunLines } from '../dist/cli/first-run.js';
 import { classifyProviderError } from '../dist/provider/error-classify.js';
+import { requirePyLayout } from './helpers/require-pyte.mjs';
 
 const HAN = /\p{Script=Han}/u;
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -101,7 +102,12 @@ function assertNoEnglishLeak(text, label) {
   );
   assert.equal(resolveUiLanguage({ configLanguage: 'zh', systemLocale: 'C' }).source, 'config');
   assert.throws(() => resolveUiLanguage({ flag: 'fr' }), /--lang must be en\|zh/);
-  assert.throws(() => resolveUiLanguage({ envLang: 'chinese' }), /MOSS_LANG must be en\|zh/);
+  assert.throws(() => resolveUiLanguage({ envLang: 'chinese' }), /MOSS_LANG must be auto\|en\|zh/);
+  assert.equal(
+    resolveUiLanguage({ envLang: 'auto', configLanguage: 'zh', systemLocale: 'C' }).source,
+    'config'
+  );
+  assert.equal(resolveUiLanguage({ envLang: 'AUTO', systemLocale: 'zh_CN.UTF-8' }).language, 'zh');
   assert.equal(
     mergeConfigFiles({ language: 'zh', model: 'from-project' }, { language: 'en' }).language,
     'en'
@@ -506,7 +512,10 @@ for (const args of zhSurfaces) {
 {
   const badEnv = runCli(['--help'], { MOSS_LANG: 'fr', LANG: 'C', LC_ALL: 'C' });
   assert.equal(badEnv.status, 0, badEnv.text);
-  assert.match(badEnv.text, /MOSS_LANG must be en\|zh/);
+  assert.match(badEnv.text, /MOSS_LANG must be auto\|en\|zh/);
+  const autoEnv = runCli(['--help'], { MOSS_LANG: 'auto', LANG: 'C', LC_ALL: 'C' });
+  assert.equal(autoEnv.status, 0, autoEnv.text);
+  assert.doesNotMatch(autoEnv.text, /MOSS_LANG must be/);
   assert.match(badEnv.text, /Most useful/);
   const override = runCli(['--lang', 'en', '--help'], {
     MOSS_LANG: 'fr',
@@ -514,8 +523,13 @@ for (const args of zhSurfaces) {
     LC_ALL: 'zh_CN.UTF-8',
   });
   assert.equal(override.status, 0, override.text);
-  assert.match(override.stderr ?? '', /MOSS_LANG/);
+  assert.match(override.stderr ?? '', /MOSS_LANG must be auto\|en\|zh/);
+  assertNoHan(override.stderr ?? '', 'warning follows --lang en, not the system locale');
   assertNoHan(override.stdout ?? '', '--lang en overrides a bad MOSS_LANG');
+  const flagZh = runCli(['--lang', 'zh', '--help'], { MOSS_LANG: 'fr', LANG: 'C', LC_ALL: 'C' });
+  assert.equal(flagZh.status, 0, flagZh.text);
+  assert.match(flagZh.stderr ?? '', /MOSS_LANG 只能是 auto、en 或 zh/);
+  assert.match(flagZh.stdout ?? '', /最常用/);
   const badFlag = runCli(['--lang', 'fr', '--help'], { LANG: 'C', LC_ALL: 'C' });
   assert.equal(badFlag.status, 2, badFlag.text);
   const missing = runCli(['--lang'], { LANG: 'C', LC_ALL: 'C' });
@@ -531,35 +545,48 @@ for (const args of zhSurfaces) {
   });
   assert.equal(badConfig.status, 0, badConfig.text);
   assert.match(badConfig.text, /config language "fr" is not auto\|en\|zh/);
+  const validated = runCli(['config', 'validate'], {
+    LANG: 'C',
+    LC_ALL: 'C',
+    config: '{"language":"fr"}\n',
+  });
+  assert.match(validated.text, /language\.invalid/);
+  assert.match(validated.text, /language "fr" is not auto\|en\|zh/);
+  const strict = runCli(['config', 'validate', '--strict'], {
+    LANG: 'C',
+    LC_ALL: 'C',
+    config: '{"language":"fr"}\n',
+  });
+  assert.equal(strict.status, 1, strict.text);
 }
 
+// Commands, flags, env names, and product identifiers. Prose is not exempt:
+// a leftover label (node, version, auth, baseUrl, Skills, harness, config)
+// fails this check on its own.
 const ALLOWED_EN = new Set(
-  `moss setup doctor config auth update resume fork mcp device skill plugins migrate sessions tasks task web agent
+  `moss setup doctor update resume fork mcp device skill plugins migrate sessions tasks task web agent
 help model status language lang permissions mode plan goal compact clear diff export init stop context usage agents review
-en zh auto json http https api repl tui mcp node npm git github linux macos windows posix
-deepseek openai anthropic qwen ripgrep path token baseurl url key env var
+en zh auto json http https api repl tui mcp npm git github linux macos windows posix
+deepseek openai anthropic qwen ripgrep path token url key env var
 ok warn fail pass full manual plan stdio bash ssh id dir cwd true false yes no default
 add list remove test show set unset validate create delete search export run status timeline resume view verify fork init
 unprobed bing bocha brave exa npx ctrl tab esc enter home opt tmp boot etc
-provider profile version workspace runtime search detail quiet verbose mock json
+provider profile workspace runtime search detail quiet verbose mock json
 accept edits read only workspace write full access never prompt
 info processes resources temperature robotics network cameras fleet
 allow ask deny none enabled disabled
-mit mit
-skills soul commands agents persona
+mit
+soul commands agents persona
 stdin stdout stderr tty pty
 grep mkdir chmod printf
 d robotics rdk docs
+xclip powershell finder shell
+evidence deployments acceptance
+balanced cautious autonomous
 npx`
     .split(/\s+/)
     .map((word) => word.toLowerCase())
 );
-const GLUE = new Set(
-  'the and for with from this that are not you your when will can has have was were into than then also only must should but its been they their about after before where which what how does did using used still every other same more without within under over once requires require missing found available install please press type enter choose saved'.split(
-    ' '
-  )
-);
-
 function stripAnsi(text) {
   let out = '';
   for (let i = 0; i < text.length; i += 1) {
@@ -579,10 +606,18 @@ function englishSentences(text) {
     const plain = stripAnsi(rawLine);
     if (/^\s*(\$ )?(moss\b|\/[a-z]|git\b|npm\b|npx\b|printf\b|echo\b|node\b)/i.test(plain))
       continue;
-    const stripped = plain
+    // Help tables put the command name in the first column (`config    show|…`).
+    // A doctor label sits after ok/warn/fail, so `node` / `baseUrl` / `config` there still fail.
+    const row = plain.replace(/^\s*[A-Za-z][\w-]*\s{2,}/, ' ');
+    const stripped = row
       .replace(/`[^`]*`/g, ' ')
       .replace(/https?:\/\/\S+/g, ' ')
+      .replace(/\bmoss\b(?:\s+[a-z][\w-]*)?/gi, ' ')
+      .replace(/\[[A-Za-z][\w.-]*\]/g, ' ')
+      .replace(/\b[A-Za-z][\w-]*(?:\.[A-Za-z0-9_*-]+)+\b/g, ' ')
+      .replace(/\b[A-Za-z][\w-]*:[A-Za-z][\w.-]*/g, ' ')
       .replace(/--?[A-Za-z0-9][\w-]*/g, ' ')
+      .replace(/<[^>\n]*>/g, ' ')
       .replace(/\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/g, ' ')
       .replace(/\b[A-Z][A-Z0-9_]{2,}\b/g, ' ')
       .replace(/[~./][\w./~-]*/g, ' ')
@@ -594,8 +629,7 @@ function englishSentences(text) {
       if (/^[a-z]+[-_][a-z0-9_-]+$/i.test(word)) return false;
       return true;
     });
-    const glue = leftover.filter((word) => GLUE.has(word.toLowerCase())).length;
-    if (leftover.length >= 4 || (leftover.length >= 3 && glue >= 1) || glue >= 2) {
+    if (leftover.length > 0) {
       hits.push(`${plain.trim()}  << ${leftover.join(' ')}`);
     }
   }
@@ -649,6 +683,7 @@ for (const args of zhSurfacesAll) {
       true
     );
     assert.match(english.join('\n'), /MOSS_LANG=zh will override this on the next start/);
+    assert.match(english.join('\n'), /--lang=en overrides the saved setting/);
 
     envBeforeDotenv.MOSS_LANG = 'en';
     installUiLanguage({ language: 'zh', source: 'flag', setting: 'zh' });
@@ -657,10 +692,12 @@ for (const args of zhSurfacesAll) {
       say: (_kind, text) => chinese.push(text),
     });
     assert.match(chinese.join('\n'), /下次启动时 MOSS_LANG=en 会覆盖它/);
+    assert.match(chinese.join('\n'), /--lang=zh 会覆盖已保存的设置/);
     const saved = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
     assert.equal(saved.language, 'zh');
 
     delete envBeforeDotenv.MOSS_LANG;
+    installUiLanguage({ language: 'zh', source: 'config', setting: 'zh' });
     const quiet = [];
     await runRegistryCommand('/language zh save', {
       say: (_kind, text) => quiet.push(text),
@@ -675,6 +712,22 @@ for (const args of zhSurfacesAll) {
     clearUiLanguage();
     setTuiLocale(false);
   }
+}
+
+if (requirePyLayout('cli-ui-language')) {
+  const shot = spawnSync(
+    'python3',
+    [path.join(repoRoot, 'test', 'fixtures', 'tui-ui-language.py')],
+    {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      timeout: 90_000,
+      env: { ...process.env, HOME: process.env.HOME },
+    }
+  );
+  const shotText = `${shot.stdout ?? ''}${shot.stderr ?? ''}`;
+  assert.equal(shot.status, 0, shotText);
+  assert.match(shotText, /\[PASS\] zh TUI/);
 }
 
 console.log('[PASS] cli ui language');

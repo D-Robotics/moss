@@ -230,22 +230,26 @@ export function uiText(en: string, zh: string): string {
  * Precedence: `--lang` > `MOSS_LANG` > user config `language` > system locale.
  * `MOSS_LANG` and the system locale are read from the environment captured
  * before a project `.env` is applied. An invalid `MOSS_LANG` warns once and
- * falls through to auto so it does not break every command; `--lang` still
- * wins. An invalid config `language` warns and is treated as `auto`.
- * Returns an error message only for an invalid `--lang` that reached here.
+ * falls through to auto so it does not break every command; `MOSS_LANG=auto`
+ * is valid and means the same fall-through. `--lang` still wins. An invalid
+ * config `language` warns and is treated as `auto`. The warning is printed
+ * in the resolved UI language, not the system locale. Returns an error
+ * message only for an invalid `--lang` that reached here.
  */
 export function installCliUiLanguage(options: { flag?: string } = {}): string | undefined {
   const env = envBeforeDotenv;
   let envLang = env.MOSS_LANG;
-  const warnings: string[] = [];
-  const systemIsZh = uiLanguageFromSystemLocale(systemLocale(env)) === 'zh';
-  if (envLang !== undefined && envLang.trim() !== '' && !parseExplicitUiLanguage(envLang)) {
-    warnings.push(
-      systemIsZh
-        ? `[moss] MOSS_LANG 只能是 en 或 zh，收到「${envLang}」，已按 auto 处理。`
-        : `[moss] MOSS_LANG must be en|zh, got "${envLang}"; using auto.`
-    );
-    envLang = undefined;
+  const warnings: Array<{ en: string; zh: string }> = [];
+  if (envLang !== undefined && envLang.trim() !== '') {
+    const token = envLang.trim().toLowerCase();
+    if (token === 'auto') envLang = undefined;
+    else if (!parseExplicitUiLanguage(envLang)) {
+      warnings.push({
+        en: `[moss] MOSS_LANG must be auto|en|zh, got "${envLang}"; using auto.`,
+        zh: `[moss] MOSS_LANG 只能是 auto、en 或 zh，收到「${envLang}」，已按 auto 处理。`,
+      });
+      envLang = undefined;
+    }
   }
   let configLanguage: string | undefined;
   try {
@@ -259,26 +263,26 @@ export function installCliUiLanguage(options: { flag?: string } = {}): string | 
     configLanguage.trim() !== '' &&
     !parseLanguageSetting(configLanguage)
   ) {
-    warnings.push(
-      systemIsZh
-        ? `[moss] 配置 language「${configLanguage}」不是 auto、en 或 zh，已按 auto 处理。`
-        : `[moss] config language "${configLanguage}" is not auto|en|zh; using auto.`
-    );
+    warnings.push({
+      en: `[moss] config language "${configLanguage}" is not auto|en|zh; using auto.`,
+      zh: `[moss] 配置 language「${configLanguage}」不是 auto、en 或 zh，已按 auto 处理。`,
+    });
   }
+  let resolution: UiLanguageResolution;
   try {
-    installUiLanguage(
-      resolveUiLanguage({
-        flag: options.flag,
-        envLang,
-        configLanguage,
-        systemLocale: systemLocale(env),
-      })
-    );
+    resolution = resolveUiLanguage({
+      flag: options.flag,
+      envLang,
+      configLanguage,
+      systemLocale: systemLocale(env),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return message;
   }
-  for (const warning of warnings) console.error(warning);
+  installUiLanguage(resolution);
+  const zh = resolution.language === 'zh';
+  for (const warning of warnings) console.error(zh ? warning.zh : warning.en);
   return undefined;
 }
 
