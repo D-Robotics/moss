@@ -63,6 +63,7 @@ const absent = () => null;
   assert.match(shell.executable, /pwsh\.exe$/);
   assert.deepEqual(shell.argsFor('echo hi && echo there'), [
     '-NoProfile',
+    '-NonInteractive',
     '-Command',
     'echo hi && echo there',
   ]);

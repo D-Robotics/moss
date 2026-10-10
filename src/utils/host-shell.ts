@@ -31,6 +31,13 @@ const CMD_DESCRIPTION =
   'On Windows the local shell is cmd.exe. Chain with &&. Unix-only utilities (for example uname) are unavailable.';
 
 let cached: ResolvedHostShell | undefined;
+/** Default-probe entries. Importing a tool module must not increment this. */
+let defaultProbeCount = 0;
+
+/** @internal How many times the default (spawning) probe has run. */
+export function hostShellDefaultProbeCount(): number {
+  return defaultProbeCount;
+}
 
 function lookupOnPath(name: string): string | null {
   const finder = process.platform === 'win32' ? 'where.exe' : 'which';
@@ -76,7 +83,7 @@ function resolveUncached(probe: HostShellProbe): ResolvedHostShell {
       kind: 'pwsh',
       executable: pwsh,
       description: POWERSHELL_DESCRIPTION,
-      argsFor: (command) => ['-NoProfile', '-Command', command],
+      argsFor: (command) => ['-NoProfile', '-NonInteractive', '-Command', command],
     };
   }
   const comspec = probe.comspec || process.env.COMSPEC || 'cmd.exe';
@@ -96,6 +103,7 @@ export function resolveHostShell(probe: HostShellProbe = {}): ResolvedHostShell 
     probe.lookup !== undefined ||
     probe.pwshMajor !== undefined;
   if (!injected && cached) return cached;
+  if (!injected) defaultProbeCount += 1;
   const resolved = resolveUncached(probe);
   if (!injected) cached = resolved;
   return resolved;

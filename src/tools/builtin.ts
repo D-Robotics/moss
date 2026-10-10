@@ -79,7 +79,11 @@ export function execToolDescription(shell = resolveHostShell()): string {
 
 export const execTool: Tool = {
   name: 'exec',
-  description: execToolDescription(),
+  // Resolved on first read (tool-list build or exec), not at import. cli-main
+  // imports this module for every subcommand; probing pwsh here blocks startup.
+  get description() {
+    return execToolDescription();
+  },
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
