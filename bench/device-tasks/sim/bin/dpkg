@@ -30,7 +30,8 @@ case "$cmd" in
   -i | --install)
     deb="${1:?deb path required}"
     tmp="$(mktemp -d)"
-    tar -C "$tmp" -xf "$deb"
+    # Stream via stdin. GNU tar treats "D:/..." as host:path, so -f "$deb" never reads the archive on Windows.
+    tar -C "$tmp" -xf - < "$deb"
     control="$tmp/DEBIAN/control"
     pkg="$(awk -F': ' '/^Package:/{print $2; exit}' "$control")"
     ver="$(awk -F': ' '/^Version:/{print $2; exit}' "$control")"
