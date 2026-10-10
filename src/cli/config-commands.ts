@@ -496,6 +496,8 @@ const ENV_NOTE_ZH: Record<string, string> = {
   'prefix of every MOSS_DEVICE_* key': '所有 MOSS_DEVICE_* 键的前缀',
   '1|true|yes|on skips the built-in rdk-docs MCP server':
     '1|true|yes|on 跳过内置 rdk-docs MCP 服务器',
+  '1 waits for the in-flight MCP connect before shutdown; default does not':
+    '设为 1 时，退出前等待进行中的 MCP 连接；默认不等待',
   'npm spec or local path; process env only, not project config or .env':
     'npm 规格或本地路径；仅进程环境，不是项目配置或 .env',
   'legacy alias': '旧别名',
