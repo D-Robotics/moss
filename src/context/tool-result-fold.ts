@@ -37,6 +37,24 @@ export const TOOL_RESULT_FOLD_SAVINGS_RATIO = 11.5;
  */
 export const TOOL_RESULT_FOLD_HORIZON = 5;
 
+/** No fold until the prompt reaches this many tokens, when the window is larger. */
+export const TOOL_RESULT_FOLD_MIN_PROMPT_TOKENS = 60_000;
+
+/** No fold until the prompt is at least this fraction of the context window. */
+export const TOOL_RESULT_FOLD_CONTEXT_FRACTION = 0.5;
+
+/**
+ * Token count the prompt must reach before any fold.
+ * A large window waits for half of it (and at least 60k). A window smaller
+ * than 60k waits for half of that window so a fold can still run before overflow.
+ */
+export function toolResultFoldMinPromptTokens(contextWindowTokens: number): number {
+  const windowTokens = Math.max(1, Math.floor(contextWindowTokens));
+  const half = Math.max(1, Math.floor(windowTokens * TOOL_RESULT_FOLD_CONTEXT_FRACTION));
+  if (windowTokens <= TOOL_RESULT_FOLD_MIN_PROMPT_TOKENS) return half;
+  return Math.max(TOOL_RESULT_FOLD_MIN_PROMPT_TOKENS, half);
+}
+
 export interface ToolResultFoldConfig {
   /** Completed results to keep in full, newest first. */
   keepRecent: number;
@@ -55,6 +73,13 @@ export interface ToolResultFoldConfig {
    * direct call does not assume a long run.
    */
   remainingRequests: number;
+  /**
+   * Estimated prompt tokens. With `contextWindowTokens`, a fold is refused
+   * until `toolResultFoldMinPromptTokens` is met. Omitted, the size gate is
+   * not applied (callers that already checked).
+   */
+  promptTokens?: number;
+  contextWindowTokens?: number;
   /** Minimum `savedTokens * remainingRequests / suffixTokens`. */
   savingsRatio: number;
   /** Tool names whose results stay in full (`ToolMetadata.retainResult`). */
@@ -62,7 +87,7 @@ export interface ToolResultFoldConfig {
 }
 
 export const DEFAULT_TOOL_RESULT_FOLD: ToolResultFoldConfig = {
-  keepRecent: 2,
+  keepRecent: 6,
   minChars: 4_000,
   minBatch: 3,
   headChars: 180,
@@ -160,6 +185,13 @@ export function foldOlderToolResults(
   config: Partial<ToolResultFoldConfig> = {}
 ): ToolResultFoldResult {
   const cfg = { ...DEFAULT_TOOL_RESULT_FOLD, ...config };
+  if (
+    cfg.promptTokens !== undefined &&
+    cfg.contextWindowTokens !== undefined &&
+    cfg.promptTokens < toolResultFoldMinPromptTokens(cfg.contextWindowTokens)
+  ) {
+    return { messages, foldedCount: 0, savedChars: 0, savedTokens: 0 };
+  }
   const uses = toolUseById(messages);
   let lastAssistant = -1;
   for (let i = messages.length - 1; i >= 0; i--) {

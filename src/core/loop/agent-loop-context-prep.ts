@@ -248,7 +248,7 @@ export async function prepareTurnContext(
     state.overflowState.microcompactTotalSavedChars += ctxMgmt.savedChars;
     // Folds (and the stale-read pass beside them) only live in this array
     // until they are written back. The next user turn reloads the store.
-    if (ctxMgmt.savedChars > 0) {
+    if (ctxMgmt.durableChars > 0) {
       await persistCurrentMessages();
     }
   }
