@@ -267,32 +267,45 @@ def p3_tool_rows():
               "Listed 1 entry" in text, "no semantic headline on the tool row")
 
 
+def screen_text(session):
+    return "\n".join(session.lines())
+
+
 def p4_keybindings():
     # A rebound command answers on its new key and not on the old one.
+    # Poll for the overlay: a fixed pump after Ctrl+T flakes when the frame
+    # lands late ("history search did not open on Ctrl+T").
     with Session(cols=100, rows=30, renderer="fullscreen",
                  keybindings={"history.search": "ctrl+t"}) as session:
         session.key("ctrl-t")
-        session.pump(0.3)
-        check("P4 a rebound key opens its command", "Enter to use" in "\n".join(session.lines()),
+        opened = session.wait_for(lambda: "Enter to use" in screen_text(session), 5)
+        check("P4 a rebound key opens its command", opened,
               "history search did not open on Ctrl+T")
         session.key("esc")
-        session.pump(0.3)
+        closed = session.wait_for(lambda: "Enter to use" not in screen_text(session), 5)
         session.key("ctrl-r")
-        session.pump(0.3)
-        check("P4 the old key no longer answers", "Enter to use" not in "\n".join(session.lines()),
+        stayed_off = closed
+        end = time.time() + 1.5
+        while time.time() < end and stayed_off:
+            if "Enter to use" in screen_text(session):
+                stayed_off = False
+                break
+            session.pump(0.05)
+        check("P4 the old key no longer answers", stayed_off,
               "Ctrl+R still opened history search")
     # A bad line is reported, and the valid line still applies.
     with Session(cols=100, rows=30, renderer="fullscreen",
                  keybindings={"run.interrupt": "ctrl+z", "composer.clear": "ctrl+t"}) as session:
-        session.pump(0.5)
-        text = "\n".join(session.lines())
-        check("P4 a locked command is reported on screen", "cannot be rebound" in text,
+        warned = session.wait_for(lambda: "cannot be rebound" in screen_text(session), 5)
+        check("P4 a locked command is reported on screen", warned,
               "no warning for run.interrupt")
-        session.submit("draft text", wait=0.5)
+        session.submit("draft text", wait=0.2)
+        shown = session.wait_for(lambda: "draft text" in screen_text(session), 5)
         session.key("ctrl-t")
-        session.pump(0.3)
-        check("P4 a valid rebind still applies beside a bad one",
-              "draft text" not in "\n".join(session.lines()[-8:]),
+        cleared = shown and session.wait_for(
+            lambda: "draft text" not in "\n".join(session.lines()[-8:]), 5
+        )
+        check("P4 a valid rebind still applies beside a bad one", cleared,
               "Ctrl+T did not clear the composer")
 
 

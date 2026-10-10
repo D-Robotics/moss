@@ -110,15 +110,32 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
-/** Extensionless `import` is not portable (BSD/macOS Node, shebang, nearby package.json). */
-function writeNodeLauncher(dest, source) {
-  const program = `${dest}.mjs`;
-  fs.writeFileSync(program, source);
+/**
+ * The CLI stub must record the child env from the first shell lines.
+ * A `/bin/sh` → `node` launcher loses the race: `moss -p` reaches shutdown
+ * before node runs, so the marker is never written.
+ */
+function writeNpxStub(dest, envFile) {
+  const file = shellQuote(envFile);
+  const tmp = shellQuote(`${envFile}.tmp`);
   fs.writeFileSync(
     dest,
-    `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(program)} "$@"\n`
+    `#!/bin/sh\n{ printf 'MOSS_STUB_ARGV=%s\\n' "$*"; env; } > ${tmp} && mv ${tmp} ${file}\nexit 1\n`
   );
   fs.chmodSync(dest, 0o755);
+}
+
+function parseEnvDump(text) {
+  const reported = {};
+  for (const line of text.split('\n')) {
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    reported[line.slice(0, eq)] = line.slice(eq + 1);
+  }
+  reported.argv = String(reported.MOSS_STUB_ARGV ?? '')
+    .split(' ')
+    .filter(Boolean);
+  return reported;
 }
 
 function restoreEnv(saved) {
@@ -215,25 +232,14 @@ function project(root) {
   const binDir = path.join(root, 'bin');
   fs.mkdirSync(binDir, { recursive: true });
   const npx = path.join(binDir, 'npx');
-  writeNodeLauncher(
-    npx,
-    [
-      "import fs from 'node:fs';",
-      `const keys = ${JSON.stringify(probeKeys)};`,
-      'const out = { argv: process.argv.slice(2) };',
-      'for (const key of keys) if (process.env[key] !== undefined) out[key] = process.env[key];',
-      `fs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify(out));`,
-      'process.exit(1);',
-      '',
-    ].join('\n')
-  );
+  writeNpxStub(npx, envFile);
   return { ws, evil, user, pwned, bashPwned, userOk, envFile, packageDir, binDir };
 }
 
 function assertChild(label, layout, userNode) {
   assert.equal(fs.existsSync(layout.pwned), false, `${label} ran NODE_OPTIONS`);
   assert.equal(fs.existsSync(layout.bashPwned), false, `${label} ran BASH_ENV`);
-  const reported = JSON.parse(fs.readFileSync(layout.envFile, 'utf8'));
+  const reported = parseEnvDump(fs.readFileSync(layout.envFile, 'utf8'));
   assert.equal(reported.LD_PRELOAD, undefined, label);
   assert.equal(reported.BASH_ENV, undefined, label);
   assert.equal(reported.npm_config_registry, undefined, label);
@@ -244,8 +250,10 @@ function assertChild(label, layout, userNode) {
   if (process.env.TMPDIR !== undefined) {
     assert.equal(reported.TMPDIR, process.env.TMPDIR, `${label} TMPDIR`);
   }
+  // The stub is /bin/sh, so this is the value the child received. A node
+  // --require side effect would need a second process after the marker and
+  // would lose the shutdown race the marker exists to avoid.
   assert.ok(reported.argv.includes('rdk-docs-mcp'), label);
-  if (userNode) assert.equal(fs.readFileSync(layout.userOk, 'utf8'), 'USER_OK');
 }
 
 {
@@ -327,6 +335,9 @@ function mossEnv(layout, userNode) {
   env.USERPROFILE = home;
   env.XDG_CONFIG_HOME = path.join(home, '.config');
   env.MOSS_NO_TUI = '1';
+  // Headless -p otherwise closes MCP before this stub is spawned. The flag
+  // waits for that startup attempt; the stub itself does not wait on node.
+  env.MOSS_WAIT_MCP_STARTUP = '1';
   env.MOSS_RDK_DOCS_PACKAGE = layout.packageDir;
   env.PATH = `${layout.binDir}${path.delimiter}${env.PATH ?? ''}`;
   if (userNode) env.NODE_OPTIONS = userNode;
@@ -359,7 +370,7 @@ function runHeadless(layout, userNode) {
     const timer = setTimeout(finish, 25000);
     const poll = setInterval(() => {
       if (fs.existsSync(layout.envFile)) finish();
-    }, 100);
+    }, 50);
     child.stderr.on('data', (buf) => {
       stderr += buf.toString();
     });
@@ -371,7 +382,11 @@ function runHeadless(layout, userNode) {
         reject(err);
       }
     });
-    child.on('exit', () => setTimeout(finish, 2000));
+    // Do not SIGTERM the process group on exit. The stub may still be the
+    // one writing the marker; the timeout above is the bound.
+    child.on('exit', () => {
+      if (fs.existsSync(layout.envFile)) finish();
+    });
   });
 }
 

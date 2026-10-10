@@ -436,7 +436,14 @@ async function initDirtyFilterRepo(t, prefix, parent) {
   await fs.writeFile(path.join(dir, '.gitattributes'), '* filter=mossinc\n');
   execFileSync('git', ['add', 'README.md', '.gitattributes'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['commit', '-m', 'init'], { cwd: dir, stdio: 'ignore' });
-  await fs.writeFile(path.join(dir, 'README.md'), 'hello\nchanged\n');
+  const readme = path.join(dir, 'README.md');
+  await fs.writeFile(readme, 'hello\nchanged\n');
+  // git status runs filter.clean only when the index stat cannot prove the
+  // file is unchanged. A same-second rewrite (coarse mtime, matching size)
+  // loses that race and the fixture self-check flakes. A future mtime cannot
+  // match the stat recorded at commit.
+  const future = new Date(Date.now() + 10_000);
+  await fs.utimes(readme, future, future);
   const marker = path.join(dir, 'FILTER_RAN');
   const script = path.join(dir, 'clean.sh');
   await fs.writeFile(script, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\ncat\n`);
