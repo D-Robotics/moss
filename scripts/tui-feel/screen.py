@@ -117,6 +117,8 @@ class Session:
             "LANG": "en_US.UTF-8",
             "MOSS_NOTIFY": "0",
             "MOSS_NO_RDK_DOCS": "1",
+            # Layout probes measure the TUI, not the first-launch folder prompt.
+            "MOSS_TRUST_WORKSPACE": "1",
             "MOSS_CONFIG_FILE": cfg,
             "MOSS_TUI_RENDERER": self.renderer,
             **self.extra_env,

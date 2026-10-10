@@ -304,6 +304,10 @@ export const ZH: Readonly<Record<string, string>> = {
   'theme: {name}': '主题：{name}',
   'list configured lifecycle hooks and where to edit them':
     '列出已配置的生命周期 hooks 及其编辑位置',
+  'trust this folder for project settings (remembered in your user config)':
+    '信任此文件夹的项目设置（记在你的用户配置里）',
+  'forget trust for this folder; applies the next time Moss starts':
+    '取消对此文件夹的信任；下次启动 Moss 时生效',
   'interrupt the active run': '中断当前运行',
   'show the key and command reference': '显示快捷键与命令参考',
   'exit moss': '退出 moss',
@@ -592,8 +596,34 @@ export const ZH: Readonly<Record<string, string>> = {
   'status line': '状态栏',
   'stdio MCP ({names})': 'stdio MCP（{names}）',
   'HTTP MCP ({names})': 'HTTP MCP（{names}）',
-  'agent {names}': '代理 {names}',
+  'agent {names}': '子代理 {names}',
   'plugin {names}': '插件 {names}',
+  'Trusting loads {summary}.': '信任后将加载 {summary}。',
+  'This project has no hooks, MCP servers, agents, or plugins.':
+    '此项目没有钩子、MCP 服务、子代理或插件。',
+  'A trusted project can change the model gateway, proxy, and TLS.':
+    '受信任的项目可以更改模型网关、流量代理和 TLS。',
+  'This folder is your home directory.': '此文件夹是你的主目录。',
+  'This folder is the filesystem root. Trusting it is not remembered.':
+    '此文件夹是文件系统根目录。这里的信任不会被记住。',
+  'Trust this folder?': '信任此文件夹？',
+  'Yes, trust this folder': '是，信任此文件夹',
+  'No, exit': '否，退出',
+  '[moss] This folder was not trusted. Exiting.': '[moss] 未信任此文件夹。正在退出。',
+  '[moss] Ancestor .env routing keys ignored from {dir}: {list}. Trust that directory to apply them.':
+    '[moss] 已忽略来自 {dir} 的上级目录 .env 路由键：{list}。信任该目录后才会应用它们。',
+  '[moss] Untrusted folder — ignored project settings: {list}. Trust this folder with --trust-workspace or MOSS_TRUST_WORKSPACE=1.':
+    '[moss] 文件夹未信任 — 已忽略项目设置：{list}。用 --trust-workspace 或 MOSS_TRUST_WORKSPACE=1 信任此文件夹。',
+  '[moss] Untrusted folder — project settings that change where traffic goes stay ignored. Trust this folder with --trust-workspace or MOSS_TRUST_WORKSPACE=1.':
+    '[moss] 文件夹未信任 — 会改变流量去向的项目设置保持忽略。用 --trust-workspace 或 MOSS_TRUST_WORKSPACE=1 信任此文件夹。',
+  '[moss] Project base URL {url} needs its own apiKey. The primary key is not sent to that host.':
+    '[moss] 项目 base URL {url} 需要自己的 apiKey。主密钥不会发往该主机。',
+  'Trusted {path}. It applies the next time Moss starts.': '已信任 {path}。下次启动 Moss 时生效。',
+  'The filesystem root is not remembered as trusted.': '文件系统根目录不会被记为已信任。',
+  'Removed trust for {path}. It applies the next time Moss starts.':
+    '已取消对 {path} 的信任。下次启动 Moss 时生效。',
+  'This folder is not trusted.': '此文件夹未被信任。',
+  'No trusted folders.': '没有已信任的文件夹。',
   Model: '模型',
   Command: '命令',
 };

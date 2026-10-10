@@ -87,6 +87,7 @@ const ZH_FIELD: Record<string, string> = {
   'context tokens': '上下文 token',
   'max output': '最大输出',
   compaction: '压缩',
+  'model tiers': '模型分级',
   'config warnings': '配置警告',
 };
 
@@ -101,6 +102,9 @@ const ZH_SOURCE: Record<string, string> = {
   'derived:mode': '由权限模式推导',
   missing: '缺失',
   config: '配置文件',
+  user: '用户',
+  project: '项目',
+  env: '环境变量',
   cli: '命令行',
   'built-in': '内置',
   unprobed: '未探测',
@@ -289,6 +293,22 @@ const FIELDS = {
       isZhLocale()
         ? `预留 ${c.compactionSettings?.reserveTokens ?? 20000}，保留最近 ${c.compactionSettings?.keepRecentTokens ?? 20000} ${sourceNote(c.compactionSettingsSource)}`
         : `reserve ${c.compactionSettings?.reserveTokens ?? 20000}, keepRecent ${c.compactionSettings?.keepRecentTokens ?? 20000} ${sourceNote(c.compactionSettingsSource)}`,
+  ],
+  modelTiers: [
+    'model tiers',
+    (c: ResolvedCliConfig) => {
+      const tiers = c.modelTiers;
+      const rendered = tiers
+        ? [
+            tiers.cheap ? `cheap ${tiers.cheap}` : '',
+            tiers.balanced ? `balanced ${tiers.balanced}` : '',
+            tiers.strong ? `strong ${tiers.strong}` : '',
+          ]
+            .filter(Boolean)
+            .join(', ')
+        : uiText('none', '无');
+      return `${rendered} ${sourceNote(c.modelTiersSource)}`;
+    },
   ],
   warnings: ['config warnings', configAuditSummary],
 } as const;

@@ -22,7 +22,6 @@ const denied = [
   'NODE_OPTIONS',
   'node_options',
   'NODE_PATH',
-  'NODE_EXTRA_CA_CERTS',
   'LD_PRELOAD',
   'LD_LIBRARY_PATH',
   'LD_AUDIT',
@@ -72,7 +71,16 @@ const denied = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_API_BASE',
 ];
-const allowed = ['NODE_DEBUG', 'HOME', 'FOO', 'npm_config', 'GIT', 'MY_GIT_CONFIG', 'LD_DEBUG'];
+const allowed = [
+  'NODE_DEBUG',
+  'HOME',
+  'FOO',
+  'npm_config',
+  'GIT',
+  'MY_GIT_CONFIG',
+  'LD_DEBUG',
+  'NODE_EXTRA_CA_CERTS',
+];
 for (const key of denied) assert.equal(isDotenvDeniedEnvKey(key), true, key);
 for (const key of allowed) assert.equal(isDotenvDeniedEnvKey(key), false, key);
 
@@ -92,6 +100,24 @@ for (const key of allowed) assert.equal(isDotenvDeniedEnvKey(key), false, key);
       else process.env[key] = value;
     }
     delete process.env.EXAMPLE_FROM_DOTENV;
+  }
+}
+
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-dotenv-ca-'));
+  const saved = process.env.NODE_EXTRA_CA_CERTS;
+  delete process.env.NODE_EXTRA_CA_CERTS;
+  fs.writeFileSync(path.join(root, '.env'), 'NODE_EXTRA_CA_CERTS=/tmp/forged.pem\n');
+  try {
+    loadEnvFile(path.join(root, '.env'));
+    assert.equal(
+      process.env.NODE_EXTRA_CA_CERTS,
+      undefined,
+      'extra CA from .env stays deferred until the folder is trusted'
+    );
+  } finally {
+    if (saved === undefined) delete process.env.NODE_EXTRA_CA_CERTS;
+    else process.env.NODE_EXTRA_CA_CERTS = saved;
   }
 }
 
@@ -404,6 +430,8 @@ sys.stdout.buffer.write(buf)
 
 function runInteractive(layout, userNode) {
   const env = mossEnv(layout, userNode);
+  // The folder-trust prompt would block this PTY before rdk-docs starts.
+  env.MOSS_TRUST_WORKSPACE = '1';
   return new Promise((resolve, reject) => {
     const child = spawn(
       'python3',

@@ -96,6 +96,7 @@ env = {
   'MOSS_CONFIG_DIR': os.path.join(home, 'config'),
   'MOSS_RUNTIME_DIR': os.path.join(home, 'runtime'),
   'MOSS_NO_RDK_DOCS': '1',
+  'MOSS_TRUST_WORKSPACE': '1',
 }
 proc = subprocess.Popen([node_bin, cli_path], stdin=slave, stdout=slave, stderr=slave, env=env, cwd=workspace)
 os.close(slave)

@@ -171,6 +171,7 @@ def moss_env(home: str, config: str) -> dict[str, str]:
         "TERM": "xterm-256color",
         "LANG": "en_US.UTF-8",
         "MOSS_NOTIFY": "0",
+        "MOSS_TRUST_WORKSPACE": "1",
         "MOSS_CONFIG_FILE": config,
         "MOSS_TUI_RENDERER": "fullscreen",
     }

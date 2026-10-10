@@ -95,4 +95,23 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-console.log('  [PASS] connection-error: proxy-tunnel refusal hint + DNS + no-false-positive');
+// ─── 4. TLS errors point at a CA file, never at disabling verification ─────
+globalThis.fetch = async () => {
+  const e = new TypeError('fetch failed');
+  e.cause = { code: 'DEPTH_ZERO_SELF_SIGNED_CERT', message: 'self-signed certificate' };
+  throw e;
+};
+try {
+  await fetchWithConnectionContext('https://api.example.com/v1/x', { method: 'GET' });
+  assert.fail('should have thrown');
+} catch (err) {
+  assert.match(err.hint, /NODE_EXTRA_CA_CERTS/);
+  assert.doesNotMatch(err.hint, /NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*0/);
+  assert.match(err.hint, /system trust store/);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
+console.log(
+  '  [PASS] connection-error: proxy-tunnel refusal hint + DNS + TLS CA + no-false-positive'
+);

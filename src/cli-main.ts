@@ -18,6 +18,7 @@ import {
 import {
   CliConfigFileError,
   CliConfigWriteError,
+  commitProjectRoutingEnv,
   envBeforeDotenv,
   loadCliConfigFile,
   loadEnvFromAncestors,
@@ -25,6 +26,7 @@ import {
   resolveConfigDir,
   safeProcessCwd,
   shouldShowFullDefaultNotice,
+  type LoadedCliConfigFile,
 } from './cli/config.js';
 import { parseCliArgs } from './cli/args.js';
 import {
@@ -40,7 +42,13 @@ import {
   formatUserPromptHookContext,
   setLifecycleHookRunner,
 } from './cli/hooks.js';
-import { deliverWorkspaceTrustNotice, resolveProjectCapabilities } from './cli/workspace-trust.js';
+import {
+  ancestorRoutingIgnoredLine,
+  resolveFolderTrust,
+  resolveProjectCapabilities,
+  summarizeTrustItems,
+  untrustedFolderLine,
+} from './cli/workspace-trust.js';
 import { runWithApprovalRequest, setPermissionRequestRunner } from './cli/permission-request.js';
 import { resolveSoulIdentity, resolveSoul } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
@@ -120,7 +128,7 @@ import {
   uiText,
   wrapNoticeLines,
 } from './cli/cli-locale.js';
-import { setTuiLocale } from './cli/tui/copy.js';
+import { chrome, setTuiLocale } from './cli/tui/copy.js';
 import { gitignoreNoticeForWorkspace } from './cli/gitignore-suggestion.js';
 import { buildEnvironmentContextLayer, getGitBranch } from './context/environment.js';
 import { disconnectAllDevices } from './device/device-registry.js';
@@ -355,6 +363,43 @@ function createMockLLMProvider(): LLMProvider {
   };
 }
 
+async function loadTrustedStartupConfig(input: {
+  startDir: string;
+  argv: string[];
+  trustFlag: boolean;
+  prompt: boolean;
+}): Promise<{
+  loadedConfig: LoadedCliConfigFile;
+  trusted: boolean;
+  folderKey: string;
+  ignoredRoutingEnv: string[];
+  ignoredRoutingDirs: string[];
+}> {
+  const configDir = resolveConfigDir();
+  const decision = await resolveFolderTrust({
+    startDir: input.startDir,
+    configDir,
+    interactive: input.prompt,
+    trustFlag: input.trustFlag,
+    env: envBeforeDotenv,
+  });
+  const ignoredRouting = commitProjectRoutingEnv({
+    trusted: decision.trusted,
+    folderKey: decision.folderKey,
+    configDir,
+  });
+  const loadedConfig = loadCliConfigFile(process.env, input.argv, input.startDir, {
+    trustProjectRouting: decision.trusted,
+  });
+  return {
+    loadedConfig,
+    trusted: decision.trusted,
+    folderKey: decision.folderKey,
+    ignoredRoutingEnv: ignoredRouting.keys,
+    ignoredRoutingDirs: ignoredRouting.directories,
+  };
+}
+
 async function main() {
   // REPL, one-shot, and the cancel line share the TUI dictionary. The full-screen
   // shell sets the same flag again from its own entry.
@@ -401,7 +446,13 @@ async function main() {
     if (parsedArgs.configOverrides.workspace) {
       loadEnvFromAncestors(parsedArgs.configOverrides.workspace as string);
     }
-    const loadedConfig = loadCliConfigFile(process.env, process.argv.slice(2), fallbackStartDir);
+    const startup = await loadTrustedStartupConfig({
+      startDir: fallbackStartDir,
+      argv: process.argv.slice(2),
+      trustFlag: parsedArgs.trustWorkspace,
+      prompt: false,
+    });
+    const loadedConfig = startup.loadedConfig;
     const resolvedConfig = resolveCliConfig(
       process.env,
       loadedConfig.config,
@@ -427,7 +478,13 @@ async function main() {
     if (parsedArgs.configOverrides.workspace) {
       loadEnvFromAncestors(parsedArgs.configOverrides.workspace as string);
     }
-    const loadedConfig = loadCliConfigFile(process.env, process.argv.slice(2), fallbackStartDir);
+    const startup = await loadTrustedStartupConfig({
+      startDir: fallbackStartDir,
+      argv: process.argv.slice(2),
+      trustFlag: parsedArgs.trustWorkspace,
+      prompt: false,
+    });
+    const loadedConfig = startup.loadedConfig;
     const resolvedConfig = resolveCliConfig(
       process.env,
       loadedConfig.config,
@@ -478,13 +535,29 @@ async function main() {
     loadEnvFromAncestors(parsedArgs.configOverrides.workspace);
   }
   const configStartDir = fallbackStartDir;
-  const loadedConfig = loadCliConfigFile(process.env, process.argv.slice(2), configStartDir);
+  const startup = await loadTrustedStartupConfig({
+    startDir: configStartDir,
+    argv: process.argv.slice(2),
+    trustFlag: parsedArgs.trustWorkspace,
+    prompt: process.stdin.isTTY === true && !parsedArgs.print,
+  });
+  const loadedConfig = startup.loadedConfig;
   let resolvedConfig = resolveCliConfig(
     process.env,
     loadedConfig.config,
     parsedArgs.configOverrides,
     loadedConfig
   );
+  if (loadedConfig.blockedProjectBaseUrl) {
+    console.error(
+      chrome(
+        '[moss] Project base URL {url} needs its own apiKey. The primary key is not sent to that host.',
+        isZhLocale(),
+        { url: loadedConfig.blockedProjectBaseUrl }
+      )
+    );
+    process.exit(ExitCode.CONFIG);
+  }
   // Model settings are config-only (decision 2026-06). Say so once when a
   // leftover provider env var is present, instead of silently ignoring it —
   // doctor shows the same list as a structured `env ignored` line.
@@ -623,7 +696,9 @@ async function main() {
     } else if (process.stdin.isTTY && !oneShotMessage) {
       const setupStarted = await offerSetupForInteractiveMissingConfig(guidance);
       if (!setupStarted) return;
-      const refreshed = loadCliConfigFile(process.env, process.argv.slice(2), configStartDir);
+      const refreshed = loadCliConfigFile(process.env, process.argv.slice(2), configStartDir, {
+        trustProjectRouting: startup.trusted,
+      });
       resolvedConfig = resolveCliConfig(
         process.env,
         refreshed.config,
@@ -726,6 +801,7 @@ async function main() {
       parsedArgs.print || (parsedArgs.command === 'chat' && process.stdin.isTTY !== true),
     trustFlag: parsedArgs.trustWorkspace,
     env: envBeforeDotenv,
+    folderTrusted: startup.trusted,
   });
   const configuredHooks = createConfiguredHookCallbacks(projectCapabilities.hooks, {
     workspaceDir: workspace,
@@ -960,10 +1036,25 @@ async function main() {
     }
     for (const listener of tuiNoticeListeners) listener(message);
   };
-  deliverWorkspaceTrustNotice(projectCapabilities.notice, useTui, {
-    transcript: emitTuiNotice,
-    stderr: (line) => console.error(line),
-  });
+  if (!startup.trusted) {
+    const summary = summarizeTrustItems(projectCapabilities.skipped, isZhLocale());
+    const parts = [
+      ...(loadedConfig.ignoredProjectRouting ?? []),
+      ...startup.ignoredRoutingEnv,
+      ...(summary ? [summary] : []),
+    ];
+    const line = untrustedFolderLine(parts, isZhLocale());
+    if (useTui) emitTuiNotice(line);
+    else console.error(line);
+  } else if (startup.ignoredRoutingEnv.length > 0) {
+    const line = ancestorRoutingIgnoredLine(
+      startup.ignoredRoutingEnv,
+      startup.ignoredRoutingDirs,
+      isZhLocale()
+    );
+    if (useTui) emitTuiNotice(line);
+    else console.error(line);
+  }
   // v0.16 MCP client: connect servers declared in `.moss/mcp.json` /
   // `<configDir>/mcp.json` (credentials only via ${ENV_VAR} expansion).
   // User servers stay zero-config = zero overhead. rdk-docs is the one builtin:

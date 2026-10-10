@@ -17,6 +17,7 @@ import {
 // ─── 1. each known command routes to the correct phase ────────────────────
 const expectedPhases = {
   setup: CliPhase.None,
+  trust: CliPhase.None,
   update: CliPhase.None,
   auth: CliPhase.ConfigOnly,
   config: CliPhase.ConfigOnly,

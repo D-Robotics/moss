@@ -120,6 +120,7 @@ class Stub:
                 f"cd {self.ws}\n"
                 f"export HOME={self.home}\n"
                 "export MOSS_NOTIFY=0\n"
+                "export MOSS_TRUST_WORKSPACE=1\n"
                 f"export MOSS_CONFIG_FILE={self.cfg}\n"
                 "unset NO_COLOR\n"
                 "unset FORCE_COLOR\n"

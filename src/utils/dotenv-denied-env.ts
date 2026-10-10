@@ -7,8 +7,10 @@
  * `GIT_WORK_TREE`, `GIT_COMMON_DIR`, and `GIT_OBJECT_DIRECTORY`), or a
  * package manager that can execute code. Provider `*_BASE_URL` and `*_API_BASE`
  * names are refused too: a project file must not point the user's key at a
- * host it picked. The real process environment may still set them; only
- * values introduced by a project `.env` are refused.
+ * host it picked. Proxy, TLS, extra-CA, compaction, and fallback variables
+ * are not in this list: an untrusted folder ignores them and a trusted folder
+ * may apply them (`project-routing-env.ts`). The real process environment may
+ * still set them; only values introduced by a project `.env` are refused.
  * Matching is case-insensitive so `npm_config_*` and `NPM_CONFIG_*` are one
  * prefix.
  */
@@ -16,7 +18,6 @@
 const EXACT_KEYS = new Set([
   'NODE_OPTIONS',
   'NODE_PATH',
-  'NODE_EXTRA_CA_CERTS',
   'LD_PRELOAD',
   'LD_LIBRARY_PATH',
   'LD_AUDIT',

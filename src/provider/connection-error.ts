@@ -75,7 +75,7 @@ function classifyConnectionHint(
   }
   if (causeCode && TLS.some((code) => causeCode.startsWith(code) || causeCode === code)) {
     return hint(
-      `TLS/SSL certificate error for ${host} — the server's certificate is invalid or self-signed. For a local gateway, set NODE_TLS_REJECT_UNAUTHORIZED=0 temporarily.`
+      `TLS/SSL certificate error for ${host} — the server certificate is not trusted. If your network uses a corporate CA, set NODE_EXTRA_CA_CERTS to that CA file or install the CA in the system trust store.`
     );
   }
   if (causeCode === 'EPROTO' || (causeCode && causeCode.includes('PROXY'))) {

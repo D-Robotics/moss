@@ -347,6 +347,17 @@ export const COMMANDS: Record<string, CommandConfig> = {
     description: 'Manage MCP servers: add/list/remove/test (project or user config)',
   },
 
+  trust: {
+    name: 'trust',
+    phase: CliPhase.None,
+    handler: async (ctx) => {
+      const { runTrustCommand } = await import('./trust-commands.js');
+      const code = await runTrustCommand(ctx.commandArgs);
+      if (code !== 0) process.exitCode = code;
+    },
+    description: 'List or remove trusted folders (user trust store)',
+  },
+
   setup: {
     name: 'setup',
     phase: CliPhase.None,

@@ -210,6 +210,18 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         hidden: true,
         availableDuringRun: 'immediate',
       },
+      {
+        command: '/trust',
+        description: 'trust this folder for project settings (remembered in your user config)',
+        hidden: true,
+        availableDuringRun: 'immediate',
+      },
+      {
+        command: '/untrust',
+        description: 'forget trust for this folder; applies the next time Moss starts',
+        hidden: true,
+        availableDuringRun: 'immediate',
+      },
     ],
   },
   {

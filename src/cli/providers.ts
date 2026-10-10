@@ -8,8 +8,10 @@
  * MultiProviderRouter around per-config PiAiLLMProvider instances.
  */
 import type { CliProviderPreset } from './config.js';
+import { uiText } from './cli-locale.js';
 import type { LLMProvider } from '../core/llm/llm-provider.js';
 import { PiAiLLMProvider } from '../provider/pi-ai-adapter.js';
+import { endpointHost, primaryKeyAllowedForHost } from '../provider/primary-key-host.js';
 import type { PiAiModelInfo } from '../provider/pi-ai-wire-format.js';
 import { createHttpStreamFunction } from '../provider/pi-ai-http-transport.js';
 import {
@@ -82,16 +84,33 @@ export function createCliProvider(config: CliProviderRuntimeConfig): LLMProvider
     displayName: 'CLI LLM Provider',
   });
 
-  const fallbacks = config.fallbackProviders ?? parseFallbackProvidersEnv();
+  const requested = config.fallbackProviders ?? parseFallbackProvidersEnv();
+  const fallbacks: FallbackProviderConfig[] = [];
+  for (const fb of requested) {
+    const apiKey = fallbackApiKey(fb, config);
+    if (apiKey === undefined) {
+      const where = fb.baseUrl ?? config.baseUrl;
+      console.error(
+        uiText(
+          `[moss] Dropped fallback provider ${fb.provider} at ${where}: it needs its own apiKey. The primary key is not sent to that host.`,
+          `[moss] 已去掉回退服务商 ${fb.provider}（${where}）：它需要自己的 apiKey。主密钥不会发往该主机。`
+        )
+      );
+      continue;
+    }
+    fallbacks.push({ ...fb, apiKey });
+  }
   if (fallbacks.length > 0) {
     return new MultiProviderRouter({
       primary: baseProvider,
       createProvider: (fbConfig) =>
         createCliProvider({
           provider: normalizeProviderForRuntime(fbConfig.provider),
-          apiKey: fbConfig.apiKey ?? config.apiKey,
+          apiKey: fbConfig.apiKey ?? '',
           model: fbConfig.model ?? config.model,
           baseUrl: fbConfig.baseUrl ?? config.baseUrl,
+          // The fallback must not read MOSS_FALLBACK_PROVIDERS again.
+          fallbackProviders: [],
         }),
       fallbacks,
       maxFallbacks: config.fallbackMaxRetries ?? parseFallbackMaxRetriesEnv(),
@@ -100,4 +119,25 @@ export function createCliProvider(config: CliProviderRuntimeConfig): LLMProvider
   }
 
   return baseProvider;
+}
+
+/**
+ * A fallback on another host must carry its own key. Reusing the primary key
+ * would send it to a host the user did not configure.
+ */
+export function fallbackApiKey(
+  fallback: FallbackProviderConfig,
+  primary: Pick<CliProviderRuntimeConfig, 'apiKey' | 'baseUrl' | 'provider'>
+): string | undefined {
+  const baseUrl = fallback.baseUrl ?? primary.baseUrl;
+  const host = endpointHost(baseUrl);
+  const allowed =
+    !host ||
+    primaryKeyAllowedForHost(host, {
+      baseUrl: primary.baseUrl,
+      provider: primary.provider,
+    });
+  if (allowed) return fallback.apiKey ?? primary.apiKey;
+  if (!fallback.apiKey || fallback.apiKey === primary.apiKey) return undefined;
+  return fallback.apiKey;
 }

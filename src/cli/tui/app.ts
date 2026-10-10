@@ -694,6 +694,7 @@ export function TuiAppRoot({
     try {
       const file = loadCliConfigFile(process.env, process.argv.slice(2), undefined, {
         allowProjectStatusCommand: options.workspaceTrusted === true,
+        trustProjectRouting: options.workspaceTrusted === true,
       }).config;
       return {
         pricing: pricingOverridesFromConfig(file.pricing),
