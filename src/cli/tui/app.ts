@@ -2311,7 +2311,7 @@ export function TuiAppRoot({
       if (text === '/skills') {
         const rows = options.skills ?? [];
         printBlock(
-          'Skills',
+          tui('Skills'),
           rows.length === 0
             ? [tui('no skills found'), tui('create one: moss skill create <name>')]
             : rows

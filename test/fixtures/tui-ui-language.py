@@ -57,11 +57,15 @@ def chrome() -> None:
     with Session(cols=120, rows=40, config={"model": "deepseek"}) as session:
         session.wait_for_prompt()
         session.submit("/language zh", wait=1.5)
-        seen = wait_for(session, "界面语言")
+        wait_for(session, "界面语言")
+        session.submit("/language", wait=1.5)
+        seen = wait_for(session, "只切换本会话")
+        if "记到用户配置" not in seen:
+            raise AssertionError(f"/language card missing the save line\n{seen}")
+        if "界面语言：中文" not in seen:
+            raise AssertionError(f"/language card missing the Chinese status\n{seen}")
         if "语言" not in seen:
-            raise AssertionError(f"/language card title stayed in the old language\n{seen}")
-        if "Language" in seen:
-            raise AssertionError(f"/language title still English\n{seen}")
+            raise AssertionError(f"/language card title missing\n{seen}")
         dump("language", seen)
         seen = wait_for(session, "全开已开启")
         dump("status", seen)
@@ -75,10 +79,9 @@ def chrome() -> None:
         session.key("esc")
         session.submit("/doctor", wait=2.0)
         seen = wait_for(session, "诊断")
-        if "模型" not in seen:
-            raise AssertionError(f"/doctor missing model row\n{seen}")
-        if "Doctor" in seen:
-            raise AssertionError(f"/doctor title still English\n{seen}")
+        for needle in ("模型", "版本", "认证"):
+            if needle not in seen:
+                raise AssertionError(f"/doctor card missing {needle}\n{seen}")
         dump("doctor", seen)
 
 

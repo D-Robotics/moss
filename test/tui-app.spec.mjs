@@ -1597,7 +1597,7 @@ async function type(instance, text) {
         'the decline notice is one transcript row'
       );
       await type(instance, '/help');
-      const titled = await waitFor(() => instance.lastFrame().includes('帮助 · Esc 或 Enter 关闭'));
+      const titled = await waitFor(() => instance.lastFrame().includes('帮助 · Esc 或 回车 关闭'));
       assert.ok(titled, `zh /help title: ${instance.lastFrame()}`);
       assert.equal(instance.lastFrame().includes('Help · Esc or Enter to close'), false);
     } finally {

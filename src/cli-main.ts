@@ -596,9 +596,17 @@ async function main() {
     const existing = await earlySessionStore.listSessions().catch(() => []);
     if (existing.length === 0) {
       console.error(
-        `[session] No saved sessions to ${parsedArgs.command} in this workspace (${workspace}).`
+        uiText(
+          `[session] No saved sessions to ${parsedArgs.command} in this workspace (${workspace}).`,
+          `[会话] 此工作区没有可${parsedArgs.command === 'fork' ? '分叉' : '恢复'}的已保存会话（${workspace}）。`
+        )
       );
-      console.error('[session] Start one with `moss`, then use `moss resume --last`.');
+      console.error(
+        uiText(
+          '[session] Start one with `moss`, then use `moss resume --last`.',
+          '[会话] 先运行 `moss` 开始会话，再用 `moss resume --last`。'
+        )
+      );
       process.exit(ExitCode.SESSION);
     }
   }

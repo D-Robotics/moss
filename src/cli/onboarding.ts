@@ -312,7 +312,11 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
   const zh = isZhLocale();
-  const lines: string[] = [ui.bold(ui.black(zh ? '诊断' : 'Doctor')), renderNodeDoctorLine()];
+  const lines: string[] = [
+    ui.bold(ui.black(zh ? '诊断' : 'Doctor')),
+    renderNodeDoctorLine(),
+    doctorOk(zh ? '版本' : 'version', getPackageVersion()),
+  ];
 
   if (auth.usingBundledDefault) {
     lines.push(

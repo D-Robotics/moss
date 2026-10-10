@@ -30,8 +30,8 @@ import { presentToolOutput, redactEgress } from '../dist/safety/tool-output-reda
  * (provider-token examples and `secret = match?.[5]`), at their current lines.
  */
 const MAIN_REDACTED_LINES = [
-  'src/cli/config-commands.ts:816',
-  'src/cli/config-commands.ts:843',
+  'src/cli/config-commands.ts:848',
+  'src/cli/config-commands.ts:875',
   'src/context/remote-compaction.ts:342',
   'src/provider/pi-ai-wire-format.ts:116',
   'src/provider/pi-ai-wire-format.ts:118',

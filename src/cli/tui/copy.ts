@@ -149,7 +149,7 @@ export const ZH: Readonly<Record<string, string>> = {
   Yes: '是',
   "Yes, and don't ask again this session": '是，本次会话内不再询问',
   No: '否',
-  'Esc to deny · ↑↓ then Enter': 'Esc 拒绝 · ↑↓ 后 Enter',
+  'Esc to deny · ↑↓ then Enter': 'Esc 拒绝 · ↑↓ 后 回车',
   'Do you want to proceed?': '是否继续？',
   'Do you want to make this edit to {target}?': '要对 {target} 做这个修改吗？',
   'Do you want to create {target}?': '要创建 {target} 吗？',
@@ -174,7 +174,7 @@ export const ZH: Readonly<Record<string, string>> = {
   '{reason} — using the inline view. Resize the window to use fullscreen.':
     '{reason} — 使用内联视图。把窗口拉大即可全屏。',
   '  Select model · {count} available · ↑↓ move · Enter this session · d save as default · Esc close':
-    '  选择模型 · {count} 个 · ↑↓ 移动 · Enter 仅本会话 · d 存为默认 · Esc 关闭',
+    '  选择模型 · {count} 个 · ↑↓ 移动 · 回车 仅本会话 · d 存为默认 · Esc 关闭',
   'saved {model} as the default ({path})': '已把 {model} 存为默认（{path}）',
   'could not save the default: {error}': '没能保存默认模型：{error}',
   'Try "stream the camera at 30 fps and verify it"': '试试 “以 30 fps 推流相机并验证”',
@@ -198,7 +198,7 @@ export const ZH: Readonly<Record<string, string>> = {
   '1/2/3 to answer': '1/2/3 作答',
   '{keys} to answer': '{keys} 作答',
   '  ❯ {preview}': '排队 ❯ {preview}',
-  'type answer · Enter to send': '输入回答 · Enter 发送',
+  'type answer · Enter to send': '输入回答 · 回车 发送',
   'Esc to skip': 'Esc 跳过',
   'Tab to amend': 'Tab 补充说明',
   'Esc to interrupt': 'Esc 中断',
@@ -218,7 +218,7 @@ export const ZH: Readonly<Record<string, string>> = {
 
   // ── help overlay (app.ts / help.ts) ────────────────────────────────────
   Language: '语言',
-  'PgUp / PgDn / wheel': 'PgUp / PgDn / 滚轮',
+  'PgUp / PgDn / wheel': '上页 / 下页 / 滚轮',
   click: '点击',
   prefixes: '前缀',
   shortcuts: '快捷键',
@@ -246,7 +246,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'search your earlier prompts': '搜索早先的提示',
   'edit the draft in $EDITOR': '用 $EDITOR 编辑草稿',
   'scroll the transcript': '滚动对话记录',
-  'scroll the transcript · End jumps to the latest': '滚动对话记录 · End 跳到最新',
+  'scroll the transcript · End jumps to the latest': '滚动对话记录 · 文末 跳到最新',
   'expand a collapsed block · drag to copy': '展开被折叠的块 · 拖动复制',
   'print failures · deployments are /deployments': '打印失败记录 · 部署记录用 /deployments',
   'print task artifacts': '打印任务工件',
@@ -275,7 +275,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'export this session to markdown (path optional; - prints to stdout)':
     '将会话导出为 Markdown（路径可选；- 打印到标准输出）',
   'review the working-tree diff (or a GitHub PR) for bugs and security':
-    '审查工作区差异（或 GitHub PR）中的缺陷与安全问题',
+    '审查工作区差异（或 GitHub 拉取请求）中的缺陷与安全问题',
   'list saved conversations': '列出已保存的会话',
   'health-check model, egress, and config in this session':
     '在本会话中对模型、出口与配置做健康检查',
@@ -323,9 +323,9 @@ export const ZH: Readonly<Record<string, string>> = {
   // ── app.ts chrome ──────────────────────────────────────────────────────
   'Approval required': '需要审批',
   Question: '问题',
-  'type 1,3 below · ↑↓ then Enter · Esc to skip': '在下方输入 1,3 · ↑↓ 后 Enter · Esc 跳过',
-  '{keys} · ↑↓ then Enter · Esc to skip': '{keys} · ↑↓ 后 Enter · Esc 跳过',
-  'type your answer below · Enter to send · Esc to skip': '在下方输入回答 · Enter 发送 · Esc 跳过',
+  'type 1,3 below · ↑↓ then Enter · Esc to skip': '在下方输入 1,3 · ↑↓ 后 回车 · Esc 跳过',
+  '{keys} · ↑↓ then Enter · Esc to skip': '{keys} · ↑↓ 后 回车 · Esc 跳过',
+  'type your answer below · Enter to send · Esc to skip': '在下方输入回答 · 回车 发送 · Esc 跳过',
   yes: '是',
   'yes (session)': '是（会话）',
   amend: '补充说明',
@@ -379,19 +379,19 @@ export const ZH: Readonly<Record<string, string>> = {
 
   // ── paste staging (app.ts) ─────────────────────────────────────────────
   '[paste: {lines} lines · LARGE {size}k chars — Enter sends it all; @-mention a file instead to send a path]':
-    '[粘贴：{lines} 行 · 过大 {size}k 字符 — Enter 全部发送；改用 @ 提及文件以发送路径]',
+    '[粘贴：{lines} 行 · 过大 {size}k 字符 — 回车 全部发送；改用 @ 提及文件以发送路径]',
   '[paste: {lines} lines — Enter sends as one message, Esc discards]':
-    '[粘贴：{lines} 行 — Enter 作为一条消息发送，Esc 丢弃]',
+    '[粘贴：{lines} 行 — 回车 作为一条消息发送，Esc 丢弃]',
 
   // ── model picker (app.ts) ──────────────────────────────────────────────
   '  Select model · {count} available · ↑↓ move · Enter choose · Esc close':
-    '  选择模型 · 共 {count} 个 · ↑↓ 移动 · Enter 选择 · Esc 关闭',
+    '  选择模型 · 共 {count} 个 · ↑↓ 移动 · 回车 选择 · Esc 关闭',
   '  … type /model <name> for any other model': '  … 输入 /model <name> 选择其他模型',
 
   // ── task / status chrome (app.ts) ──────────────────────────────────────
-  '◇ task {id} — PASS ({criteria} criteria met)': '◇ 任务 {id} — PASS（达成 {criteria} 项）',
+  '◇ task {id} — PASS ({criteria} criteria met)': '◇ 任务 {id} — 通过（达成 {criteria} 项）',
   '◇ task {id} — FAIL ({criteria} criteria met) · /task resume {task} to repair':
-    '◇ 任务 {id} — FAIL（达成 {criteria} 项）· /task resume {task} 修复',
+    '◇ 任务 {id} — 失败（达成 {criteria} 项）· /task resume {task} 修复',
   '◇ task {phase} — {text}': '◇ 任务 {phase} — {text}',
   Doctor: '诊断',
   Task: '任务',
@@ -438,12 +438,12 @@ export const ZH: Readonly<Record<string, string>> = {
   'set $EDITOR to edit the draft externally': '设置 $EDITOR 后可在外部编辑草稿',
   'could not read the edited draft': '读不回编辑后的草稿',
   'copied {count} chars to clipboard': '已复制 {count} 个字符到剪贴板',
-  '  ↓ Jump to bottom (click or End)': '  ↓ 跳到底部（点击或按 End）',
+  '  ↓ Jump to bottom (click or End)': '  ↓ 跳到底部（点击或按 文末）',
   'Ctrl+D quits — press Esc twice to drop the draft first': 'Ctrl+D 退出 — 先连按两次 Esc 丢弃草稿',
   'finish the pending approval before changing interaction mode':
     '请先处理待审批项，再切换交互模式',
   'fresh session — `moss resume` reopens the picker': '新会话 — `moss resume` 重新打开选择器',
-  'prompt staged from history — Enter sends': '已从历史暂存提示 — Enter 发送',
+  'prompt staged from history — Enter sends': '已从历史暂存提示 — 回车 发送',
   'history {n}/{total} — ↑↓ to walk · type to edit': '历史 {n}/{total} — ↑↓ 浏览 · 输入以编辑',
   'History {n}/{total}': '历史 {n}/{total}',
   Permissions: '权限',
@@ -472,7 +472,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'Proceed — keep manual approvals': '继续 — 保留手动审批',
   'Tell moss what to change (type below)': '告诉 moss 要改什么（在下方输入）',
   '↑↓ then Enter · or type feedback below · Esc keeps planning':
-    '↑↓ 后 Enter · 或在下方输入反馈 · Esc 继续规划',
+    '↑↓ 后 回车 · 或在下方输入反馈 · Esc 继续规划',
 
   // ── command block bodies (app.ts) ──────────────────────────────────────
   'a run is in flight — press Esc to interrupt it first': '有运行正在进行 — 先按 Esc 中断它',
@@ -574,7 +574,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'failed — {detail}': '失败 — {detail}',
 
   // ── /help overlay title (app.ts) ───────────────────────────────────────
-  '  Help · Esc or Enter to close': '  帮助 · Esc 或 Enter 关闭',
+  '  Help · Esc or Enter to close': '  帮助 · Esc 或 回车 关闭',
   '  Help · full reference · Esc to close': '  帮助 · 完整参考 · Esc 关闭',
 
   // ── workspace trust prompt (workspace-trust.ts) ────────────────────────
@@ -586,6 +586,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'plugin {names}': '插件 {names}',
   Model: '模型',
   Command: '命令',
+  Skills: '技能',
+  Enter: '回车',
 };
 
 /**

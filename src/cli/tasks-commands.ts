@@ -5,7 +5,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { isZhLocale } from './cli-locale.js';
+import { isZhLocale, uiText } from './cli-locale.js';
 import { listTaskRecords } from '../tools/task-tools.js';
 import { listEvidenceRecords, summarizeEvidence } from '../tools/evidence-tools.js';
 import { listDeploymentRecords } from '../device/deployment.js';
@@ -80,7 +80,12 @@ export async function runTasksCommand(
       return;
     }
     if (tasks.length === 0) {
-      console.log('No task contracts in this workspace (agents create them with task_define).');
+      console.log(
+        uiText(
+          'No task contracts in this workspace (agents create them with task_define).',
+          '此工作区没有任务契约（代理用 task_define 创建）。'
+        )
+      );
       return;
     }
     console.log('TASK ID                       STATUS     CRITERIA  GOAL');

@@ -20,6 +20,7 @@ import {
   emitAcceptanceLifecycle,
   formatTaskTimeline,
   getTaskStateSnapshot,
+  localizeTaskDetail,
   listTaskEvents,
   tryAppendTaskEvent,
 } from './task-store.js';
@@ -643,7 +644,29 @@ export function summarizeTaskRun(result: TaskRunResult, locale?: string): string
   const { snapshot, outcome, verdictDetail, timeline, turns } = result;
   // Esc keeps the state-machine phase `failed` so /goal resume can re-enter.
   // The status the user reads says aborted, once, and names only /goal resume.
-  const phaseLabel = outcome === 'aborted' ? (zh ? '已中止' : 'aborted') : snapshot.phase;
+  const phaseZh: Record<string, string> = {
+    draft: '草稿',
+    understanding: '理解中',
+    planning: '计划中',
+    ready: '就绪',
+    executing: '执行中',
+    verifying: '验证中',
+    diagnosing: '诊断中',
+    repairing: '修复中',
+    reverifying: '复验中',
+    accepted: '已验收',
+    failed: '失败',
+    blocked: '阻塞',
+    abandoned: '已放弃',
+  };
+  const phaseLabel =
+    outcome === 'aborted'
+      ? zh
+        ? '已中止'
+        : 'aborted'
+      : zh
+        ? (phaseZh[snapshot.phase] ?? snapshot.phase)
+        : snapshot.phase;
   const lines = zh
     ? [
         `任务 ${snapshot.taskId} — ${outcome.toUpperCase()}`,
@@ -656,7 +679,13 @@ export function summarizeTaskRun(result: TaskRunResult, locale?: string): string
         `phase: ${phaseLabel} · attempts: ${snapshot.attempt} · repairs: ${snapshot.repairs.length} · failures: ${snapshot.failures.length} · turns: ${turns}`,
       ];
   if (outcome === 'aborted') lines.push('/goal resume');
-  if (verdictDetail) lines.push('', zh ? '最终裁决：' : 'Final verdict:', verdictDetail);
+  if (verdictDetail) {
+    lines.push(
+      '',
+      zh ? '最终裁决：' : 'Final verdict:',
+      zh ? localizeTaskDetail(verdictDetail, true) : verdictDetail
+    );
+  }
   const tail = timeline.split('\n').slice(-6).join('\n');
   if (tail) lines.push('', zh ? '时间线（末尾）：' : 'Timeline (tail):', tail);
   return lines.join('\n');

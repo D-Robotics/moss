@@ -1,6 +1,7 @@
 // Command dispatcher with explicit initialization phases.
 // Replaces 22 if-else branches in main() with a declarative routing table.
 
+import { uiText } from './cli-locale.js';
 import type { LLMMessage } from '../core/llm/llm-provider.js';
 import type { SessionStore, SessionMeta } from '../core/session/session.js';
 import type { TaskCommandContext } from './task-run.js';
@@ -505,7 +506,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
 
         const sessions = await store.listSessions().catch(() => []);
         if (sessions.length === 0) {
-          console.log('No saved sessions in this workspace.');
+          console.log(uiText('No saved sessions in this workspace.', '此工作区没有已保存的会话。'));
           return;
         }
 
@@ -564,7 +565,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
         }
         const sessions = await store.listSessions().catch(() => []);
         if (sessions.length === 0) {
-          console.log('No saved sessions to search.');
+          console.log(uiText('No saved sessions to search.', '没有可搜索的已保存会话。'));
           return;
         }
         const hits = await searchSessions(store, query);

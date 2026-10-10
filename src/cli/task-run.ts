@@ -19,6 +19,7 @@ import {
   listTaskStateSnapshots,
   buildTaskTimeline,
   formatTaskTimeline,
+  localizeTaskDetail,
 } from '../core/task/task-store.js';
 import { listEvidenceRecords } from '../core/task-runtime/artifacts.js';
 import { listDeploymentRecords } from '../device/deployment.js';
@@ -105,25 +106,25 @@ export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
       '',
       '  run <goal...>        端到端跑一个任务（计划 → 执行 → 验证 → 修复 → 验收）',
       '      --accept "<cmd>"  验收权威：命令必须以退出码 0 结束',
-      '      --max-repairs N  诚实 FAIL 前的修复尝试次数（默认 2）',
+      '      --max-repairs N  诚实报告失败前的修复尝试次数（默认 2）',
       '      --max-turns N    模型轮次预算（默认 8）',
       '      --device ID      契约指定的目标设备标识',
       '  resume <task_id>     恢复一个失败/中断/阻塞的任务',
       '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新）',
       '  timeline [task_id]   完整生命周期时间线（默认：最新）',
-      '  view [kind]          只读工件：`tasks` | `history` | `evidence` | `deployments` | `failures`',
+      '  view [种类]          只读工件：`tasks` | `history` | `evidence` | `deployments` | `failures`',
       '  verify [task_id]     用裁决器复验一次（不发起模型回合）',
       '',
-      '只有任务被验收（PASS）时退出码才是 0。',
+      '只有任务被验收（通过）时退出码才是 0。',
       '',
       '选项：',
       '  --accept "<cmd>"   验收命令（退出码必须是 0）',
-      '  --max-repairs N    诚实 FAIL 前的修复次数（默认 2）',
+      '  --max-repairs N    诚实报告失败前的修复次数（默认 2）',
       '  --max-turns N      模型轮次预算（默认 8）',
       '  --device ID        目标设备标识',
       '',
       '示例：',
-      '  `moss task run "创建 hello.txt" --accept "grep -q hello hello.txt"`',
+      '  `moss task run "创建 ./hello.txt" --accept "grep -q . ./hello.txt"`',
       '  moss task status',
     ].join('\n');
   }
@@ -307,8 +308,16 @@ export function formatTaskStatus(
     );
   }
   if (snapshot.lastVerdict) {
+    const verdictToken = snapshot.lastVerdict.verdict;
+    const verdictLabel = zh
+      ? verdictToken === 'pass'
+        ? '通过'
+        : verdictToken === 'fail'
+          ? '失败'
+          : verdictToken
+      : verdictToken.toUpperCase();
     lines.push(
-      `${label('VERDICT', '裁决')}${snapshot.lastVerdict.verdict.toUpperCase()}` +
+      `${label('VERDICT', '裁决')}${verdictLabel}` +
         (zh
           ? `（尚缺 ${snapshot.lastVerdict.unmetRequired} 条必需验收）`
           : ` (${snapshot.lastVerdict.unmetRequired} required unmet)`)
@@ -523,7 +532,7 @@ export async function runTaskCommand(
           : {}),
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         onProgress: (progress) => {
-          output('stderr', `[task ${progress.phase}] ${progress.detail}\n`);
+          output('stderr', `[task ${progress.phase}] ${localizeTaskDetail(progress.detail)}\n`);
         },
       },
       goal,
@@ -559,7 +568,7 @@ export async function runTaskCommand(
         runTurn,
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         onProgress: (progress) => {
-          output('stderr', `[task ${progress.phase}] ${progress.detail}\n`);
+          output('stderr', `[task ${progress.phase}] ${localizeTaskDetail(progress.detail)}\n`);
         },
       },
       taskId

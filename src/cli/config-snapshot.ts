@@ -115,6 +115,11 @@ export function localizeConfigSource(source: string): string {
   if (!isZhLocale()) return source;
   if (source.startsWith('env:')) return `环境变量 ${source.slice(4)}`;
   if (source.startsWith('MOSS_')) return `环境变量 ${source}`;
+  if (source.startsWith('profile:')) {
+    const name = source.slice('profile:'.length);
+    const gloss = TYPED_GLOSS[name];
+    return gloss ? `配置档：${gloss}` : `配置档：${name}`;
+  }
   return ZH_SOURCE[source] ?? source;
 }
 

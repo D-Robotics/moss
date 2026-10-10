@@ -234,7 +234,7 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
 
 优先级：`--lang` > `MOSS_LANG` > 用户配置 `language` > 系统区域。`C`、`POSIX`、`C.UTF-8` 不是语言，会落到下一个变量（`LC_ALL`、`LC_MESSAGES`、`LANG`）；都不是语言时界面保持英文。项目 `.moss/config.json` 和项目 `.env` 不能设置界面语言。
 
-交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为 English。
+交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为英语。
 
 ## 安全与隐私
 

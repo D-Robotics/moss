@@ -387,7 +387,7 @@ import {
   assert.match(headline, /60 行 · 22 毫秒/);
   assert.equal(headline.includes('60 lines'), false);
   assert.equal(headline.includes('22ms'), false);
-  assert.equal(tui('  Help · Esc or Enter to close'), '  帮助 · Esc 或 Enter 关闭');
+  assert.equal(tui('  Help · Esc or Enter to close'), '  帮助 · Esc 或 回车 关闭');
   assert.equal(tui('  Help · full reference · Esc to close'), '  帮助 · 完整参考 · Esc 关闭');
   setTuiLocale(false);
   assert.equal(

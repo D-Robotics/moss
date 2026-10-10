@@ -11,7 +11,7 @@ import path from 'node:path';
 
 import { MossError, ErrorCode } from '../../errors.js';
 import { getRootLogger } from '../../logger.js';
-import { uiText } from '../../utils/ui-language.js';
+import { isEffectiveUiZh, uiText } from '../../utils/ui-language.js';
 import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
 import {
   nextTaskPhase,
@@ -512,11 +512,44 @@ export interface TaskTimelineEntry {
   phase: TaskPhase;
 }
 
+const TASK_DETAIL_ZH: Readonly<Record<string, string>> = {
+  'evaluating acceptance': '正在评估验收',
+  'acceptance command exited 0': '验收命令退出码为 0',
+  'criteria met with evidence': '标准已满足且有证据',
+  'acceptance passed': '验收通过',
+  'verification failed — diagnosing': '验证失败，正在诊断',
+  'diagnosis + repair turn': '诊断并修复',
+  'goal verify command exited 0': '目标验证命令退出码为 0',
+  'no task contract found — define one with task_define first':
+    '没有任务契约。请先用 task_define 定义。',
+};
+
+/** User-facing timeline/progress text. Stored event details stay English. */
+export function localizeTaskDetail(detail: string, zh: boolean = isEffectiveUiZh()): string {
+  if (!zh) return detail;
+  const exact = TASK_DETAIL_ZH[detail];
+  if (exact) return exact;
+  const failed = /^verification failed after (\d+) attempts \(repair budget exhausted\)$/.exec(
+    detail
+  );
+  if (failed) return `验证失败，已尝试 ${failed[1]} 次（修复次数已用尽）`;
+  const turns = /^turn budget exhausted \((\d+) turns\)$/.exec(detail);
+  if (turns) return `轮次已用尽（${turns[1]} 轮）`;
+  const repair = /^repair attempt (\d+)$/.exec(detail);
+  if (repair) return `第 ${repair[1]} 次修复`;
+  const crashed = /^run crashed: ([\s\S]+)$/.exec(detail);
+  if (crashed) return `运行崩溃：${crashed[1]}`;
+  if (detail.startsWith('task has no acceptance criteria')) {
+    return '任务没有验收标准。请先用 task_define 写明指标和期望，再做验证。没有可检查的完成定义就不能验收。';
+  }
+  return detail;
+}
+
 export function buildTaskTimeline(events: TaskEvent[]): TaskTimelineEntry[] {
   return foldTaskEvents(events).applied.map((event) => {
     const aborted = event.type === 'task_failed' && event.data?.detail === 'aborted';
     const label = aborted ? uiText('Task aborted', '任务已中止') : timelineLabel(event.type);
-    const detail = aborted
+    const raw = aborted
       ? undefined
       : typeof event.data?.detail === 'string'
         ? event.data.detail
@@ -525,6 +558,7 @@ export function buildTaskTimeline(events: TaskEvent[]): TaskTimelineEntry[] {
           : typeof event.data?.goal === 'string'
             ? event.data.goal
             : undefined;
+    const detail = raw === undefined ? undefined : localizeTaskDetail(raw);
     return { at: event.timestamp, label, ...(detail ? { detail } : {}), phase: event.phase };
   });
 }

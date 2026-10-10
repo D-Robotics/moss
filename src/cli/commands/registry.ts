@@ -803,13 +803,14 @@ const languageCommand: CommandSpec = {
       const language = effectiveUiLanguage();
       const setting = uiLanguageResolution()?.setting ?? 'auto';
       const source = uiLanguageSourceLabel();
-      const name = language === 'zh' ? uiText('Chinese', '中文') : 'English';
+      const name = language === 'zh' ? uiText('Chinese', '中文') : uiText('English', '英语');
+      const settingLabel = uiText(setting, setting === 'auto' ? '自动' : setting);
       ctx.say(
         'system',
         [
           uiText(
             `UI language: ${name} (setting ${setting}, source ${source})`,
-            `界面语言：${name}（设置 ${setting}，来源 ${source}）`
+            `界面语言：${name}（设置 ${settingLabel}，来源 ${source}）`
           ),
           uiText(
             '  /language en|zh|auto     switch for this session',
@@ -850,7 +851,7 @@ const languageCommand: CommandSpec = {
       }
     }
     const language = effectiveUiLanguage();
-    const languageName = language === 'zh' ? uiText('Chinese', '中文') : 'English';
+    const languageName = language === 'zh' ? uiText('Chinese', '中文') : uiText('English', '英语');
     const resolution = uiLanguageResolution();
     const notes: string[] = [];
     if (save && resolution?.source === 'flag') {

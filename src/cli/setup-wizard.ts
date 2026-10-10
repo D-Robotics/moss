@@ -19,6 +19,7 @@ import {
 } from './config.js';
 import { configSnapshotLines } from './config-snapshot.js';
 import {
+  ENGLISH_UI_OFFER,
   formatUiLanguageLine,
   setSessionUiLanguage,
   shouldOfferEnglishUi,
@@ -436,12 +437,12 @@ export async function offerEnglishUiIfNeeded(): Promise<void> {
   ) {
     return;
   }
-  const key = await readOneKey('界面语言：中文。按 e 切换为 English，其他键继续。');
+  const key = await readOneKey(ENGLISH_UI_OFFER);
   if (key === 'e' || key === 'E') {
     writeUserLanguageSetting('en');
     setSessionUiLanguage('en');
     setTuiLocale(false);
-    print(uiText('UI language: English.', '界面语言：English。'));
+    print(uiText('UI language: English.', '界面语言：英语。'));
     return;
   }
   writeUserLanguageSetting('auto');

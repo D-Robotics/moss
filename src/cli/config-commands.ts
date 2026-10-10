@@ -24,12 +24,11 @@ import {
   type ConfigFile,
 } from './config.js';
 import { errorMessage } from '../errors.js';
-import { isZhLocale } from './cli-locale.js';
+import { isZhLocale, parseLanguageSetting, uiText } from './cli-locale.js';
 import { guessModelProvider, print, renderAuthStatus, sanitizeBaseUrl } from './setup-wizard.js';
 import { withoutSecret } from './config-snapshot.js';
 import { parsePermissionRuleSpec } from './permission-rules.js';
 import { parseCliInteractionMode } from './interaction-mode.js';
-import { parseLanguageSetting, uiText } from './cli-locale.js';
 
 function serializeResolvedConfig(
   resolved: ReturnType<typeof resolveCliConfig>
@@ -600,10 +599,10 @@ function renderConfigHelpZh(): string {
     '  moss config show',
     '  moss config show --json',
     '  moss config validate [--strict] [--json]',
-    '  moss config set <provider|model|baseUrl|apiKey|apiKeyEnv> <value>',
-    '  moss config set <profile|safetyMode|approvalPolicy|trustedTools|deniedTools|promptCache|promptCacheDebug|guardrails.*|agent.*> <value>',
-    '  moss config set <key>=<value> [<key>=<value>...]',
-    '  moss config set --project <key>=<value> [<key>=<value>...]',
+    '  moss config set <provider|model|baseUrl|apiKey|apiKeyEnv> <值>',
+    '  moss config set <profile|safetyMode|approvalPolicy|trustedTools|deniedTools|promptCache|promptCacheDebug|guardrails.*|agent.*> <值>',
+    '  moss config set <key>=<值> [<key>=<值>...]',
+    '  moss config set --project <key>=<值> [<key>=<值>...]',
     '  moss config unset <key>',
     '  moss config unset --project <key>',
     '',
@@ -626,7 +625,7 @@ function renderConfigHelpZh(): string {
     '  `moss config set --project safetyMode workspace-write`',
     `  # ${WORKSPACE_WRITE_LIMIT_ZH}`,
     '  `moss config set provider openai-compatible`',
-    '  `moss config set model <your-model>`',
+    '  `moss config set model <模型>`',
     '  `moss config set rdkDocs false`',
     '  `moss config set rdkDocs.package ../rdk-docs-mcp`',
     '  `moss config set language auto|en|zh`   # 只写用户配置（不能 --project，项目 .env 也不能设置）',
@@ -880,7 +879,17 @@ function buildProjectConfigTemplate(): ConfigFile {
 }
 
 function supportedConfigKeys(): string {
-  return 'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language';
+  return uiText(
+    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language',
+    '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language'
+  );
+}
+
+function configHelpHint(): string {
+  return uiText(
+    'Run `moss config --help` for supported keys and usage.',
+    '运行 `moss config --help` 查看支持的键和用法。'
+  );
 }
 
 function removeEmptyNestedConfig(config: ConfigFile): ConfigFile {
@@ -920,7 +929,12 @@ export function runConfigInit(args: string[], startDir = process.cwd()): void {
   const target = resolveConfigInitTarget(args, startDir);
   if (!target) return;
   if (fs.existsSync(target.configPath) && !target.force) {
-    print(`[config] ${target.configPath} already exists. Use --force to overwrite.`);
+    print(
+      uiText(
+        `[config] ${target.configPath} already exists. Use --force to overwrite.`,
+        `[配置] ${target.configPath} 已存在。加上 --force 可以覆盖。`
+      )
+    );
     process.exitCode = 1;
     return;
   }
@@ -928,7 +942,14 @@ export function runConfigInit(args: string[], startDir = process.cwd()): void {
     target.scope === 'project' ? buildProjectConfigTemplate() : buildUserConfigTemplate();
   saveConfigFileAtPath(template, target.configPath);
   const scope = target.scope === 'project' ? 'project ' : '';
-  print(`[config] ${scope}config initialized in ${target.configPath}`);
+  print(
+    uiText(
+      `[config] ${scope}config initialized in ${target.configPath}`,
+      target.scope === 'project'
+        ? `[配置] 项目配置已初始化：${target.configPath}`
+        : `[配置] 配置已初始化：${target.configPath}`
+    )
+  );
 }
 
 function applyConfigSetPair(
@@ -968,7 +989,7 @@ function applyConfigSetPair(
         messages: [
           `Unknown provider: ${value}`,
           'Supported provider values: deepseek, qwen, openai, anthropic, openai-compatible, d-robotics',
-          'Run `moss config --help` for supported keys and usage.',
+          configHelpHint(),
         ],
       };
     }
@@ -1209,10 +1230,7 @@ function applyConfigSetPair(
       if (!setGuardrailPatternList(next, key, value)) {
         return {
           ok: false,
-          messages: [
-            supportedConfigKeys(),
-            'Run `moss config --help` for supported keys and usage.',
-          ],
+          messages: [supportedConfigKeys(), configHelpHint()],
         };
       }
     } catch (err) {
@@ -1248,7 +1266,7 @@ function applyConfigSetPair(
   } else {
     return {
       ok: false,
-      messages: [supportedConfigKeys(), 'Run `moss config --help` for supported keys and usage.'],
+      messages: [supportedConfigKeys(), configHelpHint()],
     };
   }
   return { ok: true, messages };
@@ -1451,7 +1469,7 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
     delete next.agent.compaction?.keepRecentTokens;
   } else {
     print(supportedConfigKeys());
-    print('Run `moss config --help` for supported keys and usage.');
+    print(configHelpHint());
     process.exitCode = 1;
     return;
   }

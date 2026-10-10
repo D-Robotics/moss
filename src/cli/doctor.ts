@@ -441,7 +441,7 @@ export function renderAuthDoctorLine(
 }
 
 export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
-  const lines = ['[doctor] Moss'];
+  const lines = [uiText('[doctor] Moss', '[诊断] Moss')];
   lines.push(renderNodeDoctorLine());
   lines.push(ok(uiText('version', '版本'), options.currentVersion));
   lines.push(renderAuthDoctorLine(options.config));

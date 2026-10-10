@@ -14,17 +14,17 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
   if (zh) {
     return [
       '用法：',
-      '  moss skill create <name>          生成 .moss/skills/<name>/SKILL.md 脚手架',
+      '  moss skill create <名称>          生成 .moss/skills/<名称>/SKILL.md 脚手架',
       '  moss skill list                   列出已发现的技能（工作区与用户级）',
       '',
       '编辑脚手架，补全 `description` 和正文；下次启动 moss 会自动加载（渐进披露：',
-      '只有 `name` 和 `description` 进入提示词；正文由技能工具按 `{args}` 加载）。',
+      '只有 `name` 和 `description` 进入提示词；正文由技能工具按 `{参数}` 加载）。',
       '',
       '选项：',
       '  （无）  `create` <name> 与 `list` 不接受其它参数',
       '',
       '示例：',
-      '  moss skill create deploy-check',
+      '  moss skill create deploy_check',
       '  moss skill list',
     ].join('\n');
   }
@@ -101,7 +101,7 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
     out(zh ? `已创建 ${filePath}` : `Created ${filePath}`);
     out(
       zh
-        ? '编辑 description 与正文后启动 moss——skill 会自动加载。'
+        ? '编辑说明字段和正文后启动 moss——技能会自动加载。'
         : 'Edit description + body, then start moss — the skill loads automatically.'
     );
     return 0;
@@ -116,7 +116,7 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
     if (skills.length === 0) {
       out(
         zh
-          ? '未发现 skills。创建一个：moss skill create <name>'
+          ? '未发现技能。创建一个：moss skill create <名称>'
           : 'No skills found. Create one: moss skill create <name>'
       );
       return 0;
@@ -124,7 +124,7 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
     for (const skill of skills) out(`  ${skill.name.padEnd(18)} ${skill.description}`);
     out(
       zh
-        ? `\n共 ${skills.length} 个 skill。会话内用 skill 工具加载。`
+        ? `\n共 ${skills.length} 个技能。会话内用技能工具加载。`
         : `\n${skills.length} skill(s). Load one in-session with the skill tool.`
     );
     return 0;

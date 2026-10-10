@@ -358,14 +358,26 @@ const COMMON_HELP_COMMANDS = [
   '/help',
 ];
 
+/** Placeholders in `/help` usage. The command token stays; the placeholder does not. */
+const HELP_USAGE_ZH: Record<string, string> = {
+  '/model [name|number]': '/model [名称|序号]',
+  '/compact [instructions]': '/compact [说明]',
+  '/goal <condition> | clear': '/goal <条件> | clear',
+  '/plan [description]': '/plan [描述]',
+  '/review [PR#]': '/review [拉取请求号]',
+};
+
+function helpUsage(usage: string): string {
+  if (!isTuiZh()) return usage;
+  return HELP_USAGE_ZH[usage] ?? usage;
+}
+
 /** Compact help (prefixes + commands + shortcuts) or the full reference.
  * Commands come before shortcuts so a 35-row terminal still shows the list. */
 export function buildHelpOverlayLines(
   all: boolean,
   bindings: readonly KeyBinding[] = DEFAULT_KEYBINDINGS
 ): string[] {
-  // The labels, keys and usages stay as-is (they are command/key surfaces); only
-  // moss's own descriptions are localized, at the render site.
   return [
     tui('prefixes'),
     ...HELP_PREFIXES.map(([prefix, what]) => `  ${prefix.padEnd(3)} ${tui(what)}`),
@@ -374,7 +386,7 @@ export function buildHelpOverlayLines(
     ...(all
       ? ALL_SHELL_COMMANDS
       : SHELL_COMMANDS.filter((entry) => COMMON_HELP_COMMANDS.includes(entry.command))
-    ).map((entry) => `  ${entry.usage.padEnd(24)} ${tui(entry.description)}`),
+    ).map((entry) => `  ${helpUsage(entry.usage).padEnd(24)} ${tui(entry.description)}`),
     ...(all
       ? ['', tui('aliases'), ...slashAliasHelpLines(isTuiZh() ? 'zh' : 'en')]
       : ['', tui('type / to browse commands · /help --all for the rest')]),
