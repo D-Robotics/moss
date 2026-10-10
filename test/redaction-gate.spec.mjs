@@ -9,8 +9,9 @@
  * 3. The model view can be edited and written back without storing `[REDACTED]`
  *    or losing the bytes that were really in the file.
  *
- * MAIN_REDACTED_LINES is main's redactEgress on Moss src TypeScript: the same
- * 12 file:line false matches, compared one by one. The samples are not secrets.
+ * MAIN_REDACTED_CONTENT is main's redactEgress on Moss src TypeScript: the same
+ * 12 false matches, compared by file and line text. A later insert can move
+ * them. The samples are not secrets.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -23,26 +24,25 @@ import { sanitizeSecrets } from '../dist/safety/secret-sanitizer.js';
 import { presentToolOutput, redactEgress } from '../dist/safety/tool-output-redact.js';
 
 /**
- * The 12 lines main redacts in Moss src, one file:line entry each.
- * The config-commands example-key lines moved down by the MOSS_SOURCE_DIR
- * env rows. The pi-ai-wire-format matches sit two lines lower because
- * `responseModel` was inserted above `rejectAnthropicOAuthToken`. The two
- * safety files are the same false matches (provider-token examples and
- * `secret = match?.[5]`), at their current lines.
+ * The 12 lines main redacts in Moss src, one file and the exact source line.
+ * config-commands holds the example api key and the project `_apiKey` comment.
+ * pi-ai-wire-format names the refused Anthropic token prefixes. The two safety
+ * files are the same false matches (provider-token examples and
+ * `secret = match?.[5]`).
  */
-const MAIN_REDACTED_LINES = [
-  'src/cli/config-commands.ts:818',
-  'src/cli/config-commands.ts:845',
-  'src/context/remote-compaction.ts:342',
-  'src/provider/pi-ai-wire-format.ts:116',
-  'src/provider/pi-ai-wire-format.ts:118',
-  'src/provider/pi-ai-wire-format.ts:119',
-  'src/safety/secret-sanitizer.ts:13',
-  'src/safety/secret-sanitizer.ts:45',
-  'src/safety/tool-output-redact.ts:117',
-  'src/safety/tool-output-redact.ts:474',
-  'src/safety/tool-output-redact.ts:475',
-  'src/safety/tool-output-redact.ts:556',
+const MAIN_REDACTED_CONTENT = [
+  "src/cli/config-commands.ts\t        apiKey: 'paste-your-api-key',",
+  "src/cli/config-commands.ts\t        _apiKey: 'use moss setup for the key (hidden prompt); stored in config file (0600)',",
+  'src/context/remote-compaction.ts\t    apiKey: process.env.MOSS_REMOTE_COMPACT_API_KEY?.trim(),',
+  "src/provider/pi-ai-wire-format.ts\t  if (typeof apiKey === 'string' && apiKey.includes('sk-ant-oat')) {",
+  "src/provider/pi-ai-wire-format.ts\t      'moss refuses Anthropic OAuth / session tokens (sk-ant-oat*). ' +",
+  "src/provider/pi-ai-wire-format.ts\t        'Please provide an official API key (sk-ant-api03-*) or configure an ' +",
+  "src/safety/secret-sanitizer.ts\t  { source: '\\\\b(sk-ant-[a-zA-Z0-9_-]{20,})\\\\b', flags: 'g', label: 'Anthropic key' },",
+  'src/safety/secret-sanitizer.ts\t  // an API key in `curl -H "Authorization: Bearer sk-ant-…"` would not be',
+  'src/safety/tool-output-redact.ts\t * (`sk-abcd`, `AKIA` + 4, `ghp_` + 4). Real keys are longer.',
+  'src/safety/tool-output-redact.ts\t * Gateway bodies quote the key and a hash (`Received API Key = sk-…`,',
+  'src/safety/tool-output-redact.ts\t * `Key Hash (Token) = 2c58…`). `redactEgress` catches full secrets; this also',
+  'src/safety/tool-output-redact.ts\t      const secret = match?.[5];',
 ];
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -348,7 +348,14 @@ for (const file of corpus) {
   }
 }
 const srcChanged = changed.filter((entry) => entry.startsWith('src/'));
-assert.deepEqual(srcChanged, MAIN_REDACTED_LINES);
+function changedLineContent(entry) {
+  const cut = entry.lastIndexOf(':');
+  const rel = entry.slice(0, cut);
+  const lineNo = Number(entry.slice(cut + 1));
+  const text = fs.readFileSync(path.join(ROOT, rel), 'utf8').split('\n')[lineNo - 1];
+  return `${rel}\t${text}`;
+}
+assert.deepEqual(srcChanged.map(changedLineContent).sort(), [...MAIN_REDACTED_CONTENT].sort());
 assert.deepEqual(
   changed.filter((entry) => !entry.startsWith('src/')),
   [],
