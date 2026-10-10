@@ -169,8 +169,8 @@ test('unreachable board fails in one short timeout and names host:port', async (
     if (result.status !== 'rejected') continue;
     const err = result.reason;
     assert.match(err.message, new RegExp(`Cannot reach 127\\.0\\.0\\.1:${stalled.port}`));
-    assert.match(err.message, /无法在/);
-    assert.match(err.hint, /已开机/);
+    assert.doesNotMatch(err.message, /无法在/);
+    assert.match(err.hint, /powered on/);
   }
   const cached = Date.now();
   await assert.rejects(

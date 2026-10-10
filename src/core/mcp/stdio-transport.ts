@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import { spawnProcess, type ChildProcess } from '../../utils/run-process.js';
 import { pinNpmUserConfig, safeChildEnv, startupChildEnv } from '../../utils/safe-child-env.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
+import { uiText } from '../../utils/ui-language.js';
 import { getRootLogger } from '../../logger.js';
 import type {
   InboundJsonRpcMessage,
@@ -68,17 +69,26 @@ export class McpStdioTransport implements McpTransport {
     if (this._state === 'closed') {
       throw new MossError({
         code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: `mcp stdio transport for "${this.config.name}" is closed`,
+        message: uiText(
+          `mcp stdio transport for "${this.config.name}" is closed`,
+          `mcp stdio 传输「${this.config.name}」已关闭`
+        ),
         recoverable: false,
       });
     }
     const command = this.config.command;
     if (!command) {
       this._state = 'failed';
-      this._lastError = 'missing required field "command" for stdio transport';
+      this._lastError = uiText(
+        'missing required field "command" for stdio transport',
+        'stdio 传输缺少必填字段 command'
+      );
       throw new MossError({
         code: ErrorCode.USER_INPUT_INVALID,
-        message: `mcp server "${this.config.name}": stdio transport requires "command"`,
+        message: uiText(
+          `mcp server "${this.config.name}": stdio transport requires "command"`,
+          `mcp 服务器「${this.config.name}」：stdio 传输需要 command`
+        ),
         recoverable: false,
       });
     }
@@ -104,8 +114,14 @@ export class McpStdioTransport implements McpTransport {
       this._lastError = errorMessage(err);
       throw new MossError({
         code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: `mcp server "${this.config.name}": failed to spawn "${command}"`,
-        hint: 'Check that the command exists and is executable.',
+        message: uiText(
+          `mcp server "${this.config.name}": failed to spawn "${command}"`,
+          `mcp 服务器「${this.config.name}」：无法启动「${command}」`
+        ),
+        hint: uiText(
+          'Check that the command exists and is executable.',
+          '请确认命令存在且可执行。'
+        ),
         recoverable: false,
         cause: err,
       });
@@ -121,7 +137,10 @@ export class McpStdioTransport implements McpTransport {
         reject(
           new MossError({
             code: ErrorCode.TOOL_EXECUTION_FAILED,
-            message: `mcp server "${this.config.name}" exited during connect (code ${code ?? '?'}${signal ? `, signal ${signal}` : ''})`,
+            message: uiText(
+              `mcp server "${this.config.name}" exited during connect (code ${code ?? '?'}${signal ? `, signal ${signal}` : ''})`,
+              `mcp 服务器「${this.config.name}」在连接时退出（code ${code ?? '?'}${signal ? `，signal ${signal}` : ''}）`
+            ),
           })
         );
       });
@@ -143,8 +162,14 @@ export class McpStdioTransport implements McpTransport {
       this.failAllPending(
         new MossError({
           code: ErrorCode.TOOL_EXECUTION_FAILED,
-          message: `mcp server "${this.config.name}" failed to start: ${this._lastError}`,
-          hint: 'Check the server command, args, and that the server speaks MCP over stdio.',
+          message: uiText(
+            `mcp server "${this.config.name}" failed to start: ${this._lastError}`,
+            `mcp 服务器「${this.config.name}」启动失败：${this._lastError}`
+          ),
+          hint: uiText(
+            'Check the server command, args, and that the server speaks MCP over stdio.',
+            '请检查服务器命令、参数，以及它是否通过 stdio 使用 MCP。'
+          ),
           recoverable: false,
           cause: err,
         })
@@ -193,7 +218,10 @@ export class McpStdioTransport implements McpTransport {
         this.failAllPending(
           new MossError({
             code: ErrorCode.TOOL_EXECUTION_FAILED,
-            message: `mcp server "${this.config.name}" exited before answering`,
+            message: uiText(
+              `mcp server "${this.config.name}" exited before answering`,
+              `mcp 服务器「${this.config.name}」在应答前退出`
+            ),
             hint: this._lastError,
             recoverable: false,
           })
@@ -233,7 +261,10 @@ export class McpStdioTransport implements McpTransport {
       pending.reject(
         new MossError({
           code: ErrorCode.TOOL_EXECUTION_FAILED,
-          message: `mcp server "${this.config.name}": ${msg.error.message} (code ${msg.error.code})`,
+          message: uiText(
+            `mcp server "${this.config.name}": ${msg.error.message} (code ${msg.error.code})`,
+            `mcp 服务器「${this.config.name}」：${msg.error.message}（code ${msg.error.code}）`
+          ),
           recoverable: true,
         })
       );
@@ -251,7 +282,10 @@ export class McpStdioTransport implements McpTransport {
       return Promise.reject(
         new MossError({
           code: ErrorCode.TOOL_EXECUTION_FAILED,
-          message: `mcp server "${this.config.name}" is not connected (state: ${this._state})`,
+          message: uiText(
+            `mcp server "${this.config.name}" is not connected (state: ${this._state})`,
+            `mcp 服务器「${this.config.name}」未连接（state: ${this._state}）`
+          ),
           ...(this._lastError ? { hint: this._lastError } : {}),
           recoverable: false,
         })
@@ -277,7 +311,10 @@ export class McpStdioTransport implements McpTransport {
         settle(
           new MossError({
             code: ErrorCode.USER_ABORTED,
-            message: `mcp request "${method}" to "${this.config.name}" aborted`,
+            message: uiText(
+              `mcp request "${method}" to "${this.config.name}" aborted`,
+              `发往「${this.config.name}」的 mcp 请求「${method}」已中止`
+            ),
             recoverable: true,
           })
         );
@@ -288,7 +325,10 @@ export class McpStdioTransport implements McpTransport {
         settle(
           new MossError({
             code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
-            message: `mcp request "${method}" to "${this.config.name}" timed out after ${timeoutMs}ms`,
+            message: uiText(
+              `mcp request "${method}" to "${this.config.name}" timed out after ${timeoutMs}ms`,
+              `发往「${this.config.name}」的 mcp 请求「${method}」在 ${timeoutMs} 毫秒后超时`
+            ),
             hint: 'The server did not answer in time; it may be overloaded or stuck.',
             recoverable: true,
           })
@@ -368,7 +408,10 @@ export class McpStdioTransport implements McpTransport {
     this.failAllPending(
       new MossError({
         code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: `mcp server "${this.config.name}" connection closed`,
+        message: uiText(
+          `mcp server "${this.config.name}" connection closed`,
+          `mcp 服务器「${this.config.name}」连接已关闭`
+        ),
         recoverable: false,
       })
     );
@@ -381,7 +424,10 @@ export class McpStdioTransport implements McpTransport {
     this.failAllPending(
       new MossError({
         code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: `mcp server "${this.config.name}": ${reason}`,
+        message: uiText(
+          `mcp server "${this.config.name}": ${reason}`,
+          `mcp 服务器「${this.config.name}」：${reason}`
+        ),
         recoverable: false,
       })
     );

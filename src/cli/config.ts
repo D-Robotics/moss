@@ -33,6 +33,7 @@ import {
   type CliInteractionMode,
 } from './interaction-mode.js';
 import { isDotenvDeniedEnvKey } from '../utils/dotenv-denied-env.js';
+import { uiText } from '../utils/ui-language.js';
 import { captureEnvBeforeDotenv, envBeforeDotenv } from '../utils/startup-env.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
 import type { PricingConfig } from './model-pricing.js';
@@ -181,6 +182,13 @@ export interface ConfigFile {
    * `task`) and an optional `command` whose stdout replaces the line.
    */
   statusLine?: StatusLineConfig;
+  /**
+   * UI language for chrome, help, errors, and setup text. `auto` (the default
+   * when unset) follows the system locale: Chinese only when it starts with
+   * `zh`; `C`, `POSIX`, `C.UTF-8`, and unset stay English. User config only —
+   * a project config cannot set this. Assistant replies are not affected.
+   */
+  language?: 'auto' | 'en' | 'zh';
   _examples?: Record<string, unknown>;
 }
 
@@ -676,6 +684,8 @@ export function mergeConfigFiles(
       projectConfig.statusLine,
       options?.allowProjectStatusCommand === true
     ),
+    // UI language is a user preference. A cloned project's config cannot set it.
+    language: userConfig.language,
   };
 }
 
@@ -1107,14 +1117,20 @@ export function auditResolvedCliConfig(
       code: 'approval.auto_approval',
       severity: 'warn',
       source: config.approvalPolicySource,
-      message: `auto-approval is enabled via ${config.permissions.source} (${config.approvalPolicySource}); keep deniedTools current for risky tools`,
+      message: uiText(
+        `auto-approval is enabled via ${config.permissions.source} (${config.approvalPolicySource}); keep deniedTools current for risky tools`,
+        `已通过 ${config.permissions.source}（${config.approvalPolicySource}）开启自动审批；请为高风险工具保持 deniedTools`
+      ),
     });
     if (config.deniedTools.length === 0) {
       warnings.push({
         code: 'approval.no_denied_tools',
         severity: 'warn',
         source: config.deniedToolsSource,
-        message: `auto-approval has no deniedTools guardrail (${config.deniedToolsSource}); add high-risk tools or globs to deniedTools`,
+        message: uiText(
+          `auto-approval has no deniedTools guardrail (${config.deniedToolsSource}); add high-risk tools or globs to deniedTools`,
+          `自动审批没有 deniedTools 护栏（${config.deniedToolsSource}）；请把高风险工具或通配加入 deniedTools`
+        ),
       });
     }
   } else if (
@@ -1129,8 +1145,10 @@ export function auditResolvedCliConfig(
       code: 'approval.full_default_no_deny',
       severity: 'warn',
       source: 'default',
-      message:
+      message: uiText(
         'default full mode has no deny rules; add rules with /permissions (e.g. deny read_file(./.env)) to keep sensitive tools gated',
+        '默认 full 模式没有拒绝规则；用 /permissions 添加（例如 deny read_file(./.env)）以继续拦截敏感工具'
+      ),
     });
   }
 
@@ -1140,7 +1158,10 @@ export function auditResolvedCliConfig(
       code: 'approval.conflicting_tool_patterns',
       severity: 'warn',
       source: `${config.trustedToolsSource}, ${config.deniedToolsSource}`,
-      message: `trustedTools also appear in deniedTools: ${conflictingPatterns.join(', ')}; deniedTools takes precedence`,
+      message: uiText(
+        `trustedTools also appear in deniedTools: ${conflictingPatterns.join(', ')}; deniedTools takes precedence`,
+        `trustedTools 与 deniedTools 冲突：${conflictingPatterns.join(', ')}；以 deniedTools 为准`
+      ),
     });
   }
 
@@ -1150,7 +1171,10 @@ export function auditResolvedCliConfig(
       code: 'trustedTools.broad_patterns',
       severity: 'warn',
       source: config.trustedToolsSource,
-      message: `broad trusted pattern(s): ${broadTrustedPatterns.join(', ')}; prefer exact tool names or narrow server__tool globs`,
+      message: uiText(
+        `broad trusted pattern(s): ${broadTrustedPatterns.join(', ')}; prefer exact tool names or narrow server__tool globs`,
+        `信任范围过宽：${broadTrustedPatterns.join(', ')}；请改用精确工具名或更窄的 server__tool 通配`
+      ),
     });
   }
 
@@ -1162,10 +1186,11 @@ export function hasTrustedToolWildcard(config: Pick<ResolvedCliConfig, 'trustedT
 }
 
 /**
- * Startup notice for factory-default full mode. Shown once per process
- * (#17: in memory only — a new process may print it again). Doctor still
+ * Startup notice for factory-default full mode. Shown once per config dir.
+ * The marker lives next to the user config (not the workspace). Doctor still
  * reports the same condition on every run.
  */
+const FULL_DEFAULT_NOTICE_MARKER = '.full_default_notice_shown';
 const shownFullDefaultNotice = new Set<string>();
 
 export function shouldShowFullDefaultNotice(
@@ -1180,7 +1205,22 @@ export function shouldShowFullDefaultNotice(
   if (!applicable) return false;
   const key = resolveConfigDir(env);
   if (shownFullDefaultNotice.has(key)) return false;
+  const marker = path.join(key, FULL_DEFAULT_NOTICE_MARKER);
+  try {
+    if (fs.existsSync(marker)) {
+      shownFullDefaultNotice.add(key);
+      return false;
+    }
+  } catch {
+    /* unreadable marker: still show once in this process */
+  }
   shownFullDefaultNotice.add(key);
+  try {
+    fs.mkdirSync(key, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(marker, '', { encoding: 'utf-8', mode: 0o600, flag: 'wx' });
+  } catch {
+    /* another process wrote it, or the dir is not writable */
+  }
   return true;
 }
 
@@ -1213,8 +1253,12 @@ function readBundledZeroConfigDefault(env: NodeJS.ProcessEnv): Partial<ConfigFil
       if ((code === 'EACCES' || code === 'EPERM') && !bundledDefaultReadWarned) {
         bundledDefaultReadWarned = true;
         console.error(
-          `[config] built-in model gateway file exists but is not readable (${code}): ${candidate}\n` +
-            '[config] Fix: sudo chmod 644 <that file> — or reinstall moss and retry.'
+          uiText(
+            `[config] built-in model gateway file exists but is not readable (${code}): ${candidate}\n` +
+              '[config] Fix: sudo chmod 644 <that file> — or reinstall moss and retry.',
+            `[config] 内置模型网关文件存在但不可读（${code}）：${candidate}\n` +
+              '[config] 修复：sudo chmod 644 <该文件> — 或重新安装 moss 后再试。'
+          )
         );
       }
     }
@@ -1801,6 +1845,7 @@ const ENV_FILE_IGNORED_KEYS = new Set([
   'MOSS_CONFIG_FILE',
   'MOSS_CONFIG_PATH',
   'MOSS_RDK_DOCS_PACKAGE',
+  'MOSS_LANG',
   'XDG_CONFIG_HOME',
   'HOME',
   'APPDATA',
