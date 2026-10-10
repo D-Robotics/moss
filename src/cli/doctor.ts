@@ -20,6 +20,9 @@ import {
 import { isZhLocale, setupCopy } from './cli-locale.js';
 import { glossConfigValue, localizeConfigSource } from './config-snapshot.js';
 import { detectEnvCredentials } from './env-credentials.js';
+import { collectMossRuntimeFacts, displayMossPath } from './moss-binary-path.js';
+import { formatVersionLine, getPackageJsonPath, readBuildStamp } from './package-info.js';
+import type { BuildStamp } from './package-info.js';
 import { rdkDocsPinNote } from './rdk-docs-pin-check.js';
 import type { RdkDocsPinNote } from './rdk-docs-pin-check.js';
 
@@ -138,6 +141,80 @@ export function fail(label: string, detail: string): string {
 
 export function cliDoctorHasFailure(report: string): boolean {
   return report.split('\n').some((line) => line.startsWith('  fail '));
+}
+
+/**
+ * Version label for doctor. Same stamp as `moss --version` when a commit was
+ * recorded. Chinese avoids the English word `dirty` and keeps the commit in
+ * the same token as the version digits.
+ */
+export function formatDoctorVersion(version: string, stamp: BuildStamp | null): string {
+  if (!version || version === 'unknown') return uiText('unknown', '未知');
+  const formatted = formatVersionLine(version, stamp);
+  const marked = `moss v${version}`;
+  const en =
+    formatted.startsWith(marked) && formatted.length > marked.length
+      ? `${version}${formatted.slice(marked.length)}`
+      : version;
+  const commit = stamp?.commit;
+  if (!commit) return uiText(en, version);
+  const dirtyNote = stamp?.dirty ? '，有未提交改动' : '';
+  const dateNote = stamp?.date ? `，${stamp.date}` : '';
+  return uiText(en, `${version}（${commit}${dirtyNote}${dateNote}）`);
+}
+
+/** Version (with build stamp), running entry, package root, and a PATH collision warning. */
+export function renderMossRuntimeDoctorLines(input: {
+  version: string;
+  stamp: BuildStamp | null;
+  entryPath: string;
+  packageRoot: string;
+  warning: string | null;
+}): string[] {
+  const entry = displayMossPath(input.entryPath);
+  const root = displayMossPath(input.packageRoot);
+  const lines = [
+    ok(uiText('version', '版本'), formatDoctorVersion(input.version, input.stamp)),
+    ok(
+      uiText('binary', '程序'),
+      uiText(`${entry} (package ${root})`, `${entry}（安装根目录 ${root}）`)
+    ),
+  ];
+  if (input.warning) lines.push(warn(uiText('binaries', '可执行文件'), input.warning));
+  return lines;
+}
+
+/**
+ * Facts for the running install. Stat and realpath only. On any failure this
+ * still returns a version line, and never a `fail` line.
+ */
+function mossRuntimeDoctorLines(version: string): string[] {
+  try {
+    const facts = collectMossRuntimeFacts({
+      pathEnv: process.env.PATH,
+      pathExt: process.env.PATHEXT,
+      platform: process.platform,
+      fs: {
+        statSync(filePath: string) {
+          return fs.statSync(filePath);
+        },
+        realpathSync(filePath: string) {
+          return fs.realpathSync(filePath);
+        },
+      },
+      argv1: process.argv[1],
+      packageJsonPath: getPackageJsonPath(),
+    });
+    return renderMossRuntimeDoctorLines({
+      version,
+      stamp: readBuildStamp(),
+      entryPath: facts.entryPath,
+      packageRoot: facts.packageRoot,
+      warning: facts.scan.warning,
+    });
+  } catch {
+    return [ok(uiText('version', '版本'), version || uiText('unknown', '未知'))];
+  }
 }
 
 /** Informational. A newer npm release is a warning, never a `fail` line. */
@@ -472,7 +549,7 @@ export function renderAuthDoctorLine(
 export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   const lines = [uiText('[doctor] Moss', '[诊断] Moss')];
   lines.push(renderNodeDoctorLine());
-  lines.push(ok(uiText('version', '版本'), options.currentVersion));
+  lines.push(...mossRuntimeDoctorLines(options.currentVersion));
   const pinNote = await rdkDocsPinNote(process.env);
   if (pinNote) lines.push(renderRdkDocsPinDoctorLine(pinNote));
   lines.push(renderAuthDoctorLine(options.config));
