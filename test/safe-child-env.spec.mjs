@@ -102,7 +102,24 @@ const probeKeys = [
   'npm_config_registry',
   'CUSTOM_SENTINEL',
   'DYLD_INSERT_LIBRARIES',
+  'TMPDIR',
+  'HOME',
 ];
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+/** Extensionless `import` is not portable (BSD/macOS Node, shebang, nearby package.json). */
+function writeNodeLauncher(dest, source) {
+  const program = `${dest}.mjs`;
+  fs.writeFileSync(program, source);
+  fs.writeFileSync(
+    dest,
+    `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(program)} "$@"\n`
+  );
+  fs.chmodSync(dest, 0o755);
+}
 
 function restoreEnv(saved) {
   for (const [key, value] of Object.entries(saved)) {
@@ -198,10 +215,9 @@ function project(root) {
   const binDir = path.join(root, 'bin');
   fs.mkdirSync(binDir, { recursive: true });
   const npx = path.join(binDir, 'npx');
-  fs.writeFileSync(
+  writeNodeLauncher(
     npx,
     [
-      '#!/usr/bin/env node',
       "import fs from 'node:fs';",
       `const keys = ${JSON.stringify(probeKeys)};`,
       'const out = { argv: process.argv.slice(2) };',
@@ -211,7 +227,6 @@ function project(root) {
       '',
     ].join('\n')
   );
-  fs.chmodSync(npx, 0o755);
   return { ws, evil, user, pwned, bashPwned, userOk, envFile, packageDir, binDir };
 }
 
@@ -225,6 +240,10 @@ function assertChild(label, layout, userNode) {
   assert.equal(reported.CUSTOM_SENTINEL, undefined, label);
   assert.equal(reported.DYLD_INSERT_LIBRARIES, undefined, label);
   assert.equal(reported.NODE_OPTIONS, userNode, label);
+  assert.equal(reported.HOME, path.join(path.dirname(layout.ws), 'home'), `${label} HOME`);
+  if (process.env.TMPDIR !== undefined) {
+    assert.equal(reported.TMPDIR, process.env.TMPDIR, `${label} TMPDIR`);
+  }
   assert.ok(reported.argv.includes('rdk-docs-mcp'), label);
   if (userNode) assert.equal(fs.readFileSync(layout.userOk, 'utf8'), 'USER_OK');
 }
@@ -431,6 +450,10 @@ function runInteractive(layout, userNode) {
   });
 }
 
+// HOME is a sibling of the workspace under os.tmpdir(). On macOS that path
+// still contains /tmp or /var, which are symlinks. The rdk-docs child cwd is
+// under that HOME; spawn must realpath it or the shebang npx never starts
+// and this marker is never written.
 const cases = [
   ['-p', false],
   ['-p', true],

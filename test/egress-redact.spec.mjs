@@ -4,6 +4,7 @@
  * every user-facing path, exec write-back of [REDACTED], and source identifiers.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -35,6 +36,13 @@ const DOCKER = 'ZG9ja2VyLXNlY3JldC12YWx1ZTE=';
 const KUBE_TOKEN = 'kube-token-value-1234567890';
 const KUBE_KEY = 'a3ViZS1jbGllbnQta2V5LWRhdGEtdmFsdWUxMjM0NTY=';
 const SECRETS = [SERVICE, AWS, KNOWN, PEM_BODY, NETRC, DOCKER, KUBE_TOKEN, KUBE_KEY];
+
+/** GNU sed takes the script after `-i`. BSD sed (macOS) requires `-i ''`. */
+function sedInPlace(expression, file) {
+  const probe = spawnSync('sed', ['--version'], { encoding: 'utf8' });
+  const gnu = probe.status === 0 && String(probe.stdout).includes('GNU');
+  return gnu ? `sed -i ${expression} ${file}` : `sed -i '' ${expression} ${file}`;
+}
 
 const PEM = `-----BEGIN OPENSSH PRIVATE KEY-----\n${PEM_BODY}\n-----END OPENSSH PRIVATE KEY-----\n`;
 const PARAGRAPH = [
@@ -503,14 +511,20 @@ try {
   assert.doesNotMatch(String(moved), /must be restored from the original source/);
 
   fs.writeFileSync(path.join(project, 'note.txt'), 'alpha [REDACTED] omega\n');
-  const legit = await execTool.execute({ command: "sed -i 's/alpha/beta/' note.txt" }, ctx());
+  const legit = await execTool.execute(
+    { command: sedInPlace("'s/alpha/beta/'", 'note.txt') },
+    ctx()
+  );
   assert.equal(fs.readFileSync(path.join(project, 'note.txt'), 'utf8'), 'beta [REDACTED] omega\n');
   assert.doesNotMatch(String(legit), /must be restored from the original source/);
 
   fs.writeFileSync(path.join(project, 'both.txt'), 'alpha SECRET-value-1234\n');
   const both = await execTool.execute(
     {
-      command: `sed -i "s/alpha/beta/; s/SECRET-value-1234/$(printf '%s%s' '[REDA' 'CTED]')/" both.txt`,
+      command: sedInPlace(
+        `"s/alpha/beta/; s/SECRET-value-1234/$(printf '%s%s' '[REDA' 'CTED]')/"`,
+        'both.txt'
+      ),
     },
     ctx()
   );
