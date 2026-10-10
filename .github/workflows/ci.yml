@@ -69,6 +69,13 @@ jobs:
             || python3 -m pip install --user --break-system-packages pyte
           python3 -c 'import pyte'
 
+      - name: Install real Windows ConPTY test driver
+        if: runner.os == 'Windows'
+        run: |
+          python --version
+          python -m pip install --only-binary=:all: pywinpty==3.0.5
+          python -c "from winpty import Backend, PtyProcess; print(Backend.ConPTY)"
+
       - name: Test (build + spec suite)
         env:
           MOSS_SKIP_PY_LAYOUT: ${{ runner.os == 'Windows' && '1' || '' }}
