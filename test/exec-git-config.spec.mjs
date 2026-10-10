@@ -106,6 +106,10 @@ const savedGitSystem = process.env.GIT_CONFIG_SYSTEM;
 function useIsolatedGitConfig(globalFile = '/dev/null', systemFile = '/dev/null') {
   process.env.GIT_CONFIG_GLOBAL = globalFile;
   process.env.GIT_CONFIG_SYSTEM = systemFile;
+  // approval-detail loads cli-locale, which captures startup env at import.
+  // A GIT_* value set after that is treated as a project-.env injection unless
+  // the snapshot is refreshed. These tests are the user's own git config.
+  captureEnvBeforeDotenv(process.env);
 }
 
 function restoreGitConfig() {
@@ -113,6 +117,7 @@ function restoreGitConfig() {
   else process.env.GIT_CONFIG_GLOBAL = savedGitGlobal;
   if (savedGitSystem === undefined) delete process.env.GIT_CONFIG_SYSTEM;
   else process.env.GIT_CONFIG_SYSTEM = savedGitSystem;
+  captureEnvBeforeDotenv(process.env);
 }
 
 function injectedPairs(env) {

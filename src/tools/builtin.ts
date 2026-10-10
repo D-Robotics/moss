@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { runProcess, ProcessError } from '../utils/run-process.js';
+import { resolveHostShell } from '../utils/host-shell.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { assertShellWritesWithinRoots } from '../safety/shell-write-sandbox.js';
@@ -19,7 +20,6 @@ import { deviceTools } from './device-tools.js';
 import { evidenceTools } from './evidence-tools.js';
 import { taskTools } from './task-tools.js';
 import {
-  IS_WIN,
   EXEC_DEFAULT_TIMEOUT_MS,
   globalToolStateManager,
   looksBinary,
@@ -64,17 +64,25 @@ export {
 } from './harness-tools.js';
 export { askUserQuestionTool } from './ask-user-question.js';
 
-const WIN_POSIX_HINT =
-  'On Windows the local shell is cmd/PowerShell: Unix-only utilities (e.g. uname, grep without Git) are unavailable. ' +
-  'Use PowerShell equivalents or read workspace files.';
+const EXEC_DESCRIPTION_BASE =
+  'Run a shell command in the workspace (cwd does not persist). Prefer read_file, edit_file, multi_edit, search_files, search_code, run_tests, and verify_fix over cat/sed/find/grep. ' +
+  'Use absolute paths; do not cd. Chain with && only when the next step must not run if this one fails. ' +
+  'For servers, watchers, or anything that may not exit, set run_in_background or use exec_background, then exec_logs / exec_stop. ' +
+  'Reads outside the workspace are allowed. Secret-like output, including Moss config and keys, is removed. Every MOSS_DEVICE_* value is hidden; a footnote lists names that are set — do not claim a hidden variable is unset.';
+
+export function execToolDescription(shell = resolveHostShell()): string {
+  return shell.description
+    ? `${EXEC_DESCRIPTION_BASE} ${shell.description}`
+    : EXEC_DESCRIPTION_BASE;
+}
 
 export const execTool: Tool = {
   name: 'exec',
-  description:
-    'Run a shell command in the workspace (cwd does not persist). Prefer read_file, edit_file, multi_edit, search_files, search_code, run_tests, and verify_fix over cat/sed/find/grep. ' +
-    'Use absolute paths; do not cd. Chain with && only when the next step must not run if this one fails. ' +
-    'For servers, watchers, or anything that may not exit, set run_in_background or use exec_background, then exec_logs / exec_stop. ' +
-    'Reads outside the workspace are allowed. Secret-like output, including Moss config and keys, is removed. Every MOSS_DEVICE_* value is hidden; a footnote lists names that are set — do not claim a hidden variable is unset.',
+  // Resolved on first read (tool-list build or exec), not at import. cli-main
+  // imports this module for every subcommand; probing pwsh here blocks startup.
+  get description() {
+    return execToolDescription();
+  },
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'requires_user_confirmation',
@@ -128,8 +136,9 @@ export const execTool: Tool = {
       );
     }
     const timeoutMs = Number(input.timeout_ms) || EXEC_DEFAULT_TIMEOUT_MS;
-    if (IS_WIN && /\buname\b/i.test(input.command)) {
-      return `Command skipped: uname is not available on Windows cmd.\n${WIN_POSIX_HINT}`;
+    const shell = resolveHostShell();
+    if (shell.kind !== 'sh' && /\buname\b/i.test(String(input.command ?? ''))) {
+      return `Command skipped: uname is not available on Windows ${shell.kind}.\n${shell.description}`;
     }
     const safetyCheck = isCommandDangerous(input.command);
     if (safetyCheck.blocked) {
@@ -165,9 +174,8 @@ export const execTool: Tool = {
     const hooksNotice = (output = ''): string =>
       takeShellNotices(ctx.sessionKey, opened, commandText, output);
     try {
-      const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
-      const result = await runProcess(shell, {
-        args: IS_WIN ? ['/c', input.command] : ['-c', input.command],
+      const result = await runProcess(shell.executable, {
+        args: shell.argsFor(String(input.command ?? '')),
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
         signal: ctx.abortSignal,
@@ -241,15 +249,26 @@ export const execTool: Tool = {
       );
       if (err instanceof ProcessError) {
         const output = [err.stdout.trim(), err.stderr.trim()].filter(Boolean).join('\n');
-        const timedOut =
-          /timeout|timed out|killed/i.test(err.message) || err.exitCode === null
-            ? `\n(hint: raise timeout_ms or use exec_background for long-running processes; default timeout is ${EXEC_DEFAULT_TIMEOUT_MS}ms)`
-            : '';
-        return (
-          `Command failed (exit ${err.exitCode}):\n${output || err.message}${timedOut}${writebackWarning}` +
-          footnote +
-          hooksNotice(`${err.stdout}\n${err.stderr}`)
-        );
+        if (err.timedOut) {
+          const waited = err.timeoutMs && err.timeoutMs > 0 ? err.timeoutMs : timeoutMs;
+          return (
+            `timed out after ${waited}ms (raise timeout_ms or use exec_background)${output ? `\n${output}` : ''}${writebackWarning}` +
+            footnote +
+            hooksNotice(`${err.stdout}\n${err.stderr}`)
+          );
+        }
+        if (err.signal) {
+          return (
+            `Command killed by ${err.signal}:\n${output || err.message}${writebackWarning}` +
+            footnote +
+            hooksNotice(`${err.stdout}\n${err.stderr}`)
+          );
+        }
+        const failure =
+          err.exitCode === null
+            ? `Command failed:\n${output || err.message}`
+            : `Command failed (exit ${err.exitCode}):\n${output || err.message}`;
+        return failure + writebackWarning + footnote + hooksNotice(`${err.stdout}\n${err.stderr}`);
       }
       throw err;
     }

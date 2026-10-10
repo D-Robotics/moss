@@ -369,7 +369,11 @@ function isEmptyConfigListing(err: unknown): boolean {
 
 function refuseConfigDiscovery(err: unknown): Error {
   if (err instanceof ProcessError) {
-    const reason = err.timedOut ? 'timed out' : `exited ${err.exitCode}`;
+    const reason = err.timedOut
+      ? 'timed out'
+      : err.signal
+        ? `killed by ${err.signal}`
+        : `exited ${err.exitCode}`;
     const detail = (err.stderr || err.stdout).trim();
     const suffix = detail ? `: ${detail}` : '';
     return new Error(`Refusing read-only git: config discovery ${reason}${suffix}`, { cause: err });
@@ -495,7 +499,10 @@ async function captureGit(
     return { output: commandOutput(result.stdout, result.stderr), exitCode: 0 };
   } catch (err) {
     if (err instanceof ProcessError) {
-      return { output: commandOutput(err.stdout, err.stderr), exitCode: err.exitCode };
+      return {
+        output: commandOutput(err.stdout, err.stderr),
+        exitCode: err.exitCode ?? 1,
+      };
     }
     throw err;
   }

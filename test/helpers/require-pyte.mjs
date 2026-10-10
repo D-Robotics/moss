@@ -18,7 +18,13 @@ export function pyteMissingMessage(label) {
  */
 export function requirePyLayout(label) {
   if (process.env.MOSS_SKIP_PY_LAYOUT === '1') {
-    console.log(`[${label}] skip: MOSS_SKIP_PY_LAYOUT=1`);
+    console.error('');
+    console.error('*** WARNING ***');
+    console.error(
+      `[${label}] MOSS_SKIP_PY_LAYOUT=1 — Chinese TUI layout checks were NOT run. The language scanner did not see the TUI screens.`
+    );
+    console.error('*** WARNING ***');
+    console.error('');
     return false;
   }
   const probe = spawnSync('python3', ['-c', 'import pyte'], { encoding: 'utf8' });

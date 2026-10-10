@@ -33,7 +33,9 @@ import {
   type CliInteractionMode,
 } from './interaction-mode.js';
 import { isDotenvDeniedEnvKey } from '../utils/dotenv-denied-env.js';
+import { isDotenvSafetyEnvKey, noteDotenvSafetyEnvKey } from '../safety/dotenv-safety-env.js';
 import { uiText } from '../utils/ui-language.js';
+import { zhConfigSource } from './config-source-label.js';
 import { isProjectRoutingEnvKey } from '../utils/project-routing-env.js';
 import { getPackageJsonPath } from '../utils/package-info.js';
 import {
@@ -42,7 +44,14 @@ import {
   primaryKeyAllowedForHost,
 } from '../provider/primary-key-host.js';
 import { isFolderTrusted, folderPathKey } from './folder-trust-store.js';
-import { captureEnvBeforeDotenv, envBeforeDotenv } from '../utils/startup-env.js';
+import {
+  captureEnvBeforeDotenv,
+  envBeforeDotenv,
+  isStartupEnvCaptured,
+  recordDotenvOrigin,
+} from '../utils/startup-env.js';
+import { officialEnvOffers } from './env-credentials.js';
+import { setupCopy } from './cli-locale.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
 import type { PricingConfig } from './model-pricing.js';
 import type { StatusLineConfig } from './status-line.js';
@@ -217,10 +226,14 @@ export interface PermissionsConfig {
   deny?: string[];
   /**
    * `full` opts every device into the destructive tier (reboot, flash, system
-   * paths). Absent or `gated` keeps the safe default.
+   * paths). Absent or `gated` keeps the safe default. A project file may set
+   * `gated` to tighten the user, and cannot set `full`.
    */
   deviceTrust?: 'gated' | 'full' | string;
-  /** Hosts or device ids that may run the destructive tier without a prompt. */
+  /**
+   * Hosts or device ids that may run the destructive tier without a prompt.
+   * A project file cannot add an id the user did not already list.
+   */
   trustedDevices?: string[];
 }
 
@@ -232,6 +245,13 @@ export interface LoadedCliConfigFile {
   fieldSources?: Record<string, 'user' | 'project'>;
   /** Project routing fields dropped because the folder is not trusted. */
   ignoredProjectRouting?: string[];
+  /**
+   * Project permission fields that would loosen the user's mode, dropped
+   * because the folder is not trusted. Includes allow, defaultMode,
+   * deviceTrust, trustedDevices, trustedTools, and a looser profile.
+   * `deny` and `ask` are not in this list.
+   */
+  droppedProjectPermissions?: string[];
   /**
    * Project base URL whose host is neither the user's nor an official
    * provider URL, and which did not bring its own key.
@@ -284,9 +304,14 @@ export interface AgentRuntimeConfig {
   /** v0.12 model routing tiers (env MOSS_MODEL_CHEAP/BALANCED/STRONG). */
   modelTiers?: { cheap?: string; balanced?: string; strong?: string };
   /** Max output tokens per LLM response. If unset, moss derives a default from
-   * the probed context window (contextTokens/4, capped to 32k) — NOT a hardcoded
-   * 4096, which truncated long answers on modern large-output models. */
+   * the model and the probed context window. A global pin is also the ceiling:
+   * truncation recovery will not raise it. */
   maxOutputTokens?: number;
+  /**
+   * Per-model output cap. Replaces the built-in table for that model id
+   * (exact or prefix). Example: `{ "glm-5.3": { "maxOutputTokens": 32768 } }`.
+   */
+  models?: Record<string, { maxOutputTokens?: number }>;
   compaction?: Partial<Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>>;
 }
 
@@ -623,11 +648,21 @@ function mergeGuardrailsConfig(
   };
 }
 
+function mergeModelOutputConfigs(
+  user: AgentRuntimeConfig['models'],
+  project: AgentRuntimeConfig['models']
+): AgentRuntimeConfig['models'] {
+  if (!user && !project) return undefined;
+  const merged: NonNullable<AgentRuntimeConfig['models']> = { ...project, ...user };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
 function mergeAgentRuntimeConfig(
   userAgent: ConfigFile['agent'],
   projectAgent: ConfigFile['agent']
 ): ConfigFile['agent'] {
   if (!projectAgent && !userAgent) return undefined;
+  const models = mergeModelOutputConfigs(userAgent?.models, projectAgent?.models);
   return {
     ...userAgent,
     ...projectAgent,
@@ -635,6 +670,7 @@ function mergeAgentRuntimeConfig(
       ...userAgent?.compaction,
       ...projectAgent?.compaction,
     },
+    ...(models ? { models } : {}),
   };
 }
 
@@ -670,16 +706,105 @@ export function listProjectRoutingConfigFields(project: ConfigFile): string[] {
   }
   const tiers = project.agent?.modelTiers;
   if (tiers && Object.keys(tiers).length > 0) ignored.push('modelTiers');
+  if (project.agent?.maxOutputTokens !== undefined) ignored.push('maxOutputTokens');
+  const models = project.agent?.models;
+  if (models && Object.keys(models).length > 0) ignored.push('models');
   return ignored;
 }
 
 function omitProjectRoutingConfig(project: ConfigFile): ConfigFile {
   const next: ConfigFile = { ...project };
   for (const key of PROJECT_ROUTING_CONFIG_KEYS) delete next[key];
-  if (next.agent?.modelTiers) {
-    const { modelTiers: _tiers, ...rest } = next.agent;
+  if (next.agent) {
+    // A project cap can force a truncation or reserve most of the context
+    // window. An untrusted folder does not get to set either knob. User
+    // config, the process environment, and a trusted project still can.
+    const { modelTiers: _tiers, maxOutputTokens: _cap, models: _models, ...rest } = next.agent;
     next.agent = Object.keys(rest).length > 0 ? rest : undefined;
   }
+  return next;
+}
+
+function permissionRuleListLoosens(value: unknown): boolean {
+  return (
+    Array.isArray(value) && value.some((item) => typeof item === 'string' && item.trim().length > 0)
+  );
+}
+
+const PROFILE_PERMISSIVENESS: Record<CliConfigProfile, number> = {
+  cautious: 0,
+  balanced: 1,
+  autonomous: 2,
+};
+
+/**
+ * `autonomous` injects exec/apply_patch grants. A higher project profile also
+ * replaces a stricter user profile via the project-over-user spread. cautious
+ * and balanced only tighten an unset user profile, so those stay.
+ */
+function projectProfileLoosens(user: ConfigFile, project: ConfigFile): boolean {
+  const projectProfile = normalizeConfigProfile(
+    typeof project.profile === 'string' ? project.profile : undefined
+  );
+  if (!projectProfile) return false;
+  const userProfile = normalizeConfigProfile(
+    typeof user.profile === 'string' ? user.profile : undefined
+  );
+  if (!userProfile) return projectProfile === 'autonomous';
+  return PROFILE_PERMISSIVENESS[projectProfile] > PROFILE_PERMISSIVENESS[userProfile];
+}
+
+/**
+ * Project fields that grant tools, trust a device, or replace the permission
+ * mode. An untrusted folder drops these. `permissions.ask` and
+ * `permissions.deny` only tighten, so they are not listed. A project profile
+ * is listed only when it is looser than the user's. Device trust is never
+ * taken from an untrusted folder, so any set `deviceTrust` or
+ * `trustedDevices` list is listed.
+ */
+function listDroppedProjectPermissionFields(user: ConfigFile, project: ConfigFile): string[] {
+  const dropped: string[] = [];
+  if (permissionRuleListLoosens(project.permissions?.allow)) dropped.push('permissions.allow');
+  if (permissionRuleListLoosens(project.trustedTools)) dropped.push('trustedTools');
+  const mode = project.permissions?.defaultMode;
+  if (typeof mode === 'string' && mode.trim().length > 0) dropped.push('permissions.defaultMode');
+  const deviceTrust = project.permissions?.deviceTrust;
+  if (typeof deviceTrust === 'string' && deviceTrust.trim().length > 0) {
+    dropped.push('permissions.deviceTrust');
+  }
+  if (permissionRuleListLoosens(project.permissions?.trustedDevices)) {
+    dropped.push('permissions.trustedDevices');
+  }
+  if (projectProfileLoosens(user, project)) dropped.push('profile');
+  return dropped;
+}
+
+function omitLooseningProjectPermissions(user: ConfigFile, project: ConfigFile): ConfigFile {
+  const next: ConfigFile = { ...project };
+  if (permissionRuleListLoosens(next.trustedTools)) delete next.trustedTools;
+  if (projectProfileLoosens(user, project)) delete next.profile;
+  if (!next.permissions) return next;
+  const permissions: PermissionsConfig = { ...next.permissions };
+  let changed = false;
+  if (permissionRuleListLoosens(permissions.allow)) {
+    delete permissions.allow;
+    changed = true;
+  }
+  if (typeof permissions.defaultMode === 'string' && permissions.defaultMode.trim().length > 0) {
+    delete permissions.defaultMode;
+    changed = true;
+  }
+  if (typeof permissions.deviceTrust === 'string' && permissions.deviceTrust.trim().length > 0) {
+    delete permissions.deviceTrust;
+    changed = true;
+  }
+  if (permissionRuleListLoosens(permissions.trustedDevices)) {
+    delete permissions.trustedDevices;
+    changed = true;
+  }
+  if (!changed) return next;
+  const remaining = Object.values(permissions).some((value) => value !== undefined);
+  next.permissions = remaining ? permissions : undefined;
   return next;
 }
 
@@ -817,13 +942,19 @@ export function mergeConfigFiles(
   });
   return {
     ...merged,
-    // Safety-sensitive fields: the USER's config wins over the PROJECT's.
-    // A cloned repo's .moss/config.json is less trusted than the user's
-    // ~/.config/moss/config.json — it must not silently lower the user's
-    // safety stance (e.g. approvalPolicy: 'never', safetyMode: 'full-access',
-    // or widening trustedTools). If the user hasn't set a field, the project
-    // value is still used (project defaults are fine); the user's explicit
-    // choice always wins. CLI flags and env vars override both (resolveCliConfig).
+    // Safety-sensitive scalars: the user's config wins over the project's.
+    // A cloned repo's .moss/config.json must not silently lower the user's
+    // safety stance (e.g. approvalPolicy: 'never', safetyMode: 'full-access').
+    // If the user hasn't set a scalar, the project value is still used.
+    // trustedTools follows that rule: the user's array wins exactly. A trusted
+    // project's list is used only when the user did not set one.
+    // loadCliConfigFile removes an untrusted project's trustedTools,
+    // permissions.allow, permissions.defaultMode, permissions.deviceTrust,
+    // permissions.trustedDevices, and a looser profile before this merge, so
+    // those grants cannot widen the user's mode. mergePermissionsConfig also
+    // refuses a project deviceTrust of full and any trusted device the user
+    // did not list, including in a trusted folder. CLI flags and env vars
+    // override both (resolveCliConfig).
     safetyMode: userConfig.safetyMode ?? projectConfig.safetyMode,
     approvalPolicy: userConfig.approvalPolicy ?? projectConfig.approvalPolicy,
     trustedTools: userConfig.trustedTools ?? projectConfig.trustedTools,
@@ -895,29 +1026,91 @@ function mergeStatusLine(
   return Object.keys(rest).length > 0 ? rest : undefined;
 }
 
+function unionOptionalStringList(
+  user: string[] | undefined,
+  project: string[] | undefined
+): string[] | undefined {
+  if (!user && !project) return undefined;
+  return [...new Set([...(user ?? []), ...(project ?? [])])];
+}
+
 /**
- * v0.26 permission-block merge, safety-directional like the other safety
- * fields: user-wins on every scalar knob; rule lists union BOTH layers
- * (deny rules union across levels by design — a project cannot silently
- * remove the user's deny; allow/ask dedupe).
+ * A project `gated` tightens `full`. A project `full` never applies, trusted
+ * folder or not. Any other project value is ignored.
+ */
+function mergePermissionDeviceTrust(
+  user: PermissionsConfig['deviceTrust'],
+  project: PermissionsConfig['deviceTrust']
+): PermissionsConfig['deviceTrust'] | undefined {
+  if (typeof project === 'string' && project.trim().toLowerCase() === 'gated') return 'gated';
+  if (typeof user === 'string' && user.trim().length > 0) return user;
+  return undefined;
+}
+
+/**
+ * Project ids never add a device the user did not list. When the project sets
+ * a list, the result is the intersection; when it does not, the user's list
+ * stands. No user list means the project list is ignored.
+ */
+function mergePermissionTrustedDevices(
+  user: readonly string[] | undefined,
+  project: readonly string[] | undefined
+): string[] | undefined {
+  if (!Array.isArray(user)) return undefined;
+  if (!Array.isArray(project)) return [...user];
+  const projectIds = new Set<string>();
+  for (const entry of project) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim();
+    if (trimmed.length > 0) projectIds.add(trimmed);
+  }
+  const seen = new Set<string>();
+  const intersection: string[] = [];
+  for (const entry of user) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim();
+    if (trimmed.length === 0 || seen.has(trimmed) || !projectIds.has(trimmed)) continue;
+    seen.add(trimmed);
+    intersection.push(trimmed);
+  }
+  return intersection;
+}
+
+/**
+ * Permission-block merge. Allowlist of PermissionsConfig: the project object
+ * is never spread, so unknown project fields are dropped. A project may only
+ * tighten the user.
+ * - deny / ask union (a project cannot remove the user's rules)
+ * - allow unions only what the caller still passes. loadCliConfigFile removes
+ *   an untrusted project's allow before this runs
+ * - defaultMode keeps the user's value when set, so a project cannot loosen
+ *   it. An untrusted project's defaultMode is removed before this runs
+ * - deviceTrust: project `gated` over user `full`; never project `full`
+ * - trustedDevices: intersection with the user's list, never an addition
  */
 function mergePermissionsConfig(
   user: PermissionsConfig | undefined,
   project: PermissionsConfig | undefined
 ): PermissionsConfig | undefined {
   if (!user && !project) return undefined;
-  const unionList = (a: string[] | undefined, b: string[] | undefined): string[] | undefined => {
-    if (!a && !b) return undefined;
-    return [...new Set([...(a ?? []), ...(b ?? [])])];
-  };
-  return {
-    ...(user ?? {}),
-    ...(project ?? {}),
+  // Every PermissionsConfig key is required here, so a new field fails the
+  // build until the allowlist handles it. Unknown project keys are not copied.
+  const fields = {
     defaultMode: user?.defaultMode ?? project?.defaultMode,
-    allow: unionList(user?.allow, project?.allow),
-    ask: unionList(user?.ask, project?.ask),
-    deny: unionList(user?.deny, project?.deny),
-  };
+    allow: unionOptionalStringList(user?.allow, project?.allow),
+    ask: unionOptionalStringList(user?.ask, project?.ask),
+    deny: unionOptionalStringList(user?.deny, project?.deny),
+    deviceTrust: mergePermissionDeviceTrust(user?.deviceTrust, project?.deviceTrust),
+    trustedDevices: mergePermissionTrustedDevices(user?.trustedDevices, project?.trustedDevices),
+  } satisfies Record<keyof PermissionsConfig, unknown>;
+  const merged: PermissionsConfig = {};
+  if (fields.defaultMode !== undefined) merged.defaultMode = fields.defaultMode;
+  if (fields.allow !== undefined) merged.allow = fields.allow;
+  if (fields.ask !== undefined) merged.ask = fields.ask;
+  if (fields.deny !== undefined) merged.deny = fields.deny;
+  if (fields.deviceTrust !== undefined) merged.deviceTrust = fields.deviceTrust;
+  if (fields.trustedDevices !== undefined) merged.trustedDevices = fields.trustedDevices;
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 function argvTrustsWorkspace(argv: readonly string[]): boolean {
@@ -1020,7 +1213,12 @@ export function loadCliConfigFile(
   const rawProject = loadConfigFile(projectConfigPath);
   const trusted = projectRoutingTrusted(env, argv, startDir, options?.trustProjectRouting);
   const ignoredProjectRouting = trusted ? [] : listProjectRoutingConfigFields(rawProject);
-  const projectConfig = trusted ? rawProject : omitProjectRoutingConfig(rawProject);
+  const droppedProjectPermissions = trusted
+    ? []
+    : listDroppedProjectPermissionFields(userConfig, rawProject);
+  const projectConfig = trusted
+    ? rawProject
+    : omitLooseningProjectPermissions(userConfig, omitProjectRoutingConfig(rawProject));
   const merged = mergeConfigFiles(projectConfig, userConfig, options);
   const sources = fieldSourcesFor(userConfig, projectConfig);
   const keyLayer =
@@ -1039,6 +1237,7 @@ export function loadCliConfigFile(
     projectConfig,
     fieldSources: sources,
     ...(ignoredProjectRouting.length > 0 ? { ignoredProjectRouting } : {}),
+    ...(droppedProjectPermissions.length > 0 ? { droppedProjectPermissions } : {}),
     ...(blocked ? { blockedProjectBaseUrl: blocked } : {}),
     ...userIdentity,
   };
@@ -1219,6 +1418,23 @@ function parsePositiveInteger(value: unknown, source: string): number | undefine
   return value;
 }
 
+function parseModelMaxOutputTokens(
+  models: AgentRuntimeConfig['models']
+): Record<string, number> | undefined {
+  if (!models || typeof models !== 'object') return undefined;
+  const out: Record<string, number> = {};
+  for (const [id, spec] of Object.entries(models)) {
+    const key = id.trim();
+    if (!key || !spec || typeof spec !== 'object') continue;
+    const tokens = parsePositiveInteger(
+      spec.maxOutputTokens,
+      `agent.models.${key}.maxOutputTokens`
+    );
+    if (tokens !== undefined) out[key] = tokens;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function parsePositiveIntegerEnv(value: string | undefined): number | undefined {
   if (value === undefined || value.trim() === '') return undefined;
   const parsed = Number(value.trim());
@@ -1272,6 +1488,10 @@ export interface ResolvedCliConfig {
   providerSource: string;
   apiKey: string;
   apiKeySource: string;
+  /** User-file `apiKeyEnv`, when that file names a variable. */
+  apiKeyEnv?: string;
+  /** The named variable is absent. Do not fall through to a stored or provider key. */
+  apiKeyEnvUnset?: boolean;
 
   usingBundledDefault: boolean;
 
@@ -1317,12 +1537,24 @@ export interface ResolvedCliConfig {
   modelTiersSource?: string;
   /** Max output tokens per LLM response. undefined → runtime derives from contextTokens. */
   maxOutputTokens?: number;
+  /** Per-model caps from `agent.models.<id>.maxOutputTokens`. */
+  modelMaxOutputTokens?: Record<string, number>;
   compactionSettings: Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>;
   compactionSettingsSource: string;
   configPath: string;
   projectConfigPath?: string;
 
   apiKeyEncrypted: boolean;
+  /**
+   * More than one official provider key is set and nothing chose a provider.
+   * The CLI exits before a request; it does not pick one.
+   */
+  envProviderCandidates?: string[];
+  /**
+   * Printed when a single official env key selected the provider. The choice
+   * is not written to config.
+   */
+  autoEnvNotice?: string;
 }
 
 export type CliConfigAuditSeverity = 'warn';
@@ -1352,6 +1584,10 @@ function findConflictingToolPatterns(
 ): string[] {
   const denied = new Set(deniedTools);
   return trustedTools.filter((pattern) => denied.has(pattern));
+}
+
+function zhAuditSource(source: string): string {
+  return zhConfigSource(source);
 }
 
 export function auditResolvedCliConfig(
@@ -1385,7 +1621,7 @@ export function auditResolvedCliConfig(
       source: config.approvalPolicySource,
       message: uiText(
         `auto-approval is enabled via ${config.permissions.source} (${config.approvalPolicySource}); keep deniedTools current for risky tools`,
-        `已通过 ${config.permissions.source}（${config.approvalPolicySource}）开启自动审批；请为高风险工具保持 deniedTools`
+        `已通过 ${zhAuditSource(config.permissions.source)}（${zhAuditSource(config.approvalPolicySource)}）开启自动审批；请为高风险工具保持 \`deniedTools\``
       ),
     });
     if (config.deniedTools.length === 0) {
@@ -1395,7 +1631,7 @@ export function auditResolvedCliConfig(
         source: config.deniedToolsSource,
         message: uiText(
           `auto-approval has no deniedTools guardrail (${config.deniedToolsSource}); add high-risk tools or globs to deniedTools`,
-          `自动审批没有 deniedTools 护栏（${config.deniedToolsSource}）；请把高风险工具或通配加入 deniedTools`
+          `自动审批没有 \`deniedTools\` 护栏（${zhAuditSource(config.deniedToolsSource)}）；请把高风险工具或通配加入 \`deniedTools\``
         ),
       });
     }
@@ -1413,7 +1649,7 @@ export function auditResolvedCliConfig(
       source: 'default',
       message: uiText(
         'default full mode has no deny rules; add rules with /permissions (e.g. deny read_file(./.env)) to keep sensitive tools gated',
-        '默认 full 模式没有拒绝规则；用 /permissions 添加（例如 deny read_file(./.env)）以继续拦截敏感工具'
+        '默认完全访问模式没有拒绝规则；用 /permissions 添加（例如 `deny read_file(./.env)`）以继续拦截敏感工具'
       ),
     });
   }
@@ -1426,7 +1662,7 @@ export function auditResolvedCliConfig(
       source: `${config.trustedToolsSource}, ${config.deniedToolsSource}`,
       message: uiText(
         `trustedTools also appear in deniedTools: ${conflictingPatterns.join(', ')}; deniedTools takes precedence`,
-        `trustedTools 与 deniedTools 冲突：${conflictingPatterns.join(', ')}；以 deniedTools 为准`
+        `\`trustedTools\` 与 \`deniedTools\` 冲突：${conflictingPatterns.join('、')}；以 \`deniedTools\` 为准`
       ),
     });
   }
@@ -1563,15 +1799,33 @@ function userDeclaresEndpoint(config: ConfigFile | undefined): boolean {
   return config?.provider !== undefined || config?.baseUrl !== undefined;
 }
 
+/** Official provider env names. A project host must not receive one of these. */
+function isOfficialEnvKeyName(name: string): boolean {
+  return Object.values(PROVIDER_PRESETS).some((preset) => preset.envKeys?.includes(name));
+}
+
 /**
- * An env key is sent only in two cases:
- * - the user file names `apiKeyEnv` AND a provider or base URL, or
- * - the request's base URL is that provider's official preset and the
- *   matching provider env var is set.
- * A named `apiKeyEnv` with neither provider nor base URL is not configured:
- * it must not be bound to the default provider.
- * A project file never triggers a read. There is no "only one key" fallback.
- * A blank config stays blank so first-run setup can still ask.
+ * Keys are read from the process env captured before a project `.env`.
+ * A caller that passes its own object (tests, an explicit env) is used as-is.
+ */
+function startupCredentialEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (isStartupEnvCaptured() && (env === process.env || env === envBeforeDotenv)) {
+    return envBeforeDotenv;
+  }
+  return env;
+}
+
+/**
+ * An env key is sent only in these cases:
+ * - the user file names `apiKeyEnv` AND a provider or base URL, and the
+ *   request host is one `primaryKeyAllowedForHost` allows for that user, or
+ * - the request URL is that provider's official preset, or a CLI `--provider`
+ *   plus `--base-url` wrote the host, and the matching provider env var is set.
+ * A base URL with no provider does not borrow an official key.
+ * A named `apiKeyEnv` with neither provider nor base URL is not configured.
+ * A project provider, base URL, or `apiKeyEnv` never triggers a read.
+ * One official key on a blank config is applied by `resolveCliConfig` before
+ * this function runs; several keys are not picked.
  */
 function apiKeyFromEnv(
   activeConfig: ConfigFile,
@@ -1579,20 +1833,42 @@ function apiKeyFromEnv(
   projectConfig: ConfigFile | undefined,
   env: NodeJS.ProcessEnv,
   provider: CliProviderPreset,
-  baseUrl: string
+  baseUrl: string,
+  overrides: CliConfigOverrides
 ): { apiKey: string; source: string } | undefined {
   if (projectDeclaresEndpoint(projectConfig)) return undefined;
+  const creds = startupCredentialEnv(env);
+  const writtenBase = overrides.baseUrl || userConfig.baseUrl;
+  const writtenProvider = overrides.provider || userConfig.provider;
+  const host = endpointHost(baseUrl);
+  const hostAllowed =
+    host !== null &&
+    primaryKeyAllowedForHost(host, {
+      ...(writtenBase ? { baseUrl: writtenBase } : {}),
+      ...(writtenProvider ? { provider: writtenProvider } : {}),
+    });
   const named = namedEnvVar(userConfig);
   if (named && !userDeclaresEndpoint(userConfig)) return undefined;
   if (named) {
-    const value = (env[named] ?? '').trim();
+    if (!hostAllowed) return undefined;
+    const value = (creds[named] ?? '').trim();
     if (value) return { apiKey: value, source: `env:${named}` };
   }
   if ((activeConfig.apiKey ?? '').trim()) return undefined;
-  if (!activeConfig.provider && !activeConfig.baseUrl) return undefined;
-  if (!isOfficialPresetBaseUrl(provider, baseUrl)) return undefined;
+  if ((writtenBase ?? '').trim() && !writtenProvider) return undefined;
+  const cliHost = Boolean(overrides.provider && (overrides.baseUrl ?? '').trim() && hostAllowed);
+  if (!isOfficialPresetBaseUrl(provider, baseUrl) && !cliHost) return undefined;
+  if (!hostAllowed) return undefined;
+  if (
+    !activeConfig.provider &&
+    !activeConfig.baseUrl &&
+    !overrides.provider &&
+    !overrides.baseUrl
+  ) {
+    return undefined;
+  }
   for (const name of PROVIDER_PRESETS[provider].envKeys ?? []) {
-    const value = (env[name] ?? '').trim();
+    const value = (creds[name] ?? '').trim();
     if (value) return { apiKey: value, source: `env:${name}` };
   }
   return undefined;
@@ -1622,6 +1898,42 @@ export function resolveCliConfig(
   let bundledDefaultSuppressedBy: string | undefined;
   const configPaths = loadedConfig ?? defaultLoadedConfig;
   const userLayer = configPaths?.userConfig ?? config ?? {};
+  const credEnv = startupCredentialEnv(env);
+  const projectEndpoint = projectDeclaresEndpoint(configPaths?.projectConfig);
+  const userBlocksAuto =
+    userDeclaresEndpoint(userLayer) ||
+    Boolean((userLayer.apiKey ?? '').trim()) ||
+    namedEnvVar(userLayer).length > 0 ||
+    Boolean((userLayer.model ?? '').trim());
+  const cliBlocksAuto = Boolean(overrides.provider || overrides.baseUrl || overrides.model);
+  const officialOffers =
+    userBlocksAuto || cliBlocksAuto || projectEndpoint ? [] : officialEnvOffers(credEnv);
+  let envProviderCandidates: string[] | undefined;
+  let autoEnvNotice: string | undefined;
+  let autoEnvKey: { apiKey: string; source: string } | undefined;
+  const autoEnvKeys = new Set<keyof ConfigFile>();
+  if (officialOffers.length > 1) {
+    envProviderCandidates = officialOffers.map((offer) => offer.keyVar);
+  } else if (officialOffers.length === 1) {
+    const offer = officialOffers[0];
+    if (offer) {
+      activeConfig = {
+        ...activeConfig,
+        provider: offer.provider,
+        model: offer.model,
+        baseUrl: offer.baseUrl,
+      };
+      autoEnvKey = { apiKey: offer.apiKey, source: `env:${offer.keyVar}` };
+      autoEnvNotice = setupCopy(undefined, '[moss] Using {key} → {provider} @ {baseUrl}', {
+        key: offer.keyVar,
+        provider: offer.provider,
+        baseUrl: offer.baseUrl,
+      });
+      autoEnvKeys.add('provider');
+      autoEnvKeys.add('model');
+      autoEnvKeys.add('baseUrl');
+    }
+  }
   const namedWithoutEndpoint =
     namedEnvVar(userLayer).length > 0 &&
     !userDeclaresEndpoint(userLayer) &&
@@ -1629,14 +1941,24 @@ export function resolveCliConfig(
     !overrides.provider &&
     !overrides.baseUrl;
 
-  if (!hasUserModelConfig(activeConfig) && !namedWithoutEndpoint) {
+  if (
+    !autoEnvKey &&
+    !envProviderCandidates &&
+    !hasUserModelConfig(activeConfig) &&
+    !namedWithoutEndpoint
+  ) {
     const bundled = readBundledZeroConfigDefault(env);
     if (bundled) {
       activeConfig = { ...activeConfig, ...bundled };
       bundledDefaultKeys = new Set(Object.keys(bundled) as Array<keyof ConfigFile>);
       usingBundledDefault = true;
     }
-  } else if (!namedWithoutEndpoint && readBundledZeroConfigDefault(env)) {
+  } else if (
+    !autoEnvKey &&
+    !envProviderCandidates &&
+    !namedWithoutEndpoint &&
+    readBundledZeroConfigDefault(env)
+  ) {
     bundledDefaultSuppressedBy = 'moss config file';
   }
   const fileLayer = (field: string): string => configPaths?.fieldSources?.[field] ?? 'config';
@@ -1665,7 +1987,11 @@ export function resolveCliConfig(
   const ignoredModelEnvVars = listIgnoredModelEnvVars(env);
   const inferredProvider = inferProviderFromBaseUrl(overrides.baseUrl || activeConfig.baseUrl);
   const activeConfigSource = (key: keyof ConfigFile): string =>
-    usingBundledDefault && bundledDefaultKeys.has(key) ? 'built-in' : fileLayer(key);
+    autoEnvKeys.has(key)
+      ? 'env'
+      : usingBundledDefault && bundledDefaultKeys.has(key)
+        ? 'built-in'
+        : fileLayer(key);
   const provider =
     overrides.provider || activeConfig.provider
       ? normalizeProvider(overrides.provider || activeConfig.provider)
@@ -1953,6 +2279,7 @@ export function resolveCliConfig(
   const envMaxOutputTokens = parsePositiveIntegerEnv(env.MOSS_MAX_OUTPUT_TOKENS);
   const maxOutputTokens =
     overrides.maxOutputTokens ?? envMaxOutputTokens ?? configMaxOutputTokens ?? undefined;
+  const modelMaxOutputTokens = parseModelMaxOutputTokens(activeConfig.agent?.models);
   const configCompactionReserve = parsePositiveInteger(
     activeConfig.agent?.compaction?.reserveTokens,
     'agent.compaction.reserveTokens'
@@ -2031,7 +2358,8 @@ export function resolveCliConfig(
         ...(configPaths?.userBaseUrl ? { baseUrl: configPaths.userBaseUrl } : {}),
         ...(configPaths?.userProvider ? { provider: configPaths.userProvider } : {}),
       });
-    if (fromEnv && (allowed || fromEnv !== userKey)) {
+    const officialShellKey = isOfficialEnvKeyName(apiKeyEnvName);
+    if (fromEnv && (allowed || (fromEnv !== userKey && !officialShellKey))) {
       resolvedApiKey = fromEnv;
       apiKeyFromProjectEnv = true;
     }
@@ -2058,16 +2386,31 @@ export function resolveCliConfig(
   const baseUrl = namedWithoutEndpoint
     ? ''
     : overrides.baseUrl || activeConfig.baseUrl || preset.defaultBaseUrl;
-  const envKey = namedWithoutEndpoint
+  const userNamed = namedEnvVar(userLayer);
+  const namedMissing =
+    userNamed.length > 0 &&
+    !projectEndpoint &&
+    !(startupCredentialEnv(env)[userNamed] ?? '').trim();
+  const blockAutoKey = namedWithoutEndpoint || namedMissing || Boolean(envProviderCandidates);
+  const envKey = blockAutoKey
     ? undefined
-    : apiKeyFromEnv(activeConfig, userLayer, configPaths?.projectConfig, env, provider, baseUrl);
+    : (autoEnvKey ??
+      apiKeyFromEnv(
+        activeConfig,
+        userLayer,
+        configPaths?.projectConfig,
+        env,
+        provider,
+        baseUrl,
+        overrides
+      ));
   return {
     profile,
     profileSource,
     provider,
     providerSource,
-    apiKey: namedWithoutEndpoint ? '' : envKey?.apiKey || resolvedApiKey,
-    apiKeySource: namedWithoutEndpoint
+    apiKey: blockAutoKey ? '' : envKey?.apiKey || resolvedApiKey,
+    apiKeySource: blockAutoKey
       ? 'missing'
       : envKey
         ? envKey.source
@@ -2076,6 +2419,8 @@ export function resolveCliConfig(
             ? fileLayer('apiKey')
             : activeConfigSource('apiKey')
           : 'missing',
+    ...(userNamed && !projectEndpoint ? { apiKeyEnv: userNamed } : {}),
+    ...(namedMissing ? { apiKeyEnvUnset: true } : {}),
     usingBundledDefault,
     ...(bundledDefaultSuppressedBy ? { bundledDefaultSuppressedBy } : {}),
     ignoredModelEnvVars,
@@ -2129,6 +2474,7 @@ export function resolveCliConfig(
     contextTokens,
     contextTokensSource,
     ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+    ...(modelMaxOutputTokens ? { modelMaxOutputTokens } : {}),
     compactionSettings,
     ...(runBudget ? { budget: runBudget } : {}),
     ...(bestOfN !== undefined ? { bestOfN } : {}),
@@ -2138,20 +2484,22 @@ export function resolveCliConfig(
     configPath: configPaths?.configPath ?? resolveConfigPath(undefined, env),
     projectConfigPath: configPaths?.projectConfigPath,
     apiKeyEncrypted: envKey ? false : activeConfig._apiKeyEncrypted || false,
+    ...(envProviderCandidates ? { envProviderCandidates } : {}),
+    ...(autoEnvNotice ? { autoEnvNotice } : {}),
   };
 }
 
 /**
- * These decide trust, which directory is the user's, which directory is the
+ * These decide which directory is the user's, which directory is the
  * workspace, or which rdk-docs package runs. A project `.env` must not set
- * them. Interpreter and loader variables are refused by `isDotenvDeniedEnvKey`
+ * them. `MOSS_TRUST_WORKSPACE` is refused with the other safety controls.
+ * Interpreter and loader variables are refused by `isDotenvDeniedEnvKey`
  * (shared with child spawns). The process environment captured in
  * `envBeforeDotenv`, plus CLI flags, are the only sources for the keys in
  * this set. Matching is case-insensitive, because Windows environment names are.
  */
 const ENV_FILE_IGNORED_KEYS = new Set(
   [
-    'MOSS_TRUST_WORKSPACE',
     'MOSS_WORKSPACE',
     'MOSS_CONFIG_DIR',
     'MOSS_CONFIG_FILE',
@@ -2190,6 +2538,11 @@ export function loadEnvFile(envPath: string): void {
       .slice(eqIdx + 1)
       .trim()
       .replace(/^["']|["']$/g, '');
+    // Safety controls never come from a project or ancestor .env, trusted or not.
+    if (isDotenvSafetyEnvKey(key)) {
+      noteDotenvSafetyEnvKey(envPath, key);
+      continue;
+    }
     if (!key || ENV_FILE_IGNORED_KEYS.has(key.toUpperCase()) || isDotenvDeniedEnvKey(key)) continue;
     if (process.env[key] !== undefined) continue;
     if (isProjectRoutingEnvKey(key)) {
@@ -2197,6 +2550,7 @@ export function loadEnvFile(envPath: string): void {
       continue;
     }
     process.env[key] = value;
+    recordDotenvOrigin(key, envPath, isUserRoutingEnvFile(envPath, homeBeforeDotenv));
   }
 }
 
@@ -2258,6 +2612,7 @@ export function commitProjectRoutingEnv(input: {
       continue;
     }
     process.env[item.key] = item.value;
+    recordDotenvOrigin(item.key, item.envFile, isUserRoutingEnvFile(item.envFile, homeDir));
     claimed.add(item.key);
   }
   deferredRoutingEnv.length = 0;

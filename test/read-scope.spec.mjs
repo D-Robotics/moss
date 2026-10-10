@@ -494,6 +494,38 @@ try {
     fs.rmSync(envWs, { recursive: true, force: true });
   }
 
+  const savedConfigDir = process.env.MOSS_CONFIG_DIR;
+  const envKeyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-envkey-'));
+  const rawHex = 'a1b2c3d4e5f678901234abcd';
+  const rawUuid = '550e8400-e29b-41d4-a716-446655440000';
+  const envVarName = 'MOSS_DEVICE_PASSWORD';
+  fs.writeFileSync(
+    path.join(envKeyDir, 'config.json'),
+    `${JSON.stringify(
+      { apiKeyEnv: rawHex, tokenEnv: rawUuid, passwordEnvVar: envVarName },
+      null,
+      2
+    )}\n`
+  );
+  process.env.MOSS_CONFIG_DIR = envKeyDir;
+  try {
+    const envKeyPath = path.join(envKeyDir, 'config.json');
+    const envKeyRaw = await execTool.execute({ command: `cat ${envKeyPath}` }, ctx());
+    const envKeyView = await modelView(
+      execTool,
+      { command: `cat ${envKeyPath}` },
+      ctx(),
+      envKeyRaw
+    );
+    assert.doesNotMatch(envKeyView, new RegExp(rawHex), 'hex in apiKeyEnv is masked');
+    assert.doesNotMatch(envKeyView, new RegExp(rawUuid), 'uuid in tokenEnv is masked');
+    assert.match(envKeyView, /MOSS_DEVICE_PASSWORD/, 'a real env var name stays visible');
+    assert.match(envKeyView, /\[REDACTED\]/);
+  } finally {
+    if (savedConfigDir === undefined) delete process.env.MOSS_CONFIG_DIR;
+    else process.env.MOSS_CONFIG_DIR = savedConfigDir;
+  }
+
   // ── key-like tool output is redacted; source expressions are not ─────────
   const sample = `apiKey=${KEY_VALUE}\npassword: "hunter22hunter"\nenc blob ${ENC_VALUE}\nplain text stays`;
   const redacted = redactToolOutput(sample);

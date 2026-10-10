@@ -54,15 +54,6 @@ export function formatToolResultForSsePreview(truncatedResult: string, isError: 
   );
 }
 
-export function skipToolCall(call: { id: string; name: string }): ContentBlock {
-  return {
-    type: 'tool_result',
-    tool_use_id: call.id,
-    name: call.name,
-    content: 'Skipped due to queued user message.',
-  };
-}
-
 export function normalizeToolCallInput(
   call: { name: string; input: Record<string, unknown> },
   toolsForRun: Tool[],

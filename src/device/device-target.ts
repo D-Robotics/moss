@@ -1,5 +1,20 @@
 import type { DeviceAuthConfig, DeviceKind, DeviceTarget } from '../contracts/device.js';
 import { loadDeviceRegistry } from './device-registry-file.js';
+import { dotenvOriginOf } from '../utils/startup-env.js';
+
+/**
+ * A project `.env` (even in a trusted folder) may name the board, but the
+ * user's own MOSS_DEVICE_PASSWORD (real env, ~/.env, install .env) is not sent
+ * to a host that project chose. The password must come from that same file.
+ * Returns the project `.env` path when the password is withheld.
+ */
+export function projectDeviceHostWithholdsPassword(): string | undefined {
+  const host = dotenvOriginOf('MOSS_DEVICE_HOST');
+  if (!host || host.userSource || !process.env.MOSS_DEVICE_HOST?.trim()) return undefined;
+  if (process.env.MOSS_DEVICE_PASSWORD === undefined) return undefined;
+  const pw = dotenvOriginOf('MOSS_DEVICE_PASSWORD');
+  return pw && pw.file === host.file ? undefined : host.file;
+}
 
 /**
  * Device target resolution, three sources in precedence order:
@@ -41,7 +56,7 @@ function envAuth(): DeviceAuthConfig | undefined {
         : {}),
     };
   }
-  if (process.env.MOSS_DEVICE_PASSWORD) {
+  if (process.env.MOSS_DEVICE_PASSWORD && !projectDeviceHostWithholdsPassword()) {
     return { method: 'password', passwordEnvVar: 'MOSS_DEVICE_PASSWORD' };
   }
   return undefined;

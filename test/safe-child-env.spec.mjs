@@ -353,6 +353,16 @@ function mossEnv(layout, userNode) {
     if (key === 'MOSS_CONFIG_DIR' || key === 'MOSS_CONFIG_FILE' || key === 'MOSS_CONFIG_PATH')
       continue;
     if (key === 'MOSS_NO_RDK_DOCS' || key === 'MOSS_TRUST_WORKSPACE') continue;
+    if (
+      key === 'DEEPSEEK_API_KEY' ||
+      key === 'DASHSCOPE_API_KEY' ||
+      key === 'ALIYUN_API_KEY' ||
+      key === 'QWEN_API_KEY' ||
+      key === 'OPENAI_API_KEY' ||
+      key === 'ANTHROPIC_API_KEY'
+    ) {
+      continue;
+    }
     env[key] = value;
   }
   const home = path.join(path.dirname(layout.ws), 'home');

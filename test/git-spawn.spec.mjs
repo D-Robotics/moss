@@ -172,6 +172,10 @@ describe('git spawn', { concurrency: 1 }, () => {
       stdio: 'ignore',
     });
     await fs.writeFile(path.join(dir, 'README.md'), 'hello\nchanged\n');
+    // A future mtime cannot match the stat recorded at commit, so raw git
+    // status always reruns filter.clean (see initDirtyFilterRepo).
+    const future = new Date(Date.now() + 10_000);
+    await fs.utimes(path.join(dir, 'README.md'), future, future);
     await fs.rm(cleanMarker, { force: true });
     await fs.rm(textMarker, { force: true });
 

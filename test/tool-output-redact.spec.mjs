@@ -397,7 +397,9 @@ assert.equal(strict('PGPASS=hunter2'), 'PGPASS=[REDACTED]');
 assert.equal(strict('DBPASS=sunrise'), 'DBPASS=[REDACTED]');
 assert.equal(strict('MYSQL_PWD=sunrise'), 'MYSQL_PWD=[REDACTED]');
 assert.equal(strict('db:5432:app:alice:sunrise'), 'db:5432:app:alice:[REDACTED]');
-assert.equal(redactEgress('PGPASSWORD=sunrise', env), 'PGPASSWORD=sunrise');
+// PGPASSWORD joins SSHPASS and MYSQL_PWD: a literal `NAME=value` is a password at any length.
+assert.equal(redactEgress('PGPASSWORD=sunrise', env), 'PGPASSWORD=[REDACTED]');
+assert.equal(redactEgress('PGPASSWORD: sunrise', env), 'PGPASSWORD: sunrise');
 assert.equal(redactEgress('PWD=/home/u/project', env), 'PWD=/home/u/project');
 
 assert.equal(isCredentialLikePath('src/cli/env-credentials.ts'), false);

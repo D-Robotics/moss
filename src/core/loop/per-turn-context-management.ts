@@ -4,10 +4,18 @@ import {
 } from '../../context/stale-read-invalidate.js';
 import { snipTailOversizedToolResults } from '../../context/tail-tool-snip.js';
 import { elideOldLargeToolResults } from '../../context/tool-result-elision.js';
+import {
+  foldOlderToolResults,
+  TOOL_RESULT_FOLD_HORIZON,
+  toolResultFoldMinPromptTokens,
+} from '../../context/tool-result-fold.js';
 import { microcompact } from '../../context/microcompact.js';
 import type { Message } from '../session/session-jsonl.js';
 import type { ContextActionSummary, MiniAgentEvent } from '../subagent/agent-events.js';
-import { planContextBudgetActions } from './context-budget-planner.js';
+import {
+  planContextBudgetActions,
+  type ContextBudgetActionReason,
+} from './context-budget-planner.js';
 
 export interface PerTurnContextMgmtParams {
   currentMessages: Message[];
@@ -15,12 +23,21 @@ export interface PerTurnContextMgmtParams {
   effectiveContextWindowTokens: number;
   pendingToolResultFollowUp: boolean;
   turns: number;
+  /** Run budget. The fold horizon does not use the leftover turn count. */
+  maxTurns?: number;
+  /** Names with `ToolMetadata.retainResult`. Their results are not folded. */
+  retainTools?: ReadonlySet<string>;
   push: (event: MiniAgentEvent) => void;
 }
 
 export interface PerTurnContextMgmtResult {
   savedChars: number;
   savedTokens?: number;
+  /**
+   * Chars that must be written back. Folds and stale-read edits persist.
+   * Elision stays in memory, matching main.
+   */
+  durableChars: number;
 }
 
 export function runPerTurnContextManagement(
@@ -29,7 +46,7 @@ export function runPerTurnContextManagement(
   const { currentMessages, estPromptTokens, pendingToolResultFollowUp, turns, push } = params;
 
   if (turns <= 1) {
-    return { savedChars: 0, savedTokens: 0 };
+    return { savedChars: 0, savedTokens: 0, durableChars: 0 };
   }
 
   const plan = planContextBudgetActions({
@@ -40,12 +57,66 @@ export function runPerTurnContextManagement(
   });
 
   if (plan.actions.length === 0) {
-    return { savedChars: 0 };
+    return { savedChars: 0, durableChars: 0 };
   }
 
   let savedChars = 0;
   let savedTokens = 0;
+  let durableChars = 0;
   const contextActions: ContextActionSummary[] = [];
+  let foldAttempted = false;
+  let didFold = false;
+
+  const applyFold = (reason: ContextBudgetActionReason): void => {
+    if (foldAttempted) return;
+    foldAttempted = true;
+    // Below half the window (and the 60k floor) the transcript matches main:
+    // elision runs, nothing is folded. MCP and other retainResult tools are
+    // skipped inside the fold.
+    if (estPromptTokens < toolResultFoldMinPromptTokens(params.effectiveContextWindowTokens)) {
+      return;
+    }
+    // Kind name on the action is historical (public planner union). Folding
+    // rewrites the cached prefix from the first folded message onward, so it
+    // runs only when the batch and the savings inequality both pass.
+    const folded = foldOlderToolResults(currentMessages, {
+      remainingRequests: Math.min(turns, TOOL_RESULT_FOLD_HORIZON),
+      promptTokens: estPromptTokens,
+      contextWindowTokens: params.effectiveContextWindowTokens,
+      ...(params.retainTools ? { retainTools: params.retainTools } : {}),
+    });
+    if (folded.savedChars > 0) {
+      didFold = true;
+      currentMessages.splice(0, currentMessages.length, ...folded.messages);
+      savedChars += folded.savedChars;
+      savedTokens += folded.savedTokens;
+      durableChars += folded.savedChars;
+      contextActions.push({
+        kind: 'elide_old_large_tool_results',
+        reason,
+        count: folded.foldedCount,
+        savedChars: folded.savedChars,
+        savedTokens: folded.savedTokens,
+      });
+    }
+  };
+
+  const applyElision = (reason: ContextBudgetActionReason): void => {
+    if (didFold) return;
+    const elided = elideOldLargeToolResults(currentMessages);
+    if (elided.savedChars > 0) {
+      currentMessages.splice(0, currentMessages.length, ...elided.messages);
+      savedChars += elided.savedChars;
+      savedTokens += elided.savedTokens;
+      contextActions.push({
+        kind: 'elide_old_large_tool_results',
+        reason,
+        count: elided.elidedCount,
+        savedChars: elided.savedChars,
+        savedTokens: elided.savedTokens,
+      });
+    }
+  };
 
   for (const action of plan.actions) {
     if (action.kind === 'invalidate_stale_reads') {
@@ -59,6 +130,10 @@ export function runPerTurnContextManagement(
         branchSavedTokens += staleInv.savedTokens;
         branchCount += staleInv.invalidatedCount;
       }
+      // Fold before dedupe. Otherwise dedupe can point "see below" at the only
+      // full copy, and the fold then stubs that copy.
+      const elide = plan.actions.find((row) => row.kind === 'elide_old_large_tool_results');
+      if (elide) applyFold(elide.reason);
       const dedup = dedupeUnchangedReadToolResults(currentMessages);
       if (dedup.savedChars > 0) {
         currentMessages.splice(0, currentMessages.length, ...dedup.messages);
@@ -69,6 +144,7 @@ export function runPerTurnContextManagement(
       if (branchSavedChars > 0) {
         savedChars += branchSavedChars;
         savedTokens += branchSavedTokens;
+        durableChars += branchSavedChars;
         contextActions.push({
           kind: action.kind,
           reason: action.reason,
@@ -81,19 +157,8 @@ export function runPerTurnContextManagement(
     }
 
     if (action.kind === 'elide_old_large_tool_results') {
-      const elided = elideOldLargeToolResults(currentMessages);
-      if (elided.savedChars > 0) {
-        currentMessages.splice(0, currentMessages.length, ...elided.messages);
-        savedChars += elided.savedChars;
-        savedTokens += elided.savedTokens;
-        contextActions.push({
-          kind: action.kind,
-          reason: action.reason,
-          count: elided.elidedCount,
-          savedChars: elided.savedChars,
-          savedTokens: elided.savedTokens,
-        });
-      }
+      applyFold(action.reason);
+      applyElision(action.reason);
       continue;
     }
 
@@ -103,6 +168,7 @@ export function runPerTurnContextManagement(
       currentMessages.splice(0, currentMessages.length, ...tailSnip.messages);
       savedChars += tailSnip.savedChars;
       savedTokens += tailSnip.savedTokens;
+      durableChars += tailSnip.savedChars;
       contextActions.push({
         kind: action.kind,
         reason: action.reason,
@@ -120,6 +186,7 @@ export function runPerTurnContextManagement(
       currentMessages.splice(0, currentMessages.length, ...mcResult.messages);
       savedChars += mcResult.savedChars;
       savedTokens += mcResult.savedTokens;
+      durableChars += mcResult.savedChars;
       contextActions.push({
         kind: action.kind,
         reason: action.reason,
@@ -140,5 +207,5 @@ export function runPerTurnContextManagement(
     });
   }
 
-  return { savedChars, savedTokens };
+  return { savedChars, savedTokens, durableChars };
 }

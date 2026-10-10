@@ -53,10 +53,10 @@ export function rdkDocsPinDrift(pinnedVersion: string, latestVersion: string): R
 }
 
 /**
- * Cold `npx` measured ~3.4s; 20s was tight. 45s covers a cold start.
- * A single search or get_page is well under 20s; 120s would stall a turn.
+ * One lazy handshake. A cold `npx` is a few seconds; 15s fails clearly
+ * instead of two 45s attempts. A single search or get_page is well under 20s.
  */
-export const RDK_DOCS_CONNECT_TIMEOUT_MS = 45_000;
+export const RDK_DOCS_LAZY_CONNECT_TIMEOUT_MS = 15_000;
 export const RDK_DOCS_REQUEST_TIMEOUT_MS = 20_000;
 
 let npxCwd: string | undefined;
@@ -104,8 +104,11 @@ export function builtinRdkDocsServerConfig(
     args: ['--yes', '--ignore-scripts', `--package=${packageSpec}`, '--', 'rdk-docs-mcp'],
     // Project `.env` must not reach this child. It starts with no trust prompt.
     startupEnvOnly: true,
-    connectTimeoutMs: RDK_DOCS_CONNECT_TIMEOUT_MS,
+    connectTimeoutMs: RDK_DOCS_LAZY_CONNECT_TIMEOUT_MS,
     requestTimeoutMs: RDK_DOCS_REQUEST_TIMEOUT_MS,
+    // The search tool is registered immediately. The process starts on the
+    // first rdk-docs call, or from the one background warm after session start.
+    deferStart: true,
   };
 }
 

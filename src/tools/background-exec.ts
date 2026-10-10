@@ -1,5 +1,6 @@
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { spawnProcess, type ChildProcess } from '../utils/run-process.js';
+import { hostShellInvocation } from '../utils/host-shell.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { assertShellWritesWithinRoots } from '../safety/shell-write-sandbox.js';
 import { errorMessage } from '../errors.js';
@@ -21,7 +22,6 @@ import {
   appendOutput,
   replaceBackgroundOutput,
   backgroundProcesses,
-  IS_WIN,
   DEFAULT_SETTLE_MS,
   describe,
   errnoCode,
@@ -139,19 +139,18 @@ export const execBackgroundTool: Tool = {
     const goalWaitMs = goalWaitMsFor(input, ctx);
     const settleMs =
       goalWaitMs ?? Math.min(Math.max(0, Number(input.settle_ms) || DEFAULT_SETTLE_MS), 10_000);
-    const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
-    const args = IS_WIN ? ['/c', command] : ['-c', command];
+    const invocation = hostShellInvocation(command);
 
     const opened = await openChildEnv(ctx.workspaceDir, ctx.abortSignal);
     const hooksNotice = (output = ''): string =>
       takeShellNotices(ctx.sessionKey, opened, command, output);
     let child: ChildProcess;
     try {
-      child = spawnProcess(shell, args, {
+      child = spawnProcess(invocation.executable, invocation.args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         cwd: ctx.workspaceDir,
         env: opened.env,
-        detached: !IS_WIN,
+        detached: process.platform !== 'win32',
         windowsHide: true,
       });
     } catch (err) {
@@ -313,7 +312,8 @@ export const execBackgroundTool: Tool = {
     if (proc.status === 'error') {
       return `Background command ${id} failed to start: ${proc.errorMessage}${outputSection}${footnote}${hooksNotice(proc.buffer)}`;
     }
-    return `Background command ${id} exited immediately (exit ${proc.exitCode}${proc.signal ? `, signal ${proc.signal}` : ''}).${outputSection}${footnote}${hooksNotice(proc.buffer)}`;
+    const how = proc.signal ? `killed by ${proc.signal}` : `exit ${proc.exitCode ?? '?'}`;
+    return `Background command ${id} exited immediately (${how}).${outputSection}${footnote}${hooksNotice(proc.buffer)}`;
   },
 };
 

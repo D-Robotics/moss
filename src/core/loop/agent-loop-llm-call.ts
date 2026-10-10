@@ -57,6 +57,8 @@ export interface ExecuteLlmTurnParams {
   compactHooks?: CompactHookRegistry;
   lastMessageNeedsToolFollowUpLlm: (messages: Message[]) => boolean;
   suppressVisibleDeltas?: boolean;
+  /** Per-call output cap. Overrides modelDef.maxTokens when recovery escalates. */
+  maxTokens?: number;
 }
 
 export interface ExecuteLlmTurnResult {
@@ -159,6 +161,7 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
       runStartMs,
       firstTokenMs: state.firstTokenMs,
       suppressVisibleDeltas,
+      ...(params.maxTokens !== undefined ? { maxTokens: params.maxTokens } : {}),
       logDebug: () => {},
     });
 

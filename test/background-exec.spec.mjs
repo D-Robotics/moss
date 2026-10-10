@@ -269,7 +269,8 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   assert.match(capped, /Still running after/, `timeout still returns a handle: ${capped}`);
   assert.ok(capElapsed < 1000, `timeout_ms bounds the wait, elapsed ${capElapsed}`);
   if (capId) await execStopTool.execute({ id: capId }, goalCtx);
-  fs.rmSync(ws, { recursive: true, force: true });
+  // Windows can still hold the stopped child's handles on ws for a moment.
+  fs.rmSync(ws, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
 
 // ─── 7. Esc during a goal wait kills the command immediately ───────────────

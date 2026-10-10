@@ -132,6 +132,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
     sideEffectClass: 'subagent',
     planMode: 'allow',
     requiresApproval: false,
+    retainResult: true,
   },
   inputSchema: {
     type: 'object',
@@ -514,6 +515,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     sideEffectClass: 'subagent',
     planMode: 'allow',
     requiresApproval: false,
+    retainResult: true,
   },
   inputSchema: {
     type: 'object',
@@ -744,6 +746,7 @@ export const subagentStatusTool: Tool<SubagentStatusInput> = {
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
+    retainResult: true,
   },
   inputSchema: {
     type: 'object',
@@ -817,6 +820,7 @@ export const subagentStopTool: Tool<SubagentStopInput> = {
   metadata: {
     sideEffectClass: 'subagent',
     planMode: 'allow',
+    retainResult: true,
   },
   inputSchema: {
     type: 'object',

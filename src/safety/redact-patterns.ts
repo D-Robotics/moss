@@ -18,7 +18,7 @@ export const FIELD_BOUNDARY = String.raw`(?<=\\r\\n|\\n|^|[^A-Za-z0-9])`;
  * `bearer` accept a scheme prefix (`Bearer`, `Basic`, `Token`, `Digest`).
  */
 export const SECRET_FIELD_SOURCE =
-  'pgpassword|mysql_pwd|aws_secret_access_key|aws_access_key_id|client-key-data|client_key_data|api[_-]?key|access[_-]?key|private[_-]?key|secret|token|passphrase|password|passwd|pgpass|dbpass|credential|cookie|authorization|bearer';
+  'pgpassword|mysql_pwd|sshpass|aws_secret_access_key|aws_access_key_id|client-key-data|client_key_data|api[_-]?key|access[_-]?key|private[_-]?key|secret|token|passphrase|password|passwd|pgpass|dbpass|credential|cookie|authorization|bearer';
 
 /** Unfinished provider-token tail held back from a live stream. */
 export const OPEN_SECRET_PREFIX = 'sk-|github_pat_|ghp_|glpat-|xox[baprs]-|AKIA|AIza|enc:';
@@ -48,4 +48,33 @@ export function quoteOpensValue(text: string, openAt: number): boolean {
     if (text[i] === quote) count += 1;
   }
   return count % 2 === 0;
+}
+
+/**
+ * Argv password flags. Exact names, so `--password-env` and `--passphrase`
+ * stay. A tool prefix (`--http-password`) still counts. The `=` form's first
+ * group is the value.
+ */
+const PASSWORD_FLAG_NAME = '(?:[A-Za-z0-9]+-)*(?:password|passwd|pass)';
+export const PASSWORD_LONG_FLAG = new RegExp(`^--${PASSWORD_FLAG_NAME}$`);
+export const PASSWORD_LONG_EQUALS = new RegExp(`^--${PASSWORD_FLAG_NAME}=(.*)$`);
+
+/** Attached short password for sshpass, mysql, and mariadb. A bare short flag does not match. */
+export const ATTACHED_P_PASSWORD = /^-p(.+)$/;
+
+/** curl and wget userinfo. Group 1 is the value of the attached form and the equals form. */
+export const USER_FLAG = /^(?:-u|--user)$/;
+export const ATTACHED_USER_FLAG = /^-u(.+)$/;
+export const USER_EQUALS_FLAG = /^--user=(.*)$/;
+
+const COMMAND_NOISE = /^[+$`({]+/;
+/** Text glued in front of a command word: `"command":"sshpass`, `cmd=sshpass`, `执行：sshpass`. */
+const COMMAND_PREFIX = /^.*[=:"'`(（：“「{,]/;
+
+/** Basename of a path-qualified argv word (`/usr/bin/sshpass`, `sshpass.exe`). */
+export function commandTokenName(token: string): string {
+  const stripped = token.replace(COMMAND_NOISE, '').replace(COMMAND_PREFIX, '');
+  const slash = Math.max(stripped.lastIndexOf('/'), stripped.lastIndexOf('\\'));
+  const base = slash >= 0 ? stripped.slice(slash + 1) : stripped;
+  return base.replace(/\.exe$/i, '').toLowerCase();
 }

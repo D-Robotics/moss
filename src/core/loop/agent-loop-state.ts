@@ -7,6 +7,14 @@ export interface AgentLoopMutableState {
   turns: number;
   compactionRetries: number;
   outputContinuationCount: number;
+  /** Visible text kept across output-limit continuations so the answer stitches. */
+  carriedAssistantText: string;
+  /** Active per-call output cap. Raised on truncation up to outputTokenCeiling. */
+  outputTokenBudget: number;
+  /** Model or user ceiling. Recovery does not request more than this. */
+  outputTokenCeiling: number;
+  /** Set when automatic output-limit recovery is exhausted. The run stops. */
+  outputLimitHalted: boolean;
   /** One-shot counter for the missing-tool-invocation nudge (planned a tool call in text but never executed it). */
   missingToolNudgeAttempts: number;
   /** Soft mid-run reminders to open todo_write on multi-step coding (Grok TodoNudge). */
@@ -77,6 +85,10 @@ export function createInitialLoopState(): AgentLoopMutableState {
     turns: 0,
     compactionRetries: 0,
     outputContinuationCount: 0,
+    carriedAssistantText: '',
+    outputTokenBudget: 0,
+    outputTokenCeiling: 0,
+    outputLimitHalted: false,
     missingToolNudgeAttempts: 0,
     todoNudgeAttempts: 0,
     verifyNudgeAttempts: 0,

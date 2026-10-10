@@ -173,8 +173,9 @@ function storedConfigPaths(env: NodeJS.ProcessEnv): string[] {
 /**
  * Secret fields of a Moss config.json or devices.json document. Match is the
  * field itself, not a substring (`password` does not claim `passwordEnvVar`).
- * Keys ending in `Env` / `EnvVar` are variable names and stay visible.
- * `enc:` ciphertext is collected at any length, from any field.
+ * Keys ending in `Env` / `EnvVar` stay visible when the value is a variable
+ * name. A raw key in that field is still collected. `enc:` ciphertext is
+ * collected at any length, from any field.
  */
 const CONFIG_SECRET_FIELDS = new Set([
   'apiKey',
@@ -206,9 +207,12 @@ const CONFIG_SECRET_FLAGS = new Set([
 
 const ENV_NAME_KEY = /Env(?:Var)?$/;
 
+const ENV_VAR_NAME = /^[A-Z_][A-Z0-9_]{0,127}$/;
+
 /**
  * Main's stored-secret key test. Long values under these names join the
- * exact-value set. `*Env` / `*EnvVar` are variable names and stay out.
+ * exact-value set. An `*Env` / `*EnvVar` value stays out only when it is an
+ * env var name.
  */
 const CREDENTIAL_LIKE_KEY = /(?:api[_-]?key|token|secret|password|passwd|credential)/i;
 
@@ -362,7 +366,11 @@ function walkConfigSecrets(
     if (typeof entry === 'string') {
       if (!ENV_NAME_KEY.test(key)) rememberEnc(entry, exact);
       if (isConfigSecretKey(key)) rememberField(entry, exact, short);
-      else if (!ENV_NAME_KEY.test(key) && CREDENTIAL_LIKE_KEY.test(key) && isUsableSecret(entry)) {
+      else if (
+        (!ENV_NAME_KEY.test(key) || !ENV_VAR_NAME.test(entry)) &&
+        CREDENTIAL_LIKE_KEY.test(key) &&
+        isUsableSecret(entry)
+      ) {
         remember(entry, exact);
       }
       continue;

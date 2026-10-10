@@ -13,11 +13,17 @@
  * high-entropy values are redacted too. Grep / search hits are judged from
  * the `path:line:` prefix. A netrc password needs `machine` or `login` on
  * the same line. A quoted value stays on one line; an unclosed quote masks
- * through the end of that line, and up to three deeper-indented continuation
- * lines are masked when they hold the closer. `.apikey-key` bytes are
+ * through the end of that line, and up to three continuation lines are masked
+ * when they hold the closer. Indent is measured after a line-number gutter.
+ * Strict credential text also folds an unindented continuation. `.apikey-key` bytes are
  * withheld before that decision. `Authorization` and `cookie` headers mask
  * through the end of the line (`Bearer`, `Basic`, `Token`, `Digest`,
- * `Proxy-Authorization`, `Set-Cookie`). `sshpass -p` masks its password.
+ * `Proxy-Authorization`, `Set-Cookie`). Command argv masks sshpass `-p`
+ * (attached or spaced, including a prefix glued onto the command),
+ * mysql/mariadb attached `-p`, curl/wget userinfo (a short cluster ending in
+ * `-u`), `docker` / `podman login -p`, `--http-password`, and `--password` / `--passwd` /
+ * `--pass`. A function word after a flag stays. Port flags stay. Nested quotes
+ * and escapes stay.
  */
 import {
   CREDENTIAL_WITHHELD,
@@ -29,11 +35,18 @@ import {
 import { redactConfigSecretFieldsInView, redactKnownSecretValues } from './known-secrets.js';
 import { bindRedactEgress } from './redact-bind.js';
 import {
+  ATTACHED_P_PASSWORD,
+  ATTACHED_USER_FLAG,
   AUTH_SCHEME_VALUE,
+  commandTokenName,
   FIELD_BOUNDARY,
+  PASSWORD_LONG_EQUALS,
+  PASSWORD_LONG_FLAG,
   quoteOpensValue,
   REDACTED,
   SECRET_FIELD_SOURCE,
+  USER_EQUALS_FLAG,
+  USER_FLAG,
 } from './redact-patterns.js';
 import { redactNumberedText, redactPemBlocks, redactUnclosedPrivateKey } from './redact-pem.js';
 import { resolveReadPath } from './read-scope.js';
@@ -63,7 +76,7 @@ const ASSIGNED_HEAD = new RegExp(
 
 /** Password-kind keys. `pass` / `pwd` arrive here only as suffix captures. */
 const PASSWORD_FIELD =
-  /^(?:passphrase|password|passwd|credential|pwd|pass|pgpassword|pgpass|dbpass|mysql_pwd)$/i;
+  /^(?:passphrase|password|passwd|credential|pwd|pass|pgpassword|pgpass|dbpass|mysql_pwd|sshpass)$/i;
 
 /** `.netrc` uses `password <value>`, not `password=`. */
 const NETRC_PASSWORD = /(^|[^\w]|\\r\\n|\\n)(password)([ \t]+)(?![=:])([^\s\\]+)/gi;
@@ -310,6 +323,123 @@ function headerLooksLikeSecret(value: string): boolean {
   return shouldRedactAssignedValue(value);
 }
 
+/** `MYSQL_PWD` and `PGPASSWORD`. `SSHPASS` is a password env name, not one of these. */
+function isDbPasswordEnvName(name: string): boolean {
+  return /^(?:mysql_pwd|pgpassword)$/i.test(name);
+}
+
+/** A `$(...)` or backtick fetch. Leading whitespace is the inside of a quote. */
+function isCommandSubstitution(value: string): boolean {
+  const trimmed = value.trimStart();
+  return trimmed.startsWith('$(') || trimmed.startsWith('`');
+}
+
+/**
+ * End (exclusive) of an unquoted `$(...)` or backtick command at `at`.
+ * Quotes, backticks, and nested `$(...)` stay inside the fetch. An unclosed
+ * fetch runs to the end of the line so a later mask cannot cut it in half.
+ */
+function scanShellCommandSubstitution(text: string, at: number): number | null {
+  if (text.startsWith('$(', at)) return scanDollarCommand(text, at);
+  if (text[at] === '`') return scanBacktickCommand(text, at);
+  return null;
+}
+
+function scanDollarCommand(text: string, at: number): number {
+  const limit = lineEndFrom(text, at);
+  let depth = 1;
+  let i = at + 2;
+  while (i < limit) {
+    const ch = text[i] ?? '';
+    if (ch === '\\') {
+      i += 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      i += 1;
+      while (i < limit) {
+        if (text[i] === '\\' && quote === '"') {
+          i += 2;
+          continue;
+        }
+        if (text[i] === quote) {
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === '`') {
+      i += 1;
+      while (i < limit) {
+        if (text[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (text[i] === '`') {
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === '$' && text[i + 1] === '(') {
+      depth += 1;
+      i += 2;
+      continue;
+    }
+    if (ch === '(') {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (ch === ')') {
+      depth -= 1;
+      i += 1;
+      if (depth === 0) return i;
+      continue;
+    }
+    i += 1;
+  }
+  return limit;
+}
+
+function scanBacktickCommand(text: string, at: number): number {
+  const limit = lineEndFrom(text, at);
+  let i = at + 1;
+  while (i < limit) {
+    if (text[i] === '\\') {
+      i += 2;
+      continue;
+    }
+    if (text[i] === '`') return i + 1;
+    i += 1;
+  }
+  return limit;
+}
+
+/**
+ * Quoted DB-password fetch. Inner quotes belong to the command
+ * (`"$(cat "$HOME/.pgpw")"`). The ordinary quote scan stops at the inner
+ * quote, and the partial star mask then replaces the whole glued line.
+ */
+function scanQuotedDbCommand(text: string, openAt: number): { end: number; inner: string } | null {
+  const quote = text[openAt];
+  if (quote !== '"' && quote !== "'") return null;
+  const limit = lineEndFrom(text, openAt);
+  let start = openAt + 1;
+  while (start < limit && (text[start] === ' ' || text[start] === '\t')) start += 1;
+  const subEnd = scanShellCommandSubstitution(text, start);
+  if (subEnd === null) return null;
+  let end = subEnd;
+  while (end < limit && (text[end] === ' ' || text[end] === '\t')) end += 1;
+  if (text[end] !== quote) return null;
+  return { end: end + 1, inner: text.slice(openAt + 1, end) };
+}
+
 function readAssignedValue(text: string, at: number, name: string): AssignedSpan | null {
   let i = at;
   while (i < text.length && (text[i] === ' ' || text[i] === '\t')) i += 1;
@@ -317,12 +447,22 @@ function readAssignedValue(text: string, at: number, name: string): AssignedSpan
   const ch = text[i];
   if (ch === '"' || ch === "'") {
     if (!quoteOpensValue(text, i)) return null;
+    if (isDbPasswordEnvName(name)) {
+      const command = scanQuotedDbCommand(text, i);
+      if (command) return { end: command.end, value: command.inner, sepExtra: ws, quoted: true };
+    }
     const quoted = scanQuoted(text, i);
     if (quoted) return { end: quoted.end, value: quoted.inner, sepExtra: ws, quoted: true };
     const end = lineEndFrom(text, i + 1);
     const value = text.slice(i + 1, end);
     if (!value) return null;
     return { end, value, sepExtra: ws, quoted: true };
+  }
+  if (isDbPasswordEnvName(name)) {
+    const subEnd = scanShellCommandSubstitution(text, i);
+    if (subEnd !== null && subEnd > i) {
+      return { end: subEnd, value: text.slice(i, subEnd), sepExtra: ws, quoted: false };
+    }
   }
   if (isAuthField(name)) {
     const end = lineEndFrom(text, i);
@@ -380,8 +520,62 @@ function forEachAssignment(
   return out;
 }
 
+/**
+ * `SSHPASS`, `MYSQL_PWD`, and `PGPASSWORD` are passwords even when the value is
+ * one character.
+ */
+function isPasswordEnvName(name: string): boolean {
+  return /^(?:sshpass|mysql_pwd|pgpassword)$/i.test(name);
+}
+
+/** `$(cmd)`, `${VAR}`, `$VAR`, or a backtick command: the shell fetches the value. */
+const SHELL_LOOKUP = /^(?:\$[({A-Za-z_]|`)/;
+
+/**
+ * `${NAME:-}`, `${NAME:?message}`, `${NAME:-$OTHER}`: a shell parameter
+ * expansion reads the variable. The word after the operator is empty, an error
+ * message, or another lookup, not a stored secret. A literal default
+ * (`${NAME:-hunter2}`) still counts.
+ */
+function isParameterExpansionLookup(text: string, hit: AssignmentHit): boolean {
+  if (hit.sep !== ':') return false;
+  let at = hit.start;
+  while (at > 0 && /[A-Za-z0-9_]/.test(text[at - 1] ?? '')) at -= 1;
+  if (text.slice(at - 2, at) !== '${') return false;
+  const op = hit.value[0] ?? '';
+  if (op === '?') return true;
+  if (!/^[-+=]?$/.test(op)) return false;
+  const word = hit.value.slice(1);
+  return !word || SHELL_LOOKUP.test(word);
+}
+
+/** Commands that read `SSHPASS`, `MYSQL_PWD`, or `PGPASSWORD` from the environment. */
+const PASSWORD_ENV_COMMAND =
+  /^(?:sshpass|mysql|mysqldump|mariadb|mariadb-dump|psql|pg_dump|pg_restore|pg_dumpall|ssh|scp|rsync|env|exec)$/;
+
 function shouldRedactAssignment(hit: AssignmentHit, strictFile: boolean): boolean {
+  // `export SSHPASS="$(security …)"` and `SSHPASS=`cat f`` fetch the password.
+  // MYSQL_PWD / PGPASSWORD command substitutions and backtick fetches are one
+  // whole `[REDACTED]`. A partial star mask is not enough: the write guard
+  // only recognises `[REDACTED]`. `$VAR` and `${VAR}` are not those fetches.
+  const lookup = isPasswordEnvName(hit.name) && SHELL_LOOKUP.test(hit.value);
+  if (lookup && /^sshpass$/i.test(hit.name)) return false;
+  if (isDbPasswordEnvName(hit.name) && isCommandSubstitution(hit.value)) return true;
+  // `SSHPASS= sshpass -e ssh h` clears the variable; the next word is the command.
+  if (
+    isPasswordEnvName(hit.name) &&
+    /^=[ \t]/.test(hit.sep) &&
+    PASSWORD_ENV_COMMAND.test(hit.value)
+  ) {
+    return false;
+  }
   if (strictFile) return shouldRedactPasswordValue(hit.value);
+  // Short values count only in a plain shell assignment: not a `${NAME:-…}` default,
+  // an empty value before a command, a spaced code assignment, or a `$(…)` lookup.
+  if (!lookup && isPasswordEnvName(hit.name) && /^=["']?$/.test(hit.sep)) {
+    if (isPlaceholder(hit.value) || isSourceExpression(hit.value)) return false;
+    return shouldRedactPasswordValue(hit.value);
+  }
   const quotedValue = hit.quoted || /[:=][ \t]*['"]/.test(hit.sep);
   if (PASSWORD_FIELD.test(hit.name) && !/^(?:pwd|pass)$/i.test(hit.name) && quotedValue) {
     return shouldRedactQuotedLiteral(hit.value);
@@ -394,19 +588,530 @@ function redactNumberedToolOutput(
   env: NodeJS.ProcessEnv,
   strictFile: boolean
 ): string {
-  return redactNumberedText(text, (body) => redactEgress(body, env, { strictSecrets: strictFile }));
+  const continued = maskIndentedQuoteContinuations(text, { strict: strictFile });
+  return redactNumberedText(continued, (body) =>
+    redactEgress(body, env, { strictSecrets: strictFile })
+  );
 }
 
-function redactSshpass(text: string): string {
-  return text.replace(/\bsshpass(\s+-p\s+)(\S+)/gi, (full, sep: string, value: string) => {
-    if (!value || isSyntacticSecretPlaceholder(value)) return full;
-    return `sshpass${sep}${REDACTED}`;
-  });
+interface ArgvWord {
+  start: number;
+  end: number;
+  value: string;
+  /** Source index of each character in `value` (quotes and escapes are skipped). */
+  valueMap: number[];
+  /** The text `valueMap` points into. */
+  source: string;
+}
+
+interface ArgvSep {
+  sep: true;
+}
+
+type ArgvToken = ArgvWord | ArgvSep;
+
+interface ArgvReplacement {
+  start: number;
+  end: number;
+  text: string;
+}
+
+function isArgvWord(token: ArgvToken): token is ArgvWord {
+  return !('sep' in token);
+}
+
+/** A closer on this line. Single quotes are literal; the others honor escapes. */
+function quoteCloser(line: string, openAt: number): number {
+  const quote = line[openAt];
+  if (quote !== '"' && quote !== "'" && quote !== '`') return -1;
+  for (let i = openAt + 1; i < line.length; i += 1) {
+    if (line[i] === '\\' && quote !== "'") {
+      i += 1;
+      continue;
+    }
+    if (line[i] === quote) return i;
+  }
+  return -1;
+}
+
+/**
+ * One shell line, or one echoed argv list. Commas separate words only inside
+ * brackets, so a quoted list splits and an unquoted comma stays in the word.
+ */
+function tokenizeArgv(line: string): ArgvToken[] {
+  const tokens: ArgvToken[] = [];
+  let i = 0;
+  let brackets = 0;
+  while (i < line.length) {
+    const ch = line[i] ?? '';
+    if (ch === ' ' || ch === '\t') {
+      i += 1;
+      continue;
+    }
+    if (ch === '[') {
+      brackets += 1;
+      i += 1;
+      continue;
+    }
+    if (ch === ']') {
+      brackets = Math.max(0, brackets - 1);
+      i += 1;
+      continue;
+    }
+    if (ch === ',' && brackets > 0) {
+      i += 1;
+      continue;
+    }
+    if (ch === '&' && line[i + 1] === '&') {
+      tokens.push({ sep: true });
+      i += 2;
+      continue;
+    }
+    if (ch === '|' && line[i + 1] === '|') {
+      tokens.push({ sep: true });
+      i += 2;
+      continue;
+    }
+    if (ch === '|' || ch === ';' || ch === '&') {
+      tokens.push({ sep: true });
+      i += 1;
+      continue;
+    }
+    const start = i;
+    let value = '';
+    const valueMap: number[] = [];
+    let quote: '"' | "'" | '`' | null = null;
+    while (i < line.length) {
+      const c = line[i] ?? '';
+      if (quote) {
+        if (c === '\\' && quote !== "'" && i + 1 < line.length) {
+          const next = line[i + 1] ?? '';
+          if (next === quote || next === '\\') {
+            value += next;
+            valueMap.push(i + 1);
+            i += 2;
+            continue;
+          }
+        }
+        if (c === quote) {
+          quote = null;
+          i += 1;
+          continue;
+        }
+        value += c;
+        valueMap.push(i);
+        i += 1;
+        continue;
+      }
+      if (c === ' ' || c === '\t' || c === '|' || c === ';' || c === '&') break;
+      if (c === ',' && brackets > 0) break;
+      if (c === '[' || c === ']') break;
+      const opensQuote =
+        (c === '"' || c === "'" || c === '`') &&
+        (i === start || line[i - 1] === '=') &&
+        quoteCloser(line, i) >= 0;
+      if (opensQuote) {
+        quote = c;
+        i += 1;
+        continue;
+      }
+      value += c;
+      valueMap.push(i);
+      i += 1;
+    }
+    if (value) tokens.push({ start, end: i, value, valueMap, source: line });
+  }
+  return tokens;
+}
+
+function argvSegments(tokens: readonly ArgvToken[]): ArgvWord[][] {
+  const segments: ArgvWord[][] = [];
+  let current: ArgvWord[] = [];
+  for (const token of tokens) {
+    if (!isArgvWord(token)) {
+      if (current.length > 0) segments.push(current);
+      current = [];
+      continue;
+    }
+    current.push(token);
+  }
+  if (current.length > 0) segments.push(current);
+  return segments;
+}
+
+function shouldMaskArg(value: string): boolean {
+  if (!value || value.includes(REDACTED)) return false;
+  // A list tokenizer splits `[REDACTED]` at the brackets; masking the word again
+  // would grow `[[REDACTED]]` on every pass.
+  if (value === REDACTED.slice(1, -1)) return false;
+  // A flag separator (`--password` /) is not a secret. Real values have a letter or digit.
+  if (!/[A-Za-z0-9]/.test(value)) return false;
+  return !isSyntacticSecretPlaceholder(value);
+}
+
+/**
+ * Last value index whose source bytes are contiguous with `from`, allowing an
+ * in-string escape (`\\"`). A closing quote ends the run, so the bytes after it
+ * (`\\"",` or `"}`) stay as written.
+ */
+function contiguousValueEnd(token: ArgvWord, from: number, to: number): number {
+  let k = from;
+  while (k < to) {
+    const a = token.valueMap[k];
+    const b = token.valueMap[k + 1];
+    if (a === undefined || b === undefined) break;
+    if (b === a + 1 || (b === a + 2 && token.source[a + 1] === '\\')) {
+      k += 1;
+      continue;
+    }
+    break;
+  }
+  return k;
+}
+
+function pushValueSlice(
+  token: ArgvWord,
+  valueIndex: number,
+  length: number,
+  replacements: ArgvReplacement[]
+): void {
+  let slice = token.value.slice(valueIndex, valueIndex + length);
+  // An escaped quote (`\"admin:pw\"` in JSON or a nested shell string) is a
+  // delimiter, not part of the password: keep it and everything after it.
+  const lead = /^(?:\\+["'`])+/.exec(slice)?.[0] ?? '';
+  if (lead) {
+    valueIndex += lead.length;
+    length -= lead.length;
+    slice = slice.slice(lead.length);
+  }
+  const escapedQuote = slice.search(/\\+["'`](?![A-Za-z0-9])/);
+  if (escapedQuote >= 0) {
+    length = escapedQuote;
+    slice = slice.slice(0, escapedQuote);
+  }
+  const trailing = /["'`)\]}]+$/.exec(slice)?.[0] ?? '';
+  if (trailing && !/["'`(\[{]/.test(slice.slice(0, slice.length - trailing.length))) {
+    length -= trailing.length;
+  }
+  if (length <= 0) return;
+  // Judge a placeholder (`<PASSWORD>`) after the closing quote and brace are trimmed.
+  if (isSyntacticSecretPlaceholder(token.value.slice(valueIndex, valueIndex + length))) return;
+  const start = token.valueMap[valueIndex];
+  const end = token.valueMap[contiguousValueEnd(token, valueIndex, valueIndex + length - 1)];
+  if (start === undefined || end === undefined) return;
+  replacements.push({ start, end: end + 1, text: REDACTED });
+}
+
+function maskColonPassword(
+  token: ArgvWord,
+  userinfo: string,
+  replacements: ArgvReplacement[]
+): void {
+  const colon = userinfo.indexOf(':');
+  if (colon < 0) return;
+  const secret = userinfo.slice(colon + 1);
+  if (!shouldMaskArg(secret)) return;
+  const at = token.value.length - userinfo.length + colon + 1;
+  pushValueSlice(token, at, secret.length, replacements);
+}
+
+/**
+ * Closed-class words after a flag in a sentence (`Use --password to set it.`).
+ * `sunrise` and `hunter2` are not in this set.
+ */
+const PROSE_FLAG_WORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'to',
+  'for',
+  'of',
+  'in',
+  'on',
+  'and',
+  'or',
+  'if',
+  'is',
+  'be',
+  'as',
+  'at',
+  'by',
+  'with',
+  'from',
+  'this',
+  'that',
+  'it',
+  'its',
+  'your',
+  'you',
+  'into',
+  'via',
+  'when',
+  'then',
+  'than',
+  'not',
+  'do',
+  'can',
+  'will',
+  'just',
+  'only',
+  'also',
+  'flag',
+  'option',
+]);
+
+function isProseFlagValue(value: string): boolean {
+  return PROSE_FLAG_WORDS.has(value.toLowerCase());
+}
+
+/** Long password flags on any command, with an equals sign or a following word. */
+function redactLongPasswordFlags(
+  segments: readonly ArgvWord[][],
+  replacements: ArgvReplacement[]
+): void {
+  for (const segment of segments) {
+    for (let i = 0; i < segment.length; i += 1) {
+      const word = segment[i];
+      if (!word) continue;
+      const equals = PASSWORD_LONG_EQUALS.exec(word.value);
+      if (equals) {
+        const secret = equals[1] ?? '';
+        if (shouldMaskArg(secret)) {
+          pushValueSlice(word, word.value.length - secret.length, secret.length, replacements);
+        }
+        continue;
+      }
+      if (!PASSWORD_LONG_FLAG.test(word.value)) continue;
+      const next = segment[i + 1];
+      if (!next || next.value.startsWith('-') || !shouldMaskArg(next.value)) continue;
+      if (isProseFlagValue(next.value)) continue;
+      pushValueSlice(next, 0, next.value.length, replacements);
+    }
+  }
+}
+
+/**
+ * sshpass takes the short password attached or as the next word. Scanning stops
+ * at the child command, so a later port flag stays.
+ */
+function redactSshpassArgv(segments: readonly ArgvWord[][], replacements: ArgvReplacement[]): void {
+  for (const segment of segments) {
+    for (let i = 0; i < segment.length; i += 1) {
+      const name = segment[i] ? commandTokenName(segment[i].value) : '';
+      if (name !== 'sshpass') continue;
+      for (let j = i + 1; j < segment.length; j += 1) {
+        const arg = segment[j];
+        if (!arg) break;
+        if (arg.value === '-e' || arg.value === '-v') continue;
+        if (arg.value === '-f' || arg.value === '-d' || arg.value === '-P') {
+          j += 1;
+          continue;
+        }
+        if (/^-[fdP].+$/.test(arg.value)) continue;
+        if (arg.value === '-p') {
+          const next = segment[j + 1];
+          if (next && shouldMaskArg(next.value)) {
+            pushValueSlice(next, 0, next.value.length, replacements);
+          }
+          break;
+        }
+        const attached = ATTACHED_P_PASSWORD.exec(arg.value);
+        const payload = attached?.[1];
+        if (payload && shouldMaskArg(payload)) {
+          pushValueSlice(arg, arg.value.length - payload.length, payload.length, replacements);
+        }
+        break;
+      }
+    }
+  }
+}
+
+/** mysql and mariadb mask only the attached short form. A bare short flag prompts. */
+function redactMysqlArgv(segments: readonly ArgvWord[][], replacements: ArgvReplacement[]): void {
+  for (const segment of segments) {
+    const start = segment.findIndex((word) => {
+      const name = commandTokenName(word.value);
+      return name === 'mysql' || name === 'mariadb';
+    });
+    if (start < 0) continue;
+    for (let j = start + 1; j < segment.length; j += 1) {
+      const arg = segment[j];
+      if (!arg) continue;
+      const attached = ATTACHED_P_PASSWORD.exec(arg.value);
+      const payload = attached?.[1];
+      if (!payload || !shouldMaskArg(payload)) continue;
+      pushValueSlice(arg, arg.value.length - payload.length, payload.length, replacements);
+    }
+  }
+}
+
+/**
+ * A short cluster ending in the user flag uses the next word, or the glued
+ * payload when there is one. Bare `-u` stays on the exact flag. `-U` does not.
+ */
+function clusteredCurlUser(value: string): { next: true } | { payload: string } | null {
+  if (value.startsWith('--')) return null;
+  const match = /^-([A-Za-z]*?)u(.*)$/.exec(value);
+  if (!match || !match[1]) return null;
+  const payload = match[2] ?? '';
+  if (!payload) return { next: true };
+  return { payload };
+}
+
+/** curl and wget user flags. The account stays; the secret after the colon does not. */
+function redactUserinfoArgv(
+  segments: readonly ArgvWord[][],
+  replacements: ArgvReplacement[]
+): void {
+  for (const segment of segments) {
+    const start = segment.findIndex((word) => {
+      const name = commandTokenName(word.value);
+      return name === 'curl' || name === 'wget';
+    });
+    if (start < 0) continue;
+    for (let j = start + 1; j < segment.length; j += 1) {
+      const arg = segment[j];
+      if (!arg) continue;
+      if (USER_FLAG.test(arg.value)) {
+        const next = segment[j + 1];
+        if (next) maskColonPassword(next, next.value, replacements);
+        j += 1;
+        continue;
+      }
+      const attached = ATTACHED_USER_FLAG.exec(arg.value);
+      if (attached?.[1]) {
+        maskColonPassword(arg, attached[1], replacements);
+        continue;
+      }
+      const clustered = clusteredCurlUser(arg.value);
+      if (clustered) {
+        if ('payload' in clustered) {
+          maskColonPassword(arg, clustered.payload, replacements);
+          continue;
+        }
+        const next = segment[j + 1];
+        if (next) maskColonPassword(next, next.value, replacements);
+        j += 1;
+        continue;
+      }
+      const equals = USER_EQUALS_FLAG.exec(arg.value);
+      if (equals?.[1]) maskColonPassword(arg, equals[1], replacements);
+    }
+  }
+}
+
+/** `docker login -p` / `podman login -p` is a password. `docker run -p` publishes a port. */
+function redactDockerLoginArgv(
+  segments: readonly ArgvWord[][],
+  replacements: ArgvReplacement[]
+): void {
+  for (const segment of segments) {
+    for (let i = 0; i < segment.length; i += 1) {
+      const name = segment[i] ? commandTokenName(segment[i].value) : '';
+      if (name !== 'docker' && name !== 'podman') continue;
+      const sub = segment[i + 1];
+      if (!sub || commandTokenName(sub.value) !== 'login') continue;
+      for (let j = i + 2; j < segment.length; j += 1) {
+        const arg = segment[j];
+        if (!arg) continue;
+        if (arg.value === '-p') {
+          const next = segment[j + 1];
+          if (next && !next.value.startsWith('-') && shouldMaskArg(next.value)) {
+            pushValueSlice(next, 0, next.value.length, replacements);
+          }
+          j += 1;
+          continue;
+        }
+        const attached = ATTACHED_P_PASSWORD.exec(arg.value);
+        const payload = attached?.[1];
+        if (!payload || !shouldMaskArg(payload)) continue;
+        pushValueSlice(arg, arg.value.length - payload.length, payload.length, replacements);
+      }
+    }
+  }
+}
+
+const NESTED_ARGV_HINT =
+  /sshpass|\bmysql\b|\bmariadb\b|\bcurl\b|\bwget\b|\bdocker\b|\bpodman\b|--http-password|--password|--passwd|--pass(?!phrase|word|ed|ive|port)/i;
+
+function spansOverlap(a: ArgvReplacement, start: number, end: number): boolean {
+  return a.start < end && a.end > start;
+}
+
+function redactNestedArgv(
+  tokens: readonly ArgvToken[],
+  replacements: ArgvReplacement[],
+  depth: number
+): void {
+  for (const token of tokens) {
+    if (!isArgvWord(token) || !/\s/.test(token.value)) continue;
+    if (!NESTED_ARGV_HINT.test(token.value)) continue;
+    const start = token.valueMap[0];
+    const last = token.valueMap[token.valueMap.length - 1];
+    if (start === undefined || last === undefined) continue;
+    const end = last + 1;
+    if (replacements.some((rep) => spansOverlap(rep, start, end))) continue;
+    for (const rep of collectArgvReplacements(token.value, depth + 1)) {
+      const from = token.valueMap[rep.start];
+      const to = token.valueMap[contiguousValueEnd(token, rep.start, rep.end - 1)];
+      if (from === undefined || to === undefined) continue;
+      replacements.push({ start: from, end: to + 1, text: rep.text });
+    }
+  }
+}
+
+function applyArgvReplacements(line: string, replacements: readonly ArgvReplacement[]): string {
+  const sorted = [...replacements].sort((a, b) => b.start - a.start || a.end - b.end);
+  const used: Array<{ start: number; end: number }> = [];
+  let out = line;
+  for (const rep of sorted) {
+    if (used.some((span) => spansOverlap(rep, span.start, span.end))) continue;
+    out = out.slice(0, rep.start) + rep.text + out.slice(rep.end);
+    used.push(rep);
+  }
+  return out;
+}
+
+function collectArgvReplacements(line: string, depth: number): ArgvReplacement[] {
+  if (!line || depth > 6) return [];
+  const tokens = tokenizeArgv(line);
+  const segments = argvSegments(tokens);
+  const replacements: ArgvReplacement[] = [];
+  redactLongPasswordFlags(segments, replacements);
+  redactSshpassArgv(segments, replacements);
+  redactMysqlArgv(segments, replacements);
+  redactUserinfoArgv(segments, replacements);
+  redactDockerLoginArgv(segments, replacements);
+  redactNestedArgv(tokens, replacements, depth);
+  return replacements;
+}
+
+function redactArgvLine(line: string, depth: number): string {
+  const replacements = collectArgvReplacements(line, depth);
+  if (replacements.length === 0) return line;
+  return applyArgvReplacements(line, replacements);
+}
+
+/**
+ * Command-aware argv passwords. Shell text and a one-line echoed argv list
+ * share this path. Port flags on ssh, scp, mysql, hdc, and adb stay visible.
+ */
+function redactCommandArgv(text: string): string {
+  const lines = text.split('\n');
+  return lines
+    .map((line) => {
+      const cr = line.endsWith('\r');
+      const body = cr ? line.slice(0, -1) : line;
+      const redacted = redactArgvLine(body, 0);
+      return cr ? `${redacted}\r` : redacted;
+    })
+    .join('\n');
 }
 
 function redactAssignments(text: string, strictFile: boolean): string {
-  const continued = maskIndentedQuoteContinuations(text);
+  const continued = maskIndentedQuoteContinuations(text, { strict: strictFile });
   return forEachAssignment(continued, (hit) => {
+    if (isParameterExpansionLookup(continued, hit)) return undefined;
     if (!shouldRedactAssignment(hit, strictFile)) return undefined;
     return `${hit.name}${hit.sep}${REDACTED}`;
   });
@@ -589,7 +1294,7 @@ export function redactEgress(
   out = redactUrlSecrets(out);
   if (strictFile) out = redactStrictCredentialShapes(out);
   out = redactAssignments(out, strictFile);
-  out = redactSshpass(out);
+  out = redactCommandArgv(out);
   out = redactNetrcPasswords(out, strictFile);
   out = redactDockerAuth(out);
   out = redactStandalone(out);
