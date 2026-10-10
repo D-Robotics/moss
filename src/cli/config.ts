@@ -946,7 +946,8 @@ export function mergeConfigFiles(
     // A cloned repo's .moss/config.json must not silently lower the user's
     // safety stance (e.g. approvalPolicy: 'never', safetyMode: 'full-access').
     // If the user hasn't set a scalar, the project value is still used.
-    // trustedTools is a grant list, so a trusted project unions with the user.
+    // trustedTools follows that rule: the user's array wins exactly. A trusted
+    // project's list is used only when the user did not set one.
     // loadCliConfigFile removes an untrusted project's trustedTools,
     // permissions.allow, permissions.defaultMode, permissions.deviceTrust,
     // permissions.trustedDevices, and a looser profile before this merge, so
@@ -956,7 +957,7 @@ export function mergeConfigFiles(
     // override both (resolveCliConfig).
     safetyMode: userConfig.safetyMode ?? projectConfig.safetyMode,
     approvalPolicy: userConfig.approvalPolicy ?? projectConfig.approvalPolicy,
-    trustedTools: unionOptionalStringList(userConfig.trustedTools, projectConfig.trustedTools),
+    trustedTools: userConfig.trustedTools ?? projectConfig.trustedTools,
     deniedTools: userConfig.deniedTools ?? projectConfig.deniedTools,
     permissions: mergePermissionsConfig(userConfig.permissions, projectConfig.permissions),
     promptCache: mergePromptCacheConfig(userConfig.promptCache, projectConfig.promptCache),
