@@ -71,7 +71,10 @@ type MiniAgentEventPayload =
       ttftMs?: number;
       generationMs?: number;
       turnGapMs?: number;
+      /** Routed or configured id. Pricing keys off this name. */
       model?: string;
+      /** Gateway-reported id for display and session records. Not a price key. */
+      servedModel?: string;
     }
   | { type: 'output_continuation'; attempt: number; maxAttempts: number }
   | {

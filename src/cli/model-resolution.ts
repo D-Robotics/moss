@@ -61,6 +61,26 @@ function writeCachedModel(
   } catch {}
 }
 
+const DATED_SNAPSHOT = /(?:-\d{4}-\d{2}-\d{2}|-\d{8})$/;
+
+/** Leaf id with one vendor prefix and one snapshot date removed. */
+function canonicalModelId(id: string): string {
+  const slash = id.lastIndexOf('/');
+  const leaf = slash >= 0 ? id.slice(slash + 1) : id;
+  return leaf.replace(DATED_SNAPSHOT, '');
+}
+
+/**
+ * True when the gateway id is the configured model, or the same id plus a
+ * vendor prefix (`vendor/x`) and/or a snapshot date (`-YYYY-MM-DD` or `-YYYYMMDD`).
+ */
+export function reportedModelMatchesConfigured(configured: string, reported: string): boolean {
+  if (configured === reported) return true;
+  const left = canonicalModelId(configured);
+  const right = canonicalModelId(reported);
+  return left.length > 0 && left === right;
+}
+
 export function readCachedRealModel(
   config: RealModelConfigView,
   options: { env?: NodeJS.ProcessEnv } = {}

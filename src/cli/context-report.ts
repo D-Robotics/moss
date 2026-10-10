@@ -97,6 +97,11 @@ export interface FreshSessionContextReportOptions {
   /** Locale forwarded to the answer-language layer. Default: no zh layer. */
   locale?: string;
   now?: Date;
+  /** Live model id. Soul prepend/footer lines name this instead of a placeholder. */
+  model?: string;
+  /** Global config dir for `<configDir>/soul.md` discovery. */
+  configDir?: string;
+  usingBundledDefault?: boolean;
 }
 
 function tokensOf(text: string): ContextReportSection['tokens'] {
@@ -130,9 +135,12 @@ export async function buildFreshSessionContextReport(
   const userMessage = options.userMessage ?? FRESH_SESSION_USER_MESSAGE;
   const locale = options.locale ?? 'C';
 
+  const model = options.model?.trim() || 'context-report';
   const identity = resolveSoulIdentity({
     workspaceDir: options.workspaceDir,
-    model: 'context-report',
+    ...(options.configDir ? { configDir: options.configDir } : {}),
+    model,
+    ...(options.usingBundledDefault ? { usingBundledDefault: true } : {}),
   });
   const language = buildLanguagePolicyPromptQuick();
   const engineering = buildSoftwareEngineeringPromptQuick();
@@ -181,7 +189,7 @@ export async function buildFreshSessionContextReport(
       },
     },
     sessionStore: new InMemorySessionStore(),
-    model: 'context-report',
+    model,
     workspaceDir: options.workspaceDir,
     baseSystemPrompt: identity,
     domainPrompt: () => engineering,
@@ -194,7 +202,7 @@ export async function buildFreshSessionContextReport(
   agent.tools.replace(
     createModelInfoTool({
       provider: () => agent.config.llmProvider,
-      config: () => ({ model: 'context-report' }),
+      config: () => ({ model }),
       getContextTokens: () => contextTokens,
     })
   );

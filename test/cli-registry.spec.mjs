@@ -37,6 +37,7 @@ import {
   const messages = [];
   const handled = await runRegistryCommand('/context', {
     agent: {
+      reportedModel: () => undefined,
       config: {
         model: 'test-model',
         contextTokens: 100_000,

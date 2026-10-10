@@ -24,17 +24,18 @@ import { presentToolOutput, redactEgress } from '../dist/safety/tool-output-reda
 
 /**
  * The 12 lines main redacts in Moss src, one file:line entry each.
- * config-commands, remote-compaction, and pi-ai-wire-format match main
- * 635feb1c on this tree. The two safety files are the same false matches
+ * config-commands and remote-compaction match main. The pi-ai-wire-format
+ * matches sit two lines lower because `responseModel` was inserted above
+ * `rejectAnthropicOAuthToken`. The two safety files are the same false matches
  * (provider-token examples and `secret = match?.[5]`), at their current lines.
  */
 const MAIN_REDACTED_LINES = [
   'src/cli/config-commands.ts:816',
   'src/cli/config-commands.ts:843',
   'src/context/remote-compaction.ts:342',
-  'src/provider/pi-ai-wire-format.ts:114',
   'src/provider/pi-ai-wire-format.ts:116',
-  'src/provider/pi-ai-wire-format.ts:117',
+  'src/provider/pi-ai-wire-format.ts:118',
+  'src/provider/pi-ai-wire-format.ts:119',
   'src/safety/secret-sanitizer.ts:13',
   'src/safety/secret-sanitizer.ts:45',
   'src/safety/tool-output-redact.ts:117',
