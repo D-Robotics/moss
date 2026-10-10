@@ -577,13 +577,14 @@ function stripAnsi(text) {
   return out;
 }
 
-function englishSentences(text) {
+function englishSentences(text, displayedPaths = []) {
   const hits = [];
   for (const rawLine of text.split('\n')) {
     const plain = stripAnsi(rawLine);
     if (/^\s*(\$ )?(moss\b|\/[a-z]|git\b|npm\b|npx\b|printf\b|echo\b|node\b)/i.test(plain))
       continue;
-    const stripped = plain
+    const withoutPaths = displayedPaths.reduce((line, file) => line.replaceAll(file, ' '), plain);
+    const stripped = withoutPaths
       .replace(/`[^`]*`/g, ' ')
       .replace(/https?:\/\/\S+/g, ' ')
       .replace(/--?[A-Za-z0-9][\w-]*/g, ' ')
@@ -605,6 +606,26 @@ function englishSentences(text) {
   }
   return hits;
 }
+
+// Literal fixture paths are data, while the copy around them still needs translation.
+for (const configPath of [
+  String.raw`C:\Users\Runner\AppData\Local\Temp\config.json`,
+  String.raw`C:\Users\Runner Name\AppData\Local\Temp Folder\config.json`,
+  String.raw`\\server\Shared Files\User Settings\config.json`,
+]) {
+  assert.deepEqual(englishSentences(`配置文件：${configPath}`, [configPath]), []);
+  assert.equal(
+    englishSentences(`These settings will be saved here: ${configPath}`, [configPath]).length,
+    1,
+    'removing the exact displayed path must still reject untranslated surrounding copy'
+  );
+}
+assert.equal(englishSentences('These settings will be saved here').length, 1);
+assert.equal(
+  englishSentences(String.raw`配置文件：C:\Users\Runner\AppData\Local\Temp\config.json`).length,
+  1,
+  'an unrelated or unknown path is not silently exempted'
+);
 
 const zhSurfacesAll = [
   ['--help'],
@@ -632,7 +653,15 @@ const zhSurfacesAll = [
 for (const args of zhSurfacesAll) {
   const shown = runCli(['--lang', 'zh', ...args], { LANG: 'C', LC_ALL: 'C' });
   assert.notEqual(shown.status, null, `${args.join(' ')} timed out`);
-  const hits = englishSentences(shown.text);
+  const displayedPaths =
+    process.platform === 'win32'
+      ? [
+          path.join(shown.home, 'config', 'config.json'),
+          path.join(shown.workspace, '.moss'),
+          shown.workspace,
+        ]
+      : [];
+  const hits = englishSentences(shown.text, displayedPaths);
   assert.deepEqual(hits, [], `--lang zh ${args.join(' ')} still has English:\n${hits.join('\n')}`);
 }
 
