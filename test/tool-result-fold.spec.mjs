@@ -453,20 +453,21 @@ function cacheDollars(rows, price) {
 
 const STUB_CONTEXT_TOKENS = 200_000;
 
-function productionHistory(messages, step, retainTools) {
+function productionHistory(messages, step, retainTools, contextWindow = STUB_CONTEXT_TOKENS) {
   const promptTokens = Math.ceil(JSON.stringify(messages).length / 4);
   const turns = step + 1;
-  if (promptTokens >= toolResultFoldMinPromptTokens(STUB_CONTEXT_TOKENS)) {
+  const floor = toolResultFoldMinPromptTokens(contextWindow);
+  if (promptTokens >= floor) {
     const folded = foldOlderToolResults(messages, {
       remainingRequests: Math.min(turns, TOOL_RESULT_FOLD_HORIZON),
       promptTokens,
-      contextWindowTokens: STUB_CONTEXT_TOKENS,
+      contextWindowTokens: contextWindow,
       ...(retainTools ? { retainTools } : {}),
     });
-    if (folded.foldedCount > 0) return folded;
+    if (folded.foldedCount > 0) return { ...folded, promptTokens, floor };
   }
   const elided = elideOldLargeToolResults(messages);
-  return { messages: elided.messages, foldedCount: 0 };
+  return { messages: elided.messages, foldedCount: 0, promptTokens, floor };
 }
 
 function pricedRun(steps, chars, options = {}) {
@@ -475,12 +476,18 @@ function pricedRun(steps, chars, options = {}) {
     DeepSeek: { write: 0.3, read: 0.006 },
     OpenAI: { write: 1.25, read: 0.125 },
   };
+  const contextWindow = options.contextWindow ?? STUB_CONTEXT_TOKENS;
+  const floor = toolResultFoldMinPromptTokens(contextWindow);
   const run = (apply) => {
     let messages = [{ role: 'user', content: 'What is the camera pinmux?' }];
     let prev = JSON.stringify(messages);
     const rows = [];
     let rewrites = 0;
     let folded = 0;
+    let foldEvents = 0;
+    let firstFold = 0;
+    let crossed = 0;
+    let maxPrompt = 0;
     for (let i = 1; i <= steps; i++) {
       const body = options.bodyFor
         ? options.bodyFor(i)
@@ -489,7 +496,14 @@ function pricedRun(steps, chars, options = {}) {
       messages.push(assistantCall(`c${i}`, name));
       messages.push(resultMessage(`c${i}`, name, body));
       const applied = apply(messages, i);
-      if (applied.foldedCount > 0) folded += applied.foldedCount;
+      const promptTokens = applied.promptTokens ?? 0;
+      if (promptTokens > maxPrompt) maxPrompt = promptTokens;
+      if (!crossed && promptTokens >= floor) crossed = i;
+      if (applied.foldedCount > 0) {
+        folded += applied.foldedCount;
+        foldEvents += 1;
+        if (!firstFold) firstFold = i;
+      }
       messages = applied.messages;
       const payload = JSON.stringify(messages);
       let shared = 0;
@@ -501,10 +515,16 @@ function pricedRun(steps, chars, options = {}) {
       rows.push({ tokens, read: Math.min(Math.floor(shared / 4), tokens) });
       prev = payload;
     }
-    return { rows, rewrites, folded };
+    return { rows, rewrites, folded, foldEvents, firstFold, crossed, maxPrompt, floor };
   };
-  const main = run((messages) => elideOldLargeToolResults(messages));
-  const fold = run((messages, i) => productionHistory(messages, i, options.retainTools));
+  const main = run((messages) => {
+    const promptTokens = Math.ceil(JSON.stringify(messages).length / 4);
+    const elided = elideOldLargeToolResults(messages);
+    return { ...elided, promptTokens, foldedCount: 0 };
+  });
+  const fold = run((messages, i) =>
+    productionHistory(messages, i, options.retainTools, contextWindow)
+  );
   const cells = {};
   for (const [name, price] of Object.entries(prices)) {
     cells[name] = { main: cacheDollars(main.rows, price), fold: cacheDollars(fold.rows, price) };
@@ -562,6 +582,78 @@ test('the observed horizon is never more expensive than main, including a short 
       `  ${name} main=$${cell.main.toFixed(6)} fold=$${cell.fold.toFixed(6)} delta=${delta.toFixed(1)}%`
     );
     assert.ok(Math.abs(cell.fold - cell.main) <= 1e-12, `${name} docs cost changed`);
+  }
+  console.log(lines.join('\n'));
+});
+
+test('long sessions of mixed read_file, exec, and grep results', () => {
+  const tools = ['read_file', 'exec', 'grep'];
+  // Even spread through 4–30k. Elision stubs every page ≥8k, so this prompt
+  // stays under half of a 128k window through 80 requests.
+  const evenSizes = [4_000, 8_000, 12_000, 16_000, 20_000, 30_000, 6_000, 14_000];
+  // Seven of eight pages are 4–7.5k, under elision's 8k floor, plus one 20k
+  // page. That tail is what can push the prompt past half the window.
+  const mediumSizes = [4_000, 6_000, 7_000, 5_000, 4_500, 6_500, 20_000, 7_500];
+  const lines = [
+    'long session: read_file / exec / grep, elision until the fold floor, then fold',
+    'tokens = serialized chars / 4; main is sliding elision',
+  ];
+  const report = (label, steps, sizes, windowTokens) => {
+    const priced = pricedRun(steps, 0, {
+      contextWindow: windowTokens,
+      bodyFor: (i) =>
+        sizedPage(`${tools[(i - 1) % tools.length]} ${i}`, sizes[(i - 1) % sizes.length]),
+      nameFor: (i) => tools[(i - 1) % tools.length],
+    });
+    lines.push(
+      '',
+      `${label} window=${windowTokens} steps=${steps} floor=${priced.fold.floor} crossed=${priced.fold.crossed || '-'} maxPrompt=${priced.fold.maxPrompt} folded=${priced.fold.folded} events=${priced.fold.foldEvents} firstFold=${priced.fold.firstFold || '-'} mainRewrites=${priced.main.rewrites} foldRewrites=${priced.fold.rewrites}`
+    );
+    const deltas = {};
+    for (const [name, cell] of Object.entries(priced.cells)) {
+      const delta = ((cell.fold - cell.main) / cell.main) * 100;
+      deltas[name] = delta;
+      lines.push(
+        `  ${name} main=$${cell.main.toFixed(6)} fold=$${cell.fold.toFixed(6)} delta=${delta.toFixed(1)}%`
+      );
+      assert.ok(
+        cell.fold <= cell.main + 1e-9,
+        `${label} ${windowTokens}x${steps} ${name} fold $${cell.fold} > main $${cell.main}`
+      );
+    }
+    return { priced, deltas };
+  };
+
+  for (const windowTokens of [128_000, 200_000]) {
+    for (const steps of [40, 60, 80]) {
+      const { priced } = report('even 4–30k', steps, evenSizes, windowTokens);
+      assert.equal(priced.fold.folded, 0);
+      assert.ok(priced.fold.maxPrompt < priced.fold.floor);
+      for (const cell of Object.values(priced.cells)) {
+        assert.ok(Math.abs(cell.fold - cell.main) <= 1e-9);
+      }
+    }
+  }
+
+  // The even mix does cross a 128k floor later. The gate still refuses.
+  const lateEven = report('even 4–30k', 120, evenSizes, 128_000);
+  assert.ok(lateEven.priced.fold.crossed > 0);
+  assert.equal(lateEven.priced.fold.folded, 0);
+
+  for (const windowTokens of [128_000, 200_000]) {
+    for (const steps of [40, 60, 80]) {
+      const { priced, deltas } = report('medium 4–20k', steps, mediumSizes, windowTokens);
+      if (steps === 80) {
+        assert.ok(
+          priced.fold.crossed > 0,
+          `${windowTokens} medium session never crossed the floor`
+        );
+        assert.ok(priced.fold.folded > 0, `${windowTokens} medium session never folded`);
+        for (const [name, delta] of Object.entries(deltas)) {
+          assert.ok(delta <= -15, `${windowTokens} ${name} saved ${delta.toFixed(1)}%, under 15%`);
+        }
+      }
+    }
   }
   console.log(lines.join('\n'));
 });
