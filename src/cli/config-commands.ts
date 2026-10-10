@@ -290,8 +290,8 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_CONFIG_FILE (process env or --config-file; a project .env cannot set this)',
       'MOSS_CONFIG_PATH (legacy alias of MOSS_CONFIG_FILE; a project .env cannot set this)',
       'MOSS_WORKSPACE',
-      'MOSS_PROFILE',
-      'MOSS_CONFIG_PROFILE (legacy alias of MOSS_PROFILE)',
+      'MOSS_PROFILE (process env only; a project .env cannot set this)',
+      'MOSS_CONFIG_PROFILE (legacy alias of MOSS_PROFILE; a project .env cannot set this)',
       'MOSS_CLI_IDENTITY',
       'MOSS_RUN_ID',
       'MOSS_BUNDLED_DEFAULT_FILE',
@@ -322,8 +322,8 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_CONTEXT_TOKENS',
       'MOSS_MAX_OUTPUT_TOKENS',
       'MOSS_LOOP_MAX',
-      'MOSS_GOAL_VERIFY_CMD',
-      'MOSS_GOAL_VERIFY_LOOP',
+      'MOSS_GOAL_VERIFY_CMD (process env only; a project .env cannot set this)',
+      'MOSS_GOAL_VERIFY_LOOP (process env only; a project .env cannot set this)',
       'MOSS_DISABLE_NUDGES (comma-separated nudge ids to suppress; unset leaves every nudge on)',
       'MOSS_PLAN_GATE (1 enables the /plan approval gate; default off)',
       'MOSS_GOAL_AUTO_MAX_RUNS',
@@ -340,14 +340,14 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
   {
     group: 'device (robotics closed loop)',
     vars: [
-      'MOSS_DEVICE_HOST',
-      'MOSS_DEVICE_PORT',
-      'MOSS_DEVICE_USER',
+      'MOSS_DEVICE_HOST (project .env applies only after that folder is trusted)',
+      'MOSS_DEVICE_PORT (project .env applies only after that folder is trusted)',
+      'MOSS_DEVICE_USER (project .env applies only after that folder is trusted)',
       'MOSS_DEVICE_PASSWORD',
-      'MOSS_DEVICE_KEY',
+      'MOSS_DEVICE_KEY (project .env applies only after that folder is trusted)',
       'MOSS_DEVICE_KEY_PASSPHRASE',
-      'MOSS_DEVICE_KIND',
-      'MOSS_DEVICE_ID',
+      'MOSS_DEVICE_KIND (project .env applies only after that folder is trusted)',
+      'MOSS_DEVICE_ID (project .env applies only after that folder is trusted)',
       'MOSS_DEVICE_TRUST (full|1|true|yes opts this process into destructive device operations)',
       'MOSS_TRUST_WORKSPACE (1|true|yes|on; process env or --trust-workspace only, never a project .env)',
       'MOSS_DEVICE_TRUST_DEVICES (comma-separated host or device-id allowlist)',
@@ -478,7 +478,9 @@ const ENV_NOTE_ZH: Record<string, string> = {
     '进程环境或 --config-file；项目 .env 不能设置',
   'legacy alias of MOSS_CONFIG_FILE; a project .env cannot set this':
     'MOSS_CONFIG_FILE 的旧别名；项目 .env 不能设置',
-  'legacy alias of MOSS_PROFILE': 'MOSS_PROFILE 的旧别名',
+  'legacy alias of MOSS_PROFILE; a project .env cannot set this':
+    'MOSS_PROFILE 的旧别名；项目 .env 不能设置',
+  'project .env applies only after that folder is trusted': '项目 .env 仅在该文件夹被信任后生效',
   'legacy alias of MOSS_SAFETY_MODE': 'MOSS_SAFETY_MODE 的旧别名',
   'legacy alias of MOSS_APPROVAL_POLICY': 'MOSS_APPROVAL_POLICY 的旧别名',
   'legacy — translated to allow rules on read': '旧键 — 读取时译成 allow 规则',
@@ -531,8 +533,8 @@ export function renderConfigEnv(): string {
       ? '凭据放在配置文件或服务商自己的密钥变量里 — 不要写进 shell 历史。'
       : 'Credentials belong in the config file or a provider-specific key var — never in shell history.',
     zh
-      ? '审批、沙箱、信任、脱敏、钩子和工具权限变量只认真实进程环境和命令行。项目或上级目录的 .env 不能设置它们。'
-      : 'Approval, sandbox, trust, redaction, hook, and tool-permission variables are read from the real process environment and CLI flags only. A project or ancestor .env cannot set them.'
+      ? '审批、配置档、目标验收、信任、脱敏、钩子和工具权限变量只认真实进程环境和命令行。项目或上级目录的 .env 不能设置它们。'
+      : 'Approval, profile, goal-verify, trust, redaction, hook, and tool-permission variables are read from the real process environment and CLI flags only. A project or ancestor .env cannot set them.'
   );
   return lines.join('\n');
 }

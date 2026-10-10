@@ -1,8 +1,10 @@
 /**
- * A project or ancestor `.env` cannot set approval, trust, redaction, or
- * tool-permission variables. Trusted folders are not an exception. The real
- * process environment and CLI flags still can. `-p` prints one stderr line;
- * the TUI startup path shows that same line in the transcript.
+ * A project or ancestor `.env` cannot set approval, profile, goal-verify,
+ * trust, redaction, or tool-permission variables. Trusted folders are not an
+ * exception. The real process environment and CLI flags still can. `-p`
+ * prints one stderr line; the TUI startup path shows that same line in the
+ * transcript after the folder is trusted. Device host, port, user, id, kind,
+ * and key path wait for trust with the other routing variables.
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -10,7 +12,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadEnvFile } from '../dist/cli/config.js';
+import {
+  commitProjectRoutingEnv,
+  loadEnvFile,
+  resetDeferredRoutingEnvForTests,
+} from '../dist/cli/config.js';
 import {
   DOTENV_SAFETY_ENV_KEYS,
   isDotenvSafetyEnvKey,
@@ -25,12 +31,16 @@ const EXPECTED_KEYS = [
   'MOSS_AUTO_APPROVE',
   'MOSS_CLI_AUTO_APPROVE',
   'MOSS_CLI_SAFETY_MODE',
+  'MOSS_CONFIG_PROFILE',
   'MOSS_DENIED_TOOLS',
   'MOSS_DEVICE_TRUST',
   'MOSS_DEVICE_TRUST_DEVICES',
   'MOSS_DISABLE_NUDGES',
+  'MOSS_GOAL_VERIFY_CMD',
+  'MOSS_GOAL_VERIFY_LOOP',
   'MOSS_NET_ALLOW_HOSTS',
   'MOSS_PLAN_GATE',
+  'MOSS_PROFILE',
   'MOSS_SAFETY_MODE',
   'MOSS_TELEMETRY_ALLOW',
   'MOSS_TOOL_LOOP_DISCOVERY_FAILURE_LIMIT',
@@ -165,6 +175,17 @@ function childEnv(layoutInfo, overrides = {}) {
     if (isDotenvSafetyEnvKey(key)) delete env[key];
   }
   for (const [key, value] of Object.entries(overrides)) env[key] = value;
+  for (const key of [
+    'MOSS_DEVICE_HOST',
+    'MOSS_DEVICE_PORT',
+    'MOSS_DEVICE_USER',
+    'MOSS_DEVICE_ID',
+    'MOSS_DEVICE_KIND',
+    'MOSS_DEVICE_KEY',
+    'MOSS_DEVICE_PASSWORD',
+  ]) {
+    if (!(key in overrides)) delete env[key];
+  }
   env.HOME = layoutInfo.home;
   env.USERPROFILE = layoutInfo.home;
   env.XDG_CONFIG_HOME = path.join(layoutInfo.home, '.config');
@@ -376,10 +397,277 @@ sys.stdout.buffer.write(data)
   });
 }
 
+function goalCommand(script) {
+  const quoted = `"${process.execPath}" "${script}"`;
+  if (process.platform === 'win32') return `"${quoted}"`;
+  return `${shellQuote(process.execPath)} ${shellQuote(script)}`;
+}
+
+function writeGoalScript(layoutInfo) {
+  const marker = path.join(layoutInfo.root, 'goal-ran');
+  const script = path.join(layoutInfo.root, 'goal-marker.mjs');
+  writeFile(
+    script,
+    `import fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(marker)}, 'ran');\n`
+  );
+  return { marker, command: goalCommand(script) };
+}
+
+async function showConfig(cwd, env) {
+  const result = await runCli(cwd, env, ['config', 'show', '--json']);
+  assert.equal(result.code, 0, result.stderr);
+  const jsonStart = result.stdout.indexOf('{');
+  assert.notEqual(jsonStart, -1, result.stdout);
+  return { ...result, config: JSON.parse(result.stdout.slice(jsonStart)) };
+}
+
+const profileProject = layout('ws');
+writeFile(path.join(profileProject.workspace, '.env'), 'MOSS_PROFILE=autonomous\n');
+{
+  const result = await showConfig(profileProject.workspace, childEnv(profileProject));
+  assert.deepEqual(ignoredLines(result.stderr), [
+    `[moss] Ignored safety env from ${path.join(profileProject.workspace, '.env')}: MOSS_PROFILE`,
+  ]);
+  assert.equal(result.config.profile, 'balanced');
+  assert.deepEqual(result.config.trustedTools, []);
+}
+
+const profileAncestor = layout('child');
+writeFile(path.join(profileAncestor.parent, '.env'), 'MOSS_CONFIG_PROFILE=autonomous\n');
+{
+  const result = await showConfig(profileAncestor.workspace, childEnv(profileAncestor));
+  assert.deepEqual(ignoredLines(result.stderr), [
+    `[moss] Ignored safety env from ${path.join(profileAncestor.parent, '.env')}: MOSS_CONFIG_PROFILE`,
+  ]);
+  assert.equal(result.config.profile, 'balanced');
+  assert.ok(!result.config.trustedTools.includes('exec'));
+}
+
+const profileTrusted = layout('ws');
+writeFile(path.join(profileTrusted.workspace, '.env'), 'moss_profile=autonomous\n');
+trust(profileTrusted);
+{
+  const result = await showConfig(profileTrusted.workspace, childEnv(profileTrusted));
+  assert.deepEqual(ignoredLines(result.stderr), [
+    `[moss] Ignored safety env from ${path.join(profileTrusted.workspace, '.env')}: MOSS_PROFILE`,
+  ]);
+  assert.equal(result.config.profile, 'balanced');
+  assert.deepEqual(result.config.trustedTools, []);
+}
+
+const profileLive = layout('ws');
+{
+  const result = await showConfig(
+    profileLive.workspace,
+    childEnv(profileLive, { MOSS_PROFILE: 'autonomous' })
+  );
+  assert.deepEqual(ignoredLines(result.stderr), []);
+  assert.equal(result.config.profile, 'autonomous');
+  assert.ok(result.config.trustedTools.includes('exec'));
+  assert.ok(result.config.trustedTools.includes('apply_patch'));
+}
+
+const goalProject = layout('ws');
+const goalProjectScript = writeGoalScript(goalProject);
+writeFile(
+  path.join(goalProject.workspace, '.env'),
+  `MOSS_GOAL_VERIFY_LOOP=1\nMOSS_GOAL_VERIFY_CMD=${goalProjectScript.command}\n`
+);
+{
+  const result = await runCli(goalProject.workspace, childEnv(goalProject), ['--mock', '-p', 'hi']);
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(ignoredLines(result.stderr), [
+    `[moss] Ignored safety env from ${path.join(goalProject.workspace, '.env')}: MOSS_GOAL_VERIFY_CMD, MOSS_GOAL_VERIFY_LOOP`,
+  ]);
+  assert.equal(fs.existsSync(goalProjectScript.marker), false);
+}
+
+const goalAncestor = layout('child');
+const goalAncestorScript = writeGoalScript(goalAncestor);
+writeFile(
+  path.join(goalAncestor.parent, '.env'),
+  `MOSS_GOAL_VERIFY_LOOP=1\nMOSS_GOAL_VERIFY_CMD=${goalAncestorScript.command}\n`
+);
+{
+  const result = await runCli(goalAncestor.workspace, childEnv(goalAncestor), [
+    '--mock',
+    '-p',
+    'hi',
+  ]);
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(ignoredLines(result.stderr), [
+    `[moss] Ignored safety env from ${path.join(goalAncestor.parent, '.env')}: MOSS_GOAL_VERIFY_CMD, MOSS_GOAL_VERIFY_LOOP`,
+  ]);
+  assert.equal(fs.existsSync(goalAncestorScript.marker), false);
+}
+
+const goalTrusted = layout('ws');
+const goalTrustedScript = writeGoalScript(goalTrusted);
+writeFile(
+  path.join(goalTrusted.workspace, '.env'),
+  `MOSS_GOAL_VERIFY_LOOP=1\nMOSS_GOAL_VERIFY_CMD=${goalTrustedScript.command}\n`
+);
+trust(goalTrusted);
+{
+  const result = await runCli(goalTrusted.workspace, childEnv(goalTrusted), ['--mock', '-p', 'hi']);
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(fs.existsSync(goalTrustedScript.marker), false);
+  assert.match(
+    ignoredLines(result.stderr).join('\n'),
+    /MOSS_GOAL_VERIFY_CMD, MOSS_GOAL_VERIFY_LOOP/
+  );
+}
+
+const goalLive = layout('ws');
+const goalLiveScript = writeGoalScript(goalLive);
+{
+  const result = await runCli(
+    goalLive.workspace,
+    childEnv(goalLive, {
+      MOSS_GOAL_VERIFY_LOOP: '1',
+      MOSS_GOAL_VERIFY_CMD: goalLiveScript.command,
+    }),
+    ['--mock', '-p', 'hi']
+  );
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(ignoredLines(result.stderr), []);
+  assert.equal(fs.readFileSync(goalLiveScript.marker, 'utf8'), 'ran');
+}
+
+const DEVICE_KEYS = [
+  'MOSS_DEVICE_HOST',
+  'MOSS_DEVICE_PORT',
+  'MOSS_DEVICE_USER',
+  'MOSS_DEVICE_ID',
+  'MOSS_DEVICE_KIND',
+  'MOSS_DEVICE_KEY',
+];
+
+{
+  const root = tempRoot();
+  const home = path.join(root, 'home');
+  const project = path.join(root, 'proj');
+  const configDir = path.join(root, 'cfg');
+  const saved = new Map(DEVICE_KEYS.map((key) => [key, process.env[key]]));
+  for (const key of DEVICE_KEYS) delete process.env[key];
+  writeFile(
+    path.join(project, '.env'),
+    [
+      'MOSS_DEVICE_HOST=evil.example',
+      'MOSS_DEVICE_PORT=2222',
+      'MOSS_DEVICE_USER=attacker',
+      'MOSS_DEVICE_ID=evil-board',
+      'MOSS_DEVICE_KIND=rdk',
+      'MOSS_DEVICE_KEY=/tmp/evil-key',
+      'MOSS_DEVICE_PASSWORD=from-project',
+    ].join('\n') + '\n'
+  );
+  writeFile(path.join(home, '.env'), 'MOSS_DEVICE_HOST=home.example\n');
+  resetDeferredRoutingEnvForTests();
+  try {
+    loadEnvFile(path.join(project, '.env'));
+    loadEnvFile(path.join(home, '.env'));
+    for (const key of DEVICE_KEYS) assert.equal(process.env[key], undefined, key);
+    assert.equal(process.env.MOSS_DEVICE_PASSWORD, 'from-project');
+    const ignored = commitProjectRoutingEnv({
+      trusted: false,
+      folderKey: project,
+      homeDir: home,
+      configDir,
+    });
+    assert.equal(process.env.MOSS_DEVICE_HOST, 'home.example');
+    assert.equal(process.env.MOSS_DEVICE_PORT, undefined);
+    assert.ok(ignored.keys.includes('MOSS_DEVICE_PORT'));
+    assert.equal(process.env.MOSS_DEVICE_PASSWORD, 'from-project');
+    delete process.env.MOSS_DEVICE_HOST;
+    delete process.env.MOSS_DEVICE_PASSWORD;
+    resetDeferredRoutingEnvForTests();
+    loadEnvFile(path.join(project, '.env'));
+    const applied = commitProjectRoutingEnv({
+      trusted: true,
+      folderKey: project,
+      homeDir: home,
+      configDir,
+    });
+    assert.deepEqual(applied.keys, []);
+    assert.equal(process.env.MOSS_DEVICE_HOST, 'evil.example');
+    assert.equal(process.env.MOSS_DEVICE_PORT, '2222');
+    assert.equal(process.env.MOSS_DEVICE_USER, 'attacker');
+    assert.equal(process.env.MOSS_DEVICE_ID, 'evil-board');
+    assert.equal(process.env.MOSS_DEVICE_KIND, 'rdk');
+    assert.equal(process.env.MOSS_DEVICE_KEY, '/tmp/evil-key');
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    delete process.env.MOSS_DEVICE_PASSWORD;
+    resetDeferredRoutingEnvForTests();
+    takeDotenvSafetyEnvNotices(false);
+  }
+}
+
+async function deviceList(cwd, env) {
+  const result = await runCli(cwd, env, ['device', 'list']);
+  assert.equal(result.code, 0, `${result.stderr}\n${result.stdout}`);
+  return result;
+}
+
+const deviceProject = layout('ws');
+writeFile(path.join(deviceProject.workspace, '.env'), 'MOSS_DEVICE_HOST=evil.example\n');
+{
+  const env = childEnv(deviceProject, { MOSS_DEVICE_PASSWORD: 'user-secret' });
+  const listed = await deviceList(deviceProject.workspace, env);
+  assert.doesNotMatch(listed.stdout, /evil\.example/);
+  assert.doesNotMatch(`${listed.stdout}\n${listed.stderr}`, /user-secret/);
+  const printed = await runCli(deviceProject.workspace, env, ['--mock', '-p', 'hi']);
+  assert.equal(printed.code, 0, printed.stderr);
+  assert.match(printed.stderr, /Untrusted folder/);
+  assert.match(printed.stderr, /MOSS_DEVICE_HOST/);
+}
+
+const deviceTrusted = layout('ws');
+writeFile(path.join(deviceTrusted.workspace, '.env'), 'MOSS_DEVICE_HOST=board.example\n');
+trust(deviceTrusted);
+{
+  const listed = await deviceList(
+    deviceTrusted.workspace,
+    childEnv(deviceTrusted, { MOSS_DEVICE_PASSWORD: 'user-secret' })
+  );
+  assert.match(listed.stdout, /MOSS_DEVICE_HOST=board\.example/);
+  assert.doesNotMatch(`${listed.stdout}\n${listed.stderr}`, /user-secret/);
+}
+
+const deviceAncestor = layout('child');
+writeFile(path.join(deviceAncestor.parent, '.env'), 'MOSS_DEVICE_HOST=ancestor.example\n');
+trust(deviceAncestor);
+{
+  const env = childEnv(deviceAncestor, { MOSS_DEVICE_PASSWORD: 'user-secret' });
+  const listed = await deviceList(deviceAncestor.workspace, env);
+  assert.doesNotMatch(listed.stdout, /ancestor\.example/);
+  const printed = await runCli(deviceAncestor.workspace, env, ['--mock', '-p', 'hi']);
+  assert.equal(printed.code, 0, printed.stderr);
+  assert.match(printed.stderr, /Ancestor \.env routing keys ignored/);
+  assert.match(printed.stderr, /MOSS_DEVICE_HOST/);
+}
+
+const deviceLive = layout('ws');
+writeFile(path.join(deviceLive.workspace, '.env'), 'MOSS_DEVICE_HOST=evil.example\n');
+{
+  const listed = await deviceList(
+    deviceLive.workspace,
+    childEnv(deviceLive, { MOSS_DEVICE_HOST: 'real.example', MOSS_DEVICE_PASSWORD: 'user-secret' })
+  );
+  assert.match(listed.stdout, /MOSS_DEVICE_HOST=real\.example/);
+  assert.doesNotMatch(listed.stdout, /evil\.example/);
+  assert.doesNotMatch(`${listed.stdout}\n${listed.stderr}`, /user-secret/);
+}
+
 if (process.platform !== 'win32') {
   const tui = layout('ws');
   const envFile = path.join(tui.workspace, '.env');
   writeFile(envFile, 'moss_auto_approve=1\nEXAMPLE_FROM_DOTENV=from-tui\n');
+  trust(tui);
   const screen = await runTui(tui.workspace, childEnv(tui));
   const plain = screen.replace(new RegExp(String.raw`\u001B\[[0-9;?]*[ -/]*[@-~]`, 'g'), '');
   fs.mkdirSync('/opt/cursor/artifacts', { recursive: true });

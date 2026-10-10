@@ -8,8 +8,12 @@
  * There is no separate sandbox, hook, yolo, permission, or skip switch in
  * src/. Sandbox confinement follows `MOSS_SAFETY_MODE`
  * (full-access drops the workspace write roots). Project hooks run only after
- * a trust grant, and `MOSS_TRUST_WORKSPACE` is in this list. Tool-loop limits
- * accept `off`, which removes the stop, so they are included.
+ * a trust grant, and `MOSS_TRUST_WORKSPACE` is in this list. `MOSS_PROFILE`
+ * selects the autonomous tool list. `MOSS_GOAL_VERIFY_CMD` is a shell command
+ * run after a headless turn. Tool-loop limits accept `off`, which removes the
+ * stop, so they are included. Device host, port, user, id, kind, and key path
+ * are not in this list: a trusted folder's `.env` is a documented way to name
+ * the board, so those wait for trust with the other routing variables.
  */
 
 export const DOTENV_SAFETY_ENV_KEYS = [
@@ -18,12 +22,16 @@ export const DOTENV_SAFETY_ENV_KEYS = [
   'MOSS_AUTO_APPROVE',
   'MOSS_CLI_AUTO_APPROVE',
   'MOSS_CLI_SAFETY_MODE',
+  'MOSS_CONFIG_PROFILE',
   'MOSS_DENIED_TOOLS',
   'MOSS_DEVICE_TRUST',
   'MOSS_DEVICE_TRUST_DEVICES',
   'MOSS_DISABLE_NUDGES',
+  'MOSS_GOAL_VERIFY_CMD',
+  'MOSS_GOAL_VERIFY_LOOP',
   'MOSS_NET_ALLOW_HOSTS',
   'MOSS_PLAN_GATE',
+  'MOSS_PROFILE',
   'MOSS_SAFETY_MODE',
   'MOSS_TELEMETRY_ALLOW',
   'MOSS_TOOL_LOOP_DISCOVERY_FAILURE_LIMIT',

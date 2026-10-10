@@ -39,13 +39,19 @@ project `.env` stay deferred with the other routing variables.
 
 ### Project `.env` cannot change approval or other safety controls
 
-`MOSS_AUTO_APPROVE` and the other approval, trust, redaction, and tool-permission
-variables are ignored when they come from a project `.env` or an ancestor
-directory's `.env`, whether or not that folder is trusted. They still work from
-the real process environment and from CLI flags. Moss prints one line naming
-the ignored keys and the `.env` path (`-p` and the REPL on stderr; the
-fullscreen TUI in the transcript, because the alternate screen hides earlier
-stderr).
+`MOSS_AUTO_APPROVE`, `MOSS_PROFILE`, `MOSS_CONFIG_PROFILE`,
+`MOSS_GOAL_VERIFY_LOOP`, `MOSS_GOAL_VERIFY_CMD`, and the other approval, trust,
+redaction, and tool-permission variables are ignored when they come from a
+project `.env` or an ancestor directory's `.env`, whether or not that folder is
+trusted. They still work from the real process environment and from CLI flags.
+Moss prints one line naming the ignored keys and the `.env` path (`-p` and the
+REPL on stderr; the fullscreen TUI in the transcript, because the alternate
+screen hides earlier stderr). `MOSS_DEVICE_HOST`, `MOSS_DEVICE_PORT`,
+`MOSS_DEVICE_USER`, `MOSS_DEVICE_ID`, `MOSS_DEVICE_KIND`, and `MOSS_DEVICE_KEY`
+wait for folder trust with the other routing variables, so an untrusted project
+cannot point the user's `MOSS_DEVICE_PASSWORD` at another host. `~/.env` and
+the install directory's `.env` still apply those device fields. That is the
+documented way to name a board.
 
 ### Install and upgrade from a clone
 
