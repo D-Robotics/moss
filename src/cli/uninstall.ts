@@ -32,7 +32,7 @@ export interface UninstallIo {
 }
 
 /** Top-level names Moss writes in the user config directory. */
-const MOSS_CONFIG_ENTRY_NAMES = new Set([
+const CONFIG_DIR_ENTRY_NAMES = new Set([
   '.apikey-key',
   '.env',
   '.moss_onboarding_shown',
@@ -163,8 +163,8 @@ export function mossConfigDeletionList(
       }),
     };
   }
-  const known = names.filter((name) => MOSS_CONFIG_ENTRY_NAMES.has(name));
-  const unexpected = names.filter((name) => !MOSS_CONFIG_ENTRY_NAMES.has(name));
+  const known = names.filter((name) => CONFIG_DIR_ENTRY_NAMES.has(name));
+  const unexpected = names.filter((name) => !CONFIG_DIR_ENTRY_NAMES.has(name));
   if (unexpected.length > 0) {
     const shown = unexpected.slice(0, 5);
     const extra = unexpected.length - shown.length;
