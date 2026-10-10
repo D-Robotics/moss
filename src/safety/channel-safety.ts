@@ -34,6 +34,19 @@ const DANGEROUS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 
   { pattern: at('(?:mkfs(?:\\.\\w+)?|fdisk)\\b'), reason: '禁止格式化磁盘操作' },
   { pattern: /\bformat\s+[a-zA-Z]:/i, reason: '禁止格式化磁盘操作' },
+  { pattern: at('Format-Volume\\b'), reason: '禁止格式化磁盘操作' },
+  {
+    pattern: at(
+      'Remove-Item\\b(?=[^\\n|;&]*-Recurse\\b)(?=[^\\n|;&]*-Force\\b)(?=[^\\n|;&]*["\']?[A-Za-z]:[/\\\\])'
+    ),
+    reason: '禁止递归删除根目录或用户目录',
+  },
+  {
+    pattern: at(
+      '(?:rd|rmdir)\\b(?=[^\\n|;&]*\\/s\\b)(?=[^\\n|;&]*\\/q\\b)(?=[^\\n|;&]*["\']?[A-Za-z]:[/\\\\])'
+    ),
+    reason: '禁止递归删除根目录或用户目录',
+  },
   { pattern: /\bdd\s+.*of=\/dev\//i, reason: '禁止直接写入设备' },
   // Redirection to a /dev/ device (e.g. `echo x > /dev/sda`, `cat file >> /dev/sda`,
   // `cat file 2>/dev/sda`, `cat file &>/dev/sda`) — corrupts the disk like dd
