@@ -55,6 +55,15 @@ test('extractor: write-tool operands', () => {
   assert.ok(extractShellWriteTargets(`rm ${outside}/file`).includes(`${outside}/file`));
   assert.ok(extractShellWriteTargets(`sed -i s/a/b/ ${outside}/f`).includes(`${outside}/f`));
   assert.ok(extractShellWriteTargets(`truncate -s 0 ${outside}/log`).includes(`${outside}/log`));
+  assert.ok(extractShellWriteTargets(`Remove-Item ${outside}/file`).includes(`${outside}/file`));
+  assert.ok(
+    extractShellWriteTargets(`Set-Content -Path ${outside}/a.txt -Value hi`).includes(
+      `${outside}/a.txt`
+    )
+  );
+  assert.ok(
+    extractShellWriteTargets(`Out-File -FilePath ${outside}/b.txt`).includes(`${outside}/b.txt`)
+  );
   // sed WITHOUT -i reads only
   assert.deepEqual(extractShellWriteTargets(`sed s/a/b/ ${outside}/f`), []);
 });

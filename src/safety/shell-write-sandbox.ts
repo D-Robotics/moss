@@ -82,7 +82,7 @@ function redirectionTargets(segment: string): string[] {
 function operandTargets(segment: string): string[] {
   const tokens = tokensOf(segment);
   if (tokens.length === 0) return [];
-  const head = tokens[0]!.split(/[\\/]/).pop()!;
+  const head = tokens[0]!.split(/[\\/]/).pop()!.toLowerCase();
   const args = tokens.slice(1);
   const nonFlags = args.filter((t) => !t.startsWith('-'));
   const last = nonFlags[nonFlags.length - 1];
@@ -132,6 +132,13 @@ function operandTargets(segment: string): string[] {
     }
     case 'sed':
       return args.some((t) => /^-[a-zA-Z]*i[a-zA-Z]*$/.test(t)) ? nonFlags : [];
+    case 'remove-item':
+    case 'ri':
+    case 'set-content':
+    case 'out-file':
+    case 'add-content':
+    case 'clear-content':
+      return nonFlags;
     default:
       return [];
   }

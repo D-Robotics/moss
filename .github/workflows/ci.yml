@@ -109,3 +109,36 @@ jobs:
           MOSS_REAL_TERMINALS: '1'
           MOSS_REAL_TERMINAL_TIMEOUT: '60'
         run: node test/tui-real-terminals.spec.mjs
+
+  # The OS matrix runs the suite on windows-latest, but those specs inject a
+  # fake PATH lookup. This job uses the runner's real pwsh 7 and fails if
+  # exec would fall through to Windows PowerShell 5.1 or cmd.
+  windows-shell:
+    name: Windows shell (pwsh 7)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Exec shell is PowerShell 7
+        shell: pwsh
+        run: |
+          $major = $PSVersionTable.PSVersion.Major
+          if ($major -lt 7) { throw "runner pwsh $major is older than 7" }
+          node --input-type=module -e "import { resolveHostShell } from './dist/utils/host-shell.js'; const shell = resolveHostShell(); if (shell.kind !== 'pwsh') { console.error(shell); process.exit(1); } console.log(shell.kind + ' ' + shell.executable);"
+
+      - name: Host shell and write-sandbox specs
+        run: node test/host-shell.spec.mjs && node test/shell-write-sandbox.spec.mjs
