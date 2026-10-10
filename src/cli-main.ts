@@ -1524,45 +1524,37 @@ main().catch((err) => {
   // Provider-level errors: print a clean, actionable diagnostic — never claim
   // it's a bug. Auth failures, rate limits, network timeouts, and context
   // overflows are external conditions, not code defects.
-  if (code === ExitCode.PROVIDER_AUTH) {
-    console.error(mossLine('[moss] Authentication failed: {message}', { message }));
-    console.error(
-      mossLine('[moss] Check your API key with `moss config show`, or re-run `moss setup`.')
-    );
-    process.exit(code);
-  }
-  if (code === ExitCode.RATE_LIMIT) {
-    console.error(mossLine('[moss] Rate limited: {message}', { message }));
-    console.error(
-      mossLine(
-        '[moss] Wait a moment and try again. Consider setting a lower model or reducing prompt size.'
-      )
-    );
-    process.exit(code);
-  }
-  if (code === ExitCode.PROVIDER_UPSTREAM) {
-    console.error(mossLine('[moss] Provider error: {message}', { message }));
-    console.error(
-      mossLine(
-        '[moss] The upstream API returned an error. Check your network, base URL, and model name.'
-      )
-    );
-    process.exit(code);
-  }
-  if (code === ExitCode.CONFIG) {
-    console.error(mossLine('[moss] Configuration error: {message}', { message }));
-    console.error(
-      mossLine('[moss] Run `moss config show` to inspect settings, or `moss setup` to reconfigure.')
-    );
-    process.exit(code);
-  }
-
-  // Session errors: the user's session data is the problem, not the code.
-  if (code === ExitCode.SESSION) {
-    console.error(mossLine('[moss] Session error: {message}', { message }));
-    console.error(
-      mossLine('[moss] List saved sessions with `moss sessions`, or start a new one with `moss`.')
-    );
+  const fatal: ReadonlyArray<readonly [number, string, string]> = [
+    [
+      ExitCode.PROVIDER_AUTH,
+      '[moss] Authentication failed: {message}',
+      '[moss] Check your API key with `moss config show`, or re-run `moss setup`.',
+    ],
+    [
+      ExitCode.RATE_LIMIT,
+      '[moss] Rate limited: {message}',
+      '[moss] Wait a moment and try again. Consider setting a lower model or reducing prompt size.',
+    ],
+    [
+      ExitCode.PROVIDER_UPSTREAM,
+      '[moss] Provider error: {message}',
+      '[moss] The upstream API returned an error. Check your network, base URL, and model name.',
+    ],
+    [
+      ExitCode.CONFIG,
+      '[moss] Configuration error: {message}',
+      '[moss] Run `moss config show` to inspect settings, or `moss setup` to reconfigure.',
+    ],
+    [
+      ExitCode.SESSION,
+      '[moss] Session error: {message}',
+      '[moss] List saved sessions with `moss sessions`, or start a new one with `moss`.',
+    ],
+  ];
+  for (const [exit, head, tail] of fatal) {
+    if (code !== exit) continue;
+    console.error(mossLine(head, { message }));
+    console.error(mossLine(tail));
     process.exit(code);
   }
 

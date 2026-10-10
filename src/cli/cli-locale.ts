@@ -49,8 +49,6 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   '{back} Type "save anyway" or press 1 to write this config. Enter goes back.':
     '{back}输入「仍然保存」或按 1 写入配置。Enter 返回。',
   'save anyway': '仍然保存',
-  'Type "save anyway" to write this config, or press Enter to go back: ':
-    '输入「仍然保存」写入配置，或直接按 Enter 返回：',
   'Save this config anyway? [y/N] ': '仍然保存？[y/N] ',
   'Model name: ': '模型名：',
   'The gateway returned HTTP {status} without a model reply. Check the base URL.':
