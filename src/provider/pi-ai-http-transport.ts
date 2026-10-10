@@ -284,15 +284,69 @@ function piMessagesToAnthropic(context: PiContext): Array<Record<string, unknown
   return out;
 }
 
-function piMessagesToOpenAI(
-  context: PiContext
-): Array<{ role: string; content?: unknown; tool_calls?: unknown; tool_call_id?: string }> {
-  const out: Array<{
-    role: string;
-    content?: unknown;
-    tool_calls?: unknown;
-    tool_call_id?: string;
-  }> = [];
+type OpenAiChatMessage = {
+  role: string;
+  content?: unknown;
+  tool_calls?: unknown;
+  tool_call_id?: string;
+};
+
+/** Bytes shared with the persisted user-message suffix in moss-agent. */
+export function dynamicTurnContextBlock(dynamic: string): string {
+  return `<turn-context>\n${dynamic.trim()}\n</turn-context>`;
+}
+
+function openAiContentIncludes(message: OpenAiChatMessage, needle: string): boolean {
+  if (message.role !== 'user') return false;
+  if (typeof message.content === 'string') return message.content.includes(needle);
+  if (!Array.isArray(message.content)) return false;
+  return message.content.some((part) => {
+    if (!part || typeof part !== 'object') return false;
+    if (!('text' in part)) return false;
+    const text = part.text;
+    return typeof text === 'string' && text.includes(needle);
+  });
+}
+
+/**
+ * OpenAI-compatible chat messages. Gateways put `tools` after the system
+ * message, so a volatile suffix inside system (MCP connect, git, cwd, date)
+ * invalidates the tool-schema cache. The system message is the stable part
+ * only. Dynamic text rides a user message after tools, and only when that
+ * exact block is not already in history — re-attaching it to the latest user
+ * message would change older turns and break the prefix cache.
+ * Does not mutate `context`.
+ */
+export function openAiChatMessages(context: PiContext): OpenAiChatMessage[] {
+  const parts = context.systemPromptParts;
+  const useStable = typeof parts?.stable === 'string' && parts.stable.length > 0;
+  const system = useStable ? parts.stable : context.systemPrompt;
+  const dynamic = useStable && typeof parts?.dynamic === 'string' ? parts.dynamic.trim() : '';
+  const messages = piMessagesToOpenAI({ ...context, systemPrompt: system });
+  if (!dynamic) return messages;
+  const wrapped = dynamicTurnContextBlock(dynamic);
+  if (messages.some((message) => openAiContentIncludes(message, wrapped))) return messages;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (!msg || msg.role !== 'user') continue;
+    if (typeof msg.content === 'string') {
+      messages[i] = { ...msg, content: `${msg.content}\n\n${wrapped}` };
+      return messages;
+    }
+    if (Array.isArray(msg.content)) {
+      messages[i] = {
+        ...msg,
+        content: [...msg.content, { type: 'text', text: wrapped }],
+      };
+      return messages;
+    }
+  }
+  messages.push({ role: 'user', content: wrapped });
+  return messages;
+}
+
+function piMessagesToOpenAI(context: PiContext): OpenAiChatMessage[] {
+  const out: OpenAiChatMessage[] = [];
   if (context.systemPrompt) {
     out.push({ role: 'system', content: context.systemPrompt });
   }
@@ -471,7 +525,7 @@ async function* streamOpenAiChat(
   const baseBody: Record<string, unknown> = {
     model: model.id || config.model,
     max_tokens: options?.maxTokens ?? 4096,
-    messages: piMessagesToOpenAI(context),
+    messages: openAiChatMessages(context),
   };
   const tools = context.tools ?? [];
   if (tools.length > 0) {

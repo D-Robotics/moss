@@ -10,7 +10,7 @@ import {
   saveConfigFile,
   type ConfigFile,
 } from './config.js';
-import { isZhLocale, setupCopy } from './cli-locale.js';
+import { isZhLocale, setupCopy as copy } from './cli-locale.js';
 import {
   credentialById,
   detectEnvCredentials,
@@ -24,7 +24,11 @@ import {
   type ConnectionFailure,
   type ProbeResult,
 } from './connection-probe.js';
-import { PROVIDER_PRESETS, type CliProviderPreset } from '../provider/provider-presets.js';
+import {
+  parseProviderPreset,
+  PROVIDER_PRESETS,
+  type CliProviderPreset,
+} from '../provider/provider-presets.js';
 import { cleanGatewayUrl, isHttpUrl } from '../provider/api-v1-url.js';
 
 export interface SetupProviderChoice {
@@ -58,19 +62,6 @@ export const SETUP_PROVIDERS: readonly SetupProviderChoice[] = SETUP_ORDER.map((
   en: SETUP_LABELS[id].en,
   zh: SETUP_LABELS[id].zh,
 }));
-
-const PROVIDER_ALIASES: Record<string, CliProviderPreset> = {
-  ds: 'deepseek',
-  aliyun: 'qwen',
-  dashscope: 'qwen',
-  claude: 'anthropic',
-  compatible: 'openai-compatible',
-  custom: 'openai-compatible',
-  gateway: 'openai-compatible',
-  drobotics: 'd-robotics',
-  digua: 'd-robotics',
-  地瓜: 'd-robotics',
-};
 
 export function isSaveAnywayAnswer(answer: string): boolean {
   const text = answer.trim();
@@ -132,14 +123,6 @@ export interface FirstRunReduction {
   saved?: FirstRunSaved;
 }
 
-function copy(
-  locale: string | undefined,
-  en: string,
-  vars?: Record<string, string | number>
-): string {
-  return setupCopy(locale, en, vars);
-}
-
 /** User file names `apiKeyEnv` and neither provider nor base URL. */
 export function pendingUserApiKeyEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
   if (!env.MOSS_CONFIG_DIR && !env.HOME && !env.USERPROFILE) return undefined;
@@ -171,7 +154,10 @@ function providerFromInput(text: string, cursor: number): CliProviderPreset | nu
   const normalized = text.trim().toLowerCase();
   if (!normalized) return SETUP_PROVIDERS[cursor]?.id ?? 'd-robotics';
   const byKey = SETUP_PROVIDERS.find((item) => item.key === normalized || item.id === normalized);
-  return byKey?.id ?? PROVIDER_ALIASES[normalized] ?? null;
+  if (byKey) return byKey.id;
+  // `gateway` is setup-only. parseProviderPreset does not accept it.
+  if (normalized === 'gateway') return 'openai-compatible';
+  return parseProviderPreset(normalized);
 }
 
 function editDistance(leftRaw: string, rightRaw: string): number {
@@ -235,15 +221,6 @@ export function interpretModelInput(
         )
       : copy(locale, '"{text}" is not in the list. Pick one of the numbered models.', { text }),
   };
-}
-
-export function resolveSetupModelChoice(
-  input: string,
-  models: readonly string[],
-  fallback: string
-): string {
-  const picked = interpretModelInput(input, models, fallback);
-  return picked.reject ? '' : picked.model || fallback || input.trim();
 }
 
 function go(
@@ -488,18 +465,11 @@ function reduceModel(
   if (!model) return go(view, { error: copy(locale, 'Type a model name or its number.') });
   const provider = view.provider ?? 'openai-compatible';
   const baseUrl = view.baseUrl ?? '';
-  if (view.commitOnModel) {
+  // A listed /v1/models response already proved the key and the URL.
+  if (view.commitOnModel || models.length > 0) {
     return go(
       view,
       { step: 'working', model, error: undefined, commitOnModel: undefined },
-      { saved: savedConfig(view, provider, baseUrl, model) }
-    );
-  }
-  // A successful /v1/models response already proved the key and the URL.
-  if (models.length > 0) {
-    return go(
-      view,
-      { step: 'working', model, error: undefined },
       { saved: savedConfig(view, provider, baseUrl, model) }
     );
   }
@@ -556,61 +526,43 @@ function routeFailure(
   view: FirstRunView,
   result: ConnectionFailure,
   source: 'models' | 'probe'
-): { view: FirstRunView; clearSecret?: boolean } {
+): { view: FirstRunView } {
   const provider = view.provider ?? view.pending?.provider ?? 'openai-compatible';
   const baseUrl = view.baseUrl ?? view.pending?.baseUrl ?? '';
   const model = view.model ?? view.pending?.model ?? '';
+  const withError = (patch: Partial<FirstRunView>): { view: FirstRunView } => ({
+    view: { ...view, ...patch, error: result.message },
+  });
   if (result.kind === 'auth') {
-    return {
-      view: {
-        ...view,
-        step: 'error',
-        failStep: 'key',
-        keyDots: 0,
-        error: result.message,
-        pending: undefined,
-      },
-    };
+    return withError({ step: 'error', failStep: 'key', keyDots: 0, pending: undefined });
   }
   if (result.kind === 'model') {
-    return {
-      view: {
-        ...view,
-        step: 'model',
-        error: result.message,
-        pending: undefined,
-        ...(source === 'models' ? { models: [], cursor: 0 } : {}),
-      },
-    };
+    return withError({
+      step: 'model',
+      pending: undefined,
+      ...(source === 'models' ? { models: [], cursor: 0 } : {}),
+    });
   }
   const transport = result.kind === 'network' || result.kind === 'tls' || result.kind === 'timeout';
   if (transport && provider === 'openai-compatible') {
-    return {
-      view: {
-        ...view,
-        step: 'url',
-        error: result.message,
-        pending: undefined,
-        failStep: 'url',
-        ...(source === 'models' ? { notice: undefined } : {}),
-      },
-    };
+    return withError({
+      step: 'url',
+      pending: undefined,
+      failStep: 'url',
+      ...(source === 'models' ? { notice: undefined } : {}),
+    });
   }
   const pending =
     view.pending ??
     (source === 'models'
       ? { type: 'models' as const, provider, baseUrl }
       : { type: 'probe' as const, provider, baseUrl, model });
-  return {
-    view: {
-      ...view,
-      step: 'error',
-      error: result.message,
-      pending,
-      ...(source === 'models' ? { notice: undefined } : {}),
-      ...(source === 'probe' ? { failStep: 'provider' as const } : {}),
-    },
-  };
+  return withError({
+    step: 'error',
+    pending,
+    ...(source === 'models' ? { notice: undefined } : {}),
+    ...(source === 'probe' ? { failStep: 'provider' as const } : {}),
+  });
 }
 
 export function applyModelsResult(
@@ -637,7 +589,7 @@ export function applyModelsResult(
 export function applyProbeResult(
   view: FirstRunView,
   result: ProbeResult
-): { view: FirstRunView; saved?: FirstRunSaved; clearSecret?: boolean } {
+): { view: FirstRunView; saved?: FirstRunSaved } {
   const provider = view.provider ?? view.pending?.provider ?? 'openai-compatible';
   const baseUrl = view.baseUrl ?? view.pending?.baseUrl ?? '';
   const model = view.model ?? view.pending?.model ?? '';
@@ -656,7 +608,7 @@ export async function settleFirstRunJob(
   job: FirstRunJob,
   apiKey: string,
   locale?: string
-): Promise<{ view: FirstRunView; saved?: FirstRunSaved; clearSecret?: boolean; message?: string }> {
+): Promise<{ view: FirstRunView; saved?: FirstRunSaved; message?: string }> {
   if (job.type === 'models') {
     const listed = await fetchGatewayModels({ baseUrl: job.baseUrl, apiKey, locale });
     return {

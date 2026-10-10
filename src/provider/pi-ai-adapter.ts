@@ -80,6 +80,17 @@ function buildAnthropicSplitSystemBlocks(
   return blocks;
 }
 
+function payloadAlreadyCarriesDynamic(payload: Record<string, unknown>, dynamic: string): boolean {
+  const body = dynamic.trim();
+  if (!body) return false;
+  const block = `<turn-context>\n${body}\n</turn-context>`;
+  try {
+    return JSON.stringify(payload.messages ?? null).includes(block);
+  } catch {
+    return false;
+  }
+}
+
 function applyAnthropicSystemPromptPartsToPayload(
   payload: unknown,
   systemPrompt: string,
@@ -87,10 +98,16 @@ function applyAnthropicSystemPromptPartsToPayload(
 ): void {
   if (!parts?.stable || !isRecord(payload)) return;
   const system = payload.system;
+  // The dynamic suffix is already on the user message that introduced it.
+  // Sending it again as a system block would bill it twice.
+  const wireParts =
+    parts.dynamic && payloadAlreadyCarriesDynamic(payload, parts.dynamic)
+      ? { stable: parts.stable }
+      : parts;
 
   if (typeof system === 'string') {
     if (system !== systemPrompt) return;
-    payload.system = buildAnthropicSplitSystemBlocks(parts, DEFAULT_ANTHROPIC_CACHE_CONTROL);
+    payload.system = buildAnthropicSplitSystemBlocks(wireParts, DEFAULT_ANTHROPIC_CACHE_CONTROL);
     return;
   }
 
@@ -105,7 +122,7 @@ function applyAnthropicSystemPromptPartsToPayload(
     isRecord(targetBlock) && targetBlock.cache_control !== undefined
       ? targetBlock.cache_control
       : DEFAULT_ANTHROPIC_CACHE_CONTROL;
-  system.splice(targetIndex, 1, ...buildAnthropicSplitSystemBlocks(parts, cacheControl));
+  system.splice(targetIndex, 1, ...buildAnthropicSplitSystemBlocks(wireParts, cacheControl));
 }
 
 export { PiAiFirstEventTimeoutError } from './pi-ai-watchdog.js';

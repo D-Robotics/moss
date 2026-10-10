@@ -3,6 +3,7 @@ import * as readline from 'node:readline';
 import { stdin as input, stderr as output } from 'node:process';
 import { cleanGatewayUrl } from '../provider/api-v1-url.js';
 import { isZhLocale, setupCopy } from './cli-locale.js';
+import { WORKSPACE_WRITE_LIMIT_EN } from './workspace-write-copy.js';
 import {
   loadCliConfigFile,
   loadConfigFile,
@@ -231,10 +232,7 @@ export function sanitizeBaseUrl(value: string): string {
 }
 
 const MODEL_SIGNATURES: Record<CliProviderPreset, { prefixes: string[]; names: string[] }> = {
-  deepseek: {
-    prefixes: ['deepseek-'],
-    names: ['deepseek-v4-flash', 'deepseek-v4-pro'],
-  },
+  deepseek: { prefixes: ['deepseek-'], names: ['deepseek-v4-flash', 'deepseek-v4-pro'] },
   qwen: {
     prefixes: ['qwen-', 'qwen3', 'qvq-', 'qwq-'],
     names: ['qwen3.6-plus', 'qwen3.7-max', 'qwen3.6-flash', 'qwen-plus', 'qwen-max', 'qwen-turbo'],
@@ -356,6 +354,7 @@ async function printSetupSuccess({
   );
   print(L('Avoid sharing or committing this file. Run `moss auth logout` to remove the key.'));
   print(L('Next: ask moss to look around this folder (`moss` or `moss "explain this project"`).'));
+  print(L(WORKSPACE_WRITE_LIMIT_EN));
 }
 
 /** Readline driver over `reduceFirstRun`. Prompts are the state machine's lines. */
@@ -448,12 +447,10 @@ export async function runSetupWizard(): Promise<void> {
     }
     if (choice.kind === 'yes') return commitAnyway();
     if (view.step === 'error') {
-      const back = view.failStep ?? 'provider';
-      if (back === 'key') secret = '';
-      view = { ...view, step: back, error: undefined, keyDots: 0 };
-    } else {
-      view = { ...view, error: undefined };
-    }
+      const reduced = reduceFirstRun(view, { type: 'escape' }, secret);
+      if (reduced.secretOp === 'clear') secret = '';
+      view = reduced.view;
+    } else view = { ...view, error: undefined };
     return 'continue';
   };
 
@@ -473,19 +470,14 @@ export async function runSetupWizard(): Promise<void> {
       if (view.step === 'key' && (row === keyPrompt || row.startsWith(keyPrompt))) continue;
       print(row);
     }
-    if (view.step === 'error' && view.failStep === 'key') {
-      const pasted = await readAnswer(keyPrompt, true);
-      if (pasted) {
-        acceptKey(pasted);
-        continue;
-      }
-      const outcome = await applyChoice(
-        await readExplicitChoice(L('Save this config anyway? [y/N] '))
-      );
-      if (outcome !== 'continue') return;
-      continue;
-    }
     if (view.step === 'error' || (view.error && view.step !== 'key')) {
+      if (view.step === 'error' && view.failStep === 'key') {
+        const pasted = await readAnswer(keyPrompt, true);
+        if (pasted) {
+          acceptKey(pasted);
+          continue;
+        }
+      }
       const outcome = await applyChoice(
         await readExplicitChoice(L('Save this config anyway? [y/N] '))
       );

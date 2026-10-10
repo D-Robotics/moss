@@ -565,6 +565,12 @@ const provider = {
               content: [
                 {
                   type: 'tool_use',
+                  id: 'load-1',
+                  name: 'tool_search',
+                  input: { group: 'subagent' },
+                },
+                {
+                  type: 'tool_use',
                   id: 'spawn-1',
                   name: 'create_subagent',
                   input: { task: 'Write secret.txt', expert: 'writer' },

@@ -259,6 +259,8 @@ test('a connected fixture adds the usage pointer and the skill index', async () 
     assert.match(combined, /mcp__rdk-docs__search/);
     assert.match(knowledge, /official-start/);
     assert.match(knowledge, /manual filter/);
+    assert.match(knowledge, /Judge the snippet/);
+    assert.match(knowledge, /do not answer from another board's page/);
     assert.equal(knowledge, RDK_DOCS_CONNECTED_LAYER);
     assert.match(knowledge, /record_evidence only when a task contract is already open/);
     assert.doesNotMatch(knowledge, /copy it into observed/);

@@ -2,6 +2,7 @@ import { resolveConfigPath } from './config.js';
 import { REPL_COMMAND_SECTIONS } from './interactive-commands.js';
 import { getPackageVersion } from './package-info.js';
 import { isZhLocale } from './cli-locale.js';
+import { workspaceWriteLimit } from './workspace-write-copy.js';
 
 type ColorFn = (s: string) => string;
 
@@ -37,6 +38,7 @@ export function briefHelpLines(c: Colors, configPath: string, zh: boolean): stri
         ? `    ${c.green('Ctrl+V')}              粘贴剪贴板图片 / Finder 文件 / 路径（macOS；Linux: wl-paste/xclip；Windows: PowerShell）`
         : `    ${c.green('Ctrl+V')}              粘贴剪贴板图片或路径（Linux 需 wl-paste 或 xclip）`,
       '',
+      `  ${c.dim(workspaceWriteLimit(true))}`,
       `  ${c.dim('完整参考：moss --help --all · 配置参考：moss config --help')}`,
       `  ${c.dim(`配置文件：${configPath}`)}`,
       '',
@@ -60,6 +62,7 @@ export function briefHelpLines(c: Colors, configPath: string, zh: boolean): stri
       ? `    ${c.green('Ctrl+V')}              attach clipboard image / Finder file / path (macOS; Linux: wl-paste/xclip; Windows: PowerShell)`
       : `    ${c.green('Ctrl+V')}              attach clipboard image or path (install wl-paste or xclip on Linux)`,
     '',
+    `  ${c.dim(workspaceWriteLimit(false))}`,
     `  ${c.dim('Full reference: moss --help --all · config reference: moss config --help')}`,
     `  ${c.dim(`Config file: ${configPath}`)}`,
     '',
@@ -101,7 +104,7 @@ export function fullHelpLines(c: Colors, configPath: string): string[] {
     `    ${c.yellow('-c, --config')} k=v    override profile/model/provider/baseUrl/workspace/policy`,
     `    ${c.yellow('--session')} <key> · ${c.yellow('--last')}      named / latest session`,
     `    ${c.yellow('-C, --cd')} <dir>       use a different workspace`,
-    `    ${c.yellow('--read-only')} · ${c.yellow('--workspace-write')} · ${c.yellow('--full-access')}   mode overrides: manual+ceiling / manual / full (the v0.26 default equivalent; deny rules + hard blocks still apply)`,
+    `    ${c.yellow('--read-only')} · ${c.yellow('--workspace-write')} · ${c.yellow('--full-access')}   mode overrides: manual+ceiling / manual / full (deny rules and hard blocks still apply). ${workspaceWriteLimit(false)}`,
     `    ${c.yellow('--trust-device')}   destructive device ops this process · ${c.yellow('--trust-workspace')}   run project hooks and stdio MCP`,
     `    ${c.yellow('--accept-edits')} · ${c.yellow('--plan')} · ${c.yellow('--ask-for-approval')} <never|prompt>   other mode overrides (mutually exclusive)`,
     `    ${c.yellow('--mock')} · ${c.yellow('--json')} · ${c.yellow('--output-format')} <f>   offline · machine-readable output`,

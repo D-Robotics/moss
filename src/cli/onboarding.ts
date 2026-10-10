@@ -24,6 +24,7 @@ import {
 } from './doctor.js';
 import { isZhLocale } from './cli-locale.js';
 import { PermissionRuleRegistry } from './permission-rules.js';
+import { workspaceWriteLimit } from './workspace-write-copy.js';
 
 export interface CliRuntimeStatus {
   workspace?: string;
@@ -147,6 +148,7 @@ const TOOL_GROUPS: ToolGroupDef[] = [
     id: 'agent',
     title: 'Sub-agents',
     names: [
+      'tool_search',
       'create_subagent',
       'subagent_status',
       'subagent_stop',
@@ -216,52 +218,7 @@ export function renderCliWelcome(agent: MossAgent, runtime: CliRuntimeStatus = {
     zh
       ? `${ui.dim('下一步')} 让我看看这个目录里有什么。`
       : `${ui.dim('Next')} ask me to look around this folder.`,
-  ].join('\n');
-}
-
-export function renderCliQuickStart(agent: MossAgent, runtime: CliRuntimeStatus = {}): string {
-  const rt = runtimeWithDefaults(runtime);
-  const auth = rt.config;
-  const toolNames = new Set(agent.tools.getNames());
-  const apiKeyState = auth.usingBundledDefault
-    ? 'built-in model (no model key required)'
-    : auth.apiKey
-      ? `configured via ${auth.apiKeySource}`
-      : 'missing';
-  const examples = [
-    'Analyze this project structure and point out the key entry files and next steps',
-    toolNames.has('exec')
-      ? 'Check which scripts package.json defines, then suggest one command to verify the project'
-      : null,
-    toolNames.has('search_code')
-      ? 'Find where the CLI parses arguments and summarize the flow in a few lines'
-      : null,
-    toolNames.has('run_tests')
-      ? 'Run the test suite, then summarize the failures with the smallest next fix'
-      : null,
-  ].filter(Boolean) as string[];
-
-  return [
-    ui.bold(ui.black('Quick start')),
-    '',
-    `  ${label('1/3 Model')} ${agent.config.model} · provider ${auth.usingBundledDefault ? 'built-in model gateway' : auth.provider} · api key ${apiKeyState}`,
-    auth.usingBundledDefault
-      ? '      Built-in model gateway is ready without a model API key. Optional: `moss setup` uses your own provider.'
-      : auth.apiKey
-        ? '      Change it anytime: run `moss setup` (interactive), or `/model` to choose a model for this session.'
-        : '      Configure it: run `moss setup` — choose a provider, choose a model, and paste your API key.',
-    '      A saved moss config wins. On a blank first run, moss offers OPENAI_API_KEY, DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, and DASHSCOPE_API_KEY (the value is not printed). Set apiKeyEnv to read a key from the environment instead of storing it.',
-    `      Settings are saved to ${compactPath(auth.configPath)} — inspect them with /permissions.`,
-    '',
-    `  ${label('2/3 Workspace')} ${compactPath(rt.workspace)} · safety ${rt.safetyMode}`,
-    '      The workspace is the folder you launch Moss in — cd into your project first, then run `moss`.',
-    '      Set it without moving: `moss config set workspace /path/to/project`. See the full picture with /status.',
-    '      Control what Moss may change: `moss config set safetyMode read-only|workspace-write|full-access` (or /permissions).',
-    '',
-    `  ${label('3/3 Try')} ask for an outcome in plain language — Moss chooses the tools automatically:`,
-    ...examples.slice(0, 4).map((example) => `      - ${example}`),
-    '',
-    `  ${label('Customize')} drop an AGENTS.md in your workspace (or run /init) — it is auto-loaded into every session as your project's system prompt (build/test commands, layout, conventions).`,
+    ui.dim(workspaceWriteLimit(zh)),
   ].join('\n');
 }
 
@@ -387,7 +344,7 @@ const PERMISSIONS_HELP_TEXT = [
   '',
   '  One mode axis — /mode (Shift+Tab cycles four states, v0.26):',
   '    /mode manual        approve mutations one by one',
-  '    /mode accept-edits  auto-approve sandboxed workspace edits',
+  '    /mode accept-edits  auto-approve workspace file-tool edits',
   '    /mode plan          read-only planning (mutations blocked)',
   '    /mode full          skip prompts (default) — deny rules still apply',
   '',
@@ -455,6 +412,7 @@ export function renderCliPermissions(
       ...configSnapshotLines(auth, ['configPath', 'profile']),
       `  ${label('workspace')} ${auth.workspace} (${auth.workspaceSource})`,
       `  ${label(zh ? '默认模式' : 'default mode')} ${modeLabel}${ceiling ? ' + read-only ceiling' : ''} (${permissions?.source ?? 'default'})`,
+      `  ${workspaceWriteLimit(zh)}`,
       `  ${label('rules')} allow ${allowCount} · ask ${askCount} · deny ${denyCount}`,
       ...(liveRules.length > 0
         ? [zh ? '  规则表：' : '  Rule table:']
@@ -487,6 +445,7 @@ export function renderCliPermissions(
   return [
     ui.bold(ui.black(zh ? '权限' : 'Permissions')),
     `  ${label(zh ? '默认模式' : 'default mode')} ${modeLabel}${ceiling ? ' (read-only ceiling)' : ''}`,
+    `  ${workspaceWriteLimit(zh)}`,
     `  ${label(zh ? '工作区' : 'workspace')} ${auth.workspace}`,
     `  ${label(zh ? '规则' : 'rules')} ${
       allowCount + askCount + denyCount === 0

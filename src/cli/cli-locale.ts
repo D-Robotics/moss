@@ -1,4 +1,5 @@
 import { preferredLocale } from '../utils/locale-preference.js';
+import { WORKSPACE_WRITE_LIMIT_EN, WORKSPACE_WRITE_LIMIT_ZH } from './workspace-write-copy.js';
 
 /** Resolve the CLI locale from environment variables. */
 export function cliLocale(): string | undefined {
@@ -49,8 +50,6 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
   '{back} Type "save anyway" or press 1 to write this config. Enter goes back.':
     '{back}输入「仍然保存」或按 1 写入配置。Enter 返回。',
   'save anyway': '仍然保存',
-  'Type "save anyway" to write this config, or press Enter to go back: ':
-    '输入「仍然保存」写入配置，或直接按 Enter 返回：',
   'Save this config anyway? [y/N] ': '仍然保存？[y/N] ',
   'Model name: ': '模型名：',
   'The gateway returned HTTP {status} without a model reply. Check the base URL.':
@@ -71,6 +70,7 @@ const SETUP_ZH: Readonly<Record<string, string>> = {
     '不要分享或提交这个文件。运行 `moss auth logout` 可以删掉 key。',
   'Next: ask moss to look around this folder (`moss` or `moss "explain this project"`).':
     '下一步：让 moss 看看这个目录（运行 `moss`，或 `moss "介绍一下这个项目"`）。',
+  [WORKSPACE_WRITE_LIMIT_EN]: WORKSPACE_WRITE_LIMIT_ZH,
   '{names} is set. Run `moss` and press Enter to use it (the value is not printed).':
     '已设置 {names}。运行 `moss` 并按 Enter 使用（不会打印内容）。',
   'Moss needs a model configuration before it can run.': 'Moss 需要先配好模型才能运行。',
@@ -209,8 +209,11 @@ export function formatInteractionModeNotice(mode: string, locale?: string): stri
 
 /** One-shot notice when full mode has no deny rules. */
 export function formatFullModeNotice(locale?: string): string {
-  return isZhLocale(locale)
-    ? '[moss] 默认 full 模式没有拒绝规则；用 /permissions 添加（例如 deny read_file(./.env)）以继续拦截敏感工具。此提示只显示一次。'
+  const zh = isZhLocale(locale);
+  const limit = setupCopy(locale, WORKSPACE_WRITE_LIMIT_EN);
+  return zh
+    ? `[moss] 默认 full 模式没有拒绝规则；用 /permissions 添加（例如 deny read_file(./.env)）以继续拦截敏感工具。${limit}此提示只显示一次。`
     : '[moss] Default full mode has no deny rules; add them with /permissions ' +
-        '(e.g. deny read_file(./.env)) to keep sensitive tools gated. This notice shows once.';
+        '(e.g. deny read_file(./.env)) to keep sensitive tools gated. ' +
+        `${limit} This notice shows once.`;
 }
