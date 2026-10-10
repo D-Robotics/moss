@@ -23,10 +23,8 @@ import {
 } from '../dist/cli/cli-locale.js';
 import { setTuiLocale } from '../dist/cli/tui/copy.js';
 import { installUiLanguage } from '../dist/utils/ui-language.js';
-import {
-  deviceUnreachableCopy,
-  SshDeviceConnection,
-} from '../dist/device/ssh-device-connection.js';
+import { formatDeviceConnectError } from '../dist/device/device-connect-error.js';
+import { SshDeviceConnection } from '../dist/device/ssh-device-connection.js';
 import { formatMcpStartupLine } from '../dist/cli/rdk-docs-mcp.js';
 import {
   describeToolCall,
@@ -44,9 +42,11 @@ const cli = path.join(repoRoot, 'dist', 'cli.js');
 async function withUi(language, fn) {
   clearUiLanguage();
   installUiLanguage({ language, source: 'flag', setting: 'auto' });
+  setTuiLocale(language === 'zh');
   try {
     return await fn();
   } finally {
+    setTuiLocale(false);
     clearUiLanguage();
   }
 }
@@ -177,10 +177,12 @@ function assertNoEnglishLeak(text, label) {
 }
 
 function surfaces() {
-  const unreachable = deviceUnreachableCopy(
-    { deviceId: 'board-1', kind: 'rdk', host: '10.0.0.8', port: 22 },
-    10_000
-  );
+  const unreachable = formatDeviceConnectError({
+    kind: 'timeout',
+    where: '10.0.0.8:22',
+    host: '10.0.0.8',
+    timeoutMs: 10_000,
+  });
   const card = formatTaskSummaryLine({
     taskId: 'task_1',
     goal: 'keep the camera up',
@@ -251,15 +253,15 @@ function surfaces() {
   assertNoEnglishLeak(zh, 'zh surfaces');
   assert.match(zh, /规划中/);
   assert.match(zh, /没有拒绝规则/);
-  assert.match(zh, /无法在/);
-  assert.match(zh, /无法连接/);
+  assert.match(zh, /没有路由/);
+  assert.match(zh, /失败：/);
   assert.match(zh, /达成/);
   const en = await withUi('en', surfaces);
   assertNoHan(en, 'en surfaces');
-  assert.match(en, /Cannot reach/);
+  assert.match(en, /No route to/);
   assert.match(en, /PLANNING/);
   assert.match(en, /default full mode has no deny/);
-  assert.match(en, /RDK manual lookup is off/);
+  assert.match(en, /○ rdk-docs — failed: exit 1/);
 }
 
 function firstRunScreens() {
@@ -365,7 +367,7 @@ function providerErrors() {
     );
   });
   assertNoHan(`${enMissing.message}\n${enMissing.hint}`, 'en credential copy');
-  assert.match(enMissing.message, /No credentials for device board-1/);
+  assert.match(enMissing.message, /No credentials are configured for 10\.0\.0\.8:22/);
 }
 
 function runCli(args, extraEnv = {}) {

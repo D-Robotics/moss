@@ -168,7 +168,7 @@ void streamCalls;
   );
   const texts = () => handle2.store.rows.map((row) => row.text);
   assert.ok(
-    await waitFor(() => texts().some((text) => text.includes('1 MCP server connecting'))),
+    await waitFor(() => texts().some((text) => text.includes('○ rdk-docs — connecting'))),
     `connecting boot: ${JSON.stringify(texts())}`
   );
   assert.equal(

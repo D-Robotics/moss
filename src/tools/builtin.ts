@@ -35,7 +35,6 @@ import {
 } from '../context/stale-read-invalidate.js';
 import { deviceEnvFootnote } from '../utils/safe-child-env.js';
 import { createRedactingChunkWriter } from '../safety/tool-output-redact.js';
-import { commandMentionsMossCredential } from '../safety/read-scope.js';
 import {
   filesWithIncreasedPlaceholderCount,
   formatRedactedWritebackWarning,
@@ -159,7 +158,7 @@ export const execTool: Tool = {
       ctx.workspaceDir,
       extractShellMutationPaths(commandText)
     );
-    const hideCredentialStream = commandMentionsMossCredential(commandText);
+    const hideCredentialStream = /\.apikey-key\b/.test(commandText);
     const streamer = hideCredentialStream ? null : createRedactingChunkWriter(ctx.onToolOutput);
     const footnote = deviceEnvFootnote(String(input.command ?? ''));
     const opened = await openChildEnv(ctx.workspaceDir, ctx.abortSignal);

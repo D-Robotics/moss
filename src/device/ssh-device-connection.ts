@@ -12,6 +12,7 @@ import type {
 } from '../contracts/device.js';
 import { ErrorCode, MossError } from '../errors.js';
 import { uiText } from '../utils/ui-language.js';
+import { classifyDeviceConnectError, formatDeviceConnectError } from './device-connect-error.js';
 
 /** Max simultaneous remote channels (exec streams / sftp sessions). */
 const MAX_INFLIGHT = 4;
@@ -72,25 +73,6 @@ export interface SshConnectOptions {
   connectTimeoutMs?: number;
 }
 
-/** host:port plus what to try next, in the active UI language. */
-export function deviceUnreachableCopy(
-  target: DeviceTarget,
-  timeoutMs: number
-): { message: string; hint: string } {
-  const where = `${target.host}:${target.port ?? 22}`;
-  const seconds = Math.max(1, Math.round(timeoutMs / 1000));
-  return {
-    message: uiText(
-      `Cannot reach ${where} within ${seconds}s.`,
-      `无法在 ${seconds} 秒内连接 ${where}。`
-    ),
-    hint: uiText(
-      'Check the board is powered on, the address is correct, and this machine can reach it, then retry.',
-      '请确认开发板已开机、地址正确，且本机能访问该地址，然后再试。'
-    ),
-  };
-}
-
 export class SshDeviceConnection implements DeviceConnection {
   readonly target: DeviceTarget;
   private client: Client | null = null;
@@ -122,16 +104,16 @@ export class SshDeviceConnection implements DeviceConnection {
     this.readyPromise = (async () => {
       const auth = await resolveAuth(this.target);
       if (!auth.password && !auth.privateKey) {
+        const where = `${this.target.host}:${this.target.port ?? 22}`;
+        const copy = formatDeviceConnectError({
+          kind: 'credentials',
+          where,
+          host: this.target.host,
+        });
         throw new MossError({
           code: ErrorCode.CONFIG_IO_FAILED,
-          message: uiText(
-            `No credentials for device ${this.target.deviceId}: set MOSS_DEVICE_PASSWORD or MOSS_DEVICE_KEY.`,
-            `设备 ${this.target.deviceId} 没有凭据：请设置 MOSS_DEVICE_PASSWORD 或 MOSS_DEVICE_KEY。`
-          ),
-          hint: uiText(
-            'Credentials come from env / .env only; they are never stored in the device target.',
-            '凭据只来自环境变量或 .env，不会写入设备目标。'
-          ),
+          message: copy.message,
+          hint: copy.hint,
           recoverable: true,
         });
       }
@@ -161,26 +143,19 @@ export class SshDeviceConnection implements DeviceConnection {
               // The socket may not exist yet when the timer wins the race.
             }
             const where = `${this.target.host}:${this.target.port ?? 22}`;
-            const unreachable =
-              /timed out|etimedout|econnrefused|ehostunreach|enetunreach|enotfound|eai_again|network is unreachable/i.test(
-                err.message
-              );
-            const copy = unreachable ? deviceUnreachableCopy(this.target, timeoutMs) : undefined;
+            const kind = classifyDeviceConnectError(err.message);
+            const copy = formatDeviceConnectError({
+              kind,
+              where: kind === 'other' ? `${this.target.user || 'root'}@${where}` : where,
+              host: this.target.host,
+              timeoutMs,
+              ...(kind === 'other' ? { detail: err.message } : {}),
+            });
             reject(
               new MossError({
                 code: ErrorCode.TOOL_EXECUTION_FAILED,
-                message: copy
-                  ? copy.message
-                  : uiText(
-                      `Cannot connect to ${this.target.user || 'root'}@${where}: ${err.message}`,
-                      `无法连接 ${this.target.user || 'root'}@${where}：${err.message}`
-                    ),
-                hint: copy
-                  ? copy.hint
-                  : uiText(
-                      'Check host/port reachability and credentials (MOSS_DEVICE_USER / MOSS_DEVICE_PASSWORD / MOSS_DEVICE_KEY).',
-                      '请检查主机、端口是否可达，以及凭据（MOSS_DEVICE_USER / MOSS_DEVICE_PASSWORD / MOSS_DEVICE_KEY）。'
-                    ),
+                message: copy.message,
+                hint: copy.hint,
                 recoverable: true,
                 context: {
                   deviceId: this.target.deviceId,

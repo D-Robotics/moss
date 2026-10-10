@@ -10,7 +10,7 @@ export const RDK_DOCS_SKILL_NAME = 'rdk-docs';
 const RDK_DOCS_SKILL_BODY = [
   'The rdk-docs server is the source of RDK board facts. Moss does not ship a manual, and a failed connect is not a reason to answer from memory.',
   '',
-  'Start with `mcp__rdk-docs__search`. It registers the available tools and returns their exact callable names and descriptions; do not guess a tool name that search did not return.',
+  'Start with `mcp__rdk-docs__search` once, open at most 2 pages, answer with the source link, then stop. Search registers the available tools and returns their exact callable names and descriptions; do not guess a tool name that search did not return.',
   'Common server tools include `list_manuals`, `search_docs`, `get_page`, and `list_toc`, but their arguments depend on the installed package version. Use the schema Moss registers after search.',
   'Board: pass the board the user named. Otherwise, if a device is configured, call device_info and map its `board:` line to x3|x5|s100|s600 or another id the schema lists. With no device and no named board, ask one short question for the board before board-specific topics (flashing, drivers, pins, cameras, images), then search with board. Pass `board` and `alt_queries` only when the returned schema has them.',
   'If the result exposes `noGoodMatch`, ranking metadata, or section reads, use them; otherwise judge ordinary hits and fetch the whole page.',
@@ -24,10 +24,10 @@ const RDK_DOCS_SKILL_BODY = [
   '- `source=forum` is unofficial. Use it only when the user wants community experience or the manual has no page. The manual wins a conflict.',
   '- An empty shell page: open `related`.',
   '- Pinouts, current limits, and connector counts are often figures. Do not reconstruct a table the page text does not contain. If two pages disagree, cite both URLs.',
-  '- Cite every page URL copied from search or get_page, including when the page body was truncated. Copy a URL into record_evidence observed only when a task contract is already open. A quotation is not an acceptance pass.',
+  '- Cite every page URL copied from search or get_page, including when the page body was truncated. A quotation is not an acceptance pass.',
   '- Zero hits stay zero hits. Say the search missed; do not invent a page.',
   '',
-  'Do not look up how Moss connects. If a device is configured, probes run before docs. If none is configured, do not call device tools. Docs answer what to do on the board.',
+  'Do not look up how Moss connects. If a device is configured, probes run before docs. If none is configured, do not call device tools.',
 ].join('\n');
 
 export function bundledRdkDocsSkill(): SkillManifest {

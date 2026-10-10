@@ -9,6 +9,7 @@ import { ToolRegistry } from '../tools/tool-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
 import { DeferredToolOffer, TOOL_SEARCH_NAME } from '../tools/deferred-tool-offer.js';
 import { toolVisibleForRun } from './session-tool-offer.js';
+import { omitTaskPhasePrompts } from './task-phase-prompt.js';
 import { mergeLeasePatch } from '../subagent/worktree-isolation.js';
 import type { AgentLoopRun } from './agent-loop-run-state.js';
 import {
@@ -149,6 +150,12 @@ export class MossAgent {
   private readonly approvedPreflightController = new ApprovedPreflightController();
   /** Sub-agent schemas stay off the wire until `tool_search` reveals them. */
   private readonly deferredTools = new DeferredToolOffer();
+  /**
+   * Sessions that have already been offered the task ledger. The tool list
+   * only grows: a later plain Q&A turn keeps those tools so the prompt
+   * prefix does not churn. `taskContracts` still follows this turn.
+   */
+  private readonly taskLedgerSessions = new Set<string>();
   /** Model id from the latest gateway response body, when the provider sent one. */
   private gatewayReportedModel: string | undefined;
 
@@ -904,10 +911,20 @@ ${result.stderr ?? ''}`.trim();
     };
     messages.push(userMsg);
 
-    const composedPrompt = this.composeSystemPrompt({
-      ...(options?.platform ? { platform: options.platform } : {}),
-      ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
-    });
+    const composeRunPrompt = (): { stable: string; dynamic: string; full: string } => {
+      const composed = this.composeSystemPrompt({
+        ...(options?.platform ? { platform: options.platform } : {}),
+        ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
+      });
+      if (options?.taskFlow !== false) return composed;
+      const dynamic = omitTaskPhasePrompts(composed.dynamic);
+      return {
+        stable: composed.stable,
+        dynamic,
+        full: dynamic ? `${composed.stable}\n\n${dynamic}` : composed.stable,
+      };
+    };
+    const composedPrompt = composeRunPrompt();
     let extraContext = options?.extraContext ?? '';
     if (isFirstUserTurn && experienceEnabled()) {
       const experience = await buildExperienceBlock(
@@ -915,6 +932,9 @@ ${result.stderr ?? ''}`.trim();
         activeUserMessage
       );
       if (experience) extraContext = extraContext ? `${extraContext}\n\n${experience}` : experience;
+    }
+    if (options?.taskFlow === false && extraContext) {
+      extraContext = omitTaskPhasePrompts(extraContext);
     }
     // Prefix cache matches the messages array from the front. The stable system
     // text stays byte-identical. The dynamic suffix (environment, MCP connect,
@@ -947,9 +967,11 @@ ${result.stderr ?? ''}`.trim();
         content: appendTurnExtraContext(persistedMsg.content, extraContext),
       };
     }
+    if (options?.taskFlow !== false) this.taskLedgerSessions.add(sessionKey);
+    const ledgerVisible = this.taskLedgerSessions.has(sessionKey);
     const visibleForRun = (tool: Tool): boolean =>
       this.deferredTools.isOffered(tool.name) &&
-      toolVisibleForRun(tool.name, { taskFlow: options?.taskFlow }) &&
+      toolVisibleForRun(tool.name, { taskFlow: ledgerVisible ? true : options?.taskFlow }) &&
       (options?.toolFilter?.(tool) ?? true);
     const resolveRunTools = (): ReturnType<typeof filterToolsForRun> =>
       filterToolsForRun(
@@ -1348,18 +1370,11 @@ ${result.stderr ?? ''}`.trim();
       compactionSummary: undefined,
       systemPrompt,
       systemPromptParts,
-      getSystemPrompt: () =>
-        this.composeSystemPrompt({
-          ...(options?.platform ? { platform: options.platform } : {}),
-          ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
-        }).full,
+      getSystemPrompt: () => composeRunPrompt().full,
       ...(promptCacheEnabled
         ? {
             getSystemPromptParts: () => {
-              const parts = this.composeSystemPrompt({
-                ...(options?.platform ? { platform: options.platform } : {}),
-                ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
-              });
+              const parts = composeRunPrompt();
               return parts.dynamic
                 ? { stable: parts.stable, dynamic: parts.dynamic }
                 : { stable: parts.stable };

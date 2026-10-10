@@ -9,7 +9,7 @@
  */
 import { deviceTargetConfigured, isDeviceToolName } from '../../device/device-tool-offer.js';
 
-/** Task ledger. Hidden for plain interactive chat; kept when taskFlow is unset. */
+/** Task ledger. Hidden when taskFlow is false; kept when taskFlow is unset. */
 const TASK_LEDGER_TOOL_NAMES = new Set([
   'task_define',
   'task_acceptance',

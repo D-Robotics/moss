@@ -55,6 +55,12 @@ assert.equal(
   'The board is up.\n[System] You described using tools.\n[task-phase: note for the reader]'
 );
 
+const leaked = userFacingAssistantText(
+  'See ev_1 and task_cam1 in the 任务契约.\n[task planning] understanding goal\nThe board answered.'
+);
+assert.match(leaked, /The board answered/);
+assert.doesNotMatch(leaked, /ev_1|task_cam1|任务契约|\[task planning\]/);
+
 {
   const store = createTuiStore();
   beginRun(store);

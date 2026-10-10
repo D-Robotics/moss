@@ -389,6 +389,26 @@ export const ZH: Readonly<Record<string, string>> = {
   '  … type /model <name> for any other model': '  … 输入 /model <name> 选择其他模型',
 
   // ── task / status chrome (app.ts) ──────────────────────────────────────
+  '◇ Working out the steps': '◇ 正在理清步骤',
+  '◇ Doing the work': '◇ 正在做',
+  '◇ Checking the result': '◇ 正在核对结果',
+  '◇ Looking at what failed': '◇ 正在看哪里失败了',
+  '◇ Fixing it': '◇ 正在修复',
+  '◇ Checks passed': '◇ 检查通过',
+  '◇ Checks did not pass': '◇ 检查未通过',
+  '◇ Waiting on you': '◇ 等你决定',
+  '◇ Working': '◇ 进行中',
+  '◇ Checks passed ({met}/{total})': '◇ 检查通过（{met}/{total}）',
+  '◇ Checks did not pass ({met}/{total}) · /task resume':
+    '◇ 检查未通过（{met}/{total}）· /task resume',
+  '◇ Blocked — {reason} · /task resume': '◇ 受阻 — {reason} · /task resume',
+  '{count} measurement hidden — expand to see': '{count} 项测量已折叠 — 展开查看',
+  '{count} measurements hidden — expand to see': '{count} 项测量已折叠 — 展开查看',
+  'observed {observed} (want {expected})': '测得 {observed}（期望 {expected}）',
+  'observed {observed}': '测得 {observed}',
+  '◇ task {id} — PASS ({criteria} met)': '◇ 任务 {id} — PASS（达成 {criteria} 项）',
+  '◇ task {id} — FAIL ({criteria} met) · /task resume {task} to repair':
+    '◇ 任务 {id} — FAIL（达成 {criteria} 项）· /task resume {task} 修复',
   '◇ task {id} — PASS ({criteria} criteria met)': '◇ 任务 {id} — PASS（达成 {criteria} 项）',
   '◇ task {id} — FAIL ({criteria} criteria met) · /task resume {task} to repair':
     '◇ 任务 {id} — FAIL（达成 {criteria} 项）· /task resume {task} 修复',

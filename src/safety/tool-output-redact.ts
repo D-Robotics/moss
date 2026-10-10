@@ -26,7 +26,7 @@ import {
   scrubRawApiKeyLines,
   targetsCredentialFile,
 } from './credential-path.js';
-import { redactKnownSecretValues } from './known-secrets.js';
+import { redactConfigSecretFieldsInView, redactKnownSecretValues } from './known-secrets.js';
 import { bindRedactEgress } from './redact-bind.js';
 import {
   AUTH_SCHEME_VALUE,
@@ -652,7 +652,13 @@ export function presentToolOutput(args: {
   if (command && /\.apikey-key\b/.test(command)) return CREDENTIAL_WITHHELD;
   const filtered = scrubRawApiKeyLines(args.text, workspaceDir, env);
   const strictSecrets = targetsCredentialFile(args.toolName, args.input);
-  if (args.toolName === 'read_file') return redactNumberedToolOutput(filtered, env, strictSecrets);
+  if (args.toolName === 'read_file') {
+    return redactNumberedToolOutput(
+      redactConfigSecretFieldsInView(filtered, env),
+      env,
+      strictSecrets
+    );
+  }
   return redactToolResult(filtered, env, strictSecrets);
 }
 
