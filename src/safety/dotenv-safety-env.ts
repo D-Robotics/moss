@@ -5,8 +5,8 @@
  * process environment or from CLI flags, the same rule as
  * `MOSS_TRUST_WORKSPACE` and `MOSS_CONFIG_DIR`. Matching is case-insensitive.
  *
- * There is no separate sandbox, hook, or `MOSS_YOLO` / `MOSS_PERMISSION*` /
- * `MOSS_SKIP_*` switch in src/. Sandbox confinement follows `MOSS_SAFETY_MODE`
+ * There is no separate sandbox, hook, yolo, permission, or skip switch in
+ * src/. Sandbox confinement follows `MOSS_SAFETY_MODE`
  * (full-access drops the workspace write roots). Project hooks run only after
  * a trust grant, and `MOSS_TRUST_WORKSPACE` is in this list. Tool-loop limits
  * accept `off`, which removes the stop, so they are included.
