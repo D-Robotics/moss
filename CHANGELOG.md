@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Install follow-ups
+
+`npm ci` runs `scripts/check-node-version.cjs` as `preinstall`. The script is
+listed in `files`, so the packed global copy can run it. npm installs
+dependencies before that hook; on Node older than 22.16 the script prints the
+upgrade steps and exits 1, with those packages already on disk. The README
+says not to follow
+npm's notice to upgrade to npm 12 on Node 22.16. macOS git needs
+`xcode-select --install`. `moss update` looks only in the current directory
+and `./moss` unless you pass `--dir <clone>` or set `MOSS_SOURCE_DIR`.
+`moss --version` appends `+dirty` when the worktree had uncommitted changes
+at build time. The uninstall notes include `~/.cache/node-gyp` and an empty
+`@rdk-moss` directory under the npm prefix.
+
 ### Install and upgrade from a clone
 
 `npm install -g github:D-Robotics/moss` fails on a clean machine (npm 10.9.2 and

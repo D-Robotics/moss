@@ -29,7 +29,7 @@ Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器
 node -v
 ```
 
-需要 **22.16** 或更高。
+需要 **22.16** 或更高。npm 会先装依赖，再跑根包的 `preinstall`（`scripts/check-node-version.cjs`）。Node 低于 22.16 时脚本打印升级步骤并退出 1，这时依赖已经在磁盘上，还没有可用的 `moss`。升级 Node 后再安装一次。Node 22.16 自带 npm 10，不要按 npm 的提示升级到 npm 12：这个 Node 不支持 npm 12。
 
 - nvm：`nvm install 22`，装完再跑一次 `node -v`
 - NodeSource：见 [nodesource/distributions](https://github.com/nodesource/distributions)
@@ -37,7 +37,7 @@ node -v
 
 ### macOS
 
-不需要 Xcode Command Line Tools。安装过程不编译 Moss，`cpu-features` 的可选原生构建失败也不影响运行。Node 用 Homebrew 或 nvm，装完用 `node -v` 确认是 22.16 或更高。全局目录没有写权限时，用下面的用户级 prefix。
+Git 需要 Xcode Command Line Tools。没有 `git` 时运行 `xcode-select --install`。Moss 自己不需要 C 编译器，`cpu-features` 的可选原生构建失败也不影响运行。Node 用 Homebrew 或 nvm，装完用 `node -v` 确认是 22.16 或更高。全局目录没有写权限时，用下面的用户级 prefix。
 
 ### Windows
 
@@ -63,7 +63,7 @@ moss
 
 如果以前装过旧的未加 scope 的 `moss` 包，先执行 `npm uninstall -g moss`，否则两个包抢同一个 `moss` 命令，npm 会报 EEXIST。不要加 `--force`：它会同时留下旧包和 `@rdk-moss/agent`，之后再 `npm uninstall -g moss` 会把 `moss` 命令一起删掉。`npm install -g @rdk-moss/agent` 即将发布。
 
-npm 11 可能提示 `@rdk-moss/agent`（prepare）、`ssh2`、`cpu-features` 的安装脚本不在 allow-scripts 里。这是提示，安装仍然成功：`dist/` 已经构建好，ssh2 没有可选的原生模块也能用。不要运行 `npm audit fix --force`，它会改依赖版本，装完不能用。
+npm 11 可能打印 `npm warn install-scripts`。`npm ci` 可能会点名 `ssh2` 和 `cpu-features`。接下来的 `npm install -g --install-links .` 还可能点名 `@rdk-moss/agent`（它的 `prepare`）。这是提示，安装仍然成功：ssh2 没有可选的原生模块也能用，全局副本里已经有 `dist/`。不要运行 `npm audit fix --force`，它会改依赖版本，装完不能用。
 
 全局目录没有写权限（EACCES）时，把 prefix 放到用户目录，或改用 nvm（Node 装在家目录里）：
 
@@ -100,13 +100,17 @@ moss --no-tty                                 # 强制使用 readline REPL
 
 ## 升级
 
+如果 `moss` 命令还来自旧的未加 scope 的包（包括 `npm link`），先执行 `npm uninstall -g moss`。否则 `npm install -g --install-links .` 会报 EEXIST，而这时 `moss --version` 看起来可能已经是新的。
+
 已有 `moss` 克隆时，在它的上一级目录运行：
 
 ```bash
 cd moss && git pull && npm ci && npm install -g --install-links .
 ```
 
-`npm ci` 会重新构建。`--install-links` 把新的副本装进全局 prefix，而不只是重新编译克隆目录。`moss --version` 带短 commit 和构建日期，例如 `moss v0.26.0 (e8dc2e3, 2026-10-10)`，升级前后可以对上。还没有 `moss` 目录时，用上面的安装步骤。`moss update` 也是这样：找得到克隆就打印这一行，找不到才打印 `git clone`。它只打印命令，不执行。
+`npm ci` 会重新构建。`--install-links` 把新的副本装进全局 prefix，而不只是重新编译克隆目录。`moss --version` 带短 commit 和构建日期，例如 `moss v0.26.0 (e8dc2e3, 2026-10-10)`。构建时工作区有未提交改动会写成 `e8dc2e3+dirty`。升级前后可以对上。
+
+还没有 `moss` 目录时，用上面的安装步骤。`moss update` 找得到克隆就打印这一行，找不到才打印 `git clone`。全局安装只在当前目录和 `./moss` 里找。别的位置用 `moss update --dir <克隆>` 或 `MOSS_SOURCE_DIR`。它只打印命令，不执行。
 
 ## 卸载
 
@@ -121,8 +125,10 @@ npm uninstall -g @rdk-moss/agent
 - 每个项目里的 `.moss/`（任务、会话、项目配置）
 - 源码克隆目录
 - npm 缓存，一般是 `~/.npm`
+- 原生模块缓存：`~/.cache/node-gyp`
+- prefix 里可能留下空的 `@rdk-moss` 目录：Linux / macOS 是 `$(npm prefix -g)/lib/node_modules/@rdk-moss`，Windows 是 `%APPDATA%\npm\node_modules\@rdk-moss`
 
-可以删：`~/.moss/cache/npx`、npm 缓存（`npm cache clean --force`）、以及你不再需要的克隆目录。删掉 `~/.config/moss`、`~/.moss` 或项目里的 `.moss/` 会同时去掉 key、设置和任务记录；只有确定不要这些数据时再删。
+可以删：`~/.moss/cache/npx`、`~/.cache/node-gyp`、npm 缓存（`npm cache clean --force`）、空的 `@rdk-moss` 目录，以及你不再需要的克隆目录。删掉 `~/.config/moss`、`~/.moss` 或项目里的 `.moss/` 会同时去掉 key、设置和任务记录；只有确定不要这些数据时再删。
 
 ## 为什么是 Moss
 
@@ -332,7 +338,7 @@ Check Node first:
 node -v
 ```
 
-Moss needs **22.16** or newer.
+Moss needs **22.16** or newer. npm installs dependencies before the root `preinstall` (`scripts/check-node-version.cjs`). On Node older than 22.16 that script prints the upgrade steps and exits 1, so those packages can already be on disk and there is no working `moss`. Upgrade Node and run the install again. Node 22.16 ships with npm 10. Do not follow npm's notice to upgrade to npm 12: Node 22.16 does not support npm 12.
 
 - nvm: `nvm install 22`, then run `node -v` again
 - NodeSource: see [nodesource/distributions](https://github.com/nodesource/distributions)
@@ -340,7 +346,7 @@ Moss needs **22.16** or newer.
 
 #### macOS
 
-Xcode Command Line Tools are optional. The install does not compile Moss, and a failed optional native build of `cpu-features` still leaves a working `moss`. Install Node with Homebrew or nvm, then confirm `node -v` is 22.16 or newer. If the global prefix is not writable, use the user-level prefix below.
+Git requires the Xcode Command Line Tools. If `git` is missing, run `xcode-select --install`. Moss itself does not need a C compiler, and a failed optional native build of `cpu-features` still leaves a working `moss`. Install Node with Homebrew or nvm, then confirm `node -v` is 22.16 or newer. If the global prefix is not writable, use the user-level prefix below.
 
 #### Windows
 
@@ -366,7 +372,7 @@ moss
 
 If an older unscoped `moss` package is already installed, run `npm uninstall -g moss` first. The two packages use the same `moss` bin, and npm stops with EEXIST. Do not pass `--force`. It leaves both the old package and `@rdk-moss/agent` installed, and a later `npm uninstall -g moss` removes the `moss` command. `npm install -g @rdk-moss/agent` is coming soon.
 
-npm 11 may warn that install scripts for `@rdk-moss/agent` (prepare), `ssh2`, and `cpu-features` are outside allow-scripts. The warning is harmless: `dist/` is already built, and ssh2 works without its optional native addon. Do not run `npm audit fix --force`. It changes dependency versions and breaks the install.
+npm 11 may print `npm warn install-scripts`. `npm ci` may name `ssh2` and `cpu-features`. The following `npm install -g --install-links .` may also name `@rdk-moss/agent` (its `prepare` script). The warning is harmless: ssh2 works without its optional native addon, and the global copy already contains `dist/`. Do not run `npm audit fix --force`. It changes dependency versions and breaks the install.
 
 If npm reports EACCES on the global prefix, point prefix at your home directory, or use nvm (Node then lives under your home directory):
 
@@ -400,13 +406,17 @@ moss --no-tty                                 # force the readline REPL
 
 ### Upgrade
 
+If the `moss` command still comes from an older unscoped install, including `npm link`, run `npm uninstall -g moss` first. Otherwise `npm install -g --install-links .` stops with EEXIST even when `moss --version` already looks new.
+
 From the parent of an existing `moss` clone:
 
 ```bash
 cd moss && git pull && npm ci && npm install -g --install-links .
 ```
 
-`npm ci` rebuilds. `--install-links` installs that new copy into the global prefix, instead of only rebuilding the clone. `moss --version` includes the short commit and the build date, for example `moss v0.26.0 (e8dc2e3, 2026-10-10)`, so the before and after strings differ. If you do not have a `moss` directory yet, use the install steps above. `moss update` prints this upgrade line when it finds a clone, and the `git clone` steps only when it does not. It prints the commands and does not run them.
+`npm ci` rebuilds. `--install-links` installs that new copy into the global prefix, instead of only rebuilding the clone. `moss --version` includes the short commit and the build date, for example `moss v0.26.0 (e8dc2e3, 2026-10-10)`. A worktree with uncommitted changes at build time is marked `e8dc2e3+dirty`. The before and after strings differ.
+
+If you do not have a `moss` directory yet, use the install steps above. `moss update` prints this upgrade line when it finds a clone, and the `git clone` steps only when it does not. A global install only looks in the current directory and in `./moss`. Point it somewhere else with `moss update --dir <clone>` or `MOSS_SOURCE_DIR`. It prints the commands and does not run them.
 
 ### Uninstall
 
@@ -421,8 +431,10 @@ That removes the command. These stay behind:
 - Per-project `.moss/` directories (tasks, sessions, project config)
 - The source clone
 - The npm cache, usually `~/.npm`
+- The native-build cache: `~/.cache/node-gyp`
+- An empty `@rdk-moss` directory left under the prefix: `$(npm prefix -g)/lib/node_modules/@rdk-moss` on Linux and macOS, or `%APPDATA%\npm\node_modules\@rdk-moss` on Windows
 
-Safe to delete: `~/.moss/cache/npx`, the npm cache (`npm cache clean --force`), and the clone once you no longer need the source. Deleting `~/.config/moss`, `~/.moss`, or a project's `.moss/` also removes keys, settings, and task history. Delete those only when you want that data gone.
+Safe to delete: `~/.moss/cache/npx`, `~/.cache/node-gyp`, the npm cache (`npm cache clean --force`), that empty `@rdk-moss` directory, and the clone once you no longer need the source. Deleting `~/.config/moss`, `~/.moss`, or a project's `.moss/` also removes keys, settings, and task history. Delete those only when you want that data gone.
 
 ### Why Moss
 

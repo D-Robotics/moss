@@ -24,8 +24,20 @@ function shortCommit() {
   return /^[0-9a-f]{7,40}$/i.test(commit) ? commit.toLowerCase() : undefined;
 }
 
+function worktreeDirty() {
+  const result = spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 10_000,
+    windowsHide: true,
+  });
+  if (result.status !== 0) return false;
+  return (result.stdout ?? '').trim().length > 0;
+}
+
 const commit = shortCommit();
 const date = new Date().toISOString().slice(0, 10);
-const stamp = commit ? { commit, date } : { date };
+const dirty = Boolean(commit) && worktreeDirty();
+const stamp = commit ? { commit, date, ...(dirty ? { dirty: true } : {}) } : { date };
 fs.mkdirSync(outDir, { recursive: true });
 fs.writeFileSync(outFile, `${JSON.stringify(stamp)}\n`);

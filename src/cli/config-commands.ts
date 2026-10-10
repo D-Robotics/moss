@@ -296,6 +296,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_RUN_ID',
       'MOSS_BUNDLED_DEFAULT_FILE',
       'MOSS_NO_BUNDLED_DEFAULT',
+      'MOSS_SOURCE_DIR (checkout for moss update; --dir wins)',
     ],
   },
   {
@@ -500,6 +501,7 @@ const ENV_NOTE_ZH: Record<string, string> = {
   'legacy alias': '旧别名',
   'en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale':
     'en|zh；进程环境或 --lang；项目 .env 不能设置；优先级 flag > env > 配置 language > 系统区域',
+  'checkout for moss update; --dir wins': 'moss update 要升级的克隆；--dir 优先',
 };
 
 function localizeEnvEntry(entry: string): string {

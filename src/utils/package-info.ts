@@ -19,10 +19,11 @@ export function getPackageVersion(): string {
   }
 }
 
-/** Commit and UTC date written beside this module at build time. */
+/** Commit, UTC date, and dirty bit written beside this module at build time. */
 export interface BuildStamp {
   readonly commit?: string;
   readonly date?: string;
+  readonly dirty?: boolean;
 }
 
 function validCommit(value: unknown): string | undefined {
@@ -46,25 +47,32 @@ export function readBuildStamp(stampPath?: string): BuildStamp | null {
   try {
     const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (typeof parsed !== 'object' || parsed === null) return null;
-    const record = parsed as { commit?: unknown; date?: unknown };
+    const record = parsed as { commit?: unknown; date?: unknown; dirty?: unknown };
     const commit = validCommit(record.commit);
     const date = validDate(record.date);
+    const dirty = record.dirty === true;
     if (!commit && !date) return null;
-    return { ...(commit ? { commit } : {}), ...(date ? { date } : {}) };
+    return {
+      ...(commit ? { commit } : {}),
+      ...(date ? { date } : {}),
+      ...(dirty ? { dirty: true } : {}),
+    };
   } catch {
     return null;
   }
 }
 
 /**
- * `moss v0.26.0 (e8dc2e3, 2026-10-10)`. The parenthetical is omitted when the
- * commit is missing, including when only a date was recorded.
+ * `moss v0.26.0 (e8dc2e3, 2026-10-10)`. A dirty worktree at build time adds
+ * `+dirty` to the commit. The parenthetical is omitted when the commit is
+ * missing, including when only a date or a dirty bit was recorded.
  */
 export function formatVersionLine(version: string, stamp: BuildStamp | null): string {
   if (version === 'unknown') return 'moss (unknown version)';
   const commit = stamp?.commit;
   const date = stamp?.date;
-  if (commit && date) return `moss v${version} (${commit}, ${date})`;
-  if (commit) return `moss v${version} (${commit})`;
+  const label = commit && stamp?.dirty ? `${commit}+dirty` : commit;
+  if (label && date) return `moss v${version} (${label}, ${date})`;
+  if (label) return `moss v${version} (${label})`;
   return `moss v${version}`;
 }

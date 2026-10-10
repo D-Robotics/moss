@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isZhLocale } from './cli-locale.js';
+import { ExitCode } from './exit-codes.js';
 
 export interface MossPackageMeta {
   name?: string;
@@ -21,6 +22,8 @@ export interface MossUpdateAdvice {
   root: string;
   /** Shell commands to show the user. Never executed. */
   commands: readonly string[];
+  /** `--dir` / `MOSS_SOURCE_DIR` was set and is not a moss git checkout. */
+  missingSource?: boolean;
 }
 
 const DEFAULT_CLONE_URL = 'https://github.com/D-Robotics/moss.git';
@@ -119,17 +122,55 @@ function isMossGitCheckout(
   return exists(path.join(dir, '.git')) && hasMossIdentity(readPackage(dir));
 }
 
+export type UpdateArgError = 'dir-missing' | 'unknown';
+
+/** `--dir <clone>` / `--dir=<clone>`. Anything else is a usage error. */
+export function parseUpdateArgs(args: readonly string[]): {
+  dir?: string;
+  error?: { code: UpdateArgError; token?: string };
+} {
+  let dir: string | undefined;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i] ?? '';
+    if (arg === '--dir') {
+      const value = args[i + 1];
+      if (!value || value.startsWith('-')) return { error: { code: 'dir-missing' } };
+      dir = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--dir=')) {
+      const value = arg.slice('--dir='.length);
+      if (!value) return { error: { code: 'dir-missing' } };
+      dir = value;
+      continue;
+    }
+    return { error: { code: 'unknown', token: arg } };
+  }
+  return dir ? { dir } : {};
+}
+
 export function adviseMossUpdate(input: {
   packageRoot: string;
   pkg: MossPackageMeta;
   /** Working directory. Used to find an existing checkout when this install has no `.git`. */
   cwd?: string;
+  /** `--dir` or `MOSS_SOURCE_DIR`. Wins over cwd and `./moss`. */
+  sourceDir?: string;
   exists?: (target: string) => boolean;
   readPackage?: (dir: string) => MossPackageMeta;
 }): MossUpdateAdvice {
   const exists = input.exists ?? fs.existsSync;
   const readPackage = input.readPackage ?? readMossPackage;
   const root = input.packageRoot;
+  const requested = input.sourceDir?.trim();
+  if (requested) {
+    const dir = path.resolve(requested);
+    if (isMossGitCheckout(dir, exists, readPackage)) {
+      return { kind: 'git-clone', root: dir, commands: [upgradeCommand(dir)] };
+    }
+    return { kind: 'unknown', root: dir, commands: [], missingSource: true };
+  }
   // This root is already the moss package. A `.git` entry here is the checkout,
   // including when a test double does not re-read package.json.
   if (exists(path.join(root, '.git'))) {
@@ -172,6 +213,7 @@ function oldBinConflictNote(zh: boolean): string {
         '',
         `  ${LEGACY_PACKAGE_UNINSTALL}`,
         '',
+        '旧的未加 scope 的安装（包括 npm link）也会 EEXIST，即使这时 moss --version 看起来已经是新的。',
         '不要加 --force。--force 会同时留下旧包和新包，之后再执行 npm uninstall -g moss 会把 moss 命令一起删掉。',
       ].join('\n')
     : [
@@ -179,6 +221,7 @@ function oldBinConflictNote(zh: boolean): string {
         '',
         `  ${LEGACY_PACKAGE_UNINSTALL}`,
         '',
+        'An old unscoped install, including `npm link`, hits the same EEXIST even when moss --version already looks new.',
         'Do not pass --force. It leaves both packages installed, and a later npm uninstall -g moss removes the moss command.',
       ].join('\n');
 }
@@ -200,6 +243,12 @@ function finishUpdateAdvice(
 }
 
 export function renderUpdateAdvice(advice: MossUpdateAdvice, zh: boolean): string {
+  if (advice.missingSource) {
+    const head = zh
+      ? `这里不是 moss 的 git 克隆：${advice.root}`
+      : `Not a moss git checkout: ${advice.root}`;
+    return finishUpdateAdvice([head], advice.commands, zh);
+  }
   const commandBlock = advice.commands.map((command) => `  ${command}`).join('\n');
   const run = zh ? '升级请运行：' : 'Upgrade by running:';
   if (advice.kind === 'git-clone') {
@@ -238,6 +287,7 @@ export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: 
     : sourceInstallCommands(pkg.repository);
   const examples = [
     '  moss update',
+    '  moss update --dir <clone>',
     ...(published ? [] : [`  ${UPGRADE_IN_CLONE}`]),
     ...fresh.map((command) => `  ${command}`),
     `  ${LEGACY_PACKAGE_UNINSTALL}`,
@@ -245,18 +295,24 @@ export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: 
   if (zh) {
     return [
       '用法：',
-      '  moss update',
+      '  moss update [--dir <克隆>]',
       '',
       '按安装方式打印升级命令。已有克隆时打印：',
       `  ${UPGRADE_IN_CLONE}`,
       '还没有 moss 目录时才打印 git clone。npm ci 会通过 prepare 构建，',
       '不需要再跑 npm run build。moss update 不会执行这些命令。',
       '',
-      '如果 npm 报 EEXIST，不要加 --force。先卸掉旧的未加 scope 的包。',
-      '--force 会同时留下两个包，之后再 npm uninstall -g moss 会把 moss 命令删掉。',
+      '全局安装只在当前目录和 ./moss 里找克隆。--dir <克隆> 或 MOSS_SOURCE_DIR',
+      '可以指定别的目录。--dir 优先于 MOSS_SOURCE_DIR。这个 moss 自己就是',
+      'git 克隆、且没有设置这两项时，用它所在的目录。',
+      '',
+      '如果 moss 命令来自旧的未加 scope 的包（包括 npm link），先执行',
+      'npm uninstall -g moss。否则会 EEXIST，即使 moss --version 看起来已经是新的。',
+      '不要加 --force。--force 会同时留下两个包，之后再 npm uninstall -g moss',
+      '会把 moss 命令删掉。',
       '',
       '选项：',
-      '  （无）  不接受 flag，也不会拉取、安装或构建',
+      '  --dir <克隆>  要升级的检出目录（覆盖 MOSS_SOURCE_DIR）',
       '',
       '示例：',
       ...examples,
@@ -264,20 +320,27 @@ export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: 
   }
   return [
     'Usage:',
-    '  moss update',
+    '  moss update [--dir <clone>]',
     '',
     'Print the upgrade command for this install. An existing clone prints:',
     `  ${UPGRADE_IN_CLONE}`,
-    'git clone is printed only when no moss directory exists yet. npm ci builds',
+    'git clone is printed only when no checkout is found. npm ci builds',
     'through prepare, so there is no separate npm run build. moss update does',
     'not run those commands.',
     '',
-    'If npm reports EEXIST, do not pass --force. Uninstall the old unscoped',
-    'package first. --force leaves both packages, and a later',
-    'npm uninstall -g moss removes the moss command.',
+    'A global install only looks for a checkout in the current directory or in',
+    './moss. --dir <clone> or MOSS_SOURCE_DIR selects a checkout elsewhere.',
+    '--dir wins. If this copy of moss is itself a git checkout, that directory',
+    'is used when neither is set.',
+    '',
+    'If the moss command comes from an older unscoped package, including',
+    'npm link, run npm uninstall -g moss first. Otherwise npm reports EEXIST',
+    'even when moss --version already looks new. Do not pass --force.',
+    '--force leaves both packages, and a later npm uninstall -g moss removes',
+    'the moss command.',
     '',
     'Options:',
-    '  (none)  no flags; nothing is pulled, installed, or built',
+    '  --dir <clone>  checkout to upgrade (overrides MOSS_SOURCE_DIR)',
     '',
     'Examples:',
     ...examples,
@@ -313,9 +376,34 @@ export function findMossPackageRoot(modulePath: string): string {
   return path.resolve(path.dirname(modulePath), '..', '..');
 }
 
-export function runUpdateCommand(locale?: string): void {
+function updateArgMessage(error: { code: UpdateArgError; token?: string }, zh: boolean): string {
+  if (error.code === 'dir-missing') return zh ? '--dir 需要一个路径' : '--dir requires a path';
+  const token = error.token ?? '';
+  return zh ? `未知参数：${token}` : `unknown argument: ${token}`;
+}
+
+export function runUpdateCommand(
+  locale?: string,
+  args: readonly string[] = [],
+  env: NodeJS.ProcessEnv = process.env
+): void {
+  const zh = isZhLocale(locale);
+  const parsed = parseUpdateArgs(args);
+  if (parsed.error) {
+    process.stderr.write(`${updateArgMessage(parsed.error, zh)}\n`);
+    process.exitCode = ExitCode.USAGE;
+    return;
+  }
+  const fromEnv = typeof env.MOSS_SOURCE_DIR === 'string' ? env.MOSS_SOURCE_DIR.trim() : '';
+  const sourceDir = parsed.dir ?? (fromEnv || undefined);
   const root = findMossPackageRoot(fileURLToPath(import.meta.url));
   const pkg = readMossPackage(root);
-  const advice = adviseMossUpdate({ packageRoot: root, pkg, cwd: process.cwd() });
-  process.stdout.write(`${renderUpdateAdvice(advice, isZhLocale(locale))}\n`);
+  const advice = adviseMossUpdate({
+    packageRoot: root,
+    pkg,
+    cwd: process.cwd(),
+    ...(sourceDir ? { sourceDir } : {}),
+  });
+  process.stdout.write(`${renderUpdateAdvice(advice, zh)}\n`);
+  if (advice.missingSource) process.exitCode = ExitCode.USAGE;
 }

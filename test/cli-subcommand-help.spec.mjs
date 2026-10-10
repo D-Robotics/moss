@@ -21,7 +21,7 @@ const OWN_OPTIONS = {
   auth: ['logout'],
   config: ['--project', '--json', '--strict'],
   doctor: ['--verbose', '--cd'],
-  update: ['npm install -g', 'git pull'],
+  update: ['npm install -g', 'git pull', '--dir'],
   resume: ['--last', '--session'],
   fork: ['--fork-from'],
   mcp: ['--header', '--project'],
