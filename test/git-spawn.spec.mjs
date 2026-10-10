@@ -17,6 +17,9 @@ import {
   runWorkingTreeDiff,
 } from '../dist/utils/git-spawn.js';
 
+// Git config and Git's POSIX hook interpreter use slash paths on Windows.
+const gitPath = (file) => file.split(path.sep).join('/');
+
 test('hardened git args override exec keys and keep system config', () => {
   const readOnly = hardenedGitArgs(['status', '--porcelain']);
   assert.deepEqual(readOnly.slice(0, 12), [
@@ -59,8 +62,8 @@ test('startup git status and /diff do not run core.fsmonitor', async (t) => {
   execFileSync('git', ['add', 'README.md'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['commit', '-m', 'init'], { cwd: dir, stdio: 'ignore' });
 
-  const marker = path.join(dir, 'FSMONITOR_RAN');
-  const script = path.join(dir, 'fsmonitor.sh');
+  const marker = gitPath(path.join(dir, 'FSMONITOR_RAN'));
+  const script = gitPath(path.join(dir, 'fsmonitor.sh'));
   await fs.writeFile(script, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\nexit 0\n`);
   await fs.chmod(script, 0o755);
   execFileSync('git', ['config', 'core.fsmonitor', script], { cwd: dir, stdio: 'ignore' });
@@ -135,10 +138,10 @@ test('startup git status and /diff do not run filter.clean or diff.textconv', as
   execFileSync('git', ['add', 'README.md', '.gitattributes'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['commit', '-m', 'init'], { cwd: dir, stdio: 'ignore' });
 
-  const cleanMarker = path.join(dir, 'CLEAN_RAN');
-  const textMarker = path.join(dir, 'TEXT_RAN');
-  const cleanScript = path.join(dir, 'clean.sh');
-  const textScript = path.join(dir, 'text.sh');
+  const cleanMarker = gitPath(path.join(dir, 'CLEAN_RAN'));
+  const textMarker = gitPath(path.join(dir, 'TEXT_RAN'));
+  const cleanScript = gitPath(path.join(dir, 'clean.sh'));
+  const textScript = gitPath(path.join(dir, 'text.sh'));
   await fs.writeFile(cleanScript, `#!/bin/sh\necho ran >> ${JSON.stringify(cleanMarker)}\ncat\n`);
   await fs.writeFile(
     textScript,
@@ -150,7 +153,7 @@ test('startup git status and /diff do not run filter.clean or diff.textconv', as
     cwd: dir,
     stdio: 'ignore',
   });
-  execFileSync('git', ['config', 'filter.mossmarker.smudge', '/bin/cat'], {
+  execFileSync('git', ['config', 'filter.mossmarker.smudge', 'cat'], {
     cwd: dir,
     stdio: 'ignore',
   });
@@ -179,7 +182,10 @@ test('startup git status and /diff do not run filter.clean or diff.textconv', as
   assert.equal(await markerWritten(textMarker), false, 'startup git status ran diff.textconv');
   assert.match(layer, /Git branch/);
 
-  execFileSync('git', ['--no-pager', 'diff', '--', 'README.md'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['--no-pager', 'diff', '--', 'README.md'], {
+    cwd: dir,
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
   assert.equal(
     await markerWritten(textMarker),
     true,
@@ -201,7 +207,7 @@ test('startup git status and /diff do not run filter.clean or diff.textconv', as
 
 test('startup git status and /diff do not run an include.path filter', async (t) => {
   const repo = await initDirtyFilterRepo(t, 'moss-include-');
-  const included = path.join(repo.dir, 'included.cfg');
+  const included = gitPath(path.join(repo.dir, 'included.cfg'));
   await fs.writeFile(included, filterConfig(repo.script));
   execFileSync('git', ['config', '--local', 'include.path', included], {
     cwd: repo.dir,
@@ -212,9 +218,11 @@ test('startup git status and /diff do not run an include.path filter', async (t)
 
 test('startup git status and /diff do not run an includeIf gitdir filter', async (t) => {
   const repo = await initDirtyFilterRepo(t, 'moss-includeif-');
-  const included = path.join(repo.dir, 'included-if.cfg');
+  const included = gitPath(path.join(repo.dir, 'included-if.cfg'));
   await fs.writeFile(included, filterConfig(repo.script));
-  const gitDir = path.join(repo.dir, '.git');
+  // Git compares canonical directories; macOS /var is a symlink, and gitdir
+  // conditions use forward slashes on Windows as well.
+  const gitDir = (await fs.realpath(path.join(repo.dir, '.git'))).split(path.sep).join('/');
   await fs.appendFile(
     path.join(gitDir, 'config'),
     `\n[includeIf "gitdir:${gitDir}"]\n\tpath = ${included}\n`
@@ -361,16 +369,50 @@ test('read-only git refuses when config discovery exits 128', async (t) => {
   const bin = path.join(dir, 'bin');
   const marker = path.join(dir, 'FILTER_RAN');
   await fs.mkdir(bin);
-  const fakeGit = path.join(bin, 'git');
-  await fs.writeFile(
-    fakeGit,
-    `#!/bin/sh\nfor arg in "$@"; do\n  if [ "$arg" = "--get-regexp" ]; then\n    echo 'fatal: discovery failed' >&2\n    exit 128\n  fi\ndone\necho ran >> ${JSON.stringify(marker)}\nexit 0\n`
-  );
-  await fs.chmod(fakeGit, 0o755);
+  if (process.platform === 'win32') {
+    // spawn('git') needs a real executable on Windows; .cmd shims are not a
+    // substitute. Use the system compiler to keep the same failing discovery
+    // and otherwise observable execution as the POSIX fixture.
+    const fakeGit = path.join(bin, 'git.exe');
+    const code = `using System; using System.IO;
+public class FakeGit {
+  public static int Main(string[] args) {
+    foreach (string arg in args) if (arg == "--get-regexp") {
+      Console.Error.WriteLine("fatal: discovery failed"); return 128;
+    }
+    File.AppendAllText(${JSON.stringify(marker)}, "ran\\n"); return 0;
+  }
+}`;
+    const literal = (value) => `'${value.replaceAll("'", "''")}'`;
+    const script = `$ProgressPreference='SilentlyContinue'; Add-Type -TypeDefinition ${literal(code)} -OutputAssembly ${literal(fakeGit)} -OutputType ConsoleApplication`;
+    execFileSync(
+      path.join(
+        process.env.SystemRoot ?? 'C:\\Windows',
+        'System32/WindowsPowerShell/v1.0/powershell.exe'
+      ),
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-EncodedCommand',
+        Buffer.from(script, 'utf16le').toString('base64'),
+      ],
+      { windowsHide: true, timeout: 30000 }
+    );
+  } else {
+    const fakeGit = path.join(bin, 'git');
+    await fs.writeFile(
+      fakeGit,
+      `#!/bin/sh\nfor arg in "$@"; do\n  if [ "$arg" = "--get-regexp" ]; then\n    echo 'fatal: discovery failed' >&2\n    exit 128\n  fi\ndone\necho ran >> ${JSON.stringify(marker)}\nexit 0\n`
+    );
+    await fs.chmod(fakeGit, 0o755);
+  }
   const savedPath = process.env.PATH;
   process.env.PATH = `${bin}${path.delimiter}${savedPath ?? ''}`;
   captureEnvBeforeDotenv(process.env);
   try {
+    execFileSync('git', ['status'], { cwd: dir, stdio: 'ignore' });
+    assert.equal(await markerWritten(marker), true, 'fixture: the fake git must execute');
+    await fs.rm(marker, { force: true });
     await assert.rejects(
       () => runWorkingTreeDiff(dir),
       /Refusing read-only git: config discovery exited 128/
@@ -406,15 +448,15 @@ async function initDirtyFilterRepo(t, prefix) {
   execFileSync('git', ['add', 'README.md', '.gitattributes'], { cwd: dir, stdio: 'ignore' });
   execFileSync('git', ['commit', '-m', 'init'], { cwd: dir, stdio: 'ignore' });
   await fs.writeFile(path.join(dir, 'README.md'), 'hello\nchanged\n');
-  const marker = path.join(dir, 'FILTER_RAN');
-  const script = path.join(dir, 'clean.sh');
+  const marker = gitPath(path.join(dir, 'FILTER_RAN'));
+  const script = gitPath(path.join(dir, 'clean.sh'));
   await fs.writeFile(script, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\ncat\n`);
   await fs.chmod(script, 0o755);
   return { dir, marker, script };
 }
 
 function filterConfig(script, name = 'mossinc') {
-  return `[filter "${name}"]\n\tclean = ${script}\n\tsmudge = /bin/cat\n\trequired = true\n`;
+  return `[filter "${name}"]\n\tclean = ${script}\n\tsmudge = cat\n\trequired = true\n`;
 }
 
 async function assertFilterStaysOff(repo) {
