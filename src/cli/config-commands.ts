@@ -582,7 +582,7 @@ export function renderConfigHelp(zh = false): string {
     '  moss config set profile autonomous',
     '  moss config set provider openai-compatible',
     '  moss config set model <your-model>',
-    '  moss config set baseUrl https://your-gateway.example   # API root, not /v1 or /chat/completions',
+    '  moss config set baseUrl https://your-gateway.example   # /v1 is optional (https://host/v1 also works); /chat/completions is not needed',
     '  moss setup                                     # stores the API key (hidden prompt, safer than command line)',
     '  moss config set --project safetyMode workspace-write',
     `  # ${WORKSPACE_WRITE_LIMIT_EN}`,
@@ -642,6 +642,7 @@ function renderConfigHelpZh(): string {
     `  # ${WORKSPACE_WRITE_LIMIT_ZH}`,
     '  `moss config set provider openai-compatible`',
     '  `moss config set model <模型>`',
+    '  `moss config set baseUrl https://your-gateway.example`   # /v1 可写可不写（https://主机/v1 也可以）；不必带 /chat/completions',
     '  `moss config set rdkDocs false`',
     '  `moss config set rdkDocs.package ../rdk-docs-mcp`',
     '  `moss config set language auto|en|zh`   # 只写用户配置（不能 --project，项目 .env 也不能设置）',
@@ -1057,7 +1058,10 @@ function applyConfigSetPair(
         ok: false,
         messages: [
           `Invalid baseUrl: ${value.trim()}`,
-          'baseUrl must be a full http(s) URL, e.g. https://your-gateway.example (API root, no /v1)',
+          uiText(
+            'baseUrl must be a full http(s) URL, e.g. https://your-gateway.example or https://your-gateway.example/v1 (/v1 is optional)',
+            'baseUrl 必须是完整的 http(s) URL，例如 https://your-gateway.example 或 https://your-gateway.example/v1（/v1 可写可不写）'
+          ),
         ],
       };
     }

@@ -226,6 +226,20 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
   assert.doesNotMatch(readme, /before dependencies are installed/);
   assert.doesNotMatch(readme, /不会把依赖装一半/);
   assert.match(readme, /dependencies before the root `preinstall`/);
+  assert.equal(readme.split('engine-strict=true').length - 1, 2);
+  assert.equal(
+    readme.split('curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash')
+      .length - 1,
+    2
+  );
+  assert.equal(readme.split('curl -fsSL https://fnm.vercel.app/install | bash').length - 1, 2);
+  assert.equal(readme.split('fnm install 22 && fnm use 22').length - 1, 2);
+  assert.equal(readme.split('winget install OpenJS.NodeJS.LTS').length - 1, 2);
+  assert.equal(readme.split('winget install Schniz.fnm').length - 1, 2);
+  assert.equal(readme.split('MY_GATEWAY_API_KEY').length - 1, 4);
+  assert.equal(readme.split('/v1/v1').length - 1, 2);
+  assert.match(readme, /自定义 OpenAI 兼容网关/);
+  assert.match(readme, /Custom OpenAI-compatible gateway/);
   for (const [start, end] of [
     ['## 升级', '## 卸载'],
     ['### Upgrade', '### Uninstall'],

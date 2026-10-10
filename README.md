@@ -29,11 +29,39 @@ Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器
 node -v
 ```
 
-需要 **22.16** 或更高。npm 会先装依赖，再跑根包的 `preinstall`（`scripts/check-node-version.cjs`）。Node 低于 22.16 时脚本打印升级步骤并退出 1，这时依赖已经在磁盘上，还没有可用的 `moss`。升级 Node 后再安装一次。Node 22.16 自带 npm 10，不要按 npm 的提示升级到 npm 12：这个 Node 不支持 npm 12。
+需要 **22.16** 或更高。仓库根目录的 `.npmrc` 设置了 `engine-strict=true`。Node 低于 22.16 时，`npm ci` 和 `npm install`（包括 `npm install -g --install-links .`）会立刻以 `EBADENGINE` 停止，依赖不会下载。根包的 `preinstall`（`scripts/check-node-version.cjs`）是第二道检查：发布包不含这份 `.npmrc`，那种安装仍会先装依赖再跑脚本；Node 过低时脚本打印升级命令并退出 1。Node 22.16 自带 npm 10，不要按 npm 的提示升级到 npm 12：这个 Node 不支持 npm 12。
 
-- nvm：`nvm install 22`，装完再跑一次 `node -v`
+还没有版本管理器时，先装一个，再安装 Node 22，然后重新运行 `npm ci`。
+
+nvm：
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+# 重新打开终端，或：
+. ~/.nvm/nvm.sh
+nvm install 22 && nvm use 22
+```
+
+fnm：
+
+```bash
+curl -fsSL https://fnm.vercel.app/install | bash
+# 按安装脚本的提示重新打开终端
+fnm install 22 && fnm use 22
+```
+
+Windows（PowerShell）：
+
+```powershell
+winget install OpenJS.NodeJS.LTS
+# 或 fnm：
+winget install Schniz.fnm
+```
+
 - NodeSource：见 [nodesource/distributions](https://github.com/nodesource/distributions)
-- 国内网络：`npm config set registry https://registry.npmmirror.com`。nvm 下载 Node 可以设 `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+- 国内网络：`npm config set registry https://registry.npmmirror.com`。nvm 下载 Node：`NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node nvm install 22`
+
+装完用 `node -v` 确认是 22.16 或更高，然后重新运行 `npm ci`。
 
 ### macOS
 
@@ -78,6 +106,21 @@ npm config set prefix ~/.npm-global
 ```text
 看一下这个目录里有什么
 ```
+
+### 自定义 OpenAI 兼容网关
+
+内置预设之外的网关用 `openai-compatible`。四条命令分别写入服务商、模型、地址和密钥变量名（`apiKeyEnv` 的值是变量名，不是密钥本身）：
+
+```bash
+moss config set provider openai-compatible
+moss config set model your-model-name
+moss config set baseUrl https://gw.example
+moss config set apiKeyEnv MY_GATEWAY_API_KEY
+export MY_GATEWAY_API_KEY=your-key
+moss doctor
+```
+
+`baseUrl` 末尾的 `/v1` 可写可不写。`https://gw.example` 和 `https://gw.example/v1` 都可以。Moss 自己拼接 `/v1/chat/completions`，不会变成 `/v1/v1`。不必写 `/chat/completions`，写了也会被去掉。`moss doctor` 核对服务商、模型、地址，以及密钥变量是否已设置。
 
 进到交互界面后：
 
@@ -338,11 +381,39 @@ Check Node first:
 node -v
 ```
 
-Moss needs **22.16** or newer. npm installs dependencies before the root `preinstall` (`scripts/check-node-version.cjs`). On Node older than 22.16 that script prints the upgrade steps and exits 1, so those packages can already be on disk and there is no working `moss`. Upgrade Node and run the install again. Node 22.16 ships with npm 10. Do not follow npm's notice to upgrade to npm 12: Node 22.16 does not support npm 12.
+Moss needs **22.16** or newer. The repo-root `.npmrc` sets `engine-strict=true`. On Node older than 22.16, `npm ci` and `npm install` (including `npm install -g --install-links .`) stop immediately with `EBADENGINE`, and dependencies are not downloaded. The root `preinstall` (`scripts/check-node-version.cjs`) is a second check. A published package does not include that `.npmrc`, so npm installs dependencies before the root `preinstall`. On Node older than 22.16 that script prints the upgrade commands and exits 1. Node 22.16 ships with npm 10. Do not follow npm's notice to upgrade to npm 12: Node 22.16 does not support npm 12.
 
-- nvm: `nvm install 22`, then run `node -v` again
+If you do not have a version manager yet, install one, install Node 22, then rerun `npm ci`.
+
+nvm:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+# Reopen the shell, or:
+. ~/.nvm/nvm.sh
+nvm install 22 && nvm use 22
+```
+
+fnm:
+
+```bash
+curl -fsSL https://fnm.vercel.app/install | bash
+# Reopen the shell the way the installer prints
+fnm install 22 && fnm use 22
+```
+
+Windows (PowerShell):
+
+```powershell
+winget install OpenJS.NodeJS.LTS
+# or fnm:
+winget install Schniz.fnm
+```
+
 - NodeSource: see [nodesource/distributions](https://github.com/nodesource/distributions)
-- In China: `npm config set registry https://registry.npmmirror.com`. For nvm's Node downloads, set `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+- In China: `npm config set registry https://registry.npmmirror.com`. For nvm's Node downloads: `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node nvm install 22`
+
+Then run `node -v` and confirm 22.16 or newer, and rerun `npm ci`.
 
 #### macOS
 
@@ -387,6 +458,21 @@ With no usable config, `moss` sets itself up in that screen (press a number to p
 ```text
 look around this folder and tell me what it is
 ```
+
+### Custom OpenAI-compatible gateway
+
+For a gateway that is not a built-in preset, use `openai-compatible`. These four commands set the provider, model, address, and the key variable name (`apiKeyEnv` stores the name, not the secret):
+
+```bash
+moss config set provider openai-compatible
+moss config set model your-model-name
+moss config set baseUrl https://gw.example
+moss config set apiKeyEnv MY_GATEWAY_API_KEY
+export MY_GATEWAY_API_KEY=your-key
+moss doctor
+```
+
+A trailing `/v1` on `baseUrl` is optional. Both `https://gw.example` and `https://gw.example/v1` work. Moss appends `/v1/chat/completions` itself and never produces `/v1/v1`. Do not include `/chat/completions`; it is not needed, and Moss strips it if it is present. `moss doctor` checks the provider, model, address, and whether the key variable is set.
 
 Inside Moss: give it a job (`@` to reference files, `!` for shell), `Shift+Tab` to cycle modes
 (`plan` = read-only planning), `Ctrl+V` to attach a clipboard image / Finder file / local path

@@ -4,11 +4,13 @@
 
 ### Install follow-ups
 
-`npm ci` runs `scripts/check-node-version.cjs` as `preinstall`. The script is
-listed in `files`, so the packed global copy can run it. npm installs
-dependencies before that hook; on Node older than 22.16 the script prints the
-upgrade steps and exits 1, with those packages already on disk. The README
-says not to follow
+The repo-root `.npmrc` sets `engine-strict=true`. `npm ci` and `npm install`
+(including `npm install -g --install-links .`) refuse with `EBADENGINE`
+before downloading dependencies when Node is older than 22.16. That file is
+not packed. `npm ci` still runs `scripts/check-node-version.cjs` as
+`preinstall` after dependencies are reified; the script is listed in `files`,
+so a packed install prints the upgrade steps and exits 1 on an older Node,
+with those packages already on disk. The README says not to follow
 npm's notice to upgrade to npm 12 on Node 22.16. macOS git needs
 `xcode-select --install`. `moss update` looks only in the current directory
 and `./moss` unless you pass `--dir <clone>` or set `MOSS_SOURCE_DIR`.
