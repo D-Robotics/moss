@@ -80,6 +80,9 @@ function planningPrompt(
   acceptanceCommand?: string,
   capabilityLayer?: string
 ): string {
+  const authority = acceptanceCommand
+    ? `Acceptance authority: the command "${acceptanceCommand}" must exit 0. Define acceptance criteria that mirror what it checks, then make that command pass.`
+    : 'Acceptance authority: criteria × recorded evidence. Define machine-checkable acceptance criteria (metric + expectation, e.g. camera_fps >=30).';
   return [
     '[task-phase:planning]',
     'You are working one moss goal. Complete it in order: plan, then implement, then verify.',
@@ -87,28 +90,31 @@ function planningPrompt(
     'Do not call ask_user_question to ask permission to proceed.',
     '',
     `Goal: ${goal}`,
-    acceptanceCommand
-      ? `Acceptance authority: the command "${acceptanceCommand}" must exit 0. Define acceptance criteria that mirror what it checks, then make that command pass.`
-      : 'Acceptance authority: criteria × recorded evidence. Define machine-checkable acceptance criteria (metric + expectation, e.g. camera_fps >=30).',
+    authority,
     ...(capabilityLayer ? ['', capabilityLayer] : []),
+    '',
+    'Keep the change minimal and scoped to the request: do not add features, files, or refactors that were not asked for.',
+    'Plan as a short list, not a design document.',
     '',
     'Do all of the following in this turn:',
     `1. task_define with task_id="${taskId}" — goal, acceptance_criteria, target_device if a device is involved, verification_plan.`,
-    `2. task_plan_update with task_id="${taskId}" — 3-8 concrete steps (inspect → change → build/deploy → verify → accept).`,
-    '3. Implement the plan now (edit files and run the commands the plan names).',
-    '4. Record evidence for each acceptance metric (record_evidence) and run task_acceptance. Report that verdict. Do not claim the goal is done before it passes.',
+    `2. task_plan_update with task_id="${taskId}" — small code changes: 1–3 steps; when a device or deployment is involved: inspect → change → build/deploy → verify, at most 8 steps.`,
+    '3. Implement only that change now.',
+    '4. Run the acceptance command, or run_tests / verify_fix once. That records tests_pass, build_ok, or typecheck_ok when the criterion is written as tests_pass == true (not ==pass); the same for build_ok and typecheck_ok. Any other metric still needs record_evidence. Then run task_acceptance and report that verdict. Do not claim the goal is done before it passes.',
   ].join('\n');
 }
 
 function executionPrompt(goal: string, taskId: string, round: number): string {
+  const evidenceLine =
+    round === 1
+      ? 'Work through the short plan. run_tests, verify_fix, or the acceptance command records tests_pass, build_ok, or typecheck_ok. Use record_evidence for any other metric — real probes only, no asserted values.'
+      : 'Continue from where you left off. Re-run the failing check so tests_pass, build_ok, or typecheck_ok stay current, and record_evidence again for any other metric (latest evidence per metric wins).';
   return [
     '[task-phase:executing]',
     `Continue the same goal: implement, then verify. Goal: ${goal}`,
     `task_id: ${taskId} — pass it to record_evidence / task tools.`,
-    round === 1
-      ? 'Work through the plan step by step. Record evidence (record_evidence) for every acceptance metric you can measure — real probes only, no asserted values.'
-      : 'Continue from where you left off. Fix what failed, re-measure, and record fresh evidence (latest evidence per metric wins).',
-    'When every metric has passing evidence, run task_acceptance and report its verdict verbatim.',
+    evidenceLine,
+    'When the acceptance items are covered, run task_acceptance and report its verdict verbatim.',
   ].join('\n');
 }
 
@@ -174,7 +180,7 @@ function repairPrompt(
     '1. Identify the root cause from the verdict and any logs/probes you need — state it as a hypothesis you can check before editing.',
     '2. record_failure with the symptom and your diagnosis (include task_id).',
     '3. Apply the minimal fix; record_repair with what you changed (include task_id).',
-    '4. Re-measure and record fresh evidence for the failing metrics (record_evidence with task_id).',
+    '4. Re-run the failing check. That refreshes tests_pass, build_ok, or typecheck_ok. record_evidence with task_id for any other metric the run does not cover.',
     'Do not work around or weaken the acceptance criteria. Do not claim success without recorded evidence.'
   );
   return lines.join('\n');

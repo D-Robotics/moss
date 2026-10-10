@@ -79,6 +79,24 @@ const FIXTURES = [
     not: [/NO TESTS EXECUTED/],
   },
   {
+    name: 'pytest expected failure',
+    output: '1 xfailed in 0.01s',
+    match: [/tests_pass=true/, /Tests: 1 total, 1 passed, 0 failed/],
+    not: [/tests_pass=false/, /counts unknown/, /1 failed/],
+  },
+  {
+    name: 'pytest non-strict xpass stays a pass',
+    output: '1 passed, 1 xpassed in 0.01s',
+    match: [/tests_pass=true/, /ALL PASSED/, /1 passed, 0 failed/],
+    not: [/tests_pass=false/, /FAILED/],
+  },
+  {
+    name: 'pytest xpass alone is not a failure',
+    output: '1 xpassed in 0.01s',
+    match: [/counts unknown/, /tests_pass=false/],
+    not: [/1 FAILED/, /ALL PASSED/, /tests_pass=true/],
+  },
+  {
     name: 'pytest empty',
     output: 'no tests ran in 0.01s',
     match: [/no tests/, /tests_pass=false/],
@@ -207,6 +225,67 @@ const FIXTURES = [
     not: [/tests_pass=true/, /ALL PASSED/],
   },
   {
+    name: 'unittest ok',
+    command: 'python3 -m unittest discover -s .',
+    output: 'Ran 2 tests in 0.001s\n\nOK\n',
+    match: [/tests_pass=true/, /Tests: 2 total, 2 passed, 0 failed/],
+    not: [/tests_pass=false/, /counts unknown/, /no tests/],
+  },
+  {
+    name: 'unittest failed',
+    command: 'python3 -m unittest discover -s .',
+    output:
+      'FAIL: test_add (test_math.MathTest.test_add)\n' +
+      'AssertionError: 1 != 2\n\n' +
+      'Ran 3 tests in 0.002s\n\nFAILED (failures=1, skipped=1)\n',
+    exitCode: 1,
+    match: [/tests_pass=false/, /Tests: 3 total, 1 passed, 1 failed, 1 skipped/, /test_add/],
+    not: [/tests_pass=true/, /ALL PASSED/],
+  },
+  {
+    name: 'unittest none',
+    command: 'python3 -m unittest discover -s .',
+    output: 'Ran 0 tests in 0.000s\n\nNO TESTS RAN\n',
+    match: [/no tests/, /tests_pass=false/],
+    not: [/tests_pass=true/, /ALL PASSED/],
+  },
+  {
+    name: 'unittest expected failure',
+    command: 'python3 -m unittest discover -s .',
+    output: 'Ran 1 test in 0.000s\n\nOK (expected failures=1)\n',
+    match: [/tests_pass=true/, /Tests: 1 total, 1 passed, 0 failed/],
+    not: [/tests_pass=false/, /1 failed/],
+  },
+  {
+    name: 'unittest unexpected success',
+    command: 'python3 -m unittest discover -s .',
+    output:
+      'UNEXPECTED SUCCESS: test_1 (test_a.T.test_1)\n\n' +
+      'Ran 2 tests in 0.000s\n\nFAILED (unexpected successes=1)\n',
+    exitCode: 1,
+    match: [/tests_pass=false/, /Tests: 2 total, 1 passed, 1 failed/, /UNEXPECTED SUCCESS/],
+    not: [/0 failed/, /ALL PASSED/, /tests_pass=true/],
+  },
+  {
+    name: 'unittest subtest failures',
+    command: 'python3 -m unittest discover -s .',
+    output:
+      'FAIL: test_1 (test_a.T.test_1) (i=1)\n' +
+      'FAIL: test_1 (test_a.T.test_1) (i=2)\n\n' +
+      'Ran 1 test in 0.000s\n\nFAILED (failures=2)\n',
+    exitCode: 1,
+    match: [/tests_pass=false/, /Tests: 1 total, 0 passed, 2 failed/],
+    not: [/ALL PASSED/, /tests_pass=true/, /no tests/],
+  },
+  {
+    name: 'unittest setUpClass error',
+    command: 'python3 -m unittest discover -s .',
+    output: 'ERROR: setUpClass (test_a.T)\n\nRan 0 tests in 0.000s\n\nFAILED (errors=1)\n',
+    exitCode: 1,
+    match: [/tests_pass=false/, /1 failed/, /setUpClass/],
+    not: [/no tests/, /ALL PASSED/, /tests_pass=true/],
+  },
+  {
     name: 'go plain ok',
     command: 'go test ./...',
     output: 'ok  \texample.com/ok\t0.01s\nok  \texample.com/other\t(cached)\n',
@@ -269,6 +348,128 @@ test('detection order skips make unless it is alone', async () => {
         run: [`${py} -m pytest`, 'npm test --silent', 'go test -json ./...', 'cargo test'],
         skipped: ['make test'],
       });
+    }
+  );
+});
+
+test('a real unittest discover run is tests_pass=true', async () => {
+  if (!hasBin(py, ['-c', 'import unittest'])) return;
+  await withDir(
+    {
+      'test_math.py':
+        'import unittest\n\nclass MathTest(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(1 + 1, 2)\n\nif __name__ == "__main__":\n    unittest.main()\n',
+    },
+    async (dir) => {
+      const output = await runTestsTool.execute({}, ctx(dir));
+      assert.match(output, pytestImportable() ? /pytest/ : /unittest discover/);
+      assert.match(output, /tests_pass=true/, output);
+      assert.doesNotMatch(output, /tests_pass=false/);
+    }
+  );
+});
+
+test('unittest modules are discovered without a pytest probe', async () => {
+  await withDir(
+    {
+      'tests/test_math.py':
+        'import unittest\n\nclass MathTest(unittest.TestCase):\n    def test_add(self):\n        self.assertEqual(1 + 1, 2)\n',
+    },
+    async (dir) => {
+      const planned = await planTestRunners(dir, async () => false);
+      assert.deepEqual(planned.run, [`${py} -m unittest discover -s tests`]);
+      assert.equal(
+        planned.skipped.some((line) => line.includes('pytest')),
+        false
+      );
+      const withPytest = await planTestRunners(dir, async () => true);
+      assert.deepEqual(withPytest.run, [`${py} -m pytest`]);
+    }
+  );
+});
+
+test('a pytest-style assert is not hidden by a sibling unittest import', async () => {
+  await withDir(
+    {
+      'test_a.py': 'def test_x():\n    assert 1 == 2\n',
+      'test_b.py':
+        'import unittest\n\nclass T(unittest.TestCase):\n    def test_1(self):\n        pass\n',
+    },
+    async (dir) => {
+      const present = await planTestRunners(dir, async () => true);
+      assert.deepEqual(present.run, [`${py} -m pytest`]);
+      const absent = await planTestRunners(dir, async () => false);
+      assert.deepEqual(absent.run, []);
+      assert.match(absent.skipped.join('\n'), /pytest not installed/);
+    }
+  );
+});
+
+test('a PATH pytest shim without importable pytest falls back to unittest', async () => {
+  if (!hasBin(py, ['-c', 'import unittest'])) return;
+  const hidden = spawnSync(py, ['-m', 'pytest', '--version'], {
+    env: { ...process.env, PYTHONNOUSERSITE: '1' },
+    encoding: 'utf8',
+  });
+  if (hidden.status === 0) return;
+  const binDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-pytest-shim-'));
+  const shimName = process.platform === 'win32' ? 'pytest.cmd' : 'pytest';
+  const shimBody =
+    process.platform === 'win32' ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n';
+  await fs.writeFile(path.join(binDir, shimName), shimBody);
+  if (process.platform !== 'win32') await fs.chmod(path.join(binDir, shimName), 0o755);
+  const savedPath = process.env.PATH;
+  const savedNoUser = process.env.PYTHONNOUSERSITE;
+  process.env.PATH = `${binDir}${path.delimiter}${savedPath ?? ''}`;
+  process.env.PYTHONNOUSERSITE = '1';
+  try {
+    await withDir(
+      {
+        'test_math.py':
+          'import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertEqual(1, 1)\n',
+      },
+      async (dir) => {
+        const output = await runTestsTool.execute({ timeout_ms: 20000 }, ctx(dir));
+        assert.match(output, /unittest discover/, output);
+        assert.match(output, /tests_pass=true/, output);
+        assert.doesNotMatch(output, /not run|No module named pytest/);
+      }
+    );
+  } finally {
+    if (savedPath === undefined) delete process.env.PATH;
+    else process.env.PATH = savedPath;
+    if (savedNoUser === undefined) delete process.env.PYTHONNOUSERSITE;
+    else process.env.PYTHONNOUSERSITE = savedNoUser;
+    await fs.rm(binDir, { recursive: true, force: true });
+  }
+});
+
+test('unittest under tests/ runs without __init__.py', async () => {
+  if (!hasBin(py, ['-c', 'import unittest'])) return;
+  await withDir(
+    {
+      'tests/test_a.py':
+        'import unittest\n\nclass T(unittest.TestCase):\n    def test_1(self):\n        pass\n',
+    },
+    async (dir) => {
+      const output = await runTestsTool.execute({ timeout_ms: 20000 }, ctx(dir));
+      assert.match(output, /tests_pass=true/, output);
+      assert.doesNotMatch(output, /NO TESTS|Ran 0 tests/);
+    }
+  );
+});
+
+test('a timed-out run reports timeout only', async () => {
+  if (!hasBin(py, ['-c', 'import unittest'])) return;
+  await withDir(
+    {
+      'test_hang.py':
+        'import unittest, time\n\nclass T(unittest.TestCase):\n    def test_hang(self):\n        time.sleep(30)\n',
+    },
+    async (dir) => {
+      const output = await runTestsTool.execute({ timeout_ms: 5000 }, ctx(dir));
+      assert.match(output, /timed out/, output);
+      assert.match(output, /tests_pass=false/);
+      assert.doesNotMatch(output, /Process exited with code/);
     }
   );
 });
