@@ -189,7 +189,21 @@ function project(root) {
   writePackage(packageDir, envFile);
   const binDir = path.join(root, 'bin');
   fs.mkdirSync(binDir, { recursive: true });
-  const npx = path.join(binDir, 'npx');
+  const npx =
+    process.platform === 'win32'
+      ? path.join(binDir, 'node_modules/npm/bin/npx-cli.js')
+      : path.join(binDir, 'npx');
+  fs.mkdirSync(path.dirname(npx), { recursive: true });
+  if (process.platform === 'win32') {
+    fs.writeFileSync(
+      path.join(binDir, 'node_modules/npm/package.json'),
+      JSON.stringify({ type: 'module' })
+    );
+    fs.writeFileSync(
+      path.join(binDir, 'npx.cmd'),
+      '@node "%~dp0node_modules/npm/bin/npx-cli.js" %*\r\n'
+    );
+  }
   fs.writeFileSync(
     npx,
     [

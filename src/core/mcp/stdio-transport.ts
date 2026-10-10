@@ -94,7 +94,7 @@ export class McpStdioTransport implements McpTransport {
       // a shell, so package paths and arguments keep their literal boundaries.
       const npxScript =
         process.platform === 'win32' && command === 'npx'
-          ? [path.dirname(process.execPath), ...(env.PATH ?? env.Path ?? '').split(path.delimiter)]
+          ? [...(env.PATH ?? env.Path ?? '').split(path.delimiter), path.dirname(process.execPath)]
               .map((dir) => path.join(dir, 'node_modules', 'npm', 'bin', 'npx-cli.js'))
               .find((candidate) => fs.existsSync(candidate))
           : undefined;
