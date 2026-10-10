@@ -1291,7 +1291,7 @@ async function main() {
           // Also re-derive maxTokens from the freshly-probed context window,
           // but only if the user didn't pin agent.maxOutputTokens explicitly.
           if (resolvedConfig.maxOutputTokens === undefined) {
-            const derived = deriveMaxOutputTokens(probed.contextTokens);
+            const derived = deriveMaxOutputTokens(probed.contextTokens, resolvedConfig.model);
             if (derived) agent.config.maxTokens = derived;
           }
         }

@@ -45,6 +45,7 @@ import {
 import { collectNudgeInjections } from './nudges/registry.js';
 import { isNudgeDisabled } from './nudges/disable.js';
 import { selectNudgeUserText } from '../session/internal-transcript.js';
+import { resolveModelOutputBudget } from './output-limit.js';
 
 const defaultPendingToolAborts = new PendingToolAbortStore();
 export type {
@@ -185,6 +186,15 @@ export function runAgentLoop(
 
     const state = createInitialLoopState();
     state.compactionSummary = params.compactionSummary;
+    const outputBudget = resolveModelOutputBudget({
+      modelId: modelDef.id,
+      contextTokens,
+      configured: maxOutputTokensParam ?? modelDef.maxTokens,
+      pinned: params.outputTokensPinned === true,
+      overrides: params.modelMaxOutputTokens,
+    });
+    state.outputTokenBudget = outputBudget.initial;
+    state.outputTokenCeiling = outputBudget.ceiling;
     const toolFollowupBypassCap = resolveToolFollowupBypassCap(maxTurns);
     const budget = params.budget;
     const prefixDebugEnabled = platform?.promptPrefixDebug ?? isPromptPrefixDebugEnabled();
@@ -257,9 +267,14 @@ export function runAgentLoop(
 
     const resolveToolsForRun = () => (getToolsForRun ? getToolsForRun() : params.toolsForRun);
 
+    const activeOutputTokens = (): number =>
+      state.outputTokenBudget > 0
+        ? state.outputTokenBudget
+        : (maxOutputTokensParam ?? modelDef.maxTokens ?? 8192);
+
     const evaluateSteering = (): Message[] => {
       if (!steeringEngine) return [];
-      const maxOut = maxOutputTokensParam ?? modelDef.maxTokens ?? 8192;
+      const maxOut = activeOutputTokens();
       const effCtx = getEffectiveContextWindowTokens(contextTokens, maxOut);
       const charsPerUnit = resolveContextCharsPerTokenUnit();
       const steerCtx: SteeringContext = {
@@ -463,7 +478,7 @@ export function runAgentLoop(
             state.pendingMessages = [];
           }
 
-          const maxOut = maxOutputTokensParam ?? modelDef.maxTokens ?? 8192;
+          const maxOut = activeOutputTokens();
           const effectiveContextTokens = getEffectiveContextWindowTokens(contextTokens, maxOut);
 
           let turnToolCalls: { id: string; name: string; input: Record<string, unknown> }[] = [];
@@ -521,6 +536,7 @@ export function runAgentLoop(
               maxLLMRetries,
               topP,
               abortSignal,
+              maxTokens: activeOutputTokens(),
               messagesForModel: ctxResult.messagesForModel,
               toolsForRun: ctxResult.toolsForRun,
               sessionKey,
@@ -602,6 +618,7 @@ export function runAgentLoop(
               continue;
             }
             if (responseResult.control === 'break') {
+              if (state.outputLimitHalted) break outerLoop;
               // Final text may have been generated while a background build/test
               // finished — inject completion before yielding to the user.
               const bgAtEnd = injectBackgroundCompletions();
@@ -705,6 +722,7 @@ export function runAgentLoop(
         // window, break before fetching follow-ups — otherwise we burn one
         // LLM call that the user already cancelled.
         if (abortSignal.aborted) break outerLoop;
+        if (state.outputLimitHalted) break outerLoop;
 
         if (getSteeringMessages) {
           const steeringMessages = await getSteeringMessages();
@@ -725,7 +743,7 @@ export function runAgentLoop(
         break;
       }
 
-      const maxOutMetrics = maxOutputTokensParam ?? modelDef.maxTokens ?? 8192;
+      const maxOutMetrics = activeOutputTokens();
       const effMetrics = getEffectiveContextWindowTokens(contextTokens, maxOutMetrics);
       const promptCacheEligibility = assessPromptCacheEligibility(activeSystemPromptParts, {
         enabled: Boolean(activeSystemPromptParts?.stable),

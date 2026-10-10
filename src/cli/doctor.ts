@@ -8,6 +8,7 @@ import {
   CONSERVATIVE_DEFAULT_UNPROBED,
 } from './config.js';
 import type { ResolvedCliConfig } from './config.js';
+import { deriveMaxOutputTokens } from './agent-runtime.js';
 import { humanTokens } from './tui-utils.js';
 import { MIN_NODE_MAJOR, MIN_NODE_MINOR, nodeVersionProblem } from './node-version-check.js';
 import { errorMessage } from '../errors.js';
@@ -568,19 +569,16 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
           )
         );
       } else {
-        const derived = Math.max(
-          2_048,
-          Math.min(
-            Math.floor((options.config.contextTokens ?? CONSERVATIVE_DEFAULT_UNPROBED) / 4),
-            8_192
-          )
+        const derived = deriveMaxOutputTokens(
+          options.config.contextTokens ?? CONSERVATIVE_DEFAULT_UNPROBED,
+          options.config.model
         );
         lines.push(
           ok(
             uiText('max output', '最大输出'),
             uiText(
-              `${humanTokens(derived)} tokens (derived from context window — contextTokens/4, cap 8k)`,
-              `${humanTokens(derived)} token（由上下文窗口推算 — contextTokens/4，上限 8k）`
+              `${humanTokens(derived ?? 0)} tokens (derived from the model and context window)`,
+              `${humanTokens(derived ?? 0)} token（由模型和上下文窗口推算）`
             )
           )
         );

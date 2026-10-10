@@ -28,6 +28,15 @@ export interface ProviderConfig {
   model?: string;
   maxTokens?: number;
 
+  /** When true, `maxTokens` is a user pin and output-limit recovery will not raise it. */
+  maxOutputTokensPinned?: boolean;
+
+  /**
+   * Per-model output ceilings (`agent.models.<id>.maxOutputTokens`).
+   * A match replaces the built-in table and the global pin for that model.
+   */
+  modelMaxOutputTokens?: Readonly<Record<string, number>>;
+
   maxLLMRetries?: number;
 
   temperature?: number;
@@ -335,6 +344,12 @@ export type MossAgentEvent =
     }
   | { type: 'turn_start'; turn: number }
   | { type: 'turn_end'; turn: number; stopReason: string; totalToolCalls?: number }
+  | {
+      type: 'output_continuation';
+      attempt: number;
+      maxAttempts: number;
+      exhausted?: boolean;
+    }
   | { type: 'retry'; attempt: number; error: string }
   | {
       type: 'error';
