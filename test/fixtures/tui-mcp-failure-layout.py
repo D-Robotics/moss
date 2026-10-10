@@ -28,7 +28,7 @@ def free_port():
         return int(sock.getsockname()[1])
 
 
-def run_case(cols, rows, ready):
+def run_case(cols, rows, ready, settle):
     port = free_port()
     stub = subprocess.Popen(
         ["node", os.path.join(ROOT, "scripts", "tui-feel", "stub.mjs"), str(port)],
@@ -98,11 +98,13 @@ def run_case(cols, rows, ready):
     )
     os.close(slave)
     try:
-        # The failure can paint on an early frame, while the composer is still
-        # near the top. Returning on the first frame that mentions both the
-        # prompt and rdk-docs flakes (prompts=[5] instead of the settled row).
-        # The spinner changes every 120ms, so stability is the composer row and
-        # the failure/inline text, not a byte-identical screen.
+        # Fullscreen: the failure can paint while the composer is still near
+        # the top. The first frame with both ❯ and rdk-docs flakes
+        # (prompts=[5] instead of the settled row). Wait until that row holds.
+        # The spinner changes every 120ms, so stability is the composer row,
+        # not a byte-identical screen. Inline: the fallback notice is one
+        # stderr line before Ink draws, and it leaves the visible screen, so
+        # the first frame that still shows it is the one to keep.
         deadline = time.time() + 15
         last = None
         stable = 0
@@ -116,8 +118,14 @@ def run_case(cols, rows, ready):
                 data = data.replace(b"\x1b[?1049h", b"\x1b[?1049h\x1b[2J\x1b[H")
                 stream.feed(data.decode("utf-8", "replace"))
             display = tuple(screen.display)
-            sig = layout_sig(display)
-            if ready(display) and sig == last:
+            if not ready(display):
+                stable = 0
+                last = None
+                continue
+            if not settle:
+                break
+            sig = prompt_rows(display)
+            if sig == last:
                 stable += 1
                 if stable >= 4:
                     break
@@ -133,15 +141,8 @@ def run_case(cols, rows, ready):
         os.close(master)
 
 
-def layout_sig(display):
-    prompts = tuple(
-        index for index, line in enumerate(display) if line.lstrip().startswith(PROMPT)
-    )
-    text = "".join(line.strip() for line in display)
-    failed = any(
-        "rdk-docs" in line and ("unreachable" in line or "failed" in line) for line in display
-    )
-    return (prompts, failed, "using the inline view" in text)
+def prompt_rows(display):
+    return tuple(index for index, line in enumerate(display) if line.lstrip().startswith(PROMPT))
 
 
 def fullscreen_ready(display):
@@ -158,7 +159,7 @@ def inline_ready(display):
     return "using the inline view" in text and bool(prompts)
 
 
-fullscreen = run_case(100, 30, fullscreen_ready)
+fullscreen = run_case(100, 30, fullscreen_ready, True)
 fullscreen_prompts = [index for index, line in enumerate(fullscreen) if line.lstrip().startswith(PROMPT)]
 assert 27 in fullscreen_prompts, (
     f"fullscreen composer moved after MCP failure: prompts={fullscreen_prompts}\n"
@@ -166,7 +167,7 @@ assert 27 in fullscreen_prompts, (
 )
 assert any("rdk-docs" in line and ("unreachable" in line or "failed" in line) for line in fullscreen)
 
-inline = run_case(30, 12, inline_ready)
+inline = run_case(30, 12, inline_ready, False)
 inline_text = "".join(line.strip() for line in inline)
 assert "using the inline view" in inline_text, (
     "inline fallback notice disappeared after MCP failure\n" + "\n".join(inline)
