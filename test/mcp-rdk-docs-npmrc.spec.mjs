@@ -87,6 +87,8 @@ const savedKeys = [
   'NPM_CONFIG_REGISTRY',
   'npm_config_userconfig',
   'NPM_CONFIG_USERCONFIG',
+  'npm_config_cache',
+  'NPM_CONFIG_CACHE',
 ];
 const saved = Object.fromEntries(savedKeys.map((key) => [key, process.env[key]]));
 process.env.HOME = home;
@@ -98,6 +100,11 @@ delete process.env.npm_config_registry;
 delete process.env.NPM_CONFIG_REGISTRY;
 delete process.env.npm_config_userconfig;
 delete process.env.NPM_CONFIG_USERCONFIG;
+// `npm run verify` exports npm_config_cache=<real ~/.npm>. A warm user cache
+// lets npx resolve without asking any registry, so the user-registry probe
+// below never fires. Keep the cache under the temp HOME.
+delete process.env.npm_config_cache;
+delete process.env.NPM_CONFIG_CACHE;
 
 const previous = process.cwd();
 process.chdir(ws);
