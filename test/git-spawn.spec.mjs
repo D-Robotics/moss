@@ -220,15 +220,46 @@ describe('git spawn', { concurrency: 1 }, () => {
   });
 
   test('startup git status and /diff do not run an includeIf gitdir filter', async (t) => {
-    const repo = await initDirtyFilterRepo(t, 'moss-includeif-');
-    const included = path.join(repo.dir, 'included-if.cfg');
-    await fs.writeFile(included, filterConfig(repo.script));
-    const gitDir = path.join(repo.dir, '.git');
-    await fs.appendFile(
-      path.join(gitDir, 'config'),
-      `\n[includeIf "gitdir:${gitDir}"]\n\tpath = ${included}\n`
+    // macOS /tmp is a symlink to /private/tmp. git includeIf gitdir: matches the
+    // realpath of the git dir, so a pattern written with the logical path never
+    // arms the filter (and never proves Moss neutralized it).
+    const realParent = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-includeif-real-'));
+    const linkParent = path.join(
+      os.tmpdir(),
+      `moss-includeif-link-${process.pid}-${Date.now().toString(36)}`
     );
-    await assertFilterStaysOff(repo);
+    await fs.symlink(realParent, linkParent);
+    t.after(() => fs.rm(linkParent, { force: true }));
+    t.after(() => fs.rm(realParent, { recursive: true, force: true }));
+
+    const shapes = [
+      {
+        name: 'gitdir',
+        pattern: (gitDir) => `gitdir:${gitDir}`,
+      },
+      {
+        name: 'gitdir-i',
+        pattern: (gitDir) => `gitdir/i:${gitDir.toUpperCase()}`,
+      },
+      {
+        name: 'trailing-slash',
+        pattern: (gitDir) => `gitdir:${path.dirname(gitDir)}/`,
+      },
+    ];
+    for (const shape of shapes) {
+      const repo = await initDirtyFilterRepo(t, `moss-includeif-${shape.name}-`, linkParent);
+      const included = path.join(repo.dir, 'included-if.cfg');
+      await fs.writeFile(included, filterConfig(repo.script));
+      const logicalGitDir = path.join(repo.dir, '.git');
+      const gitDir = await fs.realpath(logicalGitDir);
+      assert.notEqual(gitDir, logicalGitDir);
+      const includedReal = await fs.realpath(included);
+      await fs.appendFile(
+        path.join(gitDir, 'config'),
+        `\n[includeIf "${shape.pattern(gitDir)}"]\n\tpath = ${includedReal}\n`
+      );
+      await assertFilterStaysOff(repo);
+    }
   });
 
   test('startup git status and /diff do not run a config.worktree filter', async (t) => {
@@ -407,8 +438,8 @@ describe('git spawn', { concurrency: 1 }, () => {
     return dir;
   }
 
-  async function initDirtyFilterRepo(t, prefix) {
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  async function initDirtyFilterRepo(t, prefix, parent) {
+    const dir = await fs.mkdtemp(path.join(parent ?? os.tmpdir(), prefix));
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
     execFileSync('git', ['init'], { cwd: dir, stdio: 'ignore' });
     execFileSync('git', ['config', 'user.email', 'moss@example.com'], {
@@ -420,7 +451,14 @@ describe('git spawn', { concurrency: 1 }, () => {
     await fs.writeFile(path.join(dir, '.gitattributes'), '* filter=mossinc\n');
     execFileSync('git', ['add', 'README.md', '.gitattributes'], { cwd: dir, stdio: 'ignore' });
     execFileSync('git', ['commit', '-m', 'init'], { cwd: dir, stdio: 'ignore' });
-    await fs.writeFile(path.join(dir, 'README.md'), 'hello\nchanged\n');
+    const readme = path.join(dir, 'README.md');
+    await fs.writeFile(readme, 'hello\nchanged\n');
+    // git status runs filter.clean only when the index stat cannot prove the
+    // file is unchanged. A same-second rewrite (coarse mtime, matching size)
+    // loses that race and the fixture self-check flakes. A future mtime cannot
+    // match the stat recorded at commit.
+    const future = new Date(Date.now() + 10_000);
+    await fs.utimes(readme, future, future);
     const marker = path.join(dir, 'FILTER_RAN');
     const script = path.join(dir, 'clean.sh');
     await fs.writeFile(script, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\ncat\n`);
