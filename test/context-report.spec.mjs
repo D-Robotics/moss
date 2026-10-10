@@ -57,6 +57,11 @@ test('fresh session report names every first-request section and stays within bu
     assert.equal(report.userMessage, FRESH_SESSION_USER_MESSAGE);
     assert.ok(report.tools.some((tool) => tool.name === 'read_file'));
     assert.ok(report.tools.some((tool) => tool.name === 'mcp__rdk-docs__search'));
+    assert.equal(
+      report.tools.some((tool) => tool.name === 'ask_user_question'),
+      false,
+      'headless -p report omits ask_user_question'
+    );
     assert.ok(!report.tools.some((tool) => tool.name.startsWith('device_')));
     assert.ok(report.systemPrompt.includes('## Software Engineering'));
     assert.ok(report.systemPrompt.includes('rdk-docs'));

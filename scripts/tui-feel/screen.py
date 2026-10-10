@@ -10,6 +10,7 @@ import json
 import os
 import pty
 import select
+import shutil
 import socket
 import struct
 import subprocess
@@ -61,13 +62,18 @@ class Session:
         self.proc = None
         self.stub = None
         self.master = None
+        self.home = None
         self.workspace = None
         self.screen = pyte.HistoryScreen(cols, rows, history=5000)
         self.stream = pyte.Stream(self.screen)
         self.raw = bytearray()
 
     def __enter__(self):
-        self.start()
+        try:
+            self.start()
+        except Exception:
+            self.close()
+            raise
         return self
 
     def __exit__(self, *exc):
@@ -81,9 +87,10 @@ class Session:
             stderr=subprocess.DEVNULL,
         )
         time.sleep(0.4)
-        home = tempfile.mkdtemp(prefix="moss-screen-home-")
-        ws = tempfile.mkdtemp(prefix="moss-screen-ws-")
-        self.workspace = ws
+        self.home = tempfile.mkdtemp(prefix="moss-screen-home-")
+        self.workspace = tempfile.mkdtemp(prefix="moss-screen-ws-")
+        home = self.home
+        ws = self.workspace
         cfg_dir = os.path.join(home, ".config", "moss")
         os.makedirs(cfg_dir)
         cfg = os.path.join(cfg_dir, "config.json")
@@ -110,6 +117,8 @@ class Session:
             "LANG": "en_US.UTF-8",
             "MOSS_NOTIFY": "0",
             "MOSS_NO_RDK_DOCS": "1",
+            # Layout probes measure the TUI, not the first-launch folder prompt.
+            "MOSS_TRUST_WORKSPACE": "1",
             "MOSS_CONFIG_FILE": cfg,
             "MOSS_TUI_RENDERER": self.renderer,
             **self.extra_env,
@@ -128,14 +137,30 @@ class Session:
         self.pump(2.0)
 
     def close(self):
-        if self.proc is not None:
-            self.proc.kill()
-            self.proc.wait(timeout=5)
-        if self.stub is not None:
-            self.stub.terminate()
-            self.stub.wait(timeout=5)
-        if self.master is not None:
-            os.close(self.master)
+        try:
+            if self.proc is not None:
+                self.proc.kill()
+                self.proc.wait(timeout=5)
+            if self.stub is not None:
+                self.stub.terminate()
+                self.stub.wait(timeout=5)
+            if self.master is not None:
+                try:
+                    os.close(self.master)
+                except OSError:
+                    pass
+        finally:
+            self.proc = None
+            self.stub = None
+            self.master = None
+            home = self.home
+            workspace = self.workspace
+            self.home = None
+            self.workspace = None
+            if home:
+                shutil.rmtree(home, ignore_errors=True)
+            if workspace:
+                shutil.rmtree(workspace, ignore_errors=True)
 
     def pump(self, seconds: float) -> None:
         end = time.time() + seconds
@@ -174,6 +199,20 @@ class Session:
             raise KeyError(f"unknown key name {name!r}: add it to KEYS so it is not sent as text")
         self.send(KEYS.get(name, name))
         self.pump(0.4)
+
+    def wait_for(self, predicate, timeout: float = 5.0) -> bool:
+        """Pump until `predicate` is true or `timeout` elapses.
+
+        A fixed pump after a key misses the frame on a slow machine: the
+        history search overlay can land after 0.7s, and the check then reads
+        a screen that has not opened yet.
+        """
+        end = time.time() + timeout
+        while time.time() < end:
+            if predicate():
+                return True
+            self.pump(0.05)
+        return bool(predicate())
 
     def wait_for_prompt(self, timeout: float = 20.0) -> None:
         """Pump until the composer glyph is painted.

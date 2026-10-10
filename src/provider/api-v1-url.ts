@@ -6,6 +6,21 @@ export function stripEndpointSuffix(value: string): string {
     .replace(/\/v1$/i, '');
 }
 
+/** Drop userinfo, query, and a trailing /v1 or chat path. Invalid text is only suffix-stripped. */
+export function cleanGatewayUrl(value: string): string {
+  const trimmed = value.trim();
+  try {
+    const url = new URL(trimmed);
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return stripEndpointSuffix(url.toString());
+  } catch {
+    return stripEndpointSuffix(trimmed);
+  }
+}
+
 export function isHttpUrl(value: string): boolean {
   try {
     const url = new URL(value.trim());

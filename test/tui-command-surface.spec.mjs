@@ -229,6 +229,7 @@ const BLOCK_TITLE = new Map([
   ['/model', /^Model$/],
   ['/mode', /^Mode$/],
   ['/permissions', /^Permissions$/],
+  ['/language', /^Language$/],
   ['/theme', /^Theme$/],
   ['/doctor', /^Doctor$/],
   ['/context', /^Context$/],
@@ -287,6 +288,9 @@ const agent = {
       tokensAfter: 1234,
       instructions,
     };
+  },
+  reportedModel() {
+    return undefined;
   },
   config: {
     model: 'spec-model',

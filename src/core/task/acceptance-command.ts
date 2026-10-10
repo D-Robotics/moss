@@ -9,6 +9,8 @@ export interface AcceptanceSpec {
   /** Shell command that must exit 0 for the goal to be complete. */
   command: string;
   timeoutMs?: number;
+  /** Task workspace. The command runs here, not in the process cwd. */
+  workspaceDir?: string;
 }
 
 export interface AcceptanceResult {
@@ -31,6 +33,10 @@ export const DEFAULT_ACCEPTANCE_TIMEOUT_MS = 5 * 60_000;
  * `child_process.exec` avoids this by wrapping the command in one extra pair of
  * quotes and setting `windowsVerbatimArguments`: `/s` strips exactly that
  * wrapper and cmd parses the original command.
+ *
+ * POSIX uses `bash -c` so the PATH moss inherited stays in place. A login
+ * shell sources the profile and replaces PATH, which drops an activated
+ * virtualenv.
  */
 export function acceptanceShell(
   command: string,
@@ -43,7 +49,7 @@ export function acceptanceShell(
       windowsVerbatimArguments: true,
     };
   }
-  return { cmd: 'bash', args: ['-lc', command] };
+  return { cmd: 'bash', args: ['-c', command] };
 }
 
 export async function runAcceptanceCommand(
@@ -57,7 +63,7 @@ export async function runAcceptanceCommand(
 export async function runAcceptanceCommandInWorkspace(
   spec: AcceptanceSpec,
   signal?: AbortSignal,
-  workspaceDir?: string
+  workspaceDir: string | undefined = spec.workspaceDir
 ): Promise<AcceptanceResult> {
   const endedAt = Date.now();
   const shell = acceptanceShell(spec.command);

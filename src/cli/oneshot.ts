@@ -227,8 +227,16 @@ const ONE_SHOT_SUBAGENT_TOOLS = new Set([
   'fan_out_subagents',
   'subagent_status',
   'subagent_stop',
+  'merge_subagent_patch',
 ]);
-const ONE_SHOT_BACKGROUND_TOOLS = new Set(['exec_background', 'exec_logs', 'exec_stop']);
+const ONE_SHOT_BACKGROUND_TOOLS = new Set([
+  'exec_background',
+  'exec_logs',
+  'exec_stop',
+  'exec_wait',
+]);
+/** Shown only when the prompt needs a deferred family those schemas load. */
+const ONE_SHOT_META_TOOLS = new Set(['tool_search']);
 /** Web tools: large schemas; only when the prompt needs online search/fetch. */
 const ONE_SHOT_WEB_TOOLS = new Set(['web_search', 'web_fetch']);
 /**
@@ -250,13 +258,13 @@ const ONE_SHOT_CODING_HEAVY_TOOLS = new Set([
   'run_tests',
   'verify_fix',
   'todo_write',
-  'ask_user_question',
 ]);
 const ROUTED_ONE_SHOT_TOOLS = new Set([
   ...ONE_SHOT_SUBAGENT_TOOLS,
   ...ONE_SHOT_BACKGROUND_TOOLS,
   ...ONE_SHOT_WEB_TOOLS,
   ...ONE_SHOT_CODING_HEAVY_TOOLS,
+  ...ONE_SHOT_META_TOOLS,
 ]);
 
 /** True when the message looks like plain chat with no tool work. */
@@ -343,7 +351,11 @@ export function oneShotToolFilterForMessage(message: string): ToolFilter {
   const needsWeb = isWebEligiblePrompt(text);
 
   return (tool) => {
+    // Question tools are hidden by requiresUserQuestion + asker presence in
+    // the agent, not by name here. A host that injects an asker keeps the tool.
+    // Task tools stay: benches call them.
     if (!ROUTED_ONE_SHOT_TOOLS.has(tool.name)) return true;
+    if (ONE_SHOT_META_TOOLS.has(tool.name)) return needsSubagents || needsBackground;
     if (ONE_SHOT_SUBAGENT_TOOLS.has(tool.name)) return needsSubagents;
     if (ONE_SHOT_BACKGROUND_TOOLS.has(tool.name)) return needsBackground;
     if (ONE_SHOT_WEB_TOOLS.has(tool.name)) return needsWeb;
@@ -648,7 +660,7 @@ export async function runOneShot(
       const shellArgs =
         process.platform === 'win32'
           ? ['/d', '/s', '/c', process.env.MOSS_GOAL_VERIFY_CMD]
-          : ['-lc', process.env.MOSS_GOAL_VERIFY_CMD];
+          : ['-c', process.env.MOSS_GOAL_VERIFY_CMD];
       const verify = await runProcess(shell, {
         args: shellArgs,
         cwd: workspaceDir,

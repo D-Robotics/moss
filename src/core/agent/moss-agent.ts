@@ -7,7 +7,15 @@ import { buildExperienceBlock, experienceEnabled } from '../experience/experienc
 const log = getRootLogger().child('agent');
 import { ToolRegistry } from '../tools/tool-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
-import { toolVisibleForRun } from './session-tool-offer.js';
+import { DeferredToolOffer, TOOL_SEARCH_NAME } from '../tools/deferred-tool-offer.js';
+import {
+  enrichRunToolContext,
+  hiddenUserQuestionMessage,
+  toolVisibleForRun,
+  userQuestionsOffered,
+} from './session-tool-offer.js';
+import { omitTaskPhasePrompts } from './task-phase-prompt.js';
+import { getUserQuestionAsker } from '../tools/user-question-asker.js';
 import { mergeLeasePatch } from '../subagent/worktree-isolation.js';
 import type { AgentLoopRun } from './agent-loop-run-state.js';
 import {
@@ -107,6 +115,7 @@ export type InternalContentBlock = SharedInternalContentBlock;
 import {
   buildUserMessageContent,
   appendTurnExtraContext,
+  lastSentTurnContextBody,
   formatAgentError,
   createPreAbortedRunError,
   createInputGuardrailDeniedError,
@@ -145,9 +154,23 @@ export class MossAgent {
   /** Per-agent run epochs stop parallel instances overwriting shared-session streams. */
   private readonly runEpochStore = new Map<string, number>();
   private readonly approvedPreflightController = new ApprovedPreflightController();
+  /** Sub-agent schemas stay off the wire until `tool_search` reveals them. */
+  private readonly deferredTools = new DeferredToolOffer();
+  /**
+   * Sessions that have already been offered the task ledger. The tool list
+   * only grows: a later plain Q&A turn keeps those tools so the prompt
+   * prefix does not churn. `taskContracts` still follows this turn.
+   */
+  private readonly taskLedgerSessions = new Set<string>();
+  /** Model id from the latest gateway response body, when the provider sent one. */
+  private gatewayReportedModel: string | undefined;
 
   constructor(config: MossAgentConfig) {
     this.config = config;
+    const startupModel = config.model?.trim();
+    if (config.identityFactory && startupModel) {
+      this.config.baseSystemPrompt = config.identityFactory(startupModel);
+    }
     this.ownsAsyncTaskRegistry = config.asyncTaskRegistry === undefined;
     this.tools = new ToolRegistry();
     this.commandQueues = new CommandQueueRegistry();
@@ -207,6 +230,47 @@ export class MossAgent {
       }
     );
     return this.closePromise;
+  }
+
+  /**
+   * Model id the last gateway response reported, when that response included
+   * one. Cleared by {@link switchModel} until the next reply arrives.
+   */
+  reportedModel(): string | undefined {
+    return this.gatewayReportedModel;
+  }
+
+  /**
+   * Point the agent at another model and rebuild the persona prompt from
+   * `identityFactory` when one was configured. Every host switch (TUI `/model`,
+   * REPL, setup save) goes through here so the system prompt cannot keep the
+   * startup model.
+   */
+  switchModel(next: {
+    model: string;
+    provider?: string;
+    baseUrl?: string;
+    llmProvider: MossAgentConfig['llmProvider'];
+    usingBundledDefault?: boolean;
+  }): void {
+    const model = next.model.trim();
+    if (!model) {
+      throw new MossError({
+        code: ErrorCode.USER_INPUT_INVALID,
+        message: 'switchModel requires a model id',
+      });
+    }
+    this.config.model = model;
+    if (next.provider !== undefined) this.config.provider = next.provider;
+    if (next.baseUrl !== undefined) this.config.baseUrl = next.baseUrl;
+    this.config.llmProvider = next.llmProvider;
+    if (next.usingBundledDefault !== undefined) {
+      this.config.usingBundledDefault = next.usingBundledDefault;
+    }
+    this.gatewayReportedModel = undefined;
+    if (this.config.identityFactory) {
+      this.config.baseSystemPrompt = this.config.identityFactory(model);
+    }
   }
 
   private assertOpen(): void {
@@ -853,12 +917,20 @@ ${result.stderr ?? ''}`.trim();
     };
     messages.push(userMsg);
 
-    await store.appendMessage(sessionKey, userMsg as unknown as LLMMessage);
-
-    const composedPrompt = this.composeSystemPrompt({
-      ...(options?.platform ? { platform: options.platform } : {}),
-      ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
-    });
+    const composeRunPrompt = (): { stable: string; dynamic: string; full: string } => {
+      const composed = this.composeSystemPrompt({
+        ...(options?.platform ? { platform: options.platform } : {}),
+        ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
+      });
+      if (options?.taskFlow !== false) return composed;
+      const dynamic = omitTaskPhasePrompts(composed.dynamic);
+      return {
+        stable: composed.stable,
+        dynamic,
+        full: dynamic ? `${composed.stable}\n\n${dynamic}` : composed.stable,
+      };
+    };
+    const composedPrompt = composeRunPrompt();
     let extraContext = options?.extraContext ?? '';
     if (isFirstUserTurn && experienceEnabled()) {
       const experience = await buildExperienceBlock(
@@ -867,13 +939,25 @@ ${result.stderr ?? ''}`.trim();
       );
       if (experience) extraContext = extraContext ? `${extraContext}\n\n${experience}` : experience;
     }
-    // Prefix-cache invariant: the system prompt must stay byte-identical
-    // across turns — implicit prefix caches match the messages array, and any
-    // per-turn dynamic content placed ahead of the history (e.g. a fresh git
-    // snapshot appended to the system prompt) invalidates the entire cached
-    // prefix. Volatile extra context therefore rides the CURRENT turn's user
-    // message as an LLM-visible copy; the persisted history stays clean so
-    // resume/compaction never see it.
+    if (options?.taskFlow === false && extraContext) {
+      extraContext = omitTaskPhasePrompts(extraContext);
+    }
+    // Prefix cache matches the messages array from the front. The stable system
+    // text stays byte-identical. The dynamic suffix (environment, MCP connect,
+    // skills) is stored on the user message that introduces it, and again only
+    // when that text changes, so older messages are not rewritten. Per-turn
+    // extraContext (git snapshot) is NOT stored: it rides the current user
+    // message in memory only.
+    const dynamic = composedPrompt.dynamic.trim();
+    let persistedMsg = userMsg;
+    if (dynamic && lastSentTurnContextBody(messages.slice(0, -1)) !== dynamic) {
+      persistedMsg = {
+        ...userMsg,
+        content: appendTurnExtraContext(userMsg.content, dynamic),
+      };
+      messages[messages.length - 1] = persistedMsg;
+    }
+    await store.appendMessage(sessionKey, persistedMsg as unknown as LLMMessage);
     const systemPrompt = composedPrompt.full;
     const promptCacheEnabled = this.config.promptCache?.enabled !== false;
     const systemPromptParts =
@@ -884,34 +968,16 @@ ${result.stderr ?? ''}`.trim();
           }
         : undefined;
     if (extraContext) {
-      messages.pop();
-      messages.push({
-        ...userMsg,
-        content: appendTurnExtraContext(userMsg.content, extraContext),
-      });
+      messages[messages.length - 1] = {
+        ...persistedMsg,
+        content: appendTurnExtraContext(persistedMsg.content, extraContext),
+      };
     }
-    const visibleForRun = (tool: Tool): boolean =>
-      toolVisibleForRun(tool.name, { taskFlow: options?.taskFlow }) &&
-      (options?.toolFilter?.(tool) ?? true);
-    const resolveRunTools = (): ReturnType<typeof filterToolsForRun> =>
-      filterToolsForRun(
-        [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])],
-        visibleForRun
-      );
-    const allTools = resolveRunTools();
-    const hostResolveMissingTool = this.config.resolveMissingTool;
-    // A name that appears after the tool list was built (MCP handshake) still
-    // has to pass this run's filter. Filtered-out tools stay unknown.
-    const resolveMissingToolForRun = hostResolveMissingTool
-      ? async (name: string, signal?: AbortSignal): Promise<Tool | undefined> => {
-          const resolved = await hostResolveMissingTool(name, signal);
-          if (!resolved) return undefined;
-          return filterToolsForRun([resolved], visibleForRun)[0];
-        }
-      : undefined;
-
+    if (options?.taskFlow !== false) this.taskLedgerSessions.add(sessionKey);
+    const ledgerVisible = this.taskLedgerSessions.has(sessionKey);
     const workspaceDir = path.resolve(this.config.workspaceDir ?? process.cwd());
-    const toolCtx: ToolContext = {
+    const hostDescribeMissingTool = this.config.describeMissingTool;
+    const enrichedRun = enrichRunToolContext(hooks?.enrichToolContext, {
       workspaceDir,
       runId,
       sessionKey,
@@ -922,8 +988,6 @@ ${result.stderr ?? ''}`.trim();
       ...(options?.taskFlow === true ? { taskContracts: 'allow' as const } : {}),
       ...(options?.goalExecWait === true ? { goalExecWait: true as const } : {}),
       ...(this.config.execWriteRoots ? { execWriteRoots: this.config.execWriteRoots } : {}),
-      // Worktree-lease merge host (merge_subagent_patch tool target): applies
-      // a collected sub-agent patch back into this workspace with 3-way merge.
       mergeWorkspacePatch: async (leaseId, patchId) => {
         const result = await mergeLeasePatch({ parentWorkspace: workspaceDir, leaseId, patchId });
         return {
@@ -932,10 +996,51 @@ ${result.stderr ?? ''}`.trim();
         };
       },
       asyncTaskRegistry: this.asyncTasks,
-      ...(resolveMissingToolForRun ? { resolveMissingTool: resolveMissingToolForRun } : {}),
-      ...(this.config.describeMissingTool
-        ? { describeMissingTool: this.config.describeMissingTool }
-        : {}),
+    });
+    const userQuestions = userQuestionsOffered({
+      agentAsker: this.userQuestionAsker !== undefined,
+      processAsker: getUserQuestionAsker() !== undefined,
+      stdinIsTTY: process.stdin.isTTY === true,
+      hookAsker: enrichedRun.askUserQuestion !== undefined,
+    });
+    const visibleForRun = (tool: Tool): boolean =>
+      this.deferredTools.isOffered(tool.name) &&
+      toolVisibleForRun(tool.name, {
+        taskFlow: ledgerVisible ? true : options?.taskFlow,
+        userQuestions,
+        requiresUserQuestion: tool.metadata?.requiresUserQuestion === true,
+      }) &&
+      (options?.toolFilter?.(tool) ?? true);
+    const resolveRunTools = (): ReturnType<typeof filterToolsForRun> =>
+      filterToolsForRun(
+        [...this.tools.getAll(), ...(options?.ephemeralTools ?? [])],
+        visibleForRun
+      );
+    const allTools = resolveRunTools();
+    const hostResolveMissingTool = this.config.resolveMissingTool;
+    // A name that appears after the tool list was built (MCP handshake, or
+    // tool_search earlier in this turn) still has to pass this run's filter.
+    // Filtered-out tools stay unknown. A hidden question tool is the exception:
+    // the model is told that no user is available.
+    const resolveMissingToolForRun = async (
+      name: string,
+      signal?: AbortSignal
+    ): Promise<Tool | undefined> => {
+      const local = this.tools.get(name);
+      if (local && visibleForRun(local)) return local;
+      if (!hostResolveMissingTool) return undefined;
+      const resolved = await hostResolveMissingTool(name, signal);
+      if (!resolved) return undefined;
+      return filterToolsForRun([resolved], visibleForRun)[0];
+    };
+
+    const toolCtx: ToolContext = {
+      ...enrichedRun,
+      resolveMissingTool: resolveMissingToolForRun,
+      revealDeferredTools: (group) => this.deferredTools.reveal(group),
+      describeMissingTool: (name) =>
+        hiddenUserQuestionMessage(this.tools.get(name), userQuestions) ??
+        hostDescribeMissingTool?.(name),
     };
 
     const adapter = createMossAgentLoopEventAdapter({
@@ -955,6 +1060,8 @@ ${result.stderr ?? ''}`.trim();
         });
       },
       onResponse: (response) => {
+        const reported = response.model?.trim();
+        if (reported) this.gatewayReportedModel = reported;
         hooks?.onLLMResponseEnd?.(response);
       },
       onError: async (error) => {
@@ -1283,18 +1390,11 @@ ${result.stderr ?? ''}`.trim();
       compactionSummary: undefined,
       systemPrompt,
       systemPromptParts,
-      getSystemPrompt: () =>
-        this.composeSystemPrompt({
-          ...(options?.platform ? { platform: options.platform } : {}),
-          ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
-        }).full,
+      getSystemPrompt: () => composeRunPrompt().full,
       ...(promptCacheEnabled
         ? {
             getSystemPromptParts: () => {
-              const parts = this.composeSystemPrompt({
-                ...(options?.platform ? { platform: options.platform } : {}),
-                ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
-              });
+              const parts = composeRunPrompt();
               return parts.dynamic
                 ? { stable: parts.stable, dynamic: parts.dynamic }
                 : { stable: parts.stable };
@@ -1388,12 +1488,10 @@ ${result.stderr ?? ''}`.trim();
       },
       checkToolApproval: buildToolApprovalCheck(sessionKey, runId),
       toolAbortSignalFor: options?.toolAbortSignalFor,
-      enrichToolContext: (baseContext, activeSessionKey) => {
-        const enriched = hooks?.enrichToolContext?.(baseContext, activeSessionKey) ?? baseContext;
-        return this.userQuestionAsker
-          ? { ...enriched, askUserQuestion: this.userQuestionAsker }
-          : enriched;
-      },
+      enrichToolContext: (baseContext) =>
+        this.userQuestionAsker
+          ? { ...baseContext, askUserQuestion: this.userQuestionAsker }
+          : baseContext,
       toolHooks: this.toolHooks,
       abortSignal,
       maxOutputTokens,
@@ -1402,6 +1500,7 @@ ${result.stderr ?? ''}`.trim();
       platform: {
         toolTimeoutMs: this.config.toolTimeoutMs,
         promptPrefixDebug: this.config.promptCache?.debug,
+        loadToolsMetaName: TOOL_SEARCH_NAME,
       },
       getSteeringMessages: async () => this.takeSteeringMessages(sessionKey, runId),
       getFollowUpMessages:

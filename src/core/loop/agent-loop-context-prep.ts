@@ -52,13 +52,38 @@ export interface ProviderToolDeclaration {
   parameters: Record<string, unknown>;
 }
 
+/**
+ * Property descriptions that change what the model does. Defaults, aliases,
+ * and "max N" blurbs are enforced by the tool; the wire keeps prohibitions
+ * and preferences. `Tool.inputSchema` still validates the call.
+ */
+const BEHAVIOR_PROPERTY_DESCRIPTION = /\b(?:do not|don't|never|must|unless|instead|only|prefer)\b/i;
+
+function compactSchemaNode(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map((item) => compactSchemaNode(item));
+  if (!node || typeof node !== 'object') return node;
+  const source = node as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (
+      key === 'description' &&
+      typeof value === 'string' &&
+      !BEHAVIOR_PROPERTY_DESCRIPTION.test(value)
+    ) {
+      continue;
+    }
+    out[key] = compactSchemaNode(value);
+  }
+  return out;
+}
+
 export function buildProviderToolDeclarations(toolsForRun: Tool[]): ProviderToolDeclaration[] {
   return [...toolsForRun].sort(compareToolName).map((tool) => ({
     name: tool.name,
     description: tool.description,
-    parameters: (tool.inputSchema && typeof tool.inputSchema === 'object'
-      ? tool.inputSchema
-      : {}) as unknown as Record<string, unknown>,
+    parameters: compactSchemaNode(
+      tool.inputSchema && typeof tool.inputSchema === 'object' ? tool.inputSchema : {}
+    ) as Record<string, unknown>,
   }));
 }
 

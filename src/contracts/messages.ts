@@ -19,6 +19,12 @@ export interface Message {
   timestamp: number;
 
   thinking?: string[];
+
+  /**
+   * Model id the gateway reported for this assistant turn, when the response
+   * included one. Absent on user messages and on providers that omit it.
+   */
+  model?: string;
 }
 
 export interface ContentBlock {

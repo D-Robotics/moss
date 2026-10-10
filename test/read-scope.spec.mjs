@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Workspace-default reads, output redaction, credential values withheld,
+ * Workspace-default reads, field-level config redaction, raw key withhold,
  * and the device-env report (names only). Shell commands are not scope-blocked.
  */
 import assert from 'node:assert/strict';
@@ -152,13 +152,22 @@ try {
   for (const target of ['~/.moss/config.json', '~/.config/moss/config.json', '.moss/config.json']) {
     const read = await readFileTool.execute({ path: target }, ctx());
     assert.doesNotMatch(String(read), /denied|Command blocked/i, `read is allowed: ${target}`);
+    assert.match(String(read), /openai-compatible/, `the read itself returns the file: ${target}`);
     const viewed = await modelView(readFileTool, { path: target }, ctx(), read);
+    assert.match(viewed, /openai-compatible/, `non-secret config stays visible: ${target}`);
+    assert.match(viewed, /\[REDACTED\]/, `secret field is masked: ${target}`);
     assert.doesNotMatch(viewed, encPattern, `ciphertext absent from model view: ${target}`);
-    assert.match(viewed, /\[REDACTED\]/);
-    assert.match(viewed, /openai-compatible/);
+    assert.doesNotMatch(
+      viewed,
+      /Moss credential values withheld/,
+      `config is not fully withheld: ${target}`
+    );
   }
   const tasks = await readFileTool.execute({ path: '.moss/tasks.jsonl' }, ctx());
   assert.match(String(tasks), /"task":"ok"/, 'project task log stays readable');
+  const tasksView = await modelView(readFileTool, { path: '.moss/tasks.jsonl' }, ctx(), tasks);
+  assert.match(tasksView, /"task":"ok"/, 'project task log is shown to the model');
+  assert.doesNotMatch(tasksView, /Moss credential values withheld/);
 
   fs.writeFileSync(path.join(home, '.moss', '.apikey-key'), 'raw-key-material-not-a-pattern\n');
   const keyFile = await readFileTool.execute(
@@ -183,7 +192,9 @@ try {
     catConfig
   );
   assert.doesNotMatch(catView, encPattern);
+  assert.match(catView, /openai-compatible/);
   assert.match(catView, /\[REDACTED\]/);
+  assert.doesNotMatch(catView, /Moss credential values withheld/);
 
   const catKeyFile = await execTool.execute({ command: 'cat ~/.moss/.apikey-key' }, ctx());
   assert.doesNotMatch(String(catKeyFile), /Command blocked:/);
@@ -195,6 +206,293 @@ try {
   );
   assert.doesNotMatch(catKeyView, /raw-key-material-not-a-pattern/);
   assert.match(catKeyView, /Moss credential values withheld/);
+
+  const mixed = presentToolOutput({
+    toolName: 'search_code',
+    input: { query: 'apiKey' },
+    text: [
+      `${path.join(home, '.moss', 'config.json')}:1: ${mossConfig}`,
+      `${path.join(project, 'note.txt')}:1: hello ${PROJECT_MARKER}`,
+    ].join('\n'),
+    workspaceDir: project,
+    env: process.env,
+  });
+  assert.match(mixed, new RegExp(PROJECT_MARKER));
+  assert.match(mixed, /openai-compatible/);
+  assert.match(mixed, /\[REDACTED\]/);
+  assert.doesNotMatch(mixed, encPattern);
+  assert.doesNotMatch(mixed, /Moss credential values withheld/);
+
+  const debugConfig = JSON.stringify({
+    baseUrl: 'https://api.example.test/v1',
+    model: 'deepseek-chat',
+    apiKeyEnv: 'MOSS_API_KEY',
+    apiKey: 'k9f2mQ7xP4wL8nB3',
+    hooks: { post: 'echo ok' },
+    mcp: { rdkDocs: true },
+  });
+  fs.writeFileSync(path.join(home, '.moss', 'config.json'), `${debugConfig}\n`);
+  const debugRead = await readFileTool.execute({ path: '~/.moss/config.json' }, ctx());
+  const debugView = await modelView(
+    readFileTool,
+    { path: '~/.moss/config.json' },
+    ctx(),
+    debugRead
+  );
+  assert.match(debugView, /https:\/\/api\.example\.test\/v1/);
+  assert.match(debugView, /deepseek-chat/);
+  assert.match(debugView, /MOSS_API_KEY/);
+  assert.match(debugView, /echo ok/);
+  assert.match(debugView, /rdkDocs/);
+  assert.match(debugView, /\[REDACTED\]/);
+  assert.doesNotMatch(debugView, /k9f2mQ7xP4wL8nB3/);
+  const debugCat = await execTool.execute({ command: 'cat ~/.moss/config.json' }, ctx());
+  const debugCatView = await modelView(
+    execTool,
+    { command: 'cat ~/.moss/config.json' },
+    ctx(),
+    debugCat
+  );
+  assert.match(debugCatView, /https:\/\/api\.example\.test\/v1/);
+  assert.match(debugCatView, /deepseek-chat/);
+  assert.match(debugCatView, /MOSS_API_KEY/);
+  assert.doesNotMatch(debugCatView, /k9f2mQ7xP4wL8nB3/);
+  assert.match(debugCatView, /\[REDACTED\]/);
+
+  const envHome = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-apikeyenv-home-'));
+  const envWs = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-apikeyenv-ws-'));
+  const savedHomeForEnv = process.env.HOME;
+  const savedProfileForEnv = process.env.USERPROFILE;
+  const savedGateway = process.env.MY_USER_CFG;
+  const savedCwd = process.cwd();
+  process.env.HOME = envHome;
+  process.env.USERPROFILE = envHome;
+  process.env.MY_USER_CFG = 'gateway-secret-value-99';
+  process.chdir(envWs);
+  try {
+    const stored = {
+      apiKey: 'sk-FAKEm3n4o5p6q7r8s9t0u1v2w3x4',
+      shortKey: 'sunrise7',
+      token: 'tok_FAKE9aB3kL9mN2pQ7rT5wX8z',
+      bearer: 'FAKEbearer0123456789abcdefXYZ',
+      xapikey: 'xak_FAKE1122334455667788',
+      enc: 'enc:v1:QUJDREVGR0hJSktMTU5PUFFSU1RVVldY',
+      shortEnc: 'enc:a1',
+      ghp: 'ghp_FAKEaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      pass: 'hunter2pw',
+      fieldPass: 'fieldpass9x',
+      passphrase: 'phrase-should-hide-77',
+      devicePassword: 'device-pass-should-hide-99',
+      shortPassword: 'sunrise',
+      shortPass: 'hunter2',
+      serviceToken: 'svcTok-long-value-91',
+    };
+    const envFiles = [
+      { file: path.join(envHome, '.moss', 'config.json'), name: 'MY_USER_MOSS' },
+      { file: path.join(envHome, '.config', 'moss', 'config.json'), name: 'MY_USER_CFG' },
+      { file: path.join(envWs, '.moss', 'config.json'), name: 'MY_PROJECT' },
+    ];
+    const leakedNames = (out) =>
+      Object.entries(stored)
+        .filter(([, value]) => out.includes(value) || out.includes(value.slice(0, 12)))
+        .map(([name]) => name);
+    for (const row of envFiles) {
+      fs.mkdirSync(path.dirname(row.file), { recursive: true });
+      fs.writeFileSync(
+        row.file,
+        `${JSON.stringify(
+          {
+            provider: 'openai-compatible',
+            model: 'model-visible',
+            baseUrl: 'https://api.example.test/v1',
+            apiKeyEnv: row.name,
+            apiKey: stored.apiKey,
+            providers: {
+              alt: {
+                baseUrl: 'https://alt.example.com',
+                apiKey: stored.shortKey,
+                token: stored.token,
+              },
+            },
+            headers: {
+              Authorization: `Bearer ${stored.bearer}`,
+              'X-Api-Key': stored.xapikey,
+              'X-Trace': 'visible-trace',
+            },
+            encryptedKey: stored.enc,
+            cipher: stored.shortEnc,
+            pass: stored.fieldPass,
+            passphrase: stored.passphrase,
+            hooks: { PreToolUse: [{ matcher: 'exec', command: 'echo hook-visible' }] },
+            mcpServers: {
+              gh: {
+                command: 'npx',
+                args: ['-y', 'gh-mcp'],
+                env: {
+                  GITHUB_TOKEN: stored.ghp,
+                  LOG_LEVEL: 'debug',
+                  SERVICE_TOKEN: stored.serviceToken,
+                },
+              },
+              db: {
+                command: 'db-mcp',
+                args: ['--password', stored.pass, '--pass', 'r00tpw', '--host', 'db.local'],
+              },
+            },
+          },
+          null,
+          2
+        )}\n`
+      );
+    }
+    fs.writeFileSync(
+      path.join(envWs, '.moss', 'devices.json'),
+      `${JSON.stringify(
+        {
+          devices: [
+            {
+              deviceId: 'board-1',
+              host: '10.0.0.8',
+              auth: {
+                method: 'password',
+                password: stored.shortPassword,
+                pass: stored.shortPass,
+                passphrase: stored.passphrase,
+                passwordValue: stored.devicePassword,
+                passwordEnvVar: 'MOSS_DEVICE_PASSWORD',
+                passphraseEnvVar: 'MOSS_DEVICE_KEY_PASSPHRASE',
+              },
+            },
+          ],
+        },
+        null,
+        2
+      )}\n`
+    );
+    let projectView = '';
+    for (const row of envFiles) {
+      const reads = [
+        ['read_file', readFileTool, { path: row.file }],
+        ['cat', execTool, { command: `cat ${row.file}` }],
+        ['grep', execTool, { command: `grep -n . ${row.file}` }],
+      ];
+      for (const [label, tool, input] of reads) {
+        const raw = await tool.execute(input, ctx({ workspaceDir: envWs }));
+        const viewed = await modelView(tool, input, ctx({ workspaceDir: envWs }), raw);
+        assert.deepEqual(
+          leakedNames(viewed),
+          [],
+          `${label} leaked from ${row.file}: enc/pass/bearer must be masked`
+        );
+        assert.match(viewed, new RegExp(row.name), `apiKeyEnv stays visible: ${label} ${row.file}`);
+        assert.match(viewed, /api\.example\.test/, row.file);
+        assert.match(viewed, /visible-trace/, row.file);
+        assert.match(viewed, /hook-visible/, row.file);
+        assert.match(viewed, /LOG_LEVEL/, row.file);
+        assert.match(viewed, /debug/, row.file);
+        assert.match(viewed, /db\.local/, row.file);
+        assert.doesNotMatch(viewed, /gateway-secret-value-99/, row.file);
+        if (row.name === 'MY_PROJECT' && label === 'read_file') {
+          projectView = viewed;
+          assert.equal(
+            viewed.split('\n').length,
+            String(raw).split('\n').length,
+            'read_file field masking keeps the line count'
+          );
+          assert.doesNotMatch(
+            viewed,
+            /r00tpw/,
+            'read_file masks a short argv password on the next numbered line'
+          );
+        }
+      }
+    }
+    const devicesFile = path.join(envWs, '.moss', 'devices.json');
+    for (const [label, tool, input] of [
+      ['read_file', readFileTool, { path: devicesFile }],
+      ['cat', execTool, { command: `cat ${devicesFile}` }],
+      ['grep', execTool, { command: `grep -n . ${devicesFile}` }],
+    ]) {
+      const raw = await tool.execute(input, ctx({ workspaceDir: envWs }));
+      const viewed = await modelView(tool, input, ctx({ workspaceDir: envWs }), raw);
+      assert.deepEqual(leakedNames(viewed), [], `${label} leaked a device credential`);
+      assert.match(viewed, /MOSS_DEVICE_PASSWORD/, `${label} keeps the password env name`);
+      assert.match(viewed, /MOSS_DEVICE_KEY_PASSPHRASE/, `${label} keeps the passphrase env name`);
+      assert.match(viewed, /"method": "password"/, `${label} keeps the auth method`);
+      assert.match(viewed, /10\.0\.0\.8/, `${label} keeps the device host`);
+      assert.match(viewed, /board-1/);
+      assert.match(viewed, /"password": "\[REDACTED\]"/, `${label} masks a 7-char password`);
+      assert.match(viewed, /"pass": "\[REDACTED\]"/, `${label} masks a 7-char pass`);
+    }
+    const serviceLog = redactToolOutput(`worker booted token=${stored.serviceToken} ready`);
+    assert.doesNotMatch(serviceLog, /svcTok-long-value-91/);
+    assert.match(serviceLog, /\[REDACTED\]/);
+    assert.match(serviceLog, /worker booted/);
+    const prose = redactToolOutput(
+      'rm /home/sunrise/app/old.log and mention hunter2 in the manual'
+    );
+    assert.match(prose, /\/home\/sunrise\/app/, 'a short password is not masked outside its field');
+    assert.match(prose, /hunter2/);
+    const positioned = redactToolOutput(
+      '{"note":"sunrise hunter2","auth":{"method":"password","password":"sunrise","pass":"hunter2","passwordEnvVar":"MOSS_DEVICE_PASSWORD"},"args":["--password","hunter2","--host","db.local"]}'
+    );
+    assert.match(positioned, /sunrise hunter2/);
+    assert.match(positioned, /"method":"password"/);
+    assert.match(positioned, /MOSS_DEVICE_PASSWORD/);
+    assert.match(positioned, /"password":"\[REDACTED\]"/);
+    assert.match(positioned, /"pass":"\[REDACTED\]"/);
+    assert.match(positioned, /"--password","\[REDACTED\]"/);
+    assert.match(positioned, /db\.local/);
+    assert.doesNotMatch(positioned, /"password":"sunrise"/);
+    assert.doesNotMatch(positioned, /"pass":"hunter2"/);
+    const escaped = redactToolOutput(JSON.stringify('{"password":"sunrise","note":"sunrise"}'));
+    assert.match(escaped, /note\\":\\"sunrise/);
+    assert.doesNotMatch(escaped, /password\\":\\"sunrise/);
+    const stripped = projectView
+      .split('\n')
+      .filter((line) => /^\s*\d+\t/.test(line))
+      .map((line) => line.replace(/^\s*\d+\t/, ''))
+      .join('\n');
+    const apiLine = stripped.split('\n').find((line) => line.includes('"apiKey":'));
+    assert.ok(
+      apiLine && apiLine.includes('[REDACTED]'),
+      'apiKey line is redacted in the model view'
+    );
+    const projectFile = envFiles[2].file;
+    const across = await editFileTool.execute(
+      {
+        path: projectFile,
+        old_string: `"apiKeyEnv": "MY_PROJECT",\n${apiLine}`,
+        new_string: `"apiKeyEnv": "MY_PROJECT2",\n${apiLine}`,
+      },
+      ctx({ workspaceDir: envWs })
+    );
+    assert.match(String(across), /not found/);
+    const afterEdit = fs.readFileSync(projectFile, 'utf8');
+    assert.equal(afterEdit.includes('[REDACTED]'), false);
+    assert.equal(afterEdit.includes(stored.apiKey), true);
+    assert.equal(afterEdit.includes(stored.enc), true);
+    assert.equal(afterEdit.includes(stored.pass), true);
+    await readFileTool.execute({ path: projectFile }, ctx({ workspaceDir: envWs }));
+    const whole = await writeFileTool.execute(
+      { path: projectFile, content: `${stripped}\n` },
+      ctx({ workspaceDir: envWs })
+    );
+    assert.match(String(whole), /refusing to write \[REDACTED\]/);
+    const afterWrite = fs.readFileSync(projectFile, 'utf8');
+    assert.equal(afterWrite.includes(stored.apiKey), true);
+    assert.equal(afterWrite.includes('[REDACTED]'), false);
+  } finally {
+    process.chdir(savedCwd);
+    if (savedHomeForEnv === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHomeForEnv;
+    if (savedProfileForEnv === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = savedProfileForEnv;
+    if (savedGateway === undefined) delete process.env.MY_USER_CFG;
+    else process.env.MY_USER_CFG = savedGateway;
+    fs.rmSync(envHome, { recursive: true, force: true });
+    fs.rmSync(envWs, { recursive: true, force: true });
+  }
 
   // ── key-like tool output is redacted; source expressions are not ─────────
   const sample = `apiKey=${KEY_VALUE}\npassword: "hunter22hunter"\nenc blob ${ENC_VALUE}\nplain text stays`;

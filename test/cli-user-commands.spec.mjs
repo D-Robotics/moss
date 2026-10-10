@@ -15,8 +15,16 @@ const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-user-cmd-config-')
 process.env.MOSS_CONFIG_DIR = configDir;
 process.env.MOSS_NO_BUNDLED_DEFAULT = '1';
 
-const { expandCommandBody, loadCustomCommands, reservedBuiltinNames, resolveUserCommand } =
-  await import('../dist/cli/commands/custom-commands.js');
+const {
+  expandCommandBody,
+  isLoadedSkillSlash,
+  isSlashCommandInput,
+  loadCustomCommands,
+  reservedBuiltinNames,
+  resolveUserCommand,
+  slashHead,
+} = await import('../dist/cli/commands/custom-commands.js');
+const { closestSlashCommands } = await import('../dist/cli/command-completion.js');
 const { TuiAppRoot, shellPaletteRows } = await import('../dist/cli/tui/app.js');
 const { createTuiStore } = await import('../dist/cli/tui/render-bridge.js');
 const { TaskRuntime } = await import('../dist/core/task-runtime/runtime.js');
@@ -160,6 +168,142 @@ const builtins = reservedBuiltinNames();
   );
   instance.unmount();
   await sleep(80);
+}
+
+{
+  assert.equal(isSlashCommandInput('/{{name}}'), true, 'an unfilled template token is a command');
+  assert.equal(isSlashCommandInput('/halp'), true);
+  assert.equal(isSlashCommandInput('/usr/bin/foo'), false, 'a filesystem path is not a command');
+  assert.equal(isSlashCommandInput('/usr/bin/foo --version'), false);
+  assert.equal(isSlashCommandInput('/ hello'), false, 'slash followed by whitespace is a prompt');
+  assert.equal(isSlashCommandInput('/'), false);
+  assert.equal(isSlashCommandInput('hello'), false);
+
+  const placeholder = resolveUserCommand('/{{name}} list', {
+    builtinNames: builtins,
+    customCommands: [],
+    skills: [{ name: '{{name}}', description: '{{description}}' }],
+  });
+  assert.equal(placeholder.kind, 'unknown', 'a placeholder skill is not dispatched');
+
+  assert.deepEqual(
+    closestSlashCommands('/hel', ['/helicopter', '/help', '/model', '/hello']),
+    ['/help', '/hello', '/helicopter'],
+    'prefix matches rank ahead of edit distance, capped at 3'
+  );
+  assert.deepEqual(closestSlashCommands('/help', ['/help', '/hello']), ['/hello']);
+  assert.ok(closestSlashCommands('/halp', [...builtins]).includes('/help'));
+  assert.ok(
+    closestSlashCommands(slashHead('/modle kimi-k2'), ['/model', '/mode', '/help']).includes(
+      '/model'
+    ),
+    '/modle kimi-k2 suggests /model from the first token'
+  );
+  assert.equal(
+    closestSlashCommands('/tmp', ['/help', '/model', '/theme']).includes('/help'),
+    false,
+    'a very short poor match is not suggested'
+  );
+  assert.equal(isSlashCommandInput('/tmp/build/check'), false);
+  assert.equal(isSlashCommandInput('/goal'), true);
+  assert.equal(isLoadedSkillSlash('/greet', [{ name: 'greet' }]), true);
+  assert.equal(isLoadedSkillSlash('/My-Skill', [{ name: 'My Skill' }]), true);
+  assert.equal(isLoadedSkillSlash('/nope', [{ name: 'greet' }]), false);
+  assert.equal(isLoadedSkillSlash('/usr/bin/foo', [{ name: 'foo' }]), false);
+}
+
+{
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-user-cmd-skip-'));
+  const dir = path.join(workspace, '.moss', 'commands');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, '{{name}}.md'),
+    ['---', 'description: still a template', '---', 'do {{name}}'].join('\n')
+  );
+  fs.writeFileSync(
+    path.join(dir, 'review-bot.md'),
+    ['---', 'description: {{description}}', '---', 'review it'].join('\n')
+  );
+  fs.writeFileSync(
+    path.join(dir, 'blank.md'),
+    ['---', 'description:', '---', 'blank body'].join('\n')
+  );
+  fs.writeFileSync(path.join(dir, 'Bad Name.md'), 'not a command name\n');
+  fs.writeFileSync(
+    path.join(dir, 'ship.md'),
+    ['---', 'description: Ship the change', '---', 'ship $ARGUMENTS'].join('\n')
+  );
+  fs.writeFileSync(
+    path.join(dir, 'with-var.md'),
+    ['---', 'description: use {{var}} literally', '---', 'print {{var}}'].join('\n')
+  );
+  const warnings = [];
+  const custom = loadCustomCommands(
+    { workspace, configDir: path.join(workspace, '.moss'), reservedNames: builtins },
+    (message) => warnings.push(message),
+    'en'
+  );
+  assert.deepEqual(
+    custom.map((command) => command.name).sort(),
+    ['/ship', '/with-var'],
+    'placeholder commands are not registered; a literal {{var}} in a sentence stays'
+  );
+  assert.equal(warnings.length, 4, 'each skipped command file is named once');
+  assert.ok(warnings.every((warning) => warning.startsWith('Skipped ')));
+  assert.ok(warnings.some((warning) => warning.includes('{{name}}.md')));
+  assert.ok(warnings.some((warning) => warning.includes('unfilled template placeholder')));
+  assert.ok(warnings.some((warning) => warning.includes('name or description is empty')));
+  assert.ok(warnings.some((warning) => warning.includes('name does not match')));
+
+  const again = [];
+  loadCustomCommands(
+    { workspace, configDir: path.join(workspace, '.moss'), reservedNames: builtins },
+    (message) => again.push(message),
+    'en'
+  );
+  assert.equal(again.length, 0, 'invalid command names are announced once per project');
+
+  const zhWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-user-cmd-skip-zh-'));
+  const zhDir = path.join(zhWorkspace, '.moss', 'commands');
+  fs.mkdirSync(zhDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(zhDir, '{{name}}.md'),
+    ['---', 'description: {{description}}', '---', 'do {{name}}'].join('\n')
+  );
+  const zhWarnings = [];
+  loadCustomCommands(
+    {
+      workspace: zhWorkspace,
+      configDir: path.join(zhWorkspace, 'other-config'),
+      reservedNames: builtins,
+    },
+    (message) => zhWarnings.push(message),
+    'zh-CN'
+  );
+  assert.ok(zhWarnings.some((warning) => warning.startsWith('已跳过 ')));
+  assert.ok(zhWarnings.some((warning) => warning.includes('模板占位符')));
+
+  const rows = shellPaletteRows('/', [
+    ['/{{name}}', '{{description}}'],
+    ['/ship', 'Ship the change'],
+    ['/bad name', 'has a space'],
+    ['/cam-v2.1', 'reads {{var}} from the board'],
+  ]);
+  assert.ok(
+    rows.some(([command]) => command === '/ship'),
+    'a valid extra command stays in the menu'
+  );
+  assert.ok(
+    rows.some(
+      ([command, description]) => command === '/cam-v2.1' && description.includes('{{var}}')
+    ),
+    'a description that mentions {{var}} stays in the menu'
+  );
+  assert.equal(
+    rows.some(([command]) => command.includes('{{') || command === '/bad name'),
+    false,
+    'slash menu has no placeholder or invalid-name entries'
+  );
 }
 
 console.log('[PASS] cli user commands');

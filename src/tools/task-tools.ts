@@ -156,7 +156,7 @@ export const taskDefineTool: Tool = {
       `goal: ${task.goal}\n` +
       (task.targetDeviceId ? `target device: ${task.targetDeviceId}\n` : '') +
       `acceptance criteria (${task.acceptanceCriteria.length}):\n${rows.join('\n')}\n` +
-      `Record evidence with record_evidence (task_id="${task.taskId}") and gate completion with task_acceptance.`
+      `A passing run_tests / verify_fix / acceptance command records tests_pass, build_ok, or typecheck_ok when a criterion uses that exact name (task_id="${task.taskId}"). Use record_evidence for every other metric, then gate completion with task_acceptance.`
     );
   },
 };

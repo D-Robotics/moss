@@ -23,6 +23,7 @@ import {
   parseProviderPreset,
   normalizeProvider,
   inferProviderFromBaseUrl,
+  isOfficialPresetBaseUrl,
 } from '../provider/provider-presets.js';
 import {
   DEFAULT_CLI_INTERACTION_MODE,
@@ -32,6 +33,15 @@ import {
   type CliInteractionMode,
 } from './interaction-mode.js';
 import { isDotenvDeniedEnvKey } from '../utils/dotenv-denied-env.js';
+import { uiText } from '../utils/ui-language.js';
+import { isProjectRoutingEnvKey } from '../utils/project-routing-env.js';
+import { getPackageJsonPath } from '../utils/package-info.js';
+import {
+  endpointHost,
+  officialBaseUrl,
+  primaryKeyAllowedForHost,
+} from '../provider/primary-key-host.js';
+import { isFolderTrusted, folderPathKey } from './folder-trust-store.js';
 import { captureEnvBeforeDotenv, envBeforeDotenv } from '../utils/startup-env.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
 import type { PricingConfig } from './model-pricing.js';
@@ -133,6 +143,13 @@ export interface ConfigFile {
   profile?: CliConfigProfile | string;
   provider?: CliProviderPreset | string;
   apiKey?: string;
+  /**
+   * Name of an environment variable that holds this config's own API key.
+   * A project file may set it so a foreign project base URL does not reuse
+   * the user's primary key. The value is read at resolve time and is never
+   * written back into the config file.
+   */
+  apiKeyEnv?: string;
 
   _apiKeyEncrypted?: boolean;
   model?: string;
@@ -173,6 +190,13 @@ export interface ConfigFile {
    * `task`) and an optional `command` whose stdout replaces the line.
    */
   statusLine?: StatusLineConfig;
+  /**
+   * UI language for chrome, help, errors, and setup text. `auto` (the default
+   * when unset) follows the system locale: Chinese only when it starts with
+   * `zh`; `C`, `POSIX`, `C.UTF-8`, and unset stay English. User config only —
+   * a project config cannot set this. Assistant replies are not affected.
+   */
+  language?: 'auto' | 'en' | 'zh';
   _examples?: Record<string, unknown>;
 }
 
@@ -204,6 +228,22 @@ export interface LoadedCliConfigFile {
   config: ConfigFile;
   configPath: string;
   projectConfigPath?: string;
+  /** Which file won each field that config show labels. Absent when unknown. */
+  fieldSources?: Record<string, 'user' | 'project'>;
+  /** Project routing fields dropped because the folder is not trusted. */
+  ignoredProjectRouting?: string[];
+  /**
+   * Project base URL whose host is neither the user's nor an official
+   * provider URL, and which did not bring its own key.
+   */
+  blockedProjectBaseUrl?: string;
+  userApiKey?: string;
+  userBaseUrl?: string;
+  userProvider?: string;
+  /** Unmerged user file. Env-key reads use this layer, never the project file. */
+  userConfig?: ConfigFile;
+  /** Unmerged project file. Its apiKeyEnv and endpoint must not read env keys. */
+  projectConfig?: ConfigFile;
 }
 
 export type CliConfigProfile = 'cautious' | 'balanced' | 'autonomous';
@@ -614,27 +654,169 @@ export function mergeHooksConfig(
   return any ? merged : undefined;
 }
 
+const PROJECT_ROUTING_CONFIG_KEYS = [
+  'provider',
+  'baseUrl',
+  'apiKey',
+  'apiKeyEnv',
+  'model',
+] as const;
+
+/** Routing fields a project file set. Used for the untrusted-folder notice. */
+export function listProjectRoutingConfigFields(project: ConfigFile): string[] {
+  const ignored: string[] = [];
+  for (const key of PROJECT_ROUTING_CONFIG_KEYS) {
+    if (project[key] !== undefined) ignored.push(key);
+  }
+  const tiers = project.agent?.modelTiers;
+  if (tiers && Object.keys(tiers).length > 0) ignored.push('modelTiers');
+  return ignored;
+}
+
+function omitProjectRoutingConfig(project: ConfigFile): ConfigFile {
+  const next: ConfigFile = { ...project };
+  for (const key of PROJECT_ROUTING_CONFIG_KEYS) delete next[key];
+  if (next.agent?.modelTiers) {
+    const { modelTiers: _tiers, ...rest } = next.agent;
+    next.agent = Object.keys(rest).length > 0 ? rest : undefined;
+  }
+  return next;
+}
+
+function setFieldSource(
+  sources: Record<string, 'user' | 'project'>,
+  field: string,
+  userHas: boolean,
+  projectHas: boolean,
+  userWins: boolean
+): void {
+  if (!userHas && !projectHas) return;
+  sources[field] = userWins ? (userHas ? 'user' : 'project') : projectHas ? 'project' : 'user';
+}
+
+export function fieldSourcesFor(
+  user: ConfigFile,
+  project: ConfigFile
+): Record<string, 'user' | 'project'> {
+  const sources: Record<string, 'user' | 'project'> = {};
+  const mark = (field: string, userHas: boolean, projectHas: boolean, userWins = false): void =>
+    setFieldSource(sources, field, userHas, projectHas, userWins);
+  mark('provider', user.provider !== undefined, project.provider !== undefined);
+  mark('model', user.model !== undefined, project.model !== undefined);
+  mark('baseUrl', user.baseUrl !== undefined, project.baseUrl !== undefined);
+  mark(
+    'apiKey',
+    user.apiKey !== undefined,
+    project.apiKey !== undefined || project.apiKeyEnv !== undefined
+  );
+  mark('profile', user.profile !== undefined, project.profile !== undefined);
+  mark('workspace', user.workspace !== undefined, project.workspace !== undefined);
+  mark('safetyMode', user.safetyMode !== undefined, project.safetyMode !== undefined, true);
+  mark(
+    'approvalPolicy',
+    user.approvalPolicy !== undefined,
+    project.approvalPolicy !== undefined,
+    true
+  );
+  mark('trustedTools', user.trustedTools !== undefined, project.trustedTools !== undefined, true);
+  mark('deniedTools', user.deniedTools !== undefined, project.deniedTools !== undefined, true);
+  mark('permissions', user.permissions !== undefined, project.permissions !== undefined, true);
+  mark(
+    'permissions.defaultMode',
+    user.permissions?.defaultMode !== undefined,
+    project.permissions?.defaultMode !== undefined,
+    true
+  );
+  mark('promptCache', user.promptCache !== undefined, project.promptCache !== undefined, true);
+  mark('guardrails', user.guardrails !== undefined, project.guardrails !== undefined, true);
+  mark('agent.maxTurns', user.agent?.maxTurns !== undefined, project.agent?.maxTurns !== undefined);
+  mark(
+    'agent.contextTokens',
+    user.agent?.contextTokens !== undefined,
+    project.agent?.contextTokens !== undefined
+  );
+  mark(
+    'agent.compaction',
+    user.agent?.compaction !== undefined,
+    project.agent?.compaction !== undefined
+  );
+  const userTiers = user.agent?.modelTiers;
+  const projectTiers = project.agent?.modelTiers;
+  mark(
+    'agent.modelTiers',
+    userTiers !== undefined && Object.keys(userTiers).length > 0,
+    projectTiers !== undefined && Object.keys(projectTiers).length > 0
+  );
+  return sources;
+}
+
+/**
+ * True when `name` is the user's own key variable: their `apiKeyEnv`,
+ * `MOSS_API_KEY`, or a provider preset key such as `DEEPSEEK_API_KEY`.
+ * A project file that names one of these is still the user's key.
+ */
+function namesUserKeyEnv(name: string, user: ConfigFile): boolean {
+  const upper = name.toUpperCase();
+  if (typeof user.apiKeyEnv === 'string' && user.apiKeyEnv.trim().toUpperCase() === upper) {
+    return true;
+  }
+  if (upper === 'MOSS_API_KEY') return true;
+  return Object.values(PROVIDER_PRESETS).some((preset) =>
+    (preset.envKeys ?? []).some((key) => key.toUpperCase() === upper)
+  );
+}
+
+/**
+ * The user's primary key stays on the user's host and on official provider
+ * URLs. A project base URL on any other host keeps only a key the project
+ * itself supplied.
+ */
+function guardPrimaryKey(project: ConfigFile, user: ConfigFile, merged: ConfigFile): ConfigFile {
+  const provider = typeof merged.provider === 'string' ? merged.provider : undefined;
+  const base = (typeof merged.baseUrl === 'string' && merged.baseUrl) || officialBaseUrl(provider);
+  const host = endpointHost(base);
+  const allowed =
+    !host ||
+    primaryKeyAllowedForHost(host, {
+      ...(typeof user.baseUrl === 'string' ? { baseUrl: user.baseUrl } : {}),
+      ...(typeof user.provider === 'string' ? { provider: user.provider } : {}),
+    });
+  const projectKey = typeof project.apiKey === 'string' ? project.apiKey : undefined;
+  const userKey = typeof user.apiKey === 'string' ? user.apiKey : undefined;
+  if (!allowed) {
+    if (projectKey && projectKey !== userKey) {
+      merged.apiKey = projectKey;
+      merged._apiKeyEncrypted = project._apiKeyEncrypted;
+    } else {
+      delete merged.apiKey;
+      delete merged._apiKeyEncrypted;
+    }
+    const projectEnv = typeof project.apiKeyEnv === 'string' ? project.apiKeyEnv.trim() : '';
+    if (projectEnv && !namesUserKeyEnv(projectEnv, user)) merged.apiKeyEnv = projectEnv;
+    else delete merged.apiKeyEnv;
+    return merged;
+  }
+  if (projectKey) {
+    merged.apiKey = projectKey;
+    merged._apiKeyEncrypted = project._apiKeyEncrypted;
+  } else if (userKey) {
+    merged.apiKey = userKey;
+    merged._apiKeyEncrypted = user._apiKeyEncrypted;
+  }
+  return merged;
+}
+
 export function mergeConfigFiles(
   projectConfig: ConfigFile,
   userConfig: ConfigFile,
   options?: { allowProjectStatusCommand?: boolean }
 ): ConfigFile {
-  const projectDeclaresEndpoint =
-    projectConfig.provider !== undefined || projectConfig.baseUrl !== undefined;
-  const apiKey = projectDeclaresEndpoint
-    ? projectConfig.apiKey
-    : (projectConfig.apiKey ?? userConfig.apiKey);
-  const apiKeyEncrypted = projectDeclaresEndpoint
-    ? projectConfig._apiKeyEncrypted
-    : projectConfig.apiKey !== undefined
-      ? projectConfig._apiKeyEncrypted
-      : userConfig._apiKeyEncrypted;
-
-  return {
+  const merged = guardPrimaryKey(projectConfig, userConfig, {
     ...userConfig,
     ...projectConfig,
-    apiKey,
-    _apiKeyEncrypted: apiKeyEncrypted,
+  });
+  return {
+    ...merged,
     // Safety-sensitive fields: the USER's config wins over the PROJECT's.
     // A cloned repo's .moss/config.json is less trusted than the user's
     // ~/.config/moss/config.json — it must not silently lower the user's
@@ -661,6 +843,8 @@ export function mergeConfigFiles(
       projectConfig.statusLine,
       options?.allowProjectStatusCommand === true
     ),
+    // UI language is a user preference. A cloned project's config cannot set it.
+    language: userConfig.language,
   };
 }
 
@@ -736,27 +920,136 @@ function mergePermissionsConfig(
   };
 }
 
+function argvTrustsWorkspace(argv: readonly string[]): boolean {
+  return argv.includes('--trust-workspace');
+}
+
+function projectRoutingTrusted(
+  env: NodeJS.ProcessEnv,
+  argv: readonly string[],
+  startDir: string,
+  explicit: boolean | undefined
+): boolean {
+  if (explicit !== undefined) return explicit;
+  if (argvTrustsWorkspace(argv)) return true;
+  // Project `.env` cannot set this. Only the environment from before dotenv.
+  const real = env === process.env || env === envBeforeDotenv ? envBeforeDotenv : env;
+  const raw = (real.MOSS_TRUST_WORKSPACE ?? '').trim().toLowerCase();
+  if (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on') return true;
+  try {
+    return isFolderTrusted(resolveConfigDir(env), startDir);
+  } catch {
+    return false;
+  }
+}
+
+function blockedProjectBaseUrl(
+  project: ConfigFile,
+  user: ConfigFile,
+  merged: ConfigFile
+): string | undefined {
+  if (typeof project.baseUrl !== 'string' || !project.baseUrl.trim()) return undefined;
+  const host = endpointHost(project.baseUrl);
+  if (!host) return undefined;
+  const allowed = primaryKeyAllowedForHost(host, {
+    ...(typeof user.baseUrl === 'string' ? { baseUrl: user.baseUrl } : {}),
+    ...(typeof user.provider === 'string' ? { provider: user.provider } : {}),
+  });
+  if (allowed) return undefined;
+  const projectKey = typeof project.apiKey === 'string' ? project.apiKey : undefined;
+  const userKey = typeof user.apiKey === 'string' ? user.apiKey : undefined;
+  const ownKey = Boolean(projectKey && projectKey !== userKey);
+  const projectEnv = typeof project.apiKeyEnv === 'string' ? project.apiKeyEnv.trim() : '';
+  const ownEnv = projectEnv.length > 0 && !namesUserKeyEnv(projectEnv, user);
+  if (ownKey || ownEnv) return undefined;
+  if (merged.apiKey) return undefined;
+  return project.baseUrl;
+}
+
 export function loadCliConfigFile(
   env: NodeJS.ProcessEnv = process.env,
   argv: string[] = process.argv.slice(2),
   startDir = safeProcessCwd(env),
-  options?: { allowProjectStatusCommand?: boolean }
+  options?: { allowProjectStatusCommand?: boolean; trustProjectRouting?: boolean }
 ): LoadedCliConfigFile {
   const configPath = resolveConfigPath(undefined, env, argv);
   const userConfig = loadConfigFile(configPath);
+  const userIdentity = {
+    ...(typeof userConfig.apiKey === 'string' ? { userApiKey: userConfig.apiKey } : {}),
+    ...(typeof userConfig.baseUrl === 'string' ? { userBaseUrl: userConfig.baseUrl } : {}),
+    ...(typeof userConfig.provider === 'string' ? { userProvider: userConfig.provider } : {}),
+  };
   if (hasExplicitConfigPath(env, argv)) {
-    return { config: userConfig, configPath };
+    return {
+      config: userConfig,
+      configPath,
+      userConfig,
+      fieldSources: fieldSourcesFor(userConfig, {}),
+      ...userIdentity,
+    };
   }
 
   const projectConfigPath = resolveProjectConfigPath(startDir) ?? undefined;
   if (!projectConfigPath) {
-    return { config: userConfig, configPath };
+    return {
+      config: userConfig,
+      configPath,
+      userConfig,
+      fieldSources: fieldSourcesFor(userConfig, {}),
+      ...userIdentity,
+    };
   }
+  // A walk that lands on the user's own `~/.moss/config.json` is the user's
+  // file, not a cloned project's. It merges, and it is not a routing source
+  // that folder trust has to ignore.
+  if (isUserMossConfig(projectConfigPath, env)) {
+    const inherited = loadConfigFile(projectConfigPath);
+    const merged = mergeConfigFiles(inherited, userConfig, options);
+    return {
+      config: merged,
+      configPath,
+      projectConfigPath,
+      userConfig,
+      fieldSources: {
+        ...fieldSourcesFor(userConfig, {}),
+        ...fieldSourcesFor(inherited, {}),
+      },
+      ...userIdentity,
+    };
+  }
+  const rawProject = loadConfigFile(projectConfigPath);
+  const trusted = projectRoutingTrusted(env, argv, startDir, options?.trustProjectRouting);
+  const ignoredProjectRouting = trusted ? [] : listProjectRoutingConfigFields(rawProject);
+  const projectConfig = trusted ? rawProject : omitProjectRoutingConfig(rawProject);
+  const merged = mergeConfigFiles(projectConfig, userConfig, options);
+  const sources = fieldSourcesFor(userConfig, projectConfig);
+  const keyLayer =
+    merged.apiKey && merged.apiKey === userConfig.apiKey
+      ? 'user'
+      : merged.apiKey && merged.apiKey === projectConfig.apiKey
+        ? 'project'
+        : undefined;
+  if (merged.apiKey && keyLayer) sources.apiKey = keyLayer;
+  const blocked = trusted ? blockedProjectBaseUrl(rawProject, userConfig, merged) : undefined;
   return {
-    config: mergeConfigFiles(loadConfigFile(projectConfigPath), userConfig, options),
+    config: merged,
     configPath,
     projectConfigPath,
+    userConfig,
+    projectConfig,
+    fieldSources: sources,
+    ...(ignoredProjectRouting.length > 0 ? { ignoredProjectRouting } : {}),
+    ...(blocked ? { blockedProjectBaseUrl: blocked } : {}),
+    ...userIdentity,
   };
+}
+
+function isUserMossConfig(configPath: string, env: NodeJS.ProcessEnv): boolean {
+  const home = env.HOME ?? env.USERPROFILE;
+  if (!home?.trim()) return false;
+  const userMoss = folderPathKey(path.join(home.trim(), '.moss'));
+  const file = folderPathKey(configPath);
+  return file === path.join(userMoss, 'config.json') || file.startsWith(userMoss + path.sep);
 }
 
 export function saveConfigFileAtPath(config: ConfigFile, configPath: string): void {
@@ -932,19 +1225,15 @@ function parsePositiveIntegerEnv(value: string | undefined): number | undefined 
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+/**
+ * Moss-specific model env vars stay config-only. Provider keys
+ * (OPENAI_API_KEY, DEEPSEEK_API_KEY, …) are offered at setup instead of ignored.
+ */
 const IGNORED_MODEL_ENV_VARS = [
   'MOSS_PROVIDER',
   'MOSS_MODEL',
   'MOSS_BASE_URL',
   'MOSS_API_KEY',
-  'DEEPSEEK_API_KEY',
-  'OPENAI_API_KEY',
-  'ANTHROPIC_API_KEY',
-  'DASHSCOPE_API_KEY',
-  'ALIYUN_API_KEY',
-  'OPENAI_BASE_URL',
-  'ANTHROPIC_BASE_URL',
-  'DASHSCOPE_BASE_URL',
 ] as const;
 
 function listIgnoredModelEnvVars(env: NodeJS.ProcessEnv): string[] {
@@ -1025,6 +1314,7 @@ export interface ResolvedCliConfig {
   reasoningBudget?: 'off' | 'adaptive' | 'high';
   /** v0.12 (agent.modelTiers + MOSS_MODEL_CHEAP/BALANCED/STRONG env). */
   modelTiers?: { cheap?: string; balanced?: string; strong?: string };
+  modelTiersSource?: string;
   /** Max output tokens per LLM response. undefined → runtime derives from contextTokens. */
   maxOutputTokens?: number;
   compactionSettings: Pick<CompactionSettings, 'reserveTokens' | 'keepRecentTokens'>;
@@ -1093,14 +1383,20 @@ export function auditResolvedCliConfig(
       code: 'approval.auto_approval',
       severity: 'warn',
       source: config.approvalPolicySource,
-      message: `auto-approval is enabled via ${config.permissions.source} (${config.approvalPolicySource}); keep deniedTools current for risky tools`,
+      message: uiText(
+        `auto-approval is enabled via ${config.permissions.source} (${config.approvalPolicySource}); keep deniedTools current for risky tools`,
+        `已通过 ${config.permissions.source}（${config.approvalPolicySource}）开启自动审批；请为高风险工具保持 deniedTools`
+      ),
     });
     if (config.deniedTools.length === 0) {
       warnings.push({
         code: 'approval.no_denied_tools',
         severity: 'warn',
         source: config.deniedToolsSource,
-        message: `auto-approval has no deniedTools guardrail (${config.deniedToolsSource}); add high-risk tools or globs to deniedTools`,
+        message: uiText(
+          `auto-approval has no deniedTools guardrail (${config.deniedToolsSource}); add high-risk tools or globs to deniedTools`,
+          `自动审批没有 deniedTools 护栏（${config.deniedToolsSource}）；请把高风险工具或通配加入 deniedTools`
+        ),
       });
     }
   } else if (
@@ -1115,8 +1411,10 @@ export function auditResolvedCliConfig(
       code: 'approval.full_default_no_deny',
       severity: 'warn',
       source: 'default',
-      message:
+      message: uiText(
         'default full mode has no deny rules; add rules with /permissions (e.g. deny read_file(./.env)) to keep sensitive tools gated',
+        '默认 full 模式没有拒绝规则；用 /permissions 添加（例如 deny read_file(./.env)）以继续拦截敏感工具'
+      ),
     });
   }
 
@@ -1126,7 +1424,10 @@ export function auditResolvedCliConfig(
       code: 'approval.conflicting_tool_patterns',
       severity: 'warn',
       source: `${config.trustedToolsSource}, ${config.deniedToolsSource}`,
-      message: `trustedTools also appear in deniedTools: ${conflictingPatterns.join(', ')}; deniedTools takes precedence`,
+      message: uiText(
+        `trustedTools also appear in deniedTools: ${conflictingPatterns.join(', ')}; deniedTools takes precedence`,
+        `trustedTools 与 deniedTools 冲突：${conflictingPatterns.join(', ')}；以 deniedTools 为准`
+      ),
     });
   }
 
@@ -1136,7 +1437,10 @@ export function auditResolvedCliConfig(
       code: 'trustedTools.broad_patterns',
       severity: 'warn',
       source: config.trustedToolsSource,
-      message: `broad trusted pattern(s): ${broadTrustedPatterns.join(', ')}; prefer exact tool names or narrow server__tool globs`,
+      message: uiText(
+        `broad trusted pattern(s): ${broadTrustedPatterns.join(', ')}; prefer exact tool names or narrow server__tool globs`,
+        `信任范围过宽：${broadTrustedPatterns.join(', ')}；请改用精确工具名或更窄的 server__tool 通配`
+      ),
     });
   }
 
@@ -1148,23 +1452,41 @@ export function hasTrustedToolWildcard(config: Pick<ResolvedCliConfig, 'trustedT
 }
 
 /**
- * v0.26 one-shot full-default notice. The factory-default full user with no
- * deny rules hears it once per process. Doctor / config show keep their own
- * warning. The latch is not written to disk.
+ * Startup notice for factory-default full mode. Shown once per config dir.
+ * The marker lives next to the user config (not the workspace). Doctor still
+ * reports the same condition on every run.
  */
-let fullDefaultNoticeShown = false;
+const FULL_DEFAULT_NOTICE_MARKER = '.full_default_notice_shown';
+const shownFullDefaultNotice = new Set<string>();
 
 export function shouldShowFullDefaultNotice(
-  config: Pick<ResolvedCliConfig, 'approvalPolicy' | 'deniedTools' | 'permissions'>
+  config: Pick<ResolvedCliConfig, 'approvalPolicy' | 'deniedTools' | 'permissions'>,
+  env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  if (fullDefaultNoticeShown) return false;
   const applicable =
     config.approvalPolicy === 'never' &&
     config.deniedTools.length === 0 &&
     config.permissions !== undefined &&
     config.permissions.source === 'default';
   if (!applicable) return false;
-  fullDefaultNoticeShown = true;
+  const key = resolveConfigDir(env);
+  if (shownFullDefaultNotice.has(key)) return false;
+  const marker = path.join(key, FULL_DEFAULT_NOTICE_MARKER);
+  try {
+    if (fs.existsSync(marker)) {
+      shownFullDefaultNotice.add(key);
+      return false;
+    }
+  } catch {
+    /* unreadable marker: still show once in this process */
+  }
+  shownFullDefaultNotice.add(key);
+  try {
+    fs.mkdirSync(key, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(marker, '', { encoding: 'utf-8', mode: 0o600, flag: 'wx' });
+  } catch {
+    /* another process wrote it, or the dir is not writable */
+  }
   return true;
 }
 
@@ -1197,8 +1519,12 @@ function readBundledZeroConfigDefault(env: NodeJS.ProcessEnv): Partial<ConfigFil
       if ((code === 'EACCES' || code === 'EPERM') && !bundledDefaultReadWarned) {
         bundledDefaultReadWarned = true;
         console.error(
-          `[config] built-in model gateway file exists but is not readable (${code}): ${candidate}\n` +
-            '[config] Fix: sudo chmod 644 <that file> — or reinstall moss and retry.'
+          uiText(
+            `[config] built-in model gateway file exists but is not readable (${code}): ${candidate}\n` +
+              '[config] Fix: sudo chmod 644 <that file> — or reinstall moss and retry.',
+            `[config] 内置模型网关文件存在但不可读（${code}）：${candidate}\n` +
+              '[config] 修复：sudo chmod 644 <该文件> — 或重新安装 moss 后再试。'
+          )
         );
       }
     }
@@ -1207,7 +1533,8 @@ function readBundledZeroConfigDefault(env: NodeJS.ProcessEnv): Partial<ConfigFil
 }
 
 function hasUserModelConfig(cfg: ConfigFile): boolean {
-  return Boolean(cfg.model && cfg.apiKey && (cfg.provider || cfg.baseUrl));
+  const namedEnv = typeof cfg.apiKeyEnv === 'string' && cfg.apiKeyEnv.trim().length > 0;
+  return Boolean(cfg.model && (cfg.apiKey || namedEnv) && (cfg.provider || cfg.baseUrl));
 }
 
 /**
@@ -1223,11 +1550,69 @@ function hasUserModelConfig(cfg: ConfigFile): boolean {
  */
 export const CONSERVATIVE_DEFAULT_UNPROBED = 1_000_000; // changed from 32k — modern models are typically 1M+
 
+function projectDeclaresEndpoint(project: ConfigFile | undefined): boolean {
+  return project?.provider !== undefined || project?.baseUrl !== undefined;
+}
+
+function namedEnvVar(config: ConfigFile | undefined): string {
+  const named = typeof config?.apiKeyEnv === 'string' ? config.apiKeyEnv.trim() : '';
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(named) ? named : '';
+}
+
+function userDeclaresEndpoint(config: ConfigFile | undefined): boolean {
+  return config?.provider !== undefined || config?.baseUrl !== undefined;
+}
+
+/**
+ * An env key is sent only in two cases:
+ * - the user file names `apiKeyEnv` AND a provider or base URL, or
+ * - the request's base URL is that provider's official preset and the
+ *   matching provider env var is set.
+ * A named `apiKeyEnv` with neither provider nor base URL is not configured:
+ * it must not be bound to the default provider.
+ * A project file never triggers a read. There is no "only one key" fallback.
+ * A blank config stays blank so first-run setup can still ask.
+ */
+function apiKeyFromEnv(
+  activeConfig: ConfigFile,
+  userConfig: ConfigFile,
+  projectConfig: ConfigFile | undefined,
+  env: NodeJS.ProcessEnv,
+  provider: CliProviderPreset,
+  baseUrl: string
+): { apiKey: string; source: string } | undefined {
+  if (projectDeclaresEndpoint(projectConfig)) return undefined;
+  const named = namedEnvVar(userConfig);
+  if (named && !userDeclaresEndpoint(userConfig)) return undefined;
+  if (named) {
+    const value = (env[named] ?? '').trim();
+    if (value) return { apiKey: value, source: `env:${named}` };
+  }
+  if ((activeConfig.apiKey ?? '').trim()) return undefined;
+  if (!activeConfig.provider && !activeConfig.baseUrl) return undefined;
+  if (!isOfficialPresetBaseUrl(provider, baseUrl)) return undefined;
+  for (const name of PROVIDER_PRESETS[provider].envKeys ?? []) {
+    const value = (env[name] ?? '').trim();
+    if (value) return { apiKey: value, source: `env:${name}` };
+  }
+  return undefined;
+}
+
 export function resolveCliConfig(
   env: NodeJS.ProcessEnv = process.env,
   config?: ConfigFile,
   overrides: CliConfigOverrides = {},
-  loadedConfig?: Pick<LoadedCliConfigFile, 'configPath' | 'projectConfigPath'>
+  loadedConfig?: Pick<
+    LoadedCliConfigFile,
+    | 'configPath'
+    | 'projectConfigPath'
+    | 'fieldSources'
+    | 'userApiKey'
+    | 'userBaseUrl'
+    | 'userProvider'
+    | 'userConfig'
+    | 'projectConfig'
+  >
 ): ResolvedCliConfig {
   const safeCwd = resolveSafeCwd(env);
   const defaultLoadedConfig = config === undefined ? loadCliConfigFile(env) : undefined;
@@ -1235,18 +1620,26 @@ export function resolveCliConfig(
   let usingBundledDefault = false;
   let bundledDefaultKeys = new Set<keyof ConfigFile>();
   let bundledDefaultSuppressedBy: string | undefined;
+  const configPaths = loadedConfig ?? defaultLoadedConfig;
+  const userLayer = configPaths?.userConfig ?? config ?? {};
+  const namedWithoutEndpoint =
+    namedEnvVar(userLayer).length > 0 &&
+    !userDeclaresEndpoint(userLayer) &&
+    !projectDeclaresEndpoint(configPaths?.projectConfig) &&
+    !overrides.provider &&
+    !overrides.baseUrl;
 
-  if (!hasUserModelConfig(activeConfig)) {
+  if (!hasUserModelConfig(activeConfig) && !namedWithoutEndpoint) {
     const bundled = readBundledZeroConfigDefault(env);
     if (bundled) {
       activeConfig = { ...activeConfig, ...bundled };
       bundledDefaultKeys = new Set(Object.keys(bundled) as Array<keyof ConfigFile>);
       usingBundledDefault = true;
     }
-  } else if (readBundledZeroConfigDefault(env)) {
+  } else if (!namedWithoutEndpoint && readBundledZeroConfigDefault(env)) {
     bundledDefaultSuppressedBy = 'moss config file';
   }
-  const configPaths = loadedConfig ?? defaultLoadedConfig;
+  const fileLayer = (field: string): string => configPaths?.fieldSources?.[field] ?? 'config';
   const profileEnv = env.MOSS_PROFILE || env.MOSS_CONFIG_PROFILE;
   const configProfile = parseConfigProfile(
     typeof activeConfig.profile === 'string' ? activeConfig.profile : undefined,
@@ -1265,26 +1658,28 @@ export function resolveCliConfig(
         ? 'MOSS_PROFILE'
         : 'MOSS_CONFIG_PROFILE'
       : configProfile
-        ? 'config'
+        ? fileLayer('profile')
         : 'default';
   const profileDefaults = CLI_PROFILE_DEFAULTS[profile];
 
   const ignoredModelEnvVars = listIgnoredModelEnvVars(env);
   const inferredProvider = inferProviderFromBaseUrl(overrides.baseUrl || activeConfig.baseUrl);
   const activeConfigSource = (key: keyof ConfigFile): string =>
-    usingBundledDefault && bundledDefaultKeys.has(key) ? 'built-in' : 'config';
+    usingBundledDefault && bundledDefaultKeys.has(key) ? 'built-in' : fileLayer(key);
   const provider =
     overrides.provider || activeConfig.provider
       ? normalizeProvider(overrides.provider || activeConfig.provider)
       : inferredProvider || 'deepseek';
   const preset = PROVIDER_PRESETS[provider];
-  const providerSource = overrides.provider
-    ? 'cli'
-    : activeConfig.provider
-      ? activeConfigSource('provider')
-      : inferredProvider
-        ? 'baseUrl'
-        : 'default';
+  const providerSource = namedWithoutEndpoint
+    ? 'unconfigured'
+    : overrides.provider
+      ? 'cli'
+      : activeConfig.provider
+        ? activeConfigSource('provider')
+        : inferredProvider
+          ? 'baseUrl'
+          : 'default';
   const workspaceEnv = env.MOSS_WORKSPACE;
 
   // ── v0.26 permission mode resolution (PRD 2026-10-08 W1 / design §3.3) ──
@@ -1371,7 +1766,7 @@ export function resolveCliConfig(
             : 'MOSS_ASK_FOR_APPROVAL';
   } else if (configPermissionsMode !== null) {
     resolvedMode = configPermissionsMode;
-    modeSource = 'config';
+    modeSource = fileLayer('permissions.defaultMode');
   } else if (legacyMigration.defaultMode !== undefined) {
     resolvedMode = legacyMigration.defaultMode;
     modeSource = 'legacy';
@@ -1413,7 +1808,7 @@ export function resolveCliConfig(
     : envTrustedTools
       ? 'MOSS_TRUSTED_TOOLS'
       : configTrustedTools
-        ? 'config'
+        ? fileLayer('trustedTools')
         : `profile:${profile}`;
   const envDeniedTools = parseTrustedTools(env.MOSS_DENIED_TOOLS);
   const configDeniedTools = Array.isArray(activeConfig.deniedTools)
@@ -1425,7 +1820,7 @@ export function resolveCliConfig(
     : envDeniedTools
       ? 'MOSS_DENIED_TOOLS'
       : configDeniedTools
-        ? 'config'
+        ? fileLayer('deniedTools')
         : 'default';
 
   const permissionsAllow = [
@@ -1493,7 +1888,7 @@ export function resolveCliConfig(
           ? 'MOSS_PROMPT_CACHE'
           : 'MOSS_PROMPT_CACHE_ENABLED'
         : configPromptCache !== undefined
-          ? 'config'
+          ? fileLayer('promptCache')
           : `profile:${profile}`;
   const promptCacheDebug =
     overrides.promptCacheDebug ??
@@ -1508,10 +1903,10 @@ export function resolveCliConfig(
           ? 'MOSS_PROMPT_CACHE_DEBUG'
           : 'MOSS_PROMPT_PREFIX_DEBUG'
         : configPromptCacheDebug !== undefined
-          ? 'config'
+          ? fileLayer('promptCache')
           : `profile:${profile}`;
   const guardrails = normalizeGuardrailsConfig(activeConfig.guardrails);
-  const guardrailsSource = hasGuardrails(guardrails) ? 'config' : 'default';
+  const guardrailsSource = hasGuardrails(guardrails) ? fileLayer('guardrails') : 'default';
   const configMaxAgentTurns = parsePositiveInteger(activeConfig.agent?.maxTurns, 'agent.maxTurns');
   const envMaxAgentTurns = parsePositiveIntegerEnv(env.MOSS_MAX_AGENT_TURNS);
   const maxAgentTurns = resolveMossMaxAgentTurns(
@@ -1523,7 +1918,7 @@ export function resolveCliConfig(
       : envMaxAgentTurns !== undefined
         ? 'MOSS_MAX_AGENT_TURNS'
         : configMaxAgentTurns !== undefined
-          ? 'config'
+          ? fileLayer('agent.maxTurns')
           : 'default';
   const configContextTokens = parsePositiveInteger(
     activeConfig.agent?.contextTokens,
@@ -1545,7 +1940,7 @@ export function resolveCliConfig(
       : envContextTokens !== undefined
         ? 'MOSS_CONTEXT_TOKENS'
         : configContextTokens !== undefined
-          ? 'config'
+          ? fileLayer('agent.contextTokens')
           : 'unprobed';
   // Max output tokens per response. Host/user can pin via agent.maxOutputTokens
   // or MOSS_MAX_OUTPUT_TOKENS. If unset, leave undefined here — the runtime
@@ -1572,7 +1967,7 @@ export function resolveCliConfig(
   };
   const compactionSettingsSource =
     configCompactionReserve !== undefined || configCompactionKeepRecent !== undefined
-      ? 'config'
+      ? fileLayer('agent.compaction')
       : 'default';
   const envBudgetNum = (name: string): number | undefined => {
     const raw = env[name];
@@ -1608,6 +2003,39 @@ export function resolveCliConfig(
     ...(activeConfig.agent?.modelTiers ?? {}),
   };
   const hasModelTiers = Object.keys(modelTiers).length > 0;
+  const hasFileTiers = Boolean(
+    activeConfig.agent?.modelTiers && Object.keys(activeConfig.agent.modelTiers).length > 0
+  );
+  const hasEnvTiers = Boolean(
+    envModelTier('MOSS_MODEL_CHEAP') ||
+    envModelTier('MOSS_MODEL_BALANCED') ||
+    envModelTier('MOSS_MODEL_STRONG')
+  );
+  const modelTiersSource = hasFileTiers
+    ? fileLayer('agent.modelTiers')
+    : hasEnvTiers
+      ? 'env'
+      : 'default';
+  const apiKeyEnvName = activeConfig.apiKeyEnv?.trim();
+  let resolvedApiKey = activeConfig.apiKey || '';
+  let apiKeyFromProjectEnv = false;
+  if (!resolvedApiKey && apiKeyEnvName) {
+    const fromEnv = (env[apiKeyEnvName] ?? '').trim();
+    const userKey = configPaths?.userApiKey ?? '';
+    const host = endpointHost(
+      overrides.baseUrl || activeConfig.baseUrl || officialBaseUrl(String(provider))
+    );
+    const allowed =
+      !host ||
+      primaryKeyAllowedForHost(host, {
+        ...(configPaths?.userBaseUrl ? { baseUrl: configPaths.userBaseUrl } : {}),
+        ...(configPaths?.userProvider ? { provider: configPaths.userProvider } : {}),
+      });
+    if (fromEnv && (allowed || fromEnv !== userKey)) {
+      resolvedApiKey = fromEnv;
+      apiKeyFromProjectEnv = true;
+    }
+  }
   const rawReasoningBudget = (env.MOSS_REASONING_BUDGET ?? '').toLowerCase().trim();
   const reasoningBudget =
     rawReasoningBudget === 'off' ||
@@ -1627,38 +2055,59 @@ export function resolveCliConfig(
           ...(budgetMaxWallMs !== undefined ? { maxWallMs: budgetMaxWallMs } : {}),
         }
       : undefined;
+  const baseUrl = namedWithoutEndpoint
+    ? ''
+    : overrides.baseUrl || activeConfig.baseUrl || preset.defaultBaseUrl;
+  const envKey = namedWithoutEndpoint
+    ? undefined
+    : apiKeyFromEnv(activeConfig, userLayer, configPaths?.projectConfig, env, provider, baseUrl);
   return {
     profile,
     profileSource,
     provider,
     providerSource,
-    apiKey: activeConfig.apiKey || '',
-    apiKeySource: activeConfig.apiKey ? activeConfigSource('apiKey') : 'missing',
+    apiKey: namedWithoutEndpoint ? '' : envKey?.apiKey || resolvedApiKey,
+    apiKeySource: namedWithoutEndpoint
+      ? 'missing'
+      : envKey
+        ? envKey.source
+        : resolvedApiKey
+          ? apiKeyFromProjectEnv
+            ? fileLayer('apiKey')
+            : activeConfigSource('apiKey')
+          : 'missing',
     usingBundledDefault,
     ...(bundledDefaultSuppressedBy ? { bundledDefaultSuppressedBy } : {}),
     ignoredModelEnvVars,
-    model: overrides.model || activeConfig.model || preset.defaultModel,
+    model: namedWithoutEndpoint
+      ? overrides.model || activeConfig.model || ''
+      : overrides.model || activeConfig.model || preset.defaultModel,
 
-    modelSource: overrides.model
-      ? 'cli'
-      : activeConfig.model
-        ? activeConfigSource('model')
-        : preset.defaultModel
-          ? 'provider default'
-          : 'missing',
-    baseUrl: overrides.baseUrl || activeConfig.baseUrl || preset.defaultBaseUrl,
-    baseUrlSource: overrides.baseUrl
-      ? 'cli'
-      : activeConfig.baseUrl
-        ? activeConfigSource('baseUrl')
-        : 'provider default',
+    modelSource:
+      namedWithoutEndpoint && !overrides.model && !activeConfig.model
+        ? 'unconfigured'
+        : overrides.model
+          ? 'cli'
+          : activeConfig.model
+            ? activeConfigSource('model')
+            : preset.defaultModel
+              ? 'provider default'
+              : 'missing',
+    baseUrl,
+    baseUrlSource: namedWithoutEndpoint
+      ? 'unconfigured'
+      : overrides.baseUrl
+        ? 'cli'
+        : activeConfig.baseUrl
+          ? activeConfigSource('baseUrl')
+          : 'provider default',
     workspace: overrides.workspace || workspaceEnv || activeConfig.workspace || safeCwd.cwd,
     workspaceSource: overrides.workspace
       ? 'cli'
       : workspaceEnv
         ? 'MOSS_WORKSPACE'
         : activeConfig.workspace
-          ? 'config'
+          ? fileLayer('workspace')
           : safeCwd.source,
     safetyMode,
     safetyModeSource,
@@ -1684,32 +2133,45 @@ export function resolveCliConfig(
     ...(runBudget ? { budget: runBudget } : {}),
     ...(bestOfN !== undefined ? { bestOfN } : {}),
     ...(reasoningBudget ? { reasoningBudget } : {}),
-    ...(hasModelTiers ? { modelTiers } : {}),
+    ...(hasModelTiers ? { modelTiers, modelTiersSource } : { modelTiersSource }),
     compactionSettingsSource,
     configPath: configPaths?.configPath ?? resolveConfigPath(undefined, env),
     projectConfigPath: configPaths?.projectConfigPath,
-    apiKeyEncrypted: activeConfig._apiKeyEncrypted || false,
+    apiKeyEncrypted: envKey ? false : activeConfig._apiKeyEncrypted || false,
   };
 }
 
 /**
- * These decide trust, which directory is the user's, or which rdk-docs
- * package runs. A project `.env` must not set them. Interpreter and loader
- * variables are refused by `isDotenvDeniedEnvKey` (shared with child spawns).
- * The process environment captured in `envBeforeDotenv`, plus CLI flags, are
- * the only sources for the keys in this set.
+ * These decide trust, which directory is the user's, which directory is the
+ * workspace, or which rdk-docs package runs. A project `.env` must not set
+ * them. Interpreter and loader variables are refused by `isDotenvDeniedEnvKey`
+ * (shared with child spawns). The process environment captured in
+ * `envBeforeDotenv`, plus CLI flags, are the only sources for the keys in
+ * this set. Matching is case-insensitive, because Windows environment names are.
  */
-const ENV_FILE_IGNORED_KEYS = new Set([
-  'MOSS_TRUST_WORKSPACE',
-  'MOSS_CONFIG_DIR',
-  'MOSS_CONFIG_FILE',
-  'MOSS_CONFIG_PATH',
-  'MOSS_RDK_DOCS_PACKAGE',
-  'XDG_CONFIG_HOME',
-  'HOME',
-  'APPDATA',
-  'USERPROFILE',
-]);
+const ENV_FILE_IGNORED_KEYS = new Set(
+  [
+    'MOSS_TRUST_WORKSPACE',
+    'MOSS_WORKSPACE',
+    'MOSS_CONFIG_DIR',
+    'MOSS_CONFIG_FILE',
+    'MOSS_CONFIG_PATH',
+    'MOSS_RDK_DOCS_PACKAGE',
+    'MOSS_LANG',
+    'XDG_CONFIG_HOME',
+    'HOME',
+    'APPDATA',
+    'USERPROFILE',
+  ].map((key) => key.toUpperCase())
+);
+
+interface DeferredRoutingAssignment {
+  key: string;
+  value: string;
+  envFile: string;
+}
+
+const deferredRoutingEnv: DeferredRoutingAssignment[] = [];
 
 export function loadEnvFile(envPath: string): void {
   let content: string;
@@ -1728,9 +2190,90 @@ export function loadEnvFile(envPath: string): void {
       .slice(eqIdx + 1)
       .trim()
       .replace(/^["']|["']$/g, '');
-    if (!key || ENV_FILE_IGNORED_KEYS.has(key) || isDotenvDeniedEnvKey(key)) continue;
-    if (process.env[key] === undefined) process.env[key] = value;
+    if (!key || ENV_FILE_IGNORED_KEYS.has(key.toUpperCase()) || isDotenvDeniedEnvKey(key)) continue;
+    if (process.env[key] !== undefined) continue;
+    if (isProjectRoutingEnvKey(key)) {
+      deferredRoutingEnv.push({ key, value, envFile: envPath });
+      continue;
+    }
+    process.env[key] = value;
   }
+}
+
+function pathIsInside(root: string, target: string): boolean {
+  const base = folderPathKey(root);
+  const child = folderPathKey(target);
+  return child === base || child.startsWith(base + path.sep);
+}
+
+/**
+ * `~/.env` and the Moss install directory's own `.env` are the user's.
+ * A `.env` next to a parent of the install, or above the folder being
+ * launched, is not.
+ */
+function isUserRoutingEnvFile(envFile: string, homeDir: string): boolean {
+  const file = folderPathKey(envFile);
+  const home = homeDir.trim();
+  if (home && file === folderPathKey(path.join(home, '.env'))) return true;
+  const installEnv = path.join(path.dirname(getPackageJsonPath()), '.env');
+  return file === folderPathKey(installEnv);
+}
+
+/**
+ * Apply routing variables captured from `.env` files. The closest file wins.
+ *
+ * User sources (`~/.env`, the install directory's `.env`) always apply. Any
+ * other file applies only when the directory that contains it is trusted, or
+ * when this process trusted `folderKey` and the file sits inside that folder
+ * (`--trust-workspace` counts before the store is written). Trusting a child
+ * does not apply a parent directory's `.env`. Returns the keys left unset and
+ * the directories that contained them.
+ */
+export interface IgnoredProjectRoutingEnv {
+  keys: string[];
+  directories: string[];
+}
+
+export function commitProjectRoutingEnv(input: {
+  trusted: boolean;
+  folderKey: string;
+  homeDir?: string;
+  configDir?: string;
+}): IgnoredProjectRoutingEnv {
+  const homeDir = input.homeDir ?? homeBeforeDotenv;
+  const configDir = input.configDir ?? resolveConfigDir();
+  const ignored: Array<{ key: string; dir: string }> = [];
+  const claimed = new Set<string>();
+  for (const item of deferredRoutingEnv) {
+    if (claimed.has(item.key) || process.env[item.key] !== undefined) {
+      claimed.add(item.key);
+      continue;
+    }
+    const allowed =
+      isUserRoutingEnvFile(item.envFile, homeDir) ||
+      (input.trusted && pathIsInside(input.folderKey, item.envFile)) ||
+      isFolderTrusted(configDir, path.dirname(item.envFile));
+    if (!allowed) {
+      ignored.push({ key: item.key, dir: folderPathKey(path.dirname(item.envFile)) });
+      continue;
+    }
+    process.env[item.key] = item.value;
+    claimed.add(item.key);
+  }
+  deferredRoutingEnv.length = 0;
+  const keys = [...new Set(ignored.map((item) => item.key))].filter(
+    (key) => process.env[key] === undefined
+  );
+  const pending = new Set(keys);
+  const directories = [
+    ...new Set(ignored.filter((item) => pending.has(item.key)).map((item) => item.dir)),
+  ];
+  return { keys, directories };
+}
+
+/** Test hook: drop routing assignments captured while importing config. */
+export function resetDeferredRoutingEnvForTests(): void {
+  deferredRoutingEnv.length = 0;
 }
 
 export function loadEnvFromAncestors(startDir: string, maxHops = 16): void {

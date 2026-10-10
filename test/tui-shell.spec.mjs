@@ -253,6 +253,21 @@ for (const width of [40, 80, 120]) {
     assert.equal(failed.length, 5, 'errors keep their body unfurled');
   }
 
+  // A long exec result still shows a trailing [moss] notice in compact mode.
+  {
+    const lines = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
+    const row = {
+      kind: 'result',
+      text: `${lines.join('\n')}\n[moss] Repo hooks in an untrusted workspace were not run.`,
+      tool: { name: 'exec', summary: 'git status', durationMs: 20 },
+    };
+    const compact = renderTranscriptRow(row, 80, false)
+      .map((l) => l.text)
+      .join('\n');
+    assert.match(compact, /ctrl\+o/, 'the diff body still folds');
+    assert.match(compact, /\[moss\] Repo hooks in an untrusted workspace were not run/);
+  }
+
   // Composer + rules + hint: the bottom chrome contract.
   const placeholder = renderComposer('', width, true);
   assert.equal(placeholder.length, 1, 'the empty composer is one row');
@@ -749,8 +764,13 @@ instance.unmount();
     '/history still prints the history after the migration line'
   );
   assert.ok(
-    detailRows().some((line) => line.includes('task_cam1')),
-    'history names the task'
+    detailRows().some((line) => line.includes('stream camera at 30 fps on the robot')),
+    'history names the goal'
+  );
+  assert.equal(
+    detailRows().some((line) => /task_\w*\d/.test(line) || /\bev_/.test(line)),
+    false,
+    'history does not show internal ids'
   );
   assert.ok(
     detailRows().some((line) => line.includes('acceptance PASS (0 required unmet)')),
@@ -764,9 +784,14 @@ instance.unmount();
   );
   assert.ok(
     detailRows().some(
-      (line) => line.includes('PASS') && line.includes('camera_fps = 31.5 (want >=30)')
+      (line) => line.includes('PASS') && line.includes('observed 31.5 (want >=30)')
     ),
-    `the evidence block shows the raw measurement: ${JSON.stringify(detailRows().slice(-2))}`
+    `the evidence block shows the measurement: ${JSON.stringify(detailRows().slice(-4))}`
+  );
+  assert.equal(
+    detailRows().some((line) => line.includes('observed 31.5') && line.includes('camera_fps')),
+    false,
+    'evidence does not show the raw metric name'
   );
 
   await type('/deployments');
@@ -785,8 +810,13 @@ instance.unmount();
     '/failures prints failures'
   );
   assert.ok(
-    detailRows().some((line) => line.includes('camera_fps observed 12, expected >=30')),
+    detailRows().some((line) => line.includes('observed 12, expected >=30')),
     'the recorded failure is the same one acceptance repaired'
+  );
+  assert.equal(
+    detailRows().some((line) => line.includes('observed 12') && line.includes('camera_fps')),
+    false,
+    'the failure line does not show the raw metric name'
   );
 
   // 3c. `/tasks` is background shell + sub-agents, not a second Task OS board.

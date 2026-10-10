@@ -1,4 +1,5 @@
 import { isZhLocale } from './cli-locale.js';
+import { tui } from './tui/copy.js';
 
 /**
  * THE command catalog — one table both interaction surfaces derive from:
@@ -181,6 +182,13 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         availableDuringRun: 'immediate',
       },
       {
+        command: '/language',
+        args: '[en|zh|auto] [save]',
+        description: 'show or switch the UI language for this session',
+        aliases: ['/lang'],
+        availableDuringRun: 'immediate',
+      },
+      {
         command: '/theme',
         args: '[dark|light|mono]',
         description: 'show or set the terminal colour theme for this session',
@@ -199,6 +207,18 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
       {
         command: '/hooks',
         description: 'list configured lifecycle hooks and where to edit them',
+        hidden: true,
+        availableDuringRun: 'immediate',
+      },
+      {
+        command: '/trust',
+        description: 'trust this folder for project settings (remembered in your user config)',
+        hidden: true,
+        availableDuringRun: 'immediate',
+      },
+      {
+        command: '/untrust',
+        description: 'forget trust for this folder; applies the next time Moss starts',
         hidden: true,
         availableDuringRun: 'immediate',
       },
@@ -531,7 +551,7 @@ export function formatInteractiveCommandSections(
     for (const row of section.rows) {
       if (row.hidden && !options.includeHidden) continue;
       const usage = row.args ? `${row.command} ${row.args}` : row.command;
-      lines.push(`${indent}${usage.padEnd(commandWidth)} ${row.description}`);
+      lines.push(`${indent}${usage.padEnd(commandWidth)} ${tui(row.description)}`);
     }
   }
   return lines;

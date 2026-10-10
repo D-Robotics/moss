@@ -1,6 +1,6 @@
 import path from 'node:path';
-import type { Tool } from '../tools/tool-types.js';
-import type { SubagentRunProgress } from '../tools/tool-types.js';
+import { TOOL_SEARCH_NAME } from '../tools/deferred-tool-offer.js';
+import type { SubagentRunProgress, Tool } from '../tools/tool-types.js';
 import type { Model, StreamFunction, ThinkingLevel } from '../../provider/pi-ai-types.js';
 import type { AgentLoopPlatformConfig } from '../loop/agent-loop-types.js';
 import type { Message } from '../session/session-jsonl.js';
@@ -161,6 +161,7 @@ export function selectSubagentTools(
     (tool) =>
       tool.name !== 'create_subagent' &&
       tool.name !== 'fan_out_subagents' &&
+      tool.name !== TOOL_SEARCH_NAME &&
       (!scopeTools || scopeTools.has(tool.name)) &&
       (!exactTools || exactTools.has(tool.name)) &&
       !isToolDenied(tool.name, config.deniedTools) &&

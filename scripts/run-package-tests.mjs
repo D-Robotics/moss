@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { basename, join, matchesGlob, relative } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { createTestRunRoot, listMossTempHomes } from '../test/helpers/temp-home.mjs';
 
 const testDir = join(process.cwd(), 'test');
 
@@ -143,24 +145,98 @@ await waitForStableDist();
 // CLI strings; on a Chinese developer shell (LANG=zh_CN.UTF-8) the CLI
 // localizes to Chinese and those assertions fail even though the code is
 // correct. Specs that need a specific locale set it themselves.
+const runRoot = createTestRunRoot(tmpdir());
+let runRootRemoved = false;
+function removeRunRoot() {
+  if (runRootRemoved) return;
+  runRootRemoved = true;
+  rmSync(runRoot, { recursive: true, force: true });
+}
+process.on('exit', removeRunRoot);
+
 const testEnv = {
   ...process.env,
   LANG: 'C',
   LC_ALL: 'C',
   LC_MESSAGES: 'C',
+  TMPDIR: runRoot,
+  TMP: runRoot,
+  TEMP: runRoot,
 };
+
+// Specs are async children so SIGINT/SIGTERM can stop the current spec and
+// delete this run's temp root on the way out.
+let currentChild = null;
+let shuttingDown = false;
+
+function shutdown(code) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const child = currentChild;
+  if (child && child.exitCode === null && child.signalCode === null) {
+    child.once('close', () => {
+      process.exit(code);
+    });
+    child.kill('SIGTERM');
+    setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }, 2000).unref();
+    return;
+  }
+  process.exit(code);
+}
+
+process.on('SIGINT', () => {
+  shutdown(130);
+});
+process.on('SIGTERM', () => {
+  shutdown(143);
+});
+
+function runSpec(file) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [file], {
+      cwd: process.cwd(),
+      stdio: 'inherit',
+      env: testEnv,
+    });
+    currentChild = child;
+    child.on('error', (err) => {
+      if (currentChild === child) currentChild = null;
+      console.error(`[test] failed to start ${file}: ${err instanceof Error ? err.message : err}`);
+      resolve({ status: 1 });
+    });
+    child.on('close', (status) => {
+      if (currentChild === child) currentChild = null;
+      resolve({ status });
+    });
+  });
+}
+
+function leakedHomes() {
+  return listMossTempHomes(runRoot);
+}
+
+function reportLeaks() {
+  const leaked = leakedHomes();
+  if (leaked.length === 0) return 0;
+  console.error(`[test] leaked ${leaked.length} moss temp home(s):`);
+  for (const dir of leaked) console.error(`  ${dir}`);
+  return 1;
+}
 
 for (const file of testFiles) {
   console.error(`[test] ${file}`);
-  const result = spawnSync(process.execPath, [file], {
-    cwd: process.cwd(),
-    stdio: 'inherit',
-    env: testEnv,
-  });
+  const result = await runSpec(file);
+  if (shuttingDown) break;
   if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+    const leakStatus = reportLeaks();
+    process.exit(result.status ?? (leakStatus || 1));
   }
 }
+
+const leakStatus = reportLeaks();
+if (leakStatus !== 0) process.exit(leakStatus);
 
 console.error(
   `[test] passed ${testFiles.length} file(s)` +

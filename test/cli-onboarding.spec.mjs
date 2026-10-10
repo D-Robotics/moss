@@ -9,6 +9,7 @@ import {
   renderCliInteractiveHelp,
   renderCliPermissions,
   renderCliStatus,
+  renderCliWelcome,
 } from '../dist/cli/onboarding.js';
 
 // ─── renderCliPermissions — concise by default, detailed on demand ───────────
@@ -169,6 +170,43 @@ import {
   assert.ok(help.includes('/diff'), '/help output includes /diff');
   assert.ok(!help.includes('/sessions'), 'everyday /help leaves hidden /sessions out');
   assert.ok(help.includes('Ctrl+C'), '/help output mentions how to exit');
+}
+
+// ─── first-run welcome is short, names the model, and ends with one next step
+
+{
+  const prev = {
+    LANG: process.env.LANG,
+    LC_ALL: process.env.LC_ALL,
+    LC_MESSAGES: process.env.LC_MESSAGES,
+  };
+  process.env.LANG = 'zh_CN.UTF-8';
+  process.env.LC_ALL = 'zh_CN.UTF-8';
+  delete process.env.LC_MESSAGES;
+  try {
+    const agent = {
+      config: { model: 'deepseek-flash' },
+      tools: { getAll: () => [], size: 0 },
+    };
+    const welcome = renderCliWelcome(agent, {
+      workspace: '/tmp/project',
+      config: {
+        provider: 'deepseek',
+        model: 'deepseek-flash',
+        apiKey: 'enc:present',
+        usingBundledDefault: false,
+      },
+    });
+    assert.match(welcome, /下一步/);
+    assert.match(welcome, /deepseek-flash/);
+    assert.match(welcome, /让我看看这个目录里有什么/);
+    assert.doesNotMatch(welcome, /Next ask me/);
+  } finally {
+    for (const key of ['LANG', 'LC_ALL', 'LC_MESSAGES']) {
+      if (prev[key] === undefined) delete process.env[key];
+      else process.env[key] = prev[key];
+    }
+  }
 }
 
 console.log('[PASS] Onboarding and help text');

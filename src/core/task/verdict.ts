@@ -9,6 +9,7 @@
 import type { AcceptanceVerdict, TaskContract } from '../../contracts/task.js';
 import { evaluateAcceptance, formatAcceptanceVerdict } from '../../contracts/task.js';
 import { runAcceptanceCommandInWorkspace } from './acceptance-command.js';
+import { recordHarnessSuiteEvidence } from './suite-evidence.js';
 import {
   appendAcceptanceVerdict,
   appendTaskRecord,
@@ -51,9 +52,9 @@ export function isCommittedTaskVerdict(verdict: TaskVerdict): boolean {
  */
 export function createCommandVerdictProvider(
   command: string,
-  options: { timeoutMs?: number } = {}
+  options: { timeoutMs?: number; workspaceDir?: string } = {}
 ): VerdictProvider {
-  return commandVerdictProvider(command, options);
+  return commandVerdictProvider(command, options, options.workspaceDir);
 }
 
 function commandVerdictProvider(
@@ -69,6 +70,15 @@ function commandVerdictProvider(
         signal,
         workspaceDir
       );
+      if (workspaceDir) {
+        await recordHarnessSuiteEvidence({
+          workspaceDir,
+          taskId,
+          source: 'acceptance_command',
+          testsPassed: result.passed,
+          output: result.tail,
+        });
+      }
       return {
         taskId,
         passed: result.passed,
@@ -114,7 +124,8 @@ async function evaluateContractWithAuthority(
   workspaceDir: string,
   taskId: string | undefined,
   signal: AbortSignal | undefined,
-  commandPassed: boolean
+  commandPassed: boolean,
+  recordAuthority?: (commitStarted: boolean) => Promise<void>
 ): Promise<{ verdict: AcceptanceVerdict; task: TaskContract } | null> {
   signal?.throwIfAborted();
   const tasks = await listTaskRecords(workspaceDir);
@@ -132,7 +143,9 @@ async function evaluateContractWithAuthority(
   const verdict = evaluateAcceptance(task, evidence);
   // The last abort check is at append dispatch. Once the PASS commit starts,
   // finish its ledger despite later cancellation. Failed IO never attests PASS.
-  await appendAcceptanceVerdict(workspaceDir, verdict, signal);
+  const contractAudit = !commandPassed || task.acceptanceCriteria.length > 0;
+  if (contractAudit) await appendAcceptanceVerdict(workspaceDir, verdict, signal);
+  await recordAuthority?.(contractAudit);
 
   if ((verdict.verdict === 'pass' || commandPassed) && task.status !== 'accepted') {
     await appendTaskRecord(workspaceDir, { ...task, status: 'accepted', updatedAt: Date.now() });
@@ -232,6 +245,35 @@ export function createContractVerdictProvider(workspaceDir: string): VerdictProv
   };
 }
 
+async function recordCommandVerdictRow(
+  workspaceDir: string,
+  taskId: string,
+  passed: boolean,
+  detail: string,
+  signal?: AbortSignal
+): Promise<void> {
+  await appendAcceptanceVerdict(
+    workspaceDir,
+    {
+      taskId,
+      verdict: passed ? 'pass' : 'fail',
+      acceptedAt: Date.now(),
+      criteriaResults: [
+        {
+          metric: 'acceptance_command',
+          expected: 'exit 0',
+          required: true,
+          result: passed ? 'pass' : 'fail',
+          explanation: detail.slice(0, 300),
+        },
+      ],
+      unmetRequired: passed ? 0 : 1,
+      evidenceConsidered: 0,
+    },
+    signal
+  );
+}
+
 /**
  * Command verdicts are authoritative when configured; the contract provider
  * covers tasks whose "done" is criteria-based. This is the single provider
@@ -256,7 +298,15 @@ export function createTaskVerdictProvider(options: {
             options.workspaceDir,
             taskId,
             signal,
-            true
+            true,
+            (commitStarted) =>
+              recordCommandVerdictRow(
+                options.workspaceDir,
+                taskId,
+                true,
+                commandVerdict.detail,
+                commitStarted ? undefined : signal
+              )
           );
           if (recorded) {
             await settleAcceptedContract(
@@ -267,9 +317,27 @@ export function createTaskVerdictProvider(options: {
             );
             committedVerdicts.add(commandVerdict);
             noteCommittedAcceptance(options.workspaceDir, commandVerdict);
-          } else signal?.throwIfAborted();
+          } else {
+            // Keep the command audit even when no contract exists. This row
+            // alone cannot attest a native contract/lifecycle settlement.
+            signal?.throwIfAborted();
+            await recordCommandVerdictRow(
+              options.workspaceDir,
+              taskId,
+              true,
+              commandVerdict.detail,
+              signal
+            );
+          }
           return commandVerdict;
         }
+        await recordCommandVerdictRow(
+          options.workspaceDir,
+          taskId,
+          false,
+          commandVerdict.detail,
+          signal
+        );
         return commandVerdict;
       });
     },

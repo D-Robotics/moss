@@ -408,3 +408,93 @@ test('every platform syncs acceptance files; POSIX directory sync failure reject
     await fs.rm(workspaceDir, { recursive: true, force: true });
   }
 });
+
+test('a failed command verdict row after a contract PASS cannot complete native acceptance', async () => {
+  const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-command-row-sync-'));
+  const originalOpen = fs.open;
+  let injected = false;
+  try {
+    const oracle = path.join(workspaceDir, 'oracle.mjs');
+    await fs.writeFile(oracle, 'process.exit(0);\n');
+    const quote = (value) => '"' + value.replace(/\\/g, '/') + '"';
+    fs.open = async function (file, flags, ...args) {
+      const handle = await originalOpen.call(this, file, flags, ...args);
+      if (String(file) === path.join(workspaceDir, '.moss', 'acceptance.jsonl') && flags === 'r+') {
+        const sync = handle.sync.bind(handle);
+        handle.sync = async () => {
+          const raw = await fs.readFile(file, 'utf8');
+          if (!injected && raw.includes('"metric":"acceptance_command"')) {
+            injected = true;
+            throw Object.assign(new Error('command verdict row sync failed'), { code: 'EIO' });
+          }
+          return sync();
+        };
+      }
+      return handle;
+    };
+    await assert.rejects(
+      runTask(
+        {
+          workspaceDir,
+          maxRepairAttempts: 0,
+          runTurn: async () => {
+            const taskId = (await listTaskEvents(workspaceDir))[0].taskId;
+            await appendTaskRecord(workspaceDir, {
+              taskId,
+              goal: 'one',
+              status: 'active',
+              acceptanceCriteria: [{ metric: 'probe', expected: '==1' }],
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            });
+            await appendEvidenceRecord(workspaceDir, {
+              evidenceId: 'one',
+              taskId,
+              metric: 'probe',
+              observed: 1,
+              result: 'pass',
+              source: 'exec',
+              timestamp: Date.now(),
+            });
+            return 'measured one';
+          },
+        },
+        'one',
+        { acceptanceCommand: quote(process.execPath) + ' ' + quote(oracle) }
+      ),
+      /command verdict row sync failed/
+    );
+    assert.equal(injected, true);
+    const artifacts = await loadTaskArtifacts(workspaceDir);
+    assert.equal(
+      artifacts.tasks.some((task) => task.status === 'accepted'),
+      false
+    );
+    assert.equal(
+      (await listTaskEvents(workspaceDir)).some((event) => event.type === 'acceptance_pass'),
+      false
+    );
+    assert.equal(
+      artifacts.acceptance.some((row) => row.verdict === 'pass'),
+      true,
+      'the earlier real contract audit PASS remains a fact'
+    );
+    assert.equal(
+      artifacts.acceptance.some((row) =>
+        row.criteriaResults.some((criterion) => criterion.metric === 'acceptance_command')
+      ),
+      false,
+      'the failed command row is rolled back'
+    );
+    fs.open = originalOpen;
+    const events = await listTaskEvents(workspaceDir);
+    const resumed = await resumeTask(
+      { workspaceDir, runTurn: async () => 'retry' },
+      events[0].taskId
+    );
+    assert.equal(resumed.outcome, 'pass', 'only a new fully settled retry may accept');
+  } finally {
+    fs.open = originalOpen;
+    await fs.rm(workspaceDir, { recursive: true, force: true });
+  }
+});

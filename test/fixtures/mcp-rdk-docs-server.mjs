@@ -104,7 +104,7 @@ function handleLine(line) {
       result: {
         protocolVersion: '2025-06-18',
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'rdk-docs', version: '0.2.0-fixture' },
+        serverInfo: { name: 'rdk-docs', version: '0.3.0-fixture' },
       },
     });
     return;

@@ -30,6 +30,7 @@ import {
 } from 'ink';
 import type { MossAgent } from '../../core/agent/moss-agent.js';
 import { planGateEnabled } from '../../tools/plan-gate.js';
+import { userTextWithoutTurnContext } from '../../core/session/internal-transcript.js';
 import {
   TaskRuntime,
   formatDeploymentLine,
@@ -66,20 +67,40 @@ import {
 import { formatBackgroundCompletionFlash } from '../background-completion-ui.js';
 import { redactEgress } from '../../safety/tool-output-redact.js';
 import { formatMcpStatusLine } from '../rdk-docs-mcp.js';
-import { isZhLocale } from '../cli-locale.js';
+import {
+  formatBlockedTaskLine,
+  formatEvidenceLine,
+  formatTaskFailureLines,
+  formatTaskHistoryLines,
+  formatTaskSummaryLines,
+  formatTaskVerdictLine,
+} from '../task-card.js';
+import {
+  ENGLISH_UI_OFFER,
+  englishUiOfferPending,
+  hasSessionUiOverride,
+  isZhLocale,
+  setSessionUiLanguage,
+  writeUserLanguageSetting,
+} from '../cli-locale.js';
 import { resolveDefaultDeviceTarget } from '../../device/device-target.js';
 import { setCliApprovalAsker } from '../approval.js';
 import { wrapApprovalAsker, wrapApprovalViewAsker } from '../permission-request.js';
 import {
   runRegistryCommand,
+  unknownSlashCommandLines,
   type CommandContext,
   type CommandSurface,
 } from '../commands/registry.js';
 import {
+  isSlashCommandInput,
   loadCustomCommands,
   reservedBuiltinNames,
   resolveUserCommand,
+  skillSlashToken,
 } from '../commands/custom-commands.js';
+import { closestSlashCommands } from '../command-completion.js';
+import { isCatalogSkipNotice } from '../catalog-skip-notice.js';
 import { formatBackgroundJobLines } from '../commands/background-jobs.js';
 import {
   abandonLiveGoal,
@@ -117,10 +138,21 @@ import {
   loadModelChoicesForRuntime,
   resolveContextTokensForModel,
   resolveModelSelection,
+  splitModelCustomFlag,
+  unavailableModelNote,
   type ModelChoiceList,
 } from '../model-catalog.js';
 import { createCliProvider } from '../providers.js';
 import { writePreferredModel } from '../preferred-model-store.js';
+import {
+  initialFirstRunView,
+  lookupOfferSecret,
+  reduceFirstRun,
+  renderFirstRunLines,
+  saveUserModelConfig,
+  settleFirstRunJob,
+  type FirstRunView,
+} from '../first-run.js';
 import { formatLocalCommandOutput, runLocalShellCommand } from '../repl-process.js';
 import { runWorkingTreeDiff } from '../../utils/git-spawn.js';
 import {
@@ -151,7 +183,7 @@ import {
   detectComposerProjectKind,
   type ComposerProjectKind,
 } from '../composer-placeholder.js';
-import { loadCliConfigFile } from '../config.js';
+import { envBeforeDotenv, loadCliConfigFile } from '../config.js';
 import {
   configuredBaseUrl,
   formatCostEstimate,
@@ -163,7 +195,7 @@ import {
   runStatusLineCommand,
   type StatusCommandPayload,
 } from '../status-line.js';
-import { clip, line, padEndTo, rule, type TuiLine } from './text.js';
+import { clip, line, padEndTo, rule, wrap, type TuiLine } from './text.js';
 import { displayWidth } from '../terminal-text.js';
 import {
   chatInterruptNoticeLine,
@@ -174,6 +206,7 @@ import {
   transientStatus,
   tui,
 } from './copy.js';
+import { WORKSPACE_WRITE_LIMIT_EN } from '../workspace-write-copy.js';
 import { allocateFrame } from './layout.js';
 import {
   MOUSE_TRACKING_ON,
@@ -397,14 +430,13 @@ interface PendingDialog {
   label?: string;
 }
 
-function collectStrings(value: unknown, out: string[] = []): string[] {
-  if (typeof value === 'string') out.push(value);
-  else if (Array.isArray(value)) for (const item of value) collectStrings(item, out);
-  return out;
-}
-
 /** The shell tells the registry it is the TUI, so surface-specific copy can diverge later. */
 const COMMAND_SURFACE: CommandSurface = 'tui';
+
+/** Session `/language` wins over the locale frozen into the app options. */
+function activeUiLocale(explicit: string | undefined): string | undefined {
+  return hasSessionUiOverride() ? cliLocale() : (explicit ?? cliLocale());
+}
 
 /** How long the scroll bar stays visible after the pointer or a scroll last touched it. */
 const SCROLLBAR_HIDE_MS = 1500;
@@ -421,7 +453,7 @@ export function TuiAppRoot({
   // Part B: pin moss's own chrome to the locale the host resolved. Idempotent,
   // so running it on every render is fine; the environment is only the fallback
   // and the host's explicit `locale` is authoritative.
-  setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
+  setTuiLocale(isZhLocale(activeUiLocale(options.locale)));
   const composerProjectKind = useMemo(
     (): ComposerProjectKind =>
       detectComposerProjectKind({
@@ -494,6 +526,24 @@ export function TuiAppRoot({
   );
   /** Active model, so `/model` is reflected in the status row immediately. */
   const [currentModel, setCurrentModel] = useState<string | undefined>(options.model);
+  const [setupView, setSetupView] = useState<FirstRunView | undefined>(() =>
+    options.firstRun ? initialFirstRunView(envBeforeDotenv) : undefined
+  );
+  const [englishOffer, setEnglishOffer] = useState(
+    () => options.firstRun === true && englishUiOfferPending(true)
+  );
+  const englishOfferRef = useRef(englishOffer);
+  englishOfferRef.current = englishOffer;
+  const setupSecretRef = useRef('');
+  const setupEnvLoaded = useRef(false);
+  if (!setupEnvLoaded.current && setupView?.apiKeyEnv) {
+    setupEnvLoaded.current = true;
+    const value = (envBeforeDotenv[setupView.apiKeyEnv] ?? '').trim();
+    if (value) setupSecretRef.current = value;
+  }
+  const setupViewRef = useRef(setupView);
+  setupViewRef.current = setupView;
+  const setupJobRef = useRef(0);
   const [modelPicker, setModelPicker] = useState<
     { choices: ModelChoiceList; cursor: number } | undefined
   >(undefined);
@@ -594,18 +644,20 @@ export function TuiAppRoot({
   const submitRef = useRef<(text: string) => Promise<void>>(async () => undefined);
   /** `/goal` proposal waiting for Enter (accept) or `n` (contract verdict only). */
   const pendingGoalRef = useRef<{ goal: string } | null>(null);
-  const customCommands = useMemo(
-    () =>
-      loadCustomCommands(
-        {
-          workspace: options.workspaceDir,
-          configDir: options.cliRuntime?.configDir ?? path.join(options.workspaceDir, '.moss'),
-          reservedNames: reservedBuiltinNames(),
-        },
-        () => undefined
-      ),
-    [options.workspaceDir, options.cliRuntime?.configDir]
-  );
+  const customCommandLoad = useMemo(() => {
+    const notices: string[] = [];
+    const commands = loadCustomCommands(
+      {
+        workspace: options.workspaceDir,
+        configDir: options.cliRuntime?.configDir ?? path.join(options.workspaceDir, '.moss'),
+        reservedNames: reservedBuiltinNames(),
+      },
+      (message) => notices.push(message),
+      options.locale ?? cliLocale()
+    );
+    return { commands, notices };
+  }, [options.workspaceDir, options.cliRuntime?.configDir, options.locale]);
+  const customCommands = customCommandLoad.commands;
   const [queueRevision, setQueueRevision] = useState(0);
   void queueRevision;
   /** Kill ring: the text the last Ctrl+U/K/W removed, pasted back by Ctrl+Y. */
@@ -629,10 +681,20 @@ export function TuiAppRoot({
   const [activeSession, setActiveSession] = useState(options.sessionKey ?? 'tui');
   const sessionKey = activeSession;
   const { store } = handle;
+  useEffect(() => {
+    let added = false;
+    for (const message of customCommandLoad.notices) {
+      if (store.rows.some((row) => row.text === message)) continue;
+      appendRow(store, 'summary', message);
+      added = true;
+    }
+    if (added) handle.notify();
+  }, [customCommandLoad, handle, store]);
   const sessionChrome = useMemo(() => {
     try {
       const file = loadCliConfigFile(process.env, process.argv.slice(2), undefined, {
         allowProjectStatusCommand: options.workspaceTrusted === true,
+        trustProjectRouting: options.workspaceTrusted === true,
       }).config;
       return {
         pricing: pricingOverridesFromConfig(file.pricing),
@@ -759,7 +821,7 @@ export function TuiAppRoot({
   useEffect(
     () =>
       options.noticeSource?.subscribe((message) => {
-        appendRow(store, 'system', message);
+        appendRow(store, isCatalogSkipNotice(message) ? 'summary' : 'system', message);
         handle.notify();
       }),
     [handle, options.noticeSource, store]
@@ -963,84 +1025,22 @@ export function TuiAppRoot({
     // context line; moss used to load all of it silently.
     const info = options.contextInfo;
     const liveMcpServers = options.listMcpServers?.() ?? options.mcpServers;
-    const mcpSummary =
-      liveMcpServers && liveMcpServers.length > 0
-        ? {
-            connected: liveMcpServers.filter((s) => s.state === 'connected').length,
-            connecting: liveMcpServers.filter((s) => s.state === 'connecting').length,
-            total: liveMcpServers.length,
-          }
-        : info?.mcp
-          ? {
-              connected: info.mcp.connected,
-              connecting: info.mcp.connecting ?? 0,
-              total: info.mcp.total,
-            }
-          : undefined;
-    if (info || mcpSummary) {
+    if (info) {
       const parts: string[] = [];
-      if (info?.branch) parts.push(`git:${info.branch}`);
-      if (info?.skills) {
+      if (info.branch) parts.push(`git:${info.branch}`);
+      if (info.skills) {
         parts.push(
           tui(info.skills === 1 ? '{count} skill' : '{count} skills', { count: info.skills })
         );
-      }
-      if (mcpSummary && mcpSummary.total > 0) {
-        if (mcpSummary.connecting > 0) {
-          parts.push(
-            tui(
-              mcpSummary.connecting === 1
-                ? '{count} MCP server connecting'
-                : '{count} MCP servers connecting',
-              { count: mcpSummary.connecting }
-            )
-          );
-        } else if (mcpSummary.connected === mcpSummary.total) {
-          parts.push(
-            tui(mcpSummary.total === 1 ? '{count} MCP server' : '{count} MCP servers', {
-              count: mcpSummary.total,
-            })
-          );
-        } else {
-          parts.push(
-            tui('{connected}/{total} MCP servers connected', {
-              connected: mcpSummary.connected,
-              total: mcpSummary.total,
-            })
-          );
-        }
       }
       if (parts.length > 0) {
         appendRow(store, 'detail', tui('context: {parts}', { parts: parts.join(' · ') }));
       }
     }
-    // Only a terminal failure is a boot warning. `connecting` is not failed;
-    // the registry notifies once the handshake settles.
-    const failedMcp = (liveMcpServers ?? []).filter((s) => s.state === 'failed');
-    if (failedMcp.length > 0) {
-      const names = failedMcp
-        .slice(0, 3)
-        .map((s) => s.name)
-        .join(', ');
-      const reasons = failedMcp
-        .slice(0, 3)
-        .map((s) => s.error?.trim().split('\n')[0])
-        .filter((reason): reason is string => Boolean(reason))
-        .join('; ')
-        .slice(0, 160);
-      appendRow(
-        store,
-        'system',
-        tui(
-          failedMcp.length === 1
-            ? '⚠ {count} MCP server failed to start'
-            : '⚠ {count} MCP servers failed to start',
-          { count: failedMcp.length }
-        ) +
-          `${names ? ` (${names})` : ''}` +
-          `${reasons ? `: ${reasons}` : ''}` +
-          tui(' — /mcp for details')
-      );
+    // One status line per server — the same wording as /mcp. Counts and a
+    // separate failure warning described the same servers twice.
+    for (const server of liveMcpServers ?? []) {
+      appendRow(store, 'system', formatMcpStatusLine(server));
     }
     options.onMcpUiReady?.();
     // Crash/quit recovery: history survives per-message, but a bare `moss`
@@ -1053,7 +1053,7 @@ export function TuiAppRoot({
           const sessions = (await options.listSessions?.()) ?? [];
           const previous = sessions.find((s) => !s.current);
           if (previous) {
-            const title = previous.title?.trim() || previous.key;
+            const title = userTextWithoutTurnContext(previous.title ?? '') || previous.key;
             appendRow(
               store,
               'system',
@@ -1160,19 +1160,14 @@ export function TuiAppRoot({
         )
         .sort((a, b) => b.updatedAt - a.updatedAt)[0];
       if (!decided) return;
-      const short = decided.taskId.slice(-6);
-      const criteria = `${decided.criteriaMet}/${decided.criteriaTotal} criteria`;
-      // The verdict token (PASS/FAIL), task id and recover command stay raw.
       appendRow(
         store,
         'summary',
-        decided.result === 'PASS'
-          ? tui('◇ task {id} — PASS ({criteria} met)', { id: short, criteria })
-          : tui('◇ task {id} — FAIL ({criteria} met) · /task resume {task} to repair', {
-              id: short,
-              criteria,
-              task: decided.taskId,
-            })
+        formatTaskVerdictLine(
+          decided.result === 'PASS' ? 'PASS' : 'FAIL',
+          decided.criteriaMet,
+          decided.criteriaTotal
+        )
       );
       handle.notify();
     },
@@ -1387,37 +1382,28 @@ export function TuiAppRoot({
       if (action === 'tasks') {
         const summaries = runtime.taskSummaries();
         printBlock(
-          `Tasks (${summaries.length})`,
-          summaries.map(
-            (s) =>
-              `${s.kind.toUpperCase().padEnd(8)} ${
-                s.result === 'ABORTED'
-                  ? 'ABORTED'
-                  : `${(s.result ?? s.state).padEnd(10)} ${s.criteriaMet}/${s.criteriaTotal} ${tui('met')}`
-              }  ${s.goal}` +
-              (s.blockedReason
-                ? `\n         ${tui('blocked: {reason}', { reason: s.blockedReason })}`
-                : '')
-          )
+          tui('Tasks ({count})', { count: summaries.length }),
+          summaries.flatMap((s) => {
+            const detail = runtime.taskDetail(s.taskId);
+            return formatTaskSummaryLines(s, detail?.verification.length ?? 0);
+          })
         );
         return;
       }
       if (action === 'evidence') {
         const records = runtime.getArtifacts().evidence;
         printBlock(
-          `Evidence (${records.length})`,
-          records.map(
-            (r) =>
-              `${r.result.toUpperCase().padEnd(5)} ${r.metric} = ${r.observed ?? '?'}${
-                r.expected ? ` (want ${r.expected})` : ''
-              }`
-          )
+          tui('Evidence ({count})', { count: records.length }),
+          records.map((r) => formatEvidenceLine(r))
         );
         return;
       }
       if (action === 'deployments') {
         const deployments = runtime.getArtifacts().deployments;
-        printBlock(`Deployments (${deployments.length})`, deployments.map(formatDeploymentLine));
+        printBlock(
+          tui('Deployments ({count})', { count: deployments.length }),
+          deployments.map(formatDeploymentLine)
+        );
         return;
       }
       if (action === 'history') {
@@ -1426,11 +1412,8 @@ export function TuiAppRoot({
           .map((s) => runtime.taskDetail(s.taskId))
           .filter((d): d is NonNullable<typeof d> => Boolean(d));
         printBlock(
-          `History (${details.length})`,
-          details.flatMap((d) => [
-            `${d.summary.taskId}`,
-            ...d.history.slice(-6).map((entry) => `  ${entry.kind.padEnd(11)} ${entry.label}`),
-          ])
+          tui('History ({count})', { count: details.length }),
+          details.flatMap((d) => formatTaskHistoryLines(d))
         );
         return;
       }
@@ -1440,11 +1423,8 @@ export function TuiAppRoot({
           .map((s) => runtime.taskDetail(s.taskId))
           .filter((d): d is NonNullable<typeof d> => Boolean(d?.failure));
         printBlock(
-          `Failures (${details.length})`,
-          details.flatMap((d) => [
-            `${d.summary.taskId}: ${d.failure?.headline ?? ''}`,
-            ...collectStrings(d.failure?.items.map((i) => `  ${i.label}`) ?? []),
-          ])
+          tui('Failures ({count})', { count: details.length }),
+          details.flatMap((d) => formatTaskFailureLines(d))
         );
         return;
       }
@@ -1524,14 +1504,7 @@ export function TuiAppRoot({
                 setStatusLine(line);
                 // Phase transitions are transcript history, not a rotating
                 // status: a minute-long device task must stay reviewable.
-                const phase = /^\[task ([a-z]+)\] (.+)$/.exec(line);
-                if (phase) {
-                  appendRow(
-                    store,
-                    'summary',
-                    tui('◇ task {phase} — {text}', { phase: phase[1]!, text: phase[2]! })
-                  );
-                }
+                if (line.startsWith('◇ ')) appendRow(store, 'summary', line);
               } else if (!parseLlmUsageStdout(text)) {
                 printBlock('Task', text.trimEnd().split('\n'));
               }
@@ -1767,8 +1740,9 @@ export function TuiAppRoot({
    */
   const runModelCommand = useCallback(
     async (args: string) => {
+      const modelTitle = tui('Model');
       if (store.run.running) {
-        printBlock('Model', [
+        printBlock(modelTitle, [
           tui('a run is in flight — press Esc to interrupt it before switching models'),
         ]);
         return;
@@ -1783,11 +1757,14 @@ export function TuiAppRoot({
       } catch (err) {
         choices = undefined;
         printCommandError(
-          'Model',
+          modelTitle,
           tui('could not load the model catalog: {error}', { error: errorMessage(err) })
         );
       }
-      const token = args.trim();
+      const rawToken = args.trim();
+      const persistDefault = rawToken === 'save' || rawToken.startsWith('save ');
+      const requested = persistDefault ? rawToken.slice('save'.length).trim() : rawToken;
+      const { token, custom } = splitModelCustomFlag(requested);
       if (!token) {
         if (!choices) return;
         setModelPicker({
@@ -1800,11 +1777,16 @@ export function TuiAppRoot({
         return;
       }
       if (token === 'config' || token.startsWith('config ')) {
-        printBlock('Model', [
+        printBlock(modelTitle, [
           tui('/model config is not wired in the shell — use `moss setup` for a guided'),
           tui('provider/model/key change, or `moss config set model <name>` to persist one.'),
           tui('`/model <name>` still switches the active model for this session.'),
         ]);
+        return;
+      }
+      const unavailable = unavailableModelNote(token, choices, undefined, { custom });
+      if (unavailable) {
+        printCommandError(modelTitle, unavailable);
         return;
       }
       const selected = choices ? resolveModelSelection(token, choices.choices) : null;
@@ -1812,27 +1794,29 @@ export function TuiAppRoot({
       const provider = selected?.provider ?? choices?.provider ?? config?.provider;
       if (!config || !provider) {
         printCommandError(
-          'Model',
+          modelTitle,
           tui('could not resolve the provider config — run `moss setup`.')
         );
         return;
       }
       try {
-        options.agent.config.model = model;
-        const mutable = options.agent.config as { provider?: string; baseUrl?: string };
-        mutable.provider = provider;
-        mutable.baseUrl = config.baseUrl;
-        options.agent.config.llmProvider = createCliProvider({
-          provider,
-          apiKey: config.apiKey,
+        options.agent.switchModel({
           model,
+          provider,
           baseUrl: config.baseUrl,
-          ...(config.usingBundledDefault ? { usingBundledDefault: true } : {}),
+          llmProvider: createCliProvider({
+            provider,
+            apiKey: config.apiKey,
+            model,
+            baseUrl: config.baseUrl,
+            ...(config.usingBundledDefault ? { usingBundledDefault: true } : {}),
+          }),
+          usingBundledDefault: config.usingBundledDefault,
         });
         writePreferredModel(config.baseUrl, model);
       } catch (err) {
         printCommandError(
-          'Model',
+          modelTitle,
           tui('could not switch to {model}: {error}', { model, error: errorMessage(err) })
         );
         return;
@@ -1843,10 +1827,25 @@ export function TuiAppRoot({
       store.usage.contextUsed = 0;
       store.usage.contextTotal = 0;
       const probeGeneration = ++modelProbeGenerationRef.current;
-      printBlock('Model', [
+      let savedNote: string | undefined;
+      if (persistDefault) {
+        try {
+          const savedPath = saveUserModelConfig({
+            model,
+            provider,
+            baseUrl: config.baseUrl,
+            env: process.env,
+          });
+          savedNote = tui('saved {model} as the default ({path})', { model, path: savedPath });
+        } catch (err) {
+          savedNote = tui('could not save the default: {error}', { error: errorMessage(err) });
+        }
+      }
+      printBlock(modelTitle, [
         selected
           ? tui('switched to {model} ({provider})', { model, provider })
           : tui('switched to custom model {model} ({provider})', { model, provider }),
+        savedNote ?? tui('this session only — /model save {model} writes the default', { model }),
         tui('context usage will appear after the first response from this model'),
       ]);
       // Re-probe the new model's context window. Ignore an older probe that
@@ -2012,10 +2011,11 @@ export function TuiAppRoot({
 
   const submit = useCallback(
     async (raw: string) => {
+      if (setupViewRef.current) return;
       const submittedTokens = tokensRef.current.slice();
       let text = raw.trim();
       if (!text) return;
-      if (pendingGoalRef.current && !text.startsWith('/')) {
+      if (pendingGoalRef.current && !isSlashCommandInput(text)) {
         const pending = pendingGoalRef.current;
         pendingGoalRef.current = null;
         setInput('');
@@ -2033,7 +2033,7 @@ export function TuiAppRoot({
         );
         return;
       }
-      if (text.startsWith('/')) {
+      if (isSlashCommandInput(text)) {
         pendingGoalRef.current = null;
         const rewritten = rewriteSlashInput(text, isTuiZh() ? 'zh' : 'en');
         if (rewritten.suggestion) {
@@ -2079,7 +2079,7 @@ export function TuiAppRoot({
       // Running-turn policy comes from the catalog (`availableDuringRun`), the
       // same table the REPL reads. Codex disables Plan/Review/Compact/Init/Clear
       // during a task: those are `reject`. Status/Diff/Model/Tasks stay immediate.
-      if (text.startsWith('/') && store.run.running) {
+      if (isSlashCommandInput(text) && store.run.running) {
         const policy = availabilityFor(text);
         if (policy === 'queue') {
           queueRef.current.push({ display: text, text });
@@ -2403,10 +2403,11 @@ export function TuiAppRoot({
         printBlock('Theme', [tui('theme: {name}', { name: asked })]);
         return;
       }
-      if (text.startsWith('/')) {
+      if (isSlashCommandInput(text)) {
         // Shared registry first (status/doctor/permissions/mode/context/export/
         // review), then the shell-local control commands, then file commands
         // and skills (arguments kept), then the honest unknown-command path.
+        // A path (`/usr/bin/foo`) or `/` followed by whitespace is not a command.
         if (await runShellCommand(text)) return;
         const resolved = resolveUserCommand(text, {
           builtinNames: reservedBuiltinNames(),
@@ -2422,10 +2423,22 @@ export function TuiAppRoot({
           await dispatchRun(resolved.prompt);
           return;
         }
+        const head = text.split(/\s+/, 1)[0] ?? text;
+        const suggestions = closestSlashCommands(head, [
+          ...reservedBuiltinNames(),
+          ...customCommands.map((command) => command.name),
+          ...(options.skills ?? []).flatMap((skill) => {
+            const token = skillSlashToken(skill);
+            return token ? [token] : [];
+          }),
+        ]);
         appendRow(
           store,
           'error',
-          tui('unknown command "{name}" — try /help', { name: text.split(' ')[0] ?? '' })
+          unknownSlashCommandLines(head, {
+            suggestions,
+            locale: options.locale ?? cliLocale(),
+          }).join('\n')
         );
         handle.notify();
         return;
@@ -2503,7 +2516,10 @@ export function TuiAppRoot({
   const paletteRows: PaletteRow[] = shellPaletteRows(input, [
     // File commands outrank skills on a name collision, matching resolveUserCommand.
     ...customCommands.map((command) => [command.name, command.summary] as const),
-    ...(options.skills ?? []).map((skill) => [`/${skill.name}`, skill.description] as const),
+    ...(options.skills ?? []).flatMap((skill) => {
+      const token = skillSlashToken(skill);
+      return token ? [[token, skill.description] as const] : [];
+    }),
   ]);
   const paletteOpen =
     paletteRows.length > 0 &&
@@ -2631,6 +2647,70 @@ export function TuiAppRoot({
       return next;
     });
   };
+
+  const finishFirstRun = useCallback(
+    (saved: {
+      provider: NonNullable<FirstRunView['provider']>;
+      model: string;
+      baseUrl: string;
+      apiKeyEnv?: string;
+    }) => {
+      const apiKey = setupSecretRef.current;
+      if (!apiKey) return;
+      const bundle = {
+        provider: saved.provider,
+        model: saved.model,
+        baseUrl: saved.baseUrl,
+        apiKey,
+      };
+      try {
+        saveUserModelConfig({
+          provider: bundle.provider,
+          model: bundle.model,
+          baseUrl: bundle.baseUrl,
+          ...(saved.apiKeyEnv ? { apiKeyEnv: saved.apiKeyEnv } : { apiKey }),
+          env: process.env,
+        });
+      } catch (err) {
+        setSetupView((current) =>
+          current ? { ...current, step: 'error', error: errorMessage(err) } : current
+        );
+        return;
+      }
+      options.agent.switchModel({
+        model: bundle.model,
+        provider: bundle.provider,
+        baseUrl: bundle.baseUrl,
+        llmProvider: createCliProvider(bundle),
+        usingBundledDefault: false,
+      });
+      setCurrentModel(bundle.model);
+      options.onFirstRunReady?.(bundle);
+      setupSecretRef.current = '';
+      setSetupView(undefined);
+      appendRow(store, 'system', tui('Next: ask me to look around this folder.'));
+      appendRow(store, 'system', tui(WORKSPACE_WRITE_LIMIT_EN));
+      handle.notify();
+    },
+    [handle, options, store]
+  );
+
+  const runSetupJob = useCallback(
+    (view: FirstRunView, job: NonNullable<FirstRunView['pending']>) => {
+      const generation = ++setupJobRef.current;
+      const locale = activeUiLocale(options.locale);
+      void settleFirstRunJob(view, job, setupSecretRef.current, locale).then((applied) => {
+        if (generation !== setupJobRef.current) return;
+        if (applied.saved) {
+          finishFirstRun(applied.saved);
+          return;
+        }
+        setSetupView(applied.view);
+        handle.notify();
+      });
+    },
+    [finishFirstRun, handle, options.locale]
+  );
 
   useInput((chunk, key) => {
     const osc = /\]11;([^\u0007\u001b]*)/.exec(chunk);
@@ -2806,6 +2886,59 @@ export function TuiAppRoot({
         scrollViewport(current, projectedFullRef.current, key.pageUp ? -height : height, height)
       );
       return;
+    }
+    const setup = setupViewRef.current;
+    if (setup) {
+      const quitChord = key.ctrl && (chunk === 'c' || chunk === 'd');
+      if (!quitChord && englishOfferRef.current) {
+        if (chunk === 'e' || chunk === 'E') {
+          writeUserLanguageSetting('en');
+          setSessionUiLanguage('en');
+          setTuiLocale(false);
+        } else if (chunk || key.return || key.escape || key.upArrow || key.downArrow) {
+          writeUserLanguageSetting('auto');
+        } else {
+          return;
+        }
+        setEnglishOffer(false);
+        return;
+      }
+      if (!quitChord) {
+        if (setup.step === 'working') return;
+        const locale = activeUiLocale(options.locale);
+        const command = key.escape
+          ? ({ type: 'escape' } as const)
+          : key.return
+            ? ({ type: 'enter', draft: input } as const)
+            : key.upArrow
+              ? ({ type: 'up' } as const)
+              : key.downArrow
+                ? ({ type: 'down' } as const)
+                : key.backspace
+                  ? ({ type: 'backspace' } as const)
+                  : chunk && !key.ctrl && !key.meta
+                    ? ({ type: 'char', char: chunk } as const)
+                    : null;
+        if (!command) return;
+        const reduced = reduceFirstRun(setup, command, setupSecretRef.current, locale);
+        if (reduced.consume) {
+          if (reduced.offerId) setupSecretRef.current = lookupOfferSecret(reduced.offerId);
+          if (reduced.secretOp === 'clear') setupSecretRef.current = '';
+          else if (reduced.secretOp === 'backspace') {
+            setupSecretRef.current = setupSecretRef.current.slice(0, -1);
+          } else if (reduced.secretOp === 'append' && command.type === 'char') {
+            setupSecretRef.current += command.char;
+          }
+          setSetupView(reduced.view);
+          if (command.type === 'enter') setInput('');
+          if (reduced.saved) {
+            finishFirstRun(reduced.saved);
+            return;
+          }
+          if (reduced.job) runSetupJob(reduced.view, reduced.job);
+          return;
+        }
+      }
     }
     if (chunk === '?' && input.length === 0 && !shellMode && !approval && !key.ctrl && !key.meta) {
       setHelpOverlay({
@@ -3137,10 +3270,13 @@ export function TuiAppRoot({
         setModelPicker(undefined);
         return;
       }
-      if (key.return) {
+      if (key.return || chunk === 'd' || chunk === 'D') {
         const choice = modelPicker.choices.choices[modelPicker.cursor];
         setModelPicker(undefined);
-        if (choice) void runModelCommand(choice.model);
+        if (choice)
+          void runModelCommand(
+            chunk === 'd' || chunk === 'D' ? `save ${choice.model}` : choice.model
+          );
         return;
       }
       return;
@@ -3173,7 +3309,7 @@ export function TuiAppRoot({
         const exact =
           isExactSlashCommand(typed) ||
           customCommands.some((command) => command.name === head) ||
-          (options.skills ?? []).some((skill) => `/${skill.name}`.toLowerCase() === head);
+          (options.skills ?? []).some((skill) => skillSlashToken(skill)?.toLowerCase() === head);
         if (exact) {
           void submit(typed);
           return;
@@ -3543,7 +3679,7 @@ export function TuiAppRoot({
     blocked: Boolean(approval),
     thinkingActive: store.run.thinkingText.trim() !== '' && !store.run.streamingText.trim(),
   };
-  const actualModel = store.usage.lastModel || currentModel;
+  const actualModel = currentModel || store.usage.sessionModel || store.usage.lastModel;
   const home = process.env.HOME ?? '';
   const cwdLabel =
     home && options.workspaceDir.startsWith(home)
@@ -3570,9 +3706,10 @@ export function TuiAppRoot({
     .find(
       (task) => task.state === 'EXECUTING' || task.state === 'PLANNING' || task.state === 'BLOCKED'
     );
-  // A 12-row inline terminal has no spare line. An idle model/cwd row scrolls
-  // the pre-Ink fallback notice off the screen; show the fields once there is
-  // a run, tokens, a cost, a hot context, or a status command.
+  // Kept from #24. A 12-row inline terminal has no spare line. An idle
+  // model/cwd row scrolls the pre-Ink fallback notice off the screen; show
+  // the fields once there is a run, tokens, a cost, a hot context, or a
+  // status command.
   const contextHot =
     store.usage.contextTotal > 0 &&
     store.usage.contextUsed / store.usage.contextTotal >= CONTEXT_WARN_PCT / 100;
@@ -3642,8 +3779,9 @@ export function TuiAppRoot({
   const editor = renderComposerEditor(composer, {
     width: columns,
     maxRows: COMPOSER_MAX_ROWS,
-    placeholder:
-      input.length === 0
+    placeholder: setupView
+      ? undefined
+      : input.length === 0
         ? queueRef.current.length > 0
           ? tui('Press up to edit queued messages')
           : running
@@ -3689,7 +3827,10 @@ export function TuiAppRoot({
         line(rule(columns)),
         line(
           clip(
-            `  Select model · ${modelPicker.choices.choices.length} available · ↑↓ move · Enter choose · Esc close`,
+            tui(
+              '  Select model · {count} available · ↑↓ move · Enter this session · d save as default · Esc close',
+              { count: modelPicker.choices.choices.length }
+            ),
             columns
           ),
           { dim: true }
@@ -3707,7 +3848,7 @@ export function TuiAppRoot({
             );
           }),
         ...(modelPicker.choices.choices.length > 8
-          ? [line(clip('  … type /model <name> for any other model', columns), { dim: true })]
+          ? [line(clip(tui('  … type /model <name> for any other model'), columns), { dim: true })]
           : []),
       ]
     : [];
@@ -3770,11 +3911,7 @@ export function TuiAppRoot({
   const blockedLine = blockedTask
     ? line(
         clip(
-          tui('◇ task {id} blocked — {reason} · /task resume {task}', {
-            id: blockedTask.taskId.slice(-6),
-            reason: blockedTask.blockedReason ?? tui('user decision required'),
-            task: blockedTask.taskId,
-          }),
+          formatBlockedTaskLine(blockedTask.blockedReason ?? tui('user decision required')),
           columns
         ),
         { color: TONE.warn }
@@ -3817,6 +3954,23 @@ export function TuiAppRoot({
     ...(!approval && !helpOverlay ? sessionPickerOverlay : []),
     ...(!approval && !helpOverlay ? historySearchOverlay : []),
     ...(!approval && !helpOverlay ? mentions : []),
+    ...(!helpOverlay && setupView
+      ? [
+          line(rule(columns)),
+          ...(englishOffer ? [ENGLISH_UI_OFFER] : [])
+            .concat(renderFirstRunLines(setupView, activeUiLocale(options.locale)))
+            .flatMap((text) =>
+              wrap(text, Math.max(8, columns - 2)).map((chunk) =>
+                line(
+                  clip(`  ${chunk}`, columns),
+                  (setupView.error ?? '').split('\n').some((part) => part.trim() === text)
+                    ? { color: TONE.err }
+                    : { dim: true }
+                )
+              )
+            ),
+        ]
+      : []),
     ...(!helpOverlay ? modelPickerLines : []),
     ...helpOverlayLines,
     ...(permissionsOpen
@@ -4192,7 +4346,7 @@ function stdouts(stdout: { columns?: number } | undefined): number {
 /** Boot the TUI; resolves when the user quits. TTY-only entry point. */
 export async function runTuiApp(options: TuiAppOptions): Promise<void> {
   installTerminalRestore();
-  setTuiLocale(isZhLocale(options.locale ?? cliLocale()));
+  setTuiLocale(isZhLocale(activeUiLocale(options.locale)));
   setTuiTheme(detectTheme(process.env));
   const choice = selectTuiRenderer({
     env: process.env,
@@ -4208,8 +4362,11 @@ export async function runTuiApp(options: TuiAppOptions): Promise<void> {
   if (!options.renderer && choice.mode === 'inline' && /narrower|shorter/.test(choice.reason)) {
     // One line, before Ink takes the screen: the fallback is a fact the user can
     // act on (widen the window), not a silent downgrade.
+    const reason = /shorter/.test(choice.reason)
+      ? tui('terminal is shorter than 10 rows')
+      : tui('terminal is narrower than {min} columns', { min: 40 });
     process.stderr.write(
-      `[moss] ${choice.reason} — using the inline view. Resize the window to use fullscreen.\n`
+      `[moss] ${tui('{reason} — using the inline view. Resize the window to use fullscreen.', { reason })}\n`
     );
   }
   const handle = createStoreHandle();

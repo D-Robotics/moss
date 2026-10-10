@@ -799,7 +799,7 @@ export function renderCliApprovalPrompt(
   lines.push('');
   lines.push(`Scope: ${approvalScopeSummary(preview, input)}`);
   if (always) {
-    lines.push('([a]lways trusts sandboxed workspace file edits — this Moss session only)');
+    lines.push('([a]lways trusts workspace file-tool edits — this Moss session only)');
     lines.push('Allow once, [a]lways, or [N]o? ');
   } else {
     lines.push('Allow once or deny (device mutations always re-prompt). [y/N] ');

@@ -1,15 +1,13 @@
 /**
- * Claude Code project config, opt-in.
+ * Claude Code project config.
  *
  * Tool-name mapping lets a Claude hook matcher such as `Bash` select Moss
- * tools. Reading `.claude/settings.json` and `.mcp.json` stays off until the
- * user accepts once per workspace (remembered under the user config dir).
+ * tools. Loading `.claude/` and `.mcp.json` follows folder trust; this module
+ * only reads the files.
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import readline from 'node:readline';
 import type { McpServerConfig } from '../core/mcp/types.js';
-import { isZhLocale } from './cli-locale.js';
 import { HOOK_EVENT_KEYS, type HookCommandConfig, type HooksConfig } from './config.js';
 import { describeMcpFile, type McpFileBrief } from './mcp-config.js';
 
@@ -208,75 +206,4 @@ export function readClaudeMcpConfigs(
   onWarning?: (message: string) => void
 ): McpServerConfig[] {
   return describeMcpFile(claudeMcpPath(workspaceDir), env, onWarning).map((brief) => brief.config);
-}
-
-const OPT_IN_FILE = 'claude-compat.json';
-
-function workspaceKey(workspaceDir: string): string {
-  try {
-    return fs.realpathSync.native(workspaceDir);
-  } catch {
-    return path.resolve(workspaceDir);
-  }
-}
-
-function readOptInStore(configDir: string): Record<string, boolean> {
-  try {
-    const raw: unknown = JSON.parse(fs.readFileSync(path.join(configDir, OPT_IN_FILE), 'utf8'));
-    const record = asRecord(raw);
-    if (!record) return {};
-    const out: Record<string, boolean> = {};
-    for (const [key, value] of Object.entries(record)) {
-      if (typeof value === 'boolean') out[key] = value;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-function writeOptInStore(configDir: string, store: Record<string, boolean>): void {
-  fs.mkdirSync(configDir, { recursive: true });
-  fs.writeFileSync(path.join(configDir, OPT_IN_FILE), `${JSON.stringify(store, null, 2)}\n`);
-}
-
-function isYes(answer: string): boolean {
-  return /^(y|yes|是)$/i.test(answer.trim());
-}
-
-export function claudeOptInQuestion(zh: boolean): string {
-  return zh
-    ? '此项目包含 Claude 配置（.claude/ 或 .mcp.json）。加载其中的 hooks、MCP 和 agents？[y/N] '
-    : 'This project has Claude config (.claude/ or .mcp.json). Load its hooks, MCP servers, and agents? [y/N] ';
-}
-
-function askYesNo(question: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-    const finish = (answer: string) => {
-      rl.close();
-      resolve(isYes(answer));
-    };
-    rl.once('SIGINT', () => finish(''));
-    rl.question(question, finish);
-  });
-}
-
-export async function resolveClaudeCompatOptIn(input: {
-  workspaceDir: string;
-  configDir: string;
-  interactive: boolean;
-  ask?: (question: string) => Promise<boolean>;
-  zh?: boolean;
-}): Promise<boolean> {
-  if (!claudeProjectConfigExists(input.workspaceDir)) return false;
-  const key = workspaceKey(input.workspaceDir);
-  const store = readOptInStore(input.configDir);
-  if (typeof store[key] === 'boolean') return store[key];
-  if (!input.interactive) return false;
-  const zh = input.zh ?? isZhLocale();
-  const yes = await (input.ask ?? askYesNo)(claudeOptInQuestion(zh));
-  store[key] = yes;
-  writeOptInStore(input.configDir, store);
-  return yes;
 }

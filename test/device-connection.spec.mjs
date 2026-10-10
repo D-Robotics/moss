@@ -90,8 +90,21 @@ test('SSH transport: auth failure surfaces a connective MossError, retry recover
   t.after(() => device.close());
 
   process.env[PASSWORD_ENV] = 'wrong-password';
+  const savedLocale = process.env.LC_ALL;
+  process.env.LC_ALL = 'en_US.UTF-8';
+  t.after(() => {
+    if (savedLocale === undefined) delete process.env.LC_ALL;
+    else process.env.LC_ALL = savedLocale;
+  });
   const conn = new SshDeviceConnection(makeTarget(device.port));
-  await assert.rejects(conn.connect(), /Cannot connect/);
+  await assert.rejects(conn.connect(), (err) => {
+    assert.match(err.message, /Authentication failed/);
+    assert.match(err.hint, /moss device add/);
+    assert.doesNotMatch(`${err.message}\n${err.hint}`, /within \d+s/);
+    assert.doesNotMatch(`${err.message}\n${err.hint}`, /无法/);
+    assert.doesNotMatch(err.hint, /Paste (?:your|the) (?:board )?(?:password|key)/);
+    return true;
+  });
   assert.equal(conn.status, 'error');
 
   process.env[PASSWORD_ENV] = 'swordfish';
@@ -101,13 +114,24 @@ test('SSH transport: auth failure surfaces a connective MossError, retry recover
   await conn.disconnect();
 });
 
-test('SSH transport: missing credentials rejected before connecting', async () => {
+test('SSH transport: missing credentials rejected before connecting', async (t) => {
   delete process.env[PASSWORD_ENV];
+  const savedLocale = process.env.LC_ALL;
+  process.env.LC_ALL = 'en_US.UTF-8';
+  t.after(() => {
+    if (savedLocale === undefined) delete process.env.LC_ALL;
+    else process.env.LC_ALL = savedLocale;
+  });
   const conn = new SshDeviceConnection({
     ...makeTarget(1),
     auth: { method: 'password', passwordEnvVar: PASSWORD_ENV },
   });
-  await assert.rejects(conn.connect(), /No credentials/);
+  await assert.rejects(conn.connect(), (err) => {
+    assert.match(err.message, /No credentials/);
+    assert.match(err.hint, /MOSS_DEVICE_PASSWORD/);
+    assert.doesNotMatch(err.hint, /Paste (?:your|the) (?:board )?(?:password|key)/);
+    return true;
+  });
 });
 
 test('device registry: single connection per endpoint, shared across callers', async (t) => {
@@ -149,10 +173,14 @@ function stallingPort() {
 
 test('unreachable board fails in one short timeout and names host:port', async (t) => {
   process.env[PASSWORD_ENV] = 'swordfish';
+  const savedLocale = process.env.LC_ALL;
+  process.env.LC_ALL = 'en_US.UTF-8';
   const stalled = await stallingPort();
   t.after(async () => {
     stalled.server.close();
     await disconnectAllDevices();
+    if (savedLocale === undefined) delete process.env.LC_ALL;
+    else process.env.LC_ALL = savedLocale;
   });
   const target = makeTarget(stalled.port);
   const started = Date.now();
@@ -168,15 +196,38 @@ test('unreachable board fails in one short timeout and names host:port', async (
     assert.equal(result.status, 'rejected');
     if (result.status !== 'rejected') continue;
     const err = result.reason;
-    assert.match(err.message, new RegExp(`Cannot reach 127\\.0\\.0\\.1:${stalled.port}`));
-    assert.match(err.message, /无法在/);
-    assert.match(err.hint, /已开机/);
+    assert.match(err.message, new RegExp(`No route to 127\\.0\\.0\\.1:${stalled.port}`));
+    assert.match(err.message, /within \d+s/);
+    assert.doesNotMatch(err.message, /无法|Connection refused/);
+    assert.doesNotMatch(err.hint, /[\u4e00-\u9fff]/);
   }
   const cached = Date.now();
-  await assert.rejects(
-    () => getDeviceConnection(target, { connectTimeoutMs: 300 }),
-    /Cannot reach/
-  );
+  await assert.rejects(() => getDeviceConnection(target, { connectTimeoutMs: 300 }), /No route to/);
   assert.ok(Date.now() - cached < 50, 'a cached failure does not open another socket');
   assert.equal(stalled.accepted(), 1);
+});
+
+test('a refused port is not described as a timeout', async (t) => {
+  process.env[PASSWORD_ENV] = 'swordfish';
+  const savedLocale = process.env.LC_ALL;
+  process.env.LC_ALL = 'en_US.UTF-8';
+  const server = net.createServer();
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  await new Promise((resolve) => server.close(resolve));
+  t.after(async () => {
+    await disconnectAllDevices();
+    if (savedLocale === undefined) delete process.env.LC_ALL;
+    else process.env.LC_ALL = savedLocale;
+  });
+  const started = Date.now();
+  await assert.rejects(getDeviceConnection(makeTarget(port), { connectTimeoutMs: 3000 }), (err) => {
+    assert.match(err.message, new RegExp(`Connection refused by 127\\.0\\.0\\.1:${port}`));
+    assert.doesNotMatch(err.message, /within|无法|No route/);
+    assert.match(err.hint, /moss device add/);
+    assert.doesNotMatch(`${err.message}\n${err.hint}`, /[\u4e00-\u9fff]/);
+    return true;
+  });
+  assert.ok(Date.now() - started < 5000, 'a refused port fails without waiting out the timeout');
 });

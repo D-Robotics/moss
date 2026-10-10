@@ -25,6 +25,7 @@ import { listDeploymentRecords } from '../device/deployment.js';
 import { resolveDefaultDeviceTarget } from '../device/device-target.js';
 import type { TaskStateSnapshot } from '../contracts/task-runtime.js';
 import { cliLocale, isZhLocale } from './cli-locale.js';
+import { formatTaskProgressLine } from './task-card.js';
 import { createSessionUsageAccumulator } from './session-usage.js';
 import type { MossAgentEvent } from '../core/agent/moss-agent-types.js';
 import { verifyTaskOnce } from './commands/task-verify.js';
@@ -64,12 +65,12 @@ export function interactiveTaskUsageLines(): readonly string[] {
   ];
 }
 
-function usage(zh: boolean = isZhLocale()): string {
+export function renderTaskCliUsage(zh: boolean = isZhLocale()): string {
   if (zh) {
     return [
       '用法：moss task <command> [options]',
       '',
-      '  run <goal...>        端到端跑一个任务（plan → execute → verify → repair → accept）',
+      '  run <goal...>        端到端跑一个任务（计划 → 执行 → 验证 → 修复 → 验收）',
       '      --accept "<cmd>"  验收权威：命令必须以退出码 0 结束',
       '      --max-repairs N  诚实 FAIL 前的修复尝试次数（默认 2）',
       '      --max-turns N    agent 轮次预算（默认 8）',
@@ -77,14 +78,25 @@ function usage(zh: boolean = isZhLocale()): string {
       '  resume <task_id>     恢复一个失败/中断/阻塞的任务',
       '  status [task_id]     当前阶段、计划、失败、裁决（默认：最新）',
       '  timeline [task_id]   完整生命周期时间线（默认：最新）',
-      '  view [kind]          只读工件：tasks | history | evidence | deployments | failures',
+      '  view [kind]          只读工件：`tasks` | `history` | `evidence` | `deployments` | `failures`',
       '  verify [task_id]     用裁决器复验一次（不发起模型回合）',
       '',
       '只有任务被验收（PASS）时退出码才是 0。',
+      '',
+      '选项：',
+      '  --accept "<cmd>"   验收命令（退出码必须是 0）',
+      '  --max-repairs N    诚实 FAIL 前的修复次数（默认 2）',
+      '  --max-turns N      agent 轮次预算（默认 8）',
+      '  --device ID        目标设备 id',
+      '',
+      '示例：',
+      '  moss task run "创建 hello.txt" --accept "grep -q hello hello.txt"',
+      '  moss task status',
     ].join('\n');
   }
   return [
-    'Usage: moss task <command> [options]',
+    'Usage:',
+    '  moss task <command> [options]',
     '',
     '  run <goal...>        run a task end to end (plan → execute → verify → repair → accept)',
     '      --accept "<cmd>"  acceptance authority: command must exit 0',
@@ -98,6 +110,16 @@ function usage(zh: boolean = isZhLocale()): string {
     '  verify [task_id]     re-run the verdict once (no model turn)',
     '',
     'Exit code is 0 only when the task is accepted (PASS).',
+    '',
+    'Options:',
+    '  --accept "<cmd>"   acceptance command (must exit 0)',
+    '  --max-repairs N    repair attempts before FAIL (default 2)',
+    '  --max-turns N      agent turn budget (default 8)',
+    '  --device ID        target device id',
+    '',
+    'Examples:',
+    '  moss task run "create hello.txt" --accept "grep -q hello hello.txt"',
+    '  moss task status',
   ].join('\n');
 }
 
@@ -444,7 +466,7 @@ export async function runTaskCommand(
         'stderr',
         'moss task run: ' +
           (zh ? '需要一个目标（goal）。\n\n' : 'a goal is required.\n\n') +
-          usage(zh) +
+          renderTaskCliUsage(zh) +
           '\n'
       );
       return 2;
@@ -466,7 +488,7 @@ export async function runTaskCommand(
           : {}),
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         onProgress: (progress) => {
-          output('stderr', `[task ${progress.phase}] ${progress.detail}\n`);
+          output('stderr', `${formatTaskProgressLine(progress.phase)}\n`);
         },
       },
       goal,
@@ -502,7 +524,7 @@ export async function runTaskCommand(
         runTurn,
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         onProgress: (progress) => {
-          output('stderr', `[task ${progress.phase}] ${progress.detail}\n`);
+          output('stderr', `${formatTaskProgressLine(progress.phase)}\n`);
         },
       },
       taskId
@@ -625,7 +647,7 @@ export async function runTaskCommand(
   output(
     'stderr',
     (zh ? `未知 task 子命令 "${sub}"。\n\n` : `Unknown task subcommand "${sub}".\n\n`) +
-      usage(zh) +
+      renderTaskCliUsage(zh) +
       '\n'
   );
   return 2;

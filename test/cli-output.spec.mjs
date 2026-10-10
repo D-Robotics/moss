@@ -5,7 +5,12 @@
  */
 import assert from 'node:assert/strict';
 
-import { resolveCliDetailMode, summarizeForCli, createCliRunRenderer } from '../dist/cli/output.js';
+import {
+  resolveCliDetailMode,
+  summarizeForCli,
+  createCliRunRenderer,
+  formatCliErrorLines,
+} from '../dist/cli/output.js';
 
 // ─── resolveCliDetailMode — detail verbosity selection ───────────────────────
 
@@ -396,6 +401,42 @@ console.log('[PASS] CLI oneshot turn_start noise suppression');
   const out = stderrChunks.join('');
   assert.match(out, /exec_background/, 'prints exec_background tool name');
   assert.match(out, /startup complete/, 'non-verbose success line includes background output tail');
+}
+
+{
+  const line = `${'A'.repeat(94)} Key Hash (Token) = value`;
+  const plain = formatCliErrorLines(line, { tty: false, columns: 100 });
+  assert.deepEqual(plain, [line]);
+  const wrapped = formatCliErrorLines(line, { tty: true, columns: 100 });
+  assert.ok(wrapped.length > 1, 'a TTY wraps a line past the width');
+  assert.ok(
+    wrapped.every((part) => !part.endsWith('Has') && !part.startsWith('h ')),
+    'word wrap does not split Hash'
+  );
+  assert.equal(wrapped.join(' ').includes('Key Hash'), true);
+}
+
+{
+  const long = `${'word '.repeat(30)}Key Hash (Token)`;
+  const stderrChunks = [];
+  const renderer = createCliRunRenderer({
+    detailMode: 'progress',
+    interactive: false,
+    workspaceDir: process.cwd(),
+    stdout: { write: () => {}, isTTY: false },
+    stderr: {
+      write: (value) => {
+        stderrChunks.push(String(value));
+      },
+      isTTY: false,
+    },
+  });
+  renderer.handle({ type: 'error', error: long, retriable: false });
+  const out = stderrChunks.join('');
+  const hashLine = out.split('\n').find((row) => row.includes('Key Hash'));
+  assert.ok(hashLine, out);
+  assert.match(hashLine, /Key Hash \(Token\)/);
+  assert.doesNotMatch(out, /Key Has\n/);
 }
 
 console.log('[PASS] CLI run_tests verification tracking');

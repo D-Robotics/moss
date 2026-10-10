@@ -558,6 +558,7 @@ export function runAgentLoop(
               toolCalls: llmResult.toolCalls,
               turnTextParts: llmResult.turnTextParts,
               streamStopReason: llmResult.streamStopReason,
+              ...(llmResult.responseModel ? { responseModel: llmResult.responseModel } : {}),
               maxTurns,
               maxOutputContinuations: effectiveCaps.maxOutputContinuations,
               abortSignal,

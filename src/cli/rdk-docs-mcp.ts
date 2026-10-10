@@ -57,7 +57,7 @@ export function resolveRdkDocsPackage(value: unknown, env: NodeJS.ProcessEnv): s
     throwMoss({
       code: ErrorCode.USER_INPUT_INVALID,
       message: 'Invalid rdk-docs package spec.',
-      hint: 'Use an npm spec (for example rdk-docs-mcp@0.2.0) or a local directory/tarball path.',
+      hint: 'Use an npm spec (for example rdk-docs-mcp@0.3.0) or a local directory/tarball path.',
     });
   }
   return candidate;
@@ -129,22 +129,13 @@ export function formatMcpStatusLine(
   return `○ ${status.name} — ${status.state}${extra ? `: ${extra}` : ''}`;
 }
 
+/** Same wording as `formatMcpStatusLine`. Quiet mode skips a connected server. */
 export function formatMcpStartupLine(
   status: { name: string; state: string; toolCount?: number; error?: string },
   detail: string
 ): string | undefined {
-  if (status.state === 'failed' && status.name === RDK_DOCS_SERVER_NAME) {
-    const reason = status.error?.trim() || 'connection failed';
-    return `[mcp] rdk-docs unreachable (${reason}) — RDK manual lookup is off this session.`;
-  }
-  if (status.state === 'failed') {
-    return `[mcp] server "${status.name}" unavailable: ${status.error} — its tools are disabled for this session.`;
-  }
-  if (status.state === 'connected' && detail !== 'quiet') {
-    const wire = status.name.replace(/[^a-zA-Z0-9_-]/g, '_');
-    return `[mcp] server "${status.name}" connected (${status.toolCount ?? 0} tools, lazy-loaded — search with mcp__${wire}__search)`;
-  }
-  return undefined;
+  if (status.state === 'connected' && detail === 'quiet') return undefined;
+  return formatMcpStatusLine(status);
 }
 
 export function rdkDocsInactiveNotice(zh: boolean): string {

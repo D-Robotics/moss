@@ -3,6 +3,7 @@ import path from 'node:path';
 import { isRgAvailable } from '../tools/search-tools.js';
 import {
   auditResolvedCliConfig,
+  envBeforeDotenv,
   hasTrustedToolWildcard,
   CONSERVATIVE_DEFAULT_UNPROBED,
 } from './config.js';
@@ -10,10 +11,19 @@ import type { ResolvedCliConfig } from './config.js';
 import { humanTokens } from './tui-utils.js';
 import { MIN_NODE_MAJOR, MIN_NODE_MINOR, nodeVersionProblem } from './node-version-check.js';
 import { errorMessage } from '../errors.js';
+import { uiText } from '../utils/ui-language.js';
 import {
   getRecentFailoverEvents,
   parseFallbackProvidersEnv,
 } from '../provider/multi-provider-router.js';
+import { setupCopy } from './cli-locale.js';
+import { detectEnvCredentials } from './env-credentials.js';
+import { rdkDocsPinNote } from './rdk-docs-pin-check.js';
+import type { RdkDocsPinNote } from './rdk-docs-pin-check.js';
+
+function doctorL(en: string, vars?: Record<string, string | number>): string {
+  return setupCopy(undefined, en, vars);
+}
 
 interface DoctorOptions {
   config: ResolvedCliConfig;
@@ -29,7 +39,9 @@ async function checkSessionIntegrity(sessionsDir: string): Promise<string[]> {
     const files = await fs.promises.readdir(sessionsDir);
     const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
     if (jsonlFiles.length === 0) {
-      lines.push(ok('sessions', 'no saved sessions yet'));
+      lines.push(
+        ok(uiText('sessions', '会话'), uiText('no saved sessions yet', '还没有已保存的会话'))
+      );
       return lines;
     }
 
@@ -59,46 +71,100 @@ async function checkSessionIntegrity(sessionsDir: string): Promise<string[]> {
     }
 
     if (corruptFiles === 0) {
-      lines.push(ok('sessions', `${totalFiles} file(s), all healthy`));
+      lines.push(
+        ok(
+          uiText('sessions', '会话'),
+          uiText(`${totalFiles} file(s), all healthy`, `${totalFiles} 个文件，全部正常`)
+        )
+      );
     } else {
       lines.push(
         warn(
-          'sessions',
-          `${corruptFiles}/${totalFiles} file(s) have ${totalCorrupt} corrupt line(s). ` +
-            `Run \`moss doctor\` again with \`--verbose\` for per-file details, ` +
-            `or start fresh sessions with \`moss\` if corruption is severe.`
+          uiText('sessions', '会话'),
+          uiText(
+            `${corruptFiles}/${totalFiles} file(s) have ${totalCorrupt} corrupt line(s). ` +
+              `Run \`moss doctor\` again with \`--verbose\` for per-file details, ` +
+              `or start fresh sessions with \`moss\` if corruption is severe.`,
+            `${corruptFiles}/${totalFiles} 个文件里有 ${totalCorrupt} 行损坏。再次运行 \`moss doctor --verbose\` 查看每个文件；损坏严重时用 \`moss\` 开新会话。`
+          )
         )
       );
     }
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      lines.push(ok('sessions', 'no sessions directory yet'));
+      lines.push(
+        ok(uiText('sessions', '会话'), uiText('no sessions directory yet', '还没有会话目录'))
+      );
     } else {
-      lines.push(warn('sessions', `could not scan: ${errorMessage(err)}`));
+      lines.push(
+        warn(
+          uiText('sessions', '会话'),
+          uiText(`could not scan: ${errorMessage(err)}`, `无法扫描：${errorMessage(err)}`)
+        )
+      );
     }
   }
   return lines;
 }
 
+function doctorSep(): string {
+  return uiText(':', '：');
+}
+
 export function ok(label: string, detail: string): string {
-  return `  ok    ${label}: ${detail}`;
+  return `  ok    ${label}${doctorSep()} ${detail}`;
 }
 
 export function warn(label: string, detail: string): string {
-  return `  warn  ${label}: ${detail}`;
+  return `  warn  ${label}${doctorSep()} ${detail}`;
 }
 
 export function fail(label: string, detail: string): string {
-  return `  fail  ${label}: ${detail}`;
+  return `  fail  ${label}${doctorSep()} ${detail}`;
 }
 
 export function cliDoctorHasFailure(report: string): boolean {
   return report.split('\n').some((line) => line.startsWith('  fail '));
 }
 
+/** Informational. A newer npm release is a warning, never a `fail` line. */
+export function renderRdkDocsPinDoctorLine(note: RdkDocsPinNote): string {
+  if (note.kind === 'latest-newer') {
+    return warn(
+      'rdk-docs',
+      uiText(
+        `pinned ${note.pinned}; npm latest is ${note.latest}`,
+        `钉在 ${note.pinned}；npm latest 是 ${note.latest}`
+      )
+    );
+  }
+  if (note.kind === 'unchecked') {
+    return warn(
+      'rdk-docs',
+      uiText(
+        `pinned ${note.pinned}; npm latest was not checked (${note.reason})`,
+        `钉在 ${note.pinned}；没有核对 npm latest（${note.reason}）`
+      )
+    );
+  }
+  return ok(
+    'rdk-docs',
+    uiText(
+      `pinned ${note.pinned}; npm latest is ${note.latest}`,
+      `钉在 ${note.pinned}；npm latest 是 ${note.latest}`
+    )
+  );
+}
+
 export function renderNodeDoctorLine(version: string = process.version): string {
   return nodeVersionProblem(version)
-    ? fail('node', `${version}; requires >=${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0`)
+    ? fail(
+        'node',
+        uiText(
+          `${version}; requires >=${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0`,
+          `${version}；需要 >=${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0`
+        )
+      )
     : ok('node', version);
 }
 
@@ -110,10 +176,19 @@ export function renderNodeDoctorLine(version: string = process.version): string 
  */
 export function renderSearchDoctor(rgAvailable: boolean): string {
   return rgAvailable
-    ? ok('search', 'ripgrep (rg) available — fast, .gitignore-aware')
+    ? ok(
+        'search',
+        uiText(
+          'ripgrep (rg) available — fast, .gitignore-aware',
+          'ripgrep（rg）可用 — 更快，并识别 .gitignore'
+        )
+      )
     : warn(
         'search',
-        'ripgrep (rg) not found on PATH — search_code uses a slower in-process walk; install rg for fast, .gitignore-aware search'
+        uiText(
+          'ripgrep (rg) not found on PATH — search_code uses a slower in-process walk; install rg for fast, .gitignore-aware search',
+          'PATH 上没有 ripgrep（rg）— search_code 会走较慢的进程内扫描；安装 rg 可获得更快、识别 .gitignore 的搜索'
+        )
       );
 }
 
@@ -136,13 +211,18 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
   // v0.26 permissions view).
   const permissionsView = config.permissions;
   const modeLine = permissionsView
-    ? `default ${permissionsView.defaultMode} (${permissionsView.source})${
-        permissionsView.readOnlyCeiling ? ' + read-only ceiling' : ''
-      }`
-    : 'default full (default)';
+    ? uiText(
+        `default ${permissionsView.defaultMode} (${permissionsView.source})${
+          permissionsView.readOnlyCeiling ? ' + read-only ceiling' : ''
+        }`,
+        `默认 ${permissionsView.defaultMode}（${permissionsView.source}）${
+          permissionsView.readOnlyCeiling ? ' + 只读上限' : ''
+        }`
+      )
+    : uiText('default full (default)', '默认 full（默认）');
   const lines: string[] = [
-    ok('approval', `${config.approvalPolicy} (${config.approvalPolicySource})`),
-    ok('mode', modeLine),
+    ok(uiText('approval', '审批'), `${config.approvalPolicy} (${config.approvalPolicySource})`),
+    ok(uiText('mode', '模式'), modeLine),
   ];
 
   const auditWarnings = auditResolvedCliConfig(config);
@@ -150,8 +230,8 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
     const label = auditWarning.code.startsWith('trustedTools.')
       ? 'trustedTools'
       : auditWarning.code === 'approval.full_default_no_deny'
-        ? 'full mode'
-        : 'approval policy';
+        ? uiText('full mode', 'full 模式')
+        : uiText('approval policy', '审批策略');
     lines.push(warn(label, auditWarning.message));
   }
 
@@ -161,8 +241,11 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
   if (legacyKeys.length > 0) {
     lines.push(
       warn(
-        'deprecated keys',
-        `${legacyKeys.join(', ')} migrated on read — prefer the permissions.* keys (defaultMode/allow/ask/deny)`
+        uiText('deprecated keys', '已弃用的键'),
+        uiText(
+          `${legacyKeys.join(', ')} migrated on read — prefer the permissions.* keys (defaultMode/allow/ask/deny)`,
+          `${legacyKeys.join(', ')} 已在读取时迁移 — 请改用 permissions.*（defaultMode/allow/ask/deny）`
+        )
       )
     );
   }
@@ -174,14 +257,20 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
     lines.push(
       ok(
         'trustedTools',
-        `${config.trustedTools.length} configured (${config.trustedToolsSource}); wildcard patterns are narrow`
+        uiText(
+          `${config.trustedTools.length} configured (${config.trustedToolsSource}); wildcard patterns are narrow`,
+          `已配置 ${config.trustedTools.length} 项（${config.trustedToolsSource}）；通配较窄`
+        )
       )
     );
   } else {
     lines.push(
       ok(
         'trustedTools',
-        `${config.trustedTools.length ? config.trustedTools.join(', ') : 'none'} (${config.trustedToolsSource})`
+        uiText(
+          `${config.trustedTools.length ? config.trustedTools.join(', ') : 'none'} (${config.trustedToolsSource})`,
+          `${config.trustedTools.length ? config.trustedTools.join(', ') : '无'}（${config.trustedToolsSource}）`
+        )
       )
     );
   }
@@ -191,7 +280,13 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
 
 function renderBaseUrlDoctor(config: ResolvedCliConfig): string {
   if (config.usingBundledDefault) {
-    return ok('baseUrl', 'built-in default (hidden)');
+    return ok('baseUrl', uiText('built-in default (hidden)', '内置默认（不显示）'));
+  }
+  if (!config.baseUrl) {
+    return fail(
+      'baseUrl',
+      doctorL('missing. Fix: run `moss setup`, or `moss config set baseUrl https://host`.')
+    );
   }
   return ok('baseUrl', `${config.baseUrl} (${config.baseUrlSource})`);
 }
@@ -228,27 +323,44 @@ async function renderSearchBackendDoctor(): Promise<string[]> {
     .map(([name]) => name);
   const lines: string[] = [
     keyed.length > 0
-      ? ok('search keys', `${keyed.join(', ')} configured`)
+      ? ok(
+          uiText('search keys', '搜索密钥'),
+          uiText(`${keyed.join(', ')} configured`, `已配置 ${keyed.join(', ')}`)
+        )
       : warn(
-          'search keys',
-          'none — web_search relies on the keyless chain (BOCHA/BRAVE/EXA_API_KEY recommended for reliability)'
+          uiText('search keys', '搜索密钥'),
+          uiText(
+            'none — web_search relies on the keyless chain (BOCHA/BRAVE/EXA_API_KEY recommended for reliability)',
+            '无 — web_search 依赖免密钥链路（建议配置 BOCHA/BRAVE/EXA_API_KEY，更稳）'
+          )
         ),
   ];
   const reachability = await probeKeylessSearchReachability();
   if (reachability === 'ok') {
-    lines.push(ok('search egress', 'keyless chain entry (bing) reachable'));
+    lines.push(
+      ok(
+        uiText('search egress', '搜索出口'),
+        uiText('keyless chain entry (bing) reachable', '免密钥入口（bing）可达')
+      )
+    );
   } else if (reachability === 'http-error') {
     lines.push(
       warn(
-        'search egress',
-        'bing answered with an HTTP error — keyless search may be degraded; configure a search API key'
+        uiText('search egress', '搜索出口'),
+        uiText(
+          'bing answered with an HTTP error — keyless search may be degraded; configure a search API key',
+          'bing 返回了 HTTP 错误 — 免密钥搜索可能变差；请配置搜索 API key'
+        )
       )
     );
   } else {
     lines.push(
       warn(
-        'search egress',
-        'keyless chain entry (bing) unreachable from this network — searches will depend on the remaining backends; configure a search API key for reliability'
+        uiText('search egress', '搜索出口'),
+        uiText(
+          'keyless chain entry (bing) unreachable from this network — searches will depend on the remaining backends; configure a search API key for reliability',
+          '当前网络到不了免密钥入口（bing）— 搜索会依赖其余后端；请配置搜索 API key'
+        )
       )
     );
   }
@@ -263,16 +375,22 @@ function renderFailoverDoctor(): string[] {
   if (events.length === 0) {
     return [
       ok(
-        'fallback',
+        uiText('fallback', '回退'),
         configured
-          ? 'chain configured, no failovers recorded yet'
-          : 'not configured (optional; set MOSS_FALLBACK_PROVIDERS for multi-provider failover)'
+          ? uiText('chain configured, no failovers recorded yet', '链路已配置，还没有回退记录')
+          : uiText('not configured', '未配置')
       ),
     ];
   }
   const recent = events.slice(-5);
   const lines = [
-    warn('fallback', `${events.length} failover event(s) recorded (last ${recent.length}):`),
+    warn(
+      uiText('fallback', '回退'),
+      uiText(
+        `${events.length} failover event(s) recorded (last ${recent.length}):`,
+        `已记录 ${events.length} 次回退（最近 ${recent.length} 次）：`
+      )
+    ),
   ];
   for (const event of recent) {
     const time = new Date(event.ts).toLocaleTimeString();
@@ -284,38 +402,110 @@ function renderFailoverDoctor(): string[] {
   return lines;
 }
 
+/** Exact next step for a missing or unused key. The value is never included. */
+export function renderAuthDoctorLine(
+  config: Pick<
+    ResolvedCliConfig,
+    'apiKey' | 'apiKeySource' | 'apiKeyEncrypted' | 'usingBundledDefault'
+  >,
+  env: NodeJS.ProcessEnv = envBeforeDotenv
+): string {
+  if (config.usingBundledDefault && !config.apiKey) {
+    return ok('auth', doctorL('built-in gateway (no API key needed)'));
+  }
+  const offers = detectEnvCredentials(env);
+  const names = offers.map((offer) => offer.keyVar);
+  if (config.apiKey) {
+    const authDetail =
+      config.apiKeySource === 'built-in'
+        ? doctorL('built-in, shared gateway key')
+        : config.apiKeySource.startsWith('env:')
+          ? doctorL('from {name} (not stored)', { name: config.apiKeySource.slice(4) })
+          : `${config.apiKeySource}, ${
+              config.apiKeyEncrypted
+                ? doctorL('stored in config file (0600)')
+                : doctorL('plain text')
+            }`;
+    return ok('auth', doctorL('configured ({detail})', { detail: authDetail }));
+  }
+  if (names.length > 0) {
+    return fail(
+      'auth',
+      doctorL(
+        'missing API key. Fix: run `moss` and press Enter to use {names} (the value is not printed).',
+        { names: names.join(setupCopy(undefined, ' or ')) }
+      )
+    );
+  }
+  return fail(
+    'auth',
+    doctorL('missing API key. Fix: run `moss` and finish setup, or run `moss setup`.')
+  );
+}
+
 export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   const lines = ['[doctor] Moss'];
   lines.push(renderNodeDoctorLine());
   lines.push(ok('version', options.currentVersion));
-  const authDetail =
-    options.config.apiKeySource === 'built-in'
-      ? 'built-in, shared gateway key'
-      : `${options.config.apiKeySource}, ${options.config.apiKeyEncrypted ? 'encrypted' : 'plain text'}`;
-  lines.push(
-    options.config.apiKey
-      ? ok('auth', `configured (${authDetail})`)
-      : fail('auth', 'missing API key; run moss setup')
-  );
-
-  if (options.config.usingBundledDefault) {
-    lines.push(ok('built-in model', 'active (no API key needed)'));
-  } else if (options.config.bundledDefaultSuppressedBy) {
+  const pinNote = await rdkDocsPinNote(process.env);
+  if (pinNote) lines.push(renderRdkDocsPinDoctorLine(pinNote));
+  lines.push(renderAuthDoctorLine(options.config));
+  const usedEnvVar = options.config.apiKeySource.startsWith('env:')
+    ? options.config.apiKeySource.slice('env:'.length)
+    : '';
+  const unusedEnvKeys = options.config.apiKey
+    ? detectEnvCredentials(envBeforeDotenv)
+        .map((offer) => offer.keyVar)
+        .filter((name) => name !== usedEnvVar)
+    : [];
+  if (unusedEnvKeys.length > 0) {
     lines.push(
-      ok('built-in model', `available but shadowed by ${options.config.bundledDefaultSuppressedBy}`)
+      warn(
+        uiText('env key', '环境变量密钥'),
+        doctorL(
+          '{names} is set and was not applied. Fix: the saved moss config is in use — run `moss setup` to switch.',
+          { names: unusedEnvKeys.join(', ') }
+        )
+      )
     );
   }
-  lines.push(ok('provider', `${options.config.provider} (${options.config.providerSource})`));
+
+  if (options.config.usingBundledDefault) {
+    lines.push(
+      ok(
+        uiText('built-in model', '内置模型'),
+        uiText('active (no API key needed)', '已启用（不需要 API key）')
+      )
+    );
+  } else if (options.config.bundledDefaultSuppressedBy) {
+    lines.push(
+      ok(
+        uiText('built-in model', '内置模型'),
+        uiText(
+          `available but shadowed by ${options.config.bundledDefaultSuppressedBy}`,
+          `可用，但被 ${options.config.bundledDefaultSuppressedBy} 挡住`
+        )
+      )
+    );
+  }
+  lines.push(
+    ok(
+      uiText('provider', '服务商'),
+      `${options.config.provider} (${options.config.providerSource})`
+    )
+  );
 
   if (!options.config.model) {
     lines.push(
       warn(
-        'model',
-        'no default model set; pick one at runtime with `/model`, or set a default via `moss config set model=<name>`'
+        uiText('model', '模型'),
+        doctorL('no default model. Fix: run `/model`, highlight one, and press d to save it.')
       )
     );
   } else {
-    lines.push(ok('model', `${options.config.model} (${options.config.modelSource})`));
+    lines.push(
+      ok(uiText('model', '模型'), `${options.config.model} (${options.config.modelSource})`)
+    );
     // Show the actual probed/configured context window. If it wasn't probed
     // yet (source === 'unprobed'), surface a warn so the user knows compaction
     // thresholds are using a conservative default, and guide them to fix it.
@@ -325,25 +515,58 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
       if (src === 'unprobed') {
         lines.push(
           warn(
-            'context window',
-            `not yet probed — using conservative default of ${humanTokens(tokens)} tokens`
+            uiText('context window', '上下文窗口'),
+            uiText(
+              `not yet probed — using conservative default of ${humanTokens(tokens)} tokens`,
+              `尚未探测 — 正在使用保守默认值 ${humanTokens(tokens)} token`
+            )
           )
         );
         lines.push(
-          warn('', '  Run /model to auto-probe, or set agent.contextTokens in moss config')
+          warn(
+            '',
+            uiText(
+              '  Run /model to auto-probe, or set agent.contextTokens in moss config',
+              '  运行 /model 自动探测，或在 moss 配置里设置 agent.contextTokens'
+            )
+          )
         );
       } else if (src === 'provider-api') {
-        lines.push(ok('context window', `${humanTokens(tokens)} tokens (provider-api)`));
+        lines.push(
+          ok(
+            uiText('context window', '上下文窗口'),
+            uiText(
+              `${humanTokens(tokens)} tokens (provider-api)`,
+              `${humanTokens(tokens)} token（provider-api）`
+            )
+          )
+        );
       } else {
         // 'cli' | 'MOSS_CONTEXT_TOKENS' | 'config'
-        lines.push(ok('context window', `${humanTokens(tokens)} tokens (pinned via ${src})`));
+        lines.push(
+          ok(
+            uiText('context window', '上下文窗口'),
+            uiText(
+              `${humanTokens(tokens)} tokens (pinned via ${src})`,
+              `${humanTokens(tokens)} token（由 ${src} 固定）`
+            )
+          )
+        );
       }
     }
     // Max output tokens: show the user-pinned value, or the derived default.
     {
       const pinned = options.config.maxOutputTokens;
       if (pinned !== undefined) {
-        lines.push(ok('max output', `${humanTokens(pinned)} tokens (pinned via config)`));
+        lines.push(
+          ok(
+            uiText('max output', '最大输出'),
+            uiText(
+              `${humanTokens(pinned)} tokens (pinned via config)`,
+              `${humanTokens(pinned)} token（由配置固定）`
+            )
+          )
+        );
       } else {
         const derived = Math.max(
           2_048,
@@ -354,8 +577,11 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
         );
         lines.push(
           ok(
-            'max output',
-            `${humanTokens(derived)} tokens (derived from context window — contextTokens/4, cap 8k)`
+            uiText('max output', '最大输出'),
+            uiText(
+              `${humanTokens(derived)} tokens (derived from context window — contextTokens/4, cap 8k)`,
+              `${humanTokens(derived)} token（由上下文窗口推算 — contextTokens/4，上限 8k）`
+            )
           )
         );
       }
@@ -365,15 +591,30 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   lines.push(...renderFailoverDoctor());
   lines.push(
     canWriteDir(options.config.workspace)
-      ? ok('workspace', `${options.config.workspace} (${options.config.workspaceSource})`)
-      : fail('workspace', `${options.config.workspace} is not writable`)
+      ? ok(
+          uiText('workspace', '工作区'),
+          `${options.config.workspace} (${options.config.workspaceSource})`
+        )
+      : fail(
+          uiText('workspace', '工作区'),
+          doctorL(
+            '{path} is not writable. Fix: run `moss -C <existing-dir>` or `chmod u+w {path}`.',
+            { path: options.config.workspace }
+          )
+        )
   );
   lines.push(
     canWriteDir(options.runtimeDir)
-      ? ok('runtime', options.runtimeDir)
-      : fail('runtime', `${options.runtimeDir} is not writable`)
+      ? ok(uiText('runtime', '运行时'), options.runtimeDir)
+      : fail(
+          uiText('runtime', '运行时'),
+          doctorL(
+            '{path} is not writable. Fix: `mkdir -p {path}` or pick another workspace with `moss -C`.',
+            { path: options.runtimeDir }
+          )
+        )
   );
-  lines.push(ok('config', options.config.configPath));
+  lines.push(ok(uiText('config', '配置'), options.config.configPath));
 
   // search backend — rg powers search_code / search_files (fast + .gitignore-
   // aware). When rg is absent the agent falls back to an in-process walk that
@@ -384,7 +625,7 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   lines.push(...(await renderSearchBackendDoctor()));
 
   lines.push(...renderApprovalDoctor(options.config));
-  lines.push(ok('detail', options.detailMode));
+  lines.push(ok(uiText('detail', '详细程度'), options.detailMode));
 
   const sessionsDir = path.join(options.runtimeDir, 'sessions');
   const sessionLines = await checkSessionIntegrity(sessionsDir);
@@ -392,17 +633,18 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
 
   const envSources = [options.config.workspaceSource].filter(sourceLooksEnv);
   if (envSources.length > 0) {
-    lines.push(warn('env overrides', [...new Set(envSources)].join(', ')));
+    lines.push(warn(uiText('env overrides', '环境变量覆盖'), [...new Set(envSources)].join(', ')));
   }
 
   if (options.config.ignoredModelEnvVars.length > 0) {
-    const guidance = options.config.apiKey
-      ? 'your moss config is already in use — these env vars are intentionally ignored'
-      : 'run moss setup or moss config set to configure a model';
+    const names = options.config.ignoredModelEnvVars.join(', ');
     lines.push(
       warn(
-        'env ignored',
-        `${options.config.ignoredModelEnvVars.join(', ')} — model settings come only from moss config; ${guidance}`
+        uiText('env ignored', '已忽略的环境变量'),
+        doctorL(
+          '{names} is not read. Fix: `moss config set provider <name>`, `moss config set model <name>`, or `moss config set baseUrl <url>`.',
+          { names }
+        )
       )
     );
   }

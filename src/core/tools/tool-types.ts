@@ -120,6 +120,11 @@ export interface ToolContext {
    * and return the tool once the catalog has it.
    */
   resolveMissingTool?: (name: string, signal?: AbortSignal) => Promise<Tool | undefined>;
+  /**
+   * Reveal a deferred tool group (for example `subagent`) so the next model
+   * call includes those schemas. Returns the note to show the model.
+   */
+  revealDeferredTools?: (group: string) => string;
   /** When set, replaces the generic "Unknown tool" line (failed MCP server). */
   describeMissingTool?: (name: string) => string | undefined;
   /** Resolve a model-requested expert id through the host-trusted per-agent registry. */
@@ -167,6 +172,13 @@ export interface ToolMetadata {
   timeoutMs?: number;
 
   transientRetry?: boolean;
+
+  /**
+   * The tool needs a user-question asker. Hidden when the run has none
+   * (headless `-p`). Kept when the agent, a process asker on a TTY, or
+   * `hooks.enrichToolContext` supplies one. The name is not the signal.
+   */
+  requiresUserQuestion?: boolean;
 }
 
 export interface Tool<TInput = any> {

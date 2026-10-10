@@ -405,9 +405,14 @@ for (const criteria of [[], [{ metric: 'probe', expected: '==2' }]]) {
       );
       const artifacts = await loadTaskArtifacts(workspaceDir);
       assert.equal(artifacts.tasks[0].status, 'accepted');
+      const commandVerdict = artifacts.acceptance.at(-1);
+      assert.equal(commandVerdict.verdict, 'pass');
+      assert.equal(commandVerdict.criteriaResults[0].metric, 'acceptance_command');
       if (criteria.length)
         assert.equal(
-          artifacts.acceptance.at(-1).verdict,
+          artifacts.acceptance.find((row) =>
+            row.criteriaResults.some((criterion) => criterion.metric === 'probe')
+          ).verdict,
           'fail',
           'contract failure remains an honest audit fact'
         );

@@ -7,7 +7,7 @@ import type {
   LLMSystemPromptParts,
 } from '../core/llm/llm-provider.js';
 import { envPreferMoss } from '../utils/env-compat.js';
-import { getRootLogger } from '../logger.js';
+import { providerLogger } from './redacted-log.js';
 import {
   convertMessages,
   defaultRepairToolCallUrl,
@@ -22,9 +22,40 @@ import {
 } from './pi-ai-wire-format.js';
 import { processEvent, convertStreamEvent } from './pi-ai-stream-parser.js';
 import { PiAiFirstEventTimeoutError, startFirstEventWatchdog } from './pi-ai-watchdog.js';
-import { createProviderErrorResponse, throwProviderErrorResponse } from './errors.js';
+import { ErrorCode, isMossError, MossError } from '../errors.js';
+import { classifyProviderError, renderProviderErrorSurface } from './error-classify.js';
 
-const log = getRootLogger().child('provider:pi-ai');
+const log = providerLogger('provider:pi-ai');
+
+function throwUserFacingProviderError(err: unknown): never {
+  const moss = isMossError(err) ? err : undefined;
+  const status = typeof moss?.context?.status === 'number' ? moss.context.status : undefined;
+  const message = moss
+    ? moss.hint
+      ? `${moss.message}\n${moss.hint}`
+      : moss.message
+    : err instanceof Error
+      ? err.message
+      : String(err);
+  const surface = classifyProviderError({
+    errorMessage: message,
+    ...(status !== undefined ? { status } : {}),
+  });
+  const surfaced = new MossError({
+    code:
+      surface.category === 'auth'
+        ? ErrorCode.PROVIDER_AUTH_FAILED
+        : surface.category === 'rate_limit'
+          ? ErrorCode.PROVIDER_RATE_LIMITED
+          : (moss?.code ?? ErrorCode.PROVIDER_UPSTREAM_ERROR),
+    message: renderProviderErrorSurface(surface),
+    recoverable: surface.retryable,
+    cause: err,
+    ...(moss?.context ? { context: moss.context } : {}),
+  });
+  Object.defineProperty(surfaced, 'surface', { value: surface });
+  throw surfaced;
+}
 
 const DEFAULT_ANTHROPIC_CACHE_CONTROL = { type: 'ephemeral' } as const;
 
@@ -49,6 +80,17 @@ function buildAnthropicSplitSystemBlocks(
   return blocks;
 }
 
+function payloadAlreadyCarriesDynamic(payload: Record<string, unknown>, dynamic: string): boolean {
+  const body = dynamic.trim();
+  if (!body) return false;
+  const block = `<turn-context>\n${body}\n</turn-context>`;
+  try {
+    return JSON.stringify(payload.messages ?? null).includes(block);
+  } catch {
+    return false;
+  }
+}
+
 function applyAnthropicSystemPromptPartsToPayload(
   payload: unknown,
   systemPrompt: string,
@@ -56,10 +98,16 @@ function applyAnthropicSystemPromptPartsToPayload(
 ): void {
   if (!parts?.stable || !isRecord(payload)) return;
   const system = payload.system;
+  // The dynamic suffix is already on the user message that introduced it.
+  // Sending it again as a system block would bill it twice.
+  const wireParts =
+    parts.dynamic && payloadAlreadyCarriesDynamic(payload, parts.dynamic)
+      ? { stable: parts.stable }
+      : parts;
 
   if (typeof system === 'string') {
     if (system !== systemPrompt) return;
-    payload.system = buildAnthropicSplitSystemBlocks(parts, DEFAULT_ANTHROPIC_CACHE_CONTROL);
+    payload.system = buildAnthropicSplitSystemBlocks(wireParts, DEFAULT_ANTHROPIC_CACHE_CONTROL);
     return;
   }
 
@@ -74,7 +122,7 @@ function applyAnthropicSystemPromptPartsToPayload(
     isRecord(targetBlock) && targetBlock.cache_control !== undefined
       ? targetBlock.cache_control
       : DEFAULT_ANTHROPIC_CACHE_CONTROL;
-  system.splice(targetIndex, 1, ...buildAnthropicSplitSystemBlocks(parts, cacheControl));
+  system.splice(targetIndex, 1, ...buildAnthropicSplitSystemBlocks(wireParts, cacheControl));
 }
 
 export { PiAiFirstEventTimeoutError } from './pi-ai-watchdog.js';
@@ -148,6 +196,7 @@ export class PiAiLLMProvider implements LLMProvider {
     const thinkingChunks: string[] = [];
     let stopReason: LLMResponse['stopReason'] = 'end_turn';
     let usage: NonNullable<LLMResponse['usage']> = { inputTokens: 0, outputTokens: 0 };
+    let responseModel: string | undefined;
 
     const requestThinkingMode = hasThinkingModeConfigured(
       this.model,
@@ -178,6 +227,7 @@ export class PiAiLLMProvider implements LLMProvider {
         const parsed = processEvent(event, content, this.repairToolCallUrl, thinkingChunks);
         if (parsed.stopReason) stopReason = parsed.stopReason;
         if (parsed.usage) usage = parsed.usage;
+        if (parsed.model) responseModel = parsed.model;
       }
     } catch (err) {
       throw watchdog.translateError(err);
@@ -201,6 +251,7 @@ export class PiAiLLMProvider implements LLMProvider {
       stopReason,
       content,
       usage,
+      ...(responseModel ? { model: responseModel } : {}),
       ...(thinkingChunks.length > 0 ? { thinking: thinkingChunks } : {}),
     };
   }
@@ -213,6 +264,7 @@ export class PiAiLLMProvider implements LLMProvider {
     const thinkingChunks: string[] = [];
     let stopReason: LLMResponse['stopReason'] = 'end_turn';
     let usage: NonNullable<LLMResponse['usage']> = { inputTokens: 0, outputTokens: 0 };
+    let responseModel: string | undefined;
     let incomplete: LLMResponse['incomplete'] | undefined;
 
     const requestThinkingMode = hasThinkingModeConfigured(
@@ -256,6 +308,7 @@ export class PiAiLLMProvider implements LLMProvider {
         const parsed = processEvent(event, content, this.repairToolCallUrl, thinkingChunks);
         if (parsed.stopReason) stopReason = parsed.stopReason;
         if (parsed.usage) usage = parsed.usage;
+        if (parsed.model) responseModel = parsed.model;
       }
     } catch (err) {
       const translated = watchdog.translateError(err);
@@ -265,10 +318,6 @@ export class PiAiLLMProvider implements LLMProvider {
         throw translated;
       }
       streamError = translated instanceof Error ? translated : new Error(String(translated));
-      log.warn('stream threw after processing events', {
-        error: streamError.message,
-        model: this.model.id,
-      });
     } finally {
       watchdog.dispose();
     }
@@ -285,14 +334,7 @@ export class PiAiLLMProvider implements LLMProvider {
           'stream error with only thinking content; model reasoned but was interrupted before response',
           { thinkingChars: thinkingText.length, error: streamError.message }
         );
-        throwProviderErrorResponse(
-          createProviderErrorResponse(
-            'pi-ai',
-            `model completed reasoning but was interrupted before producing a response. ` +
-              `This is usually a gateway timeout or upstream error. Original: ${streamError.message}`,
-            { originalError: streamError }
-          )
-        );
+        throwUserFacingProviderError(streamError);
       }
 
       if (!hasVisibleText && !hasToolUse) {
@@ -320,9 +362,7 @@ export class PiAiLLMProvider implements LLMProvider {
     if (streamError) {
       const hasVisibleContent = content.length > 0;
       if (!hasVisibleContent) {
-        throwProviderErrorResponse(
-          createProviderErrorResponse('pi-ai', streamError.message, { originalError: streamError })
-        );
+        throwUserFacingProviderError(streamError);
       }
       log.warn('returning partial content after mid-stream error', {
         error: streamError.message,
@@ -353,6 +393,7 @@ export class PiAiLLMProvider implements LLMProvider {
       stopReason,
       content,
       usage,
+      ...(responseModel ? { model: responseModel } : {}),
       ...(incomplete ? { incomplete } : {}),
       ...(thinkingChunks.length > 0 ? { thinking: thinkingChunks } : {}),
     };

@@ -517,6 +517,48 @@ test('snapshot counts evidence and surfaces the latest verdict', async () => {
   assert.equal(all.length, 1);
 });
 
+test('snapshot last verdict is the last acceptance line', async () => {
+  const ws = await tmpWorkspace();
+  const { taskId } = await createDraftTask(ws, 'goal');
+  await appendAcceptanceVerdict(ws, {
+    taskId,
+    verdict: 'pass',
+    acceptedAt: 5000,
+    criteriaResults: [],
+    unmetRequired: 0,
+    evidenceConsidered: 0,
+  });
+  await appendAcceptanceVerdict(ws, {
+    taskId,
+    verdict: 'fail',
+    acceptedAt: 1,
+    criteriaResults: [],
+    unmetRequired: 1,
+    evidenceConsidered: 0,
+  });
+  assert.equal((await getTaskStateSnapshot(ws, taskId)).lastVerdict.verdict, 'fail');
+
+  const file = path.join(ws, '.moss', 'acceptance.jsonl');
+  await fs.appendFile(
+    file,
+    `${JSON.stringify({
+      taskId,
+      verdict: 'pass',
+      criteriaResults: [],
+      unmetRequired: 0,
+      evidenceConsidered: 0,
+    })}\n${JSON.stringify({
+      taskId,
+      verdict: 'fail',
+      acceptedAt: 'yesterday',
+      criteriaResults: [],
+      unmetRequired: 1,
+      evidenceConsidered: 0,
+    })}\n`
+  );
+  assert.equal((await getTaskStateSnapshot(ws, taskId)).lastVerdict.verdict, 'fail');
+});
+
 test('timeline renders human-readable entries in order', async () => {
   const ws = await tmpWorkspace();
   const { taskId } = await createDraftTask(ws, 'goal');

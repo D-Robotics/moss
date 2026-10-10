@@ -1,5 +1,5 @@
 import type { LLMResponse, LLMStreamEvent, LLMContentBlock } from '../core/llm/llm-provider.js';
-import { getRootLogger } from '../logger.js';
+import { providerLogger } from './redacted-log.js';
 import { classifyProviderError } from './error-classify.js';
 import { isContextOverflowError } from './errors.js';
 import {
@@ -14,7 +14,7 @@ import {
   type PiErrAssistantBlock,
 } from './pi-ai-wire-format.js';
 
-const log = getRootLogger().child('provider:pi-ai');
+const log = providerLogger('provider:pi-ai');
 
 function mapPiUsage(evtUsage: { input?: number; output?: number } | undefined):
   | {
@@ -68,6 +68,8 @@ export function processEvent(
 ): {
   stopReason?: LLMResponse['stopReason'];
   usage?: NonNullable<LLMResponse['usage']>;
+  /** Gateway-reported model id from the done/result event, when present. */
+  model?: string;
 } {
   const t = event.type;
 
@@ -156,10 +158,12 @@ export function processEvent(
 
     const hasToolUse = content.some((b) => b.type === 'tool_use');
     const stopReasonOut: LLMResponse['stopReason'] = hasToolUse ? 'tool_use' : mapped;
+    const reported = event.responseModel?.trim();
 
     return {
       stopReason: stopReasonOut,
       usage: mapPiUsage(evtUsage),
+      ...(reported ? { model: reported } : {}),
     };
   } else if (
     t === 'start' ||

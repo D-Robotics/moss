@@ -13,6 +13,8 @@
  * honest.
  */
 import type { MossAgent } from '../../core/agent/moss-agent.js';
+import { skillSkipReason } from '../../core/skills/skill-registry.js';
+import { userTextWithoutTurnContext } from '../../core/session/internal-transcript.js';
 import type { TaskRuntime } from '../../core/task-runtime/runtime.js';
 import { errorMessage } from '../../errors.js';
 import {
@@ -23,6 +25,7 @@ import {
 import { resolveCliConfig, type ResolvedCliConfig } from '../config.js';
 import type { CliInteractionMode } from '../interaction-mode.js';
 import { slashAliasHelpLines } from '../interactive-commands.js';
+import type { FirstRunSaved } from '../first-run.js';
 import type { CliRuntimeStatus } from '../onboarding.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
 import { isTuiZh, tui } from './copy.js';
@@ -150,6 +153,13 @@ export interface TuiAppOptions {
    * stays on disk for `moss --continue`.
    */
   onNewSession?: (sessionKey: string) => void;
+  /**
+   * No usable model config. The shell opens inline setup before the first
+   * prompt instead of telling the user to run another command.
+   */
+  firstRun?: boolean;
+  /** Host refreshes the live CLI config after setup saves a key. */
+  onFirstRunReady?: (saved: FirstRunSaved & { apiKey: string }) => void;
 }
 
 /**
@@ -332,8 +342,8 @@ export function questionDialogFromPrompt(promptText: string): {
 /** `/status` → `Status`: the canonical title of a command's inline block. */
 export function commandBlockTitle(head: string): string {
   const name = head.trim().replace(/^\//, '');
-  if (!name) return 'Command';
-  return name.charAt(0).toUpperCase() + name.slice(1);
+  if (!name) return tui('Command');
+  return tui(name.charAt(0).toUpperCase() + name.slice(1));
 }
 
 const COMMON_HELP_COMMANDS = [
@@ -371,7 +381,7 @@ export function buildHelpOverlayLines(
       : ['', tui('type / to browse commands · /help --all for the rest')]),
     '',
     tui('shortcuts'),
-    ...helpKeyRows(bindings).map(([keys, what]) => `${keys.padEnd(12)} ${tui(what)}`),
+    ...helpKeyRows(bindings).map(([keys, what]) => `${tui(keys).padEnd(12)} ${tui(what)}`),
   ];
 }
 
@@ -440,7 +450,7 @@ export function renderSessionPicker(
   ];
   const sel = Math.max(0, Math.min(selected, matches.length - 1));
   matches.slice(0, maxRows).forEach((s, index) => {
-    const title = s.title?.trim() || s.key;
+    const title = userTextWithoutTurnContext(s.title ?? '') || s.key;
     const meta = [
       relativeAge(s.updatedAt),
       s.messageCount !== undefined ? tui('{count} messages', { count: s.messageCount }) : '',
@@ -554,6 +564,11 @@ export function shellPaletteRows(
   const extraNames = new Set(extra.map((row) => row[0]));
   for (const row of slashPaletteRows(input, extra)) {
     if (!extraNames.has(row[0]) || byCommand.has(row[0])) continue;
+    // The same check that registers a skill: an entire `{{…}}` placeholder,
+    // an empty name or description, or a name outside the catalog pattern.
+    // A description that only mentions `{{var}}` stays visible.
+    const bare = row[0].startsWith('/') ? row[0].slice(1) : row[0];
+    if (skillSkipReason(bare, row[1]) !== undefined) continue;
     byCommand.set(row[0], row);
   }
   return [...byCommand.values()];

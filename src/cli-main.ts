@@ -18,6 +18,7 @@ import {
 import {
   CliConfigFileError,
   CliConfigWriteError,
+  commitProjectRoutingEnv,
   envBeforeDotenv,
   loadCliConfigFile,
   loadEnvFromAncestors,
@@ -25,6 +26,7 @@ import {
   resolveConfigDir,
   safeProcessCwd,
   shouldShowFullDefaultNotice,
+  type LoadedCliConfigFile,
 } from './cli/config.js';
 import { parseCliArgs } from './cli/args.js';
 import {
@@ -40,13 +42,23 @@ import {
   formatUserPromptHookContext,
   setLifecycleHookRunner,
 } from './cli/hooks.js';
-import { deliverWorkspaceTrustNotice, resolveProjectCapabilities } from './cli/workspace-trust.js';
+import {
+  ancestorRoutingIgnoredLine,
+  resolveFolderTrust,
+  resolveProjectCapabilities,
+  summarizeTrustItems,
+  untrustedFolderLine,
+} from './cli/workspace-trust.js';
 import { runWithApprovalRequest, setPermissionRequestRunner } from './cli/permission-request.js';
 import { resolveSoulIdentity, resolveSoul } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
 import { createCliProvider } from './cli/providers.js';
 import type { CliProviderRuntimeConfig } from './cli/providers.js';
-import { resolveContextTokensForModel } from './cli/model-catalog.js';
+import {
+  formatModelChoices,
+  loadModelChoicesForRuntime,
+  resolveContextTokensForModel,
+} from './cli/model-catalog.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShotWithCliCancellation } from './cli/run-cancellation.js';
 import { runInteractive } from './cli/repl.js';
@@ -58,8 +70,7 @@ import {
   printMissingConfigGuidance,
   renderOneShotOnboardingHint,
 } from './cli/onboarding-hints.js';
-import { renderConfigHelp } from './cli/config-commands.js';
-import { renderSetupHelp } from './cli/setup-wizard.js';
+import { renderSubcommandHelp } from './cli/subcommand-help.js';
 import { MossAgent, JsonlSessionStore } from './core/index.js';
 import { configureRootLogger, getRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
@@ -74,8 +85,9 @@ import {
   resolveRdkDocsPackage,
   withBuiltinRdkDocs,
 } from './cli/rdk-docs-mcp.js';
-import { McpToolRegistry, buildMcpPromptLayer } from './core/mcp/registry.js';
+import { McpToolRegistry, buildMcpStableIndex } from './core/mcp/registry.js';
 import { RDK_DOCS_SERVER_NAME, rdkDocsKnowledgeLayer } from './core/mcp/rdk-docs.js';
+import { CONFIGURED_DEVICE_PROMPT } from './device/device-probe-prompt.js';
 import { createWebSearchTool } from './tools/web-search.js';
 import { createWebFetchTool } from './tools/web-fetch.js';
 import {
@@ -96,14 +108,27 @@ import {
   unknownSlashCommandLines,
   type CommandContext as RegistryCommandContext,
 } from './cli/commands/registry.js';
-import { commandSuggestion, cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
+import { cliLocale, KNOWN_COMMANDS } from './cli/tui-utils.js';
+import { closestSlashCommands } from './cli/command-completion.js';
+import {
+  isLoadedSkillSlash,
+  isSlashCommandInput,
+  loadCustomCommands,
+  reservedBuiltinNames,
+  skillSlashToken,
+} from './cli/commands/custom-commands.js';
+import { announceCatalogSkip } from './cli/catalog-skip-notice.js';
 import {
   buildAnswerLanguageLayer,
   formatFullModeNotice,
   formatInteractionModeNotice,
+  installCliUiLanguage,
   isZhLocale,
+  setupCopy,
+  uiText,
+  wrapNoticeLines,
 } from './cli/cli-locale.js';
-import { setTuiLocale, tui } from './cli/tui/copy.js';
+import { chrome, setTuiLocale } from './cli/tui/copy.js';
 import { gitignoreNoticeForWorkspace } from './cli/gitignore-suggestion.js';
 import { buildEnvironmentContextLayer, getGitBranch } from './context/environment.js';
 import { disconnectAllDevices } from './device/device-registry.js';
@@ -127,6 +152,10 @@ import {
   type CommandContext,
 } from './cli/command-dispatcher.js';
 
+function mossLine(en: string, vars?: Record<string, string | number>): string {
+  return setupCopy(undefined, en, vars);
+}
+
 // Argument errors must be a one-line message, not an uncaught stack trace
 // (`moss -m` used to dump a raw Node throw at module load).
 function parseCliArgsOrExit(argv: string[]): ReturnType<typeof parseCliArgs> {
@@ -134,12 +163,23 @@ function parseCliArgsOrExit(argv: string[]): ReturnType<typeof parseCliArgs> {
     return parseCliArgs(argv);
   } catch (err) {
     console.error(`[moss] ${errorMessage(err)}`);
-    console.error('Run `moss --help` for usage.');
-    process.exit(exitCodeForError(err));
+    console.error(uiText('Run `moss --help` for usage.', '运行 `moss --help` 查看用法。'));
+    process.exit(ExitCode.USAGE);
   }
 }
 
+function printWrappedNotice(text: string): void {
+  const columns = process.stderr.columns || process.stdout.columns || 80;
+  for (const line of wrapNoticeLines(text, columns)) console.error(line);
+}
+
 const parsedArgs = parseCliArgsOrExit(process.argv.slice(2));
+const uiLanguageError = installCliUiLanguage({ flag: parsedArgs.lang });
+if (uiLanguageError) {
+  console.error(uiLanguageError);
+  process.exit(ExitCode.USAGE);
+}
+setTuiLocale(isZhLocale());
 
 const originalEmitWarning = process.emitWarning.bind(process);
 process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
@@ -201,15 +241,14 @@ configureRootLogger({
   json: process.env.MOSS_LOG_JSON === '1',
 });
 
-// Subcommand-specific --help: show the subcommand's own usage, not the global
-// banner, so `moss config --help` answers the actual question.
-if (parsedArgs.help && parsedArgs.command === 'config') {
-  console.log(renderConfigHelp());
-  process.exit(0);
-}
-if (parsedArgs.help && parsedArgs.command === 'setup') {
-  console.log(renderSetupHelp());
-  process.exit(0);
+// Subcommand-specific --help: show that command's usage, options, and examples,
+// not the root banner. `moss --help` (command === 'chat') stays the root help.
+if (parsedArgs.help && parsedArgs.command !== 'chat') {
+  const subcommandHelp = renderSubcommandHelp(parsedArgs.command);
+  if (subcommandHelp) {
+    console.log(subcommandHelp);
+    process.exit(0);
+  }
 }
 if (parsedArgs.help) displayHelp(c, { all: parsedArgs.helpAll });
 if (parsedArgs.version) displayVersion(c);
@@ -227,15 +266,28 @@ if (parsedArgs.unknownCommand) {
   // Redirects to known subcommands (e.g. status→doctor)
   if (suggestion === 'doctor') {
     console.error(
-      `[moss] '${token}' is an alias for '${suggestion}'. Run \`moss doctor\` instead.`
+      uiText(
+        `[moss] '${token}' is an alias for '${suggestion}'. Run \`moss doctor\` instead.`,
+        `[moss]「${token}」是「${suggestion}」的别名。请改用 \`moss doctor\`。`
+      )
     );
     process.exit(0);
   }
   // Remaining edit-distance typos (e.g. confgi→config)
   if (!['--version', '--help', 'doctor'].includes(suggestion)) {
-    console.error(`[moss] unknown command '${token}'`);
-    console.error(`Did you mean '${suggestion}'?  Run \`moss --help\` for usage.`);
-    console.error(`To send it to the agent as a prompt instead: moss chat "${token}"`);
+    console.error(uiText(`[moss] unknown command '${token}'`, `[moss] 未知命令「${token}」`));
+    console.error(
+      uiText(
+        `Did you mean '${suggestion}'?  Run \`moss --help\` for usage.`,
+        `是想输入「${suggestion}」吗？运行 \`moss --help\` 查看用法。`
+      )
+    );
+    console.error(
+      uiText(
+        `To send it to the agent as a prompt instead: moss chat "${token}"`,
+        `若要把它当作提示发给模型：moss chat "${token}"`
+      )
+    );
     process.exit(ExitCode.USAGE);
   }
 }
@@ -243,21 +295,41 @@ if (parsedArgs.unknownCommand) {
 // `moss quickstart` / `moss examples` / etc. name in-session commands — point
 // the user at how to run them instead of billing the word as an LLM prompt.
 if (parsedArgs.interactiveOnlyCommand) {
-  const c = parsedArgs.interactiveOnlyCommand;
-  console.error(`'${c}' is an in-session command. Start Moss, then type /${c}:`);
+  const name = parsedArgs.interactiveOnlyCommand;
+  console.error(
+    uiText(
+      `'${name}' is an in-session command. Start Moss, then type /${name}:`,
+      `「${name}」是会话内命令。先启动 Moss，再输入 /${name}：`
+    )
+  );
   console.error('  moss');
-  console.error(`  > /${c}`);
-  console.error(`(Or to send "${c}" to the model as a prompt: moss chat "${c}".)`);
+  console.error(`  > /${name}`);
+  console.error(
+    uiText(
+      `(Or to send "${name}" to the model as a prompt: moss chat "${name}".)`,
+      `（或把「${name}」当作提示发给模型：moss chat "${name}"。）`
+    )
+  );
   process.exit(0);
 }
 
 // A dash-prefixed token that matched no known flag must NOT be billed as a chat
 // prompt (`moss --hepl`) or silently ignored on a subcommand (`doctor --frob`).
 if (parsedArgs.unknownOption) {
-  console.error(`[moss] unknown option '${parsedArgs.unknownOption}'`);
-  console.error('Run `moss --help` for the flag list.');
   console.error(
-    'To pass a prompt that begins with "-", use: moss chat "<your text>"  (or  moss -- <your text>)'
+    uiText(
+      `[moss] unknown option '${parsedArgs.unknownOption}'`,
+      `[moss] 未知选项「${parsedArgs.unknownOption}」`
+    )
+  );
+  console.error(
+    uiText('Run `moss --help` for the flag list.', '运行 `moss --help` 查看选项列表。')
+  );
+  console.error(
+    uiText(
+      'To pass a prompt that begins with "-", use: moss chat "<your text>"  (or  moss -- <your text>)',
+      '要传入以「-」开头的提示，用：moss chat "<你的文本>"（或 moss -- <你的文本>）'
+    )
   );
   process.exit(ExitCode.USAGE);
 }
@@ -288,6 +360,43 @@ function createMockLLMProvider(): LLMProvider {
         usage: { inputTokens: 0, outputTokens: 0 },
       };
     },
+  };
+}
+
+async function loadTrustedStartupConfig(input: {
+  startDir: string;
+  argv: string[];
+  trustFlag: boolean;
+  prompt: boolean;
+}): Promise<{
+  loadedConfig: LoadedCliConfigFile;
+  trusted: boolean;
+  folderKey: string;
+  ignoredRoutingEnv: string[];
+  ignoredRoutingDirs: string[];
+}> {
+  const configDir = resolveConfigDir();
+  const decision = await resolveFolderTrust({
+    startDir: input.startDir,
+    configDir,
+    interactive: input.prompt,
+    trustFlag: input.trustFlag,
+    env: envBeforeDotenv,
+  });
+  const ignoredRouting = commitProjectRoutingEnv({
+    trusted: decision.trusted,
+    folderKey: decision.folderKey,
+    configDir,
+  });
+  const loadedConfig = loadCliConfigFile(process.env, input.argv, input.startDir, {
+    trustProjectRouting: decision.trusted,
+  });
+  return {
+    loadedConfig,
+    trusted: decision.trusted,
+    folderKey: decision.folderKey,
+    ignoredRoutingEnv: ignoredRouting.keys,
+    ignoredRoutingDirs: ignoredRouting.directories,
   };
 }
 
@@ -337,7 +446,13 @@ async function main() {
     if (parsedArgs.configOverrides.workspace) {
       loadEnvFromAncestors(parsedArgs.configOverrides.workspace as string);
     }
-    const loadedConfig = loadCliConfigFile(process.env, process.argv.slice(2), fallbackStartDir);
+    const startup = await loadTrustedStartupConfig({
+      startDir: fallbackStartDir,
+      argv: process.argv.slice(2),
+      trustFlag: parsedArgs.trustWorkspace,
+      prompt: false,
+    });
+    const loadedConfig = startup.loadedConfig;
     const resolvedConfig = resolveCliConfig(
       process.env,
       loadedConfig.config,
@@ -363,7 +478,13 @@ async function main() {
     if (parsedArgs.configOverrides.workspace) {
       loadEnvFromAncestors(parsedArgs.configOverrides.workspace as string);
     }
-    const loadedConfig = loadCliConfigFile(process.env, process.argv.slice(2), fallbackStartDir);
+    const startup = await loadTrustedStartupConfig({
+      startDir: fallbackStartDir,
+      argv: process.argv.slice(2),
+      trustFlag: parsedArgs.trustWorkspace,
+      prompt: false,
+    });
+    const loadedConfig = startup.loadedConfig;
     const resolvedConfig = resolveCliConfig(
       process.env,
       loadedConfig.config,
@@ -414,13 +535,29 @@ async function main() {
     loadEnvFromAncestors(parsedArgs.configOverrides.workspace);
   }
   const configStartDir = fallbackStartDir;
-  const loadedConfig = loadCliConfigFile(process.env, process.argv.slice(2), configStartDir);
+  const startup = await loadTrustedStartupConfig({
+    startDir: configStartDir,
+    argv: process.argv.slice(2),
+    trustFlag: parsedArgs.trustWorkspace,
+    prompt: process.stdin.isTTY === true && !parsedArgs.print,
+  });
+  const loadedConfig = startup.loadedConfig;
   let resolvedConfig = resolveCliConfig(
     process.env,
     loadedConfig.config,
     parsedArgs.configOverrides,
     loadedConfig
   );
+  if (loadedConfig.blockedProjectBaseUrl) {
+    console.error(
+      chrome(
+        '[moss] Project base URL {url} needs its own apiKey. The primary key is not sent to that host.',
+        isZhLocale(),
+        { url: loadedConfig.blockedProjectBaseUrl }
+      )
+    );
+    process.exit(ExitCode.CONFIG);
+  }
   // Model settings are config-only (decision 2026-06). Say so once when a
   // leftover provider env var is present, instead of silently ignoring it —
   // doctor shows the same list as a structured `env ignored` line.
@@ -438,11 +575,12 @@ async function main() {
     (cliLogLevel === 'debug' || cliLogLevel === 'info') &&
     cliDetailForNotices !== 'quiet'
   ) {
+    const ignored = resolvedConfig.ignoredModelEnvVars.join(', ');
     console.error(
-      `[config] ignoring model env var(s): ${resolvedConfig.ignoredModelEnvVars.join(', ')} — ` +
-        `model settings come only from moss config, not env vars. ` +
-        `using ${resolvedConfig.provider} / ${resolvedConfig.model} ` +
-        '(change with moss setup / moss config set)'
+      mossLine(
+        '[config] not reading {names}. Fix: `moss config set provider <name>` (these MOSS_* variables are not read). using {provider} / {model}.',
+        { names: ignored, provider: resolvedConfig.provider, model: resolvedConfig.model }
+      )
     );
   }
   // v0.26 mode engine (T01): the mode is the first axis. Startup mode =
@@ -462,10 +600,9 @@ async function main() {
       console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));
     }
   }
-  // v0.26 one-shot full-default notice: once per process for the factory-default
-  // full user with no deny rules. Not persisted across launches.
+  // Once per config dir. Doctor still reports the condition on every run.
   if (cliDetailForNotices !== 'quiet' && shouldShowFullDefaultNotice(resolvedConfig)) {
-    console.error(formatFullModeNotice());
+    printWrappedNotice(formatFullModeNotice());
   }
   const workspace = resolvedConfig.workspace;
   // Validate the workspace up front so a bad -C/--cd (or MOSS_WORKSPACE) yields
@@ -494,8 +631,10 @@ async function main() {
     const gitignoreNotice = gitignoreNoticeForWorkspace(workspace);
     if (gitignoreNotice) console.error(gitignoreNotice);
   }
-  const model = resolvedConfig.model;
-  const baseUrl = resolvedConfig.baseUrl;
+  // Refreshed after the setup wizard. A const here used to freeze the preset
+  // default, so the first question ignored the model the wizard had just saved.
+  let model = resolvedConfig.model;
+  let baseUrl = resolvedConfig.baseUrl;
   const workspacePathMigration = migrateLegacyWorkspacePaths(workspace);
   const runtimeDir = workspacePathMigration.paths.runtimeDir;
 
@@ -539,13 +678,27 @@ async function main() {
     }
   }
 
+  if (oneShotMessage.trim() === '/model') {
+    const choices = await loadModelChoicesForRuntime(resolvedConfig, resolvedConfig.model ?? '');
+    console.error(formatModelChoices(choices));
+    return;
+  }
+
+  let inlineFirstRun = false;
   if (!resolvedConfig.apiKey && !parsedArgs.mock) {
     const guidance = { bundledDefaultSuppressedBy: resolvedConfig.bundledDefaultSuppressedBy };
     let setupCompleted = false;
-    if (process.stdin.isTTY && !oneShotMessage) {
+    const inlineSetup = interactiveTty && Boolean(process.stdin.isTTY) && !oneShotMessage;
+    if (inlineSetup) {
+      // The TUI owns setup. Do not print "run moss setup" and exit.
+      inlineFirstRun = true;
+      setupCompleted = true;
+    } else if (process.stdin.isTTY && !oneShotMessage) {
       const setupStarted = await offerSetupForInteractiveMissingConfig(guidance);
       if (!setupStarted) return;
-      const refreshed = loadCliConfigFile(process.env, process.argv.slice(2), configStartDir);
+      const refreshed = loadCliConfigFile(process.env, process.argv.slice(2), configStartDir, {
+        trustProjectRouting: startup.trusted,
+      });
       resolvedConfig = resolveCliConfig(
         process.env,
         refreshed.config,
@@ -558,6 +711,8 @@ async function main() {
         });
         process.exit(ExitCode.CONFIG);
       }
+      model = resolvedConfig.model;
+      baseUrl = resolvedConfig.baseUrl;
       setupCompleted = true;
     }
     if (!setupCompleted) {
@@ -572,7 +727,9 @@ async function main() {
         printMissingConfigGuidance(false, guidance);
       } else {
         console.error(
-          '[moss] No API key configured. Run `moss setup` to add one (model settings are config-only — env keys are ignored).'
+          mossLine(
+            '[moss] No API key configured. Run `moss` to set one up (a key already in the environment is offered there; the value is not printed).'
+          )
         );
       }
       process.exit(ExitCode.CONFIG);
@@ -580,8 +737,18 @@ async function main() {
   }
 
   if (parsedArgs.mock) {
-    console.error('[mock] Offline mock mode — no live LLM, no API key required.');
-    console.error('[mock] Tools and approval flows are available for testing.');
+    console.error(
+      uiText(
+        '[mock] Offline mock mode — no live LLM, no API key required.',
+        '[mock] 离线模拟模式 — 不连接模型，不需要 API 密钥。'
+      )
+    );
+    console.error(
+      uiText(
+        '[mock] Tools and approval flows are available for testing.',
+        '[mock] 工具和审批流程可用于测试。'
+      )
+    );
   }
 
   const configDir = resolveConfigDir();
@@ -634,6 +801,7 @@ async function main() {
       parsedArgs.print || (parsedArgs.command === 'chat' && process.stdin.isTTY !== true),
     trustFlag: parsedArgs.trustWorkspace,
     env: envBeforeDotenv,
+    folderTrusted: startup.trusted,
   });
   const configuredHooks = createConfiguredHookCallbacks(projectCapabilities.hooks, {
     workspaceDir: workspace,
@@ -679,6 +847,7 @@ async function main() {
     sources: permissionRuleSources,
   });
   const deviceTarget = resolveDefaultDeviceTarget();
+  if (deviceTarget) dynamicPromptLayers.push(CONFIGURED_DEVICE_PROMPT);
   const approvalHook = createCliToolApprovalHook(safetyMode, process.env, {
     approvalPolicy: resolvedConfig.approvalPolicy,
     trustedTools: resolvedConfig.trustedTools,
@@ -787,6 +956,7 @@ async function main() {
     llmProvider: cliLlmProvider,
     sessionStore,
     model,
+    usingBundledDefault: resolvedConfig.usingBundledDefault,
     workspaceDir: workspace,
     // v0.9 W1: shell-write confinement. workspace-write/read-only confine
     // statically-extracted exec write targets to the workspace (same
@@ -833,7 +1003,17 @@ async function main() {
         .catch(() => undefined),
     hooks,
   });
-  (agent.config as { baseUrl?: string }).baseUrl = baseUrl;
+  agent.config.baseUrl = baseUrl;
+  agent.config.provider = providerConfig.provider;
+  // Rebuilt on every switchModel so the persona names the live model, including
+  // a soul file's prepend body and the non-overridable honesty footer.
+  agent.config.identityFactory = (nextModel: string) =>
+    resolveSoulIdentity({
+      configDir,
+      workspaceDir: workspace,
+      model: nextModel,
+      usingBundledDefault: agent.config.usingBundledDefault,
+    });
   await registerBuiltinTools(agent);
   // Device targets resolve host > env > .moss/devices.json (registered via
   // `moss device add`); declaring the workspace turns the registry tier on.
@@ -856,10 +1036,25 @@ async function main() {
     }
     for (const listener of tuiNoticeListeners) listener(message);
   };
-  deliverWorkspaceTrustNotice(projectCapabilities.notice, useTui, {
-    transcript: emitTuiNotice,
-    stderr: (line) => console.error(line),
-  });
+  if (!startup.trusted) {
+    const summary = summarizeTrustItems(projectCapabilities.skipped, isZhLocale());
+    const parts = [
+      ...(loadedConfig.ignoredProjectRouting ?? []),
+      ...startup.ignoredRoutingEnv,
+      ...(summary ? [summary] : []),
+    ];
+    const line = untrustedFolderLine(parts, isZhLocale());
+    if (useTui) emitTuiNotice(line);
+    else console.error(line);
+  } else if (startup.ignoredRoutingEnv.length > 0) {
+    const line = ancestorRoutingIgnoredLine(
+      startup.ignoredRoutingEnv,
+      startup.ignoredRoutingDirs,
+      isZhLocale()
+    );
+    if (useTui) emitTuiNotice(line);
+    else console.error(line);
+  }
   // v0.16 MCP client: connect servers declared in `.moss/mcp.json` /
   // `<configDir>/mcp.json` (credentials only via ${ENV_VAR} expansion).
   // User servers stay zero-config = zero overhead. rdk-docs is the one builtin:
@@ -874,11 +1069,9 @@ async function main() {
   let syncRdkDocsSkills = (): void => {};
   const refreshMcpPromptLayer = (): void => {
     if (!mcpRegistry) return;
-    const layers = [
-      buildMcpPromptLayer(mcpRegistry),
-      rdkDocsKnowledgeLayer(mcpRegistry.getStatuses()),
-    ].filter(Boolean);
-    const combined = layers.join('\n');
+    // Knowledge only. The server index is a stable layer from config names,
+    // so a connect that adds a tool count cannot rewrite the cached prefix.
+    const combined = rdkDocsKnowledgeLayer(mcpRegistry.getStatuses());
     if (mcpPromptLayerIndex === undefined) {
       mcpPromptLayerIndex = dynamicPromptLayers.length;
       dynamicPromptLayers.push(combined);
@@ -907,6 +1100,9 @@ async function main() {
       : undefined
   );
   if (mcpConfigs.length > 0) {
+    // Present whenever the search tools are registered, including `moss -p`
+    // which starts before the handshake. No counts: those change on connect.
+    extraPromptLayers.push(buildMcpStableIndex(mcpConfigs.map((config) => config.name)));
     try {
       mcpRegistry = McpToolRegistry.connectInBackground(mcpConfigs, {
         // Real MCP tools register on demand: the search meta-tool installs
@@ -916,7 +1112,6 @@ async function main() {
         registerTool: (tool) => agent.tools.register(tool),
         onStatusChange: (status) => {
           refreshMcpPromptLayer();
-          syncRdkDocsSkills();
           if (status.state !== 'connected' && status.state !== 'failed') return;
           if (!announceMcpStatus) return;
           if (useTui) {
@@ -934,7 +1129,12 @@ async function main() {
       // server's line; a failed connect gets only the unavailable sentence.
       refreshMcpPromptLayer();
     } catch (err) {
-      console.error(`[mcp] initialization failed: ${errorMessage(err)}`);
+      console.error(
+        uiText(
+          `[mcp] initialization failed: ${errorMessage(err)}`,
+          `[mcp] 初始化失败：${errorMessage(err)}`
+        )
+      );
       mcpRegistry = null;
     }
   }
@@ -954,18 +1154,27 @@ async function main() {
   const sessionContextInfo: { skills?: number; soul?: string; branch?: string } = {};
   {
     const skillDirs = [path.join(workspace, '.moss', 'skills'), path.join(configDir, 'skills')];
-    const baseSkills = loadSkills(skillDirs);
+    const announcedSkillSkips = new Set<string>();
+    const baseSkills = loadSkills(skillDirs, {
+      onSkip(skip) {
+        if (announcedSkillSkips.has(skip.file)) return;
+        announcedSkillSkips.add(skip.file);
+        const emit = (line: string) => {
+          if (useTui) emitTuiNotice(line);
+          else console.error(line);
+        };
+        announceCatalogSkip(workspace, skip.file, skip.reason, cliLocale(), emit);
+      },
+    });
     const sessionSkills = [...baseSkills];
     let skillsLayerIndex: number | undefined;
     let installedSkillTool: ReturnType<typeof createSkillTool> | undefined;
     const emptySkillsLayer = buildEmptySkillsHintLayer(skillDirs);
+    const rdkDocsConfigured = mcpConfigs.some((config) => config.name === RDK_DOCS_SERVER_NAME);
     syncRdkDocsSkills = () => {
-      const connected =
-        mcpRegistry
-          ?.getStatuses()
-          .some((status) => status.name === RDK_DOCS_SERVER_NAME && status.state === 'connected') ??
-        false;
-      const next = includeBundledRdkDocsSkill(baseSkills, connected);
+      // Register once from config, not from the handshake. Swapping the skill
+      // tool in when rdk-docs connects changes the tool list mid-session.
+      const next = includeBundledRdkDocsSkill(baseSkills, rdkDocsConfigured);
       sessionSkills.splice(0, sessionSkills.length, ...next);
       if (sessionSkills.length > 0) {
         const tool = createSkillTool(sessionSkills);
@@ -1011,10 +1220,11 @@ async function main() {
       }),
       getContextTokens: () => agent.config.contextTokens,
       getMaxOutputTokens: () => agent.config.maxTokens,
+      getReportedModel: () => agent.reportedModel(),
     })
   );
   // Track the locale-derived region for web_search.
-  const searchLocale = process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '';
+  const searchLocale = cliLocale() ?? '';
   const searchRegion = /zh|_cn|-cn|\.cn/i.test(searchLocale) ? 'zh-CN' : undefined;
   // Region-aware re-registration: ToolRegistry.register is overwrite-by-name,
   // so the builtin web_search registered above is replaced by the localized one.
@@ -1117,6 +1327,19 @@ async function main() {
       return;
     }
 
+    const fileCommands = loadCustomCommands(
+      { workspace, configDir, reservedNames: reservedBuiltinNames() },
+      (message) => {
+        if (useTui) emitTuiNotice(message);
+        else console.error(message);
+      },
+      cliLocale()
+    );
+    const skillSlashSuggestions = loadedSkills.flatMap((skill) => {
+      const token = skillSlashToken(skill);
+      return token ? [token] : [];
+    });
+
     if (oneShotMessage) {
       // Slash-command dispatch in oneshot mode. Previously a prompt like
       // `moss "/review"` or `moss "/skills"` was sent verbatim to the LLM,
@@ -1127,7 +1350,7 @@ async function main() {
       // and we run THAT prompt through runOneShot. Commands that handle
       // themselves (e.g. /help, /skills printing) just print and exit. An
       // unknown `/foo` gets a did-you-mean hint instead of burning an LLM call.
-      if (oneShotMessage.trimStart().startsWith('/')) {
+      if (isSlashCommandInput(oneShotMessage)) {
         let pendingPrompt: string | null = null;
         const oneshotCmdCtx: RegistryCommandContext = {
           agent,
@@ -1142,7 +1365,11 @@ async function main() {
             pendingPrompt = text;
           },
         };
-        const handled = await runRegistryCommand(oneShotMessage.trim(), oneshotCmdCtx);
+        const handled = await runRegistryCommand(
+          oneShotMessage.trim(),
+          oneshotCmdCtx,
+          fileCommands
+        );
         if (handled) {
           if (pendingPrompt) {
             // The command (e.g. /review) gathered context and built a prompt
@@ -1163,15 +1390,24 @@ async function main() {
         //      tell the user to run `moss` interactively;
         //  (b) genuinely unknown — give a did-you-mean hint.
         const cmdToken = oneShotMessage.trim().split(/\s+/, 1)[0] ?? oneShotMessage.trim();
-        const isKnownInteractive = KNOWN_COMMANDS.includes(cmdToken);
+        const isKnownInteractive =
+          KNOWN_COMMANDS.includes(cmdToken) || isLoadedSkillSlash(cmdToken, loadedSkills);
         if (isKnownInteractive) {
           console.error(
-            `${cmdToken} is an interactive-mode command and isn't run from a one-shot prompt.\n` +
-              `Start an interactive session with \`moss\` (then type ${cmdToken}), or rephrase as a natural-language prompt (e.g. \`moss "review auth.js for bugs"\`).`
+            uiText(
+              `${cmdToken} is an interactive-mode command and isn't run from a one-shot prompt.\n` +
+                `Start an interactive session with \`moss\` (then type ${cmdToken}), or rephrase as a natural-language prompt (e.g. \`moss "review auth.js for bugs"\`).`,
+              `${cmdToken} 是交互模式命令，不能在一次性提示里运行。\n` +
+                `先运行 \`moss\` 再输入 ${cmdToken}，或改成自然语言提示（例如 \`moss "review auth.js for bugs"\`）。`
+            )
           );
         } else {
           for (const line of unknownSlashCommandLines(oneShotMessage.trim(), {
-            suggestion: commandSuggestion(oneShotMessage.trim()),
+            suggestions: closestSlashCommands(cmdToken, [
+              ...KNOWN_COMMANDS,
+              ...fileCommands.map((command) => command.name),
+              ...skillSlashSuggestions,
+            ]),
             locale: cliLocale(),
           })) {
             console.error(line);
@@ -1185,7 +1421,9 @@ async function main() {
       // valid but ambiguous — a brief notice makes the user aware they're about
       // to be billed for an LLM call. Suppressed in quiet mode for scripting.
       if (cliDetailForNotices !== 'quiet' && !oneShotMessage.includes(' ')) {
-        console.error(`[moss] sending "${oneShotMessage}" to the model...`);
+        console.error(
+          mossLine('[moss] sending "{text}" to the model...', { text: oneShotMessage })
+        );
       }
       await runOneShotWithCliCancellation(agent, oneShotMessage, {
         sessionKey: session.sessionKey,
@@ -1232,7 +1470,7 @@ async function main() {
         // mode dispatch (b76a7ef). `echo "/review" | moss` previously sent the
         // slash verbatim to the LLM (hallucinated command table). Now piped
         // slash-commands go through the registry first.
-        if (pipedText.startsWith('/')) {
+        if (isSlashCommandInput(pipedText)) {
           let pendingPrompt: string | null = null;
           const pipedCmdCtx: RegistryCommandContext = {
             agent,
@@ -1247,7 +1485,7 @@ async function main() {
               pendingPrompt = text;
             },
           };
-          const handled = await runRegistryCommand(pipedText, pipedCmdCtx);
+          const handled = await runRegistryCommand(pipedText, pipedCmdCtx, fileCommands);
           if (handled) {
             if (pendingPrompt) {
               await runOneShotWithCliCancellation(agent, pendingPrompt, {
@@ -1260,14 +1498,22 @@ async function main() {
             return;
           }
           const cmdToken = pipedText.split(/\s+/, 1)[0] ?? pipedText;
-          if (KNOWN_COMMANDS.includes(cmdToken)) {
+          if (KNOWN_COMMANDS.includes(cmdToken) || isLoadedSkillSlash(cmdToken, loadedSkills)) {
             console.error(
-              `${cmdToken} is an interactive-mode command — pipe a natural-language prompt instead,` +
-                ` or run \`moss\` interactively and type ${cmdToken}.`
+              uiText(
+                `${cmdToken} is an interactive-mode command — pipe a natural-language prompt instead,` +
+                  ` or run \`moss\` interactively and type ${cmdToken}.`,
+                `${cmdToken} 是交互模式命令 — 请改为管道传入自然语言提示，或运行 \`moss\` 后输入 ${cmdToken}。`
+              )
             );
           } else {
+            const pipedToken = pipedText.split(/\s+/, 1)[0] ?? pipedText;
             for (const line of unknownSlashCommandLines(pipedText, {
-              suggestion: commandSuggestion(pipedText),
+              suggestions: closestSlashCommands(pipedToken, [
+                ...KNOWN_COMMANDS,
+                ...fileCommands.map((command) => command.name),
+                ...skillSlashSuggestions,
+              ]),
               locale: cliLocale(),
             })) {
               console.error(line);
@@ -1288,13 +1534,15 @@ async function main() {
       // instead of silently succeeding — silent exit on `echo "" | moss --print`
       // looks like a successful empty result and hides the user's mistake.
       if (parsedArgs.print || parsedArgs.maxTurns !== undefined) {
-        console.error('[moss] --print requires a prompt argument or non-empty piped stdin');
+        console.error(
+          mossLine('[moss] --print requires a prompt argument or non-empty piped stdin')
+        );
         process.exitCode = ExitCode.USAGE;
       }
       return;
     }
     if (parsedArgs.print) {
-      console.error('[moss] --print requires a prompt argument or piped stdin');
+      console.error(mossLine('[moss] --print requires a prompt argument or piped stdin'));
       process.exitCode = ExitCode.USAGE;
       return;
     }
@@ -1368,7 +1616,29 @@ async function main() {
         agent,
         workspaceDir: workspace,
         sessionKey: session.sessionKey,
-        model: typeof model === 'string' ? model : undefined,
+        model: inlineFirstRun ? undefined : typeof model === 'string' ? model : undefined,
+        ...(inlineFirstRun ? { firstRun: true } : {}),
+        onFirstRunReady: (saved) => {
+          const refreshed = loadCliConfigFile(process.env, process.argv.slice(2), configStartDir);
+          liveRuntime.config = resolveCliConfig(
+            process.env,
+            refreshed.config,
+            parsedArgs.configOverrides,
+            refreshed
+          );
+          agent.switchModel({
+            model: saved.model,
+            provider: saved.provider,
+            baseUrl: saved.baseUrl,
+            llmProvider: createCliProvider({
+              provider: saved.provider,
+              apiKey: saved.apiKey,
+              model: saved.model,
+              baseUrl: saved.baseUrl,
+            }),
+            usingBundledDefault: false,
+          });
+        },
         // Part B: hand the shell the resolved locale explicitly instead of
         // letting every component re-read the environment.
         locale: cliLocale(),
@@ -1453,6 +1723,13 @@ async function main() {
     } finally {
       // Shut MCP server connections (stdio children) down after the agent is
       // done — closeAll absorbs per-server errors internally.
+      // `moss -p` can reach here before the deferred stdio spawn has run.
+      // close() then marks the transport closed, and the child never starts.
+      // MOSS_WAIT_MCP_STARTUP=1 (the safe-child-env spec) waits for that
+      // attempt first. Default shutdown does not.
+      if (envBeforeDotenv.MOSS_WAIT_MCP_STARTUP === '1') {
+        await mcpRegistry?.waitForConnections();
+      }
       await mcpRegistry?.closeAll();
       // SessionEnd lifecycle hook: fires exactly once at CLI shutdown.
       try {
@@ -1480,48 +1757,46 @@ main().catch((err) => {
   // Provider-level errors: print a clean, actionable diagnostic — never claim
   // it's a bug. Auth failures, rate limits, network timeouts, and context
   // overflows are external conditions, not code defects.
-  if (code === ExitCode.PROVIDER_AUTH) {
-    console.error(`[moss] Authentication failed: ${message}`);
-    console.error('[moss] Check your API key with `moss config show`, or re-run `moss setup`.');
-    process.exit(code);
-  }
-  if (code === ExitCode.RATE_LIMIT) {
-    console.error(`[moss] Rate limited: ${message}`);
-    console.error(
-      '[moss] Wait a moment and try again. Consider setting a lower model or reducing prompt size.'
-    );
-    process.exit(code);
-  }
-  if (code === ExitCode.PROVIDER_UPSTREAM) {
-    console.error(`[moss] Provider error: ${message}`);
-    console.error(
-      '[moss] The upstream API returned an error. Check your network, base URL, and model name.'
-    );
-    process.exit(code);
-  }
-  if (code === ExitCode.CONFIG) {
-    console.error(`[moss] Configuration error: ${message}`);
-    console.error(
-      '[moss] Run `moss config show` to inspect settings, or `moss setup` to reconfigure.'
-    );
-    process.exit(code);
-  }
-
-  // Session errors: the user's session data is the problem, not the code.
-  if (code === ExitCode.SESSION) {
-    console.error(`[moss] Session error: ${message}`);
-    console.error(
-      '[moss] List saved sessions with `moss sessions`, or start a new one with `moss`.'
-    );
+  const fatal: ReadonlyArray<readonly [number, string, string]> = [
+    [
+      ExitCode.PROVIDER_AUTH,
+      '[moss] Authentication failed: {message}',
+      '[moss] Check your API key with `moss config show`, or re-run `moss setup`.',
+    ],
+    [
+      ExitCode.RATE_LIMIT,
+      '[moss] Rate limited: {message}',
+      '[moss] Wait a moment and try again. Consider setting a lower model or reducing prompt size.',
+    ],
+    [
+      ExitCode.PROVIDER_UPSTREAM,
+      '[moss] Provider error: {message}',
+      '[moss] The upstream API returned an error. Check your network, base URL, and model name.',
+    ],
+    [
+      ExitCode.CONFIG,
+      '[moss] Configuration error: {message}',
+      '[moss] Run `moss config show` to inspect settings, or `moss setup` to reconfigure.',
+    ],
+    [
+      ExitCode.SESSION,
+      '[moss] Session error: {message}',
+      '[moss] List saved sessions with `moss sessions`, or start a new one with `moss`.',
+    ],
+  ];
+  for (const [exit, head, tail] of fatal) {
+    if (code !== exit) continue;
+    console.error(mossLine(head, { message }));
+    console.error(mossLine(tail));
     process.exit(code);
   }
 
   // User aborted: they hit Ctrl+C or cancelled — not a bug.
   if (code === ExitCode.USER_ABORTED) {
     console.error(
-      `[moss] ${tui('Cancelled: {message}', {
-        message: message || tui('operation was interrupted'),
-      })}`
+      mossLine('[moss] Cancelled: {message}', {
+        message: message || mossLine('operation was interrupted'),
+      })
     );
     process.exit(code);
   }
@@ -1529,14 +1804,16 @@ main().catch((err) => {
   // For unexpected / internal errors, show the bug-report notice.
   console.error(`[moss] ${message}`);
   console.error('');
-  console.error('This looks like a bug. Please help us fix it:');
-  console.error('  1. Run `moss doctor` to check your environment');
+  console.error(mossLine('This looks like a bug. Please help us fix it:'));
+  console.error(mossLine('  1. Run `moss doctor` to check your environment'));
   console.error(
-    '  2. If the problem persists, report it to the Moss maintainers with the details below.'
+    mossLine(
+      '  2. If the problem persists, report it to the Moss maintainers with the details below.'
+    )
   );
   if (err instanceof Error && err.stack) {
     console.error('');
-    console.error('Technical details (for bug reports):');
+    console.error(mossLine('Technical details (for bug reports):'));
     console.error(err.stack);
   }
   process.exit(code);

@@ -41,7 +41,14 @@ test('planning prompt completes the goal: plan, then implement, then verify', as
   assert.match(prompt, /\[task-phase:planning\]/);
   assert.match(prompt, /plan, then implement, then verify/);
   assert.match(prompt, /Goal: add a twenty-line helper/);
-  assert.match(prompt, /Implement the plan now/);
+  assert.match(prompt, /Implement only that change now/);
+  assert.match(prompt, /target_device if a device is involved, verification_plan/);
+  assert.match(prompt, /small code changes: 1–3 steps/);
+  assert.match(prompt, /inspect → change → build\/deploy → verify, at most 8 steps/);
+  assert.match(prompt, /tests_pass == true \(not ==pass\)/);
+  assert.match(prompt, /minimal and scoped/);
+  assert.doesNotMatch(prompt, /at most 3 steps/);
+  assert.doesNotMatch(prompt, /Record evidence for each acceptance metric/);
   assert.match(prompt, /task_acceptance/);
   assert.match(prompt, /do not call ask_user_question/i);
   assert.doesNotMatch(prompt, /do not implement|don't implement|no implementation|then stop\./i);
@@ -483,9 +490,9 @@ test('full chain: fail → repair → reverify → accepted, driven only by evid
   // stay verbatim. Default (no locale) stays English for SDK callers.
   const zhSummary = summarizeTaskRun(result, 'zh_CN.UTF-8');
   assert.match(zhSummary, /任务 task_\S+ — PASS/);
-  assert.match(zhSummary, /目标: camera FPS >=30 on device/);
-  assert.match(zhSummary, /尝试: 2 · 修复: 1 · 失败: 1/);
-  assert.match(zhSummary, /最终裁决:/);
+  assert.match(zhSummary, /目标：camera FPS >=30 on device/);
+  assert.match(zhSummary, /尝试：2 · 修复：1 · 失败：1/);
+  assert.match(zhSummary, /最终裁决：/);
   assert.match(zhSummary, /Acceptance passed/, 'verdict body stays verbatim under zh');
   assert.doesNotMatch(summarizeTaskRun(result), /任务/, 'no locale → English default');
   assert.match(summarizeTaskRun(result, 'en_US.UTF-8'), /^Task task_/, 'explicit en stays English');
@@ -794,7 +801,7 @@ test('esc during the resumed execution turn is aborted, not crashed, and resumab
   assert.doesNotMatch(summary, /Task failed/);
   assert.deepEqual(summary.match(/\/goal resume/g), ['/goal resume']);
   const zhSummary = summarizeTaskRun(result, 'zh-CN');
-  assert.match(zhSummary, /阶段: 已中止/);
+  assert.match(zhSummary, /阶段：已中止/);
   assert.doesNotMatch(zhSummary, /failed|\bFAIL\b|\/task resume/);
   assert.deepEqual(zhSummary.match(/\/goal resume/g), ['/goal resume']);
   await finishAfterAbort(ws, taskId);

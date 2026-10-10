@@ -48,6 +48,8 @@ const provider = {
 const agent = new MossAgent({
   llmProvider: provider,
   sessionStore: new InMemorySessionStore(),
+  // `identityFactory`, when passed, overrides this string: the constructor and
+  // `switchModel` both replace `baseSystemPrompt` with `identityFactory(model)`.
   baseSystemPrompt: 'You are an embedded status agent.',
   domainPrompt: false,
   enableSteering: false,

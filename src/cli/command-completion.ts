@@ -2,6 +2,47 @@ import { INTERACTIVE_COMPLETION_COMMANDS } from './interactive-commands.js';
 
 export const KNOWN_COMMANDS = INTERACTIVE_COMPLETION_COMMANDS;
 
+/**
+ * Up to `limit` registered commands closest to `token`, prefix matches first,
+ * then edit distance. Exact matches are omitted. A pure edit-distance hit has
+ * to be within 3 edits so an unrelated name is not offered.
+ */
+export function closestSlashCommands(
+  token: string,
+  candidates: readonly string[],
+  limit = 3
+): string[] {
+  const query = token.trim().toLowerCase().replace(/^\//, '');
+  if (!query || limit <= 0) return [];
+  const unique = [
+    ...new Set(
+      candidates.map((candidate) => (candidate.startsWith('/') ? candidate : `/${candidate}`))
+    ),
+  ];
+  const ranked = unique
+    .map((candidate) => {
+      const name = candidate.slice(1).toLowerCase();
+      if (!name || name === query) return undefined;
+      const prefix = name.startsWith(query);
+      const distance = editDistance(name, query);
+      if (!prefix && distance > 3) return undefined;
+      // `/tmp` is three edits from `/help`. A very short token only suggests a
+      // prefix, or a one-edit typo. Longer tokens still allow up to 3 edits.
+      if (!prefix && query.length < 4 && distance > 1) return undefined;
+      return { candidate, prefix, distance };
+    })
+    .filter(
+      (item): item is { candidate: string; prefix: boolean; distance: number } => item !== undefined
+    )
+    .sort(
+      (a, b) =>
+        Number(b.prefix) - Number(a.prefix) ||
+        a.distance - b.distance ||
+        a.candidate.localeCompare(b.candidate)
+    );
+  return ranked.slice(0, limit).map((item) => item.candidate);
+}
+
 export function commandSuggestion(command: string): string | null {
   const normalized = command.trim().toLowerCase();
   if (!normalized.startsWith('/')) return null;

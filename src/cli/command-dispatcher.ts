@@ -347,6 +347,17 @@ export const COMMANDS: Record<string, CommandConfig> = {
     description: 'Manage MCP servers: add/list/remove/test (project or user config)',
   },
 
+  trust: {
+    name: 'trust',
+    phase: CliPhase.None,
+    handler: async (ctx) => {
+      const { runTrustCommand } = await import('./trust-commands.js');
+      const code = await runTrustCommand(ctx.commandArgs);
+      if (code !== 0) process.exitCode = code;
+    },
+    description: 'List or remove trusted folders (user trust store)',
+  },
+
   setup: {
     name: 'setup',
     phase: CliPhase.None,
@@ -354,6 +365,16 @@ export const COMMANDS: Record<string, CommandConfig> = {
       // Imported from cli/setup-wizard.js
       const { runSetupWizard } = await import('./setup-wizard.js');
       await runSetupWizard();
+    },
+  },
+
+  update: {
+    name: 'update',
+    phase: CliPhase.None,
+    description: 'Print the upgrade command for this install (does not run it)',
+    handler: async (ctx) => {
+      const { runUpdateCommand } = await import('./update-command.js');
+      runUpdateCommand(undefined, ctx.commandArgs);
     },
   },
 
@@ -641,13 +662,7 @@ export const COMMANDS: Record<string, CommandConfig> = {
  * implementation in this build — subsystems removed before v0.14. Dispatching
  * one must hard-fail instead of silently falling through to chat.
  */
-export const UNIMPLEMENTED_COMMANDS: readonly string[] = [
-  'update',
-  'plugins',
-  'migrate',
-  'web',
-  'agent',
-];
+export const UNIMPLEMENTED_COMMANDS: readonly string[] = ['plugins', 'migrate', 'web', 'agent'];
 
 export function isUnimplementedCommand(commandName: string | undefined): boolean {
   return !!commandName && UNIMPLEMENTED_COMMANDS.includes(commandName);

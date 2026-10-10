@@ -31,6 +31,7 @@ import {
   renderRunSummary,
   renderStatusRight,
   renderTranscriptRow,
+  renderTranscriptRows,
   spinnerFrame,
 } from '../dist/cli/tui/transcript.js';
 
@@ -336,6 +337,41 @@ const THINKING = 'The user wants one word. ';
   const failedRow = failed.rows.find((row) => row.kind === 'result');
   assert.ok(failedRow?.tool?.isError, 'the failed todo_write row is marked as an error');
   assert.doesNotMatch(failedRow?.tool?.summary ?? '', /done$/, 'no progress count on failure');
+
+  // A trailing [moss] line is its own row, so the 3-line result fold cannot hide it.
+  const noticed = createTuiStore();
+  beginRun(noticed);
+  applyAgentEvent(noticed, {
+    type: 'tool_start',
+    toolName: 'exec',
+    toolCallId: 'git-diff',
+    input: { command: 'git diff' },
+  });
+  const diffBody = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta'].join('\n');
+  applyAgentEvent(noticed, {
+    type: 'tool_end',
+    toolName: 'exec',
+    toolCallId: 'git-diff',
+    isError: false,
+    result: `${diffBody}\n\n[moss] Repo hooks in an untrusted workspace were not run.`,
+  });
+  const noticeRow = noticed.rows.find((row) => row.kind === 'system');
+  assert.equal(
+    noticeRow?.text,
+    '[moss] Repo hooks in an untrusted workspace were not run.',
+    'the hook notice is its own transcript row'
+  );
+  const resultRow = noticed.rows.find((row) => row.kind === 'result');
+  assert.doesNotMatch(
+    resultRow?.text ?? '',
+    /\[moss\]/,
+    'the folded result does not keep the notice'
+  );
+  const painted = renderTranscriptRows(noticed.rows, 80, false)
+    .map((line) => line.text)
+    .join('\n');
+  assert.match(painted, /\[moss\] Repo hooks in an untrusted workspace were not run/);
+  assert.match(painted, /ctrl\+o/);
 }
 
 console.log('OK tui-run-state');
@@ -465,6 +501,64 @@ console.log('OK tui-run-state');
   );
 }
 
+// The final answer's first sentence is painted once. A second copy of the same
+// paragraphs (stream catch-up) used to survive: per-run dedupe only checks that
+// the response occurs inside this run, so one copy inside a doubled window
+// counts as already shown. A live tail that still holds the whole answer must
+// not be committed again when the run ends.
+{
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const { renderTranscriptRow } = await import('../dist/cli/tui/transcript.js');
+  const first = 'The board boots cleanly.';
+  const answer = `${first}\n\nPing answers on the first try.`;
+  const count = (haystack, needle) => {
+    let n = 0;
+    let at = 0;
+    while ((at = haystack.indexOf(needle, at)) !== -1) {
+      n += 1;
+      at += needle.length;
+    }
+    return n;
+  };
+  const rendered = (store) =>
+    store.rows
+      .filter((row) => row.kind === 'assistant')
+      .flatMap((row) => renderTranscriptRow(row, 80).map((line) => line.text))
+      .join('\n');
+
+  const doubled = createTuiStore();
+  beginRun(doubled);
+  applyAgentEvent(doubled, { type: 'text_delta', delta: `${answer}\n\n` });
+  applyAgentEvent(doubled, { type: 'text_delta', delta: answer });
+  applyAgentEvent(doubled, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  reconcileFinalResponse(doubled, answer);
+  endRun(doubled, false);
+  assert.equal(
+    count(rendered(doubled), first),
+    1,
+    'a repeated stream of the same answer paints the first sentence once'
+  );
+  assert.equal(
+    count(rendered(doubled), 'Ping answers on the first try.'),
+    1,
+    'the rest of that answer is painted once too'
+  );
+
+  const liveTail = createTuiStore();
+  beginRun(liveTail);
+  applyAgentEvent(liveTail, { type: 'text_delta', delta: `${first}\n\n` });
+  applyAgentEvent(liveTail, { type: 'text_delta', delta: 'Ping answers on the first try.' });
+  applyAgentEvent(liveTail, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  liveTail.run.streamingText = answer;
+  reconcileFinalResponse(liveTail, answer);
+  endRun(liveTail, false);
+  assert.equal(
+    count(rendered(liveTail), first),
+    1,
+    'a live tail that repeats the committed answer is not appended at end of run'
+  );
+}
+
 // Live reasoning in the detailed view: a long thought streams as a bounded tail
 // with a marker, not as a wall that pushes the answer and the spinner off screen.
 {
@@ -527,4 +621,140 @@ console.log('OK tui-run-state');
     .map((entry) => entry.text)
     .join('\n');
   assert.match(gateway, /gateway may be stuck/);
+}
+
+{
+  const lines = renderTranscriptRow(
+    {
+      id: 1,
+      kind: 'error',
+      text: '密钥被拒绝（401）。请核对 API key，或运行 moss setup 重新填写。\n网关原文：invalid api key',
+    },
+    80
+  ).map((entry) => entry.text);
+  const gateway = lines.find((line) => line.includes('网关原文：'));
+  assert.ok(gateway, lines.join('\n'));
+  assert.equal(gateway.includes('密钥被拒绝'), false);
+  assert.equal(
+    lines.some((line) => line.includes('密钥被拒绝') && line.includes('网关原文')),
+    false
+  );
+}
+
+// A non-tool answer whose final text only differs by blank lines and list
+// markers used to be appended under the streamed rows: the spaced `-` copy,
+// then the compacted `*` copy. Normalization makes those one answer.
+{
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const intro = 'These names are still unfilled template placeholders.';
+  const follow = 'Available skills are listed below.';
+  const items = ['skill-creator', 'rdk-docs', 'host-software-dev'];
+  const streamed = `${intro}\n\n${follow}\n\n${items.map((item) => `- ${item}`).join('\n')}`;
+  const finalText = `${intro}\n\n${follow}\n\n${items.map((item) => `* ${item}`).join('\n\n')}`;
+  const count = (haystack, needle) => haystack.split(needle).length - 1;
+  const paint = (store) =>
+    renderTranscriptRows(
+      store.rows.filter((row) => row.kind === 'assistant'),
+      80
+    )
+      .map((entry) => entry.text)
+      .join('\n');
+
+  const store = createTuiStore();
+  beginRun(store);
+  for (let index = 0; index < streamed.length; index += 24) {
+    applyAgentEvent(store, { type: 'text_delta', delta: streamed.slice(index, index + 24) });
+  }
+  applyAgentEvent(store, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  // The provider's done text is still the live tail, reformatted.
+  store.run.streamingText = finalText;
+  reconcileFinalResponse(store, finalText);
+  assert.equal(store.run.streamingText, '', 'a matching final tail is not left to append');
+  endRun(store, false);
+  const painted = paint(store);
+  for (const needle of [intro, follow, ...items]) {
+    assert.equal(count(painted, needle), 1, `a streamed bullet list is painted once (${needle})`);
+  }
+
+  const extended = `${finalText}\n\nThe board still answers ping.`;
+  const again = createTuiStore();
+  beginRun(again);
+  applyAgentEvent(again, { type: 'text_delta', delta: streamed });
+  applyAgentEvent(again, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  reconcileFinalResponse(again, extended);
+  endRun(again, false);
+  const extendedPaint = paint(again);
+  assert.equal(
+    count(extendedPaint, intro),
+    1,
+    'a longer final answer does not duplicate the stream'
+  );
+  assert.equal(count(extendedPaint, 'The board still answers ping.'), 1);
+}
+
+// A numbered plan and a later bullet list of the same items are two texts.
+// Marker-stripped comparison used to call them one answer and delete the plan
+// plus the note between them. Numbering that only differs (`1.`/`2.` vs `3.`/`4.`)
+// is kept too. Whitespace-only comparison is what may collapse a real duplicate.
+{
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const assistantText = (store) =>
+    store.rows
+      .filter((row) => row.kind === 'assistant')
+      .map((row) => row.text)
+      .join('\n');
+  const plan = '1. 检查 GPIO 配置\n2. 重启 hobot 服务';
+  const note = '引脚 12 被占用，先释放再测。';
+  const summary = '- 检查 GPIO 配置\n- 重启 hobot 服务';
+
+  const store = createTuiStore();
+  beginRun(store);
+  applyAgentEvent(store, { type: 'text_delta', delta: `${plan}\n\n` });
+  applyAgentEvent(store, { type: 'text_delta', delta: `${note}\n\n` });
+  applyAgentEvent(store, { type: 'text_delta', delta: summary });
+  applyAgentEvent(store, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  reconcileFinalResponse(store, summary);
+  endRun(store, false);
+  const kept = assistantText(store);
+  assert.match(kept, /1\. 检查 GPIO 配置/);
+  assert.match(kept, /2\. 重启 hobot 服务/);
+  assert.match(kept, /引脚 12 被占用/);
+  assert.match(kept, /- 检查 GPIO 配置/);
+  assert.match(kept, /- 重启 hobot 服务/);
+
+  const numbered = '1. 检查 GPIO 配置\n2. 重启 hobot 服务';
+  const renumbered = '3. 检查 GPIO 配置\n4. 重启 hobot 服务';
+  const lists = createTuiStore();
+  beginRun(lists);
+  applyAgentEvent(lists, { type: 'text_delta', delta: `${numbered}\n\n` });
+  applyAgentEvent(lists, { type: 'text_delta', delta: renumbered });
+  applyAgentEvent(lists, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  reconcileFinalResponse(lists, renumbered);
+  endRun(lists, false);
+  const both = assistantText(lists);
+  assert.match(both, /1\. 检查 GPIO 配置/);
+  assert.match(both, /2\. 重启 hobot 服务/);
+  assert.match(both, /3\. 检查 GPIO 配置/);
+  assert.match(both, /4\. 重启 hobot 服务/);
+}
+
+// A bullet summary that arrives only in `done` (no live tail, including after
+// an interrupt cleared the stream) must still be shown. Marker stripping used
+// to treat the numbered plan as that summary and drop the final text.
+{
+  const { reconcileFinalResponse } = await import('../dist/cli/tui/render-bridge.js');
+  const plan = '1. 检查 GPIO 配置\n2. 重启 hobot 服务';
+  const summary = '- 检查 GPIO 配置\n- 重启 hobot 服务';
+  const store = createTuiStore();
+  beginRun(store);
+  applyAgentEvent(store, { type: 'text_delta', delta: `${plan}\n\n` });
+  applyAgentEvent(store, { type: 'turn_end', turn: 1, stopReason: 'stop' });
+  assert.equal(store.run.streamingText, '');
+  reconcileFinalResponse(store, summary);
+  const kept = store.rows
+    .filter((row) => row.kind === 'assistant')
+    .map((row) => row.text)
+    .join('\n');
+  assert.match(kept, /- 检查 GPIO 配置/);
+  assert.match(kept, /- 重启 hobot 服务/);
 }

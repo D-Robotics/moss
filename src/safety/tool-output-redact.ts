@@ -1,53 +1,76 @@
 /**
- * One egress path for secret-like text. Reads and shell commands are not
- * blocked. Pattern redaction cannot stop xxd, od -c, hexdump, base64, rev,
- * fold, or a model that reassembles a secret character by character. The
- * main defenses are known-value exact match and the structured rules below
- * (PEM blocks, assignment values, netrc / docker / kube fields). Redaction
- * is defense in depth.
+ * One egress path for secret-like text. Ordinary source keeps identifiers,
+ * calls, types, and numbers. A password key redacts a quoted literal — the
+ * whole span, including spaces and escapes. Unquoted values use the shape
+ * rule (provider prefix, JWT, PEM, URL userinfo, length ≥ 8 with letters and
+ * digits, or length ≥ 20). Bare `pass` / `pwd` are not keys. `ALPHA-7741` stays.
  *
- * Moss credential files are still read. `.apikey-key` bytes are withheld
- * entirely. Property-access chains (`req.headers.authorization`), `${...}`
- * expressions, and bare letter-only identifiers are source text, not secrets.
- * Writing the `[REDACTED]` placeholder back into a file is rejected separately.
+ * `strictSecrets` is set for credential file names (`.env*`, `.netrc`,
+ * `*.credentials`, key files), not for source/doc extensions or parent
+ * directories. There, secret-named keys — including `PGPASSWORD`, `PGPASS`,
+ * `DBPASS`, `MYSQL_PWD` — redact any non-empty value except `<...>`,
+ * `${VAR}`, `$VAR`, `***`, `xxx`. Short `user:pass@` and ≥20-character
+ * high-entropy values are redacted too. Grep / search hits are judged from
+ * the `path:line:` prefix. A netrc password needs `machine` or `login` on
+ * the same line. A quoted value stays on one line; an unclosed quote masks
+ * through the end of that line, and up to three deeper-indented continuation
+ * lines are masked when they hold the closer. `.apikey-key` bytes are
+ * withheld before that decision. `Authorization` and `cookie` headers mask
+ * through the end of the line (`Bearer`, `Basic`, `Token`, `Digest`,
+ * `Proxy-Authorization`, `Set-Cookie`). `sshpass -p` masks its password.
  */
-import path from 'node:path';
-import { knownSecretPrefixCut, redactKnownSecretValues } from './known-secrets.js';
 import {
-  commandMentionsMossCredential,
-  isMossCredentialPath,
-  resolveReadPath,
-} from './read-scope.js';
-import { sanitizeSecrets } from './secret-sanitizer.js';
+  CREDENTIAL_WITHHELD,
+  credentialGrepHit,
+  isRawApiKeyFile,
+  scrubRawApiKeyLines,
+  targetsCredentialFile,
+} from './credential-path.js';
+import { redactConfigSecretFieldsInView, redactKnownSecretValues } from './known-secrets.js';
+import { bindRedactEgress } from './redact-bind.js';
+import {
+  AUTH_SCHEME_VALUE,
+  FIELD_BOUNDARY,
+  quoteOpensValue,
+  REDACTED,
+  SECRET_FIELD_SOURCE,
+} from './redact-patterns.js';
+import { redactNumberedText, redactPemBlocks, redactUnclosedPrivateKey } from './redact-pem.js';
+import { resolveReadPath } from './read-scope.js';
+import { maskIndentedQuoteContinuations, sanitizeSecrets } from './secret-sanitizer.js';
 
-const REDACTED = '[REDACTED]';
+export { isCredentialLikePath, targetsCredentialFile } from './credential-path.js';
+export { OPEN_SECRET_PREFIX, REDACTED, SECRET_FIELD_SOURCE } from './redact-patterns.js';
+
 const REDACTED_SENTINEL = '\u0000R\u0000';
 
-const PEM_PRIVATE_KEY =
-  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g;
+const SK_FRAGMENT = String.raw`sk-(?:[A-Za-z0-9_-]|\.{2,}){4,}`;
 
-const STANDALONE_SECRET =
-  /\b(?:sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[A-Z0-9]{16}|AIza[A-Za-z0-9_-]{30,}|enc:[A-Za-z0-9+/=]{20,})\b/g;
+const STANDALONE_SECRET = new RegExp(
+  String.raw`\b(?:github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[A-Z0-9]{16}|AIza[A-Za-z0-9_-]{30,}|enc:[A-Za-z0-9+/=]{20,})\b`,
+  'g'
+);
 
-/**
- * `_` is allowed before the keyword so `SERVICE_TOKEN=` and
- * `aws_secret_access_key =` match. Longer field names come first so the
- * whole name is kept in the replacement.
- */
-/**
- * Real newlines and JSON `\n` / `\r\n` escapes both separate fields. Session
- * files are redacted after JSON.stringify, so the escape form has to count.
- */
-const FIELD_BOUNDARY = String.raw`(?<=\\r\\n|\\n|^|[^A-Za-z0-9])`;
-
-const ASSIGNED_SECRET = new RegExp(
-  FIELD_BOUNDARY +
-    '(aws_secret_access_key|aws_access_key_id|client-key-data|client_key_data|api[_-]?key|access[_-]?key|private[_-]?key|secret|token|password|passwd|credential|authorization|bearer)(["\']?\\s*[:=]\\s*["\']?)([^\\s"\',}\\\\;)]{8,})',
+const ASSIGNED_HEAD = new RegExp(
+  '(?:' +
+    FIELD_BOUNDARY +
+    '(' +
+    SECRET_FIELD_SOURCE +
+    ')|(?<=_)(pwd|pass))' +
+    '(["\']?[ \\t]*[:=])',
   'gi'
 );
 
+/** Password-kind keys. `pass` / `pwd` arrive here only as suffix captures. */
+const PASSWORD_FIELD =
+  /^(?:passphrase|password|passwd|credential|pwd|pass|pgpassword|pgpass|dbpass|mysql_pwd)$/i;
+
 /** `.netrc` uses `password <value>`, not `password=`. */
-const NETRC_PASSWORD = /(^|[^\w]|\\r\\n|\\n)(password)([ \t]+)(?![=:])([^\s\\]{8,})/gi;
+const NETRC_PASSWORD = /(^|[^\w]|\\r\\n|\\n)(password)([ \t]+)(?![=:])([^\s\\]+)/gi;
+
+/** Type names and operators are not netrc secrets (`Password string`, `password !=`). */
+const NETRC_TYPE_NAME =
+  /^(?:string|str|int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|byte|rune|bool|boolean|float|float32|float64|double|char|void|any|object|number|\[\]byte|\[\]string)$/i;
 
 const DOCKER_AUTH = /((?:\\"|")auth(?:\\"|")\s*:\s*(?:\\"|"))([^"\\]+)((?:\\"|"))/gi;
 
@@ -57,6 +80,10 @@ const PLACEHOLDER =
 const PROPERTY_CHAIN = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+(?:\[[^\]]+\])?$/;
 const INDEX_ACCESS = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\[[^\]]+\]$/;
 const BARE_IDENTIFIER = /^[A-Za-z_$][A-Za-z_$]*$/;
+const BARE_VALUE = /^[^\s"',}\\;)]+/;
+
+/** `.pgpass` is `host:port:db:user:password`. Strict mode only. */
+const PGPASS_LINE = /^([^:\s]+):(\d+):([^:\s]*):([^:\s]+):([^:\s]+)$/;
 
 function isPlaceholder(value: string): boolean {
   if (PLACEHOLDER.test(value)) return true;
@@ -73,11 +100,6 @@ function isSourceExpression(value: string): boolean {
   return false;
 }
 
-/**
- * Letter-only identifiers are code, even when they are long
- * (`hashedPasswordValue`, `someLongIdentifierName`). A value is secret-like
- * when it mixes letters and digits, or when it is long and not an identifier.
- */
 function alreadyRedactedQueryValue(value: string): boolean {
   const parts = value.split('&');
   if (parts[0] !== REDACTED) return false;
@@ -85,241 +107,321 @@ function alreadyRedactedQueryValue(value: string): boolean {
     if (index === 0) return true;
     if (/^[A-Za-z0-9_.-]+=\[REDACTED\]$/.test(part)) return true;
     const eq = part.indexOf('=');
-    // `password=[REDACTED]&Zq9fK2mP7xW4vB8n` has no `=` in the second
-    // fragment. That fragment is still a secret; treating it as already
-    // redacted lets sanitizeSecrets turn it into `pass***8n`.
     if (eq <= 0) return false;
-    // A later high-entropy secret still redacts. `page=1` does not.
     return !shouldRedactAssignedValue(part.slice(eq + 1));
   });
 }
 
-function shouldRedactAssignedValue(value: string): boolean {
-  if (value.length < 8) return false;
+/**
+ * Known provider token prefixes. At least four payload characters must follow
+ * (`sk-abcd`, `AKIA` + 4, `ghp_` + 4). Real keys are longer.
+ */
+const CREDENTIAL_PREFIX =
+  /^(?:sk-|sk_(?:live|test)_|pk_(?:live|test)_|rk_(?:live|test)_|gh[pousr]_|github_pat_|glpat-|xox[baprs]-|AKIA|ASIA|AIza|xai-|gsk_|npm_|pypi-|dckr_pat_|vercel_|enc:)[A-Za-z0-9+/_.=-]{4,}$/;
+
+const JWT_VALUE = /^eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}$/;
+
+const MIN_MIXED_LENGTH = 8;
+const MIN_OPAQUE_LENGTH = 20;
+const HIGH_ENTROPY_BITS = 3.5;
+const PEM_VALUE = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
+const FIXTURE_LABEL = /^[A-Z]+-\d+$/;
+
+/** `user:password@host` or `scheme://user:password@host`, including an empty user. */
+function containsUrlUserinfo(value: string): boolean {
+  if (/[a-z][a-z0-9+.-]*:\/\/[^/\s:@]*:[^/\s:@]{4,}@/i.test(value)) return true;
+  return /^[^/\s:@]+:[^/\s:@]{4,}@/.test(value);
+}
+
+function shannonEntropy(value: string): number {
+  if (!value) return 0;
+  const freq = new Map<string, number>();
+  for (const ch of value) freq.set(ch, (freq.get(ch) ?? 0) + 1);
+  let bits = 0;
+  for (const count of freq.values()) {
+    const p = count / value.length;
+    bits -= p * Math.log2(p);
+  }
+  return bits;
+}
+
+function isHighEntropyToken(value: string): boolean {
+  if (value.length < MIN_OPAQUE_LENGTH) return false;
   if (isPlaceholder(value) || isSourceExpression(value)) return false;
-  // `credential=[REDACTED]&sig=[REDACTED]` is one assignment because `&` is
-  // a legal value character. The query values are already redacted; folding
-  // them again would drop the later keys. A secret before the first
-  // `[REDACTED]` still redacts.
+  if (value.includes('/') || value.includes('\\')) return false;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return false;
+  if (!/^[A-Za-z0-9+/=_.~-]{20,}$/.test(value)) return false;
+  return shannonEntropy(value) >= HIGH_ENTROPY_BITS;
+}
+
+/**
+ * Shape rule for token, key, secret, auth, URL userinfo, and unquoted
+ * password values. Identifiers, calls, types, keywords, numbers, and
+ * `ALPHA-7741` stay. Exact-match redaction of known secret values is separate.
+ */
+function shouldRedactAssignedValue(value: string): boolean {
+  const payload = AUTH_SCHEME_VALUE.exec(value)?.[1];
+  if (payload && (isPlaceholder(payload) || isSyntacticSecretPlaceholder(payload))) return false;
+  if (isPlaceholder(value)) return false;
+  if (
+    CREDENTIAL_PREFIX.test(value) ||
+    JWT_VALUE.test(value) ||
+    PEM_VALUE.test(value) ||
+    containsUrlUserinfo(value)
+  ) {
+    return true;
+  }
+  if (isSourceExpression(value)) return false;
   if (alreadyRedactedQueryValue(value)) return false;
+  if (value.length < MIN_MIXED_LENGTH) return false;
   if (BARE_IDENTIFIER.test(value)) return false;
+  if (FIXTURE_LABEL.test(value)) return false;
   if (/[A-Za-z]/.test(value) && /\d/.test(value)) return true;
-  return value.length >= 20;
-}
-
-const NUMBERED_READ_LINE = /^(\s*\d+\t)(.*)$/;
-/** Optional one-character diff / quote prefix: `+`, `-`, context space, or `>`. */
-const PEM_HEADER_LINE = /^[ \t]*(?:[+\- >][ \t]*)?-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
-const PEM_END_MARK = /-----END [A-Z0-9 ]*PRIVATE KEY-----/;
-const PEM_ARMOR_LINE = /^-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----$/;
-const PEM_END_LINE = /^-----END [A-Z0-9 ]*PRIVATE KEY-----$/;
-const KEY_MATERIAL_LINE = /^[A-Za-z0-9+/=:-]+$/;
-/** RFC 1421 encapsulation header, only valid before the first base64 line. */
-const RFC1421_HEADER = /^[A-Za-z][A-Za-z0-9-]*:\s?\S.*$/;
-
-/**
- * Replace a PEM block without collapsing lines. A `read_file` gutter
- * (`     12\t`) that sits on a line inside the block stays put, so later
- * line numbers do not jump.
- */
-function redactPemBlocks(text: string): string {
-  return text.replace(PEM_PRIVATE_KEY, (block) => redactPemLines(block));
-}
-
-function splitReadLine(line: string): { gutter: string; body: string } {
-  const numbered = NUMBERED_READ_LINE.exec(line);
-  if (!numbered) return { gutter: '', body: line };
-  return { gutter: numbered[1] ?? '', body: numbered[2] ?? '' };
+  return value.length >= MIN_OPAQUE_LENGTH;
 }
 
 /**
- * Drop one leading diff marker (`+`, `-`, space, `>`) so `+-----BEGIN` and
- * `+b3Blbn…` classify as armor and base64. Armor that already starts with
- * `-----` keeps its hyphens.
+ * Syntactic placeholders and env references. `changeme` is a real value.
+ * The unquoted scanner stops at `}`, so `${DB_PASS}` is seen as `${DB_PASS`.
  */
-function pemLineBody(body: string): string {
-  let text = body.trim();
-  if (!text.startsWith('-----BEGIN ') && !text.startsWith('-----END ')) {
-    const mark = text[0];
-    // A context-line space is already gone via trim. `+`, `-`, and `>` stay.
-    if (mark === '+' || mark === '-' || mark === '>') text = text.slice(1).trim();
+function isSyntacticSecretPlaceholder(value: string): boolean {
+  if (!value) return false;
+  if (/^<[^>\n]*>$/.test(value)) return true;
+  if (value.startsWith('${') || value.startsWith('$')) {
+    if (value.startsWith('${')) return true;
+    if (/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(value)) return true;
   }
-  return text;
+  if (/^(?:\*{3,}|x{3,})$/i.test(value)) return true;
+  if (value === REDACTED) return true;
+  return false;
 }
 
-/** A markdown fence (` ``` ` or `~~~`, optional info string) cannot be key body. */
-function isCodeFenceLine(body: string): boolean {
-  const trimmed = pemLineBody(body);
-  return trimmed.startsWith('```') || trimmed.startsWith('~~~');
+/** Credential-file rule. Any non-empty value except a syntactic placeholder. */
+function shouldRedactPasswordValue(value: string): boolean {
+  if (!value) return false;
+  if (isSyntacticSecretPlaceholder(value) || isSourceExpression(value)) return false;
+  if (alreadyRedactedQueryValue(value)) return false;
+  return true;
+}
+
+/** Quoted password literal. Keywords, types, and `${VAR}` stay. */
+function shouldRedactQuotedLiteral(value: string): boolean {
+  if (!shouldRedactPasswordValue(value)) return false;
+  return !isPlaceholder(value);
+}
+
+function lineAt(text: string, index: number): string {
+  const start = text.lastIndexOf('\n', Math.max(0, index - 1));
+  const from = start === -1 ? 0 : start + 1;
+  const end = text.indexOf('\n', index);
+  return text.slice(from, end === -1 ? text.length : end).trim();
+}
+
+function isNetrcSecretValue(value: string): boolean {
+  const word = value.replace(/[,;]+$/, '');
+  if (!word) return false;
+  if (/^(?:!=|!==|==|<=|>=)$/.test(word) || word.startsWith('!=')) return false;
+  if (NETRC_TYPE_NAME.test(word)) return false;
+  if (isPlaceholder(word) || isSourceExpression(word)) return false;
+  return true;
 }
 
 /**
- * Base64 / PEM armor. Spaces between words, or any character outside
- * `[A-Za-z0-9+/=:-]`, are not key body. RFC 1421 headers are not base64;
- * they are allowed only while the header section is still open.
+ * A netrc field, not a type or a sentence. `machine` / `login` must sit on
+ * the same line. Real `.netrc` files are already strict by path.
  */
-function isKeyMaterialLine(body: string): boolean {
-  const trimmed = pemLineBody(body);
-  if (!trimmed) return false;
-  if (PEM_ARMOR_LINE.test(trimmed) || PEM_END_LINE.test(trimmed)) return true;
-  return KEY_MATERIAL_LINE.test(trimmed);
+function isNetrcPasswordLine(line: string): boolean {
+  if (!/\b(?:machine|login)[ \t]+\S+/i.test(line)) return false;
+  const password = /\bpassword[ \t]+(?![=:])(\S+)/i.exec(line);
+  const value = password?.[1];
+  if (!value) return false;
+  return isNetrcSecretValue(value);
 }
 
-function isRfc1421HeaderLine(body: string): boolean {
-  return RFC1421_HEADER.test(pemLineBody(body));
+function assignedName(core: string | undefined, suffix: string | undefined): string {
+  return core || suffix || '';
 }
 
-function privateKeyEndLine(lines: readonly string[], from: number): number {
-  for (let i = from; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (line !== undefined && PEM_END_MARK.test(splitReadLine(line).body)) return i;
-  }
-  return -1;
+interface AssignedSpan {
+  end: number;
+  value: string;
+  sepExtra: string;
+  quoted: boolean;
+}
+
+/** Index of the line break after `index`, or the end of the text. The break stays outside. */
+function lineEndFrom(text: string, index: number): number {
+  const nl = text.indexOf('\n', index);
+  const end = nl === -1 ? text.length : nl;
+  return end > index && text[end - 1] === '\r' ? end - 1 : end;
 }
 
 /**
- * Lines of an unclosed key, starting at the BEGIN line. Before the first
- * base64 line, RFC 1421 headers (`Proc-Type: 4,ENCRYPTED`) and the blank line
- * that separates them from the body stay inside. After that, the span stops
- * before a code fence, a non-empty line that is not base64 or PEM armor, or a
- * blank line followed by either of those. A single leading diff marker is
- * ignored. Trailing blanks after the last key line stay outside the span.
+ * Opening quote through the matching closer on the same line. A newline ends
+ * the scan (`null`) so an unclosed quote cannot swallow the next lines.
+ * Escapes (`\"`, `\\`) stay inside.
  */
-function unclosedKeySpanLength(lines: readonly string[], start: number): number {
-  let last = start;
-  let inHeader = true;
-  for (let i = start + 1; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (line === undefined) break;
-    const body = splitReadLine(line).body;
-    if (pemLineBody(body) === '') {
-      let next = i + 1;
-      while (next < lines.length) {
-        const ahead = lines[next];
-        if (ahead === undefined || pemLineBody(splitReadLine(ahead).body) !== '') break;
-        next += 1;
-      }
-      const ahead = lines[next];
-      if (ahead === undefined) break;
-      const nextBody = splitReadLine(ahead).body;
-      if (isCodeFenceLine(nextBody)) break;
-      if (inHeader && isRfc1421HeaderLine(nextBody)) continue;
-      if (!isKeyMaterialLine(nextBody)) break;
+function scanQuoted(text: string, openAt: number): { end: number; inner: string } | null {
+  const quote = text[openAt];
+  if ((quote !== '"' && quote !== "'") || !quoteOpensValue(text, openAt)) return null;
+  let inner = '';
+  for (let i = openAt + 1; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === '\n' || ch === '\r') return null;
+    if (ch === '\\') {
+      const next = text[i + 1];
+      if (next === undefined || next === '\n' || next === '\r') return null;
+      inner += next;
+      i += 1;
       continue;
     }
-    if (isCodeFenceLine(body)) break;
-    if (inHeader && isRfc1421HeaderLine(body)) {
-      last = i;
-      continue;
-    }
-    if (!isKeyMaterialLine(body)) break;
-    inHeader = false;
-    last = i;
+    if (ch === quote) return { end: i + 1, inner };
+    inner += ch;
   }
-  return last - start + 1;
+  return null;
 }
 
-function redactLineRange(lines: string[], start: number, count: number): void {
-  const redacted = redactPemLines(lines.slice(start, start + count).join('\n')).split('\n');
-  for (let j = 0; j < count; j += 1) {
-    const line = redacted[j];
-    if (line !== undefined) lines[start + j] = line;
-  }
+function isAuthField(name: string): boolean {
+  return /^(?:authorization|bearer|cookie)$/i.test(name);
 }
 
-const PEM_LINE_OPEN =
-  /(?:^|\n)[ \t]*(?:\d+\t)?[ \t]*(?:[+\- >][ \t]*)?-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/g;
-
-/**
- * A line-start private-key header with no matching END. `-1` when every
- * opener is closed. The index is the start of that line, gutter included.
- */
-function unclosedPrivateKeyLineStart(text: string): number {
-  let holdAt = -1;
-  for (const match of text.matchAll(PEM_LINE_OPEN)) {
-    const at = match.index ?? 0;
-    const lineStart = text[at] === '\n' ? at + 1 : at;
-    if (!/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(text.slice(lineStart))) holdAt = lineStart;
-  }
-  return holdAt;
-}
-
-function redactPemLines(block: string): string {
-  return block
-    .split('\n')
-    .map((line) => {
-      if (line === '') return '';
-      const numbered = NUMBERED_READ_LINE.exec(line);
-      return `${numbered?.[1] ?? ''}${REDACTED}`;
-    })
-    .join('\n');
+/** Shell and template expressions are code, not a header secret. */
+function headerLooksLikeCode(value: string): boolean {
+  if (value.includes('${') || value.includes('$(')) return true;
+  return isSourceExpression(value) || isPlaceholder(value);
 }
 
 /**
- * Line-start `BEGIN … PRIVATE KEY` with no END, optionally prefixed by one
- * diff marker: redact from that line through the last base64 or PEM-armor
- * line. RFC 1421 headers before the first base64 line, and the blank line
- * before the body, stay inside. A code fence or other non-key line ends the
- * span; a blank line before such a line ends it too. A mention in the middle
- * of a sentence is left alone. Empty lines stay empty so the line count does
- * not change. Closed blocks are already gone.
+ * The secret name is the header itself (`Authorization:`, `Set-Cookie:`,
+ * `Proxy-Authorization:`), not a mention later in a sentence.
  */
-function redactUnclosedPrivateKey(text: string): string {
-  if (!text.includes('PRIVATE KEY-----')) return text;
-  const lines = text.split('\n');
-  let changed = false;
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line !== undefined && PEM_HEADER_LINE.test(splitReadLine(line).body)) {
-      const endAt = privateKeyEndLine(lines, i + 1);
-      const count = endAt === -1 ? unclosedKeySpanLength(lines, i) : endAt - i + 1;
-      redactLineRange(lines, i, count);
-      changed = true;
-      i += count;
-      continue;
-    }
-    i += 1;
-  }
-  return changed ? lines.join('\n') : text;
+function authHeaderAtLineStart(text: string, valueAt: number): boolean {
+  const lineStart = text.lastIndexOf('\n', Math.max(0, valueAt - 1)) + 1;
+  const prefix = text.slice(lineStart, valueAt);
+  return (
+    /^\s*(?:set-|proxy-)?$/i.test(prefix) ||
+    /^\s*(?:set-|proxy-)?(?:authorization|bearer|cookie)[ \t]*[:=][ \t]*$/i.test(prefix)
+  );
 }
 
-/**
- * `read_file` prefixes every line with a gutter. Redact each line's body on
- * its own so a multi-line match cannot swallow the next gutter. A private-key
- * block keeps one output line per source line.
- */
-function redactNumberedToolOutput(text: string, env: NodeJS.ProcessEnv): string {
-  const lines = text.split('\n');
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i] ?? '';
-    const { gutter, body } = splitReadLine(line);
-    if (PEM_HEADER_LINE.test(body)) {
-      const endAt = privateKeyEndLine(lines, i + 1);
-      const count = endAt === -1 ? unclosedKeySpanLength(lines, i) : endAt - i + 1;
-      redactLineRange(lines, i, count);
-      i += count;
-      continue;
-    }
-    lines[i] = line === '' ? '' : `${gutter}${redactEgress(body, env)}`;
-    i += 1;
-  }
-  return lines.join('\n');
+/** A real Authorization / Cookie header: mask through the end of the line. */
+function headerLooksLikeSecret(value: string): boolean {
+  if (!value || headerLooksLikeCode(value)) return false;
+  return shouldRedactAssignedValue(value);
 }
 
-function redactAssignments(text: string): string {
-  return text.replace(ASSIGNED_SECRET, (full, name: string, sep: string, value: string) => {
-    if (!shouldRedactAssignedValue(value)) return full;
-    return `${name}${sep}${REDACTED}`;
+function readAssignedValue(text: string, at: number, name: string): AssignedSpan | null {
+  let i = at;
+  while (i < text.length && (text[i] === ' ' || text[i] === '\t')) i += 1;
+  const ws = text.slice(at, i);
+  const ch = text[i];
+  if (ch === '"' || ch === "'") {
+    if (!quoteOpensValue(text, i)) return null;
+    const quoted = scanQuoted(text, i);
+    if (quoted) return { end: quoted.end, value: quoted.inner, sepExtra: ws, quoted: true };
+    const end = lineEndFrom(text, i + 1);
+    const value = text.slice(i + 1, end);
+    if (!value) return null;
+    return { end, value, sepExtra: ws, quoted: true };
+  }
+  if (isAuthField(name)) {
+    const end = lineEndFrom(text, i);
+    const header = text.slice(i, end);
+    if (header && authHeaderAtLineStart(text, i) && headerLooksLikeSecret(header)) {
+      return { end, value: header, sepExtra: ws, quoted: false };
+    }
+    const scheme = AUTH_SCHEME_VALUE.exec(header);
+    if (scheme?.[0] && !headerLooksLikeCode(scheme[0])) {
+      return { end: i + scheme[0].length, value: scheme[0], sepExtra: ws, quoted: false };
+    }
+  }
+  const bare = BARE_VALUE.exec(text.slice(i));
+  if (!bare?.[0]) return null;
+  return { end: i + bare[0].length, value: bare[0], sepExtra: ws, quoted: false };
+}
+
+interface AssignmentHit {
+  start: number;
+  end: number;
+  name: string;
+  sep: string;
+  value: string;
+  quoted: boolean;
+}
+
+function forEachAssignment(
+  text: string,
+  visit: (hit: AssignmentHit) => string | undefined
+): string {
+  let out = '';
+  let last = 0;
+  ASSIGNED_HEAD.lastIndex = 0;
+  for (const match of text.matchAll(ASSIGNED_HEAD)) {
+    const index = match.index ?? 0;
+    if (index < last) continue;
+    const sep = match[3] ?? '';
+    const name = assignedName(match[1], match[2]);
+    const span = readAssignedValue(text, index + match[0].length, name);
+    if (!span || !name) continue;
+    const replacement = visit({
+      start: index,
+      end: span.end,
+      name,
+      sep: sep + span.sepExtra,
+      value: span.value,
+      quoted: span.quoted,
+    });
+    if (replacement === undefined) continue;
+    out += text.slice(last, index);
+    out += replacement;
+    last = span.end;
+  }
+  out += text.slice(last);
+  return out;
+}
+
+function shouldRedactAssignment(hit: AssignmentHit, strictFile: boolean): boolean {
+  if (strictFile) return shouldRedactPasswordValue(hit.value);
+  const quotedValue = hit.quoted || /[:=][ \t]*['"]/.test(hit.sep);
+  if (PASSWORD_FIELD.test(hit.name) && !/^(?:pwd|pass)$/i.test(hit.name) && quotedValue) {
+    return shouldRedactQuotedLiteral(hit.value);
+  }
+  return shouldRedactAssignedValue(hit.value);
+}
+
+function redactNumberedToolOutput(
+  text: string,
+  env: NodeJS.ProcessEnv,
+  strictFile: boolean
+): string {
+  return redactNumberedText(text, (body) => redactEgress(body, env, { strictSecrets: strictFile }));
+}
+
+function redactSshpass(text: string): string {
+  return text.replace(/\bsshpass(\s+-p\s+)(\S+)/gi, (full, sep: string, value: string) => {
+    if (!value || isSyntacticSecretPlaceholder(value)) return full;
+    return `sshpass${sep}${REDACTED}`;
   });
 }
 
-function redactNetrcPasswords(text: string): string {
+function redactAssignments(text: string, strictFile: boolean): string {
+  const continued = maskIndentedQuoteContinuations(text);
+  return forEachAssignment(continued, (hit) => {
+    if (!shouldRedactAssignment(hit, strictFile)) return undefined;
+    return `${hit.name}${hit.sep}${REDACTED}`;
+  });
+}
+
+function redactNetrcPasswords(text: string, strictFile: boolean): string {
   return text.replace(
     NETRC_PASSWORD,
-    (full, lead: string, name: string, sep: string, value: string) => {
-      if (!shouldRedactAssignedValue(value)) return full;
+    (full, lead: string, name: string, sep: string, value: string, offset: number) => {
+      const netrcLine = isNetrcPasswordLine(lineAt(text, offset));
+      const redact =
+        strictFile || netrcLine
+          ? shouldRedactPasswordValue(value)
+          : shouldRedactAssignedValue(value);
+      if (!redact) return full;
       return `${lead}${name}${sep}${REDACTED}`;
     }
   );
@@ -336,20 +438,17 @@ function redactStandalone(text: string): string {
   return text.replace(STANDALONE_SECRET, REDACTED);
 }
 
-/** Stop a URL secret at the next delimiter so source like `);` stays put. */
+function redactSkFragments(text: string): string {
+  return text.replace(new RegExp(String.raw`\b` + SK_FRAGMENT, 'g'), REDACTED);
+}
+
 const URL_VALUE_END = '[^@&#\\s\'"`)\\]]+';
 
-/** `scheme://user:password@host` and `scheme://:password@host` (empty username). */
 const URL_USERINFO_PASSWORD = new RegExp(
   `([a-z][a-z0-9+.-]*:\\/\\/[^/\\s:@]*):(${URL_VALUE_END})@`,
   'gi'
 );
 
-/**
- * Query keys whose name ends in signature, credential, token, or sig
- * (`X-Amz-Signature`, `X-Goog-Signature`, CloudFront `Signature`).
- * Longer suffixes come first so `sig` does not eat `signature`.
- */
 const SENSITIVE_QUERY = new RegExp(
   `([?&][A-Za-z0-9_.-]*(?:signature|credential|token|sig)=)(${URL_VALUE_END})`,
   'gi'
@@ -365,30 +464,136 @@ function redactUrlSecrets(text: string): string {
     );
 }
 
-/**
- * `sanitizeSecrets` masks quoted credential values. Hide placeholders first so
- * a value we already replaced is not rewritten as `hunt***er`.
- */
-function sanitizeWithoutTouchingPlaceholders(text: string): string {
-  if (!text.includes(REDACTED)) return sanitizeSecrets(text);
-  const protectedText = text.split(REDACTED).join(REDACTED_SENTINEL);
-  return sanitizeSecrets(protectedText).split(REDACTED_SENTINEL).join(REDACTED);
+function redactGatewayKeyForms(text: string): string {
+  let out = text.replace(/(\bReceived\s+API\s+Key\s*=\s*)([^\s,;]+)/gi, `$1${REDACTED}`);
+  out = out.replace(/(\bKey\s+Hash(?:\s*\([^)\n]{0,40}\))?\s*=\s*)([^\s,;]+)/gi, `$1${REDACTED}`);
+  return redactSkFragments(out);
 }
 
 /**
- * Redact one string before it leaves the process: tool results, live exec
- * output, background buffers, assistant text, SDK events, evidence files,
- * and session logs.
+ * Gateway bodies quote the key and a hash (`Received API Key = sk-…`,
+ * `Key Hash (Token) = 2c58…`). `redactEgress` catches full secrets; this also
+ * strips the short fragments those messages keep.
  */
-export function redactEgress(text: string, env: NodeJS.ProcessEnv = process.env): string {
+export function redactGatewayText(text: string, env: NodeJS.ProcessEnv = process.env): string {
   if (!text) return text;
+  let out = redactEgress(text, env);
+  out = out.replace(
+    /((?:api[\s_-]*key|key[\s_-]*hash)(?:\s*\([^)]{0,40}\))?\s*[:=]\s*)([^\s,;]+)/gi,
+    `$1${REDACTED}`
+  );
+  return redactSkFragments(out);
+}
+
+/**
+ * A key sitting inside a string (`'Password: '`, `"Password: " + name`) is
+ * not an assignment. Hide that closer from `sanitizeSecrets`, which would
+ * otherwise treat the next quote on the line as the end of a value.
+ */
+function shieldOddKeyQuotes(text: string): { text: string; spans: string[] } {
+  const spans: string[] = [];
+  let out = '';
+  let last = 0;
+  ASSIGNED_HEAD.lastIndex = 0;
+  for (const match of text.matchAll(ASSIGNED_HEAD)) {
+    const index = match.index ?? 0;
+    if (index < last) continue;
+    let i = index + match[0].length;
+    while (i < text.length && (text[i] === ' ' || text[i] === '\t')) i += 1;
+    const ch = text[i];
+    if ((ch !== '"' && ch !== "'") || quoteOpensValue(text, i)) continue;
+    const token = `\u0000Q${spans.length}\u0000`;
+    spans.push(text.slice(index, i + 1));
+    out += text.slice(last, index);
+    out += token;
+    last = i + 1;
+  }
+  out += text.slice(last);
+  return { text: out, spans };
+}
+
+/**
+ * `sanitizeSecrets` masks quoted credential values and any `Password=<8+ chars>`.
+ * A password we kept on purpose must not be rewritten, and neither must a
+ * value already replaced with `[REDACTED]`. A quote that closes a string
+ * around the key is restored after that pass.
+ */
+function sanitizeWithoutTouchingPlaceholders(text: string): string {
+  const odd = shieldOddKeyQuotes(text);
+  const spans: string[] = [];
+  const shielded = forEachAssignment(odd.text, (hit) => {
+    if (!isSyntacticSecretPlaceholder(hit.value)) return undefined;
+    const token = `\u0000S${spans.length}\u0000`;
+    spans.push(odd.text.slice(hit.start, hit.end));
+    return token;
+  });
+  const protectedText = shielded.split(REDACTED).join(REDACTED_SENTINEL);
+  const sanitized = sanitizeSecrets(protectedText).split(REDACTED_SENTINEL).join(REDACTED);
+  const restored = sanitized.replace(
+    /\u0000S(\d+)\u0000/g,
+    (full, index: string) => spans[Number(index)] ?? full
+  );
+  return restored.replace(
+    /\u0000Q(\d+)\u0000/g,
+    (full, index: string) => odd.spans[Number(index)] ?? full
+  );
+}
+
+export interface RedactEgressOptions {
+  /**
+   * The text came from a `.env*` / credentials-like file, or a tool read that
+   * targets one. Secret-named keys use the password rule. Short URL userinfo
+   * and high-entropy ordinary assignments are redacted too.
+   */
+  strictSecrets?: boolean;
+}
+
+function redactPgpassLines(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => {
+      const match = PGPASS_LINE.exec(line);
+      const secret = match?.[5];
+      if (!match || !secret || !shouldRedactPasswordValue(secret)) return line;
+      return `${match[1]}:${match[2]}:${match[3]}:${match[4]}:${REDACTED}`;
+    })
+    .join('\n');
+}
+
+const LOOSE_USERINFO = /([^\s:='"]{1,128}):([^\s:@'"]+)@/g;
+const PLAIN_ASSIGNMENT = /(\b[A-Za-z_][A-Za-z0-9_]*\s*=\s*['"]?)([^\s#'"]+)/g;
+
+function redactStrictCredentialShapes(text: string): string {
+  const withUserinfo = text.replace(LOOSE_USERINFO, (full, user: string, secret: string) =>
+    shouldRedactPasswordValue(secret) ? `${user}:${REDACTED}@` : full
+  );
+  const withEntropy = withUserinfo.replace(
+    PLAIN_ASSIGNMENT,
+    (full, prefix: string, value: string) => {
+      if (value.includes(REDACTED)) return full;
+      return isHighEntropyToken(value) ? `${prefix}${REDACTED}` : full;
+    }
+  );
+  return redactPgpassLines(withEntropy);
+}
+
+export function redactEgress(
+  text: string,
+  env: NodeJS.ProcessEnv = process.env,
+  options?: RedactEgressOptions
+): string {
+  if (!text) return text;
+  const strictFile = options?.strictSecrets === true;
   let out = redactUnclosedPrivateKey(redactPemBlocks(text));
   out = redactKnownSecretValues(out, env);
   out = redactUrlSecrets(out);
-  out = redactAssignments(out);
-  out = redactNetrcPasswords(out);
+  if (strictFile) out = redactStrictCredentialShapes(out);
+  out = redactAssignments(out, strictFile);
+  out = redactSshpass(out);
+  out = redactNetrcPasswords(out, strictFile);
   out = redactDockerAuth(out);
   out = redactStandalone(out);
+  out = redactGatewayKeyForms(out);
   return sanitizeWithoutTouchingPlaceholders(out);
 }
 
@@ -397,11 +602,35 @@ export function redactToolOutput(text: string, env?: NodeJS.ProcessEnv): string 
   return redactEgress(text, env);
 }
 
-const CREDENTIAL_WITHHELD = 'Moss credential values withheld.\n';
+/**
+ * Whole-file strict when the tool targets a credential file. Otherwise each
+ * `path:line:body` hit is strict when that path's file name is credential-like.
+ * Overlay those hits only when ordinary redaction keeps the line count. If a
+ * span swallows newlines, redact the whole block in strict mode. Never put
+ * the original line back.
+ */
+function redactToolResult(text: string, env: NodeJS.ProcessEnv, strictSecrets: boolean): string {
+  if (strictSecrets) return redactEgress(text, env, { strictSecrets: true });
+  const lines = text.split('\n');
+  if (!lines.some((line) => credentialGrepHit(line))) return redactEgress(text, env);
+  const ordinary = redactEgress(text, env);
+  const ordinaryLines = ordinary.split('\n');
+  if (ordinaryLines.length !== lines.length) {
+    return redactEgress(text, env, { strictSecrets: true });
+  }
+  return lines
+    .map((line, index) => {
+      const hit = credentialGrepHit(line);
+      const ordinaryLine = ordinaryLines[index];
+      if (!hit) return ordinaryLine ?? '';
+      return `${hit.path}:${hit.lineNo}:${redactEgress(hit.body, env, { strictSecrets: true })}`;
+    })
+    .join('\n');
+}
 
 /**
- * Tool result the model is allowed to see. Ordinary secrets are redacted.
- * Moss's own key file is replaced entirely so raw key bytes never appear.
+ * Tool result the model is allowed to see. `.apikey-key` bytes are dropped
+ * first. Strict redaction then runs on that filtered text.
  */
 export function presentToolOutput(args: {
   toolName: string;
@@ -414,171 +643,34 @@ export function presentToolOutput(args: {
   const workspaceDir = args.workspaceDir || process.cwd();
   if (args.toolName === 'read_file') {
     const resolved = resolveReadPath(String(args.input.path ?? ''), workspaceDir, env);
-    if (isMossCredentialPath(resolved, env) && path.basename(resolved) === '.apikey-key') {
-      return CREDENTIAL_WITHHELD;
-    }
+    if (isRawApiKeyFile(resolved)) return CREDENTIAL_WITHHELD;
   }
   const command =
     args.toolName === 'exec' || args.toolName === 'exec_background'
       ? String(args.input.command ?? '')
       : '';
-  if (command && commandMentionsMossCredential(command) && /\.apikey-key\b/.test(command)) {
-    return CREDENTIAL_WITHHELD;
+  if (command && /\.apikey-key\b/.test(command)) return CREDENTIAL_WITHHELD;
+  const filtered = scrubRawApiKeyLines(args.text, workspaceDir, env);
+  const strictSecrets = targetsCredentialFile(args.toolName, args.input);
+  if (args.toolName === 'read_file') {
+    return redactNumberedToolOutput(
+      redactConfigSecretFieldsInView(filtered, env),
+      env,
+      strictSecrets
+    );
   }
-  if (args.toolName === 'read_file') return redactNumberedToolOutput(args.text, env);
-  return redactEgress(args.text, env);
+  return redactToolResult(filtered, env, strictSecrets);
 }
 
-/**
- * Text safe to paint while a stream is still open: every finished line, and
- * nothing from the current partial line or an unclosed line-start PEM block.
- * `flush` emits the tail; the unclosed key is then redacted only through the
- * last key-body line. While the stream is open, that span stays held.
- */
-export function visibleStreamPrefix(raw: string, flush: boolean): string {
-  if (flush) return raw;
-  const holdAt = unclosedPrivateKeyLineStart(raw);
-  if (holdAt !== -1) return raw.slice(0, holdAt);
-  if (raw.endsWith('\n')) return raw;
-  const nl = raw.lastIndexOf('\n');
-  return nl === -1 ? '' : raw.slice(0, nl + 1);
-}
+bindRedactEgress(redactEgress);
 
-const OPEN_ASSIGNMENT =
-  /(aws_secret_access_key|aws_access_key_id|client-key-data|client_key_data|api[_-]?key|access[_-]?key|private[_-]?key|secret|token|password|passwd|credential|authorization|bearer)(["']?\s*[:=]\s*["']?)(\S*)$/i;
-
-const OPEN_STANDALONE =
-  /(?:sk-|github_pat_|ghp_|glpat-|xox[baprs]-|AKIA|AIza|enc:)[A-Za-z0-9_+/=-]*$/;
-
-/**
- * Paint an unfinished line except a secret that is still growing. A finished
- * value is already `[REDACTED]`. Ordinary prose, including a token stream with
- * no secret shape, is returned as-is so the live tail stays responsive.
- */
-export function holdOpenSecretSuffix(line: string, env: NodeJS.ProcessEnv = process.env): string {
-  if (!line) return '';
-  if (
-    /^[ \t]*(?:[+\- >][ \t]*)?-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(line) &&
-    !/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(line)
-  ) {
-    return '';
-  }
-  const redacted = redactEgress(line, env);
-  let cut = knownSecretPrefixCut(redacted, env);
-  const assign = OPEN_ASSIGNMENT.exec(redacted);
-  if (assign && assign[3] !== '[REDACTED]') {
-    const start = assign.index;
-    const bounded = start === 0 || !/[A-Za-z0-9_]/.test(redacted.charAt(start - 1));
-    if (bounded) cut = Math.min(cut, start);
-  }
-  const standalone = OPEN_STANDALONE.exec(redacted);
-  if (standalone) cut = Math.min(cut, standalone.index);
-  return redacted.slice(0, cut);
-}
-
-/**
- * Hold a trailing partial line (and an open PEM block) so a secret split
- * across chunks is redacted once the line is complete. `push` returns only
- * the newly safe suffix. `flush` emits the remainder. `reset` drops a held
- * tail without emitting it.
- */
-export function createStreamingTextRedactor(): {
-  push(chunk: string): string;
-  flush(): string;
-  reset(): void;
-} {
-  let raw = '';
-  let emitted = '';
-  const publish = (flush: boolean): string => {
-    const redacted = redactEgress(visibleStreamPrefix(raw, flush));
-    if (!redacted.startsWith(emitted)) return '';
-    const more = redacted.slice(emitted.length);
-    emitted = redacted;
-    return more;
-  };
-  return {
-    push(chunk: string) {
-      if (!chunk) return '';
-      raw += chunk;
-      return publish(false);
-    },
-    flush() {
-      const more = publish(true);
-      raw = '';
-      emitted = '';
-      return more;
-    },
-    reset() {
-      raw = '';
-      emitted = '';
-    },
-  };
-}
-
-export function createRedactingChunkWriter(onChunk: ((text: string) => void) | undefined): {
-  write(chunk: string): void;
-  flush(): void;
-} | null {
-  if (!onChunk) return null;
-  const redactor = createStreamingTextRedactor();
-  return {
-    write(chunk: string) {
-      const more = redactor.push(chunk);
-      if (more) onChunk(more);
-    },
-    flush() {
-      const more = redactor.flush();
-      if (more) onChunk(more);
-    },
-  };
-}
-
-export function placeholderCount(text: string): number {
-  if (!text) return 0;
-  let count = 0;
-  let from = 0;
-  while (from <= text.length) {
-    const at = text.indexOf(REDACTED, from);
-    if (at === -1) return count;
-    count += 1;
-    from = at + REDACTED.length;
-  }
-  return count;
-}
-
-const REDACTED_WRITE_MORE =
-  'refusing to write [REDACTED] into a file that would then contain more of that placeholder than it already does. ' +
-  'Edit the real text from read_file; do not write the redacted form back.';
-
-/**
- * Reject file content whose `[REDACTED]` count is higher than the bytes
- * already on disk. A file that already mentions the placeholder can still
- * be rewritten, but not with additional placeholders.
- */
-export function redactedPlaceholderWriteError(
-  original: string | null,
-  next: string
-): string | null {
-  const before = original === null ? 0 : placeholderCount(original);
-  if (placeholderCount(next) <= before) return null;
-  return REDACTED_WRITE_MORE;
-}
-
-/** edit_file / multi_edit: compare the replacement text with the matched text. */
-export function redactedPlaceholderEditError(oldString: string, newString: string): string | null {
-  return redactedPlaceholderWriteError(oldString, newString);
-}
-
-/** apply_patch: compare placeholders on added lines with those on removed lines. */
-export function redactedPlaceholderPatchLineError(
-  lines: readonly { op: string; text: string }[]
-): string | null {
-  let removed = 0;
-  let added = 0;
-  for (const line of lines) {
-    if (line.op === '-') removed += placeholderCount(line.text);
-    else if (line.op === '+') added += placeholderCount(line.text);
-  }
-  if (added <= removed) return null;
-  return REDACTED_WRITE_MORE;
-}
+export {
+  createRedactingChunkWriter,
+  createStreamingTextRedactor,
+  holdOpenSecretSuffix,
+  placeholderCount,
+  redactedPlaceholderEditError,
+  redactedPlaceholderPatchLineError,
+  redactedPlaceholderWriteError,
+  visibleStreamPrefix,
+} from './redact-stream.js';

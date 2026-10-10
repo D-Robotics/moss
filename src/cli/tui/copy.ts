@@ -166,6 +166,17 @@ export const ZH: Readonly<Record<string, string>> = {
   'Esc to cancel · Tab to amend': 'Esc 取消 · Tab 补充说明',
 
   // ── composer placeholder (transcript.ts) ───────────────────────────────
+  'Next: ask me to look around this folder.': '下一步：让我看看这个目录里有什么。',
+  "workspace-write confines Moss's own file tools. Shell commands run normally without an OS sandbox.":
+    'workspace-write 只约束 Moss 自己的文件工具。shell 命令照常运行，没有操作系统沙箱。',
+  'terminal is shorter than 10 rows': '终端高度不足 10 行',
+  'terminal is narrower than {min} columns': '终端宽度不足 {min} 列',
+  '{reason} — using the inline view. Resize the window to use fullscreen.':
+    '{reason} — 使用内联视图。把窗口拉大即可全屏。',
+  '  Select model · {count} available · ↑↓ move · Enter this session · d save as default · Esc close':
+    '  选择模型 · {count} 个 · ↑↓ 移动 · Enter 仅本会话 · d 存为默认 · Esc 关闭',
+  'saved {model} as the default ({path})': '已把 {model} 存为默认（{path}）',
+  'could not save the default: {error}': '没能保存默认模型：{error}',
   'Try "stream the camera at 30 fps and verify it"': '试试 “以 30 fps 推流相机并验证”',
   'Try "fix the failing test and explain the change"': '试试 “修好失败的测试，并说明改了什么”',
   'Try "look around and tell me what this folder is"': '试试 “看看这个目录是做什么的”',
@@ -206,6 +217,9 @@ export const ZH: Readonly<Record<string, string>> = {
   ' · now ~{count} tokens': ' · 现在约 {count} tokens',
 
   // ── help overlay (app.ts / help.ts) ────────────────────────────────────
+  Language: '语言',
+  'PgUp / PgDn / wheel': 'PgUp / PgDn / 滚轮',
+  click: '点击',
   prefixes: '前缀',
   shortcuts: '快捷键',
   'all commands': '全部命令',
@@ -274,6 +288,7 @@ export const ZH: Readonly<Record<string, string>> = {
     '列出文件定义的子代理、来源路径和加载警告',
   'show safety and approval settings; --verbose prints every knob':
     '显示安全与审批设置；--verbose 打印每个开关',
+  'show or switch the UI language for this session': '显示或切换本会话的界面语言',
   'show or set the terminal colour theme for this session': '显示或设置本会话的终端配色',
   'caret to line start': '光标移到行首',
   'caret to line end': '光标移到行尾',
@@ -289,6 +304,10 @@ export const ZH: Readonly<Record<string, string>> = {
   'theme: {name}': '主题：{name}',
   'list configured lifecycle hooks and where to edit them':
     '列出已配置的生命周期 hooks 及其编辑位置',
+  'trust this folder for project settings (remembered in your user config)':
+    '信任此文件夹的项目设置（记在你的用户配置里）',
+  'forget trust for this folder; applies the next time Moss starts':
+    '取消对此文件夹的信任；下次启动 Moss 时生效',
   'interrupt the active run': '中断当前运行',
   'show the key and command reference': '显示快捷键与命令参考',
   'exit moss': '退出 moss',
@@ -374,8 +393,28 @@ export const ZH: Readonly<Record<string, string>> = {
   '  … type /model <name> for any other model': '  … 输入 /model <name> 选择其他模型',
 
   // ── task / status chrome (app.ts) ──────────────────────────────────────
+  '◇ Working out the steps': '◇ 正在理清步骤',
+  '◇ Doing the work': '◇ 正在做',
+  '◇ Checking the result': '◇ 正在核对结果',
+  '◇ Looking at what failed': '◇ 正在看哪里失败了',
+  '◇ Fixing it': '◇ 正在修复',
+  '◇ Checks passed': '◇ 检查通过',
+  '◇ Checks did not pass': '◇ 检查未通过',
+  '◇ Waiting on you': '◇ 等你决定',
+  '◇ Working': '◇ 进行中',
+  '◇ Checks passed ({met}/{total})': '◇ 检查通过（{met}/{total}）',
+  '◇ Checks did not pass ({met}/{total}) · /task resume':
+    '◇ 检查未通过（{met}/{total}）· /task resume',
+  '◇ Blocked — {reason} · /task resume': '◇ 受阻 — {reason} · /task resume',
+  '{count} measurement hidden — expand to see': '{count} 项测量已折叠 — 展开查看',
+  '{count} measurements hidden — expand to see': '{count} 项测量已折叠 — 展开查看',
+  'observed {observed} (want {expected})': '测得 {observed}（期望 {expected}）',
+  'observed {observed}': '测得 {observed}',
   '◇ task {id} — PASS ({criteria} met)': '◇ 任务 {id} — PASS（达成 {criteria} 项）',
   '◇ task {id} — FAIL ({criteria} met) · /task resume {task} to repair':
+    '◇ 任务 {id} — FAIL（达成 {criteria} 项）· /task resume {task} 修复',
+  '◇ task {id} — PASS ({criteria} criteria met)': '◇ 任务 {id} — PASS（达成 {criteria} 项）',
+  '◇ task {id} — FAIL ({criteria} criteria met) · /task resume {task} to repair':
     '◇ 任务 {id} — FAIL（达成 {criteria} 项）· /task resume {task} 修复',
   '◇ task {phase} — {text}': '◇ 任务 {phase} — {text}',
   '◇ task {id} blocked — {reason} · /task resume {task}':
@@ -422,6 +461,10 @@ export const ZH: Readonly<Record<string, string>> = {
   'History {n}/{total}': '历史 {n}/{total}',
   Permissions: '权限',
   '  mode  {mode}    Shift+Tab cycles': '  模式  {mode}    Shift+Tab 循环',
+  "  workspace-write confines Moss's own file tools.":
+    '  workspace-write 只约束 Moss 自己的文件工具。',
+  '  Shell commands run normally without an OS sandbox.':
+    '  shell 命令照常运行，没有操作系统沙箱。',
   '  no rules — full allows tools; deny still wins everywhere':
     '  无规则 — full 放行工具；deny 在任何模式都优先',
   session: '会话',
@@ -463,6 +506,8 @@ export const ZH: Readonly<Record<string, string>> = {
   'a run is in flight — press Esc to interrupt it before switching models':
     '有运行正在进行 — 切换模型前先按 Esc 中断',
   'switched to {model} ({provider})': '已切换到 {model}（{provider}）',
+  'this session only — /model save {model} writes the default':
+    '仅本次会话 — `/model save {model}` 会写成默认',
   'switched to custom model {model} ({provider})': '已切换到自定义模型 {model}（{provider}）',
   'context usage will appear after the first response from this model':
     '本模型首次响应后将显示上下文用量',
@@ -505,6 +550,11 @@ export const ZH: Readonly<Record<string, string>> = {
   '{command} failed: {error}': '{command} 失败：{error}',
   met: '达成',
   'blocked: {reason}': '受阻：{reason}',
+  'Tasks ({count})': '任务（{count}）',
+  'Evidence ({count})': '证据（{count}）',
+  'Deployments ({count})': '部署（{count}）',
+  'History ({count})': '历史（{count}）',
+  'Failures ({count})': '失败（{count}）',
 
   // ── /mcp status (rdk-docs-mcp.ts formatMcpStatusLine) ──────────────────
   '● {name} — connected': '● {name} — 已连接',
@@ -546,8 +596,36 @@ export const ZH: Readonly<Record<string, string>> = {
   'status line': '状态栏',
   'stdio MCP ({names})': 'stdio MCP（{names}）',
   'HTTP MCP ({names})': 'HTTP MCP（{names}）',
-  'agent {names}': '代理 {names}',
+  'agent {names}': '子代理 {names}',
   'plugin {names}': '插件 {names}',
+  'Trusting loads {summary}.': '信任后将加载 {summary}。',
+  'This project has no hooks, MCP servers, agents, or plugins.':
+    '此项目没有钩子、MCP 服务、子代理或插件。',
+  'A trusted project can change the model gateway, proxy, and TLS.':
+    '受信任的项目可以更改模型网关、流量代理和 TLS。',
+  'This folder is your home directory.': '此文件夹是你的主目录。',
+  'This folder is the filesystem root. Trusting it is not remembered.':
+    '此文件夹是文件系统根目录。这里的信任不会被记住。',
+  'Trust this folder?': '信任此文件夹？',
+  'Yes, trust this folder': '是，信任此文件夹',
+  'No, exit': '否，退出',
+  '[moss] This folder was not trusted. Exiting.': '[moss] 未信任此文件夹。正在退出。',
+  '[moss] Ancestor .env routing keys ignored from {dir}: {list}. Trust that directory to apply them.':
+    '[moss] 已忽略来自 {dir} 的上级目录 .env 路由键：{list}。信任该目录后才会应用它们。',
+  '[moss] Untrusted folder — ignored project settings: {list}. Trust this folder with --trust-workspace or MOSS_TRUST_WORKSPACE=1.':
+    '[moss] 文件夹未信任 — 已忽略项目设置：{list}。用 --trust-workspace 或 MOSS_TRUST_WORKSPACE=1 信任此文件夹。',
+  '[moss] Untrusted folder — project settings that change where traffic goes stay ignored. Trust this folder with --trust-workspace or MOSS_TRUST_WORKSPACE=1.':
+    '[moss] 文件夹未信任 — 会改变流量去向的项目设置保持忽略。用 --trust-workspace 或 MOSS_TRUST_WORKSPACE=1 信任此文件夹。',
+  '[moss] Project base URL {url} needs its own apiKey. The primary key is not sent to that host.':
+    '[moss] 项目 base URL {url} 需要自己的 apiKey。主密钥不会发往该主机。',
+  'Trusted {path}. It applies the next time Moss starts.': '已信任 {path}。下次启动 Moss 时生效。',
+  'The filesystem root is not remembered as trusted.': '文件系统根目录不会被记为已信任。',
+  'Removed trust for {path}. It applies the next time Moss starts.':
+    '已取消对 {path} 的信任。下次启动 Moss 时生效。',
+  'This folder is not trusted.': '此文件夹未被信任。',
+  'No trusted folders.': '没有已信任的文件夹。',
+  Model: '模型',
+  Command: '命令',
 };
 
 /**

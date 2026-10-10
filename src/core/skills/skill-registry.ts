@@ -24,6 +24,59 @@ export interface ParsedSkillFile {
   body: string;
 }
 
+/**
+ * Skill and slash-command names. Letters and digits from any script, then
+ * `.` `_` `:` `-`. A value that is entirely a `{{…}}` placeholder is not a name.
+ */
+export const CATALOG_NAME_RE = /^[\p{L}\p{N}][\p{L}\p{N}._:-]*$/u;
+
+export type SkillSkipReason = 'placeholder' | 'empty' | 'invalid-name' | 'hidden-dir';
+
+export interface SkillSkip {
+  file: string;
+  reason: SkillSkipReason;
+}
+
+export interface LoadSkillsOptions {
+  /** Called once per rejected SKILL.md. The caller shows one session notice. */
+  onSkip?: (skip: SkillSkip) => void;
+}
+
+/**
+ * True when the whole value is one unfilled `{{…}}` placeholder.
+ * A description that merely mentions `{{var}}` is real text.
+ */
+const ENTIRE_TEMPLATE_PLACEHOLDER_RE = /^\{\{[^{}]+\}\}$/;
+
+export function containsTemplatePlaceholder(value: string): boolean {
+  return ENTIRE_TEMPLATE_PLACEHOLDER_RE.test(value.trim());
+}
+
+/**
+ * Slash alias for a skill name. The catalog keeps the original name (`My Skill`,
+ * `c++-helper`); `/` commands cannot contain a space, so the slash surface uses
+ * this form. A name that is still illegal after the collapse gets no `/` command.
+ */
+export function skillSlashName(name: string): string {
+  return name.trim().replace(/\s+/g, '-');
+}
+
+/**
+ * Why this name/description must not be registered, or undefined when it is a
+ * real skill. Placeholder wins over the name pattern so `{{name}}` is reported
+ * as an unfilled template, not as a generic bad name.
+ */
+export function skillSkipReason(name: string, description: string): SkillSkipReason | undefined {
+  const trimmedName = name.trim();
+  const trimmedDescription = description.trim();
+  if (!trimmedName || !trimmedDescription) return 'empty';
+  if (containsTemplatePlaceholder(trimmedName) || containsTemplatePlaceholder(trimmedDescription)) {
+    return 'placeholder';
+  }
+  if (!CATALOG_NAME_RE.test(trimmedName)) return 'invalid-name';
+  return undefined;
+}
+
 export function parseSkillFile(text: string): ParsedSkillFile {
   const normalized = text.replace(/\r\n/g, '\n');
   if (!normalized.startsWith('---')) return { frontmatter: {}, body: normalized };
@@ -45,7 +98,40 @@ export function parseSkillFile(text: string): ParsedSkillFile {
   return { frontmatter, body };
 }
 
-function readSkillsFromDir(dir: string): SkillManifest[] {
+/** `_template` and `.hidden` are authoring scratch, not installed skills. */
+function isHiddenSkillFolder(name: string): boolean {
+  return name.startsWith('_') || name.startsWith('.');
+}
+
+function readSkillManifest(
+  file: string,
+  fallbackName: string,
+  onSkip?: (skip: SkillSkip) => void
+): SkillManifest | undefined {
+  let parsed: ParsedSkillFile;
+  try {
+    parsed = parseSkillFile(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return undefined;
+  }
+  const name = (parsed.frontmatter.name ?? fallbackName).trim();
+  const description = (parsed.frontmatter.description ?? '').trim();
+  const reason = skillSkipReason(name, description);
+  // `invalid-name` stays in the catalog and the skill tool. Only the slash
+  // surface refuses it, and only when the alias is still not a command name.
+  if (reason && reason !== 'invalid-name') {
+    onSkip?.({ file, reason });
+    return undefined;
+  }
+  return {
+    name,
+    description,
+    ...(parsed.frontmatter.when ? { when: parsed.frontmatter.when } : {}),
+    file,
+  };
+}
+
+function readSkillsFromDir(dir: string, onSkip?: (skip: SkillSkip) => void): SkillManifest[] {
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -55,22 +141,18 @@ function readSkillsFromDir(dir: string): SkillManifest[] {
   const skills: SkillManifest[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const file = path.join(dir, entry.name, 'SKILL.md');
-    if (!fs.existsSync(file)) continue;
-    try {
-      const parsed = parseSkillFile(fs.readFileSync(file, 'utf8'));
-      const name = parsed.frontmatter.name ?? entry.name;
-      const description = parsed.frontmatter.description ?? '';
-      if (!description) continue; // an undescribed skill cannot be discovered
-      skills.push({
-        name,
-        description,
-        ...(parsed.frontmatter.when ? { when: parsed.frontmatter.when } : {}),
-        file,
-      });
-    } catch {
-      /* unreadable skill files are skipped */
+    const child = path.join(dir, entry.name);
+    const file = path.join(child, 'SKILL.md');
+    // One level only, as main does. A SKILL.md under reference/ or templates/
+    // belongs to the skill that contains it and is not another skill.
+    // `_template` and dot folders are scratch even after the frontmatter is filled in.
+    if (isHiddenSkillFolder(entry.name)) {
+      if (fs.existsSync(file)) onSkip?.({ file, reason: 'hidden-dir' });
+      continue;
     }
+    if (!fs.existsSync(file)) continue;
+    const skill = readSkillManifest(file, entry.name, onSkip);
+    if (skill) skills.push(skill);
   }
   skills.sort((a, b) => a.name.localeCompare(b.name));
   return skills;
@@ -78,12 +160,25 @@ function readSkillsFromDir(dir: string): SkillManifest[] {
 
 /**
  * Load skills from directories, earlier dirs winning on name collisions
- * (workspace before user config).
+ * (workspace before user config). One level of folders only. Unfilled
+ * templates and folders named `_…` or `.…` are not registered; `onSkip`
+ * names each rejected file once.
  */
-export function loadSkills(dirs: readonly string[]): SkillManifest[] {
+export function loadSkills(
+  dirs: readonly string[],
+  options: LoadSkillsOptions = {}
+): SkillManifest[] {
   const byName = new Map<string, SkillManifest>();
+  const announced = new Set<string>();
+  const onSkip = options.onSkip
+    ? (skip: SkillSkip) => {
+        if (announced.has(skip.file)) return;
+        announced.add(skip.file);
+        options.onSkip?.(skip);
+      }
+    : undefined;
   for (const dir of dirs) {
-    for (const skill of readSkillsFromDir(dir)) {
+    for (const skill of readSkillsFromDir(dir, onSkip)) {
       if (!byName.has(skill.name)) byName.set(skill.name, skill);
     }
   }

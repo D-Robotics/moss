@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { stdout as standardOutput } from 'node:process';
+import { WORKSPACE_WRITE_LIMIT_EN, WORKSPACE_WRITE_LIMIT_ZH } from './workspace-write-copy.js';
 import { isHttpUrl } from '../provider/api-v1-url.js';
 import {
   auditResolvedCliConfig,
@@ -23,10 +24,12 @@ import {
   type ConfigFile,
 } from './config.js';
 import { errorMessage } from '../errors.js';
+import { isZhLocale } from './cli-locale.js';
 import { guessModelProvider, print, renderAuthStatus, sanitizeBaseUrl } from './setup-wizard.js';
 import { withoutSecret } from './config-snapshot.js';
 import { parsePermissionRuleSpec } from './permission-rules.js';
 import { parseCliInteractionMode } from './interaction-mode.js';
+import { parseLanguageSetting, uiText } from './cli-locale.js';
 
 function serializeResolvedConfig(
   resolved: ReturnType<typeof resolveCliConfig>
@@ -246,6 +249,20 @@ export function renderConfigJson(
 
 /** Short usage — printed on error paths; points at `moss config --help`. */
 export function renderConfigUsage(): string {
+  if (isZhLocale()) {
+    return [
+      '用法：',
+      '  moss config                          显示解析后的值和来源',
+      '  moss config init [--project] [--force]',
+      '  moss config show [--json]',
+      '  moss config validate [--strict] [--json]',
+      '  moss config env                      Moss 实际读取的每个 MOSS_* 覆盖',
+      '  moss config set <key> <value>|<key>=<value> [--project]',
+      '  moss config unset <key> [--project]',
+      '',
+      '每个可设置的键和示例：moss config --help',
+    ].join('\n');
+  }
   return [
     'Usage:',
     '  moss config                          show resolved values and sources',
@@ -279,13 +296,14 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_RUN_ID',
       'MOSS_BUNDLED_DEFAULT_FILE',
       'MOSS_NO_BUNDLED_DEFAULT',
+      'MOSS_SOURCE_DIR (checkout for moss update; --dir wins)',
     ],
   },
   {
     group:
       'safety & approval (v0.26: these are MODE overrides — read-only arms the read-only ceiling, never/ full, prompt/manual; rules live in permissions.*, not env)',
     vars: [
-      'MOSS_SAFETY_MODE',
+      `MOSS_SAFETY_MODE (${WORKSPACE_WRITE_LIMIT_EN})`,
       'MOSS_CLI_SAFETY_MODE (legacy alias of MOSS_SAFETY_MODE)',
       'MOSS_APPROVAL_POLICY',
       'MOSS_ASK_FOR_APPROVAL (legacy alias of MOSS_APPROVAL_POLICY)',
@@ -335,7 +353,9 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_DEVICE_TRUST_DEVICES (comma-separated host or device-id allowlist)',
       'MOSS_DEVICE_ (prefix of every MOSS_DEVICE_* key)',
       'MOSS_NO_RDK_DOCS (1|true|yes|on skips the built-in rdk-docs MCP server)',
+      'MOSS_WAIT_MCP_STARTUP (1 waits for the in-flight MCP connect before shutdown; default does not)',
       'MOSS_RDK_DOCS_PACKAGE (npm spec or local path; process env only, not project config or .env)',
+      'MOSS_RDK_DOCS_PIN_CHECK (1|true|yes|on asks npm if rdk-docs-mcp latest is newer than the pin; off by default, not used at startup)',
     ],
   },
   {
@@ -412,6 +432,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_TUI_RENDERER',
       'MOSS_TUI_RENDERER_CONFIG',
       'MOSS_TUI_THEME',
+      'MOSS_LANG (en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale)',
       'MOSS_NO_COLOR',
       'MOSS_LOG_LEVEL',
       'MOSS_LOG_JSON',
@@ -437,15 +458,81 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
   },
 ];
 
+const ENV_GROUP_ZH: Record<string, string> = {
+  'config & identity': '配置与身份',
+  'safety & approval (v0.26: these are MODE overrides — read-only arms the read-only ceiling, never/ full, prompt/manual; rules live in permissions.*, not env)':
+    '安全与审批（v0.26：这些是模式覆盖 — read-only 打开只读上限，never 对应 full，prompt 对应 manual；规则在 permissions.*，不在环境变量）',
+  'runs, loops & budgets': '运行、循环与预算',
+  'device (robotics closed loop)': '设备（机器人闭环）',
+  'context & compaction': '上下文与压缩',
+  'providers, models & fallback': '服务商、模型与回退',
+  'tools, exec & guardrails': '工具、执行与护栏',
+  'ui, logging & notifications': '界面、日志与通知',
+  'network & telemetry': '网络与遥测',
+  'test-only': '仅测试',
+  'read but IGNORED (model settings are config-only)': '会读到但忽略（模型设置只来自配置）',
+};
+
+const ENV_NOTE_ZH: Record<string, string> = {
+  'process env only; a project .env cannot set this': '仅进程环境；项目 .env 不能设置',
+  'process env or --config-file; a project .env cannot set this':
+    '进程环境或 --config-file；项目 .env 不能设置',
+  'legacy alias of MOSS_CONFIG_FILE; a project .env cannot set this':
+    'MOSS_CONFIG_FILE 的旧别名；项目 .env 不能设置',
+  'legacy alias of MOSS_PROFILE': 'MOSS_PROFILE 的旧别名',
+  'legacy alias of MOSS_SAFETY_MODE': 'MOSS_SAFETY_MODE 的旧别名',
+  'legacy alias of MOSS_APPROVAL_POLICY': 'MOSS_APPROVAL_POLICY 的旧别名',
+  'legacy — translated to allow rules on read': '旧键 — 读取时译成 allow 规则',
+  'legacy — translated to deny rules on read': '旧键 — 读取时译成 deny 规则',
+  'legacy alias of MOSS_CLI_AUTO_APPROVE': 'MOSS_CLI_AUTO_APPROVE 的旧别名',
+  'comma-separated nudge ids to suppress; unset leaves every nudge on':
+    '逗号分隔的要关掉的 nudge id；不设置则全部开启',
+  '1 enables the /plan approval gate; default off': '设为 1 打开 /plan 审批门；默认关闭',
+  'prefix of the MOSS_BUDGET_MAX_* keys': 'MOSS_BUDGET_MAX_* 键的前缀',
+  '1 enables the project-local experience experiment': '设为 1 打开项目本地经验实验',
+  'full|1|true|yes opts this process into destructive device operations':
+    'full|1|true|yes 让本进程允许毁灭性设备操作',
+  '1|true|yes|on; process env or --trust-workspace only, never a project .env':
+    '1|true|yes|on；仅进程环境或 --trust-workspace，不能写进项目 .env',
+  'comma-separated host or device-id allowlist': '逗号分隔的主机或设备 id 允许列表',
+  'prefix of every MOSS_DEVICE_* key': '所有 MOSS_DEVICE_* 键的前缀',
+  '1|true|yes|on skips the built-in rdk-docs MCP server':
+    '1|true|yes|on 跳过内置 rdk-docs MCP 服务器',
+  '1 waits for the in-flight MCP connect before shutdown; default does not':
+    '设为 1 时，退出前等待进行中的 MCP 连接；默认不等待',
+  'npm spec or local path; process env only, not project config or .env':
+    'npm 规格或本地路径；仅进程环境，不是项目配置或 .env',
+  '1|true|yes|on asks npm if rdk-docs-mcp latest is newer than the pin; off by default, not used at startup':
+    '1|true|yes|on 向 npm 查询 rdk-docs-mcp 的 latest 是否新于钉住的版本；默认关闭，启动时不用',
+  'legacy alias': '旧别名',
+  'en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale':
+    'en|zh；进程环境或 --lang；项目 .env 不能设置；优先级 flag > env > 配置 language > 系统区域',
+  'checkout for moss update; --dir wins': 'moss update 要升级的克隆；--dir 优先',
+};
+
+function localizeEnvEntry(entry: string): string {
+  if (!isZhLocale()) return entry;
+  const withLimit = entry.replace(WORKSPACE_WRITE_LIMIT_EN, WORKSPACE_WRITE_LIMIT_ZH);
+  return withLimit.replace(/\(([^)]*)\)/g, (full, inner: string) => {
+    const note = ENV_NOTE_ZH[inner];
+    return note ? `（${note}）` : full;
+  });
+}
+
 export function renderConfigEnv(): string {
-  const lines: string[] = ['MOSS_* environment variables moss actually reads:'];
+  const zh = isZhLocale();
+  const lines: string[] = [
+    zh ? 'Moss 实际读取的 MOSS_* 环境变量：' : 'MOSS_* environment variables moss actually reads:',
+  ];
   for (const { group, vars } of MOSS_ENV_REFERENCE) {
-    lines.push('', `  ${group}`);
-    for (const v of vars) lines.push(`    ${v}`);
+    lines.push('', `  ${zh ? (ENV_GROUP_ZH[group] ?? group) : group}`);
+    for (const v of vars) lines.push(`    ${localizeEnvEntry(v)}`);
   }
   lines.push(
     '',
-    'Credentials belong in the config file or a provider-specific key var — never in shell history.'
+    zh
+      ? '凭据放在配置文件或服务商自己的密钥变量里 — 不要写进 shell 历史。'
+      : 'Credentials belong in the config file or a provider-specific key var — never in shell history.'
   );
   return lines.join('\n');
 }
@@ -455,7 +542,8 @@ export function runConfigEnv(): void {
 }
 
 /** Full reference — the single home for settable keys and examples. */
-export function renderConfigHelp(): string {
+export function renderConfigHelp(zh = false): string {
+  if (zh) return renderConfigHelpZh();
   return [
     'Usage:',
     '  moss config',
@@ -463,7 +551,7 @@ export function renderConfigHelp(): string {
     '  moss config show',
     '  moss config show --json',
     '  moss config validate [--strict] [--json]',
-    '  moss config set <provider|model|baseUrl|apiKey> <value>                       # model',
+    '  moss config set <provider|model|baseUrl|apiKey|apiKeyEnv> <value>              # model',
     '  moss config set <profile|safetyMode|approvalPolicy|trustedTools|deniedTools|promptCache|promptCacheDebug|guardrails.*|agent.*> <value>   # operational',
     '  moss config set <key>=<value> [<key>=<value>...]                               # batch',
     '  moss config set --project <key>=<value> [<key>=<value>...]',
@@ -488,6 +576,7 @@ export function renderConfigHelp(): string {
     '  moss config set baseUrl https://your-gateway.example   # API root, not /v1 or /chat/completions',
     '  moss setup                                     # stores the API key (hidden prompt, safer than command line)',
     '  moss config set --project safetyMode workspace-write',
+    `  # ${WORKSPACE_WRITE_LIMIT_EN}`,
     '  moss config set approvalPolicy prompt',
     '  moss config set trustedTools exec,filesystem__*',
     '  moss config set deniedTools write_file,exec',
@@ -497,6 +586,57 @@ export function renderConfigHelp(): string {
     '  moss config set agent.compaction.reserveTokens 20000',
     '  moss config set rdkDocs false',
     '  moss config set rdkDocs.package ../rdk-docs-mcp',
+    '  moss config set language auto|en|zh   # user config only (not --project, not a project .env)',
+    '  # UI language precedence: --lang > MOSS_LANG > language > system locale. auto = zh only when the locale starts with zh.',
+    '',
+    'Options:',
+    '  --project              init/set/unset write .moss/config.json in the workspace',
+    '  --force                init overwrites an existing config file',
+    '  --json                 machine-readable show or validate output',
+    '  --strict               validate fails on warnings',
+    '  --config-file <path>   load only that file; the project layer is not merged',
+  ].join('\n');
+}
+
+function renderConfigHelpZh(): string {
+  return [
+    '用法：',
+    '  moss config',
+    '  moss config init [--project] [--force]',
+    '  moss config show',
+    '  moss config show --json',
+    '  moss config validate [--strict] [--json]',
+    '  moss config set <provider|model|baseUrl|apiKey|apiKeyEnv> <value>',
+    '  moss config set <profile|safetyMode|approvalPolicy|trustedTools|deniedTools|promptCache|promptCacheDebug|guardrails.*|agent.*> <value>',
+    '  moss config set <key>=<value> [<key>=<value>...]',
+    '  moss config set --project <key>=<value> [<key>=<value>...]',
+    '  moss config unset <key>',
+    '  moss config unset --project <key>',
+    '',
+    '配置文件：',
+    '  未指定文件时，Moss 读取用户配置，并把当前工作区的',
+    '  .moss/config.json 当作项目默认值合并。',
+    '  --config-file 与 MOSS_CONFIG_FILE 只加载那个文件，',
+    '  项目 .moss/config.json 这一层不会进入本次配置。',
+    '',
+    '选项：',
+    '  --project              init/set/unset 写入工作区 .moss/config.json',
+    '  --force                init 覆盖已有配置文件',
+    '  --json                 show / validate 的机器可读输出',
+    '  --strict               validate 把警告也当成失败',
+    '  --config-file <path>   只加载该文件，不合并项目层',
+    '',
+    '示例：',
+    '  moss config init --project',
+    '  moss config validate --strict',
+    '  moss config set --project safetyMode workspace-write',
+    `  # ${WORKSPACE_WRITE_LIMIT_ZH}`,
+    '  moss config set provider openai-compatible',
+    '  moss config set model <your-model>',
+    '  moss config set rdkDocs false',
+    '  moss config set rdkDocs.package ../rdk-docs-mcp',
+    '  moss config set language auto|en|zh   # 只写用户配置（不能 --project，项目 .env 也不能设置）',
+    '  # 界面语言优先级：--lang > MOSS_LANG > language > 系统区域。auto 仅在区域以 zh 开头时用中文。',
   ].join('\n');
 }
 
@@ -708,15 +848,14 @@ function buildProjectConfigTemplate(): ConfigFile {
     _examples: {
       customModel: {
         _comment: 'set these via moss config set --project provider|model|baseUrl <value>',
-        _apiKey:
-          'use moss setup for the key (hidden prompt); apiKey set via config file is encrypted at rest',
+        _apiKey: 'use moss setup for the key (hidden prompt); stored in config file (0600)',
       },
     },
   });
 }
 
 function supportedConfigKeys(): string {
-  return 'Supported keys — model: provider, model, baseUrl, apiKey; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens';
+  return 'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language';
 }
 
 function removeEmptyNestedConfig(config: ConfigFile): ConfigFile {
@@ -774,7 +913,18 @@ function applyConfigSetPair(
   value: string
 ): { ok: boolean; messages: string[] } {
   const messages: string[] = [];
-  if (key === 'profile') {
+  if (key === 'language') {
+    const setting = parseLanguageSetting(value);
+    if (!setting) {
+      return {
+        ok: false,
+        messages: [
+          uiText('Supported language values: auto, en, zh', 'language 只能是 auto、en 或 zh。'),
+        ],
+      };
+    }
+    next.language = setting;
+  } else if (key === 'profile') {
     const profile = normalizeConfigProfile(value);
     if (!profile) {
       return { ok: false, messages: ['Supported profile values: cautious, balanced, autonomous'] };
@@ -792,7 +942,7 @@ function applyConfigSetPair(
         ok: false,
         messages: [
           `Unknown provider: ${value}`,
-          'Supported provider values: deepseek, qwen, openai, anthropic, openai-compatible',
+          'Supported provider values: deepseek, qwen, openai, anthropic, openai-compatible, d-robotics',
           'Run `moss config --help` for supported keys and usage.',
         ],
       };
@@ -801,7 +951,11 @@ function applyConfigSetPair(
     const existingModel = ((next.model ?? '') as string).toLowerCase().trim();
     if (existingModel && provider !== 'openai-compatible') {
       const guessed = guessModelProvider(existingModel);
-      if (guessed && guessed !== provider) {
+      if (
+        guessed &&
+        guessed !== provider &&
+        !(provider === 'd-robotics' && guessed === 'deepseek')
+      ) {
         messages.push(
           `[config] Warning: model "${existingModel}" looks like a ${PROVIDER_PRESETS[guessed].displayName} model, but provider is ${PROVIDER_PRESETS[provider].displayName}. Mismatch?`
         );
@@ -812,7 +966,11 @@ function applyConfigSetPair(
     const resolvedProvider = next.provider ?? current.provider;
     if (resolvedProvider && resolvedProvider !== 'openai-compatible') {
       const guessed = guessModelProvider(value);
-      if (guessed && guessed !== resolvedProvider) {
+      if (
+        guessed &&
+        guessed !== resolvedProvider &&
+        !(resolvedProvider === 'd-robotics' && guessed === 'deepseek')
+      ) {
         messages.push(
           `[config] Warning: model "${value}" looks like a ${PROVIDER_PRESETS[guessed].displayName} model, but provider is ${PROVIDER_PRESETS[resolvedProvider as CliProviderPreset].displayName}. Mismatch?`
         );
@@ -820,6 +978,17 @@ function applyConfigSetPair(
     }
   } else if (key === 'apiKey') {
     next.apiKey = value;
+  } else if (key === 'apiKeyEnv') {
+    const name = value.trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      return {
+        ok: false,
+        messages: [
+          'apiKeyEnv must be an environment variable name (letters, digits, and underscore). The value is the name, not the key.',
+        ],
+      };
+    }
+    next.apiKeyEnv = name;
   } else if (key === 'baseUrl') {
     if (!isHttpUrl(value)) {
       return {
@@ -1103,6 +1272,17 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
     pairs = [{ key, value }];
   }
 
+  if (target.scope === 'project' && pairs.some((pair) => pair.key === 'language')) {
+    print(
+      uiText(
+        'language is a user setting. Omit --project (`moss config set language auto|en|zh`). A project config and a project .env cannot set it.',
+        'language 只能写在用户配置里。去掉 --project（`moss config set language auto|en|zh`）。项目配置和项目 .env 不能设置它。'
+      )
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   const current = loadConfigFile(target.configPath);
   const next = { ...current };
   const allMessages: string[] = [];
@@ -1129,20 +1309,35 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
 
   saveConfigFileAtPath(next, target.configPath);
   const scope = target.scope === 'project' ? 'project ' : '';
+  const zh = isZhLocale();
   if (isBatch) {
     const keyList = pairs.map((p) => p.key).join(', ');
-    print(`[config] ${scope}updated ${pairs.length} key(s) in ${target.configPath}: ${keyList}`);
+    print(
+      zh
+        ? `[config] ${scope}已更新 ${pairs.length} 项，文件 ${target.configPath}：${keyList}`
+        : `[config] ${scope}updated ${pairs.length} key(s) in ${target.configPath}: ${keyList}`
+    );
   } else {
-    print(`[config] ${scope}${pairs[0].key} updated in ${target.configPath}`);
+    print(
+      zh
+        ? `[config] ${scope}${pairs[0].key} 已更新，文件 ${target.configPath}`
+        : `[config] ${scope}${pairs[0].key} updated in ${target.configPath}`
+    );
   }
   for (const msg of allMessages) print(msg);
   if (pairs.some((p) => p.key === 'baseUrl')) {
-    print(`[config] baseUrl saved: ${next.baseUrl}`);
+    print(zh ? `[config] 地址已保存：${next.baseUrl}` : `[config] baseUrl saved: ${next.baseUrl}`);
   }
   if (apiKeySet) {
-    print(`[config] API key saved (encrypted) at ${target.configPath}.`);
     print(
-      '[config] NOTE: the key was sent via command line and may be in your shell history; for a hidden prompt, use `moss setup` next time.'
+      zh
+        ? `[config] API key 已存入配置文件（0600）：${target.configPath}。`
+        : `[config] API key stored in config file (0600) at ${target.configPath}.`
+    );
+    print(
+      zh
+        ? '[config] 注意：key 是从命令行传入的，可能留在 shell 历史里；下次用 `moss setup` 可以隐藏输入。'
+        : '[config] NOTE: the key was sent via command line and may be in your shell history; for a hidden prompt, use `moss setup` next time.'
     );
   }
 }
@@ -1156,13 +1351,25 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
     process.exitCode = 1;
     return;
   }
+  if (key === 'language' && target.scope === 'project') {
+    print(
+      uiText(
+        'language is a user setting. Omit --project (`moss config unset language`). A project config cannot set it.',
+        'language 只能写在用户配置里。去掉 --project（`moss config unset language`）。项目配置不能设置它。'
+      )
+    );
+    process.exitCode = 1;
+    return;
+  }
   const current = loadConfigFile(target.configPath);
   let next: ConfigFile = { ...current };
-  if (key === 'profile') delete next.profile;
+  if (key === 'language') delete next.language;
+  else if (key === 'profile') delete next.profile;
   else if (key === 'provider') delete next.provider;
   else if (key === 'model') delete next.model;
   else if (key === 'baseUrl') delete next.baseUrl;
   else if (key === 'apiKey') delete next.apiKey;
+  else if (key === 'apiKeyEnv') delete next.apiKeyEnv;
   else if (key === 'workspace') delete next.workspace;
   else if (key === 'safetyMode') delete next.safetyMode;
   else if (key === 'approvalPolicy') delete next.approvalPolicy;

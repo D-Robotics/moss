@@ -19,6 +19,18 @@ const tool = (name) => ({ name, description: '', inputSchema: { type: 'object', 
     );
   }
   assert.equal(allow(tool('custom_company_tool')), true, 'unknown/custom tools are never hidden');
+  assert.equal(
+    allow({
+      name: 'ask_user_question',
+      description: '',
+      metadata: { requiresUserQuestion: true },
+      inputSchema: { type: 'object', properties: {} },
+    }),
+    true,
+    'oneshot does not hide the question tool by name; the asker check does'
+  );
+  assert.equal(allow(tool('task_define')), true, 'task tools stay available in -p');
+  assert.equal(allow(tool('record_evidence')), true, 'task tools stay available in -p');
 }
 
 {
@@ -113,6 +125,23 @@ for (const [prompt, expected] of [
   const allow = oneShotToolFilterForMessage(prompt);
   for (const name of expected)
     assert.equal(allow(tool(name)), true, `${name} enabled for: ${prompt}`);
+}
+
+{
+  const coding = oneShotToolFilterForMessage(
+    'Fix the off-by-one in src/parse.js. Expected behavior is in src/parse.test.js.'
+  );
+  assert.equal(coding({ name: 'tool_search' }), false, 'coding -p hides tool_search');
+  assert.equal(
+    coding({ name: 'merge_subagent_patch' }),
+    false,
+    'coding -p hides merge_subagent_patch'
+  );
+  assert.equal(coding({ name: 'exec_wait' }), false, 'coding -p hides exec_wait');
+  assert.equal(coding({ name: 'read_file' }), true, 'coding -p keeps read_file');
+  const parallel = oneShotToolFilterForMessage('Ask several subagents to review this in parallel');
+  assert.equal(parallel({ name: 'tool_search' }), true, 'parallel -p offers tool_search');
+  assert.equal(parallel({ name: 'merge_subagent_patch' }), true, 'parallel -p offers merge');
 }
 
 console.log('[PASS] one-shot tool routing keeps explicit capabilities discoverable');

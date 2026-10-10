@@ -62,6 +62,62 @@ assert.match(GOAL_USAGE, /\/goal clear/);
 }
 
 {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-goal-unittest-'));
+  fs.mkdirSync(path.join(workspace, 'tests'));
+  fs.writeFileSync(
+    path.join(workspace, 'tests', 'test_math.py'),
+    'import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n'
+  );
+  const proposal = proposeAcceptanceCommands(workspace);
+  const py = process.platform === 'win32' ? 'python' : 'python3';
+  assert.ok(
+    proposal.candidates.includes(`${py} -m unittest discover -s tests`),
+    `unittest tree proposes discover: ${proposal.candidates.join(', ')}`
+  );
+  assert.equal(
+    proposal.candidates.includes('pytest'),
+    false,
+    'a unittest tree does not propose pytest'
+  );
+  const planned = planGoalInvocation('make the math tests pass', workspace);
+  assert.equal(planned.kind, 'propose');
+  assert.ok(planned.candidates.includes(`${py} -m unittest discover -s tests`));
+}
+
+{
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-goal-unittest-pkg-'));
+  fs.mkdirSync(path.join(workspace, 'tests'));
+  fs.writeFileSync(path.join(workspace, 'tests', '__init__.py'), '');
+  fs.writeFileSync(
+    path.join(workspace, 'tests', 'test_math.py'),
+    'import unittest\n\nclass T(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n'
+  );
+  const proposal = proposeAcceptanceCommands(workspace);
+  const py = process.platform === 'win32' ? 'python' : 'python3';
+  assert.ok(
+    proposal.candidates.includes(`${py} -m unittest discover -s tests -t .`),
+    `packaged tests/ proposes -t .: ${proposal.candidates.join(', ')}`
+  );
+}
+
+{
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-goal-pytest-'));
+  fs.writeFileSync(path.join(workspace, 'pytest.ini'), '[pytest]\n');
+  fs.writeFileSync(path.join(workspace, 'test_app.py'), 'def test_ok():\n    assert True\n');
+  const proposal = proposeAcceptanceCommands(workspace);
+  const py = process.platform === 'win32' ? 'python' : 'python3';
+  assert.ok(
+    proposal.candidates.includes(`${py} -m pytest`),
+    `pytest tree proposes the interpreter module: ${proposal.candidates.join(', ')}`
+  );
+  assert.equal(
+    proposal.candidates.includes('pytest'),
+    false,
+    'a pytest tree does not propose a bare pytest'
+  );
+}
+
+{
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-goal-empty-'));
   const proposal = proposeAcceptanceCommands(workspace);
   assert.deepEqual(proposal.candidates, [], 'an empty workspace invents no command');
@@ -102,6 +158,8 @@ assert.match(GOAL_USAGE, /\/goal clear/);
     assert.match(prompt, /task-failures\.jsonl/);
     assert.match(prompt, /deployments\.jsonl/);
   }
+  assert.match(quick, /non-finite numbers when the runtime can receive them/);
+  assert.match(quick, /an `exec` that is clearly a test, build, typecheck, or lint/);
 }
 
 assert.equal(resolveLoopMaxIterations({}), 0, 'loop is unlimited by default');

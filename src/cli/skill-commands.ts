@@ -17,8 +17,15 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
       '  moss skill create <name>          生成 .moss/skills/<name>/SKILL.md 脚手架',
       '  moss skill list                   列出已发现的 skills（工作区 + 用户级）',
       '',
-      '编辑脚手架、补全 description 与正文；下次启动 moss 自动加载（渐进披露：',
-      '只有 name + description 进入提示词；正文经 skill 工具按 {args} 加载）。',
+      '编辑脚手架，补全 description 和正文；下次启动 moss 会自动加载（渐进披露：',
+      '只有 name 和 description 进入提示词；正文由 skill 工具按 {args} 加载）。',
+      '',
+      '选项：',
+      '  （无）  create <name> 与 list 不接受其它参数',
+      '',
+      '示例：',
+      '  moss skill create deploy-check',
+      '  moss skill list',
     ].join('\n');
   }
   return [
@@ -29,6 +36,13 @@ export function renderSkillUsage(zh: boolean = isZhLocale()): string {
     'Edit the scaffold, fill in description + body; it appears in the next',
     'session automatically (progressive disclosure: only name + description',
     'enter the prompt; the body loads via the skill tool with {args}).',
+    '',
+    'Options:',
+    '  (none)  create <name> and list take no other flags',
+    '',
+    'Examples:',
+    '  moss skill create deploy-check',
+    '  moss skill list',
   ].join('\n');
 }
 

@@ -71,8 +71,8 @@ import { mergeConfigFiles } from '../dist/cli/config.js';
 {
   const user = { provider: 'anthropic', apiKey: 'user-key', _apiKeyEncrypted: true };
   const merged = mergeConfigFiles({ provider: 'openai' }, user);
-  assert.equal(merged.apiKey, undefined, 'project provider must not inherit the user API key');
-  assert.equal(merged._apiKeyEncrypted, undefined, 'discarded user key marker must not survive');
+  assert.equal(merged.apiKey, 'user-key', 'an official provider host may keep the user API key');
+  assert.equal(merged._apiKeyEncrypted, true, 'the user key marker stays with the user key');
 }
 
 {

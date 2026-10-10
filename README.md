@@ -21,15 +21,62 @@ Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器
 - 无账号、无云服务、无遥测——provider 就是普通 HTTP 端点
 - 四种交互面：全屏 TUI · readline REPL · headless CLI · 可嵌入 SDK
 
-## 快速开始
+## 环境
 
-> 仓库尚未发布到 npm（`private: true`），从源码构建：
+先看 Node 版本：
 
 ```bash
-git clone https://github.com/D-Robotics/moss && cd moss
-npm install && npm run build && npm link   # npm link 可选：把 `moss` 装到 PATH 上
-moss setup                                 # 配置 provider / 模型 / API key（输入不回显）
-moss                                       # 进入交互界面
+node -v
+```
+
+需要 **22.16** 或更高。npm 会先装依赖，再跑根包的 `preinstall`（`scripts/check-node-version.cjs`）。Node 低于 22.16 时脚本打印升级步骤并退出 1，这时依赖已经在磁盘上，还没有可用的 `moss`。升级 Node 后再安装一次。Node 22.16 自带 npm 10，不要按 npm 的提示升级到 npm 12：这个 Node 不支持 npm 12。
+
+- nvm：`nvm install 22`，装完再跑一次 `node -v`
+- NodeSource：见 [nodesource/distributions](https://github.com/nodesource/distributions)
+- 国内网络：`npm config set registry https://registry.npmmirror.com`。nvm 下载 Node 可以设 `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+
+### macOS
+
+Git 需要 Xcode Command Line Tools。没有 `git` 时运行 `xcode-select --install`。Moss 自己不需要 C 编译器，`cpu-features` 的可选原生构建失败也不影响运行。Node 用 Homebrew 或 nvm，装完用 `node -v` 确认是 22.16 或更高。全局目录没有写权限时，用下面的用户级 prefix。
+
+### Windows
+
+先装 Git for Windows 和 nvm-windows。PowerShell 的执行策略可能拦截 `moss.ps1`。只给当前用户放开脚本：
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+把 `%APPDATA%\npm` 加进 PATH。这是 npm 在 Windows 上的默认全局命令目录。
+
+## 快速开始
+
+从源码安装，运行 `moss`，在界面里完成设置，然后要一个回答。`npm ci` 会跑 `prepare`（也就是 `npm run build`），所以不用再单独构建：
+
+```bash
+git clone https://github.com/D-Robotics/moss.git
+cd moss
+npm ci
+npm install -g --install-links .
+moss
+```
+
+如果以前装过旧的未加 scope 的 `moss` 包，先执行 `npm uninstall -g moss`，否则两个包抢同一个 `moss` 命令，npm 会报 EEXIST。不要加 `--force`：它会同时留下旧包和 `@rdk-moss/agent`，之后再 `npm uninstall -g moss` 会把 `moss` 命令一起删掉。`npm install -g @rdk-moss/agent` 即将发布。
+
+npm 11 可能打印 `npm warn install-scripts`。`npm ci` 可能会点名 `ssh2` 和 `cpu-features`。接下来的 `npm install -g --install-links .` 还可能点名 `@rdk-moss/agent`（它的 `preinstall` 和 `prepare`）。这是提示，安装仍然成功：ssh2 没有可选的原生模块也能用，全局副本里已经有 `dist/`。不要运行 `npm audit fix --force`，它会改依赖版本，装完不能用。
+
+全局目录没有写权限（EACCES）时，把 prefix 放到用户目录，或改用 nvm（Node 装在家目录里）：
+
+```bash
+npm config set prefix ~/.npm-global
+```
+
+把 `~/.npm-global/bin` 加进 PATH，然后重新打开终端。
+
+没有可用配置时，`moss` 就在这个界面里设置（按数字选服务商，或按 Enter 使用环境里已有的 key，内容不会显示）。D-Robotics 地瓜网关是第一项，已经预选（地址 `https://ai-api.d-robotics.cc/v1`，默认模型 `deepseek-flash`，只问 key）。不想把 key 写进文件时，先指定服务商再写变量名：`moss config set provider d-robotics`，然后 `moss config set apiKeyEnv <变量名>`。只写 `apiKeyEnv`、不写服务商或地址时，会先问选哪一家，不会把 key 发给默认的 DeepSeek。设好后在同一会话里说：
+
+```text
+看一下这个目录里有什么
 ```
 
 进到交互界面后：
@@ -50,6 +97,38 @@ moss --no-tty                                 # 强制使用 readline REPL
 ```
 
 </details>
+
+## 升级
+
+如果 `moss` 命令还来自旧的未加 scope 的包（包括 `npm link`），先执行 `npm uninstall -g moss`。否则 `npm install -g --install-links .` 会报 EEXIST，而这时 `moss --version` 看起来可能已经是新的。
+
+已有 `moss` 克隆时，在它的上一级目录运行：
+
+```bash
+cd moss && git pull && npm ci && npm install -g --install-links .
+```
+
+`npm ci` 会重新构建。`--install-links` 把新的副本装进全局 prefix，而不只是重新编译克隆目录。`moss --version` 带短 commit 和构建日期，例如 `moss v0.26.0 (e8dc2e3, 2026-10-10)`。构建时工作区有未提交改动会写成 `e8dc2e3+dirty`。升级前后可以对上。
+
+还没有 `moss` 目录时，用上面的安装步骤。`moss update` 找得到克隆就打印这一行，找不到才打印 `git clone`。全局安装只在当前目录和 `./moss` 里找。别的位置用 `moss update --dir <克隆>` 或 `MOSS_SOURCE_DIR`。它只打印命令，不执行。
+
+## 卸载
+
+```bash
+npm uninstall -g @rdk-moss/agent
+```
+
+这条只卸掉命令。下面的东西会留下：
+
+- 配置：Linux / macOS 是 `~/.config/moss`（设了 `XDG_CONFIG_HOME` 时在那里的 `moss`），Windows 是 `%APPDATA%\moss`。也检查 `~/.moss`
+- npx 缓存：`~/.moss/cache/npx`
+- 每个项目里的 `.moss/`（任务、会话、项目配置）
+- 源码克隆目录
+- npm 缓存，一般是 `~/.npm`
+- 原生模块缓存：`~/.cache/node-gyp`
+- prefix 里可能留下空的 `@rdk-moss` 目录：Linux / macOS 是 `$(npm prefix -g)/lib/node_modules/@rdk-moss`，Windows 是 `%APPDATA%\npm\node_modules\@rdk-moss`
+
+可以删：`~/.moss/cache/npx`、`~/.cache/node-gyp`、npm 缓存（`npm cache clean --force`）、空的 `@rdk-moss` 目录，以及你不再需要的克隆目录。删掉 `~/.config/moss`、`~/.moss` 或项目里的 `.moss/` 会同时去掉 key、设置和任务记录；只有确定不要这些数据时再删。
 
 ## 为什么是 Moss
 
@@ -94,7 +173,7 @@ moss device fleet info --devices rdk-01,rdk-02,rdk-03 --concurrency 4
 moss --print "定义任务：相机管线保持 30 FPS 持续 60 秒；部署、运行、记录证据、验收"
 ```
 
-板卡手册（烧录、引脚、TROS / hobot_dnn、规格）由内置 rdk-docs MCP 供给，默认钉在 `rdk-docs-mcp@0.2.0`（BM25 + 标题融合、`noGoodMatch`、板型过滤、按 section 读取页面）。有设备目标（`MOSS_DEVICE_HOST` 或 `.moss/devices.json`）或配置 `"rdkDocs": true` 时在后台连接，不阻塞交互界面。自定义或尚未发布的版本可用 `"rdkDocs": {"package": "../rdk-docs-mcp"}` 或 `MOSS_RDK_DOCS_PACKAGE` 指向 npm spec、本地目录或 tarball；该值会作为代码执行，只使用可信来源。`MOSS_NO_RDK_DOCS=1`、`"rdkDocs": false` 或 `"rdkDocs": {"enabled": false}` 关闭；同名 `mcp.json` 条目整段替换内置项。服务器能力随版本而异，Moss 先查询工具清单再按实际 schema 调用。连不上时本会话不查手册，没有缓存，也没有离线副本。审计与保留标准见 [`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`](docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md)。
+板卡手册（烧录、引脚、TROS / hobot_dnn、规格）由内置 rdk-docs MCP 供给，默认钉在 `rdk-docs-mcp@0.3.0`（BM25 + 标题融合、`noGoodMatch`、`alt_queries`、板型过滤；默认命中是 title/url/anchor/snippet，`verbose` 才带分数；`get_page` 默认返回匹配的 section，`full` 才读整页）。默认在后台连接，不需要设备目标（`MOSS_DEVICE_HOST` 或 `.moss/devices.json` 都不是前置条件），也不阻塞交互界面。自定义或尚未发布的版本可用 `"rdkDocs": {"package": "../rdk-docs-mcp"}` 或 `MOSS_RDK_DOCS_PACKAGE` 指向 npm spec、本地目录或 tarball；该值会作为代码执行，只使用可信来源。`MOSS_NO_RDK_DOCS=1`、`"rdkDocs": false` 或 `"rdkDocs": {"enabled": false}` 关闭；同名 `mcp.json` 条目整段替换内置项。服务器能力随版本而异，Moss 先查询工具清单再按实际 schema 调用。连不上时本会话不查手册，没有缓存，也没有离线副本。审计与保留标准见 [`docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md`](docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md)。
 
 **扩展。** MCP 客户端（stdio + streamable HTTP，工具懒加载）；轻量 skills（`.moss/skills/<name>/SKILL.md`，渐进披露，`$ARGUMENTS` 传参）；自定义斜杠命令（`.moss/commands/<name>.md`）；人设（`.moss/soul.md`）；生命周期 hook。
 
@@ -125,27 +204,43 @@ moss tasks list                     # 只读查看机器人闭环产物
 | `moss device add\|list\|remove\|test\|fleet`                               | 设备清单与多机只读巡检                                                              |
 | `moss mcp add\|list\|remove\|test`                                         | MCP 服务器管理                                                                      |
 | `moss skill create\|list`                                                  | 技能管理                                                                            |
+| `moss update`                                                              | 打印升级命令（npm 全局或 git 克隆）；不执行                                         |
 
-> `update` / `plugins` / `migrate` / `web` / `agent` 属于已移除的子系统，本构建里会**明确报错**，不会悄悄 fallback。
+> `plugins` / `migrate` / `web` / `agent` 属于已移除的子系统，本构建里会**明确报错**，不会悄悄 fallback。`moss <command> --help` 仍给出该子命令自己的用法。
 
 日常斜杠命令：`/model` `/compact` `/goal` `/plan` `/review` `/doctor` `/diff` `/permissions` `/clear` `/help`。`Shift+Tab` 循环模式；`/plan` 进入 plan 模式；`/goal <条件>` 持续工作直到条件满足，`/goal clear` 取消。`/resume` 恢复已保存的会话；`/tasks` 列出后台 shell 与子代理。`Esc` 中断当前回复；运行中直接发消息会先 steer，无法 steer 时排在输入区上方（`↑` 取回编辑）。`/mode` `/steer` `/queue` `/loop` 保留为隐藏别名一版（`/loop` 已改为 `/goal`）。`/goal` 没带 `--accept` 时，从工作区已有的测试入口（`package.json` test、Makefile、pytest、`go.mod`）给出验收命令候选，找不到就直说，不编造。`/stop`（别名 `/abort`）只停本会话启动的后台进程。隐藏的 `/task` 是 Task OS 入口（status / timeline / resume / view / verify），`/task verify` 不调模型，只取一次裁决。PASS 只能来自 verdict provider。
 
 常用 flag：
 
-| Flag                                                  | 作用                                 |
-| ----------------------------------------------------- | ------------------------------------ |
-| `-m/--model` · `--provider` · `--base-url`            | 仅本次运行覆盖                       |
-| `-C/--cd <dir>` · `-c/--config k=v`                   | 换工作区 · 覆盖 profile/model/policy |
-| `--read-only` · `--workspace-write` · `--full-access` | 本次运行的安全上限                   |
-| `--trust-device`                                      | 本进程允许毁灭性设备操作             |
-| `--accept-edits` · `--ask-for-approval <p>`           | 审批行为                             |
-| `-p/--print` · `--json` · `--output-format <f>`       | 一次性 / 机器可读输出                |
+| Flag                                                  | 作用                                                                                     |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `-m/--model` · `--provider` · `--base-url`            | 仅本次运行覆盖                                                                           |
+| `-C/--cd <dir>` · `-c/--config k=v`                   | 换工作区 · 覆盖 profile/model/policy                                                     |
+| `--read-only` · `--workspace-write` · `--full-access` | 本次运行的模式覆盖。`workspace-write` 只约束 Moss 自己的文件工具，shell 没有操作系统沙箱 |
+| `--trust-device`                                      | 本进程允许毁灭性设备操作                                                                 |
+| `--accept-edits` · `--ask-for-approval <p>`           | 审批行为                                                                                 |
+| `-p/--print` · `--json` · `--output-format <f>`       | 一次性 / 机器可读输出                                                                    |
 
 常用环境变量（完整见 `moss config env`）：`MOSS_PROFILE` · `MOSS_WORKSPACE` · `MOSS_SAFETY_MODE` · `MOSS_APPROVAL_POLICY` · `MOSS_MAX_AGENT_TURNS` · `MOSS_CONTEXT_TOKENS` · `MOSS_BUDGET_MAX_*` · `MOSS_DEVICE_*` · `MOSS_NO_RDK_DOCS`。
 
 > **头号坑**：模型相关设置**只认配置文件**。`MOSS_MODEL` / `MOSS_PROVIDER` / `MOSS_BASE_URL` / `MOSS_API_KEY` 即使设了也会被忽略——请用 `moss setup` 或 `moss config set`。
 
 未指定配置文件时，Moss 读取用户配置，并把工作区 `.moss/config.json` 当作项目默认值合并进去（用户配置优先）。`--config-file` 或 `MOSS_CONFIG_FILE` 只加载那个文件，项目 `.moss/config.json` 这一层不会进入本次配置。
+
+## 界面语言
+
+**英文是默认界面语言。** 中文是完整的可选界面语言，只影响界面文案、帮助、错误和配置向导。助手回复仍跟随用户消息的语言，不跟这个设置走。
+
+```bash
+moss --lang zh                         # 仅本次运行
+MOSS_LANG=zh moss                      # 进程环境变量（项目 .env 不能设置）
+moss config set language zh            # 记在用户配置 ~/.config/moss/config.json
+moss config set language auto          # 默认：仅当系统区域以 zh 开头时用中文
+```
+
+优先级：`--lang` > `MOSS_LANG` > 用户配置 `language` > 系统区域。`C`、`POSIX`、`C.UTF-8` 不是语言，会落到下一个变量（`LC_ALL`、`LC_MESSAGES`、`LANG`）；都不是语言时界面保持英文。项目 `.moss/config.json` 和项目 `.env` 不能设置界面语言。
+
+交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为 English。
 
 ## 安全与隐私
 
@@ -155,17 +250,18 @@ moss tasks list                     # 只读查看机器人闭环产物
   | 模式           | 行为                                                                                              |
   | -------------- | ------------------------------------------------------------------------------------------------- |
   | `manual`       | 写操作与设备变更逐次询问                                                                          |
-  | `acceptEdits`  | 工作区内文件编辑自动通过，shell 与设备变更仍询问                                                  |
+  | `acceptEdits`  | 工作区内文件工具编辑自动通过，shell 与设备变更仍询问                                              |
   | `plan`         | 只读规划，写操作与设备变更被拦                                                                    |
   | `full`（默认） | 本地写与可逆设备操作跳过询问；毁灭性设备操作 TTY 确认、headless 拒绝。deny 规则与本机硬拦截仍生效 |
 
+- **`workspace-write` 不是操作系统沙箱。** workspace-write 只约束 Moss 自己的文件工具。shell 命令照常运行，没有操作系统沙箱。`write_file`、`edit_file`、`multi_edit`、`move_file`、`apply_patch` 写在工作区内；`exec` 没有 Landlock、bubblewrap 或 seatbelt。静态扫描会拦下它能看见的一部分出区写（重定向、`cp`、`mv`），挡不住子进程里的 `node` / `python`（例如写入 `/tmp`）。shell 的安全来自输出脱敏和写回防护。可选的操作系统沙箱见 [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md)，默认关闭。
 - **权限规则**（`/permissions`，任何模式生效，deny 优先于一切含 full）：
   - 三级 `allow` / `ask` / `deny`，优先级 deny > ask > allow；
   - 语法 `ToolName(pattern)`，用 moss 原生工具名：`/permissions add deny "read_file(./.env)"`、`/permissions add allow "exec(npm run *)"`；
   - 会话级规则下一个工具调用即生效；`/permissions persist` 写用户配置重启仍生效；
   - `--read-only` / `MOSS_SAFETY_MODE=read-only` 是压过任何模式（含 full）的只读上限。
 - **本机硬拦截永不撤**：本机 `exec` 的毁灭性命令（`rm -rf /` 等）与路径逃逸在 full 模式下同样被拦——full 跳过的是询问，不是检查。设备侧的同一类命令不硬拦死：TTY 确认、allow 规则，或显式信任之后会真的执行。
-- **显式信任设备**（任一即可；deny 仍赢）：`--trust-device`（仅本进程）、`MOSS_DEVICE_TRUST=full`、`permissions.deviceTrust=full`、`permissions.trustedDevices` 或 `MOSS_DEVICE_TRUST_DEVICES`（逗号分隔的 host / device id）。确认框里选 `a` 只信任提示里写明的范围（例如同一 unit 的 `systemctl restart` 或 `stop`，或同一命令前缀），不是整台设备的全部毁灭性操作。读取 `/etc/shadow`、私钥、`sshd_config`、`authorized_keys` 归入 `sensitive`：同样要确认，但文案和证据不把它叫成毁灭性修改。中文 locale（`LANG` / `LC_ALL` 以 `zh` 开头）下，确认与拒绝文案为简体中文。每次决定写入 `.moss/evidence.jsonl`（`metric: device_policy`），有进行中的任务时同时写入时间线 `note`。策略说明见 [`docs/superpowers/plans/2026-10-09-device-safety-policy.md`](docs/superpowers/plans/2026-10-09-device-safety-policy.md)。
+- **显式信任设备**（任一即可；deny 仍赢）：`--trust-device`（仅本进程）、`MOSS_DEVICE_TRUST=full`、`permissions.deviceTrust=full`、`permissions.trustedDevices` 或 `MOSS_DEVICE_TRUST_DEVICES`（逗号分隔的 host / device id）。确认框里选 `a` 只信任提示里写明的范围（例如同一 unit 的 `systemctl restart` 或 `stop`，或同一命令前缀），不是整台设备的全部毁灭性操作。读取 `/etc/shadow`、私钥、`sshd_config`、`authorized_keys` 归入 `sensitive`：同样要确认，但文案和证据不把它叫成毁灭性修改。确认与拒绝文案跟随界面语言（`--lang`、`MOSS_LANG` 或用户配置 `language`；否则系统区域以 `zh` 开头时为简体中文）。每次决定写入 `.moss/evidence.jsonl`（`metric: device_policy`），有进行中的任务时同时写入时间线 `note`。策略说明见 [`docs/superpowers/plans/2026-10-09-device-safety-policy.md`](docs/superpowers/plans/2026-10-09-device-safety-policy.md)。
 - **旧键兼容**（一版宽限）：`profile` / `trustedTools` / `deniedTools` / `safetyMode` / `approvalPolicy` 读入即按映射表翻译（cautious→manual+只读上限、balanced→manual、autonomous→full、trustedTools→allow 规则、deniedTools→deny 规则），写侧提示 deprecated，新配置请用 `permissions.*` 块。
 - 凭据只从 `.env` 或环境变量读，绝不硬编码、不进日志、不传子进程、不写设备清单。
 - 无账号、无云服务、无遥测；provider 是普通 HTTP 端点。
@@ -206,6 +302,7 @@ npm run build && MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-
 - [`AGENTS.md`](AGENTS.md) —— 架构、分层规则、子系统导航、工程约定（工作合同）
 - [`docs/release-policy.md`](docs/release-policy.md) —— 一个版本 / tag 声称了什么，又没声称什么
 - [`docs/capability-layer.md`](docs/capability-layer.md) —— MCP / device / skill 能力层
+- [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md) —— `exec` 的可选操作系统沙箱（默认关）
 - [`docs/cli-parity/`](docs/cli-parity/) —— 与 Claude Code / codex 的命令面基线对照；真实终端清单见 [`tui-real-terminals.md`](docs/cli-parity/tui-real-terminals.md)
 - [`docs/bench/device-bench.md`](docs/bench/device-bench.md) —— 设备任务基准怎么跑、指标怎么算
 - [`CHANGELOG.md`](CHANGELOG.md) —— 未发版改动
@@ -233,15 +330,62 @@ mean _the board actually did it_.
 - No account, no cloud service, no telemetry — providers are plain HTTP endpoints
 - Four surfaces: full-screen TUI · readline REPL · headless CLI · embeddable SDK
 
-### Quick start
+### Prerequisites
 
-> Not on npm yet (`private: true`) — build from source:
+Check Node first:
 
 ```bash
-git clone https://github.com/D-Robotics/moss && cd moss
-npm install && npm run build && npm link   # npm link is optional
-moss setup                                 # configure provider / model / API key (hidden input)
-moss                                       # start the interactive shell
+node -v
+```
+
+Moss needs **22.16** or newer. npm installs dependencies before the root `preinstall` (`scripts/check-node-version.cjs`). On Node older than 22.16 that script prints the upgrade steps and exits 1, so those packages can already be on disk and there is no working `moss`. Upgrade Node and run the install again. Node 22.16 ships with npm 10. Do not follow npm's notice to upgrade to npm 12: Node 22.16 does not support npm 12.
+
+- nvm: `nvm install 22`, then run `node -v` again
+- NodeSource: see [nodesource/distributions](https://github.com/nodesource/distributions)
+- In China: `npm config set registry https://registry.npmmirror.com`. For nvm's Node downloads, set `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+
+#### macOS
+
+Git requires the Xcode Command Line Tools. If `git` is missing, run `xcode-select --install`. Moss itself does not need a C compiler, and a failed optional native build of `cpu-features` still leaves a working `moss`. Install Node with Homebrew or nvm, then confirm `node -v` is 22.16 or newer. If the global prefix is not writable, use the user-level prefix below.
+
+#### Windows
+
+Install Git for Windows and nvm-windows. PowerShell's execution policy can block `moss.ps1`. Allow scripts for the current user only:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Put `%APPDATA%\npm` on PATH. That is npm's default global bin directory on Windows.
+
+### Quick start
+
+Install from source, run `moss`, finish setup in the screen, then ask for an answer. `npm ci` runs `prepare` (`npm run build`), so there is no separate build step:
+
+```bash
+git clone https://github.com/D-Robotics/moss.git
+cd moss
+npm ci
+npm install -g --install-links .
+moss
+```
+
+If an older unscoped `moss` package is already installed, run `npm uninstall -g moss` first. The two packages use the same `moss` bin, and npm stops with EEXIST. Do not pass `--force`. It leaves both the old package and `@rdk-moss/agent` installed, and a later `npm uninstall -g moss` removes the `moss` command. `npm install -g @rdk-moss/agent` is coming soon.
+
+npm 11 may print `npm warn install-scripts`. `npm ci` may name `ssh2` and `cpu-features`. The following `npm install -g --install-links .` may also name `@rdk-moss/agent` (its `preinstall` and `prepare` scripts). The warning is harmless: ssh2 works without its optional native addon, and the global copy already contains `dist/`. Do not run `npm audit fix --force`. It changes dependency versions and breaks the install.
+
+If npm reports EACCES on the global prefix, point prefix at your home directory, or use nvm (Node then lives under your home directory):
+
+```bash
+npm config set prefix ~/.npm-global
+```
+
+Add `~/.npm-global/bin` to PATH and open a new terminal.
+
+With no usable config, `moss` sets itself up in that screen (press a number to pick a provider, or Enter to use a key already in the environment; the value is not shown). The D-Robotics gateway is listed first and preselected (`https://ai-api.d-robotics.cc/v1`, default model `deepseek-flash`, key only). To keep the key out of the file, set the provider and then the variable name: `moss config set provider d-robotics`, then `moss config set apiKeyEnv <VAR>`. A file that names only `apiKeyEnv` is not configured: setup asks which provider, and the key is not sent to the default DeepSeek endpoint. Then, in the same session:
+
+```text
+look around this folder and tell me what it is
 ```
 
 Inside Moss: give it a job (`@` to reference files, `!` for shell), `Shift+Tab` to cycle modes
@@ -259,6 +403,38 @@ moss --no-tty                                 # force the readline REPL
 ```
 
 </details>
+
+### Upgrade
+
+If the `moss` command still comes from an older unscoped install, including `npm link`, run `npm uninstall -g moss` first. Otherwise `npm install -g --install-links .` stops with EEXIST even when `moss --version` already looks new.
+
+From the parent of an existing `moss` clone:
+
+```bash
+cd moss && git pull && npm ci && npm install -g --install-links .
+```
+
+`npm ci` rebuilds. `--install-links` installs that new copy into the global prefix, instead of only rebuilding the clone. `moss --version` includes the short commit and the build date, for example `moss v0.26.0 (e8dc2e3, 2026-10-10)`. A worktree with uncommitted changes at build time is marked `e8dc2e3+dirty`. The before and after strings differ.
+
+If you do not have a `moss` directory yet, use the install steps above. `moss update` prints this upgrade line when it finds a clone, and the `git clone` steps only when it does not. A global install only looks in the current directory and in `./moss`. Point it somewhere else with `moss update --dir <clone>` or `MOSS_SOURCE_DIR`. It prints the commands and does not run them.
+
+### Uninstall
+
+```bash
+npm uninstall -g @rdk-moss/agent
+```
+
+That removes the command. These stay behind:
+
+- Config: `~/.config/moss` on Linux and macOS (`$XDG_CONFIG_HOME/moss` when that variable is set), or `%APPDATA%\moss` on Windows. Also check `~/.moss`
+- The npx cache: `~/.moss/cache/npx`
+- Per-project `.moss/` directories (tasks, sessions, project config)
+- The source clone
+- The npm cache, usually `~/.npm`
+- The native-build cache: `~/.cache/node-gyp`
+- An empty `@rdk-moss` directory left under the prefix: `$(npm prefix -g)/lib/node_modules/@rdk-moss` on Linux and macOS, or `%APPDATA%\npm\node_modules\@rdk-moss` on Windows
+
+Safe to delete: `~/.moss/cache/npx`, `~/.cache/node-gyp`, the npm cache (`npm cache clean --force`), that empty `@rdk-moss` directory, and the clone once you no longer need the source. Deleting `~/.config/moss`, `~/.moss`, or a project's `.moss/` also removes keys, settings, and task history. Delete those only when you want that data gone.
 
 ### Why Moss
 
@@ -309,10 +485,11 @@ moss --print "define a task: camera pipeline keeps 30 FPS for 60s; deploy, run, 
 ```
 
 Board manuals (flashing, pinouts, TROS / hobot_dnn, specs) come from the built-in rdk-docs MCP,
-defaulting to the pinned `rdk-docs-mcp@0.2.0` (BM25 + title fusion, `noGoodMatch`, board filtering,
-and section page reads). Moss starts it in the background when a device target
-is set (`MOSS_DEVICE_HOST` or `.moss/devices.json`) or when `"rdkDocs": true`, so a cold npx download
-does not block the interactive shell. To test an unpublished build, set
+defaulting to the pinned `rdk-docs-mcp@0.3.0` (BM25 + title fusion, `noGoodMatch`, `alt_queries`,
+and board filtering; default hits are title, url, anchor, and snippet, with scores only when
+`verbose`; `get_page` returns the matching section unless `full`). Moss connects it in the background by default, with or
+without a device target (`MOSS_DEVICE_HOST` or `.moss/devices.json` is not required),
+so a cold npx download does not block the interactive shell. To test an unpublished build, set
 `"rdkDocs": {"package": "../rdk-docs-mcp"}` or `MOSS_RDK_DOCS_PACKAGE` to an npm spec, local
 directory, or tarball. Overrides execute code; use only trusted sources. `MOSS_NO_RDK_DOCS=1`,
 `"rdkDocs": false`, or `"rdkDocs": {"enabled": false}` turns it off. A same-named `mcp.json` entry
@@ -353,9 +530,11 @@ The `src/index.ts` export surface is a semver-protected contract, snapshotted by
 | `moss device add\|list\|remove\|test\|fleet`                               | Device registry + read-only fleet probe                                             |
 | `moss mcp add\|list\|remove\|test`                                         | MCP server management                                                               |
 | `moss skill create\|list`                                                  | Skill management                                                                    |
+| `moss update`                                                              | Print the upgrade command (npm global or git clone); it does not run it             |
 
-> `update` / `plugins` / `migrate` / `web` / `agent` belong to removed subsystems and fail loudly
-> in this build rather than silently falling back to chat.
+> `plugins` / `migrate` / `web` / `agent` belong to removed subsystems and fail loudly
+> in this build rather than silently falling back to chat. `moss <command> --help` is that
+> command's own usage.
 
 Everyday slash commands: `/model` `/compact` `/goal` `/plan` `/review` `/doctor` `/diff`
 `/permissions` `/clear` `/help`. Shift+Tab cycles modes; `/plan` enters plan mode; `/goal <condition>`
@@ -371,7 +550,7 @@ verify); `/task verify` takes one verdict without a model turn. A PASS still com
 verdict provider.
 
 Key flags: `-m/--model`, `--provider`, `--base-url`, `-C/--cd`, `-c/--config k=v`,
-`--read-only` · `--workspace-write` · `--full-access`, `--trust-device`, `--accept-edits`,
+`--read-only` · `--workspace-write` · `--full-access` (workspace-write confines Moss's own file tools; shell commands run normally without an OS sandbox), `--trust-device`, `--accept-edits`,
 `--ask-for-approval <p>`, `-p/--print`, `--json`, `--output-format <f>`.
 
 Key env vars (full list: `moss config env`): `MOSS_PROFILE` · `MOSS_WORKSPACE` ·
@@ -385,6 +564,28 @@ Without an explicit file, Moss reads the user config and merges `.moss/config.js
 workspace as project defaults (the user file wins). `--config-file` or `MOSS_CONFIG_FILE` loads
 only that file, so the project `.moss/config.json` layer is not part of the run.
 
+### UI language
+
+**English is the default UI language.** Chinese is a complete, optional UI language. It covers
+chrome, help, errors, and setup text. Assistant replies still follow the language of the user's
+message.
+
+```bash
+moss --lang zh                         # this run only
+MOSS_LANG=zh moss                      # process env (a project .env cannot set this)
+moss config set language zh            # user config ~/.config/moss/config.json
+moss config set language auto          # default: Chinese only when the locale starts with zh
+```
+
+Precedence: `--lang` > `MOSS_LANG` > user config `language` > system locale. Neutral tags
+(`C`, `POSIX`, `C.UTF-8`) are not a language and fall through to the next of `LC_ALL`,
+`LC_MESSAGES`, and `LANG`. If none names a language, the UI stays English. A project
+`.moss/config.json` and a project `.env` cannot set the UI language.
+
+In the shell, `/language` (alias `/lang`) switches the session. `/language zh save` writes the
+user config. On a Chinese system locale that has not chosen yet, the first `moss setup` offers
+one line: press `e` to switch to English.
+
 ### Safety and privacy
 
 - **Full by default since v0.26**: local writes and **reversible** device changes skip the
@@ -396,10 +597,11 @@ only that file, so the project `.moss/config.json` layer is not part of the run.
   | Mode             | Behavior                                                                                                                                                                |
   | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
   | `manual`         | mutations and device changes ask one by one                                                                                                                             |
-  | `acceptEdits`    | sandboxed workspace edits auto-approve; shell and device changes still ask                                                                                              |
+  | `acceptEdits`    | workspace file-tool edits auto-approve; shell and device changes still ask                                                                                              |
   | `plan`           | read-only planning; mutations and device changes blocked                                                                                                                |
   | `full` (default) | local writes and reversible device work skip the prompt; destructive device work confirms on a TTY and is refused headless. Deny rules and host hard blocks still apply |
 
+- **`workspace-write` is not an OS sandbox.** workspace-write confines Moss's own file tools. Shell commands run normally without an OS sandbox. `write_file`, `edit_file`, `multi_edit`, `move_file`, and `apply_patch` stay inside the workspace. `exec` is not wrapped in Landlock, bubblewrap, or seatbelt. A static scan rejects some out-of-workspace shell writes it can see (redirections, `cp`, `mv`); a child `node` or `python` process can still write outside, for example under `/tmp`. Shell safety is output redaction and write-back guards. An opt-in OS sandbox is specified in [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md) and stays off.
 - **Permission rules** (`/permissions`, effective in any mode, deny beats everything incl. full):
   - three levels `allow` / `ask` / `deny`, priority deny > ask > allow;
   - syntax `ToolName(pattern)` with moss-native tool names:
@@ -418,8 +620,9 @@ only that file, so the project `.moss/config.json` layer is not part of the run.
   scope named in the prompt (for example `systemctl restart` or `stop` of that unit, or the same
   command prefix) until the session ends. Reading `/etc/shadow`, private keys, `sshd_config`, or
   `authorized_keys` is a `sensitive` tier: it still confirms, and the copy does not call it
-  destructive. Prompts and refusals follow the CLI locale (Simplified Chinese when `LANG` /
-  `LC_ALL` starts with `zh`). Every decision is appended to `.moss/evidence.jsonl`
+  destructive. Prompts and refusals follow the UI language (`--lang`, `MOSS_LANG`, or the user
+  config `language`; otherwise Simplified Chinese when the system locale starts with `zh`).
+  Every decision is appended to `.moss/evidence.jsonl`
   (`metric: device_policy`) and, when a task is in progress, to its timeline as a `note`.
   Policy: [`docs/superpowers/plans/2026-10-09-device-safety-policy.md`](docs/superpowers/plans/2026-10-09-device-safety-policy.md).
 - **Legacy keys** (one release of grace): `profile` / `trustedTools` / `deniedTools` /
@@ -472,6 +675,7 @@ only after `verify` is green and `examples/` pass for real — see
 [`AGENTS.md`](AGENTS.md) (architecture and conventions) ·
 [`docs/release-policy.md`](docs/release-policy.md) ·
 [`docs/capability-layer.md`](docs/capability-layer.md) ·
+[`docs/design/os-sandbox.md`](docs/design/os-sandbox.md) (opt-in OS sandbox for `exec`, default off) ·
 [`docs/cli-parity/`](docs/cli-parity/) (real-terminal checklist:
 [`tui-real-terminals.md`](docs/cli-parity/tui-real-terminals.md)) ·
 [`docs/bench/device-bench.md`](docs/bench/device-bench.md) ·

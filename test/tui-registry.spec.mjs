@@ -90,6 +90,21 @@ function mockAgent() {
         ],
       },
     },
+    reportedModel() {
+      return undefined;
+    },
+    switchModel(next) {
+      this.config.model = next.model;
+      if (next.provider !== undefined) this.config.provider = next.provider;
+      if (next.baseUrl !== undefined) this.config.baseUrl = next.baseUrl;
+      this.config.llmProvider = next.llmProvider;
+      if (next.usingBundledDefault !== undefined) {
+        this.config.usingBundledDefault = next.usingBundledDefault;
+      }
+      if (typeof this.config.identityFactory === 'function') {
+        this.config.baseSystemPrompt = this.config.identityFactory(next.model);
+      }
+    },
     tools: { getAll: () => [], getNames: () => [], size: 0 },
     async *streamChat(_sessionKey, message) {
       calls.stream.push(message);
@@ -165,7 +180,7 @@ assert.deepEqual(
   const providerBefore = agent.config.llmProvider;
   const { instance, handle } = mount({ agent, workspaceDir: '/tmp/ws', model: 'spec-model' });
   await waitFor(() => handle.store.rows.some((r) => r.kind === 'banner'));
-  await type(instance, '/model spec-two');
+  await type(instance, '/model spec-two --custom');
   const switched = await waitFor(() => allText(handle).includes('spec-two'));
   assert.ok(switched, `/model answered: ${JSON.stringify(allText(handle).slice(-200))}`);
   assert.equal(agent.config.model, 'spec-two', 'the session model really changed');

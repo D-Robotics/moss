@@ -10,6 +10,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { trackTempDir } from './helpers/temp-home.mjs';
+
 import {
   resolveConfigDir,
   loadConfigFile,
@@ -20,6 +22,7 @@ import {
   shouldShowFullDefaultNotice,
 } from '../dist/cli/config.js';
 import { syncConfigDirectory } from '../dist/cli/config-api-key-crypto.js';
+import { writePreferredModel } from '../dist/cli/preferred-model-store.js';
 import { writeConfigFileAtomic } from '../dist/cli/config-durable-write.js';
 
 const execFileAsync = promisify(execFile);
@@ -493,6 +496,32 @@ const execFileAsync = promisify(execFile);
 }
 
 {
+  const resolved = resolveCliConfig(
+    { DEEPSEEK_API_KEY: 'sk-from-env', MOSS_NO_BUNDLED_DEFAULT: '1' },
+    {
+      provider: 'deepseek',
+      model: 'deepseek-flash',
+      baseUrl: 'https://api.deepseek.com',
+      apiKeyEnv: 'DEEPSEEK_API_KEY',
+    }
+  );
+  assert.equal(resolved.apiKey, 'sk-from-env');
+  assert.equal(resolved.apiKeySource, 'env:DEEPSEEK_API_KEY');
+  assert.equal(resolved.apiKeyEncrypted, false);
+  assert.equal(resolved.model, 'deepseek-flash');
+  const storedWins = resolveCliConfig(
+    { DEEPSEEK_API_KEY: 'sk-from-env', MOSS_NO_BUNDLED_DEFAULT: '1' },
+    {
+      provider: 'deepseek',
+      model: 'deepseek-flash',
+      apiKey: 'sk-stored',
+    }
+  );
+  assert.equal(storedWins.apiKey, 'sk-stored');
+  assert.equal(storedWins.apiKeySource, 'config');
+}
+
+{
   // An explicit agent.contextTokens still wins over the per-model window.
   const resolved = resolveCliConfig(
     {},
@@ -513,20 +542,30 @@ const execFileAsync = promisify(execFile);
 }
 
 {
-  // The full-default tip is once per process. It is not written to disk.
-  const resolved = resolveCliConfig({ MOSS_NO_BUNDLED_DEFAULT: '1' }, {});
+  // The sentence says the tip is shown once. A marker in the config dir
+  // keeps the next process from printing it again.
+  const dir = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-notice-config-')));
+  const env = { MOSS_CONFIG_DIR: dir, MOSS_NO_BUNDLED_DEFAULT: '1' };
+  const resolved = resolveCliConfig(env, {});
   assert.equal(resolved.approvalPolicy, 'never');
   assert.equal(resolved.permissions.source, 'default');
+  assert.equal(shouldShowFullDefaultNotice(resolved, env), true, 'first call shows the tip');
+  assert.equal(fs.existsSync(path.join(dir, '.full_default_notice_shown')), true);
   assert.equal(
-    shouldShowFullDefaultNotice(resolved),
-    true,
-    'first call in the process shows the tip'
-  );
-  assert.equal(
-    shouldShowFullDefaultNotice(resolved),
+    shouldShowFullDefaultNotice(resolved, env),
     false,
-    'a second call in the same process does not show it again'
+    'a second call in this process does not show it again'
   );
+}
+
+{
+  const dir = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-config-mode-')));
+  const configDir = path.join(dir, 'cfg');
+  writePreferredModel('https://example.test/v1', 'model-a', {
+    MOSS_CONFIG_DIR: configDir,
+    HOME: dir,
+  });
+  assert.equal(fs.statSync(configDir).mode & 0o777, 0o700);
 }
 
 console.log('[PASS] Configuration management');

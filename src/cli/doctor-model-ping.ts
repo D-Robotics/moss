@@ -5,6 +5,7 @@
  */
 import { errorMessage } from '../errors.js';
 import type { LLMProvider } from '../core/llm/llm-provider.js';
+import { classifyProviderError } from '../provider/error-classify.js';
 import { fail, ok, warn } from './doctor.js';
 
 export const DOCTOR_MODEL_PING_TIMEOUT_MS = 5_000;
@@ -75,7 +76,9 @@ export async function probeDoctorModelPing(input: DoctorModelPingInput): Promise
     }
     if (outcome.kind === 'err') {
       const detail = redactPingDetail(errorMessage(outcome.err), secrets);
-      return fail('model ping', `${model} · ${latencyMs}ms · ${detail || 'request failed'}`);
+      const surface = classifyProviderError({ errorMessage: detail });
+      const fix = surface.userMessage ? ` Fix: ${surface.userMessage}` : '';
+      return fail('model ping', `${model} · ${latencyMs}ms · ${detail || 'request failed'}${fix}`);
     }
     const reported = redactPingDetail(outcome.value.model?.trim() || model, secrets) || model;
     return ok('model ping', `${reported} · ${latencyMs}ms`);

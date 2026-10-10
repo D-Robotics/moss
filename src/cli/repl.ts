@@ -7,10 +7,14 @@ import { wrapApprovalAsker } from './permission-request.js';
 import { handleCompactCommand } from './compact-command.js';
 import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
 import {
+  isSlashCommandInput,
+  slashHead,
   loadCustomCommands,
   reservedBuiltinNames,
   resolveUserCommand,
+  skillSlashToken,
 } from './commands/custom-commands.js';
+import { closestSlashCommands } from './command-completion.js';
 import { formatBackgroundJobLines } from './commands/background-jobs.js';
 import {
   abandonLiveGoal,
@@ -28,12 +32,17 @@ import {
   slashAliasHelpLines,
 } from './interactive-commands.js';
 import { isResumableTaskPhase } from '../contracts/task-runtime.js';
+import { cliLocale } from './cli-locale.js';
 import { listBackgroundProcessSnapshots } from '../core/tools/background-process-registry.js';
 import { CliServices } from './cli-services.js';
 import { resolveRealModel } from './model-resolution.js';
-import { resolveContextTokensForModel } from './model-catalog.js';
+import {
+  resolveContextTokensForModel,
+  splitModelCustomFlag,
+  unavailableModelNote,
+} from './model-catalog.js';
 import { writePreferredModel } from './preferred-model-store.js';
-import { createCliProvider } from './providers.js';
+import { createCliProvider, normalizeProviderForRuntime } from './providers.js';
 import { runOneShot } from './oneshot.js';
 import { messageRequestsTaskContract } from './task-flow.js';
 import { createSessionUsageAccumulator } from './session-usage.js';
@@ -90,14 +99,17 @@ function applyCustomModelConfigForRepl(
   }
 
   currentModel = nextConfig.model;
-  agent.config.model = nextConfig.model;
-  (agent.config as { provider?: string; baseUrl?: string }).provider = nextConfig.provider;
-  (agent.config as { provider?: string; baseUrl?: string }).baseUrl = nextConfig.baseUrl;
-  agent.config.llmProvider = createCliProvider({
-    provider: nextConfig.provider,
-    apiKey: nextConfig.apiKey,
+  agent.switchModel({
     model: nextConfig.model,
+    provider: nextConfig.provider,
     baseUrl: nextConfig.baseUrl,
+    llmProvider: createCliProvider({
+      provider: nextConfig.provider,
+      apiKey: nextConfig.apiKey,
+      model: nextConfig.model,
+      baseUrl: nextConfig.baseUrl,
+    }),
+    usingBundledDefault: false,
   });
 
   // Probe the new model's context window so compaction and display reflect the
@@ -122,10 +134,6 @@ function applyCustomModelConfigForRepl(
     `[config] Custom model configured: ${nextConfig.model} (${nextConfig.provider})`,
     `[config] Saved to ${configPath}`,
   ].join('\n');
-}
-
-function cliLocale(): string | undefined {
-  return process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG;
 }
 
 export function completeInteractiveCommand(line: string): [string[], string] {
@@ -185,7 +193,8 @@ export async function runInteractive(
       configDir: runtime?.configDir ?? services.config.resolveConfigDir(),
       reservedNames: reservedBuiltinNames(),
     },
-    (msg) => console.warn(`[moss] ${msg}`)
+    (msg) => console.warn(`[moss] ${msg}`),
+    cliLocale()
   );
   const rl = readline.createInterface({
     input: process.stdin,
@@ -227,7 +236,7 @@ export async function runInteractive(
       rl.prompt();
       continue;
     }
-    if (pendingGoal && !msg.startsWith('/')) {
+    if (pendingGoal && !isSlashCommandInput(msg)) {
       const goal = pendingGoal.goal;
       pendingGoal = null;
       if (/^n$/i.test(msg)) {
@@ -236,7 +245,7 @@ export async function runInteractive(
       } else {
         msg = `/task ${goalRunArgs(goal, { acceptance: msg })}`;
       }
-    } else if (msg.startsWith('/')) {
+    } else if (isSlashCommandInput(msg)) {
       pendingGoal = null;
       const rewritten = rewriteSlashInput(msg, cliLocale());
       if (rewritten.suggestion) {
@@ -480,7 +489,8 @@ export async function runInteractive(
     }
 
     if (msg === '/model' || msg.startsWith('/model ')) {
-      const newModel = msg === '/model' ? '' : msg.slice(7).trim();
+      const requested = msg === '/model' ? '' : msg.slice(7).trim();
+      const { token: newModel, custom } = splitModelCustomFlag(requested);
       if (newModel === 'config' || newModel.startsWith('config ')) {
         const rawConfig = newModel === 'config' ? '' : newModel.slice('config'.length).trim();
         try {
@@ -503,16 +513,60 @@ export async function runInteractive(
         }
       );
       if (newModel) {
+        const unavailable = unavailableModelNote(newModel, modelChoices, undefined, { custom });
+        if (unavailable) {
+          console.error(`[config] ${unavailable}`);
+          rl.prompt();
+          continue;
+        }
         const selected = services.models.resolveModelSelection(newModel, modelChoices.choices);
         const model = selected?.model ?? newModel;
+        const provider = normalizeProviderForRuntime(
+          selected?.provider ??
+            agent.config.provider ??
+            modelChoices.provider ??
+            runtime?.config?.provider ??
+            'openai-compatible'
+        );
+        const baseUrl = runtime?.config?.baseUrl || agent.config.baseUrl || '';
+        const apiKey = runtime?.config ? runtime.config.apiKey : '';
+        const usingBundledDefault =
+          runtime?.config?.usingBundledDefault ?? agent.config.usingBundledDefault;
         currentModel = model;
-        agent.config.model = model;
+        agent.switchModel({
+          model,
+          provider,
+          ...(baseUrl ? { baseUrl } : {}),
+          llmProvider: createCliProvider({
+            provider,
+            apiKey,
+            model,
+            baseUrl,
+            ...(usingBundledDefault ? { usingBundledDefault: true } : {}),
+          }),
+          ...(usingBundledDefault !== undefined ? { usingBundledDefault } : {}),
+        });
         if (runtime?.config) {
           runtime.config.model = model;
           runtime.config.modelSource = 'cli';
 
           writePreferredModel(runtime.config.baseUrl, model);
         }
+        void (async () => {
+          try {
+            const detected = await resolveContextTokensForModel({
+              model,
+              ...(baseUrl ? { baseUrl } : {}),
+              ...(apiKey ? { apiKey } : {}),
+              provider,
+              timeoutMs: 4000,
+            });
+            agent.config.contextTokens = detected.contextTokens;
+            if (runtime?.config) runtime.config.contextTokens = detected.contextTokens;
+          } catch {
+            // Best-effort — the name-matching fallback already ran during config load.
+          }
+        })();
         console.error(
           selected
             ? `[config] Model switched to: ${model} (${modelChoices.provider})`
@@ -627,7 +681,7 @@ export async function runInteractive(
       continue;
     }
 
-    if (msg.startsWith('/')) {
+    if (isSlashCommandInput(msg)) {
       const resolved = resolveUserCommand(msg, {
         builtinNames: reservedBuiltinNames(),
         customCommands,
@@ -651,13 +705,27 @@ export async function runInteractive(
         rl.prompt();
         continue;
       }
-      for (const helpLine of unknownSlashCommandLines(msg, { locale: cliLocale() })) {
+      const suggestions = closestSlashCommands(slashHead(msg), [
+        ...reservedBuiltinNames(),
+        ...customCommands.map((command) => command.name),
+        ...(options.skills ?? []).flatMap((skill) => {
+          const token = skillSlashToken(skill);
+          return token ? [token] : [];
+        }),
+      ]);
+      for (const helpLine of unknownSlashCommandLines(msg, {
+        suggestions,
+        locale: cliLocale(),
+      })) {
         console.error(`[help] ${helpLine}`);
       }
       const availableCommands = [
         ...SLASH_MENU_ROWS.map((row) => row.command),
         ...customCommands.map((command) => command.name),
-        ...(options.skills ?? []).map((skill) => `/${skill.name}`),
+        ...(options.skills ?? []).flatMap((skill) => {
+          const token = skillSlashToken(skill);
+          return token ? [token] : [];
+        }),
       ];
       console.error(`[help] Available: ${availableCommands.join(' ')}`);
       rl.prompt();

@@ -137,3 +137,24 @@ test('command verdict uses the specified workspace, without changing host cwd', 
     await fs.rm(workspaceDir, { recursive: true, force: true });
   }
 });
+
+test('a command PASS without a contract records its actual result without native acceptance', async () => {
+  const { workspaceDir } = await fixture();
+  try {
+    const oracle = path.join(workspaceDir, 'pass.mjs');
+    await fs.writeFile(oracle, 'process.exit(0);\n');
+    const verdict = await createTaskVerdictProvider({
+      workspaceDir,
+      command: `${quote(process.execPath)} ${quote(oracle)}`,
+    }).evaluate('missing-contract');
+    assert.equal(verdict.passed, true);
+    const artifacts = await loadTaskArtifacts(workspaceDir);
+    assert.equal(artifacts.acceptance.length, 1);
+    assert.equal(artifacts.acceptance[0].verdict, 'pass');
+    assert.equal(artifacts.acceptance[0].criteriaResults[0].metric, 'acceptance_command');
+    assert.equal(artifacts.tasks.length, 0);
+    assert.equal((await listTaskEvents(workspaceDir)).length, 0);
+  } finally {
+    await fs.rm(workspaceDir, { recursive: true, force: true });
+  }
+});

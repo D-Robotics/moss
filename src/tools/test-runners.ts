@@ -3,6 +3,13 @@ import path from 'node:path';
 import type { ToolContext } from '../core/tools/tool-types.js';
 import { errorMessage } from '../errors.js';
 import { ProcessError, runProcess } from '../utils/run-process.js';
+import {
+  UNITTEST_IMPORT,
+  pythonBin,
+  pythonTestLayout,
+  pytestCommand,
+  unittestDiscoverArgs,
+} from '../utils/python-test-layout.js';
 import { pathExists } from '../utils/workspace-paths.js';
 
 export interface TestResult {
@@ -55,8 +62,6 @@ interface RunPlan {
 
 type Plan = { message: string } | { skip: true } | RunPlan;
 
-const pyBin = (): string => (process.platform === 'win32' ? 'python' : 'python3');
-
 const childEnv = (): Record<string, string> => ({ ...process.env }) as Record<string, string>;
 
 function readText(filePath: string): Promise<string | null> {
@@ -96,8 +101,13 @@ function blank(output: string): TestResult {
   };
 }
 
-function view(verdict: 'pass' | 'fail' | 'unknown' | 'notRun', result: TestResult, text: string) {
-  return { verdict, result, text };
+function view(
+  verdict: 'pass' | 'fail' | 'unknown' | 'notRun',
+  result: TestResult,
+  text: string,
+  hint = ''
+) {
+  return { verdict, result, text, hint };
 }
 
 const labeled = (line: string, label: string): number =>
@@ -184,16 +194,49 @@ function parseJs(output: string, result: TestResult): boolean {
 const parseNpm = (output: string, result: TestResult): boolean =>
   parseNode(output, result) || parseJs(output, result);
 
+function parseUnittest(output: string, result: TestResult): boolean {
+  const ran = output.match(/Ran (\d+) tests? in ([\d.]+)s/);
+  if (!ran) return false;
+  const next = blank(output);
+  next.total = Number(ran[1]);
+  next.durationMs = Math.round(Number(ran[2]) * 1000);
+  const failedLine = output.match(/FAILED \(([^)]+)\)/);
+  const okLine = output.match(/^OK(?:\s+\(([^)]+)\))?$/m);
+  if (failedLine) {
+    const body = failedLine[1] ?? '';
+    const count = (label: string): number =>
+      Number(new RegExp(`${label}=(\\d+)`).exec(body)?.[1] ?? 0);
+    next.skipped = count('skipped');
+    const rawFailed = count('failures') + count('errors') + count('unexpected successes');
+    next.failed = rawFailed;
+    next.passed = Math.max(0, next.total - next.skipped - next.failed);
+  } else if (okLine) {
+    next.skipped = Number(okLine[1]?.match(/skipped=(\d+)/)?.[1] ?? 0);
+    next.passed = Math.max(0, next.total - next.skipped);
+    next.failed = 0;
+  } else if (/NO TESTS RAN/i.test(output)) {
+    next.passed = 0;
+    next.failed = 0;
+  } else {
+    return false;
+  }
+  for (const match of output.matchAll(/^(?:FAIL|ERROR|UNEXPECTED SUCCESS):\s+(.+)$/gm)) {
+    const name = (match[1] ?? '').trim().slice(0, 200);
+    if (name) next.failures.push({ name, message: 'failed' });
+  }
+  return take(result, next);
+}
+
 function parsePytest(output: string, result: TestResult): boolean {
   const lines = output.split('\n');
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i] ?? '';
     if (/test result:/i.test(line) || !/\bin\s+[\d.]+s\b/.test(line)) continue;
-    if (!/\b(?:passed|failed|errors?|skipped|no tests ran)\b/i.test(line)) continue;
+    if (!/\b(?:xfailed|passed|failed|errors?|skipped|no tests ran)\b/i.test(line)) continue;
     const next = blank(output);
     if (!/no tests ran/i.test(line)) {
       const errors = labeled(line, 'errors?');
-      next.passed = labeled(line, 'passed');
+      next.passed = labeled(line, 'passed') + labeled(line, 'xfailed');
       next.failed = labeled(line, 'failed') + errors;
       next.skipped = labeled(line, 'skipped');
       next.total = next.passed + next.failed + next.skipped;
@@ -288,25 +331,8 @@ function parseCargo(output: string, result: TestResult): boolean {
   return take(result, next);
 }
 
-type PytestKind = 'none' | 'signal' | 'loose';
-
-async function pytestKind(root: string): Promise<PytestKind> {
-  for (const name of ['pytest.ini', 'pytest.toml', 'conftest.py']) {
-    if (pathExists(path.join(root, name))) return 'signal';
-  }
-  for (const name of ['pyproject.toml', 'setup.cfg', 'tox.ini']) {
-    if (/pytest/i.test((await readText(path.join(root, name))) ?? '')) return 'signal';
-  }
-  for (const dir of [root, path.join(root, 'tests'), path.join(root, 'test')]) {
-    const names = await fs.readdir(dir).then(
-      (value) => value,
-      () => [] as string[]
-    );
-    if (names.some((name) => /^test_.+\.py$/.test(name) || /^.+_test\.py$/.test(name))) {
-      return 'loose';
-    }
-  }
-  return 'none';
+function unittestCommand(root: string): string {
+  return `${pythonBin()} -m unittest discover ${unittestDiscoverArgs(root)}`;
 }
 
 function pytestMissing(text: string): boolean {
@@ -315,6 +341,47 @@ function pytestMissing(text: string): boolean {
     /\bpytest\b[^\n]{0,48}\b(?:command not found|not found|not recognized)\b/i.test(text) ||
     /\b(?:command not found|not found|not recognized)\b[^\n]{0,48}\bpytest\b/i.test(text)
   );
+}
+
+function programName(command: string): string {
+  const token = command.trim().split(/\s+/)[0] ?? 'command';
+  const base = token.split(/[/\\]/).pop() ?? token;
+  return base || 'command';
+}
+
+/** Name of a runner binary the shell or spawn could not find. */
+function missingBinaryName(text: string): string | null {
+  const patterns = [
+    /(?:^|[\n])[^\n]*?:\s*([A-Za-z0-9_.+-]+):\s*(?:command )?not found\b/,
+    /'([A-Za-z0-9_.+-]+)' is not recognized as an internal or external command/i,
+    /\bspawn(?:Sync)?\s+([A-Za-z0-9_.+-]+)\s+ENOENT\b/,
+  ];
+  for (const pattern of patterns) {
+    const name = pattern.exec(text)?.[1];
+    if (!name || name === 'sh' || name === 'bash' || name === 'dash') continue;
+    return name;
+  }
+  return null;
+}
+
+/**
+ * Missing runner binaries are not a failed suite. Exit 127, spawn ENOENT, and
+ * the Windows "not recognized" line are the same outcome pytest already
+ * reports: `not run`, with `<program> not installed`.
+ */
+function missingRunnerHint(command: string, exitCode: number, text: string): string | null {
+  if (/\bpytest\b/.test(command) && pytestMissing(text)) return 'pytest not installed';
+  const enoent = /\bspawn(?:Sync)?\s+([A-Za-z0-9_.+-]+)\s+ENOENT\b/.exec(text)?.[1];
+  if (enoent) return `${enoent} not installed`;
+  const unrecognized =
+    /'([A-Za-z0-9_.+-]+)' is not recognized as an internal or external command/i.exec(text)?.[1];
+  if (unrecognized) return `${unrecognized} not installed`;
+  if (exitCode !== 127) return null;
+  return `${missingBinaryName(text) ?? programName(command)} not installed`;
+}
+
+function notRunText(command: string, hint: string): string {
+  return `Test Results: not run\nCommand: ${command}\n${hint}\ntests_pass=false`;
 }
 
 async function exitsZero(
@@ -340,18 +407,15 @@ async function exitsZero(
   }
 }
 
-/** `command -v pytest`, then `python -m pytest --version`, inside the call budget. */
+/** `python -m pytest --version` inside the call budget. A pytest binary on PATH is not enough. */
 async function pytestImportable(ctx: ToolContext, deadline: number): Promise<boolean> {
-  const left = (): number => deadline - Date.now();
-  const shell = shellOf();
-  const which = process.platform === 'win32' ? ['/c', 'where pytest'] : ['-c', 'command -v pytest'];
-  if (await exitsZero(ctx, shell, which, Math.min(left(), 1000))) return true;
-  if (left() <= 0 || ctx.abortSignal?.aborted) return false;
-  return exitsZero(ctx, pyBin(), ['-m', 'pytest', '--version'], Math.min(left(), 1500));
+  const left = deadline - Date.now();
+  if (left <= 0 || ctx.abortSignal?.aborted) return false;
+  return exitsZero(ctx, pythonBin(), ['-m', 'pytest', '--version'], Math.min(left, 1500));
 }
 
 const RUNNERS: readonly Runner[] = [
-  { cmd: () => `${pyBin()} -m pytest`, detect: () => false, emptyNone: true, parse: parsePytest },
+  { cmd: () => pytestCommand(), detect: () => false, emptyNone: true, parse: parsePytest },
   {
     cmd: () => 'npm test --silent',
     detect: async (root) => Boolean((await readPackageScripts(root))?.test),
@@ -383,12 +447,13 @@ export async function planTestRunners(
 ): Promise<PlannedTestRun> {
   const run: string[] = [];
   const skipped: string[] = [];
-  const pytestCmd = `${pyBin()} -m pytest`;
-  const kind = await pytestKind(root);
-  if (kind === 'signal') run.push(pytestCmd);
-  else if (kind === 'loose') {
-    const ok = confirmLoosePytest ? await confirmLoosePytest() : false;
-    if (ok) run.push(pytestCmd);
+  const pytestCmd = pytestCommand();
+  const layout = pythonTestLayout(root);
+  if (layout === 'pytest' || layout === 'loose' || layout === 'unittest') {
+    const pytestReady =
+      layout === 'pytest' || (confirmLoosePytest ? await confirmLoosePytest() : false);
+    if (layout === 'pytest' || pytestReady) run.push(pytestCmd);
+    else if (layout === 'unittest') run.push(unittestCommand(root));
     else skipped.push(`${pytestCmd} (pytest not installed)`);
   }
   let make: string | null = null;
@@ -411,11 +476,18 @@ function matchOutput(
   const trimmed = command.trim();
   const hit = (parse: Runner['parse'], emptyNone = false) =>
     parse(output, result) ? { emptyNone, result } : null;
+  if (/\bunittest\b/.test(trimmed)) return hit(parseUnittest, true);
   if (/\bpytest\b/.test(trimmed)) return hit(parsePytest, true);
   if (/\bgo\s+test\b/.test(trimmed)) return hit(parseGo, true);
   if (/\bcargo\s+test\b/.test(trimmed)) return hit(parseCargo, true);
   if (/^npm\b/.test(trimmed)) return hit(parseNpm);
-  return hit(parsePytest, true) ?? hit(parseNpm) ?? hit(parseGo, true) ?? hit(parseCargo, true);
+  return (
+    hit(parseUnittest, true) ??
+    hit(parsePytest, true) ??
+    hit(parseNpm) ??
+    hit(parseGo, true) ??
+    hit(parseCargo, true)
+  );
 }
 
 export function formatFailures(failures: TestResult['failures'], limit: number): string {
@@ -475,23 +547,31 @@ function judge(
   timedOut = false,
   spawnError?: string
 ) {
-  if (!timedOut && /\bpytest\b/.test(command) && pytestMissing(`${output}\n${spawnError ?? ''}`)) {
-    return view(
-      'notRun',
-      blank(output),
-      `Test Results: not run\nCommand: ${command}\npytest not installed\ntests_pass=false`
-    );
+  const blob = `${output}\n${spawnError ?? ''}`;
+  if (!timedOut) {
+    const hint = missingRunnerHint(command, exitCode, blob);
+    const parsed = hint ? matchOutput(command, output) : null;
+    if (hint && !parsed) return view('notRun', blank(output), notRunText(command, hint), hint);
   }
   const matched = matchOutput(command, output);
   if (!matched) {
-    if (exitCode === 0 && !timedOut) {
+    if (timedOut) {
+      const body = output.trim();
+      const shown = body ? `\n\nOutput:\n${body.slice(0, 2000)}\n` : '\n';
+      return view(
+        'fail',
+        blank(output),
+        `Test Results: ❌ timed out\nCommand: ${command}${shown}tests_pass=false`
+      );
+    }
+    if (exitCode === 0) {
       return view(
         'unknown',
         blank(output),
         `Test Results:\nCommand: ${command}\nexit 0, counts unknown\ntests_pass=false`
       );
     }
-    const why = timedOut ? 'timed out' : (spawnError ?? `exit ${exitCode}`);
+    const why = spawnError ?? `exit ${exitCode}`;
     return view(
       'fail',
       blank(output),
@@ -580,15 +660,14 @@ async function spawnOne(
     );
   } catch (err) {
     const failed = err instanceof ProcessError ? err : null;
-    const output = failed
-      ? `${failed.stdout}\n${failed.stderr}`.trim() || errorMessage(err)
-      : errorMessage(err);
+    const timedOut = failed?.timedOut === true;
+    const raw = failed ? `${failed.stdout}\n${failed.stderr}`.trim() : '';
     return judge(
       command,
       failed?.exitCode ?? 1,
-      output,
-      failed?.timedOut === true,
-      errorMessage(err)
+      timedOut ? raw : raw || errorMessage(err),
+      timedOut,
+      timedOut ? undefined : errorMessage(err)
     );
   }
 }
@@ -633,11 +712,12 @@ async function executePlan(
   const unknown = !failed && actionable.some((view) => view.verdict === 'unknown');
   const passed =
     actionable.length > 0 && !failed && actionable.every((view) => view.verdict === 'pass');
-  const pytestNotRun = views.some((view) => view.verdict === 'notRun');
-  const note = [displayNote, pytestNotRun ? 'pytest not installed' : ''].filter(Boolean).join('\n');
+  const notRunViews = views.filter((view) => view.verdict === 'notRun');
+  const installNotes = [...new Set(notRunViews.map((view) => view.hint).filter(Boolean))];
+  const note = [displayNote, ...installNotes].filter(Boolean).join('\n');
   const noTests =
     !unknown &&
-    !pytestNotRun &&
+    notRunViews.length === 0 &&
     held.length === 0 &&
     views.length > 0 &&
     views.every(
@@ -671,7 +751,8 @@ async function executePlan(
       (views.length === 0 && held.length > 0) ||
       (!failed &&
         actionable.length === 0 &&
-        (pytestNotRun || plan.skipped.some((line) => line.includes('pytest not installed')))),
+        (notRunViews.length > 0 ||
+          plan.skipped.some((line) => line.includes('pytest not installed')))),
     note,
     result,
   };
@@ -689,7 +770,7 @@ function noRunnerMessage(): string {
   return [
     'Test Results: no runner detected',
     'tests_pass=false',
-    'No pytest, go test, cargo test, make test, or npm test target was found.',
+    'No pytest, unittest, go test, cargo test, make test, or npm test target was found.',
     "Use the exec tool with the project's own test command.",
   ].join('\n');
 }
@@ -715,12 +796,15 @@ async function planFromInput(
       }
       // Direct spawn avoids shell quoting. node --test must not inherit its IPC env.
       if (fileRaw.endsWith('.py')) {
-        const bin = pyBin();
+        const bin = pythonBin();
+        const pytestOk = await pytestImportable(ctx, deadline);
+        const source = pytestOk ? null : await readText(abs);
+        const flag = !pytestOk && source && UNITTEST_IMPORT.test(source) ? 'unittest' : 'pytest';
         return {
-          commands: [`${bin} -m pytest ${fileRaw}`],
+          commands: [`${bin} -m ${flag} ${fileRaw}`],
           skipped: [],
           env,
-          direct: { cmd: bin, args: ['-m', 'pytest', abs] },
+          direct: { cmd: bin, args: ['-m', flag, fileRaw] },
         };
       }
       delete env.NODE_TEST_CONTEXT;

@@ -6,6 +6,9 @@ workspace without changing the host process working directory. A nonzero,
 timed-out, or cancelled command cannot be replaced by passing contract evidence.
 A successful command remains authoritative even if contract criteria do not pass;
 the contract verdict remains in the audit history with its actual result.
+The latest command row records the actual external result; an empty contract
+does not add a duplicate trivial PASS. A command row without a contract is an
+audit fact and carries no native completion attestation.
 
 Native verdicts attest completion only after the acceptance ledger, contract
 status, and (for Task OS tasks) lifecycle acceptance have completed their real
@@ -34,6 +37,9 @@ readers, including fresh processes, replay only its confirmed prefix. Invalid or
 unreadable prepare metadata produces a storage error. A later writer refuses an
 unresolved tail rather than guessing that it committed. Recovery of such a tail
 requires inspection and storage repair; there is no automatic marker deletion.
+If dispatch was rejected before any append, the original prefix was zero, and
+the data file is still proven absent under the mutex, compensation can safely
+remove that attempt's prepare marker. Unknown IO outcomes remain fail closed.
 
 Session recovery similarly claims the observed dead owner's exact generation
 before rechecking its token and liveness and replacing the recovery gate. Unknown,

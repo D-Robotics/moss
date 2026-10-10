@@ -20,7 +20,8 @@ import { buildProviderToolDeclarations } from '../core/loop/agent-loop-context-p
 import { createInitialLoopState } from '../core/loop/agent-loop-state.js';
 import { collectNudgeInjections } from '../core/loop/nudges/registry.js';
 import { NUDGE_IDS } from '../core/loop/nudges/disable.js';
-import { buildMcpPromptLayer, mcpSearchToolDeclaration } from '../core/mcp/registry.js';
+import { buildMcpStableIndex, mcpSearchToolDeclaration } from '../core/mcp/registry.js';
+import { isDeferredToolName } from '../core/tools/deferred-tool-offer.js';
 import { RDK_DOCS_SERVER_NAME, rdkDocsKnowledgeLayer } from '../core/mcp/rdk-docs.js';
 import {
   buildEmptySkillsHintLayer,
@@ -90,12 +91,23 @@ export interface FreshSessionContextReportOptions {
    * `false` matches interactive chat that did not ask for a task contract.
    */
   taskFlow?: boolean;
+  /**
+   * Question tools are offered when an asker exists. Unset follows the
+   * surface: interactive chat (`taskFlow: false`) keeps them; headless `-p`
+   * omits them.
+   */
+  userQuestions?: boolean;
   deviceConfigured?: boolean;
   contextTokens?: number;
   userMessage?: string;
   /** Locale forwarded to the answer-language layer. Default: no zh layer. */
   locale?: string;
   now?: Date;
+  /** Live model id. Soul prepend/footer lines name this instead of a placeholder. */
+  model?: string;
+  /** Global config dir for `<configDir>/soul.md` discovery. */
+  configDir?: string;
+  usingBundledDefault?: boolean;
 }
 
 function tokensOf(text: string): ContextReportSection['tokens'] {
@@ -111,15 +123,13 @@ function toolRow(name: string, payload: string): ContextReportToolRow {
 }
 
 /**
- * MCP prompt layer for a connected rdk-docs server without opening a process.
- * Matches `buildMcpPromptLayer` for one connected server with an unknown count
- * until search runs — the CLI shows the count once the handshake finishes.
- * Pass `toolCount` when the caller knows it.
+ * Stable MCP index for a configured rdk-docs server. No tool counts — those
+ * change when the handshake finishes and must not sit in the cached prefix.
+ * Matches `buildMcpStableIndex` in cli-main, which is pushed as soon as the
+ * server is configured (including `moss -p`, before npx connects).
  */
-export function connectedRdkDocsMcpLayer(toolCount = 4): string {
-  return buildMcpPromptLayer({
-    getStatuses: () => [{ name: RDK_DOCS_SERVER_NAME, state: 'connected', toolCount }],
-  });
+export function connectedRdkDocsMcpLayer(): string {
+  return buildMcpStableIndex([RDK_DOCS_SERVER_NAME]);
 }
 
 export async function buildFreshSessionContextReport(
@@ -131,9 +141,12 @@ export async function buildFreshSessionContextReport(
   const userMessage = options.userMessage ?? FRESH_SESSION_USER_MESSAGE;
   const locale = options.locale ?? 'C';
 
+  const model = options.model?.trim() || 'context-report';
   const identity = resolveSoulIdentity({
     workspaceDir: options.workspaceDir,
-    model: 'context-report',
+    ...(options.configDir ? { configDir: options.configDir } : {}),
+    model,
+    ...(options.usingBundledDefault ? { usingBundledDefault: true } : {}),
   });
   const language = buildLanguagePolicyPromptQuick();
   const engineering = buildSoftwareEngineeringPromptQuick();
@@ -182,7 +195,7 @@ export async function buildFreshSessionContextReport(
       },
     },
     sessionStore: new InMemorySessionStore(),
-    model: 'context-report',
+    model,
     workspaceDir: options.workspaceDir,
     baseSystemPrompt: identity,
     domainPrompt: () => engineering,
@@ -195,7 +208,7 @@ export async function buildFreshSessionContextReport(
   agent.tools.replace(
     createModelInfoTool({
       provider: () => agent.config.llmProvider,
-      config: () => ({ model: 'context-report' }),
+      config: () => ({ model }),
       getContextTokens: () => contextTokens,
     })
   );
@@ -215,8 +228,10 @@ export async function buildFreshSessionContextReport(
   }
 
   const runtime = buildRuntimeCapabilitiesPrompt({ tools: agent.tools.getAll() });
-  const stableLayers = [agents, answerLanguage, runtime].filter((layer) => layer.trim().length > 0);
-  const dynamicLayers = [environment, mcpLayer, rdkLayer, skillsLayer, contextWindow].filter(
+  const stableLayers = [agents, answerLanguage, mcpLayer, runtime].filter(
+    (layer) => layer.trim().length > 0
+  );
+  const dynamicLayers = [environment, rdkLayer, skillsLayer, contextWindow].filter(
     (layer) => layer.trim().length > 0
   );
   agent.config.extraPromptLayers = stableLayers;
@@ -239,11 +254,16 @@ export async function buildFreshSessionContextReport(
     section('context window', contextWindow),
   ];
 
-  const offered = agent.tools.getAll().filter((tool) =>
-    toolVisibleForRun(tool.name, {
-      ...(options.taskFlow === undefined ? {} : { taskFlow: options.taskFlow }),
-      deviceConfigured,
-    })
+  const userQuestions = options.userQuestions ?? options.taskFlow === false;
+  const offered = agent.tools.getAll().filter(
+    (tool) =>
+      !isDeferredToolName(tool.name) &&
+      toolVisibleForRun(tool.name, {
+        ...(options.taskFlow === undefined ? {} : { taskFlow: options.taskFlow }),
+        deviceConfigured,
+        userQuestions,
+        requiresUserQuestion: tool.metadata?.requiresUserQuestion === true,
+      })
   );
   const declarations = buildProviderToolDeclarations(offered);
   const tools = declarations.map((tool) => {

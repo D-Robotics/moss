@@ -171,6 +171,7 @@ def moss_env(home: str, config: str) -> dict[str, str]:
         "TERM": "xterm-256color",
         "LANG": "en_US.UTF-8",
         "MOSS_NOTIFY": "0",
+        "MOSS_TRUST_WORKSPACE": "1",
         "MOSS_CONFIG_FILE": config,
         "MOSS_TUI_RENDERER": "fullscreen",
     }
@@ -231,6 +232,8 @@ def main() -> int:
     finally:
         stub.terminate()
         stub.wait(timeout=3)
+        shutil.rmtree(home, ignore_errors=True)
+        shutil.rmtree(workspace, ignore_errors=True)
     result = {"failures": failures, "reports": {key: {"typed_cursor": value["typed"]["cursor"], "moved_cursor": value["moved"]["cursor"]} for key, value in reports.items()}}
     if args.out:
         os.makedirs(os.path.dirname(args.out), exist_ok=True)

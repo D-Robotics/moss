@@ -22,7 +22,7 @@ import {
   tui,
 } from './copy.js';
 import { nextStreamCommit } from './stream-commit.js';
-import { toolLabel } from './transcript.js';
+import { splitTrailingMossNotices, toolLabel } from './transcript.js';
 import { summarizeToolCompletion } from './tool-summary.js';
 import { userFacingAssistantText, userFacingToolResult } from '../user-facing-text.js';
 
@@ -301,20 +301,69 @@ export function flushProse(store: TuiStore): void {
   store.run.committedText = '';
 }
 
-function normalizeShown(text: string): string {
+/**
+ * Compare streamed rows with the provider's final answer. Blank lines and list
+ * markers (`-` / `*` / `+` / `•` / `1.` / `1)`) are not differences: a tight
+ * bullet list and the same items with blank lines or another marker are one
+ * answer. Without this, dedupe misses and the final text is appended under
+ * the streamed copy.
+ */
+function normalizeAnswerForDedupe(text: string): string {
+  const canonical = text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return '';
+      const list = /^([-*+•]|\d{1,9}[.)])\s+(.*)$/u.exec(trimmed);
+      return list ? `- ${list[2] ?? ''}` : trimmed;
+    })
+    .filter((line) => line.length > 0)
+    .join('\n');
+  return canonical.replace(/\s+/g, ' ').trim();
+}
+
+/** Whitespace-only collapse: row replacement must not treat `1.` and `-` lists as one text. */
+function collapseWhitespace(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * First sentence of the final answer, when it is long enough to be an opening
+ * rather than a short later reply ("30 fps", "Done.", "OK.").
+ */
+function answerOpening(want: string): string {
+  const match = /.{8,}?[.。！!?？]/.exec(want);
+  if (match?.[0]) return match[0];
+  return want.length >= 8 ? want : '';
+}
+
+/**
+ * The run window already contains the final answer, and its opening sentence
+ * shows up again after that copy. `includes` alone treats that as "already
+ * shown" and leaves the second copy on screen.
+ */
+function openingShownAgain(shown: string, want: string): boolean {
+  const opening = answerOpening(want);
+  if (!opening || !shown.includes(want)) return false;
+  const first = shown.indexOf(opening);
+  if (first === -1) return false;
+  return shown.indexOf(opening, first + opening.length) !== -1;
+}
+
 /** Assistant text already committed for this run (rows, or the flush memory). */
-function shownAssistantText(store: TuiStore): string {
+function shownAssistantText(
+  store: TuiStore,
+  normalize: (text: string) => string = normalizeAnswerForDedupe
+): string {
   const runRows = store.rows.slice(store.run.rowStart ?? 0);
-  const fromRows = normalizeShown(
+  const fromRows = normalize(
     runRows
       .filter((row) => row.kind === 'assistant')
       .map((row) => row.text)
-      .join(' ')
+      .join('\n')
   );
-  const fromFlushed = normalizeShown((store.run.flushed ?? []).join(' '));
+  const fromFlushed = normalize((store.run.flushed ?? []).join('\n'));
   return fromRows.length >= fromFlushed.length ? fromRows : fromFlushed;
 }
 
@@ -358,13 +407,53 @@ export function reconcileFinalResponse(store: TuiStore, response: string | undef
   if (typeof response !== 'string' || !response.trim()) return;
   const visibleResponse = userFacingAssistantText(response);
   if (!visibleResponse.trim()) return;
-  const want = normalizeShown(visibleResponse);
-  const shown = shownAssistantText(store);
-  const live = store.run.streamingText.trim()
-    ? normalizeShown(userFacingAssistantText(store.run.streamingText))
+  const hasLiveTail = store.run.streamingText.trim().length > 0;
+  // Marker stripping is only for a live tail (`*` vs `-` still on screen).
+  // With no tail — the summary arrived in `done`, or an interrupt cleared the
+  // stream — whitespace is the comparison, so a different list is not dropped.
+  const want = hasLiveTail
+    ? normalizeAnswerForDedupe(visibleResponse)
+    : collapseWhitespace(visibleResponse);
+  const shown = hasLiveTail
+    ? shownAssistantText(store)
+    : shownAssistantText(store, collapseWhitespace);
+  const live = hasLiveTail
+    ? normalizeAnswerForDedupe(userFacingAssistantText(store.run.streamingText))
     : '';
-  const onScreen = normalizeShown(`${shown} ${live}`.trim());
-  if (onScreen && onScreen.includes(want)) return;
+  const onScreen = hasLiveTail
+    ? normalizeAnswerForDedupe(`${shownAssistantText(store)}\n${live}`.trim())
+    : shown;
+  // One copy of the answer inside a doubled window still matches `includes`.
+  // Collapse back to the provider response so the opening sentence is not painted twice.
+  // List markers stay: a numbered plan and a later bullet list of the same items
+  // are two texts, and so are `1.`/`2.` and `3.`/`4.`. Marker stripping only
+  // decides whether the live tail is a repeat that endRun must not append.
+  if (
+    openingShownAgain(
+      shownAssistantText(store, collapseWhitespace),
+      collapseWhitespace(visibleResponse)
+    )
+  ) {
+    replaceRunAssistantRows(store, visibleResponse);
+    return;
+  }
+  if (shown && shown.includes(want)) {
+    // Same answer, including when the final text only differs by blank lines
+    // or list markers. Drop the live tail so endRun cannot append it.
+    store.run.streamingText = '';
+    store.run.committedText = '';
+    return;
+  }
+  if (onScreen && onScreen.includes(want)) {
+    // Rows already hold the answer. Drop a live tail that only repeats it;
+    // endRun would otherwise commit that tail as a second copy. A tail that
+    // is the only copy of the ending stays, so endRun can commit it.
+    if (!live || shown.includes(live)) {
+      store.run.streamingText = '';
+      store.run.committedText = '';
+    }
+    return;
+  }
   if (shown && replaceRunAssistantRows(store, visibleResponse)) return;
   if (!store.run.streamingText.trim()) {
     appendRow(store, 'assistant', visibleResponse);
@@ -485,10 +574,13 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       const abortedBy = event.aborted?.by;
       const abortNotice = isStructuredUserAbort(event);
       if (abortNotice) noteInterrupt(store);
+      // Trailing `[moss]` lines are their own rows. Leaving them on the result
+      // hides them: compact mode keeps only the first three result lines.
+      const peeled = splitTrailingMossNotices(event.result ?? '');
       const completion = summarizeToolCompletion(
         event.toolName,
         input,
-        event.result,
+        peeled.body,
         Boolean(event.isError)
       );
       const summary = abortedBy
@@ -503,7 +595,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       const body =
         abortNotice || completion.dropBody
           ? ''
-          : (completion.diff ?? resultBody(event.result, event.toolName));
+          : (completion.diff ?? resultBody(peeled.body, event.toolName));
       appendRow(store, 'result', body, {
         tool: {
           name: event.toolName,
@@ -513,6 +605,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
           ...(abortedBy ? { abortedBy } : {}),
         },
       });
+      for (const notice of peeled.notices) appendRow(store, 'system', notice);
       store.run.toolLine = undefined;
       store.version++;
       break;
@@ -526,8 +619,11 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
         surface?.actions && surface.actions.length > 0
           ? ` (${surface.actions.map((a) => a.label).join(' · ')})`
           : '';
-      const message = surface?.userMessage
-        ? `${surface.userMessage}${actions}`
+      const reading = surface?.userMessage;
+      const message = reading
+        ? reading.includes('\n')
+          ? reading.replace('\n', `${actions}\n`)
+          : `${reading}${actions}`
         : String(event.error ?? 'error');
       if (isUserAbortErrorText(message)) {
         noteInterrupt(store);
@@ -555,6 +651,8 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
           Number(event.cacheReadTokens ?? 0) +
           Number(event.cacheCreationTokens ?? 0);
       }
+      // Price and the status fallback use the routed/configured name. The
+      // gateway id (`servedModel`) is for display and session records.
       if (event.model?.trim()) store.usage.lastModel = event.model.trim();
       const model = event.model?.trim() || store.usage.sessionModel;
       store.usage.slices.push({
@@ -720,10 +818,16 @@ export function usageBlock(
 export function endRun(store: TuiStore, halted: boolean): void {
   const visible = userFacingAssistantText(store.run.streamingText);
   if (visible.trim()) {
-    appendRow(store, 'assistant', visible, {
-      ...(store.run.committedText ? { continuation: true } : {}),
-      ...takeReasoning(store),
-    });
+    const shown = shownAssistantText(store);
+    const want = normalizeAnswerForDedupe(visible);
+    // This run's rows already contain the live tail (often the whole answer
+    // after a paragraph commit). Appending it paints the opening sentence again.
+    if (!(shown && shown.includes(want))) {
+      appendRow(store, 'assistant', visible, {
+        ...(store.run.committedText ? { continuation: true } : {}),
+        ...takeReasoning(store),
+      });
+    }
   }
   store.run = {
     running: false,

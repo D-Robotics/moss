@@ -8,6 +8,8 @@ import assert from 'node:assert/strict';
 import {
   commonModelChoices,
   resolveModelSelection,
+  splitModelCustomFlag,
+  unavailableModelNote,
   formatModelChoices,
   parseCustomModelConfigInput,
 } from '../dist/cli/model-catalog.js';
@@ -136,6 +138,44 @@ import {
     !formatted.includes('image_input'),
     'help does not advertise an unsupported image capability flag'
   );
+}
+
+{
+  const live = {
+    provider: 'openai-compatible',
+    providerLabel: 'Gateway',
+    currentModel: 'stub-alpha',
+    choices: [
+      { model: 'stub-alpha', provider: 'openai-compatible', source: 'live' },
+      { model: 'stub-beta', provider: 'openai-compatible', source: 'live' },
+    ],
+    source: 'live',
+  };
+  const note = unavailableModelNote('stub-bata', live, 'C');
+  assert.match(note, /not in the model list/);
+  assert.match(note, /stub-beta/);
+  assert.equal(unavailableModelNote('stub-alpha', live, 'C'), undefined);
+  const offline = { ...live, source: 'common' };
+  const unchecked = unavailableModelNote('not-listed', offline, 'C');
+  assert.match(unchecked, /could not be checked/);
+  assert.match(unchecked, /\/model not-listed --custom/);
+  assert.equal(unavailableModelNote('stub-alpha', offline, 'C'), undefined);
+  assert.equal(unavailableModelNote('not-listed', offline, 'C', { custom: true }), undefined);
+  assert.equal(unavailableModelNote('not-listed', undefined, 'C', { custom: true }), undefined);
+  const uncheckedZh = unavailableModelNote('not-listed', undefined, 'zh_CN.UTF-8');
+  assert.match(uncheckedZh, /核对不了模型列表/);
+  assert.match(uncheckedZh, /--custom/);
+  assert.deepEqual(splitModelCustomFlag('stub-alpha --custom'), {
+    token: 'stub-alpha',
+    custom: true,
+  });
+  assert.deepEqual(splitModelCustomFlag('--custom stub-alpha'), {
+    token: 'stub-alpha',
+    custom: true,
+  });
+  const zh = unavailableModelNote('stub-bata', live, 'zh_CN.UTF-8');
+  assert.match(zh, /不在模型列表里/);
+  assert.match(zh, /stub-beta/);
 }
 
 console.log('[PASS] Model catalog and selection');

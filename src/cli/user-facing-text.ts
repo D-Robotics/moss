@@ -10,6 +10,23 @@ import {
 } from '../safety/tool-output-redact.js';
 
 const MODEL_HINT_LINE = 'Verify with tests instead of re-reading every file.';
+const TASK_PROGRESS_LINE = /^\[task [a-z]+\]/;
+const TASK_ID = /\btask_[A-Za-z0-9_]*\d[A-Za-z0-9_]*\b/g;
+const EVIDENCE_ID = /\bev_[A-Za-z0-9_]+\b/g;
+
+/** Hide ledger ids and harness phase lines. Quoted `[task-phase:` notes stay. */
+function hideInternalTaskWording(text: string): string {
+  const lines = text.split('\n').filter((line) => !TASK_PROGRESS_LINE.test(line.trim()));
+  return lines
+    .join('\n')
+    .replace(TASK_ID, '')
+    .replace(EVIDENCE_ID, '')
+    .replace(/任务契约/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+([,.;:])/g, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
 /** Phase-prompt marks the engine injects. A model line that merely starts with the prefix stays. */
 const INJECTED_PHASE_MARKS = new Set([
@@ -76,5 +93,5 @@ export function userFacingAssistantText(text: string): string {
     if (INJECTED_PHASE_MARKS.has(trimmed)) return false;
     return true;
   });
-  return redactEgress(kept.join('\n').replace(/^\n+|\n+$/g, ''));
+  return redactEgress(hideInternalTaskWording(kept.join('\n').replace(/^\n+|\n+$/g, '')));
 }

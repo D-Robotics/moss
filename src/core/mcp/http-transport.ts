@@ -13,6 +13,7 @@
  * session-id handshake simple).
  */
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
+import { uiText } from '../../utils/ui-language.js';
 import { getRootLogger } from '../../logger.js';
 import type {
   InboundJsonRpcMessage,
@@ -98,14 +99,20 @@ export class McpHttpTransport implements McpTransport {
     if (this._state === 'failed') {
       throw new MossError({
         code: ErrorCode.USER_INPUT_INVALID,
-        message: `mcp server "${this.config.name}": ${this._lastError ?? 'invalid http config'}`,
+        message: uiText(
+          `mcp server "${this.config.name}": ${this._lastError ?? 'invalid http config'}`,
+          `mcp 服务器「${this.config.name}」：${this._lastError ?? 'HTTP 配置无效'}`
+        ),
         recoverable: false,
       });
     }
     if (this._state === 'closed') {
       throw new MossError({
         code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: `mcp http transport for "${this.config.name}" is closed`,
+        message: uiText(
+          `mcp http transport for "${this.config.name}" is closed`,
+          `「${this.config.name}」的 mcp HTTP 传输已关闭`
+        ),
         recoverable: false,
       });
     }
@@ -123,7 +130,10 @@ export class McpHttpTransport implements McpTransport {
       return Promise.reject(
         new MossError({
           code: ErrorCode.TOOL_EXECUTION_FAILED,
-          message: `mcp server "${this.config.name}" is not connected (state: ${this._state})`,
+          message: uiText(
+            `mcp server "${this.config.name}" is not connected (state: ${this._state})`,
+            `mcp 服务器「${this.config.name}」未连接（state: ${this._state}）`
+          ),
           ...(this._lastError ? { hint: this._lastError } : {}),
           recoverable: false,
         })
@@ -209,7 +219,10 @@ export class McpHttpTransport implements McpTransport {
         const bodyText = (await readCapped(res.body, MAX_ERROR_BODY_CHARS)).text;
         throw new MossError({
           code: ErrorCode.TOOL_EXECUTION_FAILED,
-          message: `mcp server "${this.config.name}" HTTP ${res.statusCode} for "${method}"${bodyText ? `: ${bodyText.slice(0, 400)}` : ''}`,
+          message: uiText(
+            `mcp server "${this.config.name}" HTTP ${res.statusCode} for "${method}"${bodyText ? `: ${bodyText.slice(0, 400)}` : ''}`,
+            `mcp 服务器「${this.config.name}」对「${method}」返回 HTTP ${res.statusCode}${bodyText ? `：${bodyText.slice(0, 400)}` : ''}`
+          ),
           ...(res.statusCode === 401 || res.statusCode === 403
             ? {
                 hint: 'The server rejected the configured credentials (check the ${ENV_VAR} expansion in mcp.json headers).',
@@ -232,7 +245,10 @@ export class McpHttpTransport implements McpTransport {
       } catch (err) {
         throw new MossError({
           code: ErrorCode.TOOL_EXECUTION_FAILED,
-          message: `mcp server "${this.config.name}" returned a non-JSON body for "${method}"`,
+          message: uiText(
+            `mcp server "${this.config.name}" returned a non-JSON body for "${method}"`,
+            `mcp 服务器「${this.config.name}」对「${method}」返回了非 JSON 正文`
+          ),
           recoverable: true,
           cause: err,
         });
@@ -244,7 +260,10 @@ export class McpHttpTransport implements McpTransport {
       if (aborted && opts?.signal?.aborted === true) {
         throw new MossError({
           code: ErrorCode.USER_ABORTED,
-          message: `mcp request "${method}" to "${this.config.name}" aborted`,
+          message: uiText(
+            `mcp request "${method}" to "${this.config.name}" aborted`,
+            `发往「${this.config.name}」的 mcp 请求「${method}」已中止`
+          ),
           recoverable: true,
           cause: err,
         });
@@ -252,7 +271,10 @@ export class McpHttpTransport implements McpTransport {
       if (controller.signal.aborted) {
         throw new MossError({
           code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
-          message: `mcp request "${method}" to "${this.config.name}" timed out after ${timeoutMs}ms`,
+          message: uiText(
+            `mcp request "${method}" to "${this.config.name}" timed out after ${timeoutMs}ms`,
+            `发往「${this.config.name}」的 mcp 请求「${method}」在 ${timeoutMs} 毫秒后超时`
+          ),
           hint: 'The server did not answer in time; it may be overloaded or unreachable.',
           recoverable: true,
           cause: err,
@@ -261,7 +283,10 @@ export class McpHttpTransport implements McpTransport {
       this._lastError = errorMessage(err);
       throw new MossError({
         code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: `mcp request "${method}" to "${this.config.name}" failed: ${this._lastError}`,
+        message: uiText(
+          `mcp request "${method}" to "${this.config.name}" failed: ${this._lastError}`,
+          `发往「${this.config.name}」的 mcp 请求「${method}」失败：${this._lastError}`
+        ),
         hint: 'Check the server URL, network connectivity, and proxy settings.',
         recoverable: true,
         cause: err,
@@ -309,7 +334,10 @@ export class McpHttpTransport implements McpTransport {
       }
       throw new MossError({
         code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: `mcp server "${this.config.name}" closed the SSE stream without answering`,
+        message: uiText(
+          `mcp server "${this.config.name}" closed the SSE stream without answering`,
+          `mcp 服务器「${this.config.name}」在应答前关闭了 SSE 流`
+        ),
         recoverable: true,
       });
     } finally {
@@ -329,7 +357,10 @@ export class McpHttpTransport implements McpTransport {
     if (msg.error) {
       throw new MossError({
         code: ErrorCode.TOOL_EXECUTION_FAILED,
-        message: `mcp server "${this.config.name}": ${msg.error.message} (code ${msg.error.code})`,
+        message: uiText(
+          `mcp server "${this.config.name}": ${msg.error.message} (code ${msg.error.code})`,
+          `mcp 服务器「${this.config.name}」：${msg.error.message}（code ${msg.error.code}）`
+        ),
         recoverable: true,
       });
     }

@@ -4,12 +4,13 @@
  * every user-facing path, exec write-back of [REDACTED], and source identifiers.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import { execBackgroundTool } from '../dist/tools/background-exec.js';
-import { execTool, readFileTool, writeFileTool } from '../dist/tools/builtin.js';
+import { editFileTool, execTool, readFileTool, writeFileTool } from '../dist/tools/builtin.js';
 import { recordEvidenceTool } from '../dist/tools/evidence-tools.js';
 import { clearBackgroundRegistryForTests } from '../dist/core/tools/background-process-registry.js';
 import {
@@ -25,6 +26,7 @@ import { createCliRunRenderer } from '../dist/cli/output.js';
 import { createHeadlessPrintState, formatHeadlessStreamEvent } from '../dist/cli/print.js';
 import { userFacingAssistantText } from '../dist/cli/user-facing-text.js';
 import { presentToolOutput, redactEgress } from '../dist/safety/tool-output-redact.js';
+import { trackTempDir } from './helpers/temp-home.mjs';
 
 const SERVICE = 'Abcd1234efgh5678';
 const AWS = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
@@ -35,6 +37,13 @@ const DOCKER = 'ZG9ja2VyLXNlY3JldC12YWx1ZTE=';
 const KUBE_TOKEN = 'kube-token-value-1234567890';
 const KUBE_KEY = 'a3ViZS1jbGllbnQta2V5LWRhdGEtdmFsdWUxMjM0NTY=';
 const SECRETS = [SERVICE, AWS, KNOWN, PEM_BODY, NETRC, DOCKER, KUBE_TOKEN, KUBE_KEY];
+
+/** GNU sed takes the script after `-i`. BSD sed (macOS) requires `-i ''`. */
+function sedInPlace(expression, file) {
+  const probe = spawnSync('sed', ['--version'], { encoding: 'utf8' });
+  const gnu = probe.status === 0 && String(probe.stdout).includes('GNU');
+  return gnu ? `sed -i ${expression} ${file}` : `sed -i '' ${expression} ${file}`;
+}
 
 const PEM = `-----BEGIN OPENSSH PRIVATE KEY-----\n${PEM_BODY}\n-----END OPENSSH PRIVATE KEY-----\n`;
 const PARAGRAPH = [
@@ -503,9 +512,8 @@ try {
   assert.doesNotMatch(String(moved), /must be restored from the original source/);
 
   fs.writeFileSync(path.join(project, 'note.txt'), 'alpha [REDACTED] omega\n');
-  const sedInPlace = process.platform === 'darwin' ? "sed -i ''" : 'sed -i';
   const legit = await execTool.execute(
-    { command: `${sedInPlace} 's/alpha/beta/' note.txt` },
+    { command: sedInPlace("'s/alpha/beta/'", 'note.txt') },
     ctx()
   );
   assert.equal(fs.readFileSync(path.join(project, 'note.txt'), 'utf8'), 'beta [REDACTED] omega\n');
@@ -517,7 +525,10 @@ try {
   const bothCommand =
     process.platform === 'win32'
       ? `node -e "const fs=require('fs');const text=fs.readFileSync('both.txt','utf8');process.stdout.write(text.replace('alpha','beta').replace('SECRET-value-1234','[REDA'+'CTED]'))" > both-tmp.txt && mv both-tmp.txt both.txt`
-      : `${sedInPlace} "s/alpha/beta/; s/SECRET-value-1234/$(printf '%s%s' '[REDA' 'CTED]')/" both.txt`;
+      : sedInPlace(
+          `"s/alpha/beta/; s/SECRET-value-1234/$(printf '%s%s' '[REDA' 'CTED]')/"`,
+          'both.txt'
+        );
   const both = await execTool.execute(
     {
       command: bothCommand,
@@ -603,9 +614,29 @@ try {
   assert.match(sourceView, /hashedPasswordValue/);
   assert.match(sourceView, /someLongIdentifierName/);
   assert.doesNotMatch(sourceView, /\[REDACTED\]/);
-  const roundTrip = await writeFileTool.execute({ path: 'idents.ts', content: source }, ctx());
+  const seen = sourceView
+    .split('\n')
+    .filter((line) => /^\s*\d+\t/.test(line))
+    .map((line) => line.replace(/^\s*\d+\t/, ''))
+    .join('\n');
+  const seenBody = seen.endsWith('\n') ? seen : `${seen}\n`;
+  assert.equal(seenBody, source, 'the model view is the file, so an edit can round-trip');
+  const roundTrip = await writeFileTool.execute({ path: 'idents.ts', content: seenBody }, ctx());
   assert.match(String(roundTrip), /Successfully wrote/);
   assert.equal(fs.readFileSync(path.join(project, 'idents.ts'), 'utf8'), source);
+  const viewedLine = seen.split('\n')[0];
+  const edited = await editFileTool.execute(
+    {
+      path: 'idents.ts',
+      old_string: viewedLine,
+      new_string: `${viewedLine} // kept`,
+    },
+    ctx()
+  );
+  assert.match(String(edited), /Edited /);
+  const afterEdit = fs.readFileSync(path.join(project, 'idents.ts'), 'utf8');
+  assert.match(afterEdit, /\/\/ kept/);
+  assert.doesNotMatch(afterEdit, /\[REDACTED\]/);
   const poisoned = await writeFileTool.execute(
     {
       path: 'idents.ts',
@@ -614,7 +645,33 @@ try {
     ctx()
   );
   assert.match(String(poisoned), /refusing to write \[REDACTED\]/);
-  assert.equal(fs.readFileSync(path.join(project, 'idents.ts'), 'utf8'), source);
+  assert.equal(fs.readFileSync(path.join(project, 'idents.ts'), 'utf8'), afterEdit);
+
+  const pat = 'ci-pat-value-not-a-key-99';
+  const userHome = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-egress-user-')));
+  const userConfigDir = path.join(userHome, 'config');
+  fs.mkdirSync(userConfigDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(userConfigDir, 'config.json'),
+    JSON.stringify({ apiKeyEnv: 'MY_CI_PAT' })
+  );
+  const projectOnly = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-egress-project-')));
+  fs.mkdirSync(path.join(projectOnly, '.moss'), { recursive: true });
+  fs.writeFileSync(
+    path.join(projectOnly, '.moss', 'config.json'),
+    JSON.stringify({ apiKeyEnv: 'MY_CI_PAT' })
+  );
+  const userEnv = { HOME: userHome, MOSS_CONFIG_DIR: userConfigDir, MY_CI_PAT: pat };
+  assert.equal(redactEgress(`token ${pat} end`, userEnv).includes(pat), false);
+  const emptyHome = trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-egress-empty-')));
+  const projectEnv = { HOME: emptyHome, MY_CI_PAT: pat };
+  const previousCwd = process.cwd();
+  process.chdir(projectOnly);
+  try {
+    assert.equal(redactEgress(`token ${pat} end`, projectEnv).includes(pat), true);
+  } finally {
+    process.chdir(previousCwd);
+  }
 
   const userinfo = redactEgress('fetch https://user:p4ssw0rdXYZ@example.com/a');
   assert.match(userinfo, /https:\/\/user:\[REDACTED\]@example.com\/a/);
@@ -655,6 +712,28 @@ try {
     'https://ex.test/a?page=2&token=next',
   ].join('\n');
   assert.equal(redactEgress(sourceUrls), sourceUrls);
+
+  const bearer = 'FAKEbearer0123456789abcdefXYZ';
+  const authHeader = redactEgress(`"Authorization": "Bearer ${bearer}"`);
+  assert.match(authHeader, /\[REDACTED\]/);
+  assert.doesNotMatch(authHeader, new RegExp(bearer));
+  assert.doesNotMatch(authHeader, /FAKEbearer01/);
+  const basic = redactEgress('"Authorization": "Basic dXNlcjpwYXNzMTIzNA=="');
+  assert.match(basic, /\[REDACTED\]/);
+  assert.doesNotMatch(basic, /dXNlcjpwYXNz/);
+  const tokenScheme = redactEgress('Authorization: Token tok_FAKE9aB3kL9mN2pQ7');
+  assert.match(tokenScheme, /\[REDACTED\]/);
+  assert.doesNotMatch(tokenScheme, /tok_FAKE9aB3/);
+  const digest = redactEgress('Authorization: Digest abcdef0123456789WXYZ');
+  assert.match(digest, /\[REDACTED\]/);
+  assert.doesNotMatch(digest, /abcdef0123456789WXYZ/);
+  const cookie = redactEgress('"Cookie": "session=abcDEF1234567890xyz"');
+  assert.match(cookie, /\[REDACTED\]/);
+  assert.doesNotMatch(cookie, /abcDEF1234567890xyz/);
+  assert.equal(
+    redactEgress('const token = req.headers.authorization;'),
+    'const token = req.headers.authorization;'
+  );
 
   console.log('[PASS] egress redaction');
 } finally {

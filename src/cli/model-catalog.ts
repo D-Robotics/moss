@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import { buildApiV1Url, isHttpUrl, stripEndpointSuffix } from '../provider/api-v1-url.js';
+import { closestModelName } from './first-run.js';
+import { isZhLocale } from './cli-locale.js';
 import { readCachedRealModel } from './model-resolution.js';
 import { readPreferredModel } from './preferred-model-store.js';
 import {
@@ -9,6 +11,7 @@ import {
   type CliProviderPreset,
   type ResolvedCliConfig,
 } from './config.js';
+import { uiText } from './cli-locale.js';
 
 export interface ModelChoice {
   provider: CliProviderPreset;
@@ -37,18 +40,30 @@ export function describeModelListSource(list: ModelChoiceList): string {
   const origin =
     list.source === 'live'
       ? list.usingBundledDefault
-        ? 'live from the built-in Moss gateway'
-        : 'live from the provider /v1/models'
+        ? uiText('live from the built-in Moss gateway', '来自内置 Moss 网关的实时列表')
+        : uiText('live from the provider /v1/models', '来自提供方 /v1/models 的实时列表')
       : list.source === 'built-in'
-        ? 'built-in Moss gateway defaults'
-        : 'your configured model only (no live list available)';
+        ? uiText('built-in Moss gateway defaults', '内置 Moss 网关默认项')
+        : uiText(
+            'your configured model only (no live list available)',
+            '仅已配置的模型（没有实时列表）'
+          );
   if (list.usingBundledDefault) {
-    return `models: ${origin} · no user model config (run moss setup to use your own)`;
+    return uiText(
+      `models: ${origin} · no user model config (run moss setup to use your own)`,
+      `模型：${origin} · 没有用户模型配置（运行 moss setup 使用自己的）`
+    );
   }
   if (list.configPath && list.configPathExists === false) {
-    return `models: ${origin} · config file deleted (${list.configPath}) — provider fell back to defaults`;
+    return uiText(
+      `models: ${origin} · config file deleted (${list.configPath}) — provider fell back to defaults`,
+      `模型：${origin} · 配置文件已删除（${list.configPath}）— 提供方已回退到默认值`
+    );
   }
-  return `models: ${origin}${list.configPath ? ` · config ${list.configPath}` : ''}`;
+  return uiText(
+    `models: ${origin}${list.configPath ? ` · config ${list.configPath}` : ''}`,
+    `模型：${origin}${list.configPath ? ` · 配置 ${list.configPath}` : ''}`
+  );
 }
 
 export interface CustomModelConfig {
@@ -338,6 +353,45 @@ export async function autoSelectGatewayModel(
   return liveModels[0]!;
 }
 
+/** `/model name --custom` forces a name when the live list could not be checked. */
+export function splitModelCustomFlag(raw: string): { token: string; custom: boolean } {
+  const parts = raw.trim().split(/\s+/).filter(Boolean);
+  const custom = parts.includes('--custom');
+  return { token: parts.filter((part) => part !== '--custom').join(' '), custom };
+}
+
+/**
+ * Reject a name that is not on a live list, and a name we could not check
+ * because the list failed to load. `--custom` is the explicit confirmation.
+ */
+export function unavailableModelNote(
+  token: string,
+  list: ModelChoiceList | undefined,
+  locale?: string,
+  options?: { custom?: boolean }
+): string | undefined {
+  if (options?.custom) return undefined;
+  if (list && resolveModelSelection(token, list.choices)) return undefined;
+  const zh = isZhLocale(locale);
+  if (!list || list.source !== 'live') {
+    return zh
+      ? `暂时核对不了模型列表，不能确认「${token}」是否存在。若仍要使用，请再运行 /model ${token} --custom。`
+      : `The model list could not be checked, so "${token}" was not applied. Run /model ${token} --custom to use it anyway.`;
+  }
+  const suggested = closestModelName(
+    token,
+    list.choices.map((choice) => choice.model)
+  );
+  if (zh) {
+    return suggested
+      ? `「${token}」不在模型列表里。最接近的是 ${suggested}。`
+      : `「${token}」不在模型列表里。请换一个列表中的名字。`;
+  }
+  return suggested
+    ? `"${token}" is not in the model list. Closest match: ${suggested}.`
+    : `"${token}" is not in the model list. Pick one of the listed models.`;
+}
+
 export function resolveModelSelection(
   input: string,
   choices: readonly ModelChoice[]
@@ -359,17 +413,35 @@ export function resolveModelSelection(
 
 export function formatModelChoices(list: ModelChoiceList): string {
   const configFileLine = list.configPath
-    ? `${list.configPath}${list.configPathExists === false ? ' (not present — using defaults)' : ''}`
-    : '(default user config)';
+    ? `${list.configPath}${
+        list.configPathExists === false
+          ? uiText(' (not present — using defaults)', '（不存在 — 使用默认值）')
+          : ''
+      }`
+    : uiText('(default user config)', '（默认用户配置）');
   const lines = [
-    'Models',
-    `  active provider  ${list.providerLabel} (${list.provider})${list.usingBundledDefault ? ' · built-in Moss gateway' : ''}`,
-    `  current model    ${list.currentModel || '(not set)'}${list.usingBundledDefault && list.realModel ? ` (real backing model: ${list.realModel})` : ''}`,
-    `  config file      ${configFileLine}`,
+    uiText('Models', '模型'),
+    uiText(
+      `  active provider  ${list.providerLabel} (${list.provider})${list.usingBundledDefault ? ' · built-in Moss gateway' : ''}`,
+      `  当前提供方  ${list.providerLabel} (${list.provider})${list.usingBundledDefault ? ' · 内置 Moss 网关' : ''}`
+    ),
+    uiText(
+      `  current model    ${list.currentModel || '(not set)'}${list.usingBundledDefault && list.realModel ? ` (real backing model: ${list.realModel})` : ''}`,
+      `  当前模型    ${list.currentModel || '（未设置）'}${list.usingBundledDefault && list.realModel ? `（实际模型：${list.realModel}）` : ''}`
+    ),
+    uiText(`  config file      ${configFileLine}`, `  配置文件      ${configFileLine}`),
     `  ${describeModelListSource(list)}`,
   ];
-  if (list.warning) lines.push(`  note             ${list.warning}`);
-  lines.push('', `Choose for this session (${list.choices.length} available):`);
+  if (list.warning) {
+    lines.push(uiText(`  note             ${list.warning}`, `  说明             ${list.warning}`));
+  }
+  lines.push(
+    '',
+    uiText(
+      `Choose for this session (${list.choices.length} available):`,
+      `选择本会话使用的模型（${list.choices.length} 个可用）：`
+    )
+  );
   const visibleChoices = list.choices.slice(0, 20);
   const currentIndex = list.choices.findIndex((choice) => choice.model === list.currentModel);
   if (currentIndex >= 20 && list.choices[currentIndex]) {
@@ -377,22 +449,40 @@ export function formatModelChoices(list: ModelChoiceList): string {
   }
   visibleChoices.forEach((choice) => {
     const originalIndex = list.choices.indexOf(choice);
-    const current = choice.model === list.currentModel ? ' current' : '';
+    const current = choice.model === list.currentModel ? uiText(' current', ' 当前') : '';
     const label = choice.label ? ` - ${choice.label}` : '';
     lines.push(
       `  ${String(originalIndex + 1).padStart(2, ' ')}. ${choice.model}${label}${current}`
     );
   });
   if (list.choices.length > visibleChoices.length) {
-    lines.push(`  … ${list.choices.length - visibleChoices.length} more — use /model <model-name>`);
+    lines.push(
+      uiText(
+        `  … ${list.choices.length - visibleChoices.length} more — use /model <model-name>`,
+        `  … 还有 ${list.choices.length - visibleChoices.length} 个 — 用 /model <模型名>`
+      )
+    );
   }
   lines.push(
     '',
-    'Use:',
-    '  /model <number>        choose one of the models above',
-    '  /model <model-name>    use a custom model name for this session',
+    uiText('Use:', '用法：'),
+    uiText(
+      '  /model <number>        choose one of the models above',
+      '  /model <编号>          选择上面列出的一个模型'
+    ),
+    uiText(
+      '  /model <model-name>    use a name from the list above',
+      '  /model <模型名>        使用上面列表里的名字'
+    ),
+    uiText(
+      '  /model <name> --custom use that name when the list could not be checked',
+      '  /model <名字> --custom 列表无法核对时使用这个名字'
+    ),
     '  /model config base_url=<url> key=<api-key> model_name=<model>',
-    '  moss setup             change provider, base URL, or API key'
+    uiText(
+      '  moss setup             change provider, base URL, or API key',
+      '  moss setup             修改提供方、基址或 API 密钥'
+    )
   );
   return lines.join('\n');
 }

@@ -22,7 +22,6 @@ const denied = [
   'NODE_OPTIONS',
   'node_options',
   'NODE_PATH',
-  'NODE_EXTRA_CA_CERTS',
   'LD_PRELOAD',
   'LD_LIBRARY_PATH',
   'LD_AUDIT',
@@ -63,8 +62,25 @@ const denied = [
   'npm_config_node_options',
   'PATH',
   'SHELL',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+  'DEEPSEEK_BASE_URL',
+  'DEEPSEEK_API_BASE',
+  'DASHSCOPE_BASE_URL',
+  'DASHSCOPE_API_BASE',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_API_BASE',
 ];
-const allowed = ['NODE_DEBUG', 'HOME', 'FOO', 'npm_config', 'GIT', 'MY_GIT_CONFIG', 'LD_DEBUG'];
+const allowed = [
+  'NODE_DEBUG',
+  'HOME',
+  'FOO',
+  'npm_config',
+  'GIT',
+  'MY_GIT_CONFIG',
+  'LD_DEBUG',
+  'NODE_EXTRA_CA_CERTS',
+];
 for (const key of denied) assert.equal(isDotenvDeniedEnvKey(key), true, key);
 for (const key of allowed) assert.equal(isDotenvDeniedEnvKey(key), false, key);
 
@@ -87,6 +103,24 @@ for (const key of allowed) assert.equal(isDotenvDeniedEnvKey(key), false, key);
   }
 }
 
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-dotenv-ca-'));
+  const saved = process.env.NODE_EXTRA_CA_CERTS;
+  delete process.env.NODE_EXTRA_CA_CERTS;
+  fs.writeFileSync(path.join(root, '.env'), 'NODE_EXTRA_CA_CERTS=/tmp/forged.pem\n');
+  try {
+    loadEnvFile(path.join(root, '.env'));
+    assert.equal(
+      process.env.NODE_EXTRA_CA_CERTS,
+      undefined,
+      'extra CA from .env stays deferred until the folder is trusted'
+    );
+  } finally {
+    if (saved === undefined) delete process.env.NODE_EXTRA_CA_CERTS;
+    else process.env.NODE_EXTRA_CA_CERTS = saved;
+  }
+}
+
 const probeKeys = [
   'NODE_OPTIONS',
   'LD_PRELOAD',
@@ -94,7 +128,42 @@ const probeKeys = [
   'npm_config_registry',
   'CUSTOM_SENTINEL',
   'DYLD_INSERT_LIBRARIES',
+  'TMPDIR',
+  'HOME',
 ];
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * The CLI stub must record the child env from the first shell lines.
+ * A `/bin/sh` → `node` launcher loses the race: `moss -p` reaches shutdown
+ * before node runs, so the marker is never written.
+ */
+function writeNpxStub(dest, envFile) {
+  const file = shellQuote(envFile);
+  const tmp = shellQuote(`${envFile}.tmp`);
+  fs.writeFileSync(
+    dest,
+    `#!/bin/sh\n{ printf 'MOSS_STUB_ARGV=%s\\n' "$*"; env; } > ${tmp} && mv ${tmp} ${file}\nexit 1\n`
+  );
+  fs.chmodSync(dest, 0o755);
+}
+
+function parseEnvDump(text) {
+  if (text.trimStart().startsWith('{')) return JSON.parse(text);
+  const reported = {};
+  for (const line of text.split('\n')) {
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    reported[line.slice(0, eq)] = line.slice(eq + 1);
+  }
+  reported.argv = String(reported.MOSS_STUB_ARGV ?? '')
+    .split(' ')
+    .filter(Boolean);
+  return reported;
+}
 
 function restoreEnv(saved) {
   for (const [key, value] of Object.entries(saved)) {
@@ -224,21 +293,30 @@ function project(root) {
     ].join('\n')
   );
   fs.chmodSync(npx, 0o755);
+  if (process.platform !== 'win32') writeNpxStub(npx, envFile);
   return { ws, evil, user, pwned, bashPwned, userOk, envFile, packageDir, binDir };
 }
 
 function assertChild(label, layout, userNode) {
   assert.equal(fs.existsSync(layout.pwned), false, `${label} ran NODE_OPTIONS`);
   assert.equal(fs.existsSync(layout.bashPwned), false, `${label} ran BASH_ENV`);
-  const reported = JSON.parse(fs.readFileSync(layout.envFile, 'utf8'));
+  const reported = parseEnvDump(fs.readFileSync(layout.envFile, 'utf8'));
   assert.equal(reported.LD_PRELOAD, undefined, label);
   assert.equal(reported.BASH_ENV, undefined, label);
   assert.equal(reported.npm_config_registry, undefined, label);
   assert.equal(reported.CUSTOM_SENTINEL, undefined, label);
   assert.equal(reported.DYLD_INSERT_LIBRARIES, undefined, label);
   assert.equal(reported.NODE_OPTIONS, userNode, label);
+  assert.equal(reported.HOME, path.join(path.dirname(layout.ws), 'home'), `${label} HOME`);
+  if (process.env.TMPDIR !== undefined) {
+    assert.equal(reported.TMPDIR, process.env.TMPDIR, `${label} TMPDIR`);
+  }
+  // The stub is /bin/sh, so this is the value the child received. A node
+  // --require side effect would need a second process after the marker and
+  // would lose the shutdown race the marker exists to avoid.
   assert.ok(reported.argv.includes('rdk-docs-mcp'), label);
-  if (userNode) assert.equal(fs.readFileSync(layout.userOk, 'utf8'), 'USER_OK');
+  if (process.platform === 'win32' && userNode)
+    assert.equal(fs.readFileSync(layout.userOk, 'utf8'), 'USER_OK');
 }
 
 {
@@ -320,6 +398,9 @@ function mossEnv(layout, userNode) {
   env.USERPROFILE = home;
   env.XDG_CONFIG_HOME = path.join(home, '.config');
   env.MOSS_NO_TUI = '1';
+  // Headless -p otherwise closes MCP before this stub is spawned. The flag
+  // waits for that startup attempt; the stub itself does not wait on node.
+  env.MOSS_WAIT_MCP_STARTUP = '1';
   env.MOSS_RDK_DOCS_PACKAGE = layout.packageDir;
   env.PATH = `${layout.binDir}${path.delimiter}${env.PATH ?? ''}`;
   // An empty PATH segment refers to the child's cwd, not the host workspace.
@@ -354,7 +435,7 @@ function runHeadless(layout, userNode) {
     const timer = setTimeout(finish, 25000);
     const poll = setInterval(() => {
       if (fs.existsSync(layout.envFile)) finish();
-    }, 100);
+    }, 50);
     child.stderr.on('data', (buf) => {
       stderr += buf.toString();
     });
@@ -366,7 +447,11 @@ function runHeadless(layout, userNode) {
         reject(err);
       }
     });
-    child.on('exit', () => setTimeout(finish, 2000));
+    // Do not SIGTERM the process group on exit. The stub may still be the
+    // one writing the marker; the timeout above is the bound.
+    child.on('exit', () => {
+      if (fs.existsSync(layout.envFile)) finish();
+    });
   });
 }
 
@@ -401,16 +486,17 @@ while time.time() < deadline:
         buf += chunk
     if proc.poll() is not None:
         break
+# macOS killpg returns EPERM once the group leader has exited (zombie).
 try:
     os.killpg(proc.pid, signal.SIGTERM)
-except ProcessLookupError:
+except (ProcessLookupError, PermissionError):
     pass
 try:
     proc.wait(timeout=3)
 except subprocess.TimeoutExpired:
     try:
         os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         pass
     proc.wait(timeout=3)
 sys.stdout.buffer.write(buf)
@@ -418,6 +504,8 @@ sys.stdout.buffer.write(buf)
 
 function runInteractive(layout, userNode) {
   const env = mossEnv(layout, userNode);
+  // The folder-trust prompt would block this PTY before rdk-docs starts.
+  env.MOSS_TRUST_WORKSPACE = '1';
   return new Promise((resolve, reject) => {
     const child = spawn(
       'python3',
@@ -445,6 +533,10 @@ function runInteractive(layout, userNode) {
   });
 }
 
+// HOME is a sibling of the workspace under os.tmpdir(). On macOS that path
+// still contains /tmp or /var, which are symlinks. The rdk-docs child cwd is
+// under that HOME; spawn must realpath it or the shebang npx never starts
+// and this marker is never written.
 const cases = [
   ['-p', false],
   ['-p', true],

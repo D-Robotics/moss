@@ -14,7 +14,18 @@ import { runGit } from '../../utils/git-spawn.js';
 import { runProcess } from '../../utils/run-process.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
-import { isZhLocale as isZh } from '../cli-locale.js';
+import {
+  effectiveUiLanguage,
+  isZhLocale as isZh,
+  parseLanguageSetting,
+  setSessionUiLanguage,
+  uiLanguageResolution,
+  uiLanguageSourceLabel,
+  uiText,
+  writeUserLanguageSetting,
+} from '../cli-locale.js';
+import { setTuiLocale } from '../tui/copy.js';
+import { workspaceWriteLimit } from '../workspace-write-copy.js';
 import { GITIGNORE_SUGGESTION } from '../gitignore-suggestion.js';
 import {
   formatCliInteractionModeLabel,
@@ -27,7 +38,10 @@ import { parsePermissionRuleSpec } from '../permission-rules.js';
 import { appendUserPermissionRule } from '../config-commands.js';
 import { stopAllBackgroundProcesses } from '../../core/tools/background-process-registry.js';
 import { probeDoctorModelPing } from '../doctor-model-ping.js';
-import { loadCliConfigFile } from '../config.js';
+import { reportedModelMatchesConfigured } from '../model-resolution.js';
+import { envBeforeDotenv, loadCliConfigFile, resolveConfigDir } from '../config.js';
+import { isFilesystemRoot, forgetFolderTrust, rememberFolderTrust } from '../folder-trust-store.js';
+import { resolveFolderKey } from '../workspace-trust.js';
 import {
   configuredBaseUrl,
   formatCostEstimate,
@@ -268,18 +282,20 @@ const modeCommand: CommandSpec = {
           ? [
               `当前交互模式：${label}`,
               '  /mode manual        正常编码（逐次审批写操作与设备变更）',
-              '  /mode accept-edits  自动接受工作区内文件编辑',
+              '  /mode accept-edits  自动接受工作区内文件工具编辑',
               '  /mode plan          只读规划（不执行写操作）',
               '  /mode full          全开：跳过询问，仅 deny 规则与硬拦截生效（默认）',
               '  快捷键：Shift+Tab 在四种模式间循环',
+              `  ${workspaceWriteLimit(true)}`,
             ].join('\n')
           : [
               `Interaction mode: ${label}`,
               '  /mode manual        normal coding (approve mutations one by one)',
-              '  /mode accept-edits  auto-approve sandboxed workspace edits',
+              '  /mode accept-edits  auto-approve workspace file-tool edits',
               '  /mode plan          read-only planning (block mutations)',
               '  /mode full          skip prompts — only deny rules and hard blocks apply (default)',
               '  Shortcut: Shift+Tab cycles manual / accept-edits / plan / full',
+              `  ${workspaceWriteLimit(false)}`,
             ].join('\n')
       );
       return;
@@ -303,14 +319,14 @@ const modeCommand: CommandSpec = {
         ? next === 'plan'
           ? `已切换到${label}：只读探索与规划；写文件/副作用命令会被拦截。规划完成后用 /mode manual 或 Shift+Tab 退出。`
           : next === 'acceptEdits'
-            ? `已切换到${label}：工作区内文件编辑自动通过；shell 变更仍会确认。`
+            ? `已切换到${label}：工作区内文件工具编辑自动通过。${workspaceWriteLimit(true)} shell 变更仍会确认。`
             : next === 'full'
               ? `已切换到${label}：跳过询问，deny 规则与危险命令拦截仍生效。`
               : `已切换到${label}：正常编码，写操作与设备变更逐次确认。`
         : next === 'plan'
           ? `Switched to ${label}: explore and plan read-only; file/side-effect tools are blocked. Leave with /mode manual or Shift+Tab when ready to implement.`
           : next === 'acceptEdits'
-            ? `Switched to ${label}: sandboxed workspace edits auto-approve; shell mutations still prompt.`
+            ? `Switched to ${label}: workspace file-tool edits auto-approve. ${workspaceWriteLimit(false)} Shell mutations still prompt.`
             : next === 'full'
               ? `Switched to ${label}: prompts are skipped; deny rules and dangerous-command blocks still apply.`
               : `Switched to ${label}: normal coding; mutations and device changes confirm one by one.`
@@ -386,6 +402,14 @@ const contextCommand: CommandSpec = {
           );
         }
       }
+      const configuredModel = ctx.agent.config.model ?? '';
+      const reportedModel = ctx.agent.reportedModel();
+      const modelLine =
+        reportedModel &&
+        configuredModel &&
+        !reportedModelMatchesConfigured(configuredModel, reportedModel)
+          ? `configured ${configuredModel}, gateway reported ${reportedModel}`
+          : configuredModel;
       ctx.say(
         'system',
         [
@@ -401,7 +425,7 @@ const contextCommand: CommandSpec = {
           `    compact keep   ${fmt(reserveTokens)} (auto-compact reserve)`,
           ...detailLines,
           ...compactionLines,
-          `  model      ${ctx.agent.config.model ?? ''}`,
+          `  model      ${modelLine}`,
         ].join('\n')
       );
     } catch (err) {
@@ -769,6 +793,126 @@ const stopCommand: CommandSpec = {
   },
 };
 
+const languageCommand: CommandSpec = {
+  name: '/language',
+  aliases: ['/lang'],
+  summary: 'show or switch the UI language for this session',
+  run(ctx, args) {
+    const tokens = args.split(/\s+/).filter((token) => token.length > 0);
+    const save = tokens.some((token) => token === 'save' || token === '--save');
+    const choice = tokens.find((token) => token !== 'save' && token !== '--save');
+    if (!choice) {
+      const language = effectiveUiLanguage();
+      const setting = uiLanguageResolution()?.setting ?? 'auto';
+      const source = uiLanguageSourceLabel();
+      ctx.say(
+        'system',
+        [
+          uiText(
+            `UI language: ${language} (setting ${setting}, source ${source})`,
+            `界面语言：${language === 'zh' ? '中文' : 'English'}（设置 ${setting}，来源 ${source}）`
+          ),
+          uiText(
+            '  /language en|zh|auto     switch for this session',
+            '  /language en|zh|auto     只切换本会话'
+          ),
+          uiText(
+            '  /language en save        remember it in the user config',
+            '  /language en save        记到用户配置'
+          ),
+          uiText('  /lang                    alias', '  /lang                    别名'),
+        ].join('\n')
+      );
+      return;
+    }
+    const setting = parseLanguageSetting(choice);
+    if (!setting) {
+      ctx.say(
+        'error',
+        uiText('Usage: /language [en|zh|auto] [save]', '用法：/language [en|zh|auto] [save]')
+      );
+      return;
+    }
+    if (setting === 'auto') setSessionUiLanguage('system');
+    else setSessionUiLanguage(setting);
+    setTuiLocale(isZh());
+    if (save) {
+      try {
+        writeUserLanguageSetting(setting);
+      } catch (err) {
+        ctx.say(
+          'error',
+          uiText(
+            `Could not save language: ${errorMessage(err)}`,
+            `无法保存语言：${errorMessage(err)}`
+          )
+        );
+        return;
+      }
+    }
+    const language = effectiveUiLanguage();
+    const envLang = envBeforeDotenv.MOSS_LANG?.trim();
+    const override =
+      save && envLang
+        ? uiText(
+            ` MOSS_LANG=${envLang} will override this on the next start.`,
+            ` 下次启动时 MOSS_LANG=${envLang} 会覆盖它。`
+          )
+        : '';
+    ctx.say(
+      'system',
+      uiText(
+        `UI language: ${language}${save ? ' (saved to the user config)' : ' (this session)'}${override}`,
+        `界面语言：${language === 'zh' ? '中文' : 'English'}${save ? '（已写入用户配置）' : '（仅本会话）'}${override}`
+      )
+    );
+  },
+};
+
+const trustCommand: CommandSpec = {
+  name: '/trust',
+  summary: 'trust this folder for project settings',
+  async run(ctx) {
+    const key = await resolveFolderKey(ctx.workspace);
+    if (isFilesystemRoot(key)) {
+      ctx.say(
+        'system',
+        uiText(
+          'The filesystem root is not remembered as trusted.',
+          '文件系统根目录不会被记为已信任。'
+        )
+      );
+      return;
+    }
+    const configDir = resolveConfigDir();
+    rememberFolderTrust(configDir, key);
+    ctx.say(
+      'system',
+      uiText(
+        `Trusted ${key}. It applies the next time Moss starts.`,
+        `已信任 ${key}。下次启动 Moss 时生效。`
+      )
+    );
+  },
+};
+
+const untrustCommand: CommandSpec = {
+  name: '/untrust',
+  summary: 'forget trust for this folder',
+  async run(ctx) {
+    const removed = forgetFolderTrust(resolveConfigDir(), ctx.workspace);
+    ctx.say(
+      'system',
+      removed
+        ? uiText(
+            `Removed trust for ${removed}. It applies the next time Moss starts.`,
+            `已取消对 ${removed} 的信任。下次启动 Moss 时生效。`
+          )
+        : uiText('This folder is not trusted.', '此文件夹未被信任。')
+    );
+  },
+};
+
 const agentsCommand: CommandSpec = {
   name: '/agents',
   summary: 'list file-defined sub-agents with source paths and warnings',
@@ -782,6 +926,9 @@ const agentsCommand: CommandSpec = {
 const COMMANDS: readonly CommandSpec[] = [
   statusCommand,
   doctorCommand,
+  languageCommand,
+  trustCommand,
+  untrustCommand,
   agentsCommand,
   reviewCommand,
   permissionsCommand,
@@ -835,20 +982,25 @@ export async function runRegistryCommand(
 
 export function unknownSlashCommandLines(
   input: string,
-  options: { suggestion?: string | null; locale?: string } = {}
+  options: { suggestion?: string | null; suggestions?: readonly string[]; locale?: string } = {}
 ): string[] {
   const zh = isZh(options.locale);
-  return [
-    zh ? `未知命令：${input}` : `Unknown command: ${input}`,
-    options.suggestion
-      ? zh
-        ? `是想输入 ${options.suggestion} 吗？`
-        : `Did you mean ${options.suggestion}?`
-      : zh
-        ? '用 /help 查看全部命令。'
-        : 'Use /help for available commands.',
+  const head = input.trim().split(/\s+/, 1)[0] ?? input.trim();
+  const suggestions = (options.suggestions ?? (options.suggestion ? [options.suggestion] : []))
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .slice(0, 3);
+  const lines = [zh ? `未知命令：${head}` : `unknown command "${head}"`];
+  if (suggestions.length > 0) {
+    lines.push(
+      zh ? `是想输入 ${suggestions.join('、')} 吗？` : `Did you mean ${suggestions.join(', ')}?`
+    );
+  }
+  lines.push(zh ? '输入 /help 查看全部命令。' : 'Type /help for available commands.');
+  lines.push(
     zh
       ? '提示：以 / 开头的输入是 CLI 命令，不会发给模型。想让模型处理这句话，去掉行首的 / 重新发送。'
-      : 'Note: "/" input is a CLI command and never reaches the model. To let the model handle it, resend without the leading "/".',
-  ];
+      : 'Note: "/" input is a CLI command and never reaches the model. To let the model handle it, resend without the leading "/".'
+  );
+  return lines;
 }

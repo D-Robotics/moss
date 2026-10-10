@@ -41,7 +41,7 @@ export function writePreferredModel(
     const store = readStore(env);
     if (store[key] === model) return;
     store[key] = model;
-    fs.mkdirSync(resolveConfigDir(env), { recursive: true });
+    fs.mkdirSync(resolveConfigDir(env), { recursive: true, mode: 0o700 });
     fs.writeFileSync(storePath(env), JSON.stringify(store, null, 2));
   } catch {}
 }
