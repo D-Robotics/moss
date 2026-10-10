@@ -1051,6 +1051,7 @@ async function main() {
     const summary = summarizeTrustItems(projectCapabilities.skipped, isZhLocale());
     const parts = [
       ...(loadedConfig.ignoredProjectRouting ?? []),
+      ...(loadedConfig.droppedProjectPermissions ?? []),
       ...startup.ignoredRoutingEnv,
       ...(loadDeviceRegistry(workspace).length > 0 ? ['.moss/devices.json'] : []),
       ...(summary ? [summary] : []),
