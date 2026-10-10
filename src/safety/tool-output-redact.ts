@@ -13,8 +13,9 @@
  * high-entropy values are redacted too. Grep / search hits are judged from
  * the `path:line:` prefix. A netrc password needs `machine` or `login` on
  * the same line. A quoted value stays on one line; an unclosed quote masks
- * through the end of that line, and up to three deeper-indented continuation
- * lines are masked when they hold the closer. `.apikey-key` bytes are
+ * through the end of that line, and up to three continuation lines are masked
+ * when they hold the closer. Indent is measured after a line-number gutter.
+ * Strict credential text also folds an unindented continuation. `.apikey-key` bytes are
  * withheld before that decision. `Authorization` and `cookie` headers mask
  * through the end of the line (`Bearer`, `Basic`, `Token`, `Digest`,
  * `Proxy-Authorization`, `Set-Cookie`). Command argv masks sshpass `-p`
@@ -403,7 +404,10 @@ function redactNumberedToolOutput(
   env: NodeJS.ProcessEnv,
   strictFile: boolean
 ): string {
-  return redactNumberedText(text, (body) => redactEgress(body, env, { strictSecrets: strictFile }));
+  const continued = maskIndentedQuoteContinuations(text, { strict: strictFile });
+  return redactNumberedText(continued, (body) =>
+    redactEgress(body, env, { strictSecrets: strictFile })
+  );
 }
 
 interface ArgvWord {
@@ -762,7 +766,7 @@ function redactCommandArgv(text: string): string {
 }
 
 function redactAssignments(text: string, strictFile: boolean): string {
-  const continued = maskIndentedQuoteContinuations(text);
+  const continued = maskIndentedQuoteContinuations(text, { strict: strictFile });
   return forEachAssignment(continued, (hit) => {
     if (!shouldRedactAssignment(hit, strictFile)) return undefined;
     return `${hit.name}${hit.sep}${REDACTED}`;

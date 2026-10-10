@@ -10,7 +10,8 @@
  *    or losing the bytes that were really in the file.
  *
  * MAIN_REDACTED_LINES is main's redactEgress on Moss src TypeScript: the same
- * 12 file:line false matches, compared one by one. The samples are not secrets.
+ * 12 false matches, compared by file plus the original line text. Inserting a
+ * line does not move the set. The samples are not secrets.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -23,26 +24,24 @@ import { sanitizeSecrets } from '../dist/safety/secret-sanitizer.js';
 import { presentToolOutput, redactEgress } from '../dist/safety/tool-output-redact.js';
 
 /**
- * The 12 lines main redacts in Moss src, one file:line entry each.
- * config-commands and remote-compaction match main. The pi-ai-wire-format
- * matches sit two lines lower because `responseModel` was inserted above
- * `rejectAnthropicOAuthToken`. The two safety files are the same false matches
- * (provider-token examples and `secret = match?.[5]`), at their current lines.
- * The tool-output-redact entries moved when the argv password rule was added.
+ * The 12 lines main redacts in Moss src. The key is the file plus the original
+ * line text, so a later insert does not change the set. These strings are the
+ * file bytes (the sanitizer source line keeps its escaped `\\b`).
  */
 const MAIN_REDACTED_LINES = [
-  'src/cli/config-commands.ts:816',
-  'src/cli/config-commands.ts:843',
-  'src/context/remote-compaction.ts:342',
-  'src/provider/pi-ai-wire-format.ts:116',
-  'src/provider/pi-ai-wire-format.ts:118',
-  'src/provider/pi-ai-wire-format.ts:119',
-  'src/safety/secret-sanitizer.ts:13',
-  'src/safety/secret-sanitizer.ts:45',
-  'src/safety/tool-output-redact.ts:126',
-  'src/safety/tool-output-redact.ts:831',
-  'src/safety/tool-output-redact.ts:832',
-  'src/safety/tool-output-redact.ts:913',
+  "src/cli/config-commands.ts\n        apiKey: 'paste-your-api-key',",
+  "src/cli/config-commands.ts\n        _apiKey: 'use moss setup for the key (hidden prompt); stored in config file (0600)',",
+  'src/context/remote-compaction.ts\n    apiKey: process.env.MOSS_REMOTE_COMPACT_API_KEY?.trim(),',
+  "src/provider/pi-ai-wire-format.ts\n  if (typeof apiKey === 'string' && apiKey.includes('sk-ant-oat')) {",
+  "src/provider/pi-ai-wire-format.ts\n      'moss refuses Anthropic OAuth / session tokens (sk-ant-oat*). ' +",
+  "src/provider/pi-ai-wire-format.ts\n        'Please provide an official API key (sk-ant-api03-*) or configure an ' +",
+  'src/safety/secret-sanitizer.ts\n' +
+    String.raw`  { source: '\\b(sk-ant-[a-zA-Z0-9_-]{20,})\\b', flags: 'g', label: 'Anthropic key' },`,
+  'src/safety/secret-sanitizer.ts\n  // an API key in `curl -H "Authorization: Bearer sk-ant-\u2026"` would not be',
+  'src/safety/tool-output-redact.ts\n * (`sk-abcd`, `AKIA` + 4, `ghp_` + 4). Real keys are longer.',
+  'src/safety/tool-output-redact.ts\n * Gateway bodies quote the key and a hash (`Received API Key = sk-\u2026`,',
+  'src/safety/tool-output-redact.ts\n * `Key Hash (Token) = 2c58\u2026`). `redactEgress` catches full secrets; this also',
+  'src/safety/tool-output-redact.ts\n      const secret = match?.[5];',
 ];
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -228,6 +227,14 @@ assert.doesNotMatch(sanitizedApiKey, /abcdef123456/);
 
 assert.equal(strict('{"token": "sunrise"}'), '{"token": [REDACTED]}');
 assert.equal(strict('token: "sunrise"'), 'token: [REDACTED]');
+const tokenQuoted = redactEgress('token: "sunrise"', env);
+assert.doesNotMatch(tokenQuoted, /sunrise/);
+assert.ok(
+  tokenQuoted === 'token: "s***se"' ||
+    tokenQuoted === 'token: [REDACTED]' ||
+    tokenQuoted === 'token: "[REDACTED]"',
+  tokenQuoted
+);
 
 assert.equal(redactEgress('api_key: abc123def456', env), 'api_key: [REDACTED]');
 assert.equal(redactEgress('secret: Zq9fK2mP7x', env), 'secret: [REDACTED]');
@@ -358,6 +365,78 @@ const searchHit = presentToolOutput({
 });
 assert.equal(searchHit, '.env.local:1:DB_PASSWORD=[REDACTED]');
 
+function numbered(lines) {
+  return lines.map((line, i) => `${String(i + 1).padStart(6)}\t${line}`).join('\n');
+}
+
+function assertFoldHidden(label, output, input) {
+  assert.equal(output.split('\n').length, input.split('\n').length, `${label} line count`);
+  assert.doesNotMatch(output, /horse|battery|staple/, label);
+}
+
+const yamlFoldLines = ['db:', '  password: "correct horse', '    battery staple"', '  user: bob'];
+const yamlNumbered = numbered(yamlFoldLines);
+const yamlRead = presentToolOutput({
+  toolName: 'read_file',
+  input: { path: 'config.yaml' },
+  text: yamlNumbered,
+  workspaceDir: project,
+  env,
+});
+assertFoldHidden('read_file yaml fold', yamlRead, yamlNumbered);
+assert.match(yamlRead, /user: bob/);
+const yamlCat = presentToolOutput({
+  toolName: 'exec',
+  input: { command: 'cat -n config.yaml' },
+  text: yamlNumbered,
+  workspaceDir: project,
+  env,
+});
+assertFoldHidden('cat -n yaml fold', yamlCat, yamlNumbered);
+assert.match(yamlCat, /user: bob/);
+
+const grepNText = '2:  password: "correct horse\n3-    battery staple"';
+const grepN = presentToolOutput({
+  toolName: 'exec',
+  input: { command: 'grep -n -A1 password config.yaml' },
+  text: grepNText,
+  workspaceDir: project,
+  env,
+});
+assertFoldHidden('grep -n -A1', grepN, grepNText);
+
+const grepRnText =
+  './config.yaml:2:  password: "correct horse\n./config.yaml-3-    battery staple"';
+const grepRn = presentToolOutput({
+  toolName: 'exec',
+  input: { command: 'grep -rn -A1 password .' },
+  text: grepRnText,
+  workspaceDir: project,
+  env,
+});
+assertFoldHidden('grep -rn -A1', grepRn, grepRnText);
+
+const envFold = 'DB_PASSWORD="correct horse\nbattery staple"\nOTHER=1';
+const envCat = presentToolOutput({
+  toolName: 'exec',
+  input: { command: 'cat .env' },
+  text: envFold,
+  workspaceDir: project,
+  env,
+});
+assertFoldHidden('cat .env fold', envCat, envFold);
+assert.match(envCat, /OTHER=1/);
+const envNumbered = numbered(['DB_PASSWORD="correct horse', 'battery staple"', 'OTHER=1']);
+const envRead = presentToolOutput({
+  toolName: 'read_file',
+  input: { path: '.env' },
+  text: envNumbered,
+  workspaceDir: project,
+  env,
+});
+assertFoldHidden('read_file .env fold', envRead, envNumbered);
+assert.match(envRead, /OTHER=1/);
+
 const setCookie = redactEgress('Set-Cookie: sid=abcDEF1234567890xyz; Path=/', env);
 assert.match(setCookie, /\[REDACTED\]/);
 assert.doesNotMatch(setCookie, /abcDEF1234567890xyz/);
@@ -407,11 +486,11 @@ for (const file of corpus) {
   const before = input.split('\n');
   const after = output.split('\n');
   for (let i = 0; i < before.length; i += 1) {
-    if (before[i] !== after[i]) changed.push(`${rel}:${i + 1}`);
+    if (before[i] !== after[i]) changed.push(`${rel}\n${before[i]}`);
   }
 }
-const srcChanged = changed.filter((entry) => entry.startsWith('src/'));
-assert.deepEqual(srcChanged, MAIN_REDACTED_LINES);
+const srcChanged = changed.filter((entry) => entry.startsWith('src/')).sort();
+assert.deepEqual(srcChanged, [...MAIN_REDACTED_LINES].sort());
 assert.deepEqual(
   changed.filter((entry) => !entry.startsWith('src/')),
   [],
