@@ -443,3 +443,20 @@ test('blocked tool row shows the Next / 下一步 line without ctrl+o', () => {
   assert.equal(failedPreviewLimit(true, zh, RESULT_PREVIEW_LINES), 5);
   assert.equal(failedPreviewLimit(false, en, RESULT_PREVIEW_LINES), RESULT_PREVIEW_LINES);
 });
+
+for (const event of ['UserPromptSubmit', 'Stop']) {
+  test(`TUI mode: ${event} hook that cannot start still prints the [hooks] reason`, async () => {
+    useLang('en');
+    const cbs = createConfiguredHookCallbacks(
+      { [event]: [{ command: MISSING, source: CONFIG }] },
+      { workspaceDir: tmp() }
+    );
+    cbs.setTuiMode(true);
+    const { value, stderr } = await captureStderr(() =>
+      event === 'Stop' ? cbs.runStop({ stopReason: 'end_turn' }) : cbs.runUserPromptSubmit('hi')
+    );
+    assert.equal(value.blocked, true);
+    assert.match(stderr, new RegExp(`\\[hooks\\] Blocked: ${event} hook could not start`));
+    assert.match(stderr, new RegExp(MISSING), 'stderr names the hook command');
+  });
+}

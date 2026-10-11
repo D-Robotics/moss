@@ -356,6 +356,12 @@ export interface ConfiguredHookCallbacks {
   setTuiMode: (on: boolean) => void;
 }
 
+/** O88: events whose block reason the TUI renders in the tool row. */
+const TOOL_ROW_EVENTS: ReadonlySet<HookEventName> = new Set<HookEventName>([
+  'PreToolUse',
+  'PermissionRequest',
+]);
+
 export function createConfiguredHookCallbacks(
   hooks: HooksConfig | undefined,
   opts: { workspaceDir: string; tuiMode?: boolean }
@@ -389,7 +395,7 @@ export function createConfiguredHookCallbacks(
     // In the TUI a blocked call's reason is already in the tool row (and the
     // stderr line would land on top of the status bar), so only headless /
     // piped runs print it.
-    if (blocked && tuiMode) return text;
+    if (blocked && tuiMode && TOOL_ROW_EVENTS.has(event)) return text;
     if (!noticed.has(key)) {
       noticed.add(key);
       process.stderr.write(`[hooks] ${text}\n`);
