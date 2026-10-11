@@ -228,12 +228,21 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
     };
   }
 
-  if (tracker.lastFailedStep && !stuckAt) {
-    stuckAt = tracker.lastFailedStep;
-    stuckAtZh = tracker.lastFailedStep;
-  } else if (tracker.lastStep && !stuckAt) {
-    stuckAt = tracker.lastStep;
-    stuckAtZh = tracker.lastStep;
+  // O111: unfinished class (turn/budget/…) plus the last tool step when both
+  // are known, e.g. `run budget (read_file: src/a.ts)`; either alone otherwise.
+  if (!stuckAt) {
+    const step = tracker.lastFailedStep ?? tracker.lastStep;
+    const cls = input.runError ? stuckClassFromUnfinished(input.runError) : undefined;
+    if (cls && step) {
+      stuckAt = `${cls.en} (${step})`;
+      stuckAtZh = `${cls.zh}（${step}）`;
+    } else if (cls) {
+      stuckAt = cls.en;
+      stuckAtZh = cls.zh;
+    } else if (step) {
+      stuckAt = step;
+      stuckAtZh = step;
+    }
   }
 
   // O109: soft unverified alone is ExitCode.INCOMPLETE (9), same as other
@@ -252,26 +261,70 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
 }
 
 /**
+ * O111: concrete stuck step when known; never a placeholder stuck step.
+ * When stuckAt is absent, omit the 「卡在：…」 / `stuck at:` half entirely.
+ */
+function head(label: string, reason: string | undefined, zh: boolean): string {
+  if (!reason) return label;
+  return zh ? `${label}：${reason}` : `${label}: ${reason}`;
+}
+
+function appendStuckHalf(base: string, stuck: string | undefined, zh: boolean): string {
+  if (!stuck) return base;
+  return zh ? `${base}；卡在：${stuck}` : `${base}; stuck at: ${stuck}`;
+}
+
+/**
+ * Map unfinished runError / stop subtype to a short stuck class (O111).
+ * Returns undefined when the string is not a known unfinished class.
+ */
+export function stuckClassFromUnfinished(runError: string): { en: string; zh: string } | undefined {
+  const s = runError.replace(/\s+/g, ' ').trim();
+  if (!s) return undefined;
+  const lower = s.toLowerCase();
+  if (
+    /error_max_turns|max_turns_reached|tool_followup_cap|turn limit|回合上限/.test(lower) ||
+    /hit the turn limit/.test(lower)
+  ) {
+    return { en: 'turn limit', zh: '回合上限' };
+  }
+  if (/tool_budget|工具预算|tool budget/.test(lower)) {
+    return { en: 'tool budget', zh: '工具预算' };
+  }
+  if (/error_budget|budget_|运行预算|run budget|budget exceeded/.test(lower)) {
+    return { en: 'run budget', zh: '运行预算' };
+  }
+  if (/error_output_limit|output_limit|max_tokens|输出长度|output limit/.test(lower)) {
+    return { en: 'output limit', zh: '输出长度上限' };
+  }
+  if (/aborted_by_user|用户中断|interrupted by user/.test(lower)) {
+    return { en: 'user interrupt', zh: '用户中断' };
+  }
+  return undefined;
+}
+
+/**
  * Mandatory last line for `-p` / TUI / O99.
  * Always non-empty: completed →「完成：…」; others → matching prefix.
  */
 export function formatOutcomeLine(outcome: RunOutcome, lang: OutcomeLang): string {
   const zh = lang === 'zh';
-  const reason = (zh ? outcome.reasonZh : outcome.reason) || (zh ? '未知原因' : 'unknown reason');
-  const stuck = (zh ? outcome.stuckAtZh : outcome.stuckAt) ?? (zh ? '未知' : 'unknown');
+  // O111: no placeholder reason — omit the reason when empty.
+  const reason = (zh ? outcome.reasonZh : outcome.reason)?.replace(/\s+/g, ' ').trim();
+  // O111: no placeholder stuck step — omit the stuck half when unset.
+  const stuckRaw = zh ? outcome.stuckAtZh : outcome.stuckAt;
+  const stuck = stuckRaw?.replace(/\s+/g, ' ').trim() || undefined;
   switch (outcome.status) {
     case 'completed':
-      return zh ? `完成：${reason}` : `Completed: ${reason}`;
+      return head(zh ? '完成' : 'Completed', reason, zh);
     case 'unverified':
-      return zh ? `未验证：${reason}` : `Unverified: ${reason}`;
+      return head(zh ? '未验证' : 'Unverified', reason, zh);
     case 'verify_failed':
-      return zh
-        ? `验证失败：${reason}；卡在：${stuck}`
-        : `Verify failed: ${reason}; stuck at: ${stuck}`;
+      return appendStuckHalf(head(zh ? '验证失败' : 'Verify failed', reason, zh), stuck, zh);
     case 'blocked':
-      return zh ? `被拦：${reason}；卡在：${stuck}` : `Blocked: ${reason}; stuck at: ${stuck}`;
+      return appendStuckHalf(head(zh ? '被拦' : 'Blocked', reason, zh), stuck, zh);
     case 'incomplete':
     default:
-      return zh ? `未完成：${reason}；卡在：${stuck}` : `Incomplete: ${reason}; stuck at: ${stuck}`;
+      return appendStuckHalf(head(zh ? '未完成' : 'Incomplete', reason, zh), stuck, zh);
   }
 }
