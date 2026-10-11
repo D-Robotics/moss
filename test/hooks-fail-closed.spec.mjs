@@ -23,6 +23,9 @@ import { resolveProjectCapabilities } from '../dist/cli/workspace-trust.js';
 import { clearUiLanguage } from '../dist/cli/cli-locale.js';
 import { installUiLanguage } from '../dist/utils/ui-language.js';
 import { MossAgent } from '../dist/core/agent/moss-agent.js';
+import { ErrorCode } from '../dist/errors.js';
+import { executeOneToolCall } from '../dist/core/tools/execute-tool-call.js';
+import { failedPreviewLimit, RESULT_PREVIEW_LINES } from '../dist/cli/tui/transcript.js';
 import { InMemorySessionStore } from '../dist/core/session/session.js';
 import { createMockTranscriptProvider } from './e2e/mock-transcript-provider.mjs';
 
@@ -325,3 +328,135 @@ test('runStopHooks wrapper: internal error stays fail-open but is visible', asyn
     setLifecycleHookRunner(undefined);
   }
 });
+
+// ── PR #88 UX items 5 / 2 / next-step ─────────────────────────────────────
+
+/** Approval refused with `reason`; returns the raw ExecuteToolCallOutcome. */
+async function deniedOutcome(reason) {
+  let executed = false;
+  const ac = new AbortController();
+  const outcome = await executeOneToolCall(
+    { id: 'denied-1', name: 'write_target', input: {} },
+    {
+      toolsForRun: [
+        {
+          name: 'write_target',
+          description: 'w',
+          inputSchema: { type: 'object', properties: {}, required: [] },
+          async execute() {
+            executed = true;
+            return 'wrote';
+          },
+        },
+      ],
+      toolCtx: { workspaceDir: tmp(), sessionKey: 'o88-denied' },
+      sessionKey: 'o88-denied',
+      abortSignal: ac.signal,
+      toolTimeoutMs: 1000,
+      enableHeartbeat: false,
+      heartbeatIntervalMs: 1000,
+      skipHeartbeatToolNames: new Set(),
+      push() {},
+      checkToolApproval: async () => ({
+        approved: false,
+        decision: 'deny',
+        ...(reason ? { reason } : {}),
+      }),
+    }
+  );
+  return { outcome, executed };
+}
+
+test('[zh] hook-blocked result starts with 已拦截, no English denied prefix, kind stays denied', async () => {
+  useLang('zh');
+  const r = await runWrite({ PreToolUse: [{ command: MISSING, source: CONFIG }] });
+  const ends = r.toolResults.filter((e) => e.type === 'tool_end' || e.type === 'tool_result');
+  assert.ok(ends.length > 0);
+  assert.doesNotMatch(r.resultText, /Tool execution denied/);
+  const { outcome, executed } = await deniedOutcome('已拦截：工具调用前钩子未能启动。');
+  assert.equal(executed, false);
+  assert.equal(outcome.kind, 'denied');
+  assert.equal(outcome.error.code, ErrorCode.TOOL_NOT_ALLOWED);
+  assert.ok(outcome.text.startsWith('已拦截：工具调用前钩子未能启动。'), outcome.text);
+  assert.doesNotMatch(outcome.text, /Tool execution denied/);
+});
+
+test('[zh] denied without reason is Chinese and still says blocked', async () => {
+  useLang('zh');
+  const { outcome } = await deniedOutcome(undefined);
+  assert.equal(outcome.kind, 'denied');
+  assert.equal(outcome.error.code, ErrorCode.TOOL_NOT_ALLOWED);
+  assert.ok(outcome.text.startsWith('已拦截'), outcome.text);
+  assert.doesNotMatch(outcome.text, /Tool execution denied/);
+  // a non-hook reason is wrapped, not left bare
+  const other = await deniedOutcome('policy says no');
+  assert.ok(other.outcome.text.startsWith('已拦截：'), other.outcome.text);
+});
+
+test('[en] denied result keeps explicit blocked/denied wording, kind stays denied', async () => {
+  useLang('en');
+  for (const reason of ['Blocked: PreToolUse hook could not start.', 'policy says no', undefined]) {
+    const { outcome, executed } = await deniedOutcome(reason);
+    assert.equal(executed, false);
+    assert.equal(outcome.kind, 'denied');
+    assert.equal(outcome.error.code, ErrorCode.TOOL_NOT_ALLOWED);
+    assert.match(outcome.text, /^(Blocked\b|Tool execution denied\b)/, outcome.text);
+    assert.doesNotMatch(outcome.text, /denied: Blocked/, 'no doubled prefix');
+  }
+});
+
+test('TUI mode: blocked hook prints no [hooks] stderr line; headless (-p/piped) still does', async () => {
+  useLang('en');
+  const hooksConfig = { PreToolUse: [{ command: MISSING, source: CONFIG }] };
+  const tuiDir = tmp();
+  const tuiCbs = createConfiguredHookCallbacks(hooksConfig, { workspaceDir: tuiDir });
+  tuiCbs.setTuiMode(true);
+  const tuiRun = await runWrite(hooksConfig, { dir: tuiDir, callbacks: tuiCbs });
+  assert.equal(tuiRun.written, false);
+  assert.doesNotMatch(tuiRun.stderr, /\[hooks\]/, 'TUI: no stderr notice');
+  assert.match(tuiRun.resultText, /could not start/, 'TUI: reason still in tool result');
+
+  const headlessDir = tmp();
+  const headlessCbs = createConfiguredHookCallbacks(hooksConfig, { workspaceDir: headlessDir });
+  headlessCbs.setTuiMode(false);
+  const headless = await runWrite(hooksConfig, { dir: headlessDir, callbacks: headlessCbs });
+  assert.equal(headless.written, false);
+  assert.match(headless.stderr, /\[hooks\] Blocked: PreToolUse hook could not start/);
+});
+
+test('blocked tool row shows the Next / 下一步 line without ctrl+o', () => {
+  const en = [
+    'Blocked: PreToolUse hook could not start.',
+    'Command: x',
+    'Config: /c.json',
+    'stderr: not found',
+    'Next: fix the command, or set blocking: false on this hook in that config file.',
+  ];
+  assert.equal(failedPreviewLimit(true, en, RESULT_PREVIEW_LINES), 5);
+  const zh = [
+    '已拦截：工具调用前钩子未能启动。',
+    '命令：x',
+    '配置文件：/c',
+    '错误输出：x',
+    '下一步：…',
+  ];
+  assert.equal(failedPreviewLimit(true, zh, RESULT_PREVIEW_LINES), 5);
+  assert.equal(failedPreviewLimit(false, en, RESULT_PREVIEW_LINES), RESULT_PREVIEW_LINES);
+});
+
+for (const event of ['UserPromptSubmit', 'Stop']) {
+  test(`TUI mode: ${event} hook that cannot start still prints the [hooks] reason`, async () => {
+    useLang('en');
+    const cbs = createConfiguredHookCallbacks(
+      { [event]: [{ command: MISSING, source: CONFIG }] },
+      { workspaceDir: tmp() }
+    );
+    cbs.setTuiMode(true);
+    const { value, stderr } = await captureStderr(() =>
+      event === 'Stop' ? cbs.runStop({ stopReason: 'end_turn' }) : cbs.runUserPromptSubmit('hi')
+    );
+    assert.equal(value.blocked, true);
+    assert.match(stderr, new RegExp(`\\[hooks\\] Blocked: ${event} hook could not start`));
+    assert.match(stderr, new RegExp(MISSING), 'stderr names the hook command');
+  });
+}

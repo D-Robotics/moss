@@ -12,6 +12,21 @@ import { describeError, isTimeoutError, isTransientError } from '../../provider/
 import { getRootLogger } from '../../logger.js';
 import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js';
 import { MossError, ErrorCode, errorMessage, isMossError, wrapAsMoss } from '../../errors.js';
+import { isEffectiveUiZh } from '../../utils/ui-language.js';
+
+/**
+ * O88: text the model (and the tool row) gets when approval is refused. It
+ * always opens with an explicit "blocked/denied" so the model never mistakes it
+ * for success. A hook's own reason already opens with 「已拦截：」/`Blocked`, so
+ * it is used as-is instead of being wrapped in an untranslated prefix.
+ * The outcome kind ('denied') and TOOL_NOT_ALLOWED code are unaffected.
+ */
+export function deniedToolResultText(reason: string | undefined, zh = isEffectiveUiZh()): string {
+  const r = reason?.trim();
+  if (!r) return zh ? '已拦截：用户拒绝了这次工具调用。' : 'Tool execution denied by user.';
+  if (zh) return r.startsWith('已拦截') ? r : `已拦截：${r}`;
+  return /^blocked\b/i.test(r) ? r : `Tool execution denied: ${r}`;
+}
 
 const logger = getRootLogger();
 
@@ -370,9 +385,7 @@ async function executeOneToolCallInner(
         });
         if (!approval.approved) {
           const reason = approval.reason?.trim();
-          const text = reason
-            ? `Tool execution denied: ${reason}`
-            : 'Tool execution denied by user.';
+          const text = deniedToolResultText(reason);
           return {
             kind: 'denied',
             text,
