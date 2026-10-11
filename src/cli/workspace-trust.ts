@@ -40,6 +40,7 @@ import {
   mergeHooksConfig,
   resolveProjectConfigPath,
   startupHomeDir,
+  type HookCommandConfig,
   type HooksConfig,
 } from './config.js';
 import {
@@ -103,6 +104,21 @@ function workspaceUsesUserMoss(workspaceDir: string, env: NodeJS.ProcessEnv): bo
 export function trustEnvEnabled(env: NodeJS.ProcessEnv): boolean {
   const raw = (env.MOSS_TRUST_WORKSPACE ?? '').trim().toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
+/** O88: remember which file each hook came from so failure notices can name it. */
+function tagHookSource(
+  hooks: HooksConfig | undefined,
+  file: string | undefined
+): HooksConfig | undefined {
+  if (!hooks || !file) return hooks;
+  const out: HooksConfig = {};
+  for (const [key, list] of Object.entries(hooks) as Array<
+    [keyof HooksConfig, HookCommandConfig[] | undefined]
+  >) {
+    if (list) out[key] = list.map((hook) => ({ ...hook, source: file }));
+  }
+  return out;
 }
 
 function countHooks(hooks: HooksConfig | undefined): number {
@@ -570,9 +586,9 @@ export async function resolveProjectCapabilities(input: {
 }): Promise<ResolvedProjectCapabilities> {
   const env = resolvedEnv(input.env);
   const userFile = loadConfigFile(input.configPath);
-  const userHooks = userFile.hooks;
+  const userHooks = tagHookSource(userFile.hooks, input.configPath);
   const projectFile = input.projectConfigPath ? loadConfigFile(input.projectConfigPath) : undefined;
-  const projectHooks = projectFile?.hooks;
+  const projectHooks = tagHookSource(projectFile?.hooks, input.projectConfigPath);
   // A walk up from the workspace can land on `~/.moss/config.json`. That file
   // is the user's, so it loads like `~/.config/moss` and does not ask.
   const inheritedUserHooks =

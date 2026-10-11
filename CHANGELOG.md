@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### O88 — hooks fail closed
+
+A blocking hook that cannot start or times out now blocks instead of silently allowing. Exit codes 126/127 (and 9009 on Windows) are treated as "failed to start" and block too, so hooks that intentionally exit with these codes are now blocked.
+
 ### O43 / O58 — npm one-line install
 
 Recommended install is one command after Node ≥ 22.16:

@@ -136,6 +136,22 @@ function compactPreview(
   }
   return { shown: source.slice(0, limit).concat(notices), hidden: end - limit };
 }
+/**
+ * O88: a failed row (e.g. a hook block) keeps its `Next:` / 「下一步：」 line in
+ * the compact view, so what to do is visible without ctrl+o.
+ */
+const FAILED_NEXT_MAX_LINES = 8;
+export function failedPreviewLimit(
+  isError: boolean,
+  source: readonly string[],
+  base: number
+): number {
+  if (!isError) return base;
+  const idx = source.findIndex((l) => /^\s*(Next:|下一步：)/.test(l));
+  if (idx < 0 || idx >= FAILED_NEXT_MAX_LINES) return base;
+  return Math.max(base, idx + 1);
+}
+
 /** Source dumps (writes, patches) stay readable without ctrl+o. */
 const CODE_PREVIEW_LINES = 24;
 /** Diff blocks get a larger window: a hunk with its context is one thought. */
@@ -689,7 +705,11 @@ export function renderTranscriptRow(
       );
       const preview = compactPreview(
         source,
-        verbose ? source.length : codeLike ? CODE_PREVIEW_LINES : RESULT_PREVIEW_LINES
+        verbose
+          ? source.length
+          : codeLike
+            ? CODE_PREVIEW_LINES
+            : failedPreviewLimit(row.tool?.isError === true, source, RESULT_PREVIEW_LINES)
       );
       const shown = preview.shown;
       out.push(...headline);
