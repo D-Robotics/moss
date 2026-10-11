@@ -41,6 +41,13 @@ import {
   redactedShellWriteRefusal,
   snapshotMutationFiles,
 } from '../safety/redacted-writeback.js';
+import {
+  diffProtectedPathSnapshots,
+  filterExpectedGitMetadataChanges,
+  formatProtectedPathModifiedNotice,
+  takeProtectedPathSnapshot,
+  takeProtectedPathSnapshotAfter,
+} from '../safety/protected-path-snapshot.js';
 
 // Re-export tools from extracted modules for backward compatibility.
 export {
@@ -167,6 +174,29 @@ export const execTool: Tool = {
       ctx.workspaceDir,
       extractShellMutationPaths(commandText)
     );
+    // O101 layer 3: metadata snapshot of protected paths (mtime/size/hash only).
+    const protectedSnapBefore = takeProtectedPathSnapshot(ctx.workspaceDir, {
+      home: process.env.HOME,
+    });
+    const preferZhLocale = (): boolean => {
+      const loc = process.env.MOSS_LOCALE || process.env.LANG || '';
+      return /^zh\b/i.test(loc);
+    };
+    const o101NoticeAfter = (cmd: string): string => {
+      try {
+        const after = takeProtectedPathSnapshotAfter(protectedSnapBefore, {
+          home: process.env.HOME,
+        });
+        const changes = filterExpectedGitMetadataChanges(
+          cmd,
+          diffProtectedPathSnapshots(protectedSnapBefore, after)
+        );
+        if (changes.length === 0) return '';
+        return '\n\n' + formatProtectedPathModifiedNotice(changes, preferZhLocale(), cmd);
+      } catch {
+        return '';
+      }
+    };
     const hideCredentialStream = /\.apikey-key\b/.test(commandText);
     const streamer = hideCredentialStream ? null : createRedactingChunkWriter(ctx.onToolOutput);
     const footnote = deviceEnvFootnote(String(input.command ?? ''));
@@ -241,7 +271,13 @@ export const execTool: Tool = {
         }
       }
       streamer?.flush();
-      return text + writebackWarning + footnote + hooksNotice(`${result.stdout}\n${result.stderr}`);
+      return (
+        text +
+        writebackWarning +
+        o101NoticeAfter(commandText) +
+        footnote +
+        hooksNotice(`${result.stdout}\n${result.stderr}`)
+      );
     } catch (err) {
       streamer?.flush();
       const writebackWarning = formatRedactedWritebackWarning(
@@ -254,6 +290,7 @@ export const execTool: Tool = {
           const waited = err.timeoutMs && err.timeoutMs > 0 ? err.timeoutMs : timeoutMs;
           return (
             `timed out after ${waited}ms (raise timeout_ms or use exec_background)${output ? `\n${output}` : ''}${writebackWarning}` +
+            o101NoticeAfter(commandText) +
             footnote +
             hooksNotice(`${err.stdout}\n${err.stderr}`)
           );

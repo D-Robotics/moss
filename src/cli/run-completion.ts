@@ -21,6 +21,7 @@
  * than calling these helpers directly.
  */
 import type { MossAgentEvent } from '../core/index.js';
+import { parseProtectedPathModMarker } from '../safety/protected-path-snapshot.js';
 import { ExitCode } from './exit-codes.js';
 
 export type VerificationCheck = 'format' | 'lint' | 'typecheck' | 'test' | 'check';
@@ -51,6 +52,11 @@ export interface RunCompletionTracker {
   lastStep?: string;
   /** Latest MOSS_GOAL_VERIFY_CMD result (O98 — must feed the tracker). */
   goalVerify?: GoalVerifyResult;
+  /**
+   * O101 layer 3: protected paths modified by a shell command (post-run
+   * detection). When set, the run is incomplete regardless of model claims.
+   */
+  protectedPathChanges?: Array<{ path: string; kind: string; command?: string }>;
   /** @internal pending tool_start inputs keyed by toolCallId. */
   pending: Map<string, { toolName: string; input: Record<string, unknown> }>;
 }
@@ -156,6 +162,19 @@ export function noteRunCompletionEvent(tracker: RunCompletionTracker, event: Mos
     if (!failed && WRITE_LIKE_EXEC.test(command)) tracker.wroteFiles = true;
     for (const check of checksForCommand(command)) {
       tracker.checks.set(check, { command, passed: !failed });
+    }
+  }
+
+  // O101 layer 3: post-run protected-path modifications → incomplete.
+  if (typeof event.result === 'string') {
+    const mods = parseProtectedPathModMarker(event.result);
+    if (mods && mods.length > 0) {
+      const command = typeof input.command === 'string' ? input.command : toolName;
+      tracker.protectedPathChanges = [
+        ...(tracker.protectedPathChanges ?? []),
+        ...mods.map((m) => ({ ...m, command })),
+      ];
+      tracker.lastFailedStep = describeStep(toolName, input);
     }
   }
 }
