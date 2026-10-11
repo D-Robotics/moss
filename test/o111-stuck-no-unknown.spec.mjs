@@ -147,10 +147,10 @@ function failTool(t, name = 'exec', cmd = 'npm run check') {
   });
   assert.equal(o.status, 'blocked');
   assert.equal(o.stuckAt, 'Stop hook');
-  assert.equal(o.stuckAtZh, 'Stop 钩子');
+  assert.equal(o.stuckAtZh, '停止前钩子'); // O91 zh display name
   const zh = formatOutcomeLine(o, 'zh');
   const en = formatOutcomeLine(o, 'en');
-  assert.match(zh, /^被拦：.*；卡在：Stop 钩子$/);
+  assert.match(zh, /^被拦：.*；卡在：停止前钩子$/);
   assert.match(en, /^Blocked: .*stuck at: Stop hook$/);
   banUnknown(zh, 'B4 zh');
   banUnknown(en, 'B4 en');

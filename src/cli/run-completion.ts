@@ -49,6 +49,11 @@ export interface RunCompletionTracker {
   wroteFiles: boolean;
   /** Last failed tool step, e.g. `exec: npm run check`. */
   lastFailedStep?: string;
+  /**
+   * O113: last tool step blocked by safety / approval (not a normal tool fail).
+   * When set, the incomplete last line uses 「被拦：…」 / `Blocked by: …`.
+   */
+  lastBlockedStep?: string;
   /** Last tool step that started, e.g. `multi_edit: src/cli/hooks.ts`. */
   lastStep?: string;
   /** Latest MOSS_GOAL_VERIFY_CMD result (O98 — must feed the tracker). */
@@ -140,6 +145,23 @@ function execFailed(result: string): boolean {
   return /\bexit(?:ed)?(?:\s+code)?[\s:=]+[1-9]\d*\b/i.test(result);
 }
 
+/**
+ * O113: true when a tool_end result is a safety / approval / policy block
+ * (not a normal tool failure like exit 1 or missing file).
+ */
+export function isSafetyOrApprovalBlockResult(result: string | undefined): boolean {
+  if (!result) return false;
+  const head = result.slice(0, 600);
+  return (
+    /^\s*Command blocked:/i.test(head) ||
+    /^\s*Blocked dangerous command:/i.test(head) ||
+    /^\s*已拦截/u.test(head) ||
+    /^\s*Blocked\b/i.test(head) ||
+    /^\s*Tool execution denied\b/i.test(head) ||
+    /^\s*Operation blocked by workspace policy\b/i.test(head)
+  );
+}
+
 /** Feed one agent event into the tracker. Safe to call for every event. */
 export function noteRunCompletionEvent(tracker: RunCompletionTracker, event: MossAgentEvent): void {
   if (event.type === 'tool_start') {
@@ -153,7 +175,14 @@ export function noteRunCompletionEvent(tracker: RunCompletionTracker, event: Mos
   const input = started?.input ?? {};
   const toolName = started?.toolName ?? event.toolName;
   const failed = event.isError || (EXEC_TOOLS.has(toolName) && execFailed(event.result));
-  if (failed) tracker.lastFailedStep = describeStep(toolName, input);
+  if (failed) {
+    const step = describeStep(toolName, input);
+    tracker.lastFailedStep = step;
+    // O113: remember safety/approval blocks separately so the last line can say 被拦.
+    if (isSafetyOrApprovalBlockResult(event.result)) {
+      tracker.lastBlockedStep = step;
+    }
+  }
 
   if (FILE_WRITE_TOOLS.has(toolName) && !failed) tracker.wroteFiles = true;
   if (toolName === 'run_tests')

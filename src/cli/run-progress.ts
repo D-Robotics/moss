@@ -238,6 +238,11 @@ export interface RunProgressTracker {
   dispose(): void;
   /** Test helper: emitted lines in order. */
   lines(): readonly ProgressLine[];
+  /**
+   * O113: the O98 completion tracker fed by onEvent — pass to
+   * {@link formatProgressOutcomeLine} so stderr conclusions share lastStep.
+   */
+  completionTracker(): RunCompletionTracker;
 }
 
 /**
@@ -448,6 +453,9 @@ export function createRunProgressTracker(
     },
     lines() {
       return emitted;
+    },
+    completionTracker() {
+      return completionTracker;
     },
   };
 }

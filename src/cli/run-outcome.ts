@@ -57,6 +57,11 @@ export interface RunOutcome {
   stuckAt?: string;
   /** Where the run got stuck (Chinese), when known. */
   stuckAtZh?: string;
+  /**
+   * O113: when true, the stuck half uses 「被拦：…」 / `Blocked by: …`
+   * (safety/approval block). Otherwise 「卡在：…」 / `stuck at: …`.
+   */
+  stuckWasBlocked?: boolean;
 }
 
 export interface ResolveRunOutcomeInput {
@@ -233,7 +238,11 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
 
   // O111: unfinished class (turn/budget/…) plus the last tool step when both
   // are known, e.g. `run budget (read_file: src/a.ts)`; either alone otherwise.
+  // O113: a safety/approval block alone uses 「被拦」; budget/turn-limit classes
+  // stay 「卡在」 even when a blocked tool also ran (do not mislabel budget).
+  let stuckWasBlocked = false;
   if (!stuckAt) {
+    const blockedStep = tracker.lastBlockedStep;
     const step = tracker.lastFailedStep ?? tracker.lastStep;
     const cls = input.runError ? stuckClassFromUnfinished(input.runError) : undefined;
     if (cls && step) {
@@ -242,6 +251,10 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
     } else if (cls) {
       stuckAt = cls.en;
       stuckAtZh = cls.zh;
+    } else if (blockedStep) {
+      stuckAt = blockedStep;
+      stuckAtZh = blockedStep;
+      stuckWasBlocked = true;
     } else if (step) {
       stuckAt = step;
       stuckAtZh = step;
@@ -260,6 +273,7 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
     exitCode,
     ...(stuckAt ? { stuckAt } : {}),
     ...(stuckAtZh ? { stuckAtZh } : {}),
+    ...(stuckWasBlocked ? { stuckWasBlocked: true } : {}),
   };
 }
 
@@ -272,8 +286,17 @@ function head(label: string, reason: string | undefined, zh: boolean): string {
   return zh ? `${label}：${reason}` : `${label}: ${reason}`;
 }
 
-function appendStuckHalf(base: string, stuck: string | undefined, zh: boolean): string {
+function appendStuckHalf(
+  base: string,
+  stuck: string | undefined,
+  zh: boolean,
+  blocked = false
+): string {
   if (!stuck) return base;
+  // O113: safety/approval block → 「被拦：…」 / `Blocked by: …`
+  if (blocked) {
+    return zh ? `${base}；被拦：${stuck}` : `${base}; Blocked by: ${stuck}`;
+  }
   return zh ? `${base}；卡在：${stuck}` : `${base}; stuck at: ${stuck}`;
 }
 
@@ -317,6 +340,9 @@ export function formatOutcomeLine(outcome: RunOutcome, lang: OutcomeLang): strin
   // O111: no placeholder stuck step — omit the stuck half when unset.
   const stuckRaw = zh ? outcome.stuckAtZh : outcome.stuckAt;
   const stuck = stuckRaw?.replace(/\s+/g, ' ').trim() || undefined;
+  // O113: incomplete + safety block uses 「被拦」 half; Stop-hook `blocked`
+  // status already carries 「被拦」/Blocked in the head — keep stuck half as 卡在.
+  const blockedHalf = outcome.stuckWasBlocked === true && outcome.status === 'incomplete';
   switch (outcome.status) {
     case 'completed':
       return head(zh ? '完成' : 'Completed', reason, zh);
@@ -328,6 +354,11 @@ export function formatOutcomeLine(outcome: RunOutcome, lang: OutcomeLang): strin
       return appendStuckHalf(head(zh ? '被拦' : 'Blocked', reason, zh), stuck, zh);
     case 'incomplete':
     default:
-      return appendStuckHalf(head(zh ? '未完成' : 'Incomplete', reason, zh), stuck, zh);
+      return appendStuckHalf(
+        head(zh ? '未完成' : 'Incomplete', reason, zh),
+        stuck,
+        zh,
+        blockedHalf
+      );
   }
 }

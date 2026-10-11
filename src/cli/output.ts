@@ -1039,11 +1039,15 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         if (unfinished) {
           // O99 / O98: progress-path footer via formatOutcomeLine (never empty).
           // Exit code is owned by oneshot resolveRunOutcome.
+          // O113: pass the progress completionTracker so budget/turn-limit
+          // stderr matches stdout (e.g. 「卡在：运行预算（read_file: …）」).
           const zh = isZhLocale();
+          const prog = ensureProgress();
           stderrLine(
             `${mark('fail')} ${formatProgressOutcomeLine({
               stopReason,
               finalText: event.result?.response ?? '',
+              tracker: prog.completionTracker(),
               zh,
             })}`
           );
