@@ -69,7 +69,11 @@ for (const lang of ['en', 'zh']) {
 
     // The hook was not treated as timed out: it completed and wrote its marker.
     assert.equal(fs.existsSync(marker), true, 'hook ran to completion (not a timeout)');
-    assert.doesNotMatch(stderr, /\[hook timed out|exited 124/, 'no timeout reported');
+    assert.doesNotMatch(
+      stderr,
+      /\[hook timed out|timed out after|超时（|exited 124/,
+      'no timeout reported'
+    );
 
     // The clamp warning is emitted, and exactly once despite three runs.
     const warnedRe =
