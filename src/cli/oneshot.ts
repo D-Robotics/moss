@@ -29,7 +29,6 @@ import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 import { acceptanceShell } from '../core/task/acceptance-command.js';
 import { runStopHooks, type StopHookResult } from './hooks.js';
 import { ProcessError, runProcess } from '../utils/run-process.js';
-import { acceptanceShell } from '../core/task/acceptance-command.js';
 
 /** Format the oneshot exit warning when background work outlives the wait window. */
 export function formatOneshotStillRunningBackgroundNotice(
