@@ -32,7 +32,7 @@ function credentialDirs(env: NodeJS.ProcessEnv): string[] {
   return dirs;
 }
 
-/** User credential store, project `.moss/config.json`, and `.apikey-key`. */
+/** User credential store, project `.moss/config.json` / `devices.json`, and `.apikey-key`. */
 export function isMossCredentialPath(
   resolved: string,
   env: NodeJS.ProcessEnv = process.env
@@ -43,7 +43,10 @@ export function isMossCredentialPath(
   }
   if (path.basename(abs) === '.apikey-key') return true;
   const parent = path.basename(path.dirname(abs));
-  return parent === '.moss' && path.basename(abs) === 'config.json';
+  if (parent !== '.moss') return false;
+  const base = path.basename(abs);
+  // Project credential docs under `.moss/` (same set known-secrets scans).
+  return base === 'config.json' || base === 'devices.json';
 }
 
 export function expandUserPath(raw: string, env: NodeJS.ProcessEnv, cwd: string): string {

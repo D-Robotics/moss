@@ -13,10 +13,11 @@ import {
 } from './tool-helpers.js';
 import { wouldTruncateToolOutput } from '../context/tool-output-truncate.js';
 import {
+  presentToolOutput,
   redactedPlaceholderEditError,
   redactedPlaceholderWriteError,
 } from '../safety/tool-output-redact.js';
-import { resolveReadPath } from '../safety/read-scope.js';
+import { isMossCredentialPath, resolveReadPath } from '../safety/read-scope.js';
 
 /** Strip read_file-style line-number prefixes the model often pastes back. */
 export function stripLineNumberPrefixes(s: string): string {
@@ -213,13 +214,23 @@ export const readFileTool: Tool = {
         }
         return withLineNumbers(content);
       })();
-      // The secret-sanitizer post hook redacts the result that reaches the model.
-      // Record the tool's own body so an unchanged re-read still short-circuits.
+      // Record against the raw body size; credential paths are redacted below
+      // so an unchanged re-read still short-circuits on disk state.
       await globalToolStateManager.recordFileState(
         filePath,
         rangeKey,
         wouldTruncateToolOutput('read', result)
       );
+      // O105: defense in depth — even a direct execute (no agent post-hook)
+      // must not return Moss credential plaintext. Same path as presentToolOutput.
+      if (isMossCredentialPath(filePath)) {
+        return presentToolOutput({
+          toolName: 'read_file',
+          input: { path: String(input.path ?? '') },
+          text: result,
+          workspaceDir: ctx.workspaceDir,
+        });
+      }
       return result;
     } catch (err) {
       if (
