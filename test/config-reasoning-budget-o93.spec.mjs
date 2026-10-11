@@ -3,7 +3,8 @@
  * O93: agent.reasoningBudget must be settable via `moss config set`, shown by
  * `moss config show` / `moss config env` / help, and resolved with the same
  * precedence as agent.maxTurns (MOSS_REASONING_BUDGET env > config file).
- * Untrusted projects cannot set reasoningBudget (dropped like modelTiers).
+ * Untrusted projects may only lower reasoningBudget (off < adaptive < high);
+ * a raise is ignored and listed on the untrusted-folder notice.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -184,15 +185,198 @@ test('en and zh config help mention agent.reasoningBudget and off|adaptive|high'
   const en = renderConfigHelp(false);
   assert.match(en, /agent\.reasoningBudget/);
   assert.match(en, /off\|adaptive\|high/);
-  assert.match(en, /how hard the model thinks|tokens|cost|longer/i);
+  assert.match(en, /adaptive-reasoning|do NOT escalate|tokens|cost/i);
+  assert.match(en, /does not disable provider-native thinking|keeps the model's own/i);
   const zhHelp = renderConfigHelp(true);
   assert.match(zhHelp, /agent\.reasoningBudget/);
   assert.match(zhHelp, /off\|adaptive\|high/);
   assert.match(zhHelp, /可选值/);
-  assert.match(zhHelp, /推理强度|费用|越慢/);
+  assert.match(zhHelp, /自适应推理|不升档|费用|越慢/);
+  assert.match(zhHelp, /不是关掉模型自带思考/);
 });
 
-test('config show stderr tips when untrusted project reasoningBudget is skipped', () => {
+test('QA1: untrusted project off with user high applies off (source project)', () => {
+  withHomeAndWs(({ configDir, ws }) => {
+    put(path.join(configDir, 'config.json'), {
+      provider: 'openai-compatible',
+      model: 'user-model',
+      baseUrl: 'https://user.example/v1',
+      apiKey: 'user-key',
+      agent: { reasoningBudget: 'high' },
+    });
+    put(path.join(ws, '.moss', 'config.json'), {
+      agent: { reasoningBudget: 'off' },
+    });
+    const env = { HOME: path.dirname(configDir), MOSS_CONFIG_DIR: configDir };
+    const loaded = loadCliConfigFile(env, [], ws, { trustProjectRouting: false });
+    assert.ok(
+      !(loaded.ignoredProjectRouting ?? []).includes('reasoningBudget'),
+      `off must not be ignored: ${loaded.ignoredProjectRouting}`
+    );
+    assert.equal(loaded.config.agent?.reasoningBudget, 'off');
+    assert.equal(loaded.fieldSources['agent.reasoningBudget'], 'project');
+    const resolved = resolveCliConfig(env, loaded.config, {}, loaded);
+    assert.equal(resolved.reasoningBudget, 'off');
+    assert.match(resolved.reasoningBudgetSource ?? '', /project|agent\.reasoningBudget/);
+  });
+});
+
+test('QA2: untrusted project high with user unset stays adaptive and is ignored', () => {
+  withHomeAndWs(({ configDir, ws }) => {
+    put(path.join(configDir, 'config.json'), {
+      provider: 'openai-compatible',
+      model: 'user-model',
+      baseUrl: 'https://user.example/v1',
+      apiKey: 'user-key',
+    });
+    put(path.join(ws, '.moss', 'config.json'), {
+      agent: { reasoningBudget: 'high' },
+    });
+    const env = { HOME: path.dirname(configDir), MOSS_CONFIG_DIR: configDir };
+    const loaded = loadCliConfigFile(env, [], ws, { trustProjectRouting: false });
+    assert.ok(
+      loaded.ignoredProjectRouting?.includes('reasoningBudget'),
+      String(loaded.ignoredProjectRouting)
+    );
+    assert.equal(loaded.config.agent?.reasoningBudget, undefined);
+    const resolved = resolveCliConfig(env, loaded.config, {}, loaded);
+    assert.equal(resolved.reasoningBudget, undefined);
+    assert.equal(resolved.reasoningBudgetSource, 'default');
+  });
+});
+
+test('QA2b: -p run prints untrusted tip listing reasoningBudget when project raises', async () => {
+  const { spawn } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const { isolatedCliEnv } = await import('./helpers/isolated-cli-env.mjs');
+  const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o93-p-'));
+  const configDir = path.join(root, 'cfg');
+  const ws = path.join(root, 'ws');
+  fs.mkdirSync(path.join(ws, '.moss'), { recursive: true });
+  fs.mkdirSync(configDir, { recursive: true });
+  put(path.join(configDir, 'config.json'), {
+    provider: 'openai-compatible',
+    model: 'stub-model',
+    baseUrl: 'https://user.example/v1',
+    apiKey: 'user-key',
+  });
+  put(path.join(ws, '.moss', 'config.json'), {
+    agent: { reasoningBudget: 'high' },
+  });
+  const env = isolatedCliEnv({
+    prefix: 'moss-o93-p-',
+    overrides: {
+      HOME: root,
+      MOSS_CONFIG_DIR: configDir,
+      MOSS_NO_TUI: '1',
+      MOSS_NO_COLOR: '1',
+    },
+  });
+  delete env.MOSS_TRUST_WORKSPACE;
+  try {
+    const printed = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [cli, '--mock', '-p', 'hi', '--max-turns', '1'], {
+        cwd: ws,
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let stderr = '';
+      const timer = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(new Error(`timed out\n${stderr}`));
+      }, 25000);
+      child.stdout.on('data', (b) => (stdout += b.toString()));
+      child.stderr.on('data', (b) => (stderr += b.toString()));
+      child.on('error', reject);
+      child.on('exit', (code) => {
+        clearTimeout(timer);
+        resolve({ code, stdout, stderr });
+      });
+    });
+    assert.match(
+      printed.stderr,
+      /This folder isn't trusted, so its project settings were skipped:/
+    );
+    assert.match(printed.stderr, /reasoningBudget/);
+    assert.doesNotMatch(printed.stderr, /[\u4e00-\u9fff]/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('QA2c: TUI/startup notice line lists reasoningBudget when it was raised', async () => {
+  const { untrustedFolderLine } = await import('../dist/cli/workspace-trust.js');
+  withHomeAndWs(({ configDir, ws }) => {
+    put(path.join(configDir, 'config.json'), {
+      provider: 'openai-compatible',
+      model: 'user-model',
+      baseUrl: 'https://user.example/v1',
+      apiKey: 'user-key',
+    });
+    put(path.join(ws, '.moss', 'config.json'), {
+      agent: { reasoningBudget: 'high' },
+    });
+    const env = { HOME: path.dirname(configDir), MOSS_CONFIG_DIR: configDir };
+    const loaded = loadCliConfigFile(env, [], ws, { trustProjectRouting: false });
+    assert.ok(loaded.ignoredProjectRouting?.includes('reasoningBudget'));
+    // Same assembly as cli-main / TUI startup: ignored routing → untrustedFolderLine.
+    const line = untrustedFolderLine(loaded.ignoredProjectRouting ?? [], false);
+    assert.match(line, /isn't trusted/);
+    assert.match(line, /reasoningBudget/);
+    const zh = untrustedFolderLine(loaded.ignoredProjectRouting ?? [], true);
+    assert.match(zh, /未信任|跳过/);
+    assert.match(zh, /reasoningBudget/);
+  });
+});
+
+test('QA3: trusted project high applies', () => {
+  withHomeAndWs(({ configDir, ws }) => {
+    put(path.join(configDir, 'config.json'), {
+      provider: 'openai-compatible',
+      model: 'user-model',
+      baseUrl: 'https://user.example/v1',
+      apiKey: 'user-key',
+    });
+    put(path.join(ws, '.moss', 'config.json'), {
+      agent: { reasoningBudget: 'high' },
+    });
+    const env = { HOME: path.dirname(configDir), MOSS_CONFIG_DIR: configDir };
+    const trusted = loadCliConfigFile(env, ['--trust-workspace'], ws);
+    assert.ok(!(trusted.ignoredProjectRouting ?? []).includes('reasoningBudget'));
+    assert.equal(trusted.config.agent?.reasoningBudget, 'high');
+    const resolved = resolveCliConfig(env, trusted.config, {}, trusted);
+    assert.equal(resolved.reasoningBudget, 'high');
+  });
+});
+
+test('QA4: MOSS_REASONING_BUDGET still overrides project value', () => {
+  withHomeAndWs(({ configDir, ws }) => {
+    put(path.join(configDir, 'config.json'), {
+      provider: 'openai-compatible',
+      model: 'user-model',
+      baseUrl: 'https://user.example/v1',
+      apiKey: 'user-key',
+    });
+    put(path.join(ws, '.moss', 'config.json'), {
+      agent: { reasoningBudget: 'high' },
+    });
+    const env = {
+      HOME: path.dirname(configDir),
+      MOSS_CONFIG_DIR: configDir,
+      MOSS_REASONING_BUDGET: 'off',
+      MOSS_TRUST_WORKSPACE: '1',
+    };
+    const trusted = loadCliConfigFile(env, ['--trust-workspace'], ws);
+    assert.equal(trusted.config.agent?.reasoningBudget, 'high');
+    const resolved = resolveCliConfig(env, trusted.config, {}, trusted);
+    assert.equal(resolved.reasoningBudget, 'off');
+    assert.equal(resolved.reasoningBudgetSource, 'MOSS_REASONING_BUDGET');
+  });
+});
+
+test('config show stderr tips when untrusted project reasoningBudget raise is skipped', () => {
   withHomeAndWs(({ configDir, ws }) => {
     put(path.join(configDir, 'config.json'), {
       provider: 'openai-compatible',
@@ -221,48 +405,5 @@ test('config show stderr tips when untrusted project reasoningBudget is skipped'
       }
       Object.assign(process.env, prev);
     }
-  });
-});
-
-test('untrusted project reasoningBudget is dropped; trusted project applies', () => {
-  withHomeAndWs(({ configDir, ws }) => {
-    put(path.join(configDir, 'config.json'), {
-      provider: 'openai-compatible',
-      model: 'user-model',
-      baseUrl: 'https://user.example/v1',
-      apiKey: 'user-key',
-      agent: { reasoningBudget: 'off' },
-    });
-    put(path.join(ws, '.moss', 'config.json'), {
-      agent: { reasoningBudget: 'high' },
-    });
-    const env = { HOME: path.dirname(configDir), MOSS_CONFIG_DIR: configDir };
-    const ignored = loadCliConfigFile(env, [], ws, { trustProjectRouting: false });
-    assert.ok(
-      ignored.ignoredProjectRouting?.includes('reasoningBudget'),
-      String(ignored.ignoredProjectRouting)
-    );
-    assert.equal(ignored.config.agent?.reasoningBudget, 'off');
-    const resolvedIgnored = resolveCliConfig(env, ignored.config, {}, ignored);
-    assert.equal(resolvedIgnored.reasoningBudget, 'off');
-
-    // User default (no reasoningBudget) + untrusted project high → not high
-    put(path.join(configDir, 'config.json'), {
-      provider: 'openai-compatible',
-      model: 'user-model',
-      baseUrl: 'https://user.example/v1',
-      apiKey: 'user-key',
-    });
-    const ignoredDefault = loadCliConfigFile(env, [], ws, { trustProjectRouting: false });
-    assert.ok(ignoredDefault.ignoredProjectRouting?.includes('reasoningBudget'));
-    assert.equal(ignoredDefault.config.agent?.reasoningBudget, undefined);
-    assert.notEqual(
-      resolveCliConfig(env, ignoredDefault.config, {}, ignoredDefault).reasoningBudget,
-      'high'
-    );
-
-    const trusted = loadCliConfigFile(env, ['--trust-workspace'], ws);
-    assert.equal(trusted.config.agent?.reasoningBudget, 'high');
-    assert.equal(resolveCliConfig(env, trusted.config, {}, trusted).reasoningBudget, 'high');
   });
 });

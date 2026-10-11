@@ -736,10 +736,27 @@ export function listProjectRoutingConfigFields(project: ConfigFile): string[] {
   if (project.agent?.maxOutputTokens !== undefined) ignored.push('maxOutputTokens');
   const models = project.agent?.models;
   if (models && Object.keys(models).length > 0) ignored.push('models');
-  // Untrusted folders cannot raise (or set) reasoning intensity — same
-  // stance as modelTiers / maxOutputTokens: drop any project value.
-  if (project.agent?.reasoningBudget !== undefined) ignored.push('reasoningBudget');
   return ignored;
+}
+
+const REASONING_BUDGET_RANK: Record<ReasoningBudget, number> = { off: 0, adaptive: 1, high: 2 };
+
+/**
+ * An untrusted project may only lower reasoning intensity (off < adaptive <
+ * high). The user's effective value is the user config value, or the
+ * runtime default `adaptive` when unset. Same shape as projectProfileLoosens.
+ */
+function projectReasoningBudgetRaises(user: ConfigFile, project: ConfigFile): boolean {
+  const projectBudget = parseReasoningBudget(project.agent?.reasoningBudget);
+  if (!projectBudget) return false;
+  const userBudget = parseReasoningBudget(user.agent?.reasoningBudget) ?? 'adaptive';
+  return REASONING_BUDGET_RANK[projectBudget] > REASONING_BUDGET_RANK[userBudget];
+}
+
+function omitRaisingProjectReasoningBudget(user: ConfigFile, project: ConfigFile): ConfigFile {
+  if (!project.agent || !projectReasoningBudgetRaises(user, project)) return project;
+  const { reasoningBudget: _rb, ...rest } = project.agent;
+  return { ...project, agent: Object.keys(rest).length > 0 ? rest : undefined };
 }
 
 function omitProjectRoutingConfig(project: ConfigFile): ConfigFile {
@@ -749,13 +766,7 @@ function omitProjectRoutingConfig(project: ConfigFile): ConfigFile {
     // A project cap can force a truncation or reserve most of the context
     // window. An untrusted folder does not get to set either knob. User
     // config, the process environment, and a trusted project still can.
-    const {
-      modelTiers: _tiers,
-      maxOutputTokens: _cap,
-      models: _models,
-      reasoningBudget: _rb,
-      ...rest
-    } = next.agent;
+    const { modelTiers: _tiers, maxOutputTokens: _cap, models: _models, ...rest } = next.agent;
     next.agent = Object.keys(rest).length > 0 ? rest : undefined;
   }
   return next;
@@ -1254,12 +1265,18 @@ export function loadCliConfigFile(
   const rawProject = loadConfigFile(projectConfigPath);
   const trusted = projectRoutingTrusted(env, argv, startDir, options?.trustProjectRouting);
   const ignoredProjectRouting = trusted ? [] : listProjectRoutingConfigFields(rawProject);
+  if (!trusted && projectReasoningBudgetRaises(userConfig, rawProject)) {
+    ignoredProjectRouting.push('reasoningBudget');
+  }
   const droppedProjectPermissions = trusted
     ? []
     : listDroppedProjectPermissionFields(userConfig, rawProject);
   const projectConfig = trusted
     ? rawProject
-    : omitLooseningProjectPermissions(userConfig, omitProjectRoutingConfig(rawProject));
+    : omitRaisingProjectReasoningBudget(
+        userConfig,
+        omitLooseningProjectPermissions(userConfig, omitProjectRoutingConfig(rawProject))
+      );
   const merged = mergeConfigFiles(projectConfig, userConfig, options);
   const sources = fieldSourcesFor(userConfig, projectConfig);
   const keyLayer =
