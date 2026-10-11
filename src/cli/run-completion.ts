@@ -30,6 +30,16 @@ export interface CheckRun {
   passed: boolean;
 }
 
+export interface GoalVerifyResult {
+  command: string;
+  passed: boolean;
+  exitCode?: number;
+  /** Short error / stdout+stderr tail for the outcome line. */
+  error?: string;
+  timedOut?: boolean;
+  spawnFailed?: boolean;
+}
+
 export interface RunCompletionTracker {
   /** Latest run of each check kind in this run (later runs overwrite earlier ones). */
   checks: Map<VerificationCheck, CheckRun>;
@@ -39,6 +49,8 @@ export interface RunCompletionTracker {
   lastFailedStep?: string;
   /** Last tool step that started, e.g. `multi_edit: src/cli/hooks.ts`. */
   lastStep?: string;
+  /** Latest MOSS_GOAL_VERIFY_CMD result (O98 — must feed the tracker). */
+  goalVerify?: GoalVerifyResult;
   /** @internal pending tool_start inputs keyed by toolCallId. */
   pending: Map<string, { toolName: string; input: Record<string, unknown> }>;
 }
@@ -148,6 +160,28 @@ export function noteRunCompletionEvent(tracker: RunCompletionTracker, event: Mos
   }
 }
 
+/**
+ * Record a MOSS_GOAL_VERIFY_CMD result on the tracker and mirror it into the
+ * check map so claim detection sees the real verification outcome.
+ */
+export function noteGoalVerifyResult(
+  tracker: RunCompletionTracker,
+  result: GoalVerifyResult
+): void {
+  tracker.goalVerify = result;
+  const step = `VERIFY_CMD: ${result.command.replace(/\s+/g, ' ').trim().slice(0, 120)}`;
+  tracker.lastStep = step;
+  if (!result.passed) tracker.lastFailedStep = step;
+  for (const check of checksForCommand(result.command)) {
+    tracker.checks.set(check, { command: result.command, passed: result.passed });
+  }
+  // A bare `npm run check`-style verify still covers the umbrella "check" claim
+  // even when checksForCommand finds nothing (e.g. custom scripts).
+  if (!checksForCommand(result.command).length) {
+    tracker.checks.set('check', { command: result.command, passed: result.passed });
+  }
+}
+
 const CLAIM_PATTERNS: Array<{ re: RegExp; requires: VerificationCheck[] }> = [
   {
     re: /\ball\s+(?:the\s+)?checks?\s+(?:are\s+|is\s+)?(?:green|pass(?:ed|ing)?|clean|ok)\b|(?:全部|所有)(?:的)?检查(?:都|均|全部)?(?:已)?(?:通过|是绿的|绿了|变绿)|\bnpm\s+run\s+check\b[^.\n。]*\b(?:pass(?:es|ed)?|green|succeed(?:s|ed)?|clean)\b|npm\s+run\s+check[^。\n]*(?:通过|绿)/i,
@@ -233,11 +267,7 @@ export function assessRunCompletion(input: AssessRunCompletionInput): RunComplet
     );
   }
   if (input.request && requestExpectsFileChanges(input.request) && !tracker.wroteFiles) {
-    reasons.push(
-      zh
-        ? '任务需要改动文件，但本次运行没有修改任何文件'
-        : 'the task needed file changes, but no file was modified'
-    );
+    reasons.push(zh ? '没有改动任何文件' : 'no files were modified');
   }
 
   if (reasons.length === 0) {

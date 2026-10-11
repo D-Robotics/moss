@@ -28,8 +28,12 @@ import { configuredBaseUrl, pricingOverridesFromConfig } from './model-pricing.j
 import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 import { acceptanceShell } from '../core/task/acceptance-command.js';
 import { runStopHooks, type StopHookResult } from './hooks.js';
-import { runProcess } from '../utils/run-process.js';
-import { createRunCompletionTracker, noteRunCompletionEvent } from './run-completion.js';
+import { ProcessError, runProcess } from '../utils/run-process.js';
+import {
+  createRunCompletionTracker,
+  noteGoalVerifyResult,
+  noteRunCompletionEvent,
+} from './run-completion.js';
 import { formatOutcomeLine, resolveRunOutcome } from './run-outcome.js';
 
 /** Format the oneshot exit warning when background work outlives the wait window. */
@@ -630,17 +634,14 @@ export async function runOneShot(
   }
 
   // Headless goal-verify loop (MOSS_GOAL_VERIFY_LOOP=1): the headless
-  // counterpart of `/goal --accept`. After the primary run, execute
-  // MOSS_GOAL_VERIFY_CMD; a non-zero exit triggers ONE continuation turn
-  // carrying the failure evidence.
+  // counterpart of `/goal --accept`. After every run (including the one
+  // continuation turn), execute MOSS_GOAL_VERIFY_CMD and record the result on
+  // the tracker. A non-zero exit on the first pass triggers ONE continuation;
+  // the continuation always re-verifies. Spawn/timeout failures are
+  // verify_failed — never swallowed (O98).
   const verifyDepth = options.goalVerifyDepth ?? 0;
-  if (
-    process.env.MOSS_GOAL_VERIFY_LOOP === '1' &&
-    process.env.MOSS_GOAL_VERIFY_CMD &&
-    verifyDepth < 1
-  ) {
-    // Task OS M6: mirror the verify verdict onto the latest live task so
-    // headless goal runs land in unified task history too.
+  const verifyCmd = process.env.MOSS_GOAL_VERIFY_CMD;
+  if (process.env.MOSS_GOAL_VERIFY_LOOP === '1' && verifyCmd) {
     const mirrorGoalVerdict = async (passed: boolean, exitCode: number, tail: string) => {
       try {
         const { findLatestLiveTaskSnapshot, emitAcceptanceLifecycle } =
@@ -661,41 +662,95 @@ export async function runOneShot(
       }
     };
     try {
-      const shell = acceptanceShell(process.env.MOSS_GOAL_VERIFY_CMD);
-      const verify = await runProcess(shell.cmd, {
+      const shell = acceptanceShell(verifyCmd);
+      // runProcess resolves only on exit 0; non-zero / timeout / spawn reject.
+      await runProcess(shell.cmd, {
         args: shell.args,
         cwd: workspaceDir,
         timeout: 5 * 60_000,
         ...(shell.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       });
-      if (verify.exitCode !== 0) {
-        const tail = `${verify.stdout}\n${verify.stderr}`.trim().slice(-2000);
-        await mirrorGoalVerdict(false, verify.exitCode, tail);
+      noteGoalVerifyResult(completionTracker, {
+        command: verifyCmd,
+        passed: true,
+        exitCode: 0,
+      });
+      await mirrorGoalVerdict(true, 0, '');
+    } catch (err) {
+      const pe = err instanceof ProcessError ? err : undefined;
+      const timedOut = pe?.timedOut === true;
+      const exitCode = pe && typeof pe.exitCode === 'number' ? pe.exitCode : 1;
+      const tail = pe ? `${pe.stdout}\n${pe.stderr}`.trim().slice(-2000) : '';
+      const detail = pe?.message || (err instanceof Error ? err.message : String(err));
+      // Infrastructure failure (timeout / could not start): record and stop — no continue.
+      const infraFailure = timedOut || !pe;
+      if (infraFailure) {
+        noteGoalVerifyResult(completionTracker, {
+          command: verifyCmd,
+          passed: false,
+          exitCode,
+          error: detail,
+          timedOut,
+          spawnFailed: !timedOut,
+        });
+        process.stderr.write(`[goal-verify] ${detail}\n`);
+      } else {
+        // Ordinary non-zero exit: record, continue once, re-verify after.
+        noteGoalVerifyResult(completionTracker, {
+          command: verifyCmd,
+          passed: false,
+          exitCode,
+          ...(tail ? { error: tail.slice(0, 400) } : { error: detail }),
+        });
+        await mirrorGoalVerdict(false, exitCode, tail || detail);
+        if (verifyDepth < 1) {
+          process.stderr.write(
+            `[goal-verify] command failed (exit ${exitCode}); running one continuation turn\n`
+          );
+          return runOneShot(
+            agent,
+            [
+              `[verification failed] The verification command exited ${exitCode}.`,
+              'Fix the underlying cause — do not work around or edit the verification command.',
+              '',
+              'Last output (tail):',
+              tail || detail || '(no output)',
+              '',
+              'Complete the original task so the verification passes.',
+            ].join('\n'),
+            { ...options, goalVerifyDepth: verifyDepth + 1 }
+          );
+        }
         process.stderr.write(
-          `[goal-verify] command failed (exit ${verify.exitCode}); running one continuation turn\n`
-        );
-        return runOneShot(
-          agent,
-          [
-            `[verification failed] The verification command exited ${verify.exitCode}.`,
-            'Fix the underlying cause — do not work around or edit the verification command.',
-            '',
-            'Last output (tail):',
-            tail || '(no output)',
-            '',
-            'Complete the original task so the verification passes.',
-          ].join('\n'),
-          { ...options, goalVerifyDepth: verifyDepth + 1 }
+          `[goal-verify] command still failing after continuation (exit ${exitCode})\n`
         );
       }
-      await mirrorGoalVerdict(true, 0, '');
-    } catch {
-      /* verification infrastructure failures never break the run */
     }
   }
 
+  // Stop lifecycle hook: fires after every completed run. A blocking non-zero
+  // exit vetoes the stop — the REPL turns that into one forced continuation
+  // turn; headless also exits non-zero (O98).
+  let stopResult: StopHookResult = { blocked: false };
+  try {
+    stopResult = await runStopHooks({
+      sessionKey,
+      ...(finalResult?.subtype !== undefined ? { stopReason: String(finalResult.subtype) } : {}),
+      ...(typeof finalResult?.result === 'string' ? { response: finalResult.result } : {}),
+    });
+    if (stopResult.blocked) {
+      process.stderr.write(
+        `[hooks] ${stopResult.reason ?? 'Stop hook blocked the run ending.'}${
+          options.headless ? '' : ' (interactive mode reports; host may force-continue)'
+        }\n`
+      );
+    }
+  } catch {
+    stopResult = { blocked: false };
+  }
+
   // O98: never end a text `--print` run on a false success. Resolve a stable
-  // RunOutcome (completed | incomplete | unverified); O99 reads the same API.
+  // RunOutcome; always print the conclusion line (完成 / 未完成 / 未验证 / …).
   if (outputFormat === 'text') {
     const lang = isZhLocale() ? 'zh' : 'en';
     const outcome = resolveRunOutcome({
@@ -706,29 +761,20 @@ export async function runOneShot(
         ? { runError: finalResult.error ?? String(finalResult.subtype) }
         : {}),
       ...(typeof process.exitCode === 'number' ? { errorExitCode: process.exitCode } : {}),
+      ...(stopResult.blocked
+        ? { blocked: true, ...(stopResult.reason ? { blockedReason: stopResult.reason } : {}) }
+        : {}),
     });
-    if (outcome.status !== 'completed') {
+    const line = formatOutcomeLine(outcome, lang);
+    if (line) stdout.write(`\n${line}\n`);
+    if (outcome.exitCode !== 0) {
       process.exitCode = outcome.exitCode;
-      stdout.write(`\n${formatOutcomeLine(outcome, lang)}\n`);
+    } else if (options.headless && stopResult.blocked) {
+      process.exitCode = ExitCode.INCOMPLETE;
     }
+  } else if (options.headless && stopResult.blocked) {
+    process.exitCode = ExitCode.INCOMPLETE;
   }
 
-  // Stop lifecycle hook: fires after every completed run. A blocking non-zero
-  // exit vetoes the stop — the REPL turns that into one forced continuation
-  // turn; headless reports it on stderr.
-  try {
-    const stop = await runStopHooks({
-      sessionKey,
-      ...(finalResult?.subtype !== undefined ? { stopReason: String(finalResult.subtype) } : {}),
-      ...(typeof finalResult?.result === 'string' ? { response: finalResult.result } : {}),
-    });
-    if (stop.blocked) {
-      process.stderr.write(
-        `[hooks] ${stop.reason ?? 'Stop hook blocked the run ending.'} (headless mode reports but does not force-continue)\n`
-      );
-    }
-    return stop;
-  } catch {
-    return { blocked: false };
-  }
+  return stopResult;
 }

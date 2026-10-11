@@ -989,7 +989,9 @@ export function renderRunSummary(
   halted: boolean,
   width: number,
   _tokens?: { input: number; output: number },
-  now: Date = new Date()
+  now: Date = new Date(),
+  /** O98 conclusion line (完成 / 未完成 / 未验证 / …); shown under the done stamp. */
+  outcomeLine?: string
 ): TuiLine[] {
   const seconds = Math.max(1, Math.round(elapsedMs / 1000));
   const verb = runVerb(seconds);
@@ -1005,7 +1007,12 @@ export function renderRunSummary(
   const text = halted
     ? tui('✻ {verb} for {seconds}s · interrupted', { verb, seconds })
     : tui('✻ worked for {seconds}s{doneAt}', { seconds, doneAt });
-  return [line(''), line(clip(text, width), { dim: true })];
+  const out: TuiLine[] = [line(''), line(clip(text, width), { dim: true })];
+  const conclusion = outcomeLine?.trim();
+  if (conclusion && !halted) {
+    out.push(line(clip(conclusion, width), { dim: true }));
+  }
+  return out;
 }
 
 // ─── inline information blocks (slash commands, `?`) ─────────────────────
