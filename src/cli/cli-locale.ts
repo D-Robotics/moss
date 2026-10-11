@@ -333,16 +333,17 @@ export function formatInteractionModeNotice(mode: string, locale?: string): stri
   const zh = isZhLocale(locale);
   const labels: Record<string, string> = zh
     ? {
-        plan: 'plan（只读演练）',
-        acceptEdits: 'accept-edits（自动接受编辑）',
-        manual: 'manual（逐项确认）',
-        full: 'full（默认 — 用 /permissions 添加拒绝规则）',
+        plan: 'plan（只读演练，不改文件、不跑命令）· /mode 可切换',
+        acceptEdits: 'accept-edits（自动通过本文件夹内的文件编辑；终端命令仍需确认）· /mode 可切换',
+        manual: 'manual（逐条确认）· /mode 可切换',
+        full: 'full（完全执行，不逐条询问）· /mode 可切换',
       }
     : {
-        plan: 'plan (dry-run)',
-        acceptEdits: 'accept-edits',
-        manual: 'manual',
-        full: 'full (v0.26 default — add deny rules with /permissions)',
+        plan: 'plan (dry-run: no edits, no commands) · /mode to change',
+        acceptEdits:
+          'accept-edits (file edits in this folder auto-approve; shell commands still ask) · /mode to change',
+        manual: 'manual (asks before each action) · /mode to change',
+        full: 'full (no approval prompts) · /mode to change',
       };
   const label = labels[mode] ?? mode;
   return zh ? `[moss] 交互模式：${label}` : `[moss] Interaction mode: ${label}`;
@@ -353,15 +354,57 @@ export function wrapNoticeLines(text: string, columns = 80): string[] {
   return wrap(text, Math.max(20, columns));
 }
 
-/** One-shot notice when full mode has no deny rules. */
+/**
+ * One-shot notice when full mode has no deny rules (copy-audit 1.9).
+ * The no-sandbox sentence is a safety disclosure (QA review of O72): keep it.
+ * `--workspace-write` is named as the per-action route because it resolves to
+ * manual mode (args.ts requestSafety), where every non-read-only exec asks.
+ */
 export function formatFullModeNotice(locale?: string): string {
   const zh = isZhLocale(locale);
-  const limit = setupCopy(locale, WORKSPACE_WRITE_LIMIT_EN);
   return zh
-    ? `[moss] 默认完全访问模式没有拒绝规则；用 /permissions 添加（例如 \`deny read_file(./.env)\`）以继续拦截敏感工具。${limit}此提示只显示一次。`
-    : '[moss] Default full mode has no deny rules; add them with /permissions ' +
-        '(e.g. deny read_file(./.env)) to keep sensitive tools gated. ' +
-        `${limit} This notice shows once.`;
+    ? '[moss] 完全执行模式：Moss 会直接改文件、跑命令，不逐条询问。想逐条确认：/mode manual（或启动时加 --workspace-write）。要拦截特定操作：/permissions。终端命令以你的用户权限直接运行，没有沙箱。此提示只显示一次。'
+    : '[moss] Full mode: Moss edits files and runs commands without asking. ' +
+        'To approve each action: /mode manual (or start with --workspace-write). ' +
+        'Block specific things with /permissions. ' +
+        "Shell commands run with your user's full permissions (no sandbox). This notice shows once.";
+}
+
+/**
+ * O72: stderr line shown to the USER when a non-interactive run (-p / no TTY)
+ * blocks a tool that needs approval. Names the mode that caused it and how to
+ * allow it. The model-facing reason is {@link formatHeadlessBlockReason}.
+ */
+export function formatHeadlessBlockNotice(toolName: string, mode: string, locale?: string): string {
+  const zh = isZhLocale(locale);
+  if (mode === 'acceptEdits') {
+    return zh
+      ? `[moss] 已拦下：「${toolName}」需要确认，但 -p 模式无法询问。本次用了 --accept-edits（只自动通过文件编辑）。去掉 --accept-edits 或改用 --full-access 重新运行，或用 /permissions 放行。`
+      : `[moss] Blocked: "${toolName}" needs approval, but -p can't ask. You started with --accept-edits (auto-approves file edits only). Rerun without --accept-edits or with --full-access, or allow it with /permissions.`;
+  }
+  return zh
+    ? `[moss] 已拦下：「${toolName}」需要确认，但当前没有交互终端（模式：${mode}）。改用 --full-access 重新运行，或用 /permissions 放行。`
+    : `[moss] Blocked: "${toolName}" needs approval, but no interactive terminal is available (mode: ${mode}). Rerun with --full-access, or allow it with /permissions.`;
+}
+
+/**
+ * O72: reason returned to the MODEL for a non-interactive approval block.
+ * States the cause only. It must not coach the model to tell the user to
+ * switch to full mode (the user already got the unlock line on stderr).
+ */
+export function formatHeadlessBlockReason(toolName: string, mode: string): string {
+  const cause =
+    mode === 'acceptEdits'
+      ? 'This run uses accept-edits: file edits in the workspace auto-approve, other tools still need approval.'
+      : `The current mode (${mode}) needs approval for this tool.`;
+  return (
+    `Tool "${toolName}" requires approval, but Moss is running non-interactively and cannot ask. ` +
+    `${cause} The user has already been shown how to allow it. ` +
+    'Do not ask the user to change the approval mode; mention once that this step was blocked and ' +
+    'continue with tools that are allowed. ' +
+    'This gate is inherited by sub-agents: delegating the same call via ' +
+    'create_subagent or fan_out_subagents will be denied too, so do not retry it that way.'
+  );
 }
 
 const SOURCE_ZH: Record<UiLanguageSource, string> = {

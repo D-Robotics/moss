@@ -1692,6 +1692,50 @@ export function hasTrustedToolWildcard(config: Pick<ResolvedCliConfig, 'trustedT
  * The marker lives next to the user config (not the workspace). Doctor still
  * reports the same condition on every run.
  */
+const UNTRUSTED_FOLDER_NOTICE_FILE = 'untrusted-folder-notices.json';
+const shownUntrustedFolderNotice = new Set<string>();
+
+/**
+ * O72 / copy-audit 1.3: the "this folder isn't trusted, project settings were
+ * skipped" line shows once per folder, not on every `-p`. Keyed by folder and
+ * by the exact skipped-settings line, so a NEW skipped setting (or a changed
+ * list) is shown again. Stored per config dir; an unreadable or unwritable
+ * store falls back to showing the line (never hides it silently forever).
+ */
+export function shouldShowUntrustedFolderNotice(
+  folderKey: string,
+  line: string,
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  if (!line) return false;
+  const dir = resolveConfigDir(env);
+  const memoKey = `${dir}\0${folderKey}\0${line}`;
+  if (shownUntrustedFolderNotice.has(memoKey)) return false;
+  shownUntrustedFolderNotice.add(memoKey);
+  const file = path.join(dir, UNTRUSTED_FOLDER_NOTICE_FILE);
+  let seen: Record<string, string> = {};
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      seen = parsed as Record<string, string>;
+    }
+  } catch {
+    /* missing or corrupt store: treat as not shown */
+  }
+  if (seen[folderKey] === line) return false;
+  seen[folderKey] = line;
+  try {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, `${JSON.stringify(seen, null, 2)}\n`, {
+      encoding: 'utf-8',
+      mode: 0o600,
+    });
+  } catch {
+    /* not writable: show now, and again next run */
+  }
+  return true;
+}
+
 const FULL_DEFAULT_NOTICE_MARKER = '.full_default_notice_shown';
 const shownFullDefaultNotice = new Set<string>();
 
