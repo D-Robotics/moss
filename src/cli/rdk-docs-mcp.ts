@@ -76,6 +76,18 @@ export function hasDeviceTarget(workspaceDir: string, env: NodeJS.ProcessEnv): b
 }
 
 /**
+ * O87 / board H3: on a narrow reverse-tunnel HTTPS_PROXY path, eager rdk-docs
+ * npx warm (registry CONNECTs) contends with the first model request and can
+ * leave CONNECT-without-answer + truncated 网关原文：). Skip the warm when a
+ * proxy env is set; the first rdk-docs tool call still starts the server.
+ * Board lock: /workspace/ux/board-o67-o70-baseline.md (NO_RDK_DOCS=1 PASS /
+ * MCP-on FAIL on the same tunnel).
+ */
+export function shouldEagerWarmRdkDocs(env: NodeJS.ProcessEnv = process.env): boolean {
+  return !Boolean(env.HTTPS_PROXY || env.HTTP_PROXY || env.https_proxy || env.http_proxy);
+}
+
+/**
  * Whether this session should connect the builtin server.
  * On unless MOSS_NO_RDK_DOCS or `rdkDocs: false`. A device target is not required.
  * `workspaceDir` stays on the input so callers and tests keep one shape.

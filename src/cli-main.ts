@@ -89,6 +89,7 @@ import {
   rdkDocsAutoConnectEnabled,
   readRdkDocsFlag,
   resolveRdkDocsPackage,
+  shouldEagerWarmRdkDocs,
   withBuiltinRdkDocs,
 } from './cli/rdk-docs-mcp.js';
 import { McpToolRegistry, buildMcpStableIndex } from './core/mcp/registry.js';
@@ -1199,11 +1200,17 @@ async function main() {
       // setTimeout(0) still starts npx immediately each session. It does not
       // wait for the first question. The timer is unref'd so a failed warm
       // does not hold the process open by itself.
+      // O87: under HTTPS_PROXY/HTTP_PROXY, skip the eager warm so npx registry
+      // CONNECTs do not contend with the first model request on a narrow
+      // reverse tunnel (board: MCP-on FAIL / MOSS_NO_RDK_DOCS=1 PASS).
+      // First rdk-docs tool call still starts the server.
       const warming = mcpRegistry;
-      const warmTimer = setTimeout(() => {
-        warming.startDeferred(RDK_DOCS_SERVER_NAME);
-      }, 0);
-      if (typeof warmTimer.unref === 'function') warmTimer.unref();
+      if (shouldEagerWarmRdkDocs(process.env)) {
+        const warmTimer = setTimeout(() => {
+          warming.startDeferred(RDK_DOCS_SERVER_NAME);
+        }, 0);
+        if (typeof warmTimer.unref === 'function') warmTimer.unref();
+      }
       // Lazy-loading budget: the system prompt gets one index line per server,
       // never the tool list itself. The rdk-docs usage pointer sits on that
       // server's line; a failed connect gets only the unavailable sentence.

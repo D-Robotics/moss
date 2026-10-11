@@ -59,6 +59,21 @@ function classifyConnectionHint(
       `DNS lookup failed for ${host} — check your network connection and DNS settings. If using a VPN/proxy, ensure DNS is routed correctly.`
     );
   }
+  // O87: undici connectTimeout while a proxy is set — blame the tunnel/proxy path,
+  // never a model "switch to a faster model" timeout.
+  if (
+    causeCode === 'UND_ERR_CONNECT_TIMEOUT' ||
+    (typeof causeName === 'string' && /ConnectTimeout/i.test(causeName))
+  ) {
+    if (hasProxyEnv) {
+      return hint(
+        `Timed out connecting to ${host} via HTTPS_PROXY/HTTP_PROXY (undici connectTimeout). Check that the proxy tunnel can complete CONNECT and TLS; if the path is a reverse SSH tunnel, avoid parallel heavy npm/git traffic, or raise MOSS_CONNECT_TIMEOUT_MS.`
+      );
+    }
+    return hint(
+      `Timed out connecting to ${host} (undici connectTimeout). Check network, DNS, firewall, and that the gateway is reachable.`
+    );
+  }
   if (causeCode === 'ECONNREFUSED') {
     if (hasProxyEnv) {
       const proxy =

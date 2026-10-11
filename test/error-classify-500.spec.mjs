@@ -78,13 +78,15 @@ for (const errorMessage of [
 }
 
 {
+  // O87: connection failures always attach low-level cause (chat + setup).
   const r = classifyProviderError({
     errorMessage: 'connect ECONNREFUSED 127.0.0.1:9',
     status: undefined,
   });
   assert.equal(r.category, 'network');
   assert.match(r.userMessage, /Fix the base URL/);
-  assert.doesNotMatch(r.userMessage, /Gateway text|网关原文|Details:|详细信息/);
+  assert.match(r.userMessage, /Details:.*ECONNREFUSED/);
+  assert.doesNotMatch(r.userMessage, /Gateway text|网关原文/);
 }
 
 console.error('error-classify: HTTP 500 is now retryable (was non-retryable unknown) ✓');

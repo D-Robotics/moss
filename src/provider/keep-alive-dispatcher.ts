@@ -45,6 +45,25 @@ function proxyEnvOptions(): {
   };
 }
 
+/** Default undici connectTimeout under HTTPS_PROXY/HTTP_PROXY (O87). */
+const PROXY_CONNECT_TIMEOUT_MS = 30_000;
+
+/**
+ * Resolve undici `connectTimeout` for the global dispatcher.
+ * - No proxy: leave undefined (undici default 10s).
+ * - Proxy: 30s, unless MOSS_CONNECT_TIMEOUT_MS is set (0 = undici default).
+ */
+export function resolveConnectTimeoutMs(proxyConfigured: boolean): number | undefined {
+  const raw = process.env.MOSS_CONNECT_TIMEOUT_MS;
+  if (raw != null && String(raw).trim() !== '') {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) {
+      return n === 0 ? undefined : Math.floor(n);
+    }
+  }
+  return proxyConfigured ? PROXY_CONNECT_TIMEOUT_MS : undefined;
+}
+
 export async function ensureKeepAliveDispatcherInstalled(): Promise<void> {
   if (installed) return;
   if (typeof process === 'undefined' || !process.versions?.node) return;
@@ -63,10 +82,20 @@ async function installKeepAliveDispatcher(): Promise<void> {
   }
   const { Agent, EnvHttpProxyAgent, setGlobalDispatcher } = mod;
 
-  const common = {
+  // O87: undici defaults connectTimeout to 10s. Board → ssh -R → HTTPS_PROXY →
+  // gateway often needs longer after CONNECT; raise only when a proxy is set.
+  // Override with MOSS_CONNECT_TIMEOUT_MS (milliseconds). 0 keeps undici default.
+  const connectTimeout = resolveConnectTimeoutMs(hasProxyEnv());
+  const common: {
+    keepAliveTimeout: number;
+    keepAliveMaxTimeout: number;
+    connections: number;
+    connectTimeout?: number;
+  } = {
     keepAliveTimeout: 60_000,
     keepAliveMaxTimeout: 600_000,
     connections: 8,
+    ...(connectTimeout !== undefined ? { connectTimeout } : {}),
   };
 
   let nextDispatcher: InstanceType<typeof Agent> | InstanceType<typeof EnvHttpProxyAgent>;
