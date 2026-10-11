@@ -179,8 +179,9 @@ export class ToolStateManager {
       for (const key of this.fileReadState.keys()) this.fileReadDropped.add(key);
       return;
     }
-    const hint = pathHint.replaceAll('\\', '/');
-    if (!hint) return;
+    if (!pathHint) return;
+    const hint = path.posix.normalize(pathHint.replaceAll('\\', '/'));
+    let matched = false;
     for (const key of this.fileReadState.keys()) {
       const norm = key.replaceAll('\\', '/');
       if (
@@ -189,8 +190,12 @@ export class ToolStateManager {
         hint.endsWith(`/${norm}`)
       ) {
         this.fileReadDropped.add(key);
+        matched = true;
       }
     }
+    // Relative hints may point outside their workspace; without that base an
+    // unmatched hint cannot safely prove any cached read is still in context.
+    if (!matched) for (const key of this.fileReadState.keys()) this.fileReadDropped.add(key);
   }
 
   /**

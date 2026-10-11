@@ -2751,7 +2751,31 @@ export function TuiAppRoot({
 
   const osc11FilterRef = useRef(createOsc11ReplyFilter());
   useInput((chunk, key) => {
-    const fed = osc11FilterRef.current.feed(chunk);
+    const control = Boolean(
+      key.return ||
+      key.backspace ||
+      key.delete ||
+      key.leftArrow ||
+      key.rightArrow ||
+      key.upArrow ||
+      key.downArrow ||
+      key.escape ||
+      key.tab ||
+      key.ctrl ||
+      key.meta ||
+      chunk === '\n'
+    );
+    const held = control ? osc11FilterRef.current.flushText() : '';
+    let input = composer.value;
+    if (held) {
+      input = composerInsert(composer, held).value;
+      setComposer((current) => composerInsert(current, held));
+    }
+    // Ink reports a standalone ESC as an empty chunk plus key.escape. Restore
+    // that byte only for the reply filter, so a fragmented ST terminator is
+    // consumed before it can cancel the run; ordinary Esc retains its key.
+    const filterChunk = key.escape && chunk === '' ? '\u001b' : chunk;
+    const fed = osc11FilterRef.current.feed(filterChunk);
     if (fed.body !== undefined && !themeLockedByEnv() && !process.env.MOSS_TUI_THEME) {
       const detected = themeFromOsc11(fed.body);
       if (detected) {
@@ -2759,7 +2783,7 @@ export function TuiAppRoot({
         forceUpdate();
       }
     }
-    if (fed.passthrough !== chunk) {
+    if (fed.passthrough !== filterChunk) {
       chunk = fed.passthrough;
       if (chunk.length === 0) return;
     }

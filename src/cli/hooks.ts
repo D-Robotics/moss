@@ -38,7 +38,11 @@ export function hookShell(
   if (platform === 'win32') {
     return {
       cmd: process.env.COMSPEC || 'cmd.exe',
-      args: ['/d', '/s', '/c', `"${command}"`],
+      // cmd /c normalizes an unknown command's ERRORLEVEL 9009 to exit 1.
+      // Exit explicitly with the current ERRORLEVEL so a missing hook cannot
+      // impersonate the non-blocking Claude exit-1 verdict. Explicit user
+      // exit commands still terminate before this suffix.
+      args: ['/d', '/s', '/c', `"${command} & exit /b"`],
       windowsVerbatimArguments: true,
     };
   }
