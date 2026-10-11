@@ -15,6 +15,15 @@ import {
   classifyShellToolFailure,
   normalizeVerifyCommandSignature,
 } from '../dist/core/tools/tool-loop-guard.js';
+import {
+  executeOneToolCall,
+  isStringToolFailureResult,
+  outcomeToResult,
+} from '../dist/core/tools/execute-tool-call.js';
+import { execTool } from '../dist/tools/builtin.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const LINT_FAIL = 'Command failed (exit 1):\neslint: 3 errors\n';
 const LINT_FAIL_ALT = 'Command failed (exit 1):\neslint: 5 errors (different)\n';
@@ -188,4 +197,144 @@ test('UX: normal non-zero path never produces STOP / 工具不可用 wording', (
   const msg = formatToolLoopGuardMessage(reason, 'exec');
   assert.doesNotMatch(msg, STOP_RE);
   assert.doesNotMatch(msg, /is not returning usable results/);
+});
+
+function execCallDeps(tools) {
+  const abortController = new AbortController();
+  return {
+    toolsForRun: tools,
+    toolCtx: { workspaceDir: process.cwd(), sessionKey: 'o96-e2e' },
+    sessionKey: 'o96-e2e',
+    abortSignal: abortController.signal,
+    toolTimeoutMs: 30_000,
+    enableHeartbeat: false,
+    heartbeatIntervalMs: 60_000,
+    skipHeartbeatToolNames: new Set(['exec']),
+    push() {},
+  };
+}
+
+test('e2e: production-shaped timed out after → is_error, byToolFailure, 超时 copy', async () => {
+  // Same shape as builtin.ts ProcessError timeout (historically is_error=false).
+  const PROD_TIMEOUT = 'timed out after 200ms (raise timeout_ms or use exec_background)';
+  assert.equal(
+    isStringToolFailureResult(PROD_TIMEOUT),
+    true,
+    'isStringToolFailureResult must recognize production timeout text'
+  );
+
+  const mockExec = {
+    name: 'exec',
+    description: 'test',
+    inputSchema: {
+      type: 'object',
+      properties: { command: { type: 'string' }, timeout_ms: { type: 'number' } },
+      required: ['command'],
+    },
+    async execute() {
+      return PROD_TIMEOUT;
+    },
+  };
+  const deps = execCallDeps([mockExec]);
+  const state = createToolLoopGuardState();
+
+  for (let i = 0; i < 3; i++) {
+    const outcome = await executeOneToolCall(
+      {
+        id: `t${i}`,
+        name: 'exec',
+        input: { command: 'sleep 5', timeout_ms: 200 },
+      },
+      deps
+    );
+    assert.equal(outcome.kind, 'completed');
+    const { text, isError } = outcomeToResult(outcome);
+    assert.equal(isError, true, `attempt ${i}: is_error must be true for timed out after`);
+    assert.match(text, /timed out after 200ms/);
+    // Feed the REAL isError from executeOneToolCall (the e2e wiring UX failed on).
+    recordToolLoopOutcome(state, 'exec', isError, text, {
+      command: 'sleep 5',
+      timeout_ms: 200,
+    });
+  }
+
+  assert.equal(state.byToolFailure.get('exec'), 3, 'byToolFailure must count real timeouts');
+  assert.equal(state.lastShellFaultKind.get('exec'), 'timeout');
+
+  const blocked = shouldShortCircuitToolCall(state, 'exec', {
+    command: 'sleep 5',
+    timeout_ms: 200,
+  });
+  assert.ok(blocked, 'must short-circuit after 3 timeouts');
+  assert.match(blocked, /timed out 3 time/i);
+  assert.doesNotMatch(blocked, /identical input was already requested/i);
+  assert.doesNotMatch(blocked, /same check failed repeatedly/i);
+  const msg = formatToolLoopGuardMessage(blocked, 'exec');
+  assert.match(msg, /超时|timed out/i);
+  assert.doesNotMatch(msg, STOP_RE);
+});
+
+test('e2e defense: isError=false + timed out after still counts (loop-guard text classify)', () => {
+  const state = createToolLoopGuardState();
+  const text = 'timed out after 200ms (raise timeout_ms or use exec_background)\n';
+  for (let i = 0; i < 3; i++) {
+    // Simulate the historical bug: production is_error=false.
+    recordToolLoopOutcome(state, 'exec', false, text, { command: `sleep ${i}`, timeout_ms: 200 });
+  }
+  assert.equal(
+    state.byToolFailure.get('exec'),
+    3,
+    'defense-in-depth: classify even when isError=false'
+  );
+  const blocked = shouldShortCircuitToolCall(state, 'exec', {
+    command: 'sleep 99',
+    timeout_ms: 200,
+  });
+  assert.ok(blocked);
+  assert.match(blocked, /timed out 3 time/i);
+  const msg = formatToolLoopGuardMessage(blocked, 'exec');
+  assert.match(msg, /超时|timed out/i);
+});
+
+test('e2e: real execTool sleep+timeout_ms through executeOneToolCall counts as timeout', async () => {
+  const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o96-e2e-'));
+  const deps = execCallDeps([execTool]);
+  deps.toolCtx = { workspaceDir, sessionKey: 'o96-real' };
+  deps.sessionKey = 'o96-real';
+  const state = createToolLoopGuardState();
+
+  for (let i = 0; i < 3; i++) {
+    const outcome = await executeOneToolCall(
+      {
+        id: `r${i}`,
+        name: 'exec',
+        input: { command: 'sleep 2', timeout_ms: 200 },
+      },
+      deps
+    );
+    assert.equal(outcome.kind, 'completed');
+    const { text, isError } = outcomeToResult(outcome);
+    assert.match(text, /timed out after 200ms/);
+    assert.equal(isError, true, `real exec timeout ${i} must be is_error`);
+    recordToolLoopOutcome(state, 'exec', isError, text, {
+      command: 'sleep 2',
+      timeout_ms: 200,
+    });
+  }
+
+  assert.equal(state.byToolFailure.get('exec'), 3);
+  const blocked = shouldShortCircuitToolCall(state, 'exec', {
+    command: 'sleep 2',
+    timeout_ms: 200,
+  });
+  assert.ok(blocked);
+  assert.match(blocked, /timed out 3 time/i);
+  const msg = formatToolLoopGuardMessage(blocked, 'exec');
+  assert.match(msg, /超时/);
+  assert.match(msg, /timed out/i);
+  try {
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
 });

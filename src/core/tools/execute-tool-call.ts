@@ -108,6 +108,9 @@ export function isStringToolFailureResult(text: string | undefined): boolean {
   // Prefix-only failure encodings (start of the tool result).
   if (/^\s*Error:/i.test(head)) return true;
   if (/^\s*Command failed\b/i.test(head)) return true;
+  // exec ProcessError timeout / signal kill — returned as plain text (no Error: prefix).
+  if (/^\s*timed out after\b/i.test(head)) return true;
+  if (/^\s*Command killed by\b/i.test(head)) return true;
   if (/^\s*Command blocked:/i.test(head)) return true;
   if (/^\s*Patch rejected\b/i.test(head)) return true;
   // exec non-zero exit is emitted as the first line: "exit_code: N\n..."

@@ -466,12 +466,26 @@ export function recordToolLoopOutcome(
   }
   trackReadScopeLocks(state, toolName, isError, resultText, input);
   if (!isError && !isSoftToolFailureResult(resultText)) {
-    // O96: a successful exec/run_tests clears that command's identical-fail streak.
+    // O96: exec ProcessError timeouts historically arrive with is_error=false
+    // ("timed out after Nms" without Error: prefix). Still classify shell text
+    // so real faults count toward byToolFailure instead of looking like success.
     if (VERIFY_SHELL_TOOLS.has(toolName)) {
-      const sig = normalizeVerifyCommandSignature(toolName, input);
-      if (sig) state.bySameCommandFailure.delete(sig.key);
+      const kind = classifyShellToolFailure(resultText);
+      if (
+        kind === 'timeout' ||
+        kind === 'start_failure' ||
+        kind === 'killed' ||
+        kind === 'unusable'
+      ) {
+        // Fall through to the failure path below.
+      } else {
+        const sig = normalizeVerifyCommandSignature(toolName, input);
+        if (sig) state.bySameCommandFailure.delete(sig.key);
+        return;
+      }
+    } else {
+      return;
     }
-    return;
   }
   // O96: normal completed non-zero for exec/run_tests — independent streak only.
   if (VERIFY_SHELL_TOOLS.has(toolName)) {
