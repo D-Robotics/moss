@@ -8,4 +8,5 @@ fi
 dir="$2"
 dest="${3:-$dir.deb}"
 mkdir -p "$(dirname "$dest")"
-tar -C "$dir" -cf "$dest" .
+# Stream via stdout. GNU tar treats "D:/..." as host:path, so -f "$dest" never writes the archive on Windows.
+tar -C "$dir" -cf - . > "$dest"
