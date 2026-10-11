@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### TUI — OSC 11 replies no longer leak into the composer
+
+On startup Moss asks the terminal for its background colour (OSC 11). When the
+reply arrives split across stdin chunks — as real terminals do — neither piece
+matched the old single-chunk check and the reply text (`]11;rgb:…`) landed in
+the composer as if typed. A small state machine (`src/cli/tui/osc-reply-filter.ts`)
+now reassembles OSC 11 replies across arbitrary chunk boundaries (BEL and ST
+terminators), holds a bounded tail for split heads, and flushes as plain text
+when no reply materialises. Theme detection still works; ordinary typing and
+pastes are untouched. Verified with a PTY harness: split-reply repro shows a
+clean composer after the fix.
+
 ### O88 — hooks fail closed
 
 A blocking hook that cannot start or times out now blocks instead of silently allowing. Exit codes 126/127 (and 9009 on Windows) are treated as "failed to start" and block too, so hooks that intentionally exit with these codes are now blocked.
