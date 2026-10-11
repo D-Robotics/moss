@@ -454,7 +454,10 @@ export function canonicalPath(p: string, caseInsensitive = CASE_INSENSITIVE): st
  * The protected path this command would write, or null. Blocks when a
  * visible write target is protected, or when the command is `uncertain` and
  * names a protected file anywhere in its text (e.g. `python -c "...a.ts..."`).
- * `protectedPaths` must already be `canonicalPath` keys.
+ * `protectedPaths` must already be `canonicalPath` keys. Matching is
+ * case-insensitive on win32/darwin (both sides fold), but the returned path
+ * is the case-preserving canonical form of the command's own target, so
+ * callers can display it or relativise it against a real-case workspace dir.
  */
 export function findProtectedWrite(
   command: string,
@@ -466,12 +469,12 @@ export function findProtectedWrite(
   const d = detectShellWriteTargets(command, cwd);
   for (const t of d.targets) {
     const key = canonicalPath(t);
-    if (locked.has(key)) return key;
+    if (locked.has(key)) return canonicalPath(t, false);
   }
   if (d.uncertain) {
     for (const m of d.mentions) {
       const key = canonicalPath(m);
-      if (locked.has(key)) return key;
+      if (locked.has(key)) return canonicalPath(m, false);
     }
   }
   return null;

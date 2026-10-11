@@ -699,10 +699,15 @@ export function shouldShortCircuitToolCall(
         const raw = state.editPathRaw?.get(key) ?? key;
         const k = lockKey(state, raw);
         locked.add(k);
-        display.set(k, raw);
+        // Display keys keep real casing (findProtectedWrite returns the
+        // case-preserving canonical path); folded keys only match the set.
+        display.set(
+          canonicalPath(path.resolve(state.workspaceDir ?? process.cwd(), raw), false),
+          raw
+        );
       }
     }
-    const base = state.workspaceDir ?? process.cwd();
+    const base = state.workspaceDir ? canonicalPath(state.workspaceDir, false) : process.cwd();
     const cwd = typeof input.cwd === 'string' && input.cwd ? path.resolve(base, input.cwd) : base;
     const hit = findProtectedWrite(input.command, cwd, locked);
     if (hit) {

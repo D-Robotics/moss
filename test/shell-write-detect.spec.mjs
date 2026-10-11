@@ -104,8 +104,29 @@ test('symlink pointing at the locked file is matched via realpath', async (t) =>
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   await fs.writeFile(path.join(dir, 'locked.ts'), 'x');
   await fs.symlink(path.join(dir, 'locked.ts'), path.join(dir, 'alias.ts'));
-  const locked = [canonicalPath(path.join(dir, 'locked.ts'))];
-  assert.equal(findProtectedWrite('echo y > alias.ts', dir, locked), locked[0]);
+  const lockedFile = path.join(dir, 'locked.ts');
+  const locked = [canonicalPath(lockedFile)];
+  assert.equal(
+    findProtectedWrite('echo y > alias.ts', dir, locked),
+    canonicalPath(lockedFile, false)
+  );
+});
+
+// Regression (red main 2026-10-12, macos CI): findProtectedWrite used to
+// return the case-folded lock key, so guard messages relativised a
+// lower-cased path against the real-case workspace and showed garbage like
+// `../../t/moss-o97-lock-x/src/big.ts`. It must return the case-preserving
+// canonical path of the command's own target.
+test('findProtectedWrite returns a case-preserving path even when the lock key folds', async (t) => {
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'moss-swd-case-')));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'MixedCase.ts');
+  await fs.writeFile(file, 'x');
+  const locked = [canonicalPath(file)];
+  const hit = findProtectedWrite(`node -e "x('${file.replace(/\\/g, '/')}')"`, dir, locked);
+  assert.ok(hit, 'expected a protected-write hit');
+  assert.equal(hit, canonicalPath(file, false));
+  assert.ok(hit === file || hit.endsWith(path.sep + 'MixedCase.ts'), `hit=${hit}`);
 });
 
 test('canonicalPath: case-insensitive mode lower-cases; non-existent paths resolve', () => {
