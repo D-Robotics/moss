@@ -64,6 +64,27 @@ function upgradeCommands() {
   ].join('\n');
 }
 
+/**
+ * npm prints its own EBADENGINE warnings before preinstall runs, then replays
+ * this script's stderr as `npm error` lines at the very end. Close with a
+ * short block so the upgrade and reinstall commands sit on the last screen.
+ */
+function nextSteps(zh) {
+  return (
+    zh
+      ? [
+          '下一步（Node >= 22.16）：',
+          '  nvm install 22 && nvm use 22   # 或用上面的 brew / apt / winget',
+          '  npm install -g @rdk-moss/agent@latest',
+        ]
+      : [
+          'Next steps (Node >= 22.16):',
+          '  nvm install 22 && nvm use 22   # or brew / apt / winget above',
+          '  npm install -g @rdk-moss/agent@latest',
+        ]
+  ).join('\n');
+}
+
 function upgradeMessage(version, env) {
   var shown = String(version || '').replace(/^v/, '');
   var locale = preferredLocale(env || process.env);
@@ -77,7 +98,7 @@ function upgradeMessage(version, env) {
         'Moss needs Node >= 22.16, but this is Node ' + shown + '.',
         'Upgrade Node, then install again with the copyable commands below:',
       ].join('\n');
-  return lead + '\n' + upgradeCommands() + '\n';
+  return lead + '\n' + upgradeCommands() + '\n\n' + nextSteps(zh) + '\n';
 }
 
 function versionUnderTest() {
@@ -91,4 +112,4 @@ if (require.main === module && !nodeIsSupported(versionUnderTest())) {
   process.exit(1);
 }
 
-module.exports = { nodeIsSupported, upgradeMessage, upgradeCommands };
+module.exports = { nodeIsSupported, upgradeMessage, upgradeCommands, nextSteps };
