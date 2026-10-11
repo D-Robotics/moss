@@ -63,7 +63,7 @@ export function gitCloneUrl(repository: MossPackageMeta['repository']): string {
 }
 
 /**
- * First install while the package is private. `npm ci` runs `prepare` (`npm run build`).
+ * Source-clone install (developer path). `npm ci` runs `prepare` (Node check + build).
  * `npm install -g --install-links .` then copies that build into the prefix.
  * Verified on npm 10.9.2 and 11.21.0.
  */
@@ -81,7 +81,7 @@ export function sourceInstallCommands(
 
 /**
  * Registry installs upgrade with `<name>@latest`.
- * While `"private": true`, there is no published spec; use {@link sourceInstallCommands}.
+ * When `"private": true`, there is no published spec; use {@link sourceInstallCommands}.
  */
 export function npmInstallSpec(pkg: MossPackageMeta): string | null {
   if (pkg.private === true) return null;
@@ -280,7 +280,7 @@ export function renderUpdateAdvice(advice: MossUpdateAdvice, zh: boolean): strin
   return finishUpdateAdvice([head, '', choose, '', commandBlock], advice.commands, zh);
 }
 
-export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: true }): string {
+export function renderUpdateHelp(zh: boolean, pkg: MossPackageMeta = { private: false }): string {
   const published = pkg.private === false;
   const fresh = published
     ? globalInstallCommands({ ...pkg, private: false })

@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### O43 / O58 — npm one-line install
+
+Recommended install is one command after Node ≥ 22.16:
+
+```bash
+npm install -g @rdk-moss/agent@latest
+```
+
+`package.json` is no longer `"private": true` (publishConfig stays `access: public`).
+`scripts/check-node-version.cjs` runs from both `preinstall` and `prepare`, so a Node
+older than 22.16 exits immediately with copyable upgrade commands for macOS (brew /
+nvm / fnm), Ubuntu/Debian (NodeSource / nvm / fnm), and Windows (`winget`), plus the
+success-path `npm install -g @rdk-moss/agent@latest`. A failing
+`npm install -g --install-links .` does not leave a broken global `moss` shim.
+`MOSS_TEST_FAKE_NODE_VERSION` lets tests exercise the failure path without an old
+Node binary. README
+(en + zh) leads with the npm one-liner; source clone remains the optional developer
+path. No curl native-binary installer in this phase.
+
 ### Install follow-ups
 
 `npm ci` runs `scripts/check-node-version.cjs` as `preinstall`. The script is
@@ -96,7 +115,7 @@ package is installed, run `npm uninstall -g moss` first; npm otherwise stops wit
 EEXIST on the shared bin. Do not pass `--force`: both packages stay installed, and
 a later `npm uninstall -g moss` removes the `moss` command. That uninstall leaves
 `@rdk-moss/agent` in place when `--force` was not used.
-`npm install -g @rdk-moss/agent` is coming soon.
+`npm install -g @rdk-moss/agent@latest` is the recommended install path.
 
 ### `workspace-write` copy no longer implies an OS sandbox
 

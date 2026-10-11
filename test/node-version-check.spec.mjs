@@ -21,8 +21,12 @@ const old = nodeVersionProblem('v20.19.2', en);
 assert.ok(old);
 assert.equal(old, fromBin('v20.19.2', en));
 assert.match(old, /22\.16/);
-assert.match(old, /nvm install 22/);
+assert.match(old, /nvm install 22 && nvm use 22/);
+assert.match(old, /brew install node@22/);
+assert.match(old, /fnm install 22 && fnm use 22/);
 assert.match(old, /https:\/\/deb\.nodesource\.com\/setup_22\.x/);
+assert.match(old, /winget install OpenJS\.NodeJS\.LTS/);
+assert.match(old, /npm install -g @rdk-moss\/agent@latest/);
 assert.match(old, new RegExp(mirror.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 assert.doesNotMatch(old, /--mirror/);
 
@@ -38,8 +42,11 @@ assert.doesNotMatch(bin, /Moss needs Node/);
 assert.doesNotMatch(bin, /版本过低/);
 assert.match(bin, /import\('\.\.\/dist\/cli\.js'\)/);
 const message = fs.readFileSync(path.join(repoRoot, 'bin', 'node-version-message.cjs'), 'utf8');
-assert.match(message, /nvm install 22/);
+assert.match(message, /nvm install 22 && nvm use 22/);
+assert.match(message, /brew install node@22/);
 assert.match(message, /https:\/\/deb\.nodesource\.com\/setup_22\.x/);
+assert.match(message, /winget install OpenJS\.NodeJS\.LTS/);
+assert.match(message, /npm install -g @rdk-moss\/agent@latest/);
 assert.match(
   message,
   /NVM_NODEJS_ORG_MIRROR=https:\/\/npmmirror\.com\/mirrors\/node nvm install 22/
