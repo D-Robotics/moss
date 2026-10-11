@@ -362,7 +362,7 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
   - 会话级规则下一个工具调用即生效；`/permissions persist` 写用户配置重启仍生效；
   - `--read-only` / `MOSS_SAFETY_MODE=read-only` 是压过任何模式（含 full）的只读上限。
 - **本机硬拦截永不撤**：本机 `exec` 的毁灭性命令（`rm -rf /` 等）与路径逃逸在 full 模式下同样被拦——full 跳过的是询问，不是检查。设备侧的同一类命令不硬拦死：TTY 确认、allow 规则，或显式信任之后会真的执行。
-- **受保护路径（O94）只是尽力拦截，不是沙箱**：文件工具与 shell 命令直接写入、删除或移动受保护路径（如 `~/.ssh`、`.git/` 内的文件）时，即使在 full 模式下也要确认一次；`git commit`、`git checkout` 等 git 自身对 `.git/` 的写入不弹确认。shell 这一层靠解析命令行识别写入目标，属于尽力拦截，不是操作系统沙箱。通过脚本间接写入（如 `python x.py`、`node script.js`、`bash x.sh` 在脚本里改受保护路径）不在覆盖范围，由 O101 跟踪。
+- **受保护路径（O94）只是尽力拦截，不是沙箱**：文件工具与 shell 命令直接写入、删除或移动受保护路径（如 `~/.ssh`、`.git/` 内的文件）时，即使在 full 模式下也要确认一次；`git commit`、`git checkout` 等 git 自身对 `.git/` 的写入不弹确认。shell 这一层靠解析命令行识别写入目标，属于尽力拦截，不是操作系统沙箱。通过脚本间接写入（如 `python x.py`、`node -e`、`bash -c`）由 O101 三层处理：内联代码与工作区脚本在执行前走同一套确认（`-p` 下拒绝）；绕过前两层的改动在命令结束后用元数据快照检出，标成「已被修改」并让 run outcome 未完成（退出非 0），不自动还原。shell 层仍是尽力拦截，不是沙箱；后台延后写入是已知局限。
 - **显式信任设备**（任一即可；deny 仍赢）：`--trust-device`（仅本进程）、`MOSS_DEVICE_TRUST=full`、`permissions.deviceTrust=full`、`permissions.trustedDevices` 或 `MOSS_DEVICE_TRUST_DEVICES`（逗号分隔的 host / device id）。确认框里选 `a` 只信任提示里写明的范围（例如同一 unit 的 `systemctl restart` 或 `stop`，或同一命令前缀），不是整台设备的全部毁灭性操作。读取 `/etc/shadow`、私钥、`sshd_config`、`authorized_keys` 归入 `sensitive`：同样要确认，但文案和证据不把它叫成毁灭性修改。确认与拒绝文案跟随界面语言（`--lang`、`MOSS_LANG` 或用户配置 `language`；否则系统区域以 `zh` 开头时为简体中文）。每次决定写入 `.moss/evidence.jsonl`（`metric: device_policy`），有进行中的任务时同时写入时间线 `note`。策略说明见 [`docs/superpowers/plans/2026-10-09-device-safety-policy.md`](docs/superpowers/plans/2026-10-09-device-safety-policy.md)。
 - **旧键兼容**（一版宽限）：`profile` / `trustedTools` / `deniedTools` / `safetyMode` / `approvalPolicy` 读入即按映射表翻译（cautious→manual+只读上限、balanced→manual、autonomous→full、trustedTools→allow 规则、deniedTools→deny 规则），写侧提示 deprecated，新配置请用 `permissions.*` 块。
 - 凭据只从 `.env` 或环境变量读，绝不硬编码、不进日志、不传子进程、不写设备清单。
@@ -818,13 +818,14 @@ one line: press `e` to switch to English.
   escapes stay blocked in full mode — full skips the asking, not the checking. The same shapes on
   the device are not a permanent hard block: a TTY confirmation, an allow rule, or explicit trust
   runs them for real.
-- **Protected paths (O94) are best-effort interception, not a sandbox**: direct writes, deletes or
+- **Protected paths (O94 + O101) are best-effort interception, not a sandbox**: direct writes, deletes or
   moves of a protected path (e.g. `~/.ssh`, files inside `.git/`) by file tools or shell commands
-  need one confirmation, even in full mode; git's own writes to `.git/` (`git commit`,
-  `git checkout`, …) do not prompt. The shell layer finds write targets by parsing the command line;
-  it is best-effort interception, NOT an OS sandbox. Indirect writes via scripts (`python x.py`,
-  `node script.js`, `bash x.sh` modifying a protected path inside the script) are not covered and
-  are tracked as O101.
+  need one confirmation even in full mode; `git`'s own writes to `.git/` do not. Shell detection
+  parses the command line (O97/O94) and, with O101, scans inline `-c`/`-e` code and workspace
+  scripts before run. Anything that still slips through is caught after the command by a metadata
+  snapshot (mtime/size/hash only — never file contents): the run is marked incomplete ("modified",
+  not "intercepted"), exit non-zero, no auto-restore. Still not an OS sandbox; delayed background
+  writes are a known limit.
 - **Trust a device** (any one; deny rules still win): `--trust-device` (this process only),
   `MOSS_DEVICE_TRUST=full`, `permissions.deviceTrust=full`, or `permissions.trustedDevices` /
   `MOSS_DEVICE_TRUST_DEVICES` (comma-separated host or device id). Answering `a` trusts only the

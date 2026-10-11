@@ -30,12 +30,28 @@ function shown(hit: ProtectedPathHit): string {
     .slice(0, 200);
 }
 
-/** First line: operation + the path as named + why. */
+/** O101: "deploy.py line 12 would write ~/.ssh/authorized_keys". */
+function sourceClause(hit: ProtectedPathHit, zh: boolean): string {
+  const src = hit.source;
+  if (!src) return '';
+  const script = src.script.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 120);
+  if (src.kind === 'inline') {
+    return zh
+      ? `（内联 ${script}${src.line ? ` 第 ${src.line} 行` : ''}）`
+      : ` (inline ${script}${src.line ? ` line ${src.line}` : ''})`;
+  }
+  return zh
+    ? `（\`${script}\`${src.line ? ` 第 ${src.line} 行` : ''}）`
+    : ` (\`${script}\`${src.line ? ` line ${src.line}` : ''})`;
+}
+
+/** First line: operation + the path as named + why (+ O101 script/line). */
 export function protectedPathHeadline(hit: ProtectedPathHit, zh: boolean): string {
   const label = PROTECTED_CATEGORY_LABEL[hit.category];
+  const src = sourceClause(hit, zh);
   return zh
-    ? `要${OP_ZH[hit.operation]} \`${shown(hit)}\`（${label.zh}，受保护路径）`
-    : `About to ${OP_EN[hit.operation]} \`${shown(hit)}\` (${label.en}, a protected path)`;
+    ? `要${OP_ZH[hit.operation]} \`${shown(hit)}\`${src}（${label.zh}，受保护路径）`
+    : `About to ${OP_EN[hit.operation]} \`${shown(hit)}\`${src} (${label.en}, a protected path)`;
 }
 
 export function protectedPathView(

@@ -16,16 +16,19 @@
  * nearest existing ancestor (symlink defense).
  *
  * Shell commands: this module is POLICY only. Write targets come from
- * O97's shared `detectShellWriteTargets` (./shell-write-detect.ts). Rule:
- * prompt when a known target is protected, or when the detector is uncertain
- * AND a protected path is mentioned (`mentions` / command text). Best effort,
- * not a sandbox.
+ * O97's shared `detectShellWriteTargets` (./shell-write-detect.ts) plus O101
+ * layers 1–2 (`indirect-write-detect.ts`: inline `-c`/`-e` and workspace
+ * script scan). Rule: prompt when a known target is protected, or when the
+ * detector is uncertain AND a protected path is mentioned, or when a scanned
+ * script/inline block would write a protected path. Best effort, not a sandbox.
+ * Layer 3 (post-run snapshot) lives in protected-path-snapshot.ts.
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import { detectShellWriteTargets, type ShellWriteDetection } from './shell-write-detect.js';
+import { findIndirectProtectedWrites } from './indirect-write-detect.js';
 
 export type ProtectedPathCategory = 'git' | 'ssh' | 'shell-rc' | 'env' | 'moss-config';
 
@@ -34,6 +37,16 @@ export interface ProtectedPathHit {
   resolved: string;
   category: ProtectedPathCategory;
   operation: 'write' | 'delete' | 'move' | 'shell';
+  /**
+   * O101: when the write comes from inline interpreter code or a workspace
+   * script (layers 1–2). Used by the confirm prompt to show script + line.
+   */
+  source?: {
+    kind: 'inline' | 'script';
+    script: string;
+    line?: number;
+    detail?: string;
+  };
 }
 
 export interface ProtectedPathContext {
@@ -377,6 +390,32 @@ export function findShellProtectedWrites(
         });
       }
     }
+  }
+
+  // O101 layers 1–2: inline interpreter code + workspace script scan.
+  // Merge with existing hits; attach source metadata when the same path already hit.
+  for (const finding of findIndirectProtectedWrites(
+    command,
+    ctx.cwd,
+    ctx.workspaceRoot ?? ctx.cwd
+  )) {
+    const hit =
+      classifyProtectedPath(finding.raw, ctx) ?? deletesProtectedAncestor(finding.raw, ctx);
+    if (!hit) continue;
+    const key = hit.resolved;
+    if (seen.has(key)) {
+      const existing = hits.find((h) => h.resolved === key);
+      if (existing && !existing.source) existing.source = finding.source;
+      continue;
+    }
+    seen.add(key);
+    hits.push({
+      raw: finding.raw,
+      resolved: hit.resolved,
+      category: hit.category,
+      operation: 'shell',
+      source: finding.source,
+    });
   }
   return hits;
 }

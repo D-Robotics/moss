@@ -25,6 +25,7 @@ import {
   type RunCompletionTracker,
   type VerificationCheck,
 } from './run-completion.js';
+import { protectedPathModReason } from '../safety/protected-path-snapshot.js';
 
 export type { GoalVerifyResult, RunCompletionTracker, VerificationCheck };
 export { createRunCompletionTracker, noteGoalVerifyResult, noteRunCompletionEvent };
@@ -131,6 +132,24 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
     reasonsZh.push(reason);
     stuckAt = 'Stop hook';
     stuckAtZh = 'Stop 钩子';
+  }
+
+  // O101 layer 3: protected-path post-run detection → incomplete (model
+  // success claims must not override).
+  if (tracker.protectedPathChanges && tracker.protectedPathChanges.length > 0) {
+    status = status ?? 'incomplete';
+    const mods = tracker.protectedPathChanges;
+    const reason = protectedPathModReason(
+      mods.map((m) => ({
+        path: m.path,
+        kind: (m.kind as 'added' | 'modified' | 'deleted') || 'modified',
+      })),
+      mods[0]?.command
+    );
+    reasonsEn.push(reason.en);
+    reasonsZh.push(reason.zh);
+    stuckAt = stuckAt ?? reason.stuckEn;
+    stuckAtZh = stuckAtZh ?? reason.stuckZh;
   }
 
   // Authoritative VERIFY_CMD success: the accept loop is the completion signal.
