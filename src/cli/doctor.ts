@@ -22,6 +22,8 @@ import { glossConfigValue, localizeConfigSource } from './config-snapshot.js';
 import { detectEnvCredentials } from './env-credentials.js';
 import { rdkDocsPinNote } from './rdk-docs-pin-check.js';
 import type { RdkDocsPinNote } from './rdk-docs-pin-check.js';
+import { renderBoardProxyDoctor } from './doctor-board-proxy.js';
+import { renderRdkDepsDoctor } from './doctor-rdk-deps.js';
 
 function doctorL(en: string, vars?: Record<string, string | number>): string {
   return setupCopy(undefined, en, vars);
@@ -640,6 +642,14 @@ export async function renderCliDoctor(options: DoctorOptions): Promise<string> {
   // install ripgrep.
   lines.push(renderSearchDoctor(await isRgAvailable()));
   lines.push(...(await renderSearchBackendDoctor()));
+  // O66: proxy env + gateway reachability hints (no NODE_USE_ENV_PROXY).
+  lines.push(
+    ...(await renderBoardProxyDoctor({
+      baseUrl: options.config.baseUrl,
+    }))
+  );
+  // O85: deprecated RDK pip indexes + optional verified whl probe.
+  lines.push(...(await renderRdkDepsDoctor()));
 
   lines.push(...renderApprovalDoctor(options.config));
   lines.push(ok(uiText('detail', '详细程度'), detailModeLabel(options.detailMode)));
