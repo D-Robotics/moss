@@ -20,6 +20,16 @@ test('isStringToolFailureResult detects common failure encodings', () => {
   assert.equal(isStringToolFailureResult('exit_code: 1\nFAIL'), true);
   assert.equal(isStringToolFailureResult('exit_code: 0\nok'), false);
   assert.equal(isStringToolFailureResult('Command blocked: dangerous'), true);
+  assert.equal(
+    isStringToolFailureResult('timed out after 200ms (raise timeout_ms or use exec_background)\n'),
+    false,
+    'O96: timeout is marked structurally by exec (ctx.markResultError), not by text'
+  );
+  assert.equal(
+    isStringToolFailureResult('Command killed by SIGTERM:\npartial\n'),
+    false,
+    'O96: signal kill is marked structurally by exec (ctx.markResultError), not by text'
+  );
   assert.equal(isStringToolFailureResult('Patch rejected:\nbad hunk'), true);
   assert.equal(isStringToolFailureResult('Test Results: ❌ 2 FAILED\nCommand: npm test\n'), true);
   assert.equal(

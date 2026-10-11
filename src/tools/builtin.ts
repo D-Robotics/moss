@@ -250,6 +250,7 @@ export const execTool: Tool = {
       if (err instanceof ProcessError) {
         const output = [err.stdout.trim(), err.stderr.trim()].filter(Boolean).join('\n');
         if (err.timedOut) {
+          ctx.markResultError?.();
           const waited = err.timeoutMs && err.timeoutMs > 0 ? err.timeoutMs : timeoutMs;
           return (
             `timed out after ${waited}ms (raise timeout_ms or use exec_background)${output ? `\n${output}` : ''}${writebackWarning}` +
@@ -258,6 +259,7 @@ export const execTool: Tool = {
           );
         }
         if (err.signal) {
+          ctx.markResultError?.();
           return (
             `Command killed by ${err.signal}:\n${output || err.message}${writebackWarning}` +
             footnote +
