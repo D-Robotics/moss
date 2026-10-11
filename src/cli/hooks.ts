@@ -351,11 +351,14 @@ export interface ConfiguredHookCallbacks {
   buildCompactHookRegistry: () => CompactHookRegistry | undefined;
 
   hasHooks: boolean;
+
+  /** O88: TUI mode suppresses the `[hooks]` stderr line for blocked calls. */
+  setTuiMode: (on: boolean) => void;
 }
 
 export function createConfiguredHookCallbacks(
   hooks: HooksConfig | undefined,
-  opts: { workspaceDir: string }
+  opts: { workspaceDir: string; tuiMode?: boolean }
 ): ConfiguredHookCallbacks {
   const pre = hooks?.PreToolUse ?? [];
   const post = hooks?.PostToolUse ?? [];
@@ -374,6 +377,7 @@ export function createConfiguredHookCallbacks(
   // within the turn are folded into the first. The tool result always carries
   // the full reason.
   const noticed = new Set<string>();
+  let tuiMode = opts.tuiMode === true;
   const notice = (
     event: HookEventName,
     hook: HookCommandConfig,
@@ -382,6 +386,10 @@ export function createConfiguredHookCallbacks(
   ): string => {
     const text = formatHookFailure(event, hook, r, blocked);
     const key = `${event}\u0000${hook.command}\u0000${r.outcome}\u0000${r.exitCode}\u0000${blocked}`;
+    // In the TUI a blocked call's reason is already in the tool row (and the
+    // stderr line would land on top of the status bar), so only headless /
+    // piped runs print it.
+    if (blocked && tuiMode) return text;
     if (!noticed.has(key)) {
       noticed.add(key);
       process.stderr.write(`[hooks] ${text}\n`);
@@ -656,6 +664,9 @@ export function createConfiguredHookCallbacks(
     runUserPromptSubmit,
     runPermissionRequest,
     buildCompactHookRegistry,
+    setTuiMode: (on: boolean) => {
+      tuiMode = on;
+    },
     hasHooks:
       pre.length +
         post.length +
