@@ -215,12 +215,12 @@ function noticeLine(stderr, field) {
   assert.equal(trusted.droppedProjectPermissions, undefined);
   assert.equal(trusted.config.permissions.defaultMode, 'manual');
   assert.deepEqual(trusted.config.permissions.allow, ['exec']);
-  assert.deepEqual(trusted.config.trustedTools, ['safe_tool', 'exec']);
+  // O55: the user's trustedTools array wins exactly. Project allow still unions.
+  assert.deepEqual(trusted.config.trustedTools, ['safe_tool']);
   assert.deepEqual(trusted.config.permissions.deny, ['read_file', 'exec']);
   const resolvedTrusted = resolveCliConfig(env, trusted.config, {}, trusted);
   assert.ok(resolvedTrusted.permissions.allow.includes('exec'));
-  assert.ok(resolvedTrusted.trustedTools.includes('safe_tool'));
-  assert.ok(resolvedTrusted.trustedTools.includes('exec'));
+  assert.deepEqual(resolvedTrusted.trustedTools, ['safe_tool']);
 }
 
 {
