@@ -12,6 +12,16 @@ import { isZhLocale } from './cli-locale.js';
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
 
 /**
+ * O90: Node's `setTimeout` ceiling. A larger delay overflows the timer and
+ * fires almost immediately, so a hook with `timeoutMs` above this would be
+ * reported as timed out at once. Clamp the effective timeout to this value.
+ */
+const MAX_TIMER_DELAY_MS = 2_147_483_647; // 2^31 - 1
+
+/** Hook configs whose oversized timeoutMs has already been warned about. */
+const warnedClampedTimeouts = new WeakSet<HookCommandConfig>();
+
+/**
  * Shell invocation for a user hook command.
  *
  * On Windows, Node's default spawn quoting escapes embedded `"` as `\"`.
@@ -307,8 +317,24 @@ function promptBlocks(
   return exitBlocks(hook, result) || (hook.blocking !== false && isBlockDecision(parsed?.decision));
 }
 
+function timeoutClampedWarning(hook: HookCommandConfig, requested: number): string {
+  if (isZhLocale()) {
+    return `警告：钩子「${hook.command}」的超时值 ${requested} 毫秒超过系统上限，已限制为 ${MAX_TIMER_DELAY_MS} 毫秒。`;
+  }
+  return (
+    `warning: hook "${hook.command}" timeoutMs ${requested} exceeds Node's maximum timer ` +
+    `delay; clamped to ${MAX_TIMER_DELAY_MS}ms`
+  );
+}
+
 function timeoutFor(hook: HookCommandConfig): number {
-  return Math.max(1000, Number(hook.timeoutMs) || DEFAULT_HOOK_TIMEOUT_MS);
+  const effective = Math.max(1000, Number(hook.timeoutMs) || DEFAULT_HOOK_TIMEOUT_MS);
+  if (effective <= MAX_TIMER_DELAY_MS) return effective;
+  if (!warnedClampedTimeouts.has(hook)) {
+    warnedClampedTimeouts.add(hook);
+    process.stderr.write(`[hooks] ${timeoutClampedWarning(hook, effective)}\n`);
+  }
+  return MAX_TIMER_DELAY_MS;
 }
 
 export interface ConfiguredHookCallbacks {
