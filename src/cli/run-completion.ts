@@ -14,7 +14,7 @@
  *  - {@link assessRunCompletion} turns that into a verdict with a reason, the
  *    step it got stuck on, and the exit code.
  *  - {@link formatIncompleteLine} renders the mandatory last line
- *    (`未完成：… ；卡在：…` / `Incomplete: …; stuck at: …`).
+ *    (`未完成：…`[+`；卡在：…` when known] / `Incomplete: …`[+`; stuck at: …`]).
  *
  * O99 (progress) must import the stable bilingual outcome from
  * {@link ./run-outcome.js} (`resolveRunOutcome` / `formatOutcomeLine`) rather
@@ -369,8 +369,9 @@ export function formatIncompleteLine(
     .join(opts.zh ? '；' : '; ')
     .replace(/\s+/g, ' ')
     .trim();
-  const stuck = verdict.stuckAt ?? (opts.zh ? '未知' : 'unknown');
-  return opts.zh
-    ? `未完成：${reason}；卡在：${stuck}`
-    : `Incomplete: ${reason}; stuck at: ${stuck}`;
+  // O111: omit 「卡在：…」 when stuckAt is unknown — never print 「未知」/unknown.
+  const stuck = verdict.stuckAt?.replace(/\s+/g, ' ').trim() || undefined;
+  const base = opts.zh ? `未完成：${reason}` : `Incomplete: ${reason}`;
+  if (!stuck) return base;
+  return opts.zh ? `${base}；卡在：${stuck}` : `${base}; stuck at: ${stuck}`;
 }
