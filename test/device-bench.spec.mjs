@@ -582,6 +582,11 @@ test('provider config dir is removed on process exit and SIGTERM', async () => {
     fs.rmSync(exited.root, { recursive: true, force: true });
   }
 
+  if (process.platform === 'win32') {
+    // Windows kill(SIGTERM) terminates without running handlers; stale provider-config cleanup tracked as backlog item
+    return;
+  }
+
   const signaled = runProviderHold('wait');
   try {
     const info = await waitForMarker(signaled.marker);

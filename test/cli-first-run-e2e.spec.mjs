@@ -18,6 +18,13 @@ const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cli = path.join(repoRoot, 'dist', 'cli.js');
 const SECRET = 'sk-firstrun-e2e-secret';
 
+if (process.platform === 'win32') {
+  console.log(
+    '[SKIP] fresh-home first-run e2e: needs a POSIX pty (Python pty/fcntl/termios); not available on win32'
+  );
+  process.exit(0);
+}
+
 function tempDir(prefix) {
   return trackTempDir(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }

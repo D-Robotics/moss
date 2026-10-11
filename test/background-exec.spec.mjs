@@ -206,16 +206,46 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   assert.match(out, /block/i, 'dangerous command is blocked by the safety gate');
 }
 
-async function stopAndConfirmGone(out, stopCtx, label) {
+async function stopAndConfirmGone(out, stopCtx, label, pidFile) {
   const id = extractBgId(out);
   assert.ok(id, `${label}: no background id in ${out}`);
   const pid = Number(out.match(/pid (\d+)/)?.[1]);
+  // On Windows, cmd.exe can publish the shell pid before it starts the node
+  // grandchild. Stop only after that grandchild has written its pid, or the
+  // exit check races a process that was never started.
+  let scriptPid = 0;
+  if (pidFile) {
+    const deadline = Date.now() + 10000;
+    while (scriptPid <= 0) {
+      if (fs.existsSync(pidFile)) {
+        try {
+          const parsed = Number(fs.readFileSync(pidFile, 'utf8').trim());
+          if (Number.isInteger(parsed) && parsed > 0) scriptPid = parsed;
+        } catch {
+          // The writer may still hold the file. Keep polling until the deadline.
+        }
+      }
+      if (scriptPid > 0 || Date.now() >= deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(
+      Number.isInteger(scriptPid) && scriptPid > 0,
+      `${label}: script never wrote its pid before exec_stop`
+    );
+  }
   await execStopTool.execute({ id }, stopCtx);
   if (Number.isFinite(pid) && pid > 0) {
     assert.equal(
       await waitForProcessExit(pid, 5000),
       true,
       `${label}: pid ${pid} survived exec_stop`
+    );
+  }
+  if (pidFile) {
+    assert.equal(
+      await waitForProcessExit(scriptPid, 15000),
+      true,
+      `${label}: script pid ${scriptPid} survived exec_stop`
     );
   }
 }
@@ -225,9 +255,33 @@ async function stopAndConfirmGone(out, stopCtx, label) {
   clearBackgroundRegistryForTests();
   const ws = fs.mkdtempSync(path.join(process.cwd(), '.moss-goal-exec-wait-'));
   const sleepMs = 2000;
-  const script = path.join(ws, 'sleep.cjs');
-  fs.writeFileSync(script, `setTimeout(() => process.exit(0), ${sleepMs});\n`);
-  const command = `node ${quote(script)}`;
+  const writeNodeScript = (name, source) => {
+    const file = path.join(ws, name);
+    fs.writeFileSync(file, source);
+    return `node ${quote(file)}`;
+  };
+  // Pid files live in ws and are unique per stopped command. The shared
+  // sleepScript at the top of this file stays untouched for the other sections.
+  const pidScript = (name, afterWrite) => {
+    const pidFile = path.join(ws, `${name}.pid`);
+    const command = writeNodeScript(
+      `${name}.cjs`,
+      [
+        "const fs = require('node:fs');",
+        `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+        afterWrite,
+        '',
+      ].join('\n')
+    );
+    return { command, pidFile };
+  };
+  const exitAfterSleep = `setTimeout(() => process.exit(0), ${sleepMs});`;
+  const runForever = 'setInterval(() => {}, 1000);';
+  const commandProc = pidScript('command', exitAfterSleep);
+  const command = commandProc.command;
+  const idleProc = pidScript('idle', runForever);
+  const optOutProc = pidScript('opt-out', runForever);
+  const settleProc = pidScript('settle', runForever);
   const { taskId } = await createDraftTask(ws, 'diagnosing on disk is not a goal run');
   await appendTaskEvent(ws, taskId, 'execution_started');
   await appendTaskEvent(ws, taskId, 'verification_started');
@@ -236,11 +290,11 @@ async function stopAndConfirmGone(out, stopCtx, label) {
   const goalCtx = { ...diskCtx, goalExecWait: true };
 
   const idleStarted = Date.now();
-  const idle = await execBackgroundTool.execute({ command: `node ${quote(sleepScript)}` }, diskCtx);
+  const idle = await execBackgroundTool.execute({ command: idleProc.command }, diskCtx);
   const idleElapsed = Date.now() - idleStarted;
   assert.match(idle, /Still running after/, 'a diagnosing task on disk does not make exec wait');
   assert.ok(idleElapsed < 1700, `no wait outside /goal, elapsed ${idleElapsed}`);
-  await stopAndConfirmGone(idle, diskCtx, 'idle');
+  await stopAndConfirmGone(idle, diskCtx, 'idle', idleProc.pidFile);
 
   const goalStarted = Date.now();
   const waited = await execTool.execute({ command, run_in_background: true }, goalCtx);
@@ -251,7 +305,7 @@ async function stopAndConfirmGone(out, stopCtx, label) {
 
   const optOutStarted = Date.now();
   const optedOut = await execBackgroundTool.execute(
-    { command: `node ${quote(sleepScript)}`, wait: false },
+    { command: optOutProc.command, wait: false },
     goalCtx
   );
   const optOutElapsed = Date.now() - optOutStarted;
@@ -260,36 +314,29 @@ async function stopAndConfirmGone(out, stopCtx, label) {
     optOutElapsed < 1700,
     `dev server with wait:false returns fast, elapsed ${optOutElapsed}`
   );
-  await stopAndConfirmGone(optedOut, goalCtx, 'wait:false');
+  await stopAndConfirmGone(optedOut, goalCtx, 'wait:false', optOutProc.pidFile);
 
   const settleStarted = Date.now();
   const settled = await execTool.execute(
-    { command: `node ${quote(sleepScript)}`, run_in_background: true, settle_ms: 200 },
+    { command: settleProc.command, run_in_background: true, settle_ms: 200 },
     goalCtx
   );
   const settleElapsed = Date.now() - settleStarted;
   assert.match(settled, /Still running after/, `explicit settle_ms stays backgrounded: ${settled}`);
   assert.ok(settleElapsed < 1000, `settle_ms during a goal returns fast, elapsed ${settleElapsed}`);
-  await stopAndConfirmGone(settled, goalCtx, 'settle_ms');
+  await stopAndConfirmGone(settled, goalCtx, 'settle_ms', settleProc.pidFile);
 
+  // command already ran to exit above and left command.pid. Remove it so the
+  // stop check below can only observe the process started here.
+  fs.rmSync(commandProc.pidFile, { force: true });
   const capStarted = Date.now();
   const capped = await execBackgroundTool.execute({ command, timeout_ms: 300 }, goalCtx);
   const capElapsed = Date.now() - capStarted;
   assert.match(capped, /exec_wait/, `timeout tells the model how to await: ${capped}`);
   assert.match(capped, /Still running after/, `timeout still returns a handle: ${capped}`);
   assert.ok(capElapsed < 1000, `timeout_ms bounds the wait, elapsed ${capElapsed}`);
-  await stopAndConfirmGone(capped, goalCtx, 'timeout_ms cap');
-  // Windows can still hold the stopped child's handles on ws for a moment
-  // (EBUSY or EPERM); rmSync's maxRetries does not cover EPERM.
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      fs.rmSync(ws, { recursive: true, force: true });
-      break;
-    } catch (error) {
-      if (attempt >= 25 || !['EBUSY', 'EPERM'].includes(error?.code)) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
-  }
+  await stopAndConfirmGone(capped, goalCtx, 'timeout_ms cap', commandProc.pidFile);
+  fs.rmSync(ws, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
 
 // ─── 7. Esc during a goal wait kills the command immediately ───────────────

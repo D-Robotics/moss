@@ -408,8 +408,6 @@ sys.stdout.buffer.write(data)
 }
 
 function goalCommand(script) {
-  const quoted = `"${process.execPath}" "${script}"`;
-  if (process.platform === 'win32') return `"${quoted}"`;
   return `${shellQuote(process.execPath)} ${shellQuote(script)}`;
 }
 

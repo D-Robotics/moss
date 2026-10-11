@@ -8,8 +8,31 @@ import { safeChildEnv } from '../utils/safe-child-env.js';
 import { errorMessage } from '../errors.js';
 import { ProcessError, runProcess } from '../utils/run-process.js';
 
-const IS_WIN = process.platform === 'win32';
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
+
+/**
+ * Shell invocation for a user hook command.
+ *
+ * On Windows, Node's default spawn quoting escapes embedded `"` as `\"`.
+ * `cmd.exe` does not treat that backslash as an escape, so a command such as
+ * `"C:\node.exe" "C:\x\dump.mjs"` never starts. Match `child_process.exec`:
+ * wrap the command in one extra pair of quotes, pass `/s` so cmd strips only
+ * that wrapper, and set `windowsVerbatimArguments` so the quotes stay quotes.
+ * POSIX stays `/bin/sh -c` with the command unchanged.
+ */
+export function hookShell(
+  command: string,
+  platform: NodeJS.Platform = process.platform
+): { cmd: string; args: string[]; windowsVerbatimArguments?: boolean } {
+  if (platform === 'win32') {
+    return {
+      cmd: process.env.COMSPEC || 'cmd.exe',
+      args: ['/d', '/s', '/c', `"${command}"`],
+      windowsVerbatimArguments: true,
+    };
+  }
+  return { cmd: '/bin/sh', args: ['-c', command] };
+}
 
 interface HookRunResult {
   exitCode: number;
@@ -63,20 +86,20 @@ function runHookCommand(
   cwd: string,
   timeoutMs: number
 ): Promise<HookRunResult> {
-  const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
-  const args = IS_WIN ? ['/c', command] : ['-c', command];
+  const shell = hookShell(command);
   const env = safeChildEnv({
     LANG: process.env.LANG || 'en_US.UTF-8',
     MOSS_HOOK_EVENT: payload.event,
     MOSS_TOOL_NAME: payload.toolName ?? '',
     MOSS_WORKSPACE: cwd,
   });
-  return runProcess(shell, {
-    args,
+  return runProcess(shell.cmd, {
+    args: shell.args,
     cwd,
     env,
     timeout: timeoutMs,
     stdin: JSON.stringify(payload),
+    ...(shell.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   })
     .then(({ exitCode, stdout, stderr }) => ({ exitCode, stdout, stderr }))
     .catch((err) => {
