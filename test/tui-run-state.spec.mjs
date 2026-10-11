@@ -149,12 +149,13 @@ const THINKING = 'The user wants one word. ';
     80
   );
   const joined = text(lines);
-  assert.match(joined, /[✢✳✶✻✽] \w+… 4s/, 'spinner + elapsed seconds are shown');
+  // O99: live spinner shows the real in-flight tool (not an empty Working… slogan).
+  assert.match(joined, /[✢✳✶✻✽] .+ 4s/, 'spinner + real progress + elapsed seconds are shown');
   assert.ok(joined.includes('1.5k out'), 'current run output tokens are labeled');
   assert.ok(joined.includes('1 queued'), 'queued submissions are shown');
   assert.ok(
-    !joined.includes('fps_probe.sh'),
-    'live region does not duplicate the transcript tool row'
+    joined.includes('fps_probe.sh'),
+    'live spinner carries the in-flight tool summary (O99 progress)'
   );
   assert.equal(
     store.rows.filter((row) => row.kind === 'tool' && row.text.includes('fps_probe.sh')).length,
