@@ -369,7 +369,7 @@ export function formatIncompleteLine(
     .join(opts.zh ? '；' : '; ')
     .replace(/\s+/g, ' ')
     .trim();
-  // O111: omit 「卡在：…」 when stuckAt is unknown — never print 「未知」/unknown.
+  // O111: omit 「卡在：…」 when stuckAt is not set — no placeholder.
   const stuck = verdict.stuckAt?.replace(/\s+/g, ' ').trim() || undefined;
   const base = opts.zh ? `未完成：${reason}` : `Incomplete: ${reason}`;
   if (!stuck) return base;

@@ -228,18 +228,20 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
     };
   }
 
-  // Prefer a concrete tool step over a generic unfinished class (O111).
-  if (tracker.lastFailedStep && !stuckAt) {
-    stuckAt = tracker.lastFailedStep;
-    stuckAtZh = tracker.lastFailedStep;
-  } else if (tracker.lastStep && !stuckAt) {
-    stuckAt = tracker.lastStep;
-    stuckAtZh = tracker.lastStep;
-  } else if (input.runError && !stuckAt) {
-    const cls = stuckClassFromUnfinished(input.runError);
-    if (cls) {
+  // O111: unfinished class (turn/budget/…) plus the last tool step when both
+  // are known, e.g. `run budget (read_file: src/a.ts)`; either alone otherwise.
+  if (!stuckAt) {
+    const step = tracker.lastFailedStep ?? tracker.lastStep;
+    const cls = input.runError ? stuckClassFromUnfinished(input.runError) : undefined;
+    if (cls && step) {
+      stuckAt = `${cls.en} (${step})`;
+      stuckAtZh = `${cls.zh}（${step}）`;
+    } else if (cls) {
       stuckAt = cls.en;
       stuckAtZh = cls.zh;
+    } else if (step) {
+      stuckAt = step;
+      stuckAtZh = step;
     }
   }
 
@@ -259,9 +261,14 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
 }
 
 /**
- * O111: concrete stuck step when known; never 「未知」/unknown.
+ * O111: concrete stuck step when known; never a placeholder stuck step.
  * When stuckAt is absent, omit the 「卡在：…」 / `stuck at:` half entirely.
  */
+function head(label: string, reason: string | undefined, zh: boolean): string {
+  if (!reason) return label;
+  return zh ? `${label}：${reason}` : `${label}: ${reason}`;
+}
+
 function appendStuckHalf(base: string, stuck: string | undefined, zh: boolean): string {
   if (!stuck) return base;
   return zh ? `${base}；卡在：${stuck}` : `${base}; stuck at: ${stuck}`;
@@ -302,21 +309,22 @@ export function stuckClassFromUnfinished(runError: string): { en: string; zh: st
  */
 export function formatOutcomeLine(outcome: RunOutcome, lang: OutcomeLang): string {
   const zh = lang === 'zh';
-  const reason = (zh ? outcome.reasonZh : outcome.reason) || (zh ? '未知原因' : 'unknown reason');
-  // O111: never fall back to 「未知」/unknown — omit the stuck half when unset.
+  // O111: no placeholder reason — omit the reason when empty.
+  const reason = (zh ? outcome.reasonZh : outcome.reason)?.replace(/\s+/g, ' ').trim();
+  // O111: no placeholder stuck step — omit the stuck half when unset.
   const stuckRaw = zh ? outcome.stuckAtZh : outcome.stuckAt;
   const stuck = stuckRaw?.replace(/\s+/g, ' ').trim() || undefined;
   switch (outcome.status) {
     case 'completed':
-      return zh ? `完成：${reason}` : `Completed: ${reason}`;
+      return head(zh ? '完成' : 'Completed', reason, zh);
     case 'unverified':
-      return zh ? `未验证：${reason}` : `Unverified: ${reason}`;
+      return head(zh ? '未验证' : 'Unverified', reason, zh);
     case 'verify_failed':
-      return appendStuckHalf(zh ? `验证失败：${reason}` : `Verify failed: ${reason}`, stuck, zh);
+      return appendStuckHalf(head(zh ? '验证失败' : 'Verify failed', reason, zh), stuck, zh);
     case 'blocked':
-      return appendStuckHalf(zh ? `被拦：${reason}` : `Blocked: ${reason}`, stuck, zh);
+      return appendStuckHalf(head(zh ? '被拦' : 'Blocked', reason, zh), stuck, zh);
     case 'incomplete':
     default:
-      return appendStuckHalf(zh ? `未完成：${reason}` : `Incomplete: ${reason}`, stuck, zh);
+      return appendStuckHalf(head(zh ? '未完成' : 'Incomplete', reason, zh), stuck, zh);
   }
 }

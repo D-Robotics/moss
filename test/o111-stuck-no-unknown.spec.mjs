@@ -222,4 +222,81 @@ function failTool(t, name = 'exec', cmd = 'npm run check') {
   banUnknown(formatOutcomeLine(fake, 'en'), 'D omit en');
 }
 
+// Item 1: empty reason → omit, never 未知原因 / unknown reason
+{
+  const bare = { status: 'incomplete', reason: '', reasonZh: '', exitCode: 9 };
+  assert.equal(formatOutcomeLine(bare, 'zh'), '未完成');
+  assert.equal(formatOutcomeLine(bare, 'en'), 'Incomplete');
+  banUnknown(formatOutcomeLine(bare, 'zh'), 'empty reason zh');
+  banUnknown(formatOutcomeLine(bare, 'en'), 'empty reason en');
+  const withStuck = { ...bare, stuckAt: 'turn limit', stuckAtZh: '回合上限' };
+  assert.equal(formatOutcomeLine(withStuck, 'zh'), '未完成；卡在：回合上限');
+  assert.equal(formatOutcomeLine(withStuck, 'en'), 'Incomplete; stuck at: turn limit');
+  for (const status of ['completed', 'unverified', 'verify_failed', 'blocked']) {
+    banUnknown(formatOutcomeLine({ ...bare, status }, 'zh'), `${status} zh`);
+    banUnknown(formatOutcomeLine({ ...bare, status }, 'en'), `${status} en`);
+  }
+}
+
+// Item 2: budget class + last tool step combined (stdout/stderr agree)
+{
+  const mk = () => {
+    const t = createRunCompletionTracker();
+    noteRunCompletionEvent(t, {
+      type: 'tool_start',
+      toolName: 'read_file',
+      toolCallId: 'r1',
+      input: { path: 'src/a.ts' },
+    });
+    return t;
+  };
+  const stdoutO = resolveRunOutcome({
+    tracker: mk(),
+    finalText: 'x',
+    runError: 'Run budget exceeded (tokens). Partial output above is the completed work.',
+  });
+  const stderrO = resolveRunOutcome({
+    tracker: mk(),
+    finalText: 'x',
+    runError: '运行预算用尽，任务未完成',
+  });
+  assert.match(stdoutO.stuckAt ?? '', /^run budget \(read_file.*src\/a\.ts\)$/);
+  assert.match(stdoutO.stuckAtZh ?? '', /^运行预算（read_file.*src\/a\.ts）$/);
+  assert.equal(stderrO.stuckAt, stdoutO.stuckAt);
+  assert.equal(stderrO.stuckAtZh, stdoutO.stuckAtZh);
+}
+
+// QA item 1: formatOutcomeLine with missing / unmapped reason → no 未知/unknown,
+// no empty 「卡在：」 / `stuck at:` fragment, every status, EN and ZH.
+{
+  const noEmptyStuck = (line, label) => {
+    assert.doesNotMatch(line, /卡在：\s*(；|$)/, `${label}: empty 卡在 — ${line}`);
+    assert.doesNotMatch(line, /stuck at:\s*(;|$)/, `${label}: empty stuck at — ${line}`);
+  };
+  const cases = [
+    { reason: undefined, reasonZh: undefined },
+    { reason: '', reasonZh: '' },
+    { reason: '   ', reasonZh: '   ' },
+    { reason: 'gateway said ¯\\_(ツ)_/¯', reasonZh: '网关返回了无法识别的结果' },
+  ];
+  for (const status of ['completed', 'unverified', 'verify_failed', 'blocked', 'incomplete']) {
+    for (const c of cases) {
+      for (const stuck of [
+        {},
+        { stuckAt: '', stuckAtZh: '' },
+        { stuckAt: 'exec: x', stuckAtZh: 'exec: x' },
+      ]) {
+        const o = { status, exitCode: 9, ...c, ...stuck };
+        for (const lang of ['zh', 'en']) {
+          const line = formatOutcomeLine(o, lang);
+          const label = `${status}/${JSON.stringify(c.reason)}/${lang}`;
+          banUnknown(line, label);
+          noEmptyStuck(line, label);
+          assert.ok(line.length > 0, `${label} non-empty`);
+        }
+      }
+    }
+  }
+}
+
 console.log('[PASS] o111-stuck-no-unknown');
