@@ -2,7 +2,9 @@
 /**
  * O83: first-run connection probe and model-list fetch must go through
  * HTTPS_PROXY (NODE_USE_ENV_PROXY unset). Asserts on PROXY RECEIPT (a CONNECT
- * for the target host in the fake proxy's log), not on request success.
+ * for the *target model host* in the fake proxy's log), not on request success.
+ * CONNECT to npm/registry alone is NOT a PASS — each check matches the exact
+ * host from the probe/catalog baseUrl (same lock as UX o83-firstrun-proxy.sh).
  * Runs each probe in a child process so the global dispatcher starts clean.
  */
 import assert from 'node:assert/strict';
@@ -68,7 +70,7 @@ await runChild(`
 check(
   assert.ok,
   log.some((l) => l.startsWith(`CONNECT ${probeHost}:443`)),
-  `probeModel request must reach HTTPS_PROXY; proxy log: ${JSON.stringify(log)}`
+  `probeModel target host ${probeHost} must CONNECT via HTTPS_PROXY (npm CONNECT alone != PASS); proxy log: ${JSON.stringify(log)}`
 );
 
 const catalogHost = 'o83-models.example.invalid';
@@ -79,7 +81,7 @@ await runChild(`
 check(
   assert.ok,
   log.some((l) => l.startsWith(`CONNECT ${catalogHost}:443`)),
-  `model-list fetch must reach HTTPS_PROXY; proxy log: ${JSON.stringify(log)}`
+  `model-list target host ${catalogHost} must CONNECT via HTTPS_PROXY (npm CONNECT alone != PASS); proxy log: ${JSON.stringify(log)}`
 );
 
 // A subcommand that never enters the agent loop: `moss doctor` (keyless
