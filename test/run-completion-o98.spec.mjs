@@ -1,0 +1,203 @@
+#!/usr/bin/env node
+/**
+ * O98: a headless `moss -p` run must not end on a false success.
+ * O14 run2 said "All checks are green" without running format:check (npm run
+ * check was red); kimi-k3 r2 changed nothing and exited 0.
+ */
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+import { runOneShot } from '../dist/cli/oneshot.js';
+import { ExitCode } from '../dist/cli/exit-codes.js';
+import {
+  assessRunCompletion,
+  createRunCompletionTracker,
+  findUnverifiedCheckClaims,
+  formatIncompleteLine,
+  noteRunCompletionEvent,
+} from '../dist/cli/run-completion.js';
+import { MossAgent } from '../dist/core/agent/moss-agent.js';
+import { InMemorySessionStore } from '../dist/core/session/session.js';
+import { createMockTranscriptProvider } from './e2e/mock-transcript-provider.mjs';
+
+function execEvents(tracker, id, command, result, isError = false) {
+  noteRunCompletionEvent(tracker, {
+    type: 'tool_start',
+    toolName: 'exec',
+    toolCallId: id,
+    input: { command },
+  });
+  noteRunCompletionEvent(tracker, {
+    type: 'tool_end',
+    toolName: 'exec',
+    toolCallId: id,
+    result,
+    isError,
+  });
+}
+
+// --- Unit: claims vs. real runs -------------------------------------------
+{
+  const t = createRunCompletionTracker();
+  execEvents(t, '1', 'npm run lint', 'exit code 0');
+  execEvents(t, '2', 'npm run typecheck', 'exit code 0');
+  assert.deepEqual(findUnverifiedCheckClaims('All checks are green.', t), ['check']);
+  assert.deepEqual(findUnverifiedCheckClaims('Lint passes and typecheck is clean.', t), []);
+  assert.deepEqual(findUnverifiedCheckClaims('prettier --check passed', t), ['format']);
+  assert.deepEqual(findUnverifiedCheckClaims('所有检查都通过了', t), ['check']);
+  const v = assessRunCompletion({ tracker: t, finalText: 'All checks are green.', zh: true });
+  assert.equal(v.status, 'incomplete');
+  assert.equal(v.exitCode, ExitCode.INCOMPLETE);
+  assert.notEqual(v.exitCode, 0);
+  const line = formatIncompleteLine(v, { zh: true });
+  assert.match(line, /^未完成：.*npm run check.*；卡在：/);
+}
+{
+  // A failed `npm run check` does not back the claim either.
+  const t = createRunCompletionTracker();
+  execEvents(t, '1', 'npm run check', 'format:check failed\nexit code 1');
+  assert.deepEqual(findUnverifiedCheckClaims('npm run check passes.', t), ['check']);
+  const v = assessRunCompletion({ tracker: t, finalText: 'npm run check passes.', zh: true });
+  assert.match(formatIncompleteLine(v, { zh: true }), /卡在：exec: npm run check/);
+}
+{
+  // Really ran and passed: claim is fine, run is complete, exit 0.
+  const t = createRunCompletionTracker();
+  execEvents(t, '1', 'npm run check', 'exit code 0');
+  noteRunCompletionEvent(t, {
+    type: 'tool_start',
+    toolName: 'edit_file',
+    toolCallId: 'e',
+    input: { path: 'src/a.ts' },
+  });
+  noteRunCompletionEvent(t, {
+    type: 'tool_end',
+    toolName: 'edit_file',
+    toolCallId: 'e',
+    result: 'ok',
+    isError: false,
+  });
+  const v = assessRunCompletion({
+    tracker: t,
+    finalText: 'All checks are green.',
+    request: 'fix src/a.ts',
+  });
+  assert.equal(v.status, 'complete');
+  assert.equal(v.exitCode, 0);
+  assert.equal(formatIncompleteLine(v), '');
+  // Negated statements are not claims.
+  assert.deepEqual(
+    findUnverifiedCheckClaims(
+      'I did not run tests; checks not green yet.',
+      createRunCompletionTracker()
+    ),
+    []
+  );
+}
+{
+  // Edit task, zero files changed → incomplete.
+  const v = assessRunCompletion({
+    tracker: createRunCompletionTracker(),
+    finalText: 'Done.',
+    request: '修复 src/cli/hooks.ts 的超时问题',
+    zh: true,
+  });
+  assert.equal(v.status, 'incomplete');
+  assert.match(
+    formatIncompleteLine(v, { zh: true }),
+    /^未完成：任务需要改动文件，但本次运行没有修改任何文件/
+  );
+  // Pure questions do not need edits.
+  assert.equal(
+    assessRunCompletion({
+      tracker: createRunCompletionTracker(),
+      finalText: 'x',
+      request: '怎么修复这个问题？',
+    }).status,
+    'complete'
+  );
+}
+
+// --- Integration: runOneShot text mode (what `moss -p` uses) --------------
+async function runPrint(name, turns, prompt, registerTools) {
+  const ws = await fs.mkdtemp(path.join(os.tmpdir(), `moss-o98-${name}-`));
+  const agent = new MossAgent({
+    llmProvider: createMockTranscriptProvider(name, 'O98', turns),
+    sessionStore: new InMemorySessionStore(),
+    model: name,
+    workspaceDir: ws,
+    baseSystemPrompt: 'Test.',
+    domainPrompt: false,
+    includeAgentBehaviorPrompt: false,
+    enableSteering: false,
+    maxAgentTurns: 6,
+  });
+  registerTools?.(agent);
+  let out = '';
+  const previous = process.exitCode;
+  process.exitCode = undefined;
+  await runOneShot(agent, prompt, {
+    sessionKey: `o98-${name}`,
+    outputFormat: 'text',
+    headless: true,
+    cwd: ws,
+    stdout: { write: (s) => ((out += s), true) },
+  });
+  const code = process.exitCode;
+  process.exitCode = previous;
+  await fs.rm(ws, { recursive: true, force: true });
+  return { out, code };
+}
+
+const prevLang = process.env.MOSS_LANG;
+process.env.MOSS_LANG = 'zh';
+try {
+  // O14 run2 shape: lint ran, format:check never ran, answer says "All checks are green".
+  const r = await runPrint(
+    'false-green',
+    [
+      { toolCalls: [{ name: 'shell_probe', input: { command: 'npm run lint' } }] },
+      { text: 'Updated the hook. All checks are green.' },
+    ],
+    'Check the repo lint status and report.',
+    (agent) =>
+      agent.tools.register({
+        name: 'shell_probe',
+        description: 'probe',
+        metadata: { sideEffectClass: 'readonly' },
+        inputSchema: { type: 'object', properties: { command: { type: 'string' } } },
+        async execute() {
+          return 'exit code 0';
+        },
+      })
+  );
+  assert.notEqual(r.code ?? 0, 0, `false "all green" must not exit 0 (got ${r.code})`);
+  const last = r.out.trimEnd().split('\n').at(-1);
+  assert.match(last, /^(未完成：|Incomplete: )/, `last line must say incomplete, got: ${last}`);
+  assert.match(last, /npm run check/);
+
+  // kimi-k3 r2 shape: edit task, no tool calls, "done" → non-zero + 未完成 line.
+  const k = await runPrint(
+    'no-edit',
+    [{ text: 'Done, the fix is in place.' }],
+    'Fix the timeout clamp in src/cli/hooks.ts'
+  );
+  assert.notEqual(k.code ?? 0, 0, 'edit task with zero changes must not exit 0');
+  assert.match(k.out.trimEnd().split('\n').at(-1), /^(未完成：|Incomplete: )/);
+
+  // Honest answer to a question: unchanged, exit 0, no incomplete line.
+  const ok = await runPrint(
+    'honest',
+    [{ text: 'Lint was not run in this session.' }],
+    'What does npm run check do?'
+  );
+  assert.equal(ok.code ?? 0, 0);
+  assert.doesNotMatch(ok.out, /未完成：|Incomplete: /);
+} finally {
+  if (prevLang === undefined) delete process.env.MOSS_LANG;
+  else process.env.MOSS_LANG = prevLang;
+}
+
+console.log('run-completion-o98: ok');

@@ -29,6 +29,12 @@ import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 import { acceptanceShell } from '../core/task/acceptance-command.js';
 import { runStopHooks, type StopHookResult } from './hooks.js';
 import { runProcess } from '../utils/run-process.js';
+import {
+  assessRunCompletion,
+  createRunCompletionTracker,
+  formatIncompleteLine,
+  noteRunCompletionEvent,
+} from './run-completion.js';
 
 /** Format the oneshot exit warning when background work outlives the wait window. */
 export function formatOneshotStillRunningBackgroundNotice(
@@ -422,6 +428,7 @@ export async function runOneShot(
   });
   let finalResult: HeadlessResultEvent | undefined;
   let runError: unknown = undefined;
+  const completionTracker = createRunCompletionTracker();
   const routedToolFilter = oneShotToolFilterForMessage(message);
   const focusedInspection = focusedInspectionRunOptions(message);
   const fastNews = fastNewsRunPolicy(message);
@@ -529,6 +536,7 @@ export async function runOneShot(
           };
     for await (const event of agent.streamChat(sessionKey, message, streamOptions)) {
       options.onAgentEvent?.(event);
+      noteRunCompletionEvent(completionTracker, event);
       const structuredEvents = formatHeadlessStreamEvent(state, event);
       if (outputFormat === 'text') {
         renderer?.handle(event);
@@ -687,6 +695,28 @@ export async function runOneShot(
       await mirrorGoalVerdict(true, 0, '');
     } catch {
       /* verification infrastructure failures never break the run */
+    }
+  }
+
+  // O98: never end a text `--print` run on a false success. If the final
+  // answer claims checks that never (successfully) ran, or the task needed
+  // edits and none happened, exit non-zero and make the LAST stdout line say
+  // what is unfinished and where it got stuck.
+  if (outputFormat === 'text') {
+    const zh = isZhLocale();
+    const verdict = assessRunCompletion({
+      tracker: completionTracker,
+      finalText: typeof finalResult?.result === 'string' ? finalResult.result : state.finalText,
+      request: message,
+      ...(finalResult && isHeadlessResultError(finalResult)
+        ? { runError: finalResult.error ?? String(finalResult.subtype) }
+        : {}),
+      ...(typeof process.exitCode === 'number' ? { errorExitCode: process.exitCode } : {}),
+      zh,
+    });
+    if (verdict.status === 'incomplete') {
+      process.exitCode = verdict.exitCode;
+      stdout.write(`\n${formatIncompleteLine(verdict, { zh })}\n`);
     }
   }
 

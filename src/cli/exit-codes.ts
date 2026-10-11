@@ -10,6 +10,8 @@ export enum ExitCode {
   PROVIDER_UPSTREAM = 6,
   SESSION = 7,
   TOOL_EXECUTION = 8,
+  /** O98: run ended without finishing the task (or with an unverified success claim). */
+  INCOMPLETE = 9,
   USER_ABORTED = 11,
   INTERNAL = 12,
 }
