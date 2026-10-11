@@ -227,6 +227,8 @@ try {
     workspace,
     steps: [
       { kind: 'wait', payload: 'Moss setup' },
+      // O57: the provider screen drops keys for 400 ms after it opens.
+      { kind: 'sleep', payload: '0.6' },
       { kind: 'send', payload: '5' },
       { kind: 'wait', payload: 'Gateway URL' },
       { kind: 'send', payload: `${base}/v1` },

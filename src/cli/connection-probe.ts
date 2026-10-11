@@ -4,6 +4,7 @@
  * through classifyProviderError only.
  */
 import { buildApiV1Url } from '../provider/api-v1-url.js';
+import { ensureKeepAliveDispatcherInstalled } from '../provider/keep-alive-dispatcher.js';
 import { classifyProviderError, type ProviderErrorCategory } from '../provider/error-classify.js';
 import type { CliProviderPreset } from '../provider/provider-presets.js';
 import { setupCopy } from './cli-locale.js';
@@ -152,6 +153,8 @@ async function request(
   locale?: string
 ): Promise<{ res: Response; body: string } | { failure: ConnectionFailure }> {
   try {
+    // O83: library callers (no CLI entry) still go through HTTPS_PROXY.
+    if (!fetchImpl) await ensureKeepAliveDispatcherInstalled();
     const res = await (fetchImpl ?? fetch)(url, init);
     return { res, body: await readBody(res) };
   } catch (err) {

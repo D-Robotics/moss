@@ -1,5 +1,6 @@
 // Moss Agent CLI main — see --help for usage, config, and environment variables.
 
+import { ensureKeepAliveDispatcherInstalled } from './provider/keep-alive-dispatcher.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { configureWindowsUtf8Console } from './utils/run-process.js';
@@ -417,6 +418,10 @@ async function loadTrustedStartupConfig(input: {
 }
 
 async function main() {
+  // O83: install the proxy-aware global dispatcher (HTTPS_PROXY/HTTP_PROXY/
+  // NO_PROXY) once, before ANY request — setup probe, model list, doctor,
+  // MCP over HTTP — not only when the agent loop starts. Idempotent.
+  await ensureKeepAliveDispatcherInstalled();
   // REPL, one-shot, and the cancel line share the TUI dictionary. The full-screen
   // shell sets the same flag again from its own entry.
   setTuiLocale(isZhLocale());
