@@ -5,6 +5,7 @@ import { buildCompactionCheckpointOutline, type CompactHookRegistry } from './co
 import type { Message } from '../session/session-jsonl.js';
 import { summarizeDroppedMessages } from './agent-loop-context-prep.js';
 import { runWithCompactionPrepareTimeout } from './compaction-timeout.js';
+import { notifyReadContextDropped } from '../../context/read-context-events.js';
 import type { AgentLoopLlmUsage } from './agent-loop-types.js';
 
 /** Distinct tool names across tool_use blocks (summary quality signal). */
@@ -162,6 +163,9 @@ async function runCompactionCore(
       currentMessages.splice(0, currentMessages.length, ...prep.messages);
       compactionSummary = undefined;
     }
+
+    // O86: earlier read bodies are summarized away; no "refer to earlier read".
+    notifyReadContextDropped(null);
 
     const tokensAfter = Math.round(
       currentMessages.reduce((n, m) => n + estimateMessageTokens(m), 0)

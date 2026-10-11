@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { readFileTool, editFileTool, writeFileTool } from '../dist/tools/file-tools.js';
-import { globalToolStateManager } from '../dist/tools/tool-helpers.js';
+import { globalToolStateManager, FILE_UNCHANGED_STUB } from '../dist/tools/tool-helpers.js';
 import { truncateToolOutput } from '../dist/context/tool-output-truncate.js';
 import {
   elideOldLargeToolResults,
@@ -51,8 +51,10 @@ test('after the rejection the next edit succeeds and state is a full read', asyn
   const abs = path.join(dir, 'big.ts');
   await readFileTool.execute({ path: 'big.ts', offset: 1, limit: 5 }, ctx(dir));
   assert.match(await editFileTool.execute(edit20, ctx(dir)), /partial window/);
-  // Same file state as a full read_file: the full-window reuse state is fresh.
+  // Same file state as a full read_file (O86: mtime + sha256 via recordFileState).
   assert.equal(await globalToolStateManager.readReuseState(abs, 'full'), 'fresh');
+  // A following full read must get the unchanged stub — proves the O86 hash was stamped.
+  assert.equal(await readFileTool.execute({ path: 'big.ts' }, ctx(dir)), FILE_UNCHANGED_STUB);
   const ok = await editFileTool.execute(edit20, ctx(dir));
   assert.match(ok, /Edited/);
   assert.match(await fs.readFile(abs, 'utf8'), /^line_20_fixed$/m);

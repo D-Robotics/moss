@@ -19,7 +19,20 @@ const MUTATE_RESULT_TOOLS = new Set([
 ]);
 
 export const STALE_READ_PLACEHOLDER =
+  '[这个文件之后已被编辑并成功写入，旧的读取内容已省略；需要最新内容请重新读取。 / ' +
+  'This file was later edited and written successfully; the old read content was omitted. Re-read it if you need the latest content.]';
+
+/**
+ * Pre-O86 wording. Still recognised so resumed sessions that already carry it
+ * are treated as a compacted read (never re-emitted).
+ */
+export const LEGACY_STALE_READ_PLACEHOLDER =
   '[已省略：该路径在后续已被写入或编辑，旧读取结果不再可靠。必要时请重新 read / device_file_read。]';
+
+function isFailedToolResult(block: { is_error?: boolean; content?: unknown }): boolean {
+  if (block.is_error === true) return true;
+  return typeof block.content === 'string' && /^\s*Error\b/.test(block.content);
+}
 
 export function isFileMutationTool(toolName: string): boolean {
   return MUTATE_RESULT_TOOLS.has(toolName);
@@ -277,7 +290,8 @@ function collectToolResultEvents(messages: Message[]): ToolResultEvent[] {
           contentLen,
         });
         globalIdx++;
-      } else if (MUTATE_RESULT_TOOLS.has(meta.name)) {
+      } else if (MUTATE_RESULT_TOOLS.has(meta.name) && !isFailedToolResult(block)) {
+        // O86: a failed write did not change the file — keep the earlier read.
         for (const key of keys) {
           events.push({
             globalIdx,
@@ -344,7 +358,7 @@ export function invalidateStaleReadToolResults(messages: Message[]): StaleReadIn
       if (!toInvalidate.has(key)) return block;
       if (block.type !== 'tool_result') return block;
       const prev = typeof block.content === 'string' ? block.content : '';
-      if (prev === STALE_READ_PLACEHOLDER) return block;
+      if (prev === STALE_READ_PLACEHOLDER || prev === LEGACY_STALE_READ_PLACEHOLDER) return block;
       touched = true;
       invalidatedCount++;
       savedChars += Math.max(0, prev.length - STALE_READ_PLACEHOLDER.length);
@@ -362,7 +376,11 @@ export const FILE_UNCHANGED_PLACEHOLDER =
   '[已省略：该文件后续被再次读取且内容完全一致，完整内容见下方较新的读取结果，无需重复保留。]';
 
 export function isCompactedReadPlaceholder(content: string): boolean {
-  return content === STALE_READ_PLACEHOLDER || content === FILE_UNCHANGED_PLACEHOLDER;
+  return (
+    content === STALE_READ_PLACEHOLDER ||
+    content === LEGACY_STALE_READ_PLACEHOLDER ||
+    content === FILE_UNCHANGED_PLACEHOLDER
+  );
 }
 
 const DEDUP_READ_TOOLS = new Set(['read', 'read_file', 'device_file_read']);
@@ -419,6 +437,7 @@ export function dedupeUnchangedReadToolResults(messages: Message[]): StaleReadIn
       const content = block.content;
       if (
         content === STALE_READ_PLACEHOLDER ||
+        content === LEGACY_STALE_READ_PLACEHOLDER ||
         content === FILE_UNCHANGED_PLACEHOLDER ||
         isFoldedToolResult(content)
       ) {

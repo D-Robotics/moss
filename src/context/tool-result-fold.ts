@@ -17,7 +17,7 @@
  */
 import type { ContentBlock, Message } from '../contracts/messages.js';
 import { estimateMessagesTokens, estimateTokensForText } from './tokens.js';
-import { TOOL_RESULT_ELIDED_MARKER } from './tool-result-elision.js';
+import { isElidedToolResult } from './tool-result-elision.js';
 
 export const TOOL_RESULT_FOLDED_MARKER = '[earlier tool result folded';
 
@@ -163,7 +163,7 @@ function resultToolName(block: ContentBlock, uses: Map<string, ToolUseRef>): str
 }
 
 function alreadyCompacted(text: string): boolean {
-  return isFoldedToolResult(text) || text.includes(TOOL_RESULT_ELIDED_MARKER);
+  return isFoldedToolResult(text) || isElidedToolResult(text);
 }
 
 function foldStub(
