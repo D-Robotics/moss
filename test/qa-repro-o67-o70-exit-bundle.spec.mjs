@@ -17,13 +17,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { setTimeout as sleep } from 'node:timers/promises';
 
 import { isolatedCliEnv } from './helpers/isolated-cli-env.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const CLI = path.join(ROOT, 'dist', 'cli.js');
-const PROXY_PY = '/workspace/ux/acceptance/proxy.py';
 
 const MODEL_COACH =
   /switching models|switch models|try another model|faster model|换一个.*模型|更快的模型/i;
@@ -35,31 +33,52 @@ function put(file, value) {
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-async function startBlackholeProxy() {
+/**
+ * In-process blackhole HTTPS proxy for CI.
+ * Accepts TCP on 127.0.0.1, logs BLACKHOLE, reads forever, never replies.
+ * (Previously shelled out to /workspace/ux/acceptance/proxy.py — that path
+ * only exists on the agent box, so CI never got a port file.)
+ */
+function startBlackholeProxy() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-bh-'));
-  const portFile = path.join(dir, 'port');
   const logFile = path.join(dir, 'log');
-  const child = spawn('python3', [PROXY_PY, 'blackhole', portFile, logFile], {
-    stdio: 'ignore',
+  fs.writeFileSync(logFile, '');
+  const sockets = new Set();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    socket.on('error', () => {});
+    fs.appendFileSync(logFile, 'BLACKHOLE accepted\n');
+    // Read and discard; never reply (simulates a dead proxy).
+    socket.on('data', () => {});
   });
-  for (let i = 0; i < 100 && !fs.existsSync(portFile); i++) await sleep(20);
-  if (!fs.existsSync(portFile)) {
-    child.kill('SIGKILL');
-    throw new Error('blackhole proxy did not write port file');
-  }
-  const port = Number(fs.readFileSync(portFile, 'utf8').trim());
-  return {
-    port,
-    logFile,
-    stop() {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        /* ignore */
-      }
-      fs.rmSync(dir, { recursive: true, force: true });
-    },
-  };
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 0;
+      resolve({
+        port,
+        logFile,
+        stop() {
+          for (const s of sockets) {
+            try {
+              s.destroy();
+            } catch {
+              /* ignore */
+            }
+          }
+          sockets.clear();
+          try {
+            server.close();
+          } catch {
+            /* ignore */
+          }
+          fs.rmSync(dir, { recursive: true, force: true });
+        },
+      });
+    });
+  });
 }
 
 function closedPort() {
