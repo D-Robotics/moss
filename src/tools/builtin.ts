@@ -299,6 +299,7 @@ export const execTool: Tool = {
           ctx.markResultError?.();
           return (
             `Command killed by ${err.signal}:\n${output || err.message}${writebackWarning}` +
+            o101NoticeAfter(commandText) +
             footnote +
             hooksNotice(`${err.stdout}\n${err.stderr}`)
           );
@@ -307,7 +308,13 @@ export const execTool: Tool = {
           err.exitCode === null
             ? `Command failed:\n${output || err.message}`
             : `Command failed (exit ${err.exitCode}):\n${output || err.message}`;
-        return failure + writebackWarning + footnote + hooksNotice(`${err.stdout}\n${err.stderr}`);
+        return (
+          failure +
+          writebackWarning +
+          o101NoticeAfter(commandText) +
+          footnote +
+          hooksNotice(`${err.stdout}\n${err.stderr}`)
+        );
       }
       throw err;
     }

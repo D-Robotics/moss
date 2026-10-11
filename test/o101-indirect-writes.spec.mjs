@@ -87,6 +87,7 @@ const {
   takeProtectedPathSnapshot,
   takeProtectedPathSnapshotAfter,
   diffProtectedPathSnapshots,
+  filterExpectedGitMetadataChanges,
   formatProtectedPathModifiedNotice,
   parseProtectedPathModMarker,
   PROTECTED_PATH_MOD_MARKER,
@@ -139,18 +140,31 @@ await check('A1: python3 -c writing .git/config is a protected hit', () => {
   const h = hits(`python3 -c "open('.git/config','a').write('x')"`);
   assert.ok(h.length >= 1, `expected hit, got ${JSON.stringify(h)}`);
   assert.ok(h.some((x) => x.category === 'git'));
+  // O101-specific: inline source metadata (O97 alone has no source).
+  assert.ok(
+    h.some((x) => x.source?.kind === 'inline' && /python/.test(x.source.script ?? '')),
+    `expected inline source, got ${JSON.stringify(h)}`
+  );
 });
 
 await check('A2: node -e writing .env is a protected hit', () => {
   const h = hits(`node -e "require('fs').writeFileSync('.env','PWNED')"`);
   assert.ok(h.length >= 1);
   assert.ok(h.some((x) => x.category === 'env' || x.raw.includes('.env')));
+  assert.ok(
+    h.some((x) => x.source?.kind === 'inline' && /node/.test(x.source.script ?? '')),
+    `expected inline source, got ${JSON.stringify(h)}`
+  );
 });
 
 await check('A3: bash -c appending ~/.ssh/authorized_keys is a protected hit', () => {
   const h = hits(`bash -c 'echo k >> ~/.ssh/authorized_keys'`);
   assert.ok(h.length >= 1);
   assert.ok(h.some((x) => x.category === 'ssh'));
+  assert.ok(
+    h.some((x) => x.source?.kind === 'inline' && /bash/.test(x.source.script ?? '')),
+    `expected inline source, got ${JSON.stringify(h)}`
+  );
 });
 
 await check('A4: -p denies python3 -c and leaves .git/config unchanged', async () => {
@@ -357,34 +371,28 @@ await check('D3: node --test → 0 hits', () => {
   assert.equal(hits('node --test').length, 0);
 });
 
-await check('D4: git commit / checkout -b → 0 snapshot hits', () => {
+await check('D4: git commit / checkout -b → 0 detection hits after git filter', () => {
   const before = takeProtectedPathSnapshot(ws, { home });
   execFileSync('git', ['checkout', '-qb', 'feature-o101'], { cwd: ws, env: gitEnv });
   fs.writeFileSync(path.join(ws, 'src', 'ok.ts'), 'export const ok = 2;\n');
   execFileSync('git', ['add', 'src/ok.ts'], { cwd: ws, env: gitEnv });
   execFileSync('git', ['commit', '-qm', 'feat'], { cwd: ws, env: gitEnv });
   const after = takeProtectedPathSnapshotAfter(before, { home });
-  const changes = diffProtectedPathSnapshots(before, after);
-  // refs/heads may change on checkout -b and commit — SPEC says watch refs.
-  // Normal git commit writes to refs are expected to show up!
-  // Spec D: "git commit、git checkout -b 全程 0 次确认、0 次检测命中"
-  // and "False positives: .git only watch config, hooks, HEAD, refs — not normal git commit writes."
-  // There's a tension: watching refs means commit updates refs/heads/X.
-  // Research says: exclude index, ORIG_HEAD, logs, objects — but refs ARE watched.
-  // Spec acceptance D says 0 detection hits for git commit/checkout -b.
-  // So we should NOT treat refs/heads updates from our own git as hits when
-  // the command is git itself — OR we should not watch refs content that git
-  // normally updates (heads, tags) and only watch unusual refs?
-  //
-  // Re-read research: "`.git` 要排除 git 自身合法写入（`index`、`ORIG_HEAD`、`logs/`、`objects/`）"
-  // It still lists refs as watched. But acceptance D requires 0 hits for git commit.
-  // Practical fix: for post-run, if the command is a plain `git` porcelain that
-  // only touches refs/HEAD in expected ways, filter those out.
-  // For this test, filter: only fail if config/hooks/.ssh/.env changed.
-  const bad = changes.filter(
-    (c) => !c.path.includes('refs/') && !c.path.endsWith('/HEAD') && !c.path.endsWith('.git/HEAD')
+  const raw = diffProtectedPathSnapshots(before, after);
+  // Acceptance D: git porcelain must not produce detection hits. Layer 3 watches
+  // HEAD/refs but filterExpectedGitMetadataChanges drops those for ordinary git.
+  const afterCheckout = filterExpectedGitMetadataChanges('git checkout -b feature-o101', raw);
+  const afterCommit = filterExpectedGitMetadataChanges('git commit -qm feat', raw);
+  assert.equal(
+    afterCheckout.length,
+    0,
+    `checkout filter should empty: ${JSON.stringify(afterCheckout)} (raw=${JSON.stringify(raw)})`
   );
-  assert.equal(bad.length, 0, `unexpected changes: ${JSON.stringify(changes)}`);
+  assert.equal(
+    afterCommit.length,
+    0,
+    `commit filter should empty: ${JSON.stringify(afterCommit)} (raw=${JSON.stringify(raw)})`
+  );
 });
 
 await check('D5: approval hook: git commit / npm test → approved without prompt', async () => {
