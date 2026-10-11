@@ -7,9 +7,11 @@ import assert from 'node:assert/strict';
 
 import {
   cliDoctorHasFailure,
+  renderMossRuntimeDoctorLines,
   renderNodeDoctorLine,
   renderSearchDoctor,
 } from '../dist/cli/doctor.js';
+import { clearUiLanguage, installUiLanguage } from '../dist/utils/ui-language.js';
 
 // ─── cliDoctorHasFailure — detects failures in the report ────────────────────
 
@@ -97,6 +99,66 @@ import {
   assert.ok(!line.includes('fail'), 'absent rg is a warn, not a hard failure');
   assert.ok(/install rg|ripgrep/.test(line), 'points the user at the fix (install rg)');
   assert.equal(cliDoctorHasFailure(line), false, 'warn is not a failure');
+}
+
+// ─── running moss: version stamp, entry path, package root ──────────────────
+
+{
+  const entry = '/usr/local/lib/node_modules/@rdk-moss/agent/bin/moss.cjs';
+  const root = '/usr/local/lib/node_modules/@rdk-moss/agent';
+  const lines = renderMossRuntimeDoctorLines({
+    version: '0.26.0',
+    stamp: { commit: 'abc1234', date: '2026-10-10', dirty: true },
+    entryPath: entry,
+    packageRoot: root,
+    warning: null,
+  });
+  const text = lines.join('\n');
+  assert.match(text, /ok\s+version:/);
+  assert.match(text, /0\.26\.0 \(abc1234\+dirty, 2026-10-10\)/);
+  assert.match(text, /ok\s+binary:/);
+  assert.match(text, /moss\.cjs \(package \/usr\/local\/lib\/node_modules\/@rdk-moss\/agent\)/);
+  assert.equal(cliDoctorHasFailure(text), false, 'version and binary lines are not failures');
+}
+
+{
+  const lines = renderMossRuntimeDoctorLines({
+    version: '0.26.0',
+    stamp: null,
+    entryPath: '/opt/a/bin/moss',
+    packageRoot: '/opt/a',
+    warning:
+      '2 moss executables on PATH: /opt/a/bin/moss; /opt/b/bin/moss. /opt/a/bin/moss wins (first on PATH) and is the one currently running.',
+  });
+  const text = lines.join('\n');
+  assert.match(text, /version: 0\.26\.0$/m, 'no stamp means the version number alone');
+  assert.match(text, /binary: \/opt\/a\/bin\/moss \(package \/opt\/a\)/);
+  assert.match(text, /warn\s+binaries:/);
+  assert.match(text, /\/opt\/a\/bin\/moss wins/);
+  assert.doesNotMatch(text, /^\s+fail\s/m);
+  assert.equal(cliDoctorHasFailure(text), false, 'a PATH collision is a warning, not a failure');
+}
+
+{
+  installUiLanguage({ language: 'zh', source: 'flag', setting: 'zh' });
+  try {
+    const lines = renderMossRuntimeDoctorLines({
+      version: '0.26.0',
+      stamp: { commit: 'beeface', date: '2026-10-10', dirty: true },
+      entryPath: 'D:\\a\\moss\\moss\\dist\\cli.js',
+      packageRoot: 'D:\\a\\moss\\moss',
+      warning: null,
+    });
+    const text = lines.join('\n');
+    assert.match(text, /版本： 0\.26\.0（beeface，有未提交改动，2026-10-10）/);
+    assert.match(text, /程序： D:\/a\/moss\/moss\/dist\/cli\.js（安装根目录 D:\/a\/moss\/moss）/);
+    assert.equal(text.includes('dirty'), false);
+    assert.equal(text.includes('package'), false);
+    assert.equal(text.includes('binary'), false);
+    assert.equal(cliDoctorHasFailure(text), false);
+  } finally {
+    clearUiLanguage();
+  }
 }
 
 console.log('[PASS] Doctor diagnostics');
