@@ -344,6 +344,8 @@ export type MossAgentEvent =
       toolName: string;
       toolCallId: string;
       result: string;
+      /** Canonical tool output after the existing per-tool limit and egress redaction. */
+      content?: string;
       isError: boolean;
       outcome?: ToolResult['outcome'];
       durationMs?: number;

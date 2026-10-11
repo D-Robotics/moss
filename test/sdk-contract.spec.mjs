@@ -373,6 +373,30 @@ test('typed API surface resolves through dist/index.d.ts', async () => {
     ),
     /^boolean(?: \| undefined)?$/
   );
+  const agentEventSymbol = checker
+    .getExportsOfModule(moduleSymbol)
+    .find((symbol) => symbol.getName() === 'MossAgentEvent');
+  const agentEvent = checker.getDeclaredTypeOfSymbol(checker.getAliasedSymbol(agentEventSymbol));
+  const toolEnd = agentEvent.types.find((variant) => {
+    const discriminant = variant.getProperty('type');
+    return (
+      checker.typeToString(
+        checker.getTypeOfSymbolAtLocation(discriminant, discriminant.declarations[0])
+      ) === '"tool_end"'
+    );
+  });
+  const canonicalContent = toolEnd.getProperty('content');
+  assert.ok(canonicalContent, 'tool_end exposes bounded canonical output');
+  assert.ok(
+    canonicalContent.flags & ts.SymbolFlags.Optional,
+    'old event producers remain compatible'
+  );
+  assert.match(
+    checker.typeToString(
+      checker.getTypeOfSymbolAtLocation(canonicalContent, canonicalContent.declarations[0])
+    ),
+    /^string(?: \| undefined)?$/
+  );
 });
 
 console.log('[PASS] SDK contract');
