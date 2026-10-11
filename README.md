@@ -244,7 +244,7 @@ moss --print "定义任务：相机管线保持 30 FPS 持续 60 秒；部署、
 
 **扩展。** MCP 客户端（stdio + streamable HTTP，工具懒加载）；轻量 skills（`.moss/skills/<name>/SKILL.md`，渐进披露，`$ARGUMENTS` 传参）；自定义斜杠命令（`.moss/commands/<name>.md`）；人设（`.moss/soul.md`）；生命周期 hook。
 
-**嵌入与自动化。** headless 输出是给脚本 / CI 用的稳定契约；把任务跑到裁决位时，**只有 accepted 才退出码 0**：
+**嵌入与自动化。** headless 输出是给脚本 / CI 用的稳定契约；把任务跑到裁决位时，**只有 accepted 才退出码 0**。`-p` 末行「未验证 / Unverified」（声称检查通过但本会话未跑过）退出码为 **9**（`ExitCode.INCOMPLETE`），与真正完成（0）区分：
 
 ```bash
 moss --print "summarize this repository"
@@ -672,7 +672,7 @@ cache or offline copy. See [`docs/superpowers/plans/2026-10-09-rdk-knowledge-via
 (`.moss/commands/<name>.md`), persona (`.moss/soul.md`), lifecycle hooks.
 
 **Embedding.** Headless output is a stable contract for scripts and CI; a task's exit code is 0
-**only when accepted**:
+**only when accepted**. A `-p` last line of `Unverified:` / 「未验证：」 (claimed checks passed but none ran this session) exits **9** (`ExitCode.INCOMPLETE`), distinct from honest success (0):
 
 ```bash
 moss --print "summarize this repository"

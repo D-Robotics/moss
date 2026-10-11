@@ -48,13 +48,14 @@ function execEvents(tracker, id, command, result, isError = false) {
   assert.deepEqual(findUnverifiedCheckClaims('prettier --check passed', t), ['format']);
   assert.deepEqual(findUnverifiedCheckClaims('所有检查都通过了', t), ['check']);
 
-  // E: no VERIFY_CMD, false claim → unverified, exit 0,「未验证」
+  // E / O109: no VERIFY_CMD, false claim → unverified, exit 9,「未验证」
   const outcome = resolveRunOutcome({ tracker: t, finalText: 'All checks are green.' });
   assert.equal(outcome.status, 'unverified');
-  assert.equal(outcome.exitCode, 0, 'soft unverified must not force non-zero');
+  assert.equal(outcome.exitCode, 9, 'soft Unverified must exit ExitCode.INCOMPLETE (9)');
   assert.match(formatOutcomeLine(outcome, 'zh'), /^未验证：/);
   assert.match(formatOutcomeLine(outcome, 'en'), /^Unverified: /);
-  assert.doesNotMatch(formatOutcomeLine(outcome, 'zh'), /未核实/);
+  assert.doesNotMatch(formatOutcomeLine(outcome, 'zh'), /未核实|完成：|验证失败/);
+  assert.doesNotMatch(formatOutcomeLine(outcome, 'en'), /Completed:|Verify failed:/);
 }
 
 {
@@ -63,7 +64,7 @@ function execEvents(tracker, id, command, result, isError = false) {
   execEvents(t, '1', 'npm run check', 'format:check failed\nexit code 1');
   const outcome = resolveRunOutcome({ tracker: t, finalText: 'npm run check passes.' });
   assert.equal(outcome.status, 'unverified');
-  assert.equal(outcome.exitCode, 0);
+  assert.equal(outcome.exitCode, 9, 'soft Unverified with failed in-session check still exit 9');
   assert.match(formatOutcomeLine(outcome, 'zh'), /未验证：/);
 }
 
@@ -242,7 +243,7 @@ async function runPrint(name, turns, prompt, registerTools, env = {}) {
 const prevLang = process.env.MOSS_LANG;
 process.env.MOSS_LANG = 'zh';
 try {
-  // E integration: no VERIFY_CMD, claim green without running check → 未验证, exit 0
+  // E / O109 integration: no VERIFY_CMD, claim green without running check → 未验证, exit 9
   const soft = await runPrint(
     'soft-unverified',
     [
@@ -261,8 +262,12 @@ try {
         },
       })
   );
-  assert.equal(soft.code ?? 0, 0, 'soft unverified stays exit 0');
+  assert.equal(soft.code, 9, 'soft Unverified must exit ExitCode.INCOMPLETE (9)');
   assert.match(soft.out.trimEnd().split('\n').at(-1), /^(未验证：|Unverified: )/);
+  assert.doesNotMatch(
+    soft.out.trimEnd().split('\n').at(-1),
+    /^(完成：|Completed:|验证失败：|Verify failed:)/
+  );
 
   // D integration: kimi-k3 r2 — edit task, no tools → non-0 + 未完成
   const k = await runPrint(
