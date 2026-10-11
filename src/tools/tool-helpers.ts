@@ -269,8 +269,20 @@ export async function findSimilarFileName(
   }
 }
 
+/**
+ * O86: files larger than this are never hashed, so they never get the
+ * "unchanged" reuse stub — every read returns real content. 2 MiB keeps the
+ * extra pre-stub hash to a few milliseconds of local IO, while any file this
+ * big is far beyond what one read result can usefully carry anyway, so the
+ * stub saves little and the safe answer (real content) costs little.
+ * @public
+ */
+export const READ_REUSE_HASH_MAX_BYTES = 2 * 1024 * 1024;
+
 async function hashFile(resolvedPath: string): Promise<string | undefined> {
   try {
+    const st = await fs.stat(resolvedPath);
+    if (st.size > READ_REUSE_HASH_MAX_BYTES) return undefined;
     return createHash('sha256')
       .update(await fs.readFile(resolvedPath))
       .digest('hex');

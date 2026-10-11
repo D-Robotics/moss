@@ -21,7 +21,10 @@ import {
   execTool,
 } from '../dist/tools/builtin.js';
 import { applyPatchTool } from '../dist/tools/patch-tool.js';
-import { FILE_UNCHANGED_STUB, globalToolStateManager } from '../dist/tools/tool-helpers.js';
+import * as toolHelpers from '../dist/tools/tool-helpers.js';
+const { FILE_UNCHANGED_STUB, globalToolStateManager } = toolHelpers;
+// Fallback keeps this file importable when src/ is reverted to main (revert-red check).
+const READ_REUSE_HASH_MAX_BYTES = toolHelpers.READ_REUSE_HASH_MAX_BYTES ?? 2 * 1024 * 1024;
 import {
   STALE_READ_PLACEHOLDER,
   FILE_UNCHANGED_PLACEHOLDER,
@@ -110,6 +113,7 @@ test('A4 move_file: first read of the destination is real, second is the stub', 
 });
 
 // ── Q1: shell / external edits, including same size and same mtime ───────
+// already correct on main; regression guard (在 main 上本来就对，用来防回退)
 test(
   'Q1a shell edit (sed -i style, via exec) then read is real',
   { skip: IS_WIN && 'platform mismatch (POSIX shell)' },
@@ -136,6 +140,7 @@ test('Q1b same size + same mtime external change still serves real content', asy
 });
 
 // ── Q2: failed edits ──────────────────────────────────────────────────────
+// already correct on main; regression guard (在 main 上本来就对，用来防回退)
 test('Q2a failed edit (old_string miss) does not mark the file changed', async (t) => {
   const dir = await ws(t);
   await read(dir, 'calc.py');
@@ -216,6 +221,7 @@ for (const [label, editPath] of [
   );
 }
 
+// already correct on main; regression guard (在 main 上本来就对，用来防回退)
 test(
   'Q3 symlink: edit via the real path, read via the link is never the stub',
   { skip: IS_WIN && 'platform mismatch (symlink)' },
@@ -247,6 +253,7 @@ test(
 );
 
 // ── Q4: partial read after edit does not count as seeing the full file ────
+// already correct on main; regression guard (在 main 上本来就对，用来防回退)
 test('Q4 edit → partial read → full read: full read is real', async (t) => {
   const dir = await ws(t);
   await read(dir, 'calc.py');
@@ -329,3 +336,19 @@ test('B placeholders say the file was written; no "elided"/"not visible" wording
 });
 
 test.after(() => globalToolStateManager.clearFileState());
+
+// ── Size cap: files above the sha256 cap never get the reuse stub ─────────
+test('Cap: a file above READ_REUSE_HASH_MAX_BYTES always gets real content (no stub)', async (t) => {
+  const line = 'x'.repeat(99) + '\n';
+  const big = line.repeat(Math.ceil((READ_REUSE_HASH_MAX_BYTES + 1) / line.length));
+  assert.ok(Buffer.byteLength(big) > READ_REUSE_HASH_MAX_BYTES);
+  const dir = await ws(t, { 'big.txt': big, 'small.txt': 'hello\n' });
+  const first = await read(dir, 'big.txt');
+  assert.notEqual(first, FILE_UNCHANGED_STUB);
+  const second = await read(dir, 'big.txt');
+  assert.notEqual(second, FILE_UNCHANGED_STUB, 'above cap: unchanged re-read is real content');
+  assert.equal(second, first);
+  // Below the cap the token win is kept.
+  await read(dir, 'small.txt');
+  assert.equal(await read(dir, 'small.txt'), FILE_UNCHANGED_STUB);
+});
