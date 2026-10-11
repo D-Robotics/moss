@@ -14,7 +14,11 @@ import {
 } from '../utils/safe-cwd.js';
 import { errorMessage, throwMoss, ErrorCode } from '../errors.js';
 import { maybeDecryptApiKeyInConfig, maybeEncryptApiKeyInConfig } from './config-api-key-crypto.js';
-import { CliConfigFileError, CliConfigWriteError } from './config-errors.js';
+import {
+  CliConfigFileError,
+  CliConfigWriteError,
+  CliLocalizedConfigFileError,
+} from './config-errors.js';
 import { writeConfigFileAtomic } from './config-durable-write.js';
 import {
   type CliProviderPreset,
@@ -589,6 +593,35 @@ export function resolveProjectConfigPath(startDir = safeProcessCwd(), maxHops = 
   return null;
 }
 
+/**
+ * O89: a Moss-format hook whose `command` is not a string (object, array,
+ * number, boolean, null) used to load fine and only surface at run time, where
+ * the failure notice printed `Command: [object Object]` with no clue which file
+ * was broken. Reject it at load/parse time instead, naming the config file, the
+ * event, and the entry index. A missing `command` keeps its existing behavior.
+ */
+function assertHookCommandsAreStrings(hooks: unknown, configPath: string): void {
+  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return;
+  const byEvent = hooks as Partial<Record<string, unknown>>;
+  for (const event of HOOK_EVENT_KEYS) {
+    const list = byEvent[event];
+    if (!Array.isArray(list)) continue;
+    for (let index = 0; index < list.length; index += 1) {
+      const entry = list[index];
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+      const command = (entry as Record<string, unknown>).command;
+      if (command === undefined || typeof command === 'string') continue;
+      if (isZhLocale()) {
+        throw new CliLocalizedConfigFileError(
+          configPath,
+          `配置文件 ${configPath} 无效：钩子 ${event}[${index}] 的 command 必须是字符串。`
+        );
+      }
+      throw new CliConfigFileError(configPath, `hooks.${event}[${index}].command must be a string`);
+    }
+  }
+}
+
 export function loadConfigFile(configPath = resolveConfigPath()): ConfigFile {
   if (!fs.existsSync(configPath)) return {};
   let raw: string;
@@ -609,6 +642,9 @@ export function loadConfigFile(configPath = resolveConfigPath()): ConfigFile {
     throw new CliConfigFileError(configPath, 'expected a JSON object');
   }
   const config = parsed as ConfigFile;
+  // O89: a non-string hook command must never reach runHookCommand /
+  // formatHookFailure, so it fails here with a localized, file-naming error.
+  assertHookCommandsAreStrings(config.hooks, configPath);
 
   const configDir = path.dirname(configPath);
   return maybeDecryptApiKeyInConfig(config, configDir, configPath);
