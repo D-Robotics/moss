@@ -14,6 +14,38 @@ const literalCommand = (file) => `'${gitPath(file).replaceAll("'", "'\\''")}'`;
 const count = (file) =>
   fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).length : 0;
 
+const hooksNotice = '[moss] Repo hooks in an untrusted workspace were not run.';
+function nativeDiffBody(result, expectNotice) {
+  if (!expectNotice) {
+    assert.doesNotMatch(result, /Repo hooks/);
+    return result.trim();
+  }
+  const suffix = `\n\n${hooksNotice}`;
+  assert.ok(result.endsWith(suffix), 'remove only the exact trailing native hook notice');
+  assert.equal(
+    result.split(hooksNotice).length - 1,
+    1,
+    'native hook notice is emitted exactly once'
+  );
+  return result.slice(0, -suffix.length).trim();
+}
+
+test('literal-path diff comparison rejects changed or duplicate notices and retains other bytes', () => {
+  assert.throws(
+    () => nativeDiffBody(`diff\n\n${hooksNotice}\n\n${hooksNotice}`, true),
+    assert.AssertionError
+  );
+  assert.throws(
+    () => nativeDiffBody('diff\n\n[moss] Repo hooks changed.', true),
+    assert.AssertionError
+  );
+  assert.throws(() => nativeDiffBody(`diff\n\n${hooksNotice}`, false), assert.AssertionError);
+  assert.equal(
+    nativeDiffBody(`diff\nunknown output\n\n${hooksNotice}`, true),
+    'diff\nunknown output'
+  );
+});
+
 function fixture(t, prefix) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const keys = [
@@ -112,7 +144,7 @@ test('a builtin diff in a literal space-and-apostrophe path matches Git and neve
     { command: 'git --no-pager diff --no-color', timeout_ms: 20000 },
     context
   );
-  assert.equal(result.trim(), expected);
+  assert.equal(nativeDiffBody(result, process.platform === 'win32'), expected);
   assert.equal(count(marker), 2, 'the repo external diff never runs in the untrusted exec');
   assert.doesNotMatch(result, /external diff died|Command failed|evil-diff/);
 });

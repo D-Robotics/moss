@@ -26,6 +26,7 @@ import { createCliSessionKey } from './session.js';
 import { loadCliConfigFile } from './config.js';
 import { configuredBaseUrl, pricingOverridesFromConfig } from './model-pricing.js';
 import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
+import { acceptanceShell } from '../core/task/acceptance-command.js';
 import { runStopHooks, type StopHookResult } from './hooks.js';
 import { ProcessError, runProcess } from '../utils/run-process.js';
 import { acceptanceShell } from '../core/task/acceptance-command.js';
