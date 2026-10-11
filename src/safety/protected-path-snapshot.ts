@@ -13,7 +13,9 @@
  * git commit writes (index, objects, logs, ORIG_HEAD, …) are ignored.
  *
  * Snapshot unavailable (permission) → skip that path; never false-report
- * "modified". Delayed background writes (`&`, nohup) are a known limit.
+ * "modified". `exec_background` runs the same check on full process exit
+ * (O108). Delayed writes via `&` / `nohup` inside a foreground command, and
+ * writes after the Moss process itself exits, remain known limits.
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';

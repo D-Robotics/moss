@@ -18,6 +18,7 @@ import { ExitCode } from './exit-codes.js';
 import {
   createRunCompletionTracker,
   findUnverifiedCheckClaims,
+  noteBackgroundProtectedPathMods,
   noteGoalVerifyResult,
   noteRunCompletionEvent,
   requestExpectsFileChanges,
@@ -28,7 +29,12 @@ import {
 import { protectedPathModReason } from '../safety/protected-path-snapshot.js';
 
 export type { GoalVerifyResult, RunCompletionTracker, VerificationCheck };
-export { createRunCompletionTracker, noteGoalVerifyResult, noteRunCompletionEvent };
+export {
+  createRunCompletionTracker,
+  noteBackgroundProtectedPathMods,
+  noteGoalVerifyResult,
+  noteRunCompletionEvent,
+};
 
 export type RunOutcomeStatus =
   | 'completed'
@@ -118,6 +124,9 @@ function goalVerifyFailReason(
 /** Resolve the stable O98/O99 outcome from a filled tracker + final answer. */
 export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
   const { tracker } = input;
+  // O108: fold L3 hits from finished exec_background processes (late exits
+  // after the tool returned a job id) before deciding incompleteness.
+  noteBackgroundProtectedPathMods(tracker);
   const unverifiedClaims = findUnverifiedCheckClaims(input.finalText, tracker);
   const reasonsEn: string[] = [];
   const reasonsZh: string[] = [];
