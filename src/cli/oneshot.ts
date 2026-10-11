@@ -26,6 +26,7 @@ import { createCliSessionKey } from './session.js';
 import { loadCliConfigFile } from './config.js';
 import { configuredBaseUrl, pricingOverridesFromConfig } from './model-pricing.js';
 import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
+import { acceptanceShell } from '../core/task/acceptance-command.js';
 import { runStopHooks, type StopHookResult } from './hooks.js';
 import { runProcess } from '../utils/run-process.js';
 
@@ -656,15 +657,12 @@ export async function runOneShot(
       }
     };
     try {
-      const shell = process.platform === 'win32' ? (process.env.COMSPEC ?? 'cmd.exe') : 'bash';
-      const shellArgs =
-        process.platform === 'win32'
-          ? ['/d', '/s', '/c', process.env.MOSS_GOAL_VERIFY_CMD]
-          : ['-c', process.env.MOSS_GOAL_VERIFY_CMD];
-      const verify = await runProcess(shell, {
-        args: shellArgs,
+      const shell = acceptanceShell(process.env.MOSS_GOAL_VERIFY_CMD);
+      const verify = await runProcess(shell.cmd, {
+        args: shell.args,
         cwd: workspaceDir,
         timeout: 5 * 60_000,
+        ...(shell.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       });
       if (verify.exitCode !== 0) {
         const tail = `${verify.stdout}\n${verify.stderr}`.trim().slice(-2000);
