@@ -221,7 +221,7 @@ for (const [label, editPath] of [
   );
 }
 
-// already correct on main; regression guard (在 main 上本来就对，用来防回退)
+// already correct on main; regression guard (在 main 上本来就对，用来防回退). Verified on 9468b663 src: link read serves the new body.
 test(
   'Q3 symlink: edit via the real path, read via the link is never the stub',
   { skip: IS_WIN && 'platform mismatch (symlink)' },
@@ -246,8 +246,9 @@ test(
       after = String(err);
     }
     assert.notEqual(after, FILE_UNCHANGED_STUB, 'content changed: never the stub via the alias');
-    // Either the sandbox refuses the symlink (as it does for edits) or it serves the new body.
-    assert.ok(/symlink/i.test(after) || /return a \+ b/.test(after), after);
+    // The read via the link must serve the new body, not an error or stale content.
+    assert.match(after, /return a \+ b/, after);
+    assert.doesNotMatch(after, /return a - b/, after);
     void viaLink;
   }
 );
