@@ -16,6 +16,7 @@ import path from 'node:path';
 import { execBackgroundTool, execLogsTool, execStopTool } from '../dist/tools/background-exec.js';
 import { execTool } from '../dist/tools/builtin.js';
 import { appendTaskEvent, createDraftTask } from '../dist/core/task/task-store.js';
+import { resolveHostShell } from '../dist/utils/host-shell.js';
 import {
   clearBackgroundRegistryForTests,
   getBackgroundProcessSnapshot,
@@ -39,21 +40,27 @@ const quote = (value) =>
     ? `"${String(value).replaceAll('"', '""')}"`
     : `'${String(value).replaceAll("'", "'\\''")}'`;
 const nodeCommand = (scriptPath) => {
+  if (process.platform === 'win32') {
+    return `${resolveHostShell().kind === 'pwsh' ? '& ' : ''}${quote(process.execPath)} ${quote(scriptPath)}`;
+  }
   const relativePath = path.relative(process.cwd(), scriptPath).split(path.sep).join('/');
   return `node ${quote(relativePath)}`;
 };
+const goalNodeCommand = (scriptPath) =>
+  process.platform === 'win32' ? nodeCommand(scriptPath) : `node ${quote(scriptPath)}`;
 const writeScript = (name, source) => {
   const file = path.join(testDir, name);
   fs.writeFileSync(file, source);
   return file;
 };
-const sleepScript = writeScript('sleep.cjs', 'setInterval(() => {}, 1000)');
+const nativePidOutput =
+  process.platform === 'win32' ? 'console.log(`native_pid=${process.pid}`);' : '';
+const sleepScript = writeScript('sleep.cjs', `${nativePidOutput}setInterval(() => {}, 1000)`);
 const outputCommand =
   process.platform === 'win32'
     ? 'echo line1&echo line2&echo line3'
     : 'printf "line1\\nline2\\nline3\\n"';
-const longRunningCommand =
-  process.platform === 'win32' ? 'ping -t 127.0.0.1' : nodeCommand(sleepScript);
+const longRunningCommand = nodeCommand(sleepScript);
 
 async function waitForTerminalStatus(id, timeoutMs = 8000) {
   // Poll the snapshot — subscribing to lifecycle events races with fast-exiting
@@ -161,7 +168,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   clearBackgroundRegistryForTests();
   const controller = new AbortController();
   let command = longRunningCommand;
-  if (process.platform !== 'win32') {
+  {
     const parentScript = [
       'const { spawn } = require("node:child_process")',
       `const child = spawn(process.execPath, [${JSON.stringify(sleepScript)}], { stdio: "ignore" })`,
@@ -178,11 +185,11 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   assert.ok(id, `background process returned before cancellation: ${out}`);
 
   let childPid = null;
-  if (process.platform !== 'win32') {
+  {
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline && !childPid) {
       const logs = await execLogsTool.execute({ id, tail: 20 }, ctx());
-      const match = logs.match(/(?:^|\n)(\d+)(?:\n|$)/);
+      const match = logs.match(/(?:^|\n)(\d+)(?:\r?\n|$)/);
       childPid = match ? Number(match[1]) : null;
       if (!childPid) await new Promise((resolve) => setTimeout(resolve, 20));
     }
@@ -201,7 +208,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
     assert.equal(
       await waitForProcessExit(childPid, 3000),
       true,
-      'abort kills descendants in the detached POSIX process group'
+      'abort kills the actual native child (a detached process group on POSIX)'
     );
   }
 }
@@ -218,11 +225,20 @@ async function stopAndConfirmGone(out, stopCtx, label) {
   assert.ok(id, `${label}: no background id in ${out}`);
   const pid = Number(out.match(/pid (\d+)/)?.[1]);
   await execStopTool.execute({ id }, stopCtx);
+  const [terminal, shellGone] = await Promise.all([
+    waitForTerminalStatus(id, 5000),
+    Number.isFinite(pid) && pid > 0 ? waitForProcessExit(pid, 5000) : Promise.resolve(true),
+  ]);
+  assert.ok(terminal, `${label}: background stdio did not close after exec_stop`);
   if (Number.isFinite(pid) && pid > 0) {
+    assert.equal(shellGone, true, `${label}: pid ${pid} survived exec_stop`);
+  }
+  const logs = await execLogsTool.execute({ id, tail: 100 }, stopCtx);
+  for (const match of logs.matchAll(/\bnative_pid=(\d+)\b/g)) {
     assert.equal(
-      await waitForProcessExit(pid, 5000),
-      true,
-      `${label}: pid ${pid} survived exec_stop`
+      isProcessAlive(Number(match[1])),
+      false,
+      `${label}: native child survived exec_stop`
     );
   }
 }
@@ -234,8 +250,8 @@ async function stopAndConfirmGone(out, stopCtx, label) {
   process.on('exit', () => cleanupTempDirectory(ws, '.moss-goal-exec-wait-'));
   const sleepMs = 2000;
   const script = path.join(ws, 'sleep.cjs');
-  fs.writeFileSync(script, `setTimeout(() => process.exit(0), ${sleepMs});\n`);
-  const command = `node ${quote(script)}`;
+  fs.writeFileSync(script, `${nativePidOutput}setTimeout(() => process.exit(0), ${sleepMs});\n`);
+  const command = goalNodeCommand(script);
   const { taskId } = await createDraftTask(ws, 'diagnosing on disk is not a goal run');
   await appendTaskEvent(ws, taskId, 'execution_started');
   await appendTaskEvent(ws, taskId, 'verification_started');
@@ -244,7 +260,7 @@ async function stopAndConfirmGone(out, stopCtx, label) {
   const goalCtx = { ...diskCtx, goalExecWait: true };
 
   const idleStarted = Date.now();
-  const idle = await execBackgroundTool.execute({ command: `node ${quote(sleepScript)}` }, diskCtx);
+  const idle = await execBackgroundTool.execute({ command: goalNodeCommand(sleepScript) }, diskCtx);
   const idleElapsed = Date.now() - idleStarted;
   assert.match(idle, /Still running after/, 'a diagnosing task on disk does not make exec wait');
   assert.ok(idleElapsed < 1700, `no wait outside /goal, elapsed ${idleElapsed}`);
@@ -259,7 +275,7 @@ async function stopAndConfirmGone(out, stopCtx, label) {
 
   const optOutStarted = Date.now();
   const optedOut = await execBackgroundTool.execute(
-    { command: `node ${quote(sleepScript)}`, wait: false },
+    { command: goalNodeCommand(sleepScript), wait: false },
     goalCtx
   );
   const optOutElapsed = Date.now() - optOutStarted;
@@ -272,7 +288,7 @@ async function stopAndConfirmGone(out, stopCtx, label) {
 
   const settleStarted = Date.now();
   const settled = await execTool.execute(
-    { command: `node ${quote(sleepScript)}`, run_in_background: true, settle_ms: 200 },
+    { command: goalNodeCommand(sleepScript), run_in_background: true, settle_ms: 200 },
     goalCtx
   );
   const settleElapsed = Date.now() - settleStarted;
@@ -306,7 +322,7 @@ async function stopAndConfirmGone(out, stopCtx, label) {
   clearBackgroundRegistryForTests();
   const controller = new AbortController();
   const started = Date.now();
-  const command = `node ${quote(sleepScript)}`;
+  const command = goalNodeCommand(sleepScript);
   const pending = execBackgroundTool.execute(
     { command, timeout_ms: 4000 },
     { goalExecWait: true, abortSignal: controller.signal }
@@ -325,6 +341,55 @@ async function stopAndConfirmGone(out, stopCtx, label) {
   if (term.pid) {
     assert.equal(isProcessAlive(term.pid), false, 'esc kills the waited process');
   }
+}
+
+// A real positive proves the script can mutate; cancelled startup must end
+// without leaving either its native child or that later mutation behind.
+{
+  const marker = path.join(testDir, 'startup-late-marker');
+  const script = writeScript(
+    'startup.cjs',
+    [
+      'console.log(`native_pid=${process.pid}`)',
+      `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, String(process.pid)), 350)`,
+      'setTimeout(() => process.exit(0), 700)',
+    ].join(';')
+  );
+  const command = nodeCommand(script);
+  const positive = await execBackgroundTool.execute({ command, settle_ms: 50 }, ctx());
+  const positiveId = extractBgId(positive);
+  assert.ok(positiveId, 'startup positive returns a real process id');
+  const positiveTerminal = await waitForTerminalStatus(positiveId, 3000);
+  assert.ok(positiveTerminal, 'startup positive really completed');
+  assert.equal(positiveTerminal.status, 'exited');
+  assert.equal(positiveTerminal.exitCode, 0);
+  const nativePid = Number(fs.readFileSync(marker, 'utf8'));
+  assert.ok(nativePid > 0, 'the native script really performed the delayed mutation');
+  assert.equal(isProcessAlive(nativePid), false, 'positive native process exited');
+  fs.unlinkSync(marker);
+
+  const controller = new AbortController();
+  const cancelled = await execBackgroundTool.execute(
+    { command, settle_ms: 50 },
+    { abortSignal: controller.signal }
+  );
+  const cancelledId = extractBgId(cancelled);
+  assert.ok(cancelledId, 'cancelled startup names the actual process');
+  controller.abort();
+  const terminal = await waitForTerminalStatus(cancelledId, 3000);
+  assert.ok(terminal, 'cancelled startup reaches a real closed-stdio terminal state');
+  assert.equal(terminal.status, 'killed');
+  assert.ok(Number.isInteger(terminal.pid) && terminal.pid > 0, 'cancelled shell has a real PID');
+  assert.equal(isProcessAlive(terminal.pid), false, 'cancelled startup shell exited');
+  const logs = await execLogsTool.execute({ id: cancelledId, tail: 100 }, ctx());
+  for (const match of logs.matchAll(/\bnative_pid=(\d+)\b/g)) {
+    assert.equal(
+      isProcessAlive(Number(match[1])),
+      false,
+      'cancelled native startup process exited'
+    );
+  }
+  assert.equal(fs.existsSync(marker), false, 'cancelled startup has no late mutation');
 }
 
 console.log('  [PASS] background-exec: abort lifecycle, output capture, stop kill, safety gate');

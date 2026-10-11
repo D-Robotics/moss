@@ -218,6 +218,10 @@ process.chdir(ws);
 const config = builtinRdkDocsServerConfig('rdk-docs-mcp@0.3.0');
 const dependencyConfig = builtinRdkDocsServerConfig(await packFixture(packageDir));
 config.env = {
+  // The unsafe local-tarball install below populates npm's content cache even
+  // when its dependency resolution fails. Keep the two real installs isolated
+  // so the positive must fetch the main package as well as its dependency.
+  npm_config_cache: path.join(root, 'positive-cache'),
   npm_config_fetch_retries: '0',
   npm_config_fetch_timeout: '5000',
   npm_config_audit: 'false',
@@ -255,7 +259,11 @@ try {
     args: dependencyConfig.args,
     cwd: ws,
     startupEnvOnly: false,
-    env: { ...config.env, npm_config_userconfig: path.join(ws, '.npmrc') },
+    env: {
+      ...config.env,
+      npm_config_cache: path.join(root, 'negative-cache'),
+      npm_config_userconfig: path.join(ws, '.npmrc'),
+    },
   });
   assert.equal(fs.existsSync(ran), false, 'unsafe project cwd must not start the package');
   assert.ok(
