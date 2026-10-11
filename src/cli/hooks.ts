@@ -64,7 +64,7 @@ function runHookCommand(
   timeoutMs: number
 ): Promise<HookRunResult> {
   const shell = IS_WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/sh';
-  const args = IS_WIN ? ['/c', command] : ['-c', command];
+  const args = IS_WIN ? ['/d', '/s', '/c', `"${command}"`] : ['-c', command];
   const env = safeChildEnv({
     LANG: process.env.LANG || 'en_US.UTF-8',
     MOSS_HOOK_EVENT: payload.event,
@@ -77,6 +77,7 @@ function runHookCommand(
     env,
     timeout: timeoutMs,
     stdin: JSON.stringify(payload),
+    ...(IS_WIN ? { windowsVerbatimArguments: true } : {}),
   })
     .then(({ exitCode, stdout, stderr }) => ({ exitCode, stdout, stderr }))
     .catch((err) => {
