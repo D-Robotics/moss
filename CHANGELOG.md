@@ -1,10 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.26.1
 
 ### O88 — hooks fail closed
 
 A blocking hook that cannot start or times out now blocks instead of silently allowing. Exit codes 126/127 (and 9009 on Windows) are treated as "failed to start" and block too, so hooks that intentionally exit with these codes are now blocked.
+
+### O90 — hook timeout clamp
+
+A hook `timeoutMs` outside the supported range is clamped to the allowed bounds instead of being used as-is, and Moss prints a warning naming the hook and the value it used.
+
+### O86 — read after a file change returns real content
+
+Reading a file after it changed on disk (edit, external write, or via a symlink) now returns the current content instead of a stale "file unchanged" stub.
+
+## Unreleased
 
 ### O43 / O58 — npm one-line install
 
