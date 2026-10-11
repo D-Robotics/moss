@@ -269,7 +269,10 @@ export const writeFileTool: Tool = {
         existed = false;
       }
       if (existed) {
-        const unread = globalToolStateManager.requirePriorReadError(filePath, displayPath);
+        const unread = await globalToolStateManager.requirePriorReadError(filePath, displayPath, {
+          toolName: 'write_file',
+          workspaceDir: ctx.workspaceDir,
+        });
         if (unread) {
           return (
             `Error: ${unread} ` +
@@ -583,7 +586,10 @@ export const editFileTool: Tool = {
       }
       const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
       if (stale) return `Error: ${stale}`;
-      const unread = globalToolStateManager.requirePriorReadError(filePath, displayPath);
+      const unread = await globalToolStateManager.requirePriorReadError(filePath, displayPath, {
+        toolName: 'edit_file',
+        workspaceDir: ctx.workspaceDir,
+      });
       if (unread) return `Error: ${unread}`;
 
       const result = applyPreciseEditToContent(content, {
@@ -696,7 +702,10 @@ export const multiEditTool: Tool = {
           }
           const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
           if (stale) return `Error: edits[${i}] ${stale}`;
-          const unread = globalToolStateManager.requirePriorReadError(filePath, displayPath);
+          const unread = await globalToolStateManager.requirePriorReadError(filePath, displayPath, {
+            toolName: 'multi_edit',
+            workspaceDir: ctx.workspaceDir,
+          });
           if (unread) return `Error: edits[${i}] ${unread}`;
           buf = { displayPath, filePath, content, original: content };
           buffers.set(displayPath, buf);
@@ -799,7 +808,10 @@ export const moveFileTool: Tool = {
       // Overwriting an existing destination requires prior read (same discipline
       // as write_file on existing files) so unread content is not destroyed.
       if (destExists && input.overwrite) {
-        const unread = globalToolStateManager.requirePriorReadError(dest, destDisplay);
+        const unread = await globalToolStateManager.requirePriorReadError(dest, destDisplay, {
+          toolName: 'move_file',
+          workspaceDir: ctx.workspaceDir,
+        });
         if (unread) {
           return `Error: ${unread} Destination exists and overwrite=true — read it first or choose a new path.`;
         }

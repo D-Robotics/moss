@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises';
-import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { EXTERNAL_DIFF_DISABLED_COMMAND } from '../utils/git-builtin-diff.js';
@@ -11,6 +10,9 @@ import { isWorkspaceTrusted } from '../utils/workspace-trust-state.js';
 import { errorMessage, isMossError, MossError } from '../errors.js';
 import { setFoldedResultListener } from '../context/tool-result-fold.js';
 import { wouldTruncateToolOutput } from '../context/tool-output-truncate.js';
+import { isCredentialLikePath, isRawApiKeyFile } from '../safety/credential-path.js';
+import { isMossCredentialPath } from '../safety/read-scope.js';
+import { presentToolOutput } from '../safety/tool-output-redact.js';
 
 export const IS_WIN = process.platform === 'win32';
 
@@ -41,6 +43,12 @@ export const FILE_UNCHANGED_TRUNCATED_STUB =
 
 /** Same cap read_file applies to a full-file body. */
 export const PARTIAL_READ_RECOVERY_MAX_CHARS = 100_000;
+
+/** Which tool is rejecting, so the attached body is sized to its output budget. */
+export interface PartialReadAttach {
+  toolName: string;
+  workspaceDir: string;
+}
 
 export class ToolStateManager {
   private readonly fileReadState = new Map<string, number>();
@@ -101,7 +109,11 @@ export class ToolStateManager {
    * A partial offset/limit page does not unlock full-file old_string matching
    * — that was a thrash hole (edit outside the paged window → miss → retry).
    */
-  requirePriorReadError(resolvedPath: string, displayPath: string): string | null {
+  async requirePriorReadError(
+    resolvedPath: string,
+    displayPath: string,
+    attach?: PartialReadAttach
+  ): Promise<string | null> {
     if (!this.hasRecorded(resolvedPath)) {
       return (
         `You must call read_file on ${displayPath} at least once before editing it. ` +
@@ -114,7 +126,9 @@ export class ToolStateManager {
         `You only read a partial window of ${displayPath} (${range}). ` +
         `Call read_file again without offset/limit (full file) before edit_file/multi_edit/apply_patch, ` +
         `so old_string can match anywhere in the file.`;
-      return base + this.partialReadRecovery(resolvedPath, displayPath);
+      return attach
+        ? base + (await this.partialReadRecovery(resolvedPath, displayPath, base, attach))
+        : base;
     }
     return null;
   }
@@ -122,36 +136,58 @@ export class ToolStateManager {
   /**
    * O97: a bare "re-read the full file" rejection made models thrash the edit
    * tool and finally bypass it with `node -e`. The edit is still rejected (the
-   * read-scope check is unchanged), but the rejection itself now carries the
-   * full current file — the same body and size cap read_file would serve — and
-   * records that full read, so the next edit can match. Files over the cap
-   * get explicit guidance instead and stay locked.
+   * read-scope check is unchanged), but the rejection now carries the full
+   * current file exactly as read_file would present it (same line numbers,
+   * same `presentToolOutput` redaction as a `read_file` result) and records a
+   * full read through `recordFileState` (the same call read_file makes), so
+   * the next edit can match.
+   *
+   * Nothing is attached (and the path stays locked) when: the file is a
+   * credential-like file (`.env`, `.apikey-key`, Moss config — stricter than
+   * read_file, which serves a redacted view), the file is over read_file's
+   * full-body cap, or the message would not fit the calling tool's output
+   * budget (the loop would cut the middle and the "full read" would be a lie).
    */
-  private partialReadRecovery(resolvedPath: string, displayPath: string): string {
+  private async partialReadRecovery(
+    resolvedPath: string,
+    displayPath: string,
+    base: string,
+    attach: PartialReadAttach
+  ): Promise<string> {
+    const reread =
+      ` Do not rewrite it with shell commands: call read_file on ${displayPath} without offset/limit ` +
+      `(that unlocks editing), then retry with an exact old_string.`;
+    if (
+      isRawApiKeyFile(resolvedPath) ||
+      isCredentialLikePath(resolvedPath) ||
+      isMossCredentialPath(resolvedPath)
+    ) {
+      return ` Contents are not attached for credential files.${reread}`;
+    }
     let content: string;
-    let mtimeMs: number;
     try {
-      content = readFileSync(resolvedPath, 'utf-8');
-      mtimeMs = statSync(resolvedPath).mtimeMs;
+      content = await fs.readFile(resolvedPath, 'utf-8');
     } catch {
       return '';
     }
-    const body = withLineNumbers(content);
-    if (content.length > PARTIAL_READ_RECOVERY_MAX_CHARS || wouldTruncateToolOutput('read', body)) {
-      return (
-        ` The file is too large to include here (${content.length} chars). ` +
-        `Do not rewrite it with shell commands: call read_file on ${displayPath} without offset/limit ` +
-        `(that unlocks editing), then use an old_string with enough surrounding context from the region you paged.`
-      );
+    if (content.length > PARTIAL_READ_RECOVERY_MAX_CHARS) {
+      return ` The file is too large to attach here (${content.length} chars).${reread}`;
     }
-    this.fileReadState.set(resolvedPath, mtimeMs);
-    this.fileReadRange.set(resolvedPath, 'full');
-    this.fileReadTruncated.set(resolvedPath, false);
-    return (
-      ` The full current content of ${displayPath} is included below and now counts as a full read — ` +
+    const presented = presentToolOutput({
+      toolName: 'read_file',
+      input: { path: resolvedPath },
+      text: withLineNumbers(content),
+      workspaceDir: attach.workspaceDir,
+    });
+    const tail =
+      ` The full current content of ${displayPath} is attached below and now counts as a full read — ` +
       `retry the edit against it (line-number prefixes are NOT file content).\n` +
-      `[full file: ${displayPath}]\n${body}`
-    );
+      `[full file: ${displayPath}]\n${presented}`;
+    if (wouldTruncateToolOutput(attach.toolName, `Error: ${base}${tail}`)) {
+      return ` The file is too large to attach within this tool's output budget (${content.length} chars).${reread}`;
+    }
+    await this.recordFileState(resolvedPath, 'full', false);
+    return tail;
   }
 
   async staleWriteError(resolvedPath: string, displayPath: string): Promise<string | null> {

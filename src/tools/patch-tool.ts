@@ -117,7 +117,10 @@ export const applyPatchTool: Tool = {
           }
           // Existing files: require prior read_file (Claude FileEdit parity).
           if (state.originalExists) {
-            const unread = globalToolStateManager.requirePriorReadError(filePath, hunk.path);
+            const unread = await globalToolStateManager.requirePriorReadError(filePath, hunk.path, {
+              toolName: 'apply_patch',
+              workspaceDir: ctx.workspaceDir,
+            });
             if (unread) {
               return `Patch rejected for ${hunk.path}: ${unread}`;
             }
@@ -140,7 +143,10 @@ export const applyPatchTool: Tool = {
         // Existing files (or files already staged in this patch as content): require
         // a prior read_file before the first update of an on-disk file.
         if (state.originalExists && state.nextContent === undefined) {
-          const unread = globalToolStateManager.requirePriorReadError(filePath, hunk.path);
+          const unread = await globalToolStateManager.requirePriorReadError(filePath, hunk.path, {
+            toolName: 'apply_patch',
+            workspaceDir: ctx.workspaceDir,
+          });
           if (unread) {
             return `Patch rejected for ${hunk.path}: ${unread}`;
           }

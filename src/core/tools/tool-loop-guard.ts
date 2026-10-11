@@ -1,5 +1,7 @@
 import { stableSerializeToolInput } from './tool-idempotent-replay.js';
 import { readEnv } from '../../utils/env-compat.js';
+import path from 'node:path';
+import { canonicalPath, findProtectedWrite } from '../../safety/shell-write-detect.js';
 
 const SINGLE_TOOL_LIMIT_EXEMPT_TOOLS = new Set([
   'read_file',
@@ -107,6 +109,18 @@ export type ToolLoopGuardState = {
    * go stale — Claude Code "read then edit" discipline at the loop layer.
    */
   byEditPathFailure: Map<string, number>;
+  /**
+   * O97: paths whose edit/write was just refused for read scope (partial
+   * window, file content not attached). While locked, an exec that would write
+   * the same file is blocked too, so the model cannot route around the edit
+   * tool with `node -e` / `sed -i` / redirects. Cleared by a full read_file of
+   * the path or a successful edit/write to it.
+   */
+  readScopeLockedPaths: Set<string>;
+  /** O97: thrash counter key → path as the model wrote it (for realpath compare). */
+  editPathRaw?: Map<string, string>;
+  /** Workspace the run's tools resolve relative paths against. */
+  workspaceDir?: string;
 
   webSearchQueries: Set<string>;
   freshNewsSearchRequested: boolean;
@@ -184,13 +198,81 @@ export function collectSurgicalEditPathKeys(input?: Record<string, unknown>): st
   return keys;
 }
 
-export function createToolLoopGuardState(): ToolLoopGuardState {
+/** Edit/write tools whose read-scope refusal locks the path for shell writes too. */
+const FILE_MUTATION_TOOLS = new Set([
+  'edit_file',
+  'multi_edit',
+  'apply_patch',
+  'write_file',
+  'move_file',
+]);
+
+const SHELL_TOOLS = new Set(['exec', 'exec_background', 'bash']);
+
+function rawMutationPaths(toolName: string, input?: Record<string, unknown>): string[] {
+  if (!input) return [];
+  const out: string[] = [];
+  if (typeof input.path === 'string' && input.path.trim()) out.push(input.path);
+  if (Array.isArray(input.edits)) {
+    for (const e of input.edits) {
+      const p = (e as { path?: unknown } | null)?.path;
+      if (typeof p === 'string' && p.trim()) out.push(p);
+    }
+  }
+  if (typeof input.patch === 'string') {
+    for (const m of input.patch.matchAll(/\*\*\*\s+(?:Update|Delete|Add)\s+File:\s*(\S+)/gi)) {
+      if (m[1]) out.push(m[1]);
+    }
+  }
+  if (toolName === 'move_file' && typeof input.destination === 'string')
+    out.push(input.destination);
+  return out;
+}
+
+function lockKey(state: ToolLoopGuardState, raw: string): string {
+  return canonicalPath(path.resolve(state.workspaceDir ?? process.cwd(), raw));
+}
+
+function trackReadScopeLocks(
+  state: ToolLoopGuardState,
+  toolName: string,
+  isError: boolean,
+  resultText: string | undefined,
+  input: Record<string, unknown> | undefined
+): void {
+  const locks = state.readScopeLockedPaths;
+  if (!locks) return;
+  if (toolName === 'read_file') {
+    const full = input && input.offset === undefined && input.limit === undefined;
+    if (full && !isError && typeof input?.path === 'string') {
+      locks.delete(lockKey(state, input.path));
+    }
+    return;
+  }
+  if (!FILE_MUTATION_TOOLS.has(toolName)) return;
+  const text = resultText ?? '';
+  const refused = /You only read a partial window of /.test(text);
+  for (const raw of rawMutationPaths(toolName, input)) {
+    const key = lockKey(state, raw);
+    // Remember the real path behind the (lower-cased) thrash counter key.
+    state.editPathRaw?.set(normalizePathKey(raw), raw);
+    if (refused && !text.includes('[full file: ')) locks.add(key);
+    else if (!isError && !refused) locks.delete(key);
+  }
+}
+
+export function createToolLoopGuardState(
+  options: { workspaceDir?: string } = {}
+): ToolLoopGuardState {
   return {
+    ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
+    editPathRaw: new Map(),
     bySignature: new Map(),
     byTool: new Map(),
     byToolFailure: new Map(),
     byWebFetchUrlFailure: new Map(),
     byEditPathFailure: new Map(),
+    readScopeLockedPaths: new Set(),
     webSearchQueries: new Set(),
     freshNewsSearchRequested: false,
     hasSufficientRssNewsEvidence: false,
@@ -252,6 +334,7 @@ export function recordToolLoopOutcome(
   ) {
     state.hasSufficientRssNewsEvidence = true;
   }
+  trackReadScopeLocks(state, toolName, isError, resultText, input);
   if (!isError && !isSoftToolFailureResult(resultText)) return;
   // web_fetch failures are tracked per-URL (see ToolLoopGuardState) so that a
   // failed host doesn't poison the tool's reputation for unrelated hosts.
@@ -305,6 +388,14 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
       'This specific URL is not returning usable results — STOP retrying THIS URL.',
       'Other URLs are still fine: you may web_fetch a different source, or answer with the evidence already gathered.',
       'Never invent, assume, or describe the content you could not actually fetch.',
+    ].join(' ');
+  }
+  if (/^shell write to edit-locked file /.test(reason)) {
+    const file = reason.slice('shell write to edit-locked file '.length);
+    return [
+      `已拦截 / Blocked: ${toolName} would write ${file}, which the edit tools just refused (read scope or repeated failed edits).`,
+      'Writing it through the shell (node -e, python -c, sed -i, redirects, tee, cp/mv) is not allowed while it is locked.',
+      `Next: call read_file on ${file} without offset/limit, then use edit_file/multi_edit with exact current text.`,
     ].join(' ');
   }
   if (/^edit thrash on /.test(reason)) {
@@ -594,6 +685,29 @@ export function shouldShortCircuitToolCall(
       if (pathFails >= editPathFailureLimit) {
         return `edit thrash on ${pathKey}: ${pathFails} failed surgical edit(s) this turn`;
       }
+    }
+  }
+
+  // O97: once the edit tools refused a path (read scope, or edit thrash), an
+  // exec must not write that same file behind their back.
+  if (SHELL_TOOLS.has(toolName) && typeof input.command === 'string') {
+    const locked = new Set(state.readScopeLockedPaths ?? []);
+    const display = new Map<string, string>();
+    if (editPathFailureLimit !== undefined) {
+      for (const [key, fails] of state.byEditPathFailure) {
+        if (fails < editPathFailureLimit) continue;
+        const raw = state.editPathRaw?.get(key) ?? key;
+        const k = lockKey(state, raw);
+        locked.add(k);
+        display.set(k, raw);
+      }
+    }
+    const base = state.workspaceDir ?? process.cwd();
+    const cwd = typeof input.cwd === 'string' && input.cwd ? path.resolve(base, input.cwd) : base;
+    const hit = findProtectedWrite(input.command, cwd, locked);
+    if (hit) {
+      const shown = display.get(hit) ?? path.relative(base, hit) ?? hit;
+      return `shell write to edit-locked file ${shown || hit}`;
     }
   }
 
