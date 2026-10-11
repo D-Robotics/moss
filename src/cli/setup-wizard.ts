@@ -327,6 +327,7 @@ export function renderAuthStatus(
         'guardrails',
         'maxTurns',
         'contextTokens',
+        'reasoningBudget',
         'compaction',
         'modelTiers',
         'warnings',

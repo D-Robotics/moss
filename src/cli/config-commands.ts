@@ -31,6 +31,7 @@ import { guessModelProvider, print, renderAuthStatus, sanitizeBaseUrl } from './
 import { withoutSecret } from './config-snapshot.js';
 import { parsePermissionRuleSpec } from './permission-rules.js';
 import { parseCliInteractionMode } from './interaction-mode.js';
+import { untrustedFolderLine } from './workspace-trust.js';
 
 function serializeResolvedConfig(
   resolved: ReturnType<typeof resolveCliConfig>
@@ -602,6 +603,8 @@ export function renderConfigHelp(zh = false): string {
     '  moss config set guardrails.input.redactPatterns SECRET=[^\\\\s]+',
     '  moss config set agent.maxTurns 96',
     '  moss config set agent.contextTokens 200000',
+    '  # agent.reasoningBudget — how hard the model thinks (off|adaptive|high).',
+    '  # Higher values spend more tokens, take longer, and cost more; off is cheapest/fastest.',
     '  moss config set agent.reasoningBudget high      # off|adaptive|high',
     '  moss config set agent.compaction.reserveTokens 20000',
     '  moss config set rdkDocs false',
@@ -656,6 +659,11 @@ function renderConfigHelpZh(): string {
     '  `moss config set baseUrl https://your-gateway.example`   # /v1 可写可不写（https://主机/v1 也可以）；不必带 /chat/completions',
     '  `moss config set rdkDocs false`',
     '  `moss config set rdkDocs.package ../rdk-docs-mcp`',
+    '  `moss config set agent.maxTurns 96`',
+    '  `moss config set agent.contextTokens 200000`',
+    '  # agent.reasoningBudget — 推理强度（可选值 off|adaptive|high）。',
+    '  # 越高越慢、消耗越多、费用越高；off 最快最省。不受信项目里的该项会被忽略。',
+    '  `moss config set agent.reasoningBudget high`   # 可选值：off|adaptive|high',
     '  `moss config set language auto|en|zh`   # 只写用户配置（不能 --project，项目 .env 也不能设置）',
     '  # 界面语言优先级：--lang > MOSS_LANG > `language` > 系统区域。auto 仅在区域以 zh 开头时用中文。',
   ].join('\n');
@@ -666,7 +674,15 @@ export function runConfigShow(
   options: { json?: boolean; overrides?: CliConfigOverrides } = {}
 ): void {
   const overrides = options.overrides ?? {};
+  // Tip when an untrusted project tried to set routing fields (incl. reasoningBudget).
+  const loaded = loadCliConfigFile(process.env, process.argv.slice(2), startDir);
+  const ignored = loaded.ignoredProjectRouting ?? [];
+  if (ignored.length > 0) {
+    const line = untrustedFolderLine(ignored, isZhLocale());
+    if (line) console.error(line);
+  }
   if (options.json) {
+    // Pass undefined so renderConfigJson reloads with fieldSources intact.
     standardOutput.write(`${renderConfigJson(undefined, process.env, startDir, overrides)}\n`);
     return;
   }
@@ -1268,6 +1284,16 @@ function applyConfigSetPair(
       return { ok: false, messages: [errorMessage(err)] };
     }
   } else if (key === 'agent.reasoningBudget') {
+    if (!value.trim()) {
+      return {
+        ok: false,
+        messages: [
+          isZhLocale()
+            ? `agent.reasoningBudget：值不能为空。可选值：${REASONING_BUDGET_VALUES.join('、')}`
+            : `agent.reasoningBudget: value must not be empty. Supported values: ${REASONING_BUDGET_VALUES.join(', ')}`,
+        ],
+      };
+    }
     const budget = parseReasoningBudget(value);
     if (!budget) {
       return {
@@ -1342,9 +1368,17 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
       return;
     }
     if (!value) {
-      print(
-        `config ${key}: value must not be empty. Run \`moss config --help\` for supported keys and usage.`
-      );
+      if (key === 'agent.reasoningBudget') {
+        print(
+          isZhLocale()
+            ? `config agent.reasoningBudget：值不能为空。可选值：${REASONING_BUDGET_VALUES.join('、')}`
+            : `config agent.reasoningBudget: value must not be empty. Supported values: ${REASONING_BUDGET_VALUES.join(', ')}`
+        );
+      } else {
+        print(
+          `config ${key}: value must not be empty. Run \`moss config --help\` for supported keys and usage.`
+        );
+      }
       process.exitCode = 1;
       return;
     }

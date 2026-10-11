@@ -88,6 +88,7 @@ const ZH_FIELD: Record<string, string> = {
   guardrails: '护栏',
   'max turns': '最大轮次',
   'context tokens': '上下文词元',
+  'reasoning budget': '推理强度',
   'max output': '最大输出',
   compaction: '压缩',
   'model tiers': '模型分级',

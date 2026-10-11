@@ -51,7 +51,7 @@ import {
   recordDotenvOrigin,
 } from '../utils/startup-env.js';
 import { officialEnvOffers } from './env-credentials.js';
-import { setupCopy } from './cli-locale.js';
+import { isZhLocale, setupCopy } from './cli-locale.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
 import type { PricingConfig } from './model-pricing.js';
 import type { StatusLineConfig } from './status-line.js';
@@ -671,6 +671,19 @@ export function parseReasoningBudget(value: unknown): ReasoningBudget | undefine
     : undefined;
 }
 
+const warnedInvalidReasoningBudgetEnv = new Set<string>();
+
+/** MOSS_LANG-style: warn once per process for an invalid MOSS_REASONING_BUDGET. */
+function warnInvalidReasoningBudgetEnv(raw: string): void {
+  if (warnedInvalidReasoningBudgetEnv.has(raw)) return;
+  warnedInvalidReasoningBudgetEnv.add(raw);
+  const zh = isZhLocale();
+  const msg = zh
+    ? `[moss] MOSS_REASONING_BUDGET 只能是 off、adaptive 或 high，收到「${raw}」，已回退到配置或默认 adaptive。`
+    : `[moss] MOSS_REASONING_BUDGET must be off|adaptive|high, got "${raw}"; falling back to config or default adaptive.`;
+  console.error(msg);
+}
+
 function mergeAgentRuntimeConfig(
   userAgent: ConfigFile['agent'],
   projectAgent: ConfigFile['agent']
@@ -723,6 +736,9 @@ export function listProjectRoutingConfigFields(project: ConfigFile): string[] {
   if (project.agent?.maxOutputTokens !== undefined) ignored.push('maxOutputTokens');
   const models = project.agent?.models;
   if (models && Object.keys(models).length > 0) ignored.push('models');
+  // Untrusted folders cannot raise (or set) reasoning intensity — same
+  // stance as modelTiers / maxOutputTokens: drop any project value.
+  if (project.agent?.reasoningBudget !== undefined) ignored.push('reasoningBudget');
   return ignored;
 }
 
@@ -733,7 +749,13 @@ function omitProjectRoutingConfig(project: ConfigFile): ConfigFile {
     // A project cap can force a truncation or reserve most of the context
     // window. An untrusted folder does not get to set either knob. User
     // config, the process environment, and a trusted project still can.
-    const { modelTiers: _tiers, maxOutputTokens: _cap, models: _models, ...rest } = next.agent;
+    const {
+      modelTiers: _tiers,
+      maxOutputTokens: _cap,
+      models: _models,
+      reasoningBudget: _rb,
+      ...rest
+    } = next.agent;
     next.agent = Object.keys(rest).length > 0 ? rest : undefined;
   }
   return next;
@@ -1552,6 +1574,8 @@ export interface ResolvedCliConfig {
   /** v0.10 W4 (config agent.reasoningBudget + MOSS_REASONING_BUDGET env). */
   reasoningBudget?: 'off' | 'adaptive' | 'high';
   reasoningBudgetSource?: string;
+  /** Set when MOSS_REASONING_BUDGET was present but not off|adaptive|high. */
+  invalidReasoningBudgetEnv?: string;
   /** v0.12 (agent.modelTiers + MOSS_MODEL_CHEAP/BALANCED/STRONG env). */
   modelTiers?: { cheap?: string; balanced?: string; strong?: string };
   modelTiersSource?: string;
@@ -1622,9 +1646,21 @@ export function auditResolvedCliConfig(
     | 'deniedTools'
     | 'deniedToolsSource'
     | 'permissions'
-  >
+  > &
+    Partial<Pick<ResolvedCliConfig, 'invalidReasoningBudgetEnv'>>
 ): CliConfigAuditWarning[] {
   const warnings: CliConfigAuditWarning[] = [];
+  if (config.invalidReasoningBudgetEnv) {
+    warnings.push({
+      code: 'reasoningBudget.env_invalid',
+      severity: 'warn',
+      source: 'MOSS_REASONING_BUDGET',
+      message: uiText(
+        `MOSS_REASONING_BUDGET "${config.invalidReasoningBudgetEnv}" is not off|adaptive|high; using config or default adaptive`,
+        `MOSS_REASONING_BUDGET「${config.invalidReasoningBudgetEnv}」不是 off|adaptive|high；已回退到配置或默认 adaptive`
+      ),
+    });
+  }
   // v0.26 audit re-check (PRD W1 告警重校): the old blanket auto-approval
   // warning would fire for every factory-default user now that full is the
   // default. The warning only fires when the auto-approval stance came from
@@ -2431,7 +2467,15 @@ export function resolveCliConfig(
   // Same precedence as agent.maxTurns / agent.contextTokens: a valid
   // MOSS_REASONING_BUDGET env wins over config agent.reasoningBudget
   // (project layer over user layer), then the runtime default (adaptive).
-  const envReasoningBudget = parseReasoningBudget(env.MOSS_REASONING_BUDGET);
+  const rawReasoningBudgetEnv = env.MOSS_REASONING_BUDGET;
+  const envReasoningBudget = parseReasoningBudget(rawReasoningBudgetEnv);
+  const invalidReasoningBudgetEnv =
+    typeof rawReasoningBudgetEnv === 'string' &&
+    rawReasoningBudgetEnv.trim() !== '' &&
+    envReasoningBudget === undefined
+      ? rawReasoningBudgetEnv.trim()
+      : undefined;
+  if (invalidReasoningBudgetEnv) warnInvalidReasoningBudgetEnv(invalidReasoningBudgetEnv);
   const configReasoningBudget = parseReasoningBudget(activeConfig.agent?.reasoningBudget);
   const reasoningBudget = envReasoningBudget ?? configReasoningBudget;
   const reasoningBudgetSource =
@@ -2549,6 +2593,7 @@ export function resolveCliConfig(
     ...(bestOfN !== undefined ? { bestOfN } : {}),
     ...(reasoningBudget ? { reasoningBudget } : {}),
     reasoningBudgetSource,
+    ...(invalidReasoningBudgetEnv ? { invalidReasoningBudgetEnv } : {}),
     ...(hasModelTiers ? { modelTiers, modelTiersSource } : { modelTiersSource }),
     compactionSettingsSource,
     configPath: configPaths?.configPath ?? resolveConfigPath(undefined, env),
