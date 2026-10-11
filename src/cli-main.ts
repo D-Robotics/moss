@@ -44,6 +44,7 @@ import {
   formatUserPromptHookContext,
   setLifecycleHookRunner,
 } from './cli/hooks.js';
+import { hookEventZhName } from './cli/hook-event-names.js';
 import {
   ancestorRoutingIgnoredLine,
   resolveFolderTrust,
@@ -948,7 +949,12 @@ async function main() {
       if (submitted.blocked) {
         return {
           approved: false,
-          reason: submitted.reason ?? 'Blocked by UserPromptSubmit hook',
+          // O91: the zh fallback names the hook in Chinese; en keeps the id.
+          reason:
+            submitted.reason ??
+            (isZhLocale()
+              ? `已拦截：${hookEventZhName('UserPromptSubmit')}钩子`
+              : 'Blocked by UserPromptSubmit hook'),
         };
       }
       if (submitted.extraContext) {

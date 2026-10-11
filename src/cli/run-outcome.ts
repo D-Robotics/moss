@@ -28,6 +28,7 @@ import {
   type VerificationCheck,
 } from './run-completion.js';
 import { protectedPathModReason } from '../safety/protected-path-snapshot.js';
+import { hookEventZhName } from './hook-event-names.js';
 
 export type { GoalVerifyResult, RunCompletionTracker, VerificationCheck };
 export {
@@ -137,11 +138,13 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
 
   if (input.blocked) {
     status = 'blocked';
-    const reason = input.blockedReason?.trim() || 'Stop hook blocked the run ending';
-    reasonsEn.push(reason);
-    reasonsZh.push(reason);
+    const reason = input.blockedReason?.trim();
+    reasonsEn.push(reason || 'Stop hook blocked the run ending');
+    // O91: the zh outcome line names the Stop hook with its Chinese display
+    // name instead of the bare English event id.
+    reasonsZh.push(reason || `${hookEventZhName('Stop')}钩子拦住了本次运行的结束`);
     stuckAt = 'Stop hook';
-    stuckAtZh = 'Stop 钩子';
+    stuckAtZh = `${hookEventZhName('Stop')}钩子`;
   }
 
   // O101 layer 3: protected-path post-run detection → incomplete (model

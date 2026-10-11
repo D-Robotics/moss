@@ -24,6 +24,7 @@ import {
 } from './print.js';
 import { createCliSessionKey } from './session.js';
 import { loadCliConfigFile } from './config.js';
+import { hookEventZhName } from './hook-event-names.js';
 import { configuredBaseUrl, pricingOverridesFromConfig } from './model-pricing.js';
 import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 import { acceptanceShell } from '../core/task/acceptance-command.js';
@@ -751,11 +752,18 @@ export async function runOneShot(
       ...(typeof finalResult?.result === 'string' ? { response: finalResult.result } : {}),
     });
     if (stopResult.blocked) {
-      process.stderr.write(
-        `[hooks] ${stopResult.reason ?? 'Stop hook blocked the run ending.'}${
-          options.headless ? '' : ' (interactive mode reports; host may force-continue)'
-        }\n`
-      );
+      // O91: the zh fallback names the Stop hook with its Chinese display name
+      // instead of the bare English event id; behavior and exit codes unchanged.
+      const zh = isZhLocale();
+      const fallback = zh
+        ? `${hookEventZhName('Stop')}钩子拦住了本次运行的结束。`
+        : 'Stop hook blocked the run ending.';
+      const suffix = options.headless
+        ? ''
+        : zh
+          ? '（交互模式仅报告；宿主可能强制继续）'
+          : ' (interactive mode reports; host may force-continue)';
+      process.stderr.write(`[hooks] ${stopResult.reason ?? fallback}${suffix}\n`);
     }
   } catch {
     stopResult = { blocked: false };
