@@ -205,7 +205,7 @@ export const applyPatchTool: Tool = {
       // there is nothing to stat — recordFileState would no-op anyway.
       for (const state of applied) {
         if (state.nextContent !== null) {
-          await globalToolStateManager.recordFileState(state.path);
+          await globalToolStateManager.recordMutation(state.path);
         }
       }
 

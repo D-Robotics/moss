@@ -1,5 +1,6 @@
 import type { Context as PiContext, Model } from '../../provider/pi-ai-types.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
+import { notifyReadContextDropped } from '../../context/read-context-events.js';
 import type { Message } from '../session/session-jsonl.js';
 import type { Tool } from '../tools/tool-types.js';
 import type { CompactHookRegistry } from './compact-hooks.js';
@@ -386,6 +387,9 @@ export async function prepareTurnContext(
       pruneResult = { messages: currentMessages, droppedMessages: [] };
     }
   }
+
+  // O86: pruned history drops earlier read bodies from what the model sees.
+  if (pruneResult.droppedMessages.length > 0) notifyReadContextDropped(null);
 
   let messagesForModel = selectMessagesForModel({
     pendingToolResultFollowUp,
