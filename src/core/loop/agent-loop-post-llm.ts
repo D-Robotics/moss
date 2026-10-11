@@ -4,7 +4,7 @@ import { isNudgeDisabled } from './nudges/disable.js';
 export type OutputLimitContinuationMode = 'text' | 'thinking' | 'tool';
 
 export type PostLlmAction =
-  | { kind: 'thinking_retry'; systemText: string }
+  | { kind: 'thinking_retry'; systemText: string; reasoningOverride?: 'low' | 'off' }
   | { kind: 'thinking_only_complete' }
   | { kind: 'continuation'; systemText: string; mode: OutputLimitContinuationMode }
   | { kind: 'output_limit_exhausted' }
@@ -31,10 +31,32 @@ export interface PostLlmContext {
   turns: number;
   shouldNudge: boolean;
   abortAborted: boolean;
+  /** Provider id of the active model (O13: per-provider thinking-only recovery). */
+  provider?: string;
+  modelId?: string;
 }
 
 /** Consecutive reasoning-only turns that get another chance before the run stops. */
-export const THINKING_ONLY_RETRY_BUDGET = 1;
+export const THINKING_ONLY_RETRY_BUDGET = 2;
+
+/**
+ * O13: how the next request changes after a reasoning-only turn.
+ * Attempt 0 lowers reasoning to 'low'; attempt 1 turns it off where the
+ * provider supports that (glm/zai, deepseek, qwen thinking toggles). Providers
+ * whose models cannot disable reasoning keep the text nudge only.
+ */
+// Matched against provider id and model id: glm is usually served through an
+// OpenAI-compatible gateway, so the provider id alone does not identify it.
+const REASONING_OFF_RE = /(^|[/:_-])(zai|zhipu|glm|deepseek|qwen|dashscope|kimi|moonshot)/i;
+export function thinkingOnlyReasoningOverride(
+  provider: string | undefined,
+  attempt: number,
+  modelId?: string
+): 'low' | 'off' {
+  if (attempt <= 0) return 'low';
+  const key = `${provider ?? ''}/${modelId ?? ''}`;
+  return REASONING_OFF_RE.test(key) ? 'off' : 'low';
+}
 
 export function nextThinkingOnlyRetryAttempts(action: PostLlmAction, current: number): number {
   if (action.kind === 'thinking_retry') return current + 1;
@@ -88,8 +110,14 @@ export function decidePostLlmAction(ctx: PostLlmContext): PostLlmAction {
       ctx.turns < ctx.maxTurns &&
       !ctx.abortAborted
     ) {
+      const reasoningOverride = thinkingOnlyReasoningOverride(
+        ctx.provider,
+        ctx.postToolThinkingOnlyRetryAttempts,
+        ctx.modelId
+      );
       return {
         kind: 'thinking_retry',
+        reasoningOverride,
         systemText:
           ctx.totalToolCalls > 0
             ? '[System] Your previous turn produced only private reasoning and no tool call. ' +
