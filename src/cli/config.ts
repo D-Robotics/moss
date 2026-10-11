@@ -330,6 +330,9 @@ export interface HookCommandConfig {
    * non-zero exit.
    */
   format?: 'claude';
+
+  /** Config file this hook came from (set at load time; shown in failure notices). */
+  source?: string;
 }
 
 export interface HooksConfig {

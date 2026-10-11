@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
@@ -9,6 +10,7 @@ import { safeChildEnv } from '../utils/safe-child-env.js';
 import { isWorkspaceTrusted } from '../utils/workspace-trust-state.js';
 import { errorMessage, isMossError, MossError } from '../errors.js';
 import { setFoldedResultListener } from '../context/tool-result-fold.js';
+import { onReadContextDropped } from '../context/read-context-events.js';
 
 export const IS_WIN = process.platform === 'win32';
 
@@ -43,6 +45,26 @@ export class ToolStateManager {
   private readonly fileReadRange = new Map<string, string>();
   /** Whether the last served window was elided by the tool output budget. */
   private readonly fileReadTruncated = new Map<string, boolean>();
+  /**
+   * O86: paths last recorded by a write/edit/patch/move, not by read_file. The
+   * earlier read body is replaced by STALE_READ_PLACEHOLDER after a mutation,
+   * so the next read must serve real content, not "refer to the earlier read".
+   */
+  private readonly fileMutatedSinceRead = new Set<string>();
+  /**
+   * O86: content hash at the last record. The reuse stub is served only when
+   * the bytes on disk still hash the same — mtime alone misses same-tick,
+   * same-size shell edits and edits made through another path or agent.
+   */
+  private readonly fileReadHash = new Map<string, string>();
+  /** O86: paths whose earlier read body left the model context (compaction/elision). */
+  private readonly fileReadDropped = new Set<string>();
+
+  /** Record state after a successful mutation (keeps the full-read scope). */
+  async recordMutation(resolvedPath: string): Promise<void> {
+    await this.recordFileState(resolvedPath);
+    if (this.fileReadState.has(resolvedPath)) this.fileMutatedSinceRead.add(resolvedPath);
+  }
 
   async recordFileState(resolvedPath: string, rangeKey = 'full', truncated = false): Promise<void> {
     try {
@@ -50,6 +72,11 @@ export class ToolStateManager {
       this.fileReadState.set(resolvedPath, st.mtimeMs);
       this.fileReadRange.set(resolvedPath, rangeKey);
       this.fileReadTruncated.set(resolvedPath, truncated);
+      this.fileMutatedSinceRead.delete(resolvedPath);
+      this.fileReadDropped.delete(resolvedPath);
+      const hash = await hashFile(resolvedPath);
+      if (hash) this.fileReadHash.set(resolvedPath, hash);
+      else this.fileReadHash.delete(resolvedPath);
     } catch {
       // File may not exist yet; ignore
     }
@@ -80,6 +107,8 @@ export class ToolStateManager {
   ): Promise<'miss' | 'fresh' | 'truncated'> {
     const seen = this.fileReadState.get(resolvedPath);
     if (seen === undefined) return 'miss';
+    if (this.fileMutatedSinceRead.has(resolvedPath)) return 'miss';
+    if (this.fileReadDropped.has(resolvedPath)) return 'miss';
     if ((this.fileReadRange.get(resolvedPath) ?? 'full') !== rangeKey) return 'miss';
     try {
       const current = (await fs.stat(resolvedPath)).mtimeMs;
@@ -87,6 +116,8 @@ export class ToolStateManager {
     } catch {
       return 'miss';
     }
+    const recorded = this.fileReadHash.get(resolvedPath);
+    if (!recorded || recorded !== (await hashFile(resolvedPath))) return 'miss';
     return this.fileReadTruncated.get(resolvedPath) ? 'truncated' : 'fresh';
   }
 
@@ -137,6 +168,29 @@ export class ToolStateManager {
     this.fileReadState.clear();
     this.fileReadRange.clear();
     this.fileReadTruncated.clear();
+    this.fileMutatedSinceRead.clear();
+    this.fileReadHash.clear();
+    this.fileReadDropped.clear();
+  }
+
+  /** O86: earlier read bodies left context; `null` = all paths. */
+  markReadContextDropped(pathHint: string | null): void {
+    if (pathHint === null) {
+      for (const key of this.fileReadState.keys()) this.fileReadDropped.add(key);
+      return;
+    }
+    const hint = pathHint.replaceAll('\\', '/');
+    if (!hint) return;
+    for (const key of this.fileReadState.keys()) {
+      const norm = key.replaceAll('\\', '/');
+      if (
+        norm === hint ||
+        norm.endsWith(`/${hint.replace(/^\.\//, '')}`) ||
+        hint.endsWith(`/${norm}`)
+      ) {
+        this.fileReadDropped.add(key);
+      }
+    }
   }
 
   /**
@@ -148,6 +202,7 @@ export class ToolStateManager {
     this.fileReadState.delete(resolvedPath);
     this.fileReadRange.delete(resolvedPath);
     this.fileReadTruncated.delete(resolvedPath);
+    this.fileReadHash.delete(resolvedPath);
   }
 
   /**
@@ -214,6 +269,28 @@ export async function findSimilarFileName(
   }
 }
 
+/**
+ * O86: files larger than this are never hashed, so they never get the
+ * "unchanged" reuse stub — every read returns real content. 2 MiB keeps the
+ * extra pre-stub hash to a few milliseconds of local IO, while any file this
+ * big is far beyond what one read result can usefully carry anyway, so the
+ * stub saves little and the safe answer (real content) costs little.
+ * @public
+ */
+export const READ_REUSE_HASH_MAX_BYTES = 2 * 1024 * 1024;
+
+async function hashFile(resolvedPath: string): Promise<string | undefined> {
+  try {
+    const st = await fs.stat(resolvedPath);
+    if (st.size > READ_REUSE_HASH_MAX_BYTES) return undefined;
+    return createHash('sha256')
+      .update(await fs.readFile(resolvedPath))
+      .digest('hex');
+  } catch {
+    return undefined;
+  }
+}
+
 // Global instance for now; enables future injection per agent/session
 export const globalToolStateManager = new ToolStateManager();
 
@@ -233,6 +310,8 @@ setFoldedResultListener((toolName, input) => {
   if (!hint) return;
   globalToolStateManager.markFoldedReadTruncated(hint);
 });
+
+onReadContextDropped((hint) => globalToolStateManager.markReadContextDropped(hint));
 
 /**
  * Detect whether captured stdout looks like binary data (e.g. `cat /bin/ls`).

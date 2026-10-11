@@ -171,7 +171,7 @@ function readHooksFile(filePath: string): HooksConfig {
   if (!hooks) return {};
   const parsed: HooksConfig = {};
   for (const key of HOOK_EVENT_KEYS) {
-    const list = hooksFromEvent(hooks[key]);
+    const list = hooksFromEvent(hooks[key]).map((hook) => ({ ...hook, source: filePath }));
     if (list.length > 0) parsed[key] = list;
   }
   return parsed;

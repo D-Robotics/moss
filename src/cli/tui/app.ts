@@ -245,6 +245,7 @@ import {
   TONE,
   type TuiThemeName,
 } from './theme.js';
+import { createOsc11ReplyFilter } from './osc-reply-filter.js';
 import { caretLine, externalEditorArgs, splitEditorCommand } from './external-editor.js';
 import {
   COMPOSER_MAX_ROWS,
@@ -2748,15 +2749,19 @@ export function TuiAppRoot({
     [finishFirstRun, handle, options.locale]
   );
 
+  const osc11FilterRef = useRef(createOsc11ReplyFilter());
   useInput((chunk, key) => {
-    const osc = /\]11;([^\u0007\u001b]*)/.exec(chunk);
-    if (osc && !themeLockedByEnv() && !process.env.MOSS_TUI_THEME) {
-      const detected = themeFromOsc11(osc[1] ?? '');
+    const fed = osc11FilterRef.current.feed(chunk);
+    if (fed.body !== undefined && !themeLockedByEnv() && !process.env.MOSS_TUI_THEME) {
+      const detected = themeFromOsc11(fed.body);
       if (detected) {
         setTuiTheme(detected);
         forceUpdate();
       }
-      return;
+    }
+    if (fed.passthrough !== chunk) {
+      chunk = fed.passthrough;
+      if (chunk.length === 0) return;
     }
     if (fullscreen) {
       const mouseEvents = mouseEventsInChunk(chunk);

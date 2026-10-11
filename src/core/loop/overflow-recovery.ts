@@ -1,5 +1,6 @@
 import type { Message } from '../session/session-jsonl.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
+import { notifyReadContextDropped } from '../../context/read-context-events.js';
 import { buildCompactionCheckpointOutline, type CompactHookRegistry } from './compact-hooks.js';
 import {
   invalidateStaleReadToolResults,
@@ -455,6 +456,7 @@ export async function runOverflowRecovery(
           if (overflowPrep.messages?.length) {
             await persistMessages(overflowPrep.messages);
             currentMessages.splice(0, currentMessages.length, ...overflowPrep.messages);
+            notifyReadContextDropped(null);
           }
           state.contextCompactions++;
           markLlmCompactionSucceeded(state);

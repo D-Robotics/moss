@@ -31,7 +31,28 @@ package.json 已 0.13.0）。v0.14–v0.20 期间欠账扩大：代码交付到 
 
 选择后者：证据不足时缩小主张，而不是补齐文字。
 
-## 当前主张（2026-10-08，v0.26.0）
+## 当前主张（2026-10-12，v0.26.1）
+
+- **版本**：`0.26.1`；tag `v0.26.1`。该版本是 **npm 首发版**：`@rdk-moss/agent` 此前 npm latest
+  停在 0.6.0（2026-07-19），0.26.0 只有仓内 tag、从未发布。内容 = v0.26.0 全部能力（权限模式引擎 +
+  规则引擎，见下节）叠加三笔修复：O86 读后编辑诚实度（PR #90，QA 独立复核 + 加固测试 6dc8f7f3 后由
+  Owner 合入）、O90 hooks timeoutMs 钳制（PR #89）、TUI OSC 11 应答分片泄漏进 composer
+  （3091d213，状态机重组应答）。
+- **已跑、可主张**：
+  - `npm run verify`：format/lint/typecheck + 346 个 spec 文件 + PTY 冒烟全绿。该验证树与 tag
+    `v0.26.1`（8d20627c，PR #91 合并点）的**代码零差异**（树间 diff 仅 CHANGELOG / 本文件 /
+    package-lock 文本）；`npm publish` 的 `prepublishOnly` 在发布时再跑一次完整 verify 作为发布门。
+  - `npm run examples`：三例实跑通过（headless-run / repl-host / custom-tool-approval，含审批
+    ALLOW/DENY 审计轨迹）。
+  - TUI OSC 11 修复红绿取证（PTY + pyte，`scratch/tui-drive.py` raw chunks）：修复前注入分片应答
+    （`\x1b]11` + `;rgb:ffff/ffff/ffff\x07`）在 composer 复现 `❯ ]11;rgb:ffff/ffff/ffff`；修复后同一
+    探针 composer 干净、后续键入正常、整体中应答同样吸收（截图不入库）。
+  - 发布后冒烟：`npm install -g @rdk-moss/agent@latest` 实装并跑 `moss --version` / `--help`（发布动作
+    完成后立即执行，结果回填本节）。
+- **未执行、因此不主张**：真机（非 in-process SSH）设备闭环；SWE-bench/Terminal-Bench/全量 bench
+  复跑（同 v0.23 口径）；Windows/macOS/Linux 三平台安装矩阵（仅发布后本机冒烟）。
+
+## 上一版主张（2026-10-08，v0.26.0）
 
 - **版本**：`0.26.0`。该版本在 v0.25（只读 fleet + TUI 双语）之上交付权限模型重构（v0.26 计划见
   `docs/superpowers/plans/2026-10-08-v026-permission-model.md`，系统设计见同目录
