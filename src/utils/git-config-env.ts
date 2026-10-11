@@ -136,7 +136,12 @@ function hooksDirHasExecutable(dir: string): boolean {
   return false;
 }
 
+/**
+ * Windows has no exec bits and Git for Windows runs any `#!` hook file, so on
+ * win32 an untrusted workspace always gets `core.hooksPath` pointed at NUL.
+ */
 function repoHasExecutableHooks(layout: GitLayout): boolean {
+  if (process.platform === 'win32') return true;
   return hookDirs(layout).some(hooksDirHasExecutable);
 }
 
