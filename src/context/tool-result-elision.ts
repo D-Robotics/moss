@@ -8,8 +8,21 @@
  */
 import type { ContentBlock, Message } from '../contracts/messages.js';
 import { estimateTokensForText } from './tokens.js';
+import { notifyReadContextDropped } from './read-context-events.js';
 
-export const TOOL_RESULT_ELIDED_MARKER = '[earlier tool result elided';
+/**
+ * O86: no "elided" wording reaches the model — it read that as "I never saw
+ * the file". The pre-O86 marker is still recognised in resumed sessions.
+ */
+export const TOOL_RESULT_ELIDED_MARKER = '[earlier tool result shortened';
+export const LEGACY_TOOL_RESULT_ELIDED_MARKER = '[earlier tool result elided';
+
+/** True when this result is already an elision stub (current or legacy wording). */
+export function isElidedToolResult(text: string): boolean {
+  return (
+    text.includes(TOOL_RESULT_ELIDED_MARKER) || text.includes(LEGACY_TOOL_RESULT_ELIDED_MARKER)
+  );
+}
 
 export interface ToolResultElisionConfig {
   /** Large results before the pending batch to keep in full, newest first. */
@@ -46,7 +59,7 @@ function elisionStub(name: string | undefined, raw: string, cfg: ToolResultElisi
   const who = name?.trim() || 'tool';
   return (
     `${head}\n${TOOL_RESULT_ELIDED_MARKER}: ${who}, kept ${cfg.headChars}+${cfg.tailChars} of ${raw.length} chars. ` +
-    `Re-call the tool for the omitted middle.]\n${tail}`
+    `Call the tool again for the middle part if you need it.]\n${tail}`
   );
 }
 
@@ -74,7 +87,7 @@ export function elideOldLargeToolResults(
       if (!block) continue;
       const text = toolResultText(block);
       if (text === undefined) continue;
-      if (text.includes(TOOL_RESULT_ELIDED_MARKER)) continue;
+      if (isElidedToolResult(text)) continue;
       if (text.length < cfg.minChars) continue;
       candidates.push({
         msgIdx: mi,
@@ -112,5 +125,33 @@ export function elideOldLargeToolResults(
   if (elidedCount === 0) {
     return { messages, elidedCount: 0, savedChars: 0, savedTokens: 0 };
   }
+  notifyElidedReads(messages, elide);
   return { messages: next, elidedCount, savedChars, savedTokens };
+}
+
+const READ_TOOLS = new Set(['read', 'read_file']);
+
+/** O86: the read cache must stop pointing at an elided read body. */
+function notifyElidedReads(
+  messages: Message[],
+  elided: Array<{ msgIdx: number; blockIdx: number }>
+): void {
+  const ids = new Set<string>();
+  for (const row of elided) {
+    const msg = messages[row.msgIdx];
+    if (!msg || typeof msg.content === 'string') continue;
+    const block = msg.content[row.blockIdx];
+    if (block?.type === 'tool_result' && block.tool_use_id) ids.add(block.tool_use_id);
+  }
+  if (ids.size === 0) return;
+  for (const msg of messages) {
+    if (msg.role !== 'assistant' || typeof msg.content === 'string') continue;
+    for (const block of msg.content) {
+      if (block.type !== 'tool_use' || !block.id || !ids.has(block.id)) continue;
+      if (!block.name || !READ_TOOLS.has(block.name)) continue;
+      const input = (block.input ?? {}) as Record<string, unknown>;
+      const hint = typeof input.file_path === 'string' ? input.file_path : input.path;
+      if (typeof hint === 'string' && hint) notifyReadContextDropped(hint);
+    }
+  }
 }

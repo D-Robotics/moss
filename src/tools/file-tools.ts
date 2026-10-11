@@ -288,7 +288,7 @@ export const writeFileTool: Tool = {
 
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, contentStrEarly, 'utf-8');
-      await globalToolStateManager.recordFileState(filePath);
+      await globalToolStateManager.recordMutation(filePath);
       const contentLines = contentStrEarly.split('\n');
       const previewLines = contentLines.slice(0, 12).map((l) => `+ ${l}`);
       if (contentLines.length > 12) {
@@ -604,7 +604,7 @@ export const editFileTool: Tool = {
       if (redactedWrite) return `Error: ${redactedWrite}`;
 
       await atomicWriteFile(filePath, result.content);
-      await globalToolStateManager.recordFileState(filePath);
+      await globalToolStateManager.recordMutation(filePath);
       const label =
         input.replace_all && result.occurrences > 1
           ? `${result.occurrences} occurrences`
@@ -741,7 +741,7 @@ export const multiEditTool: Tool = {
       for (const buf of buffers.values()) {
         if (buf.content === buf.original) continue;
         await atomicWriteFile(buf.filePath, buf.content);
-        await globalToolStateManager.recordFileState(buf.filePath);
+        await globalToolStateManager.recordMutation(buf.filePath);
       }
 
       return (
@@ -808,7 +808,7 @@ export const moveFileTool: Tool = {
       await fs.rename(src, dest);
       // Destination is the surviving path; drop source read credit and stamp dest.
       globalToolStateManager.invalidateFileState(src);
-      await globalToolStateManager.recordFileState(dest);
+      await globalToolStateManager.recordMutation(dest);
       // Explicit move preview so transcripts show the rename without expanding input.
       return (
         `Moved ${srcDisplay} -> ${destDisplay}\n` +
