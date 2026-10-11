@@ -21,6 +21,7 @@
  * than calling these helpers directly.
  */
 import type { MossAgentEvent } from '../core/index.js';
+import { listBackgroundProcessSnapshots } from '../core/tools/background-process-registry.js';
 import { parseProtectedPathModMarker } from '../safety/protected-path-snapshot.js';
 import { ExitCode } from './exit-codes.js';
 
@@ -170,13 +171,45 @@ export function noteRunCompletionEvent(tracker: RunCompletionTracker, event: Mos
     const mods = parseProtectedPathModMarker(event.result);
     if (mods && mods.length > 0) {
       const command = typeof input.command === 'string' ? input.command : toolName;
-      tracker.protectedPathChanges = [
-        ...(tracker.protectedPathChanges ?? []),
-        ...mods.map((m) => ({ ...m, command })),
-      ];
-      tracker.lastFailedStep = describeStep(toolName, input);
+      mergeProtectedPathChanges(
+        tracker,
+        mods.map((m) => ({ ...m, command })),
+        describeStep(toolName, input)
+      );
     }
   }
+}
+
+/**
+ * O108: fold layer-3 hits from finished `exec_background` processes into the
+ * tracker. Call before {@link resolveRunOutcome} so late exits (after the tool
+ * returned a job id) still mark the run incomplete. Dedupes by path+kind.
+ */
+export function noteBackgroundProtectedPathMods(tracker: RunCompletionTracker): void {
+  for (const snap of listBackgroundProcessSnapshots()) {
+    if (snap.status === 'running') continue;
+    const changes = snap.protectedPathChanges;
+    if (!changes || changes.length === 0) continue;
+    mergeProtectedPathChanges(
+      tracker,
+      changes.map((c) => ({ path: c.path, kind: c.kind, command: snap.command })),
+      `exec_background: ${snap.command.replace(/\s+/g, ' ').trim().slice(0, 120)}`
+    );
+  }
+}
+
+function mergeProtectedPathChanges(
+  tracker: RunCompletionTracker,
+  additions: Array<{ path: string; kind: string; command?: string }>,
+  failedStep?: string
+): void {
+  if (additions.length === 0) return;
+  const existing = tracker.protectedPathChanges ?? [];
+  const seen = new Set(existing.map((c) => `${c.path}\0${c.kind}`));
+  const extra = additions.filter((a) => !seen.has(`${a.path}\0${a.kind}`));
+  if (extra.length === 0) return;
+  tracker.protectedPathChanges = [...existing, ...extra];
+  if (failedStep) tracker.lastFailedStep = failedStep;
 }
 
 /**
