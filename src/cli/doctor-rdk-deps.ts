@@ -109,8 +109,8 @@ export function renderDeprecatedSourceWarnings(hits: DeprecatedSourceHit[]): str
         warn(
           uiText('rdk pip', 'RDK pip 源'),
           uiText(
-            `Deprecated pip index: sdk.d-robotics.cc:8080 is offline. Do not retry it. For RDK X5 on OS ≥ 3.5.0 use board-bundled hbm_runtime (never pip install hbm_runtime). For legacy demos only, wget the verified whl from archive.d-robotics.cc/downloads/… (see README “Board-side inference dependencies”). Official ref: ${OFFICIAL_REF}`,
-            `已停用的 pip 源：sdk.d-robotics.cc:8080 已下线，请勿重试。RDK X5 且 OS ≥ 3.5.0 请用板端自带 hbm_runtime（禁止 pip install hbm_runtime）。仅历史 demo 才 wget archive.d-robotics.cc/downloads/… 已核实 whl（见 README「板端推理依赖」）。官方说明：${OFFICIAL_REF}`
+            `Deprecated pip index: sdk.d-robotics.cc:8080 is offline. Do not retry it. For RDK X5 on OS ≥ 3.5.0 use board-bundled hbm_runtime (never pip install hbm_runtime). For legacy demos only, wget the verified whl from archive.d-robotics.cc/downloads/… (see README "Board-side inference dependencies"). Official ref: ${OFFICIAL_REF}`,
+            `已停用的 pip 源：sdk.d-robotics.cc:8080 已下线，请勿重试。RDK X5 且系统 ≥ 3.5.0 请用板端自带 hbm_runtime（禁止 pip install hbm_runtime）。仅历史示例才 wget archive.d-robotics.cc/downloads/… 已核实 whl（见 README「板端推理依赖」）。官方说明：${OFFICIAL_REF}`
           )
         )
       );
@@ -190,7 +190,7 @@ export function renderWhlProbeLines(results: WhlProbeResult[]): string[] {
         uiText('rdk whl', 'RDK whl'),
         uiText(
           `RDK Model Zoo whl reachable: bpu_infer_lib_${r.board}-1.0.3 (HTTP ${r.status ?? 200}). Legacy install: wget then pip install the local file.`,
-          `RDK Model Zoo whl 可达：bpu_infer_lib_${r.board}-1.0.3（HTTP ${r.status ?? 200}）。legacy 安装：先 wget 再本地 pip install。`
+          `RDK Model Zoo whl 可达：bpu_infer_lib_${r.board}-1.0.3（HTTP ${r.status ?? 200}）。历史方式安装：先 wget 再本地 pip install。`
         )
       )
     );
@@ -270,7 +270,7 @@ export async function renderRdkDepsDoctor(
         uiText('rdk deps', 'RDK 依赖'),
         uiText(
           'prefer board-bundled hbm_runtime on X5 OS ≥ 3.5.0; legacy demos use verified whl URLs in README (never :8080 or archive…/simple/)',
-          'X5 OS ≥ 3.5.0 优先板端自带 hbm_runtime；历史 demo 用 README 已核实 whl 直链（勿用 :8080 或 archive…/simple/）'
+          'X5 系统 ≥ 3.5.0 优先板端自带 hbm_runtime；历史示例用 README 已核实 whl 直链（勿用 :8080 或 archive…/simple/）'
         )
       )
     );

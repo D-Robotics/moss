@@ -125,7 +125,7 @@ assert.equal(shortProxy('http://alice:bob@proxy.example:3128'), 'http://***@prox
     },
   });
   assert.ok(lines.some((l) => /proxy|代理/.test(l)));
-  assert.ok(lines.some((l) => /no base URL|未配置 base URL/.test(l)));
+  assert.ok(lines.some((l) => /no base URL|未配置 baseUrl/.test(l)));
 }
 
 // ─── O85 deprecated source detection ─────────────────────────────────────────

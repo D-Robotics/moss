@@ -661,7 +661,8 @@ balanced cautious autonomous manual acceptedits full never prompt
 moss_lang moss_config_dir moss_config_file moss_no_bundled_default editor
 wl-paste xclip echo printf rg grep test timeline stdio rdk-docs full-access
 fleet info processes resources temperature robotics network cameras partial
-all-fail devices description view history failures verify false`
+all-fail devices description view history failures verify false
+readme connect whl zoo wget pip`
     .split(/\s+/)
     .filter((word) => word.length > 0)
 );

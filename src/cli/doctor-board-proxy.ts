@@ -49,7 +49,7 @@ export function renderProxyEnvDoctorLine(env: NodeJS.ProcessEnv = process.env): 
     return ok(
       label,
       uiText(
-        'none — on boards without outbound internet set HTTPS_PROXY (see README “Board has no outbound network”)',
+        'none — on boards without outbound internet set HTTPS_PROXY (see README "Board has no outbound network")',
         '未设置 — 板子无外网时请设置 HTTPS_PROXY（见 README「板子无法访问外网」）'
       )
     );
@@ -130,7 +130,7 @@ export function renderGatewayDoctorLines(
         label,
         uiText(
           'no base URL configured — skip reachability probe',
-          '未配置 base URL — 跳过可达性探测'
+          '未配置 baseUrl — 跳过可达性探测'
         )
       ),
     ];
@@ -141,7 +141,7 @@ export function renderGatewayDoctorLines(
         label,
         uiText(
           `${result.host} answered HTTP ${result.status} (reachability only — a full chat answer is still required; see O87 if CONNECT succeeds but Moss still fails)`,
-          `${result.host} 返回 HTTP ${result.status}（仅可达性 — 仍须端到端有效回答；若代理已有 CONNECT 但 Moss 仍失败见 O87）`
+          `https://${result.host} 返回 HTTP ${result.status}（仅可达性 — 仍须端到端有效回答；若代理已有 CONNECT 但 Moss 仍失败见 O87）`
         )
       ),
     ];
@@ -154,7 +154,7 @@ export function renderGatewayDoctorLines(
         label,
         uiText(
           `no response from ${result.host} — check HTTPS_PROXY/HTTP_PROXY and firewall. Moss uses these variables automatically; you should not need NODE_USE_ENV_PROXY on current releases. CONNECT alone is not enough: you also need a successful model answer (O87 tracks CONNECT-without-answer).`,
-          `${result.host} 无响应——请检查 HTTPS_PROXY/HTTP_PROXY 与防火墙。当前版本会自动使用这些变量，一般不需要 NODE_USE_ENV_PROXY。仅有 CONNECT 不够：还须端到端有效回答（CONNECT 有回答无归 O87）。`
+          `https://${result.host} 无响应——请检查 HTTPS_PROXY/HTTP_PROXY 与防火墙。当前版本会自动使用这些变量，一般不需要 NODE_USE_ENV_PROXY。仅有 CONNECT 不够：还须端到端有效回答（CONNECT 有回答无归 O87）。`
         )
       ),
     ];
@@ -163,7 +163,7 @@ export function renderGatewayDoctorLines(
     warn(
       label,
       uiText(
-        `unreachable (no proxy env). On boards without outbound internet, set HTTPS_PROXY (see README “Board has no outbound network”). Do not treat this as “switch to a faster model”.`,
+        `unreachable (no proxy env). On boards without outbound internet, set HTTPS_PROXY (see README "Board has no outbound network"). Do not treat this as "switch to a faster model".`,
         `不可达（未设代理）。板子无外网时请设置 HTTPS_PROXY（见 README「板子无法访问外网」）。不要按「换更快的模型」处理。`
       )
     ),
