@@ -367,7 +367,7 @@ function feedFail(t, toolName, detail, result = 'Error: no such file') {
   assert.match(formatOutcomeLine(oStop, 'zh'), /^被拦：/);
   assert.match(formatOutcomeLine(oStop, 'en'), /^Blocked: /);
   // stuck half for Stop remains 卡在 (head already says 被拦)
-  assert.match(formatOutcomeLine(oStop, 'zh'), /卡在：Stop 钩子/);
+  assert.match(formatOutcomeLine(oStop, 'zh'), /卡在：停止前钩子$/);
 
   // O111 omit empty stuck
   const bare = { status: 'incomplete', reason: '', reasonZh: '', exitCode: 9 };
