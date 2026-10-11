@@ -190,6 +190,10 @@ const CONNECTION_PATTERNS = [
   'ehostunreach',
   'enetunreach',
   'unreachable',
+  // O87: undici connect-phase failures (must not be misread as model timeout).
+  'und_err_connect_timeout',
+  'und_err_socket',
+  'connect timeout error',
 ];
 
 const AUTH_PATTERNS = [
@@ -254,15 +258,30 @@ export function isQuotaExceededError(message?: string): boolean {
   );
 }
 
+/**
+ * undici / TCP connect-phase timeout (proxy tunnel, DNS, TCP).
+ * Must stay under network — never the model "switch to a faster model" path.
+ */
+export function isConnectTimeoutError(message?: string): boolean {
+  if (!message) return false;
+  return /und_err_connect_timeout|connect timeout error|\bconnect(?:ion)? timed?\s*out\b/i.test(
+    message
+  );
+}
+
 export function isTimeoutError(message?: string): boolean {
   if (!message) return false;
+  // O87: connect-phase timeouts contain the substring "timeout" but are network.
+  if (isConnectTimeoutError(message)) return false;
   if (matchesAny(message, TIMEOUT_PATTERNS)) return true;
   // "timedout"/"timed-out" (no space) variants — same judgment as 'timed out'.
   return /\btimed?[ _-]?out\b/i.test(message);
 }
 
 export function isConnectionError(message?: string): boolean {
-  return !!message && matchesAny(message, CONNECTION_PATTERNS);
+  if (!message) return false;
+  if (isConnectTimeoutError(message)) return true;
+  return matchesAny(message, CONNECTION_PATTERNS);
 }
 
 export function isServerError(message?: string): boolean {

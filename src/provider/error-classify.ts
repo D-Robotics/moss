@@ -239,10 +239,24 @@ function isMossConnectionLead(line: string): boolean {
   if (/^Proxy refused the connection to \S+/i.test(flat)) return true;
   if (/^Proxy\/protocol error connecting to \S+$/i.test(flat)) return true;
   if (/^Check that \S+ is reachable/i.test(flat)) return true;
+  if (/^Proxy connection refused while reaching \S+/i.test(flat)) return true;
+  if (/^Timed out connecting to \S+ via (?:HTTPS_PROXY|HTTP_PROXY)/i.test(flat)) return true;
   return (
     /^(?:TypeError: )?fetch failed for \S+/i.test(flat) &&
-    /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|ENETUNREACH/i.test(flat)
+    /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|ENETUNREACH|UND_ERR_|Connect Timeout Error/i.test(
+      flat
+    )
   );
+}
+
+/** O87: a lone ")" / punctuation leftover is not a gateway body. */
+function isPunctuationOnlyDetail(text: string): boolean {
+  const flat = text.replace(/\s+/g, '').trim();
+  if (!flat) return true;
+  for (const ch of flat) {
+    if (!'()[]{}<>.,;:!?\'"`-+~|/\\'.includes(ch)) return false;
+  }
+  return true;
 }
 
 /** A syscall or client abort, not a body the gateway wrote. */
@@ -250,18 +264,26 @@ function isTransportOnlyLine(line: string): boolean {
   if (isMossConnectionLead(line)) return true;
   const flat = line.replace(/\s+/g, ' ').trim();
   if (!flat || isHtmlDocument(flat)) return !flat;
+  // O87: punctuation-only leftovers (e.g. a lone ")") are not gateway bodies.
+  if (isPunctuationOnlyDetail(flat)) return true;
   if (
-    /^(?:[A-Za-z]+ )?(?:ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|EPIPE|EAI_NONAME|EAI_FAIL|EAI_NODATA)\b/i.test(
+    /^(?:[A-Za-z]+ )?(?:ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|EPIPE|EAI_NONAME|EAI_FAIL|EAI_NODATA|UND_ERR_[A-Z0-9_]+)\b/i.test(
       flat
     )
   ) {
     return true;
   }
+  if (/^Connect Timeout Error\b/i.test(flat)) return true;
   if (/^(?:TypeError: )?fetch failed\b/i.test(flat)) return true;
   if (/^connection refused\b/i.test(flat)) return true;
   if (/^getaddrinfo\b/i.test(flat)) return true;
-  if (/^(?:AbortError|TimeoutError|HeadersTimeoutError|BodyTimeoutError)\b/i.test(flat))
+  if (
+    /^(?:AbortError|TimeoutError|HeadersTimeoutError|BodyTimeoutError|ConnectTimeoutError)\b/i.test(
+      flat
+    )
+  ) {
     return true;
+  }
   return /^The operation was aborted\b/i.test(flat);
 }
 
@@ -275,11 +297,23 @@ function stripAuthoredTails(text: string): string {
   return out;
 }
 
+/** O87: keep syscall/undici codes under 详细信息, not English prose that duplicates the hint. */
+function isCodeBearingCause(text: string): boolean {
+  return (
+    /\b(?:ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|EPIPE|EAI_NONAME|EAI_FAIL|EAI_NODATA|UND_ERR_[A-Z0-9_]+)\b/i.test(
+      text
+    ) ||
+    /\b(?:ConnectTimeoutError|HeadersTimeoutError|BodyTimeoutError|TimeoutError|AbortError)\b/i.test(
+      text
+    )
+  );
+}
+
 /** Syscall or client-abort text shown under 详细信息, never as gateway body. */
 function lowLevelCause(raw: string): string {
   const cleaned = stripLoginPagePrefix(raw);
   const paren = cleaned.match(
-    /\(((?:ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|EPIPE)\b[^)]{0,180})\)/i
+    /\(((?:ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|EPIPE|UND_ERR_[A-Z0-9_]+)\b[^)]{0,180})\)/i
   );
   if (paren?.[1]) return paren[1].trim();
   for (const line of cleaned.split('\n')) {
@@ -287,7 +321,11 @@ function lowLevelCause(raw: string): string {
     if (!text || isMossConnectionLead(text)) continue;
     text = stripAuthoredTails(text).trim();
     if (!text || isMossConnectionLead(text)) continue;
-    if (isTransportOnlyLine(text)) return text.slice(0, 300);
+    // Bare "connection refused" (no ECONNREFUSED/UND_ERR_*) is already covered by the zh hint.
+    if (isTransportOnlyLine(text)) {
+      if (!isCodeBearingCause(text)) continue;
+      return text.slice(0, 300);
+    }
   }
   return '';
 }
@@ -307,9 +345,16 @@ function gatewayDetail(raw: string): string {
     .trim();
 }
 
+/** O87: refuse punctuation-only / empty "gateway" leftovers such as a lone ")". */
+function isJunkGatewayDetail(detail: string): boolean {
+  const flat = detail.replace(/\s+/g, ' ').trim();
+  if (!flat) return true;
+  return isPunctuationOnlyDetail(flat);
+}
+
 function withGatewayText(hint: string, raw: string, audience?: 'setup' | 'chat'): string {
   const detail = gatewayDetail(raw);
-  if (detail)
+  if (detail && !isJunkGatewayDetail(detail))
     return hint.includes(detail)
       ? hint
       : `${hint}\n${msg('网关原文：', 'Gateway text: ')}${detail}`;
@@ -401,7 +446,7 @@ function face(
   return { category, userMessage, actions, silent: false, retryable };
 }
 
-type GateAttach = 'none' | 'body' | 'setup';
+type GateAttach = 'none' | 'body' | 'setup' | 'details';
 
 /** User-facing classifier copy. English is the fallback; zh is the zh voice. */
 const COPY = {
@@ -546,7 +591,13 @@ function classifyProviderErrorNow(input: ProviderErrorInput): ProviderErrorSurfa
       category,
       attach === 'none'
         ? text
-        : withGatewayText(text, raw, attach === 'setup' ? input.audience : undefined),
+        : withGatewayText(
+            text,
+            raw,
+            // 'details' = always attach low-level cause (O87 chat + setup).
+            // 'setup' still respects audience so chat timeouts stay brief.
+            attach === 'details' ? 'setup' : attach === 'setup' ? input.audience : undefined
+          ),
       actions,
       retryable
     );
@@ -598,8 +649,9 @@ function classifyProviderErrorNow(input: ProviderErrorInput): ProviderErrorSurfa
     );
     // O67: when a proxy is configured, a refused connect is almost always the
     // proxy port — do not blame the model base URL.
+    // O87: attach='details' so chat keeps cause codes (no empty 网关原文：)).
     const id = refused ? (proxySet ? 'refusedProxy' : 'refused') : 'connect';
-    return hit('network', id, RETRY_SETTINGS, true, 'setup');
+    return hit('network', id, RETRY_SETTINGS, true, 'details');
   }
   if (isTlsProtocolMismatch(raw, code))
     return hit('network', 'httpNotTls', SETTINGS_RETRY, false, 'body');
