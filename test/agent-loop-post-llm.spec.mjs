@@ -25,7 +25,7 @@ function thinkingOnly(attempts) {
   });
 }
 
-assert.equal(THINKING_ONLY_RETRY_BUDGET, 1);
+assert.equal(THINKING_ONLY_RETRY_BUDGET, 2); // O13
 
 const first = thinkingOnly(0);
 assert.equal(first.kind, 'thinking_retry');

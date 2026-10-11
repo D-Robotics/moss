@@ -16,7 +16,11 @@ import {
   shouldNudgeMissingToolInvocation,
 } from './agent-loop-assistant-turn.js';
 import { buildNamedWebToolMatcher } from '../../prompts/plan-detection.js';
-import { decidePostLlmAction, nextThinkingOnlyRetryAttempts } from './agent-loop-post-llm.js';
+import {
+  THINKING_ONLY_RETRY_BUDGET,
+  decidePostLlmAction,
+  nextThinkingOnlyRetryAttempts,
+} from './agent-loop-post-llm.js';
 import {
   escalateOutputTokens,
   isOutputLimitStopReason,
@@ -65,6 +69,9 @@ export interface ProcessLlmResponseParams {
   streamStopReason: StopReason | undefined;
   /** Gateway-reported model for this turn, recorded on the assistant message. */
   responseModel?: string;
+  /** O13: provider id of the active model, for per-provider thinking-only recovery. */
+  provider?: string;
+  modelId?: string;
   maxTurns: number;
   maxOutputContinuations: number;
   abortSignal: AbortSignal;
@@ -357,6 +364,8 @@ export async function processLlmResponse(
     turns: state.turns,
     shouldNudge,
     abortAborted: abortSignal.aborted,
+    provider: params.provider,
+    modelId: params.modelId,
   });
 
   state.postToolThinkingOnlyRetryAttempts = nextThinkingOnlyRetryAttempts(
@@ -367,12 +376,16 @@ export async function processLlmResponse(
   switch (postLlmAction.kind) {
     case 'thinking_retry':
       state.pendingMessages = [buildCorrectionMessage(postLlmAction.systemText)];
+      // O13: the retry must change the request, not just repeat it with a nudge.
+      state.reasoningOverrideNextTurn = postLlmAction.reasoningOverride;
       pushTurnEnd();
       state.lastTurnEndMs = Date.now();
       return { control: 'continue' };
 
     case 'thinking_only_complete':
-      throw new Error('The model returned private reasoning twice without a visible answer.');
+      throw new Error(
+        `The model returned private reasoning ${THINKING_ONLY_RETRY_BUDGET + 1} times in a row without a visible answer or tool call.`
+      );
 
     case 'continuation': {
       state.outputContinuationCount++;

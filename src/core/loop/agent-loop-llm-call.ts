@@ -141,6 +141,16 @@ export async function executeLlmTurn(params: ExecuteLlmTurnParams): Promise<Exec
       effectiveReasoning = 'high';
     }
   }
+  // O13: after a thinking-only turn, the next request runs with less (or no)
+  // reasoning. One-shot: cleared as soon as it is consumed.
+  if (
+    state.reasoningOverrideNextTurn &&
+    effectiveReasoning !== undefined &&
+    effectiveReasoning !== null
+  ) {
+    effectiveReasoning = state.reasoningOverrideNextTurn;
+  }
+  state.reasoningOverrideNextTurn = undefined;
   try {
     const llmTurn = await runAgentLoopLlmTurn({
       requestModel,

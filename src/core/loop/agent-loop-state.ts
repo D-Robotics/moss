@@ -46,6 +46,8 @@ export interface AgentLoopMutableState {
   /** Soft mid-run recovery after a red task_acceptance verdict (repair-loop discipline). */
   taskRepairNudgeAttempts: number;
   postToolThinkingOnlyRetryAttempts: number;
+  /** O13: one-shot reasoning level for the request after a thinking-only turn. */
+  reasoningOverrideNextTurn?: 'low' | 'off';
   emptyResponseRetryAttempts: number;
   completionGateAttempts: number;
   postLimitToolFollowUpsUsed: number;

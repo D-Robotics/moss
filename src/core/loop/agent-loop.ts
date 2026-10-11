@@ -568,6 +568,8 @@ export function runAgentLoop(
             turnToolCalls = llmResult.toolCalls;
 
             const responseResult = await processLlmResponse({
+              provider: modelDef.provider,
+              modelId: modelDef.id,
               state,
               runId,
               assistantContent: llmResult.assistantContent,
