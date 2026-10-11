@@ -1077,6 +1077,9 @@ async function main() {
   configureDeviceWorkspace(startup.trusted ? workspace : null);
   const useTui =
     Boolean(process.stdout.isTTY) && process.env.MOSS_NO_TUI !== '1' && !parsedArgs.print;
+  // O88: the TUI shows a blocked hook's reason in the tool row; `-p`/piped
+  // runs keep the `[hooks]` stderr line.
+  configuredHooks.setTuiMode(useTui);
   const pendingTuiNotices: string[] = [];
   const tuiNoticeListeners = new Set<(message: string) => void>();
   const tuiNoticeSource = {
