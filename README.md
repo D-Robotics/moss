@@ -130,6 +130,36 @@ npm uninstall -g @rdk-moss/agent
 
 可以删：`~/.moss/cache/npx`、`~/.cache/node-gyp`、npm 缓存（`npm cache clean --force`）、空的 `@rdk-moss` 目录，以及你不再需要的克隆目录。删掉 `~/.config/moss`、`~/.moss` 或项目里的 `.moss/` 会同时去掉 key、设置和任务记录；只有确定不要这些数据时再删。
 
+## 板子无法访问外网 / 需要代理
+
+实验室 / 教室里的 RDK 板子常常**直连不了** GitHub、npm、Node 镜像和模型网关（TCP 超时）。第一步 `git clone` 就会卡住。
+
+**必设环境变量（正式推荐，仅此）：**
+
+```bash
+export HTTPS_PROXY=http://127.0.0.1:1080
+export HTTP_PROXY=http://127.0.0.1:1080
+export NO_PROXY=localhost,127.0.0.1,::1
+# 当前 Moss main（含 O83 / #81 起）会自动让 Node fetch 走上述代理，
+# 不必再设 NODE_USE_ENV_PROXY（那是旧 tip 的临时绕过，当前不需要）
+```
+
+端口与是否需要 `ssh -R` 隧道按现场配置。
+
+**板上首装注意：**
+
+1. **git clone：** 用 `git clone --depth 1 https://github.com/D-Robotics/moss.git`；完整 clone 在慢网 / 代理下容易 GnuTLS / early EOF。
+2. **npm：** 国内可 `npm config set registry https://registry.npmmirror.com`；镜像**不能代替** `HTTPS_PROXY`——仍需代理才能出网时两者都要。
+3. **Node：** 许多 RDK 镜像已带 Node ≥ 22.16；若需 nvm，安装脚本依赖 `raw.githubusercontent.com`，不出网会超时——优先用系统 Node，或经代理装。
+4. **用户级 prefix：** root 下 `npm i -g` 会写 `/usr`；推荐 `npm config set prefix "$HOME/.npm-global"` 并把 `bin` 加进 PATH。
+
+**如何确认代理生效（必须两条都过）：**
+
+1. 代理日志里有目标模型 / 网关主机的 `CONNECT`；
+2. 端到端拿到**有效回答**（`moss -p "…"` 退出码 0，不是「网络连接失败」）。
+
+**仅有 CONNECT、仍报网络失败 = 未过关。** 排查时可临时 `MOSS_NO_RDK_DOCS=1` 做对照；根因修复见 backlog **O87**（CONNECT 有、回答无），本 README 不替代该项。连接类错误请检查代理 / 防火墙，**不要**按「换更快的模型」处理。
+
 ## 为什么是 Moss
 
 普通 coding agent 的"完成"是模型说自己完成了。Moss 把这条判定链做成可审计的机器流程：
@@ -189,6 +219,40 @@ moss tasks list                     # 只读查看机器人闭环产物
 ```
 
 `src/index.ts` 的导出面是受 semver 保护的合同，由 `test/sdk-contract.spec.mjs` 快照锁定；`examples/` 下三个可运行集成（`npm run examples`）。
+
+## 板端推理依赖（RDK）
+
+> **不要**再用 `http://sdk.d-robotics.cc:8080/simple/`（已下线，连接失败）。  
+> **不要**再用 `http(s)://archive.d-robotics.cc/simple/`（不是可用的 pip 索引，HTTPS 返回 404）。
+
+### 按 OS / 板型选接口
+
+| 板型 / 场景                                         | 应使用                                                         |
+| --------------------------------------------------- | -------------------------------------------------------------- |
+| RDK X5，RDK OS ≥ 3.5.0（`rdk_x5`）                  | 板端自带 **`hbm_runtime`**；**禁止** `pip install hbm_runtime` |
+| RDK X5 历史 demo（`rdk_x5_legacy` / OS &lt; 3.5.0） | 下方已核实 X5 1.0.3 whl，或板端 `hobot_dnn`                    |
+| RDK X3                                              | 下方已核实 X3 1.0.3 whl，或板端 `hobot_dnn`                    |
+| RDK S 系列                                          | 板端 `hbm_runtime`；不要装 X5 的 `hobot_dnn`                   |
+
+权威说明：[Model Zoo 推理接口参考](https://developer.d-robotics.cc/model_zoo_doc/infer_api_ref)。
+
+### 仅 legacy 的 whl（已核实 HTTP 200）
+
+文档里**只**出现下面两条直链；Moss **不会**自动装包。
+
+```bash
+# X5 legacy
+wget -nc https://archive.d-robotics.cc/downloads/rdk_model_zoo/rdk_x5/bpu_infer_lib_x5-1.0.3-py3-none-any.whl
+pip install bpu_infer_lib_x5-1.0.3-py3-none-any.whl
+
+# X3
+wget -nc https://archive.d-robotics.cc/downloads/rdk_model_zoo/rdk_x3/bpu_infer_lib_x3-1.0.3-py3-none-any.whl
+pip install bpu_infer_lib_x3-1.0.3-py3-none-any.whl
+```
+
+### 缺少 libhbucp.so
+
+多为 pip 覆盖了系统 hobot / hbm 包，或系统 &lt; 3.5.0 却跑新 Model Zoo。**禁止** `pip install hbm_runtime`。优先烧录 ≥ 3.5.0 且自带运行时的镜像；若曾用 pip 覆盖，卸载 pip 副本后 `apt` 重装 `hobot-dnn` 并 `ldconfig`。`moss doctor` 会警告旧 pip 源，并可选探测上述 whl 是否可达。
 
 ## 命令参考
 
@@ -436,6 +500,37 @@ That removes the command. These stay behind:
 
 Safe to delete: `~/.moss/cache/npx`, `~/.cache/node-gyp`, the npm cache (`npm cache clean --force`), that empty `@rdk-moss` directory, and the clone once you no longer need the source. Deleting `~/.config/moss`, `~/.moss`, or a project's `.moss/` also removes keys, settings, and task history. Delete those only when you want that data gone.
 
+### Board has no outbound network / proxy setup
+
+Lab and classroom RDK boards often **cannot** reach GitHub, npm, Node mirrors, or the model gateway directly (TCP timeouts). The first `git clone` hangs.
+
+**Required environment variables (official recommendation — these only):**
+
+```bash
+export HTTPS_PROXY=http://127.0.0.1:1080
+export HTTP_PROXY=http://127.0.0.1:1080
+export NO_PROXY=localhost,127.0.0.1,::1
+# Current Moss main (O83 / #81 onward) routes Node fetch through these proxies
+# automatically. Do NOT set NODE_USE_ENV_PROXY — that was a temporary workaround
+# on older tips and is not needed now.
+```
+
+Port and whether you need an `ssh -R` tunnel depend on your site.
+
+**First install on a board:**
+
+1. **git clone:** use `git clone --depth 1 https://github.com/D-Robotics/moss.git`. A full clone often fails with GnuTLS / early EOF on slow or proxied links.
+2. **npm:** in China you may `npm config set registry https://registry.npmmirror.com`. A registry mirror **does not replace** `HTTPS_PROXY` when the board still needs a proxy to leave the LAN.
+3. **Node:** many RDK images already ship Node ≥ 22.16. nvm’s install script needs `raw.githubusercontent.com` and will time out offline — prefer the system Node, or install via the proxy.
+4. **User-level prefix:** `npm i -g` as root writes under `/usr`. Prefer `npm config set prefix "$HOME/.npm-global"` and put that `bin` on PATH.
+
+**How to confirm the proxy works (both required):**
+
+1. The proxy log shows `CONNECT` to the model / gateway host; and
+2. End-to-end you get a **successful answer** (`moss -p "…"` exits 0 — not “network connection failed”).
+
+**CONNECT alone with a network failure is a FAIL.** For triage you can temporarily set `MOSS_NO_RDK_DOCS=1`. Root-cause work for “CONNECT without an answer” is backlog **O87**; this README does not replace that item. Treat connection errors as proxy / firewall issues — **not** “switch to a faster model”.
+
 ### Why Moss
 
 A normal coding agent's definition of done is the model saying so. Moss makes that judgement an
@@ -515,6 +610,40 @@ moss tasks list                     # read-only robotics artifacts
 
 The `src/index.ts` export surface is a semver-protected contract, snapshotted by
 `test/sdk-contract.spec.mjs`; three runnable integrations live in `examples/` (`npm run examples`).
+
+### Board-side inference dependencies (RDK)
+
+> **Do not** use `http://sdk.d-robotics.cc:8080/simple/` (offline; connection refused).  
+> **Do not** use `http(s)://archive.d-robotics.cc/simple/` (not a working pip index; HTTPS returns 404).
+
+#### Pick the interface by OS / board
+
+| Board / scenario                                      | Use                                                                  |
+| ----------------------------------------------------- | -------------------------------------------------------------------- |
+| RDK X5, RDK OS ≥ 3.5.0 (`rdk_x5`)                     | Board-bundled **`hbm_runtime`**; **never** `pip install hbm_runtime` |
+| RDK X5 legacy demos (`rdk_x5_legacy` / OS &lt; 3.5.0) | Verified X5 1.0.3 whl below, or board `hobot_dnn`                    |
+| RDK X3                                                | Verified X3 1.0.3 whl below, or board `hobot_dnn`                    |
+| RDK S series                                          | Board `hbm_runtime`; do not install X5 `hobot_dnn`                   |
+
+Official reference: [Model Zoo infer API](https://developer.d-robotics.cc/model_zoo_doc/infer_api_ref).
+
+#### Legacy whl only (verified HTTP 200)
+
+Only these two direct URLs appear in Moss docs. Moss **will not** auto-install packages.
+
+```bash
+# X5 legacy
+wget -nc https://archive.d-robotics.cc/downloads/rdk_model_zoo/rdk_x5/bpu_infer_lib_x5-1.0.3-py3-none-any.whl
+pip install bpu_infer_lib_x5-1.0.3-py3-none-any.whl
+
+# X3
+wget -nc https://archive.d-robotics.cc/downloads/rdk_model_zoo/rdk_x3/bpu_infer_lib_x3-1.0.3-py3-none-any.whl
+pip install bpu_infer_lib_x3-1.0.3-py3-none-any.whl
+```
+
+#### Missing libhbucp.so
+
+Usually a pip overlay of system hobot / hbm packages, or OS &lt; 3.5.0 running a new Model Zoo. **Do not** `pip install hbm_runtime`. Prefer an image ≥ 3.5.0 with the board-bundled runtime; if pip overwrote packages, uninstall the pip copies, reinstall `hobot-dnn` via apt, and run `ldconfig`. `moss doctor` warns on deprecated pip indexes and can optionally probe the whl URLs above.
 
 ### Command reference
 
