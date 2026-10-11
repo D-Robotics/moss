@@ -20,6 +20,11 @@ export interface SubagentRunProgress {
 
 export interface ToolContext {
   workspaceDir: string;
+  /**
+   * O96: lets a string-returning tool mark its result as an error structurally
+   * (e.g. exec timeout / signal kill) instead of relying on output text.
+   */
+  markResultError?: () => void;
   bootstrapDir?: string;
   runId?: string;
   sessionKey: string;

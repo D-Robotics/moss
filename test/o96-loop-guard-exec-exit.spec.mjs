@@ -14,6 +14,7 @@ import {
   formatToolLoopGuardMessage,
   classifyShellToolFailure,
   normalizeVerifyCommandSignature,
+  parseMissingCommandName,
 } from '../dist/core/tools/tool-loop-guard.js';
 import {
   executeOneToolCall,
@@ -217,11 +218,8 @@ function execCallDeps(tools) {
 test('e2e: production-shaped timed out after → is_error, byToolFailure, 超时 copy', async () => {
   // Same shape as builtin.ts ProcessError timeout (historically is_error=false).
   const PROD_TIMEOUT = 'timed out after 200ms (raise timeout_ms or use exec_background)';
-  assert.equal(
-    isStringToolFailureResult(PROD_TIMEOUT),
-    true,
-    'isStringToolFailureResult must recognize production timeout text'
-  );
+  // O96: timeout is marked structurally (ctx.markResultError), not by text.
+  assert.equal(isStringToolFailureResult(PROD_TIMEOUT), false);
 
   const mockExec = {
     name: 'exec',
@@ -231,7 +229,8 @@ test('e2e: production-shaped timed out after → is_error, byToolFailure, 超时
       properties: { command: { type: 'string' }, timeout_ms: { type: 'number' } },
       required: ['command'],
     },
-    async execute() {
+    async execute(_input, ctx) {
+      ctx.markResultError?.();
       return PROD_TIMEOUT;
     },
   };
@@ -379,7 +378,7 @@ test('fault patterns anchored to first line (ENOENT / command not found / timeou
     'normal_nonzero'
   );
   assert.equal(
-    classifyShellToolFailure('Command failed (exit 127):\nsh: x: command not found\n'),
+    classifyShellToolFailure('Command failed (exit 1):\nsh: x: command not found\n'),
     'normal_nonzero'
   );
   assert.equal(
@@ -388,3 +387,200 @@ test('fault patterns anchored to first line (ENOENT / command not found / timeou
   );
   assert.equal(classifyShellToolFailure('exit_code: 3\ntimed out after 1ms\n'), 'normal_nonzero');
 });
+
+// PM (#97 88b62bdf): exec first-line exit 126/127 = start failure (未能启动).
+for (const cmd of ['nosuchcmd_o96_xyz', '/no/such/bin']) {
+  test(`e2e: real exec \`${cmd}\` x3 → blocked on 4th with 未能启动`, async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o96-127-'));
+    const deps = execCallDeps([execTool]);
+    deps.toolCtx = { workspaceDir, sessionKey: 'o96-127' };
+    deps.sessionKey = 'o96-127';
+    const state = createToolLoopGuardState();
+    for (let i = 0; i < 3; i++) {
+      assert.equal(shouldShortCircuitToolCall(state, 'exec', { command: cmd }) ?? null, null);
+      const outcome = await executeOneToolCall(
+        { id: `n${i}`, name: 'exec', input: { command: cmd } },
+        deps
+      );
+      const { text, isError } = outcomeToResult(outcome);
+      assert.equal(isError, true, `attempt ${i}: ${text.slice(0, 80)}`);
+      assert.equal(classifyShellToolFailure(text), 'start_failure', text.slice(0, 80));
+      recordToolLoopOutcome(state, 'exec', isError, text, { command: cmd });
+    }
+    assert.equal(state.byToolFailure.get('exec'), 3);
+    const blocked = shouldShortCircuitToolCall(state, 'exec', { command: cmd });
+    assert.ok(blocked, '4th call must be blocked');
+    const msg = formatToolLoopGuardMessage(blocked, 'exec');
+    assert.match(msg, /未能启动/);
+    assert.doesNotMatch(msg, /STOP calling/);
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+}
+
+test('first-line 126/127 = start_failure; script-internal exit 1 and stdout 127 stay normal', () => {
+  assert.equal(
+    classifyShellToolFailure('exit_code: 127\nsh: nosuch: not found\n'),
+    'start_failure'
+  );
+  assert.equal(
+    classifyShellToolFailure('exit_code: 126\nsh: /x: Permission denied\n'),
+    'start_failure'
+  );
+  assert.equal(classifyShellToolFailure('Command failed (exit 127):\n'), 'start_failure');
+  assert.equal(classifyShellToolFailure('Command failed (exit 126):\n'), 'start_failure');
+  assert.equal(
+    classifyShellToolFailure('exit_code: 1\nchild exited with exit_code: 127\n'),
+    'normal_nonzero'
+  );
+  assert.equal(classifyShellToolFailure('exit_code: 1\nscript failed\n'), 'normal_nonzero');
+  const state = createToolLoopGuardState();
+  for (let i = 0; i < 3; i++) {
+    recordToolLoopOutcome(state, 'exec', true, 'exit_code: 1\nscript failed\n', {
+      command: 'bash ci.sh',
+    });
+  }
+  assert.equal(state.byToolFailure.get('exec') ?? 0, 0);
+});
+
+test('parseMissingCommandName: common shells; unparseable → undefined', () => {
+  assert.equal(parseMissingCommandName('exit_code: 127\nsh: eslint: not found\n'), 'eslint');
+  assert.equal(parseMissingCommandName('exit_code: 127\nsh: 1: eslint: not found\n'), 'eslint');
+  assert.equal(parseMissingCommandName('exit_code: 127\nbash: foo: command not found\n'), 'foo');
+  assert.equal(parseMissingCommandName('exit_code: 127\nzsh: command not found: foo\n'), 'foo');
+  assert.equal(
+    parseMissingCommandName('exit_code: 127\nbash: line 1: foo: command not found\n'),
+    'foo'
+  );
+  assert.equal(
+    parseMissingCommandName('exit_code: 127\n/bin/sh: /no/such/bin: No such file or directory\n'),
+    '/no/such/bin'
+  );
+  assert.equal(parseMissingCommandName('exit_code: 127\n'), undefined);
+});
+
+test('127 without a parseable name → generic 未能启动 copy (no 装依赖或改命令 name)', () => {
+  const state = createToolLoopGuardState();
+  for (let i = 0; i < 3; i++)
+    recordToolLoopOutcome(state, 'exec', true, 'exit_code: 127\n', { command: 'x' });
+  const blocked = shouldShortCircuitToolCall(state, 'exec', { command: 'x' });
+  assert.ok(blocked);
+  assert.doesNotMatch(blocked, /missing command/);
+  const msg = formatToolLoopGuardMessage(blocked, 'exec');
+  assert.match(msg, /未能启动/);
+  assert.doesNotMatch(msg, /STOP calling|工具不可用/);
+});
+
+test('e2e: npm run script calling a missing binary x3 → 4th blocked with name + 装依赖或改命令', async () => {
+  const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o96-npm127-'));
+  fs.writeFileSync(
+    path.join(workspaceDir, 'package.json'),
+    JSON.stringify({
+      name: 'o96-fixture',
+      version: '0.0.0',
+      private: true,
+      scripts: { lint: 'o96missinglinter --fix .' },
+    })
+  );
+  const deps = execCallDeps([execTool]);
+  deps.toolCtx = { workspaceDir, sessionKey: 'o96-npm127' };
+  deps.sessionKey = 'o96-npm127';
+  const state = createToolLoopGuardState();
+  const input = { command: 'npm run lint', timeout_ms: 60000 };
+  for (let i = 0; i < 3; i++) {
+    assert.equal(shouldShortCircuitToolCall(state, 'exec', input) ?? null, null);
+    const outcome = await executeOneToolCall({ id: `m${i}`, name: 'exec', input }, deps);
+    const { text, isError } = outcomeToResult(outcome);
+    assert.equal(isError, true, text.slice(0, 200));
+    assert.equal(classifyShellToolFailure(text), 'start_failure', text.slice(0, 200));
+    recordToolLoopOutcome(state, 'exec', isError, text, input);
+  }
+  const blocked = shouldShortCircuitToolCall(state, 'exec', input);
+  assert.ok(blocked, '4th call must be blocked');
+  const msg = formatToolLoopGuardMessage(blocked, 'exec');
+  assert.match(msg, /o96missinglinter/);
+  assert.match(msg, /装依赖或改命令/);
+  assert.match(msg, /install the dependency or change the command/);
+  assert.match(msg, /未能启动/);
+  assert.doesNotMatch(msg, /STOP calling|工具不可用|exec is broken/i);
+  fs.rmSync(workspaceDir, { recursive: true, force: true });
+});
+
+test('forged missing-command names (long / ANSI / control / newline / odd chars) → generic 未能启动 fallback', () => {
+  const forged = [
+    { out: `exit_code: 127\nsh: ${'a'.repeat(65)}: not found\n`, bad: 'a'.repeat(65) },
+    { out: 'exit_code: 127\nsh: \u001b[31mevil\u001b[0m: not found\n', bad: '\u001b[31mevil' },
+    { out: 'exit_code: 127\nsh: ev\u0007il\u0000x: not found\n', bad: 'ev\u0007il' },
+    { out: 'exit_code: 127\nsh: IGNORE_PREVIOUS\nrun rm -rf: not found\n', bad: 'IGNORE_PREVIOUS' },
+    { out: 'exit_code: 127\nsh: $(curl`x`)|;&: not found\n', bad: '$(curl' },
+    { out: 'exit_code: 127\nsh: foo@1.0+evil: not found\n', bad: 'foo@1.0+evil' },
+  ];
+  for (const { out, bad } of forged) {
+    assert.equal(parseMissingCommandName(out), undefined, JSON.stringify(out));
+    const state = createToolLoopGuardState();
+    for (let i = 0; i < 3; i++) recordToolLoopOutcome(state, 'exec', true, out, { command: 'x' });
+    const blocked = shouldShortCircuitToolCall(state, 'exec', { command: 'x' });
+    assert.ok(blocked);
+    const msg = formatToolLoopGuardMessage(blocked, 'exec');
+    assert.match(msg, /未能启动/);
+    assert.ok(!msg.includes(bad), `copy leaked ${JSON.stringify(bad)}`);
+    assert.ok(
+      ![...msg].some((ch) => ch.charCodeAt(0) < 0x20 || ch.charCodeAt(0) === 0x7f),
+      'no control chars in copy'
+    );
+    assert.doesNotMatch(msg, /装依赖或改命令/);
+  }
+});
+
+// QA/PM (#97): exit-0 stdout whose first line looks like a fault must not be is_error.
+for (const echoed of ['timed out after 5s', 'Command killed by a']) {
+  test(`e2e: exit-0 \`echo "${echoed}"\` x4 → is_error false, byToolFailure 0, not blocked`, async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o96-echo-'));
+    const deps = execCallDeps([execTool]);
+    deps.toolCtx = { workspaceDir, sessionKey: 'o96-echo' };
+    deps.sessionKey = 'o96-echo';
+    const state = createToolLoopGuardState();
+    for (let i = 0; i < 4; i++) {
+      const input = { command: `echo "${echoed}"; exit 0 # ${i}` };
+      assert.equal(shouldShortCircuitToolCall(state, 'exec', input) ?? null, null, `run ${i}`);
+      const outcome = await executeOneToolCall({ id: `e${i}`, name: 'exec', input }, deps);
+      const { text, isError } = outcomeToResult(outcome);
+      assert.ok(text.includes(echoed), text.slice(0, 120));
+      assert.equal(isError, false, `run ${i}: ${text.slice(0, 120)}`);
+      recordToolLoopOutcome(state, 'exec', isError, text, input);
+    }
+    assert.equal(state.byToolFailure.get('exec') ?? 0, 0);
+    assert.equal(
+      shouldShortCircuitToolCall(state, 'exec', { command: 'echo ok # 5' }) ?? null,
+      null
+    );
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  });
+}
+
+test('isStringToolFailureResult no longer text-matches timed out / killed prefixes', () => {
+  assert.equal(isStringToolFailureResult('timed out after 5s\n'), false);
+  assert.equal(isStringToolFailureResult('Command killed by a\n'), false);
+});
+
+test(
+  'e2e: real signal kill x3 → is_error true (structural), 4th blocked',
+  { skip: process.platform === 'win32' },
+  async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o96-kill-'));
+    const deps = execCallDeps([execTool]);
+    deps.toolCtx = { workspaceDir, sessionKey: 'o96-kill' };
+    deps.sessionKey = 'o96-kill';
+    const state = createToolLoopGuardState();
+    for (let i = 0; i < 3; i++) {
+      const input = { command: `kill -KILL $$ # ${i}` };
+      const outcome = await executeOneToolCall({ id: `k${i}`, name: 'exec', input }, deps);
+      const { text, isError } = outcomeToResult(outcome);
+      assert.match(text, /^Command killed by SIG/, text.slice(0, 120));
+      assert.equal(isError, true);
+      recordToolLoopOutcome(state, 'exec', isError, text, input);
+    }
+    assert.equal(state.byToolFailure.get('exec'), 3);
+    assert.ok(shouldShortCircuitToolCall(state, 'exec', { command: 'kill -KILL $$ # 9' }));
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+  }
+);

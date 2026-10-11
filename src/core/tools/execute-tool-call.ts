@@ -108,9 +108,8 @@ export function isStringToolFailureResult(text: string | undefined): boolean {
   // Prefix-only failure encodings (start of the tool result).
   if (/^\s*Error:/i.test(head)) return true;
   if (/^\s*Command failed\b/i.test(head)) return true;
-  // exec ProcessError timeout / signal kill — returned as plain text (no Error: prefix).
-  if (/^\s*timed out after\b/i.test(head)) return true;
-  if (/^\s*Command killed by\b/i.test(head)) return true;
+  // exec timeout / signal kill are marked structurally via ctx.markResultError
+  // (builtin exec catch branch) — never by matching stdout text (O96).
   if (/^\s*Command blocked:/i.test(head)) return true;
   if (/^\s*Patch rejected\b/i.test(head)) return true;
   // exec non-zero exit is emitted as the first line: "exit_code: N\n..."
@@ -468,7 +467,14 @@ async function executeOneToolCallInner(
         const attemptSignal =
           combineAbortSignals(effectiveAbortSignal, timeoutAbortCtrl.signal) ??
           effectiveAbortSignal;
-        const attemptCtx: ToolContext = { ...callToolCtx, abortSignal: attemptSignal };
+        let structuralError = false;
+        const attemptCtx: ToolContext = {
+          ...callToolCtx,
+          abortSignal: attemptSignal,
+          markResultError: () => {
+            structuralError = true;
+          },
+        };
         if (!skipAgentHeartbeat) {
           const heartbeatIntervalMs = Math.max(1, deps.heartbeatIntervalMs);
           const maxMissed = resolveMaxMissedHeartbeats(
@@ -522,7 +528,7 @@ async function executeOneToolCallInner(
           // Many tools (exec, edit_file, …) return error as a string instead of
           // throwing. Detect those so is_error / failure gates / loop-guard
           // see a real failure (Claude/Codex: non-zero shell is not success).
-          if (!attemptErrFlag && isStringToolFailureResult(attemptText)) {
+          if (!attemptErrFlag && (structuralError || isStringToolFailureResult(attemptText))) {
             attemptErrFlag = true;
             attemptError = new MossError({
               code: ErrorCode.TOOL_EXECUTION_FAILED,

@@ -134,6 +134,11 @@ export type ToolLoopGuardState = {
   /** O96: last real shell fault kind for exec/run_tests (timeout / start / …). */
   lastShellFaultKind: Map<string, ShellFaultKind>;
   /**
+   * O96: missing command name parsed from a 126/127 start failure's output.
+   * Copy-only — never used for classification.
+   */
+  lastMissingCommand?: Map<string, string>;
+  /**
    * O97: paths whose edit/write was just refused for read scope (partial
    * window, file content not attached). While locked, an exec that would write
    * the same file is blocked too, so the model cannot route around the edit
@@ -298,6 +303,7 @@ export function createToolLoopGuardState(
     byEditPathFailure: new Map(),
     bySameCommandFailure: new Map(),
     lastShellFaultKind: new Map(),
+    lastMissingCommand: new Map(),
     readScopeLockedPaths: new Set(),
     webSearchQueries: new Set(),
     freshNewsSearchRequested: false,
@@ -382,9 +388,14 @@ export function classifyShellToolFailure(
 
   // Normal completion header: process ran to completion; stdout is untrusted.
   const exitHeader = /^exit_code:\s*(\d+)\b/i.exec(firstLine);
+  // 126 (not executable) / 127 (command not found) from the exec first line
+  // mean the process never started — a tool fault, not a lint/test failure.
   if (exitHeader) {
-    return Number(exitHeader[1]) > 0 ? 'normal_nonzero' : 'other';
+    const code = Number(exitHeader[1]);
+    if (code === 126 || code === 127) return 'start_failure';
+    return code > 0 ? 'normal_nonzero' : 'other';
   }
+  if (/^Command failed \(exit\s+12[67]\)/i.test(firstLine)) return 'start_failure';
   if (/^Command failed \(exit\s+[1-9]\d*\)/i.test(firstLine)) return 'normal_nonzero';
 
   if (
@@ -439,6 +450,30 @@ export function classifyShellToolFailure(
     return 'unusable';
   }
   return 'other';
+}
+
+/**
+ * O96: best-effort missing command name from shell "not found" output
+ * (`sh: eslint: not found`, `sh: 1: eslint: not found`,
+ * `bash: foo: command not found`, `zsh: command not found: foo`,
+ * `bash: /no/such/bin: No such file or directory`). Copy-only.
+ * @internal exported for tests
+ */
+export function parseMissingCommandName(resultText: string | undefined): string | undefined {
+  const text = (resultText ?? '').slice(0, 4000);
+  const patterns = [
+    /^(?:\S*\/)?(?:sh|bash|dash|ash|ksh)(?::\s*(?:line\s+)?\d+)?:\s*([^\s:]+):\s*(?:command\s+)?not found\b/im,
+    /^(?:\S*\/)?zsh(?::\d+)?:\s*command not found:\s*(\S+)/im,
+    /^(?:\S*\/)?(?:sh|bash|dash|ash|ksh)(?::\s*(?:line\s+)?\d+)?:\s*(\/[^\s:]+):\s*No such file or directory\b/im,
+  ];
+  for (const re of patterns) {
+    const m = re.exec(text);
+    const name = m?.[1];
+    // Display-only: strict whitelist, else fall back to generic copy.
+    if (name && /^[A-Za-z0-9._/-]{1,64}$/.test(name)) return name;
+    if (name) return undefined;
+  }
+  return undefined;
 }
 
 export function isSoftToolFailureResult(resultText: string | undefined): boolean {
@@ -512,6 +547,10 @@ export function recordToolLoopOutcome(
       kind === 'unusable'
     ) {
       state.lastShellFaultKind.set(toolName, kind);
+      const missing = kind === 'start_failure' ? parseMissingCommandName(resultText) : undefined;
+      state.lastMissingCommand ??= new Map();
+      if (missing) state.lastMissingCommand.set(toolName, missing);
+      else state.lastMissingCommand.delete(toolName);
       const sig = normalizeVerifyCommandSignature(toolName, input);
       if (sig) state.bySameCommandFailure.delete(sig.key);
     }
@@ -563,6 +602,16 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
         `Blocked: ${toolName} timed out repeatedly (${reason}).`,
         '请提高 timeout_ms、简化命令，或改用 exec_background；不要原样重试。',
         'Raise timeout_ms, simplify the command, or use exec_background — do not retry unchanged.',
+      ].join(' ');
+    }
+    const missingMatch = /\(missing command: ([^\s)]+)\)/.exec(reason);
+    if (/failed to start \d+ time/i.test(reason) && missingMatch) {
+      const name = missingMatch[1];
+      return [
+        `已拦截：${toolName} 未能启动：找不到命令 \`${name}\`（${reason}）。`,
+        `Blocked: ${toolName} failed to start: command \`${name}\` not found (${reason}).`,
+        `下一步：装依赖或改命令（例如安装提供 \`${name}\` 的包，或换成已安装的命令）；不要原样重试。`,
+        `Next step: install the dependency or change the command (e.g. install the package that provides \`${name}\`, or use a command that is installed) — do not retry unchanged.`,
       ].join(' ');
     }
     if (/failed to start \d+ time/i.test(reason)) {
@@ -993,7 +1042,10 @@ export function shouldShortCircuitToolCall(
         return `${toolName} timed out ${failureCount} time(s) in this user turn`;
       }
       if (kind === 'start_failure') {
-        return `${toolName} failed to start ${failureCount} time(s) in this user turn`;
+        const missing = state.lastMissingCommand?.get(toolName);
+        return `${toolName} failed to start ${failureCount} time(s) in this user turn${
+          missing ? ` (missing command: ${missing})` : ''
+        }`;
       }
       if (kind === 'killed') {
         return `${toolName} was killed ${failureCount} time(s) in this user turn`;
