@@ -18,6 +18,16 @@ import {
 } from '../safety/device-trust.js';
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
+import { findProtectedPathHits } from '../safety/protected-paths.js';
+import {
+  mossConfigDirs,
+  protectedGrantKey,
+  protectedPathDeniedReason,
+  protectedPathHeadlessNotice,
+  protectedPathHeadlessReason,
+  protectedPathStringPrompt,
+  protectedPathView,
+} from './protected-path-prompt.js';
 import { recordDevicePolicyDecision } from './device-policy-log.js';
 import { deviceDestructivePrompt } from './device-safety-prompt.js';
 import { formatHeadlessBlockNotice, formatHeadlessBlockReason, isZhLocale } from './cli-locale.js';
@@ -25,6 +35,7 @@ import {
   normalizeSafetyModeConfig,
   loadConfigFile,
   saveConfigFile,
+  resolveConfigDir,
   type ConfigApprovalPolicy,
 } from './config.js';
 import { deriveEngineQuantas, type CliInteractionMode } from './interaction-mode.js';
@@ -1074,6 +1085,8 @@ export function createCliToolApprovalHook(
   // edit family is a workspace-wide grant, design §3.4).
   const sessionAllowRules = new Set<string>();
   const sessionTrustedWorkspaces = new Set<string>();
+  /** O94: "always for this path" grants — session only, never persisted. */
+  const sessionProtectedGrants = new Set<string>();
   /** `${deviceKey}\0${scopeId}` — `a` trusts one command scope, not the whole tier. */
   const sessionTrustedScopes = new Set<string>();
   const workspaceRoot = workspaceTrustRoot(options.workspaceDir);
@@ -1207,6 +1220,55 @@ export function createCliToolApprovalHook(
 
     // ── the permission decision order (single implementation) ──
     const outcome = resolvePermissionDecision(decisionInput, resolvedRules);
+
+    // ── O94: protected paths (.git/, ~/.ssh, shell rc, .env*, Moss config)
+    // need one confirmation in EVERY mode, full included; -p denies. Deny
+    // rules and the plan/read-only blocks above still win.
+    if (outcome.decision !== 'deny' && outcome.decision !== 'block') {
+      const protectedHits = findProtectedPathHits(
+        tool.name,
+        request.input,
+        {
+          cwd: options.workspaceDir || workspaceRoot,
+          workspaceRoot,
+          configDirs: mossConfigDirs(resolveConfigDir(env), env),
+          env,
+        },
+        sideEffect === 'readonly'
+      ).filter((hit) => !sessionProtectedGrants.has(protectedGrantKey(hit)));
+      const firstHit = protectedHits[0];
+      if (firstHit) {
+        const zh = isZhLocale();
+        const protectedAsker = instanceAsker ?? interactiveAsker;
+        const protectedViewAsker = getCliApprovalViewAsker();
+        if (!process.stdin.isTTY && protectedAsker === null && !protectedViewAsker) {
+          console.error(protectedPathHeadlessNotice(firstHit, zh));
+          return settle({ approved: false, reason: protectedPathHeadlessReason(firstHit, zh) });
+        }
+        const view = protectedPathView(tool.name, protectedHits, zh);
+        let protectedAnswer: string;
+        if (protectedViewAsker) {
+          protectedAnswer = await protectedViewAsker(view, request.abortSignal);
+        } else {
+          protectedAnswer = (
+            await (protectedAsker ?? defaultAskUser)(
+              protectedPathStringPrompt(view, zh),
+              request.abortSignal
+            )
+          )
+            .trim()
+            .toLowerCase();
+        }
+        if (protectedAnswer === 'a' || protectedAnswer === 'always') {
+          for (const hit of protectedHits) sessionProtectedGrants.add(protectedGrantKey(hit));
+          return settle({ approved: true });
+        }
+        if (protectedAnswer === 'y' || protectedAnswer === 'yes') {
+          return settle({ approved: true });
+        }
+        return settle({ approved: false, reason: protectedPathDeniedReason(firstHit, zh) });
+      }
+    }
 
     switch (outcome.decision) {
       case 'deny':
