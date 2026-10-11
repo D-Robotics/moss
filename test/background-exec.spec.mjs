@@ -167,16 +167,13 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   setKillEscalationMsForTests(200);
   clearBackgroundRegistryForTests();
   const controller = new AbortController();
-  let command = longRunningCommand;
-  {
-    const parentScript = [
-      'const { spawn } = require("node:child_process")',
-      `const child = spawn(process.execPath, [${JSON.stringify(sleepScript)}], { stdio: "ignore" })`,
-      'console.log(child.pid)',
-      'setInterval(() => {}, 1000)',
-    ].join(';');
-    command = nodeCommand(writeScript('parent.cjs', parentScript));
-  }
+  const parentScript = [
+    'const { spawn } = require("node:child_process")',
+    `const child = spawn(process.execPath, [${JSON.stringify(sleepScript)}], { stdio: "ignore" })`,
+    'console.log(child.pid)',
+    'setInterval(() => {}, 1000)',
+  ].join(';');
+  const command = nodeCommand(writeScript('parent.cjs', parentScript));
   const out = await execBackgroundTool.execute(
     { command, settle_ms: 50 },
     { abortSignal: controller.signal }
