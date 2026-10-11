@@ -394,7 +394,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_PRICE_IN',
       'MOSS_PRICE_OUT',
       'MOSS_DISABLE_CONN_WARMUP',
-      'MOSS_CONNECT_TIMEOUT_MS (ms; undici connectTimeout; default 30000 when HTTPS_PROXY/HTTP_PROXY is set; 0 = undici default)',
+      'MOSS_CONNECT_TIMEOUT_MS (ms; proxy connect timeout; default 30000 when HTTPS_PROXY/HTTP_PROXY is set; 0 = library default)',
       'MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS',
       'MOSS_PI_AI_FIRST_EVENT_TIMEOUT_MS',
       'MOSS_PI_AI_INTER_EVENT_TIMEOUT_MS',
@@ -510,8 +510,8 @@ const ENV_NOTE_ZH: Record<string, string> = {
     '1|true|yes|on 向 npm 查询文档包的最新版是否新于钉住的版本；默认关闭，启动时不用',
   '0 stops acceptance commands from appending the login-shell PATH':
     '设为 0 时，验收命令不再追加登录环境里的 PATH',
-  'ms; undici connectTimeout; default 30000 when HTTPS_PROXY/HTTP_PROXY is set; 0 = undici default':
-    '毫秒；undici connectTimeout；设置 HTTPS_PROXY/HTTP_PROXY 时默认 30000；0 = undici 默认',
+  'ms; proxy connect timeout; default 30000 when HTTPS_PROXY/HTTP_PROXY is set; 0 = library default':
+    '毫秒；代理连接超时；设置 HTTPS_PROXY/HTTP_PROXY 时默认 30000；0 = 库默认',
   'legacy alias': '旧别名',
   'auto|en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale':
     'auto|en|zh；进程环境或 --lang；项目 .env 不能设置；优先级为参数、环境变量、配置 language、系统区域',

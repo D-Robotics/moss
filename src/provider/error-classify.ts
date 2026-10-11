@@ -297,6 +297,18 @@ function stripAuthoredTails(text: string): string {
   return out;
 }
 
+/** O87: keep syscall/undici codes under 详细信息, not English prose that duplicates the hint. */
+function isCodeBearingCause(text: string): boolean {
+  return (
+    /\b(?:ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ECONNABORTED|EPIPE|EAI_NONAME|EAI_FAIL|EAI_NODATA|UND_ERR_[A-Z0-9_]+)\b/i.test(
+      text
+    ) ||
+    /\b(?:ConnectTimeoutError|HeadersTimeoutError|BodyTimeoutError|TimeoutError|AbortError)\b/i.test(
+      text
+    )
+  );
+}
+
 /** Syscall or client-abort text shown under 详细信息, never as gateway body. */
 function lowLevelCause(raw: string): string {
   const cleaned = stripLoginPagePrefix(raw);
@@ -309,7 +321,11 @@ function lowLevelCause(raw: string): string {
     if (!text || isMossConnectionLead(text)) continue;
     text = stripAuthoredTails(text).trim();
     if (!text || isMossConnectionLead(text)) continue;
-    if (isTransportOnlyLine(text)) return text.slice(0, 300);
+    // Bare "connection refused" (no ECONNREFUSED/UND_ERR_*) is already covered by the zh hint.
+    if (isTransportOnlyLine(text)) {
+      if (!isCodeBearingCause(text)) continue;
+      return text.slice(0, 300);
+    }
   }
   return '';
 }
