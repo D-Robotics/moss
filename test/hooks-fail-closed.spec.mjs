@@ -132,7 +132,11 @@ for (const lang of ['en', 'zh']) {
     assert.match(r.resultText, /\/tmp\/o88\/\.moss\/config\.json/, 'reason names the config file');
     assert.match(r.stderr, notStarted, 'terminal shows the same reason');
     if (lang === 'zh') {
-      assert.match(r.resultText, /已拦截：工具调用前钩子未能启动。/, 'zh uses PM wording');
+      assert.match(
+        r.resultText,
+        /已拦截：工具使用前钩子未能启动。/,
+        'zh uses the O91 copy-table wording'
+      );
       assert.match(r.resultText, /给这个钩子加上 blocking: false/, 'zh next step');
       assert.doesNotMatch(
         r.resultText,
@@ -373,11 +377,11 @@ test('[zh] hook-blocked result starts with 已拦截, no English denied prefix, 
   const ends = r.toolResults.filter((e) => e.type === 'tool_end' || e.type === 'tool_result');
   assert.ok(ends.length > 0);
   assert.doesNotMatch(r.resultText, /Tool execution denied/);
-  const { outcome, executed } = await deniedOutcome('已拦截：工具调用前钩子未能启动。');
+  const { outcome, executed } = await deniedOutcome('已拦截：工具使用前钩子未能启动。');
   assert.equal(executed, false);
   assert.equal(outcome.kind, 'denied');
   assert.equal(outcome.error.code, ErrorCode.TOOL_NOT_ALLOWED);
-  assert.ok(outcome.text.startsWith('已拦截：工具调用前钩子未能启动。'), outcome.text);
+  assert.ok(outcome.text.startsWith('已拦截：工具使用前钩子未能启动。'), outcome.text);
   assert.doesNotMatch(outcome.text, /Tool execution denied/);
 });
 
@@ -434,7 +438,7 @@ test('blocked tool row shows the Next / 下一步 line without ctrl+o', () => {
   ];
   assert.equal(failedPreviewLimit(true, en, RESULT_PREVIEW_LINES), 5);
   const zh = [
-    '已拦截：工具调用前钩子未能启动。',
+    '已拦截：工具使用前钩子未能启动。',
     '命令：x',
     '配置文件：/c',
     '错误输出：x',

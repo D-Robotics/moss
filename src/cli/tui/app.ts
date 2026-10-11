@@ -2230,6 +2230,12 @@ export function TuiAppRoot({
         // The hooks subsystem is the most powerful config surface (9 events,
         // blocking vetoes) and used to be manageable only by hand-editing
         // JSON. The view lists what is live and where to edit it.
+        // O91: in the zh UI every event key is paired with its Chinese display
+        // name (the keys themselves stay the English config literals). Dynamic
+        // import keeps the pure name table off the shell's static graph.
+        const { hookEventCatalogLines, hookEventZhName, isMossHookEventId } =
+          await import('../hook-event-names.js');
+        const zh = isZhLocale();
         const hooks = (
           options.cliRuntime?.config as
             | {
@@ -2249,8 +2255,10 @@ export function TuiAppRoot({
         if (hooks) {
           for (const [event, entries] of Object.entries(hooks)) {
             for (const hook of entries ?? []) {
+              const label =
+                zh && isMossHookEventId(event) ? `${event}（${hookEventZhName(event)}）` : event;
               lines.push(
-                `${event.padEnd(14)} ${hook.matcher ? `[${hook.matcher}] ` : ''}${hook.command}` +
+                `${label.padEnd(14)} ${hook.matcher ? `[${hook.matcher}] ` : ''}${hook.command}` +
                   `${hook.blocking ? ' · blocking' : ''}` +
                   `${hook.timeoutMs !== undefined ? ` · ${hook.timeoutMs}ms` : ''}`
               );
@@ -2260,9 +2268,7 @@ export function TuiAppRoot({
         if (lines.length === 0) {
           lines.push(
             tui('no hooks configured — add a "hooks" object to the config file:'),
-            '  PreToolUse · PostToolUse · UserPromptSubmit · PermissionRequest',
-            '  SessionStart · Stop · SubagentStop · PreCompact · PostCompact',
-            '  SessionEnd · Notification',
+            ...hookEventCatalogLines(zh),
             'each entry: { "command": "…", "matcher": "tool-glob", "timeoutMs": 5000, "blocking": true }'
           );
         }

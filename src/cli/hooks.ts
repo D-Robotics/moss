@@ -8,6 +8,8 @@ import { safeChildEnv } from '../utils/safe-child-env.js';
 import { errorMessage } from '../errors.js';
 import { ProcessError, runProcess } from '../utils/run-process.js';
 import { isZhLocale } from './cli-locale.js';
+import { hookEventZhName } from './hook-event-names.js';
+import type { MossHookEventId } from './hook-event-names.js';
 
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
 
@@ -63,18 +65,7 @@ interface HookRunResult {
 }
 
 interface HookPayload {
-  event:
-    | 'PreToolUse'
-    | 'PostToolUse'
-    | 'UserPromptSubmit'
-    | 'PermissionRequest'
-    | 'SessionStart'
-    | 'Stop'
-    | 'SubagentStop'
-    | 'PreCompact'
-    | 'PostCompact'
-    | 'SessionEnd'
-    | 'Notification';
+  event: MossHookEventId;
   toolName?: string;
   /** Claude-format alias of toolName (Bash, Edit, …). */
   tool_name?: string;
@@ -260,7 +251,9 @@ export function formatHookFailure(
         : result.outcome === 'timeout'
           ? `超时（${timeoutFor(hook)} 毫秒）`
           : `非零退出（退出码 ${result.exitCode}）`;
-    const name = event === 'PreToolUse' ? '工具调用前钩子' : `${event} 钩子`;
+    // O91: zh names the hook 「<中文名>钩子」 — the table is suffix-free and
+    // the bare English event id never appears as the only label in zh copy.
+    const name = `${hookEventZhName(event)}钩子`;
     const head = blocked ? `已拦截：${name}${why}。` : `${name}${why}，未拦截。`;
     const lines = [
       head,
@@ -306,7 +299,7 @@ function hookReason(result: HookRunResult, parsed?: ParsedHookJson): string {
     const stdout = result.stdout.trim();
     if (stdout) return stdout.slice(0, 500);
   }
-  return `hook exited ${result.exitCode}`;
+  return isZhLocale() ? `退出码 ${result.exitCode}` : `hook exited ${result.exitCode}`;
 }
 
 function promptBlocks(
@@ -335,6 +328,33 @@ function timeoutFor(hook: HookCommandConfig): number {
     process.stderr.write(`[hooks] ${timeoutClampedWarning(hook, effective)}\n`);
   }
   return MAX_TIMER_DELAY_MS;
+}
+
+/**
+ * O91: the `[hooks] <event> exited <code>: <stderr>` notice. The zh UI names
+ * the hook with its Chinese display name instead of the bare English event id.
+ */
+function hookExitedLine(
+  event: HookEventName,
+  exitCode: number,
+  stderr: string,
+  toolLabel?: string
+): string {
+  const detail = (stderr || '').trim().slice(0, 200);
+  if (isZhLocale()) {
+    const name = `${hookEventZhName(event)}钩子`;
+    const who = toolLabel ? `${name}（${toolLabel}）` : name;
+    return `[hooks] ${who}以退出码 ${exitCode} 结束：${detail}`;
+  }
+  const who = toolLabel ? `${event} (${toolLabel})` : event;
+  return `[hooks] ${who} exited ${exitCode}: ${detail}`;
+}
+
+/** O91: the `[hooks] <event> hook failed: <err>` wrapper notice. */
+function hookFailedLine(event: HookEventName, message: string): string {
+  return isZhLocale()
+    ? `[hooks] ${hookEventZhName(event)}钩子执行失败：${message}`
+    : `[hooks] ${event} hook failed: ${message}`;
 }
 
 export interface ConfiguredHookCallbacks {
@@ -434,10 +454,13 @@ export function createConfiguredHookCallbacks(
     hook: HookCommandConfig,
     r: HookRunResult,
     parsed?: ParsedHookJson
-  ): string =>
-    r.outcome !== 'exit'
-      ? notice(event, hook, r, true)
+  ): string => {
+    if (r.outcome !== 'exit') return notice(event, hook, r, true);
+    // O91: zh blocked reasons use 「中文名+钩子」, never the bare English id.
+    return isZhLocale()
+      ? `已拦截：${hookEventZhName(event)}钩子：${hookReason(r, parsed)}`
       : `Blocked by ${event} hook: ${hookReason(r, parsed)}`;
+  };
 
   const onBeforeToolExec =
     pre.length === 0
@@ -486,7 +509,7 @@ export function createConfiguredHookCallbacks(
               .then((r) => {
                 if (r.exitCode !== 0) {
                   process.stderr.write(
-                    `[hooks] PostToolUse (${call.name}) exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
+                    `${hookExitedLine('PostToolUse', r.exitCode, r.stderr, call.name)}\n`
                   );
                 }
               })
@@ -503,9 +526,7 @@ export function createConfiguredHookCallbacks(
         timeoutFor(hook)
       );
       if (r.exitCode !== 0) {
-        process.stderr.write(
-          `[hooks] SessionStart exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
-        );
+        process.stderr.write(`${hookExitedLine('SessionStart', r.exitCode, r.stderr)}\n`);
       }
     }
   };
@@ -544,9 +565,7 @@ export function createConfiguredHookCallbacks(
         timeoutFor(hook)
       );
       if (r.exitCode !== 0) {
-        process.stderr.write(
-          `[hooks] SubagentStop exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
-        );
+        process.stderr.write(`${hookExitedLine('SubagentStop', r.exitCode, r.stderr)}\n`);
       }
     }
   };
@@ -567,9 +586,7 @@ export function createConfiguredHookCallbacks(
           timeoutFor(hook)
         );
         if (r.exitCode !== 0) {
-          process.stderr.write(
-            `[hooks] PreCompact exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
-          );
+          process.stderr.write(`${hookExitedLine('PreCompact', r.exitCode, r.stderr)}\n`);
         }
       });
     }
@@ -588,9 +605,7 @@ export function createConfiguredHookCallbacks(
           timeoutFor(hook)
         );
         if (r.exitCode !== 0) {
-          process.stderr.write(
-            `[hooks] PostCompact exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
-          );
+          process.stderr.write(`${hookExitedLine('PostCompact', r.exitCode, r.stderr)}\n`);
         }
       });
     }
@@ -606,9 +621,7 @@ export function createConfiguredHookCallbacks(
         timeoutFor(hook)
       );
       if (r.exitCode !== 0) {
-        process.stderr.write(
-          `[hooks] SessionEnd exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
-        );
+        process.stderr.write(`${hookExitedLine('SessionEnd', r.exitCode, r.stderr)}\n`);
       }
     }
   };
@@ -626,9 +639,7 @@ export function createConfiguredHookCallbacks(
         timeoutFor(hook)
       );
       if (r.exitCode !== 0) {
-        process.stderr.write(
-          `[hooks] Notification exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
-        );
+        process.stderr.write(`${hookExitedLine('Notification', r.exitCode, r.stderr)}\n`);
       }
     }
   };
@@ -774,7 +785,7 @@ export async function runStopHooks(info: StopHookInfo): Promise<StopHookResult> 
   try {
     return (await lifecycleRunner?.runStop(info)) ?? { blocked: false };
   } catch (err) {
-    process.stderr.write(`[hooks] Stop hook failed: ${errorMessage(err)}\n`);
+    process.stderr.write(`${hookFailedLine('Stop', errorMessage(err))}\n`);
     return { blocked: false };
   }
 }
@@ -786,7 +797,7 @@ export async function runNotificationHooks(info: {
   try {
     await lifecycleRunner?.runNotification?.(info);
   } catch (err) {
-    process.stderr.write(`[hooks] Notification hook failed: ${errorMessage(err)}\n`);
+    process.stderr.write(`${hookFailedLine('Notification', errorMessage(err))}\n`);
   }
 }
 
@@ -794,6 +805,6 @@ export async function runSubagentStopHooks(info: SubagentStopHookInfo): Promise<
   try {
     await lifecycleRunner?.runSubagentStop(info);
   } catch (err) {
-    process.stderr.write(`[hooks] SubagentStop hook failed: ${errorMessage(err)}\n`);
+    process.stderr.write(`${hookFailedLine('SubagentStop', errorMessage(err))}\n`);
   }
 }
