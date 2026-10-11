@@ -29,12 +29,8 @@ import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 import { acceptanceShell } from '../core/task/acceptance-command.js';
 import { runStopHooks, type StopHookResult } from './hooks.js';
 import { runProcess } from '../utils/run-process.js';
-import {
-  assessRunCompletion,
-  createRunCompletionTracker,
-  formatIncompleteLine,
-  noteRunCompletionEvent,
-} from './run-completion.js';
+import { createRunCompletionTracker, noteRunCompletionEvent } from './run-completion.js';
+import { formatOutcomeLine, resolveRunOutcome } from './run-outcome.js';
 
 /** Format the oneshot exit warning when background work outlives the wait window. */
 export function formatOneshotStillRunningBackgroundNotice(
@@ -698,13 +694,11 @@ export async function runOneShot(
     }
   }
 
-  // O98: never end a text `--print` run on a false success. If the final
-  // answer claims checks that never (successfully) ran, or the task needed
-  // edits and none happened, exit non-zero and make the LAST stdout line say
-  // what is unfinished and where it got stuck.
+  // O98: never end a text `--print` run on a false success. Resolve a stable
+  // RunOutcome (completed | incomplete | unverified); O99 reads the same API.
   if (outputFormat === 'text') {
-    const zh = isZhLocale();
-    const verdict = assessRunCompletion({
+    const lang = isZhLocale() ? 'zh' : 'en';
+    const outcome = resolveRunOutcome({
       tracker: completionTracker,
       finalText: typeof finalResult?.result === 'string' ? finalResult.result : state.finalText,
       request: message,
@@ -712,11 +706,10 @@ export async function runOneShot(
         ? { runError: finalResult.error ?? String(finalResult.subtype) }
         : {}),
       ...(typeof process.exitCode === 'number' ? { errorExitCode: process.exitCode } : {}),
-      zh,
     });
-    if (verdict.status === 'incomplete') {
-      process.exitCode = verdict.exitCode;
-      stdout.write(`\n${formatIncompleteLine(verdict, { zh })}\n`);
+    if (outcome.status !== 'completed') {
+      process.exitCode = outcome.exitCode;
+      stdout.write(`\n${formatOutcomeLine(outcome, lang)}\n`);
     }
   }
 

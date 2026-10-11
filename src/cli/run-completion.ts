@@ -16,7 +16,9 @@
  *  - {@link formatIncompleteLine} renders the mandatory last line
  *    (`未完成：… ；卡在：…` / `Incomplete: …; stuck at: …`).
  *
- * O99 (progress) reuses the verdict/exit code instead of re-deriving it.
+ * O99 (progress) must import the stable bilingual outcome from
+ * {@link ./run-outcome.js} (`resolveRunOutcome` / `formatOutcomeLine`) rather
+ * than calling these helpers directly.
  */
 import type { MossAgentEvent } from '../core/index.js';
 import { ExitCode } from './exit-codes.js';
