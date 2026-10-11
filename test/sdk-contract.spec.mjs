@@ -357,6 +357,22 @@ test('typed API surface resolves through dist/index.d.ts', async () => {
     'ChatResult',
   ])
     assert.ok(exported.has(symbol), symbol + ' exported from the typed API surface');
+  const chatOptions = checker
+    .getExportsOfModule(moduleSymbol)
+    .find((symbol) => symbol.getName() === 'ChatOptions');
+  const declaration =
+    chatOptions.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(chatOptions) : chatOptions;
+  const deviceConfigured = checker
+    .getDeclaredTypeOfSymbol(declaration)
+    .getProperty('deviceConfigured');
+  assert.ok(deviceConfigured, 'ChatOptions exposes per-run host device availability');
+  assert.ok(deviceConfigured.flags & ts.SymbolFlags.Optional, 'CLI discovery remains the default');
+  assert.match(
+    checker.typeToString(
+      checker.getTypeOfSymbolAtLocation(deviceConfigured, deviceConfigured.declarations[0])
+    ),
+    /^boolean(?: \| undefined)?$/
+  );
 });
 
 console.log('[PASS] SDK contract');

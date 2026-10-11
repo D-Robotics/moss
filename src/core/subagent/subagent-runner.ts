@@ -294,6 +294,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         getToolsForRun: () => filteredTools,
         toolCtx: {
           workspaceDir,
+          runId: childRunId,
           sessionKey: childSessionKey,
           abortSignal: workPhaseController.signal,
           maxSpawnDepth: deps.maxSpawnDepth ?? 1,

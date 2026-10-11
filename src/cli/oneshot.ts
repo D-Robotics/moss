@@ -27,7 +27,7 @@ import { loadCliConfigFile } from './config.js';
 import { configuredBaseUrl, pricingOverridesFromConfig } from './model-pricing.js';
 import { buildGitStatusSnapshot } from '../context/git-status-snapshot.js';
 import { runStopHooks, type StopHookResult } from './hooks.js';
-import { runProcess } from '../utils/run-process.js';
+import { ProcessError, runProcess } from '../utils/run-process.js';
 import { acceptanceShell } from '../core/task/acceptance-command.js';
 
 /** Format the oneshot exit warning when background work outlives the wait window. */
@@ -663,6 +663,11 @@ export async function runOneShot(
         cwd: workspaceDir,
         timeout: 5 * 60_000,
         ...(shell.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+      }).catch((error: unknown) => {
+        if (error instanceof ProcessError && !error.timedOut && error.exitCode !== null) {
+          return { exitCode: error.exitCode, stdout: error.stdout, stderr: error.stderr };
+        }
+        throw error;
       });
       if (verify.exitCode !== 0) {
         const tail = `${verify.stdout}\n${verify.stderr}`.trim().slice(-2000);

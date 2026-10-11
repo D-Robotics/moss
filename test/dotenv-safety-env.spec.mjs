@@ -542,6 +542,31 @@ const goalLiveScript = writeGoalScript(goalLive);
   assert.equal(fs.readFileSync(goalLiveScript.marker, 'utf8'), 'ran');
 }
 
+const goalFailed = layout('ws');
+const goalFailedMarker = path.join(goalFailed.root, 'failed-verification-runs');
+const goalFailedScript = path.join(goalFailed.root, 'fail goal.mjs');
+writeFile(
+  goalFailedScript,
+  `import fs from 'node:fs';\nfs.appendFileSync(${JSON.stringify(goalFailedMarker)}, 'exit7\\n');\nconsole.error('real goal verification failed');\nprocess.exit(7);\n`
+);
+{
+  const result = await runCli(
+    goalFailed.workspace,
+    childEnv(goalFailed, {
+      MOSS_GOAL_VERIFY_LOOP: '1',
+      MOSS_GOAL_VERIFY_CMD: goalCommand(goalFailedScript),
+    }),
+    ['--mock', '-p', 'hi']
+  );
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(fs.readFileSync(goalFailedMarker, 'utf8'), 'exit7\n');
+  assert.match(
+    result.stderr,
+    /\[goal-verify\] command failed \(exit 7\); running one continuation turn/
+  );
+  assert.equal(result.stdout.split('Mock mode — no live LLM.').length - 1, 2, result.stdout);
+}
+
 const DEVICE_KEYS = [
   'MOSS_DEVICE_HOST',
   'MOSS_DEVICE_PORT',

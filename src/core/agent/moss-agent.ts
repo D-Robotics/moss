@@ -1022,6 +1022,7 @@ ${result.stderr ?? ''}`.trim();
       this.deferredTools.isOffered(tool.name) &&
       toolVisibleForRun(tool.name, {
         taskFlow: ledgerVisible ? true : options?.taskFlow,
+        deviceConfigured: options?.deviceConfigured,
         userQuestions,
         requiresUserQuestion: tool.metadata?.requiresUserQuestion === true,
       }) &&

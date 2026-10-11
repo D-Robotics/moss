@@ -226,6 +226,22 @@ async function stopAndConfirmGone(out, stopCtx, label) {
     waitForTerminalStatus(id, 5000),
     Number.isFinite(pid) && pid > 0 ? waitForProcessExit(pid, 5000) : Promise.resolve(true),
   ]);
+  if (!terminal) {
+    const logs = await execLogsTool.execute({ id, tail: 100 }, stopCtx);
+    console.error(
+      '[background-stop-observation]',
+      JSON.stringify({
+        label,
+        snapshot: getBackgroundProcessSnapshot(id),
+        shellGone,
+        nativeProcesses: [...logs.matchAll(/\bnative_pid=(\d+)\b/g)].map((match) => ({
+          pid: Number(match[1]),
+          alive: isProcessAlive(Number(match[1])),
+        })),
+        logs,
+      })
+    );
+  }
   assert.ok(terminal, `${label}: background stdio did not close after exec_stop`);
   if (Number.isFinite(pid) && pid > 0) {
     assert.equal(shellGone, true, `${label}: pid ${pid} survived exec_stop`);
