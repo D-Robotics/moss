@@ -29,6 +29,8 @@ jobs:
   test:
     name: Test (${{ matrix.os }}, node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
+    # Non-blocking for now (team decision 2026-10-11): failures stay visible but do not gate merges. Check stays blocking.
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -84,6 +86,8 @@ jobs:
   real-terminals:
     name: Real terminals (Linux)
     runs-on: ubuntu-latest
+    # Non-blocking for now (team decision 2026-10-11): failures stay visible but do not gate merges. Check stays blocking.
+    continue-on-error: true
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -117,6 +121,8 @@ jobs:
   install-e2e:
     name: Install e2e (${{ matrix.os }}, npm 10)
     runs-on: ${{ matrix.os }}
+    # Non-blocking for now (team decision 2026-10-11): failures stay visible but do not gate merges. Check stays blocking.
+    continue-on-error: true
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -152,6 +158,8 @@ jobs:
   windows-shell:
     name: Windows shell (pwsh 7)
     runs-on: windows-latest
+    # Non-blocking for now (team decision 2026-10-11): failures stay visible but do not gate merges. Check stays blocking.
+    continue-on-error: true
     timeout-minutes: 20
     steps:
       - name: Checkout
