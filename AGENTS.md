@@ -5,7 +5,7 @@
 ## 仓库身份
 
 Moss 是一个精简的跨平台 coding agent harness：TypeScript / ESM 单包仓库（根 `package.json`，
-包名 `moss`，bin 为 `dist/cli.js`），Node ≥ 22.16.0，运行于 Linux / macOS / Windows。
+包名 `@rdk-moss/agent`，bin 为 `dist/cli.js`），Node ≥ 22.16.0，运行于 Linux / macOS / Windows。
 
 核心能力（也是唯一应当存在的范围）：agent loop、工具框架（`src/tools/`）、上下文管理
 （`src/context/`）、provider（`src/provider/`）、安全（`src/safety/`）、会话
