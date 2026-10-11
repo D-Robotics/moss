@@ -7,6 +7,7 @@ import { CompactHookRegistry } from '../core/loop/compact-hooks.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { errorMessage } from '../errors.js';
 import { ProcessError, runProcess } from '../utils/run-process.js';
+import { isZhLocale } from './cli-locale.js';
 
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
 
@@ -34,7 +35,18 @@ export function hookShell(
   return { cmd: '/bin/sh', args: ['-c', command] };
 }
 
+/**
+ * O88: how the hook process ended. `spawn_failed` and `timeout` mean the hook
+ * never gave a verdict — blocking events fail closed on them.
+ */
+type HookOutcome = 'exit' | 'spawn_failed' | 'timeout';
+
+/** Shell exit codes meaning "command not found / not executable". */
+const LAUNCH_FAILURE_EXIT_CODES =
+  process.platform === 'win32' ? new Set([9009]) : new Set([126, 127]);
+
 interface HookRunResult {
+  outcome: HookOutcome;
   exitCode: number;
   stdout: string;
   stderr: string;
@@ -101,18 +113,36 @@ function runHookCommand(
     stdin: JSON.stringify(payload),
     ...(shell.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   })
-    .then(({ exitCode, stdout, stderr }) => ({ exitCode, stdout, stderr }))
-    .catch((err) => {
+    .then(
+      ({ exitCode, stdout, stderr }): HookRunResult => ({
+        outcome: LAUNCH_FAILURE_EXIT_CODES.has(exitCode) ? 'spawn_failed' : 'exit',
+        exitCode,
+        stdout,
+        stderr,
+      })
+    )
+    .catch((err): HookRunResult => {
       if (err instanceof ProcessError) {
+        if (err.timedOut) {
+          return {
+            outcome: 'timeout',
+            exitCode: 124,
+            stdout: err.stdout,
+            stderr: `${err.stderr}\n[hook timed out after ${timeoutMs}ms]`,
+          };
+        }
+        if (err.exitCode === null && err.signal === null) {
+          return { outcome: 'spawn_failed', exitCode: 1, stdout: err.stdout, stderr: err.stderr };
+        }
+        const code = err.exitCode ?? 1;
         return {
-          exitCode: err.timedOut ? 124 : (err.exitCode ?? 1),
+          outcome: LAUNCH_FAILURE_EXIT_CODES.has(code) ? 'spawn_failed' : 'exit',
+          exitCode: code,
           stdout: err.stdout,
-          stderr: err.timedOut
-            ? `${err.stderr}\n[hook timed out after ${timeoutMs}ms]`
-            : err.stderr,
+          stderr: err.stderr,
         };
       }
-      return { exitCode: 1, stdout: '', stderr: errorMessage(err) };
+      return { outcome: 'spawn_failed', exitCode: 1, stdout: '', stderr: errorMessage(err) };
     });
 }
 
@@ -185,9 +215,70 @@ function parseHookJson(stdout: string): ParsedHookJson | undefined {
   return undefined;
 }
 
-function exitBlocks(hook: HookCommandConfig, exitCode: number): boolean {
+function exitBlocks(hook: HookCommandConfig, result: HookRunResult): boolean {
   if (hook.blocking === false) return false;
-  return hook.format === 'claude' ? exitCode === 2 : exitCode !== 0;
+  // O88: no verdict (could not start / timed out) fails closed in both formats.
+  if (result.outcome !== 'exit') return true;
+  return hook.format === 'claude' ? result.exitCode === 2 : result.exitCode !== 0;
+}
+
+type HookEventName = HookPayload['event'];
+
+/** True when the run did not end with a clean exit 0 (worth telling the user). */
+function hookFailed(result: HookRunResult): boolean {
+  return result.outcome !== 'exit' || result.exitCode !== 0;
+}
+
+/**
+ * O88: one message for both the terminal and the model's tool result: which
+ * hook, why, where it is configured, and the only two next steps.
+ * zh copy keeps only the command, the path, and `blocking: false` in English.
+ */
+export function formatHookFailure(
+  event: HookEventName,
+  hook: HookCommandConfig,
+  result: HookRunResult,
+  blocked: boolean,
+  zh = isZhLocale()
+): string {
+  const detail = (result.stderr || '').trim().replace(/\s+/g, ' ').slice(0, 200);
+  const where = hook.source ?? (zh ? '（未知配置文件）' : '(unknown config file)');
+  if (zh) {
+    const why =
+      result.outcome === 'spawn_failed'
+        ? '未能启动'
+        : result.outcome === 'timeout'
+          ? `超时（${timeoutFor(hook)} 毫秒）`
+          : `非零退出（退出码 ${result.exitCode}）`;
+    const head = blocked ? `已拦截：${event} hook ${why}。` : `${event} hook ${why}，未拦截。`;
+    const lines = [
+      head,
+      `命令：${hook.command}`,
+      `配置文件：${where}`,
+      ...(detail ? [`错误输出：${detail}`] : []),
+    ];
+    if (blocked) {
+      lines.push(`下一步：修好这条命令；或在配置文件里给这个 hook 加上 blocking: false。`);
+    }
+    return lines.join('\n');
+  }
+  const why =
+    result.outcome === 'spawn_failed'
+      ? 'could not start'
+      : result.outcome === 'timeout'
+        ? `timed out after ${timeoutFor(hook)}ms`
+        : `exited with code ${result.exitCode}`;
+  const head = blocked ? `Blocked: ${event} hook ${why}.` : `${event} hook ${why}; not blocking.`;
+  const lines = [
+    head,
+    `Command: ${hook.command}`,
+    `Config: ${where}`,
+    ...(detail ? [`stderr: ${detail}`] : []),
+  ];
+  if (blocked) {
+    lines.push('Next: fix the command, or set blocking: false on this hook in that config file.');
+  }
+  return lines.join('\n');
 }
 
 function isBlockDecision(decision: string | undefined): boolean {
@@ -212,10 +303,7 @@ function promptBlocks(
   result: HookRunResult,
   parsed?: ParsedHookJson
 ): boolean {
-  return (
-    exitBlocks(hook, result.exitCode) ||
-    (hook.blocking !== false && isBlockDecision(parsed?.decision))
-  );
+  return exitBlocks(hook, result) || (hook.blocking !== false && isBlockDecision(parsed?.decision));
 }
 
 function timeoutFor(hook: HookCommandConfig): number {
@@ -281,6 +369,35 @@ export function createConfiguredHookCallbacks(
   const notification = hooks?.Notification ?? [];
   const cwd = opts.workspaceDir;
 
+  // O88: one terminal notice per (event, hook, kind) per user turn; repeats
+  // within the turn are folded into the first. The tool result always carries
+  // the full reason.
+  const noticed = new Set<string>();
+  const notice = (
+    event: HookEventName,
+    hook: HookCommandConfig,
+    r: HookRunResult,
+    blocked: boolean
+  ): string => {
+    const text = formatHookFailure(event, hook, r, blocked);
+    const key = `${event}\u0000${hook.command}\u0000${r.outcome}\u0000${r.exitCode}\u0000${blocked}`;
+    if (!noticed.has(key)) {
+      noticed.add(key);
+      process.stderr.write(`[hooks] ${text}\n`);
+    }
+    return text;
+  };
+  /** Reason handed back to the model/caller when a blocking event is vetoed. */
+  const blockReason = (
+    event: HookEventName,
+    hook: HookCommandConfig,
+    r: HookRunResult,
+    parsed?: ParsedHookJson
+  ): string =>
+    r.outcome !== 'exit'
+      ? notice(event, hook, r, true)
+      : `Blocked by ${event} hook: ${hookReason(r, parsed)}`;
+
   const onBeforeToolExec =
     pre.length === 0
       ? undefined
@@ -300,11 +417,9 @@ export function createConfiguredHookCallbacks(
             );
             const parsed = parseHookJson(r.stdout);
             if (promptBlocks(hook, r, parsed)) {
-              return {
-                approved: false,
-                reason: `Blocked by PreToolUse hook: ${hookReason(r, parsed)}`,
-              };
+              return { approved: false, reason: blockReason('PreToolUse', hook, r, parsed) };
             }
+            if (hookFailed(r)) notice('PreToolUse', hook, r, false);
           }
           return { approved: true };
         };
@@ -366,14 +481,10 @@ export function createConfiguredHookCallbacks(
         cwd,
         timeoutFor(hook)
       );
-      if (exitBlocks(hook, r.exitCode)) {
-        return { blocked: true, reason: `Blocked by Stop hook: ${hookReason(r)}` };
+      if (exitBlocks(hook, r)) {
+        return { blocked: true, reason: blockReason('Stop', hook, r) };
       }
-      if (r.exitCode !== 0) {
-        process.stderr.write(
-          `[hooks] Stop exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
-        );
-      }
+      if (hookFailed(r)) notice('Stop', hook, r, false);
     }
     return { blocked: false };
   };
@@ -482,6 +593,7 @@ export function createConfiguredHookCallbacks(
   };
 
   const runUserPromptSubmit = async (message: string): Promise<UserPromptSubmitResult> => {
+    noticed.clear();
     const extra: string[] = [];
     for (const hook of userPrompt) {
       const r = await runHookCommand(
@@ -492,15 +604,10 @@ export function createConfiguredHookCallbacks(
       );
       const parsed = parseHookJson(r.stdout);
       if (promptBlocks(hook, r, parsed)) {
-        return {
-          blocked: true,
-          reason: `Blocked by UserPromptSubmit hook: ${hookReason(r, parsed)}`,
-        };
+        return { blocked: true, reason: blockReason('UserPromptSubmit', hook, r, parsed) };
       }
-      if (r.exitCode !== 0) {
-        process.stderr.write(
-          `[hooks] UserPromptSubmit exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
-        );
+      if (hookFailed(r)) {
+        notice('UserPromptSubmit', hook, r, false);
         continue;
       }
       const context = parsed?.additionalContext?.trim() || (parsed ? '' : r.stdout.trim());
@@ -530,16 +637,9 @@ export function createConfiguredHookCallbacks(
       );
       const parsed = parseHookJson(r.stdout);
       if (promptBlocks(hook, r, parsed)) {
-        return {
-          denied: true,
-          reason: `Blocked by PermissionRequest hook: ${hookReason(r, parsed)}`,
-        };
+        return { denied: true, reason: blockReason('PermissionRequest', hook, r, parsed) };
       }
-      if (r.exitCode !== 0) {
-        process.stderr.write(
-          `[hooks] PermissionRequest exited ${r.exitCode}: ${(r.stderr || '').trim().slice(0, 200)}\n`
-        );
-      }
+      if (hookFailed(r)) notice('PermissionRequest', hook, r, false);
     }
     return { denied: false };
   };
