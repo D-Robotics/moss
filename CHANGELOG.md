@@ -1,18 +1,28 @@
 # Changelog
 
-## 0.26.1
+## 0.26.1 (2026-10-11)
+
+First npm release of the package (`@rdk-moss/agent`). Version 0.26.0 was tagged
+in-repo but never published; npm `latest` was 0.6.0 before this release.
 
 ### O88 — hooks fail closed
 
 A blocking hook that cannot start or times out now blocks instead of silently allowing. Exit codes 126/127 (and 9009 on Windows) are treated as "failed to start" and block too, so hooks that intentionally exit with these codes are now blocked.
 
-### O90 — hook timeout clamp
+### O90 — hooks timeoutMs clamped to Node timer max
 
-A hook `timeoutMs` outside the supported range is clamped to the allowed bounds instead of being used as-is, and Moss prints a warning naming the hook and the value it used.
+Moss-format `timeoutMs` values above the Node.js timer maximum (~2^31-1 ms) are
+clamped to the maximum with a one-time warning instead of firing immediately.
 
-### O86 — read after a file change returns real content
+### O86 — read-after-edit honesty
 
-Reading a file after it changed on disk (edit, external write, or via a symlink) now returns the current content instead of a stale "file unchanged" stub.
+A file read is no longer answered with a "content unchanged, see the earlier
+read" stub after the file was edited by a write/patch/move, after the earlier
+read left the model context (compaction/elision), or when the on-disk bytes no
+longer hash-match the last recorded read. Failed writes no longer invalidate
+the earlier read. Files larger than 2 MiB skip the pre-stub hash (always real
+content). Placeholder wording is bilingual; the pre-O86 placeholder is still
+recognised in resumed sessions but never re-emitted.
 
 ## Unreleased
 
