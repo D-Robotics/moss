@@ -4,7 +4,7 @@
  * extensions never do (`env-credentials.ts`, `docs/credentials.md`).
  */
 import path from 'node:path';
-import { resolveReadPath } from './read-scope.js';
+import { credentialPathFollowCandidates, resolveReadPath } from './read-scope.js';
 
 export const CREDENTIAL_WITHHELD = 'Moss credential values withheld.\n';
 
@@ -138,7 +138,12 @@ export function targetsCredentialFile(toolName: string, input: Record<string, un
 }
 
 export function isRawApiKeyFile(resolved: string): boolean {
-  return path.basename(resolved) === '.apikey-key';
+  // O107: also follow symlink realpath/readlink so a link named otherwise
+  // that targets `.apikey-key` still withholds on presentToolOutput.
+  for (const candidate of credentialPathFollowCandidates(resolved)) {
+    if (path.basename(candidate) === '.apikey-key') return true;
+  }
+  return false;
 }
 
 function credentialPathCandidate(line: string): string | undefined {
