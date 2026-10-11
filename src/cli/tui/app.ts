@@ -323,6 +323,9 @@ import type {
   TuiSkillCommand,
 } from './app-helpers.js';
 
+/** O57: ignore provider-screen keys for this long after setup opens (copy-audit 1.2 asks ≥150 ms). */
+const SETUP_KEY_DEBOUNCE_MS = 400;
+
 /**
  * The shell's option types and pure helpers (dialog shapes, palette math, the
  * resume picker, control-command adapters) live in `./app-helpers.js`. These
@@ -537,6 +540,9 @@ export function TuiAppRoot({
   const englishOfferRef = useRef(englishOffer);
   englishOfferRef.current = englishOffer;
   const setupSecretRef = useRef('');
+  // O57: keys that arrive right after the setup screen opens are leftovers
+  // from the trust prompt (double-pressed "1"/Enter). Drop them.
+  const setupOpenedAtRef = useRef(Date.now());
   const setupEnvLoaded = useRef(false);
   if (!setupEnvLoaded.current && setupView?.apiKeyEnv) {
     setupEnvLoaded.current = true;
@@ -2926,6 +2932,13 @@ export function TuiAppRoot({
                     ? ({ type: 'char', char: chunk } as const)
                     : null;
         if (!command) return;
+        if (
+          setup.step === 'provider' &&
+          (command.type === 'char' || command.type === 'enter') &&
+          Date.now() - setupOpenedAtRef.current < SETUP_KEY_DEBOUNCE_MS
+        ) {
+          return;
+        }
         const reduced = reduceFirstRun(setup, command, setupSecretRef.current, locale);
         if (reduced.consume) {
           if (reduced.offerId) setupSecretRef.current = lookupOfferSecret(reduced.offerId);

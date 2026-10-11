@@ -360,22 +360,22 @@ function providerErrors() {
   for (const phrase of [
     'Moss setup',
     'About a minute',
-    'Choose a provider',
-    'API key',
+    'Choose a model provider',
+    // O57 glossary (copy-audit 1.13): zh uses "API key" too, not 密钥.
     'Gateway URL',
     'save anyway',
   ]) {
     assert.equal(zh.includes(phrase), false, `zh first-run still has "${phrase}"`);
   }
   assert.match(zh, /Moss 设置/);
-  assert.match(zh, /选择服务商/);
-  assert.match(zh, /密钥（不显示）/);
+  assert.match(zh, /选择模型服务商/);
+  assert.match(zh, /API key（粘贴即可，以圆点显示）/);
   assert.match(zh, /地瓜网关/);
   const en = await withUi('en', firstRunScreens);
   assertNoHan(en, 'en first-run screens');
   assert.match(en, /Moss setup/);
-  assert.match(en, /Choose a provider/);
-  assert.match(en, /API key \(hidden\)/);
+  assert.match(en, /Choose a model provider/);
+  assert.match(en, /API key \(paste it; shown as dots\)/);
   assert.match(en, /D-Robotics gateway/);
 }
 

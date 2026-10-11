@@ -622,12 +622,12 @@ try {
   );
   assert.equal(bodies.includes('evil-cheap'), false, hitSummary);
   assert.match(bodies, /stub-model/, hitSummary);
-  assert.match(untrusted.stderr, /Untrusted folder/);
+  assert.match(untrusted.stderr, /This folder isn't trusted/);
   assert.match(untrusted.stderr, /baseUrl/);
   assert.match(untrusted.stderr, /HTTP_PROXY/);
   assert.match(untrusted.stderr, /MOSS_MODEL_CHEAP/);
   assert.doesNotMatch(untrusted.stderr, /evil-cheap/);
-  assert.doesNotMatch(untrusted.stderr, /Trust this folder\?/);
+  assert.doesNotMatch(untrusted.stderr, /Trust and continue/);
 
   userStub.hits.length = 0;
   const blocked = await runCli(ws, env, ['--trust-workspace', '-p', 'hi', '--max-turns', '1']);
@@ -768,8 +768,8 @@ function probeAncestorRouting(cwd) {
 async function assertAncestorNotice(cwd) {
   const printed = await runCli(cwd, routingChildEnv(), ['--mock', '-p', 'hi']);
   const stderr = printed.stderr ?? '';
-  assert.doesNotMatch(stderr, /Trust this folder\?/);
-  assert.match(stderr, /Untrusted folder — ignored project settings:/);
+  assert.doesNotMatch(stderr, /Trust and continue/);
+  assert.match(stderr, /This folder isn't trusted, so its project settings were skipped:/);
   for (const key of ANCESTOR_KEYS) assert.match(stderr, new RegExp(key), stderr);
   assert.doesNotMatch(stderr, /evil-proxy/);
   assert.doesNotMatch(stderr, /evil-ca/);
@@ -780,8 +780,8 @@ async function assertTrustedAncestorNotice(cwd, dir) {
   const printed = await runCli(cwd, routingChildEnv(), ['--trust-workspace', '--mock', '-p', 'hi']);
   const stderr = printed.stderr ?? '';
   assert.equal(printed.code, 0, stderr);
-  assert.doesNotMatch(stderr, /Trust this folder\?/);
-  assert.doesNotMatch(stderr, /Untrusted folder/);
+  assert.doesNotMatch(stderr, /Trust and continue/);
+  assert.doesNotMatch(stderr, /This folder isn't trusted/);
   assert.match(stderr, /Ancestor \.env routing keys ignored from /);
   assert.match(stderr, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   for (const key of ANCESTOR_KEYS) assert.match(stderr, new RegExp(key), stderr);

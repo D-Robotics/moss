@@ -56,6 +56,24 @@ export function cliLocale(): string | undefined {
 
 export const SETUP_ZH: Readonly<Record<string, string>> = {
   'Moss setup': 'Moss 设置',
+  'Moss setup — pick a model provider and paste its API key (about a minute).':
+    'Moss 设置 — 选择模型服务商并粘贴它的 API key（约一分钟）。',
+  'The key is saved to your Moss config file (readable only by you). Prefer an env var? Exit and run: moss config set apiKeyEnv <VAR>':
+    'key 会保存在 Moss 配置文件里（只有你能读）。想用环境变量？退出后运行：moss config set apiKeyEnv <变量名>',
+  'Choose a model provider (↑↓ + Enter, or press its number):':
+    '选择模型服务商（↑↓ 加回车，或直接按数字）：',
+  '{provider} API key (paste it; shown as dots): {dots}':
+    '{provider} API key（粘贴即可，以圆点显示）：{dots}',
+  'No key yet? Get one at {keyUrl}.': '还没有 key？到 {keyUrl} 申请。',
+  "No key yet? Create one in your provider's console.": '还没有 key？到该服务商的控制台申请。',
+  'Esc: choose another provider.': 'Esc：换一个服务商。',
+  'Paste a key to continue, or press Esc to pick another provider.':
+    '粘贴 key 后继续，或按 Esc 换一个服务商。',
+  'Enter: try again · {back} · s: save without testing': '回车：重试 · {back} · s：不测试直接保存',
+  'Enter: go back · {back} · s: save without testing': '回车：返回 · {back} · s：不测试直接保存',
+  'Esc: edit the URL': 'Esc：修改地址',
+  'Esc: edit the key': 'Esc：修改 key',
+  'Esc: choose another provider': 'Esc：换一个服务商',
   ' or ': ' 或 ',
   'About a minute. A pasted key is stored in the config file (mode 0600). Set apiKeyEnv to a variable name to keep the key out of that file.':
     '大约一分钟。粘贴的密钥存在配置文件里（权限 0600）。把 `apiKeyEnv` 设成变量名就不会写入文件。',
@@ -68,26 +86,26 @@ export const SETUP_ZH: Readonly<Record<string, string>> = {
   'Base URL must be a full http(s) URL.': '地址必须是完整的 http(s) URL。',
   'Base URL saved as {baseUrl} (/v1 and extra paths removed).':
     '地址已规范为 {baseUrl}（已去掉 /v1 和多余路径）。',
-  'An API key is required.': '需要填写密钥。',
+  'An API key is required.': '需要填写 API key。',
   'Type a model name or its number.': '请输入模型名或序号。',
   'No models were listed. Type the model name.': '网关没有返回模型。请直接输入模型名。',
   'A key is already in the environment. Press Enter to use it (the value is not shown).':
-    '环境里已经有密钥。按 回车 使用（不会显示内容）。',
+    '环境里已经有 API key。按 回车 使用（不会显示内容）。',
   'A key is already in the environment. Press its number to use that host (the value is not shown). Enter chooses a provider.':
-    '环境里已经有密钥。按数字使用那个地址（不会显示内容）。回车 改为选择服务商。',
+    '环境里已经有 API key。按数字使用那个地址（不会显示内容）。回车 改为选择服务商。',
   'n  choose a provider instead': 'n  改为选择服务商',
   'Choose a provider. Press its number.': '选择服务商，按数字。',
   'Gateway URL (https://host). A trailing /v1 is removed.':
     '网关地址（https://主机）。末尾的 /v1 会被去掉。',
   'Esc returns to the provider list.': 'Esc 返回选择服务商。',
-  'API key (hidden): {dots}': '密钥（不显示）：{dots}',
+  'API key (hidden): {dots}': 'API key（不显示）：{dots}',
   'Esc goes back one step.': 'Esc 返回上一步。',
   'Type the model name, then Enter.': '输入模型名，然后按 回车。',
   'Pick a model by number or name ({count} listed).': '用序号或名字选择模型（共 {count} 个）。',
   'Fetching the model list…': '正在获取模型列表…',
   'Testing the connection (1 token)…': '正在测试连接（1 token）…',
   'Esc returns to the URL.': 'Esc 返回修改地址。',
-  'Esc returns to the key.': 'Esc 返回修改密钥。',
+  'Esc returns to the key.': 'Esc 返回修改 API key。',
   'Esc picks a provider again.': 'Esc 重新选择服务商。',
   'Enter retries. {back} Type "save anyway" or press 1 to write this config.':
     '回车 重试。{back}输入「仍然保存」或按 1 则写入配置。',

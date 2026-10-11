@@ -54,8 +54,8 @@ export function setupMenuLines(locale?: string): string[] {
     L('Choose provider:', locale),
     ...SETUP_PROVIDERS.map((item) => {
       const label = isZhLocale(locale) ? item.zh : item.en;
-      const extra = item.id === 'd-robotics' ? L(' (recommended)', locale) : '';
-      return `  ${item.key}. ${label}${extra}`;
+      // O57: no "(recommended)" on the D-Robotics gateway; it is for internal users.
+      return `  ${item.key}. ${label}`;
     }),
   ];
 }
@@ -134,14 +134,14 @@ export function renderSetupHelp(zh: boolean = isZhLocale()): string {
       }
       if (item.id === 'd-robotics') {
         return zh
-          ? `  ${item.key}  d-robotics          D-Robotics 地瓜网关（只问密钥）`
-          : `  ${item.key}  d-robotics          D-Robotics gateway (asks only for the key)`;
+          ? `  ${item.key}  d-robotics          D-Robotics 地瓜网关（内部，需地瓜账号；只问 API key）`
+          : `  ${item.key}  d-robotics          D-Robotics gateway (internal, D-Robotics account required; asks only for the key)`;
       }
       return `  ${item.key}  ${item.id}`;
     }),
     '',
     zh
-      ? '连接测试失败时不会写入配置。认证失败后回到隐藏的 API key；仍然保存是单独的 y/N，不会回显密钥。'
+      ? '连接测试失败时不会写入配置。认证失败后回到隐藏的 API key；仍然保存是单独的 y/N，不会回显 API key。'
       : 'A failed connection check does not write the config. After an auth error the next prompt is the hidden API key. Save anyway is a separate y/N and never echoes a key.',
     zh ? '以后用 `moss config` 修改。' : 'Change a saved value later with `moss config`.',
     '',

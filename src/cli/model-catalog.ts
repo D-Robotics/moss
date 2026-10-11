@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { ensureKeepAliveDispatcherInstalled } from '../provider/keep-alive-dispatcher.js';
 import { buildApiV1Url, isHttpUrl, stripEndpointSuffix } from '../provider/api-v1-url.js';
 import { closestModelName } from './first-run.js';
 import { isZhLocale } from './cli-locale.js';
@@ -248,6 +249,7 @@ async function fetchOpenAiCompatibleModels(
 ): Promise<string[]> {
   if (!config.baseUrl || !config.apiKey) return [];
   const timeoutMs = options.timeoutMs ?? 2500;
+  if (!options.fetchImpl) await ensureKeepAliveDispatcherInstalled(); // O83
   const fetchImpl = options.fetchImpl ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -536,6 +538,7 @@ export async function resolveModelContextWindowFromApi(params: {
   if (!baseUrl || !model) return undefined;
 
   const timeoutMs = params.timeoutMs ?? 3000;
+  if (!params.fetchImpl) await ensureKeepAliveDispatcherInstalled(); // O83
   const fetchImpl = params.fetchImpl ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

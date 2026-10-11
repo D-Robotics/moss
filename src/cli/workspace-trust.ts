@@ -301,16 +301,13 @@ export function ancestorRoutingIgnoredLine(
 /** One stderr line for a folder that was not trusted. `-p` prints this and continues. */
 export function untrustedFolderLine(parts: readonly string[], zh: boolean): string {
   const list = parts.filter((part) => part.trim()).join(zh ? '、' : ', ');
-  if (list) {
-    return chrome(
-      '[moss] Untrusted folder — ignored project settings: {list}. Trust this folder with --trust-workspace or MOSS_TRUST_WORKSPACE=1.',
-      zh,
-      { list }
-    );
-  }
+  // O57 / copy-audit 1.3: nothing was skipped → say nothing (empty string;
+  // the caller prints only non-empty lines).
+  if (!list) return '';
   return chrome(
-    '[moss] Untrusted folder — project settings that change where traffic goes stay ignored. Trust this folder with --trust-workspace or MOSS_TRUST_WORKSPACE=1.',
-    zh
+    "[moss] This folder isn't trusted, so its project settings were skipped: {list}. Run with --trust-workspace to use them.",
+    zh,
+    { list }
   );
 }
 
@@ -395,42 +392,43 @@ export function folderTrustPrompt(input: {
       chrome('This folder is the filesystem root. Trusting it is not remembered.', input.zh)
     );
   }
+  // O57 / copy-audit 1.2: say first what Moss will do once trusted; answer
+  // with y/n (not digits) so a double-pressed "1" cannot fall through into the
+  // provider list on the next screen.
   const summary = summarizeTrustItems(input.items ?? [], input.zh);
-  lines.push(
-    summary
-      ? chrome('Trusting loads {summary}.', input.zh, { summary })
-      : chrome('This project has no hooks, MCP servers, agents, or plugins.', input.zh)
-  );
+  lines.push(chrome('Moss will read and edit files and run commands in this folder:', input.zh));
+  lines.push(`  ${input.folderKey}`);
   lines.push(
     chrome(
-      'A trusted project can change the model gateway, proxy, TLS, and device target.',
+      "Only trust folders you own. Trusting also lets this project's .moss settings change the model endpoint, proxy, and device.",
       input.zh
     )
   );
-  lines.push(chrome('Trust this folder?', input.zh));
-  lines.push(`  ${input.folderKey}`);
-  lines.push(`  1  ${chrome('Yes, trust this folder', input.zh)}`);
-  lines.push(`  2  ${chrome('No, exit', input.zh)}`);
+  if (summary) lines.push(chrome('It will also load: {summary}.', input.zh, { summary }));
+  lines.push(`  y  ${chrome('Trust and continue', input.zh)}`);
+  lines.push(`  n  ${chrome('Exit', input.zh)}`);
   return lines.join('\n');
 }
 
 export type FolderTrustKey = 'yes' | 'no';
 
-function classifyTrustKey(text: string): FolderTrustKey | undefined {
+export function classifyTrustKey(text: string): FolderTrustKey | undefined {
   if (text.includes('\u0003')) return 'no';
   const token = text
     .replace(/[\r\n]/g, '')
     .trim()
     .toLowerCase();
   const entered = text.includes('\r') || text.includes('\n');
-  if (entered && (token === '' || token === '1' || token === 'y' || token === 'yes')) return 'yes';
-  if (entered && (token === '2' || token === 'n' || token === 'no')) return 'no';
-  if (!entered && (token === '1' || token === 'y')) return 'yes';
-  if (!entered && (token === '2' || token === 'n')) return 'no';
+  // O57: only y/n answer. Digits and a bare Enter are ignored so keys meant
+  // for (or repeated into) the next screen cannot trust the folder.
+  if (entered && (token === 'y' || token === 'yes')) return 'yes';
+  if (entered && (token === 'n' || token === 'no')) return 'no';
+  if (!entered && token === 'y') return 'yes';
+  if (!entered && token === 'n') return 'no';
   return undefined;
 }
 
-/** One keypress. Enter is Yes. Anything else waits. */
+/** One keypress: y or n. Anything else waits. Exported for tests. */
 function readTrustKey(): Promise<FolderTrustKey> {
   return new Promise((resolve) => {
     const stdin = process.stdin;

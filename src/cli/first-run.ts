@@ -38,23 +38,66 @@ export interface SetupProviderChoice {
   zh: string;
 }
 
+// O57 (roadmap §11): first screen is the provider choice and the cursor does
+// NOT start on the D-Robotics gateway (external developers bring their own
+// key). DeepSeek is first because it is the one official preset verified
+// end-to-end (§12 DeepSeek baseline). D-Robotics is listed last, for internal users.
 const SETUP_ORDER: readonly CliProviderPreset[] = [
-  'd-robotics',
   'deepseek',
   'qwen',
   'openai',
   'anthropic',
   'openai-compatible',
+  'd-robotics',
 ];
 
+// §11.3: only DeepSeek (official key, §12) and D-Robotics are verified end to
+// end. The others carry "unverified" until UX runs a first task with a real key.
 const SETUP_LABELS: Record<CliProviderPreset, { en: string; zh: string }> = {
   deepseek: { en: 'DeepSeek', zh: 'DeepSeek' },
-  qwen: { en: PROVIDER_PRESETS.qwen.displayName, zh: '阿里云 / 通义千问' },
-  openai: { en: 'OpenAI', zh: 'OpenAI' },
-  anthropic: { en: 'Anthropic', zh: 'Anthropic' },
-  'openai-compatible': { en: 'OpenAI-compatible gateway', zh: 'OpenAI 兼容网关' },
-  'd-robotics': { en: 'D-Robotics gateway', zh: 'D-Robotics 地瓜网关' },
+  qwen: {
+    en: `${PROVIDER_PRESETS.qwen.displayName} (unverified)`,
+    zh: '阿里云 / 通义千问（未验证）',
+  },
+  openai: { en: 'OpenAI (unverified)', zh: 'OpenAI（未验证）' },
+  anthropic: { en: 'Anthropic (unverified)', zh: 'Anthropic（未验证）' },
+  'openai-compatible': {
+    en: 'Other OpenAI-compatible endpoint (URL + key)',
+    zh: '其他 OpenAI 兼容服务（填地址和 key）',
+  },
+  'd-robotics': {
+    en: 'D-Robotics gateway — internal (D-Robotics account required)',
+    zh: 'D-Robotics 地瓜网关 — 内部（需地瓜账号）',
+  },
 };
+
+/**
+ * Where to get an API key, per provider (copy-audit 1.5/1.6).
+ * Only entries verified in provider-key-urls.md (Developer/PM must confirm each URL against the
+ * provider's official docs). Never fill these from memory. When undefined the
+ * key screen shows the generic hint without a URL.
+ */
+export const PROVIDER_KEY_URLS: Readonly<Partial<Record<CliProviderPreset, string>>> = {
+  // Verified 2026-10-11, see moss-drafts/provider-key-urls.md (official domains only).
+  deepseek: 'https://platform.deepseek.com/api_keys',
+  qwen: 'https://help.aliyun.com/zh/model-studio/get-api-key',
+  openai: 'https://platform.openai.com/api-keys',
+  anthropic: 'https://console.anthropic.com/settings/keys',
+};
+
+function providerLabel(id: CliProviderPreset | undefined, locale?: string): string {
+  if (!id) return 'API';
+  const zh = isZhLocale(locale);
+  const base: Record<CliProviderPreset, string> = {
+    deepseek: 'DeepSeek',
+    qwen: zh ? '通义千问' : 'Qwen',
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    'openai-compatible': zh ? 'OpenAI 兼容服务' : 'OpenAI-compatible',
+    'd-robotics': zh ? 'D-Robotics 地瓜网关' : 'D-Robotics gateway',
+  };
+  return base[id];
+}
 
 export const SETUP_PROVIDERS: readonly SetupProviderChoice[] = SETUP_ORDER.map((id, index) => ({
   key: String(index + 1),
@@ -429,7 +472,10 @@ function reduceKey(
     );
   }
   if (command.type === 'enter') {
-    if (!secret.trim()) return go(view, { error: copy(locale, 'An API key is required.') });
+    if (!secret.trim())
+      return go(view, {
+        error: copy(locale, 'Paste a key to continue, or press Esc to pick another provider.'),
+      });
     const job = jobForKey(view);
     return go(view, { step: 'working', pending: job, error: undefined }, { job });
   }
@@ -512,7 +558,7 @@ function reduceError(
   if (command.type === 'enter' && command.draft.trim() === '' && !view.pending) return backTo();
   if (
     (command.type === 'enter' && isSaveAnywayAnswer(command.draft)) ||
-    (command.type === 'char' && command.char === '1')
+    (command.type === 'char' && command.char.toLowerCase() === 's')
   ) {
     return saveAnyway(view, secret);
   }
@@ -645,10 +691,10 @@ export function renderFirstRunLines(
   audience: 'tui' | 'readline' = 'tui'
 ): string[] {
   const lines = [
-    copy(locale, 'Moss setup'),
+    copy(locale, 'Moss setup — pick a model provider and paste its API key (about a minute).'),
     copy(
       locale,
-      'About a minute. A pasted key is stored in the config file (mode 0600). Set apiKeyEnv to a variable name to keep the key out of that file.'
+      'The key is saved to your Moss config file (readable only by you). Prefer an env var? Exit and run: moss config set apiKeyEnv <VAR>'
     ),
   ];
   const tuiChrome = audience === 'tui';
@@ -669,7 +715,7 @@ export function renderFirstRunLines(
     });
     lines.push(copy(locale, 'n  choose a provider instead'));
   } else if (view.step === 'provider') {
-    lines.push(copy(locale, 'Choose a provider. Press its number.'));
+    lines.push(copy(locale, 'Choose a model provider (↑↓ + Enter, or press its number):'));
     SETUP_PROVIDERS.forEach((item, index) => {
       lines.push(
         `${index === view.cursor ? '>' : ' '} ${item.key}  ${isZhLocale(locale) ? item.zh : item.en}`
@@ -680,8 +726,19 @@ export function renderFirstRunLines(
     if (tuiChrome) lines.push(copy(locale, 'Esc returns to the provider list.'));
   } else if (view.step === 'key') {
     const dots = '•'.repeat(Math.min(view.keyDots ?? 0, 24));
-    lines.push(copy(locale, 'API key (hidden): {dots}', { dots }));
-    if (tuiChrome) lines.push(copy(locale, 'Esc goes back one step.'));
+    lines.push(
+      copy(locale, '{provider} API key (paste it; shown as dots): {dots}', {
+        provider: providerLabel(view.provider, locale),
+        dots,
+      })
+    );
+    const keyUrl = view.provider ? PROVIDER_KEY_URLS[view.provider] : undefined;
+    lines.push(
+      keyUrl
+        ? copy(locale, 'No key yet? Get one at {keyUrl}.', { keyUrl })
+        : copy(locale, "No key yet? Create one in your provider's console.")
+    );
+    if (tuiChrome) lines.push(copy(locale, 'Esc: choose another provider.'));
   } else if (view.step === 'model') {
     const models = view.models ?? [];
     if (models.length === 0) lines.push(copy(locale, 'Type the model name, then Enter.'));
@@ -705,24 +762,17 @@ export function renderFirstRunLines(
   } else if (view.step === 'error' && tuiChrome) {
     const back =
       view.failStep === 'url'
-        ? copy(locale, 'Esc returns to the URL.')
+        ? copy(locale, 'Esc: edit the URL')
         : view.failStep === 'key'
-          ? copy(locale, 'Esc returns to the key.')
-          : copy(locale, 'Esc picks a provider again.');
+          ? copy(locale, 'Esc: edit the key')
+          : copy(locale, 'Esc: choose another provider');
+    // O57: retry is the default; saving an untested config needs an explicit
+    // "s" (no more "1", which collided with the trust/provider screens).
     lines.push(
       view.pending
-        ? copy(
-            locale,
-            'Enter retries. {back} Type "save anyway" or press 1 to write this config.',
-            { back }
-          )
-        : copy(
-            locale,
-            '{back} Type "save anyway" or press 1 to write this config. Enter goes back.',
-            { back }
-          )
+        ? copy(locale, 'Enter: try again · {back} · s: save without testing', { back })
+        : copy(locale, 'Enter: go back · {back} · s: save without testing', { back })
     );
-    lines.push(`${view.cursor === 0 ? '>' : ' '} 1  ${copy(locale, 'save anyway')}`);
   }
   return lines;
 }

@@ -1,3 +1,4 @@
+import { ensureKeepAliveDispatcherInstalled } from './keep-alive-dispatcher.js';
 import { MossError, ErrorCode, errorMessage } from '../errors.js';
 
 const UPSTREAM = ErrorCode.PROVIDER_UPSTREAM_ERROR;
@@ -93,6 +94,7 @@ export async function fetchWithConnectionContext(
   init: RequestInit
 ): Promise<Response> {
   try {
+    await ensureKeepAliveDispatcherInstalled(); // O83: SDK/embedder paths too
     return await fetch(url, init);
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') throw err;
