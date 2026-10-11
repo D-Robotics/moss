@@ -50,11 +50,11 @@ while time.time() < deadline:
         if not chunk:
             break
         buf += chunk
-        if (not answered) and b'Trust this folder?' in buf:
+        if (not answered) and b'Trust and continue' in buf:
             if os.path.exists(marker):
                 early = True
             answered = True
-            os.write(master, bytes([10]) if mode == 'yes' else b'2')
+            os.write(master, b'y' if mode == 'yes' else b'n')
     if mode == 'yes' and os.path.exists(marker):
         break
     if proc.poll() is not None:
@@ -151,11 +151,12 @@ function hookWorkspace(root) {
   });
   assert.equal(declined.trusted, false);
   assert.equal(declined.prompted, true);
-  assert.match(lines[0], /no hooks, MCP servers, agents, or plugins/);
-  assert.match(lines[0], /model gateway, proxy, TLS, and device target/);
-  assert.match(lines[0], /Trust this folder\?/);
-  assert.match(lines[0], /1 {2}Yes, trust this folder/);
-  assert.match(lines[0], /2 {2}No, exit/);
+  // O57: what Moss will do comes first; answers are y/n, not digits.
+  assert.match(lines[0], /read and edit files and run commands in this folder/);
+  assert.match(lines[0], /\.moss settings change the model endpoint, proxy, and device/);
+  assert.match(lines[0], /y {2}Trust and continue/);
+  assert.match(lines[0], /n {2}Exit/);
+  assert.doesNotMatch(lines[0], /gateway, proxy, TLS/);
   assert.match(lines[1], /was not trusted/);
   const zh = folderTrustPrompt({
     folderKey: '/tmp/proj',
@@ -164,16 +165,17 @@ function hookWorkspace(root) {
     zh: true,
     items: [{ kind: 'hook', label: 'project hooks (2)' }],
   });
-  assert.match(zh, /信任后将加载 项目钩子（2）。/);
-  assert.match(zh, /受信任的项目可以更改模型网关、流量代理、TLS 和设备目标。/);
-  assert.match(zh, /信任此文件夹？/);
+  assert.match(zh, /同时会加载：项目钩子（2）。/);
+  assert.match(zh, /信任后，项目里的 \.moss 设置也可以修改模型地址、代理和设备。/);
+  assert.match(zh, /信任并继续/);
   const emptyZh = folderTrustPrompt({
     folderKey: '/tmp/proj',
     home: false,
     root: false,
     zh: true,
   });
-  assert.match(emptyZh, /此项目没有钩子、MCP 服务、子代理或插件。/);
+  assert.match(emptyZh, /Moss 将在此文件夹中读写文件、运行命令/);
+  assert.doesNotMatch(emptyZh, /同时会加载/);
 }
 
 {
@@ -201,13 +203,9 @@ function hookWorkspace(root) {
   assert.equal(decision.trusted, false);
   assert.match(
     lines[0],
-    /Trusting loads project hooks \(1\), status line, stdio MCP \(warehouse\)\./
+    /It will also load: project hooks \(1\), status line, stdio MCP \(warehouse\)\./
   );
-  assert.match(
-    lines[0],
-    /A trusted project can change the model gateway, proxy, TLS, and device target\./
-  );
-  assert.doesNotMatch(lines[0], /no hooks, MCP servers/);
+  assert.match(lines[0], /read and edit files and run commands/);
 }
 
 {
@@ -281,8 +279,8 @@ function hookWorkspace(root) {
   assert.equal(first.prompted, true);
   assert.equal(first.trusted, true);
   assert.equal(first.persisted, true);
-  assert.match(lines[0], /no hooks, MCP servers, agents, or plugins/);
-  assert.match(lines[0], /Trust this folder\?/);
+  assert.match(lines[0], /read and edit files and run commands/);
+  assert.match(lines[0], /Trust and continue/);
   const second = await resolveFolderTrust({
     startDir: dir,
     configDir,
@@ -309,7 +307,7 @@ if (process.platform !== 'win32') {
   const root = env.HOME;
   const { ws, marker } = hookWorkspace(root);
   const first = await runPty(ws, env, 'no', marker);
-  assert.match(first.out, /Trust this folder\?/);
+  assert.match(first.out, /Trust and continue/);
   assert.match(first.out, new RegExp(folderPathKey(ws).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.doesNotMatch(first.err, /MARKER_BEFORE_ANSWER/);
   assert.equal(fs.existsSync(marker), false, 'No exits before the hook runs');
@@ -317,7 +315,7 @@ if (process.platform !== 'win32') {
   assert.equal(fs.existsSync(path.join(env.MOSS_CONFIG_DIR, 'workspace-trust.json')), false);
 
   const yes = await runPty(ws, env, 'yes', marker);
-  assert.match(yes.out, /Trust this folder\?/);
+  assert.match(yes.out, /Trust and continue/);
   assert.doesNotMatch(yes.err, /MARKER_BEFORE_ANSWER/);
   assert.equal(fs.readFileSync(marker, 'utf8'), 'ran');
   const store = readTrustStore(env.MOSS_CONFIG_DIR);
@@ -350,7 +348,7 @@ if (process.platform !== 'win32') {
 
   fs.rmSync(marker, { force: true });
   const second = await runPty(ws, env, 'yes', marker);
-  assert.doesNotMatch(second.out, /Trust this folder\?/);
+  assert.doesNotMatch(second.out, /Trust and continue/);
   assert.equal(fs.readFileSync(marker, 'utf8'), 'ran');
 
   const dot = path.join(ws, '.env');
@@ -367,7 +365,7 @@ if (process.platform !== 'win32') {
   });
   put(path.join(other, '.env'), 'MOSS_TRUST_WORKSPACE=1\n');
   const forged = await runPty(other, env, 'no', otherMarker);
-  assert.match(forged.out, /Trust this folder\?/, 'project .env cannot pre-trust');
+  assert.match(forged.out, /Trust and continue/, 'project .env cannot pre-trust');
   assert.equal(fs.existsSync(otherMarker), false);
 
   const printed = spawnSync(process.execPath, [cli, '--mock', '-p', 'hi'], {
@@ -377,8 +375,8 @@ if (process.platform !== 'win32') {
     timeout: 20000,
   });
   const stderr = printed.stderr ?? '';
-  assert.doesNotMatch(stderr, /Trust this folder\?/);
-  assert.match(stderr, /Untrusted folder/);
+  assert.doesNotMatch(stderr, /Trust and continue/);
+  assert.match(stderr, /This folder isn't trusted/);
   assert.match(stderr, /--trust-workspace/);
   assert.equal(fs.existsSync(otherMarker), false);
 }
@@ -411,9 +409,9 @@ while time.time() < deadline:
         if not chunk:
             break
         buf += chunk
-        if mode == 'first' and (not answered) and b'Trust this folder?' in buf:
+        if mode == 'first' and (not answered) and b'Trust and continue' in buf:
             answered = True
-            os.write(master, bytes([10]))
+            os.write(master, b'y')
         if (not quit_sent) and b'Ready.' in buf:
             quit_sent = True
             os.write(master, b'/quit\\n')
@@ -471,13 +469,13 @@ if (process.platform !== 'win32') {
   const ws = path.join(env.HOME, 'empty');
   fs.mkdirSync(ws);
   const first = await runEmptyPty(ws, env, 'first');
-  assert.match(first.out, /Trust this folder\?/);
-  assert.match(first.out, /no hooks, MCP servers, agents, or plugins/);
+  assert.match(first.out, /Trust and continue/);
+  assert.match(first.out, /read and edit files and run commands/);
   assert.match(first.out, /Ready\./);
   assert.doesNotMatch(first.out, /Do you want to proceed\?/);
   assert.equal(readTrustStore(env.MOSS_CONFIG_DIR)[folderPathKey(ws)], true);
   const second = await runEmptyPty(ws, env, 'second');
-  assert.doesNotMatch(second.out, /Trust this folder\?/);
+  assert.doesNotMatch(second.out, /Trust and continue/);
   assert.match(second.out, /Ready\./);
   assert.doesNotMatch(second.out, /Do you want to proceed\?/);
 
@@ -489,8 +487,9 @@ if (process.platform !== 'win32') {
     encoding: 'utf8',
     timeout: 20000,
   });
-  assert.doesNotMatch(printed.stderr ?? '', /Trust this folder\?/);
-  assert.match(printed.stderr ?? '', /Untrusted folder/);
+  assert.doesNotMatch(printed.stderr ?? '', /Trust and continue/);
+  // O57 / copy-audit 1.3: an empty folder has nothing skipped → no untrusted line.
+  assert.doesNotMatch(printed.stderr ?? '', /This folder isn't trusted/);
 }
 
 console.log('[PASS] folder-trust');

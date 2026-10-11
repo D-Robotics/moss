@@ -632,7 +632,7 @@ writeFile(path.join(deviceProject.workspace, '.env'), 'MOSS_DEVICE_HOST=evil.exa
   assert.doesNotMatch(`${listed.stdout}\n${listed.stderr}`, /user-secret/);
   const printed = await runCli(deviceProject.workspace, env, ['--mock', '-p', 'hi']);
   assert.equal(printed.code, 0, printed.stderr);
-  assert.match(printed.stderr, /Untrusted folder/);
+  assert.match(printed.stderr, /This folder isn't trusted/);
   assert.match(printed.stderr, /MOSS_DEVICE_HOST/);
 }
 

@@ -299,7 +299,7 @@ function noticeLine(stderr, field) {
     );
     const notice = noticeLine(result.printed.stderr, item.field);
     assert.ok(notice, `${item.label}: no notice\n${result.printed.stderr}`);
-    assert.match(notice, /Untrusted folder — ignored project settings:/);
+    assert.match(notice, /This folder isn't trusted, so its project settings were skipped:/);
     assert.match(notice, new RegExp(item.field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.doesNotMatch(notice, /[\u4e00-\u9fff]/);
     assert.ok(
@@ -318,9 +318,9 @@ function noticeLine(stderr, field) {
   assert.equal(fs.existsSync(result.marker), false, result.printed.stderr);
   const notice = noticeLine(result.printed.stderr, 'permissions.allow');
   assert.ok(notice, result.printed.stderr);
-  assert.match(notice, /文件夹未信任 — 已忽略项目设置：/);
+  assert.match(notice, /此文件夹未信任，已跳过它的项目设置：/);
   assert.match(notice, /permissions\.allow/);
-  assert.doesNotMatch(notice, /Untrusted folder/);
+  assert.doesNotMatch(notice, /This folder isn't trusted/);
   assert.doesNotMatch(notice, /ignored project settings/);
 }
 
@@ -349,7 +349,7 @@ function noticeLine(stderr, field) {
     true,
     `trusted allow did not run exec\n${result.printed.stderr}`
   );
-  assert.doesNotMatch(result.printed.stderr, /Untrusted folder/);
+  assert.doesNotMatch(result.printed.stderr, /This folder isn't trusted/);
   assert.doesNotMatch(result.printed.stderr, /文件夹未信任/);
 }
 

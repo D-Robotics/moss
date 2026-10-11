@@ -140,7 +140,7 @@ function tempDir(prefix) {
 {
   let view = initialFirstRunView({});
   assert.equal(view.step, 'provider');
-  const picked = reduceFirstRun(view, { type: 'char', char: '6' }, '', 'C');
+  const picked = reduceFirstRun(view, { type: 'char', char: '5' }, '', 'C');
   assert.equal(picked.view.step, 'url');
   assert.equal(picked.view.provider, 'openai-compatible');
   const url = reduceFirstRun(
@@ -153,7 +153,7 @@ function tempDir(prefix) {
   assert.equal(url.view.baseUrl, 'http://127.0.0.1:9');
   assert.match(url.view.notice, /\/v1/);
   const empty = reduceFirstRun(url.view, { type: 'enter', draft: '' }, '', 'C');
-  assert.match(empty.view.error, /API key is required/);
+  assert.match(empty.view.error, /Paste a key to continue/);
   const keyed = reduceFirstRun(url.view, { type: 'enter', draft: '' }, SECRET, 'C');
   assert.equal(keyed.view.step, 'working');
   assert.equal(keyed.job.type, 'models');
@@ -206,11 +206,12 @@ function tempDir(prefix) {
   assert.equal(fresh.step, 'provider');
   assert.equal(fresh.cursor, 0);
   const preselected = reduceFirstRun(fresh, { type: 'enter', draft: '' }, '', 'C');
-  assert.equal(preselected.view.provider, 'd-robotics');
+  // O57: the cursor no longer starts on the D-Robotics gateway (§11.1).
+  assert.equal(preselected.view.provider, 'deepseek');
   assert.equal(preselected.view.step, 'key');
   const named = reduceFirstRun(
     { step: 'provider', offers: [], cursor: 0, apiKeyEnv: 'MY_GATEWAY_KEY' },
-    { type: 'char', char: '1' },
+    { type: 'char', char: '6' },
     'secret-not-printed',
     'C'
   );
@@ -218,7 +219,7 @@ function tempDir(prefix) {
   assert.equal(named.view.apiKeyEnv, 'MY_GATEWAY_KEY');
   assert.equal(named.view.step, 'working');
   assert.equal(named.job.type, 'probe');
-  const digua = reduceFirstRun(initialFirstRunView({}), { type: 'char', char: '1' }, '', 'zh_CN');
+  const digua = reduceFirstRun(initialFirstRunView({}), { type: 'char', char: '6' }, '', 'zh_CN');
   assert.equal(digua.view.step, 'key');
   assert.equal(digua.view.provider, 'd-robotics');
   assert.equal(digua.view.model, 'deepseek-flash');
@@ -256,7 +257,7 @@ function tempDir(prefix) {
   );
   assert.ok(shown.some((line) => line.includes('请重新粘贴')));
   assert.ok(shown.some((line) => line.includes('Received API Key')));
-  assert.ok(shown.some((line) => line.includes('Esc 返回修改密钥')));
+  assert.ok(shown.some((line) => line.includes('Esc：修改 key')));
   assert.notEqual(
     shown.find((line) => line.includes('请重新粘贴')),
     shown.find((line) => line.includes('Received API Key'))
@@ -287,7 +288,7 @@ function tempDir(prefix) {
       failStep: 'key',
       error: '密钥被拒绝（401）。请重新粘贴 API key。',
     },
-    { type: 'char', char: '1' },
+    { type: 'char', char: 's' },
     SECRET,
     'zh_CN.UTF-8'
   );
@@ -540,7 +541,7 @@ function tempDir(prefix) {
     '\n'
   );
   assert.match(en, /Moss setup/);
-  assert.match(en, /OpenAI-compatible gateway/);
+  assert.match(en, /Other OpenAI-compatible endpoint/);
   assert.doesNotMatch(en, /网关/);
   assert.match(formatFullModeNotice('zh_CN'), /只显示一次/);
   assert.match(formatFullModeNotice('C'), /This notice shows once/);

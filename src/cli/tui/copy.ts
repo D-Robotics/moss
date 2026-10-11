@@ -631,6 +631,15 @@ export const ZH: Readonly<Record<string, string>> = {
   'This folder is the filesystem root. Trusting it is not remembered.':
     '此文件夹是文件系统根目录。这里的信任不会被记住。',
   'Trust this folder?': '信任此文件夹？',
+  'Moss will read and edit files and run commands in this folder:':
+    'Moss 将在此文件夹中读写文件、运行命令：',
+  "Only trust folders you own. Trusting also lets this project's .moss settings change the model endpoint, proxy, and device.":
+    '只信任你自己的文件夹。信任后，项目里的 .moss 设置也可以修改模型地址、代理和设备。',
+  'It will also load: {summary}.': '同时会加载：{summary}。',
+  'Trust and continue': '信任并继续',
+  Exit: '退出',
+  "[moss] This folder isn't trusted, so its project settings were skipped: {list}. Run with --trust-workspace to use them.":
+    '[moss] 此文件夹未信任，已跳过它的项目设置：{list}。需要时加 --trust-workspace 运行。',
   'Yes, trust this folder': '是，信任此文件夹',
   'No, exit': '否，退出',
   '[moss] This folder was not trusted. Exiting.': '[moss] 未信任此文件夹。正在退出。',

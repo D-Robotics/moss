@@ -45,7 +45,7 @@ def welcome() -> None:
         extra_env=zh,
         config={"apiKey": "", "model": "deepseek"},
     ) as session:
-        seen = wait_for(session, "选择服务商")
+        seen = wait_for(session, "选择模型服务商")
         if "Moss 设置" not in seen:
             raise AssertionError(f"welcome title missing\n{seen}")
         if "界面语言：中文" not in seen:

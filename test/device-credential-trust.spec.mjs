@@ -317,7 +317,7 @@ for (const [name, c] of [
   assert.equal(r.code, 0, `${name}\n${r.stderr}`);
   assertNoSecret(name, r);
   assert.deepEqual(r.passwords, [], name);
-  assert.match(r.stderr, /Untrusted folder/, `${name}\n${r.stderr}`);
+  assert.match(r.stderr, /This folder isn't trusted/, `${name}\n${r.stderr}`);
   assert.match(r.stderr, /\.moss\/devices\.json/, `${name}\n${r.stderr}`);
 }
 
