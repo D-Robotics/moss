@@ -109,11 +109,7 @@ describe('O79 worktree isolation git exec', { concurrency: 1 }, () => {
     await fs.utimes(path.join(lease.worktreePath, 'a.txt'), future, future);
     await fs.rm(marker, { force: true });
     await runGit(['add', '-A'], { cwd: lease.worktreePath, readOnly: false, timeout: 60_000 });
-    assert.equal(
-      await markerWritten(marker),
-      false,
-      'mutating runGit add -A ran untrusted clean'
-    );
+    assert.equal(await markerWritten(marker), false, 'mutating runGit add -A ran untrusted clean');
   });
 
   test('applyWorktreePatch --3way does not run untrusted merge driver', async (t) => {
