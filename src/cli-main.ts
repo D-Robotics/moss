@@ -630,10 +630,10 @@ async function main() {
   // over unless a flag already set it above.
   if (parsedArgs.interactionModeOverride || startupMode !== 'manual') {
     setCliInteractionMode(startupMode);
-    if (cliDetailForNotices !== 'quiet') {
-      console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));
-    }
   }
+  // O72: the resolved mode is printed on every start (stderr), including -p
+  // and --quiet, so a user can always tell whether Moss will ask first.
+  console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));
   // Once per config dir. Doctor still reports the condition on every run.
   if (cliDetailForNotices !== 'quiet' && shouldShowFullDefaultNotice(resolvedConfig)) {
     printWrappedNotice(formatFullModeNotice());

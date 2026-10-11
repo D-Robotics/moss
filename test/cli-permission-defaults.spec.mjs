@@ -494,21 +494,14 @@ const tool = (name, sideEffectClass) => ({
   });
   Object.defineProperty(process.stdin, 'isTTY', { value: wasTTY, configurable: true });
   assert.equal(decision.approved, false, 'headless stays denied without a policy');
-  // v0.26 (T03, PRD W3): the headless rejection names the NEW mode knobs —
-  // /mode full, --full-access, permissions.defaultMode — not the old
-  // --accept-edits/profile=autonomous/MOSS_CLI_AUTO_APPROVE trio.
-  assert.match(decision.reason, /\/mode full/, 'the rejection names /mode full');
-  assert.match(decision.reason, /--full-access/, 'the rejection names --full-access');
-  assert.match(
-    decision.reason,
-    /permissions.defaultMode=full/,
-    'the rejection names the persistent permissions.defaultMode key'
-  );
-  assert.match(
-    decision.reason,
-    /\/permissions/,
-    'the rejection points at /permissions allow rules'
-  );
+  // O72 (roadmap §17): the model-facing rejection states the cause only and
+  // must not coach the model to push the user to full mode. The unlock knobs
+  // (--full-access, /permissions) go to the user on stderr instead
+  // (formatHeadlessBlockNotice; covered in o72-approval-mode-copy.spec.mjs).
+  assert.match(decision.reason, /requires approval/, 'the rejection states the cause');
+  assert.doesNotMatch(decision.reason, /\/mode full/, 'no /mode full coaching');
+  assert.doesNotMatch(decision.reason, /--full-access/, 'no --full-access coaching');
+  assert.doesNotMatch(decision.reason, /defaultMode=full/, 'no persistent-full coaching');
 }
 
 // ─── 10. 'a' trust semantics (unchanged in T01; T03 moves to rules) ─────────

@@ -89,6 +89,6 @@ console.log('[PASS] project-instructions (AGENTS.md layer)');
   assert.match(quick, /\[Answer language\]/);
   assert.match(formatInteractionModeNotice('full', 'zh_CN.UTF-8'), /交互模式/);
   assert.match(formatInteractionModeNotice('full', 'en_US.UTF-8'), /Interaction mode/);
-  assert.match(formatFullModeNotice('zh_CN.UTF-8'), /拒绝规则/);
-  assert.match(formatFullModeNotice('en_US.UTF-8'), /deny rules/);
+  assert.match(formatFullModeNotice('zh_CN.UTF-8'), /完全执行模式/);
+  assert.match(formatFullModeNotice('en_US.UTF-8'), /Full mode/);
 }

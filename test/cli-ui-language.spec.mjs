@@ -668,7 +668,8 @@ all-fail devices description view history failures verify false`
 for (const command of KNOWN_COMMANDS) LITERAL_TOKENS.add(command);
 
 const LANGUAGE_SETTINGS = new Set(['auto', 'en', 'zh']);
-const EXACT_PHRASES = ['api key', 'node.js', 'task os'];
+// Product names stay in English in zh copy (O72 help compares with Claude Code's acceptEdits).
+const EXACT_PHRASES = ['api key', 'node.js', 'task os', 'claude code', 'acceptedits'];
 const MUTATION_SENTENCE = 'No model provider set, run setup or add a key.';
 
 function stripAnsi(text) {
