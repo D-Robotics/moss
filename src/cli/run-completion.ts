@@ -236,7 +236,7 @@ export function noteGoalVerifyResult(
 
 const CLAIM_PATTERNS: Array<{ re: RegExp; requires: VerificationCheck[] }> = [
   {
-    re: /\ball\s+(?:the\s+)?checks?\s+(?:are\s+|is\s+)?(?:green|pass(?:ed|ing)?|clean|ok)\b|(?:全部|所有)(?:的)?检查(?:都|均|全部)?(?:已)?(?:通过|是绿的|绿了|变绿)|\bnpm\s+run\s+check\b[^.\n。]*\b(?:pass(?:es|ed)?|green|succeed(?:s|ed)?|clean)\b|npm\s+run\s+check[^。\n]*(?:通过|绿)/i,
+    re: /\ball\s+(?:the\s+)?checks?\s+(?:are\s+|is\s+)?(?:green|pass(?:ed|ing)?|clean|ok)\b|(?:全部|所有)(?:的)?检查(?:都|均|全部)?(?:已)?(?:通过|是绿的|绿了|变绿)|检查(?:都|均|全部)(?:已)?(?:通过|是绿的|绿了|变绿)|检查(?:都|均)?全绿|\bnpm\s+run\s+check\b[^.\n。]*\b(?:pass(?:es|ed)?|green|succeed(?:s|ed)?|clean)\b|npm\s+run\s+check[^。\n]*(?:通过|绿)/i,
     requires: ['check'],
   },
   {
@@ -252,7 +252,7 @@ const CLAIM_PATTERNS: Array<{ re: RegExp; requires: VerificationCheck[] }> = [
     requires: ['typecheck'],
   },
   {
-    re: /\b(?:all\s+)?tests?\s+(?:are\s+|now\s+)?(?:pass(?:es|ed|ing)?|green)\b|\d+\s*\/\s*\d+\s+(?:tests?\s+)?passed\b|测试(?:都|均|全部)?(?:已)?(?:通过|绿了|变绿)/i,
+    re: /\b(?:all\s+)?tests?\s+(?:are\s+|now\s+)?(?:pass(?:es|ed|ing)?|green)\b|\d+\s*\/\s*\d+\s+(?:tests?\s+)?passed\b|测试(?:都|均|全部)?(?:已)?(?:通过|绿了|变绿)|\bnpm\s+(?:run\s+)?test\b[^。\n]*(?:通过|绿)/i,
     requires: ['test'],
   },
 ];
@@ -261,6 +261,10 @@ const CLAIM_PATTERNS: Array<{ re: RegExp; requires: VerificationCheck[] }> = [
  * Success claims in `text` that the run does not back up: the matching check
  * never ran, or its latest run failed.
  */
+/** Explanatory / conditional framing — not a success claim (O110). */
+const CLAIM_NON_ASSERTIVE =
+  /才算|表示|意味着|说明(?:了|着)?|等.{0,16}后再|等.{0,16}后|如果|的话|\bmeans?\b|\bmust\b[\s\S]{0,40}?\bbefore\b|\bwait\s+until\b|\bbefore\s+(?:it\s+)?counts\b|\bthen\s+merge\b/i;
+
 export function findUnverifiedCheckClaims(
   text: string,
   tracker: RunCompletionTracker
@@ -272,6 +276,8 @@ export function findUnverifiedCheckClaims(
       const match = re.exec(sentence);
       if (!match) continue;
       if (/\b(?:not|n't|never)\b|未|没|尚未|无法/.test(match[0])) continue;
+      // Questions / explanations / conditionals are not claims that checks passed.
+      if (CLAIM_NON_ASSERTIVE.test(sentence)) continue;
       for (const check of requires) {
         const run = tracker.checks.get(check);
         if (!run || !run.passed) missing.add(check);
@@ -290,15 +296,25 @@ const CHECK_LABEL: Record<VerificationCheck, string> = {
 };
 
 const EXPECTS_CHANGES =
-  /(?:修复|修改|实现|改成|改为|改掉|新增|添加|增加|补上|补一|重构|删掉|删除|\bfix(?:es)?\b|\bimplement\b|\brefactor\b|\bchange\b|\bupdate\b|\bedit\b|\bwrite\s+(?:a\s+)?(?:test|file|function)|\badd\s+(?:a\s+|an\s+)?(?:test|option|flag|function|file|check|support))/i;
+  /(?:修复|修好|修一下|修掉|改好|修改|实现|改成|改为|改掉|新增|添加|增加|补上|补一|重构|删掉|删除|\bfix(?:es)?\b|\bimplement\b|\brefactor\b|\bchange\b|\bupdate\b|\bedit\b|\bwrite\s+(?:a\s+)?(?:test|file|function)|\badd\s+(?:a\s+|an\s+)?(?:test|option|flag|function|file|check|support))/i;
 const QUESTION_ONLY =
   /^(?:how|why|what|which|explain|describe|can you explain|为什么|怎么|如何|解释|说明一下|是什么)|[?？]\s*$/i;
+
+/**
+ * Soft ZH change verbs (修好/改好/修一下/修掉) only count in imperative use.
+ * Strip question / hypothetical frames (能不能/是否/之后…) before matching (O110).
+ */
+const SOFT_ZH_CHANGE_NON_IMPERATIVE =
+  /(?:能不能|可不可以|是否|能否)[^。！？\n?]{0,24}?(?:修好|改好|修一下|修掉)|(?:修好|改好|修一下|修掉)(?:之后|了没有|了吗|了没)/g;
 
 /** Heuristic: does this request expect the run to change files? */
 export function requestExpectsFileChanges(request: string): boolean {
   const text = request.trim();
   if (!text || QUESTION_ONLY.test(text)) return false;
-  return EXPECTS_CHANGES.test(text);
+  if (!EXPECTS_CHANGES.test(text)) return false;
+  // If the only hits were soft ZH verbs in Q/hypothetical frames, do not expect writes.
+  const scrubbed = text.replace(SOFT_ZH_CHANGE_NON_IMPERATIVE, ' ');
+  return EXPECTS_CHANGES.test(scrubbed);
 }
 
 /** Decide whether the run is complete; never upgrades an error run to success. */
