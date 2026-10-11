@@ -464,7 +464,42 @@ test('discovery cache follows config mtime and a failed discovery leaves user gi
     const env = await childEnv(fresh.ws, aborted.signal);
     assert.equal(pairsNamed(env, 'filter.evil.clean').length, 0);
     assert.equal(pairsNamed(env, 'core.fsmonitor').length, 0);
-    assert.equal(pairsNamed(env, 'core.hooksPath').length, 0);
+    if (process.platform === 'win32') {
+      assert.equal(hooksPath, 'NUL');
+      assert.deepEqual(
+        pairsNamed(env, 'core.hooksPath').map((pair) => pair.value),
+        [hooksPath]
+      );
+      const raw = spawnSync(
+        'git',
+        ['-c', 'core.fsmonitor=false', 'commit', '--allow-empty', '-qm', 'raw-hook'],
+        {
+          cwd: fresh.ws,
+          env: process.env,
+          encoding: 'utf8',
+        }
+      );
+      assert.equal(raw.status, 0, raw.stderr);
+      assert.ok(count(joinGit(fresh.markers, 'hooks')) > 0, 'raw repo hook must actually run');
+      fs.unlinkSync(joinGit(fresh.markers, 'hooks'));
+      const guarded = spawnSync(
+        'git',
+        ['-c', 'core.fsmonitor=false', 'commit', '--allow-empty', '-qm', 'guarded-hook'],
+        {
+          cwd: fresh.ws,
+          env,
+          encoding: 'utf8',
+        }
+      );
+      assert.equal(guarded.status, 0, guarded.stderr);
+      assert.equal(
+        count(joinGit(fresh.markers, 'hooks')),
+        0,
+        'aborted discovery must still block the actual repo hook'
+      );
+    } else {
+      assert.equal(pairsNamed(env, 'core.hooksPath').length, 0);
+    }
     assert.equal(pairsNamed(env, 'core.sshCommand').length, 0);
     assert.equal(pairsNamed(env, 'credential.helper').length, 0);
     assert.equal(pairsNamed(env, 'core.pager').length, 0);
@@ -710,10 +745,39 @@ function gitText(cwd, args) {
   return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', status: result.status };
 }
 
-function execDiffBody(text) {
+const exactRepoHooksNotice = '[moss] Repo hooks in an untrusted workspace were not run.';
+function execDiffBody(text, expectHooksNotice = false) {
+  if (expectHooksNotice) {
+    const suffix = `\n\n${exactRepoHooksNotice}`;
+    assert.ok(text.endsWith(suffix), 'the only removed text is the exact trailing hooks notice');
+    assert.equal(
+      text.split(exactRepoHooksNotice).length - 1,
+      1,
+      'hooks notice occurs exactly once'
+    );
+    text = text.slice(0, -suffix.length);
+  } else {
+    assert.doesNotMatch(text, /Repo hooks/);
+  }
   const failed = text.match(/^Command failed \(exit \d+\):\n([\s\S]*)$/);
   return (failed ? failed[1] : text).trim();
 }
+
+test('diff comparison rejects duplicate or changed hook notices and retains other output', () => {
+  assert.throws(
+    () => execDiffBody(`diff\n\n${exactRepoHooksNotice}\n\n${exactRepoHooksNotice}`, true),
+    assert.AssertionError
+  );
+  assert.throws(
+    () => execDiffBody('diff\n\n[moss] Repo hooks changed.', true),
+    assert.AssertionError
+  );
+  assert.equal(
+    execDiffBody(`diff\nunknown output\n\n${exactRepoHooksNotice}`, true),
+    'diff\nunknown output'
+  );
+  assert.throws(() => execDiffBody(`diff\n\n${exactRepoHooksNotice}`), assert.AssertionError);
+});
 
 test('untrusted exec git diff matches --no-ext-diff and does not run repo diff programs', async () => {
   const root = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-extdiff-'));
@@ -764,8 +828,7 @@ test('untrusted exec git diff matches --no-ext-diff and does not run repo diff p
       { ...ctx(ws), sessionKey: 'exec-git-extdiff' }
     );
     assert.equal(count(marker), 0, 'untrusted git diff ran the repo diff program');
-    assert.equal(execDiffBody(got), ref.stdout.trim());
-    assert.doesNotMatch(got, /Repo hooks/);
+    assert.equal(execDiffBody(got, process.platform === 'win32'), ref.stdout.trim());
 
     const refStat = gitText(ws, ['--no-pager', 'diff', '--stat', '--no-ext-diff', '--no-color']);
     const gotStat = await execTool.execute(

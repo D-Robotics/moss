@@ -13,16 +13,150 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execBackgroundTool, execLogsTool, execStopTool } from '../dist/tools/background-exec.js';
-import { execTool } from '../dist/tools/builtin.js';
-import { appendTaskEvent, createDraftTask } from '../dist/core/task/task-store.js';
-import { resolveHostShell } from '../dist/utils/host-shell.js';
-import {
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+
+// Capture the real result without changing taskkill's arguments, stdio, or deadline.
+// Diagnostics perform additional process queries only after the original assertion fails.
+const originalSpawnSync = childProcess.spawnSync;
+const taskkillCalls = [];
+function observeTaskkill(delegate, findChild, calls) {
+  return function (...args) {
+    if (!/(?:^|[\\/])taskkill(?:\.exe)?$/i.test(String(args[0]))) {
+      return delegate.apply(this, args);
+    }
+    const pidIndex = args[1].findIndex((arg) => String(arg).toLowerCase() === '/pid');
+    const pid = Number(args[1][pidIndex + 1]);
+    const child = findChild(pid);
+    const before = {
+      pid,
+      exitCode: child?.exitCode,
+      signalCode: child?.signalCode,
+    };
+    const lifecycle = {};
+    child?.once('exit', (code, signal) => {
+      lifecycle.exit = { at: Date.now(), code, signal };
+    });
+    child?.once('close', (code, signal) => {
+      lifecycle.close = { at: Date.now(), code, signal };
+    });
+    const startedAt = Date.now();
+    const result = delegate.apply(this, args);
+    calls.push({
+      before,
+      lifecycle,
+      args: args[1],
+      stdio: args[2]?.stdio,
+      timeout: args[2]?.timeout,
+      durationMs: Date.now() - startedAt,
+      status: result.status,
+      signal: result.signal,
+      error: result.error && { code: result.error.code, message: result.error.message },
+    });
+    return result;
+  };
+}
+// A pure oracle proves delegation preserves object identity and all kill options.
+{
+  const records = [];
+  const options = { stdio: 'ignore', windowsHide: true, timeout: 2000 };
+  const argv = ['/pid', '42', '/T', '/F'];
+  const result = {
+    status: null,
+    signal: 'SIGTERM',
+    error: { code: 'ETIMEDOUT', message: 'oracle' },
+  };
+  const receiver = {};
+  const observed = observeTaskkill(
+    function (command, actualArgv, actualOptions) {
+      assert.equal(this, receiver);
+      assert.equal(command, 'taskkill');
+      assert.equal(actualArgv, argv);
+      assert.equal(actualOptions, options);
+      return result;
+    },
+    () => undefined,
+    records
+  );
+  assert.equal(observed.call(receiver, 'taskkill', argv, options), result);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].args, argv);
+  assert.equal(records[0].timeout, 2000);
+  assert.equal(records[0].stdio, 'ignore');
+  assert.equal(records[0].error.code, 'ETIMEDOUT');
+  const passthrough = observeTaskkill(
+    () => result,
+    () => assert.fail('non-taskkill queried a child'),
+    records
+  );
+  assert.equal(passthrough('node', ['--version']), result);
+  assert.equal(records.length, 1);
+}
+if (process.platform === 'win32') {
+  childProcess.spawnSync = observeTaskkill(
+    originalSpawnSync,
+    (pid) => [...backgroundProcesses.values()].find((entry) => entry.child.pid === pid)?.child,
+    taskkillCalls
+  );
+  syncBuiltinESMExports();
+}
+// runProcessSync captures spawnSync at module load, so install the test observer first.
+const { execBackgroundTool, execLogsTool, execStopTool } =
+  await import('../dist/tools/background-exec.js');
+const { execTool } = await import('../dist/tools/builtin.js');
+const { appendTaskEvent, createDraftTask } = await import('../dist/core/task/task-store.js');
+const { resolveHostShell } = await import('../dist/utils/host-shell.js');
+const {
+  backgroundProcesses,
   clearBackgroundRegistryForTests,
   getBackgroundProcessSnapshot,
   listBackgroundProcessSnapshots,
   setKillEscalationMsForTests,
-} from '../dist/core/tools/background-process-registry.js';
+} = await import('../dist/core/tools/background-process-registry.js');
+
+process.on('uncaughtExceptionMonitor', () => {
+  if (process.platform !== 'win32') return;
+  console.error('[background-taskkill-failure]', JSON.stringify({ taskkillCalls }));
+  for (const proc of backgroundProcesses.values()) {
+    console.error(
+      '[background-child-failure]',
+      JSON.stringify({
+        snapshot: getBackgroundProcessSnapshot(proc.id),
+        exitCode: proc.child.exitCode,
+        signalCode: proc.child.signalCode,
+        shellAlive: proc.child.pid && isProcessAlive(proc.child.pid),
+        logs: proc.buffer,
+      })
+    );
+    // Own fixture output is used for relationship queries, never production kill targets.
+    for (const match of proc.buffer.matchAll(/\bnative_pid=(\d+)\b/g)) {
+      const nativePid = Number(match[1]);
+      if (!Number.isSafeInteger(nativePid) || nativePid <= 0 || !isProcessAlive(nativePid))
+        continue;
+      const result = originalSpawnSync(
+        path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `Get-CimInstance Win32_Process -Filter "ProcessId=${nativePid}" | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine | ConvertTo-Json -Compress`,
+        ],
+        { encoding: 'utf8', timeout: 2000, windowsHide: true }
+      );
+      console.error(
+        '[background-owned-native-relationship]',
+        JSON.stringify({
+          shellPid: proc.child.pid,
+          queryPid: nativePid,
+          status: result.status,
+          error: result.error && { code: result.error.code, message: result.error.message },
+          stdout: result.stdout,
+          stderr: result.stderr,
+        })
+      );
+    }
+  }
+});
 
 const ctx = () => ({ abortSignal: new AbortController().signal });
 function cleanupTempDirectory(directory, prefix) {
@@ -221,6 +355,19 @@ async function stopAndConfirmGone(out, stopCtx, label) {
   const id = extractBgId(out);
   assert.ok(id, `${label}: no background id in ${out}`);
   const pid = Number(out.match(/pid (\d+)/)?.[1]);
+  const child = backgroundProcesses.get(id)?.child;
+  const stopObservation = {
+    startedAt: Date.now(),
+    childPid: child?.pid,
+    exitCode: child?.exitCode,
+    signalCode: child?.signalCode,
+  };
+  child?.once('exit', (code, signal) => {
+    stopObservation.exit = { at: Date.now(), code, signal };
+  });
+  child?.once('close', (code, signal) => {
+    stopObservation.close = { at: Date.now(), code, signal };
+  });
   await execStopTool.execute({ id }, stopCtx);
   const [terminal, shellGone] = await Promise.all([
     waitForTerminalStatus(id, 5000),
@@ -233,6 +380,8 @@ async function stopAndConfirmGone(out, stopCtx, label) {
       JSON.stringify({
         label,
         snapshot: getBackgroundProcessSnapshot(id),
+        stopObservation,
+        taskkillCalls: taskkillCalls.filter((call) => call.before.pid === child?.pid),
         shellGone,
         nativeProcesses: [...logs.matchAll(/\bnative_pid=(\d+)\b/g)].map((match) => ({
           pid: Number(match[1]),
