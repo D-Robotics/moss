@@ -134,8 +134,8 @@ export function renderSetupHelp(zh: boolean = isZhLocale()): string {
       }
       if (item.id === 'd-robotics') {
         return zh
-          ? `  ${item.key}  d-robotics          D-Robotics 地瓜网关（内部用户，只问 API key）`
-          : `  ${item.key}  d-robotics          D-Robotics gateway (internal users; asks only for the key)`;
+          ? `  ${item.key}  d-robotics          D-Robotics 地瓜网关（内部，需地瓜账号；只问 API key）`
+          : `  ${item.key}  d-robotics          D-Robotics gateway (internal, D-Robotics account required; asks only for the key)`;
       }
       return `  ${item.key}  ${item.id}`;
     }),

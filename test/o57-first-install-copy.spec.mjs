@@ -7,7 +7,9 @@ import assert from 'node:assert/strict';
 import {
   PROVIDER_KEY_URLS,
   SETUP_PROVIDERS,
+  applyProbeResult,
   initialFirstRunView,
+  reduceFirstRun,
   renderFirstRunLines,
 } from '../dist/cli/first-run.js';
 import {
@@ -27,7 +29,8 @@ import {
   );
   const dr = SETUP_PROVIDERS.find((p) => p.id === 'd-robotics');
   assert.match(dr.en, /internal/i);
-  assert.match(dr.zh, /内部用户/);
+  assert.match(dr.zh, /内部（需地瓜账号）/);
+  assert.match(dr.en, /internal \(D-Robotics account required\)/);
   assert.doesNotMatch(
     SETUP_PROVIDERS.find((p) => p.id === 'deepseek').en,
     /unverified/,
@@ -48,7 +51,6 @@ assert.deepEqual(
   ['anthropic', 'deepseek', 'openai', 'qwen'],
   'only verified key URLs'
 );
-assert.equal(PROVIDER_KEY_URLS['d-robotics'], undefined);
 
 // key screen names the provider, gives the way out; zh says "API key", not 密钥.
 {
@@ -108,5 +110,39 @@ assert.match(
   /This folder isn't trusted.*\.moss\/devices\.json/
 );
 assert.match(untrustedFolderLine(['.moss/devices.json'], true), /此文件夹未信任/);
+
+// 401: neither Enter nor Esc/exit saves the config (the bad key is never written).
+{
+  const SECRET = 'sk-o57-bad-key-000';
+  const working = {
+    step: 'working',
+    offers: [],
+    cursor: 0,
+    provider: 'deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+    pending: {
+      type: 'probe',
+      provider: 'deepseek',
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-chat',
+    },
+  };
+  const failed = applyProbeResult(
+    working,
+    { ok: false, kind: 'auth', message: 'API key rejected (401).' },
+    'C'
+  );
+  const failedView = failed.view ?? failed;
+  assert.equal(failedView.step, 'error');
+  assert.equal(failedView.failStep, 'key');
+  for (const command of [{ type: 'enter', draft: '' }, { type: 'escape' }]) {
+    const r = reduceFirstRun(failedView, command, SECRET, 'C');
+    assert.equal(r.saved, undefined, `${command.type} after 401 must not save`);
+    assert.equal(r.view.step, 'key', `${command.type} after 401 returns to key input`);
+    assert.equal(r.secretOp, 'clear', `${command.type} after 401 clears the rejected key`);
+    assert.doesNotMatch(JSON.stringify(r), new RegExp(SECRET), 'rejected key not carried in state');
+  }
+}
 
 console.log('o57-first-install-copy: ok');

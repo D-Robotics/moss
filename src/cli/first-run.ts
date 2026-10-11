@@ -66,8 +66,8 @@ const SETUP_LABELS: Record<CliProviderPreset, { en: string; zh: string }> = {
     zh: '其他 OpenAI 兼容服务（填地址和 key）',
   },
   'd-robotics': {
-    en: 'D-Robotics gateway (internal users)',
-    zh: 'D-Robotics 地瓜网关（内部用户）',
+    en: 'D-Robotics gateway — internal (D-Robotics account required)',
+    zh: 'D-Robotics 地瓜网关 — 内部（需地瓜账号）',
   },
 };
 
@@ -76,7 +76,6 @@ const SETUP_LABELS: Record<CliProviderPreset, { en: string; zh: string }> = {
  * Only entries verified in provider-key-urls.md (Developer/PM must confirm each URL against the
  * provider's official docs). Never fill these from memory. When undefined the
  * key screen shows the generic hint without a URL.
- * TODO(O57): fill from verified provider-key-urls.md.
  */
 export const PROVIDER_KEY_URLS: Readonly<Partial<Record<CliProviderPreset, string>>> = {
   // Verified 2026-10-11, see moss-drafts/provider-key-urls.md (official domains only).
@@ -84,7 +83,6 @@ export const PROVIDER_KEY_URLS: Readonly<Partial<Record<CliProviderPreset, strin
   qwen: 'https://help.aliyun.com/zh/model-studio/get-api-key',
   openai: 'https://platform.openai.com/api-keys',
   anthropic: 'https://console.anthropic.com/settings/keys',
-  // d-robotics: none — no public signup (§11); TODO if one is published.
 };
 
 function providerLabel(id: CliProviderPreset | undefined, locale?: string): string {
