@@ -43,7 +43,12 @@ import {
 }
 
 // key URLs: placeholders only, never invented.
-assert.deepEqual(Object.keys(PROVIDER_KEY_URLS), [], 'no unverified key URLs shipped');
+assert.deepEqual(
+  Object.keys(PROVIDER_KEY_URLS).sort(),
+  ['anthropic', 'deepseek', 'openai', 'qwen'],
+  'only verified key URLs'
+);
+assert.equal(PROVIDER_KEY_URLS['d-robotics'], undefined);
 
 // key screen names the provider, gives the way out; zh says "API key", not 密钥.
 {
@@ -52,7 +57,7 @@ assert.deepEqual(Object.keys(PROVIDER_KEY_URLS), [], 'no unverified key URLs shi
     'C'
   ).join('\n');
   assert.match(en, /DeepSeek API key \(paste it; shown as dots\)/);
-  assert.match(en, /No key yet\?/);
+  assert.match(en, /No key yet\? Get one at https:\/\/platform\.deepseek\.com\/api_keys/);
   assert.match(en, /Esc: choose another provider/);
   const zh = renderFirstRunLines(
     { step: 'key', provider: 'deepseek', offers: [], cursor: 0, keyDots: 3 },
