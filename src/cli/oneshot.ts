@@ -35,6 +35,7 @@ import {
   noteRunCompletionEvent,
 } from './run-completion.js';
 import { formatOutcomeLine, resolveRunOutcome } from './run-outcome.js';
+import { createRunProgressTracker } from './run-progress.js';
 
 /** Format the oneshot exit warning when background work outlives the wait window. */
 export function formatOneshotStillRunningBackgroundNotice(
@@ -411,6 +412,15 @@ export async function runOneShot(
   const stdout = options.stdout ?? process.stdout;
   const workspaceDir = options.cwd ?? process.cwd();
   const renderer = outputFormat === 'text' ? createCliRunRenderer({ workspaceDir }) : null;
+  // O99: json / stream-json have no text renderer — still emit progress on stderr.
+  const jsonProgress =
+    outputFormat === 'text'
+      ? null
+      : createRunProgressTracker({
+          sink: { write: (line) => process.stderr.write(`${line}\n`) },
+          zh: isZhLocale(),
+          emitToolBoundaries: true,
+        });
 
   let pricingOverrides: ReturnType<typeof pricingOverridesFromConfig> | undefined;
   try {
@@ -542,6 +552,7 @@ export async function runOneShot(
         renderer?.handle(event);
         rememberStructuredResult(structuredEvents);
       } else {
+        jsonProgress?.onEvent(event);
         writeStructured(structuredEvents);
       }
     }
@@ -628,6 +639,7 @@ export async function runOneShot(
   } finally {
     try {
       renderer?.dispose?.();
+      jsonProgress?.dispose();
     } catch {
       /* ignore */
     }
