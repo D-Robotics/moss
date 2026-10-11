@@ -250,7 +250,8 @@ export function formatHookFailure(
         : result.outcome === 'timeout'
           ? `超时（${timeoutFor(hook)} 毫秒）`
           : `非零退出（退出码 ${result.exitCode}）`;
-    const head = blocked ? `已拦截：${event} hook ${why}。` : `${event} hook ${why}，未拦截。`;
+    const name = event === 'PreToolUse' ? '工具调用前钩子' : `${event} 钩子`;
+    const head = blocked ? `已拦截：${name}${why}。` : `${name}${why}，未拦截。`;
     const lines = [
       head,
       `命令：${hook.command}`,
@@ -258,7 +259,7 @@ export function formatHookFailure(
       ...(detail ? [`错误输出：${detail}`] : []),
     ];
     if (blocked) {
-      lines.push(`下一步：修好这条命令；或在配置文件里给这个 hook 加上 blocking: false。`);
+      lines.push(`下一步：修好这条命令；或在配置文件里给这个钩子加上 blocking: false。`);
     }
     return lines.join('\n');
   }

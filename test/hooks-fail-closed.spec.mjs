@@ -14,7 +14,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createConfiguredHookCallbacks } from '../dist/cli/hooks.js';
+import {
+  createConfiguredHookCallbacks,
+  runStopHooks,
+  setLifecycleHookRunner,
+} from '../dist/cli/hooks.js';
 import { resolveProjectCapabilities } from '../dist/cli/workspace-trust.js';
 import { clearUiLanguage } from '../dist/cli/cli-locale.js';
 import { installUiLanguage } from '../dist/utils/ui-language.js';
@@ -124,6 +128,15 @@ for (const lang of ['en', 'zh']) {
     assert.match(r.resultText, new RegExp(MISSING), 'reason names the hook command');
     assert.match(r.resultText, /\/tmp\/o88\/\.moss\/config\.json/, 'reason names the config file');
     assert.match(r.stderr, notStarted, 'terminal shows the same reason');
+    if (lang === 'zh') {
+      assert.match(r.resultText, /已拦截：工具调用前钩子未能启动。/, 'zh uses PM wording');
+      assert.match(r.resultText, /给这个钩子加上 blocking: false/, 'zh next step');
+      assert.doesNotMatch(
+        r.resultText,
+        /PreToolUse|\bhook\b/,
+        'no leftover English event/hook word'
+      );
+    }
   });
 
   test(`[${lang}] claude format + missing command blocks the write`, async () => {
@@ -139,11 +152,14 @@ for (const lang of ['en', 'zh']) {
       const pidFile = path.join(dir, 'hook.pid');
       const command = IS_WIN ? SLEEP_5S : `echo $$ > ${JSON.stringify(pidFile)}; ${SLEEP_5S}`;
       const r = await runWrite(
+        // timeoutFor() floors timeoutMs at 1000ms, so 300 here really means 1s.
         { PreToolUse: [{ command, timeoutMs: 300, ...(format ? { format } : {}) }] },
         { dir }
       );
       assertBlocked(r, timedOut);
       assertFailureReason(r);
+      // Hook sleeps 5s; the 1s floor must cut it off well before that.
+      assert.ok(r.elapsedMs >= 900, `waited for the 1s floor (took ${r.elapsedMs}ms)`);
       assert.ok(r.elapsedMs < 3000, `blocked within 3s (took ${r.elapsedMs}ms)`);
       if (!IS_WIN && fs.existsSync(pidFile)) {
         const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
@@ -277,3 +293,35 @@ test(
     assertBlocked(r, /could not start/);
   }
 );
+
+// QA follow-up: Stop goes through the runStopHooks outer wrapper, not only runStop.
+test('runStopHooks wrapper: missing Stop command blocks', async () => {
+  useLang('en');
+  const cbs = createConfiguredHookCallbacks(
+    { Stop: [{ command: MISSING, format: 'claude' }] },
+    { workspaceDir: tmp() }
+  );
+  setLifecycleHookRunner(cbs);
+  try {
+    const { value } = await captureStderr(() => runStopHooks({ stopReason: 'end_turn' }));
+    assert.equal(value.blocked, true);
+    assert.match(value.reason, /could not start/);
+  } finally {
+    setLifecycleHookRunner(undefined);
+  }
+});
+
+test('runStopHooks wrapper: internal error stays fail-open but is visible', async () => {
+  setLifecycleHookRunner({
+    runStop: async () => {
+      throw new Error('o88-internal-boom');
+    },
+  });
+  try {
+    const { value, stderr } = await captureStderr(() => runStopHooks({ stopReason: 'end_turn' }));
+    assert.deepEqual(value, { blocked: false });
+    assert.match(stderr, /\[hooks\] Stop hook failed: .*o88-internal-boom/);
+  } finally {
+    setLifecycleHookRunner(undefined);
+  }
+});
