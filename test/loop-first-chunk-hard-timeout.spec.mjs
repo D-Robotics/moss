@@ -35,7 +35,7 @@ try {
       firstTokenMs: null,
       logDebug() {},
     }),
-    /no streaming output.*within 0s/i
+    /No response from the model within 0s.*no streaming output/i
   );
   assert.equal(calls, 2, 'a silent first-chunk timeout gets at most one recovery retry');
   assert.ok(

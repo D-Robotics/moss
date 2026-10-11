@@ -449,6 +449,10 @@ const COPY = {
     '连接被拒绝。这个地址的主机或端口没有服务在听。请改地址，然后重试。',
     'Connection refused. Nothing is listening at that base URL (wrong host or port). Fix the base URL, then retry.',
   ],
+  refusedProxy: [
+    '代理连接被拒绝。请检查 HTTPS_PROXY/HTTP_PROXY（主机、端口，以及代理是否在运行）。',
+    'Proxy connection refused. Check HTTPS_PROXY/HTTP_PROXY (host, port, and that the proxy is running).',
+  ],
   connect: [
     '网络连接失败。请检查地址和网络，然后重试。',
     'Could not connect. Check the base URL and your network, then retry.',
@@ -585,13 +589,17 @@ function classifyProviderErrorNow(input: ProviderErrorInput): ProviderErrorSurfa
   }
   if (isRateLimitFailure(raw, status)) return hit('rate_limit', 'rate', [RETRY], true);
   if (isConnectionError(raw)) {
-    return hit(
-      'network',
-      /econnrefused|connection refused/i.test(raw) ? 'refused' : 'connect',
-      RETRY_SETTINGS,
-      true,
-      'setup'
+    const refused = /econnrefused|connection refused/i.test(raw);
+    const proxySet = Boolean(
+      process.env.HTTPS_PROXY ||
+      process.env.HTTP_PROXY ||
+      process.env.https_proxy ||
+      process.env.http_proxy
     );
+    // O67: when a proxy is configured, a refused connect is almost always the
+    // proxy port — do not blame the model base URL.
+    const id = refused ? (proxySet ? 'refusedProxy' : 'refused') : 'connect';
+    return hit('network', id, RETRY_SETTINGS, true, 'setup');
   }
   if (isTlsProtocolMismatch(raw, code))
     return hit('network', 'httpNotTls', SETTINGS_RETRY, false, 'body');

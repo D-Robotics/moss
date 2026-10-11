@@ -64,6 +64,8 @@ import {
 } from './cli/model-catalog.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShotWithCliCancellation } from './cli/run-cancellation.js';
+import { armExitGuard } from './cli/exit-guard.js';
+import { stopAllBackgroundProcesses } from './core/tools/background-process-registry.js';
 import { runInteractive } from './cli/repl.js';
 import { resolveCliSession } from './cli/session.js';
 import {
@@ -1799,6 +1801,9 @@ async function main() {
     }
   } finally {
     try {
+      // O70: exec_start children are detached with piped stdout/stderr; left
+      // running they hold the event loop open and `moss -p` never returns.
+      stopAllBackgroundProcesses();
       await agent.close();
       await disconnectAllDevices();
     } finally {
@@ -1818,6 +1823,8 @@ async function main() {
       } catch {
         /* shutdown hooks never block exit */
       }
+      // O70: whatever still lingers after cleanup must not hang a one-shot run.
+      if (parsedArgs.print || oneShotMessage) armExitGuard();
     }
   }
 }

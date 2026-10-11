@@ -6,6 +6,7 @@ import { buildExperienceBlock, experienceEnabled } from '../experience/experienc
 
 const log = getRootLogger().child('agent');
 import { ToolRegistry } from '../tools/tool-registry.js';
+import { stopAllBackgroundProcesses } from '../tools/background-process-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
 import { DeferredToolOffer, TOOL_SEARCH_NAME } from '../tools/deferred-tool-offer.js';
 import {
@@ -220,6 +221,10 @@ export class MossAgent {
     this.rootAbortController.abort(
       new MossError({ code: ErrorCode.USER_ABORTED, message: 'Agent closed' })
     );
+    // O70: background exec_start children hold stdout/stderr pipes open; stop
+    // them whenever the agent closes so hosts that skip the CLI finally path
+    // still drain the event loop.
+    stopAllBackgroundProcesses();
     this.pendingToolAborts.dispose();
     const asyncTasks = this.ownsAsyncTaskRegistry
       ? (this.asyncTasks.stopAll?.('parent_aborted').then(() => {}) ?? Promise.resolve())

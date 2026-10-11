@@ -505,7 +505,7 @@ export async function runAgentLoopLlmTurn(
           }
           if (firstChunkTimedOut && !abortSignal.aborted) {
             throw new LlmFirstChunkTimeoutError(
-              `LLM produced no streaming output (including thinking) within ${Math.round(firstChunkBudgetMs / 1000)}s. Check network/proxy, Base URL, API Key and model availability; or try disabling extended thinking or switching models.`
+              `No response from the model within ${Math.round(firstChunkBudgetMs / 1000)}s (no streaming output, including thinking). Check network/proxy, Base URL, API Key, and that the gateway is reachable.`
             );
           }
           throw streamErr;
@@ -521,7 +521,17 @@ export async function runAgentLoopLlmTurn(
         label: 'llm-call',
         shouldRetry: (err, attempt) => {
           if (abortSignal.aborted) return false;
-          if (err instanceof LlmFirstChunkTimeoutError && attempt >= 2) return false;
+          if (err instanceof LlmFirstChunkTimeoutError) {
+            // O67: a blackhole HTTPS_PROXY yields zero bytes forever — retrying
+            // only multiplies the hang. One recovery retry is enough without a proxy.
+            const proxySet = Boolean(
+              process.env.HTTPS_PROXY ||
+              process.env.HTTP_PROXY ||
+              process.env.https_proxy ||
+              process.env.http_proxy
+            );
+            if (proxySet || attempt >= 2) return false;
+          }
           return classifyLlmError(err).retryable;
         },
         retryDelayMs: (err, attempt, _computed) => {
