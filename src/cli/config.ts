@@ -226,10 +226,14 @@ export interface PermissionsConfig {
   deny?: string[];
   /**
    * `full` opts every device into the destructive tier (reboot, flash, system
-   * paths). Absent or `gated` keeps the safe default.
+   * paths). Absent or `gated` keeps the safe default. A project file may set
+   * `gated` to tighten the user, and cannot set `full`.
    */
   deviceTrust?: 'gated' | 'full' | string;
-  /** Hosts or device ids that may run the destructive tier without a prompt. */
+  /**
+   * Hosts or device ids that may run the destructive tier without a prompt.
+   * A project file cannot add an id the user did not already list.
+   */
   trustedDevices?: string[];
 }
 
@@ -243,7 +247,9 @@ export interface LoadedCliConfigFile {
   ignoredProjectRouting?: string[];
   /**
    * Project permission fields that would loosen the user's mode, dropped
-   * because the folder is not trusted. `deny` and `ask` are not in this list.
+   * because the folder is not trusted. Includes allow, defaultMode,
+   * deviceTrust, trustedDevices, trustedTools, and a looser profile.
+   * `deny` and `ask` are not in this list.
    */
   droppedProjectPermissions?: string[];
   /**
@@ -749,10 +755,12 @@ function projectProfileLoosens(user: ConfigFile, project: ConfigFile): boolean {
 }
 
 /**
- * Project fields that grant tools or replace the permission mode.
- * An untrusted folder drops these. `permissions.ask` and `permissions.deny`
- * only tighten, so they are not listed. A project profile is listed only
- * when it is looser than the user's.
+ * Project fields that grant tools, trust a device, or replace the permission
+ * mode. An untrusted folder drops these. `permissions.ask` and
+ * `permissions.deny` only tighten, so they are not listed. A project profile
+ * is listed only when it is looser than the user's. Device trust is never
+ * taken from an untrusted folder, so any set `deviceTrust` or
+ * `trustedDevices` list is listed.
  */
 function listDroppedProjectPermissionFields(user: ConfigFile, project: ConfigFile): string[] {
   const dropped: string[] = [];
@@ -760,6 +768,13 @@ function listDroppedProjectPermissionFields(user: ConfigFile, project: ConfigFil
   if (permissionRuleListLoosens(project.trustedTools)) dropped.push('trustedTools');
   const mode = project.permissions?.defaultMode;
   if (typeof mode === 'string' && mode.trim().length > 0) dropped.push('permissions.defaultMode');
+  const deviceTrust = project.permissions?.deviceTrust;
+  if (typeof deviceTrust === 'string' && deviceTrust.trim().length > 0) {
+    dropped.push('permissions.deviceTrust');
+  }
+  if (permissionRuleListLoosens(project.permissions?.trustedDevices)) {
+    dropped.push('permissions.trustedDevices');
+  }
   if (projectProfileLoosens(user, project)) dropped.push('profile');
   return dropped;
 }
@@ -777,6 +792,14 @@ function omitLooseningProjectPermissions(user: ConfigFile, project: ConfigFile):
   }
   if (typeof permissions.defaultMode === 'string' && permissions.defaultMode.trim().length > 0) {
     delete permissions.defaultMode;
+    changed = true;
+  }
+  if (typeof permissions.deviceTrust === 'string' && permissions.deviceTrust.trim().length > 0) {
+    delete permissions.deviceTrust;
+    changed = true;
+  }
+  if (permissionRuleListLoosens(permissions.trustedDevices)) {
+    delete permissions.trustedDevices;
     changed = true;
   }
   if (!changed) return next;
@@ -925,9 +948,12 @@ export function mergeConfigFiles(
     // If the user hasn't set a scalar, the project value is still used.
     // trustedTools is a grant list, so a trusted project unions with the user.
     // loadCliConfigFile removes an untrusted project's trustedTools,
-    // permissions.allow, permissions.defaultMode, and a looser profile before
-    // this merge, so those grants cannot widen the user's mode. CLI flags and
-    // env vars override both (resolveCliConfig).
+    // permissions.allow, permissions.defaultMode, permissions.deviceTrust,
+    // permissions.trustedDevices, and a looser profile before this merge, so
+    // those grants cannot widen the user's mode. mergePermissionsConfig also
+    // refuses a project deviceTrust of full and any trusted device the user
+    // did not list, including in a trusted folder. CLI flags and env vars
+    // override both (resolveCliConfig).
     safetyMode: userConfig.safetyMode ?? projectConfig.safetyMode,
     approvalPolicy: userConfig.approvalPolicy ?? projectConfig.approvalPolicy,
     trustedTools: unionOptionalStringList(userConfig.trustedTools, projectConfig.trustedTools),
@@ -1008,25 +1034,82 @@ function unionOptionalStringList(
 }
 
 /**
- * v0.26 permission-block merge, safety-directional like the other safety
- * fields: user-wins on every scalar knob; rule lists union BOTH layers
- * (deny rules union across levels by design — a project cannot silently
- * remove the user's deny; allow/ask dedupe). An untrusted project's
- * `allow` and `defaultMode` are removed before this function runs.
+ * A project `gated` tightens `full`. A project `full` never applies, trusted
+ * folder or not. Any other project value is ignored.
+ */
+function mergePermissionDeviceTrust(
+  user: PermissionsConfig['deviceTrust'],
+  project: PermissionsConfig['deviceTrust']
+): PermissionsConfig['deviceTrust'] | undefined {
+  if (typeof project === 'string' && project.trim().toLowerCase() === 'gated') return 'gated';
+  if (typeof user === 'string' && user.trim().length > 0) return user;
+  return undefined;
+}
+
+/**
+ * Project ids never add a device the user did not list. When the project sets
+ * a list, the result is the intersection; when it does not, the user's list
+ * stands. No user list means the project list is ignored.
+ */
+function mergePermissionTrustedDevices(
+  user: readonly string[] | undefined,
+  project: readonly string[] | undefined
+): string[] | undefined {
+  if (!Array.isArray(user)) return undefined;
+  if (!Array.isArray(project)) return [...user];
+  const projectIds = new Set<string>();
+  for (const entry of project) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim();
+    if (trimmed.length > 0) projectIds.add(trimmed);
+  }
+  const seen = new Set<string>();
+  const intersection: string[] = [];
+  for (const entry of user) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim();
+    if (trimmed.length === 0 || seen.has(trimmed) || !projectIds.has(trimmed)) continue;
+    seen.add(trimmed);
+    intersection.push(trimmed);
+  }
+  return intersection;
+}
+
+/**
+ * Permission-block merge. Allowlist of PermissionsConfig: the project object
+ * is never spread, so unknown project fields are dropped. A project may only
+ * tighten the user.
+ * - deny / ask union (a project cannot remove the user's rules)
+ * - allow unions only what the caller still passes. loadCliConfigFile removes
+ *   an untrusted project's allow before this runs
+ * - defaultMode keeps the user's value when set, so a project cannot loosen
+ *   it. An untrusted project's defaultMode is removed before this runs
+ * - deviceTrust: project `gated` over user `full`; never project `full`
+ * - trustedDevices: intersection with the user's list, never an addition
  */
 function mergePermissionsConfig(
   user: PermissionsConfig | undefined,
   project: PermissionsConfig | undefined
 ): PermissionsConfig | undefined {
   if (!user && !project) return undefined;
-  return {
-    ...(user ?? {}),
-    ...(project ?? {}),
+  // Every PermissionsConfig key is required here, so a new field fails the
+  // build until the allowlist handles it. Unknown project keys are not copied.
+  const fields = {
     defaultMode: user?.defaultMode ?? project?.defaultMode,
     allow: unionOptionalStringList(user?.allow, project?.allow),
     ask: unionOptionalStringList(user?.ask, project?.ask),
     deny: unionOptionalStringList(user?.deny, project?.deny),
-  };
+    deviceTrust: mergePermissionDeviceTrust(user?.deviceTrust, project?.deviceTrust),
+    trustedDevices: mergePermissionTrustedDevices(user?.trustedDevices, project?.trustedDevices),
+  } satisfies Record<keyof PermissionsConfig, unknown>;
+  const merged: PermissionsConfig = {};
+  if (fields.defaultMode !== undefined) merged.defaultMode = fields.defaultMode;
+  if (fields.allow !== undefined) merged.allow = fields.allow;
+  if (fields.ask !== undefined) merged.ask = fields.ask;
+  if (fields.deny !== undefined) merged.deny = fields.deny;
+  if (fields.deviceTrust !== undefined) merged.deviceTrust = fields.deviceTrust;
+  if (fields.trustedDevices !== undefined) merged.trustedDevices = fields.trustedDevices;
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 function argvTrustsWorkspace(argv: readonly string[]): boolean {
