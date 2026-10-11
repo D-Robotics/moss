@@ -292,6 +292,42 @@ function withDetectorHome<T>(ctx: ProtectedPathContext, fn: () => T): T {
   }
 }
 
+/** Map a shell command to the O94 prompt verb (rm → delete, mv → move). */
+function shellHitOperation(command: string): ProtectedPathHit['operation'] {
+  let sawDelete = false;
+  let sawMove = false;
+  for (const segment of command.split(/(?:&&|\|\||[;\n])/g)) {
+    const tokens: string[] = [];
+    const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+    let m: RegExpExecArray | null;
+    while ((m = pattern.exec(segment))) tokens.push(m[1] ?? m[2] ?? m[3] ?? '');
+    let i = 0;
+    while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i]!)) i += 1;
+    // skip sudo/doas wrappers
+    while (i < tokens.length && /^(sudo|doas)$/i.test(tokens[i]!)) {
+      i += 1;
+      while (i < tokens.length && tokens[i]!.startsWith('-')) {
+        // sudo -u user → skip flag value when attached form not used
+        const flag = tokens[i]!;
+        i += 1;
+        if (/^-[^-]*[uCg]$/.test(flag) || flag === '--user' || flag === '--group') i += 1;
+      }
+    }
+    const head =
+      (tokens[i] ?? '')
+        .split(/[\\/]/)
+        .pop()
+        ?.toLowerCase()
+        .replace(/\.exe$/, '') ?? '';
+    if (head === 'rm' || head === 'rmdir' || head === 'unlink' || head === 'shred')
+      sawDelete = true;
+    else if (head === 'mv') sawMove = true;
+  }
+  if (sawDelete) return 'delete';
+  if (sawMove) return 'move';
+  return 'write';
+}
+
 export function findShellProtectedWrites(
   command: string,
   ctx: ProtectedPathContext
@@ -312,7 +348,7 @@ export function findShellProtectedWrites(
       raw: displayPath(target, ctx),
       resolved: hit.resolved,
       category: hit.category,
-      operation: 'write',
+      operation: shellHitOperation(command),
     });
   }
   if (hits.length === 0 && uncertain) {

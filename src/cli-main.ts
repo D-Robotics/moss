@@ -928,6 +928,8 @@ async function main() {
     deviceTrust: resolvedConfig.permissions.deviceTrust,
     trustedDevices: resolvedConfig.permissions.trustedDevices,
     detailMode: resolveCliDetailMode(argv),
+    // O94: -p/--print must auto-deny protected paths even when stdin is a TTY.
+    printMode: parsedArgs.print === true,
   });
   const configPreHook = configuredHooks.onBeforeToolExec;
   const onBeforeToolExec: AgentHooks['onBeforeToolExec'] = (req) =>

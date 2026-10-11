@@ -354,14 +354,14 @@ export function formatInteractionModeNotice(mode: string, locale?: string): stri
         plan: 'plan（只读演练，不改文件、不跑命令）· /mode 可切换',
         acceptEdits: 'accept-edits（自动通过本文件夹内的文件编辑；终端命令仍需确认）· /mode 可切换',
         manual: 'manual（逐条确认）· /mode 可切换',
-        full: 'full（完全执行，不逐条询问）· /mode 可切换',
+        full: 'full（多数操作直接执行；受保护路径仍会确认一次）· /mode 可切换',
       }
     : {
         plan: 'plan (dry-run: no edits, no commands) · /mode to change',
         acceptEdits:
           'accept-edits (file edits in this folder auto-approve; shell commands still ask) · /mode to change',
         manual: 'manual (asks before each action) · /mode to change',
-        full: 'full (no approval prompts) · /mode to change',
+        full: 'full (runs most actions; protected paths still ask once) · /mode to change',
       };
   const label = labels[mode] ?? mode;
   return zh ? `[moss] 交互模式：${label}` : `[moss] Interaction mode: ${label}`;

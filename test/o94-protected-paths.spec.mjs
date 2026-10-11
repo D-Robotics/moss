@@ -137,11 +137,16 @@ function runIfApproved(tool, input) {
 }
 
 let counter = 0;
-/** answer: string returned by the asker; null = headless (-p). */
+/**
+ * answer: string returned by the asker.
+ * headless: fake non-TTY (legacy -p simulation).
+ * printMode: real `-p` path — keep stdin as TTY, set printMode on the hook
+ *   (QA BLOCK regression: TTY + -p must deny without hanging on defaultAskUser).
+ */
 async function decide(
   tool,
   input,
-  { answer = '', headless = false, mode = 'full', hook, noExec = false } = {}
+  { answer = '', headless = false, printMode = false, mode = 'full', hook, noExec = false } = {}
 ) {
   const asked = [];
   const errs = [];
@@ -151,6 +156,7 @@ async function decide(
       workspaceDir: ws,
       interactionMode: () => mode,
       ...(mode === 'full' ? { approvalPolicy: 'never' } : {}),
+      ...(printMode ? { printMode: true } : {}),
     });
   const wasTTY = process.stdin.isTTY;
   const origErr = console.error;
@@ -160,17 +166,36 @@ async function decide(
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     setCliApprovalAsker(null);
     h.setAsker(null);
+  } else if (printMode) {
+    // Real `moss -p` on a terminal: stdin stays TTY, no asker/TUI registered.
+    // If the gate still falls through to defaultAskUser, the 2s race below fails.
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    setCliApprovalAsker(null);
+    h.setAsker(null);
   } else {
     undo = h.setAsker(async (q) => {
       asked.push(q);
       return answer;
     });
   }
+  let hangTimer;
   try {
-    const decision = await h({ tool, input, toolCallId: `o94-${++counter}`, sessionKey: 'o94' });
+    const run = h({ tool, input, toolCallId: `o94-${++counter}`, sessionKey: 'o94' });
+    const decision = printMode
+      ? await Promise.race([
+          run,
+          new Promise((_, reject) => {
+            hangTimer = setTimeout(
+              () => reject(new Error('printMode hung waiting for approval (>2s)')),
+              2000
+            );
+          }),
+        ])
+      : await run;
     if (decision.approved && !noExec) runIfApproved(tool, input);
     return { decision, asked, errs, hook: h };
   } finally {
+    if (hangTimer) clearTimeout(hangTimer);
     undo();
     console.error = origErr;
     Object.defineProperty(process.stdin, 'isTTY', { value: wasTTY, configurable: true });
@@ -718,6 +743,98 @@ await check(async () => {
     );
   }
 });
+
+// ── QA BLOCK regression: TTY + printMode (-p) must deny without hanging ────
+await check(async () => {
+  const before = snapshot();
+  // Keep isTTY true; printMode flag alone must trigger auto-deny.
+  const { decision, asked, errs } = await decide(
+    EXEC,
+    { command: 'rm -rf .git' },
+    { printMode: true }
+  );
+  assert.equal(decision.approved, false, 'TTY+-p must deny');
+  assert.equal(asked.length, 0, 'TTY+-p must not call any asker');
+  assert.match(decision.reason, /^(Blocked:|已拦截：)/, 'TTY+-p reason');
+  assert.match(decision.reason, /protected path|受保护路径/, 'TTY+-p says protected');
+  assert.ok(
+    errs.some((l) => /protected path|受保护路径/.test(l)),
+    'TTY+-p prints stderr notice'
+  );
+  assert.deepEqual(snapshot(), before, 'TTY+-p left files unchanged');
+  ok('TTY + printMode (-p): immediate deny, no hang');
+}, 'TTY+printMode deny');
+
+// Same regression via argv `-p` (no printMode option) while stdin stays TTY.
+await check(async () => {
+  const before = snapshot();
+  const prevArgv = process.argv.slice();
+  process.argv = [process.execPath, 'moss', '-p', 'rm protected'];
+  try {
+    const asked = [];
+    const errs = [];
+    const h = createCliToolApprovalHook('full-access', env, {
+      workspaceDir: ws,
+      interactionMode: () => 'full',
+      approvalPolicy: 'never',
+      // deliberately omit printMode — argv must be enough
+    });
+    const wasTTY = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    setCliApprovalAsker(null);
+    h.setAsker(null);
+    const origErr = console.error;
+    console.error = (...a) => errs.push(a.join(' '));
+    let hangTimer;
+    try {
+      const decision = await Promise.race([
+        h({
+          tool: EXEC,
+          input: { command: 'echo x >> ~/.bashrc' },
+          toolCallId: 'o94-argv-p',
+          sessionKey: 'o94',
+        }),
+        new Promise((_, reject) => {
+          hangTimer = setTimeout(
+            () => reject(new Error('argv -p hung waiting for approval (>2s)')),
+            2000
+          );
+        }),
+      ]);
+      assert.equal(decision.approved, false, 'argv -p must deny');
+      assert.equal(asked.length, 0, 'argv -p must not ask');
+      assert.ok(
+        errs.some((l) => /protected path|受保护路径/.test(l)),
+        'argv -p stderr'
+      );
+      assert.deepEqual(snapshot(), before, 'argv -p unchanged');
+    } finally {
+      if (hangTimer) clearTimeout(hangTimer);
+      console.error = origErr;
+      Object.defineProperty(process.stdin, 'isTTY', { value: wasTTY, configurable: true });
+    }
+  } finally {
+    process.argv = prevArgv;
+  }
+  ok('TTY + argv -p: immediate deny via argvRequestsPrintMode');
+}, 'TTY+argv -p deny');
+
+// rm → Chinese 「删除」 (and English delete), not generic write.
+await check(async () => {
+  if (!findProtectedPathHits) throw new Error('findProtectedPathHits missing');
+  const hits = findProtectedPathHits(
+    'exec',
+    { command: 'rm -rf .git' },
+    { cwd: ws, workspaceRoot: ws, configDirs: [cfg], env, home },
+    false
+  );
+  assert.ok(hits.length > 0, 'rm .git is a hit');
+  assert.equal(hits[0].operation, 'delete', 'rm maps to delete operation');
+  const { protectedPathHeadline } = await import('../dist/cli/protected-path-prompt.js');
+  assert.match(protectedPathHeadline(hits[0], true), /要删除/, 'zh rm label is 删除');
+  assert.match(protectedPathHeadline(hits[0], false), /About to delete/, 'en rm label is delete');
+  ok('rm → delete / 「删除」');
+}, 'rm delete label');
 
 if (!caseInsensitiveFs)
   console.log(

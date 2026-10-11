@@ -162,6 +162,14 @@ export interface CliToolApprovalOptions {
    * Safety checks still apply to trusted tools.
    */
   persistTrust?: boolean;
+
+  /**
+   * O94: CLI was started with `-p` / `--print`. Protected-path writes must
+   * deny immediately without prompting — even when stdin is a TTY (interactive
+   * terminals still set isTTY under `moss -p`). Prefer this flag over reading
+   * argv; argv is a fallback when the flag was not wired.
+   */
+  printMode?: boolean;
 }
 
 /** A CLI policy hook whose interactive asker can be scoped by an embedding host. @beta */
@@ -221,6 +229,23 @@ export function resolveCliSafetyMode(
   // v0.26 default flip (PRD W1): the out-of-box mode is `full` — the
   // no-signal fallback here matches it so the two resolution paths agree.
   return 'full-access';
+}
+
+/**
+ * True when CLI argv includes `-p` / `--print` (stops at `--`).
+ * Used so protected-path deny does not depend only on `stdin.isTTY`.
+ */
+export function argvRequestsPrintMode(argv: readonly string[] = process.argv.slice(2)): boolean {
+  for (const arg of argv) {
+    if (arg === '--') break;
+    if (arg === '-p' || arg === '--print') return true;
+  }
+  return false;
+}
+
+/** O94: `-p`/`--print` option or argv — deny protected writes without prompting. */
+function isApprovalPrintMode(options: CliToolApprovalOptions): boolean {
+  return options.printMode === true || argvRequestsPrintMode();
 }
 
 function inferSideEffectClass(tool: Tool): ToolSideEffectClass {
@@ -1241,7 +1266,12 @@ export function createCliToolApprovalHook(
         const zh = isZhLocale();
         const protectedAsker = instanceAsker ?? interactiveAsker;
         const protectedViewAsker = getCliApprovalViewAsker();
-        if (!process.stdin.isTTY && protectedAsker === null && !protectedViewAsker) {
+        // O94: `-p`/`--print` must deny even when stdin is a TTY (QA BLOCK on
+        // #93). Non-TTY with no asker stays the non-interactive deny path.
+        if (
+          isApprovalPrintMode(options) ||
+          (!process.stdin.isTTY && protectedAsker === null && !protectedViewAsker)
+        ) {
           console.error(protectedPathHeadlessNotice(firstHit, zh));
           return settle({ approved: false, reason: protectedPathHeadlessReason(firstHit, zh) });
         }
@@ -1320,7 +1350,8 @@ export function createCliToolApprovalHook(
         : undefined;
 
     const asker = instanceAsker ?? interactiveAsker;
-    if (!process.stdin.isTTY && asker === null) {
+    // Same `-p` rule as O94: print mode cannot prompt even on a TTY.
+    if ((isApprovalPrintMode(options) || !process.stdin.isTTY) && asker === null) {
       if (options.detailMode !== 'quiet' && !headlessNoticeShown) {
         console.error(
           deviceGatedAsk && isZhLocale()
