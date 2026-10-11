@@ -1,6 +1,7 @@
 import type { Message } from '../contracts/messages.js';
 import { parsePatch } from '../utils/apply-patch-core.js';
 import { estimateTokensForText } from './tokens.js';
+import { isFoldedToolResult } from './tool-result-fold.js';
 
 const READ_RESULT_TOOLS = new Set(['read', 'read_file', 'device_file_read']);
 const MUTATE_RESULT_TOOLS = new Set([
@@ -416,7 +417,13 @@ export function dedupeUnchangedReadToolResults(messages: Message[]): StaleReadIn
       if (!meta || !DEDUP_READ_TOOLS.has(meta.name) || !meta.key) continue;
       if (typeof block.content !== 'string') continue;
       const content = block.content;
-      if (content === STALE_READ_PLACEHOLDER || content === FILE_UNCHANGED_PLACEHOLDER) continue;
+      if (
+        content === STALE_READ_PLACEHOLDER ||
+        content === FILE_UNCHANGED_PLACEHOLDER ||
+        isFoldedToolResult(content)
+      ) {
+        continue;
+      }
       reads.push({ msgIdx, blockIdx, key: meta.key, content });
     }
   }

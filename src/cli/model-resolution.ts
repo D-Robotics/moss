@@ -61,18 +61,36 @@ function writeCachedModel(
   } catch {}
 }
 
-const DATED_SNAPSHOT = /(?:-\d{4}-\d{2}-\d{2}|-\d{8})$/;
+/**
+ * Trailing version aliases a gateway appends to a model id: snapshot dates
+ * (`-YYYY-MM-DD`, `-YYYYMMDD`), OpenAI-style month-day (`gpt-4-0613`),
+ * `@`-separated dates (`name@2026-09-01`), and `-latest` / `@latest`.
+ */
+const TRAILING_VERSION_ALIAS =
+  /(?:-\d{4}-\d{2}-\d{2}|-\d{8}|@latest|-latest|@\d{4}-\d{2}-\d{2}|@\d{8}|-\d{4})$/;
 
-/** Leaf id with one vendor prefix and one snapshot date removed. */
+function stripTrailingVersionAliases(id: string): string {
+  let current = id;
+  let next = current.replace(TRAILING_VERSION_ALIAS, '');
+  while (next !== current) {
+    current = next;
+    next = current.replace(TRAILING_VERSION_ALIAS, '');
+  }
+  return current;
+}
+
+/** Leaf id with one vendor prefix and trailing version aliases removed. */
 function canonicalModelId(id: string): string {
   const slash = id.lastIndexOf('/');
   const leaf = slash >= 0 ? id.slice(slash + 1) : id;
-  return leaf.replace(DATED_SNAPSHOT, '');
+  return stripTrailingVersionAliases(leaf);
 }
 
 /**
  * True when the gateway id is the configured model, or the same id plus a
- * vendor prefix (`vendor/x`) and/or a snapshot date (`-YYYY-MM-DD` or `-YYYYMMDD`).
+ * vendor prefix (`vendor/x`) and/or trailing version aliases (snapshot dates
+ * `-YYYY-MM-DD` / `-YYYYMMDD` / `-MMDD` like `gpt-4-0613`, `@`-separated dates,
+ * `-latest` / `@latest`).
  */
 export function reportedModelMatchesConfigured(configured: string, reported: string): boolean {
   if (configured === reported) return true;

@@ -277,9 +277,9 @@ test('moss task run passes the CLI locale into the summary (zh)', async () => {
     else process.env.LC_MESSAGES = saved.LC_MESSAGES;
   }
   const text = out.text();
-  assert.match(text, /任务 task_\S+ — PASS/, 'zh summary label + verbatim outcome token');
+  assert.match(text, /任务 task_\S+ — 通过/, 'zh summary label + localized outcome word');
   assert.match(text, /目标：创建标记文件/);
-  assert.match(text, /阶段：accepted/);
+  assert.match(text, /阶段：已验收/);
   assert.match(text, /时间线（末尾）：/);
 });
 

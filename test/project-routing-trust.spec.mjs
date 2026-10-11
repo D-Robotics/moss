@@ -20,6 +20,7 @@ import {
 } from '../dist/cli/config.js';
 import { folderPathKey, rememberFolderTrust } from '../dist/cli/folder-trust-store.js';
 import { createCliProvider, fallbackApiKey } from '../dist/cli/providers.js';
+import { resolveCliAgentRuntimeOptions } from '../dist/cli/agent-runtime.js';
 
 const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
 
@@ -621,12 +622,12 @@ try {
   );
   assert.equal(bodies.includes('evil-cheap'), false, hitSummary);
   assert.match(bodies, /stub-model/, hitSummary);
-  assert.match(untrusted.stderr, /Untrusted folder/);
+  assert.match(untrusted.stderr, /This folder isn't trusted/);
   assert.match(untrusted.stderr, /baseUrl/);
   assert.match(untrusted.stderr, /HTTP_PROXY/);
   assert.match(untrusted.stderr, /MOSS_MODEL_CHEAP/);
   assert.doesNotMatch(untrusted.stderr, /evil-cheap/);
-  assert.doesNotMatch(untrusted.stderr, /Trust this folder\?/);
+  assert.doesNotMatch(untrusted.stderr, /Trust and continue/);
 
   userStub.hits.length = 0;
   const blocked = await runCli(ws, env, ['--trust-workspace', '-p', 'hi', '--max-turns', '1']);
@@ -642,6 +643,10 @@ try {
     baseUrl: `http://127.0.0.1:${projectStub.port}/v1`,
     apiKey: 'project-secret-key',
   });
+  // The trusted .env proxy is installed before the first request. Keep the
+  // local stubs off that proxy so this check still sees the project host.
+  env.NO_PROXY = '127.0.0.1';
+  env.no_proxy = '127.0.0.1';
   const owned = await runCli(ws, env, ['--trust-workspace', '-p', 'hi', '--max-turns', '1']);
   assert.equal(owned.code, 0, owned.stderr);
   assert.equal(userStub.hits.length, 0, 'user host must not see the project endpoint call');
@@ -763,8 +768,8 @@ function probeAncestorRouting(cwd) {
 async function assertAncestorNotice(cwd) {
   const printed = await runCli(cwd, routingChildEnv(), ['--mock', '-p', 'hi']);
   const stderr = printed.stderr ?? '';
-  assert.doesNotMatch(stderr, /Trust this folder\?/);
-  assert.match(stderr, /Untrusted folder — ignored project settings:/);
+  assert.doesNotMatch(stderr, /Trust and continue/);
+  assert.match(stderr, /This folder isn't trusted, so its project settings were skipped:/);
   for (const key of ANCESTOR_KEYS) assert.match(stderr, new RegExp(key), stderr);
   assert.doesNotMatch(stderr, /evil-proxy/);
   assert.doesNotMatch(stderr, /evil-ca/);
@@ -775,8 +780,8 @@ async function assertTrustedAncestorNotice(cwd, dir) {
   const printed = await runCli(cwd, routingChildEnv(), ['--trust-workspace', '--mock', '-p', 'hi']);
   const stderr = printed.stderr ?? '';
   assert.equal(printed.code, 0, stderr);
-  assert.doesNotMatch(stderr, /Trust this folder\?/);
-  assert.doesNotMatch(stderr, /Untrusted folder/);
+  assert.doesNotMatch(stderr, /Trust and continue/);
+  assert.doesNotMatch(stderr, /This folder isn't trusted/);
   assert.match(stderr, /Ancestor \.env routing keys ignored from /);
   assert.match(stderr, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   for (const key of ANCESTOR_KEYS) assert.match(stderr, new RegExp(key), stderr);
@@ -806,6 +811,108 @@ async function assertTrustedAncestorNotice(cwd, dir) {
   const nested = probeAncestorRouting(inner);
   assert.notEqual(nested.folderKey, folderPathKey(outer));
   await assertAncestorNotice(inner);
+}
+
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-output-cap-'));
+  const configDir = path.join(root, 'cfg');
+  const ws = path.join(root, 'ws');
+  put(path.join(configDir, 'config.json'), {
+    provider: 'openai',
+    model: 'glm-5.3',
+    apiKey: 'user-key',
+    agent: {
+      maxOutputTokens: 9000,
+      models: { 'glm-5.3': { maxOutputTokens: 50000 } },
+    },
+  });
+  put(path.join(ws, '.moss', 'config.json'), {
+    agent: {
+      maxOutputTokens: 1,
+      models: {
+        'glm-5.3': { maxOutputTokens: 2 },
+        'evil-model': { maxOutputTokens: 3 },
+      },
+      compaction: { reserveTokens: 12345 },
+    },
+  });
+  const env = { HOME: root, MOSS_CONFIG_DIR: configDir, MOSS_NO_BUNDLED_DEFAULT: '1' };
+  const ignored = loadCliConfigFile(env, [], ws, { trustProjectRouting: false });
+  assert.ok(ignored.ignoredProjectRouting.includes('maxOutputTokens'));
+  assert.ok(ignored.ignoredProjectRouting.includes('models'));
+  assert.equal(ignored.config.agent?.maxOutputTokens, 9000);
+  assert.equal(ignored.config.agent?.models?.['glm-5.3']?.maxOutputTokens, 50000);
+  assert.equal(ignored.config.agent?.models?.['evil-model'], undefined);
+  assert.equal(ignored.config.agent?.compaction?.reserveTokens, 12345);
+  const resolvedIgnored = resolveCliConfig(env, ignored.config, {}, ignored);
+  const runtimeIgnored = resolveCliAgentRuntimeOptions(resolvedIgnored);
+  assert.equal(resolvedIgnored.maxOutputTokens, 9000);
+  assert.equal(runtimeIgnored.maxOutputTokensPinned, true);
+  assert.equal(runtimeIgnored.maxTokens, 9000);
+  assert.equal(runtimeIgnored.modelMaxOutputTokens?.['glm-5.3'], 50000);
+  assert.equal(runtimeIgnored.modelMaxOutputTokens?.['evil-model'], undefined);
+
+  const trusted = loadCliConfigFile(env, [], ws, { trustProjectRouting: true });
+  const resolvedTrusted = resolveCliConfig(env, trusted.config, {}, trusted);
+  const runtimeTrusted = resolveCliAgentRuntimeOptions(resolvedTrusted);
+  assert.equal(resolvedTrusted.maxOutputTokens, 1);
+  assert.equal(runtimeTrusted.maxOutputTokensPinned, true);
+  assert.equal(runtimeTrusted.modelMaxOutputTokens?.['glm-5.3'], 50000);
+  assert.equal(runtimeTrusted.modelMaxOutputTokens?.['evil-model'], 3);
+
+  put(path.join(configDir, 'config.json'), {
+    provider: 'openai',
+    model: 'glm-5.3',
+    apiKey: 'user-key',
+  });
+  put(path.join(ws, '.moss', 'config.json'), {
+    agent: {
+      maxOutputTokens: 1_000_000,
+      models: { 'glm-5.3': { maxOutputTokens: 2_000_000 } },
+    },
+  });
+  const bare = loadCliConfigFile(env, [], ws, { trustProjectRouting: false });
+  const resolvedBare = resolveCliConfig(env, bare.config, {}, bare);
+  const runtimeBare = resolveCliAgentRuntimeOptions(resolvedBare);
+  assert.equal(resolvedBare.maxOutputTokens, undefined);
+  assert.equal(runtimeBare.maxOutputTokensPinned, false);
+  assert.equal(runtimeBare.modelMaxOutputTokens, undefined);
+  assert.notEqual(runtimeBare.maxTokens, 1_000_000);
+  assert.notEqual(runtimeBare.maxTokens, 2_000_000);
+
+  const savedCap = process.env.MOSS_MAX_OUTPUT_TOKENS;
+  delete process.env.MOSS_MAX_OUTPUT_TOKENS;
+  put(path.join(ws, '.env'), 'MOSS_MAX_OUTPUT_TOKENS=1\n');
+  resetDeferredRoutingEnvForTests();
+  try {
+    loadEnvFile(path.join(ws, '.env'));
+    assert.equal(process.env.MOSS_MAX_OUTPUT_TOKENS, undefined);
+    const dropped = commitProjectRoutingEnv({
+      trusted: false,
+      folderKey: ws,
+      configDir,
+    });
+    assert.ok(dropped.keys.includes('MOSS_MAX_OUTPUT_TOKENS'));
+    assert.equal(process.env.MOSS_MAX_OUTPUT_TOKENS, undefined);
+    const fromFile = resolveCliConfig({ ...env }, bare.config, {}, bare);
+    assert.equal(fromFile.maxOutputTokens, undefined);
+    resetDeferredRoutingEnvForTests();
+    loadEnvFile(path.join(ws, '.env'));
+    const applied = commitProjectRoutingEnv({ trusted: true, folderKey: ws, configDir });
+    assert.deepEqual(applied.keys, []);
+    assert.equal(process.env.MOSS_MAX_OUTPUT_TOKENS, '1');
+    const pinned = resolveCliConfig(
+      { ...env, MOSS_MAX_OUTPUT_TOKENS: process.env.MOSS_MAX_OUTPUT_TOKENS },
+      bare.config,
+      {},
+      bare
+    );
+    assert.equal(pinned.maxOutputTokens, 1);
+  } finally {
+    if (savedCap === undefined) delete process.env.MOSS_MAX_OUTPUT_TOKENS;
+    else process.env.MOSS_MAX_OUTPUT_TOKENS = savedCap;
+    resetDeferredRoutingEnvForTests();
+  }
 }
 
 console.log('[PASS] project-routing-trust');

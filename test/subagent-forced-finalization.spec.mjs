@@ -208,6 +208,70 @@ function responseStream(text) {
   assert.match(result.summary, /completed without a final response/);
 }
 
+function cutoffStream(text) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      yield { type: 'text_end', content: text };
+      yield {
+        type: 'done',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text }],
+          stopReason: 'length',
+        },
+      };
+    },
+    async result() {
+      return {
+        role: 'assistant',
+        content: [{ type: 'text', text }],
+        stopReason: 'length',
+        usage: { input: 1, output: 4, cacheRead: 0, cacheWrite: 0 },
+      };
+    },
+    push() {},
+    end() {},
+  };
+}
+
+{
+  let calls = 0;
+  const fragments = ['alpha ', 'beta ', 'gamma ', 'delta ', 'should-not-run'];
+  const runner = createSubAgentRunner({
+    parentTools: [],
+    streamFn: () => {
+      const text = fragments[calls] ?? fragments[fragments.length - 1];
+      calls += 1;
+      return cutoffStream(text);
+    },
+    modelDef,
+    systemPrompt: 'You are a test subagent.',
+    maxOutputTokens: 512,
+    contextTokens: 32_000,
+    spawnRegistry: createSpawnProfileRegistryFromDefaults(),
+    workspaceDir: process.cwd(),
+    workspaceLeaseAdapter: testWorkspaceLeaseAdapter,
+  });
+
+  const result = await runner(
+    {
+      runId: 'sub-output-limit',
+      parentRunId: 'parent-1',
+      scope: 'explore',
+      task: 'Investigate and summarize',
+      maxTurns: 8,
+    },
+    new AbortController().signal
+  );
+
+  assert.equal(calls, 4, 'the child stops when the continuation cap is exhausted');
+  assert.equal(result.success, false, 'a cut-off sub-agent is not a successful completion');
+  assert.match(result.summary, /cut off/);
+  assert.match(result.error ?? '', /cut off/);
+  assert.match(result.summary, /alpha beta gamma delta/);
+  assert.equal(result.summary.includes('should-not-run'), false);
+}
+
 {
   assert.equal(
     expandSubagentStartBudget(DEFAULT_MAX_SUBAGENT_STARTS_PER_RUN, 'single', 8),

@@ -524,9 +524,9 @@ async function assertDotenvSkipped(label, dotenv, drop) {
     delete childEnv[name];
   }
   const stderr = await runCli(ws, childEnv);
-  assert.match(stderr, /Untrusted folder/, label);
+  assert.match(stderr, /This folder isn't trusted/, label);
   assert.match(stderr, /project hooks/, label);
-  assert.doesNotMatch(stderr, /Trust this folder\?/, label);
+  assert.doesNotMatch(stderr, /Trust and continue/, label);
   assert.equal(fs.existsSync(marker), false, label);
 }
 

@@ -118,7 +118,7 @@ try {
     assert.equal(code, 0);
     const zhList = stdout.join('');
     assert.ok(zhList.includes('deploy-check'), 'zh list still names the skill');
-    assert.ok(zhList.includes('个 skill'), 'zh list footer counts in Chinese');
+    assert.ok(zhList.includes('个技能'), 'zh list footer counts in Chinese');
 
     stderr.length = 0;
     code = await runSkillCommand(['create', 'deploy-check'], { workspaceDir: ws, configDir: cfg });
@@ -128,7 +128,7 @@ try {
     stdout.length = 0;
     code = await runSkillCommand(['list'], { workspaceDir: zhWs, configDir: cfg });
     assert.equal(code, 0);
-    assert.ok(stdout.join('').includes('未发现 skills'), 'zh empty list');
+    assert.ok(stdout.join('').includes('未发现技能'), 'zh empty list');
 
     stdout.length = 0;
     code = await runSkillCommand(['create', 'zh-probe'], { workspaceDir: zhWs, configDir: cfg });

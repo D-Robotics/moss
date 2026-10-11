@@ -12,6 +12,7 @@
  * per transport (MCP sessions are sequential in practice, and this keeps the
  * session-id handshake simple).
  */
+import { ensureKeepAliveDispatcherInstalled } from '../../provider/keep-alive-dispatcher.js';
 import { MossError, ErrorCode, errorMessage } from '../../errors.js';
 import { uiText } from '../../utils/ui-language.js';
 import { getRootLogger } from '../../logger.js';
@@ -35,6 +36,9 @@ let undiciModule: UndiciModule | null = null;
 
 async function loadUndici(): Promise<UndiciModule> {
   if (undiciModule) return undiciModule;
+  // O83: undici.request uses the shared global dispatcher; install the
+  // proxy-aware one first so embedders (no CLI entry) honor HTTPS_PROXY too.
+  await ensureKeepAliveDispatcherInstalled();
   try {
     undiciModule = (await import('undici')) as UndiciModule;
     return undiciModule;

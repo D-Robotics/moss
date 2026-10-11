@@ -57,6 +57,8 @@ interface ServerEntry {
   config: McpServerConfig;
   /** Reconnect attempts already made for the current down period (max 1). */
   reconnectAttempts: number;
+  /** True after a handshake has succeeded. A first failure is not a drop. */
+  connectedOnce: boolean;
   /** Initial handshake/list operation. Always settles; failures live in status. */
   ready: Promise<void>;
 }
@@ -176,7 +178,11 @@ export class McpToolRegistry {
         connectTimeoutMs: opts.connectTimeoutMs,
         requestTimeoutMs: opts.requestTimeoutMs,
       });
-      const status: McpServerStatus = { name: config.name, state: 'connecting' };
+      const deferred = config.deferStart === true;
+      const status: McpServerStatus = {
+        name: config.name,
+        state: deferred ? 'deferred' : 'connecting',
+      };
       const entry: ServerEntry = {
         client,
         status,
@@ -185,17 +191,39 @@ export class McpToolRegistry {
         descriptors: [],
         config,
         reconnectAttempts: 0,
+        connectedOnce: false,
         ready: Promise.resolve(),
       };
       registry.entries.push(entry);
-      // Defer even the spawn to a microtask so registry construction and the
-      // caller's first render are synchronous and independent of npx startup.
-      entry.ready = Promise.resolve().then(() => registry.initialize(entry));
+      if (!deferred) {
+        // Defer even the spawn to a microtask so registry construction and the
+        // caller's first render are synchronous and independent of npx startup.
+        entry.ready = Promise.resolve().then(() => registry.initialize(entry));
+      }
     }
     return registry;
   }
 
+  /**
+   * Start servers that were registered with `deferStart` and have not spawned.
+   * Idempotent. A name limits the warm to that server.
+   */
+  startDeferred(name?: string): void {
+    for (const entry of this.entries) {
+      if (name && entry.status.name !== name) continue;
+      this.ensureStarted(entry);
+    }
+  }
+
+  /** Flip `deferred` to `connecting` and run the handshake. No-op otherwise. */
+  private ensureStarted(entry: ServerEntry): void {
+    if (entry.status.state !== 'deferred') return;
+    entry.status.state = 'connecting';
+    entry.ready = this.initialize(entry);
+  }
+
   async waitForConnections(): Promise<void> {
+    for (const entry of this.entries) this.ensureStarted(entry);
     await Promise.all(this.entries.map((entry) => entry.ready));
   }
 
@@ -205,9 +233,15 @@ export class McpToolRegistry {
       const tools = await entry.client.listTools();
       entry.descriptors = tools;
       entry.status.state = 'connected';
+      entry.connectedOnce = true;
       entry.status.toolCount = this.exposedToolCount(entry);
       log.debug('server connected', { server: entry.config.name, tools: tools.length });
     } catch (err) {
+      if (entry.client.isClosing) {
+        entry.status.state = 'closed';
+        entry.status.error = undefined;
+        return;
+      }
       entry.status.state = 'failed';
       entry.status.error =
         errorMessage(err).split('\n')[0] ?? uiText('connection failed', '连接失败');
@@ -258,14 +292,29 @@ export class McpToolRegistry {
    * heals — an explicit closeAll ('closed') stays closed, and the counter
    * caps retries at one per down period so a dead server can't loop.
    */
+  private serverDidNotStart(name: string, detail: string | undefined): MossError {
+    const why = detail?.trim() || uiText('connection failed', '连接失败');
+    return new MossError({
+      code: ErrorCode.TOOL_EXECUTION_FAILED,
+      message: uiText(`"${name}" did not start: ${why}`, `「${name}」没有启动：${why}`),
+      hint: uiText(
+        'The server was not reachable. This session will not wait on another handshake.',
+        '服务器连不上。本会话不会再等一次握手。'
+      ),
+      recoverable: true,
+    });
+  }
+
   private async reconnect(entry: ServerEntry): Promise<boolean> {
+    if (!entry.connectedOnce) return false;
     if (entry.status.state !== 'failed' || entry.reconnectAttempts >= 1) return false;
     entry.reconnectAttempts += 1;
     entry.status.state = 'connecting';
     entry.status.error = undefined;
+    let client: McpClient | undefined;
     try {
       await entry.client.close().catch(() => undefined);
-      const client = new McpClient(entry.config, {
+      client = new McpClient(entry.config, {
         connectTimeoutMs: this.connectTimeoutMs,
         requestTimeoutMs: this.requestTimeoutMs,
       });
@@ -277,11 +326,13 @@ export class McpToolRegistry {
       entry.searchTool = this.buildSearchTool(client);
       entry.realTools.clear();
       entry.status.state = 'connected';
+      entry.connectedOnce = true;
       entry.status.toolCount = this.exposedToolCount(entry);
       entry.reconnectAttempts = 0;
       log.info(uiText('server reconnected', 'MCP 服务器已重连'), { server: entry.config.name });
       return true;
     } catch (err) {
+      await client?.close().catch(() => undefined);
       entry.status.state = 'failed';
       entry.status.error =
         errorMessage(err).split('\n')[0] ?? uiText('reconnect failed', '重连失败');
@@ -296,7 +347,12 @@ export class McpToolRegistry {
   /** Search tools are available immediately; calls await a bounded handshake. */
   getTools(): Tool[] {
     return this.entries
-      .filter((e) => e.status.state === 'connecting' || e.status.state === 'connected')
+      .filter(
+        (e) =>
+          e.status.state === 'deferred' ||
+          e.status.state === 'connecting' ||
+          e.status.state === 'connected'
+      )
       .map((e) => e.searchTool);
   }
 
@@ -353,6 +409,10 @@ export class McpToolRegistry {
 
   /** Close every connection (stdio children terminated). Never throws. */
   async closeAll(): Promise<void> {
+    for (const entry of this.entries) {
+      // Mark deferred before close so a never-started server does not spawn.
+      if (entry.status.state === 'deferred') entry.status.state = 'closed';
+    }
     await Promise.allSettled(this.entries.map((e) => e.client.close()));
     await Promise.allSettled(this.entries.map((e) => e.ready));
     for (const entry of this.entries) {
@@ -382,6 +442,7 @@ export class McpToolRegistry {
   async resolveCallableTool(wireName: string, signal?: AbortSignal): Promise<Tool | undefined> {
     const entry = this.entryForWireName(wireName);
     if (!entry) return undefined;
+    this.ensureStarted(entry);
     await this.waitUntilReady(entry, signal);
     if (entry.status.state !== 'connected') return undefined;
     if (wireName === entry.searchTool.name) return entry.searchTool;
@@ -471,6 +532,9 @@ export class McpToolRegistry {
         'Find tools with the mcp__<server>__search meta-tool.',
       // No sideEffectClass: MCP tools are unknown external effects, so the
       // approval default (local_write) routes every call through approval.
+      // retainResult: documentation and other MCP payloads stay in full when
+      // older tool results are folded (rdk-docs search_docs / get_page included).
+      metadata: { retainResult: true },
       inputSchema: { type: 'object', properties: {} },
       execute: (input: Record<string, unknown>, ctx: ToolContext) =>
         this.executeRealTool(client, descriptor, tool, input, ctx),
@@ -496,7 +560,15 @@ export class McpToolRegistry {
     // clear reason. The reconnect swaps entry.client, so re-resolve it.
     const entryBefore = this.entryFor(client.name);
     if (entryBefore && entryBefore.status.state !== 'connected') {
-      const reconnected = await this.reconnect(entryBefore);
+      if (entryBefore.status.state === 'deferred') {
+        this.ensureStarted(entryBefore);
+        await entryBefore.ready;
+      }
+      if (entryBefore.status.state !== 'connected' && !entryBefore.connectedOnce) {
+        throw this.serverDidNotStart(client.name, entryBefore.status.error);
+      }
+      const reconnected =
+        entryBefore.status.state === 'connected' ? true : await this.reconnect(entryBefore);
       if (!reconnected) {
         throw new MossError({
           code: ErrorCode.TOOL_EXECUTION_FAILED,
@@ -560,6 +632,9 @@ export class McpToolRegistry {
         planMode: 'allow',
         permissionBoundary:
           'Reads the tool index of a connected MCP server; no server-side effects.',
+        // Search listings and server pages (search_docs, get_page, and every
+        // other MCP result) are the evidence the answer cites. Do not fold them.
+        retainResult: true,
       },
       inputSchema: declared.inputSchema,
       execute: async (input: { query?: string; refresh?: boolean }, ctx: ToolContext) => {
@@ -567,10 +642,14 @@ export class McpToolRegistry {
         // server heals on the next search instead of erroring until restart.
         const entry = this.entryFor(client.name);
         let liveClient = entry?.client ?? client;
-        if (entry?.status.state === 'connecting') {
+        if (entry && (entry.status.state === 'deferred' || entry.status.state === 'connecting')) {
+          this.ensureStarted(entry);
           await entry.ready;
         }
         if (entry && entry.status.state !== 'connected') {
+          if (!entry.connectedOnce) {
+            throw this.serverDidNotStart(client.name, entry.status.error);
+          }
           if (!(await this.reconnect(entry))) {
             throw new MossError({
               code: ErrorCode.TOOL_EXECUTION_FAILED,

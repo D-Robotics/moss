@@ -6,6 +6,7 @@
 import { errorMessage } from '../errors.js';
 import type { LLMProvider } from '../core/llm/llm-provider.js';
 import { classifyProviderError } from '../provider/error-classify.js';
+import { uiText } from '../utils/ui-language.js';
 import { fail, ok, warn } from './doctor.js';
 
 export const DOCTOR_MODEL_PING_TIMEOUT_MS = 5_000;
@@ -41,9 +42,10 @@ export async function probeDoctorModelPing(input: DoctorModelPingInput): Promise
   const secrets = input.secrets ?? [];
   const now = input.now ?? Date.now;
   const provider = input.provider;
-  if (!model) return warn('model ping', 'no model configured');
+  const label = uiText('model ping', '模型探测');
+  if (!model) return warn(label, uiText('no model configured', '没有配置模型'));
   if (!provider || typeof provider.complete !== 'function') {
-    return warn('model ping', `${model} — provider unavailable`);
+    return warn(label, uiText(`${model} — provider unavailable`, `${model} — 服务商不可用`));
   }
 
   const started = now();
@@ -72,16 +74,30 @@ export async function probeDoctorModelPing(input: DoctorModelPingInput): Promise
     const latencyMs = Math.max(0, now() - started);
     if (outcome.kind === 'timeout') {
       controller.abort();
-      return fail('model ping', `${model} · ${latencyMs}ms · timed out after ${timeoutMs}ms`);
+      return fail(
+        label,
+        uiText(
+          `${model} · ${latencyMs}ms · timed out after ${timeoutMs}ms`,
+          `${model} · ${latencyMs} 毫秒 · 超时（${timeoutMs} 毫秒）`
+        )
+      );
     }
     if (outcome.kind === 'err') {
       const detail = redactPingDetail(errorMessage(outcome.err), secrets);
       const surface = classifyProviderError({ errorMessage: detail });
-      const fix = surface.userMessage ? ` Fix: ${surface.userMessage}` : '';
-      return fail('model ping', `${model} · ${latencyMs}ms · ${detail || 'request failed'}${fix}`);
+      const fix = surface.userMessage
+        ? uiText(` Fix: ${surface.userMessage}`, ` 处理：${surface.userMessage}`)
+        : '';
+      return fail(
+        label,
+        uiText(
+          `${model} · ${latencyMs}ms · ${detail || 'request failed'}${fix}`,
+          `${model} · ${latencyMs} 毫秒 · ${detail || '请求失败'}${fix}`
+        )
+      );
     }
     const reported = redactPingDetail(outcome.value.model?.trim() || model, secrets) || model;
-    return ok('model ping', `${reported} · ${latencyMs}ms`);
+    return ok(label, uiText(`${reported} · ${latencyMs}ms`, `${reported} · ${latencyMs} 毫秒`));
   } finally {
     if (timer) clearTimeout(timer);
   }

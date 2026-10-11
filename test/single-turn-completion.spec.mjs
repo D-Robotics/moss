@@ -77,10 +77,10 @@ const thinkingAgent = new MossAgent({
 await assert.rejects(thinkingAgent.chat('thinking-only', 'reply visibly'), /visible answer/i);
 assert.equal(
   thinkingCalls,
-  2,
-  'thinking-only output gets one corrective retry, then fails honestly'
+  3,
+  'thinking-only output gets two corrective retries, then fails honestly'
 );
-console.log('[PASS] thinking-only output is bounded to one corrective retry');
+console.log('[PASS] thinking-only output is bounded to two corrective retries');
 
 let emptyCalls = 0;
 const emptyProvider = {

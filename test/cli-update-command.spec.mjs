@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * `moss update` prints the upgrade command for a git clone or an npm install.
- * It does not run that command. The package stays private and publishable.
+ * It does not run that command. The package is published (`private: false`).
  */
+
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -29,26 +30,19 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
 
 {
   assert.equal(pkg.name, '@rdk-moss/agent');
-  assert.equal(pkg.private, true);
-  assert.equal(typeof pkg.bin.moss, 'string');
-  const binPath = pkg.bin.moss.replaceAll('\\', '/');
-  assert.ok(fs.existsSync(path.join(repoRoot, binPath)), binPath);
-  assert.ok(
-    pkg.files.some((entry) => entry === binPath || binPath.startsWith(`${entry}/`)),
-    `files must include the bin path ${binPath}`
-  );
+  assert.equal(pkg.private, false);
+  assert.equal(pkg.bin.moss, 'bin/moss.cjs');
+  assert.ok(fs.existsSync(path.join(repoRoot, pkg.bin.moss)), pkg.bin.moss);
+  assert.ok(pkg.files.includes('bin'), 'files must include the bin directory');
   assert.equal(pkg.engines.node, '>=22.16.0');
   assert.equal(pkg.scripts.preinstall, 'node scripts/check-node-version.cjs');
   assert.ok(pkg.files.includes('scripts/check-node-version.cjs'));
-  assert.equal(pkg.scripts.prepare, 'npm run build');
+  assert.equal(pkg.scripts.prepare, 'node scripts/check-node-version.cjs && npm run build');
   assert.equal(pkg.scripts.prepublishOnly, 'npm run build && npm run verify');
   assert.equal(pkg.publishConfig.access, 'public');
   assert.equal(githubInstallSpec(pkg.repository), 'github:D-Robotics/moss');
-  assert.equal(npmInstallSpec(pkg), null);
-  assert.equal(
-    npmInstallSpec({ private: false, name: '@rdk-moss/agent' }),
-    '@rdk-moss/agent@latest'
-  );
+  assert.equal(npmInstallSpec(pkg), '@rdk-moss/agent@latest');
+  assert.equal(npmInstallSpec({ private: true, name: '@rdk-moss/agent' }), null);
   assert.equal(githubInstallSpec('git@github.com:D-Robotics/moss.git'), 'github:D-Robotics/moss');
   assert.deepEqual(sourceInstallCommands(pkg.repository), [
     'git clone https://github.com/D-Robotics/moss.git',
@@ -94,25 +88,38 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
   const root = path.join('/usr', 'lib', 'node_modules', '@rdk-moss', 'agent');
   const advice = adviseMossUpdate({
     packageRoot: root,
-    pkg: { private: true, repository: repo },
+    pkg: { private: false, name: '@rdk-moss/agent', repository: repo },
     exists: () => false,
   });
   assert.equal(advice.kind, 'npm-global');
-  assert.deepEqual(advice.commands, sourceInstallCommands(repo));
+  assert.deepEqual(advice.commands, ['npm install -g @rdk-moss/agent@latest']);
   const text = renderUpdateAdvice(advice, false);
   assert.match(text, /npm global install/);
-  assert.match(text, /npm install -g --install-links \./);
+  assert.match(text, /npm install -g @rdk-moss\/agent@latest/);
   assert.match(text, /EEXIST/);
   assert.match(text, /--force/);
   assert.match(text, /npm uninstall -g moss/);
-  assert.match(text, /No moss clone/);
   assert.match(text, /does not run it/);
   assert.doesNotMatch(text, /github:/);
+  assert.doesNotMatch(text, /No moss clone/);
   const zh = renderUpdateAdvice(advice, true);
   assert.match(zh, /EEXIST/);
   assert.match(zh, /--force/);
   assert.match(zh, /npm uninstall -g moss/);
   assert.match(zh, /不会执行/);
+}
+
+{
+  const root = path.join('/usr', 'lib', 'node_modules', '@rdk-moss', 'agent');
+  const advice = adviseMossUpdate({
+    packageRoot: root,
+    pkg: { private: true, repository: repo },
+    exists: () => false,
+  });
+  assert.equal(advice.kind, 'npm-global');
+  assert.deepEqual(advice.commands, sourceInstallCommands(repo));
+  assert.match(renderUpdateAdvice(advice, false), /No moss clone/);
+  assert.match(renderUpdateAdvice(advice, false), /npm install -g --install-links \./);
 }
 
 {
@@ -209,9 +216,12 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
   assert.ok(readme.split(UPGRADE_IN_CLONE).length - 1 >= 2, 'upgrade line in en and zh');
   assert.ok(readme.includes(LEGACY_PACKAGE_UNINSTALL));
   assert.ok(readme.includes('npm uninstall -g @rdk-moss/agent'));
-  assert.match(readme, /coming soon/);
-  assert.match(readme, /即将发布/);
+  assert.match(readme, /npm install -g @rdk-moss\/agent@latest/);
+  assert.doesNotMatch(readme, /coming soon/);
+  assert.doesNotMatch(readme, /即将发布/);
   assert.match(readme, /npm config set registry https:\/\/registry\.npmmirror\.com/);
+  assert.match(readme, /brew install node@22/);
+  assert.match(readme, /winget install OpenJS\.NodeJS\.LTS/);
   assert.match(readme, /Set-ExecutionPolicy -Scope CurrentUser RemoteSigned/);
   assert.match(readme, /~\/\.npm-global/);
   assert.match(readme, /install-scripts/);
@@ -229,7 +239,9 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
   assert.match(readme, /可能会点名 `ssh2`/);
   assert.doesNotMatch(readme, /before dependencies are installed/);
   assert.doesNotMatch(readme, /不会把依赖装一半/);
-  assert.match(readme, /dependencies before the root `preinstall`/);
+  assert.match(readme, /exits non-zero immediately/);
+  assert.match(readme, /立刻非零退出/);
+  assert.doesNotMatch(readme, /dependencies before the root `preinstall`/);
   for (const [start, end] of [
     ['## 升级', '## 卸载'],
     ['### Upgrade', '### Uninstall'],

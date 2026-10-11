@@ -277,12 +277,14 @@ try {
     workspace,
     steps: [
       { kind: 'wait', payload: 'Moss setup' },
-      { kind: 'send', payload: '6' },
+      // O57: the provider screen drops keys for 400 ms after it opens.
+      { kind: 'sleep', payload: '0.6' },
+      { kind: 'send', payload: '5' },
       { kind: 'wait', payload: 'Gateway URL' },
       { kind: 'send', payload: `${base}/v1` },
       { kind: 'sleep', payload: '0.4' },
       { kind: 'send', payload: '\\r' },
-      { kind: 'wait', payload: 'API key (hidden)' },
+      { kind: 'wait', payload: 'API key (paste it' },
       { kind: 'send', payload: SECRET },
       { kind: 'sleep', payload: '0.3' },
       { kind: 'send', payload: '\\r' },
@@ -405,8 +407,8 @@ try {
     steps: [
       { kind: 'wait', payload: 'Start setup now' },
       { kind: 'send', payload: '\\r' },
-      { kind: 'wait', payload: 'Choose a provider' },
-      { kind: 'send', payload: '6\\r' },
+      { kind: 'wait', payload: 'Choose a model provider' },
+      { kind: 'send', payload: '5\\r' },
       { kind: 'wait', payload: 'Gateway URL' },
       { kind: 'send', payload: `${base}\\r` },
       { kind: 'wait', payload: 'API key (hidden)' },
@@ -438,7 +440,7 @@ try {
     { kind: 'wait', payload: '界面语言' },
     { kind: 'send', payload: 'x' },
     { kind: 'wait', payload: '服务商' },
-    { kind: 'send', payload: '6\\r' },
+    { kind: 'send', payload: '5\\r' },
     { kind: 'wait', payload: '网关地址' },
   ];
   const zhJourneys = [
@@ -456,7 +458,7 @@ try {
       ],
       match: [/密钥被拒绝/, /请重新粘贴/, /API key（不显示）/],
       absent: [
-        /选择模型/,
+        /选择模型(?!服务商)/,
         /模型名/,
         /sk-wrong-000/,
         /sk-echo-check-000/,
@@ -471,13 +473,13 @@ try {
       prefix: 'moss-e2e-badurl-',
       steps: [
         { kind: 'send', payload: 'http://127.0.0.1:59999\\r' },
-        { kind: 'wait', payload: 'API key' },
+        { kind: 'wait', payload: 'API key（不显示）' },
         { kind: 'send', payload: 'sk-wrong-000\\r' },
         { kind: 'wait', payload: '连接被拒绝' },
         { kind: 'sleep', payload: '0.8' },
       ],
       match: [/连接被拒绝/, /仍然保存/],
-      absent: [/选择模型/, /模型名/],
+      absent: [/选择模型(?!服务商)/, /模型名/],
       saved: false,
     },
     {

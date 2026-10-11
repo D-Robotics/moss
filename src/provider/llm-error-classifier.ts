@@ -75,7 +75,15 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
   // mention API keys and otherwise look like a non-retryable auth failure.
   // Checking the name avoids a dependency cycle with the stream helper.
   if (error instanceof Error && error.name === 'LlmFirstChunkTimeoutError') {
-    return { category: 'timeout', retryable: true, message };
+    // O67: with a proxy configured, a silent first-chunk stall is almost always
+    // a dead/blackhole proxy — do not burn 3× the budget retrying.
+    const proxySet = Boolean(
+      process.env.HTTPS_PROXY ||
+      process.env.HTTP_PROXY ||
+      process.env.https_proxy ||
+      process.env.http_proxy
+    );
+    return { category: 'timeout', retryable: !proxySet, message };
   }
   if (isAbortFailure(message)) {
     return { category: 'user_abort', retryable: false, message };

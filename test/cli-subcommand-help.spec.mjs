@@ -23,6 +23,7 @@ const OWN_OPTIONS = {
   doctor: ['--verbose', '--cd'],
   update: ['npm install -g', 'git pull', '--dir'],
   trust: ['list', 'remove'],
+  uninstall: ['HOME'],
   resume: ['--last', '--session'],
   fork: ['--fork-from'],
   mcp: ['--header', '--project'],
@@ -100,9 +101,15 @@ for (const command of known) {
   assert.notEqual(zh.stdout.trim(), help.stdout.trim(), `${command} zh help should differ from en`);
   assert.equal(zh.stdout.trim(), renderSubcommandHelp(command, true));
   for (const mark of OWN_OPTIONS[command]) {
-    const zhMark = mark === 'not implemented' ? '尚未实现' : mark;
+    const zhMark = mark === 'not implemented' ? '尚未实现' : mark === 'HOME' ? '主目录' : mark;
     assert.ok(zh.stdout.includes(zhMark), `zh ${command} --help should mention ${zhMark}`);
   }
 }
+
+const helped = run(['help', 'config'], 'C');
+assert.equal(helped.status, 0, helped.stderr || helped.stdout);
+assert.match(helped.stdout, /moss config/);
+assert.match(helped.stdout, /Usage:/);
+assert.equal(helped.stdout, run(['config', '--help'], 'C').stdout);
 
 console.log(`[PASS] subcommand help (${known.length} commands)`);

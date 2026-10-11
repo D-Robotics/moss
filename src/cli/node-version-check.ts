@@ -1,21 +1,27 @@
-import { isZhLocale } from './cli-locale.js';
+import { createRequire } from 'node:module';
 
-export const MIN_NODE_MAJOR = 22;
-export const MIN_NODE_MINOR = 16;
+/**
+ * Shared with bin/moss.cjs. The CJS file is the message: an old Node has to
+ * print it before this ESM module can load.
+ */
+interface NodeVersionMessageModule {
+  MIN_NODE_MAJOR: number;
+  MIN_NODE_MINOR: number;
+  nodeVersionProblem(version: string, env?: NodeJS.ProcessEnv): string | null;
+}
 
-export function nodeVersionProblem(version: string): string | null {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
-  if (!match) return null;
-  const major = Number(match[1]);
-  const minor = Number(match[2]);
-  if (major > MIN_NODE_MAJOR) return null;
-  if (major === MIN_NODE_MAJOR && minor >= MIN_NODE_MINOR) return null;
-  const current = version.replace(/^v/, '');
-  const need = `${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0`;
-  const install = `nvm install ${need} && nvm use ${need} — ${isZhLocale() ? '或' : 'or'} https://nodejs.org/dist/v${need}/`;
-  return isZhLocale()
-    ? `Node ${current} 版本过低，Moss 需要 >= ${need}。安装：${install}`
-    : `Node ${current} is too old for Moss (need >= ${need}). Install: ${install}`;
+const nodeVersionMessage = createRequire(import.meta.url)(
+  '../../bin/node-version-message.cjs'
+) as NodeVersionMessageModule;
+
+export const MIN_NODE_MAJOR = nodeVersionMessage.MIN_NODE_MAJOR;
+export const MIN_NODE_MINOR = nodeVersionMessage.MIN_NODE_MINOR;
+
+export function nodeVersionProblem(
+  version: string,
+  env: NodeJS.ProcessEnv = process.env
+): string | null {
+  return nodeVersionMessage.nodeVersionProblem(version, env);
 }
 
 export function enforceNodeVersion(): void {

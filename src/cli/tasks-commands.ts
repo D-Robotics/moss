@@ -5,13 +5,16 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { isZhLocale } from './cli-locale.js';
+import { isZhLocale, uiText } from './cli-locale.js';
 import { listTaskRecords } from '../tools/task-tools.js';
 import { listEvidenceRecords, summarizeEvidence } from '../tools/evidence-tools.js';
 import { listDeploymentRecords } from '../device/deployment.js';
 import { formatDeviceTarget, resolveDefaultDeviceTarget } from '../device/device-target.js';
 import { listDeviceConnections } from '../device/device-registry.js';
 import { listAcceptanceVerdicts } from '../core/task-runtime/artifacts.js';
+import { formatSessionTimestamp } from './repl-chrome.js';
+import { listTaskEvents, replayTaskPhase } from '../core/task/task-store.js';
+import type { TaskEvent } from '../contracts/task-runtime.js';
 
 function parseJsonl(file: string): unknown[] {
   try {
@@ -31,7 +34,7 @@ export function renderTasksUsage(zh: boolean = isZhLocale()): string {
       '用法：',
       '  moss tasks [list|evidence|deployments|acceptance|device] [--json]',
       '',
-      '  list          任务契约、状态和验收标准（默认）',
+      '  list          任务目标、状态和验收标准（默认）',
       '  evidence      已记录的证据（指标 / 期望 / 观测 / 结果）',
       '  deployments   部署生命周期记录',
       '  acceptance    验收裁决历史',
@@ -64,6 +67,67 @@ export function renderTasksUsage(zh: boolean = isZhLocale()): string {
   ].join('\n');
 }
 
+function taskStatusWord(status: string): string {
+  if (!isZhLocale()) return status;
+  switch (status) {
+    case 'draft':
+      return '草稿';
+    case 'active':
+      return '进行中';
+    case 'accepted':
+      return '已验收';
+    case 'failed':
+      return '失败';
+    case 'abandoned':
+      return '已放弃';
+    case 'blocked':
+      return '阻塞';
+    case 'aborted':
+      return '已中止';
+    default:
+      return status;
+  }
+}
+
+/**
+ * The status a row shows. The contract's own status only moves on
+ * task_acceptance, so a `moss task run` that failed would still read `draft`.
+ * When the task has lifecycle events, the replayed phase wins.
+ */
+function displayTaskStatus(contractStatus: string, events: readonly TaskEvent[]): string {
+  if (events.length === 0) return contractStatus;
+  const phase = replayTaskPhase([...events]);
+  switch (phase) {
+    case 'draft':
+      return contractStatus;
+    case 'accepted':
+    case 'abandoned':
+    case 'blocked':
+      return phase;
+    case 'failed': {
+      const last = [...events].reverse().find((event) => event.type === 'task_failed');
+      return last?.data?.detail === 'aborted' ? 'aborted' : 'failed';
+    }
+    default:
+      return 'active';
+  }
+}
+
+/** Acceptance verdict word: PASS/FAIL/PARTIAL in en, 通过/未通过/部分 in zh. */
+function verdictWord(verdict: string): string {
+  if (!isZhLocale()) return verdict.toUpperCase();
+  switch (verdict) {
+    case 'pass':
+      return '通过';
+    case 'fail':
+      return '未通过';
+    case 'partial':
+      return '部分';
+    default:
+      return verdict;
+  }
+}
+
 export async function runTasksCommand(
   commandArgs: string[],
   workspace: string,
@@ -80,15 +144,30 @@ export async function runTasksCommand(
       return;
     }
     if (tasks.length === 0) {
-      console.log('No task contracts in this workspace (agents create them with task_define).');
+      console.log(
+        uiText(
+          'No task contracts in this workspace (agents create them with task_define).',
+          '此工作区没有任务契约（代理用 task_define 创建）。'
+        )
+      );
       return;
     }
-    console.log('TASK ID                       STATUS     CRITERIA  GOAL');
+    console.log(
+      uiText(
+        'TASK ID                       STATUS     CRITERIA  GOAL',
+        '任务标识                      状态       验收项    目标'
+      )
+    );
     console.log('─'.repeat(96));
+    const events = await listTaskEvents(workspace);
     for (const task of tasks) {
       const goal = task.goal.length > 42 ? `${task.goal.slice(0, 39)}…` : task.goal;
+      const status = displayTaskStatus(
+        task.status,
+        events.filter((event) => event.taskId === task.taskId)
+      );
       console.log(
-        `${task.taskId.padEnd(30)} ${task.status.padEnd(10)} ${String(task.acceptanceCriteria.length).padStart(8)}  ${goal}`
+        `${task.taskId.padEnd(30)} ${taskStatusWord(status).padEnd(10)} ${String(task.acceptanceCriteria.length).padStart(8)}  ${goal}`
       );
     }
     const evidence = await listEvidenceRecords(workspace, 1000);
@@ -96,8 +175,12 @@ export async function runTasksCommand(
     const deployments = parseJsonl(path.join(mossDir, 'deployments.jsonl')).length;
     const verdicts = parseJsonl(path.join(mossDir, 'acceptance.jsonl')).length;
     console.log(
-      `\n  evidence: ${summary.passed} pass / ${summary.failed} fail / ${summary.inconclusive} inconclusive` +
-        ` · deployments: ${deployments} · acceptance verdicts: ${verdicts}`
+      uiText(
+        `\n  evidence: ${summary.passed} pass / ${summary.failed} fail / ${summary.inconclusive} inconclusive` +
+          ` · deployments: ${deployments} · acceptance verdicts: ${verdicts}`,
+        `\n  证据：${summary.passed} 通过 / ${summary.failed} 失败 / ${summary.inconclusive} 无结论` +
+          ` · 部署：${deployments} · 验收裁决：${verdicts}`
+      )
     );
     return;
   }
@@ -109,7 +192,12 @@ export async function runTasksCommand(
       return;
     }
     if (records.length === 0) {
-      console.log('No evidence recorded (agents record it with record_evidence).');
+      console.log(
+        uiText(
+          'No evidence recorded (agents record it with record_evidence).',
+          '没有记录证据（代理用 record_evidence 记录）。'
+        )
+      );
       return;
     }
     console.log('EVIDENCE                    RESULT        METRIC / OBSERVED');
@@ -131,7 +219,12 @@ export async function runTasksCommand(
       return;
     }
     if (records.length === 0) {
-      console.log('No deployments recorded (agents run device_deploy).');
+      console.log(
+        uiText(
+          'No deployments recorded (agents run device_deploy).',
+          '没有部署记录（代理用 device_deploy 部署）。'
+        )
+      );
       return;
     }
     console.log('DEPLOYMENT                   DEVICE            STATUS     REMOTE PATH');
@@ -153,17 +246,30 @@ export async function runTasksCommand(
       return;
     }
     if (verdicts.length === 0) {
-      console.log('No acceptance verdicts recorded (agents run task_acceptance).');
+      console.log(
+        uiText(
+          'No acceptance verdicts recorded (agents run task_acceptance).',
+          '没有验收裁决记录（代理用 task_acceptance 验收）。'
+        )
+      );
       return;
     }
-    console.log('TASK ID                       VERDICT   UNMET  AT');
+    console.log(
+      uiText(
+        'TASK ID                       VERDICT   UNMET  AT',
+        '任务标识                      裁决      未满足 时间'
+      )
+    );
     console.log('─'.repeat(96));
     for (const verdict of [...verdicts].reverse()) {
-      const at = Number.isFinite(verdict.acceptedAt)
-        ? new Date(verdict.acceptedAt).toLocaleString()
-        : 'unknown';
+      const at =
+        Number.isFinite(verdict.acceptedAt) && verdict.acceptedAt > 0
+          ? isZhLocale()
+            ? formatSessionTimestamp(verdict.acceptedAt)
+            : new Date(verdict.acceptedAt).toLocaleString()
+          : uiText('unknown', '未知');
       console.log(
-        `${verdict.taskId.padEnd(30)} ${verdict.verdict.toUpperCase().padEnd(9)} ${String(verdict.unmetRequired ?? '?').padStart(5)}  ${at}`
+        `${verdict.taskId.padEnd(30)} ${verdictWord(verdict.verdict).padEnd(9)} ${String(verdict.unmetRequired ?? '?').padStart(5)}  ${at}`
       );
     }
     return;

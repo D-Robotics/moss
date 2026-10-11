@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### O43 / O58 — npm one-line install
+
+Recommended install is one command after Node ≥ 22.16:
+
+```bash
+npm install -g @rdk-moss/agent@latest
+```
+
+`package.json` is no longer `"private": true` (publishConfig stays `access: public`).
+`scripts/check-node-version.cjs` runs from both `preinstall` and `prepare`, so a Node
+older than 22.16 exits immediately with copyable upgrade commands for macOS (brew /
+nvm / fnm), Ubuntu/Debian (NodeSource / nvm / fnm), and Windows (`winget`), plus the
+success-path `npm install -g @rdk-moss/agent@latest`. A failing
+`npm install -g --install-links .` does not leave a broken global `moss` shim.
+`MOSS_TEST_FAKE_NODE_VERSION` lets tests exercise the failure path without an old
+Node binary. README
+(en + zh) leads with the npm one-liner; source clone remains the optional developer
+path. No curl native-binary installer in this phase.
+
 ### Install follow-ups
 
 `npm ci` runs `scripts/check-node-version.cjs` as `preinstall`. The script is
@@ -37,6 +56,33 @@ send the primary key to another host is dropped with a warning instead of
 exiting. `PIP_TRUSTED_HOST`, `UV_INSECURE_HOST`, and `DENO_CERT` from a
 project `.env` stay deferred with the other routing variables.
 
+### A `.env` file cannot change approval or other safety controls
+
+`MOSS_AUTO_APPROVE`, `MOSS_PROFILE`, `MOSS_CONFIG_PROFILE`,
+`MOSS_GOAL_VERIFY_LOOP`, `MOSS_GOAL_VERIFY_CMD`, and the other approval, trust,
+redaction, and tool-permission variables (26 keys) are ignored when they come
+from any `.env` file: a project `.env`, an ancestor directory's `.env`,
+`~/.env`, or the install directory's `.env`, whether or not that folder is
+trusted. They still work from the real process environment and from CLI flags.
+Moss prints one line naming the ignored keys and the `.env` path (`-p` and the
+REPL on stderr; the fullscreen TUI in the transcript, because the alternate
+screen hides earlier stderr). `MOSS_DEVICE_HOST`, `MOSS_DEVICE_PORT`,
+`MOSS_DEVICE_USER`, `MOSS_DEVICE_ID`, `MOSS_DEVICE_KIND`, and `MOSS_DEVICE_KEY`
+wait for folder trust with the other routing variables, so an untrusted project
+cannot point the user's `MOSS_DEVICE_PASSWORD` at another host. `~/.env` and
+the install directory's `.env` still apply those device fields. That is the
+documented way to name a board.
+
+When a project `.env` (even in a trusted folder) sets `MOSS_DEVICE_HOST`, Moss
+sends that host only a `MOSS_DEVICE_PASSWORD` written in the same `.env`. Your
+own password from the real environment, `~/.env`, or the install `.env` is not
+sent, and Moss prints a line saying so. A project's `.moss/devices.json` is
+ignored until the folder is trusted (the untrusted-folder line lists it), and a
+registry entry whose `passwordEnvVar` or `passphraseEnvVar` names an API key,
+token, secret, credential, or auth variable loses its auth. `VISUAL`, `EDITOR`,
+and `BASH_FUNC_*` join the variables a project `.env` cannot set. The trust
+prompt now says a trusted project can change the device target.
+
 ### Install and upgrade from a clone
 
 `npm install -g github:D-Robotics/moss` fails on a clean machine (npm 10.9.2 and
@@ -69,7 +115,7 @@ package is installed, run `npm uninstall -g moss` first; npm otherwise stops wit
 EEXIST on the shared bin. Do not pass `--force`: both packages stay installed, and
 a later `npm uninstall -g moss` removes the `moss` command. That uninstall leaves
 `@rdk-moss/agent` in place when `--force` was not used.
-`npm install -g @rdk-moss/agent` is coming soon.
+`npm install -g @rdk-moss/agent@latest` is the recommended install path.
 
 ### `workspace-write` copy no longer implies an OS sandbox
 

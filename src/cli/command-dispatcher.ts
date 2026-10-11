@@ -1,6 +1,8 @@
 // Command dispatcher with explicit initialization phases.
 // Replaces 22 if-else branches in main() with a declarative routing table.
 
+import { isZhLocale, uiText } from './cli-locale.js';
+import { formatSessionTimestamp } from './repl-chrome.js';
 import type { LLMMessage } from '../core/llm/llm-provider.js';
 import type { SessionStore, SessionMeta } from '../core/session/session.js';
 import type { TaskCommandContext } from './task-run.js';
@@ -29,7 +31,7 @@ export function formatSessionTitle(title: string | undefined): string {
   const cleaned = String(title ?? '')
     .replace(/\s+/g, ' ')
     .trim();
-  if (!cleaned) return '(no title)';
+  if (!cleaned) return uiText('(no title)', '（无标题）');
   if (cleaned.length <= SESSION_TITLE_MAX_WIDTH) return cleaned;
   return cleaned.slice(0, SESSION_TITLE_MAX_WIDTH - 1) + '…';
 }
@@ -378,6 +380,16 @@ export const COMMANDS: Record<string, CommandConfig> = {
     },
   },
 
+  uninstall: {
+    name: 'uninstall',
+    phase: CliPhase.None,
+    description: 'Print removal paths and optionally delete the config directory',
+    handler: async () => {
+      const { runUninstall } = await import('./uninstall.js');
+      await runUninstall();
+    },
+  },
+
   auth: {
     name: 'auth',
     phase: CliPhase.ConfigOnly,
@@ -516,25 +528,32 @@ export const COMMANDS: Record<string, CommandConfig> = {
 
         const sessions = await store.listSessions().catch(() => []);
         if (sessions.length === 0) {
-          console.log('No saved sessions in this workspace.');
+          console.log(uiText('No saved sessions in this workspace.', '此工作区没有已保存的会话。'));
           return;
         }
 
         const sorted = sessions.sort((a, b) => b.updatedAt - a.updatedAt);
         const shown = showAll ? sorted : sorted.slice(0, limit);
-        console.log('SESSION                          MESSAGES  UPDATED             TITLE');
+        console.log(
+          uiText(
+            'SESSION                          MESSAGES  UPDATED             TITLE',
+            '会话                              消息      更新时间            标题'
+          )
+        );
         console.log('─'.repeat(96));
         for (const session of shown) {
-          const updated = Number.isFinite(session.updatedAt)
-            ? new Date(session.updatedAt).toLocaleString()
-            : 'unknown';
+          const updated = formatSessionTimestamp(session.updatedAt);
           console.log(
             `${session.sessionKey.padEnd(32)}  ${String(session.messageCount).padStart(7)}  ${updated.padEnd(19)}  ${formatSessionTitle(session.title)}`
           );
         }
         if (!showAll && sorted.length > limit) {
+          const hidden = sorted.length - limit;
           console.log(
-            `\n  … ${sorted.length - limit} more session(s) not shown. Run \`moss sessions list --no-limit\` to see all.`
+            uiText(
+              `\n  … ${hidden} more session(s) not shown. Run \`moss sessions list --no-limit\` to see all.`,
+              `\n  … 还有 ${hidden} 个会话未显示。运行 \`moss sessions list --no-limit\` 可查看全部。`
+            )
           );
         }
         return;
@@ -575,30 +594,38 @@ export const COMMANDS: Record<string, CommandConfig> = {
         }
         const sessions = await store.listSessions().catch(() => []);
         if (sessions.length === 0) {
-          console.log('No saved sessions to search.');
+          console.log(uiText('No saved sessions to search.', '没有可搜索的已保存会话。'));
           return;
         }
         const hits = await searchSessions(store, query);
         if (hits.length === 0) {
-          console.log(`No sessions matched "${query}".`);
+          console.log(uiText(`No sessions matched "${query}".`, `没有会话匹配「${query}」。`));
           return;
         }
-        console.log('SESSION                          MESSAGES  UPDATED           MATCH');
+        console.log(
+          uiText(
+            'SESSION                          MESSAGES  UPDATED           MATCH',
+            '会话                              消息      更新时间          匹配'
+          )
+        );
         console.log('─'.repeat(96));
         for (const hit of hits) {
-          const updated = Number.isFinite(hit.updatedAt)
-            ? new Date(hit.updatedAt).toLocaleString()
-            : 'unknown';
+          const updated = formatSessionTimestamp(hit.updatedAt);
           console.log(
-            `${hit.key.padEnd(32)}  ${String(hit.messageCount).padStart(7)}  ${updated.padEnd(17)}  ${hit.snippet}`
+            `${hit.key.padEnd(32)}  ${String(hit.messageCount).padStart(7)}  ${updated.padEnd(19)}  ${hit.snippet}`
           );
         }
-        const capNote =
-          hits.length >= SESSION_SEARCH_MAX_HITS
+        const capNote = isZhLocale()
+          ? hits.length >= SESSION_SEARCH_MAX_HITS
+            ? `（最多 ${SESSION_SEARCH_MAX_HITS} 条，缩小查询范围可看更多）`
+            : ''
+          : hits.length >= SESSION_SEARCH_MAX_HITS
             ? ` (capped at ${SESSION_SEARCH_MAX_HITS} — narrow your query for more)`
             : '';
         console.log(
-          `\n  ${hits.length} session(s) matched "${query}".${capNote}  Resume one with \`moss resume ${hits[0]!.key}\`.`
+          isZhLocale()
+            ? `\n  ${hits.length} 个会话匹配「${query}」。${capNote}  用 \`moss resume ${hits[0]!.key}\` 恢复。`
+            : `\n  ${hits.length} session(s) matched "${query}".${capNote}  Resume one with \`moss resume ${hits[0]!.key}\`.`
         );
         return;
       }

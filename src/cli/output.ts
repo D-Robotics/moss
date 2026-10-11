@@ -20,10 +20,13 @@ import {
 import { isZhLocale } from './cli-locale.js';
 import {
   chatInterruptNoticeLine,
+  chrome,
   interruptNoticeLine,
   isStructuredUserAbort,
   isUserAbortErrorText,
   localizeAbortActor,
+  OUTPUT_CONTINUATION_NOTICE,
+  OUTPUT_LIMIT_EXHAUSTED_NOTICE,
   tui,
 } from './tui/copy.js';
 import { noteToolForVerifyHint } from './verify-hint.js';
@@ -907,6 +910,18 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           );
         }
         break;
+      case 'output_continuation': {
+        spinner?.stop();
+        breakAnswerForStatus();
+        const message = event.exhausted
+          ? chrome(OUTPUT_LIMIT_EXHAUSTED_NOTICE, isZhLocale(), { max: event.maxAttempts })
+          : chrome(OUTPUT_CONTINUATION_NOTICE, isZhLocale(), {
+              attempt: event.attempt,
+              max: event.maxAttempts,
+            });
+        stderrLine(`${mark(event.exhausted ? 'fail' : undefined)} ${message}`);
+        break;
+      }
       case 'turn_end':
         flushHeldAnswer();
         if (!isQuiet && isVerbose) {

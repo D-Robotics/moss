@@ -213,7 +213,8 @@ for (const hidden of ['/loop', '/init', '/task', '/mode']) {
   );
   assert.equal(zhText.includes('/task run'), false, 'zh help does not name /task run');
   for (const entry of HELP_COMMANDS) {
-    assert.ok(zhText.includes(entry), `zh help still advertises ${entry}`);
+    const command = entry.split(' ')[0] ?? entry;
+    assert.ok(zhText.includes(command), `zh help still advertises ${command}`);
   }
   setTuiLocale(false);
   assert.ok(

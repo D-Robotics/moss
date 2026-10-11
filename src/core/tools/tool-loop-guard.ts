@@ -638,6 +638,8 @@ export function shouldShortCircuitToolCall(
   ) {
     return `${toolName} has already been requested ${sameToolCount} time(s) in this user turn`;
   }
+  // Per call, including calls batched in one response. A limit of 10 must
+  // not let one response execute 30 calls.
   if (totalLimit !== undefined && state.total >= totalLimit) {
     return `the user turn already requested ${state.total} tool call(s)`;
   }

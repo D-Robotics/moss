@@ -33,6 +33,22 @@ interface PiStreamEventExt {
   reason?: string;
 }
 
+/**
+ * `splitThinkingTagsFromAssistantText` trims the visible piece. A cutoff such
+ * as "Hello " needs that trailing space so the next fragment can be concatenated.
+ * Expand back over spaces and tabs only; newlines stay trimmed.
+ */
+function preserveInlineEdgeSpace(raw: string, trimmed: string): string {
+  if (!trimmed) return trimmed;
+  const start = raw.lastIndexOf(trimmed);
+  if (start < 0) return trimmed;
+  let from = start;
+  let to = start + trimmed.length;
+  while (from > 0 && (raw[from - 1] === ' ' || raw[from - 1] === '\t')) from -= 1;
+  while (to < raw.length && (raw[to] === ' ' || raw[to] === '\t')) to += 1;
+  return raw.slice(from, to);
+}
+
 export function resolveLlmFirstChunkTimeoutMs(): number {
   return parseEnvBoundedInt('MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS', 45_000, 0, 3_600_000);
 }
@@ -112,6 +128,8 @@ export interface AgentLoopLlmTurnParams {
   runStartMs: number;
   firstTokenMs: number | null;
   suppressVisibleDeltas?: boolean;
+  /** Per-call output cap. Overrides modelDef.maxTokens when recovery escalates. */
+  maxTokens?: number;
   logDebug: (message: string, meta?: Record<string, unknown>) => void;
 }
 
@@ -229,7 +247,7 @@ export async function runAgentLoopLlmTurn(
             );
           }
           const streamOpts: SimpleStreamOptions = {
-            maxTokens: modelDef.maxTokens,
+            maxTokens: params.maxTokens ?? modelDef.maxTokens,
             signal: streamSignal,
             apiKey,
             ...(temperature !== undefined ? { temperature } : {}),
@@ -294,7 +312,9 @@ export async function runAgentLoopLlmTurn(
 
               case 'text_end': {
                 const raw = String(event.content ?? '');
-                const { thinkingBodies, visible } = splitThinkingTagsFromAssistantText(raw);
+                const { thinkingBodies, visible: trimmedVisible } =
+                  splitThinkingTagsFromAssistantText(raw);
+                const visible = preserveInlineEdgeSpace(raw, trimmedVisible);
 
                 for (const body of thinkingBodies) {
                   const t = body.trim();
@@ -485,7 +505,7 @@ export async function runAgentLoopLlmTurn(
           }
           if (firstChunkTimedOut && !abortSignal.aborted) {
             throw new LlmFirstChunkTimeoutError(
-              `LLM produced no streaming output (including thinking) within ${Math.round(firstChunkBudgetMs / 1000)}s. Check network/proxy, Base URL, API Key and model availability; or try disabling extended thinking or switching models.`
+              `No response from the model within ${Math.round(firstChunkBudgetMs / 1000)}s (no streaming output, including thinking). Check network/proxy, Base URL, API Key, and that the gateway is reachable.`
             );
           }
           throw streamErr;
@@ -501,7 +521,17 @@ export async function runAgentLoopLlmTurn(
         label: 'llm-call',
         shouldRetry: (err, attempt) => {
           if (abortSignal.aborted) return false;
-          if (err instanceof LlmFirstChunkTimeoutError && attempt >= 2) return false;
+          if (err instanceof LlmFirstChunkTimeoutError) {
+            // O67: a blackhole HTTPS_PROXY yields zero bytes forever — retrying
+            // only multiplies the hang. One recovery retry is enough without a proxy.
+            const proxySet = Boolean(
+              process.env.HTTPS_PROXY ||
+              process.env.HTTP_PROXY ||
+              process.env.https_proxy ||
+              process.env.http_proxy
+            );
+            if (proxySet || attempt >= 2) return false;
+          }
           return classifyLlmError(err).retryable;
         },
         retryDelayMs: (err, attempt, _computed) => {

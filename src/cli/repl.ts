@@ -5,7 +5,12 @@ import { setCliApprovalAsker } from './approval.js';
 import { noteKnownSecret } from '../safety/known-secrets.js';
 import { wrapApprovalAsker } from './permission-request.js';
 import { handleCompactCommand } from './compact-command.js';
-import { runRegistryCommand, unknownSlashCommandLines } from './commands/registry.js';
+import {
+  formatDiffRunFailure,
+  formatNotGitRepository,
+  runRegistryCommand,
+  unknownSlashCommandLines,
+} from './commands/registry.js';
 import {
   isSlashCommandInput,
   slashHead,
@@ -54,7 +59,7 @@ import { runWorkingTreeDiff } from '../utils/git-spawn.js';
 import { formatLocalCommandOutput } from './tui-utils.js';
 import { FileCheckpointStore, checkpointTargetPaths } from './file-checkpoint.js';
 import { errorMessage } from '../errors.js';
-import { interruptNoticeLine, isUserAbortErrorText } from './tui/copy.js';
+import { interruptNoticeLine, isUserAbortErrorText, tui } from './tui/copy.js';
 
 let currentModel = '';
 
@@ -464,12 +469,14 @@ export async function runInteractive(
         if (result.exitCode !== 0) {
           const notRepo = /not a git repository/i.test(output);
           console.error(
-            notRepo
-              ? `[diff] Not a git repository: ${workspace} — /diff needs a git workspace.`
-              : `[diff] git diff failed (exit ${result.exitCode}): ${output.trim().split('\n')[0] || 'unknown error'}`
+            `[diff] ${
+              notRepo
+                ? formatNotGitRepository('/diff', workspace)
+                : formatDiffRunFailure(result.exitCode, output)
+            }`
           );
         } else {
-          console.error(output.trim() || '(no unstaged working-tree changes)');
+          console.error(output.trim() || tui('(no unstaged working-tree changes)'));
         }
       } catch (err) {
         console.error(`[diff] ${errorMessage(err)}`);

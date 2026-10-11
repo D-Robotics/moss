@@ -23,25 +23,28 @@ Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器
 
 ## 环境
 
-先看 Node 版本：
+先看 Node 版本（**硬性前提：Node ≥ 22.16.0**）：
 
 ```bash
 node -v
 ```
 
-需要 **22.16** 或更高。npm 会先装依赖，再跑根包的 `preinstall`（`scripts/check-node-version.cjs`）。Node 低于 22.16 时脚本打印升级步骤并退出 1，这时依赖已经在磁盘上，还没有可用的 `moss`。升级 Node 后再安装一次。Node 22.16 自带 npm 10，不要按 npm 的提示升级到 npm 12：这个 Node 不支持 npm 12。
+没有合格 Node 时，先装再继续（可复制）：
 
-- nvm：`nvm install 22`，装完再跑一次 `node -v`
-- NodeSource：见 [nodesource/distributions](https://github.com/nodesource/distributions)
-- 国内网络：`npm config set registry https://registry.npmmirror.com`。nvm 下载 Node 可以设 `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+- **macOS：** `brew install node@22`，或 `nvm install 22 && nvm use 22` / `fnm install 22 && fnm use 22`
+- **Ubuntu / Debian：** NodeSource（[nodesource/distributions](https://github.com/nodesource/distributions)）或同上 nvm / fnm
+- **Windows（PowerShell）：** `winget install OpenJS.NodeJS.LTS`
+- **国内网络：** `npm config set registry https://registry.npmmirror.com`；nvm 下载 Node 可设 `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+
+Node 低于 22.16 时，`npm install -g @rdk-moss/agent@latest`（以及源码路径的 `preinstall` / `prepare`）会**立刻非零退出**，打印当前 Node 版本和可复制的升级命令（含成功后再跑的 `npm install -g @rdk-moss/agent@latest`），**不会**留下坏掉的全局 `moss`。Node 22.16 自带 npm 10，不要按 npm 的提示升级到 npm 12：这个 Node 不支持 npm 12。
 
 ### macOS
 
-Git 需要 Xcode Command Line Tools。没有 `git` 时运行 `xcode-select --install`。Moss 自己不需要 C 编译器，`cpu-features` 的可选原生构建失败也不影响运行。Node 用 Homebrew 或 nvm，装完用 `node -v` 确认是 22.16 或更高。全局目录没有写权限时，用下面的用户级 prefix。
+Git 需要 Xcode Command Line Tools。没有 `git` 时运行 `xcode-select --install`。Moss 自己不需要 C 编译器，`cpu-features` 的可选原生构建失败也不影响运行。全局目录没有写权限时，用下面的用户级 prefix。
 
 ### Windows
 
-先装 Git for Windows 和 nvm-windows。PowerShell 的执行策略可能拦截 `moss.ps1`。只给当前用户放开脚本：
+先装 Git for Windows。PowerShell 的执行策略可能拦截 `moss.ps1`。只给当前用户放开脚本：
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
@@ -51,7 +54,28 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 ## 快速开始
 
-从源码安装，运行 `moss`，在界面里完成设置，然后要一个回答。`npm ci` 会跑 `prepare`（也就是 `npm run build`），所以不用再单独构建：
+**推荐（一行）：** 已装 Node ≥ 22.16 时：
+
+```bash
+npm install -g @rdk-moss/agent@latest
+moss --version
+moss
+```
+
+如果以前装过旧的未加 scope 的 `moss` 包，先执行 `npm uninstall -g moss`，否则两个包抢同一个 `moss` 命令，npm 会报 EEXIST。不要加 `--force`：它会同时留下旧包和 `@rdk-moss/agent`，之后再 `npm uninstall -g moss` 会把 `moss` 命令一起删掉。
+
+全局目录没有写权限（EACCES）时，把 prefix 放到用户目录，或改用 nvm（Node 装在家目录里）：
+
+```bash
+npm config set prefix ~/.npm-global
+```
+
+把 `~/.npm-global/bin` 加进 PATH，然后重新打开终端。
+
+<details>
+<summary>从源码开发（可选）</summary>
+
+贡献 / 改代码时用克隆。`npm ci` 会跑 `prepare`（先检查 Node，再 `npm run build`），所以不用再单独构建：
 
 ```bash
 git clone https://github.com/D-Robotics/moss.git
@@ -61,17 +85,9 @@ npm install -g --install-links .
 moss
 ```
 
-如果以前装过旧的未加 scope 的 `moss` 包，先执行 `npm uninstall -g moss`，否则两个包抢同一个 `moss` 命令，npm 会报 EEXIST。不要加 `--force`：它会同时留下旧包和 `@rdk-moss/agent`，之后再 `npm uninstall -g moss` 会把 `moss` 命令一起删掉。`npm install -g @rdk-moss/agent` 即将发布。
-
 npm 11 可能打印 `npm warn install-scripts`。`npm ci` 可能会点名 `ssh2` 和 `cpu-features`。接下来的 `npm install -g --install-links .` 还可能点名 `@rdk-moss/agent`（它的 `preinstall` 和 `prepare`）。这是提示，安装仍然成功：ssh2 没有可选的原生模块也能用，全局副本里已经有 `dist/`。不要运行 `npm audit fix --force`，它会改依赖版本，装完不能用。
 
-全局目录没有写权限（EACCES）时，把 prefix 放到用户目录，或改用 nvm（Node 装在家目录里）：
-
-```bash
-npm config set prefix ~/.npm-global
-```
-
-把 `~/.npm-global/bin` 加进 PATH，然后重新打开终端。
+</details>
 
 没有可用配置时，`moss` 就在这个界面里设置（按数字选服务商，或按 Enter 使用环境里已有的 key，内容不会显示）。D-Robotics 地瓜网关是第一项，已经预选（地址 `https://ai-api.d-robotics.cc/v1`，默认模型 `deepseek-flash`，只问 key）。不想把 key 写进文件时，先指定服务商再写变量名：`moss config set provider d-robotics`，然后 `moss config set apiKeyEnv <变量名>`。只写 `apiKeyEnv`、不写服务商或地址时，会先问选哪一家，不会把 key 发给默认的 DeepSeek。设好后在同一会话里说：
 
@@ -100,9 +116,15 @@ moss --no-tty                                 # 强制使用 readline REPL
 
 ## 升级
 
-如果 `moss` 命令还来自旧的未加 scope 的包（包括 `npm link`），先执行 `npm uninstall -g moss`。否则 `npm install -g --install-links .` 会报 EEXIST，而这时 `moss --version` 看起来可能已经是新的。
+如果 `moss` 命令还来自旧的未加 scope 的包（包括 `npm link`），先执行 `npm uninstall -g moss`。否则新的全局安装会报 EEXIST，而这时 `moss --version` 看起来可能已经是新的。
 
-已有 `moss` 克隆时，在它的上一级目录运行：
+**npm 全局安装**（推荐路径）直接：
+
+```bash
+npm install -g @rdk-moss/agent@latest
+```
+
+**已有源码克隆**时，在它的上一级目录运行：
 
 ```bash
 cd moss && git pull && npm ci && npm install -g --install-links .
@@ -110,7 +132,7 @@ cd moss && git pull && npm ci && npm install -g --install-links .
 
 `npm ci` 会重新构建。`--install-links` 把新的副本装进全局 prefix，而不只是重新编译克隆目录。`moss --version` 带短 commit 和构建日期，例如 `moss v0.26.0 (e8dc2e3, 2026-10-10)`。构建时工作区有未提交改动会写成 `e8dc2e3+dirty`。升级前后可以对上。
 
-还没有 `moss` 目录时，用上面的安装步骤。`moss update` 找得到克隆就打印这一行，找不到才打印 `git clone`。全局安装只在当前目录和 `./moss` 里找。别的位置用 `moss update --dir <克隆>` 或 `MOSS_SOURCE_DIR`。它只打印命令，不执行。
+`moss update` 按安装方式打印对应命令：npm 全局打印上面的 `@latest` 一行；找得到克隆就打印克隆升级行；都没有才打印 `git clone`。全局安装只在当前目录和 `./moss` 里找克隆。别的位置用 `moss update --dir <克隆>` 或 `MOSS_SOURCE_DIR`。它只打印命令，不执行。
 
 ## 卸载
 
@@ -129,6 +151,36 @@ npm uninstall -g @rdk-moss/agent
 - prefix 里可能留下空的 `@rdk-moss` 目录：Linux / macOS 是 `$(npm prefix -g)/lib/node_modules/@rdk-moss`，Windows 是 `%APPDATA%\npm\node_modules\@rdk-moss`
 
 可以删：`~/.moss/cache/npx`、`~/.cache/node-gyp`、npm 缓存（`npm cache clean --force`）、空的 `@rdk-moss` 目录，以及你不再需要的克隆目录。删掉 `~/.config/moss`、`~/.moss` 或项目里的 `.moss/` 会同时去掉 key、设置和任务记录；只有确定不要这些数据时再删。
+
+## 板子无法访问外网 / 需要代理
+
+实验室 / 教室里的 RDK 板子常常**直连不了** GitHub、npm、Node 镜像和模型网关（TCP 超时）。第一步 `git clone` 就会卡住。
+
+**必设环境变量（正式推荐，仅此）：**
+
+```bash
+export HTTPS_PROXY=http://127.0.0.1:1080
+export HTTP_PROXY=http://127.0.0.1:1080
+export NO_PROXY=localhost,127.0.0.1,::1
+# 当前 Moss main（含 O83 / #81 起）会自动让 Node fetch 走上述代理，
+# 不必再设 NODE_USE_ENV_PROXY（那是旧 tip 的临时绕过，当前不需要）
+```
+
+端口与是否需要 `ssh -R` 隧道按现场配置。
+
+**板上首装注意：**
+
+1. **git clone：** 用 `git clone --depth 1 https://github.com/D-Robotics/moss.git`；完整 clone 在慢网 / 代理下容易 GnuTLS / early EOF。
+2. **npm：** 国内可 `npm config set registry https://registry.npmmirror.com`；镜像**不能代替** `HTTPS_PROXY`——仍需代理才能出网时两者都要。
+3. **Node：** 许多 RDK 镜像已带 Node ≥ 22.16；若需 nvm，安装脚本依赖 `raw.githubusercontent.com`，不出网会超时——优先用系统 Node，或经代理装。
+4. **用户级 prefix：** root 下 `npm i -g` 会写 `/usr`；推荐 `npm config set prefix "$HOME/.npm-global"` 并把 `bin` 加进 PATH。
+
+**如何确认代理生效（必须两条都过）：**
+
+1. 代理日志里有目标模型 / 网关主机的 `CONNECT`；
+2. 端到端拿到**有效回答**（`moss -p "…"` 退出码 0，不是「网络连接失败」）。
+
+**仅有 CONNECT、仍报网络失败 = 未过关。** 排查时可临时 `MOSS_NO_RDK_DOCS=1` 做对照；根因修复见 backlog **O87**（CONNECT 有、回答无），本 README 不替代该项。连接类错误请检查代理 / 防火墙，**不要**按「换更快的模型」处理。
 
 ## 为什么是 Moss
 
@@ -190,6 +242,40 @@ moss tasks list                     # 只读查看机器人闭环产物
 
 `src/index.ts` 的导出面是受 semver 保护的合同，由 `test/sdk-contract.spec.mjs` 快照锁定；`examples/` 下三个可运行集成（`npm run examples`）。
 
+## 板端推理依赖（RDK）
+
+> **不要**再用 `http://sdk.d-robotics.cc:8080/simple/`（已下线，连接失败）。  
+> **不要**再用 `http(s)://archive.d-robotics.cc/simple/`（不是可用的 pip 索引，HTTPS 返回 404）。
+
+### 按 OS / 板型选接口
+
+| 板型 / 场景                                         | 应使用                                                         |
+| --------------------------------------------------- | -------------------------------------------------------------- |
+| RDK X5，RDK OS ≥ 3.5.0（`rdk_x5`）                  | 板端自带 **`hbm_runtime`**；**禁止** `pip install hbm_runtime` |
+| RDK X5 历史 demo（`rdk_x5_legacy` / OS &lt; 3.5.0） | 下方已核实 X5 1.0.3 whl，或板端 `hobot_dnn`                    |
+| RDK X3                                              | 下方已核实 X3 1.0.3 whl，或板端 `hobot_dnn`                    |
+| RDK S 系列                                          | 板端 `hbm_runtime`；不要装 X5 的 `hobot_dnn`                   |
+
+权威说明：[Model Zoo 推理接口参考](https://developer.d-robotics.cc/model_zoo_doc/infer_api_ref)。
+
+### 仅 legacy 的 whl（已核实 HTTP 200）
+
+文档里**只**出现下面两条直链；Moss **不会**自动装包。
+
+```bash
+# X5 legacy
+wget -nc https://archive.d-robotics.cc/downloads/rdk_model_zoo/rdk_x5/bpu_infer_lib_x5-1.0.3-py3-none-any.whl
+pip install bpu_infer_lib_x5-1.0.3-py3-none-any.whl
+
+# X3
+wget -nc https://archive.d-robotics.cc/downloads/rdk_model_zoo/rdk_x3/bpu_infer_lib_x3-1.0.3-py3-none-any.whl
+pip install bpu_infer_lib_x3-1.0.3-py3-none-any.whl
+```
+
+### 缺少 libhbucp.so
+
+多为 pip 覆盖了系统 hobot / hbm 包，或系统 &lt; 3.5.0 却跑新 Model Zoo。**禁止** `pip install hbm_runtime`。优先烧录 ≥ 3.5.0 且自带运行时的镜像；若曾用 pip 覆盖，卸载 pip 副本后 `apt` 重装 `hobot-dnn` 并 `ldconfig`。`moss doctor` 会警告旧 pip 源，并可选探测上述 whl 是否可达。
+
 ## 命令参考
 
 | 子命令                                                                     | 用途                                                                                |
@@ -240,7 +326,7 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
 
 优先级：`--lang` > `MOSS_LANG` > 用户配置 `language` > 系统区域。`C`、`POSIX`、`C.UTF-8` 不是语言，会落到下一个变量（`LC_ALL`、`LC_MESSAGES`、`LANG`）；都不是语言时界面保持英文。项目 `.moss/config.json` 和项目 `.env` 不能设置界面语言。
 
-交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为 English。
+交互界面里 `/language`（别名 `/lang`）切换本会话；`/language zh save` 写入用户配置。系统区域为中文且还没选过时，首次 `moss setup` 用一行提示：按 `e` 切换为英语。
 
 ## 安全与隐私
 
@@ -254,7 +340,7 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
   | `plan`         | 只读规划，写操作与设备变更被拦                                                                    |
   | `full`（默认） | 本地写与可逆设备操作跳过询问；毁灭性设备操作 TTY 确认、headless 拒绝。deny 规则与本机硬拦截仍生效 |
 
-- **`workspace-write` 不是操作系统沙箱。** workspace-write 只约束 Moss 自己的文件工具。shell 命令照常运行，没有操作系统沙箱。`write_file`、`edit_file`、`multi_edit`、`move_file`、`apply_patch` 写在工作区内；`exec` 没有 Landlock、bubblewrap 或 seatbelt。静态扫描会拦下它能看见的一部分出区写（重定向、`cp`、`mv`），挡不住子进程里的 `node` / `python`（例如写入 `/tmp`）。shell 的安全来自输出脱敏和写回防护。可选的操作系统沙箱见 [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md)，默认关闭。
+- **`workspace-write` 不是操作系统沙箱。** `workspace-write` 只约束 Moss 自己的文件工具。终端命令照常运行，没有操作系统沙箱。`write_file`、`edit_file`、`multi_edit`、`move_file`、`apply_patch` 写在工作区内；`exec` 没有 Landlock、bubblewrap 或 seatbelt。静态扫描会拦下它能看见的一部分出区写（重定向、`cp`、`mv`），挡不住子进程里的 `node` / `python`（例如写入 `/tmp`）。shell 的安全来自输出脱敏和写回防护。可选的操作系统沙箱见 [`docs/design/os-sandbox.md`](docs/design/os-sandbox.md)，默认关闭。
 - **权限规则**（`/permissions`，任何模式生效，deny 优先于一切含 full）：
   - 三级 `allow` / `ask` / `deny`，优先级 deny > ask > allow；
   - 语法 `ToolName(pattern)`，用 moss 原生工具名：`/permissions add deny "read_file(./.env)"`、`/permissions add allow "exec(npm run *)"`；
@@ -332,25 +418,28 @@ mean _the board actually did it_.
 
 ### Prerequisites
 
-Check Node first:
+Check Node first (**hard requirement: Node ≥ 22.16.0**):
 
 ```bash
 node -v
 ```
 
-Moss needs **22.16** or newer. npm installs dependencies before the root `preinstall` (`scripts/check-node-version.cjs`). On Node older than 22.16 that script prints the upgrade steps and exits 1, so those packages can already be on disk and there is no working `moss`. Upgrade Node and run the install again. Node 22.16 ships with npm 10. Do not follow npm's notice to upgrade to npm 12: Node 22.16 does not support npm 12.
+If Node is missing or too old, install it first (copyable):
 
-- nvm: `nvm install 22`, then run `node -v` again
-- NodeSource: see [nodesource/distributions](https://github.com/nodesource/distributions)
-- In China: `npm config set registry https://registry.npmmirror.com`. For nvm's Node downloads, set `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+- **macOS:** `brew install node@22`, or `nvm install 22 && nvm use 22` / `fnm install 22 && fnm use 22`
+- **Ubuntu / Debian:** NodeSource ([nodesource/distributions](https://github.com/nodesource/distributions)) or the same nvm / fnm commands
+- **Windows (PowerShell):** `winget install OpenJS.NodeJS.LTS`
+- **In China:** `npm config set registry https://registry.npmmirror.com`. For nvm's Node downloads, set `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+
+On Node older than 22.16, `npm install -g @rdk-moss/agent@latest` (and the source-path `preinstall` / `prepare` hooks) **exits non-zero immediately**, prints the detected Node version and copyable upgrade commands (including the success-path `npm install -g @rdk-moss/agent@latest`), and **does not** leave a broken global `moss`. Node 22.16 ships with npm 10. Do not follow npm's notice to upgrade to npm 12: Node 22.16 does not support npm 12.
 
 #### macOS
 
-Git requires the Xcode Command Line Tools. If `git` is missing, run `xcode-select --install`. Moss itself does not need a C compiler, and a failed optional native build of `cpu-features` still leaves a working `moss`. Install Node with Homebrew or nvm, then confirm `node -v` is 22.16 or newer. If the global prefix is not writable, use the user-level prefix below.
+Git requires the Xcode Command Line Tools. If `git` is missing, run `xcode-select --install`. Moss itself does not need a C compiler, and a failed optional native build of `cpu-features` still leaves a working `moss`. If the global prefix is not writable, use the user-level prefix below.
 
 #### Windows
 
-Install Git for Windows and nvm-windows. PowerShell's execution policy can block `moss.ps1`. Allow scripts for the current user only:
+Install Git for Windows. PowerShell's execution policy can block `moss.ps1`. Allow scripts for the current user only:
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
@@ -360,7 +449,28 @@ Put `%APPDATA%\npm` on PATH. That is npm's default global bin directory on Windo
 
 ### Quick start
 
-Install from source, run `moss`, finish setup in the screen, then ask for an answer. `npm ci` runs `prepare` (`npm run build`), so there is no separate build step:
+**Recommended (one line)** when Node ≥ 22.16 is already installed:
+
+```bash
+npm install -g @rdk-moss/agent@latest
+moss --version
+moss
+```
+
+If an older unscoped `moss` package is already installed, run `npm uninstall -g moss` first. The two packages use the same `moss` bin, and npm stops with EEXIST. Do not pass `--force`. It leaves both the old package and `@rdk-moss/agent` installed, and a later `npm uninstall -g moss` removes the `moss` command.
+
+If npm reports EACCES on the global prefix, point prefix at your home directory, or use nvm (Node then lives under your home directory):
+
+```bash
+npm config set prefix ~/.npm-global
+```
+
+Add `~/.npm-global/bin` to PATH and open a new terminal.
+
+<details>
+<summary>Develop from source (optional)</summary>
+
+For contributors. `npm ci` runs `prepare` (Node check, then `npm run build`), so there is no separate build step:
 
 ```bash
 git clone https://github.com/D-Robotics/moss.git
@@ -370,17 +480,9 @@ npm install -g --install-links .
 moss
 ```
 
-If an older unscoped `moss` package is already installed, run `npm uninstall -g moss` first. The two packages use the same `moss` bin, and npm stops with EEXIST. Do not pass `--force`. It leaves both the old package and `@rdk-moss/agent` installed, and a later `npm uninstall -g moss` removes the `moss` command. `npm install -g @rdk-moss/agent` is coming soon.
-
 npm 11 may print `npm warn install-scripts`. `npm ci` may name `ssh2` and `cpu-features`. The following `npm install -g --install-links .` may also name `@rdk-moss/agent` (its `preinstall` and `prepare` scripts). The warning is harmless: ssh2 works without its optional native addon, and the global copy already contains `dist/`. Do not run `npm audit fix --force`. It changes dependency versions and breaks the install.
 
-If npm reports EACCES on the global prefix, point prefix at your home directory, or use nvm (Node then lives under your home directory):
-
-```bash
-npm config set prefix ~/.npm-global
-```
-
-Add `~/.npm-global/bin` to PATH and open a new terminal.
+</details>
 
 With no usable config, `moss` sets itself up in that screen (press a number to pick a provider, or Enter to use a key already in the environment; the value is not shown). The D-Robotics gateway is listed first and preselected (`https://ai-api.d-robotics.cc/v1`, default model `deepseek-flash`, key only). To keep the key out of the file, set the provider and then the variable name: `moss config set provider d-robotics`, then `moss config set apiKeyEnv <VAR>`. A file that names only `apiKeyEnv` is not configured: setup asks which provider, and the key is not sent to the default DeepSeek endpoint. Then, in the same session:
 
@@ -406,9 +508,15 @@ moss --no-tty                                 # force the readline REPL
 
 ### Upgrade
 
-If the `moss` command still comes from an older unscoped install, including `npm link`, run `npm uninstall -g moss` first. Otherwise `npm install -g --install-links .` stops with EEXIST even when `moss --version` already looks new.
+If the `moss` command still comes from an older unscoped install, including `npm link`, run `npm uninstall -g moss` first. Otherwise a new global install stops with EEXIST even when `moss --version` already looks new.
 
-From the parent of an existing `moss` clone:
+**npm global install** (recommended path):
+
+```bash
+npm install -g @rdk-moss/agent@latest
+```
+
+**From an existing source clone**, in the parent of that clone:
 
 ```bash
 cd moss && git pull && npm ci && npm install -g --install-links .
@@ -416,7 +524,7 @@ cd moss && git pull && npm ci && npm install -g --install-links .
 
 `npm ci` rebuilds. `--install-links` installs that new copy into the global prefix, instead of only rebuilding the clone. `moss --version` includes the short commit and the build date, for example `moss v0.26.0 (e8dc2e3, 2026-10-10)`. A worktree with uncommitted changes at build time is marked `e8dc2e3+dirty`. The before and after strings differ.
 
-If you do not have a `moss` directory yet, use the install steps above. `moss update` prints this upgrade line when it finds a clone, and the `git clone` steps only when it does not. A global install only looks in the current directory and in `./moss`. Point it somewhere else with `moss update --dir <clone>` or `MOSS_SOURCE_DIR`. It prints the commands and does not run them.
+`moss update` prints the matching command: `@latest` for an npm global install, the clone upgrade line when it finds a checkout, and `git clone` only when neither applies. A global install only looks for a checkout in the current directory and in `./moss`. Point it somewhere else with `moss update --dir <clone>` or `MOSS_SOURCE_DIR`. It prints the commands and does not run them.
 
 ### Uninstall
 
@@ -435,6 +543,37 @@ That removes the command. These stay behind:
 - An empty `@rdk-moss` directory left under the prefix: `$(npm prefix -g)/lib/node_modules/@rdk-moss` on Linux and macOS, or `%APPDATA%\npm\node_modules\@rdk-moss` on Windows
 
 Safe to delete: `~/.moss/cache/npx`, `~/.cache/node-gyp`, the npm cache (`npm cache clean --force`), that empty `@rdk-moss` directory, and the clone once you no longer need the source. Deleting `~/.config/moss`, `~/.moss`, or a project's `.moss/` also removes keys, settings, and task history. Delete those only when you want that data gone.
+
+### Board has no outbound network / proxy setup
+
+Lab and classroom RDK boards often **cannot** reach GitHub, npm, Node mirrors, or the model gateway directly (TCP timeouts). The first `git clone` hangs.
+
+**Required environment variables (official recommendation — these only):**
+
+```bash
+export HTTPS_PROXY=http://127.0.0.1:1080
+export HTTP_PROXY=http://127.0.0.1:1080
+export NO_PROXY=localhost,127.0.0.1,::1
+# Current Moss main (O83 / #81 onward) routes Node fetch through these proxies
+# automatically. Do NOT set NODE_USE_ENV_PROXY — that was a temporary workaround
+# on older tips and is not needed now.
+```
+
+Port and whether you need an `ssh -R` tunnel depend on your site.
+
+**First install on a board:**
+
+1. **git clone:** use `git clone --depth 1 https://github.com/D-Robotics/moss.git`. A full clone often fails with GnuTLS / early EOF on slow or proxied links.
+2. **npm:** in China you may `npm config set registry https://registry.npmmirror.com`. A registry mirror **does not replace** `HTTPS_PROXY` when the board still needs a proxy to leave the LAN.
+3. **Node:** many RDK images already ship Node ≥ 22.16. nvm’s install script needs `raw.githubusercontent.com` and will time out offline — prefer the system Node, or install via the proxy.
+4. **User-level prefix:** `npm i -g` as root writes under `/usr`. Prefer `npm config set prefix "$HOME/.npm-global"` and put that `bin` on PATH.
+
+**How to confirm the proxy works (both required):**
+
+1. The proxy log shows `CONNECT` to the model / gateway host; and
+2. End-to-end you get a **successful answer** (`moss -p "…"` exits 0 — not “network connection failed”).
+
+**CONNECT alone with a network failure is a FAIL.** For triage you can temporarily set `MOSS_NO_RDK_DOCS=1`. Root-cause work for “CONNECT without an answer” is backlog **O87**; this README does not replace that item. Treat connection errors as proxy / firewall issues — **not** “switch to a faster model”.
 
 ### Why Moss
 
@@ -515,6 +654,40 @@ moss tasks list                     # read-only robotics artifacts
 
 The `src/index.ts` export surface is a semver-protected contract, snapshotted by
 `test/sdk-contract.spec.mjs`; three runnable integrations live in `examples/` (`npm run examples`).
+
+### Board-side inference dependencies (RDK)
+
+> **Do not** use `http://sdk.d-robotics.cc:8080/simple/` (offline; connection refused).  
+> **Do not** use `http(s)://archive.d-robotics.cc/simple/` (not a working pip index; HTTPS returns 404).
+
+#### Pick the interface by OS / board
+
+| Board / scenario                                      | Use                                                                  |
+| ----------------------------------------------------- | -------------------------------------------------------------------- |
+| RDK X5, RDK OS ≥ 3.5.0 (`rdk_x5`)                     | Board-bundled **`hbm_runtime`**; **never** `pip install hbm_runtime` |
+| RDK X5 legacy demos (`rdk_x5_legacy` / OS &lt; 3.5.0) | Verified X5 1.0.3 whl below, or board `hobot_dnn`                    |
+| RDK X3                                                | Verified X3 1.0.3 whl below, or board `hobot_dnn`                    |
+| RDK S series                                          | Board `hbm_runtime`; do not install X5 `hobot_dnn`                   |
+
+Official reference: [Model Zoo infer API](https://developer.d-robotics.cc/model_zoo_doc/infer_api_ref).
+
+#### Legacy whl only (verified HTTP 200)
+
+Only these two direct URLs appear in Moss docs. Moss **will not** auto-install packages.
+
+```bash
+# X5 legacy
+wget -nc https://archive.d-robotics.cc/downloads/rdk_model_zoo/rdk_x5/bpu_infer_lib_x5-1.0.3-py3-none-any.whl
+pip install bpu_infer_lib_x5-1.0.3-py3-none-any.whl
+
+# X3
+wget -nc https://archive.d-robotics.cc/downloads/rdk_model_zoo/rdk_x3/bpu_infer_lib_x3-1.0.3-py3-none-any.whl
+pip install bpu_infer_lib_x3-1.0.3-py3-none-any.whl
+```
+
+#### Missing libhbucp.so
+
+Usually a pip overlay of system hobot / hbm packages, or OS &lt; 3.5.0 running a new Model Zoo. **Do not** `pip install hbm_runtime`. Prefer an image ≥ 3.5.0 with the board-bundled runtime; if pip overwrote packages, uninstall the pip copies, reinstall `hobot-dnn` via apt, and run `ldconfig`. `moss doctor` warns on deprecated pip indexes and can optionally probe the whl URLs above.
 
 ### Command reference
 

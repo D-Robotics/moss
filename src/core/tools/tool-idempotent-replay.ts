@@ -1,5 +1,6 @@
 import type { LLMMessage, LLMContentBlock } from '../llm/llm-provider.js';
 import type { ToolSideEffectClass } from './tool-types.js';
+import { isFoldedToolResult } from '../../context/tool-result-fold.js';
 import {
   isCompactedReadPlaceholder,
   isFileMutationTool,
@@ -80,7 +81,9 @@ export function findReplayableToolResultContent(
       if (tu.name !== toolName) continue;
       if (stableSerializeToolInput(prevIn) !== want) continue;
       const body = String(tr.content || '').trim();
-      if (isCompactedReadPlaceholder(body)) continue;
+      // A folded stub is not the file. Replaying it, then deduping the older
+      // copy to "see below", makes the content unrecoverable.
+      if (isCompactedReadPlaceholder(body) || isFoldedToolResult(body)) continue;
       if (wantedPathKey && encounteredUnknownFileMutation) continue;
       if (wantedPathKey && mutatedPathKeys.has(wantedPathKey)) continue;
       if (body) return tr.content;

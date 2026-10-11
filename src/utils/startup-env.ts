@@ -13,6 +13,17 @@ export function captureEnvBeforeDotenv(env: NodeJS.ProcessEnv): void {
   captured = true;
 }
 
+/** Which `.env` file supplied a variable, and whether that file is the user's own. */
+const dotenvOrigin = new Map<string, { file: string; userSource: boolean }>();
+
+export function recordDotenvOrigin(key: string, file: string, userSource: boolean): void {
+  dotenvOrigin.set(key, { file, userSource });
+}
+
+export function dotenvOriginOf(key: string): { file: string; userSource: boolean } | undefined {
+  return dotenvOrigin.get(key);
+}
+
 export function isStartupEnvCaptured(): boolean {
   return captured;
 }

@@ -15,7 +15,7 @@ import { formatInteractiveCommandSections } from './interactive-commands.js';
 import { resolveCliDetailMode, type CliDetailMode } from './output.js';
 import { getPackageVersion } from './package-info.js';
 import { compactPath, label, ui } from './ui.js';
-import { configSnapshotLines } from './config-snapshot.js';
+import { configSnapshotLines, localizeConfigSource } from './config-snapshot.js';
 import {
   ok as doctorOk,
   warn as doctorWarn,
@@ -110,9 +110,14 @@ function shortBaseUrl(value: string): string {
 }
 
 function describeDetail(mode: CliDetailMode): string {
-  if (mode === 'quiet') return 'quiet';
-  if (mode === 'verbose') return 'verbose';
-  return 'progress';
+  if (!isZhLocale()) {
+    if (mode === 'quiet') return 'quiet';
+    if (mode === 'verbose') return 'verbose';
+    return 'progress';
+  }
+  if (mode === 'quiet') return '安静';
+  if (mode === 'verbose') return '详细';
+  return '进度';
 }
 
 interface ToolGroupDef {
@@ -299,7 +304,7 @@ export function renderCliStatus(
     `  ${label(zh ? '执行' : 'exec')} ${rt.execBackend}`,
     `  ${label(zh ? '记忆' : 'memory')} ${memoryCount} ${zh ? '条' : 'entries'}`,
     `  ${label(zh ? '技能' : 'skills')} ${skillCount}`,
-    `  ${label(zh ? '工具' : 'tools')} ${agent.tools.size} (${toolGroups.map((g) => groupTitle(g.title)).join(', ')})`,
+    `  ${label(zh ? '工具' : 'tools')} ${agent.tools.size}${zh ? '（' : ' ('}${toolGroups.map((g) => groupTitle(g.title)).join(zh ? '、' : ', ')}${zh ? '）' : ')'}`,
   ].join('\n');
 }
 
@@ -307,7 +312,11 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
   const zh = isZhLocale();
-  const lines: string[] = [ui.bold(ui.black(zh ? '诊断' : 'Doctor')), renderNodeDoctorLine()];
+  const lines: string[] = [
+    ui.bold(ui.black(zh ? '诊断' : 'Doctor')),
+    renderNodeDoctorLine(),
+    doctorOk(zh ? '版本' : 'version', getPackageVersion()),
+  ];
 
   if (auth.usingBundledDefault) {
     lines.push(
@@ -319,8 +328,22 @@ export function renderCliSessionDoctor(agent: MossAgent, runtime: CliRuntimeStat
       )
     );
   } else {
-    lines.push(doctorOk(zh ? '模型' : 'model', `${agent.config.model} (${auth.providerSource})`));
-    lines.push(doctorOk(zh ? '服务商' : 'provider', `${auth.provider} (${auth.providerSource})`));
+    lines.push(
+      doctorOk(
+        zh ? '模型' : 'model',
+        zh
+          ? `${agent.config.model}（${localizeConfigSource(auth.providerSource)}）`
+          : `${agent.config.model} (${auth.providerSource})`
+      )
+    );
+    lines.push(
+      doctorOk(
+        zh ? '服务商' : 'provider',
+        zh
+          ? `${auth.provider}（${localizeConfigSource(auth.providerSource)}）`
+          : `${auth.provider} (${auth.providerSource})`
+      )
+    );
   }
   lines.push(renderAuthDoctorLine(auth));
 
@@ -393,7 +416,7 @@ function permissionsHelpText(): string {
       '',
       '  模式只有一根轴 — /mode（Shift+Tab 在四种状态间循环，v0.26）：',
       '    /mode manual        逐项确认变更',
-      '    /mode accept-edits  自动接受工作区文件工具的编辑',
+      '    /mode accept-edits  自动通过本文件夹内的文件编辑；终端命令仍需确认（-p 下会被拦下）',
       '    /mode plan          只读规划（变更会被拦住）',
       '    /mode full          不再询问（默认）— deny 规则仍然生效',
       '',
@@ -413,7 +436,7 @@ function permissionsHelpText(): string {
     '',
     '  One mode axis — /mode (Shift+Tab cycles four states, v0.26):',
     '    /mode manual        approve mutations one by one',
-    '    /mode accept-edits  auto-approve workspace file-tool edits',
+    '    /mode accept-edits  auto-approve file edits in this folder; shell commands still ask (blocked in -p)',
     '    /mode plan          read-only planning (mutations blocked)',
     '    /mode full          skip prompts (default) — deny rules still apply',
     '',

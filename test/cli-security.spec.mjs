@@ -178,6 +178,31 @@ for (const cmd of ['git push -f origin main', 'git push --force origin main']) {
   );
 }
 
+// ─── isCommandDangerous — PowerShell / cmd disk wipes ──────────────────────
+for (const cmd of [
+  'Remove-Item -Recurse -Force C:\\',
+  'Remove-Item -Force -Recurse C:\\',
+  'Remove-Item C:\\ -Recurse -Force',
+  'rd /s /q C:\\',
+  'rmdir /q /s D:\\',
+  'Format-Volume -DriveLetter C',
+]) {
+  const result = isCommandDangerous(cmd);
+  assert.equal(result.blocked, true, `disk wipe is blocked: ${cmd}`);
+}
+{
+  const result = isCommandDangerous('Remove-Item -Recurse -Force .\\build');
+  assert.equal(result.blocked, false, 'Remove-Item of a relative dir is not a disk wipe');
+}
+{
+  const result = isCommandDangerous('rd /s /q build');
+  assert.equal(result.blocked, false, 'rd of a relative dir is not a disk wipe');
+}
+{
+  const result = isCommandDangerous('echo Format-Volume');
+  assert.equal(result.blocked, false, 'mentioning Format-Volume is not a format command');
+}
+
 // ─── isCommandDangerous — kill -1 (kill all processes) ─────────────────────
 {
   const result = isCommandDangerous('kill -9 -1');

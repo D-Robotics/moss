@@ -90,19 +90,38 @@ export interface RunProcessResult {
 }
 
 export class ProcessError extends Error {
-  readonly exitCode: number;
+  readonly exitCode: number | null;
+  readonly signal: NodeJS.Signals | null;
   readonly stdout: string;
   readonly stderr: string;
 
   readonly timedOut: boolean;
+  readonly timeoutMs: number | undefined;
 
-  constructor(exitCode: number, stdout: string, stderr: string, timedOut = false) {
-    super(`Process exited with code ${exitCode}`);
+  constructor(
+    exitCode: number | null,
+    stdout: string,
+    stderr: string,
+    timedOut = false,
+    timeoutMs?: number,
+    signal: NodeJS.Signals | null = null
+  ) {
+    super(
+      timedOut && timeoutMs !== undefined && timeoutMs > 0
+        ? `timed out after ${timeoutMs}ms`
+        : signal
+          ? `killed by ${signal}`
+          : exitCode === null
+            ? 'Process failed'
+            : `Process exited with code ${exitCode}`
+    );
     this.name = 'ProcessError';
     this.exitCode = exitCode;
+    this.signal = signal;
     this.stdout = stdout;
     this.stderr = stderr;
     this.timedOut = timedOut;
+    this.timeoutMs = timeoutMs;
   }
 }
 
@@ -202,13 +221,12 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
       reject(err);
     });
 
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
       cleanup();
-      const exitCode = code ?? 1;
-      if (exitCode === 0) {
-        resolve({ stdout, stderr, exitCode });
+      if (code === 0 && !signal) {
+        resolve({ stdout, stderr, exitCode: 0 });
       } else {
-        reject(new ProcessError(exitCode, stdout, stderr, timedOut));
+        reject(new ProcessError(code, stdout, stderr, timedOut, opts.timeout, signal));
       }
     });
   });

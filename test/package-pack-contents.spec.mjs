@@ -111,6 +111,7 @@ const allowed = (file) =>
   file === 'dist/utils/build-stamp.json' ||
   lifecycleScripts.includes(file) ||
   binPaths.includes(file) ||
+  file.startsWith('bin/') ||
   (file.startsWith('dist/') && (file.endsWith('.js') || file.endsWith('.d.ts')));
 assert.deepEqual(
   files.filter((file) => !allowed(file)),
@@ -119,6 +120,8 @@ assert.deepEqual(
 );
 assert.ok(files.includes('dist/utils/build-stamp.json'), 'build stamp is packed');
 assert.ok(files.includes('dist/cli.js'), 'ESM CLI is packed');
+assert.ok(files.includes('bin/moss.cjs'), 'CJS Node pre-check bin is packed');
+assert.ok(files.includes('bin/node-version-message.cjs'), 'shared node version message is packed');
 assert.ok(files.includes('dist/index.js'), 'SDK entry is packed');
 assert.ok(files.includes('dist/index.d.ts'), 'SDK types are packed');
 

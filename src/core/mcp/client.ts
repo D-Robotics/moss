@@ -66,6 +66,7 @@ export class McpClient {
   private toolsCache: McpToolDescriptor[] | null = null;
   private initialized = false;
   private initPromise: Promise<void> | null = null;
+  private closing = false;
 
   readonly name: string;
   private readonly connectTimeoutMs: number;
@@ -85,6 +86,11 @@ export class McpClient {
 
   get state(): string {
     return this.transport.state;
+  }
+
+  /** True once close() has started. A connect that loses the race is not a failure. */
+  get isClosing(): boolean {
+    return this.closing;
   }
 
   get lastError(): string | undefined {
@@ -192,6 +198,7 @@ export class McpClient {
   }
 
   async close(): Promise<void> {
+    this.closing = true;
     await this.transport.close();
   }
 }

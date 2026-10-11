@@ -1,5 +1,6 @@
 // Moss Agent CLI main — see --help for usage, config, and environment variables.
 
+import { ensureKeepAliveDispatcherInstalled } from './provider/keep-alive-dispatcher.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { configureWindowsUtf8Console } from './utils/run-process.js';
@@ -26,9 +27,10 @@ import {
   resolveConfigDir,
   safeProcessCwd,
   shouldShowFullDefaultNotice,
+  shouldShowUntrustedFolderNotice,
   type LoadedCliConfigFile,
 } from './cli/config.js';
-import { parseCliArgs } from './cli/args.js';
+import { parseCliArgs, shouldOpenResumePicker } from './cli/args.js';
 import {
   PermissionRuleRegistry,
   parsePermissionRuleSpec,
@@ -49,6 +51,7 @@ import {
   summarizeTrustItems,
   untrustedFolderLine,
 } from './cli/workspace-trust.js';
+import { deliverDotenvSafetyEnvNotices } from './cli/safety-env-notice.js';
 import { runWithApprovalRequest, setPermissionRequestRunner } from './cli/permission-request.js';
 import { resolveSoulIdentity, resolveSoul } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
@@ -61,12 +64,15 @@ import {
 } from './cli/model-catalog.js';
 import { createModelInfoTool } from './cli/model-info-tool.js';
 import { runOneShotWithCliCancellation } from './cli/run-cancellation.js';
+import { armExitGuard } from './cli/exit-guard.js';
+import { stopAllBackgroundProcesses } from './core/tools/background-process-registry.js';
 import { runInteractive } from './cli/repl.js';
 import { resolveCliSession } from './cli/session.js';
 import {
   hasShownOneShotOnboardingHint,
   markOneShotOnboardingShown,
   offerSetupForInteractiveMissingConfig,
+  formatUnsetApiKeyEnv,
   printMissingConfigGuidance,
   renderOneShotOnboardingHint,
 } from './cli/onboarding-hints.js';
@@ -83,6 +89,7 @@ import {
   rdkDocsAutoConnectEnabled,
   readRdkDocsFlag,
   resolveRdkDocsPackage,
+  shouldEagerWarmRdkDocs,
   withBuiltinRdkDocs,
 } from './cli/rdk-docs-mcp.js';
 import { McpToolRegistry, buildMcpStableIndex } from './core/mcp/registry.js';
@@ -132,7 +139,12 @@ import { chrome, setTuiLocale } from './cli/tui/copy.js';
 import { gitignoreNoticeForWorkspace } from './cli/gitignore-suggestion.js';
 import { buildEnvironmentContextLayer, getGitBranch } from './context/environment.js';
 import { disconnectAllDevices } from './device/device-registry.js';
-import { configureDeviceWorkspace, resolveDefaultDeviceTarget } from './device/device-target.js';
+import {
+  configureDeviceWorkspace,
+  projectDeviceHostWithholdsPassword,
+  resolveDefaultDeviceTarget,
+} from './device/device-target.js';
+import { loadDeviceRegistry } from './device/device-registry-file.js';
 import { buildRuntimeCapabilitiesPrompt } from './context/runtime-capabilities.js';
 import { buildSoftwareEngineeringPromptQuick } from './contracts/index.js';
 import type { CliRuntimeStatus } from './cli/onboarding.js';
@@ -253,6 +265,14 @@ if (parsedArgs.help && parsedArgs.command !== 'chat') {
 if (parsedArgs.help) displayHelp(c, { all: parsedArgs.helpAll });
 if (parsedArgs.version) displayVersion(c);
 
+// `moss help <unknown>` must not be sent to the model as a prompt.
+if (parsedArgs.unknownHelpTopic) {
+  const token = parsedArgs.unknownHelpTopic;
+  console.error(uiText(`[moss] unknown command '${token}'`, `[moss] 未知命令「${token}」`));
+  console.error(uiText('Run `moss --help` for usage.', '运行 `moss --help` 查看用法。'));
+  process.exit(ExitCode.USAGE);
+}
+
 // `moss version` / `moss help` / `moss status` are COMMAND_LIKE_REDIRECTS
 // that should produce the expected output, not an error.
 if (parsedArgs.unknownCommand) {
@@ -273,7 +293,7 @@ if (parsedArgs.unknownCommand) {
     );
     process.exit(0);
   }
-  // Remaining edit-distance typos (e.g. confgi→config)
+  // Remaining real typos (e.g. confgi→config). Ordinary words are not suggestions.
   if (!['--version', '--help', 'doctor'].includes(suggestion)) {
     console.error(uiText(`[moss] unknown command '${token}'`, `[moss] 未知命令「${token}」`));
     console.error(
@@ -401,6 +421,10 @@ async function loadTrustedStartupConfig(input: {
 }
 
 async function main() {
+  // O83: install the proxy-aware global dispatcher (HTTPS_PROXY/HTTP_PROXY/
+  // NO_PROXY) once, before ANY request — setup probe, model list, doctor,
+  // MCP over HTTP — not only when the agent loop starts. Idempotent.
+  await ensureKeepAliveDispatcherInstalled();
   // REPL, one-shot, and the cancel line share the TUI dictionary. The full-screen
   // shell sets the same flag again from its own entry.
   setTuiLocale(isZhLocale());
@@ -432,6 +456,7 @@ async function main() {
 
   // CliPhase.None: no initialization needed (e.g., setup, --help, --version)
   if (requiredPhase === CliPhase.None && commandConfig) {
+    deliverDotenvSafetyEnvNotices(false, () => {});
     const ctx: CommandContext = {
       argv,
       commandArgs: parsedArgs.commandArgs,
@@ -460,6 +485,7 @@ async function main() {
       loadedConfig
     );
 
+    deliverDotenvSafetyEnvNotices(false, () => {});
     const ctx: CommandContext = {
       argv,
       commandArgs: parsedArgs.commandArgs,
@@ -514,6 +540,7 @@ async function main() {
       process.exit(ExitCode.CONFIG);
     }
 
+    deliverDotenvSafetyEnvNotices(false, () => {});
     const ctx: CommandContext = {
       argv,
       commandArgs: parsedArgs.commandArgs,
@@ -548,6 +575,12 @@ async function main() {
     parsedArgs.configOverrides,
     loadedConfig
   );
+  // A named apiKeyEnv that is unset must not fall through to a stored key,
+  // an official provider key, or the setup wizard (including on a TTY).
+  if (resolvedConfig.apiKeyEnvUnset && resolvedConfig.apiKeyEnv) {
+    console.error(formatUnsetApiKeyEnv(resolvedConfig.apiKeyEnv));
+    process.exit(ExitCode.CONFIG);
+  }
   if (loadedConfig.blockedProjectBaseUrl) {
     console.error(
       chrome(
@@ -558,6 +591,16 @@ async function main() {
     );
     process.exit(ExitCode.CONFIG);
   }
+  if (resolvedConfig.envProviderCandidates && resolvedConfig.envProviderCandidates.length > 1) {
+    console.error(
+      mossLine('[moss] Multiple provider keys are set: {names}.', {
+        names: resolvedConfig.envProviderCandidates.join(', '),
+      })
+    );
+    console.error(mossLine('[moss] Pass --provider <name> to choose one.'));
+    process.exit(ExitCode.CONFIG);
+  }
+  if (resolvedConfig.autoEnvNotice) console.error(resolvedConfig.autoEnvNotice);
   // Model settings are config-only (decision 2026-06). Say so once when a
   // leftover provider env var is present, instead of silently ignoring it —
   // doctor shows the same list as a structured `env ignored` line.
@@ -596,10 +639,10 @@ async function main() {
   // over unless a flag already set it above.
   if (parsedArgs.interactionModeOverride || startupMode !== 'manual') {
     setCliInteractionMode(startupMode);
-    if (cliDetailForNotices !== 'quiet') {
-      console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));
-    }
   }
+  // O72: the resolved mode is printed on every start (stderr), including -p
+  // and --quiet, so a user can always tell whether Moss will ask first.
+  console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));
   // Once per config dir. Doctor still reports the condition on every run.
   if (cliDetailForNotices !== 'quiet' && shouldShowFullDefaultNotice(resolvedConfig)) {
     printWrappedNotice(formatFullModeNotice());
@@ -648,11 +691,15 @@ async function main() {
   // let the shell's overlay do the choosing (A12.88).
   const interactiveTty =
     Boolean(process.stdout.isTTY) && process.env.MOSS_NO_TUI !== '1' && !parsedArgs.print;
-  const resumeInteractive =
-    parsedArgs.command === 'resume' &&
-    parsedArgs.sessionKey === undefined &&
-    !parsedArgs.continueLast &&
-    interactiveTty;
+  const resumeInteractive = shouldOpenResumePicker({
+    command: parsedArgs.command,
+    sessionKey: parsedArgs.sessionKey,
+    sessionLast: parsedArgs.sessionLast,
+    continueLast: parsedArgs.continueLast,
+    print: parsedArgs.print,
+    stdoutIsTTY: Boolean(process.stdout.isTTY),
+    noTui: process.env.MOSS_NO_TUI === '1',
+  });
   const sessionCommand: 'chat' | 'resume' | 'fork' =
     parsedArgs.command === 'resume' || parsedArgs.command === 'fork'
       ? resumeInteractive
@@ -671,9 +718,17 @@ async function main() {
     const existing = await earlySessionStore.listSessions().catch(() => []);
     if (existing.length === 0) {
       console.error(
-        `[session] No saved sessions to ${parsedArgs.command} in this workspace (${workspace}).`
+        uiText(
+          `[session] No saved sessions to ${parsedArgs.command} in this workspace (${workspace}).`,
+          `[会话] 此工作区没有可${parsedArgs.command === 'fork' ? '分叉' : '恢复'}的已保存会话（${workspace}）。`
+        )
       );
-      console.error('[session] Start one with `moss`, then use `moss resume --last`.');
+      console.error(
+        uiText(
+          '[session] Start one with `moss`, then use `moss resume --last`.',
+          '[会话] 先运行 `moss` 开始会话，再用 `moss resume --last`。'
+        )
+      );
       process.exit(ExitCode.SESSION);
     }
   }
@@ -1017,7 +1072,9 @@ async function main() {
   await registerBuiltinTools(agent);
   // Device targets resolve host > env > .moss/devices.json (registered via
   // `moss device add`); declaring the workspace turns the registry tier on.
-  configureDeviceWorkspace(workspace);
+  // A project's .moss/devices.json picks a host and an env var whose value is
+  // sent as the SSH password, so it waits for trust like project routing.
+  configureDeviceWorkspace(startup.trusted ? workspace : null);
   const useTui =
     Boolean(process.stdout.isTTY) && process.env.MOSS_NO_TUI !== '1' && !parsedArgs.print;
   const pendingTuiNotices: string[] = [];
@@ -1040,12 +1097,17 @@ async function main() {
     const summary = summarizeTrustItems(projectCapabilities.skipped, isZhLocale());
     const parts = [
       ...(loadedConfig.ignoredProjectRouting ?? []),
+      ...(loadedConfig.droppedProjectPermissions ?? []),
       ...startup.ignoredRoutingEnv,
+      ...(loadDeviceRegistry(workspace).length > 0 ? ['.moss/devices.json'] : []),
       ...(summary ? [summary] : []),
     ];
     const line = untrustedFolderLine(parts, isZhLocale());
-    if (useTui) emitTuiNotice(line);
-    else console.error(line);
+    // O72: once per folder (and again only if the skipped list changes).
+    if (shouldShowUntrustedFolderNotice(startup.folderKey, line)) {
+      if (useTui) emitTuiNotice(line);
+      else console.error(line);
+    }
   } else if (startup.ignoredRoutingEnv.length > 0) {
     const line = ancestorRoutingIgnoredLine(
       startup.ignoredRoutingEnv,
@@ -1054,6 +1116,17 @@ async function main() {
     );
     if (useTui) emitTuiNotice(line);
     else console.error(line);
+  }
+  deliverDotenvSafetyEnvNotices(useTui, emitTuiNotice);
+  {
+    const withheld = projectDeviceHostWithholdsPassword();
+    if (withheld) {
+      const line = isZhLocale()
+        ? `[moss] MOSS_DEVICE_HOST 来自项目 .env（${withheld}），不会把你自己的 MOSS_DEVICE_PASSWORD 发给它。请把该板子的密码写进同一个 .env，或在 ~/.env / moss device add 里指定主机。`
+        : `[moss] MOSS_DEVICE_HOST comes from a project .env (${withheld}); your own MOSS_DEVICE_PASSWORD is not sent to it. Put that board's password in the same .env, or name the host in ~/.env or with moss device add.`;
+      if (useTui) emitTuiNotice(line);
+      else console.error(line);
+    }
   }
   // v0.16 MCP client: connect servers declared in `.moss/mcp.json` /
   // `<configDir>/mcp.json` (credentials only via ${ENV_VAR} expansion).
@@ -1107,8 +1180,8 @@ async function main() {
       mcpRegistry = McpToolRegistry.connectInBackground(mcpConfigs, {
         // Real MCP tools register on demand: the search meta-tool installs
         // them into the live registry when the model asks for a server's list.
-        // Per-server timeouts (rdk-docs: connect 45s, request 20s) live on the
-        // config; other servers keep the client defaults.
+        // Per-server timeouts (rdk-docs lazy connect: 15s, request 20s) live
+        // on the config; other servers keep the client defaults.
         registerTool: (tool) => agent.tools.register(tool),
         onStatusChange: (status) => {
           refreshMcpPromptLayer();
@@ -1124,6 +1197,20 @@ async function main() {
         },
       });
       for (const searchTool of mcpRegistry.getTools()) agent.tools.register(searchTool);
+      // setTimeout(0) still starts npx immediately each session. It does not
+      // wait for the first question. The timer is unref'd so a failed warm
+      // does not hold the process open by itself.
+      // O87: under HTTPS_PROXY/HTTP_PROXY, skip the eager warm so npx registry
+      // CONNECTs do not contend with the first model request on a narrow
+      // reverse tunnel (board: MCP-on FAIL / MOSS_NO_RDK_DOCS=1 PASS).
+      // First rdk-docs tool call still starts the server.
+      const warming = mcpRegistry;
+      if (shouldEagerWarmRdkDocs(process.env)) {
+        const warmTimer = setTimeout(() => {
+          warming.startDeferred(RDK_DOCS_SERVER_NAME);
+        }, 0);
+        if (typeof warmTimer.unref === 'function') warmTimer.unref();
+      }
       // Lazy-loading budget: the system prompt gets one index line per server,
       // never the tool list itself. The rdk-docs usage pointer sits on that
       // server's line; a failed connect gets only the unavailable sentence.
@@ -1268,7 +1355,7 @@ async function main() {
           // Also re-derive maxTokens from the freshly-probed context window,
           // but only if the user didn't pin agent.maxOutputTokens explicitly.
           if (resolvedConfig.maxOutputTokens === undefined) {
-            const derived = deriveMaxOutputTokens(probed.contextTokens);
+            const derived = deriveMaxOutputTokens(probed.contextTokens, resolvedConfig.model);
             if (derived) agent.config.maxTokens = derived;
           }
         }
@@ -1680,12 +1767,15 @@ async function main() {
         },
         listMcpServers: () =>
           mcpRegistry
-            ? mcpRegistry.getStatuses().map((s) => ({
-                name: s.name,
-                state: s.state,
-                ...(s.toolCount !== undefined ? { toolCount: s.toolCount } : {}),
-                ...(s.error ? { error: s.error } : {}),
-              }))
+            ? mcpRegistry
+                .getStatuses()
+                .filter((s) => s.state !== 'deferred')
+                .map((s) => ({
+                  name: s.name,
+                  state: s.state,
+                  ...(s.toolCount !== undefined ? { toolCount: s.toolCount } : {}),
+                  ...(s.error ? { error: s.error } : {}),
+                }))
             : [],
         onMcpUiReady: () => {
           announceMcpStatus = true;
@@ -1718,6 +1808,9 @@ async function main() {
     }
   } finally {
     try {
+      // O70: exec_start children are detached with piped stdout/stderr; left
+      // running they hold the event loop open and `moss -p` never returns.
+      stopAllBackgroundProcesses();
       await agent.close();
       await disconnectAllDevices();
     } finally {
@@ -1737,6 +1830,8 @@ async function main() {
       } catch {
         /* shutdown hooks never block exit */
       }
+      // O70: whatever still lingers after cleanup must not hang a one-shot run.
+      if (parsedArgs.print || oneShotMessage) armExitGuard();
     }
   }
 }

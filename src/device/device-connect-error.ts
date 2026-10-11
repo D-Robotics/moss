@@ -6,6 +6,7 @@
  * locale is unset or C/POSIX. This file does not import the CLI dictionary.
  */
 import { uiText } from '../utils/ui-language.js';
+import { projectDeviceHostWithholdsPassword } from './device-target.js';
 
 export type DeviceConnectKind =
   | 'refused'
@@ -100,7 +101,17 @@ export function formatDeviceConnectError(args: {
           '确认这台机器仍是你的开发板，然后更新 known_hosts。不要把密钥贴进对话。'
         ),
       };
-    case 'credentials':
+    case 'credentials': {
+      const withheld = projectDeviceHostWithholdsPassword();
+      if (withheld) {
+        return {
+          message: uiText(`No credentials are configured for ${where}.`, `${where} 没有配置凭据。`),
+          hint: uiText(
+            `MOSS_DEVICE_HOST comes from a project .env (${withheld}), so your own MOSS_DEVICE_PASSWORD is not sent to it. Put that board's password in the same .env, or name the host in ~/.env or with \`moss device add\`. Do not paste a password or key into the chat.`,
+            `MOSS_DEVICE_HOST 来自项目 .env（${withheld}），所以不会把你自己的 MOSS_DEVICE_PASSWORD 发给它。请把该板子的密码写进同一个 .env，或在 ~/.env / \`moss device add\` 里指定主机。不要把密码或密钥贴进对话。`
+          ),
+        };
+      }
       return {
         message: uiText(`No credentials are configured for ${where}.`, `${where} 没有配置凭据。`),
         hint: uiText(
@@ -108,6 +119,7 @@ export function formatDeviceConnectError(args: {
           '用 `moss device add`，或设置 `MOSS_DEVICE_PASSWORD` / `MOSS_DEVICE_KEY`。不要把密码或密钥贴进对话。'
         ),
       };
+    }
     default:
       return {
         message: uiText(

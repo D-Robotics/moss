@@ -81,6 +81,7 @@ export const askUserQuestionTool: Tool = {
   metadata: {
     sideEffectClass: 'runtime_state',
     planMode: 'allow',
+    retainResult: true,
     requiresUserQuestion: true,
   },
   inputSchema: {

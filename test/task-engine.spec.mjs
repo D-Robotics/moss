@@ -486,10 +486,11 @@ test('full chain: fail → repair → reverify → accepted, driven only by evid
   assert.match(summary, /Acceptance passed/);
 
   // v0.25: locale-aware summary. Labels follow the caller's locale and match
-  // formatTaskStatus's wording; the outcome token, task id and verdict body
-  // stay verbatim. Default (no locale) stays English for SDK callers.
+  // formatTaskStatus's wording, and so does the outcome word (通过/失败/阻塞/
+  // 已中止). The task id and verdict body stay verbatim. Default (no locale)
+  // stays English for SDK callers.
   const zhSummary = summarizeTaskRun(result, 'zh_CN.UTF-8');
-  assert.match(zhSummary, /任务 task_\S+ — PASS/);
+  assert.match(zhSummary, /任务 task_\S+ — 通过/);
   assert.match(zhSummary, /目标：camera FPS >=30 on device/);
   assert.match(zhSummary, /尝试：2 · 修复：1 · 失败：1/);
   assert.match(zhSummary, /最终裁决：/);

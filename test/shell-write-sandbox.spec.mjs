@@ -14,9 +14,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtempSync, existsSync, rmSync } from 'node:fs';
+import { describeCliToolApproval } from '../dist/cli/approval.js';
 import {
   extractShellWriteTargets,
   findShellWriteEscape,
+  shellCommandHasOpaqueWrite,
 } from '../dist/safety/shell-write-sandbox.js';
 import { execTool } from '../dist/tools/builtin.js';
 
@@ -55,6 +57,15 @@ test('extractor: write-tool operands', () => {
   assert.ok(extractShellWriteTargets(`rm ${outside}/file`).includes(`${outside}/file`));
   assert.ok(extractShellWriteTargets(`sed -i s/a/b/ ${outside}/f`).includes(`${outside}/f`));
   assert.ok(extractShellWriteTargets(`truncate -s 0 ${outside}/log`).includes(`${outside}/log`));
+  assert.ok(extractShellWriteTargets(`Remove-Item ${outside}/file`).includes(`${outside}/file`));
+  assert.ok(
+    extractShellWriteTargets(`Set-Content -Path ${outside}/a.txt -Value hi`).includes(
+      `${outside}/a.txt`
+    )
+  );
+  assert.ok(
+    extractShellWriteTargets(`Out-File -FilePath ${outside}/b.txt`).includes(`${outside}/b.txt`)
+  );
   // sed WITHOUT -i reads only
   assert.deepEqual(extractShellWriteTargets(`sed s/a/b/ ${outside}/f`), []);
 });
@@ -66,6 +77,43 @@ test('extractor: windows drive-letter targets are not remote-ish', () => {
   assert.ok(extractShellWriteTargets(`mv a ${mixed}`).includes(mixed));
   // true scp-style remotes stay out of scope
   assert.deepEqual(extractShellWriteTargets('rsync a host:/srv/x'), []);
+});
+
+test('extractor: powershell and cmd write aliases', () => {
+  const file = `${outside}/a.txt`;
+  for (const command of [
+    `del ${file}`,
+    `erase ${file}`,
+    `rd ${file}`,
+    `sc ${file}`,
+    `ac ${file}`,
+    `clc ${file}`,
+    `New-Item -Path ${file} -ItemType File`,
+    `ni ${file}`,
+    `md ${file}`,
+    `Copy-Item src ${file}`,
+    `copy src ${file}`,
+    `cpi -Path src -Destination ${file}`,
+    `Move-Item src ${file}`,
+    `move src ${file}`,
+    `mi src -Destination ${file}`,
+    `Rename-Item src ${file}`,
+    `ren src ${file}`,
+    `Set-Item -Path ${file} -Value x`,
+    `Tee-Object -FilePath ${file}`,
+    `Export-Csv -Path ${file}`,
+    `Invoke-WebRequest -OutFile ${file} https://example.com`,
+    `Expand-Archive -Path zip -DestinationPath ${file}`,
+    `Set-Content -Path:${file} -Value hi`,
+    `Out-File -FilePath:${file}`,
+  ]) {
+    assert.ok(extractShellWriteTargets(command).includes(file), command);
+  }
+  assert.ok(extractShellWriteTargets(`cmd *> ${file}`).includes(file));
+  assert.ok(extractShellWriteTargets(`cmd 3> ${file}`).includes(file));
+  assert.ok(extractShellWriteTargets(`cmd 10> ${file}`).includes(file));
+  // unix curl -o is not PowerShell -OutFile
+  assert.deepEqual(extractShellWriteTargets(`curl -o ${file} https://example.com`), []);
 });
 
 // ─── escape battery via the probe (must all be BLOCKED) ─────────────────────
@@ -90,6 +138,24 @@ const escapes = [
   ['process substitution', `echo x > >(tee ${outside}/ps.txt)`],
   ['env-var target', `echo x > $HOME/.moss-escape-canary`],
   ['chained after &&', `echo ok > inside-ok.txt && printf y > ${outside}/chain.txt`],
+  ['ps all streams *>', `cmd *> ${outside}/star.txt`],
+  ['ps fd 3>', `cmd 3> ${outside}/fd3.txt`],
+  ['del alias', `del ${outside}/del.txt`],
+  ['erase alias', `erase ${outside}/erase.txt`],
+  ['rd alias', `rd /s /q ${outside}/rd-dir`],
+  ['New-Item', `New-Item -ItemType File -Path ${outside}/ni.txt`],
+  ['Copy-Item -Destination', `Copy-Item ./a.txt -Destination ${outside}/cpi.txt`],
+  ['colon -Path:', `Set-Content -Path:${outside}/colon.txt -Value hi`],
+  ['Tee-Object -FilePath', `Tee-Object -FilePath ${outside}/tee.txt`],
+  ['Export-Csv', `Export-Csv -Path ${outside}/rows.csv`],
+  ['Invoke-WebRequest -OutFile', `iwr https://example.com -OutFile ${outside}/page.html`],
+  [
+    'Expand-Archive -DestinationPath',
+    `Expand-Archive zip.zip -DestinationPath ${outside}/unpacked`,
+  ],
+  ['Move-Item', `Move-Item ./a.txt ${outside}/moved.txt`],
+  ['Rename-Item', `ren ./a.txt ${outside}/renamed.txt`],
+  ['Set-Item', `si -LiteralPath ${outside}/item.txt`],
 ];
 
 for (const [name, command] of escapes) {
@@ -124,6 +190,67 @@ for (const [name, command] of benign) {
 }
 
 // ─── symlink pivot: write through an in-workspace symlink pointing outside ──
+
+test('escape blocked: $env:NAME is not a relative path', async () => {
+  const previous = process.env.MOSS_SBX_OUT;
+  process.env.MOSS_SBX_OUT = outside;
+  try {
+    const command = `Set-Content -Path $env:MOSS_SBX_OUT\\canary.txt -Value hi`;
+    assert.ok(
+      extractShellWriteTargets(command).some((target) => target.includes('$env:MOSS_SBX_OUT'))
+    );
+    const violation = await findShellWriteEscape(command, { cwd: ws, roots: [ws] });
+    assert.ok(violation, 'expanded $env: path outside the workspace must be blocked');
+  } finally {
+    if (previous === undefined) delete process.env.MOSS_SBX_OUT;
+    else process.env.MOSS_SBX_OUT = previous;
+  }
+});
+
+test('opaque powershell writes need approval and are not sandbox-parsed', async () => {
+  const hidden = `iex "Remove-Item '${outside}/hidden.txt'"`;
+  assert.equal(shellCommandHasOpaqueWrite(hidden), true);
+  assert.equal(shellCommandHasOpaqueWrite(`pwsh -EncodedCommand SQBuAHY=`), true);
+  assert.equal(
+    shellCommandHasOpaqueWrite(`pwsh -NoProfile -Command "Remove-Item '${outside}/x'"`),
+    true
+  );
+  assert.equal(shellCommandHasOpaqueWrite('Start-Process notepad'), true);
+  assert.equal(shellCommandHasOpaqueWrite(`[IO.File]::WriteAllText('${outside}/x','hi')`), true);
+  assert.equal(shellCommandHasOpaqueWrite(`python -c "open('${outside}/x','w')"`), false);
+  assert.equal(await findShellWriteEscape(hidden, { cwd: ws, roots: [ws] }), null);
+
+  const python = describeCliToolApproval(
+    { tool: execTool, input: { command: `python -c "open('${outside}/x','w')"` } },
+    'workspace-write',
+    {},
+    {}
+  );
+  for (const command of [
+    hidden,
+    `Invoke-Expression "Set-Content ${outside}/x hi"`,
+    'pwsh -EncodedCommand SQBuAHY=',
+    `powershell -Command "Remove-Item ${outside}/x"`,
+  ]) {
+    const preview = describeCliToolApproval(
+      { tool: execTool, input: { command } },
+      'workspace-write',
+      {},
+      {}
+    );
+    assert.equal(preview.requiresApproval, true, command);
+    assert.equal(preview.autoApproved, false, command);
+    assert.equal(preview.sideEffect, 'local_write', command);
+    assert.equal(preview.sideEffect, python.sideEffect, command);
+  }
+  const listed = describeCliToolApproval(
+    { tool: execTool, input: { command: 'ls' } },
+    'workspace-write',
+    {},
+    {}
+  );
+  assert.equal(listed.requiresApproval, false);
+});
 
 test('symlink pivot blocked by realpath defense', async () => {
   const link = path.join(ws, 'pivot-link');

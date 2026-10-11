@@ -19,6 +19,8 @@ import {
   isTuiZh,
   isUserAbortErrorText,
   localizeAbortActor,
+  OUTPUT_CONTINUATION_NOTICE,
+  OUTPUT_LIMIT_EXHAUSTED_NOTICE,
   tui,
 } from './copy.js';
 import { nextStreamCommit } from './stream-commit.js';
@@ -517,6 +519,21 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       // An assistant turn that ends without a tool call is a finished message.
       // Commit its prose now: the next turn's text must start its own row (N7).
       flushProse(store);
+      break;
+    }
+    case 'output_continuation': {
+      store.run.retry = undefined;
+      appendRow(
+        store,
+        'summary',
+        event.exhausted
+          ? tui(OUTPUT_LIMIT_EXHAUSTED_NOTICE, { max: event.maxAttempts })
+          : tui(OUTPUT_CONTINUATION_NOTICE, {
+              attempt: event.attempt,
+              max: event.maxAttempts,
+            })
+      );
+      store.version++;
       break;
     }
     case 'turn_start': {

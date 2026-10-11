@@ -40,7 +40,7 @@ assert.equal(
 );
 assert.equal(
   WORKSPACE_WRITE_LIMIT_ZH,
-  'workspace-write 只约束 Moss 自己的文件工具。shell 命令照常运行，没有操作系统沙箱。'
+  '`workspace-write` 只约束 Moss 自己的文件工具。终端命令照常运行，没有操作系统沙箱。'
 );
 
 const runtime = {
@@ -119,12 +119,12 @@ const runtime = {
 
 {
   assert.ok(
-    formatFullModeNotice('en_US.UTF-8').includes(WORKSPACE_WRITE_LIMIT_EN),
-    'startup notice (en) states the limit'
+    formatFullModeNotice('en_US.UTF-8').includes('without asking'),
+    'startup notice (en) states that full mode does not ask (O72, copy-audit 1.9)'
   );
   assert.ok(
-    formatFullModeNotice('zh_CN.UTF-8').includes(WORKSPACE_WRITE_LIMIT_ZH),
-    'startup notice (zh) states the limit'
+    formatFullModeNotice('zh_CN.UTF-8').includes('不逐条询问'),
+    'startup notice (zh) states that full mode does not ask (O72, copy-audit 1.9)'
   );
   const wrapped = wrapNoticeLines(formatFullModeNotice('C'), 60);
   assert.ok(wrapped.length > 1, 'a 60-column safety notice wraps');
@@ -188,16 +188,16 @@ const runtime = {
       .map((entry) => entry.text)
       .join('\n');
     assert.ok(
-      zhPanel.includes('workspace-write 只约束 Moss 自己的文件工具。'),
+      zhPanel.includes('`workspace-write` 只约束 Moss 自己的文件工具。'),
       '/permissions panel localizes the file-tool limit'
     );
     assert.ok(
-      zhPanel.includes('shell 命令照常运行，没有操作系统沙箱。'),
+      zhPanel.includes('终端命令照常运行，没有操作系统沙箱。'),
       '/permissions panel localizes the shell limit'
     );
     assert.equal(
       tui("  workspace-write confines Moss's own file tools."),
-      '  workspace-write 只约束 Moss 自己的文件工具。'
+      '  `workspace-write` 只约束 Moss 自己的文件工具。'
     );
     assert.equal(
       tui(WORKSPACE_WRITE_LIMIT_EN),

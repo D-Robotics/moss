@@ -119,13 +119,58 @@ function hasUnescapedQuote(line: string, quote: string): boolean {
 const OPEN_QUOTED_SECRET = new RegExp(`(?:${SECRET_FIELD_SOURCE})\\s*[:=]\\s*(['"])`, 'gi');
 
 /**
- * A quoted secret that is still open at the end of its line, with a closer
- * on a more-indented line within the next three lines. Each of those lines
- * becomes `[REDACTED]` so the line count stays put. A quote that merely
- * closes a string around the key is not an opening quote.
+ * Line-number prefix in front of the text we measure. `     12\t` is
+ * read_file / cat -n, `12:` / `12-` is grep -n -A, and `path:12:` /
+ * `path-12-` is grep -rn -A. The number is the capture we compare.
  */
-export function maskIndentedQuoteContinuations(text: string): string {
+const LINE_GUTTER = /^(?:(\s*(\d+)\t)|((\d+)[:-])|(\S+?[:-](\d+)[:-]))/;
+
+/** A new assignment. In strict mode it ends a folded value. */
+const STRICT_ENTRY = /^\s*(?:export\s+)?[A-Za-z_][\w.-]*\s*[=:]/;
+
+interface GutterSplit {
+  gutter: string;
+  body: string;
+  lineNo: number | undefined;
+}
+
+function splitGutter(line: string): GutterSplit {
+  const match = LINE_GUTTER.exec(line);
+  if (!match) return { gutter: '', body: line, lineNo: undefined };
+  const gutter = match[1] || match[3] || match[5] || '';
+  const rawNo = match[2] ?? match[4] ?? match[6];
+  return {
+    gutter,
+    body: line.slice(gutter.length),
+    lineNo: rawNo === undefined ? undefined : Number(rawNo),
+  };
+}
+
+export interface QuoteContinuationOptions {
+  /**
+   * Credential files. A continuation need not be indented further. A new
+   * `KEY=` / `export KEY=` line stops the fold. At most three lines, and the
+   * closing quote is still required.
+   */
+  strict?: boolean;
+}
+
+/**
+ * A quoted secret that is still open at the end of its line, with a closer
+ * within the next three lines. Each of those lines becomes `[REDACTED]` and
+ * keeps its gutter, so the line count stays put. Indent and the closer are
+ * read from the body after the gutter; a line-number prefix would hide a
+ * deeper indent. A continuation's number must be the key line's number plus
+ * its distance. A quote that merely closes a string around the key is not an
+ * opening quote. Normal mode still requires a deeper indent, so an unindented
+ * continuation that looks like code stays visible.
+ */
+export function maskIndentedQuoteContinuations(
+  text: string,
+  options?: QuoteContinuationOptions
+): string {
   if (!text.includes('\n')) return text;
+  const strict = options?.strict === true;
   const lines = text.split('\n');
   const starts: number[] = [];
   let offset = 0;
@@ -138,37 +183,47 @@ export function maskIndentedQuoteContinuations(text: string): string {
     if (masked.has(i)) continue;
     const line = lines[i] ?? '';
     const lineStart = starts[i] ?? 0;
+    const split = splitGutter(line);
     OPEN_QUOTED_SECRET.lastIndex = 0;
     let openQuote: string | undefined;
     let quoteAt = -1;
-    for (const match of line.matchAll(OPEN_QUOTED_SECRET)) {
+    for (const match of split.body.matchAll(OPEN_QUOTED_SECRET)) {
       const local = (match.index ?? 0) + match[0].length - 1;
-      const abs = lineStart + local;
-      if (!quoteOpensValue(text, abs) || closesOnLine(line, local)) continue;
-      const rest = line.slice(local + 1).trim();
+      const abs = lineStart + split.gutter.length + local;
+      if (!quoteOpensValue(text, abs) || closesOnLine(split.body, local)) continue;
+      const rest = split.body.slice(local + 1).trim();
       if (!rest || rest.startsWith('${') || rest.startsWith('$') || rest.startsWith('<')) continue;
-      openQuote = line[local];
+      openQuote = split.body[local];
       quoteAt = local;
       break;
     }
     if (!openQuote || quoteAt < 0) continue;
-    const keyIndent = leadingIndent(line);
+    const keyIndent = leadingIndent(split.body);
+    const keyNo = split.lineNo;
     const follow: number[] = [];
     let closed = false;
     for (let j = 1; j <= 3 && i + j < lines.length; j += 1) {
       const next = lines[i + j] ?? '';
-      if (next.trim() === '') continue;
-      if (leadingIndent(next) <= keyIndent) break;
+      const nextSplit = splitGutter(next);
+      if (keyNo !== undefined) {
+        if (nextSplit.lineNo !== keyNo + j) break;
+      } else if (nextSplit.lineNo !== undefined) {
+        break;
+      }
+      if (nextSplit.body.trim() === '') continue;
+      if (strict && STRICT_ENTRY.test(nextSplit.body)) break;
+      if (!strict && leadingIndent(nextSplit.body) <= keyIndent) break;
       follow.push(i + j);
-      if (hasUnescapedQuote(next, openQuote)) {
+      if (hasUnescapedQuote(nextSplit.body, openQuote)) {
         closed = true;
         break;
       }
     }
     if (!closed) continue;
     for (const idx of follow) {
-      const indent = (lines[idx] ?? '').match(/^[ \t]*/)?.[0] ?? '';
-      lines[idx] = `${indent}${REDACTED}`;
+      const parts = splitGutter(lines[idx] ?? '');
+      const indent = parts.body.match(/^[ \t]*/)?.[0] ?? '';
+      lines[idx] = `${parts.gutter}${indent}${REDACTED}`;
       masked.add(idx);
     }
   }

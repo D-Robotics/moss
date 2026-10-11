@@ -365,7 +365,9 @@ export function applyPreciseEditToContent(
       if (idx === -1) break;
       out.push({ start: idx, end: idx + needle.length });
       pos = idx + needle.length;
-      if (!request.replaceAll) break;
+      // One hit is not enough to know the match is unique. Stop at two so the
+      // not-unique error fires instead of silently editing the first match.
+      if (!request.replaceAll && out.length >= 2) break;
     }
     return out;
   };
@@ -389,6 +391,41 @@ export function applyPreciseEditToContent(
     if (tw.length > 0) {
       ranges = tw;
       matchMode = 'trailing-ws';
+    }
+  }
+
+  // No hit on the original bytes. Match an LF view (so `\n` in old_string
+  // finds `\r\n` in the file) and splice only that original span.
+  if (ranges.length === 0 && (content.includes('\r\n') || oldStr.includes('\r\n'))) {
+    const view = projectCrLf(content);
+    const oldLf = oldStr.replace(/\r\n/g, '\n');
+    if (view.lf !== content || oldLf !== oldStr) {
+      let lfRanges = collectSubstringRanges(view.lf, oldLf);
+      let lfMode: PreciseEditMatchMode = 'exact';
+      if (lfRanges.length === 0) {
+        const normContent = normalizeEditQuotes(view.lf);
+        const normOld = normalizeEditQuotes(oldLf);
+        if (normContent !== view.lf || normOld !== oldLf) {
+          const normRanges = collectSubstringRanges(normContent, normOld);
+          if (normRanges.length > 0) {
+            lfRanges = normRanges;
+            lfMode = 'quotes';
+          }
+        }
+      }
+      if (lfRanges.length === 0) {
+        const tw = findTrailingWsMatches(view.lf, oldLf, Boolean(request.replaceAll));
+        if (tw.length > 0) {
+          lfRanges = tw;
+          lfMode = 'trailing-ws';
+        }
+      }
+      if (lfRanges.length > 0) {
+        ranges = lfRanges.map((range) =>
+          originalRange(view.starts, content.length, range.start, range.end)
+        );
+        matchMode = lfMode;
+      }
     }
   }
 
@@ -421,9 +458,83 @@ export function applyPreciseEditToContent(
   const ordered = [...ranges].sort((a, b) => b.start - a.start);
   let updated = content;
   for (const r of ordered) {
-    updated = updated.slice(0, r.start) + newStr + updated.slice(r.end);
+    const inserted = withSpanEnding(newStr, replacementEnding(content, r.start, r.end));
+    updated = updated.slice(0, r.start) + inserted + updated.slice(r.end);
   }
   return { ok: true, content: updated, occurrences: ranges.length, matchMode };
+}
+
+/** Map `\r\n` to one `\n`. `starts[i]` is the original offset where `lf[i]` begins. */
+function projectCrLf(content: string): { lf: string; starts: number[] } {
+  const starts: number[] = [];
+  let lf = '';
+  for (let i = 0; i < content.length; i += 1) {
+    starts.push(i);
+    if (content[i] === '\r' && content[i + 1] === '\n') {
+      lf += '\n';
+      i += 1;
+    } else {
+      lf += content[i] ?? '';
+    }
+  }
+  return { lf, starts };
+}
+
+function originalRange(
+  starts: number[],
+  contentLength: number,
+  start: number,
+  end: number
+): { start: number; end: number } {
+  return {
+    start: starts[start] ?? contentLength,
+    end: end >= starts.length ? contentLength : (starts[end] ?? contentLength),
+  };
+}
+
+function lineEndingForSpan(span: string): '\n' | '\r\n' | null {
+  let crlf = 0;
+  let lf = 0;
+  for (let i = 0; i < span.length; i += 1) {
+    if (span[i] === '\r' && span[i + 1] === '\n') {
+      crlf += 1;
+      i += 1;
+    } else if (span[i] === '\n') {
+      lf += 1;
+    }
+  }
+  if (crlf === 0 && lf === 0) return null;
+  return crlf >= lf ? '\r\n' : '\n';
+}
+
+/** EOL of the line that contains `index` (the break after that line, if any). */
+function lineEndingOfLine(content: string, index: number): '\n' | '\r\n' | null {
+  let lineStart = 0;
+  for (let i = index - 1; i >= 0; i -= 1) {
+    if (content[i] === '\n') {
+      lineStart = i + 1;
+      break;
+    }
+  }
+  for (let i = lineStart; i < content.length; i += 1) {
+    if (content[i] === '\r' && content[i + 1] === '\n') return '\r\n';
+    if (content[i] === '\n') return '\n';
+  }
+  return null;
+}
+
+/**
+ * Ending the replacement must use. Majority inside the matched span when the
+ * span itself contains newlines; otherwise the ending of the line it sits on.
+ */
+function replacementEnding(content: string, start: number, end: number): '\n' | '\r\n' | null {
+  return lineEndingForSpan(content.slice(start, end)) ?? lineEndingOfLine(content, start);
+}
+
+function withSpanEnding(text: string, ending: '\n' | '\r\n' | null): string {
+  if (ending === '\r\n') return text.replace(/\r?\n/g, '\r\n');
+  if (ending === '\n') return text.replace(/\r\n/g, '\n');
+  return text;
 }
 
 export const editFileTool: Tool = {

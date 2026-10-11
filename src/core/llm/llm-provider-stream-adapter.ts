@@ -20,6 +20,7 @@ import type {
   LLMToolDeclaration,
 } from './llm-provider.js';
 import { describeError } from '../../provider/errors.js';
+import { isOutputLimitStopReason } from '../../provider/output-limit.js';
 import { isMossError, mossErrorToOutcome } from '../../errors.js';
 import { createAssistantMessageEventStream } from '../../provider/event-stream.js';
 import {
@@ -120,7 +121,7 @@ function mapStopReason(reason: LLMResponse['stopReason']): AssistantMessage['sto
   if (String(reason) === 'error') return 'error';
   if (String(reason) === 'aborted') return 'aborted';
   if (reason === 'tool_use') return 'toolUse';
-  if (reason === 'max_tokens') return 'length';
+  if (isOutputLimitStopReason(reason)) return 'length';
   return 'stop';
 }
 

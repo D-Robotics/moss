@@ -19,6 +19,7 @@ import type { PiAiStreamFunction, PiAiStreamEvent } from './pi-ai-adapter.js';
 import type { Context as PiContext, Model as PiModel, SimpleStreamOptions } from './pi-ai-types.js';
 import { buildApiV1Url } from './api-v1-url.js';
 import { fetchWithConnectionContext } from './connection-error.js';
+import { providerStopSignal } from './output-limit.js';
 import { ErrorCode, errorMessage, MossError } from '../errors.js';
 
 /**
@@ -522,8 +523,9 @@ function enhanceOpenAIHttpError(config: HttpTransportConfig, status: number, tex
 }
 
 function mapOpenAiFinishReason(reason: string | null | undefined): string {
-  if (reason === 'tool_calls') return 'toolCall';
-  if (reason === 'length') return 'length';
+  const signal = providerStopSignal(reason);
+  if (signal === 'tool_use') return 'toolCall';
+  if (signal === 'length') return 'length';
   return 'stop';
 }
 
@@ -811,8 +813,9 @@ interface AnthropicSseEvent {
 }
 
 function mapAnthropicStopReason(reason: string | undefined): string {
-  if (reason === 'tool_use') return 'toolCall';
-  if (reason === 'max_tokens') return 'length';
+  const signal = providerStopSignal(reason);
+  if (signal === 'tool_use') return 'toolCall';
+  if (signal === 'length') return 'length';
   return 'stop';
 }
 

@@ -174,6 +174,13 @@ export interface ToolMetadata {
   transientRetry?: boolean;
 
   /**
+   * Keep this tool's results in full when older results are folded.
+   * Errors, unfinished checklists, user answers, and subagent conclusions
+   * are not recoverable from a head/tail stub.
+   */
+  retainResult?: boolean;
+
+  /**
    * The tool needs a user-question asker. Hidden when the run has none
    * (headless `-p`). Kept when the agent, a process asker on a TTY, or
    * `hooks.enrichToolContext` supplies one. The name is not the signal.

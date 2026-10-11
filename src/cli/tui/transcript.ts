@@ -976,7 +976,11 @@ export function renderRunSummary(
   // The local wall-clock stamp (`done 1:23 AM`) is how the reference answers
   // "when did this actually finish" for a run the user watched scroll away.
   const doneAt = tui(' · done {time}', {
-    time: now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+    time: now.toLocaleTimeString(isTuiZh() ? 'en-GB' : [], {
+      hour: isTuiZh() ? '2-digit' : 'numeric',
+      minute: '2-digit',
+      ...(isTuiZh() ? { hourCycle: 'h23' as const } : {}),
+    }),
   });
   const text = halted
     ? tui('✻ {verb} for {seconds}s · interrupted', { verb, seconds })
@@ -1143,7 +1147,7 @@ export function renderApproval(
   );
   const headLines: TuiLine[] = [
     line(rule(width)),
-    line(clip(` ${view.title}`, width), { bold: true }),
+    line(clip(` ${tui(view.title)}`, width), { bold: true }),
     ...(view.subject ? [line(clip(` ${view.subject}`, width), { color: TONE.accent })] : []),
   ];
 

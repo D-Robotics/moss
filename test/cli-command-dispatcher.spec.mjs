@@ -19,6 +19,7 @@ const expectedPhases = {
   setup: CliPhase.None,
   trust: CliPhase.None,
   update: CliPhase.None,
+  uninstall: CliPhase.None,
   auth: CliPhase.ConfigOnly,
   config: CliPhase.ConfigOnly,
   doctor: CliPhase.ConfigOnly,

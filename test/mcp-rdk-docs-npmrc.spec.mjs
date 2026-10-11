@@ -3,6 +3,8 @@
  * use a project .npmrc, even when TMPDIR points at the workspace.
  */
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -36,6 +38,11 @@ for (const key of ['TMPDIR', 'TMP', 'TEMP', 'npm_config_userconfig', 'NPM_CONFIG
   assert.equal(isDotenvDeniedEnvKey(key), true, key);
 }
 
+// The user registry serves a local probe as rdk-docs-mcp (pinned version so the
+// pin spec stays consistent); the project registry refuses.
+// npx must fetch the package by name, so the user-registry hit is the real
+// resolution, not npm's update notifier (which npm skips under CI).
+let served = null;
 function listen(bucket, hits) {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
@@ -62,7 +69,19 @@ function listen(bucket, hits) {
         res.end(dependencyTarball);
         return;
       }
-      res.statusCode = 404;
+      if (bucket === 'user' && served) {
+        if (req.url === '/rdk-docs-mcp') {
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify(served.packument(server.address().port)));
+          return;
+        }
+        if (req.url === served.tarballPath) {
+          res.setHeader('content-type', 'application/octet-stream');
+          res.end(served.tarball);
+          return;
+        }
+      }
+      res.statusCode = bucket === 'user' ? 404 : 500;
       res.end('no');
     });
     server.listen(0, '127.0.0.1', () => resolve(server));
@@ -107,7 +126,7 @@ fs.writeFileSync(
   path.join(packageDir, 'package.json'),
   JSON.stringify({
     name: 'rdk-docs-mcp',
-    version: '0.0.0',
+    version: '0.3.0',
     bin: { 'rdk-docs-mcp': './probe.mjs' },
     dependencies: { [dependencyName]: '0.0.0' },
   })
@@ -124,6 +143,36 @@ fs.writeFileSync(
   ].join('\n')
 );
 fs.chmodSync(path.join(packageDir, 'probe.mjs'), 0o755);
+const packDir = path.join(root, 'pack');
+fs.mkdirSync(packDir, { recursive: true });
+execFileSync('npm', ['pack', '--silent', '--pack-destination', packDir], {
+  cwd: packageDir,
+  stdio: 'ignore',
+  shell: process.platform === 'win32',
+});
+const tarball = fs.readFileSync(path.join(packDir, 'rdk-docs-mcp-0.3.0.tgz'));
+const tarballPath = '/rdk-docs-mcp/-/rdk-docs-mcp-0.3.0.tgz';
+served = {
+  tarball,
+  tarballPath,
+  packument: (port) => ({
+    name: 'rdk-docs-mcp',
+    'dist-tags': { latest: '0.3.0' },
+    versions: {
+      '0.3.0': {
+        name: 'rdk-docs-mcp',
+        version: '0.3.0',
+        bin: { 'rdk-docs-mcp': 'probe.mjs' },
+        dependencies: { [dependencyName]: '0.0.0' },
+        dist: {
+          tarball: `http://127.0.0.1:${port}${tarballPath}`,
+          shasum: crypto.createHash('sha1').update(tarball).digest('hex'),
+          integrity: `sha512-${crypto.createHash('sha512').update(tarball).digest('base64')}`,
+        },
+      },
+    },
+  }),
+};
 
 {
   const globalconfig = '/etc/npmrc-moss-sentinel';
@@ -166,7 +215,8 @@ delete process.env.NPM_CONFIG_CACHE;
 
 const previous = process.cwd();
 process.chdir(ws);
-const config = builtinRdkDocsServerConfig(await packFixture(packageDir));
+const config = builtinRdkDocsServerConfig('rdk-docs-mcp@0.3.0');
+const dependencyConfig = builtinRdkDocsServerConfig(await packFixture(packageDir));
 config.env = {
   npm_config_fetch_retries: '0',
   npm_config_fetch_timeout: '5000',
@@ -202,6 +252,7 @@ try {
   // An unclean loader using the project's .npmrc fails the same real npx install.
   await connectAndClose({
     ...config,
+    args: dependencyConfig.args,
     cwd: ws,
     startupEnvOnly: false,
     env: { ...config.env, npm_config_userconfig: path.join(ws, '.npmrc') },
@@ -232,6 +283,10 @@ assert.ok(hits.user.includes(`GET /${dependencyName}`), 'user ~/.npmrc registry 
 assert.ok(
   hits.user.includes(`GET /${dependencyName}/-/probe.tgz`),
   'dependency was not fetched from the user registry'
+);
+assert.ok(
+  hits.user.includes(`GET ${tarballPath}`),
+  `user ~/.npmrc registry was not used: ${hits.user.join(', ')}`
 );
 assert.deepEqual(
   hits.project,

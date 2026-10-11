@@ -194,7 +194,8 @@ export const codeDiagnosticsTool: Tool = {
       return `${header}\n\nResult: PASS (with output)\nExit: 0\nOutput:\n${truncate(combined)}`;
     } catch (err) {
       if (err instanceof ProcessError) {
-        let result = `${header}\n\nResult: FAIL\nExit: ${err.exitCode}`;
+        const exitLabel = err.signal ?? (err.exitCode === null ? '?' : String(err.exitCode));
+        let result = `${header}\n\nResult: FAIL\nExit: ${exitLabel}`;
 
         if (err.timedOut) {
           result += `\n\nTimeout: Command exceeded ${timeoutMs}ms — increase timeout_ms or optimize the check`;

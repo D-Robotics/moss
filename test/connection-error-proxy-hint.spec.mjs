@@ -112,6 +112,27 @@ try {
   globalThis.fetch = originalFetch;
 }
 
+// ─── 5. ECONNREFUSED with proxy env → blame the proxy, not the base URL ─────
+process.env.HTTP_PROXY = 'http://127.0.0.1:9';
+process.env.HTTPS_PROXY = 'http://127.0.0.1:9';
+globalThis.fetch = async () => {
+  const e = new TypeError('fetch failed');
+  e.cause = { code: 'ECONNREFUSED', message: 'connect ECONNREFUSED 127.0.0.1:9' };
+  throw e;
+};
+try {
+  await fetchWithConnectionContext('https://api.example.com/v1/x', { method: 'GET' });
+  assert.fail('should have thrown');
+} catch (err) {
+  assert.ok(err instanceof MossError);
+  assert.match(err.hint, /[Pp]roxy/, `proxy-named hint, got: ${err.hint}`);
+  assert.doesNotMatch(err.hint, /baseUrl port is correct/);
+} finally {
+  globalThis.fetch = originalFetch;
+  delete process.env.HTTP_PROXY;
+  delete process.env.HTTPS_PROXY;
+}
+
 console.log(
-  '  [PASS] connection-error: proxy-tunnel refusal hint + DNS + TLS CA + no-false-positive'
+  '  [PASS] connection-error: proxy-tunnel refusal hint + DNS + TLS CA + no-false-positive + refused-proxy'
 );

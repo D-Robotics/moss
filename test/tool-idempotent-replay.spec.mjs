@@ -6,6 +6,7 @@ import {
   FILE_UNCHANGED_PLACEHOLDER,
   STALE_READ_PLACEHOLDER,
 } from '../dist/context/stale-read-invalidate.js';
+import { TOOL_RESULT_FOLDED_MARKER } from '../dist/context/tool-result-fold.js';
 
 function assistantToolUse(id, name, input) {
   return {
@@ -83,6 +84,24 @@ test('recognizes equivalent relative paths across read and mutation tools', () =
       messages,
       'read_file',
       { path: './src/example.ts' },
+      32,
+      'readonly'
+    ),
+    null
+  );
+});
+
+test('does not replay a folded read result', () => {
+  const folded = `${TOOL_RESULT_FOLDED_MARKER}: read_file, 9000 chars]\nhead\n…\ntail`;
+  const messages = [
+    assistantToolUse('read-1', 'read_file', { path: 'src/example.ts' }),
+    toolResult('read-1', folded),
+  ];
+  assert.equal(
+    findReplayableToolResultContent(
+      messages,
+      'read_file',
+      { path: 'src/example.ts' },
       32,
       'readonly'
     ),

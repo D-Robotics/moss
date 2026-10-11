@@ -158,6 +158,15 @@ export function createMossAgentLoopEventAdapter(
         case 'turn_start':
           textRedactor.reset();
           return [{ type: 'turn_start', turn: event.turn }];
+        case 'output_continuation':
+          return [
+            {
+              type: 'output_continuation',
+              attempt: event.attempt,
+              maxAttempts: event.maxAttempts,
+              ...(event.exhausted ? { exhausted: true } : {}),
+            },
+          ];
         case 'turn_end': {
           const incomingStopReason = event.stopReason
             ? normalizePublicStopReason(event.stopReason)

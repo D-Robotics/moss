@@ -18,7 +18,6 @@ import { findReplayableToolResultContent } from '../tools/tool-idempotent-replay
 import {
   formatToolResultForSsePreview,
   groupToolCallsForExecution,
-  skipToolCall,
   syncAssistantToolUseInput,
 } from './agent-loop-tool-helpers.js';
 import {
@@ -277,19 +276,6 @@ function recordToolOutcome(
   });
 }
 
-async function checkSteeringAfterCall(
-  evaluateSteering: () => Message[],
-  skipRemaining: (calls: ToolCallRef[]) => Promise<void>,
-  remainingCalls: ToolCallRef[]
-): Promise<Message[] | null> {
-  const steering = evaluateSteering();
-  if (steering.length > 0) {
-    await skipRemaining(remainingCalls);
-    return steering;
-  }
-  return null;
-}
-
 export async function executeAgentLoopToolCalls(
   params: ExecuteAgentLoopToolCallsParams
 ): Promise<{ pendingMessages: Message[] }> {
@@ -322,7 +308,6 @@ export async function executeAgentLoopToolCalls(
   } = params;
 
   const toolResults: ContentBlock[] = [];
-  let steeringMessages: Message[] | null = null;
 
   // Message[] -> LLMMessage[]: the two types are structurally compatible but TS cannot
   // infer it because Message is the session-jsonl persistence format and LLMMessage is
@@ -377,16 +362,6 @@ export async function executeAgentLoopToolCalls(
       ...(onBeforeStartEmit ? { onBeforeStartEmit } : {}),
     };
   };
-  const skipRemainingToolCalls = async (calls: ToolCallRef[]): Promise<void> => {
-    for (const skipped of calls) {
-      push({
-        type: 'tool_skipped',
-        toolCallId: skipped.id,
-        toolName: skipped.name,
-      });
-      toolResults.push(skipToolCall(skipped));
-    }
-  };
   const toolGroups = groupToolCallsForExecution(
     toolCalls,
     effectiveParallelSafeTools,
@@ -405,13 +380,27 @@ export async function executeAgentLoopToolCalls(
     }
     return executed.value;
   };
+  const skipRemainingToolCalls = (calls: ToolCallRef[]): void => {
+    for (const skipped of calls) {
+      push({ type: 'tool_skipped', toolCallId: skipped.id, toolName: skipped.name });
+      toolResults.push({
+        type: 'tool_result',
+        tool_use_id: skipped.id,
+        name: skipped.name,
+        content: 'Task acceptance committed; skipped remaining tool call.',
+        is_error: true,
+      });
+    }
+  };
 
+  // Finish every call this assistant message already made. Steering (the
+  // extended tool-loop nudge included) is attached after the batch and guides
+  // the next turn — it does not skip or error the rest of the batch.
   for (const group of toolGroups) {
-    if (steeringMessages || state.taskAcceptanceCommitted) {
-      await skipRemainingToolCalls(group.calls);
+    if (state.taskAcceptanceCommitted) {
+      skipRemainingToolCalls(group.calls);
       continue;
     }
-
     if (
       group.parallel &&
       group.calls.length > 1 &&
@@ -450,10 +439,6 @@ export async function executeAgentLoopToolCalls(
               };
         recordToolOutcome(call, outcome, recordCtx, toolResults);
       }
-      const steering = evaluateSteering();
-      if (steering.length > 0) {
-        steeringMessages = steering;
-      }
     } else {
       for (let gi = 0; gi < group.calls.length; gi++) {
         const call = group.calls[gi];
@@ -469,48 +454,9 @@ export async function executeAgentLoopToolCalls(
             syncAssistantToolUseInput(assistantContent, { ...call, input });
           })
         );
-
-        if (outcome.kind === 'hook-blocked') {
-          recordToolOutcome(call, outcome, recordCtx, toolResults);
-          const steering = await checkSteeringAfterCall(
-            evaluateSteering,
-            skipRemainingToolCalls,
-            group.calls.slice(gi + 1)
-          );
-          if (steering) {
-            steeringMessages = steering;
-            break;
-          }
-          continue;
-        }
-
-        if (outcome.kind === 'denied') {
-          recordToolOutcome(call, outcome, recordCtx, toolResults);
-          const steering = await checkSteeringAfterCall(
-            evaluateSteering,
-            skipRemainingToolCalls,
-            group.calls.slice(gi + 1)
-          );
-          if (steering) {
-            steeringMessages = steering;
-            break;
-          }
-          continue;
-        }
-
         recordToolOutcome(call, outcome, recordCtx, toolResults);
         if (state.taskAcceptanceCommitted) {
-          await skipRemainingToolCalls(group.calls.slice(gi + 1));
-          break;
-        }
-
-        const steering = await checkSteeringAfterCall(
-          evaluateSteering,
-          skipRemainingToolCalls,
-          group.calls.slice(gi + 1)
-        );
-        if (steering) {
-          steeringMessages = steering;
+          skipRemainingToolCalls(group.calls.slice(gi + 1));
           break;
         }
       }
@@ -567,7 +513,7 @@ export async function executeAgentLoopToolCalls(
     await appendMessage(sessionKey, resultMsg);
     toolResultMsgPersisted = true;
 
-    newSteering = evaluateSteering();
+    newSteering = state.taskAcceptanceCommitted ? [] : evaluateSteering();
     metrics.prepNextTurnParallelMs += Date.now() - parallelStartMs;
   } finally {
     if (abortSignal.aborted && !toolResultMsgPersisted) {
@@ -580,10 +526,7 @@ export async function executeAgentLoopToolCalls(
 
   currentMessages.push(resultMsg);
 
-  return {
-    pendingMessages:
-      steeringMessages && steeringMessages.length > 0 ? steeringMessages : newSteering,
-  };
+  return { pendingMessages: newSteering };
 }
 
 // ── best-of-n trigger telemetry (v0.10 W2) ──────────────────────────────────

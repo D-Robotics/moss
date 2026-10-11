@@ -1,9 +1,14 @@
 import type { MossAgentEvent } from '../core/index.js';
 import type { SessionMeta } from '../core/session/session.js';
+import { isZhLocale } from './cli-locale.js';
 
 export function formatSessionTimestamp(updatedAt: number): string {
-  if (!Number.isFinite(updatedAt) || updatedAt <= 0) return 'unknown time';
-  return new Date(updatedAt).toLocaleString();
+  if (!Number.isFinite(updatedAt) || updatedAt <= 0)
+    return isZhLocale() ? '未知时间' : 'unknown time';
+  const date = new Date(updatedAt);
+  if (!isZhLocale()) return date.toLocaleString();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 export function formatTuiSessions(

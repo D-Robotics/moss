@@ -63,6 +63,7 @@ const stdioRegistry = await McpToolRegistry.connectAll(
   const searchTool = stdioRegistry.getTools().find((t) => t.name === 'mcp__fixture-stdio__search');
   assert.ok(searchTool, 'search meta-tool is registered for the server');
   assert.equal(searchTool.metadata?.sideEffectClass, 'readonly', 'search is readonly');
+  assert.equal(searchTool.metadata?.retainResult, true, 'search listings are not folded');
 
   const listing = await searchTool.execute({}, ctx());
   assert.match(listing, /tool_00/, 'search lists tool_00');
@@ -84,6 +85,7 @@ const stdioRegistry = await McpToolRegistry.connectAll(
     undefined,
     'real tool declares no side-effect class (approval path)'
   );
+  assert.equal(echoTool.metadata?.retainResult, true, 'MCP page results are not folded');
 
   const callOut = await echoTool.execute({ value: 'moss-stdio-roundtrip' }, ctx());
   assert.match(callOut, /tool_07/, 'echo result names the called tool');

@@ -156,7 +156,10 @@ export function splitThinkingTagsFromAssistantText(raw: string): {
     const end = afterOpen + closeRel + bestDef.close.length;
     work = (work.slice(0, bestIdx) + work.slice(end)).replace(/^\s*\n+/, '').replace(/\n+\s*$/, '');
   }
-  return { thinkingBodies, visible: work.trim() };
+  // Keep spaces and tabs. Trimming them drops the boundary of a max_tokens
+  // fragment ("Hello " + "world" must stay "Hello world"). Newlines around
+  // an extracted thinking block are already removed above.
+  return { thinkingBodies, visible: work.replace(/^\n+/, '').replace(/\n+$/, '') };
 }
 
 export function stripThinkingTagsKeepVisible(raw: string): string {

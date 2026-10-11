@@ -82,7 +82,7 @@ function runHookCommand(
     .catch((err) => {
       if (err instanceof ProcessError) {
         return {
-          exitCode: err.timedOut ? 124 : err.exitCode,
+          exitCode: err.timedOut ? 124 : (err.exitCode ?? 1),
           stdout: err.stdout,
           stderr: err.timedOut
             ? `${err.stderr}\n[hook timed out after ${timeoutMs}ms]`

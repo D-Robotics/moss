@@ -8,6 +8,7 @@ import type {
 } from '../core/agent/agent-hooks.js';
 import type { Tool, ToolSideEffectClass } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
+import { shellCommandHasOpaqueWrite } from '../safety/shell-write-sandbox.js';
 import { classifyDeviceOperation, type DeviceRiskClassification } from '../safety/device-risk.js';
 import {
   deviceIdsMatchTrustList,
@@ -19,7 +20,7 @@ import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { recordDevicePolicyDecision } from './device-policy-log.js';
 import { deviceDestructivePrompt } from './device-safety-prompt.js';
-import { isZhLocale } from './cli-locale.js';
+import { formatHeadlessBlockNotice, formatHeadlessBlockReason, isZhLocale } from './cli-locale.js';
 import {
   normalizeSafetyModeConfig,
   loadConfigFile,
@@ -362,6 +363,9 @@ function isReadonlyGit(tokens: readonly string[]): boolean {
 function isReadonlyExecCommand(command: unknown): boolean {
   if (typeof command !== 'string') return false;
   if (isCommandDangerous(command).blocked) return false;
+  // iex / -EncodedCommand / nested pwsh -c hide their writes. Same as python -c:
+  // not a readonly command, so the approval layer has to confirm them.
+  if (shellCommandHasOpaqueWrite(command)) return false;
   const tokens = tokenizeReadonlyShellCommand(command);
   if (!tokens) return false;
   const commandName = tokens[0];
@@ -1259,7 +1263,9 @@ export function createCliToolApprovalHook(
         console.error(
           deviceGatedAsk && isZhLocale()
             ? `[moss] 需要确认，但当前没有交互终端：${tool.name}`
-            : `[moss] Approval required but no interactive terminal is available: ${tool.name}`
+            : deviceGatedAsk
+              ? `[moss] Approval required but no interactive terminal is available: ${tool.name}`
+              : formatHeadlessBlockNotice(tool.name, effectiveMode)
         );
         headlessNoticeShown = true;
       }
@@ -1267,12 +1273,7 @@ export function createCliToolApprovalHook(
         approved: false,
         reason: destructiveCopy
           ? destructiveCopy.headlessReason
-          : `Tool "${tool.name}" requires approval, but Moss is running non-interactively. ` +
-            'To let it run: switch the mode to full — `/mode full` in an interactive session, ' +
-            '`--full-access` (this process only), or `moss config set permissions.defaultMode=full` ' +
-            '(persistent); add narrow allow rules with /permissions for single tools. ' +
-            'This gate is inherited by sub-agents: delegating the same call via ' +
-            'create_subagent or fan_out_subagents will be denied too, so do not retry it that way.',
+          : formatHeadlessBlockReason(tool.name, effectiveMode),
       });
     }
 
