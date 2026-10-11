@@ -58,7 +58,8 @@ for (const mode of ['full', 'manual', 'acceptEdits', 'plan']) {
     /^\[moss\] 交互模式：.*\/mode 可切换/
   );
 }
-assert.match(formatInteractionModeNotice('full', 'C'), /no approval prompts/);
+assert.match(formatInteractionModeNotice('full', 'C'), /protected paths still ask once/);
+assert.doesNotMatch(formatInteractionModeNotice('full', 'C'), /no approval prompts/);
 assert.doesNotMatch(formatInteractionModeNotice('full', 'C'), /v0\.26/);
 assert.match(formatInteractionModeNotice('acceptEdits', 'C'), /shell commands still ask/);
 assert.match(formatFullModeNotice('C'), /edits files and runs commands without asking/);
