@@ -24,6 +24,30 @@ function preferredLocale(env) {
   return undefined;
 }
 
+function upgradeCommands() {
+  return [
+    '  # After Node >= 22.16, install / reinstall Moss with:',
+    '  npm install -g @rdk-moss/agent@latest',
+    '',
+    '  # macOS (Homebrew):',
+    '  brew install node@22',
+    '  # or nvm / fnm:',
+    '  nvm install 22 && nvm use 22',
+    '  fnm install 22 && fnm use 22',
+    '',
+    '  # Ubuntu / Debian (NodeSource):',
+    '  curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -',
+    '  sudo apt-get install -y nodejs',
+    '  # or nvm / fnm (same commands as above)',
+    '',
+    '  # Windows (PowerShell):',
+    '  winget install OpenJS.NodeJS.LTS',
+    '',
+    '  # China mirror (nvm Node downloads):',
+    '  NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node nvm install 22',
+  ].join('\n');
+}
+
 function nodeVersionProblem(version, env) {
   var source = env || process.env;
   var match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(version || '').trim());
@@ -34,14 +58,6 @@ function nodeVersionProblem(version, env) {
   if (major === MIN_NODE_MAJOR && minor >= MIN_NODE_MINOR) return null;
   var current = String(version || '').replace(/^v/, '');
   var need = MIN_NODE_MAJOR + '.' + MIN_NODE_MINOR + '.0';
-  var commands = [
-    '  nvm install 22',
-    '  # NodeSource (Debian/Ubuntu):',
-    '  curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -',
-    '  sudo apt-get install -y nodejs',
-    '  # China mirror (npmmirror):',
-    '  NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node nvm install 22',
-  ].join('\n');
   var locale = preferredLocale(source);
   var lead =
     locale && /^zh/i.test(locale)
@@ -59,11 +75,12 @@ function nodeVersionProblem(version, env) {
         '. The full-screen TUI depends on ink, which requires Node >= 22. This build is verified on Node >= ' +
         need +
         '. Upgrade Node, then run moss again:';
-  return lead + '\n' + commands;
+  return lead + '\n' + upgradeCommands();
 }
 
 module.exports = {
   MIN_NODE_MAJOR: MIN_NODE_MAJOR,
   MIN_NODE_MINOR: MIN_NODE_MINOR,
   nodeVersionProblem: nodeVersionProblem,
+  upgradeCommands: upgradeCommands,
 };

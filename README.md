@@ -23,25 +23,28 @@ Moss 是一个精简的跨平台 coding agent harness，也是一套面向机器
 
 ## 环境
 
-先看 Node 版本：
+先看 Node 版本（**硬性前提：Node ≥ 22.16.0**）：
 
 ```bash
 node -v
 ```
 
-需要 **22.16** 或更高。npm 会先装依赖，再跑根包的 `preinstall`（`scripts/check-node-version.cjs`）。Node 低于 22.16 时脚本打印升级步骤并退出 1，这时依赖已经在磁盘上，还没有可用的 `moss`。升级 Node 后再安装一次。Node 22.16 自带 npm 10，不要按 npm 的提示升级到 npm 12：这个 Node 不支持 npm 12。
+没有合格 Node 时，先装再继续（可复制）：
 
-- nvm：`nvm install 22`，装完再跑一次 `node -v`
-- NodeSource：见 [nodesource/distributions](https://github.com/nodesource/distributions)
-- 国内网络：`npm config set registry https://registry.npmmirror.com`。nvm 下载 Node 可以设 `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+- **macOS：** `brew install node@22`，或 `nvm install 22 && nvm use 22` / `fnm install 22 && fnm use 22`
+- **Ubuntu / Debian：** NodeSource（[nodesource/distributions](https://github.com/nodesource/distributions)）或同上 nvm / fnm
+- **Windows（PowerShell）：** `winget install OpenJS.NodeJS.LTS`
+- **国内网络：** `npm config set registry https://registry.npmmirror.com`；nvm 下载 Node 可设 `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+
+Node 低于 22.16 时，`npm install -g @rdk-moss/agent@latest`（以及源码路径的 `preinstall` / `prepare`）会**立刻非零退出**，打印当前 Node 版本和可复制的升级命令（含成功后再跑的 `npm install -g @rdk-moss/agent@latest`），**不会**留下坏掉的全局 `moss`。Node 22.16 自带 npm 10，不要按 npm 的提示升级到 npm 12：这个 Node 不支持 npm 12。
 
 ### macOS
 
-Git 需要 Xcode Command Line Tools。没有 `git` 时运行 `xcode-select --install`。Moss 自己不需要 C 编译器，`cpu-features` 的可选原生构建失败也不影响运行。Node 用 Homebrew 或 nvm，装完用 `node -v` 确认是 22.16 或更高。全局目录没有写权限时，用下面的用户级 prefix。
+Git 需要 Xcode Command Line Tools。没有 `git` 时运行 `xcode-select --install`。Moss 自己不需要 C 编译器，`cpu-features` 的可选原生构建失败也不影响运行。全局目录没有写权限时，用下面的用户级 prefix。
 
 ### Windows
 
-先装 Git for Windows 和 nvm-windows。PowerShell 的执行策略可能拦截 `moss.ps1`。只给当前用户放开脚本：
+先装 Git for Windows。PowerShell 的执行策略可能拦截 `moss.ps1`。只给当前用户放开脚本：
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
@@ -51,7 +54,28 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 ## 快速开始
 
-从源码安装，运行 `moss`，在界面里完成设置，然后要一个回答。`npm ci` 会跑 `prepare`（也就是 `npm run build`），所以不用再单独构建：
+**推荐（一行）：** 已装 Node ≥ 22.16 时：
+
+```bash
+npm install -g @rdk-moss/agent@latest
+moss --version
+moss
+```
+
+如果以前装过旧的未加 scope 的 `moss` 包，先执行 `npm uninstall -g moss`，否则两个包抢同一个 `moss` 命令，npm 会报 EEXIST。不要加 `--force`：它会同时留下旧包和 `@rdk-moss/agent`，之后再 `npm uninstall -g moss` 会把 `moss` 命令一起删掉。
+
+全局目录没有写权限（EACCES）时，把 prefix 放到用户目录，或改用 nvm（Node 装在家目录里）：
+
+```bash
+npm config set prefix ~/.npm-global
+```
+
+把 `~/.npm-global/bin` 加进 PATH，然后重新打开终端。
+
+<details>
+<summary>从源码开发（可选）</summary>
+
+贡献 / 改代码时用克隆。`npm ci` 会跑 `prepare`（先检查 Node，再 `npm run build`），所以不用再单独构建：
 
 ```bash
 git clone https://github.com/D-Robotics/moss.git
@@ -61,17 +85,9 @@ npm install -g --install-links .
 moss
 ```
 
-如果以前装过旧的未加 scope 的 `moss` 包，先执行 `npm uninstall -g moss`，否则两个包抢同一个 `moss` 命令，npm 会报 EEXIST。不要加 `--force`：它会同时留下旧包和 `@rdk-moss/agent`，之后再 `npm uninstall -g moss` 会把 `moss` 命令一起删掉。`npm install -g @rdk-moss/agent` 即将发布。
-
 npm 11 可能打印 `npm warn install-scripts`。`npm ci` 可能会点名 `ssh2` 和 `cpu-features`。接下来的 `npm install -g --install-links .` 还可能点名 `@rdk-moss/agent`（它的 `preinstall` 和 `prepare`）。这是提示，安装仍然成功：ssh2 没有可选的原生模块也能用，全局副本里已经有 `dist/`。不要运行 `npm audit fix --force`，它会改依赖版本，装完不能用。
 
-全局目录没有写权限（EACCES）时，把 prefix 放到用户目录，或改用 nvm（Node 装在家目录里）：
-
-```bash
-npm config set prefix ~/.npm-global
-```
-
-把 `~/.npm-global/bin` 加进 PATH，然后重新打开终端。
+</details>
 
 没有可用配置时，`moss` 就在这个界面里设置（按数字选服务商，或按 Enter 使用环境里已有的 key，内容不会显示）。D-Robotics 地瓜网关是第一项，已经预选（地址 `https://ai-api.d-robotics.cc/v1`，默认模型 `deepseek-flash`，只问 key）。不想把 key 写进文件时，先指定服务商再写变量名：`moss config set provider d-robotics`，然后 `moss config set apiKeyEnv <变量名>`。只写 `apiKeyEnv`、不写服务商或地址时，会先问选哪一家，不会把 key 发给默认的 DeepSeek。设好后在同一会话里说：
 
@@ -100,9 +116,15 @@ moss --no-tty                                 # 强制使用 readline REPL
 
 ## 升级
 
-如果 `moss` 命令还来自旧的未加 scope 的包（包括 `npm link`），先执行 `npm uninstall -g moss`。否则 `npm install -g --install-links .` 会报 EEXIST，而这时 `moss --version` 看起来可能已经是新的。
+如果 `moss` 命令还来自旧的未加 scope 的包（包括 `npm link`），先执行 `npm uninstall -g moss`。否则新的全局安装会报 EEXIST，而这时 `moss --version` 看起来可能已经是新的。
 
-已有 `moss` 克隆时，在它的上一级目录运行：
+**npm 全局安装**（推荐路径）直接：
+
+```bash
+npm install -g @rdk-moss/agent@latest
+```
+
+**已有源码克隆**时，在它的上一级目录运行：
 
 ```bash
 cd moss && git pull && npm ci && npm install -g --install-links .
@@ -110,7 +132,7 @@ cd moss && git pull && npm ci && npm install -g --install-links .
 
 `npm ci` 会重新构建。`--install-links` 把新的副本装进全局 prefix，而不只是重新编译克隆目录。`moss --version` 带短 commit 和构建日期，例如 `moss v0.26.0 (e8dc2e3, 2026-10-10)`。构建时工作区有未提交改动会写成 `e8dc2e3+dirty`。升级前后可以对上。
 
-还没有 `moss` 目录时，用上面的安装步骤。`moss update` 找得到克隆就打印这一行，找不到才打印 `git clone`。全局安装只在当前目录和 `./moss` 里找。别的位置用 `moss update --dir <克隆>` 或 `MOSS_SOURCE_DIR`。它只打印命令，不执行。
+`moss update` 按安装方式打印对应命令：npm 全局打印上面的 `@latest` 一行；找得到克隆就打印克隆升级行；都没有才打印 `git clone`。全局安装只在当前目录和 `./moss` 里找克隆。别的位置用 `moss update --dir <克隆>` 或 `MOSS_SOURCE_DIR`。它只打印命令，不执行。
 
 ## 卸载
 
@@ -396,25 +418,28 @@ mean _the board actually did it_.
 
 ### Prerequisites
 
-Check Node first:
+Check Node first (**hard requirement: Node ≥ 22.16.0**):
 
 ```bash
 node -v
 ```
 
-Moss needs **22.16** or newer. npm installs dependencies before the root `preinstall` (`scripts/check-node-version.cjs`). On Node older than 22.16 that script prints the upgrade steps and exits 1, so those packages can already be on disk and there is no working `moss`. Upgrade Node and run the install again. Node 22.16 ships with npm 10. Do not follow npm's notice to upgrade to npm 12: Node 22.16 does not support npm 12.
+If Node is missing or too old, install it first (copyable):
 
-- nvm: `nvm install 22`, then run `node -v` again
-- NodeSource: see [nodesource/distributions](https://github.com/nodesource/distributions)
-- In China: `npm config set registry https://registry.npmmirror.com`. For nvm's Node downloads, set `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+- **macOS:** `brew install node@22`, or `nvm install 22 && nvm use 22` / `fnm install 22 && fnm use 22`
+- **Ubuntu / Debian:** NodeSource ([nodesource/distributions](https://github.com/nodesource/distributions)) or the same nvm / fnm commands
+- **Windows (PowerShell):** `winget install OpenJS.NodeJS.LTS`
+- **In China:** `npm config set registry https://registry.npmmirror.com`. For nvm's Node downloads, set `NVM_NODEJS_ORG_MIRROR=https://npmmirror.com/mirrors/node`
+
+On Node older than 22.16, `npm install -g @rdk-moss/agent@latest` (and the source-path `preinstall` / `prepare` hooks) **exits non-zero immediately**, prints the detected Node version and copyable upgrade commands (including the success-path `npm install -g @rdk-moss/agent@latest`), and **does not** leave a broken global `moss`. Node 22.16 ships with npm 10. Do not follow npm's notice to upgrade to npm 12: Node 22.16 does not support npm 12.
 
 #### macOS
 
-Git requires the Xcode Command Line Tools. If `git` is missing, run `xcode-select --install`. Moss itself does not need a C compiler, and a failed optional native build of `cpu-features` still leaves a working `moss`. Install Node with Homebrew or nvm, then confirm `node -v` is 22.16 or newer. If the global prefix is not writable, use the user-level prefix below.
+Git requires the Xcode Command Line Tools. If `git` is missing, run `xcode-select --install`. Moss itself does not need a C compiler, and a failed optional native build of `cpu-features` still leaves a working `moss`. If the global prefix is not writable, use the user-level prefix below.
 
 #### Windows
 
-Install Git for Windows and nvm-windows. PowerShell's execution policy can block `moss.ps1`. Allow scripts for the current user only:
+Install Git for Windows. PowerShell's execution policy can block `moss.ps1`. Allow scripts for the current user only:
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
@@ -424,7 +449,28 @@ Put `%APPDATA%\npm` on PATH. That is npm's default global bin directory on Windo
 
 ### Quick start
 
-Install from source, run `moss`, finish setup in the screen, then ask for an answer. `npm ci` runs `prepare` (`npm run build`), so there is no separate build step:
+**Recommended (one line)** when Node ≥ 22.16 is already installed:
+
+```bash
+npm install -g @rdk-moss/agent@latest
+moss --version
+moss
+```
+
+If an older unscoped `moss` package is already installed, run `npm uninstall -g moss` first. The two packages use the same `moss` bin, and npm stops with EEXIST. Do not pass `--force`. It leaves both the old package and `@rdk-moss/agent` installed, and a later `npm uninstall -g moss` removes the `moss` command.
+
+If npm reports EACCES on the global prefix, point prefix at your home directory, or use nvm (Node then lives under your home directory):
+
+```bash
+npm config set prefix ~/.npm-global
+```
+
+Add `~/.npm-global/bin` to PATH and open a new terminal.
+
+<details>
+<summary>Develop from source (optional)</summary>
+
+For contributors. `npm ci` runs `prepare` (Node check, then `npm run build`), so there is no separate build step:
 
 ```bash
 git clone https://github.com/D-Robotics/moss.git
@@ -434,17 +480,9 @@ npm install -g --install-links .
 moss
 ```
 
-If an older unscoped `moss` package is already installed, run `npm uninstall -g moss` first. The two packages use the same `moss` bin, and npm stops with EEXIST. Do not pass `--force`. It leaves both the old package and `@rdk-moss/agent` installed, and a later `npm uninstall -g moss` removes the `moss` command. `npm install -g @rdk-moss/agent` is coming soon.
-
 npm 11 may print `npm warn install-scripts`. `npm ci` may name `ssh2` and `cpu-features`. The following `npm install -g --install-links .` may also name `@rdk-moss/agent` (its `preinstall` and `prepare` scripts). The warning is harmless: ssh2 works without its optional native addon, and the global copy already contains `dist/`. Do not run `npm audit fix --force`. It changes dependency versions and breaks the install.
 
-If npm reports EACCES on the global prefix, point prefix at your home directory, or use nvm (Node then lives under your home directory):
-
-```bash
-npm config set prefix ~/.npm-global
-```
-
-Add `~/.npm-global/bin` to PATH and open a new terminal.
+</details>
 
 With no usable config, `moss` sets itself up in that screen (press a number to pick a provider, or Enter to use a key already in the environment; the value is not shown). The D-Robotics gateway is listed first and preselected (`https://ai-api.d-robotics.cc/v1`, default model `deepseek-flash`, key only). To keep the key out of the file, set the provider and then the variable name: `moss config set provider d-robotics`, then `moss config set apiKeyEnv <VAR>`. A file that names only `apiKeyEnv` is not configured: setup asks which provider, and the key is not sent to the default DeepSeek endpoint. Then, in the same session:
 
@@ -470,9 +508,15 @@ moss --no-tty                                 # force the readline REPL
 
 ### Upgrade
 
-If the `moss` command still comes from an older unscoped install, including `npm link`, run `npm uninstall -g moss` first. Otherwise `npm install -g --install-links .` stops with EEXIST even when `moss --version` already looks new.
+If the `moss` command still comes from an older unscoped install, including `npm link`, run `npm uninstall -g moss` first. Otherwise a new global install stops with EEXIST even when `moss --version` already looks new.
 
-From the parent of an existing `moss` clone:
+**npm global install** (recommended path):
+
+```bash
+npm install -g @rdk-moss/agent@latest
+```
+
+**From an existing source clone**, in the parent of that clone:
 
 ```bash
 cd moss && git pull && npm ci && npm install -g --install-links .
@@ -480,7 +524,7 @@ cd moss && git pull && npm ci && npm install -g --install-links .
 
 `npm ci` rebuilds. `--install-links` installs that new copy into the global prefix, instead of only rebuilding the clone. `moss --version` includes the short commit and the build date, for example `moss v0.26.0 (e8dc2e3, 2026-10-10)`. A worktree with uncommitted changes at build time is marked `e8dc2e3+dirty`. The before and after strings differ.
 
-If you do not have a `moss` directory yet, use the install steps above. `moss update` prints this upgrade line when it finds a clone, and the `git clone` steps only when it does not. A global install only looks in the current directory and in `./moss`. Point it somewhere else with `moss update --dir <clone>` or `MOSS_SOURCE_DIR`. It prints the commands and does not run them.
+`moss update` prints the matching command: `@latest` for an npm global install, the clone upgrade line when it finds a checkout, and `git clone` only when neither applies. A global install only looks for a checkout in the current directory and in `./moss`. Point it somewhere else with `moss update --dir <clone>` or `MOSS_SOURCE_DIR`. It prints the commands and does not run them.
 
 ### Uninstall
 
