@@ -354,14 +354,20 @@ export function wrapNoticeLines(text: string, columns = 80): string[] {
   return wrap(text, Math.max(20, columns));
 }
 
-/** One-shot notice when full mode has no deny rules (copy-audit 1.9). */
+/**
+ * One-shot notice when full mode has no deny rules (copy-audit 1.9).
+ * The no-sandbox sentence is a safety disclosure (QA review of O72): keep it.
+ * `--workspace-write` is named as the per-action route because it resolves to
+ * manual mode (args.ts requestSafety), where every non-read-only exec asks.
+ */
 export function formatFullModeNotice(locale?: string): string {
   const zh = isZhLocale(locale);
   return zh
-    ? '[moss] 完全执行模式：Moss 会直接改文件、跑命令，不逐条询问。想逐条确认：/mode manual（或启动时加 --workspace-write）。要拦截特定操作：/permissions。此提示只显示一次。'
+    ? '[moss] 完全执行模式：Moss 会直接改文件、跑命令，不逐条询问。想逐条确认：/mode manual（或启动时加 --workspace-write）。要拦截特定操作：/permissions。终端命令以你的用户权限直接运行，没有沙箱。此提示只显示一次。'
     : '[moss] Full mode: Moss edits files and runs commands without asking. ' +
         'To approve each action: /mode manual (or start with --workspace-write). ' +
-        'Block specific things with /permissions. This notice shows once.';
+        'Block specific things with /permissions. ' +
+        "Shell commands run with your user's full permissions (no sandbox). This notice shows once.";
 }
 
 /**

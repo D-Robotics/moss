@@ -26,6 +26,7 @@ import {
   resolveConfigDir,
   safeProcessCwd,
   shouldShowFullDefaultNotice,
+  shouldShowUntrustedFolderNotice,
   type LoadedCliConfigFile,
 } from './cli/config.js';
 import { parseCliArgs, shouldOpenResumePicker } from './cli/args.js';
@@ -1094,8 +1095,11 @@ async function main() {
       ...(summary ? [summary] : []),
     ];
     const line = untrustedFolderLine(parts, isZhLocale());
-    if (useTui) emitTuiNotice(line);
-    else console.error(line);
+    // O72: once per folder (and again only if the skipped list changes).
+    if (shouldShowUntrustedFolderNotice(startup.folderKey, line)) {
+      if (useTui) emitTuiNotice(line);
+      else console.error(line);
+    }
   } else if (startup.ignoredRoutingEnv.length > 0) {
     const line = ancestorRoutingIgnoredLine(
       startup.ignoredRoutingEnv,

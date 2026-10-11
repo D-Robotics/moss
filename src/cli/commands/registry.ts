@@ -322,7 +322,7 @@ const modeCommand: CommandSpec = {
           ? [
               `当前交互模式：${label}`,
               '  /mode manual        正常编码（逐次审批写操作与设备变更）',
-              '  /mode accept-edits  自动接受工作区内文件工具编辑',
+              '  /mode accept-edits  自动通过本文件夹内的文件编辑；终端命令仍需确认（-p 下会被拦下）',
               '  /mode plan          只读规划（不执行写操作）',
               '  /mode full          全开：跳过询问，仅 deny 规则与硬拦截生效（默认）',
               '  快捷键：Shift+Tab 在四种模式间循环',
@@ -331,7 +331,7 @@ const modeCommand: CommandSpec = {
           : [
               `Interaction mode: ${label}`,
               '  /mode manual        normal coding (approve mutations one by one)',
-              '  /mode accept-edits  auto-approve workspace file-tool edits',
+              '  /mode accept-edits  auto-approve file edits in this folder; shell commands still ask (blocked in -p)',
               '  /mode plan          read-only planning (block mutations)',
               '  /mode full          skip prompts — only deny rules and hard blocks apply (default)',
               '  Shortcut: Shift+Tab cycles manual / accept-edits / plan / full',
