@@ -59,6 +59,17 @@ function classifyConnectionHint(
     );
   }
   if (causeCode === 'ECONNREFUSED') {
+    if (hasProxyEnv) {
+      const proxy =
+        process.env.HTTPS_PROXY ||
+        process.env.HTTP_PROXY ||
+        process.env.https_proxy ||
+        process.env.http_proxy ||
+        'HTTP_PROXY/HTTPS_PROXY';
+      return hint(
+        `Proxy connection refused while reaching ${host} — could not connect to the proxy at ${proxy}. Check HTTPS_PROXY/HTTP_PROXY (host, port, and that the proxy is running).`
+      );
+    }
     return hint(
       `Connection refused by ${host} — the server is not running or the port is wrong. Check that the gateway/service is up and the baseUrl port is correct.`
     );

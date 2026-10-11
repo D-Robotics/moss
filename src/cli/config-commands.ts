@@ -399,6 +399,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_PI_AI_INTER_EVENT_TIMEOUT_MS',
       'MOSS_PI_AI_TOOL_CHOICE',
       'MOSS_TRACE_PI_AI_STREAM',
+      'MOSS_DEBUG_EXIT',
     ],
   },
   {
