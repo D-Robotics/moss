@@ -92,9 +92,9 @@ console.log('[PASS] CLI output formatting');
 // ─── createCliRunRenderer — oneshot turn_start noise ───────────────────────
 // Regression: oneshot/headless mode used to print "- thinking turn 1" on
 // EVERY turn (including the first), exposing internal turn jargon and
-// cluttering one-shot output. Now turn 1 and turn 2 are silent (a single
-// tool call takes 2 turns — no need to announce), and only turn > 2 prints
-// a brief "working…" so a multi-step tool loop shows progress.
+// cluttering one-shot output. O99: turn_start itself stays silent — empty
+// "working…" slogans do not count as progress; the run-progress heartbeat
+// emits a real thinking-wait line after 30s of silence instead.
 
 {
   function makeRenderer(detailMode, interactive) {
@@ -123,16 +123,14 @@ console.log('[PASS] CLI output formatting');
     assert.equal(text(), '', 'oneshot turn 2 is silent (single-tool-call flow)');
   }
 
-  // oneshot: turn > 2 prints a brief progress line.
+  // oneshot: turn > 2 is also silent on turn_start (O99 — no empty slogans).
   {
     const { renderer, text } = makeRenderer('progress', false);
     renderer.handle({ type: 'turn_start', turn: 3 });
     const out = text();
-    assert.ok(out.includes('working'), 'oneshot turn 3 uses friendly "working…" wording');
-    assert.ok(
-      !/thinking turn/.test(out),
-      'oneshot turn 3 does NOT use the old "thinking turn" jargon'
-    );
+    assert.equal(out, '', 'oneshot turn 3 writes nothing on turn_start (O99)');
+    assert.ok(!/working…|thinking turn/.test(out), 'no empty working… / thinking-turn jargon');
+    renderer.dispose?.();
   }
 
   // quiet mode: never prints turn announcements.

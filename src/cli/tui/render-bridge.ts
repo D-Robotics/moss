@@ -541,6 +541,14 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       store.version++;
       break;
     }
+    case 'tool_progress': {
+      // O99: long-running tool heartbeat — keep the live label fresh with elapsed.
+      const input = store.run.toolInputs.get(event.toolCallId) ?? {};
+      const base = toolLabel(event.toolName, input);
+      store.run.toolLine = `${base} · ${Math.max(0, Math.round(event.elapsedSec))}s`;
+      store.version++;
+      break;
+    }
     case 'tool_start': {
       closeThinking(store);
       store.run.retry = undefined;
