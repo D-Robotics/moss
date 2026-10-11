@@ -128,6 +128,15 @@ export function createMossAgentLoopEventAdapter(
             },
           ];
         }
+        case 'tool_execution_progress':
+          return [
+            {
+              type: 'tool_progress',
+              toolCallId: event.toolCallId,
+              toolName: event.toolName,
+              elapsedSec: event.elapsed_sec,
+            },
+          ];
         case 'tool_execution_end': {
           const content = event.content ?? event.result;
           toolResults.push({

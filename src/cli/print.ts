@@ -613,6 +613,9 @@ export function formatHeadlessStreamEvent(
       if (event.keptToolNames !== undefined) compaction.kept_tool_names = event.keptToolNames;
       return [compaction];
     }
+    case 'tool_progress':
+      // O99: progress is stderr-only; never appear on stdout/JSON stream.
+      return [];
     case 'microcompact':
     case 'retry':
       return [];
