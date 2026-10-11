@@ -236,7 +236,7 @@ export function noteGoalVerifyResult(
 
 const CLAIM_PATTERNS: Array<{ re: RegExp; requires: VerificationCheck[] }> = [
   {
-    re: /\ball\s+(?:the\s+)?checks?\s+(?:are\s+|is\s+)?(?:green|pass(?:ed|ing)?|clean|ok)\b|(?:全部|所有)(?:的)?检查(?:都|均|全部)?(?:已)?(?:通过|是绿的|绿了|变绿)|\bnpm\s+run\s+check\b[^.\n。]*\b(?:pass(?:es|ed)?|green|succeed(?:s|ed)?|clean)\b|npm\s+run\s+check[^。\n]*(?:通过|绿)/i,
+    re: /\ball\s+(?:the\s+)?checks?\s+(?:are\s+|is\s+)?(?:green|pass(?:ed|ing)?|clean|ok)\b|(?:全部|所有)(?:的)?检查(?:都|均|全部)?(?:已)?(?:通过|是绿的|绿了|变绿)|检查(?:都|均|全部)(?:已)?(?:通过|是绿的|绿了|变绿)|检查(?:都|均)?全绿|\bnpm\s+run\s+check\b[^.\n。]*\b(?:pass(?:es|ed)?|green|succeed(?:s|ed)?|clean)\b|npm\s+run\s+check[^。\n]*(?:通过|绿)/i,
     requires: ['check'],
   },
   {
@@ -252,7 +252,7 @@ const CLAIM_PATTERNS: Array<{ re: RegExp; requires: VerificationCheck[] }> = [
     requires: ['typecheck'],
   },
   {
-    re: /\b(?:all\s+)?tests?\s+(?:are\s+|now\s+)?(?:pass(?:es|ed|ing)?|green)\b|\d+\s*\/\s*\d+\s+(?:tests?\s+)?passed\b|测试(?:都|均|全部)?(?:已)?(?:通过|绿了|变绿)/i,
+    re: /\b(?:all\s+)?tests?\s+(?:are\s+|now\s+)?(?:pass(?:es|ed|ing)?|green)\b|\d+\s*\/\s*\d+\s+(?:tests?\s+)?passed\b|测试(?:都|均|全部)?(?:已)?(?:通过|绿了|变绿)|\bnpm\s+(?:run\s+)?test\b[^。\n]*(?:通过|绿)/i,
     requires: ['test'],
   },
 ];
@@ -290,7 +290,7 @@ const CHECK_LABEL: Record<VerificationCheck, string> = {
 };
 
 const EXPECTS_CHANGES =
-  /(?:修复|修改|实现|改成|改为|改掉|新增|添加|增加|补上|补一|重构|删掉|删除|\bfix(?:es)?\b|\bimplement\b|\brefactor\b|\bchange\b|\bupdate\b|\bedit\b|\bwrite\s+(?:a\s+)?(?:test|file|function)|\badd\s+(?:a\s+|an\s+)?(?:test|option|flag|function|file|check|support))/i;
+  /(?:修复|修好|修一下|修掉|改好|修改|实现|改成|改为|改掉|新增|添加|增加|补上|补一|重构|删掉|删除|\bfix(?:es)?\b|\bimplement\b|\brefactor\b|\bchange\b|\bupdate\b|\bedit\b|\bwrite\s+(?:a\s+)?(?:test|file|function)|\badd\s+(?:a\s+|an\s+)?(?:test|option|flag|function|file|check|support))/i;
 const QUESTION_ONLY =
   /^(?:how|why|what|which|explain|describe|can you explain|为什么|怎么|如何|解释|说明一下|是什么)|[?？]\s*$/i;
 
