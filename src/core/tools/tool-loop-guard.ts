@@ -375,36 +375,44 @@ export function classifyShellToolFailure(
 ): 'normal_nonzero' | ShellFaultKind | 'other' {
   const text = resultText ?? '';
   const head = text.slice(0, 600);
+  // Fault markers are only trusted on the tool-generated first line. Child
+  // stdout (e.g. a test named "... timed out after 5000ms") must never be
+  // scanned for fault text, or a normal run is misclassified as a tool fault.
+  const firstLine = (head.replace(/^\s+/, '').split(/\r?\n/, 1)[0] ?? '').trim();
+
+  // Normal completion header: process ran to completion; stdout is untrusted.
+  const exitHeader = /^exit_code:\s*(\d+)\b/i.exec(firstLine);
+  if (exitHeader) {
+    return Number(exitHeader[1]) > 0 ? 'normal_nonzero' : 'other';
+  }
+  if (/^Command failed \(exit\s+[1-9]\d*\)/i.test(firstLine)) return 'normal_nonzero';
 
   if (
-    /\btimed out after\b/i.test(head) ||
-    /❌\s*timed out\b/i.test(head) ||
-    /Execution error:.*\btimed out\b/i.test(head) ||
-    /Tool \S+ timed out\b/i.test(head)
+    /^timed out after\b/i.test(firstLine) ||
+    /^❌\s*timed out\b/i.test(firstLine) ||
+    /^Execution error:.*\btimed out\b/i.test(firstLine) ||
+    /^Tool \S+ timed out\b/i.test(firstLine)
   ) {
     return 'timeout';
   }
-  if (/^\s*Command killed by\b/i.test(head) || /\bkilled by SIG/i.test(head)) {
+  if (/^Command killed by\b/i.test(firstLine)) {
     return 'killed';
   }
   // "Command failed:" without "(exit N)" — spawn/start failure style from builtin.ts
-  if (
-    /^\s*Command failed:\s*(?:\n|$)/i.test(head) &&
-    !/Command failed \(exit\s+\d+\)/i.test(head)
-  ) {
+  if (/^Command failed:\s*$/i.test(firstLine)) {
     return 'start_failure';
   }
   if (
-    /\bENOENT\b/i.test(head) ||
-    /\bspawn(?:Sync)?\b.*\bENOENT\b/i.test(head) ||
-    /\bcommand not found\b/i.test(head) ||
-    /\bnot found in PATH\b/i.test(head) ||
-    /Failed to (?:start|launch|spawn)\b/i.test(head) ||
-    /未能启动/.test(head)
+    /^(?:Execution error:|Error:)?.*\bspawn(?:Sync)?\b.*\bENOENT\b/i.test(firstLine) ||
+    /^(?:Execution error:|Error:)\s.*\bENOENT\b/i.test(firstLine) ||
+    /^(?:\S+:\s*)?(?:\S+:\s*)?command not found\b/i.test(firstLine) ||
+    /^.*\bnot found in PATH\b/i.test(firstLine) ||
+    /^(?:Error:\s*)?Failed to (?:start|launch|spawn)\b/i.test(firstLine) ||
+    /^未能启动/.test(firstLine)
   ) {
     return 'start_failure';
   }
-  if (/^\s*Execution error:/i.test(head)) {
+  if (/^Execution error:/i.test(firstLine)) {
     return 'start_failure';
   }
 
@@ -420,8 +428,6 @@ export function classifyShellToolFailure(
   }
 
   // Normal completed non-zero (lint / test / check failed).
-  if (/^\s*exit_code:\s*[1-9]\d*\b/i.test(head)) return 'normal_nonzero';
-  if (/^\s*Command failed \(exit\s+[1-9]\d*\)/i.test(head)) return 'normal_nonzero';
   if (/Test Results:\s*❌\s+\d+\s+FAILED\b/i.test(head)) return 'normal_nonzero';
   if (/Test Results:\s*❌\s+exit\s+[1-9]/i.test(head)) return 'normal_nonzero';
   if (/Test Results:\s*⚠️\s*NO TESTS EXECUTED/i.test(head)) return 'normal_nonzero';
@@ -466,26 +472,13 @@ export function recordToolLoopOutcome(
   }
   trackReadScopeLocks(state, toolName, isError, resultText, input);
   if (!isError && !isSoftToolFailureResult(resultText)) {
-    // O96: exec ProcessError timeouts historically arrive with is_error=false
-    // ("timed out after Nms" without Error: prefix). Still classify shell text
-    // so real faults count toward byToolFailure instead of looking like success.
+    // O96: trust is_error only (set by execute-tool-call anchored
+    // isStringToolFailureResult). Never text-scan successful output.
     if (VERIFY_SHELL_TOOLS.has(toolName)) {
-      const kind = classifyShellToolFailure(resultText);
-      if (
-        kind === 'timeout' ||
-        kind === 'start_failure' ||
-        kind === 'killed' ||
-        kind === 'unusable'
-      ) {
-        // Fall through to the failure path below.
-      } else {
-        const sig = normalizeVerifyCommandSignature(toolName, input);
-        if (sig) state.bySameCommandFailure.delete(sig.key);
-        return;
-      }
-    } else {
-      return;
+      const sig = normalizeVerifyCommandSignature(toolName, input);
+      if (sig) state.bySameCommandFailure.delete(sig.key);
     }
+    return;
   }
   // O96: normal completed non-zero for exec/run_tests — independent streak only.
   if (VERIFY_SHELL_TOOLS.has(toolName)) {

@@ -274,28 +274,6 @@ test('e2e: production-shaped timed out after → is_error, byToolFailure, 超时
   assert.doesNotMatch(msg, STOP_RE);
 });
 
-test('e2e defense: isError=false + timed out after still counts (loop-guard text classify)', () => {
-  const state = createToolLoopGuardState();
-  const text = 'timed out after 200ms (raise timeout_ms or use exec_background)\n';
-  for (let i = 0; i < 3; i++) {
-    // Simulate the historical bug: production is_error=false.
-    recordToolLoopOutcome(state, 'exec', false, text, { command: `sleep ${i}`, timeout_ms: 200 });
-  }
-  assert.equal(
-    state.byToolFailure.get('exec'),
-    3,
-    'defense-in-depth: classify even when isError=false'
-  );
-  const blocked = shouldShortCircuitToolCall(state, 'exec', {
-    command: 'sleep 99',
-    timeout_ms: 200,
-  });
-  assert.ok(blocked);
-  assert.match(blocked, /timed out 3 time/i);
-  const msg = formatToolLoopGuardMessage(blocked, 'exec');
-  assert.match(msg, /超时|timed out/i);
-});
-
 test('e2e: real execTool sleep+timeout_ms through executeOneToolCall counts as timeout', async () => {
   const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o96-e2e-'));
   const deps = execCallDeps([execTool]);
@@ -337,4 +315,76 @@ test('e2e: real execTool sleep+timeout_ms through executeOneToolCall counts as t
   } catch {
     /* ignore */
   }
+});
+
+// QA #97 913354c4: fault-looking text in child stdout must never count as a tool fault.
+// is_error comes from execute-tool-call (anchored isStringToolFailureResult).
+const NEG_CASES = [
+  {
+    name: '(a) exit 1, node:test prints "test timed out after 100ms"',
+    text: "exit_code: 1\nnot ok 1 - slow case\n  error: 'test timed out after 100ms'\n# fail 1\n",
+    isError: true,
+    kind: 'normal_nonzero',
+  },
+  {
+    name: '(b) exit 1, jest test name contains "timed out after"',
+    text: 'exit_code: 1\nFAIL src/net.test.ts\n  ✕ retries when socket timed out after 3 attempts (12 ms)\nTests: 1 failed, 4 passed\n',
+    isError: true,
+    kind: 'normal_nonzero',
+  },
+  {
+    name: '(c) exit 0, log "connection timed out after 5s"',
+    text: 'exit_code: 0\n[warn] connection timed out after 5s, retrying\nok\n',
+    isError: false,
+    kind: 'other',
+  },
+  {
+    name: '(d) exit 0, warning line containing ENOENT',
+    text: "exit_code: 0\nnpm warn optional: ENOENT: no such file or directory, open '.npmrc'\ndone\n",
+    isError: false,
+    kind: 'other',
+  },
+];
+
+for (const c of NEG_CASES) {
+  test(`negative ${c.name} → no byToolFailure across 3 runs, no STOP`, () => {
+    assert.equal(
+      isStringToolFailureResult(c.text),
+      c.isError,
+      'is_error as execute-tool-call sets it'
+    );
+    assert.equal(classifyShellToolFailure(c.text), c.kind);
+    const state = createToolLoopGuardState();
+    for (let i = 0; i < 3; i++) {
+      recordToolLoopOutcome(state, 'exec', c.isError, c.text, { command: 'npm test' });
+    }
+    assert.equal(state.byToolFailure.get('exec') ?? 0, 0);
+    const blocked = shouldShortCircuitToolCall(state, 'exec', { command: 'npm run lint' });
+    if (blocked) {
+      assert.doesNotMatch(formatToolLoopGuardMessage(blocked, 'exec'), /STOP calling|工具不可用/i);
+    }
+  });
+}
+
+test('fault patterns anchored to first line (ENOENT / command not found / timeout / killed)', () => {
+  assert.equal(classifyShellToolFailure('timed out after 200ms (raise timeout_ms)\np'), 'timeout');
+  assert.equal(classifyShellToolFailure('Command killed by SIGKILL:\np'), 'killed');
+  assert.equal(
+    classifyShellToolFailure('Execution error: spawnSync foo ENOENT\n'),
+    'start_failure'
+  );
+  assert.equal(classifyShellToolFailure('bash: foo: command not found\n'), 'start_failure');
+  assert.equal(
+    classifyShellToolFailure('Command failed (exit 1):\nENOENT foo\n'),
+    'normal_nonzero'
+  );
+  assert.equal(
+    classifyShellToolFailure('Command failed (exit 127):\nsh: x: command not found\n'),
+    'normal_nonzero'
+  );
+  assert.equal(
+    classifyShellToolFailure('Command failed (exit 2):\nkilled by SIGTERM\n'),
+    'normal_nonzero'
+  );
+  assert.equal(classifyShellToolFailure('exit_code: 3\ntimed out after 1ms\n'), 'normal_nonzero');
 });
