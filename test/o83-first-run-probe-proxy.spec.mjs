@@ -140,6 +140,26 @@ check(
   server.close();
 }
 
+// MOSS_DISABLE_CONN_WARMUP=1 must ONLY skip connection warmup, not skip
+// installing the proxy-aware dispatcher (PM/QA lock for O57+O83).
+{
+  const warmupHost = 'o83-warmup.example.invalid';
+  const before = log.length;
+  await runChild(
+    `
+  const { probeModel } = await import('./dist/cli/connection-probe.js');
+  await probeModel({ provider: 'deepseek', baseUrl: 'https://${warmupHost}', apiKey: 'sk-o83-fake', model: 'm', timeoutMs: 5000 });
+`,
+    { MOSS_DISABLE_CONN_WARMUP: '1' }
+  );
+  const after = log.slice(before);
+  check(
+    assert.ok,
+    after.some((l) => l.startsWith(`CONNECT ${warmupHost}:443`)),
+    `MOSS_DISABLE_CONN_WARMUP=1: probeModel target host ${warmupHost} must still CONNECT via HTTPS_PROXY (switch skips warmup only, not dispatcher); proxy log: ${JSON.stringify(after)}`
+  );
+}
+
 proxy.close();
 if (failures.length) {
   console.error(`[FAIL] o83:\n- ${failures.join('\n- ')}`);

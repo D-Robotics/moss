@@ -48,8 +48,13 @@ function proxyEnvOptions(): {
 export async function ensureKeepAliveDispatcherInstalled(): Promise<void> {
   if (installed) return;
   if (typeof process === 'undefined' || !process.versions?.node) return;
-  if (process.env.MOSS_DISABLE_CONN_WARMUP === '1') return;
 
+  // Install the proxy-aware dispatcher regardless of MOSS_DISABLE_CONN_WARMUP.
+  // That env only skips connection warmup below — never skips HTTPS_PROXY/HTTP_PROXY.
+  await installKeepAliveDispatcher();
+}
+
+async function installKeepAliveDispatcher(): Promise<void> {
   let mod: UndiciModule;
   try {
     mod = await import('undici');
@@ -97,6 +102,18 @@ export async function ensureKeepAliveDispatcherInstalled(): Promise<void> {
       reuseObserved = true;
     });
   } catch {}
+
+  // Optional connection warmup (pre-connect). MOSS_DISABLE_CONN_WARMUP=1 skips
+  // only this step; the dispatcher above stays installed so HTTPS_PROXY works.
+  if (process.env.MOSS_DISABLE_CONN_WARMUP === '1') return;
+  await maybeWarmupKeepAliveConnection();
+}
+
+/** Best-effort pre-connect; currently a no-op reserved for future warmup. */
+async function maybeWarmupKeepAliveConnection(): Promise<void> {
+  // No proactive pre-connect yet: keep-alive reuse is observed on the first
+  // real request via the 'connect' listener above. Hook kept so the env flag
+  // has a clear, separate target from dispatcher install.
 }
 
 export function wasConnectionReused(): boolean {
