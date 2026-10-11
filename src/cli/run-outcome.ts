@@ -12,7 +12,8 @@
  * - `verify_failed` — MOSS_GOAL_VERIFY_CMD failed / timed out / would not start → non-0
  * - `blocked` — Stop hook blocked the run ending → non-0
  * - `unverified` — final answer claimed checks passed without a real pass, and no
- *   VERIFY_CMD hard failure (exit 0 so pure Q&A is not punished; last line「未验证」)
+ *   VERIFY_CMD hard failure (exit ExitCode.INCOMPLETE=9 so scripts can tell
+ *   it from success; last line still「未验证」/ Unverified — not Completed / verify_failed)
  */
 import { ExitCode } from './exit-codes.js';
 import {
@@ -197,8 +198,7 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
   if (unverifiedClaims.length > 0 && status !== 'verify_failed') {
     const labels = unverifiedClaims.map((c) => CHECK_LABEL[c]).join(', ');
     const failedRun = unverifiedClaims.some((c) => tracker.checks.get(c));
-    // Soft: no VERIFY_CMD hard failure — show「未验证」, exit 0 unless another
-    // hard failure already selected a non-completed status.
+    // Soft: no VERIFY_CMD hard failure — show「未验证」; exit is non-0 (O109).
     if (!status) status = 'unverified';
     reasonsEn.push(
       failedRun
@@ -236,15 +236,10 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
     stuckAtZh = tracker.lastStep;
   }
 
-  // Soft unverified alone stays exit 0; everything else is non-zero.
-  let exitCode = ExitCode.SUCCESS;
-  if (status === 'unverified' && !input.runError && !input.blocked && !verifyFail) {
-    exitCode = ExitCode.SUCCESS;
-  } else if (input.errorExitCode && input.errorExitCode !== 0) {
-    exitCode = input.errorExitCode;
-  } else {
-    exitCode = ExitCode.INCOMPLETE;
-  }
+  // O109: soft unverified alone is ExitCode.INCOMPLETE (9), same as other
+  // non-completed statuses — scripts can tell Unverified from success via exit.
+  const exitCode =
+    input.errorExitCode && input.errorExitCode !== 0 ? input.errorExitCode : ExitCode.INCOMPLETE;
 
   return {
     status,
