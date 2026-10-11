@@ -95,6 +95,21 @@ npm 11 可能打印 `npm warn install-scripts`。`npm ci` 可能会点名 `ssh2`
 看一下这个目录里有什么
 ```
 
+### 自定义 OpenAI 兼容网关
+
+内置预设之外的网关用 `openai-compatible`。四条命令分别写入服务商、模型、地址和密钥变量名（`apiKeyEnv` 的值是变量名，不是密钥本身）：
+
+```bash
+moss config set provider openai-compatible
+moss config set model your-model-name
+moss config set baseUrl https://gw.example
+moss config set apiKeyEnv MY_GATEWAY_API_KEY
+export MY_GATEWAY_API_KEY=your-key
+moss doctor
+```
+
+`baseUrl` 末尾的 `/v1` 可写可不写。`https://gw.example` 和 `https://gw.example/v1` 都可以。Moss 自己拼接 `/v1/chat/completions`，不会变成 `/v1/v1`。不必写 `/chat/completions`，写了也会被去掉。`moss doctor` 核对服务商、模型、地址，以及密钥变量是否已设置。
+
 进到交互界面后：
 
 - `moss "整理这个项目的 README"` 直接派活；`@` 引用文件，`!` 执行 shell
@@ -489,6 +504,21 @@ With no usable config, `moss` sets itself up in that screen (press a number to p
 ```text
 look around this folder and tell me what it is
 ```
+
+### Custom OpenAI-compatible gateway
+
+For a gateway that is not a built-in preset, use `openai-compatible`. These four commands set the provider, model, address, and the key variable name (`apiKeyEnv` stores the name, not the secret):
+
+```bash
+moss config set provider openai-compatible
+moss config set model your-model-name
+moss config set baseUrl https://gw.example
+moss config set apiKeyEnv MY_GATEWAY_API_KEY
+export MY_GATEWAY_API_KEY=your-key
+moss doctor
+```
+
+A trailing `/v1` on `baseUrl` is optional. Both `https://gw.example` and `https://gw.example/v1` work. Moss appends `/v1/chat/completions` itself and never produces `/v1/v1`. Do not include `/chat/completions`; it is not needed, and Moss strips it if it is present. `moss doctor` checks the provider, model, address, and whether the key variable is set.
 
 Inside Moss: give it a job (`@` to reference files, `!` for shell), `Shift+Tab` to cycle modes
 (`plan` = read-only planning), `Ctrl+V` to attach a clipboard image / Finder file / local path

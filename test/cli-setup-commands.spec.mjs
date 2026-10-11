@@ -104,6 +104,13 @@ test('short usage stays short; the full reference lives on config --help alone',
     'full help keeps the smoke-parity example'
   );
   assert.ok(full.includes('Examples:'), 'full help keeps the examples section');
+  assert.match(full, /\/v1 is optional/);
+  assert.doesNotMatch(full, /not \/v1/);
+  assert.doesNotMatch(full, /no \/v1/);
+  const zhHelp = setup.renderConfigHelp(true);
+  assert.match(zhHelp, /\/v1 可写可不写/);
+  assert.doesNotMatch(zhHelp, /不是 \/v1/);
+  assert.doesNotMatch(zhHelp, /不要写 \/v1/);
   assert.match(full, /--config-file and MOSS_CONFIG_FILE load only that file/);
   assert.match(full, /\.moss\/config\.json layer is not loaded/);
   assert.ok(

@@ -21,6 +21,21 @@ Node binary. README
 (en + zh) leads with the npm one-liner; source clone remains the optional developer
 path. No curl native-binary installer in this phase.
 
+### O60 — custom OpenAI-compatible gateway docs
+
+README (zh + en) documents `provider openai-compatible` with `model` / `baseUrl` /
+`apiKeyEnv`. A trailing `/v1` on `baseUrl` is optional; Moss appends
+`/v1/chat/completions` and never produces `/v1/v1`. `moss config --help` and the
+invalid-`baseUrl` hint say `/v1` is optional. `test/api-v1-url.spec.mjs` locks
+`buildApiV1Url` for bare hosts, trailing slash, `/v1`, and the d-robotics preset.
+
+### O59 — doctor binary path and PATH duplicates
+
+`moss doctor` prints `version` (with build stamp) and `binary` (realpath of the
+running entry + package root), and warns when several distinct `moss` executables
+are on PATH (PATH order, which one wins, whether it is the running one; PATHEXT on
+Windows, symlinks deduped). Scanner lives in `src/cli/moss-binary-path.ts`.
+
 ### Install follow-ups
 
 `npm ci` runs `scripts/check-node-version.cjs` as `preinstall`. The script is
