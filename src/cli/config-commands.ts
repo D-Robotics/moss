@@ -22,6 +22,8 @@ import {
   type CliConfigOverrides,
   type CliProviderPreset,
   type ConfigFile,
+  parseReasoningBudget,
+  REASONING_BUDGET_VALUES,
 } from './config.js';
 import { errorMessage } from '../errors.js';
 import { isZhLocale, parseLanguageSetting, uiText } from './cli-locale.js';
@@ -75,6 +77,8 @@ function serializeResolvedConfig(
     maxAgentTurnsSource: resolved.maxAgentTurnsSource,
     contextTokens: resolved.contextTokens,
     contextTokensSource: resolved.contextTokensSource,
+    reasoningBudget: resolved.reasoningBudget ?? 'adaptive',
+    reasoningBudgetSource: resolved.reasoningBudgetSource ?? 'default',
     compactionSettings: { ...resolved.compactionSettings },
     compactionSettingsSource: resolved.compactionSettingsSource,
     configWarnings: auditResolvedCliConfig(resolved),
@@ -378,7 +382,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
     group: 'providers, models & fallback',
     vars: [
       'MOSS_BEST_OF_N',
-      'MOSS_REASONING_BUDGET',
+      'MOSS_REASONING_BUDGET (off|adaptive|high; overrides config agent.reasoningBudget)',
       'MOSS_MODEL_BALANCED',
       'MOSS_MODEL_CHEAP',
       'MOSS_MODEL_STRONG',
@@ -476,6 +480,8 @@ const ENV_GROUP_ZH: Record<string, string> = {
 };
 
 const ENV_NOTE_ZH: Record<string, string> = {
+  'off|adaptive|high; overrides config agent.reasoningBudget':
+    'off|adaptive|high；优先于配置 agent.reasoningBudget',
   'process env only; a project .env cannot set this': '仅进程环境；项目 .env 不能设置',
   'process env or --config-file; a project .env cannot set this':
     '进程环境或 --config-file；项目 .env 不能设置',
@@ -596,6 +602,7 @@ export function renderConfigHelp(zh = false): string {
     '  moss config set guardrails.input.redactPatterns SECRET=[^\\\\s]+',
     '  moss config set agent.maxTurns 96',
     '  moss config set agent.contextTokens 200000',
+    '  moss config set agent.reasoningBudget high      # off|adaptive|high',
     '  moss config set agent.compaction.reserveTokens 20000',
     '  moss config set rdkDocs false',
     '  moss config set rdkDocs.package ../rdk-docs-mcp',
@@ -901,8 +908,8 @@ function buildProjectConfigTemplate(): ConfigFile {
 
 function supportedConfigKeys(): string {
   return uiText(
-    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language',
-    '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language'
+    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.reasoningBudget, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language',
+    '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.reasoningBudget、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language'
   );
 }
 
@@ -1260,6 +1267,19 @@ function applyConfigSetPair(
     } catch (err) {
       return { ok: false, messages: [errorMessage(err)] };
     }
+  } else if (key === 'agent.reasoningBudget') {
+    const budget = parseReasoningBudget(value);
+    if (!budget) {
+      return {
+        ok: false,
+        messages: [
+          isZhLocale()
+            ? `agent.reasoningBudget 取值无效：${value}。可选值：${REASONING_BUDGET_VALUES.join('、')}`
+            : `Unsupported agent.reasoningBudget value: ${value}. Supported values: ${REASONING_BUDGET_VALUES.join(', ')}`,
+        ],
+      };
+    }
+    next.agent = { ...next.agent, reasoningBudget: budget };
   } else if (key === 'agent.maxTurns' || key === 'agent.contextTokens') {
     const parsed = parseConfigPositiveInteger(value, key);
     if (!parsed.ok) {
@@ -1485,6 +1505,9 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
   } else if (key === 'agent.contextTokens') {
     next.agent = { ...current.agent };
     delete next.agent.contextTokens;
+  } else if (key === 'agent.reasoningBudget') {
+    next.agent = { ...current.agent };
+    delete next.agent.reasoningBudget;
   } else if (key === 'agent.compaction.reserveTokens') {
     next.agent = { ...current.agent, compaction: { ...current.agent?.compaction } };
     delete next.agent.compaction?.reserveTokens;

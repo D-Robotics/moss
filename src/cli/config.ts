@@ -660,6 +660,17 @@ function mergeModelOutputConfigs(
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
+export const REASONING_BUDGET_VALUES = ['off', 'adaptive', 'high'] as const;
+export type ReasoningBudget = (typeof REASONING_BUDGET_VALUES)[number];
+
+export function parseReasoningBudget(value: unknown): ReasoningBudget | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.toLowerCase().trim();
+  return (REASONING_BUDGET_VALUES as readonly string[]).includes(normalized)
+    ? (normalized as ReasoningBudget)
+    : undefined;
+}
+
 function mergeAgentRuntimeConfig(
   userAgent: ConfigFile['agent'],
   projectAgent: ConfigFile['agent']
@@ -858,6 +869,11 @@ export function fieldSourcesFor(
   mark('promptCache', user.promptCache !== undefined, project.promptCache !== undefined, true);
   mark('guardrails', user.guardrails !== undefined, project.guardrails !== undefined, true);
   mark('agent.maxTurns', user.agent?.maxTurns !== undefined, project.agent?.maxTurns !== undefined);
+  mark(
+    'agent.reasoningBudget',
+    user.agent?.reasoningBudget !== undefined,
+    project.agent?.reasoningBudget !== undefined
+  );
   mark(
     'agent.contextTokens',
     user.agent?.contextTokens !== undefined,
@@ -1535,6 +1551,7 @@ export interface ResolvedCliConfig {
   bestOfN?: number;
   /** v0.10 W4 (config agent.reasoningBudget + MOSS_REASONING_BUDGET env). */
   reasoningBudget?: 'off' | 'adaptive' | 'high';
+  reasoningBudgetSource?: string;
   /** v0.12 (agent.modelTiers + MOSS_MODEL_CHEAP/BALANCED/STRONG env). */
   modelTiers?: { cheap?: string; balanced?: string; strong?: string };
   modelTiersSource?: string;
@@ -2411,13 +2428,18 @@ export function resolveCliConfig(
       apiKeyFromProjectEnv = true;
     }
   }
-  const rawReasoningBudget = (env.MOSS_REASONING_BUDGET ?? '').toLowerCase().trim();
-  const reasoningBudget =
-    rawReasoningBudget === 'off' ||
-    rawReasoningBudget === 'adaptive' ||
-    rawReasoningBudget === 'high'
-      ? rawReasoningBudget
-      : activeConfig.agent?.reasoningBudget;
+  // Same precedence as agent.maxTurns / agent.contextTokens: a valid
+  // MOSS_REASONING_BUDGET env wins over config agent.reasoningBudget
+  // (project layer over user layer), then the runtime default (adaptive).
+  const envReasoningBudget = parseReasoningBudget(env.MOSS_REASONING_BUDGET);
+  const configReasoningBudget = parseReasoningBudget(activeConfig.agent?.reasoningBudget);
+  const reasoningBudget = envReasoningBudget ?? configReasoningBudget;
+  const reasoningBudgetSource =
+    envReasoningBudget !== undefined
+      ? 'MOSS_REASONING_BUDGET'
+      : configReasoningBudget !== undefined
+        ? fileLayer('agent.reasoningBudget')
+        : 'default';
   const runBudget =
     budgetMaxTokens !== undefined ||
     budgetMaxToolCalls !== undefined ||
@@ -2526,6 +2548,7 @@ export function resolveCliConfig(
     ...(runBudget ? { budget: runBudget } : {}),
     ...(bestOfN !== undefined ? { bestOfN } : {}),
     ...(reasoningBudget ? { reasoningBudget } : {}),
+    reasoningBudgetSource,
     ...(hasModelTiers ? { modelTiers, modelTiersSource } : { modelTiersSource }),
     compactionSettingsSource,
     configPath: configPaths?.configPath ?? resolveConfigPath(undefined, env),

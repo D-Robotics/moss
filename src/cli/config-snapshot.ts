@@ -276,6 +276,11 @@ const FIELDS = {
     'context tokens',
     (c: ResolvedCliConfig) => `${c.contextTokens} ${sourceNote(c.contextTokensSource)}`,
   ],
+  reasoningBudget: [
+    'reasoning budget',
+    (c: ResolvedCliConfig) =>
+      `${c.reasoningBudget ?? 'adaptive'} ${sourceNote(c.reasoningBudgetSource ?? 'default')}`,
+  ],
   maxOutput: [
     'max output',
     (c: ResolvedCliConfig) =>
