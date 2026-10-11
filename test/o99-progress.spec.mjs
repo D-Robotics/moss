@@ -56,11 +56,16 @@ test('formatter: tool start/running include real tool+target (en+zh)', () => {
   assert.ok(runEn.includes('npm run check') && runEn.includes('90s'));
 });
 
-test('formatter: unfinished reason for max_turns (O98 alignment)', () => {
-  const { unfinishedReasonFromStop, formatUnfinishedLine } = progress();
+test('formatter: unfinished reason for max_turns (O98 formatOutcomeLine)', () => {
+  const { unfinishedReasonFromStop, formatProgressOutcomeLine } = progress();
   assert.ok(unfinishedReasonFromStop('max_turns_reached', false));
-  assert.ok(formatUnfinishedLine('hit the turn limit', false).startsWith('Unfinished:'));
-  assert.ok(formatUnfinishedLine('已到回合上限', true).startsWith('未完成：'));
+  const en = formatProgressOutcomeLine({ stopReason: 'max_turns_reached', zh: false });
+  const zh = formatProgressOutcomeLine({ stopReason: 'max_turns_reached', zh: true });
+  assert.ok(en.startsWith('Incomplete:'), en);
+  assert.ok(zh.startsWith('未完成：'), zh);
+  // Honest complete still gets a non-empty 完成 line (O98 contract).
+  const done = formatProgressOutcomeLine({ stopReason: 'end_turn', zh: true });
+  assert.ok(done.startsWith('完成：'), done);
 });
 
 test('tracker: ≥90s silence emits thinking-wait at least every 60s (en)', () => {
@@ -150,7 +155,7 @@ test('tracker: unfinished last line on max_turns_reached', () => {
   });
   tracker.dispose();
   assert.ok(
-    lines.some((l) => /^Unfinished:/.test(l)),
+    lines.some((l) => /^Incomplete:/.test(l)),
     JSON.stringify(lines)
   );
 });
@@ -256,7 +261,7 @@ test('renderer: unfinished stopReason prints clear last-line reason', () => {
     },
   });
   renderer.dispose();
-  assert.ok(/Unfinished:|未完成：/.test(stderrChunks.join('')), stderrChunks.join(''));
+  assert.ok(/Incomplete:|未完成：/.test(stderrChunks.join('')), stderrChunks.join(''));
 });
 
 test('short-task guard: ≤10s run emits ≤3 tracker progress lines', () => {

@@ -32,8 +32,8 @@ import {
 import { noteToolForVerifyHint } from './verify-hint.js';
 import {
   createRunProgressTracker,
+  formatProgressOutcomeLine,
   formatToolRunningLine,
-  formatUnfinishedLine,
   unfinishedReasonFromStop,
   type RunProgressTracker,
 } from './run-progress.js';
@@ -1037,9 +1037,16 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         const stopReason = event.result?.stopReason;
         const unfinished = unfinishedReasonFromStop(stopReason, isZhLocale());
         if (unfinished) {
-          // O99 / O98 alignment: never end on a half-done progress line with
-          // success wording. Clear last-line reason; exit code is set by oneshot.
-          stderrLine(`${mark('fail')} ${formatUnfinishedLine(unfinished, isZhLocale())}`);
+          // O99 / O98: progress-path footer via formatOutcomeLine (never empty).
+          // Exit code is owned by oneshot resolveRunOutcome.
+          const zh = isZhLocale();
+          stderrLine(
+            `${mark('fail')} ${formatProgressOutcomeLine({
+              stopReason,
+              finalText: event.result?.response ?? '',
+              zh,
+            })}`
+          );
           if (stopReason === 'max_turns_reached' || stopReason === 'tool_followup_cap_reached') {
             stderrLine(
               isZhLocale()

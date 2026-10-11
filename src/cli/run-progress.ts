@@ -9,8 +9,21 @@
  *   2. long-running tool heartbeats (tool_progress)
  *   3. model thinking with no tool for ≥30s — 「正在推理，已等待 Ns」
  * Heartbeat: if nothing real for 60s, emit a thinking-wait line (never silent).
+ *
+ * Conclusion footer (done / unfinished) is read-only via O98 run-outcome:
+ * {@link resolveRunOutcome} + {@link formatOutcomeLine}. Do not invent a second
+ * outcome vocabulary here.
  */
 import type { MossAgentEvent } from '../core/index.js';
+import {
+  createRunCompletionTracker,
+  formatOutcomeLine,
+  noteRunCompletionEvent,
+  resolveRunOutcome,
+  type OutcomeLang,
+  type RunCompletionTracker,
+  type RunOutcome,
+} from './run-outcome.js';
 
 export const THINKING_WAIT_INTERVAL_MS = 30_000;
 export const HEARTBEAT_MAX_GAP_MS = 60_000;
@@ -161,15 +174,7 @@ export function formatToolRunningLine(
   return zh ? `正在跑 ${label} · 已 ${sec}s` : `Running ${label} · ${sec}s`;
 }
 
-export function formatUnfinishedLine(reason: string, zh: boolean): string {
-  const detail = reason.replace(/\s+/g, ' ').trim() || (zh ? '任务未完成' : 'task unfinished');
-  return zh ? `未完成：${detail}` : `Unfinished: ${detail}`;
-}
-
-export function formatDoneLine(zh: boolean): string {
-  return zh ? '已完成' : 'Done';
-}
-
+/** Map a stopReason to a runError string for {@link resolveRunOutcome}. */
 export function unfinishedReasonFromStop(
   stopReason: string | undefined,
   zh: boolean
@@ -196,6 +201,36 @@ export function unfinishedReasonFromStop(
   return undefined;
 }
 
+export interface ProgressOutcomeInput {
+  stopReason?: string;
+  errorMessage?: string;
+  finalText?: string;
+  /** Prefer the same tracker oneshot/TUI feed; otherwise a fresh empty one. */
+  tracker?: RunCompletionTracker;
+  zh: boolean;
+}
+
+/**
+ * O98-aligned conclusion line for the progress path.
+ * Always non-empty via {@link formatOutcomeLine}.
+ */
+export function resolveProgressOutcome(input: ProgressOutcomeInput): RunOutcome {
+  const tracker = input.tracker ?? createRunCompletionTracker();
+  const runError =
+    input.errorMessage?.replace(/\s+/g, ' ').trim() ||
+    unfinishedReasonFromStop(input.stopReason, input.zh);
+  return resolveRunOutcome({
+    tracker,
+    finalText: input.finalText ?? '',
+    ...(runError ? { runError } : {}),
+  });
+}
+
+export function formatProgressOutcomeLine(input: ProgressOutcomeInput): string {
+  const lang: OutcomeLang = input.zh ? 'zh' : 'en';
+  return formatOutcomeLine(resolveProgressOutcome(input), lang);
+}
+
 export interface RunProgressTracker {
   onEvent(event: MossAgentEvent): void;
   /** Record activity without emitting (e.g. when another renderer already printed the tool line). */
@@ -218,6 +253,8 @@ export function createRunProgressTracker(
   const maxGap = options.heartbeatMaxGapMs ?? HEARTBEAT_MAX_GAP_MS;
   const clock = options.clock ?? defaultClock();
   const emitted: ProgressLine[] = [];
+  // Read-only O98 tracker so conclusion lines share resolveRunOutcome.
+  const completionTracker = createRunCompletionTracker();
 
   let lastEmitAt = clock.now();
   let thinkingSince: number | undefined;
@@ -304,6 +341,7 @@ export function createRunProgressTracker(
     onEvent(event: MossAgentEvent) {
       if (disposed) return;
       const at = clock.now();
+      noteRunCompletionEvent(completionTracker, event);
       switch (event.type) {
         case 'turn_start':
           activeTool = undefined;
@@ -361,14 +399,17 @@ export function createRunProgressTracker(
           endThinking();
           activeTool = undefined;
           if (emitToolBoundaries) {
-            emit(
-              'unfinished',
-              formatUnfinishedLine(
+            const outcome = resolveProgressOutcome({
+              errorMessage:
                 event.errorSurface?.userMessage?.trim() ||
-                  (typeof event.error === 'string' ? event.error : '') ||
-                  (zh ? '执行出错' : 'error'),
-                zh
-              ),
+                (typeof event.error === 'string' ? event.error : '') ||
+                (zh ? '执行出错' : 'error'),
+              tracker: completionTracker,
+              zh,
+            });
+            emit(
+              outcome.status === 'completed' ? 'done' : 'unfinished',
+              formatOutcomeLine(outcome, zh ? 'zh' : 'en'),
               at
             );
           } else {
@@ -383,12 +424,17 @@ export function createRunProgressTracker(
             lastEmitAt = at;
             break;
           }
-          const unfinished = unfinishedReasonFromStop(event.result?.stopReason, zh);
-          if (unfinished) {
-            emit('unfinished', formatUnfinishedLine(unfinished, zh), at);
-          } else {
-            emit('done', formatDoneLine(zh), at);
-          }
+          const outcome = resolveProgressOutcome({
+            stopReason: event.result?.stopReason,
+            finalText: event.result?.response ?? '',
+            tracker: completionTracker,
+            zh,
+          });
+          emit(
+            outcome.status === 'completed' ? 'done' : 'unfinished',
+            formatOutcomeLine(outcome, zh ? 'zh' : 'en'),
+            at
+          );
           break;
         }
         default:
