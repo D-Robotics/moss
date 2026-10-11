@@ -421,6 +421,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_TOOL_LOOP_EDIT_PATH_FAILURE_LIMIT',
       'MOSS_TOOL_LOOP_FAILURE_LIMIT',
       'MOSS_TOOL_LOOP_IDENTICAL_LIMIT',
+      'MOSS_TOOL_LOOP_SAME_COMMAND_LIMIT (same-command consecutive failure limit; default 3)',
       'MOSS_TOOL_LOOP_SINGLE_TOOL_LIMIT',
       'MOSS_TOOL_LOOP_TOTAL_LIMIT',
       'MOSS_TOOL_NAME',
@@ -440,6 +441,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_TUI_RENDERER_CONFIG',
       'MOSS_TUI_THEME',
       'MOSS_LANG (auto|en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale)',
+      'MOSS_LOCALE (optional zh locale hint for protected-path notices; falls back to system locale)',
       'MOSS_NO_COLOR',
       'MOSS_LOG_LEVEL',
       'MOSS_LOG_JSON',
@@ -523,6 +525,9 @@ const ENV_NOTE_ZH: Record<string, string> = {
   'auto|en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale':
     'auto|en|zh；进程环境或 --lang；项目 .env 不能设置；优先级为参数、环境变量、配置 language、系统区域',
   'checkout for moss update; --dir wins': 'moss update 要升级的克隆；--dir 优先',
+  'same-command consecutive failure limit; default 3': '同命令连续失败上限；默认 3',
+  'optional zh locale hint for protected-path notices; falls back to system locale':
+    '可选；受保护路径提示的中文区域启发，未设时回退到系统语言环境',
 };
 
 function localizeEnvEntry(entry: string): string {
