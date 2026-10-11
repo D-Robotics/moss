@@ -68,7 +68,7 @@ if (process.platform === 'win32') {
   const script = path.join(workspaceDir, "self terminate ü's.cjs");
   fs.writeFileSync(
     script,
-    `const fs=require('node:fs');const [mode,nonce,marker]=process.argv.slice(2);fs.writeSync(1,JSON.stringify({nonce,pid:process.pid,mode})+'\\n');if(mode==='signal'){process.kill(process.pid,'SIGTERM');fs.writeFileSync(marker,'unreachable');}else if(mode==='write'){fs.writeFileSync(marker,'positive');process.exit(0);}else{process.exit(Number(mode));}`
+    `const fs=require('node:fs');const [mode,nonce,marker]=process.argv.slice(2);fs.writeSync(1,JSON.stringify({nonce,pid:process.pid,mode})+'\\n');if(mode==='signal'){process.kill(process.pid,'SIGTERM');fs.writeFileSync(marker,'unreachable');}else if(mode==='kill-exception'){process.kill(process.pid,'MOSS_UNKNOWN_SIGNAL');fs.writeFileSync(marker,'unreachable');}else if(mode==='write'){fs.writeFileSync(marker,'positive');process.exit(0);}else{process.exit(Number(mode));}`
   );
   const originalSpawn = cp.spawn;
   let nativeChild;
@@ -96,6 +96,7 @@ if (process.platform === 'win32') {
         false,
         'termination must prevent the unreachable mutation'
       );
+    return line;
   };
   try {
     // Actual Node22/24 native probes establish exit1/null for Windows self-SIGTERM.
@@ -120,8 +121,31 @@ if (process.platform === 'win32') {
         result = error;
       }
       assert.ok(nativeChild?.pid, 'the observed real native spawn must have a PID');
+      assert.equal(result.stderr, '', 'a JS/launch exception must not masquerade as self-SIGTERM');
       assertIdentity(result.stdout, nonce, mode, marker, nativeChild.pid);
     }
+    const exceptionNonce = randomUUID();
+    const exceptionMarker = path.join(workspaceDir, `${exceptionNonce}.txt`);
+    await assert.rejects(
+      runProcess(process.execPath, {
+        args: [script, 'kill-exception', exceptionNonce, exceptionMarker],
+      }),
+      (error) => {
+        assert.ok(error instanceof ProcessError);
+        assert.equal(error.exitCode, 1);
+        assert.equal(error.signal, null);
+        assert.match(error.stderr, /ERR_UNKNOWN_SIGNAL/);
+        assertIdentity(
+          error.stdout,
+          exceptionNonce,
+          'kill-exception',
+          exceptionMarker,
+          nativeChild.pid
+        );
+        assert.throws(() => assert.equal(error.stderr, ''), { code: 'ERR_ASSERTION' });
+        return true;
+      }
+    );
     await assert.rejects(
       runProcess(path.join(workspaceDir, 'missing-native.exe'), { args: [] }),
       (error) => error.code === 'ENOENT' && !(error instanceof ProcessError)
@@ -139,7 +163,14 @@ if (process.platform === 'win32') {
       if (mode === '0') assert.doesNotMatch(text, /Command failed/);
       else assert.match(text, new RegExp(`^Command failed \\(exit ${mode === '7' ? 7 : 1}\\):`));
       assert.doesNotMatch(text, /exit null|timed out|killed by SIGTERM/);
-      assertIdentity(text, nonce, mode, marker);
+      const identityLine = assertIdentity(text, nonce, mode, marker);
+      assert.equal(
+        text,
+        mode === '0'
+          ? identityLine
+          : `Command failed (exit ${mode === '7' ? 7 : 1}):\n${identityLine}`,
+        'a shell/JS exception or launcher output must not masquerade as self-SIGTERM'
+      );
     }
   } finally {
     cp.spawn = originalSpawn;
