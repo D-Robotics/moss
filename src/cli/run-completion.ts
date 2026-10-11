@@ -261,6 +261,10 @@ const CLAIM_PATTERNS: Array<{ re: RegExp; requires: VerificationCheck[] }> = [
  * Success claims in `text` that the run does not back up: the matching check
  * never ran, or its latest run failed.
  */
+/** Explanatory / conditional framing — not a success claim (O110). */
+const CLAIM_NON_ASSERTIVE =
+  /才算|表示|意味着|说明(?:了|着)?|等.{0,16}后再|等.{0,16}后|如果|的话|\bmeans?\b|\bmust\b[\s\S]{0,40}?\bbefore\b|\bwait\s+until\b|\bbefore\s+(?:it\s+)?counts\b|\bthen\s+merge\b/i;
+
 export function findUnverifiedCheckClaims(
   text: string,
   tracker: RunCompletionTracker
@@ -272,6 +276,8 @@ export function findUnverifiedCheckClaims(
       const match = re.exec(sentence);
       if (!match) continue;
       if (/\b(?:not|n't|never)\b|未|没|尚未|无法/.test(match[0])) continue;
+      // Questions / explanations / conditionals are not claims that checks passed.
+      if (CLAIM_NON_ASSERTIVE.test(sentence)) continue;
       for (const check of requires) {
         const run = tracker.checks.get(check);
         if (!run || !run.passed) missing.add(check);
@@ -294,11 +300,21 @@ const EXPECTS_CHANGES =
 const QUESTION_ONLY =
   /^(?:how|why|what|which|explain|describe|can you explain|为什么|怎么|如何|解释|说明一下|是什么)|[?？]\s*$/i;
 
+/**
+ * Soft ZH change verbs (修好/改好/修一下/修掉) only count in imperative use.
+ * Strip question / hypothetical frames (能不能/是否/之后…) before matching (O110).
+ */
+const SOFT_ZH_CHANGE_NON_IMPERATIVE =
+  /(?:能不能|可不可以|是否|能否)[^。！？\n?]{0,24}?(?:修好|改好|修一下|修掉)|(?:修好|改好|修一下|修掉)(?:之后|了没有|了吗|了没)/g;
+
 /** Heuristic: does this request expect the run to change files? */
 export function requestExpectsFileChanges(request: string): boolean {
   const text = request.trim();
   if (!text || QUESTION_ONLY.test(text)) return false;
-  return EXPECTS_CHANGES.test(text);
+  if (!EXPECTS_CHANGES.test(text)) return false;
+  // If the only hits were soft ZH verbs in Q/hypothetical frames, do not expect writes.
+  const scrubbed = text.replace(SOFT_ZH_CHANGE_NON_IMPERATIVE, ' ');
+  return EXPECTS_CHANGES.test(scrubbed);
 }
 
 /** Decide whether the run is complete; never upgrades an error run to success. */

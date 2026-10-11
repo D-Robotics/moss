@@ -120,4 +120,86 @@ function pair(name, en, zh, expect) {
   assert.deepEqual(findUnverifiedCheckClaims('检查都未通过。', t), []);
   assert.deepEqual(findUnverifiedCheckClaims('npm test 没有通过。', t), []);
 }
+
+// C2–C7 (O110 acceptance C / QA): question / hypothetical / explanatory
+// frames must stay Completed exit 0 (EN/ZH paired). Soft ZH verbs and
+// 通过/全绿 in 才算/表示/等…后 must not false-positive.
+{
+  pair(
+    'C2',
+    {
+      request: 'Tell me if this bug can be fixed',
+      finalText: 'Maybe, if the root cause is clear.',
+    },
+    {
+      request: '说说这个 bug 能不能修好',
+      finalText: '可以修好，需要改 src/a.ts。',
+    },
+    { status: 'completed', exit: 0, kindEn: 'Completed' }
+  );
+  pair(
+    'C3',
+    {
+      request: 'What happens after this function is fixed?',
+      finalText: 'It would return an array.',
+    },
+    {
+      request: '这个函数改好之后会怎样',
+      finalText: '会返回数组。',
+    },
+    { status: 'completed', exit: 0, kindEn: 'Completed' }
+  );
+  pair(
+    'C4',
+    {
+      request: 'Can you look at whether this error can be fixed a bit?',
+      finalText: 'It is a network issue; no code change needed.',
+    },
+    {
+      request: '帮我看看能不能修一下这个报错',
+      finalText: '是网络问题，不需要改代码。',
+    },
+    { status: 'completed', exit: 0, kindEn: 'Completed' }
+  );
+  pair(
+    'C5',
+    {
+      request: 'How do I know whether the bug is fixed?',
+      finalText: 'Usually run npm test; tests must be green before it counts as fixed.',
+    },
+    {
+      request: '怎么判断 bug 修好了没有？',
+      finalText: '一般要跑 npm test，测试全绿才算修好。',
+    },
+    { status: 'completed', exit: 0, kindEn: 'Completed' }
+  );
+  pair(
+    'C6',
+    {
+      request: 'What does CI all green mean?',
+      finalText: 'CI all green means all checks passed.',
+    },
+    {
+      request: '解释一下 CI 全绿是什么意思',
+      finalText: 'CI 全绿表示检查都通过。',
+    },
+    { status: 'completed', exit: 0, kindEn: 'Completed' }
+  );
+  // Wrote files; conditional "wait until green then merge" is not a claim.
+  pair(
+    'C7',
+    {
+      request: 'Fix the bug',
+      finalText: 'Done for now; wait until checks are green then merge.',
+      write: true,
+    },
+    {
+      request: '修复 bug',
+      finalText: '改好了，等检查全绿后再合。',
+      write: true,
+    },
+    { status: 'completed', exit: 0, kindEn: 'Completed' }
+  );
+}
+
 console.log('o110-zh-en-claim-parity: ok');
