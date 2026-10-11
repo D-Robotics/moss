@@ -107,6 +107,7 @@ describe('git spawn', { concurrency: 1 }, () => {
         'local\tfilter.x.clean /tmp/clean.sh',
         'worktree\tfilter.x.smudge /tmp/smudge.sh',
         'local\tfilter.x.process /tmp/process.sh',
+        'local\tmerge.x.driver /tmp/merge.sh',
         'local\tdiff.x.textconv /tmp/textconv.sh',
         'worktree\tdiff.x.command /tmp/command.sh',
         'local\tcore.fsmonitor /tmp/fs.sh',
@@ -120,6 +121,7 @@ describe('git spawn', { concurrency: 1 }, () => {
     assert.ok(args.includes('filter.x.smudge='));
     assert.ok(args.includes('filter.x.process='));
     assert.ok(args.includes('filter.x.required=false'));
+    assert.ok(args.includes('merge.x.driver='));
     assert.ok(args.includes('diff.x.textconv='));
     assert.ok(args.includes('diff.x.command='));
     assert.ok(args.includes('core.fsmonitor='));

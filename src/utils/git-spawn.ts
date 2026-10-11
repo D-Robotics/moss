@@ -12,11 +12,15 @@
  * git child does this, not only after a trust decision. An empty
  * `diff.external` still tries to exec, so a read-only `diff` also passes
  * `--no-ext-diff` and `--no-textconv` and keeps git's own diff. Repo
- * `filter.*` and `diff.*` drivers are blanked the same way, including ones
- * pulled in by `include.path`, `includeIf`, or `extensions.worktreeConfig`.
+ * `filter.*`, `merge.*.driver`, and `diff.*` drivers are blanked for every
+ * `runGit` child (read-only and mutating), including ones pulled in by
+ * `include.path`, `includeIf`, or `extensions.worktreeConfig`.
  * Only `local` and `worktree` scopes are overridden. System and global config
  * stay in effect, and `command` scope is ignored. Mutating commands
- * (worktree add, apply) keep ssh and credential helpers.
+ * (worktree add, apply, add) get the same discovered executable-config
+ * overrides so repo `filter.*` and `merge.*.driver` programs do not run;
+ * they still skip the unconditional read-only blanks for ssh, pager, and
+ * credential helpers (unless those keys are set locally).
  *
  * `GIT_*` on the child comes from the environment captured before a project
  * `.env`. A project file cannot point git at another repo or config.
@@ -72,7 +76,7 @@ function withoutExternalDiff(args: readonly string[]): string[] {
 
 /** Repo config keys whose values are programs. */
 const EXEC_CONFIG_KEY =
-  /^(?:filter\..+\.(?:clean|smudge|process)|diff\..+\.(?:textconv|command)|core\.(?:fsmonitor|hooksPath|sshCommand|pager)|credential\.helper)$/;
+  /^(?:filter\..+\.(?:clean|smudge|process)|merge\..+\.driver|diff\..+\.(?:textconv|command)|core\.(?:fsmonitor|hooksPath|sshCommand|pager)|credential\.helper)$/;
 
 /**
  * Git matches `--get-regexp` against the canonical lowercase key, so
@@ -85,7 +89,7 @@ const EXEC_CONFIG_KEY =
  * own git children (those already force `core.hooksPath` to `/dev/null`).
  */
 const EXEC_CONFIG_REGEXP =
-  '^(filter\\..*\\.(clean|smudge|process)|diff\\..*\\.(textconv|command)|diff\\.external|core\\.(fsmonitor|hookspath|sshcommand|pager)|credential\\.helper)$';
+  '^(filter\\..*\\.(clean|smudge|process)|merge\\..*\\.driver|diff\\..*\\.(textconv|command)|diff\\.external|core\\.(fsmonitor|hookspath|sshcommand|pager)|credential\\.helper)$';
 
 const FILTER_DRIVER = /^filter\.(.+)\.(?:clean|smudge|process)$/i;
 
@@ -455,6 +459,8 @@ export interface RunGitOptions {
   /**
    * Default true. Pass false for mutating git (worktree add, apply, add).
    * `core.fsmonitor` and `core.hooksPath` are overridden either way.
+   * Discovered local/worktree executable-config overrides (filters, merge
+   * drivers, …) are injected for both read-only and mutating calls.
    */
   readOnly?: boolean;
 }
@@ -467,10 +473,10 @@ export async function runGit(
   const env: Record<string, string> = { ...(opts.env ?? {}) };
   if (readOnly) env.GIT_PAGER = 'cat';
   let gitArgs = hardenedGitArgs(args, { readOnly });
-  if (readOnly) {
-    const discovered = await executableConfigOverrides(opts.cwd, opts.signal);
-    gitArgs = insertBeforeSubcommand(gitArgs, discovered);
-  }
+  // Mutating git (worktree add, add -A -N, apply --3way) must also blank
+  // repo filter/merge drivers; those call sites pass readOnly: false.
+  const discovered = await executableConfigOverrides(opts.cwd, opts.signal);
+  gitArgs = insertBeforeSubcommand(gitArgs, discovered);
   return runProcess('git', {
     args: gitArgs,
     cwd: opts.cwd,
