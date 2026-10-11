@@ -76,7 +76,6 @@ for (const failQueuedRead of [false, true]) {
       });
       const records = [];
       let recoveryReads = 0;
-      let cleanupStarted = false;
       let watchdog;
       try {
         fs.readFile = async function (file, ...args) {
@@ -114,7 +113,7 @@ for (const failQueuedRead of [false, true]) {
         records.push(second, end);
         await tick();
         const firstBarrier = { first: first.state, second: second.state, end: end.state };
-        assert.equal(cleanupStarted, false);
+        assert.equal((await fs.stat(root)).isDirectory(), true, 'cleanup must wait for IO drain');
         assert.equal(runtime.getLiveState().running, false, 'UI flag alone is not the IO drain');
         firstAllowed.resolve();
         await entered(queuedEntered.promise, 'queued');
@@ -154,7 +153,6 @@ for (const failQueuedRead of [false, true]) {
         await Promise.all(records.map((record) => record.settled));
         fs.readFile = originalRead;
         syncBuiltinESMExports();
-        cleanupStarted = true;
         // Only this function's validated, freshly created system-temp root.
         await fs.rm(root, { recursive: true, force: true });
       }
