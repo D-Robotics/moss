@@ -377,7 +377,8 @@ export function normalizeShellOutputFingerprint(resultText: string): string {
  * @internal exported for tests
  */
 export function classifyShellToolFailure(
-  resultText: string | undefined
+  resultText: string | undefined,
+  platform: NodeJS.Platform | string = process.platform
 ): 'normal_nonzero' | ShellFaultKind | 'other' {
   const text = resultText ?? '';
   const head = text.slice(0, 600);
@@ -390,12 +391,17 @@ export function classifyShellToolFailure(
   const exitHeader = /^exit_code:\s*(\d+)\b/i.exec(firstLine);
   // 126 (not executable) / 127 (command not found) from the exec first line
   // mean the process never started — a tool fault, not a lint/test failure.
+  // O106: on Windows, cmd.exe "command not found" is exit 9009 — same as 127.
   if (exitHeader) {
     const code = Number(exitHeader[1]);
     if (code === 126 || code === 127) return 'start_failure';
+    if (code === 9009 && platform === 'win32') return 'start_failure';
     return code > 0 ? 'normal_nonzero' : 'other';
   }
   if (/^Command failed \(exit\s+12[67]\)/i.test(firstLine)) return 'start_failure';
+  if (/^Command failed \(exit\s+9009\)/i.test(firstLine) && platform === 'win32') {
+    return 'start_failure';
+  }
   if (/^Command failed \(exit\s+[1-9]\d*\)/i.test(firstLine)) return 'normal_nonzero';
 
   if (
@@ -494,7 +500,8 @@ export function recordToolLoopOutcome(
   toolName: string,
   isError: boolean,
   resultText?: string,
-  input?: Record<string, unknown>
+  input?: Record<string, unknown>,
+  platform: NodeJS.Platform | string = process.platform
 ): void {
   if (
     toolName === 'web_search' &&
@@ -517,7 +524,7 @@ export function recordToolLoopOutcome(
   }
   // O96: normal completed non-zero for exec/run_tests — independent streak only.
   if (VERIFY_SHELL_TOOLS.has(toolName)) {
-    const kind = classifyShellToolFailure(resultText);
+    const kind = classifyShellToolFailure(resultText, platform);
     if (kind === 'normal_nonzero') {
       const sig = normalizeVerifyCommandSignature(toolName, input);
       if (sig) {
