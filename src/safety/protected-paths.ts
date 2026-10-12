@@ -30,13 +30,22 @@ import path from 'node:path';
 import { detectShellWriteTargets, type ShellWriteDetection } from './shell-write-detect.js';
 import { findIndirectProtectedWrites } from './indirect-write-detect.js';
 
-export type ProtectedPathCategory = 'git' | 'ssh' | 'shell-rc' | 'env' | 'moss-config';
+export type ProtectedPathCategory =
+  | 'git'
+  | 'ssh'
+  | 'shell-rc'
+  | 'env'
+  | 'moss-config'
+  /** O103: write target built at runtime; cannot tell whether it is protected. */
+  | 'unresolved';
 
 export interface ProtectedPathHit {
   raw: string;
   resolved: string;
   category: ProtectedPathCategory;
   operation: 'write' | 'delete' | 'move' | 'shell';
+  /** O103: `core.hooksPath` redirection (copy says "would redirect git hooks"). */
+  kind?: 'hooks-path';
   /**
    * O101: when the write comes from inline interpreter code or a workspace
    * script (layers 1–2). Used by the confirm prompt to show script + line.
@@ -66,7 +75,7 @@ export interface ProtectedPathContext {
     command: string,
     cwd: string
   ) => Pick<ShellWriteDetection, 'targets' | 'uncertain'> &
-    Partial<Pick<ShellWriteDetection, 'mentions'>>;
+    Partial<Pick<ShellWriteDetection, 'mentions' | 'unresolved'>>;
 }
 
 const SHELL_RC_BASENAMES = new Set([
@@ -96,6 +105,10 @@ export const PROTECTED_CATEGORY_LABEL: Record<ProtectedPathCategory, { en: strin
   'shell-rc': { en: 'shell startup file', zh: 'shell 配置文件' },
   env: { en: 'environment / secrets file', zh: '环境变量和密钥文件' },
   'moss-config': { en: "Moss's own config or trust file", zh: 'Moss 自己的配置或信任文件' },
+  unresolved: {
+    en: 'download target built from a variable or command substitution; cannot tell if it is protected',
+    zh: '下载目标由变量/命令替换拼出，无法确定是否受保护',
+  },
 };
 
 function norm(p: string): string {
@@ -437,8 +450,12 @@ function gitHooksPathHits(command: string, ctx: ProtectedPathContext): Protected
       const t = tokens[i]!;
       if (t === '-c' || t === '--config-env') {
         const kv = tokens[i + 1] ?? '';
-        if (/^core\.hookspath(?:=|$)/i.test(kv)) viaDashC = kv;
+        if (/^core\.hookspath(?:=|$)/i.test(kv)) viaDashC = t === '-c' ? kv : `--config-env ${kv}`;
         i += 1;
+        continue;
+      }
+      if (/^--config-env=core\.hookspath=/i.test(t)) {
+        viaDashC = t;
         continue;
       }
       if (/^-c./.test(t) && /^-ccore\.hookspath(?:=|$)/i.test(t)) {
@@ -455,10 +472,11 @@ function gitHooksPathHits(command: string, ctx: ProtectedPathContext): Protected
     const gitDirHint = path.join(ctx.workspaceRoot ?? ctx.cwd, '.git', 'config');
     if (viaDashC) {
       hits.push({
-        raw: `git -c ${viaDashC}`,
+        raw: viaDashC.startsWith('--config-env') ? `git ${viaDashC}` : `git -c ${viaDashC}`,
         resolved: gitDirHint,
         category: 'git',
         operation: 'shell',
+        kind: 'hooks-path',
       });
       continue;
     }
@@ -492,6 +510,7 @@ function gitHooksPathHits(command: string, ctx: ProtectedPathContext): Protected
       resolved: global ? path.join(homeOf(ctx), '.gitconfig') : gitDirHint,
       category: 'git',
       operation: 'write',
+      kind: 'hooks-path',
     });
   }
   return hits;
@@ -503,7 +522,7 @@ export function findShellProtectedWrites(
 ): ProtectedPathHit[] {
   const detect = ctx.shellWriteTargets ?? detectShellWriteTargets;
   const detection = withDetectorHome(ctx, () => detect(command, ctx.cwd));
-  const { uncertain, mentions = [] } = detection;
+  const { uncertain, mentions = [], unresolved = [] } = detection;
   // O97 does not flag chmod/chown/chgrp as writes; O94 still gates permission
   // changes on protected paths.
   const targets = [...detection.targets, ...permissionChangeTargets(command, ctx.cwd)];
@@ -523,6 +542,9 @@ export function findShellProtectedWrites(
   if (hits.length === 0 && uncertain) {
     // Prefer absolute mentions from the shared detector; fall back to text regex.
     for (const m of mentions) {
+      // O103: a word still holding `$VAR` / `$(…)` is not a path we resolved;
+      // expanding it to '' used to misreport the workspace root as git internals.
+      if (/\$|`/.test(m)) continue;
       const hit = classifyProtectedPath(m, ctx) ?? deletesProtectedAncestor(m, ctx);
       if (!hit || seen.has(hit.resolved)) continue;
       seen.add(hit.resolved);
@@ -532,6 +554,11 @@ export function findShellProtectedWrites(
         category: hit.category,
         operation: 'shell',
       });
+    }
+    if (hits.length === 0 && unresolved.length > 0) {
+      // O103: download target we cannot resolve → one honest confirmation line.
+      const raw = unresolved[0]!;
+      hits.push({ raw, resolved: raw, category: 'unresolved', operation: 'write' });
     }
     if (hits.length === 0) {
       const name = commandMentionsProtectedPath(command, ctx);

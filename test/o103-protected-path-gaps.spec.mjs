@@ -15,6 +15,8 @@ const { findProtectedPathHits } = await import('../dist/safety/protected-paths.j
   () => ({})
 );
 const { createCliToolApprovalHook, setCliApprovalAsker } = await import('../dist/cli/approval.js');
+const { protectedPathHeadline, protectedPathHeadlessReason } =
+  await import('../dist/cli/protected-path-prompt.js');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'o103-'));
 const home = path.join(root, 'home');
@@ -144,6 +146,18 @@ const BLOCKED = [
     'git',
   ],
   [
+    'c8 git --config-env=core.hooksPath=HP',
+    'exec',
+    { command: 'git --config-env=core.hooksPath=HP commit -m x' },
+    'git',
+  ],
+  [
+    'c9 git --config-env core.hooksPath=HP',
+    'exec',
+    { command: 'git --config-env core.hooksPath=HP commit' },
+    'git',
+  ],
+  [
     'c6 cd sub && git config core.hooksPath',
     'exec',
     { command: 'cd sub && git config core.hooksPath ../h' },
@@ -198,6 +212,48 @@ for (const [name, command] of ALLOWED) {
   }, `allowed: ${name}`);
 }
 
+// UX copy: resolved variable target names the real file only (no `$F` line).
+await check(() => {
+  const h = sh(`F=.env.prod; curl -o $F ${U}`);
+  assert.deepEqual(
+    h.map((x) => `${x.raw}|${x.category}`),
+    ['.env.prod|env'],
+    'only .env.prod, no spurious $F git line'
+  );
+}, 'copy: resolved $F → only .env.prod');
+for (const cmd of [
+  `curl -o $OUT ${U}`,
+  `curl -o "$OUT/x" ${U}`,
+  `curl -o "$(mktemp)" ${U}`,
+  `wget -O "$DEST" ${U}`,
+  `curl --output-dir "$D" -O ${U}`,
+]) {
+  await check(() => {
+    const h = sh(cmd);
+    assert.equal(h.length, 1, `exactly one line for ${cmd}`);
+    assert.equal(h[0].category, 'unresolved');
+    assert.match(
+      protectedPathHeadline(h[0], true),
+      /下载目标由变量\/命令替换拼出，无法确定是否受保护/
+    );
+    assert.match(
+      protectedPathHeadline(h[0], false),
+      /download target built from a variable or command substitution; cannot tell if it is protected/
+    );
+    assert.doesNotMatch(protectedPathHeadline(h[0], true), /git 仓库内部文件/);
+  }, `copy: unresolved target needs confirmation — ${cmd}`);
+}
+await check(() => {
+  const h = sh('git config core.hooksPath /tmp/evil');
+  assert.match(protectedPathHeadline(h[0], true), /会改 git 钩子目录（core\.hooksPath）/);
+  assert.match(protectedPathHeadline(h[0], false), /would redirect git hooks \(core\.hooksPath\)/);
+  assert.match(
+    protectedPathHeadlessReason(h[0], true),
+    /^已拦截：core\.hooksPath 会改 git 钩子目录/
+  );
+  assert.doesNotMatch(protectedPathHeadline(h[0], true), /是受保护路径|受保护路径）/);
+}, 'copy: hooksPath wording');
+
 // Real approval hook: -p denies immediately (no hang), reason names the path +
 // O94 "Blocked/已拦截" wording (never L3's 「已被修改」); interactive asks once.
 async function decide(command, { printMode = false, answer = '' } = {}) {
@@ -249,7 +305,10 @@ for (const [name, command, label] of [
     assert.equal(decision.approved, false, '-p must deny');
     assert.equal(asked.length, 0, '-p must not ask');
     assert.match(decision.reason, /^(Blocked:|已拦截：)/);
-    assert.match(decision.reason, /protected path|受保护路径/);
+    assert.match(
+      decision.reason,
+      /protected path|受保护路径|would redirect git hooks|会改 git 钩子目录/
+    );
     assert.match(decision.reason, label);
     assert.doesNotMatch(decision.reason, /已被修改|was modified/);
   }, `-p deny (pre-run): ${name}`);
@@ -259,6 +318,11 @@ for (const [name, command, label] of [
     assert.equal(decision.approved, false, 'declined stays denied');
   }, `interactive confirm: ${name}`);
 }
+await check(async () => {
+  const { decision, asked } = await decide(`curl -o .env ${U}`, { answer: 'y' });
+  assert.equal(asked.length, 1, 'asked once');
+  assert.equal(decision.approved, true, '允许 → approved (no block)');
+}, 'interactive 允许 → approved');
 await check(async () => {
   const { decision, asked } = await decide(`curl -o build/a.tar ${U}`, { printMode: true });
   assert.equal(asked.length, 0);

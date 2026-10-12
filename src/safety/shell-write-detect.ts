@@ -31,6 +31,11 @@ export interface ShellWriteDetection {
   targets: string[];
   uncertain: boolean;
   mentions: string[];
+  /**
+   * O103: write targets (download outputs) built at runtime from `$VAR` /
+   * `$(...)` / backticks, as written. Optional for older stubs.
+   */
+  unresolved?: string[];
 }
 
 type Token = { kind: 'word'; text: string } | { kind: 'op'; text: string };
@@ -228,6 +233,7 @@ interface Acc {
   mentions: Set<string>;
   uncertain: boolean;
   depth: number;
+  unresolved: Set<string>;
 }
 
 function analyzeSimple(words: string[], cwd: string, acc: Acc): void {
@@ -522,6 +528,7 @@ function downloadTargets(cmd: 'curl' | 'wget', args: string[], cwd: string, acc:
   }
   if (dir !== undefined && /\$|`/.test(dir)) {
     acc.uncertain = true;
+    acc.unresolved.add(dir);
     return;
   }
   const base = dir !== undefined ? path.resolve(cwd, expandHome(dir)) : cwd;
@@ -530,6 +537,7 @@ function downloadTargets(cmd: 'curl' | 'wget', args: string[], cwd: string, acc:
     // Built at runtime: unknown target; the policy then checks protected mentions.
     if (/\$|`/.test(w)) {
       acc.uncertain = true;
+      acc.unresolved.add(w);
       return;
     }
     const r = resolveWord(w, base);
@@ -591,9 +599,20 @@ function analyzeInto(command: string, startCwd: string, acc: Acc): void {
 
 /** Analyze `command` run in `cwd`. Paths come back absolute (not canonicalized). */
 export function detectShellWriteTargets(command: string, cwd: string): ShellWriteDetection {
-  const acc: Acc = { targets: new Set(), mentions: new Set(), uncertain: false, depth: 0 };
+  const acc: Acc = {
+    targets: new Set(),
+    mentions: new Set(),
+    uncertain: false,
+    depth: 0,
+    unresolved: new Set(),
+  };
   if (command && command.trim()) analyzeInto(command, cwd, acc);
-  return { targets: [...acc.targets], uncertain: acc.uncertain, mentions: [...acc.mentions] };
+  return {
+    targets: [...acc.targets],
+    uncertain: acc.uncertain,
+    mentions: [...acc.mentions],
+    unresolved: [...acc.unresolved],
+  };
 }
 
 const CASE_INSENSITIVE = process.platform === 'win32' || process.platform === 'darwin';

@@ -170,6 +170,24 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
     stuckAtZh = stuckAtZh ?? reason.stuckZh;
   }
 
+  // O103: a protected-path write refused before it ran → incomplete, driven by
+  // the block record (not by claim detection). If the model then wrote the
+  // file another way, the L3 "modified" stuck half above stays authoritative.
+  let protectedBlockStuck = false;
+  const blocks = tracker.protectedPathBlocks ?? [];
+  if (blocks.length > 0) {
+    status = status ?? 'incomplete';
+    const what = blocks[0]!.what;
+    const more = blocks.length > 1 ? blocks.length - 1 : 0;
+    reasonsEn.push(`a protected-path write was blocked: ${what}${more ? ` (+${more} more)` : ''}`);
+    reasonsZh.push(`受保护路径的写入被拦下：${what}${more ? `（另有 ${more} 处）` : ''}`);
+    if (!stuckAt && !input.runError) {
+      stuckAt = blocks[0]!.step;
+      stuckAtZh = blocks[0]!.step;
+      protectedBlockStuck = true;
+    }
+  }
+
   // Authoritative VERIFY_CMD success: the accept loop is the completion signal.
   // Do not demote to incomplete just because the continuation turn itself
   // edited no files (the model may have fixed things in an earlier turn).
@@ -273,7 +291,7 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
     exitCode,
     ...(stuckAt ? { stuckAt } : {}),
     ...(stuckAtZh ? { stuckAtZh } : {}),
-    ...(stuckWasBlocked ? { stuckWasBlocked: true } : {}),
+    ...(stuckWasBlocked || protectedBlockStuck ? { stuckWasBlocked: true } : {}),
   };
 }
 
