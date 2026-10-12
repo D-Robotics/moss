@@ -45,10 +45,39 @@ function sourceClause(hit: ProtectedPathHit, zh: boolean): string {
     : ` (\`${script}\`${src.line ? ` line ${src.line}` : ''})`;
 }
 
+/**
+ * O103: why-clause per hit. Normal → "X 是受保护路径（label）"; hooksPath →
+ * "X 会改 git 钩子目录（core.hooksPath）"; unresolved download target → one
+ * honest line that it cannot be classified.
+ */
+function whyClause(hit: ProtectedPathHit, zh: boolean): string {
+  if (hit.kind === 'hooks-path') {
+    return zh
+      ? `${shown(hit)} 会改 git 钩子目录（core.hooksPath）`
+      : `${shown(hit)} would redirect git hooks (core.hooksPath)`;
+  }
+  const label = PROTECTED_CATEGORY_LABEL[hit.category];
+  if (hit.category === 'unresolved')
+    return `${shown(hit)}${zh ? '：' : ': '}${zh ? label.zh : label.en}`;
+  return zh
+    ? `${shown(hit)} 是受保护路径（${label.zh}）`
+    : `${shown(hit)} is a protected path (${label.en})`;
+}
+
 /** First line: operation + the path as named + why (+ O101 script/line). */
 export function protectedPathHeadline(hit: ProtectedPathHit, zh: boolean): string {
   const label = PROTECTED_CATEGORY_LABEL[hit.category];
   const src = sourceClause(hit, zh);
+  if (hit.kind === 'hooks-path') {
+    return zh
+      ? `要执行 \`${shown(hit)}\`：会改 git 钩子目录（core.hooksPath）`
+      : `About to run \`${shown(hit)}\`: would redirect git hooks (core.hooksPath)`;
+  }
+  if (hit.category === 'unresolved') {
+    return zh
+      ? `要${OP_ZH[hit.operation]} \`${shown(hit)}\`${src}：${label.zh}`
+      : `About to ${OP_EN[hit.operation]} \`${shown(hit)}\`${src}: ${label.en}`;
+  }
   return zh
     ? `要${OP_ZH[hit.operation]} \`${shown(hit)}\`${src}（${label.zh}，受保护路径）`
     : `About to ${OP_EN[hit.operation]} \`${shown(hit)}\`${src} (${label.en}, a protected path)`;
@@ -95,19 +124,31 @@ export function protectedPathStringPrompt(view: CliApprovalView, zh: boolean): s
 }
 
 export function protectedPathDeniedReason(hit: ProtectedPathHit, zh: boolean): string {
+  const special = hit.kind === 'hooks-path' || hit.category === 'unresolved';
+  const whatZh = special
+    ? ` ${whyClause(hit, true)}`
+    : `受保护路径 ${shown(hit)}（${PROTECTED_CATEGORY_LABEL[hit.category].zh}）`;
+  const whatEn = special
+    ? `: ${whyClause(hit, false)}`
+    : ` of protected path ${shown(hit)} (${PROTECTED_CATEGORY_LABEL[hit.category].en})`;
   return zh
-    ? `已拦截：用户拒绝${OP_ZH[hit.operation]}受保护路径 ${shown(hit)}（${PROTECTED_CATEGORY_LABEL[hit.category].zh}）。不要改用 shell、node -e 或其他工具再写这个路径；如果确实需要，请告诉用户由用户自己处理。`
-    : `Blocked: the user denied the ${hit.operation} of protected path ${shown(hit)} (${PROTECTED_CATEGORY_LABEL[hit.category].en}). Do not retry it through the shell, node -e, or another tool; if it is really needed, tell the user so they can do it themselves.`;
+    ? `已拦截：用户拒绝${OP_ZH[hit.operation]}${whatZh}。不要改用 shell、node -e 或其他工具再写这个路径；如果确实需要，请告诉用户由用户自己处理。`
+    : `Blocked: the user denied the ${hit.operation}${whatEn}. Do not retry it through the shell, node -e, or another tool; if it is really needed, tell the user so they can do it themselves.`;
 }
 
 export function protectedPathHeadlessReason(hit: ProtectedPathHit, zh: boolean): string {
   return zh
-    ? `已拦截：${shown(hit)} 是受保护路径（${PROTECTED_CATEGORY_LABEL[hit.category].zh}），非交互模式下无法确认，已拒绝${OP_ZH[hit.operation]}。不要改用 shell、node -e 或其他工具再写这个路径。`
-    : `Blocked: ${shown(hit)} is a protected path (${PROTECTED_CATEGORY_LABEL[hit.category].en}); Moss is running non-interactively and cannot confirm, so the ${hit.operation} was denied. Do not retry it through the shell, node -e, or another tool.`;
+    ? `已拦截：${whyClause(hit, true)}，非交互模式下无法确认，已拒绝${OP_ZH[hit.operation]}。不要改用 shell、node -e 或其他工具再写这个路径。`
+    : `Blocked: ${whyClause(hit, false)}; Moss is running non-interactively and cannot confirm, so the ${hit.operation} was denied. Do not retry it through the shell, node -e, or another tool.`;
 }
 
 export function protectedPathHeadlessNotice(hit: ProtectedPathHit, zh: boolean): string {
   const label = PROTECTED_CATEGORY_LABEL[hit.category];
+  if (hit.kind === 'hooks-path' || hit.category === 'unresolved') {
+    return zh
+      ? `[moss] 已拦截：${whyClause(hit, true)}，-p 模式无法确认。放行办法：不带 -p 交互运行 moss，在提示里确认这一次；或者自己手动处理。`
+      : `[moss] Blocked: ${whyClause(hit, false)}; -p cannot ask. To allow: run moss interactively (without -p) and confirm this once, or do it yourself.`;
+  }
   return zh
     ? `[moss] 已拦截：${OP_ZH[hit.operation]} ${shown(hit)}。原因：它是受保护路径（${label.zh}），-p 模式无法确认。放行办法：不带 -p 交互运行 moss，在提示里确认这一次；或者自己手动改这个文件。`
     : `[moss] Blocked: ${hit.operation} ${shown(hit)}. Why: it is a protected path (${label.en}) and -p cannot ask. To allow: run moss interactively (without -p) and confirm this once, or make the change yourself.`;

@@ -30,13 +30,22 @@ import path from 'node:path';
 import { detectShellWriteTargets, type ShellWriteDetection } from './shell-write-detect.js';
 import { findIndirectProtectedWrites } from './indirect-write-detect.js';
 
-export type ProtectedPathCategory = 'git' | 'ssh' | 'shell-rc' | 'env' | 'moss-config';
+export type ProtectedPathCategory =
+  | 'git'
+  | 'ssh'
+  | 'shell-rc'
+  | 'env'
+  | 'moss-config'
+  /** O103: write target built at runtime; cannot tell whether it is protected. */
+  | 'unresolved';
 
 export interface ProtectedPathHit {
   raw: string;
   resolved: string;
   category: ProtectedPathCategory;
   operation: 'write' | 'delete' | 'move' | 'shell';
+  /** O103: `core.hooksPath` redirection (copy says "would redirect git hooks"). */
+  kind?: 'hooks-path';
   /**
    * O101: when the write comes from inline interpreter code or a workspace
    * script (layers 1–2). Used by the confirm prompt to show script + line.
@@ -66,7 +75,7 @@ export interface ProtectedPathContext {
     command: string,
     cwd: string
   ) => Pick<ShellWriteDetection, 'targets' | 'uncertain'> &
-    Partial<Pick<ShellWriteDetection, 'mentions'>>;
+    Partial<Pick<ShellWriteDetection, 'mentions' | 'unresolved'>>;
 }
 
 const SHELL_RC_BASENAMES = new Set([
@@ -96,6 +105,10 @@ export const PROTECTED_CATEGORY_LABEL: Record<ProtectedPathCategory, { en: strin
   'shell-rc': { en: 'shell startup file', zh: 'shell 配置文件' },
   env: { en: 'environment / secrets file', zh: '环境变量和密钥文件' },
   'moss-config': { en: "Moss's own config or trust file", zh: 'Moss 自己的配置或信任文件' },
+  unresolved: {
+    en: 'download target built from a variable or command substitution; cannot tell if it is protected',
+    zh: '下载目标由变量/命令替换拼出，无法确定是否受保护',
+  },
 };
 
 function norm(p: string): string {
@@ -143,6 +156,34 @@ function realpathOfNearestAncestor(abs: string): string | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * O103: follow a symlink chain on the path itself (lstat + readlink, relative
+ * targets resolved against the link's dir) even when the final target does not
+ * exist yet, so a dangling `link -> ~/.ssh/new_key` classifies as protected.
+ * Returns every hop (excluding `abs`); stops after 40 hops or on a loop.
+ */
+function symlinkChainTargets(abs: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>([abs]);
+  let current = abs;
+  for (let i = 0; i < 40; i += 1) {
+    let next: string;
+    try {
+      if (!fs.lstatSync(current).isSymbolicLink()) break;
+      next = path.resolve(path.dirname(current), fs.readlinkSync(current));
+    } catch {
+      break;
+    }
+    if (seen.has(next)) break;
+    seen.add(next);
+    out.push(next);
+    const viaAncestor = realpathOfNearestAncestor(next);
+    if (viaAncestor && viaAncestor !== next) out.push(viaAncestor);
+    current = next;
+  }
+  return out;
 }
 
 function homeOf(ctx: ProtectedPathContext): string {
@@ -197,6 +238,10 @@ export function classifyProtectedPath(
   if (real) {
     const hit = classifyNormalised(norm(real), configDirs);
     if (hit) return { category: hit, resolved: real };
+  }
+  for (const target of symlinkChainTargets(abs)) {
+    const hit = classifyNormalised(norm(target), configDirs);
+    if (hit) return { category: hit, resolved: target };
   }
   return undefined;
 }
@@ -341,13 +386,143 @@ function shellHitOperation(command: string): ProtectedPathHit['operation'] {
   return 'write';
 }
 
+/** Split a command into simple-command token lists (quotes stripped). */
+function simpleCommands(command: string): string[][] {
+  const out: string[][] = [];
+  for (const segment of command.split(/(?:&&|\|\||[;|\n()])/g)) {
+    const tokens: string[] = [];
+    const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+    let m: RegExpExecArray | null;
+    while ((m = pattern.exec(segment))) tokens.push(m[1] ?? m[2] ?? m[3] ?? '');
+    let i = 0;
+    while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i]!)) i += 1;
+    while (i < tokens.length && /^(sudo|doas|env|command|nohup|exec|time)$/i.test(tokens[i]!)) {
+      i += 1;
+      while (i < tokens.length && (tokens[i]!.startsWith('-') || /^[A-Za-z_]\w*=/.test(tokens[i]!)))
+        i += 1;
+    }
+    if (i < tokens.length) out.push(tokens.slice(i));
+  }
+  return out;
+}
+
+const GIT_GLOBAL_OPTS_WITH_VALUE = new Set([
+  '-C',
+  '-c',
+  '--git-dir',
+  '--work-tree',
+  '--namespace',
+  '--exec-path',
+  '--config-env',
+]);
+const GIT_CONFIG_OPTS_WITH_VALUE = new Set([
+  '-f',
+  '--file',
+  '--blob',
+  '--type',
+  '--default',
+  '--comment',
+  '--value',
+]);
+const GIT_CONFIG_READ_OR_REMOVE =
+  /^(?:--get|--get-all|--get-regexp|--get-urlmatch|--get-color|--get-colorbool|-l|--list|--unset|--unset-all|--remove-section|--rename-section|-e|--edit|--show-origin|--show-scope|--name-only|-z|--null)$/;
+
+/**
+ * O103: `git config core.hooksPath <dir>` (any scope) and
+ * `git -c core.hooksPath=<dir> …` swap the directory git runs hooks from,
+ * which bypasses `.git/hooks` protection without touching it. Treated as a
+ * protected `.git` write. Reads (`--get`, no value), `--unset` (restores the
+ * default) and every other config key are not gated.
+ */
+function gitHooksPathHits(command: string, ctx: ProtectedPathContext): ProtectedPathHit[] {
+  const hits: ProtectedPathHit[] = [];
+  for (const tokens of simpleCommands(command)) {
+    const head =
+      tokens[0]
+        ?.split(/[\\/]/)
+        .pop()
+        ?.toLowerCase()
+        .replace(/\.exe$/, '') ?? '';
+    if (head !== 'git') continue;
+    let i = 1;
+    let viaDashC: string | undefined;
+    for (; i < tokens.length; i += 1) {
+      const t = tokens[i]!;
+      if (t === '-c' || t === '--config-env') {
+        const kv = tokens[i + 1] ?? '';
+        if (/^core\.hookspath(?:=|$)/i.test(kv)) viaDashC = t === '-c' ? kv : `--config-env ${kv}`;
+        i += 1;
+        continue;
+      }
+      if (/^--config-env=core\.hookspath=/i.test(t)) {
+        viaDashC = t;
+        continue;
+      }
+      if (/^-c./.test(t) && /^-ccore\.hookspath(?:=|$)/i.test(t)) {
+        viaDashC = t.slice(2);
+        continue;
+      }
+      if (GIT_GLOBAL_OPTS_WITH_VALUE.has(t)) {
+        i += 1;
+        continue;
+      }
+      if (t.startsWith('-')) continue;
+      break;
+    }
+    const gitDirHint = path.join(ctx.workspaceRoot ?? ctx.cwd, '.git', 'config');
+    if (viaDashC) {
+      hits.push({
+        raw: viaDashC.startsWith('--config-env') ? `git ${viaDashC}` : `git -c ${viaDashC}`,
+        resolved: gitDirHint,
+        category: 'git',
+        operation: 'shell',
+        kind: 'hooks-path',
+      });
+      continue;
+    }
+    if ((tokens[i] ?? '').toLowerCase() !== 'config') continue;
+    const rest = tokens.slice(i + 1);
+    let global = false;
+    let readOrRemove = false;
+    const positional: string[] = [];
+    for (let k = 0; k < rest.length; k += 1) {
+      const t = rest[k]!;
+      if (t === '--') {
+        positional.push(...rest.slice(k + 1));
+        break;
+      }
+      if (t.startsWith('-') && t.length > 1) {
+        if (t === '--global' || t === '--system') global = true;
+        if (GIT_CONFIG_READ_OR_REMOVE.test(t)) readOrRemove = true;
+        if (GIT_CONFIG_OPTS_WITH_VALUE.has(t)) k += 1;
+        continue;
+      }
+      positional.push(t);
+    }
+    if (readOrRemove) continue;
+    // `git config set <key> <value>` (git ≥ 2.46 subcommand form).
+    const sub = positional[0]?.toLowerCase();
+    if (sub === 'get' || sub === 'list' || sub === 'unset' || sub === 'remove-section') continue;
+    const args = sub === 'set' ? positional.slice(1) : positional;
+    if ((args[0] ?? '').toLowerCase() !== 'core.hookspath' || args.length < 2) continue;
+    hits.push({
+      raw: 'core.hooksPath',
+      resolved: global ? path.join(homeOf(ctx), '.gitconfig') : gitDirHint,
+      category: 'git',
+      operation: 'write',
+      kind: 'hooks-path',
+    });
+  }
+  return hits;
+}
+
 export function findShellProtectedWrites(
   command: string,
   ctx: ProtectedPathContext
 ): ProtectedPathHit[] {
   const detect = ctx.shellWriteTargets ?? detectShellWriteTargets;
   const detection = withDetectorHome(ctx, () => detect(command, ctx.cwd));
-  const { uncertain, mentions = [] } = detection;
+  const { uncertain, mentions = [], unresolved = [] } = detection;
   // O97 does not flag chmod/chown/chgrp as writes; O94 still gates permission
   // changes on protected paths.
   const targets = [...detection.targets, ...permissionChangeTargets(command, ctx.cwd)];
@@ -367,6 +542,9 @@ export function findShellProtectedWrites(
   if (hits.length === 0 && uncertain) {
     // Prefer absolute mentions from the shared detector; fall back to text regex.
     for (const m of mentions) {
+      // O103: a word still holding `$VAR` / `$(…)` is not a path we resolved;
+      // expanding it to '' used to misreport the workspace root as git internals.
+      if (/\$|`/.test(m)) continue;
       const hit = classifyProtectedPath(m, ctx) ?? deletesProtectedAncestor(m, ctx);
       if (!hit || seen.has(hit.resolved)) continue;
       seen.add(hit.resolved);
@@ -376,6 +554,11 @@ export function findShellProtectedWrites(
         category: hit.category,
         operation: 'shell',
       });
+    }
+    if (hits.length === 0 && unresolved.length > 0) {
+      // O103: download target we cannot resolve → one honest confirmation line.
+      const raw = unresolved[0]!;
+      hits.push({ raw, resolved: raw, category: 'unresolved', operation: 'write' });
     }
     if (hits.length === 0) {
       const name = commandMentionsProtectedPath(command, ctx);
@@ -390,6 +573,14 @@ export function findShellProtectedWrites(
         });
       }
     }
+  }
+
+  // O103: hooksPath redirection.
+  for (const hit of gitHooksPathHits(command, ctx)) {
+    const key = `hookspath:${hit.raw}:${hit.resolved}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    hits.push(hit);
   }
 
   // O101 layers 1–2: inline interpreter code + workspace script scan.

@@ -63,6 +63,12 @@ export interface RunCompletionTracker {
    * detection). When set, the run is incomplete regardless of model claims.
    */
   protectedPathChanges?: Array<{ path: string; kind: string; command?: string }>;
+  /**
+   * O103: protected-path writes the approval gate refused before they ran
+   * (`-p` deny or user said no). Drives the outcome on its own — a run with a
+   * refused protected write is never「完成」, whatever the final answer says.
+   */
+  protectedPathBlocks?: Array<{ step: string; what: string }>;
   /** @internal pending tool_start inputs keyed by toolCallId. */
   pending: Map<string, { toolName: string; input: Record<string, unknown> }>;
 }
@@ -162,6 +168,23 @@ export function isSafetyOrApprovalBlockResult(result: string | undefined): boole
   );
 }
 
+/** O103: the block came from the protected-path gate (O94 copy). */
+const PROTECTED_BLOCK_TEXT =
+  /受保护路径|protected path|会改 git 钩子目录|would redirect git hooks|下载目标由变量\/命令替换拼出|download target built from a variable/i;
+
+/** Short "what was refused" from a protected-path block result. */
+export function protectedBlockSummary(result: string): string | undefined {
+  if (!isSafetyOrApprovalBlockResult(result)) return undefined;
+  const head = result.slice(0, 600);
+  if (!PROTECTED_BLOCK_TEXT.test(head)) return undefined;
+  const body = head
+    .replace(/^\s*(?:已拦截[：:]|Blocked:|Tool execution denied:)\s*/i, '')
+    .split(/，非交互|; Moss is running|。|\.\s/)[0]!
+    .replace(/\s+/g, ' ')
+    .trim();
+  return body.slice(0, 160) || undefined;
+}
+
 /** Feed one agent event into the tracker. Safe to call for every event. */
 export function noteRunCompletionEvent(tracker: RunCompletionTracker, event: MossAgentEvent): void {
   if (event.type === 'tool_start') {
@@ -181,6 +204,10 @@ export function noteRunCompletionEvent(tracker: RunCompletionTracker, event: Mos
     // O113: remember safety/approval blocks separately so the last line can say 被拦.
     if (isSafetyOrApprovalBlockResult(event.result)) {
       tracker.lastBlockedStep = step;
+      const what = protectedBlockSummary(event.result);
+      if (what) {
+        tracker.protectedPathBlocks = [...(tracker.protectedPathBlocks ?? []), { step, what }];
+      }
     }
   }
 
