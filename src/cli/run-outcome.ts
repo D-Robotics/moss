@@ -194,7 +194,7 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
   if (input.runError) {
     status = status ?? 'incomplete';
     reasonsEn.push(input.runError);
-    reasonsZh.push(input.runError);
+    reasonsZh.push(zhRunErrorReason(input.runError));
   }
 
   if (input.request && requestExpectsFileChanges(input.request) && !tracker.wroteFiles) {
@@ -298,6 +298,19 @@ function appendStuckHalf(
     return zh ? `${base}；被拦：${stuck}` : `${base}; Blocked by: ${stuck}`;
   }
   return zh ? `${base}；卡在：${stuck}` : `${base}; stuck at: ${stuck}`;
+}
+
+/**
+ * O116: the headless budget error is an English sentence
+ * (`Run budget exceeded (tool_calls). Partial output above …`). In zh the
+ * conclusion line must not carry it verbatim — keep only the counter key as a
+ * parenthesised identifier. Other runErrors pass through unchanged.
+ */
+export function zhRunErrorReason(runError: string): string {
+  const m = /^\s*Run budget exceeded(?:\s*\(([^)]*)\))?/i.exec(runError);
+  if (!m) return runError;
+  const key = m[1]?.trim();
+  return key ? `运行预算用尽（${key}）` : '运行预算用尽';
 }
 
 /**
