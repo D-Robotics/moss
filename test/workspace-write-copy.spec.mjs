@@ -210,14 +210,21 @@ const runtime = {
 }
 
 {
-  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
-  assert.ok(readme.includes(WORKSPACE_WRITE_LIMIT_EN), 'README (en) states the limit');
-  assert.ok(readme.includes(WORKSPACE_WRITE_LIMIT_ZH), 'README (zh) states the limit');
-  assert.ok(
-    readme.includes('docs/design/os-sandbox.md'),
-    'README points at the opt-in sandbox design'
-  );
-  assert.ok(!readme.includes('sandboxed workspace'), 'README does not call edits sandboxed');
+  // README.md is the Chinese README, README.en.md the English one.
+  const readmeZh = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  const readmeEn = fs.readFileSync(path.join(root, 'README.en.md'), 'utf8');
+  assert.ok(readmeEn.includes(WORKSPACE_WRITE_LIMIT_EN), 'README.en.md states the limit');
+  assert.ok(readmeZh.includes(WORKSPACE_WRITE_LIMIT_ZH), 'README.md (zh) states the limit');
+  for (const [name, readme] of [
+    ['README.md', readmeZh],
+    ['README.en.md', readmeEn],
+  ]) {
+    assert.ok(
+      readme.includes('docs/design/os-sandbox.md'),
+      `${name} points at the opt-in sandbox design`
+    );
+    assert.ok(!readme.includes('sandboxed workspace'), `${name} does not call edits sandboxed`);
+  }
   const design = fs.readFileSync(path.join(root, 'docs/design/os-sandbox.md'), 'utf8');
   assert.ok(
     design.replace(/\s+/g, ' ').includes(WORKSPACE_WRITE_LIMIT_EN),
