@@ -173,8 +173,19 @@ function expandHome(p: string): string {
   return p;
 }
 
+/**
+ * O128: `$PWD` / `${PWD}` / `$HOME` / `${HOME}` are known at check time.
+ * Left literal, `> "$PWD/x"` resolved to `<cwd>/$PWD/x` and missed the lock
+ * on `<cwd>/x`. Expanding them only adds matches (never removes one).
+ */
+function expandKnownVars(p: string, cwd: string): string {
+  return p
+    .replace(/^\$\{PWD\}(?=\/|$)|^\$PWD(?=\/|$)/, () => cwd)
+    .replace(/^\$\{HOME\}(?=\/|$)|^\$HOME(?=\/|$)/, () => os.homedir());
+}
+
 function resolveWord(word: string, cwd: string): string | null {
-  const w = word.trim();
+  const w = expandKnownVars(word.trim(), cwd);
   if (!w || w.startsWith('-') || w.startsWith('/dev/')) return null;
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(w)) return null;
   return path.resolve(cwd, expandHome(w));
@@ -531,7 +542,7 @@ function downloadTargets(cmd: 'curl' | 'wget', args: string[], cwd: string, acc:
     acc.unresolved.add(dir);
     return;
   }
-  const base = dir !== undefined ? path.resolve(cwd, expandHome(dir)) : cwd;
+  const base = dir !== undefined ? path.resolve(cwd, expandHome(expandKnownVars(dir, cwd))) : cwd;
   const addOut = (w: string) => {
     if (!w || w === '-') return;
     // Built at runtime: unknown target; the policy then checks protected mentions.
@@ -568,7 +579,7 @@ function analyzeInto(command: string, startCwd: string, acc: Acc): void {
     if (words[0] === 'cd' || words[0] === 'pushd') {
       const dest = words[1];
       if (dest === undefined || dest === '~') cwd = os.homedir();
-      else if (dest !== '-') cwd = path.resolve(cwd, expandHome(dest));
+      else if (dest !== '-') cwd = path.resolve(cwd, expandHome(expandKnownVars(dest, cwd)));
     } else if (words.length) analyzeSimple(words, cwd, acc);
     words = [];
   };
@@ -651,6 +662,27 @@ export function canonicalPath(p: string, caseInsensitive = CASE_INSENSITIVE): st
  * is the case-preserving canonical form of the command's own target, so
  * callers can display it or relativise it against a real-case workspace dir.
  */
+/**
+ * O128: a target built at run time (`$D/x`, `"$(pwd)/x"`, `` `pwd`/x ``) has
+ * no static path. Conservatively treat it as hitting any locked path that
+ * ends with the literal part after the last expansion (`/x`). Only adds
+ * blocks; a target with no expansion never reaches this.
+ */
+function dynamicSuffixHit(target: string, locked: Set<string>): string | null {
+  const t = target.replaceAll('\\', '/');
+  const last = Math.max(t.lastIndexOf('$'), t.lastIndexOf('`'));
+  if (last < 0) return null;
+  const slash = t.indexOf('/', last);
+  if (slash < 0) return null;
+  const suffix = t.slice(slash).replace(/[`)}'"]+$/, '');
+  if (suffix.length < 2 || /[$`]/.test(suffix)) return null;
+  const want = suffix.toLowerCase();
+  for (const key of locked) {
+    if (key.replaceAll('\\', '/').toLowerCase().endsWith(want)) return key;
+  }
+  return null;
+}
+
 export function findProtectedWrite(
   command: string,
   cwd: string,
@@ -662,11 +694,15 @@ export function findProtectedWrite(
   for (const t of d.targets) {
     const key = canonicalPath(t);
     if (locked.has(key)) return canonicalPath(t, false);
+    const hit = dynamicSuffixHit(t, locked);
+    if (hit) return hit;
   }
   if (d.uncertain) {
     for (const m of d.mentions) {
       const key = canonicalPath(m);
       if (locked.has(key)) return canonicalPath(m, false);
+      const hit = dynamicSuffixHit(m, locked);
+      if (hit) return hit;
     }
   }
   return null;

@@ -210,6 +210,12 @@ async function stopAndConfirmGone(out, stopCtx, label, pidFile) {
   const id = extractBgId(out);
   assert.ok(id, `${label}: no background id in ${out}`);
   const pid = Number(out.match(/pid (\d+)/)?.[1]);
+  // The pid must parse — if the exec_background output format ever changes,
+  // fail loudly here instead of silently skipping the exit check below.
+  assert.ok(
+    Number.isInteger(pid) && pid > 0,
+    `${label}: could not parse a finite positive pid from exec_background output: ${out}`
+  );
   // On Windows, cmd.exe can publish the shell pid before it starts the node
   // grandchild. Stop only after that grandchild has written its pid, or the
   // exit check races a process that was never started.
@@ -234,13 +240,11 @@ async function stopAndConfirmGone(out, stopCtx, label, pidFile) {
     );
   }
   await execStopTool.execute({ id }, stopCtx);
-  if (Number.isFinite(pid) && pid > 0) {
-    assert.equal(
-      await waitForProcessExit(pid, 5000),
-      true,
-      `${label}: pid ${pid} survived exec_stop`
-    );
-  }
+  assert.equal(
+    await waitForProcessExit(pid, 5000),
+    true,
+    `${label}: pid ${pid} survived exec_stop`
+  );
   if (pidFile) {
     assert.equal(
       await waitForProcessExit(scriptPid, 15000),
