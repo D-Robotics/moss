@@ -8,7 +8,7 @@
 [![Node](https://img.shields.io/badge/node-22.16%2B-339933.svg)](https://nodejs.org)
 [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#support-matrix)
 
-**English** · [中文](README.md)
+**English** · [中文](https://github.com/D-Robotics/moss/blob/main/README.md)
 
 </div>
 
