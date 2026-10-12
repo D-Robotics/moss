@@ -359,12 +359,185 @@ function analyzeSimple(words: string[], cwd: string, acc: Acc): void {
     case 'patch':
       acc.uncertain = true;
       return;
+    case 'curl':
+      downloadTargets('curl', args, cwd, acc);
+      return;
+    case 'wget':
+      downloadTargets('wget', args, cwd, acc);
+      return;
     default:
       // `./fix.sh`, `npx some-codemod` ... may write anything.
       if (cmd.endsWith('.sh') || cmd.endsWith('.py') || cmd.endsWith('.js') || cmd === 'npx') {
         acc.uncertain = true;
       }
   }
+}
+
+/** Last path segment of a URL (curl -O / wget default name). */
+function urlBasename(url: string, fallback: string): string {
+  const noQuery = url.replace(/[?#].*$/, '').replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '');
+  const base = noQuery.split('/').pop() ?? '';
+  return base || fallback;
+}
+
+/**
+ * O103: output files of `curl -o/--output/-O/--output-dir` and
+ * `wget -O/--output-document/-P/--directory-prefix`. A target built from
+ * `$VAR` / `$(...)` makes the command uncertain.
+ */
+function downloadTargets(cmd: 'curl' | 'wget', args: string[], cwd: string, acc: Acc): void {
+  const outputs: string[] = [];
+  let dir: string | undefined;
+  let remoteName = false;
+  const urls: string[] = [];
+  const curlValueShort = new Set([
+    'o',
+    'd',
+    'H',
+    'u',
+    'X',
+    'A',
+    'e',
+    'F',
+    'T',
+    'x',
+    'm',
+    'r',
+    'C',
+    'b',
+    'c',
+    'K',
+    'w',
+    'E',
+    'Y',
+    'y',
+    'z',
+    'U',
+    'Q',
+    'P',
+    'D',
+  ]);
+  const curlValueLong = new Set([
+    '--data',
+    '--header',
+    '--user',
+    '--request',
+    '--user-agent',
+    '--referer',
+    '--form',
+    '--upload-file',
+    '--proxy',
+    '--max-time',
+    '--range',
+    '--continue-at',
+    '--cookie',
+    '--cookie-jar',
+    '--config',
+    '--write-out',
+    '--cert',
+    '--dump-header',
+    '--data-raw',
+    '--data-binary',
+    '--data-urlencode',
+    '--connect-timeout',
+    '--retry',
+    '--resolve',
+    '--url',
+  ]);
+  const wgetValueShort = new Set([
+    'O',
+    'P',
+    'o',
+    'a',
+    'i',
+    'U',
+    'e',
+    'T',
+    't',
+    'w',
+    'Q',
+    'B',
+    'l',
+    'A',
+    'R',
+    'D',
+    'X',
+    'I',
+  ]);
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k]!;
+    if (a.startsWith('--')) {
+      const [name, inline] = a.includes('=')
+        ? [a.slice(0, a.indexOf('=')), a.slice(a.indexOf('=') + 1)]
+        : [a, undefined];
+      const take = () => (inline !== undefined ? inline : args[++k]);
+      if (cmd === 'curl') {
+        if (name === '--output') outputs.push(take() ?? '');
+        else if (name === '--output-dir') dir = take();
+        else if (name === '--remote-name' || name === '--remote-name-all') remoteName = true;
+        else if (name === '--url') urls.push(take() ?? '');
+        else if (curlValueLong.has(name) && inline === undefined) k++;
+      } else {
+        if (name === '--output-document') outputs.push(take() ?? '');
+        else if (name === '--directory-prefix') dir = take();
+        else if (
+          [
+            '--output-file',
+            '--append-output',
+            '--input-file',
+            '--user',
+            '--password',
+            '--header',
+            '--user-agent',
+            '--post-data',
+            '--post-file',
+            '--tries',
+            '--timeout',
+          ].includes(name) &&
+          inline === undefined
+        )
+          k++;
+      }
+      continue;
+    }
+    if (a.startsWith('-') && a.length > 1) {
+      // combined short flags: -sSLo file, -so.envrc, -Ofile
+      for (let j = 1; j < a.length; j++) {
+        const f = a[j]!;
+        if (cmd === 'curl' && f === 'O') {
+          remoteName = true;
+          continue;
+        }
+        const takesValue = cmd === 'curl' ? curlValueShort.has(f) : wgetValueShort.has(f);
+        if (!takesValue) continue;
+        const v = j + 1 < a.length ? a.slice(j + 1) : args[++k];
+        if (cmd === 'curl' && f === 'o') outputs.push(v ?? '');
+        if (cmd === 'wget' && f === 'O') outputs.push(v ?? '');
+        if (cmd === 'wget' && f === 'P') dir = v;
+        break;
+      }
+      continue;
+    }
+    urls.push(a);
+  }
+  if (dir !== undefined && /\$|`/.test(dir)) {
+    acc.uncertain = true;
+    return;
+  }
+  const base = dir !== undefined ? path.resolve(cwd, expandHome(dir)) : cwd;
+  const addOut = (w: string) => {
+    if (!w || w === '-') return;
+    // Built at runtime: unknown target; the policy then checks protected mentions.
+    if (/\$|`/.test(w)) {
+      acc.uncertain = true;
+      return;
+    }
+    const r = resolveWord(w, base);
+    if (r) acc.targets.add(r);
+  };
+  outputs.forEach(addOut);
+  const derived = cmd === 'wget' ? outputs.length === 0 : remoteName;
+  if (derived) for (const u of urls) addOut(urlBasename(u, 'index.html'));
 }
 
 function analyzeInto(command: string, startCwd: string, acc: Acc): void {
