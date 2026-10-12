@@ -13,7 +13,9 @@
  * `.git/config` content edits, changes confined to allow-listed benign keys
  * are not reported (O117, GIT_CONFIG_BENIGN_KEYS); any other key counts; add/delete/symlink swap or unparsable
  * content still reports the whole file (fail-closed). Normal
- * git commit writes (index, objects, logs, ORIG_HEAD, …) are ignored.
+ * git commit writes (index, objects, logs, ORIG_HEAD, …) are ignored, and
+ * HEAD / refs/** changes are reported only when anomalous (O123: points
+ * outside refs/, not a commit id, symlink/dir swap).
  *
  * Snapshot unavailable (permission) → skip that path; never false-report
  * "modified". `exec_background` runs the same check on full process exit
@@ -44,7 +46,22 @@ export interface ProtectedPathChange {
   reason?: GitConfigChangeReason;
 }
 
-export type GitConfigChangeReason = 'symlink' | 'dir' | 'unparsable';
+export type GitConfigChangeReason =
+  | 'symlink'
+  | 'dir'
+  | 'unparsable'
+  /** O123: `.git/HEAD` / a ref points outside `refs/` (e.g. `ref: ../x`). */
+  | 'ref-outside'
+  /** O123: ref / HEAD content is not a commit id or `ref: refs/…`. */
+  | 'ref-invalid';
+
+const ALL_REASONS: readonly GitConfigChangeReason[] = [
+  'symlink',
+  'dir',
+  'unparsable',
+  'ref-outside',
+  'ref-invalid',
+];
 
 /** Internal meta — never log `hash` in full. */
 interface PathMeta {
@@ -54,6 +71,8 @@ interface PathMeta {
   hash: string;
   /** O117: raw bytes of git config files only (in memory, never logged). */
   raw?: Buffer;
+  /** O123: classification of `.git/HEAD` / `.git/refs/**` content (no content kept). */
+  refState?: RefState;
   /** O117: entry type, so symlink/dir swaps of a config file can be named. */
   type?: 'file' | 'symlink' | 'dir';
 }
@@ -392,6 +411,64 @@ function gitConfigChange(
   return { path: display, kind, keys };
 }
 
+/**
+ * O123 (QA path allow-list): `.git/HEAD` and loose refs are what ordinary
+ * `git commit` / `checkout -b` / `merge` rewrite. Their changes are NOT
+ * reported when the new content is well-formed — a commit id, or
+ * `ref: refs/<name>` with no `..`, absolute or backslash parts. Anything
+ * else (`ref: ../x`, garbage, a symlink, a directory swap) is reported.
+ * This is command-independent: `git -c k=v commit`, `git -C dir commit` or
+ * a script that commits are judged by what they wrote, not by their text.
+ */
+type RefState = 'ok' | 'outside' | 'invalid';
+
+export function isGitHeadOrLooseRefPath(abs: string): boolean {
+  return /(^|[\\/])\.git[\\/](?:HEAD|refs[\\/].+)$/.test(abs);
+}
+
+export function classifyGitRefContent(text: string): RefState {
+  const t = text.replace(/\r?\n$/, '');
+  if (/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(t)) return 'ok';
+  const m = t.match(/^ref:\s*(.*)$/);
+  if (!m) return 'invalid';
+  const target = m[1]!;
+  if (
+    !target.startsWith('refs/') ||
+    target.includes('\\') ||
+    target.split('/').some((seg) => seg === '..' || seg === '.' || seg === '') ||
+    /[\x00-\x1f]/.test(target)
+  ) {
+    return 'outside';
+  }
+  return 'ok';
+}
+
+function isGitRefsDir(abs: string): boolean {
+  return /(^|[\\/])\.git[\\/]refs$/.test(abs);
+}
+
+/** O123: HEAD / loose ref change → reported only when anomalous. */
+function gitRefChange(
+  display: string,
+  abs: string,
+  b: PathMeta | undefined,
+  a: PathMeta | undefined
+): ProtectedPathChange | undefined {
+  const isHead = /(^|[\\/])HEAD$/.test(abs) && !/[\\/]refs[\\/]/.test(abs);
+  if (!a) {
+    if (!b) return undefined;
+    // Deleting a branch / tag ref is ordinary (`git branch -d`); HEAD is not.
+    return isHead ? { path: display, kind: 'deleted' } : undefined;
+  }
+  const kind: PathChangeKind = b ? 'modified' : 'added';
+  if (b && b.hash === a.hash && b.size === a.size && b.type === a.type) return undefined;
+  if (a.type === 'symlink') return { path: display, kind, reason: 'symlink' };
+  if (a.type === 'dir') return { path: display, kind, reason: 'dir' };
+  if (a.refState === 'ok') return undefined;
+  if (a.refState === 'outside') return { path: display, kind, reason: 'ref-outside' };
+  return { path: display, kind, reason: 'ref-invalid' };
+}
+
 /** PathMeta | UNAVAILABLE | null(ENOENT). */
 function metaOf(abs: string): PathMeta | typeof UNAVAILABLE | null {
   try {
@@ -420,6 +497,9 @@ function metaOf(abs: string): PathMeta | typeof UNAVAILABLE | null {
       hash: crypto.createHash('sha256').update(buf).digest('hex'),
       type: 'file',
       ...(isGitConfigPath(abs) ? { raw: buf } : {}),
+      ...(isGitHeadOrLooseRefPath(abs)
+        ? { refState: classifyGitRefContent(buf.toString('utf8')) }
+        : {}),
     };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
@@ -454,8 +534,9 @@ function walkFiles(dir: string, out: string[], depth = 0): void {
 
 /**
  * Collect absolute paths we watch under cwd + home.
- * `.git` only: config, config.worktree, worktrees/<name>/config.worktree, HEAD,
- * refs/**, hooks/**.
+ * `.git` only: config, config.worktree, worktrees/<name>/config(.worktree),
+ * HEAD, refs/**, hooks/**, info/**, objects/info/(http-)alternates,
+ * modules/<name>/config.
  */
 export function listWatchedProtectedPaths(cwd: string, home?: string): string[] {
   const h = homeDir(home);
@@ -490,6 +571,19 @@ export function listWatchedProtectedPaths(cwd: string, home?: string): string[] 
   const refs = path.join(git, 'refs');
   paths.push(refs);
   walkFiles(refs, paths);
+  // O123: keep reporting the rest of .git that can change behaviour:
+  // info/** (exclude, attributes, grafts…), object alternates, submodule
+  // and linked-worktree configs.
+  walkFiles(path.join(git, 'info'), paths);
+  for (const name of ['alternates', 'http-alternates']) {
+    paths.push(path.join(git, 'objects', 'info', name));
+  }
+  for (const name of listDirSafe(path.join(git, 'modules'))) {
+    paths.push(path.join(git, 'modules', name, 'config'));
+  }
+  for (const name of listDirSafe(path.join(git, 'worktrees'))) {
+    paths.push(path.join(git, 'worktrees', name, 'config'));
+  }
 
   return [...new Set(paths)];
 }
@@ -568,6 +662,23 @@ export function diffProtectedPathSnapshots(
     // Unavailable on either side → skip (do not false-report).
     if (b === UNAVAILABLE || a === UNAVAILABLE) continue;
     const display = after.display.get(abs) ?? before.display.get(abs) ?? abs.replace(/\\/g, '/');
+    if (isGitRefsDir(abs)) {
+      // O123: the refs/ directory itself — only a type swap counts; its
+      // mtime moves on every branch create/delete.
+      if (b && a && b.type === a.type) continue;
+      if (b && a) {
+        changes.push({
+          path: display,
+          kind: 'modified',
+          ...(a.type === 'symlink' ? { reason: 'symlink' as const } : {}),
+        });
+        continue;
+      }
+    } else if (isGitHeadOrLooseRefPath(abs)) {
+      const c = gitRefChange(display, abs, b, a);
+      if (c) changes.push(c);
+      continue;
+    }
     // After the UNAVAILABLE guard, b/a are PathMeta | undefined.
     if (!bHas && aHas && a) {
       if (isGitConfigPath(abs)) {
@@ -647,7 +758,8 @@ export function filterExpectedGitMetadataChanges(
   changes: readonly ProtectedPathChange[]
 ): ProtectedPathChange[] {
   if (!GIT_REF_UPDATING.test(command)) return [...changes];
-  return changes.filter((c) => !isGitHeadsOrRefsPath(c.path));
+  // O123: never drop an anomalous HEAD/ref change (`ref: ../x`, symlink, …).
+  return changes.filter((c) => c.reason !== undefined || !isGitHeadsOrRefsPath(c.path));
 }
 
 export function formatProtectedPathModifiedNotice(
@@ -710,7 +822,7 @@ export function parseProtectedPathModMarker(text: string): ProtectedPathChange[]
     const [p, kind, reason, keys] = line.slice(PROTECTED_PATH_DETAIL_MARKER.length + 1).split('\t');
     if (!p) continue;
     const k = (['added', 'modified', 'deleted'] as const).find((x) => x === kind) ?? 'modified';
-    const r = (['symlink', 'dir', 'unparsable'] as const).find((x) => x === reason);
+    const r = ALL_REASONS.find((x) => x === reason);
     const ks = (keys ?? '').split(',').filter(Boolean);
     details.set(p, {
       path: p,
@@ -737,6 +849,16 @@ export function describeGitConfigChange(c: ProtectedPathChange, zh: boolean): st
   if (c.kind === 'deleted' && isGitConfigPath(c.path)) {
     return zh ? `${c.path} 被删除` : `${c.path} was deleted`;
   }
+  if (c.reason === 'ref-outside') {
+    return zh
+      ? `${c.path} 指向仓库外路径（不在 refs/ 下）`
+      : `${c.path} points outside the repository (not under refs/)`;
+  }
+  if (c.reason === 'ref-invalid') {
+    return zh
+      ? `${c.path} 内容不是提交号或 refs/ 引用`
+      : `${c.path} no longer holds a commit id or refs/ reference`;
+  }
   if (c.reason === 'symlink') {
     return zh ? `${c.path} 被换成软链` : `${c.path} was replaced by a symlink`;
   }
@@ -745,6 +867,14 @@ export function describeGitConfigChange(c: ProtectedPathChange, zh: boolean): st
   }
   if (c.reason === 'unparsable') {
     return zh ? `${c.path} 无法解析` : `${c.path} could not be parsed`;
+  }
+  if (/(^|\/)\.git\/hooks\/./.test(c.path.replace(/\\/g, '/'))) {
+    const verb = zh
+      ? { added: '被新增', modified: '被改', deleted: '被删除' }[c.kind]
+      : { added: 'was added', modified: 'was changed', deleted: 'was deleted' }[c.kind];
+    return zh
+      ? `${c.path} ${verb}（git 钩子，会执行命令）`
+      : `${c.path} ${verb} (git hook, runs commands)`;
   }
   if (!c.keys?.length) return undefined;
   const shown = c.keys.slice(0, KEYS_SHOWN).map((k) => `\`${k}\``);
