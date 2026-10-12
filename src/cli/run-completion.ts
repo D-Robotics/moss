@@ -306,7 +306,9 @@ export function classifySafetyBlock(
   if (/requires approval|needs approval|non-interactively|cannot ask|无法询问|非交互/i.test(head))
     return make('approval', step);
   if (/denied by user|用户拒绝/i.test(head)) return make('denied', step);
-  return make('other', step);
+  // Not a recognized safety / approval refusal (e.g. `Unknown tool: …`, a
+  // pre-blocked execution error) — a normal failure, not a block.
+  return undefined;
 }
 
 /** O121: 「exec 未能启动（找不到命令 `X`）」 / `exec failed to start (command `X` not found)`. */
