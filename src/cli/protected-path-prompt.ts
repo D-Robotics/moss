@@ -35,6 +35,12 @@ function sourceClause(hit: ProtectedPathHit, zh: boolean): string {
   const src = hit.source;
   if (!src) return '';
   const script = src.script.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 120);
+  if (src.outsideWorkspace) {
+    const where = src.line ? (zh ? ` 第 ${src.line} 行` : ` line ${src.line}`) : '';
+    return zh
+      ? `（脚本在工作区外（软链解析后）：\`${script}\`${where}）`
+      : ` (script is outside the workspace (after resolving symlinks): \`${script}\`${where})`;
+  }
   if (src.kind === 'inline') {
     return zh
       ? `（内联 ${script}${src.line ? ` 第 ${src.line} 行` : ''}）`
