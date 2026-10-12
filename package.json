@@ -22,6 +22,7 @@
     "scripts/check-node-version.cjs",
     "bin",
     "README.md",
+    "README.en.md",
     "LICENSE"
   ],
   "publishConfig": {
