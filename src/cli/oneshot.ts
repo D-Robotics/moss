@@ -440,6 +440,18 @@ export async function runOneShot(
   let finalResult: HeadlessResultEvent | undefined;
   let runError: unknown = undefined;
   const completionTracker = createRunCompletionTracker();
+  // O121: JSON / stream-json derive failure straight from the same
+  // resolveRunOutcome the text last line uses, so every non-completed outcome
+  // (blocked, loop-guard stuck, unverified, …) is is_error + exit 9 there too.
+  state.safetyBlockConclusion = () => {
+    if (outputFormat === 'text') return undefined; // text: the O98 last line owns it
+    const o = resolveRunOutcome({
+      tracker: completionTracker,
+      finalText: state.finalText,
+      request: message,
+    });
+    return o.exitCode !== 0 ? formatOutcomeLine(o, isZhLocale() ? 'zh' : 'en') : undefined;
+  };
   const routedToolFilter = oneShotToolFilterForMessage(message);
   const focusedInspection = focusedInspectionRunOptions(message);
   const fastNews = fastNewsRunPolicy(message);
@@ -792,8 +804,12 @@ export async function runOneShot(
     } else if (options.headless && stopResult.blocked) {
       process.exitCode = ExitCode.INCOMPLETE;
     }
-  } else if (options.headless && stopResult.blocked) {
-    process.exitCode = ExitCode.INCOMPLETE;
+  } else {
+    // O121: non-text formats — the result was failed by the run outcome → exit 9.
+    if (state.outcomeConcluded && !runError) {
+      process.exitCode = ExitCode.INCOMPLETE;
+    }
+    if (options.headless && stopResult.blocked) process.exitCode = ExitCode.INCOMPLETE;
   }
 
   return stopResult;
