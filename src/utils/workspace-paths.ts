@@ -185,8 +185,8 @@ function insideGitWorkTree(start: string): boolean {
 
 /**
  * Write `.moss/.gitignore` the first time a runtime artifact is written.
- * Skips symlinks. `wx` does not follow a final-component symlink. Read-only
- * commands must not call this. Never edits `.git`.
+ * Skips symlinks, including dangling Windows entries that lstat cannot inspect.
+ * Read-only commands must not call this. Never edits `.git`.
  */
 export function ensureMossRuntimeGitignore(workspaceDir: string): void {
   try {
@@ -199,6 +199,12 @@ export function ensureMossRuntimeGitignore(workspaceDir: string): void {
       dirStat = fs.lstatSync(dir);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return;
+      if (
+        fs
+          .readdirSync(root)
+          .some((name) => (process.platform === 'win32' ? name.toLowerCase() : name) === '.moss')
+      )
+        return;
     }
     if (dirStat && !dirStat.isDirectory()) return;
     try {
@@ -207,6 +213,15 @@ export function ensureMossRuntimeGitignore(workspaceDir: string): void {
       return;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return;
+      if (
+        dirStat &&
+        fs
+          .readdirSync(dir)
+          .some(
+            (name) => (process.platform === 'win32' ? name.toLowerCase() : name) === '.gitignore'
+          )
+      )
+        return;
     }
     if (!dirStat) fs.mkdirSync(dir);
     const fd = fs.openSync(file, 'wx');
@@ -216,7 +231,7 @@ export function ensureMossRuntimeGitignore(workspaceDir: string): void {
       fs.closeSync(fd);
     }
   } catch {
-    // EEXIST or a symlink race: leave the target untouched.
+    // EEXIST or a filesystem error: do not retry through another path.
   }
 }
 
