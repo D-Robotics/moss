@@ -637,3 +637,27 @@ test('runDeviceBench finally removes the provider config dir', { timeout: 60_000
     .filter((name) => name.startsWith('moss-device-bench-provider-') && !before.has(name));
   assert.deepEqual(leaked, []);
 });
+
+test('bench startup sweeps provider config dirs and keeps other tmpdir entries', async () => {
+  const stale = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-provider-'));
+  fs.writeFileSync(
+    path.join(stale, 'config.json'),
+    `${JSON.stringify({ apiKey: PROVIDER_KEY })}\n`
+  );
+  const unrelated = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-keep-'));
+  const unrelatedMarker = path.join(unrelated, 'keep.txt');
+  fs.writeFileSync(unrelatedMarker, 'not ours to delete\n');
+  const resultsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-sweep-'));
+  try {
+    assert.equal(fs.existsSync(stale), true);
+    const result = await runDeviceBench({ mode: 'dry', resultsDir, filters: ['report-identity'] });
+    assert.equal(result.exitCode, 0, JSON.stringify(result.summary?.rows, null, 2));
+    assert.equal(fs.existsSync(stale), false, 'stale provider config dir survived startup');
+    assert.equal(fs.existsSync(path.join(stale, 'config.json')), false);
+    assert.equal(fs.existsSync(unrelatedMarker), true, 'unrelated tmpdir entry was removed');
+  } finally {
+    fs.rmSync(stale, { recursive: true, force: true });
+    fs.rmSync(unrelated, { recursive: true, force: true });
+    fs.rmSync(resultsDir, { recursive: true, force: true });
+  }
+});

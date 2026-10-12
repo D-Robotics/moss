@@ -530,9 +530,48 @@ function installProviderConfigCleanup() {
   }
 }
 
+export const PROVIDER_CONFIG_PREFIX = 'moss-device-bench-provider-';
+
+/**
+ * Delete config dirs left behind by a run killed before its signal handlers
+ * could run (SIGKILL, or SIGTERM on Windows). Only entries with the bench
+ * provider prefix, that are real directories, and are owned by this uid are
+ * removed; every other tmpdir entry is left untouched.
+ */
+export function sweepStaleProviderConfigDirs(tmpdir = os.tmpdir()) {
+  let removed = 0;
+  let entries;
+  try {
+    entries = fs.readdirSync(tmpdir);
+  } catch {
+    return removed;
+  }
+  for (const name of entries) {
+    if (!name.startsWith(PROVIDER_CONFIG_PREFIX)) continue;
+    const dir = path.join(tmpdir, name);
+    if (providerConfigDirs.has(dir)) continue;
+    let stat;
+    try {
+      stat = fs.lstatSync(dir);
+    } catch {
+      continue;
+    }
+    if (!stat.isDirectory()) continue;
+    const uid = process.getuid?.();
+    if (process.platform !== 'win32' && uid !== undefined && stat.uid !== uid) continue;
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      removed += 1;
+    } catch {
+      // Best effort: another process may have removed it already.
+    }
+  }
+  return removed;
+}
+
 /** Temp config holding the bench API key. Removed on finish, exit, and signals. */
 export function writeBenchProviderConfig(provider) {
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-provider-'));
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), PROVIDER_CONFIG_PREFIX));
   providerConfigDirs.add(configDir);
   installProviderConfigCleanup();
   try {
@@ -884,6 +923,9 @@ export async function runDeviceBench(options = {}) {
   if (mode !== 'dry' && mode !== 'sim' && mode !== 'real') {
     throw new Error(`unknown mode ${mode}`);
   }
+  // Clear provider config dirs (they hold the API key) orphaned by a run that
+  // was killed before its signal handlers could run.
+  sweepStaleProviderConfigDirs();
   const tasks = filterTasks(options.tasks ?? loadDeviceTasks(options.taskDir), options.filters);
   const problems = validateDeviceTasks(tasks);
   if (problems.length > 0) throw new Error(`device task suite invalid:\n${problems.join('\n')}`);
