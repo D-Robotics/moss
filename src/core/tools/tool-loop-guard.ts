@@ -238,7 +238,7 @@ const FILE_MUTATION_TOOLS = new Set([
 
 const SHELL_TOOLS = new Set(['exec', 'exec_background', 'bash']);
 
-function rawMutationPaths(toolName: string, input?: Record<string, unknown>): string[] {
+export function rawMutationPaths(toolName: string, input?: Record<string, unknown>): string[] {
   if (!input) return [];
   const out: string[] = [];
   if (typeof input.path === 'string' && input.path.trim()) out.push(input.path);
@@ -285,7 +285,8 @@ function trackReadScopeLocks(
     const key = lockKey(state, raw);
     // Remember the real path behind the (lower-cased) thrash counter key.
     state.editPathRaw?.set(normalizePathKey(raw), raw);
-    if (refused && !text.includes('[full file: ')) locks.add(key);
+    // O128: an attached body no longer unlocks editing, so every refusal locks.
+    if (refused) locks.add(key);
     else if (!isError && !refused) locks.delete(key);
   }
 }

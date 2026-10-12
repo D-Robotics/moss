@@ -40,6 +40,7 @@ function startFake(steps, finalText, stall = false) {
         /* ignore */
       }
       const n = (body.messages ?? []).filter((m) => m.role === 'tool').length;
+      if (body.tools && body.messages) server.lastMessages = body.messages;
       const chunk = (delta, fr = null) =>
         `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'fake-model', choices: [{ index: 0, delta, finish_reason: fr }] })}\n\n`;
       res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -102,6 +103,7 @@ export async function scenario({
   json = false,
   extraEnv = {},
   stall = false,
+  notesBody,
 }) {
   const fmt = json === true ? 'json' : json || undefined;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'o121-'));
@@ -112,7 +114,7 @@ export async function scenario({
   fs.writeFileSync(path.join(proj, 'README.md'), '# p\n');
   fs.writeFileSync(
     path.join(proj, 'notes.txt'),
-    Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join('\n') + '\n'
+    notesBody ?? Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join('\n') + '\n'
   );
   if (hooks) {
     fs.mkdirSync(path.join(proj, '.moss'), { recursive: true });
@@ -159,7 +161,10 @@ export async function scenario({
   const last = r.out.trim().split('\n').pop() ?? '';
   const notes = fs.readFileSync(path.join(proj, 'notes.txt'), 'utf8');
   fs.rmSync(root, { recursive: true, force: true });
-  return { ...r, last, notes };
+  const toolResults = (server.lastMessages ?? [])
+    .filter((m) => m.role === 'tool')
+    .map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)));
+  return { ...r, last, notes, toolResults };
 }
 
 const CLAIM = { zh: '全部完成，已经做好了。', en: 'All done, everything is finished.' };
@@ -188,9 +193,10 @@ export const CASES = [
       },
     ],
     want: {
-      zh: /被拦：局部读后编辑 `notes\.txt`/,
-      en: /Blocked by: edit after partial read `notes\.txt`/,
+      zh: /^未完成：`notes\.txt` 还没改（先完整读取再编辑）/,
+      en: /^Incomplete: `notes\.txt` not changed \(read in full first, then edit\)/,
     },
+    noBlockedBy: true,
   },
   {
     id: 'hook',
@@ -275,11 +281,12 @@ if (isMain) {
         assert.match(r.last, lang === 'zh' ? /^未完成/ : /^Incomplete/, r.last);
         assert.match(r.last, c.want[lang], r.last);
         assert.doesNotMatch(r.last, /已被修改|was modified|未知|unknown/i, r.last);
+        if (c.noBlockedBy) assert.doesNotMatch(r.last, /被拦|Blocked by/, r.last);
         // O103 protected wording keeps the step (the reason already names the path).
         if (c.id !== 'protected')
           assert.doesNotMatch(r.last, /被拦：exec:|Blocked by: exec:/, 'not a bare exec: step');
         if (c.id === 'partial-read') assert.match(r.notes, /^line 30$/m, 'file untouched');
-      }, `[${lang}] ${c.id}: refused + claimed done → exit 9 Blocked by`);
+      }, `[${lang}] ${c.id}: refused + claimed done → exit 9`);
     }
   }
 

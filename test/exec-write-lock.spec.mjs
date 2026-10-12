@@ -85,12 +85,14 @@ test('a new session (fresh guard state) does not inherit the lock', async (t) =>
   assert.equal(exec(fresh, 'echo y > src/big.ts'), null);
 });
 
-test('refusal that attached the full file does not lock (edit tool is usable)', async (t) => {
+test('O128: refusal that attached the full file still locks until a real full read', async (t) => {
   const dir = await workspace(t);
   const s = createToolLoopGuardState({ workspaceDir: dir });
   recordToolLoopOutcome(s, 'edit_file', true, `${PARTIAL}\n[full file: src/big.ts]\n 1\tx`, {
     path: 'src/big.ts',
   });
+  assert.match(exec(s, 'echo y > src/big.ts') ?? '', /shell write to edit-locked file/);
+  recordToolLoopOutcome(s, 'read_file', false, 'x', { path: 'src/big.ts' });
   assert.equal(exec(s, 'echo y > src/big.ts'), null);
 });
 
@@ -108,4 +110,26 @@ test('loop guard (edit thrash): edit tool and shell writes to that file blocked'
   assert.match(formatToolLoopGuardMessage(reason, 'exec'), /^已拦截/);
   assert.equal(exec(s, 'npm test'), null);
   assert.equal(exec(s, 'echo y > src/other.ts'), null);
+});
+
+test('O128: $PWD / $(pwd) / `pwd` / $VAR-built targets hit the lock; other files stay free', async (t) => {
+  const dir = await workspace(t);
+  const s = locked(dir);
+  for (const command of [
+    'echo y > "$PWD/src/big.ts"',
+    'echo y > "${PWD}/src/big.ts"',
+    'D=src; echo y > $D/big.ts',
+    'echo y > "$(pwd)/src/big.ts"',
+    'echo y > `pwd`/src/big.ts',
+  ]) {
+    assert.match(exec(s, command) ?? '', /shell write to edit-locked file/, command);
+  }
+  for (const command of [
+    'echo y > "$PWD/src/other.ts"',
+    'D=src; echo y > $D/other.ts',
+    'echo "$HOME" > out.txt',
+    'echo y > $TMPDIR/big.ts.bak',
+  ]) {
+    assert.equal(exec(s, command), null, command);
+  }
 });

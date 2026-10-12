@@ -24,6 +24,9 @@ import type { MossAgentEvent } from '../core/index.js';
 import { listBackgroundProcessSnapshots } from '../core/tools/background-process-registry.js';
 import { parseProtectedPathModMarker } from '../safety/protected-path-snapshot.js';
 import { ExitCode } from './exit-codes.js';
+import path from 'node:path';
+import { canonicalPath } from '../safety/shell-write-detect.js';
+import { rawMutationPaths } from '../core/tools/tool-loop-guard.js';
 
 export type VerificationCheck = 'format' | 'lint' | 'typecheck' | 'test' | 'check';
 
@@ -62,7 +65,13 @@ export interface RunCompletionTracker {
    * O101 layer 3: protected paths modified by a shell command (post-run
    * detection). When set, the run is incomplete regardless of model claims.
    */
-  protectedPathChanges?: Array<{ path: string; kind: string; command?: string }>;
+  protectedPathChanges?: Array<{
+    path: string;
+    kind: string;
+    command?: string;
+    keys?: string[];
+    reason?: string;
+  }>;
   /**
    * O103: protected-path writes the approval gate refused before they ran
    * (`-p` deny or user said no). Drives the outcome on its own — a run with a
@@ -90,6 +99,7 @@ export type SafetyBlockKind =
   | 'dangerous'
   | 'protected'
   | 'partial-read'
+  | 'truncated-write'
   | 'hook'
   | 'loop-guard'
   | 'approval'
@@ -105,8 +115,17 @@ export interface SafetyBlock {
   /** What was refused, user-readable (UX): e.g. dangerous command `rm -rf /`. */
   en: string;
   zh: string;
-  /** partial-read only: the path, so a later successful edit clears it. */
+  /** Gate-type blocks (partial-read, truncated-write): the path as written. */
   path?: string;
+  /**
+   * O128 (PM): gate-type refusal. Resolved — removed from the record — when
+   * the same file (realpath) is later changed successfully through the
+   * gate's prescribed tools ({@link RESOLVING_TOOLS}). Exec writes never
+   * resolve. Safety-type blocks never carry this.
+   */
+  resolvable?: boolean;
+  /** Realpath key of {@link path} for resolution. */
+  pathKey?: string;
 }
 
 export type RunCompletionStatus = 'complete' | 'incomplete';
@@ -225,6 +244,7 @@ const BLOCK_LABEL: Record<SafetyBlockKind, { en: string; zh: string }> = {
   dangerous: { en: 'dangerous command', zh: '危险命令' },
   protected: { en: 'protected path', zh: '受保护路径' },
   'partial-read': { en: 'edit after partial read', zh: '局部读后编辑' },
+  'truncated-write': { en: 'whole-file write after truncated read', zh: '截断读后整文件覆盖' },
   hook: { en: 'hook blocked', zh: '钩子拦下' },
   'loop-guard': { en: 'loop guard', zh: '重复失败保护' },
   approval: { en: 'needs approval (could not ask)', zh: '需要确认但无法询问' },
@@ -241,6 +261,22 @@ const BLOCK_LABEL: Record<SafetyBlockKind, { en: string; zh: string }> = {
  * which the exec tools return before running anything). Text is only used to
  * pick the label and to drop non-safety guards (tool budget, read dedupe).
  */
+/** O128: which successful tools resolve each gate-type block. Exec never does. */
+const RESOLVING_TOOLS: Partial<Record<SafetyBlockKind, Set<string>>> = {
+  'partial-read': new Set(['edit_file', 'multi_edit', 'apply_patch', 'write_file']),
+  'truncated-write': new Set(['edit_file', 'multi_edit', 'apply_patch']),
+};
+
+function gatePathKey(raw: string): string {
+  return canonicalPath(path.resolve(process.cwd(), raw));
+}
+
+function gatePathExtra(filePath: string | undefined): Partial<SafetyBlock> {
+  return filePath
+    ? { path: filePath, resolvable: true, pathKey: gatePathKey(filePath) }
+    : { resolvable: true };
+}
+
 export function classifySafetyBlock(
   toolName: string,
   input: Record<string, unknown>,
@@ -268,7 +304,14 @@ export function classifySafetyBlock(
     FILE_WRITE_TOOLS.has(toolName) &&
     /^\s*(?:Error:\s*)?You only read a partial window of /.test(head)
   ) {
-    return make('partial-read', filePath ?? step, filePath ? { path: filePath } : {});
+    return make('partial-read', filePath ?? step, gatePathExtra(filePath));
+  }
+  // O128: whole-file write_file refused because the full read was truncated.
+  if (
+    toolName === 'write_file' &&
+    /^\s*(?:Error:\s*)?`[^`]*` was truncated when read;/.test(head)
+  ) {
+    return make('truncated-write', filePath ?? step, gatePathExtra(filePath));
   }
   const structural = outcome === 'denied' || outcome === 'blocked';
   const refusalPrefix =
@@ -352,14 +395,19 @@ export function noteRunCompletionEvent(tracker: RunCompletionTracker, event: Mos
     tracker.safetyBlocks = [...(tracker.safetyBlocks ?? []), block];
     tracker.lastBlockedStep = block.step;
   }
-  // A partial-read refusal is recovered once the same path is edited for real.
-  if (!failed && !block && FILE_WRITE_TOOLS.has(toolName) && typeof input.path === 'string') {
-    const p = input.path;
-    if (tracker.safetyBlocks?.some((b) => b.kind === 'partial-read' && b.path === p)) {
-      tracker.safetyBlocks = tracker.safetyBlocks.filter(
-        (b) => !(b.kind === 'partial-read' && b.path === p)
-      );
-    }
+  // O128 (PM): a gate-type block is resolved once the same file (realpath)
+  // is changed successfully through the gate's prescribed tools.
+  if (!failed && !block && tracker.safetyBlocks?.some((b) => b.resolvable)) {
+    const keys = new Set(rawMutationPaths(toolName, input).map(gatePathKey));
+    tracker.safetyBlocks = tracker.safetyBlocks.filter(
+      (b) =>
+        !(
+          b.resolvable &&
+          b.pathKey &&
+          keys.has(b.pathKey) &&
+          RESOLVING_TOOLS[b.kind]?.has(toolName)
+        )
+    );
   }
   if (failed || block) {
     const step = describeStep(toolName, input);
@@ -411,7 +459,7 @@ export function noteBackgroundProtectedPathMods(tracker: RunCompletionTracker): 
     if (!changes || changes.length === 0) continue;
     mergeProtectedPathChanges(
       tracker,
-      changes.map((c) => ({ path: c.path, kind: c.kind, command: snap.command })),
+      changes.map((c) => ({ ...c, keys: c.keys ? [...c.keys] : undefined, command: snap.command })),
       `exec_background: ${snap.command.replace(/\s+/g, ' ').trim().slice(0, 120)}`
     );
   }
@@ -419,7 +467,13 @@ export function noteBackgroundProtectedPathMods(tracker: RunCompletionTracker): 
 
 function mergeProtectedPathChanges(
   tracker: RunCompletionTracker,
-  additions: Array<{ path: string; kind: string; command?: string }>,
+  additions: Array<{
+    path: string;
+    kind: string;
+    command?: string;
+    keys?: string[];
+    reason?: string;
+  }>,
   failedStep?: string
 ): void {
   if (additions.length === 0) return;
