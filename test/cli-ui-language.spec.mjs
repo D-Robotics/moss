@@ -702,6 +702,8 @@ function englishSentences(text, displayedPaths = []) {
       line = line.replace(new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ');
     }
     line = line.replace(/https?:\/\/\S+/g, ' ');
+    // This exact public endpoint is data; surrounding English still counts.
+    line = line.replace(/(^|[^A-Za-z0-9_.-])archive\.d-robotics\.cc(?=$|[^A-Za-z0-9_.-])/gi, '$1 ');
     // A flag token, including an attached =value. The next word stays.
     line = line.replace(/(^|[^\w-])(--?[A-Za-z0-9][\w-]*)(?:=[^\s,，。；;)]*)?/g, '$1 ');
     const kept = [];
@@ -742,6 +744,25 @@ for (const configPath of [
   );
 }
 assert.equal(englishSentences('These settings will be saved here').length, 1);
+assert.deepEqual(
+  englishSentences(
+    '无法访问 archive.d-robotics.cc 下载（whl 探测失败）。请检查出网/代理；Moss 不会自动装包。'
+  ),
+  []
+);
+assert.deepEqual(englishSentences('下载地址：ARCHIVE.D-ROBOTICS.CC。'), []);
+for (const text of [
+  'These settings will be saved here: archive.d-robotics.cc',
+  'Archive these files at archive.d-robotics.cc',
+  'archive cc',
+  'archive and cc are unavailable',
+  'xarchive.d-robotics.cc',
+  'archive.d-robotics.cc.evil',
+  'archive.d-robotics.cc-extra',
+  'archive.d-robotics.ccevil',
+]) {
+  assert.equal(englishSentences(text).length, 1, text);
+}
 assert.equal(
   englishSentences(String.raw`配置文件：C:\Users\Runner\AppData\Local\Temp\config.json`).length,
   1,
