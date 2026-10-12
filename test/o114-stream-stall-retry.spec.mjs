@@ -58,6 +58,16 @@ const model = { provider: 'p', id: 'm' };
 
 try {
   // ─── A. defaults decoupled ────────────────────────────────────────────────
+  // Explicitly clear BOTH env vars (and legacy aliases) for the default case.
+  for (const k of [
+    'MOSS_PI_AI_FIRST_EVENT_TIMEOUT_MS',
+    'PI_AI_FIRST_EVENT_TIMEOUT_MS',
+    'MOSS_PI_AI_INTER_EVENT_TIMEOUT_MS',
+    'PI_AI_INTER_EVENT_TIMEOUT_MS',
+  ]) {
+    delete process.env[k];
+    assert.equal(process.env[k], undefined, `${k} cleared`);
+  }
   assert.equal(resolveFirstEventTimeoutMs(), 45_000);
   assert.equal(resolveInterEventTimeoutMs(), 60_000);
   {
@@ -170,6 +180,12 @@ try {
       outcome.code,
       'PROVIDER_UPSTREAM_ERROR',
       'maps to upstream error (non-zero exit 6)'
+    );
+    assert.equal(outcome.recoverable, false, 'exhausted stall is reported recoverable: false');
+    assert.equal(
+      toMossErrorOutcome(stall()).recoverable,
+      true,
+      'a single (non-exhausted) stall stays recoverable'
     );
   }
   ok('stalls beyond retry budget → LlmRetriesExhaustedError, upstream error code, not success');

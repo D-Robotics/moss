@@ -29,7 +29,13 @@ interface PiStreamEventExt {
   type: string;
   delta?: string;
   text?: string;
-  error?: { errorMessage?: string; message?: string; errorDetails?: MossErrorOutcome };
+  error?: {
+    errorMessage?: string;
+    message?: string;
+    errorDetails?: MossErrorOutcome;
+    /** In-memory only (non-enumerable), set by llm-provider-stream-adapter. */
+    originalError?: unknown;
+  };
   reason?: string;
 }
 
@@ -410,6 +416,16 @@ export async function runAgentLoopLlmTurn(
               case 'error': {
                 const ext = event as unknown as PiStreamEventExt;
                 const errObj = ext.error;
+                // O114: rethrow a mid-stream stall as-is so the retry policy
+                // can classify it (phase 'inter' → retryable timeout).
+                const orig = errObj?.originalError;
+                if (
+                  orig instanceof Error &&
+                  orig.name === 'PiAiFirstEventTimeoutError' &&
+                  (orig as { phase?: unknown }).phase === 'inter'
+                ) {
+                  throw orig;
+                }
                 if (errObj?.errorDetails) throw mossErrorFromOutcome(errObj.errorDetails);
                 const errMsg =
                   errObj?.errorMessage ??

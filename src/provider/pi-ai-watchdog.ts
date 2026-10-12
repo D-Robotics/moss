@@ -45,8 +45,9 @@ export class PiAiFirstEventTimeoutError extends Error {
     const secs = Math.round(params.timeoutMs / 1000);
     const message =
       phase === 'inter'
-        ? `pi-ai (${params.provider} / ${params.model}) 流在中途停滞——已吐出部分事件后 ${secs}s 内无新事件，` +
-          `大半是上游网关在生成中途卡住。已主动中止本次调用，建议稍后再试或换一个模型/供应商。`
+        ? `上游流停滞：pi-ai (${params.provider} / ${params.model}) 流在中途停滞——已吐出部分事件后 ${secs}s 内无新事件，` +
+          `大半是上游网关在生成中途卡住。已主动中止本次调用，建议稍后再试或换一个模型/供应商。` +
+          ` (Upstream stream stalled: no new events for ${secs}s mid-response; call aborted.)`
         : `pi-ai (${params.provider} / ${params.model}) 在 ${secs}s 内未吐出任何流事件，` +
           `大半是上游网关在 429/超载/超时后内部反复重试。已主动中止本次调用，建议稍后再试或换一个模型/供应商。`;
     super(message);

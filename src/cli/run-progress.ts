@@ -201,6 +201,18 @@ export function unfinishedReasonFromStop(
   return undefined;
 }
 
+/**
+ * O114: footer reason when the run died on an exhausted mid-stream stall
+ * (watchdog message carries 「上游流停滞」 / "Upstream stream stalled").
+ */
+export function upstreamStallReason(
+  errorText: string | undefined,
+  zh: boolean
+): string | undefined {
+  if (!errorText || !/上游流停滞|upstream stream stalled/i.test(errorText)) return undefined;
+  return zh ? '上游流停滞，重试已用尽，任务未完成' : 'upstream stream stalled; retries exhausted';
+}
+
 export interface ProgressOutcomeInput {
   stopReason?: string;
   errorMessage?: string;
@@ -337,6 +349,7 @@ export function createRunProgressTracker(
     }
   }
 
+  let lastErrorText: string | undefined;
   timer = clock.setInterval(tick, Math.min(waitInterval, maxGap, 5_000));
 
   return {
@@ -404,11 +417,13 @@ export function createRunProgressTracker(
           endThinking();
           activeTool = undefined;
           if (emitToolBoundaries) {
+            const errText =
+              event.errorSurface?.userMessage?.trim() ||
+              (typeof event.error === 'string' ? event.error : '');
+            lastErrorText = errText;
             const outcome = resolveProgressOutcome({
               errorMessage:
-                event.errorSurface?.userMessage?.trim() ||
-                (typeof event.error === 'string' ? event.error : '') ||
-                (zh ? '执行出错' : 'error'),
+                upstreamStallReason(errText, zh) || errText || (zh ? '执行出错' : 'error'),
               tracker: completionTracker,
               zh,
             });
@@ -429,8 +444,13 @@ export function createRunProgressTracker(
             lastEmitAt = at;
             break;
           }
+          const stallReason =
+            event.result?.stopReason === 'error'
+              ? upstreamStallReason(lastErrorText, zh)
+              : undefined;
           const outcome = resolveProgressOutcome({
             stopReason: event.result?.stopReason,
+            ...(stallReason ? { errorMessage: stallReason } : {}),
             finalText: event.result?.response ?? '',
             tracker: completionTracker,
             zh,
