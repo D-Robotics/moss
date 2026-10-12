@@ -107,6 +107,7 @@ assert.ok(binPaths.length > 0, 'package.json bin declares at least one path');
 const allowed = (file) =>
   file === 'package.json' ||
   file === 'README.md' ||
+  file === 'README.en.md' ||
   file === 'LICENSE' ||
   file === 'dist/utils/build-stamp.json' ||
   lifecycleScripts.includes(file) ||
@@ -116,8 +117,10 @@ const allowed = (file) =>
 assert.deepEqual(
   files.filter((file) => !allowed(file)),
   [],
-  'only package.json, README.md, LICENSE, lifecycle hook scripts, package bin paths, dist/utils/build-stamp.json, and dist/**/*.{js,d.ts}'
+  'only package.json, README.md, README.en.md, LICENSE, lifecycle hook scripts, package bin paths, dist/utils/build-stamp.json, and dist/**/*.{js,d.ts}'
 );
+assert.ok(files.includes('README.md'), 'Chinese README is packed');
+assert.ok(files.includes('README.en.md'), 'English README is packed');
 assert.ok(files.includes('dist/utils/build-stamp.json'), 'build stamp is packed');
 assert.ok(files.includes('dist/cli.js'), 'ESM CLI is packed');
 assert.ok(files.includes('bin/moss.cjs'), 'CJS Node pre-check bin is packed');
