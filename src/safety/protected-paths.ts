@@ -29,6 +29,7 @@ import path from 'node:path';
 
 import { detectShellWriteTargets, type ShellWriteDetection } from './shell-write-detect.js';
 import { findIndirectProtectedWrites } from './indirect-write-detect.js';
+import { findPwshWriteTargets } from './pwsh-write-targets.js';
 
 export type ProtectedPathCategory =
   | 'git'
@@ -45,7 +46,7 @@ export interface ProtectedPathHit {
   category: ProtectedPathCategory;
   operation: 'write' | 'delete' | 'move' | 'shell';
   /** O103: `core.hooksPath` redirection (copy says "would redirect git hooks"). */
-  kind?: 'hooks-path';
+  kind?: 'hooks-path' | 'unresolved-var';
   /**
    * O101: when the write comes from inline interpreter code or a workspace
    * script (layers 1–2). Used by the confirm prompt to show script + line.
@@ -687,7 +688,86 @@ export function findShellProtectedWrites(
       source: finding.source,
     });
   }
+
+  // O130 (a): write targets of PowerShell cmdlets / aliases, [IO.File]::Write*,
+  // every redirection form, with `$env:X` / `${env:X}` / `%X%` / `$X` expanded
+  // from the current env. Only write targets are examined (a `$` in an argument
+  // or a read never prompts). A target that cannot be resolved (unknown or
+  // same-line-assigned variable, command substitution, relative after an
+  // unresolvable `cd`) is gated as possibly protected. Stricter only.
+  const pw = findPwshWriteTargets(command, {
+    cwd: ctx.cwd,
+    home: homeOf(ctx),
+    env: ctx.env ?? process.env,
+  });
+  for (const target of pw.resolved) {
+    const hit = classifyProtectedPath(target, ctx) ?? deletesProtectedAncestor(target, ctx);
+    if (!hit || seen.has(hit.resolved)) continue;
+    seen.add(hit.resolved);
+    hits.push({
+      raw: displayPath(hit.resolved, ctx),
+      resolved: hit.resolved,
+      category: hit.category,
+      operation: 'shell',
+    });
+  }
+  if (hits.length === 0 && pw.unresolved.length > 0) {
+    const raw = pw.unresolved[0]!;
+    hits.push({
+      raw,
+      resolved: raw,
+      category: 'unresolved',
+      operation: 'write',
+      kind: 'unresolved-var',
+    });
+  }
+
+  // O130 (b): inline interpreter code (`node -e`, `python -c` …) naming a Moss
+  // config file through process.env.X / os.environ[...] (+ string concat).
+  if (!hits.some((h) => h.category === 'moss-config') && INLINE_INTERP.test(command)) {
+    for (const token of configDirTokens(command, ctx)) {
+      const hit = classifyProtectedPath(token, ctx);
+      if (!hit || hit.category !== 'moss-config' || seen.has(hit.resolved)) continue;
+      seen.add(hit.resolved);
+      hits.push({
+        raw: displayPath(hit.resolved, ctx),
+        resolved: hit.resolved,
+        category: hit.category,
+        operation: 'shell',
+      });
+    }
+  }
   return hits;
+}
+
+const INLINE_INTERP =
+  /(?:^|[\s;|&(])(?:node|nodejs|bun|deno|python[23]?(?:\.\d+)?|py|ruby|perl|php)(?:\.exe)?\s+(?:[^;|&]*\s)?(?:-e|-c|-p|-r|-E|--eval|--print|eval)(?=\s)/i;
+
+/** O130: tokens of the command with Windows / interpreter env references expanded. */
+function configDirTokens(command: string, ctx: ProtectedPathContext): string[] {
+  const env = ctx.env ?? process.env;
+  const lookup = (name: string): string => {
+    const direct = env[name];
+    if (direct !== undefined) return direct;
+    const key = Object.keys(env).find((k) => k.toLowerCase() === name.toLowerCase());
+    return key ? (env[key] ?? '') : '';
+  };
+  const expanded = command
+    .replace(/\$\{env:(\w+)\}|\$env:(\w+)/gi, (_, a: string, b: string) => lookup(a ?? b))
+    .replace(/%(\w+)%/g, (_, k: string) => lookup(k))
+    .replace(
+      /process\.env\.(\w+)|process\.env\[\s*['"](\w+)['"]\s*\]|os\.environ\[\s*['"](\w+)['"]\s*\]|os\.getenv\(\s*['"](\w+)['"]\s*\)|os\.environ\.get\(\s*['"](\w+)['"]\s*\)/g,
+      (_m, a?: string, b?: string, c?: string, d?: string, e?: string) =>
+        lookup((a ?? b ?? c ?? d ?? e)!)
+    )
+    // join string concatenation: X+'/moss/config.json' / X + "\\moss" / path.join(X,'moss')
+    .replace(/['"]?\s*\+\s*['"]/g, '')
+    .replace(/(path\.join|os\.path\.join|Join-Path)\s*\(?/gi, ' ');
+  const out: string[] = [];
+  for (const token of expanded.split(/[\s'"`=;|&()<>,]+/)) {
+    if (token && /[/\\]/.test(token)) out.push(token);
+  }
+  return out;
 }
 
 /** Paths a file-mutation tool call would touch. */
