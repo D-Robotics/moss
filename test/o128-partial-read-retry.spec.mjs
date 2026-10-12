@@ -189,5 +189,45 @@ for (const c of RECOVER_CASES) {
   }
 }
 
+// PM ruling: a full read truncated by the output limit unlocks anchored edits
+// but never a whole-file write_file overwrite of that file.
+const TRUNC =
+  /`notes\.txt` was truncated when read; whole-file overwrite is not allowed, use edit instead\. `notes\.txt` 读取时被截断，不能整文件覆盖，请改用 edit 修改。/;
+for (const lang of ['zh', 'en']) {
+  await check(async () => {
+    const r = await scenario({
+      lang,
+      steps: [
+        fullRead,
+        { name: 'write_file', args: { path: 'notes.txt', content: 'x\n' } },
+        edit,
+        { name: 'write_file', args: { path: 'notes.txt', content: 'x\n' } },
+      ],
+      finalText: CLAIM[lang],
+      notesBody: BIG,
+    });
+    const [, w1, e, w2] = r.toolResults;
+    assert.match(w1 ?? '', TRUNC, (w1 ?? '').slice(0, 200));
+    // First edit right after the refusal succeeds — no loop back to "read in full first".
+    assert.match(e ?? '', /^Edited/, (e ?? '').slice(0, 200));
+    // (the edited line itself mentions "partial window", so check the header only)
+    assert.doesNotMatch((e ?? '').split('\n')[0], /^Error|partial window|in full first/);
+    assert.match(w2 ?? '', TRUNC, 'still refused after an edit');
+    assert.equal(r.notes, BIG.replace(OLD, NEW), 'only the edit landed');
+  }, `[${lang}] truncated full read: write_file refused, edit allowed`);
+  await check(async () => {
+    const r = await scenario({
+      lang,
+      steps: [
+        { name: 'read_file', args: { path: 'notes.txt' } },
+        { name: 'write_file', args: { path: 'notes.txt', content: 'x\n' } },
+      ],
+      finalText: CLAIM[lang],
+    });
+    assert.doesNotMatch(r.toolResults[1] ?? '', TRUNC);
+    assert.equal(r.notes, 'x\n', 'small file fully read: write_file allowed');
+  }, `[${lang}] untruncated full read: write_file allowed`);
+}
+
 console.log(`# pass ${pass}  fail ${failures.length}`);
 if (failures.length) process.exit(1);

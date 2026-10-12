@@ -223,6 +223,11 @@ export const readFileTool: Tool = {
         rangeKey,
         wouldTruncateToolOutput('read', result)
       );
+      globalToolStateManager.markFullReadTruncation(
+        filePath,
+        rangeKey,
+        wouldTruncateToolOutput('read', result)
+      );
       // O105: defense in depth — even a direct execute (no agent post-hook)
       // must not return Moss credential plaintext. Same path as presentToolOutput.
       if (isMossCredentialPath(filePath)) {
@@ -292,6 +297,10 @@ export const writeFileTool: Tool = {
             'For surgical changes prefer edit_file/multi_edit; use write_file only for intentional full rewrites after reading.'
           );
         }
+      }
+      if (existed) {
+        const truncated = globalToolStateManager.truncatedOverwriteError(filePath, displayPath);
+        if (truncated) return `Error: ${truncated}`;
       }
 
       const contentStrEarly = String(input.content ?? '');

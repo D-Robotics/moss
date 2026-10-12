@@ -84,6 +84,28 @@ export class ToolStateManager {
   /** O86: paths whose earlier read body left the model context (compaction/elision). */
   private readonly fileReadDropped = new Set<string>();
 
+  /**
+   * O128 (PM): paths whose last full read_file was cut by the output budget.
+   * Sticky across edits (an edit does not show the model the dropped part);
+   * cleared only by a full read that was not truncated.
+   */
+  private readonly fileFullReadTruncated = new Set<string>();
+
+  markFullReadTruncation(resolvedPath: string, rangeKey: string, truncated: boolean): void {
+    if (rangeKey !== 'full') return;
+    if (truncated) this.fileFullReadTruncated.add(resolvedPath);
+    else this.fileFullReadTruncated.delete(resolvedPath);
+  }
+
+  /** O128: refuse a whole-file write_file over a file the model only saw truncated. */
+  truncatedOverwriteError(resolvedPath: string, displayPath: string): string | null {
+    if (!this.fileFullReadTruncated.has(resolvedPath)) return null;
+    return (
+      `\`${displayPath}\` was truncated when read; whole-file overwrite is not allowed, use edit instead. ` +
+      `\`${displayPath}\` 读取时被截断，不能整文件覆盖，请改用 edit 修改。`
+    );
+  }
+
   /** Record state after a successful mutation (keeps the full-read scope). */
   async recordMutation(resolvedPath: string): Promise<void> {
     await this.recordFileState(resolvedPath);
@@ -256,6 +278,7 @@ export class ToolStateManager {
   }
 
   clearFileState(): void {
+    this.fileFullReadTruncated.clear();
     this.fileReadState.clear();
     this.fileReadRange.clear();
     this.fileReadTruncated.clear();
