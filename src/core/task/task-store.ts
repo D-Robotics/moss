@@ -660,8 +660,7 @@ async function taskEventQueueKey(workspaceDir: string): Promise<string> {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
-async function enqueueTaskEventWrite<T>(workspaceDir: string, fn: () => Promise<T>): Promise<T> {
-  const key = await taskEventQueueKey(workspaceDir);
+async function enqueueTaskEventWrite<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const previous = taskEventWriteChains.get(key) ?? Promise.resolve();
   const run = previous.then(fn, fn);
   taskEventWriteChains.set(
@@ -677,8 +676,16 @@ async function enqueueTaskEventWrite<T>(workspaceDir: string, fn: () => Promise<
 /** One reliable workspace mutex; nested reads may reuse their caller's lock. */
 export async function withTaskEventLock<T>(workspaceDir: string, fn: () => Promise<T>): Promise<T> {
   const key = await taskEventQueueKey(workspaceDir);
+  return withTaskEventLockForKey(workspaceDir, key, fn);
+}
+
+async function withTaskEventLockForKey<T>(
+  workspaceDir: string,
+  key: string,
+  fn: () => Promise<T>
+): Promise<T> {
   if (ownsTaskLock(key)) throw new Error('task artifact write lock is not re-entrant');
-  return enqueueTaskEventWrite(workspaceDir, async () => {
+  return enqueueTaskEventWrite(key, async () => {
     const dir = await mossDir(workspaceDir);
     const lockPath = path.join(dir, EVENTS_FILE);
     let lock;
@@ -714,5 +721,5 @@ export async function withTaskArtifactReadLock<T>(
 ): Promise<T> {
   const key = await taskEventQueueKey(workspaceDir);
   if (ownsTaskLock(key)) return fn();
-  return withTaskEventLock(workspaceDir, fn);
+  return withTaskEventLockForKey(workspaceDir, key, fn);
 }

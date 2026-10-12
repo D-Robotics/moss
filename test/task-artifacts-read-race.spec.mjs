@@ -13,6 +13,59 @@ function deferred() {
   return { promise, resolve };
 }
 
+test('each independent mutex entry canonicalizes once and aliases still share ownership', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-task-entry-key-'));
+  const workspace = path.join(root, 'workspace');
+  const alias = path.join(root, 'alias');
+  const { withTaskEventLock, withTaskArtifactReadLock } =
+    await import('../dist/core/task/task-store.js');
+  const originalRealpath = fs.realpath;
+  const entered = deferred();
+  const release = deferred();
+  let canonicalCalls = 0;
+  let writer;
+  let reader;
+  let read = false;
+  try {
+    await fs.mkdir(workspace);
+    await fs.symlink(workspace, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    fs.realpath = function (target, ...args) {
+      if (target === workspace || target === alias) canonicalCalls += 1;
+      return originalRealpath.call(this, target, ...args);
+    };
+    await withTaskArtifactReadLock(workspace, async () => {});
+    assert.equal(canonicalCalls, 1, 'one entry must keep the same freshly resolved queue key');
+    await withTaskArtifactReadLock(workspace, async () => {});
+    assert.equal(
+      canonicalCalls,
+      2,
+      'a later entry must resolve again, without a global path cache'
+    );
+    writer = withTaskEventLock(workspace, async () => {
+      entered.resolve();
+      await assert.rejects(
+        withTaskEventLock(alias, async () => {}),
+        /not re-entrant/
+      );
+      await release.promise;
+    });
+    await entered.promise;
+    reader = withTaskArtifactReadLock(alias, async () => {
+      read = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(read, false, 'a distinct alias must not bypass the actual live writer');
+    release.resolve();
+    await Promise.all([writer, reader]);
+    assert.equal(read, true);
+  } finally {
+    release.resolve();
+    await Promise.allSettled([writer, reader]);
+    fs.realpath = originalRealpath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('a reader cannot replay cached acceptance after its writer rolled it back', async () => {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-task-read-aba-'));
   const originalRead = fs.readFile;

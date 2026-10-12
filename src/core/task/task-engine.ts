@@ -225,9 +225,11 @@ async function runAgentTurn(
   phase: string
 ): Promise<'ok' | 'budget'> {
   const { stopReason } = readAgentTurnResult(await deps.runTurn(prompt, phase), deps.runTurn);
+  // Normal turns are reconciled by their caller; only a budget stop needs
+  // this extra snapshot before deciding whether to append a failure.
+  if (!stopReason?.startsWith('budget_')) return 'ok';
   const snapshot = await getTaskStateSnapshot(deps.workspaceDir, state.taskId);
   if (phaseIsSettled(snapshot?.phase) || deps.signal?.aborted) return 'ok';
-  if (!stopReason?.startsWith('budget_')) return 'ok';
   await appendTaskEvent(deps.workspaceDir, state.taskId, 'task_failed', {
     detail: `run budget exceeded (${stopReason})`,
   });

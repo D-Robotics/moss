@@ -66,6 +66,7 @@ import {
 } from '../../core/tools/background-process-registry.js';
 import { formatBackgroundCompletionFlash } from '../background-completion-ui.js';
 import { redactEgress } from '../../safety/tool-output-redact.js';
+import { installNonTtyOutputDimensions } from './output-dimensions.js';
 import { formatMcpStatusLine } from '../rdk-docs-mcp.js';
 import {
   formatBlockedTaskLine,
@@ -746,6 +747,11 @@ export function TuiAppRoot({
    * immediately with no user input.
    */
   const windowSize = useWindowSize();
+  useEffect(() => {
+    const cleanup = installNonTtyOutputDimensions(stdout);
+    if (cleanup) stdout.emit('resize');
+    return cleanup;
+  }, [stdout]);
   const columns = windowSize.columns || stdouts(stdout);
   const prevColumnsRef = useRef(columns);
   useEffect(() => {
