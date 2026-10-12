@@ -33,6 +33,8 @@ const IS_WIN = process.platform === 'win32';
 const MISSING = 'moss-o88-definitely-missing-cmd';
 const SLEEP_5S = IS_WIN ? 'ping -n 6 127.0.0.1 >NUL' : 'sleep 5';
 const CONFIG = '/tmp/o88/.moss/config.json';
+/** O135: stderr + exit, same on cmd.exe and sh (`;` is not a cmd separator). */
+const NODE_EXIT = (msg, code) => `node -e "console.error('${msg}');process.exit(${code})"`;
 
 function tmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o88-'));
@@ -120,7 +122,8 @@ function assertBlocked(r, reasonRe) {
 }
 
 for (const lang of ['en', 'zh']) {
-  const notStarted = lang === 'zh' ? /未能启动/ : /could not start/;
+  // O135 (UX): blocked spawn failure names the hook and says treated as deny.
+  const notStarted = lang === 'zh' ? /未能启动，已按拒绝处理/ : /failed to start; treated as deny/;
   const timedOut = lang === 'zh' ? /超时/ : /timed out/;
 
   test(`[${lang}] moss format + missing command blocks the write`, async () => {
@@ -134,8 +137,8 @@ for (const lang of ['en', 'zh']) {
     if (lang === 'zh') {
       assert.match(
         r.resultText,
-        /已拦截：工具使用前钩子未能启动。/,
-        'zh uses the O91 copy-table wording'
+        /已拦截：工具使用前钩子 `moss-o88-definitely-missing-cmd` 未能启动，已按拒绝处理。/,
+        'zh O135 wording names the command and treated-as-deny'
       );
       assert.match(r.resultText, /给这个钩子加上 blocking: false/, 'zh next step');
       assert.doesNotMatch(
@@ -185,29 +188,21 @@ for (const lang of ['en', 'zh']) {
   }
 }
 
-test('claude format + exit 1 allows the write but surfaces hook and exit code', async () => {
+// O135: PreToolUse non-zero without an explicit allow decision fails closed
+// in both formats (not only exit 2). Cross-platform node -e (cmd ignores `;`).
+test('claude format + exit 1 blocks the write (PreToolUse fail-closed)', async () => {
   useLang('en');
   const r = await runWrite({
-    PreToolUse: [
-      {
-        command: IS_WIN ? 'echo oops >&2 & exit /b 1' : 'echo oops >&2; exit 1',
-        format: 'claude',
-        source: CONFIG,
-      },
-    ],
+    PreToolUse: [{ command: NODE_EXIT('oops', 1), format: 'claude', source: CONFIG }],
   });
-  assert.equal(r.written, true, 'allowed: file must exist');
-  assert.match(r.stderr, /PreToolUse hook exited with code 1/);
-  assert.match(r.stderr, /echo oops/, 'terminal names the hook command');
-  assert.match(r.stderr, /oops/, 'stderr summary shown');
+  assertBlocked(r, /oops/);
+  assert.match(r.resultText, /Blocked by PreToolUse hook/, 'blocked reason names PreToolUse');
 });
 
 test('claude format + exit 2 still blocks (regression)', async () => {
   useLang('en');
   const r = await runWrite({
-    PreToolUse: [
-      { command: IS_WIN ? 'echo nope >&2 & exit /b 2' : 'echo nope >&2; exit 2', format: 'claude' },
-    ],
+    PreToolUse: [{ command: NODE_EXIT('nope', 2), format: 'claude' }],
   });
   assertBlocked(r, /nope/);
 });
@@ -227,9 +222,11 @@ test('native hook verdicts retain quoted argv/stdin/cwd, explicit exits and real
     [process.execPath, script, output, argument, String(code)].map(quote).join(' ');
   for (const [code, allowed] of [
     [0, true],
-    [1, true],
+    // O135: PreToolUse is a safety gate — any non-zero without an explicit
+    // allow decision fails closed in claude format too (not only exit 2).
+    [1, false],
     [2, false],
-    [7, true],
+    [7, false],
   ]) {
     const r = await runWrite(
       { PreToolUse: [{ command: command(code), format: 'claude' }] },
@@ -241,7 +238,7 @@ test('native hook verdicts retain quoted argv/stdin/cwd, explicit exits and real
     assert.equal(observed.payload.event, 'PreToolUse');
     assert.equal(fs.realpathSync.native(observed.cwd), fs.realpathSync.native(r.dir));
     if (code !== 0 && allowed) assert.match(r.stderr, new RegExp(`exited with code ${code}`));
-    if (!allowed) assertBlocked(r, /hook exited 2/);
+    if (!allowed) assertBlocked(r, new RegExp(`hook exited ${code}`));
   }
   // A real successful command clears the missing command's ERRORLEVEL. A cmd
   // echo does not: it cannot turn a missing hook into an affirmative verdict.
@@ -253,11 +250,11 @@ test('native hook verdicts retain quoted argv/stdin/cwd, explicit exits and real
     const masked = await runWrite({
       PreToolUse: [{ command: `${MISSING} & echo not-an-exit-verdict`, format: 'claude' }],
     });
-    assertBlocked(masked, /could not start/);
+    assertBlocked(masked, /failed to start; treated as deny/);
     const conditional = await runWrite({
       PreToolUse: [{ command: `(${MISSING}) && echo forbidden`, format: 'claude' }],
     });
-    assertBlocked(conditional, /could not start/);
+    assertBlocked(conditional, /failed to start; treated as deny/);
     const explicit = await runWrite({
       PreToolUse: [{ command: `${MISSING} & exit /b 0`, format: 'claude' }],
     });
@@ -271,6 +268,15 @@ test('native hook verdicts retain quoted argv/stdin/cwd, explicit exits and real
     });
     assert.equal(escaped.written, true);
   }
+});
+
+test('claude format + exit 1 with explicit allow decision still allows', async () => {
+  useLang('en');
+  const command = `node -e "process.stdout.write(JSON.stringify({decision:'allow'}));process.exit(1)"`;
+  const r = await runWrite({
+    PreToolUse: [{ command, format: 'claude', source: CONFIG }],
+  });
+  assert.equal(r.written, true, 'explicit allow must still permit the write');
 });
 
 test('blocking:false + missing command allows the write and shows the reason', async () => {
@@ -312,13 +318,13 @@ test('UserPromptSubmit / Stop / PermissionRequest fail closed on a missing comma
   await captureStderr(async () => {
     const ups = await cbs.runUserPromptSubmit('hi');
     assert.equal(ups.blocked, true);
-    assert.match(ups.reason, /could not start/);
+    assert.match(ups.reason, /failed to start; treated as deny/);
     const stop = await cbs.runStop({ stopReason: 'end_turn' });
     assert.equal(stop.blocked, true);
-    assert.match(stop.reason, /could not start/);
+    assert.match(stop.reason, /failed to start; treated as deny/);
     const perm = await cbs.runPermissionRequest({ toolName: 'write_file', input: {} });
     assert.equal(perm.denied, true);
-    assert.match(perm.reason, /could not start/);
+    assert.match(perm.reason, /failed to start; treated as deny/);
   });
 });
 
@@ -366,7 +372,7 @@ test(
   async () => {
     useLang('en');
     const r = await runWrite({ PreToolUse: [{ command: MISSING, format: 'claude' }] });
-    assertBlocked(r, /could not start/);
+    assertBlocked(r, /failed to start; treated as deny/);
   }
 );
 
@@ -381,7 +387,7 @@ test('runStopHooks wrapper: missing Stop command blocks', async () => {
   try {
     const { value } = await captureStderr(() => runStopHooks({ stopReason: 'end_turn' }));
     assert.equal(value.blocked, true);
-    assert.match(value.reason, /could not start/);
+    assert.match(value.reason, /failed to start; treated as deny/);
   } finally {
     setLifecycleHookRunner(undefined);
   }
@@ -446,11 +452,16 @@ test('[zh] hook-blocked result starts with 已拦截, no English denied prefix, 
   const ends = r.toolResults.filter((e) => e.type === 'tool_end' || e.type === 'tool_result');
   assert.ok(ends.length > 0);
   assert.doesNotMatch(r.resultText, /Tool execution denied/);
-  const { outcome, executed } = await deniedOutcome('已拦截：工具使用前钩子未能启动。');
+  const { outcome, executed } = await deniedOutcome(
+    '已拦截：工具使用前钩子 `x` 未能启动，已按拒绝处理。'
+  );
   assert.equal(executed, false);
   assert.equal(outcome.kind, 'denied');
   assert.equal(outcome.error.code, ErrorCode.TOOL_NOT_ALLOWED);
-  assert.ok(outcome.text.startsWith('已拦截：工具使用前钩子未能启动。'), outcome.text);
+  assert.ok(
+    outcome.text.startsWith('已拦截：工具使用前钩子 `x` 未能启动，已按拒绝处理。'),
+    outcome.text
+  );
   assert.doesNotMatch(outcome.text, /Tool execution denied/);
 });
 
@@ -468,7 +479,11 @@ test('[zh] denied without reason is Chinese and still says blocked', async () =>
 
 test('[en] denied result keeps explicit blocked/denied wording, kind stays denied', async () => {
   useLang('en');
-  for (const reason of ['Blocked: PreToolUse hook could not start.', 'policy says no', undefined]) {
+  for (const reason of [
+    'Blocked: PreToolUse hook `x` failed to start; treated as deny.',
+    'policy says no',
+    undefined,
+  ]) {
     const { outcome, executed } = await deniedOutcome(reason);
     assert.equal(executed, false);
     assert.equal(outcome.kind, 'denied');
@@ -487,19 +502,26 @@ test('TUI mode: blocked hook prints no [hooks] stderr line; headless (-p/piped) 
   const tuiRun = await runWrite(hooksConfig, { dir: tuiDir, callbacks: tuiCbs });
   assert.equal(tuiRun.written, false);
   assert.doesNotMatch(tuiRun.stderr, /\[hooks\]/, 'TUI: no stderr notice');
-  assert.match(tuiRun.resultText, /could not start/, 'TUI: reason still in tool result');
+  assert.match(
+    tuiRun.resultText,
+    /failed to start; treated as deny/,
+    'TUI: reason still in tool result'
+  );
 
   const headlessDir = tmp();
   const headlessCbs = createConfiguredHookCallbacks(hooksConfig, { workspaceDir: headlessDir });
   headlessCbs.setTuiMode(false);
   const headless = await runWrite(hooksConfig, { dir: headlessDir, callbacks: headlessCbs });
   assert.equal(headless.written, false);
-  assert.match(headless.stderr, /\[hooks\] Blocked: PreToolUse hook could not start/);
+  assert.match(
+    headless.stderr,
+    /\[hooks\] Blocked: PreToolUse hook `.+` failed to start; treated as deny/
+  );
 });
 
 test('blocked tool row shows the Next / 下一步 line without ctrl+o', () => {
   const en = [
-    'Blocked: PreToolUse hook could not start.',
+    'Blocked: PreToolUse hook `x` failed to start; treated as deny.',
     'Command: x',
     'Config: /c.json',
     'stderr: not found',
@@ -507,7 +529,7 @@ test('blocked tool row shows the Next / 下一步 line without ctrl+o', () => {
   ];
   assert.equal(failedPreviewLimit(true, en, RESULT_PREVIEW_LINES), 5);
   const zh = [
-    '已拦截：工具使用前钩子未能启动。',
+    '已拦截：工具使用前钩子 `x` 未能启动，已按拒绝处理。',
     '命令：x',
     '配置文件：/c',
     '错误输出：x',
@@ -529,7 +551,10 @@ for (const event of ['UserPromptSubmit', 'Stop']) {
       event === 'Stop' ? cbs.runStop({ stopReason: 'end_turn' }) : cbs.runUserPromptSubmit('hi')
     );
     assert.equal(value.blocked, true);
-    assert.match(stderr, new RegExp(`\\[hooks\\] Blocked: ${event} hook could not start`));
+    assert.match(
+      stderr,
+      new RegExp(`\\[hooks\\] Blocked: ${event} hook .+ failed to start; treated as deny`)
+    );
     assert.match(stderr, new RegExp(MISSING), 'stderr names the hook command');
   });
 }

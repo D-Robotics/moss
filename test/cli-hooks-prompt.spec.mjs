@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /**
  * UserPromptSubmit (input guardrail) and PermissionRequest (deny-only).
- * Claude-format hooks block only on exit 2; moss-native hooks block on any
- * non-zero exit. PreToolUse honors permissionDecision deny and Claude tool_input.
+ * Claude-format UserPromptSubmit/PermissionRequest block only on exit 2;
+ * moss-native hooks block on any non-zero exit. O135: PreToolUse fails closed
+ * on any non-zero without an explicit allow decision. PreToolUse also honors
+ * permissionDecision deny and Claude tool_input.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -77,7 +79,7 @@ async function pre(command, matcher, tool, input, approved, reason) {
 }
 
 await pre('exit1.mjs', '', 'exec', { command: 'ls' }, false);
-await pre('exit1.mjs', 'Bash', 'exec', { command: 'ls' }, true);
+await pre('exit1.mjs', 'Bash', 'exec', { command: 'ls' }, false); // O135: PreToolUse fail-closed
 await pre('exit2.mjs', 'Bash', 'exec', {}, false);
 await pre('exit2.mjs', 'Bash', 'read_file', {}, true);
 await pre('block-rm.mjs', '*', 'exec', { command: 'rm -rf /tmp/x' }, false, /Destructive/);
