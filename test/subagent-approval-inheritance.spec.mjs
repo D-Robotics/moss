@@ -15,6 +15,9 @@
  *  - A deny decision prevents execution (the tool body never runs).
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { createSubAgentRunner } from '../dist/core/subagent/subagent-runner.js';
 import { createSpawnProfileRegistryFromDefaults } from '../dist/core/subagent/spawn-profile.js';
 
@@ -153,3 +156,93 @@ assert.equal(typeof result.summary, 'string');
 assert.ok(result.summary.length > 0, 'child produced no summary');
 
 console.log('[PASS] subagent approval inheritance (F23): denied in child, never executed');
+
+// A verification worker must produce fresh execution evidence for repeated reads.
+// Ordinary workers retain their readonly cache, without inventing execution starts.
+for (const scope of ['full', 'verify']) {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-child-read-'));
+  try {
+    const filename = path.join(workspace, 'input.txt');
+    await fs.writeFile(filename, 'first actual content');
+    let turns = 0;
+    let reads = 0;
+    const observed = [];
+    const childRunner = createSubAgentRunner({
+      parentTools: [
+        {
+          name: 'read_file',
+          description: 'Read an actual owned file',
+          inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+          metadata: { sideEffectClass: 'readonly' },
+          async execute(input) {
+            reads++;
+            const content = await fs.readFile(input.path, 'utf8');
+            if (reads === 1) await fs.writeFile(filename, 'second actual content');
+            return content;
+          },
+        },
+      ],
+      streamFn: () => {
+        const turn = ++turns;
+        return {
+          async *[Symbol.asyncIterator]() {
+            if (turn <= 2)
+              yield {
+                type: 'toolcall_end',
+                toolCall: { id: `read-${turn}`, name: 'read_file', arguments: { path: filename } },
+              };
+          },
+          async result() {
+            return turn <= 2
+              ? { stopReason: 'toolUse', usage: { input: 12, output: 4 } }
+              : {
+                  stopReason: 'end',
+                  usage: { input: 12, output: 4 },
+                  content: [{ type: 'text', text: 'finished' }],
+                };
+          },
+          push() {},
+          end() {},
+        };
+      },
+      modelDef: parentModelDef,
+      systemPrompt: 'Test worker',
+      maxOutputTokens: 512,
+      contextTokens: 32_000,
+      spawnRegistry: createSpawnProfileRegistryFromDefaults(),
+      workspaceDir: workspace,
+      onAgentLoopEvent(event, identity) {
+        observed.push({ event, identity });
+      },
+    });
+    await childRunner(
+      {
+        runId: `parent/sub-${scope}`,
+        parentRunId: 'parent',
+        scope,
+        task: 'Read input twice',
+        maxTurns: 3,
+        timeoutMs: 30_000,
+      },
+      new AbortController().signal
+    );
+    const starts = observed.filter(
+      ({ event }) => event.type === 'tool_execution_start' && event.toolName === 'read_file'
+    );
+    const ends = observed.filter(
+      ({ event }) => event.type === 'tool_execution_end' && event.toolName === 'read_file'
+    );
+    assert.equal(ends.length, 2);
+    assert.ok(observed.every(({ identity }) => identity.agentId === `subagent:${scope}`));
+    assert.equal(reads, scope === 'verify' ? 2 : 1, `${scope}: actual execution count`);
+    assert.equal(starts.length, reads, `${scope}: starts must represent actual executions`);
+    assert.equal(ends[1].event.outcome, scope === 'verify' ? 'ok' : 'replayed');
+    assert.equal(
+      ends[1].event.content,
+      scope === 'verify' ? 'second actual content' : 'first actual content'
+    );
+    console.log(`[PASS] ${scope} child read execution and cache contract`);
+  } finally {
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+}

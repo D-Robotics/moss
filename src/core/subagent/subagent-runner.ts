@@ -296,6 +296,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           workspaceDir,
           runId: childRunId,
           sessionKey: childSessionKey,
+          agentId: `subagent:${config.scope}`,
           abortSignal: workPhaseController.signal,
           maxSpawnDepth: deps.maxSpawnDepth ?? 1,
           currentSpawnDepth: 1,
