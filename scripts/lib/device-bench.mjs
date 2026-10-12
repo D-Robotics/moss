@@ -531,12 +531,39 @@ function installProviderConfigCleanup() {
 }
 
 export const PROVIDER_CONFIG_PREFIX = 'moss-device-bench-provider-';
+export const PROVIDER_CONFIG_OWNER_FILE = 'owner.pid';
+
+/**
+ * Whether the pid recorded in `dir/owner.pid` is still running. A missing,
+ * unreadable, or unparsable pid file counts as alive: only a recorded owner
+ * that is provably gone marks the dir as orphaned. Live owners are respected,
+ * so two benches running at once never delete each other's config dir.
+ */
+function providerConfigOwnerIsAlive(dir) {
+  let raw;
+  try {
+    raw = fs.readFileSync(path.join(dir, PROVIDER_CONFIG_OWNER_FILE), 'utf8');
+  } catch {
+    return true;
+  }
+  const pid = Number.parseInt(raw.trim(), 10);
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // ESRCH: no such process (dead owner). EPERM: the process exists but is not
+    // ours to signal, so treat it as alive.
+    return !(err instanceof Error && err.code === 'ESRCH');
+  }
+}
 
 /**
  * Delete config dirs left behind by a run killed before its signal handlers
  * could run (SIGKILL, or SIGTERM on Windows). Only entries with the bench
- * provider prefix, that are real directories, and are owned by this uid are
- * removed; every other tmpdir entry is left untouched.
+ * provider prefix, that are real directories, owned by this uid, and whose
+ * recorded owner pid is dead are removed; live runs and every other tmpdir
+ * entry are left untouched.
  */
 export function sweepStaleProviderConfigDirs(tmpdir = os.tmpdir()) {
   let removed = 0;
@@ -559,6 +586,7 @@ export function sweepStaleProviderConfigDirs(tmpdir = os.tmpdir()) {
     if (!stat.isDirectory()) continue;
     const uid = process.getuid?.();
     if (process.platform !== 'win32' && uid !== undefined && stat.uid !== uid) continue;
+    if (providerConfigOwnerIsAlive(dir)) continue;
     try {
       fs.rmSync(dir, { recursive: true, force: true });
       removed += 1;
@@ -576,6 +604,9 @@ export function writeBenchProviderConfig(provider) {
   installProviderConfigCleanup();
   try {
     fs.chmodSync(configDir, 0o700);
+    fs.writeFileSync(path.join(configDir, PROVIDER_CONFIG_OWNER_FILE), `${process.pid}\n`, {
+      mode: 0o600,
+    });
     fs.writeFileSync(
       path.join(configDir, 'config.json'),
       `${JSON.stringify({
