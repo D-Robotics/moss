@@ -26,9 +26,8 @@ const handle = {
 };
 const agent = {
   asyncTasks: { list: () => [] },
-  // eslint-disable-next-line require-yield
   async *streamChat() {
-    throw new Error('the dimensions spec never starts a run');
+    yield Promise.reject(new Error('the dimensions spec never starts a run'));
   },
 };
 
