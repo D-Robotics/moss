@@ -21,7 +21,13 @@ function run(command, args, options = {}) {
     shell: options.shell ?? (process.platform === 'win32' && /\.cmd$/i.test(command)),
   });
   if (result.status !== 0) {
-    const rendered = [`$ ${command} ${args.join(' ')}`, result.stdout, result.stderr]
+    const rendered = [
+      `$ ${command} ${args.join(' ')}`,
+      result.error ? `launch error: ${result.error.name}: ${result.error.message}` : null,
+      `status: ${String(result.status)}; signal: ${result.signal ?? 'none'}`,
+      result.stdout,
+      result.stderr,
+    ]
       .filter(Boolean)
       .join('\n');
     throw new Error(rendered);
@@ -138,7 +144,7 @@ const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-cli-smoke-'));
 
 try {
   log('building the CLI');
-  run('npm', ['run', 'build'], { stdio: 'inherit' });
+  run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build'], { stdio: 'inherit' });
   if (!fs.existsSync(cliEntry)) throw new Error('dist/cli.js was not produced by the build');
 
   log('checking moss --version / --help');
