@@ -533,7 +533,7 @@ test('untrusted exec keeps a global ssh command and blocks a local one', async (
   }
 });
 
-test('untrusted exec keeps a global hooks path unless the repo has its own hooks', async () => {
+test('untrusted exec keeps a global hooks path unless the repo has its own hooks', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-hooks-'));
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-hooks-cfg-'));
   const globalFile = path.join(root, 'global.gitconfig');
@@ -606,7 +606,11 @@ test('untrusted exec keeps a global hooks path unless the repo has its own hooks
     );
     assert.doesNotMatch(pointedAgain, /Repo hooks in an untrusted workspace were not run/);
 
-    if (WIN_HOOKS_SKIP) return; // see WIN_HOOKS_SKIP; finally{} still cleans up
+    if (WIN_HOOKS_SKIP) {
+      // Report the remaining POSIX-only part as skipped (not passed) on win32.
+      t.skip(WIN_HOOKS_SKIP);
+      return; // finally{} still cleans up
+    }
     useIsolatedGitConfig();
     const disabled = path.join(root, 'disabled');
     initRepo(disabled);
