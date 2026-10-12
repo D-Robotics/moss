@@ -530,6 +530,20 @@ function gitHooksPathHits(command: string, ctx: ProtectedPathContext): Protected
  * plain `cd <dir>` / `pushd <dir>` (no `$` / backtick). If the same path is
  * also named anywhere else in the command it is not returned.
  */
+function realOrResolved(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+function isWorkspaceRootPath(p: string, ctx: ProtectedPathContext): boolean {
+  const root = ctx.workspaceRoot;
+  if (!root) return false;
+  return realOrResolved(path.resolve(ctx.cwd, p)) === realOrResolved(root);
+}
+
 function cdOnlyOperands(command: string, cwd: string): Set<string> {
   const cd = new Set<string>();
   const re =
@@ -587,7 +601,9 @@ export function findShellProtectedWrites(
       // O103: a word still holding `$VAR` / `$(…)` is not a path we resolved;
       // expanding it to '' used to misreport the workspace root as git internals.
       if (/\$|`/.test(m)) continue;
-      const isCd = cdOnly.has(path.resolve(ctx.cwd, m));
+      // PM 10-12: exempt only when the cd target IS the workspace/worktree root
+      // (realpath); `cd /`, `cd ~`, `cd ..` still hit the ancestor rule.
+      const isCd = cdOnly.has(path.resolve(ctx.cwd, m)) && isWorkspaceRootPath(m, ctx);
       const hit =
         classifyProtectedPath(m, ctx) ?? (isCd ? undefined : deletesProtectedAncestor(m, ctx));
       if (!hit || seen.has(hit.resolved)) continue;

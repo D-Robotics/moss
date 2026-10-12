@@ -202,6 +202,15 @@ await check('P2: still blocked — root as script arg, rm of root, writes under 
   }
 });
 
+await check('P3 (PM 10-12): cd <root> not blocked; cd / and cd ~ still prompt', () => {
+  const r = makeLinked();
+  const ws = r.wt;
+  const ctx = { cwd: ws, workspaceRoot: ws, home: path.dirname(ws) };
+  assert.deepEqual(findShellProtectedWrites(`cd ${ws} && node x`, ctx), []);
+  assert.ok(findShellProtectedWrites('cd / && node x', ctx).length > 0, 'cd /');
+  assert.ok(findShellProtectedWrites('cd ~ && node x', ctx).length > 0, 'cd ~');
+});
+
 // ── D. main repo unchanged ─────────────────────────────────────────────
 await check('D1: main checkout: commit silent, sshCommand reported', () => {
   const r = makeLinked();
