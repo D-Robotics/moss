@@ -212,8 +212,15 @@ jobs:
   # but do NOT block yet: 25 spec files fail on Windows on main (tracked in
   # specs/windows-25-tests.md, each to be fixed or explicitly skipped).
   #
-  # TODO(2026-10-15, deadline for #120 / Goal 4): make Windows blocking.
-  # Set WINDOWS_BLOCKING to 'true' below by 2026-10-15. Do not extend silently.
+  # Windows becomes blocking AUTOMATICALLY (deadline for #120 / Goal 4, O134):
+  # when the run date in UTC+8 (Asia/Shanghai) is after 2026-10-15, i.e. from
+  # 2026-10-16 00:00 UTC+8, Windows Test failures fail Test summary. No manual
+  # flip needed.
+  # Manual override via WINDOWS_BLOCKING:
+  #   'auto'  (default) date-based rule above
+  #   'true'  block on Windows now, regardless of date
+  #   'false' never block on Windows. Emergency only: requires a Boss decision
+  #           and a ticket number in the commit; do not extend silently.
   test-summary:
     name: Test summary
     if: always()
@@ -222,7 +229,8 @@ jobs:
       - test
     runs-on: ubuntu-latest
     env:
-      WINDOWS_BLOCKING: 'false' # TODO(2026-10-15): flip to 'true'
+      WINDOWS_BLOCKING: 'auto' # auto | true | false (see comment above)
+      WINDOWS_BLOCKING_AFTER: '20261015' # YYYYMMDD, UTC+8; blocking when run date > this
     steps:
       - name: Download leg results
         uses: actions/download-artifact@v4
@@ -231,17 +239,24 @@ jobs:
           pattern: test-leg-*
           path: legs
 
-      - name: Gate on Check + ubuntu/macOS Test (Windows reported only)
+      - name: Gate on Check + Test (Windows blocking after 2026-10-15 UTC+8)
         env:
           CHECK_RESULT: ${{ needs.check.result }}
           TEST_RESULT: ${{ needs.test.result }}
         run: |
           fail=0
+          run_date=$(TZ=Asia/Shanghai date +%Y%m%d)
+          case "$WINDOWS_BLOCKING" in
+            true|false) win_block=$WINDOWS_BLOCKING; win_src=manual ;;
+            *) if [ "$run_date" -gt "$WINDOWS_BLOCKING_AFTER" ]; then win_block=true; else win_block=false; fi; win_src="auto(date=$run_date UTC+8, after=$WINDOWS_BLOCKING_AFTER)" ;;
+          esac
+          WINDOWS_BLOCKING=$win_block
+          echo "windows_blocking source: $win_src"
           echo "check=$CHECK_RESULT test(matrix overall)=$TEST_RESULT windows_blocking=$WINDOWS_BLOCKING"
           [ "$CHECK_RESULT" = success ] || { echo "::error::Check: $CHECK_RESULT"; fail=1; }
           {
             echo "## Test summary"
-            echo "Blocking: Check, ubuntu-latest, macos-latest. Windows blocking: $WINDOWS_BLOCKING (TODO 2026-10-15: must be true)."
+            echo "Blocking: Check, ubuntu-latest, macos-latest. Windows blocking: $WINDOWS_BLOCKING ($win_src; auto-blocking after 2026-10-15 UTC+8)."
             echo
             echo "| Leg | Result | Blocking |"
             echo "|---|---|---|"
@@ -258,7 +273,7 @@ jobs:
                 if [ "$blocking" = yes ]; then
                   echo "::error::Test ($os, node $node): $r"; fail=1
                 else
-                  echo "::warning::Test ($os, node $node): $r (non-blocking until 2026-10-15)"
+                  echo "::warning::Test ($os, node $node): $r (non-blocking: $win_src)"
                 fi
               fi
             done
