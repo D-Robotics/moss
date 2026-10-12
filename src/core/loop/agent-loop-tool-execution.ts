@@ -102,6 +102,21 @@ export function parallelToolCallsWithinBudget(
   return maxToolCalls === undefined || metrics.totalToolCalls + groupSize <= maxToolCalls;
 }
 
+/**
+ * The loop's identical-call replay lookup. O122/O128: tools marked
+ * `noReplay` (read_file) always execute, so their side state (read scope) is
+ * recorded; every other read-only tool still replays.
+ */
+export function findLoopReplay(
+  history: LLMMessage[],
+  toolName: string,
+  input: Record<string, unknown>,
+  toolMeta: Tool['metadata'] | undefined
+): string | null {
+  if (toolMeta?.noReplay) return null;
+  return findReplayableToolResultContent(history, toolName, input, 32, toolMeta?.sideEffectClass);
+}
+
 function preflightToolCall(
   call: ToolCallRef,
   ctx: PreflightContext,
@@ -166,15 +181,7 @@ function preflightToolCall(
   }
 
   const toolMeta = resolvedTools.find((t) => t.name === call.name)?.metadata;
-  const replayed = toolMeta?.noReplay
-    ? null
-    : findReplayableToolResultContent(
-        ctx.historyBeforeAssistant,
-        call.name,
-        call.input,
-        32,
-        toolMeta?.sideEffectClass
-      );
+  const replayed = findLoopReplay(ctx.historyBeforeAssistant, call.name, call.input, toolMeta);
   if (replayed) {
     log.info('tool replay: reusing recent identical-params result', {
       tool: call.name,

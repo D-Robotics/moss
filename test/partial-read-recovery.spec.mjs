@@ -186,3 +186,26 @@ test('refused key/config files leak no content, size, or first line', async (t) 
     assert.doesNotMatch(out, /\d+\s*(?:chars|bytes|lines)/i, name);
   }
 });
+
+test('O128 + O97b: credential files never get the body attached, on the refusal or any resend', async (t) => {
+  const secret = 'o128-DISTINCTIVE-secret-a1b2c3d4';
+  for (const rel of ['.moss/config.json', '.env', '.apikey-key', 'service.credentials']) {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-o128-cred-'));
+    t.after(() => fs.rm(dir, { recursive: true, force: true }));
+    await fs.mkdir(path.join(dir, path.dirname(rel)), { recursive: true });
+    const body = `{\n  "apiKey": "${secret}",\n  "model": "m1"\n}\n`;
+    await fs.writeFile(path.join(dir, rel), body);
+    await readFileTool.execute({ path: rel, offset: 3, limit: 1 }, ctx(dir));
+    const step = { path: rel, old_string: '"m1"', new_string: '"m2"' };
+    for (let i = 0; i < 3; i++) {
+      const out = await editFileTool.execute(step, ctx(dir));
+      assert.match(out, /partial window/, `${rel} #${i}`);
+      assert.match(out, /not attached for credential files/, `${rel} #${i}`);
+      assert.doesNotMatch(out, /\[full file:/, `${rel} #${i}`);
+      assert.ok(!out.includes(secret), `${rel} #${i}: secret must not be attached`);
+      assert.doesNotMatch(out, /apiKey|"model"/, `${rel} #${i}`);
+      assert.ok(out.includes(`下一步：先完整读取 \`${rel}\` 再编辑`), `${rel} #${i}: next step`);
+    }
+    assert.equal(await fs.readFile(path.join(dir, rel), 'utf8'), body, `${rel} unchanged`);
+  }
+});

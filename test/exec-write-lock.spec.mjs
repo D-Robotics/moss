@@ -111,3 +111,25 @@ test('loop guard (edit thrash): edit tool and shell writes to that file blocked'
   assert.equal(exec(s, 'npm test'), null);
   assert.equal(exec(s, 'echo y > src/other.ts'), null);
 });
+
+test('O128: $PWD / $(pwd) / `pwd` / $VAR-built targets hit the lock; other files stay free', async (t) => {
+  const dir = await workspace(t);
+  const s = locked(dir);
+  for (const command of [
+    'echo y > "$PWD/src/big.ts"',
+    'echo y > "${PWD}/src/big.ts"',
+    'D=src; echo y > $D/big.ts',
+    'echo y > "$(pwd)/src/big.ts"',
+    'echo y > `pwd`/src/big.ts',
+  ]) {
+    assert.match(exec(s, command) ?? '', /shell write to edit-locked file/, command);
+  }
+  for (const command of [
+    'echo y > "$PWD/src/other.ts"',
+    'D=src; echo y > $D/other.ts',
+    'echo "$HOME" > out.txt',
+    'echo y > $TMPDIR/big.ts.bak',
+  ]) {
+    assert.equal(exec(s, command), null, command);
+  }
+});
