@@ -227,7 +227,6 @@ const ALLOW = [
 ];
 for (const cmd of ALLOW) test(`O130 does not gate: ${cmd}`, () => clean(cmd));
 
-
 // ---- 4b. QA BLOCK: value-flag abbreviations must not steal the path slot ----
 const ABBREV = [
   `Set-Content -En utf8 '${CFG}' x`,

@@ -249,15 +249,7 @@ const VALUE_FLAGS = [
   '-argumentlist',
   '-args',
 ];
-const PATH_FLAGS = [
-  '-path',
-  '-literalpath',
-  '-filepath',
-  '-pspath',
-  '-lp',
-  '-outfile',
-  '-newname',
-];
+const PATH_FLAGS = ['-path', '-literalpath', '-filepath', '-pspath', '-lp', '-outfile', '-newname'];
 const DEST_FLAGS = ['-destination', '-target', '--target-directory', '-t'];
 
 /** PowerShell unique-prefix match against a list of full flag names. */
@@ -522,7 +514,11 @@ function targetWords(ws: Word[]): Word[] {
       else {
         // xcopy/robocopy: source dest (dest is 2nd positional); others last positional
         const isCopyish = cmd === 'xcopy' || cmd === 'robocopy' || cmd === 'cp' || cmd === 'copy';
-        const src = pathFlag ? positional : isCopyish ? positional.slice(0, 1) : positional.slice(0, -1);
+        const src = pathFlag
+          ? positional
+          : isCopyish
+            ? positional.slice(0, 1)
+            : positional.slice(0, -1);
         const dest = pathFlag
           ? positional[0]
           : isCopyish
@@ -656,16 +652,14 @@ function extractNestedCommands(command: string): string[] {
 function hasEncodedCommand(command: string): boolean {
   // PowerShell unique prefix: -EncodedCommand, -EncodedC, -enc, …
   // Require at least "-enc" to avoid matching unrelated flags.
-  return /(?:^|[\s;|&])(?:pwsh|powershell)(?:\.exe)?\b[^;\n|&]*?-[Ee]nc(?:odedCommand)?\b/i.test(
-    command
-  ) || /(?:^|[\s;|&])-[Ee]ncodedCommand\b/i.test(command);
+  return (
+    /(?:^|[\s;|&])(?:pwsh|powershell)(?:\.exe)?\b[^;\n|&]*?-[Ee]nc(?:odedCommand)?\b/i.test(
+      command
+    ) || /(?:^|[\s;|&])-[Ee]ncodedCommand\b/i.test(command)
+  );
 }
 
-function scanCommand(
-  command: string,
-  ctx: Ctx,
-  depth: number
-): PwshWriteTargets {
+function scanCommand(command: string, ctx: Ctx, depth: number): PwshWriteTargets {
   const resolved: string[] = [];
   const unresolved: string[] = [];
   if (!command || !command.trim()) return { resolved, unresolved };
