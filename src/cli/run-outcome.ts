@@ -174,17 +174,53 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
   // the block record (not by claim detection). If the model then wrote the
   // file another way, the L3 "modified" stuck half above stays authoritative.
   let protectedBlockStuck = false;
-  const blocks = tracker.protectedPathBlocks ?? [];
+  // O121: every safety / approval refusal (block record) → incomplete. One
+  // main cause on the last line, the rest as「（另有 N 处）」/`(+N more)`.
+  const blocks: Array<{ kind: string; step: string; en: string; zh: string }> =
+    tracker.safetyBlocks && tracker.safetyBlocks.length > 0
+      ? tracker.safetyBlocks
+      : (tracker.protectedPathBlocks ?? []).map((b) => ({
+          kind: 'protected',
+          step: b.step,
+          en: b.what,
+          zh: b.what,
+        }));
   if (blocks.length > 0) {
     status = status ?? 'incomplete';
-    const what = blocks[0]!.what;
-    const more = blocks.length > 1 ? blocks.length - 1 : 0;
-    reasonsEn.push(`a protected-path write was blocked: ${what}${more ? ` (+${more} more)` : ''}`);
-    reasonsZh.push(`受保护路径的写入被拦下：${what}${more ? `（另有 ${more} 处）` : ''}`);
+    const main = blocks[0]!;
+    const more = blocks.length - 1;
+    const moreEn = more ? ` (+${more} more)` : '';
+    const moreZh = more ? `（另有 ${more} 处）` : '';
+    if (main.kind === 'protected') {
+      // O103 wording: the reason names the path, the stuck half the step.
+      reasonsEn.push(`a protected-path write was blocked: ${main.en}${moreEn}`);
+      reasonsZh.push(`受保护路径的写入被拦下：${main.zh}${moreZh}`);
+      if (!stuckAt && !input.runError) {
+        stuckAt = main.step;
+        stuckAtZh = main.step;
+        protectedBlockStuck = true;
+      }
+    } else {
+      reasonsEn.push('a safety check refused an action');
+      reasonsZh.push('有操作被安全检查拒绝');
+      if (!stuckAt && !input.runError) {
+        stuckAt = `${main.en}${moreEn}`;
+        stuckAtZh = `${main.zh}${moreZh}`;
+        protectedBlockStuck = true;
+      }
+    }
+  }
+
+  // O121 (PM): loop-guard stop → incomplete, 「卡在」 (not 被拦).
+  const guardStops: Array<{ step: string; en?: string; zh?: string }> =
+    tracker.loopGuardStops ?? [];
+  if (guardStops.length > 0) {
+    status = status ?? 'incomplete';
+    reasonsEn.push('the repeated-failure guard stopped a tool');
+    reasonsZh.push('重复失败保护停下了工具');
     if (!stuckAt && !input.runError) {
-      stuckAt = blocks[0]!.step;
-      stuckAtZh = blocks[0]!.step;
-      protectedBlockStuck = true;
+      stuckAt = guardStops[0]!.en ?? guardStops[0]!.step;
+      stuckAtZh = guardStops[0]!.zh ?? guardStops[0]!.step;
     }
   }
 

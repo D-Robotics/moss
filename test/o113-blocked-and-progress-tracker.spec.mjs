@@ -104,11 +104,12 @@ function feedFail(t, toolName, detail, result = 'Error: no such file') {
   assert.equal(o.status, 'incomplete');
   assert.equal(o.exitCode, 9);
   assert.equal(o.stuckWasBlocked, true);
-  assert.equal(o.stuckAt, 'exec: rm -rf /');
+  // O121 (UX): the stuck half names what was refused, not the bare step.
+  assert.equal(o.stuckAt, 'dangerous command `rm -rf /`');
   const zh = formatOutcomeLine(o, 'zh');
   const en = formatOutcomeLine(o, 'en');
-  assert.match(zh, /被拦：exec: rm -rf \//);
-  assert.match(en, /Blocked by: exec: rm -rf \//);
+  assert.match(zh, /被拦：危险命令 `rm -rf \/`/);
+  assert.match(en, /Blocked by: dangerous command `rm -rf \/`/);
   assert.doesNotMatch(zh, /卡在：/);
   assert.doesNotMatch(en, /stuck at:/);
   banUnknown(zh, 'A zh');
@@ -132,8 +133,8 @@ function feedFail(t, toolName, detail, result = 'Error: no such file') {
     request: '删掉根目录下的危险脚本并修复 hooks.ts',
   });
   assert.equal(o.stuckWasBlocked, true);
-  assert.match(formatOutcomeLine(o, 'zh'), /被拦：exec: rm -rf \//);
-  assert.match(formatOutcomeLine(o, 'en'), /Blocked by: exec: rm -rf \//);
+  assert.match(formatOutcomeLine(o, 'zh'), /被拦：危险命令 `rm -rf \/`/);
+  assert.match(formatOutcomeLine(o, 'en'), /Blocked by: dangerous command `rm -rf \/`/);
 }
 
 // A3. Revert-red: if stuckWasBlocked is ignored, line falls back to 卡在 only

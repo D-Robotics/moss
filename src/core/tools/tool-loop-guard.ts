@@ -437,6 +437,9 @@ export function classifyShellToolFailure(
   if (
     /^\s*Command blocked:/i.test(head) ||
     /^\s*已拦截/u.test(head) ||
+    // O121: loop-guard's own stop copy (renamed from 已拦截 / Blocked).
+    /^\s*已停止重试：/u.test(head) ||
+    /^\s*Stopped retrying:/i.test(head) ||
     /^\s*Blocked\b/i.test(head) ||
     /^\s*Tool execution denied\b/i.test(head) ||
     /^\s*Operation blocked by workspace policy\b/i.test(head)
@@ -605,8 +608,8 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
   if (VERIFY_SHELL_TOOLS.has(toolName)) {
     if (/timed out \d+ time/i.test(reason)) {
       return [
-        `已拦截：${toolName} 连续超时（${reason}）。`,
-        `Blocked: ${toolName} timed out repeatedly (${reason}).`,
+        `已停止重试：${toolName} 连续超时（${reason}）。`,
+        `Stopped retrying: ${toolName} timed out repeatedly (${reason}).`,
         '请提高 timeout_ms、简化命令，或改用 exec_background；不要原样重试。',
         'Raise timeout_ms, simplify the command, or use exec_background — do not retry unchanged.',
       ].join(' ');
@@ -615,32 +618,32 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
     if (/failed to start \d+ time/i.test(reason) && missingMatch) {
       const name = missingMatch[1];
       return [
-        `已拦截：${toolName} 未能启动：找不到命令 \`${name}\`（${reason}）。`,
-        `Blocked: ${toolName} failed to start: command \`${name}\` not found (${reason}).`,
+        `已停止重试：${toolName} 未能启动：找不到命令 \`${name}\`（${reason}）。`,
+        `Stopped retrying: ${toolName} failed to start: command \`${name}\` not found (${reason}).`,
         `下一步：装依赖或改命令（例如安装提供 \`${name}\` 的包，或换成已安装的命令）；不要原样重试。`,
         `Next step: install the dependency or change the command (e.g. install the package that provides \`${name}\`, or use a command that is installed) — do not retry unchanged.`,
       ].join(' ');
     }
     if (/failed to start \d+ time/i.test(reason)) {
       return [
-        `已拦截：${toolName} 未能启动（命令不存在或起不来；${reason}）。`,
-        `Blocked: ${toolName} failed to start (command missing or could not launch; ${reason}).`,
+        `已停止重试：${toolName} 未能启动（命令不存在或起不来；${reason}）。`,
+        `Stopped retrying: ${toolName} failed to start (command missing or could not launch; ${reason}).`,
         '请检查命令是否在 PATH 中、拼写是否正确，再换一条能启动的命令。',
         'Check PATH and spelling, then try a command that can actually launch.',
       ].join(' ');
     }
     if (/was killed \d+ time/i.test(reason)) {
       return [
-        `已拦截：${toolName} 连续被信号杀掉（${reason}）。`,
-        `Blocked: ${toolName} was killed repeatedly (${reason}).`,
+        `已停止重试：${toolName} 连续被信号杀掉（${reason}）。`,
+        `Stopped retrying: ${toolName} was killed repeatedly (${reason}).`,
         '请检查是否超时杀进程或外部信号；不要原样重试。',
         'Check for timeout kills or external signals — do not retry unchanged.',
       ].join(' ');
     }
     if (/returned unusable results \d+ time/i.test(reason)) {
       return [
-        `已拦截：${toolName} 连续返回不可用输出（${reason}）。`,
-        `Blocked: ${toolName} returned unusable output repeatedly (${reason}).`,
+        `已停止重试：${toolName} 连续返回不可用输出（${reason}）。`,
+        `Stopped retrying: ${toolName} returned unusable output repeatedly (${reason}).`,
         '请换一条能产生可读输出的命令；不要原样重试。',
         'Try a different command that produces readable output — do not retry unchanged.',
       ].join(' ');
