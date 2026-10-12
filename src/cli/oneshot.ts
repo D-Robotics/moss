@@ -440,6 +440,14 @@ export async function runOneShot(
   let finalResult: HeadlessResultEvent | undefined;
   let runError: unknown = undefined;
   const completionTracker = createRunCompletionTracker();
+  // O121: JSON / stream-json result carries the same block conclusion.
+  state.safetyBlockConclusion = () => {
+    if (outputFormat === 'text') return undefined; // text: the O98 last line owns it
+    if (!completionTracker.safetyBlocks?.length && !completionTracker.protectedPathBlocks?.length)
+      return undefined;
+    const o = resolveRunOutcome({ tracker: completionTracker, finalText: state.finalText });
+    return o.exitCode !== 0 ? formatOutcomeLine(o, isZhLocale() ? 'zh' : 'en') : undefined;
+  };
   const routedToolFilter = oneShotToolFilterForMessage(message);
   const focusedInspection = focusedInspectionRunOptions(message);
   const fastNews = fastNewsRunPolicy(message);
@@ -792,8 +800,12 @@ export async function runOneShot(
     } else if (options.headless && stopResult.blocked) {
       process.exitCode = ExitCode.INCOMPLETE;
     }
-  } else if (options.headless && stopResult.blocked) {
-    process.exitCode = ExitCode.INCOMPLETE;
+  } else {
+    // O121: non-text formats — a refused action still ends exit 9 (only stricter).
+    if (state.safetyBlockConclusion?.() && !runError && !state.lastError) {
+      process.exitCode = ExitCode.INCOMPLETE;
+    }
+    if (options.headless && stopResult.blocked) process.exitCode = ExitCode.INCOMPLETE;
   }
 
   return stopResult;

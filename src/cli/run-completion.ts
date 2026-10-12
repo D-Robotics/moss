@@ -69,8 +69,44 @@ export interface RunCompletionTracker {
    * refused protected write is never「完成」, whatever the final answer says.
    */
   protectedPathBlocks?: Array<{ step: string; what: string }>;
+  /**
+   * O121: every safety / approval refusal of this run (dangerous command,
+   * protected path, partial-read edit, hook, loop-guard, -p approval deny …),
+   * in order. Any entry makes the run 「未完成」 exit 9, whatever the final
+   * answer claims. User-approved actions never land here (they were not
+   * refused). `en`/`zh` name what was refused for the last line.
+   */
+  safetyBlocks?: SafetyBlock[];
+  /**
+   * O121 (PM ruling): loop-guard short-circuits are NOT safety blocks. They
+   * still end the run 「未完成」 exit 9, but as 「卡在」/`stuck at`, never 被拦.
+   */
+  loopGuardStops?: Array<{ step: string; en: string; zh: string }>;
   /** @internal pending tool_start inputs keyed by toolCallId. */
   pending: Map<string, { toolName: string; input: Record<string, unknown> }>;
+}
+
+export type SafetyBlockKind =
+  | 'dangerous'
+  | 'protected'
+  | 'partial-read'
+  | 'hook'
+  | 'loop-guard'
+  | 'approval'
+  | 'denied'
+  | 'policy'
+  | 'sandbox'
+  | 'other';
+
+export interface SafetyBlock {
+  kind: SafetyBlockKind;
+  /** Tool step, e.g. `exec: rm -rf /`. */
+  step: string;
+  /** What was refused, user-readable (UX): e.g. dangerous command `rm -rf /`. */
+  en: string;
+  zh: string;
+  /** partial-read only: the path, so a later successful edit clears it. */
+  path?: string;
 }
 
 export type RunCompletionStatus = 'complete' | 'incomplete';
@@ -185,6 +221,111 @@ export function protectedBlockSummary(result: string): string | undefined {
   return body.slice(0, 160) || undefined;
 }
 
+const BLOCK_LABEL: Record<SafetyBlockKind, { en: string; zh: string }> = {
+  dangerous: { en: 'dangerous command', zh: '危险命令' },
+  protected: { en: 'protected path', zh: '受保护路径' },
+  'partial-read': { en: 'edit after partial read', zh: '局部读后编辑' },
+  hook: { en: 'hook blocked', zh: '钩子拦下' },
+  'loop-guard': { en: 'loop guard', zh: '重复失败保护' },
+  approval: { en: 'needs approval (could not ask)', zh: '需要确认但无法询问' },
+  denied: { en: 'denied by user', zh: '用户拒绝' },
+  policy: { en: 'workspace policy', zh: '工作区策略' },
+  sandbox: { en: 'write outside the workspace', zh: '写到工作区外' },
+  other: { en: 'safety check', zh: '安全检查' },
+};
+
+/**
+ * O121: classify a finished tool call as a safety / approval refusal.
+ * Gate is structural first: the loop's `outcome` ('denied' | 'blocked') or the
+ * tool's own refusal prefix (`Command blocked:` / `Blocked dangerous command:`,
+ * which the exec tools return before running anything). Text is only used to
+ * pick the label and to drop non-safety guards (tool budget, read dedupe).
+ */
+export function classifySafetyBlock(
+  toolName: string,
+  input: Record<string, unknown>,
+  result: string | undefined,
+  outcome: string | undefined
+): SafetyBlock | undefined {
+  const text = result ?? '';
+  const head = text.slice(0, 600);
+  const step = describeStep(toolName, input);
+  const command =
+    typeof input.command === 'string'
+      ? input.command.replace(/\s+/g, ' ').trim().slice(0, 120)
+      : undefined;
+  const filePath = typeof input.path === 'string' ? input.path : undefined;
+  const make = (kind: SafetyBlockKind, subject: string, extra: Partial<SafetyBlock> = {}) => ({
+    kind,
+    step,
+    en: `${BLOCK_LABEL[kind].en} \`${subject}\``,
+    zh: `${BLOCK_LABEL[kind].zh} \`${subject}\``,
+    ...extra,
+  });
+  // O97: edit refused because only a partial window was read (edit tools
+  // return this as a plain error; the file is untouched).
+  if (
+    FILE_WRITE_TOOLS.has(toolName) &&
+    /^\s*(?:Error:\s*)?You only read a partial window of /.test(head)
+  ) {
+    return make('partial-read', filePath ?? step, filePath ? { path: filePath } : {});
+  }
+  const structural = outcome === 'denied' || outcome === 'blocked';
+  const refusalPrefix =
+    /^\s*(?:已拦截[：:]\s*)?(?:Command blocked:|Blocked dangerous command:)/i.test(head);
+  if (!structural && !refusalPrefix && !isSafetyOrApprovalBlockResult(text)) return undefined;
+  // Not safety: tool budget (run-budget class, O111) and loop-guard dedupe of
+  // redundant calls (`[moss-agent] Tool loop guard stopped …`).
+  if (/^\s*Tool budget reached/i.test(head)) return undefined;
+  if (/^\s*(?:已停止重试：|Stopped retrying:)/i.test(head)) return make('loop-guard', step);
+  if (/^\s*\[moss-agent\] Tool loop guard stopped/i.test(head)) return undefined;
+  if (!structural && !refusalPrefix) {
+    // Text-only matches (no structural outcome): keep the O113 set but only
+    // for explicit refusal copy.
+    if (
+      !/^\s*(?:已停止重试：|Stopped retrying:|已拦截|Blocked\b|Tool execution denied\b|Operation blocked by workspace policy\b)/i.test(
+        head
+      )
+    )
+      return undefined;
+  }
+  const what = protectedBlockSummary(text);
+  if (what) return { kind: 'protected', step, en: what, zh: what };
+  const subject = command ?? filePath ?? step;
+  if (/shell write escapes the workspace sandbox/i.test(head)) return make('sandbox', subject);
+  if (/^\s*(?:已拦截[：:]\s*)?(?:Command blocked:|Blocked dangerous command:)/i.test(head))
+    return make('dangerous', subject);
+  if (/^\s*Operation blocked by workspace policy\b/i.test(head)) return make('policy', subject);
+  if (/\bhook\b|钩子/i.test(head)) return make('hook', step);
+  if (
+    /failed to start \d+ time|timed out \d+ time|was killed \d+ time|returned unusable (?:results|output)|edit-locked|which the edit tools just refused|未能启动|连续(?:超时|被信号|返回)/i.test(
+      head
+    )
+  )
+    return make('loop-guard', step);
+  if (/requires approval|needs approval|non-interactively|cannot ask|无法询问|非交互/i.test(head))
+    return make('approval', step);
+  if (/denied by user|用户拒绝/i.test(head)) return make('denied', step);
+  return make('other', step);
+}
+
+/** O121: 「exec 未能启动（找不到命令 `X`）」 / `exec failed to start (command `X` not found)`. */
+function loopGuardStuck(toolName: string, text: string, step: string): { en: string; zh: string } {
+  const missing = /\(missing command: ([^\s)]+)\)/.exec(text)?.[1];
+  if (missing)
+    return {
+      en: `${toolName} failed to start (command \`${missing}\` not found)`,
+      zh: `${toolName} 未能启动（找不到命令 \`${missing}\`）`,
+    };
+  if (/failed to start \d+ time/i.test(text))
+    return { en: `${toolName} failed to start`, zh: `${toolName} 未能启动` };
+  if (/timed out \d+ time/i.test(text))
+    return { en: `${toolName} timed out repeatedly`, zh: `${toolName} 连续超时` };
+  if (/was killed \d+ time/i.test(text))
+    return { en: `${toolName} was killed repeatedly`, zh: `${toolName} 连续被信号杀掉` };
+  return { en: step, zh: step };
+}
+
 /** Feed one agent event into the tracker. Safe to call for every event. */
 export function noteRunCompletionEvent(tracker: RunCompletionTracker, event: MossAgentEvent): void {
   if (event.type === 'tool_start') {
@@ -198,11 +339,31 @@ export function noteRunCompletionEvent(tracker: RunCompletionTracker, event: Mos
   const input = started?.input ?? {};
   const toolName = started?.toolName ?? event.toolName;
   const failed = event.isError || (EXEC_TOOLS.has(toolName) && execFailed(event.result));
-  if (failed) {
+  // O121: every safety / approval refusal goes into the block record.
+  const block = classifySafetyBlock(toolName, input, event.result, event.outcome);
+  if (block?.kind === 'loop-guard') {
+    tracker.loopGuardStops = [
+      ...(tracker.loopGuardStops ?? []),
+      { step: block.step, ...loopGuardStuck(toolName, event.result ?? '', block.step) },
+    ];
+  } else if (block) {
+    tracker.safetyBlocks = [...(tracker.safetyBlocks ?? []), block];
+    tracker.lastBlockedStep = block.step;
+  }
+  // A partial-read refusal is recovered once the same path is edited for real.
+  if (!failed && !block && FILE_WRITE_TOOLS.has(toolName) && typeof input.path === 'string') {
+    const p = input.path;
+    if (tracker.safetyBlocks?.some((b) => b.kind === 'partial-read' && b.path === p)) {
+      tracker.safetyBlocks = tracker.safetyBlocks.filter(
+        (b) => !(b.kind === 'partial-read' && b.path === p)
+      );
+    }
+  }
+  if (failed || block) {
     const step = describeStep(toolName, input);
     tracker.lastFailedStep = step;
     // O113: remember safety/approval blocks separately so the last line can say 被拦.
-    if (isSafetyOrApprovalBlockResult(event.result)) {
+    if (block?.kind !== 'loop-guard' && isSafetyOrApprovalBlockResult(event.result)) {
       tracker.lastBlockedStep = step;
       const what = protectedBlockSummary(event.result);
       if (what) {
