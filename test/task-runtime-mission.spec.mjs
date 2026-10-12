@@ -197,6 +197,12 @@ test('tool_end of task tools triggers an async artifact refresh', async () => {
   assert.equal(runtime.taskSummaries().length, 0);
 
   const versionBefore = runtime.version;
+  const refresh = runtime.refresh.bind(runtime);
+  let triggeredRefresh;
+  runtime.refresh = () => {
+    triggeredRefresh = refresh();
+    return triggeredRefresh;
+  };
   runtime.beginRun();
   runtime.applyEvent({
     type: 'tool_end',
@@ -205,7 +211,8 @@ test('tool_end of task tools triggers an async artifact refresh', async () => {
     result: 'Task contract task_new: …',
     isError: false,
   });
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.ok(triggeredRefresh instanceof Promise, 'task tool_end must trigger the actual refresh');
+  await triggeredRefresh;
   assert.ok(runtime.version > versionBefore);
 });
 
