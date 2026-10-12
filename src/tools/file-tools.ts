@@ -163,6 +163,8 @@ export const readFileTool: Tool = {
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
+    // O122: execute() must run so a full re-read registers (its own unchanged stub saves tokens).
+    noReplay: true,
   },
   inputSchema: {
     type: 'object',
@@ -217,6 +219,11 @@ export const readFileTool: Tool = {
       // Record against the raw body size; credential paths are redacted below
       // so an unchanged re-read still short-circuits on disk state.
       await globalToolStateManager.recordFileState(
+        filePath,
+        rangeKey,
+        wouldTruncateToolOutput('read', result)
+      );
+      globalToolStateManager.markFullReadTruncation(
         filePath,
         rangeKey,
         wouldTruncateToolOutput('read', result)
@@ -290,6 +297,10 @@ export const writeFileTool: Tool = {
             'For surgical changes prefer edit_file/multi_edit; use write_file only for intentional full rewrites after reading.'
           );
         }
+      }
+      if (existed) {
+        const truncated = globalToolStateManager.truncatedOverwriteError(filePath, displayPath);
+        if (truncated) return `Error: ${truncated}`;
       }
 
       const contentStrEarly = String(input.content ?? '');

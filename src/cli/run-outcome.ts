@@ -25,6 +25,7 @@ import {
   requestExpectsFileChanges,
   type GoalVerifyResult,
   type RunCompletionTracker,
+  type SafetyBlock,
   type VerificationCheck,
 } from './run-completion.js';
 import { protectedPathModReason } from '../safety/protected-path-snapshot.js';
@@ -128,6 +129,21 @@ function goalVerifyFailReason(
   };
 }
 
+/** O128: last-line reason for an unresolved resolvable gate block (never 「被拦」). */
+function unresolvedGateReason(block: SafetyBlock): { en: string; zh: string } {
+  const path = block.path?.trim() || block.step;
+  if (block.kind === 'truncated-write') {
+    return {
+      en: `\`${path}\` not changed (truncated when read; use edit)`,
+      zh: `\`${path}\` 还没改（读取被截断，请改用 edit）`,
+    };
+  }
+  return {
+    en: `\`${path}\` not changed (read in full first, then edit)`,
+    zh: `\`${path}\` 还没改（先完整读取再编辑）`,
+  };
+}
+
 /** Resolve the stable O98/O99 outcome from a filled tracker + final answer. */
 export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
   const { tracker } = input;
@@ -176,38 +192,54 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
   let protectedBlockStuck = false;
   // O121: every safety / approval refusal (block record) → incomplete. One
   // main cause on the last line, the rest as「（另有 N 处）」/`(+N more)`.
-  const blocks: Array<{ kind: string; step: string; en: string; zh: string }> =
+  // O128 (PM/UX): unresolved *resolvable* gate blocks (partial-read,
+  // truncated-write) do NOT use 「被拦」 — they use「还没改（…）」. Safety-type
+  // refusals keep 「被拦」. When both remain, safety wins.
+  let skipBlockedHalf = false;
+  const blocks: SafetyBlock[] =
     tracker.safetyBlocks && tracker.safetyBlocks.length > 0
       ? tracker.safetyBlocks
       : (tracker.protectedPathBlocks ?? []).map((b) => ({
-          kind: 'protected',
+          kind: 'protected' as const,
           step: b.step,
           en: b.what,
           zh: b.what,
         }));
   if (blocks.length > 0) {
     status = status ?? 'incomplete';
-    const main = blocks[0]!;
-    const more = blocks.length - 1;
-    const moreEn = more ? ` (+${more} more)` : '';
-    const moreZh = more ? `（另有 ${more} 处）` : '';
-    if (main.kind === 'protected') {
-      // O103 wording: the reason names the path, the stuck half the step.
-      reasonsEn.push(`a protected-path write was blocked: ${main.en}${moreEn}`);
-      reasonsZh.push(`受保护路径的写入被拦下：${main.zh}${moreZh}`);
-      if (!stuckAt && !input.runError) {
-        stuckAt = main.step;
-        stuckAtZh = main.step;
-        protectedBlockStuck = true;
+    const safety = blocks.filter((b) => !b.resolvable);
+    const gates = blocks.filter((b) => b.resolvable);
+    if (safety.length > 0) {
+      const main = safety[0]!;
+      const more = safety.length - 1 + gates.length;
+      const moreEn = more ? ` (+${more} more)` : '';
+      const moreZh = more ? `（另有 ${more} 处）` : '';
+      if (main.kind === 'protected') {
+        reasonsEn.push(`a protected-path write was blocked: ${main.en}${moreEn}`);
+        reasonsZh.push(`受保护路径的写入被拦下：${main.zh}${moreZh}`);
+        if (!stuckAt && !input.runError) {
+          stuckAt = main.step;
+          stuckAtZh = main.step;
+          protectedBlockStuck = true;
+        }
+      } else {
+        reasonsEn.push('a safety check refused an action');
+        reasonsZh.push('有操作被安全检查拒绝');
+        if (!stuckAt && !input.runError) {
+          stuckAt = `${main.en}${moreEn}`;
+          stuckAtZh = `${main.zh}${moreZh}`;
+          protectedBlockStuck = true;
+        }
       }
     } else {
-      reasonsEn.push('a safety check refused an action');
-      reasonsZh.push('有操作被安全检查拒绝');
-      if (!stuckAt && !input.runError) {
-        stuckAt = `${main.en}${moreEn}`;
-        stuckAtZh = `${main.zh}${moreZh}`;
-        protectedBlockStuck = true;
-      }
+      const main = gates[0]!;
+      const more = gates.length - 1;
+      const moreEn = more ? ` (+${more} more)` : '';
+      const moreZh = more ? `（另有 ${more} 处）` : '';
+      const gate = unresolvedGateReason(main);
+      reasonsEn.push(`${gate.en}${moreEn}`);
+      reasonsZh.push(`${gate.zh}${moreZh}`);
+      skipBlockedHalf = true;
     }
   }
 
@@ -305,11 +337,11 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
     } else if (cls) {
       stuckAt = cls.en;
       stuckAtZh = cls.zh;
-    } else if (blockedStep) {
+    } else if (blockedStep && !skipBlockedHalf) {
       stuckAt = blockedStep;
       stuckAtZh = blockedStep;
       stuckWasBlocked = true;
-    } else if (step) {
+    } else if (step && !skipBlockedHalf) {
       stuckAt = step;
       stuckAtZh = step;
     }
