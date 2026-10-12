@@ -53,7 +53,11 @@ export type GitConfigChangeReason =
   /** O123: `.git/HEAD` / a ref points outside `refs/` (e.g. `ref: ../x`). */
   | 'ref-outside'
   /** O123: ref / HEAD content is not a commit id or `ref: refs/…`. */
-  | 'ref-invalid';
+  | 'ref-invalid'
+  /** O127: the worktree's `.git` file was rewritten (gitdir pointer changed). */
+  | 'gitlink-rewritten'
+  /** O127: `.git` file's gitdir / commondir does not exist or cannot be read. */
+  | 'gitlink-missing';
 
 const ALL_REASONS: readonly GitConfigChangeReason[] = [
   'symlink',
@@ -61,6 +65,8 @@ const ALL_REASONS: readonly GitConfigChangeReason[] = [
   'unparsable',
   'ref-outside',
   'ref-invalid',
+  'gitlink-rewritten',
+  'gitlink-missing',
 ];
 
 /** Internal meta — never log `hash` in full. */
@@ -75,6 +81,8 @@ interface PathMeta {
   refState?: RefState;
   /** O117: entry type, so symlink/dir swaps of a config file can be named. */
   type?: 'file' | 'symlink' | 'dir';
+  /** O127: for a worktree `.git` *file*, whether its gitdir/commondir resolve. */
+  gitLink?: 'ok' | 'missing';
 }
 
 /** Sentinel: path exists but meta could not be read (permission). */
@@ -423,7 +431,66 @@ function gitConfigChange(
 type RefState = 'ok' | 'outside' | 'invalid';
 
 export function isGitHeadOrLooseRefPath(abs: string): boolean {
-  return /(^|[\\/])\.git[\\/](?:HEAD|refs[\\/].+)$/.test(abs);
+  // O127: a linked worktree's own HEAD lives at .git/worktrees/<name>/HEAD.
+  return /(^|[\\/])\.git[\\/](?:HEAD|refs[\\/].+|worktrees[\\/][^\\/]+[\\/]HEAD)$/.test(abs);
+}
+
+/**
+ * O127: where git really keeps metadata for `ws`. A linked worktree (or
+ * `--separate-git-dir` checkout) has a `.git` *file* (`gitdir: <dir>`);
+ * per-worktree state (HEAD, config.worktree) lives in that gitdir and shared
+ * state (config, hooks, refs, info…) in its `commondir`. Read with plain fs —
+ * never runs git in the repo under test. `null` dirs = cannot resolve.
+ */
+export interface GitDirs {
+  /** `.git` is a file (linked worktree / separate git dir). */
+  linked: boolean;
+  gitDir: string | null;
+  commonDir: string | null;
+}
+
+export function resolveGitDirs(ws: string): GitDirs {
+  const dotGit = path.join(ws, '.git');
+  let st: fs.Stats;
+  try {
+    st = fs.lstatSync(dotGit);
+  } catch {
+    return { linked: false, gitDir: dotGit, commonDir: dotGit };
+  }
+  if (!st.isFile()) return { linked: false, gitDir: dotGit, commonDir: dotGit };
+  let text: string;
+  try {
+    text = fs.readFileSync(dotGit, 'utf8');
+  } catch {
+    return { linked: true, gitDir: null, commonDir: null };
+  }
+  const m = text.match(/^gitdir:[ \t]*(.+?)[ \t]*\r?$/m);
+  if (!m) return { linked: true, gitDir: null, commonDir: null };
+  const gitDir = path.resolve(ws, m[1]!);
+  if (!isRealDir(gitDir)) return { linked: true, gitDir: null, commonDir: null };
+  let commonDir = gitDir;
+  try {
+    const c = fs.readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim();
+    if (c) commonDir = path.resolve(gitDir, c);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+      return { linked: true, gitDir, commonDir: null };
+    }
+  }
+  if (!isRealDir(commonDir)) return { linked: true, gitDir, commonDir: null };
+  return { linked: true, gitDir, commonDir };
+}
+
+function isRealDir(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function isDotGitFile(abs: string): boolean {
+  return path.basename(abs) === '.git';
 }
 
 export function classifyGitRefContent(text: string): RefState {
@@ -497,6 +564,14 @@ function metaOf(abs: string): PathMeta | typeof UNAVAILABLE | null {
       hash: crypto.createHash('sha256').update(buf).digest('hex'),
       type: 'file',
       ...(isGitConfigPath(abs) ? { raw: buf } : {}),
+      ...(isDotGitFile(abs) && st.isFile()
+        ? {
+            gitLink: (() => {
+              const d = resolveGitDirs(path.dirname(abs));
+              return d.gitDir && d.commonDir ? ('ok' as const) : ('missing' as const);
+            })(),
+          }
+        : {}),
       ...(isGitHeadOrLooseRefPath(abs)
         ? { refState: classifyGitRefContent(buf.toString('utf8')) }
         : {}),
@@ -532,29 +607,7 @@ function walkFiles(dir: string, out: string[], depth = 0): void {
   }
 }
 
-/**
- * Collect absolute paths we watch under cwd + home.
- * `.git` only: config, config.worktree, worktrees/<name>/config(.worktree),
- * HEAD, refs/**, hooks/**, info/**, objects/info/(http-)alternates,
- * modules/<name>/config.
- */
-export function listWatchedProtectedPaths(cwd: string, home?: string): string[] {
-  const h = homeDir(home);
-  const paths: string[] = [];
-  const ssh = path.join(h, '.ssh');
-  paths.push(ssh);
-  for (const name of listDirSafe(ssh)) {
-    paths.push(path.join(ssh, name));
-  }
-
-  const ws = path.resolve(cwd);
-  for (const name of listDirSafe(ws)) {
-    if (name === '.env' || name === '.envrc' || name.startsWith('.env.')) {
-      paths.push(path.join(ws, name));
-    }
-  }
-
-  const git = path.join(ws, '.git');
+function watchGitDir(git: string, paths: string[]): void {
   for (const name of ['config', 'config.worktree', 'HEAD']) {
     paths.push(path.join(git, name));
   }
@@ -584,6 +637,40 @@ export function listWatchedProtectedPaths(cwd: string, home?: string): string[] 
   for (const name of listDirSafe(path.join(git, 'worktrees'))) {
     paths.push(path.join(git, 'worktrees', name, 'config'));
   }
+}
+
+/**
+ * Collect absolute paths we watch under cwd + home.
+ * `.git` only: config, config.worktree, worktrees/<name>/config(.worktree),
+ * HEAD, refs/**, hooks/**, info/**, objects/info/(http-)alternates,
+ * modules/<name>/config.
+ */
+export function listWatchedProtectedPaths(cwd: string, home?: string): string[] {
+  const h = homeDir(home);
+  const paths: string[] = [];
+  const ssh = path.join(h, '.ssh');
+  paths.push(ssh);
+  for (const name of listDirSafe(ssh)) {
+    paths.push(path.join(ssh, name));
+  }
+
+  const ws = path.resolve(cwd);
+  for (const name of listDirSafe(ws)) {
+    if (name === '.env' || name === '.envrc' || name.startsWith('.env.')) {
+      paths.push(path.join(ws, name));
+    }
+  }
+
+  const dirs = resolveGitDirs(ws);
+  if (dirs.linked) {
+    // O127: the `.git` file itself (pointer rewrite / gitdir gone is reported)
+    // plus the real per-worktree gitdir and the shared commondir.
+    paths.push(path.join(ws, '.git'));
+    if (dirs.gitDir) {
+      for (const name of ['config.worktree', 'HEAD']) paths.push(path.join(dirs.gitDir, name));
+    }
+  }
+  if (dirs.commonDir) watchGitDir(dirs.commonDir, paths);
 
   return [...new Set(paths)];
 }
@@ -662,6 +749,23 @@ export function diffProtectedPathSnapshots(
     // Unavailable on either side → skip (do not false-report).
     if (b === UNAVAILABLE || a === UNAVAILABLE) continue;
     const display = after.display.get(abs) ?? before.display.get(abs) ?? abs.replace(/\\/g, '/');
+    if (isDotGitFile(abs)) {
+      // O127: worktree `.git` file. Any content/type change, or its gitdir
+      // vanishing, is reported (fail-closed).
+      if (b && !a) {
+        changes.push({ path: display, kind: 'deleted' });
+        continue;
+      }
+      if (!a) continue;
+      const kind: PathChangeKind = b ? 'modified' : 'added';
+      if (a.type === 'symlink') changes.push({ path: display, kind, reason: 'symlink' });
+      else if (a.type === 'dir') changes.push({ path: display, kind, reason: 'dir' });
+      else if (b && (b.hash !== a.hash || b.type !== a.type))
+        changes.push({ path: display, kind, reason: 'gitlink-rewritten' });
+      else if (a.gitLink === 'missing' && (!b || b.gitLink !== 'missing'))
+        changes.push({ path: display, kind, reason: 'gitlink-missing' });
+      continue;
+    }
     if (isGitRefsDir(abs)) {
       // O123: the refs/ directory itself — only a type swap counts; its
       // mtime moves on every branch create/delete.
@@ -742,6 +846,7 @@ function isGitHeadsOrRefsPath(p: string): boolean {
   const n = p.replace(/\\/g, '/');
   return (
     /(^|\/)\.git\/HEAD$/i.test(n) ||
+    /(^|\/)\.git\/worktrees\/[^/]+\/HEAD$/i.test(n) ||
     /(^|\/)\.git\/refs\//i.test(n) ||
     n === 'HEAD' ||
     n.startsWith('refs/')
@@ -858,6 +963,16 @@ export function describeGitConfigChange(c: ProtectedPathChange, zh: boolean): st
     return zh
       ? `${c.path} 内容不是提交号或 refs/ 引用`
       : `${c.path} no longer holds a commit id or refs/ reference`;
+  }
+  if (c.reason === 'gitlink-rewritten') {
+    return zh
+      ? `${c.path} 被改写（worktree 的 gitdir 指向变了）`
+      : `${c.path} was rewritten (worktree gitdir pointer changed)`;
+  }
+  if (c.reason === 'gitlink-missing') {
+    return zh
+      ? `${c.path} 指向的 gitdir 不存在或读不了`
+      : `${c.path} points to a gitdir that is missing or unreadable`;
   }
   if (c.reason === 'symlink') {
     return zh ? `${c.path} 被换成软链` : `${c.path} was replaced by a symlink`;
