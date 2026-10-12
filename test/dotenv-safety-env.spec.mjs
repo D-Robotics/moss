@@ -558,8 +558,11 @@ writeFile(
     }),
     ['--mock', '-p', 'hi']
   );
-  assert.equal(result.code, 0, result.stderr);
-  assert.equal(fs.readFileSync(goalFailedMarker, 'utf8'), 'exit7\n');
+  // O98/PR#68: a failing VERIFY_CMD stays an honest failure — the run exits
+  // non-zero (ExitCode.INCOMPLETE) and the continuation turn re-verifies
+  // (marker records exit 7 exactly twice: initial pass + continuation pass).
+  assert.equal(result.code, 9, result.stderr);
+  assert.equal(fs.readFileSync(goalFailedMarker, 'utf8'), 'exit7\nexit7\n');
   assert.match(
     result.stderr,
     /\[goal-verify\] command failed \(exit 7\); running one continuation turn/
