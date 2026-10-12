@@ -248,6 +248,20 @@ await check('A8: isSafeGitRemoteUrl unit table', () => {
     assert.ok(!isSafeGitRemoteUrl(u), u);
 });
 
+await check('A9: branch.*.remote holding a dangerous URL / path → reported', () => {
+  for (const v of ['ext::sh -c id', '/tmp/evil', './evil', '-oProxyCommand=sh', 'ssh://%2Dx/y']) {
+    const r = configChanges((ws) => git(ws, 'config', 'branch.main.remote', v));
+    assert.equal(r.length, 1, v);
+    assert.deepEqual(r[0].keys, ['branch.main.remote']);
+  }
+  for (const v of ['origin', '.', 'up-stream_2', 'https://example.com/r.git'])
+    assert.deepEqual(
+      configChanges((ws) => git(ws, 'config', 'branch.main.remote', v)),
+      [],
+      v
+    );
+});
+
 // ── B. dangerous keys: still reported ─────────────────────────────────
 
 await check('B1: script writes core.hooksPath (bypassing pre-block) → reported with key', () => {

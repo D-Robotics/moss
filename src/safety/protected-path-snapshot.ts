@@ -144,13 +144,23 @@ export function isBenignGitConfigKey(key: string): boolean {
  * (uploadpack, receivepack, proxy, pushurl, vcs, ...) stays reported.
  */
 export const GIT_CONFIG_BENIGN_SUBSECTION_LEAVES: readonly string[] = [
-  'branch.*.remote',
   'branch.*.merge',
   'remote.*.fetch',
 ];
 
 /** O117: allowed by value only (see isSafeGitRemoteUrl). */
 export const GIT_CONFIG_VALUE_CHECKED_LEAVES: readonly string[] = ['remote.*.url'];
+
+/**
+ * O117: `branch.<n>.remote` may hold a URL instead of a remote name (git then
+ * fetches/pushes that URL directly), so it is allowed by value: `.`, a plain
+ * remote name (no `/`, `:`, leading `-`), or a URL isSafeGitRemoteUrl accepts.
+ */
+export function isSafeGitBranchRemote(v: string): boolean {
+  if (v === '.') return true;
+  if (/^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(v)) return true;
+  return isSafeGitRemoteUrl(v);
+}
 
 function splitSubsectionKey(k: string): { section: string; sub: string; name: string } | null {
   const first = k.indexOf('.');
@@ -261,6 +271,9 @@ export function isBenignGitConfigEntry(key: string, afterValues: readonly string
   const pat = leafPattern(k);
   if (!pat) return false;
   if (GIT_CONFIG_BENIGN_SUBSECTION_LEAVES.includes(pat)) return true;
+  if (pat === 'branch.*.remote') {
+    return afterValues.every((v) => v !== '\u0000(implicit-true)' && isSafeGitBranchRemote(v));
+  }
   if (GIT_CONFIG_VALUE_CHECKED_LEAVES.includes(pat)) {
     return afterValues.every((v) => v !== '\u0000(implicit-true)' && isSafeGitRemoteUrl(v));
   }
