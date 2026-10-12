@@ -238,7 +238,7 @@ const FILE_MUTATION_TOOLS = new Set([
 
 const SHELL_TOOLS = new Set(['exec', 'exec_background', 'bash']);
 
-function rawMutationPaths(toolName: string, input?: Record<string, unknown>): string[] {
+export function rawMutationPaths(toolName: string, input?: Record<string, unknown>): string[] {
   if (!input) return [];
   const out: string[] = [];
   if (typeof input.path === 'string' && input.path.trim()) out.push(input.path);
