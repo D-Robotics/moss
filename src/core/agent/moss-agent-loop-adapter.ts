@@ -155,6 +155,7 @@ export function createMossAgentLoopEventAdapter(
               toolCallId: event.toolCallId,
               toolName: event.toolName,
               result: event.result,
+              ...(event.content !== undefined ? { content: redactEgress(event.content) } : {}),
               isError: event.isError,
               ...(event.outcome ? { outcome: event.outcome } : {}),
               ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),

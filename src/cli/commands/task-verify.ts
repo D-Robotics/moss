@@ -11,20 +11,11 @@ import {
   listTaskStateSnapshots,
 } from '../../core/task/task-store.js';
 import { appendTaskRecord, listTaskRecords } from '../../core/task-runtime/artifacts.js';
+import { acceptanceCommandFromEvents } from '../../core/task/acceptance-authority.js';
 
 export interface TaskVerifyResult {
   exitCode: number;
   summary: string;
-}
-
-function acceptanceCommandFromEvents(
-  events: readonly { data?: Record<string, unknown> }[]
-): string | undefined {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const command = events[i]?.data?.acceptanceCommand;
-    if (typeof command === 'string' && command.trim()) return command.trim();
-  }
-  return undefined;
 }
 
 export async function verifyTaskOnce(
@@ -66,6 +57,8 @@ export async function verifyTaskOnce(
       ...(command ? { command } : {}),
     });
   const verdict = await provider.evaluate(snapshot.taskId);
+  const alreadySettled =
+    !wasAccepted && (await getTaskStateSnapshot(workspace, snapshot.taskId))?.phase === 'accepted';
   // acceptance_* is illegal from failed/abandoned (only task_resumed leaves
   // those phases). Resume into executing, then let verification open.
   if (wasAccepted) {
@@ -73,22 +66,26 @@ export async function verifyTaskOnce(
     await appendTaskEvent(workspace, snapshot.taskId, 'verification_started', {
       reason: '/task verify',
     });
-  } else if (snapshot.phase === 'failed' || snapshot.phase === 'abandoned') {
+  } else if (!alreadySettled && (snapshot.phase === 'failed' || snapshot.phase === 'abandoned')) {
     await appendTaskEvent(workspace, snapshot.taskId, 'task_resumed', {
       reason: '/task verify',
     });
-  } else if (['draft', 'understanding', 'planning', 'blocked'].includes(snapshot.phase)) {
+  } else if (
+    !alreadySettled &&
+    ['draft', 'understanding', 'planning', 'blocked'].includes(snapshot.phase)
+  ) {
     // acceptance_* is only valid from a verification phase. A draft has to
     // enter execution first; emitAcceptanceLifecycle opens verification.
     await appendTaskEvent(workspace, snapshot.taskId, 'execution_started');
   }
-  await emitAcceptanceLifecycle(
-    workspace,
-    snapshot.taskId,
-    verdict.passed,
-    verdict.detail,
-    verdict.source
-  );
+  if (!alreadySettled)
+    await emitAcceptanceLifecycle(
+      workspace,
+      snapshot.taskId,
+      verdict.passed,
+      verdict.detail,
+      verdict.source
+    );
   if (verdict.passed) {
     return {
       exitCode: 0,

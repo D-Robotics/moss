@@ -1,6 +1,7 @@
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { spawnProcess, type ChildProcess } from '../utils/run-process.js';
-import { hostShellInvocation } from '../utils/host-shell.js';
+import { resolveHostShell } from '../utils/host-shell.js';
+import { backgroundShellInvocation } from './windows-background-job.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { assertShellWritesWithinRoots } from '../safety/shell-write-sandbox.js';
 import { errorMessage } from '../errors.js';
@@ -178,7 +179,8 @@ export const execBackgroundTool: Tool = {
     const goalWaitMs = goalWaitMsFor(input, ctx);
     const settleMs =
       goalWaitMs ?? Math.min(Math.max(0, Number(input.settle_ms) || DEFAULT_SETTLE_MS), 10_000);
-    const invocation = hostShellInvocation(command);
+    const shell = resolveHostShell();
+    const invocation = backgroundShellInvocation(command, shell, ctx.workspaceDir);
 
     const opened = await openChildEnv(ctx.workspaceDir, ctx.abortSignal);
     const hooksNotice = (output = ''): string =>
@@ -191,6 +193,7 @@ export const execBackgroundTool: Tool = {
         env: opened.env,
         detached: process.platform !== 'win32',
         windowsHide: true,
+        windowsVerbatimArguments: invocation.windowsVerbatimArguments,
       });
     } catch (err) {
       let hint = '';
@@ -213,6 +216,7 @@ export const execBackgroundTool: Tool = {
       label: typeof input.label === 'string' ? input.label : undefined,
       ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}),
       child,
+      windowsJobOwner: invocation.windowsJobOwner,
       pid: child.pid,
       status: 'running',
       exitCode: null,

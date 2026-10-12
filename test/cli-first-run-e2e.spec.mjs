@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { trackTempDir } from './helpers/temp-home.mjs';
 
@@ -18,11 +18,41 @@ const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const cli = path.join(repoRoot, 'dist', 'cli.js');
 const SECRET = 'sk-firstrun-e2e-secret';
 
-if (process.platform === 'win32') {
-  console.log(
-    '[SKIP] fresh-home first-run e2e: needs a POSIX pty (Python pty/fcntl/termios); not available on win32'
+function assertPrivateModeRequests(rows, configPath) {
+  const writes = rows.filter(
+    (row) =>
+      (row.operation === 'chmod' && row.file === configPath) ||
+      (row.operation === 'open' &&
+        row.file.startsWith(path.join(path.dirname(configPath), '.tmp-')) &&
+        row.flags === 'wx')
   );
-  process.exit(0);
+  assert.ok(writes.length > 0, 'the real config write requested a private mode');
+  for (const write of writes) assert.equal(write.mode, 0o600);
+}
+
+function assertConfigMode(configPath) {
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(configPath).mode & 0o777, 0o600);
+    return;
+  }
+  const trace = path.join(path.dirname(path.dirname(configPath)), 'config-mode-trace.jsonl');
+  const rows = fs
+    .readFileSync(trace, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  const terminal = rows.find((row) => row.operation === 'terminal');
+  assert.equal(terminal?.stdinTTY, true, 'ConPTY must expose a real terminal input');
+  assert.equal(terminal?.stdoutTTY, true, 'ConPTY must expose a real terminal output');
+  assertPrivateModeRequests(rows, configPath);
+  assert.throws(
+    () =>
+      assertPrivateModeRequests(
+        [{ operation: 'chmod', file: configPath, mode: 0o666 }],
+        configPath
+      ),
+    assert.AssertionError
+  );
 }
 
 function tempDir(prefix) {
@@ -202,8 +232,21 @@ if failed:
       .map(([key, value]) => `${key}=${value}`)
       .join('\n');
     const child = spawn(
-      'python3',
-      ['-c', python, process.execPath, cli, home, configDir, workspace, script],
+      process.platform === 'win32' ? 'python' : 'python3',
+      process.platform === 'win32'
+        ? [
+            '-X',
+            'utf8',
+            path.join(repoRoot, 'test/helpers/windows-pty-driver.py'),
+            process.execPath,
+            cli,
+            home,
+            configDir,
+            workspace,
+            script,
+            pathToFileURL(path.join(repoRoot, 'test/helpers/config-mode-observer.mjs')).href,
+          ]
+        : ['-c', python, process.execPath, cli, home, configDir, workspace, script],
       { env: { ...process.env, MOSS_E2E_EXTRA: extra } }
     );
     const stdout = [];
@@ -271,7 +314,7 @@ try {
   assert.equal(saved.model, 'stub-alpha');
   assert.match(saved.apiKey, /^enc:/);
   assert.doesNotMatch(raw, /sk-firstrun-e2e-secret/);
-  assert.equal(fs.statSync(configPath).mode & 0o777, 0o600);
+  assertConfigMode(configPath);
   assert.ok(
     stub.seen.some((item) => item.url.startsWith('/v1/models') && item.auth.includes('[key]'))
   );
@@ -492,7 +535,7 @@ try {
     const forced = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     assert.equal(forced.model, 'stub-alpha');
     assert.match(forced.apiKey, /^enc:/);
-    assert.equal(fs.statSync(configPath).mode & 0o777, 0o600);
+    assertConfigMode(configPath);
     assert.doesNotMatch(JSON.stringify(forced), /sk-wrong/);
   }
 } finally {

@@ -16,7 +16,7 @@ const command = '"C:\\node.exe" "C:\\x\\dump.mjs"';
   const win = hookShell(command, 'win32');
   assert.equal(win.windowsVerbatimArguments, true);
   assert.equal(win.cmd, process.env.COMSPEC || 'cmd.exe');
-  assert.deepEqual(win.args, ['/d', '/s', '/c', `"${command}"`]);
+  assert.deepEqual(win.args, ['/d', '/s', '/c', `"${command} & exit /b"`]);
 }
 
 {

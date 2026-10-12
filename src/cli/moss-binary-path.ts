@@ -22,14 +22,14 @@ export interface MossBinaryHit {
 export interface MossBinaryScan {
   /** First occurrence of each real path, in PATH order. */
   binaries: MossBinaryHit[];
-  /** First PATH entry, or null when nothing named moss is executable. */
+  /** First scanned candidate, or null. This does not identify a shell's command winner. */
   winner: MossBinaryHit | null;
   /** True when `winner` resolves to the same file as `runningPath`. */
   winnerIsRunning: boolean;
   /**
    * Set only when more than one distinct real path is on PATH.
-   * Names every hit in PATH order, says which one wins, and whether that
-   * winner is the process that is running.
+   * Names every candidate in scan order and the actual process entry when known.
+   * File identities alone do not establish npm shim targets or install count.
    */
   warning: string | null;
 }
@@ -142,27 +142,10 @@ function warningText(
   const shown = binaries.map((hit) => displayHit(platform, hit));
   const list = shown.join('; ');
   const zhList = shown.join('、');
-  const winnerIsRunning =
-    runningPath !== undefined &&
-    runningPath !== '' &&
-    (sameFile(platform, winner.realPath, runningPath) ||
-      sameFile(platform, winner.listed, runningPath));
-  if (runningPath === undefined || runningPath === '') {
-    return uiText(
-      `${binaries.length} moss executables on PATH: ${list}. ${winnerLabel} wins (first on PATH).`,
-      `PATH 上有 ${binaries.length} 个不同的 moss：${zhList}。先出现的会生效：${winnerLabel}。`
-    );
-  }
-  if (winnerIsRunning) {
-    return uiText(
-      `${binaries.length} moss executables on PATH: ${list}. ${winnerLabel} wins (first on PATH) and is the one currently running.`,
-      `PATH 上有 ${binaries.length} 个不同的 moss：${zhList}。先出现的会生效：${winnerLabel}。它就是当前正在运行的这个。`
-    );
-  }
-  const running = displayMossPath(runningPath);
+  const running = runningPath ? displayMossPath(runningPath) : undefined;
   return uiText(
-    `${binaries.length} moss executables on PATH: ${list}. ${winnerLabel} wins (first on PATH) and is not the one currently running (${running}).`,
-    `PATH 上有 ${binaries.length} 个不同的 moss：${zhList}。先出现的会生效：${winnerLabel}。它不是当前正在运行的（${running}）。`
+    `${binaries.length} moss candidate files on PATH: ${list}. First scanned candidate: ${winnerLabel}.${running ? ` Current process entry: ${running}.` : ''}`,
+    `PATH 上扫描到 ${binaries.length} 个 moss 候选文件：${zhList}。首个扫描候选：${winnerLabel}。${running ? `当前进程入口：${running}。` : ''}`
   );
 }
 
@@ -171,7 +154,7 @@ function emptyScan(): MossBinaryScan {
 }
 
 /**
- * Every executable `moss` on PATH. Symlinks that share a realpath count once
+ * Every candidate `moss` file on PATH (POSIX requires execute bits). Symlinks that share a realpath count once
  * (the earlier PATH entry). Does not spawn. Returns an empty scan if the
  * walk itself throws.
  */

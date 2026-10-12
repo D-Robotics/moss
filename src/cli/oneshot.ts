@@ -694,6 +694,11 @@ export async function runOneShot(
         cwd: workspaceDir,
         timeout: 5 * 60_000,
         ...(shell.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+      }).catch((error: unknown) => {
+        if (error instanceof ProcessError && !error.timedOut && error.exitCode !== null) {
+          return { exitCode: error.exitCode, stdout: error.stdout, stderr: error.stderr };
+        }
+        throw error;
       });
       noteGoalVerifyResult(completionTracker, {
         command: verifyCmd,

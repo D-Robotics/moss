@@ -142,7 +142,7 @@ const FIXTURE_LABEL = /^[A-Z]+-\d+$/;
 
 /** `user:password@host` or `scheme://user:password@host`, including an empty user. */
 function containsUrlUserinfo(value: string): boolean {
-  if (/[a-z][a-z0-9+.-]*:\/\/[^/\s:@]*:[^/\s:@]{4,}@/i.test(value)) return true;
+  if (!urlUserinfoSpans(value, URL_SHAPE_PASSWORD, 4).next().done) return true;
   return /^[^/\s:@]+:[^/\s:@]{4,}@/.test(value);
 }
 
@@ -1149,10 +1149,45 @@ function redactSkFragments(text: string): string {
 
 const URL_VALUE_END = '[^@&#\\s\'"`)\\]]+';
 
-const URL_USERINFO_PASSWORD = new RegExp(
-  `([a-z][a-z0-9+.-]*:\\/\\/[^/\\s:@]*):(${URL_VALUE_END})@`,
-  'gi'
-);
+const URL_USERINFO_HEAD = /([a-z][a-z0-9+.-]*:\/\/[^/\s:@]*):/iy;
+const URL_EGRESS_PASSWORD = new RegExp(URL_VALUE_END, 'y');
+const URL_SHAPE_PASSWORD = /[^/\s:@]+/y;
+const SCHEME_CHAR = /[a-z0-9+.-]/i;
+const SCHEME_LETTER = /[a-z]/i;
+
+/** The old unanchored URL grammar, without retrying every character of a long line. */
+function* urlUserinfoSpans(text: string, passwordPattern: RegExp, minimumLength = 1) {
+  let cursor = 0;
+  let passwordEnd = -1;
+  while (cursor < text.length) {
+    const marker = text.indexOf('://', cursor);
+    if (marker < 0) return;
+    cursor = marker + 3;
+    let start = marker;
+    while (start > 0 && SCHEME_CHAR.test(text[start - 1] ?? '')) start -= 1;
+    // A digit/punctuation prefix (123http://) was not part of the old match.
+    while (start < marker && !SCHEME_LETTER.test(text[start] ?? '')) start += 1;
+    if (start === marker) continue;
+    URL_USERINFO_HEAD.lastIndex = start;
+    const head = URL_USERINFO_HEAD.exec(text);
+    if (!head) continue;
+    const passwordStart = URL_USERINFO_HEAD.lastIndex;
+    // Nested schemes can share a failed password suffix. Scan that interval
+    // once, retaining the exact old password character class for each caller.
+    if (passwordStart >= passwordEnd) {
+      passwordPattern.lastIndex = passwordStart;
+      passwordEnd = passwordPattern.exec(text) ? passwordPattern.lastIndex : passwordStart;
+    }
+    if (passwordEnd - passwordStart < minimumLength || text[passwordEnd] !== '@') continue;
+    cursor = passwordEnd + 1;
+    yield {
+      start,
+      end: cursor,
+      user: head[1] ?? '',
+      secret: text.slice(passwordStart, passwordEnd),
+    };
+  }
+}
 
 const SENSITIVE_QUERY = new RegExp(
   `([?&][A-Za-z0-9_.-]*(?:signature|credential|token|sig)=)(${URL_VALUE_END})`,
@@ -1160,13 +1195,17 @@ const SENSITIVE_QUERY = new RegExp(
 );
 
 function redactUrlSecrets(text: string): string {
-  return text
-    .replace(URL_USERINFO_PASSWORD, (full, user: string, secret: string) =>
-      shouldRedactAssignedValue(secret) ? `${user}:${REDACTED}@` : full
-    )
-    .replace(SENSITIVE_QUERY, (full, key: string, secret: string) =>
-      shouldRedactAssignedValue(secret) ? `${key}${REDACTED}` : full
-    );
+  let out = '';
+  let last = 0;
+  for (const hit of urlUserinfoSpans(text, URL_EGRESS_PASSWORD)) {
+    if (!shouldRedactAssignedValue(hit.secret)) continue;
+    out += text.slice(last, hit.start) + `${hit.user}:${REDACTED}@`;
+    last = hit.end;
+  }
+  out += text.slice(last);
+  return out.replace(SENSITIVE_QUERY, (full, key: string, secret: string) =>
+    shouldRedactAssignedValue(secret) ? `${key}${REDACTED}` : full
+  );
 }
 
 function redactGatewayKeyForms(text: string): string {

@@ -24,12 +24,37 @@ import { TaskRuntime } from '../dist/core/task-runtime/runtime.js';
 const { render: renderInk } = await import('ink-testing-library');
 const React = await import('react');
 
+const diagnosticContexts = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitFor(predicate, timeoutMs = 8000, stepMs = 40) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     if (predicate()) return true;
     await sleep(stepMs);
+  }
+  for (const { label, workspace, handle, runtime, instance } of diagnosticContexts) {
+    const ledgers = {};
+    for (const name of ['task-events.jsonl', 'tasks.jsonl', 'acceptance.jsonl', 'evidence.jsonl']) {
+      try {
+        ledgers[name] = fs
+          .readFileSync(path.join(workspace, '.moss', name), 'utf8')
+          .trim()
+          .split('\n')
+          .slice(-14);
+      } catch (error) {
+        ledgers[name] = { code: error.code };
+      }
+    }
+    console.error(
+      '[projection timeout]',
+      JSON.stringify({
+        label,
+        rows: handle.store.rows.map((row) => ({ kind: row.kind, text: row.text })),
+        frame: instance.lastFrame(),
+        liveState: runtime.getLiveState(),
+        ledgers,
+      })
+    );
   }
   return false;
 }
@@ -80,6 +105,7 @@ const instance = renderInk(
     runtime,
   })
 );
+diagnosticContexts.push({ label: 'pass', workspace, handle, runtime, instance });
 
 const type = async (text) => {
   for (const ch of text) {
@@ -139,6 +165,13 @@ const failInstance = renderInk(
     runtime: failRuntime,
   })
 );
+diagnosticContexts.push({
+  label: 'fail',
+  workspace: failWorkspace,
+  handle: failHandle,
+  runtime: failRuntime,
+  instance: failInstance,
+});
 assert.ok(
   await waitFor(() => failHandle.store.rows.some((r) => r.kind === 'banner')),
   'fail-case shell booted'

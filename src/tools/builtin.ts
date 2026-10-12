@@ -206,6 +206,7 @@ export const execTool: Tool = {
     try {
       const result = await runProcess(shell.executable, {
         args: shell.argsFor(String(input.command ?? '')),
+        windowsVerbatimArguments: shell.kind === 'cmd',
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
         signal: ctx.abortSignal,

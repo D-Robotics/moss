@@ -128,7 +128,10 @@ function hooksDirHasExecutable(dir: string): boolean {
     if (name.endsWith('.sample')) continue;
     try {
       const st = fs.statSync(path.join(dir, name));
-      if (st.isFile() && (st.mode & 0o111) !== 0) return true;
+      // Git for Windows executes regular hook scripts without POSIX execute bits.
+      if (st.isFile() && (process.platform === 'win32' || (st.mode & 0o111) !== 0)) {
+        return true;
+      }
     } catch {
       continue;
     }

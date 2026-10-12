@@ -91,7 +91,7 @@ function resolveUncached(probe: HostShellProbe): ResolvedHostShell {
     kind: 'cmd',
     executable: comspec,
     description: CMD_DESCRIPTION,
-    argsFor: (command) => ['/c', command],
+    argsFor: (command) => ['/d', '/s', '/c', `"${command}"`],
   };
 }
 

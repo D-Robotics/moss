@@ -687,9 +687,13 @@ function stripAnsi(text) {
   return out;
 }
 
-function englishSentences(text) {
+function englishSentences(text, displayedPaths = []) {
   const hits = [];
-  for (const rawLine of stripAnsi(text).split('\n')) {
+  for (const displayedLine of stripAnsi(text).split('\n')) {
+    const rawLine = displayedPaths.reduce(
+      (line, file) => line.replaceAll(file, ' '),
+      displayedLine
+    );
     // `!` before Han is the shell prefix. `中文!` and `中文;` still count.
     if (/[\u4e00-\u9fff]\s*[,:;!()]|[,:;()]\s*[\u4e00-\u9fff]/.test(rawLine)) {
       hits.push(`${rawLine.trim()}  << punctuation`);
@@ -699,6 +703,8 @@ function englishSentences(text) {
       line = line.replace(new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ');
     }
     line = line.replace(/https?:\/\/\S+/g, ' ');
+    // This exact public endpoint is data; surrounding English still counts.
+    line = line.replace(/(^|[^A-Za-z0-9_.-])archive\.d-robotics\.cc(?=$|[^A-Za-z0-9_.-])/gi, '$1 ');
     // A flag token, including an attached =value. The next word stays.
     line = line.replace(/(^|[^\w-])(--?[A-Za-z0-9][\w-]*)(?:=[^\s,，。；;)]*)?/g, '$1 ');
     const kept = [];
@@ -723,6 +729,55 @@ function englishSentences(text) {
     if (leftover.length > 0) hits.push(`${rawLine.trim()}  << ${leftover.join(' ')}`);
   }
   return hits;
+}
+
+// Exact fixture paths are data; surrounding English still has to be translated.
+for (const configPath of [
+  String.raw`C:\Users\Runner\AppData\Local\Temp\config.json`,
+  String.raw`C:\Users\Runner Name\AppData\Local\Temp Folder\config.json`,
+  String.raw`\\server\Shared Files\User Settings\config.json`,
+]) {
+  assert.deepEqual(englishSentences(`配置文件：${configPath}`, [configPath]), []);
+  assert.equal(
+    englishSentences(`These settings will be saved here: ${configPath}`, [configPath]).length,
+    1,
+    'removing the exact displayed path still rejects untranslated surrounding copy'
+  );
+}
+assert.equal(englishSentences('These settings will be saved here').length, 1);
+assert.deepEqual(
+  englishSentences(
+    '无法访问 archive.d-robotics.cc 下载（whl 探测失败）。请检查出网/代理；Moss 不会自动装包。'
+  ),
+  []
+);
+assert.deepEqual(englishSentences('下载地址：ARCHIVE.D-ROBOTICS.CC。'), []);
+for (const text of [
+  'These settings will be saved here: archive.d-robotics.cc',
+  'Archive these files at archive.d-robotics.cc',
+  'archive cc',
+  'archive and cc are unavailable',
+  'xarchive.d-robotics.cc',
+  'archive.d-robotics.cc.evil',
+  'archive.d-robotics.cc-extra',
+  'archive.d-robotics.ccevil',
+]) {
+  assert.equal(englishSentences(text).length, 1, text);
+}
+assert.equal(
+  englishSentences(String.raw`配置文件：C:\Users\Runner\AppData\Local\Temp\config.json`).length,
+  1,
+  'an unrelated or unknown path is not silently exempted'
+);
+
+function displayedFixturePaths(shown) {
+  return process.platform === 'win32'
+    ? [
+        path.join(shown.home, 'config', 'config.json'),
+        path.join(shown.workspace, '.moss'),
+        shown.workspace,
+      ]
+    : [];
 }
 
 function spliceEnglish(text, extra) {
@@ -831,8 +886,9 @@ for (const args of zhSurfacesAll) {
   const shown = runCli(['--lang', 'zh', ...args], { LANG: 'C', LC_ALL: 'C' });
   assert.notEqual(shown.status, null, `${args.join(' ')} timed out`);
   const name = args.join(' ');
-  scanned.push({ name, text: shown.text });
-  const hits = englishSentences(shown.text);
+  const displayedPaths = displayedFixturePaths(shown);
+  scanned.push({ name, text: shown.text, displayedPaths });
+  const hits = englishSentences(shown.text, displayedPaths);
   if (hits.length > 0) surfaceHits.push(`-- ${name}\n${hits.join('\n')}`);
 }
 assert.deepEqual(surfaceHits, [], `zh surfaces still have English:\n${surfaceHits.join('\n')}`);
@@ -1315,7 +1371,7 @@ const mutationMisses = [];
 for (const surface of scanned) {
   for (const mutate of EXEMPTION_MUTATIONS) {
     mutationAttempts += 1;
-    const hits = englishSentences(mutate(surface.text));
+    const hits = englishSentences(mutate(surface.text), surface.displayedPaths);
     if (hits.length > 0) mutationCaught += 1;
     else mutationMisses.push(surface.name);
   }

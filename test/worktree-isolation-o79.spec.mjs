@@ -21,6 +21,44 @@ function git(cwd, args, opts = {}) {
   return execFileSync('git', args, { cwd, stdio: 'ignore', ...opts });
 }
 
+function shellPath(file) {
+  return "'" + file.replaceAll('\\', '/').replaceAll("'", "'\\''") + "'";
+}
+
+function fixtureCleanup(t, root, repo) {
+  const leases = [];
+  t.after(async () => {
+    try {
+      let firstError;
+      for (const worktreePath of leases) {
+        try {
+          const relative = path.relative(root, worktreePath);
+          assert.ok(
+            relative &&
+              !path.isAbsolute(relative) &&
+              relative !== '..' &&
+              !relative.startsWith(`..${path.sep}`)
+          );
+          await cleanupWorktree({ parentWorkspace: repo, worktreePath });
+          await assert.rejects(
+            fs.lstat(worktreePath),
+            { code: 'ENOENT' },
+            'lease cleanup completed'
+          );
+        } catch (error) {
+          firstError ??= error;
+        }
+      }
+      if (firstError) throw firstError;
+    } finally {
+      assert.equal(path.dirname(path.resolve(root)), path.resolve(os.tmpdir()));
+      assert.ok(path.basename(root).startsWith('moss-o79-'));
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+  return leases;
+}
+
 async function markerWritten(marker) {
   try {
     const text = await fs.readFile(marker, 'utf8');
@@ -33,8 +71,9 @@ async function markerWritten(marker) {
 describe('O79 worktree isolation git exec', { concurrency: 1 }, () => {
   test('createWorktree does not run untrusted filter.smudge', async (t) => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-o79-smudge-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+
     const repo = path.join(root, 'repo');
+    const leases = fixtureCleanup(t, root, repo);
     await fs.mkdir(repo);
     const marker = path.join(root, 'SMUDGE_RAN');
     git(repo, ['init', '-q']);
@@ -55,18 +94,19 @@ describe('O79 worktree isolation git exec', { concurrency: 1 }, () => {
     git(repo, ['worktree', 'remove', '--force', probe]);
 
     const lease = await createWorktree({ parentWorkspace: repo, runId: 'o79-smudge' });
-    t.after(() => cleanupWorktree({ parentWorkspace: repo, worktreePath: lease.worktreePath }));
+    leases.push(lease.worktreePath);
     assert.equal(await markerWritten(marker), false, 'createWorktree ran untrusted smudge');
   });
 
   test('collectWorktreePatch add -A -N path does not run filter.clean', async (t) => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-o79-clean-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+
     const repo = path.join(root, 'repo');
+    const leases = fixtureCleanup(t, root, repo);
     await fs.mkdir(repo);
     const marker = path.join(root, 'CLEAN_RAN');
     const script = path.join(root, 'clean.sh');
-    await fs.writeFile(script, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\ncat\n`);
+    await fs.writeFile(script, `#!/bin/sh\necho ran >> ${shellPath(marker)}\ncat\n`);
     await fs.chmod(script, 0o755);
 
     git(repo, ['init', '-q']);
@@ -76,7 +116,7 @@ describe('O79 worktree isolation git exec', { concurrency: 1 }, () => {
     await fs.writeFile(path.join(repo, 'a.txt'), 'hello\n');
     git(repo, ['add', '.']);
     git(repo, ['commit', '-q', '-m', 'init']);
-    git(repo, ['config', 'filter.pwn.clean', script]);
+    git(repo, ['config', 'filter.pwn.clean', `sh ${shellPath(script)}`]);
     git(repo, ['config', 'filter.pwn.smudge', 'cat']);
     git(repo, ['config', 'filter.pwn.required', 'true']);
 
@@ -90,7 +130,7 @@ describe('O79 worktree isolation git exec', { concurrency: 1 }, () => {
     await fs.rm(marker, { force: true });
 
     const lease = await createWorktree({ parentWorkspace: repo, runId: 'o79-clean' });
-    t.after(() => cleanupWorktree({ parentWorkspace: repo, worktreePath: lease.worktreePath }));
+    leases.push(lease.worktreePath);
     await fs.writeFile(path.join(lease.worktreePath, 'a.txt'), 'hello\nlease\n');
     await fs.utimes(path.join(lease.worktreePath, 'a.txt'), future, future);
     await fs.rm(marker, { force: true });
@@ -113,15 +153,13 @@ describe('O79 worktree isolation git exec', { concurrency: 1 }, () => {
 
   test('applyWorktreePatch --3way does not run untrusted merge driver', async (t) => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-o79-merge-'));
-    t.after(() => fs.rm(root, { recursive: true, force: true }));
+
     const repo = path.join(root, 'repo');
+    const leases = fixtureCleanup(t, root, repo);
     await fs.mkdir(repo);
     const marker = path.join(root, 'MERGE_RAN');
     const script = path.join(root, 'merge.sh');
-    await fs.writeFile(
-      script,
-      `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\necho driver > "$1"\n`
-    );
+    await fs.writeFile(script, `#!/bin/sh\necho ran >> ${shellPath(marker)}\necho driver > "$1"\n`);
     await fs.chmod(script, 0o755);
 
     git(repo, ['init', '-q']);
@@ -131,15 +169,13 @@ describe('O79 worktree isolation git exec', { concurrency: 1 }, () => {
     await fs.writeFile(path.join(repo, 'same.js'), 'value = 0\n');
     git(repo, ['add', '.']);
     git(repo, ['commit', '-q', '-m', 'init']);
-    git(repo, ['config', 'merge.pwn.driver', `${script} %A`]);
+    git(repo, ['config', 'merge.pwn.driver', `sh ${shellPath(script)} "%A"`]);
     git(repo, ['config', 'merge.pwn.name', 'pwn']);
 
     const leaseA = await createWorktree({ parentWorkspace: repo, runId: 'o79-merge-a' });
+    leases.push(leaseA.worktreePath);
     const leaseB = await createWorktree({ parentWorkspace: repo, runId: 'o79-merge-b' });
-    t.after(async () => {
-      await cleanupWorktree({ parentWorkspace: repo, worktreePath: leaseA.worktreePath });
-      await cleanupWorktree({ parentWorkspace: repo, worktreePath: leaseB.worktreePath });
-    });
+    leases.push(leaseB.worktreePath);
 
     await fs.writeFile(path.join(leaseA.worktreePath, 'same.js'), 'value = 100\n');
     await fs.writeFile(path.join(leaseB.worktreePath, 'same.js'), 'value = 200\n');

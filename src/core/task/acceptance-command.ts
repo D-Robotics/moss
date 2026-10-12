@@ -109,6 +109,15 @@ export async function runAcceptanceCommand(
   spec: AcceptanceSpec,
   signal?: AbortSignal
 ): Promise<AcceptanceResult> {
+  return runAcceptanceCommandInWorkspace(spec, signal);
+}
+
+/** Internal host-cwd-independent execution; the public runner stays compatible. */
+export async function runAcceptanceCommandInWorkspace(
+  spec: AcceptanceSpec,
+  signal?: AbortSignal,
+  workspaceDir: string | undefined = spec.workspaceDir
+): Promise<AcceptanceResult> {
   const endedAt = Date.now();
   const shell = acceptanceShell(spec.command);
   const env = process.platform === 'win32' ? undefined : await acceptanceEnv();
@@ -118,7 +127,7 @@ export async function runAcceptanceCommand(
       args: shell.args,
       timeout: spec.timeoutMs ?? DEFAULT_ACCEPTANCE_TIMEOUT_MS,
       signal,
-      ...(spec.workspaceDir ? { cwd: spec.workspaceDir } : {}),
+      ...(workspaceDir ? { cwd: workspaceDir } : {}),
       ...(shell.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
     const combined = `${res.stdout}\n${res.stderr}`.trim();

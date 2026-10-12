@@ -9,6 +9,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { resolveHostShell } from '../dist/utils/host-shell.js';
+
 import { execBackgroundTool } from '../dist/tools/background-exec.js';
 import { editFileTool, execTool, readFileTool, writeFileTool } from '../dist/tools/builtin.js';
 import { recordEvidenceTool } from '../dist/tools/evidence-tools.js';
@@ -520,12 +522,19 @@ try {
   assert.doesNotMatch(String(legit), /must be restored from the original source/);
 
   fs.writeFileSync(path.join(project, 'both.txt'), 'alpha SECRET-value-1234\n');
+  // Windows shells do not expand POSIX $(printf ...); assemble at runtime.
+  // PowerShell's mv alias refuses an existing destination without -Force.
+  const replaceFileCommand = resolveHostShell().kind === 'pwsh' ? 'mv -Force' : 'mv';
+  const bothCommand =
+    process.platform === 'win32'
+      ? `node -e "const fs=require('fs');const text=fs.readFileSync('both.txt','utf8');process.stdout.write(text.replace('alpha','beta').replace('SECRET-value-1234','[REDA'+'CTED]'))" > both-tmp.txt && ${replaceFileCommand} both-tmp.txt both.txt`
+      : sedInPlace(
+          `"s/alpha/beta/; s/SECRET-value-1234/$(printf '%s%s' '[REDA' 'CTED]')/"`,
+          'both.txt'
+        );
   const both = await execTool.execute(
     {
-      command: sedInPlace(
-        `"s/alpha/beta/; s/SECRET-value-1234/$(printf '%s%s' '[REDA' 'CTED]')/"`,
-        'both.txt'
-      ),
+      command: bothCommand,
     },
     ctx()
   );

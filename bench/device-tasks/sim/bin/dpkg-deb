@@ -7,6 +7,7 @@ if [ "${1:-}" != "--build" ] || [ -z "${2:-}" ]; then
 fi
 dir="$2"
 dest="${3:-$dir.deb}"
+dir="$(cd "$dir" && pwd)"
 mkdir -p "$(dirname "$dest")"
 # Stream via stdout. GNU tar treats "D:/..." as host:path, so -f "$dest" never writes the archive on Windows.
 tar -C "$dir" -cf - . > "$dest"

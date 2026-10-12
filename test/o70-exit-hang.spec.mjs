@@ -3,7 +3,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 
 // Uses POSIX `sleep` and process-group kill (kill(-pid)); no equivalent on win32.
 const posixOnly =
@@ -11,10 +10,8 @@ const posixOnly =
     ? 'O70 spec relies on POSIX sleep and process-group kill(-pid); Windows covered by O70 follow-up'
     : false;
 
-const guard = fileURLToPath(new URL('../dist/cli/exit-guard.js', import.meta.url));
-const registry = fileURLToPath(
-  new URL('../dist/core/tools/background-process-registry.js', import.meta.url)
-);
+const guard = new URL('../dist/cli/exit-guard.js', import.meta.url).href;
+const registry = new URL('../dist/core/tools/background-process-registry.js', import.meta.url).href;
 
 function runChild(source, debug = false) {
   return new Promise((resolve) => {
