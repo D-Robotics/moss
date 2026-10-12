@@ -65,6 +65,8 @@ export interface IndirectWriteSource {
   line?: number;
   /** Offending line text (never contains file contents we wrote — only source). */
   detail?: string;
+  /** O129: script realpath is outside the workspace (after resolving symlinks). */
+  outsideWorkspace?: boolean;
 }
 
 export interface IndirectWriteFinding {
@@ -203,11 +205,34 @@ export function scanWorkspaceScript(
   cwd: string,
   workspaceRoot?: string
 ): ScriptScanResult {
-  const abs = path.resolve(cwd, scriptPath);
-  const workspace = path.resolve(workspaceRoot ?? cwd);
+  // O129: compare realpath to realpath. On macOS /var and /tmp are symlinks
+  // (/private/var), so a lexical workspace never contained the realpath'd
+  // script and the scan silently returned nothing.
+  const lexCwd = path.resolve(cwd);
+  const realCwd = realpathSafe(lexCwd) ?? lexCwd;
+  cwd = realCwd;
+  const abs = path.resolve(realCwd, scriptPath);
+  const lexWorkspace = path.resolve(workspaceRoot ?? lexCwd);
+  const workspace = realpathSafe(lexWorkspace) ?? lexWorkspace;
   const real = realpathSafe(abs) ?? abs;
-  if (!isUnder(real, workspace)) {
-    return { status: 'outside-workspace', findings: [], scriptPath: real };
+  if (!isUnder(real, workspace) && !isUnder(real, lexWorkspace)) {
+    // O129: never silent. An existing script outside the workspace is still
+    // scanned read-only; any finding is uncertain (asks instead of passing).
+    let findings: IndirectWriteFinding[] = [];
+    try {
+      const st = fs.statSync(real);
+      if (st.isFile() && st.size <= MAX_SCRIPT_BYTES) {
+        const buf = fs.readFileSync(real);
+        if (!looksBinary(buf)) {
+          findings = scanSourceForProtectedWrites(buf.toString('utf8'), real, 'script').map(
+            (f) => ({ ...f, source: { ...f.source, outsideWorkspace: true }, uncertain: true })
+          );
+        }
+      }
+    } catch {
+      /* unreadable: caller treats outside-workspace as scan failure */
+    }
+    return { status: 'outside-workspace', findings, scriptPath: real };
   }
   // Symlink whose target looks like a protected path → uncertain finding.
   try {
@@ -362,6 +387,8 @@ export function findIndirectProtectedWrites(
   for (const script of listInvokedScripts(command)) {
     const result = scanWorkspaceScript(script, cwd, workspaceRoot);
     if (result.status === 'ok') {
+      for (const f of result.findings) push(f);
+    } else if (result.status === 'outside-workspace' && result.findings.length) {
       for (const f of result.findings) push(f);
     } else if (
       result.status === 'unreadable' ||

@@ -56,6 +56,8 @@ export interface ProtectedPathHit {
     script: string;
     line?: number;
     detail?: string;
+    /** O129: script realpath outside the workspace; prompt says so. */
+    outsideWorkspace?: boolean;
   };
 }
 
@@ -258,8 +260,15 @@ function deletesProtectedAncestor(
   const candidates = [norm(abs)];
   const real = realpathOfNearestAncestor(abs);
   if (real) candidates.push(norm(real));
-  const anchors: Array<[string, ProtectedPathCategory]> = [[norm(homeOf(ctx)), 'ssh']];
-  if (ctx.workspaceRoot) anchors.push([norm(ctx.workspaceRoot), 'git']);
+  const anchors: Array<[string, ProtectedPathCategory]> = [];
+  // O129: anchor both the lexical and the realpath form (macOS /var → /private/var).
+  const addAnchor = (dir: string, category: ProtectedPathCategory) => {
+    anchors.push([norm(dir), category]);
+    const realDir = realpathOfNearestAncestor(path.resolve(dir));
+    if (realDir && norm(realDir) !== norm(dir)) anchors.push([norm(realDir), category]);
+  };
+  addAnchor(homeOf(ctx), 'ssh');
+  if (ctx.workspaceRoot) addAnchor(ctx.workspaceRoot, 'git');
   for (const dir of normalisedConfigDirs(ctx)) anchors.push([dir, 'moss-config']);
   for (const candidate of candidates) {
     for (const [anchor, category] of anchors) {

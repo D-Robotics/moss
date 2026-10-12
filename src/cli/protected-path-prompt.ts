@@ -35,6 +35,12 @@ function sourceClause(hit: ProtectedPathHit, zh: boolean): string {
   const src = hit.source;
   if (!src) return '';
   const script = src.script.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 120);
+  if (src.outsideWorkspace) {
+    const where = src.line ? (zh ? ` 第 ${src.line} 行` : ` line ${src.line}`) : '';
+    return zh
+      ? `（脚本在工作区外（软链解析后）：\`${script}\`${where}）`
+      : ` (script is outside the workspace (after resolving symlinks): \`${script}\`${where})`;
+  }
   if (src.kind === 'inline') {
     return zh
       ? `（内联 ${script}${src.line ? ` 第 ${src.line} 行` : ''}）`
@@ -155,14 +161,16 @@ export function protectedPathHeadlessReason(hit: ProtectedPathHit, zh: boolean):
 
 export function protectedPathHeadlessNotice(hit: ProtectedPathHit, zh: boolean): string {
   const label = PROTECTED_CATEGORY_LABEL[hit.category];
+  // O129: name the outside-workspace script + reason in the -p notice too.
+  const outside = (z: boolean) => (hit.source?.outsideWorkspace ? sourceClause(hit, z) : '');
   if (hit.kind === 'hooks-path' || hit.category === 'unresolved') {
     return zh
       ? `[moss] 已拦截：${whyClause(hit, true)}，-p 模式无法确认。放行办法：不带 -p 交互运行 moss，在提示里确认这一次；或者自己手动处理。`
       : `[moss] Blocked: ${whyClause(hit, false)}; -p cannot ask. To allow: run moss interactively (without -p) and confirm this once, or do it yourself.`;
   }
   return zh
-    ? `[moss] 已拦截：${OP_ZH[hit.operation]} ${shown(hit)}。原因：它是受保护路径（${label.zh}），-p 模式无法确认。放行办法：不带 -p 交互运行 moss，在提示里确认这一次；或者自己手动改这个文件。`
-    : `[moss] Blocked: ${hit.operation} ${shown(hit)}. Why: it is a protected path (${label.en}) and -p cannot ask. To allow: run moss interactively (without -p) and confirm this once, or make the change yourself.`;
+    ? `[moss] 已拦截：${OP_ZH[hit.operation]} ${shown(hit)}${outside(true)}。原因：它是受保护路径（${label.zh}），-p 模式无法确认。放行办法：不带 -p 交互运行 moss，在提示里确认这一次；或者自己手动改这个文件。`
+    : `[moss] Blocked: ${hit.operation} ${shown(hit)}${outside(false)}. Why: it is a protected path (${label.en}) and -p cannot ask. To allow: run moss interactively (without -p) and confirm this once, or make the change yourself.`;
 }
 
 /** Session grant key for "always for this path". */
