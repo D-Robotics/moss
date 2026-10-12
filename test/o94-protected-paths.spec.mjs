@@ -57,6 +57,8 @@ for (const [f, c] of Object.entries(seed)) fs.writeFileSync(f, c);
 const gitEnv = {
   ...process.env,
   HOME: home,
+  // O130: on Windows os.homedir() (used for `~`) reads USERPROFILE, not HOME.
+  USERPROFILE: home,
   GIT_CONFIG_NOSYSTEM: '1',
   GIT_AUTHOR_NAME: 't',
   GIT_AUTHOR_EMAIL: 't@t',
@@ -70,7 +72,7 @@ fs.symlinkSync(path.join(home, '.bashrc'), path.join(ws, 'rc-link'));
 fs.symlinkSync(path.join(home, '.ssh'), path.join(ws, 'ssh-link'));
 const caseInsensitiveFs = fs.existsSync(path.join(ws, '.GIT'));
 
-const env = { HOME: home, MOSS_CONFIG_DIR: cfg, PATH: process.env.PATH };
+const env = { HOME: home, USERPROFILE: home, MOSS_CONFIG_DIR: cfg, PATH: process.env.PATH };
 
 function snapshot() {
   const out = {};
@@ -607,7 +609,9 @@ await check(async () => {
 await check(async () => {
   // Shared O97 detector: HOME for ~ comes from process.env / os.homedir().
   const prevHome = process.env.HOME;
+  const prevProfile = process.env.USERPROFILE;
   process.env.HOME = home;
+  process.env.USERPROFILE = home; // O130: Windows os.homedir() source
   try {
     const r = detectShellWriteTargets('echo x >> ~/.bashrc && rm -rf .git', ws);
     assert.ok(r.targets.includes(path.join(home, '.bashrc')), 'absolute ~ expansion');
@@ -629,6 +633,8 @@ await check(async () => {
   } finally {
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
+    if (prevProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = prevProfile;
   }
   ok('shared detector shape: { targets, uncertain, mentions }');
 }, 'shared detector shape');

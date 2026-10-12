@@ -56,6 +56,12 @@ function whyClause(hit: ProtectedPathHit, zh: boolean): string {
       ? `${shown(hit)} 会改 git 钩子目录（core.hooksPath）`
       : `${shown(hit)} would redirect git hooks (core.hooksPath)`;
   }
+  if (hit.kind === 'unresolved-var') {
+    // O130 (UX): say why it was treated as protected and what to do instead.
+    return zh
+      ? `无法确定 \`${shown(hit)}\` 指向的路径（写入目标含变量或命令替换），按受保护路径处理；请改用字面路径，或用 edit 工具改文件`
+      : `cannot tell where \`${shown(hit)}\` points (write target built from a variable or command substitution), so it is treated as protected; use a literal path or the edit tool instead`;
+  }
   const label = PROTECTED_CATEGORY_LABEL[hit.category];
   if (hit.category === 'unresolved')
     return `${shown(hit)}${zh ? '：' : ': '}${zh ? label.zh : label.en}`;
@@ -72,6 +78,11 @@ export function protectedPathHeadline(hit: ProtectedPathHit, zh: boolean): strin
     return zh
       ? `要执行 \`${shown(hit)}\`：会改 git 钩子目录（core.hooksPath）`
       : `About to run \`${shown(hit)}\`: would redirect git hooks (core.hooksPath)`;
+  }
+  if (hit.kind === 'unresolved-var') {
+    return zh
+      ? `要${OP_ZH[hit.operation]}：${whyClause(hit, true)}`
+      : `About to ${OP_EN[hit.operation]}: ${whyClause(hit, false)}`;
   }
   if (hit.category === 'unresolved') {
     return zh

@@ -29,6 +29,7 @@ import path from 'node:path';
 
 import { detectShellWriteTargets, type ShellWriteDetection } from './shell-write-detect.js';
 import { findIndirectProtectedWrites } from './indirect-write-detect.js';
+import { findPwshWriteTargets } from './pwsh-write-targets.js';
 
 export type ProtectedPathCategory =
   | 'git'
@@ -45,7 +46,7 @@ export interface ProtectedPathHit {
   category: ProtectedPathCategory;
   operation: 'write' | 'delete' | 'move' | 'shell';
   /** O103: `core.hooksPath` redirection (copy says "would redirect git hooks"). */
-  kind?: 'hooks-path';
+  kind?: 'hooks-path' | 'unresolved-var';
   /**
    * O101: when the write comes from inline interpreter code or a workspace
    * script (layers 1–2). Used by the confirm prompt to show script + line.
@@ -609,12 +610,42 @@ export function findShellProtectedWrites(
     });
   }
 
-  // O130: Windows/PowerShell forms the POSIX detector does not model
-  // (`Set-Content -Path …`, `$env:APPDATA\moss\…`, `%APPDATA%`, node -e with
-  // `process.env.APPDATA+'/moss/…'`). Stricter only: when the command can write
-  // and, after expanding those env forms, names a path inside a Moss config dir,
-  // gate it like any other protected write.
-  if (!hits.some((h) => h.category === 'moss-config') && commandMayWrite(command, uncertain)) {
+  // O130 (a): write targets of PowerShell cmdlets / aliases, [IO.File]::Write*,
+  // every redirection form, with `$env:X` / `${env:X}` / `%X%` / `$X` expanded
+  // from the current env. Only write targets are examined (a `$` in an argument
+  // or a read never prompts). A target that cannot be resolved (unknown or
+  // same-line-assigned variable, command substitution, relative after an
+  // unresolvable `cd`) is gated as possibly protected. Stricter only.
+  const pw = findPwshWriteTargets(command, {
+    cwd: ctx.cwd,
+    home: homeOf(ctx),
+    env: ctx.env ?? process.env,
+  });
+  for (const target of pw.resolved) {
+    const hit = classifyProtectedPath(target, ctx) ?? deletesProtectedAncestor(target, ctx);
+    if (!hit || seen.has(hit.resolved)) continue;
+    seen.add(hit.resolved);
+    hits.push({
+      raw: displayPath(hit.resolved, ctx),
+      resolved: hit.resolved,
+      category: hit.category,
+      operation: 'shell',
+    });
+  }
+  if (hits.length === 0 && pw.unresolved.length > 0) {
+    const raw = pw.unresolved[0]!;
+    hits.push({
+      raw,
+      resolved: raw,
+      category: 'unresolved',
+      operation: 'write',
+      kind: 'unresolved-var',
+    });
+  }
+
+  // O130 (b): inline interpreter code (`node -e`, `python -c` …) naming a Moss
+  // config file through process.env.X / os.environ[...] (+ string concat).
+  if (!hits.some((h) => h.category === 'moss-config') && INLINE_INTERP.test(command)) {
     for (const token of configDirTokens(command, ctx)) {
       const hit = classifyProtectedPath(token, ctx);
       if (!hit || hit.category !== 'moss-config' || seen.has(hit.resolved)) continue;
@@ -630,13 +661,8 @@ export function findShellProtectedWrites(
   return hits;
 }
 
-const WRITE_CAPABLE =
-  /(?:^|[\s;|&(])(?:set-content|add-content|out-file|new-item|copy-item|move-item|remove-item|rename-item|tee-object|clear-content|sc|ac|ni|cpi|mi|ri|rni|copy|move|del|erase|ren|cp|mv|rm|tee|install|ln|touch|truncate|dd|sed|perl|node|nodejs|bun|deno|python[23]?|py|ruby|php|pwsh|powershell|cmd)(?:\.exe)?(?=$|[\s;|&)])|>/i;
-
-/** O130: could this command write a file at all (redirect, write cmdlet, interpreter)? */
-function commandMayWrite(command: string, uncertain: boolean): boolean {
-  return uncertain || WRITE_CAPABLE.test(command);
-}
+const INLINE_INTERP =
+  /(?:^|[\s;|&(])(?:node|nodejs|bun|deno|python[23]?(?:\.\d+)?|py|ruby|perl|php)(?:\.exe)?\s+(?:[^;|&]*\s)?(?:-e|-c|-p|-r|-E|--eval|--print|eval)(?=\s)/i;
 
 /** O130: tokens of the command with Windows / interpreter env references expanded. */
 function configDirTokens(command: string, ctx: ProtectedPathContext): string[] {
