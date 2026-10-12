@@ -4,10 +4,65 @@
  * no real install. English warnings assume the test runner's C locale.
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { clearUiLanguage, installUiLanguage } from '../dist/utils/ui-language.js';
 import { collectMossRuntimeFacts, scanMossBinariesOnPath } from '../dist/cli/moss-binary-path.js';
+
+// Real npm-style wrapper files are scan candidates, not three proven installs.
+// argv[1] names the package entry, so wrapper realpaths cannot establish which
+// shell command launched that entry. No wrapper is executed by this scan.
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-doctor-path-'));
+  try {
+    const first = path.join(root, 'first');
+    const second = path.join(root, 'second');
+    const entry = path.join(first, 'node_modules', '@rdk-moss', 'agent', 'bin', 'moss.cjs');
+    fs.mkdirSync(path.dirname(entry), { recursive: true });
+    fs.mkdirSync(second);
+    fs.writeFileSync(entry, 'process.exit(0);\n');
+    const names = process.platform === 'win32' ? ['moss', 'moss.cmd', 'moss.ps1'] : ['moss'];
+    const listed = names.map((name) => path.join(first, name));
+    listed.push(path.join(second, 'moss'));
+    for (const file of listed) fs.writeFileSync(file, 'npm wrapper fixture\n', { mode: 0o755 });
+    const scan = scanMossBinariesOnPath({
+      pathEnv: [first, second].join(path.delimiter),
+      pathExt: '.CMD;.PS1',
+      platform: process.platform,
+      runningPath: fs.realpathSync(entry),
+      fs,
+    });
+    assert.deepEqual(
+      scan.binaries.map((hit) => hit.listed),
+      listed
+    );
+    assert.deepEqual(
+      scan.binaries.map((hit) => hit.realPath),
+      listed.map((file) => fs.realpathSync(file))
+    );
+    assert.equal(scan.winner?.listed, listed[0], 'legacy winner is the first scanned candidate');
+    assert.equal(
+      scan.winnerIsRunning,
+      false,
+      'literal path comparison does not identify a shim target'
+    );
+    const warning = scan.warning ?? '';
+    assert.match(warning, /moss candidate files on PATH/);
+    assert.match(warning, /First scanned candidate:/);
+    assert.ok(
+      warning.includes(entry.replaceAll('\\', '/')),
+      'the actual process entry remains visible'
+    );
+    assert.doesNotMatch(
+      warning,
+      /executables|wins|not the one currently running|different installs/
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
 
 /** @param {Record<string, { realPath?: string, mode?: number, isFile?: boolean }>} files */
 function fakeFs(files) {
@@ -69,9 +124,9 @@ function fakeFs(files) {
     warning.indexOf('/usr/local/bin/moss') < warning.indexOf('/opt/homebrew/bin/moss'),
     'PATH order, not sorted order'
   );
-  assert.match(warning, /\/usr\/local\/bin\/moss wins \(first on PATH\)/);
-  assert.match(warning, /is the one currently running/);
-  assert.doesNotMatch(warning, /not the one currently running/);
+  assert.match(warning, /First scanned candidate: \/usr\/local\/bin\/moss/);
+  assert.match(warning, /Current process entry: \/usr\/local\/bin\/moss/);
+  assert.doesNotMatch(warning, /wins|the one currently running/);
 
   const other = scanMossBinariesOnPath({
     pathEnv: '/usr/local/bin:/opt/homebrew/bin',
@@ -80,8 +135,8 @@ function fakeFs(files) {
     fs,
   });
   assert.equal(other.winnerIsRunning, false);
-  assert.match(other.warning ?? '', /\/usr\/local\/bin\/moss wins \(first on PATH\)/);
-  assert.match(other.warning ?? '', /not the one currently running \(\/opt\/homebrew\/bin\/moss\)/);
+  assert.match(other.warning ?? '', /First scanned candidate: \/usr\/local\/bin\/moss/);
+  assert.match(other.warning ?? '', /Current process entry: \/opt\/homebrew\/bin\/moss/);
 }
 
 // ─── two PATH entries, one real file: count once, no warning ───────────────
@@ -149,10 +204,10 @@ function fakeFs(files) {
   const warning = many.warning ?? '';
   assert.match(warning, /moss\.cmd/);
   assert.match(warning, /moss\.ps1/);
-  assert.match(warning, /wins \(first on PATH\)/);
+  assert.match(warning, /First scanned candidate: C:\/Tools\/moss/);
   assert.doesNotMatch(warning, /moss\.txt/);
   assert.doesNotMatch(warning, /moss\.bat/);
-  assert.match(warning, /not the one currently running/);
+  assert.match(warning, /Current process entry: C:\/Tools\/moss\.exe/);
   assert.equal(many.winner?.listed, bare);
   assert.equal(many.winnerIsRunning, false);
 }
@@ -174,8 +229,8 @@ function fakeFs(files) {
     const warning = scan.warning ?? '';
     assert.match(warning, /\/usr\/local\/bin\/moss/);
     assert.match(warning, /\/opt\/homebrew\/bin\/moss/);
-    assert.match(warning, /先出现的会生效：\/usr\/local\/bin\/moss/);
-    assert.match(warning, /它不是当前正在运行的（\/opt\/homebrew\/bin\/moss）/);
+    assert.match(warning, /首个扫描候选：\/usr\/local\/bin\/moss/);
+    assert.match(warning, /当前进程入口：\/opt\/homebrew\/bin\/moss/);
     assert.equal(warning.includes('wins'), false);
     assert.equal(warning.includes('currently'), false);
   } finally {

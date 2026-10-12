@@ -14,6 +14,12 @@ import { listDeploymentRecords } from '../../device/deployment.js';
 import { getRootLogger } from '../../logger.js';
 import { redactEgress } from '../../safety/tool-output-redact.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
+import { withTaskEventLock, withTaskArtifactReadLock } from '../task/task-store.js';
+
+import {
+  acceptanceAppendDispatched,
+  assertTaskAppendScopeOpen,
+} from '../task/acceptance-commit-scope.js';
 
 const jsonlLog = getRootLogger().child('task-jsonl');
 
@@ -48,33 +54,95 @@ export interface TaskArtifacts {
  * The first skip for a file warns once; later reads only debug.
  */
 export async function readJsonlFile<T>(file: string): Promise<T[]> {
+  return withTaskArtifactReadLock(path.dirname(path.dirname(file)), async () => {
+    const before = await readPendingAppend(file);
+    let raw: string;
+    try {
+      raw = await fs.readFile(file, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+    // An interrupted writer retains a durable prepare record. Never replay its
+    // uncertain tail, including when both the original sync and rollback failed.
+    const after = await readPendingAppend(file);
+    const pending =
+      before === undefined ? after : after === undefined ? before : Math.min(before, after);
+    if (pending !== undefined) {
+      const bytes = Buffer.from(raw);
+      if (pending > bytes.length) throw new Error(`unconfirmed task append: ${file}`);
+      raw = bytes.subarray(0, pending).toString('utf8');
+    }
+    const rows: T[] = [];
+    let skipped = 0;
+    for (const line of raw.split('\n')) {
+      if (line.trim() === '') continue;
+      try {
+        rows.push(JSON.parse(line) as T);
+      } catch {
+        skipped += 1;
+      }
+    }
+    if (skipped > 0) {
+      const key = path.resolve(file);
+      const payload = { file: key, skipped };
+      if (jsonlParseWarned.has(key)) {
+        jsonlLog.debug('skipping unparseable jsonl line', payload);
+      } else {
+        jsonlParseWarned.add(key);
+        jsonlLog.warn('skipping unparseable jsonl line', payload);
+      }
+    }
+    return rows;
+  });
+}
+
+async function readPendingAppend(file: string): Promise<number | undefined> {
   let raw: string;
   try {
-    raw = await fs.readFile(file, 'utf8');
-  } catch {
-    return [];
+    raw = await fs.readFile(`${file}.pending`, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
   }
-  const rows: T[] = [];
-  let skipped = 0;
-  for (const line of raw.split('\n')) {
-    if (line.trim() === '') continue;
-    try {
-      rows.push(JSON.parse(line) as T);
-    } catch {
-      skipped += 1;
-    }
+  const pending = JSON.parse(raw) as { originalSize?: unknown };
+  if (!Number.isSafeInteger(pending.originalSize) || Number(pending.originalSize) < 0) {
+    throw new Error(`unconfirmed task append: ${file}`);
   }
-  if (skipped > 0) {
-    const key = path.resolve(file);
-    const payload = { file: key, skipped };
-    if (jsonlParseWarned.has(key)) {
-      jsonlLog.debug('skipping unparseable jsonl line', payload);
-    } else {
-      jsonlParseWarned.add(key);
-      jsonlLog.warn('skipping unparseable jsonl line', payload);
-    }
+  return Number(pending.originalSize);
+}
+
+async function syncParentDirectory(file: string): Promise<void> {
+  // Windows does not expose directory fsync through Node. File barriers still
+  // run on Windows; POSIX additionally persists directory entries.
+  if (process.platform === 'win32') return;
+  const directory = await fs.open(path.dirname(file), 'r');
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
   }
-  return rows;
+}
+
+async function prepareAppend(
+  file: string,
+  originalSize: number,
+  created?: () => void
+): Promise<void> {
+  const prepare = await fs.open(file, 'wx');
+  created?.();
+  let failed = false;
+  try {
+    await prepare.writeFile(JSON.stringify({ originalSize }), 'utf8');
+    await prepare.sync();
+    await syncParentDirectory(file);
+  } catch (error) {
+    failed = true;
+    throw error;
+  } finally {
+    if (failed) await prepare.close().catch(() => {});
+    else await prepare.close();
+  }
 }
 
 async function readJsonl<T>(file: string): Promise<T[]> {
@@ -87,9 +155,93 @@ async function readJsonl<T>(file: string): Promise<T[]> {
  * share a file across processes must hold their own lock around this; the
  * task-event lock is not re-entrant.
  */
-export async function appendJsonlFile(file: string, record: unknown): Promise<void> {
+export async function appendJsonlFile(
+  file: string,
+  record: unknown,
+  signal?: AbortSignal
+): Promise<void> {
+  signal?.throwIfAborted();
+  if ((await readPendingAppend(file)) !== undefined) {
+    throw new Error(`unconfirmed task append requires recovery: ${file}`);
+  }
   await ensureTrailingNewline(file);
-  await fs.appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
+  signal?.throwIfAborted();
+  const previous = await fs.stat(file).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined;
+    throw error;
+  });
+  const originalSize = previous?.size ?? 0;
+  const pendingFile = `${file}.pending`;
+  const workspaceDir = path.dirname(path.dirname(file));
+  const evidence = path.basename(file) === 'evidence.jsonl';
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+  let dispatched = false;
+  let ownedPrepare = false;
+  try {
+    assertTaskAppendScopeOpen(workspaceDir, evidence);
+    await prepareAppend(pendingFile, originalSize, () => {
+      ownedPrepare = true;
+    });
+    signal?.throwIfAborted();
+    assertTaskAppendScopeOpen(workspaceDir, evidence);
+    if (path.basename(file) === 'acceptance.jsonl')
+      acceptanceAppendDispatched(path.dirname(path.dirname(file)));
+    dispatched = true;
+    await fs.appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
+    handle = await fs.open(file, 'r+');
+    await handle.sync();
+    if (!previous) await syncParentDirectory(file);
+    await handle.close();
+    handle = undefined;
+    await fs.unlink(pendingFile);
+    await syncParentDirectory(pendingFile);
+  } catch (error) {
+    if (!dispatched) {
+      // wx proves ownership, and no data append has been issued. The workspace
+      // mutex still protects the original prefix, even if prepare itself is torn.
+      if (ownedPrepare) {
+        try {
+          await fs.unlink(pendingFile);
+          await syncParentDirectory(pendingFile);
+        } catch {
+          // An uncertain directory barrier must retain a bounded recovery marker.
+          await readPendingAppend(file)
+            .then(async (pending) => {
+              if (pending === undefined) await prepareAppend(pendingFile, originalSize);
+            })
+            .catch(() => {});
+        }
+      }
+      throw error;
+    }
+    // Callers hold the workspace write lock. A failed sync must not leave a
+    // process-visible accepted record which replay would mistake for success.
+    // If the final directory barrier failed after unlink, restore the bounded
+    // prepare record before attempting compensation.
+    await readPendingAppend(file)
+      .then(async (pending) => {
+        if (pending === undefined) await prepareAppend(pendingFile, originalSize);
+      })
+      .catch(() => {});
+    const rollback = handle ?? (await fs.open(file, 'r+').catch(() => undefined));
+    try {
+      if (rollback) {
+        await rollback.truncate(originalSize);
+        await rollback.sync();
+        await fs.unlink(pendingFile).catch((unlinkError: NodeJS.ErrnoException) => {
+          if (unlinkError.code !== 'ENOENT') throw unlinkError;
+        });
+        await syncParentDirectory(pendingFile);
+      }
+    } catch {
+      // Preserve the original IO failure; failed compensation never attests PASS.
+    } finally {
+      if (rollback !== handle) await rollback?.close().catch(() => {});
+    }
+    throw error;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
 }
 
 async function ensureTrailingNewline(file: string): Promise<void> {
@@ -113,15 +265,26 @@ async function ensureTrailingNewline(file: string): Promise<void> {
   }
 }
 
-async function appendJsonl(workspaceDir: string, name: string, record: unknown): Promise<void> {
-  ensureMossRuntimeGitignore(workspaceDir);
-  const dir = path.join(workspaceDir, '.moss');
-  await fs.mkdir(dir, { recursive: true });
-  await appendJsonlFile(path.join(dir, name), record);
+async function appendJsonl(
+  workspaceDir: string,
+  name: string,
+  record: unknown,
+  signal?: AbortSignal
+): Promise<void> {
+  signal?.throwIfAborted();
+  await withTaskEventLock(workspaceDir, async () => {
+    ensureMossRuntimeGitignore(workspaceDir);
+    const dir = path.join(workspaceDir, '.moss');
+    await appendJsonlFile(path.join(dir, name), record, signal);
+  });
 }
 
-export async function appendTaskRecord(workspaceDir: string, task: TaskContract): Promise<void> {
-  await appendJsonl(workspaceDir, 'tasks.jsonl', task);
+export async function appendTaskRecord(
+  workspaceDir: string,
+  task: TaskContract,
+  signal?: AbortSignal
+): Promise<void> {
+  await appendJsonl(workspaceDir, 'tasks.jsonl', task, signal);
 }
 
 export async function listTaskRecords(workspaceDir: string, limit = 50): Promise<TaskContract[]> {
@@ -136,7 +299,16 @@ export async function appendEvidenceRecord(
   workspaceDir: string,
   record: EvidenceRecord
 ): Promise<void> {
-  await appendJsonl(workspaceDir, 'evidence.jsonl', redactEvidenceRecord(record));
+  await appendEvidenceRecordWithSignal(workspaceDir, record);
+}
+
+/** Internal harness path; the public two-argument artifact API stays unchanged. */
+export async function appendEvidenceRecordWithSignal(
+  workspaceDir: string,
+  record: EvidenceRecord,
+  signal?: AbortSignal
+): Promise<void> {
+  await appendJsonl(workspaceDir, 'evidence.jsonl', redactEvidenceRecord(record), signal);
 }
 
 export async function listEvidenceRecords(
@@ -151,9 +323,10 @@ export async function listEvidenceRecords(
 
 export async function appendAcceptanceVerdict(
   workspaceDir: string,
-  verdict: AcceptanceVerdict
+  verdict: AcceptanceVerdict,
+  signal?: AbortSignal
 ): Promise<void> {
-  await appendJsonl(workspaceDir, 'acceptance.jsonl', verdict);
+  await appendJsonl(workspaceDir, 'acceptance.jsonl', verdict, signal);
 }
 
 export async function listAcceptanceVerdicts(
@@ -168,11 +341,20 @@ export async function listAcceptanceVerdicts(
 
 /** Load all task artifacts for a workspace in one pass. */
 export async function loadTaskArtifacts(workspaceDir: string): Promise<TaskArtifacts> {
-  const [tasks, evidence, deployments, acceptance] = await Promise.all([
-    listTaskRecords(workspaceDir, 200),
-    listEvidenceRecords(workspaceDir, 1000),
-    listDeploymentRecords(workspaceDir, 100),
-    listAcceptanceVerdicts(workspaceDir, 200),
-  ]);
-  return { tasks, evidence, deployments, acceptance };
+  return withTaskArtifactReadLock(workspaceDir, async () => {
+    const reads = [
+      listTaskRecords(workspaceDir, 200),
+      listEvidenceRecords(workspaceDir, 1000),
+      listDeploymentRecords(workspaceDir, 100),
+      listAcceptanceVerdicts(workspaceDir, 200),
+    ] as const;
+    const [tasks, evidence, deployments, acceptance] = await Promise.all(reads).catch(
+      async (error) => {
+        // Keep ownership until every sibling read has stopped using this snapshot.
+        await Promise.allSettled(reads);
+        throw error;
+      }
+    );
+    return { tasks, evidence, deployments, acceptance };
+  });
 }

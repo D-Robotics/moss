@@ -131,7 +131,7 @@ import { renderStatusRight } from '../dist/cli/tui/transcript.js';
 
 {
   const ok = await runStatusLineCommand({
-    command: 'printf "hello-status\\nignored"',
+    command: `node -e "process.stdout.write('hello-status'+String.fromCharCode(10)+'ignored')"`,
     cwd: process.cwd(),
     timeoutMs: 1000,
     payload: { model: 'm' },
@@ -158,7 +158,7 @@ import { renderStatusRight } from '../dist/cli/tui/transcript.js';
 
   const started = Date.now();
   const timedOut = await runStatusLineCommand({
-    command: 'sleep 5',
+    command: 'node -e "setTimeout(()=>{},5000)"',
     cwd: process.cwd(),
     timeoutMs: 200,
   });

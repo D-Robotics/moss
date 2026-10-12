@@ -641,7 +641,7 @@ async function spawnOne(
   const args = direct
     ? direct.args
     : process.platform === 'win32'
-      ? ['/c', command]
+      ? ['/d', '/s', '/c', `"${command}"`]
       : ['-c', command];
   try {
     const result = await runProcess(direct ? direct.cmd : shellOf(), {
@@ -651,6 +651,7 @@ async function spawnOne(
       signal: ctx.abortSignal,
       env,
       cwd: ctx.workspaceDir,
+      windowsVerbatimArguments: !direct && process.platform === 'win32',
     });
     return judge(
       command,

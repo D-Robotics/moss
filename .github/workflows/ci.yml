@@ -72,6 +72,13 @@ jobs:
             || python3 -m pip install --user --break-system-packages pyte
           python3 -c 'import pyte'
 
+      - name: Install real Windows ConPTY test driver
+        if: runner.os == 'Windows'
+        run: |
+          python --version
+          python -m pip install --only-binary=:all: pywinpty==3.0.5
+          python -c "from winpty import Backend, PtyProcess; print(Backend.ConPTY)"
+
       - name: Test (build + spec suite)
         env:
           MOSS_SKIP_PY_LAYOUT: ${{ runner.os == 'Windows' && '1' || '' }}
@@ -104,8 +111,6 @@ jobs:
   real-terminals:
     name: Real terminals (Linux)
     runs-on: ubuntu-latest
-    # Non-blocking for now (team decision 2026-10-11): failures stay visible but do not gate merges. Check stays blocking.
-    continue-on-error: true
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -139,8 +144,6 @@ jobs:
   install-e2e:
     name: Install e2e (${{ matrix.os }}, npm 10)
     runs-on: ${{ matrix.os }}
-    # Non-blocking for now (team decision 2026-10-11): failures stay visible but do not gate merges. Check stays blocking.
-    continue-on-error: true
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -176,8 +179,6 @@ jobs:
   windows-shell:
     name: Windows shell (pwsh 7)
     runs-on: windows-latest
-    # Non-blocking for now (team decision 2026-10-11): failures stay visible but do not gate merges. Check stays blocking.
-    continue-on-error: true
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -200,7 +201,7 @@ jobs:
         run: |
           $major = $PSVersionTable.PSVersion.Major
           if ($major -lt 7) { throw "runner pwsh $major is older than 7" }
-          node --input-type=module -e "import { resolveHostShell } from './dist/utils/host-shell.js'; const shell = resolveHostShell(); if (shell.kind !== 'pwsh') { console.error(shell); process.exit(1); } console.log(shell.kind + ' ' + shell.executable);"
+          node scripts/check-windows-host-shell.mjs
 
       - name: Host shell and write-sandbox specs
         run: node test/host-shell.spec.mjs && node test/shell-write-sandbox.spec.mjs

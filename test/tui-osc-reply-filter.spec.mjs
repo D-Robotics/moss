@@ -106,3 +106,12 @@ function feedAll(...chunks) {
   assert.equal(a.body, 'rgb:ffff/ffff/ffff');
   assert.equal(b.passthrough, 'query', 'the filter keeps working after a reply');
 }
+
+// Multiple replies can share a single stdin chunk, including a split ST tail.
+{
+  const [r] = feedAll(`prefix${REPLY}between\x1b${REPLY}suffix`);
+  assert.equal(r.passthrough, 'prefixbetweensuffix');
+  const [a, b] = feedAll(`${REPLY}]11;rgb:1/2/3\x1b`, '\\tail');
+  assert.equal(a.passthrough, '');
+  assert.equal(b.passthrough, 'tail');
+}

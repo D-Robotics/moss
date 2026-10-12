@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import ssh2 from 'ssh2';
 import { loadDeviceRegistry } from '../dist/device/device-registry-file.js';
 import { isDotenvDeniedEnvKey } from '../dist/utils/dotenv-denied-env.js';
+import { folderPathKey } from '../dist/utils/folder-trust-store.js';
 import { trackTempDir } from './helpers/temp-home.mjs';
 
 const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
@@ -222,9 +223,8 @@ async function runCase(c) {
     );
   }
   const store = {};
-  // Must match folderPathKey (fs.realpathSync.native).
-  if (c.trust) store[fs.realpathSync.native(ws)] = true;
-  if (c.trustParent) store[fs.realpathSync.native(parent)] = true;
+  if (c.trust) store[folderPathKey(ws)] = true;
+  if (c.trustParent) store[folderPathKey(parent)] = true;
   if (Object.keys(store).length > 0) {
     fs.writeFileSync(path.join(configDir, 'workspace-trust.json'), JSON.stringify(store));
   }

@@ -66,6 +66,7 @@ import {
 } from '../../core/tools/background-process-registry.js';
 import { formatBackgroundCompletionFlash } from '../background-completion-ui.js';
 import { redactEgress } from '../../safety/tool-output-redact.js';
+import { installNonTtyOutputDimensions } from './output-dimensions.js';
 import { formatMcpStatusLine } from '../rdk-docs-mcp.js';
 import {
   formatBlockedTaskLine,
@@ -692,6 +693,27 @@ export function TuiAppRoot({
   const [activeSession, setActiveSession] = useState(options.sessionKey ?? 'tui');
   const sessionKey = activeSession;
   const { store } = handle;
+  const reportRuntimeError = useCallback(
+    (error: unknown): void => {
+      const message = errorMessage(error);
+      appendRow(store, 'error', message);
+      runtime.applyEvent({ type: 'error', error: message, retriable: false });
+      handle.notify();
+    },
+    [handle, runtime, store]
+  );
+  const settleRuntime = useCallback(
+    async (halted: boolean): Promise<boolean> => {
+      try {
+        await runtime.endRun(halted);
+        return true;
+      } catch (error) {
+        reportRuntimeError(error);
+        return false;
+      }
+    },
+    [reportRuntimeError, runtime]
+  );
   useEffect(() => {
     let added = false;
     for (const message of customCommandLoad.notices) {
@@ -727,6 +749,11 @@ export function TuiAppRoot({
    * immediately with no user input.
    */
   const windowSize = useWindowSize();
+  useEffect(() => {
+    const cleanup = installNonTtyOutputDimensions(stdout);
+    if (cleanup) stdout.emit('resize');
+    return cleanup;
+  }, [stdout]);
   const columns = windowSize.columns || stdouts(stdout);
   const prevColumnsRef = useRef(columns);
   useEffect(() => {
@@ -1098,7 +1125,7 @@ export function TuiAppRoot({
       })();
     }
     for (const row of options.replayRows ?? []) appendRow(store, row.kind, row.text);
-    void runtime.refresh().then(() => handle.notify());
+    void runtime.refresh().then(() => handle.notify(), reportRuntimeError);
     handle.notify();
   }, []);
 
@@ -1314,8 +1341,8 @@ export function TuiAppRoot({
       if (unverified) {
         appendRow(store, 'summary', tui('edited JS/TS files but did not run tests'));
       }
-      await runtime.endRun(halted);
-      if (startedAt !== undefined) appendTaskVerdictIfAny(startedAt);
+      const runtimeSettled = await settleRuntime(halted);
+      if (runtimeSettled && startedAt !== undefined) appendTaskVerdictIfAny(startedAt);
       notifyAttention(halted ? tui('run interrupted') : tui('run finished'));
       // Plan-mode exit ritual (the reference's `Ready to code?` gate): a
       // finished plan-mode run that actually produced a plan — it explored
@@ -1323,6 +1350,7 @@ export function TuiAppRoot({
       // An interrupted run or a quick question does not get the ceremony.
       const rowsThisRun = store.rows.filter((row) => row.id >= firstRowId);
       const producedPlan =
+        runtimeSettled &&
         !halted &&
         getCliInteractionMode() === 'plan' &&
         (rowsThisRun.some((row) => row.kind === 'tool') ||
@@ -1339,6 +1367,7 @@ export function TuiAppRoot({
       options.agent,
       runtime,
       sessionKey,
+      settleRuntime,
       settleDialog,
       store,
       streamTurn,
@@ -1569,8 +1598,8 @@ export function TuiAppRoot({
           if (unverifiedTask) {
             appendRow(store, 'summary', tui('edited JS/TS files but did not run tests'));
           }
-          await runtime.endRun(halted);
-          appendTaskVerdictIfAny(runStartedAtRef.current ?? 0);
+          const runtimeSettled = await settleRuntime(halted);
+          if (runtimeSettled) appendTaskVerdictIfAny(runStartedAtRef.current ?? 0);
           runStartedAtRef.current = undefined;
           absorbDeferredSteers(halted);
           setStatusLine(undefined);
@@ -1609,6 +1638,7 @@ export function TuiAppRoot({
       printCommandError,
       runtime,
       sessionKey,
+      settleRuntime,
       store,
     ]
   );
@@ -2762,7 +2792,31 @@ export function TuiAppRoot({
 
   const osc11FilterRef = useRef(createOsc11ReplyFilter());
   useInput((chunk, key) => {
-    const fed = osc11FilterRef.current.feed(chunk);
+    const control = Boolean(
+      key.return ||
+      key.backspace ||
+      key.delete ||
+      key.leftArrow ||
+      key.rightArrow ||
+      key.upArrow ||
+      key.downArrow ||
+      key.escape ||
+      key.tab ||
+      key.ctrl ||
+      key.meta ||
+      chunk === '\n'
+    );
+    const held = control ? osc11FilterRef.current.flushText() : '';
+    let input = composer.value;
+    if (held) {
+      input = composerInsert(composer, held).value;
+      setComposer((current) => composerInsert(current, held));
+    }
+    // Ink reports a standalone ESC as an empty chunk plus key.escape. Restore
+    // that byte only for the reply filter, so a fragmented ST terminator is
+    // consumed before it can cancel the run; ordinary Esc retains its key.
+    const filterChunk = key.escape && chunk === '' ? '\u001b' : chunk;
+    const fed = osc11FilterRef.current.feed(filterChunk);
     if (fed.body !== undefined && !themeLockedByEnv() && !process.env.MOSS_TUI_THEME) {
       const detected = themeFromOsc11(fed.body);
       if (detected) {
@@ -2770,7 +2824,7 @@ export function TuiAppRoot({
         forceUpdate();
       }
     }
-    if (fed.passthrough !== chunk) {
+    if (fed.passthrough !== filterChunk) {
       chunk = fed.passthrough;
       if (chunk.length === 0) return;
     }

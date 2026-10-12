@@ -283,46 +283,50 @@ test('Q5a an edit by another agent (separate session, same file) then read is re
   assert.match(r, /return a \+ b/);
 });
 
-test('Q5b after a large read is elided from context, re-read does not say "refer to earlier"', async (t) => {
-  const big = Array.from({ length: 2000 }, (_, i) => `line ${i}`).join('\n') + '\n';
-  const dir = await ws(t, { 'big.txt': big });
-  const first = await read(dir, 'big.txt');
-  const messages = [];
-  for (let i = 0; i < 5; i++) {
-    const id = `r${i}`;
-    messages.push({
-      role: 'assistant',
-      content: [
-        {
-          type: 'tool_use',
-          id,
-          name: 'read_file',
-          input: { path: i === 0 ? 'big.txt' : `o${i}.txt` },
-        },
-      ],
-    });
-    messages.push({
-      role: 'user',
-      content: [
-        {
-          type: 'tool_result',
-          tool_use_id: id,
-          name: 'read_file',
-          content: i === 0 ? first : 'x'.repeat(9000),
-        },
-      ],
-    });
-  }
-  messages.push({ role: 'assistant', content: [{ type: 'text', text: 'ok' }] });
-  const elided = elideOldLargeToolResults(messages);
-  assert.ok(elided.elidedCount >= 1, 'fixture: the big read was elided');
-  const r = await read(dir, 'big.txt');
-  assert.notEqual(
-    r,
-    FILE_UNCHANGED_STUB,
-    'earlier body is gone: never "refer to the earlier read"'
-  );
-});
+for (const readPath of ['big.txt', 'nested/../big.txt', '../big.txt'])
+  test(`Q5b after a large read via ${readPath} is elided, re-read is real`, async (t) => {
+    const big = Array.from({ length: 2000 }, (_, i) => `line ${i}`).join('\n') + '\n';
+    const root = await ws(t, { 'big.txt': big });
+    await fs.mkdir(path.join(root, 'nested'));
+    await fs.mkdir(path.join(root, 'child'));
+    const dir = readPath.startsWith('../') ? path.join(root, 'child') : root;
+    const first = await read(dir, readPath);
+    const messages = [];
+    for (let i = 0; i < 5; i++) {
+      const id = `r${i}`;
+      messages.push({
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            id,
+            name: 'read_file',
+            input: { path: i === 0 ? readPath : `o${i}.txt` },
+          },
+        ],
+      });
+      messages.push({
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: id,
+            name: 'read_file',
+            content: i === 0 ? first : 'x'.repeat(9000),
+          },
+        ],
+      });
+    }
+    messages.push({ role: 'assistant', content: [{ type: 'text', text: 'ok' }] });
+    const elided = elideOldLargeToolResults(messages);
+    assert.ok(elided.elidedCount >= 1, 'fixture: the big read was elided');
+    const r = await read(dir, readPath);
+    assert.notEqual(
+      r,
+      FILE_UNCHANGED_STUB,
+      'earlier body is gone: never "refer to the earlier read"'
+    );
+  });
 
 // ── B: placeholder wording ────────────────────────────────────────────────
 test('B placeholders say the file was written; no "elided"/"not visible" wording', () => {

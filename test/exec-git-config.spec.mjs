@@ -21,6 +21,8 @@ import { GIT_HOOKS_PATH, shellGitConfigPairs } from '../dist/utils/git-spawn.js'
 import { captureEnvBeforeDotenv } from '../dist/utils/startup-env.js';
 import { isWorkspaceTrusted, workspaceTrustKey } from '../dist/utils/workspace-trust-state.js';
 
+const gitPath = (file) => file.split(path.sep).join('/');
+const joinGit = (...parts) => gitPath(path.join(...parts));
 const hooksPath = GIT_HOOKS_PATH;
 
 const isWin = process.platform === 'win32';
@@ -40,6 +42,68 @@ function gp(p) {
 const WIN_HOOKS_SKIP =
   isWin &&
   'win32: POSIX-only assertions; win32 covered unconditionally by O76 (pending Windows CI e2e check)';
+function builtinScriptPath(command) {
+  const file = command.startsWith("'") ? command.slice(1, -1).replaceAll("'\\''", "'") : command;
+  if (command.startsWith("'")) assert.equal(command.at(-1), "'");
+  assert.ok(path.isAbsolute(file), 'the builtin command names an actual absolute script');
+  return file;
+}
+
+function unlinkFixtureLink(file) {
+  const st = fs.lstatSync(file, { throwIfNoEntry: false });
+  if (!st) return;
+  assert.equal(st.isSymbolicLink(), true, 'only the exact fixture link may be unlinked');
+  fs.unlinkSync(file);
+}
+
+const nativeModes = [];
+if (process.platform === 'win32') {
+  for (const name of ['mkdirSync', 'writeFileSync']) {
+    const original = fs[name];
+    fs[name] = function (file, ...args) {
+      const result = original.call(this, file, ...args);
+      const options = name === 'mkdirSync' ? args[0] : args[1];
+      if (options && typeof options === 'object') {
+        nativeModes.push({ name, file: path.resolve(String(file)), mode: options.mode });
+      }
+      return result;
+    };
+  }
+}
+
+function assertPrivateMode(dir, script) {
+  if (process.platform === 'win32') {
+    assert.ok(fs.lstatSync(dir).isDirectory());
+    assert.ok(
+      nativeModes.some(
+        (entry) =>
+          entry.mode === 0o700 &&
+          ((entry.name === 'mkdirSync' && entry.file === path.resolve(dir)) ||
+            (entry.name === 'writeFileSync' && path.dirname(entry.file) === path.resolve(dir)))
+      ),
+      'the real native install requested 0700; this is not a Windows ACL assertion'
+    );
+    assert.ok(fs.lstatSync(script).isFile());
+  } else {
+    const st = fs.lstatSync(dir);
+    assert.equal(st.mode & 0o777, 0o700);
+    assert.equal(st.uid, process.getuid());
+  }
+}
+
+test('the native install mode oracle rejects an actual non-0700 request', () => {
+  const root = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-git-mode-oracle-'));
+  try {
+    const dir = joinGit(root, 'nonprivate');
+    fs.mkdirSync(dir, { mode: 0o755 });
+    const script = joinGit(dir, 'script.sh');
+    fs.writeFileSync(script, '#!/bin/sh\n', { mode: 0o755 });
+    assert.throws(() => assertPrivateMode(dir, script), assert.AssertionError);
+    assert.equal(fs.readFileSync(script, 'utf8'), '#!/bin/sh\n');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function writeExec(file, body) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -68,35 +132,35 @@ function git(cwd, args) {
 }
 
 function armRepo(root) {
-  const ws = path.join(root, 'ws');
-  const markers = path.join(root, 'markers');
+  const ws = joinGit(root, 'ws');
+  const markers = joinGit(root, 'markers');
   fs.mkdirSync(ws, { recursive: true });
   fs.mkdirSync(markers, { recursive: true });
   git(ws, ['init', '-q']);
   git(ws, ['config', 'user.email', 'moss@example.com']);
   git(ws, ['config', 'user.name', 'Moss Test']);
-  fs.writeFileSync(path.join(ws, 'data.txt'), 'hello 1\n');
-  fs.writeFileSync(path.join(ws, 'README.md'), '# readme\n');
+  fs.writeFileSync(joinGit(ws, 'data.txt'), 'hello 1\n');
+  fs.writeFileSync(joinGit(ws, 'README.md'), '# readme\n');
   fs.writeFileSync(
-    path.join(ws, '.gitattributes'),
+    joinGit(ws, '.gitattributes'),
     '*.txt filter=evil diff=evil\n*.md filter=included\n'
   );
   git(ws, ['add', '-A']);
   git(ws, ['commit', '-qm', 'init']);
 
-  const fsmonitor = path.join(ws, 'fsmonitor.sh');
-  const clean = path.join(ws, 'clean.sh');
-  const smudge = path.join(ws, 'smudge.sh');
-  const textconv = path.join(ws, 'textconv.sh');
-  const includedClean = path.join(ws, 'included-clean.sh');
-  markerScript(fsmonitor, path.join(markers, 'fsmonitor'));
-  markerScript(clean, path.join(markers, 'filter-clean'), 'cat');
-  markerScript(smudge, path.join(markers, 'filter-smudge'), 'cat');
-  markerScript(textconv, path.join(markers, 'textconv'), 'cat "$1"');
-  markerScript(includedClean, path.join(markers, 'filter-include'), 'cat');
-  const hooks = path.join(ws, 'hooks');
-  markerScript(path.join(hooks, 'pre-commit'), path.join(markers, 'hooks'));
-  const included = path.join(ws, 'included.cfg');
+  const fsmonitor = joinGit(ws, 'fsmonitor.sh');
+  const clean = joinGit(ws, 'clean.sh');
+  const smudge = joinGit(ws, 'smudge.sh');
+  const textconv = joinGit(ws, 'textconv.sh');
+  const includedClean = joinGit(ws, 'included-clean.sh');
+  markerScript(fsmonitor, joinGit(markers, 'fsmonitor'));
+  markerScript(clean, joinGit(markers, 'filter-clean'), 'cat');
+  markerScript(smudge, joinGit(markers, 'filter-smudge'), 'cat');
+  markerScript(textconv, joinGit(markers, 'textconv'), 'cat "$1"');
+  markerScript(includedClean, joinGit(markers, 'filter-include'), 'cat');
+  const hooks = joinGit(ws, 'hooks');
+  markerScript(joinGit(hooks, 'pre-commit'), joinGit(markers, 'hooks'));
+  const included = joinGit(ws, 'included.cfg');
   fs.writeFileSync(
     included,
     `[filter "included"]\n\tclean = ${gp(includedClean)}\n\trequired = true\n`
@@ -303,9 +367,9 @@ test('git config env appends after an existing count', () => {
 });
 
 test('untrusted exec git does not run repo programs; trusted exec does', async () => {
-  const untrustedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-'));
-  const trustedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-trust-'));
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-cfg-'));
+  const untrustedRoot = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-'));
+  const trustedRoot = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-trust-'));
+  const configDir = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-cfg-'));
   try {
     useConfigDir(configDir);
     useIsolatedGitConfig();
@@ -320,7 +384,7 @@ test('untrusted exec git does not run repo programs; trusted exec does', async (
       'filter-include',
     ];
     const before = Object.fromEntries(
-      names.map((name) => [name, count(path.join(evil.markers, name))])
+      names.map((name) => [name, count(joinGit(evil.markers, name))])
     );
     assert.deepEqual(before, {
       fsmonitor: 0,
@@ -361,12 +425,12 @@ test('untrusted exec git does not run repo programs; trusted exec does', async (
     assert.match(background, /exit 0/);
 
     for (const name of names) {
-      assert.equal(count(path.join(evil.markers, name)), 0, `${name} ran under untrusted exec`);
+      assert.equal(count(joinGit(evil.markers, name)), 0, `${name} ran under untrusted exec`);
     }
 
     const trusted = armRepo(trustedRoot);
     fs.writeFileSync(
-      path.join(configDir, 'workspace-trust.json'),
+      joinGit(configDir, 'workspace-trust.json'),
       `${JSON.stringify({ [workspaceTrustKey(trusted.ws)]: true }, null, 2)}\n`
     );
     assert.equal(isWorkspaceTrusted(trusted.ws), true);
@@ -384,10 +448,10 @@ test('untrusted exec git does not run repo programs; trusted exec does', async (
       { command: 'git commit -qm model-commit', timeout_ms: 20000 },
       ctx(trusted.ws)
     );
-    assert.ok(count(path.join(trusted.markers, 'fsmonitor')) > 0, 'trusted fsmonitor did not run');
-    assert.ok(count(path.join(trusted.markers, 'filter-clean')) > 0, 'trusted clean did not run');
-    assert.ok(count(path.join(trusted.markers, 'textconv')) > 0, 'trusted textconv did not run');
-    assert.ok(count(path.join(trusted.markers, 'hooks')) > 0, 'trusted hook did not run');
+    assert.ok(count(joinGit(trusted.markers, 'fsmonitor')) > 0, 'trusted fsmonitor did not run');
+    assert.ok(count(joinGit(trusted.markers, 'filter-clean')) > 0, 'trusted clean did not run');
+    assert.ok(count(joinGit(trusted.markers, 'textconv')) > 0, 'trusted textconv did not run');
+    assert.ok(count(joinGit(trusted.markers, 'hooks')) > 0, 'trusted hook did not run');
   } finally {
     restoreGitConfig();
     restoreEnv();
@@ -398,8 +462,8 @@ test('untrusted exec git does not run repo programs; trusted exec does', async (
 });
 
 test('discovery cache follows config mtime and a failed discovery leaves user git config alone', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-cache-'));
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-cache-cfg-'));
+  const root = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-cache-'));
+  const configDir = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-cache-cfg-'));
   try {
     useConfigDir(configDir);
     const { ws } = armRepo(root);
@@ -407,17 +471,52 @@ test('discovery cache follows config mtime and a failed discovery leaves user gi
     const second = await untrustedShellGitConfig(ws);
     assert.equal(first, second);
     assert.ok(first.some((pair) => pair.key === 'filter.evil.clean' && pair.value === 'cat'));
-    fs.appendFileSync(path.join(ws, '.git', 'config'), '\n# touch\n');
+    fs.appendFileSync(joinGit(ws, '.git', 'config'), '\n# touch\n');
     const third = await untrustedShellGitConfig(ws);
     assert.notEqual(first, third);
 
-    const fresh = armRepo(path.join(root, 'aborted'));
+    const fresh = armRepo(joinGit(root, 'aborted'));
     const aborted = new AbortController();
     aborted.abort();
     const env = await childEnv(fresh.ws, aborted.signal);
     assert.equal(pairsNamed(env, 'filter.evil.clean').length, 0);
     assert.equal(pairsNamed(env, 'core.fsmonitor').length, 0);
-    assert.equal(pairsNamed(env, 'core.hooksPath').length, 0);
+    if (process.platform === 'win32') {
+      assert.equal(hooksPath, 'NUL');
+      assert.deepEqual(
+        pairsNamed(env, 'core.hooksPath').map((pair) => pair.value),
+        [hooksPath]
+      );
+      const raw = spawnSync(
+        'git',
+        ['-c', 'core.fsmonitor=false', 'commit', '--allow-empty', '-qm', 'raw-hook'],
+        {
+          cwd: fresh.ws,
+          env: process.env,
+          encoding: 'utf8',
+        }
+      );
+      assert.equal(raw.status, 0, raw.stderr);
+      assert.ok(count(joinGit(fresh.markers, 'hooks')) > 0, 'raw repo hook must actually run');
+      fs.unlinkSync(joinGit(fresh.markers, 'hooks'));
+      const guarded = spawnSync(
+        'git',
+        ['-c', 'core.fsmonitor=false', 'commit', '--allow-empty', '-qm', 'guarded-hook'],
+        {
+          cwd: fresh.ws,
+          env,
+          encoding: 'utf8',
+        }
+      );
+      assert.equal(guarded.status, 0, guarded.stderr);
+      assert.equal(
+        count(joinGit(fresh.markers, 'hooks')),
+        0,
+        'aborted discovery must still block the actual repo hook'
+      );
+    } else {
+      assert.equal(pairsNamed(env, 'core.hooksPath').length, 0);
+    }
     assert.equal(pairsNamed(env, 'core.sshCommand').length, 0);
     assert.equal(pairsNamed(env, 'credential.helper').length, 0);
     assert.equal(pairsNamed(env, 'core.pager').length, 0);
@@ -429,13 +528,13 @@ test('discovery cache follows config mtime and a failed discovery leaves user gi
 });
 
 test('untrusted exec keeps a global credential helper and blocks a local one', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-cred-'));
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-cred-cfg-'));
-  const globalFile = path.join(root, 'global.gitconfig');
-  const stub = path.join(root, 'stub-helper.sh');
-  const stubMarker = path.join(root, 'stub.marker');
-  const evil = path.join(root, 'evil-helper.sh');
-  const evilMarker = path.join(root, 'evil.marker');
+  const root = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-cred-'));
+  const configDir = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-cred-cfg-'));
+  const globalFile = joinGit(root, 'global.gitconfig');
+  const stub = joinGit(root, 'stub-helper.sh');
+  const stubMarker = joinGit(root, 'stub.marker');
+  const evil = joinGit(root, 'evil-helper.sh');
+  const evilMarker = joinGit(root, 'evil.marker');
   try {
     useConfigDir(configDir);
     writeExec(
@@ -449,7 +548,7 @@ test('untrusted exec keeps a global credential helper and blocks a local one', a
     gitConfigFile(globalFile, ['credential.helper', gp(stub)]);
     useIsolatedGitConfig(globalFile);
 
-    const clean = path.join(root, 'clean');
+    const clean = joinGit(root, 'clean');
     initRepo(clean);
     assert.equal(isWorkspaceTrusted(clean), false);
     assert.equal(pairsNamed(await childEnv(clean), 'credential.helper').length, 0);
@@ -464,7 +563,7 @@ test('untrusted exec keeps a global credential helper and blocks a local one', a
     assert.doesNotMatch(filled, /exit_code:/);
     assert.ok(count(stubMarker) > 0, 'global credential helper was not invoked');
 
-    const dirty = path.join(root, 'dirty');
+    const dirty = joinGit(root, 'dirty');
     initRepo(dirty);
     git(dirty, ['config', '--add', 'credential.helper', gp(evil)]);
     assert.deepEqual(
@@ -492,13 +591,13 @@ test('untrusted exec keeps a global credential helper and blocks a local one', a
 });
 
 test('untrusted exec keeps a global ssh command and blocks a local one', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-ssh-'));
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-ssh-cfg-'));
-  const globalFile = path.join(root, 'global.gitconfig');
-  const globalSsh = path.join(root, 'global-ssh.sh');
-  const globalMarker = path.join(root, 'global-ssh.marker');
-  const evilSsh = path.join(root, 'evil-ssh.sh');
-  const evilMarker = path.join(root, 'evil-ssh.marker');
+  const root = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-ssh-'));
+  const configDir = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-ssh-cfg-'));
+  const globalFile = joinGit(root, 'global.gitconfig');
+  const globalSsh = joinGit(root, 'global-ssh.sh');
+  const globalMarker = joinGit(root, 'global-ssh.marker');
+  const evilSsh = joinGit(root, 'evil-ssh.sh');
+  const evilMarker = joinGit(root, 'evil-ssh.marker');
   try {
     useConfigDir(configDir);
     writeExec(globalSsh, `#!/bin/sh\necho ran >> ${JSON.stringify(gp(globalMarker))}\nexit 0\n`);
@@ -506,14 +605,14 @@ test('untrusted exec keeps a global ssh command and blocks a local one', async (
     gitConfigFile(globalFile, ['core.sshCommand', gp(globalSsh)]);
     useIsolatedGitConfig(globalFile);
 
-    const clean = path.join(root, 'clean');
+    const clean = joinGit(root, 'clean');
     initRepo(clean);
     git(clean, ['remote', 'add', 'origin', 'git@example.invalid:test/repo.git']);
     assert.equal(pairsNamed(await childEnv(clean), 'core.sshCommand').length, 0);
     await execTool.execute({ command: 'git ls-remote origin', timeout_ms: 20000 }, ctx(clean));
     assert.ok(count(globalMarker) > 0, 'global ssh command was not invoked');
 
-    const dirty = path.join(root, 'dirty');
+    const dirty = joinGit(root, 'dirty');
     initRepo(dirty);
     git(dirty, ['remote', 'add', 'origin', 'git@example.invalid:test/repo.git']);
     git(dirty, ['config', 'core.sshCommand', gp(evilSsh)]);
@@ -551,9 +650,9 @@ test('untrusted exec keeps a global hooks path unless the repo has its own hooks
     gitConfigFile(globalFile, ['core.hooksPath', gp(globalHooks)]);
     useIsolatedGitConfig(globalFile);
 
-    const clean = path.join(root, 'clean');
+    const clean = joinGit(root, 'clean');
     initRepo(clean);
-    fs.writeFileSync(path.join(clean, 'data.txt'), 'one\n');
+    fs.writeFileSync(joinGit(clean, 'data.txt'), 'one\n');
     assert.equal(pairsNamed(await childEnv(clean), 'core.hooksPath').length, 0);
     const committed = await execTool.execute(
       { command: 'git add data.txt && git commit -qm hooked', timeout_ms: 20000 },
@@ -566,7 +665,7 @@ test('untrusted exec keeps a global hooks path unless the repo has its own hooks
       path.join(clean, '.git', 'hooks', 'pre-commit'),
       `#!/bin/sh\necho ran >> ${JSON.stringify(gp(localMarker))}\nexit 0\n`
     );
-    fs.writeFileSync(path.join(clean, 'data.txt'), 'two\n');
+    fs.writeFileSync(joinGit(clean, 'data.txt'), 'two\n');
     assert.equal(pairsNamed(await childEnv(clean), 'core.hooksPath').length, 0);
     const before = count(globalMarker);
     const again = await execTool.execute(
@@ -577,9 +676,9 @@ test('untrusted exec keeps a global hooks path unless the repo has its own hooks
     assert.equal(count(localMarker), 0, 'repo pre-commit hook ran');
     assert.ok(count(globalMarker) > before, 'global hook did not run when .git/hooks is unused');
 
-    const pointed = path.join(root, 'pointed');
+    const pointed = joinGit(root, 'pointed');
     initRepo(pointed);
-    const evilHooks = path.join(root, 'evil-hooks');
+    const evilHooks = joinGit(root, 'evil-hooks');
     fs.mkdirSync(evilHooks);
     writeExec(
       path.join(evilHooks, 'pre-commit'),
@@ -612,9 +711,9 @@ test('untrusted exec keeps a global hooks path unless the repo has its own hooks
       return; // finally{} still cleans up
     }
     useIsolatedGitConfig();
-    const disabled = path.join(root, 'disabled');
+    const disabled = joinGit(root, 'disabled');
     initRepo(disabled);
-    const disabledMarker = path.join(root, 'disabled-hook.marker');
+    const disabledMarker = joinGit(root, 'disabled-hook.marker');
     writeExec(
       path.join(disabled, '.git', 'hooks', 'pre-commit'),
       `#!/bin/sh\necho ran >> ${JSON.stringify(gp(disabledMarker))}\nexit 0\n`
@@ -623,7 +722,7 @@ test('untrusted exec keeps a global hooks path unless the repo has its own hooks
       pairsNamed(await childEnv(disabled), 'core.hooksPath').map((pair) => pair.value),
       [hooksPath]
     );
-    fs.writeFileSync(path.join(disabled, 'data.txt'), 'one\n');
+    fs.writeFileSync(joinGit(disabled, 'data.txt'), 'one\n');
     const savedLocale = {
       LANG: process.env.LANG,
       LC_ALL: process.env.LC_ALL,
@@ -668,20 +767,49 @@ function gitText(cwd, args) {
   return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', status: result.status };
 }
 
-function execDiffBody(text) {
+const exactRepoHooksNotice = '[moss] Repo hooks in an untrusted workspace were not run.';
+function execDiffBody(text, expectHooksNotice = false) {
+  if (expectHooksNotice) {
+    const suffix = `\n\n${exactRepoHooksNotice}`;
+    assert.ok(text.endsWith(suffix), 'the only removed text is the exact trailing hooks notice');
+    assert.equal(
+      text.split(exactRepoHooksNotice).length - 1,
+      1,
+      'hooks notice occurs exactly once'
+    );
+    text = text.slice(0, -suffix.length);
+  } else {
+    assert.doesNotMatch(text, /Repo hooks/);
+  }
   const failed = text.match(/^Command failed \(exit \d+\):\n([\s\S]*)$/);
   return (failed ? failed[1] : text).trim();
 }
 
+test('diff comparison rejects duplicate or changed hook notices and retains other output', () => {
+  assert.throws(
+    () => execDiffBody(`diff\n\n${exactRepoHooksNotice}\n\n${exactRepoHooksNotice}`, true),
+    assert.AssertionError
+  );
+  assert.throws(
+    () => execDiffBody('diff\n\n[moss] Repo hooks changed.', true),
+    assert.AssertionError
+  );
+  assert.equal(
+    execDiffBody(`diff\nunknown output\n\n${exactRepoHooksNotice}`, true),
+    'diff\nunknown output'
+  );
+  assert.throws(() => execDiffBody(`diff\n\n${exactRepoHooksNotice}`), assert.AssertionError);
+});
+
 test('untrusted exec git diff matches --no-ext-diff and does not run repo diff programs', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-extdiff-'));
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-extdiff-cfg-'));
-  const marker = path.join(root, 'diff.marker');
-  const script = path.join(root, 'evil-diff.sh');
+  const root = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-extdiff-'));
+  const configDir = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-extdiff-cfg-'));
+  const marker = joinGit(root, 'diff.marker');
+  const script = joinGit(root, 'evil-diff.sh');
   try {
     useConfigDir(configDir);
     useIsolatedGitConfig();
-    const ws = path.join(root, 'ws');
+    const ws = joinGit(root, 'ws');
     initRepo(ws);
     writeExec(script, `#!/bin/sh\necho ran >> ${JSON.stringify(gp(marker))}\nexit 1\n`);
     fs.writeFileSync(path.join(ws, '.gitattributes'), '* diff=evil\n');
@@ -705,10 +833,11 @@ test('untrusted exec git diff matches --no-ext-diff and does not run repo diff p
     assert.equal(external.length, 1);
     assert.equal(command.length, 1);
     assert.equal(external[0].value, command[0].value);
-    assert.match(external[0].value, /moss-git-builtin-diff\.sh$/);
-    assert.ok(external[0].value.includes(`${path.sep}git-builtin-diff${path.sep}`));
-    assert.ok(!external[0].value.startsWith(path.join(os.tmpdir(), 'moss-git-builtin-diff.sh')));
-    const scriptDir = fs.lstatSync(path.dirname(external[0].value));
+    const builtinScript = builtinScriptPath(external[0].value);
+    assert.match(builtinScript, /moss-git-builtin-diff\.sh$/);
+    assert.ok(builtinScript.includes('/git-builtin-diff/'));
+    assert.ok(!builtinScript.startsWith(joinGit(os.tmpdir(), 'moss-git-builtin-diff.sh')));
+    const scriptDir = fs.lstatSync(path.dirname(builtinScript));
     assert.equal(scriptDir.isSymbolicLink(), false);
     assert.equal(scriptDir.isDirectory(), true);
     // win32 has no POSIX mode bits or uid; the product skips these checks
@@ -726,8 +855,7 @@ test('untrusted exec git diff matches --no-ext-diff and does not run repo diff p
       { ...ctx(ws), sessionKey: 'exec-git-extdiff' }
     );
     assert.equal(count(marker), 0, 'untrusted git diff ran the repo diff program');
-    assert.equal(execDiffBody(got), ref.stdout.trim());
-    assert.doesNotMatch(got, /Repo hooks/);
+    assert.equal(execDiffBody(got, process.platform === 'win32'), ref.stdout.trim());
 
     const refStat = gitText(ws, ['--no-pager', 'diff', '--stat', '--no-ext-diff', '--no-color']);
     const gotStat = await execTool.execute(
@@ -784,19 +912,28 @@ test('untrusted exec git diff matches --no-ext-diff and does not run repo diff p
     assert.equal(execDiffBody(gotMode), refMode.stdout.trim());
 
     git(ws, ['reset', '--hard', '-q']);
-    const quotedNames = ['a\tb.txt', 'say"hi.txt', 'café.txt'];
-    for (const name of quotedNames) fs.writeFileSync(path.join(ws, name), 'v1\n');
+    const quotedNames =
+      process.platform === 'win32'
+        ? ['a&b ü.txt', "say'hi é.txt", 'café.txt']
+        : ['a\tb.txt', 'say"hi.txt', 'café.txt'];
+    for (const name of quotedNames) fs.writeFileSync(joinGit(ws, name), 'v1\n');
     git(ws, ['add', '-A']);
     git(ws, ['commit', '-qm', 'quoted']);
-    for (const name of quotedNames) fs.writeFileSync(path.join(ws, name), 'v2\n');
+    for (const name of quotedNames) fs.writeFileSync(joinGit(ws, name), 'v2\n');
     const refQuoted = gitText(ws, ['--no-pager', 'diff', '--no-ext-diff', '--no-color']);
     const gotQuoted = await execTool.execute(
       { command: 'git --no-pager diff --no-color', timeout_ms: 20000 },
       { ...ctx(ws), sessionKey: 'exec-git-extdiff' }
     );
     assert.equal(count(marker), 0, 'quoted-path diff ran the repo diff program');
-    assert.match(refQuoted.stdout, /\\t/);
-    assert.match(refQuoted.stdout, /\\"/);
+    if (process.platform === 'win32') {
+      assert.match(refQuoted.stdout, /\\303\\274/);
+      assert.match(refQuoted.stdout, /a&b/);
+      assert.match(refQuoted.stdout, /say'hi/);
+    } else {
+      assert.match(refQuoted.stdout, /\\t/);
+      assert.match(refQuoted.stdout, /\\"/);
+    }
     assert.match(refQuoted.stdout, /\\303\\251/);
     assert.equal(execDiffBody(gotQuoted), refQuoted.stdout.trim());
     assert.doesNotMatch(gotQuoted, /git-blob-/);
@@ -877,20 +1014,24 @@ test(
 );
 
 test('untrusted external diff fails closed when the builtin script path is not safe', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-diff-closed-'));
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-diff-closed-cfg-'));
-  const marker = path.join(root, 'diff.marker');
+  const root = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-diff-closed-'));
+  const configDir = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-diff-closed-cfg-'));
+  const marker = joinGit(root, 'diff.marker');
   try {
     useConfigDir(configDir);
     useIsolatedGitConfig();
-    const attack = path.join(root, 'attack');
+    const attack = joinGit(root, 'attack');
     fs.mkdirSync(attack);
     writeExec(
       path.join(attack, 'moss-git-builtin-diff.sh'),
       `#!/bin/sh\necho ran >> ${JSON.stringify(gp(marker))}\nexit 1\n`
     );
-    fs.symlinkSync(attack, path.join(configDir, 'git-builtin-diff'));
-    const ws = path.join(root, 'ws');
+    fs.symlinkSync(
+      attack,
+      joinGit(configDir, 'git-builtin-diff'),
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+    const ws = joinGit(root, 'ws');
     initRepo(ws);
     const evil = path.join(root, 'evil-diff.sh');
     writeExec(evil, `#!/bin/sh\necho ran >> ${JSON.stringify(gp(marker))}\nexit 1\n`);
@@ -925,11 +1066,11 @@ test('untrusted external diff fails closed when the builtin script path is not s
     assert.match(again, /external diff died/);
     assert.match(again, /The repo's external diff was disabled/);
 
-    const looseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-diff-loose-'));
-    const looseScriptDir = path.join(looseDir, 'git-builtin-diff');
+    const looseDir = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-diff-loose-'));
+    const looseScriptDir = joinGit(looseDir, 'git-builtin-diff');
     fs.mkdirSync(looseScriptDir, { mode: 0o777 });
     fs.chmodSync(looseScriptDir, 0o777);
-    const planted = path.join(looseScriptDir, 'moss-git-builtin-diff.sh');
+    const planted = joinGit(looseScriptDir, 'moss-git-builtin-diff.sh');
     fs.symlinkSync(evil, planted);
     useConfigDir(looseDir);
     const tightened = pairsNamed(await childEnv(ws), 'diff.external');
@@ -950,6 +1091,7 @@ test('untrusted external diff fails closed when the builtin script path is not s
     assert.doesNotMatch(replaced, /external diff was disabled/);
     fs.rmSync(looseDir, { recursive: true, force: true });
   } finally {
+    unlinkFixtureLink(joinGit(configDir, 'git-builtin-diff'));
     restoreGitConfig();
     restoreEnv();
     fs.rmSync(root, { recursive: true, force: true });
@@ -1031,14 +1173,18 @@ test(
 );
 
 test('external diff died keeps its explanation after the once-per-session notice', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-died-'));
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-died-cfg-'));
-  const marker = path.join(root, 'diff.marker');
+  const root = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-died-'));
+  const configDir = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-died-cfg-'));
+  const marker = joinGit(root, 'diff.marker');
   try {
     useConfigDir(configDir);
     useIsolatedGitConfig();
-    fs.symlinkSync(root, path.join(configDir, 'git-builtin-diff'));
-    const ws = path.join(root, 'ws');
+    fs.symlinkSync(
+      root,
+      joinGit(configDir, 'git-builtin-diff'),
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+    const ws = joinGit(root, 'ws');
     initRepo(ws);
     const evil = path.join(root, 'evil-diff.sh');
     writeExec(evil, `#!/bin/sh\necho ran >> ${JSON.stringify(gp(marker))}\nexit 1\n`);
@@ -1068,6 +1214,7 @@ test('external diff died keeps its explanation after the once-per-session notice
     assert.match(again, /external diff died/);
     assert.match(again, /The repo's external diff was disabled/);
   } finally {
+    unlinkFixtureLink(joinGit(configDir, 'git-builtin-diff'));
     restoreGitConfig();
     restoreEnv();
     fs.rmSync(root, { recursive: true, force: true });
@@ -1139,8 +1286,8 @@ test(
 );
 
 test('a project MOSS_TRUST_WORKSPACE after startup capture does not grant git trust', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-env-'));
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-env-cfg-'));
+  const root = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-env-'));
+  const configDir = fs.mkdtempSync(joinGit(os.tmpdir(), 'moss-exec-git-env-cfg-'));
   try {
     const snapshot = { ...process.env, MOSS_CONFIG_DIR: configDir };
     delete snapshot.MOSS_TRUST_WORKSPACE;
@@ -1149,7 +1296,7 @@ test('a project MOSS_TRUST_WORKSPACE after startup capture does not grant git tr
     process.env.MOSS_CONFIG_DIR = configDir;
     assert.equal(isWorkspaceTrusted(root), false);
     fs.writeFileSync(
-      path.join(configDir, 'workspace-trust.json'),
+      joinGit(configDir, 'workspace-trust.json'),
       `${JSON.stringify({ [workspaceTrustKey(root)]: true }, null, 2)}\n`
     );
     assert.equal(isWorkspaceTrusted(root), true);

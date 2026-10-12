@@ -230,6 +230,7 @@ export interface MossAgentConfig
   steeringRules?: SteeringRule[];
 
   completionGate?: AgentLoopExtensions['completionGate'];
+  onAgentLoopEvent?: AgentLoopExtensions['onAgentLoopEvent'];
   /**
    * Force buffering of assistant text until turn end (disables live
    * message_delta streaming). Prefer leaving this unset: structured-output
@@ -249,6 +250,14 @@ export interface ChatOptions {
   ephemeralTools?: Tool[];
   /** Limit the tools visible and executable for this run. */
   toolFilter?: ToolFilter;
+
+  /**
+   * Host-owned device availability for this run. Unset retains CLI device
+   * discovery; false hides device tools even when a process target exists.
+   * This only controls offering: tool filters, approval and the host's
+   * authenticated device binding still govern execution.
+   */
+  deviceConfigured?: boolean;
 
   extraContext?: string;
 
@@ -341,6 +350,8 @@ export type MossAgentEvent =
       toolName: string;
       toolCallId: string;
       result: string;
+      /** Canonical tool output after the existing per-tool limit and egress redaction. */
+      content?: string;
       isError: boolean;
       outcome?: ToolResult['outcome'];
       durationMs?: number;

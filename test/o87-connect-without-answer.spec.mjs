@@ -149,12 +149,12 @@ test('O87 fixture: CONNECT then blackhole → network fail with cause, not timeo
   const proxyUrl = `http://127.0.0.1:${port}`;
 
   const childCode = `
+    for (const k of ['NODE_USE_ENV_PROXY', 'NO_PROXY', 'no_proxy', 'HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy'])
+      delete process.env[k];
     process.env.HTTPS_PROXY = ${JSON.stringify(proxyUrl)};
     process.env.HTTP_PROXY = ${JSON.stringify(proxyUrl)};
     process.env.MOSS_CONNECT_TIMEOUT_MS = '1500';
     process.env.MOSS_DISABLE_CONN_WARMUP = '1';
-    for (const k of ['NODE_USE_ENV_PROXY', 'NO_PROXY', 'no_proxy', 'https_proxy', 'http_proxy'])
-      delete process.env[k];
     const { fetchWithConnectionContext } = await import('./dist/provider/connection-error.js');
     const { classifyProviderError, renderProviderErrorSurface } = await import(
       './dist/provider/error-classify.js'

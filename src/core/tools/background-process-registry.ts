@@ -72,6 +72,8 @@ export interface BackgroundProc {
   /** Session that started the process, when the host provided one. */
   sessionKey?: string;
   child: ChildProcess;
+  /** SDK-owned Windows Job bootstrap; user code cannot dispatch before Assign succeeds. */
+  windowsJobOwner?: boolean;
   pid?: number;
   status: BackgroundStatus;
   exitCode: number | null;
@@ -340,6 +342,9 @@ export function killProc(proc: BackgroundProc): void {
   const pid = proc.child.pid;
   try {
     if (IS_WIN && pid) {
+      // Stop the Job owner before the slower tree enumeration. For a live
+      // owner this stack does not yield between its kill and taskkill.
+      if (proc.windowsJobOwner) proc.child.kill();
       runProcessSync('taskkill', ['/pid', String(pid), '/T', '/F'], {
         stdio: 'ignore',
         windowsHide: true,

@@ -29,6 +29,8 @@ export interface OscReplyFilterResult {
 
 export interface OscReplyFilter {
   feed(chunk: string): OscReplyFilterResult;
+  /** Flush a partial head as literal input before a composer control key. */
+  flushText(): string;
 }
 
 export function createOsc11ReplyFilter(): OscReplyFilter {
@@ -36,56 +38,59 @@ export function createOsc11ReplyFilter(): OscReplyFilter {
   let collecting = false;
   let swallowStTail = false;
 
-  const finishPending = (): OscReplyFilterResult => {
-    const term = pending.search(TERMINATOR);
-    if (term !== -1) {
-      const body = pending.slice(REPLY_PREFIX.length, term);
-      let rest = pending.slice(term + 1);
-      const termChar = pending[term];
-      if (termChar === '\u001b' && rest.startsWith('\\')) rest = rest.slice(1);
-      pending = '';
-      collecting = false;
-      swallowStTail = rest === '' && termChar === '\u001b';
-      return { passthrough: rest, body: body === '' ? undefined : body };
-    }
-    if (pending.length > MAX_PENDING) {
-      const held = pending;
-      pending = '';
-      collecting = false;
-      return { passthrough: held };
-    }
-    return { passthrough: '' };
-  };
-
   const feed = (chunk: string): OscReplyFilterResult => {
     if (swallowStTail && chunk.startsWith('\\')) {
       swallowStTail = false;
       chunk = chunk.slice(1);
     }
     swallowStTail = false;
-    const acc = pending + chunk;
-    if (!collecting) {
-      pending = '';
+    let acc = pending + chunk;
+    pending = '';
+    let passthrough = '';
+    let body: string | undefined;
+    for (;;) {
+      if (collecting) {
+        const term = acc.search(TERMINATOR);
+        if (term === -1) {
+          if (acc.length > MAX_PENDING) {
+            collecting = false;
+            return { passthrough: passthrough + acc, body };
+          }
+          pending = acc;
+          return { passthrough, body };
+        }
+        body = acc.slice(REPLY_PREFIX.length, term) || body;
+        const termChar = acc[term];
+        acc = acc.slice(term + 1);
+        if (termChar === '\u001b' && acc.startsWith('\\')) acc = acc.slice(1);
+        swallowStTail = acc === '' && termChar === '\u001b';
+        collecting = false;
+      }
       const start = acc.indexOf(REPLY_PREFIX);
       if (start === -1) {
         for (const part of PARTIAL_SUFFIXES) {
           if (acc.endsWith(part)) {
             pending = part;
-            return { passthrough: acc.slice(0, acc.length - part.length) };
+            return { passthrough: passthrough + acc.slice(0, acc.length - part.length), body };
           }
         }
-        return { passthrough: acc };
+        return { passthrough: passthrough + acc, body };
       }
-      pending = acc.slice(start);
       collecting = true;
       let head = acc.slice(0, start);
       if (head.endsWith('\u001b')) head = head.slice(0, -1);
-      const tail = finishPending();
-      return { passthrough: head + tail.passthrough, body: tail.body };
+      passthrough += head;
+      acc = acc.slice(start);
     }
-    pending = acc;
-    return finishPending();
   };
 
-  return { feed };
+  return {
+    feed,
+    flushText() {
+      if (collecting) return '';
+      const held = pending;
+      pending = '';
+      return held;
+    },
+  };
 }

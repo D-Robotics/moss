@@ -10,10 +10,11 @@ test('refused connect with HTTPS_PROXY blames the proxy, not the base URL', () =
     https_proxy: process.env.https_proxy,
     http_proxy: process.env.http_proxy,
   };
-  process.env.HTTPS_PROXY = 'http://127.0.0.1:9';
+  delete process.env.HTTPS_PROXY;
   delete process.env.HTTP_PROXY;
   delete process.env.https_proxy;
   delete process.env.http_proxy;
+  process.env.HTTPS_PROXY = 'http://127.0.0.1:9';
   try {
     const r = classifyProviderError({
       errorMessage: 'connect ECONNREFUSED 127.0.0.1:9',

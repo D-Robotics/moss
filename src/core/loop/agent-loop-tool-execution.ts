@@ -27,6 +27,7 @@ import {
   type ToolLoopGuardState,
 } from '../tools/tool-loop-guard.js';
 import { buildBackgroundCompletionSystemText } from './background-completion.js';
+import { inAcceptanceScope } from '../task/acceptance-commit-scope.js';
 
 const log = getRootLogger().child('agent:loop');
 
@@ -375,11 +376,40 @@ export async function executeAgentLoopToolCalls(
     effectiveParallelSafeTools,
     loadToolsMetaName
   );
+  const executeScoped = async (
+    call: ToolCallRef,
+    deps: ExecuteToolCallDeps
+  ): Promise<ExecuteToolCallOutcome> => {
+    const executed = await inAcceptanceScope(toolCtx.workspaceDir, () =>
+      executeOneToolCall(call, deps)
+    );
+    if (executed.committed) {
+      state.taskAcceptanceCommitted = true;
+      state.finalText = executed.committed.detail;
+    }
+    return executed.value;
+  };
+  const skipRemainingToolCalls = (calls: ToolCallRef[]): void => {
+    for (const skipped of calls) {
+      push({ type: 'tool_skipped', toolCallId: skipped.id, toolName: skipped.name });
+      toolResults.push({
+        type: 'tool_result',
+        tool_use_id: skipped.id,
+        name: skipped.name,
+        content: 'Task acceptance committed; skipped remaining tool call.',
+        is_error: true,
+      });
+    }
+  };
 
   // Finish every call this assistant message already made. Steering (the
   // extended tool-loop nudge included) is attached after the batch and guides
   // the next turn — it does not skip or error the rest of the batch.
   for (const group of toolGroups) {
+    if (state.taskAcceptanceCommitted) {
+      skipRemainingToolCalls(group.calls);
+      continue;
+    }
     if (
       group.parallel &&
       group.calls.length > 1 &&
@@ -400,7 +430,7 @@ export async function executeAgentLoopToolCalls(
             syncAssistantToolUseInput(assistantContent, execCall);
           });
           if (preflight) return preflight;
-          return executeOneToolCall(execCall, deps).then((outcome) => {
+          return executeScoped(execCall, deps).then((outcome) => {
             call.input = execCall.input;
             return outcome;
           });
@@ -419,20 +449,25 @@ export async function executeAgentLoopToolCalls(
         recordToolOutcome(call, outcome, recordCtx, toolResults);
       }
     } else {
-      for (const call of group.calls) {
+      for (let gi = 0; gi < group.calls.length; gi++) {
+        const call = group.calls[gi];
         const preflight = preflightToolCall(call, preflightCtx, toolsForRun);
         if (preflight) {
           recordToolOutcome(call, preflight, recordCtx, toolResults);
           continue;
         }
 
-        const outcome = await executeOneToolCall(
+        const outcome = await executeScoped(
           call,
           toolCallDeps(call, (input) => {
             syncAssistantToolUseInput(assistantContent, { ...call, input });
           })
         );
         recordToolOutcome(call, outcome, recordCtx, toolResults);
+        if (state.taskAcceptanceCommitted) {
+          skipRemainingToolCalls(group.calls.slice(gi + 1));
+          break;
+        }
       }
     }
   }
@@ -487,7 +522,7 @@ export async function executeAgentLoopToolCalls(
     await appendMessage(sessionKey, resultMsg);
     toolResultMsgPersisted = true;
 
-    newSteering = evaluateSteering();
+    newSteering = state.taskAcceptanceCommitted ? [] : evaluateSteering();
     metrics.prepNextTurnParallelMs += Date.now() - parallelStartMs;
   } finally {
     if (abortSignal.aborted && !toolResultMsgPersisted) {

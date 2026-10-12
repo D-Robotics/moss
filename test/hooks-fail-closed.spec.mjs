@@ -188,7 +188,13 @@ for (const lang of ['en', 'zh']) {
 test('claude format + exit 1 allows the write but surfaces hook and exit code', async () => {
   useLang('en');
   const r = await runWrite({
-    PreToolUse: [{ command: 'echo oops >&2; exit 1', format: 'claude', source: CONFIG }],
+    PreToolUse: [
+      {
+        command: IS_WIN ? 'echo oops >&2 & exit /b 1' : 'echo oops >&2; exit 1',
+        format: 'claude',
+        source: CONFIG,
+      },
+    ],
   });
   assert.equal(r.written, true, 'allowed: file must exist');
   assert.match(r.stderr, /PreToolUse hook exited with code 1/);
@@ -199,9 +205,72 @@ test('claude format + exit 1 allows the write but surfaces hook and exit code', 
 test('claude format + exit 2 still blocks (regression)', async () => {
   useLang('en');
   const r = await runWrite({
-    PreToolUse: [{ command: 'echo nope >&2; exit 2', format: 'claude' }],
+    PreToolUse: [
+      { command: IS_WIN ? 'echo nope >&2 & exit /b 2' : 'echo nope >&2; exit 2', format: 'claude' },
+    ],
   });
   assertBlocked(r, /nope/);
+});
+
+test('native hook verdicts retain quoted argv/stdin/cwd, explicit exits and real command recovery', async () => {
+  useLang('en');
+  const dir = tmp();
+  const script = path.join(dir, "hook space ' 中文.mjs");
+  const output = path.join(dir, 'native-hook.json');
+  const argument = "literal & ( ) ' 中文";
+  fs.writeFileSync(
+    script,
+    `import fs from 'node:fs';let data='';process.stdin.on('data',c=>data+=c);process.stdin.on('end',()=>{fs.writeFileSync(process.argv[2],JSON.stringify({payload:JSON.parse(data),cwd:process.cwd(),argument:process.argv[3]}));process.exit(Number(process.argv[4]));});`
+  );
+  const quote = (value) => (IS_WIN ? `"${value}"` : `'${value.replaceAll("'", "'\\''")}'`);
+  const command = (code) =>
+    [process.execPath, script, output, argument, String(code)].map(quote).join(' ');
+  for (const [code, allowed] of [
+    [0, true],
+    [1, true],
+    [2, false],
+    [7, true],
+  ]) {
+    const r = await runWrite(
+      { PreToolUse: [{ command: command(code), format: 'claude' }] },
+      { dir: tmp() }
+    );
+    assert.equal(r.written, allowed, `real explicit exit ${code}`);
+    const observed = JSON.parse(fs.readFileSync(output, 'utf8'));
+    assert.equal(observed.argument, argument);
+    assert.equal(observed.payload.event, 'PreToolUse');
+    assert.equal(fs.realpathSync.native(observed.cwd), fs.realpathSync.native(r.dir));
+    if (code !== 0 && allowed) assert.match(r.stderr, new RegExp(`exited with code ${code}`));
+    if (!allowed) assertBlocked(r, /hook exited 2/);
+  }
+  // A real successful command clears the missing command's ERRORLEVEL. A cmd
+  // echo does not: it cannot turn a missing hook into an affirmative verdict.
+  const recovered = await runWrite({
+    PreToolUse: [{ command: `${MISSING} ${IS_WIN ? '&' : ';'} ${command(0)}`, format: 'claude' }],
+  });
+  assert.equal(recovered.written, true);
+  if (IS_WIN) {
+    const masked = await runWrite({
+      PreToolUse: [{ command: `${MISSING} & echo not-an-exit-verdict`, format: 'claude' }],
+    });
+    assertBlocked(masked, /could not start/);
+    const conditional = await runWrite({
+      PreToolUse: [{ command: `(${MISSING}) && echo forbidden`, format: 'claude' }],
+    });
+    assertBlocked(conditional, /could not start/);
+    const explicit = await runWrite({
+      PreToolUse: [{ command: `${MISSING} & exit /b 0`, format: 'claude' }],
+    });
+    assert.equal(explicit.written, true);
+    const comment = await runWrite({
+      PreToolUse: [{ command: 'rem harmless comment', format: 'claude' }],
+    });
+    assert.equal(comment.written, true);
+    const escaped = await runWrite({
+      PreToolUse: [{ command: 'echo literal ^& ^( ^) & exit /b 0', format: 'claude' }],
+    });
+    assert.equal(escaped.written, true);
+  }
 });
 
 test('blocking:false + missing command allows the write and shows the reason', async () => {

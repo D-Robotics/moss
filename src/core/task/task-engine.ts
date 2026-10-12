@@ -25,9 +25,14 @@ import {
   tryAppendTaskEvent,
 } from './task-store.js';
 import { injectExperienceIntoPrompt } from '../experience/experience-library.js';
+import { persistedAcceptanceCommand } from './acceptance-authority.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
 import type { AgentTurnResult } from './agent-turn.js';
-import { acceptanceAlreadySatisfied, createTaskVerdictProvider } from './verdict.js';
+import {
+  acceptanceAlreadySatisfied,
+  createTaskVerdictProvider,
+  isCommittedTaskVerdict,
+} from './verdict.js';
 
 const log = getRootLogger().child('task-engine');
 
@@ -220,9 +225,11 @@ async function runAgentTurn(
   phase: string
 ): Promise<'ok' | 'budget'> {
   const { stopReason } = readAgentTurnResult(await deps.runTurn(prompt, phase), deps.runTurn);
+  // Normal turns are reconciled by their caller; only a budget stop needs
+  // this extra snapshot before deciding whether to append a failure.
+  if (!stopReason?.startsWith('budget_')) return 'ok';
   const snapshot = await getTaskStateSnapshot(deps.workspaceDir, state.taskId);
   if (phaseIsSettled(snapshot?.phase) || deps.signal?.aborted) return 'ok';
-  if (!stopReason?.startsWith('budget_')) return 'ok';
   await appendTaskEvent(deps.workspaceDir, state.taskId, 'task_failed', {
     detail: `run budget exceeded (${stopReason})`,
   });
@@ -292,16 +299,24 @@ async function verifyRepairLoop(
       detail: 'evaluating acceptance',
     });
     const verdict = await provider.evaluate(state.taskId, deps.signal);
+    // Cancellation while a provider awaits evidence outranks its eventual PASS.
+    if (deps.signal?.aborted && !isCommittedTaskVerdict(verdict)) continue;
     state.lastVerdict = verdict;
 
     if (verdict.passed) {
-      await tryAppendTaskEvent(workspaceDir, state.taskId, 'acceptance_pass', {
-        detail:
-          verdict.source === 'command'
-            ? 'acceptance command exited 0'
-            : 'criteria met with evidence',
-        acceptanceSource: verdict.source,
-      });
+      await tryAppendTaskEvent(
+        workspaceDir,
+        state.taskId,
+        'acceptance_pass',
+        {
+          detail:
+            verdict.source === 'command'
+              ? 'acceptance command exited 0'
+              : 'criteria met with evidence',
+          acceptanceSource: verdict.source,
+        },
+        isCommittedTaskVerdict(verdict) ? undefined : deps.signal
+      );
       deps.onProgress?.({
         taskId: state.taskId,
         phase: 'accepted',
@@ -467,9 +482,20 @@ async function acceptPlanningIfSatisfied(
   provider: VerdictProvider
 ): Promise<boolean> {
   const current = await getTaskStateSnapshot(deps.workspaceDir, state.taskId);
-  if (!current || current.phase === 'accepted') return current?.phase === 'accepted';
+  if (!current) return false;
+  if (current.phase === 'accepted') {
+    deps.onProgress?.({
+      taskId: state.taskId,
+      phase: 'accepted',
+      turn: state.turns,
+      detail: 'acceptance passed',
+    });
+    return true;
+  }
   if (!(await acceptanceAlreadySatisfied(deps.workspaceDir, state.taskId))) return false;
+  deps.signal?.throwIfAborted();
   const verdict = await provider.evaluate(state.taskId, deps.signal);
+  if (!isCommittedTaskVerdict(verdict)) deps.signal?.throwIfAborted();
   if (!verdict.passed) return false;
   state.lastVerdict = verdict;
   deps.onProgress?.({
@@ -483,7 +509,8 @@ async function acceptPlanningIfSatisfied(
     state.taskId,
     true,
     verdict.detail,
-    verdict.source
+    verdict.source,
+    isCommittedTaskVerdict(verdict) ? undefined : deps.signal
   );
   deps.onProgress?.({
     taskId: state.taskId,
@@ -577,7 +604,7 @@ export async function runTask(
       // `resumeTask` refuses to re-enter.
       await tryAppendTaskEvent(deps.workspaceDir, taskId, 'task_failed', {
         detail: `run crashed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200),
-      });
+      }).catch(() => {}); // A failed store must not mask the original IO error.
     }
     throw err;
   }
@@ -604,8 +631,13 @@ export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<
   ) {
     await appendTaskEvent(deps.workspaceDir, taskId, 'task_resumed', { detail: 'resumed by user' });
   }
+  const command = await persistedAcceptanceCommand(deps.workspaceDir, taskId);
   const provider =
-    deps.verdictProvider ?? createTaskVerdictProvider({ workspaceDir: deps.workspaceDir });
+    deps.verdictProvider ??
+    createTaskVerdictProvider({
+      workspaceDir: deps.workspaceDir,
+      ...(command ? { command } : {}),
+    });
   const state: RunLoopState = { taskId, turns: 0, repairsUsed: 0 };
   try {
     await verifyRepairLoop(
@@ -622,7 +654,7 @@ export async function resumeTask(deps: TaskEngineDeps, taskId: string): Promise<
     if (!isTaskEventLockTimeout(err)) {
       await tryAppendTaskEvent(deps.workspaceDir, taskId, 'task_failed', {
         detail: `run crashed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200),
-      });
+      }).catch(() => {}); // A failed store must not mask the original IO error.
     }
     throw err;
   }

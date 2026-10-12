@@ -11,42 +11,190 @@
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { execBackgroundTool, execLogsTool, execStopTool } from '../dist/tools/background-exec.js';
-import { execTool } from '../dist/tools/builtin.js';
-import { appendTaskEvent, createDraftTask } from '../dist/core/task/task-store.js';
-import {
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+
+// Capture the real result without changing taskkill's arguments, stdio, or deadline.
+// Diagnostics perform additional process queries only after the original assertion fails.
+const originalSpawnSync = childProcess.spawnSync;
+const taskkillCalls = [];
+function observeTaskkill(delegate, findChild, calls) {
+  return function (...args) {
+    if (!/(?:^|[\\/])taskkill(?:\.exe)?$/i.test(String(args[0]))) {
+      return delegate.apply(this, args);
+    }
+    const pidIndex = args[1].findIndex((arg) => String(arg).toLowerCase() === '/pid');
+    const pid = Number(args[1][pidIndex + 1]);
+    const child = findChild(pid);
+    const before = {
+      pid,
+      exitCode: child?.exitCode,
+      signalCode: child?.signalCode,
+    };
+    const lifecycle = {};
+    child?.once('exit', (code, signal) => {
+      lifecycle.exit = { at: Date.now(), code, signal };
+    });
+    child?.once('close', (code, signal) => {
+      lifecycle.close = { at: Date.now(), code, signal };
+    });
+    const startedAt = Date.now();
+    const result = delegate.apply(this, args);
+    calls.push({
+      before,
+      lifecycle,
+      args: args[1],
+      stdio: args[2]?.stdio,
+      timeout: args[2]?.timeout,
+      durationMs: Date.now() - startedAt,
+      status: result.status,
+      signal: result.signal,
+      error: result.error && { code: result.error.code, message: result.error.message },
+    });
+    return result;
+  };
+}
+// A pure oracle proves delegation preserves object identity and all kill options.
+{
+  const records = [];
+  const options = { stdio: 'ignore', windowsHide: true, timeout: 2000 };
+  const argv = ['/pid', '42', '/T', '/F'];
+  const result = {
+    status: null,
+    signal: 'SIGTERM',
+    error: { code: 'ETIMEDOUT', message: 'oracle' },
+  };
+  const receiver = {};
+  const observed = observeTaskkill(
+    function (command, actualArgv, actualOptions) {
+      assert.equal(this, receiver);
+      assert.equal(command, 'taskkill');
+      assert.equal(actualArgv, argv);
+      assert.equal(actualOptions, options);
+      return result;
+    },
+    () => undefined,
+    records
+  );
+  assert.equal(observed.call(receiver, 'taskkill', argv, options), result);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].args, argv);
+  assert.equal(records[0].timeout, 2000);
+  assert.equal(records[0].stdio, 'ignore');
+  assert.equal(records[0].error.code, 'ETIMEDOUT');
+  const passthrough = observeTaskkill(
+    () => result,
+    () => assert.fail('non-taskkill queried a child'),
+    records
+  );
+  assert.equal(passthrough('node', ['--version']), result);
+  assert.equal(records.length, 1);
+}
+if (process.platform === 'win32') {
+  childProcess.spawnSync = observeTaskkill(
+    originalSpawnSync,
+    (pid) => [...backgroundProcesses.values()].find((entry) => entry.child.pid === pid)?.child,
+    taskkillCalls
+  );
+  syncBuiltinESMExports();
+}
+// runProcessSync captures spawnSync at module load, so install the test observer first.
+const { execBackgroundTool, execLogsTool, execStopTool } =
+  await import('../dist/tools/background-exec.js');
+const { execTool } = await import('../dist/tools/builtin.js');
+const { appendTaskEvent, createDraftTask } = await import('../dist/core/task/task-store.js');
+const { resolveHostShell } = await import('../dist/utils/host-shell.js');
+const {
+  backgroundProcesses,
   clearBackgroundRegistryForTests,
   getBackgroundProcessSnapshot,
   listBackgroundProcessSnapshots,
   setKillEscalationMsForTests,
-} from '../dist/core/tools/background-process-registry.js';
+} = await import('../dist/core/tools/background-process-registry.js');
+
+process.on('uncaughtExceptionMonitor', () => {
+  if (process.platform !== 'win32') return;
+  console.error('[background-taskkill-failure]', JSON.stringify({ taskkillCalls }));
+  for (const proc of backgroundProcesses.values()) {
+    console.error(
+      '[background-child-failure]',
+      JSON.stringify({
+        snapshot: getBackgroundProcessSnapshot(proc.id),
+        exitCode: proc.child.exitCode,
+        signalCode: proc.child.signalCode,
+        shellAlive: proc.child.pid && isProcessAlive(proc.child.pid),
+        logs: proc.buffer,
+      })
+    );
+    // Own fixture output is used for relationship queries, never production kill targets.
+    for (const match of proc.buffer.matchAll(/\bnative_pid=(\d+)\b/g)) {
+      const nativePid = Number(match[1]);
+      if (!Number.isSafeInteger(nativePid) || nativePid <= 0 || !isProcessAlive(nativePid))
+        continue;
+      const result = originalSpawnSync(
+        path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `Get-CimInstance Win32_Process -Filter "ProcessId=${nativePid}" | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine | ConvertTo-Json -Compress`,
+        ],
+        { encoding: 'utf8', timeout: 2000, windowsHide: true }
+      );
+      console.error(
+        '[background-owned-native-relationship]',
+        JSON.stringify({
+          shellPid: proc.child.pid,
+          queryPid: nativePid,
+          status: result.status,
+          error: result.error && { code: result.error.code, message: result.error.message },
+          stdout: result.stdout,
+          stderr: result.stderr,
+        })
+      );
+    }
+  }
+});
 
 const ctx = () => ({ abortSignal: new AbortController().signal });
-const testDir = fs.mkdtempSync(path.join(process.cwd(), '.moss-background-exec-'));
+function cleanupTempDirectory(directory, prefix) {
+  const target = path.resolve(directory);
+  assert.equal(path.dirname(target), path.resolve(os.tmpdir()), 'cleanup stays in system temp');
+  assert.ok(path.basename(target).startsWith(prefix), 'cleanup names a created fixture directory');
+  fs.rmSync(target, { recursive: true, force: true });
+}
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), '.moss-background-exec-'));
 process.on('exit', () => {
-  fs.rmSync(testDir, { recursive: true, force: true });
+  cleanupTempDirectory(testDir, '.moss-background-exec-');
 });
 const quote = (value) =>
   process.platform === 'win32'
     ? `"${String(value).replaceAll('"', '""')}"`
     : `'${String(value).replaceAll("'", "'\\''")}'`;
 const nodeCommand = (scriptPath) => {
+  if (process.platform === 'win32') {
+    return `${resolveHostShell().kind === 'pwsh' ? '& ' : ''}${quote(process.execPath)} ${quote(scriptPath)}`;
+  }
   const relativePath = path.relative(process.cwd(), scriptPath).split(path.sep).join('/');
   return `node ${quote(relativePath)}`;
 };
+const goalNodeCommand = (scriptPath) =>
+  process.platform === 'win32' ? nodeCommand(scriptPath) : `node ${quote(scriptPath)}`;
 const writeScript = (name, source) => {
   const file = path.join(testDir, name);
   fs.writeFileSync(file, source);
   return file;
 };
-const sleepScript = writeScript('sleep.cjs', 'setInterval(() => {}, 1000)');
+const nativePidOutput =
+  process.platform === 'win32' ? 'console.log(`native_pid=${process.pid}`);' : '';
+const sleepScript = writeScript('sleep.cjs', `${nativePidOutput}setInterval(() => {}, 1000)`);
 const outputCommand =
   process.platform === 'win32'
     ? 'echo line1&echo line2&echo line3'
     : 'printf "line1\\nline2\\nline3\\n"';
-const longRunningCommand =
-  process.platform === 'win32' ? 'ping -t 127.0.0.1' : nodeCommand(sleepScript);
+const longRunningCommand = nodeCommand(sleepScript);
 
 async function waitForTerminalStatus(id, timeoutMs = 8000) {
   // Poll the snapshot — subscribing to lifecycle events races with fast-exiting
@@ -153,16 +301,13 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   setKillEscalationMsForTests(200);
   clearBackgroundRegistryForTests();
   const controller = new AbortController();
-  let command = longRunningCommand;
-  if (process.platform !== 'win32') {
-    const parentScript = [
-      'const { spawn } = require("node:child_process")',
-      `const child = spawn(process.execPath, [${JSON.stringify(sleepScript)}], { stdio: "ignore" })`,
-      'console.log(child.pid)',
-      'setInterval(() => {}, 1000)',
-    ].join(';');
-    command = nodeCommand(writeScript('parent.cjs', parentScript));
-  }
+  const parentScript = [
+    'const { spawn } = require("node:child_process")',
+    `const child = spawn(process.execPath, [${JSON.stringify(sleepScript)}], { stdio: "ignore" })`,
+    'console.log(child.pid)',
+    'setInterval(() => {}, 1000)',
+  ].join(';');
+  const command = nodeCommand(writeScript('parent.cjs', parentScript));
   const out = await execBackgroundTool.execute(
     { command, settle_ms: 50 },
     { abortSignal: controller.signal }
@@ -171,11 +316,11 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   assert.ok(id, `background process returned before cancellation: ${out}`);
 
   let childPid = null;
-  if (process.platform !== 'win32') {
+  {
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline && !childPid) {
       const logs = await execLogsTool.execute({ id, tail: 20 }, ctx());
-      const match = logs.match(/(?:^|\n)(\d+)(?:\n|$)/);
+      const match = logs.match(/(?:^|\n)(\d+)(?:\r?\n|$)/);
       childPid = match ? Number(match[1]) : null;
       if (!childPid) await new Promise((resolve) => setTimeout(resolve, 20));
     }
@@ -194,7 +339,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
     assert.equal(
       await waitForProcessExit(childPid, 3000),
       true,
-      'abort kills descendants in the detached POSIX process group'
+      'abort kills the actual native child (a detached process group on POSIX)'
     );
   }
 }
@@ -206,7 +351,7 @@ async function waitForProcessExit(pid, timeoutMs = 3000) {
   assert.match(out, /block/i, 'dangerous command is blocked by the safety gate');
 }
 
-async function stopAndConfirmGone(out, stopCtx, label, pidFile) {
+async function stopAndConfirmGone(out, stopCtx, label) {
   const id = extractBgId(out);
   assert.ok(id, `${label}: no background id in ${out}`);
   const pid = Number(out.match(/pid (\d+)/)?.[1]);
@@ -216,40 +361,52 @@ async function stopAndConfirmGone(out, stopCtx, label, pidFile) {
     Number.isInteger(pid) && pid > 0,
     `${label}: could not parse a finite positive pid from exec_background output: ${out}`
   );
-  // On Windows, cmd.exe can publish the shell pid before it starts the node
-  // grandchild. Stop only after that grandchild has written its pid, or the
-  // exit check races a process that was never started.
-  let scriptPid = 0;
-  if (pidFile) {
-    const deadline = Date.now() + 10000;
-    while (scriptPid <= 0) {
-      if (fs.existsSync(pidFile)) {
-        try {
-          const parsed = Number(fs.readFileSync(pidFile, 'utf8').trim());
-          if (Number.isInteger(parsed) && parsed > 0) scriptPid = parsed;
-        } catch {
-          // The writer may still hold the file. Keep polling until the deadline.
-        }
-      }
-      if (scriptPid > 0 || Date.now() >= deadline) break;
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    assert.ok(
-      Number.isInteger(scriptPid) && scriptPid > 0,
-      `${label}: script never wrote its pid before exec_stop`
+  const child = backgroundProcesses.get(id)?.child;
+  const stopObservation = {
+    startedAt: Date.now(),
+    childPid: child?.pid,
+    exitCode: child?.exitCode,
+    signalCode: child?.signalCode,
+  };
+  child?.once('exit', (code, signal) => {
+    stopObservation.exit = { at: Date.now(), code, signal };
+  });
+  child?.once('close', (code, signal) => {
+    stopObservation.close = { at: Date.now(), code, signal };
+  });
+  await execStopTool.execute({ id }, stopCtx);
+  const [terminal, shellGone] = await Promise.all([
+    waitForTerminalStatus(id, 5000),
+    Number.isFinite(pid) && pid > 0 ? waitForProcessExit(pid, 5000) : Promise.resolve(true),
+  ]);
+  if (!terminal) {
+    const logs = await execLogsTool.execute({ id, tail: 100 }, stopCtx);
+    console.error(
+      '[background-stop-observation]',
+      JSON.stringify({
+        label,
+        snapshot: getBackgroundProcessSnapshot(id),
+        stopObservation,
+        taskkillCalls: taskkillCalls.filter((call) => call.before.pid === child?.pid),
+        shellGone,
+        nativeProcesses: [...logs.matchAll(/\bnative_pid=(\d+)\b/g)].map((match) => ({
+          pid: Number(match[1]),
+          alive: isProcessAlive(Number(match[1])),
+        })),
+        logs,
+      })
     );
   }
-  await execStopTool.execute({ id }, stopCtx);
-  assert.equal(
-    await waitForProcessExit(pid, 5000),
-    true,
-    `${label}: pid ${pid} survived exec_stop`
-  );
-  if (pidFile) {
+  assert.ok(terminal, `${label}: background stdio did not close after exec_stop`);
+  if (Number.isFinite(pid) && pid > 0) {
+    assert.equal(shellGone, true, `${label}: pid ${pid} survived exec_stop`);
+  }
+  const logs = await execLogsTool.execute({ id, tail: 100 }, stopCtx);
+  for (const match of logs.matchAll(/\bnative_pid=(\d+)\b/g)) {
     assert.equal(
-      await waitForProcessExit(scriptPid, 15000),
-      true,
-      `${label}: script pid ${scriptPid} survived exec_stop`
+      isProcessAlive(Number(match[1])),
+      false,
+      `${label}: native child survived exec_stop`
     );
   }
 }
@@ -257,35 +414,12 @@ async function stopAndConfirmGone(out, stopCtx, label, pidFile) {
 // ─── 6. /goal waits only when this run injected goalExecWait ──────────────
 {
   clearBackgroundRegistryForTests();
-  const ws = fs.mkdtempSync(path.join(process.cwd(), '.moss-goal-exec-wait-'));
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), '.moss-goal-exec-wait-'));
+  process.on('exit', () => cleanupTempDirectory(ws, '.moss-goal-exec-wait-'));
   const sleepMs = 2000;
-  const writeNodeScript = (name, source) => {
-    const file = path.join(ws, name);
-    fs.writeFileSync(file, source);
-    return `node ${quote(file)}`;
-  };
-  // Pid files live in ws and are unique per stopped command. The shared
-  // sleepScript at the top of this file stays untouched for the other sections.
-  const pidScript = (name, afterWrite) => {
-    const pidFile = path.join(ws, `${name}.pid`);
-    const command = writeNodeScript(
-      `${name}.cjs`,
-      [
-        "const fs = require('node:fs');",
-        `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
-        afterWrite,
-        '',
-      ].join('\n')
-    );
-    return { command, pidFile };
-  };
-  const exitAfterSleep = `setTimeout(() => process.exit(0), ${sleepMs});`;
-  const runForever = 'setInterval(() => {}, 1000);';
-  const commandProc = pidScript('command', exitAfterSleep);
-  const command = commandProc.command;
-  const idleProc = pidScript('idle', runForever);
-  const optOutProc = pidScript('opt-out', runForever);
-  const settleProc = pidScript('settle', runForever);
+  const script = path.join(ws, 'sleep.cjs');
+  fs.writeFileSync(script, `${nativePidOutput}setTimeout(() => process.exit(0), ${sleepMs});\n`);
+  const command = goalNodeCommand(script);
   const { taskId } = await createDraftTask(ws, 'diagnosing on disk is not a goal run');
   await appendTaskEvent(ws, taskId, 'execution_started');
   await appendTaskEvent(ws, taskId, 'verification_started');
@@ -294,11 +428,11 @@ async function stopAndConfirmGone(out, stopCtx, label, pidFile) {
   const goalCtx = { ...diskCtx, goalExecWait: true };
 
   const idleStarted = Date.now();
-  const idle = await execBackgroundTool.execute({ command: idleProc.command }, diskCtx);
+  const idle = await execBackgroundTool.execute({ command: goalNodeCommand(sleepScript) }, diskCtx);
   const idleElapsed = Date.now() - idleStarted;
   assert.match(idle, /Still running after/, 'a diagnosing task on disk does not make exec wait');
   assert.ok(idleElapsed < 1700, `no wait outside /goal, elapsed ${idleElapsed}`);
-  await stopAndConfirmGone(idle, diskCtx, 'idle', idleProc.pidFile);
+  await stopAndConfirmGone(idle, diskCtx, 'idle');
 
   const goalStarted = Date.now();
   const waited = await execTool.execute({ command, run_in_background: true }, goalCtx);
@@ -309,7 +443,7 @@ async function stopAndConfirmGone(out, stopCtx, label, pidFile) {
 
   const optOutStarted = Date.now();
   const optedOut = await execBackgroundTool.execute(
-    { command: optOutProc.command, wait: false },
+    { command: goalNodeCommand(sleepScript), wait: false },
     goalCtx
   );
   const optOutElapsed = Date.now() - optOutStarted;
@@ -318,29 +452,36 @@ async function stopAndConfirmGone(out, stopCtx, label, pidFile) {
     optOutElapsed < 1700,
     `dev server with wait:false returns fast, elapsed ${optOutElapsed}`
   );
-  await stopAndConfirmGone(optedOut, goalCtx, 'wait:false', optOutProc.pidFile);
+  await stopAndConfirmGone(optedOut, goalCtx, 'wait:false');
 
   const settleStarted = Date.now();
   const settled = await execTool.execute(
-    { command: settleProc.command, run_in_background: true, settle_ms: 200 },
+    { command: goalNodeCommand(sleepScript), run_in_background: true, settle_ms: 200 },
     goalCtx
   );
   const settleElapsed = Date.now() - settleStarted;
   assert.match(settled, /Still running after/, `explicit settle_ms stays backgrounded: ${settled}`);
   assert.ok(settleElapsed < 1000, `settle_ms during a goal returns fast, elapsed ${settleElapsed}`);
-  await stopAndConfirmGone(settled, goalCtx, 'settle_ms', settleProc.pidFile);
+  await stopAndConfirmGone(settled, goalCtx, 'settle_ms');
 
-  // command already ran to exit above and left command.pid. Remove it so the
-  // stop check below can only observe the process started here.
-  fs.rmSync(commandProc.pidFile, { force: true });
   const capStarted = Date.now();
   const capped = await execBackgroundTool.execute({ command, timeout_ms: 300 }, goalCtx);
   const capElapsed = Date.now() - capStarted;
   assert.match(capped, /exec_wait/, `timeout tells the model how to await: ${capped}`);
   assert.match(capped, /Still running after/, `timeout still returns a handle: ${capped}`);
   assert.ok(capElapsed < 1000, `timeout_ms bounds the wait, elapsed ${capElapsed}`);
-  await stopAndConfirmGone(capped, goalCtx, 'timeout_ms cap', commandProc.pidFile);
-  fs.rmSync(ws, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  await stopAndConfirmGone(capped, goalCtx, 'timeout_ms cap');
+  // Windows can still hold the stopped child's handles on ws for a moment
+  // (EBUSY or EPERM); rmSync's maxRetries does not cover EPERM.
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      cleanupTempDirectory(ws, '.moss-goal-exec-wait-');
+      break;
+    } catch (error) {
+      if (attempt >= 25 || !['EBUSY', 'EPERM'].includes(error?.code)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
 }
 
 // ─── 7. Esc during a goal wait kills the command immediately ───────────────
@@ -349,7 +490,7 @@ async function stopAndConfirmGone(out, stopCtx, label, pidFile) {
   clearBackgroundRegistryForTests();
   const controller = new AbortController();
   const started = Date.now();
-  const command = `node ${quote(sleepScript)}`;
+  const command = goalNodeCommand(sleepScript);
   const pending = execBackgroundTool.execute(
     { command, timeout_ms: 4000 },
     { goalExecWait: true, abortSignal: controller.signal }
@@ -370,6 +511,55 @@ async function stopAndConfirmGone(out, stopCtx, label, pidFile) {
   }
 }
 
+// A real positive proves the script can mutate; cancelled startup must end
+// without leaving either its native child or that later mutation behind.
+{
+  const marker = path.join(testDir, 'startup-late-marker');
+  const script = writeScript(
+    'startup.cjs',
+    [
+      'console.log(`native_pid=${process.pid}`)',
+      `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, String(process.pid)), 350)`,
+      'setTimeout(() => process.exit(0), 700)',
+    ].join(';')
+  );
+  const command = nodeCommand(script);
+  const positive = await execBackgroundTool.execute({ command, settle_ms: 50 }, ctx());
+  const positiveId = extractBgId(positive);
+  assert.ok(positiveId, 'startup positive returns a real process id');
+  const positiveTerminal = await waitForTerminalStatus(positiveId, 3000);
+  assert.ok(positiveTerminal, 'startup positive really completed');
+  assert.equal(positiveTerminal.status, 'exited');
+  assert.equal(positiveTerminal.exitCode, 0);
+  const nativePid = Number(fs.readFileSync(marker, 'utf8'));
+  assert.ok(nativePid > 0, 'the native script really performed the delayed mutation');
+  assert.equal(isProcessAlive(nativePid), false, 'positive native process exited');
+  fs.unlinkSync(marker);
+
+  const controller = new AbortController();
+  const cancelled = await execBackgroundTool.execute(
+    { command, settle_ms: 50 },
+    { abortSignal: controller.signal }
+  );
+  const cancelledId = extractBgId(cancelled);
+  assert.ok(cancelledId, 'cancelled startup names the actual process');
+  controller.abort();
+  const terminal = await waitForTerminalStatus(cancelledId, 3000);
+  assert.ok(terminal, 'cancelled startup reaches a real closed-stdio terminal state');
+  assert.equal(terminal.status, 'killed');
+  assert.ok(Number.isInteger(terminal.pid) && terminal.pid > 0, 'cancelled shell has a real PID');
+  assert.equal(isProcessAlive(terminal.pid), false, 'cancelled startup shell exited');
+  const logs = await execLogsTool.execute({ id: cancelledId, tail: 100 }, ctx());
+  for (const match of logs.matchAll(/\bnative_pid=(\d+)\b/g)) {
+    assert.equal(
+      isProcessAlive(Number(match[1])),
+      false,
+      'cancelled native startup process exited'
+    );
+  }
+  assert.equal(fs.existsSync(marker), false, 'cancelled startup has no late mutation');
+}
+
 console.log('  [PASS] background-exec: abort lifecycle, output capture, stop kill, safety gate');
 clearBackgroundRegistryForTests();
-fs.rmSync(testDir, { recursive: true, force: true });
+cleanupTempDirectory(testDir, '.moss-background-exec-');

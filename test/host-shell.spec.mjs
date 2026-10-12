@@ -27,7 +27,7 @@ const absent = () => null;
   });
   assert.equal(shell.kind, 'cmd');
   assert.equal(shell.executable, 'C:\\Windows\\System32\\cmd.exe');
-  assert.deepEqual(shell.argsFor('echo hi'), ['/c', 'echo hi']);
+  assert.deepEqual(shell.argsFor('echo hi'), ['/d', '/s', '/c', '"echo hi"']);
   assert.match(shell.description, /cmd\.exe/);
   assert.match(shell.description, /&&/);
 }

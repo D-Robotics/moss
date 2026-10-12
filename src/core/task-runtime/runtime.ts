@@ -297,8 +297,9 @@ export class TaskRuntime {
   private runStartedAt = 0;
   private observations: DeviceObservation[] = [];
   private activeToolCallId: string | undefined;
-  private refreshing = false;
+  private refreshPromise: Promise<void> | undefined;
   private refreshQueued = false;
+  private backgroundRefreshError: unknown;
   private listeners = new Set<() => void>();
   /** Bumped after every completed refresh — UIs re-read projections then. */
   version = 0;
@@ -320,26 +321,29 @@ export class TaskRuntime {
     for (const listener of this.listeners) listener();
   }
 
-  async refresh(): Promise<void> {
-    if (this.refreshing) {
+  refresh(): Promise<void> {
+    if (this.refreshPromise) {
       this.refreshQueued = true;
-      return;
+      return this.refreshPromise;
     }
-    this.refreshing = true;
-    try {
+    const refresh = this.drainRefresh().finally(() => {
+      this.refreshPromise = undefined;
+    });
+    this.refreshPromise = refresh;
+    return refresh;
+  }
+
+  private async drainRefresh(): Promise<void> {
+    do {
+      this.refreshQueued = false;
       this.artifacts = await loadTaskArtifacts(this.workspaceDir);
       const snapshots = await listTaskStateSnapshots(this.workspaceDir);
       this.taskSnapshots = new Map(snapshots.map((snapshot) => [snapshot.taskId, snapshot]));
-    } finally {
-      this.refreshing = false;
-      if (this.refreshQueued) {
-        this.refreshQueued = false;
-        await this.refresh();
-        return;
+      if (!this.refreshQueued) {
+        this.updateFocus();
+        this.notifyChange();
       }
-    }
-    this.updateFocus();
-    this.notifyChange();
+    } while (this.refreshQueued);
   }
 
   private updateFocus(): void {
@@ -361,13 +365,22 @@ export class TaskRuntime {
     this.live.currentAction = undefined;
     this.live.halted = false;
     this.live.lastError = undefined;
+    this.backgroundRefreshError = undefined;
   }
 
   async endRun(halted: boolean): Promise<void> {
     this.live.running = false;
     this.live.currentAction = undefined;
     this.live.halted = halted;
-    await this.refresh();
+    if (this.backgroundRefreshError !== undefined && !this.refreshPromise) {
+      throw this.backgroundRefreshError;
+    }
+    try {
+      await this.refresh();
+    } catch (error) {
+      throw this.backgroundRefreshError ?? error;
+    }
+    if (this.backgroundRefreshError !== undefined) throw this.backgroundRefreshError;
   }
 
   setApprovalPending(pending: boolean): void {
@@ -406,7 +419,15 @@ export class TaskRuntime {
           };
         }
         if (TASK_MUTATING_TOOLS.has(event.toolName)) {
-          void this.refresh();
+          void this.refresh().catch((error: unknown) => {
+            this.backgroundRefreshError ??= error;
+            this.live.lastError = {
+              tool: event.toolName,
+              message: clip(String(error), 160),
+              at: this.now(),
+            };
+            this.notifyChange();
+          });
         }
         if (DEVICE_TOOLS.has(event.toolName) && !event.isError) {
           const preview = observationPreview(event.result);
