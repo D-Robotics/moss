@@ -271,6 +271,25 @@ test('O130 -EncodedCommand always blocks (regardless of payload)', () => {
   unresolvedHit('powershell.exe -EncodedCommand ABCDEF==');
 });
 
+// Mid-prefixes + documented aliases must also block (QA r2 §2.1). Unique-prefix
+// of EncodedCommand: -e / -en / -enc / -EncodedC / -EncodedCom / …; plus -ec.
+test('O130 -EncodedCommand unique-prefix and -ec aliases always block', () => {
+  for (const cmd of [
+    'pwsh -EncodedC AAA',
+    'pwsh -EncodedCom AAA',
+    'pwsh -EncodedComm AAA',
+    'pwsh -enc AAA',
+    'pwsh -en AAA',
+    'pwsh -e AAA',
+    'pwsh -ec AAA',
+    'powershell -ec AAA',
+    'powershell.exe -EncodedC AAA',
+    'pwsh.exe -Enco AAA',
+  ]) {
+    unresolvedHit(cmd);
+  }
+});
+
 test('O130 iex with variable argument is opaque → blocked', () => {
   unresolvedHit(`$c="Set-Content '${CFG}' x"; Invoke-Expression $c`);
   unresolvedHit(`$c="Set-Content '${CFG}' x"; iex $c`);

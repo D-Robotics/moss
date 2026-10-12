@@ -612,7 +612,7 @@ function extractNestedCommands(command: string): string[] {
       i++;
     }
     const args = command.slice(start, i);
-    if (/-[Ee]nc(?:odedCommand)?\b/.test(args)) continue; // handled elsewhere
+    if (argsHasEncodedCommandFlag(args)) continue; // handled elsewhere
     // Find -c / -Command value (prefix match: -c, -com, -command)
     const flagRe = /(?:^|\s)(-c(?:ommand)?)(?:\s+|:)/gi;
     let fm: RegExpExecArray | null;
@@ -648,15 +648,39 @@ function extractNestedCommands(command: string): string[] {
   return out.filter((s) => s.trim().length > 0);
 }
 
+/**
+ * PowerShell host `-EncodedCommand` unique-prefix / alias match (VALUE_FLAGS style).
+ * Matches any unique prefix of EncodedCommand (`-e`, `-en`, `-enc`, `-EncodedC`, …)
+ * plus the documented short alias `-ec`. Fail-closed on host invocations: an
+ * ambiguous `-e` (also a prefix of `-ExecutionPolicy`) still blocks.
+ */
+function isEncodedCommandFlag(flag: string): boolean {
+  const lower = flag.toLowerCase();
+  if (lower === '-ec') return true; // documented pwsh/powershell alias
+  if (lower === '-encodedcommand') return true;
+  // Unique-prefix of -EncodedCommand (length >= 2 so `-e` counts; `-ex` does not
+  // match because EncodedCommand diverges at the 3rd character).
+  return lower.length >= 2 && '-encodedcommand'.startsWith(lower);
+}
+
+/** True when `args` (the token stream after pwsh/powershell) has -EncodedCommand. */
+function argsHasEncodedCommandFlag(args: string): boolean {
+  const flagRe = /(?:^|\s)(-[A-Za-z][\w-]*)\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = flagRe.exec(args)) !== null) {
+    if (isEncodedCommandFlag(m[1]!)) return true;
+  }
+  return false;
+}
+
 /** True when the command line uses -EncodedCommand (always block). */
 function hasEncodedCommand(command: string): boolean {
-  // PowerShell unique prefix: -EncodedCommand, -EncodedC, -enc, …
-  // Require at least "-enc" to avoid matching unrelated flags.
-  return (
-    /(?:^|[\s;|&])(?:pwsh|powershell)(?:\.exe)?\b[^;\n|&]*?-[Ee]nc(?:odedCommand)?\b/i.test(
-      command
-    ) || /(?:^|[\s;|&])-[Ee]ncodedCommand\b/i.test(command)
-  );
+  // pwsh/powershell … <EncodedCommand unique-prefix or -ec>
+  for (const m of command.matchAll(/(?:^|[\s;|&])(?:pwsh|powershell)(?:\.exe)?\b([^;\n|&]*)/gi)) {
+    if (argsHasEncodedCommandFlag(m[1]!)) return true;
+  }
+  // Bare -EncodedCommand full name (kept for non-host forms / legacy callers)
+  return /(?:^|[\s;|&])-EncodedCommand\b/i.test(command);
 }
 
 function scanCommand(command: string, ctx: Ctx, depth: number): PwshWriteTargets {
