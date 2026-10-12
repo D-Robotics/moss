@@ -29,8 +29,6 @@ jobs:
   test:
     name: Test (${{ matrix.os }}, node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
-    # Non-blocking for now (team decision 2026-10-11): failures stay visible but do not gate merges. Check stays blocking.
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -186,3 +184,23 @@ jobs:
 
       - name: Host shell and write-sandbox specs
         run: node test/host-shell.spec.mjs && node test/shell-write-sandbox.spec.mjs
+
+  # Single required status for branch protection: fails if Check or any OS
+  # test-matrix leg failed or was cancelled. Restores Test as a merge gate
+  # (it was made non-blocking in e11336ff, 2026-10-11).
+  test-summary:
+    name: Test summary
+    if: always()
+    needs:
+      - check
+      - test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if Check or any Test leg did not succeed
+        env:
+          CHECK_RESULT: ${{ needs.check.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          echo "check=$CHECK_RESULT test=$TEST_RESULT"
+          test "$CHECK_RESULT" = success
+          test "$TEST_RESULT" = success
