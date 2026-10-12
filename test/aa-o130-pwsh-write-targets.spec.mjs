@@ -104,6 +104,21 @@ const LITERAL = [
   `cp evil.json '${CFG}'`,
   `mv evil.json '${CRED}'`,
   `cp -t '${custom}' credentials`,
+  // O130 QA BLOCK: additional writers
+  `Set-Item -Path '${CFG}' x`,
+  `Set-Item '${CFG}' x`,
+  `'x' | Export-Clixml '${CFG}'`,
+  `'x' | Export-Csv -Path '${CRED}'`,
+  `Export-Csv -Path '${CFG}' -InputObject x`,
+  `Invoke-WebRequest http://example.invalid -OutFile '${CFG}'`,
+  `iwr http://example.invalid -OutFile '${CRED}'`,
+  `curl.exe -o '${CFG}' http://example.invalid`,
+  `curl --output '${CRED}' http://example.invalid`,
+  `xcopy evil.json '${CFG}'`,
+  `robocopy . '${custom}' config.json`,
+  `New-Object IO.StreamWriter('${CFG}')`,
+  `$w = New-Object IO.StreamWriter('${CRED}'); $w.Close()`,
+  `New-Object -TypeName System.IO.StreamWriter -ArgumentList '${CFG}'`,
   // mixed separators / case
   `Set-Content '${CFG.replace(/\//g, '\\')}' x`,
   `Set-Content '${CFG.replace(/\/moss\//, '\\moss/')}' x`,
@@ -211,6 +226,56 @@ const ALLOW = [
   'cd $env:TEMP; echo x > a.txt',
 ];
 for (const cmd of ALLOW) test(`O130 does not gate: ${cmd}`, () => clean(cmd));
+
+
+// ---- 4b. QA BLOCK: value-flag abbreviations must not steal the path slot ----
+const ABBREV = [
+  `Set-Content -En utf8 '${CFG}' x`,
+  `Set-Content -Enc utf8 '${CFG}' x`,
+  `Set-Content -Va x '${CFG}'`,
+  `Add-Content -Va x '${CCFG}'`,
+  `Out-File -Enc utf8 '${CFG}'`,
+  `'x' | Out-File -Fi '${CRED}'`,
+  `Set-Content -Encoding utf8 '${CFG}' x`, // full name still works
+];
+for (const cmd of ABBREV) test(`O130 value-flag abbrev gated: ${cmd}`, () => protectedHit(cmd));
+
+// ---- 4c. QA BLOCK: parenthesized expression targets → unresolvable block ----
+const PAREN = [
+  `Set-Content (Join-Path $env:APPDATA 'moss\\config.json') x`,
+  `Set-Content -Path ('${cfg}'+'/config.json') x`,
+  `Set-Content (Join-Path '${appdata}' 'moss\\credentials') x`,
+];
+for (const cmd of PAREN) test(`O130 paren target gated: ${cmd}`, () => unresolvedHit(cmd));
+
+// ---- 4d. QA BLOCK: one-level nested execution (same rules inside) ----
+const NESTED = [
+  `& { Set-Content '${CFG}' x }`,
+  `. { Set-Content -Path '${CFG}' x }`,
+  `iex "Set-Content '${CFG}' x"`,
+  `Invoke-Expression "Set-Content '${CRED}' x"`,
+  `pwsh -c "Set-Content '${CFG}' x"`,
+  `pwsh -Command "Set-Content '${CFG}' x"`,
+  // same rules inside: abbrev / paren / same-line assign
+  `& { Set-Content -En utf8 '${CFG}' x }`,
+  `& { Set-Content -Va x '${CFG}' }`,
+  `& { Set-Content (Join-Path $env:APPDATA 'moss\\config.json') x }`,
+  `& { $env:APPDATA='C:\\x'; Set-Content "$env:APPDATA\\moss\\config.json" x }`,
+  `pwsh -c "Set-Content -En utf8 '${CFG}' x"`,
+  `pwsh -c '$env:APPDATA="C:\\x"; Set-Content "$env:APPDATA\\moss\\config.json" x'`,
+  `cmd /c "echo x > ${CFG.replace(/\//g, '\\\\')}"`,
+];
+for (const cmd of NESTED) test(`O130 nested one-level gated: ${cmd}`, () => blocked(cmd, 'nested'));
+
+test('O130 -EncodedCommand always blocks (regardless of payload)', () => {
+  unresolvedHit('pwsh -EncodedCommand UwBlAHQALQBDAG8AbgB0AGUAbgB0AA==');
+  unresolvedHit('powershell.exe -EncodedCommand ABCDEF==');
+});
+
+test('O130 iex with variable argument is opaque → blocked', () => {
+  unresolvedHit(`$c="Set-Content '${CFG}' x"; Invoke-Expression $c`);
+  unresolvedHit(`$c="Set-Content '${CFG}' x"; iex $c`);
+});
 
 // ---- 5. copy (UX): reason + next step, zh and en ----
 test('O130 unresolvable copy names the variable, why, and the next step (zh/en)', () => {

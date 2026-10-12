@@ -4,14 +4,19 @@
  * cmd env forms (`$env:X`, `${env:X}`, `%X%`) and every redirection form
  * (`>`, `>>`, `2>`, `*>`, `&>`). Stricter only.
  *
- * Scope (PM 10-12 13:07): only WRITE TARGETS are looked at. A `$` in an
- * argument or a read is never reported.
+ * Scope (PM 10-12 13:07 / QA BLOCK 10-12 14:08): only WRITE TARGETS are
+ * looked at. A `$` in an argument or a read is never reported.
  *  - A target whose variables all resolve from the current process env is
  *    expanded and compared against protected paths.
  *  - A target with an unknown variable, a variable assigned earlier on the same
- *    command line (QA: never trust the current env for it), or a command
- *    substitution is UNRESOLVABLE and reported so the caller blocks it.
+ *    command line (QA: never trust the current env for it), a parenthesized
+ *    expression, or a command substitution is UNRESOLVABLE and reported so the
+ *    caller blocks it.
  *  - After `cd <unresolvable>` a relative write target is unresolvable too.
+ *  - Parameter names match by PowerShell unique-prefix against the full-name
+ *    lists (so `-En`/`-Va`/`-Enc` consume values and do not steal the path).
+ *  - One level of nested execution (`& {}` / `. {}` / `pwsh -c` / `iex`) is
+ *    re-scanned with the SAME rules; `-EncodedCommand` always blocks.
  */
 import * as path from 'node:path';
 
@@ -72,7 +77,11 @@ interface Word {
   quoted: 'single' | 'double' | null;
 }
 
-/** Words of one simple command; redirect operators become their own words. No backslash escapes (pwsh / cmd paths). */
+/**
+ * Words of one simple command; redirect operators become their own words.
+ * Balanced `(...)` is kept as a single word (parenthesized expression target).
+ * No backslash escapes (pwsh / cmd paths).
+ */
 function words(seg: string): Word[] {
   const out: Word[] = [];
   let cur = '';
@@ -96,6 +105,27 @@ function words(seg: string): Word[] {
       q = c;
       has = true;
       quoted = quoted ?? (c === "'" ? 'single' : 'double');
+      continue;
+    }
+    if (c === '(' && !has) {
+      // parenthesized expression: keep balanced parens (and nested quotes) as one word
+      let depth = 1;
+      let j = i + 1;
+      let pq: string | null = null;
+      let body = '(';
+      while (j < seg.length && depth > 0) {
+        const ch = seg[j]!;
+        body += ch;
+        if (pq) {
+          if (ch === pq) pq = null;
+        } else if (ch === '"' || ch === "'") {
+          pq = ch;
+        } else if (ch === '(') depth++;
+        else if (ch === ')') depth--;
+        j++;
+      }
+      out.push({ text: body, quoted: null });
+      i = j - 1;
       continue;
     }
     if (/\s/.test(c)) {
@@ -156,11 +186,14 @@ const NULL_TARGETS = /^(?:\$null|nul|\/dev\/(?:null|stdout|stderr|tty)|&fd|-)$/i
 
 /**
  * Expand a write-target word. Returns null when it cannot be resolved
- * statically (unknown / reassigned variable, command substitution).
+ * statically (unknown / reassigned variable, command substitution,
+ * parenthesized expression).
  */
 function expand(word: Word, ctx: Ctx, assigned: Set<string>): string | null {
   let w = word.text;
   if (word.quoted === 'single') return w; // literal in pwsh and POSIX
+  // Parenthesized expression / concat / subexpression → unresolvable (block).
+  if (/^\s*\(|\)/.test(w) || /\+|Join-Path/i.test(w)) return null;
   if (/\$\(|`|@\(|\$\[|<\(|\$\{[^}]*[^\w:}]/.test(w)) return null;
   const lookup = (name: string): string | null => {
     const lower = name.toLowerCase();
@@ -187,7 +220,7 @@ function expand(word: Word, ctx: Ctx, assigned: Set<string>): string | null {
   return w;
 }
 
-const VALUE_FLAGS = new Set([
+const VALUE_FLAGS = [
   '-value',
   '-encoding',
   '-itemtype',
@@ -201,17 +234,50 @@ const VALUE_FLAGS = new Set([
   '-stream',
   '-delimiter',
   '-variable',
-  '-t', // cp/mv -t handled separately
   '-m',
   '--mode',
   '-s',
-  '-o',
   '-g',
-]);
-const PATH_FLAGS = new Set(['-path', '-literalpath', '-filepath', '-filename', '-pspath', '-lp']);
-const DEST_FLAGS = new Set(['-destination', '-target', '--target-directory', '-t']);
+  '-uri',
+  '-url',
+  '-method',
+  '-headers',
+  '-body',
+  '-contenttype',
+  '-userdata',
+  '-transferencoding',
+  '-argumentlist',
+  '-args',
+];
+const PATH_FLAGS = [
+  '-path',
+  '-literalpath',
+  '-filepath',
+  '-pspath',
+  '-lp',
+  '-outfile',
+  '-newname',
+];
+const DEST_FLAGS = ['-destination', '-target', '--target-directory', '-t'];
 
-type Kind = 'first' | 'all' | 'dest' | 'newitem';
+/** PowerShell unique-prefix match against a list of full flag names. */
+function matchFlagPrefix(flag: string, names: readonly string[]): string | undefined {
+  const lower = flag.toLowerCase();
+  if (names.includes(lower)) return lower;
+  const hits = names.filter((n) => n.startsWith(lower));
+  return hits.length === 1 ? hits[0] : undefined;
+}
+
+/** True when flag is a (possibly abbreviated) value-taking switch we should skip. */
+function isValueFlag(flag: string): boolean {
+  if (matchFlagPrefix(flag, VALUE_FLAGS)) return true;
+  // Ambiguous abbreviation that still prefixes at least one value flag (e.g. -E
+  // → Encoding/Exclude): consume the next token so it cannot steal the path slot.
+  const lower = flag.toLowerCase();
+  return VALUE_FLAGS.some((n) => n.startsWith(lower) && lower.length >= 2);
+}
+
+type Kind = 'first' | 'all' | 'dest' | 'newitem' | 'outfile' | 'curl';
 const WRITERS: Record<string, Kind> = {
   'set-content': 'first',
   sc: 'first',
@@ -247,7 +313,57 @@ const WRITERS: Record<string, Kind> = {
   rmdir: 'all',
   touch: 'all',
   truncate: 'all',
+  // O130 QA BLOCK: additional writers
+  'set-item': 'first',
+  si: 'first',
+  'export-clixml': 'first',
+  'export-csv': 'first',
+  'invoke-webrequest': 'outfile',
+  iwr: 'outfile',
+  'invoke-restmethod': 'outfile',
+  irm: 'outfile',
+  curl: 'curl',
+  wget: 'curl',
+  xcopy: 'dest',
+  robocopy: 'dest',
 };
+
+/** Paths passed to New-Object IO.StreamWriter(...) / [IO.StreamWriter]::new(...). */
+function extractStreamWriterPaths(raw: string): Word[] {
+  const out: Word[] = [];
+  const pushArg = (a: string) => {
+    let s = a.trim();
+    if (!s) return;
+    let quoted: Word['quoted'] = null;
+    if (/^'.*'$/.test(s)) {
+      quoted = 'single';
+      s = s.slice(1, -1);
+    } else if (/^".*"$/.test(s)) {
+      quoted = 'double';
+      s = s.slice(1, -1);
+    }
+    // ArgumentList "path, other" → first arg only
+    const comma = s.search(/,(?=(?:[^']*'[^']*')*[^']*$)(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+    if (comma > 0) s = s.slice(0, comma).trim();
+    out.push({ text: s, quoted });
+  };
+  for (const m of raw.matchAll(
+    /New-Object\s+(?:-TypeName\s+)?['"]?(?:System\.)?IO\.StreamWriter['"]?\s*\(\s*((?:'[^']*'|"[^"]*"|[^,)])+)/gi
+  )) {
+    pushArg(m[1]!);
+  }
+  for (const m of raw.matchAll(
+    /New-Object\s+(?:-TypeName\s+)?['"]?(?:System\.)?IO\.StreamWriter['"]?\s+-ArgumentList\s+((?:'[^']*'|"[^"]*"|[^\s;|&]+))/gi
+  )) {
+    pushArg(m[1]!);
+  }
+  for (const m of raw.matchAll(
+    /\[(?:System\.)?IO\.StreamWriter\]::new\s*\(\s*((?:'[^']*'|"[^"]*"|[^,)])+)/gi
+  )) {
+    pushArg(m[1]!);
+  }
+  return out;
+}
 
 /** Raw write-target words of one simple command (after the command word). */
 function targetWords(ws: Word[]): Word[] {
@@ -296,12 +412,16 @@ function targetWords(ws: Word[]): Word[] {
     out.push({ text: a, quoted });
   }
 
+  // New-Object / [IO.StreamWriter]::new ctor paths are extracted from the raw
+  // segment in scanCommand (quotes survive there; joined words strip them).
+
   const kind = WRITERS[cmd];
   if (!kind) return out;
   const positional: Word[] = [];
   let pathFlag: Word | undefined;
   let destFlag: Word | undefined;
   let nameFlag: Word | undefined;
+  let outfileFlag: Word | undefined;
   for (let k = 0; k < args.length; k++) {
     const a = args[k]!;
     if ((a.quoted === null && /^--?[A-Za-z]/.test(a.text)) || /^-[A-Za-z]+:./.test(a.text)) {
@@ -319,12 +439,43 @@ function targetWords(ws: Word[]): Word[] {
             : [a.text.toLowerCase(), undefined];
       const take = (): Word | undefined =>
         inline !== undefined && inline !== '' ? { text: inline, quoted: null } : args[++k];
-      if (PATH_FLAGS.has(flag)) pathFlag = take();
-      else if (DEST_FLAGS.has(flag) && kind === 'dest') destFlag = take();
-      else if (flag === '-name' && kind === 'newitem') nameFlag = take();
-      else if (VALUE_FLAGS.has(flag) || flag === '-name' || flag === '-destination') {
-        if (inline === undefined) k++;
+
+      // curl -o path / --output path; -O / --remote-name → unresolvable
+      if (kind === 'curl' && (flag === '-o' || flag === '--output')) {
+        pathFlag = take();
+        continue;
       }
+      if (kind === 'curl' && (a.text === '-O' || flag === '--remote-name')) {
+        out.push({ text: '-O', quoted: null });
+        continue;
+      }
+
+      const pathMatch = matchFlagPrefix(flag, PATH_FLAGS);
+      const destMatch = matchFlagPrefix(flag, DEST_FLAGS);
+      const nameMatch = matchFlagPrefix(flag, ['-name']);
+
+      if (pathMatch === '-outfile' || (kind === 'outfile' && pathMatch)) {
+        outfileFlag = take();
+        continue;
+      }
+      if (pathMatch && pathMatch !== '-outfile') {
+        if (pathMatch === '-newname' && kind === 'dest') destFlag = take();
+        else pathFlag = take();
+        continue;
+      }
+      if (destMatch && (kind === 'dest' || kind === 'first')) {
+        destFlag = take();
+        continue;
+      }
+      if (nameMatch && kind === 'newitem') {
+        nameFlag = take();
+        continue;
+      }
+      if (isValueFlag(flag) || flag === '-name' || flag === '-destination') {
+        if (inline === undefined) k++;
+        continue;
+      }
+      // Unknown flag: do not consume; positional path stays intact.
       continue;
     }
     positional.push(a);
@@ -334,7 +485,14 @@ function targetWords(ws: Word[]): Word[] {
   };
   switch (kind) {
     case 'first':
-      add(pathFlag ?? positional[0]);
+      add(pathFlag ?? destFlag ?? positional[0]);
+      break;
+    case 'outfile':
+      add(outfileFlag ?? pathFlag);
+      break;
+    case 'curl':
+      add(pathFlag);
+      // -O already pushed as unresolved marker above
       break;
     case 'all':
       if (pathFlag) add(pathFlag);
@@ -362,11 +520,18 @@ function targetWords(ws: Word[]): Word[] {
         add(pathFlag);
       if (destFlag) add(destFlag);
       else {
-        const src = pathFlag ? positional : positional.slice(0, -1);
-        const dest = pathFlag ? positional[0] : positional[positional.length - 1];
-        if (positional.length >= (pathFlag ? 1 : 2)) {
+        // xcopy/robocopy: source dest (dest is 2nd positional); others last positional
+        const isCopyish = cmd === 'xcopy' || cmd === 'robocopy' || cmd === 'cp' || cmd === 'copy';
+        const src = pathFlag ? positional : isCopyish ? positional.slice(0, 1) : positional.slice(0, -1);
+        const dest = pathFlag
+          ? positional[0]
+          : isCopyish
+            ? positional[1]
+            : positional[positional.length - 1];
+        const need = pathFlag ? 1 : isCopyish ? 2 : 2;
+        if (positional.length >= need) {
           add(dest);
-          if (dest && dest.quoted !== 'single') {
+          if (dest && dest.quoted !== 'single' && !isCopyish) {
             for (const s of src) {
               const b = s.text.split(/[\\/]/).pop();
               if (b && !/\$|\*/.test(b)) add({ text: `${dest.text}/${b}`, quoted: dest.quoted });
@@ -387,10 +552,128 @@ function isAbsoluteAny(p: string): boolean {
   );
 }
 
-export function findPwshWriteTargets(command: string, ctx: Ctx): PwshWriteTargets {
+/**
+ * Extract one-level nested command strings for recursive scanning.
+ * Covers `& {…}` / `. {…}` / `iex '…'` / `Invoke-Expression "…"` /
+ * `pwsh -c "…"` / `powershell -Command '…'` / `cmd /c "…"`.
+ * `-EncodedCommand` is handled separately (always block).
+ */
+function extractNestedCommands(command: string): string[] {
+  const out: string[] = [];
+
+  // & { body } / . { body } — brace depth, quote-aware
+  for (const m of command.matchAll(/(?:^|[\s;|&])(?:&|\.)\s*\{/g)) {
+    const start = m.index! + m[0].length;
+    let depth = 1;
+    let q: string | null = null;
+    let i = start;
+    for (; i < command.length && depth > 0; i++) {
+      const c = command[i]!;
+      if (q) {
+        if (c === q) q = null;
+        continue;
+      }
+      if (c === '"' || c === "'") {
+        q = c;
+        continue;
+      }
+      if (c === '{') depth++;
+      else if (c === '}') depth--;
+    }
+    if (depth === 0) out.push(command.slice(start, i - 1));
+  }
+
+  // iex / Invoke-Expression: string literal → recurse; anything else → mark opaque
+  for (const m of command.matchAll(
+    /(?:^|[\s;|&])(?:iex|Invoke-Expression)\b\s*(?:-Command\s+)?/gi
+  )) {
+    const rest = command.slice(m.index! + m[0].length).trimStart();
+    const lit = rest.match(/^(['"])([\s\S]*?)\1/);
+    if (lit) out.push(lit[2]!);
+    else out.push('__iex_opaque__'); // variable / subexpression — unresolvable
+  }
+
+  // pwsh/powershell -c/-Command string (not EncodedCommand). Quote-aware so
+  // a `;` inside the -c body is not treated as a segment break.
+  for (const m of command.matchAll(/(?:^|[\s;|&])(?:pwsh|powershell)(?:\.exe)?\b/gi)) {
+    let i = m.index! + m[0].length;
+    // skip to end of this invocation (quote-aware, stop at unquoted ;|& or newline)
+    let q: string | null = null;
+    const start = i;
+    while (i < command.length) {
+      const c = command[i]!;
+      if (q) {
+        if (c === q) q = null;
+        i++;
+        continue;
+      }
+      if (c === '"' || c === "'") {
+        q = c;
+        i++;
+        continue;
+      }
+      if (c === ';' || c === '\n' || c === '|' || (c === '&' && command[i + 1] !== '&')) break;
+      i++;
+    }
+    const args = command.slice(start, i);
+    if (/-[Ee]nc(?:odedCommand)?\b/.test(args)) continue; // handled elsewhere
+    // Find -c / -Command value (prefix match: -c, -com, -command)
+    const flagRe = /(?:^|\s)(-c(?:ommand)?)(?:\s+|:)/gi;
+    let fm: RegExpExecArray | null;
+    let body: string | null = null;
+    while ((fm = flagRe.exec(args)) !== null) {
+      // fm[1] is like '-c' or '-Command'; strip leading dashes for prefix check
+      const name = fm[1]!.toLowerCase().replace(/^-+/, '');
+      // unique-prefix: -c matches -Command; -enc is separate and already skipped
+      if (name !== 'c' && name !== 'command' && !'command'.startsWith(name)) continue;
+      const after = args.slice(fm.index + fm[0].length);
+      const lit = after.match(/^(['"])([\s\S]*)\1\s*$/);
+      if (lit) {
+        body = lit[2]!;
+        break;
+      }
+      // unquoted single token
+      const tok = after.match(/^(\S+)/);
+      if (tok) {
+        body = tok[1]!;
+        break;
+      }
+    }
+    if (body) out.push(body);
+  }
+
+  // cmd /c "body" / cmd /c body
+  for (const m of command.matchAll(
+    /(?:^|[\s;|&])cmd(?:\.exe)?\s+(?:\/[CcKk]\s+)(['"])([\s\S]*?)\1/gi
+  )) {
+    out.push(m[2]!);
+  }
+
+  return out.filter((s) => s.trim().length > 0);
+}
+
+/** True when the command line uses -EncodedCommand (always block). */
+function hasEncodedCommand(command: string): boolean {
+  // PowerShell unique prefix: -EncodedCommand, -EncodedC, -enc, …
+  // Require at least "-enc" to avoid matching unrelated flags.
+  return /(?:^|[\s;|&])(?:pwsh|powershell)(?:\.exe)?\b[^;\n|&]*?-[Ee]nc(?:odedCommand)?\b/i.test(
+    command
+  ) || /(?:^|[\s;|&])-[Ee]ncodedCommand\b/i.test(command);
+}
+
+function scanCommand(
+  command: string,
+  ctx: Ctx,
+  depth: number
+): PwshWriteTargets {
   const resolved: string[] = [];
   const unresolved: string[] = [];
   if (!command || !command.trim()) return { resolved, unresolved };
+
+  if (hasEncodedCommand(command)) {
+    unresolved.push('-EncodedCommand');
+  }
+
   const assigned = assignedVars(command);
   let cwd: string | null = ctx.cwd;
   for (const seg of segments(command)) {
@@ -414,8 +697,14 @@ export function findPwshWriteTargets(command: string, ctx: Ctx): PwshWriteTarget
       }
       continue;
     }
-    for (const t of targetWords(ws)) {
+    const targets = [...targetWords(ws), ...extractStreamWriterPaths(seg)];
+    for (const t of targets) {
       if (!t.text || NULL_TARGETS.test(t.text)) continue;
+      // curl -O marker
+      if (t.text === '-O' || t.text === '--remote-name') {
+        unresolved.push(t.text);
+        continue;
+      }
       const e = expand(t, ctx, assigned);
       if (e === null) {
         unresolved.push(t.text);
@@ -427,5 +716,26 @@ export function findPwshWriteTargets(command: string, ctx: Ctx): PwshWriteTarget
       else resolved.push(path.resolve(cwd, n));
     }
   }
+
+  // One-level nested execution: apply the SAME rules (abbreviations, parens,
+  // same-line assignments) to the inner string. Deeper nesting → O148.
+  if (depth < 1) {
+    for (const inner of extractNestedCommands(command)) {
+      if (inner === '__iex_opaque__') {
+        unresolved.push('Invoke-Expression');
+        continue;
+      }
+      // Inner assigned-vars are computed from the inner string itself, so
+      // same-line assignments inside the nested body are respected.
+      const nested = scanCommand(inner, ctx, depth + 1);
+      resolved.push(...nested.resolved);
+      unresolved.push(...nested.unresolved);
+    }
+  }
+
   return { resolved, unresolved };
+}
+
+export function findPwshWriteTargets(command: string, ctx: Ctx): PwshWriteTargets {
+  return scanCommand(command, ctx, 0);
 }
