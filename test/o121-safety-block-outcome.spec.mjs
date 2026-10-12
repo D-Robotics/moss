@@ -329,6 +329,86 @@ if (isMain) {
     }, `[${lang}] loop-guard: not a block — non-zero, stuck at, no Blocked by`);
   }
 
+  // win32 9009 (O106) → same loop-guard stop → 「卡在：exec 未能启动…」, never 被拦.
+  // In-process through the real guard + tracker + outcome (9009 only comes
+  // from cmd.exe, so the platform is injected as in O106).
+  {
+    const g = await import('../dist/core/tools/tool-loop-guard.js');
+    const rc = await import('../dist/cli/run-completion.js');
+    const ro = await import('../dist/cli/run-outcome.js');
+    for (const [label, output, want] of [
+      [
+        'named',
+        'exit_code: 9009\nsh: nosuchcmd-x: not found\n',
+        {
+          zh: /；卡在：exec 未能启动（找不到命令 `nosuchcmd-x`）$/,
+          en: /; stuck at: exec failed to start \(command `nosuchcmd-x` not found\)$/,
+        },
+      ],
+      [
+        'cmd.exe',
+        "exit_code: 9009\n'nosuchcmd-x' is not recognized as an internal or external command,\n",
+        { zh: /；卡在：exec 未能启动$/, en: /; stuck at: exec failed to start$/ },
+      ],
+    ]) {
+      await check(async () => {
+        const state = g.createToolLoopGuardState();
+        const t = rc.createRunCompletionTracker();
+        for (let i = 0; i < 3; i++) {
+          g.recordToolLoopOutcome(
+            state,
+            'exec',
+            true,
+            output,
+            { command: 'nosuchcmd-x x' },
+            'win32'
+          );
+          rc.noteRunCompletionEvent(t, {
+            type: 'tool_start',
+            toolName: 'exec',
+            toolCallId: `c${i}`,
+            input: { command: 'nosuchcmd-x x' },
+          });
+          rc.noteRunCompletionEvent(t, {
+            type: 'tool_end',
+            toolName: 'exec',
+            toolCallId: `c${i}`,
+            result: output,
+            isError: true,
+            outcome: 'error',
+          });
+        }
+        const reason = g.shouldShortCircuitToolCall(state, 'exec', { command: 'nosuchcmd-x x' });
+        assert.ok(reason, 'guard must stop after 3 win32 9009s');
+        const msg = g.formatToolLoopGuardMessage(reason, 'exec');
+        assert.match(msg, /^已停止重试：exec 未能启动/);
+        assert.match(msg, /Stopped retrying: exec failed to start/);
+        rc.noteRunCompletionEvent(t, {
+          type: 'tool_start',
+          toolName: 'exec',
+          toolCallId: 'c9',
+          input: { command: 'nosuchcmd-x x' },
+        });
+        rc.noteRunCompletionEvent(t, {
+          type: 'tool_end',
+          toolName: 'exec',
+          toolCallId: 'c9',
+          result: msg,
+          isError: true,
+          outcome: 'blocked',
+        });
+        const o = ro.resolveRunOutcome({ tracker: t, finalText: 'Done.' });
+        assert.equal(o.exitCode, 9);
+        for (const lang of ['zh', 'en']) {
+          const line = ro.formatOutcomeLine(o, lang);
+          assert.match(line, lang === 'zh' ? /^未完成/ : /^Incomplete/, line);
+          assert.match(line, want[lang], line);
+          assert.doesNotMatch(line, /被拦|Blocked by/, line);
+        }
+      }, `win32 9009 (${label}) x3 + 'Done.' → stuck at exec 未能启动, exit 9, not Blocked`);
+    }
+  }
+
   for (const c of NEGATIVES) {
     for (const lang of ['zh', 'en']) {
       await check(async () => {
