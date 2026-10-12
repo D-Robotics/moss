@@ -81,6 +81,23 @@ jobs:
         if: runner.os != 'Windows'
         run: npm run smoke
 
+      # Record this leg's outcome for the Test summary gate (see test-summary).
+      - name: Record leg result
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p leg-result
+          echo "${{ matrix.os }} node ${{ matrix.node }}: ${{ job.status }}" > leg-result/result.txt
+          cat leg-result/result.txt
+
+      - name: Upload leg result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-leg-${{ matrix.os }}-${{ matrix.node }}
+          path: leg-result/result.txt
+          retention-days: 7
+
   # Not part of the OS matrix. Ubuntu runners ship tmux and macOS runners ship
   # GNU screen, but those sessions do not meet the composer check (and Windows
   # has neither tool). This job installs the tools and opts in.
@@ -188,9 +205,15 @@ jobs:
       - name: Host shell and write-sandbox specs
         run: node test/host-shell.spec.mjs && node test/shell-write-sandbox.spec.mjs
 
-  # Single required status for branch protection: fails if Check or any OS
-  # test-matrix leg failed or was cancelled. Restores Test as a merge gate
-  # (it was made non-blocking in e11336ff, 2026-10-11).
+  # Single required status for branch protection.
+  # Rule (Boss decision on #120, 2026-10-12): Test summary fails if Check fails
+  # or if any ubuntu-latest / macos-latest Test leg did not succeed (failure,
+  # cancelled, or no recorded result). windows-latest legs are REPORTED here
+  # but do NOT block yet: 25 spec files fail on Windows on main (tracked in
+  # specs/windows-25-tests.md, each to be fixed or explicitly skipped).
+  #
+  # TODO(2026-10-15, deadline for #120 / Goal 4): make Windows blocking.
+  # Set WINDOWS_BLOCKING to 'true' below by 2026-10-15. Do not extend silently.
   test-summary:
     name: Test summary
     if: always()
@@ -198,12 +221,46 @@ jobs:
       - check
       - test
     runs-on: ubuntu-latest
+    env:
+      WINDOWS_BLOCKING: 'false' # TODO(2026-10-15): flip to 'true'
     steps:
-      - name: Fail if Check or any Test leg did not succeed
+      - name: Download leg results
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: test-leg-*
+          path: legs
+
+      - name: Gate on Check + ubuntu/macOS Test (Windows reported only)
         env:
           CHECK_RESULT: ${{ needs.check.result }}
           TEST_RESULT: ${{ needs.test.result }}
         run: |
-          echo "check=$CHECK_RESULT test=$TEST_RESULT"
-          test "$CHECK_RESULT" = success
-          test "$TEST_RESULT" = success
+          fail=0
+          echo "check=$CHECK_RESULT test(matrix overall)=$TEST_RESULT windows_blocking=$WINDOWS_BLOCKING"
+          [ "$CHECK_RESULT" = success ] || { echo "::error::Check: $CHECK_RESULT"; fail=1; }
+          {
+            echo "## Test summary"
+            echo "Blocking: Check, ubuntu-latest, macos-latest. Windows blocking: $WINDOWS_BLOCKING (TODO 2026-10-15: must be true)."
+            echo
+            echo "| Leg | Result | Blocking |"
+            echo "|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for os in ubuntu-latest macos-latest windows-latest; do
+            for node in 22.16.0 24; do
+              f="legs/test-leg-$os-$node/result.txt"
+              if [ -f "$f" ]; then r=$(awk '{print $NF}' "$f"); else r=missing; fi
+              blocking=yes
+              if [ "$os" = windows-latest ] && [ "$WINDOWS_BLOCKING" != true ]; then blocking=no; fi
+              echo "$os node $node: $r (blocking=$blocking)"
+              echo "| $os node $node | $r | $blocking |" >> "$GITHUB_STEP_SUMMARY"
+              if [ "$r" != success ]; then
+                if [ "$blocking" = yes ]; then
+                  echo "::error::Test ($os, node $node): $r"; fail=1
+                else
+                  echo "::warning::Test ($os, node $node): $r (non-blocking until 2026-10-15)"
+                fi
+              fi
+            done
+          done
+          exit $fail
