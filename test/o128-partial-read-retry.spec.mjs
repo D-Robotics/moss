@@ -6,7 +6,7 @@
  *
  * A. After a partial read, the identical resend, changed params, multi_edit,
  *    apply_patch and write_file are all refused; file untouched; exit 9
- *    「被拦：局部读后编辑 `notes.txt`」. Every refusal carries the same next step.
+ *    「未完成：`notes.txt` 还没改（先完整读取再编辑）」. Every refusal carries the same next step.
  * B. After a real full read_file, the first edit succeeds — also when that
  *    full read repeats an earlier identical full read (O122: the loop's
  *    replay cache used to answer it, so the full read was never registered).
@@ -86,11 +86,11 @@ for (const c of REFUSED_CASES) {
       assert.match(
         r.last,
         lang === 'zh'
-          ? /被拦：局部读后编辑 `notes\.txt`/
-          : /Blocked by: edit after partial read `notes\.txt`/,
+          ? /^未完成：`notes\.txt` 还没改（先完整读取再编辑）/
+          : /^Incomplete: `notes\.txt` not changed \(read in full first, then edit\)/,
         r.last
       );
-      assert.doesNotMatch(r.last, /未知|unknown/i, r.last);
+      assert.doesNotMatch(r.last, /未知|unknown|被拦|Blocked by/i, r.last);
       const refusals = r.toolResults.slice(1);
       assert.equal(refusals.length, c.steps.length - 1, 'every edit got a result');
       for (const [i, t] of refusals.entries()) {
@@ -104,7 +104,7 @@ for (const c of REFUSED_CASES) {
           `refusal ${i + 1} has the same next step`
         );
       }
-    }, `[${lang}] ${c.id}: refused every time until a full read → exit 9 被拦`);
+    }, `[${lang}] ${c.id}: refused every time until a full read → exit 9 还没改`);
   }
 }
 
@@ -131,8 +131,8 @@ for (const lang of ['zh', 'en']) {
     assert.match(
       r.last,
       lang === 'zh'
-        ? /被拦：局部读后编辑 `notes\.txt`/
-        : /Blocked by: edit after partial read `notes\.txt`/,
+        ? /^未完成：`notes\.txt` 还没改（先完整读取再编辑）/
+        : /^Incomplete: `notes\.txt` not changed \(read in full first, then edit\)/,
       r.last
     );
     const [first, second] = r.toolResults.slice(1);

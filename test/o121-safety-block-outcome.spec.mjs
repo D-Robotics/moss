@@ -193,9 +193,10 @@ export const CASES = [
       },
     ],
     want: {
-      zh: /被拦：局部读后编辑 `notes\.txt`/,
-      en: /Blocked by: edit after partial read `notes\.txt`/,
+      zh: /^未完成：`notes\.txt` 还没改（先完整读取再编辑）/,
+      en: /^Incomplete: `notes\.txt` not changed \(read in full first, then edit\)/,
     },
+    noBlockedBy: true,
   },
   {
     id: 'hook',
@@ -280,11 +281,12 @@ if (isMain) {
         assert.match(r.last, lang === 'zh' ? /^未完成/ : /^Incomplete/, r.last);
         assert.match(r.last, c.want[lang], r.last);
         assert.doesNotMatch(r.last, /已被修改|was modified|未知|unknown/i, r.last);
+        if (c.noBlockedBy) assert.doesNotMatch(r.last, /被拦|Blocked by/, r.last);
         // O103 protected wording keeps the step (the reason already names the path).
         if (c.id !== 'protected')
           assert.doesNotMatch(r.last, /被拦：exec:|Blocked by: exec:/, 'not a bare exec: step');
         if (c.id === 'partial-read') assert.match(r.notes, /^line 30$/m, 'file untouched');
-      }, `[${lang}] ${c.id}: refused + claimed done → exit 9 Blocked by`);
+      }, `[${lang}] ${c.id}: refused + claimed done → exit 9`);
     }
   }
 

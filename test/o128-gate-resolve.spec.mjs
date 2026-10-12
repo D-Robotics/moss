@@ -3,7 +3,7 @@
  * O128 (PM ruling): gate-type refusals (partial-read edit, truncated
  * write_file) go into the O121 block record as resolvable. Changing the same
  * file (realpath) later through the gate's prescribed tools resolves it → exit
- * 0. Unresolved at the end → 被拦, exit 9. An exec write never resolves.
+ * 0. Unresolved at the end → 「还没改」 (not 「被拦」), exit 9. An exec write never resolves.
  * Process-level: real `dist/cli.js -p` against the O121 fake server.
  */
 import assert from 'node:assert/strict';
@@ -33,12 +33,12 @@ const overwrite = { name: 'write_file', args: { path: 'notes.txt', content: 'x\n
 
 const BLOCK = {
   partial: {
-    zh: /被拦：局部读后编辑 `notes\.txt`/,
-    en: /Blocked by: edit after partial read `notes\.txt`/,
+    zh: /^未完成：`notes\.txt` 还没改（先完整读取再编辑）/,
+    en: /^Incomplete: `notes\.txt` not changed \(read in full first, then edit\)/,
   },
   truncated: {
-    zh: /被拦：截断读后整文件覆盖 `notes\.txt`/,
-    en: /Blocked by: whole-file write after truncated read `notes\.txt`/,
+    zh: /^未完成：`notes\.txt` 还没改（读取被截断，请改用 edit）/,
+    en: /^Incomplete: `notes\.txt` not changed \(truncated when read; use edit\)/,
   },
 };
 
@@ -112,8 +112,10 @@ for (const c of CASES) {
         assert.ok(c.file(r.notes), 'prescribed change landed');
       } else {
         assert.match(r.last, lang === 'zh' ? /^未完成/ : /^Incomplete/, r.last);
-        assert.doesNotMatch(r.last, /未知|unknown/i, r.last);
+        assert.doesNotMatch(r.last, /未知|unknown|被拦|Blocked by/i, r.last);
         if (c.block) assert.match(r.last, BLOCK[c.block][lang], r.last);
+        else if (c.id.includes('partial')) assert.match(r.last, BLOCK.partial[lang], r.last);
+        else if (c.id.includes('truncated')) assert.match(r.last, BLOCK.truncated[lang], r.last);
       }
       pass += 1;
       console.log(`ok - ${name}`);
