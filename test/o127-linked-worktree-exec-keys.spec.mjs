@@ -173,6 +173,35 @@ await check('C4: .git file replaced by symlink → reported', () => {
   assert.equal(ch.find((y) => y.path === '.git')?.reason, 'symlink', JSON.stringify(ch));
 });
 
+// ── P. pre-check: `cd <root>` operand is not a write target ───────────
+await check('P1: cd <worktree root> && node script → no pre-check hit', () => {
+  const r = makeLinked();
+  for (const root of [r.wt, r.main]) {
+    const ctx = { cwd: root, workspaceRoot: root };
+    assert.deepEqual(findShellProtectedWrites(`cd ${root} && node x.mjs`, ctx), []);
+    assert.deepEqual(
+      findShellProtectedWrites(`cd ${root} && node --test t.mjs 2>&1 | tail -25`, ctx),
+      []
+    );
+  }
+});
+await check('P2: still blocked — root as script arg, rm of root, writes under .git', () => {
+  const r = makeLinked();
+  const ws = r.wt;
+  const ctx = { cwd: ws, workspaceRoot: ws };
+  for (const c of [
+    `cd ${ws} && node x.mjs ${ws}`,
+    `cd ${ws} && node x.mjs ${ws}/`,
+    `node x.mjs ${ws}`,
+    `cd ${ws} && rm -rf ${ws}`,
+    `cd ${ws} && bash x.sh > .git`,
+    `cd ${r.main}/.git && node x.mjs`,
+    `cd ${ws} && node -e "require('fs').rmSync('.git')"`,
+  ]) {
+    assert.ok(findShellProtectedWrites(c, ctx).length > 0, c);
+  }
+});
+
 // ── D. main repo unchanged ─────────────────────────────────────────────
 await check('D1: main checkout: commit silent, sshCommand reported', () => {
   const r = makeLinked();
@@ -190,6 +219,7 @@ await check('D1: main checkout: commit silent, sshCommand reported', () => {
 });
 
 // ── G. process-level `moss -p` in a linked worktree ────────────────────
+const toolResults = [];
 function startFake(calls) {
   const server = http.createServer((req, res) => {
     let raw = '';
@@ -206,7 +236,10 @@ function startFake(calls) {
       } catch {
         /* ignore */
       }
-      const n = (body.messages ?? []).filter((m) => m.role === 'tool').length;
+      const toolMsgs = (body.messages ?? []).filter((m) => m.role === 'tool');
+      for (const m of toolMsgs)
+        toolResults.push(typeof m.content === 'string' ? m.content : JSON.stringify(m.content));
+      const n = toolMsgs.length;
       const chunk = (delta, fr = null) =>
         `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'fake-model', choices: [{ index: 0, delta, finish_reason: fr }] })}\n\n`;
       res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -258,6 +291,10 @@ async function pRun(lang, command) {
   const r = makeLinked();
   const cfgDir = path.join(r.home, '.config', 'moss');
   fs.mkdirSync(cfgDir, { recursive: true });
+  if (typeof command === 'function') {
+    fs.writeFileSync(path.join(r.wt, 'ro.mjs'), "console.log('read only');\n");
+    command = command(r);
+  }
   const server = await startFake([command]);
   const env = {
     PATH: process.env.PATH,
@@ -298,6 +335,30 @@ for (const lang of ['zh', 'en']) {
     assert.equal(res.code, 0, `${res.last}\n${res.err.slice(-400)}`);
     assert.doesNotMatch(res.last, /未完成|Incomplete|已被修改|modified/);
   });
+}
+
+// S2 (自举): `cd <worktree root> && node …` was blocked before it ran
+// ("<root> is a protected path (git repository internals)").
+for (const [label, command] of [
+  ['git status', 'git status'],
+  ['ls -la', 'ls -la'],
+  ['cat .git', 'cat .git'],
+  ['git log', 'git log --oneline -1'],
+  ['cd <root> && git status', (r) => `cd ${r.wt} && git status`],
+  ['cd <root> && node ro.mjs', (r) => `cd ${r.wt} && node ro.mjs`],
+  ['cd <root> && node --test … | tail', (r) => `cd ${r.wt} && node --test ro.mjs 2>&1 | tail -25`],
+]) {
+  await check(
+    `G3: moss -p in worktree root, read-only \`${label}\` → exit 0, not blocked`,
+    async () => {
+      toolResults.length = 0;
+      const res = await pRun('zh', command);
+      const all = res.out + res.err + '\n' + toolResults.join('\n');
+      assert.ok(toolResults.length > 0, 'precondition: command ran');
+      assert.equal(res.code, 0, `${res.last}\n${all.slice(-600)}`);
+      assert.doesNotMatch(all, /被拦|已拦截|已被修改|受保护路径已|protected path|moss-o101/i);
+    }
+  );
 }
 
 if (failures > 0) {

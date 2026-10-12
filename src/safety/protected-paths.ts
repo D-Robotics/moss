@@ -525,6 +525,32 @@ function gitHooksPathHits(command: string, ctx: ProtectedPathContext): Protected
   return hits;
 }
 
+/**
+ * O127: absolute paths that appear in the command ONLY as the operand of a
+ * plain `cd <dir>` / `pushd <dir>` (no `$` / backtick). If the same path is
+ * also named anywhere else in the command it is not returned.
+ */
+function cdOnlyOperands(command: string, cwd: string): Set<string> {
+  const cd = new Set<string>();
+  const re =
+    /(?:^|&&|\|\||;|\n|\()\s*(?:cd|pushd)\s+(?:--\s+)?(['"]?)([^\s'"`$;&|()<>]+)\1(?=\s*(?:$|&&|\|\||;|\n|\)))/g;
+  let rest = command;
+  for (const m of command.matchAll(re)) {
+    const raw = m[2]!;
+    if (raw.startsWith('~') || raw === '-') continue;
+    cd.add(path.resolve(cwd, raw));
+    rest = rest.replace(m[0], ' ');
+  }
+  if (cd.size === 0) return cd;
+  for (const word of rest.split(/[\s'"`;&|()<>=]+/)) {
+    if (!word) continue;
+    const abs = path.resolve(cwd, word);
+    cd.delete(abs);
+    cd.delete(abs.replace(/[\\/]+$/, ''));
+  }
+  return cd;
+}
+
 export function findShellProtectedWrites(
   command: string,
   ctx: ProtectedPathContext
@@ -549,12 +575,21 @@ export function findShellProtectedWrites(
     });
   }
   if (hits.length === 0 && uncertain) {
+    // O127 (S2): `cd <workspace root> && node x.mjs` is uncertain (a script
+    // could write anything), and the `cd` operand — the workspace root — was
+    // then judged as "deleting an ancestor of .git" and blocked. A `cd`
+    // operand is never written; it still gets the normal protected-path
+    // classification; only the ancestor-delete rule is skipped, and only when
+    // the path is named nowhere else in the command.
+    const cdOnly = cdOnlyOperands(command, ctx.cwd);
     // Prefer absolute mentions from the shared detector; fall back to text regex.
     for (const m of mentions) {
       // O103: a word still holding `$VAR` / `$(…)` is not a path we resolved;
       // expanding it to '' used to misreport the workspace root as git internals.
       if (/\$|`/.test(m)) continue;
-      const hit = classifyProtectedPath(m, ctx) ?? deletesProtectedAncestor(m, ctx);
+      const isCd = cdOnly.has(path.resolve(ctx.cwd, m));
+      const hit =
+        classifyProtectedPath(m, ctx) ?? (isCd ? undefined : deletesProtectedAncestor(m, ctx));
       if (!hit || seen.has(hit.resolved)) continue;
       seen.add(hit.resolved);
       hits.push({
