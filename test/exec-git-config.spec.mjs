@@ -23,6 +23,24 @@ import { isWorkspaceTrusted, workspaceTrustKey } from '../dist/utils/workspace-t
 
 const hooksPath = GIT_HOOKS_PATH;
 
+const isWin = process.platform === 'win32';
+// Git for Windows runs config programs (filters, helpers, sshCommand, hooks)
+// through sh, and git config files treat `\` as an escape. A native
+// C:\Users\... path written into either loses its separators, so fixtures hand
+// git and sh forward-slash paths. No-op on POSIX.
+function gp(p) {
+  return isWin ? p.replace(/\\/g, '/') : p;
+}
+// win32: these specs assert the POSIX path (exec-bit hook detection and
+// POSIX hooksPath/diff wiring). On win32 an untrusted workspace takes a
+// different, unconditional path (repoHasExecutableHooks returns true ->
+// core.hooksPath=NUL, O76), so the POSIX expectations don't apply there.
+// Pending: confirm on Windows CI with the O76 end-to-end repro; if that
+// fails it is an O76 regression and becomes a P1 safety item.
+const WIN_HOOKS_SKIP =
+  isWin &&
+  'win32: POSIX-only assertions; win32 covered unconditionally by O76 (pending Windows CI e2e check)';
+
 function writeExec(file, body) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, body);
@@ -31,8 +49,8 @@ function writeExec(file, body) {
 
 function markerScript(file, marker, passThrough) {
   const body = passThrough
-    ? `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\n${passThrough}\n`
-    : `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\n`;
+    ? `#!/bin/sh\necho ran >> ${JSON.stringify(gp(marker))}\n${passThrough}\n`
+    : `#!/bin/sh\necho ran >> ${JSON.stringify(gp(marker))}\n`;
   writeExec(file, body);
 }
 
@@ -81,15 +99,15 @@ function armRepo(root) {
   const included = path.join(ws, 'included.cfg');
   fs.writeFileSync(
     included,
-    `[filter "included"]\n\tclean = ${includedClean}\n\trequired = true\n`
+    `[filter "included"]\n\tclean = ${gp(includedClean)}\n\trequired = true\n`
   );
-  git(ws, ['config', 'core.fsmonitor', fsmonitor]);
-  git(ws, ['config', 'filter.evil.clean', clean]);
-  git(ws, ['config', 'filter.evil.smudge', smudge]);
+  git(ws, ['config', 'core.fsmonitor', gp(fsmonitor)]);
+  git(ws, ['config', 'filter.evil.clean', gp(clean)]);
+  git(ws, ['config', 'filter.evil.smudge', gp(smudge)]);
   git(ws, ['config', 'filter.evil.required', 'true']);
-  git(ws, ['config', 'diff.evil.textconv', textconv]);
-  git(ws, ['config', 'core.hooksPath', hooks]);
-  git(ws, ['config', 'include.path', included]);
+  git(ws, ['config', 'diff.evil.textconv', gp(textconv)]);
+  git(ws, ['config', 'core.hooksPath', gp(hooks)]);
+  git(ws, ['config', 'include.path', gp(included)]);
   fs.writeFileSync(path.join(ws, 'data.txt'), 'hello 2\n');
   return { ws, markers };
 }
@@ -422,13 +440,13 @@ test('untrusted exec keeps a global credential helper and blocks a local one', a
     useConfigDir(configDir);
     writeExec(
       stub,
-      `#!/bin/sh\necho ran >> ${JSON.stringify(stubMarker)}\nprintf 'username=user\\npassword=pass\\n'\n`
+      `#!/bin/sh\necho ran >> ${JSON.stringify(gp(stubMarker))}\nprintf 'username=user\\npassword=pass\\n'\n`
     );
     writeExec(
       evil,
-      `#!/bin/sh\necho ran >> ${JSON.stringify(evilMarker)}\nprintf 'username=evil\\npassword=evil\\n'\n`
+      `#!/bin/sh\necho ran >> ${JSON.stringify(gp(evilMarker))}\nprintf 'username=evil\\npassword=evil\\n'\n`
     );
-    gitConfigFile(globalFile, ['credential.helper', stub]);
+    gitConfigFile(globalFile, ['credential.helper', gp(stub)]);
     useIsolatedGitConfig(globalFile);
 
     const clean = path.join(root, 'clean');
@@ -448,10 +466,10 @@ test('untrusted exec keeps a global credential helper and blocks a local one', a
 
     const dirty = path.join(root, 'dirty');
     initRepo(dirty);
-    git(dirty, ['config', '--add', 'credential.helper', evil]);
+    git(dirty, ['config', '--add', 'credential.helper', gp(evil)]);
     assert.deepEqual(
       pairsNamed(await childEnv(dirty), 'credential.helper').map((pair) => pair.value),
-      ['', stub]
+      ['', gp(stub)]
     );
     fs.writeFileSync(stubMarker, '');
     const blocked = await execTool.execute(
@@ -483,9 +501,9 @@ test('untrusted exec keeps a global ssh command and blocks a local one', async (
   const evilMarker = path.join(root, 'evil-ssh.marker');
   try {
     useConfigDir(configDir);
-    writeExec(globalSsh, `#!/bin/sh\necho ran >> ${JSON.stringify(globalMarker)}\nexit 0\n`);
-    writeExec(evilSsh, `#!/bin/sh\necho ran >> ${JSON.stringify(evilMarker)}\nexit 0\n`);
-    gitConfigFile(globalFile, ['core.sshCommand', globalSsh]);
+    writeExec(globalSsh, `#!/bin/sh\necho ran >> ${JSON.stringify(gp(globalMarker))}\nexit 0\n`);
+    writeExec(evilSsh, `#!/bin/sh\necho ran >> ${JSON.stringify(gp(evilMarker))}\nexit 0\n`);
+    gitConfigFile(globalFile, ['core.sshCommand', gp(globalSsh)]);
     useIsolatedGitConfig(globalFile);
 
     const clean = path.join(root, 'clean');
@@ -498,10 +516,10 @@ test('untrusted exec keeps a global ssh command and blocks a local one', async (
     const dirty = path.join(root, 'dirty');
     initRepo(dirty);
     git(dirty, ['remote', 'add', 'origin', 'git@example.invalid:test/repo.git']);
-    git(dirty, ['config', 'core.sshCommand', evilSsh]);
+    git(dirty, ['config', 'core.sshCommand', gp(evilSsh)]);
     assert.deepEqual(
       pairsNamed(await childEnv(dirty), 'core.sshCommand').map((pair) => pair.value),
-      [globalSsh]
+      [gp(globalSsh)]
     );
     fs.writeFileSync(globalMarker, '');
     await execTool.execute({ command: 'git ls-remote origin', timeout_ms: 20000 }, ctx(dirty));
@@ -515,7 +533,7 @@ test('untrusted exec keeps a global ssh command and blocks a local one', async (
   }
 });
 
-test('untrusted exec keeps a global hooks path unless the repo has its own hooks', async () => {
+test('untrusted exec keeps a global hooks path unless the repo has its own hooks', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-hooks-'));
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-hooks-cfg-'));
   const globalFile = path.join(root, 'global.gitconfig');
@@ -528,9 +546,9 @@ test('untrusted exec keeps a global hooks path unless the repo has its own hooks
     fs.mkdirSync(globalHooks);
     writeExec(
       path.join(globalHooks, 'pre-commit'),
-      `#!/bin/sh\necho ran >> ${JSON.stringify(globalMarker)}\nexit 0\n`
+      `#!/bin/sh\necho ran >> ${JSON.stringify(gp(globalMarker))}\nexit 0\n`
     );
-    gitConfigFile(globalFile, ['core.hooksPath', globalHooks]);
+    gitConfigFile(globalFile, ['core.hooksPath', gp(globalHooks)]);
     useIsolatedGitConfig(globalFile);
 
     const clean = path.join(root, 'clean');
@@ -546,7 +564,7 @@ test('untrusted exec keeps a global hooks path unless the repo has its own hooks
 
     writeExec(
       path.join(clean, '.git', 'hooks', 'pre-commit'),
-      `#!/bin/sh\necho ran >> ${JSON.stringify(localMarker)}\nexit 0\n`
+      `#!/bin/sh\necho ran >> ${JSON.stringify(gp(localMarker))}\nexit 0\n`
     );
     fs.writeFileSync(path.join(clean, 'data.txt'), 'two\n');
     assert.equal(pairsNamed(await childEnv(clean), 'core.hooksPath').length, 0);
@@ -565,13 +583,13 @@ test('untrusted exec keeps a global hooks path unless the repo has its own hooks
     fs.mkdirSync(evilHooks);
     writeExec(
       path.join(evilHooks, 'pre-commit'),
-      `#!/bin/sh\necho ran >> ${JSON.stringify(evilMarker)}\nexit 0\n`
+      `#!/bin/sh\necho ran >> ${JSON.stringify(gp(evilMarker))}\nexit 0\n`
     );
-    git(pointed, ['config', 'core.hooksPath', evilHooks]);
+    git(pointed, ['config', 'core.hooksPath', gp(evilHooks)]);
     fs.writeFileSync(path.join(pointed, 'data.txt'), 'one\n');
     assert.deepEqual(
       pairsNamed(await childEnv(pointed), 'core.hooksPath').map((pair) => pair.value),
-      [globalHooks]
+      [gp(globalHooks)]
     );
     const beforePointed = count(globalMarker);
     const pointedCommit = await execTool.execute(
@@ -588,13 +606,18 @@ test('untrusted exec keeps a global hooks path unless the repo has its own hooks
     );
     assert.doesNotMatch(pointedAgain, /Repo hooks in an untrusted workspace were not run/);
 
+    if (WIN_HOOKS_SKIP) {
+      // Report the remaining POSIX-only part as skipped (not passed) on win32.
+      t.skip(WIN_HOOKS_SKIP);
+      return; // finally{} still cleans up
+    }
     useIsolatedGitConfig();
     const disabled = path.join(root, 'disabled');
     initRepo(disabled);
     const disabledMarker = path.join(root, 'disabled-hook.marker');
     writeExec(
       path.join(disabled, '.git', 'hooks', 'pre-commit'),
-      `#!/bin/sh\necho ran >> ${JSON.stringify(disabledMarker)}\nexit 0\n`
+      `#!/bin/sh\necho ran >> ${JSON.stringify(gp(disabledMarker))}\nexit 0\n`
     );
     assert.deepEqual(
       pairsNamed(await childEnv(disabled), 'core.hooksPath').map((pair) => pair.value),
@@ -660,19 +683,20 @@ test('untrusted exec git diff matches --no-ext-diff and does not run repo diff p
     useIsolatedGitConfig();
     const ws = path.join(root, 'ws');
     initRepo(ws);
-    writeExec(script, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\nexit 1\n`);
+    writeExec(script, `#!/bin/sh\necho ran >> ${JSON.stringify(gp(marker))}\nexit 1\n`);
     fs.writeFileSync(path.join(ws, '.gitattributes'), '* diff=evil\n');
     fs.writeFileSync(path.join(ws, 'data.txt'), 'one\n');
     fs.writeFileSync(path.join(ws, 'hello world.txt'), 'space\n');
-    fs.writeFileSync(path.join(ws, 'a|b.txt'), 'pipe\n');
+    // NTFS forbids `|` in file names; the pipe-name case is POSIX-only.
+    if (!isWin) fs.writeFileSync(path.join(ws, 'a|b.txt'), 'pipe\n');
     fs.writeFileSync(path.join(ws, 'binary.bin'), Buffer.from([0, 1, 2, 3, 255]));
     git(ws, ['add', '-A']);
     git(ws, ['commit', '-qm', 'base']);
-    git(ws, ['config', 'diff.external', script]);
-    git(ws, ['config', 'diff.evil.command', script]);
+    git(ws, ['config', 'diff.external', gp(script)]);
+    git(ws, ['config', 'diff.evil.command', gp(script)]);
     fs.writeFileSync(path.join(ws, 'data.txt'), 'two\n');
     fs.writeFileSync(path.join(ws, 'hello world.txt'), 'space 2\n');
-    fs.rmSync(path.join(ws, 'a|b.txt'));
+    if (!isWin) fs.rmSync(path.join(ws, 'a|b.txt'));
     fs.writeFileSync(path.join(ws, 'binary.bin'), Buffer.from([0, 1, 2, 9, 255]));
     fs.writeFileSync(path.join(ws, 'new file.txt'), 'added\n');
 
@@ -687,8 +711,12 @@ test('untrusted exec git diff matches --no-ext-diff and does not run repo diff p
     const scriptDir = fs.lstatSync(path.dirname(external[0].value));
     assert.equal(scriptDir.isSymbolicLink(), false);
     assert.equal(scriptDir.isDirectory(), true);
-    assert.equal(scriptDir.mode & 0o777, 0o700);
-    assert.equal(scriptDir.uid, process.getuid());
+    // win32 has no POSIX mode bits or uid; the product skips these checks
+    // there (git-builtin-diff.ts). Follow-up: ACL-based check on win32.
+    if (!isWin) {
+      assert.equal(scriptDir.mode & 0o777, 0o700);
+      assert.equal(scriptDir.uid, process.getuid());
+    }
 
     const ref = gitText(ws, ['--no-pager', 'diff', '--no-ext-diff', '--no-color']);
     assert.equal(count(marker), 0, 'reference diff ran the repo diff program');
@@ -811,38 +839,42 @@ test('commandInvokesGit matches a git command word, not a git substring', () => 
   assert.equal(commandInvokesGit('echo xargs git'), false);
 });
 
-test('repo hook notice waits for a command that actually runs git', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-notice-'));
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-notice-cfg-'));
-  try {
-    useConfigDir(configDir);
-    useIsolatedGitConfig();
-    const ws = path.join(root, 'ws');
-    initRepo(ws);
-    writeExec(path.join(ws, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n');
-    const session = { ...ctx(ws), sessionKey: 'exec-git-notice-once' };
-    const listed = await execTool.execute(
-      { command: 'echo gitignore && ls .git', timeout_ms: 20000 },
-      session
-    );
-    assert.doesNotMatch(listed, /Repo hooks/);
-    const status = await execTool.execute(
-      { command: 'git status --porcelain', timeout_ms: 20000 },
-      session
-    );
-    assert.match(status, /Repo hooks in an untrusted workspace were not run/);
-    const again = await execTool.execute(
-      { command: 'git status --porcelain', timeout_ms: 20000 },
-      session
-    );
-    assert.doesNotMatch(again, /Repo hooks/);
-  } finally {
-    restoreGitConfig();
-    restoreEnv();
-    fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(configDir, { recursive: true, force: true });
+test(
+  'repo hook notice waits for a command that actually runs git',
+  { skip: WIN_HOOKS_SKIP },
+  async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-notice-'));
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-notice-cfg-'));
+    try {
+      useConfigDir(configDir);
+      useIsolatedGitConfig();
+      const ws = path.join(root, 'ws');
+      initRepo(ws);
+      writeExec(path.join(ws, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n');
+      const session = { ...ctx(ws), sessionKey: 'exec-git-notice-once' };
+      const listed = await execTool.execute(
+        { command: 'echo gitignore && ls .git', timeout_ms: 20000 },
+        session
+      );
+      assert.doesNotMatch(listed, /Repo hooks/);
+      const status = await execTool.execute(
+        { command: 'git status --porcelain', timeout_ms: 20000 },
+        session
+      );
+      assert.match(status, /Repo hooks in an untrusted workspace were not run/);
+      const again = await execTool.execute(
+        { command: 'git status --porcelain', timeout_ms: 20000 },
+        session
+      );
+      assert.doesNotMatch(again, /Repo hooks/);
+    } finally {
+      restoreGitConfig();
+      restoreEnv();
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
   }
-});
+);
 
 test('untrusted external diff fails closed when the builtin script path is not safe', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-diff-closed-'));
@@ -855,18 +887,18 @@ test('untrusted external diff fails closed when the builtin script path is not s
     fs.mkdirSync(attack);
     writeExec(
       path.join(attack, 'moss-git-builtin-diff.sh'),
-      `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\nexit 1\n`
+      `#!/bin/sh\necho ran >> ${JSON.stringify(gp(marker))}\nexit 1\n`
     );
     fs.symlinkSync(attack, path.join(configDir, 'git-builtin-diff'));
     const ws = path.join(root, 'ws');
     initRepo(ws);
     const evil = path.join(root, 'evil-diff.sh');
-    writeExec(evil, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\nexit 1\n`);
+    writeExec(evil, `#!/bin/sh\necho ran >> ${JSON.stringify(gp(marker))}\nexit 1\n`);
     fs.writeFileSync(path.join(ws, 'data.txt'), 'one\n');
     git(ws, ['add', 'data.txt']);
     git(ws, ['commit', '-qm', 'base']);
-    git(ws, ['config', 'diff.external', evil]);
-    git(ws, ['config', 'diff.evil.command', evil]);
+    git(ws, ['config', 'diff.external', gp(evil)]);
+    git(ws, ['config', 'diff.evil.command', gp(evil)]);
     fs.writeFileSync(path.join(ws, '.gitattributes'), '* diff=evil\n');
     fs.writeFileSync(path.join(ws, 'data.txt'), 'two\n');
     assert.deepEqual(
@@ -904,8 +936,10 @@ test('untrusted external diff fails closed when the builtin script path is not s
     assert.equal(tightened.length, 1);
     assert.match(tightened[0].value, /moss-git-builtin-diff\.sh$/);
     const tightenedStat = fs.lstatSync(path.dirname(tightened[0].value));
-    assert.equal(tightenedStat.mode & 0o777, 0o700);
-    assert.equal(tightenedStat.uid, process.getuid());
+    if (!isWin) {
+      assert.equal(tightenedStat.mode & 0o777, 0o700);
+      assert.equal(tightenedStat.uid, process.getuid());
+    }
     assert.equal(fs.lstatSync(tightened[0].value).isSymbolicLink(), false);
     assert.match(fs.readFileSync(tightened[0].value, 'utf8'), /xfrm-msg/);
     const replaced = await execTool.execute(
@@ -923,74 +957,78 @@ test('untrusted external diff fails closed when the builtin script path is not s
   }
 });
 
-test('a long git diff keeps the hook notice in the TUI row and stream-json preview', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-preview-'));
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-preview-cfg-'));
-  try {
-    useConfigDir(configDir);
-    useIsolatedGitConfig();
-    const ws = path.join(root, 'ws');
-    initRepo(ws);
-    writeExec(path.join(ws, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n');
-    const body = Array.from({ length: 40 }, (_, i) => `line ${i} ${'x'.repeat(24)}`).join('\n');
-    fs.writeFileSync(path.join(ws, 'data.txt'), `${body}\n`);
-    git(ws, ['add', 'data.txt']);
-    git(ws, ['commit', '-qm', 'base']);
-    fs.writeFileSync(path.join(ws, 'data.txt'), `${body}\nextra\n`.repeat(2));
-    const got = await execTool.execute(
-      { command: 'git --no-pager diff --no-color', timeout_ms: 20000 },
-      { ...ctx(ws), sessionKey: 'exec-git-preview-notice' }
-    );
-    const notice = '[moss] Repo hooks in an untrusted workspace were not run.';
-    const noticeAt = got.indexOf(notice);
-    assert.ok(noticeAt > 500, `notice was not past the 500-char preview (at ${noticeAt})`);
-    const preview = formatToolResultForSsePreview(got, false);
-    assert.ok(preview.length < got.length, 'the stream preview was not truncated');
-    assert.ok(preview.startsWith(got.slice(0, 500)));
-    assert.match(preview, /Repo hooks in an untrusted workspace were not run/);
+test(
+  'a long git diff keeps the hook notice in the TUI row and stream-json preview',
+  { skip: WIN_HOOKS_SKIP },
+  async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-preview-'));
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-preview-cfg-'));
+    try {
+      useConfigDir(configDir);
+      useIsolatedGitConfig();
+      const ws = path.join(root, 'ws');
+      initRepo(ws);
+      writeExec(path.join(ws, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 0\n');
+      const body = Array.from({ length: 40 }, (_, i) => `line ${i} ${'x'.repeat(24)}`).join('\n');
+      fs.writeFileSync(path.join(ws, 'data.txt'), `${body}\n`);
+      git(ws, ['add', 'data.txt']);
+      git(ws, ['commit', '-qm', 'base']);
+      fs.writeFileSync(path.join(ws, 'data.txt'), `${body}\nextra\n`.repeat(2));
+      const got = await execTool.execute(
+        { command: 'git --no-pager diff --no-color', timeout_ms: 20000 },
+        { ...ctx(ws), sessionKey: 'exec-git-preview-notice' }
+      );
+      const notice = '[moss] Repo hooks in an untrusted workspace were not run.';
+      const noticeAt = got.indexOf(notice);
+      assert.ok(noticeAt > 500, `notice was not past the 500-char preview (at ${noticeAt})`);
+      const preview = formatToolResultForSsePreview(got, false);
+      assert.ok(preview.length < got.length, 'the stream preview was not truncated');
+      assert.ok(preview.startsWith(got.slice(0, 500)));
+      assert.match(preview, /Repo hooks in an untrusted workspace were not run/);
 
-    const store = createTuiStore();
-    beginRun(store);
-    applyAgentEvent(store, {
-      type: 'tool_start',
-      toolName: 'exec',
-      toolCallId: 'long-diff',
-      input: { command: 'git diff' },
-    });
-    applyAgentEvent(store, {
-      type: 'tool_end',
-      toolName: 'exec',
-      toolCallId: 'long-diff',
-      isError: false,
-      result: preview,
-    });
-    const noticeRow = store.rows.find((row) => row.kind === 'system');
-    assert.equal(noticeRow?.text, notice, 'the hook notice is its own TUI row');
-    const resultRow = store.rows.find((row) => row.kind === 'result');
-    assert.doesNotMatch(resultRow?.text ?? '', /\[moss\] Repo hooks/);
-    const painted = renderTranscriptRows(store.rows, 80, false)
-      .map((line) => line.text)
-      .join('\n');
-    assert.match(painted, /Repo hooks in an untrusted workspace were not run/);
+      const store = createTuiStore();
+      beginRun(store);
+      applyAgentEvent(store, {
+        type: 'tool_start',
+        toolName: 'exec',
+        toolCallId: 'long-diff',
+        input: { command: 'git diff' },
+      });
+      applyAgentEvent(store, {
+        type: 'tool_end',
+        toolName: 'exec',
+        toolCallId: 'long-diff',
+        isError: false,
+        result: preview,
+      });
+      const noticeRow = store.rows.find((row) => row.kind === 'system');
+      assert.equal(noticeRow?.text, notice, 'the hook notice is its own TUI row');
+      const resultRow = store.rows.find((row) => row.kind === 'result');
+      assert.doesNotMatch(resultRow?.text ?? '', /\[moss\] Repo hooks/);
+      const painted = renderTranscriptRows(store.rows, 80, false)
+        .map((line) => line.text)
+        .join('\n');
+      assert.match(painted, /Repo hooks in an untrusted workspace were not run/);
 
-    const state = createHeadlessPrintState({ sessionId: 'preview-notice' });
-    const events = formatHeadlessStreamEvent(state, {
-      type: 'tool_end',
-      toolCallId: 'long-diff',
-      toolName: 'exec',
-      result: preview,
-      isError: false,
-    });
-    const json = events.map((event) => JSON.stringify(event)).join('\n');
-    assert.match(json, /"type":"user"/);
-    assert.match(json, /Repo hooks in an untrusted workspace were not run/);
-  } finally {
-    restoreGitConfig();
-    restoreEnv();
-    fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(configDir, { recursive: true, force: true });
+      const state = createHeadlessPrintState({ sessionId: 'preview-notice' });
+      const events = formatHeadlessStreamEvent(state, {
+        type: 'tool_end',
+        toolCallId: 'long-diff',
+        toolName: 'exec',
+        result: preview,
+        isError: false,
+      });
+      const json = events.map((event) => JSON.stringify(event)).join('\n');
+      assert.match(json, /"type":"user"/);
+      assert.match(json, /Repo hooks in an untrusted workspace were not run/);
+    } finally {
+      restoreGitConfig();
+      restoreEnv();
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
   }
-});
+);
 
 test('external diff died keeps its explanation after the once-per-session notice', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-died-'));
@@ -1003,11 +1041,11 @@ test('external diff died keeps its explanation after the once-per-session notice
     const ws = path.join(root, 'ws');
     initRepo(ws);
     const evil = path.join(root, 'evil-diff.sh');
-    writeExec(evil, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\nexit 1\n`);
+    writeExec(evil, `#!/bin/sh\necho ran >> ${JSON.stringify(gp(marker))}\nexit 1\n`);
     fs.writeFileSync(path.join(ws, 'data.txt'), 'one\n');
     git(ws, ['add', 'data.txt']);
     git(ws, ['commit', '-qm', 'base']);
-    git(ws, ['config', 'diff.external', evil]);
+    git(ws, ['config', 'diff.external', gp(evil)]);
     fs.writeFileSync(path.join(ws, 'data.txt'), 'two\n');
     const session = { ...ctx(ws), sessionKey: 'exec-git-diff-died' };
     const status = await execTool.execute(
@@ -1037,62 +1075,68 @@ test('external diff died keeps its explanation after the once-per-session notice
   }
 });
 
-test('a group-writable or symlinked Moss config dir disables the repo external diff', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-parent-'));
-  const marker = path.join(root, 'diff.marker');
-  try {
-    useIsolatedGitConfig();
-    const ws = path.join(root, 'ws');
-    initRepo(ws);
-    const evil = path.join(root, 'evil-diff.sh');
-    writeExec(evil, `#!/bin/sh\necho ran >> ${JSON.stringify(marker)}\nexit 1\n`);
-    fs.writeFileSync(path.join(ws, 'data.txt'), 'one\n');
-    git(ws, ['add', 'data.txt']);
-    git(ws, ['commit', '-qm', 'base']);
-    git(ws, ['config', 'diff.external', evil]);
-    fs.writeFileSync(path.join(ws, 'data.txt'), 'two\n');
+// win32: no POSIX group-write bit to set or detect (the product skips the
+// mode check there) and symlinks need admin. Follow-up: ACL-based check.
+test(
+  'a group-writable or symlinked Moss config dir disables the repo external diff',
+  { skip: isWin && 'win32: POSIX mode bits / symlink privilege (follow-up: ACL check)' },
+  async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-parent-'));
+    const marker = path.join(root, 'diff.marker');
+    try {
+      useIsolatedGitConfig();
+      const ws = path.join(root, 'ws');
+      initRepo(ws);
+      const evil = path.join(root, 'evil-diff.sh');
+      writeExec(evil, `#!/bin/sh\necho ran >> ${JSON.stringify(gp(marker))}\nexit 1\n`);
+      fs.writeFileSync(path.join(ws, 'data.txt'), 'one\n');
+      git(ws, ['add', 'data.txt']);
+      git(ws, ['commit', '-qm', 'base']);
+      git(ws, ['config', 'diff.external', gp(evil)]);
+      fs.writeFileSync(path.join(ws, 'data.txt'), 'two\n');
 
-    const writable = fs.mkdtempSync(path.join(root, 'writable-'));
-    fs.chmodSync(writable, 0o777);
-    useConfigDir(writable);
-    assert.deepEqual(
-      pairsNamed(await childEnv(ws), 'diff.external').map((pair) => pair.value),
-      ['false']
-    );
-    assert.equal(fs.lstatSync(writable).mode & 0o777, 0o777);
-    const ran = await execTool.execute(
-      { command: 'git --no-pager diff --no-color', timeout_ms: 20000 },
-      { ...ctx(ws), sessionKey: 'exec-git-parent-writable' }
-    );
-    assert.equal(count(marker), 0, 'group-writable config dir ran the repo diff');
-    assert.match(ran, /The repo's external diff was disabled/);
+      const writable = fs.mkdtempSync(path.join(root, 'writable-'));
+      fs.chmodSync(writable, 0o777);
+      useConfigDir(writable);
+      assert.deepEqual(
+        pairsNamed(await childEnv(ws), 'diff.external').map((pair) => pair.value),
+        ['false']
+      );
+      assert.equal(fs.lstatSync(writable).mode & 0o777, 0o777);
+      const ran = await execTool.execute(
+        { command: 'git --no-pager diff --no-color', timeout_ms: 20000 },
+        { ...ctx(ws), sessionKey: 'exec-git-parent-writable' }
+      );
+      assert.equal(count(marker), 0, 'group-writable config dir ran the repo diff');
+      assert.match(ran, /The repo's external diff was disabled/);
 
-    const safe = fs.mkdtempSync(path.join(root, 'safe-'));
-    fs.chmodSync(safe, 0o755);
-    useConfigDir(safe);
-    const installed = pairsNamed(await childEnv(ws), 'diff.external');
-    assert.match(installed[0].value, /moss-git-builtin-diff\.sh$/);
-    assert.equal(fs.lstatSync(safe).mode & 0o777, 0o755);
-    const link = path.join(root, 'cfg-link');
-    fs.symlinkSync(safe, link);
-    useConfigDir(link);
-    assert.deepEqual(
-      pairsNamed(await childEnv(ws), 'diff.external').map((pair) => pair.value),
-      ['false']
-    );
-    const followed = await execTool.execute(
-      { command: 'git --no-pager diff --no-color', timeout_ms: 20000 },
-      { ...ctx(ws), sessionKey: 'exec-git-parent-link' }
-    );
-    assert.equal(count(marker), 0, 'symlinked config dir ran the repo diff');
-    assert.match(followed, /external diff died/);
-    assert.match(followed, /The repo's external diff was disabled/);
-  } finally {
-    restoreGitConfig();
-    restoreEnv();
-    fs.rmSync(root, { recursive: true, force: true });
+      const safe = fs.mkdtempSync(path.join(root, 'safe-'));
+      fs.chmodSync(safe, 0o755);
+      useConfigDir(safe);
+      const installed = pairsNamed(await childEnv(ws), 'diff.external');
+      assert.match(installed[0].value, /moss-git-builtin-diff\.sh$/);
+      assert.equal(fs.lstatSync(safe).mode & 0o777, 0o755);
+      const link = path.join(root, 'cfg-link');
+      fs.symlinkSync(safe, link);
+      useConfigDir(link);
+      assert.deepEqual(
+        pairsNamed(await childEnv(ws), 'diff.external').map((pair) => pair.value),
+        ['false']
+      );
+      const followed = await execTool.execute(
+        { command: 'git --no-pager diff --no-color', timeout_ms: 20000 },
+        { ...ctx(ws), sessionKey: 'exec-git-parent-link' }
+      );
+      assert.equal(count(marker), 0, 'symlinked config dir ran the repo diff');
+      assert.match(followed, /external diff died/);
+      assert.match(followed, /The repo's external diff was disabled/);
+    } finally {
+      restoreGitConfig();
+      restoreEnv();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   }
-});
+);
 
 test('a project MOSS_TRUST_WORKSPACE after startup capture does not grant git trust', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-git-env-'));

@@ -181,12 +181,15 @@ describe('git spawn', { concurrency: 1 }, () => {
     await fs.rm(cleanMarker, { force: true });
     await fs.rm(textMarker, { force: true });
 
-    execFileSync('git', ['status', '--porcelain'], { cwd: dir, stdio: 'ignore' });
+    // `git diff` must run filter.clean to build the patch; raw `git status`
+    // only does so when its stat heuristics say so (flaky self-check).
+    execFileSync('git', ['diff'], { cwd: dir, stdio: 'ignore' });
     assert.equal(
       await markerWritten(cleanMarker),
       true,
-      'fixture: raw git status should run filter.clean'
+      'fixture: raw git diff should run filter.clean'
     );
+    await fs.rm(textMarker, { force: true });
     await fs.rm(cleanMarker, { force: true });
 
     const layer = await buildEnvironmentContextLayer(dir);
@@ -478,11 +481,22 @@ describe('git spawn', { concurrency: 1 }, () => {
 
   async function assertFilterStaysOff(repo) {
     await fs.rm(repo.marker, { force: true });
-    execFileSync('git', ['status', '--porcelain'], { cwd: repo.dir, stdio: 'ignore' });
+    // Fixture self-check, in two deterministic steps. Raw `git status` only
+    // reruns filter.clean when its stat/index heuristics say so, which flaked
+    // on macOS (git 2.55, node 22.16 and 24) and once on Linux. First prove
+    // the config (include / includeIf / worktree) actually arms the filter,
+    // then prove the armed filter runs: `git diff` must pass the worktree
+    // file through filter.clean to produce the patch, whatever the stat cache.
+    const armed = execFileSync('git', ['config', '--get', 'filter.mossinc.clean'], {
+      cwd: repo.dir,
+      encoding: 'utf8',
+    }).trim();
+    assert.equal(armed, repo.script, 'fixture: repo config should arm filter.mossinc.clean');
+    execFileSync('git', ['diff'], { cwd: repo.dir, stdio: 'ignore' });
     assert.equal(
       await markerWritten(repo.marker),
       true,
-      'fixture: raw git status should run filter.clean'
+      'fixture: raw git diff should run filter.clean'
     );
     await fs.rm(repo.marker, { force: true });
     const layer = await buildEnvironmentContextLayer(repo.dir);
