@@ -443,7 +443,11 @@ export async function runOneShot(
   // O121: JSON / stream-json result carries the same block conclusion.
   state.safetyBlockConclusion = () => {
     if (outputFormat === 'text') return undefined; // text: the O98 last line owns it
-    if (!completionTracker.safetyBlocks?.length && !completionTracker.protectedPathBlocks?.length)
+    if (
+      !completionTracker.safetyBlocks?.length &&
+      !completionTracker.protectedPathBlocks?.length &&
+      !completionTracker.loopGuardStops?.length
+    )
       return undefined;
     const o = resolveRunOutcome({ tracker: completionTracker, finalText: state.finalText });
     return o.exitCode !== 0 ? formatOutcomeLine(o, isZhLocale() ? 'zh' : 'en') : undefined;

@@ -89,6 +89,7 @@ function run(args, env, cwd, timeoutMs = 90000) {
 }
 
 export async function scenario({ lang, steps, finalText, flags = [], hooks, json = false }) {
+  const fmt = json === true ? 'json' : json || undefined;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'o121-'));
   const home = path.join(root, 'home');
   const proj = path.join(root, 'proj');
@@ -131,7 +132,7 @@ export async function scenario({ lang, steps, finalText, flags = [], hooks, json
       '--lang',
       lang,
       ...flags,
-      ...(json ? ['--output-format', 'json'] : []),
+      ...(fmt ? ['--output-format', fmt] : []),
       '-p',
       'run it',
     ],
@@ -406,6 +407,37 @@ if (isMain) {
           assert.doesNotMatch(line, /被拦|Blocked by/, line);
         }
       }, `win32 9009 (${label}) x3 + 'Done.' → stuck at exec 未能启动, exit 9, not Blocked`);
+    }
+  }
+
+  // UX BLOCK (#118): loop-guard stop in json / stream-json must agree with
+  // the text last line: exit 9, error_during_execution, 卡在 (not 被拦).
+  for (const fmt of ['json', 'stream-json']) {
+    for (const lang of ['zh', 'en']) {
+      await check(async () => {
+        const r = await scenario({ lang, ...LOOP_GUARD, finalText: 'Done.', json: fmt });
+        assert.equal(r.code, 9, `exit 9, got ${r.code}`);
+        const lines = r.out
+          .trim()
+          .split('\n')
+          .filter((l) => l.startsWith('{'));
+        const res = lines
+          .map((l) => JSON.parse(l))
+          .filter((e) => e.type === 'result')
+          .pop();
+        assert.ok(res, 'result event present');
+        assert.equal(res.subtype, 'error_during_execution');
+        assert.equal(res.is_error, true);
+        assert.equal(res.recoverable, false);
+        assert.match(
+          res.error ?? '',
+          lang === 'zh'
+            ? /^未完成.*；卡在：exec 未能启动（找不到命令 `moss-o121-no-such-cmd-xyz`）$/
+            : /^Incomplete.*; stuck at: exec failed to start \(command `moss-o121-no-such-cmd-xyz` not found\)$/,
+          res.error
+        );
+        assert.doesNotMatch(res.error, /被拦|Blocked by/);
+      }, `[${lang}] ${fmt} loop-guard → exit 9, error_during_execution, stuck at (not Blocked)`);
     }
   }
 
