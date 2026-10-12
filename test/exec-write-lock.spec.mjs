@@ -85,12 +85,14 @@ test('a new session (fresh guard state) does not inherit the lock', async (t) =>
   assert.equal(exec(fresh, 'echo y > src/big.ts'), null);
 });
 
-test('refusal that attached the full file does not lock (edit tool is usable)', async (t) => {
+test('O128: refusal that attached the full file still locks until a real full read', async (t) => {
   const dir = await workspace(t);
   const s = createToolLoopGuardState({ workspaceDir: dir });
   recordToolLoopOutcome(s, 'edit_file', true, `${PARTIAL}\n[full file: src/big.ts]\n 1\tx`, {
     path: 'src/big.ts',
   });
+  assert.match(exec(s, 'echo y > src/big.ts') ?? '', /shell write to edit-locked file/);
+  recordToolLoopOutcome(s, 'read_file', false, 'x', { path: 'src/big.ts' });
   assert.equal(exec(s, 'echo y > src/big.ts'), null);
 });
 

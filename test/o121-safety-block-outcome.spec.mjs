@@ -40,6 +40,7 @@ function startFake(steps, finalText, stall = false) {
         /* ignore */
       }
       const n = (body.messages ?? []).filter((m) => m.role === 'tool').length;
+      if (body.tools && body.messages) server.lastMessages = body.messages;
       const chunk = (delta, fr = null) =>
         `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'fake-model', choices: [{ index: 0, delta, finish_reason: fr }] })}\n\n`;
       res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -102,6 +103,7 @@ export async function scenario({
   json = false,
   extraEnv = {},
   stall = false,
+  notesBody,
 }) {
   const fmt = json === true ? 'json' : json || undefined;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'o121-'));
@@ -112,7 +114,7 @@ export async function scenario({
   fs.writeFileSync(path.join(proj, 'README.md'), '# p\n');
   fs.writeFileSync(
     path.join(proj, 'notes.txt'),
-    Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join('\n') + '\n'
+    notesBody ?? Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join('\n') + '\n'
   );
   if (hooks) {
     fs.mkdirSync(path.join(proj, '.moss'), { recursive: true });
@@ -159,7 +161,10 @@ export async function scenario({
   const last = r.out.trim().split('\n').pop() ?? '';
   const notes = fs.readFileSync(path.join(proj, 'notes.txt'), 'utf8');
   fs.rmSync(root, { recursive: true, force: true });
-  return { ...r, last, notes };
+  const toolResults = (server.lastMessages ?? [])
+    .filter((m) => m.role === 'tool')
+    .map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)));
+  return { ...r, last, notes, toolResults };
 }
 
 const CLAIM = { zh: '全部完成，已经做好了。', en: 'All done, everything is finished.' };

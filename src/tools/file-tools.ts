@@ -163,6 +163,8 @@ export const readFileTool: Tool = {
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
+    // O122: execute() must run so a full re-read registers (its own unchanged stub saves tokens).
+    noReplay: true,
   },
   inputSchema: {
     type: 'object',

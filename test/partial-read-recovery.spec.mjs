@@ -1,6 +1,6 @@
-// O97: an edit rejected for partial-read scope must carry the full current
-// file (exactly as read_file presents it) so the next edit succeeds —
-// without loosening the read-scope check.
+// O97: an edit rejected for partial-read scope carries the full current file
+// (exactly as read_file presents it) for reference. O128: that attachment no
+// longer counts as a full read — only a real full read_file unlocks editing.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -46,27 +46,40 @@ test('partial read rejection includes the full current file content', async (t) 
   assert.match(out, /\s40\tline_40/);
 });
 
-test('after the rejection the next edit succeeds and state is a full read', async (t) => {
+test('O128: the attached body does not unlock — resend refused until a real full read', async (t) => {
   const dir = await setup(t, BODY);
   const abs = path.join(dir, 'big.ts');
   await readFileTool.execute({ path: 'big.ts', offset: 1, limit: 5 }, ctx(dir));
-  assert.match(await editFileTool.execute(edit20, ctx(dir)), /partial window/);
-  // Same file state as a full read_file (O86: mtime + sha256 via recordFileState).
-  assert.equal(await globalToolStateManager.readReuseState(abs, 'full'), 'fresh');
-  // A following full read must get the unchanged stub — proves the O86 hash was stamped.
-  assert.equal(await readFileTool.execute({ path: 'big.ts' }, ctx(dir)), FILE_UNCHANGED_STUB);
+  const first = await editFileTool.execute(edit20, ctx(dir));
+  assert.match(first, /partial window/);
+  assert.match(first, /does NOT unlock editing/);
+  assert.equal(await globalToolStateManager.readReuseState(abs, 'full'), 'miss');
+  // Identical resend: same refusal, same next step, file untouched.
+  const again = await editFileTool.execute(edit20, ctx(dir));
+  assert.match(again, /^Error: You only read a partial window of big\.ts/);
+  assert.ok(again.includes('Next step: read `big.ts` in full first, then edit'));
+  assert.ok(again.includes('下一步：先完整读取 `big.ts` 再编辑'));
+  assert.equal(await fs.readFile(abs, 'utf8'), BODY);
+  // A real full read_file serves the body (not the unchanged stub) and unlocks.
+  const full = await readFileTool.execute({ path: 'big.ts' }, ctx(dir));
+  assert.notEqual(full, FILE_UNCHANGED_STUB);
+  assert.match(full, /line_40/);
   const ok = await editFileTool.execute(edit20, ctx(dir));
   assert.match(ok, /Edited/);
   assert.match(await fs.readFile(abs, 'utf8'), /^line_20_fixed$/m);
 });
 
-test('write_file after partial read: rejected with content, then the write succeeds', async (t) => {
+test('write_file after partial read: rejected with content until a full read, then the write succeeds', async (t) => {
   const dir = await setup(t, BODY);
   await readFileTool.execute({ path: 'big.ts', offset: 3, limit: 2 }, ctx(dir));
   const blocked = await writeFileTool.execute({ path: 'big.ts', content: 'x\n' }, ctx(dir));
   assert.match(blocked, /partial window/);
   assert.match(blocked, /\s40\tline_40/);
   assert.equal(await fs.readFile(path.join(dir, 'big.ts'), 'utf8'), BODY);
+  const resend = await writeFileTool.execute({ path: 'big.ts', content: 'x\n' }, ctx(dir));
+  assert.match(resend, /partial window/);
+  assert.equal(await fs.readFile(path.join(dir, 'big.ts'), 'utf8'), BODY);
+  await readFileTool.execute({ path: 'big.ts' }, ctx(dir));
   const ok = await writeFileTool.execute({ path: 'big.ts', content: 'x\n' }, ctx(dir));
   assert.match(ok, /Successfully wrote/);
   assert.equal(await fs.readFile(path.join(dir, 'big.ts'), 'utf8'), 'x\n');
@@ -140,6 +153,9 @@ test('~20k-char file: model receives the full body, not a truncation/elision pla
   assert.equal(delivered, out);
   assert.ok(!delivered.includes(TOOL_RESULT_ELIDED_MARKER));
   for (const n of [1, 200, 400]) assert.ok(delivered.includes(`\t${lines[n - 1]}`), `line ${n}`);
+  // O128: the attached body does not unlock; a real full read does.
+  assert.match(await editFileTool.execute(step, ctx(dir)), /partial window/);
+  await readFileTool.execute({ path: 'big.ts' }, ctx(dir));
   assert.match(await editFileTool.execute(step, ctx(dir)), /Edited/);
 });
 

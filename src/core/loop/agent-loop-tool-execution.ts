@@ -166,13 +166,15 @@ function preflightToolCall(
   }
 
   const toolMeta = resolvedTools.find((t) => t.name === call.name)?.metadata;
-  const replayed = findReplayableToolResultContent(
-    ctx.historyBeforeAssistant,
-    call.name,
-    call.input,
-    32,
-    toolMeta?.sideEffectClass
-  );
+  const replayed = toolMeta?.noReplay
+    ? null
+    : findReplayableToolResultContent(
+        ctx.historyBeforeAssistant,
+        call.name,
+        call.input,
+        32,
+        toolMeta?.sideEffectClass
+      );
   if (replayed) {
     log.info('tool replay: reusing recent identical-params result', {
       tool: call.name,
