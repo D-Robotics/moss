@@ -35,6 +35,7 @@ import {
   formatProgressOutcomeLine,
   formatToolRunningLine,
   unfinishedReasonFromStop,
+  upstreamStallReason,
   type RunProgressTracker,
 } from './run-progress.js';
 
@@ -88,6 +89,8 @@ interface RendererState {
   toolLineIds: Map<string, number>;
   /** Whether any JS/TS files were edited (to avoid false-positive npm test hints for Python/docs). */
   editedJsTs: boolean;
+  /** O114: last surfaced error text, so the footer can name an upstream stall. */
+  lastErrorText?: string;
   ranTests: boolean;
   /** Buffer for the current answer segment — flushed on segment end. */
   answerBuffer: string;
@@ -1005,6 +1008,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           noteInterrupt();
           break;
         }
+        state.lastErrorText = text;
         spinner?.stop();
         breakAnswerForStatus();
         const stdoutStream = stdout as { isTTY?: boolean; columns?: number };
@@ -1043,9 +1047,14 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           // stderr matches stdout (e.g. 「卡在：运行预算（read_file: …）」).
           const zh = isZhLocale();
           const prog = ensureProgress();
+          // O114: when the run died on an exhausted mid-stream stall, the
+          // last line must say so instead of a generic "error during execution".
+          const stallReason =
+            stopReason === 'error' ? upstreamStallReason(state.lastErrorText, zh) : undefined;
           stderrLine(
             `${mark('fail')} ${formatProgressOutcomeLine({
               stopReason,
+              ...(stallReason ? { errorMessage: stallReason } : {}),
               finalText: event.result?.response ?? '',
               tracker: prog.completionTracker(),
               zh,
