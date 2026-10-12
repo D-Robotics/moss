@@ -31,14 +31,15 @@ const isWin = process.platform === 'win32';
 function gp(p) {
   return isWin ? p.replace(/\\/g, '/') : p;
 }
-// Follow-up (win32 security bug, not a test issue): hooksDirHasExecutable in
-// src/utils/git-config-env.ts decides "repo has hooks" via `mode & 0o111`.
-// Windows stat never reports exec bits, so core.hooksPath is not neutralized
-// and Git for Windows (which runs any `#!` hook) would run repo hooks in an
-// untrusted workspace. Specs asserting that neutralization skip on win32
-// until the product fix lands; they stay fully enforced on Linux/macOS.
+// win32: these specs assert the POSIX path (exec-bit hook detection and
+// POSIX hooksPath/diff wiring). On win32 an untrusted workspace takes a
+// different, unconditional path (repoHasExecutableHooks returns true ->
+// core.hooksPath=NUL, O76), so the POSIX expectations don't apply there.
+// Pending: confirm on Windows CI with the O76 end-to-end repro; if that
+// fails it is an O76 regression and becomes a P1 safety item.
 const WIN_HOOKS_SKIP =
-  isWin && 'win32: repo hook detection uses mode&0o111 (follow-up: real security bug, see header)';
+  isWin &&
+  'win32: POSIX-only assertions; win32 covered unconditionally by O76 (pending Windows CI e2e check)';
 
 function writeExec(file, body) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
