@@ -211,6 +211,33 @@ await check('P3 (PM 10-12): cd <root> not blocked; cd / and cd ~ still prompt', 
   assert.ok(findShellProtectedWrites('cd ~ && node x', ctx).length > 0, 'cd ~');
 });
 
+// QA B1 / PM 10-12: a second directory change cancels the workspace-root cd
+// exemption (bare cd, $VAR, $(...), flags, pushd — resolvable or not).
+await check('P4 (QA B1): second dir-change after cd <root> restores ancestor prompt', () => {
+  const r = makeLinked();
+  const ws = r.wt;
+  const ctx = { cwd: ws, workspaceRoot: ws, home: path.dirname(ws) };
+  const stillExempt = [`cd ${ws} && node x`];
+  const mustPrompt = [
+    `cd ${ws} && cd && node x`,
+    `cd ${ws} && cd $HOME && node x`,
+    `cd ${ws} && cd "$HOME" && node x`,
+    `cd ${ws} && cd $X && node x`,
+    `cd ${ws} && cd "$(dirname "$PWD")" && node x`,
+    `cd ${ws} && cd -L && node x`,
+    `cd ${ws} && pushd && node x`,
+  ];
+  for (const c of stillExempt) {
+    assert.deepEqual(findShellProtectedWrites(c, ctx), [], c);
+  }
+  for (const c of mustPrompt) {
+    assert.ok(findShellProtectedWrites(c, ctx).length > 0, c);
+  }
+  // Keep the PM green cases from P3 visible next to the new reds.
+  assert.ok(findShellProtectedWrites('cd / && node x', ctx).length > 0, 'cd /');
+  assert.ok(findShellProtectedWrites('cd ~ && node x', ctx).length > 0, 'cd ~');
+});
+
 // ── D. main repo unchanged ─────────────────────────────────────────────
 await check('D1: main checkout: commit silent, sshCommand reported', () => {
   const r = makeLinked();

@@ -544,6 +544,21 @@ function isWorkspaceRootPath(p: string, ctx: ProtectedPathContext): boolean {
   return realOrResolved(path.resolve(ctx.cwd, p)) === realOrResolved(root);
 }
 
+/**
+ * O127 QA B1: count cd/pushd/popd/chdir builtins (with or without an operand,
+ * whether or not the operand is resolvable). A second directory change cancels
+ * the workspace-root cd exemption — otherwise `cd <ws> && cd && node x` (bare
+ * cd → $HOME) and `cd <ws> && cd $HOME && node x` silently skipped the
+ * ancestor check.
+ */
+function countDirectoryChanges(command: string): number {
+  const re =
+    /(?:^|&&|\|\||;|\n|\()\s*(?:builtin\s+|command\s+)?(?:cd|pushd|popd|chdir)(?=\s|$|;|&|\||<|>|\)|\n)/gi;
+  let n = 0;
+  for (const _ of command.matchAll(re)) n += 1;
+  return n;
+}
+
 function cdOnlyOperands(command: string, cwd: string): Set<string> {
   const cd = new Set<string>();
   const re =
@@ -596,6 +611,9 @@ export function findShellProtectedWrites(
     // classification; only the ancestor-delete rule is skipped, and only when
     // the path is named nowhere else in the command.
     const cdOnly = cdOnlyOperands(command, ctx.cwd);
+    // QA B1 / PM 10-12: a second cd/pushd/popd/chdir (any operand) cancels the
+    // exemption — the first cd-to-root must also be the last directory change.
+    const allowCdExempt = countDirectoryChanges(command) <= 1;
     // Prefer absolute mentions from the shared detector; fall back to text regex.
     for (const m of mentions) {
       // O103: a word still holding `$VAR` / `$(…)` is not a path we resolved;
@@ -603,7 +621,8 @@ export function findShellProtectedWrites(
       if (/\$|`/.test(m)) continue;
       // PM 10-12: exempt only when the cd target IS the workspace/worktree root
       // (realpath); `cd /`, `cd ~`, `cd ..` still hit the ancestor rule.
-      const isCd = cdOnly.has(path.resolve(ctx.cwd, m)) && isWorkspaceRootPath(m, ctx);
+      const isCd =
+        allowCdExempt && cdOnly.has(path.resolve(ctx.cwd, m)) && isWorkspaceRootPath(m, ctx);
       const hit =
         classifyProtectedPath(m, ctx) ?? (isCd ? undefined : deletesProtectedAncestor(m, ctx));
       if (!hit || seen.has(hit.resolved)) continue;
