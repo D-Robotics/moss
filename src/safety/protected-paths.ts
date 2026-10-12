@@ -608,7 +608,61 @@ export function findShellProtectedWrites(
       source: finding.source,
     });
   }
+
+  // O130: Windows/PowerShell forms the POSIX detector does not model
+  // (`Set-Content -Path …`, `$env:APPDATA\moss\…`, `%APPDATA%`, node -e with
+  // `process.env.APPDATA+'/moss/…'`). Stricter only: when the command can write
+  // and, after expanding those env forms, names a path inside a Moss config dir,
+  // gate it like any other protected write.
+  if (!hits.some((h) => h.category === 'moss-config') && commandMayWrite(command, uncertain)) {
+    for (const token of configDirTokens(command, ctx)) {
+      const hit = classifyProtectedPath(token, ctx);
+      if (!hit || hit.category !== 'moss-config' || seen.has(hit.resolved)) continue;
+      seen.add(hit.resolved);
+      hits.push({
+        raw: displayPath(hit.resolved, ctx),
+        resolved: hit.resolved,
+        category: hit.category,
+        operation: 'shell',
+      });
+    }
+  }
   return hits;
+}
+
+const WRITE_CAPABLE =
+  /(?:^|[\s;|&(])(?:set-content|add-content|out-file|new-item|copy-item|move-item|remove-item|rename-item|tee-object|clear-content|sc|ac|ni|cpi|mi|ri|rni|copy|move|del|erase|ren|cp|mv|rm|tee|install|ln|touch|truncate|dd|sed|perl|node|nodejs|bun|deno|python[23]?|py|ruby|php|pwsh|powershell|cmd)(?:\.exe)?(?=$|[\s;|&)])|>/i;
+
+/** O130: could this command write a file at all (redirect, write cmdlet, interpreter)? */
+function commandMayWrite(command: string, uncertain: boolean): boolean {
+  return uncertain || WRITE_CAPABLE.test(command);
+}
+
+/** O130: tokens of the command with Windows / interpreter env references expanded. */
+function configDirTokens(command: string, ctx: ProtectedPathContext): string[] {
+  const env = ctx.env ?? process.env;
+  const lookup = (name: string): string => {
+    const direct = env[name];
+    if (direct !== undefined) return direct;
+    const key = Object.keys(env).find((k) => k.toLowerCase() === name.toLowerCase());
+    return key ? (env[key] ?? '') : '';
+  };
+  const expanded = command
+    .replace(/\$\{env:(\w+)\}|\$env:(\w+)/gi, (_, a: string, b: string) => lookup(a ?? b))
+    .replace(/%(\w+)%/g, (_, k: string) => lookup(k))
+    .replace(
+      /process\.env\.(\w+)|process\.env\[\s*['"](\w+)['"]\s*\]|os\.environ\[\s*['"](\w+)['"]\s*\]|os\.getenv\(\s*['"](\w+)['"]\s*\)|os\.environ\.get\(\s*['"](\w+)['"]\s*\)/g,
+      (_m, a?: string, b?: string, c?: string, d?: string, e?: string) =>
+        lookup((a ?? b ?? c ?? d ?? e)!)
+    )
+    // join string concatenation: X+'/moss/config.json' / X + "\\moss" / path.join(X,'moss')
+    .replace(/['"]?\s*\+\s*['"]/g, '')
+    .replace(/(path\.join|os\.path\.join|Join-Path)\s*\(?/gi, ' ');
+  const out: string[] = [];
+  for (const token of expanded.split(/[\s'"`=;|&()<>,]+/)) {
+    if (token && /[/\\]/.test(token)) out.push(token);
+  }
+  return out;
 }
 
 /** Paths a file-mutation tool call would touch. */
