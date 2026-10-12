@@ -689,16 +689,14 @@ export async function runOneShot(
     try {
       const shell = acceptanceShell(verifyCmd);
       // runProcess resolves only on exit 0; non-zero / timeout / spawn reject.
+      // A plain non-zero exit must stay a rejection so the catch below routes
+      // it to the one-continuation branch (normalizing it to a resolved value
+      // here would record the run as passed and exit 0).
       await runProcess(shell.cmd, {
         args: shell.args,
         cwd: workspaceDir,
         timeout: 5 * 60_000,
         ...(shell.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
-      }).catch((error: unknown) => {
-        if (error instanceof ProcessError && !error.timedOut && error.exitCode !== null) {
-          return { exitCode: error.exitCode, stdout: error.stdout, stderr: error.stderr };
-        }
-        throw error;
       });
       noteGoalVerifyResult(completionTracker, {
         command: verifyCmd,
