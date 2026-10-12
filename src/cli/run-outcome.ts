@@ -28,7 +28,10 @@ import {
   type SafetyBlock,
   type VerificationCheck,
 } from './run-completion.js';
-import { protectedPathModReason } from '../safety/protected-path-snapshot.js';
+import {
+  protectedPathModReason,
+  type GitConfigChangeReason,
+} from '../safety/protected-path-snapshot.js';
 import { hookEventZhName } from './hook-event-names.js';
 
 export type { GoalVerifyResult, RunCompletionTracker, VerificationCheck };
@@ -177,6 +180,8 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
       mods.map((m) => ({
         path: m.path,
         kind: (m.kind as 'added' | 'modified' | 'deleted') || 'modified',
+        ...(m.keys ? { keys: m.keys } : {}),
+        ...(m.reason ? { reason: m.reason as GitConfigChangeReason } : {}),
       })),
       mods[0]?.command
     );

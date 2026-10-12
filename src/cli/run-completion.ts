@@ -65,7 +65,13 @@ export interface RunCompletionTracker {
    * O101 layer 3: protected paths modified by a shell command (post-run
    * detection). When set, the run is incomplete regardless of model claims.
    */
-  protectedPathChanges?: Array<{ path: string; kind: string; command?: string }>;
+  protectedPathChanges?: Array<{
+    path: string;
+    kind: string;
+    command?: string;
+    keys?: string[];
+    reason?: string;
+  }>;
   /**
    * O103: protected-path writes the approval gate refused before they ran
    * (`-p` deny or user said no). Drives the outcome on its own — a run with a
@@ -453,7 +459,7 @@ export function noteBackgroundProtectedPathMods(tracker: RunCompletionTracker): 
     if (!changes || changes.length === 0) continue;
     mergeProtectedPathChanges(
       tracker,
-      changes.map((c) => ({ path: c.path, kind: c.kind, command: snap.command })),
+      changes.map((c) => ({ ...c, keys: c.keys ? [...c.keys] : undefined, command: snap.command })),
       `exec_background: ${snap.command.replace(/\s+/g, ' ').trim().slice(0, 120)}`
     );
   }
@@ -461,7 +467,13 @@ export function noteBackgroundProtectedPathMods(tracker: RunCompletionTracker): 
 
 function mergeProtectedPathChanges(
   tracker: RunCompletionTracker,
-  additions: Array<{ path: string; kind: string; command?: string }>,
+  additions: Array<{
+    path: string;
+    kind: string;
+    command?: string;
+    keys?: string[];
+    reason?: string;
+  }>,
   failedStep?: string
 ): void {
   if (additions.length === 0) return;

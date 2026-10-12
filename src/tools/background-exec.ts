@@ -157,7 +157,12 @@ export const execBackgroundTool: Tool = {
           diffProtectedPathSnapshots(protectedSnapBefore, after)
         );
         if (changes.length === 0) return;
-        proc.protectedPathChanges = changes.map((c) => ({ path: c.path, kind: c.kind }));
+        proc.protectedPathChanges = changes.map((c) => ({
+          path: c.path,
+          kind: c.kind,
+          ...(c.keys ? { keys: c.keys } : {}),
+          ...(c.reason ? { reason: c.reason } : {}),
+        }));
         const notice = formatProtectedPathModifiedNotice(changes, preferZhLocale(), command);
         if (notice) appendOutput(proc, 'stderr', `\n${notice}\n`);
       } catch {
