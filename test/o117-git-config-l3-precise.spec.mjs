@@ -24,6 +24,7 @@ const {
   diffProtectedPathSnapshots,
   formatProtectedPathModifiedNotice,
   parseProtectedPathModMarker,
+  isSafeGitRemoteUrl,
   isBenignGitConfigKey,
   GIT_CONFIG_BENIGN_KEYS,
 } = await import('../dist/safety/protected-path-snapshot.js');
@@ -107,17 +108,145 @@ await check(
 );
 
 await check(
-  'A3: remote add / branch upstream are NOT allow-listed → reported (conservative)',
+  'A3: git remote add origin https://… + real git push -u (to local bare via -c insteadOf) → no report',
   () => {
-    const r = configChanges((ws) =>
-      git(ws, 'remote', 'add', 'origin', 'https://example.com/r.git')
-    );
-    assert.equal(r.length, 1, JSON.stringify(r));
-    assert.deepEqual(r[0].keys, ['remote.origin.fetch', 'remote.origin.url']);
-    const b = configChanges((ws) => git(ws, 'config', 'branch.main.remote', 'origin'));
-    assert.deepEqual(b[0]?.keys, ['branch.main.remote']);
+    const bare = fs.mkdtempSync(path.join(tmpRoot, 'bare-'));
+    assert.equal(spawnSync('git', ['init', '-q', '--bare', bare], { env: gitEnv }).status, 0);
+    const r = configChanges((ws) => {
+      git(ws, 'remote', 'add', 'origin', 'https://example.com/r.git');
+      git(
+        ws,
+        '-c',
+        'user.name=t',
+        '-c',
+        'user.email=t@e',
+        'commit',
+        '-q',
+        '--allow-empty',
+        '-m',
+        'x'
+      );
+      git(ws, 'branch', '-M', 'main');
+      // url stays https in .git/config; the -c rewrite is process-only, not written.
+      git(
+        ws,
+        '-c',
+        `url.file://${bare}.insteadOf=https://example.com/r.git`,
+        'push',
+        '-q',
+        '-u',
+        'origin',
+        'main'
+      );
+      const merge = spawnSync('git', ['config', 'branch.main.merge'], {
+        cwd: ws,
+        env: gitEnv,
+        encoding: 'utf8',
+      });
+      assert.equal(merge.stdout.trim(), 'refs/heads/main', 'precondition: push -u wrote upstream');
+    });
+    assert.deepEqual(r, []);
   }
 );
+
+await check('A4: ssh:// / scp-style url, set-upstream, extra fetch refspec → no report', () => {
+  const r = configChanges((ws) => {
+    git(ws, 'remote', 'add', 'a', 'ssh://git@github.com:22/o/r.git');
+    git(ws, 'remote', 'add', 'b', 'git@github.com:o/r.git');
+    git(ws, 'remote', 'set-url', 'a', 'https://user@github.com:8443/o/r.git');
+    git(ws, 'config', '--add', 'remote.a.fetch', '+refs/pull/*:refs/remotes/a/pr/*');
+    git(ws, 'config', 'branch.dev.remote', 'b');
+    git(ws, 'config', 'branch.dev.merge', 'refs/heads/dev');
+    git(ws, 'remote', 'remove', 'b');
+  });
+  assert.deepEqual(r, []);
+});
+
+const BAD_URLS = [
+  'ext::sh -c touch% /tmp/pwned',
+  'fd::17',
+  'file:///tmp/evil',
+  '/tmp/evil',
+  './evil',
+  '-oProxyCommand=sh',
+  'ssh://-oProxyCommand=touch%20/tmp/p/x',
+  'ssh://%2DoProxyCommand=sh/x',
+  'ssh://%252DoProxyCommand=sh/x',
+  'ssh://-u@host/x',
+  'ssh://%2du@host/x',
+  'https://host:80a/x',
+  'git@-oProxyCommand=sh:x',
+  '-x@host:path',
+  'git://host/x',
+  'http://host/x',
+];
+for (const url of BAD_URLS) {
+  await check(`A5: remote.origin.url = ${JSON.stringify(url)} → reported`, () => {
+    const r = configChanges((ws) => git(ws, 'config', 'remote.origin.url', url));
+    assert.equal(r.length, 1, JSON.stringify(r));
+    assert.deepEqual(r[0].keys, ['remote.origin.url']);
+  });
+}
+
+await check('A6: url with newline / control char → reported', () => {
+  for (const v of ['https://h/x\nfoo', 'https://h/\u0001x']) {
+    const r = configChanges((ws) => {
+      fs.appendFileSync(
+        cfg(ws),
+        `[remote "o"]\n\turl = "${v.replace('\n', '\\n').replace('\u0001', '\u0001')}"\n`
+      );
+    });
+    assert.equal(r.length, 1, JSON.stringify(v));
+  }
+});
+
+await check(
+  'A7: same remote, other leaves (pushurl/uploadpack/receivepack/proxy/vcs) → reported',
+  () => {
+    for (const leaf of [
+      'pushurl',
+      'uploadpack',
+      'receivepack',
+      'proxy',
+      'vcs',
+      'tagOpt',
+      'mirror',
+    ]) {
+      const r = configChanges((ws) => {
+        git(ws, 'remote', 'add', 'origin', 'https://example.com/r.git');
+        git(ws, 'config', `remote.origin.${leaf}`, 'https://example.com/x');
+      });
+      assert.equal(r.length, 1, leaf);
+      assert.equal(r[0].keys.length, 1, `${leaf}: ${JSON.stringify(r[0].keys)}`);
+      assert.equal(r[0].keys[0].toLowerCase(), `remote.origin.${leaf.toLowerCase()}`);
+    }
+    const b = configChanges((ws) => git(ws, 'config', 'branch.main.pushRemote', 'x'));
+    assert.equal(b.length, 1);
+  }
+);
+
+await check('A8: isSafeGitRemoteUrl unit table', () => {
+  for (const u of [
+    'https://github.com/o/r.git',
+    'https://u:p@h:443/x',
+    'ssh://git@h/x',
+    'ssh://[::1]:22/x',
+    'git@host:o/r',
+    'host.example:o/r',
+  ])
+    assert.ok(isSafeGitRemoteUrl(u), u);
+  for (const u of [
+    ...BAD_URLS,
+    'C:\\x',
+    'c:/x',
+    '',
+    'https://',
+    'https://-h/x',
+    'https://%2Dh/x',
+    'ssh://h:-1/x',
+  ])
+    assert.ok(!isSafeGitRemoteUrl(u), u);
+});
 
 // ── B. dangerous keys: still reported ─────────────────────────────────
 
@@ -587,6 +716,21 @@ for (const lang of ['zh', 'en']) {
     }
   );
 }
+
+await check('G2 (zh): moss -p runs `git remote add origin https://…` → exit 0', async () => {
+  const r = await pRun(
+    'zh',
+    'git remote add origin https://example.com/r.git && git config branch.main.remote origin && git config branch.main.merge refs/heads/main'
+  );
+  assert.equal(r.code, 0, `${r.last}\n${r.err.slice(-400)}`);
+  assert.doesNotMatch(r.last, /未完成|已被修改/);
+});
+
+await check('G3 (zh): moss -p runs `git remote add x ext::sh …` → exit 9', async () => {
+  const r = await pRun('zh', "git remote add x 'ext::sh -c id'");
+  assert.equal(r.code, 9, `${r.last}\n${r.err.slice(-400)}`);
+  assert.match(r.out, /remote\.x\.url/);
+});
 
 if (failures > 0) {
   console.error(`# ${failures} failure(s)`);

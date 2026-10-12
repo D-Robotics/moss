@@ -107,7 +107,8 @@ export function isGitConfigPath(abs: string): boolean {
  * reported. Every other key change — including ones never seen before — is
  * reported as "已被修改" (fail-closed). Kept deliberately small: nothing that
  * can run a program, pull in other config, or change where code is fetched
- * from (so `remote.*.url/fetch`, `branch.*.remote/merge` are NOT listed).
+ * from. Remote/branch leaves are handled separately (PM 口径, see
+ * GIT_CONFIG_BENIGN_SUBSECTION_LEAVES / isSafeGitRemoteUrl).
  *
  * Matching is on the normalised key: section and variable name are
  * case-insensitive, the subsection keeps git's case-sensitive spelling.
@@ -135,6 +136,135 @@ export function isBenignGitConfigKey(key: string): boolean {
   const k = normalizeGitConfigKey(key);
   if (k.indexOf('.') !== k.lastIndexOf('.')) return false;
   return GIT_CONFIG_BENIGN_KEYS.some((e) => e.toLowerCase() === k);
+}
+
+/**
+ * O117 (PM, remote 口径): three-part leaf keys allowed regardless of value,
+ * for any subsection name. Every other `remote.<n>.*` / `branch.<n>.*` leaf
+ * (uploadpack, receivepack, proxy, pushurl, vcs, ...) stays reported.
+ */
+export const GIT_CONFIG_BENIGN_SUBSECTION_LEAVES: readonly string[] = [
+  'branch.*.remote',
+  'branch.*.merge',
+  'remote.*.fetch',
+];
+
+/** O117: allowed by value only (see isSafeGitRemoteUrl). */
+export const GIT_CONFIG_VALUE_CHECKED_LEAVES: readonly string[] = ['remote.*.url'];
+
+function splitSubsectionKey(k: string): { section: string; sub: string; name: string } | null {
+  const first = k.indexOf('.');
+  const last = k.lastIndexOf('.');
+  if (first === -1 || first === last) return null;
+  return { section: k.slice(0, first), sub: k.slice(first + 1, last), name: k.slice(last + 1) };
+}
+
+function leafPattern(k: string): string | null {
+  const p = splitSubsectionKey(k);
+  if (!p || p.sub.length === 0) return null;
+  return `${p.section}.*.${p.name}`;
+}
+
+function safeDecode(x: string): string | null {
+  try {
+    let cur = x;
+    // Decode repeatedly so %252D style double-encoding is also caught.
+    for (let i = 0; i < 3; i++) {
+      const next = decodeURIComponent(cur);
+      if (next === cur) break;
+      cur = next;
+    }
+    return cur;
+  } catch {
+    return null;
+  }
+}
+
+function hostUserOk(raw: string): boolean {
+  const v = safeDecode(raw);
+  if (v === null) return false;
+  if (v.length === 0) return false;
+  if (v.startsWith('-')) return false;
+  if (/[\s\u0000-\u001f\u007f]/.test(v)) return false;
+  return true;
+}
+
+/**
+ * O117 (PM): `remote.<n>.url` is allowed only for `https://`, `ssh://` and
+ * scp-style `user@host:path`. Everything else (ext::, fd::, file://, local
+ * paths, leading `-`, newline/control chars, host or user beginning with `-`
+ * after URL-decoding — CVE-2017-1000117 —, non-numeric port) is reported.
+ */
+export function isSafeGitRemoteUrl(url: string): boolean {
+  if (url.length === 0 || url.startsWith('-')) return false;
+  if (/[\u0000-\u001f\u007f\s]/.test(url)) return false;
+  const dec = safeDecode(url);
+  if (dec === null) return false;
+  if (dec.startsWith('-') || /[\u0000-\u001f\u007f]/.test(dec)) return false;
+  if (/^[A-Za-z0-9+.-]*::/.test(url)) return false; // ext::, fd::, <transport>::
+  const m = /^(https|ssh):\/\/([^/?#]*)(.*)$/i.exec(url);
+  if (m) {
+    let auth = m[2];
+    if (!auth) return false;
+    let user: string | undefined;
+    const at = auth.lastIndexOf('@');
+    if (at !== -1) {
+      user = auth.slice(0, at);
+      auth = auth.slice(at + 1);
+      if (m[1].toLowerCase() === 'ssh' && user.includes(':')) return false;
+      const uname = user.split(':')[0];
+      if (!hostUserOk(uname)) return false;
+    }
+    let host = auth;
+    let port: string | undefined;
+    if (host.startsWith('[')) {
+      const close = host.indexOf(']');
+      if (close === -1) return false;
+      const rest = host.slice(close + 1);
+      host = host.slice(1, close);
+      if (rest) {
+        if (!rest.startsWith(':')) return false;
+        port = rest.slice(1);
+      }
+    } else {
+      const c = host.indexOf(':');
+      if (c !== -1) {
+        port = host.slice(c + 1);
+        host = host.slice(0, c);
+      }
+    }
+    if (!hostUserOk(host)) return false;
+    if (port !== undefined && port !== '' && !/^[0-9]+$/.test(port)) return false;
+    return true;
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return false; // file://, git://, http:// ...
+  // scp style: [user@]host:path — host must contain no '/', and a ':' must
+  // come before any '/', otherwise git treats it as a local path.
+  const scp = /^(?:([^@/:]+)@)?([^@/:[\]]+|\[[^\]]+\]):(.*)$/.exec(url);
+  if (!scp) return false;
+  if (scp[1] !== undefined && !hostUserOk(scp[1])) return false;
+  const host = scp[2].replace(/^\[|\]$/g, '');
+  if (!hostUserOk(host)) return false;
+  // A single-letter "host" is a Windows drive path (C:\x), i.e. local.
+  if (/^[a-z]$/i.test(host)) return false;
+  if (scp[3].startsWith('-')) return false;
+  return true;
+}
+
+/**
+ * O117: whether a key change is allowed given its new values. `afterValues`
+ * is the full list after the command (empty = key removed).
+ */
+export function isBenignGitConfigEntry(key: string, afterValues: readonly string[]): boolean {
+  if (isBenignGitConfigKey(key)) return true;
+  const k = normalizeGitConfigKey(key);
+  const pat = leafPattern(k);
+  if (!pat) return false;
+  if (GIT_CONFIG_BENIGN_SUBSECTION_LEAVES.includes(pat)) return true;
+  if (GIT_CONFIG_VALUE_CHECKED_LEAVES.includes(pat)) {
+    return afterValues.every((v) => v !== '\u0000(implicit-true)' && isSafeGitRemoteUrl(v));
+  }
+  return false;
 }
 
 /**
@@ -198,8 +328,9 @@ export function changedUnlistedGitConfigKeys(before: Buffer, after: Buffer): str
   if (!b || !a) return null;
   const changed: string[] = [];
   for (const key of new Set([...b.keys(), ...a.keys()])) {
-    if (isBenignGitConfigKey(key)) continue;
-    if (JSON.stringify(b.get(key) ?? []) !== JSON.stringify(a.get(key) ?? [])) changed.push(key);
+    if (JSON.stringify(b.get(key) ?? []) === JSON.stringify(a.get(key) ?? [])) continue;
+    if (isBenignGitConfigEntry(key, a.get(key) ?? [])) continue;
+    changed.push(key);
   }
   changed.sort();
   const text = `${after.toString('utf8')}\n${before.toString('utf8')}`;
