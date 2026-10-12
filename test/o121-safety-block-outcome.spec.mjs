@@ -23,7 +23,7 @@ const CLI = path.join(ROOT, 'dist', 'cli.js');
 const IS_WIN = process.platform === 'win32';
 
 /** steps: [{ name, args }] — one tool call per model turn, then finalText. */
-function startFake(steps, finalText) {
+function startFake(steps, finalText, stall = false) {
   const server = http.createServer((req, res) => {
     let raw = '';
     req.on('data', (c) => (raw += c));
@@ -43,6 +43,11 @@ function startFake(steps, finalText) {
       const chunk = (delta, fr = null) =>
         `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'fake-model', choices: [{ index: 0, delta, finish_reason: fr }] })}\n\n`;
       res.writeHead(200, { 'content-type': 'text/event-stream' });
+      if (stall && body.messages) {
+        // mid-stream stall: one delta, then silence (O114 inter-event idle)
+        res.write(chunk({ role: 'assistant', content: 'Working' }));
+        return;
+      }
       if (body.tools && n < steps.length) {
         const s = steps[n];
         res.write(
@@ -88,7 +93,16 @@ function run(args, env, cwd, timeoutMs = 90000) {
   });
 }
 
-export async function scenario({ lang, steps, finalText, flags = [], hooks, json = false }) {
+export async function scenario({
+  lang,
+  steps,
+  finalText,
+  flags = [],
+  hooks,
+  json = false,
+  extraEnv = {},
+  stall = false,
+}) {
   const fmt = json === true ? 'json' : json || undefined;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'o121-'));
   const home = path.join(root, 'home');
@@ -104,7 +118,7 @@ export async function scenario({ lang, steps, finalText, flags = [], hooks, json
     fs.mkdirSync(path.join(proj, '.moss'), { recursive: true });
     fs.writeFileSync(path.join(proj, '.moss', 'config.json'), JSON.stringify({ hooks }));
   }
-  const server = await startFake(steps, finalText);
+  const server = await startFake(steps, finalText, stall);
   const port = server.address().port;
   const env = {
     PATH: process.env.PATH,
@@ -118,6 +132,7 @@ export async function scenario({ lang, steps, finalText, flags = [], hooks, json
     MOSS_LOCALE: lang,
     FAKE_OAI_KEY: 'sk-fake-local-000',
     GIT_CONFIG_NOSYSTEM: '1',
+    ...extraEnv,
   };
   for (const [k, v] of [
     ['provider', 'openai-compatible'],
@@ -139,6 +154,7 @@ export async function scenario({ lang, steps, finalText, flags = [], hooks, json
     env,
     proj
   );
+  server.closeAllConnections?.();
   server.close();
   const last = r.out.trim().split('\n').pop() ?? '';
   const notes = fs.readFileSync(path.join(proj, 'notes.txt'), 'utf8');
@@ -439,6 +455,50 @@ if (isMain) {
         assert.doesNotMatch(res.error, /被拦|Blocked by/);
       }, `[${lang}] ${fmt} loop-guard → exit 9, error_during_execution, stuck at (not Blocked)`);
     }
+  }
+
+  // QA (#118): non-safety unfinished outcomes in json mode stay honest errors
+  // (budget exhausted — O111/O116; upstream stream stall — O114).
+  const resultOf = (r) =>
+    r.out
+      .trim()
+      .split('\n')
+      .filter((l) => l.startsWith('{'))
+      .map((l) => JSON.parse(l))
+      .filter((e) => e.type === 'result')
+      .pop();
+  for (const fmt of ['json', 'stream-json']) {
+    await check(async () => {
+      const r = await scenario({
+        lang: 'en',
+        steps: [exec('echo a'), exec('echo b'), exec('echo c')],
+        finalText: 'All done.',
+        json: fmt,
+        extraEnv: { MOSS_BUDGET_MAX_TOOL_CALLS: '1' },
+      });
+      const res = resultOf(r);
+      assert.ok(res, 'result event');
+      assert.notEqual(r.code, 0, `non-zero exit, got ${r.code}`);
+      assert.equal(res.is_error, true, JSON.stringify(res).slice(0, 300));
+      assert.notEqual(res.subtype, 'success');
+      assert.doesNotMatch(res.error ?? '', /Blocked by/);
+    }, `${fmt} budget exhausted → is_error, non-zero, not success`);
+    await check(async () => {
+      const r = await scenario({
+        lang: 'en',
+        steps: [],
+        finalText: 'x',
+        json: fmt,
+        stall: true,
+        extraEnv: { MOSS_PI_AI_INTER_EVENT_TIMEOUT_MS: '300', MOSS_FALLBACK_MAX_RETRIES: '0' },
+      });
+      const res = resultOf(r);
+      assert.ok(res, `result event; err=${r.err.slice(-300)}`);
+      assert.notEqual(r.code, 0, `non-zero exit, got ${r.code}`);
+      assert.equal(res.is_error, true, JSON.stringify(res).slice(0, 300));
+      assert.notEqual(res.subtype, 'success');
+      assert.equal(res.recoverable, false, JSON.stringify(res).slice(0, 400));
+    }, `${fmt} upstream stream stall → is_error, recoverable:false, non-zero`);
   }
 
   for (const c of NEGATIVES) {

@@ -218,6 +218,8 @@ export interface HeadlessPrintState {
    * recoverable: false with the same wording as the text last line.
    */
   safetyBlockConclusion?: () => string | undefined;
+  /** O121: set when the result event was failed by {@link safetyBlockConclusion}. */
+  outcomeConcluded?: boolean;
 }
 
 export interface HeadlessPrintStateInput {
@@ -430,9 +432,11 @@ function formatResult(
       : undefined);
   const maxTurns = isMaxTurnsStopReason(result?.stopReason);
   const outputLimit = isOutputLimitStop(result?.stopReason);
-  const blockLine = state.safetyBlockConclusion?.();
-  const isError =
-    Boolean(errorMessage) || isErrorStopReason(result?.stopReason) || Boolean(blockLine);
+  const baseError = Boolean(errorMessage) || isErrorStopReason(result?.stopReason);
+  // O121: only for runs that otherwise look successful; real errors (budget,
+  // stall, max turns) keep their own subtype / error / exit code.
+  const blockLine = baseError ? undefined : state.safetyBlockConclusion?.();
+  const isError = baseError || Boolean(blockLine);
   const subtype: HeadlessResultSubtype = !isError
     ? 'success'
     : outputLimit
@@ -479,7 +483,8 @@ function formatResult(
   }
   if (blockLine) {
     // O121: a refused action is never a success, whatever the answer says.
-    event.error = event.error ? `${event.error}; ${blockLine}` : blockLine;
+    event.error = blockLine;
+    state.outcomeConcluded = true;
     event.recoverable = false;
   }
   if (!isError && state.structuredOutputRequested) {
