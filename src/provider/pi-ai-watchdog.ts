@@ -18,7 +18,7 @@ const INTER_EVENT_TIMEOUT_MS_DEFAULT = 60_000;
 const INTER_EVENT_TIMEOUT_MS_MIN = 0; // 0 = disabled
 const INTER_EVENT_TIMEOUT_MS_MAX = 600_000;
 
-function resolveInterEventTimeoutMs(): number {
+export function resolveInterEventTimeoutMs(): number {
   const raw = envPreferMoss('MOSS_PI_AI_INTER_EVENT_TIMEOUT_MS', 'PI_AI_INTER_EVENT_TIMEOUT_MS');
   if (raw == null) return INTER_EVENT_TIMEOUT_MS_DEFAULT;
   const s = String(raw).trim();
@@ -91,6 +91,7 @@ export function startFirstEventWatchdog(
   const ctrl = new AbortController();
   let firedByTimeout = false;
   let firedPhase: 'first' | 'inter' = 'first';
+  let activeTimeoutMs = timeoutMs;
   let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
     firedByTimeout = true;
     try {
@@ -113,11 +114,12 @@ export function startFirstEventWatchdog(
       clear();
 
       if (!firedByTimeout) {
-        // Use the configurable inter-event timeout, but still cap at timeoutMs
-        // (the first-event deadline is always an upper bound on the whole call).
-        const configuredMs = resolveInterEventTimeoutMs();
-        if (configuredMs <= 0) return; // disabled — only first-event timeout applies
-        const interEventMs = Math.min(timeoutMs, configuredMs);
+        // O114: the inter-event idle limit is independent of the first-event
+        // deadline (default 60s vs 45s). It used to be Math.min()'d with the
+        // first-event timeout, which silently capped mid-stream idle at 45s.
+        const interEventMs = resolveInterEventTimeoutMs();
+        if (interEventMs <= 0) return; // disabled — only first-event timeout applies
+        activeTimeoutMs = interEventMs;
         timer = setTimeout(() => {
           firedByTimeout = true;
           firedPhase = 'inter';
@@ -134,7 +136,7 @@ export function startFirstEventWatchdog(
       if (!firedByTimeout) return err;
       if (callerSignal?.aborted) return err;
       return new PiAiFirstEventTimeoutError({
-        timeoutMs,
+        timeoutMs: activeTimeoutMs,
         provider: modelInfo?.provider ?? 'unknown',
         model: modelInfo?.id ?? 'unknown',
         phase: firedPhase,
