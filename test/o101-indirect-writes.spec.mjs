@@ -11,7 +11,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'o101-'));
 const home = path.join(root, 'home');
@@ -57,7 +57,7 @@ fs.writeFileSync(path.join(ws, '.git', 'config'), '[core]\n\trepositoryformatver
 execFileSync('git', ['add', 'src', 'test'], { cwd: ws, env: gitEnv });
 execFileSync('git', ['commit', '-qm', 'init'], { cwd: ws, env: gitEnv });
 
-const distRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'dist');
+const distRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 const load = async (rel) => {
   const p = path.join(distRoot, rel);
   return import(pathToFileURL(p).href);
@@ -272,14 +272,14 @@ await check('B-ux: headline names script and line', () => {
 await check('C1: obfuscated path write detected by snapshot (layer 3)', () => {
   const before = takeProtectedPathSnapshot(ws, { home });
   // Bypass layers 1–2 with runtime join
-  const script = path.join(ws, 'obfuscate.py');
+  const script = path.join(ws, 'obfuscate.cjs');
   fs.writeFileSync(
     script,
     [
-      'import os',
-      "h=os.path.expanduser('~')",
-      "p=os.path.join(h,'.'+'ssh','authorized_keys')",
-      "open(p,'a').write('BYPASS\\n')",
+      "const fs=require('node:fs'),path=require('node:path');",
+      'const h=process.env.HOME;',
+      "const p=path.join(h,'.'+'ssh','authorized_keys');",
+      "fs.appendFileSync(p,'BYPASS\\n');",
       '',
     ].join('\n')
   );
@@ -288,11 +288,13 @@ await check('C1: obfuscated path write detected by snapshot (layer 3)', () => {
   const prev = process.env.HOME;
   process.env.HOME = home;
   try {
-    spawnSync('python3', [script], {
+    const result = spawnSync(process.execPath, [script], {
       cwd: ws,
       env: { ...process.env, HOME: home },
       encoding: 'utf8',
     });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(fs.readFileSync(path.join(home, '.ssh', 'authorized_keys'), 'utf8'), /BYPASS/);
   } finally {
     process.env.HOME = prev;
   }
@@ -302,7 +304,7 @@ await check('C1: obfuscated path write detected by snapshot (layer 3)', () => {
     changes.some((c) => c.path.includes('.ssh') || c.path.includes('authorized_keys')),
     `expected ssh change, got ${JSON.stringify(changes)}`
   );
-  const notice = formatProtectedPathModifiedNotice(changes, true, 'python3 obfuscate.py');
+  const notice = formatProtectedPathModifiedNotice(changes, true, 'node obfuscate.cjs');
   assert.match(notice, /已被修改/);
   assert.doesNotMatch(notice, /已拦截/);
   assert.ok(!notice.includes(PRIVATE_KEY.slice(0, 20)));

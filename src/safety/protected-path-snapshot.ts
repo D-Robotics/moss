@@ -328,7 +328,8 @@ export function parseGitConfigEntries(raw: Buffer): Map<string, string[]> | null
         SystemRoot: process.env.SystemRoot ?? '',
         HOME: tmpDir,
         GIT_CONFIG_NOSYSTEM: '1',
-        GIT_CONFIG_GLOBAL: os.devNull,
+        // Git for Windows rejects Node's \\.\nul device namespace.
+        GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : os.devNull,
         LC_ALL: 'C',
       },
     });

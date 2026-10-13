@@ -140,7 +140,14 @@ await check('B2: linked worktree git commit / checkout -b → silent', () => {
 await check('C1: .git file rewritten → reported with reason', () => {
   const r = makeLinked();
   const other = fs.mkdtempSync(path.join(tmpRoot, 'evil-'));
-  const ch = changes(r, (x) => fs.writeFileSync(path.join(x.wt, '.git'), `gitdir: ${other}\n`));
+  const ch = changes(r, (x) => {
+    const file = path.join(x.wt, '.git');
+    const text = `gitdir: ${other}\n`;
+    // Git for Windows marks this file hidden; opening an existing hidden file
+    // with 'w' fails. Rewrite its actual bytes through the existing file.
+    fs.writeFileSync(file, text, { flag: 'r+' });
+    fs.truncateSync(file, Buffer.byteLength(text));
+  });
   const c = ch.find((y) => y.path === '.git');
   assert.equal(c?.reason, 'gitlink-rewritten', JSON.stringify(ch));
   assert.match(formatProtectedPathModifiedNotice(ch, true), /\.git 被改写/);
@@ -237,6 +244,35 @@ await check('P4 (QA B1): second dir-change after cd <root> restores ancestor pro
   assert.ok(findShellProtectedWrites('cd / && node x', ctx).length > 0, 'cd /');
   assert.ok(findShellProtectedWrites('cd ~ && node x', ctx).length > 0, 'cd ~');
 });
+
+await check(
+  'P5: detector home priority, successive contexts and synchronous errors restore env',
+  () => {
+    const before = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    for (const r of [makeLinked(), makeLinked()]) {
+      const ctx = {
+        cwd: r.wt,
+        workspaceRoot: r.wt,
+        home: path.dirname(r.wt),
+        env: { HOME: r.home, USERPROFILE: r.home },
+      };
+      assert.ok(findShellProtectedWrites('cd ~ && node x', ctx).length > 0);
+      assert.deepEqual({ HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE }, before);
+      assert.throws(
+        () =>
+          findShellProtectedWrites('node x', {
+            ...ctx,
+            shellWriteTargets: () => {
+              assert.equal(os.homedir(), ctx.home);
+              throw new Error('owned synchronous detector failure');
+            },
+          }),
+        /owned synchronous detector failure/
+      );
+      assert.deepEqual({ HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE }, before);
+    }
+  }
+);
 
 // ── D. main repo unchanged ─────────────────────────────────────────────
 await check('D1: main checkout: commit silent, sshCommand reported', () => {

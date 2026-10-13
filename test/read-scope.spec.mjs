@@ -28,6 +28,7 @@ import {
 
 const saved = {
   HOME: process.env.HOME,
+  USERPROFILE: process.env.USERPROFILE,
   MOSS_EXTRA_READ_ROOTS: process.env.MOSS_EXTRA_READ_ROOTS,
   MOSS_DEVICE_HOST: process.env.MOSS_DEVICE_HOST,
   MOSS_DEVICE_PORT: process.env.MOSS_DEVICE_PORT,
@@ -45,6 +46,7 @@ fs.mkdirSync(home, { recursive: true });
 fs.mkdirSync(project, { recursive: true });
 fs.mkdirSync(sibling, { recursive: true });
 process.env.HOME = home;
+process.env.USERPROFILE = home;
 
 const PROJECT_MARKER = 'PROJECT_MARKER_read_scope';
 const SIBLING_MARKER = 'SIBLING_MARKER_read_scope';
@@ -77,6 +79,12 @@ function ctx(extra = {}) {
     abortSignal: new AbortController().signal,
     ...extra,
   };
+}
+
+function shellSearch(marker, root) {
+  return process.platform === 'win32'
+    ? `Get-ChildItem -LiteralPath '${root.replace(/'/g, "''")}' -Recurse -File | Select-String -SimpleMatch '${marker}'`
+    : `grep -R ${marker} '${root.replace(/'/g, "'\\''")}'`;
 }
 
 async function modelView(tool, input, context, raw) {
@@ -126,11 +134,11 @@ try {
   const homeSearch = await searchCodeTool.execute({ pattern: HOME_MARKER, path: '~' }, ctx());
   assert.match(String(homeSearch), new RegExp(HOME_MARKER), 'an explicit home path is searched');
 
-  const grepHome = await execTool.execute({ command: `grep -R ${HOME_MARKER} ~` }, ctx());
+  const grepHome = await execTool.execute({ command: shellSearch(HOME_MARKER, home) }, ctx());
   assert.doesNotMatch(String(grepHome), /Command blocked:/);
   assert.match(String(grepHome), new RegExp(HOME_MARKER), 'shell grep of home runs');
 
-  const grepProject = await execTool.execute({ command: `grep -R ${PROJECT_MARKER} .` }, ctx());
+  const grepProject = await execTool.execute({ command: shellSearch(PROJECT_MARKER, '.') }, ctx());
   assert.match(String(grepProject), new RegExp(PROJECT_MARKER), 'in-workspace grep still runs');
   assert.doesNotMatch(String(grepProject), /Command blocked:/);
 
@@ -143,7 +151,17 @@ try {
     );
   }
   assert.match(
-    String(await execTool.execute({ command: 'cat /proc/cpuinfo' }, ctx())),
+    String(
+      await execTool.execute(
+        {
+          command:
+            process.platform === 'win32'
+              ? `node -e "console.log('CPU ' + require('os').cpus()[0].model)"`
+              : 'cat /proc/cpuinfo',
+        },
+        ctx()
+      )
+    ),
     /processor|cpu/i
   );
 

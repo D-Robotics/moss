@@ -287,11 +287,11 @@ const PROTECTED_TEXT =
 /** Show a detector's absolute target the way a user would write it. */
 function displayPath(abs: string, ctx: ProtectedPathContext): string {
   const rel = path.relative(ctx.cwd, abs);
-  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel;
+  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel.split(path.sep).join('/');
   const home = homeOf(ctx);
   const fromHome = path.relative(home, abs);
   if (!fromHome.startsWith('..') && !path.isAbsolute(fromHome))
-    return fromHome ? `~/${fromHome}` : '~';
+    return fromHome ? `~/${fromHome.split(path.sep).join('/')}` : '~';
   return abs;
 }
 
@@ -346,17 +346,23 @@ function permissionChangeTargets(command: string, cwd: string): string[] {
   return out;
 }
 
-/** O97's detector expands `~` via os.homedir(); honour ctx.env.HOME when set. */
+/** O97's detector expands `~` via os.homedir(); honour the context's home. */
 function withDetectorHome<T>(ctx: ProtectedPathContext, fn: () => T): T {
-  const want = ctx.env?.HOME ?? ctx.home;
-  if (!want || want === process.env.HOME) return fn();
+  const want = homeOf(ctx);
+  if (!want || want === os.homedir()) return fn();
   const prev = process.env.HOME;
+  const prevProfile = process.env.USERPROFILE;
   process.env.HOME = want;
+  if (process.platform === 'win32') process.env.USERPROFILE = want;
   try {
     return fn();
   } finally {
     if (prev === undefined) delete process.env.HOME;
     else process.env.HOME = prev;
+    if (process.platform === 'win32') {
+      if (prevProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = prevProfile;
+    }
   }
 }
 

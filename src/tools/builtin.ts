@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { runProcess, ProcessError } from '../utils/run-process.js';
 import { resolveHostShell } from '../utils/host-shell.js';
+import { windowsMissingCommand } from '../utils/windows-missing-command.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { assertShellWritesWithinRoots } from '../safety/shell-write-sandbox.js';
@@ -306,7 +307,8 @@ export const execTool: Tool = {
           );
         }
         const failure =
-          err.exitCode === null
+          err.exitCode === null ||
+          (process.platform === 'win32' && windowsMissingCommand(err.stderr) !== undefined)
             ? `Command failed:\n${output || err.message}`
             : `Command failed (exit ${err.exitCode}):\n${output || err.message}`;
         return (

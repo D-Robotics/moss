@@ -286,6 +286,7 @@ async function pRun(lang, calls, prep) {
   const server = await startFake(calls);
   const env = {
     PATH: process.env.PATH,
+    ...(process.env.PATHEXT ? { PATHEXT: process.env.PATHEXT } : {}),
     HOME: home,
     MOSS_CONFIG_DIR: cfgDir,
     MOSS_RUNTIME_DIR: path.join(home, 'runtime'),
