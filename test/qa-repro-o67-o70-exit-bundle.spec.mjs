@@ -121,8 +121,14 @@ function runMoss({ env, args, cwd, killAfterMs }) {
   });
 }
 
-function prepareEnv(extra = {}) {
+function prepareEnv(extra = {}, inherited = process.env) {
+  const cleanInherited = { ...inherited };
+  for (const key of Object.keys(cleanInherited)) {
+    if (/^(?:https?|all|no)_proxy$/i.test(key) || /^NODE_USE_ENV_PROXY$/i.test(key))
+      delete cleanInherited[key];
+  }
   const env = isolatedCliEnv({
+    inherited: cleanInherited,
     prefix: 'moss-exit-bundle-',
     overrides: {
       MOSS_NO_TUI: '1',
@@ -131,6 +137,7 @@ function prepareEnv(extra = {}) {
       MOSS_LLM_FIRST_CHUNK_TIMEOUT_MS: '4000',
       LANG: 'C',
       LC_ALL: 'C',
+      NO_PROXY: '',
       ...extra,
     },
   });
@@ -141,7 +148,7 @@ function prepareEnv(extra = {}) {
   put(path.join(env.MOSS_CONFIG_DIR, 'config.json'), {
     provider: 'openai-compatible',
     model: 'stub-model',
-    baseUrl: 'https://api.deepseek.com/v1',
+    baseUrl: 'https://moss-exit-bundle.invalid/v1',
     apiKey: 'sk-acceptance-exit-bundle',
     permissions: { defaultMode: 'full' },
   });
@@ -167,6 +174,44 @@ test('O70: CLI exit path must call stopAllBackgroundProcesses', () => {
     /stopAllBackgroundProcesses\s*\(/,
     'cli-main must call stopAllBackgroundProcesses on the exit path'
   );
+});
+
+test('O67: inherited proxy aliases cannot bypass the owned proxy', async () => {
+  const proxy = await startBlackholeProxy();
+  const { env, ws } = prepareEnv(
+    { HTTPS_PROXY: `http://127.0.0.1:${proxy.port}` },
+    {
+      ...process.env,
+      HTTP_PROXY: 'not-a-valid-proxy-url',
+      http_proxy: 'not-a-valid-proxy-url',
+      https_proxy: 'http://127.0.0.1:1',
+      Https_Proxy: 'http://127.0.0.1:1',
+      ALL_PROXY: 'not-a-valid-proxy-url',
+      NO_PROXY: '*',
+      no_proxy: '*',
+    }
+  );
+  try {
+    const r = await runMoss({
+      env,
+      cwd: ws,
+      args: ['-p', 'reply with just: ok'],
+      killAfterMs: 45_000,
+    });
+    const log = fs.existsSync(proxy.logFile) ? fs.readFileSync(proxy.logFile, 'utf8') : '';
+    assert.match(
+      log,
+      /BLACKHOLE/,
+      'the actual CLI must contact its owned proxy despite inherited aliases'
+    );
+    assert.equal(r.killed, false, 'the isolated proxy scenario must exit by itself');
+    assert.notEqual(r.code, 0);
+    assert.doesNotMatch(r.out, MODEL_COACH);
+    assert.match(r.out, NET_OR_PROXY);
+    assert.ok(r.ms < 35_000, `took ${r.ms}ms`);
+  } finally {
+    proxy.stop();
+  }
 });
 
 test('O67/O70: blackhole HTTPS_PROXY — self-exit; no model coaching', async () => {
