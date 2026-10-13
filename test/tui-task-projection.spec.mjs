@@ -184,7 +184,8 @@ const typeFail = async (text) => {
   failInstance.stdin.write('\r');
   await sleep(30);
 };
-await typeFail('/task run unsatisfiable goal --accept false');
+// This checks terminal FAIL projection, not the engine's default repair budget.
+await typeFail('/task run unsatisfiable goal --accept false --max-repairs 0');
 const failRow = () =>
   failHandle.store.rows.find((r) =>
     /^◇ Checks did not pass \(\d+\/\d+\) · \/task resume$/.test(r.text)
