@@ -228,7 +228,8 @@ if failed:
     raise SystemExit(2)
 `;
     const script = steps.map((step) => `${step.kind}\t${step.payload ?? ''}`).join('\n');
-    const extra = Object.entries(extraEnv ?? {})
+    // This suite talks only to its stub gateway, not the default docs MCP service.
+    const extra = Object.entries({ MOSS_NO_RDK_DOCS: '1', ...(extraEnv ?? {}) })
       .map(([key, value]) => `${key}=${value}`)
       .join('\n');
     const child = spawn(
