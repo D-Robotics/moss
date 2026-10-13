@@ -1,5 +1,6 @@
 import { stableSerializeToolInput } from './tool-idempotent-replay.js';
 import { readEnv } from '../../utils/env-compat.js';
+import { windowsMissingCommand } from '../../utils/windows-missing-command.js';
 import path from 'node:path';
 import { canonicalPath, findProtectedWrite } from '../../safety/shell-write-detect.js';
 
@@ -471,6 +472,19 @@ export function classifyShellToolFailure(
  */
 export function parseMissingCommandName(resultText: string | undefined): string | undefined {
   const text = (resultText ?? '').slice(0, 4000);
+  // Display-only: the producer's failure header and npm stdout may precede
+  // the native diagnostic. Fault classification itself only reads stderr's first line.
+  let windowsName: string | undefined;
+  for (let offset = 0; offset < text.length; ) {
+    windowsName = windowsMissingCommand(text.slice(offset));
+    if (windowsName !== undefined) break;
+    const nextLine = text.indexOf('\n', offset);
+    if (nextLine < 0) break;
+    offset = nextLine + 1;
+  }
+  if (windowsName !== undefined) {
+    return /^[A-Za-z0-9._/-]{1,64}$/.test(windowsName) ? windowsName : undefined;
+  }
   const patterns = [
     /^(?:\S*\/)?(?:sh|bash|dash|ash|ksh)(?::\s*(?:line\s+)?\d+)?:\s*([^\s:]+):\s*(?:command\s+)?not found\b/im,
     /^(?:\S*\/)?zsh(?::\d+)?:\s*command not found:\s*(\S+)/im,
@@ -998,7 +1012,7 @@ export function shouldShortCircuitToolCall(
     const hit = findProtectedWrite(input.command, cwd, locked);
     if (hit) {
       const shown = display.get(hit) ?? path.relative(base, hit) ?? hit;
-      return `shell write to edit-locked file ${shown || hit}`;
+      return `shell write to edit-locked file ${(shown || hit).split(path.sep).join('/')}`;
     }
   }
 

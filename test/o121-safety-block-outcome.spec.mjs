@@ -372,7 +372,10 @@ if (isMain) {
       [
         'cmd.exe',
         "exit_code: 9009\n'nosuchcmd-x' is not recognized as an internal or external command,\n",
-        { zh: /；卡在：exec 未能启动$/, en: /; stuck at: exec failed to start$/ },
+        {
+          zh: /；卡在：exec 未能启动（找不到命令 `nosuchcmd-x`）$/,
+          en: /; stuck at: exec failed to start \(command `nosuchcmd-x` not found\)$/,
+        },
       ],
     ]) {
       await check(async () => {

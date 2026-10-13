@@ -17,9 +17,12 @@ import { fileURLToPath } from 'node:url';
 
 import { createRunCompletionTracker, noteRunCompletionEvent } from '../dist/cli/run-completion.js';
 import { formatOutcomeLine, resolveRunOutcome } from '../dist/cli/run-outcome.js';
+import { resolveHostShell } from '../dist/utils/host-shell.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'dist', 'cli.js');
+// Use the actual installed runtime; Windows python3 may only be a Store alias.
+const indirectEnvWrite = `${resolveHostShell().kind === 'pwsh' ? '& ' : ''}"${process.execPath}" -e "require('node:fs').writeFileSync('.e'+'nv','X=1')"`;
 
 function startFake(calls, finalText) {
   const server = http.createServer((req, res) => {
@@ -96,6 +99,8 @@ async function scenario({ lang, calls, finalText }) {
   const port = server.address().port;
   const env = {
     PATH: process.env.PATH,
+    // Keep Windows executable lookup consistent with the selected fixture shell.
+    ...(process.env.PATHEXT ? { PATHEXT: process.env.PATHEXT } : {}),
     HOME: home,
     MOSS_CONFIG_DIR: cfg,
     MOSS_RUNTIME_DIR: path.join(home, 'runtime'),
@@ -173,7 +178,7 @@ for (const lang of ['zh', 'en']) {
   await check(async () => {
     const r = await scenario({
       lang,
-      calls: [`curl -s -o .env ${U}`, `python3 -c "p='.e'+'nv'; f=open(p,'w'); f.write('X=1')"`],
+      calls: [`curl -s -o .env ${U}`, indirectEnvWrite],
       finalText: CLAIM[lang],
     });
     assert.equal(r.envFile, true, 'precondition: second command wrote .env');

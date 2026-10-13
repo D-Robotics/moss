@@ -220,7 +220,9 @@ const FORMAT_PATTERNS = ['string should match pattern', 'invalid request format'
 
 function matchesAny(message: string, patterns: string[]): boolean {
   const lower = message.toLowerCase();
-  return patterns.some((p) => lower.includes(p));
+  return patterns.some((p) =>
+    /^\d{3}$/.test(p) ? new RegExp(`(?<!\\d)${p}(?!\\d)`).test(lower) : lower.includes(p)
+  );
 }
 
 export function isContextOverflowError(message?: string): boolean {

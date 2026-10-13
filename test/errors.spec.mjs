@@ -24,7 +24,15 @@ import {
   isMossError,
   ErrorCode,
 } from '../dist/errors.js';
-import { describeError } from '../dist/provider/errors.js';
+import {
+  describeError,
+  classifyFailoverReason,
+  isAuthError,
+  isQuotaExceededError,
+  isRateLimitError,
+} from '../dist/provider/errors.js';
+import { classifyProviderError } from '../dist/provider/error-classify.js';
+import { classifyLlmError } from '../dist/provider/llm-error-classifier.js';
 
 // ─── fixtures ──────────────────────────────────────────────────────────────
 
@@ -132,4 +140,40 @@ const mossWithHint = new MossError({
   );
 }
 
-console.error('errors: hint propagation through errorMessage / describeError / formatMossError ✓');
+for (const port of [40123, 42912, 40234, 40319]) {
+  const message = `connect ECONNREFUSED 127.0.0.1:${port}`;
+  assert.equal(isAuthError(message), false, `port ${port} is not HTTP authentication`);
+  assert.equal(isQuotaExceededError(message), false, `port ${port} is not HTTP billing`);
+  assert.equal(isRateLimitError(message), false, `port ${port} is not HTTP rate limiting`);
+  assert.equal(classifyProviderError({ errorMessage: message, locale: 'en' }).category, 'network');
+  assert.equal(classifyLlmError(new Error(message)).category, 'connection');
+  assert.equal(classifyFailoverReason(message), 'connection');
+}
+
+for (const [status, providerCategory, llmCategory, reason] of [
+  [401, 'auth', 'auth', 'auth'],
+  [403, 'auth', 'auth', 'auth'],
+  [402, 'quota_exceeded', 'client_error', 'billing'],
+  [429, 'rate_limit', 'rate_limit', 'rate_limit'],
+]) {
+  for (const message of [
+    String(status),
+    `HTTP ${status}`,
+    `HTTP${status}`,
+    `status_${status}`,
+    `Request failed (${status})`,
+  ]) {
+    assert.equal(
+      classifyProviderError({ errorMessage: message, locale: 'en' }).category,
+      providerCategory
+    );
+    assert.equal(classifyLlmError(new Error(message)).category, llmCategory);
+    assert.equal(classifyFailoverReason(message), reason);
+  }
+  assert.equal(
+    classifyProviderError({ status, errorMessage: 'upstream rejected', locale: 'en' }).category,
+    providerCategory
+  );
+}
+
+console.error('errors: hint propagation and HTTP status/connection port boundaries ✓');

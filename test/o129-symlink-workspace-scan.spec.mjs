@@ -8,9 +8,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const distRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'dist');
+const distRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 const load = (rel) => import(pathToFileURL(path.join(distRoot, rel)).href);
 const { findIndirectProtectedWrites, scanWorkspaceScript } = await load(
   'safety/indirect-write-detect.js'
@@ -38,8 +38,8 @@ fs.mkdirSync(realWs, { recursive: true });
 fs.mkdirSync(path.join(realHome, '.ssh'), { recursive: true });
 let canSymlink = true;
 try {
-  fs.symlinkSync(realWs, linkWs, 'dir');
-  fs.symlinkSync(realHome, linkHome, 'dir');
+  fs.symlinkSync(realWs, linkWs, process.platform === 'win32' ? 'junction' : 'dir');
+  fs.symlinkSync(realHome, linkHome, process.platform === 'win32' ? 'junction' : 'dir');
 } catch {
   canSymlink = false;
 }

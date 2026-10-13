@@ -100,8 +100,8 @@ test('A: win32 + 9009 x3 → byToolFailure 3; hint identical in structure to 127
     return { blocked, msg };
   };
   // 9009 on win32 vs the O96 127 baseline: same generic copy (no parseable name).
-  const win9009 = runGuard(WIN_HEADER, 'win32');
-  const win9009FirstLine = runGuard(WIN_FIRSTLINE, 'win32');
+  const win9009 = runGuard('exit_code: 9009\n', 'win32');
+  const win9009FirstLine = runGuard('Command failed (exit 9009):\n', 'win32');
   const base127 = runGuard('exit_code: 127\n', 'win32');
   assert.equal(win9009.msg, base127.msg, 'hint structure must equal the 127 case');
   assert.equal(win9009FirstLine.msg, base127.msg);
@@ -117,6 +117,7 @@ test('A2: win32 + 9009 with an O96-parseable name → same name copy as 127 (saf
     for (let i = 0; i < 3; i++) {
       recordToolLoopOutcome(state, 'exec', true, output, { command: 'x' }, 'win32');
     }
+    assert.equal(state.byToolFailure.get('exec'), 3);
     const blocked = shouldShortCircuitToolCall(state, 'exec', { command: 'x' });
     assert.ok(blocked);
     assert.match(blocked, /\(missing command: foo\)/);
@@ -127,11 +128,15 @@ test('A2: win32 + 9009 with an O96-parseable name → same name copy as 127 (saf
     assert.match(msg, /install the dependency or change the command/);
     return msg;
   };
-  assert.equal(
-    runGuard('exit_code: 9009\nsh: foo: not found\n'),
-    runGuard('exit_code: 127\nsh: foo: not found\n'),
-    'named 9009 copy must equal named 127 copy'
-  );
+  const named127 = runGuard('exit_code: 127\nsh: foo: not found\n');
+  for (const named9009 of [WIN_HEADER, WIN_FIRSTLINE, 'exit_code: 9009\nsh: foo: not found\n']) {
+    assert.equal(parseMissingCommandName(named9009), 'foo');
+    assert.equal(
+      runGuard(named9009),
+      named127,
+      'named native CMD 9009 copy must equal named 127 copy'
+    );
+  }
   // Forged name (>64 chars) → parseMissingCommandName undefined → generic copy, no leak.
   const forged = `exit_code: 9009\nsh: ${'a'.repeat(65)}: not found\n`;
   assert.equal(parseMissingCommandName(forged), undefined);

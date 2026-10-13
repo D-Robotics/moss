@@ -19,7 +19,7 @@ import { readFileTool, editFileTool } from '../dist/tools/file-tools.js';
 
 // ─── O97a: detector + locked-file guard ─────────────────────────────────────
 
-const CWD = '/w/proj';
+const CWD = path.resolve('/w/proj');
 const T = path.join(CWD, 'src/big.ts');
 
 const VERBS = [
@@ -40,7 +40,7 @@ for (const [name, cmd] of VERBS) {
   });
   test(`O97a locked file blocks: ${name}`, () => {
     const locked = [canonicalPath(T)];
-    assert.equal(findProtectedWrite(cmd, CWD, locked), locked[0], cmd);
+    assert.equal(canonicalPath(findProtectedWrite(cmd, CWD, locked)), locked[0], cmd);
   });
 }
 

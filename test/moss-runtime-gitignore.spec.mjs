@@ -37,6 +37,48 @@ function moss(cwd, args, home) {
   });
 }
 
+function assertFixtureSymlink(file) {
+  if (process.platform !== 'win32') {
+    assert.equal(fs.lstatSync(file).isSymbolicLink(), true);
+    return;
+  }
+  const entry = fs
+    .readdirSync(path.dirname(file), { withFileTypes: true })
+    .find((candidate) => candidate.name === path.basename(file));
+  assert.equal(entry?.isSymbolicLink(), true, 'the exact fixture link must still exist');
+}
+
+function unlinkFixtureSymlink(root, file, target) {
+  if (process.platform !== 'win32') {
+    fs.unlinkSync(file);
+    return;
+  }
+  // Some Windows filesystems cannot inspect or unlink a dangling reparse point.
+  // Only after the security assertions, materialize its owned target for unlink.
+  assert.equal(path.dirname(target), root);
+  const relative = path.relative(root, file);
+  assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+  const parent = fs.realpathSync(path.dirname(file));
+  assert.equal(parent, path.join(fs.realpathSync(root), path.dirname(relative)));
+  assertFixtureSymlink(file);
+  let placeholder = false;
+  try {
+    try {
+      fs.lstatSync(target);
+    } catch (error) {
+      assert.equal(error.code, 'ENOENT');
+      fs.writeFileSync(target, '', { flag: 'wx' });
+      placeholder = true;
+    }
+    assert.equal(fs.realpathSync(path.dirname(fs.readlinkSync(file))), fs.realpathSync(root));
+    assert.equal(path.basename(fs.readlinkSync(file)), path.basename(target));
+    fs.unlinkSync(file);
+  } finally {
+    if (placeholder) fs.unlinkSync(target);
+  }
+  assert.equal(fs.readdirSync(path.dirname(file)).includes(path.basename(file)), false);
+}
+
 test('read-only config commands do not create .moss', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-runtime-ro-'));
   const home = path.join(dir, 'home');
@@ -64,40 +106,54 @@ test('a .moss/.gitignore symlink is not followed', () => {
   fs.mkdirSync(home);
   const mossDir = path.join(dir, '.moss');
   fs.mkdirSync(mossDir);
+  const dangling = path.join(dir, 'missing-gitconfig');
+  let gitignoreTarget = dangling;
+  let gitignoreLinkCreated = false;
   try {
     git(dir, ['init', '-q']);
-    const dangling = path.join(dir, 'missing-gitconfig');
     fs.symlinkSync(dangling, path.join(mossDir, '.gitignore'));
+    gitignoreLinkCreated = true;
     ensureMossRuntimeGitignore(dir);
     moss(dir, ['config', 'get', 'model'], home);
     assert.equal(fs.existsSync(dangling), false);
-    assert.equal(fs.lstatSync(path.join(mossDir, '.gitignore')).isSymbolicLink(), true);
+    assertFixtureSymlink(path.join(mossDir, '.gitignore'));
 
-    fs.unlinkSync(path.join(mossDir, '.gitignore'));
+    unlinkFixtureSymlink(dir, path.join(mossDir, '.gitignore'), dangling);
+    gitignoreLinkCreated = false;
     const existing = path.join(dir, 'gitconfig');
     fs.writeFileSync(existing, 'keep-me\n');
+    gitignoreTarget = existing;
     fs.symlinkSync(existing, path.join(mossDir, '.gitignore'));
+    gitignoreLinkCreated = true;
     ensureMossRuntimeGitignore(dir);
     assert.equal(fs.readFileSync(existing, 'utf8'), 'keep-me\n');
 
     const outside = path.join(dir, 'outside');
     fs.mkdirSync(outside);
+    unlinkFixtureSymlink(dir, path.join(mossDir, '.gitignore'), existing);
+    gitignoreLinkCreated = false;
     fs.rmSync(mossDir, { recursive: true, force: true });
-    fs.symlinkSync(outside, mossDir);
+    fs.symlinkSync(outside, mossDir, process.platform === 'win32' ? 'dir' : undefined);
     ensureMossRuntimeGitignore(dir);
     assert.equal(fs.existsSync(path.join(outside, '.gitignore')), false);
   } finally {
+    if (gitignoreLinkCreated)
+      unlinkFixtureSymlink(dir, path.join(mossDir, '.gitignore'), gitignoreTarget);
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test('an invalid .git does not make a work tree', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-runtime-badgit-'));
+  const dangling = path.join(dir, 'missing-gitdir');
+  let danglingGitCreated = false;
   try {
-    fs.symlinkSync(path.join(dir, 'missing-gitdir'), path.join(dir, '.git'));
+    fs.symlinkSync(dangling, path.join(dir, '.git'));
+    danglingGitCreated = true;
     ensureMossRuntimeGitignore(dir);
     assert.equal(fs.existsSync(path.join(dir, '.moss')), false);
-    fs.unlinkSync(path.join(dir, '.git'));
+    unlinkFixtureSymlink(dir, path.join(dir, '.git'), dangling);
+    danglingGitCreated = false;
     fs.writeFileSync(path.join(dir, '.git'), 'not a gitdir\n');
     ensureMossRuntimeGitignore(dir);
     assert.equal(fs.existsSync(path.join(dir, '.moss')), false);
@@ -138,6 +194,7 @@ test('an invalid .git does not make a work tree', () => {
       fs.rmSync(real, { recursive: true, force: true });
     }
   } finally {
+    if (danglingGitCreated) unlinkFixtureSymlink(dir, path.join(dir, '.git'), dangling);
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

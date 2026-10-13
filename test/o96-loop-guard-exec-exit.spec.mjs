@@ -25,6 +25,56 @@ import { execTool } from '../dist/tools/builtin.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { windowsMissingCommand } from '../dist/utils/windows-missing-command.js';
+
+test('Windows native missing-command diagnostics preserve the command name', () => {
+  for (const diagnostic of [
+    `'o96missinglinter' is not recognized as an internal or external command,\noperable program or batch file.`,
+    `\u001b[31;1mo96missinglinter: The term 'o96missinglinter' is not recognized as a name of a cmdlet, function, script file, or executable program.\u001b[0m`,
+    `o96missinglinter:\nThe term 'o96missinglinter' is not recognized as a name of a cmdlet, function, script file, or executable program.`,
+  ]) {
+    assert.equal(windowsMissingCommand(diagnostic), 'o96missinglinter');
+    assert.equal(parseMissingCommandName(diagnostic), 'o96missinglinter');
+  }
+  assert.equal(windowsMissingCommand('eslint: 3 errors'), undefined);
+  assert.equal(
+    windowsMissingCommand(
+      "ordinary lint error: The term 'o96missinglinter' is not recognized as a name of a cmdlet, function, script file, or executable program."
+    ),
+    undefined
+  );
+});
+
+for (const stream of ['stdout', 'stderr']) {
+  for (const [kind, faultCopy] of [
+    [
+      'embedded',
+      "ordinary lint error: The term 'o96missinglinter' is not recognized as a name of a cmdlet, function, script file, or executable program.",
+    ],
+    [
+      'multiline-pwsh',
+      "test failure:\no96missinglinter: The term 'o96missinglinter' is not recognized as a name of a cmdlet, function, script file, or executable program.",
+    ],
+    [
+      'multiline-cmd',
+      "test failure:\n'o96missinglinter' is not recognized as an internal or external command,",
+    ],
+  ]) {
+    test(`real child ${stream} with ${kind} Windows fault copy stays a normal non-zero`, async (t) => {
+      const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o96-stdout-'));
+      t.after(() => fs.rmSync(workspaceDir, { recursive: true, force: true }));
+      const diagnostic = Buffer.from(faultCopy).toString('base64');
+      const text = await execTool.execute(
+        {
+          command: `node -e "process.${stream}.write(Buffer.from('${diagnostic}','base64').toString());process.exit(1)"`,
+        },
+        { workspaceDir, sessionKey: 'o96-stdout' }
+      );
+      assert.equal(classifyShellToolFailure(text), 'normal_nonzero', text);
+      assert.match(text, /o96missinglinter/);
+    });
+  }
+}
 
 const LINT_FAIL = 'Command failed (exit 1):\neslint: 3 errors\n';
 const LINT_FAIL_ALT = 'Command failed (exit 1):\neslint: 5 errors (different)\n';

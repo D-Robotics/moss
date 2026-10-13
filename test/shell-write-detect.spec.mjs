@@ -11,7 +11,7 @@ import {
   findProtectedWrite,
 } from '../dist/safety/shell-write-detect.js';
 
-const CWD = '/w/proj';
+const CWD = path.resolve('/w/proj');
 const T = path.join(CWD, 'src/big.ts');
 const targets = (cmd) => detectShellWriteTargets(cmd, CWD).targets;
 
@@ -81,10 +81,16 @@ test('findProtectedWrite: uncertain AND mentions the locked file -> block', () =
   // Write API not visible statically, but the file is named in inline code.
   assert.equal(
     findProtectedWrite(`python3 -c "import m; m.go('src/big.ts')"`, CWD, locked),
-    locked[0]
+    canonicalPath(T, false)
   );
-  assert.equal(findProtectedWrite(`eval "$(gen) src/big.ts"`, CWD, locked), locked[0]);
-  assert.equal(findProtectedWrite(`node -e "x('./src/big.ts')"`, CWD, locked), locked[0]);
+  assert.equal(
+    findProtectedWrite(`eval "$(gen) src/big.ts"`, CWD, locked),
+    canonicalPath(T, false)
+  );
+  assert.equal(
+    findProtectedWrite(`node -e "x('./src/big.ts')"`, CWD, locked),
+    canonicalPath(T, false)
+  );
 });
 
 test('findProtectedWrite: uncertain without mention -> allowed (documented limit)', () => {
@@ -130,6 +136,9 @@ test('findProtectedWrite returns a case-preserving path even when the lock key f
 });
 
 test('canonicalPath: case-insensitive mode lower-cases; non-existent paths resolve', () => {
-  assert.equal(canonicalPath('/no/such/Dir/A.ts', true), '/no/such/dir/a.ts');
-  assert.equal(canonicalPath('/no/such/Dir/A.ts', false), '/no/such/Dir/A.ts');
+  assert.equal(
+    canonicalPath('/no/such/Dir/A.ts', true),
+    path.resolve('/no/such/Dir/A.ts').toLowerCase()
+  );
+  assert.equal(canonicalPath('/no/such/Dir/A.ts', false), path.resolve('/no/such/Dir/A.ts'));
 });

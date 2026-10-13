@@ -83,6 +83,7 @@ interface PreflightContext {
   toolLoopGuard: ToolLoopGuardState;
   sessionKey: string;
   historyBeforeAssistant: LLMMessage[];
+  requireFreshExecution: boolean;
 }
 
 interface OutcomeRecordingContext {
@@ -182,6 +183,8 @@ function preflightToolCall(
   }
 
   const toolMeta = resolvedTools.find((t) => t.name === call.name)?.metadata;
+  // Verification evidence must describe an actual execution, not a cached read.
+  if (ctx.requireFreshExecution) return null;
   const replayed = findLoopReplay(ctx.historyBeforeAssistant, call.name, call.input, toolMeta);
   if (replayed) {
     log.info('tool replay: reusing recent identical-params result', {
@@ -330,6 +333,7 @@ export async function executeAgentLoopToolCalls(
     toolLoopGuard,
     sessionKey,
     historyBeforeAssistant,
+    requireFreshExecution: toolCtx.agentId === 'subagent:verify',
   };
   const recordCtx: OutcomeRecordingContext = {
     assistantContent,

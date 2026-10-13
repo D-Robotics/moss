@@ -342,9 +342,14 @@ export function killProc(proc: BackgroundProc): void {
   const pid = proc.child.pid;
   try {
     if (IS_WIN && pid) {
-      // Stop the Job owner before the slower tree enumeration. For a live
-      // owner this stack does not yield between its kill and taskkill.
-      if (proc.windowsJobOwner) proc.child.kill();
+      // The noninheritable KILL_ON_JOB_CLOSE handle belongs to this owner.
+      // Killing it also terminates its descendants; before Job assignment no
+      // user command has dispatched. Do not block close/stdio events on a
+      // synchronous taskkill enumeration of an already terminated owner.
+      if (proc.windowsJobOwner) {
+        proc.child.kill();
+        return;
+      }
       runProcessSync('taskkill', ['/pid', String(pid), '/T', '/F'], {
         stdio: 'ignore',
         windowsHide: true,
