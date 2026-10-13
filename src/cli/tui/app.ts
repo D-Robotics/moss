@@ -226,6 +226,8 @@ import {
 import { installTuiLogSink } from './terminal-io.js';
 import { noteFrameHeight } from './frame-invariant.js';
 import { needsTestHint, type VerifyHintState } from '../verify-hint.js';
+import { createRunCompletionTracker, noteRunCompletionEvent } from '../run-completion.js';
+import { formatOutcomeLine, resolveRunOutcome } from '../run-outcome.js';
 import {
   createViewport,
   moveTranscript,
@@ -1252,8 +1254,10 @@ export function TuiAppRoot({
       handle.notify();
       const controller = new AbortController();
       abortRef.current = controller;
+      const completionTracker = createRunCompletionTracker();
       try {
         for await (const event of streamTurn(message, controller.signal)) {
+          noteRunCompletionEvent(completionTracker, event);
           if (event.type === 'error' && isInterruptEvent(controller, event.error)) {
             // D-9: the loop reports the user's own abort as an `error` event
             // ("This operation was aborted"), which used to land in the
@@ -1298,16 +1302,41 @@ export function TuiAppRoot({
       runStartedAtRef.current = undefined;
       const halted = controller.signal.aborted;
       const unverified = !halted && needsTestHint(store.run as VerifyHintState);
+      // Capture final answer before endRun clears the live buffer (O98 TUI line).
+      const finalText = [
+        ...store.rows
+          .filter((row) => row.id >= firstRowId && row.kind === 'assistant')
+          .map((row) => row.text),
+        store.run.streamingText,
+      ]
+        .join('\n')
+        .trim();
+      const outcome = resolveRunOutcome({
+        tracker: completionTracker,
+        finalText,
+        request: message,
+      });
+      const outcomeLine = formatOutcomeLine(outcome, isZhLocale() ? 'zh' : 'en');
       endRun(store, halted);
       if (startedAt !== undefined) {
         // Claude leaves a finalizing status line in the transcript; keep the
         // same shape (`✻ Worked for 5s`) and add the run's token spend.
-        const summary = renderRunSummary(Date.now() - startedAt, halted, Number.MAX_SAFE_INTEGER, {
-          input: store.usage.runTokensIn,
-          output: store.usage.runTokensOut,
-        });
-        const text = summary.find((l) => l.text.trim())?.text.trim();
-        if (text) appendRow(store, 'summary', text);
+        // O98: conclusion (完成 / 未完成 / 未验证) sits on the next dim line.
+        const summary = renderRunSummary(
+          Date.now() - startedAt,
+          halted,
+          Number.MAX_SAFE_INTEGER,
+          {
+            input: store.usage.runTokensIn,
+            output: store.usage.runTokensOut,
+          },
+          new Date(),
+          outcomeLine
+        );
+        for (const entry of summary) {
+          const text = entry.text.trim();
+          if (text) appendRow(store, 'summary', text);
+        }
       }
       if (unverified) {
         appendRow(store, 'summary', tui('edited JS/TS files but did not run tests'));
@@ -2231,6 +2260,12 @@ export function TuiAppRoot({
         // The hooks subsystem is the most powerful config surface (9 events,
         // blocking vetoes) and used to be manageable only by hand-editing
         // JSON. The view lists what is live and where to edit it.
+        // O91: in the zh UI every event key is paired with its Chinese display
+        // name (the keys themselves stay the English config literals). Dynamic
+        // import keeps the pure name table off the shell's static graph.
+        const { hookEventCatalogLines, hookEventZhName, isMossHookEventId } =
+          await import('../hook-event-names.js');
+        const zh = isZhLocale();
         const hooks = (
           options.cliRuntime?.config as
             | {
@@ -2250,8 +2285,10 @@ export function TuiAppRoot({
         if (hooks) {
           for (const [event, entries] of Object.entries(hooks)) {
             for (const hook of entries ?? []) {
+              const label =
+                zh && isMossHookEventId(event) ? `${event}（${hookEventZhName(event)}）` : event;
               lines.push(
-                `${event.padEnd(14)} ${hook.matcher ? `[${hook.matcher}] ` : ''}${hook.command}` +
+                `${label.padEnd(14)} ${hook.matcher ? `[${hook.matcher}] ` : ''}${hook.command}` +
                   `${hook.blocking ? ' · blocking' : ''}` +
                   `${hook.timeoutMs !== undefined ? ` · ${hook.timeoutMs}ms` : ''}`
               );
@@ -2261,9 +2298,7 @@ export function TuiAppRoot({
         if (lines.length === 0) {
           lines.push(
             tui('no hooks configured — add a "hooks" object to the config file:'),
-            '  PreToolUse · PostToolUse · UserPromptSubmit · PermissionRequest',
-            '  SessionStart · Stop · SubagentStop · PreCompact · PostCompact',
-            '  SessionEnd · Notification',
+            ...hookEventCatalogLines(zh),
             'each entry: { "command": "…", "matcher": "tool-glob", "timeoutMs": 5000, "blocking": true }'
           );
         }

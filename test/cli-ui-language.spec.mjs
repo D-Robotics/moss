@@ -656,6 +656,7 @@ baseurl apikey apikeyenv profile workspace safetymode approvalpolicy trustedtool
 permissions defaultmode allow ask deny devicetrust trusteddevices rdkdocs enabled package
 promptcache promptcachedebug guardrails input output blockpatterns redactpatterns agent
 maxturns contexttokens maxoutputtokens compaction reservetokens keeprecenttokens language
+reasoningbudget off adaptive high
 task_define record_evidence device_deploy search_code workspace-write
 balanced cautious autonomous manual acceptedits full never prompt
 moss_lang moss_config_dir moss_config_file moss_no_bundled_default editor

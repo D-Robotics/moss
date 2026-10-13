@@ -85,6 +85,16 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
     );
     return { category: 'timeout', retryable: !proxySet, message };
   }
+  // O114: a mid-stream stall (watchdog phase 'inter') is a transient upstream
+  // hiccup — retry it within the normal llm-call budget (maxLLMRetries, default
+  // 2). Phase 'first' is intentionally left on its pre-existing path.
+  if (
+    error instanceof Error &&
+    error.name === 'PiAiFirstEventTimeoutError' &&
+    (error as { phase?: unknown }).phase === 'inter'
+  ) {
+    return { category: 'timeout', retryable: true, message };
+  }
   if (isAbortFailure(message)) {
     return { category: 'user_abort', retryable: false, message };
   }

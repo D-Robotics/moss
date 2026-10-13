@@ -30,6 +30,14 @@ import {
   tui,
 } from './tui/copy.js';
 import { noteToolForVerifyHint } from './verify-hint.js';
+import {
+  createRunProgressTracker,
+  formatProgressOutcomeLine,
+  formatToolRunningLine,
+  unfinishedReasonFromStop,
+  upstreamStallReason,
+  type RunProgressTracker,
+} from './run-progress.js';
 
 const CODE_EDIT_TOOLS = new Set([
   'write_file',
@@ -81,6 +89,8 @@ interface RendererState {
   toolLineIds: Map<string, number>;
   /** Whether any JS/TS files were edited (to avoid false-positive npm test hints for Python/docs). */
   editedJsTs: boolean;
+  /** O114: last surfaced error text, so the footer can name an upstream stall. */
+  lastErrorText?: string;
   ranTests: boolean;
   /** Buffer for the current answer segment — flushed on segment end. */
   answerBuffer: string;
@@ -453,6 +463,9 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
   const detailMode = options.detailMode ?? resolveCliDetailMode();
   const interactive = options.interactive ?? Boolean((stderr as NodeJS.WriteStream).isTTY);
   const spinner = interactive ? new CliSpinner(stderr) : null;
+  // O99: heartbeat + long-tool progress on stderr. Tool start/end stay with this
+  // renderer so we do not double-print; empty "working…" slogans are not used.
+  let progress: RunProgressTracker | undefined;
   const state: RendererState = {
     answerOpen: false,
     answerStarted: false,
@@ -561,7 +574,27 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
     }
   });
 
+  function ensureProgress(): RunProgressTracker {
+    if (!progress) {
+      progress = createRunProgressTracker({
+        sink: {
+          write(line: string) {
+            if (isQuiet) return;
+            breakAnswerForStatus();
+            spinner?.stop();
+            stderrLine(`${mark()} ${line}`);
+          },
+        },
+        zh: isZhLocale(),
+        emitToolBoundaries: false,
+      });
+    }
+    return progress;
+  }
+
   function handle(event: MossAgentEvent): void {
+    // O99 progress tracker (thinking wait / tool_progress). Quiet mode skips it.
+    if (!isQuiet) ensureProgress().onEvent(event);
     switch (event.type) {
       case 'turn_start':
         if (!isQuiet) {
@@ -570,13 +603,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           if (isVerbose) {
             stderrLine(`${mark()} thinking${ui.dim(` (turn ${event.turn})`)}`);
           } else if (interactive) {
-            spinner?.start(`Working${event.turn > 1 ? `… (turn ${event.turn})` : ''}`);
-          } else if (event.turn > 2) {
-            // Oneshot / headless: suppress the first two turns (normal single-tool
-            // calls don't need a "working" message). Only signal turn 3+ which
-            // indicates a genuine multi-step tool loop where the user needs feedback.
-            stderrLine(ui.dim(`working…`));
+            // Real label comes from tool_start / thinking-wait; keep spinner alive
+            // without empty rotating slogans.
+            spinner?.start(isZhLocale() ? '处理中' : 'Working');
           }
+          // Non-interactive: no empty "working…" — O99 heartbeat covers silence.
           state.thinkingNoted = true;
         }
         break;
@@ -624,6 +655,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         spinner?.stop();
         state.toolStartTimes.set(event.toolCallId, Date.now());
         state.toolInputs.set(event.toolCallId, event.input);
+        if (!isQuiet && interactive) {
+          const target = extractToolTarget(event.toolName, event.input);
+          const label = target ? `${event.toolName}(${target})` : event.toolName;
+          spinner?.start(isZhLocale() ? `正在调用 ${label}` : `Calling ${label}`);
+        }
         noteToolForVerifyHint(
           state,
           event.toolName,
@@ -649,6 +685,15 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
               state.toolLineIds.set(event.toolCallId, 0);
             }
           }
+        }
+        break;
+      }
+      case 'tool_progress': {
+        if (!isQuiet && interactive) {
+          const input = state.toolInputs.get(event.toolCallId) ?? {};
+          const line = formatToolRunningLine(event.toolName, input, event.elapsedSec, isZhLocale());
+          spinner?.stop();
+          spinner?.start(line);
         }
         break;
       }
@@ -963,6 +1008,7 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
           noteInterrupt();
           break;
         }
+        state.lastErrorText = text;
         spinner?.stop();
         breakAnswerForStatus();
         const stdoutStream = stdout as { isTTY?: boolean; columns?: number };
@@ -993,10 +1039,34 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
         state.answerStarted = false;
 
         const stopReason = event.result?.stopReason;
-        if (stopReason === 'max_turns_reached' || stopReason === 'tool_followup_cap_reached') {
+        const unfinished = unfinishedReasonFromStop(stopReason, isZhLocale());
+        if (unfinished) {
+          // O99 / O98: progress-path footer via formatOutcomeLine (never empty).
+          // Exit code is owned by oneshot resolveRunOutcome.
+          // O113: pass the progress completionTracker so budget/turn-limit
+          // stderr matches stdout (e.g. 「卡在：运行预算（read_file: …）」).
+          const zh = isZhLocale();
+          const prog = ensureProgress();
+          // O114: when the run died on an exhausted mid-stream stall, the
+          // last line must say so instead of a generic "error during execution".
+          const stallReason =
+            stopReason === 'error' ? upstreamStallReason(state.lastErrorText, zh) : undefined;
           stderrLine(
-            `${mark('fail')} stopped at the turn limit before finishing — the task is paused, not complete. Continue with ${ui.bold('moss resume --last')} (or ${ui.bold('moss --continue')}).`
+            `${mark('fail')} ${formatProgressOutcomeLine({
+              stopReason,
+              ...(stallReason ? { errorMessage: stallReason } : {}),
+              finalText: event.result?.response ?? '',
+              tracker: prog.completionTracker(),
+              zh,
+            })}`
           );
+          if (stopReason === 'max_turns_reached' || stopReason === 'tool_followup_cap_reached') {
+            stderrLine(
+              isZhLocale()
+                ? `${mark('fail')} 可用 ${ui.bold('moss resume --last')}（或 ${ui.bold('moss --continue')}）继续。`
+                : `${mark('fail')} Continue with ${ui.bold('moss resume --last')} (or ${ui.bold('moss --continue')}).`
+            );
+          }
         } else if (!isQuiet && state.editedJsTs && !state.ranTests) {
           // Only suggest npm test when JS/TS files were edited — avoid false
           // positives when the agent only writes Python, docs, or other files.
@@ -1023,6 +1093,11 @@ export function createCliRunRenderer(options: CliRunRendererOptions = {}) {
     dispose: () => {
       try {
         flushHeldAnswer();
+      } catch {
+        /* ignore */
+      }
+      try {
+        progress?.dispose();
       } catch {
         /* ignore */
       }

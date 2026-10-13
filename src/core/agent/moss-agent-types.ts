@@ -340,6 +340,12 @@ export type MossAgentEvent =
   | { type: 'thinking_delta'; delta: string }
   | { type: 'tool_start'; toolName: string; toolCallId: string; input: Record<string, unknown> }
   | {
+      type: 'tool_progress';
+      toolName: string;
+      toolCallId: string;
+      elapsedSec: number;
+    }
+  | {
       type: 'tool_end';
       toolName: string;
       toolCallId: string;

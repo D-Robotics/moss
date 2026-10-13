@@ -18,6 +18,13 @@ import {
   redactedShellWriteRefusal,
   snapshotMutationFiles,
 } from '../safety/redacted-writeback.js';
+import {
+  diffProtectedPathSnapshots,
+  filterExpectedGitMetadataChanges,
+  formatProtectedPathModifiedNotice,
+  takeProtectedPathSnapshot,
+  takeProtectedPathSnapshotAfter,
+} from '../safety/protected-path-snapshot.js';
 import { markBackgroundIdReported } from '../core/tools/background-completion-state.js';
 import {
   appendOutput,
@@ -131,6 +138,38 @@ export const execBackgroundTool: Tool = {
       ctx.workspaceDir || process.cwd(),
       extractShellMutationPaths(command)
     );
+    // O108 / O101 layer 3: snapshot before spawn; diff on full process exit
+    // (close/error), not when this tool returns the job id while still running.
+    const workspaceDir = ctx.workspaceDir || process.cwd();
+    const protectedSnapBefore = takeProtectedPathSnapshot(workspaceDir, {
+      home: process.env.HOME,
+    });
+    const preferZhLocale = (): boolean => {
+      const loc = process.env.MOSS_LOCALE || process.env.LANG || '';
+      return /^zh\b/i.test(loc);
+    };
+    const applyO101Layer3OnExit = (proc: BackgroundProc): void => {
+      try {
+        const after = takeProtectedPathSnapshotAfter(protectedSnapBefore, {
+          home: process.env.HOME,
+        });
+        const changes = filterExpectedGitMetadataChanges(
+          command,
+          diffProtectedPathSnapshots(protectedSnapBefore, after)
+        );
+        if (changes.length === 0) return;
+        proc.protectedPathChanges = changes.map((c) => ({
+          path: c.path,
+          kind: c.kind,
+          ...(c.keys ? { keys: c.keys } : {}),
+          ...(c.reason ? { reason: c.reason } : {}),
+        }));
+        const notice = formatProtectedPathModifiedNotice(changes, preferZhLocale(), command);
+        if (notice) appendOutput(proc, 'stderr', `\n${notice}\n`);
+      } catch {
+        // Snapshot failure must never false-report or break completion.
+      }
+    };
 
     const live = [...backgroundProcesses.values()].filter((p) => p.status === 'running').length;
     if (live >= MAX_PROCS) {
@@ -260,6 +299,7 @@ export const execBackgroundTool: Tool = {
           proc.killTimer = undefined;
         }
         finishWriteback();
+        applyO101Layer3OnExit(proc);
         proc.status = proc.killRequested || signal ? 'killed' : 'exited';
         proc.exitCode = code;
         // A handler that exits 0 after SIGTERM leaves `signal` null. Record the
@@ -276,6 +316,7 @@ export const execBackgroundTool: Tool = {
           proc.killTimer = undefined;
         }
         finishWriteback();
+        applyO101Layer3OnExit(proc);
         proc.status = 'error';
         proc.errorMessage = err.message;
         proc.endedAt = Date.now();

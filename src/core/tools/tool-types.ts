@@ -20,6 +20,11 @@ export interface SubagentRunProgress {
 
 export interface ToolContext {
   workspaceDir: string;
+  /**
+   * O96: lets a string-returning tool mark its result as an error structurally
+   * (e.g. exec timeout / signal kill) instead of relying on output text.
+   */
+  markResultError?: () => void;
   bootstrapDir?: string;
   runId?: string;
   sessionKey: string;
@@ -162,6 +167,12 @@ export type ToolPlanMode = 'allow' | 'audit' | 'requires_user_confirmation';
 export interface ToolMetadata {
   permissionBoundary?: string;
   sideEffectClass?: ToolSideEffectClass;
+  /**
+   * O122/O128: never answer this tool from the loop's identical-call replay
+   * cache. For read_file, execute() records the read scope the edit gate
+   * checks; a replayed result skips that, so a full re-read never counted.
+   */
+  noReplay?: boolean;
   planMode?: ToolPlanMode;
 
   requiresApproval?: boolean;

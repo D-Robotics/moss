@@ -43,6 +43,16 @@ export interface BackgroundProcSnapshot {
   endedAt?: number;
   errorMessage?: string;
   droppedBytes?: number;
+  /**
+   * O108: protected-path changes detected by layer-3 snapshot when this
+   * process fully exited (metadata only — never file contents).
+   */
+  protectedPathChanges?: ReadonlyArray<{
+    path: string;
+    kind: string;
+    keys?: string[];
+    reason?: string;
+  }>;
 }
 
 export interface BackgroundOutputChunk {
@@ -73,6 +83,11 @@ export interface BackgroundProc {
   buffer: string;
   errorMessage?: string;
   droppedBytes: number;
+  /**
+   * O108: set on full exit when layer-3 snapshot detects protected-path
+   * modifications (paths + kind only).
+   */
+  protectedPathChanges?: Array<{ path: string; kind: string; keys?: string[]; reason?: string }>;
 
   killTimer?: ReturnType<typeof setTimeout>;
   killRequested?: boolean;
@@ -119,6 +134,9 @@ export function toSnapshot(proc: BackgroundProc): BackgroundProcSnapshot {
     endedAt: proc.endedAt,
     errorMessage: proc.errorMessage,
     droppedBytes: proc.droppedBytes > 0 ? proc.droppedBytes : undefined,
+    ...(proc.protectedPathChanges && proc.protectedPathChanges.length > 0
+      ? { protectedPathChanges: proc.protectedPathChanges }
+      : {}),
   };
 }
 

@@ -22,6 +22,8 @@ import {
   type CliConfigOverrides,
   type CliProviderPreset,
   type ConfigFile,
+  parseReasoningBudget,
+  REASONING_BUDGET_VALUES,
 } from './config.js';
 import { errorMessage } from '../errors.js';
 import { isZhLocale, parseLanguageSetting, uiText } from './cli-locale.js';
@@ -29,6 +31,7 @@ import { guessModelProvider, print, renderAuthStatus, sanitizeBaseUrl } from './
 import { withoutSecret } from './config-snapshot.js';
 import { parsePermissionRuleSpec } from './permission-rules.js';
 import { parseCliInteractionMode } from './interaction-mode.js';
+import { untrustedFolderLine } from './workspace-trust.js';
 
 function serializeResolvedConfig(
   resolved: ReturnType<typeof resolveCliConfig>
@@ -75,6 +78,8 @@ function serializeResolvedConfig(
     maxAgentTurnsSource: resolved.maxAgentTurnsSource,
     contextTokens: resolved.contextTokens,
     contextTokensSource: resolved.contextTokensSource,
+    reasoningBudget: resolved.reasoningBudget ?? 'adaptive',
+    reasoningBudgetSource: resolved.reasoningBudgetSource ?? 'default',
     compactionSettings: { ...resolved.compactionSettings },
     compactionSettingsSource: resolved.compactionSettingsSource,
     configWarnings: auditResolvedCliConfig(resolved),
@@ -378,7 +383,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
     group: 'providers, models & fallback',
     vars: [
       'MOSS_BEST_OF_N',
-      'MOSS_REASONING_BUDGET',
+      'MOSS_REASONING_BUDGET (off|adaptive|high; overrides config agent.reasoningBudget)',
       'MOSS_MODEL_BALANCED',
       'MOSS_MODEL_CHEAP',
       'MOSS_MODEL_STRONG',
@@ -416,6 +421,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_TOOL_LOOP_EDIT_PATH_FAILURE_LIMIT',
       'MOSS_TOOL_LOOP_FAILURE_LIMIT',
       'MOSS_TOOL_LOOP_IDENTICAL_LIMIT',
+      'MOSS_TOOL_LOOP_SAME_COMMAND_LIMIT (same-command consecutive failure limit; default 3)',
       'MOSS_TOOL_LOOP_SINGLE_TOOL_LIMIT',
       'MOSS_TOOL_LOOP_TOTAL_LIMIT',
       'MOSS_TOOL_NAME',
@@ -435,6 +441,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_TUI_RENDERER_CONFIG',
       'MOSS_TUI_THEME',
       'MOSS_LANG (auto|en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale)',
+      'MOSS_LOCALE (optional zh locale hint for protected-path notices; falls back to system locale)',
       'MOSS_NO_COLOR',
       'MOSS_LOG_LEVEL',
       'MOSS_LOG_JSON',
@@ -476,6 +483,8 @@ const ENV_GROUP_ZH: Record<string, string> = {
 };
 
 const ENV_NOTE_ZH: Record<string, string> = {
+  'off|adaptive|high; overrides config agent.reasoningBudget':
+    'off|adaptive|high；优先于配置 agent.reasoningBudget',
   'process env only; a project .env cannot set this': '仅进程环境；项目 .env 不能设置',
   'process env or --config-file; a project .env cannot set this':
     '进程环境或 --config-file；项目 .env 不能设置',
@@ -516,6 +525,9 @@ const ENV_NOTE_ZH: Record<string, string> = {
   'auto|en|zh; process env or --lang; a project .env cannot set this; flag > env > config language > system locale':
     'auto|en|zh；进程环境或 --lang；项目 .env 不能设置；优先级为参数、环境变量、配置 language、系统区域',
   'checkout for moss update; --dir wins': 'moss update 要升级的克隆；--dir 优先',
+  'same-command consecutive failure limit; default 3': '同命令连续失败上限；默认 3',
+  'optional zh locale hint for protected-path notices; falls back to system locale':
+    '可选；受保护路径提示的中文区域启发，未设时回退到系统语言环境',
 };
 
 function localizeEnvEntry(entry: string): string {
@@ -596,6 +608,13 @@ export function renderConfigHelp(zh = false): string {
     '  moss config set guardrails.input.redactPatterns SECRET=[^\\\\s]+',
     '  moss config set agent.maxTurns 96',
     '  moss config set agent.contextTokens 200000',
+    '  # agent.reasoningBudget — Moss adaptive-reasoning knob (off|adaptive|high).',
+    '  # high forces reasoning=high on outbound calls; adaptive may escalate to high under',
+    "  # verify/turn-error pressure; off means do NOT escalate (keeps the model's own",
+    '  # reasoning level — it does not disable provider-native thinking).',
+    '  # Higher budgets spend more tokens, take longer, and cost more.',
+    '  # An untrusted project can only lower it; a raise is ignored with a notice.',
+    '  moss config set agent.reasoningBudget high      # off|adaptive|high',
     '  moss config set agent.compaction.reserveTokens 20000',
     '  moss config set rdkDocs false',
     '  moss config set rdkDocs.package ../rdk-docs-mcp',
@@ -649,6 +668,13 @@ function renderConfigHelpZh(): string {
     '  `moss config set baseUrl https://your-gateway.example`   # /v1 可写可不写（https://主机/v1 也可以）；不必带 /chat/completions',
     '  `moss config set rdkDocs false`',
     '  `moss config set rdkDocs.package ../rdk-docs-mcp`',
+    '  `moss config set agent.maxTurns 96`',
+    '  `moss config set agent.contextTokens 200000`',
+    '  # agent.reasoningBudget — Moss 自适应推理档位（可选值 off|adaptive|high）。',
+    '  # high：出站推理档固定为 high；adaptive：验证失败或回合出错时可能升到 high；',
+    '  # off：不升档，保留模型自身推理档（不是关掉模型自带思考）。越高越慢、费用越高。',
+    '  # 未信任的项目只能把它调低；调高会被忽略并提示。',
+    '  `moss config set agent.reasoningBudget high`   # 可选值：off|adaptive|high',
     '  `moss config set language auto|en|zh`   # 只写用户配置（不能 --project，项目 .env 也不能设置）',
     '  # 界面语言优先级：--lang > MOSS_LANG > `language` > 系统区域。auto 仅在区域以 zh 开头时用中文。',
   ].join('\n');
@@ -659,7 +685,15 @@ export function runConfigShow(
   options: { json?: boolean; overrides?: CliConfigOverrides } = {}
 ): void {
   const overrides = options.overrides ?? {};
+  // Tip when an untrusted project tried to set routing fields (incl. reasoningBudget).
+  const loaded = loadCliConfigFile(process.env, process.argv.slice(2), startDir);
+  const ignored = loaded.ignoredProjectRouting ?? [];
+  if (ignored.length > 0) {
+    const line = untrustedFolderLine(ignored, isZhLocale());
+    if (line) console.error(line);
+  }
   if (options.json) {
+    // Pass undefined so renderConfigJson reloads with fieldSources intact.
     standardOutput.write(`${renderConfigJson(undefined, process.env, startDir, overrides)}\n`);
     return;
   }
@@ -901,8 +935,8 @@ function buildProjectConfigTemplate(): ConfigFile {
 
 function supportedConfigKeys(): string {
   return uiText(
-    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language',
-    '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language'
+    'Supported keys — model: provider, model, baseUrl, apiKey, apiKeyEnv; operational: profile, workspace, safetyMode, approvalPolicy, trustedTools, deniedTools, permissions.defaultMode, permissions.allow, permissions.ask, permissions.deny, permissions.deviceTrust, permissions.trustedDevices, rdkDocs, rdkDocs.enabled, rdkDocs.package, promptCache, promptCacheDebug, guardrails.input.blockPatterns, guardrails.input.redactPatterns, guardrails.output.blockPatterns, guardrails.output.redactPatterns, agent.maxTurns, agent.contextTokens, agent.reasoningBudget, agent.compaction.reserveTokens, agent.compaction.keepRecentTokens, language',
+    '支持的键：provider、model、baseUrl、apiKey、apiKeyEnv、profile、workspace、safetyMode、approvalPolicy、trustedTools、deniedTools、permissions.defaultMode、permissions.allow、permissions.ask、permissions.deny、permissions.deviceTrust、permissions.trustedDevices、rdkDocs、rdkDocs.enabled、rdkDocs.package、promptCache、promptCacheDebug、guardrails.input.blockPatterns、guardrails.input.redactPatterns、guardrails.output.blockPatterns、guardrails.output.redactPatterns、agent.maxTurns、agent.contextTokens、agent.reasoningBudget、agent.compaction.reserveTokens、agent.compaction.keepRecentTokens、language'
   );
 }
 
@@ -1260,6 +1294,29 @@ function applyConfigSetPair(
     } catch (err) {
       return { ok: false, messages: [errorMessage(err)] };
     }
+  } else if (key === 'agent.reasoningBudget') {
+    if (!value.trim()) {
+      return {
+        ok: false,
+        messages: [
+          isZhLocale()
+            ? `agent.reasoningBudget：值不能为空。可选值：${REASONING_BUDGET_VALUES.join('、')}`
+            : `agent.reasoningBudget: value must not be empty. Supported values: ${REASONING_BUDGET_VALUES.join(', ')}`,
+        ],
+      };
+    }
+    const budget = parseReasoningBudget(value);
+    if (!budget) {
+      return {
+        ok: false,
+        messages: [
+          isZhLocale()
+            ? `agent.reasoningBudget 取值无效：${value}。可选值：${REASONING_BUDGET_VALUES.join('、')}`
+            : `Unsupported agent.reasoningBudget value: ${value}. Supported values: ${REASONING_BUDGET_VALUES.join(', ')}`,
+        ],
+      };
+    }
+    next.agent = { ...next.agent, reasoningBudget: budget };
   } else if (key === 'agent.maxTurns' || key === 'agent.contextTokens') {
     const parsed = parseConfigPositiveInteger(value, key);
     if (!parsed.ok) {
@@ -1322,9 +1379,17 @@ export function runConfigSet(args: string[], startDir = process.cwd()): void {
       return;
     }
     if (!value) {
-      print(
-        `config ${key}: value must not be empty. Run \`moss config --help\` for supported keys and usage.`
-      );
+      if (key === 'agent.reasoningBudget') {
+        print(
+          isZhLocale()
+            ? `config agent.reasoningBudget：值不能为空。可选值：${REASONING_BUDGET_VALUES.join('、')}`
+            : `config agent.reasoningBudget: value must not be empty. Supported values: ${REASONING_BUDGET_VALUES.join(', ')}`
+        );
+      } else {
+        print(
+          `config ${key}: value must not be empty. Run \`moss config --help\` for supported keys and usage.`
+        );
+      }
       process.exitCode = 1;
       return;
     }
@@ -1485,6 +1550,9 @@ export function runConfigUnset(args: string[], startDir = process.cwd()): void {
   } else if (key === 'agent.contextTokens') {
     next.agent = { ...current.agent };
     delete next.agent.contextTokens;
+  } else if (key === 'agent.reasoningBudget') {
+    next.agent = { ...current.agent };
+    delete next.agent.reasoningBudget;
   } else if (key === 'agent.compaction.reserveTokens') {
     next.agent = { ...current.agent, compaction: { ...current.agent?.compaction } };
     delete next.agent.compaction?.reserveTokens;

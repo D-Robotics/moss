@@ -339,17 +339,20 @@ for (const width of [40, 80, 120]) {
     width
   );
   const liveText = text(live);
-  assert.match(liveText, /[✢✳✶✻✽] \w+… 4s/, `live@${width} shows a spinner and elapsed seconds`);
-  assert.ok(liveText.includes('1.2k out'), `live@${width} labels current output tokens`);
+  // O99: live spinner shows the real in-flight tool (not an empty Working… slogan).
+  assert.match(liveText, /[✢✳✶✻✽] .+ 4s/, `live@${width} shows spinner + real progress + elapsed`);
   assert.ok(
-    !liveText.includes('fps_probe.sh'),
-    `live@${width} does not duplicate the transcript tool`
+    liveText.includes('fps_probe.sh'),
+    `live@${width} carries the in-flight tool summary (O99 progress)`
   );
   assert.ok(liveText.includes('camera_fps is 31.5'), `live@${width} previews the answer`);
   assertFits(live, width, `live@${width}`);
   if (width >= 80) {
+    assert.ok(liveText.includes('1.2k out'), `live@${width} labels current output tokens`);
     assert.ok(liveText.includes('1 queued'), `live@${width} shows the queue`);
   } else {
+    // Narrow panes clip the tail (tokens/queue) after the real tool summary.
+    assert.ok(liveText.includes('1.2k'), `live@${width} still shows a compact token count`);
     assert.ok(
       cells(live[live.length - 1].text) <= width,
       'a narrow activity line stays within the pane width'

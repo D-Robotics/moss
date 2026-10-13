@@ -37,6 +37,7 @@ import {
 } from './text.js';
 import { TONE } from './theme.js';
 import { statusLineParts, type StatusLineField, type StatusLinePiece } from '../status-line.js';
+import { formatThinkingWaitLine } from '../run-progress.js';
 
 export const USER_MARK = '❯';
 export const ANSWER_MARK = '⏺';
@@ -185,11 +186,12 @@ export const READONLY_PREVIEW_TOOLS = new Set<string>([
   'device_robotics_status',
 ]);
 
-/** Verbs rotate slowly so a long run still looks alive without being cute. */
-const VERBS = ['Working', 'Thinking', 'Probing', 'Checking', 'Wiring', 'Verifying'];
-
-export function runVerb(seed: number): string {
-  return tui(VERBS[Math.abs(Math.trunc(seed / 3)) % VERBS.length] ?? 'Working');
+/**
+ * O99: no rotating slogan list — fake verbs do not count as progress.
+ * Prefer a real tool line; otherwise a stable working label (elapsed Ns is separate).
+ */
+export function runVerb(_seed: number): string {
+  return tui('Working');
 }
 
 export function spinnerFrame(elapsedMs: number): string {
@@ -943,15 +945,33 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
   const tokens =
     view.tokensOut > 0 ? tui(' · {count} out', { count: formatCompactCount(view.tokensOut) }) : '';
   const queued = view.queued > 0 ? tui(' · {count} queued', { count: view.queued }) : '';
-  const verb = view.waitingForDevice
-    ? tui('Waiting for device')
-    : view.thinkingActive && !view.streaming.trim()
-      ? tui('Thinking')
-      : runVerb(seconds);
+  // O99: real progress first — active tool label, then thinking-wait with Ns,
+  // then a stable Working label. Never rotate empty slogans.
+  let verb: string;
+  if (view.waitingForDevice) {
+    verb = tui('Waiting for device');
+  } else if (view.toolLine && view.toolLine.trim()) {
+    verb = view.toolLine.trim();
+  } else if (view.thinkingActive && !view.streaming.trim() && elapsedMs >= 30_000) {
+    verb = formatThinkingWaitLine(elapsedMs, isTuiZh());
+  } else if (view.thinkingActive && !view.streaming.trim()) {
+    verb = tui('Thinking');
+  } else if (elapsedMs >= 60_000 && !view.streaming.trim()) {
+    verb = formatThinkingWaitLine(elapsedMs, isTuiZh());
+  } else {
+    verb = runVerb(seconds);
+  }
+  const showEllipsis = !view.toolLine && !verb.includes('等待') && !verb.includes('waited');
   out.push(
-    line(clip(`${spinnerFrame(elapsedMs)} ${verb}… ${seconds}s${tokens}${queued}`, width), {
-      color: TONE.warn,
-    })
+    line(
+      clip(
+        `${spinnerFrame(elapsedMs)} ${verb}${showEllipsis ? '…' : ''} ${seconds}s${tokens}${queued}`,
+        width
+      ),
+      {
+        color: TONE.warn,
+      }
+    )
   );
   // Silence is information too: past the hint threshold the spinner stops
   // pretending the model is thinking and says the stream has gone quiet (a
@@ -989,7 +1009,9 @@ export function renderRunSummary(
   halted: boolean,
   width: number,
   _tokens?: { input: number; output: number },
-  now: Date = new Date()
+  now: Date = new Date(),
+  /** O98 conclusion line (完成 / 未完成 / 未验证 / …); shown under the done stamp. */
+  outcomeLine?: string
 ): TuiLine[] {
   const seconds = Math.max(1, Math.round(elapsedMs / 1000));
   const verb = runVerb(seconds);
@@ -1005,7 +1027,12 @@ export function renderRunSummary(
   const text = halted
     ? tui('✻ {verb} for {seconds}s · interrupted', { verb, seconds })
     : tui('✻ worked for {seconds}s{doneAt}', { seconds, doneAt });
-  return [line(''), line(clip(text, width), { dim: true })];
+  const out: TuiLine[] = [line(''), line(clip(text, width), { dim: true })];
+  const conclusion = outcomeLine?.trim();
+  if (conclusion && !halted) {
+    out.push(line(clip(conclusion, width), { dim: true }));
+  }
+  return out;
 }
 
 // ─── inline information blocks (slash commands, `?`) ─────────────────────

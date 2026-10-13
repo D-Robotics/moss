@@ -18,7 +18,7 @@ const INTER_EVENT_TIMEOUT_MS_DEFAULT = 60_000;
 const INTER_EVENT_TIMEOUT_MS_MIN = 0; // 0 = disabled
 const INTER_EVENT_TIMEOUT_MS_MAX = 600_000;
 
-function resolveInterEventTimeoutMs(): number {
+export function resolveInterEventTimeoutMs(): number {
   const raw = envPreferMoss('MOSS_PI_AI_INTER_EVENT_TIMEOUT_MS', 'PI_AI_INTER_EVENT_TIMEOUT_MS');
   if (raw == null) return INTER_EVENT_TIMEOUT_MS_DEFAULT;
   const s = String(raw).trim();
@@ -45,8 +45,9 @@ export class PiAiFirstEventTimeoutError extends Error {
     const secs = Math.round(params.timeoutMs / 1000);
     const message =
       phase === 'inter'
-        ? `pi-ai (${params.provider} / ${params.model}) 流在中途停滞——已吐出部分事件后 ${secs}s 内无新事件，` +
-          `大半是上游网关在生成中途卡住。已主动中止本次调用，建议稍后再试或换一个模型/供应商。`
+        ? `上游流停滞：pi-ai (${params.provider} / ${params.model}) 流在中途停滞——已吐出部分事件后 ${secs}s 内无新事件，` +
+          `大半是上游网关在生成中途卡住。已主动中止本次调用，建议稍后再试或换一个模型/供应商。` +
+          ` (Upstream stream stalled: no new events for ${secs}s mid-response; call aborted.)`
         : `pi-ai (${params.provider} / ${params.model}) 在 ${secs}s 内未吐出任何流事件，` +
           `大半是上游网关在 429/超载/超时后内部反复重试。已主动中止本次调用，建议稍后再试或换一个模型/供应商。`;
     super(message);
@@ -91,6 +92,7 @@ export function startFirstEventWatchdog(
   const ctrl = new AbortController();
   let firedByTimeout = false;
   let firedPhase: 'first' | 'inter' = 'first';
+  let activeTimeoutMs = timeoutMs;
   let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
     firedByTimeout = true;
     try {
@@ -113,11 +115,12 @@ export function startFirstEventWatchdog(
       clear();
 
       if (!firedByTimeout) {
-        // Use the configurable inter-event timeout, but still cap at timeoutMs
-        // (the first-event deadline is always an upper bound on the whole call).
-        const configuredMs = resolveInterEventTimeoutMs();
-        if (configuredMs <= 0) return; // disabled — only first-event timeout applies
-        const interEventMs = Math.min(timeoutMs, configuredMs);
+        // O114: the inter-event idle limit is independent of the first-event
+        // deadline (default 60s vs 45s). It used to be Math.min()'d with the
+        // first-event timeout, which silently capped mid-stream idle at 45s.
+        const interEventMs = resolveInterEventTimeoutMs();
+        if (interEventMs <= 0) return; // disabled — only first-event timeout applies
+        activeTimeoutMs = interEventMs;
         timer = setTimeout(() => {
           firedByTimeout = true;
           firedPhase = 'inter';
@@ -134,7 +137,7 @@ export function startFirstEventWatchdog(
       if (!firedByTimeout) return err;
       if (callerSignal?.aborted) return err;
       return new PiAiFirstEventTimeoutError({
-        timeoutMs,
+        timeoutMs: activeTimeoutMs,
         provider: modelInfo?.provider ?? 'unknown',
         model: modelInfo?.id ?? 'unknown',
         phase: firedPhase,

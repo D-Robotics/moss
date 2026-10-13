@@ -5,7 +5,11 @@ import {
   mossErrorToOutcome,
   type MossErrorOutcome,
 } from '../../errors.js';
-import { classifyLlmError, type LlmErrorCategory } from '../../provider/llm-error-classifier.js';
+import {
+  classifyLlmError,
+  LlmRetriesExhaustedError,
+  type LlmErrorCategory,
+} from '../../provider/llm-error-classifier.js';
 
 function codeForCategory(category: LlmErrorCategory): ErrorCode {
   if (category === 'auth') return ErrorCode.PROVIDER_AUTH_FAILED;
@@ -26,7 +30,19 @@ export function toMossErrorOutcome(error: unknown): MossErrorOutcome {
       ? (error as { originalError?: unknown }).originalError
       : undefined;
   if (originalError !== undefined && originalError !== error) {
-    return toMossErrorOutcome(originalError);
+    const inner = toMossErrorOutcome(originalError);
+    // O114: a mid-stream stall that already exhausted its retries is no longer
+    // recoverable. Scoped to that case only — other wrapped errors keep their
+    // own recoverable semantics (e.g. a recoverable rate-limit MossError).
+    if (
+      error instanceof LlmRetriesExhaustedError &&
+      originalError instanceof Error &&
+      originalError.name === 'PiAiFirstEventTimeoutError' &&
+      (originalError as { phase?: unknown }).phase === 'inter'
+    ) {
+      return { ...inner, recoverable: false };
+    }
+    return inner;
   }
   const classified = classifyLlmError(error);
   return {

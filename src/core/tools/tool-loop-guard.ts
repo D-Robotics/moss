@@ -1,5 +1,7 @@
 import { stableSerializeToolInput } from './tool-idempotent-replay.js';
 import { readEnv } from '../../utils/env-compat.js';
+import path from 'node:path';
+import { canonicalPath, findProtectedWrite } from '../../safety/shell-write-detect.js';
 
 const SINGLE_TOOL_LIMIT_EXEMPT_TOOLS = new Set([
   'read_file',
@@ -91,6 +93,23 @@ const SURGICAL_EDIT_TOOLS = new Set(['edit_file', 'multi_edit', 'apply_patch']);
 /** Max failed surgical edits per path before forcing re-read (identical input limit still applies). */
 const DEFAULT_EDIT_PATH_FAILURE_LIMIT = 3;
 
+/**
+ * O96: exec / run_tests that finish normally with a non-zero exit (lint/test fail)
+ * must not burn the global byToolFailure budget. Same-command identical-output
+ * thrash still hints to change approach via a separate counter.
+ */
+const VERIFY_SHELL_TOOLS = new Set(['exec', 'run_tests']);
+/** Consecutive same-command failures with identical output before hinting to change approach. */
+const DEFAULT_SAME_COMMAND_FAILURE_LIMIT = 3;
+
+export type ShellFaultKind = 'timeout' | 'start_failure' | 'killed' | 'unusable';
+
+export type SameCommandFailureStreak = {
+  count: number;
+  outputKey: string;
+  displayCommand: string;
+};
+
 export type ToolLoopGuardState = {
   bySignature: Map<string, number>;
   byTool: Map<string, number>;
@@ -107,6 +126,30 @@ export type ToolLoopGuardState = {
    * go stale — Claude Code "read then edit" discipline at the loop layer.
    */
   byEditPathFailure: Map<string, number>;
+  /**
+   * O96: per normalized command signature — consecutive normal non-zero exits
+   * with substantially identical output. Does not feed byToolFailure.
+   */
+  bySameCommandFailure: Map<string, SameCommandFailureStreak>;
+  /** O96: last real shell fault kind for exec/run_tests (timeout / start / …). */
+  lastShellFaultKind: Map<string, ShellFaultKind>;
+  /**
+   * O96: missing command name parsed from a 126/127 start failure's output.
+   * Copy-only — never used for classification.
+   */
+  lastMissingCommand?: Map<string, string>;
+  /**
+   * O97: paths whose edit/write was just refused for read scope (partial
+   * window, file content not attached). While locked, an exec that would write
+   * the same file is blocked too, so the model cannot route around the edit
+   * tool with `node -e` / `sed -i` / redirects. Cleared by a full read_file of
+   * the path or a successful edit/write to it.
+   */
+  readScopeLockedPaths: Set<string>;
+  /** O97: thrash counter key → path as the model wrote it (for realpath compare). */
+  editPathRaw?: Map<string, string>;
+  /** Workspace the run's tools resolve relative paths against. */
+  workspaceDir?: string;
 
   webSearchQueries: Set<string>;
   freshNewsSearchRequested: boolean;
@@ -184,13 +227,85 @@ export function collectSurgicalEditPathKeys(input?: Record<string, unknown>): st
   return keys;
 }
 
-export function createToolLoopGuardState(): ToolLoopGuardState {
+/** Edit/write tools whose read-scope refusal locks the path for shell writes too. */
+const FILE_MUTATION_TOOLS = new Set([
+  'edit_file',
+  'multi_edit',
+  'apply_patch',
+  'write_file',
+  'move_file',
+]);
+
+const SHELL_TOOLS = new Set(['exec', 'exec_background', 'bash']);
+
+export function rawMutationPaths(toolName: string, input?: Record<string, unknown>): string[] {
+  if (!input) return [];
+  const out: string[] = [];
+  if (typeof input.path === 'string' && input.path.trim()) out.push(input.path);
+  if (Array.isArray(input.edits)) {
+    for (const e of input.edits) {
+      const p = (e as { path?: unknown } | null)?.path;
+      if (typeof p === 'string' && p.trim()) out.push(p);
+    }
+  }
+  if (typeof input.patch === 'string') {
+    for (const m of input.patch.matchAll(/\*\*\*\s+(?:Update|Delete|Add)\s+File:\s*(\S+)/gi)) {
+      if (m[1]) out.push(m[1]);
+    }
+  }
+  if (toolName === 'move_file' && typeof input.destination === 'string')
+    out.push(input.destination);
+  return out;
+}
+
+function lockKey(state: ToolLoopGuardState, raw: string): string {
+  return canonicalPath(path.resolve(state.workspaceDir ?? process.cwd(), raw));
+}
+
+function trackReadScopeLocks(
+  state: ToolLoopGuardState,
+  toolName: string,
+  isError: boolean,
+  resultText: string | undefined,
+  input: Record<string, unknown> | undefined
+): void {
+  const locks = state.readScopeLockedPaths;
+  if (!locks) return;
+  if (toolName === 'read_file') {
+    const full = input && input.offset === undefined && input.limit === undefined;
+    if (full && !isError && typeof input?.path === 'string') {
+      locks.delete(lockKey(state, input.path));
+    }
+    return;
+  }
+  if (!FILE_MUTATION_TOOLS.has(toolName)) return;
+  const text = resultText ?? '';
+  const refused = /You only read a partial window of /.test(text);
+  for (const raw of rawMutationPaths(toolName, input)) {
+    const key = lockKey(state, raw);
+    // Remember the real path behind the (lower-cased) thrash counter key.
+    state.editPathRaw?.set(normalizePathKey(raw), raw);
+    // O128: an attached body no longer unlocks editing, so every refusal locks.
+    if (refused) locks.add(key);
+    else if (!isError && !refused) locks.delete(key);
+  }
+}
+
+export function createToolLoopGuardState(
+  options: { workspaceDir?: string } = {}
+): ToolLoopGuardState {
   return {
+    ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
+    editPathRaw: new Map(),
     bySignature: new Map(),
     byTool: new Map(),
     byToolFailure: new Map(),
     byWebFetchUrlFailure: new Map(),
     byEditPathFailure: new Map(),
+    bySameCommandFailure: new Map(),
+    lastShellFaultKind: new Map(),
+    lastMissingCommand: new Map(),
+    readScopeLockedPaths: new Set(),
     webSearchQueries: new Set(),
     freshNewsSearchRequested: false,
     hasSufficientRssNewsEvidence: false,
@@ -223,6 +338,154 @@ function normalizeWebFetchUrlKey(input: unknown): string | null {
   }
 }
 
+/**
+ * O96: normalize exec / run_tests command for same-command streak keys.
+ * @internal exported for tests
+ */
+export function normalizeVerifyCommandSignature(
+  toolName: string,
+  input?: Record<string, unknown>
+): { key: string; display: string } | null {
+  if (toolName === 'exec') {
+    const cmd = typeof input?.command === 'string' ? input.command.trim().replace(/\s+/g, ' ') : '';
+    if (!cmd) return null;
+    return { key: `exec:${cmd.toLowerCase()}`, display: cmd };
+  }
+  if (toolName === 'run_tests') {
+    const file = typeof input?.file === 'string' && input.file.trim() ? input.file.trim() : '';
+    const cmd =
+      typeof input?.command === 'string' && input.command.trim() ? input.command.trim() : '';
+    const display = file ? `node --test ${file}` : cmd || 'npm test';
+    return { key: `run_tests:${display.toLowerCase().replace(/\s+/g, ' ')}`, display };
+  }
+  return null;
+}
+
+/** @internal exported for tests */
+export function normalizeShellOutputFingerprint(resultText: string): string {
+  return resultText
+    .trim()
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
+/**
+ * O96: classify an exec / run_tests error result.
+ * - `normal_nonzero`: process started and finished; lint/test simply failed.
+ * - fault kinds: timeout / start failure / killed / unusable empty output.
+ * - `other`: policy deny, blocked, or unrecognized — keep existing byToolFailure path.
+ * @internal exported for tests
+ */
+export function classifyShellToolFailure(
+  resultText: string | undefined,
+  platform: NodeJS.Platform | string = process.platform
+): 'normal_nonzero' | ShellFaultKind | 'other' {
+  const text = resultText ?? '';
+  const head = text.slice(0, 600);
+  // Fault markers are only trusted on the tool-generated first line. Child
+  // stdout (e.g. a test named "... timed out after 5000ms") must never be
+  // scanned for fault text, or a normal run is misclassified as a tool fault.
+  const firstLine = (head.replace(/^\s+/, '').split(/\r?\n/, 1)[0] ?? '').trim();
+
+  // Normal completion header: process ran to completion; stdout is untrusted.
+  const exitHeader = /^exit_code:\s*(\d+)\b/i.exec(firstLine);
+  // 126 (not executable) / 127 (command not found) from the exec first line
+  // mean the process never started — a tool fault, not a lint/test failure.
+  // O106: on Windows, cmd.exe "command not found" is exit 9009 — same as 127.
+  if (exitHeader) {
+    const code = Number(exitHeader[1]);
+    if (code === 126 || code === 127) return 'start_failure';
+    if (code === 9009 && platform === 'win32') return 'start_failure';
+    return code > 0 ? 'normal_nonzero' : 'other';
+  }
+  if (/^Command failed \(exit\s+12[67]\)/i.test(firstLine)) return 'start_failure';
+  if (/^Command failed \(exit\s+9009\)/i.test(firstLine) && platform === 'win32') {
+    return 'start_failure';
+  }
+  if (/^Command failed \(exit\s+[1-9]\d*\)/i.test(firstLine)) return 'normal_nonzero';
+
+  if (
+    /^timed out after\b/i.test(firstLine) ||
+    /^❌\s*timed out\b/i.test(firstLine) ||
+    /^Execution error:.*\btimed out\b/i.test(firstLine) ||
+    /^Tool \S+ timed out\b/i.test(firstLine)
+  ) {
+    return 'timeout';
+  }
+  if (/^Command killed by\b/i.test(firstLine)) {
+    return 'killed';
+  }
+  // "Command failed:" without "(exit N)" — spawn/start failure style from builtin.ts
+  if (/^Command failed:\s*$/i.test(firstLine)) {
+    return 'start_failure';
+  }
+  if (
+    /^(?:Execution error:|Error:)?.*\bspawn(?:Sync)?\b.*\bENOENT\b/i.test(firstLine) ||
+    /^(?:Execution error:|Error:)\s.*\bENOENT\b/i.test(firstLine) ||
+    /^(?:\S+:\s*)?(?:\S+:\s*)?command not found\b/i.test(firstLine) ||
+    /^.*\bnot found in PATH\b/i.test(firstLine) ||
+    /^(?:Error:\s*)?Failed to (?:start|launch|spawn)\b/i.test(firstLine) ||
+    /^未能启动/.test(firstLine)
+  ) {
+    return 'start_failure';
+  }
+  if (/^Execution error:/i.test(firstLine)) {
+    return 'start_failure';
+  }
+
+  // Policy / user deny — not a normal lint non-zero (QA guardrail).
+  if (
+    /^\s*Command blocked:/i.test(head) ||
+    /^\s*已拦截/u.test(head) ||
+    // O121: loop-guard's own stop copy (renamed from 已拦截 / Blocked).
+    /^\s*已停止重试：/u.test(head) ||
+    /^\s*Stopped retrying:/i.test(head) ||
+    /^\s*Blocked\b/i.test(head) ||
+    /^\s*Tool execution denied\b/i.test(head) ||
+    /^\s*Operation blocked by workspace policy\b/i.test(head)
+  ) {
+    return 'other';
+  }
+
+  // Normal completed non-zero (lint / test / check failed).
+  if (/Test Results:\s*❌\s+\d+\s+FAILED\b/i.test(head)) return 'normal_nonzero';
+  if (/Test Results:\s*❌\s+exit\s+[1-9]/i.test(head)) return 'normal_nonzero';
+  if (/Test Results:\s*⚠️\s*NO TESTS EXECUTED/i.test(head)) return 'normal_nonzero';
+  if (/Verify Fix:\s*❌/i.test(head)) return 'normal_nonzero';
+  if (/❌\s+\d+\s+FAILED\b/i.test(head)) return 'normal_nonzero';
+
+  const trimmed = text.trim();
+  if (!trimmed || trimmed === '(no output)') {
+    return 'unusable';
+  }
+  return 'other';
+}
+
+/**
+ * O96: best-effort missing command name from shell "not found" output
+ * (`sh: eslint: not found`, `sh: 1: eslint: not found`,
+ * `bash: foo: command not found`, `zsh: command not found: foo`,
+ * `bash: /no/such/bin: No such file or directory`). Copy-only.
+ * @internal exported for tests
+ */
+export function parseMissingCommandName(resultText: string | undefined): string | undefined {
+  const text = (resultText ?? '').slice(0, 4000);
+  const patterns = [
+    /^(?:\S*\/)?(?:sh|bash|dash|ash|ksh)(?::\s*(?:line\s+)?\d+)?:\s*([^\s:]+):\s*(?:command\s+)?not found\b/im,
+    /^(?:\S*\/)?zsh(?::\d+)?:\s*command not found:\s*(\S+)/im,
+    /^(?:\S*\/)?(?:sh|bash|dash|ash|ksh)(?::\s*(?:line\s+)?\d+)?:\s*(\/[^\s:]+):\s*No such file or directory\b/im,
+  ];
+  for (const re of patterns) {
+    const m = re.exec(text);
+    const name = m?.[1];
+    // Display-only: strict whitelist, else fall back to generic copy.
+    if (name && /^[A-Za-z0-9._/-]{1,64}$/.test(name)) return name;
+    if (name) return undefined;
+  }
+  return undefined;
+}
+
 export function isSoftToolFailureResult(resultText: string | undefined): boolean {
   if (!resultText) return false;
   if (/^\s*(web_fetch_error|web_search_error)\b/i.test(resultText)) return true;
@@ -241,7 +504,8 @@ export function recordToolLoopOutcome(
   toolName: string,
   isError: boolean,
   resultText?: string,
-  input?: Record<string, unknown>
+  input?: Record<string, unknown>,
+  platform: NodeJS.Platform | string = process.platform
 ): void {
   if (
     toolName === 'web_search' &&
@@ -252,7 +516,57 @@ export function recordToolLoopOutcome(
   ) {
     state.hasSufficientRssNewsEvidence = true;
   }
-  if (!isError && !isSoftToolFailureResult(resultText)) return;
+  trackReadScopeLocks(state, toolName, isError, resultText, input);
+  if (!isError && !isSoftToolFailureResult(resultText)) {
+    // O96: trust is_error only (set by execute-tool-call anchored
+    // isStringToolFailureResult). Never text-scan successful output.
+    if (VERIFY_SHELL_TOOLS.has(toolName)) {
+      const sig = normalizeVerifyCommandSignature(toolName, input);
+      if (sig) state.bySameCommandFailure.delete(sig.key);
+    }
+    return;
+  }
+  // O96: normal completed non-zero for exec/run_tests — independent streak only.
+  if (VERIFY_SHELL_TOOLS.has(toolName)) {
+    const kind = classifyShellToolFailure(resultText, platform);
+    if (kind === 'normal_nonzero') {
+      const sig = normalizeVerifyCommandSignature(toolName, input);
+      if (sig) {
+        const outputKey = normalizeShellOutputFingerprint(resultText ?? '');
+        const prev = state.bySameCommandFailure.get(sig.key);
+        if (prev && prev.outputKey === outputKey) {
+          state.bySameCommandFailure.set(sig.key, {
+            count: prev.count + 1,
+            outputKey,
+            displayCommand: sig.display,
+          });
+        } else {
+          state.bySameCommandFailure.set(sig.key, {
+            count: 1,
+            outputKey,
+            displayCommand: sig.display,
+          });
+        }
+      }
+      // Do not bump byToolFailure — lint/test non-zero is not a broken tool.
+      return;
+    }
+    if (
+      kind === 'timeout' ||
+      kind === 'start_failure' ||
+      kind === 'killed' ||
+      kind === 'unusable'
+    ) {
+      state.lastShellFaultKind.set(toolName, kind);
+      const missing = kind === 'start_failure' ? parseMissingCommandName(resultText) : undefined;
+      state.lastMissingCommand ??= new Map();
+      if (missing) state.lastMissingCommand.set(toolName, missing);
+      else state.lastMissingCommand.delete(toolName);
+      const sig = normalizeVerifyCommandSignature(toolName, input);
+      if (sig) state.bySameCommandFailure.delete(sig.key);
+    }
+    // Policy deny / other: fall through to byToolFailure (existing path).
+  }
   // web_fetch failures are tracked per-URL (see ToolLoopGuardState) so that a
   // failed host doesn't poison the tool's reputation for unrelated hosts.
   if (toolName === 'web_fetch') {
@@ -281,6 +595,61 @@ export function recordToolLoopOutcome(
 }
 
 export function formatToolLoopGuardMessage(reason: string, toolName: string): string {
+  // O96: same-command identical-output streak — never say STOP / tool broken.
+  if (/^same check failed repeatedly/i.test(reason)) {
+    const cmd =
+      reason.replace(/^same check failed repeatedly\s*\(\d+×\):\s*/i, '').trim() || toolName;
+    return [
+      `同一检查连续失败：\`${cmd}\` 输出实质相同。请改代码或改命令/断言，不要原样重跑。`,
+      `Same check failed repeatedly for \`${cmd}\` with substantially identical output. Change the code or the command/assertions — do not re-run the same check unchanged.`,
+      '优先修代码；不要换工具绕开同一检查。Prefer fixing the code; do not switch tools merely to bypass the same check.',
+    ].join(' ');
+  }
+  // O96: real exec/run_tests faults — say 超时 / 未能启动, not "test failed".
+  if (VERIFY_SHELL_TOOLS.has(toolName)) {
+    if (/timed out \d+ time/i.test(reason)) {
+      return [
+        `已停止重试：${toolName} 连续超时（${reason}）。`,
+        `Stopped retrying: ${toolName} timed out repeatedly (${reason}).`,
+        '请提高 timeout_ms、简化命令，或改用 exec_background；不要原样重试。',
+        'Raise timeout_ms, simplify the command, or use exec_background — do not retry unchanged.',
+      ].join(' ');
+    }
+    const missingMatch = /\(missing command: ([^\s)]+)\)/.exec(reason);
+    if (/failed to start \d+ time/i.test(reason) && missingMatch) {
+      const name = missingMatch[1];
+      return [
+        `已停止重试：${toolName} 未能启动：找不到命令 \`${name}\`（${reason}）。`,
+        `Stopped retrying: ${toolName} failed to start: command \`${name}\` not found (${reason}).`,
+        `下一步：装依赖或改命令（例如安装提供 \`${name}\` 的包，或换成已安装的命令）；不要原样重试。`,
+        `Next step: install the dependency or change the command (e.g. install the package that provides \`${name}\`, or use a command that is installed) — do not retry unchanged.`,
+      ].join(' ');
+    }
+    if (/failed to start \d+ time/i.test(reason)) {
+      return [
+        `已停止重试：${toolName} 未能启动（命令不存在或起不来；${reason}）。`,
+        `Stopped retrying: ${toolName} failed to start (command missing or could not launch; ${reason}).`,
+        '请检查命令是否在 PATH 中、拼写是否正确，再换一条能启动的命令。',
+        'Check PATH and spelling, then try a command that can actually launch.',
+      ].join(' ');
+    }
+    if (/was killed \d+ time/i.test(reason)) {
+      return [
+        `已停止重试：${toolName} 连续被信号杀掉（${reason}）。`,
+        `Stopped retrying: ${toolName} was killed repeatedly (${reason}).`,
+        '请检查是否超时杀进程或外部信号；不要原样重试。',
+        'Check for timeout kills or external signals — do not retry unchanged.',
+      ].join(' ');
+    }
+    if (/returned unusable results \d+ time/i.test(reason)) {
+      return [
+        `已停止重试：${toolName} 连续返回不可用输出（${reason}）。`,
+        `Stopped retrying: ${toolName} returned unusable output repeatedly (${reason}).`,
+        '请换一条能产生可读输出的命令；不要原样重试。',
+        'Try a different command that produces readable output — do not retry unchanged.',
+      ].join(' ');
+    }
+  }
   if (/fresh-news search is already in progress/i.test(reason)) {
     return [
       `[moss-agent] Tool loop guard stopped another ${toolName} call: ${reason}.`,
@@ -305,6 +674,14 @@ export function formatToolLoopGuardMessage(reason: string, toolName: string): st
       'This specific URL is not returning usable results — STOP retrying THIS URL.',
       'Other URLs are still fine: you may web_fetch a different source, or answer with the evidence already gathered.',
       'Never invent, assume, or describe the content you could not actually fetch.',
+    ].join(' ');
+  }
+  if (/^shell write to edit-locked file /.test(reason)) {
+    const file = reason.slice('shell write to edit-locked file '.length);
+    return [
+      `已拦截 / Blocked: ${toolName} would write ${file}, which the edit tools just refused (read scope or repeated failed edits).`,
+      'Writing it through the shell (node -e, python -c, sed -i, redirects, tee, cp/mv) is not allowed while it is locked.',
+      `Next: call read_file on ${file} without offset/limit, then use edit_file/multi_edit with exact current text.`,
     ].join(' ');
   }
   if (/^edit thrash on /.test(reason)) {
@@ -597,6 +974,34 @@ export function shouldShortCircuitToolCall(
     }
   }
 
+  // O97: once the edit tools refused a path (read scope, or edit thrash), an
+  // exec must not write that same file behind their back.
+  if (SHELL_TOOLS.has(toolName) && typeof input.command === 'string') {
+    const locked = new Set(state.readScopeLockedPaths ?? []);
+    const display = new Map<string, string>();
+    if (editPathFailureLimit !== undefined) {
+      for (const [key, fails] of state.byEditPathFailure) {
+        if (fails < editPathFailureLimit) continue;
+        const raw = state.editPathRaw?.get(key) ?? key;
+        const k = lockKey(state, raw);
+        locked.add(k);
+        // Display keys keep real casing (findProtectedWrite returns the
+        // case-preserving canonical path); folded keys only match the set.
+        display.set(
+          canonicalPath(path.resolve(state.workspaceDir ?? process.cwd(), raw), false),
+          raw
+        );
+      }
+    }
+    const base = state.workspaceDir ? canonicalPath(state.workspaceDir, false) : process.cwd();
+    const cwd = typeof input.cwd === 'string' && input.cwd ? path.resolve(base, input.cwd) : base;
+    const hit = findProtectedWrite(input.command, cwd, locked);
+    if (hit) {
+      const shown = display.get(hit) ?? path.relative(base, hit) ?? hit;
+      return `shell write to edit-locked file ${shown || hit}`;
+    }
+  }
+
   if (toolName === 'web_search' && state.hasSufficientRssNewsEvidence) {
     return 'this user turn already has a dated RSS news snapshot with sufficient publisher provenance';
   }
@@ -607,6 +1012,21 @@ export function shouldShortCircuitToolCall(
     (input?.recency === 'day' || input?.recency === 'week')
   ) {
     return 'a fresh-news search is already in progress in this assistant step';
+  }
+
+  // O96: same-command identical-output streak (independent of byToolFailure).
+  if (VERIFY_SHELL_TOOLS.has(toolName)) {
+    const sameCmdLimit = resolveOptionalPositiveIntEnv(
+      'MOSS_TOOL_LOOP_SAME_COMMAND_LIMIT',
+      DEFAULT_SAME_COMMAND_FAILURE_LIMIT
+    );
+    const sig = normalizeVerifyCommandSignature(toolName, input);
+    if (sig && sameCmdLimit !== undefined) {
+      const streak = state.bySameCommandFailure.get(sig.key);
+      if (streak && streak.count >= sameCmdLimit) {
+        return `same check failed repeatedly (${streak.count}×): ${streak.displayCommand}`;
+      }
+    }
   }
 
   // web_fetch failures are tracked per-URL (see ToolLoopGuardState), so the
@@ -626,6 +1046,23 @@ export function shouldShortCircuitToolCall(
     // against, and the identical-input / single-tool / total guards below
     // still bound it.
   } else if (effectiveFailureLimit !== undefined && failureCount >= effectiveFailureLimit) {
+    // O96: encode fault kind so the message says 超时 / 未能启动, not "test failed".
+    if (VERIFY_SHELL_TOOLS.has(toolName)) {
+      const kind = state.lastShellFaultKind.get(toolName) ?? 'unusable';
+      if (kind === 'timeout') {
+        return `${toolName} timed out ${failureCount} time(s) in this user turn`;
+      }
+      if (kind === 'start_failure') {
+        const missing = state.lastMissingCommand?.get(toolName);
+        return `${toolName} failed to start ${failureCount} time(s) in this user turn${
+          missing ? ` (missing command: ${missing})` : ''
+        }`;
+      }
+      if (kind === 'killed') {
+        return `${toolName} was killed ${failureCount} time(s) in this user turn`;
+      }
+      return `${toolName} returned unusable results ${failureCount} time(s) in this user turn`;
+    }
     return `${toolName} has failed ${failureCount} time(s) in this user turn`;
   }
   if (identicalLimit !== undefined && sameSignatureCount >= identicalLimit) {

@@ -10,6 +10,8 @@ export enum ExitCode {
   PROVIDER_UPSTREAM = 6,
   SESSION = 7,
   TOOL_EXECUTION = 8,
+  /** O98/O109: incomplete, blocked, verify_failed, or soft Unverified (claimed pass without a real check). */
+  INCOMPLETE = 9,
   USER_ABORTED = 11,
   INTERNAL = 12,
 }

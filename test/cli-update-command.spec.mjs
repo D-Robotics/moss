@@ -205,47 +205,67 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
 }
 
 {
-  const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
-  assert.match(readme, /默认在后台连接，不需要设备目标/);
-  assert.match(readme, /connects it in the background by default/);
-  assert.doesNotMatch(readme, /有设备目标（`MOSS_DEVICE_HOST`/);
-  assert.doesNotMatch(readme, /when a device target\s+is set/);
-  for (const command of sourceInstallCommands(pkg.repository)) {
-    assert.ok(readme.includes(command), `README is missing: ${command}`);
+  // README.md is the Chinese README and README.en.md the English one (ad58a7d7).
+  // Language-specific sentences are asserted in their own file; shared commands in both.
+  const readmeZh = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
+  const readmeEn = fs.readFileSync(path.join(repoRoot, 'README.en.md'), 'utf8');
+  const readmes = [
+    ['README.md', readmeZh],
+    ['README.en.md', readmeEn],
+  ];
+  assert.match(readmeZh, /默认在后台连接，不需要设备目标/);
+  assert.match(readmeEn, /connects it in the background by default/);
+  assert.match(readmeEn, /may name `ssh2`/);
+  assert.match(readmeZh, /可能会点名 `ssh2`/);
+  assert.match(readmeEn, /exits non-zero immediately/);
+  assert.match(readmeZh, /立刻非零退出/);
+  assert.ok(
+    readmeZh.includes('https://github.com/D-Robotics/moss/blob/main/README.en.md'),
+    'README.md links to README.en.md by absolute URL (works on npm)'
+  );
+  for (const [name, readme] of readmes) {
+    assert.doesNotMatch(readme, /有设备目标（`MOSS_DEVICE_HOST`/);
+    assert.doesNotMatch(readme, /when a device target\s+is set/);
+    for (const command of sourceInstallCommands(pkg.repository)) {
+      assert.ok(readme.includes(command), `${name} is missing: ${command}`);
+    }
+    assert.ok(readme.includes(UPGRADE_IN_CLONE), `${name} has the upgrade line`);
+    assert.ok(readme.includes(LEGACY_PACKAGE_UNINSTALL), name);
+    assert.ok(readme.includes('npm uninstall -g @rdk-moss/agent'), name);
+    assert.match(readme, /npm install -g @rdk-moss\/agent@latest/);
+    assert.doesNotMatch(readme, /coming soon/);
+    assert.doesNotMatch(readme, /即将发布/);
+    assert.match(readme, /npm config set registry https:\/\/registry\.npmmirror\.com/);
+    assert.match(readme, /brew install node@22/);
+    assert.match(readme, /winget install OpenJS\.NodeJS\.LTS/);
+    assert.match(readme, /Set-ExecutionPolicy -Scope CurrentUser RemoteSigned/);
+    assert.match(readme, /~\/\.npm-global/);
+    assert.match(readme, /install-scripts/);
+    assert.match(readme, /ssh2/);
+    assert.match(readme, /cpu-features/);
+    assert.match(readme, /npm audit fix --force/);
+    assert.match(readme, /--force/);
+    assert.match(readme, /~\/\.moss\/cache\/npx/);
+    assert.match(readme, /~\/\.cache\/node-gyp/);
+    assert.match(readme, /node_modules\/@rdk-moss/);
+    assert.match(readme, /xcode-select --install/);
+    assert.match(readme, /npm 12/);
+    assert.match(readme, /npm link/);
+    assert.doesNotMatch(readme, /before dependencies are installed/);
+    assert.doesNotMatch(readme, /不会把依赖装一半/);
+    assert.doesNotMatch(readme, /dependencies before the root `preinstall`/);
+    assert.match(readme, /MOSS_SOURCE_DIR/);
+    assert.match(readme, /moss update --dir/);
+    assert.doesNotMatch(readme, /npm install -g github:/);
+    assert.doesNotMatch(readme, /QiaolongLi1201/);
+    assert.doesNotMatch(readme, /Xcode Command Line Tools are optional/);
+    assert.doesNotMatch(readme, /不需要 Xcode Command Line Tools/);
   }
-  assert.ok(readme.split(UPGRADE_IN_CLONE).length - 1 >= 2, 'upgrade line in en and zh');
-  assert.ok(readme.includes(LEGACY_PACKAGE_UNINSTALL));
-  assert.ok(readme.includes('npm uninstall -g @rdk-moss/agent'));
-  assert.match(readme, /npm install -g @rdk-moss\/agent@latest/);
-  assert.doesNotMatch(readme, /coming soon/);
-  assert.doesNotMatch(readme, /即将发布/);
-  assert.match(readme, /npm config set registry https:\/\/registry\.npmmirror\.com/);
-  assert.match(readme, /brew install node@22/);
-  assert.match(readme, /winget install OpenJS\.NodeJS\.LTS/);
-  assert.match(readme, /Set-ExecutionPolicy -Scope CurrentUser RemoteSigned/);
-  assert.match(readme, /~\/\.npm-global/);
-  assert.match(readme, /install-scripts/);
-  assert.match(readme, /ssh2/);
-  assert.match(readme, /cpu-features/);
-  assert.match(readme, /npm audit fix --force/);
-  assert.match(readme, /--force/);
-  assert.match(readme, /~\/\.moss\/cache\/npx/);
-  assert.match(readme, /~\/\.cache\/node-gyp/);
-  assert.match(readme, /node_modules\/@rdk-moss/);
-  assert.match(readme, /xcode-select --install/);
-  assert.match(readme, /npm 12/);
-  assert.match(readme, /npm link/);
-  assert.match(readme, /may name `ssh2`/);
-  assert.match(readme, /可能会点名 `ssh2`/);
-  assert.doesNotMatch(readme, /before dependencies are installed/);
-  assert.doesNotMatch(readme, /不会把依赖装一半/);
-  assert.match(readme, /exits non-zero immediately/);
-  assert.match(readme, /立刻非零退出/);
-  assert.doesNotMatch(readme, /dependencies before the root `preinstall`/);
-  for (const [start, end] of [
-    ['## 升级', '## 卸载'],
-    ['### Upgrade', '### Uninstall'],
+  for (const [readme, start, end] of [
+    [readmeZh, '## 升级', '## 卸载'],
+    [readmeEn, '## Upgrade', '## Uninstall'],
   ]) {
+    assert.ok(readme.includes(start) && readme.includes(end), `${start} section exists`);
     const section = readme.slice(readme.indexOf(start), readme.indexOf(end));
     const note = section.indexOf(LEGACY_PACKAGE_UNINSTALL);
     const command = section.indexOf(UPGRADE_IN_CLONE);
@@ -254,12 +274,6 @@ const repo = { url: 'git+https://github.com/D-Robotics/moss.git' };
       `${start} note precedes the command`
     );
   }
-  assert.match(readme, /MOSS_SOURCE_DIR/);
-  assert.match(readme, /moss update --dir/);
-  assert.doesNotMatch(readme, /npm install -g github:/);
-  assert.doesNotMatch(readme, /QiaolongLi1201/);
-  assert.doesNotMatch(readme, /Xcode Command Line Tools are optional/);
-  assert.doesNotMatch(readme, /不需要 Xcode Command Line Tools/);
 }
 
 {

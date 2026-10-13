@@ -14,7 +14,11 @@ import {
 } from '../utils/safe-cwd.js';
 import { errorMessage, throwMoss, ErrorCode } from '../errors.js';
 import { maybeDecryptApiKeyInConfig, maybeEncryptApiKeyInConfig } from './config-api-key-crypto.js';
-import { CliConfigFileError, CliConfigWriteError } from './config-errors.js';
+import {
+  CliConfigFileError,
+  CliConfigWriteError,
+  CliLocalizedConfigFileError,
+} from './config-errors.js';
 import { writeConfigFileAtomic } from './config-durable-write.js';
 import {
   type CliProviderPreset,
@@ -51,7 +55,7 @@ import {
   recordDotenvOrigin,
 } from '../utils/startup-env.js';
 import { officialEnvOffers } from './env-credentials.js';
-import { setupCopy } from './cli-locale.js';
+import { isZhLocale, setupCopy } from './cli-locale.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
 import type { PricingConfig } from './model-pricing.js';
 import type { StatusLineConfig } from './status-line.js';
@@ -589,6 +593,35 @@ export function resolveProjectConfigPath(startDir = safeProcessCwd(), maxHops = 
   return null;
 }
 
+/**
+ * O89: a Moss-format hook whose `command` is not a string (object, array,
+ * number, boolean, null) used to load fine and only surface at run time, where
+ * the failure notice printed `Command: [object Object]` with no clue which file
+ * was broken. Reject it at load/parse time instead, naming the config file, the
+ * event, and the entry index. A missing `command` keeps its existing behavior.
+ */
+function assertHookCommandsAreStrings(hooks: unknown, configPath: string): void {
+  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return;
+  const byEvent = hooks as Partial<Record<string, unknown>>;
+  for (const event of HOOK_EVENT_KEYS) {
+    const list = byEvent[event];
+    if (!Array.isArray(list)) continue;
+    for (let index = 0; index < list.length; index += 1) {
+      const entry = list[index];
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+      const command = (entry as Record<string, unknown>).command;
+      if (command === undefined || typeof command === 'string') continue;
+      if (isZhLocale()) {
+        throw new CliLocalizedConfigFileError(
+          configPath,
+          `配置文件 ${configPath} 无效：钩子 ${event}[${index}] 的 command 必须是字符串。`
+        );
+      }
+      throw new CliConfigFileError(configPath, `hooks.${event}[${index}].command must be a string`);
+    }
+  }
+}
+
 export function loadConfigFile(configPath = resolveConfigPath()): ConfigFile {
   if (!fs.existsSync(configPath)) return {};
   let raw: string;
@@ -609,6 +642,9 @@ export function loadConfigFile(configPath = resolveConfigPath()): ConfigFile {
     throw new CliConfigFileError(configPath, 'expected a JSON object');
   }
   const config = parsed as ConfigFile;
+  // O89: a non-string hook command must never reach runHookCommand /
+  // formatHookFailure, so it fails here with a localized, file-naming error.
+  assertHookCommandsAreStrings(config.hooks, configPath);
 
   const configDir = path.dirname(configPath);
   return maybeDecryptApiKeyInConfig(config, configDir, configPath);
@@ -658,6 +694,30 @@ function mergeModelOutputConfigs(
   if (!user && !project) return undefined;
   const merged: NonNullable<AgentRuntimeConfig['models']> = { ...project, ...user };
   return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+export const REASONING_BUDGET_VALUES = ['off', 'adaptive', 'high'] as const;
+export type ReasoningBudget = (typeof REASONING_BUDGET_VALUES)[number];
+
+export function parseReasoningBudget(value: unknown): ReasoningBudget | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.toLowerCase().trim();
+  return (REASONING_BUDGET_VALUES as readonly string[]).includes(normalized)
+    ? (normalized as ReasoningBudget)
+    : undefined;
+}
+
+const warnedInvalidReasoningBudgetEnv = new Set<string>();
+
+/** MOSS_LANG-style: warn once per process for an invalid MOSS_REASONING_BUDGET. */
+function warnInvalidReasoningBudgetEnv(raw: string): void {
+  if (warnedInvalidReasoningBudgetEnv.has(raw)) return;
+  warnedInvalidReasoningBudgetEnv.add(raw);
+  const zh = isZhLocale();
+  const msg = zh
+    ? `[moss] MOSS_REASONING_BUDGET 只能是 off、adaptive 或 high，收到「${raw}」，已回退到配置或默认 adaptive。`
+    : `[moss] MOSS_REASONING_BUDGET must be off|adaptive|high, got "${raw}"; falling back to config or default adaptive.`;
+  console.error(msg);
 }
 
 function mergeAgentRuntimeConfig(
@@ -713,6 +773,26 @@ export function listProjectRoutingConfigFields(project: ConfigFile): string[] {
   const models = project.agent?.models;
   if (models && Object.keys(models).length > 0) ignored.push('models');
   return ignored;
+}
+
+const REASONING_BUDGET_RANK: Record<ReasoningBudget, number> = { off: 0, adaptive: 1, high: 2 };
+
+/**
+ * An untrusted project may only lower reasoning intensity (off < adaptive <
+ * high). The user's effective value is the user config value, or the
+ * runtime default `adaptive` when unset. Same shape as projectProfileLoosens.
+ */
+function projectReasoningBudgetRaises(user: ConfigFile, project: ConfigFile): boolean {
+  const projectBudget = parseReasoningBudget(project.agent?.reasoningBudget);
+  if (!projectBudget) return false;
+  const userBudget = parseReasoningBudget(user.agent?.reasoningBudget) ?? 'adaptive';
+  return REASONING_BUDGET_RANK[projectBudget] > REASONING_BUDGET_RANK[userBudget];
+}
+
+function omitRaisingProjectReasoningBudget(user: ConfigFile, project: ConfigFile): ConfigFile {
+  if (!project.agent || !projectReasoningBudgetRaises(user, project)) return project;
+  const { reasoningBudget: _rb, ...rest } = project.agent;
+  return { ...project, agent: Object.keys(rest).length > 0 ? rest : undefined };
 }
 
 function omitProjectRoutingConfig(project: ConfigFile): ConfigFile {
@@ -858,6 +938,11 @@ export function fieldSourcesFor(
   mark('promptCache', user.promptCache !== undefined, project.promptCache !== undefined, true);
   mark('guardrails', user.guardrails !== undefined, project.guardrails !== undefined, true);
   mark('agent.maxTurns', user.agent?.maxTurns !== undefined, project.agent?.maxTurns !== undefined);
+  mark(
+    'agent.reasoningBudget',
+    user.agent?.reasoningBudget !== undefined,
+    project.agent?.reasoningBudget !== undefined
+  );
   mark(
     'agent.contextTokens',
     user.agent?.contextTokens !== undefined,
@@ -1216,12 +1301,18 @@ export function loadCliConfigFile(
   const rawProject = loadConfigFile(projectConfigPath);
   const trusted = projectRoutingTrusted(env, argv, startDir, options?.trustProjectRouting);
   const ignoredProjectRouting = trusted ? [] : listProjectRoutingConfigFields(rawProject);
+  if (!trusted && projectReasoningBudgetRaises(userConfig, rawProject)) {
+    ignoredProjectRouting.push('reasoningBudget');
+  }
   const droppedProjectPermissions = trusted
     ? []
     : listDroppedProjectPermissionFields(userConfig, rawProject);
   const projectConfig = trusted
     ? rawProject
-    : omitLooseningProjectPermissions(userConfig, omitProjectRoutingConfig(rawProject));
+    : omitRaisingProjectReasoningBudget(
+        userConfig,
+        omitLooseningProjectPermissions(userConfig, omitProjectRoutingConfig(rawProject))
+      );
   const merged = mergeConfigFiles(projectConfig, userConfig, options);
   const sources = fieldSourcesFor(userConfig, projectConfig);
   const keyLayer =
@@ -1535,6 +1626,9 @@ export interface ResolvedCliConfig {
   bestOfN?: number;
   /** v0.10 W4 (config agent.reasoningBudget + MOSS_REASONING_BUDGET env). */
   reasoningBudget?: 'off' | 'adaptive' | 'high';
+  reasoningBudgetSource?: string;
+  /** Set when MOSS_REASONING_BUDGET was present but not off|adaptive|high. */
+  invalidReasoningBudgetEnv?: string;
   /** v0.12 (agent.modelTiers + MOSS_MODEL_CHEAP/BALANCED/STRONG env). */
   modelTiers?: { cheap?: string; balanced?: string; strong?: string };
   modelTiersSource?: string;
@@ -1605,9 +1699,21 @@ export function auditResolvedCliConfig(
     | 'deniedTools'
     | 'deniedToolsSource'
     | 'permissions'
-  >
+  > &
+    Partial<Pick<ResolvedCliConfig, 'invalidReasoningBudgetEnv'>>
 ): CliConfigAuditWarning[] {
   const warnings: CliConfigAuditWarning[] = [];
+  if (config.invalidReasoningBudgetEnv) {
+    warnings.push({
+      code: 'reasoningBudget.env_invalid',
+      severity: 'warn',
+      source: 'MOSS_REASONING_BUDGET',
+      message: uiText(
+        `MOSS_REASONING_BUDGET "${config.invalidReasoningBudgetEnv}" is not off|adaptive|high; using config or default adaptive`,
+        `MOSS_REASONING_BUDGET「${config.invalidReasoningBudgetEnv}」不是 off|adaptive|high；已回退到配置或默认 adaptive`
+      ),
+    });
+  }
   // v0.26 audit re-check (PRD W1 告警重校): the old blanket auto-approval
   // warning would fire for every factory-default user now that full is the
   // default. The warning only fires when the auto-approval stance came from
@@ -2411,13 +2517,26 @@ export function resolveCliConfig(
       apiKeyFromProjectEnv = true;
     }
   }
-  const rawReasoningBudget = (env.MOSS_REASONING_BUDGET ?? '').toLowerCase().trim();
-  const reasoningBudget =
-    rawReasoningBudget === 'off' ||
-    rawReasoningBudget === 'adaptive' ||
-    rawReasoningBudget === 'high'
-      ? rawReasoningBudget
-      : activeConfig.agent?.reasoningBudget;
+  // Same precedence as agent.maxTurns / agent.contextTokens: a valid
+  // MOSS_REASONING_BUDGET env wins over config agent.reasoningBudget
+  // (project layer over user layer), then the runtime default (adaptive).
+  const rawReasoningBudgetEnv = env.MOSS_REASONING_BUDGET;
+  const envReasoningBudget = parseReasoningBudget(rawReasoningBudgetEnv);
+  const invalidReasoningBudgetEnv =
+    typeof rawReasoningBudgetEnv === 'string' &&
+    rawReasoningBudgetEnv.trim() !== '' &&
+    envReasoningBudget === undefined
+      ? rawReasoningBudgetEnv.trim()
+      : undefined;
+  if (invalidReasoningBudgetEnv) warnInvalidReasoningBudgetEnv(invalidReasoningBudgetEnv);
+  const configReasoningBudget = parseReasoningBudget(activeConfig.agent?.reasoningBudget);
+  const reasoningBudget = envReasoningBudget ?? configReasoningBudget;
+  const reasoningBudgetSource =
+    envReasoningBudget !== undefined
+      ? 'MOSS_REASONING_BUDGET'
+      : configReasoningBudget !== undefined
+        ? fileLayer('agent.reasoningBudget')
+        : 'default';
   const runBudget =
     budgetMaxTokens !== undefined ||
     budgetMaxToolCalls !== undefined ||
@@ -2526,6 +2645,8 @@ export function resolveCliConfig(
     ...(runBudget ? { budget: runBudget } : {}),
     ...(bestOfN !== undefined ? { bestOfN } : {}),
     ...(reasoningBudget ? { reasoningBudget } : {}),
+    reasoningBudgetSource,
+    ...(invalidReasoningBudgetEnv ? { invalidReasoningBudgetEnv } : {}),
     ...(hasModelTiers ? { modelTiers, modelTiersSource } : { modelTiersSource }),
     compactionSettingsSource,
     configPath: configPaths?.configPath ?? resolveConfigPath(undefined, env),

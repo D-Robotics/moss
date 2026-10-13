@@ -584,7 +584,10 @@ function tempDir(prefix) {
   assert.match(formatFullModeNotice('zh_CN'), /只显示一次/);
   assert.match(formatFullModeNotice('C'), /This notice shows once/);
   assert.match(formatInteractionModeNotice('full', 'zh_CN'), /交互模式/);
-  assert.match(formatInteractionModeNotice('full', 'C'), /full \(no approval prompts\)/);
+  assert.match(
+    formatInteractionModeNotice('full', 'C'),
+    /full \(runs most actions; protected paths still ask once\)/
+  );
 }
 
 // ─── "shown once" is persisted in the config dir ───────────────────────────
@@ -750,7 +753,10 @@ const cliCases = [
     args: [],
     runs: 2,
     noticeFile: true,
-    firstMatch: [/This\s+notice shows once/, /Interaction mode: full \(no approval prompts\)/],
+    firstMatch: [
+      /This\s+notice shows once/,
+      /Interaction mode: full \(runs most actions; protected paths still ask once\)/,
+    ],
     eachMatch: [/Interaction mode:/],
     laterAbsent: [/This\s+notice shows once/],
   },

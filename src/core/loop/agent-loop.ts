@@ -213,7 +213,7 @@ export function runAgentLoop(
 
     const runStartMs = Date.now();
     const INTER_TURN_SILENCE_WINDOW = 50;
-    const toolLoopGuard = createToolLoopGuardState();
+    const toolLoopGuard = createToolLoopGuardState({ workspaceDir: toolCtx.workspaceDir });
 
     const flushAssistantBuffer = async (buffer: Message[]): Promise<void> => {
       while (buffer.length > 0) {

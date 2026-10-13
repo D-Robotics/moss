@@ -355,6 +355,12 @@ async function stopAndConfirmGone(out, stopCtx, label) {
   const id = extractBgId(out);
   assert.ok(id, `${label}: no background id in ${out}`);
   const pid = Number(out.match(/pid (\d+)/)?.[1]);
+  // The pid must parse — if the exec_background output format ever changes,
+  // fail loudly here instead of silently skipping the exit check below.
+  assert.ok(
+    Number.isInteger(pid) && pid > 0,
+    `${label}: could not parse a finite positive pid from exec_background output: ${out}`
+  );
   const child = backgroundProcesses.get(id)?.child;
   const stopObservation = {
     startedAt: Date.now(),

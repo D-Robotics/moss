@@ -212,6 +212,14 @@ export interface HeadlessPrintState {
   pricingOverrides?: Readonly<Record<string, ModelPrice>>;
   /** Official-host gate for built-in prices. Gateways stay unpriced. */
   baseUrl?: string;
+  /**
+   * O121: conclusion line when the run's block record is non-empty (a safety /
+   * approval refusal happened). The JSON result then reports is_error +
+   * recoverable: false with the same wording as the text last line.
+   */
+  safetyBlockConclusion?: () => string | undefined;
+  /** O121: set when the result event was failed by {@link safetyBlockConclusion}. */
+  outcomeConcluded?: boolean;
 }
 
 export interface HeadlessPrintStateInput {
@@ -424,7 +432,11 @@ function formatResult(
       : undefined);
   const maxTurns = isMaxTurnsStopReason(result?.stopReason);
   const outputLimit = isOutputLimitStop(result?.stopReason);
-  const isError = Boolean(errorMessage) || isErrorStopReason(result?.stopReason);
+  const baseError = Boolean(errorMessage) || isErrorStopReason(result?.stopReason);
+  // O121: only for runs that otherwise look successful; real errors (budget,
+  // stall, max turns) keep their own subtype / error / exit code.
+  const blockLine = baseError ? undefined : state.safetyBlockConclusion?.();
+  const isError = baseError || Boolean(blockLine);
   const subtype: HeadlessResultSubtype = !isError
     ? 'success'
     : outputLimit
@@ -468,6 +480,12 @@ function formatResult(
   if (state.lastErrorDetails) {
     event.error_code = state.lastErrorDetails.code;
     event.recoverable = state.lastErrorDetails.recoverable;
+  }
+  if (blockLine) {
+    // O121: a refused action is never a success, whatever the answer says.
+    event.error = blockLine;
+    state.outcomeConcluded = true;
+    event.recoverable = false;
   }
   if (!isError && state.structuredOutputRequested) {
     const structuredOutput = parseStructuredOutput(resultText);
@@ -613,6 +631,9 @@ export function formatHeadlessStreamEvent(
       if (event.keptToolNames !== undefined) compaction.kept_tool_names = event.keptToolNames;
       return [compaction];
     }
+    case 'tool_progress':
+      // O99: progress is stderr-only; never appear on stdout/JSON stream.
+      return [];
     case 'microcompact':
     case 'retry':
       return [];

@@ -2,6 +2,15 @@ const BASE_TOOL_OUTPUT_LIMITS: Record<string, number> = {
   device_exec: 6_000,
   device_file_read: 10_000,
   read: 10_000,
+  // O97: a partial-read rejection from these tools can carry the full file
+  // (read_file's view). Give them the same budget as `read` so a ~20k-char
+  // source file arrives whole instead of with its middle cut out. Normal
+  // edit/write results are a few hundred chars and never get near it.
+  write_file: 10_000,
+  edit_file: 10_000,
+  multi_edit: 10_000,
+  move_file: 10_000,
+  apply_patch: 10_000,
   web_search: 2_250,
   web_fetch: 8_000,
   device_diagnose: 3_000,

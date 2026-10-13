@@ -407,6 +407,11 @@ export function createStreamFunctionFromLlmProvider(
           ...(isMossError(err) ? { errorDetails: mossErrorToOutcome(err) } : {}),
           timestamp: Date.now(),
         };
+        // O114: carry the original error in-memory (non-enumerable, so it is
+        // never persisted/serialized) so the loop can keep its identity — e.g.
+        // a retryable mid-stream stall must not be flattened into a generic
+        // non-retryable "LLM stream error".
+        Object.defineProperty(assistant, 'originalError', { value: err, enumerable: false });
         stream.push({ type: 'error', reason: 'error', error: assistant });
         stream.end(assistant);
       }

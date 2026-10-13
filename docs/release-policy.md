@@ -47,8 +47,11 @@ package.json 已 0.13.0）。v0.14–v0.20 期间欠账扩大：代码交付到 
   - TUI OSC 11 修复红绿取证（PTY + pyte，`scratch/tui-drive.py` raw chunks）：修复前注入分片应答
     （`\x1b]11` + `;rgb:ffff/ffff/ffff\x07`）在 composer 复现 `❯ ]11;rgb:ffff/ffff/ffff`；修复后同一
     探针 composer 干净、后续键入正常、整体中应答同样吸收（截图不入库）。
-  - 发布后冒烟：`npm install -g @rdk-moss/agent@latest` 实装并跑 `moss --version` / `--help`（发布动作
-    完成后立即执行，结果回填本节）。
+  - 发布后冒烟：`npm install -g --prefix <tmp> @rdk-moss/agent@latest` 实装（55 包 / 16s），
+    `moss --version` 输出 `v0.26.1 (4cf10a9, 2026-10-11)`（与 policy 提交一致）、`--help` 正常渲染。
+    实际发布经 `npm publish rdk-moss-agent-0.26.1.tgz`（pack 与全绿 verify 同树），2FA 走 Web 认证
+    PUT 202；交互终端跑 `npm publish` 的目录级 verify 会因 `cli-permission-defaults` 的 TTY 耦合
+    在无头断言上失败（测试环境问题，非产品缺陷，转 PM 立单）。
 - **未执行、因此不主张**：真机（非 in-process SSH）设备闭环；SWE-bench/Terminal-Bench/全量 bench
   复跑（同 v0.23 口径）；Windows/macOS/Linux 三平台安装矩阵（仅发布后本机冒烟）。
 

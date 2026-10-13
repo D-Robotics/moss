@@ -39,6 +39,9 @@ function withEnv(env, fn) {
 const timeoutEnv = {
   MOSS_PI_AI_FIRST_EVENT_TIMEOUT_MS: '5000',
   PI_AI_FIRST_EVENT_TIMEOUT_MS: '5000',
+  // O114: inter-event idle is no longer capped by the first-event deadline
+  // (default 60s), so pin it to 5s too for the phase-'inter' case.
+  MOSS_PI_AI_INTER_EVENT_TIMEOUT_MS: '5000',
 };
 
 // ─── 1. first-event timeout: phase 'first' ──────────────────────────────────

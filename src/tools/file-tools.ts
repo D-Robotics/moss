@@ -13,10 +13,11 @@ import {
 } from './tool-helpers.js';
 import { wouldTruncateToolOutput } from '../context/tool-output-truncate.js';
 import {
+  presentToolOutput,
   redactedPlaceholderEditError,
   redactedPlaceholderWriteError,
 } from '../safety/tool-output-redact.js';
-import { resolveReadPath } from '../safety/read-scope.js';
+import { isMossCredentialPath, resolveReadPath } from '../safety/read-scope.js';
 
 /** Strip read_file-style line-number prefixes the model often pastes back. */
 export function stripLineNumberPrefixes(s: string): string {
@@ -162,6 +163,8 @@ export const readFileTool: Tool = {
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
+    // O122: execute() must run so a full re-read registers (its own unchanged stub saves tokens).
+    noReplay: true,
   },
   inputSchema: {
     type: 'object',
@@ -213,13 +216,28 @@ export const readFileTool: Tool = {
         }
         return withLineNumbers(content);
       })();
-      // The secret-sanitizer post hook redacts the result that reaches the model.
-      // Record the tool's own body so an unchanged re-read still short-circuits.
+      // Record against the raw body size; credential paths are redacted below
+      // so an unchanged re-read still short-circuits on disk state.
       await globalToolStateManager.recordFileState(
         filePath,
         rangeKey,
         wouldTruncateToolOutput('read', result)
       );
+      globalToolStateManager.markFullReadTruncation(
+        filePath,
+        rangeKey,
+        wouldTruncateToolOutput('read', result)
+      );
+      // O105: defense in depth — even a direct execute (no agent post-hook)
+      // must not return Moss credential plaintext. Same path as presentToolOutput.
+      if (isMossCredentialPath(filePath)) {
+        return presentToolOutput({
+          toolName: 'read_file',
+          input: { path: String(input.path ?? '') },
+          text: result,
+          workspaceDir: ctx.workspaceDir,
+        });
+      }
       return result;
     } catch (err) {
       if (
@@ -269,13 +287,20 @@ export const writeFileTool: Tool = {
         existed = false;
       }
       if (existed) {
-        const unread = globalToolStateManager.requirePriorReadError(filePath, displayPath);
+        const unread = await globalToolStateManager.requirePriorReadError(filePath, displayPath, {
+          toolName: 'write_file',
+          workspaceDir: ctx.workspaceDir,
+        });
         if (unread) {
           return (
             `Error: ${unread} ` +
             'For surgical changes prefer edit_file/multi_edit; use write_file only for intentional full rewrites after reading.'
           );
         }
+      }
+      if (existed) {
+        const truncated = globalToolStateManager.truncatedOverwriteError(filePath, displayPath);
+        if (truncated) return `Error: ${truncated}`;
       }
 
       const contentStrEarly = String(input.content ?? '');
@@ -583,7 +608,10 @@ export const editFileTool: Tool = {
       }
       const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
       if (stale) return `Error: ${stale}`;
-      const unread = globalToolStateManager.requirePriorReadError(filePath, displayPath);
+      const unread = await globalToolStateManager.requirePriorReadError(filePath, displayPath, {
+        toolName: 'edit_file',
+        workspaceDir: ctx.workspaceDir,
+      });
       if (unread) return `Error: ${unread}`;
 
       const result = applyPreciseEditToContent(content, {
@@ -696,7 +724,10 @@ export const multiEditTool: Tool = {
           }
           const stale = await globalToolStateManager.staleWriteError(filePath, displayPath);
           if (stale) return `Error: edits[${i}] ${stale}`;
-          const unread = globalToolStateManager.requirePriorReadError(filePath, displayPath);
+          const unread = await globalToolStateManager.requirePriorReadError(filePath, displayPath, {
+            toolName: 'multi_edit',
+            workspaceDir: ctx.workspaceDir,
+          });
           if (unread) return `Error: edits[${i}] ${unread}`;
           buf = { displayPath, filePath, content, original: content };
           buffers.set(displayPath, buf);
@@ -799,7 +830,10 @@ export const moveFileTool: Tool = {
       // Overwriting an existing destination requires prior read (same discipline
       // as write_file on existing files) so unread content is not destroyed.
       if (destExists && input.overwrite) {
-        const unread = globalToolStateManager.requirePriorReadError(dest, destDisplay);
+        const unread = await globalToolStateManager.requirePriorReadError(dest, destDisplay, {
+          toolName: 'move_file',
+          workspaceDir: ctx.workspaceDir,
+        });
         if (unread) {
           return `Error: ${unread} Destination exists and overwrite=true — read it first or choose a new path.`;
         }

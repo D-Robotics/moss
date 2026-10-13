@@ -538,7 +538,8 @@ function providerHoldScript(moduleHref) {
     '  baseUrl: "https://bench.invalid/v1",',
     '});',
     'const body = fs.readFileSync(configDir + "/config.json", "utf8");',
-    'fs.writeFileSync(marker, JSON.stringify({ configDir, hasKey: body.includes(' +
+    'const ownerPid = fs.readFileSync(configDir + "/owner.pid", "utf8").trim();',
+    'fs.writeFileSync(marker, JSON.stringify({ configDir, ownerPid, hasKey: body.includes(' +
       JSON.stringify(PROVIDER_KEY) +
       ') }));',
     'if (mode === "exit") process.exit(0);',
@@ -578,6 +579,7 @@ test('provider config dir is removed on process exit and SIGTERM', async () => {
   try {
     const info = await waitForMarker(exited.marker);
     assert.equal(info.hasKey, true, exited.stderr());
+    assert.equal(info.ownerPid, String(exited.child.pid));
     const code = await exited.exitCode;
     assert.equal(code, 0, exited.stderr());
     assert.equal(fs.existsSync(info.configDir), false);
@@ -589,6 +591,7 @@ test('provider config dir is removed on process exit and SIGTERM', async () => {
   try {
     const info = await waitForMarker(signaled.marker);
     assert.equal(info.hasKey, true, signaled.stderr());
+    assert.equal(info.ownerPid, String(signaled.child.pid));
     assert.equal(fs.existsSync(path.join(info.configDir, 'config.json')), true);
     if (process.platform === 'win32') signaled.child.send('SIGTERM');
     else signaled.child.kill('SIGTERM');
@@ -635,4 +638,45 @@ test('runDeviceBench finally removes the provider config dir', { timeout: 60_000
     .readdirSync(os.tmpdir())
     .filter((name) => name.startsWith('moss-device-bench-provider-') && !before.has(name));
   assert.deepEqual(leaked, []);
+});
+
+function makeProviderDir(ownerPid) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-provider-'));
+  fs.writeFileSync(path.join(dir, 'config.json'), `${JSON.stringify({ apiKey: PROVIDER_KEY })}\n`);
+  if (ownerPid !== undefined) fs.writeFileSync(path.join(dir, 'owner.pid'), `${ownerPid}\n`);
+  return dir;
+}
+
+/** A pid that has already exited, so only ESRCH can answer for it. */
+function reapedPid() {
+  const child = spawnSync(process.execPath, ['-e', 'process.exit(0)']);
+  assert.equal(typeof child.pid, 'number');
+  return child.pid;
+}
+
+test('bench startup sweeps provider config dirs and keeps other tmpdir entries', async () => {
+  // Orphan: the owner pid is gone, so the dir and the key inside must go.
+  const stale = makeProviderDir(reapedPid());
+  // Concurrent bench: the owner pid is this live process, so it must survive.
+  const live = makeProviderDir(process.pid);
+  // No owner record: not provably orphaned, so it must survive too.
+  const unowned = makeProviderDir(undefined);
+  const unrelated = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-keep-'));
+  const unrelatedMarker = path.join(unrelated, 'keep.txt');
+  fs.writeFileSync(unrelatedMarker, 'not ours to delete\n');
+  const resultsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-sweep-'));
+  try {
+    const result = await runDeviceBench({ mode: 'dry', resultsDir, filters: ['report-identity'] });
+    assert.equal(result.exitCode, 0, JSON.stringify(result.summary?.rows, null, 2));
+    assert.equal(fs.existsSync(stale), false, 'stale provider config dir survived startup');
+    assert.equal(fs.existsSync(path.join(stale, 'config.json')), false);
+    assert.equal(fs.existsSync(live), true, 'live owner config dir was swept');
+    assert.equal(fs.existsSync(path.join(live, 'owner.pid')), true);
+    assert.equal(fs.existsSync(unowned), true, 'ownerless config dir was swept');
+    assert.equal(fs.existsSync(unrelatedMarker), true, 'unrelated tmpdir entry was removed');
+  } finally {
+    for (const dir of [stale, live, unowned, unrelated, resultsDir]) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
 });

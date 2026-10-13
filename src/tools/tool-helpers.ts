@@ -10,7 +10,11 @@ import { safeChildEnv } from '../utils/safe-child-env.js';
 import { isWorkspaceTrusted } from '../utils/workspace-trust-state.js';
 import { errorMessage, isMossError, MossError } from '../errors.js';
 import { setFoldedResultListener } from '../context/tool-result-fold.js';
+import { wouldTruncateToolOutput } from '../context/tool-output-truncate.js';
 import { onReadContextDropped } from '../context/read-context-events.js';
+import { isCredentialLikePath, isRawApiKeyFile } from '../safety/credential-path.js';
+import { isMossCredentialPath } from '../safety/read-scope.js';
+import { presentToolOutput } from '../safety/tool-output-redact.js';
 
 export const IS_WIN = process.platform === 'win32';
 
@@ -39,6 +43,26 @@ export const FILE_UNCHANGED_STUB =
 export const FILE_UNCHANGED_TRUNCATED_STUB =
   'File unchanged since last read, but the earlier result was TRUNCATED by the output budget — the dropped region is not in context. Re-read just the region you need with offset/limit instead of the whole file.';
 
+/** Same cap read_file applies to a full-file body. */
+export const PARTIAL_READ_RECOVERY_MAX_CHARS = 100_000;
+
+/** Which tool is rejecting, so the attached body is sized to its output budget. */
+export interface PartialReadAttach {
+  toolName: string;
+  workspaceDir: string;
+}
+
+/**
+ * O128: the one actionable next step every partial-read refusal ends with —
+ * identical on the first refusal and on every resend.
+ */
+export function partialReadNextStep(displayPath: string): string {
+  return (
+    `Next step: read \`${displayPath}\` in full first, then edit ` +
+    `(read_file without offset/limit). 下一步：先完整读取 \`${displayPath}\` 再编辑（read_file 不带 offset/limit）。`
+  );
+}
+
 export class ToolStateManager {
   private readonly fileReadState = new Map<string, number>();
   /** Last read window per path (`full` or `offset:limit`) for unchanged stubs. */
@@ -59,6 +83,28 @@ export class ToolStateManager {
   private readonly fileReadHash = new Map<string, string>();
   /** O86: paths whose earlier read body left the model context (compaction/elision). */
   private readonly fileReadDropped = new Set<string>();
+
+  /**
+   * O128 (PM): paths whose last full read_file was cut by the output budget.
+   * Sticky across edits (an edit does not show the model the dropped part);
+   * cleared only by a full read that was not truncated.
+   */
+  private readonly fileFullReadTruncated = new Set<string>();
+
+  markFullReadTruncation(resolvedPath: string, rangeKey: string, truncated: boolean): void {
+    if (rangeKey !== 'full') return;
+    if (truncated) this.fileFullReadTruncated.add(resolvedPath);
+    else this.fileFullReadTruncated.delete(resolvedPath);
+  }
+
+  /** O128: refuse a whole-file write_file over a file the model only saw truncated. */
+  truncatedOverwriteError(resolvedPath: string, displayPath: string): string | null {
+    if (!this.fileFullReadTruncated.has(resolvedPath)) return null;
+    return (
+      `\`${displayPath}\` was truncated when read; whole-file overwrite is not allowed, use edit instead. ` +
+      `\`${displayPath}\` 读取时被截断，不能整文件覆盖，请改用 edit 修改。`
+    );
+  }
 
   /** Record state after a successful mutation (keeps the full-read scope). */
   async recordMutation(resolvedPath: string): Promise<void> {
@@ -127,7 +173,11 @@ export class ToolStateManager {
    * A partial offset/limit page does not unlock full-file old_string matching
    * — that was a thrash hole (edit outside the paged window → miss → retry).
    */
-  requirePriorReadError(resolvedPath: string, displayPath: string): string | null {
+  async requirePriorReadError(
+    resolvedPath: string,
+    displayPath: string,
+    attach?: PartialReadAttach
+  ): Promise<string | null> {
     if (!this.hasRecorded(resolvedPath)) {
       return (
         `You must call read_file on ${displayPath} at least once before editing it. ` +
@@ -136,13 +186,76 @@ export class ToolStateManager {
     }
     const range = this.fileReadRange.get(resolvedPath) ?? 'full';
     if (range !== 'full') {
-      return (
+      const base =
         `You only read a partial window of ${displayPath} (${range}). ` +
         `Call read_file again without offset/limit (full file) before edit_file/multi_edit/apply_patch, ` +
-        `so old_string can match anywhere in the file.`
-      );
+        `so old_string can match anywhere in the file. ` +
+        partialReadNextStep(displayPath);
+      return attach
+        ? base + (await this.partialReadRecovery(resolvedPath, displayPath, base, attach))
+        : base;
     }
     return null;
+  }
+
+  /**
+   * O97: a bare "re-read the full file" rejection made models thrash the edit
+   * tool and finally bypass it with `node -e`. The edit is still rejected (the
+   * read-scope check is unchanged), but the rejection now carries the full
+   * current file exactly as read_file would present it (same line numbers,
+   * same `presentToolOutput` redaction as a `read_file` result) and records a
+   * full read through `recordFileState` (the same call read_file makes), so
+   * the next edit can match.
+   *
+   * Nothing is attached (and the path stays locked) when: the file is a
+   * credential-like file (`.env`, `.apikey-key`, Moss config — stricter than
+   * read_file, which serves a redacted view), the file is over read_file's
+   * full-body cap, or the message would not fit the calling tool's output
+   * budget (the loop would cut the middle and the "full read" would be a lie).
+   */
+  private async partialReadRecovery(
+    resolvedPath: string,
+    displayPath: string,
+    base: string,
+    attach: PartialReadAttach
+  ): Promise<string> {
+    const reread =
+      ` Do not rewrite it with shell commands: call read_file on ${displayPath} without offset/limit ` +
+      `(that unlocks editing), then retry with an exact old_string.`;
+    if (
+      isRawApiKeyFile(resolvedPath) ||
+      isCredentialLikePath(resolvedPath) ||
+      isMossCredentialPath(resolvedPath)
+    ) {
+      return ` Contents are not attached for credential files.${reread}`;
+    }
+    let content: string;
+    try {
+      content = await fs.readFile(resolvedPath, 'utf-8');
+    } catch {
+      return '';
+    }
+    if (content.length > PARTIAL_READ_RECOVERY_MAX_CHARS) {
+      return ` The file is too large to attach here (${content.length} chars).${reread}`;
+    }
+    const presented = presentToolOutput({
+      toolName: 'read_file',
+      input: { path: resolvedPath },
+      text: withLineNumbers(content),
+      workspaceDir: attach.workspaceDir,
+    });
+    const tail =
+      ` The full current content of ${displayPath} is attached below for reference only — it does NOT ` +
+      `unlock editing (O128: resending the edit is refused until read_file reads the whole file; ` +
+      `line-number prefixes are NOT file content).\n` +
+      `[full file: ${displayPath}]\n${presented}`;
+    if (wouldTruncateToolOutput(attach.toolName, `Error: ${base}${tail}`)) {
+      return ` The file is too large to attach within this tool's output budget (${content.length} chars).${reread}`;
+    }
+    // O128: attaching the body must not stamp a full read. It did, so the
+    // model's identical resend of the refused edit was written without any
+    // read_file. Only a real full read_file (or a successful write) unlocks.
+    return tail;
   }
 
   async staleWriteError(resolvedPath: string, displayPath: string): Promise<string | null> {
@@ -165,6 +278,7 @@ export class ToolStateManager {
   }
 
   clearFileState(): void {
+    this.fileFullReadTruncated.clear();
     this.fileReadState.clear();
     this.fileReadRange.clear();
     this.fileReadTruncated.clear();

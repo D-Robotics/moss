@@ -213,6 +213,12 @@ function runSpec(file) {
   });
 }
 
+function isCiEnv(value) {
+  if (!value) return false;
+  const v = String(value).trim().toLowerCase();
+  return v !== '' && v !== '0' && v !== 'false';
+}
+
 function leakedHomes() {
   return listMossTempHomes(runRoot);
 }
@@ -225,14 +231,30 @@ function reportLeaks() {
   return 1;
 }
 
+// Under CI run every file and summarize failures, so one red file cannot hide
+// later results (e.g. other platform evidence). Locally keep fail-fast.
+const runAll = isCiEnv(process.env.CI);
+const failedFiles = [];
 for (const file of testFiles) {
   console.error(`[test] ${file}`);
   const result = await runSpec(file);
   if (shuttingDown) break;
   if (result.status !== 0) {
+    if (runAll) {
+      failedFiles.push({ file, status: result.status });
+      continue;
+    }
     const leakStatus = reportLeaks();
     process.exit(result.status ?? (leakStatus || 1));
   }
+}
+
+if (failedFiles.length > 0) {
+  console.error(`[test] ${failedFiles.length} of ${testFiles.length} file(s) failed:`);
+  for (const { file, status } of failedFiles)
+    console.error(`  ${file} (exit ${status ?? 'signal'})`);
+  reportLeaks();
+  process.exit(failedFiles[0].status || 1);
 }
 
 const leakStatus = reportLeaks();

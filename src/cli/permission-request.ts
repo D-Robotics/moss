@@ -10,6 +10,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ToolApprovalRequest } from '../core/agent/agent-hooks.js';
 import type { AskUser } from './approval.js';
 import type { CliApprovalViewAsker } from './approval-view.js';
+import { isZhLocale } from './cli-locale.js';
+import { hookEventZhName } from './hook-event-names.js';
 
 const pending = new AsyncLocalStorage<ToolApprovalRequest>();
 
@@ -35,7 +37,13 @@ async function denial(): Promise<string | undefined> {
   if (!request || !runner) return undefined;
   const result = await runner(request);
   if (!result.denied) return undefined;
-  return result.reason ?? 'Blocked by PermissionRequest hook';
+  // O91: the zh fallback names the hook in Chinese; en keeps the event id.
+  return (
+    result.reason ??
+    (isZhLocale()
+      ? `已拦截：${hookEventZhName('PermissionRequest')}钩子`
+      : 'Blocked by PermissionRequest hook')
+  );
 }
 
 export function wrapApprovalAsker(asker: AskUser): AskUser {
