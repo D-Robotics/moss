@@ -71,6 +71,7 @@ export interface RunCompletionTracker {
     command?: string;
     keys?: string[];
     reason?: string;
+    restoreOutcome?: string;
   }>;
   /**
    * O103: protected-path writes the approval gate refused before they ran
@@ -225,7 +226,7 @@ export function isSafetyOrApprovalBlockResult(result: string | undefined): boole
 
 /** O103: the block came from the protected-path gate (O94 copy). */
 const PROTECTED_BLOCK_TEXT =
-  /受保护路径|protected path|会改 git 钩子目录|would redirect git hooks|下载目标由变量\/命令替换拼出|download target built from a variable/i;
+  /受保护路径|protected path|会改 git 钩子目录|would redirect git hooks|会执行外部程序|would run an external program|下载目标由变量\/命令替换拼出|download target built from a variable/i;
 
 /** Short "what was refused" from a protected-path block result. */
 export function protectedBlockSummary(result: string): string | undefined {
@@ -440,7 +441,11 @@ export function noteRunCompletionEvent(tracker: RunCompletionTracker, event: Mos
       const command = typeof input.command === 'string' ? input.command : toolName;
       mergeProtectedPathChanges(
         tracker,
-        mods.map((m) => ({ ...m, command })),
+        mods.map((m) => ({
+          ...m,
+          command,
+          ...(m.restoreOutcome ? { restoreOutcome: m.restoreOutcome } : {}),
+        })),
         describeStep(toolName, input)
       );
     }
@@ -473,6 +478,7 @@ function mergeProtectedPathChanges(
     command?: string;
     keys?: string[];
     reason?: string;
+    restoreOutcome?: string;
   }>,
   failedStep?: string
 ): void {

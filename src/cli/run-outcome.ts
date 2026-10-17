@@ -182,6 +182,16 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
         kind: (m.kind as 'added' | 'modified' | 'deleted') || 'modified',
         ...(m.keys ? { keys: m.keys } : {}),
         ...(m.reason ? { reason: m.reason as GitConfigChangeReason } : {}),
+        ...(m.restoreOutcome
+          ? {
+              restoreOutcome: m.restoreOutcome as
+                | 'restored'
+                | 'skipped-oversize'
+                | 'skipped-symlink-git'
+                | 'skipped-no-snapshot'
+                | 'failed',
+            }
+          : {}),
       })),
       mods[0]?.command
     );
@@ -354,8 +364,15 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
 
   // O109: soft unverified alone is ExitCode.INCOMPLETE (9), same as other
   // non-completed statuses — scripts can tell Unverified from success via exit.
-  const exitCode =
-    input.errorExitCode && input.errorExitCode !== 0 ? input.errorExitCode : ExitCode.INCOMPLETE;
+  // O152: post-run protected-path detection (L3) is always exit 9, even when a
+  // concurrent session-persist error would otherwise surface as exit 7
+  // (SESSION). Exit 7 keeps its original meaning (session errors without L3).
+  const l3 = tracker.protectedPathChanges !== undefined && tracker.protectedPathChanges.length > 0;
+  const exitCode = l3
+    ? ExitCode.INCOMPLETE
+    : input.errorExitCode && input.errorExitCode !== 0
+      ? input.errorExitCode
+      : ExitCode.INCOMPLETE;
 
   return {
     status,

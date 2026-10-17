@@ -486,6 +486,9 @@ function formatResult(
     event.error = blockLine;
     state.outcomeConcluded = true;
     event.recoverable = false;
+    // O152 / O133 F: result must not keep a model "完成"/done claim when the
+    // run is incomplete because of a safety block or L3 protected-path hit.
+    event.result = blockLine;
   }
   if (!isError && state.structuredOutputRequested) {
     const structuredOutput = parseStructuredOutput(resultText);

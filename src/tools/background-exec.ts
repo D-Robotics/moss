@@ -24,6 +24,8 @@ import {
   formatProtectedPathModifiedNotice,
   takeProtectedPathSnapshot,
   takeProtectedPathSnapshotAfter,
+  restoreProtectedPathChanges,
+  disposeProtectedPathSnapshot,
 } from '../safety/protected-path-snapshot.js';
 import { markBackgroundIdReported } from '../core/tools/background-completion-state.js';
 import {
@@ -157,16 +159,27 @@ export const execBackgroundTool: Tool = {
           command,
           diffProtectedPathSnapshots(protectedSnapBefore, after)
         );
-        if (changes.length === 0) return;
+        if (changes.length === 0) {
+          disposeProtectedPathSnapshot(protectedSnapBefore);
+          return;
+        }
+        const restores = restoreProtectedPathChanges(protectedSnapBefore, changes);
+        disposeProtectedPathSnapshot(protectedSnapBefore);
         proc.protectedPathChanges = changes.map((c) => ({
           path: c.path,
           kind: c.kind,
           ...(c.keys ? { keys: c.keys } : {}),
           ...(c.reason ? { reason: c.reason } : {}),
         }));
-        const notice = formatProtectedPathModifiedNotice(changes, preferZhLocale(), command);
+        const notice = formatProtectedPathModifiedNotice(
+          changes,
+          preferZhLocale(),
+          command,
+          restores
+        );
         if (notice) appendOutput(proc, 'stderr', `\n${notice}\n`);
       } catch {
+        disposeProtectedPathSnapshot(protectedSnapBefore);
         // Snapshot failure must never false-report or break completion.
       }
     };

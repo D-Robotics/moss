@@ -62,6 +62,11 @@ function whyClause(hit: ProtectedPathHit, zh: boolean): string {
       ? `${shown(hit)} 会改 git 钩子目录（core.hooksPath）`
       : `${shown(hit)} would redirect git hooks (core.hooksPath)`;
   }
+  if (hit.kind === 'exec-capable') {
+    return zh
+      ? `\`${shown(hit)}\` 会执行外部程序读取受保护路径（${PROTECTED_CATEGORY_LABEL[hit.category].zh}）`
+      : `\`${shown(hit)}\` would run an external program over a protected path (${PROTECTED_CATEGORY_LABEL[hit.category].en})`;
+  }
   if (hit.kind === 'unresolved-var') {
     // O130 (UX): say why it was treated as protected and what to do instead.
     return zh
@@ -84,6 +89,11 @@ export function protectedPathHeadline(hit: ProtectedPathHit, zh: boolean): strin
     return zh
       ? `要执行 \`${shown(hit)}\`：会改 git 钩子目录（core.hooksPath）`
       : `About to run \`${shown(hit)}\`: would redirect git hooks (core.hooksPath)`;
+  }
+  if (hit.kind === 'exec-capable') {
+    return zh
+      ? `要执行 \`${shown(hit)}\`：会执行外部程序读取受保护路径（${PROTECTED_CATEGORY_LABEL[hit.category].zh}）`
+      : `About to run \`${shown(hit)}\`: would run an external program over a protected path (${PROTECTED_CATEGORY_LABEL[hit.category].en})`;
   }
   if (hit.kind === 'unresolved-var') {
     return zh
@@ -141,7 +151,8 @@ export function protectedPathStringPrompt(view: CliApprovalView, zh: boolean): s
 }
 
 export function protectedPathDeniedReason(hit: ProtectedPathHit, zh: boolean): string {
-  const special = hit.kind === 'hooks-path' || hit.category === 'unresolved';
+  const special =
+    hit.kind === 'hooks-path' || hit.kind === 'exec-capable' || hit.category === 'unresolved';
   const whatZh = special
     ? ` ${whyClause(hit, true)}`
     : `受保护路径 ${shown(hit)}（${PROTECTED_CATEGORY_LABEL[hit.category].zh}）`;
@@ -163,7 +174,7 @@ export function protectedPathHeadlessNotice(hit: ProtectedPathHit, zh: boolean):
   const label = PROTECTED_CATEGORY_LABEL[hit.category];
   // O129: name the outside-workspace script + reason in the -p notice too.
   const outside = (z: boolean) => (hit.source?.outsideWorkspace ? sourceClause(hit, z) : '');
-  if (hit.kind === 'hooks-path' || hit.category === 'unresolved') {
+  if (hit.kind === 'hooks-path' || hit.kind === 'exec-capable' || hit.category === 'unresolved') {
     return zh
       ? `[moss] 已拦截：${whyClause(hit, true)}，-p 模式无法确认。放行办法：不带 -p 交互运行 moss，在提示里确认这一次；或者自己手动处理。`
       : `[moss] Blocked: ${whyClause(hit, false)}; -p cannot ask. To allow: run moss interactively (without -p) and confirm this once, or do it yourself.`;

@@ -3,7 +3,16 @@
  *
  * Takes a metadata snapshot (mtime, size, content hash) BEFORE a shell
  * command runs and diffs it AFTER. On change we report "已被修改" (modified),
- * never "已拦截" (intercepted) — the command already ran. No auto-restore.
+ * never "已拦截" (intercepted) — the command already ran.
+ *
+ * O152: for a fixed restore-eligible set (`.git/config`, `.git/HEAD`,
+ * `.git/hooks/**`, workspace `.env*`) we also keep the bytes (≤
+ * {@link RESTORE_MAX_BYTES}) and the file mode in memory / a 0600 temp
+ * file, and {@link restoreProtectedPathChanges} writes them back after the
+ * diff. Notices then say "已还原". Paths over the size cap, or a `.git`
+ * that was swapped for a symlink / gitfile we refuse to write through, are
+ * reported as "未能还原" with the reason. Delayed writes via `&` / `nohup`
+ * and writes after the Moss process exits remain known limits.
  *
  * Never puts file contents, secret values, or full hashes into notices,
  * run-outcome lines, tool results, or model context. Hash is compare-only.
@@ -18,9 +27,10 @@
  * outside refs/, not a commit id, symlink/dir swap).
  *
  * Snapshot unavailable (permission) → skip that path; never false-report
- * "modified". `exec_background` runs the same check on full process exit
- * (O108). Delayed writes via `&` / `nohup` inside a foreground command, and
- * writes after the Moss process itself exits, remain known limits.
+ * "modified". `exec_background` runs the same check (and O152 restore) on
+ * full process exit (O108). Delayed writes via `&` / `nohup` inside a
+ * foreground command, and writes after the Moss process itself exits,
+ * remain known limits — restore cannot cover them.
  */
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -29,6 +39,22 @@ import os from 'node:os';
 import path from 'node:path';
 
 export type PathChangeKind = 'added' | 'modified' | 'deleted';
+
+/** O152: per-file content snapshot cap (bytes). Over → no restore. */
+export const RESTORE_MAX_BYTES = 1 * 1024 * 1024;
+
+export type RestoreOutcome =
+  | 'restored'
+  | 'skipped-oversize'
+  | 'skipped-symlink-git'
+  | 'skipped-no-snapshot'
+  | 'failed';
+
+export interface ProtectedPathRestore {
+  path: string;
+  kind: PathChangeKind;
+  outcome: RestoreOutcome;
+}
 
 export interface ProtectedPathChange {
   /** Display path (~/.ssh/… or relative to cwd). */
@@ -44,6 +70,8 @@ export interface ProtectedPathChange {
    * replaced by a symlink / directory, or content git cannot parse.
    */
   reason?: GitConfigChangeReason;
+  /** O152: set when the notice's detail marker recorded a restore attempt. */
+  restoreOutcome?: RestoreOutcome;
 }
 
 export type GitConfigChangeReason =
@@ -77,6 +105,16 @@ interface PathMeta {
   hash: string;
   /** O117: raw bytes of git config files only (in memory, never logged). */
   raw?: Buffer;
+  /**
+   * O152: full file bytes for restore-eligible paths (≤ RESTORE_MAX_BYTES).
+   * Never logged, never put in notices / model context. Absent when oversize
+   * or not restore-eligible.
+   */
+  content?: Buffer;
+  /** O152: `st.mode & 0o777` captured for restore (hooks executable bit). */
+  mode?: number;
+  /** O152: true when size > RESTORE_MAX_BYTES (so we can say why we skipped). */
+  oversize?: boolean;
   /** O123: classification of `.git/HEAD` / `.git/refs/**` content (no content kept). */
   refState?: RefState;
   /** O117: entry type, so symlink/dir swaps of a config file can be named. */
@@ -98,6 +136,12 @@ export interface ProtectedPathSnapshot {
   takenAt: number;
   cwd: string;
   home: string;
+  /**
+   * O152: 0600 temp dir holding content for restore-eligible files that were
+   * too large for the in-memory Buffer path, or that we spilled for safety.
+   * Removed by {@link disposeProtectedPathSnapshot}. Never logged.
+   */
+  restoreDir?: string;
 }
 
 /** Machine-readable marker for run-completion tracker (no secrets). */
@@ -127,6 +171,19 @@ export function isGitConfigPath(abs: string): boolean {
   return /(^|[\\/])\.git[\\/](?:config|config\.worktree|worktrees[\\/][^\\/]+[\\/]config\.worktree)$/.test(
     abs
   );
+}
+
+/**
+ * O152: paths whose bytes we keep for auto-restore after a post-run change.
+ * Fixed set: `.git/config`, `.git/HEAD`, `.git/hooks/**`, workspace `.env` /
+ * `.env.*` / `.envrc`. Everything else stays detect-only (refs, info, ssh…).
+ */
+export function isRestoreEligiblePath(abs: string): boolean {
+  const n = abs.replace(/\\/g, '/');
+  if (/(^|\/)\.git\/(?:config|HEAD)$/.test(n)) return true;
+  if (/(^|\/)\.git\/hooks\//.test(n)) return true;
+  if (/(^|\/)\.env(?:rc|\.[^/]+)?$/.test(n)) return true;
+  return false;
 }
 
 /**
@@ -559,12 +616,20 @@ function metaOf(abs: string): PathMeta | typeof UNAVAILABLE | null {
       };
     }
     const buf = fs.readFileSync(abs);
+    const restore = isRestoreEligiblePath(abs);
+    const oversize = restore && st.size > RESTORE_MAX_BYTES;
     return {
       mtimeMs: st.mtimeMs,
       size: st.size,
       hash: crypto.createHash('sha256').update(buf).digest('hex'),
       type: 'file',
       ...(isGitConfigPath(abs) ? { raw: buf } : {}),
+      ...(restore
+        ? {
+            mode: st.mode & 0o777,
+            ...(oversize ? { oversize: true as const } : { content: buf }),
+          }
+        : {}),
       ...(isDotGitFile(abs) && st.isFile()
         ? {
             gitLink: (() => {
@@ -871,19 +936,41 @@ export function filterExpectedGitMetadataChanges(
 export function formatProtectedPathModifiedNotice(
   changes: readonly ProtectedPathChange[],
   zh: boolean,
-  command?: string
+  command?: string,
+  restores?: readonly ProtectedPathRestore[]
 ): string {
   if (changes.length === 0) return '';
   const cmd = (command ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const byPath = new Map((restores ?? []).map((r) => [r.path, r]));
   const list = changes
     .map((c) => {
       const detail = describeGitConfigChange(c, zh);
-      if (detail) return detail;
-      return `${c.path} (${zh ? KIND_ZH[c.kind] : KIND_EN[c.kind]})`;
+      const base = detail ?? `${c.path} (${zh ? KIND_ZH[c.kind] : KIND_EN[c.kind]})`;
+      const r = byPath.get(c.path);
+      if (!r) return base;
+      if (r.outcome === 'restored') return zh ? `${base}，已还原` : `${base}, restored`;
+      if (r.outcome === 'skipped-oversize')
+        return zh
+          ? `${base}，未还原（超过快照上限）`
+          : `${base}, not restored (over snapshot limit)`;
+      if (r.outcome === 'skipped-symlink-git')
+        return zh
+          ? `${base}，未还原（.git 已换成软链/gitfile，拒绝写入）`
+          : `${base}, not restored (.git is a symlink/gitfile; refusing to write through it)`;
+      if (r.outcome === 'failed')
+        return zh ? `${base}，未能完全还原` : `${base}, could not fully restore`;
+      return zh ? `${base}，未还原` : `${base}, not restored`;
     })
     .join(zh ? '；' : '; ');
   const hints = inspectHints(changes);
   const markerPaths = changes.map((c) => c.path).join(',');
+  const anyRestored = (restores ?? []).some((r) => r.outcome === 'restored');
+  const anyFailed = (restores ?? []).some(
+    (r) =>
+      r.outcome === 'failed' ||
+      r.outcome === 'skipped-symlink-git' ||
+      r.outcome === 'skipped-oversize'
+  );
   const detailLines = changes
     .filter((c) => describeGitConfigChange(c, true))
     .map(
@@ -893,15 +980,26 @@ export function formatProtectedPathModifiedNotice(
           c.kind,
           c.reason ?? '',
           (c.keys ?? []).join(','),
+          byPath.get(c.path)?.outcome ?? '',
         ]
           .map((x) => x.replace(/[\t\n]/g, ' '))
           .join('\t')}`
     );
+  const summaryZh = anyRestored
+    ? anyFailed
+      ? '受保护路径已被修改，部分已还原'
+      : '受保护路径已被修改，已还原'
+    : '受保护路径已被修改（命令已执行，Moss 没有拦截）';
+  const summaryEn = anyRestored
+    ? anyFailed
+      ? 'Protected paths were modified; some restored'
+      : 'Protected paths were modified and restored'
+    : 'Protected paths were modified (command already ran; Moss did not intercept)';
   const lines = zh
     ? [
         `${PROTECTED_PATH_MOD_MARKER} paths=${markerPaths}`,
         ...detailLines,
-        `[moss] 受保护路径已被修改（命令已执行，Moss 没有拦截也没有自动还原）：${list}`,
+        `[moss] ${summaryZh}：${list}`,
         cmd ? `命令：${cmd}` : '',
         `请自行检查。可复制：`,
         ...hints.map((h) => `  ${h}`),
@@ -909,7 +1007,7 @@ export function formatProtectedPathModifiedNotice(
     : [
         `${PROTECTED_PATH_MOD_MARKER} paths=${markerPaths}`,
         ...detailLines,
-        `[moss] Protected paths were modified (command already ran; Moss did not intercept or restore): ${list}`,
+        `[moss] ${summaryEn}: ${list}`,
         cmd ? `command: ${cmd}` : '',
         `Inspect yourself. Copyable:`,
         ...hints.map((h) => `  ${h}`),
@@ -925,16 +1023,28 @@ export function parseProtectedPathModMarker(text: string): ProtectedPathChange[]
   const details = new Map<string, ProtectedPathChange>();
   for (const line of text.split('\n')) {
     if (!line.startsWith(PROTECTED_PATH_DETAIL_MARKER)) continue;
-    const [p, kind, reason, keys] = line.slice(PROTECTED_PATH_DETAIL_MARKER.length + 1).split('\t');
+    const [p, kind, reason, keys, restore] = line
+      .slice(PROTECTED_PATH_DETAIL_MARKER.length + 1)
+      .split('\t');
     if (!p) continue;
     const k = (['added', 'modified', 'deleted'] as const).find((x) => x === kind) ?? 'modified';
     const r = ALL_REASONS.find((x) => x === reason);
     const ks = (keys ?? '').split(',').filter(Boolean);
+    const ro = (
+      [
+        'restored',
+        'skipped-oversize',
+        'skipped-symlink-git',
+        'skipped-no-snapshot',
+        'failed',
+      ] as const
+    ).find((x) => x === restore);
     details.set(p, {
       path: p,
       kind: k,
       ...(r ? { reason: r } : {}),
       ...(ks.length ? { keys: ks } : {}),
+      ...(ro ? { restoreOutcome: ro } : {}),
     });
   }
   return m[1]!
@@ -1017,14 +1127,240 @@ export function protectedPathModReason(
     .join(', ');
   const more = plain.length > 5 ? ` (+${plain.length - 5})` : '';
   const cmd = (command ?? 'shell').replace(/\s+/g, ' ').trim().slice(0, 60);
-  const stuckEn = [paths ? `protected path modified: ${paths}${more}` : '', ...detailEn];
-  const stuckZh = [paths ? `受保护路径已被修改：${paths}${more}` : '', ...detailZh];
-  const en = [paths ? `${cmd} modified protected path(s) ${paths}${more}` : cmd, ...detailEn];
-  const zh = [paths ? `${cmd} 修改了受保护路径 ${paths}${more}` : cmd, ...detailZh];
+  const restored = changes.filter((c) => c.restoreOutcome === 'restored').map((c) => c.path);
+  const notRestored = changes
+    .filter((c) => c.restoreOutcome && c.restoreOutcome !== 'restored')
+    .map((c) => c.path);
+  const restoreEn = [
+    restored.length ? `restored: ${restored.slice(0, 5).join(', ')}` : '',
+    notRestored.length ? `could not restore: ${notRestored.slice(0, 5).join(', ')}` : '',
+  ]
+    .filter(Boolean)
+    .join('; ');
+  const restoreZh = [
+    restored.length ? `已还原：${restored.slice(0, 5).join('、')}` : '',
+    notRestored.length ? `未能还原：${notRestored.slice(0, 5).join('、')}` : '',
+  ]
+    .filter(Boolean)
+    .join('；');
+  const stuckEn = [paths ? `protected path modified: ${paths}${more}` : '', ...detailEn, restoreEn];
+  const stuckZh = [paths ? `受保护路径已被修改：${paths}${more}` : '', ...detailZh, restoreZh];
+  const en = [
+    paths ? `${cmd} modified protected path(s) ${paths}${more}` : cmd,
+    ...detailEn,
+    restoreEn,
+  ];
+  const zh = [paths ? `${cmd} 修改了受保护路径 ${paths}${more}` : cmd, ...detailZh, restoreZh];
   return {
-    en: paths ? en.join('; ') : `${cmd}: protected path modified, ${detailEn.join('; ')}`,
-    zh: paths ? zh.join('；') : `${cmd}：受保护路径已被修改，${detailZh.join('；')}`,
+    en: paths
+      ? en.filter(Boolean).join('; ')
+      : `${cmd}: protected path modified, ${[...detailEn, restoreEn].filter(Boolean).join('; ')}`,
+    zh: paths
+      ? zh.filter(Boolean).join('；')
+      : `${cmd}：受保护路径已被修改，${[...detailZh, restoreZh].filter(Boolean).join('；')}`,
     stuckEn: stuckEn.filter(Boolean).join('; '),
     stuckZh: stuckZh.filter(Boolean).join('；'),
+  };
+}
+
+// ── O152 auto-restore ───────────────────────────────────────────────────
+
+/**
+ * True when `abs` is the worktree `.git` *path* and currently a symlink (or
+ * a gitfile we refuse to write through). Restore must not follow it.
+ */
+function gitDirIsUnsafeToWrite(cwd: string): boolean {
+  const dotGit = path.join(cwd, '.git');
+  try {
+    const st = fs.lstatSync(dotGit);
+    if (st.isSymbolicLink()) return true;
+    // gitfile (linked worktree / separate-git-dir): do not recreate files
+    // under the lexical `.git/` — they would land in the wrong place or
+    // create a confusing directory next to the gitfile.
+    if (st.isFile()) return true;
+    return false;
+  } catch {
+    // Missing — we may recreate a real directory.
+    return false;
+  }
+}
+
+function ensureParentDir(abs: string): void {
+  fs.mkdirSync(path.dirname(abs), { recursive: true, mode: 0o755 });
+}
+
+/**
+ * O152: write snapshotted bytes back for every restore-eligible change.
+ * - modified / deleted with a content snapshot → overwrite / recreate;
+ * - added (did not exist before) → unlink;
+ * - `.git` replaced by a symlink / gitfile → skip, outcome `skipped-symlink-git`;
+ * - oversize / no snapshot → skip with the matching outcome;
+ * - on success, also ensure a minimal `.git/{objects,refs,info}` so
+ *   `git status` works after a whole-`.git` wipe.
+ *
+ * Never logs content or full hashes. Temp restoreDir (if any) is removed by
+ * {@link disposeProtectedPathSnapshot}.
+ */
+export function restoreProtectedPathChanges(
+  before: ProtectedPathSnapshot,
+  changes: readonly ProtectedPathChange[]
+): ProtectedPathRestore[] {
+  const results: ProtectedPathRestore[] = [];
+  if (changes.length === 0) return results;
+  const unsafeGit = gitDirIsUnsafeToWrite(before.cwd);
+  let restoredAnyGit = false;
+
+  for (const c of changes) {
+    // Locate absolute path via the display map (reverse lookup).
+    let abs: string | undefined;
+    for (const [a, d] of before.display) {
+      if (d === c.path) {
+        abs = a;
+        break;
+      }
+    }
+    if (!abs) {
+      // After-only paths (added): look in a fresh listing by joining cwd.
+      abs = path.resolve(before.cwd, c.path);
+    }
+    if (!isRestoreEligiblePath(abs)) continue;
+
+    if (unsafeGit && /(^|[\\/])\.git([\\/]|$)/.test(abs.replace(/\\/g, '/'))) {
+      results.push({ path: c.path, kind: c.kind, outcome: 'skipped-symlink-git' });
+      continue;
+    }
+
+    const entry = before.entries.get(abs);
+    const meta = entry && entry !== UNAVAILABLE ? entry : undefined;
+
+    if (c.kind === 'added') {
+      // Did not exist before → remove whatever appeared.
+      try {
+        try {
+          const st = fs.lstatSync(abs);
+          if (st.isSymbolicLink() || st.isFile()) fs.unlinkSync(abs);
+          else if (st.isDirectory()) fs.rmSync(abs, { recursive: true, force: true });
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
+        }
+        results.push({ path: c.path, kind: c.kind, outcome: 'restored' });
+      } catch {
+        results.push({ path: c.path, kind: c.kind, outcome: 'failed' });
+      }
+      continue;
+    }
+
+    // modified / deleted → need a snapshot.
+    if (!meta) {
+      results.push({ path: c.path, kind: c.kind, outcome: 'skipped-no-snapshot' });
+      continue;
+    }
+    if (meta.oversize || (!meta.content && meta.size > RESTORE_MAX_BYTES)) {
+      results.push({ path: c.path, kind: c.kind, outcome: 'skipped-oversize' });
+      continue;
+    }
+    if (!meta.content) {
+      results.push({ path: c.path, kind: c.kind, outcome: 'skipped-no-snapshot' });
+      continue;
+    }
+
+    try {
+      // If the path is currently a symlink / junction pointing outside, unlink
+      // it first and write a regular file (do not follow).
+      try {
+        const st = fs.lstatSync(abs);
+        if (st.isSymbolicLink()) fs.unlinkSync(abs);
+        else if (st.isDirectory()) fs.rmSync(abs, { recursive: true, force: true });
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
+      }
+      ensureParentDir(abs);
+      const mode = meta.mode ?? 0o600;
+      fs.writeFileSync(abs, meta.content, { mode });
+      try {
+        fs.chmodSync(abs, mode);
+      } catch {
+        /* windows / no-op */
+      }
+      results.push({ path: c.path, kind: c.kind, outcome: 'restored' });
+      if (/(^|[\\/])\.git([\\/]|$)/.test(abs.replace(/\\/g, '/'))) restoredAnyGit = true;
+    } catch {
+      results.push({ path: c.path, kind: c.kind, outcome: 'failed' });
+    }
+  }
+
+  if (restoredAnyGit && !unsafeGit) {
+    // Minimal skeleton so `git status` can run after a wipe.
+    for (const sub of ['objects', 'refs', 'refs/heads', 'refs/tags', 'info']) {
+      try {
+        fs.mkdirSync(path.join(before.cwd, '.git', sub), { recursive: true, mode: 0o755 });
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return results;
+}
+
+/** Remove any on-disk restore spill from {@link takeProtectedPathSnapshot}. */
+export function disposeProtectedPathSnapshot(snap: ProtectedPathSnapshot | undefined): void {
+  if (!snap?.restoreDir) return;
+  try {
+    fs.rmSync(snap.restoreDir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
+  snap.restoreDir = undefined;
+  // Drop in-memory content so a retained snapshot cannot leak into logs later.
+  for (const [k, v] of snap.entries) {
+    if (v !== UNAVAILABLE && v.content) {
+      const { content: _c, raw: _r, ...rest } = v;
+      snap.entries.set(k, rest);
+    }
+  }
+}
+
+/** O152: fold restore outcomes into the O98 reason strings. */
+export function protectedPathModReasonWithRestore(
+  changes: readonly ProtectedPathChange[],
+  restores: readonly ProtectedPathRestore[] | undefined,
+  command?: string
+): { en: string; zh: string; stuckEn: string; stuckZh: string } {
+  const base = protectedPathModReason(changes, command);
+  if (!restores || restores.length === 0) return base;
+  const restored = restores.filter((r) => r.outcome === 'restored').map((r) => r.path);
+  const failed = restores
+    .filter((r) => r.outcome !== 'restored')
+    .map((r) => {
+      if (r.outcome === 'skipped-oversize') return `${r.path} (over snapshot limit)`;
+      if (r.outcome === 'skipped-symlink-git') return `${r.path} (.git is symlink/gitfile)`;
+      if (r.outcome === 'failed') return `${r.path} (restore failed)`;
+      return `${r.path} (not restored)`;
+    });
+  const zhFailed = restores
+    .filter((r) => r.outcome !== 'restored')
+    .map((r) => {
+      if (r.outcome === 'skipped-oversize') return `${r.path}（超过快照上限）`;
+      if (r.outcome === 'skipped-symlink-git') return `${r.path}（.git 已换成软链/gitfile）`;
+      if (r.outcome === 'failed') return `${r.path}（未能还原）`;
+      return `${r.path}（未还原）`;
+    });
+  const enExtra = [
+    restored.length ? `restored: ${restored.slice(0, 5).join(', ')}` : '',
+    failed.length ? `could not restore: ${failed.slice(0, 5).join(', ')}` : '',
+  ]
+    .filter(Boolean)
+    .join('; ');
+  const zhExtra = [
+    restored.length ? `已还原：${restored.slice(0, 5).join('、')}` : '',
+    zhFailed.length ? `未能还原：${zhFailed.slice(0, 5).join('、')}` : '',
+  ]
+    .filter(Boolean)
+    .join('；');
+  return {
+    en: enExtra ? `${base.en}; ${enExtra}` : base.en,
+    zh: zhExtra ? `${base.zh}；${zhExtra}` : base.zh,
+    stuckEn: enExtra ? `${base.stuckEn}; ${enExtra}` : base.stuckEn,
+    stuckZh: zhExtra ? `${base.stuckZh}；${zhExtra}` : base.stuckZh,
   };
 }

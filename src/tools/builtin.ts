@@ -48,6 +48,8 @@ import {
   formatProtectedPathModifiedNotice,
   takeProtectedPathSnapshot,
   takeProtectedPathSnapshotAfter,
+  restoreProtectedPathChanges,
+  disposeProtectedPathSnapshot,
 } from '../safety/protected-path-snapshot.js';
 
 // Re-export tools from extracted modules for backward compatibility.
@@ -192,9 +194,17 @@ export const execTool: Tool = {
           cmd,
           diffProtectedPathSnapshots(protectedSnapBefore, after)
         );
-        if (changes.length === 0) return '';
-        return '\n\n' + formatProtectedPathModifiedNotice(changes, preferZhLocale(), cmd);
+        if (changes.length === 0) {
+          disposeProtectedPathSnapshot(protectedSnapBefore);
+          return '';
+        }
+        // O152: restore restore-eligible paths before the notice / session
+        // persist, so a wiped `.git` does not also trip a SESSION exit 7.
+        const restores = restoreProtectedPathChanges(protectedSnapBefore, changes);
+        disposeProtectedPathSnapshot(protectedSnapBefore);
+        return '\n\n' + formatProtectedPathModifiedNotice(changes, preferZhLocale(), cmd, restores);
       } catch {
+        disposeProtectedPathSnapshot(protectedSnapBefore);
         return '';
       }
     };

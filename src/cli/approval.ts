@@ -19,6 +19,7 @@ import {
 import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { findProtectedPathHits } from '../safety/protected-paths.js';
+import { commandHasExecCapableRead } from '../safety/exec-capable-read.js';
 import {
   mossConfigDirs,
   protectedGrantKey,
@@ -402,6 +403,10 @@ function isReadonlyExecCommand(command: unknown): boolean {
   // iex / -EncodedCommand / nested pwsh -c hide their writes. Same as python -c:
   // not a readonly command, so the approval layer has to confirm them.
   if (shellCommandHasOpaqueWrite(command)) return false;
+  // O152: `rg --pre`, `git -c`, `GIT_EXTERNAL_DIFF=… git diff`, find -exec, …
+  // run a program the model chose. Never treat them as readonly (that would
+  // skip the protected-path gate entirely).
+  if (commandHasExecCapableRead(command)) return false;
   const tokens = tokenizeReadonlyShellCommand(command);
   if (!tokens) return false;
   const commandName = tokens[0];
