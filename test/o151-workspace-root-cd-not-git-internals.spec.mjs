@@ -97,8 +97,15 @@ const GREEN = [
       ),
     ],
     marker: 'unchanged: yes',
-    // N1 跟进: on Windows CI (run 39058757304) pwsh printed the `$(…)` literally,
-    // so the marker is not asserted there until N1 explains it.
+    // QA r5 F12 / N1: under pwsh on Windows CI (run 39058757304) the `$(…)`
+    // marker came back literally, so Windows runs a pwsh-valid form of the same
+    // check (cd R, git diff, exit-code gate) with node printing the marker.
+    winSteps: ({ proj }) => [
+      exec(
+        `cd ${q(proj)} && git diff --stat -- README.md && git diff --quiet -- README.md && node -e "console.log('unchanged: yes')"`
+      ),
+    ],
+    win: true,
   },
   // ── QA BLOCK on #131 (0804efa8): R as a plain operand, not only the cd target ──
   {
@@ -128,8 +135,12 @@ const GREEN = [
     gitInit: true,
     steps: ({ proj }) => [exec(`node -e 1; ls ${q(proj)}`)],
     marker: 'README.md',
-    // N1 跟进: on Windows CI (run 39058757304) `node -e 1; ls R` gave no output
-    // under pwsh, so the marker is not asserted there until N1 explains it.
+    // QA r5 F12 / N1: `node -e 1; ls R` gave "(no output)" under pwsh on Windows
+    // CI (run 39058757304); `ls -Name` prints plain names. Same shape: an
+    // interpreter check, then a read-only reference to the root after `;`.
+    // (`dir R` is not used: the policy still flags it, see O151 report.)
+    winSteps: ({ proj }) => [exec(`node -e 1; ls -Name ${q(proj)}`)],
+    win: true,
   },
   {
     id: 'min-node-e-then-git-C-root-diff',
@@ -481,6 +492,12 @@ async function runAll(jobs, limit = 4) {
     [`cd ${W(R)} && node -e 1 ; git -C ${W(R)} diff -- src/cli.js`, R],
     [`ls -la ${W(NR)}; ls -la ${W(NR)}\\src; python3 -V`, NR],
     [`cd ${W(R)} && node -e 1 && ls ${W(R)}\\src`, R],
+    // QA r5 F12: the Windows process forms of j13-git-diff-subst / min-node-e-then-ls-root.
+    [
+      `cd ${W(R)} && git diff --stat -- README.md && git diff --quiet -- README.md && node -e "console.log('unchanged: yes')"`,
+      R,
+    ],
+    [`node -e 1; ls -Name ${W(R)}`, R],
   ];
   // QA r3 F10 (Windows): pwsh / cmd environment, function and alias writes
   // cancel the exemption too. main lets these through (O152); stricter here.
@@ -518,7 +535,7 @@ for (const c of GREEN) {
       lang,
       gitInit: c.gitInit,
       seedFiles: c.seedFiles,
-      steps: c.steps,
+      steps: IS_WIN && c.winSteps ? c.winSteps : c.steps,
       finalText: CLAIM[lang],
     };
     jobs.push({
@@ -535,7 +552,7 @@ for (const c of GREEN) {
         // The command really ran (every posix case; pwsh-valid ones on Windows).
         if (!IS_WIN || c.win) {
           assert.ok(tools.includes(c.marker), `marker ${c.marker}: ${tools.slice(0, 400)}`);
-          assert.doesNotMatch(tools, /Command failed/, tools.slice(0, 400));
+          assert.doesNotMatch(tools, /Command failed|^exit_code: /m, tools.slice(0, 400));
         }
       },
     });
