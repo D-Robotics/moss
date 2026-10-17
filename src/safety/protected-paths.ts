@@ -27,7 +27,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { detectShellWriteTargets, type ShellWriteDetection } from './shell-write-detect.js';
+import {
+  detectShellWriteTargets,
+  scriptWords,
+  tokenize,
+  type ShellWriteDetection,
+} from './shell-write-detect.js';
 import { findIndirectProtectedWrites } from './indirect-write-detect.js';
 import { findPwshWriteTargets } from './pwsh-write-targets.js';
 
@@ -587,6 +592,215 @@ function cdOnlyOperands(command: string, cwd: string): Set<string> {
   return cd;
 }
 
+/**
+ * O151: commands that only READ the paths they are given. Naming the
+ * workspace root as their operand cannot delete the root's `.git`.
+ */
+const READ_ONLY_HEADS = new Set([
+  'ls',
+  'cat',
+  'head',
+  'tail',
+  'wc',
+  'stat',
+  'file',
+  'du',
+  'tree',
+  'realpath',
+  'readlink',
+  'basename',
+  'dirname',
+  'test',
+  '[',
+  'grep',
+  'egrep',
+  'fgrep',
+  'rg',
+  'find',
+]);
+/** `find` actions that delete, run or write; any of them cancels the exemption. */
+const FIND_ACTIONS = /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/i;
+/** `git -C <root> <sub>` subcommands that only read the repository. */
+const GIT_READ_SUBCOMMANDS = new Set([
+  'diff',
+  'status',
+  'log',
+  'show',
+  'rev-parse',
+  'ls-files',
+  'ls-tree',
+  'blame',
+  'grep',
+  'describe',
+  'shortlog',
+  'cat-file',
+]);
+/** Commands a read-only command's output may be piped into (stdout filters only). */
+const PIPE_FILTERS = new Set([
+  'tail',
+  'head',
+  'wc',
+  'grep',
+  'egrep',
+  'fgrep',
+  'rg',
+  'sort',
+  'uniq',
+  'cut',
+  'tr',
+  'cat',
+  'less',
+  'more',
+  'nl',
+]);
+const WRAPPERS = /^(?:sudo|doas|env|command|nohup|exec|time)$/i;
+
+function headName(word: string | undefined): string {
+  return (
+    (word ?? '')
+      .split(/[\\/]/)
+      .pop()
+      ?.toLowerCase()
+      .replace(/\.exe$/, '') ?? ''
+  );
+}
+
+/**
+ * O151 (QA BLOCK on #131): an uncertain command (`node -e`, `python3 …`) that
+ * also names the workspace root as a plain operand — `git -C <root> diff`,
+ * `ls -la <root>; python3 -V` — had the root judged "deleting an ancestor of
+ * .git" and the run ended in a false Incomplete. #124 only exempted a root
+ * that is the sole `cd` target.
+ *
+ * Returns true only when EVERY reference to the root in the command is one of:
+ *   - the operand of the single `cd`/`pushd` in the command;
+ *   - a non-option operand of a read-only command (ls, cat, find without
+ *     -delete/-exec, …), or the `-C` value of a read-only git subcommand;
+ * and that simple command writes no file and its output is piped only into
+ * stdout filters (so `ls <root> | xargs rm -rf` is not exempt).
+ * A root reference anywhere else — inline code, an interpreter argument, a
+ * redirect target, a relative `.` inside a script — cancels it, as do `$(…)`,
+ * backticks, heredocs, unbalanced quotes and a second directory change.
+ * Only the ancestor-delete rule is skipped; protected-path classification of
+ * the same word, write targets, O101 inline/script scans and O103 hooksPath
+ * checks are unchanged.
+ */
+function workspaceRootOnlyReadOnly(command: string, ctx: ProtectedPathContext): boolean {
+  const root = ctx.workspaceRoot;
+  if (!root) return false;
+  if (/\$\(|`|<</.test(command)) return false;
+  if (countDirectoryChanges(command) > 1) return false;
+  // Windows paths (`D:\a\proj`) are not POSIX escapes; the tokenizer would
+  // eat the separators and the root would never be recognised (→ no exemption).
+  const { tokens, balanced } = tokenize(
+    process.platform === 'win32' ? command.replace(/\\/g, '/') : command
+  );
+  if (!balanced) return false;
+  const rootReal = norm(realOrResolved(root));
+  const bases = new Set([ctx.cwd, root]);
+  const isRoot = (w: string, base: string): boolean => {
+    if (!w || w.startsWith('-') || /^[a-z][a-z0-9+.-]*:\/\//i.test(w)) return false;
+    return norm(realOrResolved(path.resolve(base, w))) === rootReal;
+  };
+  const anyBaseIsRoot = (w: string): boolean => [...bases].some((b) => isRoot(w, b));
+
+  // Group into pipelines of simple commands; record redirects per command.
+  type Simple = { words: string[]; writes: boolean };
+  const pipelines: Simple[][] = [];
+  let pipeline: Simple[] = [];
+  let current: Simple = { words: [], writes: false };
+  const endSimple = () => {
+    if (current.words.length || current.writes) pipeline.push(current);
+    current = { words: [], writes: false };
+  };
+  const endPipeline = () => {
+    endSimple();
+    if (pipeline.length) pipelines.push(pipeline);
+    pipeline = [];
+  };
+  for (let k = 0; k < tokens.length; k += 1) {
+    const t = tokens[k]!;
+    if (t.kind === 'word') {
+      current.words.push(t.text);
+      continue;
+    }
+    if (t.text === '|' || t.text === '|&') {
+      endSimple();
+      continue;
+    }
+    if ([';', '&&', '||', '&', '\n', '(', ')'].includes(t.text)) {
+      endPipeline();
+      continue;
+    }
+    // Redirect operator: the next word is its target, never an exempt operand.
+    const next = tokens[k + 1];
+    if (next?.kind === 'word') {
+      if (/>/.test(t.text) && next.text !== '/dev/null') current.writes = true;
+      if (anyBaseIsRoot(next.text)) return false;
+      for (const piece of scriptWords(next.text)) if (anyBaseIsRoot(piece)) return false;
+      k += 1;
+    } else if (/>/.test(t.text)) current.writes = true;
+  }
+  endPipeline();
+
+  let rootSeen = false;
+  for (const line of pipelines) {
+    const lineWrites = line.some((c) => c.writes);
+    for (let idx = 0; idx < line.length; idx += 1) {
+      const words = line[idx]!.words;
+      let i = 0;
+      while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!)) i += 1;
+      while (i < words.length && WRAPPERS.test(words[i]!)) {
+        i += 1;
+        while (i < words.length && (words[i]!.startsWith('-') || /^[A-Za-z_]\w*=/.test(words[i]!)))
+          i += 1;
+      }
+      const head = headName(words[i]);
+      const exempt = new Set<number>();
+      const downstreamOnlyFilters = line
+        .slice(idx + 1)
+        .every((c) => PIPE_FILTERS.has(headName(c.words[0])));
+      const outputSafe = !lineWrites && downstreamOnlyFilters;
+      if ((head === 'cd' || head === 'pushd') && idx === 0 && line.length === 1) {
+        let j = i + 1;
+        if (words[j] === '--') j += 1;
+        if (j === words.length - 1) exempt.add(j);
+      } else if (READ_ONLY_HEADS.has(head) && outputSafe) {
+        const args = words.slice(i + 1);
+        if (head !== 'find' || !args.some((a) => FIND_ACTIONS.test(a))) {
+          for (let j = i + 1; j < words.length; j += 1) exempt.add(j);
+        }
+      } else if (head === 'git' && outputSafe) {
+        let j = i + 1;
+        const cValues: number[] = [];
+        for (; j < words.length; j += 1) {
+          const w = words[j]!;
+          if (w === '-C') {
+            cValues.push(j + 1);
+            j += 1;
+            continue;
+          }
+          // Any other global option: not a shape we vouch for.
+          break;
+        }
+        if (GIT_READ_SUBCOMMANDS.has((words[j] ?? '').toLowerCase()))
+          for (const c of cValues) exempt.add(c);
+      }
+      for (let j = 0; j < words.length; j += 1) {
+        const w = words[j]!;
+        const named = anyBaseIsRoot(w);
+        if (exempt.has(j)) {
+          if (named) rootSeen = true;
+          continue;
+        }
+        if (named) return false;
+        for (const piece of scriptWords(w)) if (anyBaseIsRoot(piece)) return false;
+      }
+    }
+  }
+  return rootSeen;
+}
+
 export function findShellProtectedWrites(
   command: string,
   ctx: ProtectedPathContext
@@ -621,6 +835,8 @@ export function findShellProtectedWrites(
     // QA B1 / PM 10-12: a second cd/pushd/popd/chdir (any operand) cancels the
     // exemption — the first cd-to-root must also be the last directory change.
     const allowCdExempt = countDirectoryChanges(command) <= 1;
+    let rootReadOnlyMemo: boolean | undefined;
+    const rootReadOnly = () => (rootReadOnlyMemo ??= workspaceRootOnlyReadOnly(command, ctx));
     // Prefer absolute mentions from the shared detector; fall back to text regex.
     for (const m of mentions) {
       // O103: a word still holding `$VAR` / `$(…)` is not a path we resolved;
@@ -630,8 +846,12 @@ export function findShellProtectedWrites(
       // (realpath); `cd /`, `cd ~`, `cd ..` still hit the ancestor rule.
       const isCd =
         allowCdExempt && cdOnly.has(path.resolve(ctx.cwd, m)) && isWorkspaceRootPath(m, ctx);
+      // O151: the root named only as a read-only operand (`git -C <root> diff`,
+      // `ls -la <root>`) besides that single cd is not a delete of its .git.
+      const isReadOnlyRoot = !isCd && isWorkspaceRootPath(m, ctx) && rootReadOnly();
       const hit =
-        classifyProtectedPath(m, ctx) ?? (isCd ? undefined : deletesProtectedAncestor(m, ctx));
+        classifyProtectedPath(m, ctx) ??
+        (isCd || isReadOnlyRoot ? undefined : deletesProtectedAncestor(m, ctx));
       if (!hit || seen.has(hit.resolved)) continue;
       seen.add(hit.resolved);
       hits.push({
@@ -743,7 +963,15 @@ export function findShellProtectedWrites(
       });
     }
   }
-  return hits;
+  // O151 F6: the prompt names hits[0]. A bare mention (`cd R/.git && node -e
+  // "writeFileSync('config')"` → the word `fs` → `.git/fs`) must not be named
+  // ahead of the write the O101 scan actually found (`.git/config`). Order
+  // only; the set of hits is unchanged.
+  const rank = (h: ProtectedPathHit) => (h.operation !== 'shell' || h.kind ? 0 : h.source ? 1 : 2);
+  return hits
+    .map((h, i) => [h, i] as const)
+    .sort(([a, i], [b, j]) => rank(a) - rank(b) || i - j)
+    .map(([h]) => h);
 }
 
 const INLINE_INTERP =

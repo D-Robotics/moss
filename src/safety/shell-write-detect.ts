@@ -38,7 +38,7 @@ export interface ShellWriteDetection {
   unresolved?: string[];
 }
 
-type Token = { kind: 'word'; text: string } | { kind: 'op'; text: string };
+export type Token = { kind: 'word'; text: string } | { kind: 'op'; text: string };
 
 const SEPARATORS = new Set([';', '&&', '||', '|', '|&', '&', '\n', '(', ')']);
 const REDIRECT_WRITE = /^(?:\d*>>?|\d*>\||&>>?)$/;
@@ -62,7 +62,8 @@ function stripHeredocBodies(command: string): string {
   return out.join('\n');
 }
 
-function tokenize(command: string): { tokens: Token[]; balanced: boolean } {
+/** Exported for O151's read-only-operand check in protected-paths.ts. */
+export function tokenize(command: string): { tokens: Token[]; balanced: boolean } {
   const tokens: Token[] = [];
   let i = 0;
   let word = '';
@@ -218,7 +219,7 @@ const PREFIX_COMMANDS = new Set([
 const WRITE_API =
   /\b(?:writeFile|writeFileSync|appendFile|appendFileSync|createWriteStream|copyFile|copyFileSync|rename|renameSync|truncate|truncateSync|write_text|write_bytes|shutil\.(?:copy|move)|os\.replace|File\.write|file_put_contents|io\.open)\b|\bopen\s*\([^)]*['"][wax+]|\.write\s*\(|\bfs\.\w*[wW]rite/;
 
-function scriptWords(script: string): string[] {
+export function scriptWords(script: string): string[] {
   return script.split(/[\s"'`;|&<>(),=:{}[\]+]+/).filter(Boolean);
 }
 
@@ -295,6 +296,12 @@ function analyzeSimple(words: string[], cwd: string, acc: Acc): void {
     const idx = args.findIndex((a) => interp.includes(a));
     const script = idx >= 0 ? (args[idx + 1] ?? '') : '';
     if (script && WRITE_API.test(script)) {
+      // O151 F6: the first argument of a write call goes first, so the prompt
+      // names `.git/config`, not the `'fs'` of `require('fs')`. Same set.
+      for (const lit of script.matchAll(
+        /\b\w*(?:write|append|copy|rename|truncate|open)\w*\s*\(\s*(['"`])((?:(?!\1).)+)\1/gi
+      ))
+        add(lit[2]!);
       for (const lit of script.matchAll(/(['"`])((?:(?!\1).)+)\1/g)) add(lit[2]);
     }
     return;

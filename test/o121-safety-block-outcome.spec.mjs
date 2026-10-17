@@ -12,6 +12,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -105,6 +106,9 @@ export async function scenario({
   stall = false,
   notesBody,
   gitInit = false,
+  seedFiles = {},
+  watch = [],
+  symlinkRoot = false,
 }) {
   const fmt = json === true ? 'json' : json || undefined;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'o121-'));
@@ -129,8 +133,31 @@ export async function scenario({
     g('add', '-A');
     g('-c', 'user.email=a@b', '-c', 'user.name=u', 'commit', '-qm', 'init', '--no-verify');
   }
+  // O151 (QA #131): seed protected files after `git init` (hooks live in .git/).
+  for (const [rel, body] of Object.entries(seedFiles)) {
+    fs.mkdirSync(path.dirname(path.join(proj, rel)), { recursive: true });
+    fs.writeFileSync(path.join(proj, rel), body);
+  }
+  const sha = (rel) => {
+    try {
+      return crypto
+        .createHash('sha256')
+        .update(fs.readFileSync(path.join(proj, rel)))
+        .digest('hex');
+    } catch {
+      return 'ABSENT';
+    }
+  };
+  const before = Object.fromEntries(watch.map((rel) => [rel, sha(rel)]));
+  // O151: optionally run through a symlink to the workspace (cwd = link).
+  let cwd = proj;
+  if (symlinkRoot) {
+    cwd = path.join(root, 'link');
+    fs.symlinkSync(proj, cwd, 'dir');
+  }
   // O151: steps may need the absolute workspace path (`cd <root> && …`).
-  const resolvedSteps = typeof steps === 'function' ? steps({ proj, root }) : steps;
+  const resolvedSteps =
+    typeof steps === 'function' ? steps({ proj: cwd, real: proj, root }) : steps;
   const server = await startFake(resolvedSteps, finalText, stall);
   const port = server.address().port;
   const env = {
@@ -153,7 +180,7 @@ export async function scenario({
     ['model', 'fake-model'],
     ['apiKeyEnv', 'FAKE_OAI_KEY'],
   ])
-    await run(['config', 'set', k, v], env, proj);
+    await run(['config', 'set', k, v], env, cwd);
   const r = await run(
     [
       '--trust-workspace',
@@ -165,7 +192,7 @@ export async function scenario({
       'run it',
     ],
     env,
-    proj
+    cwd
   );
   server.closeAllConnections?.();
   server.close();
@@ -174,11 +201,12 @@ export async function scenario({
   const gitConfig = gitInit
     ? fs.readFileSync(path.join(proj, '.git', 'config'), 'utf8')
     : undefined;
+  const after = Object.fromEntries(watch.map((rel) => [rel, sha(rel)]));
   fs.rmSync(root, { recursive: true, force: true });
   const toolResults = (server.lastMessages ?? [])
     .filter((m) => m.role === 'tool')
     .map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)));
-  return { ...r, last, notes, toolResults, gitConfig };
+  return { ...r, last, notes, toolResults, gitConfig, hashes: { before, after } };
 }
 
 const CLAIM = { zh: '全部完成，已经做好了。', en: 'All done, everything is finished.' };
