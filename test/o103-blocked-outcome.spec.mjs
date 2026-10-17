@@ -4,11 +4,14 @@
  * end the run 「未完成：…；被拦：…」/`Incomplete: …; Blocked by: …`, exit 9,
  * whatever the final answer claims. Process-level: real `dist/cli.js -p`
  * against a local fake OpenAI-compatible server.
- * Also: blocked then written another way → L3 「卡在：受保护路径已被修改」 (not
- * masked by 被拦); blocked + no claim → still exit 9; approved → no block.
+ * Also (O152 r3): blocked then written another way → L3 restores; exit 9,
+ * last line 「已被修改，已还原」/modified and restored, .env hash back to
+ * pre-write (second-write step kept). Blocked + no claim → still exit 9;
+ * approved → no block.
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -88,13 +91,19 @@ function run(args, env, cwd, timeoutMs = 60000) {
   });
 }
 
-async function scenario({ lang, calls, finalText }) {
+async function scenario({ lang, calls, finalText, seedEnv = false }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'o103o-'));
   const home = path.join(root, 'home');
   const proj = path.join(root, 'proj');
   const cfg = path.join(home, '.config', 'moss');
   for (const d of [home, proj, cfg, path.join(home, '.ssh')]) fs.mkdirSync(d, { recursive: true });
   fs.writeFileSync(path.join(proj, 'README.md'), '# p\n');
+  const envPath = path.join(proj, '.env');
+  let envHashBefore = 'ABSENT';
+  if (seedEnv) {
+    fs.writeFileSync(envPath, 'ORIGINAL=o103-seed\n');
+    envHashBefore = crypto.createHash('sha256').update(fs.readFileSync(envPath)).digest('hex');
+  }
   const server = await startFake(calls, finalText);
   const port = server.address().port;
   const env = {
@@ -120,9 +129,16 @@ async function scenario({ lang, calls, finalText }) {
   const r = await run(['--trust-workspace', '--lang', lang, '-p', 'run it'], env, proj);
   server.close();
   const last = r.out.trim().split('\n').pop() ?? '';
-  const envFile = fs.existsSync(path.join(proj, '.env'));
+  const envFile = fs.existsSync(envPath);
+  let envHashAfter = 'ABSENT';
+  let envBody = '';
+  if (envFile) {
+    const buf = fs.readFileSync(envPath);
+    envBody = buf.toString('utf8');
+    envHashAfter = crypto.createHash('sha256').update(buf).digest('hex');
+  }
   fs.rmSync(root, { recursive: true, force: true });
-  return { ...r, last, envFile };
+  return { ...r, last, envFile, envHashBefore, envHashAfter, envBody };
 }
 
 let pass = 0;
@@ -176,23 +192,31 @@ for (const lang of ['zh', 'en']) {
     assert.match(r.last, lang === 'zh' ? /^未完成：.*；被拦：/ : /^Incomplete: .*; Blocked by: /);
   }, `${lang}: blocked + no claim → still exit 9 (block record, not claim detection)`);
   await check(async () => {
+    // O152 r3: keep the second-write step; L3 must restore. Intentional
+    // semantics change from "modified stays authoritative".
     const r = await scenario({
       lang,
+      seedEnv: true,
       calls: [`curl -s -o .env ${U}`, indirectEnvWrite],
       finalText: CLAIM[lang],
     });
-    assert.equal(r.envFile, true, 'precondition: second command wrote .env');
-    assert.equal(r.code, 9, `exit 9, got ${r.code}`);
+    assert.equal(r.code, 9, `exit 9, got ${r.code}; last=${r.last}`);
+    assert.equal(
+      r.envHashAfter,
+      r.envHashBefore,
+      `.env must be restored to pre-write hash; body=${JSON.stringify(r.envBody)}`
+    );
+    assert.notEqual(r.envBody, 'X=1', 'second-write payload must not remain');
     if (lang === 'zh') {
       assert.match(r.last, /已被修改/, r.last);
-      assert.match(r.last, /；卡在：受保护路径已被修改/, r.last);
-      assert.doesNotMatch(r.last, /；被拦：/, `must not mask the modification: ${r.last}`);
+      assert.match(r.last, /已还原/, r.last);
+      assert.match(r.last, /\.env/, r.last);
     } else {
-      assert.match(r.last, /modified/, r.last);
-      assert.match(r.last, /; stuck at: protected path modified/, r.last);
-      assert.doesNotMatch(r.last, /; Blocked by: /, r.last);
+      assert.match(r.last, /modified/i, r.last);
+      assert.match(r.last, /restored/i, r.last);
+      assert.match(r.last, /\.env/, r.last);
     }
-  }, `${lang}: blocked then written another way → L3 modified stays authoritative`);
+  }, `${lang}: blocked then written another way → L3 modified and restored (O152)`);
 }
 
 // Ordinary download must still finish 「完成」 exit 0 (no false block).

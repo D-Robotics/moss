@@ -189,6 +189,7 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
                 | 'skipped-oversize'
                 | 'skipped-symlink-git'
                 | 'skipped-no-snapshot'
+                | 'skipped-approved'
                 | 'failed',
             }
           : {}),

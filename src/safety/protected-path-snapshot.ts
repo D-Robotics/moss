@@ -37,6 +37,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { isProtectedPathApproved } from './protected-path-approvals.js';
 
 export type PathChangeKind = 'added' | 'modified' | 'deleted';
 
@@ -48,6 +49,7 @@ export type RestoreOutcome =
   | 'skipped-oversize'
   | 'skipped-symlink-git'
   | 'skipped-no-snapshot'
+  | 'skipped-approved'
   | 'failed';
 
 export interface ProtectedPathRestore {
@@ -183,7 +185,25 @@ export function isRestoreEligiblePath(abs: string): boolean {
   if (/(^|\/)\.git\/(?:config|HEAD)$/.test(n)) return true;
   if (/(^|\/)\.git\/hooks\//.test(n)) return true;
   if (/(^|\/)\.env(?:rc|\.[^/]+)?$/.test(n)) return true;
+  // Separate git-dir / linked-worktree commondir (path has no ".git" segment).
+  const base = n.split('/').pop() ?? '';
+  const parent = n.includes('/') ? n.slice(0, n.lastIndexOf('/')) : '';
+  if ((base === 'config' || base === 'HEAD') && looksLikeGitDir(parent)) return true;
+  if (/\/hooks\//.test(n)) {
+    const hooksRoot = n.replace(/\/hooks\/.*$/, '');
+    if (looksLikeGitDir(hooksRoot)) return true;
+  }
   return false;
+}
+
+function looksLikeGitDir(dir: string): boolean {
+  if (!dir) return false;
+  const d = dir.replace(/\//g, path.sep);
+  try {
+    return fs.existsSync(path.join(d, 'HEAD')) || fs.existsSync(path.join(d, 'objects'));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -957,6 +977,8 @@ export function formatProtectedPathModifiedNotice(
         return zh
           ? `${base}，未还原（.git 已换成软链/gitfile，拒绝写入）`
           : `${base}, not restored (.git is a symlink/gitfile; refusing to write through it)`;
+      if (r.outcome === 'skipped-approved')
+        return zh ? `${base}，已按用户批准保留` : `${base}, kept (user approved)`;
       if (r.outcome === 'failed')
         return zh ? `${base}，未能完全还原` : `${base}, could not fully restore`;
       return zh ? `${base}，未还原` : `${base}, not restored`;
@@ -971,20 +993,21 @@ export function formatProtectedPathModifiedNotice(
       r.outcome === 'skipped-symlink-git' ||
       r.outcome === 'skipped-oversize'
   );
-  const detailLines = changes
-    .filter((c) => describeGitConfigChange(c, true))
-    .map(
-      (c) =>
-        `${PROTECTED_PATH_DETAIL_MARKER} ${[
-          c.path,
-          c.kind,
-          c.reason ?? '',
-          (c.keys ?? []).join(','),
-          byPath.get(c.path)?.outcome ?? '',
-        ]
-          .map((x) => x.replace(/[\t\n]/g, ' '))
-          .join('\t')}`
-    );
+  // O152: emit a detail row for every change (not only git-config phrases)
+  // so parseProtectedPathModMarker can carry restoreOutcome into the
+  // outcome line (「已被修改，已还原：.env」).
+  const detailLines = changes.map(
+    (c) =>
+      `${PROTECTED_PATH_DETAIL_MARKER} ${[
+        c.path,
+        c.kind,
+        c.reason ?? '',
+        (c.keys ?? []).join(','),
+        byPath.get(c.path)?.outcome ?? '',
+      ]
+        .map((x) => x.replace(/[\t\n]/g, ' '))
+        .join('\t')}`
+  );
   const summaryZh = anyRestored
     ? anyFailed
       ? '受保护路径已被修改，部分已还原'
@@ -1036,6 +1059,7 @@ export function parseProtectedPathModMarker(text: string): ProtectedPathChange[]
         'skipped-oversize',
         'skipped-symlink-git',
         'skipped-no-snapshot',
+        'skipped-approved',
         'failed',
       ] as const
     ).find((x) => x === restore);
@@ -1132,13 +1156,13 @@ export function protectedPathModReason(
     .filter((c) => c.restoreOutcome && c.restoreOutcome !== 'restored')
     .map((c) => c.path);
   const restoreEn = [
-    restored.length ? `restored: ${restored.slice(0, 5).join(', ')}` : '',
+    restored.length ? `modified and restored: ${restored.slice(0, 5).join(', ')}` : '',
     notRestored.length ? `could not restore: ${notRestored.slice(0, 5).join(', ')}` : '',
   ]
     .filter(Boolean)
     .join('; ');
   const restoreZh = [
-    restored.length ? `已还原：${restored.slice(0, 5).join('、')}` : '',
+    restored.length ? `已被修改，已还原：${restored.slice(0, 5).join('、')}` : '',
     notRestored.length ? `未能还原：${notRestored.slice(0, 5).join('、')}` : '',
   ]
     .filter(Boolean)
@@ -1203,15 +1227,16 @@ function ensureParentDir(abs: string): void {
  */
 export function restoreProtectedPathChanges(
   before: ProtectedPathSnapshot,
-  changes: readonly ProtectedPathChange[]
+  changes: readonly ProtectedPathChange[],
+  opts?: { skipApproved?: boolean }
 ): ProtectedPathRestore[] {
   const results: ProtectedPathRestore[] = [];
   if (changes.length === 0) return results;
+  const skipApproved = opts?.skipApproved !== false;
   const unsafeGit = gitDirIsUnsafeToWrite(before.cwd);
   let restoredAnyGit = false;
 
   for (const c of changes) {
-    // Locate absolute path via the display map (reverse lookup).
     let abs: string | undefined;
     for (const [a, d] of before.display) {
       if (d === c.path) {
@@ -1219,13 +1244,25 @@ export function restoreProtectedPathChanges(
         break;
       }
     }
-    if (!abs) {
-      // After-only paths (added): look in a fresh listing by joining cwd.
-      abs = path.resolve(before.cwd, c.path);
-    }
-    if (!isRestoreEligiblePath(abs)) continue;
+    if (!abs) abs = path.resolve(before.cwd, c.path);
 
-    if (unsafeGit && /(^|[\\/])\.git([\\/]|$)/.test(abs.replace(/\\/g, '/'))) {
+    const eligible =
+      isRestoreEligiblePath(abs) ||
+      // Display path still names a restore target (gitfile → real gitdir abs).
+      isRestoreEligiblePath(path.resolve(before.cwd, c.path)) ||
+      /(^|\/)\.git\/(?:config|HEAD)$/.test(c.path.replace(/\\/g, '/')) ||
+      /(^|\/)\.git\/hooks\//.test(c.path.replace(/\\/g, '/')) ||
+      /(^|\/)\.env(?:rc|\.[^/]+)?$/.test(c.path.replace(/\\/g, '/'));
+
+    if (!eligible) continue;
+
+    if (skipApproved && isProtectedPathApproved(abs)) {
+      results.push({ path: c.path, kind: c.kind, outcome: 'skipped-approved' });
+      continue;
+    }
+
+    // O152 r1 F5: `.git` is a gitfile / symlink — never write through it; say so.
+    if (unsafeGit) {
       results.push({ path: c.path, kind: c.kind, outcome: 'skipped-symlink-git' });
       continue;
     }
@@ -1234,7 +1271,6 @@ export function restoreProtectedPathChanges(
     const meta = entry && entry !== UNAVAILABLE ? entry : undefined;
 
     if (c.kind === 'added') {
-      // Did not exist before → remove whatever appeared.
       try {
         try {
           const st = fs.lstatSync(abs);
@@ -1250,7 +1286,6 @@ export function restoreProtectedPathChanges(
       continue;
     }
 
-    // modified / deleted → need a snapshot.
     if (!meta) {
       results.push({ path: c.path, kind: c.kind, outcome: 'skipped-no-snapshot' });
       continue;
@@ -1265,23 +1300,8 @@ export function restoreProtectedPathChanges(
     }
 
     try {
-      // If the path is currently a symlink / junction pointing outside, unlink
-      // it first and write a regular file (do not follow).
-      try {
-        const st = fs.lstatSync(abs);
-        if (st.isSymbolicLink()) fs.unlinkSync(abs);
-        else if (st.isDirectory()) fs.rmSync(abs, { recursive: true, force: true });
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
-      }
-      ensureParentDir(abs);
       const mode = meta.mode ?? 0o600;
-      fs.writeFileSync(abs, meta.content, { mode });
-      try {
-        fs.chmodSync(abs, mode);
-      } catch {
-        /* windows / no-op */
-      }
+      atomicRestoreFile(abs, meta.content, mode);
       results.push({ path: c.path, kind: c.kind, outcome: 'restored' });
       if (/(^|[\\/])\.git([\\/]|$)/.test(abs.replace(/\\/g, '/'))) restoredAnyGit = true;
     } catch {
@@ -1290,7 +1310,6 @@ export function restoreProtectedPathChanges(
   }
 
   if (restoredAnyGit && !unsafeGit) {
-    // Minimal skeleton so `git status` can run after a wipe.
     for (const sub of ['objects', 'refs', 'refs/heads', 'refs/tags', 'info']) {
       try {
         fs.mkdirSync(path.join(before.cwd, '.git', sub), { recursive: true, mode: 0o755 });
@@ -1300,6 +1319,49 @@ export function restoreProtectedPathChanges(
     }
   }
   return results;
+}
+
+/**
+ * O152 r1 F4: write to a same-dir temp file, then `rename` over the target.
+ * `rename` replaces the directory entry and does not follow a symlink at
+ * `abs`, closing the lstat→writeFile TOCTOU.
+ */
+function atomicRestoreFile(abs: string, content: Buffer, mode: number): void {
+  ensureParentDir(abs);
+  const dir = path.dirname(abs);
+  const tmp = path.join(
+    dir,
+    `.moss-restore-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`
+  );
+  try {
+    fs.writeFileSync(tmp, content, { mode: 0o600 });
+    try {
+      fs.chmodSync(tmp, mode);
+    } catch {
+      /* windows */
+    }
+    try {
+      const st = fs.lstatSync(abs);
+      if (st.isDirectory()) fs.rmSync(abs, { recursive: true, force: true });
+      else if (st.isSymbolicLink()) fs.unlinkSync(abs);
+      // regular file: rename below replaces it
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
+    }
+    fs.renameSync(tmp, abs);
+    try {
+      fs.chmodSync(abs, mode);
+    } catch {
+      /* windows */
+    }
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
 }
 
 /** Remove any on-disk restore spill from {@link takeProtectedPathSnapshot}. */
@@ -1346,13 +1408,13 @@ export function protectedPathModReasonWithRestore(
       return `${r.path}（未还原）`;
     });
   const enExtra = [
-    restored.length ? `restored: ${restored.slice(0, 5).join(', ')}` : '',
+    restored.length ? `modified and restored: ${restored.slice(0, 5).join(', ')}` : '',
     failed.length ? `could not restore: ${failed.slice(0, 5).join(', ')}` : '',
   ]
     .filter(Boolean)
     .join('; ');
   const zhExtra = [
-    restored.length ? `已还原：${restored.slice(0, 5).join('、')}` : '',
+    restored.length ? `已被修改，已还原：${restored.slice(0, 5).join('、')}` : '',
     zhFailed.length ? `未能还原：${zhFailed.slice(0, 5).join('、')}` : '',
   ]
     .filter(Boolean)

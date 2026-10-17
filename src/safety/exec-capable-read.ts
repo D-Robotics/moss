@@ -7,13 +7,13 @@
  *
  * Fixed list (PM r2 §6; the tests use exactly these):
  *   - `rg` / `ripgrep` `--pre <prog>` / `--pre=<prog>`;
- *   - git: `-c` / `--config-env` whose key runs a program (core.pager,
- *     diff.external, core.fsmonitor, core.sshCommand, diff.*.textconv /
- *     .command, pager.*, `alias.*=!…`); `--ext-diff`, `--textconv`,
- *     `--output[=]`, `--exec[=]`, and for `grep` `-O[<cmd>]` /
- *     `--open-files-in-pager[=]`. (PM: "any `-c`" cancels the O151
- *     workspace-root *exemption* only — benign `-c user.email=` commit
- *     must still run; that cancel lives in protected-paths.ts.)
+ *   - git: ANY `-c` / `-ckey=val` / `--config-env` / `GIT_CONFIG_*`
+ *     (COUNT / KEY_n / VALUE_n / PARAMETERS) except a small allowlist
+ *     (`user.*`, `color.*`, `core.quotepath`, `i18n.*` — case-insensitive) so
+ *     `git -c user.email=… commit` (o123 C1) still runs; `--ext-diff`,
+ *     `--textconv`, `--output[=]`, `--exec[=]`, and for `grep` `-O` /
+ *     `--open-files-in-pager`. (O151 root-exemption cancel for any `-c`
+ *     remains in protected-paths.ts.)
  *   - environment variables that make a read run a program or point git at
  *     other metadata: GIT_EXTERNAL_DIFF, GIT_PAGER, PAGER, GIT_SSH_COMMAND,
  *     GIT_SSH, LESSOPEN, LESSCLOSE, GIT_DIR, GIT_CONFIG_COUNT,
@@ -440,24 +440,24 @@ function firstNonOpt(args: readonly string[]): number {
   return -1;
 }
 
-/** `-c key[=value]` / `--config-env=key=env` that run a program. */
-function gitCRunsProgram(kv: string): boolean {
-  // config-env form: KEY=ENVNAME — the key is what matters.
-  const key = (kv.split('=')[0] ?? '').toLowerCase();
+/**
+ * O152 r1 F1 (QA): allowlist for `-c` / `--config-env`. Every other key is
+ * treated as exec-capable (credential.helper=!…, core.askPass, include.path,
+ * filter.*.*, …). Fail-closed: empty / unparsable key is NOT allowed.
+ */
+export function gitCKeyAllowed(kv: string): boolean {
+  const key = (kv.split('=')[0] ?? '').trim().toLowerCase();
   if (!key) return false;
-  if (key === 'core.pager') return true;
-  if (key === 'diff.external') return true;
-  if (key === 'core.fsmonitor') return true;
-  if (key === 'core.sshcommand') return true;
-  if (key === 'core.editor' || key === 'sequence.editor') return true;
-  if (/^diff\.[^.]+\.(textconv|command)$/.test(key)) return true;
-  if (/^pager\./.test(key)) return true;
-  // alias.* = !shell
-  if (/^alias\./.test(key)) {
-    const val = kv.slice(kv.indexOf('=') + 1);
-    return val.startsWith('!') || val.startsWith('!f()');
-  }
+  if (key.startsWith('user.')) return true;
+  if (key.startsWith('color.')) return true;
+  if (key.startsWith('i18n.')) return true;
+  if (key === 'core.quotepath') return true;
   return false;
+}
+
+/** True when this `-c` / `--config-env` value must be pre-blocked. */
+function gitCIsBlocked(kv: string): boolean {
+  return !gitCKeyAllowed(kv);
 }
 
 function gitExecForms(args: readonly string[]): string[] {
@@ -467,16 +467,16 @@ function gitExecForms(args: readonly string[]): string[] {
     const a = args[i]!;
     if (a === '-c' || a === '--config-env') {
       const kv = args[i + 1] ?? '';
-      if (gitCRunsProgram(kv)) forms.push('git -c');
+      if (gitCIsBlocked(kv)) forms.push('git -c');
       i += 1;
       continue;
     }
     if (/^-c./.test(a)) {
-      if (gitCRunsProgram(a.slice(2))) forms.push('git -c');
+      if (gitCIsBlocked(a.slice(2))) forms.push('git -c');
       continue;
     }
     if (/^--config-env=/.test(a)) {
-      if (gitCRunsProgram(a.slice('--config-env='.length))) forms.push('git -c');
+      if (gitCIsBlocked(a.slice('--config-env='.length))) forms.push('git -c');
       continue;
     }
     if (a === '-C') {

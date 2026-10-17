@@ -27,6 +27,8 @@ import {
   restoreProtectedPathChanges,
   disposeProtectedPathSnapshot,
 } from '../safety/protected-path-snapshot.js';
+import { isProtectedPathApproved } from '../safety/protected-path-approvals.js';
+import path from 'node:path';
 import { markBackgroundIdReported } from '../core/tools/background-completion-state.js';
 import {
   appendOutput,
@@ -163,16 +165,27 @@ export const execBackgroundTool: Tool = {
           disposeProtectedPathSnapshot(protectedSnapBefore);
           return;
         }
-        const restores = restoreProtectedPathChanges(protectedSnapBefore, changes);
+        const reportable = changes.filter((c) => {
+          let abs = [...protectedSnapBefore.display].find(([, d]) => d === c.path)?.[0];
+          if (!abs) abs = path.resolve(protectedSnapBefore.cwd, c.path);
+          return !isProtectedPathApproved(abs);
+        });
+        if (reportable.length === 0) {
+          disposeProtectedPathSnapshot(protectedSnapBefore);
+          return;
+        }
+        const restores = restoreProtectedPathChanges(protectedSnapBefore, reportable);
         disposeProtectedPathSnapshot(protectedSnapBefore);
-        proc.protectedPathChanges = changes.map((c) => ({
+        const byRestore = new Map(restores.map((r) => [r.path, r.outcome]));
+        proc.protectedPathChanges = reportable.map((c) => ({
           path: c.path,
           kind: c.kind,
           ...(c.keys ? { keys: c.keys } : {}),
           ...(c.reason ? { reason: c.reason } : {}),
+          ...(byRestore.get(c.path) ? { restoreOutcome: byRestore.get(c.path) } : {}),
         }));
         const notice = formatProtectedPathModifiedNotice(
-          changes,
+          reportable,
           preferZhLocale(),
           command,
           restores

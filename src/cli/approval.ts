@@ -29,6 +29,7 @@ import {
   protectedPathStringPrompt,
   protectedPathView,
 } from './protected-path-prompt.js';
+import { noteProtectedPathApproved } from '../safety/protected-path-approvals.js';
 import { recordDevicePolicyDecision } from './device-policy-log.js';
 import { deviceDestructivePrompt } from './device-safety-prompt.js';
 import { formatHeadlessBlockNotice, formatHeadlessBlockReason, isZhLocale } from './cli-locale.js';
@@ -1295,10 +1296,15 @@ export function createCliToolApprovalHook(
             .toLowerCase();
         }
         if (protectedAnswer === 'a' || protectedAnswer === 'always') {
-          for (const hit of protectedHits) sessionProtectedGrants.add(protectedGrantKey(hit));
+          for (const hit of protectedHits) {
+            sessionProtectedGrants.add(protectedGrantKey(hit));
+            // O152 F3: do not L3-restore a path the user approved.
+            noteProtectedPathApproved(hit.resolved);
+          }
           return settle({ approved: true });
         }
         if (protectedAnswer === 'y' || protectedAnswer === 'yes') {
+          for (const hit of protectedHits) noteProtectedPathApproved(hit.resolved);
           return settle({ approved: true });
         }
         return settle({ approved: false, reason: protectedPathDeniedReason(firstHit, zh) });

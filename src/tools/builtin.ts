@@ -51,6 +51,7 @@ import {
   restoreProtectedPathChanges,
   disposeProtectedPathSnapshot,
 } from '../safety/protected-path-snapshot.js';
+import { isProtectedPathApproved } from '../safety/protected-path-approvals.js';
 
 // Re-export tools from extracted modules for backward compatibility.
 export {
@@ -198,11 +199,24 @@ export const execTool: Tool = {
           disposeProtectedPathSnapshot(protectedSnapBefore);
           return '';
         }
+        // O152 F3: drop paths the user approved (y/a) — do not restore or
+        // mark the run incomplete for those.
+        const reportable = changes.filter((c) => {
+          let abs = [...protectedSnapBefore.display].find(([, d]) => d === c.path)?.[0];
+          if (!abs) abs = path.resolve(protectedSnapBefore.cwd, c.path);
+          return !isProtectedPathApproved(abs);
+        });
+        if (reportable.length === 0) {
+          disposeProtectedPathSnapshot(protectedSnapBefore);
+          return '';
+        }
         // O152: restore restore-eligible paths before the notice / session
         // persist, so a wiped `.git` does not also trip a SESSION exit 7.
-        const restores = restoreProtectedPathChanges(protectedSnapBefore, changes);
+        const restores = restoreProtectedPathChanges(protectedSnapBefore, reportable);
         disposeProtectedPathSnapshot(protectedSnapBefore);
-        return '\n\n' + formatProtectedPathModifiedNotice(changes, preferZhLocale(), cmd, restores);
+        return (
+          '\n\n' + formatProtectedPathModifiedNotice(reportable, preferZhLocale(), cmd, restores)
+        );
       } catch {
         disposeProtectedPathSnapshot(protectedSnapBefore);
         return '';
