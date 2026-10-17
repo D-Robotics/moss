@@ -18,6 +18,12 @@
  * (`rg --pre`, `git --ext-diff`, `VAR=` prefixes, `sort --compress-program`,
  * less/more) and F8 — Windows `\` separators eaten by the POSIX tokenizer;
  * those RED cases fail on 4b76068d and pass on main and here.
+ * QA r3 on #131 (95cd3db4): F10 — a separate `export` / `declare -x` /
+ * function / alias before the read-only command (`export GIT_EXTERNAL_DIFF=…;
+ * git -C R diff`, `ls(){ rm -rf "$1"; }; ls R`) re-pointed it and the
+ * exemption still applied; .git/config / the whole workspace were deleted.
+ * The exemption is now an allowlist over every simple command. F10_RED / FN1
+ * fail on 95cd3db4 and pass on main and here.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -120,6 +126,13 @@ const GREEN = [
 /** Real writes to protected files; each must exit 9 AND leave the file unchanged. */
 const SEED = { '.git/hooks/pre-commit': '#!/bin/sh\nexit 0\n', '.env': 'ORIG=1\n' };
 const WATCH = ['.git/config', '.git/HEAD', '.git/hooks/pre-commit', '.env'];
+/** F10a: an external diff that deletes the watched files when git runs it. */
+const F10_SEED = {
+  ...SEED,
+  'xd.sh': 'rm -f .git/config .git/HEAD .git/hooks/pre-commit .env\n',
+  'a.txt': 'a\n',
+  'b.txt': 'b\n',
+};
 /**
  * QA r2 F7 on #131: a read-only head whose options / env run an external
  * program must not exempt the root (RG1: `rg --pre rm … <root>` deleted .git
@@ -163,6 +176,47 @@ const F7_RED = (R) => [
   `find ${R} -fprintf out.txt x; node -e 1`,
   `file -C -m m ${R}; node -e 1`,
   `tree -o out.txt ${R}; node -e 1`,
+];
+/**
+ * QA r3 F10 on #131: anything in a command position that can change what a
+ * later "read-only" command does — environment, functions, aliases, sourcing,
+ * shell options, command lookup — or any name not on the allowlist cancels
+ * the exemption. One case per keyword; every one is blocked on main too.
+ */
+const F10_RED = (R) => [
+  `export GIT_EXTERNAL_DIFF=./xd.sh; git -C ${R} diff --no-index a b; node -e 1`,
+  `export GIT_PAGER=rm; git -C ${R} log; node -e 1`,
+  `export PATH=.:$PATH; ls ${R}; node -e 1`,
+  `declare -x GIT_EXTERNAL_DIFF=./xd.sh; git -C ${R} diff; node -e 1`,
+  `typeset -x GIT_EXTERNAL_DIFF=./xd.sh; git -C ${R} diff; node -e 1`,
+  `local GIT_PAGER=rm; git -C ${R} log; node -e 1`,
+  `readonly GIT_PAGER=rm; git -C ${R} log; node -e 1`,
+  `set -a; GIT_PAGER=rm; git -C ${R} log; node -e 1`,
+  `set -o allexport; ls ${R}; node -e 1`,
+  `eval "export GIT_EXTERNAL_DIFF=./xd.sh"; git -C ${R} diff; node -e 1`,
+  `source ./evil.sh; ls ${R}; node -e 1`,
+  `. ./evil.sh; git -C ${R} diff; node -e 1`,
+  `alias ls='rm -rf'; ls ${R}; node -e 1`,
+  `ls(){ rm -rf "$1"; }; ls ${R}; node -e 1`,
+  `git () { rm -rf .git; }; git -C ${R} diff; node -e 1`,
+  `function cat { rm -rf "$1"; }; cat ${R}; node -e 1`,
+  `trap 'rm -rf .git' EXIT; ls ${R}; node -e 1`,
+  `exec ls ${R}; node -e 1`,
+  `command ls ${R}; node -e 1`,
+  `builtin cd ${R}; ls ${R}; node -e 1`,
+  `enable -n echo; ls ${R}; node -e 1`,
+  `hash -p ./evil ls; ls ${R}; node -e 1`,
+  `shopt -s expand_aliases; ls ${R}; node -e 1`,
+  `sudo export X=1; ls ${R}; node -e 1`,
+  `{ export X=1; }; ls ${R}; node -e 1`,
+  `(export GIT_PAGER=rm; git -C ${R} log); node -e 1`,
+  `if true; then export GIT_PAGER=rm; fi; git -C ${R} log; node -e 1`,
+  `printf -v PATH '%s' ./evil; ls ${R}; node -e 1`,
+  `echo \${PATH:=./evil}; ls ${R}; node -e 1`,
+  `PATH+=:./evil; ls ${R}; node -e 1`,
+  `./ls ${R}; node -e 1`,
+  `bin/git -C ${R} diff; node -e 1`,
+  `mytool; ls ${R}; node -e 1`,
 ];
 const nodeW = (file) => `node -e "require('fs').writeFileSync('${file}','x')"`;
 const PROBES = [
@@ -218,6 +272,35 @@ const PROBES = [
     id: 'GIT_EXTERNAL_DIFF= git -C R diff',
     cmd: (R) => `GIT_EXTERNAL_DIFF=rm git -C ${R} diff; node -e 1`,
   },
+  // QA r3 F10a / FN1 on #131 (95cd3db4 ran these: the external diff deleted
+  // .git/config; the `ls` function deleted the whole workspace). zh/en × text/json.
+  ...[
+    {
+      id: 'F10a export GIT_EXTERNAL_DIFF',
+      cmd: (R) =>
+        `export GIT_EXTERNAL_DIFF='sh ./xd.sh'; git -C ${R} diff --no-index a.txt b.txt; node -e 1`,
+    },
+    {
+      id: 'F10a declare -x GIT_EXTERNAL_DIFF',
+      cmd: (R) =>
+        `declare -x GIT_EXTERNAL_DIFF='sh ./xd.sh'; git -C ${R} diff --no-index a.txt b.txt; node -e 1`,
+    },
+    { id: 'FN1 ls() override', cmd: (R) => `ls(){ rm -rf "$1"; }; ls ${R}; node -e 1` },
+    {
+      id: 'FN1 function cat override',
+      cmd: (R) => `function cat { rm -rf "$1"; }; cat ${R}; node -e 1`,
+    },
+  ].flatMap((p) =>
+    ['en', 'zh'].flatMap((lang) =>
+      [false, true].map((json) => ({
+        ...p,
+        id: `[${lang}${json ? ' json' : ''}] ${p.id}`,
+        lang,
+        json,
+        seed: F10_SEED,
+      }))
+    )
+  ),
   { id: '[zh] .git/config node -e', lang: 'zh', cmd: (R) => `cd ${R} && ${nodeW('.git/config')}` },
   {
     id: '[json] .git/config node -e',
@@ -287,6 +370,13 @@ async function runAll(jobs, limit = 4) {
     [`cd ${R} && node -e 1 && ls ${R}`, R],
     [`ls -la ${NR}; python3 -V`, NR],
     [`node -e 1; cat ${R}/README.md`, R],
+    // QA r3 F10: allowlisted names only — these stay exempt.
+    [`cat <(ls ${R}); node -e 1`, R],
+    [`: ; true; pwd; ls ${R}; node -e 1`, R],
+    [`ls ${R} | grep export; node -e 1`, R],
+    [`/bin/ls ${R}; node -e 1`, R],
+    [`sudo ls ${R}; node -e 1`, R],
+    [`env ls ${R}; node -e 1`, R],
   ];
   const red = [
     `ls ${R} | xargs rm -rf; node -e 1`,
@@ -303,6 +393,8 @@ async function runAll(jobs, limit = 4) {
     `ls ${R}; node -e "require('fs').writeFileSync('.git/config','x')"`,
     // QA r2 F7 on #131: "read-only" heads/options that run a program.
     ...F7_RED(R),
+    // QA r3 F10 on #131: env / function / alias / unknown name before it.
+    ...F10_RED(R),
   ];
   const jobs = [];
   for (const [cmd, root] of green)
@@ -359,6 +451,25 @@ async function runAll(jobs, limit = 4) {
     [`ls -la ${W(NR)}; ls -la ${W(NR)}\\src; python3 -V`, NR],
     [`cd ${W(R)} && node -e 1 && ls ${W(R)}\\src`, R],
   ];
+  // QA r3 F10 (Windows): pwsh / cmd environment, function and alias writes
+  // cancel the exemption too. main lets these through (O152); stricter here.
+  const winF10 = [
+    `$env:GIT_EXTERNAL_DIFF='x.sh'; git -C ${W(R)} diff; node -e 1`,
+    `Set-Item env:GIT_PAGER rm; git -C ${W(R)} log; node -e 1`,
+    `Set-Item -Path Env:GIT_PAGER -Value rm; git -C ${W(R)} log; node -e 1`,
+    `[Environment]::SetEnvironmentVariable('GIT_PAGER','rm'); git -C ${W(R)} log; node -e 1`,
+    `function ls { Remove-Item -Recurse $args }; ls ${W(R)}; node -e 1`,
+    `Set-Alias ls Remove-Item; ls ${W(R)}; node -e 1`,
+    `. .\\evil.ps1; ls ${W(R)}; node -e 1`,
+    `set GIT_PAGER=rm&& git -C ${W(R)} log && node -e 1`,
+    `set GIT_PAGER=rm && git -C ${W(R)} log && node -e 1`,
+    `doskey ls=rd /s /q $*&& ls ${W(R)}&& node -e 1`,
+  ];
+  for (const cmd of winF10)
+    jobs.push({
+      name: `policy WIN F10 RED: ${cmd.replaceAll(W(base), '<b>')}`,
+      fn: async () => assert.ok(winHits(cmd).length > 0, 'expected a protected hit'),
+    });
   for (const [cmd, root] of winGreen)
     jobs.push({
       name: `policy WIN GREEN: ${cmd.replaceAll(W(base), '<b>')}`,
@@ -418,7 +529,7 @@ for (const p of PROBES) {
       const r = await scenario({
         lang,
         gitInit: true,
-        seedFiles: SEED,
+        seedFiles: p.seed ?? SEED,
         watch: WATCH,
         symlinkRoot: !!p.symlink,
         json: !!p.json,

@@ -678,6 +678,84 @@ function isPipeFilter(words: readonly string[]): boolean {
   return !words.slice(1).some((w) => PIPE_FILTER_UNSAFE.test(w));
 }
 const WRAPPERS = /^(?:sudo|doas|env|command|nohup|exec|time)$/i;
+/**
+ * QA r3 F10 on #131: the exemption is an allowlist over the WHOLE command.
+ * Every simple command (split on `;` `&&` `||` `|` `&` newline and subshell
+ * parens) must start with one of these names, otherwise nothing is exempt —
+ * an unknown name may redefine or re-point a later "read-only" command
+ * (`export GIT_EXTERNAL_DIFF=…; git -C <root> diff`, `ls(){ rm -rf "$1"; }`).
+ * `git` additionally has to be a read-only git (see {@link gitReadOnlyCValues}).
+ */
+const ROOT_EXEMPT_HEADS = new Set([
+  ...READ_ONLY_HEADS,
+  ...PIPE_FILTERS,
+  'cd',
+  'pushd',
+  'git',
+  'node',
+  'nodejs',
+  'python',
+  'python3',
+  'which',
+  'echo',
+  'printf',
+  ':',
+  'true',
+  'false',
+  'pwd',
+  // pwsh / cmd read-only listing / printing (O151 Windows shapes).
+  'dir',
+  'type',
+]);
+/**
+ * QA r3 F10: names that change what a later command does (environment,
+ * functions, aliases, sourcing, option state, command lookup). Any of them in
+ * a command position anywhere cancels the exemption. They are already absent
+ * from {@link ROOT_EXEMPT_HEADS}; kept explicit so widening that list cannot
+ * re-open F10.
+ */
+const ROOT_EXEMPT_CANCEL = new Set([
+  'export',
+  'declare',
+  'typeset',
+  'local',
+  'readonly',
+  'set',
+  'unset',
+  'eval',
+  'source',
+  '.',
+  'alias',
+  'unalias',
+  'function',
+  'trap',
+  'exec',
+  'command',
+  'builtin',
+  'enable',
+  'hash',
+  'shopt',
+  'read',
+  'mapfile',
+  'readarray',
+  'let',
+  // pwsh / cmd environment, alias and function writes.
+  'set-item',
+  'si',
+  'set-variable',
+  'sv',
+  'new-item',
+  'ni',
+  'set-alias',
+  'sal',
+  'new-alias',
+  'nal',
+  'invoke-expression',
+  'iex',
+  'doskey',
+  'setx',
+  'call',
+]);
 
 function headName(word: string | undefined): string {
   return (
@@ -722,10 +800,33 @@ function windowsSeparatorForm(command: string, ctx: ProtectedPathContext): strin
  * the same word, write targets, O101 inline/script scans and O103 hooksPath
  * checks are unchanged.
  */
+/**
+ * `git [-C <dir>]… <read-sub> …` with no option that runs a program or writes
+ * a file: returns the word indexes of the `-C` values, else undefined.
+ */
+function gitReadOnlyCValues(words: readonly string[], i: number): number[] | undefined {
+  let j = i + 1;
+  const cValues: number[] = [];
+  for (; j < words.length; j += 1) {
+    if (words[j] === '-C') {
+      cValues.push(j + 1);
+      j += 1;
+      continue;
+    }
+    // Any other global option: not a shape we vouch for.
+    break;
+  }
+  if (!GIT_READ_SUBCOMMANDS.has((words[j] ?? '').toLowerCase())) return undefined;
+  if (words.slice(j + 1).some((a) => GIT_UNSAFE_ARG.test(a))) return undefined;
+  return cValues;
+}
+
 function workspaceRootOnlyReadOnly(command: string, ctx: ProtectedPathContext): boolean {
   const root = ctx.workspaceRoot;
   if (!root) return false;
   if (/\$\(|`|<</.test(command)) return false;
+  // QA r3 F10: `${VAR:=x}` / `${VAR=x}` assign inside an expansion.
+  if (/\$\{[^}]*=/.test(command)) return false;
   if (countDirectoryChanges(command) > 1) return false;
   // Windows paths (`D:\a\proj`) are not POSIX escapes; the tokenizer would
   // eat the separators and the root would never be recognised (→ no exemption).
@@ -756,6 +857,8 @@ function workspaceRootOnlyReadOnly(command: string, ctx: ProtectedPathContext): 
   for (let k = 0; k < tokens.length; k += 1) {
     const t = tokens[k]!;
     if (t.kind === 'word') {
+      // QA r3 F10: `name()` / `name ()` — a function definition (POSIX form).
+      if (tokens[k + 1]?.text === '(' && tokens[k + 2]?.text === ')') return false;
       current.words.push(t.text);
       continue;
     }
@@ -784,6 +887,8 @@ function workspaceRootOnlyReadOnly(command: string, ctx: ProtectedPathContext): 
     for (let idx = 0; idx < line.length; idx += 1) {
       const words = line[idx]!.words;
       let i = 0;
+      // QA r3 F10: a redirect-only command (`> f`) has no name to vouch for.
+      if (words.length === 0) return false;
       // QA r2 F7: any `VAR=` assignment (GIT_EXTERNAL_DIFF=, GIT_PAGER=, PAGER=,
       // LESSOPEN=, GIT_SSH_COMMAND= …) can make a "read" run a program; a
       // command naming the root with one is never exempt (also after env/sudo).
@@ -791,11 +896,28 @@ function workspaceRootOnlyReadOnly(command: string, ctx: ProtectedPathContext): 
         return false;
       if (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!)) return false;
       while (i < words.length && WRAPPERS.test(words[i]!)) {
+        // QA r3 F10: `command` / `exec` change lookup or replace the shell.
+        if (ROOT_EXEMPT_CANCEL.has(words[i]!.toLowerCase())) return false;
         i += 1;
         while (i < words.length && words[i]!.startsWith('-')) i += 1;
         if (i < words.length && /^[A-Za-z_]\w*=/.test(words[i]!)) return false;
       }
       const head = headName(words[i]);
+      // QA r3 F10: allowlist over every simple command, not only the ones
+      // that name the root. Unknown names (and the cancel keywords) end it.
+      const rawHead = (words[i] ?? '').toLowerCase();
+      if (ROOT_EXEMPT_CANCEL.has(rawHead) || ROOT_EXEMPT_CANCEL.has(head)) return false;
+      if (!ROOT_EXEMPT_HEADS.has(head)) return false;
+      // A bare name, or a system bin path. `./ls`, `bin/git` (a workspace
+      // script named like an allowed command), `$env:X=…`, `{`, `x=…` are not.
+      const headWord = words[i] ?? '';
+      if (
+        !/^[A-Za-z0-9_.:[\]-]+$/.test(headWord) &&
+        !/^\/(?:usr\/(?:local\/)?)?s?bin\/[A-Za-z0-9_.-]+$/.test(headWord)
+      )
+        return false;
+      if (head === 'git' && !gitReadOnlyCValues(words, i)) return false;
+      if (head === 'printf' && words.slice(i + 1).some((a) => /^-[a-zA-Z]*v/.test(a))) return false;
       const exempt = new Set<number>();
       const downstreamOnlyFilters = line.slice(idx + 1).every((c) => isPipeFilter(c.words));
       const outputSafe = !lineWrites && downstreamOnlyFilters;
@@ -810,23 +932,7 @@ function workspaceRootOnlyReadOnly(command: string, ctx: ProtectedPathContext): 
           for (let j = i + 1; j < words.length; j += 1) exempt.add(j);
         }
       } else if (head === 'git' && outputSafe) {
-        let j = i + 1;
-        const cValues: number[] = [];
-        for (; j < words.length; j += 1) {
-          const w = words[j]!;
-          if (w === '-C') {
-            cValues.push(j + 1);
-            j += 1;
-            continue;
-          }
-          // Any other global option: not a shape we vouch for.
-          break;
-        }
-        if (
-          GIT_READ_SUBCOMMANDS.has((words[j] ?? '').toLowerCase()) &&
-          !words.slice(j + 1).some((a) => GIT_UNSAFE_ARG.test(a))
-        )
-          for (const c of cValues) exempt.add(c);
+        for (const c of gitReadOnlyCValues(words, i) ?? []) exempt.add(c);
       }
       for (let j = 0; j < words.length; j += 1) {
         const w = words[j]!;
