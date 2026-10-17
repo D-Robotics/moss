@@ -18,7 +18,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { findOnWindowsPath } from '../dist/utils/host-shell.js';
+import { findOnWindowsPath, hostShellChildEnv } from '../dist/utils/host-shell.js';
 import { scenario } from './o121-safety-block-outcome.spec.mjs';
 
 const IS_WIN = process.platform === 'win32';
@@ -53,6 +53,38 @@ test('findOnWindowsPath: honours PATHEXT, quoted and empty PATH entries, first h
     null,
     'empty PATH finds nothing'
   );
+});
+
+// ---- pwsh child env (pure; every platform) ----
+// Without PATHEXT pwsh cannot resolve `node`/`git` either (windows-latest run
+// 39071567382: "The term 'node' is not recognized"), so the pwsh child gets
+// Windows' default PATHEXT.
+test('hostShellChildEnv: pwsh child with no PATHEXT gets the Windows default', () => {
+  const env = { PATH: 'C:\\x', LANG: 'en_US.UTF-8' };
+  const out = hostShellChildEnv(env, { kind: 'pwsh' });
+  assert.equal(out.PATHEXT, '.COM;.EXE;.BAT;.CMD');
+  assert.equal(out.PATH, 'C:\\x');
+  assert.equal(env.PATHEXT, undefined, 'input env is not mutated');
+  assert.equal(
+    hostShellChildEnv({ PATH: 'C:\\x', PATHEXT: '  ' }, { kind: 'pwsh' }).PATHEXT,
+    '.COM;.EXE;.BAT;.CMD'
+  );
+  const lower = hostShellChildEnv({ Pathext: '' }, { kind: 'pwsh' });
+  assert.deepEqual(
+    Object.keys(lower),
+    ['PATHEXT'],
+    'empty differently-cased key replaced, not duplicated'
+  );
+});
+
+test('hostShellChildEnv: existing PATHEXT (any case) and non-pwsh shells are unchanged', () => {
+  const custom = { PATH: 'C:\\x', PATHEXT: '.EXE;.PS1' };
+  assert.equal(hostShellChildEnv(custom, { kind: 'pwsh' }), custom);
+  const mixed = { PathExt: '.EXE' };
+  assert.equal(hostShellChildEnv(mixed, { kind: 'pwsh' }), mixed);
+  const bare = { PATH: '/usr/bin' };
+  assert.equal(hostShellChildEnv(bare, { kind: 'cmd' }), bare);
+  assert.equal(hostShellChildEnv(bare, { kind: 'sh' }), bare);
 });
 
 // ---- process level (real pwsh on windows-latest) ----

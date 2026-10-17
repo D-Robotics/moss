@@ -13,6 +13,8 @@
  *   specs). Moss then silently fell back to cmd.exe, where `;` is not a
  *   separator: `node -e 1; ls R` ran only `node` with `1;`, `ls`, `R` as its
  *   argv. That gave exit 0 and `(no output)`. The second half never ran.
+ * - The pwsh child also gets that default PATHEXT when the env has none
+ *   (`hostShellChildEnv`); otherwise pwsh itself cannot resolve `node`, `git`.
  * - Under pwsh (`-NoProfile -NonInteractive -Command`, stdout/stderr piped),
  *   every `;` statement runs and its success/error streams are captured,
  *   including after a native EXE such as `node` (windows-latest, pwsh 7.6).
@@ -87,6 +89,28 @@ export function findOnWindowsPath(
     }
   }
   return null;
+}
+
+/**
+ * O153: env for a pwsh exec child. pwsh resolves bare native commands (`node`,
+ * `git`, …) through PATHEXT; when the env has none it finds nothing and every
+ * such statement fails with "is not recognized". Give the child Windows'
+ * default PATHEXT in that case. Other shells and envs that already carry
+ * PATHEXT (any case) are returned unchanged.
+ */
+export function hostShellChildEnv<T extends Record<string, string | undefined>>(
+  env: T,
+  shell: Pick<ResolvedHostShell, 'kind'>
+): T {
+  // [CI-only revert of the O153 fix]: child env unchanged.
+  void shell;
+  return env;
+  const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATHEXT');
+  if (key !== undefined && env[key]?.trim()) return env;
+  const next: Record<string, string | undefined> = { ...env };
+  if (key !== undefined) delete next[key];
+  next.PATHEXT = DEFAULT_PATHEXT;
+  return next as T;
 }
 
 function defaultIsFile(candidate: string): boolean {
