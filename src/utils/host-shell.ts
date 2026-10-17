@@ -24,7 +24,9 @@
  *   its error text still lands on stderr. Chain with `&&` to stop at the first
  *   failure.
  * - The cmd.exe fallback (no pwsh 7 on PATH) keeps cmd semantics: `;` is
- *   not a separator there.
+ *   not a separator there. It is never silent: a startup line, the exec tool
+ *   description, a note on the first exec and on every bare `;`, and the json
+ *   result's `shell` field all say cmd.exe.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -51,7 +53,51 @@ const POWERSHELL_DESCRIPTION =
   'On Windows the local shell is PowerShell 7 (pwsh). Chain with &&. Unix-only utilities (for example uname) are unavailable.';
 
 const CMD_DESCRIPTION =
-  'On Windows the local shell is cmd.exe. Chain with &&. Unix-only utilities (for example uname) are unavailable.';
+  'On Windows the local shell is cmd.exe (PowerShell 7 was not found). Chain with &&; in cmd.exe `;` does not separate commands. Unix-only utilities (for example uname) are unavailable.';
+
+/** O153: cmd.exe fallback note for the model, on the first exec of the process. */
+export const CMD_FALLBACK_TOOL_NOTE =
+  '[moss] exec shell is cmd.exe (PowerShell 7 not found). In cmd.exe `;` does not separate commands; chain with &&.';
+
+/** O153: a bare `;` under cmd.exe — the rest of the line became arguments. */
+export const CMD_SEMICOLON_TOOL_NOTE =
+  '[moss] exec shell is cmd.exe (PowerShell 7 not found): `;` does not separate commands in cmd.exe, so the text after `;` was passed as arguments to the first command instead of running. Chain with && instead.';
+
+/** True when `command` has a `;` outside double quotes (cmd.exe only honours `"`). */
+export function hasCmdBareSemicolon(command: string): boolean {
+  let quoted = false;
+  for (const ch of command) {
+    if (ch === '"') quoted = !quoted;
+    else if (ch === ';' && !quoted) return true;
+  }
+  return false;
+}
+
+/**
+ * O153: note appended to exec tool text when the shell is the cmd.exe
+ * fallback. A bare `;` always gets the semicolon note; otherwise the first
+ * exec gets the fallback note. Other shells get nothing.
+ */
+export function cmdFallbackToolNote(
+  command: string,
+  shell: Pick<ResolvedHostShell, 'kind'>,
+  firstExec: boolean
+): string {
+  if (shell.kind !== 'cmd') return '';
+  if (hasCmdBareSemicolon(command)) return CMD_SEMICOLON_TOOL_NOTE;
+  return firstExec ? CMD_FALLBACK_TOOL_NOTE : '';
+}
+
+let cmdFallbackNoted = false;
+/** Stateful {@link cmdFallbackToolNote}: the fallback note once per process. */
+export function takeCmdFallbackToolNote(
+  command: string,
+  shell: Pick<ResolvedHostShell, 'kind'>
+): string {
+  const note = cmdFallbackToolNote(command, shell, !cmdFallbackNoted);
+  if (shell.kind === 'cmd') cmdFallbackNoted = true;
+  return note;
+}
 
 let cached: ResolvedHostShell | undefined;
 /** Default-probe entries. Importing a tool module must not increment this. */
@@ -75,7 +121,7 @@ export function findOnWindowsPath(
   env: { PATH?: string; PATHEXT?: string },
   isFile: (candidate: string) => boolean = defaultIsFile
 ): string | null {
-  const exts = (env.PATHEXT?.trim() ? env.PATHEXT : DEFAULT_PATHEXT)
+  const exts = (env.PATHEXT ?? '') // [revert A]
     .split(';')
     .map((ext) => ext.trim())
     .filter(Boolean);
@@ -102,8 +148,7 @@ export function hostShellChildEnv<T extends Record<string, string | undefined>>(
   env: T,
   shell: Pick<ResolvedHostShell, 'kind'>
 ): T {
-  // [CI-only revert of the O153 fix]: child env always unchanged.
-  if (shell.kind !== 'pwsh' || Object.keys(env).length >= 0) return env;
+  if (shell.kind !== 'pwsh' || Object.keys(env).length >= 0) return env; // [revert A]
   const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATHEXT');
   if (key !== undefined && env[key]?.trim()) return env;
   const next: Record<string, string | undefined> = { ...env };
@@ -121,7 +166,7 @@ function defaultIsFile(candidate: string): boolean {
 }
 
 function lookupOnPath(name: string): string | null {
-  // [CI-only revert of the O153 fix]: where.exe only, no PATHEXT default.
+  // [revert A]: where.exe only, no PATHEXT default.
   const finder = process.platform === 'win32' ? 'where.exe' : 'which';
   const result = runProcessSync(finder, [name], {
     encoding: 'utf8',

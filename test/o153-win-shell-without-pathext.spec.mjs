@@ -18,7 +18,20 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { findOnWindowsPath, hostShellChildEnv } from '../dist/utils/host-shell.js';
+import fs from 'node:fs';
+
+import {
+  CMD_FALLBACK_TOOL_NOTE,
+  CMD_SEMICOLON_TOOL_NOTE,
+  cmdFallbackToolNote,
+  findOnWindowsPath,
+  hasCmdBareSemicolon,
+  hostShellChildEnv,
+  resolveHostShell,
+} from '../dist/utils/host-shell.js';
+import { execToolDescription } from '../dist/tools/builtin.js';
+import { formatHostShellFallbackNotice } from '../dist/cli/cli-locale.js';
+import { headlessResultShell } from '../dist/cli/print.js';
 import { scenario } from './o121-safety-block-outcome.spec.mjs';
 
 const IS_WIN = process.platform === 'win32';
@@ -102,13 +115,22 @@ function resolveKindIn(env) {
   });
 }
 
-test('win32: exec shell is still pwsh when the env has no PATHEXT', WIN_ONLY, async () => {
-  const env = {
-    PATH: process.env.PATH,
-    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-  };
-  assert.equal(await resolveKindIn(env), 'pwsh', 'must not fall back to cmd.exe');
-});
+// Revised acceptance 1: shell resolution does not depend on the env's PATHEXT.
+const PATHEXT_CASES = [
+  ['missing', {}],
+  ['empty', { PATHEXT: '' }],
+  ['lowercase', { PATHEXT: '.com;.exe;.bat;.cmd' }],
+];
+for (const [label, extra] of PATHEXT_CASES) {
+  test(`win32: exec shell is still pwsh when PATHEXT is ${label}`, WIN_ONLY, async () => {
+    const env = {
+      PATH: process.env.PATH,
+      ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+      ...extra,
+    };
+    assert.equal(await resolveKindIn(env), 'pwsh', 'must not fall back to cmd.exe');
+  });
+}
 
 const tools = (r) => r.toolResults.join('\n');
 
@@ -146,3 +168,137 @@ for (const [cmd, want] of [
     assert.doesNotMatch(t, /\(no output\)/);
   });
 }
+
+const lastJson = (r) =>
+  JSON.parse(
+    r.out
+      .trim()
+      .split('\n')
+      .filter((l) => l.startsWith('{'))
+      .pop() ?? '{}'
+  );
+
+// Revised acceptance 1 (process level): the shell actually used is pwsh, for
+// PATHEXT missing / empty / lowercase. `$PSVersionTable` only exists in pwsh,
+// and the json result names the shell.
+for (const [label, extra] of PATHEXT_CASES) {
+  test(`win32 -p json, PATHEXT ${label}: actual exec shell is pwsh`, WIN_ONLY, async () => {
+    const r = await scenario({
+      lang: 'en',
+      steps: [exec('node -e 1; Write-Output "ed=$($PSVersionTable.PSEdition)"')],
+      finalText: 'Checked.',
+      json: true,
+      extraEnv: extra,
+    });
+    const t = tools(r);
+    assert.match(t, /ed=Core/, t.slice(0, 400));
+    assert.equal(lastJson(r).shell, 'pwsh', r.out.slice(-400));
+    assert.doesNotMatch(r.err, /Exec shell: cmd\.exe/);
+    assert.equal(r.code, 0, `exit 0, got ${r.code}; last=${r.last}`);
+  });
+}
+
+// Revised acceptance 2/3: a real cmd.exe fallback (pwsh removed from PATH) is
+// visible to the user (startup line), the model (tool text) and json.
+function pathWithoutPwsh() {
+  return (process.env.PATH ?? '')
+    .split(';')
+    .filter((d) => d && !fs.existsSync(path.join(d.replace(/^"(.*)"$/, '$1'), 'pwsh.exe')))
+    .join(';');
+}
+
+test(
+  'win32 -p json, no pwsh on PATH: cmd fallback is announced, json shell=cmd',
+  WIN_ONLY,
+  async () => {
+    const r = await scenario({
+      lang: 'en',
+      steps: [exec('node -e "console.log(42)"')],
+      finalText: 'Ran.',
+      json: true,
+      extraEnv: { PATH: pathWithoutPwsh() },
+    });
+    assert.match(
+      r.err,
+      /\[moss\] Exec shell: cmd\.exe \(PowerShell 7 not found\)\. In cmd\.exe `;` does not separate commands/,
+      r.err.slice(0, 600)
+    );
+    assert.equal(lastJson(r).shell, 'cmd', r.out.slice(-400));
+    const t = tools(r);
+    assert.ok(t.includes('42'), t.slice(0, 400));
+    assert.ok(t.includes(CMD_FALLBACK_TOOL_NOTE), `first exec names cmd.exe: ${t.slice(0, 400)}`);
+  }
+);
+
+test(
+  'win32 -p, no pwsh on PATH: `node -e 1; ls notes.txt` is never a silent (no output)',
+  WIN_ONLY,
+  async () => {
+    const r = await scenario({
+      lang: 'zh',
+      steps: [exec('node -e 1; ls notes.txt')],
+      finalText: '看过了。',
+      extraEnv: { PATH: pathWithoutPwsh() },
+    });
+    assert.match(
+      r.err,
+      /执行命令用的 shell：cmd\.exe（未找到 PowerShell 7）。cmd 下 `;` 不分隔命令/,
+      r.err.slice(0, 600)
+    );
+    const t = tools(r);
+    assert.ok(t.includes(CMD_SEMICOLON_TOOL_NOTE), t.slice(0, 400));
+    assert.notEqual(t.trim(), '(no output)');
+  }
+);
+
+// ---- fallback notices (pure; every platform) ----
+test('cmd fallback: bare `;` detection honours double quotes only', () => {
+  assert.equal(hasCmdBareSemicolon('node -e 1; ls R'), true);
+  assert.equal(hasCmdBareSemicolon('node -e "a;b"'), false);
+  assert.equal(hasCmdBareSemicolon('node -e "a;b"; dir'), true);
+  assert.equal(hasCmdBareSemicolon("echo 'a;b'"), true, 'cmd does not honour single quotes');
+  assert.equal(hasCmdBareSemicolon('node -e 1 && dir'), false);
+});
+
+test('cmd fallback: tool note on first exec and on every bare `;`; none for pwsh/sh', () => {
+  const cmd = { kind: 'cmd' };
+  assert.equal(cmdFallbackToolNote('node -e 1', cmd, true), CMD_FALLBACK_TOOL_NOTE);
+  assert.equal(cmdFallbackToolNote('node -e 1', cmd, false), '');
+  assert.equal(cmdFallbackToolNote('node -e 1; ls R', cmd, false), CMD_SEMICOLON_TOOL_NOTE);
+  assert.equal(cmdFallbackToolNote('node -e 1; ls R', cmd, true), CMD_SEMICOLON_TOOL_NOTE);
+  for (const kind of ['pwsh', 'sh']) {
+    assert.equal(cmdFallbackToolNote('node -e 1; ls R', { kind }, true), '');
+  }
+  assert.match(CMD_SEMICOLON_TOOL_NOTE, /cmd\.exe/);
+  assert.match(CMD_SEMICOLON_TOOL_NOTE, /`;` does not separate commands/);
+});
+
+test('cmd fallback: startup line (zh/en), exec description, json shell field', () => {
+  assert.match(formatHostShellFallbackNotice('cmd', 'zh-CN'), /cmd\.exe.*`;` 不分隔命令/);
+  assert.match(
+    formatHostShellFallbackNotice('cmd', 'en'),
+    /cmd\.exe.*`;` does not separate commands/
+  );
+  assert.equal(formatHostShellFallbackNotice('pwsh', 'en'), '');
+  assert.equal(formatHostShellFallbackNotice('sh', 'zh-CN'), '');
+  const cmdShell = resolveHostShell({
+    platform: 'win32',
+    comspec: 'C:\\Windows\\System32\\cmd.exe',
+    lookup: () => null,
+  });
+  assert.equal(cmdShell.kind, 'cmd');
+  assert.match(execToolDescription(cmdShell), /cmd\.exe.*`;` does not separate commands/);
+  assert.equal(
+    headlessResultShell('win32', () => ({ kind: 'cmd' })),
+    'cmd'
+  );
+  assert.equal(
+    headlessResultShell('win32', () => ({ kind: 'pwsh' })),
+    'pwsh'
+  );
+  assert.equal(
+    headlessResultShell('linux', () => ({ kind: 'sh' })),
+    undefined,
+    'Linux json unchanged'
+  );
+});
