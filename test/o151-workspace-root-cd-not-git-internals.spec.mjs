@@ -141,8 +141,10 @@ const GREEN = [
     // cause not yet known). Windows runs the same interpreter-then-read-only-root
     // shape chained with `&&` (proven to print under pwsh by
     // min-cd-root-node-e-ls-root); the `;` form stays a policy WIN GREEN case.
-    // (`dir R` is not used: the policy still flags it, see O151 report.)
-    winSteps: ({ proj }) => [exec(`node -e 1 && ls -Name ${q(proj)}`)],
+    // QA r6: plain `ls R` — on Windows CI `ls` resolves to GNU ls, which
+    // rejects pwsh's `-Name` ("ls: unknown option -- e", run 39065082031).
+    // (`dir R` / Get-ChildItem are not used: not on the read-only allowlist.)
+    winSteps: ({ proj }) => [exec(`node -e 1 && ls ${q(proj)}`)],
     win: true,
   },
   {
@@ -500,8 +502,8 @@ async function runAll(jobs, limit = 4) {
       `cd ${W(R)} && git diff --stat -- README.md && git diff --quiet -- README.md && node -e "console.log('unchanged: yes')"`,
       R,
     ],
-    [`node -e 1; ls -Name ${W(R)}`, R],
-    [`node -e 1 && ls -Name ${W(R)}`, R],
+    [`node -e 1; ls ${W(R)}`, R],
+    [`node -e 1 && ls ${W(R)}`, R],
   ];
   // QA r3 F10 (Windows): pwsh / cmd environment, function and alias writes
   // cancel the exemption too. main lets these through (O152); stricter here.
