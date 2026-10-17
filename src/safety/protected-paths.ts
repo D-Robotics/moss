@@ -27,7 +27,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { detectShellWriteTargets, type ShellWriteDetection } from './shell-write-detect.js';
+import {
+  detectShellWriteTargets,
+  scriptWords,
+  tokenize,
+  type ShellWriteDetection,
+} from './shell-write-detect.js';
 import { findIndirectProtectedWrites } from './indirect-write-detect.js';
 import { findPwshWriteTargets } from './pwsh-write-targets.js';
 
@@ -79,6 +84,12 @@ export interface ProtectedPathContext {
     cwd: string
   ) => Pick<ShellWriteDetection, 'targets' | 'uncertain'> &
     Partial<Pick<ShellWriteDetection, 'mentions' | 'unresolved'>>;
+  /**
+   * The exec shell treats `\` as a path separator, never an escape (pwsh /
+   * cmd.exe). Defaults to `process.platform === 'win32'`; tests set it to run
+   * the Windows parse on any host.
+   */
+  windowsShell?: boolean;
 }
 
 const SHELL_RC_BASENAMES = new Set([
@@ -587,16 +598,380 @@ function cdOnlyOperands(command: string, cwd: string): Set<string> {
   return cd;
 }
 
+/**
+ * O151: commands that only READ the paths they are given. Naming the
+ * workspace root as their operand cannot delete the root's `.git`.
+ */
+const READ_ONLY_HEADS = new Set([
+  'ls',
+  'cat',
+  'head',
+  'tail',
+  'wc',
+  'stat',
+  'file',
+  'du',
+  'tree',
+  'realpath',
+  'readlink',
+  'basename',
+  'dirname',
+  'test',
+  '[',
+  'grep',
+  'egrep',
+  'fgrep',
+  'find',
+]);
+// QA r2 F7 on #131: `rg` is not here — `--pre <prog>` / `-z` run a program on
+// every file (`rg --pre rm … <root>` deleted .git). Nothing that can run an
+// external program belongs in this list.
+/** `find` actions that delete, run or write; any of them cancels the exemption. */
+const FIND_ACTIONS = /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/i;
+/** Per-head options that run a program or write a file; any of them cancels the exemption. */
+const READ_ONLY_HEAD_UNSAFE: Record<string, RegExp> = {
+  find: FIND_ACTIONS,
+  file: /^(?:-C|--compile|-[a-zA-Z]*C[a-zA-Z]*)$/,
+  tree: /^(?:-o|--output)/,
+};
+/**
+ * QA r2 F7: `git -C <root> <read-sub>` options that run an external program
+ * (`--ext-diff`, `--textconv`, `grep -O<cmd>` / `--open-files-in-pager`,
+ * `--exec`) or write a file (`--output`). Any of them cancels the exemption.
+ */
+const GIT_UNSAFE_ARG = /^(?:--ext-diff$|--textconv$|--output|-O|--open-files-in-pager|--exec)/;
+/** `git -C <root> <sub>` subcommands that only read the repository. */
+const GIT_READ_SUBCOMMANDS = new Set([
+  'diff',
+  'status',
+  'log',
+  'show',
+  'rev-parse',
+  'ls-files',
+  'ls-tree',
+  'blame',
+  'grep',
+  'describe',
+  'shortlog',
+  'cat-file',
+]);
+/** Commands a read-only command's output may be piped into (stdout filters only). */
+const PIPE_FILTERS = new Set([
+  'tail',
+  'head',
+  'wc',
+  'grep',
+  'egrep',
+  'fgrep',
+  'sort',
+  'uniq',
+  'cut',
+  'tr',
+  'cat',
+  'nl',
+]);
+/** Filter options that run a program (`sort --compress-program=<prog>`). */
+const PIPE_FILTER_UNSAFE = /^--compress-prog/i;
+/** A downstream pipe stage that only filters stdout (no program it can launch). */
+function isPipeFilter(words: readonly string[]): boolean {
+  if (!PIPE_FILTERS.has(headName(words[0]))) return false;
+  return !words.slice(1).some((w) => PIPE_FILTER_UNSAFE.test(w));
+}
+const WRAPPERS = /^(?:sudo|doas|env|command|nohup|exec|time)$/i;
+/**
+ * QA r3 F10 on #131: the exemption is an allowlist over the WHOLE command.
+ * Every simple command (split on `;` `&&` `||` `|` `&` newline and subshell
+ * parens) must start with one of these names, otherwise nothing is exempt —
+ * an unknown name may redefine or re-point a later "read-only" command
+ * (`export GIT_EXTERNAL_DIFF=…; git -C <root> diff`, `ls(){ rm -rf "$1"; }`).
+ * `git` additionally has to be a read-only git (see {@link gitReadOnlyCValues}).
+ */
+const ROOT_EXEMPT_HEADS = new Set([
+  ...READ_ONLY_HEADS,
+  ...PIPE_FILTERS,
+  'cd',
+  'pushd',
+  'git',
+  'node',
+  'nodejs',
+  'python',
+  'python3',
+  'which',
+  'echo',
+  'printf',
+  ':',
+  'true',
+  'false',
+  'pwd',
+  // pwsh / cmd read-only listing / printing (O151 Windows shapes).
+  'dir',
+  'type',
+]);
+/**
+ * QA r3 F10: names that change what a later command does (environment,
+ * functions, aliases, sourcing, option state, command lookup). Any of them in
+ * a command position anywhere cancels the exemption. They are already absent
+ * from {@link ROOT_EXEMPT_HEADS}; kept explicit so widening that list cannot
+ * re-open F10.
+ */
+const ROOT_EXEMPT_CANCEL = new Set([
+  'export',
+  'declare',
+  'typeset',
+  'local',
+  'readonly',
+  'set',
+  'unset',
+  'eval',
+  'source',
+  '.',
+  'alias',
+  'unalias',
+  'function',
+  'trap',
+  'exec',
+  'command',
+  'builtin',
+  'enable',
+  'hash',
+  'shopt',
+  'read',
+  'mapfile',
+  'readarray',
+  'let',
+  // pwsh / cmd environment, alias and function writes.
+  'set-item',
+  'si',
+  'set-variable',
+  'sv',
+  'new-item',
+  'ni',
+  'set-alias',
+  'sal',
+  'new-alias',
+  'nal',
+  'invoke-expression',
+  'iex',
+  'doskey',
+  'setx',
+  'call',
+]);
+
+function headName(word: string | undefined): string {
+  return (
+    (word ?? '')
+      .split(/[\\/]/)
+      .pop()
+      ?.toLowerCase()
+      .replace(/\.exe$/, '') ?? ''
+  );
+}
+
+/**
+ * O151 (Windows): exec runs pwsh / cmd.exe there, where `\` separates path
+ * segments and is never an escape. The POSIX tokenizer used to eat it
+ * (`cd C:\x\proj\.git` → `C:xproj.git`, `sed -i … .git\config` →
+ * `.gitconfig`), so the path missed `.git` and the write was not gated. Returns
+ * the separator form to analyse in addition to the original (stricter only),
+ * or undefined when there is nothing to rewrite.
+ */
+function windowsSeparatorForm(command: string, ctx: ProtectedPathContext): string | undefined {
+  const win = ctx.windowsShell ?? process.platform === 'win32';
+  return win && command.includes('\\') ? command.replace(/\\/g, '/') : undefined;
+}
+
+/**
+ * O151 (QA BLOCK on #131): an uncertain command (`node -e`, `python3 …`) that
+ * also names the workspace root as a plain operand — `git -C <root> diff`,
+ * `ls -la <root>; python3 -V` — had the root judged "deleting an ancestor of
+ * .git" and the run ended in a false Incomplete. #124 only exempted a root
+ * that is the sole `cd` target.
+ *
+ * Returns true only when EVERY reference to the root in the command is one of:
+ *   - the operand of the single `cd`/`pushd` in the command;
+ *   - a non-option operand of a read-only command (ls, cat, find without
+ *     -delete/-exec, …), or the `-C` value of a read-only git subcommand;
+ * and that simple command writes no file and its output is piped only into
+ * stdout filters (so `ls <root> | xargs rm -rf` is not exempt).
+ * A root reference anywhere else — inline code, an interpreter argument, a
+ * redirect target, a relative `.` inside a script — cancels it, as do `$(…)`,
+ * backticks, heredocs, unbalanced quotes and a second directory change.
+ * Only the ancestor-delete rule is skipped; protected-path classification of
+ * the same word, write targets, O101 inline/script scans and O103 hooksPath
+ * checks are unchanged.
+ */
+/**
+ * `git [-C <dir>]… <read-sub> …` with no option that runs a program or writes
+ * a file: returns the word indexes of the `-C` values, else undefined.
+ */
+function gitReadOnlyCValues(words: readonly string[], i: number): number[] | undefined {
+  let j = i + 1;
+  const cValues: number[] = [];
+  for (; j < words.length; j += 1) {
+    if (words[j] === '-C') {
+      cValues.push(j + 1);
+      j += 1;
+      continue;
+    }
+    // Any other global option: not a shape we vouch for.
+    break;
+  }
+  if (!GIT_READ_SUBCOMMANDS.has((words[j] ?? '').toLowerCase())) return undefined;
+  if (words.slice(j + 1).some((a) => GIT_UNSAFE_ARG.test(a))) return undefined;
+  return cValues;
+}
+
+function workspaceRootOnlyReadOnly(command: string, ctx: ProtectedPathContext): boolean {
+  const root = ctx.workspaceRoot;
+  if (!root) return false;
+  if (/\$\(|`|<</.test(command)) return false;
+  // QA r3 F10: `${VAR:=x}` / `${VAR=x}` assign inside an expansion.
+  if (/\$\{[^}]*=/.test(command)) return false;
+  if (countDirectoryChanges(command) > 1) return false;
+  // Windows paths (`D:\a\proj`) are not POSIX escapes; the tokenizer would
+  // eat the separators and the root would never be recognised (→ no exemption).
+  const { tokens, balanced } = tokenize(windowsSeparatorForm(command, ctx) ?? command);
+  if (!balanced) return false;
+  const rootReal = norm(realOrResolved(root));
+  const bases = new Set([ctx.cwd, root]);
+  const isRoot = (w: string, base: string): boolean => {
+    if (!w || w.startsWith('-') || /^[a-z][a-z0-9+.-]*:\/\//i.test(w)) return false;
+    return norm(realOrResolved(path.resolve(base, w))) === rootReal;
+  };
+  const anyBaseIsRoot = (w: string): boolean => [...bases].some((b) => isRoot(w, b));
+
+  // Group into pipelines of simple commands; record redirects per command.
+  type Simple = { words: string[]; writes: boolean };
+  const pipelines: Simple[][] = [];
+  let pipeline: Simple[] = [];
+  let current: Simple = { words: [], writes: false };
+  const endSimple = () => {
+    if (current.words.length || current.writes) pipeline.push(current);
+    current = { words: [], writes: false };
+  };
+  const endPipeline = () => {
+    endSimple();
+    if (pipeline.length) pipelines.push(pipeline);
+    pipeline = [];
+  };
+  for (let k = 0; k < tokens.length; k += 1) {
+    const t = tokens[k]!;
+    if (t.kind === 'word') {
+      // QA r3 F10: `name()` / `name ()` — a function definition (POSIX form).
+      if (tokens[k + 1]?.text === '(' && tokens[k + 2]?.text === ')') return false;
+      current.words.push(t.text);
+      continue;
+    }
+    if (t.text === '|' || t.text === '|&') {
+      endSimple();
+      continue;
+    }
+    if ([';', '&&', '||', '&', '\n', '(', ')'].includes(t.text)) {
+      endPipeline();
+      continue;
+    }
+    // Redirect operator: the next word is its target, never an exempt operand.
+    const next = tokens[k + 1];
+    if (next?.kind === 'word') {
+      if (/>/.test(t.text) && next.text !== '/dev/null') current.writes = true;
+      if (anyBaseIsRoot(next.text)) return false;
+      for (const piece of scriptWords(next.text)) if (anyBaseIsRoot(piece)) return false;
+      k += 1;
+    } else if (/>/.test(t.text)) current.writes = true;
+  }
+  endPipeline();
+
+  let rootSeen = false;
+  for (const line of pipelines) {
+    const lineWrites = line.some((c) => c.writes);
+    for (let idx = 0; idx < line.length; idx += 1) {
+      const words = line[idx]!.words;
+      let i = 0;
+      // QA r3 F10: a redirect-only command (`> f`) has no name to vouch for.
+      if (words.length === 0) return false;
+      // QA r2 F7: any `VAR=` assignment (GIT_EXTERNAL_DIFF=, GIT_PAGER=, PAGER=,
+      // LESSOPEN=, GIT_SSH_COMMAND= …) can make a "read" run a program; a
+      // command naming the root with one is never exempt (also after env/sudo).
+      if (words.some((w) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) && words.some(anyBaseIsRoot))
+        return false;
+      if (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!)) return false;
+      while (i < words.length && WRAPPERS.test(words[i]!)) {
+        // QA r3 F10: `command` / `exec` change lookup or replace the shell.
+        if (ROOT_EXEMPT_CANCEL.has(words[i]!.toLowerCase())) return false;
+        i += 1;
+        while (i < words.length && words[i]!.startsWith('-')) i += 1;
+        if (i < words.length && /^[A-Za-z_]\w*=/.test(words[i]!)) return false;
+      }
+      const head = headName(words[i]);
+      // QA r3 F10: allowlist over every simple command, not only the ones
+      // that name the root. Unknown names (and the cancel keywords) end it.
+      const rawHead = (words[i] ?? '').toLowerCase();
+      if (ROOT_EXEMPT_CANCEL.has(rawHead) || ROOT_EXEMPT_CANCEL.has(head)) return false;
+      if (!ROOT_EXEMPT_HEADS.has(head)) return false;
+      // A bare name, or a system bin path. `./ls`, `bin/git` (a workspace
+      // script named like an allowed command), `$env:X=…`, `{`, `x=…` are not.
+      const headWord = words[i] ?? '';
+      if (
+        !/^[A-Za-z0-9_.:[\]-]+$/.test(headWord) &&
+        !/^\/(?:usr\/(?:local\/)?)?s?bin\/[A-Za-z0-9_.-]+$/.test(headWord)
+      )
+        return false;
+      if (head === 'git' && !gitReadOnlyCValues(words, i)) return false;
+      if (head === 'printf' && words.slice(i + 1).some((a) => /^-[a-zA-Z]*v/.test(a))) return false;
+      const exempt = new Set<number>();
+      const downstreamOnlyFilters = line.slice(idx + 1).every((c) => isPipeFilter(c.words));
+      const outputSafe = !lineWrites && downstreamOnlyFilters;
+      if ((head === 'cd' || head === 'pushd') && idx === 0 && line.length === 1) {
+        let j = i + 1;
+        if (words[j] === '--') j += 1;
+        if (j === words.length - 1) exempt.add(j);
+      } else if (READ_ONLY_HEADS.has(head) && outputSafe) {
+        const args = words.slice(i + 1);
+        const unsafe = READ_ONLY_HEAD_UNSAFE[head];
+        if (!unsafe || !args.some((a) => unsafe.test(a))) {
+          for (let j = i + 1; j < words.length; j += 1) exempt.add(j);
+        }
+      } else if (head === 'git' && outputSafe) {
+        for (const c of gitReadOnlyCValues(words, i) ?? []) exempt.add(c);
+      }
+      for (let j = 0; j < words.length; j += 1) {
+        const w = words[j]!;
+        const named = anyBaseIsRoot(w);
+        if (exempt.has(j)) {
+          if (named) rootSeen = true;
+          continue;
+        }
+        if (named) return false;
+        for (const piece of scriptWords(w)) if (anyBaseIsRoot(piece)) return false;
+      }
+    }
+  }
+  return rootSeen;
+}
+
 export function findShellProtectedWrites(
   command: string,
   ctx: ProtectedPathContext
 ): ProtectedPathHit[] {
   const detect = ctx.shellWriteTargets ?? detectShellWriteTargets;
-  const detection = withDetectorHome(ctx, () => detect(command, ctx.cwd));
-  const { uncertain, mentions = [], unresolved = [] } = detection;
+  const winForm = windowsSeparatorForm(command, ctx);
+  // O151 (Windows): analyse the pwsh/cmd separator form first (its paths are
+  // the real ones, so hits[0] names them), then the original; union of both.
+  const detections = [...(winForm ? [winForm] : []), command].map((c) =>
+    withDetectorHome(ctx, () => detect(c, ctx.cwd))
+  );
+  const uncertain = detections.some((d) => d.uncertain);
+  const mentions = [...new Set(detections.flatMap((d) => d.mentions ?? []))];
+  const unresolved = [...new Set(detections.flatMap((d) => d.unresolved ?? []))];
   // O97 does not flag chmod/chown/chgrp as writes; O94 still gates permission
   // changes on protected paths.
-  const targets = [...detection.targets, ...permissionChangeTargets(command, ctx.cwd)];
+  const targets = [
+    ...new Set([
+      ...detections.flatMap((d) => d.targets),
+      ...(winForm ? permissionChangeTargets(winForm, ctx.cwd) : []),
+      ...permissionChangeTargets(command, ctx.cwd),
+    ]),
+  ];
   const hits: ProtectedPathHit[] = [];
   const seen = new Set<string>();
   for (const target of targets) {
@@ -617,10 +992,13 @@ export function findShellProtectedWrites(
     // operand is never written; it still gets the normal protected-path
     // classification; only the ancestor-delete rule is skipped, and only when
     // the path is named nowhere else in the command.
-    const cdOnly = cdOnlyOperands(command, ctx.cwd);
+    // Same pwsh/cmd form as the detector, so its cd operand compares equal.
+    const cdOnly = cdOnlyOperands(winForm ?? command, ctx.cwd);
     // QA B1 / PM 10-12: a second cd/pushd/popd/chdir (any operand) cancels the
     // exemption — the first cd-to-root must also be the last directory change.
     const allowCdExempt = countDirectoryChanges(command) <= 1;
+    let rootReadOnlyMemo: boolean | undefined;
+    const rootReadOnly = () => (rootReadOnlyMemo ??= workspaceRootOnlyReadOnly(command, ctx));
     // Prefer absolute mentions from the shared detector; fall back to text regex.
     for (const m of mentions) {
       // O103: a word still holding `$VAR` / `$(…)` is not a path we resolved;
@@ -630,8 +1008,12 @@ export function findShellProtectedWrites(
       // (realpath); `cd /`, `cd ~`, `cd ..` still hit the ancestor rule.
       const isCd =
         allowCdExempt && cdOnly.has(path.resolve(ctx.cwd, m)) && isWorkspaceRootPath(m, ctx);
+      // O151: the root named only as a read-only operand (`git -C <root> diff`,
+      // `ls -la <root>`) besides that single cd is not a delete of its .git.
+      const isReadOnlyRoot = !isCd && isWorkspaceRootPath(m, ctx) && rootReadOnly();
       const hit =
-        classifyProtectedPath(m, ctx) ?? (isCd ? undefined : deletesProtectedAncestor(m, ctx));
+        classifyProtectedPath(m, ctx) ??
+        (isCd || isReadOnlyRoot ? undefined : deletesProtectedAncestor(m, ctx));
       if (!hit || seen.has(hit.resolved)) continue;
       seen.add(hit.resolved);
       hits.push({
@@ -743,7 +1125,15 @@ export function findShellProtectedWrites(
       });
     }
   }
-  return hits;
+  // O151 F6: the prompt names hits[0]. A bare mention (`cd R/.git && node -e
+  // "writeFileSync('config')"` → the word `fs` → `.git/fs`) must not be named
+  // ahead of the write the O101 scan actually found (`.git/config`). Order
+  // only; the set of hits is unchanged.
+  const rank = (h: ProtectedPathHit) => (h.operation !== 'shell' || h.kind ? 0 : h.source ? 1 : 2);
+  return hits
+    .map((h, i) => [h, i] as const)
+    .sort(([a, i], [b, j]) => rank(a) - rank(b) || i - j)
+    .map(([h]) => h);
 }
 
 const INLINE_INTERP =

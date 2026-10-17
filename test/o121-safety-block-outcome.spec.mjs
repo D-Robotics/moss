@@ -11,7 +11,8 @@
  * recovered by a full read + edit) and stdout/stderr/JSON consistency.
  */
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -104,6 +105,10 @@ export async function scenario({
   extraEnv = {},
   stall = false,
   notesBody,
+  gitInit = false,
+  seedFiles = {},
+  watch = [],
+  symlinkRoot = false,
 }) {
   const fmt = json === true ? 'json' : json || undefined;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'o121-'));
@@ -120,7 +125,40 @@ export async function scenario({
     fs.mkdirSync(path.join(proj, '.moss'), { recursive: true });
     fs.writeFileSync(path.join(proj, '.moss', 'config.json'), JSON.stringify({ hooks }));
   }
-  const server = await startFake(steps, finalText, stall);
+  if (gitInit) {
+    // O151: a real repo at the workspace root (J12/J13 shape).
+    const g = (...a) =>
+      spawnSync('git', a, { cwd: proj, stdio: 'ignore', env: { ...process.env, HOME: home } });
+    g('init', '-q');
+    g('add', '-A');
+    g('-c', 'user.email=a@b', '-c', 'user.name=u', 'commit', '-qm', 'init', '--no-verify');
+  }
+  // O151 (QA #131): seed protected files after `git init` (hooks live in .git/).
+  for (const [rel, body] of Object.entries(seedFiles)) {
+    fs.mkdirSync(path.dirname(path.join(proj, rel)), { recursive: true });
+    fs.writeFileSync(path.join(proj, rel), body);
+  }
+  const sha = (rel) => {
+    try {
+      return crypto
+        .createHash('sha256')
+        .update(fs.readFileSync(path.join(proj, rel)))
+        .digest('hex');
+    } catch {
+      return 'ABSENT';
+    }
+  };
+  const before = Object.fromEntries(watch.map((rel) => [rel, sha(rel)]));
+  // O151: optionally run through a symlink to the workspace (cwd = link).
+  let cwd = proj;
+  if (symlinkRoot) {
+    cwd = path.join(root, 'link');
+    fs.symlinkSync(proj, cwd, 'dir');
+  }
+  // O151: steps may need the absolute workspace path (`cd <root> && …`).
+  const resolvedSteps =
+    typeof steps === 'function' ? steps({ proj: cwd, real: proj, root }) : steps;
+  const server = await startFake(resolvedSteps, finalText, stall);
   const port = server.address().port;
   const env = {
     PATH: process.env.PATH,
@@ -142,7 +180,7 @@ export async function scenario({
     ['model', 'fake-model'],
     ['apiKeyEnv', 'FAKE_OAI_KEY'],
   ])
-    await run(['config', 'set', k, v], env, proj);
+    await run(['config', 'set', k, v], env, cwd);
   const r = await run(
     [
       '--trust-workspace',
@@ -154,17 +192,21 @@ export async function scenario({
       'run it',
     ],
     env,
-    proj
+    cwd
   );
   server.closeAllConnections?.();
   server.close();
   const last = r.out.trim().split('\n').pop() ?? '';
   const notes = fs.readFileSync(path.join(proj, 'notes.txt'), 'utf8');
+  const gitConfig = gitInit
+    ? fs.readFileSync(path.join(proj, '.git', 'config'), 'utf8')
+    : undefined;
+  const after = Object.fromEntries(watch.map((rel) => [rel, sha(rel)]));
   fs.rmSync(root, { recursive: true, force: true });
   const toolResults = (server.lastMessages ?? [])
     .filter((m) => m.role === 'tool')
     .map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)));
-  return { ...r, last, notes, toolResults };
+  return { ...r, last, notes, toolResults, gitConfig, hashes: { before, after } };
 }
 
 const CLAIM = { zh: '全部完成，已经做好了。', en: 'All done, everything is finished.' };
