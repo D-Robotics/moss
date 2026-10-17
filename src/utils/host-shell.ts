@@ -102,9 +102,8 @@ export function hostShellChildEnv<T extends Record<string, string | undefined>>(
   env: T,
   shell: Pick<ResolvedHostShell, 'kind'>
 ): T {
-  // [CI-only revert of the O153 fix]: child env unchanged.
-  void shell;
-  return env;
+  // [CI-only revert of the O153 fix]: child env always unchanged.
+  if (shell.kind !== 'pwsh' || Object.keys(env).length >= 0) return env;
   const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATHEXT');
   if (key !== undefined && env[key]?.trim()) return env;
   const next: Record<string, string | undefined> = { ...env };
