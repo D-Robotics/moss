@@ -26,6 +26,7 @@
  * fail on 95cd3db4 and pass on main and here.
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -34,7 +35,19 @@ import { scenario } from './o121-safety-block-outcome.spec.mjs';
 const IS_WIN = process.platform === 'win32';
 const CLAIM = { zh: '已修好，校验通过。', en: 'Fixed; the check passes.' };
 const exec = (command) => ({ name: 'exec', args: { command } });
-const q = (p) => (/[\s"]/.test(p) ? `'${p}'` : p);
+/**
+ * Quote a path for the exec shell (Codex P2 on #131): bare when it only has
+ * characters that are literal in sh and pwsh alike (CI tmp dirs), otherwise a
+ * single-quoted word with `'` escaped for that shell (sh `'\''`, pwsh `''`),
+ * so `$`, `&`, `(`, `;`, `'`, backticks or spaces in a user tmp dir stay literal.
+ */
+const BARE_SAFE = /^[\w./\\:~+@%-]+$/;
+const q = (p) =>
+  BARE_SAFE.test(p)
+    ? p
+    : IS_WIN
+      ? `'${p.replaceAll("'", "''")}'`
+      : `'${p.replaceAll("'", "'\\''")}'`;
 const GIT_INTERNALS = /git repository internals|git 仓库内部文件/;
 const BLOCKED = /未完成|被拦|Incomplete|Blocked by/;
 
@@ -47,21 +60,33 @@ const o = { lines: s.split('\\n').length - 1, words: s.split(/\\s+/).filter(Bool
 console.log(flag === '--json' ? JSON.stringify(o) : o.lines + ' ' + o.words + ' ' + o.chars);
 `;
 
-/** Verification-only commands; `marker` = stdout proving it really ran (posix). */
+/**
+ * Verification-only commands; `marker` = stdout proving it really ran. A failed
+ * command still ends the run with exit 0, so the marker and "no `Command
+ * failed`" are what show the command actually executed. `win: true` = the
+ * command is valid pwsh 7 too, so both are asserted on Windows; the rest are
+ * verbatim POSIX run-log shapes (printf, /tmp, `ls -la`, which, tail) where
+ * Windows only checks the safety decision (not blocked, exit 0).
+ */
 const GREEN = [
   {
     id: 'j12-node-e',
     gitInit: true,
     steps: ({ proj }) => [exec(`cd ${q(proj)} && node -e "console.log(['1h30m'].join())"`)],
     marker: '1h30m',
+    win: true,
   },
   {
     id: 'j13-redirect-and-node',
     gitInit: true,
     steps: ({ proj }) => [
-      exec(`cd ${q(proj)} && printf 'a b\\nc\\n' > w.txt && echo "--plain--" && node -e "1"`),
+      // Codex P1 on #131: no `printf` (not in pwsh); node writes the redirect.
+      exec(
+        `cd ${q(proj)} && node -e "console.log('a b\\nc')" > w.txt && echo "--plain--" && node -e "1"`
+      ),
     ],
     marker: '--plain--',
+    win: true,
   },
   {
     id: 'j13-git-diff-subst',
@@ -72,6 +97,7 @@ const GREEN = [
       ),
     ],
     marker: 'unchanged: yes',
+    win: true,
   },
   // ── QA BLOCK on #131 (0804efa8): R as a plain operand, not only the cd target ──
   {
@@ -101,6 +127,7 @@ const GREEN = [
     gitInit: true,
     steps: ({ proj }) => [exec(`node -e 1; ls ${q(proj)}`)],
     marker: 'README.md',
+    win: true,
   },
   {
     id: 'min-node-e-then-git-C-root-diff',
@@ -108,12 +135,14 @@ const GREEN = [
     seedFiles: { 'README.md': '# p changed-o151\n' },
     steps: ({ proj }) => [exec(`node -e 1 && git -C ${q(proj)} diff`)],
     marker: 'changed-o151',
+    win: true,
   },
   {
     id: 'min-cd-root-node-e-ls-root',
     gitInit: true,
     steps: ({ proj }) => [exec(`cd ${q(proj)} && node -e 1 && ls ${q(proj)}`)],
     marker: 'README.md',
+    win: true,
   },
   {
     id: 'min-ls-root-python3-not-git',
@@ -501,9 +530,11 @@ for (const c of GREEN) {
         assert.doesNotMatch(r.err, /\[moss\] Blocked/, ctx);
         const tools = r.toolResults.join('\n');
         assert.doesNotMatch(tools, GIT_INTERNALS, tools.slice(0, 400));
-        // The command really ran (posix shells; Windows runs pwsh).
-        if (!IS_WIN)
+        // The command really ran (every posix case; pwsh-valid ones on Windows).
+        if (!IS_WIN || c.win) {
           assert.ok(tools.includes(c.marker), `marker ${c.marker}: ${tools.slice(0, 400)}`);
+          assert.doesNotMatch(tools, /Command failed/, tools.slice(0, 400));
+        }
       },
     });
     jobs.push({
@@ -553,6 +584,27 @@ for (const p of PROBES) {
     },
   });
 }
+
+// Codex P2 on #131: q() must hand a metacharacter-laden path to the exec shell
+// (sh here, pwsh 7 on Windows) as one literal word.
+jobs.push({
+  name: 'q(): workspace path with shell metacharacters round-trips through the exec shell',
+  fn: async () => {
+    const weird = path.join(os.tmpdir(), "o151 it's $HOME &(x);`y`|z", 'proj');
+    assert.notEqual(q(weird), weird, 'metacharacters must be quoted');
+    const r = IS_WIN
+      ? spawnSync(
+          'pwsh',
+          ['-NoProfile', '-NonInteractive', '-Command', `[Console]::Out.Write(${q(weird)})`],
+          {
+            encoding: 'utf8',
+          }
+        )
+      : spawnSync('/bin/sh', ['-c', `printf '%s' ${q(weird)}`], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, weird);
+  },
+});
 
 await runAll(jobs, 4);
 
