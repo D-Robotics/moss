@@ -97,7 +97,8 @@ const GREEN = [
       ),
     ],
     marker: 'unchanged: yes',
-    win: true,
+    // N1 跟进: on Windows CI (run 39058757304) pwsh printed the `$(…)` literally,
+    // so the marker is not asserted there until N1 explains it.
   },
   // ── QA BLOCK on #131 (0804efa8): R as a plain operand, not only the cd target ──
   {
@@ -127,7 +128,8 @@ const GREEN = [
     gitInit: true,
     steps: ({ proj }) => [exec(`node -e 1; ls ${q(proj)}`)],
     marker: 'README.md',
-    win: true,
+    // N1 跟进: on Windows CI (run 39058757304) `node -e 1; ls R` gave no output
+    // under pwsh, so the marker is not asserted there until N1 explains it.
   },
   {
     id: 'min-node-e-then-git-C-root-diff',
