@@ -10,7 +10,6 @@ import { ProcessError, runProcess } from '../utils/run-process.js';
 import { isZhLocale } from './cli-locale.js';
 import { hookEventZhName } from './hook-event-names.js';
 import type { MossHookEventId } from './hook-event-names.js';
-import { windowsMissingCommand } from '../utils/windows-missing-command.js';
 
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
 
@@ -61,25 +60,6 @@ type HookOutcome = 'exit' | 'spawn_failed' | 'timeout';
 /** Shell exit codes meaning "command not found / not executable". */
 const LAUNCH_FAILURE_EXIT_CODES =
   process.platform === 'win32' ? new Set([9009]) : new Set([126, 127]);
-
-/**
- * O135: `& exit /b` keeps cmd's 9009 for a bare missing command, but a hook
- * that goes through pwsh (`pwsh -Command missing`) still exits 1 with the
- * native "is not recognized" diagnostic on stderr. Treat a non-zero exit whose
- * stderr starts with that diagnostic as spawn_failed so every event (not only
- * PreToolUse) fails closed and the copy says the hook did not start.
- */
-function hookOutcomeFromExit(exitCode: number, stderr: string): HookOutcome {
-  if (LAUNCH_FAILURE_EXIT_CODES.has(exitCode)) return 'spawn_failed';
-  if (
-    process.platform === 'win32' &&
-    exitCode !== 0 &&
-    windowsMissingCommand(stderr ?? '') !== undefined
-  ) {
-    return 'spawn_failed';
-  }
-  return 'exit';
-}
 
 interface HookRunResult {
   outcome: HookOutcome;
@@ -140,7 +120,7 @@ function runHookCommand(
   })
     .then(
       ({ exitCode, stdout, stderr }): HookRunResult => ({
-        outcome: hookOutcomeFromExit(exitCode, stderr),
+        outcome: LAUNCH_FAILURE_EXIT_CODES.has(exitCode) ? 'spawn_failed' : 'exit',
         exitCode,
         stdout,
         stderr,
@@ -161,7 +141,7 @@ function runHookCommand(
         }
         const code = err.exitCode ?? 1;
         return {
-          outcome: hookOutcomeFromExit(code, err.stderr),
+          outcome: LAUNCH_FAILURE_EXIT_CODES.has(code) ? 'spawn_failed' : 'exit',
           exitCode: code,
           stdout: err.stdout,
           stderr: err.stderr,
@@ -278,14 +258,7 @@ export function formatHookFailure(
     // O91: zh names the hook 「<中文名>钩子」 — the table is suffix-free and
     // the bare English event id never appears as the only label in zh copy.
     const name = `${hookEventZhName(event)}钩子`;
-    // O135: when a blocking hook could not start, name the command and say it
-    // was treated as deny (PM/UX 2026-10-12).
-    const head =
-      blocked && result.outcome === 'spawn_failed'
-        ? `已拦截：${name} \`${hook.command}\` 未能启动，已按拒绝处理。`
-        : blocked
-          ? `已拦截：${name}${why}。`
-          : `${name}${why}，未拦截。`;
+    const head = blocked ? `已拦截：${name}${why}。` : `${name}${why}，未拦截。`;
     const lines = [
       head,
       `命令：${hook.command}`,
@@ -303,13 +276,7 @@ export function formatHookFailure(
       : result.outcome === 'timeout'
         ? `timed out after ${timeoutFor(hook)}ms`
         : `exited with code ${result.exitCode}`;
-  // O135 (UX): blocked spawn_failed names the command and says treated as deny.
-  const head =
-    blocked && result.outcome === 'spawn_failed'
-      ? `Blocked: ${event} hook \`${hook.command}\` failed to start; treated as deny.`
-      : blocked
-        ? `Blocked: ${event} hook ${why}.`
-        : `${event} hook ${why}; not blocking.`;
+  const head = blocked ? `Blocked: ${event} hook ${why}.` : `${event} hook ${why}; not blocking.`;
   const lines = [
     head,
     `Command: ${hook.command}`,
@@ -325,29 +292,6 @@ export function formatHookFailure(
 function isBlockDecision(decision: string | undefined): boolean {
   const value = decision?.trim().toLowerCase();
   return value === 'block' || value === 'deny';
-}
-
-function isAllowDecision(decision: string | undefined): boolean {
-  const value = decision?.trim().toLowerCase();
-  return value === 'allow' || value === 'approve';
-}
-
-/**
- * O135: PreToolUse is a safety gate. Non-zero exit with no explicit allow
- * decision fails closed in both moss and claude formats (do not only special-
- * case exit 2 / exit 1).
- */
-function preToolUseBlocks(
-  hook: HookCommandConfig,
-  result: HookRunResult,
-  parsed?: ParsedHookJson
-): boolean {
-  if (hook.blocking === false) return false;
-  if (result.outcome !== 'exit') return true;
-  if (isBlockDecision(parsed?.decision)) return true;
-  if (result.exitCode === 0) return false;
-  if (isAllowDecision(parsed?.decision)) return false;
-  return true;
 }
 
 function hookReason(result: HookRunResult, parsed?: ParsedHookJson): string {
@@ -540,7 +484,7 @@ export function createConfiguredHookCallbacks(
               timeoutFor(hook)
             );
             const parsed = parseHookJson(r.stdout);
-            if (preToolUseBlocks(hook, r, parsed)) {
+            if (promptBlocks(hook, r, parsed)) {
               return { approved: false, reason: blockReason('PreToolUse', hook, r, parsed) };
             }
             if (hookFailed(r)) notice('PreToolUse', hook, r, false);
