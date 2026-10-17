@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { runProcess, ProcessError } from '../utils/run-process.js';
-import { resolveHostShell } from '../utils/host-shell.js';
+import { hostShellChildEnv, resolveHostShell } from '../utils/host-shell.js';
 import { windowsMissingCommand } from '../utils/windows-missing-command.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
@@ -211,7 +211,7 @@ export const execTool: Tool = {
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
         signal: ctx.abortSignal,
-        env: opened.env,
+        env: hostShellChildEnv(opened.env, shell),
         cwd: ctx.workspaceDir,
         // Live streaming: forward stdout chunks to the host (TUI/headless
         // renderer) so long-running commands show output incrementally.

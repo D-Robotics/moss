@@ -1,6 +1,6 @@
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { spawnProcess, type ChildProcess } from '../utils/run-process.js';
-import { resolveHostShell } from '../utils/host-shell.js';
+import { hostShellChildEnv, resolveHostShell } from '../utils/host-shell.js';
 import { backgroundShellInvocation } from './windows-background-job.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { assertShellWritesWithinRoots } from '../safety/shell-write-sandbox.js';
@@ -190,7 +190,7 @@ export const execBackgroundTool: Tool = {
       child = spawnProcess(invocation.executable, invocation.args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         cwd: ctx.workspaceDir,
-        env: opened.env,
+        env: hostShellChildEnv(opened.env, shell),
         detached: process.platform !== 'win32',
         windowsHide: true,
         windowsVerbatimArguments: invocation.windowsVerbatimArguments,
