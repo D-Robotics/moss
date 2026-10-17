@@ -14,6 +14,10 @@
  *
  * Before #124 (de60df80) the cd-only GREEN cases fail; before the O151 src
  * fix (#131 0804efa8) the read-only-operand GREEN cases fail with exit 9.
+ * QA r2 on #131 (4b76068d): F7 — read-only heads/options that run a program
+ * (`rg --pre`, `git --ext-diff`, `VAR=` prefixes, `sort --compress-program`,
+ * less/more) and F8 — Windows `\` separators eaten by the POSIX tokenizer;
+ * those RED cases fail on 4b76068d and pass on main and here.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -115,7 +119,51 @@ const GREEN = [
 
 /** Real writes to protected files; each must exit 9 AND leave the file unchanged. */
 const SEED = { '.git/hooks/pre-commit': '#!/bin/sh\nexit 0\n', '.env': 'ORIG=1\n' };
-const WATCH = ['.git/config', '.git/hooks/pre-commit', '.env'];
+const WATCH = ['.git/config', '.git/HEAD', '.git/hooks/pre-commit', '.env'];
+/**
+ * QA r2 F7 on #131: a read-only head whose options / env run an external
+ * program must not exempt the root (RG1: `rg --pre rm … <root>` deleted .git
+ * on 4b76068d). Every one is blocked on main as well as here.
+ */
+const F7_RED = (R) => [
+  `rg --pre rm --hidden --no-ignore -e . ${R}; node -e 1`,
+  `rg --pre=rm -e . ${R}; node -e 1`,
+  `rg --pre-glob '*' --pre rm -e . ${R}; node -e 1`,
+  `rg -z -e . ${R}; node -e 1`,
+  `rg --search-zip -e . ${R}; node -e 1`,
+  `ls ${R} | rg x; node -e 1`,
+  `git -C ${R} diff --ext-diff; node -e 1`,
+  `git -C ${R} log -p --ext-diff; node -e 1`,
+  `git -C ${R} show --textconv HEAD; node -e 1`,
+  `git -C ${R} log --output=out.txt; node -e 1`,
+  `git -C ${R} diff --output out.txt; node -e 1`,
+  `git -C ${R} grep -Orm -e x; node -e 1`,
+  `git -C ${R} grep -O rm -e x; node -e 1`,
+  `git -C ${R} grep --open-files-in-pager=rm -e '#'; node -e 1`,
+  `git -C ${R} -c diff.external=rm diff; node -e 1`,
+  `git -c core.pager=rm -C ${R} log; node -e 1`,
+  `git -C ${R} log --exec=rm; node -e 1`,
+  `GIT_EXTERNAL_DIFF=./x.sh git -C ${R} diff; node -e 1`,
+  `GIT_PAGER=rm git -C ${R} log; node -e 1`,
+  `PAGER=rm git -C ${R} log; node -e 1`,
+  `LESSOPEN='|rm %s' ls ${R}; node -e 1`,
+  `FOO=1 ls ${R}; node -e 1`,
+  `env GIT_EXTERNAL_DIFF=./x.sh git -C ${R} diff; node -e 1`,
+  `sudo GIT_PAGER=rm git -C ${R} log; node -e 1`,
+  `ls ${R} | sort --compress-program=rm; node -e 1`,
+  `ls ${R} | sort --compress-program rm -S 1; node -e 1`,
+  `ls ${R} | less; node -e 1`,
+  `ls ${R} | more; node -e 1`,
+  `find ${R} -exec rm {} +; node -e 1`,
+  `find ${R} -execdir rm {} +; node -e 1`,
+  `find ${R} -ok rm {} ';'; node -e 1`,
+  `find ${R} -okdir rm {} ';'; node -e 1`,
+  `find ${R} -delete; node -e 1`,
+  `find ${R} -fprint out.txt; node -e 1`,
+  `find ${R} -fprintf out.txt x; node -e 1`,
+  `file -C -m m ${R}; node -e 1`,
+  `tree -o out.txt ${R}; node -e 1`,
+];
 const nodeW = (file) => `node -e "require('fs').writeFileSync('${file}','x')"`;
 const PROBES = [
   { id: 'hooks echo >', cmd: (R) => `cd ${R} && echo 'exit 1' > .git/hooks/pre-commit` },
@@ -149,6 +197,27 @@ const PROBES = [
   },
   { id: 'ls R | xargs rm -rf', cmd: (R) => `ls -d ${R} | xargs rm -rf; node -e 1` },
   { id: 'ls R; rm -rf R/.git', cmd: (R) => `ls ${R}; node -e 1; rm -rf ${R}/.git` },
+  // QA r2 RG1/RG2 on #131 (4b76068d ran these and deleted .git/config, HEAD,
+  // hooks and .env): a "read-only" head that runs a program is not exempt.
+  { id: 'RG1 rg --pre rm', cmd: (R) => `rg --pre rm --hidden --no-ignore -e . ${R}; node -e 1` },
+  {
+    id: '[zh] RG1 rg --pre rm',
+    lang: 'zh',
+    cmd: (R) => `rg --pre rm --hidden --no-ignore -e . ${R}; node -e 1`,
+  },
+  {
+    id: '[json] RG1 rg --pre rm',
+    json: true,
+    cmd: (R) => `rg --pre rm --hidden --no-ignore -e . ${R}; node -e 1`,
+  },
+  {
+    id: 'RG2 git grep --open-files-in-pager=rm',
+    cmd: (R) => `git -C ${R} grep --open-files-in-pager=rm -e x; node -e 1`,
+  },
+  {
+    id: 'GIT_EXTERNAL_DIFF= git -C R diff',
+    cmd: (R) => `GIT_EXTERNAL_DIFF=rm git -C ${R} diff; node -e 1`,
+  },
   { id: '[zh] .git/config node -e', lang: 'zh', cmd: (R) => `cd ${R} && ${nodeW('.git/config')}` },
   {
     id: '[json] .git/config node -e',
@@ -232,6 +301,8 @@ async function runAll(jobs, limit = 4) {
     `ls $(echo ${R}); node -e 1`,
     `ls ${R}/src/..; node -e "x('${R}/src/..')"`,
     `ls ${R}; node -e "require('fs').writeFileSync('.git/config','x')"`,
+    // QA r2 F7 on #131: "read-only" heads/options that run a program.
+    ...F7_RED(R),
   ];
   const jobs = [];
   for (const [cmd, root] of green)
@@ -251,6 +322,48 @@ async function runAll(jobs, limit = 4) {
       assert.equal(h[0]?.raw, '.git/config', JSON.stringify(h));
     },
   });
+  // ── Windows exec shell (pwsh / cmd.exe): `\` is a separator, never an escape ──
+  // CI run 39045691788: the POSIX tokenizer ate the backslashes of an unquoted
+  // `cd C:\…\proj/.git`, so the cd resolved to a bogus dir and hits[0] named it;
+  // with `proj\.git\config` the `.git` segment vanished and `sed -i` / `ln` /
+  // `perl -pi` / `dd of=` / `rsync` writes were not gated at all. windowsShell
+  // runs that parse on every host; R in Windows form (`\` separators).
+  const W = (p) => (IS_WIN ? p : p.replaceAll('/', '\\'));
+  const winHits = (cmd, root = R) =>
+    findShellProtectedWrites(cmd, { cwd: root, workspaceRoot: root, home, windowsShell: true });
+  const winFirst = [
+    [`cd ${W(R)}\\.git && ${nodeW('config')}`, '.git/config'],
+    [`cd ${W(R)}/.git && ${nodeW('config')}`, '.git/config'],
+    [`cd ${W(R)}\\.git\\hooks && ${nodeW('pre-commit')}`, '.git/hooks/pre-commit'],
+    [`sed -i s/a/b/ ${W(R)}\\.git\\config`, '.git/config'],
+    [`sed -i s/a/b/ .git\\config`, '.git/config'],
+    [`ln -sf x ${W(R)}\\.git\\hooks\\pre-commit`, '.git/hooks/pre-commit'],
+    [`perl -pi -e s/a/b/ .git\\config`, '.git/config'],
+    [`dd of=.git\\config`, '.git/config'],
+    [`rsync a .git\\config`, '.git/config'],
+    [`cd ${W(R)} && sed -i s/a/b/ .git\\hooks\\pre-commit`, '.git/hooks/pre-commit'],
+  ];
+  for (const [cmd, first] of winFirst)
+    jobs.push({
+      name: `policy WIN RED: ${cmd.replaceAll(W(base), '<b>')} names ${first} first`,
+      fn: async () => {
+        const h = winHits(cmd);
+        assert.ok(h.length > 0, 'expected a protected hit');
+        assert.equal(h[0]?.raw, first, JSON.stringify(h));
+        assert.notEqual(h[0]?.category, 'unresolved', JSON.stringify(h));
+      },
+    });
+  const winGreen = [
+    [`cd ${W(R)} && node -e 1`, R],
+    [`cd ${W(R)} && node -e 1 ; git -C ${W(R)} diff -- src/cli.js`, R],
+    [`ls -la ${W(NR)}; ls -la ${W(NR)}\\src; python3 -V`, NR],
+    [`cd ${W(R)} && node -e 1 && ls ${W(R)}\\src`, R],
+  ];
+  for (const [cmd, root] of winGreen)
+    jobs.push({
+      name: `policy WIN GREEN: ${cmd.replaceAll(W(base), '<b>')}`,
+      fn: async () => assert.deepEqual(winHits(cmd, root), []),
+    });
   await runAll(jobs, 1);
   fs.rmSync(base, { recursive: true, force: true });
 }
