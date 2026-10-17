@@ -113,3 +113,65 @@ for (const cmd of [...QA, 'node -e 1; node -e "process.exit(3)"', 'node -e 1; Se
     `PROBE: moss-exec ${JSON.stringify({ cmd, text: short(text), ...(cmd.includes('ran_o153') ? { secondHalfRan: fs.existsSync(path.join(dir, 'ran_o153.txt')) } : {}) })}`
   );
 }
+
+// ---- Part 2: Moss CLI (-p) with the o121/o151 minimal child env ----
+// Hypothesis: with the minimal env the host-shell probe falls back to cmd.exe,
+// where `;` is not a separator (node swallows `; ls R` as argv → exit 0, no output).
+const minimal = {
+  PATH: process.env.PATH,
+  HOME: os.homedir(),
+  USERPROFILE: os.homedir(),
+  ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+};
+const resolveSrc = `import('./dist/utils/host-shell.js').then(m=>{const s=m.resolveHostShell();console.log(JSON.stringify({kind:s.kind,exe:s.executable}))})`;
+const envVariants = [
+  ['full', process.env],
+  ['minimal(o121)', minimal],
+  ...['PATHEXT', 'ComSpec', 'windir', 'TEMP', 'APPDATA', 'LOCALAPPDATA', 'PSModulePath', 'ProgramFiles', 'SystemDrive'].map(
+    (k) => [`minimal+${k}`, { ...minimal, ...(process.env[k] !== undefined ? { [k]: process.env[k] } : {}) }]
+  ),
+];
+for (const [name, env] of envVariants) {
+  const r = await new Promise((resolve) => {
+    const child = spawn(process.execPath, ['-e', resolveSrc], { cwd: process.cwd(), env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let o = '', e = '';
+    child.stdout.on('data', (c) => (o += c));
+    child.stderr.on('data', (c) => (e += c));
+    child.on('close', (code) => resolve({ code, o, e }));
+  });
+  console.log(`PROBE: hostshell ${JSON.stringify({ env: name, exit: r.code, out: short(r.o), err: short(r.e) })}`);
+}
+for (const [name, env] of [['full', process.env], ['minimal(o121)', minimal]]) {
+  const w = await run(IS_WIN ? 'where.exe' : 'which', ['pwsh'], { env });
+  console.log(`PROBE: where-pwsh ${JSON.stringify({ env: name, exit: w.code, stdout: short(w.stdout), stderr: short(w.stderr) })}`);
+  const v = await run(PWSH, ['-NoProfile', '-Command', '$PSVersionTable.PSVersion.Major'], { env });
+  console.log(`PROBE: pwsh-major ${JSON.stringify({ env: name, exit: v.code, stdout: short(v.stdout), stderr: short(v.stderr) })}`);
+}
+
+const { scenario } = await import('../test/o121-safety-block-outcome.spec.mjs');
+const execStep = (command) => ({ name: 'exec', args: { command } });
+const cliCases = [
+  'node -e 1; ls -Name .',
+  'node -e 1 && ls -Name .',
+  'node -e 1; Write-Output after',
+  'Write-Output before; ls -Name .',
+  'node -e 1; Get-Item NO_SUCH_PATH_XYZ',
+  'node -e 1; node -e "process.exit(3)"',
+  '$PSVersionTable.PSVersion.Major',
+  'echo %COMSPEC%',
+];
+for (const cmd of cliCases) {
+  for (const json of [false, true]) {
+    try {
+      const r = await scenario({ lang: 'en', steps: [execStep(cmd)], finalText: 'Done.', json });
+      const res = json
+        ? r.out.trim().split('\n').filter((l) => l.startsWith('{')).pop()
+        : r.last;
+      console.log(
+        `PROBE: cli ${JSON.stringify({ cmd, json, exit: r.code, tool: short(r.toolResults.join('\n')), last: short(res) })}`
+      );
+    } catch (e) {
+      console.log(`PROBE: cli ${JSON.stringify({ cmd, json, error: String(e?.message ?? e) })}`);
+    }
+  }
+}
