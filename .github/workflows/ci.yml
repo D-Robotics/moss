@@ -1,6 +1,6 @@
 name: CI
 
-# [CI-only] O153 root-cause probe. Do not merge.
+# [CI-only] O153 revert-red: fix reverted in src, new spec must fail on Windows. Do not merge.
 on:
   pull_request:
 
@@ -8,13 +8,13 @@ permissions:
   contents: read
 
 jobs:
-  probe:
-    name: O153 probe (${{ matrix.os }})
+  revert-red:
+    name: O153 revert-red (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -23,4 +23,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: node probe/o153-probe.mjs
+      - run: node --test test/o153-win-shell-without-pathext.spec.mjs
