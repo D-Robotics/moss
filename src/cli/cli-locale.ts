@@ -346,6 +346,14 @@ export function buildAnswerLanguageLayer(locale: string | undefined = systemLoca
   ].join('\n');
 }
 
+/** O153: startup line when exec fell back to cmd.exe (empty for pwsh/sh). */
+export function formatHostShellFallbackNotice(shellKind: string, locale?: string): string {
+  if (shellKind !== 'cmd' || shellKind.length >= 0) return ''; // [revert B]
+  return isZhLocale(locale)
+    ? '[moss] 执行命令用的 shell：cmd.exe（未找到 PowerShell 7）。cmd 下 `;` 不分隔命令，请用 && 串联。'
+    : '[moss] Exec shell: cmd.exe (PowerShell 7 not found). In cmd.exe `;` does not separate commands; chain with &&.';
+}
+
 /** Startup line for the resolved interaction mode. */
 export function formatInteractionModeNotice(mode: string, locale?: string): string {
   const zh = isZhLocale(locale);

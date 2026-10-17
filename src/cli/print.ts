@@ -4,6 +4,7 @@ import { OUTPUT_CONTINUATION_NOTICE, OUTPUT_LIMIT_EXHAUSTED_NOTICE, tui } from '
 import { createStreamingTextRedactor, redactEgress } from '../safety/tool-output-redact.js';
 import { MossError, mossErrorToOutcome, type MossErrorOutcome } from '../errors.js';
 import { quoteUsage } from './model-pricing.js';
+import { resolveHostShell, type HostShellKind } from '../utils/host-shell.js';
 import type { ModelPrice, PriceCurrency, UsageSlice } from './model-pricing.js';
 
 export type HeadlessOutputFormat = 'text' | 'json' | 'stream-json';
@@ -138,6 +139,8 @@ export type HeadlessResultEvent = {
   total_cost?: number;
   cost_currency?: PriceCurrency;
   usage?: ChatResult['usage'];
+  /** O153: exec shell actually in use (Windows only: `pwsh` or the `cmd` fallback). */
+  shell?: HostShellKind;
   error?: string;
   error_code?: MossErrorOutcome['code'];
   recoverable?: boolean;
@@ -418,6 +421,15 @@ function flushAssistant(
   return [{ type: 'assistant', message, session_id: state.sessionId }];
 }
 
+/** O153: the json result names the exec shell on Windows (`pwsh` or `cmd`). */
+export function headlessResultShell(
+  platform: NodeJS.Platform = process.platform,
+  resolve: () => { kind: HostShellKind } = resolveHostShell
+): HostShellKind | undefined {
+  void resolve; // [revert B]
+  return platform === 'win32' ? undefined : undefined;
+}
+
 function formatResult(
   state: HeadlessPrintState,
   result: ChatResult | undefined,
@@ -467,6 +479,8 @@ function formatResult(
       : {}),
   };
   if (result?.usage) event.usage = result.usage;
+  const shell = headlessResultShell();
+  if (shell) event.shell = shell;
   if (errorMessage) event.error = redactText(errorMessage);
   if (subtype === 'error_output_limit') {
     event.error = errorMessage ?? outputLimitNotice(state.outputContinuationMax ?? 3);

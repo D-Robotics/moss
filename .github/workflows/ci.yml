@@ -1,6 +1,6 @@
 name: CI
 
-# [CI-only] O153 revert-red: fix reverted in src, new spec must fail on Windows. Do not merge.
+# [CI-only] O153 revert B: fallback notices removed from src, cmd-fallback specs must fail on Windows. Do not merge.
 on:
   pull_request:
 
@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   revert-red:
-    name: O153 revert-red (${{ matrix.os }})
+    name: O153 revert-B (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
