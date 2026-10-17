@@ -135,11 +135,14 @@ const GREEN = [
     gitInit: true,
     steps: ({ proj }) => [exec(`node -e 1; ls ${q(proj)}`)],
     marker: 'README.md',
-    // QA r5 F12 / N1: `node -e 1; ls R` gave "(no output)" under pwsh on Windows
-    // CI (run 39058757304); `ls -Name` prints plain names. Same shape: an
-    // interpreter check, then a read-only reference to the root after `;`.
+    // QA r5 F12 / N1: under pwsh on Windows CI both `node -e 1; ls R` (run
+    // 39058757304) and `node -e 1; ls -Name R` (run 39062083953) came back
+    // "(no output)" with exit 0 — the statement after `;` printed nothing (N1 跟进,
+    // cause not yet known). Windows runs the same interpreter-then-read-only-root
+    // shape chained with `&&` (proven to print under pwsh by
+    // min-cd-root-node-e-ls-root); the `;` form stays a policy WIN GREEN case.
     // (`dir R` is not used: the policy still flags it, see O151 report.)
-    winSteps: ({ proj }) => [exec(`node -e 1; ls -Name ${q(proj)}`)],
+    winSteps: ({ proj }) => [exec(`node -e 1 && ls -Name ${q(proj)}`)],
     win: true,
   },
   {
@@ -498,6 +501,7 @@ async function runAll(jobs, limit = 4) {
       R,
     ],
     [`node -e 1; ls -Name ${W(R)}`, R],
+    [`node -e 1 && ls -Name ${W(R)}`, R],
   ];
   // QA r3 F10 (Windows): pwsh / cmd environment, function and alias writes
   // cancel the exemption too. main lets these through (O152); stricter here.
