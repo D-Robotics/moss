@@ -130,7 +130,10 @@ const CASES = [
 // without pwsh, and PATH polluted with `.`, an empty and a relative entry.
 const ALL7 = [...ALL, 'where'];
 const MSTEP = [
-  { name: 'exec', args: { command: 'git status --short && node -e "console.log(41+1)"' } },
+  {
+    name: 'exec',
+    args: { command: 'git status --short && node -e "console.log(41+1)" && npx --version' },
+  },
 ];
 for (const pathMode of ['nopwsh', 'full', 'dot-nopwsh', 'dot-full'])
   CASES.push({
@@ -142,6 +145,18 @@ for (const pathMode of ['nopwsh', 'full', 'dot-nopwsh', 'dot-full'])
     hook: true,
     steps: MSTEP,
   });
+// Each fake on its own, with pwsh on PATH and without (spec 4, one at a time).
+for (const fake of ['pwsh', 'powershell', 'cmd', 'git', 'node', 'npx.cmd', 'where'])
+  for (const pathMode of ['nopwsh', 'full'])
+    CASES.push({
+      id: `S-${pathMode}-fake-${fake}`,
+      pathMode,
+      fakes: fake === 'npx.cmd' ? [] : [fake],
+      npxCmd: fake === 'npx.cmd',
+      gitInit: true,
+      hook: true,
+      steps: MSTEP,
+    });
 const pathFor = (mode) =>
   ({
     full: fullPath,
@@ -200,7 +215,7 @@ for (const c of CASES) {
     fs.mkdirSync(path.join(proj, '.moss'), { recursive: true });
     fs.writeFileSync(
       path.join(proj, '.moss', 'config.json'),
-      JSON.stringify({ hooks: { PreToolUse: [{ command: 'git --version' }] } })
+      JSON.stringify({ hooks: { PreToolUse: [{ command: 'git --version > HOOK-OK.txt' }] } })
     );
   }
   for (const f of c.fakes) fs.copyFileSync(FAKE, path.join(proj, `${f}.exe`));
@@ -234,8 +249,10 @@ for (const c of CASES) {
   const toolResults = (server.lastMessages ?? [])
     .filter((m) => m.role === 'tool')
     .map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)));
+  const hookRan = fs.existsSync(path.join(proj, 'HOOK-OK.txt'));
   const row = {
     exit: r.code,
+    hookRan,
     jsonShell: json?.shell ?? null,
     markers: marks,
     toolResults,
@@ -257,10 +274,17 @@ log(
 log(
   `O158 VERDICT C: ${cHit.length ? 'REPRODUCED' : 'NOT REPRODUCED'} (case C, real pwsh on PATH: workspace fakes executed: ${cHit.join(', ') || 'none'})`
 );
-for (const id of Object.keys(summary.cases).filter((k) => k.startsWith('M-'))) {
+let matrixClean = true;
+for (const id of Object.keys(summary.cases).filter((k) => /^[MS]-/.test(k))) {
   const row = summary.cases[id];
   const ok42 = row.toolResults.some((t) => /\b42\b/.test(t));
+  const gitOk = row.toolResults.some((t) => /\?\? /.test(t));
+  const npxOk = row.toolResults.some((t) => /\b\d+\.\d+\.\d+\b/.test(t));
+  const markers = Object.keys(row.markers);
+  const ok = !markers.length && row.exit === 0 && ok42 && gitOk && npxOk && row.hookRan;
+  if (!ok) matrixClean = false;
   log(
-    `O158 MATRIX ${id}: markers=${Object.keys(row.markers).join(',') || 'none'} exit=${row.exit} shell=${row.jsonShell} exec42=${ok42}`
+    `O158 MATRIX ${id}: ${ok ? 'PASS' : 'FAIL'} markers=${markers.join(',') || 'none'} exit=${row.exit} shell=${row.jsonShell} exec42=${ok42} gitStatus=${gitOk} npx=${npxOk} hook=${row.hookRan}`
   );
 }
+log(`O158 MATRIX OVERALL: ${matrixClean ? 'ALL PASS' : 'SOME FAIL'}`);
