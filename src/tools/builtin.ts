@@ -252,6 +252,18 @@ export const execTool: Tool = {
         // persist, so a wiped `.git` does not also trip a SESSION exit 7.
         const restores = restoreProtectedPathChanges(protectedSnapBefore, reportable);
         disposeProtectedPathSnapshot(protectedSnapBefore);
+        // O152 F9b: structured report; the run outcome must not depend on
+        // the marker surviving output truncation.
+        const byRestore = new Map(restores.map((r) => [r.path, r.outcome]));
+        ctx.reportProtectedPathChanges?.(
+          reportable.map((c) => ({
+            path: c.path,
+            kind: c.kind,
+            ...(c.keys ? { keys: [...c.keys] } : {}),
+            ...(c.reason ? { reason: c.reason } : {}),
+            ...(byRestore.get(c.path) ? { restoreOutcome: String(byRestore.get(c.path)) } : {}),
+          }))
+        );
         return (
           '\n\n' + formatProtectedPathModifiedNotice(reportable, preferZhLocale(), cmd, restores)
         );

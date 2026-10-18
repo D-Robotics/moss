@@ -434,6 +434,23 @@ export function noteRunCompletionEvent(tracker: RunCompletionTracker, event: Mos
     }
   }
 
+  // O152 F9b: structured L3 result from the tool (never truncated). The text
+  // marker below stays as a fallback for producers that only emit text.
+  if (event.protectedPathChanges && event.protectedPathChanges.length > 0) {
+    const command = typeof input.command === 'string' ? input.command : toolName;
+    mergeProtectedPathChanges(
+      tracker,
+      event.protectedPathChanges.map((m) => ({
+        path: m.path,
+        kind: m.kind,
+        command,
+        ...(m.keys ? { keys: [...m.keys] } : {}),
+        ...(m.reason ? { reason: m.reason } : {}),
+        ...(m.restoreOutcome ? { restoreOutcome: m.restoreOutcome } : {}),
+      })),
+      describeStep(toolName, input)
+    );
+  }
   // O101 layer 3: post-run protected-path modifications → incomplete.
   if (typeof event.result === 'string') {
     const mods = parseProtectedPathModMarker(event.result);

@@ -1,4 +1,5 @@
 import type {
+  ProtectedPathChangeReport,
   Tool,
   ToolContext,
   ToolContentBlock,
@@ -232,6 +233,8 @@ export type ExecuteToolCallOutcome =
       aborted?: { by: 'user' | 'timeout' };
       structuredContent?: ToolContentBlock[];
       error?: ToolResult['error'];
+      /** O152 F9b: L3 post-run changes, independent of `text` truncation. */
+      protectedPathChanges?: ProtectedPathChangeReport[];
     }
   | {
       kind: 'unknown-tool';
@@ -417,6 +420,8 @@ async function executeOneToolCallInner(
     let aborted: { by: 'user' | 'timeout' } | undefined;
     let structuredBlocks: ToolContentBlock[] | undefined;
     let toolError: MossError | undefined;
+    // O152 F9b: structured L3 result (survives output truncation).
+    const protectedPathChanges: ProtectedPathChangeReport[] = [];
 
     const skipAgentHeartbeat = !deps.enableHeartbeat || deps.skipHeartbeatToolNames.has(call.name);
 
@@ -473,6 +478,9 @@ async function executeOneToolCallInner(
           abortSignal: attemptSignal,
           markResultError: () => {
             structuralError = true;
+          },
+          reportProtectedPathChanges: (changes) => {
+            protectedPathChanges.push(...changes.map((c) => ({ ...c })));
           },
         };
         if (!skipAgentHeartbeat) {
@@ -669,6 +677,7 @@ async function executeOneToolCallInner(
       ...(aborted ? { aborted } : {}),
       ...(structuredBlocks ? { structuredContent: structuredBlocks } : {}),
       ...(toolError ? { error: toolError } : {}),
+      ...(protectedPathChanges.length > 0 ? { protectedPathChanges } : {}),
     };
   } catch (err) {
     if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) {
@@ -695,6 +704,7 @@ export function outcomeToResult(outcome: ExecuteToolCallOutcome): {
   isError: boolean;
   structuredContent?: ToolContentBlock[];
   error?: ToolResult['error'];
+  protectedPathChanges?: ProtectedPathChangeReport[];
 } {
   switch (outcome.kind) {
     case 'completed':
@@ -703,6 +713,9 @@ export function outcomeToResult(outcome: ExecuteToolCallOutcome): {
         isError: outcome.isError,
         ...(outcome.structuredContent ? { structuredContent: outcome.structuredContent } : {}),
         ...(outcome.error ? { error: outcome.error } : {}),
+        ...(outcome.protectedPathChanges
+          ? { protectedPathChanges: outcome.protectedPathChanges }
+          : {}),
       };
     case 'unknown-tool':
     case 'pre-blocked':
