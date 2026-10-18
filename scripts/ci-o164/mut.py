@@ -9,6 +9,8 @@ if m=='item1':
     open('src/utils/dotenv-denied-env.ts','w').write(s)
     edit('src/utils/system-root.ts',"  env: Record<string, string | undefined> = envForSystemPaths()","  env: Record<string, string | undefined> = process.env")
     edit('src/utils/system-root.ts',"    if (value && /^[A-Za-z]:[\\\\/]/.test(value)) return value;","    if (value) return value;\n    void envForSystemPaths;")
+elif m=='item1c':
+    edit('src/utils/system-root.ts',"  if (platform !== 'win32') return env;","  if (platform !== 'win32' || true) return env;")
 elif m=='item2':
     edit('src/utils/resolve-executable.ts',"const cleaned = kept.length > 0 ? kept.join(sep) : noTrustedPath(platform);","const cleaned = kept.join(sep);")
 elif m=='f2a':

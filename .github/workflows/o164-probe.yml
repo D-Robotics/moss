@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
-        variant: [fix, item1, item2, f2a, f2b]
+        variant: [old, fix, item1, item1c, item2, f2a, f2b]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -24,11 +24,21 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Remove one fix (mutation)
-        if: matrix.variant != 'fix'
+        if: matrix.variant != 'fix' && matrix.variant != 'old'
         shell: bash
         run: python3 scripts/ci-o164/mut.py ${{ matrix.variant }} || python scripts/ci-o164/mut.py ${{ matrix.variant }}; git diff --stat
+      - name: Old code (src of main 50339194)
+        if: matrix.variant == 'old'
+        shell: bash
+        run: git checkout 5033919462b42b624c901a0e81eacf95303b7bd3 -- src && git diff --cached --stat | tail -1
       - run: npm run build
+      - name: O164 repro (attack on the built code)
+        if: matrix.variant == 'old' || matrix.variant == 'fix' || matrix.variant == 'item1' || matrix.variant == 'item1c' || matrix.variant == 'item2'
+        shell: bash
+        continue-on-error: true
+        run: node scripts/ci-o164/repro.mjs
       - name: O164 spec
+        if: matrix.variant != 'old'
         shell: bash
         continue-on-error: true
         run: |
