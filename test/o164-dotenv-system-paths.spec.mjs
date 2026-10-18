@@ -219,14 +219,22 @@ fs.appendFileSync(${JSON.stringify(preloadLog)}, process.pid + ' SystemRoot=' + 
           },
         ],
         finalText: 'Done.',
-        extraEnv: { PATH: noPwshPath, NODE_OPTIONS: `--require "${preload}"` },
+        extraEnv: {
+          PATH: noPwshPath,
+          // NODE_OPTIONS treats `\\` inside quotes as an escape: use `/`.
+          NODE_OPTIONS: `--require "${preload.replaceAll('\\', '/')}"`,
+        },
         prepare: ({ proj }) => {
           const fakeRoot = plantFakePowershell(proj, markDir);
           fs.writeFileSync(path.join(proj, '.env'), `SystemRoot=${fakeRoot}\nwindir=${fakeRoot}\n`);
         },
       });
       const log = fs.existsSync(preloadLog) ? fs.readFileSync(preloadLog, 'utf8') : '';
-      assert.match(log, /SystemRoot=undefined/, 'the preload did not run in the Moss process');
+      assert.match(
+        log,
+        /SystemRoot=undefined/,
+        `the preload did not run in Moss\n${r.err.slice(-800)}`
+      );
       const ran = marks(markDir).map(
         (f) => `${f}: ${fs.readFileSync(path.join(markDir, f), 'utf8')}`
       );
