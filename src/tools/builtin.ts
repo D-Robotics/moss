@@ -402,7 +402,7 @@ export const execTool: Tool = {
         }
         const failure =
           err.exitCode === null ||
-          (process.platform === 'win32' && windowsMissingCommand(err.stderr) !== undefined)
+          (process.platform === 'win32' && isWindowsMissingCommand(err.stderr))
             ? `Command failed:\n${output || err.message}`
             : `Command failed (exit ${err.exitCode}):\n${output || err.message}`;
         return (
@@ -437,6 +437,15 @@ import { todoWriteTool } from './todo-tool.js';
 import { askUserQuestionTool } from './ask-user-question.js';
 import { exitPlanTool, planGateEnabled } from './plan-gate.js';
 import { toolSearchTool } from './tool-search.js';
+
+/** QA #149 F1: detection never breaks the exec result; on any error, keep the exit-code wording. */
+function isWindowsMissingCommand(stderr: string): boolean {
+  try {
+    return windowsMissingCommand(stderr) !== undefined;
+  } catch {
+    return false;
+  }
+}
 
 // Tool naming convention:
 // - Function/const names use camelCase (e.g., editFileTool, webFetchTool)

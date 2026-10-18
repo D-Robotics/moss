@@ -440,6 +440,19 @@ one line: press `e` to switch to English.
   **Known limitation**: when moss starts with a PATH that holds a workspace directory (e.g.
   `node_modules/.bin` from `npx` / `npm run`), the model's exec commands and programs a hook
   script calls itself use that PATH, so they get the project's tool of that name.
+- **What a hook's launch command gets resolved (O164)**: Moss applies the rule above only to the
+  program name at the start of a hook command. With an env prefix (`FOO=1 git`), `exec` / `env` /
+  `command`, quotes, a subshell, `;` or a redirect, the normal shell lookup applies, and a launch
+  through `npx` / `npm run` uses `node_modules/.bin` on PATH. Write user-level hooks as
+  `program args` or with an absolute path. Project hooks (`.moss/config.json`) run only after you
+  trust the folder; trusting a folder means trusting its code, including project hooks and the
+  programs in `node_modules/.bin`.
+- **`.env` cannot move system locations (O164)**: like `PATH`, `PATHEXT`, `ComSpec` and
+  `TEMP`/`TMP`, a `.env` cannot set `SystemRoot`, `windir`, `SystemDrive`, `ProgramFiles` (also
+  `(x86)` and `ProgramW6432`), `PSModulePath` or `NoDefaultCurrentDirectoryInExePath`. Moss builds
+  paths to system programs (such as the background job's `powershell.exe`) from the environment
+  before `.env` was loaded. A child PATH left with no usable entry (only `.` or empty entries)
+  becomes a directory that does not exist, never an empty string.
 - Credentials come only from `.env` or the environment: never hardcoded, never logged, never
   passed to child processes, never written to the device registry. No account, no cloud, no
   telemetry.

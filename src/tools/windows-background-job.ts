@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { hostShellInvocation, type ResolvedHostShell } from '../utils/host-shell.js';
+import { windowsSystemRoot } from '../utils/system-root.js';
 
 // The owner joins an anonymous Job before dispatching user code. The handle is
 // noninheritable and stays open until owner process exit, including normal exit.
@@ -86,9 +87,13 @@ export function backgroundShellInvocation(
     `$mossErrCopy = $mossCommand.StandardError.BaseStream.CopyToAsync([Console]::OpenStandardError())\n` +
     `$mossCommand.WaitForExit()\n$null = $mossOutCopy.GetAwaiter().GetResult()\n$null = $mossErrCopy.GetAwaiter().GetResult()\nexit $mossCommand.ExitCode`;
   return {
-    executable: path.join(
-      process.env.SystemRoot ?? 'C:\\Windows',
-      'System32/WindowsPowerShell/v1.0/powershell.exe'
+    // O164: SystemRoot from before `.env`; a repo must not pick this program.
+    executable: path.win32.join(
+      windowsSystemRoot(),
+      'System32',
+      'WindowsPowerShell',
+      'v1.0',
+      'powershell.exe'
     ),
     args: [
       '-NoProfile',
