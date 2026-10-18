@@ -12,6 +12,8 @@ import { isZhLocale } from './cli-locale.js';
 import { hookEventZhName } from './hook-event-names.js';
 import type { MossHookEventId } from './hook-event-names.js';
 import { windowsMissingCommand } from '../utils/windows-missing-command.js';
+import { hookAskHeadlessReason, type PreToolUseHookAsk } from './hook-ask.js';
+export type { PreToolUseHookAsk } from './hook-ask.js';
 
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
 
@@ -338,6 +340,11 @@ function isBlockDecision(decision: string | undefined): boolean {
   return value === 'block' || value === 'deny';
 }
 
+/** O157: `ask` — the hook wants a human to confirm this call. */
+function isAskDecision(decision: string | undefined): boolean {
+  return decision?.trim().toLowerCase() === 'ask';
+}
+
 function isAllowDecision(decision: string | undefined): boolean {
   const value = decision?.trim().toLowerCase();
   return value === 'allow' || value === 'approve';
@@ -430,8 +437,18 @@ function hookFailedLine(event: HookEventName, message: string): string {
     : `[hooks] ${event} hook failed: ${message}`;
 }
 
+/**
+ * O157: PreToolUse result. When a hook asked for confirmation (and none
+ * denied) the call is refused by default (`approved: false`, `-p` copy) and
+ * carries `hookAsks`; a host that can prompt (`composePreToolUseGate`) turns
+ * it into the y/a/n confirmation. A host that ignores `hookAsks` fails closed.
+ */
+export type PreToolUseDecision =
+  | ToolApprovalDecision
+  | { approved: false; reason: string; hookAsks: PreToolUseHookAsk[] };
+
 export interface ConfiguredHookCallbacks {
-  onBeforeToolExec?: (request: ToolApprovalRequest) => Promise<ToolApprovalDecision>;
+  onBeforeToolExec?: (request: ToolApprovalRequest) => Promise<PreToolUseDecision>;
 
   onToolResult?: (call: ToolCall, result: ToolResult) => void;
 
@@ -547,7 +564,10 @@ export function createConfiguredHookCallbacks(
   const onBeforeToolExec =
     pre.length === 0
       ? undefined
-      : async (request: ToolApprovalRequest): Promise<ToolApprovalDecision> => {
+      : async (request: ToolApprovalRequest): Promise<PreToolUseDecision> => {
+          // O157: deny > ask > allow. Every matching hook runs, so a deny after
+          // an ask still blocks; asks are collected for one confirmation.
+          const asks: PreToolUseHookAsk[] = [];
           for (const hook of pre) {
             if (!toolNameMatches(hook, request.tool.name)) continue;
             const r = await runHookCommand(
@@ -566,6 +586,27 @@ export function createConfiguredHookCallbacks(
               return { approved: false, reason: blockReason('PreToolUse', hook, r, parsed) };
             }
             if (hookFailed(r)) notice('PreToolUse', hook, r, false);
+            // A blocking:false hook cannot restrict the call, so its ask is
+            // ignored like its deny. preToolUseBlocks already refused non-zero.
+            if (
+              hook.blocking !== false &&
+              r.outcome === 'exit' &&
+              isAskDecision(parsed?.decision)
+            ) {
+              const reason = parsed?.reason?.trim().slice(0, 500);
+              asks.push({
+                command: hook.command,
+                ...(hook.source ? { source: hook.source } : {}),
+                ...(reason ? { reason } : {}),
+              });
+            }
+          }
+          if (asks.length > 0) {
+            return {
+              approved: false,
+              reason: hookAskHeadlessReason(asks, 'print'),
+              hookAsks: asks,
+            };
           }
           return { approved: true };
         };

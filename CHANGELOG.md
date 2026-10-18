@@ -18,6 +18,29 @@ subcommand position and the global one; `git push -u origin main`
 「可执行读取」表里，O152 的执行前拦截从未触发；现已加入（子命令位与全局位都识别）。
 `git push -u origin main`（--set-upstream）不受影响。
 
+### O157 — PreToolUse hook `ask` now asks the user; `-p` treats it as deny
+
+A PreToolUse hook that exits 0 with `ask` (Claude `hookSpecificOutput.permissionDecision:
+"ask"`, or moss/legacy top-level `decision: "ask"`) previously fell through to
+"approved": the call ran without anyone confirming. An `ask` is now recognized
+(case-insensitive) and every matching hook runs, so a deny after an ask still
+blocks (merge order: deny > ask > allow). Interactive sessions show Moss's y/a/n
+confirmation naming the hook, its config file and its reason; `y` and `a`
+approve only that call and grant nothing (the hook asks again next time), `n`
+refuses. The prompt appears in every mode, full included — trusted workspace,
+plan-allow and session allow rules do not skip it. `-p` and runs without a
+terminal cannot confirm and treat the ask as deny: the run ends 「被拦」/`Blocked
+by` with exit 9. A host that ignores the `hookAsks` field fails closed.
+
+`PreToolUse` hook 以 exit 0 输出 `ask`（Claude 的
+`hookSpecificOutput.permissionDecision: "ask"`，或 moss/旧格式的 `decision: "ask"`）
+以前会落成「已批准」：调用直接运行，没有人确认过。现在 `ask` 被识别（不区分大小写），
+且所有匹配的 hook 都会运行——ask 之后再出现 deny 仍然拦截（合并顺序：deny > ask >
+allow）。交互会话弹出 y/a/n 确认，点名 hook、配置文件与理由；`y`/`a` 只批准这一次、
+不授予任何信任（下次钩子还会再问），`n` 拒绝。任何模式（包括 full）都会弹确认——
+受信任工作区、plan 放行、会话 allow 规则都不能跳过它。`-p` 与无终端的运行无法确认，
+按拒绝处理：末行「被拦」，exit 9。不理解 `hookAsks` 字段的宿主按拦截失败关闭。
+
 ### O156 — Windows PowerShell 5.1: a missing hook command is "failed to start"
 
 A hook run through Windows PowerShell 5.1 (`powershell -Command <missing>`)
