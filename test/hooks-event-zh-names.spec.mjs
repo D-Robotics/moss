@@ -87,7 +87,8 @@ test('[zh] formatHookFailure names Stop/UserPromptSubmit/PermissionRequest with 
   for (const event of ['Stop', 'UserPromptSubmit', 'PermissionRequest']) {
     const text = formatHookFailure(event, hook, result, true);
     const name = SPEC_TABLE[event];
-    assert.match(text, new RegExp(`已拦截：${name}钩子未能启动。`), event);
+    const expectedZh = `已拦截：${name}钩子 \`moss-o91-missing\` 未能启动，已按拒绝处理。`;
+    assert.ok(text.includes(expectedZh), `${event}: ${text.slice(0, 120)}`);
     assert.doesNotMatch(
       text,
       new RegExp(`已拦截：${event}`),
@@ -103,7 +104,8 @@ test('[en] formatHookFailure keeps English event ids', () => {
   const result = spawnFailedResult();
   for (const event of ['Stop', 'UserPromptSubmit', 'PermissionRequest']) {
     const text = formatHookFailure(event, hook, result, true);
-    assert.match(text, new RegExp(`Blocked: ${event} hook could not start\\.`), event);
+    const expectedEn = `Blocked: ${event} hook \`moss-o91-missing\` failed to start; treated as deny.`;
+    assert.ok(text.includes(expectedEn), `${event}: ${text.slice(0, 120)}`);
     assert.doesNotMatch(text, /停止前|提交用户提示前|权限请求时|工具使用前/, event);
   }
 });

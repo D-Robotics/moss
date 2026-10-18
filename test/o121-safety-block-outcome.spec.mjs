@@ -176,7 +176,8 @@ export async function scenario({
     MOSS_LOCALE: lang,
     FAKE_OAI_KEY: 'sk-fake-local-000',
     GIT_CONFIG_NOSYSTEM: '1',
-    ...extraEnv,
+    // O158: extraEnv may depend on the workspace path (PATH with $WS/…).
+    ...(typeof extraEnv === 'function' ? extraEnv({ proj, root, home }) : extraEnv),
   };
   for (const [k, v] of [
     ['provider', 'openai-compatible'],
@@ -251,6 +252,19 @@ export const CASES = [
     steps: [exec('echo hi')],
     want: { zh: /被拦：钩子拦下 `exec: echo hi`/, en: /Blocked by: hook blocked `exec: echo hi`/ },
   },
+  // O135 (UX 3): claude-format PreToolUse — missing command / exit 1 / exit 2
+  // with no decision all end the same 「被拦：钩子拦下」, exit 9.
+  ...[
+    ['hook-claude-missing', MISSING],
+    ['hook-claude-exit1', 'node -e "process.exit(1)"'],
+    ['hook-claude-exit2', 'node -e "process.exit(2)"'],
+    ['hook-moss-exit7', 'node -e "process.exit(7)"', 'moss'],
+  ].map(([id, command, format = 'claude']) => ({
+    id,
+    hooks: { PreToolUse: [{ command, ...(format === 'claude' ? { format } : {}) }] },
+    steps: [exec('echo hi')],
+    want: { zh: /被拦：钩子拦下 `exec: echo hi`/, en: /Blocked by: hook blocked `exec: echo hi`/ },
+  })),
   {
     id: 'approval',
     flags: ['--accept-edits'],
@@ -379,6 +393,38 @@ if (isMain) {
       assert.match(text, /"recoverable":false/, text.slice(0, 600));
       assert.match(r.err, lang === 'zh' ? /危险命令 `rm -rf \/`/ : /dangerous command `rm -rf \/`/);
     }, `[${lang}] JSON + stderr agree on the block`);
+
+    // O135 (UX 1/3): claude-format PreToolUse hook that cannot start — exit 9,
+    // json error_during_execution + recoverable:false, stderr names the hook.
+    await check(async () => {
+      const r = await scenario({
+        lang,
+        hooks: { PreToolUse: [{ command: MISSING, format: 'claude' }] },
+        steps: [exec('echo hi')],
+        finalText: CLAIM[lang],
+        json: true,
+      });
+      assert.equal(r.code, 9, `exit 9, got ${r.code}\n${r.err.slice(-600)}`);
+      const j = JSON.parse(
+        r.out
+          .trim()
+          .split('\n')
+          .filter((l) => l.startsWith('{'))
+          .pop()
+      );
+      const text = JSON.stringify(j);
+      assert.match(text, /error_during_execution/, text.slice(0, 600));
+      assert.match(text, /"recoverable":false/, text.slice(0, 600));
+      assert.match(
+        r.err,
+        lang === 'zh'
+          ? new RegExp(`已拦截：工具使用前钩子 \`${MISSING}\` 未能启动，已按拒绝处理。`)
+          : new RegExp(
+              `Blocked: PreToolUse hook \`${MISSING}\` failed to start; treated as deny\\.`
+            ),
+        r.err.slice(-600)
+      );
+    }, `[${lang}] O135 claude hook missing → exit 9 + json error_during_execution + stderr`);
   }
 
   for (const lang of ['zh', 'en']) {

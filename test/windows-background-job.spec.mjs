@@ -51,6 +51,11 @@ if (process.platform !== 'win32') {
   };
   const command = (s, mode, marker, nonce, code = 0) =>
     `${s.kind === 'pwsh' ? '& ' : ''}"${node}" "${script}" ${mode} "${marker}" "${nonce}" ${code}${s.kind === 'pwsh' ? '; exit $LASTEXITCODE' : ''}`;
+  // O161: every Job invocation launches Windows PowerShell 5.1, which compiles a
+  // dynamic assembly before running the command. Slow CI runners exceeded the old
+  // 3000ms process deadline (ETIMEDOUT). This is only a hang guard for the test
+  // harness; it is not a product bound and no assertion depends on it.
+  const PS_SPAWN_TIMEOUT_MS = 30000;
   const sync = (inv) =>
     cp.spawnSync(inv.executable, inv.args, {
       cwd: root,
@@ -59,7 +64,7 @@ if (process.platform !== 'win32') {
       encoding: 'utf8',
       windowsHide: true,
       windowsVerbatimArguments: inv.windowsVerbatimArguments,
-      timeout: 3000,
+      timeout: PS_SPAWN_TIMEOUT_MS,
     });
   const checkFailure = (result, label) => {
     assert.equal(result.error, undefined, label);
@@ -100,7 +105,7 @@ if (process.platform !== 'win32') {
           encoding: 'utf8',
           windowsHide: true,
           windowsVerbatimArguments: inv.windowsVerbatimArguments,
-          timeout: 3000,
+          timeout: PS_SPAWN_TIMEOUT_MS,
         });
         assert.equal(r.error, undefined);
         assert.equal(r.status, code);

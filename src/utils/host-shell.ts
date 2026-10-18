@@ -254,18 +254,3 @@ export function hostShellInvocation(
 ): { executable: string; args: string[] } {
   return { executable: shell.executable, args: shell.argsFor(command) };
 }
-
-/** O158 revert probe: helper kept so the O158 spec file still imports. */
-export function knownPwshLocations(env: Record<string, string | undefined>): string[] {
-  const out: string[] = [];
-  for (const key of ['ProgramFiles', 'ProgramW6432']) {
-    const dir = env[key];
-    if (dir && path.win32.isAbsolute(dir))
-      out.push(path.win32.join(dir, 'PowerShell', '7', 'pwsh.exe'));
-  }
-  const local = env.LOCALAPPDATA;
-  if (local && path.win32.isAbsolute(local)) {
-    out.push(path.win32.join(local, 'Microsoft', 'WindowsApps', 'pwsh.exe'));
-  }
-  return [...new Set(out)];
-}

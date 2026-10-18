@@ -56,11 +56,6 @@ export function spawnProcess(
  */
 export const runProcessSync: typeof spawnSync = spawnSync;
 
-/** O158 revert probe: same signature, no resolution (pre-fix behaviour). */
-export function spawnTarget<O>(command: string, options: O): { command: string; options: O } {
-  return { command, options };
-}
-
 /** Configure the active Windows console for UTF-8 output. */
 export function configureWindowsUtf8Console(): void {
   runProcessSync(process.env.COMSPEC ?? 'cmd.exe', ['/d', '/s', '/c', 'chcp 65001'], {
