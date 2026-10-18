@@ -464,6 +464,12 @@ one line: press `e` to switch to English.
   paths to system programs (such as the background job's `powershell.exe`) from the environment
   before `.env` was loaded. A child PATH left with no usable entry (only `.` or empty entries)
   becomes a directory that does not exist, never an empty string.
+- **Shell-exec env assignments and tmux/screen spawn forms (O170)**: assignments of
+  `BASH_ENV`, `ENV`, `PROMPT_COMMAND`, `ZDOTDIR` and `BASH_FUNC_*` make a shell run code, and
+  `tmux new-session`/`run-shell`/`send-keys`, `screen` with a command spawn outside Moss's
+  process tree — all pre-blocked as exec-capable. The env forms fire only when a POSIX
+  shell head runs on the same line (`ENV=production npm start` is not flagged); command-less
+  `tmux ls` / `attach` forms are unaffected.
 - Credentials come only from `.env` or the environment: never hardcoded, never logged, never
   passed to child processes, never written to the device registry. No account, no cloud, no
   telemetry.

@@ -91,6 +91,54 @@ export function isExecEnvName(name: string): boolean {
   return n.startsWith('GIT_') && !GIT_ENV_ALLOWED.has(n);
 }
 
+/**
+ * O170: assignments that make a SHELL execute code at startup / at the next
+ * prompt — `BASH_ENV=x bash -c ':'` sources x, `ENV=` for POSIX sh/dash,
+ * `PROMPT_COMMAND=` before every interactive prompt, `ZDOTDIR` moves zsh's
+ * .zshenv, and `BASH_FUNC_name%%=() { … }` injects a function. The payload
+ * needs a shell on the same line, so the form is reported only when one runs
+ * (an `ENV=production npm start` never trips it).
+ */
+export function isShellExecEnvName(name: string): boolean {
+  const n = name.toUpperCase();
+  return n === 'BASH_ENV' || n === 'ENV' || n === 'PROMPT_COMMAND' || n === 'ZDOTDIR';
+}
+
+/** O170: `BASH_FUNC_name%%=…` — an exported function body is code itself. */
+export function isBashFuncWord(word: string): boolean {
+  return /^BASH_FUNC_[A-Za-z0-9_]+%%?=/.test(word);
+}
+
+/**
+ * O170: `tmux` / `screen` forms that run a command outside Moss's process
+ * tree (detached sessions, run-shell, injected keys).
+ */
+export function shellSpawnForm(head: string, args: readonly string[]): string | undefined {
+  if (head === 'tmux') {
+    const stop = args.indexOf('--');
+    const words = args.slice(0, stop === -1 ? args.length : stop);
+    const sub = words.find(
+      (w) => w === 'new-session' || w === 'new-window' || w === 'split-window'
+    );
+    if (sub) return `tmux ${sub}`;
+    if (words.includes('run-shell')) return 'tmux run-shell';
+    if (words.includes('send-keys')) return 'tmux send-keys';
+    return undefined;
+  }
+  if (head === 'screen') {
+    if (args.includes('-X') && args.includes('stuff')) return 'screen stuff';
+    const stop = args.indexOf('--');
+    const words = args.slice(0, stop === -1 ? args.length : stop);
+    let i = 0;
+    while (i < words.length && words[i]!.startsWith('-')) i += 1;
+    // `screen -dmS name cmd …`: an -S option consumed the session name.
+    if (i < words.length && /^-[a-zA-Z]*S$/.test(words[i - 1] ?? '')) i += 1;
+    if (i < words.length) return 'screen command';
+    return undefined;
+  }
+  return undefined;
+}
+
 export interface ExecCapableForm {
   /** Short label of the form, e.g. `rg --pre`, `git -c`, `GIT_EXTERNAL_DIFF=`. */
   form: string;
@@ -844,6 +892,11 @@ export function findExecCapableForms(
   // stays a plain git read.
   for (const sub of commandSubstitutions(command)) nested(sub, liveEnv, 0, false);
   let stdinShell = false;
+  // O170: shell-exec env assignments collected on the line; they run code only
+  // when a shell runs, so the form is reported after the loop (an
+  // `ENV=production npm start` never trips it).
+  const shellExecEnv = new Set<string>();
+  let sawShellHead = false;
 
   // O152 r5 N6/N8: pwsh env setters anywhere on the line (spaces allowed,
   // `$env:X = 'v'`), and [Environment]::SetEnvironmentVariable('X', …).
@@ -854,6 +907,7 @@ export function findExecCapableForms(
       liveEnv.add(m[1]!.toUpperCase());
       out.push({ form: `${m[1]!.toUpperCase()}=`, operands: [], gitC: [], index: 0 });
     }
+    if (isShellExecEnvName(m[1]!)) shellExecEnv.add(m[1]!.toUpperCase());
   }
   for (const m of command.matchAll(
     /\[(?:System\.)?Environment\]::SetEnvironmentVariable\s*\(\s*['"]?([A-Za-z_][A-Za-z0-9_]*)/gi
@@ -864,7 +918,12 @@ export function findExecCapableForms(
       liveEnv.add(m[1]!.toUpperCase());
       out.push({ form: `${m[1]!.toUpperCase()}=`, operands: [], gitC: [], index: 0 });
     }
+    if (isShellExecEnvName(m[1]!)) shellExecEnv.add(m[1]!.toUpperCase());
   }
+
+  // O170: an exported function body (`BASH_FUNC_x%%=() { … }`) is code —
+  // matched on the raw line because tokenizers split on the parens.
+  if (/\bBASH_FUNC_[A-Za-z0-9_]+%%?=/.test(command)) shellExecEnv.add('BASH_FUNC');
 
   for (let si = 0; si < simples.length; si += 1) {
     const words = simples[si]!;
@@ -918,6 +977,8 @@ export function findExecCapableForms(
     while (i < words.length && ASSIGN.test(words[i]!)) {
       const name = ASSIGN.exec(words[i]!)![1]!;
       if (isExecEnvName(name)) localEnv.add(name.toUpperCase());
+      if (isShellExecEnvName(name)) shellExecEnv.add(name.toUpperCase());
+      if (isBashFuncWord(words[i]!)) shellExecEnv.add('BASH_FUNC');
       if (name.toUpperCase() === 'PATH') localPath = true;
       i += 1;
     }
@@ -933,6 +994,8 @@ export function findExecCapableForms(
           envChanged = true;
           liveEnv.add(name.toUpperCase());
         }
+        if (name && isShellExecEnvName(name)) shellExecEnv.add(name.toUpperCase());
+        if (isBashFuncWord(w)) shellExecEnv.add('BASH_FUNC');
       }
       continue;
     }
@@ -954,6 +1017,8 @@ export function findExecCapableForms(
           if (ASSIGN.test(w)) {
             const name = ASSIGN.exec(w)![1]!;
             if (isExecEnvName(name)) localEnv.add(name.toUpperCase());
+            if (isShellExecEnvName(name)) shellExecEnv.add(name.toUpperCase());
+            if (isBashFuncWord(w)) shellExecEnv.add('BASH_FUNC');
             if (name.toUpperCase() === 'PATH') localPath = true;
             i += 1;
             continue;
@@ -1022,6 +1087,8 @@ export function findExecCapableForms(
           liveEnv.add(name.toUpperCase());
           localEnv.add(name.toUpperCase());
         }
+        if (isShellExecEnvName(name)) shellExecEnv.add(name.toUpperCase());
+        if (isBashFuncWord(tok)) shellExecEnv.add('BASH_FUNC');
         i += 1;
         // `export VAR value` (no `=`) — skip the value.
         if (
@@ -1039,13 +1106,19 @@ export function findExecCapableForms(
     // Spec r3 C: a GIT_CONFIG_* assignment anywhere in this simple command
     // (prefix, env, export, sudo, or a later word) is exec-capable whatever
     // the head is — any child may spawn git with it.
-    const gitCfgWord = words.find((w) => {
+    // O170: a shell-exec env name (BASH_ENV / ENV / PROMPT_COMMAND / ZDOTDIR /
+    // BASH_FUNC_*) is the same — any later shell child runs its payload.
+    const envWord = words.find((w) => {
       const m = ASSIGN.exec(w) ?? w.match(/^\$env:([A-Za-z_][A-Za-z0-9_]*)=/i);
       return !!m && isGitConfigEnvName(m[1]!);
     });
-    const gitCfgLive = [...localEnv].find((n) => isGitConfigEnvName(n));
-    if (gitCfgWord || gitCfgLive) {
-      const name = gitCfgLive ?? ASSIGN.exec(gitCfgWord!)?.[1] ?? 'GIT_CONFIG';
+    const envLive = [...localEnv].find((n) => isGitConfigEnvName(n));
+    for (const w of words) {
+      const m = ASSIGN.exec(w) ?? w.match(/^\$env:([A-Za-z_][A-Za-z0-9_]*)=/i);
+      if (m && isShellExecEnvName(m[1]!)) shellExecEnv.add(m[1]!.toUpperCase());
+    }
+    if (envWord || envLive) {
+      const name = envLive ?? ASSIGN.exec(envWord!)?.[1] ?? 'GIT_CONFIG';
       const h = headOf(words[i]);
       const a = words.slice(i + 1);
       out.push({
@@ -1059,6 +1132,15 @@ export function findExecCapableForms(
     if (i >= words.length) continue;
     const head = headOf(words[i]);
     const args = words.slice(i + 1);
+
+    // O170: a POSIX shell head makes the collected shell-exec env assignments
+    // real (pwsh does not read BASH_ENV / ENV / PROMPT_COMMAND / ZDOTDIR).
+    if (SH_SHELLS.has(head)) sawShellHead = true;
+    const spawn = shellSpawnForm(head, args);
+    if (spawn) {
+      out.push({ form: spawn, operands: pathOperands(head, args), gitC: [], index: si });
+      continue;
+    }
 
     // O152 r6 C4: `PATH=<dir>:$PATH git status`, `export PATH=…; x` — the
     // command may resolve to a planted binary.
@@ -1208,6 +1290,12 @@ export function findExecCapableForms(
         break;
       }
     }
+  }
+
+  // O170: shell-exec env assignments (BASH_ENV / ENV / PROMPT_COMMAND /
+  // ZDOTDIR / BASH_FUNC_*) reported only when a shell runs on the line.
+  if (shellExecEnv.size > 0 && sawShellHead) {
+    for (const n of shellExecEnv) out.push({ form: `${n}=`, operands: [], gitC: [], index: 0 });
   }
 
   // `echo 'git -c …' | sh`: the shell runs text another word produced.

@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### O170 — shell-exec env assignments and tmux/screen spawn forms are blocked
+
+`BASH_ENV=<file> bash -c ':'` sources the file, `ENV=` does the same for POSIX
+sh/dash, `PROMPT_COMMAND=` runs before every prompt of an interactive bash,
+`ZDOTDIR` moves zsh's `.zshenv`, an exported `BASH_FUNC_name%%=() { … }` body
+is code, and `tmux new-session/run-shell/send-keys` / `screen -dmS` run a
+command outside Moss's process tree — none of them tripped the exec-capable
+gate on main; a probe planted in BASH_ENV ran. The env assignments are now
+reported when a POSIX shell head runs on the same line (`ENV=production npm
+start` is not flagged — the name collision is common), in every assignment
+shape (prefix, `env`, `export`/`declare`, `set`, bare statement, pwsh
+`$env:`), and the tmux/screen forms are reported when they carry a command
+(`tmux ls`, `tmux attach`, `screen -ls` stay green).
+
+`BASH_ENV=<file> bash -c ':'` 会让 bash source 该文件，`ENV=` 对 POSIX sh/dash
+同理，`PROMPT_COMMAND=` 在交互 bash 每个提示符前运行，`ZDOTDIR` 改写 zsh 的
+`.zshenv` 位置，导出的 `BASH_FUNC_name%%=() { … }` 函数体本身就是代码；
+`tmux new-session/run-shell/send-keys` 与 `screen -dmS` 在 Moss 进程树之外运行
+命令——这些在 main 上都不会触发「可执行读取」拦截，BASH_ENV 里放的探针真的
+跑了起来。现在：环境变量赋值在**同一行内有 POSIX shell 头**时报为可执行
+（`ENV=production npm start` 不误拦——这个名字常被应用配置占用），覆盖前缀、
+`env`、`export`/`declare`、`set`、裸赋值、pwsh `$env:` 各种形态；tmux/screen
+仅在其携带命令时报（`tmux ls`、`tmux attach`、`screen -ls` 不受影响）。
+
 ### O157 — PreToolUse hook `ask` now asks the user; `-p` treats it as deny
 
 A PreToolUse hook that exits 0 with `ask` (Claude `hookSpecificOutput.permissionDecision:
