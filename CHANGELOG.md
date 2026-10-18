@@ -20,6 +20,16 @@ UserPromptSubmit、Stop、PermissionRequest 会放行；现在所有事件都按
 `CategoryInfo … CommandNotFoundException` 不随语言变化，pwsh 7 和 5.1 的中文
 文本也能识别。
 
+The detector no longer builds a regular expression from stderr text. A hook
+whose stderr started with a token of 32759+ characters followed by `:` made
+it throw ("Regular expression too large"); a Stop hook was then allowed and
+the other events crashed. The name is now read with a fixed pattern and
+capped, and any detection error makes the hook fail closed.
+
+识别不再用 stderr 内容拼正则。以前 stderr 开头是 32759 字符以上的一个词再接
+`:` 时会抛「Regular expression too large」，Stop hook 因此被放行，其他事件直接
+报错。现在用固定正则取名并限制长度，识别过程出任何异常都按拦截处理。
+
 ### O135 — PreToolUse hooks: any non-zero exit blocks
 
 A `PreToolUse` hook that exits non-zero now blocks the tool call in both Moss
