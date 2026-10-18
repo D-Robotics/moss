@@ -1,0 +1,47 @@
+name: O157 probe (CI-only, do not merge)
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: O157 probe (${{ matrix.os }}, ${{ matrix.variant }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        variant: [old, fix, noask, firstask, allowwins, printask, grantall]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+          cache: npm
+      - run: npm ci
+      - name: Remove one fix (mutation), or old = src of main 68a23b0a
+        if: matrix.variant != 'fix'
+        shell: bash
+        run: (python3 scripts/ci-o157/mut.py ${{ matrix.variant }} || python scripts/ci-o157/mut.py ${{ matrix.variant }}) && git diff --stat HEAD -- src | tail -3
+      - run: npm run build
+      - name: O157 repro (-p, hook exit 0 + ask, on the built code)
+        if: matrix.variant == 'old' || matrix.variant == 'fix'
+        shell: bash
+        continue-on-error: true
+        run: node scripts/ci-o157/repro.mjs 2>&1 | grep -a REPRO
+      - name: O157 spec
+        shell: bash
+        continue-on-error: true
+        run: |
+          node --test-reporter=spec test/o157-hook-ask.spec.mjs 2>&1 | tee "$RUNNER_TEMP/o157.out" | grep -aE '^(✔|✖|﹣)|^ℹ (tests|pass|fail|skipped)' | awk '!s[$0]++'
+          echo "O157 SPEC EXIT: ${PIPESTATUS[0]}"
+      - name: Failure details
+        if: always()
+        shell: bash
+        run: grep -a -A200 "failing tests" "$RUNNER_TEMP/o157.out" | head -200 || true
