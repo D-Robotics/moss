@@ -967,13 +967,35 @@ function hasDotGit(dir: string): boolean {
   }
 }
 
+/** Nearest directory at or above `dir` that holds `.git` (file or dir). */
+function enclosingGitRoot(dir: string): string | undefined {
+  let cur = path.resolve(dir);
+  for (;;) {
+    if (hasDotGit(cur)) return cur;
+    const up = path.dirname(cur);
+    if (up === cur) return undefined;
+    cur = up;
+  }
+}
+
 function execCapableHits(command: string, ctx: ProtectedPathContext): ProtectedPathHit[] {
   const forms = findExecCapableForms(command);
   if (forms.length === 0) return [];
   const hits: ProtectedPathHit[] = [];
   const seen = new Set<string>();
-  const consider = (raw: string, form: string) => {
+  const consider = (raw: string, form: string, uncertain?: boolean) => {
     const abs = path.resolve(ctx.cwd, raw || '.');
+    // O152 r5 C: structural "uncertain" forms apply inside a git repository
+    // only (the cwd, a `-C` dir or operand, or one of their ancestors).
+    if (uncertain) {
+      const root = enclosingGitRoot(abs);
+      if (!root) return;
+      const resolved = path.join(root, '.git');
+      if (seen.has(resolved)) return;
+      seen.add(resolved);
+      hits.push({ raw: form, resolved, category: 'git', operation: 'shell', kind: 'exec-capable' });
+      return;
+    }
     // A directory that is / contains a git worktree → gate as writing its .git.
     const asGit =
       hasDotGit(abs) || isWorkspaceRootPath(abs, ctx)
@@ -1003,7 +1025,7 @@ function execCapableHits(command: string, ctx: ProtectedPathContext): ProtectedP
     // path still walks `.` from cwd, which may be the workspace.
     if (ctx.workspaceRoot) roots.push(ctx.workspaceRoot);
     roots.push(ctx.cwd);
-    for (const r of new Set(roots)) consider(r, f.form);
+    for (const r of new Set(roots)) consider(r, f.form, f.uncertain);
   }
   return hits;
 }
