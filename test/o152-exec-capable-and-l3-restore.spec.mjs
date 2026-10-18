@@ -195,6 +195,34 @@ const EXEC_FORMS = [
   { id: 'C4 --work-tree', cmd: () => `git --work-tree=/tmp status` },
   { id: 'C4 -p paginate', cmd: () => `git -p log` },
   { id: 'C4 --namespace', cmd: () => `git --namespace=x log` },
+  // ── PM r6 / QA r5: dynamic argument after an unknown prefix (C1/C2) ──
+  { id: 'r6 C1 setpriv glob git', cmd: () => `setpriv /usr/bin/gi? -c alias.x='!./p.sh' x` },
+  { id: 'r6 C1 prefix [g]it', cmd: () => `flock lk /usr/bin/[g]it status` },
+  { id: 'r6 C2 setpriv $G', cmd: () => `G=git; setpriv $G -c alias.x='!./p.sh' x` },
+  { id: 'r6 C2 prefix $(…) arg', cmd: () => `node w.js $(echo git) status` },
+  // ── r6 C3: env change inside eval / nested text ──
+  {
+    id: 'r6 C3 eval export',
+    cmd: () => `eval 'export GIT_SSH_COMMAND=./p.sh'; git ls-remote ssh://o152.invalid/r`,
+  },
+  { id: 'r6 C3 eval assignment', cmd: () => `eval 'FOO=1'; git status` },
+  { id: 'r6 C3 bash -c export', cmd: () => `bash -c 'export X=1'; git status` },
+  // ── r6 C4: PATH change then any command ──
+  { id: 'r6 C4 PATH= prefix git', cmd: () => `PATH=./d:$PATH git status` },
+  { id: 'r6 C4 PATH= prefix other', cmd: () => `PATH=./d:$PATH ls` },
+  { id: 'r6 C4 export PATH', cmd: () => `export PATH=./d:$PATH; ls` },
+  { id: 'r6 C4 env PATH=', cmd: () => `env PATH=./d:/usr/bin git status` },
+  { id: 'r6 C4 pwsh $env:PATH', cmd: () => `$env:PATH = './d;' + $env:PATH; git status` },
+  // ── r6 C5: function / alias then git ──
+  { id: 'r6 C5 f(){ git }', cmd: () => `f(){ git "$@"; }; f -c alias.x='!./p.sh' x` },
+  { id: 'r6 C5 function kw', cmd: () => `function f { git "$@"; }; f status` },
+  {
+    id: 'r6 C5 bash expand_aliases',
+    cmd: () => `bash -O expand_aliases -c "alias g=git\ng -c alias.x=!./p.sh x"`,
+  },
+  { id: 'r6 C5 shopt alias', cmd: () => `shopt -s expand_aliases; alias g=git; g status` },
+  { id: 'r6 C5 pwsh Set-Alias', cmd: () => `Set-Alias g git; g status` },
+  { id: 'r6 C1 "$SHELL" -c', cmd: () => `"$SHELL" -c 'git status'` },
 ];
 
 const jobs = [];
@@ -255,6 +283,15 @@ const GREEN_POLICY = [
   'git --no-pager log -1',
   'if git diff --quiet; then echo same; fi',
   'echo hi | sh',
+  // PM r6 B: acceptance #9 additions.
+  '"./node_modules/.bin/tsc" --version',
+  '"C:\\Program Files\\nodejs\\node.exe" -v',
+  'ls git',
+  'cd git && ls',
+  "'./node_modules/.bin/x' --help",
+  'cat git/README',
+  'npx prettier --check "src/**/*.ts"',
+  'echo $HOME',
 ];
 // r5 C: uncertain forms apply only inside a git repository.
 {
@@ -592,6 +629,14 @@ function prepareProbes({ root }) {
   // difftool -x needs two differing files (N7).
   fs.writeFileSync(path.join(root, 'a.txt'), 'a\n');
   fs.writeFileSync(path.join(root, 'b.txt'), 'b\n');
+  // r6 C1/C4: a planted fake git (glob target / PATH prefix).
+  const fakeBin = path.join(root, 'fakebin');
+  fs.mkdirSync(fakeBin, { recursive: true });
+  fs.writeFileSync(path.join(fakeBin, 'git'), `#!/bin/sh\nexec ${q(script)}\n`, { mode: 0o755 });
+  fs.writeFileSync(
+    path.join(fakeBin, 'git.cmd'),
+    `@echo touched> "${path.join(root, MARKER_NAME)}"\r\n`
+  );
   return script;
 }
 const SSH_URL = 'ssh://o152.invalid/r';
@@ -711,6 +756,44 @@ const PROC_BLOCK = [
       `GIT_SSH_COMMAND=${q(script)} node ${q(path.join(root, NODE_WRAP))} git ls-remote ${SSH_URL}; node -e 1`,
     win: ({ script, root }) =>
       `$env:GIT_SSH_COMMAND=${q(script)}; node ${q(path.join(root, NODE_WRAP))} git ls-remote ${SSH_URL}; node -e 1`,
+  },
+  // ── PM r6 / QA r5 P1 bypasses (C1–C5) ──
+  {
+    id: 'r6 C1 unknown prefix + glob git',
+    cmd: ({ script, root }) =>
+      `node ${q(path.join(root, NODE_WRAP))} ${path.join(root, 'fakebin')}/gi? -c alias.x='!${script}' x; node -e 1`,
+    skipWin: 'pwsh does not glob-expand native command arguments; the shape is a policy RED',
+  },
+  {
+    id: 'r6 C2 unknown prefix + $G',
+    cmd: ({ script, root }) =>
+      `G=git; node ${q(path.join(root, NODE_WRAP))} $G -c alias.x='!${script}' x; node -e 1`,
+    win: ({ script, root }) =>
+      `$G='git'; node ${q(path.join(root, NODE_WRAP))} $G -c alias.x='!${script}' x; node -e 1`,
+  },
+  {
+    id: 'r6 C3 eval export GIT_SSH_COMMAND',
+    cmd: ({ script }) =>
+      `eval "export GIT_SSH_COMMAND=${q(script)}"; git ls-remote ${SSH_URL}; node -e 1`,
+    win: ({ script }) =>
+      `Invoke-Expression "\`$env:GIT_SSH_COMMAND = '${script}'"; git ls-remote ${SSH_URL}; node -e 1`,
+  },
+  {
+    id: 'r6 C4 PATH= prefix fake git',
+    cmd: ({ root }) => `PATH=${q(path.join(root, 'fakebin'))}:$PATH git status; node -e 1`,
+    win: ({ root }) =>
+      `$env:PATH = ${q(path.join(root, 'fakebin') + ';')} + $env:PATH; git status; node -e 1`,
+  },
+  {
+    id: 'r6 C5 function wrapping git',
+    cmd: ({ script }) => `f(){ git "$@"; }; f -c alias.x='!${script}' x; node -e 1`,
+    win: ({ script }) => `function f { git @args }; f -c alias.x='!${script}' x; node -e 1`,
+  },
+  {
+    id: 'r6 C5 alias for git',
+    cmd: ({ script }) =>
+      `bash -O expand_aliases -c "alias g=git\ng -c alias.x='!${script}' x"; node -e 1`,
+    win: ({ script }) => `Set-Alias g git; g -c alias.x='!${script}' x; node -e 1`,
   },
   {
     id: 'N5 git --exec-path',
@@ -983,6 +1066,83 @@ for (const [size, n] of BIG_OUT) {
   }
 }
 
+// PM r6 C: acceptance #12 also covers large stderr, a long thrown stack and
+// a non-zero exit — every one exit 9 with the change restored.
+const F9B_SHAPES = [
+  { id: '1MB stderr', tail: `process.stderr.write('e'.repeat(1024*1024))` },
+  {
+    id: 'thrown long stack',
+    tail: `function d(n){if(n===0)throw new Error('o152-boom '+'s'.repeat(2000));return d(n-1)}d(60)`,
+  },
+  { id: 'non-zero exit', tail: `process.stdout.write('x'.repeat(4096));process.exit(3)` },
+];
+for (const sh of F9B_SHAPES) {
+  for (const k of F9B_KINDS) {
+    for (const [lang, json] of [
+      ['zh', false],
+      ['en', true],
+    ]) {
+      jobs.push({
+        name: `proc F9b [${lang}${json ? '/json' : ''}] ${sh.id} after ${k.id}: exit 9`,
+        fn: async () => {
+          const r = await o152Scenario({
+            lang,
+            json,
+            seed: SEED,
+            modes: MODES,
+            watch: WATCH,
+            steps: () => [exec(`node -e "${k.act};${sh.tail}"`)],
+            finalText: CLAIM[lang],
+          });
+          assert.equal(r.code, 9, `exit 9, got ${r.code}; last=${String(r.last).slice(0, 200)}`);
+          if (json) {
+            assert.equal(r.result?.subtype, 'error_during_execution');
+            assert.equal(resultClaimsDone(r.result?.result), false);
+          } else {
+            assert.match(r.last, /^未完成/, r.last.slice(0, 200));
+            assert.match(r.last, /已被修改，已还原|未还原/, r.last.slice(0, 300));
+          }
+          for (const rel of WATCH) {
+            assert.equal(r.after[rel].hash, r.before[rel].hash, `${rel} hash`);
+          }
+          assert.equal(r.gitStatus, 0, 'git status works after restore');
+        },
+      });
+    }
+  }
+}
+
+// ── P1-W: a protected file readable before, unreadable after → reported ──
+jobs.push({
+  name: 'unit P1-W: unreadable-after protected file is a change (fail-closed)',
+  fn: async () => {
+    const d = fs.mkdtempSync(path.join(base, 'p1w-'));
+    fs.writeFileSync(path.join(d, '.env'), 'A=1\n');
+    const before = takeProtectedPathSnapshot(d, { home: path.join(d, 'home') });
+    fs.chmodSync(path.join(d, '.env'), 0);
+    let readable = true;
+    try {
+      fs.readFileSync(path.join(d, '.env'));
+    } catch {
+      readable = false;
+    }
+    if (readable || IS_WIN) {
+      fs.chmodSync(path.join(d, '.env'), 0o600);
+      skipped.push(
+        `unit P1-W unreadable-after: ${IS_WIN ? 'chmod 0 does not deny reads on Windows' : 'running as root, chmod 0 does not deny reads'}; the restore/exit-9 path is covered by proc RESTORE RG3`
+      );
+      return;
+    }
+    const after = takeProtectedPathSnapshotAfter(before, { home: path.join(d, 'home') });
+    const changes = diffProtectedPathSnapshots(before, after);
+    fs.chmodSync(path.join(d, '.env'), 0o600);
+    assert.ok(
+      changes.some((c) => c.path.endsWith('.env') && c.reason === 'unreadable'),
+      JSON.stringify(changes)
+    );
+  },
+});
+
 // ── process GREEN: plain reads still complete ────────────────────────────
 const PROC_GREEN = [
   { id: 'rg -n', cmd: ({ proj }) => `rg -n foo ${q(proj)} || true` },
@@ -995,7 +1155,29 @@ const PROC_GREEN = [
     cmd: ({ proj }) => `cd ${q(proj)} && node -e "console.log(['1h30m'].join())"`,
     marker: '1h30m',
   },
+  // PM r6 B: acceptance #9 additions (a directory named git exists in proj).
+  {
+    id: '"./node_modules/.bin/tsc" --version',
+    cmd: () =>
+      IS_WIN ? `& "./node_modules/.bin/tsc.cmd" --version` : `"./node_modules/.bin/tsc" --version`,
+    marker: 'tsc-o152-ok',
+  },
+  {
+    id: 'quoted node path -v',
+    cmd: () => (IS_WIN ? `& "${process.execPath}" -v` : `"${process.execPath}" -v`),
+    marker: process.version,
+  },
+  { id: 'ls git', cmd: () => `ls git`, marker: 'o152-git-dir-file' },
+  { id: 'cd git && ls', cmd: () => `cd git && ls`, marker: 'o152-git-dir-file' },
 ];
+function prepareGreen({ proj }) {
+  fs.mkdirSync(path.join(proj, 'git'), { recursive: true });
+  fs.writeFileSync(path.join(proj, 'git', 'o152-git-dir-file'), 'x\n');
+  const bin = path.join(proj, 'node_modules', '.bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'tsc'), '#!/bin/sh\necho tsc-o152-ok\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'tsc.cmd'), '@echo tsc-o152-ok\r\n');
+}
 
 for (const g of PROC_GREEN) {
   for (const lang of ['zh', 'en']) {
@@ -1007,10 +1189,15 @@ for (const g of PROC_GREEN) {
           seed: SEED,
           modes: MODES,
           watch: WATCH,
+          prepare: prepareGreen,
           steps: ({ proj }) => [exec(g.cmd({ proj }))],
           finalText: CLAIM[lang],
         });
-        assert.equal(r.code, 0, `exit 0, got ${r.code}; last=${r.last}`);
+        assert.equal(
+          r.code,
+          0,
+          `exit 0, got ${r.code}; last=${r.last}; tool=${r.toolResults.join('\n').slice(0, 600)}`
+        );
         assert.doesNotMatch(r.last, /未完成|Incomplete|被拦|Blocked/);
         for (const rel of WATCH) {
           assert.equal(r.after[rel].hash, r.before[rel].hash, rel);

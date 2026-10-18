@@ -56,6 +56,8 @@ import {
   takeProtectedPathSnapshotAfter,
   restoreProtectedPathChanges,
   disposeProtectedPathSnapshot,
+  PROTECTED_PATHS_UNVERIFIED,
+  type ProtectedPathChange,
 } from '../safety/protected-path-snapshot.js';
 import { isProtectedPathApproved } from '../safety/protected-path-approvals.js';
 
@@ -269,7 +271,19 @@ export const execTool: Tool = {
         );
       } catch {
         disposeProtectedPathSnapshot(protectedSnapBefore);
-        return '';
+        // O152 r6 (P1-W): the post-run check itself failed — fail closed so
+        // the run cannot end '完成' over an unverified protected tree.
+        const unknown: ProtectedPathChange[] = [
+          { path: PROTECTED_PATHS_UNVERIFIED, kind: 'modified', reason: 'unreadable' },
+        ];
+        ctx.reportProtectedPathChanges?.(
+          unknown.map((c) => ({ path: c.path, kind: c.kind, reason: 'unreadable' }))
+        );
+        try {
+          return '\n\n' + formatProtectedPathModifiedNotice(unknown, preferZhLocale(), cmd, []);
+        } catch {
+          return '';
+        }
       }
     };
     const hideCredentialStream = /\.apikey-key\b/.test(commandText);

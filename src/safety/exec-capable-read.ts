@@ -23,6 +23,11 @@
  *   - `sort --compress-program[=]`;
  *   - `find -exec` / `-execdir` / `-ok` / `-okdir`.
  *
+ * Known limitations (PM r6, accepted; L3 is the backstop): a program spawned
+ * from python / perl / node (`subprocess`, `system`, `spawnSync`), or a
+ * renamed / symlinked copy of git, cannot be recognised before it runs. The
+ * post-run protected-path snapshot restores and the run exits 9 instead.
+ *
  * Stricter only: nothing here makes a command pass that was blocked before.
  * Plain reads (`rg -n foo .`, `git diff`, `git log -3`, `git -C R status`,
  * `git show HEAD --stat`) carry none of these forms and are unaffected.
@@ -276,7 +281,87 @@ const SHELL_KEYWORDS = new Set([
  */
 function isObscuredName(raw: string): boolean {
   if (SHELL_KEYWORDS.has(raw)) return false;
-  return /["'$`\\*?[\]{}]/.test(raw);
+  const a = analyzeWord(raw);
+  if (a.dynamic) return true;
+  // PM r6 B: a static quoted name (`"./node_modules/.bin/tsc"`,
+  // `"C:\Program Files\nodejs\node.exe"`) is judged by its literal value;
+  // a quoted spelling of git (`g"it"`, `gi''t`) stays uncertain.
+  return a.quoted && headOf(a.literal) === 'git';
+}
+
+/**
+ * Shell word analysis: `dynamic` when the word expands at run time (`$`,
+ * backticks, an unquoted escape, glob or brace outside single/double quotes;
+ * `$` / backtick also inside double quotes). `literal` is the word with
+ * quotes removed.
+ */
+function analyzeWord(raw: string): {
+  dynamic: boolean;
+  quoted: boolean;
+  literal: string;
+  glob: boolean;
+} {
+  let quote: '"' | "'" | null = null;
+  let dynamic = false;
+  let quoted = false;
+  let glob = false;
+  let plus = false;
+  let literal = '';
+  for (let k = 0; k < raw.length; k += 1) {
+    const ch = raw[k]!;
+    if (quote === "'") {
+      if (ch === "'") quote = null;
+      else literal += ch;
+      continue;
+    }
+    if (quote === '"') {
+      if (ch === '"') quote = null;
+      else if (ch === '$' || ch === '`') dynamic = true;
+      else literal += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      quoted = true;
+      continue;
+    }
+    if (ch === '$' || ch === '`' || ch === '\\') {
+      dynamic = true;
+      continue;
+    }
+    if (/[*?[\]{}]/.test(ch)) {
+      dynamic = true;
+      glob = true;
+    }
+    // `('g'+'it')` (pwsh `&` expression) / `(git)` subshell: not a literal.
+    if (ch === '(' || ch === ')') dynamic = true;
+    if (ch === '+') plus = true;
+    literal += ch;
+  }
+  // pwsh string concatenation `'g'+'it'`: computed, not a literal.
+  if (quoted && plus) dynamic = true;
+  return { dynamic, quoted, literal, glob };
+}
+
+/** Could this unquoted glob word's last path segment match `git` / `git.exe`? */
+function globMayBeGit(literal: string): boolean {
+  const last = literal.split(/[\\/]/).pop() ?? '';
+  let re = '';
+  for (const ch of last) {
+    if (ch === '*') re += '.*';
+    else if (ch === '?') re += '.';
+    else if (ch === '[') re += '[';
+    else if (ch === ']') re += ']';
+    else if (ch === '{' || ch === '}' || ch === ',') re += '.*';
+    else re += ch.replace(/[.+^$()|\\]/g, '\\$&');
+  }
+  try {
+    return (
+      new RegExp(`^(?:${re})$`, 'i').test('git') || new RegExp(`^(?:${re})$`, 'i').test('git.exe')
+    );
+  } catch {
+    return true;
+  }
 }
 
 /** pwsh `$env:X = …` / `$x = …` / `[Type]::Member(…)`: not a command name. */
@@ -293,14 +378,16 @@ function isPwshStatementHead(words: readonly string[], j: number): boolean {
  * `env …` and the known wrappers (only bare wrapper names are recognised, so
  * an obscured wrapper name stops here and is itself checked).
  */
-function rawCommandName(segment: string): { raw: string; pwsh: boolean } | undefined {
+function rawCommandName(
+  segment: string
+): { raw: string; pwsh: boolean; index: number; words: string[] } | undefined {
   const words = rawWords(segment);
   let j = 0;
   const env = new Set<string>();
   for (;;) {
     while (j < words.length && (SHELL_KEYWORDS.has(words[j]!) || ASSIGN.test(words[j]!))) j += 1;
     if (j >= words.length) return undefined;
-    if (isPwshStatementHead(words, j)) return { raw: words[j]!, pwsh: true };
+    if (isPwshStatementHead(words, j)) return { raw: words[j]!, pwsh: true, index: j, words };
     const h = words[j]!;
     if (/^env$/.test(h)) {
       j += 1;
@@ -314,7 +401,7 @@ function rawCommandName(segment: string): { raw: string; pwsh: boolean } | undef
       j = skipWrapper(words, j + 1, spec, env);
       continue;
     }
-    return { raw: h, pwsh: false };
+    return { raw: h, pwsh: false, index: j, words };
   }
 }
 
@@ -593,7 +680,53 @@ const TEXT_HEADS = new Set([
   'test',
   '[',
   '[[',
+  // PM r6 B: known read-only commands — a `git` argument is a path/text
+  // (`ls git`, `cd git && ls`), not a command position.
+  'ls',
+  'dir',
+  'cd',
+  'pushd',
+  'popd',
+  'cat',
+  'head',
+  'tail',
+  'wc',
+  'stat',
+  'file',
+  'du',
+  'tree',
+  'realpath',
+  'readlink',
+  'basename',
+  'dirname',
+  'pwd',
 ]);
+
+/**
+ * Heads that never run an argument as a program (PM r6 B, C2 "command
+ * position"): a `$X` / glob / `git` argument to them is a path, not a
+ * command. Deliberately excludes exec-capable tools (`tar
+ * --to-command`, `rsync -e`, `sed e`, `xargs`, `find -exec`, …).
+ */
+const NON_EXEC_HEADS = new Set([
+  'cp',
+  'mv',
+  'rm',
+  'rmdir',
+  'mkdir',
+  'touch',
+  'chmod',
+  'chown',
+  'ln',
+  'curl',
+  'wget',
+  'tee',
+]);
+
+/** Function / alias definition (PM r6 A, rule C5). */
+const DEF_RE =
+  /(?:^|[\s;&|({])(?:function\s+[A-Za-z_][\w-]*|[A-Za-z_][\w-]*\s*\(\s*\)\s*[{(]|alias\s+[^\s=]+=|doskey\s+\S+=|(?:set|new)-alias\b|shopt\s+-s\s+expand_aliases|-O\s+expand_aliases)/i;
+const GIT_TOKEN_RE = /(?:^|[^\w.-])git(?:\.exe)?(?![\w-])/i;
 
 /**
  * Walk the simple commands left-to-right. An `export VAR=…` / `declare -x`
@@ -613,6 +746,13 @@ export interface FindExecCapableOptions {
   wrapped?: boolean;
   /** An env-changing statement ran earlier on the line (r5 C3). */
   envChanged?: boolean;
+  /** PATH was changed earlier on the line (r6 C4). */
+  pathChanged?: boolean;
+  /**
+   * Written back by a nested scan (eval / source / sh -c text): env changes
+   * made inside it count for later commands on the outer line (r6 C3).
+   */
+  sink?: { envChanged: boolean; pathChanged: boolean; liveEnv: Set<string> };
 }
 
 export function findExecCapableForms(
@@ -633,15 +773,43 @@ export function findExecCapableForms(
   // O152 r5 C3: an env-changing statement (export, set -a, source, `.`,
   // pwsh `$env:X=`, cmd `set X=`, [Environment]::Set…) earlier on the line.
   let envChanged = opts.envChanged === true;
+  // O152 r6 C4: PATH changed earlier on the line — any later command may
+  // resolve to a planted binary.
+  let pathChanged = opts.pathChanged === true;
   const nested = (text: string, env: ReadonlySet<string>, si: number, wrapped: boolean) => {
+    const sink = { envChanged: false, pathChanged: false, liveEnv: new Set<string>() };
     for (const f of findExecCapableForms(text, env, depth + 1, {
       wrapped: wrapped || opts.wrapped === true,
       envChanged,
+      pathChanged,
+      sink,
     }))
       out.push({ ...f, index: si });
+    // r6 C3: `eval 'export GIT_SSH_COMMAND=…'; git …` — the nested text's env
+    // changes carry over (stricter for subshells too).
+    if (sink.envChanged) envChanged = true;
+    if (sink.pathChanged) pathChanged = true;
+    for (const n of sink.liveEnv) liveEnv.add(n);
   };
   const uncertain = (form: string, si: number, operands: string[] = [], gitC: string[] = []) =>
     out.push({ form, operands, gitC, index: si, uncertain: true });
+  const finish = (): ExecCapableForm[] => {
+    if (opts.sink) {
+      if (envChanged) opts.sink.envChanged = true;
+      if (pathChanged) opts.sink.pathChanged = true;
+      for (const n of liveEnv) opts.sink.liveEnv.add(n);
+    }
+    return out;
+  };
+
+  // O152 r6 C5: a function or alias defined on the line, with git after the
+  // definition (in its body or at a call site), is uncertain.
+  {
+    const m = DEF_RE.exec(command);
+    if (m && GIT_TOKEN_RE.test(command.slice(m.index))) {
+      uncertain('function/alias then git', 0);
+    }
+  }
   // `$( … )` / backticks are not wrappers: `echo "$(git diff --quiet)"` (J13)
   // stays a plain git read.
   for (const sub of commandSubstitutions(command)) nested(sub, liveEnv, 0, false);
@@ -649,8 +817,9 @@ export function findExecCapableForms(
 
   // O152 r5 N6/N8: pwsh env setters anywhere on the line (spaces allowed,
   // `$env:X = 'v'`), and [Environment]::SetEnvironmentVariable('X', …).
-  for (const m of command.matchAll(/\$\{?env:([A-Za-z_][A-Za-z0-9_]*)\}?\s*=/gi)) {
+  for (const m of command.matchAll(/\$\{?env:([A-Za-z_][A-Za-z0-9_]*)\}?\s*[+]?=/gi)) {
     envChanged = true;
+    if (m[1]!.toUpperCase() === 'PATH') pathChanged = true;
     if (isExecEnvName(m[1]!)) {
       liveEnv.add(m[1]!.toUpperCase());
       out.push({ form: `${m[1]!.toUpperCase()}=`, operands: [], gitC: [], index: 0 });
@@ -660,6 +829,7 @@ export function findExecCapableForms(
     /\[(?:System\.)?Environment\]::SetEnvironmentVariable\s*\(\s*['"]?([A-Za-z_][A-Za-z0-9_]*)/gi
   )) {
     envChanged = true;
+    if (m[1]!.toUpperCase() === 'PATH') pathChanged = true;
     if (isExecEnvName(m[1]!)) {
       liveEnv.add(m[1]!.toUpperCase());
       out.push({ form: `${m[1]!.toUpperCase()}=`, operands: [], gitC: [], index: 0 });
@@ -694,6 +864,7 @@ export function findExecCapableForms(
       words.some((w) => /^env:/i.test(w) || /^-?[pP]ath$/i.test(w))
     ) {
       envChanged = true;
+      if (words.some((w) => /^env:path$/i.test(w) || /^-?[pP]ath$/.test(w))) pathChanged = true;
       for (const w of words) {
         const m = w.match(/^env:([A-Za-z_][A-Za-z0-9_]*)$/i);
         if (m && isExecEnvName(m[1]!)) liveEnv.add(m[1]!.toUpperCase());
@@ -703,6 +874,7 @@ export function findExecCapableForms(
     if (head0 === 'set' && words[1] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[1]!)) {
       envChanged = true;
       const name = words[1]!.split('=')[0]!;
+      if (name.toUpperCase() === 'PATH') pathChanged = true;
       if (isExecEnvName(name)) liveEnv.add(name.toUpperCase());
       // cmd `set X=…&& git …` may share the segment; keep scanning.
     }
@@ -712,16 +884,21 @@ export function findExecCapableForms(
     while (i < words.length && SHELL_KEYWORDS.has(words[i]!) && !/^\[\[?$/.test(words[i]!)) i += 1;
     // Leading `VAR=val` assignments for THIS simple command only.
     const localEnv = new Set<string>(liveEnv);
+    let localPath = false;
     while (i < words.length && ASSIGN.test(words[i]!)) {
       const name = ASSIGN.exec(words[i]!)![1]!;
       if (isExecEnvName(name)) localEnv.add(name.toUpperCase());
+      if (name.toUpperCase() === 'PATH') localPath = true;
       i += 1;
     }
     // Bare `VAR=…` statement (no command): PATH / exec-capable vars are
     // exported already or by `set -a` — counts as an env change (r5 C3).
     if (i >= words.length && i > 0) {
+      // r6 C3: any assignment inside eval / nested text is an env change.
+      if (opts.wrapped) envChanged = true;
       for (const w of words) {
         const name = ASSIGN.exec(w)?.[1];
+        if (name && name.toUpperCase() === 'PATH') pathChanged = true;
         if (name && (isExecEnvName(name) || name.toUpperCase() === 'PATH')) {
           envChanged = true;
           liveEnv.add(name.toUpperCase());
@@ -747,6 +924,7 @@ export function findExecCapableForms(
           if (ASSIGN.test(w)) {
             const name = ASSIGN.exec(w)![1]!;
             if (isExecEnvName(name)) localEnv.add(name.toUpperCase());
+            if (name.toUpperCase() === 'PATH') localPath = true;
             i += 1;
             continue;
           }
@@ -809,6 +987,7 @@ export function findExecCapableForms(
       ) {
         const tok = words[i]!;
         const name = ASSIGN.test(tok) ? ASSIGN.exec(tok)![1]! : tok;
+        if (name.toUpperCase() === 'PATH') pathChanged = true;
         if (isExecEnvName(name)) {
           liveEnv.add(name.toUpperCase());
           localEnv.add(name.toUpperCase());
@@ -850,6 +1029,10 @@ export function findExecCapableForms(
     if (i >= words.length) continue;
     const head = headOf(words[i]);
     const args = words.slice(i + 1);
+
+    // O152 r6 C4: `PATH=<dir>:$PATH git status`, `export PATH=…; x` — the
+    // command may resolve to a planted binary.
+    if (pathChanged || localPath) uncertain('PATH change before command', si);
 
     // Shell / eval-like heads: scan their command string with this env.
     const inner = nestedCommandText(head, args);
@@ -947,7 +1130,22 @@ export function findExecCapableForms(
     // Backstop for wrappers not in the table (`flock f git -c …`,
     // `chronic git -c …`): a later `git` word followed by a blocked `-c` /
     // `--config-env` / exec option is still reported (fail-closed).
-    if (!TEXT_HEADS.has(head)) {
+    if (!TEXT_HEADS.has(head) && !NON_EXEC_HEADS.has(head)) {
+      // O152 r6 (QA r5 C1/C2): after an unknown prefix, an argument that is
+      // not a literal word — an expansion (`$G`, `$(…)`, backticks) or a glob
+      // that could match git (`/usr/bin/gi?`) — may be git: uncertain.
+      if (named && !named.pwsh) {
+        const dyn = named.words.slice(named.index + 1).find((w) => {
+          const a = analyzeWord(w);
+          if (!a.dynamic) return false;
+          if (/[$`]/.test(w.replace(/'[^']*'/g, ''))) return true;
+          // An unquoted escape only matters when it spells git (`g\\it`);
+          // a Windows path (`C:\\tools\\x.js`, pwsh) is not an expansion.
+          if (/\\/.test(w.replace(/'[^']*'|"[^"]*"/g, ''))) return isGitArgWord(a.literal);
+          return a.glob && globMayBeGit(a.literal);
+        });
+        if (dyn !== undefined) uncertain('dynamic argument after unknown prefix', si);
+      }
       for (let k = 0; k < args.length; k += 1) {
         if (!isGitArgWord(args[k])) continue;
         const rest = args.slice(k + 1);
@@ -980,7 +1178,7 @@ export function findExecCapableForms(
       if (h === 'echo' || h === 'printf') nested(words.slice(1).join(' '), liveEnv, si, true);
     }
   }
-  return out;
+  return finish();
 }
 
 function gitCValues(head: string, args: readonly string[]): string[] {

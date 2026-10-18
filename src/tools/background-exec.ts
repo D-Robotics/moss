@@ -23,6 +23,7 @@ import {
   diffProtectedPathSnapshots,
   filterExpectedGitMetadataChanges,
   formatProtectedPathModifiedNotice,
+  PROTECTED_PATHS_UNVERIFIED,
   takeProtectedPathSnapshot,
   takeProtectedPathSnapshotAfter,
   restoreProtectedPathChanges,
@@ -200,7 +201,11 @@ export const execBackgroundTool: Tool = {
         if (notice) appendOutput(proc, 'stderr', `\n${notice}\n`);
       } catch {
         disposeProtectedPathSnapshot(protectedSnapBefore);
-        // Snapshot failure must never false-report or break completion.
+        // O152 r6 (P1-W): a failed post-run check fails closed (exit 9);
+        // it must never break completion.
+        proc.protectedPathChanges = [
+          { path: PROTECTED_PATHS_UNVERIFIED, kind: 'modified', reason: 'unreadable' },
+        ];
       }
     };
 

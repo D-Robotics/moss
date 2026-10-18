@@ -87,7 +87,13 @@ export type GitConfigChangeReason =
   /** O127: the worktree's `.git` file was rewritten (gitdir pointer changed). */
   | 'gitlink-rewritten'
   /** O127: `.git` file's gitdir / commondir does not exist or cannot be read. */
-  | 'gitlink-missing';
+  | 'gitlink-missing'
+  /**
+   * O152 r6 (P1-W): readable before the command, unreadable after (EPERM /
+   * EBUSY — e.g. a Windows delete-pending entry after a partial
+   * `rmSync(cwd)`). Fail-closed: reported, never skipped.
+   */
+  | 'unreadable';
 
 const ALL_REASONS: readonly GitConfigChangeReason[] = [
   'symlink',
@@ -832,9 +838,14 @@ export function diffProtectedPathSnapshots(
     const aHas = after.entries.has(abs);
     const b = bHas ? before.entries.get(abs) : undefined;
     const a = aHas ? after.entries.get(abs) : undefined;
-    // Unavailable on either side → skip (do not false-report).
-    if (b === UNAVAILABLE || a === UNAVAILABLE) continue;
     const display = after.display.get(abs) ?? before.display.get(abs) ?? abs.replace(/\\/g, '/');
+    // O152 r6 (P1-W): known before, unreadable after → changed (fail-closed).
+    if (b && b !== UNAVAILABLE && a === UNAVAILABLE) {
+      changes.push({ path: display, kind: 'modified', reason: 'unreadable' });
+      continue;
+    }
+    // Unavailable before (state unknown) → skip (do not false-report).
+    if (b === UNAVAILABLE || a === UNAVAILABLE) continue;
     if (isDotGitFile(abs)) {
       // O127: worktree `.git` file. Any content/type change, or its gitdir
       // vanishing, is reported (fail-closed).
@@ -1118,6 +1129,11 @@ export function describeGitConfigChange(c: ProtectedPathChange, zh: boolean): st
   if (c.reason === 'unparsable') {
     return zh ? `${c.path} 无法解析` : `${c.path} could not be parsed`;
   }
+  if (c.reason === 'unreadable') {
+    return zh
+      ? `${c.path} 运行后无法读取（可能正在被删除或被占用）`
+      : `${c.path} cannot be read after the command (being deleted or locked)`;
+  }
   if (/(^|\/)\.git\/hooks\/./.test(c.path.replace(/\\/g, '/'))) {
     const verb = zh
       ? { added: '被新增', modified: '被改', deleted: '被删除' }[c.kind]
@@ -1225,6 +1241,30 @@ function ensureParentDir(abs: string): void {
  * Never logs content or full hashes. Temp restoreDir (if any) is removed by
  * {@link disposeProtectedPathSnapshot}.
  */
+/** Display path used when the post-run protected-path check itself failed. */
+export const PROTECTED_PATHS_UNVERIFIED = '(protected paths)';
+
+const TRANSIENT_WIN_CODES = new Set(['EPERM', 'EBUSY', 'EACCES', 'ENOTEMPTY']);
+
+/**
+ * O152 r6 (P1-W): on Windows an entry deleted while another handle is open
+ * stays delete-pending until that handle closes; writes over it fail with
+ * EPERM / EACCES / EBUSY for a moment. Retry briefly before giving up.
+ */
+function retryTransientSync(fn: () => void): void {
+  const attempts = process.platform === 'win32' ? 20 : 1;
+  for (let k = 0; ; k += 1) {
+    try {
+      fn();
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code ?? '';
+      if (k + 1 >= attempts || !TRANSIENT_WIN_CODES.has(code)) throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    }
+  }
+}
+
 export function restoreProtectedPathChanges(
   before: ProtectedPathSnapshot,
   changes: readonly ProtectedPathChange[],
@@ -1301,7 +1341,8 @@ export function restoreProtectedPathChanges(
 
     try {
       const mode = meta.mode ?? 0o600;
-      atomicRestoreFile(abs, meta.content, mode);
+      const content = meta.content;
+      retryTransientSync(() => atomicRestoreFile(abs!, content, mode));
       results.push({ path: c.path, kind: c.kind, outcome: 'restored' });
       if (/(^|[\\/])\.git([\\/]|$)/.test(abs.replace(/\\/g, '/'))) restoredAnyGit = true;
     } catch {
