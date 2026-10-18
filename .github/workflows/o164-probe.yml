@@ -29,10 +29,10 @@ jobs:
         if: matrix.variant != 'fix' && matrix.variant != 'old'
         shell: bash
         run: python3 scripts/ci-o164/mut.py ${{ matrix.variant }} || python scripts/ci-o164/mut.py ${{ matrix.variant }}; git diff --stat
-      - name: Old code (src of main 50339194)
+      - name: Old code (src of main 68a23b0a)
         if: matrix.variant == 'old'
         shell: bash
-        run: git checkout 5033919462b42b624c901a0e81eacf95303b7bd3 -- src && git rm -q --cached src/utils/system-root.ts && rm src/utils/system-root.ts && git diff --cached --stat 5033919462b42b624c901a0e81eacf95303b7bd3 -- src | tail -1
+        run: git checkout 68a23b0a10aa95c8ab763b11c0ec5760f474c498 -- src && git rm -q --cached src/utils/system-root.ts && rm src/utils/system-root.ts && git diff --cached --stat 68a23b0a10aa95c8ab763b11c0ec5760f474c498 -- src | tail -1
       - run: npm run build
       - name: O164 repro (attack on the built code)
         if: matrix.variant == 'old' || matrix.variant == 'fix' || matrix.variant == 'item1' || matrix.variant == 'item1c' || matrix.variant == 'item2'
