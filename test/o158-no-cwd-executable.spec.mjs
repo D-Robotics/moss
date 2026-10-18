@@ -21,6 +21,8 @@ import path from 'node:path';
 
 import {
   NO_CWD_EXE_SEARCH_ENV,
+  envShebangCommand,
+  resolveCommandHead,
   resolveExecutable,
   sanitizeChildPathEnv,
   trustedSearchDirs,
@@ -206,7 +208,7 @@ function posixFake(dir, name, markDir) {
   const file = path.join(dir, name);
   fs.writeFileSync(
     file,
-    `#!/bin/sh\necho ran >> ${JSON.stringify(path.join(markDir, `MARK-${name}`))}\necho FAKE\n`
+    `#!/bin/sh\necho "ran $*" >> ${JSON.stringify(path.join(markDir, `MARK-${name}`))}\necho FAKE\n`
   );
   fs.chmodSync(file, 0o755);
 }
@@ -439,3 +441,325 @@ for (const c of WIN_MATRIX) {
     }
   );
 }
+
+// ---- QA #142 rework: F1 (no PATH), F2 (pwsh fallbacks), F3 (`..name`), O1 ----
+
+test('F3: a workspace child dir named `..something` is still inside the workspace', () => {
+  for (const [platform, ws, PATH, keep] of [
+    // `/ws/..` is the parent (`/`), not inside the workspace: kept.
+    ['linux', '/ws', '/ws/..dotbin:/ws/..:/usr/bin', ['/ws/..', '/usr/bin']],
+    ['win32', 'C:\\ws', 'C:\\ws\\..dotbin;C:\\Windows', ['C:\\Windows']],
+  ]) {
+    assert.deepEqual(
+      trustedSearchDirs({ platform, processCwd: ws, home: '/h', realpath: real, env: { PATH } }),
+      keep,
+      `${platform} ${PATH}`
+    );
+  }
+  // The parent itself (`/ws/..` = `/`) is not inside `/ws`.
+  assert.deepEqual(
+    trustedSearchDirs({
+      platform: 'linux',
+      processCwd: '/a/ws',
+      home: '/h',
+      realpath: real,
+      env: { PATH: '/a/ws/../bin' },
+    }),
+    ['/a/ws/../bin']
+  );
+});
+
+test('F1: no PATH in the env searches POSIX /usr/bin:/bin, never the cwd', () => {
+  const isFile = has('/ws/git', '/usr/bin/git');
+  const o = { platform: 'linux', processCwd: '/ws', home: '/h', realpath: real, isFile };
+  assert.deepEqual(trustedSearchDirs({ ...o, env: {} }), ['/usr/bin', '/bin']);
+  assert.equal(resolveExecutable('git', { ...o, env: {} }), '/usr/bin/git');
+  assert.equal(resolveExecutable('git', { ...o, env: { PATH: '.' } }), null);
+  // Windows has no such default; nothing is searched.
+  assert.deepEqual(
+    trustedSearchDirs({ platform: 'win32', processCwd: 'C:\\ws', realpath: real, env: {} }),
+    []
+  );
+});
+
+test(
+  'F1 posix: an unresolved name with no trusted PATH entry is ENOENT (child PATH is never "")',
+  POSIX_ONLY,
+  async (t) => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'o158-ws-'));
+    const markDir = fs.mkdtempSync(path.join(os.tmpdir(), 'o158-mark-'));
+    t.after(() => {
+      fs.rmSync(ws, { recursive: true, force: true });
+      fs.rmSync(markDir, { recursive: true, force: true });
+    });
+    const name = 'moss-o158-f1-only-here';
+    posixFake(ws, name, markDir);
+    fs.mkdirSync(path.join(ws, 'bin'));
+    posixFake(path.join(ws, 'bin'), name, markDir);
+    for (const PATH of ['.', '', ':', ws, `${ws}/bin`, `.:${ws}:${ws}/bin`]) {
+      const env = { ...process.env, PATH };
+      const target = spawnTarget(name, { cwd: ws, env });
+      assert.notEqual(target.options.env.PATH, '', `PATH=${JSON.stringify(PATH)}`);
+      assert.equal(path.isAbsolute(target.options.env.PATH), true, target.options.env.PATH);
+      const r = runProcessSync(name, [], { cwd: ws, env });
+      assert.equal(r.error?.code, 'ENOENT', `PATH=${JSON.stringify(PATH)}`);
+      await assert.rejects(runProcess(name, { args: [], cwd: ws, env }), { code: 'ENOENT' });
+    }
+    assert.deepEqual(marks(markDir), []);
+  }
+);
+
+test(
+  'F1 posix e2e: PATH unset, fake git/node/sh in the workspace — startup git probes and hook never run them',
+  POSIX_ONLY,
+  async () => {
+    const markDir = fs.mkdtempSync(path.join(os.tmpdir(), 'o158-mark-'));
+    try {
+      const r = await scenario({
+        lang: 'en',
+        json: true,
+        gitInit: true,
+        hooks: { PreToolUse: [{ command: 'git --version' }] },
+        steps: [{ name: 'exec', args: { command: 'echo o158-f1' } }],
+        finalText: 'Done.',
+        extraEnv: { PATH: undefined },
+        prepare: ({ proj }) => {
+          for (const n of ['git', 'node', 'sh', 'npx']) posixFake(proj, n, markDir);
+        },
+      });
+      const ran = marks(markDir).map(
+        (f) => `${f}: ${fs.readFileSync(path.join(markDir, f), 'utf8')}`
+      );
+      assert.deepEqual(ran, [], 'a workspace binary ran');
+      assert.equal(r.code, 0, r.err);
+    } finally {
+      fs.rmSync(markDir, { recursive: true, force: true });
+    }
+  }
+);
+
+test('F2: pwsh fallbacks reject UNC shares and realpath aliases of the workspace', () => {
+  const ws = 'C:\\Users\\u\\project-x';
+  const short = 'C:\\Users\\u\\PROJEC~1';
+  const realpath = (p) =>
+    p.toLowerCase().startsWith(short.toLowerCase()) ? ws + p.slice(short.length) : p;
+  const o = {
+    platform: 'win32',
+    processCwd: ws,
+    home: 'C:\\Users\\u',
+    realpath,
+    env: { PATH: '' },
+    isFile: () => true,
+  };
+  for (const bad of [
+    '\\\\localhost\\C$\\Users\\u\\project-x\\PowerShell\\7\\pwsh.exe',
+    '\\\\evil.example\\s\\PowerShell\\7\\pwsh.exe',
+    '//evil.example/s/PowerShell/7/pwsh.exe',
+    '\\\\?\\C:\\Users\\u\\project-x\\pwsh.exe',
+    `${short}\\PowerShell\\7\\pwsh.exe`,
+    `${ws}\\..dot\\pwsh.exe`,
+  ]) {
+    assert.equal(resolveExecutable('pwsh', { ...o, fallbacks: [bad] }), null, bad);
+  }
+  assert.equal(
+    resolveExecutable('pwsh', { ...o, fallbacks: ['C:\\Program Files\\PowerShell\\7\\pwsh.exe'] }),
+    'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
+  );
+  // A UNC value for the install-dir variables is never turned into a candidate.
+  assert.deepEqual(
+    knownPwshLocations({
+      ProgramFiles: '\\\\localhost\\C$\\ws',
+      ProgramW6432: '//evil/s',
+      LOCALAPPDATA: '\\\\evil\\s',
+    }),
+    []
+  );
+  // Case-insensitive keys (a plain copy of process.env).
+  assert.deepEqual(knownPwshLocations({ PROGRAMFILES: 'C:\\PF' }), [
+    'C:\\PF\\PowerShell\\7\\pwsh.exe',
+  ]);
+  // …and a project .env cannot set them.
+  for (const key of ['ProgramFiles', 'ProgramW6432', 'LOCALAPPDATA', 'LocalAppData'])
+    assert.equal(isDotenvDeniedEnvKey(key), true, key);
+});
+
+test('O1: a hook command head is resolved by Moss rules (quoted absolute), builtins untouched', () => {
+  const sh = {
+    platform: 'linux',
+    processCwd: '/ws',
+    home: '/h',
+    realpath: real,
+    env: { PATH: '/ws/node_modules/.bin:/usr/bin' },
+    isFile: has('/ws/node_modules/.bin/git', '/usr/bin/git', '/usr/bin/echo'),
+  };
+  assert.equal(resolveCommandHead('git --version', 'sh', sh), "'/usr/bin/git' --version");
+  assert.equal(resolveCommandHead('  git', 'sh', sh), "  '/usr/bin/git'");
+  assert.equal(resolveCommandHead('echo hi', 'sh', sh), 'echo hi');
+  assert.equal(resolveCommandHead('cd x && git st', 'sh', sh), 'cd x && git st');
+  assert.equal(resolveCommandHead('./git x', 'sh', sh), './git x');
+  assert.equal(resolveCommandHead('FOO=1 git x', 'sh', sh), 'FOO=1 git x');
+  // Only the workspace has it: left alone (the hook's own intent).
+  assert.equal(
+    resolveCommandHead('eslint .', 'sh', { ...sh, isFile: has('/ws/node_modules/.bin/eslint') }),
+    'eslint .'
+  );
+  const cmd = {
+    platform: 'win32',
+    processCwd: 'C:\\ws',
+    home: 'C:\\Users\\u',
+    realpath: real,
+    env: { PATH: 'C:\\ws\\node_modules\\.bin;C:\\Program Files\\nodejs' },
+    isFile: has(
+      'C:\\ws\\node_modules\\.bin\\node.exe',
+      'C:\\Program Files\\nodejs\\node.exe',
+      'C:\\Program Files\\nodejs\\npx.cmd'
+    ),
+  };
+  assert.equal(
+    resolveCommandHead('node -e 1', 'cmd', cmd),
+    '"C:\\Program Files\\nodejs\\node.exe" -e 1'
+  );
+  assert.equal(resolveCommandHead('npx x', 'cmd', cmd), '"C:\\Program Files\\nodejs\\npx.cmd" x');
+  assert.equal(resolveCommandHead('ECHO hi', 'cmd', cmd), 'ECHO hi');
+  assert.equal(resolveCommandHead('@echo off', 'cmd', cmd), '@echo off');
+});
+
+/** Reads HOOK-*.txt the hooks wrote into the workspace. */
+const hookFiles = ({ proj }) =>
+  Object.fromEntries(
+    fs
+      .readdirSync(proj)
+      .filter((f) => f.startsWith('HOOK-'))
+      .map((f) => [f, fs.readFileSync(path.join(proj, f), 'utf8').trim()])
+  );
+
+const O1_HOOKS = {
+  PreToolUse: [
+    { command: 'git --version > HOOK-git.txt' },
+    { command: 'node -e "console.log(41+1)" > HOOK-node.txt' },
+  ],
+};
+
+test(
+  'O1 posix e2e: PATH starts with $WS/node_modules/.bin (fake git/node/pwsh) — startup and hook launch never run them; model exec does (known limitation)',
+  POSIX_ONLY,
+  async () => {
+    const markDir = fs.mkdtempSync(path.join(os.tmpdir(), 'o158-mark-'));
+    try {
+      const r = await scenario({
+        lang: 'en',
+        json: true,
+        gitInit: true,
+        hooks: O1_HOOKS,
+        steps: [{ name: 'exec', args: { command: 'git o158-model-exec' } }],
+        finalText: 'Done.',
+        extraEnv: ({ proj }) => ({
+          PATH: `${path.join(proj, 'node_modules', '.bin')}:${process.env.PATH}`,
+        }),
+        prepare: ({ proj }) => {
+          const bin = path.join(proj, 'node_modules', '.bin');
+          fs.mkdirSync(bin, { recursive: true });
+          for (const n of ['git', 'node', 'pwsh']) posixFake(bin, n, markDir);
+        },
+        inspect: hookFiles,
+      });
+      assert.equal(r.code, 0, r.err);
+      // Startup probes and both hook launches used the real git/node.
+      assert.match(r.inspected['HOOK-git.txt'] ?? '', /^git version/, JSON.stringify(r.inspected));
+      assert.equal(r.inspected['HOOK-node.txt'], '42');
+      const ran = Object.fromEntries(
+        marks(markDir).map((f) => [f, fs.readFileSync(path.join(markDir, f), 'utf8').trim()])
+      );
+      // KNOWN LIMITATION (PM ruling on O1): the model's own exec inherits the
+      // user's PATH, so `git` there is the project's node_modules/.bin/git.
+      assert.deepEqual(ran, { 'MARK-git': 'ran o158-model-exec' }, JSON.stringify(ran));
+    } finally {
+      fs.rmSync(markDir, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  'O1 win32 e2e: PATH starts with $WS\\node_modules\\.bin (fake git/node/pwsh) — startup and hook launch never run them; model exec does (known limitation)',
+  WIN_ONLY,
+  async () => {
+    clearWinMarks();
+    try {
+      const r = await scenario({
+        lang: 'en',
+        json: true,
+        gitInit: true,
+        hooks: O1_HOOKS,
+        steps: [{ name: 'exec', args: { command: 'git o158-model-exec' } }],
+        finalText: 'Done.',
+        extraEnv: ({ proj }) => ({
+          PATH: `${path.join(proj, 'node_modules', '.bin')};${fullPath}`,
+          ...(process.env.PATHEXT ? { PATHEXT: process.env.PATHEXT } : {}),
+          ...(process.env.COMSPEC ? { COMSPEC: process.env.COMSPEC } : {}),
+          ...(process.env.ProgramFiles ? { ProgramFiles: process.env.ProgramFiles } : {}),
+          ...(process.env.TEMP ? { TEMP: process.env.TEMP, TMP: process.env.TMP } : {}),
+        }),
+        prepare: ({ proj }) => {
+          const bin = path.join(proj, 'node_modules', '.bin');
+          fs.mkdirSync(bin, { recursive: true });
+          const exe = windowsFakeExe();
+          for (const n of ['git', 'node', 'pwsh']) fs.copyFileSync(exe, path.join(bin, `${n}.exe`));
+        },
+        inspect: hookFiles,
+      });
+      assert.equal(r.code, 0, r.err);
+      const json = JSON.parse(r.out.trim().split(/\r?\n/).pop() ?? '{}');
+      assert.match(
+        String(json.shell),
+        /^pwsh/,
+        'the real pwsh 7, not node_modules\\.bin\\pwsh.exe'
+      );
+      assert.match(r.inspected['HOOK-git.txt'] ?? '', /^git version/, JSON.stringify(r.inspected));
+      assert.equal(r.inspected['HOOK-node.txt'], '42');
+      const ran = Object.fromEntries(
+        marks(WIN_MARK_DIR).map((f) => [f, fs.readFileSync(path.join(WIN_MARK_DIR, f), 'utf8')])
+      );
+      // KNOWN LIMITATION (PM ruling on O1): only the model's own exec hits it.
+      assert.deepEqual(Object.keys(ran), ['MARK-git.txt'], JSON.stringify(ran));
+      assert.match(ran['MARK-git.txt'], /o158-model-exec/);
+      assert.equal(ran['MARK-git.txt'].trim().split(/\r?\n/).length, 1, ran['MARK-git.txt']);
+    } finally {
+      clearWinMarks();
+    }
+  }
+);
+
+test(
+  'O1 posix: an `#!/usr/bin/env node` program Moss starts gets an absolute interpreter, not $WS/node_modules/.bin/node',
+  POSIX_ONLY,
+  async (t) => {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'o158-ws-'));
+    const tools = fs.mkdtempSync(path.join(os.tmpdir(), 'o158-tools-'));
+    const markDir = fs.mkdtempSync(path.join(os.tmpdir(), 'o158-mark-'));
+    t.after(() => {
+      for (const d of [ws, tools, markDir]) fs.rmSync(d, { recursive: true, force: true });
+    });
+    const bin = path.join(ws, 'node_modules', '.bin');
+    fs.mkdirSync(bin, { recursive: true });
+    posixFake(bin, 'node', markDir);
+    const tool = path.join(tools, 'moss-o158-envtool');
+    fs.writeFileSync(
+      tool,
+      '#!/usr/bin/env node\nconsole.log("real " + process.argv.slice(2).join(" "));\n'
+    );
+    fs.chmodSync(tool, 0o755);
+    const env = { ...process.env, PATH: `${bin}:${tools}:${process.env.PATH}` };
+    const realNode = resolveExecutable('node', { env, processCwd: ws });
+    assert.ok(realNode && !realNode.startsWith(ws), realNode);
+    assert.deepEqual(envShebangCommand(tool, { env, processCwd: ws }), [realNode, tool]);
+    const r = runProcessSync('moss-o158-envtool', ['a'], { cwd: ws, env, encoding: 'utf8' });
+    assert.equal(String(r.stdout).trim(), 'real a', String(r.stderr));
+    const a = await runProcess('moss-o158-envtool', { args: ['b'], cwd: ws, env });
+    assert.equal(a.stdout.trim(), 'real b');
+    assert.equal(
+      resolveCommandHead('moss-o158-envtool c', 'sh', { env, processCwd: ws, cwd: ws }),
+      `'${realNode}' '${tool}' c`
+    );
+    assert.deepEqual(marks(markDir), []);
+  }
+);
