@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### O162 — hook output over the capture limit blocks
+
+Each hook's stdout and stderr are captured up to 10 MiB per stream; the verdict
+is the last JSON line of stdout. When a hook printed more than the capture
+holds, the cut text hid the verdict and every blocking gate read only the
+truncated remains: a moss `block` and a Claude `permissionDecision: "deny"`
+printed after 12 MiB of junk were invisible, and a moss `allow` was
+unverifiable — the run exited 0 and the write went through. Any cut stream is
+now the outcome `output_too_large`: PreToolUse, UserPromptSubmit,
+PermissionRequest and Stop all fail closed on it, whatever the exit code said,
+and the notice names the hook, the limit and the stream that was cut. The cut
+detection is exact — the flag is set only when output was actually discarded,
+so multi-byte text that still fits the capture limit is never a false positive.
+A `blocking: false` hook cannot restrict a call, so its oversized output does
+not block either.
+
+每个 hook 的 stdout / stderr 各捕获最多 10 MiB，判定取 stdout 最后一行 JSON。
+以前 hook 输出超过捕获上限时，截断的文本把判定藏住了：12 MiB 垃圾之后再打印的
+moss `block`、Claude `permissionDecision: "deny"` 都看不见，moss `allow` 也无从
+验证——run 照样 exit 0、文件照样写入。现在任何被截断的流都记为
+`output_too_large`：PreToolUse、UserPromptSubmit、PermissionRequest、Stop
+四个阻塞门一律失败关闭，退出码说了什么都不算数，提示里点名 hook、上限与被截断
+的流。截断检测是精确的——只有真的丢弃了输出才置标志，多字节文本只要装得进
+捕获上限就不会误报。`blocking: false` 的 hook 不能收紧任何调用，其输出超限同样
+不拦截。
+
 ### O156 — Windows PowerShell 5.1: a missing hook command is "failed to start"
 
 A hook run through Windows PowerShell 5.1 (`powershell -Command <missing>`)

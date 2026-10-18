@@ -60,9 +60,11 @@ export function hookShell(
 type HookOutcome = 'exit' | 'spawn_failed' | 'timeout' | 'output_too_large';
 
 /**
- * O162: a hook's stdout or stderr beyond this many bytes is cut, so its
- * verdict (the last JSON line) cannot be trusted: `output_too_large`, which
- * every blocking event fails closed on, like a timeout.
+ * O162: per-stream capture limit for a hook's stdout / stderr. Once anything
+ * is cut the captured text is incomplete, so the verdict (the last JSON line)
+ * cannot be trusted: `output_too_large`, which every blocking event fails
+ * closed on, like a timeout — whatever the exit code or the readable part of
+ * the output said.
  */
 export const HOOK_OUTPUT_LIMIT_BYTES = DEFAULT_MAX_BUFFER;
 
@@ -100,11 +102,11 @@ interface HookRunResult {
   exitCode: number;
   stdout: string;
   stderr: string;
-  /** O162: which stream went over HOOK_OUTPUT_LIMIT_BYTES. */
+  /** O162: which stream was cut at HOOK_OUTPUT_LIMIT_BYTES. */
   overflow?: 'stdout' | 'stderr' | 'stdout+stderr';
 }
 
-/** O162: an over-limit stream wins over the exit code (the verdict is lost). */
+/** O162: a cut stream wins over the exit code (the verdict is lost). */
 function overflowOf(r: {
   stdoutOverflow?: boolean;
   stderrOverflow?: boolean;
@@ -332,8 +334,8 @@ export function formatHookFailure(
         : blocked && result.outcome === 'output_too_large'
           ? `已拦截：${name} \`${hook.command}\` ${why}，无法解析决定，已按拒绝处理。`
           : blocked
-          ? `已拦截：${name}${why}。`
-          : `${name}${why}，未拦截。`;
+            ? `已拦截：${name}${why}。`
+            : `${name}${why}，未拦截。`;
     const lines = [
       head,
       `命令：${hook.command}`,
@@ -360,8 +362,8 @@ export function formatHookFailure(
       : blocked && result.outcome === 'output_too_large'
         ? `Blocked: ${event} hook \`${hook.command}\` ${why}; its decision cannot be read, treated as deny.`
         : blocked
-        ? `Blocked: ${event} hook ${why}.`
-        : `${event} hook ${why}; not blocking.`;
+          ? `Blocked: ${event} hook ${why}.`
+          : `${event} hook ${why}; not blocking.`;
   const lines = [
     head,
     `Command: ${hook.command}`,
