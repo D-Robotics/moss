@@ -171,6 +171,19 @@ for (const format of ['moss', 'claude']) {
   }
 }
 
+// PM acceptance also lists 无输出: non-zero with no output blocks at CLI level.
+for (const format of ['moss', 'claude']) {
+  for (const code of [1, 2, 3]) {
+    test(`F1 CLI ${format}: exit ${code} + no output → exit 9, file unchanged`, async () => {
+      const hook = {
+        command: nodeHook(`process.exit(${code})`),
+        ...(format === 'claude' ? { format } : {}),
+      };
+      assertCliBlocked(await cli(hook), hook, code, undefined);
+    });
+  }
+}
+
 for (const format of ['moss', 'claude']) {
   for (const name of ['allow', 'approve']) {
     test(`F1 CLI ${format}: prints ${name} then crashes → exit 9, file unchanged`, async () => {
