@@ -1,0 +1,40 @@
+name: O164 probe (CI-only, do not merge)
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: O164 probe (${{ matrix.os }}, ${{ matrix.variant }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        variant: [fix, item1, item2, f2a, f2b]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+          cache: npm
+      - run: npm ci
+      - name: Remove one fix (mutation)
+        if: matrix.variant != 'fix'
+        shell: bash
+        run: python3 scripts/ci-o164/mut.py ${{ matrix.variant }} || python scripts/ci-o164/mut.py ${{ matrix.variant }}; git diff --stat
+      - run: npm run build
+      - name: O164 spec
+        shell: bash
+        continue-on-error: true
+        run: |
+          node --test-reporter=spec test/o164-dotenv-system-paths.spec.mjs 2>&1 | tee "$RUNNER_TEMP/o164.out" | grep -E '^(✔|✖|﹣)|^ℹ (tests|pass|fail|skipped)' | awk '!s[$0]++'
+          echo "O164 SPEC EXIT: ${PIPESTATUS[0]}"
+      - name: Failure details
+        if: always()
+        shell: bash
+        run: grep -A25 'failing tests' "$RUNNER_TEMP/o164.out" | head -150 || true
