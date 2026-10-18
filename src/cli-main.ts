@@ -1,6 +1,7 @@
 // Moss Agent CLI main — see --help for usage, config, and environment variables.
 
 import { ensureKeepAliveDispatcherInstalled } from './provider/keep-alive-dispatcher.js';
+import { resolveHostShell } from './utils/host-shell.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { configureWindowsUtf8Console } from './utils/run-process.js';
@@ -129,6 +130,7 @@ import { announceCatalogSkip } from './cli/catalog-skip-notice.js';
 import {
   buildAnswerLanguageLayer,
   formatFullModeNotice,
+  formatHostShellFallbackNotice,
   formatInteractionModeNotice,
   installCliUiLanguage,
   isZhLocale,
@@ -644,6 +646,11 @@ async function main() {
   // O72: the resolved mode is printed on every start (stderr), including -p
   // and --quiet, so a user can always tell whether Moss will ask first.
   console.error(formatInteractionModeNotice(parsedArgs.interactionModeOverride ?? startupMode));
+  // O153: a cmd.exe fallback for exec is never silent (`;` is not a separator there).
+  if (process.platform === 'win32') {
+    const shellNotice = formatHostShellFallbackNotice(resolveHostShell().kind);
+    if (shellNotice) console.error(shellNotice);
+  }
   // Once per config dir. Doctor still reports the condition on every run.
   if (cliDetailForNotices !== 'quiet' && shouldShowFullDefaultNotice(resolvedConfig)) {
     printWrappedNotice(formatFullModeNotice());
