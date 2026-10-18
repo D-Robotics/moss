@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### O156 — Windows PowerShell 5.1: a missing hook command is "failed to start"
+
+A hook run through Windows PowerShell 5.1 (`powershell -Command <missing>`)
+prints `X : The term 'X' is not recognized … operable program` (space before
+the colon, wrapped at console width) and exits 1. Moss did not recognize it,
+so Claude-format `UserPromptSubmit`, `Stop` and `PermissionRequest` hooks let
+the action through. It is now "failed to start; treated as deny" on every
+event, like pwsh 7 and cmd. Detection does not rely on English: 5.1's error
+record ends with an untranslated `CategoryInfo … CommandNotFoundException`
+line, and the Chinese texts of pwsh 7 and 5.1 are recognized too.
+
+Windows PowerShell 5.1 下 hook 命令不存在（`X : The term 'X' … operable
+program`，冒号前有空格、按控制台宽度折行，exit 1）以前识别不出来，Claude 格式的
+UserPromptSubmit、Stop、PermissionRequest 会放行；现在所有事件都按「未能启动，
+已按拒绝处理」拦截。识别不依赖英文：5.1 错误记录末尾的
+`CategoryInfo … CommandNotFoundException` 不随语言变化，pwsh 7 和 5.1 的中文
+文本也能识别。
+
 ### O135 — PreToolUse hooks: any non-zero exit blocks
 
 A `PreToolUse` hook that exits non-zero now blocks the tool call in both Moss
