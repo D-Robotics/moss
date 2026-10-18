@@ -620,16 +620,7 @@ const SCRIPT_RUN_HEADS = new Set([
   'ash',
 ]);
 /** Inline-code flags: with one of these the invocation is not a script form. */
-const INLINE_CODE_FLAGS = new Set([
-  '-c',
-  '-e',
-  '-E',
-  '-p',
-  '-r',
-  '--eval',
-  '--print',
-  'eval',
-]);
+const INLINE_CODE_FLAGS = new Set(['-c', '-e', '-E', '-p', '-r', '--eval', '--print', 'eval']);
 const DOT_SOURCE_HEADS = new Set(['.', 'source']);
 
 function stripEdgeQuotes(w: string): string {
