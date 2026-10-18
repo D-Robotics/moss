@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [fix, revert]
+        variant: [fix, revert, f1revert]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -31,6 +31,13 @@ jobs:
           git diff f9ab892bdef6496d9cf3edb79263eef92a334a48 ae25dcfdfd4a96cc5fdc7cc94e20bf043949751e -- src > "$RUNNER_TEMP/fix.patch"
           git apply -R "$RUNNER_TEMP/fix.patch"
           git status --short
+      - name: Revert only the QA #149 F1 fix (reverse patch of 98e1181a..090f3cc4 -- src)
+        if: matrix.variant == 'f1revert'
+        shell: bash
+        run: |
+          git diff 98e1181aa803bb95fb7964e6912465b4240aecc4 090f3cc4f677c00fd9b362241d6a5adceb2c9204 -- src > "$RUNNER_TEMP/f1.patch"
+          git apply -R "$RUNNER_TEMP/f1.patch"
+          git status --short
       - run: npm run build
       - name: Moss hook verdicts (claude format, 4 events x PS 5.1 / pwsh 7)
         shell: pwsh
@@ -42,3 +49,9 @@ jobs:
         run: |
           node --test-reporter=spec test/o156-powershell-missing-command.spec.mjs
           Write-Host "O156 SPEC EXIT: $LASTEXITCODE"
+      - name: O156 oversized stderr head spec (QA #149 F1)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          node --test-reporter=spec test/o156-oversized-stderr-head.spec.mjs
+          Write-Host "O156 F1 SPEC EXIT: $LASTEXITCODE"
