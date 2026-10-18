@@ -2,7 +2,6 @@ import * as path from 'node:path';
 import * as readline from 'node:readline';
 import micromatch from 'micromatch';
 import type {
-  AgentHooks,
   ToolApprovalDecision,
   ToolApprovalRequest,
 } from '../core/agent/agent-hooks.js';
@@ -99,6 +98,12 @@ import {
   getCliApprovalViewAsker,
   normalizeApprovalAnswer,
 } from './approval-view.js';
+import {
+  hookAskDeniedReason,
+  hookAskHeadlessReason,
+  hookAskPromptLines,
+  type ToolApprovalContext,
+} from './hook-ask.js';
 
 export type AskUser = (
   question: string,
@@ -173,7 +178,10 @@ export interface CliToolApprovalOptions {
 }
 
 /** A CLI policy hook whose interactive asker can be scoped by an embedding host. @beta */
-export type CliToolApprovalHook = NonNullable<AgentHooks['onBeforeToolExec']> & {
+export type CliToolApprovalHook = ((
+  request: ToolApprovalRequest,
+  context?: ToolApprovalContext
+) => Promise<ToolApprovalDecision>) & {
   setAsker(asker: AskUser | null): () => void;
   setInteractionModeResolver(resolve: (() => CliInteractionMode) | null): () => void;
 };
@@ -1120,10 +1128,15 @@ export function createCliToolApprovalHook(
 
   let headlessNoticeShown = false;
 
-  const hook: NonNullable<AgentHooks['onBeforeToolExec']> = async (
-    request: ToolApprovalRequest
-  ) => {
+  const hook = async (
+    request: ToolApprovalRequest,
+    context?: ToolApprovalContext
+  ): Promise<ToolApprovalDecision> => {
     const { tool } = request;
+    // O157: PreToolUse hooks that exited 0 with `ask`. Deny rules and hard
+    // blocks still win; otherwise the user must confirm this call (prompt in
+    // every mode, full included), and -p / no terminal refuses.
+    const hookAsks = context?.hookAsks && context.hookAsks.length > 0 ? context.hookAsks : undefined;
 
     // ── live assembly (the hook ONLY assembles; ordering lives in
     // permission-rules.resolvePermissionDecision, design §7-4) ──
@@ -1291,12 +1304,13 @@ export function createCliToolApprovalHook(
         }
         if (protectedAnswer === 'a' || protectedAnswer === 'always') {
           for (const hit of protectedHits) sessionProtectedGrants.add(protectedGrantKey(hit));
-          return settle({ approved: true });
+          // O157: the hook's own confirmation is still asked below.
+          if (!hookAsks) return settle({ approved: true });
+        } else if (protectedAnswer === 'y' || protectedAnswer === 'yes') {
+          if (!hookAsks) return settle({ approved: true });
+        } else {
+          return settle({ approved: false, reason: protectedPathDeniedReason(firstHit, zh) });
         }
-        if (protectedAnswer === 'y' || protectedAnswer === 'yes') {
-          return settle({ approved: true });
-        }
-        return settle({ approved: false, reason: protectedPathDeniedReason(firstHit, zh) });
       }
     }
 
@@ -1313,6 +1327,8 @@ export function createCliToolApprovalHook(
           }Then run "${tool.name}" again.`,
         });
       case 'allow':
+        // O157: a hook asked; policy allowing is not the user confirming.
+        if (hookAsks) break;
         // Workspace file trust (the 'a' family grant) rides on top of the
         // ordered allow — same outcome, kept for the sandboxed edit family.
         if (outcome.reason === 'no-approval-needed') return settle({ approved: true });
@@ -1322,13 +1338,13 @@ export function createCliToolApprovalHook(
         break;
     }
 
-    if (trustedWorkspace) {
+    if (trustedWorkspace && !hookAsks) {
       return settle({ approved: true });
     }
 
     // read-only tools with planMode: 'allow' (planning helpers) run without a
     // second confirmation (plan ceiling already let them through above).
-    if (effectiveMode === 'plan' && tool.metadata?.planMode === 'allow') {
+    if (!hookAsks && effectiveMode === 'plan' && tool.metadata?.planMode === 'allow') {
       return settle({ approved: true });
     }
 
@@ -1350,6 +1366,16 @@ export function createCliToolApprovalHook(
         : undefined;
 
     const asker = instanceAsker ?? interactiveAsker;
+    // O157: -p never confirms a hook ask (even on a TTY or with an asker);
+    // a run with no terminal and no asker cannot either.
+    if (hookAsks) {
+      const printMode = isApprovalPrintMode(options);
+      if (printMode || (!process.stdin.isTTY && asker === null && !getCliApprovalViewAsker())) {
+        const reason = hookAskHeadlessReason(hookAsks, printMode ? 'print' : 'headless');
+        if (options.detailMode !== 'quiet') console.error(`[hooks] ${reason}`);
+        return settle({ approved: false, reason });
+      }
+    }
     // Same `-p` rule as O94: print mode cannot prompt even on a TTY.
     if ((isApprovalPrintMode(options) || !process.stdin.isTTY) && asker === null) {
       if (options.detailMode !== 'quiet' && !headlessNoticeShown) {
@@ -1391,7 +1417,7 @@ export function createCliToolApprovalHook(
       /* task context is enrichment — approvals work without it */
     }
 
-    const prompt =
+    const basePrompt =
       destructiveCopy?.text ??
       renderCliApprovalPrompt(
         preview,
@@ -1402,13 +1428,15 @@ export function createCliToolApprovalHook(
         },
         taskCtx
       );
+    const hookLines = hookAsks ? hookAskPromptLines(hookAsks) : [];
+    const prompt = hookLines.length > 0 ? `${hookLines.join('\n')}\n${basePrompt}` : basePrompt;
     const baseDialog = describeApprovalDialog(
       preview,
       request.input,
       { workspaceDir: options.workspaceDir, device: options.device },
       { persistTrust: options.persistTrust }
     );
-    const dialog = destructiveCopy
+    const policyDialog = destructiveCopy
       ? {
           ...baseDialog,
           title: destructiveCopy.title,
@@ -1419,6 +1447,18 @@ export function createCliToolApprovalHook(
           trustOptionAvailable: true,
         }
       : baseDialog;
+    // O157: name the hook and its reason first; `a` approves this call only
+    // (the hook asks again next time).
+    const dialog: ApprovalDialog = hookAsks
+      ? {
+          ...policyDialog,
+          detail: [...hookLines, ...policyDialog.detail],
+          trustOptionLabel: isZhLocale()
+            ? '是，仅这一次（该钩子下次仍会要求确认）'
+            : 'Yes, this time (the hook will ask again next time)',
+          trustOptionAvailable: true,
+        }
+      : policyDialog;
     // Precedence: a structured UI (which renders the dialog itself) wins over
     // the flattened-prompt asker; headless/tests keep using the string path.
     const viewAsker = getCliApprovalViewAsker();
@@ -1430,6 +1470,13 @@ export function createCliToolApprovalHook(
     // composer for the user's follow-up. Not a session-wide trust grant.
     if (answer === 'amend') {
       return settle({ approved: true });
+    }
+    // O157: y / a approve this one call and grant nothing; anything else is n.
+    if (hookAsks) {
+      if (answer === 'y' || answer === 'yes' || answer === 'a' || answer === 'always') {
+        return settle({ approved: true });
+      }
+      return settle({ approved: false, reason: hookAskDeniedReason(tool.name, hookAsks) });
     }
     if (answer === 'a' || answer === 'always') {
       if (deviceGatedAsk) {
