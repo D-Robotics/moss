@@ -157,6 +157,44 @@ for (const fake of ['pwsh', 'powershell', 'cmd', 'git', 'node', 'npx.cmd', 'wher
       hook: true,
       steps: MSTEP,
     });
+// QA #142 F4: with COMSPEC unset Moss itself starts a bare `cmd.exe` (hook
+// shell, chcp, shell:true); this is the only way a fake cmd.exe can run.
+// No Moss path starts a bare `powershell` (windows-background-job uses the
+// absolute System32 path), so the powershell rows cannot go red on a revert.
+for (const pathMode of ['nopwsh', 'full'])
+  CASES.push({
+    id: `S-${pathMode}-fake-cmd-nocomspec`,
+    pathMode,
+    fakes: ['cmd'],
+    noComspec: true,
+    gitInit: true,
+    hook: true,
+    steps: MSTEP,
+  });
+// PM ruling on O1: PATH starts with $WS\node_modules\.bin holding fake
+// git/node/pwsh. Startup and the hook launch must not run them; the model's
+// own exec (`git o158-model-exec`) does — known limitation.
+for (const pathMode of ['nopwsh', 'full'])
+  CASES.push({
+    id: `O1-${pathMode}-node_modules-bin`,
+    pathMode,
+    fakes: [],
+    binFakes: ['git', 'node', 'pwsh'],
+    gitInit: true,
+    hook: true,
+    hookNode: true,
+    steps: [{ name: 'exec', args: { command: 'git o158-model-exec' } }],
+  });
+// QA #142 F2: a project .env points ProgramFiles / ProgramW6432 / LOCALAPPDATA
+// at aliases of the workspace (\\localhost\C$\…, long/short name) holding
+// PowerShell\7\pwsh.exe; no pwsh on PATH, none of the three in the real env.
+CASES.push({
+  id: 'F2-nopwsh-dotenv-pwsh-fallback-alias',
+  pathMode: 'nopwsh',
+  fakes: [],
+  dotenvAlias: true,
+  steps: [],
+});
 const pathFor = (mode) =>
   ({
     full: fullPath,
@@ -184,7 +222,7 @@ for (const c of CASES) {
     HOME: home,
     USERPROFILE: home,
     SystemRoot: process.env.SystemRoot,
-    COMSPEC: process.env.COMSPEC,
+    ...(c.noComspec ? {} : { COMSPEC: process.env.COMSPEC }),
     PATHEXT: process.env.PATHEXT,
     TEMP: process.env.TEMP,
     TMP: process.env.TMP,
@@ -215,10 +253,42 @@ for (const c of CASES) {
     fs.mkdirSync(path.join(proj, '.moss'), { recursive: true });
     fs.writeFileSync(
       path.join(proj, '.moss', 'config.json'),
-      JSON.stringify({ hooks: { PreToolUse: [{ command: 'git --version > HOOK-OK.txt' }] } })
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            { command: 'git --version > HOOK-OK.txt' },
+            ...(c.hookNode ? [{ command: 'node -e "console.log(41+1)" > HOOK-node.txt' }] : []),
+          ],
+        },
+      })
     );
   }
   for (const f of c.fakes) fs.copyFileSync(FAKE, path.join(proj, `${f}.exe`));
+  if (c.binFakes) {
+    const bin = path.join(proj, 'node_modules', '.bin');
+    fs.mkdirSync(bin, { recursive: true });
+    for (const f of c.binFakes) fs.copyFileSync(FAKE, path.join(bin, `${f}.exe`));
+    env.PATH = `${bin};${env.PATH}`;
+  }
+  if (c.dotenvAlias) {
+    for (const rel of ['PowerShell\\7', 'Microsoft\\WindowsApps']) {
+      fs.mkdirSync(path.join(proj, rel), { recursive: true });
+      fs.copyFileSync(FAKE, path.join(proj, rel, 'pwsh.exe'));
+    }
+    const long = fs.realpathSync.native(proj);
+    const unc = `\\\\localhost\\${long[0]}$${long.slice(2)}`;
+    const other = long === proj ? proj.toUpperCase() : long;
+    fs.writeFileSync(
+      path.join(proj, '.env'),
+      `ProgramFiles=${unc}\r\nProgramW6432=${other}\r\nLOCALAPPDATA=${other}\r\n`
+    );
+    log(`F2 .env: ProgramFiles=${unc} ProgramW6432/LOCALAPPDATA=${other} (cwd ${proj})`);
+    try {
+      log('F2 UNC alias reachable:', fs.existsSync(path.join(unc, 'PowerShell', '7', 'pwsh.exe')));
+    } catch (e) {
+      log('F2 UNC alias check failed:', String(e));
+    }
+  }
   if (c.npxCmd)
     fs.writeFileSync(
       path.join(proj, 'npx.cmd'),
@@ -232,8 +302,16 @@ for (const c of CASES) {
   server.closeAllConnections?.();
   server.close();
   const marks = {};
-  for (const f of fs.readdirSync(proj))
-    if (f.startsWith('MARK-')) marks[f] = fs.readFileSync(path.join(proj, f), 'utf8').trim();
+  const scan = (dir, rel) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === '.git') continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) scan(full, rel ? `${rel}/${e.name}` : e.name);
+      else if (e.name.startsWith('MARK-'))
+        marks[rel ? `${rel}/${e.name}` : e.name] = fs.readFileSync(full, 'utf8').trim();
+    }
+  };
+  scan(proj, '');
   let json = null;
   for (const line of r.out.trim().split(/\r?\n/).reverse()) {
     try {
@@ -249,10 +327,20 @@ for (const c of CASES) {
   const toolResults = (server.lastMessages ?? [])
     .filter((m) => m.role === 'tool')
     .map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)));
-  const hookRan = fs.existsSync(path.join(proj, 'HOOK-OK.txt'));
+  const readOr = (f) => {
+    try {
+      return fs.readFileSync(path.join(proj, f), 'utf8').trim();
+    } catch {
+      return null;
+    }
+  };
+  // The real git, not a fake that printed "7" into the file.
+  const hookRan = /git version/.test(readOr('HOOK-OK.txt') ?? '');
+  const hookNode = readOr('HOOK-node.txt');
   const row = {
     exit: r.code,
     hookRan,
+    hookNode,
     jsonShell: json?.shell ?? null,
     markers: marks,
     toolResults,
@@ -288,3 +376,24 @@ for (const id of Object.keys(summary.cases).filter((k) => /^[MS]-/.test(k))) {
   );
 }
 log(`O158 MATRIX OVERALL: ${matrixClean ? 'ALL PASS' : 'SOME FAIL'}`);
+for (const id of Object.keys(summary.cases).filter((k) => k.startsWith('O1-'))) {
+  const row = summary.cases[id];
+  const m = row.markers;
+  const keys = Object.keys(m);
+  const onlyModelExec =
+    keys.length === 1 &&
+    keys[0] === 'node_modules/.bin/MARK-git.txt' &&
+    /o158-model-exec/.test(m[keys[0]]) &&
+    m[keys[0]].split(/\r?\n/).length === 1;
+  const ok = onlyModelExec && row.exit === 0 && row.hookRan && row.hookNode === '42';
+  log(
+    `O158 O1 ${id}: ${ok ? 'PASS' : 'FAIL'} markers=${JSON.stringify(m)} shell=${row.jsonShell} hookGit=${row.hookRan} hookNode=${row.hookNode} (model exec hitting node_modules/.bin/git = known limitation)`
+  );
+}
+{
+  const row = summary.cases['F2-nopwsh-dotenv-pwsh-fallback-alias'];
+  const keys = Object.keys(row.markers);
+  log(
+    `O158 F2 ${keys.length ? 'REPRODUCED' : 'NOT REPRODUCED'}: markers=${JSON.stringify(row.markers)} shell=${row.jsonShell} exit=${row.exit}`
+  );
+}
