@@ -270,13 +270,15 @@ test('native hook verdicts retain quoted argv/stdin/cwd, explicit exits and real
   }
 });
 
-test('claude format + exit 1 with explicit allow decision still allows', async () => {
+// O135 PM ruling (QA F1): a non-zero exit blocks even with an allow decision;
+// the output of a process that failed is not trusted.
+test('claude format + exit 1 with explicit allow decision blocks (allow ignored)', async () => {
   useLang('en');
   const command = `node -e "process.stdout.write(JSON.stringify({decision:'allow'}));process.exit(1)"`;
   const r = await runWrite({
     PreToolUse: [{ command, format: 'claude', source: CONFIG }],
   });
-  assert.equal(r.written, true, 'explicit allow must still permit the write');
+  assertBlocked(r, /exited with code 1; treated as deny \(ignored the allow in its output\)/);
 });
 
 test('blocking:false + missing command allows the write and shows the reason', async () => {

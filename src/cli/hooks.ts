@@ -333,9 +333,13 @@ function isAllowDecision(decision: string | undefined): boolean {
 }
 
 /**
- * O135: PreToolUse is a safety gate. Non-zero exit with no explicit allow
- * decision fails closed in both moss and claude formats (do not only special-
- * case exit 2 / exit 1).
+ * O135: PreToolUse is a safety gate and may never be looser than before.
+ * - Did not exit normally (spawn failure / timeout / signal): block.
+ * - Explicit block/deny: block. Exit 0 otherwise: allow.
+ * - Any non-zero exit blocks, in both moss and claude formats, whatever the
+ *   output says: an allow/approve from a process that failed is not trusted
+ *   (PM ruling 2026-10-18 on QA F1). Deliberately stricter than Claude Code,
+ *   which treats a non-2 non-zero exit as a non-blocking error.
  */
 function preToolUseBlocks(
   hook: HookCommandConfig,
@@ -345,9 +349,7 @@ function preToolUseBlocks(
   if (hook.blocking === false) return false;
   if (result.outcome !== 'exit') return true;
   if (isBlockDecision(parsed?.decision)) return true;
-  if (result.exitCode === 0) return false;
-  if (isAllowDecision(parsed?.decision)) return false;
-  return true;
+  return result.exitCode !== 0;
 }
 
 function hookReason(result: HookRunResult, parsed?: ParsedHookJson): string {
@@ -516,6 +518,15 @@ export function createConfiguredHookCallbacks(
     parsed?: ParsedHookJson
   ): string => {
     if (r.outcome !== 'exit') return notice(event, hook, r, true);
+    // O135 (PM ruling): a non-zero hook that printed allow is denied; say so,
+    // naming the hook, so nobody wonders why its allow did not count. The
+    // verdict comes first: the terminal line truncates long commands.
+    if (r.exitCode !== 0 && isAllowDecision(parsed?.decision)) {
+      const said = parsed?.decision?.trim().toLowerCase() ?? 'allow';
+      return isZhLocale()
+        ? `已拦截：${hookEventZhName(event)}钩子以 exit ${r.exitCode} 退出，已按拒绝处理（忽略其输出中的 ${said}）。钩子：\`${hook.command}\``
+        : `Blocked by ${event} hook: exited with code ${r.exitCode}; treated as deny (ignored the ${said} in its output). Hook: \`${hook.command}\``;
+    }
     // O91: zh blocked reasons use 「中文名+钩子」, never the bare English id.
     return isZhLocale()
       ? `已拦截：${hookEventZhName(event)}钩子：${hookReason(r, parsed)}`
