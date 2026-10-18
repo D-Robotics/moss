@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### O169 — `git --upload-pack` / `--receive-pack` literal commands are blocked
+
+`git clone --upload-pack='<cmd>'`, `git fetch --upload-pack=…`, `git push
+--receive-pack=…` (glued, `--upload-pack cmd`, or clone's short `-u`) make git
+run the given command to speak the pack protocol — arbitrary execution that
+looks like a plain clone/fetch/push. The flags were not in the exec-capable
+table, so the pre-exec block (O152) never fired. They now are, in the
+subcommand position and the global one; `git push -u origin main`
+(--set-upstream) is unaffected.
+
+`git clone --upload-pack='<cmd>'`、`git fetch --upload-pack=…`、`git push
+--receive-pack=…`（连写、空格分开、或 clone 的短旗标 `-u`）会让 git 执行给定命令来
+讲 pack 协议——表面是普通 clone/fetch/push，实际是任意执行。此前这些旗标不在
+「可执行读取」表里，O152 的执行前拦截从未触发；现已加入（子命令位与全局位都识别）。
+`git push -u origin main`（--set-upstream）不受影响。
+
 ### O156 — Windows PowerShell 5.1: a missing hook command is "failed to start"
 
 A hook run through Windows PowerShell 5.1 (`powershell -Command <missing>`)
