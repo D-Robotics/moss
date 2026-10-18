@@ -1,0 +1,36 @@
+name: O158 probe (CI-only, do not merge)
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: O158 probe (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Compile fake exe
+        shell: pwsh
+        run: |
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+          & $csc /nologo /out:"$env:RUNNER_TEMP\fake.exe" scripts\ci-o158\fake.cs
+          if (-not (Test-Path "$env:RUNNER_TEMP\fake.exe")) { throw 'csc failed' }
+          Get-Command pwsh | Format-List Source
+      - name: Probe
+        shell: pwsh
+        run: node scripts/ci-o158/probe.mjs "$env:RUNNER_TEMP\fake.exe" "$env:RUNNER_TEMP\o158-evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: o158-evidence
+          path: ${{ runner.temp }}/o158-evidence
