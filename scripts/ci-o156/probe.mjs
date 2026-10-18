@@ -33,8 +33,8 @@ for (const [label, command] of Object.entries(shells)) {
   rows.push({ shell: label, event: 'Stop', blocked: !!stop.blocked, reason: stop.reason ?? null });
   const perm = await quiet(() => cbs.runPermissionRequest({ toolName: 'write_file', input: {} }));
   rows.push({ shell: label, event: 'PermissionRequest', blocked: !!perm.denied, reason: perm.reason ?? null });
-  const pre = await quiet(() => cbs.onBeforeToolExec({ name: 'write_file', id: 't1', input: {} }));
-  rows.push({ shell: label, event: 'PreToolUse', result: JSON.stringify(pre ?? null).slice(0, 300) });
+  const pre = await quiet(() => cbs.onBeforeToolExec({ tool: { name: 'write_file', metadata: { sideEffectClass: 'local_write' } }, input: {}, sessionKey: 's', runId: 'r', toolCallId: 't1', abortSignal: new AbortController().signal }));
+  rows.push({ shell: label, event: 'PreToolUse', blocked: !!pre && pre.approved === false, reason: pre?.reason ?? null, raw: JSON.stringify(pre ?? null).slice(0, 300) });
 }
 console.log(JSON.stringify(rows, null, 2));
 for (const r of rows.filter((r) => 'blocked' in r)) {
