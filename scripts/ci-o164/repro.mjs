@@ -35,7 +35,7 @@ require('node:fs').appendFileSync(${JSON.stringify(log)}, 'SystemRoot=' + String
       { name: 'exec', args: { command: 'for /L %i in (1,1,60) do @if exist bg-ok.txt (type bg-ok.txt & echo found-at-poll-%i & exit 0) else ping -n 2 127.0.0.1 >NUL', timeout_ms: 70000 } },
     ],
     finalText: 'Done.',
-    extraEnv: { PATH: noPwsh, NODE_OPTIONS: `--require "${preload}"` },
+    extraEnv: { PATH: noPwsh, NODE_OPTIONS: `--require "${preload.replaceAll('\\', '/')}"` },
     prepare: ({ proj }) => {
       const dir = path.join(proj, 'fake', 'System32', 'WindowsPowerShell', 'v1.0');
       fs.mkdirSync(dir, { recursive: true });
@@ -44,6 +44,7 @@ require('node:fs').appendFileSync(${JSON.stringify(log)}, 'SystemRoot=' + String
     },
   });
   const tr = r.toolResults.join('\n');
+  if (!fs.existsSync(log)) console.log(r.err.slice(-1500));
   console.log(`preload: ${fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n')[0] : 'NOT RUN'}`);
   console.log(`fake powershell runs: ${count(markDir)}`);
   for (const f of marks(markDir)) console.log(`  ${f}: ${fs.readFileSync(path.join(markDir, f), 'utf8').trim().slice(0, 300)}`);
