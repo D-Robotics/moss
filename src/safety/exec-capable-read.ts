@@ -608,10 +608,28 @@ function nestedCommandText(head: string, args: readonly string[]): string | null
     // Only a `-c` before the wrapped program counts (`flock f git -c …` is
     // git's `-c`, left to the backstop below).
     const g = args.findIndex((a) => isGitWord(a));
-    const k = args.findIndex(
-      (a, idx) => (a === '-c' || a === '--command') && (g === -1 || idx < g)
-    );
-    return k === -1 ? undefined : (args[k + 1] ?? '');
+    // O152 r6 B1 (QA r6): `script -qc "…"`, `script -eqc "…"`, `su -lc "…"`,
+    // `script --command="…"` — any short-option cluster containing `c`, or
+    // `--command` / `--command=` / `--session-command[=]`.
+    for (let k = 0; k < args.length && (g === -1 || k < g); k += 1) {
+      const a = args[k]!;
+      if (a === '--') break;
+      const eq = a.match(/^--(?:session-)?command=([\s\S]*)$/);
+      if (eq) return eq[1]!;
+      if (a === '--command' || a === '--session-command') return args[k + 1] ?? '';
+      if (/^-[A-Za-z]+$/.test(a) && a.includes('c')) return args[k + 1] ?? '';
+    }
+    return undefined;
+  }
+  if (head === 'trap') {
+    // O152 r6 B2 (QA r6): `trap "<command>" SIG…` runs the string later in
+    // this shell — scan it like eval. `trap -p` / `-l` / `trap - SIG` list
+    // or reset only.
+    let i = 0;
+    if (args[i] === '--') i += 1;
+    const a = args[i];
+    if (a === undefined || /^-[pl]$/.test(a) || a === '-') return undefined;
+    return a;
   }
   if (!SH_SHELLS.has(head)) return undefined;
   // O152 r5 N2: `bash <<< "git -c …"` runs the here-string; scan it. A
@@ -728,6 +746,11 @@ const DEF_RE =
   /(?:^|[\s;&|({])(?:function\s+[A-Za-z_][\w-]*|[A-Za-z_][\w-]*\s*\(\s*\)\s*[{(]|alias\s+[^\s=]+=|doskey\s+\S+=|(?:set|new)-alias\b|shopt\s+-s\s+expand_aliases|-O\s+expand_aliases)/i;
 const GIT_TOKEN_RE = /(?:^|[^\w.-])git(?:\.exe)?(?![\w-])/i;
 
+/** Does this text name git once quotes / escapes are removed (`g"it"`, `gi''t`)? */
+function namesGit(text: string): boolean {
+  return GIT_TOKEN_RE.test(text) || GIT_TOKEN_RE.test(text.replace(/['"\\]/g, ''));
+}
+
 /**
  * Walk the simple commands left-to-right. An `export VAR=…` / `declare -x`
  * / `set VAR=…` / `$env:VAR=` / `Set-Item env:` earlier in the command
@@ -748,6 +771,8 @@ export interface FindExecCapableOptions {
   envChanged?: boolean;
   /** PATH was changed earlier on the line (r6 C4). */
   pathChanged?: boolean;
+  /** The outer line names git somewhere (PM r7 O1 scope). */
+  lineHasGit?: boolean;
   /**
    * Written back by a nested scan (eval / source / sh -c text): env changes
    * made inside it count for later commands on the outer line (r6 C3).
@@ -776,12 +801,17 @@ export function findExecCapableForms(
   // O152 r6 C4: PATH changed earlier on the line — any later command may
   // resolve to a planted binary.
   let pathChanged = opts.pathChanged === true;
+  // PM r7 O1: the structural C rules only apply where git appears (or the
+  // command name is dynamic). Quotes / escapes are removed first so
+  // `G=gi''t` still counts.
+  const lineHasGit = opts.lineHasGit === true || namesGit(command);
   const nested = (text: string, env: ReadonlySet<string>, si: number, wrapped: boolean) => {
     const sink = { envChanged: false, pathChanged: false, liveEnv: new Set<string>() };
     for (const f of findExecCapableForms(text, env, depth + 1, {
       wrapped: wrapped || opts.wrapped === true,
       envChanged,
       pathChanged,
+      lineHasGit,
       sink,
     }))
       out.push({ ...f, index: si });
@@ -1032,7 +1062,9 @@ export function findExecCapableForms(
 
     // O152 r6 C4: `PATH=<dir>:$PATH git status`, `export PATH=…; x` — the
     // command may resolve to a planted binary.
-    if (pathChanged || localPath) uncertain('PATH change before command', si);
+    // PM r7 O1: only for a segment that runs / names git.
+    if ((pathChanged || localPath) && namesGit(rawSegments[si] ?? ''))
+      uncertain('PATH change before command', si);
 
     // Shell / eval-like heads: scan their command string with this env.
     const inner = nestedCommandText(head, args);
@@ -1144,7 +1176,15 @@ export function findExecCapableForms(
           if (/\\/.test(w.replace(/'[^']*'|"[^"]*"/g, ''))) return isGitArgWord(a.literal);
           return a.glob && globMayBeGit(a.literal);
         });
-        if (dyn !== undefined) uncertain('dynamic argument after unknown prefix', si);
+        // PM r7 O1: only when git appears on the line (`G=git; setpriv $G`);
+        // `npm run $S`, `ps -p $$`, `node x.js "$PWD"` do not run git.
+        // A glob that can match git (`/usr/bin/gi?`) may become git itself.
+        const gitGlob = named.words.slice(named.index + 1).some((w) => {
+          const a = analyzeWord(w);
+          return a.glob && globMayBeGit(a.literal);
+        });
+        if (dyn !== undefined && (lineHasGit || gitGlob))
+          uncertain('dynamic argument after unknown prefix', si);
       }
       for (let k = 0; k < args.length; k += 1) {
         if (!isGitArgWord(args[k])) continue;
