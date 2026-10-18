@@ -202,6 +202,12 @@ export interface RunProcessResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  /**
+   * O162: the stream produced more than `maxBuffer` bytes, so the text above
+   * is incomplete. Callers that parse a verdict from it must not trust it.
+   */
+  stdoutOverflow?: boolean;
+  stderrOverflow?: boolean;
 }
 
 export class ProcessError extends Error {
@@ -212,6 +218,9 @@ export class ProcessError extends Error {
 
   readonly timedOut: boolean;
   readonly timeoutMs: number | undefined;
+  /** O162: see RunProcessResult.stdoutOverflow / stderrOverflow. */
+  stdoutOverflow = false;
+  stderrOverflow = false;
 
   constructor(
     exitCode: number | null,
@@ -240,7 +249,8 @@ export class ProcessError extends Error {
   }
 }
 
-const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024;
+/** Default per-stream capture limit (bytes) for runProcess. */
+export const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024;
 
 export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunProcessResult> {
   if (opts.signal?.aborted) {
@@ -261,6 +271,10 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
 
     let stdout = '';
     let stderr = '';
+    // O162: bytes seen per stream, so a caller can tell the buffer was cut.
+    const maxBuffer = opts.maxBuffer ?? DEFAULT_MAX_BUFFER;
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
     let killed = false;
     let timedOut = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -308,8 +322,9 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
     };
 
     child.stdout?.on('data', (chunk: Buffer) => {
+      stdoutBytes += chunk.length;
       const text = chunk.toString();
-      if (stdout.length < (opts.maxBuffer ?? DEFAULT_MAX_BUFFER)) {
+      if (stdout.length < maxBuffer) {
         stdout += text;
       }
       // Live streaming: forward each chunk to the caller's callback so the TUI
@@ -318,7 +333,8 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
     });
 
     child.stderr?.on('data', (chunk: Buffer) => {
-      if (stderr.length < (opts.maxBuffer ?? DEFAULT_MAX_BUFFER)) {
+      stderrBytes += chunk.length;
+      if (stderr.length < maxBuffer) {
         stderr += chunk.toString();
       }
     });
@@ -339,10 +355,21 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
 
     child.on('close', (code, signal) => {
       cleanup();
+      const stdoutOverflow = stdoutBytes > maxBuffer;
+      const stderrOverflow = stderrBytes > maxBuffer;
       if (code === 0 && !signal) {
-        resolve({ stdout, stderr, exitCode: 0 });
+        resolve({
+          stdout,
+          stderr,
+          exitCode: 0,
+          ...(stdoutOverflow ? { stdoutOverflow } : {}),
+          ...(stderrOverflow ? { stderrOverflow } : {}),
+        });
       } else {
-        reject(new ProcessError(code, stdout, stderr, timedOut, opts.timeout, signal));
+        const err = new ProcessError(code, stdout, stderr, timedOut, opts.timeout, signal);
+        err.stdoutOverflow = stdoutOverflow;
+        err.stderrOverflow = stderrOverflow;
+        reject(err);
       }
     });
   });
