@@ -25,7 +25,7 @@ jobs:
           node-version: 22.16.0
           cache: npm
       - run: npm ci
-      - name: Remove one fix (mutation), or old = src of main 15aff148
+      - name: Remove one fix (mutation), or old = src of main b10a50d1
         if: matrix.variant != 'fix'
         shell: bash
         run: (python3 scripts/ci-o157/mut.py ${{ matrix.variant }} || python scripts/ci-o157/mut.py ${{ matrix.variant }}) && git diff --stat HEAD -- src | tail -3
