@@ -193,7 +193,13 @@ test(
           },
           {
             name: 'exec',
-            args: { command: 'ping -n 20 127.0.0.1 >NUL & type bg-ok.txt', timeout_ms: 60000 },
+            // Windows PowerShell 5.1 (the job owner) starts slowly in the bare
+            // scenario env; poll for the job's file for up to ~60 s.
+            args: {
+              command:
+                'for /L %i in (1,1,60) do @if exist bg-ok.txt (type bg-ok.txt & exit 0) else ping -n 2 127.0.0.1 >NUL',
+              timeout_ms: 70000,
+            },
           },
         ],
         finalText: 'Done.',
