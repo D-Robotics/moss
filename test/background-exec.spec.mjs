@@ -141,7 +141,7 @@ process.on('uncaughtExceptionMonitor', () => {
           '-Command',
           `Get-CimInstance Win32_Process -Filter "ProcessId=${nativePid}" | Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine | ConvertTo-Json -Compress`,
         ],
-        { encoding: 'utf8', timeout: 2000, windowsHide: true }
+        { encoding: 'utf8', timeout: 30000, windowsHide: true }
       );
       console.error(
         '[background-owned-native-relationship]',
