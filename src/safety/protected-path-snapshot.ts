@@ -32,7 +32,7 @@
  * foreground command, and writes after the Moss process itself exits,
  * remain known limits — restore cannot cover them.
  */
-import { spawnSync } from 'node:child_process';
+import { runProcessSync } from '../utils/run-process.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -401,7 +401,7 @@ export function parseGitConfigEntries(raw: Buffer): Map<string, string[]> | null
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o117-'));
     const file = path.join(tmpDir, 'config');
     fs.writeFileSync(file, raw, { mode: 0o600 });
-    const res = spawnSync('git', ['config', '--file', file, '--no-includes', '--list', '-z'], {
+    const res = runProcessSync('git', ['config', '--file', file, '--no-includes', '--list', '-z'], {
       cwd: tmpDir,
       encoding: 'buffer',
       timeout: 5000,

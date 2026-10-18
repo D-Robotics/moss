@@ -7,6 +7,7 @@ import { CompactHookRegistry } from '../core/loop/compact-hooks.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { errorMessage } from '../errors.js';
 import { ProcessError, runProcess } from '../utils/run-process.js';
+import { resolveCommandHead } from '../utils/resolve-executable.js';
 import { isZhLocale } from './cli-locale.js';
 import { hookEventZhName } from './hook-event-names.js';
 import type { MossHookEventId } from './hook-event-names.js';
@@ -123,13 +124,17 @@ function runHookCommand(
   cwd: string,
   timeoutMs: number
 ): Promise<HookRunResult> {
-  const shell = hookShell(command);
   const env = safeChildEnv({
     LANG: process.env.LANG || 'en_US.UTF-8',
     MOSS_HOOK_EVENT: payload.event,
     MOSS_TOOL_NAME: payload.toolName ?? '',
     MOSS_WORKSPACE: cwd,
   });
+  // O158: the hook's first program is resolved by Moss's rules (never a PATH
+  // entry inside the workspace, e.g. `$WS/node_modules/.bin`).
+  const shell = hookShell(
+    resolveCommandHead(command, process.platform === 'win32' ? 'cmd' : 'sh', { env, cwd })
+  );
   return runProcess(shell.cmd, {
     args: shell.args,
     cwd,
