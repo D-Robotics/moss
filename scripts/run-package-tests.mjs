@@ -168,10 +168,21 @@ const testEnv = {
 // delete this run's temp root on the way out.
 let currentChild = null;
 let shuttingDown = false;
+/** Index in testFiles of the spec now running (-1 before the first). */
+let currentIndex = -1;
+
+// O149: an interrupted run names every spec that did not finish.
+function reportNotRun() {
+  const notRun = testFiles.slice(Math.max(currentIndex, 0));
+  if (notRun.length === 0) return;
+  console.error(`[test] interrupted: ${notRun.length} file(s) did not run to completion:`);
+  for (const file of notRun) console.error(`  ${file}`);
+}
 
 function shutdown(code) {
   if (shuttingDown) return;
   shuttingDown = true;
+  reportNotRun();
   const child = currentChild;
   if (child && child.exitCode === null && child.signalCode === null) {
     child.once('close', () => {
@@ -213,12 +224,6 @@ function runSpec(file) {
   });
 }
 
-function isCiEnv(value) {
-  if (!value) return false;
-  const v = String(value).trim().toLowerCase();
-  return v !== '' && v !== '0' && v !== 'false';
-}
-
 function leakedHomes() {
   return listMossTempHomes(runRoot);
 }
@@ -231,30 +236,30 @@ function reportLeaks() {
   return 1;
 }
 
-// Under CI run every file and summarize failures, so one red file cannot hide
-// later results (e.g. other platform evidence). Locally keep fail-fast.
-const runAll = isCiEnv(process.env.CI);
+// O149 (QA #145 F1): no fail-fast, locally or under CI. A red portability
+// spec that sorts early (e.g. `exec-git-config` on Windows) used to stop a
+// local run before the safety specs ran. Telling safety specs apart by file
+// name missed most of them (o151/o153/o158/safe-child-env/permission-rules/…),
+// so every file runs and the failures are summarized at the end with a
+// non-zero exit. If the run is interrupted, every file that did not run is
+// listed by name, so a skipped spec is never silent.
 const failedFiles = [];
-for (const file of testFiles) {
+for (const [index, file] of testFiles.entries()) {
+  if (shuttingDown) break;
+  currentIndex = index;
   console.error(`[test] ${file}`);
   const result = await runSpec(file);
   if (shuttingDown) break;
-  if (result.status !== 0) {
-    if (runAll) {
-      failedFiles.push({ file, status: result.status });
-      continue;
-    }
-    const leakStatus = reportLeaks();
-    process.exit(result.status ?? (leakStatus || 1));
-  }
+  if (result.status !== 0) failedFiles.push({ file, status: result.status });
 }
+currentIndex = testFiles.length;
 
 if (failedFiles.length > 0) {
   console.error(`[test] ${failedFiles.length} of ${testFiles.length} file(s) failed:`);
   for (const { file, status } of failedFiles)
     console.error(`  ${file} (exit ${status ?? 'signal'})`);
-  reportLeaks();
-  process.exit(failedFiles[0].status || 1);
+  const leakStatus = reportLeaks();
+  process.exit(failedFiles[0].status ?? (leakStatus || 1));
 }
 
 const leakStatus = reportLeaks();
