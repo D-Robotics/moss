@@ -125,6 +125,12 @@ const EXEC_FORMS = [
     id: 'GIT_CONFIG_PARAMETERS=',
     cmd: () => `GIT_CONFIG_PARAMETERS="'core.pager=./p.sh'" git log`,
   },
+  { id: 'GIT_CONFIG_GLOBAL=', cmd: () => `GIT_CONFIG_GLOBAL=/tmp/evil.cfg git x` },
+  { id: 'GIT_CONFIG_SYSTEM=', cmd: () => `GIT_CONFIG_SYSTEM=/tmp/evil.cfg git status` },
+  { id: 'nice -n 5 git -c', cmd: () => `nice -n 5 git -c credential.helper='!./p.sh' status` },
+  { id: 'timeout 10 git -c', cmd: () => `timeout 10 git -c credential.helper='!./p.sh' status` },
+  { id: 'sh -c git -c', cmd: () => `sh -c 'git -c credential.helper=!./p.sh status'` },
+  { id: 'bash -c git -c', cmd: () => `bash -c "git -c core.askPass=./p.sh status"` },
   { id: 'GIT_EXTERNAL_DIFF=', cmd: () => `GIT_EXTERNAL_DIFF=./p.sh git diff` },
   { id: 'env GIT_PAGER=', cmd: () => `env GIT_PAGER=./p.sh git log` },
   { id: 'export PAGER=; git', cmd: () => `export PAGER=./p.sh; git log` },
@@ -517,9 +523,44 @@ const PROC_BLOCK = [
       return `git -C ${q(proj)} -c include.path=${q(cfg)} x; node -e 1`;
     },
   },
+  {
+    id: 'GIT_CONFIG_GLOBAL= evil alias',
+    cmd: ({ proj, script, root }) => {
+      const cfg = path.join(root, 'evil-global.gitconfig');
+      fs.writeFileSync(cfg, `[alias]\n\tx = !${script}\n`);
+      return `GIT_CONFIG_GLOBAL=${q(cfg)} git -C ${q(proj)} x; node -e 1`;
+    },
+  },
+  {
+    id: 'nice -n 5 git -c credential.helper',
+    cmd: ({ proj, script }) =>
+      `nice -n 5 git -C ${q(proj)} -c credential.helper='!${script}' credential fill; node -e 1`,
+  },
+  {
+    id: 'timeout 10 git -c credential.helper',
+    cmd: ({ proj, script }) =>
+      `timeout 10 git -C ${q(proj)} -c credential.helper='!${script}' status; node -e 1`,
+  },
+  {
+    id: 'sh -c git -c credential.helper',
+    cmd: ({ proj, script }) =>
+      `sh -c 'git -C ${q(proj)} -c credential.helper="!${script}" status'; node -e 1`,
+  },
+  {
+    id: 'bash -c git -c credential.helper',
+    cmd: ({ proj, script }) =>
+      `bash -c 'git -C ${q(proj)} -c credential.helper="!${script}" status'; node -e 1`,
+  },
 ];
 
+const PROC_BLOCK_UNIX_ONLY = new Set([
+  'nice -n 5 git -c credential.helper',
+  'timeout 10 git -c credential.helper',
+  'sh -c git -c credential.helper',
+  'bash -c git -c credential.helper',
+]);
 for (const p of PROC_BLOCK) {
+  if (IS_WIN && PROC_BLOCK_UNIX_ONLY.has(p.id)) continue;
   for (const lang of ['zh', 'en']) {
     for (const json of [false, true]) {
       jobs.push({
@@ -594,8 +635,13 @@ const RESTORE_CASES = [
     cmd: () => `node -e "require('fs').rmSync('.g'+'it',{recursive:true})"`,
   },
   {
+    // Wipe workspace *contents* (not cwd itself). On Windows, rmSync(cwd) throws
+    // EBUSY while the process holds the directory — nothing changes → exit 0.
+    // Deleting children still removes .git / .env and exercises L3 restore on
+    // every platform (Linux/mac keep the same protected-path outcome).
     id: 'RG3 rmSync(cwd)',
-    cmd: () => `node -e "require('fs').rmSync(process.cwd(),{recursive:true})"`,
+    cmd: () =>
+      `node -e "const fs=require('fs'),p=require('path');const c=process.cwd();for(const n of fs.readdirSync(c)){try{fs.rmSync(p.join(c,n),{recursive:true,force:true})}catch(e){}}"`,
   },
 ];
 
@@ -670,6 +716,38 @@ for (const lang of ['zh', 'en']) {
       assert.equal(r.code, 9, `exit 9, got ${r.code}; last=${r.last}`);
       assert.equal(r.after['.env'].hash, r.before['.env'].hash, '.env must be restored in -p');
       assert.match(r.last, lang === 'zh' ? /已还原/ : /restored/i, r.last);
+    },
+  });
+}
+
+// ── O152 r4 / F10: unapproved [REDACTED] write to .env → restore + exit 9 ─
+for (const lang of ['zh', 'en']) {
+  jobs.push({
+    name: `proc egress placeholder [.env] [${lang}]: exit 9, restored, 已还原`,
+    fn: async () => {
+      const r = await o152Scenario({
+        lang,
+        seed: { ...SEED, '.env': 'DB_PASSWORD=original-value-1234\n' },
+        modes: MODES,
+        watch: ['.env'],
+        steps: () => [
+          exec(
+            `node -e "require('fs').writeFileSync(Buffer.from('LmVudg==','base64').toString(),'DB_PASSWORD=[REDA'+'CTED]\\n')"`
+          ),
+        ],
+        finalText: CLAIM[lang],
+      });
+      assert.equal(r.code, 9, `exit 9, got ${r.code}; last=${r.last}`);
+      assert.equal(r.after['.env'].hash, r.before['.env'].hash, '.env hash restored');
+      if (lang === 'zh') {
+        assert.match(r.last, /已被修改，已还原/);
+        assert.match(r.last, /\.env/);
+      } else {
+        assert.match(r.last, /modified and restored/i);
+        assert.match(r.last, /\.env/);
+      }
+      const tools = r.toolResults.join('\n');
+      assert.match(tools, /placeholder written; restored/i);
     },
   });
 }
