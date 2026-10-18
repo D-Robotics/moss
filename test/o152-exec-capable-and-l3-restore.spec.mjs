@@ -831,7 +831,20 @@ for (const c of RESTORE_CASES) {
             steps: () => [exec(c.cmd())],
             finalText: CLAIM[lang],
           });
-          assert.equal(r.code, 9, `exit 9, got ${r.code}; last=${r.last}`);
+          // Diagnostics first: on a wrong exit code, show what actually changed
+          // on disk and what the tool saw (EBUSY stack etc.), so a Windows-only
+          // failure is attributable without a local Windows box.
+          const diskDiff = WATCH.filter(
+            (rel) =>
+              r.after[rel].hash !== r.before[rel].hash || r.after[rel].mode !== r.before[rel].mode
+          ).map((rel) => `${rel}: ${r.before[rel].hash}->${r.after[rel].hash}`);
+          assert.equal(
+            r.code,
+            9,
+            `exit 9, got ${r.code}; last=${r.last}; changed=[${diskDiff.join(', ')}]; tool=${r.toolResults
+              .join('\n')
+              .slice(0, 1500)}`
+          );
           assert.notEqual(r.code, 7, 'must not be SESSION exit 7');
           if (json) {
             assert.equal(r.result?.subtype, 'error_during_execution');
