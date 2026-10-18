@@ -487,6 +487,12 @@ one line: press `e` to switch to English.
   no forced continuation turn, no further model call, and headless ends Incomplete
   (exit 9). In `-p`, a blocked UserPromptSubmit hook ends 「被拦」/`Blocked` with exit 9
   (was exit 8).
+- **Shell-exec env assignments and tmux/screen spawn forms (O170)**: assignments of
+  `BASH_ENV`, `ENV`, `PROMPT_COMMAND`, `ZDOTDIR` and `BASH_FUNC_*` make a shell run code, and
+  `tmux new-session`/`run-shell`/`send-keys`, `screen` with a command spawn outside Moss's
+  process tree — all pre-blocked as exec-capable. The env forms fire only when a POSIX
+  shell head runs on the same line (`ENV=production npm start` is not flagged); command-less
+  `tmux ls` / `attach` forms are unaffected.
 - Credentials come only from `.env` or the environment: never hardcoded, never logged, never
   passed to child processes, never written to the device registry. No account, no cloud, no
   telemetry.
