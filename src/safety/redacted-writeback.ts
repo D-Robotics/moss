@@ -6,8 +6,9 @@
  * files. Nothing is deleted or overwritten. Copying or moving a file that
  * already contained the placeholder is not a count increase of new
  * redaction — the destination bytes already existed in the snapshot.
- * Interpreter writes (`python3 -c`, `node -e` without a shell redirect)
- * are not in the mutation list and are not detected.
+ * Shell redirects feed the mutation list; interpreter writes to watched
+ * protected paths are covered when callers also merge those paths in
+ * (see {@link includeProtectedPathsInMutationSnap}).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -41,6 +42,25 @@ export function snapshotMutationFiles(
     }
   }
   return snap;
+}
+
+/**
+ * O152 F10: also watch L3 protected files for placeholder growth so
+ * `node -e` / `python3 -c` writes (no shell redirect) are still detected.
+ * Absolute paths only; existing snap entries win (keep the earlier bytes).
+ */
+export function includeProtectedPathsInMutationSnap(
+  snap: Map<string, Buffer | null>,
+  protectedAbsPaths: Iterable<string>
+): void {
+  for (const abs of protectedAbsPaths) {
+    if (!abs || snap.has(abs)) continue;
+    try {
+      snap.set(abs, fs.readFileSync(abs));
+    } catch {
+      snap.set(abs, null);
+    }
+  }
 }
 
 function placeholderCountInBuffer(buf: Buffer): number {
@@ -80,11 +100,32 @@ export function filesWithIncreasedPlaceholderCount(snap: Map<string, Buffer | nu
   return increased;
 }
 
-export function formatRedactedWritebackWarning(paths: readonly string[]): string {
-  if (paths.length === 0) return '';
-  return (
-    '\n\n[moss] Warning: real values in these files were replaced by [REDACTED] and must be restored from the original source: ' +
-    paths.join(', ') +
-    '. Moss did not delete or overwrite them.'
-  );
+/**
+ * O152 r4: after L3 restore, word the warning from the post-restore state.
+ * - `restoredPaths`: placeholder was written then L3 put prior bytes back —
+ *   say "placeholder written; restored" (never "Moss did not overwrite").
+ * - `keptPaths`: still on disk with more `[REDACTED]` (approved / non-protected)
+ *   — keep the classic "must be restored … Moss did not overwrite" wording.
+ */
+export function formatRedactedWritebackWarning(
+  keptPaths: readonly string[],
+  restoredPaths: readonly string[] = []
+): string {
+  const parts: string[] = [];
+  if (restoredPaths.length > 0) {
+    parts.push(
+      'Warning: [REDACTED] placeholder was written into ' +
+        restoredPaths.join(', ') +
+        '; Moss restored the prior content (placeholder written; restored).'
+    );
+  }
+  if (keptPaths.length > 0) {
+    parts.push(
+      'Warning: real values in these files were replaced by [REDACTED] and must be restored from the original source: ' +
+        keptPaths.join(', ') +
+        '. Moss did not delete or overwrite them.'
+    );
+  }
+  if (parts.length === 0) return '';
+  return '\n\n[moss] ' + parts.join(' ');
 }

@@ -4,6 +4,7 @@
  * every user-facing path, exec write-back of [REDACTED], and source identifiers.
  */
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -491,14 +492,41 @@ try {
   assert.match(String(bgRefused), /refusing to write \[REDACTED\]/);
   assert.equal(fs.readFileSync(path.join(project, '.env'), 'utf8'), original);
 
+  // O152 r4: unapproved placeholder write → egress warning + L3 restore (no exemption).
+  const envHashBefore = crypto.createHash('sha256').update(original).digest('hex');
   const assembled = await execTool.execute(
     { command: `node -e "process.stdout.write('DB_PASSWORD=[REDA'+'CTED]\\n')" > .env` },
     ctx()
   );
-  assert.match(String(assembled), /must be restored from the original source/);
+  assert.match(String(assembled), /placeholder written; restored/i);
   assert.match(String(assembled), /\.env/);
-  assert.doesNotMatch(String(assembled), /Restored:/);
-  assert.equal(fs.readFileSync(path.join(project, '.env'), 'utf8'), 'DB_PASSWORD=[REDACTED]\n');
+  assert.match(String(assembled), /modified and restored|已被修改，已还原/i);
+  assert.doesNotMatch(String(assembled), /Moss did not delete or overwrite them/);
+  const envAfter = fs.readFileSync(path.join(project, '.env'));
+  assert.equal(envAfter.toString('utf8'), original, 'L3 must restore .env to pre-write bytes');
+  assert.equal(
+    crypto.createHash('sha256').update(envAfter).digest('hex'),
+    envHashBefore,
+    '.env hash back to pre-write'
+  );
+
+  // O152 r4: approved via y → keep [REDACTED]; egress warning still appears.
+  {
+    const { noteProtectedPathApproved, clearProtectedPathApprovals } =
+      await import('../dist/safety/protected-path-approvals.js');
+    clearProtectedPathApprovals();
+    fs.writeFileSync(path.join(project, '.env'), original);
+    noteProtectedPathApproved(path.resolve(project, '.env'));
+    const kept = await execTool.execute(
+      { command: `node -e "process.stdout.write('DB_PASSWORD=[REDA'+'CTED]\\n')" > .env` },
+      ctx()
+    );
+    assert.match(String(kept), /must be restored from the original source/);
+    assert.equal(fs.readFileSync(path.join(project, '.env'), 'utf8'), 'DB_PASSWORD=[REDACTED]\n');
+    assert.doesNotMatch(String(kept), /modified and restored|已被修改，已还原/);
+    clearProtectedPathApprovals();
+    fs.writeFileSync(path.join(project, '.env'), original);
+  }
 
   const placeholderBody = 'keep [REDACTED] please\n';
   fs.writeFileSync(path.join(project, 'already.txt'), placeholderBody);

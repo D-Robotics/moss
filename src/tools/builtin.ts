@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { runProcess, ProcessError } from '../utils/run-process.js';
 import {
@@ -43,6 +44,7 @@ import { createRedactingChunkWriter } from '../safety/tool-output-redact.js';
 import {
   filesWithIncreasedPlaceholderCount,
   formatRedactedWritebackWarning,
+  includeProtectedPathsInMutationSnap,
   redactedShellWriteRefusal,
   snapshotMutationFiles,
 } from '../safety/redacted-writeback.js';
@@ -52,7 +54,12 @@ import {
   formatProtectedPathModifiedNotice,
   takeProtectedPathSnapshot,
   takeProtectedPathSnapshotAfter,
+  restoreProtectedPathChanges,
+  disposeProtectedPathSnapshot,
+  PROTECTED_PATHS_UNVERIFIED,
+  type ProtectedPathChange,
 } from '../safety/protected-path-snapshot.js';
+import { isProtectedPathApproved } from '../safety/protected-path-approvals.js';
 
 // Re-export tools from extracted modules for backward compatibility.
 export {
@@ -86,6 +93,35 @@ export function execToolDescription(shell = resolveHostShell()): string {
   return shell.description
     ? `${EXEC_DESCRIPTION_BASE} ${shell.description}`
     : EXEC_DESCRIPTION_BASE;
+}
+
+/** O152 r4: detect placeholder growth, L3-restore, then warn from post-restore state. */
+function redactedWritebackAfterL3(
+  mutationSnap: Map<string, Buffer | null>,
+  l3NoticeFn: () => string
+): { l3Notice: string; writebackWarning: string } {
+  // Capture command effect while disk is still dirty (needed for detection).
+  const hits = filesWithIncreasedPlaceholderCount(mutationSnap);
+  // L3 restore first (r4 / steering).
+  const l3Notice = l3NoticeFn();
+  // Post-restore: split hits into restored vs kept.
+  const restored: string[] = [];
+  const kept: string[] = [];
+  for (const abs of hits) {
+    const before = mutationSnap.get(abs);
+    let now: Buffer | null = null;
+    try {
+      now = fs.readFileSync(abs);
+    } catch {
+      now = null;
+    }
+    if (before && now && before.equals(now)) restored.push(abs);
+    else kept.push(abs);
+  }
+  return {
+    l3Notice,
+    writebackWarning: formatRedactedWritebackWarning(kept, restored),
+  };
 }
 
 export const execTool: Tool = {
@@ -183,6 +219,9 @@ export const execTool: Tool = {
     const protectedSnapBefore = takeProtectedPathSnapshot(ctx.workspaceDir, {
       home: process.env.HOME,
     });
+    // O152 F10: detect [REDACTED] growth on protected paths even for
+    // interpreter writes that extractShellMutationPaths cannot see.
+    includeProtectedPathsInMutationSnap(mutationSnap, protectedSnapBefore.display.keys());
     const preferZhLocale = (): boolean => {
       const loc = process.env.MOSS_LOCALE || process.env.LANG || '';
       return /^zh\b/i.test(loc);
@@ -196,10 +235,55 @@ export const execTool: Tool = {
           cmd,
           diffProtectedPathSnapshots(protectedSnapBefore, after)
         );
-        if (changes.length === 0) return '';
-        return '\n\n' + formatProtectedPathModifiedNotice(changes, preferZhLocale(), cmd);
+        if (changes.length === 0) {
+          disposeProtectedPathSnapshot(protectedSnapBefore);
+          return '';
+        }
+        // O152 F3: drop paths the user approved (y/a) — do not restore or
+        // mark the run incomplete for those.
+        const reportable = changes.filter((c) => {
+          let abs = [...protectedSnapBefore.display].find(([, d]) => d === c.path)?.[0];
+          if (!abs) abs = path.resolve(protectedSnapBefore.cwd, c.path);
+          return !isProtectedPathApproved(abs);
+        });
+        if (reportable.length === 0) {
+          disposeProtectedPathSnapshot(protectedSnapBefore);
+          return '';
+        }
+        // O152: restore restore-eligible paths before the notice / session
+        // persist, so a wiped `.git` does not also trip a SESSION exit 7.
+        const restores = restoreProtectedPathChanges(protectedSnapBefore, reportable);
+        disposeProtectedPathSnapshot(protectedSnapBefore);
+        // O152 F9b: structured report; the run outcome must not depend on
+        // the marker surviving output truncation.
+        const byRestore = new Map(restores.map((r) => [r.path, r.outcome]));
+        ctx.reportProtectedPathChanges?.(
+          reportable.map((c) => ({
+            path: c.path,
+            kind: c.kind,
+            ...(c.keys ? { keys: [...c.keys] } : {}),
+            ...(c.reason ? { reason: c.reason } : {}),
+            ...(byRestore.get(c.path) ? { restoreOutcome: String(byRestore.get(c.path)) } : {}),
+          }))
+        );
+        return (
+          '\n\n' + formatProtectedPathModifiedNotice(reportable, preferZhLocale(), cmd, restores)
+        );
       } catch {
-        return '';
+        disposeProtectedPathSnapshot(protectedSnapBefore);
+        // O152 r6 (P1-W): the post-run check itself failed — fail closed so
+        // the run cannot end '完成' over an unverified protected tree.
+        const unknown: ProtectedPathChange[] = [
+          { path: PROTECTED_PATHS_UNVERIFIED, kind: 'modified', reason: 'unreadable' },
+        ];
+        ctx.reportProtectedPathChanges?.(
+          unknown.map((c) => ({ path: c.path, kind: c.kind, reason: 'unreadable' }))
+        );
+        try {
+          return '\n\n' + formatProtectedPathModifiedNotice(unknown, preferZhLocale(), cmd, []);
+        } catch {
+          return '';
+        }
       }
     };
     const hideCredentialStream = /\.apikey-key\b/.test(commandText);
@@ -263,8 +347,10 @@ export const execTool: Tool = {
       // Shell file rewrites (sed -i, redirects, …) leave prior read_file bodies
       // and ToolStateManager prior-read credit stale — clear credit for high-
       // confidence paths so the next surgical edit must re-read (Claude FileEdit).
-      const writebackWarning = formatRedactedWritebackWarning(
-        filesWithIncreasedPlaceholderCount(mutationSnap)
+      // O152 r4: L3 restore first; then warn from post-restore state
+      // ("placeholder written; restored" vs classic kept-file wording).
+      const { l3Notice, writebackWarning } = redactedWritebackAfterL3(mutationSnap, () =>
+        o101NoticeAfter(commandText)
       );
       if ((result.exitCode ?? 0) === 0) {
         const paths = extractShellMutationPaths(commandText);
@@ -283,15 +369,15 @@ export const execTool: Tool = {
       return (
         text +
         shellNote +
+        l3Notice +
         writebackWarning +
-        o101NoticeAfter(commandText) +
         footnote +
         hooksNotice(`${result.stdout}\n${result.stderr}`)
       );
     } catch (err) {
       streamer?.flush();
-      const writebackWarning = formatRedactedWritebackWarning(
-        filesWithIncreasedPlaceholderCount(mutationSnap)
+      const { l3Notice, writebackWarning } = redactedWritebackAfterL3(mutationSnap, () =>
+        o101NoticeAfter(commandText)
       );
       if (err instanceof ProcessError) {
         const output = [err.stdout.trim(), err.stderr.trim()].filter(Boolean).join('\n');
@@ -299,8 +385,8 @@ export const execTool: Tool = {
           ctx.markResultError?.();
           const waited = err.timeoutMs && err.timeoutMs > 0 ? err.timeoutMs : timeoutMs;
           return (
-            `timed out after ${waited}ms (raise timeout_ms or use exec_background)${output ? `\n${output}` : ''}${writebackWarning}` +
-            o101NoticeAfter(commandText) +
+            `timed out after ${waited}ms (raise timeout_ms or use exec_background)${output ? `\n${output}` : ''}${l3Notice}` +
+            writebackWarning +
             footnote +
             hooksNotice(`${err.stdout}\n${err.stderr}`)
           );
@@ -308,8 +394,8 @@ export const execTool: Tool = {
         if (err.signal) {
           ctx.markResultError?.();
           return (
-            `Command killed by ${err.signal}:\n${output || err.message}${writebackWarning}` +
-            o101NoticeAfter(commandText) +
+            `Command killed by ${err.signal}:\n${output || err.message}${l3Notice}` +
+            writebackWarning +
             footnote +
             hooksNotice(`${err.stdout}\n${err.stderr}`)
           );
@@ -322,8 +408,8 @@ export const execTool: Tool = {
         return (
           failure +
           shellNote +
+          l3Notice +
           writebackWarning +
-          o101NoticeAfter(commandText) +
           footnote +
           hooksNotice(`${err.stdout}\n${err.stderr}`)
         );
