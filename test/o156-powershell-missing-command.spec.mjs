@@ -190,6 +190,23 @@ test(
   }
 );
 
+const WIN_BASE_ENV = Object.fromEntries(
+  [
+    'SystemDrive',
+    'windir',
+    'ComSpec',
+    'PATHEXT',
+    'TEMP',
+    'TMP',
+    'APPDATA',
+    'LOCALAPPDATA',
+    'ProgramFiles',
+    'ProgramData',
+  ]
+    .map((k) => [k, process.env[k]])
+    .filter(([, v]) => v !== undefined)
+);
+
 // CLI: PreToolUse through PS 5.1 → exit 9, last line 「被拦」, the write never lands,
 // and the terminal says the hook failed to start (not an ordinary exit 1).
 for (const lang of ['en', 'zh']) {
@@ -201,7 +218,14 @@ for (const lang of ['en', 'zh']) {
       const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
       const r = await scenario({
         lang,
-        hooks: { PreToolUse: [{ command: SHELLS['PS 5.1'], format: 'claude' }] },
+        // Windows PowerShell 5.1 starts slowly in the scenario's bare env (no
+        // LOCALAPPDATA → no module analysis cache): give it the usual Windows
+        // vars and room to start, so the verdict is about the missing command,
+        // not a 30 s timeout (seen on windows-latest, run 39101586306).
+        extraEnv: WIN_BASE_ENV,
+        hooks: {
+          PreToolUse: [{ command: SHELLS['PS 5.1'], format: 'claude', timeoutMs: 120_000 }],
+        },
         steps: [
           {
             name: 'exec',
