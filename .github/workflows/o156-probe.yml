@@ -1,0 +1,52 @@
+name: O156 probe (CI-only, do not merge)
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: O156 probe (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Raw - Windows PowerShell 5.1 and pwsh 7, missing command (default culture)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $PSVersionTable.PSVersion; (Get-Culture).Name; (Get-UICulture).Name; [cultureinfo]::InstalledUICulture.Name
+          Get-ChildItem "$env:SystemRoot\System32\WindowsPowerShell\v1.0" -Directory | Select-Object -ExpandProperty Name
+          Get-ChildItem (Split-Path (Get-Command pwsh).Source) -Directory | Select-Object -ExpandProperty Name
+          foreach ($exe in 'powershell', 'pwsh') {
+            Write-Host "==== $exe -Command moss-o156-missing-cmd"
+            $p = Start-Process -FilePath $exe -ArgumentList '-NoProfile','-NonInteractive','-Command','moss-o156-missing-cmd' -NoNewWindow -Wait -PassThru -RedirectStandardError "$env:RUNNER_TEMP\$exe.err" -RedirectStandardOutput "$env:RUNNER_TEMP\$exe.out"
+            Write-Host "exit: $($p.ExitCode)"
+            Write-Host '---- stderr:'; Get-Content -Raw "$env:RUNNER_TEMP\$exe.err"
+            Write-Host '---- stdout:'; Get-Content -Raw "$env:RUNNER_TEMP\$exe.out"
+          }
+      - name: Raw - zh-CN UI culture inside the child (if satellite resources exist)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          foreach ($exe in 'powershell', 'pwsh') {
+            Write-Host "==== $exe, CurrentUICulture=zh-CN"
+            $cmd = "[Threading.Thread]::CurrentThread.CurrentUICulture='zh-CN'; [Threading.Thread]::CurrentThread.CurrentCulture='zh-CN'; moss-o156-missing-cmd"
+            $p = Start-Process -FilePath $exe -ArgumentList '-NoProfile','-NonInteractive','-Command',$cmd -NoNewWindow -Wait -PassThru -RedirectStandardError "$env:RUNNER_TEMP\$exe-zh.err"
+            Write-Host "exit: $($p.ExitCode)"
+            $b = [IO.File]::ReadAllBytes("$env:RUNNER_TEMP\$exe-zh.err")
+            Write-Host ('---- stderr (utf8): ' + [Text.Encoding]::UTF8.GetString($b))
+            Write-Host ('---- stderr (oem/default): ' + [Text.Encoding]::Default.GetString($b))
+          }
+      - name: Moss hook verdicts (claude format, 4 events x PS 5.1 / pwsh 7)
+        shell: pwsh
+        continue-on-error: true
+        run: node scripts/ci-o156/probe.mjs
