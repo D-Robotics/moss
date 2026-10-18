@@ -599,6 +599,112 @@ function cdOnlyOperands(command: string, cwd: string): Set<string> {
   return cd;
 }
 
+/** Heads that run a script file: interpreters and shells (O168 exemption). */
+const SCRIPT_RUN_HEADS = new Set([
+  'node',
+  'nodejs',
+  'python',
+  'python2',
+  'python3',
+  'ruby',
+  'php',
+  'perl',
+  'lua',
+  'bun',
+  'deno',
+  'sh',
+  'bash',
+  'zsh',
+  'dash',
+  'ksh',
+  'ash',
+]);
+/** Inline-code flags: with one of these the invocation is not a script form. */
+const INLINE_CODE_FLAGS = new Set(['-c', '-e', '-E', '-p', '-r', '--eval', '--print', 'eval']);
+const DOT_SOURCE_HEADS = new Set(['.', 'source']);
+
+function stripEdgeQuotes(w: string): string {
+  return w.replace(/^(['"])(.*)\1$/, '$2');
+}
+
+function resolveScriptArgWord(raw: string, cwd: string, home: string): string | undefined {
+  const w = stripEdgeQuotes(raw);
+  if (!w || w.startsWith('-') || /^https?:\/\//i.test(w)) return undefined;
+  const expanded = w
+    .replace(/^\$\{PWD\}(?=\/|$)|^\$PWD(?=\/|$)/, () => cwd)
+    .replace(/^\$\{HOME\}(?=\/|$)|^\$HOME(?=\/|$)/, () => home)
+    .replace(/^\$\{USERPROFILE\}(?=\/|$)|^\$USERPROFILE(?=\/|$)/, () => home)
+    .replace(/^~/, () => home);
+  try {
+    return path.resolve(cwd, expanded);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * O168: arguments of an invoked script are not deletions. `python3 x.py
+ * $HOME`, `node x.js "$PWD"`, `. venv/bin/activate && python -V` are normal
+ * commands that an uncertain command (an interpreter can write anything)
+ * turned into "deletes home / the workspace root" hits on a mere mention.
+ * The exemption covers only the delete-ancestor rule, and — like the cd
+ * exemption — only while the path is named NOWHERE else in the command
+ * (`source ./evil.sh; ls <root>` still hits the root, O151). An argument
+ * that names a protected path directly (`python3 x.py $HOME/.ssh`,
+ * `.git/config`) still classifies as before, and the interpreter inline
+ * forms (`-c` / `-e`) keep the old behavior. Actual writes stay covered by
+ * layers 2–3 (script scan + post-run snapshot).
+ */
+function scriptArgumentMentions(forms: readonly string[], cwd: string, home: string): Set<string> {
+  const out = new Set<string>();
+  const argTokens = new Set<string>();
+  const add = (raw: string | undefined) => {
+    if (raw === undefined) return;
+    const r = resolveScriptArgWord(raw, cwd, home);
+    if (r) {
+      out.add(r);
+      const stripped = stripEdgeQuotes(raw);
+      argTokens.add(raw);
+      argTokens.add(stripped);
+      argTokens.add(stripped.replace(/[\\/]+$/, ''));
+    }
+  };
+  for (const command of forms) {
+    for (const segment of command.split(/&&|\|\||[;|\n]/)) {
+      const words = segment.trim().split(/\s+/).filter(Boolean);
+      let i = 0;
+      while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(stripEdgeQuotes(words[i]!)))
+        i += 1;
+      if (i >= words.length) continue;
+      const head = path.basename(stripEdgeQuotes(words[i]!)).toLowerCase();
+      const rest = words.slice(i + 1);
+      if (DOT_SOURCE_HEADS.has(head)) {
+        // The bare `.` itself resolves to cwd; the operand is the sourced file.
+        add('.');
+        add(rest[0]);
+        continue;
+      }
+      if (!SCRIPT_RUN_HEADS.has(head) && !/^python3\.\d+$/.test(head)) continue;
+      if (rest.some((a) => INLINE_CODE_FLAGS.has(stripEdgeQuotes(a)))) continue;
+      const scriptIdx = rest.findIndex((a) => !stripEdgeQuotes(a).startsWith('-'));
+      if (scriptIdx < 0) continue;
+      for (const arg of rest.slice(scriptIdx + 1)) add(arg);
+    }
+  }
+  // Named anywhere else in any form → the exemption does not apply.
+  for (const command of forms) {
+    for (const word of command.split(/[\s'"`;&|()<>=]+/)) {
+      if (!word || argTokens.has(word)) continue;
+      const r = resolveScriptArgWord(word, cwd, home);
+      if (r) {
+        out.delete(r);
+        out.delete(r.replace(/[\\/]+$/, ''));
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * O151: commands that only READ the paths they are given. Naming the
  * workspace root as their operand cannot delete the root's `.git`.
@@ -1081,6 +1187,15 @@ export function findShellProtectedWrites(
     let rootReadOnlyMemo: boolean | undefined;
     const rootReadOnly = () => (rootReadOnlyMemo ??= workspaceRootOnlyReadOnly(command, ctx));
     // Prefer absolute mentions from the shared detector; fall back to text regex.
+    // O168: a script's arguments (`python3 x.py $HOME`, `node x.js "$PWD"`,
+    // the `.` of `. venv/bin/activate`) are mentions, not deletions — the
+    // delete-ancestor rule is skipped for them (direct protected paths still
+    // classify).
+    const scriptArgs = scriptArgumentMentions(
+      winForm ? [winForm, command] : [command],
+      ctx.cwd,
+      homeOf(ctx)
+    );
     for (const m of mentions) {
       // O103: a word still holding `$VAR` / `$(…)` is not a path we resolved;
       // expanding it to '' used to misreport the workspace root as git internals.
@@ -1092,9 +1207,10 @@ export function findShellProtectedWrites(
       // O151: the root named only as a read-only operand (`git -C <root> diff`,
       // `ls -la <root>`) besides that single cd is not a delete of its .git.
       const isReadOnlyRoot = !isCd && isWorkspaceRootPath(m, ctx) && rootReadOnly();
+      const isScriptArg = scriptArgs.has(path.resolve(ctx.cwd, m));
       const hit =
         classifyProtectedPath(m, ctx) ??
-        (isCd || isReadOnlyRoot ? undefined : deletesProtectedAncestor(m, ctx));
+        (isCd || isReadOnlyRoot || isScriptArg ? undefined : deletesProtectedAncestor(m, ctx));
       if (!hit || seen.has(hit.resolved)) continue;
       seen.add(hit.resolved);
       hits.push({
