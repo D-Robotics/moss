@@ -77,6 +77,12 @@ export interface ResolveRunOutcomeInput {
   /** Stop hook blocked the run ending. */
   blocked?: boolean;
   blockedReason?: string;
+  /**
+   * O165: an input guardrail (UserPromptSubmit hook) rejected the prompt —
+   * a 「被拦」 outcome with this reason, not a rethrown run error.
+   */
+  inputBlocked?: string;
+  inputBlockedZh?: string;
 }
 
 const CHECK_LABEL: Record<VerificationCheck, string> = {
@@ -169,6 +175,14 @@ export function resolveRunOutcome(input: ResolveRunOutcomeInput): RunOutcome {
     reasonsZh.push(reason || `${hookEventZhName('Stop')}钩子拦住了本次运行的结束`);
     stuckAt = 'Stop hook';
     stuckAtZh = `${hookEventZhName('Stop')}钩子`;
+  }
+
+  // O165: the prompt itself was rejected before the model ran — a stable
+  // 「被拦」 outcome line (exit 9), like every other blocked safety outcome.
+  if (input.inputBlocked) {
+    status = 'blocked';
+    reasonsEn.push(input.inputBlocked);
+    reasonsZh.push(input.inputBlockedZh ?? input.inputBlocked);
   }
 
   // O101 layer 3: protected-path post-run detection → incomplete (model

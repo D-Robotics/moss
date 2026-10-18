@@ -464,6 +464,29 @@ one line: press `e` to switch to English.
   paths to system programs (such as the background job's `powershell.exe`) from the environment
   before `.env` was loaded. A child PATH left with no usable entry (only `.` or empty entries)
   becomes a directory that does not exist, never an empty string.
+- **Hook output over the capture limit blocks (O162)**: each hook's stdout and stderr are captured
+  up to 10 MiB per stream. Once anything is cut, the verdict (the last JSON line) cannot be
+  trusted, so every blocking event (`PreToolUse`, `UserPromptSubmit`, `PermissionRequest`, `Stop`)
+  fails closed — the run ends blocked / the call is denied whatever the exit code or the readable
+  part of the output said. A `blocking: false` hook cannot restrict a call, so its oversized
+  output does not block either.
+- **A script's arguments are not deletions (O168)**: arguments of an invoked script (the
+  interpreter script form `python3 x.py $HOME`, `node x.js \"$PWD\"`, `sh x.sh`, the
+  `.`/`source` operand and the bare `.`) no longer trip the delete-ancestor rule — normal
+  commands stop being blocked and a non-git directory is no longer labeled git internals.
+  Like the cd exemption it applies only while the path is named nowhere else in the command;
+  directly protected arguments (`$HOME/.ssh`, `.git/config`), inline forms and real deletes
+  are unchanged, and actual writes stay covered by the script scan and the post-run snapshot.
+- **git pack flags are exec-capable (O169)**: `git clone --upload-pack=<cmd>`,
+  `git fetch`/`git push` with `--upload-pack` / `--receive-pack=<cmd>` (glued, split, or
+  clone's short `-u`) make git run that command; they are pre-blocked like `git -c` and
+  `--ext-diff`. `git push -u origin main` (--set-upstream) is unaffected.
+- **A hook that throws blocks (O165)**: any exception while handling a hook on a blocking
+  event fails closed with a visible notice (PreToolUse blocks the call, PermissionRequest
+  denies, UserPromptSubmit rejects the prompt); a throwing Stop hook is a terminal veto —
+  no forced continuation turn, no further model call, and headless ends Incomplete
+  (exit 9). In `-p`, a blocked UserPromptSubmit hook ends 「被拦」/`Blocked` with exit 9
+  (was exit 8).
 - Credentials come only from `.env` or the environment: never hardcoded, never logged, never
   passed to child processes, never written to the device registry. No account, no cloud, no
   telemetry.

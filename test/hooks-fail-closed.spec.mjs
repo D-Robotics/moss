@@ -395,7 +395,7 @@ test('runStopHooks wrapper: missing Stop command blocks', async () => {
   }
 });
 
-test('runStopHooks wrapper: internal error stays fail-open but is visible', async () => {
+test('runStopHooks wrapper: internal error fails closed (O165) and is visible', async () => {
   setLifecycleHookRunner({
     runStop: async () => {
       throw new Error('o88-internal-boom');
@@ -403,8 +403,13 @@ test('runStopHooks wrapper: internal error stays fail-open but is visible', asyn
   });
   try {
     const { value, stderr } = await captureStderr(() => runStopHooks({ stopReason: 'end_turn' }));
-    assert.deepEqual(value, { blocked: false });
-    assert.match(stderr, /\[hooks\] Stop hook failed: .*o88-internal-boom/);
+    // O165: a throwing Stop hook is a terminal veto — blocked + fatal, never
+    // a silent allow. The REPL skips its continuation turn; headless ends
+    // Incomplete (exit 9).
+    assert.equal(value.blocked, true);
+    assert.equal(value.fatal, true);
+    assert.match(value.reason ?? '', /Stop hook threw.*o88-internal-boom/);
+    assert.match(stderr, /\[hooks\] Stop hook threw.*o88-internal-boom/);
   } finally {
     setLifecycleHookRunner(undefined);
   }
