@@ -1,5 +1,19 @@
 import fs from 'node:fs';
-import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import {
+  spawn,
+  spawnSync,
+  type ChildProcess,
+  type SpawnOptions,
+  type SpawnSyncOptions,
+} from 'node:child_process';
+import {
+  NO_CWD_EXE_SEARCH_ENV,
+  envPathKey,
+  isBareCommand,
+  resolveExecutable,
+  sanitizeChildPathEnv,
+  trustedSearchDirs,
+} from './resolve-executable.js';
 
 export type { ChildProcess, SpawnOptions } from 'node:child_process';
 
@@ -44,17 +58,98 @@ export function spawnProcess(
   args?: readonly string[] | SpawnOptions,
   options?: SpawnOptions
 ): ChildProcess {
-  if (args === undefined) return spawn(command);
-  if (isSpawnOptions(args)) return spawn(command, withCanonicalCwd(args));
-  if (options === undefined) return spawn(command, args);
-  return spawn(command, args, withCanonicalCwd(options));
+  if (args === undefined || isSpawnOptions(args)) {
+    const target = spawnTarget(command, withCanonicalCwd(args ?? {}));
+    return spawn(target.command, target.options);
+  }
+  const target = spawnTarget(command, withCanonicalCwd(options ?? {}));
+  return spawn(target.command, args, target.options);
+}
+
+let parentNoCwdSearch = false;
+/**
+ * O158: libuv's Windows spawn consults the *parent* env for
+ * `NoDefaultCurrentDirectoryInExePath` before it searches cwd. Set it once so
+ * a name that slips past {@link resolveExecutable} still is not taken from
+ * the workspace; children inherit it.
+ */
+function ensureParentNoCwdSearch(): void {
+  if (parentNoCwdSearch || process.platform !== 'win32') return;
+  parentNoCwdSearch = true;
+  if (process.env[NO_CWD_EXE_SEARCH_ENV] === undefined) process.env[NO_CWD_EXE_SEARCH_ENV] = '1';
+}
+
+type SpawnLikeOptions = Pick<SpawnOptions, 'cwd' | 'env' | 'shell'>;
+
+/**
+ * O158: the single place every Moss child is resolved. A bare program name
+ * becomes an absolute path from trusted PATH entries only (see
+ * resolve-executable.ts); the child env loses empty/relative PATH entries and
+ * gets `NoDefaultCurrentDirectoryInExePath=1` on Windows. A name that cannot
+ * be resolved is spawned bare with PATH limited to the trusted entries, so it
+ * fails with the usual ENOENT instead of running a workspace file.
+ * `shell: true` on Windows gets an absolute cmd.exe.
+ * @internal exported for tests
+ */
+export function spawnTarget<O extends SpawnLikeOptions>(
+  command: string,
+  options: O
+): { command: string; options: O } {
+  ensureParentNoCwdSearch();
+  const platform = process.platform;
+  const baseEnv = options.env ?? process.env;
+  let env = sanitizeChildPathEnv(baseEnv, platform);
+  const cwd = typeof options.cwd === 'string' ? options.cwd : undefined;
+  let resolvedCommand = command;
+  let shell = options.shell;
+  if (shell) {
+    if (platform === 'win32' && shell === true) {
+      const comspec = baseEnv.ComSpec ?? baseEnv.COMSPEC ?? process.env.ComSpec ?? 'cmd.exe';
+      shell = resolveExecutable(comspec, { env: baseEnv, cwd }) ?? comspec;
+    } else if (typeof shell === 'string' && isBareCommand(shell, platform)) {
+      shell = resolveExecutable(shell, { env: baseEnv, cwd }) ?? shell;
+    }
+  } else if (isBareCommand(command, platform)) {
+    const found = resolveExecutable(command, { env: baseEnv, cwd });
+    if (found) {
+      resolvedCommand = found;
+    } else {
+      const key = envPathKey(env, platform) ?? 'PATH';
+      env = {
+        ...env,
+        [key]: trustedSearchDirs({ env: baseEnv, cwd }).join(platform === 'win32' ? ';' : ':'),
+      };
+    }
+  }
+  if (env === baseEnv && shell === options.shell && resolvedCommand === command) {
+    return { command, options };
+  }
+  return {
+    command: resolvedCommand,
+    options: {
+      ...options,
+      ...(env === baseEnv ? {} : { env }),
+      ...(shell === options.shell ? {} : { shell }),
+    },
+  };
 }
 
 /**
  * Shared synchronous boundary for process-exit cleanup and short capability
  * probes. Callers must supply a finite timeout for probes.
  */
-export const runProcessSync: typeof spawnSync = spawnSync;
+export const runProcessSync = ((
+  command: string,
+  args?: readonly string[] | SpawnSyncOptions,
+  options?: SpawnSyncOptions
+) => {
+  if (args === undefined || !Array.isArray(args)) {
+    const target = spawnTarget(command, (args as SpawnSyncOptions | undefined) ?? {});
+    return spawnSync(target.command, target.options);
+  }
+  const target = spawnTarget(command, options ?? {});
+  return spawnSync(target.command, args, target.options);
+}) as typeof spawnSync;
 
 /** Configure the active Windows console for UTF-8 output. */
 export function configureWindowsUtf8Console(): void {
@@ -141,7 +236,8 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
       ...(opts.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     };
 
-    const child = spawn(cmd, opts.args, spawnOpts);
+    const target = spawnTarget(cmd, spawnOpts);
+    const child = spawn(target.command, opts.args, target.options);
 
     let stdout = '';
     let stderr = '';
@@ -154,7 +250,7 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
       killed = true;
       try {
         if (process.platform === 'win32' && child.pid) {
-          spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+          runProcessSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
             stdio: 'ignore',
             windowsHide: true,
             timeout: 2_000,
