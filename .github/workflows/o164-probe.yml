@@ -32,7 +32,7 @@ jobs:
       - name: Old code (src of main 50339194)
         if: matrix.variant == 'old'
         shell: bash
-        run: git checkout 5033919462b42b624c901a0e81eacf95303b7bd3 -- src && git diff --cached --stat | tail -1
+        run: git checkout 5033919462b42b624c901a0e81eacf95303b7bd3 -- src && git rm -q --cached src/utils/system-root.ts && rm src/utils/system-root.ts && git diff --cached --stat 5033919462b42b624c901a0e81eacf95303b7bd3 -- src | tail -1
       - run: npm run build
       - name: O164 repro (attack on the built code)
         if: matrix.variant == 'old' || matrix.variant == 'fix' || matrix.variant == 'item1' || matrix.variant == 'item1c' || matrix.variant == 'item2'
@@ -49,4 +49,4 @@ jobs:
       - name: Failure details
         if: always()
         shell: bash
-        run: grep -A400 "failing tests" "$RUNNER_TEMP/o164.out" | head -400 || true
+        run: grep -a -A400 "failing tests" "$RUNNER_TEMP/o164.out" | head -400 || true
