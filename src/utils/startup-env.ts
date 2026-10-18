@@ -27,3 +27,13 @@ export function dotenvOriginOf(key: string): { file: string; userSource: boolean
 export function isStartupEnvCaptured(): boolean {
   return captured;
 }
+
+/**
+ * O164: the env Moss reads when it builds a path to a system program
+ * (SystemRoot, ProgramFiles, …): the process env from before any `.env`, so
+ * a project file cannot point it at the workspace. Before capture (tests,
+ * SDK use without the CLI) this is the live process env.
+ */
+export function envForSystemPaths(): NodeJS.ProcessEnv {
+  return captured ? envBeforeDotenv : process.env;
+}
