@@ -1,7 +1,7 @@
 import sys, subprocess
 v = sys.argv[1]
 def rep(p, old, new):
-    s = open(p).read(); assert s.count(old) == 1, (p, old[:60]); open(p, 'w').write(s.replace(old, new, 1))
+    s = open(p, encoding='utf-8').read(); assert s.count(old) == 1, (p, old[:60]); open(p, 'w', encoding='utf-8').write(s.replace(old, new, 1))
 if v == 'old':
     subprocess.check_call(['git', 'checkout', '15aff148a56445c3347ba77d9a6b0a7279e5d55a', '--', 'src'])
     subprocess.check_call(['git', 'rm', '-q', '-f', 'src/cli/hook-ask.ts'])
