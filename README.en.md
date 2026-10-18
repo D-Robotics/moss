@@ -453,6 +453,13 @@ one line: press `e` to switch to English.
   paths to system programs (such as the background job's `powershell.exe`) from the environment
   before `.env` was loaded. A child PATH left with no usable entry (only `.` or empty entries)
   becomes a directory that does not exist, never an empty string.
+- **A script's arguments are not deletions (O168)**: arguments of an invoked script (the
+  interpreter script form `python3 x.py $HOME`, `node x.js \"$PWD\"`, `sh x.sh`, the
+  `.`/`source` operand and the bare `.`) no longer trip the delete-ancestor rule — normal
+  commands stop being blocked and a non-git directory is no longer labeled git internals.
+  Like the cd exemption it applies only while the path is named nowhere else in the command;
+  directly protected arguments (`$HOME/.ssh`, `.git/config`), inline forms and real deletes
+  are unchanged, and actual writes stay covered by the script scan and the post-run snapshot.
 - Credentials come only from `.env` or the environment: never hardcoded, never logged, never
   passed to child processes, never written to the device registry. No account, no cloud, no
   telemetry.

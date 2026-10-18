@@ -192,7 +192,7 @@ await check('P1: cd <worktree root> && node script → no pre-check hit', () => 
     );
   }
 });
-await check('P2: still blocked — root as script arg, rm of root, writes under .git', () => {
+await check('P2a (O168): the root as a script argument is not a deletion', () => {
   const r = makeLinked();
   const ws = r.wt;
   const ctx = { cwd: ws, workspaceRoot: ws };
@@ -200,6 +200,18 @@ await check('P2: still blocked — root as script arg, rm of root, writes under 
     `cd ${ws} && node x.mjs ${ws}`,
     `cd ${ws} && node x.mjs ${ws}/`,
     `node x.mjs ${ws}`,
+  ]) {
+    // O168: a script's arguments are mentions, not deletions — actual writes
+    // stay covered by the script scan (layer 2) and the post-run snapshot
+    // (layer 3).
+    assert.deepEqual(findShellProtectedWrites(c, ctx), [], c);
+  }
+});
+await check('P2b: still blocked — rm of root, writes under .git', () => {
+  const r = makeLinked();
+  const ws = r.wt;
+  const ctx = { cwd: ws, workspaceRoot: ws };
+  for (const c of [
     `cd ${ws} && rm -rf ${ws}`,
     `cd ${ws} && bash x.sh > .git`,
     `cd ${r.main}/.git && node x.mjs`,

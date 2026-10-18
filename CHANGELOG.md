@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### O168 — a script's arguments are not deletions
+
+The write-target rules blocked normal commands: an interpreter run is
+"uncertain" (a script can write anything), and every absolute mention then
+went through the delete-ancestor rule — `python3 x.py $HOME`,
+`node x.js "$PWD"`, `python3 x.py /tmp`, `. venv/bin/activate && python -V`
+were reported as deleting home / the workspace root, and a NON-git directory's
+`$PWD` was labeled "git repository internals". Arguments of an invoked script
+(the interpreter script form, `sh x.sh`, the `.`/`source` operand and the bare
+`.`) are mentions, not deletions: the ancestor rule now skips them — like the
+cd exemption, only while the path is named nowhere else in the command
+(`source ./evil.sh; ls <root>` still hits). Arguments naming a protected path
+directly (`python3 x.py $HOME/.ssh`, `.git/config`), the interpreter inline
+forms, and real deletes (`rm -rf $HOME`, `mv $HOME /tmp`, `rm -rf "$PWD"`)
+are unchanged; actual writes stay covered by the script scan (layer 2) and
+the post-run snapshot (layer 3).
+
+写目标规则曾误拦正常命令：解释器运行是「不确定」的（脚本可能写任何东西），
+于是每个绝对路径提及都过了一遍「删除受保护祖先」规则——`python3 x.py
+$HOME`、`node x.js "$PWD"`、`python3 x.py /tmp`、`. venv/bin/activate &&
+python -V` 被报成删除 home / 工作区根目录，非 git 目录下的 `$PWD` 还被说成
+「git 仓库内部文件」。被调用脚本的参数（解释器脚本形式、`sh x.sh`、
+`.`/`source` 的操作数与裸 `.`）只是提及、不是删除：祖先规则现在跳过它们——
+与 cd 豁免一样，仅当该路径未在命令其他位置出现（`source ./evil.sh; ls
+<root>` 仍会命中）。直接点名受保护路径的参数（`python3 x.py $HOME/.ssh`、
+`.git/config`）、解释器内联形式、真正的删除（`rm -rf $HOME`、`mv $HOME
+/tmp`、`rm -rf "$PWD"`）行为不变；实际写入仍由脚本扫描（第 2 层）与运行后
+快照（第 3 层）兜底。
+
 ### O156 — Windows PowerShell 5.1: a missing hook command is "failed to start"
 
 A hook run through Windows PowerShell 5.1 (`powershell -Command <missing>`)
