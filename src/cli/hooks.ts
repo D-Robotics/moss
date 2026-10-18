@@ -548,26 +548,35 @@ export function createConfiguredHookCallbacks(
     pre.length === 0
       ? undefined
       : async (request: ToolApprovalRequest): Promise<ToolApprovalDecision> => {
-          for (const hook of pre) {
-            if (!toolNameMatches(hook, request.tool.name)) continue;
-            const r = await runHookCommand(
-              hook.command,
-              {
-                event: 'PreToolUse',
-                toolName: request.tool.name,
-                input: request.input,
-                ...claudePayload(hook, request.tool.name, request.input),
-              },
-              cwd,
-              timeoutFor(hook)
-            );
-            const parsed = parseHookJson(r.stdout);
-            if (preToolUseBlocks(hook, r, parsed)) {
-              return { approved: false, reason: blockReason('PreToolUse', hook, r, parsed) };
+          // O165: anything thrown while running a PreToolUse hook (a bad
+          // matcher, a formatting bug) used to escape as a tool error; now it
+          // blocks the call with a visible notice — a safety gate fails closed.
+          try {
+            for (const hook of pre) {
+              if (!toolNameMatches(hook, request.tool.name)) continue;
+              const r = await runHookCommand(
+                hook.command,
+                {
+                  event: 'PreToolUse',
+                  toolName: request.tool.name,
+                  input: request.input,
+                  ...claudePayload(hook, request.tool.name, request.input),
+                },
+                cwd,
+                timeoutFor(hook)
+              );
+              const parsed = parseHookJson(r.stdout);
+              if (preToolUseBlocks(hook, r, parsed)) {
+                return { approved: false, reason: blockReason('PreToolUse', hook, r, parsed) };
+              }
+              if (hookFailed(r)) notice('PreToolUse', hook, r, false);
             }
-            if (hookFailed(r)) notice('PreToolUse', hook, r, false);
+            return { approved: true };
+          } catch (err) {
+            const line = hookFailedLine('PreToolUse', errorMessage(err));
+            process.stderr.write(`[hooks] ${line}\n`);
+            return { approved: false, reason: line };
           }
-          return { approved: true };
         };
 
   const onToolResult =
@@ -614,23 +623,31 @@ export function createConfiguredHookCallbacks(
   };
 
   const runStop = async (info: StopHookInfo): Promise<StopHookResult> => {
-    for (const hook of stop) {
-      const r = await runHookCommand(
-        hook.command,
-        {
-          event: 'Stop',
-          stopReason: info.stopReason,
-          ...(info.response ? { response: info.response.slice(-4000) } : {}),
-        },
-        cwd,
-        timeoutFor(hook)
-      );
-      if (exitBlocks(hook, r)) {
-        return { blocked: true, reason: blockReason('Stop', hook, r) };
+    // O165: a throw inside one Stop hook is a terminal veto, like the runner
+    // level (runStopHooks) — visible notice, no continuation, Incomplete.
+    try {
+      for (const hook of stop) {
+        const r = await runHookCommand(
+          hook.command,
+          {
+            event: 'Stop',
+            stopReason: info.stopReason,
+            ...(info.response ? { response: info.response.slice(-4000) } : {}),
+          },
+          cwd,
+          timeoutFor(hook)
+        );
+        if (exitBlocks(hook, r)) {
+          return { blocked: true, reason: blockReason('Stop', hook, r) };
+        }
+        if (hookFailed(r)) notice('Stop', hook, r, false);
       }
-      if (hookFailed(r)) notice('Stop', hook, r, false);
+      return { blocked: false };
+    } catch (err) {
+      const line = hookFailedLine('Stop', errorMessage(err));
+      process.stderr.write(`[hooks] ${line}\n`);
+      return { blocked: true, fatal: true, reason: line };
     }
-    return { blocked: false };
   };
 
   const runSubagentStop = async (info: SubagentStopHookInfo): Promise<void> => {
@@ -729,53 +746,69 @@ export function createConfiguredHookCallbacks(
   const runUserPromptSubmit = async (message: string): Promise<UserPromptSubmitResult> => {
     noticed.clear();
     const extra: string[] = [];
-    for (const hook of userPrompt) {
-      const r = await runHookCommand(
-        hook.command,
-        { event: 'UserPromptSubmit', prompt: message },
-        cwd,
-        timeoutFor(hook)
-      );
-      const parsed = parseHookJson(r.stdout);
-      if (promptBlocks(hook, r, parsed)) {
-        return { blocked: true, reason: blockReason('UserPromptSubmit', hook, r, parsed) };
+    // O165: a throw while handling one UserPromptSubmit hook blocks the prompt
+    // (fail closed) instead of escaping as a run error.
+    try {
+      for (const hook of userPrompt) {
+        const r = await runHookCommand(
+          hook.command,
+          { event: 'UserPromptSubmit', prompt: message },
+          cwd,
+          timeoutFor(hook)
+        );
+        const parsed = parseHookJson(r.stdout);
+        if (promptBlocks(hook, r, parsed)) {
+          return { blocked: true, reason: blockReason('UserPromptSubmit', hook, r, parsed) };
+        }
+        if (hookFailed(r)) {
+          notice('UserPromptSubmit', hook, r, false);
+          continue;
+        }
+        const context = parsed?.additionalContext?.trim() || (parsed ? '' : r.stdout.trim());
+        if (context) extra.push(context);
       }
-      if (hookFailed(r)) {
-        notice('UserPromptSubmit', hook, r, false);
-        continue;
-      }
-      const context = parsed?.additionalContext?.trim() || (parsed ? '' : r.stdout.trim());
-      if (context) extra.push(context);
+      return extra.length > 0
+        ? { blocked: false, extraContext: extra.join('\n') }
+        : { blocked: false };
+    } catch (err) {
+      const line = hookFailedLine('UserPromptSubmit', errorMessage(err));
+      process.stderr.write(`[hooks] ${line}\n`);
+      return { blocked: true, reason: line };
     }
-    return extra.length > 0
-      ? { blocked: false, extraContext: extra.join('\n') }
-      : { blocked: false };
   };
 
   const runPermissionRequest = async (info: {
     toolName: string;
     input: Record<string, unknown>;
   }): Promise<PermissionRequestResult> => {
-    for (const hook of permission) {
-      if (!toolNameMatches(hook, info.toolName)) continue;
-      const r = await runHookCommand(
-        hook.command,
-        {
-          event: 'PermissionRequest',
-          toolName: info.toolName,
-          input: info.input,
-          ...claudePayload(hook, info.toolName, info.input),
-        },
-        cwd,
-        timeoutFor(hook)
-      );
-      const parsed = parseHookJson(r.stdout);
-      if (promptBlocks(hook, r, parsed)) {
-        return { denied: true, reason: blockReason('PermissionRequest', hook, r, parsed) };
+    // O165: a throw while handling one PermissionRequest hook denies (fail
+    // closed) instead of escaping as a run error.
+    try {
+      for (const hook of permission) {
+        if (!toolNameMatches(hook, info.toolName)) continue;
+        const r = await runHookCommand(
+          hook.command,
+          {
+            event: 'PermissionRequest',
+            toolName: info.toolName,
+            input: info.input,
+            ...claudePayload(hook, info.toolName, info.input),
+          },
+          cwd,
+          timeoutFor(hook)
+        );
+        const parsed = parseHookJson(r.stdout);
+        if (promptBlocks(hook, r, parsed)) {
+          return { denied: true, reason: blockReason('PermissionRequest', hook, r, parsed) };
+        }
+        if (hookFailed(r)) notice('PermissionRequest', hook, r, false);
       }
-      if (hookFailed(r)) notice('PermissionRequest', hook, r, false);
+      return { denied: false };
+    } catch (err) {
+      const line = hookFailedLine('PermissionRequest', errorMessage(err));
+      process.stderr.write(`[hooks] ${line}\n`);
+      return { denied: true, reason: line };
     }
-    return { denied: false };
   };
 
   return {
@@ -822,6 +855,12 @@ export interface StopHookInfo {
 export interface StopHookResult {
   blocked: boolean;
   reason?: string;
+  /**
+   * O165: the hook infrastructure itself threw (not a hook verdict). The veto
+   * is terminal: the REPL does not force a continuation turn — the run ends
+   * Incomplete (exit 9) with a visible notice.
+   */
+  fatal?: boolean;
 }
 
 export interface UserPromptSubmitResult {
@@ -867,8 +906,15 @@ export async function runStopHooks(info: StopHookInfo): Promise<StopHookResult> 
   try {
     return (await lifecycleRunner?.runStop(info)) ?? { blocked: false };
   } catch (err) {
-    process.stderr.write(`${hookFailedLine('Stop', errorMessage(err))}\n`);
-    return { blocked: false };
+    // O165: a throwing Stop hook used to become { blocked: false } — the
+    // exception silently approved the stop. Fail closed instead: a visible
+    // notice and a terminal veto (no model continuation; Incomplete, exit 9).
+    const zh = isZhLocale();
+    const line = zh
+      ? `${hookEventZhName('Stop')}钩子执行抛出异常，已按拦截处理（本次运行以未完成结束，不再调用模型）：${errorMessage(err)}`
+      : `Stop hook threw; treated as deny (the run ends Incomplete with no further model call): ${errorMessage(err)}`;
+    process.stderr.write(`[hooks] ${line}\n`);
+    return { blocked: true, fatal: true, reason: line };
   }
 }
 

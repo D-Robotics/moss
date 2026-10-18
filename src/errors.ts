@@ -20,6 +20,9 @@ export enum ErrorCode {
 
   TOOL_NOT_ALLOWED = 'TOOL_NOT_ALLOWED',
 
+  /** O165: an input guardrail (UserPromptSubmit hook) rejected the prompt. */
+  INPUT_GUARDRAIL_DENIED = 'INPUT_GUARDRAIL_DENIED',
+
   SESSION_NOT_FOUND = 'SESSION_NOT_FOUND',
 
   SESSION_PERSIST_FAILED = 'SESSION_PERSIST_FAILED',

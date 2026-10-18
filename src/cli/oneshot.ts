@@ -8,7 +8,7 @@ import {
 } from '../core/tools/background-process-registry.js';
 import { isZhLocale } from './cli-locale.js';
 import { exitCodeForError, ExitCode } from './exit-codes.js';
-import { mossErrorFromOutcome } from '../errors.js';
+import { mossErrorFromOutcome, errorMessage, MossError, ErrorCode } from '../errors.js';
 import {
   createHeadlessPrintState,
   formatHeadlessBackgroundStillRunningEvent,
@@ -439,6 +439,8 @@ export async function runOneShot(
   });
   let finalResult: HeadlessResultEvent | undefined;
   let runError: unknown = undefined;
+  /** O165: the UserPromptSubmit hook rejected the prompt (blocked outcome). */
+  let inputBlockedReason: string | undefined;
   const completionTracker = createRunCompletionTracker();
   // O121: JSON / stream-json derive failure straight from the same
   // resolveRunOutcome the text last line uses, so every non-completed outcome
@@ -571,8 +573,24 @@ export async function runOneShot(
     }
   } catch (err) {
     runError = err;
-    if (outputFormat === 'text') throw err;
-    writeStructured(formatHeadlessThrownError(state, err));
+    // O165: a prompt rejected by an input guardrail (UserPromptSubmit hook)
+    // is a 「被拦」 outcome line (exit 9), not a rethrown error with a stack.
+    if (err instanceof MossError && err.code === ErrorCode.INPUT_GUARDRAIL_DENIED) {
+      const cause = err.cause;
+      const prefix = 'input guardrail rejected the user message: ';
+      const reason =
+        typeof cause === 'string' && cause.trim()
+          ? cause.trim()
+          : err.message.startsWith(prefix)
+            ? err.message.slice(prefix.length)
+            : err.message;
+      inputBlockedReason = reason;
+      process.stderr.write(`[hooks] ${reason}\n`);
+    } else if (outputFormat === 'text') {
+      throw err;
+    } else {
+      writeStructured(formatHeadlessThrownError(state, err));
+    }
   }
 
   if (finalResult ? isHeadlessResultError(finalResult) : Boolean(state.lastError)) {
@@ -780,8 +798,12 @@ export async function runOneShot(
           : ' (interactive mode reports; host may force-continue)';
       process.stderr.write(`[hooks] ${stopResult.reason ?? fallback}${suffix}\n`);
     }
-  } catch {
-    stopResult = { blocked: false };
+  } catch (err) {
+    // O165: even if something above runStopHooks throws, the stop is vetoed
+    // (fail closed), not silently approved.
+    const line = `Stop hook threw; treated as deny: ${errorMessage(err)}`;
+    process.stderr.write(`[hooks] ${line}\n`);
+    stopResult = { blocked: true, fatal: true, reason: line };
   }
 
   // O98: never end a text `--print` run on a false success. Resolve a stable
@@ -798,6 +820,9 @@ export async function runOneShot(
       ...(typeof process.exitCode === 'number' ? { errorExitCode: process.exitCode } : {}),
       ...(stopResult.blocked
         ? { blocked: true, ...(stopResult.reason ? { blockedReason: stopResult.reason } : {}) }
+        : {}),
+      ...(inputBlockedReason
+        ? { inputBlocked: inputBlockedReason, inputBlockedZh: inputBlockedReason }
         : {}),
     });
     const line = formatOutcomeLine(outcome, lang);

@@ -93,7 +93,9 @@ export function createInputGuardrailDeniedError(
   reason: string
 ): MossError {
   return new MossError({
-    code: ErrorCode.TOOL_NOT_ALLOWED,
+    // O165: a rejected prompt is a blocked safety outcome → Incomplete (9),
+    // not a tool-execution failure (8).
+    code: ErrorCode.INPUT_GUARDRAIL_DENIED,
     message: `input guardrail rejected the user message: ${reason || 'no reason provided'}`,
     hint: 'Review the request or host input policy before retrying.',
     recoverable: false,
