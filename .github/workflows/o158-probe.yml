@@ -1,4 +1,4 @@
-name: O158 fix probe (CI-only, do not merge)
+name: O158 rework-revert probe (CI-only, do not merge)
 
 on:
   pull_request:

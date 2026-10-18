@@ -37,10 +37,6 @@ const EXACT_KEYS = new Set([
   // O158: these choose which program a bare name starts on Windows.
   'PATHEXT',
   'COMSPEC',
-  // O158 F2: where Moss looks for pwsh 7 when it is not on PATH.
-  'PROGRAMFILES',
-  'PROGRAMW6432',
-  'LOCALAPPDATA',
   'SHELL',
   'TMPDIR',
   'TMP',

@@ -40,9 +40,6 @@ import path from 'node:path';
 
 export const NO_CWD_EXE_SEARCH_ENV = 'NoDefaultCurrentDirectoryInExePath';
 
-/** POSIX default search path when the env has no PATH (execvp's _CS_PATH). */
-export const POSIX_DEFAULT_PATH = '/usr/bin:/bin';
-
 type Env = Record<string, string | undefined>;
 
 export interface ResolveExecutableOptions {
@@ -123,9 +120,7 @@ function sameOrInside(api: path.PlatformPath, dir: string, root: string, win: bo
   const r = norm(root);
   if (d === r) return true;
   const rel = api.relative(r, d);
-  // O158 F3: `..dotbin` is a child, not the parent (`..` or `../…`).
-  if (rel === '' || api.isAbsolute(rel)) return false;
-  return rel !== '..' && !rel.startsWith('..' + api.sep);
+  return rel !== '' && !rel.startsWith('..') && !api.isAbsolute(rel);
 }
 
 function isBroadRoot(api: path.PlatformPath, dir: string, home: string, win: boolean): boolean {
@@ -148,9 +143,7 @@ export function trustedSearchDirs(options: ResolveExecutableOptions = {}): strin
   const realpath = options.realpath ?? defaultRealpath;
   const home = options.home ?? os.homedir();
   const key = envPathKey(env, platform);
-  // O158 F1: with no PATH at all, POSIX execvp/libuv search `/usr/bin:/bin`
-  // (confstr _CS_PATH). Search the same so git still resolves, never cwd.
-  const raw = key ? (env[key] ?? '') : win ? '' : POSIX_DEFAULT_PATH;
+  const raw = key ? (env[key] ?? '') : '';
   const roots = [options.processCwd ?? process.cwd(), options.cwd]
     .filter((p): p is string => typeof p === 'string' && p.length > 0 && api.isAbsolute(p))
     .flatMap((p) => [p, realpath(p)]);
@@ -174,19 +167,6 @@ export function trustedSearchDirs(options: ResolveExecutableOptions = {}): strin
 }
 
 const WIN_SPAWN_EXTS = ['.com', '.exe'];
-
-/**
- * O158 F1: PATH for a child whose bare name did not resolve and that has no
- * trusted PATH entry left. An empty PATH makes libuv/execvp search the cwd
- * (the workspace), so use an absolute directory that does not exist: the
- * spawn fails with ENOENT.
- */
-export const NO_TRUSTED_PATH_POSIX = '/nonexistent/moss-no-trusted-path';
-
-/** True for a UNC / device path (`\\host\share`, `//host/share`, `\\?\`). */
-function isUncPath(p: string): boolean {
-  return /^[\\/]{2}/.test(p);
-}
 
 /**
  * Absolute path of `name` from {@link trustedSearchDirs}, then `fallbacks`.
@@ -222,23 +202,12 @@ export function resolveExecutable(
   const roots = [options.processCwd ?? process.cwd(), options.cwd].filter(
     (p): p is string => typeof p === 'string' && p.length > 0
   );
-  const realpath = options.realpath ?? defaultRealpath;
-  const home = options.home ?? os.homedir();
-  const allRoots = roots.flatMap((root) => [root, realpath(root)]);
   for (const file of options.fallbacks ?? []) {
-    // O158 F2: drive-absolute only; never a UNC share (`\\localhost\C$\…`
-    // aliases the workspace, `\\host\s` is someone else's program).
-    if (!api.isAbsolute(file) || (win && (isUncPath(file) || !/^[A-Za-z]:[\\/]/.test(file))))
-      continue;
-    if (!isFile(file)) continue;
+    if (!api.isAbsolute(file) || !isFile(file)) continue;
     const dir = api.dirname(file);
-    const realDir = realpath(dir);
-    if (win && isUncPath(realDir)) continue;
-    // realpath too: 8.3 short names and symlinks must not alias the workspace.
-    const inside = allRoots.some(
-      (root) =>
-        !isBroadRoot(api, root, home, win) &&
-        [dir, realDir].some((candidate) => sameOrInside(api, candidate, root, win))
+    const home = options.home ?? os.homedir();
+    const inside = roots.some(
+      (root) => !isBroadRoot(api, root, home, win) && sameOrInside(api, dir, root, win)
     );
     if (!inside) return file;
   }
@@ -295,94 +264,10 @@ export function sanitizeChildPathEnv<T extends Env>(
   return (next ?? env) as T;
 }
 
-const SH_BUILTINS = new Set(
-  (
-    '! { } [ [[ . : alias bg break case cd command continue declare echo eval exec exit export ' +
-    'false fc fg for function getopts hash if jobs kill let local printf pwd read readonly ' +
-    'return select set shift source test time times trap true type typeset ulimit umask ' +
-    'unalias unset until wait while'
-  ).split(' ')
-);
-const CMD_BUILTINS = new Set(
-  (
-    'assoc break call cd chdir cls color copy date del dir echo endlocal erase exit for ftype ' +
-    'goto if md mkdir mklink move path pause popd prompt pushd rd rem ren rename rmdir set ' +
-    'setlocal shift start time title type ver verify vol'
-  ).split(' ')
-);
-const CMD_HEAD_EXTS = ['.com', '.exe', '.bat', '.cmd'];
-
-/**
- * O158 (PM ruling on O1): the program a hook command starts with (`node x.js`,
- * `git …`, `pwsh -File …`) is resolved by Moss's own rules, so a PATH entry
- * inside the workspace (e.g. `$WS/node_modules/.bin` when moss was started via
- * npx / npm run) cannot supply it. The head word is replaced with its quoted
- * absolute path. Shell builtins/keywords, names that do not resolve, and heads
- * with a directory part are left alone; what the hook runs after that is the
- * hook's own business.
- */
-export function resolveCommandHead(
-  command: string,
-  shell: 'sh' | 'cmd',
-  options: ResolveExecutableOptions = {}
-): string {
-  const m = /^(\s*)([A-Za-z0-9_][A-Za-z0-9._+-]*)(?=\s|$)/.exec(command);
-  if (!m) return command;
-  const [, lead, name] = m;
-  const builtins = shell === 'cmd' ? CMD_BUILTINS : SH_BUILTINS;
-  if (builtins.has(shell === 'cmd' ? name.toLowerCase() : name)) return command;
-  const found = resolveExecutable(name, {
-    ...options,
-    platform: options.platform ?? (shell === 'cmd' ? 'win32' : process.platform),
-    ...(shell === 'cmd' ? { extensions: CMD_HEAD_EXTS } : {}),
-  });
-  if (!found || found === name) return command;
-  let quoted: string;
-  if (shell === 'cmd') {
-    if (/["%^&|<>]/.test(found)) return command;
-    quoted = `"${found}"`;
-  } else {
-    const q = (word: string) => `'${word.replace(/'/g, "'\\''")}'`;
-    // `npx …` → '/usr/bin/node' '/usr/bin/npx' …, so `env node` is not looked up.
-    quoted = (envShebangCommand(found, options) ?? [found]).map(q).join(' ');
-  }
-  return lead + quoted + command.slice(lead.length + name.length);
+// [CI-only] revert-red shim: the rework's new exports exist but do nothing.
+export function resolveCommandHead(command: string, _shell?: unknown, _o?: unknown): string {
+  return command;
 }
-
-/**
- * O158 (PM ruling on O1): a resolved POSIX script that starts with
- * `#!/usr/bin/env <prog>` (npx, npm, most node CLIs) would have `env` look
- * `<prog>` up on the child's PATH, which may hold `$WS/node_modules/.bin`.
- * Returns `[absolute interpreter, ...its args, script]` resolved by Moss's
- * rules, or null when the file has no `env` shebang or the interpreter does
- * not resolve (then the kernel's own handling applies as before).
- */
-export function envShebangCommand(
-  file: string,
-  options: ResolveExecutableOptions = {}
-): string[] | null {
-  const platform = options.platform ?? process.platform;
-  if (platform === 'win32' || !path.posix.isAbsolute(file)) return null;
-  let head: string;
-  try {
-    const fd = fs.openSync(file, 'r');
-    try {
-      const buf = Buffer.alloc(256);
-      const n = fs.readSync(fd, buf, 0, buf.length, 0);
-      head = buf.subarray(0, n).toString('utf8');
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return null;
-  }
-  const line = /^#!\s*(\S+)([^\r\n]*)/.exec(head);
-  if (!line || path.posix.basename(line[1]) !== 'env') return null;
-  const words = line[2].trim().split(/\s+/).filter(Boolean);
-  if (words[0] === '-S') words.shift();
-  const prog = words.shift();
-  if (!prog || prog.startsWith('-') || prog.includes('=')) return null;
-  const interpreter = resolveExecutable(prog, { ...options, platform });
-  if (!interpreter || interpreter === prog) return null;
-  return [interpreter, ...words, file];
+export function envShebangCommand(_file?: unknown, _o?: unknown): string[] | null {
+  return null;
 }

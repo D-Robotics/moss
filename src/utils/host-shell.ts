@@ -38,7 +38,6 @@ import {
   type ResolveExecutableOptions,
 } from './resolve-executable.js';
 import { runProcessSync } from './run-process.js';
-import { envBeforeDotenv, isStartupEnvCaptured } from './startup-env.js';
 
 export type HostShellKind = 'sh' | 'pwsh' | 'cmd';
 
@@ -147,25 +146,18 @@ export function findOnWindowsPath(
 
 /**
  * O158: where pwsh 7 lives when it is not on PATH — the MSI install and the
- * Microsoft Store App Execution Alias. Drive-absolute only (no UNC share),
- * never the cwd.
+ * Microsoft Store App Execution Alias. Absolute, never the cwd.
  * @internal exported for tests
  */
 export function knownPwshLocations(env: Record<string, string | undefined>): string[] {
   const out: string[] = [];
-  // A plain copy of process.env (envBeforeDotenv) is case-sensitive.
-  const get = (name: string): string | undefined => {
-    if (env[name] !== undefined) return env[name];
-    const key = Object.keys(env).find((k) => k.toUpperCase() === name.toUpperCase());
-    return key === undefined ? undefined : env[key];
-  };
   for (const key of ['ProgramFiles', 'ProgramW6432']) {
-    const dir = get(key);
-    if (dir && /^[A-Za-z]:[\\/]/.test(dir))
+    const dir = env[key];
+    if (dir && path.win32.isAbsolute(dir))
       out.push(path.win32.join(dir, 'PowerShell', '7', 'pwsh.exe'));
   }
-  const local = get('LOCALAPPDATA');
-  if (local && /^[A-Za-z]:[\\/]/.test(local)) {
+  const local = env.LOCALAPPDATA;
+  if (local && path.win32.isAbsolute(local)) {
     out.push(path.win32.join(local, 'Microsoft', 'WindowsApps', 'pwsh.exe'));
   }
   return [...new Set(out)];
@@ -221,8 +213,7 @@ function lookupOnPath(name: string): string | null {
   if (name !== 'pwsh') return null;
   return resolveExecutable('pwsh', {
     env: { PATH: '' },
-    // O158 F2: the install dirs come from the env before a project `.env`.
-    fallbacks: knownPwshLocations(isStartupEnvCaptured() ? envBeforeDotenv : process.env),
+    fallbacks: knownPwshLocations(process.env),
   });
 }
 

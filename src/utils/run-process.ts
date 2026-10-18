@@ -8,9 +8,7 @@ import {
 } from 'node:child_process';
 import {
   NO_CWD_EXE_SEARCH_ENV,
-  NO_TRUSTED_PATH_POSIX,
   envPathKey,
-  envShebangCommand,
   isBareCommand,
   resolveExecutable,
   sanitizeChildPathEnv,
@@ -62,12 +60,10 @@ export function spawnProcess(
 ): ChildProcess {
   if (args === undefined || isSpawnOptions(args)) {
     const target = spawnTarget(command, withCanonicalCwd(args ?? {}));
-    return target.args
-      ? spawn(target.command, target.args, target.options)
-      : spawn(target.command, target.options);
+    return spawn(target.command, target.options);
   }
   const target = spawnTarget(command, withCanonicalCwd(options ?? {}));
-  return spawn(target.command, [...(target.args ?? []), ...args], target.options);
+  return spawn(target.command, args, target.options);
 }
 
 let parentNoCwdSearch = false;
@@ -90,23 +86,21 @@ type SpawnLikeOptions = Pick<SpawnOptions, 'cwd' | 'env' | 'shell'>;
  * becomes an absolute path from trusted PATH entries only (see
  * resolve-executable.ts); the child env loses empty/relative PATH entries and
  * gets `NoDefaultCurrentDirectoryInExePath=1` on Windows. A name that cannot
- * be resolved is spawned bare with PATH limited to the trusted entries (or a
- * nonexistent absolute dir when none is left, never `""`), so it fails with
- * ENOENT instead of running a workspace file.
+ * be resolved is spawned bare with PATH limited to the trusted entries, so it
+ * fails with the usual ENOENT instead of running a workspace file.
  * `shell: true` on Windows gets an absolute cmd.exe.
  * @internal exported for tests
  */
 export function spawnTarget<O extends SpawnLikeOptions>(
   command: string,
   options: O
-): { command: string; options: O; args?: string[] } {
+): { command: string; options: O } {
   ensureParentNoCwdSearch();
   const platform = process.platform;
   const baseEnv = options.env ?? process.env;
   let env = sanitizeChildPathEnv(baseEnv, platform);
   const cwd = typeof options.cwd === 'string' ? options.cwd : undefined;
   let resolvedCommand = command;
-  let prefixArgs: string[] | undefined;
   let shell = options.shell;
   if (shell) {
     if (platform === 'win32' && shell === true) {
@@ -119,24 +113,11 @@ export function spawnTarget<O extends SpawnLikeOptions>(
     const found = resolveExecutable(command, { env: baseEnv, cwd });
     if (found) {
       resolvedCommand = found;
-      // O158 (O1): `#!/usr/bin/env node` scripts get an absolute interpreter.
-      const viaShebang = envShebangCommand(found, { env: baseEnv, cwd });
-      if (viaShebang) {
-        resolvedCommand = viaShebang[0];
-        prefixArgs = viaShebang.slice(1);
-      }
     } else {
       const key = envPathKey(env, platform) ?? 'PATH';
-      const trusted = trustedSearchDirs({ env: baseEnv, cwd });
-      // O158 F1: never PATH="" — libuv/execvp read an empty PATH as the cwd.
       env = {
         ...env,
-        [key]:
-          trusted.length > 0
-            ? trusted.join(platform === 'win32' ? ';' : ':')
-            : platform === 'win32'
-              ? ''
-              : NO_TRUSTED_PATH_POSIX,
+        [key]: trustedSearchDirs({ env: baseEnv, cwd }).join(platform === 'win32' ? ';' : ':'),
       };
     }
   }
@@ -145,7 +126,6 @@ export function spawnTarget<O extends SpawnLikeOptions>(
   }
   return {
     command: resolvedCommand,
-    ...(prefixArgs ? { args: prefixArgs } : {}),
     options: {
       ...options,
       ...(env === baseEnv ? {} : { env }),
@@ -165,12 +145,10 @@ export const runProcessSync = ((
 ) => {
   if (args === undefined || !Array.isArray(args)) {
     const target = spawnTarget(command, (args as SpawnSyncOptions | undefined) ?? {});
-    return target.args
-      ? spawnSync(target.command, target.args, target.options)
-      : spawnSync(target.command, target.options);
+    return spawnSync(target.command, target.options);
   }
   const target = spawnTarget(command, options ?? {});
-  return spawnSync(target.command, [...(target.args ?? []), ...args], target.options);
+  return spawnSync(target.command, args, target.options);
 }) as typeof spawnSync;
 
 /** Configure the active Windows console for UTF-8 output. */
@@ -259,7 +237,7 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
     };
 
     const target = spawnTarget(cmd, spawnOpts);
-    const child = spawn(target.command, [...(target.args ?? []), ...opts.args], target.options);
+    const child = spawn(target.command, opts.args, target.options);
 
     let stdout = '';
     let stderr = '';
