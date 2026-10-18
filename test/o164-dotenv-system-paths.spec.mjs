@@ -188,8 +188,10 @@ test(
         steps: [
           {
             name: 'exec',
-            args: { command: 'echo o164-bg-ok', run_in_background: true, wait: true },
+            args: { command: 'echo o164-bg-ok', run_in_background: true, settle_ms: 10000 },
           },
+          // Windows PowerShell 5.1 (the job owner) can start slower than the settle window.
+          { name: 'exec_wait', args: { ids: ['bg_1'], timeout_ms: 60000 } },
         ],
         finalText: 'Done.',
         // The attack needs SystemRoot absent at startup; .env then supplies it.
