@@ -34,9 +34,6 @@ const EXACT_KEYS = new Set([
   'RUBYOPT',
   'RUBYLIB',
   'PATH',
-  // O158: these choose which program a bare name starts on Windows.
-  'PATHEXT',
-  'COMSPEC',
   'SHELL',
   'TMPDIR',
   'TMP',

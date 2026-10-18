@@ -8,7 +8,6 @@
  * `runProcess`, which is wrong for a persistent peer. Stderr is captured (capped)
  * for crash diagnostics only.
  */
-import { trustedSearchDirs } from '../../utils/resolve-executable.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnProcess, type ChildProcess } from '../../utils/run-process.js';
@@ -115,9 +114,17 @@ export class McpStdioTransport implements McpTransport {
       // a shell, so package paths and arguments keep their literal boundaries.
       const npxScript =
         process.platform === 'win32' && command === 'npx'
-          ? // O158: trusted absolute PATH entries only, never the cwd/workspace.
-            [...trustedSearchDirs({ env, cwd: this.config.cwd }), path.dirname(process.execPath)]
-              .map((dir) => path.join(dir, 'node_modules', 'npm', 'bin', 'npx-cli.js'))
+          ? [...(env.PATH ?? env.Path ?? '').split(path.delimiter), path.dirname(process.execPath)]
+              .map((dir) =>
+                path.resolve(
+                  this.config.cwd ?? process.cwd(),
+                  dir,
+                  'node_modules',
+                  'npm',
+                  'bin',
+                  'npx-cli.js'
+                )
+              )
               .find((candidate) => fs.existsSync(candidate))
           : undefined;
       child = spawnProcess(
