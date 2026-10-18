@@ -21,7 +21,7 @@ elif v == 'printask':  # approval: -p does not refuse (falls to the normal path)
     rep('src/cli/approval.ts', "      if (printMode || (!process.stdin.isTTY && asker === null && !getCliApprovalViewAsker())) {",
         "      if (!printMode && !process.stdin.isTTY && asker === null && !getCliApprovalViewAsker()) {")
 elif v == 'grantall':  # approval: n under a hook ask approves (answer ignored)
-    rep('src/cli/approval.ts', "      return settle({ approved: false, reason: hookAskDeniedReason(tool.name, hookAsks) });",
-        "      return settle({ approved: true });")
+    rep('src/cli/approval.ts', "      if (answer === 'y' || answer === 'yes' || answer === 'a' || answer === 'always') {",
+        "      if (answer !== '__never__') {")
 else:
     raise SystemExit('unknown ' + v)
