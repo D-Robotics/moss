@@ -176,7 +176,8 @@ export async function scenario({
     MOSS_LOCALE: lang,
     FAKE_OAI_KEY: 'sk-fake-local-000',
     GIT_CONFIG_NOSYSTEM: '1',
-    ...extraEnv,
+    // O158: extraEnv may depend on the workspace path (PATH with $WS/…).
+    ...(typeof extraEnv === 'function' ? extraEnv({ proj, root, home }) : extraEnv),
   };
   for (const [k, v] of [
     ['provider', 'openai-compatible'],
