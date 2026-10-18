@@ -72,14 +72,20 @@ const LAUNCH_FAILURE_EXIT_CODES =
  * stderr starts with that diagnostic as spawn_failed so every event (not only
  * PreToolUse) fails closed and the copy says the hook did not start.
  */
-function hookOutcomeFromExit(exitCode: number, stderr: string): HookOutcome {
+export function hookOutcomeFromExit(
+  exitCode: number,
+  stderr: string,
+  detect: (stderr: string) => string | undefined = windowsMissingCommand
+): HookOutcome {
   if (LAUNCH_FAILURE_EXIT_CODES.has(exitCode)) return 'spawn_failed';
-  if (
-    process.platform === 'win32' &&
-    exitCode !== 0 &&
-    windowsMissingCommand(stderr ?? '') !== undefined
-  ) {
-    return 'spawn_failed';
+  if (process.platform === 'win32' && exitCode !== 0) {
+    try {
+      if (detect(stderr ?? '') !== undefined) return 'spawn_failed';
+    } catch {
+      // QA #149 F1: a detector failure must never let the hook through (the
+      // caller may otherwise reject, and runStopHooks treats that as allow).
+      return 'spawn_failed';
+    }
   }
   return 'exit';
 }
