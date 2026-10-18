@@ -411,9 +411,11 @@ describe('git spawn', { concurrency: 1 }, () => {
     const { captureEnvBeforeDotenv } = await import('../dist/utils/startup-env.js');
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-git-discovery-'));
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
-    const bin = path.join(dir, 'bin');
+    // O158: a PATH entry inside the repo (the git child's cwd) is never used
+    // to resolve `git`, so the fake lives in its own directory outside it.
+    const bin = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-git-discovery-bin-'));
+    t.after(() => fs.rm(bin, { recursive: true, force: true }));
     const marker = path.join(dir, 'FILTER_RAN');
-    await fs.mkdir(bin);
     if (process.platform === 'win32') {
       // spawn('git') needs a real executable on Windows; .cmd shims are not a
       // substitute. Use the system compiler to keep the same failing discovery
