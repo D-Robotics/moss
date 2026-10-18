@@ -30,13 +30,16 @@ function run(dir, ci) {
   return spawnSync(process.execPath, [script], { cwd: dir, env, encoding: 'utf8' });
 }
 
-test('locally the runner stops at the first failing file', () => {
+// O149 (QA #145 F1): no local fail-fast either; an early red file must not
+// hide later (safety) specs.
+test('locally the runner also runs every file and summarizes failures', () => {
   const dir = fixture();
   try {
     const r = run(dir, undefined);
     assert.notEqual(r.status, 0);
     assert.match(r.stderr, /\[test\] .*a-fail\.spec\.mjs/);
-    assert.doesNotMatch(r.stderr, /b-pass\.spec\.mjs/);
+    assert.match(r.stderr, /\[test\] .*b-pass\.spec\.mjs/);
+    assert.match(r.stderr, /2 of 3 file\(s\) failed:/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -57,12 +60,13 @@ test('under CI the runner runs every file and summarizes failures', () => {
   }
 });
 
-test('CI=false keeps fail-fast', () => {
+test('CI=false runs every file too', () => {
   const dir = fixture();
   try {
     const r = run(dir, 'false');
     assert.notEqual(r.status, 0);
-    assert.doesNotMatch(r.stderr, /b-pass\.spec\.mjs/);
+    assert.match(r.stderr, /\[test\] .*b-pass\.spec\.mjs/);
+    assert.match(r.stderr, /2 of 3 file\(s\) failed:/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
