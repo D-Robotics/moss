@@ -1,0 +1,44 @@
+name: O156 probe (CI-only, do not merge)
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: O156 probe (windows-latest, ${{ matrix.variant }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [fix, revert]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+          cache: npm
+      - run: npm ci
+      - name: Revert the O156 src fix (reverse patch of f9ab892b..ae25dcfdfd4a96cc5fdc7cc94e20bf043949751e -- src)
+        if: matrix.variant == 'revert'
+        shell: bash
+        run: |
+          git diff f9ab892bdef6496d9cf3edb79263eef92a334a48 ae25dcfdfd4a96cc5fdc7cc94e20bf043949751e -- src > "$RUNNER_TEMP/fix.patch"
+          git apply -R "$RUNNER_TEMP/fix.patch"
+          git status --short
+      - run: npm run build
+      - name: Moss hook verdicts (claude format, 4 events x PS 5.1 / pwsh 7)
+        shell: pwsh
+        continue-on-error: true
+        run: node scripts/ci-o156/probe.mjs
+      - name: O156 regression spec
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          node --test-reporter=spec test/o156-powershell-missing-command.spec.mjs
+          Write-Host "O156 SPEC EXIT: $LASTEXITCODE"
