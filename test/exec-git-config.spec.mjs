@@ -1209,13 +1209,16 @@ test(`${process.platform === 'win32' ? 'a write-denied' : 'a group-writable'} or
       const relative = path.relative(path.resolve(os.tmpdir()), deniedDir);
       assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative));
       assert.equal(path.dirname(deniedDir), path.resolve(root));
-      deniedSid = execFileSync('whoami.exe', ['/user', '/fo', 'csv', '/nh'], {
+      // O149 F2: absolute System32 tools; under Git bash a bare `whoami.exe`
+      // resolves to GNU whoami (`whoami: extra operand '/user'`).
+      const system32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+      deniedSid = execFileSync(path.join(system32, 'whoami.exe'), ['/user', '/fo', 'csv', '/nh'], {
         encoding: 'utf8',
         timeout: 5000,
         windowsHide: true,
       }).match(/S-1-5-[\d-]+/)?.[0];
       assert.ok(deniedSid);
-      execFileSync('icacls.exe', [deniedDir, '/deny', `*${deniedSid}:(W)`], {
+      execFileSync(path.join(system32, 'icacls.exe'), [deniedDir, '/deny', `*${deniedSid}:(W)`], {
         stdio: 'pipe',
         timeout: 5000,
         windowsHide: true,
@@ -1263,7 +1266,8 @@ test(`${process.platform === 'win32' ? 'a write-denied' : 'a group-writable'} or
     assert.match(followed, /The repo's external diff was disabled/);
   } finally {
     if (deniedSid) {
-      execFileSync('icacls.exe', [deniedDir, '/remove:d', `*${deniedSid}`], {
+      const system32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+      execFileSync(path.join(system32, 'icacls.exe'), [deniedDir, '/remove:d', `*${deniedSid}`], {
         stdio: 'pipe',
         timeout: 5000,
         windowsHide: true,
