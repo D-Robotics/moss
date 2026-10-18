@@ -470,6 +470,11 @@ one line: press `e` to switch to English.
   fails closed — the run ends blocked / the call is denied whatever the exit code or the readable
   part of the output said. A `blocking: false` hook cannot restrict a call, so its oversized
   output does not block either.
+
+- **git pack flags are exec-capable (O169)**: `git clone --upload-pack=<cmd>`,
+  `git fetch`/`git push` with `--upload-pack` / `--receive-pack=<cmd>` (glued, split, or
+  clone's short `-u`) make git run that command; they are pre-blocked like `git -c` and
+  `--ext-diff`. `git push -u origin main` (--set-upstream) is unaffected.
 - Credentials come only from `.env` or the environment: never hardcoded, never logged, never
   passed to child processes, never written to the device registry. No account, no cloud, no
   telemetry.
