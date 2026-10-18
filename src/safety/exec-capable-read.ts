@@ -42,9 +42,48 @@ export const EXEC_ENV_VARS: ReadonlySet<string> = new Set([
   'GIT_CONFIG_PARAMETERS',
 ]);
 
+/**
+ * O152 r2 (QA §1): any `GIT_CONFIG` / `GIT_CONFIG_*` variable (GLOBAL,
+ * SYSTEM, NOSYSTEM, COUNT, KEY_n, VALUE_n, PARAMETERS, …) points git at
+ * config the model wrote — `GIT_CONFIG_GLOBAL=/tmp/evil.cfg git x` ran an
+ * `alias.x=!script`. Treated as exec-capable for EVERY head (not only `git`),
+ * because any program may spawn git with the inherited env (spec r3 C).
+ */
+export function isGitConfigEnvName(name: string): boolean {
+  return /^GIT_CONFIG(?:_[A-Z0-9_]*)?$/.test(name.toUpperCase());
+}
+
+/**
+ * `GIT_*` variables that are safe on a `git` command (identity, prompts,
+ * locking). Every other `GIT_*` on a `git` head is exec-capable (fail-closed,
+ * same shape as the `-c` allowlist): GIT_ASKPASS, GIT_EXEC_PATH, GIT_EDITOR,
+ * GIT_TEMPLATE_DIR, GIT_TRACE=<file>, GIT_COMMON_DIR, …
+ */
+const GIT_ENV_ALLOWED: ReadonlySet<string> = new Set([
+  'GIT_TERMINAL_PROMPT',
+  'GIT_AUTHOR_NAME',
+  'GIT_AUTHOR_EMAIL',
+  'GIT_AUTHOR_DATE',
+  'GIT_COMMITTER_NAME',
+  'GIT_COMMITTER_EMAIL',
+  'GIT_COMMITTER_DATE',
+  'GIT_OPTIONAL_LOCKS',
+  'GIT_LITERAL_PATHSPECS',
+  'GIT_GLOB_PATHSPECS',
+  'GIT_NOGLOB_PATHSPECS',
+  'GIT_ICASE_PATHSPECS',
+  'GIT_FLUSH',
+  'GIT_ADVICE',
+  'GIT_CEILING_DIRECTORIES',
+  'GIT_DISCOVERY_ACROSS_FILESYSTEM',
+]);
+
 export function isExecEnvName(name: string): boolean {
   const n = name.toUpperCase();
-  return EXEC_ENV_VARS.has(n) || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(n);
+  if (EXEC_ENV_VARS.has(n) || isGitConfigEnvName(n)) return true;
+  // SSH_ASKPASS is consulted by git when GIT_ASKPASS / core.askPass are unset.
+  if (n === 'SSH_ASKPASS') return true;
+  return n.startsWith('GIT_') && !GIT_ENV_ALLOWED.has(n);
 }
 
 export interface ExecCapableForm {
@@ -160,6 +199,7 @@ export function splitSimpleCommands(command: string): string[][] {
 function headOf(word: string | undefined): string {
   return (
     (word ?? '')
+      .replace(/^[`$(]+/, '')
       .split(/[\\/]/)
       .pop()
       ?.toLowerCase()
@@ -167,10 +207,78 @@ function headOf(word: string | undefined): string {
   );
 }
 
-const WRAPPER = /^(?:sudo|doas|command|nohup|exec|time|nice|stdbuf)$/i;
+/**
+ * O152 r2 (QA §1): wrappers that run the rest of the line as a command.
+ * Each lists its short options that take a separate argument and how many
+ * positional words come before the wrapped command (`timeout 10 git …`,
+ * `taskset 0x1 git …`). `nice -n 5 git -c …` used to stop at `5`.
+ */
+interface WrapperSpec {
+  argOpts?: readonly string[];
+  positional?: number;
+  /** `sudo VAR=… cmd` — assignments after the options apply to cmd. */
+  assigns?: boolean;
+}
+const WRAPPERS: Readonly<Record<string, WrapperSpec>> = {
+  sudo: {
+    argOpts: ['-u', '-g', '-h', '-p', '-r', '-t', '-U', '-C', '-D', '-T', '-R'],
+    assigns: true,
+  },
+  doas: { argOpts: ['-u', '-C'] },
+  command: {},
+  builtin: {},
+  nohup: {},
+  exec: { argOpts: ['-a'] },
+  time: { argOpts: ['-f', '-o'] },
+  nice: { argOpts: ['-n'] },
+  ionice: { argOpts: ['-c', '-n'] },
+  chrt: { positional: 1 },
+  taskset: { positional: 1 },
+  stdbuf: { argOpts: ['-i', '-o', '-e'] },
+  timeout: { argOpts: ['-s', '-k'], positional: 1 },
+  setsid: {},
+  unbuffer: {},
+  xargs: { argOpts: ['-I', '-L', '-n', '-P', '-s', '-d', '-E', '-a'] },
+};
+/** Long options of the wrappers above that take a separate argument. */
+const WRAPPER_LONG_ARG = new Set([
+  '--user',
+  '--group',
+  '--signal',
+  '--kill-after',
+  '--adjustment',
+  '--input',
+  '--output',
+  '--error',
+  '--max-args',
+  '--max-lines',
+  '--max-procs',
+  '--max-chars',
+  '--delimiter',
+  '--arg-file',
+  '--eof',
+  '--class',
+  '--classdata',
+]);
+/** Shells whose `-c <string>` is itself a command line to scan. */
+const SH_SHELLS = new Set([
+  'sh',
+  'bash',
+  'dash',
+  'zsh',
+  'ksh',
+  'mksh',
+  'ash',
+  'yash',
+  'fish',
+  'busybox',
+]);
+const PWSH_SHELLS = new Set(['pwsh', 'powershell']);
 /** Names that set an environment variable for the rest of the command. */
 const ENV_SETTERS = new Set(['export', 'declare', 'typeset', 'local', 'readonly', 'set', 'setx']);
 const ASSIGN = /^([A-Za-z_][A-Za-z0-9_]*)=/;
+/** Nesting cap for `sh -c 'bash -c "…"'`; deeper is reported (fail-closed). */
+const MAX_NEST = 4;
 
 /** git options that run an external program or write a file. */
 const GIT_EXEC_ARG = /^(?:--ext-diff$|--textconv$|--output(?:=|$)|--exec(?:=|$))/;
@@ -180,17 +288,207 @@ const SORT_COMPRESS = /^--compress-prog(?:ram)?(?:=|$)/i;
 const RG_PRE = /^--pre(?:=|$)/;
 
 /**
+ * Bodies of `$( … )` and `` ` … ` `` outside single quotes. Double quotes do
+ * not stop substitution, and the splitter keeps a double-quoted word whole,
+ * so `echo "$(git -c … )"` must be pulled out and scanned on its own.
+ */
+function commandSubstitutions(command: string): string[] {
+  const out: string[] = [];
+  let single = false;
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i]!;
+    if (ch === '\\' && !single) {
+      i += 1;
+      continue;
+    }
+    if (ch === "'") {
+      // Inside "…" a single quote is literal; approximate: toggle only when
+      // not inside a double-quoted run (cheap check on balance so far).
+      const before = command.slice(0, i);
+      const dq = (before.match(/(?<!\\)"/g) ?? []).length % 2 === 1;
+      if (!dq) single = !single;
+      continue;
+    }
+    if (single) continue;
+    if (ch === '$' && command[i + 1] === '(') {
+      let depth = 1;
+      let j = i + 2;
+      while (j < command.length && depth > 0) {
+        if (command[j] === '(') depth += 1;
+        else if (command[j] === ')') depth -= 1;
+        j += 1;
+      }
+      out.push(command.slice(i + 2, depth === 0 ? j - 1 : j));
+      i = j - 1;
+      continue;
+    }
+    if (ch === '`') {
+      const j = command.indexOf('`', i + 1);
+      out.push(command.slice(i + 1, j === -1 ? command.length : j));
+      i = j === -1 ? command.length : j;
+    }
+  }
+  return out.filter((s) => s.trim());
+}
+
+/** Skip a wrapper's options / positional words; returns the next index. */
+function skipWrapper(
+  words: readonly string[],
+  i: number,
+  spec: WrapperSpec,
+  env: Set<string>
+): number {
+  const argOpts = new Set(spec.argOpts ?? []);
+  while (i < words.length) {
+    const w = words[i]!;
+    if (w === '--') {
+      i += 1;
+      break;
+    }
+    if (!w.startsWith('-') || w === '-') break;
+    if (w.startsWith('--')) {
+      i += !w.includes('=') && WRAPPER_LONG_ARG.has(w) ? 2 : 1;
+      continue;
+    }
+    i += w.length === 2 && argOpts.has(w) ? 2 : 1;
+  }
+  for (let p = 0; p < (spec.positional ?? 0) && i < words.length; p += 1) i += 1;
+  if (spec.assigns) {
+    while (i < words.length && ASSIGN.test(words[i]!)) {
+      const name = ASSIGN.exec(words[i]!)![1]!;
+      if (isExecEnvName(name)) env.add(name.toUpperCase());
+      i += 1;
+    }
+  }
+  return i;
+}
+
+/**
+ * The command string a shell / eval-like head runs, or `undefined` when the
+ * head is not one. `null` means "a shell that reads its script from stdin"
+ * (`… | sh`), which the caller handles.
+ */
+function nestedCommandText(head: string, args: readonly string[]): string | null | undefined {
+  if (head === 'eval') return args.join(' ');
+  if (head === 'watch') {
+    let i = 0;
+    while (i < args.length && args[i]!.startsWith('-')) {
+      i += /^-(?:n|d|g)$/.test(args[i]!) || /^--(?:interval|differences)$/.test(args[i]!) ? 2 : 1;
+    }
+    return args.slice(i).join(' ');
+  }
+  if (head === 'cmd') {
+    const k = args.findIndex((a) => /^\/[ck]$/i.test(a));
+    return k === -1 ? undefined : args.slice(k + 1).join(' ');
+  }
+  if (PWSH_SHELLS.has(head)) {
+    for (let i = 0; i < args.length; i += 1) {
+      const a = args[i]!;
+      if (/^-(?:e|ec|encodedcommand)$/i.test(a)) {
+        try {
+          return Buffer.from(args[i + 1] ?? '', 'base64').toString('utf16le');
+        } catch {
+          return 'git -c';
+        }
+      }
+      if (/^-(?:c|command)$/i.test(a)) return args.slice(i + 1).join(' ');
+    }
+    return undefined;
+  }
+  if (head === 'su' || head === 'runuser' || head === 'flock' || head === 'script') {
+    // Only a `-c` before the wrapped program counts (`flock f git -c …` is
+    // git's `-c`, left to the backstop below).
+    const g = args.findIndex((a) => isGitWord(a));
+    const k = args.findIndex(
+      (a, idx) => (a === '-c' || a === '--command') && (g === -1 || idx < g)
+    );
+    return k === -1 ? undefined : (args[k + 1] ?? '');
+  }
+  if (!SH_SHELLS.has(head)) return undefined;
+  let a = args;
+  if (head === 'busybox') {
+    if (!a[0] || !SH_SHELLS.has(headOf(a[0]))) return undefined;
+    a = a.slice(1);
+  }
+  let hasC = false;
+  let i = 0;
+  for (; i < a.length; i += 1) {
+    const w = a[i]!;
+    if (w === '--') {
+      i += 1;
+      break;
+    }
+    if (/^[-+]o$/.test(w) || w === '-O' || w === '+O' || w === '--rcfile' || w === '--init-file') {
+      i += 1;
+      continue;
+    }
+    if (w === '--command') {
+      hasC = true;
+      continue;
+    }
+    if (/^-[A-Za-z]+$/.test(w)) {
+      if (w.includes('c')) hasC = true;
+      continue;
+    }
+    if (/^(?:--|\+)/.test(w)) continue;
+    break;
+  }
+  if (hasC) return a[i] ?? '';
+  // No -c and no script operand (or `-s`): the shell reads stdin.
+  return i >= a.length ? null : undefined;
+}
+
+/** True when a word is a `git` invocation name (`git`, `/usr/bin/git`, `git.exe`). */
+function isGitWord(w: string | undefined): boolean {
+  return headOf(w) === 'git';
+}
+
+/** Heads whose arguments are text, not commands (no `git` backstop for them). */
+const TEXT_HEADS = new Set([
+  'echo',
+  'printf',
+  'grep',
+  'egrep',
+  'fgrep',
+  'rg',
+  'ripgrep',
+  'ag',
+  'man',
+  'which',
+  'type',
+  'whereis',
+  'git',
+]);
+
+/**
  * Walk the simple commands left-to-right. An `export VAR=…` / `declare -x`
  * / `set VAR=…` / `$env:VAR=` / `Set-Item env:` earlier in the command
  * "infects" every later simple command (the env is still set). Prefixed
  * `VAR=… cmd` and `env VAR=… cmd` infect only that simple command.
+ *
+ * O152 r2: wrappers are peeled with their option arguments (`nice -n 5`,
+ * `timeout -s KILL 10`, `env -u X`, `sudo -u u VAR=…`), and the command
+ * string of `sh`/`bash`/… `-c`, `eval`, `env -S`, `watch`, `cmd /c`,
+ * `pwsh -c` / `-EncodedCommand`, `su -c`, `flock -c`, `$( … )` and
+ * backticks is scanned again with the env inherited. A shell fed from a pipe
+ * (`echo 'git -c …' | sh`) rescans the text of the `echo`/`printf` words.
  */
-export function findExecCapableForms(command: string): ExecCapableForm[] {
+export function findExecCapableForms(
+  command: string,
+  inheritedEnv?: ReadonlySet<string>,
+  depth = 0
+): ExecCapableForm[] {
   if (!command.trim()) return [];
+  if (depth > MAX_NEST) return [{ form: 'nested shell', operands: [], gitC: [], index: 0 }];
   const simples = splitSimpleCommands(command);
   const out: ExecCapableForm[] = [];
   // Env vars set by a previous simple command and still live.
-  const liveEnv = new Set<string>();
+  const liveEnv = new Set<string>(inheritedEnv ?? []);
+  const nested = (text: string, env: ReadonlySet<string>, si: number) => {
+    for (const f of findExecCapableForms(text, env, depth + 1)) out.push({ ...f, index: si });
+  };
+  for (const sub of commandSubstitutions(command)) nested(sub, liveEnv, 0);
+  let stdinShell = false;
 
   for (let si = 0; si < simples.length; si += 1) {
     const words = simples[si]!;
@@ -229,36 +527,57 @@ export function findExecCapableForms(command: string): ExecCapableForm[] {
       i += 1;
     }
     // `env VAR=… cmd` / wrappers.
+    let envSplit: string | undefined;
     while (i < words.length) {
       const h = headOf(words[i]);
       if (h === 'env') {
         i += 1;
         while (i < words.length && (words[i]!.startsWith('-') || ASSIGN.test(words[i]!))) {
-          if (ASSIGN.test(words[i]!)) {
-            const name = ASSIGN.exec(words[i]!)![1]!;
+          const w = words[i]!;
+          if (ASSIGN.test(w)) {
+            const name = ASSIGN.exec(w)![1]!;
             if (isExecEnvName(name)) localEnv.add(name.toUpperCase());
+            i += 1;
+            continue;
           }
-          i += 1;
+          if (w === '--') {
+            i += 1;
+            break;
+          }
+          // -u NAME / -C DIR / -P PATH take a value; -S STRING is a command line.
+          if (w === '-S' || w === '--split-string') {
+            envSplit = words[i + 1] ?? '';
+            i = words.length;
+            break;
+          }
+          if (/^-S./.test(w) || w.startsWith('--split-string=')) {
+            envSplit = w.startsWith('-S') ? w.slice(2) : w.slice('--split-string='.length);
+            i = words.length;
+            break;
+          }
+          i += /^-[uCP]$/.test(w) || w === '--unset' || w === '--chdir' ? 2 : 1;
         }
         continue;
       }
-      if (WRAPPER.test(words[i]!)) {
-        i += 1;
-        while (i < words.length && words[i]!.startsWith('-')) i += 1;
+      const spec = WRAPPERS[h];
+      if (spec) {
+        i = skipWrapper(words, i + 1, spec, localEnv);
         continue;
       }
       break;
+    }
+    if (envSplit !== undefined) {
+      nested(envSplit, localEnv, si);
+      continue;
     }
 
     // `export` / `declare -x` / `typeset -x` / `readonly` as a statement:
     // the assignment lives for later commands. Also `export VAR=… cmd`.
     if (ENV_SETTERS.has(headOf(words[i]))) {
-      const setter = headOf(words[i]);
       i += 1;
       // skip flags (-x, -g, …); `set` alone with no assign is a shell option
       // change and is not an env infection (handled by O151 F10 cancel).
       while (i < words.length && words[i]!.startsWith('-') && !ASSIGN.test(words[i]!)) i += 1;
-      let infected = false;
       while (
         i < words.length &&
         (ASSIGN.test(words[i]!) || /^[A-Za-z_][A-Za-z0-9_]*$/.test(words[i]!))
@@ -268,7 +587,6 @@ export function findExecCapableForms(command: string): ExecCapableForm[] {
         if (isExecEnvName(name)) {
           liveEnv.add(name.toUpperCase());
           localEnv.add(name.toUpperCase());
-          infected = true;
         }
         i += 1;
         // `export VAR value` (no `=`) — skip the value.
@@ -280,35 +598,62 @@ export function findExecCapableForms(command: string): ExecCapableForm[] {
         )
           break;
       }
-      if (i >= words.length) {
-        // Pure setter statement; next simple command inherits liveEnv.
-        if (infected && setter !== 'set') {
-          /* liveEnv already updated */
-        }
-        continue;
-      }
-      // `export VAR=… cmd …` — fall through with the remaining words as the cmd.
+      // Pure setter statement: next simple command inherits liveEnv.
+      // `export VAR=… cmd …` falls through with the remaining words.
+    }
+
+    // Spec r3 C: a GIT_CONFIG_* assignment anywhere in this simple command
+    // (prefix, env, export, sudo, or a later word) is exec-capable whatever
+    // the head is — any child may spawn git with it.
+    const gitCfgWord = words.find((w) => {
+      const m = ASSIGN.exec(w) ?? w.match(/^\$env:([A-Za-z_][A-Za-z0-9_]*)=/i);
+      return !!m && isGitConfigEnvName(m[1]!);
+    });
+    const gitCfgLive = [...localEnv].find((n) => isGitConfigEnvName(n));
+    if (gitCfgWord || gitCfgLive) {
+      const name = gitCfgLive ?? ASSIGN.exec(gitCfgWord!)?.[1] ?? 'GIT_CONFIG';
+      const h = headOf(words[i]);
+      const a = words.slice(i + 1);
+      out.push({
+        form: `${name.toUpperCase()}=`,
+        operands: pathOperands(h, a),
+        gitC: gitCValues(h, a),
+        index: si,
+      });
     }
 
     if (i >= words.length) continue;
     const head = headOf(words[i]);
     const args = words.slice(i + 1);
 
+    // Shell / eval-like heads: scan their command string with this env.
+    const inner = nestedCommandText(head, args);
+    if (inner === null) {
+      stdinShell = si > 0;
+    } else if (inner !== undefined) {
+      nested(inner, localEnv, si);
+      continue;
+    }
+
     // Carry localEnv into detection of this command.
     for (const name of localEnv) {
-      // Report once per simple command that is affected.
-      if (
-        head === 'git' ||
-        head === 'rg' ||
-        head === 'ripgrep' ||
-        head === 'less' ||
-        head === 'more' ||
-        head === 'sort' ||
-        head === 'find' ||
-        head === 'grep' ||
-        head === 'egrep' ||
-        head === 'fgrep'
-      ) {
+      // GIT_* (other than the GIT_CONFIG family, reported above) only
+      // matters on git; PAGER / LESSOPEN on the pager-capable readers.
+      const gitOnly = name.startsWith('GIT_') && !EXEC_ENV_VARS.has(name);
+      const applies = gitOnly
+        ? head === 'git'
+        : head === 'git' ||
+          head === 'rg' ||
+          head === 'ripgrep' ||
+          head === 'less' ||
+          head === 'more' ||
+          head === 'sort' ||
+          head === 'find' ||
+          head === 'grep' ||
+          head === 'egrep' ||
+          head === 'fgrep';
+      if (applies) {
+        // Report once per simple command that is affected.
         out.push({
           form: `${name}=`,
           operands: pathOperands(head, args),
@@ -354,6 +699,34 @@ export function findExecCapableForms(command: string): ExecCapableForm[] {
           index: si,
         });
       }
+      continue;
+    }
+    // Backstop for wrappers not in the table (`flock f git -c …`,
+    // `chronic git -c …`): a later `git` word followed by a blocked `-c` /
+    // `--config-env` / exec option is still reported (fail-closed).
+    if (!TEXT_HEADS.has(head)) {
+      for (let k = 0; k < args.length; k += 1) {
+        if (!isGitWord(args[k])) continue;
+        const rest = args.slice(k + 1);
+        for (const form of gitExecForms(rest)) {
+          out.push({
+            form,
+            operands: pathOperands('git', rest),
+            gitC: gitCValues('git', rest),
+            index: si,
+          });
+        }
+        break;
+      }
+    }
+  }
+
+  // `echo 'git -c …' | sh`: the shell runs text another word produced.
+  if (stdinShell) {
+    for (let si = 0; si < simples.length; si += 1) {
+      const words = simples[si]!;
+      const h = headOf(words[0]);
+      if (h === 'echo' || h === 'printf') nested(words.slice(1).join(' '), liveEnv, si);
     }
   }
   return out;
