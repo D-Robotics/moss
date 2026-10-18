@@ -24,6 +24,15 @@
  * libuv, pwsh) do not pick a program out of the workspace either. A name with
  * a directory in it (`.\x.exe`, `./x`, `C:\x\y.exe`) is the caller's choice
  * and is spawned as given.
+ *
+ * A hook's launch command (its first word) and the interpreter of an
+ * `#!/usr/bin/env <prog>` script Moss starts (npx, npm) are resolved the same
+ * way ({@link resolveCommandHead}, {@link envShebangCommand}).
+ *
+ * Known limitation (PM ruling on QA #142 O1): absolute PATH entries inside the
+ * workspace (`$WS/node_modules/.bin` when moss runs via npx / npm run) stay in
+ * the child's PATH. The model's own exec commands, and whatever a hook script
+ * runs after its first word, therefore use the project's tool of that name.
  */
 import fs from 'node:fs';
 import os from 'node:os';
