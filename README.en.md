@@ -464,6 +464,10 @@ one line: press `e` to switch to English.
   paths to system programs (such as the background job's `powershell.exe`) from the environment
   before `.env` was loaded. A child PATH left with no usable entry (only `.` or empty entries)
   becomes a directory that does not exist, never an empty string.
+- **git pack flags are exec-capable (O169)**: `git clone --upload-pack=<cmd>`,
+  `git fetch`/`git push` with `--upload-pack` / `--receive-pack=<cmd>` (glued, split, or
+  clone's short `-u`) make git run that command; they are pre-blocked like `git -c` and
+  `--ext-diff`. `git push -u origin main` (--set-upstream) is unaffected.
 - Credentials come only from `.env` or the environment: never hardcoded, never logged, never
   passed to child processes, never written to the device registry. No account, no cloud, no
   telemetry.
