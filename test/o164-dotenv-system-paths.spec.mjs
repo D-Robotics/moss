@@ -181,6 +181,21 @@ test(
         .split(';')
         .filter((d) => !(d && fs.existsSync(path.join(d.replace(/^"(.*)"$/, '$1'), 'pwsh.exe'))))
         .join(';');
+      // The attack needs SystemRoot absent when Moss starts (the .env loader
+      // never overrides a variable that is already set). A process spawned by
+      // Node/libuv always gets SYSTEMROOT/WINDIR copied in from the parent, so
+      // `extraEnv: { SystemRoot: undefined }` cannot produce that start state.
+      // A --require preload removes them from Moss's own process before the
+      // .env loader runs and records that it did.
+      const preload = path.join(markDir, 'strip-systemroot.cjs');
+      const preloadLog = path.join(markDir, 'preload.log');
+      fs.writeFileSync(
+        preload,
+        `const fs = require('node:fs');
+for (const k of Object.keys(process.env)) if (/^(systemroot|windir)$/i.test(k)) delete process.env[k];
+fs.appendFileSync(${JSON.stringify(preloadLog)}, process.pid + ' SystemRoot=' + String(process.env.SystemRoot) + '\\n');
+`
+      );
       const r = await scenario({
         lang: 'en',
         json: true,
@@ -194,22 +209,24 @@ test(
           {
             name: 'exec',
             // Windows PowerShell 5.1 (the job owner) starts slowly in the bare
-            // scenario env; poll for the job's file for up to ~60 s.
+            // scenario env; poll once a second for up to 60 s and report when
+            // the job's file appeared.
             args: {
               command:
-                'for /L %i in (1,1,60) do @if exist bg-ok.txt (type bg-ok.txt & exit 0) else ping -n 2 127.0.0.1 >NUL',
+                'for /L %i in (1,1,60) do @if exist bg-ok.txt (type bg-ok.txt & echo found-at-poll-%i & exit 0) else ping -n 2 127.0.0.1 >NUL',
               timeout_ms: 70000,
             },
           },
         ],
         finalText: 'Done.',
-        // The attack needs SystemRoot absent at startup; .env then supplies it.
-        extraEnv: { PATH: noPwshPath, SystemRoot: undefined, windir: undefined },
+        extraEnv: { PATH: noPwshPath, NODE_OPTIONS: `--require "${preload}"` },
         prepare: ({ proj }) => {
           const fakeRoot = plantFakePowershell(proj, markDir);
           fs.writeFileSync(path.join(proj, '.env'), `SystemRoot=${fakeRoot}\nwindir=${fakeRoot}\n`);
         },
       });
+      const log = fs.existsSync(preloadLog) ? fs.readFileSync(preloadLog, 'utf8') : '';
+      assert.match(log, /SystemRoot=undefined/, 'the preload did not run in the Moss process');
       const ran = marks(markDir).map(
         (f) => `${f}: ${fs.readFileSync(path.join(markDir, f), 'utf8')}`
       );
@@ -219,13 +236,15 @@ test(
         /o164-bg-ok/,
         `${r.toolResults.join('\n')}\n${r.err.slice(-800)}`
       );
+      console.log(
+        `# O164 CLI: ${(r.toolResults.join(' ').match(/found-at-poll-\d+/) ?? ['?'])[0]}`
+      );
     } finally {
       fs.rmSync(markDir, { recursive: true, force: true });
     }
   }
 );
 
-// ---- 2. PATH emptied ----------------------------------------------------------
 test('1: a Windows child env without SystemRoot gets the trusted one', () => {
   withEnv({ SystemRoot: 'C:\\Windows' }, {}, () => {
     assert.deepEqual(withWindowsSystemRoot({ PATH: 'x' }, 'win32'), {
@@ -239,6 +258,7 @@ test('1: a Windows child env without SystemRoot gets the trusted one', () => {
   });
 });
 
+// ---- 2. PATH emptied ----------------------------------------------------------
 test('2: a child PATH with no usable entry is a nonexistent absolute dir, never ""', () => {
   for (const PATH of ['.', '', '::', ':.:', 'rel/bin']) {
     const posix = sanitizeChildPathEnv({ PATH }, 'linux');
