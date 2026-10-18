@@ -195,8 +195,6 @@ test(
             name: 'exec',
             args: { command: 'ping -n 20 127.0.0.1 >NUL & type bg-ok.txt', timeout_ms: 60000 },
           },
-          { name: 'exec_logs', args: { id: 'bg_1' } },
-          { name: 'exec', args: { command: 'set', timeout_ms: 60000 } },
         ],
         finalText: 'Done.',
         // The attack needs SystemRoot absent at startup; .env then supplies it.
@@ -213,7 +211,7 @@ test(
       assert.match(
         r.toolResults.join('\n'),
         /o164-bg-ok/,
-        `${r.toolResults.join('\n=====\n')}\n${r.err.slice(-3000)}`
+        `${r.toolResults.join('\n')}\n${r.err.slice(-800)}`
       );
     } finally {
       fs.rmSync(markDir, { recursive: true, force: true });
