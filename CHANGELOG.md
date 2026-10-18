@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### O135 — PreToolUse hooks: any non-zero exit blocks
+
+A `PreToolUse` hook that exits non-zero now blocks the tool call in both Moss
+and Claude formats, whatever its output says: `{"decision":"allow"}`,
+`{"decision":"approve"}` and `hookSpecificOutput.permissionDecision: "allow"`
+from a process that failed are ignored. The run ends 「被拦」/`Blocked by` with
+exit 9, and the reason names the hook and says its allow was ignored. This is
+deliberately stricter than Claude Code, which treats non-zero exits other than
+2 as non-blocking errors. On Windows a hook whose command is missing (cmd or
+pwsh) is treated as "failed to start" and blocks.
+
+`PreToolUse` hook 非 0 退出一律拦截，Moss 和 Claude 两种格式都一样，输出里的
+allow / approve / `permissionDecision: "allow"` 都不算数；末行「被拦」，exit 9，
+提示里点名 hook 并说明已忽略其 allow。这比 Claude Code 更严（它对 2 以外的非 0
+只当非阻塞错误）。Windows 上 hook 命令不存在（cmd 或 pwsh）按「未能启动」拦截。
+
 ## 0.26.1 (2026-10-11)
 
 First npm release of the package (`@rdk-moss/agent`). Version 0.26.0 was tagged
