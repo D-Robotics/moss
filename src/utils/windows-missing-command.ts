@@ -34,17 +34,25 @@ const PS_NOT_RECOGNIZED_ZH =
  * then hit an unrelated missing command later in its output does not count.
  */
 const PS_FIRST_RECORD_HEAD = /^\s*(\S+) ?:\s/;
+/**
+ * Static pattern (QA #149 F1): the name comes from the CategoryInfo line and
+ * is compared with the head as a string. A RegExp built from stderr text has
+ * no size bound (a >= 32759-character first token made V8 throw "Regular
+ * expression too large").
+ */
+const PS_CATEGORY_INFO =
+  /^\s*\+\s*CategoryInfo\s*:\s*ObjectNotFound\s*:\s*\((\S+?):String\)\s*\[\]\s*,\s*CommandNotFoundException\b/m;
+/** The first error record is read up to this many characters. */
+const PS_RECORD_LIMIT = 4000;
+/** Longer "names" are not a command PowerShell reported (Windows MAX_PATH-ish bound with room). */
+const PS_NAME_LIMIT = 1024;
 function powershellCategoryInfo(text: string): string | undefined {
-  const name = PS_FIRST_RECORD_HEAD.exec(text)?.[1];
-  if (name === undefined) return undefined;
+  const head = text.slice(0, PS_RECORD_LIMIT);
+  const name = PS_FIRST_RECORD_HEAD.exec(head)?.[1];
+  if (name === undefined || name.length > PS_NAME_LIMIT) return undefined;
   // The first record ends at the first blank line.
-  const record = text.split(/\r?\n[ \t]*\r?\n/, 1)[0]!.slice(0, 4000);
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const categoryInfo = new RegExp(
-    `^\\s*\\+\\s*CategoryInfo\\s*:\\s*ObjectNotFound\\s*:\\s*\\(${escaped}:String\\)\\s*\\[\\]\\s*,\\s*CommandNotFoundException\\b`,
-    'm'
-  );
-  return categoryInfo.test(record) ? name : undefined;
+  const record = head.split(/\r?\n[ \t]*\r?\n/, 1)[0]!;
+  return PS_CATEGORY_INFO.exec(record)?.[1] === name ? name : undefined;
 }
 
 /**

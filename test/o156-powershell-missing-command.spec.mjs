@@ -247,3 +247,45 @@ for (const lang of ['en', 'zh']) {
     }
   );
 }
+
+// QA #149 F3: the O156 fail-open path itself through the CLI. A claude
+// UserPromptSubmit hook via PS 5.1 exits 1 (non-blocking claude verdict): on
+// old code the model was called and ran the exec step. Now the prompt is
+// refused before the model, the terminal says "failed to start", and the
+// file stays unchanged. (PermissionRequest only fires through the interactive
+// asker, so `-p` cannot reach it; it is covered at hook level above.)
+for (const lang of ['en', 'zh']) {
+  test(
+    `win32 CLI [${lang}]: UserPromptSubmit via powershell -Command <missing> → refused before the model, "failed to start", file unchanged`,
+    { skip: !IS_WIN && 'platform mismatch (not win32)' },
+    async () => {
+      const NOTES = 'original notes\n';
+      const r = await scenario({
+        lang,
+        extraEnv: WIN_BASE_ENV,
+        hooks: {
+          UserPromptSubmit: [{ command: SHELLS['PS 5.1'], format: 'claude', timeoutMs: 120_000 }],
+        },
+        steps: [
+          {
+            name: 'exec',
+            args: { command: `node -e "require('fs').writeFileSync('notes.txt','PWNED')"` },
+          },
+        ],
+        finalText: 'All done.',
+        notesBody: NOTES,
+      });
+      const ctx = `code=${r.code} last=${r.last}\n${r.err.slice(0, 1200)}`;
+      assert.notEqual(r.code, 0, ctx);
+      assert.equal(r.notes, NOTES, `notes.txt must be unchanged; ${ctx}`);
+      assert.deepEqual(r.toolResults, [], `the model must not get to run a tool; ${ctx}`);
+      assert.match(
+        r.err.replace(/\s+/g, ' '),
+        lang === 'zh'
+          ? /提交用户提示前钩子 .*未能启动，已按拒绝处理/
+          : /UserPromptSubmit hook .*failed to start; treated as deny/,
+        ctx
+      );
+    }
+  );
+}
