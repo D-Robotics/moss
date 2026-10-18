@@ -408,6 +408,17 @@ one line: press `e` to switch to English.
   escapes stay blocked in full mode — full skips the asking, not the checking. The same shapes on
   the device are not a permanent hard block: a TTY confirmation, an allow rule, or explicit trust
   runs them for real.
+- **A PreToolUse hook that returns `ask` (O157)**: when a hook exits 0 with
+  `hookSpecificOutput.permissionDecision: "ask"` (claude format) or `decision: "ask"` (moss
+  format, the equivalent field), an interactive session shows Moss's confirmation (y/a/n), naming
+  the hook and the reason it gave, in every mode including full. `y` / `a` allow this one call
+  (`a` remembers nothing; the hook asks again next time); `n` is treated as a block. `-p` and runs
+  without an interactive terminal cannot confirm, so the call is treated as deny: the last line
+  says `Blocked by`, exit 9. Across hooks deny > ask > allow; deny rules and host hard blocks still
+  win. A `blocking: false` hook cannot restrict a call, so its `ask` is ignored like its `deny`.
+  Like Claude Code, an ask shows a confirmation. Moss differs in that `-p` treats it as deny, `a`
+  allows only this call and adds no trust, and a hook that exits non-zero is denied even if it
+  printed ask (O135).
 - **Protected paths (O94 + O101) are best-effort interception, not a sandbox**: direct writes, deletes or
   moves of a protected path (e.g. `~/.ssh`, files inside `.git/`) by file tools or shell commands
   need one confirmation even in full mode; `git`'s own writes to `.git/` do not. Shell detection
