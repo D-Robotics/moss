@@ -1,0 +1,49 @@
+name: O149 probe (CI-only, do not merge)
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: O149 probe (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.16.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Plant an early portability red (sorts before every security spec)
+        shell: bash
+        run: |
+          printf '%s\n' "import test from 'node:test'; import assert from 'node:assert'; test('O149 planted portability red', () => assert.fail('planted'));" > test/aa-00-o149-planted-red.spec.mjs
+      - name: Local mode (CI unset), early red + security and ordinary specs
+        shell: bash
+        continue-on-error: true
+        run: |
+          set +e
+          env -u CI node scripts/run-package-tests.mjs --filter aa- --filter o13 --filter protected --filter hooks --filter exec-git-config --filter cli-doctor 2> >(tee "$RUNNER_TEMP/local.err" >&2)
+          echo "runner exit: $?"
+          sleep 1
+          echo "---- files started:"
+          grep -E '^\[test\] .*\.spec\.mjs$' "$RUNNER_TEMP/local.err" | sed 's#.*[\\/]test[\\/]##'
+          n=$(grep -cE '^\[test\] .*(aa-o13|[\\/]o13|protected|hook).*\.spec\.mjs$' "$RUNNER_TEMP/local.err")
+          echo "O149 VERDICT LOCAL: security specs started after the planted red = $n"
+          if [ "$n" -gt 0 ]; then echo 'O149 VERDICT LOCAL: NOT REPRODUCED (security specs ran)'; else echo 'O149 VERDICT LOCAL: REPRODUCED (fail-fast skipped every security spec)'; fi
+      - name: CI mode (CI=true), same files
+        shell: bash
+        continue-on-error: true
+        run: |
+          set +e
+          CI=true node scripts/run-package-tests.mjs --filter aa- --filter o13 --filter protected --filter hooks --filter exec-git-config --filter cli-doctor 2> >(tee "$RUNNER_TEMP/ci.err" >&2)
+          echo "runner exit: $?"
+          sleep 1
+          n=$(grep -cE '^\[test\] .*(aa-o13|[\\/]o13|protected|hook).*\.spec\.mjs$' "$RUNNER_TEMP/ci.err")
+          echo "O149 VERDICT CI: security specs started after the planted red = $n"
+          grep -E 'file\(s\) failed|^  .*\(exit' "$RUNNER_TEMP/ci.err"
