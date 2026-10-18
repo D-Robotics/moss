@@ -162,6 +162,9 @@ export function createMossAgentLoopEventAdapter(
               ...(event.aborted ? { aborted: event.aborted } : {}),
               ...(event.structuredContent ? { structuredContent: event.structuredContent } : {}),
               ...(event.error ? { error: event.error } : {}),
+              ...(event.protectedPathChanges
+                ? { protectedPathChanges: event.protectedPathChanges }
+                : {}),
             },
           ];
         }

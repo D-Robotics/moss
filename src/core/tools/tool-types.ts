@@ -18,6 +18,15 @@ export interface SubagentRunProgress {
   elapsedMs?: number;
 }
 
+/** O152 F9b: one L3 post-run change (no file content). */
+export interface ProtectedPathChangeReport {
+  path: string;
+  kind: string;
+  keys?: string[];
+  reason?: string;
+  restoreOutcome?: string;
+}
+
 export interface ToolContext {
   workspaceDir: string;
   /**
@@ -25,6 +34,12 @@ export interface ToolContext {
    * (e.g. exec timeout / signal kill) instead of relying on output text.
    */
   markResultError?: () => void;
+  /**
+   * O152 F9b: post-run protected-path detection (L3) reported as structured
+   * data, so the run outcome / exit code never depends on the (truncatable)
+   * output text carrying the marker.
+   */
+  reportProtectedPathChanges?: (changes: readonly ProtectedPathChangeReport[]) => void;
   bootstrapDir?: string;
   runId?: string;
   sessionKey: string;
