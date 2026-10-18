@@ -298,7 +298,8 @@ export async function runInteractive(
             onAgentEvent: (event) => usage.record(event),
             taskFlow: messageRequestsTaskContract(String(submitText)),
           });
-          if (stop?.blocked) {
+          // O165: a fatal (throwing) Stop hook is terminal — no continuation.
+          if (stop?.blocked && !stop.fatal) {
             const feedback = `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`;
             await runOneShot(agent, feedback, {
               sessionKey,
@@ -701,7 +702,8 @@ export async function runInteractive(
           onAgentEvent: (event) => usage.record(event),
           taskFlow: messageRequestsTaskContract(resolved.prompt),
         });
-        if (stop?.blocked) {
+        // O165: a fatal (throwing) Stop hook is terminal — no continuation.
+        if (stop?.blocked && !stop.fatal) {
           const feedback = `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`;
           await runOneShot(agent, feedback, {
             sessionKey,
@@ -745,7 +747,9 @@ export async function runInteractive(
       onAgentEvent: (event) => usage.record(event),
       taskFlow: messageRequestsTaskContract(msg),
     });
-    if (stop?.blocked) {
+    // O165: a fatal (throwing) Stop hook is terminal — no continuation turn;
+    // the run already ended Incomplete with a visible notice.
+    if (stop?.blocked && !stop.fatal) {
       // Stop hook vetoed the run ending: one forced continuation turn, then
       // the veto is consumed (a hook that keeps blocking would loop forever).
       const feedback = `[stop-hook feedback] ${stop.reason ?? 'The Stop hook requires more work; continue the task.'}`;

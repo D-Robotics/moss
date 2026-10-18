@@ -372,6 +372,7 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
 - **hook 输出超过捕获上限即拦截（O162）**：每个 hook 的 stdout / stderr 各有 10 MiB 捕获上限；一旦有输出被截断，判定（最后一行 JSON）就不可信，所有阻塞类事件（`PreToolUse`、`UserPromptSubmit`、`PermissionRequest`、`Stop`）一律按拦截失败关闭——退出码与可读部分说了什么都不算数。`blocking: false` 的 hook 不能收紧任何调用，其输出超限同样不拦截。
 - **脚本的参数不是删除（O168）**：解释器脚本形式的参数（`python3 x.py $HOME`、`node x.js "$PWD"`）、`sh x.sh` 的参数、`.`/`source` 的操作数与裸 `.` 不再触发「删除受保护祖先」规则——正常命令不再被误拦，非 git 目录也不再被说成 git 仓库内部文件。豁免与 cd 一样仅限该路径未在命令其他位置出现；直接点名受保护路径（`$HOME/.ssh`、`.git/config`）、内联形式与真实删除行为不变，实际写入仍由脚本扫描与运行后快照兜底。
 - **git 的 pack 旗标按可执行拦截（O169）**：`git clone --upload-pack=<cmd>`、`git fetch/push --upload-pack/--receive-pack=<cmd>`（含空格分开与 clone 的 `-u` 短旗标）会让 git 执行该命令，与 `git -c`、`--ext-diff` 等一样在执行前拦截；`git push -u origin main`（设上游）不受影响。
+- **hook 抛异常一律拦截（O165）**：处理 hook 时抛出的任何异常都按拦截失败关闭并给出可见提示（PreToolUse 拦下调用、PermissionRequest 拒绝、UserPromptSubmit 拒绝提示词）；抛异常的 Stop hook 是终局否决——不强制续跑、不再调用模型，headless 以未完成（exit 9）结束。`-p` 下 UserPromptSubmit 被拦时末行「被拦」、exit 9（原为 exit 8）。
 - 凭据只从 `.env` 或环境变量读，绝不硬编码、不进日志、不传子进程、不写设备清单。
 - 无账号、无云服务、无遥测；provider 是普通 HTTP 端点。
 

@@ -481,6 +481,12 @@ one line: press `e` to switch to English.
   `git fetch`/`git push` with `--upload-pack` / `--receive-pack=<cmd>` (glued, split, or
   clone's short `-u`) make git run that command; they are pre-blocked like `git -c` and
   `--ext-diff`. `git push -u origin main` (--set-upstream) is unaffected.
+- **A hook that throws blocks (O165)**: any exception while handling a hook on a blocking
+  event fails closed with a visible notice (PreToolUse blocks the call, PermissionRequest
+  denies, UserPromptSubmit rejects the prompt); a throwing Stop hook is a terminal veto —
+  no forced continuation turn, no further model call, and headless ends Incomplete
+  (exit 9). In `-p`, a blocked UserPromptSubmit hook ends 「被拦」/`Blocked` with exit 9
+  (was exit 8).
 - Credentials come only from `.env` or the environment: never hardcoded, never logged, never
   passed to child processes, never written to the device registry. No account, no cloud, no
   telemetry.

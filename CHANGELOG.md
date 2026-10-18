@@ -47,6 +47,27 @@ python -V` 被报成删除 home / 工作区根目录，非 git 目录下的 `$PW
 /tmp`、`rm -rf "$PWD"`）行为不变；实际写入仍由脚本扫描（第 2 层）与运行后
 快照（第 3 层）兜底。
 
+### O165 — a hook that throws blocks; Stop ends Incomplete; a rejected prompt exits 9
+
+Anything thrown while handling a hook on a blocking event now fails closed
+with a visible `[hooks]` notice: PreToolUse blocks the call, PermissionRequest
+denies, UserPromptSubmit rejects the prompt, and a throwing Stop hook is a
+**terminal veto** — `runStopHooks` used to catch the exception and return
+"not blocked", silently approving the stop. A fatal Stop veto carries
+`fatal: true`: the REPL skips its forced continuation turn (no further model
+call) and the headless run ends Incomplete (exit 9). `-p` with a blocked
+UserPromptSubmit hook used to exit 8 (TOOL_EXECUTION); it is
+INPUT_GUARDRAIL_DENIED → Incomplete (9) with the stable 「被拦」/`Blocked`
+last line instead of a rethrown error with a stack.
+
+处理 hook 时抛出的任何异常现在都按拦截失败关闭，并给出可见的 `[hooks]` 提示：
+PreToolUse 拦下调用、PermissionRequest 拒绝、UserPromptSubmit 拒绝提示词；
+抛异常的 Stop hook 是**终局否决**——以前 `runStopHooks` 捕获异常后返回「未拦
+截」，异常悄悄放行了结束。终局否决带 `fatal: true`：REPL 不再强制续一轮（不再
+调用模型），headless 以未完成（exit 9）结束。`-p` 下 UserPromptSubmit 被拦以前
+exit 8（TOOL_EXECUTION）；现在是 INPUT_GUARDRAIL_DENIED → Incomplete（9），
+末行是稳定的「被拦」/`Blocked` 结论线，不再抛带堆栈的错误。
+
 ### O162 — hook output over the capture limit blocks
 
 Each hook's stdout and stderr are captured up to 10 MiB per stream; the verdict
