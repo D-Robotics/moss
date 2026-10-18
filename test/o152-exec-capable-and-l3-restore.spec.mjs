@@ -13,7 +13,7 @@
  * turns the matching cases red.
  */
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -209,8 +209,7 @@ const EXEC_FORMS = [
   { id: 'r6 C3 bash -c export', cmd: () => `bash -c 'export X=1'; git status` },
   // ── r6 C4: PATH change then any command ──
   { id: 'r6 C4 PATH= prefix git', cmd: () => `PATH=./d:$PATH git status` },
-  { id: 'r6 C4 PATH= prefix other', cmd: () => `PATH=./d:$PATH ls` },
-  { id: 'r6 C4 export PATH', cmd: () => `export PATH=./d:$PATH; ls` },
+  { id: 'r6 C4 export PATH then git', cmd: () => `export PATH=./d:$PATH; git status` },
   { id: 'r6 C4 env PATH=', cmd: () => `env PATH=./d:/usr/bin git status` },
   { id: 'r6 C4 pwsh $env:PATH', cmd: () => `$env:PATH = './d;' + $env:PATH; git status` },
   // ── r6 C5: function / alias then git ──
@@ -223,6 +222,41 @@ const EXEC_FORMS = [
   { id: 'r6 C5 shopt alias', cmd: () => `shopt -s expand_aliases; alias g=git; g status` },
   { id: 'r6 C5 pwsh Set-Alias', cmd: () => `Set-Alias g git; g status` },
   { id: 'r6 C1 "$SHELL" -c', cmd: () => `"$SHELL" -c 'git status'` },
+  // ── PM r7 1 / QA r6 B1-B2: string-as-code forms are wrappers ──
+  {
+    id: 'r7 B1 script -qc',
+    cmd: () => `script -qc "git -c alias.x='!/abs/p.sh' x" /dev/null`,
+  },
+  {
+    id: 'r7 B1 script --command=',
+    cmd: () => `script -q --command="git -c alias.x='!/abs/p.sh' x" /dev/null`,
+  },
+  {
+    id: 'r7 B1 script -eqc',
+    cmd: () => `script -eqc "git -c alias.x='!/abs/p.sh' x" /dev/null`,
+  },
+  { id: 'r7 B2 trap EXIT', cmd: () => `trap "git -c alias.x='!/abs/p.sh' x" EXIT` },
+  {
+    id: 'r7 B2 trap export + git',
+    cmd: () => `trap "export GIT_SSH_COMMAND=/abs/p.sh; git ls-remote ssh://x/r" EXIT`,
+  },
+  {
+    id: 'r7 B2 nested trap DEBUG',
+    cmd: () => `bash -c 'trap "git -c alias.x=!/abs/p.sh x" DEBUG; true'`,
+  },
+  { id: 'r7 B2 trap ERR git', cmd: () => `trap 'git status' ERR` },
+  { id: 'r7 1 eval "$CMD"', cmd: () => `eval "$CMD"` },
+  { id: 'r7 1 bash -c "$X"', cmd: () => `bash -c "$X"` },
+  { id: 'r7 1 trap "$X"', cmd: () => `trap "$X" EXIT` },
+  { id: 'r7 1 script -qc "$X"', cmd: () => `script -qc "$X" /dev/null` },
+  { id: 'r7 1 su -lc git', cmd: () => `su -lc 'git status' u` },
+  { id: 'r7 1 runuser -c git', cmd: () => `runuser -u u -c 'git status'` },
+  { id: 'r7 1 flock -c git', cmd: () => `flock /tmp/l -c 'git status'` },
+  { id: 'r7 1 watch git', cmd: () => `watch -n 1 git status` },
+  { id: 'r7 1 powershell -Command git', cmd: () => `powershell -Command "git status"` },
+  { id: 'r7 1 cmd /k git', cmd: () => `cmd /k git status` },
+  { id: 'r7 O1 G=git; setpriv $G', cmd: () => `G=git; setpriv $G status` },
+  { id: 'r7 O1 G=gi""t; setpriv $G', cmd: () => `G=gi""t; setpriv $G status` },
 ];
 
 const jobs = [];
@@ -292,7 +326,34 @@ const GREEN_POLICY = [
   'cat git/README',
   'npx prettier --check "src/**/*.ts"',
   'echo $HOME',
+  // PM r7 3 (O1): static non-git command names with dynamic args.
+  'npm run $S',
+  'make -C $D',
+  'tsc -p $P',
+  'ps -p $$',
+  'PATH=./d:$PATH ls',
+  'export PATH=./d:$PATH; ls',
+  // PM r7 2: ROS / venv activation (B3 is a known limitation, not C5).
+  'source /opt/ros/humble/setup.bash && ros2 --help',
+  // trap / script without a code string that names git.
+  'trap "rm -f /tmp/o152-x" EXIT',
+  'trap - EXIT',
+  'script -q /dev/null',
 ];
+// PM r7 #9 additions that are ALREADY blocked on main (50339194) by the
+// pre-existing O151/O101 rules (an interpreter given $HOME / "$PWD", or a
+// dot-sourced venv script) — not by any O152 C rule. Out of #136's scope
+// (separate ticket); here we assert the O152 layer itself stays silent.
+for (const raw of ['python3 x.py $HOME', 'node x.js "$PWD"', '. venv/bin/activate && python -V']) {
+  jobs.push({
+    name: `policy O152-layer GREEN (main-blocked by O151, separate ticket): ${raw}`,
+    fn: async () => {
+      assert.equal(commandHasExecCapableRead(raw), false, raw);
+      const hits = findShellProtectedWrites(raw, ctx).filter((h) => h.kind === 'exec-capable');
+      assert.deepEqual(hits, [], raw);
+    },
+  });
+}
 // r5 C: uncertain forms apply only inside a git repository.
 {
   const NG = path.join(base, 'not-git');
@@ -795,6 +856,44 @@ const PROC_BLOCK = [
       `bash -O expand_aliases -c "alias g=git\ng -c alias.x='!${script}' x"; node -e 1`,
     win: ({ script }) => `Set-Alias g git; g -c alias.x='!${script}' x; node -e 1`,
   },
+  // ── PM r7 1 / QA r6 B1-B2: string-as-code forms (script -c, trap) ──
+  {
+    id: 'r7 B1 script -qc',
+    cmd: ({ script }) => `script -qc "git -c alias.x='!${script}' x" /dev/null; node -e 1`,
+    skipWin:
+      'script(1) -c and POSIX trap strings do not exist in pwsh/cmd; the pwsh -c / cmd /c string forms are process-tested above',
+  },
+  {
+    id: 'r7 B1 script --command=',
+    cmd: ({ script }) => `script -q --command="git -c alias.x='!${script}' x" /dev/null; node -e 1`,
+    skipWin:
+      'script(1) -c and POSIX trap strings do not exist in pwsh/cmd; the pwsh -c / cmd /c string forms are process-tested above',
+  },
+  {
+    id: 'r7 B1 script -eqc',
+    cmd: ({ script }) => `script -eqc "git -c alias.x='!${script}' x" /dev/null; node -e 1`,
+    skipWin:
+      'script(1) -c and POSIX trap strings do not exist in pwsh/cmd; the pwsh -c / cmd /c string forms are process-tested above',
+  },
+  {
+    id: 'r7 B2 trap EXIT',
+    cmd: ({ script }) => `trap "git -c alias.x='!${script}' x" EXIT; node -e 1`,
+    skipWin:
+      'script(1) -c and POSIX trap strings do not exist in pwsh/cmd; the pwsh -c / cmd /c string forms are process-tested above',
+  },
+  {
+    id: 'r7 B2 trap export GIT_SSH_COMMAND',
+    cmd: ({ script }) =>
+      `trap "export GIT_SSH_COMMAND=${script}; git ls-remote ${SSH_URL}" EXIT; node -e 1`,
+    skipWin:
+      'script(1) -c and POSIX trap strings do not exist in pwsh/cmd; the pwsh -c / cmd /c string forms are process-tested above',
+  },
+  {
+    id: 'r7 B2 nested trap DEBUG',
+    cmd: ({ script }) => `bash -c 'trap "git -c alias.x=!${script} x" DEBUG; true'; node -e 1`,
+    skipWin:
+      'script(1) -c and POSIX trap strings do not exist in pwsh/cmd; the pwsh -c / cmd /c string forms are process-tested above',
+  },
   {
     id: 'N5 git --exec-path',
     cmd: ({ root }) => `git --exec-path=${q(path.join(root, 'execdir'))} x; node -e 1`,
@@ -892,6 +991,48 @@ const RESTORE_CASES = [
     id: 'RG3 rmSync(cwd)',
     cmd: () => `node -e "require('fs').rmSync(process.cwd(),{recursive:true,force:true})"`,
   },
+  // ── PM r6/r7 known limitations (L3 is the backstop): not recognisable
+  // before exec, must end restored + exit 9 on Linux, macOS AND Windows.
+  {
+    id: 'KL1 node child_process deletes .git/config',
+    prepare: ({ proj }) =>
+      fs.writeFileSync(
+        path.join(proj, 'o152-sub.js'),
+        "require('child_process').spawnSync(process.execPath,['-e',\"require('fs').rmSync('.g'+'it/config')\"],{stdio:'inherit'});\n"
+      ),
+    cmd: () => `node o152-sub.js`,
+  },
+  {
+    id: 'KL2 renamed/symlinked git runs alias rm',
+    prepare: ({ proj }) => {
+      if (IS_WIN) {
+        // A renamed launcher: the detector sees `o152g`, never `git`.
+        fs.writeFileSync(path.join(proj, 'o152g.cmd'), '@git %*\r\n');
+      } else {
+        const gitPath = spawnSync('sh', ['-c', 'command -v git'], {
+          encoding: 'utf8',
+        }).stdout.trim();
+        fs.symlinkSync(gitPath, path.join(proj, 'o152g'));
+      }
+    },
+    cmd: () => `./o152g -c alias.x='!rm -f .git/config' x`,
+    win: () => `./o152g.cmd -c alias.x='!rm -f .git/config' x`,
+  },
+  {
+    id: 'KL3 B3 function from a dot-sourced file',
+    prepare: ({ proj }) => {
+      fs.writeFileSync(
+        path.join(proj, 'o152-fn.sh'),
+        "f() { git -c alias.x='!rm -f .git/config' x; }\n"
+      );
+      fs.writeFileSync(
+        path.join(proj, 'o152-fn.ps1'),
+        "function f { git -c alias.x='!rm -f .git/config' x }\r\n"
+      );
+    },
+    cmd: () => `. ./o152-fn.sh && f`,
+    win: () => `. ./o152-fn.ps1; f`,
+  },
   {
     id: 'RG3b wipe cwd children',
     cmd: () =>
@@ -911,7 +1052,8 @@ for (const c of RESTORE_CASES) {
             seed: SEED,
             modes: MODES,
             watch: WATCH,
-            steps: () => [exec(c.cmd())],
+            ...(c.prepare ? { prepare: c.prepare } : {}),
+            steps: ({ proj, root }) => [exec((IS_WIN && c.win ? c.win : c.cmd)({ proj, root }))],
             finalText: CLAIM[lang],
           });
           // Diagnostics first: on a wrong exit code, show what actually changed
@@ -1142,28 +1284,62 @@ jobs.push({
   fn: async () => {
     const d = fs.mkdtempSync(path.join(base, 'p1w-'));
     fs.writeFileSync(path.join(d, '.env'), 'A=1\n');
+    const envPath = path.join(d, '.env');
     const before = takeProtectedPathSnapshot(d, { home: path.join(d, 'home') });
-    fs.chmodSync(path.join(d, '.env'), 0);
-    let readable = true;
+    // QA r6 P2-W1: deny reads for real on every platform — chmod 0 on POSIX,
+    // an icacls deny ACE on Windows (pattern from test/task-store.spec.mjs).
+    let deniedSid;
+    const deny = () => {
+      if (IS_WIN) {
+        deniedSid = execFileSync('whoami.exe', ['/user', '/fo', 'csv', '/nh'], {
+          encoding: 'utf8',
+          timeout: 5000,
+          windowsHide: true,
+        }).match(/S-1-5-[\d-]+/)?.[0];
+        assert.ok(deniedSid, 'current Windows user SID is required for the temporary ACL');
+        execFileSync('icacls.exe', [envPath, '/deny', `*${deniedSid}:(R)`], {
+          stdio: 'pipe',
+          timeout: 5000,
+          windowsHide: true,
+        });
+      } else {
+        fs.chmodSync(envPath, 0);
+      }
+    };
+    const undeny = () => {
+      if (IS_WIN && deniedSid) {
+        execFileSync('icacls.exe', [envPath, '/remove:d', `*${deniedSid}`], {
+          stdio: 'pipe',
+          timeout: 5000,
+          windowsHide: true,
+        });
+      } else if (!IS_WIN) {
+        fs.chmodSync(envPath, 0o600);
+      }
+    };
+    deny();
     try {
-      fs.readFileSync(path.join(d, '.env'));
-    } catch {
-      readable = false;
-    }
-    if (readable || IS_WIN) {
-      fs.chmodSync(path.join(d, '.env'), 0o600);
-      skipped.push(
-        `unit P1-W unreadable-after: ${IS_WIN ? 'chmod 0 does not deny reads on Windows' : 'running as root, chmod 0 does not deny reads'}; the restore/exit-9 path is covered by proc RESTORE RG3`
+      let readable = true;
+      try {
+        fs.readFileSync(envPath);
+      } catch {
+        readable = false;
+      }
+      if (readable) {
+        skipped.push(
+          'unit P1-W unreadable-after: the read was not denied (running as root / an ACL-exempt account), so the unreadable-after state cannot be produced here'
+        );
+        return;
+      }
+      const after = takeProtectedPathSnapshotAfter(before, { home: path.join(d, 'home') });
+      const changes = diffProtectedPathSnapshots(before, after);
+      assert.ok(
+        changes.some((c) => c.path.endsWith('.env') && c.reason === 'unreadable'),
+        JSON.stringify(changes)
       );
-      return;
+    } finally {
+      undeny();
     }
-    const after = takeProtectedPathSnapshotAfter(before, { home: path.join(d, 'home') });
-    const changes = diffProtectedPathSnapshots(before, after);
-    fs.chmodSync(path.join(d, '.env'), 0o600);
-    assert.ok(
-      changes.some((c) => c.path.endsWith('.env') && c.reason === 'unreadable'),
-      JSON.stringify(changes)
-    );
   },
 });
 
@@ -1193,6 +1369,24 @@ const PROC_GREEN = [
   },
   { id: 'ls git', cmd: () => `ls git`, marker: 'o152-git-dir-file' },
   { id: 'cd git && ls', cmd: () => `cd git && ls`, marker: 'o152-git-dir-file' },
+  // PM r7 3 (O1): static non-git names with dynamic args must run.
+  {
+    id: 'npm run $S',
+    cmd: () => (IS_WIN ? `$S='s'; npm run $S` : `S=s; npm run $S`),
+    marker: 'npm-o152-ok',
+  },
+  {
+    id: 'node x.js $S',
+    cmd: () => (IS_WIN ? `$S='a'; node x.js $S` : `S=a; node x.js $S`),
+    marker: 'xjs-o152-ok',
+  },
+  // PM r7 2: ROS / venv activation must still end 完成 (POSIX `.`; dash
+  // has no `source` — the literal `source …` form is a policy GREEN).
+  {
+    id: 'ROS setup then ros2 --help',
+    cmd: () => (IS_WIN ? `. ./ros/setup.ps1; ros2 --help` : `. ./ros/setup.bash && ros2 --help`),
+    marker: 'ros2-o152-ok',
+  },
 ];
 function prepareGreen({ proj }) {
   fs.mkdirSync(path.join(proj, 'git'), { recursive: true });
@@ -1201,6 +1395,44 @@ function prepareGreen({ proj }) {
   fs.mkdirSync(bin, { recursive: true });
   fs.writeFileSync(path.join(bin, 'tsc'), '#!/bin/sh\necho tsc-o152-ok\n', { mode: 0o755 });
   fs.writeFileSync(path.join(bin, 'tsc.cmd'), '@echo tsc-o152-ok\r\n');
+  // O1: npm script + node script.
+  fs.writeFileSync(
+    path.join(proj, 'package.json'),
+    JSON.stringify({
+      name: 'o152-green',
+      private: true,
+      scripts: { s: 'node -e "console.log(\'npm-o152-ok\')"' },
+    })
+  );
+  fs.writeFileSync(
+    path.join(proj, 'x.js'),
+    "console.log('xjs-o152-ok', process.argv[2] ? 'arg' : '');\n"
+  );
+  // ROS / venv stubs: activation puts a stub bin dir first on PATH.
+  const stub = (dir, name, marker) => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, name), `#!/bin/sh\necho ${marker}\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(dir, `${name}.cmd`), `@echo ${marker}\r\n`);
+  };
+  stub(path.join(proj, 'ros', 'bin'), 'ros2', 'ros2-o152-ok');
+  fs.writeFileSync(
+    path.join(proj, 'ros', 'setup.bash'),
+    'PATH="$PWD/ros/bin:$PATH"; export PATH\n'
+  );
+  fs.writeFileSync(
+    path.join(proj, 'ros', 'setup.ps1'),
+    '$env:PATH = "$PWD\\ros\\bin;" + $env:PATH\r\n'
+  );
+  stub(path.join(proj, 'venv', 'bin'), 'python', 'python-o152-ok');
+  stub(path.join(proj, 'venv', 'Scripts'), 'python', 'python-o152-ok');
+  fs.writeFileSync(
+    path.join(proj, 'venv', 'bin', 'activate'),
+    'PATH="$PWD/venv/bin:$PATH"; export PATH\n'
+  );
+  fs.writeFileSync(
+    path.join(proj, 'venv', 'Scripts', 'Activate.ps1'),
+    '$env:PATH = "$PWD\\venv\\Scripts;" + $env:PATH\r\n'
+  );
 }
 
 for (const g of PROC_GREEN) {
