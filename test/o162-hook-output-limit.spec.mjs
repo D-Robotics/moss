@@ -80,12 +80,14 @@ test('runProcess: output under the cap sets no flags', async () => {
 });
 
 test('runProcess: multi-byte output that fits the cap is not a false positive', async () => {
-  // 3000 CJK chars = 9000 UTF-8 bytes but 3000 UTF-16 units < the 4096 cap:
+  // 3000 CJK chars = 9000 UTF-8 bytes but ≤3001 UTF-16 units < the 4096 cap:
   // nothing was discarded, so the text is complete and must not be flagged.
+  // (A chunk boundary inside one UTF-8 char decodes to two replacement
+  // characters, hence the length range instead of an exact count.)
   const r = await runNode("process.stdout.write('汉'.repeat(3000))", { maxBuffer: 4096 });
   assert.equal(r.exitCode, 0);
   assert.equal(r.stdoutOverflow, undefined, 'nothing was dropped');
-  assert.equal(r.stdout.length, 3000);
+  assert.ok(r.stdout.length >= 3000 && r.stdout.length < 4096, `len=${r.stdout.length}`);
 });
 
 test('runProcess: stderr and both streams', async () => {
