@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### O169 — `git --upload-pack` / `--receive-pack` literal commands are blocked
+
+`git clone --upload-pack='<cmd>'`, `git fetch --upload-pack=…`, `git push
+--receive-pack=…` (glued, `--upload-pack cmd`, or clone's short `-u`) make git
+run the given command to speak the pack protocol — arbitrary execution that
+looks like a plain clone/fetch/push. The flags were not in the exec-capable
+table, so the pre-exec block (O152) never fired. They now are, in the
+subcommand position and the global one; `git push -u origin main`
+(--set-upstream) is unaffected.
+
+`git clone --upload-pack='<cmd>'`、`git fetch --upload-pack=…`、`git push
+--receive-pack=…`（连写、空格分开、或 clone 的短旗标 `-u`）会让 git 执行给定命令来
+讲 pack 协议——表面是普通 clone/fetch/push，实际是任意执行。此前这些旗标不在
+「可执行读取」表里，O152 的执行前拦截从未触发；现已加入（子命令位与全局位都识别）。
+`git push -u origin main`（--set-upstream）不受影响。
+
 ### O168 — a script's arguments are not deletions
 
 The write-target rules blocked normal commands: an interpreter run is
@@ -30,6 +46,29 @@ python -V` 被报成删除 home / 工作区根目录，非 git 目录下的 `$PW
 `.git/config`）、解释器内联形式、真正的删除（`rm -rf $HOME`、`mv $HOME
 /tmp`、`rm -rf "$PWD"`）行为不变；实际写入仍由脚本扫描（第 2 层）与运行后
 快照（第 3 层）兜底。
+
+### O157 — PreToolUse hook `ask` now asks the user; `-p` treats it as deny
+
+A PreToolUse hook that exits 0 with `ask` (Claude `hookSpecificOutput.permissionDecision:
+"ask"`, or moss/legacy top-level `decision: "ask"`) previously fell through to
+"approved": the call ran without anyone confirming. An `ask` is now recognized
+(case-insensitive) and every matching hook runs, so a deny after an ask still
+blocks (merge order: deny > ask > allow). Interactive sessions show Moss's y/a/n
+confirmation naming the hook, its config file and its reason; `y` and `a`
+approve only that call and grant nothing (the hook asks again next time), `n`
+refuses. The prompt appears in every mode, full included — trusted workspace,
+plan-allow and session allow rules do not skip it. `-p` and runs without a
+terminal cannot confirm and treat the ask as deny: the run ends 「被拦」/`Blocked
+by` with exit 9. A host that ignores the `hookAsks` field fails closed.
+
+`PreToolUse` hook 以 exit 0 输出 `ask`（Claude 的
+`hookSpecificOutput.permissionDecision: "ask"`，或 moss/旧格式的 `decision: "ask"`）
+以前会落成「已批准」：调用直接运行，没有人确认过。现在 `ask` 被识别（不区分大小写），
+且所有匹配的 hook 都会运行——ask 之后再出现 deny 仍然拦截（合并顺序：deny > ask >
+allow）。交互会话弹出 y/a/n 确认，点名 hook、配置文件与理由；`y`/`a` 只批准这一次、
+不授予任何信任（下次钩子还会再问），`n` 拒绝。任何模式（包括 full）都会弹确认——
+受信任工作区、plan 放行、会话 allow 规则都不能跳过它。`-p` 与无终端的运行无法确认，
+按拒绝处理：末行「被拦」，exit 9。不理解 `hookAsks` 字段的宿主按拦截失败关闭。
 
 ### O156 — Windows PowerShell 5.1: a missing hook command is "failed to start"
 
