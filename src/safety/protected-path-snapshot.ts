@@ -27,6 +27,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { windowsSystemRoot } from '../utils/system-root.js';
 
 export type PathChangeKind = 'added' | 'modified' | 'deleted';
 
@@ -325,7 +326,8 @@ export function parseGitConfigEntries(raw: Buffer): Map<string, string[]> | null
       windowsHide: true,
       env: {
         PATH: process.env.PATH ?? '',
-        SystemRoot: process.env.SystemRoot ?? '',
+        // O164: never a `.env`-supplied SystemRoot.
+        SystemRoot: process.platform === 'win32' ? windowsSystemRoot() : '',
         HOME: tmpDir,
         GIT_CONFIG_NOSYSTEM: '1',
         // Git for Windows rejects Node's \\.\nul device namespace.
