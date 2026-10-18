@@ -45,6 +45,7 @@ import {
   formatUserPromptHookContext,
   setLifecycleHookRunner,
 } from './cli/hooks.js';
+import { composePreToolUseGate } from './cli/hook-ask.js';
 import { hookEventZhName } from './cli/hook-event-names.js';
 import {
   ancestorRoutingIgnoredLine,
@@ -940,14 +941,10 @@ async function main() {
     printMode: parsedArgs.print === true,
   });
   const configPreHook = configuredHooks.onBeforeToolExec;
+  // O157: a hook `ask` reaches the policy hook, which prompts (or refuses in -p).
+  const preToolUseGate = composePreToolUseGate(configPreHook, approvalHook);
   const onBeforeToolExec: AgentHooks['onBeforeToolExec'] = (req) =>
-    runWithApprovalRequest(req, async () => {
-      if (configPreHook) {
-        const pre = await configPreHook(req);
-        if (!pre.approved) return pre;
-      }
-      return approvalHook(req);
-    });
+    runWithApprovalRequest(req, () => preToolUseGate(req));
   const hooks = createConfiguredGuardrailHooks(resolvedConfig, {
     onBeforeToolExec,
     onToolResult: configuredHooks.onToolResult,
