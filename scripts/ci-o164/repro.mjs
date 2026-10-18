@@ -46,7 +46,8 @@ require('node:fs').appendFileSync(${JSON.stringify(log)}, 'SystemRoot=' + String
   const tr = r.toolResults.join('\n');
   if (!fs.existsSync(log)) console.log(r.err.slice(-1500));
   console.log(`preload: ${fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n')[0] : 'NOT RUN'}`);
-  console.log(`fake powershell runs: ${count(markDir)}`);
+  const runs = marks(markDir).reduce((n, f) => n + (fs.readFileSync(path.join(markDir, f), 'utf8').match(/WindowsPowerShell\\v1\.0\\powershell\.exe/gi) ?? []).length, 0);
+  console.log(`fake powershell runs (process starts): ${runs}`);
   for (const f of marks(markDir)) console.log(`  ${f}: ${fs.readFileSync(path.join(markDir, f), 'utf8').trim().slice(0, 300)}`);
   console.log(`bg file read back: ${/o164-bg-ok/.test(tr)} ${(tr.match(/found-at-poll-\d+/) ?? ['(not found)'])[0]}`);
   console.log(`O164 ITEM1 VERDICT: ${count(markDir) > 0 ? 'REPRODUCED (fake powershell ran)' : 'NOT REPRODUCED'}`);
