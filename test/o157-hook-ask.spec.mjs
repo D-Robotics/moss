@@ -47,7 +47,9 @@ const HOOKS = {
   },
   mossAsk: { command: print("{decision:'ask',reason:'o157 moss wants a human'}") },
   claudeDeny: {
-    command: print("{hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:'o157 deny'}}"),
+    command: print(
+      "{hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:'o157 deny'}}"
+    ),
     format: 'claude',
   },
   claudeAllow: {
@@ -147,12 +149,16 @@ async function interactive(hooks, answers, { calls = 1, extraRules } = {}) {
     { PreToolUse: hooks.map((h) => ({ ...h, source: '/o157/.moss/config.json' })) },
     { workspaceDir: dir }
   );
-  const approvalHook = createCliToolApprovalHook('full-access', {}, {
-    workspaceDir: dir,
-    interactionMode: () => 'full',
-    approvalPolicy: 'never',
-    ...(extraRules ? { permissionRules: () => ({ rules: extraRules, sources: {} }) } : {}),
-  });
+  const approvalHook = createCliToolApprovalHook(
+    'full-access',
+    {},
+    {
+      workspaceDir: dir,
+      interactionMode: () => 'full',
+      approvalPolicy: 'never',
+      ...(extraRules ? { permissionRules: () => ({ rules: extraRules, sources: {} }) } : {}),
+    }
+  );
   const prompts = [];
   const queue = [...answers];
   const undo = approvalHook.setAsker(async (question) => {
@@ -225,7 +231,8 @@ async function interactive(hooks, answers, { calls = 1, extraRules } = {}) {
 const assertNamesHook = (prompt, hook, reason) => {
   assert.ok(prompt.includes('PreToolUse hook asks for confirmation'), prompt);
   assert.ok(prompt.includes(hook.command), `prompt names the hook command:\n${prompt}`);
-  if (reason) assert.ok(prompt.includes(`Reason: ${reason}`), `prompt shows the reason:\n${prompt}`);
+  if (reason)
+    assert.ok(prompt.includes(`Reason: ${reason}`), `prompt shows the reason:\n${prompt}`);
 };
 
 test('interactive control: full mode, no hook ask → no prompt, file written', async () => {
@@ -307,8 +314,15 @@ test('a permissions deny rule still wins over a hook ask (no prompt)', async () 
 });
 
 test('no terminal and no asker: ask is refused with the no-terminal copy', async () => {
-  const cbs = createConfiguredHookCallbacks({ PreToolUse: [HOOKS.claudeAsk] }, { workspaceDir: os.tmpdir() });
-  const approvalHook = createCliToolApprovalHook('full-access', {}, { interactionMode: () => 'full' });
+  const cbs = createConfiguredHookCallbacks(
+    { PreToolUse: [HOOKS.claudeAsk] },
+    { workspaceDir: os.tmpdir() }
+  );
+  const approvalHook = createCliToolApprovalHook(
+    'full-access',
+    {},
+    { interactionMode: () => 'full' }
+  );
   const gate = composePreToolUseGate(cbs.onBeforeToolExec, approvalHook);
   const wasTTY = process.stdin.isTTY;
   Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
@@ -325,14 +339,20 @@ test('no terminal and no asker: ask is refused with the no-terminal copy', async
       })
     );
     assert.equal(d.approved, false);
-    assert.match(d.reason, /asked for confirmation, but no interactive terminal is available; treated as deny/);
+    assert.match(
+      d.reason,
+      /asked for confirmation, but no interactive terminal is available; treated as deny/
+    );
   } finally {
     Object.defineProperty(process.stdin, 'isTTY', { value: wasTTY, configurable: true });
   }
 });
 
 test('a host that ignores hookAsks fails closed (configured hook alone refuses)', async () => {
-  const cbs = createConfiguredHookCallbacks({ PreToolUse: [HOOKS.claudeAsk] }, { workspaceDir: os.tmpdir() });
+  const cbs = createConfiguredHookCallbacks(
+    { PreToolUse: [HOOKS.claudeAsk] },
+    { workspaceDir: os.tmpdir() }
+  );
   const d = await cbs.onBeforeToolExec({
     tool: { name: 'write_target' },
     input: {},

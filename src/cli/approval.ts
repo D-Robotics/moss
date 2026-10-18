@@ -1,10 +1,7 @@
 import * as path from 'node:path';
 import * as readline from 'node:readline';
 import micromatch from 'micromatch';
-import type {
-  ToolApprovalDecision,
-  ToolApprovalRequest,
-} from '../core/agent/agent-hooks.js';
+import type { ToolApprovalDecision, ToolApprovalRequest } from '../core/agent/agent-hooks.js';
 import type { Tool, ToolSideEffectClass } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { shellCommandHasOpaqueWrite } from '../safety/shell-write-sandbox.js';
@@ -1136,7 +1133,8 @@ export function createCliToolApprovalHook(
     // O157: PreToolUse hooks that exited 0 with `ask`. Deny rules and hard
     // blocks still win; otherwise the user must confirm this call (prompt in
     // every mode, full included), and -p / no terminal refuses.
-    const hookAsks = context?.hookAsks && context.hookAsks.length > 0 ? context.hookAsks : undefined;
+    const hookAsks =
+      context?.hookAsks && context.hookAsks.length > 0 ? context.hookAsks : undefined;
 
     // ── live assembly (the hook ONLY assembles; ordering lives in
     // permission-rules.resolvePermissionDecision, design §7-4) ──

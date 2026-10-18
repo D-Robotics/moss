@@ -46,12 +46,16 @@ export function hookAskHeadlessReason(
     const mode = where === 'print' ? '-p 模式下无法确认' : '当前没有交互终端，无法确认';
     return `已拦截：${hookEventZhName('PreToolUse')}钩子要求人工确认，${mode}，已按拒绝处理${why}。钩子：\`${command}\``;
   }
-  const mode = where === 'print' ? 'which -p mode cannot give' : 'but no interactive terminal is available';
+  const mode =
+    where === 'print' ? 'which -p mode cannot give' : 'but no interactive terminal is available';
   return `Blocked by PreToolUse hook: it asked for confirmation, ${mode}; treated as deny${why}. Hook: \`${command}\``;
 }
 
 /** Lines that head the confirmation prompt: which hook asked, and why. */
-export function hookAskPromptLines(asks: readonly PreToolUseHookAsk[], zh = isZhLocale()): string[] {
+export function hookAskPromptLines(
+  asks: readonly PreToolUseHookAsk[],
+  zh = isZhLocale()
+): string[] {
   const lines: string[] = [];
   for (const ask of asks) {
     lines.push(
@@ -87,7 +91,10 @@ type PreToolUseResult =
  */
 export function composePreToolUseGate(
   configPreHook: ((req: ToolApprovalRequest) => Promise<PreToolUseResult>) | undefined,
-  approvalHook: (req: ToolApprovalRequest, ctx?: ToolApprovalContext) => Promise<ToolApprovalDecision>
+  approvalHook: (
+    req: ToolApprovalRequest,
+    ctx?: ToolApprovalContext
+  ) => Promise<ToolApprovalDecision>
 ): (req: ToolApprovalRequest) => Promise<ToolApprovalDecision> {
   return async (req) => {
     if (configPreHook) {

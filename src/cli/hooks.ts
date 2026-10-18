@@ -582,7 +582,11 @@ export function createConfiguredHookCallbacks(
             if (hookFailed(r)) notice('PreToolUse', hook, r, false);
             // A blocking:false hook cannot restrict the call, so its ask is
             // ignored like its deny. preToolUseBlocks already refused non-zero.
-            if (hook.blocking !== false && r.outcome === 'exit' && isAskDecision(parsed?.decision)) {
+            if (
+              hook.blocking !== false &&
+              r.outcome === 'exit' &&
+              isAskDecision(parsed?.decision)
+            ) {
               const reason = parsed?.reason?.trim().slice(0, 500);
               asks.push({
                 command: hook.command,
@@ -592,7 +596,11 @@ export function createConfiguredHookCallbacks(
             }
           }
           if (asks.length > 0) {
-            return { approved: false, reason: hookAskHeadlessReason(asks, 'print'), hookAsks: asks };
+            return {
+              approved: false,
+              reason: hookAskHeadlessReason(asks, 'print'),
+              hookAsks: asks,
+            };
           }
           return { approved: true };
         };
