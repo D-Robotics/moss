@@ -1,10 +1,11 @@
+import { resolveExecutable } from '../utils/resolve-executable.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import micromatch from 'micromatch';
 import { errorMessage } from '../errors.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { runProcess, ProcessError } from '../utils/run-process.js';
-import { toolError, IS_WIN } from './tool-helpers.js';
+import { toolError } from './tool-helpers.js';
 import { resolveReadPath } from '../safety/read-scope.js';
 import { redactEgress } from '../safety/tool-output-redact.js';
 
@@ -17,15 +18,9 @@ let rgAvailability: boolean | null = null;
 
 export async function isRgAvailable(): Promise<boolean> {
   if (rgAvailability !== null) return rgAvailability;
-  try {
-    await runProcess(IS_WIN ? 'where' : 'which', {
-      args: ['rg'],
-      timeout: 3000,
-    });
-    rgAvailability = true;
-  } catch {
-    rgAvailability = false;
-  }
+  // O158: resolve in-process like the spawn itself does. `where.exe` looks in
+  // the current directory first, so a workspace `rg.exe` used to count.
+  rgAvailability = resolveExecutable('rg') !== null;
   return rgAvailability;
 }
 
