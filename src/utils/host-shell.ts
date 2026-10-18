@@ -7,8 +7,10 @@
  *
  * O153 — finding pwsh, and what a `;` chain captures:
  * - pwsh is looked up on PATH in-process with PATHEXT (default
- *   `.COM;.EXE;.BAT;.CMD` when the env has none), then via `where.exe` with the
- *   same default. Before O153 only `where.exe` was used, and it finds nothing
+ *   `.COM;.EXE;.BAT;.CMD` when the env has none), then at its known install
+ *   locations (O158: never via `where.exe`, which searches the current
+ *   directory first; see resolve-executable.ts). Before O153 only `where.exe`
+ *   was used, and it finds nothing
  *   when PATHEXT is missing from the env (IDE/service/CI launchers, the -p
  *   specs). Moss then silently fell back to cmd.exe, where `;` is not a
  *   separator: `node -e 1; ls R` ran only `node` with `1;`, `ls`, `R` as its
@@ -30,7 +32,13 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  resolveExecutable,
+  trustedSearchDirs,
+  type ResolveExecutableOptions,
+} from './resolve-executable.js';
 import { runProcessSync } from './run-process.js';
+import { envBeforeDotenv, isStartupEnvCaptured } from './startup-env.js';
 
 export type HostShellKind = 'sh' | 'pwsh' | 'cmd';
 
@@ -119,22 +127,48 @@ const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD';
 export function findOnWindowsPath(
   name: string,
   env: { PATH?: string; PATHEXT?: string },
-  isFile: (candidate: string) => boolean = defaultIsFile
+  isFile: (candidate: string) => boolean = defaultIsFile,
+  options: Pick<ResolveExecutableOptions, 'cwd' | 'processCwd' | 'home' | 'realpath'> = {}
 ): string | null {
   const exts = (env.PATHEXT?.trim() ? env.PATHEXT : DEFAULT_PATHEXT)
     .split(';')
     .map((ext) => ext.trim())
     .filter(Boolean);
   const hasExt = exts.some((ext) => name.toLowerCase().endsWith(ext.toLowerCase()));
-  for (const raw of (env.PATH ?? '').split(';')) {
-    const dir = raw.trim().replace(/^"(.*)"$/, '$1');
-    if (!dir) continue;
+  // O158: only absolute PATH entries outside the cwd/workspace.
+  for (const dir of trustedSearchDirs({ ...options, platform: 'win32', env: { PATH: env.PATH } })) {
     for (const ext of hasExt ? [''] : exts) {
       const candidate = path.win32.join(dir, name + ext.toLowerCase());
       if (isFile(candidate)) return candidate;
     }
   }
   return null;
+}
+
+/**
+ * O158: where pwsh 7 lives when it is not on PATH — the MSI install and the
+ * Microsoft Store App Execution Alias. Drive-absolute only (no UNC share),
+ * never the cwd.
+ * @internal exported for tests
+ */
+export function knownPwshLocations(env: Record<string, string | undefined>): string[] {
+  const out: string[] = [];
+  // A plain copy of process.env (envBeforeDotenv) is case-sensitive.
+  const get = (name: string): string | undefined => {
+    if (env[name] !== undefined) return env[name];
+    const key = Object.keys(env).find((k) => k.toUpperCase() === name.toUpperCase());
+    return key === undefined ? undefined : env[key];
+  };
+  for (const key of ['ProgramFiles', 'ProgramW6432']) {
+    const dir = get(key);
+    if (dir && /^[A-Za-z]:[\\/]/.test(dir))
+      out.push(path.win32.join(dir, 'PowerShell', '7', 'pwsh.exe'));
+  }
+  const local = get('LOCALAPPDATA');
+  if (local && /^[A-Za-z]:[\\/]/.test(local)) {
+    out.push(path.win32.join(local, 'Microsoft', 'WindowsApps', 'pwsh.exe'));
+  }
+  return [...new Set(out)];
 }
 
 /**
@@ -161,36 +195,35 @@ function defaultIsFile(candidate: string): boolean {
   try {
     return fs.statSync(candidate).isFile();
   } catch {
-    return false;
+    // App Execution Alias reparse points: stat() fails, lstat() sees them.
+    try {
+      return !fs.lstatSync(candidate).isDirectory();
+    } catch {
+      return false;
+    }
   }
 }
 
+/**
+ * O158: no `where.exe` (it searches the current directory first, so a
+ * workspace `pwsh.exe` won). PATH in-process, then the known install
+ * locations; the result is always absolute.
+ */
 function lookupOnPath(name: string): string | null {
-  const win = process.platform === 'win32';
-  if (win) {
-    const found = findOnWindowsPath(name, {
-      PATH: process.env.PATH,
-      PATHEXT: process.env.PATHEXT,
-    });
-    if (found) return found;
+  if (process.platform !== 'win32') {
+    return resolveExecutable(name);
   }
-  const finder = win ? 'where.exe' : 'which';
-  const result = runProcessSync(finder, [name], {
-    encoding: 'utf8',
-    timeout: 3_000,
-    windowsHide: true,
-    // O153: where.exe matches nothing without PATHEXT (e.g. App Execution
-    // Alias installs that stat() cannot see), so give it Windows' default.
-    ...(win && !process.env.PATHEXT?.trim()
-      ? { env: { ...process.env, PATHEXT: DEFAULT_PATHEXT } }
-      : {}),
+  const found = findOnWindowsPath(name, {
+    PATH: process.env.PATH,
+    PATHEXT: process.env.PATHEXT,
   });
-  if (result.status !== 0) return null;
-  const line = String(result.stdout ?? '')
-    .split(/\r?\n/)
-    .map((entry) => entry.trim())
-    .find(Boolean);
-  return line ?? null;
+  if (found) return found;
+  if (name !== 'pwsh') return null;
+  return resolveExecutable('pwsh', {
+    env: { PATH: '' },
+    // O158 F2: the install dirs come from the env before a project `.env`.
+    fallbacks: knownPwshLocations(isStartupEnvCaptured() ? envBeforeDotenv : process.env),
+  });
 }
 
 function pwshMajorVersion(executable: string): number | null {

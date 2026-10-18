@@ -433,6 +433,13 @@ one line: press `e` to switch to English.
   `safetyMode` / `approvalPolicy` are translated on read (cautious→manual+read-only ceiling,
   balanced→manual, autonomous→full, trustedTools→allow rules, deniedTools→deny rules); writing
   them prints a deprecation notice — use the `permissions.*` block for new config.
+- **Programs Moss starts never come from the workspace (O158)**: startup probes, shell
+  resolution, git probes, a hook's launch command and MCP servers are resolved to an absolute
+  path from absolute PATH entries only, skipping empty entries, `.`, relative entries and
+  directories inside the workspace; Windows children get `NoDefaultCurrentDirectoryInExePath=1`.
+  **Known limitation**: when moss starts with a PATH that holds a workspace directory (e.g.
+  `node_modules/.bin` from `npx` / `npm run`), the model's exec commands and programs a hook
+  script calls itself use that PATH, so they get the project's tool of that name.
 - Credentials come only from `.env` or the environment: never hardcoded, never logged, never
   passed to child processes, never written to the device registry. No account, no cloud, no
   telemetry.
