@@ -47,3 +47,26 @@ jobs:
           n=$(grep -cE '^\[test\] .*(aa-o13|[\\/]o13|protected|hook).*\.spec\.mjs$' "$RUNNER_TEMP/ci.err")
           echo "O149 VERDICT CI: security specs started after the planted red = $n"
           grep -E 'file\(s\) failed|^  .*\(exit' "$RUNNER_TEMP/ci.err"
+      - name: QA #145 F1 repro (real safety spec names as empty specs, CI unset)
+        shell: bash
+        continue-on-error: true
+        run: |
+          set +e
+          d="$RUNNER_TEMP/f1"; mkdir -p "$d/test"
+          printf '%s\n' "import test from 'node:test'; import assert from 'node:assert'; test('planted', () => assert.fail('planted'));" > "$d/test/aa-00-planted-red.spec.mjs"
+          names="egress-redact exec-git-config hooks-fail-closed o101-indirect-writes o103-blocked-outcome o117-git-config-l3-precise o123-git-commit-l3 o135-pretooluse-nonzero-allow o151-workspace-root-cd-not-git-internals o152-exec-capable-and-l3-restore o153-win-shell-without-pathext o158-no-cwd-executable permission-rules safe-child-env"
+          for n in $names; do printf '%s\n' "import test from 'node:test'; test('ok', () => {});" > "$d/test/$n.spec.mjs"; done
+          (cd "$d" && env -u CI node "$GITHUB_WORKSPACE/scripts/run-package-tests.mjs") 2> "$RUNNER_TEMP/f1.err"
+          echo "runner exit: $?"
+          grep -E '^\[test\]|^  ' "$RUNNER_TEMP/f1.err"
+          ran=0; miss=""
+          for n in $names; do if grep -qE "^\[test\] .*[\\/]$n\.spec\.mjs$" "$RUNNER_TEMP/f1.err"; then ran=$((ran+1)); else miss="$miss $n"; fi; done
+          echo "O149 F1 VERDICT: $ran of 14 real-name safety specs ran after the planted red; not run:${miss:- none}"
+      - name: exec-git-config under Git bash (QA #145 F2)
+        shell: bash
+        continue-on-error: true
+        run: |
+          set +e
+          node test/exec-git-config.spec.mjs > "$RUNNER_TEMP/egc.out" 2>&1
+          echo "exec-git-config exit: $?"
+          grep -E '^(not )?ok 17|^# (pass|fail)' "$RUNNER_TEMP/egc.out"
