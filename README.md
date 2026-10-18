@@ -370,7 +370,7 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
 - **hook 启动命令的安全解析范围（O164）**：Moss 只对 hook 命令开头的那个程序名做上面的安全解析。用了环境变量前缀（`FOO=1 git`）、`exec` / `env` / `command`、引号、子 shell、分号或重定向时，按普通 shell 查找；若以 `npx` / `npm run` 启动，PATH 里的 `node_modules/.bin` 会被用到。用户级 hook 建议写成 `程序名 参数` 或绝对路径。项目 hook（`.moss/config.json`）只在你信任该文件夹后才运行；信任文件夹等于信任项目代码，包括项目 hook 和 `node_modules/.bin` 里的程序。
 - **`.env` 不能改系统位置（O164）**：`SystemRoot`、`windir`、`SystemDrive`、`ProgramFiles`（含 `(x86)`、`ProgramW6432`）、`PSModulePath`、`NoDefaultCurrentDirectoryInExePath` 与 `PATH`、`PATHEXT`、`ComSpec`、`TEMP`/`TMP` 一样不能由 `.env` 设置；Moss 拼系统程序路径（如后台任务用的 `powershell.exe`）时只用加载 `.env` 之前的环境。子进程的 PATH 被清空（只剩 `.`、空项）时换成一个不存在的绝对目录，不会留空串。
 - **hook 输出超过捕获上限即拦截（O162）**：每个 hook 的 stdout / stderr 各有 10 MiB 捕获上限；一旦有输出被截断，判定（最后一行 JSON）就不可信，所有阻塞类事件（`PreToolUse`、`UserPromptSubmit`、`PermissionRequest`、`Stop`）一律按拦截失败关闭——退出码与可读部分说了什么都不算数。`blocking: false` 的 hook 不能收紧任何调用，其输出超限同样不拦截。
-
+- **脚本的参数不是删除（O168）**：解释器脚本形式的参数（`python3 x.py $HOME`、`node x.js "$PWD"`）、`sh x.sh` 的参数、`.`/`source` 的操作数与裸 `.` 不再触发「删除受保护祖先」规则——正常命令不再被误拦，非 git 目录也不再被说成 git 仓库内部文件。豁免与 cd 一样仅限该路径未在命令其他位置出现；直接点名受保护路径（`$HOME/.ssh`、`.git/config`）、内联形式与真实删除行为不变，实际写入仍由脚本扫描与运行后快照兜底。
 - **git 的 pack 旗标按可执行拦截（O169）**：`git clone --upload-pack=<cmd>`、`git fetch/push --upload-pack/--receive-pack=<cmd>`（含空格分开与 clone 的 `-u` 短旗标）会让 git 执行该命令，与 `git -c`、`--ext-diff` 等一样在执行前拦截；`git push -u origin main`（设上游）不受影响。
 - 凭据只从 `.env` 或环境变量读，绝不硬编码、不进日志、不传子进程、不写设备清单。
 - 无账号、无云服务、无遥测；provider 是普通 HTTP 端点。

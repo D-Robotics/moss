@@ -470,7 +470,13 @@ one line: press `e` to switch to English.
   fails closed — the run ends blocked / the call is denied whatever the exit code or the readable
   part of the output said. A `blocking: false` hook cannot restrict a call, so its oversized
   output does not block either.
-
+- **A script's arguments are not deletions (O168)**: arguments of an invoked script (the
+  interpreter script form `python3 x.py $HOME`, `node x.js \"$PWD\"`, `sh x.sh`, the
+  `.`/`source` operand and the bare `.`) no longer trip the delete-ancestor rule — normal
+  commands stop being blocked and a non-git directory is no longer labeled git internals.
+  Like the cd exemption it applies only while the path is named nowhere else in the command;
+  directly protected arguments (`$HOME/.ssh`, `.git/config`), inline forms and real deletes
+  are unchanged, and actual writes stay covered by the script scan and the post-run snapshot.
 - **git pack flags are exec-capable (O169)**: `git clone --upload-pack=<cmd>`,
   `git fetch`/`git push` with `--upload-pack` / `--receive-pack=<cmd>` (glued, split, or
   clone's short `-u`) make git run that command; they are pre-blocked like `git -c` and
