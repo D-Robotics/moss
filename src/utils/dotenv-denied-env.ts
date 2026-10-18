@@ -41,6 +41,16 @@ const EXACT_KEYS = new Set([
   'PROGRAMFILES',
   'PROGRAMW6432',
   'LOCALAPPDATA',
+  // O164: Windows system locations Moss and its children build program paths
+  // from (`%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe` for
+  // background jobs), the module path PowerShell autoloads from, and the
+  // switch that keeps cmd from running programs out of the current folder.
+  'SYSTEMROOT',
+  'WINDIR',
+  'SYSTEMDRIVE',
+  'PROGRAMFILES(X86)',
+  'PSMODULEPATH',
+  'NODEFAULTCURRENTDIRECTORYINEXEPATH',
   'SHELL',
   'TMPDIR',
   'TMP',

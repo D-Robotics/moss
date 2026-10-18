@@ -8,7 +8,7 @@ import {
 } from 'node:child_process';
 import {
   NO_CWD_EXE_SEARCH_ENV,
-  NO_TRUSTED_PATH_POSIX,
+  noTrustedPath,
   envPathKey,
   envShebangCommand,
   isBareCommand,
@@ -134,9 +134,7 @@ export function spawnTarget<O extends SpawnLikeOptions>(
         [key]:
           trusted.length > 0
             ? trusted.join(platform === 'win32' ? ';' : ':')
-            : platform === 'win32'
-              ? ''
-              : NO_TRUSTED_PATH_POSIX,
+            : noTrustedPath(platform),
       };
     }
   }

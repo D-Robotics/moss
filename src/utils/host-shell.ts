@@ -38,7 +38,7 @@ import {
   type ResolveExecutableOptions,
 } from './resolve-executable.js';
 import { runProcessSync } from './run-process.js';
-import { envBeforeDotenv, isStartupEnvCaptured } from './startup-env.js';
+import { envForSystemPaths } from './startup-env.js';
 
 export type HostShellKind = 'sh' | 'pwsh' | 'cmd';
 
@@ -172,6 +172,15 @@ export function knownPwshLocations(env: Record<string, string | undefined>): str
 }
 
 /**
+ * O158 F2a: pwsh install locations from the env before a project `.env`
+ * (envForSystemPaths), never from values a repo `.env` introduced.
+ * @internal exported for tests
+ */
+export function pwshFallbacks(): string[] {
+  return knownPwshLocations(envForSystemPaths());
+}
+
+/**
  * O153: env for a pwsh exec child. pwsh resolves bare native commands (`node`,
  * `git`, …) through PATHEXT; when the env has none it finds nothing and every
  * such statement fails with "is not recognized". Give the child Windows'
@@ -221,8 +230,7 @@ function lookupOnPath(name: string): string | null {
   if (name !== 'pwsh') return null;
   return resolveExecutable('pwsh', {
     env: { PATH: '' },
-    // O158 F2: the install dirs come from the env before a project `.env`.
-    fallbacks: knownPwshLocations(isStartupEnvCaptured() ? envBeforeDotenv : process.env),
+    fallbacks: pwshFallbacks(),
   });
 }
 
