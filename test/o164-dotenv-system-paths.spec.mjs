@@ -19,7 +19,7 @@ import path from 'node:path';
 
 import { isDotenvDeniedEnvKey } from '../dist/utils/dotenv-denied-env.js';
 import { captureEnvBeforeDotenv } from '../dist/utils/startup-env.js';
-import { windowsSystemRoot } from '../dist/utils/system-root.js';
+import { windowsSystemRoot, withWindowsSystemRoot } from '../dist/utils/system-root.js';
 import { knownPwshLocations, pwshFallbacks } from '../dist/utils/host-shell.js';
 import {
   noTrustedPath,
@@ -184,14 +184,17 @@ test(
       const r = await scenario({
         lang: 'en',
         json: true,
-        // `-p` exposes background jobs through exec's run_in_background.
+        // `-p` exposes background jobs through exec's run_in_background; the
+        // job writes a file and a later exec reads it back.
         steps: [
           {
             name: 'exec',
-            args: { command: 'echo o164-bg-ok', run_in_background: true, settle_ms: 10000 },
+            args: { command: 'echo o164-bg-ok> bg-ok.txt', run_in_background: true },
           },
-          // Windows PowerShell 5.1 (the job owner) can start slower than the settle window.
-          { name: 'exec_wait', args: { ids: ['bg_1'], timeout_ms: 60000 } },
+          {
+            name: 'exec',
+            args: { command: 'ping -n 20 127.0.0.1 >NUL & type bg-ok.txt', timeout_ms: 60000 },
+          },
         ],
         finalText: 'Done.',
         // The attack needs SystemRoot absent at startup; .env then supplies it.
@@ -217,6 +220,19 @@ test(
 );
 
 // ---- 2. PATH emptied ----------------------------------------------------------
+test('1: a Windows child env without SystemRoot gets the trusted one', () => {
+  withEnv({ SystemRoot: 'C:\\Windows' }, {}, () => {
+    assert.deepEqual(withWindowsSystemRoot({ PATH: 'x' }, 'win32'), {
+      PATH: 'x',
+      SystemRoot: 'C:\\Windows',
+    });
+    const has = { SYSTEMROOT: 'D:\\W' };
+    assert.equal(withWindowsSystemRoot(has, 'win32'), has);
+    const posix = { PATH: 'x' };
+    assert.equal(withWindowsSystemRoot(posix, 'linux'), posix);
+  });
+});
+
 test('2: a child PATH with no usable entry is a nonexistent absolute dir, never ""', () => {
   for (const PATH of ['.', '', '::', ':.:', 'rel/bin']) {
     const posix = sanitizeChildPathEnv({ PATH }, 'linux');
