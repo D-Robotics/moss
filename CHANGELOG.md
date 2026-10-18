@@ -30,6 +30,14 @@ capped, and any detection error makes the hook fail closed.
 `:` 时会抛「Regular expression too large」，Stop hook 因此被放行，其他事件直接
 报错。现在用固定正则取名并限制长度，识别过程出任何异常都按拦截处理。
 
+The English PowerShell text is matched at least as loosely as before this
+change: no space after the colon (`X:The term 'X' …`) and no article
+(`… recognized as name of …`) are still a missing command, so those hooks
+block exactly as they did.
+
+英文 PowerShell 文本的识别不比改动前更严：冒号后没有空格（`X:The term 'X' …`）、
+省略冠词（`… recognized as name of …`）仍算命令不存在，这些 hook 照旧拦截。
+
 ### O135 — PreToolUse hooks: any non-zero exit blocks
 
 A `PreToolUse` hook that exits non-zero now blocks the tool call in both Moss

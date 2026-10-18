@@ -11,9 +11,15 @@ const CMD_NOT_RECOGNIZED =
  * - Windows PowerShell 5.1 (NormalView): `X : The term 'X' is not recognized
  *   as the name of a cmdlet, function, script \r\nfile, or operable program.`
  *   (O156: space before the colon, "operable", and wrapped at console width.)
+ *
+ * Must accept everything main's pattern accepted (QA #149 R2-F1): no space
+ * after the colon (`:\s*`) and no article (`(?:(?:a|the)\s+)?name`) are
+ * still a missing command, so this is a strict superset of
+ * `/^\s*(\S+):\s*The term '\1' is not recognized as (?:a |the )?name of a
+ * cmdlet, function, script file, or executable program\b/i`.
  */
 const PS_NOT_RECOGNIZED_EN =
-  /^\s*(\S+) ?:\s+The\s+term\s+'\1'\s+is\s+not\s+recognized\s+as\s+(?:a|the)\s+name\s+of\s+a\s+cmdlet,\s*function,\s*script\s+file,\s*or\s+(?:executable|operable)\s+program\b/i;
+  /^\s*(\S+) ?:\s*The\s+term\s+'\1'\s+is\s+not\s+recognized\s+as\s+(?:(?:a|the)\s+)?name\s+of\s+a\s+cmdlet,\s*function,\s*script\s+file,\s*or\s+(?:executable|operable)\s+program\b/i;
 
 /**
  * Same message, Simplified Chinese UI.
