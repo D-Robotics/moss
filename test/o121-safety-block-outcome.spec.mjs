@@ -109,6 +109,8 @@ export async function scenario({
   seedFiles = {},
   watch = [],
   symlinkRoot = false,
+  prepare,
+  inspect,
 }) {
   const fmt = json === true ? 'json' : json || undefined;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'o121-'));
@@ -148,6 +150,8 @@ export async function scenario({
       return 'ABSENT';
     }
   };
+  // O158: plant files (e.g. fake executables) after git init, before the run.
+  if (prepare) await prepare({ proj, root, home });
   const before = Object.fromEntries(watch.map((rel) => [rel, sha(rel)]));
   // O151: optionally run through a symlink to the workspace (cwd = link).
   let cwd = proj;
@@ -172,7 +176,8 @@ export async function scenario({
     MOSS_LOCALE: lang,
     FAKE_OAI_KEY: 'sk-fake-local-000',
     GIT_CONFIG_NOSYSTEM: '1',
-    ...extraEnv,
+    // O158: extraEnv may depend on the workspace path (PATH with $WS/…).
+    ...(typeof extraEnv === 'function' ? extraEnv({ proj, root, home }) : extraEnv),
   };
   for (const [k, v] of [
     ['provider', 'openai-compatible'],
@@ -202,11 +207,12 @@ export async function scenario({
     ? fs.readFileSync(path.join(proj, '.git', 'config'), 'utf8')
     : undefined;
   const after = Object.fromEntries(watch.map((rel) => [rel, sha(rel)]));
+  const inspected = inspect ? await inspect({ proj, root, home }) : undefined;
   fs.rmSync(root, { recursive: true, force: true });
   const toolResults = (server.lastMessages ?? [])
     .filter((m) => m.role === 'tool')
     .map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)));
-  return { ...r, last, notes, toolResults, gitConfig, hashes: { before, after } };
+  return { ...r, last, notes, toolResults, gitConfig, hashes: { before, after }, inspected };
 }
 
 const CLAIM = { zh: '全部完成，已经做好了。', en: 'All done, everything is finished.' };
