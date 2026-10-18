@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### O156 — Windows PowerShell 5.1: a missing hook command is "failed to start"
+
+A hook run through Windows PowerShell 5.1 (`powershell -Command <missing>`)
+prints `X : The term 'X' is not recognized … operable program` (space before
+the colon, wrapped at console width) and exits 1. Moss did not recognize it,
+so Claude-format `UserPromptSubmit`, `Stop` and `PermissionRequest` hooks let
+the action through. It is now "failed to start; treated as deny" on every
+event, like pwsh 7 and cmd. Detection does not rely on English: 5.1's error
+record ends with an untranslated `CategoryInfo … CommandNotFoundException`
+line, and the Chinese texts of pwsh 7 and 5.1 are recognized too.
+
+Windows PowerShell 5.1 下 hook 命令不存在（`X : The term 'X' … operable
+program`，冒号前有空格、按控制台宽度折行，exit 1）以前识别不出来，Claude 格式的
+UserPromptSubmit、Stop、PermissionRequest 会放行；现在所有事件都按「未能启动，
+已按拒绝处理」拦截。识别不依赖英文：5.1 错误记录末尾的
+`CategoryInfo … CommandNotFoundException` 不随语言变化，pwsh 7 和 5.1 的中文
+文本也能识别。
+
+The detector no longer builds a regular expression from stderr text. A hook
+whose stderr started with a token of 32759+ characters followed by `:` made
+it throw ("Regular expression too large"); a Stop hook was then allowed and
+the other events crashed. The name is now read with a fixed pattern and
+capped, and any detection error makes the hook fail closed.
+
+识别不再用 stderr 内容拼正则。以前 stderr 开头是 32759 字符以上的一个词再接
+`:` 时会抛「Regular expression too large」，Stop hook 因此被放行，其他事件直接
+报错。现在用固定正则取名并限制长度，识别过程出任何异常都按拦截处理。
+
+The English PowerShell text is matched at least as loosely as before this
+change: no space after the colon (`X:The term 'X' …`) and no article
+(`… recognized as name of …`) are still a missing command, so those hooks
+block exactly as they did.
+
+英文 PowerShell 文本的识别不比改动前更严：冒号后没有空格（`X:The term 'X' …`）、
+省略冠词（`… recognized as name of …`）仍算命令不存在，这些 hook 照旧拦截。
+
 ### O135 — PreToolUse hooks: any non-zero exit blocks
 
 A `PreToolUse` hook that exits non-zero now blocks the tool call in both Moss
