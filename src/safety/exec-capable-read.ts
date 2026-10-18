@@ -538,7 +538,10 @@ const ASSIGN = /^([A-Za-z_][A-Za-z0-9_]*)=/;
 const MAX_NEST = 4;
 
 /** git options that run an external program or write a file. */
-const GIT_EXEC_ARG = /^(?:--ext-diff$|--textconv$|--output(?:=|$)|--exec(?:=|$))/;
+// O169: --upload-pack / --receive-pack make git run the given command to
+// speak the pack protocol (clone/fetch/push/ls-remote) — pure literal forms.
+const GIT_EXEC_ARG =
+  /^(?:--ext-diff$|--textconv$|--output(?:=|$)|--exec(?:=|$)|--upload-pack(?:=|$)|--receive-pack(?:=|$))/;
 const GIT_GREP_EXEC_ARG = /^(?:-O|--open-files-in-pager(?:=|$))/;
 const FIND_EXEC = /^-(?:exec|execdir|ok|okdir)$/i;
 const SORT_COMPRESS = /^--compress-prog(?:ram)?(?:=|$)/i;
@@ -1349,6 +1352,8 @@ function pathOperands(head: string, args: readonly string[]): string[] {
     '--output',
     '--exec',
     '--exec-path',
+    '--upload-pack',
+    '--receive-pack',
     '--git-dir',
     '--work-tree',
     '--namespace',
@@ -1363,7 +1368,9 @@ function pathOperands(head: string, args: readonly string[]): string[] {
     if (a.startsWith('-')) {
       if (
         skipNext.has(a) ||
-        /^(?:-O|--pre|--open-files-in-pager|--output|--exec|--compress-program)=/.test(a) ||
+        /^(?:-O|--pre|--open-files-in-pager|--output|--exec|--compress-program|--upload-pack|--receive-pack)=/.test(
+          a
+        ) ||
         /^-c./.test(a) ||
         /^--config-env=/.test(a)
       ) {
@@ -1470,6 +1477,9 @@ function gitExecForms(args: readonly string[]): string[] {
       if (sub === 'grep' && (GIT_GREP_EXEC_ARG.test(b) || /^-O./.test(b))) {
         forms.push('git grep -O');
       }
+      // O169: clone's `-u` is `--upload-pack` (split `-u cmd` or glued `-ucmd`).
+      // Only clone: `git push -u origin main` is --set-upstream (benign).
+      if (sub === 'clone' && /^-u/.test(b)) forms.push('git clone -u');
       // O152 r5 B/N7: `git difftool -x <cmd>` / `--extcmd[=]<cmd>`.
       if (
         (sub === 'difftool' || sub === 'mergetool') &&
