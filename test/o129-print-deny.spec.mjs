@@ -171,7 +171,12 @@ for (const lang of ['zh', 'en']) {
       const r = await scenario({
         lang,
         mode,
-        calls: ['rm -rf build'],
+        // O153: on Windows exec really runs pwsh now (it used to fall back to
+        // cmd.exe + Git's GNU rm under this minimal env); `-rf` is not a
+        // Remove-Item parameter, so use the pwsh spelling of the same delete.
+        calls: [
+          process.platform === 'win32' ? 'Remove-Item -Recurse -Force build' : 'rm -rf build',
+        ],
         finalText: lang === 'zh' ? '删好了。' : 'Removed.',
       });
       assert.equal(r.buildGone, true, 'build/ removed');

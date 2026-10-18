@@ -1,6 +1,10 @@
 import path from 'node:path';
 import { runProcess, ProcessError } from '../utils/run-process.js';
-import { resolveHostShell } from '../utils/host-shell.js';
+import {
+  hostShellChildEnv,
+  resolveHostShell,
+  takeCmdFallbackToolNote,
+} from '../utils/host-shell.js';
 import { windowsMissingCommand } from '../utils/windows-missing-command.js';
 import type { Tool } from '../core/tools/tool-types.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
@@ -204,6 +208,9 @@ export const execTool: Tool = {
     const opened = await openChildEnv(ctx.workspaceDir, ctx.abortSignal);
     const hooksNotice = (output = ''): string =>
       takeShellNotices(ctx.sessionKey, opened, commandText, output);
+    // O153: the cmd.exe fallback is never silent to the model.
+    const cmdNote = takeCmdFallbackToolNote(commandText, shell);
+    const shellNote = cmdNote ? `\n\n${cmdNote}` : '';
     try {
       const result = await runProcess(shell.executable, {
         args: shell.argsFor(String(input.command ?? '')),
@@ -211,7 +218,7 @@ export const execTool: Tool = {
         timeout: timeoutMs,
         maxBuffer: 10 * 1024 * 1024,
         signal: ctx.abortSignal,
-        env: opened.env,
+        env: hostShellChildEnv(opened.env, shell),
         cwd: ctx.workspaceDir,
         // Live streaming: forward stdout chunks to the host (TUI/headless
         // renderer) so long-running commands show output incrementally.
@@ -275,6 +282,7 @@ export const execTool: Tool = {
       streamer?.flush();
       return (
         text +
+        shellNote +
         writebackWarning +
         o101NoticeAfter(commandText) +
         footnote +
@@ -313,6 +321,7 @@ export const execTool: Tool = {
             : `Command failed (exit ${err.exitCode}):\n${output || err.message}`;
         return (
           failure +
+          shellNote +
           writebackWarning +
           o101NoticeAfter(commandText) +
           footnote +
