@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { runProcess, ProcessError } from '../utils/run-process.js';
 import { resolveHostShell } from '../utils/host-shell.js';
@@ -39,6 +40,7 @@ import { createRedactingChunkWriter } from '../safety/tool-output-redact.js';
 import {
   filesWithIncreasedPlaceholderCount,
   formatRedactedWritebackWarning,
+  includeProtectedPathsInMutationSnap,
   redactedShellWriteRefusal,
   snapshotMutationFiles,
 } from '../safety/redacted-writeback.js';
@@ -85,6 +87,35 @@ export function execToolDescription(shell = resolveHostShell()): string {
   return shell.description
     ? `${EXEC_DESCRIPTION_BASE} ${shell.description}`
     : EXEC_DESCRIPTION_BASE;
+}
+
+/** O152 r4: detect placeholder growth, L3-restore, then warn from post-restore state. */
+function redactedWritebackAfterL3(
+  mutationSnap: Map<string, Buffer | null>,
+  l3NoticeFn: () => string
+): { l3Notice: string; writebackWarning: string } {
+  // Capture command effect while disk is still dirty (needed for detection).
+  const hits = filesWithIncreasedPlaceholderCount(mutationSnap);
+  // L3 restore first (r4 / steering).
+  const l3Notice = l3NoticeFn();
+  // Post-restore: split hits into restored vs kept.
+  const restored: string[] = [];
+  const kept: string[] = [];
+  for (const abs of hits) {
+    const before = mutationSnap.get(abs);
+    let now: Buffer | null = null;
+    try {
+      now = fs.readFileSync(abs);
+    } catch {
+      now = null;
+    }
+    if (before && now && before.equals(now)) restored.push(abs);
+    else kept.push(abs);
+  }
+  return {
+    l3Notice,
+    writebackWarning: formatRedactedWritebackWarning(kept, restored),
+  };
 }
 
 export const execTool: Tool = {
@@ -182,6 +213,9 @@ export const execTool: Tool = {
     const protectedSnapBefore = takeProtectedPathSnapshot(ctx.workspaceDir, {
       home: process.env.HOME,
     });
+    // O152 F10: detect [REDACTED] growth on protected paths even for
+    // interpreter writes that extractShellMutationPaths cannot see.
+    includeProtectedPathsInMutationSnap(mutationSnap, protectedSnapBefore.display.keys());
     const preferZhLocale = (): boolean => {
       const loc = process.env.MOSS_LOCALE || process.env.LANG || '';
       return /^zh\b/i.test(loc);
@@ -280,8 +314,10 @@ export const execTool: Tool = {
       // Shell file rewrites (sed -i, redirects, …) leave prior read_file bodies
       // and ToolStateManager prior-read credit stale — clear credit for high-
       // confidence paths so the next surgical edit must re-read (Claude FileEdit).
-      const writebackWarning = formatRedactedWritebackWarning(
-        filesWithIncreasedPlaceholderCount(mutationSnap)
+      // O152 r4: L3 restore first; then warn from post-restore state
+      // ("placeholder written; restored" vs classic kept-file wording).
+      const { l3Notice, writebackWarning } = redactedWritebackAfterL3(mutationSnap, () =>
+        o101NoticeAfter(commandText)
       );
       if ((result.exitCode ?? 0) === 0) {
         const paths = extractShellMutationPaths(commandText);
@@ -299,15 +335,15 @@ export const execTool: Tool = {
       streamer?.flush();
       return (
         text +
+        l3Notice +
         writebackWarning +
-        o101NoticeAfter(commandText) +
         footnote +
         hooksNotice(`${result.stdout}\n${result.stderr}`)
       );
     } catch (err) {
       streamer?.flush();
-      const writebackWarning = formatRedactedWritebackWarning(
-        filesWithIncreasedPlaceholderCount(mutationSnap)
+      const { l3Notice, writebackWarning } = redactedWritebackAfterL3(mutationSnap, () =>
+        o101NoticeAfter(commandText)
       );
       if (err instanceof ProcessError) {
         const output = [err.stdout.trim(), err.stderr.trim()].filter(Boolean).join('\n');
@@ -315,8 +351,8 @@ export const execTool: Tool = {
           ctx.markResultError?.();
           const waited = err.timeoutMs && err.timeoutMs > 0 ? err.timeoutMs : timeoutMs;
           return (
-            `timed out after ${waited}ms (raise timeout_ms or use exec_background)${output ? `\n${output}` : ''}${writebackWarning}` +
-            o101NoticeAfter(commandText) +
+            `timed out after ${waited}ms (raise timeout_ms or use exec_background)${output ? `\n${output}` : ''}${l3Notice}` +
+            writebackWarning +
             footnote +
             hooksNotice(`${err.stdout}\n${err.stderr}`)
           );
@@ -324,8 +360,8 @@ export const execTool: Tool = {
         if (err.signal) {
           ctx.markResultError?.();
           return (
-            `Command killed by ${err.signal}:\n${output || err.message}${writebackWarning}` +
-            o101NoticeAfter(commandText) +
+            `Command killed by ${err.signal}:\n${output || err.message}${l3Notice}` +
+            writebackWarning +
             footnote +
             hooksNotice(`${err.stdout}\n${err.stderr}`)
           );
@@ -337,8 +373,8 @@ export const execTool: Tool = {
             : `Command failed (exit ${err.exitCode}):\n${output || err.message}`;
         return (
           failure +
+          l3Notice +
           writebackWarning +
-          o101NoticeAfter(commandText) +
           footnote +
           hooksNotice(`${err.stdout}\n${err.stderr}`)
         );

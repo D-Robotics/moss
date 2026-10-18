@@ -15,6 +15,7 @@ import {
 import {
   filesWithIncreasedPlaceholderCount,
   formatRedactedWritebackWarning,
+  includeProtectedPathsInMutationSnap,
   redactedShellWriteRefusal,
   snapshotMutationFiles,
 } from '../safety/redacted-writeback.js';
@@ -28,6 +29,7 @@ import {
   disposeProtectedPathSnapshot,
 } from '../safety/protected-path-snapshot.js';
 import { isProtectedPathApproved } from '../safety/protected-path-approvals.js';
+import fs from 'node:fs';
 import path from 'node:path';
 import { markBackgroundIdReported } from '../core/tools/background-completion-state.js';
 import {
@@ -148,12 +150,17 @@ export const execBackgroundTool: Tool = {
     const protectedSnapBefore = takeProtectedPathSnapshot(workspaceDir, {
       home: process.env.HOME,
     });
+    // O152 F10: detect [REDACTED] growth on protected paths even for
+    // interpreter writes that extractShellMutationPaths cannot see.
+    includeProtectedPathsInMutationSnap(mutationSnap, protectedSnapBefore.display.keys());
     const preferZhLocale = (): boolean => {
       const loc = process.env.MOSS_LOCALE || process.env.LANG || '';
       return /^zh\b/i.test(loc);
     };
     const applyO101Layer3OnExit = (proc: BackgroundProc): void => {
       try {
+        // O152 r4: record placeholder growth before L3 restore mutates the disk.
+        placeholderHits = filesWithIncreasedPlaceholderCount(mutationSnap);
         const after = takeProtectedPathSnapshotAfter(protectedSnapBefore, {
           home: process.env.HOME,
         });
@@ -279,12 +286,26 @@ export const execBackgroundTool: Tool = {
     }
 
     let writebackChecked = false;
+    /** Captured before L3 restore so detection sees the command's dirty disk. */
+    let placeholderHits: string[] | undefined;
     const finishWriteback = () => {
       if (writebackChecked) return;
       writebackChecked = true;
-      const writebackWarning = formatRedactedWritebackWarning(
-        filesWithIncreasedPlaceholderCount(mutationSnap)
-      );
+      const hits = placeholderHits ?? filesWithIncreasedPlaceholderCount(mutationSnap);
+      const restored: string[] = [];
+      const kept: string[] = [];
+      for (const abs of hits) {
+        const before = mutationSnap.get(abs);
+        let now: Buffer | null = null;
+        try {
+          now = fs.readFileSync(abs);
+        } catch {
+          now = null;
+        }
+        if (before && now && before.equals(now)) restored.push(abs);
+        else kept.push(abs);
+      }
+      const writebackWarning = formatRedactedWritebackWarning(kept, restored);
       if (writebackWarning) appendOutput(proc, 'stderr', writebackWarning);
       rawBackgroundOutput.delete(proc.id);
     };
@@ -324,8 +345,10 @@ export const execBackgroundTool: Tool = {
           clearTimeout(proc.killTimer);
           proc.killTimer = undefined;
         }
-        finishWriteback();
+        // O152 r2: restore first, then scan for [REDACTED] write-back.
+        // O152 r4: L3 restore first; writeback warning from post-restore state.
         applyO101Layer3OnExit(proc);
+        finishWriteback();
         proc.status = proc.killRequested || signal ? 'killed' : 'exited';
         proc.exitCode = code;
         // A handler that exits 0 after SIGTERM leaves `signal` null. Record the
@@ -341,8 +364,10 @@ export const execBackgroundTool: Tool = {
           clearTimeout(proc.killTimer);
           proc.killTimer = undefined;
         }
-        finishWriteback();
+        // O152 r2: restore first, then scan for [REDACTED] write-back.
+        // O152 r4: L3 restore first; writeback warning from post-restore state.
         applyO101Layer3OnExit(proc);
+        finishWriteback();
         proc.status = 'error';
         proc.errorMessage = err.message;
         proc.endedAt = Date.now();
