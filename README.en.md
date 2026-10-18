@@ -464,6 +464,12 @@ one line: press `e` to switch to English.
   paths to system programs (such as the background job's `powershell.exe`) from the environment
   before `.env` was loaded. A child PATH left with no usable entry (only `.` or empty entries)
   becomes a directory that does not exist, never an empty string.
+- **Hook output over the capture limit blocks (O162)**: each hook's stdout and stderr are captured
+  up to 10 MiB per stream. Once anything is cut, the verdict (the last JSON line) cannot be
+  trusted, so every blocking event (`PreToolUse`, `UserPromptSubmit`, `PermissionRequest`, `Stop`)
+  fails closed — the run ends blocked / the call is denied whatever the exit code or the readable
+  part of the output said. A `blocking: false` hook cannot restrict a call, so its oversized
+  output does not block either.
 - **A script's arguments are not deletions (O168)**: arguments of an invoked script (the
   interpreter script form `python3 x.py $HOME`, `node x.js \"$PWD\"`, `sh x.sh`, the
   `.`/`source` operand and the bare `.`) no longer trip the delete-ancestor rule — normal
