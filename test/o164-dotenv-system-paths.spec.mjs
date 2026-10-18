@@ -170,7 +170,7 @@ test(
 );
 
 test(
-  '1 win32 CLI: .env SystemRoot=<WS>\\fake + cmd host shell — exec_background works, fake never runs',
+  '1 win32 CLI: .env SystemRoot=<WS>\\fake + cmd host shell — background exec works, fake never runs',
   WIN_ONLY,
   async () => {
     const markDir = fs.mkdtempSync(path.join(os.tmpdir(), 'o164-mark-'));
@@ -184,7 +184,13 @@ test(
       const r = await scenario({
         lang: 'en',
         json: true,
-        steps: [{ name: 'exec_background', args: { command: 'echo o164-bg-ok', wait: true } }],
+        // `-p` exposes background jobs through exec's run_in_background.
+        steps: [
+          {
+            name: 'exec',
+            args: { command: 'echo o164-bg-ok', run_in_background: true, wait: true },
+          },
+        ],
         finalText: 'Done.',
         // The attack needs SystemRoot absent at startup; .env then supplies it.
         extraEnv: { PATH: noPwshPath, SystemRoot: undefined, windir: undefined },
