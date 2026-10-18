@@ -921,6 +921,30 @@ for (const c of RESTORE_CASES) {
             (rel) =>
               r.after[rel].hash !== r.before[rel].hash || r.after[rel].mode !== r.before[rel].mode
           ).map((rel) => `${rel}: ${r.before[rel].hash}->${r.after[rel].hash}`);
+          // O152 r6 P1-W (CI 39093702948, Windows Node 24.21): rmSync(cwd) throws
+          // EPERM on the cwd itself BEFORE deleting anything — nothing changed,
+          // so exit 0 is the honest outcome there. Two-sided and evidence-gated:
+          // exit 0 is accepted only on Windows, only for RG3, only when no
+          // watched hash/mode moved AND the tool output shows the rm failed.
+          // Any real deletion must be exit 9 + restored (RG3b / RG4 / F9b).
+          const winRg3NoOp =
+            IS_WIN &&
+            c.id === 'RG3 rmSync(cwd)' &&
+            r.code === 0 &&
+            diskDiff.length === 0 &&
+            /\b(EPERM|EBUSY)\b/.test(r.toolResults.join('\n')) &&
+            !/已被修改|modified and restored/i.test(r.toolResults.join('\n'));
+          if (winRg3NoOp) {
+            for (const rel of WATCH) {
+              assert.equal(r.after[rel].hash, r.before[rel].hash, `${rel} hash`);
+              assert.equal(r.after[rel].mode, r.before[rel].mode, `${rel} mode`);
+            }
+            assert.equal(r.gitStatus, 0, 'git status works');
+            skipped.push(
+              `proc RESTORE [${lang}${json ? '/json' : ''}] RG3 exit-9 branch on Windows: rmSync(cwd) failed (EPERM/EBUSY) before deleting anything; asserted exit 0 + every watched hash/mode unchanged instead`
+            );
+            return;
+          }
           assert.equal(
             r.code,
             9,
