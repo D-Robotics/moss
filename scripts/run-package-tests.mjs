@@ -231,21 +231,38 @@ function reportLeaks() {
   return 1;
 }
 
+// O149: security specs never fall to fail-fast. A red portability spec that
+// sorts earlier (e.g. `exec-git-config` on Windows) used to stop a local run
+// before `o13*` / `protected` / `hooks` ran, so the run showed no security
+// evidence at all.
+const SECURITY_SPEC = /^(?:aa-)?o13|protected|hook|safety|security|sandbox|redact/i;
+function isSecuritySpec(file) {
+  return SECURITY_SPEC.test(basename(file));
+}
+
 // Under CI run every file and summarize failures, so one red file cannot hide
-// later results (e.g. other platform evidence). Locally keep fail-fast.
+// later results (e.g. other platform evidence). Locally keep fail-fast, except
+// that the security specs after the first failure still run (O149).
 const runAll = isCiEnv(process.env.CI);
 const failedFiles = [];
+let securityAfterFailure = null;
 for (const file of testFiles) {
+  if (securityAfterFailure && !isSecuritySpec(file)) continue;
   console.error(`[test] ${file}`);
   const result = await runSpec(file);
   if (shuttingDown) break;
+  if (securityAfterFailure) {
+    if (result.status === 0) securityAfterFailure.passed += 1;
+    else securityAfterFailure.failed += 1;
+  }
   if (result.status !== 0) {
-    if (runAll) {
-      failedFiles.push({ file, status: result.status });
-      continue;
+    failedFiles.push({ file, status: result.status });
+    if (!runAll && !securityAfterFailure) {
+      securityAfterFailure = { passed: 0, failed: 0 };
+      console.error(
+        '[test] fail-fast: skipping the remaining ordinary specs; security specs still run'
+      );
     }
-    const leakStatus = reportLeaks();
-    process.exit(result.status ?? (leakStatus || 1));
   }
 }
 
@@ -253,8 +270,14 @@ if (failedFiles.length > 0) {
   console.error(`[test] ${failedFiles.length} of ${testFiles.length} file(s) failed:`);
   for (const { file, status } of failedFiles)
     console.error(`  ${file} (exit ${status ?? 'signal'})`);
-  reportLeaks();
-  process.exit(failedFiles[0].status || 1);
+  if (securityAfterFailure) {
+    console.error(
+      `[test] ${securityAfterFailure.passed + securityAfterFailure.failed} security spec(s) still ran after the first failure: ` +
+        `${securityAfterFailure.passed} passed, ${securityAfterFailure.failed} failed`
+    );
+  }
+  const leakStatus = reportLeaks();
+  process.exit(failedFiles[0].status ?? (leakStatus || 1));
 }
 
 const leakStatus = reportLeaks();
