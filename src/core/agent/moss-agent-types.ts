@@ -6,7 +6,13 @@ import type {
 } from '../llm/llm-provider.js';
 import type { Message, ContentBlock } from '../session/session-jsonl.js';
 import type { SessionStore } from '../session/session.js';
-import type { Tool, ToolCall, ToolResult, ToolContentBlock } from '../tools/tool-types.js';
+import type {
+  ProtectedPathChangeReport,
+  Tool,
+  ToolCall,
+  ToolResult,
+  ToolContentBlock,
+} from '../tools/tool-types.js';
 import type { ToolFilter } from '../tools/tool-filter.js';
 import type { ContextPruningSettings } from '../../context/pruning.js';
 import type { CompactionSettings } from '../../context/compaction.js';
@@ -358,6 +364,8 @@ export type MossAgentEvent =
       aborted?: { by: 'user' | 'timeout' };
       structuredContent?: ToolContentBlock[];
       error?: ToolResult['error'];
+      /** O152 F9b: structured L3 post-run result; drives exit 9 regardless of output size. */
+      protectedPathChanges?: ProtectedPathChangeReport[];
     }
   | { type: 'turn_start'; turn: number }
   | { type: 'turn_end'; turn: number; stopReason: string; totalToolCalls?: number }

@@ -35,6 +35,7 @@ import {
 } from './shell-write-detect.js';
 import { findIndirectProtectedWrites } from './indirect-write-detect.js';
 import { findPwshWriteTargets } from './pwsh-write-targets.js';
+import { findExecCapableForms } from './exec-capable-read.js';
 
 export type ProtectedPathCategory =
   | 'git'
@@ -51,7 +52,7 @@ export interface ProtectedPathHit {
   category: ProtectedPathCategory;
   operation: 'write' | 'delete' | 'move' | 'shell';
   /** O103: `core.hooksPath` redirection (copy says "would redirect git hooks"). */
-  kind?: 'hooks-path' | 'unresolved-var';
+  kind?: 'hooks-path' | 'unresolved-var' | 'exec-capable';
   /**
    * O101: when the write comes from inline interpreter code or a workspace
    * script (layers 1–2). Used by the confirm prompt to show script + line.
@@ -949,6 +950,86 @@ function workspaceRootOnlyReadOnly(command: string, ctx: ProtectedPathContext): 
   return rootSeen;
 }
 
+/**
+ * O152: `rg --pre`, `git -c` / `--ext-diff` / `grep -O`, `VAR=… git …`,
+ * `sort --compress-program`, `find -exec` — forms that run a program the
+ * model chose. When they read a git workspace (cwd, `-C`, or a path operand
+ * that is / contains `.git`), emit a protected hit so `-p` refuses before
+ * the program runs. Stricter only; plain `rg -n` / `git diff` / `git log`
+ * carry none of these forms and are unaffected.
+ */
+function hasDotGit(dir: string): boolean {
+  try {
+    fs.lstatSync(path.join(dir, '.git'));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Nearest directory at or above `dir` that holds `.git` (file or dir). */
+function enclosingGitRoot(dir: string): string | undefined {
+  let cur = path.resolve(dir);
+  for (;;) {
+    if (hasDotGit(cur)) return cur;
+    const up = path.dirname(cur);
+    if (up === cur) return undefined;
+    cur = up;
+  }
+}
+
+function execCapableHits(command: string, ctx: ProtectedPathContext): ProtectedPathHit[] {
+  const forms = findExecCapableForms(command);
+  if (forms.length === 0) return [];
+  const hits: ProtectedPathHit[] = [];
+  const seen = new Set<string>();
+  const consider = (raw: string, form: string, uncertain?: boolean) => {
+    const abs = path.resolve(ctx.cwd, raw || '.');
+    // O152 r5 C: structural "uncertain" forms apply inside a git repository
+    // only (the cwd, a `-C` dir or operand, or one of their ancestors).
+    if (uncertain) {
+      const root = enclosingGitRoot(abs);
+      if (!root) return;
+      const resolved = path.join(root, '.git');
+      if (seen.has(resolved)) return;
+      seen.add(resolved);
+      hits.push({ raw: form, resolved, category: 'git', operation: 'shell', kind: 'exec-capable' });
+      return;
+    }
+    // A directory that is / contains a git worktree → gate as writing its .git.
+    const asGit =
+      hasDotGit(abs) || isWorkspaceRootPath(abs, ctx)
+        ? ({ category: 'git' as const, resolved: path.join(abs, '.git') } as const)
+        : undefined;
+    const classified =
+      asGit ?? classifyProtectedPath(abs, ctx) ?? deletesProtectedAncestor(abs, ctx);
+    if (!classified) return;
+    if (seen.has(classified.resolved)) return;
+    seen.add(classified.resolved);
+    hits.push({
+      raw: form,
+      resolved: classified.resolved,
+      category: classified.category,
+      operation: 'shell',
+      kind: 'exec-capable',
+    });
+  };
+  for (const f of forms) {
+    const roots = [
+      ...f.gitC,
+      ...f.operands,
+      // No path operand → the command reads cwd (and, for git, the repo there).
+      ...(f.gitC.length === 0 && f.operands.length === 0 ? [ctx.cwd] : []),
+    ];
+    // Always also consider the workspace root: `rg --pre rm -e .` with no
+    // path still walks `.` from cwd, which may be the workspace.
+    if (ctx.workspaceRoot) roots.push(ctx.workspaceRoot);
+    roots.push(ctx.cwd);
+    for (const r of new Set(roots)) consider(r, f.form, f.uncertain);
+  }
+  return hits;
+}
+
 export function findShellProtectedWrites(
   command: string,
   ctx: ProtectedPathContext
@@ -1046,6 +1127,14 @@ export function findShellProtectedWrites(
   // O103: hooksPath redirection.
   for (const hit of gitHooksPathHits(command, ctx)) {
     const key = `hookspath:${hit.raw}:${hit.resolved}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    hits.push(hit);
+  }
+
+  // O152: exec-capable "read" forms (rg --pre, git -c, VAR= prefixes, …).
+  for (const hit of execCapableHits(command, ctx)) {
+    const key = `exec-capable:${hit.raw}:${hit.resolved}`;
     if (seen.has(key)) continue;
     seen.add(key);
     hits.push(hit);

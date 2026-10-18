@@ -812,6 +812,14 @@ export async function runOneShot(
     if (state.outcomeConcluded && !runError) {
       process.exitCode = ExitCode.INCOMPLETE;
     }
+    // O152: L3 protected-path changes always win over a SESSION (7) from a
+    // wiped workspace's failed session append.
+    if (
+      completionTracker.protectedPathChanges &&
+      completionTracker.protectedPathChanges.length > 0
+    ) {
+      process.exitCode = ExitCode.INCOMPLETE;
+    }
     if (options.headless && stopResult.blocked) process.exitCode = ExitCode.INCOMPLETE;
   }
 
