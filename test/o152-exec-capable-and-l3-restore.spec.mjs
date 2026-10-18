@@ -331,6 +331,9 @@ const GREEN_POLICY = [
   'make -C $D',
   'tsc -p $P',
   'ps -p $$',
+  // r7 ruling (#9): the $S variant is tested alongside the literal
+  // `node x.js "$PWD"` form below — both must stay O152-silent.
+  'node x.js $S',
   'PATH=./d:$PATH ls',
   'export PATH=./d:$PATH; ls',
   // PM r7 2: ROS / venv activation (B3 is a known limitation, not C5).
@@ -340,13 +343,16 @@ const GREEN_POLICY = [
   'trap - EXIT',
   'script -q /dev/null',
 ];
-// PM r7 #9 additions that are ALREADY blocked on main (50339194) by the
-// pre-existing O151/O101 rules (an interpreter given $HOME / "$PWD", or a
-// dot-sourced venv script) — not by any O152 C rule. Out of #136's scope
-// (separate ticket); here we assert the O152 layer itself stays silent.
-for (const raw of ['python3 x.py $HOME', 'node x.js "$PWD"', '. venv/bin/activate && python -V']) {
+// PM r7 #9 additions that are ALREADY blocked on main (50339194, b10a50d1) by
+// the pre-existing O151/O101 rules (an interpreter given $HOME / "$PWD", or a
+// dot-sourced venv script) — not by any O152 C rule. End-to-end exit 0 is
+// O168's. r7 ruling: assert "O152 does not trigger" on the three commands
+// EXACTLY as written (literal "$PWD", not $S; the $S form is tested too).
+const R7_LITERAL_9 = ['python3 x.py $HOME', 'node x.js "$PWD"', '. venv/bin/activate && python -V'];
+assert.ok(R7_LITERAL_9.includes('node x.js "$PWD"'), 'r7 ruling: literal "$PWD" form must stay');
+for (const raw of R7_LITERAL_9) {
   jobs.push({
-    name: `policy O152-layer GREEN (main-blocked by O151, separate ticket): ${raw}`,
+    name: `policy O152-layer GREEN (main-blocked by O151/O101 → O168): ${raw}`,
     fn: async () => {
       assert.equal(commandHasExecCapableRead(raw), false, raw);
       const hits = findShellProtectedWrites(raw, ctx).filter((h) => h.kind === 'exec-capable');
