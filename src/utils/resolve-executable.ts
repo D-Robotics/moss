@@ -37,6 +37,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { windowsSystemRoot } from './system-root.js';
 
 export const NO_CWD_EXE_SEARCH_ENV = 'NoDefaultCurrentDirectoryInExePath';
 
@@ -183,6 +184,16 @@ const WIN_SPAWN_EXTS = ['.com', '.exe'];
  */
 export const NO_TRUSTED_PATH_POSIX = '/nonexistent/moss-no-trusted-path';
 
+/**
+ * O164: the same placeholder for any platform. Windows uses a directory under
+ * System32 that does not exist (ordinary users cannot create it there).
+ */
+export function noTrustedPath(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32'
+    ? pathApi('win32').join(windowsSystemRoot(), 'System32', 'moss-no-trusted-path')
+    : NO_TRUSTED_PATH_POSIX;
+}
+
 /** True for a UNC / device path (`\\host\share`, `//host/share`, `\\?\`). */
 function isUncPath(p: string): boolean {
   return /^[\\/]{2}/.test(p);
@@ -277,7 +288,10 @@ export function sanitizeChildPathEnv<T extends Env>(
       if (!dir || dir === '.' || !api.isAbsolute(dir)) return false;
       return !win || /^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(dir);
     });
-    const cleaned = kept.join(sep);
+    // O164: a PATH whose entries were all dropped (`.`, `::`) or that was
+    // empty to begin with must not reach the child as "": sh/execvp read an
+    // empty PATH as the current directory (the workspace).
+    const cleaned = kept.length > 0 ? kept.join(sep) : noTrustedPath(platform);
     if (cleaned !== value) {
       next = { ...env };
       next[key] = cleaned;
