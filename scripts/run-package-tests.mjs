@@ -168,10 +168,21 @@ const testEnv = {
 // delete this run's temp root on the way out.
 let currentChild = null;
 let shuttingDown = false;
+/** Index in testFiles of the spec now running (-1 before the first). */
+let currentIndex = -1;
+
+// O149: an interrupted run names every spec that did not finish.
+function reportNotRun() {
+  const notRun = testFiles.slice(Math.max(currentIndex, 0));
+  if (notRun.length === 0) return;
+  console.error(`[test] interrupted: ${notRun.length} file(s) did not run to completion:`);
+  for (const file of notRun) console.error(`  ${file}`);
+}
 
 function shutdown(code) {
   if (shuttingDown) return;
   shuttingDown = true;
+  reportNotRun();
   const child = currentChild;
   if (child && child.exitCode === null && child.signalCode === null) {
     child.once('close', () => {
@@ -213,12 +224,6 @@ function runSpec(file) {
   });
 }
 
-function isCiEnv(value) {
-  if (!value) return false;
-  const v = String(value).trim().toLowerCase();
-  return v !== '' && v !== '0' && v !== 'false';
-}
-
 function leakedHomes() {
   return listMossTempHomes(runRoot);
 }
@@ -231,51 +236,28 @@ function reportLeaks() {
   return 1;
 }
 
-// O149: security specs never fall to fail-fast. A red portability spec that
-// sorts earlier (e.g. `exec-git-config` on Windows) used to stop a local run
-// before `o13*` / `protected` / `hooks` ran, so the run showed no security
-// evidence at all.
-const SECURITY_SPEC = /^(?:aa-)?o13|protected|hook|safety|security|sandbox|redact/i;
-function isSecuritySpec(file) {
-  return SECURITY_SPEC.test(basename(file));
-}
-
-// Under CI run every file and summarize failures, so one red file cannot hide
-// later results (e.g. other platform evidence). Locally keep fail-fast, except
-// that the security specs after the first failure still run (O149).
-const runAll = isCiEnv(process.env.CI);
+// O149 (QA #145 F1): no fail-fast, locally or under CI. A red portability
+// spec that sorts early (e.g. `exec-git-config` on Windows) used to stop a
+// local run before the safety specs ran. Telling safety specs apart by file
+// name missed most of them (o151/o153/o158/safe-child-env/permission-rules/…),
+// so every file runs and the failures are summarized at the end with a
+// non-zero exit. If the run is interrupted, every file that did not run is
+// listed by name, so a skipped spec is never silent.
 const failedFiles = [];
-let securityAfterFailure = null;
-for (const file of testFiles) {
-  if (securityAfterFailure && !isSecuritySpec(file)) continue;
+for (const [index, file] of testFiles.entries()) {
+  if (shuttingDown) break;
+  currentIndex = index;
   console.error(`[test] ${file}`);
   const result = await runSpec(file);
   if (shuttingDown) break;
-  if (securityAfterFailure) {
-    if (result.status === 0) securityAfterFailure.passed += 1;
-    else securityAfterFailure.failed += 1;
-  }
-  if (result.status !== 0) {
-    failedFiles.push({ file, status: result.status });
-    if (!runAll && !securityAfterFailure) {
-      securityAfterFailure = { passed: 0, failed: 0 };
-      console.error(
-        '[test] fail-fast: skipping the remaining ordinary specs; security specs still run'
-      );
-    }
-  }
+  if (result.status !== 0) failedFiles.push({ file, status: result.status });
 }
+currentIndex = testFiles.length;
 
 if (failedFiles.length > 0) {
   console.error(`[test] ${failedFiles.length} of ${testFiles.length} file(s) failed:`);
   for (const { file, status } of failedFiles)
     console.error(`  ${file} (exit ${status ?? 'signal'})`);
-  if (securityAfterFailure) {
-    console.error(
-      `[test] ${securityAfterFailure.passed + securityAfterFailure.failed} security spec(s) still ran after the first failure: ` +
-        `${securityAfterFailure.passed} passed, ${securityAfterFailure.failed} failed`
-    );
-  }
   const leakStatus = reportLeaks();
   process.exit(failedFiles[0].status ?? (leakStatus || 1));
 }
