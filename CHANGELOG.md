@@ -2,22 +2,6 @@
 
 ## Unreleased
 
-### O169 — `git --upload-pack` / `--receive-pack` literal commands are blocked
-
-`git clone --upload-pack='<cmd>'`, `git fetch --upload-pack=…`, `git push
---receive-pack=…` (glued, `--upload-pack cmd`, or clone's short `-u`) make git
-run the given command to speak the pack protocol — arbitrary execution that
-looks like a plain clone/fetch/push. The flags were not in the exec-capable
-table, so the pre-exec block (O152) never fired. They now are, in the
-subcommand position and the global one; `git push -u origin main`
-(--set-upstream) is unaffected.
-
-`git clone --upload-pack='<cmd>'`、`git fetch --upload-pack=…`、`git push
---receive-pack=…`（连写、空格分开、或 clone 的短旗标 `-u`）会让 git 执行给定命令来
-讲 pack 协议——表面是普通 clone/fetch/push，实际是任意执行。此前这些旗标不在
-「可执行读取」表里，O152 的执行前拦截从未触发；现已加入（子命令位与全局位都识别）。
-`git push -u origin main`（--set-upstream）不受影响。
-
 ### O170 — shell-exec env assignments and tmux/screen spawn forms are blocked
 
 `BASH_ENV=<file> bash -c ':'` sources the file, `ENV=` does the same for POSIX
@@ -41,6 +25,98 @@ shape (prefix, `env`, `export`/`declare`, `set`, bare statement, pwsh
 （`ENV=production npm start` 不误拦——这个名字常被应用配置占用），覆盖前缀、
 `env`、`export`/`declare`、`set`、裸赋值、pwsh `$env:` 各种形态；tmux/screen
 仅在其携带命令时报（`tmux ls`、`tmux attach`、`screen -ls` 不受影响）。
+
+### O169 — `git --upload-pack` / `--receive-pack` literal commands are blocked
+
+`git clone --upload-pack='<cmd>'`, `git fetch --upload-pack=…`, `git push
+--receive-pack=…` (glued, `--upload-pack cmd`, or clone's short `-u`) make git
+run the given command to speak the pack protocol — arbitrary execution that
+looks like a plain clone/fetch/push. The flags were not in the exec-capable
+table, so the pre-exec block (O152) never fired. They now are, in the
+subcommand position and the global one; `git push -u origin main`
+(--set-upstream) is unaffected.
+
+`git clone --upload-pack='<cmd>'`、`git fetch --upload-pack=…`、`git push
+--receive-pack=…`（连写、空格分开、或 clone 的短旗标 `-u`）会让 git 执行给定命令来
+讲 pack 协议——表面是普通 clone/fetch/push，实际是任意执行。此前这些旗标不在
+「可执行读取」表里，O152 的执行前拦截从未触发；现已加入（子命令位与全局位都识别）。
+`git push -u origin main`（--set-upstream）不受影响。
+
+### O168 — a script's arguments are not deletions
+
+The write-target rules blocked normal commands: an interpreter run is
+"uncertain" (a script can write anything), and every absolute mention then
+went through the delete-ancestor rule — `python3 x.py $HOME`,
+`node x.js "$PWD"`, `python3 x.py /tmp`, `. venv/bin/activate && python -V`
+were reported as deleting home / the workspace root, and a NON-git directory's
+`$PWD` was labeled "git repository internals". Arguments of an invoked script
+(the interpreter script form, `sh x.sh`, the `.`/`source` operand and the bare
+`.`) are mentions, not deletions: the ancestor rule now skips them — like the
+cd exemption, only while the path is named nowhere else in the command
+(`source ./evil.sh; ls <root>` still hits). Arguments naming a protected path
+directly (`python3 x.py $HOME/.ssh`, `.git/config`), the interpreter inline
+forms, and real deletes (`rm -rf $HOME`, `mv $HOME /tmp`, `rm -rf "$PWD"`)
+are unchanged; actual writes stay covered by the script scan (layer 2) and
+the post-run snapshot (layer 3).
+
+写目标规则曾误拦正常命令：解释器运行是「不确定」的（脚本可能写任何东西），
+于是每个绝对路径提及都过了一遍「删除受保护祖先」规则——`python3 x.py
+$HOME`、`node x.js "$PWD"`、`python3 x.py /tmp`、`. venv/bin/activate &&
+python -V` 被报成删除 home / 工作区根目录，非 git 目录下的 `$PWD` 还被说成
+「git 仓库内部文件」。被调用脚本的参数（解释器脚本形式、`sh x.sh`、
+`.`/`source` 的操作数与裸 `.`）只是提及、不是删除：祖先规则现在跳过它们——
+与 cd 豁免一样，仅当该路径未在命令其他位置出现（`source ./evil.sh; ls
+<root>` 仍会命中）。直接点名受保护路径的参数（`python3 x.py $HOME/.ssh`、
+`.git/config`）、解释器内联形式、真正的删除（`rm -rf $HOME`、`mv $HOME
+/tmp`、`rm -rf "$PWD"`）行为不变；实际写入仍由脚本扫描（第 2 层）与运行后
+快照（第 3 层）兜底。
+
+### O165 — a hook that throws blocks; Stop ends Incomplete; a rejected prompt exits 9
+
+Anything thrown while handling a hook on a blocking event now fails closed
+with a visible `[hooks]` notice: PreToolUse blocks the call, PermissionRequest
+denies, UserPromptSubmit rejects the prompt, and a throwing Stop hook is a
+**terminal veto** — `runStopHooks` used to catch the exception and return
+"not blocked", silently approving the stop. A fatal Stop veto carries
+`fatal: true`: the REPL skips its forced continuation turn (no further model
+call) and the headless run ends Incomplete (exit 9). `-p` with a blocked
+UserPromptSubmit hook used to exit 8 (TOOL_EXECUTION); it is
+INPUT_GUARDRAIL_DENIED → Incomplete (9) with the stable 「被拦」/`Blocked`
+last line instead of a rethrown error with a stack.
+
+处理 hook 时抛出的任何异常现在都按拦截失败关闭，并给出可见的 `[hooks]` 提示：
+PreToolUse 拦下调用、PermissionRequest 拒绝、UserPromptSubmit 拒绝提示词；
+抛异常的 Stop hook 是**终局否决**——以前 `runStopHooks` 捕获异常后返回「未拦
+截」，异常悄悄放行了结束。终局否决带 `fatal: true`：REPL 不再强制续一轮（不再
+调用模型），headless 以未完成（exit 9）结束。`-p` 下 UserPromptSubmit 被拦以前
+exit 8（TOOL_EXECUTION）；现在是 INPUT_GUARDRAIL_DENIED → Incomplete（9），
+末行是稳定的「被拦」/`Blocked` 结论线，不再抛带堆栈的错误。
+
+### O162 — hook output over the capture limit blocks
+
+Each hook's stdout and stderr are captured up to 10 MiB per stream; the verdict
+is the last JSON line of stdout. When a hook printed more than the capture
+holds, the cut text hid the verdict and every blocking gate read only the
+truncated remains: a moss `block` and a Claude `permissionDecision: "deny"`
+printed after 12 MiB of junk were invisible, and a moss `allow` was
+unverifiable — the run exited 0 and the write went through. Any cut stream is
+now the outcome `output_too_large`: PreToolUse, UserPromptSubmit,
+PermissionRequest and Stop all fail closed on it, whatever the exit code said,
+and the notice names the hook, the limit and the stream that was cut. The cut
+detection is exact — the flag is set only when output was actually discarded,
+so multi-byte text that still fits the capture limit is never a false positive.
+A `blocking: false` hook cannot restrict a call, so its oversized output does
+not block either.
+
+每个 hook 的 stdout / stderr 各捕获最多 10 MiB，判定取 stdout 最后一行 JSON。
+以前 hook 输出超过捕获上限时，截断的文本把判定藏住了：12 MiB 垃圾之后再打印的
+moss `block`、Claude `permissionDecision: "deny"` 都看不见，moss `allow` 也无从
+验证——run 照样 exit 0、文件照样写入。现在任何被截断的流都记为
+`output_too_large`：PreToolUse、UserPromptSubmit、PermissionRequest、Stop
+四个阻塞门一律失败关闭，退出码说了什么都不算数，提示里点名 hook、上限与被截断
+的流。截断检测是精确的——只有真的丢弃了输出才置标志，多字节文本只要装得进
+捕获上限就不会误报。`blocking: false` 的 hook 不能收紧任何调用，其输出超限同样
+不拦截。
 
 ### O157 — PreToolUse hook `ask` now asks the user; `-p` treats it as deny
 

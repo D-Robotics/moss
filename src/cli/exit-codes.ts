@@ -27,6 +27,8 @@ const ERROR_CODE_TO_EXIT: Record<ErrorCode, ExitCode> = {
   [ErrorCode.TOOL_EXECUTION_TIMEOUT]: ExitCode.TOOL_EXECUTION,
   [ErrorCode.TOOL_NOT_FOUND]: ExitCode.TOOL_EXECUTION,
   [ErrorCode.TOOL_NOT_ALLOWED]: ExitCode.TOOL_EXECUTION,
+  /** O165: a blocked prompt ends 「被拦」/Incomplete, like every other block. */
+  [ErrorCode.INPUT_GUARDRAIL_DENIED]: ExitCode.INCOMPLETE,
   [ErrorCode.SESSION_NOT_FOUND]: ExitCode.SESSION,
   [ErrorCode.SESSION_PERSIST_FAILED]: ExitCode.SESSION,
   [ErrorCode.SKILL_LOAD_FAILED]: ExitCode.GENERIC,

@@ -6,7 +6,7 @@ import { redactEgress } from '../safety/tool-output-redact.js';
 import { CompactHookRegistry } from '../core/loop/compact-hooks.js';
 import { safeChildEnv } from '../utils/safe-child-env.js';
 import { errorMessage } from '../errors.js';
-import { ProcessError, runProcess } from '../utils/run-process.js';
+import { DEFAULT_MAX_BUFFER, ProcessError, runProcess } from '../utils/run-process.js';
 import { resolveCommandHead } from '../utils/resolve-executable.js';
 import { isZhLocale } from './cli-locale.js';
 import { hookEventZhName } from './hook-event-names.js';
@@ -59,7 +59,16 @@ export function hookShell(
  * O88: how the hook process ended. `spawn_failed` and `timeout` mean the hook
  * never gave a verdict — blocking events fail closed on them.
  */
-type HookOutcome = 'exit' | 'spawn_failed' | 'timeout';
+type HookOutcome = 'exit' | 'spawn_failed' | 'timeout' | 'output_too_large';
+
+/**
+ * O162: per-stream capture limit for a hook's stdout / stderr. Once anything
+ * is cut the captured text is incomplete, so the verdict (the last JSON line)
+ * cannot be trusted: `output_too_large`, which every blocking event fails
+ * closed on, like a timeout — whatever the exit code or the readable part of
+ * the output said.
+ */
+export const HOOK_OUTPUT_LIMIT_BYTES = DEFAULT_MAX_BUFFER;
 
 /** Shell exit codes meaning "command not found / not executable". */
 const LAUNCH_FAILURE_EXIT_CODES =
@@ -95,6 +104,19 @@ interface HookRunResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  /** O162: which stream was cut at HOOK_OUTPUT_LIMIT_BYTES. */
+  overflow?: 'stdout' | 'stderr' | 'stdout+stderr';
+}
+
+/** O162: a cut stream wins over the exit code (the verdict is lost). */
+function overflowOf(r: {
+  stdoutOverflow?: boolean;
+  stderrOverflow?: boolean;
+}): HookRunResult['overflow'] {
+  if (r.stdoutOverflow && r.stderrOverflow) return 'stdout+stderr';
+  if (r.stdoutOverflow) return 'stdout';
+  if (r.stderrOverflow) return 'stderr';
+  return undefined;
 }
 
 interface HookPayload {
@@ -148,17 +170,16 @@ function runHookCommand(
     cwd,
     env,
     timeout: timeoutMs,
+    maxBuffer: HOOK_OUTPUT_LIMIT_BYTES,
     stdin: JSON.stringify(payload),
     ...(shell.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   })
-    .then(
-      ({ exitCode, stdout, stderr }): HookRunResult => ({
-        outcome: hookOutcomeFromExit(exitCode, stderr),
-        exitCode,
-        stdout,
-        stderr,
-      })
-    )
+    .then((result): HookRunResult => {
+      const { exitCode, stdout, stderr } = result;
+      const overflow = overflowOf(result);
+      if (overflow) return { outcome: 'output_too_large', exitCode, stdout, stderr, overflow };
+      return { outcome: hookOutcomeFromExit(exitCode, stderr), exitCode, stdout, stderr };
+    })
     .catch((err): HookRunResult => {
       if (err instanceof ProcessError) {
         if (err.timedOut) {
@@ -167,6 +188,16 @@ function runHookCommand(
             exitCode: 124,
             stdout: err.stdout,
             stderr: `${err.stderr}\n[hook timed out after ${timeoutMs}ms]`,
+          };
+        }
+        const overflow = overflowOf(err);
+        if (overflow) {
+          return {
+            outcome: 'output_too_large',
+            exitCode: err.exitCode ?? 1,
+            stdout: err.stdout,
+            stderr: err.stderr,
+            overflow,
           };
         }
         if (err.exitCode === null && err.signal === null) {
@@ -272,6 +303,10 @@ function hookFailed(result: HookRunResult): boolean {
  * hook, why, where it is configured, and the only two next steps.
  * zh copy keeps only the command, the path, and `blocking: false` in English.
  */
+function hookOutputLimitMiB(): number {
+  return Math.round((HOOK_OUTPUT_LIMIT_BYTES / (1024 * 1024)) * 100) / 100;
+}
+
 export function formatHookFailure(
   event: HookEventName,
   hook: HookCommandConfig,
@@ -287,7 +322,9 @@ export function formatHookFailure(
         ? '未能启动'
         : result.outcome === 'timeout'
           ? `超时（${timeoutFor(hook)} 毫秒）`
-          : `非零退出（退出码 ${result.exitCode}）`;
+          : result.outcome === 'output_too_large'
+            ? `输出超过上限（${hookOutputLimitMiB()} MiB，${result.overflow ?? 'stdout'}）`
+            : `非零退出（退出码 ${result.exitCode}）`;
     // O91: zh names the hook 「<中文名>钩子」 — the table is suffix-free and
     // the bare English event id never appears as the only label in zh copy.
     const name = `${hookEventZhName(event)}钩子`;
@@ -296,9 +333,11 @@ export function formatHookFailure(
     const head =
       blocked && result.outcome === 'spawn_failed'
         ? `已拦截：${name} \`${hook.command}\` 未能启动，已按拒绝处理。`
-        : blocked
-          ? `已拦截：${name}${why}。`
-          : `${name}${why}，未拦截。`;
+        : blocked && result.outcome === 'output_too_large'
+          ? `已拦截：${name} \`${hook.command}\` ${why}，无法解析决定，已按拒绝处理。`
+          : blocked
+            ? `已拦截：${name}${why}。`
+            : `${name}${why}，未拦截。`;
     const lines = [
       head,
       `命令：${hook.command}`,
@@ -315,14 +354,18 @@ export function formatHookFailure(
       ? 'could not start'
       : result.outcome === 'timeout'
         ? `timed out after ${timeoutFor(hook)}ms`
-        : `exited with code ${result.exitCode}`;
+        : result.outcome === 'output_too_large'
+          ? `output exceeded the limit (${hookOutputLimitMiB()} MiB, ${result.overflow ?? 'stdout'})`
+          : `exited with code ${result.exitCode}`;
   // O135 (UX): blocked spawn_failed names the command and says treated as deny.
   const head =
     blocked && result.outcome === 'spawn_failed'
       ? `Blocked: ${event} hook \`${hook.command}\` failed to start; treated as deny.`
-      : blocked
-        ? `Blocked: ${event} hook ${why}.`
-        : `${event} hook ${why}; not blocking.`;
+      : blocked && result.outcome === 'output_too_large'
+        ? `Blocked: ${event} hook \`${hook.command}\` ${why}; its decision cannot be read, treated as deny.`
+        : blocked
+          ? `Blocked: ${event} hook ${why}.`
+          : `${event} hook ${why}; not blocking.`;
   const lines = [
     head,
     `Command: ${hook.command}`,
@@ -567,48 +610,57 @@ export function createConfiguredHookCallbacks(
       : async (request: ToolApprovalRequest): Promise<PreToolUseDecision> => {
           // O157: deny > ask > allow. Every matching hook runs, so a deny after
           // an ask still blocks; asks are collected for one confirmation.
-          const asks: PreToolUseHookAsk[] = [];
-          for (const hook of pre) {
-            if (!toolNameMatches(hook, request.tool.name)) continue;
-            const r = await runHookCommand(
-              hook.command,
-              {
-                event: 'PreToolUse',
-                toolName: request.tool.name,
-                input: request.input,
-                ...claudePayload(hook, request.tool.name, request.input),
-              },
-              cwd,
-              timeoutFor(hook)
-            );
-            const parsed = parseHookJson(r.stdout);
-            if (preToolUseBlocks(hook, r, parsed)) {
-              return { approved: false, reason: blockReason('PreToolUse', hook, r, parsed) };
+          // O165: anything thrown while running a PreToolUse hook (a bad
+          // matcher, a formatting bug) used to escape as a tool error; now it
+          // blocks the call with a visible notice — a safety gate fails closed.
+          try {
+            const asks: PreToolUseHookAsk[] = [];
+            for (const hook of pre) {
+              if (!toolNameMatches(hook, request.tool.name)) continue;
+              const r = await runHookCommand(
+                hook.command,
+                {
+                  event: 'PreToolUse',
+                  toolName: request.tool.name,
+                  input: request.input,
+                  ...claudePayload(hook, request.tool.name, request.input),
+                },
+                cwd,
+                timeoutFor(hook)
+              );
+              const parsed = parseHookJson(r.stdout);
+              if (preToolUseBlocks(hook, r, parsed)) {
+                return { approved: false, reason: blockReason('PreToolUse', hook, r, parsed) };
+              }
+              if (hookFailed(r)) notice('PreToolUse', hook, r, false);
+              // A blocking:false hook cannot restrict the call, so its ask is
+              // ignored like its deny. preToolUseBlocks already refused non-zero.
+              if (
+                hook.blocking !== false &&
+                r.outcome === 'exit' &&
+                isAskDecision(parsed?.decision)
+              ) {
+                const reason = parsed?.reason?.trim().slice(0, 500);
+                asks.push({
+                  command: hook.command,
+                  ...(hook.source ? { source: hook.source } : {}),
+                  ...(reason ? { reason } : {}),
+                });
+              }
             }
-            if (hookFailed(r)) notice('PreToolUse', hook, r, false);
-            // A blocking:false hook cannot restrict the call, so its ask is
-            // ignored like its deny. preToolUseBlocks already refused non-zero.
-            if (
-              hook.blocking !== false &&
-              r.outcome === 'exit' &&
-              isAskDecision(parsed?.decision)
-            ) {
-              const reason = parsed?.reason?.trim().slice(0, 500);
-              asks.push({
-                command: hook.command,
-                ...(hook.source ? { source: hook.source } : {}),
-                ...(reason ? { reason } : {}),
-              });
+            if (asks.length > 0) {
+              return {
+                approved: false,
+                reason: hookAskHeadlessReason(asks, 'print'),
+                hookAsks: asks,
+              };
             }
+            return { approved: true };
+          } catch (err) {
+            const line = hookFailedLine('PreToolUse', errorMessage(err));
+            process.stderr.write(`[hooks] ${line}\n`);
+            return { approved: false, reason: line };
           }
-          if (asks.length > 0) {
-            return {
-              approved: false,
-              reason: hookAskHeadlessReason(asks, 'print'),
-              hookAsks: asks,
-            };
-          }
-          return { approved: true };
         };
 
   const onToolResult =
@@ -655,23 +707,31 @@ export function createConfiguredHookCallbacks(
   };
 
   const runStop = async (info: StopHookInfo): Promise<StopHookResult> => {
-    for (const hook of stop) {
-      const r = await runHookCommand(
-        hook.command,
-        {
-          event: 'Stop',
-          stopReason: info.stopReason,
-          ...(info.response ? { response: info.response.slice(-4000) } : {}),
-        },
-        cwd,
-        timeoutFor(hook)
-      );
-      if (exitBlocks(hook, r)) {
-        return { blocked: true, reason: blockReason('Stop', hook, r) };
+    // O165: a throw inside one Stop hook is a terminal veto, like the runner
+    // level (runStopHooks) — visible notice, no continuation, Incomplete.
+    try {
+      for (const hook of stop) {
+        const r = await runHookCommand(
+          hook.command,
+          {
+            event: 'Stop',
+            stopReason: info.stopReason,
+            ...(info.response ? { response: info.response.slice(-4000) } : {}),
+          },
+          cwd,
+          timeoutFor(hook)
+        );
+        if (exitBlocks(hook, r)) {
+          return { blocked: true, reason: blockReason('Stop', hook, r) };
+        }
+        if (hookFailed(r)) notice('Stop', hook, r, false);
       }
-      if (hookFailed(r)) notice('Stop', hook, r, false);
+      return { blocked: false };
+    } catch (err) {
+      const line = hookFailedLine('Stop', errorMessage(err));
+      process.stderr.write(`[hooks] ${line}\n`);
+      return { blocked: true, fatal: true, reason: line };
     }
-    return { blocked: false };
   };
 
   const runSubagentStop = async (info: SubagentStopHookInfo): Promise<void> => {
@@ -770,53 +830,69 @@ export function createConfiguredHookCallbacks(
   const runUserPromptSubmit = async (message: string): Promise<UserPromptSubmitResult> => {
     noticed.clear();
     const extra: string[] = [];
-    for (const hook of userPrompt) {
-      const r = await runHookCommand(
-        hook.command,
-        { event: 'UserPromptSubmit', prompt: message },
-        cwd,
-        timeoutFor(hook)
-      );
-      const parsed = parseHookJson(r.stdout);
-      if (promptBlocks(hook, r, parsed)) {
-        return { blocked: true, reason: blockReason('UserPromptSubmit', hook, r, parsed) };
+    // O165: a throw while handling one UserPromptSubmit hook blocks the prompt
+    // (fail closed) instead of escaping as a run error.
+    try {
+      for (const hook of userPrompt) {
+        const r = await runHookCommand(
+          hook.command,
+          { event: 'UserPromptSubmit', prompt: message },
+          cwd,
+          timeoutFor(hook)
+        );
+        const parsed = parseHookJson(r.stdout);
+        if (promptBlocks(hook, r, parsed)) {
+          return { blocked: true, reason: blockReason('UserPromptSubmit', hook, r, parsed) };
+        }
+        if (hookFailed(r)) {
+          notice('UserPromptSubmit', hook, r, false);
+          continue;
+        }
+        const context = parsed?.additionalContext?.trim() || (parsed ? '' : r.stdout.trim());
+        if (context) extra.push(context);
       }
-      if (hookFailed(r)) {
-        notice('UserPromptSubmit', hook, r, false);
-        continue;
-      }
-      const context = parsed?.additionalContext?.trim() || (parsed ? '' : r.stdout.trim());
-      if (context) extra.push(context);
+      return extra.length > 0
+        ? { blocked: false, extraContext: extra.join('\n') }
+        : { blocked: false };
+    } catch (err) {
+      const line = hookFailedLine('UserPromptSubmit', errorMessage(err));
+      process.stderr.write(`[hooks] ${line}\n`);
+      return { blocked: true, reason: line };
     }
-    return extra.length > 0
-      ? { blocked: false, extraContext: extra.join('\n') }
-      : { blocked: false };
   };
 
   const runPermissionRequest = async (info: {
     toolName: string;
     input: Record<string, unknown>;
   }): Promise<PermissionRequestResult> => {
-    for (const hook of permission) {
-      if (!toolNameMatches(hook, info.toolName)) continue;
-      const r = await runHookCommand(
-        hook.command,
-        {
-          event: 'PermissionRequest',
-          toolName: info.toolName,
-          input: info.input,
-          ...claudePayload(hook, info.toolName, info.input),
-        },
-        cwd,
-        timeoutFor(hook)
-      );
-      const parsed = parseHookJson(r.stdout);
-      if (promptBlocks(hook, r, parsed)) {
-        return { denied: true, reason: blockReason('PermissionRequest', hook, r, parsed) };
+    // O165: a throw while handling one PermissionRequest hook denies (fail
+    // closed) instead of escaping as a run error.
+    try {
+      for (const hook of permission) {
+        if (!toolNameMatches(hook, info.toolName)) continue;
+        const r = await runHookCommand(
+          hook.command,
+          {
+            event: 'PermissionRequest',
+            toolName: info.toolName,
+            input: info.input,
+            ...claudePayload(hook, info.toolName, info.input),
+          },
+          cwd,
+          timeoutFor(hook)
+        );
+        const parsed = parseHookJson(r.stdout);
+        if (promptBlocks(hook, r, parsed)) {
+          return { denied: true, reason: blockReason('PermissionRequest', hook, r, parsed) };
+        }
+        if (hookFailed(r)) notice('PermissionRequest', hook, r, false);
       }
-      if (hookFailed(r)) notice('PermissionRequest', hook, r, false);
+      return { denied: false };
+    } catch (err) {
+      const line = hookFailedLine('PermissionRequest', errorMessage(err));
+      process.stderr.write(`[hooks] ${line}\n`);
+      return { denied: true, reason: line };
     }
-    return { denied: false };
   };
 
   return {
@@ -863,6 +939,12 @@ export interface StopHookInfo {
 export interface StopHookResult {
   blocked: boolean;
   reason?: string;
+  /**
+   * O165: the hook infrastructure itself threw (not a hook verdict). The veto
+   * is terminal: the REPL does not force a continuation turn — the run ends
+   * Incomplete (exit 9) with a visible notice.
+   */
+  fatal?: boolean;
 }
 
 export interface UserPromptSubmitResult {
@@ -908,8 +990,15 @@ export async function runStopHooks(info: StopHookInfo): Promise<StopHookResult> 
   try {
     return (await lifecycleRunner?.runStop(info)) ?? { blocked: false };
   } catch (err) {
-    process.stderr.write(`${hookFailedLine('Stop', errorMessage(err))}\n`);
-    return { blocked: false };
+    // O165: a throwing Stop hook used to become { blocked: false } — the
+    // exception silently approved the stop. Fail closed instead: a visible
+    // notice and a terminal veto (no model continuation; Incomplete, exit 9).
+    const zh = isZhLocale();
+    const line = zh
+      ? `${hookEventZhName('Stop')}钩子执行抛出异常，已按拦截处理（本次运行以未完成结束，不再调用模型）：${errorMessage(err)}`
+      : `Stop hook threw; treated as deny (the run ends Incomplete with no further model call): ${errorMessage(err)}`;
+    process.stderr.write(`[hooks] ${line}\n`);
+    return { blocked: true, fatal: true, reason: line };
   }
 }
 
