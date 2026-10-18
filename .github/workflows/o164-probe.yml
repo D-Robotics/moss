@@ -37,4 +37,4 @@ jobs:
       - name: Failure details
         if: always()
         shell: bash
-        run: grep -A25 'failing tests' "$RUNNER_TEMP/o164.out" | head -150 || true
+        run: grep -A60 "failing tests" "$RUNNER_TEMP/o164.out" | head -400 || true
