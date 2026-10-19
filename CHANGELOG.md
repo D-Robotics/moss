@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### O148 — PowerShell nesting deeper than one level is analyzed (else fail-closed)
+
+The pwsh write-target scanner analyzed only one level of nested execution
+(`& { … }`, `iex "…"`, `pwsh -c "…"`). A write hidden two or more wrappers
+deep — `iex "& { Set-Content <config> … }"`, `& { & { & { & { … } } } }` —
+was silently ignored: no resolved target, no unresolved marker, no gate hit.
+Nested bodies are now scanned recursively up to three levels and anything
+deeper is reported as unresolved (fail-closed), so a wrapper chain can no
+longer hide a write from the prompt/refusal path.
+
+pwsh 写目标扫描器以前只分析一层嵌套（`& { … }`、`iex "…"`、`pwsh -c "…"`）。
+藏在两层及以上包装里的写入——`iex "& { Set-Content <config> … }"`、
+`& { & { & { & { … } } } }`——会被静默忽略：既没有解析出目标，也没有
+unresolved 标记，门禁完全不命中。现在嵌套体递归扫描至三层，更深的按
+unresolved 失败关闭，包装链再也藏不住写入。
+
 ### O170 — shell-exec env assignments and tmux/screen spawn forms are blocked
 
 `BASH_ENV=<file> bash -c ':'` sources the file, `ENV=` does the same for POSIX
