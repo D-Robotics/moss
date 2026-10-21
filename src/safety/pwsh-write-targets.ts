@@ -683,6 +683,9 @@ function hasEncodedCommand(command: string): boolean {
   return /(?:^|[\s;|&])-EncodedCommand\b/i.test(command);
 }
 
+/** O148: nesting levels analyzed recursively; deeper is unresolved (fail-closed). */
+const MAX_NEST_DEPTH = 3;
+
 function scanCommand(command: string, ctx: Ctx, depth: number): PwshWriteTargets {
   const resolved: string[] = [];
   const unresolved: string[] = [];
@@ -735,20 +738,23 @@ function scanCommand(command: string, ctx: Ctx, depth: number): PwshWriteTargets
     }
   }
 
-  // One-level nested execution: apply the SAME rules (abbreviations, parens,
-  // same-line assignments) to the inner string. Deeper nesting → O148.
-  if (depth < 1) {
-    for (const inner of extractNestedCommands(command)) {
-      if (inner === '__iex_opaque__') {
-        unresolved.push('Invoke-Expression');
-        continue;
-      }
-      // Inner assigned-vars are computed from the inner string itself, so
-      // same-line assignments inside the nested body are respected.
-      const nested = scanCommand(inner, ctx, depth + 1);
-      resolved.push(...nested.resolved);
-      unresolved.push(...nested.unresolved);
+  // O148: nested execution is analyzed recursively up to this depth; anything
+  // deeper is reported as unresolved (fail-closed) instead of being silently
+  // ignored — `& { & { … } }` used to hide a write from the gate entirely.
+  for (const inner of extractNestedCommands(command)) {
+    if (inner === '__iex_opaque__') {
+      unresolved.push('Invoke-Expression');
+      continue;
     }
+    if (depth >= MAX_NEST_DEPTH) {
+      unresolved.push('PowerShell nesting deeper than the scan limit');
+      continue;
+    }
+    // Inner assigned-vars are computed from the inner string itself, so
+    // same-line assignments inside the nested body are respected.
+    const nested = scanCommand(inner, ctx, depth + 1);
+    resolved.push(...nested.resolved);
+    unresolved.push(...nested.unresolved);
   }
 
   return { resolved, unresolved };
