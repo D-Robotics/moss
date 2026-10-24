@@ -420,7 +420,12 @@ export class JsonlSessionStore implements SessionStore {
     deliveryId?: string
   ): Promise<boolean> {
     const filePath = this.sessionPath(sessionKey);
-    const entry = redactJsonLine({ type: 'message', message, deliveryId, ts: Date.now() });
+    const entry = JSON.stringify({
+      type: 'message',
+      message: JSON.parse(redactJsonLine(message)) as LLMMessage,
+      deliveryId,
+      ts: Date.now(),
+    });
     let appended = false;
     const mutate = async () => {
       let isNewSession = false;
@@ -438,6 +443,14 @@ export class JsonlSessionStore implements SessionStore {
             // a committed delivery is safe even from a stale store instance.
             // It does not refresh that instance's history view: only an actual
             // load may authorize a later replacement of concurrent messages.
+            // A prior append may have written the receipt but failed its fsync.
+            const handle = await fsp.open(filePath, 'r+');
+            try {
+              await handle.sync();
+            } finally {
+              await handle.close();
+            }
+            await syncDirectoryWith(path.dirname(filePath), durableDirectoryOperations);
             return;
           }
           const observedVersion = this.observedContentVersions.get(filePath);
@@ -509,9 +522,9 @@ export class JsonlSessionStore implements SessionStore {
             ]),
           ];
           const nextRaw =
-            redactJsonLine({
+            JSON.stringify({
               type: 'state_replace',
-              messages,
+              messages: JSON.parse(redactJsonLine(messages)) as LLMMessage[],
               deliveryIds,
               ts: Date.now(),
             }) + '\n';
