@@ -451,7 +451,10 @@ export class JsonlSessionStore implements SessionStore {
               recoverable: true,
             });
           }
-          await this.appendLineDurably(filePath, entry + '\n');
+          // A stopped write may leave a complete or partial unterminated line.
+          // Preserve its bytes while isolating the new record in this same lock.
+          const separator = currentRaw.length > 0 && !currentRaw.endsWith('\n') ? '\n' : '';
+          await this.appendLineDurably(filePath, separator + entry + '\n');
           appended = true;
           const raw = await this.readRaw(filePath);
           this.observedContentVersions.set(filePath, this.contentVersion(raw));
