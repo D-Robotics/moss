@@ -105,7 +105,7 @@ export {
 export type { SteeringRule, SteeringContext, SteeringResult } from './loop/index.js';
 
 export { InMemorySessionStore } from './session/index.js';
-export type { SessionStore, SessionMeta } from './session/index.js';
+export type { SessionStore, SessionMeta, SessionDeliverySnapshot } from './session/index.js';
 export { JsonlSessionStore } from './session/index.js';
 export type { JsonlSessionStoreConfig } from './session/index.js';
 export {

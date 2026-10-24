@@ -103,18 +103,21 @@ export async function probeGatewayReachability(input: {
   const timeoutMs = input.timeoutMs ?? GATEWAY_PROBE_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response | undefined;
   try {
-    const res = await fetchFn(target, {
+    response = await fetchFn(target, {
       method: 'GET',
       headers: { 'user-agent': 'moss-doctor/1.0' },
       signal: controller.signal,
     });
-    return { kind: 'ok', host, status: res.status };
+    return { kind: 'ok', host, status: response.status };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { kind: 'unreachable', host, error: msg };
   } finally {
     clearTimeout(timer);
+    controller.abort();
+    await response?.body?.cancel().catch(() => {});
   }
 }
 

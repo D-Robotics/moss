@@ -1,0 +1,11 @@
+# Durable steering in an embedded host
+
+An accepted steer belongs to the session inbox until its canonical message has been adopted. An unconsumed entry remains pending when a run ends. A new Agent using the same session directory can deliver it on the next run. Delivery uses a stable inbox entry ID, not the message body; two intentionally identical instructions remain distinct deliveries.
+
+The built-in JSONL store implements `appendMessageOnce(sessionKey, deliveryId, message)`. Its message and delivery receipt share one locked, fsynced append. A retry after append succeeds but inbox acknowledgement fails returns `false` without appending another message. Replacing or compacting history preserves receipts. A duplicate receipt does not refresh the caller's observed history version or authorize an outdated replacement.
+
+The in-memory store provides receipt idempotence for its own lifetime. Hosts that initially use memory can implement optional `ensureDurableSession(sessionKey)`. Moss requests this transition only before adopting deferred entries. The host must transfer a coherent `loadDeliverySnapshot` containing both messages and delivery IDs into its durable store, under the same session lock as subsequent operations. `replaceMessages` accepts those IDs as an optional third argument. The durable store becomes the sole canonical history; an intentionally empty durable history is not a missing session and must not be filled from an older archive.
+
+After a producer crashes before it can defer its pending entries, the host can explicitly recover entries for proven terminated run IDs. Admission includes server-generated producer provenance. A different Agent instance, an empty local active-run map, another hostname or an inaccessible PID is not proof of termination. Studio's host uses same-host `ESRCH`; live or unknown producers remain pending.
+
+Custom stores remain source compatible: these methods are optional. An append-only custom store retains append-then-ack behavior and does **not** gain a crash-safe exactly-once guarantee. A host must fail closed when it cannot transfer delivery receipts coherently. Existing explicit inbox drain APIs still transfer ownership to their caller; they are not automatic durable recovery.
