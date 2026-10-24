@@ -149,12 +149,14 @@ export async function probeVerifiedWhls(input: {
   for (const item of list) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const responses: Response[] = [];
     try {
       const res = await fetchFn(item.url, {
         method: 'HEAD',
         signal: controller.signal,
         headers: { 'user-agent': 'moss-doctor/1.0' },
       });
+      responses.push(res);
       // Some CDNs reject HEAD; fall back to ranged GET.
       if (res.status === 405 || res.status === 501) {
         const getRes = await fetchFn(item.url, {
@@ -162,6 +164,7 @@ export async function probeVerifiedWhls(input: {
           signal: controller.signal,
           headers: { 'user-agent': 'moss-doctor/1.0', range: 'bytes=0-0' },
         });
+        responses.push(getRes);
         results.push({
           board: item.board,
           url: item.url,
@@ -175,6 +178,10 @@ export async function probeVerifiedWhls(input: {
       results.push({ board: item.board, url: item.url, ok: false });
     } finally {
       clearTimeout(timer);
+      controller.abort();
+      for (const response of responses) {
+        await response.body?.cancel().catch(() => {});
+      }
     }
   }
   return results;

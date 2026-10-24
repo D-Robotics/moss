@@ -393,16 +393,19 @@ async function probeKeylessSearchReachability(
 ): Promise<'ok' | 'http-error' | 'unreachable'> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response | undefined;
   try {
-    const res = await fetch('https://www.bing.com/search?q=moss+agent', {
+    response = await fetch('https://www.bing.com/search?q=moss+agent', {
       headers: { 'user-agent': 'Mozilla/5.0 (compatible; moss-doctor/1.0)' },
       signal: controller.signal,
     });
-    return res.ok ? 'ok' : 'http-error';
+    return response.ok ? 'ok' : 'http-error';
   } catch {
     return 'unreachable';
   } finally {
     clearTimeout(timer);
+    controller.abort();
+    await response?.body?.cancel().catch(() => {});
   }
 }
 
