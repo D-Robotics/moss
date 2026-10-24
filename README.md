@@ -401,6 +401,8 @@ npm run build && MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-
 
 ## 文档
 
+- [嵌入宿主的持久补充指令与会话消费回执](docs/sdk-durable-steering.md)
+
 - [`AGENTS.md`](AGENTS.md) —— 架构、分层规则、子系统导航、工程约定（工作合同）
 - [`docs/release-policy.md`](docs/release-policy.md) —— 一个版本 / tag 声称了什么，又没声称什么
 - [`docs/capability-layer.md`](docs/capability-layer.md) —— MCP / device / skill 能力层

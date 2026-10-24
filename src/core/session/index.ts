@@ -1,5 +1,5 @@
 export { InMemorySessionStore } from './session.js';
-export type { SessionStore, SessionMeta } from './session.js';
+export type { SessionStore, SessionMeta, SessionDeliverySnapshot } from './session.js';
 export { JsonlSessionStore } from './jsonl-session-store.js';
 export type { JsonlSessionStoreConfig } from './jsonl-session-store.js';
 export {

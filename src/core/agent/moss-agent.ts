@@ -1,5 +1,7 @@
 import path from 'node:path';
+import os from 'node:os';
 import type { LLMMessage } from '../llm/llm-provider.js';
+import type { SessionStore } from '../session/session.js';
 import type { Tool, ToolContext, ToolResult } from '../tools/tool-types.js';
 import { getRootLogger } from '../../logger.js';
 import { buildExperienceBlock, experienceEnabled } from '../experience/experience-library.js';
@@ -85,7 +87,7 @@ import {
   type SessionInboxDelivery,
 } from '../session/session-inbox.js';
 import { runSessionDrain, type SessionDrainResult } from '../session/session-drain.js';
-import { loadSessionInbox, saveSessionInbox } from '../session/session-inbox-store.js';
+import { loadSessionInbox, updateSessionInbox } from '../session/session-inbox-store.js';
 import { getMossWorkspacePaths } from '../../utils/workspace-paths.js';
 import { SessionEventLog, type SessionEvent } from '../session/session-event.js';
 import { appendSessionEvent, loadSessionEventLog } from '../session/session-event-store.js';
@@ -145,13 +147,15 @@ export class MossAgent {
   private readonly remoteCompactProvider = createRemoteCompactProviderFromEnv();
   private readonly toolHooks: ToolHookRegistry;
   private readonly inboxes = new Map<string, SessionInbox>();
+  private readonly inboxProducer = {
+    host: os.hostname(),
+    pid: process.pid,
+    instanceId: crypto.randomUUID(),
+  };
   private readonly activeRunIds = new Map<string, Set<string>>();
-  /**
-   * Steers admitted after the loop's last poll. The host queue (`takeDeferredSteers`)
-   * owns them. A later run that the host did not drain delivers each one as a
-   * normal user message ahead of the new prompt — not as a mid-run steer.
-   */
-  private readonly deferredSteers = new Map<string, string[]>();
+  /** Polling claims an entry only until its canonical append acknowledges it. */
+  private readonly claimedSteers = new Map<string, Set<string>>();
+  private readonly steeringDeliveries = new WeakMap<InternalMessage, string>();
   private userQuestionAsker?: NonNullable<ToolContext['askUserQuestion']>;
   /** Per-agent run epochs stop parallel instances overwriting shared-session streams. */
   private readonly runEpochStore = new Map<string, number>();
@@ -429,6 +433,9 @@ export class MossAgent {
   }
 
   private inboxFilePath(sessionKey: string): string | undefined {
+    if (this.config.sessionInboxDir) {
+      return path.join(this.config.sessionInboxDir, `${encodeURIComponent(sessionKey)}.json`);
+    }
     const workspaceDir = this.config?.workspaceDir;
     if (!workspaceDir) return undefined;
     return path.join(
@@ -439,24 +446,36 @@ export class MossAgent {
   }
 
   private inboxFor(sessionKey: string): SessionInbox {
+    const file = this.inboxFilePath(sessionKey);
+    if (file) {
+      return this.rememberInbox(sessionKey, loadSessionInbox(file));
+    }
     let inbox = this.inboxes.get(sessionKey);
     if (!inbox) {
-      const file = this.inboxFilePath(sessionKey);
-      inbox = file ? loadSessionInbox(file) : new SessionInbox();
+      inbox = new SessionInbox();
       this.inboxes.set(sessionKey, inbox);
     }
     return inbox;
   }
 
-  private persistInbox(sessionKey: string): void {
-    const file = this.inboxFilePath(sessionKey);
-    const inbox = this.inboxes.get(sessionKey);
-    if (!file || !inbox) return;
-    try {
-      saveSessionInbox(file, inbox);
-    } catch (err) {
-      log.warn('persist_inbox_failed', { error: errorMessage(err), sessionKey });
+  private rememberInbox(sessionKey: string, inbox: SessionInbox): SessionInbox {
+    const cached = this.inboxes.get(sessionKey);
+    if (cached) {
+      cached.refreshFrom(inbox);
+      return cached;
     }
+    this.inboxes.set(sessionKey, inbox);
+    return inbox;
+  }
+
+  private mutateInbox<T>(sessionKey: string, mutate: (inbox: SessionInbox) => T): T {
+    const file = this.inboxFilePath(sessionKey);
+    if (file) {
+      const { inbox, result } = updateSessionInbox(file, mutate);
+      this.rememberInbox(sessionKey, inbox);
+      return result;
+    }
+    return mutate(this.inboxFor(sessionKey));
   }
 
   admit(
@@ -464,13 +483,13 @@ export class MossAgent {
     prompt: string,
     options?: { delivery?: SessionInboxDelivery; id?: string }
   ): SessionInboxEntry {
-    const entry = this.inboxFor(sessionKey).admit({
-      prompt,
-      delivery: options?.delivery,
-      id: options?.id,
-    });
-    this.persistInbox(sessionKey);
-    return entry;
+    return this.mutateInbox(sessionKey, (inbox) =>
+      inbox.admit({
+        prompt,
+        delivery: options?.delivery,
+        id: options?.id,
+      })
+    );
   }
 
   inboxPending(sessionKey: string): readonly SessionInboxEntry[] {
@@ -481,37 +500,66 @@ export class MossAgent {
     const activeRuns = this.activeRunIds.get(sessionKey);
     if (!activeRuns || activeRuns.size !== 1) return null;
     const runId = activeRuns.values().next().value as string;
-    const entry = this.inboxFor(sessionKey).admit({
-      prompt,
-      delivery: 'steer',
-      metadata: { runId },
-    });
-    this.persistInbox(sessionKey);
-    return entry;
+    return this.mutateInbox(sessionKey, (inbox) =>
+      inbox.admit({
+        prompt,
+        delivery: 'steer',
+        metadata: { runId, producer: this.inboxProducer },
+      })
+    );
   }
 
   /**
-   * Prompts that missed the run they were aimed at. Clears the stash.
-   * The TUI queues these. A host that never calls this still gets them once,
-   * as user messages ahead of the next prompt.
+   * Transfer deferred prompts to the caller, which now owns their delivery.
+   * Hosts wanting crash-safe automatic delivery should leave them in the inbox.
    */
   takeDeferredSteers(sessionKey: string): string[] {
-    const prompts = this.deferredSteers.get(sessionKey) ?? [];
-    if (prompts.length > 0) this.deferredSteers.delete(sessionKey);
-    return prompts.slice();
+    if (
+      !this.inboxFor(sessionKey)
+        .promotableSteers()
+        .some((entry) => entry.deferred)
+    )
+      return [];
+    return this.mutateInbox(sessionKey, (inbox) =>
+      inbox
+        .promotableSteers()
+        .filter((entry) => entry.deferred)
+        .map((entry) => {
+          inbox.promote(entry.id);
+          return entry.prompt;
+        })
+    );
+  }
+
+  /** Host-proven terminated runs only; absence from this Agent is not proof. */
+  recoverDeferredSteers(sessionKey: string, terminatedRunIds: readonly string[]): void {
+    const terminated = new Set(terminatedRunIds);
+    if (terminated.size === 0) return;
+    this.mutateInbox(sessionKey, (inbox) => {
+      for (const entry of inbox.promotableSteers()) {
+        if (typeof entry.metadata?.runId === 'string' && terminated.has(entry.metadata.runId)) {
+          inbox.defer(entry.id);
+        }
+      }
+    });
   }
 
   private takeSteeringMessages(sessionKey: string, runId: string): InternalMessage[] {
     const inbox = this.inboxFor(sessionKey);
+    const claimed = this.claimedSteers.get(runId) ?? new Set<string>();
     const entries = inbox.promotableSteers().filter((entry) => {
       const targetRunId = entry.metadata?.runId;
-      return targetRunId === undefined || targetRunId === runId;
+      return (
+        !entry.deferred &&
+        !claimed.has(entry.id) &&
+        (targetRunId === undefined || targetRunId === runId)
+      );
     });
     if (entries.length === 0) return [];
     const timestamp = Date.now();
     const messages = entries.map((entry) => {
-      inbox.promote(entry.id);
-      return {
+      claimed.add(entry.id);
+      const message: InternalMessage = {
         role: 'user' as const,
         content: [
           {
@@ -521,33 +569,48 @@ export class MossAgent {
         ],
         timestamp,
       };
+      this.steeringDeliveries.set(message, entry.id);
+      return message;
     });
-    this.persistInbox(sessionKey);
+    this.claimedSteers.set(runId, claimed);
     return messages;
   }
 
   /** Unconsumed steers for a finished run are deferred, not discarded. */
   private deferUnconsumedSteers(sessionKey: string, runId: string): void {
-    const inbox = this.inboxes.get(sessionKey);
-    if (!inbox) return;
-    const prompts: string[] = [];
-    let changed = false;
-    for (const entry of inbox.promotableSteers()) {
-      if (entry.metadata?.runId !== runId) continue;
-      prompts.push(entry.prompt);
-      inbox.promote(entry.id);
-      changed = true;
-    }
-    if (changed) this.persistInbox(sessionKey);
-    if (prompts.length === 0) return;
-    const existing = this.deferredSteers.get(sessionKey) ?? [];
-    this.deferredSteers.set(sessionKey, existing.concat(prompts));
+    this.claimedSteers.delete(runId);
+    if (
+      !this.inboxFor(sessionKey)
+        .promotableSteers()
+        .some((entry) => entry.metadata?.runId === runId)
+    )
+      return;
+    this.mutateInbox(sessionKey, (inbox) => {
+      for (const entry of inbox.promotableSteers()) {
+        if (entry.metadata?.runId === runId) inbox.defer(entry.id);
+      }
+    });
   }
 
   private noteRunStarted(sessionKey: string, runId: string): void {
     const activeRuns = this.activeRunIds.get(sessionKey) ?? new Set<string>();
     activeRuns.add(runId);
     this.activeRunIds.set(sessionKey, activeRuns);
+  }
+
+  private async appendInboxDelivery(
+    store: SessionStore,
+    sessionKey: string,
+    deliveryId: string,
+    message: LLMMessage
+  ): Promise<boolean> {
+    // Built-in stores commit message and receipt together. Legacy custom
+    // stores retain append-then-ack compatibility, without crash-safe dedupe.
+    const appended = store.appendMessageOnce
+      ? await store.appendMessageOnce(sessionKey, deliveryId, message)
+      : (await store.appendMessage(sessionKey, message), true);
+    this.mutateInbox(sessionKey, (inbox) => inbox.promote(deliveryId));
+    return appended;
   }
 
   private noteRunFinished(sessionKey: string, runId: string): void {
@@ -565,9 +628,13 @@ export class MossAgent {
     const drain = await runSessionDrain({
       inbox: this.inboxFor(sessionKey),
       runTurn: async (promoted) => {
+        // Like takeDeferredSteers, explicit drain transfers delivery ownership
+        // to the caller of chat rather than the automatic steering path.
+        this.mutateInbox(sessionKey, (inbox) => {
+          for (const entry of promoted) inbox.promote(entry.id);
+        });
         for (const entry of promoted)
           chats.push(await this.chat(sessionKey, entry.prompt, options));
-        this.persistInbox(sessionKey);
         return { continue: false };
       },
     });
@@ -905,25 +972,41 @@ ${result.stderr ?? ''}`.trim();
       }
     }
 
+    const deferredEntries = this.inboxFor(sessionKey)
+      .promotableSteers()
+      .filter((entry) => entry.deferred);
+    if (deferredEntries.length > 0 && store.ensureDurableSession) {
+      await abortable(store.ensureDurableSession(sessionKey), abortSignal);
+    }
     const loadedMessages = (await abortable(
       store.loadMessages(sessionKey),
       abortSignal
     )) as unknown as InternalMessage[];
     const messages = fromSessionMessages(loadedMessages);
     const isFirstUserTurn = !messages.some((message) => message.role === 'user');
-    // Deferred steers belong to the previous run. Deliver them as ordinary
-    // user messages ahead of this prompt. takeDeferredSteers clears the stash,
-    // so a host that already queued them does not get a second copy.
-    for (const prompt of this.takeDeferredSteers(sessionKey)) {
-      const text = prompt.trim();
-      if (!text) continue;
+    // Keep the durable pending record until canonical append + receipt commits.
+    // A retry after append but before ack sees the receipt and reloads history.
+    for (const entry of deferredEntries) {
       const prior: InternalMessage = {
         role: 'user',
-        content: text,
+        content: entry.prompt,
         timestamp: Date.now(),
       };
-      messages.push(prior);
-      await store.appendMessage(sessionKey, prior as unknown as LLMMessage);
+      const appended = await this.appendInboxDelivery(
+        store,
+        sessionKey,
+        entry.id,
+        prior as unknown as LLMMessage
+      );
+      if (appended) messages.push(prior);
+      else
+        messages.splice(
+          0,
+          messages.length,
+          ...fromSessionMessages(
+            (await store.loadMessages(sessionKey)) as unknown as InternalMessage[]
+          )
+        );
     }
     const userMsg: InternalMessage = {
       role: 'user',
@@ -1452,7 +1535,10 @@ ${result.stderr ?? ''}`.trim();
       contextTokens,
       steeringEngine: this.steeringEngine ?? undefined,
       appendMessage: async (key, msg) => {
-        await store.appendMessage(key, msg as unknown as LLMMessage);
+        const deliveryId = this.steeringDeliveries.get(msg as InternalMessage);
+        if (deliveryId) {
+          await this.appendInboxDelivery(store, key, deliveryId, msg as unknown as LLMMessage);
+        } else await store.appendMessage(key, msg as unknown as LLMMessage);
       },
       replaceMessages: async (key, nextMessages) => {
         await store.replaceMessages(key, nextMessages as unknown as LLMMessage[]);

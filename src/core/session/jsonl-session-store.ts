@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { LLMMessage } from '../llm/llm-provider.js';
-import type { SessionStore, SessionMeta } from './session.js';
+import type { SessionStore, SessionMeta, SessionDeliverySnapshot } from './session.js';
 import { WriteChain } from '../../utils/write-chain.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
 import { ErrorCode, MossError } from '../../errors.js';
@@ -17,8 +17,8 @@ export interface JsonlSessionStoreConfig {
 }
 
 type JsonlSessionEntry =
-  | { type: 'message'; message: LLMMessage; ts?: number }
-  | { type: 'state_replace'; messages: LLMMessage[]; ts?: number };
+  | { type: 'message'; message: LLMMessage; deliveryId?: string; ts?: number }
+  | { type: 'state_replace'; messages: LLMMessage[]; deliveryIds?: string[]; ts?: number };
 
 type DurableFileHandle = {
   writeFile: (data: string, encoding: BufferEncoding) => Promise<void>;
@@ -343,36 +343,46 @@ export class JsonlSessionStore implements SessionStore {
 
   private replayMessagesFromContent(raw: string): {
     messages: LLMMessage[];
+    deliveryIds: Set<string>;
     malformedCount: number;
   } {
     const lines = raw.split('\n').filter((l) => l.trim());
     const messages: LLMMessage[] = [];
+    const deliveryIds = new Set<string>();
     let malformedCount = 0;
     for (const line of lines) {
       try {
         const entry = JSON.parse(line) as JsonlSessionEntry;
         if (entry.type === 'message' && entry.message) {
           messages.push(entry.message);
+          if (typeof entry.deliveryId === 'string') deliveryIds.add(entry.deliveryId);
         } else if (entry.type === 'state_replace' && Array.isArray(entry.messages)) {
           messages.splice(0, messages.length, ...entry.messages);
+          for (const id of entry.deliveryIds ?? []) {
+            if (typeof id === 'string') deliveryIds.add(id);
+          }
         }
       } catch {
         malformedCount++;
       }
     }
-    return { messages, malformedCount };
+    return { messages, deliveryIds, malformedCount };
   }
 
   async loadMessages(sessionKey: string): Promise<LLMMessage[]> {
+    return (await this.loadDeliverySnapshot(sessionKey)).messages;
+  }
+
+  async loadDeliverySnapshot(sessionKey: string): Promise<SessionDeliverySnapshot> {
     const filePath = this.sessionPath(sessionKey);
-    let result: LLMMessage[] = [];
+    let result: SessionDeliverySnapshot = { messages: [], deliveryIds: [] };
     await this.enqueueWrite(filePath, async () => {
       result = await this.withFileLock(filePath, async () => {
         const raw = await this.readRaw(filePath);
         this.observedContentVersions.set(filePath, this.contentVersion(raw));
         this.replacementConflicts.delete(filePath);
-        if (!raw) return [];
-        const { messages, malformedCount } = this.replayMessagesFromContent(raw);
+        if (!raw) return { messages: [], deliveryIds: [] };
+        const { messages, deliveryIds, malformedCount } = this.replayMessagesFromContent(raw);
         if (malformedCount > 0) {
           const pct =
             messages.length > 0
@@ -385,15 +395,33 @@ export class JsonlSessionStore implements SessionStore {
               `If the damage is severe, start a fresh session with \`moss\`.`
           );
         }
-        return messages;
+        return { messages, deliveryIds: [...deliveryIds] };
       });
     });
     return result;
   }
 
   async appendMessage(sessionKey: string, message: LLMMessage): Promise<void> {
+    await this.appendSessionMessage(sessionKey, message);
+  }
+
+  async appendMessageOnce(
+    sessionKey: string,
+    deliveryId: string,
+    message: LLMMessage
+  ): Promise<boolean> {
+    if (!deliveryId) throw new Error('A non-empty deliveryId is required');
+    return this.appendSessionMessage(sessionKey, message, deliveryId);
+  }
+
+  private async appendSessionMessage(
+    sessionKey: string,
+    message: LLMMessage,
+    deliveryId?: string
+  ): Promise<boolean> {
     const filePath = this.sessionPath(sessionKey);
-    const entry = redactJsonLine({ type: 'message', message, ts: Date.now() });
+    const entry = redactJsonLine({ type: 'message', message, deliveryId, ts: Date.now() });
+    let appended = false;
     const mutate = async () => {
       let isNewSession = false;
       await this.enqueueWrite(filePath, async () => {
@@ -402,6 +430,16 @@ export class JsonlSessionStore implements SessionStore {
           this.noteRuntimeGitignore();
           isNewSession = this.maxSessions > 0 && !(await this.fileExists(filePath));
           const currentRaw = await this.readRaw(filePath);
+          if (
+            deliveryId &&
+            this.replayMessagesFromContent(currentRaw).deliveryIds.has(deliveryId)
+          ) {
+            // Receipt lookup precedes the optimistic version guard: a retry of
+            // a committed delivery is safe even from a stale store instance.
+            // It does not refresh that instance's history view: only an actual
+            // load may authorize a later replacement of concurrent messages.
+            return;
+          }
           const observedVersion = this.observedContentVersions.get(filePath);
           const currentVersion = this.contentVersion(currentRaw);
           if (observedVersion !== undefined && observedVersion !== currentVersion) {
@@ -414,6 +452,7 @@ export class JsonlSessionStore implements SessionStore {
             });
           }
           await this.appendLineDurably(filePath, entry + '\n');
+          appended = true;
           const raw = await this.readRaw(filePath);
           this.observedContentVersions.set(filePath, this.contentVersion(raw));
         });
@@ -422,15 +461,18 @@ export class JsonlSessionStore implements SessionStore {
     };
     if (this.maxSessions > 0) await this.withDirectoryMutationLock(mutate);
     else await mutate();
+    return appended;
   }
 
-  async replaceMessages(sessionKey: string, messages: LLMMessage[]): Promise<void> {
+  async replaceMessages(
+    sessionKey: string,
+    messages: LLMMessage[],
+    options?: { deliveryIds?: readonly string[] }
+  ): Promise<void> {
+    if (options?.deliveryIds?.some((id) => typeof id !== 'string' || !id)) {
+      throw new Error('Delivery snapshot contains an invalid deliveryId');
+    }
     const filePath = this.sessionPath(sessionKey);
-    const entry = redactJsonLine({
-      type: 'state_replace',
-      messages,
-      ts: Date.now(),
-    });
     const mutate = async () => {
       let isNewSession = false;
       await this.enqueueWrite(filePath, async () => {
@@ -457,7 +499,19 @@ export class JsonlSessionStore implements SessionStore {
           // Prunes dead lines (prior snapshots + superseded messages) that would
           // otherwise accumulate: replay ignores everything before the latest
           // state_replace, so appended-but-dead bytes grew ~ history × replaces.
-          const nextRaw = entry + '\n';
+          const deliveryIds = [
+            ...new Set([
+              ...this.replayMessagesFromContent(currentRaw).deliveryIds,
+              ...(options?.deliveryIds ?? []),
+            ]),
+          ];
+          const nextRaw =
+            redactJsonLine({
+              type: 'state_replace',
+              messages,
+              deliveryIds,
+              ts: Date.now(),
+            }) + '\n';
           await this.rewriteFileDurably(filePath, nextRaw);
           this.observedContentVersions.set(filePath, this.contentVersion(nextRaw));
         });

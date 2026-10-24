@@ -347,6 +347,8 @@ test('typed API surface resolves through dist/index.d.ts', async () => {
   for (const symbol of [
     'MossAgent',
     'MossAgentConfig',
+    'SessionStore',
+    'SessionDeliverySnapshot',
     'runAgentLoop',
     'MossError',
     'builtinTools',

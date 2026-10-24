@@ -11,6 +11,9 @@ export interface SessionInboxEntry {
 
   promotedSeq?: number;
 
+  /** The target run ended before canonical adoption. Still pending until ack. */
+  deferred?: boolean;
+
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
@@ -31,8 +34,6 @@ export class SessionInboxConflictError extends Error {
   }
 }
 
-let autoId = 0;
-
 export class SessionInbox {
   private readonly entries: SessionInboxEntry[] = [];
   private admittedCounter = 0;
@@ -41,7 +42,7 @@ export class SessionInbox {
   static readonly MAX_ENTRIES = 500;
 
   admit(input: SessionInboxAdmitInput): SessionInboxEntry {
-    const id = input.id ?? `inbox_${Date.now().toString(36)}_${(autoId++).toString(36)}`;
+    const id = input.id ?? `inbox_${randomUUID()}`;
     if (this.entries.some((e) => e.id === id)) throw new SessionInboxConflictError(id);
     const entry: SessionInboxEntry = {
       id,
@@ -78,6 +79,13 @@ export class SessionInbox {
     return this.entries.some((e) => e.promotedSeq === undefined);
   }
 
+  defer(id: string): SessionInboxEntry {
+    const entry = this.entries.find((e) => e.id === id);
+    if (!entry) throw new Error(`Session inbox has no entry "${id}"`);
+    if (entry.promotedSeq === undefined) entry.deferred = true;
+    return entry;
+  }
+
   private pruneIfNeeded(): void {
     while (this.entries.length > SessionInbox.MAX_ENTRIES) {
       const idx = this.entries.findIndex((e) => e.promotedSeq !== undefined);
@@ -90,6 +98,13 @@ export class SessionInbox {
     return this.entries.map((e) => ({ ...e }));
   }
 
+  /** Refresh persisted state without invalidating an active drain's inbox view. */
+  refreshFrom(inbox: SessionInbox): void {
+    this.entries.splice(0, this.entries.length, ...inbox.toEntries());
+    this.admittedCounter = inbox.admittedCounter;
+    this.promotedCounter = inbox.promotedCounter;
+  }
+
   static fromEntries(entries: readonly SessionInboxEntry[]): SessionInbox {
     const inbox = new SessionInbox();
     for (const e of entries) inbox.entries.push({ ...e });
@@ -98,3 +113,4 @@ export class SessionInbox {
     return inbox;
   }
 }
+import { randomUUID } from 'node:crypto';
