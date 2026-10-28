@@ -22,6 +22,35 @@ function toolResult(id, content) {
   };
 }
 
+test('never replays external MCP observations, even when declared readonly', () => {
+  for (const name of [
+    'mcp__duck-lab__rdk_training_status',
+    'mcp__another-server__health',
+    'mcp__fixture__search',
+  ]) {
+    const input = { runId: 'same-run' };
+    const messages = [assistantToolUse('query-1', name, input), toolResult('query-1', 'running')];
+    assert.equal(findReplayableToolResultContent(messages, name, input, 32, 'readonly'), null);
+  }
+});
+
+test('retains stable local read reuse and never replays mutating tool results', () => {
+  const input = { path: 'example.txt' };
+  const messages = [
+    assistantToolUse('read-1', 'read_file', input),
+    toolResult('read-1', 'file contents'),
+  ];
+  assert.equal(
+    findReplayableToolResultContent(messages, 'read_file', input, 32, 'readonly'),
+    'file contents'
+  );
+  assert.equal(
+    findReplayableToolResultContent(messages, 'read_file', input, 32, 'local_write'),
+    null
+  );
+  assert.equal(findReplayableToolResultContent(messages, 'read_file', input), null);
+});
+
 test('does not replay a file read after the same path was mutated', () => {
   const messages = [
     assistantToolUse('read-1', 'read_file', { path: 'src/example.ts' }),
