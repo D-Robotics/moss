@@ -37,6 +37,9 @@ export function findReplayableToolResultContent(
   sideEffectClass?: ToolSideEffectClass
 ): string | null {
   if (isToolAssumedMutating(toolName, sideEffectClass)) return null;
+  // Readonly describes side effects, not freshness. External observations and
+  // MCP search catalogs may change without a local write; ask the server again.
+  if (toolName.startsWith('mcp__')) return null;
 
   const want = stableSerializeToolInput(input);
   const wantedPathKey = toolPathKey(toolName, input);
