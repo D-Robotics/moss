@@ -43,6 +43,8 @@ export interface GrepWithRgOptions {
   contextLines: number;
   outputMode: SearchCodeOutputMode;
   multiline?: boolean;
+  /** Report incomplete bounded output without changing the array return contract. */
+  onIncomplete?: () => void;
 }
 
 /**
@@ -51,8 +53,9 @@ export interface GrepWithRgOptions {
  * - files_with_matches: one relative path per line
  * - count: `path: N` per file
  *
- * Returns null when rg is unavailable or fails hard (caller falls back).
- * Empty array when there are no matches.
+ * Returns null when rg is unavailable or an unbounded invocation fails hard.
+ * A failed bounded invocation retains output, including an empty array, and
+ * calls onIncomplete; the caller must not treat that as a complete scan.
  */
 export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | null> {
   if (!(await isRgAvailable())) return null;
@@ -71,6 +74,7 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
     contextLines,
     outputMode,
     multiline,
+    onIncomplete,
   } = opts;
 
   const args: string[] = ['--color=never'];
@@ -122,8 +126,12 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
       if (err.exitCode === 1) return [];
       // A bounded scan of / or $HOME hits unreadable directories (exit 2)
       // and may hit the time cap. Keep the lines rg already printed.
-      if (maxDepth !== undefined && err.stdout.trim()) stdout = err.stdout;
-      else return null;
+      // Even an empty bounded result has spent this scan's budget. Falling
+      // back would renew it and can block on an unreadable directory.
+      if (maxDepth !== undefined) {
+        stdout = err.stdout;
+        onIncomplete?.();
+      } else return null;
     } else {
       return null;
     }
@@ -177,14 +185,16 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
 /**
  * Find files via `rg --files` (respects .gitignore). Returns absolute paths
  * sorted by mtime descending (Claude Code Glob parity — recent files first).
- * Returns null when rg is unavailable.
+ * Returns null when rg is unavailable. Failed bounded attempts retain output
+ * and notify onIncomplete instead of requesting another scan.
  */
 export async function filesWithRg(
   searchDir: string,
   pattern: string,
   limit: number,
   timeoutMs = 30_000,
-  maxDepth?: number
+  maxDepth?: number,
+  onIncomplete?: () => void
 ): Promise<string[] | null> {
   if (!(await isRgAvailable())) return null;
 
@@ -212,8 +222,10 @@ export async function filesWithRg(
   } catch (err) {
     if (err instanceof ProcessError) {
       if (err.exitCode === 1) return [];
-      if (maxDepth !== undefined && err.stdout.trim()) stdout = err.stdout;
-      else return null;
+      if (maxDepth !== undefined) {
+        stdout = err.stdout;
+        onIncomplete?.();
+      } else return null;
     } else {
       return null;
     }
@@ -411,7 +423,13 @@ function withBoundNote(text: string, location: SearchLocation): string {
   return `${text}\n${location.bound.note}`;
 }
 
-function presentSearch(text: string, location: SearchLocation): string {
+function presentSearch(text: string, location: SearchLocation, incomplete = false): string {
+  if (incomplete) {
+    if (text === 'No files found' || text === 'No matches found')
+      text = 'No matching output collected.';
+    text +=
+      '\nIncomplete bounded search: rg ended with errors or a time limit. Results may be empty or partial; narrow the search path.';
+  }
   return redactEgress(withBoundNote(text, location));
 }
 
@@ -462,7 +480,10 @@ export const searchFilesTool: Tool = {
       const maxDepth = location.bound?.maxDepth;
 
       // Prefer rg --files: gitignore-aware and fast on monorepos.
-      let absPaths = await filesWithRg(location.dir, pattern, limit, timeoutMs, maxDepth);
+      let incomplete = false;
+      let absPaths = await filesWithRg(location.dir, pattern, limit, timeoutMs, maxDepth, () => {
+        incomplete = true;
+      });
       if (absPaths === null) {
         absPaths = await walkMatch(location.dir, pattern, limit, {
           ...(maxDepth !== undefined ? { maxDepth, timeoutMs } : {}),
@@ -472,12 +493,12 @@ export const searchFilesTool: Tool = {
       const relative = absPaths.map((file) =>
         path.relative(ctx.workspaceDir, file).split(path.sep).join('/')
       );
-      if (relative.length === 0) return presentSearch('No files found', location);
+      if (relative.length === 0) return presentSearch('No files found', location, incomplete);
       const truncated = absPaths.length >= limit;
       const header = truncated
         ? `Found ${relative.length}+ files (showing first ${limit}, newest first):\n`
         : `Found ${relative.length} file(s) (newest first):\n`;
-      return presentSearch(header + relative.join('\n'), location);
+      return presentSearch(header + relative.join('\n'), location, incomplete);
     } catch (err) {
       throw toolError('Error searching files', err);
     }
@@ -592,6 +613,7 @@ export const searchCodeTool: Tool = {
         : maxResults;
       const timeoutMs = location.bound?.timeoutMs ?? 30_000;
       const maxDepth = location.bound?.maxDepth;
+      let incomplete = false;
       // Prefer ripgrep when available: respects .gitignore and is far
       // faster than the in-process walk on large repos.
       const rgResults = await grepWithRg({
@@ -607,6 +629,9 @@ export const searchCodeTool: Tool = {
         contextLines: outputMode === 'content' ? contextLines : 0,
         outputMode,
         multiline,
+        onIncomplete: () => {
+          incomplete = true;
+        },
         ...(maxDepth !== undefined ? { maxDepth } : {}),
       });
 
@@ -631,20 +656,22 @@ export const searchCodeTool: Tool = {
           }
         );
       }
-      if (matches.length === 0) return presentSearch('No matches found', location);
+      if (matches.length === 0) return presentSearch('No matches found', location, incomplete);
       if (outputMode === 'files_with_matches') {
         return presentSearch(
           `Files with matches (${matches.length}):\n${matches.join('\n')}`,
-          location
+          location,
+          incomplete
         );
       }
       if (outputMode === 'count') {
         return presentSearch(
           `Match counts (${matches.length} files):\n${matches.join('\n')}`,
-          location
+          location,
+          incomplete
         );
       }
-      return presentSearch(matches.join('\n'), location);
+      return presentSearch(matches.join('\n'), location, incomplete);
     } catch (err) {
       throw toolError('Error searching code', err);
     }
