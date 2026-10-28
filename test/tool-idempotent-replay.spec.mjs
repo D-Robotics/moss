@@ -44,7 +44,11 @@ test('retains stable local read reuse and never replays mutating tool results', 
     findReplayableToolResultContent(messages, 'read_file', input, 32, 'readonly'),
     'file contents'
   );
-  assert.equal(findReplayableToolResultContent(messages, 'read_file', input, 32, 'mutating'), null);
+  assert.equal(
+    findReplayableToolResultContent(messages, 'read_file', input, 32, 'local_write'),
+    null
+  );
+  assert.equal(findReplayableToolResultContent(messages, 'read_file', input), null);
 });
 
 test('does not replay a file read after the same path was mutated', () => {
