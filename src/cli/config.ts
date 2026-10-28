@@ -55,7 +55,7 @@ import {
   recordDotenvOrigin,
 } from '../utils/startup-env.js';
 import { officialEnvOffers } from './env-credentials.js';
-import { isZhLocale, setupCopy } from './cli-locale.js';
+import { isZhLocale } from './cli-locale.js';
 import { isDeviceTrustEnv, parseDeviceTrustList } from '../safety/device-trust.js';
 import type { PricingConfig } from './model-pricing.js';
 import type { StatusLineConfig } from './status-line.js';
@@ -2077,11 +2077,12 @@ export function resolveCliConfig(
         baseUrl: offer.baseUrl,
       };
       autoEnvKey = { apiKey: offer.apiKey, source: `env:${offer.keyVar}` };
-      autoEnvNotice = setupCopy(undefined, '[moss] Using {key} → {provider} @ {baseUrl}', {
-        key: offer.keyVar,
-        provider: offer.provider,
-        baseUrl: offer.baseUrl,
-      });
+      // Config also initializes module defaults while cli-locale is importing it;
+      // its translation table is not initialized yet in that import order.
+      autoEnvNotice = uiText(
+        `[moss] Using ${offer.keyVar} → ${offer.provider} @ ${offer.baseUrl}`,
+        `[moss] 使用 ${offer.keyVar} → ${offer.provider} @ ${offer.baseUrl}`
+      );
       autoEnvKeys.add('provider');
       autoEnvKeys.add('model');
       autoEnvKeys.add('baseUrl');
