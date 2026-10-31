@@ -22,6 +22,8 @@ export interface TodoNudgeRequest {
   userText: string;
   /** How many times this run already fired a todo nudge. */
   attempts: number;
+  /** Current callable surface; omitted preserves legacy direct evaluator callers. */
+  todoWriteAvailable?: boolean;
 }
 
 export type TodoNudgeResult = { fire: false } | { fire: true; correction: string };
@@ -32,6 +34,7 @@ export const TODO_NUDGE_MIN_TOOLS = 3;
 export const TODO_NUDGE_MAX_ATTEMPTS = 1;
 
 export function evaluateTodoNudge(request: TodoNudgeRequest): TodoNudgeResult {
+  if (request.todoWriteAvailable === false) return { fire: false };
   if (request.attempts >= TODO_NUDGE_MAX_ATTEMPTS) return { fire: false };
   if ((request.toolCallsByName.todo_write ?? 0) > 0) return { fire: false };
   // A run already driving the unified task plan has a checklist (task_define /
