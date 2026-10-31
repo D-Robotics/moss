@@ -196,6 +196,12 @@ export interface ToolMetadata {
    * checks; a replayed result skips that, so a full re-read never counted.
    */
   noReplay?: boolean;
+  /**
+   * Host opt-in for bounded fresh observations of changing resources. Only
+   * applies to readonly tools with noReplay; it does not bypass approval,
+   * failure limits or per-run observation budgets.
+   */
+  freshObservation?: boolean;
   planMode?: ToolPlanMode;
 
   requiresApproval?: boolean;

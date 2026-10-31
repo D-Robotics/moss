@@ -1,4 +1,5 @@
 import { stableSerializeToolInput } from './tool-idempotent-replay.js';
+import { createHash } from 'node:crypto';
 import { readEnv } from '../../utils/env-compat.js';
 import { windowsMissingCommand } from '../../utils/windows-missing-command.js';
 import path from 'node:path';
@@ -76,6 +77,10 @@ const DISCOVERY_TOOLS = new Set([
 ]);
 
 const DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT = 3;
+// No matter how often an observation changes, bounded probes cannot extend a
+// single signature indefinitely or collectively evade the run's other limits.
+const FRESH_OBSERVATION_SIGNATURE_LIMIT = 12;
+const FRESH_OBSERVATION_EXTRA_LIMIT = 24;
 const DEFAULT_TOOL_FAILURE_LIMIT = 3;
 /** Failed discovery retries on the same tool before short-circuit (stricter than generic 3). */
 const DEFAULT_DISCOVERY_FAILURE_LIMIT = 2;
@@ -113,6 +118,8 @@ export type SameCommandFailureStreak = {
 
 export type ToolLoopGuardState = {
   bySignature: Map<string, number>;
+  freshObservations: Map<string, { fingerprint?: string; unchanged: number; probed: boolean }>;
+  freshObservationExtras: number;
   byTool: Map<string, number>;
   byToolFailure: Map<string, number>;
   // Per-URL failure count for web_fetch. web_fetch targets are independent
@@ -299,6 +306,8 @@ export function createToolLoopGuardState(
     ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
     editPathRaw: new Map(),
     bySignature: new Map(),
+    freshObservations: new Map(),
+    freshObservationExtras: 0,
     byTool: new Map(),
     byToolFailure: new Map(),
     byWebFetchUrlFailure: new Map(),
@@ -312,6 +321,31 @@ export function createToolLoopGuardState(
     hasSufficientRssNewsEvidence: false,
     total: 0,
   };
+}
+
+/** Record only an actual, successful observation for the original input. */
+export function recordFreshObservationOutcome(
+  state: ToolLoopGuardState,
+  toolName: string,
+  input: Record<string, unknown>,
+  resultText: string,
+  options: { unchanged?: boolean } = {}
+): void {
+  const signature = `${toolName}:${stableSerializeToolInput(input)}`;
+  const observation = state.freshObservations.get(signature);
+  if (!observation) return;
+  if (options.unchanged) {
+    observation.unchanged += 1;
+    return;
+  }
+  const fingerprint = createHash('sha256').update(resultText).digest('hex');
+  if (fingerprint === observation.fingerprint) {
+    observation.unchanged += 1;
+  } else {
+    observation.fingerprint = fingerprint;
+    observation.unchanged = 1;
+    observation.probed = false;
+  }
 }
 
 // Normalize a web_fetch URL to a stable key for per-URL failure counting.
@@ -947,7 +981,7 @@ export function shouldShortCircuitToolCall(
   state: ToolLoopGuardState,
   toolName: string,
   input: Record<string, unknown>,
-  options: { parallelBatch?: boolean } = {}
+  options: { parallelBatch?: boolean; freshObservation?: boolean } = {}
 ): string | null {
   const identicalLimit = resolveOptionalPositiveIntEnv(
     'MOSS_TOOL_LOOP_IDENTICAL_LIMIT',
@@ -1079,8 +1113,26 @@ export function shouldShortCircuitToolCall(
     }
     return `${toolName} has failed ${failureCount} time(s) in this user turn`;
   }
-  if (identicalLimit !== undefined && sameSignatureCount >= identicalLimit) {
+  const observation = options.freshObservation ? state.freshObservations.get(signature) : undefined;
+  // A host can raise or disable the ordinary identical-call guard. Fresh
+  // observations still need their own absolute budgets in those modes; count
+  // calls beyond at most the default allowance as extra observations.
+  const freshBaseLimit = Math.min(
+    identicalLimit ?? DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT,
+    DEFAULT_IDENTICAL_TOOL_INPUT_LIMIT
+  );
+  if (
+    options.freshObservation &&
+    (sameSignatureCount >= FRESH_OBSERVATION_SIGNATURE_LIMIT ||
+      (sameSignatureCount >= freshBaseLimit &&
+        state.freshObservationExtras >= FRESH_OBSERVATION_EXTRA_LIMIT))
+  ) {
     return `identical input was already requested ${sameSignatureCount} time(s) in this user turn`;
+  }
+  if (identicalLimit !== undefined && sameSignatureCount >= identicalLimit) {
+    if (!observation || (observation.unchanged >= identicalLimit && observation.probed)) {
+      return `identical input was already requested ${sameSignatureCount} time(s) in this user turn`;
+    }
   }
   if (
     singleToolLimit !== undefined &&
@@ -1111,6 +1163,12 @@ export function shouldShortCircuitToolCall(
     }
   }
 
+  if (options.freshObservation) {
+    const current = observation ?? { unchanged: 0, probed: false };
+    if (!observation) state.freshObservations.set(signature, current);
+    if (sameSignatureCount >= freshBaseLimit) state.freshObservationExtras += 1;
+    if (identicalLimit !== undefined && current.unchanged >= identicalLimit) current.probed = true;
+  }
   state.bySignature.set(signature, sameSignatureCount + 1);
   state.byTool.set(toolName, sameToolCount + 1);
   state.total += 1;

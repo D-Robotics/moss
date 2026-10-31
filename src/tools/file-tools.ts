@@ -165,6 +165,7 @@ export const readFileTool: Tool = {
     planMode: 'allow',
     // O122: execute() must run so a full re-read registers (its own unchanged stub saves tokens).
     noReplay: true,
+    freshObservation: true,
   },
   inputSchema: {
     type: 'object',

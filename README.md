@@ -257,6 +257,16 @@ moss tasks list                     # 只读查看机器人闭环产物
 
 `src/index.ts` 的导出面是受 semver 保护的合同，由 `test/sdk-contract.spec.mjs` 快照锁定；`examples/` 下三个可运行集成（`npm run examples`）。
 
+**SDK 工具后置 hook 与结构化结果。** 通过 `MossAgent.registerPostToolHook` 或
+`ToolHookRegistry.registerPost` 注册的观察型 hook 应返回 `null`；这样不会因 hook 本身丢弃原来的
+结构化内容。返回 `{ result: string }` 表示替换文本，即使字符串与原结果相同，Moss 也会丢弃此前的
+结构化块，避免旧内容绕过脱敏；后置失败 hook 同样遵循这一规则。工具结果被拒绝或取消时不会保留
+未授权或已取消执行的结构化结果。文本结果仍遵循正常的输出限制。
+
+模型读取已保存的工具结果时，以记录中存在的 `content` 文本为准，包括空字符串；旧的结构化文本不会
+重新追加。为兼容历史记录，**完全没有 `content` 字段**的旧结果仍会回退读取已保存的结构化文本。
+如果此类旧记录含有不应发送给模型的原始内容，宿主应在恢复会话前先处理这些记录。
+
 ## 板端推理依赖（RDK）
 
 > **不要**再用 `http://sdk.d-robotics.cc:8080/simple/`（已下线，连接失败）。  

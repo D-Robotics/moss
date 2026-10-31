@@ -276,6 +276,20 @@ moss tasks list                     # read-only robotics artifacts
 The `src/index.ts` export surface is a semver-protected contract, snapshotted by
 `test/sdk-contract.spec.mjs`; three runnable integrations live in `examples/` (`npm run examples`).
 
+**SDK post-tool hooks and structured results.** An observation-only hook registered with
+`MossAgent.registerPostToolHook` or `ToolHookRegistry.registerPost` should return `null`, which
+does not itself discard the structured content. Returning `{ result: string }` replaces the text;
+Moss discards the previous structured blocks even when the returned string is unchanged, so old
+content cannot bypass a redaction. Post-failure hooks follow the same rule. Denied or cancelled
+tool calls do not retain structured results from unauthorized or cancelled execution. Normal text
+output limits still apply.
+
+When loading a stored tool result for the model, an existing `content` string, including an empty
+one, is authoritative; old structured text is not appended. For compatibility, a legacy result
+with **no `content` field at all** still falls back to its stored structured text. Hosts should
+handle such old records before resuming a session if they contain raw content that must not be sent
+to the model.
+
 ## Board-side inference dependencies (RDK)
 
 > **Do not** use `http://sdk.d-robotics.cc:8080/simple/` (offline; connection refused).  
