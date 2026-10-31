@@ -643,6 +643,8 @@ async function executeOneToolCallInner(
 
     emitStart();
 
+    let postHookModified = false;
+    const textBeforePostHooks = text;
     if (deps.toolHooks) {
       text = await deps.toolHooks.runPostHooks({
         tool,
@@ -652,6 +654,9 @@ async function executeOneToolCallInner(
         durationMs: Date.now() - startMs,
         ctx: callToolCtx,
         sessionId: deps.sessionKey,
+        onModified: () => {
+          postHookModified = true;
+        },
       });
     }
 
@@ -663,6 +668,9 @@ async function executeOneToolCallInner(
         durationMs: Date.now() - startMs,
         ctx: callToolCtx,
         sessionId: deps.sessionKey,
+        onModified: () => {
+          postHookModified = true;
+        },
       });
     }
 
@@ -675,7 +683,9 @@ async function executeOneToolCallInner(
         ? { outcome: 'blocked' as const }
         : {}),
       ...(aborted ? { aborted } : {}),
-      ...(structuredBlocks ? { structuredContent: structuredBlocks } : {}),
+      ...(!postHookModified && text === textBeforePostHooks && !aborted && structuredBlocks
+        ? { structuredContent: structuredBlocks }
+        : {}),
       ...(toolError ? { error: toolError } : {}),
       ...(protectedPathChanges.length > 0 ? { protectedPathChanges } : {}),
     };

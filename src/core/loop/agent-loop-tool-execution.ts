@@ -14,7 +14,10 @@ import type { AgentLoopMutableState } from './agent-loop-state.js';
 import type { Message, ContentBlock } from '../session/session-jsonl.js';
 import type { Tool, ToolContext, ToolResultOutcome } from '../tools/tool-types.js';
 import type { ToolHookRegistry } from '../tools/tool-hooks.js';
-import { findReplayableToolResultContent } from '../tools/tool-idempotent-replay.js';
+import {
+  findReplayableToolResultContent,
+  stableSerializeToolInput,
+} from '../tools/tool-idempotent-replay.js';
 import {
   formatToolResultForSsePreview,
   groupToolCallsForExecution,
@@ -22,12 +25,18 @@ import {
 } from './agent-loop-tool-helpers.js';
 import {
   formatToolLoopGuardMessage,
+  recordFreshObservationOutcome,
   recordToolLoopOutcome,
   shouldShortCircuitToolCall,
   type ToolLoopGuardState,
 } from '../tools/tool-loop-guard.js';
 import { buildBackgroundCompletionSystemText } from './background-completion.js';
 import { inAcceptanceScope } from '../task/acceptance-commit-scope.js';
+import { modelToolResultText } from '../tools/message-convert.js';
+import {
+  FILE_UNCHANGED_STUB,
+  FILE_UNCHANGED_TRUNCATED_STUB,
+} from '../../contracts/file-read-observation.js';
 
 const log = getRootLogger().child('agent:loop');
 
@@ -92,9 +101,29 @@ interface OutcomeRecordingContext {
   toolLoopGuard: ToolLoopGuardState;
   metrics: AgentLoopToolExecutionMetrics;
   state: AgentLoopMutableState;
+  toolsForRun: Tool[];
+  originalInputs: WeakMap<ToolCallRef, string>;
 }
 
 type ToolCallRef = { id: string; name: string; input: Record<string, unknown> };
+
+function isFreshObservation(tool: Tool | undefined): boolean {
+  const meta = tool?.metadata;
+  return (
+    meta?.freshObservation === true && meta.noReplay === true && meta.sideEffectClass === 'readonly'
+  );
+}
+
+function hasRepeatedFreshObservation(calls: ToolCallRef[], tools: Tool[]): boolean {
+  const seen = new Set<string>();
+  for (const call of calls) {
+    if (!isFreshObservation(tools.find((tool) => tool.name === call.name))) continue;
+    const signature = `${call.name}:${stableSerializeToolInput(call.input)}`;
+    if (seen.has(signature)) return true;
+    seen.add(signature);
+  }
+  return false;
+}
 
 export function parallelToolCallsWithinBudget(
   groupSize: number,
@@ -135,7 +164,11 @@ function preflightToolCall(
     };
   }
 
-  const loopReason = shouldShortCircuitToolCall(ctx.toolLoopGuard, call.name, call.input, options);
+  const tool = resolvedTools.find((item) => item.name === call.name);
+  const loopReason = shouldShortCircuitToolCall(ctx.toolLoopGuard, call.name, call.input, {
+    ...options,
+    freshObservation: isFreshObservation(tool),
+  });
   if (loopReason) {
     // The guard routinely short-circuits redundant tool calls (e.g. the model
     // re-requesting the same file in a turn). It's a normal internal event,
@@ -182,7 +215,7 @@ function preflightToolCall(
     };
   }
 
-  const toolMeta = resolvedTools.find((t) => t.name === call.name)?.metadata;
+  const toolMeta = tool?.metadata;
   // Verification evidence must describe an actual execution, not a cached read.
   if (ctx.requireFreshExecution) return null;
   const replayed = findLoopReplay(ctx.historyBeforeAssistant, call.name, call.input, toolMeta);
@@ -246,6 +279,29 @@ function recordToolOutcome(
           ];
     }
   }
+
+  const truncatedResult = truncateToolOutput(call.name, result);
+  if (
+    isFreshObservation(ctx.toolsForRun.find((tool) => tool.name === call.name)) &&
+    outcome.kind === 'completed' &&
+    !isError &&
+    !outcome.aborted &&
+    (outcome.outcome === undefined || outcome.outcome === 'ok') &&
+    ctx.originalInputs.get(call) === stableSerializeToolInput(call.input)
+  ) {
+    recordFreshObservationOutcome(
+      ctx.toolLoopGuard,
+      call.name,
+      call.input,
+      modelToolResultText(truncatedResult, structuredContent),
+      {
+        unchanged:
+          call.name === 'read_file' &&
+          !rawStructuredContent &&
+          (result === FILE_UNCHANGED_STUB || result === FILE_UNCHANGED_TRUNCATED_STUB),
+      }
+    );
+  }
   ctx.metrics.totalToolCalls++;
   ctx.metrics.toolCallsByName[call.name] = (ctx.metrics.toolCallsByName[call.name] ?? 0) + 1;
   if (isError) {
@@ -258,7 +314,6 @@ function recordToolOutcome(
   recordToolLoopOutcome(ctx.toolLoopGuard, call.name, isError, result, call.input);
   recordFailingVerifyStreak(ctx.state, call.name, call.input, result, isError);
 
-  const truncatedResult = truncateToolOutput(call.name, result);
   const preview =
     outcome.kind === 'hook-blocked' || outcome.kind === 'denied'
       ? truncatedResult
@@ -339,15 +394,19 @@ export async function executeAgentLoopToolCalls(
     historyBeforeAssistant,
     requireFreshExecution: toolCtx.agentId === 'subagent:verify',
   };
+  const toolsForRun = resolveToolsForRun();
+  const originalInputs = new WeakMap<ToolCallRef, string>();
+  for (const call of toolCalls) originalInputs.set(call, stableSerializeToolInput(call.input));
   const recordCtx: OutcomeRecordingContext = {
     assistantContent,
     push,
     toolLoopGuard,
     metrics,
     state,
+    toolsForRun,
+    originalInputs,
   };
 
-  const toolsForRun = resolveToolsForRun();
   const readonlyToolNames = new Set(
     toolsForRun.filter((t) => t.metadata?.sideEffectClass === 'readonly').map((t) => t.name)
   );
@@ -421,6 +480,7 @@ export async function executeAgentLoopToolCalls(
     if (
       group.parallel &&
       group.calls.length > 1 &&
+      !hasRepeatedFreshObservation(group.calls, toolsForRun) &&
       parallelToolCallsWithinBudget(group.calls.length, metrics, maxToolCalls)
     ) {
       const settled = await Promise.allSettled(
