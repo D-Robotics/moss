@@ -5,9 +5,9 @@ export function formatCompactSessionResult(
 ): string {
   if (!result.compacted) {
     return [
-      'No compaction needed.',
+      'Conversation context was not compacted; original history is unchanged.',
       `  tokens after check: ~${result.tokensAfter.toLocaleString()}`,
-      '  The current conversation still fits within the keep-recent window.',
+      '  No context savings are currently available.',
     ].join('\n');
   }
   return [

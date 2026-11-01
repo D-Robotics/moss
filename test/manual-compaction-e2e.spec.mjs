@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { MossAgent } from '../dist/core/agent/moss-agent.js';
 import { InMemorySessionStore } from '../dist/core/session/session.js';
 import { estimateMessagesTokens } from '../dist/context/tokens.js';
+import { formatCompactSessionResult } from '../dist/cli/compact-command.js';
 
 function providerWithSummaryAndContinuation() {
   const calls = [];
@@ -193,7 +194,7 @@ test('manual compaction persists complete tool use and result pairs across resum
     enableFollowUpGuard: false,
   });
 
-  await store.appendMessage('tool-pair', { role: 'user', content: 'old request' });
+  await store.appendMessage('tool-pair', { role: 'user', content: 'old request '.repeat(1_000) });
   await store.appendMessage('tool-pair', { role: 'assistant', content: 'old answer' });
   await store.appendMessage('tool-pair', { role: 'user', content: 'inspect the README next' });
   await store.appendMessage('tool-pair', {
@@ -210,8 +211,13 @@ test('manual compaction persists complete tool use and result pairs across resum
   await store.appendMessage('tool-pair', { role: 'user', content: 'continue from that evidence' });
   await store.appendMessage('tool-pair', { role: 'assistant', content: 'I will continue.' });
 
+  const tokensBefore = estimateMessagesTokens(await store.loadMessages('tool-pair'));
   const compacted = await agent.compactSession('tool-pair');
   assert.equal(compacted.compacted, true);
+  assert.ok(
+    compacted.tokensAfter < tokensBefore,
+    'the positive tool-pair case really saves context'
+  );
   const persisted = await store.loadMessages('tool-pair');
   const serialized = JSON.stringify(persisted);
   assert.match(serialized, /"type":"tool_result","tool_use_id":"read-1"/);
@@ -221,4 +227,70 @@ test('manual compaction persists complete tool use and result pairs across resum
       serialized.indexOf('"type":"tool_result","tool_use_id":"read-1"'),
     'tool_use remains before its result in persisted compacted history'
   );
+});
+
+test('manual compaction preserves canonical history when its protected tool roundtrip prevents savings', async () => {
+  class ObservedStore extends InMemorySessionStore {
+    replacements = 0;
+    async replaceMessages(...args) {
+      this.replacements += 1;
+      return super.replaceMessages(...args);
+    }
+  }
+  const store = new ObservedStore();
+  const provider = providerWithSummaryAndContinuation();
+  const agent = new MossAgent({
+    llmProvider: provider,
+    sessionStore: store,
+    domainPrompt: false,
+    contextTokens: 120_000,
+    maxTokens: 500,
+    enableSteering: false,
+    enableFollowUpGuard: false,
+  });
+  for (const message of [
+    { role: 'user', content: 'Read the fixture.' },
+    {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 'read-large', name: 'read', input: {} }],
+    },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'read-large',
+          name: 'read',
+          content: 'owned fixture data '.repeat(6_000),
+        },
+      ],
+    },
+    { role: 'assistant', content: 'Read completed.' },
+  ])
+    await store.appendMessage('no-gain', message);
+  const before = await store.loadMessages('no-gain');
+  const tokensBefore = estimateMessagesTokens(before);
+  assert.ok(tokensBefore > 20_000, 'uses real context above the production manual threshold');
+  const result = await agent.compactSession('no-gain');
+  assert.equal(provider.calls.length, 1, 'actually requests a summary');
+  assert.equal(result.compacted, false, 'a larger replacement must not be reported as compression');
+  assert.equal(result.summaryChars, 0);
+  assert.equal(result.droppedMessages, 0);
+  assert.equal(result.tokensAfter, tokensBefore);
+  assert.equal(store.replacements, 0, 'the original canonical transcript is not rewritten');
+  assert.deepEqual(await store.loadMessages('no-gain'), before);
+});
+
+test('manual compaction no-op formatter does not invent a keep-recent threshold reason', () => {
+  for (const tokensAfter of [0, 27_000]) {
+    const text = formatCompactSessionResult({
+      compacted: false,
+      summaryChars: 0,
+      droppedMessages: 0,
+      tokensAfter,
+    });
+    assert.match(text, /not compacted; original history is unchanged/);
+    assert.match(text, /No context savings are currently available/);
+    assert.doesNotMatch(text, /keep-recent|Compacted conversation context/);
+  }
 });

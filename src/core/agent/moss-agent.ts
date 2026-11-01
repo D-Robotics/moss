@@ -826,18 +826,29 @@ export class MossAgent {
       };
     }
     const nextMessages = [result.summaryMessage, ...result.pruneResult.messages];
+    const tokensAfter = Math.max(
+      0,
+      Math.round(
+        estimateMessagesTokens(toSessionMessages(nextMessages as unknown as InternalMessage[]))
+      )
+    );
+    // A protected recent tool roundtrip can leave only a tiny prefix to summarize.
+    // Preserve the original history when its replacement would not save context.
+    if (tokensAfter >= currentTokens) {
+      return {
+        compacted: false,
+        summaryChars: 0,
+        droppedMessages: 0,
+        tokensAfter: Math.max(0, Math.round(currentTokens)),
+      };
+    }
     await store.replaceMessages(sessionKey, nextMessages as unknown as LLMMessage[]);
     return {
       compacted: true,
       summary: result.summary,
       summaryChars: result.summary.length,
       droppedMessages: result.pruneResult.droppedMessages.length,
-      tokensAfter: Math.max(
-        0,
-        Math.round(
-          estimateMessagesTokens(toSessionMessages(nextMessages as unknown as InternalMessage[]))
-        )
-      ),
+      tokensAfter,
     };
   }
 
