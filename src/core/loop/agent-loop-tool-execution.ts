@@ -31,7 +31,7 @@ import { inAcceptanceScope } from '../task/acceptance-commit-scope.js';
 
 const log = getRootLogger().child('agent:loop');
 
-/** 超过此长度（字符数）的结构化内容将被截断为提示文本，避免上下文膨胀。 */
+/** Non-text structured metadata cap; pure text uses the existing per-tool text budget. */
 const MAX_STRUCTURED_SIZE = 12_000;
 
 export interface AgentLoopToolExecutionMetrics {
@@ -236,12 +236,14 @@ function recordToolOutcome(
   if (structuredContent && structuredContent.length > 0) {
     const serialized = JSON.stringify(structuredContent);
     if (serialized.length > MAX_STRUCTURED_SIZE) {
-      structuredContent = [
-        {
-          type: 'text',
-          text: `[structured content truncated: ${serialized.length} chars exceeded ${MAX_STRUCTURED_SIZE} limit]`,
-        },
-      ];
+      structuredContent = structuredContent.every((block) => block.type === 'text')
+        ? undefined
+        : [
+            {
+              type: 'text',
+              text: `[structured content truncated: ${serialized.length} chars exceeded ${MAX_STRUCTURED_SIZE} limit]`,
+            },
+          ];
     }
   }
   ctx.metrics.totalToolCalls++;

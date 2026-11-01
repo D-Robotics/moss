@@ -376,17 +376,7 @@ export function runAgentLoop(
           const bgDone = injectBackgroundCompletions();
           if (bgDone) state.pendingMessages.push(bgDone);
 
-          // Mid-turn soft nudges (todo / verify / tools / subagent …), evaluated
-          // and injected in the historical order by the shared registry.
-          for (const msg of collectNudgeInjections({
-            state,
-            currentMessages,
-            lastUserText: lastUserTextForNudge,
-            buildCorrectionMessage,
-            taskPhaseNudges: params.taskPhaseNudges,
-          })) {
-            state.pendingMessages.push(msg);
-          }
+          const nudgeInsertionIndex = state.pendingMessages.length;
 
           // v0.10 W2: verification-gated best-of-n escalation. Two consecutive
           // failures of the SAME verification command = the loop is stuck in a
@@ -463,6 +453,22 @@ export function runAgentLoop(
             break outerLoop;
           }
 
+          // Sample after awaited host steering. This request's declarations and
+          // reminders share one snapshot; tool execution still resolves live.
+          const toolsForTurn = [...resolveToolsForRun()];
+          state.pendingMessages.splice(
+            nudgeInsertionIndex,
+            0,
+            ...collectNudgeInjections({
+              state,
+              currentMessages,
+              lastUserText: lastUserTextForNudge,
+              buildCorrectionMessage,
+              taskPhaseNudges: params.taskPhaseNudges,
+              todoWriteAvailable: toolsForTurn.some((tool) => tool.name === 'todo_write'),
+            })
+          );
+
           state.turns++;
 
           if (state.lastTurnEndMs !== null) {
@@ -496,7 +502,7 @@ export function runAgentLoop(
               effectiveContextTokens,
               charsPerUnit,
               modelDef,
-              getToolsForRun: resolveToolsForRun,
+              getToolsForRun: () => toolsForTurn,
               sessionKey,
               runId,
               prepareCompaction,

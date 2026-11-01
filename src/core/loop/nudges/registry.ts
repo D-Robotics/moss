@@ -41,6 +41,8 @@ export interface NudgeBuildContext {
    * Plain interactive Q&A sets this; headless benches leave it unset.
    */
   taskPhaseNudges?: boolean;
+  /** Whether this turn's resolved tool surface can actually call todo_write. */
+  todoWriteAvailable?: boolean;
 }
 
 /**
@@ -118,6 +120,7 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
           toolCallsByName: metrics.toolCallsByName,
           userText: ctx.lastUserText(),
           attempts: state.todoNudgeAttempts,
+          todoWriteAvailable: ctx.todoWriteAvailable,
         })
     )
   );
