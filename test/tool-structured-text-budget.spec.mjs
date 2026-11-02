@@ -106,6 +106,65 @@ async function runStructuredTool(content, options = {}) {
   }
 }
 
+test('direct provider calls treat tool result content as authoritative', async () => {
+  const staleText = 'synthetic-private-observation';
+  const wire = [];
+  const provider = new PiAiLLMProvider({
+    apiKey: 'test-key',
+    model: { api: 'openai-completions', provider: 'test', id: 'test-model' },
+    streamFn: async function* (_model, context) {
+      wire.push(structuredClone(context.messages));
+      yield { type: 'text_delta', delta: 'done' };
+      yield { type: 'done', stopReason: 'stop' };
+    },
+  });
+  for (const [method, content] of [
+    ['complete', '[redacted]'],
+    ['stream', ''],
+  ]) {
+    const request = {
+      model: 'test-model',
+      systemPrompt: '',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'private',
+              content,
+              structuredContent: [{ type: 'text', text: staleText }],
+            },
+          ],
+        },
+      ],
+    };
+    if (method === 'complete') await provider.complete(request);
+    else await provider.stream(request, () => {});
+    const sent = wire.at(-1).find((message) => message.role === 'toolResult');
+    assert.equal(sent.content[0].text, content);
+    assert.equal(JSON.stringify(sent).includes(staleText), false);
+  }
+  await provider.complete({
+    model: 'test-model',
+    systemPrompt: '',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'legacy',
+            structuredContent: [{ type: 'text', text: 'legacy evidence' }],
+          },
+        ],
+      },
+    ],
+  });
+  const legacy = wire.at(-1).find((message) => message.role === 'toolResult');
+  assert.equal(legacy.content[0].text, 'legacy evidence');
+});
+
 test('a 14k JSON text result stays valid and identical in durable storage and provider wire', async () => {
   const data = { note: 'Test Results: ❌ is literal data', body: 'x'.repeat(14_000) };
   const text = JSON.stringify(data);

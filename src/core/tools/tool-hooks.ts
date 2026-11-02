@@ -46,6 +46,17 @@ export interface PostToolUseFailureHook {
   }): Promise<{ result: string } | null>;
 }
 
+const agentOutputSanitizers = new WeakSet<PostToolUseHook>();
+
+/** Register only the agent's own text sanitizer as a non-replacement hook. */
+export function registerAgentOutputSanitizer(
+  registry: ToolHookRegistry,
+  hook: PostToolUseHook
+): void {
+  agentOutputSanitizers.add(hook);
+  registry.registerPost(hook);
+}
+
 export class ToolHookRegistry {
   private preHooks: PreToolUseHook[] = [];
   private postHooks: PostToolUseHook[] = [];
@@ -134,7 +145,7 @@ export class ToolHookRegistry {
     durationMs: number;
     ctx: ToolContext;
     sessionId: string;
-    onModified?: () => void;
+    onModified?: (agentSanitizer: boolean) => void;
   }): Promise<string> {
     let currentResult = params.result;
     for (const hook of this.postHooks) {
@@ -144,7 +155,7 @@ export class ToolHookRegistry {
           params.ctx.abortSignal
         );
         if (modification) {
-          params.onModified?.();
+          params.onModified?.(agentOutputSanitizers.has(hook));
           currentResult = modification.result;
         }
       } catch (err) {

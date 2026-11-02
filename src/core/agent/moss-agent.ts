@@ -76,6 +76,7 @@ import { runBestOfNFix, describeBestOfNOutcome } from '../loop/best-of-n-fix.js'
 import { runProcess } from '../../utils/run-process.js';
 import {
   ToolHookRegistry,
+  registerAgentOutputSanitizer,
   type PreToolUseHook,
   type PostToolUseHook,
 } from '../tools/tool-hooks.js';
@@ -185,7 +186,7 @@ export class MossAgent {
       config.subagentExpertRegistry ?? new SubagentExpertRegistry(config.subagentExperts);
     this.asyncTasks = config.asyncTaskRegistry ?? createInMemoryMossAsyncTaskRegistry();
     this.toolHooks = new ToolHookRegistry();
-    this.toolHooks.registerPost({
+    registerAgentOutputSanitizer(this.toolHooks, {
       name: 'secret-sanitizer',
       priority: 10,
       async process({ tool, input, result, ctx }) {

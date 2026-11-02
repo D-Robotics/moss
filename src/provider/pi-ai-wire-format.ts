@@ -317,13 +317,12 @@ export function hasAssistantThinkingHistory(messages: LLMMessage[] | undefined):
   );
 }
 
-function appendStructuredTextContent(
-  block: { structuredContent?: unknown },
-  textContent: string
-): string {
-  const structured = block.structuredContent;
-  if (!Array.isArray(structured) || structured.length === 0) return textContent;
-  const extraText = structured
+function toolResultText(block: { content?: string; structuredContent?: unknown }): string {
+  // An explicitly supplied result, including an empty string, is authoritative.
+  // Only legacy messages that omit content may fall back to structured text.
+  if (typeof block.content === 'string') return block.content;
+  if (!Array.isArray(block.structuredContent)) return '';
+  return block.structuredContent
     .filter(
       (item): item is { type: 'text'; text: string } =>
         item !== null &&
@@ -332,10 +331,7 @@ function appendStructuredTextContent(
         typeof (item as { text?: unknown }).text === 'string'
     )
     .map((item) => item.text)
-    .filter((text) => !textContent.includes(text))
     .join('\n');
-  if (!extraText) return textContent;
-  return textContent ? `${textContent}\n${extraText}` : extraText;
 }
 
 export function convertMessages(
@@ -364,7 +360,7 @@ export function convertMessages(
             userContent.push({ type: 'image', data: block.data, mimeType: block.mimeType });
           } else if (block.type === 'tool_result') {
             flushUserContent();
-            const textContent = appendStructuredTextContent(block, block.content);
+            const textContent = toolResultText(block);
             result.push({
               role: 'toolResult',
               toolCallId: block.tool_use_id,

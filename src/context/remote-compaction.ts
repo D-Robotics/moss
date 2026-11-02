@@ -1,4 +1,4 @@
-import type { Message } from '../contracts/messages.js';
+import type { ContentBlock, Message, ToolContentBlock } from '../contracts/messages.js';
 import { createCompactionSummaryMessage } from '../contracts/messages.js';
 import { estimateMessagesTokens } from './tokens.js';
 import {
@@ -8,7 +8,9 @@ import {
   MAX_SUMMARY_OUTPUT_TOKENS,
 } from './compaction.js';
 import { getRootLogger } from '../logger.js';
-import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
+import { redactEgress } from '../safety/tool-output-redact.js';
+import { isSecretArgumentFlag, isSecretFieldName } from '../safety/secret-sanitizer.js';
+import { REDACTED } from '../safety/redact-patterns.js';
 import { MossError, ErrorCode, errorMessage } from '../errors.js';
 
 const log = getRootLogger().child('agent:remote-compact');
@@ -54,39 +56,145 @@ export interface HybridCompactionConfig {
 }
 
 function redactSecretsInText(text: string): string {
-  return sanitizeSecrets(text);
+  return redactEgress(text);
 }
 
 function sanitizeTextForRemote(value: string | undefined): string | undefined {
   return typeof value === 'string' ? redactSecretsInText(value) : undefined;
 }
 
+function sanitizeRemoteValue(value: unknown, seen = new WeakSet<object>(), depth = 0): unknown {
+  if (typeof value === 'string') return redactSecretsInText(value);
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+  if (typeof value !== 'object' || ArrayBuffer.isView(value) || value instanceof ArrayBuffer) {
+    return '[non-text value withheld]';
+  }
+  if (depth >= 16 || seen.has(value)) return '[value withheld]';
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const result: unknown[] = [];
+      let secretNext = false;
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        const item = descriptor && 'value' in descriptor ? (descriptor.value as unknown) : null;
+        const secretFlag = typeof item === 'string' && isSecretArgumentFlag(item);
+        result.push(secretNext ? REDACTED : sanitizeRemoteValue(item, seen, depth + 1));
+        secretNext = secretFlag;
+      }
+      return result;
+    }
+    const result: Record<string, unknown> = {};
+    for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+      if (!('value' in descriptor)) continue;
+      Object.defineProperty(result, redactSecretsInText(key), {
+        value: isSecretFieldName(key)
+          ? REDACTED
+          : sanitizeRemoteValue(descriptor.value, seen, depth + 1),
+        enumerable: descriptor.enumerable,
+        configurable: true,
+        writable: true,
+      });
+    }
+    return result;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function sanitizeStructuredForRemote(block: ContentBlock): ToolContentBlock[] | undefined {
+  if (!block.structuredContent) return undefined;
+  const visibleText = typeof block.content === 'string' ? redactSecretsInText(block.content) : '';
+  const textIsVisible = (text: string): boolean => visibleText.includes(redactSecretsInText(text));
+  return block.structuredContent.flatMap((item): ToolContentBlock[] => {
+    if (item.type === 'text') {
+      return textIsVisible(item.text)
+        ? [{ type: 'text', text: redactSecretsInText(item.text) }]
+        : [];
+    }
+    if (item.type === 'resource') {
+      return [
+        {
+          type: 'resource',
+          uri: redactSecretsInText(item.uri),
+          ...(item.name !== undefined ? { name: redactSecretsInText(item.name) } : {}),
+          ...(item.mimeType !== undefined ? { mimeType: redactSecretsInText(item.mimeType) } : {}),
+          ...(item.text !== undefined && textIsVisible(item.text)
+            ? { text: redactSecretsInText(item.text) }
+            : {}),
+        },
+      ];
+    }
+    // Remote compaction already omits image attachments; structured images must
+    // follow the same policy rather than bypass it through tool metadata.
+    return [
+      {
+        type: 'text',
+        text: `[image attachment omitted for remote compaction: ${redactSecretsInText(item.mimeType)}]`,
+      },
+    ];
+  });
+}
+
 function sanitizePayloadForRemote(messages: Message[]): Message[] {
   return messages.map((msg) => {
-    if (typeof msg.content === 'string') {
-      return { ...msg, content: redactSecretsInText(msg.content) };
+    const { content, thinking, ...rest } = msg;
+    const safeRest = sanitizeRemoteValue(rest) as Omit<Message, 'content' | 'thinking'>;
+    const joinedThinking = thinking?.join('\n\n');
+    const safeThinking =
+      joinedThinking === undefined ? undefined : redactSecretsInText(joinedThinking);
+    const thinkingFields =
+      thinking === undefined
+        ? {}
+        : { thinking: safeThinking === joinedThinking ? thinking : [safeThinking ?? ''] };
+    if (typeof content === 'string') {
+      return { ...safeRest, ...thinkingFields, content: redactSecretsInText(content) };
     }
-    if (Array.isArray(msg.content)) {
-      return {
-        ...msg,
-        content: msg.content.map((block) => {
-          if (block.type === 'text' && block.text) {
-            return { ...block, text: redactSecretsInText(block.text) };
-          }
-          if (block.type === 'tool_result' && typeof block.content === 'string') {
-            return { ...block, content: redactSecretsInText(block.content) };
-          }
-          if (block.type === 'image') {
-            return {
-              type: 'text',
-              text: `[image attachment omitted for remote compaction${block.filename ? `: ${block.filename}` : ''}]`,
-            };
-          }
-          return block;
-        }),
-      };
+
+    const result: ContentBlock[] = [];
+    let textBlocks: ContentBlock[] = [];
+    const flushTextBlocks = (): void => {
+      if (textBlocks.length === 0) return;
+      const joined = textBlocks.map((block) => block.text ?? '').join('\n');
+      const redacted = redactSecretsInText(joined);
+      if (redacted !== joined) {
+        result.push({ type: 'text', text: redacted });
+      } else {
+        result.push(...(sanitizeRemoteValue(textBlocks) as ContentBlock[]));
+      }
+      textBlocks = [];
+    };
+    for (const block of content) {
+      if (block.type === 'text') {
+        textBlocks.push(block);
+        continue;
+      }
+      flushTextBlocks();
+      if (block.type === 'image') {
+        result.push({
+          type: 'text',
+          text: `[image attachment omitted for remote compaction${block.filename ? `: ${redactSecretsInText(block.filename)}` : ''}]`,
+        });
+      } else {
+        const { structuredContent: _structuredContent, ...restBlock } = block;
+        const safeBlock = sanitizeRemoteValue(restBlock) as ContentBlock;
+        const structuredContent =
+          block.type === 'tool_result' ? sanitizeStructuredForRemote(block) : undefined;
+        result.push({
+          ...safeBlock,
+          ...(structuredContent !== undefined ? { structuredContent } : {}),
+        });
+      }
     }
-    return msg;
+    flushTextBlocks();
+    return { ...safeRest, ...thinkingFields, content: result };
   });
 }
 
@@ -161,7 +269,7 @@ export class HttpRemoteCompactProvider implements RemoteCompactProvider {
           system_prompt: sanitizeTextForRemote(request.systemPrompt),
           max_output_tokens: request.maxOutputTokens,
           context_window_tokens: request.contextWindowTokens,
-          model: request.model,
+          model: sanitizeTextForRemote(request.model),
           custom_instructions: sanitizeTextForRemote(request.customInstructions),
         }),
       });

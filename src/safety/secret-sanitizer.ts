@@ -1,4 +1,9 @@
-import { quoteOpensValue, REDACTED, SECRET_FIELD_SOURCE } from './redact-patterns.js';
+import {
+  PASSWORD_LONG_FLAG,
+  quoteOpensValue,
+  REDACTED,
+  SECRET_FIELD_SOURCE,
+} from './redact-patterns.js';
 
 type SecretRule = {
   source: string;
@@ -82,6 +87,28 @@ const SECRET_RULES: SecretRule[] = [
   },
   { source: 'vercel_(?:token|secret)_[A-Za-z0-9]{24,}', flags: 'gi', label: 'Vercel token' },
 ];
+
+const SECRET_FIELD_NAME = new RegExp(
+  `(?:^|[^a-z0-9])(?:${SECRET_FIELD_SOURCE})(?:$|[_-](?:value|content|key))`,
+  'i'
+);
+
+/** Recognize credential fields when their value is detached from its label. */
+export function isSecretFieldName(name: string): boolean {
+  return SECRET_FIELD_NAME.test(name.replace(/([a-z0-9])([A-Z])/g, '$1_$2'));
+}
+
+/** An argv flag whose following array element is a credential value. */
+export function isSecretArgumentFlag(argument: string): boolean {
+  return (
+    argument === '-p' ||
+    argument === '-u' ||
+    argument === '--user' ||
+    (argument.startsWith('--') &&
+      !argument.includes('=') &&
+      (PASSWORD_LONG_FLAG.test(argument) || isSecretFieldName(argument.slice(2))))
+  );
+}
 
 function buildPattern(rule: SecretRule): RegExp {
   return new RegExp(rule.source, rule.flags);

@@ -14,6 +14,9 @@ import { getRootLogger } from '../../logger.js';
 import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js';
 import { MossError, ErrorCode, errorMessage, isMossError, wrapAsMoss } from '../../errors.js';
 import { isEffectiveUiZh } from '../../utils/ui-language.js';
+import { presentToolOutput } from '../../safety/tool-output-redact.js';
+import { isSecretArgumentFlag, isSecretFieldName } from '../../safety/secret-sanitizer.js';
+import { REDACTED } from '../../safety/redact-patterns.js';
 
 /**
  * O88: text the model (and the tool row) gets when approval is refused. It
@@ -177,6 +180,195 @@ function textFromStructuredContent(content: ToolContentBlock[]): string {
     return `[${content.length} content block(s): ${content.map((block) => block.type).join(', ')}]`;
   }
   return '';
+}
+
+function sanitizeStructuredBlocks(
+  blocks: ToolContentBlock[],
+  redact: (text: string) => string,
+  visibleText: string
+): ToolContentBlock[] {
+  return blocks.map((block) => {
+    if (block.type === 'text') {
+      const text = redact(block.text);
+      return {
+        type: 'text',
+        text: visibleText.includes(text) ? text : '[structured text withheld by redaction]',
+      };
+    }
+    if (block.type === 'image') {
+      const data = redact(block.data);
+      if (data !== block.data) return { type: 'text', text: '[image withheld by redaction]' };
+      return {
+        type: 'image',
+        data,
+        mimeType: redact(block.mimeType),
+        ...(block.alt !== undefined ? { alt: redact(block.alt) } : {}),
+      };
+    }
+    const text = block.text !== undefined ? redact(block.text) : undefined;
+    return {
+      type: 'resource',
+      uri: redact(block.uri),
+      ...(block.name !== undefined ? { name: redact(block.name) } : {}),
+      ...(block.mimeType !== undefined ? { mimeType: redact(block.mimeType) } : {}),
+      ...(text !== undefined && visibleText.includes(text) ? { text } : {}),
+    };
+  });
+}
+
+const WITHHELD_ERROR_DETAIL = '[details withheld after tool output replacement]';
+
+function safeErrorCode(code: ErrorCode): ErrorCode {
+  return Object.values(ErrorCode).includes(code) ? code : ErrorCode.TOOL_EXECUTION_FAILED;
+}
+
+/** Copy error details without passing the original error, stack, or context across the seam. */
+function sanitizeErrorDetail(
+  value: unknown,
+  redact: (text: string) => string,
+  withheld: boolean,
+  seen: WeakSet<object>,
+  depth = 0
+): unknown {
+  if (value === undefined || value === null) return value;
+  if (depth >= 16) return '[error detail depth exceeded]';
+  if (typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') {
+    return '[non-text error detail withheld]';
+  }
+  if (typeof value !== 'object') {
+    if (withheld) return WITHHELD_ERROR_DETAIL;
+    return typeof value === 'string' ? redact(value) : value;
+  }
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) {
+    return '[binary error detail withheld]';
+  }
+  if (seen.has(value)) return '[circular error detail]';
+  seen.add(value);
+  try {
+    if (withheld) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, 'cause');
+      const cause = descriptor && 'value' in descriptor ? (descriptor.value as unknown) : undefined;
+      const safeCause = sanitizeErrorDetail(cause, redact, true, seen, depth + 1);
+      const error = new Error(
+        WITHHELD_ERROR_DETAIL,
+        safeCause === undefined ? {} : { cause: safeCause }
+      );
+      if (value instanceof MossError) {
+        error.name = 'MossError';
+        const code = Object.getOwnPropertyDescriptor(value, 'code')?.value as ErrorCode;
+        Object.defineProperty(error, 'code', { value: safeErrorCode(code), enumerable: true });
+      }
+      return error;
+    }
+    if (value instanceof Error) {
+      const descriptors = Object.getOwnPropertyDescriptors(value);
+      const rawCause =
+        descriptors.cause && 'value' in descriptors.cause ? descriptors.cause.value : undefined;
+      const cause = sanitizeErrorDetail(rawCause, redact, false, seen, depth + 1);
+      const message =
+        descriptors.message && 'value' in descriptors.message ? descriptors.message.value : '';
+      const error = new Error(
+        typeof message === 'string' ? redact(message) : '',
+        cause === undefined ? {} : { cause }
+      );
+      const name =
+        descriptors.name && 'value' in descriptors.name
+          ? descriptors.name.value
+          : value instanceof MossError
+            ? 'MossError'
+            : 'Error';
+      error.name = typeof name === 'string' ? redact(name) : 'Error';
+      const stack =
+        descriptors.stack && 'value' in descriptors.stack ? descriptors.stack.value : undefined;
+      if (typeof stack === 'string') error.stack = redact(stack);
+      for (const [key, descriptor] of Object.entries(descriptors)) {
+        if (['name', 'message', 'stack', 'cause'].includes(key) || !('value' in descriptor))
+          continue;
+        Object.defineProperty(error, redact(key), {
+          value: isSecretFieldName(key)
+            ? REDACTED
+            : sanitizeErrorDetail(descriptor.value, redact, false, seen, depth + 1),
+          enumerable: descriptor.enumerable,
+          configurable: true,
+          writable: true,
+        });
+      }
+      return error;
+    }
+    if (Array.isArray(value)) {
+      const result: unknown[] = [];
+      let secretNext = false;
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        const item = descriptor && 'value' in descriptor ? (descriptor.value as unknown) : null;
+        const secretFlag = typeof item === 'string' && isSecretArgumentFlag(item);
+        result.push(
+          secretNext ? REDACTED : sanitizeErrorDetail(item, redact, false, seen, depth + 1)
+        );
+        secretNext = secretFlag;
+      }
+      return result;
+    }
+    const result: Record<string, unknown> = {};
+    for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+      if (!('value' in descriptor)) continue;
+      Object.defineProperty(result, redact(key), {
+        value: isSecretFieldName(key)
+          ? REDACTED
+          : sanitizeErrorDetail(descriptor.value, redact, false, seen, depth + 1),
+        enumerable: descriptor.enumerable,
+        configurable: true,
+        writable: true,
+      });
+    }
+    return result;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function sanitizeToolError(
+  error: MossError,
+  result: string,
+  rewritten: boolean,
+  redact: (text: string) => string
+): MossError {
+  try {
+    const descriptors = Object.getOwnPropertyDescriptors(error);
+    const ownValue = (key: string): unknown => {
+      const descriptor = descriptors[key];
+      return descriptor && 'value' in descriptor ? descriptor.value : undefined;
+    };
+    const seen = new WeakSet<object>();
+    seen.add(error);
+    const context = rewritten
+      ? undefined
+      : (sanitizeErrorDetail(ownValue('context'), redact, false, seen) as
+          | Record<string, unknown>
+          | undefined);
+    const rawCode = ownValue('code');
+    const code = typeof rawCode === 'string' ? rawCode : ErrorCode.TOOL_EXECUTION_FAILED;
+    const rawMessage = ownValue('message');
+    const rawHint = ownValue('hint');
+    const rawCause = ownValue('cause');
+    const safe = new MossError({
+      code: rewritten ? safeErrorCode(code as ErrorCode) : (redact(code) as ErrorCode),
+      message: rewritten ? result : redact(typeof rawMessage === 'string' ? rawMessage : result),
+      ...(!rewritten && typeof rawHint === 'string' ? { hint: redact(rawHint) } : {}),
+      recoverable: ownValue('recoverable') === true,
+      ...(context !== undefined ? { context } : {}),
+      ...(rawCause !== undefined
+        ? { cause: sanitizeErrorDetail(rawCause, redact, rewritten, seen) }
+        : descriptors.cause && !('value' in descriptors.cause)
+          ? { cause: new Error(WITHHELD_ERROR_DETAIL) }
+          : {}),
+    });
+    const stack = ownValue('stack');
+    if (!rewritten && typeof stack === 'string') safe.stack = redact(stack);
+    return safe;
+  } catch {
+    return new MossError({ code: ErrorCode.TOOL_EXECUTION_FAILED, message: result });
+  }
 }
 
 function policyBlockedToolResult(error: MossError): string {
@@ -644,7 +836,7 @@ async function executeOneToolCallInner(
     emitStart();
 
     let postHookModified = false;
-    const textBeforePostHooks = text;
+    let structuredReplaced = false;
     if (deps.toolHooks) {
       text = await deps.toolHooks.runPostHooks({
         tool,
@@ -654,8 +846,9 @@ async function executeOneToolCallInner(
         durationMs: Date.now() - startMs,
         ctx: callToolCtx,
         sessionId: deps.sessionKey,
-        onModified: () => {
+        onModified: (agentSanitizer) => {
           postHookModified = true;
+          if (!agentSanitizer) structuredReplaced = true;
         },
       });
     }
@@ -670,8 +863,36 @@ async function executeOneToolCallInner(
         sessionId: deps.sessionKey,
         onModified: () => {
           postHookModified = true;
+          structuredReplaced = true;
         },
       });
+    }
+
+    const redactDetail = (detail: string): string =>
+      presentToolOutput({
+        toolName: tool.name,
+        input: call.input,
+        text: detail,
+        workspaceDir: callToolCtx.workspaceDir,
+      });
+
+    try {
+      const sanitized = redactDetail(text);
+      if (sanitized !== text) postHookModified = true;
+      text = sanitized;
+    } catch {
+      text = '[tool result withheld by redaction]';
+      postHookModified = true;
+      structuredReplaced = true;
+    }
+
+    let safeStructured: ToolContentBlock[] | undefined;
+    if (!structuredReplaced && !aborted && structuredBlocks) {
+      try {
+        safeStructured = sanitizeStructuredBlocks(structuredBlocks, redactDetail, text);
+      } catch {
+        // Never return uninspected structured data if a tool supplied a hostile value.
+      }
     }
 
     return {
@@ -683,10 +904,10 @@ async function executeOneToolCallInner(
         ? { outcome: 'blocked' as const }
         : {}),
       ...(aborted ? { aborted } : {}),
-      ...(!postHookModified && text === textBeforePostHooks && !aborted && structuredBlocks
-        ? { structuredContent: structuredBlocks }
+      ...(safeStructured ? { structuredContent: safeStructured } : {}),
+      ...(toolError
+        ? { error: sanitizeToolError(toolError, text, postHookModified, redactDetail) }
         : {}),
-      ...(toolError ? { error: toolError } : {}),
       ...(protectedPathChanges.length > 0 ? { protectedPathChanges } : {}),
     };
   } catch (err) {

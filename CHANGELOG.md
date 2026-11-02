@@ -4,11 +4,13 @@
 
 ### Structured tool results and SDK compatibility
 
-- **SDK behavior change in 0.x:** a post-tool or post-failure hook returning
-  `{ result }` now discards the prior structured blocks, even when `result` is
-  unchanged. This prevents those blocks from bypassing a replacement or redaction.
-  Observation-only hooks should return `null` (JavaScript hooks may return
-  `undefined`) to keep structured blocks.
+- **SDK behavior change in 0.x:** a host-registered post-tool or post-failure
+  hook returning `{ result }` now discards the prior structured blocks, even
+  when `result` is unchanged. This prevents those blocks from bypassing a
+  replacement or redaction. Observation-only hooks should return `null`
+  (JavaScript hooks may return `undefined`) to keep structured blocks. The
+  agent's built-in sanitizer instead retains safe image/resource blocks and
+  withholds structured text that is not present in the sanitized output.
 - On the MossAgent model path, an existing tool-result `content` string is
   authoritative, including `''`; old structured text is not appended. Some
   older sessions that relied on structured text alongside empty or different
@@ -25,16 +27,38 @@
   block, letting the model receive a safe generated notice after resume without
   changing SDK `content` or the already-capped `structuredContent`. An older
   unmarked result cannot safely recover that notice.
-- The separate `PiAiLLMProvider` entry point can still append supplied structured
-  text to `content`, and optional remote compaction sends stored structured
-  content. Hosts need to inspect and remove or sanitize old structured data
-  before using these paths when it must not be sent.
+- **Additional 0.x SDK and remote-compaction behavior changes:** direct
+  `PiAiLLMProvider` calls also treat an existing `content` string as
+  authoritative. Remote compaction omits structured text absent from sanitized
+  `content` (including legacy records with no `content`), sanitizes tool inputs,
+  thinking and structured metadata, and replaces structured images with
+  omission notices, matching its existing attachment policy. Credential fields
+  and binary or non-JSON input values may be withheld. For safety, values after
+  `-p`, `-u` and `--user` in argument arrays are masked even when they are
+  ports or usernames. Safe resource metadata and text
+  still present in sanitized `content` remain available. To recover intended
+  legacy text, inspect and sanitize it locally and put it in `content`. Hosts
+  needing image data must obtain it locally instead of relying on the remote
+  request.
+- Tool-result image/resource fields are redacted before events and session
+  storage; an image whose data changes during redaction becomes a text notice.
+  If a post-hook replaces the output, SDK error messages use that output and
+  original error hints/context and cause details are withheld. The cause chain
+  and Moss error codes remain observable. Other errors retain sanitized details;
+  credential fields, binary values, functions and inaccessible accessors are
+  withheld. Nested errors are copies and may not retain custom subclasses or
+  object identity. Hosts should use the published code, message and cause chain
+  rather than inspecting original objects or requiring a particular error subclass.
+  Redaction recognizes known credential patterns and configured secret values;
+  it cannot identify arbitrary confidential text or secrets encoded in images.
+  Legacy structured-only messages without `content` still require host review.
 
 ### 结构化工具结果与 SDK 兼容性
 
-- **0.x SDK 行为变更：**后置工具或失败 hook 返回 `{ result }` 时，即使文本
-  不变，也会丢弃原结构化块，避免替换或脱敏后旧块绕过处理。只观察结果的
+- **0.x SDK 行为变更：**宿主注册的后置工具或失败 hook 返回 `{ result }` 时，
+  即使文本不变，也会丢弃原结构化块，避免替换或脱敏后旧块绕过处理。只观察结果的
   hook 应返回 `null`（JavaScript 运行时也可返回 `undefined`）以保留结构化块。
+  agent 内置脱敏器则保留安全的 image/resource，并屏蔽脱敏后输出中不存在的结构化文本。
 - MossAgent 向模型投影工具结果时，已有的 `content` 字符串（包括 `''`）为准，
   不追加旧结构化文本。因此依赖空内容或不同内容旁的结构化文本的旧会话，模型
   可能看到更少文本；此投影不会修改原记录。需要恢复时，可在新会话重新执行
@@ -45,9 +69,20 @@
   提示。新写入的工具结果还带可选数字字段 `_structuredContentTruncated`，供恢复
   后安全生成模型侧提示；该字段不改变 SDK 的 `content` 或已截断的
   `structuredContent`。旧记录没有该标记时无法安全恢复这一提示。
-- 独立调用 `PiAiLLMProvider` 仍可能将提供的结构化文本追加到 `content`；可选
-  远程压缩也会发送记录中的结构化内容。宿主将旧消息交给这些入口前，需要检查
-  并移除或脱敏不应发送的结构化数据。
+- **补充的 0.x SDK 与远程压缩行为变更：**独立调用 `PiAiLLMProvider` 时也以
+  已有 `content` 字符串为准。远程压缩会省略脱敏后 `content` 中不存在的结构化文本
+  （包括没有 `content` 的旧记录），脱敏工具输入、thinking 和结构化元数据，并将结构化
+  图片替换为省略提示，与现有图片附件策略一致。凭据字段、二进制及非 JSON 输入可能被
+  屏蔽；为安全起见，参数数组中 `-p`、`-u` 和 `--user` 后的值即使是端口或用户名也会
+  被屏蔽。安全的 resource 元数据及仍在脱敏后 `content` 中的文本会保留。需要恢复旧文本时，应在本地
+  检查、脱敏后写入 `content`；需要图片数据的宿主应在本地获取，不应依赖远程请求。
+- 工具结果中的 image/resource 字段进入事件和会话存储前会脱敏；图片数据被脱敏
+  修改时改为文本提示。后置 hook 替换输出后，SDK 错误消息使用替换后的输出，原有
+  hint/context 及原因详情不再公开，但原因链和 Moss 错误代码仍可观察。其他错误
+  保留脱敏后的详情，但凭据字段、二进制值、函数和无法安全读取的 accessor 会被屏蔽。
+  嵌套错误为副本，可能不再保留自定义子类或对象身份。宿主应使用公开的代码、消息和
+  原因链，不依赖原始对象或特定错误子类。脱敏只能识别已知凭据格式和配置的敏感值，
+  无法识别任意私文或编码在图片中的秘密；没有 `content` 的旧结构化消息仍需宿主检查。
 
 ### Product experience, task verdicts, and configuration change detection
 
