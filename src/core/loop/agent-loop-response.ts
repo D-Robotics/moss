@@ -28,6 +28,9 @@ import {
 import { executeAgentLoopToolCalls } from './agent-loop-tool-execution.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
 
+export const EMPTY_MODEL_RESPONSE =
+  'The model returned an empty response twice without a visible answer.';
+
 const GUARDED_DELTA_CHUNK = 96;
 const MAX_COMPLETION_GATE_ATTEMPTS = 2;
 
@@ -451,7 +454,7 @@ export async function processLlmResponse(
       return { control: 'continue' };
 
     case 'empty_complete':
-      throw new Error('The model returned an empty response twice without a visible answer.');
+      throw new Error(EMPTY_MODEL_RESPONSE);
 
     case 'steering_or_complete':
       state.carriedAssistantText = '';

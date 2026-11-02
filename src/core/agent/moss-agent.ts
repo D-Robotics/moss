@@ -1302,8 +1302,9 @@ ${result.stderr ?? ''}`.trim();
       }
       const parentSignal = params.abortSignal ?? abortSignal;
       const controller = new AbortController();
-      const onParentAbort = () => controller.abort();
+      const onParentAbort = () => controller.abort(parentSignal?.reason);
       parentSignal?.addEventListener('abort', onParentAbort, { once: true });
+      if (parentSignal?.aborted) onParentAbort();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const result = await subAgentRunner(
@@ -1353,6 +1354,7 @@ ${result.stderr ?? ''}`.trim();
           ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
           ...(result.error ? { error: result.error } : {}),
           ...(result.workspaceLeaseId ? { workspaceLeaseId: result.workspaceLeaseId } : {}),
+          ...(result.workspacePath ? { workspacePath: result.workspacePath } : {}),
           ...(result.patchId ? { patchId: result.patchId } : {}),
           ...(result.patchRef ? { patchRef: result.patchRef } : {}),
           ...(result.patchDigest ? { patchDigest: result.patchDigest } : {}),

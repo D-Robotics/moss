@@ -76,6 +76,7 @@ export interface SubAgentResult {
   protectedPathChanges?: readonly ProtectedPathChangeReport[];
   error?: string;
   workspaceLeaseId?: string;
+  workspacePath?: string;
   patchId?: string;
   patchRef?: string;
   patchDigest?: string;

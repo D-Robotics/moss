@@ -16,6 +16,8 @@ export interface SubagentRunProgress {
   error?: string;
   summaryPreview?: string;
   elapsedMs?: number;
+  /** Isolated workspace location, available once it has been created. */
+  workspacePath?: string;
 }
 
 /** O152 F9b: one L3 post-run change (no file content). */
@@ -42,6 +44,8 @@ export interface ToolContext {
    * output text carrying the marker.
    */
   reportProtectedPathChanges?: (changes: readonly ProtectedPathChangeReport[]) => void;
+  /** Preserve a child workspace location in the tool result if this call is aborted. */
+  reportWorkspaceRecoveryPath?: (workspacePath: string) => void;
   bootstrapDir?: string;
   runId?: string;
   sessionKey: string;
@@ -128,6 +132,7 @@ export interface ToolContext {
     durationMs?: number;
     error?: string;
     workspaceLeaseId?: string;
+    workspacePath?: string;
     patchId?: string;
     patchRef?: string;
     patchDigest?: string;

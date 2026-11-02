@@ -449,6 +449,7 @@ async function executeOneToolCallInner(
       let attemptText = '';
       let attemptTimeout = false;
       let attemptError: MossError | undefined;
+      const workspaceRecoveryPaths = new Set<string>();
 
       structuredBlocks = undefined;
       const timeoutAbortCtrl = new AbortController();
@@ -481,6 +482,9 @@ async function executeOneToolCallInner(
           },
           reportProtectedPathChanges: (changes) => {
             protectedPathChanges.push(...changes.map((c) => ({ ...c })));
+          },
+          reportWorkspaceRecoveryPath: (workspacePath) => {
+            workspaceRecoveryPaths.add(workspacePath);
           },
         };
         if (!skipAgentHeartbeat) {
@@ -588,6 +592,11 @@ async function executeOneToolCallInner(
           attemptError = wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, {
             message: rawMessage,
           });
+        }
+        if (attemptTimeout || aborted) {
+          for (const workspacePath of workspaceRecoveryPaths) {
+            attemptText += `\n[worktree preserved: ${workspacePath}]`;
+          }
         }
         attemptErrFlag = true;
       } finally {

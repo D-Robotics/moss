@@ -77,6 +77,11 @@ function completionProtectedChanges(data: unknown): ProtectedPathChangeReport[] 
   });
 }
 
+function workspaceLocationLines(snapshot: MossAsyncTaskSnapshot | undefined): string[] {
+  const workspacePath = snapshot?.progress?.details?.workspacePath;
+  return typeof workspacePath === 'string' && workspacePath ? [`worktree: ${workspacePath}`] : [];
+}
+
 function snapshotProgressLines(snapshot: MossAsyncTaskSnapshot | undefined): string[] {
   if (!snapshot?.progress) return [];
   const progress = snapshot.progress;
@@ -269,6 +274,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
               runId: progress.runId,
               scope: progress.scope,
               elapsedMs: progress.elapsedMs,
+              ...(progress.workspacePath ? { workspacePath: progress.workspacePath } : {}),
             },
           },
           ...(progress.error ? { error: progress.error } : {}),
@@ -326,6 +332,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
               ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
               ...(result.error ? { error: result.error } : {}),
               ...(result.workspaceLeaseId ? { workspaceLeaseId: result.workspaceLeaseId } : {}),
+              ...(result.workspacePath ? { workspacePath: result.workspacePath } : {}),
               ...(result.patchId ? { patchId: result.patchId } : {}),
               ...(result.patchRef ? { patchRef: result.patchRef } : {}),
               ...(result.patchDigest ? { patchDigest: result.patchDigest } : {}),
@@ -355,6 +362,14 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       scope,
       maxTurns,
       timeoutMs: selectedTimeoutMs,
+      ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+      ...(ctx.reportWorkspaceRecoveryPath
+        ? {
+            onProgress: (progress: SubagentRunProgress) => {
+              if (progress.workspacePath) ctx.reportWorkspaceRecoveryPath?.(progress.workspacePath);
+            },
+          }
+        : {}),
       ...(expert?.allowedTools ? { allowedTools: expert.allowedTools } : {}),
       ...(expert?.deniedTools?.length ? { deniedTools: expert.deniedTools } : {}),
       ...(expert ? { expertPrompt: expert.instructions } : {}),
@@ -698,6 +713,14 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
             ...(item.writePaths ? { writePaths: item.writePaths } : {}),
           })),
           abortSignal: ctx.abortSignal,
+          ...(ctx.reportWorkspaceRecoveryPath
+            ? {
+                onProgress: (progress: SubagentRunProgress) => {
+                  if (progress.workspacePath)
+                    ctx.reportWorkspaceRecoveryPath?.(progress.workspacePath);
+                },
+              }
+            : {}),
           ...(experts[i]?.model || t.model ? { model: experts[i]?.model ?? t.model } : {}),
         })
       )
@@ -706,6 +729,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     let ok = 0;
     let fail = 0;
     const sections: string[] = [];
+    const handoffs: string[] = [];
     const failedRetries: string[] = [];
     settled.forEach((s, i) => {
       const label = labelFor(i);
@@ -718,6 +742,16 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           ctx.reportProtectedPathChanges?.(r.protectedPathChanges);
         }
         const childOk = normalizeSubagentSuccess(r.success, r.summary);
+        if (r.workspacePath || r.workspaceLeaseId || r.patchId) {
+          handoffs.push(
+            [
+              `- ${JSON.stringify(label)}: ${childOk ? 'SUCCESS' : 'FAILED'}`,
+              ...(r.workspacePath ? [`worktree=${JSON.stringify(r.workspacePath)}`] : []),
+              ...(r.workspaceLeaseId ? [`lease=${JSON.stringify(r.workspaceLeaseId)}`] : []),
+              ...(r.patchId ? [`patch=${JSON.stringify(r.patchId)}`] : []),
+            ].join(' | ')
+          );
+        }
         if (childOk) ok++;
         else fail++;
         const id = String(r.runId ?? '').slice(0, 8);
@@ -774,7 +808,14 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           ].join('\n')
         : '';
 
-    return [header, '', sections.join('\n\n'), retryBlock].filter(Boolean).join('\n');
+    return [
+      header,
+      handoffs.length ? ['## Worktree handoffs', ...handoffs].join('\n') : '',
+      sections.join('\n\n'),
+      retryBlock,
+    ]
+      .filter(Boolean)
+      .join('\n');
   },
 };
 
@@ -839,6 +880,7 @@ export const subagentStatusTool: Tool<SubagentStatusInput> = {
         `status: ${ok ? completion.status : 'failed'}`,
         `durationMs: ${completion.durationMs}`,
         ...completionMetricLines(completion.data),
+        ...workspaceLocationLines(ctx.asyncTaskRegistry.status(taskId)),
         '',
         summary + emptyNote,
       ].join('\n');
@@ -850,6 +892,7 @@ export const subagentStatusTool: Tool<SubagentStatusInput> = {
       ...(snapshot.label ? [`label: ${snapshot.label}`] : []),
       ...(snapshot.startedAt ? [`startedAt: ${snapshot.startedAt}`] : []),
       ...snapshotProgressLines(snapshot),
+      ...workspaceLocationLines(snapshot),
       `updatedAt: ${snapshot.updatedAt}`,
     ].join('\n');
   },
@@ -893,6 +936,7 @@ export const subagentStopTool: Tool<SubagentStopInput> = {
       return [
         `[Sub-agent task ${taskId}] ALREADY ${snapshot.status.toUpperCase()}`,
         `status: ${snapshot.status}`,
+        ...workspaceLocationLines(snapshot),
         ...(completion ? ['', completion.summary || completion.error || '(no output)'] : []),
       ].join('\n');
     }
@@ -903,6 +947,7 @@ export const subagentStopTool: Tool<SubagentStopInput> = {
       return [
         `[Sub-agent task ${taskId}] STOPPED`,
         `status: ${completion.status}`,
+        ...workspaceLocationLines(ctx.asyncTaskRegistry.status(taskId)),
         '',
         completion.summary || completion.error || 'Task cancelled.',
       ].join('\n');
