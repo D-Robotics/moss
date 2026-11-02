@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { test } from 'node:test';
+import { openQueue } from '../src/queue.mjs';
+test('queue fences expired owners and persists completion', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ops-queue-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'queue.json');
+  let queue = openQueue(file);
+  queue.enqueue({ id: 'j1', key: 'event-1', type: 'notify', payload: { device: 'rdk-1' } });
+  const a = queue.claim('a', 0, 100);
+  queue = openQueue(file);
+  const b = queue.claim('b', 100, 100);
+  assert.notEqual(a.token, b.token);
+  assert.throws(() => queue.complete('j1', a.token, {}, 101), { code: 'STALE_LEASE' });
+  queue.complete('j1', b.token, { sent: true }, 101);
+  assert.equal(openQueue(file).get('j1').status, 'done');
+  assert.deepEqual(queue.stats(), { queued: 0, running: 0, done: 1, dead: 0 });
+});

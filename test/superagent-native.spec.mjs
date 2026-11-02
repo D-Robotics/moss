@@ -264,6 +264,32 @@ test(
       )
     );
     assert.equal(fixture.seen.length, callsBeforeRecovery);
+    const { appendTaskRecord, listTaskRecords } =
+      await import('../dist/core/task-runtime/artifacts.js');
+    const contract = (await listTaskRecords(ticket.workspace)).find(
+      (row) => row.taskId === resumed.taskId
+    );
+    await appendTaskRecord(ticket.workspace, {
+      ...contract,
+      goal: 'Refined: write and verify answer 42',
+      updatedAt: Date.now(),
+    });
+    const recovered = await worker.run(
+      {
+        ticketId: ticket.id,
+        assignmentId: 'refined-goal',
+        workspaceDir: ticket.workspace,
+        sessionKey: ticket.sessionKey,
+        scope: ticket.scope,
+        acceptanceCommand: accept,
+        taskId: resumed.taskId,
+        inputs: [],
+      },
+      new AbortController().signal,
+      () => {}
+    );
+    assert.equal(recovered.state, 'ready');
+    assert.equal(fixture.seen.length, callsBeforeRecovery);
   }
 );
 
