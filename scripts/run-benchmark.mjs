@@ -40,7 +40,7 @@ function usage() {
     '                       same subset. Default seed is moss-bench. Re-measure',
     '                       bench:noise on that subset; do not reuse a larger band.',
     '  --seed <text>        Seed for --tasks (default moss-bench)',
-    '  --temperature <t>    Pin MOSS_TEMPERATURE (default 0; "none" leaves it unset)',
+    '  --temperature <t>    Pin MOSS_TEMPERATURE to 0..2 (default 0; "none" does not pin it)',
     '  --model <id>         Override the benchmark model id',
     '  --base-url <url>     Override the provider base URL',
     '  --label <name>       Result directory name (default run-<timestamp>)',
@@ -85,7 +85,21 @@ function parseArgs(argv) {
     else if (arg === '--baseline') out.baseline = next();
     else if (arg === '--capability-gate') out.capabilityGate = next();
     else if (arg === '--temperature') {
-      out.temperature = next() === 'none' ? undefined : Number(next());
+      const value = next();
+      if (value === 'none') {
+        out.temperature = undefined;
+      } else {
+        const temperature = Number(value);
+        if (
+          value.trim() === '' ||
+          !Number.isFinite(temperature) ||
+          temperature < 0 ||
+          temperature > 2
+        ) {
+          throw new Error('--temperature must be a number between 0 and 2, or none');
+        }
+        out.temperature = temperature;
+      }
     } else if (arg === '--model') out.model = next();
     else if (arg === '--base-url') out.baseUrl = next();
     else if (arg === '--label') out.label = next();
@@ -384,7 +398,7 @@ async function main() {
   const total = tasks.length * args.samples;
   let done = 0;
   console.log(
-    `[bench] model=${provider.model} samples=${args.samples} tasks=${tasks.length} temperature=${args.temperature ?? 'unset'} label=${label}`
+    `[bench] model=${provider.model} samples=${args.samples} tasks=${tasks.length} temperature=${args.temperature ?? 'not-pinned'} label=${label}`
   );
 
   try {
@@ -559,7 +573,7 @@ async function main() {
       platform: `${os.platform()}/${os.arch()}`,
       model: provider.model,
       baseUrl: provider.baseUrl,
-      temperature: args.temperature ?? 'unset',
+      temperature: args.temperature ?? 'not-pinned',
       samples: args.samples,
       ...(args.tasks
         ? {
