@@ -98,7 +98,19 @@ if (observed === undefined && comparator !== 'exists') {
 - [x] **Step 3: Separate complete internal lookup from bounded listing.** Extract `listAllTaskRecords(workspaceDir)` in the existing artifact store, use it for task-ID operations and snapshots, and keep `listTaskRecords(workspaceDir, limit = 50)` bounded for its existing SDK and presentation callers.
 - [x] **Step 4: Rebuild and rerun.** The first task remains addressable, and default listing still returns at most 50 distinct tasks.
 
-### Task 7: Verify integration and preserve existing contracts
+### Task 7: Empty contracts cannot pass through the shared evaluator
+
+**Files:**
+
+- Modify: `src/contracts/task.ts`
+- Test: `test/task-contract.spec.mjs`
+
+- [x] **Step 1: Reproduce through the persisted contract interface.** Append a task contract with no criteria and invoke `evaluateContractAcceptance` directly; assert that its verdict is FAIL and the task is not marked accepted.
+- [x] **Step 2: Run the regression.** Run `node --test --test-name-pattern='empty contract cannot pass' test/task-contract.spec.mjs`; the old shared evaluator returns PASS.
+- [x] **Step 3: Guard the shared verdict.** In `evaluateAcceptance`, return `fail` when `task.acceptanceCriteria.length === 0`; keep the existing provider's explicit explanatory message and command-verdict authority.
+- [x] **Step 4: Rebuild and rerun.** The direct persisted contract call and existing command verdict tests must pass.
+
+### Task 8: Verify integration and preserve existing contracts
 
 **Files:**
 

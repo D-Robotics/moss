@@ -138,7 +138,11 @@ export function evaluateAcceptance(
   const unmetOptional = criteriaResults.filter((r) => !r.required && r.result !== 'pass').length;
 
   const verdict: AcceptanceVerdict['verdict'] =
-    unmetRequired > 0 ? 'fail' : unmetOptional > 0 ? 'partial' : 'pass';
+    criteriaResults.length === 0 || unmetRequired > 0
+      ? 'fail'
+      : unmetOptional > 0
+        ? 'partial'
+        : 'pass';
 
   return {
     taskId: task.taskId,
@@ -164,10 +168,14 @@ export function formatAcceptanceVerdict(verdict: AcceptanceVerdict, task: TaskCo
     return bits.join(' ');
   });
   const tail = [
-    `criteria: ${verdict.criteriaResults.length - verdict.unmetRequired}/${verdict.criteriaResults.length} met (${verdict.unmetRequired} required unmet), evidence records considered: ${verdict.evidenceConsidered}`,
+    verdict.criteriaResults.length === 0
+      ? 'no acceptance criteria defined'
+      : `criteria: ${verdict.criteriaResults.length - verdict.unmetRequired}/${verdict.criteriaResults.length} met (${verdict.unmetRequired} required unmet), evidence records considered: ${verdict.evidenceConsidered}`,
     verdict.verdict === 'pass'
       ? 'FINAL: PASS — acceptance criteria met with recorded evidence.'
-      : 'FINAL: not accepted — record evidence for the missing metrics (record_evidence with task_id), repair what failed, then re-run task_acceptance.',
+      : verdict.criteriaResults.length === 0
+        ? 'FINAL: not accepted — define at least one acceptance criterion before verification.'
+        : 'FINAL: not accepted — record evidence for the missing metrics (record_evidence with task_id), repair what failed, then re-run task_acceptance.',
   ].join('\n');
   return [head, ...rows, '', tail].join('\n');
 }

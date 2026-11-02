@@ -10,9 +10,15 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { evaluateAcceptance } from '../dist/contracts/task.js';
-import { taskDefineTool, taskAcceptanceTool, listTaskRecords } from '../dist/tools/task-tools.js';
+import { evaluateAcceptance, formatAcceptanceVerdict } from '../dist/contracts/task.js';
+import {
+  appendTaskRecord,
+  taskDefineTool,
+  taskAcceptanceTool,
+  listTaskRecords,
+} from '../dist/tools/task-tools.js';
 import { listEvidenceRecords, recordEvidenceTool } from '../dist/tools/evidence-tools.js';
+import { evaluateContractAcceptance } from '../dist/core/task/verdict.js';
 
 function makeCtx(workspaceDir) {
   return { workspaceDir, sessionKey: 'task-contract-test' };
@@ -45,6 +51,17 @@ function ev(metric, observed, result, timestamp, taskId = 'task_test') {
     timestamp,
   };
 }
+
+test('empty contract cannot pass through the persisted contract evaluator', async (t) => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-empty-contract-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const task = baseTask({ acceptanceCriteria: [] });
+  await appendTaskRecord(workspace, task);
+  const result = await evaluateContractAcceptance(workspace, task.taskId);
+  assert.equal(result?.verdict.verdict, 'fail');
+  assert.match(formatAcceptanceVerdict(result.verdict, task), /no acceptance criteria/i);
+  assert.notEqual((await listTaskRecords(workspace))[0].status, 'accepted');
+});
 
 test('evaluateAcceptance: pass / fail / no-evidence / optional semantics', () => {
   const allPass = evaluateAcceptance(baseTask(), [
