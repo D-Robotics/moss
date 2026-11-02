@@ -238,6 +238,166 @@ test('the base frozen list still rejects after the candidate shrinks it', async 
   assert.ok(reasons.some((reason) => reason.includes('scripts/rsi/guard.mjs')));
 });
 
+async function exerciseRsiChildEnvironments(gateUrl, gitUrl) {
+  const assert = (await import('node:assert/strict')).default;
+  const fs = (await import('node:fs')).default;
+  const os = (await import('node:os')).default;
+  const path = (await import('node:path')).default;
+  const { mock } = await import('node:test');
+  const { createHash } = await import('node:crypto');
+  const { spawnSync: realSpawnSync } = await import('node:child_process');
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'moss-rsi-env-')));
+  const repo = path.join(root, 'candidate');
+  const base = path.join(root, 'base');
+  const observations = path.join(root, 'observations');
+  const probe = [
+    'process.stdout.write(JSON.stringify(',
+    "  Object.keys(process.env).some((key) => key.toUpperCase() === 'MOSS_BENCH_API_KEY')",
+    '));',
+  ].join('\n');
+  const gitObservations = [];
+  let verifyObservation;
+
+  function writeFakeJob(relativePath, name) {
+    const file = path.join(base, relativePath);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const source = [
+      "import fs from 'node:fs';",
+      "import path from 'node:path';",
+      "import { spawnSync } from 'node:child_process';",
+      "import { createHash } from 'node:crypto';",
+      "const direct = Object.keys(process.env).some((key) => key.toUpperCase() === 'MOSS_BENCH_API_KEY');",
+      "const value = process.env.MOSS_BENCH_API_KEY ?? '';",
+      "const matches = value !== '' && createHash('sha256').update(value).digest('hex') === process.env.RSI_CANARY_HASH;",
+      ...(name === 'tui'
+        ? [
+            `const nested = spawnSync(process.execPath, ['-e', ${JSON.stringify(probe)}], { encoding: 'utf8' });`,
+            'if (nested.status !== 0) process.exit(1);',
+            'const child = JSON.parse(nested.stdout);',
+          ]
+        : ['const child = null;']),
+      `fs.writeFileSync(path.join(process.env.RSI_OBSERVATION_DIR, ${JSON.stringify(name)}), JSON.stringify({ direct, matches, child }));`,
+    ].join('\n');
+    fs.writeFileSync(file, source);
+  }
+
+  try {
+    fs.mkdirSync(path.join(repo, 'dist'), { recursive: true });
+    fs.mkdirSync(observations, { recursive: true });
+    fs.writeFileSync(path.join(repo, 'dist', 'cli.js'), '');
+    writeFakeJob('scripts/run-benchmark.mjs', 'dev');
+    writeFakeJob('scripts/bench-device.mjs', 'device');
+    writeFakeJob('scripts/tui-feel/run.mjs', 'tui');
+    process.env.RSI_OBSERVATION_DIR = observations;
+    process.env.RSI_CANARY_HASH = createHash('sha256')
+      .update(process.env.MOSS_BENCH_API_KEY)
+      .digest('hex');
+
+    mock.module('node:child_process', {
+      namedExports: {
+        spawnSync: (command, args, options) => {
+          if (command !== 'git' && command !== 'npm') {
+            return realSpawnSync(command, args, options);
+          }
+          const result = realSpawnSync(process.execPath, ['-e', probe], {
+            cwd: options.cwd,
+            env: options.env,
+            encoding: 'utf8',
+            stdio: 'pipe',
+          });
+          assert.equal(result.status, 0, result.stderr);
+          const sawKey = JSON.parse(result.stdout);
+          if (command === 'npm') {
+            verifyObservation = sawKey;
+            return { status: 0 };
+          }
+          gitObservations.push(sawKey);
+          if (args[0] === 'merge-base') return { status: 0, stdout: '' };
+          if (args[1]?.endsWith(':.rsi/frozen.txt')) {
+            return { status: 0, stdout: 'src/safety/**' };
+          }
+          if (args[1]?.endsWith(':scripts/lib/device-bench.mjs')) {
+            return {
+              status: 0,
+              stdout:
+                "export const DEVICE_BENCH_CREDENTIAL_CONTRACT = 'explicit-benchmark-env-v1';",
+            };
+          }
+          return { status: 1, stdout: '' };
+        },
+      },
+    });
+    const realGit = await import(gitUrl);
+    mock.module(gitUrl, {
+      namedExports: {
+        git: realGit.git,
+        changedPaths: (cwd) => {
+          realGit.git(cwd, ['probe']);
+          return ['src/cli/example.ts'];
+        },
+        headSha: (cwd) => {
+          realGit.git(cwd, ['probe']);
+          return 'candidate-sha';
+        },
+        refSha: (cwd) => {
+          realGit.git(cwd, ['probe']);
+          return 'base-sha';
+        },
+        withBaseWorktree: (cwd, _sha, run) => {
+          realGit.git(cwd, ['probe']);
+          return run(base);
+        },
+      },
+    });
+    const { runGate } = await import(gateUrl);
+    await runGate({
+      repo,
+      round: 'offline',
+      base: 'base',
+      model: 'bench-model',
+      baseUrl: 'https://bench.invalid/v1',
+    });
+    const readObservation = (name) =>
+      JSON.parse(fs.readFileSync(path.join(observations, name), 'utf8'));
+    assert.deepEqual(readObservation('dev'), { direct: true, matches: true, child: null });
+    assert.deepEqual(readObservation('device'), { direct: true, matches: true, child: null });
+    assert.deepEqual(readObservation('tui'), { direct: false, matches: false, child: false });
+    assert.equal(verifyObservation, false);
+    assert.ok(gitObservations.length > 0);
+    assert.equal(
+      gitObservations.every((value) => value === false),
+      true
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test('RSI delivers its benchmark key only to model evaluator processes', () => {
+  const gitUrl = pathToFileURL(path.join(repoRoot, 'scripts/rsi/lib/git.mjs')).href;
+  const gateUrl = pathToFileURL(gateCli).href;
+  const script = `(${exerciseRsiChildEnvironments.toString()})(${JSON.stringify(gateUrl)}, ${JSON.stringify(gitUrl)});`;
+  const result = spawnSync(
+    process.execPath,
+    ['--experimental-test-module-mocks', '--input-type=module', '-e', script],
+    {
+      encoding: 'utf8',
+      timeout: 30_000,
+      env: {
+        PATH: process.env.PATH,
+        TMPDIR: os.tmpdir(),
+        TMP: os.tmpdir(),
+        TEMP: os.tmpdir(),
+        SystemRoot: process.env.SystemRoot,
+        COMSPEC: process.env.COMSPEC,
+        MOSS_BENCH_API_KEY: 'synthetic-benchmark-canary',
+        moss_bench_api_key: 'synthetic-lowercase-canary',
+      },
+    }
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test('RSI git subprocesses do not inherit the benchmark key', () => {
   const gitUrl = pathToFileURL(path.join(repoRoot, 'scripts/rsi/lib/git.mjs')).href;
   const script = `

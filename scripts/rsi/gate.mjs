@@ -60,9 +60,15 @@ function readBaseJson(repo, sha, file) {
   return shown.status === 0 ? JSON.parse(shown.stdout) : null;
 }
 
-function benchEnv(extra = {}) {
+function benchEnv(extra = {}, { modelKey = false } = {}) {
   const env = { ...process.env, ...extra };
   delete env.MOSS_DEVICE_TRUST;
+  for (const key of Object.keys(env)) {
+    if (key.toUpperCase() === 'MOSS_BENCH_API_KEY') delete env[key];
+  }
+  if (modelKey && process.env.MOSS_BENCH_API_KEY !== undefined) {
+    env.MOSS_BENCH_API_KEY = process.env.MOSS_BENCH_API_KEY;
+  }
   return env;
 }
 
@@ -106,9 +112,6 @@ function mergedRounds(text, round) {
 function runNpm(repo, args) {
   assertNotStopped(repo);
   const env = benchEnv();
-  for (const key of Object.keys(env)) {
-    if (key.toUpperCase() === 'MOSS_BENCH_API_KEY') delete env[key];
-  }
   const result = spawnSync('npm', args, { cwd: repo, env, stdio: 'inherit' });
   assertNotStopped(repo);
   return result.status ?? 1;
@@ -179,7 +182,10 @@ function evaluateFromBase(repo, baseSha, jobs) {
       }
       const result = spawnSync(process.execPath, [script, ...job.args], {
         cwd: baseDir,
-        env: benchEnv({ MOSS_BENCH_CLI: path.join(dest, 'cli.js') }),
+        env: benchEnv(
+          { MOSS_BENCH_CLI: path.join(dest, 'cli.js') },
+          { modelKey: job.name === 'dev' || job.name === 'device' }
+        ),
         stdio: 'inherit',
       });
       assertNotStopped(repo);
