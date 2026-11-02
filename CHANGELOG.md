@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Product experience, task verdicts, and configuration change detection
+
+- The terminal experience has a shorter help view, more reliable in-flight input,
+  attributable concurrent tool results, and a model picker that follows the selection.
+- Command-based task acceptance can now attribute a verdict when `task_id` is omitted.
+  **SDK compatibility:** in that case, `taskAcceptanceTool.execute()` now prefixes its
+  command detail with `Task acceptance (<task ID>): PASS|FAIL`. Consumers matching the
+  complete result or its former first line must account for the new header. Calls with
+  an explicit `task_id` keep their previous command detail format.
+- Executed commands are checked for changes to selected Moss configuration and
+  credential files. This is post-execution detection, not prevention or automatic
+  recovery; delayed writes and results of background subagents that are never collected
+  remain outside this guarantee. Subagent `writePaths` are coordination hints, not an
+  enforced security boundary.
+
+### 产品体验、任务验收与配置变更检测
+
+- 精简终端帮助，改善运行中输入、并发工具结果归属，以及长模型列表的选择体验。
+- 命令验收省略 `task_id` 时，结果现在包含实际任务标识。**SDK 兼容性：**此时
+  `taskAcceptanceTool.execute()` 会在原有命令详情前增加
+  `Task acceptance (<task ID>): PASS|FAIL`；按完整内容或原首行匹配的调用方需要适配。
+  显式提供 `task_id` 的命令验收输出格式保持不变。
+- 命令执行后会检查选定的 Moss 配置与凭据文件是否发生变化。这是事后检测，不是
+  执行前拦截或自动恢复；延迟写入和从未收集结果的后台子代理仍不在保证范围内。
+  子代理的 `writePaths` 是协作提示，并非强制执行的安全边界。
+
 ### O148 — PowerShell nesting deeper than one level is analyzed (else fail-closed)
 
 The pwsh write-target scanner analyzed only one level of nested execution

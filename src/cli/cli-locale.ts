@@ -56,6 +56,8 @@ export function cliLocale(): string | undefined {
 
 export const SETUP_ZH: Readonly<Record<string, string>> = {
   'Moss setup': 'Moss 设置',
+  'The key is saved locally; use apiKeyEnv to keep it in the environment.':
+    'key 保存在本地；使用 apiKeyEnv 可只保留在环境变量里。',
   'Moss setup — pick a model provider and paste its API key (about a minute).':
     'Moss 设置 — 选择模型服务商并粘贴它的 API key（约一分钟）。',
   'The key is saved to your Moss config file (readable only by you). Prefer an env var? Exit and run: moss config set apiKeyEnv <VAR>':
@@ -102,6 +104,8 @@ export const SETUP_ZH: Readonly<Record<string, string>> = {
   'Esc goes back one step.': 'Esc 返回上一步。',
   'Type the model name, then Enter.': '输入模型名，然后按 回车。',
   'Pick a model by number or name ({count} listed).': '用序号或名字选择模型（共 {count} 个）。',
+  'Pick a model (↑↓, number or name; {count} listed).':
+    '选择模型（↑↓、序号或名字；共 {count} 个）。',
   'Fetching the model list…': '正在获取模型列表…',
   'Testing the connection (1 token)…': '正在测试连接（1 token）…',
   'Esc returns to the URL.': 'Esc 返回修改地址。',

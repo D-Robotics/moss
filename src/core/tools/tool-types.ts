@@ -29,6 +29,8 @@ export interface ProtectedPathChangeReport {
 
 export interface ToolContext {
   workspaceDir: string;
+  /** Host-resolved configuration files to compare after shell execution. */
+  protectedConfigPaths?: readonly string[];
   /**
    * O96: lets a string-returning tool mark its result as an error structurally
    * (e.g. exec timeout / signal kill) instead of relying on output text.
@@ -84,7 +86,7 @@ export interface ToolContext {
   taskContracts?: 'allow' | 'deny';
   spawnSubagent?: (params: {
     task: string;
-    /** Parent-relative paths a full-scope worker may modify. */
+    /** Parent-relative coordination hints; not an enforced write boundary. */
     writePaths?: readonly string[];
     /** Run this writable worker in an isolated git worktree (lease-patch merge). */
     worktree?: boolean;
@@ -120,6 +122,7 @@ export interface ToolContext {
     sessionKey: string;
     summary: string;
     success: boolean;
+    protectedPathChanges?: readonly ProtectedPathChangeReport[];
     turns?: number;
     toolResults?: number;
     durationMs?: number;

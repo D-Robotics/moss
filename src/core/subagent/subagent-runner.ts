@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { TOOL_SEARCH_NAME } from '../tools/deferred-tool-offer.js';
-import type { SubagentRunProgress, Tool } from '../tools/tool-types.js';
+import type { ProtectedPathChangeReport, SubagentRunProgress, Tool } from '../tools/tool-types.js';
 import type { Model, StreamFunction, ThinkingLevel } from '../../provider/pi-ai-types.js';
 import type { AgentLoopPlatformConfig } from '../loop/agent-loop-types.js';
 import type { Message } from '../session/session-jsonl.js';
@@ -19,6 +19,7 @@ import {
 import { runAgentLoop } from '../loop/agent-loop.js';
 import { getRootLogger } from '../../logger.js';
 import { errorMessage } from '../../errors.js';
+import { PROTECTED_PATH_MOD_MARKER } from '../../safety/protected-path-snapshot.js';
 
 const log = getRootLogger().child('subagent-runner');
 
@@ -87,6 +88,8 @@ export interface SubAgentRunnerDeps {
 
   workspaceDir?: string;
 
+  protectedConfigPaths?: readonly string[];
+
   /**
    * Optional host completion gate (e.g. CLI coding gates). When set, child
    * agent loops inherit the same end-of-turn honesty checks as the parent
@@ -98,8 +101,9 @@ export interface SubAgentRunnerDeps {
   /**
    * Optional host approval gate. When set, every child tool call is checked
    * against the SAME approval policy as the parent before execution, so a
-   * non-interactive denial stays denied inside sub-agents — scope/writePaths
-   * narrow permissions, they never widen them (F23). The runner injects the
+   * non-interactive denial stays denied inside sub-agents. Scope filters tools;
+   * writePaths is a coordination hint and does not enforce a filesystem boundary.
+   * The runner injects the
    * child's sessionKey/runId into each call.
    */
   checkToolApproval?: (call: {
@@ -241,6 +245,19 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       worktreeLease = prepared.lease;
       parentWorkspaceDir = prepared.parentDir;
     }
+    const protectedChanges: ProtectedPathChangeReport[] = [];
+    let preserveWorktree = false;
+    const protectedChangeMessage = (): string => {
+      const names = protectedChanges
+        .slice(0, 5)
+        .map((change) => change.path)
+        .join(', ');
+      const location =
+        preserveWorktree && worktreeLease
+          ? `\n[worktree preserved: ${path.resolve(worktreeLease.worktreePath)}]`
+          : '';
+      return `Protected paths modified by subagent: ${names}\n${PROTECTED_PATH_MOD_MARKER} paths=${names}${location}`;
+    };
     // Reserve the tail of every bounded child run for tool-free synthesis.
     // Without this, a diligent verifier can consume the entire wall-clock
     // budget on tool follow-ups and be aborted while streaming an otherwise
@@ -294,6 +311,15 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         getToolsForRun: () => filteredTools,
         toolCtx: {
           workspaceDir,
+          ...(deps.protectedConfigPaths
+            ? {
+                protectedConfigPaths: [
+                  ...deps.protectedConfigPaths,
+                  path.join(workspaceDir, '.moss', 'config.json'),
+                  path.join(workspaceDir, '.moss', 'mcp.json'),
+                ],
+              }
+            : {}),
           runId: childRunId,
           sessionKey: childSessionKey,
           agentId: `subagent:${config.scope}`,
@@ -366,6 +392,12 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           if (event.type === 'tool_execution_end') {
             toolResultCount++;
             lastTool = event.toolName;
+            for (const change of event.protectedPathChanges ?? []) {
+              if (!protectedChanges.some((item) => item.path === change.path)) {
+                protectedChanges.push({ ...change });
+              }
+            }
+            if (protectedChanges.length > 0 && worktreeLease) preserveWorktree = true;
             emitProgress({ phase: 'tool', lastTool, toolResults: toolResultCount });
           }
           if (event.type === 'turn_end') {
@@ -383,6 +415,21 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           toolResults: toolResultCount,
           synthesisReserveMs,
         });
+      }
+      if (protectedChanges.length > 0) {
+        const message = protectedChangeMessage();
+        emitProgress({ status: 'failed', phase: 'failed', summaryPreview: message });
+        return {
+          runId: childRunId,
+          summary: message,
+          toolResults: toolResultCount,
+          turns: turnCount,
+          durationMs: Date.now() - startedAt,
+          success: false,
+          error: message,
+          protectedPathChanges: protectedChanges,
+          ...(worktreeLease ? { workspaceLeaseId: worktreeLease.leaseId } : {}),
+        };
       }
       let finalSummary = miniResult?.finalText.trim() ?? '';
       const needsContractRepair = subtaskSummaryNeedsContractRepair(config.task, finalSummary);
@@ -576,18 +623,22 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       };
     } catch (err) {
       const errorMsg = errorMessage(err);
-      const summary = `Sub-agent failed: ${errorMsg}`;
+      const summary = `Sub-agent failed: ${errorMsg}${protectedChanges.length > 0 ? `\n${protectedChangeMessage()}` : ''}`;
       log.warn('child agent failed', {
         runId: childRunId,
         error: errorMsg,
         durationMs: Date.now() - startedAt,
       });
-      emitProgress({
-        status: 'failed',
-        phase: 'failed',
-        error: errorMsg,
-        ...(partialText ? { summaryPreview: partialText.trim().slice(0, 240) } : {}),
-      });
+      try {
+        emitProgress({
+          status: 'failed',
+          phase: 'failed',
+          error: errorMsg,
+          ...(partialText ? { summaryPreview: partialText.trim().slice(0, 240) } : {}),
+        });
+      } catch {
+        // A failing progress observer must not suppress the protected-path result.
+      }
 
       return {
         runId: childRunId,
@@ -597,13 +648,15 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         durationMs: Date.now() - startedAt,
         success: false,
         error: errorMsg,
+        ...(protectedChanges.length > 0 ? { protectedPathChanges: protectedChanges } : {}),
+        ...(preserveWorktree && worktreeLease ? { workspaceLeaseId: worktreeLease.leaseId } : {}),
       };
     } finally {
       clearTimeout(workPhaseTimer);
       signal.removeEventListener('abort', abortWorkPhase);
       // The worktree itself is disposable once its patch artifact is collected
       // (the parent merges from .moss/patches, not from the worktree).
-      if (worktreeLease) {
+      if (worktreeLease && !preserveWorktree) {
         await cleanupWorktree({
           parentWorkspace: parentWorkspaceDir,
           worktreePath: worktreeLease.worktreePath,

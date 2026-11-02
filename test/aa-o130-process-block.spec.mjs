@@ -102,6 +102,7 @@ async function scenario({
   dir = 'appdata',
   withHome = true,
   json = false,
+  explicitConfig = false,
 }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'o130-'));
   const home = path.join(root, 'home');
@@ -142,9 +143,12 @@ async function scenario({
   ])
     await run(['config', 'set', k, v], env, proj);
   const cfgBefore = fs.readFileSync(path.join(cfg, 'config.json'), 'utf8');
+  const explicitPath = path.join(root, 'custom-config.json');
+  if (explicitConfig) fs.writeFileSync(explicitPath, cfgBefore);
   const r = await run(
     [
       '--trust-workspace',
+      ...(explicitConfig ? ['--config-file', explicitPath] : []),
       '--lang',
       lang,
       ...(json ? ['--output-format', 'json'] : []),
@@ -277,28 +281,55 @@ for (const lang of ['zh', 'en']) {
   });
 }
 
-// Known limitation → L3 (PM): a path computed inside the interpreter (env NAME
-// built at runtime) is not visible pre-exec. L3 (protected-path-snapshot.ts)
-// does NOT watch Moss's config dir today, so this write lands with exit 0 on
-// every OS → per PM this is a separate P1 (L3 must watch config.json /
-// credentials), not covered by O130. Kept as `todo` so the gap stays visible in
-// every CI log and turns into a real assertion when that P1 lands.
-test(
-  'O130 L3 gap: node script building the config path at runtime → should exit 9 「已被修改」',
-  { todo: 'L3 does not watch the Moss config dir — separate P1 (see PR body)' },
-  async () => {
+// An interpreter can construct the path too late for pre-execution detection.
+// The post-run check reports the actual modification without claiming a block.
+test('O130 L3 gap: node script building the config path at runtime → should exit 9 「已被修改」', async () => {
+  const script =
+    "const p=require('path');const n=['MOSS','CONFIG','DIR'].join('_');" +
+    "const d=process.env[n];require('fs').writeFileSync(p.join(d,'credentials'),'PWN');\n";
+  const r = await scenario({
+    command: () => 'node w.cjs',
+    files: { 'w.cjs': script },
+    dir: 'custom',
+  });
+  console.log(
+    `# O130-L3 ${process.platform}: exit=${r.code} credChanged=${r.credChanged} last=${r.last}`
+  );
+  assert.equal(r.code, 9, `exit 9, got ${r.code}; last=${r.last}`);
+  assert.match(r.last, /modified|已被修改/, r.last);
+  assert.ok(r.credChanged, 'the command already ran; this is detection, not prevention');
+  assert.doesNotMatch(r.last, /Blocked by|已拦截|restored|已还原/);
+  assert.ok(!`${r.out}${r.err}`.includes('ORIG'), 'original credential is not disclosed');
+});
+
+test('O130 L3 detects a dynamically modified explicit config file', async () => {
+  const r = await scenario({
+    explicitConfig: true,
+    command: () => 'node w.cjs',
+    files: {
+      'w.cjs':
+        "const p=require('path');const f=p.join(process.cwd(),'..','custom-config.json');" +
+        "require('fs').writeFileSync(f,'{}');\n",
+    },
+  });
+  assert.equal(r.code, 9, r.last);
+  assert.match(r.last, /custom-config\.json/);
+  assert.match(r.last, /modified|已被修改/);
+  assert.doesNotMatch(r.last, /Blocked by|已拦截|restored|已还原/);
+});
+
+for (const [name, dir, leaf] of [
+  ['project config', 'process.cwd()', "['co','nfig.json'].join('')"],
+  ['project MCP config', 'process.cwd()', "['m','cp.json'].join('')"],
+  ['legacy home credentials', 'process.env.HOME', "['cre','dentials'].join('')"],
+]) {
+  test(`O130 L3 detects dynamically created ${name}`, async () => {
     const script =
-      "const p=require('path');const n=['MOSS','CONFIG','DIR'].join('_');" +
-      "const d=process.env[n];require('fs').writeFileSync(p.join(d,'credentials'),'PWN');\n";
-    const r = await scenario({
-      command: () => 'node w.cjs',
-      files: { 'w.cjs': script },
-      dir: 'custom',
-    });
-    console.log(
-      `# O130-L3 ${process.platform}: exit=${r.code} credChanged=${r.credChanged} last=${r.last}`
-    );
-    assert.equal(r.code, 9, `exit 9, got ${r.code}; last=${r.last}`);
+      `const p=require('path'),f=require('fs');const d=p.join(${dir},'.moss');` +
+      `f.mkdirSync(d,{recursive:true});f.writeFileSync(p.join(d,${leaf}),'{}');\n`;
+    const r = await scenario({ command: () => 'node w.cjs', files: { 'w.cjs': script } });
+    assert.equal(r.code, 9, r.last);
     assert.match(r.last, /modified|已被修改/, r.last);
-  }
-);
+    assert.doesNotMatch(r.last, /Blocked by|已拦截|restored|已还原/);
+  });
+}

@@ -40,6 +40,7 @@ import {
 } from './cli/permission-rules.js';
 import { displayHelp, displayVersion } from './cli/help.js';
 import { createConfiguredGuardrailHooks } from './cli/guardrails.js';
+import { mossConfigDirs } from './cli/protected-path-prompt.js';
 import {
   createConfiguredHookCallbacks,
   formatUserPromptHookContext,
@@ -945,7 +946,30 @@ async function main() {
   const preToolUseGate = composePreToolUseGate(configPreHook, approvalHook);
   const onBeforeToolExec: AgentHooks['onBeforeToolExec'] = (req) =>
     runWithApprovalRequest(req, () => preToolUseGate(req));
+  const protectedConfigPaths = [
+    loadedConfig.configPath,
+    ...mossConfigDirs(configDir, envBeforeDotenv).flatMap((dir) =>
+      ['config.json', 'credentials', '.apikey-key', '.env', 'mcp.json', 'workspace-trust.json'].map(
+        (name) => path.join(dir, name)
+      )
+    ),
+    path.join(workspace, '.moss', 'config.json'),
+    path.join(workspace, '.moss', 'mcp.json'),
+  ];
+  // Match resolveProjectConfigPath's nearest-ancestor search, including files
+  // that do not exist yet and could be created during this run.
+  let projectConfigDir = path.resolve(configStartDir);
+  for (let i = 0; i < 16; i++) {
+    protectedConfigPaths.push(path.join(projectConfigDir, '.moss', 'config.json'));
+    const parent = path.dirname(projectConfigDir);
+    if (parent === projectConfigDir) break;
+    projectConfigDir = parent;
+  }
   const hooks = createConfiguredGuardrailHooks(resolvedConfig, {
+    enrichToolContext: (context) => ({
+      ...context,
+      protectedConfigPaths,
+    }),
     onBeforeToolExec,
     onToolResult: configuredHooks.onToolResult,
     onInputGuardrail: async (request) => {

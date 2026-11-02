@@ -671,7 +671,14 @@ for (const command of KNOWN_COMMANDS) LITERAL_TOKENS.add(command);
 
 const LANGUAGE_SETTINGS = new Set(['auto', 'en', 'zh']);
 // Product names stay in English in zh copy (O72 help compares with Claude Code's acceptEdits).
-const EXACT_PHRASES = ['api key', 'node.js', 'task os', 'claude code', 'acceptedits'];
+const EXACT_PHRASES = [
+  'api key',
+  'node.js',
+  'task os',
+  'claude code',
+  'acceptedits',
+  'shift+enter',
+];
 const MUTATION_SENTENCE = 'No model provider set, run setup or add a key.';
 
 function stripAnsi(text) {
@@ -745,6 +752,8 @@ for (const configPath of [
   );
 }
 assert.equal(englishSentences('These settings will be saved here').length, 1);
+assert.deepEqual(englishSentences('Shift+Enter / Ctrl+J 换行'), []);
+assert.equal(englishSentences('Shift+Enter inserts a new line').length, 1);
 assert.deepEqual(
   englishSentences(
     '无法访问 archive.d-robotics.cc 下载（whl 探测失败）。请检查出网/代理；Moss 不会自动装包。'

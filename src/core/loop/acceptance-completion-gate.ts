@@ -9,6 +9,7 @@
 import type { Message } from '../session/session-jsonl.js';
 import type { AgentLoopExtensions } from './agent-loop-types.js';
 import { isNudgeDisabled } from './nudges/disable.js';
+import { parseAcceptanceVerdictText } from './acceptance-verdict-text.js';
 
 export const TASK_ACCEPTANCE_VERDICT_MARKER = 'Task acceptance (';
 export const TASK_ACCEPTANCE_PASS_MARKER = 'FINAL: PASS';
@@ -83,12 +84,6 @@ export type AcceptanceGateDecision =
 /** Tools that count as entering the diagnose → repair loop after a FAIL. */
 const REPAIR_AFTER_FAIL = new Set(['record_failure', 'record_repair', 'record_evidence']);
 
-function acceptanceOutcome(text: string): 'pass' | 'fail' | 'other' {
-  if (text.includes(TASK_ACCEPTANCE_PASS_MARKER)) return 'pass';
-  if (/Task acceptance \([^)]*\): FAIL/.test(text)) return 'fail';
-  return 'other';
-}
-
 /**
  * Latest acceptance verdict, and whether a repair-path tool was invoked
  * after that FAIL result. A PASS, or a FAIL that was followed by repair
@@ -99,29 +94,65 @@ function acceptanceProgress(messages: Message[]): {
   repairedAfterFail: boolean;
 } {
   let outcome: 'none' | 'pass' | 'fail' | 'other' = 'none';
+  let failedTaskId: string | undefined;
   let repairedAfterFail = false;
-  const acceptanceIds = new Set<string>();
-  const repairIds = new Set<string>();
+  const acceptanceIds = new Map<string, string | undefined>();
+  const repairIds = new Map<string, string | undefined>();
   for (const message of messages) {
     if (message.role !== 'assistant' || !Array.isArray(message.content)) continue;
     for (const block of message.content) {
       if (!block || typeof block !== 'object') continue;
-      const typed = block as { type?: string; name?: string; id?: string };
+      const typed = block as {
+        type?: string;
+        name?: string;
+        id?: string;
+        input?: { task_id?: unknown };
+      };
       if (typed.type !== 'tool_use' || typeof typed.id !== 'string') continue;
-      if (typed.name === 'task_acceptance') acceptanceIds.add(typed.id);
-      if (typed.name && REPAIR_AFTER_FAIL.has(typed.name)) repairIds.add(typed.id);
+      const taskId =
+        typeof typed.input?.task_id === 'string' ? typed.input.task_id.trim() : undefined;
+      if (typed.name === 'task_acceptance') acceptanceIds.set(typed.id, taskId || undefined);
+      if (typed.name && REPAIR_AFTER_FAIL.has(typed.name))
+        repairIds.set(typed.id, taskId || undefined);
     }
   }
   for (const message of messages) {
     if (message.role !== 'user' || !Array.isArray(message.content)) continue;
     for (const block of message.content) {
       if (!block || typeof block !== 'object') continue;
-      const typed = block as { type?: string; tool_use_id?: string };
+      const typed = block as {
+        type?: string;
+        tool_use_id?: string;
+        is_error?: boolean;
+        isError?: boolean;
+        outcome?: string;
+        aborted?: unknown;
+        _synthetic?: string;
+      };
       if (typed.type !== 'tool_result' || typeof typed.tool_use_id !== 'string') continue;
+      if (
+        typed.aborted ||
+        typed._synthetic === 'missing_tool_result' ||
+        (typed.outcome !== undefined && typed.outcome !== 'ok' && typed.outcome !== 'error')
+      )
+        continue;
+      const failed = typed.is_error === true || typed.isError === true || typed.outcome === 'error';
       if (acceptanceIds.has(typed.tool_use_id)) {
-        outcome = acceptanceOutcome(toolResultText(block as { content?: unknown }));
+        const verdict = parseAcceptanceVerdictText(
+          toolResultText(block as { content?: unknown }),
+          acceptanceIds.get(typed.tool_use_id)
+        );
+        if (!verdict || (failed && verdict.outcome !== 'FAIL')) continue;
+        outcome =
+          verdict.outcome === 'PASS' ? 'pass' : verdict.outcome === 'FAIL' ? 'fail' : 'other';
+        failedTaskId = verdict.taskId;
         repairedAfterFail = false;
-      } else if (outcome === 'fail' && repairIds.has(typed.tool_use_id)) {
+      } else if (
+        !failed &&
+        outcome === 'fail' &&
+        failedTaskId &&
+        repairIds.get(typed.tool_use_id) === failedTaskId
+      ) {
         repairedAfterFail = true;
       }
     }

@@ -1,5 +1,5 @@
 import type { SpawnToolScope } from './spawn-profile.js';
-import type { SubagentRunProgress } from '../tools/tool-types.js';
+import type { ProtectedPathChangeReport, SubagentRunProgress } from '../tools/tool-types.js';
 
 export interface SubAgentConfig {
   runId: string;
@@ -10,7 +10,7 @@ export interface SubAgentConfig {
 
   task: string;
 
-  /** Parent-relative paths that an implementation worker may modify. */
+  /** Parent-relative coordination hints; not an enforced write boundary. */
   writePaths?: readonly string[];
 
   /**
@@ -73,6 +73,7 @@ export interface SubAgentResult {
   turns: number;
   durationMs: number;
   success: boolean;
+  protectedPathChanges?: readonly ProtectedPathChangeReport[];
   error?: string;
   workspaceLeaseId?: string;
   patchId?: string;

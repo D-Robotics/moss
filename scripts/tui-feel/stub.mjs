@@ -92,6 +92,58 @@ http
         res.end();
         return;
       }
+      if (/parallelreads/i.test(text) && toolResults < 2) {
+        send(res, {
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: ['missing.txt', 'present.txt'].map((path, index) => ({
+                  index,
+                  id: `call_${++seq}`,
+                  type: 'function',
+                  function: { name: 'read_file', arguments: JSON.stringify({ path }) },
+                })),
+              },
+            },
+          ],
+        });
+        send(res, { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage });
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+      if (/helptodos/i.test(text) && toolResults < 1) {
+        send(res, {
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: `call_${++seq}`,
+                    type: 'function',
+                    function: {
+                      name: 'todo_write',
+                      arguments: JSON.stringify({
+                        todos: Array.from({ length: 5 }, (_, index) => ({
+                          content: `Check item ${index + 1}`,
+                          status: index === 0 ? 'in_progress' : 'pending',
+                        })),
+                      }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        });
+        send(res, { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage });
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
       if (/toolstorm/i.test(text) && toolResults < 20) {
         const id = `call_${++seq}`;
         send(res, { choices: [{ index: 0, delta: { content: `Step ${toolResults + 1}. ` } }] });
