@@ -67,7 +67,10 @@ exec(compile(open(path, 'rb').read(), path, 'exec'), {'__name__': '__main__', '_
   try {
     const scriptDir = path.join(emptyRoot, 'scripts/tui-feel');
     fs.mkdirSync(scriptDir, { recursive: true });
-    fs.cpSync(path.join(root, 'scripts/tui-feel'), scriptDir, { recursive: true });
+    fs.cpSync(path.join(root, 'scripts/tui-feel'), scriptDir, {
+      recursive: true,
+      filter: (source) => path.basename(source).toLowerCase() !== '.env',
+    });
     const reportPath = path.join(emptyRoot, 'report.json');
     const missingPyte = spawnSync(
       'python3',
@@ -189,7 +192,7 @@ exec(compile(open(path, 'rb').read(), path, 'exec'), {'__name__': '__main__', '_
     assert.notEqual(selector.status, 0, 'an approval option must not be mistaken for a composer');
     assert.equal(fs.existsSync(reportPath), false);
 
-    // This deliberately dishonest CLI leaves the HTTP stream open after Esc.
+    // This dishonest CLI reports interruption but closes the stream 3s later.
     fs.writeFileSync(
       path.join(emptyRoot, 'dist/cli.js'),
       String.raw`
@@ -207,13 +210,17 @@ process.stdin.on('data', (data) => {
   if (data.toString() === '\r') {
     request = http.request(cfg.baseUrl + '/chat/completions', { method: 'POST' }, (response) => {
       response.on('data', () => {
-        if (!streamed) { streamed = true; render('Section 1', 'Esc to interrupt'); }
+        if (!streamed) {
+          streamed = true;
+          render('Section 1', 'Esc to interrupt');
+          setTimeout(() => request.destroy(), 3000); // Independent of Esc.
+        }
       });
     });
     request.on('error', () => {});
     request.end(JSON.stringify({ messages: [{ role: 'user', content: 'longstream' }] }));
   } else if (data.toString() === '\x1b') {
-    render('Interrupted', 'idle'); // Intentionally does not close request/response.
+    render('Interrupted', 'idle'); // Intentionally leaves request open.
   }
 });
 render('ready', 'idle');
@@ -253,7 +260,7 @@ setTimeout(() => process.exit(0), 8000);
     );
     fs.rmSync(reportPath);
     fakeInterrupt.steps[3].streamCancelled = true;
-    fakeInterrupt.steps[3].timeout_ms = 700;
+    fakeInterrupt.steps[3].timeout_ms = 5000;
     fs.writeFileSync(fakeScenario, JSON.stringify(fakeInterrupt));
     const fakeCancel = spawnSync(
       'python3',
@@ -267,13 +274,49 @@ setTimeout(() => process.exit(0), 8000);
     assert.notEqual(
       fakeCancel.status,
       0,
-      'fake interruption must not satisfy upstream cancellation'
+      'a stream closed three seconds after fake interruption must fail the default limit'
     );
     assert.match(
       `${fakeCancel.stdout}${fakeCancel.stderr}`,
       /timed out waiting for stub stream cancellation/
     );
     assert.equal(fs.existsSync(reportPath), false);
+    fakeInterrupt.steps[3].streamCancelTimeoutMs = 500;
+    fs.writeFileSync(fakeScenario, JSON.stringify(fakeInterrupt));
+    const strict = spawnSync(
+      'python3',
+      [path.join(scriptDir, 'driver.py'), '--scenario', fakeScenario, '--out', reportPath],
+      { cwd: emptyRoot, encoding: 'utf8', timeout: 30_000 }
+    );
+    assert.notEqual(strict.status, 0, 'an explicit 500 ms limit must reject the delayed close');
+    assert.match(
+      `${strict.stdout}${strict.stderr}`,
+      /timed out waiting for stub stream cancellation/
+    );
+    assert.equal(fs.existsSync(reportPath), false);
+
+    // A deliberately relaxed bound admits the same unrelated three-second
+    // close. This checks both configurability and the causal limitation.
+    fakeInterrupt.steps[3].streamCancelTimeoutMs = 6000;
+    fs.writeFileSync(fakeScenario, JSON.stringify(fakeInterrupt));
+    const relaxed = spawnSync(
+      'python3',
+      [path.join(scriptDir, 'driver.py'), '--scenario', fakeScenario, '--out', reportPath],
+      { cwd: emptyRoot, encoding: 'utf8', timeout: 30_000 }
+    );
+    assert.equal(
+      relaxed.status,
+      0,
+      `a relaxed bound should admit the delayed close: ${relaxed.stderr}`
+    );
+    const late = JSON.parse(fs.readFileSync(reportPath, 'utf8')).scenarios[0].steps[3]
+      .streamCancellation;
+    assert.ok(late.afterArmMs > 2500 && late.afterArmMs <= 6000);
+    assert.equal(late.limitMs, 6000);
+    assert.ok(BigInt(late.closedAtNs) > BigInt(late.armedAtNs));
+    console.log(
+      `[PASS] independent close at ${late.afterArmMs} ms rejected at 1500/500 ms, accepted at 6000 ms`
+    );
   } finally {
     fs.rmSync(emptyRoot, { recursive: true, force: true });
   }
@@ -374,6 +417,9 @@ sys.exit(1)
       const cancellation = interrupted?.streamCancellation;
       assert.ok(cancellation, 'the local stub must observe the interrupted stream close');
       assert.ok(cancellation.sentChunks > 0 && cancellation.sentChunks < cancellation.totalChunks);
+      assert.equal(cancellation.limitMs, 1500);
+      assert.ok(cancellation.afterArmMs >= 0 && cancellation.afterArmMs <= cancellation.limitMs);
+      assert.ok(BigInt(cancellation.closedAtNs) >= BigInt(cancellation.armedAtNs));
       assert.ok(
         assertions.some(
           (step) => step.target === 'composer' && step.observed.includes('aftercancel')
@@ -521,8 +567,8 @@ sys.exit(1)
       ],
       { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: resultsDir }, timeout: 10_000 }
     );
-    assert.notEqual(noComparator.status, 0, 'a missing comparator must not pass as a comparison');
-    assert.match(`${noComparator.stdout}${noComparator.stderr}`, /claude.*not available/i);
+    assert.notEqual(noComparator.status, 0, 'legacy comparison must not run without isolation');
+    assert.match(`${noComparator.stdout}${noComparator.stderr}`, /comparison.*disabled/i);
     assert.equal(fs.existsSync(failureReport), false);
     console.log('[PASS] TUI feel does not silently skip a requested comparison');
   } finally {

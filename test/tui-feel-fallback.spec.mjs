@@ -11,11 +11,17 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 if (process.platform !== 'win32' && requirePyLayout('tui-feel-fallback')) {
   const install = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-feel-synthetic-install-'));
   try {
-    fs.cpSync(path.join(root, 'dist'), path.join(install, 'dist'), { recursive: true });
-    fs.cpSync(path.join(root, 'bin'), path.join(install, 'bin'), { recursive: true });
-    fs.cpSync(path.join(root, 'scripts/tui-feel'), path.join(install, 'scripts/tui-feel'), {
+    const copyOptions = {
       recursive: true,
-    });
+      filter: (source) => path.basename(source).toLowerCase() !== '.env',
+    };
+    fs.cpSync(path.join(root, 'dist'), path.join(install, 'dist'), copyOptions);
+    fs.cpSync(path.join(root, 'bin'), path.join(install, 'bin'), copyOptions);
+    fs.cpSync(
+      path.join(root, 'scripts/tui-feel'),
+      path.join(install, 'scripts/tui-feel'),
+      copyOptions
+    );
     fs.copyFileSync(path.join(root, 'package.json'), path.join(install, 'package.json'));
     fs.symlinkSync(path.join(root, 'node_modules'), path.join(install, 'node_modules'), 'dir');
     const result = spawnSync(

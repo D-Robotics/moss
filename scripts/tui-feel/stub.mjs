@@ -33,6 +33,7 @@ const done = (res) => {
 
 let seq = 0;
 let streamSeq = 0;
+const streams = new Map();
 const streamEvents = process.env.MOSS_TUI_FEEL_EVENTS;
 function recordStreamEvent(event) {
   if (streamEvents) fs.appendFileSync(streamEvents, `${JSON.stringify(event)}\n`);
@@ -53,6 +54,20 @@ const server = http
       } catch {
         /* ignore */
       }
+      if (req.url === '/__tui-feel/arm') {
+        const stream = streamEvents && streams.get(body.streamId);
+        if (!stream || stream.armedAtNs !== null) {
+          res.writeHead(409);
+          res.end('stream is not active or already armed');
+          return;
+        }
+        stream.armedAtNs = process.hrtime.bigint().toString();
+        const event = { type: 'armed', streamId: body.streamId, armedAtNs: stream.armedAtNs };
+        recordStreamEvent(event);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(event));
+        return;
+      }
       const messages = Array.isArray(body.messages) ? body.messages : [];
       const text = lastUser(messages);
       const toolResults = messages.filter((m) => m.role === 'tool').length;
@@ -62,6 +77,8 @@ const server = http
         const streamId = ++streamSeq;
         let i = 0;
         let completed = false;
+        const stream = { armedAtNs: null };
+        streams.set(streamId, stream);
         recordStreamEvent({ type: 'started', streamId, totalChunks: pieces.length });
         const timer = setInterval(() => {
           if (i < pieces.length)
@@ -73,13 +90,17 @@ const server = http
           }
         }, 25);
         res.on('close', () => {
+          const closedAtNs = process.hrtime.bigint().toString();
           clearInterval(timer);
+          streams.delete(streamId);
           recordStreamEvent({
             type: 'closed',
             streamId,
             completed,
             sentChunks: i,
             totalChunks: pieces.length,
+            armedAtNs: stream.armedAtNs,
+            closedAtNs,
           });
         });
         return;

@@ -25,6 +25,7 @@ from screen import Session  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCENARIOS = pathlib.Path(__file__).resolve().parent / "scenarios"
+DEFAULT_STREAM_CANCEL_TIMEOUT_MS = 1500
 TIMING = (
     "monotonic clock; composer_ready_ms starts immediately before CLI spawn and "
     "requires a visible composer, cursor and raw PTY input (polled every 5 ms); "
@@ -33,8 +34,12 @@ TIMING = (
     "Stub startup and copying the CLI to an isolated temporary install are "
     "excluded. Results include PTY transport, rendering and driver "
     "scheduling/parsing, not physical display or human reaction time. "
-    "interrupt_ms measures visible UI feedback; the "
-    "stub stream cancellation record independently confirms an early close."
+    "interrupt_ms measures visible UI feedback. The stub timestamps an arm "
+    "marker before Esc and the early connection close on its own monotonic "
+    "clock; their difference is bounded by streamCancelTimeoutMs. This is "
+    "timely association in a controlled stub, not proof of causation. The "
+    "CLI and stub share an OS user, so their event file is non-adversarial "
+    "evidence, not an independent security attestation."
 )
 
 
@@ -66,7 +71,7 @@ def validate_spec(spec, path):
             if set(step) != {"type", "text"} or step.get("type") != "keys" or not isinstance(step.get("text"), str) or not step["text"]:
                 raise ValueError(f"{path}: step {index + 1} must send nonempty keys")
             continue
-        allowed = {"type", "target", "includes", "alsoIncludes", "excludes", "composerReady", "metric", "timeout_ms", "streamCancelled"}
+        allowed = {"type", "target", "includes", "alsoIncludes", "excludes", "composerReady", "metric", "timeout_ms", "streamCancelled", "streamCancelTimeoutMs"}
         if set(step) - allowed or step.get("type") != "expect":
             raise ValueError(f"{path}: step {index + 1} must be a valid expect")
         if step.get("target", "screen") not in ("screen", "composer"):
@@ -80,6 +85,10 @@ def validate_spec(spec, path):
         timeout = step.get("timeout_ms", 10000)
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 0 < timeout <= 120000:
             raise ValueError(f"{path}: step {index + 1} timeout_ms must be within 1–120000")
+        if "streamCancelTimeoutMs" in step:
+            limit = step["streamCancelTimeoutMs"]
+            if not step.get("streamCancelled") or isinstance(limit, bool) or not isinstance(limit, (int, float)) or not math.isfinite(limit) or not 0 < limit <= 120000:
+                raise ValueError(f"{path}: step {index + 1} streamCancelTimeoutMs requires streamCancelled and must be within 1–120000")
         metric = step.get("metric")
         if metric in metrics:
             raise ValueError(f"{path}: duplicate metric {metric!r}")
@@ -190,7 +199,9 @@ def run_scenario(name, size, steps):
                     stream_capture = None
                     if steps[index + 1].get("streamCancelled"):
                         events = session.stream_events()
-                        stream_capture = (active_stub_stream(events), len(events))
+                        stream = active_stub_stream(events)
+                        marker = session.arm_stream(stream["streamId"])
+                        stream_capture = (stream, len(events), marker)
                     previous = screen_state(session)
                     started = time.monotonic_ns()
                     session.send(step["text"])
@@ -220,22 +231,34 @@ def run_scenario(name, size, steps):
                 step_result = {"type": "expect", "includes": expected, "target": target,
                                "observed": observed, "elapsed_ms": duration}
                 if step.get("streamCancelled"):
-                    stream, event_count = stream_capture
+                    stream, event_count, marker = stream_capture
 
                     def closed_event():
                         return next((event for event in session.stream_events()[event_count:]
                                      if event.get("type") == "closed" and event.get("streamId") == stream["streamId"]), None)
 
-                    wait_for(session, closed_event, step.get("timeout_ms", 10000) / 1000,
+                    limit_ms = step.get("streamCancelTimeoutMs", DEFAULT_STREAM_CANCEL_TIMEOUT_MS)
+                    wait_for(session, closed_event, limit_ms / 1000,
                              "stub stream cancellation", poll_interval=0.01)
                     closed = closed_event()
                     sent, total = closed.get("sentChunks"), closed.get("totalChunks")
+                    armed_at, closed_at = marker.get("armedAtNs"), closed.get("closedAtNs")
                     if (closed.get("completed") is not False or type(sent) is not int
                             or type(total) is not int or total != stream.get("totalChunks")
                             or not 0 < sent < total):
                         raise RuntimeError(f"stub stream did not close during streaming: {closed!r}")
-                    step_result["streamCancellation"] = {"streamId": stream["streamId"],
-                                                         "sentChunks": sent, "totalChunks": total}
+                    if (not isinstance(armed_at, str) or not armed_at.isdigit()
+                            or closed.get("armedAtNs") != armed_at
+                            or not isinstance(closed_at, str) or not closed_at.isdigit()):
+                        raise RuntimeError("stub stream timestamps are missing or inconsistent")
+                    delta_ns = int(closed_at) - int(armed_at)
+                    if delta_ns < 0 or delta_ns > limit_ms * 1_000_000:
+                        raise RuntimeError(f"stub stream cancellation exceeded {limit_ms} ms from its marker")
+                    step_result["streamCancellation"] = {
+                        "streamId": stream["streamId"], "sentChunks": sent, "totalChunks": total,
+                        "armedAtNs": armed_at, "closedAtNs": closed_at,
+                        "afterArmMs": round(delta_ns / 1_000_000, 3), "limitMs": limit_ms,
+                    }
                 result["steps"].append(step_result)
             if session.proc.poll() is not None or session.stub.poll() is not None:
                 raise RuntimeError("CLI or local stub exited before the scenario finished")

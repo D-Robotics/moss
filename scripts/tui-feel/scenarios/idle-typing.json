@@ -34,7 +34,8 @@
       "excludes": "Esc to interrupt",
       "composerReady": true,
       "metric": "interrupt_ms",
-      "streamCancelled": true
+      "streamCancelled": true,
+      "streamCancelTimeoutMs": 1500
     },
     { "type": "keys", "text": "aftercancel" },
     {

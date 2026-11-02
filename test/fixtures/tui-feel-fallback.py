@@ -96,6 +96,51 @@ try:
     isolated_primary, isolated_fallback = probe(True)
     if isolated_primary < 1 or isolated_fallback != 0:
         raise AssertionError(f"isolated session used synthetic fallback: primary={isolated_primary}, fallback={isolated_fallback}")
+
+    # Probe the real dotenv loader using only synthetic files inside the copied
+    # install. Non-routing variables are assigned immediately on import.
+    (root / "dist/cli.js").write_text(
+        "import fs from 'node:fs';\n"
+        "await import('./cli/config.js');\n"
+        "fs.writeFileSync(process.env.MOSS_PROBE_OUTPUT, process.env.MOSS_TUI_INCREMENTAL ?? 'unset');\n",
+        encoding="utf-8",
+    )
+    output = root / "incremental-result"
+
+    def dotenv_probe(isolated):
+        if output.exists():
+            output.unlink()
+        with Session(initial_pump=0, isolated_env=isolated,
+                     extra_env={"MOSS_PROBE_OUTPUT": str(output)}) as session:
+            code = session.proc.wait(timeout=15)
+            if code != 0:
+                session.pump(0.1)
+                raise AssertionError(f"dotenv probe exited {code}: {bytes(session.raw)[-4000:]!r}")
+        return output.read_text(encoding="utf-8")
+
+    for relative in ("dist/.env", "dist/cli/.env"):
+        synthetic_env = root / relative
+        synthetic_env.write_text("MOSS_TUI_INCREMENTAL=0\n", encoding="utf-8")
+        try:
+            control_value = dotenv_probe(False)
+            isolated_value = dotenv_probe(True)
+            if control_value != "0" or isolated_value != "unset":
+                raise AssertionError(f"{relative} leaked into isolated CLI: control={control_value}, isolated={isolated_value}")
+        finally:
+            synthetic_env.unlink()
+    mixed_case_env = root / "dist/cli/.Env"
+    mixed_case_env.write_text("MOSS_TUI_INCREMENTAL=0\n", encoding="utf-8")
+    try:
+        with Session(initial_pump=0, isolated_env=True,
+                     extra_env={"MOSS_PROBE_OUTPUT": str(output)}) as session:
+            if (Path(session.home) / "install/dist/cli/.Env").exists():
+                raise AssertionError("mixed-case .Env was copied into the isolated install")
+            if session.proc.wait(timeout=15) != 0:
+                raise AssertionError("mixed-case dotenv probe failed")
+    finally:
+        mixed_case_env.unlink()
+    print("[PASS] synthetic dist/.env and dist/cli/.env excluded (control=0, isolated=unset)")
+
     polluted_temp = root / "polluted-temp"
     polluted_temp.mkdir()
     previous_temp = tempfile.tempdir

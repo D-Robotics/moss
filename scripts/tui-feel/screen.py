@@ -7,6 +7,7 @@ manual probe.
 """
 import codecs
 import fcntl
+import http.client
 import json
 import os
 import pty
@@ -69,6 +70,7 @@ class Session:
         self.keybindings = keybindings
         self.proc = None
         self.stub = None
+        self.stub_port = None
         self.master = None
         self.home = None
         self.workspace = None
@@ -129,6 +131,7 @@ class Session:
                 raise ValueError("invalid port")
         except ValueError as error:
             raise RuntimeError(f"invalid local stub startup message: {response!r}") from error
+        self.stub_port = port
         self.workspace = tempfile.mkdtemp(prefix="moss-screen-ws-")
         home = self.home
         ws = self.workspace
@@ -142,7 +145,8 @@ class Session:
             for name in ("dist", "bin"):
                 source = os.path.join(ROOT, name)
                 if os.path.isdir(source):
-                    shutil.copytree(source, os.path.join(install, name))
+                    shutil.copytree(source, os.path.join(install, name),
+                                    ignore=lambda _dir, names: [entry for entry in names if entry.lower() == ".env"])
             package = os.path.join(ROOT, "package.json")
             if os.path.isfile(package):
                 shutil.copy2(package, os.path.join(install, "package.json"))
@@ -219,6 +223,7 @@ class Session:
         finally:
             self.proc = None
             self.stub = None
+            self.stub_port = None
             self.master = None
             home = self.home
             workspace = self.workspace
@@ -308,6 +313,23 @@ class Session:
         self.pump(wait)
 
     # ── observations ────────────────────────────────────────────────────
+
+    def arm_stream(self, stream_id):
+        """Mark the active stream using the stub's own monotonic clock."""
+        conn = http.client.HTTPConnection("127.0.0.1", self.stub_port, timeout=5)
+        try:
+            conn.request("POST", "/__tui-feel/arm", json.dumps({"streamId": stream_id}),
+                         {"content-type": "application/json"})
+            response = conn.getresponse()
+            body = response.read(4096)
+            if response.status != 200:
+                raise RuntimeError(f"stub refused stream marker: HTTP {response.status}")
+            event = json.loads(body)
+            if event.get("streamId") != stream_id or event.get("type") != "armed":
+                raise RuntimeError("stub returned an invalid stream marker")
+            return event
+        finally:
+            conn.close()
 
     def stream_events(self):
         """Read complete local-stub stream lifecycle records, if any."""
