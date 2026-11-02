@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { requirePyLayout } from './helpers/require-pyte.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -18,13 +18,51 @@ try {
     timeout: 10_000,
   });
   assert.notEqual(missingPython.status, 0, 'a missing Python must not pass the benchmark');
-  assert.match(`${missingPython.stdout}${missingPython.stderr}`, /python3|pyte/i);
+  assert.match(
+    `${missingPython.stdout}${missingPython.stderr}`,
+    process.platform === 'win32' ? /requires macOS or Linux/ : /python3|pyte/i
+  );
 } finally {
   fs.rmSync(noPythonPath, { recursive: true, force: true });
 }
 console.log('[PASS] TUI feel fails when Python is unavailable');
 
+const windowsEntry = spawnSync(
+  process.execPath,
+  [
+    '--input-type=module',
+    '-e',
+    `Object.defineProperty(process, 'platform', { value: 'win32' }); await import(${JSON.stringify(pathToFileURL(runner).href)});`,
+  ],
+  { encoding: 'utf8', timeout: 10_000 }
+);
+assert.notEqual(windowsEntry.status, 0, 'the entry point must fail on Windows');
+assert.match(`${windowsEntry.stdout}${windowsEntry.stderr}`, /requires macOS or Linux/);
+
 if (process.platform !== 'win32' && requirePyLayout('tui-feel')) {
+  const windowsProbe = `
+import builtins, os, pathlib, sys
+original_import = builtins.__import__
+def guarded_import(name, *args, **kwargs):
+    if name == 'termios': raise ModuleNotFoundError("No module named 'termios'")
+    return original_import(name, *args, **kwargs)
+builtins.__import__ = guarded_import
+os.name = 'nt'
+path = sys.argv[1]
+exec(compile(open(path, 'rb').read(), path, 'exec'), {'__name__': '__main__', '__file__': path})
+`;
+  const windows = spawnSync(
+    'python3',
+    ['-S', '-c', windowsProbe, path.join(root, 'scripts/tui-feel/driver.py')],
+    {
+      encoding: 'utf8',
+      timeout: 10_000,
+    }
+  );
+  assert.notEqual(windows.status, 0, 'Windows without POSIX PTYs must fail');
+  assert.match(`${windows.stdout}${windows.stderr}`, /requires macOS or Linux/);
+  assert.doesNotMatch(`${windows.stdout}${windows.stderr}`, /No module named 'termios'/);
+
   const emptyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-feel-no-build-'));
   try {
     const scriptDir = path.join(emptyRoot, 'scripts/tui-feel');
@@ -150,6 +188,92 @@ if (process.platform !== 'win32' && requirePyLayout('tui-feel')) {
     );
     assert.notEqual(selector.status, 0, 'an approval option must not be mistaken for a composer');
     assert.equal(fs.existsSync(reportPath), false);
+
+    // This deliberately dishonest CLI leaves the HTTP stream open after Esc.
+    fs.writeFileSync(
+      path.join(emptyRoot, 'dist/cli.js'),
+      String.raw`
+const fs = require('node:fs');
+const http = require('node:http');
+const cfg = JSON.parse(fs.readFileSync(process.argv[process.argv.indexOf('--config-file') + 1], 'utf8'));
+const rule = '─'.repeat(70);
+let request;
+let streamed = false;
+function render(header, status) {
+  process.stdout.write('\x1b[2J\x1b[H' + header + '\r\n' + rule + '\r\n❯ \r\n' + rule + '\r\n' + status + '\x1b[3;3H');
+}
+process.stdin.setRawMode(true);
+process.stdin.on('data', (data) => {
+  if (data.toString() === '\r') {
+    request = http.request(cfg.baseUrl + '/chat/completions', { method: 'POST' }, (response) => {
+      response.on('data', () => {
+        if (!streamed) { streamed = true; render('Section 1', 'Esc to interrupt'); }
+      });
+    });
+    request.on('error', () => {});
+    request.end(JSON.stringify({ messages: [{ role: 'user', content: 'longstream' }] }));
+  } else if (data.toString() === '\x1b') {
+    render('Interrupted', 'idle'); // Intentionally does not close request/response.
+  }
+});
+render('ready', 'idle');
+setTimeout(() => process.exit(0), 8000);
+`
+    );
+    const fakeInterrupt = {
+      name: 'fake-interrupt',
+      cols: 70,
+      rows: 24,
+      steps: [
+        { type: 'keys', text: '\r' },
+        { type: 'expect', includes: 'Section 1', alsoIncludes: 'Esc to interrupt' },
+        { type: 'keys', text: '\x1b' },
+        {
+          type: 'expect',
+          includes: 'Interrupted',
+          excludes: 'Esc to interrupt',
+          composerReady: true,
+        },
+      ],
+    };
+    fs.writeFileSync(fakeScenario, JSON.stringify(fakeInterrupt));
+    const uiOnly = spawnSync(
+      'python3',
+      [path.join(scriptDir, 'driver.py'), '--scenario', fakeScenario, '--out', reportPath],
+      {
+        cwd: emptyRoot,
+        encoding: 'utf8',
+        timeout: 30_000,
+      }
+    );
+    assert.equal(
+      uiOnly.status,
+      0,
+      `the fake CLI reproduces a misleading UI success: ${uiOnly.stderr}`
+    );
+    fs.rmSync(reportPath);
+    fakeInterrupt.steps[3].streamCancelled = true;
+    fakeInterrupt.steps[3].timeout_ms = 700;
+    fs.writeFileSync(fakeScenario, JSON.stringify(fakeInterrupt));
+    const fakeCancel = spawnSync(
+      'python3',
+      [path.join(scriptDir, 'driver.py'), '--scenario', fakeScenario, '--out', reportPath],
+      {
+        cwd: emptyRoot,
+        encoding: 'utf8',
+        timeout: 30_000,
+      }
+    );
+    assert.notEqual(
+      fakeCancel.status,
+      0,
+      'fake interruption must not satisfy upstream cancellation'
+    );
+    assert.match(
+      `${fakeCancel.stdout}${fakeCancel.stderr}`,
+      /timed out waiting for stub stream cancellation/
+    );
+    assert.equal(fs.existsSync(reportPath), false);
   } finally {
     fs.rmSync(emptyRoot, { recursive: true, force: true });
   }
@@ -246,6 +370,10 @@ sys.exit(1)
         assertions.some((step) => /interrupted/i.test(step.observed)),
         'interruption was observed'
       );
+      const interrupted = assertions.find((step) => step.includes === 'Interrupted');
+      const cancellation = interrupted?.streamCancellation;
+      assert.ok(cancellation, 'the local stub must observe the interrupted stream close');
+      assert.ok(cancellation.sentChunks > 0 && cancellation.sentChunks < cancellation.totalChunks);
       assert.ok(
         assertions.some(
           (step) => step.target === 'composer' && step.observed.includes('aftercancel')

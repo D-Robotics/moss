@@ -33,7 +33,8 @@
       "includes": "Interrupted",
       "excludes": "Esc to interrupt",
       "composerReady": true,
-      "metric": "interrupt_ms"
+      "metric": "interrupt_ms",
+      "streamCancelled": true
     },
     { "type": "keys", "text": "aftercancel" },
     {

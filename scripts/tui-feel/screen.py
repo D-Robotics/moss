@@ -42,6 +42,18 @@ KEYS = {
 PROMPT_GLYPH = "\u276f"  # ❯
 
 
+def require_clean_ancestors(directory):
+    """Refuse a temp location whose ancestors could inject a .env into the CLI."""
+    current = os.path.realpath(directory)
+    while True:
+        if os.path.lexists(os.path.join(current, ".env")):
+            raise RuntimeError("temporary directory has a .env ancestor; use a clean TMPDIR for tui-feel")
+        parent = os.path.dirname(current)
+        if parent == current:
+            return
+        current = parent
+
+
 class Session:
     """One moss process on a PTY. Use as a context manager."""
 
@@ -60,6 +72,7 @@ class Session:
         self.master = None
         self.home = None
         self.workspace = None
+        self.stream_events_path = None
         self.screen = pyte.HistoryScreen(cols, rows, history=5000)
         self.stream = pyte.Stream(self.screen)
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
@@ -82,13 +95,17 @@ class Session:
         else:
             # Colour switches would silently strip every style; the probe owns them.
             inherited = {k: v for k, v in os.environ.items() if k not in ("NO_COLOR", "FORCE_COLOR")}
+        self.home = tempfile.mkdtemp(prefix="moss-screen-home-")
+        if self.isolated_env:
+            require_clean_ancestors(self.home)
+        self.stream_events_path = os.path.join(self.home, "stub-stream-events.jsonl")
         # Let the stub bind its own ephemeral port. Waiting for its listening
         # message avoids both a free-port race and a fixed startup delay.
         self.stub = subprocess.Popen(
             ["node", os.path.join(ROOT, "scripts/tui-feel/stub.mjs"), "0"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env=inherited,
+            env={**inherited, "MOSS_TUI_FEEL_EVENTS": self.stream_events_path},
         )
         deadline = time.monotonic() + 10
         response = b""
@@ -112,10 +129,27 @@ class Session:
                 raise ValueError("invalid port")
         except ValueError as error:
             raise RuntimeError(f"invalid local stub startup message: {response!r}") from error
-        self.home = tempfile.mkdtemp(prefix="moss-screen-home-")
         self.workspace = tempfile.mkdtemp(prefix="moss-screen-ws-")
         home = self.home
         ws = self.workspace
+        cli = os.path.join(ROOT, "dist/cli.js")
+        if self.isolated_env:
+            require_clean_ancestors(ws)
+            # The CLI loads .env above its installation, even with a clean HOME.
+            # Run the same build from a temp install with no such ancestors.
+            install = os.path.join(home, "install")
+            os.mkdir(install)
+            for name in ("dist", "bin"):
+                source = os.path.join(ROOT, name)
+                if os.path.isdir(source):
+                    shutil.copytree(source, os.path.join(install, name))
+            package = os.path.join(ROOT, "package.json")
+            if os.path.isfile(package):
+                shutil.copy2(package, os.path.join(install, "package.json"))
+            modules = os.path.join(ROOT, "node_modules")
+            if os.path.isdir(modules):
+                os.symlink(modules, os.path.join(install, "node_modules"))
+            cli = os.path.join(install, "dist/cli.js")
         cfg_dir = os.path.join(home, ".config", "moss")
         os.makedirs(cfg_dir)
         cfg = os.path.join(cfg_dir, "config.json")
@@ -145,12 +179,16 @@ class Session:
             "MOSS_TUI_RENDERER": self.renderer,
             **self.extra_env,
         }
+        if self.isolated_env:
+            # Defense in depth if a future CLI discovers another config source.
+            env["MOSS_FALLBACK_PROVIDERS"] = "[]"
+            env["MOSS_FALLBACK_MAX_RETRIES"] = "0"
         self.master, slave = pty.openpty()
         try:
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", self.rows, self.cols, 0, 0))
             self.spawn_started_ns = time.monotonic_ns()
             self.proc = subprocess.Popen(
-                ["node", os.path.join(ROOT, "dist/cli.js"), "--config-file", cfg],
+                ["node", cli, "--config-file", cfg],
                 stdin=slave,
                 stdout=slave,
                 stderr=slave,
@@ -186,6 +224,7 @@ class Session:
             workspace = self.workspace
             self.home = None
             self.workspace = None
+            self.stream_events_path = None
             if home:
                 shutil.rmtree(home, ignore_errors=True)
             if workspace:
@@ -269,6 +308,16 @@ class Session:
         self.pump(wait)
 
     # ── observations ────────────────────────────────────────────────────
+
+    def stream_events(self):
+        """Read complete local-stub stream lifecycle records, if any."""
+        try:
+            with open(self.stream_events_path, encoding="utf-8") as handle:
+                content = handle.read()
+        except FileNotFoundError:
+            return []
+        # An append may be in progress; consume a record only after its newline.
+        return [json.loads(line) for line in content.split("\n")[:-1] if line]
 
     def frame_violations(self):
         """Lines the MOSS_TUI_DEBUG frame invariant wrote for this session."""

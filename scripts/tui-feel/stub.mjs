@@ -3,6 +3,7 @@
 //   "longstream" -> ~90-line markdown answer streamed in 12-char deltas every 25ms
 //   "toolstorm"  -> 20 sequential list_directory calls, then a short answer
 //   anything else -> one short answer
+import fs from 'node:fs';
 import http from 'node:http';
 
 const PORT = Number(process.argv[2] ?? 8793);
@@ -31,6 +32,11 @@ const done = (res) => {
 };
 
 let seq = 0;
+let streamSeq = 0;
+const streamEvents = process.env.MOSS_TUI_FEEL_EVENTS;
+function recordStreamEvent(event) {
+  if (streamEvents) fs.appendFileSync(streamEvents, `${JSON.stringify(event)}\n`);
+}
 const server = http
   .createServer((req, res) => {
     if (req.method === 'GET') {
@@ -53,16 +59,29 @@ const server = http
       sse(res);
       if (/longstream/i.test(text)) {
         const pieces = LONG.match(/[\s\S]{1,12}/g) ?? [];
+        const streamId = ++streamSeq;
         let i = 0;
+        let completed = false;
+        recordStreamEvent({ type: 'started', streamId, totalChunks: pieces.length });
         const timer = setInterval(() => {
           if (i < pieces.length)
             send(res, { choices: [{ index: 0, delta: { content: pieces[i++] } }] });
           else {
             clearInterval(timer);
+            completed = true;
             done(res);
           }
         }, 25);
-        res.on('close', () => clearInterval(timer));
+        res.on('close', () => {
+          clearInterval(timer);
+          recordStreamEvent({
+            type: 'closed',
+            streamId,
+            completed,
+            sentChunks: i,
+            totalChunks: pieces.length,
+          });
+        });
         return;
       }
       if (/approvewrite/i.test(text) && toolResults < 1) {

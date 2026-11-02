@@ -12,6 +12,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+if (process.platform === 'win32') {
+  console.error('[tui-feel] the PTY benchmark requires macOS or Linux');
+  process.exit(1);
+}
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const compare = process.argv.includes('--compare');
 const driver = path.join(root, 'scripts/tui-feel', compare ? 'compare_feel.py' : 'driver.py');

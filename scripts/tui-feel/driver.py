@@ -7,17 +7,18 @@ import os
 import pathlib
 import subprocess
 import sys
-import termios
 import time
+
+if os.name == "nt":
+    print("[tui-feel] the PTY benchmark requires macOS or Linux", file=sys.stderr)
+    sys.exit(1)
+
+import termios  # noqa: E402
 
 try:
     import pyte  # noqa: F401
 except ImportError:
     print("[tui-feel] pyte is required: python3 -m pip install pyte", file=sys.stderr)
-    sys.exit(1)
-
-if os.name == "nt":
-    print("[tui-feel] the PTY benchmark requires macOS or Linux", file=sys.stderr)
     sys.exit(1)
 
 from screen import Session  # noqa: E402
@@ -29,10 +30,11 @@ TIMING = (
     "requires a visible composer, cursor and raw PTY input (polled every 5 ms); "
     "other metrics start immediately before the preceding PTY write and end "
     "when the driver first observes the matching pyte screen after parsing. "
-    "Stub startup is excluded. Results include PTY transport, rendering and "
-    "driver scheduling/parsing, not physical display or human reaction time. "
-    "The CLI can load .env files above its installation; keep them controlled "
-    "when comparing runs."
+    "Stub startup and copying the CLI to an isolated temporary install are "
+    "excluded. Results include PTY transport, rendering and driver "
+    "scheduling/parsing, not physical display or human reaction time. "
+    "interrupt_ms measures visible UI feedback; the "
+    "stub stream cancellation record independently confirms an early close."
 )
 
 
@@ -64,7 +66,7 @@ def validate_spec(spec, path):
             if set(step) != {"type", "text"} or step.get("type") != "keys" or not isinstance(step.get("text"), str) or not step["text"]:
                 raise ValueError(f"{path}: step {index + 1} must send nonempty keys")
             continue
-        allowed = {"type", "target", "includes", "alsoIncludes", "excludes", "composerReady", "metric", "timeout_ms"}
+        allowed = {"type", "target", "includes", "alsoIncludes", "excludes", "composerReady", "metric", "timeout_ms", "streamCancelled"}
         if set(step) - allowed or step.get("type") != "expect":
             raise ValueError(f"{path}: step {index + 1} must be a valid expect")
         if step.get("target", "screen") not in ("screen", "composer"):
@@ -72,8 +74,9 @@ def validate_spec(spec, path):
         for field in ("includes", "alsoIncludes", "excludes", "metric"):
             if (field == "includes" or field in step) and (not isinstance(step.get(field), str) or not step[field]):
                 raise ValueError(f"{path}: step {index + 1} requires a nonempty {field}")
-        if "composerReady" in step and not isinstance(step["composerReady"], bool):
-            raise ValueError(f"{path}: step {index + 1} composerReady must be boolean")
+        for field in ("composerReady", "streamCancelled"):
+            if field in step and not isinstance(step[field], bool):
+                raise ValueError(f"{path}: step {index + 1} {field} must be boolean")
         timeout = step.get("timeout_ms", 10000)
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 0 < timeout <= 120000:
             raise ValueError(f"{path}: step {index + 1} timeout_ms must be within 1–120000")
@@ -154,6 +157,18 @@ def elapsed_ms(start, end):
     return round((end - start) / 1_000_000, 3)
 
 
+def active_stub_stream(events):
+    active = {}
+    for event in events:
+        if event.get("type") == "started":
+            active[event["streamId"]] = event
+        elif event.get("type") == "closed":
+            active.pop(event["streamId"], None)
+    if len(active) != 1:
+        raise RuntimeError(f"expected one active stub stream before interruption, found {len(active)}")
+    return next(iter(active.values()))
+
+
 def run_scenario(name, size, steps):
     cols, rows = size["cols"], size["rows"]
     result = {"name": name, "cols": cols, "rows": rows, "status": "passed", "metrics": {}, "steps": []}
@@ -167,10 +182,15 @@ def run_scenario(name, size, steps):
                                   "observed": area_text(session, "composer").rstrip()}
             previous = None
             started = None
-            for step in steps:
+            stream_capture = None
+            for index, step in enumerate(steps):
                 if step["type"] == "keys":
                     if not input_ready(session):
                         raise RuntimeError("PTY input is not raw; refusing to measure kernel echo")
+                    stream_capture = None
+                    if steps[index + 1].get("streamCancelled"):
+                        events = session.stream_events()
+                        stream_capture = (active_stub_stream(events), len(events))
                     previous = screen_state(session)
                     started = time.monotonic_ns()
                     session.send(step["text"])
@@ -197,8 +217,26 @@ def run_scenario(name, size, steps):
                 lines = area_text(session, target).splitlines()
                 observed = "\n".join(line.rstrip() for line in lines
                                      if expected in line or (step.get("alsoIncludes") and step["alsoIncludes"] in line))
-                result["steps"].append({"type": "expect", "includes": expected, "target": target,
-                                        "observed": observed, "elapsed_ms": duration})
+                step_result = {"type": "expect", "includes": expected, "target": target,
+                               "observed": observed, "elapsed_ms": duration}
+                if step.get("streamCancelled"):
+                    stream, event_count = stream_capture
+
+                    def closed_event():
+                        return next((event for event in session.stream_events()[event_count:]
+                                     if event.get("type") == "closed" and event.get("streamId") == stream["streamId"]), None)
+
+                    wait_for(session, closed_event, step.get("timeout_ms", 10000) / 1000,
+                             "stub stream cancellation", poll_interval=0.01)
+                    closed = closed_event()
+                    sent, total = closed.get("sentChunks"), closed.get("totalChunks")
+                    if (closed.get("completed") is not False or type(sent) is not int
+                            or type(total) is not int or total != stream.get("totalChunks")
+                            or not 0 < sent < total):
+                        raise RuntimeError(f"stub stream did not close during streaming: {closed!r}")
+                    step_result["streamCancellation"] = {"streamId": stream["streamId"],
+                                                         "sentChunks": sent, "totalChunks": total}
+                result["steps"].append(step_result)
             if session.proc.poll() is not None or session.stub.poll() is not None:
                 raise RuntimeError("CLI or local stub exited before the scenario finished")
         except Exception as error:
