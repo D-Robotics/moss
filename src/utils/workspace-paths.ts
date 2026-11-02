@@ -23,6 +23,7 @@ export interface WorkspacePathMigrationResult {
   paths: MossWorkspacePaths;
   migratedPaths: string[];
   skippedPaths: string[];
+  cleanupWarnings: Array<{ path: string; code?: string }>;
 }
 
 export function getMossWorkspacePaths(workspaceDir: string): MossWorkspacePaths {
@@ -59,15 +60,18 @@ export function pathExists(filePath: string): boolean {
   }
 }
 
-function removeIfEmpty(dir: string): void {
+function removeIfEmpty(dir: string, result: WorkspacePathMigrationResult): void {
   try {
     if (!pathExists(dir)) return;
     const stat = fs.lstatSync(dir);
     if (!stat.isDirectory()) return;
     if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code !== 'ENOENT' && code !== 'ENOTEMPTY' && code !== 'EEXIST') throw err;
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST') return;
+    if (!result.cleanupWarnings.some((warning) => warning.path === dir)) {
+      result.cleanupWarnings.push({ path: dir, ...(typeof code === 'string' ? { code } : {}) });
+    }
   }
 }
 
@@ -143,10 +147,13 @@ function migratePath(
   }
 
   if (srcStat.isDirectory() && destStat.isDirectory()) {
+    const before = result.migratedPaths.length;
     for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
       migratePath(path.join(src, entry.name), path.join(dest, entry.name), root, result);
     }
-    removeIfEmpty(src);
+    // Cleanup is optional. With no moves, avoid retrying an already-empty
+    // legacy directory on every startup.
+    if (result.migratedPaths.length > before) removeIfEmpty(src, result);
     return;
   }
 
@@ -309,6 +316,7 @@ export function migrateLegacyWorkspacePaths(workspaceDir: string): WorkspacePath
     paths,
     migratedPaths: [],
     skippedPaths: [],
+    cleanupWarnings: [],
   };
 
   let root: string;
@@ -328,9 +336,9 @@ export function migrateLegacyWorkspacePaths(workspaceDir: string): WorkspacePath
     result.migratedPaths.some(
       (entry) => entry.startsWith(`${dir}${path.sep}`) || entry.startsWith(`${dir} ->`)
     );
-  if (migratedOutOf(paths.legacySkillsDir)) removeIfEmpty(paths.legacySkillsDir);
+  if (migratedOutOf(paths.legacySkillsDir)) removeIfEmpty(paths.legacySkillsDir, result);
   const legacyAgentDir = path.join(paths.workspaceDir, 'agent');
-  if (migratedOutOf(legacyAgentDir)) removeIfEmpty(legacyAgentDir);
+  if (migratedOutOf(legacyAgentDir)) removeIfEmpty(legacyAgentDir, result);
 
   return result;
 }

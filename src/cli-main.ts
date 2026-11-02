@@ -87,6 +87,8 @@ import pc from 'picocolors';
 import { registerBuiltinTools } from './tools/builtin.js';
 import { registerFileBasedTools } from './tools/file-based-tools.js';
 import { sanitizeSecrets } from './safety/secret-sanitizer.js';
+import { redactSecrets } from './cli/env-credentials.js';
+import { sanitizeTextForTerminal } from './cli/terminal-text.js';
 import { loadMcpConfigs } from './cli/mcp-config.js';
 import {
   formatMcpStartupLine,
@@ -191,9 +193,76 @@ class WorkspacePathPermissionError extends MossError {
   }
 }
 
-function migrateWorkspacePaths(workspace: string): ReturnType<typeof migrateLegacyWorkspacePaths> {
+function migrateWorkspacePaths(
+  workspace: string,
+  apiKey: string
+): ReturnType<typeof migrateLegacyWorkspacePaths> {
   try {
-    return migrateLegacyWorkspacePaths(workspace);
+    const result = migrateLegacyWorkspacePaths(workspace);
+    if (result.skippedPaths.length > 0 || result.cleanupWarnings.length > 0) {
+      const secrets = [
+        apiKey,
+        ...Object.entries(process.env)
+          .filter(([name, value]) => /(?:KEY|TOKEN|SECRET|PASSWORD)/i.test(name) && value)
+          .map(([, value]) => value ?? ''),
+      ];
+      const terminalText = (text: string): string =>
+        Array.from(sanitizeTextForTerminal(text, { breakLongTokens: false }))
+          .filter((char) => {
+            const code = char.codePointAt(0) ?? 0;
+            return !(
+              code === 0x09 ||
+              code === 0x0a ||
+              code === 0x0d ||
+              code === 0x061c ||
+              code === 0x200e ||
+              code === 0x200f ||
+              (code >= 0x2028 && code <= 0x202e) ||
+              (code >= 0x2066 && code <= 0x2069)
+            );
+          })
+          .join('');
+      const terminalSecrets = secrets.map(terminalText);
+      const showPath = (entry: string): string => {
+        const clean = terminalText(redactSecrets(entry, secrets));
+        return JSON.stringify(sanitizeSecrets(redactSecrets(clean, terminalSecrets)));
+      };
+      if (result.skippedPaths.length > 0) {
+        console.error(
+          uiText(
+            '[moss] Legacy paths were not migrated (source -> intended destination):',
+            '[moss] 以下旧路径未迁移（来源 -> 预期目标）：'
+          )
+        );
+        for (const entry of result.skippedPaths) console.error(`  ${showPath(entry)}`);
+        console.error(
+          uiText(
+            '[moss] Paths are sanitized for display. These entries were left in place; legacy skills there may not load. Keep them, or review conflicts and manually move or copy the needed files to the intended destination.',
+            '[moss] 显示的路径经过净化。这些条目仍保留在原处；其中的旧技能可能不会加载。可以保留原状，也可以先检查冲突，再手动移动或复制所需文件到预期目标。'
+          )
+        );
+      }
+      if (result.cleanupWarnings.length > 0) {
+        console.error(
+          uiText(
+            '[moss] Could not check or remove these old directories:',
+            '[moss] 无法检查或删除以下旧目录：'
+          )
+        );
+        for (const warning of result.cleanupWarnings) {
+          console.error(
+            `  ${showPath(`${warning.path}${warning.code ? ` (${warning.code})` : ''}`)}`
+          );
+        }
+        console.error(
+          uiText(
+            '[moss] Paths are sanitized for display. These directories may still exist or their contents could not be checked. Review the reported errors before removing anything.',
+            '[moss] 显示的路径经过净化。这些目录可能仍然存在，或者其内容无法检查。请先查看所报错误，再决定是否删除。'
+          )
+        );
+      }
+    }
+    return result;
   } catch (err) {
     if (
       err instanceof Error &&
@@ -531,7 +600,10 @@ async function main() {
       fallbackStartDir,
       loadedConfig,
       resolvedConfig,
-      workspacePathMigration: migrateWorkspacePaths(resolvedConfig.workspace as string),
+      workspacePathMigration: migrateWorkspacePaths(
+        resolvedConfig.workspace as string,
+        resolvedConfig.apiKey
+      ),
     };
     await commandConfig.handler(ctx);
     return;
@@ -588,7 +660,7 @@ async function main() {
       resolvedConfig,
       workspace,
       workspaceStat,
-      workspacePathMigration: migrateWorkspacePaths(workspace),
+      workspacePathMigration: migrateWorkspacePaths(workspace, resolvedConfig.apiKey),
     };
     await commandConfig.handler(ctx);
     return;
@@ -721,7 +793,7 @@ async function main() {
   // default, so the first question ignored the model the wizard had just saved.
   let model = resolvedConfig.model;
   let baseUrl = resolvedConfig.baseUrl;
-  const workspacePathMigration = migrateWorkspacePaths(workspace);
+  const workspacePathMigration = migrateWorkspacePaths(workspace, resolvedConfig.apiKey);
   const runtimeDir = workspacePathMigration.paths.runtimeDir;
 
   const oneShotMessage = parsedArgs.prompt;

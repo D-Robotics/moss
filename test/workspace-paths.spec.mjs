@@ -33,7 +33,7 @@ test('migration leaves an external skills symlink and its target untouched', (t)
   }
 });
 
-test('migration surfaces a real permission failure while removing an empty legacy directory', (t) => {
+test('migration records a real permission failure while checking legacy cleanup', (t) => {
   if (process.platform === 'win32') return t.skip('POSIX mode bits are unavailable on Windows');
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-migration-cleanup-'));
   const workspace = path.join(root, 'workspace');
@@ -47,10 +47,11 @@ test('migration surfaces a real permission failure while removing an empty legac
     } catch (err) {
       if (err.code !== 'EACCES' && err.code !== 'EPERM') throw err;
     }
-    assert.throws(
-      () => migrateLegacyWorkspacePaths(workspace),
-      (err) => (err.code === 'EACCES' || err.code === 'EPERM') && err.path === agent
-    );
+    const result = migrateLegacyWorkspacePaths(workspace);
+    assert.equal(result.cleanupWarnings.length, 1);
+    assert.equal(result.cleanupWarnings[0].path, agent);
+    assert.match(result.cleanupWarnings[0].code, /EACCES|EPERM/);
+    assert.ok(fs.existsSync(path.join(workspace, '.moss', 'agent', 'skills')));
   } finally {
     fs.chmodSync(agent, 0o700);
     fs.rmSync(root, { recursive: true, force: true });
@@ -280,8 +281,8 @@ test('a missing workspace remains an empty migration', (t) => {
   assert.equal(fs.existsSync(missing), false);
 });
 
-for (const code of ['ENOENT', 'ENOTEMPTY', 'EEXIST', 'EPERM', 'EIO']) {
-  test(`cleanup handles ${code} without hiding unexpected errors`, (t) => {
+for (const code of ['ENOENT', 'ENOTEMPTY', 'EEXIST', 'EACCES', 'EPERM', 'EBUSY', 'EIO']) {
+  test(`cleanup reports ${code} when it is not a benign race`, (t) => {
     const { workspace } = workspaceFixture(t);
     const agent = path.join(workspace, 'agent');
     fs.mkdirSync(path.join(agent, 'skills'), { recursive: true });
@@ -295,10 +296,11 @@ for (const code of ['ENOENT', 'ENOTEMPTY', 'EEXIST', 'EPERM', 'EIO']) {
       return original.call(this, target, ...args);
     };
     try {
+      const result = migrateLegacyWorkspacePaths(workspace);
       if (code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST') {
-        assert.doesNotThrow(() => migrateLegacyWorkspacePaths(workspace));
+        assert.deepEqual(result.cleanupWarnings, []);
       } else {
-        assert.throws(() => migrateLegacyWorkspacePaths(workspace), { code });
+        assert.deepEqual(result.cleanupWarnings, [{ path: agent, code }]);
       }
       assert.ok(fs.existsSync(path.join(workspace, '.moss', 'agent', 'skills')));
     } finally {
