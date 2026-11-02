@@ -179,6 +179,30 @@ function textFromStructuredContent(content: ToolContentBlock[]): string {
   return '';
 }
 
+// System-error paths are data: a filename like "timed out" must not drive
+// timeout or retry classification. Keep the original message for the result.
+function errorMessageForClassification(err: unknown, message: string): string {
+  const seen = new Set<object>();
+  let current = err;
+  while (current && typeof current === 'object' && !seen.has(current)) {
+    seen.add(current);
+    const cause = current as {
+      cause?: unknown;
+      errno?: unknown;
+      syscall?: unknown;
+      path?: unknown;
+      dest?: unknown;
+    };
+    if (typeof cause.errno === 'number' && typeof cause.syscall === 'string') {
+      for (const value of [cause.path, cause.dest]) {
+        if (typeof value === 'string' && value) message = message.split(value).join('[path]');
+      }
+    }
+    current = cause.cause;
+  }
+  return message;
+}
+
 function policyBlockedToolResult(error: MossError): string {
   return [
     'Operation blocked by workspace policy. The tool did not inspect the target: its existence is unknown and no contents were read.',
@@ -449,6 +473,7 @@ async function executeOneToolCallInner(
       let attemptText = '';
       let attemptTimeout = false;
       let attemptError: MossError | undefined;
+      let classificationMessage: string | undefined;
       const workspaceRecoveryPaths = new Set<string>();
 
       structuredBlocks = undefined;
@@ -550,6 +575,7 @@ async function executeOneToolCallInner(
         }
       } catch (err) {
         const rawMessage = errorMessage(err);
+        classificationMessage = errorMessageForClassification(err, rawMessage);
         if (
           timeoutAbortCtrl.signal.aborted &&
           !deps.abortSignal.aborted &&
@@ -557,6 +583,7 @@ async function executeOneToolCallInner(
         ) {
           attemptTimeout = true;
           attemptText = `Execution error: Tool ${call.name} timed out (${deps.toolTimeoutMs / 1000}s)`;
+          classificationMessage = attemptText;
           attemptError =
             isMossError(err) && err.code === ErrorCode.TOOL_EXECUTION_TIMEOUT
               ? err
@@ -576,7 +603,7 @@ async function executeOneToolCallInner(
             message: 'Tool execution was cancelled by the user.',
             cause: err,
           });
-        } else if (/timed out/i.test(rawMessage)) {
+        } else if (/timed out/i.test(classificationMessage)) {
           attemptTimeout = true;
           attemptText = `Execution error: ${rawMessage}`;
           attemptError = new MossError({
@@ -606,9 +633,10 @@ async function executeOneToolCallInner(
 
       if (attemptErrFlag && eligibleForRetry && attempt < MAX_RETRY_ATTEMPTS && !aborted) {
         const rawMsg = attemptText.replace(/^Execution error:\s*/, '');
+        const retryMsg = classificationMessage ?? rawMsg;
         if (
-          !/Device connection lost/i.test(rawMsg) &&
-          (isTransientError(rawMsg) || isTimeoutError(rawMsg))
+          !/Device connection lost/i.test(retryMsg) &&
+          (isTransientError(retryMsg) || isTimeoutError(retryMsg))
         ) {
           retriesUsed++;
           const delayMs = progressiveBackoffDelay(retriesUsed - 1);

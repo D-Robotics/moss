@@ -52,15 +52,20 @@ test('filesystem discovery tools return stable workspace-relative paths', async 
   );
 });
 
-async function executeDirectory(workspaceDir, input) {
+async function executeDirectory(
+  workspaceDir,
+  input,
+  tool = listDirectoryTool,
+  toolTimeoutMs = 5_000
+) {
   return executeOneToolCall(
     { id: 'directory-call', name: 'list_directory', input },
     {
-      toolsForRun: [listDirectoryTool],
+      toolsForRun: [tool],
       toolCtx: ctx(workspaceDir),
       sessionKey: 'directory-test',
       abortSignal: new AbortController().signal,
-      toolTimeoutMs: 5_000,
+      toolTimeoutMs,
       enableHeartbeat: false,
       heartbeatIntervalMs: 1_000,
       skipHeartbeatToolNames: new Set(),
@@ -136,6 +141,110 @@ for (const [target, code] of [
   });
 }
 
+for (const kind of ['missing', 'denied']) {
+  test(`list_directory does not mistake ${kind} in a timed out path for a timeout`, async (t) => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss timed out-'));
+    t.after(() => fs.rm(dir, { recursive: true, force: true }));
+    const target = path.join(dir, kind);
+    let code = 'ENOENT';
+    if (kind === 'denied') {
+      await fs.mkdir(target);
+      code = await denyDirectoryRead(t, target);
+      if (!code) return;
+    }
+    let attempts = 0;
+    const countingTool = {
+      ...listDirectoryTool,
+      async execute(...args) {
+        attempts++;
+        return listDirectoryTool.execute(...args);
+      },
+    };
+    try {
+      const outcome = await executeDirectory(dir, { path: kind }, countingTool);
+      assert.deepEqual(
+        { attempts, code: outcome.error?.code, aborted: outcome.aborted },
+        { attempts: 1, code: ErrorCode.TOOL_EXECUTION_FAILED, aborted: undefined }
+      );
+      assertDirectoryFailure(outcome, target, code);
+    } finally {
+      if (kind === 'denied') await fs.chmod(target, 0o700);
+    }
+  });
+}
+
+test('a real tool deadline remains a timeout', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-list-deadline-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const blockedTool = {
+    ...listDirectoryTool,
+    metadata: { ...listDirectoryTool.metadata, transientRetry: false },
+    async execute() {
+      return new Promise(() => {});
+    },
+  };
+  const outcome = await executeDirectory(dir, {}, blockedTool, 30);
+  assert.equal(outcome.isError, true);
+  assert.equal(outcome.error?.code, ErrorCode.TOOL_EXECUTION_TIMEOUT);
+  assert.deepEqual(outcome.aborted, { by: 'timeout' });
+});
+
+test('a native filesystem timeout remains a timeout', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-list-native-timeout-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const timeoutError = Object.assign(
+    new Error(`ETIMEDOUT: connection timed out, scandir '${dir}'`),
+    {
+      code: 'ETIMEDOUT',
+      errno: -60,
+      syscall: 'scandir',
+      path: dir,
+    }
+  );
+  const timedOutTool = {
+    ...listDirectoryTool,
+    metadata: { ...listDirectoryTool.metadata, transientRetry: false },
+    async execute() {
+      throw timeoutError;
+    },
+  };
+  const outcome = await executeDirectory(dir, {}, timedOutTool);
+  assert.equal(outcome.isError, true);
+  assert.equal(outcome.error?.code, ErrorCode.TOOL_EXECUTION_TIMEOUT);
+  assert.equal(outcome.error?.cause, timeoutError);
+  assert.deepEqual(outcome.aborted, { by: 'timeout' });
+  assert.ok(outcome.text.includes(dir));
+});
+
+test('genuine transient system errors remain retryable', async (t) => {
+  if (process.env.MOSS_TOOL_RETRY_MAX === '0') {
+    t.skip('tool retries are disabled by MOSS_TOOL_RETRY_MAX');
+    return;
+  }
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-list-retry timed out-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  let attempts = 0;
+  const transientTool = {
+    ...listDirectoryTool,
+    async execute() {
+      attempts++;
+      if (attempts === 1) {
+        throw Object.assign(new Error(`ECONNRESET: connection reset, scandir '${dir}'`), {
+          code: 'ECONNRESET',
+          errno: -54,
+          syscall: 'scandir',
+          path: dir,
+        });
+      }
+      return 'retried successfully';
+    },
+  };
+  const outcome = await executeDirectory(dir, {}, transientTool);
+  assert.equal(attempts, 2);
+  assert.equal(outcome.isError, false);
+  assert.equal(outcome.text, 'retried successfully');
+});
+
 test('list_directory reports an unreadable root', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-list-denied-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
@@ -150,24 +259,33 @@ test('list_directory reports an unreadable root', async (t) => {
   }
 });
 
+function disappearingSubtreeTool(dir, vanished) {
+  return {
+    ...listDirectoryTool,
+    async execute(...args) {
+      const originalReaddir = fs.readdir;
+      try {
+        fs.readdir = async (...readArgs) => {
+          const entries = await originalReaddir(...readArgs);
+          if (readArgs[0] === dir) await fs.rm(vanished, { recursive: true });
+          return entries;
+        };
+        return await listDirectoryTool.execute(...args);
+      } finally {
+        fs.readdir = originalReaddir;
+      }
+    },
+  };
+}
+
 test('list_directory fails when a queued subtree disappears during traversal', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-list-race-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const vanished = path.join(dir, 'z-vanished');
   await fs.mkdir(vanished);
   await fs.writeFile(path.join(dir, 'a-visible.txt'), 'visible');
-  const originalReaddir = fs.readdir;
-  try {
-    fs.readdir = async (...args) => {
-      const entries = await originalReaddir(...args);
-      if (args[0] === dir) await fs.rm(vanished, { recursive: true });
-      return entries;
-    };
-    const outcome = await executeDirectory(dir, { depth: 2 });
-    assertDirectoryFailure(outcome, vanished, 'ENOENT');
-  } finally {
-    fs.readdir = originalReaddir;
-  }
+  const outcome = await executeDirectory(dir, { depth: 2 }, disappearingSubtreeTool(dir, vanished));
+  assertDirectoryFailure(outcome, vanished, 'ENOENT');
 });
 
 test('list_directory fails on an unreadable subtree but respects depth and limit', async (t) => {
@@ -228,7 +346,7 @@ test('list_directory marks symlinks without traversing them', async (t) => {
   );
 });
 
-async function assertModelDirectoryFailure(dir, input, failedPath, code) {
+async function assertModelDirectoryFailure(dir, input, failedPath, code, tool = listDirectoryTool) {
   let calls = 0;
   let modelMessages;
   const agent = new MossAgent({
@@ -259,7 +377,7 @@ async function assertModelDirectoryFailure(dir, input, failedPath, code) {
     enableFollowUpGuard: false,
     maxAgentTurns: 4,
   });
-  agent.tools.register(listDirectoryTool);
+  agent.tools.register(tool);
   try {
     await agent.chat('directory-test', 'Inspect the target directory.');
     const result = modelMessages
@@ -276,9 +394,24 @@ async function assertModelDirectoryFailure(dir, input, failedPath, code) {
 }
 
 test('the model receives a missing directory as an error tool result', async (t) => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-list-model-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-list-model timed out-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   await assertModelDirectoryFailure(dir, { path: 'missing' }, path.join(dir, 'missing'), 'ENOENT');
+});
+
+test('the model receives a disappearing subtree as an error tool result', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-list-model-race-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const vanished = path.join(dir, 'z-vanished');
+  await fs.mkdir(vanished);
+  await fs.writeFile(path.join(dir, 'a-visible.txt'), 'visible');
+  await assertModelDirectoryFailure(
+    dir,
+    { depth: 2 },
+    vanished,
+    'ENOENT',
+    disappearingSubtreeTool(dir, vanished)
+  );
 });
 
 test('the model receives an unreadable subtree as an error tool result', async (t) => {
