@@ -555,6 +555,119 @@ for (const surface of ['repl', 'tui']) {
   }
 }
 
+for (const [surface, rtl] of [
+  ['repl', 'מדיניות'],
+  ['tui', 'سياسة'],
+]) {
+  test(`${surface}: truncated secret after RTL hook text stays redacted end to end`, async (t) => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o113-rtl-hook-'));
+    t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
+    setSessionUiLanguage('en');
+    t.after(clearUiLanguage);
+    const secret = 'moss-rtl-secret-982345678';
+    const previous = process.env.MOSS_RTL_SYNTHETIC_SECRET;
+    process.env.MOSS_RTL_SYNTHETIC_SECRET = secret;
+    t.after(() => {
+      if (previous === undefined) delete process.env.MOSS_RTL_SYNTHETIC_SECRET;
+      else process.env.MOSS_RTL_SYNTHETIC_SECRET = previous;
+    });
+    const fragment = secret.slice(0, 14);
+    const intro = `fixture policy ${rtl} `;
+    const hookReason = intro + 'x'.repeat(500 - intro.length - fragment.length) + secret;
+    const response = JSON.stringify({ decision: 'deny', reason: hookReason });
+    fs.writeFileSync(
+      path.join(workspace, 'permission-hook.mjs'),
+      `process.stdout.write(${JSON.stringify(response)});\n`
+    );
+    const hooks = createConfiguredHookCallbacks(
+      { PermissionRequest: [{ command: 'node permission-hook.mjs' }] },
+      { workspaceDir: workspace }
+    );
+    setPermissionRequestRunner((request) =>
+      hooks.runPermissionRequest({ toolName: request.tool.name, input: request.input })
+    );
+    t.after(() => setPermissionRequestRunner(undefined));
+    const stderr = [];
+    const originalWrite = process.stderr.write;
+    process.stderr.write = function (chunk, ...args) {
+      if (typeof chunk === 'string' && chunk.startsWith('[hooks] ')) {
+        stderr.push(chunk);
+        return true;
+      }
+      return originalWrite.call(this, chunk, ...args);
+    };
+    t.after(() => {
+      process.stderr.write = originalWrite;
+    });
+
+    const approval = createCliToolApprovalHook(
+      'workspace-write',
+      {},
+      {
+        workspaceDir: workspace,
+        interactionMode: () => 'manual',
+      }
+    );
+    let prompts = 0;
+    const answer = async () => {
+      prompts++;
+      return 'n';
+    };
+    t.after(approval.setAsker(wrapApprovalAsker(answer)));
+    if (surface === 'tui') t.after(setCliApprovalViewAsker(wrapApprovalViewAsker(answer)));
+
+    const provider = createMockTranscriptProvider('rtl-hook', 'rtl-hook', [
+      { toolCalls: [{ name: 'write_file', input: { path: 'note.txt', content: 'hello' } }] },
+      { text: 'The file was not written.' },
+    ]);
+    const modelInputs = [];
+    const complete = provider.complete;
+    provider.complete = async function (options) {
+      modelInputs.push(JSON.stringify(options.messages));
+      return complete.call(this, options);
+    };
+    const agent = new MossAgent({
+      llmProvider: provider,
+      sessionStore: new InMemorySessionStore(),
+      model: 'rtl-hook',
+      workspaceDir: workspace,
+      baseSystemPrompt: 'Test.',
+      domainPrompt: false,
+      includeAgentBehaviorPrompt: false,
+      enableSteering: false,
+      maxAgentTurns: 4,
+      hooks: {
+        onBeforeToolExec: (request) => runWithApprovalDecision(request, () => approval(request)),
+      },
+    });
+    agent.tools.register(writeFileTool);
+    const tracker = createRunCompletionTracker();
+    let ended;
+    for await (const event of agent.streamChat('o113-rtl-hook', 'Create note.txt.')) {
+      noteRunCompletionEvent(tracker, event);
+      if (event.type === 'tool_end' && event.toolName === 'write_file') ended = event;
+    }
+    assert.equal(prompts, 0);
+    assert.equal(fs.existsSync(path.join(workspace, 'note.txt')), false);
+    assert.equal(ended?.outcome, 'denied');
+    assert.equal(tracker.safetyBlocks?.[0]?.kind, 'hook');
+    const outcome = resolveRunOutcome({ tracker, finalText: 'Not executed.' });
+    assert.equal(outcome.status, 'incomplete');
+    assert.equal(outcome.exitCode, 9);
+    assert.ok(stderr.length > 0, 'the hook refusal was written to stderr');
+    assert.ok(modelInputs.some((input) => input.includes('PermissionRequest')));
+    for (const text of [
+      ended.result,
+      ...stderr,
+      ...modelInputs,
+      JSON.stringify(outcome),
+      formatOutcomeLine(outcome, 'en'),
+    ]) {
+      assert.equal(text.includes(fragment), false, 'no truncated synthetic secret in output');
+    }
+  });
+}
+
 test('permission hook denial without a standard reason remains a hook block', async (t) => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o113-hook-reason-'));
   t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
@@ -584,23 +697,29 @@ test('permission hook denial without a standard reason remains a hook block', as
     sessionKey: 'hook-reason',
   };
   const secret = 'moss-truncated-secret-123456789';
+  const overlap = 'moss-overlap-middle-moss-overlap';
   const previous = process.env.MOSS_TRUNCATED_TEST_SECRET;
+  const previousOverlap = process.env.MOSS_OVERLAP_TEST_SECRET;
   process.env.MOSS_TRUNCATED_TEST_SECRET = secret;
+  process.env.MOSS_OVERLAP_TEST_SECRET = overlap;
   t.after(() => {
     if (previous === undefined) delete process.env.MOSS_TRUNCATED_TEST_SECRET;
     else process.env.MOSS_TRUNCATED_TEST_SECRET = previous;
+    if (previousOverlap === undefined) delete process.env.MOSS_OVERLAP_TEST_SECRET;
+    else process.env.MOSS_OVERLAP_TEST_SECRET = previousOverlap;
   });
   for (const reason of [
     '',
     '[hooks] PermissionRequest failed: protected path',
     'policy denied',
     `policy ${secret.slice(0, 14)}`,
+    `policy ${overlap}`,
   ]) {
     setPermissionRequestRunner(async () => ({ denied: true, reason }));
     const decision = await runWithApprovalDecision(request, () => approval(request));
     assert.equal(decision.approved, false);
     assert.match(decision.reason, /^Blocked by PermissionRequest hook/);
-    assert.doesNotMatch(decision.reason, /moss-truncated/);
+    assert.doesNotMatch(decision.reason, /moss-truncated|moss-overlap/);
   }
   assert.equal(prompts, 0);
 });

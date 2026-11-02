@@ -9,8 +9,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { stripVTControlCharacters } from 'node:util';
 import type { ToolApprovalDecision, ToolApprovalRequest } from '../core/agent/agent-hooks.js';
-import { knownSecretPrefixCut } from '../safety/known-secrets.js';
-import { redactEgress } from '../safety/tool-output-redact.js';
+import { holdOpenSecretSuffix } from '../safety/tool-output-redact.js';
 import type { AskUser } from './approval.js';
 import type { CliApprovalViewAsker } from './approval-view.js';
 import { isZhLocale } from './cli-locale.js';
@@ -60,11 +59,11 @@ async function denial(): Promise<string | undefined> {
   const prefix = isZhLocale()
     ? `已拦截：${hookEventZhName('PermissionRequest')}钩子`
     : 'Blocked by PermissionRequest hook';
-  const cleanDetail = sanitizeTextForTerminal(stripVTControlCharacters(result.reason ?? ''), {
+  const rawDetail = stripVTControlCharacters(result.reason ?? '').trim();
+  // Hold partial secrets before terminal rendering can append bidi isolates.
+  const detail = sanitizeTextForTerminal(holdOpenSecretSuffix(rawDetail), {
     breakLongTokens: false,
   }).trim();
-  const cut = knownSecretPrefixCut(cleanDetail);
-  const detail = `${redactEgress(cleanDetail.slice(0, cut))}${cut < cleanDetail.length ? '[REDACTED]' : ''}`;
   const reason = !detail
     ? prefix
     : /^\s*(?:已拦截[：:]\s*)?(?:Blocked by PermissionRequest hook\b|权限请求时钩子)/i.test(detail)
