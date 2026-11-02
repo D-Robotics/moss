@@ -21,6 +21,8 @@ git worktree add --detach /tmp/rsi-base <base-sha>
 node /tmp/rsi-base/scripts/rsi/gate.mjs --repo "$PWD" --base <base-ref> --round <N> ...
 ```
 
+门和设备评测器都必须来自包含 `explicit-benchmark-env-v1` 凭据契约的可信 base。旧 base 的门没有这道检查，仍可能把旧配置的 key 发到覆盖后的地址；不能用它启动真实评测。先通过受控的 harness 维护将修复纳入可信 base，再以该 base 启动门。门要求进程环境中的 `MOSS_BENCH_API_KEY`（至少 8 个字符，供 Moss 输出脱敏）和显式的 `--model`、`--base-url`；缺任一项时拒绝启动评测。此维护改动触及冻结路径，旧 base 的完整性检查会拒绝它，不能为通过而放宽冻结规则。
+
 门不会设置 `MOSS_DEVICE_TRUST`，也不会传 `--trust-device`。子进程环境里已有的 `MOSS_DEVICE_TRUST` 会被去掉。自动循环只跑 device bench 的 `--target sim`。
 
 ## 选择规则
@@ -91,7 +93,7 @@ npm run rsi:ledger -- --validate
 
 ```bash
 npm run bench -- --samples 3 --temperature 0 --label <name> --keep-artifacts
-npm run bench:device -- --target sim --repeat 3 --label <name> --keep-artifacts
+npm run bench:device -- --target sim --repeat 3 --label <name> --keep-artifacts --model <id> --base-url <url>
 ```
 
 `.moss` 工件在 `bench/results/<label>/<task>-NN.moss/`。把同一任务的一份成功轨迹和一份失败轨迹交给另一个模型族，用这段提示：

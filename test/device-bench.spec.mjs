@@ -35,6 +35,7 @@ import {
   resolveBenchProvider,
   runDeviceBench,
   validateDeviceTasks,
+  writeBenchProviderConfig,
 } from '../scripts/lib/device-bench.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -377,21 +378,11 @@ test(
   }
 );
 
-test('sim target without a moss config refuses to invent a score', async (t) => {
-  // isolateConfig starts from an empty env, so a developer's personal key is ignored.
-  const previous = process.env.MOSS_BENCH_API_KEY;
-  const previousDeepseek = process.env.DEEPSEEK_API_KEY;
-  t.after(() => {
-    if (previous === undefined) delete process.env.MOSS_BENCH_API_KEY;
-    else process.env.MOSS_BENCH_API_KEY = previous;
-    if (previousDeepseek === undefined) delete process.env.DEEPSEEK_API_KEY;
-    else process.env.DEEPSEEK_API_KEY = previousDeepseek;
-  });
-  delete process.env.MOSS_BENCH_API_KEY;
-  process.env.DEEPSEEK_API_KEY = 'sk-developer-personal-key';
+test('sim target without explicit benchmark credentials refuses to invent a score', async () => {
+  const env = { DEEPSEEK_API_KEY: 'synthetic-provider-key' };
   const result = await runDeviceBench({
     mode: 'sim',
-    isolateConfig: true,
+    env,
     tasks: [
       {
         id: 'unused',
@@ -409,11 +400,48 @@ test('sim target without a moss config refuses to invent a score', async (t) => 
   });
   assert.equal(result.exitCode, 2);
   assert.equal(result.summary, null);
-  assert.ok(result.missing.some((item) => item.includes('apiKey')));
+  assert.ok(result.missing.some((item) => item.includes('MOSS_BENCH_API_KEY')));
   assert.ok(result.missing.some((item) => item.includes('MOSS_API_KEY')));
-  const resolved = await resolveBenchProvider({ isolateConfig: true });
+  const resolved = await resolveBenchProvider({ env });
   assert.equal(resolved.ok, false);
-  assert.equal(JSON.stringify(resolved).includes('sk-developer-personal-key'), false);
+  assert.equal(JSON.stringify(resolved).includes('synthetic-provider-key'), false);
+});
+
+test('device bench binds the process benchmark key to the requested endpoint', () => {
+  const configUrl = pathToFileURL(path.join(repoRoot, 'dist/cli/config.js')).href;
+  const benchUrl = pathToFileURL(path.join(repoRoot, 'scripts/lib/device-bench.mjs')).href;
+  const script = `
+    import assert from 'node:assert/strict';
+    import { mock } from 'node:test';
+    let configConsulted = false;
+    mock.module(${JSON.stringify(configUrl)}, {
+      namedExports: {
+        resolveCliConfig: (_env, _config, overrides) => {
+          configConsulted = true;
+          return {
+            apiKey: 'synthetic-other-provider-key',
+            apiKeySource: 'fake-config',
+            model: overrides.model,
+            baseUrl: overrides.baseUrl,
+          };
+        },
+      },
+    });
+    const { resolveBenchProvider } = await import(${JSON.stringify(benchUrl)});
+    const resolved = await resolveBenchProvider({
+      model: 'bench-model', baseUrl: 'https://bench.invalid/v1',
+    });
+    assert.equal(resolved.ok, true);
+    assert.equal(resolved.apiKey === process.env.MOSS_BENCH_API_KEY, true);
+    assert.equal(resolved.baseUrl, 'https://bench.invalid/v1');
+    assert.equal(configConsulted, false);
+  `;
+  const result = spawnSync(
+    process.execPath,
+    ['--experimental-test-module-mocks', '--input-type=module', '-e', script],
+    { encoding: 'utf8', env: { PATH: process.env.PATH, MOSS_BENCH_API_KEY: CANARY } }
+  );
+  assert.equal(result.status, 0, result.stderr);
 });
 
 test('device bench resolves MOSS_BENCH_API_KEY with model and base-url overrides', async () => {
@@ -429,6 +457,190 @@ test('device bench resolves MOSS_BENCH_API_KEY with model and base-url overrides
   assert.equal(resolved.apiKey, CANARY);
   assert.equal(resolved.apiKeySource, 'MOSS_BENCH_API_KEY');
   assert.equal(JSON.stringify({ ...resolved, apiKey: '[redacted]' }).includes(CANARY), false);
+});
+
+test('device bench requires an explicit key, model, and endpoint', async () => {
+  const env = { MOSS_BENCH_API_KEY: CANARY };
+  const allMissing = await resolveBenchProvider({ env: { DEEPSEEK_API_KEY: CANARY } });
+  assert.equal(allMissing.ok, false);
+  assert.equal(allMissing.missing.length, 3);
+  const missingModel = await resolveBenchProvider({ env, baseUrl: 'https://bench.invalid/v1' });
+  assert.deepEqual(missingModel.missing, ['--model']);
+  const missingBaseUrl = await resolveBenchProvider({ env, model: 'bench-model' });
+  assert.deepEqual(missingBaseUrl.missing, ['--base-url']);
+  const missingKey = await resolveBenchProvider({
+    env: {},
+    model: 'bench-model',
+    baseUrl: 'https://bench.invalid/v1',
+  });
+  assert.equal(missingKey.ok, false);
+  assert.ok(missingKey.missing[0].includes('MOSS_BENCH_API_KEY'));
+  const shortKey = await resolveBenchProvider({
+    env: { MOSS_BENCH_API_KEY: '1234567' },
+    model: 'bench-model',
+    baseUrl: 'https://bench.invalid/v1',
+  });
+  assert.equal(shortKey.ok, false);
+  assert.ok(shortKey.missing[0].includes('at least 8'));
+});
+
+test('provider config references the benchmark key without writing it', (t) => {
+  const writeFile = fs.writeFileSync;
+  t.mock.method(fs, 'writeFileSync', (file, data, ...rest) => {
+    if (path.basename(String(file)) === 'config.json') {
+      assert.equal(String(data).includes(CANARY), false, 'credential must never be written');
+    }
+    return writeFile(file, data, ...rest);
+  });
+  const provider = writeBenchProviderConfig({
+    apiKey: CANARY,
+    model: 'bench-model',
+    baseUrl: 'https://bench.invalid/v1',
+  });
+  try {
+    const config = JSON.parse(
+      fs.readFileSync(path.join(provider.configDir, 'config.json'), 'utf8')
+    );
+    assert.equal(config.apiKeyEnv, 'MOSS_BENCH_API_KEY');
+    assert.equal(Object.hasOwn(config, 'apiKey'), false);
+  } finally {
+    fs.rmSync(provider.configDir, { recursive: true, force: true });
+  }
+});
+
+test('offline live runner passes only the selected key to Moss and hides it from tools', () => {
+  const targetUrl = pathToFileURL(path.join(repoRoot, 'scripts/lib/device-bench-target.mjs')).href;
+  const benchUrl = pathToFileURL(path.join(repoRoot, 'scripts/lib/device-bench.mjs')).href;
+  const safeEnvUrl = pathToFileURL(path.join(repoRoot, 'dist/utils/safe-child-env.js')).href;
+  const script = `
+    import assert from 'node:assert/strict';
+    import { EventEmitter } from 'node:events';
+    import fs from 'node:fs';
+    import os from 'node:os';
+    import path from 'node:path';
+    import { mock } from 'node:test';
+    import { spawnSync as realSpawnSync } from 'node:child_process';
+    const selectedKey = 'synthetic-sdk-selected-key';
+    const ambientKey = process.env.MOSS_BENCH_API_KEY;
+    const { safeChildEnv } = await import(${JSON.stringify(safeEnvUrl)});
+    const realWrite = fs.writeFileSync;
+    fs.writeFileSync = (file, data, ...args) => {
+      assert.equal(String(data).includes(selectedKey), false, 'credential reached a file');
+      return realWrite(file, data, ...args);
+    };
+    const realReadDir = fs.readdirSync;
+    fs.readdirSync = (dir, ...args) =>
+      dir === os.tmpdir() ? [] : realReadDir(dir, ...args);
+    let mossStarted = false;
+    let spawnVerified = false;
+    mock.module(${JSON.stringify(targetUrl)}, { namedExports: {
+      execOnTarget: async () => ({ code: 0, stdout: 'stub', stderr: '' }),
+      newBenchPassword: () => 'synthetic-device-password',
+      seedBoardFixture: () => {},
+      startSimSsh: async () => ({ host: 'offline.invalid', port: 1, user: 'stub', close: async () => {} }),
+    } });
+    mock.module('node:child_process', { namedExports: {
+      spawn: (_command, _argv, options) => {
+        mossStarted = true;
+        assert.equal(options.env.MOSS_BENCH_API_KEY === selectedKey, true);
+        const config = JSON.parse(fs.readFileSync(options.env.MOSS_CONFIG_FILE, 'utf8'));
+        assert.equal(config.apiKeyEnv, 'MOSS_BENCH_API_KEY');
+        assert.equal(Object.hasOwn(config, 'apiKey'), false);
+        assert.equal(config.baseUrl, 'https://bench.invalid/v1');
+        assert.equal(config.model, 'bench-model');
+        process.env.MOSS_BENCH_API_KEY = selectedKey;
+        const toolEnv = safeChildEnv();
+        process.env.MOSS_BENCH_API_KEY = ambientKey;
+        const tool = realSpawnSync(process.execPath, ['-e',
+          'process.exit(Object.hasOwn(process.env, "MOSS_BENCH_API_KEY") ? 1 : 0)'],
+          { env: toolEnv });
+        assert.equal(tool.status, 0);
+        spawnVerified = true;
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.kill = () => {};
+        queueMicrotask(() => {
+          child.stderr.emit('data', Buffer.from(selectedKey));
+          child.emit('close', 1);
+        });
+        return child;
+      },
+      spawnSync: (_command, _args, options) => {
+        assert.ok(options.env);
+        assert.equal(Object.hasOwn(options.env, 'MOSS_BENCH_API_KEY'), false);
+        return { status: 0, stdout: 'stub-sha' };
+      },
+    } });
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-offline-'));
+    const logs = [];
+    try {
+      const { runDeviceBench } = await import(${JSON.stringify(benchUrl)});
+      const result = await runDeviceBench({
+        mode: 'sim', resultsDir: path.join(root, 'results'), rootBase: path.join(root, 'board'),
+        model: 'bench-model', baseUrl: 'https://bench.invalid/v1',
+        env: { MOSS_BENCH_API_KEY: selectedKey }, onLine: (line) => logs.push(line),
+        tasks: [{ id: 'stub', title: 'stub', sideEffect: 'readonly', prompt: 'stub',
+          prerequisites: [], setup: [], oracle: [], acceptance: ['true'], cleanup: [], evidence: [] }],
+      });
+      assert.equal(mossStarted, true);
+      assert.equal(spawnVerified, true);
+      assert.equal(result.exitCode, 1);
+      assert.equal(JSON.stringify(result).includes(selectedKey), false);
+      assert.equal(logs.join('').includes(selectedKey), false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  `;
+  const result = spawnSync(
+    process.execPath,
+    ['--experimental-test-module-mocks', '--input-type=module', '-e', script],
+    { encoding: 'utf8', env: { PATH: process.env.PATH, MOSS_BENCH_API_KEY: CANARY } }
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('device bench CLI refuses incomplete live inputs before any device work', () => {
+  const cli = path.join(repoRoot, 'scripts/bench-device.mjs');
+  const result = spawnSync(
+    process.execPath,
+    [cli, '--target', 'sim', '--model', 'bench-model', '--base-url', 'https://bench.invalid/v1'],
+    { encoding: 'utf8', env: { PATH: process.env.PATH, DEEPSEEK_API_KEY: CANARY } }
+  );
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /MOSS_BENCH_API_KEY/);
+  assert.equal(`${result.stdout}${result.stderr}`.includes(CANARY), false);
+});
+
+test('device bench CLI forwards explicit model, endpoint, and process key', () => {
+  const benchUrl = pathToFileURL(path.join(repoRoot, 'scripts/lib/device-bench.mjs')).href;
+  const cliUrl = pathToFileURL(path.join(repoRoot, 'scripts/bench-device.mjs')).href;
+  const script = `
+    import assert from 'node:assert/strict';
+    import { mock } from 'node:test';
+    process.argv = [process.execPath, 'bench-device.mjs', '--target', 'sim',
+      '--model', 'bench-model', '--base-url', 'https://bench.invalid/v1'];
+    mock.module(${JSON.stringify(benchUrl)}, { namedExports: {
+      loadDeviceTasks: () => [],
+      formatMissing: () => 'offline stub stopped',
+      runDeviceBench: async (options) => {
+        assert.equal(options.mode, 'sim');
+        assert.equal(options.model, 'bench-model');
+        assert.equal(options.baseUrl, 'https://bench.invalid/v1');
+        assert.equal(Boolean(process.env.MOSS_BENCH_API_KEY), true);
+        return { exitCode: 2, missing: ['stub'] };
+      },
+    } });
+    await import(${JSON.stringify(cliUrl)});
+  `;
+  const result = spawnSync(
+    process.execPath,
+    ['--experimental-test-module-mocks', '--input-type=module', '-e', script],
+    { encoding: 'utf8', env: { PATH: process.env.PATH, MOSS_BENCH_API_KEY: CANARY } }
+  );
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /offline stub stopped/);
+  assert.equal(`${result.stdout}${result.stderr}`.includes(CANARY), false);
 });
 
 test('windows acceptance paths are double-quoted and proc paths stay in the sandbox', () => {
@@ -533,15 +745,12 @@ function providerHoldScript(moduleHref) {
     // drives the installed handler in that child; POSIX still receives kill().
     'process.on("message", signal => { if (signal === "SIGTERM") process.emit("SIGTERM"); });',
     'const { configDir } = writeBenchProviderConfig({',
-    `  apiKey: ${JSON.stringify(PROVIDER_KEY)},`,
     '  model: "bench-model",',
     '  baseUrl: "https://bench.invalid/v1",',
     '});',
-    'const body = fs.readFileSync(configDir + "/config.json", "utf8");',
+    'const body = JSON.parse(fs.readFileSync(configDir + "/config.json", "utf8"));',
     'const ownerPid = fs.readFileSync(configDir + "/owner.pid", "utf8").trim();',
-    'fs.writeFileSync(marker, JSON.stringify({ configDir, ownerPid, hasKey: body.includes(' +
-      JSON.stringify(PROVIDER_KEY) +
-      ') }));',
+    'fs.writeFileSync(marker, JSON.stringify({ configDir, ownerPid, keyEnv: body.apiKeyEnv, hasKey: Object.hasOwn(body, "apiKey") }));',
     'if (mode === "exit") process.exit(0);',
     'setInterval(() => {}, 1000);',
     '',
@@ -555,6 +764,7 @@ function runProviderHold(mode) {
   const moduleHref = pathToFileURL(path.join(repoRoot, 'scripts/lib/device-bench.mjs')).href;
   fs.writeFileSync(script, providerHoldScript(moduleHref));
   const child = spawn(process.execPath, [script, marker, mode], {
+    env: { PATH: process.env.PATH, TMPDIR: os.tmpdir(), SystemRoot: process.env.SystemRoot },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   let stderr = '';
@@ -578,7 +788,8 @@ test('provider config dir is removed on process exit and SIGTERM', async () => {
   const exited = runProviderHold('exit');
   try {
     const info = await waitForMarker(exited.marker);
-    assert.equal(info.hasKey, true, exited.stderr());
+    assert.equal(info.hasKey, false, exited.stderr());
+    assert.equal(info.keyEnv, 'MOSS_BENCH_API_KEY');
     assert.equal(info.ownerPid, String(exited.child.pid));
     const code = await exited.exitCode;
     assert.equal(code, 0, exited.stderr());
@@ -590,7 +801,8 @@ test('provider config dir is removed on process exit and SIGTERM', async () => {
   const signaled = runProviderHold('wait');
   try {
     const info = await waitForMarker(signaled.marker);
-    assert.equal(info.hasKey, true, signaled.stderr());
+    assert.equal(info.hasKey, false, signaled.stderr());
+    assert.equal(info.keyEnv, 'MOSS_BENCH_API_KEY');
     assert.equal(info.ownerPid, String(signaled.child.pid));
     assert.equal(fs.existsSync(path.join(info.configDir, 'config.json')), true);
     if (process.platform === 'win32') signaled.child.send('SIGTERM');
@@ -642,7 +854,10 @@ test('runDeviceBench finally removes the provider config dir', { timeout: 60_000
 
 function makeProviderDir(ownerPid) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-provider-'));
-  fs.writeFileSync(path.join(dir, 'config.json'), `${JSON.stringify({ apiKey: PROVIDER_KEY })}\n`);
+  fs.writeFileSync(
+    path.join(dir, 'config.json'),
+    `${JSON.stringify({ apiKeyEnv: 'MOSS_BENCH_API_KEY' })}\n`
+  );
   if (ownerPid !== undefined) fs.writeFileSync(path.join(dir, 'owner.pid'), `${ownerPid}\n`);
   return dir;
 }
@@ -655,7 +870,7 @@ function reapedPid() {
 }
 
 test('bench startup sweeps provider config dirs and keeps other tmpdir entries', async () => {
-  // Orphan: the owner pid is gone, so the dir and the key inside must go.
+  // Orphan: the owner pid is gone, so the dir must go.
   const stale = makeProviderDir(reapedPid());
   // Concurrent bench: the owner pid is this live process, so it must survive.
   const live = makeProviderDir(process.pid);

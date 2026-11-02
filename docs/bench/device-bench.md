@@ -14,10 +14,11 @@ npm run bench:device -- --dry --repeat 3
 npm run bench:device -- --dry --task report-identity
 ```
 
-In-process SSH, still on this machine. Needs a moss config (see below) and does not need the RDK:
+In-process SSH, still on this machine. Needs explicit benchmark model settings (see below) and does not need the RDK:
 
 ```bash
-npm run bench:device -- --target sim --sim-camera --sim-ros
+export MOSS_BENCH_API_KEY
+npm run bench:device -- --target sim --sim-camera --sim-ros --model <id> --base-url <url>
 npm run bench:device -- --target sim --model <id> --base-url <url>
 ```
 
@@ -33,24 +34,19 @@ export MOSS_DEVICE_PORT=40018
 export MOSS_DEVICE_USER=root
 export MOSS_DEVICE_KIND=rdk
 export RDK_S600_PASSWORD
-npm run bench:device -- --target real
+export MOSS_BENCH_API_KEY
+npm run bench:device -- --target real --model <id> --base-url <url>
 ```
 
 SSH options the bench expects on the device: `StrictHostKeyChecking=no`, `UserKnownHostsFile=/dev/null`. The runner does not reboot, reflash, change passwords, or edit SSH or network configuration. Every mutating task runs its cleanup.
 
 ## 模型配置 / Model config
 
-Live runs resolve the model the same way the `moss` CLI does:
+Live runs require all three inputs together: `MOSS_BENCH_API_KEY` in the process environment, `--model`, and `--base-url`. The key must have at least eight characters because Moss's exact-value output redaction does not cover shorter environment secrets. The launcher does not load `.env` files; supply the key in the environment before launching. Moss configuration files, bundled defaults, `MOSS_API_KEY`, and provider-specific key variables are not used as fallbacks. Missing or too-short inputs cause exit 2 before connecting to a device or provider.
 
-| Input                                         | Role                                                                                          |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `MOSS_CONFIG_DIR`                             | directory containing `config.json` (default `~/.config/moss`, or `%APPDATA%\moss` on Windows) |
-| `MOSS_CONFIG_FILE` or `MOSS_CONFIG_PATH`      | explicit config file                                                                          |
-| `XDG_CONFIG_HOME`                             | POSIX config root when `MOSS_CONFIG_DIR` is unset                                             |
-| `--model`, `--base-url`                       | override the config file                                                                      |
-| `apiKey`, `model`, `baseUrl` inside that file | what the CLI actually loads                                                                   |
+Embedded callers of `runDeviceBench` or `resolveBenchProvider` pass `model` and `baseUrl` options. They may pass `env: { MOSS_BENCH_API_KEY: ... }`; when `env` is supplied it is authoritative, and an absent key does not fall back to the process environment. The key is passed to the Moss process via its environment, referenced by `apiKeyEnv` in the temporary provider config, and removed from ordinary tool subprocess environments. The temporary config contains no key value.
 
-These environment variables are ignored, matching the CLI: `MOSS_API_KEY`, `MOSS_MODEL`, `MOSS_BASE_URL`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `ANTHROPIC_API_KEY`.
+This changes the earlier config-file fallback: callers must explicitly provide the key, model, and endpoint even if Moss already has a configured provider. RSI also requires these inputs and refuses a base device evaluator that predates the explicit benchmark credential contract. The trusted base must include the updated device benchmark before RSI can run it.
 
 Optional cost: `MOSS_BENCH_USD_PER_MILLION_TOKENS`. `moss task run` prints an `llm_usage` JSON line when the agent reports tokens.
 
@@ -61,7 +57,7 @@ Optional cost: `MOSS_BENCH_USD_PER_MILLION_TOKENS`. `moss task run` prints an `l
 - `optional.successRate` excludes skips (camera, ROS2, gcc, dpkg, systemd, procfs probes).
 - `meta.board` records `model`, `os`, and `kernel`.
 - `repeat.mean` and `repeat.spread` are the mean and population standard deviation of the per-run success rates (`--repeat N`).
-- Exit 0 when every scored row passed. Exit 1 when any row failed or is `falseSuccess`. Exit 2 when the live target has no moss config.
+- Exit 0 when every scored row passed. Exit 1 when any row failed or is `falseSuccess`. Exit 2 when a live target lacks the explicit model, endpoint, key, or required device settings.
 
 Approvals stay pluggable: `MOSS_DEVICE_BENCH_APPROVAL=full` (default), `inherit`, or `manual`.
 

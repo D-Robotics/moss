@@ -30,8 +30,8 @@ function usage() {
     '  --list                list tasks and exit',
     '  --help                show this help',
     '',
-    'Model: the moss config file (MOSS_CONFIG_DIR / MOSS_CONFIG_FILE /',
-    '~/.config/moss/config.json) plus --model and --base-url. MOSS_API_KEY is ignored.',
+    'Model: set MOSS_BENCH_API_KEY (at least 8 characters) and pass --model and --base-url.',
+    'Moss config files, bundled defaults, and other provider keys are ignored.',
     'Real board: MOSS_DEVICE_HOST/PORT/USER/KIND and RDK_S600_PASSWORD',
     '(or MOSS_DEVICE_PASSWORD or MOSS_DEVICE_KEY). The password is never printed.',
   ].join('\n');

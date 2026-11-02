@@ -29,6 +29,8 @@ import {
 } from './device-bench-target.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+// RSI checks this contract in its trusted base before starting either evaluator.
+export const DEVICE_BENCH_CREDENTIAL_CONTRACT = 'explicit-benchmark-env-v1';
 export const DEVICE_TASK_DIR = path.join(repoRoot, 'bench', 'device-tasks');
 const ACCEPT_SCRIPT = path.join(repoRoot, 'scripts', 'lib', 'device-bench-accept.mjs');
 const REQUIRED = [
@@ -277,69 +279,40 @@ function tokensFromText(text) {
 }
 
 function gitSha() {
+  const env = {
+    PATH: process.env.PATH,
+    SystemRoot: process.env.SystemRoot,
+    COMSPEC: process.env.COMSPEC,
+  };
   const result = spawnSync('git', ['rev-parse', '--short', 'HEAD'], {
     cwd: repoRoot,
     encoding: 'utf8',
+    env,
   });
   return result.status === 0 ? result.stdout.trim() : 'unknown';
 }
 
-async function loadCliConfigModule() {
-  const url = pathToFileURL(path.join(repoRoot, 'dist', 'cli', 'config.js')).href;
-  return import(url);
-}
-
-/**
- * Same resolution as `moss` itself: config file under MOSS_CONFIG_DIR /
- * MOSS_CONFIG_FILE / ~/.config/moss/config.json, plus --model / --base-url.
- * MOSS_API_KEY, MOSS_MODEL, MOSS_BASE_URL, and provider API-key env vars are
- * ignored, matching resolveCliConfig.
- */
+/** Live benches require one explicitly supplied credential, model, and endpoint. */
 export async function resolveBenchProvider(options = {}) {
-  const { resolveCliConfig } = await loadCliConfigModule();
-  // Start empty so a developer's OPENAI_API_KEY / DEEPSEEK_API_KEY / home
-  // config cannot become the bench key. Callers pass MOSS_BENCH_API_KEY.
-  const env = {};
-  for (const key of ['PATH', 'TMPDIR', 'TEMP', 'TMP', 'SystemRoot', 'COMSPEC']) {
-    if (process.env[key]) env[key] = process.env[key];
-  }
-  Object.assign(env, options.env ?? {});
-  if (options.isolateConfig) {
-    env.MOSS_NO_BUNDLED_DEFAULT = '1';
-    env.MOSS_CONFIG_DIR =
-      options.configDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'moss-device-bench-cfg-'));
-    delete env.MOSS_CONFIG_FILE;
-    delete env.MOSS_CONFIG_PATH;
-  }
-  const resolved = resolveCliConfig(env, undefined, {
-    ...(options.model ? { model: options.model } : {}),
-    ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
-  });
-  const apiKey = env.MOSS_BENCH_API_KEY?.trim() || resolved.apiKey?.trim() || '';
-  const model = resolved.model?.trim() ?? '';
-  const baseUrl = resolved.baseUrl?.trim() ?? '';
-  if (!apiKey || !model || !baseUrl) {
-    const configPath = resolved.configPath || 'the moss config file';
+  const env = options.env ?? process.env;
+  const apiKey = typeof env.MOSS_BENCH_API_KEY === 'string' ? env.MOSS_BENCH_API_KEY.trim() : '';
+  const model = typeof options.model === 'string' ? options.model.trim() : '';
+  const baseUrl = typeof options.baseUrl === 'string' ? options.baseUrl.trim() : '';
+  // Moss redacts known env secrets by exact value only at eight characters or more.
+  const keyProblem = !apiKey
+    ? 'MOSS_BENCH_API_KEY (MOSS_API_KEY and provider keys are ignored)'
+    : apiKey.length < 8
+      ? 'MOSS_BENCH_API_KEY must have at least 8 characters for output redaction'
+      : null;
+  if (keyProblem || !model || !baseUrl) {
     return {
       ok: false,
-      missing: [
-        !apiKey
-          ? `MOSS_BENCH_API_KEY or apiKey in ${configPath} (MOSS_CONFIG_DIR, MOSS_CONFIG_FILE, or ~/.config/moss/config.json). MOSS_API_KEY, OPENAI_API_KEY, and DEEPSEEK_API_KEY are ignored`
-          : null,
-        !model ? '--model or model in the moss config file' : null,
-        !baseUrl ? '--base-url or baseUrl in the moss config file' : null,
-      ].filter(Boolean),
-      configPath,
+      missing: [keyProblem, !model ? '--model' : null, !baseUrl ? '--base-url' : null].filter(
+        Boolean
+      ),
     };
   }
-  return {
-    ok: true,
-    apiKey,
-    model,
-    baseUrl,
-    configPath: resolved.configPath,
-    apiKeySource: env.MOSS_BENCH_API_KEY?.trim() ? 'MOSS_BENCH_API_KEY' : resolved.apiKeySource,
-  };
+  return { ok: true, apiKey, model, baseUrl, apiKeySource: 'MOSS_BENCH_API_KEY' };
 }
 
 async function loadEngine() {
@@ -465,6 +438,7 @@ async function runLiveMoss(task, ctx, provider, approval) {
     LC_ALL: 'C',
     TMPDIR: os.tmpdir(),
     MOSS_RUN_ID: `device-bench/${task.id}`,
+    MOSS_BENCH_API_KEY: provider.apiKey,
     ...approval.env,
   };
   for (const key of [
@@ -479,8 +453,8 @@ async function runLiveMoss(task, ctx, provider, approval) {
     if (process.env[key]) env[key] = process.env[key];
   }
   env.MOSS_CONFIG_DIR = provider.configDir;
+  env.MOSS_CONFIG_FILE = path.join(provider.configDir, 'config.json');
   env.MOSS_NO_BUNDLED_DEFAULT = '1';
-  delete env.MOSS_CONFIG_FILE;
   delete env.MOSS_CONFIG_PATH;
   for (const key of [
     'MOSS_DEVICE_HOST',
@@ -597,7 +571,7 @@ export function sweepStaleProviderConfigDirs(tmpdir = os.tmpdir()) {
   return removed;
 }
 
-/** Temp config holding the bench API key. Removed on finish, exit, and signals. */
+/** Temp config containing the endpoint and the name, not the value, of its key. */
 export function writeBenchProviderConfig(provider) {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), PROVIDER_CONFIG_PREFIX));
   providerConfigDirs.add(configDir);
@@ -613,7 +587,7 @@ export function writeBenchProviderConfig(provider) {
         provider: 'openai-compatible',
         model: provider.model,
         baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
+        apiKeyEnv: 'MOSS_BENCH_API_KEY',
       })}\n`,
       { mode: 0o600 }
     );
@@ -954,9 +928,6 @@ export async function runDeviceBench(options = {}) {
   if (mode !== 'dry' && mode !== 'sim' && mode !== 'real') {
     throw new Error(`unknown mode ${mode}`);
   }
-  // Clear provider config dirs (they hold the API key) orphaned by a run that
-  // was killed before its signal handlers could run.
-  sweepStaleProviderConfigDirs();
   const tasks = filterTasks(options.tasks ?? loadDeviceTasks(options.taskDir), options.filters);
   const problems = validateDeviceTasks(tasks);
   if (problems.length > 0) throw new Error(`device task suite invalid:\n${problems.join('\n')}`);
@@ -977,6 +948,8 @@ export async function runDeviceBench(options = {}) {
       missing: ['MOSS_DEVICE_HOST'],
     };
   }
+  // Sweep legacy provider configs only after live preflight has succeeded.
+  sweepStaleProviderConfigDirs();
   const stamp =
     options.label ?? `device-${mode}-${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}`;
   const resultsDir = options.resultsDir ?? path.join(repoRoot, 'bench', 'results', stamp);
@@ -1076,7 +1049,10 @@ export async function runDeviceBench(options = {}) {
       approval: approvalMode,
       ...(devicePolicy ? { devicePolicy } : {}),
     });
-    const summaryText = redactSecrets(JSON.stringify(summary, null, 2));
+    const summaryText = redactSecrets(
+      JSON.stringify(summary, null, 2),
+      [...secretValues(), provider?.apiKey].filter((value) => typeof value === 'string')
+    );
     const summaryPath = path.join(resultsDir, 'summary.json');
     fs.writeFileSync(summaryPath, `${summaryText}\n`);
     const failed = runs.some((rows) =>

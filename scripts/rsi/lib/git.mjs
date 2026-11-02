@@ -4,7 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 export function git(repo, args) {
-  return spawnSync('git', args, { cwd: repo, encoding: 'utf8' });
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.toUpperCase() === 'MOSS_BENCH_API_KEY') delete env[key];
+  }
+  return spawnSync('git', args, { cwd: repo, encoding: 'utf8', env });
 }
 
 export function gitOk(repo, args) {

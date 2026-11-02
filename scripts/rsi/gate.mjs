@@ -105,7 +105,11 @@ function mergedRounds(text, round) {
 
 function runNpm(repo, args) {
   assertNotStopped(repo);
-  const result = spawnSync('npm', args, { cwd: repo, env: benchEnv(), stdio: 'inherit' });
+  const env = benchEnv();
+  for (const key of Object.keys(env)) {
+    if (key.toUpperCase() === 'MOSS_BENCH_API_KEY') delete env[key];
+  }
+  const result = spawnSync('npm', args, { cwd: repo, env, stdio: 'inherit' });
   assertNotStopped(repo);
   return result.status ?? 1;
 }
@@ -137,6 +141,30 @@ function assertCandidateDist(repo) {
 
 function evaluateFromBase(repo, baseSha, jobs) {
   assertCandidateDist(repo);
+  const deviceJob = jobs.find((job) => job.name === 'device');
+  if (deviceJob) {
+    const source = git(repo, ['show', `${baseSha}:scripts/lib/device-bench.mjs`]);
+    const contract = "export const DEVICE_BENCH_CREDENTIAL_CONTRACT = 'explicit-benchmark-env-v1';";
+    if (source.status !== 0 || !source.stdout.split('\n').includes(contract)) {
+      throw new Error('base device benchmark lacks the required credential contract');
+    }
+    const hasValue = (flag) => {
+      const index = deviceJob.args.indexOf(flag);
+      const value = index < 0 ? '' : (deviceJob.args[index + 1] ?? '');
+      return value.trim() !== '' && !value.startsWith('--');
+    };
+    const apiKey = process.env.MOSS_BENCH_API_KEY?.trim() ?? '';
+    const missing = [
+      !apiKey
+        ? 'MOSS_BENCH_API_KEY'
+        : apiKey.length < 8
+          ? 'MOSS_BENCH_API_KEY (at least 8 characters for output redaction)'
+          : null,
+      !hasValue('--model') ? '--model' : null,
+      !hasValue('--base-url') ? '--base-url' : null,
+    ].filter(Boolean);
+    if (missing.length > 0) throw new Error(`RSI benchmark requires ${missing.join(', ')}`);
+  }
   return withBaseWorktree(repo, baseSha, (baseDir) => {
     const dist = path.join(repo, 'dist');
     const dest = path.join(baseDir, 'dist');

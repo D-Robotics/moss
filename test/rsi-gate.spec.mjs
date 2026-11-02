@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runGate } from '../scripts/rsi/gate.mjs';
 import {
   matchFrozen,
@@ -238,6 +238,161 @@ test('the base frozen list still rejects after the candidate shrinks it', async 
   assert.ok(reasons.some((reason) => reason.includes('scripts/rsi/guard.mjs')));
 });
 
+test('RSI git subprocesses do not inherit the benchmark key', () => {
+  const gitUrl = pathToFileURL(path.join(repoRoot, 'scripts/rsi/lib/git.mjs')).href;
+  const script = `
+    import assert from 'node:assert/strict';
+    import { mock } from 'node:test';
+    mock.module('node:child_process', { namedExports: {
+      spawnSync: (_command, _args, options) => {
+        assert.ok(options.env);
+        assert.equal(
+          Object.keys(options.env).some((key) => key.toUpperCase() === 'MOSS_BENCH_API_KEY'),
+          false
+        );
+        return { status: 0, stdout: '' };
+      },
+    } });
+    const { git } = await import(${JSON.stringify(gitUrl)});
+    git(process.cwd(), ['status']);
+  `;
+  const result = spawnSync(
+    process.execPath,
+    ['--experimental-test-module-mocks', '--input-type=module', '-e', script],
+    {
+      encoding: 'utf8',
+      env: {
+        PATH: process.env.PATH,
+        MOSS_BENCH_API_KEY: 'synthetic-key',
+        moss_bench_api_key: 'synthetic-lowercase-key',
+      },
+    }
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('RSI verification does not inherit the benchmark key', () => {
+  const gitUrl = pathToFileURL(path.join(repoRoot, 'scripts/rsi/lib/git.mjs')).href;
+  const gateUrl = pathToFileURL(gateCli).href;
+  const script = `
+    import assert from 'node:assert/strict';
+    import fs from 'node:fs';
+    import os from 'node:os';
+    import path from 'node:path';
+    import { mock } from 'node:test';
+    let verified = false;
+    mock.module(${JSON.stringify(gitUrl)}, { namedExports: {
+      changedPaths: () => [], headSha: () => 'candidate-sha', refSha: () => 'base-sha',
+      git: (_repo, args) => args[0] === 'merge-base'
+        ? { status: 0, stdout: '' }
+        : args[1]?.endsWith(':.rsi/frozen.txt')
+          ? { status: 0, stdout: 'src/safety/**' }
+          : { status: 1, stdout: '' },
+      withBaseWorktree: () => { throw new Error('evaluator should not run'); },
+    } });
+    mock.module('node:child_process', { namedExports: {
+      spawnSync: (command, _args, options) => {
+        assert.equal(command, 'npm');
+        assert.equal(
+          Object.keys(options.env).some((key) => key.toUpperCase() === 'MOSS_BENCH_API_KEY'),
+          false
+        );
+        verified = true;
+        return { status: 1 };
+      },
+    } });
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-rsi-offline-'));
+    try {
+      const { runGate } = await import(${JSON.stringify(gateUrl)});
+      const result = await runGate({ repo, round: 'test', base: 'base' });
+      assert.equal(verified, true);
+      assert.equal(result.report.steps.verify.status, 'fail');
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  `;
+  const result = spawnSync(
+    process.execPath,
+    ['--experimental-test-module-mocks', '--input-type=module', '-e', script],
+    {
+      encoding: 'utf8',
+      env: {
+        PATH: process.env.PATH,
+        MOSS_BENCH_API_KEY: 'synthetic-key',
+        moss_bench_api_key: 'synthetic-lowercase-key',
+      },
+    }
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('RSI refuses a base device evaluator without the credential contract', () => {
+  const gitUrl = pathToFileURL(path.join(repoRoot, 'scripts/rsi/lib/git.mjs')).href;
+  const gateUrl = pathToFileURL(gateCli).href;
+  const script = `
+    import assert from 'node:assert/strict';
+    import { mock } from 'node:test';
+    let started = false;
+    let deviceSource = '// legacy device evaluator';
+    mock.module(${JSON.stringify(gitUrl)}, { namedExports: {
+      changedPaths: () => [],
+      headSha: () => 'candidate-sha',
+      refSha: () => 'base-sha',
+      git: (_repo, args) => {
+        if (args[0] === 'merge-base') return { status: 0, stdout: '' };
+        if (args[1]?.endsWith(':.rsi/frozen.txt')) return { status: 0, stdout: 'src/safety/**' };
+        if (args[1]?.endsWith(':scripts/lib/device-bench.mjs')) return { status: 0, stdout: deviceSource };
+        return { status: 1, stdout: '' };
+      },
+      withBaseWorktree: () => { started = true; throw new Error('offline evaluator stub reached'); },
+    } });
+    const { runGate } = await import(${JSON.stringify(gateUrl)});
+    await assert.rejects(runGate({
+      repo: process.cwd(), round: 'test', base: 'base',
+      model: 'bench-model', baseUrl: 'https://bench.invalid/v1',
+      verifyRunner: async () => ({ status: 'pass', reasons: [] }),
+    }), /base device benchmark.*credential contract/i);
+    assert.equal(started, false);
+    deviceSource = "export const DEVICE_BENCH_CREDENTIAL_CONTRACT = 'explicit-benchmark-env-v1';";
+    delete process.env.MOSS_BENCH_API_KEY;
+    await assert.rejects(runGate({
+      repo: process.cwd(), round: 'test', base: 'base',
+      model: 'bench-model', baseUrl: 'https://bench.invalid/v1',
+      verifyRunner: async () => ({ status: 'pass', reasons: [] }),
+    }), /MOSS_BENCH_API_KEY/);
+    assert.equal(started, false);
+    process.env.MOSS_BENCH_API_KEY = '1234567';
+    await assert.rejects(runGate({
+      repo: process.cwd(), round: 'test', base: 'base',
+      model: 'bench-model', baseUrl: 'https://bench.invalid/v1',
+      verifyRunner: async () => ({ status: 'pass', reasons: [] }),
+    }), /at least 8/);
+    assert.equal(started, false);
+    process.env.MOSS_BENCH_API_KEY = 'synthetic-key';
+    await assert.rejects(runGate({
+      repo: process.cwd(), round: 'test', base: 'base', baseUrl: 'https://bench.invalid/v1',
+      verifyRunner: async () => ({ status: 'pass', reasons: [] }),
+    }), /--model/);
+    await assert.rejects(runGate({
+      repo: process.cwd(), round: 'test', base: 'base', model: 'bench-model',
+      verifyRunner: async () => ({ status: 'pass', reasons: [] }),
+    }), /--base-url/);
+    assert.equal(started, false);
+    await assert.rejects(runGate({
+      repo: process.cwd(), round: 'test', base: 'base',
+      model: 'bench-model', baseUrl: 'https://bench.invalid/v1',
+      verifyRunner: async () => ({ status: 'pass', reasons: [] }),
+    }), /offline evaluator stub reached/);
+    assert.equal(started, true);
+  `;
+  const result = spawnSync(
+    process.execPath,
+    ['--experimental-test-module-mocks', '--input-type=module', '-e', script],
+    { encoding: 'utf8', env: { PATH: process.env.PATH, MOSS_BENCH_API_KEY: 'synthetic-key' } }
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test('the evaluator runs from the base worktree, not the candidate script', async () => {
   const baseScript = [
     "import fs from 'node:fs';",
@@ -268,19 +423,28 @@ test('the evaluator runs from the base worktree, not the candidate script', asyn
   ].join('\n');
   const repo = initRepo('src/safety/**\n');
   write(repo, 'scripts/run-benchmark.mjs', baseScript);
+  write(
+    repo,
+    'scripts/lib/device-bench.mjs',
+    "export const DEVICE_BENCH_CREDENTIAL_CONTRACT = 'explicit-benchmark-env-v1';\n"
+  );
   commitAll(repo, 'honest evaluator');
   write(repo, 'scripts/run-benchmark.mjs', candidateScript);
   commitAll(repo, 'cheat the evaluator');
   write(repo, 'dist/cli.js', '#!/usr/bin/env node\n');
   const touch = path.join(repo, 'candidate-eval-ran.txt');
   const previous = process.env.RSI_TOUCH_FILE;
+  const previousBenchKey = process.env.MOSS_BENCH_API_KEY;
   process.env.RSI_TOUCH_FILE = touch;
+  process.env.MOSS_BENCH_API_KEY = 'synthetic-rsi-key';
   try {
     const result = await runGate({
       repo,
       round: '9',
       base: 'HEAD~1',
       verifyRunner: passVerify,
+      model: 'bench-model',
+      baseUrl: 'https://bench.invalid/v1',
       baseline: plant(
         repo,
         'baseline.json',
@@ -305,6 +469,8 @@ test('the evaluator runs from the base worktree, not the candidate script', asyn
   } finally {
     if (previous === undefined) delete process.env.RSI_TOUCH_FILE;
     else process.env.RSI_TOUCH_FILE = previous;
+    if (previousBenchKey === undefined) delete process.env.MOSS_BENCH_API_KEY;
+    else process.env.MOSS_BENCH_API_KEY = previousBenchKey;
   }
 });
 
