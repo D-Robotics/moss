@@ -181,6 +181,23 @@ test('an unexpected migration failure still reports a bug even if its message me
   }
 });
 
+test('an EACCES code alone does not disguise a programming failure', () => {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-bug-code-'));
+  const workspace = path.join(root, 'workspace');
+  const target = path.join(workspace, 'skills', 'learned');
+  fs.mkdirSync(workspace);
+  try {
+    const preload = writeLstatFailure(root, target, 'EACCES', 'synthetic programming failure');
+    const result = runCli(root, workspace, { args: ['config', 'show'], preload });
+    assert.notEqual(result.status, 0, result.stderr);
+    assert.match(result.stderr, /synthetic programming failure/);
+    assert.match(result.stderr, /This looks like a bug/);
+    assert.doesNotMatch(result.stderr, /Cannot access a workspace path/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI migration skips an external skills link without modifying its target', (t) => {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-external-link-'));
   const workspace = path.join(root, 'workspace');
@@ -351,8 +368,78 @@ fs.renameSync = function (from, ...args) {
     const result = runCli(root, workspace, { args: ['config', 'show'], preload });
     assert.notEqual(result.status, 0, result.stderr);
     assert.match(result.stderr, /EIO: synthetic migration failure/);
+    assert.match(result.stderr, /This looks like a bug/);
     assert.doesNotMatch(result.stderr, /could not be checked or cleaned/i);
     assert.equal(fs.readFileSync(path.join(source, 'marker'), 'utf8'), 'legacy');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('CLI reports recognized migration EIO without exposing its message or path', (t) => {
+  if (process.platform === 'win32') return t.skip('control characters are not valid Windows paths');
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-fs-eio-'));
+  const secret = 'sk-syntheticFilesystemSecret123456';
+  const split = `${secret.slice(0, 12)}\x1b[31m${secret.slice(12)}\x1b[0m`;
+  const workspace = path.join(root, `workspace-${split}-الرابط`);
+  const agent = path.join(workspace, 'agent');
+  fs.mkdirSync(path.join(agent, 'skills'), { recursive: true });
+  const preload = path.join(root, 'filesystem-eio.cjs');
+  fs.writeFileSync(
+    preload,
+    `const fs = require('node:fs');
+const lstat = fs.lstatSync;
+fs.lstatSync = function (target, ...args) {
+  if (target === ${JSON.stringify(agent)}) {
+    const err = new Error(${JSON.stringify(`EIO: ${secret} \x1b[31m`)});
+    err.code = 'EIO';
+    err.errno = -5;
+    err.syscall = 'lstat';
+    err.path = target;
+    throw err;
+  }
+  return lstat.call(this, target, ...args);
+};\n`
+  );
+  try {
+    const result = runCli(root, workspace, {
+      args: ['config', 'show'],
+      preload,
+      env: { MOSS_TEST_SECRET: secret },
+    });
+    assert.notEqual(result.status, 0, result.stderr);
+    assert.match(result.stderr, /workspace filesystem error/i);
+    assert.match(result.stderr, /check.*filesystem/i);
+    assert.match(result.stderr, /may already have completed/i);
+    assert.ok(!result.stderr.includes(workspace), result.stderr);
+    assert.ok(!result.stderr.includes(secret), result.stderr);
+    assert.ok(!result.stderr.includes(secret.slice(12)), result.stderr);
+    assert.ok(!result.stderr.includes(String.fromCodePoint(0x1b)), result.stderr);
+    assert.ok(!result.stderr.includes('الرابط'), result.stderr);
+    assert.doesNotMatch(result.stderr, /This looks like a bug|Technical details|\n\s+at /);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('CLI reports a real symlink-loop filesystem error without a stack', (t) => {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-fs-loop-'));
+  const workspace = path.join(root, 'workspace');
+  fs.mkdirSync(workspace);
+  try {
+    try {
+      fs.symlinkSync('skills', path.join(workspace, 'skills'), 'dir');
+    } catch (err) {
+      if (process.platform === 'win32' && ['EPERM', 'EACCES', 'ENOTSUP'].includes(err.code)) {
+        return t.skip('directory symlinks are unavailable');
+      }
+      throw err;
+    }
+    const result = runCli(root, workspace, { args: ['config', 'show'] });
+    assert.notEqual(result.status, 0, result.stderr);
+    assert.match(result.stderr, /workspace filesystem error/i);
+    assert.ok(!result.stderr.includes(workspace), result.stderr);
+    assert.doesNotMatch(result.stderr, /This looks like a bug|Technical details|\n\s+at /);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

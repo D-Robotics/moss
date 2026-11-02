@@ -194,6 +194,34 @@ class WorkspacePathPermissionError extends MossError {
   }
 }
 
+class WorkspacePathFilesystemError extends MossError {
+  constructor(cause: Error) {
+    super({
+      code: ErrorCode.CONFIG_IO_FAILED,
+      message: uiText(
+        'A workspace filesystem error prevented legacy migration; some migration steps may already have completed.',
+        '工作区文件系统错误阻止了旧路径迁移；部分迁移步骤可能已经完成。'
+      ),
+      hint: uiText(
+        'Check the filesystem and access to workspace skills/, skill-candidates/, agent/skills/ and .moss/ before retrying.',
+        '请检查文件系统及工作区的 skills/、skill-candidates/、agent/skills/ 和 .moss/ 的访问情况，然后重试。'
+      ),
+      cause,
+    });
+  }
+}
+
+function isWorkspaceFilesystemError(err: unknown): err is NodeJS.ErrnoException {
+  if (!(err instanceof Error)) return false;
+  const systemError = err as NodeJS.ErrnoException;
+  return (
+    typeof systemError.code === 'string' &&
+    typeof systemError.errno === 'number' &&
+    typeof systemError.syscall === 'string' &&
+    typeof systemError.path === 'string'
+  );
+}
+
 function migrateWorkspacePaths(workspace: string): ReturnType<typeof migrateLegacyWorkspacePaths> {
   try {
     const result = migrateLegacyWorkspacePaths(workspace);
@@ -206,12 +234,11 @@ function migrateWorkspacePaths(workspace: string): ReturnType<typeof migrateLega
     }
     return result;
   } catch (err) {
-    if (
-      err instanceof Error &&
-      ((err as NodeJS.ErrnoException).code === 'EACCES' ||
-        (err as NodeJS.ErrnoException).code === 'EPERM')
-    ) {
-      throw new WorkspacePathPermissionError(err);
+    if (isWorkspaceFilesystemError(err)) {
+      if (err.code === 'EACCES' || err.code === 'EPERM') {
+        throw new WorkspacePathPermissionError(err);
+      }
+      throw new WorkspacePathFilesystemError(err);
     }
     throw err;
   }
@@ -1931,7 +1958,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  if (err instanceof WorkspacePathPermissionError) {
+  if (err instanceof WorkspacePathPermissionError || err instanceof WorkspacePathFilesystemError) {
     console.error(`[moss] ${errorMessage(err)}`);
     process.exit(ExitCode.CONFIG);
   }
