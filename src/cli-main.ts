@@ -85,7 +85,8 @@ import { MossAgent, JsonlSessionStore } from './core/index.js';
 import { configureRootLogger, getRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
 import { registerBuiltinTools } from './tools/builtin.js';
-import { loadFileBasedTools } from './tools/file-based-tools.js';
+import { registerFileBasedTools } from './tools/file-based-tools.js';
+import { sanitizeSecrets } from './safety/secret-sanitizer.js';
 import { loadMcpConfigs } from './cli/mcp-config.js';
 import {
   formatMcpStartupLine,
@@ -934,6 +935,7 @@ async function main() {
     // v0.26 (T03): the live rule table + the startup read-only ceiling
     // (flags/env/migrated cautious all resolved into the config view).
     permissionRules: livePermissionRules,
+    sessionPermissionRules: permissionRuleRegistry,
     readOnlyCeiling: resolvedConfig.permissions.readOnlyCeiling,
     deviceTrust: resolvedConfig.permissions.deviceTrust,
     trustedDevices: resolvedConfig.permissions.trustedDevices,
@@ -1270,7 +1272,11 @@ async function main() {
   // File-based custom tools from .moss/tools/*.tool.json — the lightweight
   // path for users who want a named, schema-validated tool without a host
   // extension module.
-  for (const tool of loadFileBasedTools(workspace)) agent.tools.register(tool);
+  registerFileBasedTools(workspace, agent.tools, (name) => {
+    console.error(
+      `[moss:tools] skipping ${JSON.stringify(sanitizeSecrets(name))}: name already registered`
+    );
+  });
   // v0.16 skills: SKILL.md files from `.moss/skills/` (workspace) and
   // `<configDir>/skills/` (user). Progressive disclosure — only the index
   // enters the system prompt; bodies load through the readonly skill tool.

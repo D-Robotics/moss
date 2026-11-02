@@ -27,6 +27,8 @@ export interface PermissionRule {
   toolName: string;
   operandPattern?: string;
   source: PermissionRuleSource;
+  /** Internal session grant for sandboxed file edits, not other side effects. */
+  workspaceFileOnly?: boolean;
 }
 
 /**
@@ -465,6 +467,7 @@ export function resolvePermissionDecision(
   // 4. allow rules.
   for (const rule of resolved.rules) {
     if (rule.level !== 'allow') continue;
+    if (rule.workspaceFileOnly && input.acceptEditsEligible !== true) continue;
     if (matchPermissionRule(rule, input.toolName, input.operand)) {
       return { decision: 'allow', reason: 'rule', matchedRule: rule };
     }

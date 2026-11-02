@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Live interaction permissions
+
+- Switching interaction modes now changes the actual approval policy even when the
+  session started in full access. `/permissions` shows the current mode separately
+  from the startup configuration; deny rules and the read-only ceiling still apply.
+- Explicit ask rules always prompt and cannot create a hidden future grant. Ordinary
+  device approvals no longer create a blanket allow rule for the device tool; dangerous
+  calls retain their scoped warning. The approval UI maps numbered answers to the
+  options actually displayed, including two-option dialogs.
+- CLI session grants are visible and removable in `/permissions`; removing one does not
+  remove an already-saved user or workspace rule. File-based tools whose names conflict
+  with existing tools are skipped with a warning instead of replacing the existing tool.
+  Hosts that explicitly replace SDK tools remain responsible for their own approval policy.
+
+### 实时交互权限
+
+- 即使会话以全开模式启动，切换交互模式后也会按新模式执行审批。`/permissions`
+  区分当前模式与启动时配置；deny 规则和只读上限仍然生效。
+- 显式 ask 规则始终要求确认，不会暗中创建后续授权。普通设备审批不再生成覆盖整个
+  设备工具的 allow 规则，危险操作仍显示限定范围的提示；数字选项按实际显示的按钮解析。
+- CLI 会话授权可通过 `/permissions` 查看和移除；移除会话规则不会删除已保存的用户或
+  工作区规则。与已有工具同名的文件工具会被跳过并提示，不再替换已有工具。主动替换
+  SDK 工具的宿主仍须自行负责审批策略。
+
 ### Contract acceptance and evidence history
 
 - Contract-based acceptance no longer turns missing observations, invalid numeric values,
