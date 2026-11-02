@@ -453,6 +453,7 @@ export type InternalContentBlock = Pick<
   | 'is_error'
   | '_synthetic'
   | 'structuredContent'
+  | '_structuredContentTruncated'
 >;
 
 export type InternalMessage = {
@@ -492,6 +493,9 @@ export function fromSessionMessages(msgs: Message[]): InternalMessage[] {
             ...(b._synthetic !== undefined ? { _synthetic: b._synthetic } : {}),
             ...(b.structuredContent !== undefined
               ? { structuredContent: b.structuredContent }
+              : {}),
+            ...(b._structuredContentTruncated !== undefined
+              ? { _structuredContentTruncated: b._structuredContentTruncated }
               : {}),
           })),
     timestamp: m.timestamp,

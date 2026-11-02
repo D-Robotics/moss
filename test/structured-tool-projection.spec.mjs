@@ -37,6 +37,21 @@ test('an intentionally empty result never revives old structured text', () => {
   );
 });
 
+test('an unmarked old truncation-looking block does not override redacted text', () => {
+  assert.equal(
+    modelText({
+      type: 'tool_result',
+      tool_use_id: '1',
+      name: 'fixture',
+      content: '[redacted]',
+      structuredContent: [
+        { type: 'text', text: '[structured content truncated: 12123 chars exceeded 12000 limit]' },
+      ],
+    }),
+    '[redacted]'
+  );
+});
+
 test('older structured-only messages remain readable when content is absent', () => {
   assert.equal(
     modelText({
