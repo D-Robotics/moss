@@ -179,28 +179,36 @@ function textFromStructuredContent(content: ToolContentBlock[]): string {
   return '';
 }
 
-// System-error paths are data: a filename like "timed out" must not drive
-// timeout or retry classification. Keep the original message for the result.
-function errorMessageForClassification(err: unknown, message: string): string {
+// A system error's code identifies its cause; path and dest are untrusted data
+// and may themselves contain words used by the text-based classifiers.
+function pathSystemError(err: unknown): { code: string; message?: string } | undefined {
   const seen = new Set<object>();
   let current = err;
   while (current && typeof current === 'object' && !seen.has(current)) {
     seen.add(current);
     const cause = current as {
       cause?: unknown;
+      code?: unknown;
+      message?: unknown;
       errno?: unknown;
       syscall?: unknown;
       path?: unknown;
       dest?: unknown;
     };
-    if (typeof cause.errno === 'number' && typeof cause.syscall === 'string') {
-      for (const value of [cause.path, cause.dest]) {
-        if (typeof value === 'string' && value) message = message.split(value).join('[path]');
-      }
+    if (
+      typeof cause.code === 'string' &&
+      typeof cause.errno === 'number' &&
+      typeof cause.syscall === 'string' &&
+      (typeof cause.path === 'string' || typeof cause.dest === 'string')
+    ) {
+      return {
+        code: cause.code.toUpperCase(),
+        ...(typeof cause.message === 'string' ? { message: cause.message } : {}),
+      };
     }
     current = cause.cause;
   }
-  return message;
+  return undefined;
 }
 
 function policyBlockedToolResult(error: MossError): string {
@@ -474,6 +482,9 @@ async function executeOneToolCallInner(
       let attemptTimeout = false;
       let attemptError: MossError | undefined;
       let classificationMessage: string | undefined;
+      let systemErrorCode: string | undefined;
+      let explicitTimeout = false;
+      let deviceConnectionLost = false;
       const workspaceRecoveryPaths = new Set<string>();
 
       structuredBlocks = undefined;
@@ -575,7 +586,21 @@ async function executeOneToolCallInner(
         }
       } catch (err) {
         const rawMessage = errorMessage(err);
-        classificationMessage = errorMessageForClassification(err, rawMessage);
+        const systemError = pathSystemError(err);
+        systemErrorCode = systemError?.code;
+        classificationMessage = systemErrorCode ?? rawMessage;
+        explicitTimeout = isMossError(err) && err.code === ErrorCode.TOOL_EXECUTION_TIMEOUT;
+        // Check wrapper context, not the native message whose path is arbitrary data.
+        const systemMessage = systemError?.message;
+        const systemMessageIndex = systemMessage ? rawMessage.indexOf(systemMessage) : -1;
+        const wrapperMessage =
+          systemError && systemMessage && systemMessageIndex >= 0
+            ? rawMessage.slice(0, systemMessageIndex) +
+              rawMessage.slice(systemMessageIndex + systemMessage.length)
+            : systemError
+              ? ''
+              : rawMessage;
+        deviceConnectionLost = /Device connection lost/i.test(wrapperMessage);
         if (
           timeoutAbortCtrl.signal.aborted &&
           !deps.abortSignal.aborted &&
@@ -584,6 +609,7 @@ async function executeOneToolCallInner(
           attemptTimeout = true;
           attemptText = `Execution error: Tool ${call.name} timed out (${deps.toolTimeoutMs / 1000}s)`;
           classificationMessage = attemptText;
+          deviceConnectionLost = false;
           attemptError =
             isMossError(err) && err.code === ErrorCode.TOOL_EXECUTION_TIMEOUT
               ? err
@@ -603,7 +629,10 @@ async function executeOneToolCallInner(
             message: 'Tool execution was cancelled by the user.',
             cause: err,
           });
-        } else if (/timed out/i.test(classificationMessage)) {
+        } else if (
+          explicitTimeout ||
+          (systemErrorCode ? systemErrorCode === 'ETIMEDOUT' : /timed out/i.test(rawMessage))
+        ) {
           attemptTimeout = true;
           attemptText = `Execution error: ${rawMessage}`;
           attemptError = new MossError({
@@ -635,8 +664,13 @@ async function executeOneToolCallInner(
         const rawMsg = attemptText.replace(/^Execution error:\s*/, '');
         const retryMsg = classificationMessage ?? rawMsg;
         if (
+          !deviceConnectionLost &&
           !/Device connection lost/i.test(retryMsg) &&
-          (isTransientError(retryMsg) || isTimeoutError(retryMsg))
+          (explicitTimeout ||
+            systemErrorCode === 'EAGAIN' ||
+            systemErrorCode === 'EWOULDBLOCK' ||
+            isTransientError(retryMsg) ||
+            isTimeoutError(retryMsg))
         ) {
           retriesUsed++;
           const delayMs = progressiveBackoffDelay(retriesUsed - 1);
