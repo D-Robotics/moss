@@ -170,12 +170,7 @@ function layout(name) {
 }
 
 function childEnv(layoutInfo, overrides = {}) {
-  const env = { ...process.env, ...overrides };
-  for (const key of Object.keys(env)) {
-    if (isDotenvSafetyEnvKey(key)) delete env[key];
-  }
-  for (const [key, value] of Object.entries(overrides)) env[key] = value;
-  for (const key of [
+  const excludedKeys = new Set([
     'MOSS_DEVICE_HOST',
     'MOSS_DEVICE_PORT',
     'MOSS_DEVICE_USER',
@@ -183,15 +178,21 @@ function childEnv(layoutInfo, overrides = {}) {
     'MOSS_DEVICE_KIND',
     'MOSS_DEVICE_KEY',
     'MOSS_DEVICE_PASSWORD',
+    'MOSS_DEVICE_KEY_PASSPHRASE',
     'DEEPSEEK_API_KEY',
     'DASHSCOPE_API_KEY',
     'ALIYUN_API_KEY',
     'QWEN_API_KEY',
     'OPENAI_API_KEY',
     'ANTHROPIC_API_KEY',
-  ]) {
-    if (!(key in overrides)) delete env[key];
+  ]);
+  const env = {};
+  for (const key of Object.keys(process.env)) {
+    if (!isDotenvSafetyEnvKey(key) && !excludedKeys.has(key.toUpperCase())) {
+      env[key] = process.env[key];
+    }
   }
+  Object.assign(env, overrides);
   env.HOME = layoutInfo.home;
   env.USERPROFILE = layoutInfo.home;
   env.XDG_CONFIG_HOME = path.join(layoutInfo.home, '.config');
@@ -207,6 +208,44 @@ function childEnv(layoutInfo, overrides = {}) {
   delete env.MOSS_CONFIG_FILE;
   delete env.MOSS_CONFIG_PATH;
   return env;
+}
+
+{
+  const inherited = {
+    MOSS_DEVICE_KEY: '/synthetic/inherited-key',
+    MOSS_DEVICE_PASSWORD: 'synthetic-inherited-password',
+    MOSS_DEVICE_KEY_PASSPHRASE: 'synthetic-inherited-passphrase',
+  };
+  const keys = Object.keys(inherited);
+  const saved = new Map(keys.map((key) => [key, process.env[key]]));
+  try {
+    Object.assign(process.env, inherited);
+    const layoutInfo = layout('child-env');
+    const missing = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        `process.exit(${JSON.stringify(keys)}.some((key) => process.env[key] !== undefined) ? 1 : 0)`,
+      ],
+      { env: childEnv(layoutInfo), stdio: 'ignore' }
+    );
+    assert.equal(missing.status, 0, 'child must not inherit device credentials');
+
+    const explicit = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        `const expected = ${JSON.stringify(inherited)}; process.exit(Object.entries(expected).every(([key, value]) => process.env[key] === value) ? 0 : 1)`,
+      ],
+      { env: childEnv(layoutInfo, inherited), stdio: 'ignore' }
+    );
+    assert.equal(explicit.status, 0, 'child must receive explicitly supplied device credentials');
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 }
 
 function trust(layoutInfo) {
@@ -339,7 +378,7 @@ writeFile(path.join(flagged.workspace, '.env'), 'MOSS_AUTO_APPROVE=1\n');
 }
 
 function runTui(cwd, env) {
-  const python = spawnSync('python3', ['--version'], { encoding: 'utf8' });
+  const python = spawnSync('python3', ['--version'], { env, encoding: 'utf8' });
   if (python.status !== 0) {
     throw new Error('python3 is required to start the TUI on a PTY');
   }
@@ -578,33 +617,37 @@ const DEVICE_KEYS = [
   'MOSS_DEVICE_KIND',
   'MOSS_DEVICE_KEY',
 ];
+const DEVICE_CREDENTIAL_KEYS = ['MOSS_DEVICE_PASSWORD', 'MOSS_DEVICE_KEY_PASSPHRASE'];
+const ALL_DEVICE_KEYS = [...DEVICE_KEYS, ...DEVICE_CREDENTIAL_KEYS];
 
-{
+function testDeviceRoutingEnv() {
   const root = tempRoot();
   const home = path.join(root, 'home');
   const project = path.join(root, 'proj');
   const configDir = path.join(root, 'cfg');
-  const saved = new Map(DEVICE_KEYS.map((key) => [key, process.env[key]]));
-  for (const key of DEVICE_KEYS) delete process.env[key];
-  writeFile(
-    path.join(project, '.env'),
-    [
-      'MOSS_DEVICE_HOST=evil.example',
-      'MOSS_DEVICE_PORT=2222',
-      'MOSS_DEVICE_USER=attacker',
-      'MOSS_DEVICE_ID=evil-board',
-      'MOSS_DEVICE_KIND=rdk',
-      'MOSS_DEVICE_KEY=/tmp/evil-key',
-      'MOSS_DEVICE_PASSWORD=from-project',
-    ].join('\n') + '\n'
-  );
-  writeFile(path.join(home, '.env'), 'MOSS_DEVICE_HOST=home.example\n');
-  resetDeferredRoutingEnvForTests();
+  const saved = new Map(ALL_DEVICE_KEYS.map((key) => [key, process.env[key]]));
   try {
+    for (const key of ALL_DEVICE_KEYS) delete process.env[key];
+    writeFile(
+      path.join(project, '.env'),
+      [
+        'MOSS_DEVICE_HOST=evil.example',
+        'MOSS_DEVICE_PORT=2222',
+        'MOSS_DEVICE_USER=attacker',
+        'MOSS_DEVICE_ID=evil-board',
+        'MOSS_DEVICE_KIND=rdk',
+        'MOSS_DEVICE_KEY=/tmp/evil-key',
+        'MOSS_DEVICE_PASSWORD=from-project',
+        'MOSS_DEVICE_KEY_PASSPHRASE=from-project-passphrase',
+      ].join('\n') + '\n'
+    );
+    writeFile(path.join(home, '.env'), 'MOSS_DEVICE_HOST=home.example\n');
+    resetDeferredRoutingEnvForTests();
     loadEnvFile(path.join(project, '.env'));
     loadEnvFile(path.join(home, '.env'));
     for (const key of DEVICE_KEYS) assert.equal(process.env[key], undefined, key);
     assert.equal(process.env.MOSS_DEVICE_PASSWORD, 'from-project');
+    assert.equal(process.env.MOSS_DEVICE_KEY_PASSPHRASE, 'from-project-passphrase');
     const ignored = commitProjectRoutingEnv({
       trusted: false,
       folderKey: project,
@@ -613,10 +656,13 @@ const DEVICE_KEYS = [
     });
     assert.equal(process.env.MOSS_DEVICE_HOST, 'home.example');
     assert.equal(process.env.MOSS_DEVICE_PORT, undefined);
+    assert.equal(process.env.MOSS_DEVICE_KEY, undefined);
     assert.ok(ignored.keys.includes('MOSS_DEVICE_PORT'));
+    assert.ok(ignored.keys.includes('MOSS_DEVICE_KEY'));
     assert.equal(process.env.MOSS_DEVICE_PASSWORD, 'from-project');
+    assert.equal(process.env.MOSS_DEVICE_KEY_PASSPHRASE, 'from-project-passphrase');
     delete process.env.MOSS_DEVICE_HOST;
-    delete process.env.MOSS_DEVICE_PASSWORD;
+    for (const key of DEVICE_CREDENTIAL_KEYS) delete process.env[key];
     resetDeferredRoutingEnvForTests();
     loadEnvFile(path.join(project, '.env'));
     const applied = commitProjectRoutingEnv({
@@ -632,14 +678,35 @@ const DEVICE_KEYS = [
     assert.equal(process.env.MOSS_DEVICE_ID, 'evil-board');
     assert.equal(process.env.MOSS_DEVICE_KIND, 'rdk');
     assert.equal(process.env.MOSS_DEVICE_KEY, '/tmp/evil-key');
+    assert.equal(process.env.MOSS_DEVICE_PASSWORD, 'from-project');
+    assert.equal(process.env.MOSS_DEVICE_KEY_PASSPHRASE, 'from-project-passphrase');
   } finally {
     for (const [key, value] of saved) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
-    delete process.env.MOSS_DEVICE_PASSWORD;
     resetDeferredRoutingEnvForTests();
     takeDotenvSafetyEnvNotices(false);
+  }
+}
+
+{
+  const saved = new Map(ALL_DEVICE_KEYS.map((key) => [key, process.env[key]]));
+  try {
+    for (const key of ALL_DEVICE_KEYS) process.env[key] = `synthetic-inherited-${key}`;
+    testDeviceRoutingEnv();
+    for (const key of ALL_DEVICE_KEYS) {
+      assert.equal(process.env[key], `synthetic-inherited-${key}`, key);
+    }
+
+    for (const key of ALL_DEVICE_KEYS) delete process.env[key];
+    testDeviceRoutingEnv();
+    for (const key of ALL_DEVICE_KEYS) assert.equal(process.env[key], undefined, key);
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
 }
 
