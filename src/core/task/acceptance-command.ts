@@ -4,6 +4,7 @@
  */
 import { errorMessage } from '../../errors.js';
 import { runProcess } from '../../utils/run-process.js';
+import { safeChildEnv } from '../../utils/safe-child-env.js';
 
 export interface AcceptanceSpec {
   /** Shell command that must exit 0 for the goal to be complete. */
@@ -71,6 +72,7 @@ export function loginShellPath(env: NodeJS.ProcessEnv = process.env): Promise<st
       const res = await runProcess(shell, {
         args: ['-lc', `printf '${LOGIN_PATH_MARKER}%s${LOGIN_PATH_MARKER}' "$PATH"`],
         timeout: 3000,
+        env: safeChildEnv(),
       });
       const m = res.stdout.match(new RegExp(`${LOGIN_PATH_MARKER}(.*?)${LOGIN_PATH_MARKER}`));
       return m?.[1] ?? '';
@@ -99,9 +101,10 @@ export function mergeAcceptancePath(inherited: string | undefined, login: string
 }
 
 async function acceptanceEnv(): Promise<Record<string, string>> {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
-  env.PATH = mergeAcceptancePath(process.env.PATH, await loginShellPath());
+  const env = safeChildEnv();
+  if (process.platform !== 'win32') {
+    env.PATH = mergeAcceptancePath(env.PATH, await loginShellPath());
+  }
   return env;
 }
 
@@ -120,10 +123,10 @@ export async function runAcceptanceCommandInWorkspace(
 ): Promise<AcceptanceResult> {
   const endedAt = Date.now();
   const shell = acceptanceShell(spec.command);
-  const env = process.platform === 'win32' ? undefined : await acceptanceEnv();
+  const env = await acceptanceEnv();
   try {
     const res = await runProcess(shell.cmd, {
-      ...(env ? { env } : {}),
+      env,
       args: shell.args,
       timeout: spec.timeoutMs ?? DEFAULT_ACCEPTANCE_TIMEOUT_MS,
       signal,

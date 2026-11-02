@@ -13,6 +13,7 @@
  */
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { ProcessError, runProcess } from '../utils/run-process.js';
+import { safeChildEnv } from '../utils/safe-child-env.js';
 import { errorMessage } from '../errors.js';
 import {
   formatFailures,
@@ -292,7 +293,7 @@ async function runCommand(
     timeout: timeoutMs,
     maxBuffer: 10 * 1024 * 1024,
     signal: ctx.abortSignal,
-    env: { ...process.env } as Record<string, string>,
+    env: safeChildEnv(),
     cwd: ctx.workspaceDir,
     windowsVerbatimArguments: process.platform === 'win32',
   });

@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { ToolContext } from '../core/tools/tool-types.js';
 import { errorMessage } from '../errors.js';
 import { ProcessError, runProcess } from '../utils/run-process.js';
+import { safeChildEnv } from '../utils/safe-child-env.js';
 import {
   UNITTEST_IMPORT,
   pythonBin,
@@ -61,8 +62,6 @@ interface RunPlan {
 }
 
 type Plan = { message: string } | { skip: true } | RunPlan;
-
-const childEnv = (): Record<string, string> => ({ ...process.env }) as Record<string, string>;
 
 function readText(filePath: string): Promise<string | null> {
   return fs.readFile(filePath, 'utf8').then(
@@ -396,7 +395,7 @@ async function exitsZero(
       args,
       timeout,
       signal: ctx.abortSignal,
-      env: childEnv(),
+      env: safeChildEnv(),
       cwd: ctx.workspaceDir,
       maxBuffer: 1024 * 1024,
     });
@@ -781,7 +780,7 @@ async function planFromInput(
   source: 'run' | 'verify',
   deadline: number
 ): Promise<Plan> {
-  const env = childEnv();
+  const env = safeChildEnv();
   if (source === 'verify') {
     const explicit = explicitField(input, 'test_command');
     if (explicit === '') return { skip: true };

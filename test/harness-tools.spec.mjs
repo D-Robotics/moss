@@ -1,10 +1,235 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { runTestsTool, verifyFixTool } from '../dist/tools/harness-tools.js';
+
+const SYNTHETIC_NAMES = [
+  'MOSS_DEVICE_HOST',
+  'MOSS_DEVICE_SYNTHETIC',
+  'MOSS_BENCH_API_KEY',
+  'OPENAI_API_KEY',
+  'AWS_ACCESS_KEY_ID',
+  'MOSS_SYNTHETIC_ORDINARY',
+  'AUTH',
+];
+
+async function withEnvOverrides(overrides, fn) {
+  const previous = new Map(Object.keys(overrides).map((name) => [name, process.env[name]]));
+  try {
+    Object.assign(process.env, overrides);
+    await fn();
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+}
+
+async function withSyntheticEnv(fn) {
+  await withEnvOverrides(
+    Object.fromEntries(SYNTHETIC_NAMES.map((name) => [name, 'synthetic'])),
+    fn
+  );
+}
+
+const probeSource = `
+const fs = require('node:fs');
+const presence = {
+  device: Boolean(process.env.MOSS_DEVICE_HOST),
+  deviceExtension: Boolean(process.env.MOSS_DEVICE_SYNTHETIC),
+  benchmarkKey: Boolean(process.env.MOSS_BENCH_API_KEY),
+  apiKey: Boolean(process.env.OPENAI_API_KEY),
+  accessKey: Boolean(process.env.AWS_ACCESS_KEY_ID),
+  ordinary: process.env.MOSS_SYNTHETIC_ORDINARY === 'synthetic',
+  path: Boolean(process.env.PATH || process.env.Path),
+  auth: Boolean(process.env.AUTH)
+};
+fs.writeFileSync('presence.json', JSON.stringify(presence));
+process.stdout.write(JSON.stringify(presence));
+`;
+
+async function assertSafeProbe(dir, label, expectedDevice = false, file = 'presence.json') {
+  const { auth, ...visible } = JSON.parse(await fs.readFile(path.join(dir, file), 'utf8'));
+  console.error(`custom AUTH visible to ${label} child: ${auth}`);
+  assert.equal(typeof auth, 'boolean');
+  assert.deepEqual(visible, {
+    device: expectedDevice,
+    deviceExtension: false,
+    benchmarkKey: false,
+    apiKey: false,
+    accessKey: false,
+    ordinary: true,
+    path: true,
+  });
+}
+
+test('verify_fix filters synthetic credentials from build and typecheck children', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-verify-child-env-'));
+  try {
+    await fs.writeFile(path.join(dir, 'env-probe.cjs'), probeSource);
+    await withSyntheticEnv(async () => {
+      for (const field of ['build_command', 'typecheck_command']) {
+        const input = { build_command: '', typecheck_command: '', test_command: '' };
+        input[field] = 'node env-probe.cjs';
+        const output = await verifyFixTool.execute(input, {
+          workspaceDir: dir,
+          abortSignal: new AbortController().signal,
+        });
+        assert.match(output, field === 'build_command' ? /Build: ✅ pass/ : /Typecheck: ✅ pass/);
+        await assertSafeProbe(dir, field);
+      }
+      // A shell command can still opt in to an explicit environment assignment.
+      const assignment =
+        process.platform === 'win32'
+          ? 'set "MOSS_DEVICE_HOST=synthetic" && node env-probe.cjs'
+          : 'MOSS_DEVICE_HOST=synthetic node env-probe.cjs';
+      const output = await verifyFixTool.execute(
+        { build_command: assignment, typecheck_command: '', test_command: '' },
+        { workspaceDir: dir, abortSignal: new AbortController().signal }
+      );
+      assert.match(output, /Build: ✅ pass/);
+      await assertSafeProbe(dir, 'explicit override', true);
+    });
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('test commands filter synthetic credentials', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-tests-child-env-'));
+  try {
+    await fs.writeFile(path.join(dir, 'env-probe.cjs'), probeSource);
+    await withSyntheticEnv(async () => {
+      const ctx = { workspaceDir: dir, abortSignal: new AbortController().signal };
+      const run = await runTestsTool.execute({ command: 'node env-probe.cjs' }, ctx);
+      assert.match(run, /Command: node env-probe\.cjs/);
+      await assertSafeProbe(dir, 'run_tests command');
+      await fs.rm(path.join(dir, 'presence.json'));
+      await verifyFixTool.execute(
+        { build_command: '', typecheck_command: '', test_command: 'node env-probe.cjs' },
+        ctx
+      );
+      await assertSafeProbe(dir, 'verify_fix test command');
+      await fs.rm(path.join(dir, 'presence.json'));
+      const assignment =
+        process.platform === 'win32'
+          ? 'set "MOSS_DEVICE_HOST=synthetic" && node env-probe.cjs'
+          : 'MOSS_DEVICE_HOST=synthetic node env-probe.cjs';
+      await runTestsTool.execute({ command: assignment }, ctx);
+      await assertSafeProbe(dir, 'test command explicit override', true);
+    });
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('run_tests keeps Node file and npm runners usable with a safe environment', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-runners-child-env-'));
+  try {
+    await fs.writeFile(path.join(dir, 'env-probe.cjs'), probeSource);
+    await withSyntheticEnv(async () => {
+      await withEnvOverrides(
+        {
+          npm_config_userconfig: os.devNull,
+          npm_config_globalconfig: path.join(dir, 'no-global-npmrc'),
+          npm_config_cache: path.join(dir, 'npm-cache'),
+          npm_config_offline: 'true',
+          npm_config_update_notifier: 'false',
+        },
+        async () => {
+          const ctx = { workspaceDir: dir, abortSignal: new AbortController().signal };
+          const direct = await runTestsTool.execute({ file: 'env-probe.cjs' }, ctx);
+          assert.match(direct, /ALL PASSED/);
+          await assertSafeProbe(dir, 'Node file');
+          await fs.rm(path.join(dir, 'presence.json'));
+          await fs.writeFile(
+            path.join(dir, 'package.json'),
+            JSON.stringify({ scripts: { test: 'node env-probe.cjs' } })
+          );
+          const npm = await runTestsTool.execute({}, ctx);
+          assert.match(npm, /Command: npm test --silent/);
+          await assertSafeProbe(dir, 'npm');
+        }
+      );
+    });
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+const python = process.platform === 'win32' ? 'python' : 'python3';
+const pythonAvailable =
+  spawnSync(python, ['-c', 'print(True)'], {
+    env: {
+      PATH: process.env.PATH,
+      SYSTEMROOT: process.env.SYSTEMROOT,
+      PYTHONNOUSERSITE: '1',
+      PYTHONDONTWRITEBYTECODE: '1',
+    },
+    encoding: 'utf8',
+  }).status === 0;
+
+function pythonProbe(file) {
+  return `
+import json
+import os
+presence = {
+    'device': bool(os.environ.get('MOSS_DEVICE_HOST')),
+    'deviceExtension': bool(os.environ.get('MOSS_DEVICE_SYNTHETIC')),
+    'benchmarkKey': bool(os.environ.get('MOSS_BENCH_API_KEY')),
+    'apiKey': bool(os.environ.get('OPENAI_API_KEY')),
+    'accessKey': bool(os.environ.get('AWS_ACCESS_KEY_ID')),
+    'ordinary': os.environ.get('MOSS_SYNTHETIC_ORDINARY') == 'synthetic',
+    'path': bool(os.environ.get('PATH') or os.environ.get('Path')),
+    'auth': bool(os.environ.get('AUTH')),
+}
+with open(${JSON.stringify(file)}, 'w', encoding='utf8') as out:
+    json.dump(presence, out)
+print(json.dumps(presence))
+`;
+}
+
+test(
+  'Python availability probe and unittest receive the safe environment',
+  { skip: !pythonAvailable },
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-python-child-env-'));
+    try {
+      // Force the real Python interpreter down the unittest fallback while
+      // recording what its pytest-availability subprocess received.
+      await fs.writeFile(
+        path.join(dir, 'pytest.py'),
+        `${pythonProbe('probe-presence.json')}\nraise SystemExit(1)\n`
+      );
+      await fs.writeFile(
+        path.join(dir, 'test_probe.py'),
+        `import unittest\n${pythonProbe('presence.json')}\nclass TestEnv(unittest.TestCase):\n    def test_ok(self):\n        self.assertTrue(True)\n`
+      );
+      await withSyntheticEnv(async () => {
+        await withEnvOverrides(
+          { PYTHONNOUSERSITE: '1', PYTHONDONTWRITEBYTECODE: '1' },
+          async () => {
+            const result = await runTestsTool.execute(
+              { file: 'test_probe.py' },
+              { workspaceDir: dir, abortSignal: new AbortController().signal }
+            );
+            assert.match(result, /Command: .* -m unittest test_probe\.py/);
+            assert.match(result, /ALL PASSED/);
+            await assertSafeProbe(dir, 'Python availability probe', false, 'probe-presence.json');
+            await assertSafeProbe(dir, 'Python unittest');
+          }
+        );
+      });
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  }
+);
 
 test('run_tests aggregates per-file Node test summaries', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-run-tests-summary-'));

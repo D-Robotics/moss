@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Tool } from '../core/tools/tool-types.js';
 import { ProcessError, runProcess } from '../utils/run-process.js';
+import { safeChildEnv } from '../utils/safe-child-env.js';
 import { isCommandDangerous } from '../safety/channel-safety.js';
 import { errorMessage } from '../errors.js';
 
@@ -114,6 +115,7 @@ export function createFileBasedTool(def: FileBasedToolDefinition): Tool {
           maxBuffer: 10 * 1024 * 1024,
           signal: ctx.abortSignal,
           cwd: ctx.workspaceDir,
+          env: safeChildEnv(),
           stdin: JSON.stringify(input),
         });
         const out = result.stdout.trim();

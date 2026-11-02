@@ -56,7 +56,7 @@ function isDangerousEnvKey(key: string): boolean {
 }
 
 function isStrippedFromChild(key: string): boolean {
-  if (key.startsWith('MOSS_DEVICE_')) return true;
+  if (key.toUpperCase().startsWith('MOSS_DEVICE_')) return true;
   return isDangerousEnvKey(key);
 }
 

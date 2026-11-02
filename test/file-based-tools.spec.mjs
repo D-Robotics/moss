@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  createFileBasedTool,
   loadFileBasedToolDefinitions,
   loadFileBasedTools,
 } from '../dist/tools/file-based-tools.js';
@@ -107,6 +108,64 @@ try {
     );
   } finally {
     fs.rmSync(emptyWs, { recursive: true, force: true });
+  }
+
+  // A real child reports only whether each synthetic environment variable exists.
+  const probe = path.join(ws, 'env-probe.cjs');
+  fs.writeFileSync(
+    probe,
+    `process.stdout.write(JSON.stringify({
+      device: Boolean(process.env.MOSS_DEVICE_HOST),
+      deviceExtension: Boolean(process.env.MOSS_DEVICE_SYNTHETIC),
+      benchmarkKey: Boolean(process.env.MOSS_BENCH_API_KEY),
+      apiKey: Boolean(process.env.OPENAI_API_KEY),
+      accessKey: Boolean(process.env.AWS_ACCESS_KEY_ID),
+      ordinary: Boolean(process.env.MOSS_SYNTHETIC_ORDINARY),
+      path: Boolean(process.env.PATH || process.env.Path),
+      auth: Boolean(process.env.AUTH)
+    }));
+    process.exit(0);`
+  );
+  const syntheticNames = [
+    'MOSS_DEVICE_HOST',
+    'MOSS_DEVICE_SYNTHETIC',
+    'MOSS_BENCH_API_KEY',
+    'OPENAI_API_KEY',
+    'AWS_ACCESS_KEY_ID',
+    'MOSS_SYNTHETIC_ORDINARY',
+    'AUTH',
+    'NODE_OPTIONS',
+  ];
+  const previous = new Map(syntheticNames.map((name) => [name, process.env[name]]));
+  try {
+    for (const name of syntheticNames) process.env[name] = 'synthetic';
+    process.env.NODE_OPTIONS = `--require=${JSON.stringify(probe)}`;
+    const probeTool = createFileBasedTool({
+      name: 'env_probe',
+      description: 'Report synthetic environment presence.',
+      command: process.execPath,
+      inputSchema: { type: 'object', properties: {} },
+    });
+    const result = JSON.parse(
+      await probeTool.execute({}, { workspaceDir: ws, abortSignal: new AbortController().signal })
+    );
+    const { auth, ...visible } = result;
+    console.error(`custom AUTH visible to file-tool child: ${auth}`);
+    assert.equal(typeof auth, 'boolean');
+    assert.deepEqual(visible, {
+      device: false,
+      deviceExtension: false,
+      benchmarkKey: false,
+      apiKey: false,
+      accessKey: false,
+      ordinary: true,
+      path: true,
+    });
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
   }
 } finally {
   fs.rmSync(ws, { recursive: true, force: true });

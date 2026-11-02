@@ -954,6 +954,11 @@ export async function runDeviceBench(options = {}) {
   if (mode !== 'dry' && mode !== 'sim' && mode !== 'real') {
     throw new Error(`unknown mode ${mode}`);
   }
+  if (mode !== 'dry') {
+    throw new Error(
+      'Device benchmark sim/real modes are disabled until acceptance has a credential-safe device channel; use --dry.'
+    );
+  }
   // Clear provider config dirs (they hold the API key) orphaned by a run that
   // was killed before its signal handlers could run.
   sweepStaleProviderConfigDirs();

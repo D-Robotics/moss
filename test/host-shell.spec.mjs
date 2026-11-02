@@ -4,8 +4,16 @@
  * Hooks, the status line, and acceptance commands stay on cmd.
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { test } from 'node:test';
 
-import { acceptanceShell } from '../dist/core/task/acceptance-command.js';
+import {
+  acceptanceShell,
+  loginShellPath,
+  runAcceptanceCommand,
+} from '../dist/core/task/acceptance-command.js';
 import { execToolDescription } from '../dist/tools/builtin.js';
 import { resolveHostShell } from '../dist/utils/host-shell.js';
 
@@ -101,5 +109,134 @@ if (process.platform === 'win32') {
   }
   assert.doesNotMatch(live.executable, /WindowsPowerShell/i);
 }
+
+const syntheticEnv = {
+  MOSS_DEVICE_HOST: 'synthetic',
+  MOSS_DEVICE_PASSWORD: 'synthetic',
+  moss_device_port: 'synthetic',
+  MoSs_DeViCe_UsEr: 'synthetic',
+  MOSS_BENCH_API_KEY: 'synthetic',
+  OPENAI_API_KEY: 'synthetic',
+  AWS_ACCESS_KEY_ID: 'synthetic',
+  MOSS_SYNTHETIC_ORDINARY: 'synthetic',
+  AUTH: 'synthetic',
+  MOSS_ACCEPT_LOGIN_PATH: '0',
+};
+
+async function withSyntheticEnv(fn) {
+  const previous = new Map(Object.keys(syntheticEnv).map((key) => [key, process.env[key]]));
+  try {
+    Object.assign(process.env, syntheticEnv);
+    await fn();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+const presenceSource = `
+const presence = {
+  device: Boolean(process.env.MOSS_DEVICE_HOST),
+  devicePassword: Boolean(process.env.MOSS_DEVICE_PASSWORD),
+  devicePort: Boolean(process.env.moss_device_port),
+  deviceUser: Boolean(process.env.MoSs_DeViCe_UsEr),
+  benchmarkKey: Boolean(process.env.MOSS_BENCH_API_KEY),
+  apiKey: Boolean(process.env.OPENAI_API_KEY),
+  accessKey: Boolean(process.env.AWS_ACCESS_KEY_ID),
+  ordinary: process.env.MOSS_SYNTHETIC_ORDINARY === 'synthetic',
+  path: Boolean(process.env.PATH || process.env.Path),
+  auth: Boolean(process.env.AUTH)
+};
+`;
+
+function assertPresence(result, label, expectedDevice = false) {
+  const { auth, ...visible } = result;
+  console.error(`custom AUTH visible to ${label} child: ${auth}`);
+  assert.equal(typeof auth, 'boolean');
+  assert.deepEqual(visible, {
+    device: expectedDevice,
+    devicePassword: false,
+    devicePort: false,
+    deviceUser: false,
+    benchmarkKey: false,
+    apiKey: false,
+    accessKey: false,
+    ordinary: true,
+    path: true,
+  });
+}
+
+test('acceptance shell filters synthetic credentials and preserves ordinary environment', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-accept-env-'));
+  try {
+    const probe = path.join(dir, 'presence.cjs');
+    fs.writeFileSync(probe, `${presenceSource}\nprocess.stdout.write(JSON.stringify(presence));\n`);
+    await withSyntheticEnv(async () => {
+      const command = `"${process.execPath}" "${probe}"`;
+      const result = await runAcceptanceCommand({ command, workspaceDir: dir });
+      assert.equal(result.passed, true, result.tail);
+      assertPresence(JSON.parse(result.tail), 'acceptance');
+      const explicit =
+        process.platform === 'win32'
+          ? `set "MOSS_DEVICE_HOST=synthetic" && ${command}`
+          : `MOSS_DEVICE_HOST=synthetic ${command}`;
+      const override = await runAcceptanceCommand({ command: explicit, workspaceDir: dir });
+      assert.equal(override.passed, true, override.tail);
+      assertPresence(JSON.parse(override.tail), 'acceptance explicit override', true);
+    });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test(
+  'login shell lookup filters synthetic credentials',
+  { skip: process.platform === 'win32' },
+  async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-login-env-'));
+    try {
+      const shell = path.join(dir, 'bash');
+      const record = path.join(dir, 'presence.json');
+      fs.writeFileSync(
+        shell,
+        `#!/usr/bin/env node\n${presenceSource}\nrequire('node:fs').writeFileSync(${JSON.stringify(record)}, JSON.stringify(presence));\nprocess.stdout.write(JSON.stringify(presence));\n`,
+        { mode: 0o755 }
+      );
+      await withSyntheticEnv(async () => {
+        // This synthetic executable does not read any shell profile.
+        assert.equal(await loginShellPath({ SHELL: shell }), '');
+        assertPresence(JSON.parse(fs.readFileSync(record, 'utf8')), 'login shell');
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+);
+
+test('device benchmark blocks live modes before configuration or target setup', async () => {
+  const { runDeviceBench } = await import('../scripts/lib/device-bench.mjs');
+  const readDir = fs.readdirSync;
+  let setupStarted = false;
+  fs.readdirSync = () => {
+    setupStarted = true;
+    return [];
+  };
+  try {
+    for (const mode of ['sim', 'real']) {
+      const options = {
+        mode,
+        get tasks() {
+          throw new Error('device benchmark setup started');
+        },
+      };
+      await assert.rejects(runDeviceBench(options), /device benchmark.*disabled/i);
+      assert.equal(setupStarted, false);
+    }
+  } finally {
+    fs.readdirSync = readDir;
+  }
+});
 
 console.log('[PASS] host shell');

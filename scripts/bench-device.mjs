@@ -17,7 +17,7 @@ function usage() {
     '',
     'Flags:',
     '  --dry                 scripted oracle, no model, no SSH (default without MOSS_DEVICE_HOST)',
-    '  --target <dry|sim|real>',
+    '  --target <dry|sim|real>  sim/real disabled pending secure device acceptance',
     '  --task <substr>       only tasks whose id contains <substr> (repeatable)',
     '  --repeat <n>          run the suite n times and report mean and spread',
     '  --label <name>        result directory name under bench/results/',
