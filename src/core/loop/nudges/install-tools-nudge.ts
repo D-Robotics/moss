@@ -5,10 +5,12 @@
  * Soft: max 1 fire. Pairs with evaluateInventedInstallCompletionGate.
  */
 
+import { stripNegatedActionClauses } from '../../../utils/request-intent.js';
 import { collectExecCommands } from '../nudge-helpers.js';
+import type { NudgeRequest, NudgeResult } from '../nudge-helpers.js';
 import { defineToolsNudge } from './template.js';
 
-export const evaluateInstallToolsNudge = defineToolsNudge({
+const evaluateInstallRequest = defineToolsNudge({
   userRe:
     /(?:\bnpm\s+install\b|\bpnpm\s+i(?:nstall)?\b|\byarn\s+install\b|\bbun\s+install\b|install (?:the )?dependencies|install deps|装依赖|安装依赖)/iu,
   sawEvidence: ({ messages }) => {
@@ -28,3 +30,10 @@ export const evaluateInstallToolsNudge = defineToolsNudge({
     'Run the real package-manager install via `exec` and report the output, or clearly say install was skipped. ' +
     'Do not invent install success.',
 });
+
+export function evaluateInstallToolsNudge(request: NudgeRequest): NudgeResult {
+  return evaluateInstallRequest({
+    ...request,
+    userText: stripNegatedActionClauses(request.userText || ''),
+  });
+}
