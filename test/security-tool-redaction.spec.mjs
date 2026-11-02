@@ -321,6 +321,116 @@ test('a host hook with the sanitizer name still strips same-text structured outp
   assert.equal(stored.find((block) => block.type === 'tool_result')?.structuredContent, undefined);
 });
 
+test('credentials recognized in text are not repeated in image or resource metadata', async () => {
+  const result = await runTool({
+    executeStructured: async () => ({
+      content: [
+        { type: 'text', text: `Authorization: Bearer ${opaquePassword}` },
+        { type: 'image', data: 'AAECAw==', mimeType: 'image/png', alt: `view ${opaquePassword}` },
+        {
+          type: 'resource',
+          uri: `fixture://guide/${opaquePassword}`,
+          name: `guide ${opaquePassword}`,
+        },
+        { type: 'resource', uri: 'fixture://safe/guide', name: 'safe guide' },
+      ],
+    }),
+  });
+  assert.equal(result.end.content.includes(opaquePassword), false);
+  assert.equal(containsValue(result.events, opaquePassword), false);
+  assert.equal(containsValue(result.observed, opaquePassword), false);
+  assert.equal(containsValue(result.messages, opaquePassword), false);
+  const image = result.end.structuredContent?.find((block) => block.type === 'image');
+  const safe = result.end.structuredContent?.find((block) => block.uri === 'fixture://safe/guide');
+  assert.equal(image?.data, 'AAECAw==');
+  assert.equal(safe?.name, 'safe guide');
+});
+
+test('recognized credentials do not remain in later text or metadata', async () => {
+  const result = await runTool({
+    executeStructured: async () => ({
+      content: [
+        {
+          type: 'text',
+          text: `Authorization: Bearer ${opaquePassword}\nRepeated: ${opaquePassword}`,
+        },
+        { type: 'resource', uri: `fixture://guide/${opaquePassword}` },
+      ],
+    }),
+  });
+  assert.equal(containsValue(result.events, opaquePassword), false);
+  assert.equal(containsValue(result.messages, opaquePassword), false);
+});
+
+test('already-redacted text withholds unverified metadata but preserves safe image data', async () => {
+  const result = await runTool({
+    executeStructured: async () => ({
+      content: [
+        { type: 'text', text: 'Authorization: Bearer [REDACTED]' },
+        { type: 'image', data: 'AAECAw==', mimeType: 'image/png', alt: opaquePassword },
+        { type: 'resource', uri: `fixture://guide/${opaquePassword}`, name: opaquePassword },
+      ],
+    }),
+  });
+  assert.equal(containsValue(result.events, opaquePassword), false);
+  assert.equal(containsValue(result.messages, opaquePassword), false);
+  assert.equal(
+    result.end.structuredContent.find((block) => block.type === 'image')?.data,
+    'AAECAw=='
+  );
+  assert.equal(
+    result.end.structuredContent.find((block) => block.type === 'resource')?.uri,
+    '[REDACTED]'
+  );
+});
+
+test('structured arrays cannot override the SDK redaction traversal', async () => {
+  const content = [{ type: 'text', text: 'safe observation' }];
+  Object.defineProperty(content, 'map', {
+    value: () => [{ type: 'resource', uri: `fixture://guide/${fakeToken}` }],
+  });
+  const result = await runTool({ executeStructured: async () => ({ content }) });
+  assert.equal(containsValue(result.events, fakeToken), false);
+  assert.equal(containsValue(result.observed, fakeToken), false);
+  assert.equal(containsValue(result.messages, fakeToken), false);
+  assert.equal(result.end.content, 'safe observation');
+});
+
+test('error contexts redact raw headers and attached curl credentials', async () => {
+  const result = await runTool({
+    executeStructured: async () => {
+      throw new MossError({
+        code: ErrorCode.TOOL_EXECUTION_FAILED,
+        message: 'failed safely',
+        context: {
+          rawHeaders: ['Authorization', `Bearer ${opaquePassword}`, 'Content-Type', 'text/plain'],
+          argv: ['curl', `--user=alice:${opaquePassword}`],
+        },
+      });
+    },
+  });
+  assert.equal(containsValue(result.events, opaquePassword), false);
+  assert.equal(containsValue(result.observed, opaquePassword), false);
+  assert.ok(result.end.error?.cause === undefined);
+});
+
+test('ordinary diagnostic arrays are not treated as command arguments', async () => {
+  const result = await runTool({
+    executeStructured: async () => {
+      throw new MossError({
+        code: ErrorCode.TOOL_EXECUTION_FAILED,
+        message: 'failed safely',
+        context: {
+          lines: ['-p', 'robot-port = 2222'],
+          logLines: ['curl', '-p', 'robot-port = 2222'],
+        },
+      });
+    },
+  });
+  assert.deepEqual(result.end.error.context.lines, ['-p', 'robot-port = 2222']);
+  assert.deepEqual(result.end.error.context.logLines, ['curl', '-p', 'robot-port = 2222']);
+});
+
 test('structured metadata is redacted in SDK events and in-memory history', async () => {
   const result = await runTool({
     executeStructured: async () => ({

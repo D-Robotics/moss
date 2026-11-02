@@ -11,6 +11,12 @@
   (JavaScript hooks may return `undefined`) to keep structured blocks. The
   agent's built-in sanitizer instead retains safe image/resource blocks and
   withholds structured text that is not present in the sanitized output.
+- **0.x metadata behavior:** when the source text is already redacted or its
+  redacted spans cannot be identified reliably, image `alt` and resource
+  `name`/`mimeType` are withheld and resource `uri` becomes `[REDACTED]`.
+  Image data with a recognized image MIME type remains available. Re-run the
+  source tool in a trusted context and sanitize its result to recover usable
+  resource references; do not treat the placeholder as a URI.
 - On the MossAgent model path, an existing tool-result `content` string is
   authoritative, including `''`; old structured text is not appended. Some
   older sessions that relied on structured text alongside empty or different
@@ -33,10 +39,13 @@
   `content` (including legacy records with no `content`), sanitizes tool inputs,
   thinking and structured metadata, and replaces structured images with
   omission notices, matching its existing attachment policy. Credential fields
-  and binary or non-JSON input values may be withheld. For safety, values after
-  `-p`, `-u` and `--user` in argument arrays are masked even when they are
-  ports or usernames. Safe resource metadata and text
-  still present in sanitized `content` remain available. To recover intended
+  and binary or non-JSON input values may be withheld. In recognized argument
+  arrays, values after `-p`, `-u` and `--user` are masked even when they are
+  ports or usernames. Argument/header arrays are recognized by fields such as
+  `argv`, `args`, `headers`, `rawHeaders`, or by a known command-named field;
+  ordinary arrays are not assumed to be arguments. Hosts with other schemas
+  should sanitize them before remote compaction. Safe resource metadata and
+  text still present in sanitized `content` remain available. To recover intended
   legacy text, inspect and sanitize it locally and put it in `content`. Hosts
   needing image data must obtain it locally instead of relying on the remote
   request.
@@ -59,6 +68,10 @@
   即使文本不变，也会丢弃原结构化块，避免替换或脱敏后旧块绕过处理。只观察结果的
   hook 应返回 `null`（JavaScript 运行时也可返回 `undefined`）以保留结构化块。
   agent 内置脱敏器则保留安全的 image/resource，并屏蔽脱敏后输出中不存在的结构化文本。
+- **0.x 元数据行为：**源文本已经脱敏，或无法可靠识别被脱敏的原文时，会隐藏 image
+  的 `alt` 和 resource 的 `name`/`mimeType`，并将 resource `uri` 替换为 `[REDACTED]`。
+  已知图片 MIME 类型的数据仍可使用。需要恢复资源引用时，应在可信环境重新执行源工具并
+  脱敏结果，不要把占位符当作 URI。
 - MossAgent 向模型投影工具结果时，已有的 `content` 字符串（包括 `''`）为准，
   不追加旧结构化文本。因此依赖空内容或不同内容旁的结构化文本的旧会话，模型
   可能看到更少文本；此投影不会修改原记录。需要恢复时，可在新会话重新执行
@@ -73,8 +86,10 @@
   已有 `content` 字符串为准。远程压缩会省略脱敏后 `content` 中不存在的结构化文本
   （包括没有 `content` 的旧记录），脱敏工具输入、thinking 和结构化元数据，并将结构化
   图片替换为省略提示，与现有图片附件策略一致。凭据字段、二进制及非 JSON 输入可能被
-  屏蔽；为安全起见，参数数组中 `-p`、`-u` 和 `--user` 后的值即使是端口或用户名也会
-  被屏蔽。安全的 resource 元数据及仍在脱敏后 `content` 中的文本会保留。需要恢复旧文本时，应在本地
+  屏蔽；在识别出的参数数组中，`-p`、`-u` 和 `--user` 后的值即使是端口或用户名也会
+  被屏蔽。参数和请求头数组通过 `argv`、`args`、`headers`、`rawHeaders` 等字段名或
+  已知命令字段识别；普通数组不再默认视为参数。使用其他结构的宿主应在远程压缩前自行
+  脱敏。安全的 resource 元数据及仍在脱敏后 `content` 中的文本会保留。需要恢复旧文本时，应在本地
   检查、脱敏后写入 `content`；需要图片数据的宿主应在本地获取，不应依赖远程请求。
 - 工具结果中的 image/resource 字段进入事件和会话存储前会脱敏；图片数据被脱敏
   修改时改为文本提示。后置 hook 替换输出后，SDK 错误消息使用替换后的输出，原有

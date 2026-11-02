@@ -110,6 +110,91 @@ export function isSecretArgumentFlag(argument: string): boolean {
   );
 }
 
+/** Interpret only named argument/header arrays or arrays beginning with a known command. */
+export function sensitiveArrayKind(
+  field: string | undefined,
+  first: unknown
+): 'arguments' | 'headers' | 'other' {
+  const name = (field ?? '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+  if (name === 'headers' || name === 'rawheaders') return 'headers';
+  if (/^(?:args|argv|arguments|commandargs|commandargv|processargs)$/.test(name)) {
+    return 'arguments';
+  }
+  const commandName = /^(?:curl|wget|mysql|mariadb|sshpass|docker|podman)(?:\.exe)?$/;
+  if (name && !commandName.test(name)) return 'other';
+  const executable = typeof first === 'string' ? first.split(/[\\/]/).at(-1)?.toLowerCase() : '';
+  return commandName.test(executable ?? '') ? 'arguments' : 'other';
+}
+
+/** Preserve the user part while withholding credentials attached to a curl user flag. */
+export function redactAttachedUserArgument(argument: string): string {
+  const match = /^(--user=|-u)([^:]+):(.+)$/i.exec(argument);
+  return match ? `${match[1]}${match[2]}:${REDACTED}` : argument;
+}
+
+export interface RedactedValueContext {
+  values: string[];
+  unresolved: boolean;
+}
+
+/** Recover recognizable replaced values without guessing when the source is already redacted. */
+export function redactedValueContext(original: string, sanitized: string): RedactedValueContext {
+  const unresolved = /\[redacted\]|\*{3}/i.test(original);
+  if (original === sanitized) return { values: [], unresolved };
+  // The legacy sanitizer sometimes emits a short prefix/suffix around ***.
+  // Treat that partial mask as one withheld span for cross-field propagation.
+  const normalized = sanitized.replace(/[A-Za-z0-9_]{1,4}\*{3}[A-Za-z0-9_]{2}/g, REDACTED);
+  const parts = normalized.split(REDACTED);
+  if (parts.length < 2 || !original.startsWith(parts[0] ?? '')) {
+    return { values: [], unresolved: true };
+  }
+  let cursor = parts[0]?.length ?? 0;
+  const values = new Set<string>();
+  for (let index = 1; index < parts.length; index += 1) {
+    const anchor = parts[index] ?? '';
+    if (!anchor && index < parts.length - 1) return { values: [], unresolved: true };
+    const end = anchor ? original.indexOf(anchor, cursor) : original.length;
+    if (end < 0 || (anchor && original.indexOf(anchor, end + 1) !== -1)) {
+      return { values: [], unresolved: true };
+    }
+    const removed = original.slice(cursor, end).trim();
+    const match = /^(?:(?:bearer|basic|token)\s+)?([A-Za-z0-9._~+\/=\-]{4,})$/i.exec(removed);
+    if (!match) return { values: [], unresolved: true };
+    values.add(match[1]!);
+    cursor = end + anchor.length;
+  }
+  if (cursor !== original.length) return { values: [], unresolved: true };
+  return { values: [...values], unresolved };
+}
+
+export function redactContextValues(text: string, context: RedactedValueContext): string {
+  let result = text;
+  for (const value of context.values) {
+    result = result.split(value).join(REDACTED);
+    const encoded = encodeURIComponent(value);
+    if (encoded !== value) {
+      const normalized = result.replace(/%[0-9a-f]{2}/gi, (part) => part.toUpperCase());
+      const pieces: string[] = [];
+      let from = 0;
+      let index = normalized.indexOf(encoded);
+      while (index !== -1) {
+        pieces.push(result.slice(from, index), REDACTED);
+        from = index + encoded.length;
+        index = normalized.indexOf(encoded, from);
+      }
+      if (pieces.length > 0) result = pieces.join('') + result.slice(from);
+    }
+    if (result.includes('%')) {
+      try {
+        if (decodeURIComponent(result).includes(value)) result = REDACTED;
+      } catch {
+        // Invalid percent escapes are not a decodable representation of the value.
+      }
+    }
+  }
+  return result;
+}
+
 function buildPattern(rule: SecretRule): RegExp {
   return new RegExp(rule.source, rule.flags);
 }

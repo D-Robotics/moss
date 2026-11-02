@@ -15,7 +15,15 @@ import { runPreToolHookChain, validateToolInputObject } from './tool-pipeline.js
 import { MossError, ErrorCode, errorMessage, isMossError, wrapAsMoss } from '../../errors.js';
 import { isEffectiveUiZh } from '../../utils/ui-language.js';
 import { presentToolOutput } from '../../safety/tool-output-redact.js';
-import { isSecretArgumentFlag, isSecretFieldName } from '../../safety/secret-sanitizer.js';
+import {
+  isSecretArgumentFlag,
+  isSecretFieldName,
+  redactAttachedUserArgument,
+  redactContextValues,
+  redactedValueContext,
+  sensitiveArrayKind,
+  type RedactedValueContext,
+} from '../../safety/secret-sanitizer.js';
 import { REDACTED } from '../../safety/redact-patterns.js';
 
 /**
@@ -185,7 +193,8 @@ function textFromStructuredContent(content: ToolContentBlock[]): string {
 function sanitizeStructuredBlocks(
   blocks: ToolContentBlock[],
   redact: (text: string) => string,
-  visibleText: string
+  visibleText: string,
+  context: RedactedValueContext
 ): ToolContentBlock[] {
   return blocks.map((block) => {
     if (block.type === 'text') {
@@ -198,19 +207,27 @@ function sanitizeStructuredBlocks(
     if (block.type === 'image') {
       const data = redact(block.data);
       if (data !== block.data) return { type: 'text', text: '[image withheld by redaction]' };
+      if (
+        context.unresolved &&
+        !/^image\/(?:png|jpeg|gif|webp|bmp|tiff|avif|svg\+xml)$/i.test(block.mimeType)
+      ) {
+        return { type: 'text', text: '[image withheld by redaction]' };
+      }
       return {
         type: 'image',
         data,
         mimeType: redact(block.mimeType),
-        ...(block.alt !== undefined ? { alt: redact(block.alt) } : {}),
+        ...(!context.unresolved && block.alt !== undefined ? { alt: redact(block.alt) } : {}),
       };
     }
     const text = block.text !== undefined ? redact(block.text) : undefined;
     return {
       type: 'resource',
-      uri: redact(block.uri),
-      ...(block.name !== undefined ? { name: redact(block.name) } : {}),
-      ...(block.mimeType !== undefined ? { mimeType: redact(block.mimeType) } : {}),
+      uri: context.unresolved ? REDACTED : redact(block.uri),
+      ...(!context.unresolved && block.name !== undefined ? { name: redact(block.name) } : {}),
+      ...(!context.unresolved && block.mimeType !== undefined
+        ? { mimeType: redact(block.mimeType) }
+        : {}),
       ...(text !== undefined && visibleText.includes(text) ? { text } : {}),
     };
   });
@@ -228,7 +245,8 @@ function sanitizeErrorDetail(
   redact: (text: string) => string,
   withheld: boolean,
   seen: WeakSet<object>,
-  depth = 0
+  depth = 0,
+  field?: string
 ): unknown {
   if (value === undefined || value === null) return value;
   if (depth >= 16) return '[error detail depth exceeded]';
@@ -287,7 +305,7 @@ function sanitizeErrorDetail(
         Object.defineProperty(error, redact(key), {
           value: isSecretFieldName(key)
             ? REDACTED
-            : sanitizeErrorDetail(descriptor.value, redact, false, seen, depth + 1),
+            : sanitizeErrorDetail(descriptor.value, redact, false, seen, depth + 1, key),
           enumerable: descriptor.enumerable,
           configurable: true,
           writable: true,
@@ -297,13 +315,23 @@ function sanitizeErrorDetail(
     }
     if (Array.isArray(value)) {
       const result: unknown[] = [];
+      const first = Object.getOwnPropertyDescriptor(value, '0')?.value as unknown;
+      const kind = sensitiveArrayKind(field, first);
       let secretNext = false;
       for (let index = 0; index < value.length; index += 1) {
         const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
         const item = descriptor && 'value' in descriptor ? (descriptor.value as unknown) : null;
-        const secretFlag = typeof item === 'string' && isSecretArgumentFlag(item);
+        const secretFlag =
+          typeof item === 'string' &&
+          (kind === 'arguments'
+            ? isSecretArgumentFlag(item)
+            : kind === 'headers' && isSecretFieldName(item));
+        const sanitizedItem =
+          typeof item === 'string' && kind === 'arguments'
+            ? redactAttachedUserArgument(item)
+            : item;
         result.push(
-          secretNext ? REDACTED : sanitizeErrorDetail(item, redact, false, seen, depth + 1)
+          secretNext ? REDACTED : sanitizeErrorDetail(sanitizedItem, redact, false, seen, depth + 1)
         );
         secretNext = secretFlag;
       }
@@ -315,7 +343,7 @@ function sanitizeErrorDetail(
       Object.defineProperty(result, redact(key), {
         value: isSecretFieldName(key)
           ? REDACTED
-          : sanitizeErrorDetail(descriptor.value, redact, false, seen, depth + 1),
+          : sanitizeErrorDetail(descriptor.value, redact, false, seen, depth + 1, key),
         enumerable: descriptor.enumerable,
         configurable: true,
         writable: true,
@@ -711,8 +739,14 @@ async function executeOneToolCallInner(
             abortable(tool.executeStructured(call.input, attemptCtx), attemptSignal),
             toolTimeoutPromise,
           ]);
-          structuredBlocks = structured.content;
-          attemptText = textFromStructuredContent(structured.content);
+          structuredBlocks = [];
+          for (let index = 0; index < structured.content.length; index += 1) {
+            const descriptor = Object.getOwnPropertyDescriptor(structured.content, String(index));
+            if (descriptor && 'value' in descriptor) {
+              structuredBlocks.push(descriptor.value as ToolContentBlock);
+            }
+          }
+          attemptText = textFromStructuredContent(structuredBlocks);
           if (structured.isError) {
             attemptErrFlag = true;
             attemptError = new MossError({
@@ -835,7 +869,9 @@ async function executeOneToolCallInner(
 
     emitStart();
 
+    const originalText = text;
     let postHookModified = false;
+    let agentSanitized = false;
     let structuredReplaced = false;
     if (deps.toolHooks) {
       text = await deps.toolHooks.runPostHooks({
@@ -848,7 +884,8 @@ async function executeOneToolCallInner(
         sessionId: deps.sessionKey,
         onModified: (agentSanitizer) => {
           postHookModified = true;
-          if (!agentSanitizer) structuredReplaced = true;
+          if (agentSanitizer) agentSanitized = true;
+          else structuredReplaced = true;
         },
       });
     }
@@ -868,16 +905,23 @@ async function executeOneToolCallInner(
       });
     }
 
-    const redactDetail = (detail: string): string =>
+    const baseRedact = (detail: string): string =>
       presentToolOutput({
         toolName: tool.name,
         input: call.input,
         text: detail,
         workspaceDir: callToolCtx.workspaceDir,
       });
-
+    let context: RedactedValueContext = { values: [], unresolved: true };
     try {
-      const sanitized = redactDetail(text);
+      context = redactedValueContext(originalText, baseRedact(originalText));
+      const base = agentSanitized && !structuredReplaced ? text : baseRedact(text);
+      if (base !== text) {
+        const additional = redactedValueContext(text, base);
+        context.values.push(...additional.values);
+        context.unresolved ||= additional.unresolved;
+      }
+      const sanitized = redactContextValues(base, context);
       if (sanitized !== text) postHookModified = true;
       text = sanitized;
     } catch {
@@ -885,11 +929,13 @@ async function executeOneToolCallInner(
       postHookModified = true;
       structuredReplaced = true;
     }
+    const redactDetail = (detail: string): string =>
+      redactContextValues(baseRedact(detail), context);
 
     let safeStructured: ToolContentBlock[] | undefined;
     if (!structuredReplaced && !aborted && structuredBlocks) {
       try {
-        safeStructured = sanitizeStructuredBlocks(structuredBlocks, redactDetail, text);
+        safeStructured = sanitizeStructuredBlocks(structuredBlocks, redactDetail, text, context);
       } catch {
         // Never return uninspected structured data if a tool supplied a hostile value.
       }

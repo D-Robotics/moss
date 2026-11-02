@@ -9,7 +9,15 @@ import {
 } from './compaction.js';
 import { getRootLogger } from '../logger.js';
 import { redactEgress } from '../safety/tool-output-redact.js';
-import { isSecretArgumentFlag, isSecretFieldName } from '../safety/secret-sanitizer.js';
+import {
+  isSecretArgumentFlag,
+  isSecretFieldName,
+  redactAttachedUserArgument,
+  redactContextValues,
+  redactedValueContext,
+  sensitiveArrayKind,
+  type RedactedValueContext,
+} from '../safety/secret-sanitizer.js';
 import { REDACTED } from '../safety/redact-patterns.js';
 import { MossError, ErrorCode, errorMessage } from '../errors.js';
 
@@ -63,7 +71,12 @@ function sanitizeTextForRemote(value: string | undefined): string | undefined {
   return typeof value === 'string' ? redactSecretsInText(value) : undefined;
 }
 
-function sanitizeRemoteValue(value: unknown, seen = new WeakSet<object>(), depth = 0): unknown {
+function sanitizeRemoteValue(
+  value: unknown,
+  seen = new WeakSet<object>(),
+  depth = 0,
+  field?: string
+): unknown {
   if (typeof value === 'string') return redactSecretsInText(value);
   if (
     value === null ||
@@ -81,12 +94,22 @@ function sanitizeRemoteValue(value: unknown, seen = new WeakSet<object>(), depth
   try {
     if (Array.isArray(value)) {
       const result: unknown[] = [];
+      const first = Object.getOwnPropertyDescriptor(value, '0')?.value as unknown;
+      const kind = sensitiveArrayKind(field, first);
       let secretNext = false;
       for (let index = 0; index < value.length; index += 1) {
         const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
         const item = descriptor && 'value' in descriptor ? (descriptor.value as unknown) : null;
-        const secretFlag = typeof item === 'string' && isSecretArgumentFlag(item);
-        result.push(secretNext ? REDACTED : sanitizeRemoteValue(item, seen, depth + 1));
+        const secretFlag =
+          typeof item === 'string' &&
+          (kind === 'arguments'
+            ? isSecretArgumentFlag(item)
+            : kind === 'headers' && isSecretFieldName(item));
+        const sanitizedItem =
+          typeof item === 'string' && kind === 'arguments'
+            ? redactAttachedUserArgument(item)
+            : item;
+        result.push(secretNext ? REDACTED : sanitizeRemoteValue(sanitizedItem, seen, depth + 1));
         secretNext = secretFlag;
       }
       return result;
@@ -97,7 +120,7 @@ function sanitizeRemoteValue(value: unknown, seen = new WeakSet<object>(), depth
       Object.defineProperty(result, redactSecretsInText(key), {
         value: isSecretFieldName(key)
           ? REDACTED
-          : sanitizeRemoteValue(descriptor.value, seen, depth + 1),
+          : sanitizeRemoteValue(descriptor.value, seen, depth + 1, key),
         enumerable: descriptor.enumerable,
         configurable: true,
         writable: true,
@@ -109,38 +132,41 @@ function sanitizeRemoteValue(value: unknown, seen = new WeakSet<object>(), depth
   }
 }
 
-function sanitizeStructuredForRemote(block: ContentBlock): ToolContentBlock[] | undefined {
+function sanitizeStructuredForRemote(
+  block: ContentBlock,
+  context: RedactedValueContext,
+  visibleText: string
+): ToolContentBlock[] | undefined {
   if (!block.structuredContent) return undefined;
-  const visibleText = typeof block.content === 'string' ? redactSecretsInText(block.content) : '';
-  const textIsVisible = (text: string): boolean => visibleText.includes(redactSecretsInText(text));
-  return block.structuredContent.flatMap((item): ToolContentBlock[] => {
+  const redact = (text: string): string => redactContextValues(redactSecretsInText(text), context);
+  const result: ToolContentBlock[] = [];
+  for (let index = 0; index < block.structuredContent.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(block.structuredContent, String(index));
+    if (!descriptor || !('value' in descriptor)) continue;
+    const item = descriptor.value as ToolContentBlock;
     if (item.type === 'text') {
-      return textIsVisible(item.text)
-        ? [{ type: 'text', text: redactSecretsInText(item.text) }]
-        : [];
-    }
-    if (item.type === 'resource') {
-      return [
-        {
-          type: 'resource',
-          uri: redactSecretsInText(item.uri),
-          ...(item.name !== undefined ? { name: redactSecretsInText(item.name) } : {}),
-          ...(item.mimeType !== undefined ? { mimeType: redactSecretsInText(item.mimeType) } : {}),
-          ...(item.text !== undefined && textIsVisible(item.text)
-            ? { text: redactSecretsInText(item.text) }
-            : {}),
-        },
-      ];
-    }
-    // Remote compaction already omits image attachments; structured images must
-    // follow the same policy rather than bypass it through tool metadata.
-    return [
-      {
+      const text = redact(item.text);
+      if (visibleText.includes(text)) result.push({ type: 'text', text });
+    } else if (item.type === 'resource') {
+      const text = item.text !== undefined ? redact(item.text) : undefined;
+      result.push({
+        type: 'resource',
+        uri: context.unresolved ? REDACTED : redact(item.uri),
+        ...(!context.unresolved && item.name !== undefined ? { name: redact(item.name) } : {}),
+        ...(!context.unresolved && item.mimeType !== undefined
+          ? { mimeType: redact(item.mimeType) }
+          : {}),
+        ...(text !== undefined && visibleText.includes(text) ? { text } : {}),
+      });
+    } else {
+      // Remote compaction omits image data just like ordinary image attachments.
+      result.push({
         type: 'text',
-        text: `[image attachment omitted for remote compaction: ${redactSecretsInText(item.mimeType)}]`,
-      },
-    ];
-  });
+        text: `[image attachment omitted for remote compaction${context.unresolved ? '' : `: ${redact(item.mimeType)}`}]`,
+      });
+    }
+  }
+  return result;
 }
 
 function sanitizePayloadForRemote(messages: Message[]): Message[] {
@@ -185,12 +211,23 @@ function sanitizePayloadForRemote(messages: Message[]): Message[] {
       } else {
         const { structuredContent: _structuredContent, ...restBlock } = block;
         const safeBlock = sanitizeRemoteValue(restBlock) as ContentBlock;
-        const structuredContent =
-          block.type === 'tool_result' ? sanitizeStructuredForRemote(block) : undefined;
-        result.push({
-          ...safeBlock,
-          ...(structuredContent !== undefined ? { structuredContent } : {}),
-        });
+        if (block.type === 'tool_result') {
+          const rawText = block.content;
+          const base = typeof rawText === 'string' ? redactSecretsInText(rawText) : '';
+          const context =
+            typeof rawText === 'string'
+              ? redactedValueContext(rawText, base)
+              : { values: [], unresolved: true };
+          const visibleText = redactContextValues(base, context);
+          const structuredContent = sanitizeStructuredForRemote(block, context, visibleText);
+          result.push({
+            ...safeBlock,
+            ...(typeof rawText === 'string' ? { content: visibleText } : {}),
+            ...(structuredContent !== undefined ? { structuredContent } : {}),
+          });
+        } else {
+          result.push(safeBlock);
+        }
       }
     }
     flushTextBlocks();
