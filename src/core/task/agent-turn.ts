@@ -3,7 +3,43 @@
  * MossAgent. Duck-types streamChat/chat so REPL / headless / SDK / TUI drive
  * identical behavior per interface parity, including the stop reason.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import type { ChatOptions, MossAgentEvent } from '../agent/moss-agent-types.js';
+
+interface ActiveTaskTurn {
+  taskId: string;
+  workspace: string;
+  active: boolean;
+}
+
+const activeTaskTurns = new AsyncLocalStorage<ActiveTaskTurn>();
+
+async function workspaceIdentity(workspaceDir: string): Promise<string> {
+  const resolved = await fs.realpath(workspaceDir).catch(() => path.resolve(workspaceDir));
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+/** Carries task identity through legacy wrappers only while their turn is active. */
+export async function withTaskTurnIdentity<T>(
+  workspaceDir: string,
+  taskId: string,
+  action: () => Promise<T>
+): Promise<T> {
+  const turn = { taskId, workspace: await workspaceIdentity(workspaceDir), active: true };
+  try {
+    return await activeTaskTurns.run(turn, action);
+  } finally {
+    turn.active = false;
+  }
+}
+
+export async function activeTaskTurnId(workspaceDir: string): Promise<string | undefined> {
+  const turn = activeTaskTurns.getStore();
+  if (!turn?.active || turn.workspace !== (await workspaceIdentity(workspaceDir))) return undefined;
+  return turn.active ? turn.taskId : undefined;
+}
 
 type TurnChatOptions = Pick<ChatOptions, 'abortSignal' | 'taskFlow' | 'goalExecWait' | 'taskId'>;
 

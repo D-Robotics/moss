@@ -25,6 +25,7 @@ import { evaluateAcceptance } from '../dist/contracts/task.js';
 import { runTestsTool, verifyFixTool } from '../dist/tools/harness-tools.js';
 import { taskAcceptanceTool } from '../dist/tools/task-tools.js';
 import { runProcess } from '../dist/utils/run-process.js';
+import { builtinTools } from '../dist/tools/builtin.js';
 import { createMockTranscriptProvider } from './e2e/mock-transcript-provider.mjs';
 
 const SMALL = 'fix the twenty-line helper and its tests';
@@ -45,7 +46,15 @@ async function define(dir, taskId, goal, acceptanceCriteria) {
   });
 }
 
-for (const method of ['streamChat', 'chat']) {
+for (const method of [
+  'streamChat',
+  'chat',
+  'legacy-streamChat',
+  'legacy-chat',
+  'legacy-direct',
+  'legacy-taskflow',
+  'legacy-wait',
+]) {
   test(`${method} task turn records its real test run on the running task rather than a newer live task`, async (t) => {
     const dir = await fs.realpath(await workspace());
     t.after(() => fs.rm(dir, { recursive: true, force: true }));
@@ -70,7 +79,7 @@ for (const method of ['streamChat', 'chat']) {
     });
     agent.tools.register(runTestsTool);
     agent.tools.register(taskAcceptanceTool);
-    const turnAgent = method === 'chat' ? { chat: agent.chat.bind(agent) } : agent;
+    const turnAgent = method.endsWith('chat') ? { chat: agent.chat.bind(agent) } : agent;
     const turn = createAgentTurnRunner(turnAgent, 'current-task');
     let taskB;
     const result = await runTask(
@@ -91,7 +100,13 @@ for (const method of ['streamChat', 'chat']) {
             acceptanceCriteria: [{ metric: 'tests_pass', expected: '==true', required: true }],
           };
           await appendTaskRecord(dir, taskB);
-          return turn(prompt, phase, context);
+          if (method === 'legacy-direct')
+            return (await agent.chat('current-task', prompt)).response;
+          if (method === 'legacy-taskflow')
+            return (await agent.chat('current-task', prompt, { taskFlow: true })).response;
+          if (method === 'legacy-wait')
+            return (await agent.chat('current-task', prompt, { goalExecWait: true })).response;
+          return method.startsWith('legacy-') ? turn(prompt, phase) : turn(prompt, phase, context);
         },
       },
       'task A'
@@ -103,6 +118,128 @@ for (const method of ['streamChat', 'chat']) {
     assert.equal(evaluateAcceptance(taskB, evidence).verdict, 'fail');
   });
 }
+
+test('legacy SDK callbacks invoking builtin tools directly stay on their task', async (t) => {
+  const dir = await fs.realpath(await workspace());
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(
+    path.join(dir, 'check.spec.mjs'),
+    "import test from 'node:test'; test('check', () => {});\n"
+  );
+  const runTests = builtinTools.find((tool) => tool.name === 'run_tests');
+  const acceptance = builtinTools.find((tool) => tool.name === 'task_acceptance');
+  let taskB;
+  let acceptanceText;
+  const result = await runTask(
+    {
+      workspaceDir: dir,
+      maxTurns: 1,
+      maxRepairAttempts: 0,
+      runTurn: async (_prompt, _phase) => {
+        const taskA = (await listTaskEvents(dir))[0].taskId;
+        await define(dir, taskA, 'task A', [{ metric: 'tests_pass', expected: '==true' }]);
+        taskB = await createDraftTask(dir, 'task B');
+        await appendTaskRecord(dir, {
+          ...taskB,
+          status: 'active',
+          updatedAt: Date.now() + 10000,
+          acceptanceCriteria: [{ metric: 'tests_pass', expected: '==true' }],
+        });
+        const ctx = { workspaceDir: dir, sessionKey: 'sdk', goalExecWait: true };
+        await runTests.execute({ file: 'check.spec.mjs' }, ctx);
+        acceptanceText = await acceptance.execute({}, ctx);
+        return acceptanceText;
+      },
+    },
+    'task A'
+  );
+  assert.match(acceptanceText, new RegExp(`Task acceptance \\(${result.snapshot.taskId}\\): PASS`));
+  assert.equal((await listEvidenceRecords(dir, 20))[0].taskId, result.snapshot.taskId);
+  assert.equal((await evaluateContractAcceptance(dir, taskB.taskId)).verdict.verdict, 'fail');
+});
+
+test('taskFlow false does not inherit the active task from a surrounding SDK callback', async (t) => {
+  const dir = await fs.realpath(await workspace());
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(
+    path.join(dir, 'check.spec.mjs'),
+    "import test from 'node:test'; test('check', () => {});\n"
+  );
+  const provider = createMockTranscriptProvider('local', 'local', [
+    { toolCalls: [{ name: 'run_tests', input: { file: 'check.spec.mjs' } }] },
+    { text: 'Tests ran.' },
+  ]);
+  const agent = new MossAgent({
+    llmProvider: provider,
+    sessionStore: new InMemorySessionStore(),
+    model: 'local',
+    workspaceDir: dir,
+    domainPrompt: false,
+    enableFollowUpGuard: false,
+    enableCompaction: false,
+    hooks: { onBeforeToolExec: async () => ({ approved: true }) },
+  });
+  agent.tools.register(runTestsTool);
+  await runTask(
+    {
+      workspaceDir: dir,
+      maxTurns: 1,
+      maxRepairAttempts: 0,
+      runTurn: async (prompt) => {
+        const taskA = (await listTaskEvents(dir))[0].taskId;
+        await define(dir, taskA, 'task A', [{ metric: 'tests_pass', expected: '==true' }]);
+        await createDraftTask(dir, 'task B');
+        return (await agent.chat('plain-in-task', prompt, { taskFlow: false, goalExecWait: true }))
+          .response;
+      },
+    },
+    'task A'
+  );
+  assert.deepEqual(await listEvidenceRecords(dir, 20), []);
+});
+
+test('legacy turn identity never crosses into another workspace', async (t) => {
+  const parent = await fs.realpath(await workspace());
+  const child = await fs.realpath(await workspace());
+  t.after(async () => {
+    await fs.rm(parent, { recursive: true, force: true });
+    await fs.rm(child, { recursive: true, force: true });
+  });
+  const taskB = await createDraftTask(child, 'child task');
+  await fs.writeFile(
+    path.join(child, 'check.spec.mjs'),
+    "import test from 'node:test'; test('check', () => {});\n"
+  );
+  const agent = new MossAgent({
+    llmProvider: createMockTranscriptProvider('local', 'local', [
+      { toolCalls: [{ name: 'run_tests', input: { file: 'check.spec.mjs' } }] },
+      { text: 'done' },
+    ]),
+    sessionStore: new InMemorySessionStore(),
+    model: 'local',
+    workspaceDir: child,
+    domainPrompt: false,
+    enableFollowUpGuard: false,
+    enableCompaction: false,
+    hooks: { onBeforeToolExec: async () => ({ approved: true }) },
+  });
+  agent.tools.register(runTestsTool);
+  const result = await runTask(
+    {
+      workspaceDir: parent,
+      maxTurns: 1,
+      maxRepairAttempts: 0,
+      runTurn: async (prompt) =>
+        (await agent.chat('isolated', prompt, { taskFlow: true, goalExecWait: true })).response,
+    },
+    'parent task'
+  );
+  assert.notEqual(result.snapshot.taskId, taskB.taskId);
+  assert.deepEqual(await listEvidenceRecords(parent, 20), []);
+  const rows = await listEvidenceRecords(child, 20);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].taskId, taskB.taskId);
+});
 
 test('a missing host-selected task cannot receive or redirect suite evidence', async (t) => {
   const dir = await fs.realpath(await workspace());
@@ -225,6 +362,7 @@ test('offline task CLI accepts only the task that owns the real test evidence', 
     MOSS_NO_BUNDLED_DEFAULT: '1',
     OPENAI_API_KEY: 'offline-placeholder',
     MOSS_NO_TUI: '1',
+    MOSS_NO_RDK_DOCS: '1',
     CI: '1',
   };
   const cli = path.resolve('bin/moss.cjs');

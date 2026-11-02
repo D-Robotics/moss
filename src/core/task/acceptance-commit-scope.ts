@@ -5,11 +5,14 @@ import type { TaskVerdict } from './verdict.js';
 interface AcceptanceScope {
   workspaceDir: string;
   committed?: TaskVerdict;
+  taskId?: string;
+  parent?: AcceptanceScope;
   settlements: Promise<void>[];
   dispatchOpen: boolean;
 }
 const nativeSettlements = new AsyncLocalStorage<{
   workspaceDir: string;
+  taskId: string;
   settled: Promise<void>;
   registered: boolean;
 }>();
@@ -21,17 +24,32 @@ const workspaceKey = (workspaceDir: string): string => {
 
 /** Only the native provider calls this after its real persistence barriers. */
 export function noteCommittedAcceptance(workspaceDir: string, verdict: TaskVerdict): void {
-  const scope = scopes.getStore();
-  if (scope?.workspaceDir === workspaceKey(workspaceDir)) scope.committed = verdict;
+  const current = scopes.getStore();
+  const native = nativeSettlements.getStore();
+  const key = workspaceKey(workspaceDir);
+  for (let scope = current; scope; scope = scope.parent) {
+    if (scope.workspaceDir !== key) continue;
+    if (
+      scope === current ||
+      (scope.taskId === verdict.taskId &&
+        (scope.dispatchOpen ||
+          (native !== undefined && scope.settlements.includes(native.settled))))
+    ) {
+      scope.committed = verdict;
+    }
+  }
 }
 
-/** Each tool/child owns its scope; a child's commit cannot stop its parent. */
+/** A child can settle only an explicitly matching parent task in the same workspace. */
 export async function inAcceptanceScope<T>(
   workspaceDir: string,
-  action: () => Promise<T>
+  action: () => Promise<T>,
+  taskId?: string
 ): Promise<{ value: T; committed?: TaskVerdict }> {
   const scope: AcceptanceScope = {
     workspaceDir: workspaceKey(workspaceDir),
+    ...(taskId !== undefined ? { taskId } : {}),
+    parent: scopes.getStore(),
     settlements: [],
     dispatchOpen: true,
   };
@@ -62,15 +80,21 @@ export function assertTaskAppendScopeOpen(workspaceDir: string, evidence = false
 /** Register only native persistence already dispatched inside the workspace lock. */
 export function acceptanceAppendDispatched(workspaceDir: string): void {
   const native = nativeSettlements.getStore();
-  const scope = scopes.getStore();
+  const current = scopes.getStore();
   if (!native || native.registered || native.workspaceDir !== workspaceKey(workspaceDir)) return;
   assertTaskAppendScopeOpen(workspaceDir);
   native.registered = true;
-  if (scope?.workspaceDir === native.workspaceDir) scope.settlements.push(native.settled);
+  for (let scope = current; scope; scope = scope.parent) {
+    if (scope.workspaceDir !== native.workspaceDir) continue;
+    if (scope === current || (scope.dispatchOpen && scope.taskId === native.taskId)) {
+      scope.settlements.push(native.settled);
+    }
+  }
 }
 
 export async function inNativeAcceptanceSettlement<T>(
   workspaceDir: string,
+  taskId: string,
   action: () => Promise<T>
 ): Promise<T> {
   let finish!: () => void;
@@ -79,7 +103,7 @@ export async function inNativeAcceptanceSettlement<T>(
   });
   try {
     return await nativeSettlements.run(
-      { workspaceDir: workspaceKey(workspaceDir), settled, registered: false },
+      { workspaceDir: workspaceKey(workspaceDir), taskId, settled, registered: false },
       action
     );
   } finally {

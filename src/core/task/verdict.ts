@@ -208,7 +208,7 @@ export function createContractVerdictProvider(workspaceDir: string): VerdictProv
   return {
     source: 'contract',
     async evaluate(taskId, signal) {
-      return inNativeAcceptanceSettlement(workspaceDir, async () => {
+      return inNativeAcceptanceSettlement(workspaceDir, taskId, async () => {
         signal?.throwIfAborted();
         // Guard: a draft contract with no criteria would trivially "pass"
         // (nothing to fail). No criteria = no defined done = not accepted.
@@ -295,7 +295,7 @@ export function createTaskVerdictProvider(options: {
   return {
     source: 'command',
     async evaluate(taskId, signal) {
-      return inNativeAcceptanceSettlement(options.workspaceDir, async () => {
+      return inNativeAcceptanceSettlement(options.workspaceDir, taskId, async () => {
         const commandVerdict = await command.evaluate(taskId, signal);
         signal?.throwIfAborted();
         if (commandVerdict.passed) {

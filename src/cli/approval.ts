@@ -1189,6 +1189,11 @@ export function createCliToolApprovalHook(
     const workspaceFileMutation = isWorkspaceFileMutation(tool.name, sideEffect);
     const operand = extractRuleOperand(tool.name, request.input);
     const classification = classifyHookDeviceCall(tool.name, sideEffect, request.input);
+    const explicitDeployTaskId =
+      tool.name === 'device_deploy' && typeof request.input.task_id === 'string'
+        ? request.input.task_id.trim()
+        : '';
+    const approvalTaskId = explicitDeployTaskId || request.taskId;
     const deviceKeys = deviceTrustKeys(options.device, env);
     const deviceFullTrust =
       options.deviceTrust === 'full' ||
@@ -1235,8 +1240,8 @@ export function createCliToolApprovalHook(
           workspaceDir: options.workspaceDir,
           ...(isolatedWorkspace
             ? { taskId: null }
-            : request.taskId !== undefined
-              ? { taskId: request.taskId }
+            : approvalTaskId !== undefined
+              ? { taskId: approvalTaskId }
               : {}),
           toolName: tool.name,
           tier: classification.tier,
@@ -1424,8 +1429,8 @@ export function createCliToolApprovalHook(
         await import('../core/task/task-store.js');
       const taskWorkspace = request.workspaceDir ?? options.workspaceDir ?? workspaceRoot;
       const snapshot =
-        request.taskId !== undefined
-          ? await getTaskStateSnapshot(taskWorkspace, request.taskId)
+        approvalTaskId !== undefined
+          ? await getTaskStateSnapshot(taskWorkspace, approvalTaskId)
           : await findLatestLiveTaskSnapshot(taskWorkspace);
       if (snapshot) {
         taskCtx = {

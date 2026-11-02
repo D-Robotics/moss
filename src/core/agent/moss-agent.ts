@@ -34,6 +34,7 @@ import {
 } from '../../contracts/index.js';
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
 import { createAcceptanceCompletionGate } from '../loop/acceptance-completion-gate.js';
+import { activeTaskTurnId } from '../task/agent-turn.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
 import { resolveContextCharsPerTokenUnit, estimateMessagesTokens } from '../../context/tokens.js';
 import { getEffectiveContextWindowTokens } from '../../context/window-economics.js';
@@ -1085,6 +1086,12 @@ ${result.stderr ?? ''}`.trim();
     if (options?.taskFlow !== false) this.taskLedgerSessions.add(sessionKey);
     const ledgerVisible = this.taskLedgerSessions.has(sessionKey);
     const workspaceDir = path.resolve(this.config.workspaceDir ?? process.cwd());
+    const taskId =
+      options?.taskId !== undefined
+        ? options.taskId
+        : options?.taskFlow !== false
+          ? await activeTaskTurnId(workspaceDir)
+          : undefined;
     const hostDescribeMissingTool = this.config.describeMissingTool;
     const enrichedRun = enrichRunToolContext(hooks?.enrichToolContext, {
       workspaceDir,
@@ -1096,7 +1103,7 @@ ${result.stderr ?? ''}`.trim();
       ...(options?.taskFlow === false ? { taskContracts: 'deny' as const } : {}),
       ...(options?.taskFlow === true ? { taskContracts: 'allow' as const } : {}),
       ...(options?.goalExecWait === true ? { goalExecWait: true as const } : {}),
-      ...(options?.taskId !== undefined ? { taskId: options.taskId } : {}),
+      ...(taskId !== undefined ? { taskId } : {}),
       ...(this.config.execWriteRoots ? { execWriteRoots: this.config.execWriteRoots } : {}),
       mergeWorkspacePatch: async (leaseId, patchId) => {
         const result = await mergeLeasePatch({ parentWorkspace: workspaceDir, leaseId, patchId });

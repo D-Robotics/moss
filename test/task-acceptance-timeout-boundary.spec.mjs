@@ -14,6 +14,8 @@ import {
   getTaskStateSnapshot,
 } from '../dist/index.js';
 import { createMockTranscriptProvider } from './e2e/mock-transcript-provider.mjs';
+import { createSubagentTool } from '../dist/tools/create-subagent.js';
+import { toolSearchTool } from '../dist/tools/tool-search.js';
 
 for (const failSync of [false, true])
   test(
@@ -152,6 +154,143 @@ for (const failSync of [false, true])
       }
     }
   );
+
+for (const failSync of [false, true]) {
+  test(
+    `shared child timeout ${failSync ? 'failed' : 'successful'} native commit preserves parent barrier`,
+    { timeout: 15000 },
+    async (t) => {
+      const workspaceDir = await fs.realpath(
+        await fs.mkdtemp(path.join(os.tmpdir(), 'moss-child-timeout-'))
+      );
+      t.after(() => fs.rm(workspaceDir, { recursive: true, force: true }));
+      const task = await createDraftTask(workspaceDir, 'task A');
+      await appendTaskEvent(workspaceDir, task.taskId, 'execution_started');
+      await appendTaskRecord(workspaceDir, {
+        ...task,
+        status: 'active',
+        acceptanceCriteria: [{ metric: 'probe', expected: '==1' }],
+      });
+      await appendEvidenceRecord(workspaceDir, {
+        evidenceId: 'one',
+        taskId: task.taskId,
+        metric: 'probe',
+        observed: 1,
+        result: 'pass',
+        source: 'exec',
+        timestamp: Date.now(),
+      });
+      const originalOpen = fs.open;
+      let release;
+      const commitGate = new Promise((resolve) => {
+        release = resolve;
+      });
+      let done;
+      const nativeDone = new Promise((resolve) => {
+        done = resolve;
+      });
+      let releaseTimer;
+      let syncReached = false;
+      let timedOut = false;
+      let writes = 0;
+      fs.open = async function (file, flags, ...args) {
+        const handle = await originalOpen.call(this, file, flags, ...args);
+        if (
+          String(file) === path.join(workspaceDir, '.moss', 'acceptance.jsonl') &&
+          flags === 'r+'
+        ) {
+          const sync = handle.sync.bind(handle);
+          let first = true;
+          handle.sync = async () => {
+            syncReached = true;
+            await commitGate;
+            if (failSync && first) {
+              first = false;
+              throw Object.assign(new Error('late sync failure'), { code: 'EIO' });
+            }
+            return sync();
+          };
+        }
+        return handle;
+      };
+      try {
+        const agent = new MossAgent({
+          llmProvider: createMockTranscriptProvider('timeout', 'timeout', [
+            { toolCalls: [{ name: 'tool_search', input: { group: 'subagent' } }] },
+            {
+              toolCalls: [
+                {
+                  name: 'create_subagent',
+                  input: { task: 'Accept current task', scope: 'verify' },
+                },
+                { name: 'write_bad', input: {} },
+              ],
+            },
+            { toolCalls: [{ name: 'task_acceptance', input: {} }] },
+            { text: 'finished' },
+            { text: 'parent finished' },
+          ]),
+          sessionStore: new InMemorySessionStore(),
+          model: 'timeout',
+          workspaceDir,
+          domainPrompt: false,
+          enableFollowUpGuard: false,
+          enableCompaction: false,
+          hooks: { onBeforeToolExec: async () => ({ approved: true }) },
+        });
+        agent.tools.register(toolSearchTool);
+        agent.tools.register({
+          ...createSubagentTool,
+          metadata: { ...createSubagentTool.metadata, timeoutMs: 1000 },
+          execute: async (input, ctx) => {
+            ctx.abortSignal.addEventListener(
+              'abort',
+              () => {
+                timedOut = true;
+                releaseTimer = setTimeout(release, 50);
+              },
+              { once: true }
+            );
+            return createSubagentTool.execute(input, ctx);
+          },
+        });
+        agent.tools.register({
+          ...taskAcceptanceTool,
+          execute: async (input, ctx) => {
+            try {
+              return await taskAcceptanceTool.execute(input, ctx);
+            } finally {
+              done();
+            }
+          },
+        });
+        agent.tools.register({
+          name: 'write_bad',
+          description: 'unsafe later mutation',
+          inputSchema: { type: 'object', properties: {} },
+          metadata: { sideEffectClass: 'local_write' },
+          execute: async () => {
+            writes++;
+            return 'wrote';
+          },
+        });
+        await agent.chat('timeout-parent', 'Verify A', { taskFlow: true, taskId: task.taskId });
+        await nativeDone;
+        assert.equal(syncReached, true);
+        assert.equal(timedOut, true);
+        assert.equal(
+          (await getTaskStateSnapshot(workspaceDir, task.taskId)).phase,
+          failSync ? 'executing' : 'accepted'
+        );
+        assert.equal(writes, failSync ? 1 : 0);
+      } finally {
+        release();
+        clearTimeout(releaseTimer);
+        fs.open = originalOpen;
+      }
+    }
+  );
+}
 
 test('an ordinary tool timeout returns under its original budget without a native settlement wait', async () => {
   const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-ordinary-timeout-'));

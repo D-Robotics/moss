@@ -17,6 +17,8 @@ import {
   getTaskStateSnapshot,
 } from '../dist/index.js';
 import { createMockTranscriptProvider } from './e2e/mock-transcript-provider.mjs';
+import { createSubagentTool } from '../dist/tools/create-subagent.js';
+import { toolSearchTool } from '../dist/tools/tool-search.js';
 
 for (const { sameBatch, steerDepth } of [
   { sameBatch: true },
@@ -249,6 +251,129 @@ test('failed lifecycle fsync grants no trusted stop even after earlier contract 
     fs.open = originalOpen;
     await fs.rm(workspaceDir, { recursive: true, force: true });
   }
+});
+
+test('accepting a different explicit task does not stop the current task turn', async (t) => {
+  const workspaceDir = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), 'moss-foreign-accept-'))
+  );
+  t.after(() => fs.rm(workspaceDir, { recursive: true, force: true }));
+  const taskA = await createDraftTask(workspaceDir, 'task A');
+  const taskB = await createDraftTask(workspaceDir, 'task B');
+  await appendTaskRecord(workspaceDir, {
+    ...taskB,
+    status: 'active',
+    acceptanceCriteria: [{ metric: 'probe', expected: '==1' }],
+  });
+  await appendEvidenceRecord(workspaceDir, {
+    evidenceId: 'b-probe',
+    taskId: taskB.taskId,
+    metric: 'probe',
+    observed: 1,
+    result: 'pass',
+    source: 'exec',
+    timestamp: Date.now(),
+  });
+  let writes = 0;
+  const agent = new MossAgent({
+    llmProvider: createMockTranscriptProvider('foreign', 'foreign', [
+      {
+        toolCalls: [
+          { name: 'task_acceptance', input: { task_id: taskB.taskId } },
+          { name: 'write_marker', input: {} },
+        ],
+      },
+      { text: 'Continued task A.' },
+    ]),
+    sessionStore: new InMemorySessionStore(),
+    model: 'foreign',
+    workspaceDir,
+    domainPrompt: false,
+    enableFollowUpGuard: false,
+    enableCompaction: false,
+    hooks: { onBeforeToolExec: async () => ({ approved: true }) },
+  });
+  agent.tools.register(taskAcceptanceTool);
+  agent.tools.register({
+    name: 'write_marker',
+    description: 'Mark the current turn continued',
+    inputSchema: { type: 'object', properties: {} },
+    metadata: { sideEffectClass: 'local_write' },
+    execute: async () => {
+      writes++;
+      return 'marker';
+    },
+  });
+  await agent.chat('foreign', 'Continue A', { taskFlow: true, taskId: taskA.taskId });
+  assert.equal((await getTaskStateSnapshot(workspaceDir, taskB.taskId)).phase, 'accepted');
+  assert.notEqual((await getTaskStateSnapshot(workspaceDir, taskA.taskId)).phase, 'accepted');
+  assert.equal(writes, 1, 'a different task cannot stop the current turn');
+});
+
+test('shared subagent acceptance stops later writes in the parent task turn', async (t) => {
+  const workspaceDir = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), 'moss-shared-accept-'))
+  );
+  t.after(() => fs.rm(workspaceDir, { recursive: true, force: true }));
+  const task = await createDraftTask(workspaceDir, 'task A');
+  await appendTaskRecord(workspaceDir, {
+    ...task,
+    status: 'active',
+    acceptanceCriteria: [{ metric: 'probe', expected: '==1' }],
+  });
+  await appendEvidenceRecord(workspaceDir, {
+    evidenceId: 'a-probe',
+    taskId: task.taskId,
+    metric: 'probe',
+    observed: 1,
+    result: 'pass',
+    source: 'exec',
+    timestamp: Date.now(),
+  });
+  let writes = 0;
+  const agent = new MossAgent({
+    llmProvider: createMockTranscriptProvider('shared', 'shared', [
+      { toolCalls: [{ name: 'tool_search', input: { group: 'subagent' } }] },
+      {
+        toolCalls: [
+          { name: 'create_subagent', input: { task: 'Accept current task', scope: 'verify' } },
+          { name: 'write_marker', input: {} },
+        ],
+      },
+      { toolCalls: [{ name: 'task_acceptance', input: {} }] },
+      { text: 'Continued parent turn.' },
+    ]),
+    sessionStore: new InMemorySessionStore(),
+    model: 'shared',
+    workspaceDir,
+    domainPrompt: false,
+    enableFollowUpGuard: false,
+    enableCompaction: false,
+    hooks: { onBeforeToolExec: async () => ({ approved: true }) },
+  });
+  agent.tools.register(toolSearchTool);
+  agent.tools.register(createSubagentTool);
+  agent.tools.register(taskAcceptanceTool);
+  agent.tools.register({
+    name: 'write_marker',
+    description: 'Mark an unsafe late write',
+    inputSchema: { type: 'object', properties: {} },
+    metadata: { sideEffectClass: 'local_write' },
+    execute: async () => {
+      writes++;
+      return 'marker';
+    },
+  });
+  const chatResult = await agent.chat('shared', 'Verify A', {
+    taskFlow: true,
+    taskId: task.taskId,
+  });
+  assert.ok(
+    chatResult.toolResults.some((result) => /\[Sub-agent .*\] SUCCESS/.test(result.content)),
+    'the deferred child actually ran'
+  );
+  assert.equal((await getTaskStateSnapshot(workspaceDir, task.taskId)).phase, 'accepted');
+  assert.equal(writes, 0, 'the native child acceptance must stop the parent batch');
 });
 
 test('a nested real SDK agent acceptance stops the child without stopping its parent', async () => {

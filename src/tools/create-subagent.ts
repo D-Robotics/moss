@@ -355,6 +355,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       scope,
       maxTurns,
       timeoutMs: selectedTimeoutMs,
+      ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
       ...(expert?.allowedTools ? { allowedTools: expert.allowedTools } : {}),
       ...(expert?.deniedTools?.length ? { deniedTools: expert.deniedTools } : {}),
       ...(expert ? { expertPrompt: expert.instructions } : {}),

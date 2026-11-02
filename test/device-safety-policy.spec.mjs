@@ -355,6 +355,48 @@ test('device policy decisions keep a durable, correctly scoped audit', async (t)
   assert.ok(!(await listTaskEvents(ws, taskB.taskId)).some((event) => event.type === 'note'));
 });
 
+test('device deployment approval and audit use an explicitly selected task', async (t) => {
+  setCliInteractionMode('full');
+  const ws = await tmpWorkspace();
+  t.after(() => fs.rm(ws, { recursive: true, force: true }));
+  const taskA = await createDraftTask(ws, 'goal A');
+  const taskB = await createDraftTask(ws, 'goal B');
+  const hook = createCliToolApprovalHook('workspace-write', {}, { workspaceDir: ws });
+  const request = {
+    tool: tool('device_deploy'),
+    sessionKey: 'deploy',
+    workspaceDir: ws,
+    taskId: taskA.taskId,
+  };
+  const allowed = await hook({
+    ...request,
+    input: { task_id: taskB.taskId, remote_path: '/tmp/test-app' },
+  });
+  const denied = await hook({
+    ...request,
+    input: { task_id: taskB.taskId, remote_path: '/etc/ssh/sshd_config' },
+  });
+  assert.equal(allowed.approved, true);
+  assert.equal(denied.approved, false);
+  const rows = await listEvidenceRecords(ws, 20);
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((row) => row.taskId === taskB.taskId));
+  assert.ok(!(await listTaskEvents(ws, taskA.taskId)).some((event) => event.type === 'note'));
+  assert.equal(
+    (await listTaskEvents(ws, taskB.taskId)).filter((event) => event.type === 'note').length,
+    2
+  );
+  setCliInteractionMode('manual');
+  const prompts = [];
+  setCliApprovalAsker(async (question) => {
+    prompts.push(question);
+    return 'n';
+  });
+  await hook({ ...request, input: { task_id: taskB.taskId, remote_path: '/tmp/test-app' } });
+  assert.match(prompts[0], /goal B/);
+  assert.doesNotMatch(prompts[0], /goal A/);
+});
+
 test('approval prompt describes the selected task rather than a newer one', async (t) => {
   setCliInteractionMode('manual');
   const ws = await tmpWorkspace();

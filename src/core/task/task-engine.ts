@@ -27,7 +27,7 @@ import {
 import { injectExperienceIntoPrompt } from '../experience/experience-library.js';
 import { persistedAcceptanceCommand } from './acceptance-authority.js';
 import type { TaskVerdict, VerdictProvider } from './verdict.js';
-import type { AgentTurnResult } from './agent-turn.js';
+import { withTaskTurnIdentity, type AgentTurnResult } from './agent-turn.js';
 import {
   acceptanceAlreadySatisfied,
   createTaskVerdictProvider,
@@ -231,7 +231,9 @@ async function runAgentTurn(
   phase: string
 ): Promise<'ok' | 'budget'> {
   const { stopReason } = readAgentTurnResult(
-    await deps.runTurn(prompt, phase, { taskId: state.taskId }),
+    await withTaskTurnIdentity(deps.workspaceDir, state.taskId, () =>
+      deps.runTurn(prompt, phase, { taskId: state.taskId })
+    ),
     deps.runTurn
   );
   // Normal turns are reconciled by their caller; only a budget stop needs

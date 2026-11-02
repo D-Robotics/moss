@@ -85,11 +85,12 @@ export const runTestsTool: Tool = {
     const timeoutMs = Math.max(5000, Number(input?.timeout_ms) || DEFAULT_TEST_TIMEOUT_MS);
     const text = await runWorkspaceTests(ctx, input, timeoutMs);
     const testsPassed = suitePassedFlag(text);
-    if (testsPassed !== undefined) {
+    if (testsPassed !== undefined && ctx.taskContracts !== 'deny') {
       await recordHarnessSuiteEvidence({
         workspaceDir: ctx.workspaceDir,
         taskTurn: ctx.goalExecWait === true,
         taskId: ctx.taskId,
+        signal: ctx.abortSignal,
         source: 'run_tests',
         testsPassed,
         output: text,
@@ -237,20 +238,22 @@ export const verifyFixTool: Tool = {
 
     result.durationMs = Date.now() - startedAt;
     const text = formatVerifyResult(result);
-    await recordHarnessSuiteEvidence({
-      workspaceDir: ctx.workspaceDir,
-      taskTurn: ctx.goalExecWait === true,
-      taskId: ctx.taskId,
-      source: 'verify_fix',
-      ...(result.buildSkipped || result.buildNotRun ? {} : { buildPassed: result.buildOk }),
-      ...(result.typecheckSkipped || result.typecheckNotRun
-        ? {}
-        : { typecheckPassed: result.typecheckOk }),
-      ...(result.testsSkipped || result.testsNotRun || result.testsUnknown
-        ? {}
-        : { testsPassed: result.testsOk }),
-      output: text,
-    });
+    if (ctx.taskContracts !== 'deny')
+      await recordHarnessSuiteEvidence({
+        workspaceDir: ctx.workspaceDir,
+        taskTurn: ctx.goalExecWait === true,
+        taskId: ctx.taskId,
+        signal: ctx.abortSignal,
+        source: 'verify_fix',
+        ...(result.buildSkipped || result.buildNotRun ? {} : { buildPassed: result.buildOk }),
+        ...(result.typecheckSkipped || result.typecheckNotRun
+          ? {}
+          : { typecheckPassed: result.typecheckOk }),
+        ...(result.testsSkipped || result.testsNotRun || result.testsUnknown
+          ? {}
+          : { testsPassed: result.testsOk }),
+        output: text,
+      });
     return text;
   },
 };

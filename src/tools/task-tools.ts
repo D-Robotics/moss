@@ -14,6 +14,7 @@ import {
 } from '../core/task/task-store.js';
 import { createTaskVerdictProvider, isCommittedTaskVerdict } from '../core/task/verdict.js';
 import { persistedAcceptanceCommand } from '../core/task/acceptance-authority.js';
+import { activeTaskTurnId } from '../core/task/agent-turn.js';
 
 // Canonical artifact IO lives in core (shared task runtime); re-exported here
 // to keep the SDK surface stable.
@@ -182,7 +183,10 @@ export const taskAcceptanceTool: Tool = {
       return 'Error: task_acceptance: no task contracts in this workspace — define one with task_define first.';
     }
     const explicitTaskId = String(input.task_id ?? '').trim();
-    const taskId = explicitTaskId || ctx.taskId;
+    const taskId =
+      explicitTaskId ||
+      (ctx.taskId ??
+        (ctx.taskContracts !== 'deny' ? await activeTaskTurnId(ctx.workspaceDir) : undefined));
     const task =
       taskId !== undefined
         ? tasks.find((t) => t.taskId === taskId)

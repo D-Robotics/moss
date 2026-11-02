@@ -16,6 +16,7 @@ import { createSubAgentRunner } from '../dist/core/subagent/subagent-runner.js';
 import { runProcess } from '../dist/utils/run-process.js';
 import { MossAgent, InMemorySessionStore } from '../dist/index.js';
 import { createMockTranscriptProvider } from './e2e/mock-transcript-provider.mjs';
+import { toolSearchTool } from '../dist/tools/tool-search.js';
 
 function makeCtx(ws, capture) {
   return {
@@ -210,6 +211,7 @@ test('MossAgent passes its task to a real shared child and its approval hook', a
   const seen = [];
   const approvals = [];
   const provider = createMockTranscriptProvider('local', 'local', [
+    { toolCalls: [{ name: 'tool_search', input: { group: 'subagent' } }] },
     { toolCalls: [{ name: 'create_subagent', input: { task: 'inspect', scope: 'explore' } }] },
     { toolCalls: [{ name: 'read_file', input: {} }] },
     { text: 'Child inspected the workspace.' },
@@ -230,6 +232,7 @@ test('MossAgent passes its task to a real shared child and its approval hook', a
       },
     },
   });
+  agent.tools.register(toolSearchTool);
   agent.tools.register(createSubagentTool);
   agent.tools.register({
     name: 'read_file',
@@ -243,6 +246,7 @@ test('MossAgent passes its task to a real shared child and its approval hook', a
   });
   await agent.chat('parent', 'delegate inspection', { taskFlow: true, taskId: taskA.taskId });
   assert.equal(seen.length, 1);
+  assert.equal(seen[0].agentId, 'subagent:explore');
   assert.equal(seen[0].taskId, taskA.taskId);
   const childApproval = approvals.find((item) => item.tool.name === 'read_file');
   assert.equal(childApproval?.taskId, taskA.taskId);

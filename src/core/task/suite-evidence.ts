@@ -7,8 +7,9 @@
  * is required so run_tests cannot close an unfinished goal.
  */
 import type { EvidenceRecord } from '../../contracts/evidence.js';
-import { appendEvidenceRecordWithSignal } from '../task-runtime/artifacts.js';
-import { findLatestLiveTaskSnapshot, getTaskStateSnapshot } from './task-store.js';
+import { appendSuiteEvidenceBatch } from '../task-runtime/artifacts.js';
+import { findLatestLiveTaskSnapshot } from './task-store.js';
+import { activeTaskTurnId } from './agent-turn.js';
 
 function evidenceId(metric: string): string {
   return `ev_${Date.now().toString(36)}_${metric}_${Math.random().toString(36).slice(2, 6)}`;
@@ -28,15 +29,15 @@ export async function recordHarnessSuiteEvidence(input: {
 }): Promise<number> {
   try {
     input.signal?.throwIfAborted();
-    const taskId =
+    const selectedTaskId =
       input.taskId ??
+      (input.taskTurn === true ? await activeTaskTurnId(input.workspaceDir) : undefined);
+    const taskId =
+      selectedTaskId ??
       (input.taskTurn === true
         ? (await findLatestLiveTaskSnapshot(input.workspaceDir))?.taskId
         : undefined);
     if (!taskId) return 0;
-    if (input.taskId !== undefined && !(await getTaskStateSnapshot(input.workspaceDir, taskId))) {
-      return 0;
-    }
     const rows: Array<{ metric: string; passed: boolean }> = [];
     if (input.testsPassed !== undefined) {
       rows.push({ metric: 'tests_pass', passed: input.testsPassed });
@@ -50,21 +51,18 @@ export async function recordHarnessSuiteEvidence(input: {
     if (rows.length === 0) return 0;
     const output = (input.output ?? '').slice(0, 500);
     const base = Date.now();
-    for (const [index, row] of rows.entries()) {
-      const record: EvidenceRecord = {
-        evidenceId: evidenceId(row.metric),
-        taskId,
-        source: input.source,
-        metric: row.metric,
-        expected: '==true',
-        observed: row.passed,
-        result: row.passed ? 'pass' : 'fail',
-        timestamp: base + index,
-        ...(output ? { details: output } : {}),
-      };
-      await appendEvidenceRecordWithSignal(input.workspaceDir, record, input.signal);
-    }
-    return rows.length;
+    const records: EvidenceRecord[] = rows.map((row, index) => ({
+      evidenceId: evidenceId(row.metric),
+      taskId,
+      source: input.source,
+      metric: row.metric,
+      expected: '==true',
+      observed: row.passed,
+      result: row.passed ? 'pass' : 'fail',
+      timestamp: base + index,
+      ...(output ? { details: output } : {}),
+    }));
+    return await appendSuiteEvidenceBatch(input.workspaceDir, taskId, records, input.signal);
   } catch {
     input.signal?.throwIfAborted();
     return 0;

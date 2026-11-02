@@ -14,7 +14,11 @@ import { listDeploymentRecords } from '../../device/deployment.js';
 import { getRootLogger } from '../../logger.js';
 import { redactEgress } from '../../safety/tool-output-redact.js';
 import { ensureMossRuntimeGitignore } from '../../utils/workspace-paths.js';
-import { withTaskEventLock, withTaskArtifactReadLock } from '../task/task-store.js';
+import {
+  getTaskStateSnapshot,
+  withTaskEventLock,
+  withTaskArtifactReadLock,
+} from '../task/task-store.js';
 
 import {
   acceptanceAppendDispatched,
@@ -160,6 +164,15 @@ export async function appendJsonlFile(
   record: unknown,
   signal?: AbortSignal
 ): Promise<void> {
+  return appendJsonlRecords(file, [record], signal);
+}
+
+/** Multiple evidence rows share one durable append and one recovery marker. */
+async function appendJsonlRecords(
+  file: string,
+  records: readonly unknown[],
+  signal?: AbortSignal
+): Promise<void> {
   signal?.throwIfAborted();
   if ((await readPendingAppend(file)) !== undefined) {
     throw new Error(`unconfirmed task append requires recovery: ${file}`);
@@ -187,7 +200,11 @@ export async function appendJsonlFile(
     if (path.basename(file) === 'acceptance.jsonl')
       acceptanceAppendDispatched(path.dirname(path.dirname(file)));
     dispatched = true;
-    await fs.appendFile(file, `${JSON.stringify(record)}\n`, 'utf8');
+    await fs.appendFile(
+      file,
+      records.map((record) => `${JSON.stringify(record)}\n`).join(''),
+      'utf8'
+    );
     handle = await fs.open(file, 'r+');
     await handle.sync();
     if (!previous) await syncParentDirectory(file);
@@ -309,6 +326,33 @@ export async function appendEvidenceRecordWithSignal(
   signal?: AbortSignal
 ): Promise<void> {
   await appendJsonl(workspaceDir, 'evidence.jsonl', redactEvidenceRecord(record), signal);
+}
+
+/** Append one suite's rows atomically, unless its task has already accepted. */
+export async function appendSuiteEvidenceBatch(
+  workspaceDir: string,
+  taskId: string,
+  records: readonly EvidenceRecord[],
+  signal?: AbortSignal
+): Promise<number> {
+  if (records.length === 0) return 0;
+  return withTaskEventLock(workspaceDir, async () => {
+    signal?.throwIfAborted();
+    const snapshot = await getTaskStateSnapshot(workspaceDir, taskId);
+    if (!snapshot) return 0;
+    const commandReverification = records.every((record) => record.source === 'acceptance_command');
+    if (
+      !commandReverification &&
+      (snapshot.phase === 'accepted' ||
+        snapshot.contractStatus === 'accepted' ||
+        snapshot.lastVerdict?.verdict === 'pass')
+    )
+      return 0;
+    ensureMossRuntimeGitignore(workspaceDir);
+    const file = path.join(workspaceDir, '.moss', 'evidence.jsonl');
+    await appendJsonlRecords(file, records.map(redactEvidenceRecord), signal);
+    return records.length;
+  });
 }
 
 export async function listEvidenceRecords(

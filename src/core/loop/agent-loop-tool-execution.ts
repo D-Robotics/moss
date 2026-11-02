@@ -388,10 +388,15 @@ export async function executeAgentLoopToolCalls(
     call: ToolCallRef,
     deps: ExecuteToolCallDeps
   ): Promise<ExecuteToolCallOutcome> => {
-    const executed = await inAcceptanceScope(toolCtx.workspaceDir, () =>
-      executeOneToolCall(call, deps)
+    const executed = await inAcceptanceScope(
+      toolCtx.workspaceDir,
+      () => executeOneToolCall(call, deps),
+      toolCtx.taskId
     );
-    if (executed.committed) {
+    if (
+      executed.committed &&
+      (toolCtx.taskId === undefined || executed.committed.taskId === toolCtx.taskId)
+    ) {
       state.taskAcceptanceCommitted = true;
       state.finalText = executed.committed.detail;
     }
