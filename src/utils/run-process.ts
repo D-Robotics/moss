@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import {
   spawn,
   spawnSync,
@@ -16,6 +17,7 @@ import {
   sanitizeChildPathEnv,
   trustedSearchDirs,
 } from './resolve-executable.js';
+import { windowsSystemRoot, withWindowsSystemRoot } from './system-root.js';
 
 export type { ChildProcess, SpawnOptions } from 'node:child_process';
 
@@ -287,7 +289,10 @@ export function runProcess(cmd: string, opts: RunProcessOptions): Promise<RunPro
       killed = true;
       try {
         if (process.platform === 'win32' && child.pid) {
-          runProcessSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+          // Preserve the target's environment boundary when killing its process tree.
+          const taskkill = path.win32.join(windowsSystemRoot(), 'System32', 'taskkill.exe');
+          runProcessSync(taskkill, ['/pid', String(child.pid), '/T', '/F'], {
+            env: withWindowsSystemRoot(target.options.env ?? process.env),
             stdio: 'ignore',
             windowsHide: true,
             timeout: 2_000,
