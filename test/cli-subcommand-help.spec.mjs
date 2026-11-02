@@ -33,6 +33,7 @@ const OWN_OPTIONS = {
   migrate: ['not implemented'],
   tasks: ['--json'],
   task: ['--accept', '--max-repairs', '--device'],
+  superagent: ['--accept', '--workers', '--id', '--thread'],
   sessions: ['--no-limit', '--out'],
   web: ['not implemented'],
   agent: ['not implemented'],

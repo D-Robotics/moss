@@ -446,7 +446,10 @@ async function main() {
     safeProcessCwd(process.env);
 
   // Determine the initialization phase needed for this command
-  const requiredPhase = getPhaseForCommand(parsedArgs.command);
+  const requiredPhase =
+    parsedArgs.command === 'superagent' && parsedArgs.commandArgs[0] === 'worker'
+      ? CliPhase.AgentReady
+      : getPhaseForCommand(parsedArgs.command);
   const commandConfig = getCommandConfig(parsedArgs.command);
 
   // Known-but-unimplemented subcommands must hard-fail instead of silently

@@ -257,6 +257,8 @@ moss tasks list                     # 只读查看机器人闭环产物
 
 `src/index.ts` 的导出面是受 semver 保护的合同，由 `test/sdk-contract.spec.mjs` 快照锁定；`examples/` 下三个可运行集成（`npm run examples`）。
 
+**Super-agent（可选）。** 接入 DeepSeek 官方原型核心，负责授权接单、持久化工单和独立 Moss worker 调度；执行仍走原生工具、安全审批与 Task Runtime 验收。支持本地 CLI/SDK，成果留在独立 worktree。见[接入说明](docs/superagent.md)、[Spec](docs/specs/moss-superagent.md)和[验收记录](docs/specs/moss-superagent-acceptance.md)。
+
 ## 板端推理依赖（RDK）
 
 > **不要**再用 `http://sdk.d-robotics.cc:8080/simple/`（已下线，连接失败）。  

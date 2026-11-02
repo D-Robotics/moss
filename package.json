@@ -1,6 +1,6 @@
 {
   "name": "@rdk-moss/agent",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -23,7 +23,8 @@
     "bin",
     "README.md",
     "README.en.md",
-    "LICENSE"
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md"
   ],
   "publishConfig": {
     "access": "public"

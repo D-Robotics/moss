@@ -108,6 +108,7 @@ const SNAPSHOT = [
   'createInMemoryMossAsyncTaskRegistry',
   'createInlineThinkingRouter',
   'createLogger',
+  'createMossSuperagent',
   'createMiniAgentStream',
   'createModelDefFromMossConfig',
   'createMossAgentLoopEventAdapter',

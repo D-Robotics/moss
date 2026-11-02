@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Optional native Super-agent coordination (0.29 capability)
+
+Moss can host the pinned MIT-licensed DeepSeek Super-agent core through local CLI/SDK admission, durable SQLite tickets and isolated native Moss workers. Mandates retain their original acceptance command; ready requires native Task Runtime acceptance and independent controller verification. Pause, stop, retry, input deduplication and explicit crash recovery are supported. No DSH, Web UI or external source/reply adapter is included. See the [guide](docs/superagent.md), [spec](docs/specs/moss-superagent.md) and [acceptance evidence](docs/specs/moss-superagent-acceptance.md).
+
+Moss 可通过本地 CLI/SDK 使用固定版本的 DeepSeek Super-agent 官方核心，提供 SQLite 工单持久化和独立原生 Moss worker。授权范围与验收命令固定；完成须同时通过原生 Task Runtime 和控制进程复验。支持暂停、停止、重试、输入去重和显式崩溃恢复。本次不含 DSH、Web UI、外部消息来源或发送适配器。
+
 ### O148 — PowerShell nesting deeper than one level is analyzed (else fail-closed)
 
 The pwsh write-target scanner analyzed only one level of nested execution

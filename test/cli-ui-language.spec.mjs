@@ -94,13 +94,16 @@ function assertNoHan(text, label) {
 const CHINESE_RESIDUE_RE =
   /\p{Script=Han}|[\u3000-\u303F\uFF01\uFF0C\uFF1A-\uFF1B\uFF1F]|[\u201C\u201D]/u;
 
-function chineseResidueHits(text) {
+function chineseResidueHits(text, displayedPaths = []) {
   const hits = [];
-  for (const rawLine of stripAnsi(text).split('\n')) {
+  const visible = displayedPaths.reduce((value, file) => value.replaceAll(file, ' '), text);
+  for (const rawLine of stripAnsi(visible).split('\n')) {
     if (CHINESE_RESIDUE_RE.test(rawLine)) hits.push(rawLine.trim());
   }
   return hits;
 }
+assert.deepEqual(chineseResidueHits('binary: C:/开发/moss', ['C:/开发/moss']), []);
+assert.equal(chineseResidueHits('未翻译：C:/开发/moss', ['C:/开发/moss']).length, 1);
 
 function assertNoChineseResidue(text, label) {
   const hits = chineseResidueHits(text);
@@ -650,6 +653,7 @@ const LITERAL_TOKENS = new Set(
 powershell deepseek openai anthropic qwen openai-compatible d-robotics http https mit stdin stdout stderr
 ripgrep xclip finder bash bing markdown node js eexist esc tab ctrl shift alt opt cmd
 list search delete export create logout show env validate init set unset status add remove serve
+submit work start pause stop retry configure observe
 evidence deployments acceptance run cd ci clone pull install uninstall sudo chmod prepare help version
 save clear plan goal diff model provider config doctor key name id file text host path dir
 baseurl apikey apikeyenv profile workspace safetymode approvalpolicy trustedtools deniedtools
@@ -1404,7 +1408,7 @@ console.log(`[PASS] mutation catch rate ${mutationCaught}/${mutationAttempts}`);
       LC_ALL: 'zh_CN.UTF-8',
     });
     assert.notEqual(shown.status, null, `en ${args.join(' ')} timed out`);
-    const hits = chineseResidueHits(shown.text);
+    const hits = chineseResidueHits(shown.text, [cli, repoRoot, ...displayedFixturePaths(shown)]);
     if (hits.length > 0) enHits.push(`-- ${args.join(' ')}\n${hits.join('\n')}`);
   }
   clearUiLanguage();

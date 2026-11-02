@@ -216,3 +216,18 @@ export {
   type MossErrorDetails,
   type MossErrorOutcome,
 } from './errors.js';
+
+// Optional proactive admission and coordination. SQLite is loaded only when this runtime is opened.
+export { createMossSuperagent } from './core/superagent/runtime.js';
+export type { MossSuperagent, MossSuperagentOptions } from './core/superagent/runtime.js';
+export type { SuperagentWorker } from './core/superagent/worker.js';
+export type {
+  SuperagentRequest,
+  SuperagentConfig,
+  SuperagentRule,
+  SuperagentTicketView,
+  SuperagentWorkRequest,
+  SuperagentWorkerInput,
+  SuperagentWorkerResult,
+  SuperagentAssessment,
+} from './contracts/superagent.js';

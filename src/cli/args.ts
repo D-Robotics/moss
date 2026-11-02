@@ -29,6 +29,7 @@ export type CliCommand =
   | 'sessions'
   | 'tasks'
   | 'task'
+  | 'superagent'
   | 'web'
   | 'agent'
   | 'trust';
@@ -223,6 +224,7 @@ export const KNOWN_COMMANDS: readonly CliCommand[] = [
   'migrate',
   'tasks',
   'task',
+  'superagent',
   'sessions',
   'web',
   'agent',

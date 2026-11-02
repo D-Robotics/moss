@@ -89,7 +89,6 @@ export function fullHelpLines(c: Colors, configPath: string, zh = false): string
   ]);
   if (zh) return fullHelpLinesZh(c, configPath, interactiveLines);
   return [
-    '',
     `  ${c.bold(c.cyan('moss'))}  ${c.dim('— a cross-platform coding agent harness: chat, tools, context management, sessions')}`,
     '',
     `  ${c.bold('Quick start')}`,
@@ -104,6 +103,7 @@ export function fullHelpLines(c: Colors, configPath: string, zh = false): string
     `    ${c.green('device')} ${c.dim('add|list|remove|test')}       manage robot devices (.moss/devices.json)`,
     `    ${c.green('skill')} ${c.dim('create|list')}                manage skills (.moss/skills)`,
     `    ${c.green('sessions')} ${c.dim('list|delete|search|export')}  manage saved sessions`,
+    `    ${c.green('superagent')} ${c.dim('init|submit|work|status')}   optional durable ticket coordination`,
     `    ${c.green('task')} ${c.dim('run|resume|status|timeline')}      verified Task OS tasks (${c.green('tasks')} inspects robotics artifacts)`,
     `    ${c.green('config')} ${c.dim('show|init|set|unset|validate')} · ${c.green('trust')} ${c.dim('list|remove')} — keys: \`moss config --help\``,
     '',
@@ -138,7 +138,6 @@ export function fullHelpLines(c: Colors, configPath: string, zh = false): string
 
 function fullHelpLinesZh(c: Colors, configPath: string, interactiveLines: string[]): string[] {
   return [
-    '',
     `  ${c.bold(c.cyan('moss'))}  ${c.dim('— 跨平台编程代理框架：对话、工具、上下文管理、会话')}`,
     '',
     `  ${c.bold('快速开始')}`,
@@ -153,6 +152,7 @@ function fullHelpLinesZh(c: Colors, configPath: string, interactiveLines: string
     `    ${c.green('device')} ${c.dim('add|list|remove|test')}       管理机器人设备（.moss/devices.json）`,
     `    ${c.green('skill')} ${c.dim('create|list')}                管理技能（.moss/skills）`,
     `    ${c.green('sessions')} ${c.dim('list|delete|search|export')}  管理已保存的会话`,
+    `    ${c.green('superagent')} ${c.dim('init|submit|work|status')}   可选的持久化工单协调`,
     `    ${c.green('task')} ${c.dim('run|resume|status|timeline')}      带验收的 Task OS 任务（\`tasks\` 查看机器人工件）`,
     `    ${c.green('config')} ${c.dim('show|init|set|unset|validate')} · ${c.green('trust')} ${c.dim('list|remove')} — 键说明：\`moss config --help\``,
     '',
