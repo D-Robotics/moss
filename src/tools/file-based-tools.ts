@@ -1,8 +1,8 @@
 /**
  * File-based custom tools — `.moss/tools/<name>.tool.json`.
  *
- * Each file defines a tool that wraps a shell command with a JSON schema for
- * input validation. The command receives the validated input as JSON on stdin,
+ * Each file defines a tool that runs an executable with a JSON schema for
+ * input validation. The executable receives the validated input as JSON on stdin,
  * runs in the workspace directory, and its stdout is returned as the tool
  * result. This is the lightweight path for users who want a named, schema-
  * validated tool without writing an MCP server or embedding moss as a library.
@@ -33,7 +33,7 @@ import { errorMessage } from '../errors.js';
 export interface FileBasedToolDefinition {
   name: string;
   description: string;
-  /** Shell command to run. The validated JSON input is piped to stdin. */
+  /** Executable path or name. The validated JSON input is piped to stdin. */
   command: string;
   /** JSON Schema for the tool's input. */
   inputSchema: {
@@ -41,9 +41,9 @@ export interface FileBasedToolDefinition {
     properties: Record<string, unknown>;
     required?: string[];
   };
-  /** Side-effect class: 'readonly' | 'local_write' | 'runtime_state'. Default: 'runtime_state'. */
+  /** Legacy declaration; file-based commands are always treated as local writes. */
   sideEffect?: 'readonly' | 'local_write' | 'runtime_state';
-  /** Plan mode: 'allow' | 'requires_user_confirmation'. Default: 'requires_user_confirmation'. */
+  /** Legacy declaration; file-based commands are never allowed in plan mode. */
   planMode?: 'allow' | 'requires_user_confirmation';
   /** Max runtime in ms. Default: 120000. */
   timeoutMs?: number;
@@ -86,19 +86,28 @@ export function loadFileBasedToolDefinitions(workspaceDir: string): FileBasedToo
   return defs;
 }
 
+// Keep the executable associated with its tool instance for an informed CLI
+// approval; model-supplied input must not be able to replace this information.
+const fileBasedCommands = new WeakMap<Tool, () => string>();
+
+export function fileBasedToolCommand(tool: Tool): string | undefined {
+  return fileBasedCommands.get(tool)?.();
+}
+
 /**
- * Create a Tool from a file-based definition. The tool runs the defined shell
- * command with the validated JSON input piped to stdin, and returns stdout.
+ * Create a Tool from a file-based definition. The tool runs the defined
+ * executable with the validated JSON input piped to stdin, and returns stdout.
  * `isCommandDangerous` is applied as a safety backstop.
  */
 export function createFileBasedTool(def: FileBasedToolDefinition): Tool {
   const timeoutMs = def.timeoutMs ?? 120_000;
-  return {
+  const tool: Tool = {
     name: def.name,
     description: def.description,
     metadata: {
-      sideEffectClass: def.sideEffect ?? 'runtime_state',
-      planMode: def.planMode ?? 'requires_user_confirmation',
+      // The executable is not sandboxed; its JSON cannot vouch for what it does.
+      sideEffectClass: 'local_write',
+      planMode: 'requires_user_confirmation',
     },
     inputSchema: def.inputSchema,
     async execute(input, ctx) {
@@ -135,6 +144,8 @@ export function createFileBasedTool(def: FileBasedToolDefinition): Tool {
       }
     },
   };
+  fileBasedCommands.set(tool, () => def.command);
+  return tool;
 }
 
 /**

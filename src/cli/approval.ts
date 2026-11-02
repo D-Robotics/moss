@@ -16,6 +16,7 @@ import { assertSandboxPath } from '../safety/sandbox-paths.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 import { findProtectedPathHits } from '../safety/protected-paths.js';
 import { commandHasExecCapableRead } from '../safety/exec-capable-read.js';
+import { fileBasedToolCommand } from '../tools/file-based-tools.js';
 import {
   mossConfigDirs,
   protectedGrantKey,
@@ -193,6 +194,8 @@ export interface CliToolApprovalPreview {
   sideEffect: ToolSideEffectClass;
   safetyMode: CliSafetyMode;
   inputPreview: string;
+  /** Sanitized executable used by a file-based tool, if applicable. */
+  fileBasedCommand?: string;
   decisionContext: string;
   requiresApproval: boolean;
   trusted: boolean;
@@ -696,6 +699,7 @@ function approvalActionSummary(
   input: Record<string, unknown>
 ): string {
   const toolName = preview.toolName;
+  if (preview.fileBasedCommand) return 'run a local executable';
   const hasCommand = compactInputValue(input, ['command', 'cmd', 'shell_command']) !== undefined;
   if (hasCommand && preview.sideEffect === 'device_mutation') return 'run a command on the device';
   if (hasCommand && /background/i.test(toolName)) return 'start a background command';
@@ -717,6 +721,7 @@ function approvalScopeSummary(
   preview: CliToolApprovalPreview,
   input: Record<string, unknown>
 ): string {
+  if (preview.fileBasedCommand) return 'local executable (not sandboxed)';
   const hasCommand = compactInputValue(input, ['command', 'cmd', 'shell_command']) !== undefined;
   switch (preview.sideEffect) {
     case 'local_write':
@@ -788,6 +793,8 @@ export function buildTaskApprovalBlock(
     } else {
       impact = 'device state changes (command runs on the live device)';
     }
+  } else if (preview.fileBasedCommand) {
+    impact = 'the executable can change local files and external state';
   } else if (preview.sideEffect === 'local_write') {
     impact = 'workspace files change';
   } else {
@@ -822,7 +829,12 @@ export function renderCliApprovalPrompt(
   options: { persistTrust?: boolean; allowTrust?: boolean } = {}
 ): string {
   const target = approvalTargetSummary(preview.toolName, input);
-  const detail = buildApprovalDetailLines(preview.toolName, preview.sideEffect, input, detailCtx);
+  const detail = [
+    ...(preview.fileBasedCommand
+      ? [`Executable (not sandboxed): ${preview.fileBasedCommand}`]
+      : []),
+    ...buildApprovalDetailLines(preview.toolName, preview.sideEffect, input, detailCtx),
+  ];
   const always = options.allowTrust === false ? undefined : approvalAlwaysSummary(preview);
   const taskBlock = buildTaskApprovalBlock(preview, input, task);
 
@@ -908,7 +920,9 @@ export function describeApprovalDialog(
   detailCtx: ApprovalDetailContext = {},
   options: { persistTrust?: boolean } = {}
 ): ApprovalDialog {
-  const title = approvalDialogTitle(preview.toolName);
+  const title = preview.fileBasedCommand
+    ? 'Run local executable'
+    : approvalDialogTitle(preview.toolName);
   const subject = approvalTargetSummary(preview.toolName, input) || undefined;
   // Device mutations do not get a blanket grant from an ordinary approval.
   // Destructive or sensitive calls may instead offer their explicit scope.
@@ -919,7 +933,12 @@ export function describeApprovalDialog(
   return {
     title,
     ...(subject ? { subject } : {}),
-    detail: buildApprovalDetailLines(preview.toolName, preview.sideEffect, input, detailCtx),
+    detail: [
+      ...(preview.fileBasedCommand
+        ? [`Executable (not sandboxed): ${preview.fileBasedCommand}`]
+        : []),
+      ...buildApprovalDetailLines(preview.toolName, preview.sideEffect, input, detailCtx),
+    ],
     scope: approvalScopeSummary(preview, input),
     question: approvalDialogQuestion(title, subject),
     ...(trustOptionLabel ? { trustOptionLabel } : {}),
@@ -962,6 +981,7 @@ export function describeCliToolApproval(
   options: CliToolApprovalOptions = {}
 ): CliToolApprovalPreview {
   const sideEffect = inferRequestSideEffectClass(request);
+  const fileBasedCommand = compactPromptValue(fileBasedToolCommand(request.tool));
   const deniedPattern = findConfiguredToolPattern(request.tool.name, options.deniedTools ?? []);
   const trustedPattern = findConfiguredToolPattern(request.tool.name, options.trustedTools ?? []);
   const denied = deniedPattern !== undefined;
@@ -1013,6 +1033,7 @@ export function describeCliToolApproval(
     sideEffect,
     safetyMode: mode,
     inputPreview: previewInput(request.input),
+    ...(fileBasedCommand ? { fileBasedCommand } : {}),
     decisionContext,
     requiresApproval,
     trusted,

@@ -60,8 +60,8 @@ try {
   assert.equal(tools.length, 1, 'one tool loaded');
   const tool = tools[0];
   assert.equal(tool.name, 'echo_input');
-  assert.equal(tool.metadata.sideEffectClass, 'readonly');
-  assert.equal(tool.metadata.planMode, 'allow');
+  assert.equal(tool.metadata.sideEffectClass, 'local_write');
+  assert.equal(tool.metadata.planMode, 'requires_user_confirmation');
 
   // Execute: `cat` reads stdin (the JSON input) and echoes it back.
   const result = await tool.execute(
