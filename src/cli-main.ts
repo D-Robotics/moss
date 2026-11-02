@@ -176,15 +176,16 @@ function mossLine(en: string, vars?: Record<string, string | number>): string {
 
 class WorkspacePathPermissionError extends MossError {
   constructor(cause: Error) {
+    const code = (cause as NodeJS.ErrnoException).code === 'EACCES' ? 'EACCES' : 'EPERM';
     super({
       code: ErrorCode.CONFIG_IO_FAILED,
       message: uiText(
-        `Cannot access a workspace path: ${cause.message}`,
-        `无法访问工作区路径：${cause.message}`
+        `Cannot access a workspace path (${code}).`,
+        `无法访问工作区路径（${code}）。`
       ),
       hint: uiText(
-        'Check permissions and access restrictions for the path and its parent directories.',
-        '请检查该路径及其父目录的权限和访问限制。'
+        'Check permissions and access restrictions for legacy workspace paths and .moss. Migration may be partially complete.',
+        '请检查工作区旧目录和 .moss 的权限与访问限制。迁移可能已部分完成。'
       ),
       cause,
     });

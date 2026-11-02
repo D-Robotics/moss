@@ -23,6 +23,7 @@ function runCli(root, workspace, { args = ['-p', 'hello'], lang = 'en', preload 
       '--permission',
       `--allow-fs-read=${dist}`,
       `--allow-fs-read=${nodeModules}`,
+      `--allow-fs-read=${path.join(repo, 'node_modules')}`,
       `--allow-fs-read=${path.join(repo, 'package.json')}`,
       `--allow-fs-read=${path.join(repo, 'bin', 'node-version-message.cjs')}`,
       `--allow-fs-read=${root}`,
@@ -56,11 +57,11 @@ function runCli(root, workspace, { args = ['-p', 'hello'], lang = 'en', preload 
   return result;
 }
 
-function expectEnglishAccessError(result, blockedPath) {
+function expectEnglishAccessError(result) {
   assert.equal(result.status, 3, result.stderr);
   assert.match(result.stderr, /Cannot access a workspace path/);
-  assert.ok(result.stderr.includes(blockedPath), result.stderr);
   assert.match(result.stderr, /Check permissions and access restrictions/);
+  assert.match(result.stderr, /Migration may be partially complete/);
   assert.doesNotMatch(result.stderr, /This looks like a bug|Technical details|\n\s+at /);
 }
 
@@ -85,7 +86,8 @@ for (const [phase, args] of [
       }
       const result = runCli(root, workspace, { args });
       assert.match(result.stderr, /EACCES|EPERM/);
-      expectEnglishAccessError(result, blockedPath);
+      expectEnglishAccessError(result);
+      assert.equal(result.stderr.includes(blockedPath), false);
     } finally {
       fs.chmodSync(workspace, 0o700);
       fs.rmSync(root, { recursive: true, force: true });
@@ -93,7 +95,7 @@ for (const [phase, args] of [
   });
 }
 
-test('an inaccessible subdirectory is identified in Chinese without blaming the workspace root', (t) => {
+test('an inaccessible subdirectory reports access restrictions in Chinese', (t) => {
   if (process.platform === 'win32') return t.skip('POSIX mode bits are unavailable on Windows');
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-subdir-'));
   const workspace = path.join(root, 'workspace');
@@ -111,8 +113,9 @@ test('an inaccessible subdirectory is identified in Chinese without blaming the 
     const result = runCli(root, workspace, { lang: 'zh' });
     assert.equal(result.status, 3, result.stderr);
     assert.match(result.stderr, /无法访问工作区路径/);
-    assert.ok(result.stderr.includes(blockedPath), result.stderr);
-    assert.match(result.stderr, /检查该路径及其父目录的权限和访问限制/);
+    assert.equal(result.stderr.includes(blockedPath), false);
+    assert.match(result.stderr, /检查工作区旧目录和 \.moss 的权限与访问限制/);
+    assert.match(result.stderr, /迁移可能已部分完成/);
     assert.doesNotMatch(result.stderr, /工作区根目录|看起来像是一个 bug|技术细节|\n\s+at /);
   } finally {
     fs.chmodSync(skills, 0o700);
@@ -138,7 +141,7 @@ fs.lstatSync = function (target, ...args) {
   return preload;
 }
 
-test('EPERM during migration reports the actual path', () => {
+test('EPERM during migration does not expose the raw path', () => {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-eperm-'));
   const workspace = path.join(root, 'workspace');
   const blockedPath = path.join(workspace, 'skills', 'learned');
@@ -152,7 +155,35 @@ test('EPERM during migration reports the actual path', () => {
     );
     const result = runCli(root, workspace, { preload });
     assert.match(result.stderr, /EPERM/);
-    expectEnglishAccessError(result, blockedPath);
+    expectEnglishAccessError(result);
+    assert.equal(result.stderr.includes(blockedPath), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('permission diagnostics do not echo secrets or terminal controls from the error', () => {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-private-error-'));
+  const workspace = path.join(root, 'workspace');
+  const blockedPath = path.join(workspace, 'skills', 'learned');
+  const syntheticSecret = 'sk-synthetic-workspace-secret';
+  const escape = String.fromCharCode(27);
+  fs.mkdirSync(workspace);
+  try {
+    const preload = writeLstatFailure(
+      root,
+      blockedPath,
+      'EPERM',
+      `EPERM: operation not permitted, lstat '${blockedPath}/${syntheticSecret}${escape}[2J'`
+    );
+    const result = runCli(root, workspace, { preload });
+    assert.equal(
+      result.status,
+      3,
+      result.stderr.replaceAll(syntheticSecret, '[synthetic]').replaceAll(escape, '[ESC]')
+    );
+    assert.doesNotMatch(result.stderr, /sk-synthetic-workspace-secret/);
+    assert.equal(result.stderr.includes(escape), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
