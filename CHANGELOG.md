@@ -36,6 +36,53 @@
 - 用户要求只读且明确禁止修改时，不再错误显示未完成；明确禁止安装依赖时，也不再向
   模型注入“用户要求安装”的相反提示。其他独立的正向修改或安装指令仍保留原有检查。
 
+### Structured tool results and SDK compatibility
+
+- **SDK behavior change in 0.x:** a post-tool or post-failure hook returning
+  `{ result }` now discards the prior structured blocks, even when `result` is
+  unchanged. This prevents those blocks from bypassing a replacement or redaction.
+  Observation-only hooks should return `null` (JavaScript hooks may return
+  `undefined`) to keep structured blocks.
+- On the MossAgent model path, an existing tool-result `content` string is
+  authoritative, including `''`; old structured text is not appended. Some
+  older sessions that relied on structured text alongside empty or different
+  content may therefore expose less text to the model. The original records
+  are not changed by this projection. To recover intended text, rerun the tool
+  in a new session, or copy the history to a new session and have the host
+  inspect and sanitize the intended text before placing it in `content`; remove
+  stale structured data from the copy. A record without a `content` field still
+  falls back to structured text, so hosts must inspect such legacy records before
+  resuming them.
+- Non-text structured results that exceed the existing cap still replace
+  `structuredContent` with a text truncation notice. Newly persisted results
+  also carry an optional `_structuredContentTruncated` number on the tool-result
+  block, letting the model receive a safe generated notice after resume without
+  changing SDK `content` or the already-capped `structuredContent`. An older
+  unmarked result cannot safely recover that notice.
+- The separate `PiAiLLMProvider` entry point can still append supplied structured
+  text to `content`, and optional remote compaction sends stored structured
+  content. Hosts need to inspect and remove or sanitize old structured data
+  before using these paths when it must not be sent.
+
+### 结构化工具结果与 SDK 兼容性
+
+- **0.x SDK 行为变更：**后置工具或失败 hook 返回 `{ result }` 时，即使文本
+  不变，也会丢弃原结构化块，避免替换或脱敏后旧块绕过处理。只观察结果的
+  hook 应返回 `null`（JavaScript 运行时也可返回 `undefined`）以保留结构化块。
+- MossAgent 向模型投影工具结果时，已有的 `content` 字符串（包括 `''`）为准，
+  不追加旧结构化文本。因此依赖空内容或不同内容旁的结构化文本的旧会话，模型
+  可能看到更少文本；此投影不会修改原记录。需要恢复时，可在新会话重新执行
+  工具，或将历史复制到新会话，由宿主检查、脱敏后把所需文本写入 `content`，
+  并从副本移除过时的结构化数据。完全没有 `content` 字段的旧记录仍会回退到
+  结构化文本，宿主应在恢复前检查此类记录。
+- 非文本结构化结果超限时，`structuredContent` 仍按原有上限替换为文本截断
+  提示。新写入的工具结果还带可选数字字段 `_structuredContentTruncated`，供恢复
+  后安全生成模型侧提示；该字段不改变 SDK 的 `content` 或已截断的
+  `structuredContent`。旧记录没有该标记时无法安全恢复这一提示。
+- 独立调用 `PiAiLLMProvider` 仍可能将提供的结构化文本追加到 `content`；可选
+  远程压缩也会发送记录中的结构化内容。宿主将旧消息交给这些入口前，需要检查
+  并移除或脱敏不应发送的结构化数据。
+
 ### Product experience, task verdicts, and configuration change detection
 
 - The terminal experience has a shorter help view, more reliable in-flight input,

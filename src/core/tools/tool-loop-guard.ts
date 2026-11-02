@@ -118,7 +118,10 @@ export type SameCommandFailureStreak = {
 
 export type ToolLoopGuardState = {
   bySignature: Map<string, number>;
-  freshObservations: Map<string, { fingerprint?: string; unchanged: number; probed: boolean }>;
+  freshObservations: Map<
+    string,
+    { fingerprint?: string; unchanged: number; probed: boolean; unverified?: boolean }
+  >;
   freshObservationExtras: number;
   byTool: Map<string, number>;
   byToolFailure: Map<string, number>;
@@ -334,6 +337,7 @@ export function recordFreshObservationOutcome(
   const signature = `${toolName}:${stableSerializeToolInput(input)}`;
   const observation = state.freshObservations.get(signature);
   if (!observation) return;
+  observation.unverified = false;
   if (options.unchanged) {
     observation.unchanged += 1;
     return;
@@ -346,6 +350,16 @@ export function recordFreshObservationOutcome(
     observation.unchanged = 1;
     observation.probed = false;
   }
+}
+
+/** A rewritten or failed call cannot establish freshness for the requested input. */
+export function markFreshObservationUnverified(
+  state: ToolLoopGuardState,
+  toolName: string,
+  inputSignature: string
+): void {
+  const observation = state.freshObservations.get(`${toolName}:${inputSignature}`);
+  if (observation) observation.unverified = true;
 }
 
 // Normalize a web_fetch URL to a stable key for per-URL failure counting.
@@ -1130,7 +1144,11 @@ export function shouldShortCircuitToolCall(
     return `identical input was already requested ${sameSignatureCount} time(s) in this user turn`;
   }
   if (identicalLimit !== undefined && sameSignatureCount >= identicalLimit) {
-    if (!observation || (observation.unchanged >= identicalLimit && observation.probed)) {
+    if (
+      !observation ||
+      observation.unverified ||
+      (observation.unchanged >= identicalLimit && observation.probed)
+    ) {
       return `identical input was already requested ${sameSignatureCount} time(s) in this user turn`;
     }
   }

@@ -3,7 +3,12 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { readFileTool, runAgentLoop, ToolHookRegistry } from '../dist/index.js';
+import {
+  readFileTool,
+  registerPreToolHook,
+  runAgentLoop,
+  ToolHookRegistry,
+} from '../dist/index.js';
 
 const model = {
   id: 'offline',
@@ -260,6 +265,22 @@ test('a post-hook that explicitly replaces the projection drops prior structured
   assert.equal(result.storedBlocks[0].structuredContent, undefined);
 });
 
+test('a same-text replacement does not revive the structured image payload', async () => {
+  const hooks = new ToolHookRegistry();
+  hooks.registerPost({
+    name: 'replace-image-projection',
+    priority: 1,
+    async process({ result }) {
+      return { result };
+    },
+  });
+  const result = await runFixture({ structured: 'constant', toolHooks: hooks, callsPerTurn: [1] });
+  assert.match(result.results[0], /content block\(s\): image/);
+  assert.equal(result.storedBlocks[0].structuredContent, undefined);
+  const end = result.events.find((event) => event.type === 'tool_execution_end');
+  assert.equal(end?.structuredContent, undefined);
+});
+
 test('a denied structured call cannot expose unexecuted content', async () => {
   const result = await runFixture({
     structured: 'text-private',
@@ -362,6 +383,85 @@ test('a pre-hook rewritten probe cannot count its result as progress for the req
   assert.equal(result.executions, 4);
   assert.equal(result.results[3], 'alternate');
   assert.match(result.results[4], /identical input/i);
+});
+
+test('repeated pre-hook rewrites of read_file retain the ordinary identical-call bound', async () => {
+  const hooks = new ToolHookRegistry();
+  hooks.registerPre({
+    name: 'rewrite-every-read',
+    priority: 1,
+    async check() {
+      return { action: 'modify', input: { path: 'alternate.txt' } };
+    },
+  });
+  const result = await runFixture({
+    builtin: true,
+    callsPerTurn: Array(6).fill(1),
+    toolHooks: hooks,
+  });
+  assert.match(result.results[0], /alternate/);
+  assert.equal(result.executions, 3);
+  assert.match(result.results[3], /identical input/i);
+});
+
+test('a rewritten read cannot reuse an earlier successful observation as progress', async () => {
+  const hooks = new ToolHookRegistry();
+  let calls = 0;
+  hooks.registerPre({
+    name: 'rewrite-after-first-read',
+    priority: 1,
+    async check() {
+      calls += 1;
+      return calls === 1
+        ? { action: 'allow' }
+        : { action: 'modify', input: { path: 'alternate.txt' } };
+    },
+  });
+  const result = await runFixture({
+    builtin: true,
+    callsPerTurn: Array(6).fill(1),
+    toolHooks: hooks,
+  });
+  assert.match(result.results[0], /before/);
+  assert.equal(result.executions, 3);
+  assert.match(result.results[3], /identical input/i);
+});
+
+test('a later read of the requested path restores freshness after an early rewrite', async () => {
+  const hooks = new ToolHookRegistry();
+  let calls = 0;
+  hooks.registerPre({
+    name: 'rewrite-first-two-reads',
+    priority: 1,
+    async check() {
+      calls += 1;
+      return calls <= 2
+        ? { action: 'modify', input: { path: 'alternate.txt' } }
+        : { action: 'allow' };
+    },
+  });
+  const result = await runFixture({
+    builtin: true,
+    callsPerTurn: Array(7).fill(1),
+    toolHooks: hooks,
+  });
+  assert.equal(result.executions, 6);
+  assert.match(result.results[2], /before/);
+  assert.match(result.results[6], /identical input/i);
+});
+
+test('global pre-hook rewrites in an identical batch retain the ordinary bound', async () => {
+  const unregister = registerPreToolHook(async ({ input }) => ({
+    ok: true,
+    input: { ...input, path: 'alternate.txt' },
+  }));
+  try {
+    const result = await runFixture({ builtin: true, callsPerTurn: [6] });
+    assert.equal(result.executions, 3);
+    assert.match(result.results[3], /identical input/i);
+  } finally {
+    unregister();
+  }
 });
 
 test('parallel identical observations cannot exceed the unchanged-output bound', async () => {

@@ -25,6 +25,7 @@ import {
 } from './agent-loop-tool-helpers.js';
 import {
   formatToolLoopGuardMessage,
+  markFreshObservationUnverified,
   recordFreshObservationOutcome,
   recordToolLoopOutcome,
   shouldShortCircuitToolCall,
@@ -32,16 +33,17 @@ import {
 } from '../tools/tool-loop-guard.js';
 import { buildBackgroundCompletionSystemText } from './background-completion.js';
 import { inAcceptanceScope } from '../task/acceptance-commit-scope.js';
-import { modelToolResultText } from '../tools/message-convert.js';
+import {
+  MAX_STRUCTURED_SIZE,
+  modelToolResultText,
+  structuredContentTruncationNotice,
+} from '../tools/message-convert.js';
 import {
   FILE_UNCHANGED_STUB,
   FILE_UNCHANGED_TRUNCATED_STUB,
 } from '../../contracts/file-read-observation.js';
 
 const log = getRootLogger().child('agent:loop');
-
-/** Non-text structured metadata cap; pure text uses the existing per-tool text budget. */
-const MAX_STRUCTURED_SIZE = 12_000;
 
 export interface AgentLoopToolExecutionMetrics {
   totalToolCalls: number;
@@ -266,41 +268,49 @@ function recordToolOutcome(
         : 'blocked';
   const durationMs = outcome.kind === 'completed' ? outcome.durationMs : 0;
   let structuredContent = rawStructuredContent;
+  let structuredContentTruncated: number | undefined;
   if (structuredContent && structuredContent.length > 0) {
     const serialized = JSON.stringify(structuredContent);
     if (serialized.length > MAX_STRUCTURED_SIZE) {
-      structuredContent = structuredContent.every((block) => block.type === 'text')
-        ? undefined
-        : [
-            {
-              type: 'text',
-              text: `[structured content truncated: ${serialized.length} chars exceeded ${MAX_STRUCTURED_SIZE} limit]`,
-            },
-          ];
+      if (structuredContent.every((block) => block.type === 'text')) {
+        structuredContent = undefined;
+      } else {
+        structuredContentTruncated = serialized.length;
+        structuredContent = [
+          { type: 'text', text: structuredContentTruncationNotice(serialized.length) },
+        ];
+      }
     }
   }
 
   const truncatedResult = truncateToolOutput(call.name, result);
+  const originalInput = ctx.originalInputs.get(call);
   if (
     isFreshObservation(ctx.toolsForRun.find((tool) => tool.name === call.name)) &&
-    outcome.kind === 'completed' &&
-    !isError &&
-    !outcome.aborted &&
-    (outcome.outcome === undefined || outcome.outcome === 'ok') &&
-    ctx.originalInputs.get(call) === stableSerializeToolInput(call.input)
+    originalInput !== undefined
   ) {
-    recordFreshObservationOutcome(
-      ctx.toolLoopGuard,
-      call.name,
-      call.input,
-      modelToolResultText(truncatedResult, structuredContent),
-      {
-        unchanged:
-          call.name === 'read_file' &&
-          !rawStructuredContent &&
-          (result === FILE_UNCHANGED_STUB || result === FILE_UNCHANGED_TRUNCATED_STUB),
-      }
-    );
+    if (
+      outcome.kind === 'completed' &&
+      !isError &&
+      !outcome.aborted &&
+      (outcome.outcome === undefined || outcome.outcome === 'ok') &&
+      originalInput === stableSerializeToolInput(call.input)
+    ) {
+      recordFreshObservationOutcome(
+        ctx.toolLoopGuard,
+        call.name,
+        call.input,
+        modelToolResultText(truncatedResult, structuredContent, structuredContentTruncated),
+        {
+          unchanged:
+            call.name === 'read_file' &&
+            !rawStructuredContent &&
+            (result === FILE_UNCHANGED_STUB || result === FILE_UNCHANGED_TRUNCATED_STUB),
+        }
+      );
+    } else {
+      markFreshObservationUnverified(ctx.toolLoopGuard, call.name, originalInput);
+    }
   }
   ctx.metrics.totalToolCalls++;
   ctx.metrics.toolCallsByName[call.name] = (ctx.metrics.toolCallsByName[call.name] ?? 0) + 1;
@@ -344,6 +354,9 @@ function recordToolOutcome(
     durationMs,
     ...(outcome.kind === 'completed' && outcome.aborted ? { aborted: outcome.aborted } : {}),
     ...(structuredContent ? { structuredContent } : {}),
+    ...(structuredContentTruncated !== undefined
+      ? { _structuredContentTruncated: structuredContentTruncated }
+      : {}),
   });
 }
 

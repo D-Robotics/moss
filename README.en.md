@@ -276,19 +276,31 @@ moss tasks list                     # read-only robotics artifacts
 The `src/index.ts` export surface is a semver-protected contract, snapshotted by
 `test/sdk-contract.spec.mjs`; three runnable integrations live in `examples/` (`npm run examples`).
 
-**SDK post-tool hooks and structured results.** An observation-only hook registered with
-`MossAgent.registerPostToolHook` or `ToolHookRegistry.registerPost` should return `null`, which
-does not itself discard the structured content. Returning `{ result: string }` replaces the text;
-Moss discards the previous structured blocks even when the returned string is unchanged, so old
-content cannot bypass a redaction. Post-failure hooks follow the same rule. Denied or cancelled
-tool calls do not retain structured results from unauthorized or cancelled execution. Normal text
-output limits still apply.
+**SDK post-tool hooks and structured results (0.x behavior change).** An observation-only hook
+registered with `MossAgent.registerPostToolHook` or `ToolHookRegistry.registerPost` should return
+`null` (JavaScript hooks may return `undefined`), which does not itself discard structured content.
+Returning `{ result: string }` replaces the text; Moss discards the previous structured blocks even
+when the returned string is unchanged, so old content cannot bypass a redaction. Post-failure hooks
+follow the same rule. Denied or cancelled tool calls do not retain structured results from
+unauthorized or cancelled execution. Normal text output limits still apply.
 
-When loading a stored tool result for the model, an existing `content` string, including an empty
-one, is authoritative; old structured text is not appended. For compatibility, a legacy result
-with **no `content` field at all** still falls back to its stored structured text. Hosts should
-handle such old records before resuming a session if they contain raw content that must not be sent
-to the model.
+On the MossAgent model path, an existing tool-result `content` string, including an empty one, is
+authoritative; old structured text is not appended. Older sessions that relied on structured text
+alongside empty content may therefore expose less text to the model; this projection does not modify
+the original records. To recover intended text, rerun the tool in a new session, or copy the history
+to a new session and inspect and sanitize the intended text before placing it in the copy's `content`;
+remove stale structured data from the copy. A legacy result with **no `content` field at all** still
+falls back to its stored structured text, so hosts should inspect such records before resuming them.
+
+When non-text structured results exceed the cap, `structuredContent` is replaced with a text
+truncation notice under the existing limit. The persisted result may also carry an optional numeric
+`_structuredContentTruncated` field to regenerate a safe model-side notice after resume. This new
+field does not change the SDK `content` or the already-capped `structuredContent`; an older unmarked
+result cannot safely recover the notice.
+
+Direct `PiAiLLMProvider` calls can still append supplied structured text to `content`, and optional
+remote compaction sends structured content from the stored record. Before passing old messages to
+these entry points, hosts need to inspect and remove or sanitize structured data that must not be sent.
 
 ## Board-side inference dependencies (RDK)
 

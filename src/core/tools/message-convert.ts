@@ -13,12 +13,29 @@ import type { ToolContentBlock } from '../../contracts/messages.js';
 // this module's public surface stable for core consumers.
 export { shouldRoundTripAssistantThinking };
 
+export const MAX_STRUCTURED_SIZE = 12_000;
+
+export function structuredContentTruncationNotice(size: number): string {
+  return `[structured content truncated: ${size} chars exceeded ${MAX_STRUCTURED_SIZE} limit]`;
+}
+
 /** Stored text is authoritative; only legacy structured-only results need a fallback. */
 export function modelToolResultText(
   content: string | undefined,
-  structuredContent?: ToolContentBlock[]
+  structuredContent?: ToolContentBlock[],
+  structuredContentTruncated?: number
 ): string {
-  if (content !== undefined) return content;
+  if (content !== undefined) {
+    if (
+      structuredContentTruncated !== undefined &&
+      Number.isSafeInteger(structuredContentTruncated) &&
+      structuredContentTruncated > MAX_STRUCTURED_SIZE
+    ) {
+      const notice = structuredContentTruncationNotice(structuredContentTruncated);
+      return content ? `${content}\n${notice}` : notice;
+    }
+    return content;
+  }
   return (structuredContent ?? [])
     .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
     .map((block) => block.text)
@@ -98,7 +115,8 @@ export function convertMessagesToPi(
               : typeof block.content === 'string'
                 ? block.content
                 : '',
-            block.structuredContent
+            block.structuredContent,
+            block._structuredContentTruncated
           );
           result.push({
             role: 'toolResult',
