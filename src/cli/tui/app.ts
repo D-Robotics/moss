@@ -864,8 +864,8 @@ export function TuiAppRoot({
       options.noticeSource?.subscribe((message) => {
         appendRow(store, isCatalogSkipNotice(message) ? 'summary' : 'system', message);
         handle.notify();
-      }),
-    [handle, options.noticeSource, store]
+      }, fullscreen),
+    [fullscreen, handle, options.noticeSource, store]
   );
 
   /** Inline information block: a ⏺ title plus ⎿ rows, right in the transcript. */

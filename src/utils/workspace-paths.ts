@@ -60,18 +60,38 @@ export function pathExists(filePath: string): boolean {
   }
 }
 
+function recordCleanupWarning(
+  dir: string,
+  result: WorkspacePathMigrationResult,
+  err: unknown
+): void {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  if (!result.cleanupWarnings.some((warning) => warning.path === dir)) {
+    result.cleanupWarnings.push({ path: dir, ...(typeof code === 'string' ? { code } : {}) });
+  }
+}
+
 function removeIfEmpty(dir: string, result: WorkspacePathMigrationResult): void {
+  let stat: fs.Stats;
   try {
     if (!pathExists(dir)) return;
-    const stat = fs.lstatSync(dir);
-    if (!stat.isDirectory()) return;
+    stat = fs.lstatSync(dir);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | null)?.code;
+    if (code === 'ENOENT') return;
+    if (code === 'EACCES' || code === 'EPERM' || code === 'EBUSY') {
+      recordCleanupWarning(dir, result, err);
+      return;
+    }
+    throw err;
+  }
+  if (!stat.isDirectory()) return;
+  try {
     if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException)?.code;
+    const code = (err as NodeJS.ErrnoException | null)?.code;
     if (code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST') return;
-    if (!result.cleanupWarnings.some((warning) => warning.path === dir)) {
-      result.cleanupWarnings.push({ path: dir, ...(typeof code === 'string' ? { code } : {}) });
-    }
+    recordCleanupWarning(dir, result, err);
   }
 }
 

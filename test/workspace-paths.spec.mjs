@@ -281,6 +281,52 @@ test('a missing workspace remains an empty migration', (t) => {
   assert.equal(fs.existsSync(missing), false);
 });
 
+for (const failedCall of [1, 2]) {
+  test(`unexpected EIO from legacy directory lstat ${failedCall} remains a failure`, (t) => {
+    const { workspace } = workspaceFixture(t);
+    const agent = path.join(workspace, 'agent');
+    fs.mkdirSync(path.join(agent, 'skills'), { recursive: true });
+    const original = fs.lstatSync;
+    let seen = 0;
+    fs.lstatSync = function (target, ...args) {
+      if (target === agent && ++seen === failedCall) {
+        const err = new Error('synthetic lstat EIO');
+        err.code = 'EIO';
+        throw err;
+      }
+      return original.call(this, target, ...args);
+    };
+    try {
+      assert.throws(() => migrateLegacyWorkspacePaths(workspace), { code: 'EIO' });
+    } finally {
+      fs.lstatSync = original;
+    }
+  });
+}
+
+for (const code of ['EACCES', 'EBUSY']) {
+  test(`${code} on optional legacy-directory inspection is a cleanup warning`, (t) => {
+    const { workspace } = workspaceFixture(t);
+    const agent = path.join(workspace, 'agent');
+    fs.mkdirSync(path.join(agent, 'skills'), { recursive: true });
+    const original = fs.lstatSync;
+    fs.lstatSync = function (target, ...args) {
+      if (target === agent) {
+        const err = new Error(`synthetic ${code}`);
+        err.code = code;
+        throw err;
+      }
+      return original.call(this, target, ...args);
+    };
+    try {
+      const result = migrateLegacyWorkspacePaths(workspace);
+      assert.deepEqual(result.cleanupWarnings, [{ path: agent, code }]);
+    } finally {
+      fs.lstatSync = original;
+    }
+  });
+}
+
 for (const code of ['ENOENT', 'ENOTEMPTY', 'EEXIST', 'EACCES', 'EPERM', 'EBUSY', 'EIO']) {
   test(`cleanup reports ${code} when it is not a benign race`, (t) => {
     const { workspace } = workspaceFixture(t);

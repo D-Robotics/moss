@@ -85,7 +85,7 @@ export interface TuiSkillCommand {
 }
 
 export interface TuiNoticeSource {
-  subscribe(listener: (message: string) => void): () => void;
+  subscribe(listener: (message: string) => void, fullscreen?: boolean): () => void;
 }
 
 export interface TuiAppOptions {

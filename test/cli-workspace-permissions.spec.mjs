@@ -65,7 +65,7 @@ function runCli(
 function expectEnglishAccessError(result, blockedPath) {
   assert.equal(result.status, 3, result.stderr);
   assert.match(result.stderr, /Cannot access a workspace path/);
-  assert.ok(result.stderr.includes(blockedPath), result.stderr);
+  assert.ok(!result.stderr.includes(blockedPath), result.stderr);
   assert.match(result.stderr, /Check permissions and access restrictions/);
   assert.doesNotMatch(result.stderr, /This looks like a bug|Technical details|\n\s+at /);
 }
@@ -99,7 +99,7 @@ for (const [phase, args] of [
   });
 }
 
-test('an inaccessible subdirectory is identified in Chinese without blaming the workspace root', (t) => {
+test('an inaccessible subdirectory is reported in Chinese without exposing its path', (t) => {
   if (process.platform === 'win32') return t.skip('POSIX mode bits are unavailable on Windows');
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-subdir-'));
   const workspace = path.join(root, 'workspace');
@@ -116,9 +116,9 @@ test('an inaccessible subdirectory is identified in Chinese without blaming the 
     }
     const result = runCli(root, workspace, { lang: 'zh' });
     assert.equal(result.status, 3, result.stderr);
-    assert.match(result.stderr, /无法访问工作区路径/);
-    assert.ok(result.stderr.includes(blockedPath), result.stderr);
-    assert.match(result.stderr, /检查该路径及其父目录的权限和访问限制/);
+    assert.match(result.stderr, /无法访问某个工作区路径/);
+    assert.ok(!result.stderr.includes(blockedPath), result.stderr);
+    assert.match(result.stderr, /检查工作区路径及其父目录的权限和访问限制/);
     assert.doesNotMatch(result.stderr, /工作区根目录|看起来像是一个 bug|技术细节|\n\s+at /);
   } finally {
     fs.chmodSync(skills, 0o700);
@@ -144,7 +144,7 @@ fs.lstatSync = function (target, ...args) {
   return preload;
 }
 
-test('EPERM during migration reports the actual path', () => {
+test('EPERM during migration is reported without exposing its path', () => {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-eperm-'));
   const workspace = path.join(root, 'workspace');
   const blockedPath = path.join(workspace, 'skills', 'learned');
@@ -201,16 +201,12 @@ test('CLI migration skips an external skills link without modifying its target',
     }
     const result = runCli(root, workspace, { args: ['config', 'show'] });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /legacy paths were not migrated/i);
-    assert.ok(result.stderr.includes(path.join(skills, 'learned')), result.stderr);
-    assert.ok(
-      result.stderr.includes(path.join(workspace, '.moss', 'skills', 'learned')),
-      result.stderr
-    );
-    assert.match(result.stderr, /left in place/i);
+    assert.match(result.stderr, /some legacy skill entries were not migrated/i);
+    assert.ok(!result.stderr.includes(workspace), result.stderr);
     assert.match(result.stderr, /may not load/i);
     assert.match(result.stderr, /keep|move|copy/i);
-    assert.doesNotMatch(result.stdout, /legacy paths were not migrated/i);
+    assert.match(result.stderr, /skill-candidates/);
+    assert.doesNotMatch(result.stdout, /legacy skill entries were not migrated/i);
     assert.equal(fs.readFileSync(path.join(learned, 'marker'), 'utf8'), 'outside');
     assert.ok(fs.lstatSync(skills).isSymbolicLink());
     assert.equal(fs.existsSync(path.join(workspace, '.moss', 'skills', 'learned')), false);
@@ -235,15 +231,14 @@ test('CLI warns and continues when old-directory cleanup cannot be checked', (t)
     }
     const result = runCli(root, workspace, { args: ['config', 'show'] });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /could not check or remove/i);
-    assert.match(result.stderr, /EACCES|EPERM/);
-    assert.ok(result.stderr.includes(agent), result.stderr);
+    assert.match(result.stderr, /could not be checked or cleaned/i);
+    assert.ok(!result.stderr.includes(agent), result.stderr);
     assert.match(result.stderr, /may still exist/i);
     assert.doesNotMatch(result.stderr, /This looks like a bug|deleted successfully/i);
     assert.ok(fs.existsSync(path.join(workspace, '.moss', 'agent', 'skills')));
     const next = runCli(root, workspace, { args: ['config', 'show'] });
     assert.equal(next.status, 0, next.stderr);
-    assert.doesNotMatch(next.stderr, /could not check or remove/i);
+    assert.doesNotMatch(next.stderr, /could not be checked or cleaned/i);
   } finally {
     fs.chmodSync(agent, 0o700);
     fs.rmSync(root, { recursive: true, force: true });
@@ -269,7 +264,7 @@ test('CLI leaves an already-empty legacy directory without retrying unnecessary 
     for (let run = 0; run < 2; run += 1) {
       const result = runCli(root, workspace, { args: ['config', 'show'] });
       assert.equal(result.status, 0, result.stderr);
-      assert.doesNotMatch(result.stderr, /could not check or remove/i);
+      assert.doesNotMatch(result.stderr, /could not be checked or cleaned/i);
       assert.ok(fs.statSync(legacy).isDirectory());
     }
   } finally {
@@ -297,7 +292,7 @@ test('CLI still fails when moving legacy data is denied', (t) => {
     const result = runCli(root, workspace, { args: ['config', 'show'] });
     assert.match(result.stderr, /EACCES|EPERM/);
     expectEnglishAccessError(result, source);
-    assert.doesNotMatch(result.stderr, /could not check or remove/i);
+    assert.doesNotMatch(result.stderr, /could not be checked or cleaned/i);
     assert.equal(fs.readFileSync(path.join(source, 'marker'), 'utf8'), 'legacy');
     assert.equal(fs.existsSync(path.join(workspace, '.moss', 'skills', 'candidates')), false);
   } finally {
@@ -324,7 +319,7 @@ test('CLI still fails when legacy data cannot be read for a merge', (t) => {
     const result = runCli(root, workspace, { args: ['config', 'show'] });
     assert.match(result.stderr, /EACCES|EPERM/);
     expectEnglishAccessError(result, source);
-    assert.doesNotMatch(result.stderr, /could not check or remove/i);
+    assert.doesNotMatch(result.stderr, /could not be checked or cleaned/i);
     assert.ok(fs.statSync(source).isDirectory());
   } finally {
     fs.chmodSync(source, 0o700);
@@ -356,7 +351,7 @@ fs.renameSync = function (from, ...args) {
     const result = runCli(root, workspace, { args: ['config', 'show'], preload });
     assert.notEqual(result.status, 0, result.stderr);
     assert.match(result.stderr, /EIO: synthetic migration failure/);
-    assert.doesNotMatch(result.stderr, /could not check or remove/i);
+    assert.doesNotMatch(result.stderr, /could not be checked or cleaned/i);
     assert.equal(fs.readFileSync(path.join(source, 'marker'), 'utf8'), 'legacy');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -386,16 +381,16 @@ for (const [phase, args] of [
       try {
         const result = runCli(root, workspace, { args, lang });
         if (phase !== 'agent') assert.equal(result.status, 0, result.stderr);
-        assert.ok(result.stderr.includes(source), result.stderr);
-        assert.ok(result.stderr.includes(dest), result.stderr);
+        assert.ok(!result.stderr.includes(source), result.stderr);
+        assert.ok(!result.stderr.includes(dest), result.stderr);
         if (lang === 'zh') {
-          assert.match(result.stderr, /以下旧路径未迁移/);
-          assert.match(result.stderr, /保留原状.*手动移动或复制/);
-          assert.doesNotMatch(result.stdout, /以下旧路径未迁移/);
+          assert.match(result.stderr, /部分旧技能条目未迁移/);
+          assert.match(result.stderr, /保留原状或手动移动、复制/);
+          assert.doesNotMatch(result.stdout, /部分旧技能条目未迁移/);
         } else {
-          assert.match(result.stderr, /legacy paths were not migrated/i);
-          assert.match(result.stderr, /left in place.*keep them.*move or copy/i);
-          assert.doesNotMatch(result.stdout, /legacy paths were not migrated/i);
+          assert.match(result.stderr, /some legacy skill entries were not migrated/i);
+          assert.match(result.stderr, /keep entries or manually move or copy/i);
+          assert.doesNotMatch(result.stdout, /legacy skill entries were not migrated/i);
         }
         assert.equal(fs.readFileSync(source, 'utf8'), 'old');
         assert.equal(fs.readFileSync(dest, 'utf8'), 'current');
@@ -414,8 +409,8 @@ test('CLI keeps JSON stdout parseable when a migration path is skipped', () => {
     const result = runCli(root, workspace, { args: ['config', 'show', '--json'] });
     assert.equal(result.status, 0, result.stderr);
     assert.doesNotThrow(() => JSON.parse(result.stdout));
-    assert.match(result.stderr, /legacy paths were not migrated/i);
-    assert.doesNotMatch(result.stdout, /legacy paths were not migrated/i);
+    assert.match(result.stderr, /legacy skill entries were not migrated/i);
+    assert.doesNotMatch(result.stdout, /legacy skill entries were not migrated/i);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -428,7 +423,10 @@ test('CLI emits no migration or cleanup notice when nothing was skipped', () => 
   try {
     const result = runCli(root, workspace, { args: ['config', 'show'] });
     assert.equal(result.status, 0, result.stderr);
-    assert.doesNotMatch(result.stderr, /legacy paths were not migrated|could not check or remove/i);
+    assert.doesNotMatch(
+      result.stderr,
+      /legacy skill entries were not migrated|could not be checked or cleaned/i
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -461,17 +459,144 @@ test('CLI reports cleanup errors in Chinese without blocking the command', () =>
   try {
     const result = runCli(root, workspace, { args: ['config', 'show'], lang: 'zh', preload });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /无法检查或删除以下旧目录/);
-    assert.match(result.stderr, /这些目录可能仍然存在/);
-    assert.match(result.stderr, /EBUSY/);
-    assert.ok(result.stderr.includes(agent), result.stderr);
-    assert.doesNotMatch(result.stdout, /无法检查或删除以下旧目录/);
+    assert.match(result.stderr, /部分旧技能目录无法检查或清理/);
+    assert.match(result.stderr, /可能仍然存在/);
+    assert.ok(!result.stderr.includes(agent), result.stderr);
+    assert.doesNotMatch(result.stdout, /部分旧技能目录无法检查或清理/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('CLI sanitizes and redacts skipped and cleanup paths', (t) => {
+test('CLI skips untrusted names without exposing known or overlapping secrets', (t) => {
+  if (process.platform === 'win32') return t.skip('control characters are not valid Windows paths');
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-fixed-notice-'));
+  const workspace = path.join(root, 'workspace');
+  const auth = 'syntheticAuthUnshaped24680';
+  const shortKey = 'sk-abcdefghijklmno123456789';
+  const suffix = 'SyntheticTail987654';
+  const longKey = `${shortKey}${suffix}`;
+  const splitKey = `${longKey.slice(0, 12)}\x1b[31m${longKey.slice(12)}\x1b[0m`;
+  const bidi = String.fromCodePoint(0x202e);
+  for (const name of [longKey, `${splitKey}-${auth}-${bidi}-الرابط`]) {
+    const source = path.join(workspace, 'skill-candidates', name);
+    const dest = path.join(workspace, '.moss', 'skills', 'candidates', name);
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(source, 'old');
+    fs.writeFileSync(dest, 'current');
+  }
+  try {
+    const result = runCli(root, workspace, {
+      args: ['config', 'show', '--json'],
+      env: { AUTH: auth, SHORT_KEY: shortKey, LONG_KEY: longKey },
+      configValue: { apiKeyEnv: 'AUTH' },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).apiKeyConfigured, false);
+    assert.match(result.stderr, /some legacy skill entries were not migrated/i);
+    assert.ok(!result.stderr.includes(auth), result.stderr);
+    assert.ok(!result.stderr.includes(suffix), result.stderr);
+    assert.ok(!result.stderr.includes('الرابط'), result.stderr);
+    assert.ok(!result.stderr.includes(workspace), result.stderr);
+    assert.ok(!result.stderr.includes(String.fromCodePoint(0x1b)), result.stderr);
+    assert.ok(!result.stderr.includes(bidi), result.stderr);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('CLI permission diagnostic does not expose untrusted path contents', (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX mode bits are unavailable on Windows');
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-fixed-error-'));
+  const secret = 'sk-syntheticPermissionSecret123456';
+  const split = `${secret.slice(0, 11)}\x1b[31m${secret.slice(11)}\x1b[0m`;
+  const workspace = path.join(root, `workspace-${split}-الرابط`);
+  const agent = path.join(workspace, 'agent');
+  fs.mkdirSync(path.join(agent, 'skills'), { recursive: true });
+  try {
+    fs.chmodSync(agent, 0o000);
+    try {
+      fs.lstatSync(path.join(agent, 'skills'));
+      return t.skip('current user can still traverse a mode-000 directory');
+    } catch (err) {
+      if (err.code !== 'EACCES' && err.code !== 'EPERM') throw err;
+    }
+    const result = runCli(root, workspace, {
+      args: ['tasks', 'list'],
+      env: { MOSS_TEST_SECRET: secret },
+    });
+    assert.equal(result.status, 3, result.stderr);
+    assert.match(result.stderr, /workspace path/i);
+    assert.match(result.stderr, /EACCES|EPERM/);
+    assert.ok(!result.stderr.includes(workspace), result.stderr);
+    assert.ok(!result.stderr.includes(secret.slice(11)), result.stderr);
+    assert.ok(!result.stderr.includes('الرابط'), result.stderr);
+    assert.ok(!result.stderr.includes(String.fromCodePoint(0x1b)), result.stderr);
+    assert.doesNotMatch(result.stderr, /This looks like a bug/);
+  } finally {
+    fs.chmodSync(agent, 0o700);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('CLI Chinese permission diagnostic uses fixed text', () => {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-zh-error-'));
+  const workspace = path.join(root, 'workspace');
+  const target = path.join(workspace, 'skills', 'learned');
+  const secret = 'syntheticChineseErrorSecret2468';
+  fs.mkdirSync(workspace);
+  const preload = writeLstatFailure(root, target, 'EACCES', `EACCES: ${secret}`);
+  try {
+    const result = runCli(root, workspace, { args: ['tasks', 'list'], lang: 'zh', preload });
+    assert.equal(result.status, 3, result.stderr);
+    assert.match(result.stderr, /无法访问某个工作区路径/);
+    assert.match(result.stderr, /EACCES/);
+    assert.ok(!result.stderr.includes(secret), result.stderr);
+    assert.ok(!result.stderr.includes(workspace), result.stderr);
+    assert.doesNotMatch(result.stderr, /看起来像是一个 bug/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+for (const [phase, args] of [
+  ['workspace', ['tasks', 'list']],
+  ['agent', ['-p', 'hello']],
+]) {
+  test(`CLI ${phase} workspace stat permission error uses fixed text`, () => {
+    const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-stat-safe-'));
+    const workspace = path.join(root, 'workspace');
+    const secret = 'syntheticWorkspaceStatSecret3579';
+    fs.mkdirSync(workspace);
+    const preload = path.join(root, 'stat-failure.cjs');
+    fs.writeFileSync(
+      preload,
+      `const fs = require('node:fs');
+const stat = fs.statSync;
+fs.statSync = function (target, ...args) {
+  if (target === ${JSON.stringify(workspace)}) {
+    const err = new Error(${JSON.stringify(`EACCES: ${secret} \x1b[31m`)});
+    err.code = 'EACCES';
+    throw err;
+  }
+  return stat.call(this, target, ...args);
+};\n`
+    );
+    try {
+      const result = runCli(root, workspace, { args, preload });
+      assert.equal(result.status, 3, result.stderr);
+      assert.match(result.stderr, /Cannot access a workspace path \(EACCES\)/);
+      assert.ok(!result.stderr.includes(secret), result.stderr);
+      assert.ok(!result.stderr.includes(workspace), result.stderr);
+      assert.ok(!result.stderr.includes(String.fromCodePoint(0x1b)), result.stderr);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test('CLI omits untrusted skipped and cleanup paths', (t) => {
   if (process.platform === 'win32') return t.skip('control characters are not valid Windows paths');
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-notice-safe-'));
   const envSecret = 'syntheticEnvSecret98765';
@@ -492,10 +617,10 @@ test('CLI sanitizes and redacts skipped and cleanup paths', (t) => {
       configValue: { apiKey: apiSecret },
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /legacy paths were not migrated/i);
-    assert.match(result.stderr, /could not check or remove/i);
-    assert.match(result.stderr, /EBUSY/);
-    assert.match(result.stderr, /\[redacted\]/i);
+    assert.match(result.stderr, /legacy skill entries were not migrated/i);
+    assert.match(result.stderr, /could not be checked or cleaned/i);
+    assert.doesNotMatch(result.stderr, /EBUSY|\[redacted\]/i);
+    assert.ok(!result.stderr.includes(workspace), result.stderr);
     assert.equal(
       Array.from(result.stderr).some((char) => {
         const code = char.codePointAt(0);
