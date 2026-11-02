@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parseArgs } from '../scripts/run-benchmark.mjs';
+import vm from 'node:vm';
+import ts from 'typescript';
+import * as benchmark from '../scripts/run-benchmark.mjs';
+
+const { parseArgs } = benchmark;
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const runner = path.join(repoRoot, 'scripts', 'run-benchmark.mjs');
@@ -76,7 +81,7 @@ test('temperature values preserve following task, model, and label options', () 
     ['0', 0],
     ['0.35', 0.35],
     ['none', undefined],
-    ['-0.5', -0.5],
+    ['2', 2],
   ]) {
     for (const args of [
       ['--task', 'single-edit', '--model', 'synthetic-model', '--label', 'synthetic-label'],
@@ -128,6 +133,92 @@ test('the RSI gate argument order retains its label, sample, and provider flags'
   assert.match(result.stdout, /task sample n=15 seed=synthetic-seed/);
 });
 
+test('benchmark controls preserve A/B switches, unset values, and none temperature', () => {
+  assert.equal(typeof benchmark.benchmarkChildOverrides, 'function');
+  const parent = {
+    MOSS_BEST_OF_N: '3',
+    MOSS_REASONING_BUDGET: 'off',
+    MOSS_PLAN_GATE: '1',
+    MOSS_MODEL_CHEAP: 'cheap-model',
+    MOSS_MODEL_BALANCED: '',
+    MOSS_MODEL_STRONG: 'strong-model',
+    MOSS_GOAL_VERIFY_LOOP: '0',
+    MOSS_DISABLE_NUDGES: '',
+    MOSS_BENCH_API_KEY: 'synthetic-key',
+    UNRELATED_SECRET: 'synthetic-secret',
+    TASK_SETTING: 'task-value',
+  };
+  const env = benchmark.benchmarkChildOverrides(parent, ['TASK_SETTING'], undefined);
+  assert.deepEqual(env, {
+    MOSS_TEMPERATURE: '',
+    MOSS_BEST_OF_N: '3',
+    MOSS_REASONING_BUDGET: 'off',
+    MOSS_PLAN_GATE: '1',
+    MOSS_MODEL_CHEAP: 'cheap-model',
+    MOSS_MODEL_BALANCED: '',
+    MOSS_MODEL_STRONG: 'strong-model',
+    MOSS_GOAL_VERIFY_LOOP: '0',
+    MOSS_DISABLE_NUDGES: '',
+    TASK_SETTING: 'task-value',
+  });
+  assert.deepEqual(benchmark.benchmarkChildOverrides({}, [], 0.35), {
+    MOSS_TEMPERATURE: '0.35',
+  });
+});
+
+function isolatedSourceFunction(file, name, globals = {}) {
+  const source = fs.readFileSync(path.join(repoRoot, file), 'utf8');
+  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const declaration = parsed.statements.find(
+    (node) => ts.isFunctionDeclaration(node) && node.name?.text === name
+  );
+  assert.ok(declaration, `missing ${name} in ${file}`);
+  const javascript = ts.transpileModule(declaration.getText(parsed), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  const sandbox = { exports: {}, ...globals };
+  vm.runInNewContext(javascript, sandbox, { timeout: 1000 });
+  return sandbox.exports[name];
+}
+
+function isolatedSourceMethod(file, name, globals = {}) {
+  const source = fs.readFileSync(path.join(repoRoot, file), 'utf8');
+  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const declaration = parsed.statements
+    .filter(ts.isClassDeclaration)
+    .flatMap((node) => [...node.members])
+    .find((member) => ts.isMethodDeclaration(member) && member.name.getText(parsed) === name);
+  assert.ok(declaration, `missing ${name} in ${file}`);
+  const method = declaration.getText(parsed).replace(/^private\s+/, '');
+  const javascript = ts.transpileModule(`exports.method = ({ ${method} }).${name};`, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  const sandbox = { exports: {}, ...globals };
+  vm.runInNewContext(javascript, sandbox, { timeout: 1000 });
+  return sandbox.exports.method;
+}
+
+test('none blocks a synthetic dotenv temperature and resolves as unset', () => {
+  const env = benchmark.benchmarkChildOverrides({}, [], undefined);
+  const loadEnvFile = isolatedSourceFunction('src/cli/config.ts', 'loadEnvFile', {
+    fs: { readFileSync: () => 'MOSS_TEMPERATURE=1.5\n' },
+    process: { env },
+    ENV_FILE_IGNORED_KEYS: new Set(),
+    isDotenvSafetyEnvKey: () => false,
+    isDotenvDeniedEnvKey: () => false,
+  });
+  loadEnvFile('synthetic.env');
+  assert.equal(env.MOSS_TEMPERATURE, '');
+  const resolve = isolatedSourceFunction('src/cli/oneshot.ts', 'resolveTemperatureFromEnv');
+  const temperature = resolve(env);
+  assert.equal(temperature, undefined);
+  const buildOptions = isolatedSourceMethod('src/provider/pi-ai-adapter.ts', 'buildPiOptions', {
+    envPreferMoss: () => undefined,
+  });
+  const options = buildOptions.call({ apiKey: 'synthetic-key' }, { temperature });
+  assert.equal(Object.hasOwn(options, 'temperature'), false);
+});
+
 test('explicit provider setup never reads other application configuration', () => {
   const result = providerSetup({ MOSS_BENCH_API_KEY: 'synthetic-key' }, [
     '--model',
@@ -153,6 +244,11 @@ test('provider model and base URL can come from environment with flag overrides'
     [[], 'environment-model', 'https://environment.invalid/v1'],
     [['--model', 'flag-model'], 'flag-model', 'https://environment.invalid/v1'],
     [['--base-url', 'https://flag.invalid/v1'], 'environment-model', 'https://flag.invalid/v1'],
+    [
+      ['--base-url', 'https://flag.invalid/custom/path?api-version=2024-01'],
+      'environment-model',
+      'https://flag.invalid/custom/path?api-version=2024-01',
+    ],
     [
       ['--model', 'flag-model', '--base-url', 'https://flag.invalid/v1'],
       'flag-model',
@@ -189,6 +285,48 @@ test('missing provider fields fail without using another application or a defaul
   }
 });
 
+test('empty provider values do not fall back to another endpoint or key', () => {
+  const complete = {
+    MOSS_BENCH_API_KEY: 'synthetic-key',
+    MOSS_BENCH_MODEL: 'environment-model',
+    MOSS_BENCH_BASE_URL: 'https://environment.invalid/v1',
+  };
+  for (const [env, args] of [
+    [{ ...complete, MOSS_BENCH_API_KEY: ' ' }, []],
+    [complete, ['--model', '']],
+    [complete, ['--model', ' ']],
+    [complete, ['--base-url', '']],
+    [complete, ['--base-url', ' ']],
+  ]) {
+    const result = providerSetup(env, args);
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /no provider config/);
+    const { config, unexpectedReads } = JSON.parse(result.stdout);
+    assert.equal(unexpectedReads, 0);
+    assert.equal(config, undefined);
+  }
+});
+
+test('provider URLs with userinfo are rejected without logging it', () => {
+  const env = {
+    MOSS_BENCH_API_KEY: 'synthetic-key',
+    MOSS_BENCH_MODEL: 'environment-model',
+    MOSS_BENCH_BASE_URL: 'https://environment.invalid/v1',
+  };
+  for (const url of [
+    'https://synthetic-user:synthetic-password@example.invalid/v1',
+    'https://synthetic-user@example.invalid/v1',
+  ]) {
+    const result = providerSetup(env, ['--base-url', url]);
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /base-url.*userinfo/i);
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /synthetic-user|synthetic-password/);
+    const { config, unexpectedReads } = JSON.parse(result.stdout);
+    assert.equal(unexpectedReads, 0);
+    assert.equal(config, undefined);
+  }
+});
+
 test('help explains the explicit provider settings', () => {
   const result = spawnSync(process.execPath, [runner, '--help'], {
     cwd: repoRoot,
@@ -201,12 +339,29 @@ test('help explains the explicit provider settings', () => {
   assert.doesNotMatch(result.stdout, /qoder/i);
 });
 
-test('non-finite temperature values fail before listing tasks', () => {
+test('missing option values do not consume the next flag', () => {
+  for (const flag of ['--label', '--task', '--temperature', '--model', '--base-url']) {
+    assert.throws(() => parseArgs([flag, '--list']), new RegExp(`${flag} requires a value`));
+    assert.throws(() => parseArgs([flag, '-h']), new RegExp(`${flag} requires a value`));
+  }
+});
+
+test('invalid and out-of-range temperatures fail before listing tasks', () => {
   assert.throws(() => parseArgs(['--temperature']), /--temperature requires a value/);
-  for (const temperature of ['NaN', 'Infinity', '-Infinity', '1e309', 'not-a-number']) {
+  for (const temperature of [
+    'NaN',
+    'Infinity',
+    '-Infinity',
+    '1e309',
+    'not-a-number',
+    '-0.5',
+    '2.5',
+    '',
+    ' ',
+  ]) {
     const result = listTasks(['--temperature', temperature, '--task', 'single-edit']);
     assert.equal(result.status, 2, `${temperature}: ${result.stdout}`);
-    assert.match(result.stderr, /--temperature.*finite/);
+    assert.match(result.stderr, /--temperature.*(?:finite|0.*2)/);
     assert.doesNotMatch(result.stdout, /^single-edit\s/m);
   }
 });

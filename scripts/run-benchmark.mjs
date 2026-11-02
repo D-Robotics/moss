@@ -40,10 +40,11 @@ function usage() {
     '                       same subset. Default seed is moss-bench. Re-measure',
     '                       bench:noise on that subset; do not reuse a larger band.',
     '  --seed <text>        Seed for --tasks (default moss-bench)',
-    '  --temperature <t>    Pin MOSS_TEMPERATURE to a finite number (default 0;',
-    '                       "none" leaves it unset)',
+    '  --temperature <t>    Pin MOSS_TEMPERATURE to a number from 0 to 2',
+    '                       (default 0; "none" leaves it unset)',
     '  --model <id>         Model id (overrides MOSS_BENCH_MODEL)',
-    '  --base-url <url>     Provider base URL (overrides MOSS_BENCH_BASE_URL)',
+    '  --base-url <url>     HTTP(S) provider URL without userinfo',
+    '                       (overrides MOSS_BENCH_BASE_URL)',
     '  --label <name>       Result directory name (default run-<timestamp>)',
     '  --baseline <name>    Compare against a prior run (label or results path).',
     '  --capability-gate <name>  Release gate: hard-tier score must beat the named',
@@ -76,7 +77,8 @@ export function parseArgs(argv) {
     const arg = argv[i];
     const next = () => {
       const value = argv[++i];
-      if (value === undefined) throw new Error(`${arg} requires a value`);
+      if (value === undefined || value.startsWith('--') || value === '-h')
+        throw new Error(`${arg} requires a value`);
       return value;
     };
     if (arg === '--samples') out.samples = Number(next());
@@ -87,6 +89,8 @@ export function parseArgs(argv) {
     else if (arg === '--capability-gate') out.capabilityGate = next();
     else if (arg === '--temperature') {
       const value = next();
+      if (value !== 'none' && !value.trim())
+        throw new Error('--temperature must be a finite number from 0 to 2 or none');
       out.temperature = value === 'none' ? undefined : Number(value);
     } else if (arg === '--model') out.model = next();
     else if (arg === '--base-url') out.baseUrl = next();
@@ -99,11 +103,33 @@ export function parseArgs(argv) {
   }
   if (!Number.isInteger(out.samples) || out.samples < 1)
     throw new Error('--samples must be a positive integer');
-  if (out.temperature !== undefined && !Number.isFinite(out.temperature))
-    throw new Error('--temperature must be a finite number or none');
+  if (
+    out.temperature !== undefined &&
+    (!Number.isFinite(out.temperature) || out.temperature < 0 || out.temperature > 2)
+  )
+    throw new Error('--temperature must be a finite number from 0 to 2 or none');
   if (out.tasks !== undefined && (!Number.isInteger(out.tasks) || out.tasks < 1))
     throw new Error('--tasks must be a positive integer');
   return out;
+}
+
+const BENCH_CONTROL_ENV = [
+  'MOSS_BEST_OF_N',
+  'MOSS_REASONING_BUDGET',
+  'MOSS_PLAN_GATE',
+  'MOSS_MODEL_CHEAP',
+  'MOSS_MODEL_BALANCED',
+  'MOSS_MODEL_STRONG',
+  'MOSS_GOAL_VERIFY_LOOP',
+  'MOSS_DISABLE_NUDGES',
+];
+
+export function benchmarkChildOverrides(env, passEnv, temperature) {
+  const overrides = { MOSS_TEMPERATURE: temperature === undefined ? '' : String(temperature) };
+  for (const key of [...BENCH_CONTROL_ENV, ...passEnv]) {
+    if (key !== 'MOSS_TEMPERATURE' && env[key] !== undefined) overrides[key] = env[key];
+  }
+  return overrides;
 }
 
 function hashSeed(text) {
@@ -143,12 +169,27 @@ export function sampleTaskIds(ids, count, seed = 'moss-bench') {
 
 function resolveProviderConfig(args) {
   const apiKey = process.env.MOSS_BENCH_API_KEY;
-  const model = args.model || process.env.MOSS_BENCH_MODEL;
-  const baseUrl = args.baseUrl || process.env.MOSS_BENCH_BASE_URL;
-  if (!apiKey || !model || !baseUrl) {
+  const model = args.model ?? process.env.MOSS_BENCH_MODEL;
+  const baseUrl = args.baseUrl ?? process.env.MOSS_BENCH_BASE_URL;
+  if (!apiKey?.trim() || !model?.trim() || !baseUrl?.trim()) {
     console.error(
       '[bench] no provider config: set MOSS_BENCH_API_KEY, MOSS_BENCH_MODEL (or --model), and MOSS_BENCH_BASE_URL (or --base-url)'
     );
+    process.exit(2);
+  }
+  let url;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    console.error('[bench] --base-url must be an absolute HTTP(S) URL');
+    process.exit(2);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    console.error('[bench] --base-url must be an absolute HTTP(S) URL');
+    process.exit(2);
+  }
+  if (url.username || url.password) {
+    console.error('[bench] --base-url must not contain userinfo');
     process.exit(2);
   }
   return { apiKey, model, baseUrl };
@@ -398,7 +439,6 @@ async function main() {
           MOSS_RUN_ID: `bench/${task.id}/${String(sample).padStart(2, '0')}`,
           MOSS_SAFETY_MODE: 'workspace-write',
           MOSS_APPROVAL_POLICY: 'never',
-          ...(args.temperature !== undefined ? { MOSS_TEMPERATURE: String(args.temperature) } : {}),
           ...(process.env.MOSS_GOAL_VERIFY_LOOP === '1'
             ? {
                 MOSS_GOAL_VERIFY_LOOP: '1',
@@ -409,9 +449,10 @@ async function main() {
             : {}),
           ...task.env,
         };
-        for (const key of ['MOSS_DISABLE_NUDGES', ...task.passEnv]) {
-          if (process.env[key] !== undefined) mossEnv[key] = process.env[key];
-        }
+        Object.assign(
+          mossEnv,
+          benchmarkChildOverrides(process.env, task.passEnv, args.temperature)
+        );
         const cliArgs = [
           CLI_ENTRY,
           '-p',

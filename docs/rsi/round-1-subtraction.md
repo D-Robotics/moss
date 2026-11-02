@@ -16,7 +16,7 @@ MOSS_DISABLE_NUDGES=todo,verify
 
 Stable ids live in `NUDGE_IDS` (`src/core/loop/nudges/disable.ts`). Call sites consult `isNudgeDisabled`. `moss config env` lists the variable under runs, loops, and budgets.
 
-`scripts/run-benchmark.mjs` builds a fresh child environment and copies `MOSS_DISABLE_NUDGES` onto that allowlist when the parent set the key (including an explicit empty value). Unset in the parent means the key is absent in the child. The module does not read `/proc` or the parent command line, so the same command works on Linux, macOS, and Windows. That runner is frozen; the one-line allowlist edit is the harness-maintenance exception in `docs/rsi/README.md`. `scripts/bench-device.mjs` is unchanged.
+`scripts/run-benchmark.mjs` builds a fresh child environment and copies `MOSS_DISABLE_NUDGES` onto that allowlist when the parent set the key (including an explicit empty value). It also forwards the named benchmark A/B controls; controls unset in the parent are absent from the constructed child environment, although the CLI may later load them from `.env`. The module does not read `/proc` or the parent command line, so the same command works on Linux, macOS, and Windows. That runner is frozen; the one-line allowlist edit was the harness-maintenance exception in `docs/rsi/README.md`. `scripts/bench-device.mjs` is unchanged.
 
 ## Budget
 
