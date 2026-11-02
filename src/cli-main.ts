@@ -56,7 +56,7 @@ import {
   untrustedFolderLine,
 } from './cli/workspace-trust.js';
 import { deliverDotenvSafetyEnvNotices } from './cli/safety-env-notice.js';
-import { runWithApprovalRequest, setPermissionRequestRunner } from './cli/permission-request.js';
+import { runWithApprovalDecision, setPermissionRequestRunner } from './cli/permission-request.js';
 import { resolveSoulIdentity, resolveSoul } from './cli/soul.js';
 import type { AgentHooks } from './core/agent/agent-hooks.js';
 import { createCliProvider } from './cli/providers.js';
@@ -947,7 +947,7 @@ async function main() {
   // O157: a hook `ask` reaches the policy hook, which prompts (or refuses in -p).
   const preToolUseGate = composePreToolUseGate(configPreHook, approvalHook);
   const onBeforeToolExec: AgentHooks['onBeforeToolExec'] = (req) =>
-    runWithApprovalRequest(req, () => preToolUseGate(req));
+    runWithApprovalDecision(req, () => preToolUseGate(req));
   const protectedConfigPaths = [
     loadedConfig.configPath,
     ...mossConfigDirs(configDir, envBeforeDotenv).flatMap((dir) =>

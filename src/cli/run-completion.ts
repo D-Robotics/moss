@@ -25,7 +25,10 @@ import { listBackgroundProcessSnapshots } from '../core/tools/background-process
 import { parseProtectedPathModMarker } from '../safety/protected-path-snapshot.js';
 import { ExitCode } from './exit-codes.js';
 import path from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { canonicalPath } from '../safety/shell-write-detect.js';
+import { redactEgress } from '../safety/tool-output-redact.js';
+import { sanitizeTextForTerminal } from './terminal-text.js';
 import { rawMutationPaths } from '../core/tools/tool-loop-guard.js';
 import { stripNegatedActionClauses } from '../utils/request-intent.js';
 
@@ -200,8 +203,15 @@ export function createRunCompletionTracker(): RunCompletionTracker {
 function describeStep(toolName: string, input: Record<string, unknown>): string {
   const command = typeof input.command === 'string' ? input.command : undefined;
   const filePath = typeof input.path === 'string' ? input.path : undefined;
-  const detail = (command ?? filePath ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
-  return detail ? `${toolName}: ${detail}` : toolName;
+  const clean = (value: string) =>
+    redactEgress(
+      sanitizeTextForTerminal(stripVTControlCharacters(value), { breakLongTokens: false })
+    )
+      .replace(/\s+/g, ' ')
+      .trim();
+  const detail = clean(command ?? filePath ?? '').slice(0, 120);
+  const name = clean(toolName);
+  return detail ? `${name}: ${detail}` : name;
 }
 
 function execFailed(result: string): boolean {
@@ -334,6 +344,8 @@ export function classifySafetyBlock(
     )
       return undefined;
   }
+  if (/^\s*(?:已拦截[：:]\s*)?(?:Blocked by PermissionRequest hook\b|权限请求时钩子)/i.test(head))
+    return make('hook', step);
   const what = protectedBlockSummary(text);
   if (what) return { kind: 'protected', step, en: what, zh: what };
   const subject = command ?? filePath ?? step;

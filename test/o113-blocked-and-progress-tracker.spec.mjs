@@ -12,6 +12,14 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { createCliToolApprovalHook } from '../dist/cli/approval.js';
 import { clearUiLanguage, setSessionUiLanguage } from '../dist/cli/cli-locale.js';
+import { setCliApprovalViewAsker } from '../dist/cli/approval-view.js';
+import { createConfiguredHookCallbacks } from '../dist/cli/hooks.js';
+import {
+  runWithApprovalDecision,
+  setPermissionRequestRunner,
+  wrapApprovalAsker,
+  wrapApprovalViewAsker,
+} from '../dist/cli/permission-request.js';
 import {
   createRunCompletionTracker,
   isSafetyOrApprovalBlockResult,
@@ -461,11 +469,186 @@ for (const lang of ['en', 'zh']) {
   });
 }
 
+for (const surface of ['repl', 'tui']) {
+  for (const hookDenied of [true, false]) {
+    test(`${surface}: ${hookDenied ? 'permission hook' : 'user'} denial keeps its source`, async (t) => {
+      const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o113-hook-denial-'));
+      t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
+      setSessionUiLanguage(surface === 'tui' ? 'zh' : 'en');
+      t.after(clearUiLanguage);
+      const hookSecret = 'moss-hook-secret-123456789';
+      const previousSecret = process.env.MOSS_HOOK_TEST_SECRET;
+      process.env.MOSS_HOOK_TEST_SECRET = hookSecret;
+      t.after(() => {
+        if (previousSecret === undefined) delete process.env.MOSS_HOOK_TEST_SECRET;
+        else process.env.MOSS_HOOK_TEST_SECRET = previousSecret;
+      });
+      fs.writeFileSync(
+        path.join(workspace, 'permission-hook.mjs'),
+        `process.stdout.write(JSON.stringify({ decision: '${hookDenied ? 'deny' : 'allow'}', reason: 'fixture policy: protected path ${hookSecret}' }));\n`
+      );
+      const hooks = createConfiguredHookCallbacks(
+        { PermissionRequest: [{ command: 'node permission-hook.mjs' }] },
+        { workspaceDir: workspace }
+      );
+      setPermissionRequestRunner((request) =>
+        hooks.runPermissionRequest({ toolName: request.tool.name, input: request.input })
+      );
+      t.after(() => setPermissionRequestRunner(undefined));
+      const approval = createCliToolApprovalHook(
+        'workspace-write',
+        {},
+        {
+          workspaceDir: workspace,
+          interactionMode: () => 'manual',
+        }
+      );
+      let prompts = 0;
+      const answer = async () => {
+        prompts++;
+        return 'n';
+      };
+      t.after(approval.setAsker(wrapApprovalAsker(answer)));
+      if (surface === 'tui') t.after(setCliApprovalViewAsker(wrapApprovalViewAsker(answer)));
+
+      const target = surface === 'tui' && hookDenied ? '.env' : 'note.txt';
+      const agent = new MossAgent({
+        llmProvider: createMockTranscriptProvider('hook-denied', 'hook-denied', [
+          { toolCalls: [{ name: 'write_file', input: { path: target, content: 'hello' } }] },
+          { text: 'The file was not written.' },
+        ]),
+        sessionStore: new InMemorySessionStore(),
+        model: 'hook-denied',
+        workspaceDir: workspace,
+        baseSystemPrompt: 'Test.',
+        domainPrompt: false,
+        includeAgentBehaviorPrompt: false,
+        enableSteering: false,
+        maxAgentTurns: 4,
+        hooks: {
+          onBeforeToolExec: (request) => runWithApprovalDecision(request, () => approval(request)),
+        },
+      });
+      agent.tools.register(writeFileTool);
+      const tracker = createRunCompletionTracker();
+      let ended;
+      for await (const event of agent.streamChat('o113-hook-denial', 'Create note.txt.')) {
+        noteRunCompletionEvent(tracker, event);
+        if (event.type === 'tool_end' && event.toolName === 'write_file') ended = event;
+      }
+      assert.equal(prompts, hookDenied ? 0 : 1);
+      assert.equal(fs.existsSync(path.join(workspace, target)), false);
+      assert.equal(ended?.outcome, 'denied');
+      assert.equal(tracker.safetyBlocks?.[0]?.kind, hookDenied ? 'hook' : 'denied');
+      const outcome = resolveRunOutcome({ tracker, finalText: 'Not executed.' });
+      assert.equal(outcome.status, 'incomplete');
+      assert.match(
+        formatOutcomeLine(outcome, 'en'),
+        hookDenied ? /hook blocked/ : /denied by user/
+      );
+      if (hookDenied) {
+        assert.match(ended.result, /PermissionRequest|权限请求时/i);
+        assert.match(ended.result, /fixture policy/);
+        assert.doesNotMatch(ended.result, /moss-hook-secret/, 'hook details must be redacted');
+      }
+    });
+  }
+}
+
+test('permission hook denial without a standard reason remains a hook block', async (t) => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o113-hook-reason-'));
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
+  t.after(() => setPermissionRequestRunner(undefined));
+  setSessionUiLanguage('en');
+  t.after(clearUiLanguage);
+  const approval = createCliToolApprovalHook(
+    'workspace-write',
+    {},
+    {
+      workspaceDir: workspace,
+      interactionMode: () => 'manual',
+    }
+  );
+  let prompts = 0;
+  t.after(
+    approval.setAsker(
+      wrapApprovalAsker(async () => {
+        prompts++;
+        return 'y';
+      })
+    )
+  );
+  const request = {
+    tool: writeFileTool,
+    input: { path: 'note.txt', content: 'hello' },
+    sessionKey: 'hook-reason',
+  };
+  const secret = 'moss-truncated-secret-123456789';
+  const previous = process.env.MOSS_TRUNCATED_TEST_SECRET;
+  process.env.MOSS_TRUNCATED_TEST_SECRET = secret;
+  t.after(() => {
+    if (previous === undefined) delete process.env.MOSS_TRUNCATED_TEST_SECRET;
+    else process.env.MOSS_TRUNCATED_TEST_SECRET = previous;
+  });
+  for (const reason of [
+    '',
+    '[hooks] PermissionRequest failed: protected path',
+    'policy denied',
+    `policy ${secret.slice(0, 14)}`,
+  ]) {
+    setPermissionRequestRunner(async () => ({ denied: true, reason }));
+    const decision = await runWithApprovalDecision(request, () => approval(request));
+    assert.equal(decision.approved, false);
+    assert.match(decision.reason, /^Blocked by PermissionRequest hook/);
+    assert.doesNotMatch(decision.reason, /moss-truncated/);
+  }
+  assert.equal(prompts, 0);
+});
+
+test('denied tool summaries redact secrets before truncation and remove terminal controls', (t) => {
+  const secret = 'moss-denial-secret-123456789';
+  const previous = process.env.MOSS_DENIAL_TEST_SECRET;
+  process.env.MOSS_DENIAL_TEST_SECRET = secret;
+  t.after(() => {
+    if (previous === undefined) delete process.env.MOSS_DENIAL_TEST_SECRET;
+    else process.env.MOSS_DENIAL_TEST_SECRET = previous;
+  });
+
+  for (const [toolName, input] of [
+    ['write_file', { path: `notes/${secret}\u001b[2J.txt` }],
+    ['write_file', { path: `${'x'.repeat(105)}${secret}.txt` }],
+    ['exec', { command: `deploy --token=${secret} \u001b]0;bad\u0007` }],
+  ]) {
+    const tracker = createRunCompletionTracker();
+    noteRunCompletionEvent(tracker, { type: 'tool_start', toolName, toolCallId: 'secret', input });
+    noteRunCompletionEvent(tracker, {
+      type: 'tool_end',
+      toolName,
+      toolCallId: 'secret',
+      result: `Tool execution denied: User denied ${toolName}.`,
+      isError: true,
+      outcome: 'denied',
+    });
+    const outcome = resolveRunOutcome({ tracker, finalText: 'Not executed.' });
+    assert.equal(outcome.status, 'incomplete');
+    for (const text of [
+      JSON.stringify(outcome),
+      formatOutcomeLine(outcome, 'en'),
+      formatOutcomeLine(outcome, 'zh'),
+    ]) {
+      assert.doesNotMatch(text, /moss-denial-secret/, 'no full or truncated secret');
+      assert.equal(text.includes('\u001b'), false, 'no terminal escape');
+      assert.equal(text.includes('\u0007'), false, 'no terminal bell');
+    }
+  }
+});
+
 test('other blocked and denied outcomes keep their existing classifications', () => {
   const cases = [
     ['Tool execution denied by user.', 'denied', 'denied'],
     ['已拦截：用户拒绝了 write_file。', 'denied', 'denied'],
     ['Tool execution denied: PreToolUse hook rejected the call.', 'denied', 'hook'],
+    ['Blocked by PermissionRequest hook: protected path denied.', 'denied', 'hook'],
     ['Tool execution denied: requires approval but cannot ask.', 'denied', 'approval'],
     ['Blocked: the user denied writing the protected path .env.', 'denied', 'protected'],
     ['Blocked dangerous command: rm -rf /', 'denied', 'dangerous'],
