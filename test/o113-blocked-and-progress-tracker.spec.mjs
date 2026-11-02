@@ -6,8 +6,12 @@
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { createCliToolApprovalHook } from '../dist/cli/approval.js';
+import { clearUiLanguage, setSessionUiLanguage } from '../dist/cli/cli-locale.js';
 import {
   createRunCompletionTracker,
   isSafetyOrApprovalBlockResult,
@@ -15,6 +19,10 @@ import {
 } from '../dist/cli/run-completion.js';
 import { formatOutcomeLine, resolveRunOutcome } from '../dist/cli/run-outcome.js';
 import { createRunProgressTracker, formatProgressOutcomeLine } from '../dist/cli/run-progress.js';
+import { MossAgent } from '../dist/core/agent/moss-agent.js';
+import { InMemorySessionStore } from '../dist/core/session/session.js';
+import { writeFileTool } from '../dist/tools/file-tools.js';
+import { createMockTranscriptProvider } from './e2e/mock-transcript-provider.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -377,4 +385,125 @@ function feedFail(t, toolName, detail, result = 'Error: no such file') {
   banUnknown(formatOutcomeLine(bare, 'zh'), 'D omit');
 }
 
-console.log('[PASS] o113-blocked-and-progress-tracker');
+// A real CLI approval decision flows through the agent as a denied tool_end.
+for (const lang of ['en', 'zh']) {
+  test(`${lang}: user rejects write_file and the run reports the refusal`, async (t) => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-o113-denied-'));
+    t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
+    setSessionUiLanguage(lang);
+    t.after(clearUiLanguage);
+
+    const approval = createCliToolApprovalHook(
+      'workspace-write',
+      {},
+      {
+        workspaceDir: workspace,
+        interactionMode: () => 'manual',
+      }
+    );
+    let prompts = 0;
+    const restoreAsker = approval.setAsker(async () => {
+      prompts++;
+      return 'n';
+    });
+    t.after(restoreAsker);
+
+    const agent = new MossAgent({
+      llmProvider: createMockTranscriptProvider('denied', 'denied', [
+        { toolCalls: [{ name: 'write_file', input: { path: 'note.txt', content: 'hello' } }] },
+        { text: 'The file was not written.' },
+      ]),
+      sessionStore: new InMemorySessionStore(),
+      model: 'denied',
+      workspaceDir: workspace,
+      baseSystemPrompt: 'Test.',
+      domainPrompt: false,
+      includeAgentBehaviorPrompt: false,
+      enableSteering: false,
+      maxAgentTurns: 4,
+      hooks: { onBeforeToolExec: approval },
+    });
+    agent.tools.register(writeFileTool);
+    const tracker = createRunCompletionTracker();
+    const events = [];
+    for await (const event of agent.streamChat('o113-denied', 'Create note.txt.')) {
+      events.push(event);
+      noteRunCompletionEvent(tracker, event);
+    }
+
+    assert.equal(prompts, 1);
+    assert.equal(fs.existsSync(path.join(workspace, 'note.txt')), false);
+    const ended = events.find(
+      (event) => event.type === 'tool_end' && event.toolName === 'write_file'
+    );
+    assert.ok(ended, 'the actual agent must emit a write_file tool_end');
+    assert.equal(ended.outcome, 'denied');
+    assert.equal(ended.isError, true);
+    assert.equal(
+      ended.result,
+      lang === 'zh'
+        ? '已拦截：User denied write_file.'
+        : 'Tool execution denied: User denied write_file.'
+    );
+
+    const outcome = resolveRunOutcome({
+      tracker,
+      finalText: 'The file was not written.',
+      request: 'What happened?',
+    });
+    assert.equal(outcome.status, 'incomplete');
+    assert.equal(outcome.exitCode, 9);
+    assert.match(
+      formatOutcomeLine(outcome, 'en'),
+      /Blocked by: denied by user `write_file: note\.txt`/
+    );
+    assert.match(formatOutcomeLine(outcome, 'zh'), /被拦：用户拒绝 `write_file: note\.txt`/);
+  });
+}
+
+test('other blocked and denied outcomes keep their existing classifications', () => {
+  const cases = [
+    ['Tool execution denied by user.', 'denied', 'denied'],
+    ['已拦截：用户拒绝了 write_file。', 'denied', 'denied'],
+    ['Tool execution denied: PreToolUse hook rejected the call.', 'denied', 'hook'],
+    ['Tool execution denied: requires approval but cannot ask.', 'denied', 'approval'],
+    ['Blocked: the user denied writing the protected path .env.', 'denied', 'protected'],
+    ['Blocked dangerous command: rm -rf /', 'denied', 'dangerous'],
+    ['Operation blocked by workspace policy. The tool did not inspect.', 'blocked', 'policy'],
+    ['Blocked: shell write escapes the workspace sandbox', 'blocked', 'sandbox'],
+    ['Stopped retrying: failed to start 2 times', 'blocked', 'loop-guard'],
+    ['Tool budget reached', 'blocked', undefined],
+    ['Unknown tool: write_file', 'blocked', undefined],
+    ['Tool execution denied: access denied by policy.', 'denied', undefined],
+    ['Tool execution denied: User denied write_file.', 'blocked', undefined],
+    ['User denied write_file.', 'ok', undefined],
+  ];
+  for (const [result, toolOutcome, kind] of cases) {
+    const tracker = createRunCompletionTracker();
+    noteRunCompletionEvent(tracker, {
+      type: 'tool_start',
+      toolName: 'write_file',
+      toolCallId: 'case',
+      input: { path: 'note.txt' },
+    });
+    noteRunCompletionEvent(tracker, {
+      type: 'tool_end',
+      toolName: 'write_file',
+      toolCallId: 'case',
+      result,
+      isError: toolOutcome !== 'ok',
+      outcome: toolOutcome,
+    });
+    assert.equal(
+      tracker.loopGuardStops?.length ? 'loop-guard' : tracker.safetyBlocks?.[0]?.kind,
+      kind,
+      `${toolOutcome}: ${result}`
+    );
+  }
+
+  const outcome = resolveRunOutcome({
+    tracker: createRunCompletionTracker(),
+    finalText: 'The user denied write_file.',
+  });
+  assert.equal(outcome.status, 'completed', 'model prose alone is not a tool refusal event');
+});
