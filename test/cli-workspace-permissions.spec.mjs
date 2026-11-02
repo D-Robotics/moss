@@ -26,6 +26,7 @@ function runCli(root, workspace, { args = ['-p', 'hello'], lang = 'en', preload 
       `--allow-fs-read=${path.join(repo, 'package.json')}`,
       `--allow-fs-read=${path.join(repo, 'bin', 'node-version-message.cjs')}`,
       `--allow-fs-read=${root}`,
+      `--allow-fs-write=${root}`,
       ...(preload ? ['--require', preload] : []),
       path.join(dist, 'cli.js'),
       '--config-file',
@@ -171,6 +172,59 @@ test('an unexpected migration failure still reports a bug even if its message me
     assert.match(result.stderr, /This looks like a bug/);
     assert.doesNotMatch(result.stderr, /Cannot access a workspace path/);
   } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('CLI migration skips an external skills link without modifying its target', (t) => {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-external-link-'));
+  const workspace = path.join(root, 'workspace');
+  const outside = path.join(root, 'outside');
+  const skills = path.join(workspace, 'skills');
+  const learned = path.join(outside, 'learned');
+  fs.mkdirSync(workspace);
+  fs.mkdirSync(learned, { recursive: true });
+  fs.writeFileSync(path.join(learned, 'marker'), 'outside');
+  try {
+    try {
+      fs.symlinkSync(outside, skills, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (err) {
+      if (process.platform === 'win32' && ['EPERM', 'EACCES', 'ENOTSUP'].includes(err.code)) {
+        return t.skip('directory symlinks are unavailable');
+      }
+      throw err;
+    }
+    const result = runCli(root, workspace, { args: ['config', 'show'] });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(path.join(learned, 'marker'), 'utf8'), 'outside');
+    assert.ok(fs.lstatSync(skills).isSymbolicLink());
+    assert.equal(fs.existsSync(path.join(workspace, '.moss', 'skills', 'learned')), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('CLI cleanup permission failure exits nonzero after a partial migration', (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX mode bits are unavailable on Windows');
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'moss-cli-cleanup-'));
+  const workspace = path.join(root, 'workspace');
+  const agent = path.join(workspace, 'agent');
+  fs.mkdirSync(path.join(agent, 'skills'), { recursive: true });
+  try {
+    fs.chmodSync(agent, 0o300);
+    try {
+      fs.readdirSync(agent);
+      return t.skip('current user can still read a directory without read permission');
+    } catch (err) {
+      if (err.code !== 'EACCES' && err.code !== 'EPERM') throw err;
+    }
+    const result = runCli(root, workspace, { args: ['config', 'show'] });
+    assert.match(result.stderr, /EACCES|EPERM/);
+    expectEnglishAccessError(result, agent);
+    assert.equal(result.stdout, '');
+    assert.ok(fs.existsSync(path.join(workspace, '.moss', 'agent', 'skills')));
+  } finally {
+    fs.chmodSync(agent, 0o700);
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

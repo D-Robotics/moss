@@ -60,46 +60,114 @@ export function pathExists(filePath: string): boolean {
 }
 
 function removeIfEmpty(dir: string): void {
-  if (!pathExists(dir)) return;
-  const stat = fs.lstatSync(dir);
-  if (!stat.isDirectory()) return;
   try {
+    if (!pathExists(dir)) return;
+    const stat = fs.lstatSync(dir);
+    if (!stat.isDirectory()) return;
     if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
-  } catch {}
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT' && code !== 'ENOTEMPTY' && code !== 'EEXIST') throw err;
+  }
 }
 
-function migratePath(src: string, dest: string, result: WorkspacePathMigrationResult): void {
+function isInsidePath(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return (
+    relative === '' ||
+    (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+  );
+}
+
+// Resolve the existing part of a path without treating a dangling symlink as a
+// missing directory. A path that cannot be kept inside the workspace is skipped.
+function workspacePath(root: string, candidate: string): string | undefined {
+  let current = candidate;
+  const missing: string[] = [];
+  for (;;) {
+    try {
+      const resolved = path.join(fs.realpathSync.native(current), ...missing.reverse());
+      return isInsidePath(root, resolved) ? resolved : undefined;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      try {
+        if (fs.lstatSync(current).isSymbolicLink()) return undefined;
+      } catch (statErr) {
+        if ((statErr as NodeJS.ErrnoException).code !== 'ENOENT') throw statErr;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) return undefined;
+      missing.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+function migratePath(
+  src: string,
+  dest: string,
+  root: string,
+  result: WorkspacePathMigrationResult
+): void {
+  const skipped = () => result.skippedPaths.push(`${src} -> ${dest}`);
   if (!pathExists(src)) return;
   const srcStat = fs.lstatSync(src);
-  if (!pathExists(dest)) {
+  // Moving a symlink itself can break a relative target; leave it in place.
+  if (srcStat.isSymbolicLink()) {
+    skipped();
+    return;
+  }
+  const realSrc = workspacePath(root, src);
+  if (!realSrc) {
+    skipped();
+    return;
+  }
+  const destStat = pathExists(dest) ? fs.lstatSync(dest) : undefined;
+  if (destStat?.isSymbolicLink()) {
+    skipped();
+    return;
+  }
+  const realDest = workspacePath(root, dest);
+  if (
+    !realDest ||
+    (srcStat.isDirectory() && (isInsidePath(realSrc, realDest) || isInsidePath(realDest, realSrc)))
+  ) {
+    skipped();
+    return;
+  }
+  if (!destStat) {
     fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
     fs.renameSync(src, dest);
     result.migratedPaths.push(`${src} -> ${dest}`);
     return;
   }
 
-  const destStat = fs.lstatSync(dest);
   if (srcStat.isDirectory() && destStat.isDirectory()) {
     for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-      migratePath(path.join(src, entry.name), path.join(dest, entry.name), result);
+      migratePath(path.join(src, entry.name), path.join(dest, entry.name), root, result);
     }
     removeIfEmpty(src);
     return;
   }
 
-  result.skippedPaths.push(`${src} -> ${dest}`);
+  skipped();
 }
 
 function migrateLegacySkillDirs(
   paths: MossWorkspacePaths,
+  root: string,
   result: WorkspacePathMigrationResult
 ): void {
+  if (!workspacePath(root, paths.legacySkillsDir)) {
+    result.skippedPaths.push(`${paths.legacySkillsDir} -> ${paths.skillsDir}`);
+    return;
+  }
   if (!pathExists(paths.legacySkillsDir)) return;
   for (const entry of fs.readdirSync(paths.legacySkillsDir, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.name === 'learned') continue;
     const legacySkillDir = path.join(paths.legacySkillsDir, entry.name);
     if (!pathExists(path.join(legacySkillDir, 'SKILL.md'))) continue;
-    migratePath(legacySkillDir, path.join(paths.skillsDir, entry.name), result);
+    migratePath(legacySkillDir, path.join(paths.skillsDir, entry.name), root, result);
   }
 }
 
@@ -243,10 +311,18 @@ export function migrateLegacyWorkspacePaths(workspaceDir: string): WorkspacePath
     skippedPaths: [],
   };
 
-  migratePath(paths.legacyLearnedSkillsDir, paths.learnedSkillsDir, result);
-  migrateLegacySkillDirs(paths, result);
-  migratePath(paths.legacySkillCandidatesDir, paths.skillCandidatesDir, result);
-  migratePath(paths.legacyAgentSkillsDir, paths.agentSkillsDir, result);
+  let root: string;
+  try {
+    root = fs.realpathSync.native(paths.workspaceDir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return result;
+    throw err;
+  }
+
+  migratePath(paths.legacyLearnedSkillsDir, paths.learnedSkillsDir, root, result);
+  migrateLegacySkillDirs(paths, root, result);
+  migratePath(paths.legacySkillCandidatesDir, paths.skillCandidatesDir, root, result);
+  migratePath(paths.legacyAgentSkillsDir, paths.agentSkillsDir, root, result);
 
   const migratedOutOf = (dir: string) =>
     result.migratedPaths.some(
