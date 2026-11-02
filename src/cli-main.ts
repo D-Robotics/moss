@@ -5,7 +5,7 @@ import { resolveHostShell } from './utils/host-shell.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { configureWindowsUtf8Console } from './utils/run-process.js';
-import { errorMessage } from './errors.js';
+import { ErrorCode, errorMessage, MossError } from './errors.js';
 import { noteKnownSecret } from './safety/known-secrets.js';
 import { buildResumeReplay } from './cli/resume-replay.js';
 import { exitCodeForError, ExitCode } from './cli/exit-codes.js';
@@ -172,6 +172,38 @@ import {
 
 function mossLine(en: string, vars?: Record<string, string | number>): string {
   return setupCopy(undefined, en, vars);
+}
+
+class WorkspacePathPermissionError extends MossError {
+  constructor(cause: Error) {
+    super({
+      code: ErrorCode.CONFIG_IO_FAILED,
+      message: uiText(
+        `Cannot access a workspace path: ${cause.message}`,
+        `无法访问工作区路径：${cause.message}`
+      ),
+      hint: uiText(
+        'Check permissions and access restrictions for the path and its parent directories.',
+        '请检查该路径及其父目录的权限和访问限制。'
+      ),
+      cause,
+    });
+  }
+}
+
+function migrateWorkspacePaths(workspace: string): ReturnType<typeof migrateLegacyWorkspacePaths> {
+  try {
+    return migrateLegacyWorkspacePaths(workspace);
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      ((err as NodeJS.ErrnoException).code === 'EACCES' ||
+        (err as NodeJS.ErrnoException).code === 'EPERM')
+    ) {
+      throw new WorkspacePathPermissionError(err);
+    }
+    throw err;
+  }
 }
 
 // Argument errors must be a one-line message, not an uncaught stack trace
@@ -499,7 +531,7 @@ async function main() {
       fallbackStartDir,
       loadedConfig,
       resolvedConfig,
-      workspacePathMigration: migrateLegacyWorkspacePaths(resolvedConfig.workspace as string),
+      workspacePathMigration: migrateWorkspacePaths(resolvedConfig.workspace as string),
     };
     await commandConfig.handler(ctx);
     return;
@@ -556,7 +588,7 @@ async function main() {
       resolvedConfig,
       workspace,
       workspaceStat,
-      workspacePathMigration: migrateLegacyWorkspacePaths(workspace),
+      workspacePathMigration: migrateWorkspacePaths(workspace),
     };
     await commandConfig.handler(ctx);
     return;
@@ -689,7 +721,7 @@ async function main() {
   // default, so the first question ignored the model the wizard had just saved.
   let model = resolvedConfig.model;
   let baseUrl = resolvedConfig.baseUrl;
-  const workspacePathMigration = migrateLegacyWorkspacePaths(workspace);
+  const workspacePathMigration = migrateWorkspacePaths(workspace);
   const runtimeDir = workspacePathMigration.paths.runtimeDir;
 
   const oneShotMessage = parsedArgs.prompt;
@@ -1882,6 +1914,11 @@ async function main() {
 }
 
 main().catch((err) => {
+  if (err instanceof WorkspacePathPermissionError) {
+    console.error(`[moss] ${errorMessage(err)}`);
+    process.exit(ExitCode.CONFIG);
+  }
+
   // Config file errors already carry a clean, actionable one-liner — show it
   // alone instead of a raw Node stack. A malformed/hand-edited config.json
   // (parse error → CliConfigFileError) is just as likely as a write failure,
