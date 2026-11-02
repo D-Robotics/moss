@@ -30,6 +30,12 @@ Moss 的目标是让用户更快拿到**独立验证过、可继续修改的结�
 
 对 Moss 的近期借鉴是：先测长工具执行时的 steer 排队和生效延迟；在任务视图突出待人处理、运行中与已验收；只对适合拆分的任务使用现有隔离 worktree 与子代理，最终回到同一验收流程。不要直接照搬 5 秒自动后台化阈值：它可能改变有副作用命令的完成语义。DSH 文档说明其 worker 目录与命令 shim 不是安全隔离，应保留 Moss 已有宿主侧权限约束。
 
+## 公开榜单候选
+
+[SWE-bench-Live Python Lite](https://swe-bench-live.github.io/) 的 300 道题适合作为首个公开目标。2026-11-03 的[榜单数据快照](https://raw.githubusercontent.com/SWE-bench-Live/swe-bench-live.github.io/main/reports-0605.jsonl)显示第三名解决 211/300 题；若榜单和计分规则保持不变，超过该成绩至少需要 212/300。榜单会变化，正式提交前必须重新核对；这不是 Moss 的当前成绩或上榜保证。
+
+按[官方投稿流程](https://github.com/SWE-bench-Live/submission)准备轨迹、预测补丁与评测结果，并保留每题单次运行和全部失败的记录。生成补丁的 agent 不应接触隐藏测试、测试补丁或验收器反馈；数据分离、运行环境和结果必须可复核。正式名次还取决于完整评测和榜单维护者审核。
+
 ## 当前评测缺口与推进顺序
 
 - **P0：评测可信度。** 默认 `scripts/tui-feel/driver.py` 的历史版本只观察启动画面，没有执行 JSON 场景步骤或测回显延迟；缺 pyte 时默认 runner 会 skip 并退出 0。`assert-layout.py` 是独立且更完整的屏幕断言，二者不可混为一谈。先使场景、失败、skip 和耗时可观察。
