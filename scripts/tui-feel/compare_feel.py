@@ -180,9 +180,12 @@ def moss_env(home: str, config: str) -> dict[str, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--compare", default="")
+    parser.add_argument("--compare", choices=["claude"], default="")
     parser.add_argument("--out", default="")
     args = parser.parse_args()
+    if args.compare == "claude" and not shutil.which("claude"):
+        print("[tui-feel] FAIL: claude was requested for comparison but is not available", file=sys.stderr)
+        return 1
     port = free_port()
     stub = subprocess.Popen(
         ["node", os.path.join(ROOT, "scripts/tui-feel/stub.mjs"), str(port)],

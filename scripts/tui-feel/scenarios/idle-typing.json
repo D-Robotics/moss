@@ -1,9 +1,46 @@
 {
-  "name": "idle-typing",
-  "cols": 100,
-  "rows": 30,
+  "name": "typing-stream-interrupt",
+  "sizes": [
+    { "cols": 100, "rows": 30 },
+    { "cols": 70, "rows": 24 }
+  ],
   "steps": [
-    { "type": "keys", "text": "hello" },
-    { "type": "expect", "includes": "hello" }
+    { "type": "keys", "text": "x" },
+    {
+      "type": "expect",
+      "target": "composer",
+      "includes": "❯ x",
+      "metric": "typing_echo_ms"
+    },
+    { "type": "keys", "text": "longstream" },
+    {
+      "type": "expect",
+      "target": "composer",
+      "includes": "❯ xlongstream",
+      "metric": "draft_echo_ms"
+    },
+    { "type": "keys", "text": "\r" },
+    {
+      "type": "expect",
+      "includes": "Section 1",
+      "alsoIncludes": "Esc to interrupt",
+      "metric": "first_stream_ms",
+      "timeout_ms": 15000
+    },
+    { "type": "keys", "text": "\u001b" },
+    {
+      "type": "expect",
+      "includes": "Interrupted",
+      "excludes": "Esc to interrupt",
+      "composerReady": true,
+      "metric": "interrupt_ms"
+    },
+    { "type": "keys", "text": "aftercancel" },
+    {
+      "type": "expect",
+      "target": "composer",
+      "includes": "aftercancel",
+      "metric": "post_interrupt_echo_ms"
+    }
   ]
 }

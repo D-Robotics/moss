@@ -31,7 +31,7 @@ const done = (res) => {
 };
 
 let seq = 0;
-http
+const server = http
   .createServer((req, res) => {
     if (req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -173,4 +173,4 @@ http
       done(res);
     });
   })
-  .listen(PORT, '127.0.0.1', () => console.log(PORT));
+  .listen(PORT, '127.0.0.1', () => console.log(server.address().port));

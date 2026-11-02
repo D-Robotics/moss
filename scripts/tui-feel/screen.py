@@ -5,13 +5,13 @@ quota is spent, feeds the output through pyte and exposes the screen, the
 hardware cursor and the composer row. Used by assert-layout.py and by the
 manual probe.
 """
+import codecs
 import fcntl
 import json
 import os
 import pty
 import select
 import shutil
-import socket
 import struct
 import subprocess
 import tempfile
@@ -42,20 +42,16 @@ KEYS = {
 PROMPT_GLYPH = "\u276f"  # ❯
 
 
-def free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
-
-
 class Session:
     """One moss process on a PTY. Use as a context manager."""
 
-    def __init__(self, cols=100, rows=30, renderer="fullscreen", extra_env=None, config=None, keybindings=None):
+    def __init__(self, cols=100, rows=30, renderer="fullscreen", extra_env=None, config=None, keybindings=None,
+                 initial_pump=2.0, isolated_env=False):
         self.cols, self.rows = cols, rows
         self.renderer = renderer
+        self.initial_pump = initial_pump
+        self.isolated_env = isolated_env
+        self.spawn_started_ns = None
         self.extra_env = extra_env or {}
         self.config_override = config or {}
         self.keybindings = keybindings
@@ -66,6 +62,7 @@ class Session:
         self.workspace = None
         self.screen = pyte.HistoryScreen(cols, rows, history=5000)
         self.stream = pyte.Stream(self.screen)
+        self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.raw = bytearray()
 
     def __enter__(self):
@@ -80,13 +77,41 @@ class Session:
         self.close()
 
     def start(self):
-        port = free_port()
+        if self.isolated_env:
+            inherited = {k: os.environ[k] for k in ("PATH", "TMPDIR") if k in os.environ}
+        else:
+            # Colour switches would silently strip every style; the probe owns them.
+            inherited = {k: v for k, v in os.environ.items() if k not in ("NO_COLOR", "FORCE_COLOR")}
+        # Let the stub bind its own ephemeral port. Waiting for its listening
+        # message avoids both a free-port race and a fixed startup delay.
         self.stub = subprocess.Popen(
-            ["node", os.path.join(ROOT, "scripts/tui-feel/stub.mjs"), str(port)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            ["node", os.path.join(ROOT, "scripts/tui-feel/stub.mjs"), "0"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=inherited,
         )
-        time.sleep(0.4)
+        deadline = time.monotonic() + 10
+        response = b""
+        while b"\n" not in response and time.monotonic() < deadline:
+            ready, _, _ = select.select([self.stub.stdout], [], [], min(0.1, max(0, deadline - time.monotonic())))
+            if ready:
+                chunk = os.read(self.stub.stdout.fileno(), 1024)
+                if not chunk:
+                    break
+                response += chunk
+                if len(response) > 1024:
+                    raise RuntimeError("stub emitted an invalid startup message")
+            elif self.stub.poll() is not None:
+                break
+        if b"\n" not in response:
+            detail = self.stub.stderr.read().decode("utf-8", "replace").strip() if self.stub.poll() is not None else "timed out"
+            raise RuntimeError(f"local stub did not start: {detail}")
+        try:
+            port = int(response.split(b"\n", 1)[0])
+            if not 0 < port < 65536:
+                raise ValueError("invalid port")
+        except ValueError as error:
+            raise RuntimeError(f"invalid local stub startup message: {response!r}") from error
         self.home = tempfile.mkdtemp(prefix="moss-screen-home-")
         self.workspace = tempfile.mkdtemp(prefix="moss-screen-ws-")
         home = self.home
@@ -107,9 +132,6 @@ class Session:
         if self.keybindings is not None:
             with open(os.path.join(cfg_dir, "keybindings.json"), "w", encoding="utf-8") as handle:
                 json.dump(self.keybindings, handle)
-        # Colour switches are inherited from the developer's shell (NO_COLOR, FORCE_COLOR)
-        # and would silently strip every style; the probe owns them.
-        inherited = {k: v for k, v in os.environ.items() if k not in ("NO_COLOR", "FORCE_COLOR")}
         env = {
             **inherited,
             "HOME": home,
@@ -124,17 +146,20 @@ class Session:
             **self.extra_env,
         }
         self.master, slave = pty.openpty()
-        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", self.rows, self.cols, 0, 0))
-        self.proc = subprocess.Popen(
-            ["node", os.path.join(ROOT, "dist/cli.js"), "--config-file", cfg],
-            stdin=slave,
-            stdout=slave,
-            stderr=slave,
-            cwd=ws,
-            env=env,
-        )
-        os.close(slave)
-        self.pump(2.0)
+        try:
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", self.rows, self.cols, 0, 0))
+            self.spawn_started_ns = time.monotonic_ns()
+            self.proc = subprocess.Popen(
+                ["node", os.path.join(ROOT, "dist/cli.js"), "--config-file", cfg],
+                stdin=slave,
+                stdout=slave,
+                stderr=slave,
+                cwd=os.path.realpath(ws),
+                env=env,
+            )
+        finally:
+            os.close(slave)
+        self.pump(self.initial_pump)
 
     def close(self):
         try:
@@ -144,6 +169,10 @@ class Session:
             if self.stub is not None:
                 self.stub.terminate()
                 self.stub.wait(timeout=5)
+                if self.stub.stdout:
+                    self.stub.stdout.close()
+                if self.stub.stderr:
+                    self.stub.stderr.close()
             if self.master is not None:
                 try:
                     os.close(self.master)
@@ -162,24 +191,29 @@ class Session:
             if workspace:
                 shutil.rmtree(workspace, ignore_errors=True)
 
+    def pump_once(self, timeout: float) -> bool:
+        """Read and process one PTY chunk, returning as soon as it arrives."""
+        ready, _, _ = select.select([self.master], [], [], timeout)
+        if not ready:
+            return False
+        try:
+            data = os.read(self.master, 65536)
+        except OSError:
+            return False
+        if not data:
+            return False
+        self.raw.extend(data)
+        # pyte keeps the old alternate-buffer cells on DECSET 1049; clear them
+        # as a real terminal does to avoid ghost characters after resume.
+        data = data.replace(b"\x1b[?1049h", b"\x1b[?1049h\x1b[2J\x1b[H")
+        self.stream.feed(self.decoder.decode(data))
+        return True
+
     def pump(self, seconds: float) -> None:
-        end = time.time() + seconds
-        while time.time() < end:
-            ready, _, _ = select.select([self.master], [], [], 0.05)
-            if not ready:
-                continue
-            try:
-                data = os.read(self.master, 65536)
-            except OSError:
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if not self.pump_once(min(0.05, max(0, end - time.monotonic()))) and self.proc.poll() is not None:
                 return
-            if not data:
-                return
-            self.raw.extend(data)
-            # A real terminal clears the alternate buffer on entry (DECSET 1049);
-            # pyte keeps the old cells, which fakes ghost characters after a
-            # suspend/resume. Model the clear so the screen matches a terminal.
-            data = data.replace(b"\x1b[?1049h", b"\x1b[?1049h\x1b[2J\x1b[H")
-            self.stream.feed(data.decode("utf-8", "replace"))
 
     def settle(self, timeout: float = 1.0) -> None:
         """Pump until the hardware cursor is visible (a finished frame).

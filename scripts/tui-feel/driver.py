@@ -1,72 +1,238 @@
 #!/usr/bin/env python3
-"""PTY + pyte driver for the TUI feel bench. Scenarios are JSON step lists."""
-import argparse, json, os, pathlib, pty, select, shutil, subprocess, sys, time
+"""Run declarative interaction scenarios against a real Moss PTY and local stub."""
+import argparse
+import json
+import math
+import os
+import pathlib
+import subprocess
+import sys
+import termios
+import time
 
 try:
-    import pyte
+    import pyte  # noqa: F401
 except ImportError:
-    print("[tui-feel] skip: pyte is not installed")
-    sys.exit(0)
+    print("[tui-feel] pyte is required: python3 -m pip install pyte", file=sys.stderr)
+    sys.exit(1)
+
+if os.name == "nt":
+    print("[tui-feel] the PTY benchmark requires macOS or Linux", file=sys.stderr)
+    sys.exit(1)
+
+from screen import Session  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCENARIOS = pathlib.Path(__file__).resolve().parent / "scenarios"
+TIMING = (
+    "monotonic clock; composer_ready_ms starts immediately before CLI spawn and "
+    "requires a visible composer, cursor and raw PTY input (polled every 5 ms); "
+    "other metrics start immediately before the preceding PTY write and end "
+    "when the driver first observes the matching pyte screen after parsing. "
+    "Stub startup is excluded. Results include PTY transport, rendering and "
+    "driver scheduling/parsing, not physical display or human reaction time. "
+    "The CLI can load .env files above its installation; keep them controlled "
+    "when comparing runs."
+)
 
 
-def run_scenario(name, cols, rows):
-    cli = ROOT / "dist" / "cli.js"
-    if not cli.exists():
-        return {"name": name, "skipped": "dist/cli.js missing"}
-    screen = pyte.HistoryScreen(cols, rows, history=2000)
-    stream = pyte.Stream(screen)
-    master, slave = pty.openpty()
-    proc = subprocess.Popen(
-        ["node", str(cli)],
-        stdin=slave,
-        stdout=slave,
-        stderr=slave,
-        cwd=str(ROOT),
-        env={**os.environ, "TERM": "xterm-256color", "MOSS_NO_TUI": "0"},
-    )
-    os.close(slave)
-    raw = bytearray()
-    end = time.time() + 2
-    while time.time() < end:
-        ready, _, _ = select.select([master], [], [], 0.1)
-        if not ready:
+def validate_spec(spec, path):
+    if not isinstance(spec, dict):
+        raise ValueError(f"{path}: scenario must be an object")
+    extra = set(spec) - {"name", "sizes", "cols", "rows", "steps"}
+    if extra:
+        raise ValueError(f"{path}: unknown scenario fields: {sorted(extra)}")
+    name = spec.get("name", path.stem)
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError(f"{path}: name must be nonempty")
+    sizes = spec.get("sizes", [{"cols": spec.get("cols", 100), "rows": spec.get("rows", 30)}])
+    if not isinstance(sizes, list) or not sizes:
+        raise ValueError(f"{path}: sizes must be a nonempty list")
+    for size in sizes:
+        if not isinstance(size, dict) or set(size) != {"cols", "rows"}:
+            raise ValueError(f"{path}: each size must contain only cols and rows")
+        if any(type(size[key]) is not int or not 1 <= size[key] <= 1000 for key in ("cols", "rows")):
+            raise ValueError(f"{path}: terminal dimensions must be integers from 1 to 1000")
+    steps = spec.get("steps")
+    if not isinstance(steps, list) or not steps or len(steps) % 2:
+        raise ValueError(f"{path}: steps must contain keys/expect pairs")
+    metrics = {"composer_ready_ms"}
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            raise ValueError(f"{path}: step {index + 1} must be an object")
+        if index % 2 == 0:
+            if set(step) != {"type", "text"} or step.get("type") != "keys" or not isinstance(step.get("text"), str) or not step["text"]:
+                raise ValueError(f"{path}: step {index + 1} must send nonempty keys")
             continue
-        try:
-            chunk = os.read(master, 65536)
-        except OSError:
-            break
-        if not chunk:
-            break
-        raw += chunk
-        stream.feed(chunk.decode("utf-8", "replace"))
-    proc.kill()
-    os.close(master)
-    text = "\n".join(screen.display)
+        allowed = {"type", "target", "includes", "alsoIncludes", "excludes", "composerReady", "metric", "timeout_ms"}
+        if set(step) - allowed or step.get("type") != "expect":
+            raise ValueError(f"{path}: step {index + 1} must be a valid expect")
+        if step.get("target", "screen") not in ("screen", "composer"):
+            raise ValueError(f"{path}: step {index + 1} has an invalid target")
+        for field in ("includes", "alsoIncludes", "excludes", "metric"):
+            if (field == "includes" or field in step) and (not isinstance(step.get(field), str) or not step[field]):
+                raise ValueError(f"{path}: step {index + 1} requires a nonempty {field}")
+        if "composerReady" in step and not isinstance(step["composerReady"], bool):
+            raise ValueError(f"{path}: step {index + 1} composerReady must be boolean")
+        timeout = step.get("timeout_ms", 10000)
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 0 < timeout <= 120000:
+            raise ValueError(f"{path}: step {index + 1} timeout_ms must be within 1–120000")
+        metric = step.get("metric")
+        if metric in metrics:
+            raise ValueError(f"{path}: duplicate metric {metric!r}")
+        if metric:
+            metrics.add(metric)
+    return name, sizes, steps
+
+
+def input_ready(session):
+    # Before Ink enables raw mode the PTY kernel itself echoes typed bytes,
+    # which looks like a composer update even if the app has not read them.
+    flags = termios.tcgetattr(session.master)[3]
+    return not flags & (termios.ECHO | termios.ICANON)
+
+
+def composer_bounds(session):
+    lines = session.lines()
+    _, cursor_row, hidden = session.cursor()
+    if hidden:
+        return None
+
+    def is_rule(line):
+        text = line.strip()
+        return len(text) >= 2 and set(text) == {"─"}
+
+    for row, line in enumerate(lines):
+        if row == 0 or not line.startswith("❯ ") or not is_rule(lines[row - 1]):
+            continue
+        for end in range(row + 1, len(lines)):
+            if is_rule(lines[end]):
+                if row <= cursor_row < end:
+                    return row, end
+                break
+    return None
+
+
+def composer_ready(session):
+    return composer_bounds(session) is not None
+
+
+def screen_state(session):
+    lines = session.lines()
+    bounds = composer_bounds(session)
     return {
-        "name": name,
-        "bytes": len(raw),
-        "clears": raw.count(b"\x1b[2J"),
-        "cursorHidden": b"\x1b[?25l" in raw and text.strip() == "",
-        "screenHasComposer": "❯" in text or ">" in text,
+        "screen": "\n".join(lines),
+        "composer": "\n".join(lines[bounds[0]:bounds[1]]) if bounds else "",
+        "composer_ready": bounds is not None,
     }
 
 
+def area_text(session, target):
+    return screen_state(session)[target]
+
+
+def wait_for(session, predicate, timeout, description, poll_interval=0.1):
+    deadline = time.monotonic_ns() + int(timeout * 1_000_000_000)
+    while time.monotonic_ns() <= deadline:
+        if session.proc.poll() is not None:
+            raise RuntimeError(f"CLI exited with status {session.proc.returncode} while waiting for {description}")
+        if session.stub.poll() is not None:
+            raise RuntimeError(f"local stub exited with status {session.stub.returncode} while waiting for {description}")
+        if predicate():
+            observed_at = time.monotonic_ns()
+            if observed_at <= deadline:
+                return observed_at
+            break
+        remaining = (deadline - time.monotonic_ns()) / 1_000_000_000
+        if remaining <= 0:
+            break
+        session.pump_once(min(poll_interval, remaining))
+    raise RuntimeError(f"timed out waiting for {description}")
+
+
+def elapsed_ms(start, end):
+    return round((end - start) / 1_000_000, 3)
+
+
+def run_scenario(name, size, steps):
+    cols, rows = size["cols"], size["rows"]
+    result = {"name": name, "cols": cols, "rows": rows, "status": "passed", "metrics": {}, "steps": []}
+    with Session(cols=cols, rows=rows, initial_pump=0, isolated_env=True,
+                 extra_env={"MOSS_LANG": "en", "MOSS_NO_TUI": "0"}) as session:
+        try:
+            ready_at = wait_for(session, lambda: composer_ready(session) and input_ready(session), 20,
+                                "visible composer, cursor and raw PTY input", poll_interval=0.005)
+            result["metrics"]["composer_ready_ms"] = elapsed_ms(session.spawn_started_ns, ready_at)
+            result["composer"] = {"row": composer_bounds(session)[0], "cursor": session.cursor(),
+                                  "observed": area_text(session, "composer").rstrip()}
+            previous = None
+            started = None
+            for step in steps:
+                if step["type"] == "keys":
+                    if not input_ready(session):
+                        raise RuntimeError("PTY input is not raw; refusing to measure kernel echo")
+                    previous = screen_state(session)
+                    started = time.monotonic_ns()
+                    session.send(step["text"])
+                    result["steps"].append({"type": "keys", "text": step["text"]})
+                    continue
+                target = step.get("target", "screen")
+                expected = step["includes"]
+                def matches(state):
+                    screen = state["screen"]
+                    return (expected in state[target]
+                            and (target != "composer" or state["composer_ready"])
+                            and (not step.get("composerReady") or state["composer_ready"])
+                            and (not step.get("alsoIncludes") or step["alsoIncludes"] in screen)
+                            and (not step.get("excludes") or step["excludes"] not in screen))
+
+                if step.get("metric") and matches(previous):
+                    raise RuntimeError(f"expectation {expected!r} was already satisfied before the preceding keys")
+                observed_at = wait_for(session, lambda: matches(screen_state(session)),
+                                       step.get("timeout_ms", 10000) / 1000,
+                                       f"expectation {expected!r} on {target}")
+                duration = elapsed_ms(started, observed_at)
+                if step.get("metric"):
+                    result["metrics"][step["metric"]] = duration
+                lines = area_text(session, target).splitlines()
+                observed = "\n".join(line.rstrip() for line in lines
+                                     if expected in line or (step.get("alsoIncludes") and step["alsoIncludes"] in line))
+                result["steps"].append({"type": "expect", "includes": expected, "target": target,
+                                        "observed": observed, "elapsed_ms": duration})
+            if session.proc.poll() is not None or session.stub.poll() is not None:
+                raise RuntimeError("CLI or local stub exited before the scenario finished")
+        except Exception as error:
+            screen = "\n".join(line.rstrip() for line in session.lines())
+            raise RuntimeError(f"{name}@{cols}x{rows}: {error}\n--- last screen ---\n{screen}") from error
+    return result
+
+
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--real", action="store_true")
-    parser.add_argument("--compare", default="")
+    parser.add_argument("--scenario", type=pathlib.Path, help="run one scenario JSON instead of the default set")
     args = parser.parse_args()
-    reports = []
-    for path in sorted(SCENARIOS.glob("*.json")):
-        spec = json.loads(path.read_text())
-        reports.append(run_scenario(spec.get("name", path.stem), spec.get("cols", 100), spec.get("rows", 30)))
-    pathlib.Path(args.out).write_text(json.dumps({"scenarios": reports}, indent=2))
-    print(args.out)
+    try:
+        cli = ROOT / "dist" / "cli.js"
+        if not cli.is_file():
+            raise FileNotFoundError(f"{cli} missing; run npm run build")
+        paths = [args.scenario] if args.scenario else sorted(SCENARIOS.glob("*.json"))
+        if not paths:
+            raise ValueError(f"no scenario JSON files found in {SCENARIOS}")
+        scenarios = [(path, validate_spec(json.loads(path.read_text(encoding="utf-8")), path)) for path in paths]
+        reports = []
+        for _, (name, sizes, steps) in scenarios:
+            for size in sizes:
+                result = run_scenario(name, size, steps)
+                reports.append(result)
+                print(f"[tui-feel] PASS {name}@{size['cols']}x{size['rows']}: {result['metrics']}", flush=True)
+        pathlib.Path(args.out).write_text(json.dumps({"timing": TIMING, "scenarios": reports}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(f"[tui-feel] report: {args.out}")
+        return 0
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+        print(f"[tui-feel] FAIL: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
