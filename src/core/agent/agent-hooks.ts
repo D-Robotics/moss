@@ -7,6 +7,10 @@ export interface ToolApprovalRequest {
   sessionKey: string;
   runId: string;
   toolCallId: string;
+  /** Runtime identity used for task-aware audit and prompt context. */
+  taskId?: string;
+  /** Workspace of the tool call, including isolated subagents. */
+  workspaceDir?: string;
   abortSignal: AbortSignal;
 }
 

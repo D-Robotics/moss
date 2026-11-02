@@ -233,6 +233,7 @@ test('completion gate consults the runtime for engine-settled acceptance', async
   // Workspace where the runtime already accepted the latest task: gate opens
   // even though the message history has no task_acceptance result.
   const settledWs = await tmpWorkspace();
+  const currentTask = await liveExecutingTask(settledWs);
   const taskId = await liveExecutingTask(settledWs);
   await recordEvidenceTool.execute(
     { metric: 'camera_fps', expected: '>=30', observed: '33', source: 'test', task_id: taskId },
@@ -242,6 +243,27 @@ test('completion gate consults the runtime for engine-settled acceptance', async
   const runtimeGate = createAcceptanceCompletionGate({ workspaceDir: settledWs });
   const opened = await runtimeGate(request);
   assert.equal(opened.ok, true);
+
+  const selectedGate = createAcceptanceCompletionGate({
+    workspaceDir: settledWs,
+    taskId: currentTask,
+  });
+  assert.equal((await selectedGate(request)).ok, false, 'another task cannot settle this task');
+  const missingGate = createAcceptanceCompletionGate({
+    workspaceDir: settledWs,
+    taskId: 'missing-task',
+  });
+  assert.equal((await missingGate(request)).ok, false, 'a missing selected task cannot fall back');
+  const foreignVerdict = {
+    messages: [
+      ...messages,
+      toolUseMessage('task_acceptance', { task_id: taskId }),
+      toolResultMessage('use_task_acceptance', `Task acceptance (${taskId}): PASS`),
+    ],
+    toolCallsByName: { task_define: 1, task_acceptance: 1 },
+  };
+  assert.equal(evaluateAcceptanceCompletionGate(foreignVerdict, currentTask).ok, false);
+  assert.equal(evaluateAcceptanceCompletionGate(foreignVerdict, taskId).ok, true);
 
   // Still blocks at most once per gate instance.
   const twice = await blockingGate(request);

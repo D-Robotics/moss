@@ -13,7 +13,19 @@ import { runTask } from '../dist/core/task/task-engine.js';
 import { recordHarnessSuiteEvidence } from '../dist/core/task/suite-evidence.js';
 import { evaluateContractAcceptance } from '../dist/core/task/verdict.js';
 import { listTaskEvents } from '../dist/core/task/task-store.js';
-import { appendTaskRecord, listEvidenceRecords } from '../dist/core/task-runtime/artifacts.js';
+import {
+  appendEvidenceRecord,
+  appendTaskRecord,
+  listEvidenceRecords,
+} from '../dist/core/task-runtime/artifacts.js';
+import { MossAgent, InMemorySessionStore } from '../dist/index.js';
+import { createAgentTurnRunner } from '../dist/core/task/agent-turn.js';
+import { createDraftTask } from '../dist/core/task/task-store.js';
+import { evaluateAcceptance } from '../dist/contracts/task.js';
+import { runTestsTool, verifyFixTool } from '../dist/tools/harness-tools.js';
+import { taskAcceptanceTool } from '../dist/tools/task-tools.js';
+import { runProcess } from '../dist/utils/run-process.js';
+import { createMockTranscriptProvider } from './e2e/mock-transcript-provider.mjs';
 
 const SMALL = 'fix the twenty-line helper and its tests';
 
@@ -32,6 +44,219 @@ async function define(dir, taskId, goal, acceptanceCriteria) {
     updatedAt: now,
   });
 }
+
+for (const method of ['streamChat', 'chat']) {
+  test(`${method} task turn records its real test run on the running task rather than a newer live task`, async (t) => {
+    const dir = await fs.realpath(await workspace());
+    t.after(() => fs.rm(dir, { recursive: true, force: true }));
+    await fs.writeFile(
+      path.join(dir, 'passing.spec.mjs'),
+      "import test from 'node:test'; import assert from 'node:assert/strict'; test('real check', () => assert.equal(1 + 1, 2));\n"
+    );
+    const provider = createMockTranscriptProvider('local', 'local', [
+      { toolCalls: [{ name: 'run_tests', input: { file: 'passing.spec.mjs' } }] },
+      { toolCalls: [{ name: 'task_acceptance', input: {} }] },
+      { text: 'Tests ran.' },
+    ]);
+    const agent = new MossAgent({
+      llmProvider: provider,
+      sessionStore: new InMemorySessionStore(),
+      model: 'local',
+      workspaceDir: dir,
+      domainPrompt: false,
+      enableFollowUpGuard: false,
+      enableCompaction: false,
+      hooks: { onBeforeToolExec: async () => ({ approved: true }) },
+    });
+    agent.tools.register(runTestsTool);
+    agent.tools.register(taskAcceptanceTool);
+    const turnAgent = method === 'chat' ? { chat: agent.chat.bind(agent) } : agent;
+    const turn = createAgentTurnRunner(turnAgent, 'current-task');
+    let taskB;
+    const result = await runTask(
+      {
+        workspaceDir: dir,
+        maxTurns: 1,
+        maxRepairAttempts: 0,
+        runTurn: async (prompt, phase, context) => {
+          const taskA = (await listTaskEvents(dir))[0].taskId;
+          await define(dir, taskA, 'task A', [
+            { metric: 'tests_pass', expected: '==true', required: true },
+          ]);
+          taskB = await createDraftTask(dir, 'task B');
+          taskB = {
+            ...taskB,
+            status: 'active',
+            updatedAt: Date.now() + 10_000,
+            acceptanceCriteria: [{ metric: 'tests_pass', expected: '==true', required: true }],
+          };
+          await appendTaskRecord(dir, taskB);
+          return turn(prompt, phase, context);
+        },
+      },
+      'task A'
+    );
+    const evidence = await listEvidenceRecords(dir, 20);
+    assert.equal(evidence.length, 1, 'the real test run produced one evidence record');
+    assert.equal(evidence[0].taskId, result.snapshot.taskId);
+    assert.equal(result.outcome, 'pass');
+    assert.equal(evaluateAcceptance(taskB, evidence).verdict, 'fail');
+  });
+}
+
+test('a missing host-selected task cannot receive or redirect suite evidence', async (t) => {
+  const dir = await fs.realpath(await workspace());
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const live = await createDraftTask(dir, 'unrelated live task');
+  await define(dir, live.taskId, live.goal, [
+    { metric: 'tests_pass', expected: '==true', required: true },
+  ]);
+  await fs.writeFile(
+    path.join(dir, 'passing.spec.mjs'),
+    "import test from 'node:test'; test('real check', () => {});\n"
+  );
+  const output = await runTestsTool.execute(
+    { file: 'passing.spec.mjs' },
+    { workspaceDir: dir, sessionKey: 'missing', goalExecWait: true, taskId: 'missing-task' }
+  );
+  assert.match(output, /tests_pass=true/);
+  assert.deepEqual(await listEvidenceRecords(dir, 20), []);
+});
+
+test('implicit acceptance uses the current task and an explicit task_id still wins', async (t) => {
+  const dir = await fs.realpath(await workspace());
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const taskA = await createDraftTask(dir, 'task A');
+  await define(dir, taskA.taskId, taskA.goal, [
+    { metric: 'tests_pass', expected: '==true', required: true },
+  ]);
+  await appendEvidenceRecord(dir, {
+    evidenceId: 'a-real-test',
+    taskId: taskA.taskId,
+    metric: 'tests_pass',
+    source: 'run_tests',
+    observed: true,
+    result: 'pass',
+    timestamp: Date.now(),
+  });
+  const taskB = await createDraftTask(dir, 'task B');
+  await appendTaskRecord(dir, {
+    ...taskB,
+    status: 'active',
+    updatedAt: Date.now() + 10_000,
+    acceptanceCriteria: [{ metric: 'tests_pass', expected: '==true', required: true }],
+  });
+  const ctx = { workspaceDir: dir, sessionKey: 'accept', taskId: taskA.taskId };
+  assert.match(
+    await taskAcceptanceTool.execute({}, ctx),
+    new RegExp(`Task acceptance \\(${taskA.taskId}\\): PASS`)
+  );
+  assert.match(
+    await taskAcceptanceTool.execute({ task_id: taskB.taskId }, ctx),
+    new RegExp(`Task acceptance \\(${taskB.taskId}\\): FAIL`)
+  );
+  assert.match(
+    await taskAcceptanceTool.execute({}, { ...ctx, taskId: 'missing-task' }),
+    /task missing-task not found/
+  );
+});
+
+test('verify_fix records all real checks on the current task', async (t) => {
+  const dir = await fs.realpath(await workspace());
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const taskA = await createDraftTask(dir, 'task A');
+  await createDraftTask(dir, 'newer task B');
+  await fs.writeFile(
+    path.join(dir, 'check.test.mjs'),
+    "import test from 'node:test'; test('check', () => {});\n"
+  );
+  // A nested node --test otherwise inherits the parent test runner's IPC mode.
+  const inheritedContext = process.env.NODE_TEST_CONTEXT;
+  const inheritedWorkerId = process.env.NODE_TEST_WORKER_ID;
+  delete process.env.NODE_TEST_CONTEXT;
+  delete process.env.NODE_TEST_WORKER_ID;
+  let result;
+  try {
+    result = await verifyFixTool.execute(
+      {
+        build_command: 'node -e "process.exit(0)"',
+        typecheck_command: 'node -e "process.exit(0)"',
+        test_command: 'node --test check.test.mjs',
+      },
+      { workspaceDir: dir, sessionKey: 'verify', goalExecWait: true, taskId: taskA.taskId }
+    );
+  } finally {
+    if (inheritedContext !== undefined) process.env.NODE_TEST_CONTEXT = inheritedContext;
+    if (inheritedWorkerId !== undefined) process.env.NODE_TEST_WORKER_ID = inheritedWorkerId;
+  }
+  assert.match(result, /ALL PASSED/);
+  const evidence = await listEvidenceRecords(dir, 20);
+  assert.deepEqual(evidence.map((row) => row.metric).sort(), [
+    'build_ok',
+    'tests_pass',
+    'typecheck_ok',
+  ]);
+  assert.ok(evidence.every((row) => row.taskId === taskA.taskId && row.observed === true));
+});
+
+test('offline task CLI accepts only the task that owns the real test evidence', async (t) => {
+  const dir = await fs.realpath(await workspace());
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const taskA = await createDraftTask(dir, 'CLI task A');
+  const taskB = await createDraftTask(dir, 'CLI task B');
+  const criteria = [{ metric: 'tests_pass', expected: '==true', required: true }];
+  await define(dir, taskA.taskId, taskA.goal, criteria);
+  await define(dir, taskB.taskId, taskB.goal, criteria);
+  await fs.writeFile(
+    path.join(dir, 'passing.spec.mjs'),
+    "import test from 'node:test'; test('real check', () => {});\n"
+  );
+  assert.match(
+    await runTestsTool.execute(
+      { file: 'passing.spec.mjs' },
+      { workspaceDir: dir, sessionKey: 'cli', taskId: taskA.taskId, goalExecWait: true }
+    ),
+    /tests_pass=true/
+  );
+  const env = {
+    PATH: process.env.PATH,
+    ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+    MOSS_CONFIG_DIR: path.join(dir, 'config'),
+    MOSS_NO_BUNDLED_DEFAULT: '1',
+    OPENAI_API_KEY: 'offline-placeholder',
+    MOSS_NO_TUI: '1',
+    CI: '1',
+  };
+  const cli = path.resolve('bin/moss.cjs');
+  const verify = (taskId) =>
+    runProcess(process.execPath, {
+      args: [
+        cli,
+        '-C',
+        dir,
+        '--provider',
+        'openai',
+        '--base-url',
+        'http://127.0.0.1:9',
+        '--model',
+        'offline',
+        'task',
+        'verify',
+        taskId,
+      ],
+      cwd: dir,
+      env,
+      timeout: 15000,
+    });
+  await assert.rejects(verify(taskB.taskId), (error) => {
+    assert.equal(error.exitCode, 1, error.stderr);
+    assert.match(`${error.stdout}\n${error.stderr}`, /NO EVIDENCE/);
+    return true;
+  });
+  const accepted = await verify(taskA.taskId);
+  assert.equal(accepted.exitCode, 0);
+  assert.match(accepted.stdout, /PASS/);
+});
 
 test('a suite run satisfies only tests_pass, build_ok, and typecheck_ok', async () => {
   const dir = await workspace();
@@ -134,6 +359,47 @@ test('suite evidence boolean true satisfies tests_pass == pass', async () => {
   });
   const matched = await evaluateContractAcceptance(synonymDir, synonym.taskId);
   assert.equal(matched.verdict.verdict, 'pass');
+});
+
+test('ordinary chat and streamChat cannot attach real test runs to a live task', async (t) => {
+  const dir = await fs.realpath(await workspace());
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await createDraftTask(dir, 'unrelated task');
+  await fs.writeFile(
+    path.join(dir, 'check.test.mjs'),
+    "import test from 'node:test'; test('check', () => {});\n"
+  );
+  for (const stream of [false, true]) {
+    const provider = createMockTranscriptProvider('local', 'local', [
+      { toolCalls: [{ name: 'run_tests', input: { file: 'check.test.mjs' } }] },
+      { text: 'Tests ran.' },
+    ]);
+    const agent = new MossAgent({
+      llmProvider: provider,
+      sessionStore: new InMemorySessionStore(),
+      model: 'local',
+      workspaceDir: dir,
+      domainPrompt: false,
+      enableFollowUpGuard: false,
+      enableCompaction: false,
+      hooks: { onBeforeToolExec: async () => ({ approved: true }) },
+    });
+    agent.tools.register(runTestsTool);
+    if (stream) {
+      const events = [];
+      for await (const event of agent.streamChat('ordinary-stream', 'Run tests', {
+        taskFlow: false,
+      }))
+        events.push(event);
+      assert.ok(
+        events.some((event) => event.type === 'tool_end' && event.toolName === 'run_tests')
+      );
+    } else {
+      const response = await agent.chat('ordinary-chat', 'Run tests', { taskFlow: false });
+      assert.ok(response.toolResults.some((item) => /tests_pass=true/.test(item.content)));
+    }
+    assert.deepEqual(await listEvidenceRecords(dir, 20), []);
+  }
 });
 
 test('ordinary chat does not attach a test run to a live goal', async () => {

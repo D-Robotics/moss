@@ -164,14 +164,15 @@ export const taskDefineTool: Tool = {
 export const taskAcceptanceTool: Tool = {
   name: 'task_acceptance',
   description:
-    'Evaluate a task against its evidence. Missing evidence for a required metric fails. Latest evidence per metric wins. Omit task_id to use the latest contract. Re-run after every repair.',
+    'Evaluate a task against its evidence. Missing evidence for a required metric fails. Latest evidence per metric wins. Omit task_id to use the current task, or the latest contract when there is no current task. Re-run after every repair.',
   metadata: { sideEffectClass: 'runtime_state', planMode: 'allow' },
   inputSchema: {
     type: 'object',
     properties: {
       task_id: {
         type: 'string',
-        description: 'Task contract id from task_define (default: the latest defined contract)',
+        description:
+          'Task contract id from task_define (default: current task, then latest contract)',
       },
     },
   },
@@ -180,12 +181,14 @@ export const taskAcceptanceTool: Tool = {
     if (tasks.length === 0) {
       return 'Error: task_acceptance: no task contracts in this workspace — define one with task_define first.';
     }
-    const taskId = String(input.task_id ?? '').trim();
-    const task = taskId
-      ? tasks.find((t) => t.taskId === taskId)
-      : tasks.reduce((latest, t) => (t.updatedAt >= latest.updatedAt ? t : latest));
+    const explicitTaskId = String(input.task_id ?? '').trim();
+    const taskId = explicitTaskId || ctx.taskId;
+    const task =
+      taskId !== undefined
+        ? tasks.find((t) => t.taskId === taskId)
+        : tasks.reduce((latest, t) => (t.updatedAt >= latest.updatedAt ? t : latest));
     if (!task) {
-      return `Error: task_acceptance: task ${taskId} not found — check task ids with the define output, or omit task_id to use the latest contract.`;
+      return `Error: task_acceptance: task ${taskId} not found — check the task id and workspace.`;
     }
     const command = await persistedAcceptanceCommand(ctx.workspaceDir, task.taskId);
     const result = await createTaskVerdictProvider({
@@ -203,7 +206,7 @@ export const taskAcceptanceTool: Tool = {
     // A command verdict has no task ID of its own. When the caller selected
     // the latest task implicitly, attach the identity from the actual verdict
     // before any untrusted command output so the loop can attribute it.
-    if (!taskId && result.source === 'command') {
+    if (!explicitTaskId && result.source === 'command') {
       return `Task acceptance (${task.taskId}): ${result.passed ? 'PASS' : 'FAIL'}\n${result.detail}`;
     }
     return result.detail;

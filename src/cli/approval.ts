@@ -1226,8 +1226,18 @@ export function createCliToolApprovalHook(
       }
       if (classification) {
         const deviceId = deviceKeys[0];
+        // Child worktrees are temporary. Preserve their audit in the parent
+        // workspace without assigning it to a task from a different workspace.
+        const isolatedWorkspace =
+          request.workspaceDir !== undefined &&
+          path.resolve(request.workspaceDir) !== workspaceRoot;
         await recordDevicePolicyDecision({
           workspaceDir: options.workspaceDir,
+          ...(isolatedWorkspace
+            ? { taskId: null }
+            : request.taskId !== undefined
+              ? { taskId: request.taskId }
+              : {}),
           toolName: tool.name,
           tier: classification.tier,
           decision: decision.approved ? 'allow' : 'deny',
@@ -1410,8 +1420,13 @@ export function createCliToolApprovalHook(
     // decisions (what/why/impact), not raw tool prompts.
     let taskCtx: TaskApprovalContext | undefined;
     try {
-      const { findLatestLiveTaskSnapshot } = await import('../core/task/task-store.js');
-      const snapshot = await findLatestLiveTaskSnapshot(options.workspaceDir ?? workspaceRoot);
+      const { findLatestLiveTaskSnapshot, getTaskStateSnapshot } =
+        await import('../core/task/task-store.js');
+      const taskWorkspace = request.workspaceDir ?? options.workspaceDir ?? workspaceRoot;
+      const snapshot =
+        request.taskId !== undefined
+          ? await getTaskStateSnapshot(taskWorkspace, request.taskId)
+          : await findLatestLiveTaskSnapshot(taskWorkspace);
       if (snapshot) {
         taskCtx = {
           taskId: snapshot.taskId,

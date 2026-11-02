@@ -54,6 +54,8 @@ export interface ToolContext {
    * or wait:false on the tool call keeps the short settle.
    */
   goalExecWait?: boolean;
+  /** Host-selected Task Runtime identity, scoped to this tool's workspaceDir. */
+  taskId?: string;
   /** Per-run numeric ceilings for tool inputs. Hosts can constrain expensive
    *  parameters without hiding the tool or trusting the model to self-limit. */
   toolInputLimits?: Record<string, Record<string, number>>;

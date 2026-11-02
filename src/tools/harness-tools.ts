@@ -89,6 +89,7 @@ export const runTestsTool: Tool = {
       await recordHarnessSuiteEvidence({
         workspaceDir: ctx.workspaceDir,
         taskTurn: ctx.goalExecWait === true,
+        taskId: ctx.taskId,
         source: 'run_tests',
         testsPassed,
         output: text,
@@ -239,6 +240,7 @@ export const verifyFixTool: Tool = {
     await recordHarnessSuiteEvidence({
       workspaceDir: ctx.workspaceDir,
       taskTurn: ctx.goalExecWait === true,
+      taskId: ctx.taskId,
       source: 'verify_fix',
       ...(result.buildSkipped || result.buildNotRun ? {} : { buildPassed: result.buildOk }),
       ...(result.typecheckSkipped || result.typecheckNotRun

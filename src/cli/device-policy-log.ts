@@ -4,12 +4,18 @@
  */
 import type { EvidenceRecord } from '../contracts/evidence.js';
 import { appendEvidenceRecord } from '../core/task-runtime/artifacts.js';
-import { findLatestLiveTaskSnapshot, tryAppendTaskEvent } from '../core/task/task-store.js';
+import {
+  findLatestLiveTaskSnapshot,
+  getTaskStateSnapshot,
+  tryAppendTaskEvent,
+} from '../core/task/task-store.js';
 import type { DeviceRiskTier } from '../safety/device-risk.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
 
 export interface DevicePolicyLogInput {
   workspaceDir: string | undefined;
+  /** null explicitly leaves the audit unscoped (for an isolated child). */
+  taskId?: string | null;
   toolName: string;
   tier: DeviceRiskTier;
   decision: 'allow' | 'deny';
@@ -29,7 +35,12 @@ export async function recordDevicePolicyDecision(input: DevicePolicyLogInput): P
   try {
     const operand = sanitizeSecrets((input.operand ?? '').slice(0, 400));
     const reason = sanitizeSecrets(input.reason).slice(0, 300);
-    const taskId = (await findLatestLiveTaskSnapshot(workspaceDir))?.taskId;
+    const taskId =
+      input.taskId === null
+        ? undefined
+        : input.taskId !== undefined
+          ? (await getTaskStateSnapshot(workspaceDir, input.taskId))?.taskId
+          : (await findLatestLiveTaskSnapshot(workspaceDir))?.taskId;
     const record: EvidenceRecord = {
       evidenceId: evidenceId(),
       ...(taskId ? { taskId } : {}),

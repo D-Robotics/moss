@@ -469,9 +469,15 @@ export async function listTaskStateSnapshots(workspaceDir: string): Promise<Task
  * share the task context instead of working from an isolated prompt). Empty
  * when no live task exists — sub-agents keep their bare task text.
  */
-export async function buildTaskContextBrief(workspaceDir: string): Promise<string> {
-  const snapshot = await findLatestLiveTaskSnapshot(workspaceDir);
-  if (!snapshot) return '';
+export async function buildTaskContextBrief(
+  workspaceDir: string,
+  taskId?: string
+): Promise<string> {
+  const snapshot =
+    taskId !== undefined
+      ? await getTaskStateSnapshot(workspaceDir, taskId)
+      : await findLatestLiveTaskSnapshot(workspaceDir);
+  if (!snapshot || isTerminalTaskPhase(snapshot.phase)) return '';
   const lines = ['[Task context you are part of]', `goal: ${snapshot.goal}`];
   if (snapshot.targetDeviceId) lines.push(`device: ${snapshot.targetDeviceId}`);
   lines.push(`phase: ${snapshot.phase} · verification attempt ${snapshot.attempt}`);

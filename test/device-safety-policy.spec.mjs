@@ -329,6 +329,56 @@ test('live task timeline records the device policy decision', async () => {
   setCliInteractionMode('manual');
 });
 
+test('device policy decisions keep a durable, correctly scoped audit', async (t) => {
+  setCliInteractionMode('full');
+  const ws = await tmpWorkspace();
+  const child = await tmpWorkspace();
+  t.after(async () => {
+    await fs.rm(ws, { recursive: true, force: true });
+    await fs.rm(child, { recursive: true, force: true });
+  });
+  const taskA = await createDraftTask(ws, 'task A');
+  const taskB = await createDraftTask(ws, 'newer task B');
+  await createDraftTask(child, 'child task C');
+  const hook = createCliToolApprovalHook('workspace-write', {}, { workspaceDir: ws });
+  const request = { tool: tool('device_exec'), input: { command: 'reboot' }, sessionKey: 'policy' };
+  await hook({ ...request, workspaceDir: ws, taskId: taskA.taskId });
+  await hook({ ...request, workspaceDir: ws, taskId: 'missing-task' });
+  await hook({ ...request, workspaceDir: child });
+  const parentRows = await listEvidenceRecords(ws, 20);
+  const childRows = await listEvidenceRecords(child, 20);
+  assert.equal(parentRows.length, 3, 'audit survives removal of an isolated child workspace');
+  assert.equal(parentRows[2].taskId, taskA.taskId);
+  assert.equal(parentRows[1].taskId, undefined, 'missing selected task stays unscoped');
+  assert.equal(parentRows[0].taskId, undefined, 'isolated child audit stays unscoped');
+  assert.equal(childRows.length, 0);
+  assert.ok(!(await listTaskEvents(ws, taskB.taskId)).some((event) => event.type === 'note'));
+});
+
+test('approval prompt describes the selected task rather than a newer one', async (t) => {
+  setCliInteractionMode('manual');
+  const ws = await tmpWorkspace();
+  t.after(() => fs.rm(ws, { recursive: true, force: true }));
+  const taskA = await createDraftTask(ws, 'selected goal A');
+  await createDraftTask(ws, 'newer goal B');
+  const prompts = [];
+  setCliApprovalAsker(async (question) => {
+    prompts.push(question);
+    return 'n';
+  });
+  const hook = createCliToolApprovalHook('workspace-write', {}, { workspaceDir: ws });
+  await hook({
+    tool: tool('write_file', 'local_write'),
+    input: { path: 'a.txt', content: 'x' },
+    sessionKey: 'prompt',
+    workspaceDir: ws,
+    taskId: taskA.taskId,
+  });
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0], /selected goal A/);
+  assert.doesNotMatch(prompts[0], /newer goal B/);
+});
+
 test('device_exec backstop blocks destructive calls the hook did not grant', async (t) => {
   resetDeviceOperationGrants();
   const passwordEnv = 'MOSS_TEST_DEVICE_POLICY_PASSWORD';

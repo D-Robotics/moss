@@ -3,18 +3,20 @@
  * MossAgent. Duck-types streamChat/chat so REPL / headless / SDK / TUI drive
  * identical behavior per interface parity, including the stop reason.
  */
-import type { MossAgentEvent } from '../agent/moss-agent-types.js';
+import type { ChatOptions, MossAgentEvent } from '../agent/moss-agent-types.js';
+
+type TurnChatOptions = Pick<ChatOptions, 'abortSignal' | 'taskFlow' | 'goalExecWait' | 'taskId'>;
 
 type StreamChatFn = (
   sessionKey: string,
   prompt: string,
-  options?: { abortSignal?: AbortSignal; taskFlow?: boolean; goalExecWait?: boolean }
+  options?: TurnChatOptions
 ) => AsyncIterable<MossAgentEvent>;
 
 type ChatFn = (
   sessionKey: string,
   prompt: string,
-  options?: { abortSignal?: AbortSignal; taskFlow?: boolean; goalExecWait?: boolean }
+  options?: TurnChatOptions
 ) => Promise<{ response: string; stopReason?: string }>;
 
 export interface AgentTurnRunnerOptions {
@@ -39,13 +41,15 @@ export interface AgentTurnResult {
  * compatible.
  */
 export interface AgentTurnRunner {
-  (prompt: string, phase: string): Promise<string>;
+  (prompt: string, phase: string, context?: { taskId: string }): Promise<string>;
   stopReason?: string;
 }
 
-function stringRunner(run: (prompt: string) => Promise<AgentTurnResult>): AgentTurnRunner {
-  const runner: AgentTurnRunner = async (prompt) => {
-    const result = await run(prompt);
+function stringRunner(
+  run: (prompt: string, context?: { taskId: string }) => Promise<AgentTurnResult>
+): AgentTurnRunner {
+  const runner: AgentTurnRunner = async (prompt, _phase, context) => {
+    const result = await run(prompt, context);
     runner.stopReason = result.stopReason;
     return result.text;
   };
@@ -59,7 +63,7 @@ export function createAgentTurnRunner(
 ): AgentTurnRunner {
   const duck = agent as { streamChat?: StreamChatFn; chat?: ChatFn };
   if (typeof duck.streamChat === 'function') {
-    return stringRunner(async (prompt) => {
+    return stringRunner(async (prompt, context) => {
       let accText = '';
       let doneResponse: string | undefined;
       let stopReason: string | undefined;
@@ -68,6 +72,7 @@ export function createAgentTurnRunner(
       for await (const event of duck.streamChat!(sessionKey, prompt, {
         taskFlow: true,
         goalExecWait: true,
+        ...(context ? { taskId: context.taskId } : {}),
         ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
       })) {
         options.onEvent?.(event);
@@ -84,10 +89,11 @@ export function createAgentTurnRunner(
     });
   }
   if (typeof duck.chat === 'function') {
-    return stringRunner(async (prompt) => {
+    return stringRunner(async (prompt, context) => {
       const result = await duck.chat!(sessionKey, prompt, {
         taskFlow: true,
         goalExecWait: true,
+        ...(context ? { taskId: context.taskId } : {}),
         ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
       });
       return result.stopReason

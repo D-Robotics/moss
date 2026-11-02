@@ -88,6 +88,9 @@ export interface SubAgentRunnerDeps {
 
   workspaceDir?: string;
 
+  /** Parent Task Runtime identity, inherited only when sharing its workspace. */
+  taskId?: string;
+
   protectedConfigPaths?: readonly string[];
 
   /**
@@ -113,6 +116,8 @@ export interface SubAgentRunnerDeps {
     abortSignal: AbortSignal;
     sessionKey: string;
     runId: string;
+    workspaceDir: string;
+    taskId?: string;
     tool?: Tool;
   }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
 }
@@ -311,6 +316,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         getToolsForRun: () => filteredTools,
         toolCtx: {
           workspaceDir,
+          ...(!isolated && deps.taskId !== undefined ? { taskId: deps.taskId } : {}),
           ...(deps.protectedConfigPaths
             ? {
                 protectedConfigPaths: [
@@ -363,6 +369,8 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
                   ...call,
                   sessionKey: childSessionKey,
                   runId: childRunId,
+                  workspaceDir,
+                  ...(!isolated && deps.taskId !== undefined ? { taskId: deps.taskId } : {}),
                 }),
             }
           : {}),

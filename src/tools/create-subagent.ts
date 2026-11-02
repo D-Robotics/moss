@@ -106,11 +106,11 @@ function snapshotProgressLines(snapshot: MossAsyncTaskSnapshot | undefined): str
  * open failures) instead of working from an isolated prompt. No-op without a
  * live task.
  */
-async function withTaskContext(workspaceDir: string | undefined, task: string): Promise<string> {
-  if (!workspaceDir) return task;
+async function withTaskContext(ctx: ToolContext, task: string, isolated = false): Promise<string> {
+  if (isolated) return task;
   try {
     const { buildTaskContextBrief } = await import('../core/task/task-store.js');
-    const brief = await buildTaskContextBrief(workspaceDir);
+    const brief = await buildTaskContextBrief(ctx.workspaceDir, ctx.taskId);
     if (!brief) return task;
     if (!task) return brief;
     return `${brief}\n\n---\n\n${task}`;
@@ -249,7 +249,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
       }
       // Enrich BEFORE registry.start: awaiting inside the runner would delay
       // the spawn past an already-aborted signal (listener never fires).
-      const backgroundTask = await withTaskContext(ctx.workspaceDir, input.task);
+      const backgroundTask = await withTaskContext(ctx, input.task, input.worktree === true);
       const taskId = `${ctx.runId ?? ctx.sessionKey}/sub-${randomUUID().slice(0, 8)}`;
       const scope = selectedScope;
       const maxTurns = selectedMaxTurns;
@@ -349,7 +349,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
     const scope = selectedScope;
     const maxTurns = selectedMaxTurns;
     const result = await ctx.spawnSubagent({
-      task: await withTaskContext(ctx.workspaceDir, input.task),
+      task: await withTaskContext(ctx, input.task, input.worktree === true),
       ...(input.writePaths ? { writePaths: input.writePaths } : {}),
       ...(input.worktree ? { worktree: true } : {}),
       scope,
@@ -676,11 +676,14 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     }
 
     // Shared task context once per batch (same live task for every fan-out).
-    const fanOutBrief = await withTaskContext(ctx.workspaceDir, '').catch(() => '');
+    const fanOutBrief = await withTaskContext(ctx, '').catch(() => '');
     const settled = await Promise.allSettled(
       effectiveTasks.map((t, i) =>
         ctx.spawnSubagent!({
-          task: fanOutBrief ? `${fanOutBrief}\n\n---\n\n${t.task}` : t.task,
+          task:
+            fanOutBrief && !t.worktree && !(WORKTREE_ENV_DEFAULT && resolvedScopes[i] === 'full')
+              ? `${fanOutBrief}\n\n---\n\n${t.task}`
+              : t.task,
           ...(t.writePaths ? { writePaths: t.writePaths } : {}),
           ...(t.worktree || (WORKTREE_ENV_DEFAULT && resolvedScopes[i] === 'full')
             ? { worktree: true }

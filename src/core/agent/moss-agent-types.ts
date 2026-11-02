@@ -324,6 +324,9 @@ export interface ChatOptions {
    * Ordinary chat leaves it unset even if a task file is still live on disk.
    */
   goalExecWait?: boolean;
+
+  /** Host-selected Task Runtime identity for this turn, scoped to workspaceDir. */
+  taskId?: string;
 }
 
 export interface ChatResult {

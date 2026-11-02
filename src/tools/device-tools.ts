@@ -41,7 +41,11 @@ import {
   parseCamerasProbe,
 } from '../device/observation.js';
 import { EXEC_DEFAULT_TIMEOUT_MS, looksBinary, safePath } from './tool-helpers.js';
-import { findLatestLiveTaskSnapshot, tryAppendTaskEvent } from '../core/task/task-store.js';
+import {
+  findLatestLiveTaskSnapshot,
+  getTaskStateSnapshot,
+  tryAppendTaskEvent,
+} from '../core/task/task-store.js';
 
 const EXEC_STDOUT_MAX = 80_000;
 const EXEC_STDERR_MAX = 4_096;
@@ -504,14 +508,14 @@ export const deviceDeployTool: Tool = {
       },
       ctx.abortSignal ? { signal: ctx.abortSignal } : {}
     );
-    // Task OS M4: deployments are timeline-visible events of the task they
-    // serve (explicit task_id, or the latest live task in the workspace). The
-    // association rides on the record itself so every consumer (TUI detail,
-    // history, /deployments) sees the same ownership, not just the timeline.
+    // Task OS M4: associate the deployment with the explicit or current task;
+    // without either, preserve the latest-live compatibility behavior.
     const owningTaskId =
       typeof input.task_id === 'string' && input.task_id.trim()
         ? input.task_id.trim()
-        : (await findLatestLiveTaskSnapshot(ctx.workspaceDir))?.taskId;
+        : ctx.taskId !== undefined
+          ? (await getTaskStateSnapshot(ctx.workspaceDir, ctx.taskId))?.taskId
+          : (await findLatestLiveTaskSnapshot(ctx.workspaceDir))?.taskId;
     if (owningTaskId) record.taskId = owningTaskId;
     try {
       await appendDeploymentRecord(ctx.workspaceDir, record);

@@ -8,7 +8,7 @@
  */
 import type { EvidenceRecord } from '../../contracts/evidence.js';
 import { appendEvidenceRecordWithSignal } from '../task-runtime/artifacts.js';
-import { findLatestLiveTaskSnapshot } from './task-store.js';
+import { findLatestLiveTaskSnapshot, getTaskStateSnapshot } from './task-store.js';
 
 function evidenceId(metric: string): string {
   return `ev_${Date.now().toString(36)}_${metric}_${Math.random().toString(36).slice(2, 6)}`;
@@ -34,6 +34,9 @@ export async function recordHarnessSuiteEvidence(input: {
         ? (await findLatestLiveTaskSnapshot(input.workspaceDir))?.taskId
         : undefined);
     if (!taskId) return 0;
+    if (input.taskId !== undefined && !(await getTaskStateSnapshot(input.workspaceDir, taskId))) {
+      return 0;
+    }
     const rows: Array<{ metric: string; passed: boolean }> = [];
     if (input.testsPassed !== undefined) {
       rows.push({ metric: 'tests_pass', passed: input.testsPassed });

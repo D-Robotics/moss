@@ -14,6 +14,7 @@ import { deviceDeployTool } from '../dist/tools/device-tools.js';
 import { listDeploymentRecords } from '../dist/device/deployment.js';
 import { configureDefaultDeviceTarget } from '../dist/device/device-target.js';
 import { disconnectAllDevices } from '../dist/device/device-registry.js';
+import { createDraftTask, listTaskEvents } from '../dist/core/task/task-store.js';
 import { startInProcessSshDevice } from './helpers/in-process-ssh-device.mjs';
 
 const PASSWORD_ENV = 'MOSS_TEST_DEVICE_PASSWORD';
@@ -58,6 +59,8 @@ test('device_deploy runs the full lifecycle and records evidence', async (t) => 
 
   const workspace = await makeWorkspace();
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const taskA = await createDraftTask(workspace, 'deployment task A');
+  const taskB = await createDraftTask(workspace, 'newer task B');
 
   const out = await deviceDeployTool.execute(
     {
@@ -68,7 +71,7 @@ test('device_deploy runs the full lifecycle and records evidence', async (t) => 
       health_command: 'systemctl is-active moss-app',
       health_expect: '^active$',
     },
-    makeCtx(workspace)
+    { ...makeCtx(workspace), taskId: taskA.taskId }
   );
 
   assert.match(out, /: RUNNING$/m);
@@ -90,6 +93,17 @@ test('device_deploy runs the full lifecycle and records evidence', async (t) => 
   assert.equal(records[0].status, 'running');
   assert.equal(records[0].healthCheck.passed, true);
   assert.equal(records[0].deviceId, 'deploy-test');
+  assert.equal(records[0].taskId, taskA.taskId);
+  assert.ok(
+    (await listTaskEvents(workspace, taskA.taskId)).some(
+      (event) => event.type === 'deployment_recorded'
+    )
+  );
+  assert.ok(
+    !(await listTaskEvents(workspace, taskB.taskId)).some(
+      (event) => event.type === 'deployment_recorded'
+    )
+  );
   assert.ok(records[0].deploymentId.startsWith('deploy_'));
 });
 

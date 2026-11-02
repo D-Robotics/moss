@@ -43,8 +43,14 @@ export interface TaskEngineDeps {
    * carry the agent stop reason (the string-returning runner does this).
    * An `AgentTurnResult` object may carry `stopReason` instead. A reason
    * that starts with `budget_` ends the run unless the task is already settled.
+   * The optional third argument carries the current task id; legacy callbacks
+   * that accept only prompt and phase can ignore it.
    */
-  runTurn: (prompt: string, phase: string) => Promise<string | AgentTurnResult>;
+  runTurn: (
+    prompt: string,
+    phase: string,
+    context?: { taskId: string }
+  ) => Promise<string | AgentTurnResult>;
   /** Defaults to contract acceptance; a command provider overrides it. */
   verdictProvider?: VerdictProvider;
   /** Repair cycles before the task is declared failed (default 5). */
@@ -224,7 +230,10 @@ async function runAgentTurn(
   prompt: string,
   phase: string
 ): Promise<'ok' | 'budget'> {
-  const { stopReason } = readAgentTurnResult(await deps.runTurn(prompt, phase), deps.runTurn);
+  const { stopReason } = readAgentTurnResult(
+    await deps.runTurn(prompt, phase, { taskId: state.taskId }),
+    deps.runTurn
+  );
   // Normal turns are reconciled by their caller; only a budget stop needs
   // this extra snapshot before deciding whether to append a failure.
   if (!stopReason?.startsWith('budget_')) return 'ok';

@@ -1096,6 +1096,7 @@ ${result.stderr ?? ''}`.trim();
       ...(options?.taskFlow === false ? { taskContracts: 'deny' as const } : {}),
       ...(options?.taskFlow === true ? { taskContracts: 'allow' as const } : {}),
       ...(options?.goalExecWait === true ? { goalExecWait: true as const } : {}),
+      ...(options?.taskId !== undefined ? { taskId: options.taskId } : {}),
       ...(this.config.execWriteRoots ? { execWriteRoots: this.config.execWriteRoots } : {}),
       mergeWorkspacePatch: async (leaseId, patchId) => {
         const result = await mergeLeasePatch({ parentWorkspace: workspaceDir, leaseId, patchId });
@@ -1201,7 +1202,9 @@ ${result.stderr ?? ''}`.trim();
     // hint and does not enforce a filesystem boundary.
     const buildToolApprovalCheck = (
       approvalSessionKey: string,
-      approvalRunId: string
+      approvalRunId: string,
+      approvalWorkspaceDir: string,
+      approvalTaskId?: string
     ): AgentLoopParams['checkToolApproval'] =>
       hooks?.onBeforeToolExec
         ? async (call) => {
@@ -1225,6 +1228,8 @@ ${result.stderr ?? ''}`.trim();
               sessionKey: approvalSessionKey,
               runId: approvalRunId,
               toolCallId: call.id,
+              workspaceDir: approvalWorkspaceDir,
+              ...(approvalTaskId !== undefined ? { taskId: approvalTaskId } : {}),
               abortSignal: call.abortSignal,
             });
             return decision.approved
@@ -1247,6 +1252,7 @@ ${result.stderr ?? ''}`.trim();
       toolHooks: this.toolHooks,
       spawnRegistry: this.spawnRegistry,
       workspaceDir,
+      ...(toolCtx.taskId !== undefined ? { taskId: toolCtx.taskId } : {}),
       ...(toolCtx.protectedConfigPaths
         ? { protectedConfigPaths: toolCtx.protectedConfigPaths }
         : {}),
@@ -1266,8 +1272,15 @@ ${result.stderr ?? ''}`.trim();
               abortSignal: AbortSignal;
               sessionKey: string;
               runId: string;
+              workspaceDir: string;
+              taskId?: string;
             }) => {
-              const check = buildToolApprovalCheck(call.sessionKey, call.runId);
+              const check = buildToolApprovalCheck(
+                call.sessionKey,
+                call.runId,
+                call.workspaceDir,
+                call.taskId
+              );
               return check ? check(call) : null;
             },
           }
@@ -1493,6 +1506,7 @@ ${result.stderr ?? ''}`.trim();
     const acceptanceGate = ledgerVisible
       ? createAcceptanceCompletionGate({
           ...(this.config?.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
+          ...(toolCtx.taskId !== undefined ? { taskId: toolCtx.taskId } : {}),
         })
       : async () => ({ ok: true as const });
     const hostCompletionGate = this.config.completionGate;
@@ -1612,7 +1626,7 @@ ${result.stderr ?? ''}`.trim();
           usage,
         };
       },
-      checkToolApproval: buildToolApprovalCheck(sessionKey, runId),
+      checkToolApproval: buildToolApprovalCheck(sessionKey, runId, workspaceDir, toolCtx.taskId),
       toolAbortSignalFor: options?.toolAbortSignalFor,
       enrichToolContext: (baseContext) =>
         this.userQuestionAsker

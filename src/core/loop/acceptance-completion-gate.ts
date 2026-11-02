@@ -89,7 +89,10 @@ const REPAIR_AFTER_FAIL = new Set(['record_failure', 'record_repair', 'record_ev
  * after that FAIL result. A PASS, or a FAIL that was followed by repair
  * work, is enough to let the run finish.
  */
-function acceptanceProgress(messages: Message[]): {
+function acceptanceProgress(
+  messages: Message[],
+  currentTaskId?: string
+): {
   outcome: 'none' | 'pass' | 'fail' | 'other';
   repairedAfterFail: boolean;
 } {
@@ -143,6 +146,7 @@ function acceptanceProgress(messages: Message[]): {
           acceptanceIds.get(typed.tool_use_id)
         );
         if (!verdict || (failed && verdict.outcome !== 'FAIL')) continue;
+        if (currentTaskId !== undefined && verdict.taskId !== currentTaskId) continue;
         outcome =
           verdict.outcome === 'PASS' ? 'pass' : verdict.outcome === 'FAIL' ? 'fail' : 'other';
         failedTaskId = verdict.taskId;
@@ -166,15 +170,15 @@ function acceptanceProgress(messages: Message[]): {
  * verdict counts as recorded — the agent is then expected to report that
  * failure honestly (the verdict text is in its context).
  */
-export function evaluateAcceptanceCompletionGate(request: {
-  messages: Message[];
-  toolCallsByName: Record<string, number>;
-}): AcceptanceGateDecision {
+export function evaluateAcceptanceCompletionGate(
+  request: { messages: Message[]; toolCallsByName: Record<string, number> },
+  currentTaskId?: string
+): AcceptanceGateDecision {
   if (isNudgeDisabled('acceptance-gate')) return { ok: true };
   if ((request.toolCallsByName['task_define'] ?? 0) === 0) {
     return { ok: true };
   }
-  const progress = acceptanceProgress(request.messages);
+  const progress = acceptanceProgress(request.messages, currentTaskId);
   if (progress.outcome === 'pass' || progress.outcome === 'other') {
     return { ok: true };
   }
@@ -218,14 +222,14 @@ export function evaluateAcceptanceCompletionGate(request: {
  * task_acceptance tool result.
  */
 export function createAcceptanceCompletionGate(
-  options: { workspaceDir?: string } = {}
+  options: { workspaceDir?: string; taskId?: string } = {}
 ): NonNullable<AgentLoopExtensions['completionGate']> {
   let blockedNoVerdict = false;
   let blockedUnrepairedFail = false;
   return async (request) => {
-    const decision = evaluateAcceptanceCompletionGate(request);
+    const decision = evaluateAcceptanceCompletionGate(request, options.taskId);
     if (!decision.ok && options.workspaceDir) {
-      const settled = await runtimeHasSettledAcceptance(options.workspaceDir);
+      const settled = await runtimeHasSettledAcceptance(options.workspaceDir, options.taskId);
       if (settled) return { ok: true as const };
     }
     if (decision.ok) return decision;
@@ -245,10 +249,16 @@ export function createAcceptanceCompletionGate(
  * acceptance verdict whose latest lifecycle state is terminal — the engine
  * (or an earlier run) already settled acceptance outside this run's context.
  */
-async function runtimeHasSettledAcceptance(workspaceDir: string): Promise<boolean> {
+async function runtimeHasSettledAcceptance(
+  workspaceDir: string,
+  taskId?: string
+): Promise<boolean> {
   try {
-    const { listTaskStateSnapshots } = await import('../task/task-store.js');
-    const snapshots = await listTaskStateSnapshots(workspaceDir);
+    const { getTaskStateSnapshot, listTaskStateSnapshots } = await import('../task/task-store.js');
+    const snapshots =
+      taskId !== undefined
+        ? [await getTaskStateSnapshot(workspaceDir, taskId)].filter((snapshot) => snapshot !== null)
+        : await listTaskStateSnapshots(workspaceDir);
     if (snapshots.length === 0) return false;
     const latest = snapshots.reduce((a, b) => (b.updatedAt >= a.updatedAt ? b : a));
     return (

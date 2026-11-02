@@ -1147,16 +1147,23 @@ test('createAgentTurnRunner reports stopReason from streamChat and chat', async 
   assert.equal(streamRunner.stopReason, 'budget_tokens_reached');
   assert.equal(streamOptions.goalExecWait, true);
   assert.equal(streamOptions.taskFlow, true);
-  assert.equal(await streamRunner('again', 'executing'), 'continued');
+  assert.equal(streamOptions.taskId, undefined);
+  assert.equal(await streamRunner('again', 'executing', { taskId: 'stream-task' }), 'continued');
+  assert.equal(streamOptions.taskId, 'stream-task');
   assert.equal(streamRunner.stopReason, undefined);
 
+  let chatOptions;
   const chatAgent = {
-    async chat() {
+    async chat(_session, _prompt, options) {
+      chatOptions = options;
       return { response: 'chat text', stopReason: 'budget_tool_calls_reached' };
     },
   };
   const chatRunner = createAgentTurnRunner(chatAgent, 'session-chat');
+  assert.equal(await chatRunner('prompt', 'executing', { taskId: 'chat-task' }), 'chat text');
+  assert.equal(chatOptions.taskId, 'chat-task');
   assert.equal(await chatRunner('prompt', 'executing'), 'chat text');
+  assert.equal(chatOptions.taskId, undefined);
   assert.equal(chatRunner.stopReason, 'budget_tool_calls_reached');
 
   const ws = await tmpWorkspace();
