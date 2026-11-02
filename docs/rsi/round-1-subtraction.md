@@ -54,7 +54,7 @@ The seven family runs are about 9.9M tokens. Seven paired baselines are another 
 
 ## Family commands
 
-Replace `<model>` and `<url>`. `--keep-artifacts` stays on so a regression can be read from the run. Temperature stays at the runner default of 0. Leave `--temperature` off these commands: `--temperature 0` reads a second argument, so the next flag is discarded and the run errors. `--temperature none` is the branch that does not.
+Replace `<model>` and `<url>` and set `MOSS_BENCH_API_KEY` in the environment. The model and URL may also be supplied through `MOSS_BENCH_MODEL` and `MOSS_BENCH_BASE_URL`; the flags take precedence. `--keep-artifacts` stays on so a regression can be read from the run. Temperature defaults to 0; `--temperature 0` now works, and `--temperature none` leaves it unset. The runner at the original Round 1 base incorrectly consumed the flag after a numeric temperature, so this fix applies only when the gate's base contains the updated runner.
 
 ### `tool-hints`
 
