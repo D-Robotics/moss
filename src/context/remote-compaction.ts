@@ -12,6 +12,7 @@ import { redactEgress } from '../safety/tool-output-redact.js';
 import {
   isSecretArgumentFlag,
   isSecretFieldName,
+  redactAttachedPasswordArgument,
   redactAttachedUserArgument,
   redactContextValues,
   redactedValueContext,
@@ -64,7 +65,12 @@ export interface HybridCompactionConfig {
 }
 
 function redactSecretsInText(text: string): string {
-  return redactEgress(text);
+  const sanitized = redactEgress(text);
+  if (sanitized === text) return text;
+  const context = redactedValueContext(text, sanitized);
+  return context.unresolved
+    ? '[text withheld by redaction]'
+    : redactContextValues(sanitized, context);
 }
 
 function sanitizeTextForRemote(value: string | undefined): string | undefined {
@@ -107,9 +113,12 @@ function sanitizeRemoteValue(
             : kind === 'headers' && isSecretFieldName(item));
         const sanitizedItem =
           typeof item === 'string' && kind === 'arguments'
-            ? redactAttachedUserArgument(item)
+            ? redactAttachedPasswordArgument(redactAttachedUserArgument(item))
             : item;
-        result.push(secretNext ? REDACTED : sanitizeRemoteValue(sanitizedItem, seen, depth + 1));
+        const nestedField = kind === 'headers' && Array.isArray(item) ? 'headers' : undefined;
+        result.push(
+          secretNext ? REDACTED : sanitizeRemoteValue(sanitizedItem, seen, depth + 1, nestedField)
+        );
         secretNext = secretFlag;
       }
       return result;
@@ -173,13 +182,22 @@ function sanitizePayloadForRemote(messages: Message[]): Message[] {
   return messages.map((msg) => {
     const { content, thinking, ...rest } = msg;
     const safeRest = sanitizeRemoteValue(rest) as Omit<Message, 'content' | 'thinking'>;
-    const joinedThinking = thinking?.join('\n\n');
+    const thinkingCopy: string[] | undefined = thinking === undefined ? undefined : [];
+    if (thinkingCopy && Array.isArray(thinking)) {
+      for (let index = 0; index < thinking.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(thinking, String(index));
+        if (descriptor && 'value' in descriptor && typeof descriptor.value === 'string') {
+          thinkingCopy.push(descriptor.value);
+        }
+      }
+    }
+    const joinedThinking = thinkingCopy?.join('\n\n');
     const safeThinking =
       joinedThinking === undefined ? undefined : redactSecretsInText(joinedThinking);
     const thinkingFields =
-      thinking === undefined
+      thinkingCopy === undefined
         ? {}
-        : { thinking: safeThinking === joinedThinking ? thinking : [safeThinking ?? ''] };
+        : { thinking: safeThinking === joinedThinking ? thinkingCopy : [safeThinking ?? ''] };
     if (typeof content === 'string') {
       return { ...safeRest, ...thinkingFields, content: redactSecretsInText(content) };
     }
@@ -213,12 +231,15 @@ function sanitizePayloadForRemote(messages: Message[]): Message[] {
         const safeBlock = sanitizeRemoteValue(restBlock) as ContentBlock;
         if (block.type === 'tool_result') {
           const rawText = block.content;
-          const base = typeof rawText === 'string' ? redactSecretsInText(rawText) : '';
+          const base = typeof rawText === 'string' ? redactEgress(rawText) : '';
           const context =
             typeof rawText === 'string'
               ? redactedValueContext(rawText, base)
               : { values: [], unresolved: true };
-          const visibleText = redactContextValues(base, context);
+          const visibleText =
+            typeof rawText === 'string' && context.unresolved && rawText !== base
+              ? '[tool result withheld by redaction]'
+              : redactContextValues(base, context);
           const structuredContent = sanitizeStructuredForRemote(block, context, visibleText);
           result.push({
             ...safeBlock,

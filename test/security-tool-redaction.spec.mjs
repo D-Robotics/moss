@@ -431,6 +431,185 @@ test('ordinary diagnostic arrays are not treated as command arguments', async ()
   assert.deepEqual(result.end.error.context.logLines, ['curl', '-p', 'robot-port = 2222']);
 });
 
+test('SDK metadata redacts encoded values beside invalid UTF-8 escapes', async () => {
+  const encoded = Array.from(opaquePassword, (char) => `%${char.charCodeAt(0).toString(16)}`).join(
+    ''
+  );
+  const result = await runTool({
+    executeStructured: async () => ({
+      content: [
+        { type: 'text', text: `Authorization: Bearer ${opaquePassword}` },
+        { type: 'resource', uri: `fixture://guide/%FF/${encoded}` },
+        { type: 'resource', uri: `fixture://guide/%ff${encoded}` },
+        { type: 'resource', uri: 'fixture://safe/guide' },
+      ],
+    }),
+  });
+  assert.equal(containsValue(result.events, encoded), false);
+  assert.equal(containsValue(result.observed, encoded), false);
+  assert.equal(containsValue(result.messages, encoded), false);
+  assert.ok(result.end.structuredContent.some((block) => block.uri === 'fixture://safe/guide'));
+});
+
+test('SDK error contexts preserve nested header-pair context', async () => {
+  const result = await runTool({
+    executeStructured: async () => {
+      throw new MossError({
+        code: ErrorCode.TOOL_EXECUTION_FAILED,
+        message: 'failed safely',
+        context: {
+          headers: [
+            ['Authorization', `Bearer ${opaquePassword}`],
+            ['Content-Type', 'text/plain'],
+          ],
+        },
+      });
+    },
+  });
+  assert.equal(containsValue(result.events, opaquePassword), false);
+  assert.equal(containsValue(result.observed, opaquePassword), false);
+  assert.equal(result.end.error.context.headers[1][1], 'text/plain');
+});
+
+test('SDK error contexts redact attached mysql and sshpass passwords', async () => {
+  const result = await runTool({
+    executeStructured: async () => {
+      throw new MossError({
+        code: ErrorCode.TOOL_EXECUTION_FAILED,
+        message: 'failed safely',
+        context: {
+          mysql: ['mysql', `-p${opaquePassword}`],
+          sshpass: ['sshpass', `-p${opaquePassword}`],
+          lines: ['-p2222', 'safe diagnostic'],
+        },
+      });
+    },
+  });
+  assert.equal(containsValue(result.events, opaquePassword), false);
+  assert.equal(containsValue(result.observed, opaquePassword), false);
+  assert.deepEqual(result.end.error.context.lines, ['-p2222', 'safe diagnostic']);
+});
+
+test('SDK output redacts quoted passwords repeated elsewhere', async () => {
+  const result = await runTool({
+    executeStructured: async () => ({
+      content: [
+        { type: 'text', text: `password="${opaquePassword}"\nRepeated: ${opaquePassword}` },
+        { type: 'resource', uri: 'fixture://safe/guide' },
+      ],
+    }),
+  });
+  assert.equal(containsValue(result.events, opaquePassword), false);
+  assert.equal(containsValue(result.observed, opaquePassword), false);
+  assert.equal(containsValue(result.messages, opaquePassword), false);
+});
+
+test('SDK output does not repeat quoted passwords containing symbols', async () => {
+  const token = 'Sy!n7heticP4ss&98';
+  const result = await runTool({
+    executeStructured: async () => ({
+      content: [
+        { type: 'text', text: `password="${token}"\nRepeated: ${token}` },
+        { type: 'image', data: 'AAECAw==', mimeType: 'image/png' },
+      ],
+    }),
+  });
+  assert.equal(containsValue(result.events, token), false);
+  assert.equal(containsValue(result.observed, token), false);
+  assert.equal(containsValue(result.messages, token), false);
+  assert.equal(
+    result.end.structuredContent?.find((block) => block.type === 'image')?.data,
+    'AAECAw=='
+  );
+});
+
+test('SDK output does not repeat escaped quoted password values', async () => {
+  const token = 'Sy"n7heticP4ss98';
+  const result = await runTool({
+    executeStructured: async () => ({
+      content: [
+        { type: 'text', text: `password=${JSON.stringify(token)}\nRepeated: ${token}` },
+        { type: 'image', data: 'AAECAw==', mimeType: 'image/png' },
+      ],
+    }),
+  });
+  assert.equal(containsValue(result.events, token), false);
+  assert.equal(containsValue(result.observed, token), false);
+  assert.equal(containsValue(result.messages, token), false);
+  assert.equal(
+    result.end.structuredContent?.find((block) => block.type === 'image')?.data,
+    'AAECAw=='
+  );
+});
+
+test('SDK withholds text when a quoted secret cannot be safely decoded', async () => {
+  const token = 'Sy\\q7heticP4ss98';
+  const result = await runTool({
+    executeStructured: async () => ({
+      content: [
+        { type: 'text', text: `password='${token}'\nRepeated: ${token}` },
+        { type: 'image', data: 'AAECAw==', mimeType: 'image/png' },
+      ],
+    }),
+  });
+  assert.equal(containsValue(result.events, token), false);
+  assert.equal(containsValue(result.observed, token), false);
+  assert.equal(containsValue(result.messages, token), false);
+  assert.equal(
+    result.end.structuredContent?.find((block) => block.type === 'image')?.data,
+    'AAECAw=='
+  );
+});
+
+test('SDK metadata does not repeat a quoted credential within one field', async () => {
+  const result = await runTool({
+    executeStructured: async () => ({
+      content: [
+        { type: 'text', text: 'safe observation' },
+        {
+          type: 'resource',
+          uri: 'fixture://safe/guide',
+          name: `password="${opaquePassword}"\nRepeated: ${opaquePassword}`,
+        },
+      ],
+    }),
+  });
+  assert.equal(containsValue(result.events, opaquePassword), false);
+  assert.equal(containsValue(result.observed, opaquePassword), false);
+  assert.equal(containsValue(result.messages, opaquePassword), false);
+});
+
+test('SDK keeps labelled star masks conservative for unverified metadata', async () => {
+  const result = await runTool({
+    executeStructured: async () => ({
+      content: [
+        { type: 'text', text: 'password=***' },
+        { type: 'resource', uri: `fixture://guide/${opaquePassword}`, name: opaquePassword },
+      ],
+    }),
+  });
+  assert.equal(containsValue(result.events, opaquePassword), false);
+  assert.equal(containsValue(result.messages, opaquePassword), false);
+  assert.equal(
+    result.end.structuredContent.find((block) => block.type === 'resource')?.uri,
+    '[REDACTED]'
+  );
+});
+
+test('SDK keeps safe resources after ordinary Markdown stars', async () => {
+  const result = await runTool({
+    executeStructured: async () => ({
+      content: [
+        { type: 'text', text: '# Password\n\n***\n\nDetails' },
+        { type: 'resource', uri: 'fixture://safe/guide', name: 'safe guide' },
+      ],
+    }),
+  });
+  const resource = result.end.structuredContent.find((block) => block.type === 'resource');
+  assert.equal(resource?.uri, 'fixture://safe/guide');
+  assert.equal(resource?.name, 'safe guide');
+});
+
 test('structured metadata is redacted in SDK events and in-memory history', async () => {
   const result = await runTool({
     executeStructured: async () => ({

@@ -123,7 +123,7 @@ export function sensitiveArrayKind(
   const commandName = /^(?:curl|wget|mysql|mariadb|sshpass|docker|podman)(?:\.exe)?$/;
   if (name && !commandName.test(name)) return 'other';
   const executable = typeof first === 'string' ? first.split(/[\\/]/).at(-1)?.toLowerCase() : '';
-  return commandName.test(executable ?? '') ? 'arguments' : 'other';
+  return commandName.test(name) || commandName.test(executable ?? '') ? 'arguments' : 'other';
 }
 
 /** Preserve the user part while withholding credentials attached to a curl user flag. */
@@ -132,14 +132,24 @@ export function redactAttachedUserArgument(argument: string): string {
   return match ? `${match[1]}${match[2]}:${REDACTED}` : argument;
 }
 
+/** In a recognized argument array, -pVALUE can carry an attached password. */
+export function redactAttachedPasswordArgument(argument: string): string {
+  return /^-p.+/.test(argument) ? `-p${REDACTED}` : argument;
+}
+
 export interface RedactedValueContext {
   values: string[];
   unresolved: boolean;
 }
 
+const LABELLED_STAR_MASK = new RegExp(
+  `(?:^|[^a-z0-9])(?:${SECRET_FIELD_SOURCE})[ \\t]*(?:[:=][ \\t]*(?:\\r?\\n[ \\t]*)?|[ \\t]+)(?:(?:bearer|basic|token)[ \\t\\r\\n]+)?['"]?[A-Za-z0-9_]{0,4}\\*{3,}[A-Za-z0-9_]{0,2}`,
+  'i'
+);
+
 /** Recover recognizable replaced values without guessing when the source is already redacted. */
 export function redactedValueContext(original: string, sanitized: string): RedactedValueContext {
-  const unresolved = /\[redacted\]|\*{3}/i.test(original);
+  const unresolved = /\[redacted\]/i.test(original) || LABELLED_STAR_MASK.test(original);
   if (original === sanitized) return { values: [], unresolved };
   // The legacy sanitizer sometimes emits a short prefix/suffix around ***.
   // Treat that partial mask as one withheld span for cross-field propagation.
@@ -158,9 +168,26 @@ export function redactedValueContext(original: string, sanitized: string): Redac
       return { values: [], unresolved: true };
     }
     const removed = original.slice(cursor, end).trim();
-    const match = /^(?:(?:bearer|basic|token)\s+)?([A-Za-z0-9._~+\/=\-]{4,})$/i.exec(removed);
-    if (!match) return { values: [], unresolved: true };
-    values.add(match[1]!);
+    const quoted = /^(?:(?:bearer|basic|token)\s+)?(["'])([^\r\n]+)\1$/i.exec(removed);
+    const plain = /^(?:(?:bearer|basic|token)\s+)?([A-Za-z0-9._~+\/=\-]{4,})$/i.exec(removed);
+    const escaped =
+      removed.includes('\\') && !/^[A-Za-z_][\w.-]*\s*[:=]/.test(removed)
+        ? /^(?:(?:bearer|basic|token)\s+)?((?:\\["\\/bfnrt]|\\u[0-9a-f]{4}|[^"\\\r\n])+)$/i.exec(
+            removed
+          )
+        : null;
+    const value = quoted?.[2] ?? plain?.[1] ?? escaped?.[1];
+    if (!value) return { values: [], unresolved: true };
+    values.add(value);
+    if (value.includes('\\')) {
+      try {
+        const decoded: unknown = JSON.parse(`"${value}"`);
+        if (typeof decoded !== 'string') return { values: [], unresolved: true };
+        values.add(decoded);
+      } catch {
+        return { values: [], unresolved: true };
+      }
+    }
     cursor = end + anchor.length;
   }
   if (cursor !== original.length) return { values: [], unresolved: true };
@@ -185,11 +212,17 @@ export function redactContextValues(text: string, context: RedactedValueContext)
       if (pieces.length > 0) result = pieces.join('') + result.slice(from);
     }
     if (result.includes('%')) {
-      try {
-        if (decodeURIComponent(result).includes(value)) result = REDACTED;
-      } catch {
-        // Invalid percent escapes are not a decodable representation of the value.
-      }
+      // Decode each run independently so an unrelated invalid byte such as
+      // %FF does not prevent detection of valid percent-encoded credentials.
+      const decoder = new TextDecoder();
+      const decoded = result.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
+        const bytes: number[] = [];
+        for (let index = 0; index < run.length; index += 3) {
+          bytes.push(Number.parseInt(run.slice(index + 1, index + 3), 16));
+        }
+        return decoder.decode(new Uint8Array(bytes));
+      });
+      if (decoded.includes(value)) result = REDACTED;
     }
   }
   return result;

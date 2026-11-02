@@ -301,6 +301,234 @@ test('remote ordinary diagnostic arrays remain intact', async () => {
   ]);
 });
 
+test('remote metadata redacts encoded values beside invalid UTF-8 escapes', async () => {
+  const encoded = Array.from(opaquePassword, (char) => `%${char.charCodeAt(0).toString(16)}`).join(
+    ''
+  );
+  const received = await captureRemoteRequest([
+    {
+      role: 'user',
+      timestamp: 0,
+      content: [
+        {
+          type: 'tool_result',
+          content: `Authorization: Bearer ${opaquePassword}`,
+          structuredContent: [
+            { type: 'resource', uri: `fixture://guide/%FF/${encoded}` },
+            { type: 'resource', uri: `fixture://guide/%ff${encoded}` },
+            { type: 'resource', uri: 'fixture://safe/guide' },
+          ],
+        },
+      ],
+    },
+  ]);
+  assert.equal(JSON.stringify(received).includes(encoded), false);
+  assert.equal(received.messages[0].content[0].structuredContent[2].uri, 'fixture://safe/guide');
+});
+
+test('remote nested header pairs keep header context', async () => {
+  const received = await captureRemoteRequest([
+    {
+      role: 'assistant',
+      timestamp: 0,
+      content: [
+        {
+          type: 'tool_use',
+          name: 'fixture',
+          input: {
+            headers: [
+              ['Authorization', `Bearer ${opaquePassword}`],
+              ['Content-Type', 'text/plain'],
+            ],
+          },
+        },
+      ],
+    },
+  ]);
+  assert.equal(JSON.stringify(received).includes(opaquePassword), false);
+  assert.match(JSON.stringify(received), /text\/plain/);
+});
+
+test('remote attached mysql and sshpass passwords are redacted', async () => {
+  const received = await captureRemoteRequest([
+    {
+      role: 'assistant',
+      timestamp: 0,
+      content: [
+        {
+          type: 'tool_use',
+          name: 'fixture',
+          input: {
+            mysql: ['mysql', `-p${opaquePassword}`],
+            sshpass: ['sshpass', `-p${opaquePassword}`],
+            lines: ['-p2222', 'safe diagnostic'],
+          },
+        },
+      ],
+    },
+  ]);
+  assert.equal(JSON.stringify(received).includes(opaquePassword), false);
+  assert.deepEqual(received.messages[0].content[0].input.lines, ['-p2222', 'safe diagnostic']);
+});
+
+test('remote attached password arguments remain protected without a command element', async () => {
+  const received = await captureRemoteRequest([
+    {
+      role: 'assistant',
+      timestamp: 0,
+      content: [
+        {
+          type: 'tool_use',
+          name: 'fixture',
+          input: { mysql: [`-p${opaquePassword}`], argv: [`-p${opaquePassword}`] },
+        },
+      ],
+    },
+  ]);
+  assert.equal(JSON.stringify(received).includes(opaquePassword), false);
+});
+
+test('remote quoted password and its repeated value are redacted', async () => {
+  const received = await captureRemoteRequest([
+    {
+      role: 'user',
+      timestamp: 0,
+      content: [
+        {
+          type: 'tool_result',
+          content: `password="${opaquePassword}"\nRepeated: ${opaquePassword}`,
+          structuredContent: [{ type: 'resource', uri: 'fixture://safe/guide' }],
+        },
+      ],
+    },
+  ]);
+  assert.equal(JSON.stringify(received).includes(opaquePassword), false);
+});
+
+test('remote quoted passwords with symbols cannot reappear in text', async () => {
+  const token = 'Sy!n7heticP4ss&98';
+  const received = await captureRemoteRequest([
+    {
+      role: 'user',
+      timestamp: 0,
+      content: [
+        {
+          type: 'tool_result',
+          content: `password="${token}"\nRepeated: ${token}`,
+          structuredContent: [{ type: 'resource', uri: 'fixture://safe/guide' }],
+        },
+      ],
+    },
+  ]);
+  assert.equal(JSON.stringify(received).includes(token), false);
+});
+
+test('remote escaped quoted password values cannot reappear in text', async () => {
+  const token = 'Sy"n7heticP4ss98';
+  const received = await captureRemoteRequest([
+    {
+      role: 'user',
+      timestamp: 0,
+      content: [
+        {
+          type: 'tool_result',
+          content: `password=${JSON.stringify(token)}\nRepeated: ${token}`,
+          structuredContent: [{ type: 'resource', uri: 'fixture://safe/guide' }],
+        },
+      ],
+    },
+  ]);
+  assert.equal(received.messages[0].content[0].content.includes(token), false);
+});
+
+test('remote text is withheld when a quoted secret cannot be safely decoded', async () => {
+  const token = 'Sy\\q7heticP4ss98';
+  const received = await captureRemoteRequest([
+    {
+      role: 'user',
+      timestamp: 0,
+      content: [
+        {
+          type: 'tool_result',
+          content: `password='${token}'\nRepeated: ${token}`,
+          structuredContent: [{ type: 'resource', uri: 'fixture://safe/guide' }],
+        },
+      ],
+    },
+  ]);
+  assert.equal(received.messages[0].content[0].content.includes(token), false);
+});
+
+test('remote thinking removes repeated quoted passwords', async () => {
+  const received = await captureRemoteRequest([
+    {
+      role: 'assistant',
+      timestamp: 0,
+      thinking: [`password="${opaquePassword}"`, `Repeated: ${opaquePassword}`],
+      content: 'safe answer',
+    },
+  ]);
+  assert.equal(JSON.stringify(received).includes(opaquePassword), false);
+});
+
+test('remote message text removes repeated quoted passwords', async () => {
+  const received = await captureRemoteRequest([
+    {
+      role: 'user',
+      timestamp: 0,
+      content: `password="${opaquePassword}"\nRepeated: ${opaquePassword}`,
+    },
+  ]);
+  assert.equal(received.messages[0].content.includes(opaquePassword), false);
+});
+
+test('remote labelled star masks keep unverified metadata withheld', async () => {
+  const received = await captureRemoteRequest([
+    {
+      role: 'user',
+      timestamp: 0,
+      content: [
+        {
+          type: 'tool_result',
+          content: 'password=***',
+          structuredContent: [{ type: 'resource', uri: `fixture://guide/${opaquePassword}` }],
+        },
+      ],
+    },
+  ]);
+  assert.equal(JSON.stringify(received).includes(opaquePassword), false);
+  assert.equal(received.messages[0].content[0].structuredContent[0].uri, '[REDACTED]');
+});
+
+test('remote ordinary Markdown stars do not hide safe resource metadata', async () => {
+  const received = await captureRemoteRequest([
+    {
+      role: 'user',
+      timestamp: 0,
+      content: [
+        {
+          type: 'tool_result',
+          content: '# Password\n\n***\n\nDetails',
+          structuredContent: [
+            { type: 'resource', uri: 'fixture://safe/guide', name: 'safe guide' },
+          ],
+        },
+      ],
+    },
+  ]);
+  assert.equal(received.messages[0].content[0].structuredContent[0].uri, 'fixture://safe/guide');
+  assert.equal(received.messages[0].content[0].structuredContent[0].name, 'safe guide');
+});
+
+test('remote thinking arrays cannot override joining or leak raw values', async () => {
+  const thinking = [`Authorization: Bearer ${opaquePassword}`];
+  Object.defineProperty(thinking, 'join', { value: () => 'safe thought' });
+  const received = await captureRemoteRequest([
+    { role: 'assistant', timestamp: 0, thinking, content: 'safe answer' },
+  ]);
+  assert.equal(JSON.stringify(received).includes(opaquePassword), false);
+});
+
 test('remote compaction does not send stale structured text or sensitive metadata', async () => {
   let received;
   const server = createServer(async (request, response) => {

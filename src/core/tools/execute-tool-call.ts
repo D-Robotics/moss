@@ -18,6 +18,7 @@ import { presentToolOutput } from '../../safety/tool-output-redact.js';
 import {
   isSecretArgumentFlag,
   isSecretFieldName,
+  redactAttachedPasswordArgument,
   redactAttachedUserArgument,
   redactContextValues,
   redactedValueContext,
@@ -328,10 +329,13 @@ function sanitizeErrorDetail(
             : kind === 'headers' && isSecretFieldName(item));
         const sanitizedItem =
           typeof item === 'string' && kind === 'arguments'
-            ? redactAttachedUserArgument(item)
+            ? redactAttachedPasswordArgument(redactAttachedUserArgument(item))
             : item;
+        const nestedField = kind === 'headers' && Array.isArray(item) ? 'headers' : undefined;
         result.push(
-          secretNext ? REDACTED : sanitizeErrorDetail(sanitizedItem, redact, false, seen, depth + 1)
+          secretNext
+            ? REDACTED
+            : sanitizeErrorDetail(sanitizedItem, redact, false, seen, depth + 1, nestedField)
         );
         secretNext = secretFlag;
       }
@@ -914,14 +918,19 @@ async function executeOneToolCallInner(
       });
     let context: RedactedValueContext = { values: [], unresolved: true };
     try {
-      context = redactedValueContext(originalText, baseRedact(originalText));
+      const originalBase = baseRedact(originalText);
+      context = redactedValueContext(originalText, originalBase);
+      let withholdText = !structuredReplaced && context.unresolved && originalBase !== originalText;
       const base = agentSanitized && !structuredReplaced ? text : baseRedact(text);
       if (base !== text) {
         const additional = redactedValueContext(text, base);
         context.values.push(...additional.values);
         context.unresolved ||= additional.unresolved;
+        withholdText ||= additional.unresolved;
       }
-      const sanitized = redactContextValues(base, context);
+      const sanitized = withholdText
+        ? '[tool result withheld by redaction]'
+        : redactContextValues(base, context);
       if (sanitized !== text) postHookModified = true;
       text = sanitized;
     } catch {
@@ -929,8 +938,12 @@ async function executeOneToolCallInner(
       postHookModified = true;
       structuredReplaced = true;
     }
-    const redactDetail = (detail: string): string =>
-      redactContextValues(baseRedact(detail), context);
+    const redactDetail = (detail: string): string => {
+      const sanitized = baseRedact(detail);
+      const local = redactedValueContext(detail, sanitized);
+      if (local.unresolved && sanitized !== detail) return '[detail withheld by redaction]';
+      return redactContextValues(redactContextValues(sanitized, local), context);
+    };
 
     let safeStructured: ToolContentBlock[] | undefined;
     if (!structuredReplaced && !aborted && structuredBlocks) {
