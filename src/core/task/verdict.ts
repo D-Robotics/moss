@@ -13,8 +13,8 @@ import { recordHarnessSuiteEvidence } from './suite-evidence.js';
 import {
   appendAcceptanceVerdict,
   appendTaskRecord,
-  listEvidenceRecords,
-  listTaskRecords,
+  listTaskEvidenceRecords,
+  listAllTaskRecords,
 } from '../task-runtime/artifacts.js';
 import {
   noteCommittedAcceptance,
@@ -111,10 +111,10 @@ export async function acceptanceAlreadySatisfied(
   workspaceDir: string,
   taskId: string
 ): Promise<boolean> {
-  const tasks = await listTaskRecords(workspaceDir);
+  const tasks = await listAllTaskRecords(workspaceDir);
   const task = tasks.find((candidate) => candidate.taskId === taskId);
   if (!task || task.acceptanceCriteria.length === 0) return false;
-  const evidence = await listEvidenceRecords(workspaceDir, 1000);
+  const evidence = await listTaskEvidenceRecords(workspaceDir, task.taskId);
   return evaluateAcceptance(task, evidence).verdict === 'pass';
 }
 
@@ -134,7 +134,7 @@ async function evaluateContractWithAuthority(
   recordAuthority?: (commitStarted: boolean) => Promise<void>
 ): Promise<{ verdict: AcceptanceVerdict; task: TaskContract } | null> {
   signal?.throwIfAborted();
-  const tasks = await listTaskRecords(workspaceDir);
+  const tasks = await listAllTaskRecords(workspaceDir);
   signal?.throwIfAborted();
   if (tasks.length === 0) return null;
   const task = taskId
@@ -144,7 +144,7 @@ async function evaluateContractWithAuthority(
       );
   if (!task) return null;
 
-  const evidence = await listEvidenceRecords(workspaceDir, 1000);
+  const evidence = await listTaskEvidenceRecords(workspaceDir, task.taskId);
   signal?.throwIfAborted();
   const verdict = evaluateAcceptance(task, evidence);
   // The last abort check is at append dispatch. Once the PASS commit starts,
@@ -212,7 +212,7 @@ export function createContractVerdictProvider(workspaceDir: string): VerdictProv
         signal?.throwIfAborted();
         // Guard: a draft contract with no criteria would trivially "pass"
         // (nothing to fail). No criteria = no defined done = not accepted.
-        const tasks = await listTaskRecords(workspaceDir);
+        const tasks = await listAllTaskRecords(workspaceDir);
         signal?.throwIfAborted();
         const task = tasks.find((candidate) => candidate.taskId === taskId);
         if (task && task.acceptanceCriteria.length === 0) {

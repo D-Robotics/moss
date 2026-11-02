@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Contract acceptance and evidence history
+
+- Contract-based acceptance no longer turns missing observations, invalid numeric values,
+  or known conflicting evidence verdicts into a pass. Raw observations can still be
+  evaluated against the task's own criterion. Newly recorded evidence preserves the
+  explicit verdict and the automatic result when available. Old records can lack this
+  provenance; ambiguous historical conflicts cannot always be reconstructed and should
+  be re-measured. Existing accepted tasks are not retroactively revoked.
+- Task lookup and evidence evaluation no longer lose an older task or its evidence
+  behind unrelated workspace history. The public task-list limit remains unchanged.
+  A passing configured acceptance command retains its existing authority.
+
+### 契约验收与证据历史
+
+- 契约验收不再将缺失观测、无效数值或已知冲突的证据判为通过。原始观测仍可按
+  任务自己的标准重新判断；新证据会在适用时保存显式裁决和自动比较结果。
+  旧记录可能缺少来源，无法完全还原历史冲突，遇到不确定情况应重新测量；
+  已验收的历史任务不会被自动撤销。
+- 按任务查找及验收不再因为其他任务的历史记录而遗漏旧任务或其证据；公开任务列表的
+  数量限制不变。已配置的验收命令通过时仍保留原有裁决优先级。
+
 ### Product experience, task verdicts, and configuration change detection
 
 - The terminal experience has a shorter help view, more reliable in-flight input,

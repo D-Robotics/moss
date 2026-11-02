@@ -73,8 +73,9 @@ export function latestAcceptanceVerdict(
 /**
  * Evaluate a task's acceptance criteria against its recorded evidence.
  * Latest evidence per metric wins — a repaired re-measurement supersedes the
- * earlier failure. Missing evidence for a required criterion is 'no-evidence'
- * and blocks acceptance: no evidence, no success.
+ * earlier failure. When timestamps tie, evidence is expected newest-first, as
+ * returned by the artifact store. Missing evidence for a required criterion
+ * is 'no-evidence' and blocks acceptance: no evidence, no success.
  */
 export function evaluateAcceptance(
   task: TaskContract,
@@ -84,7 +85,7 @@ export function evaluateAcceptance(
   const latestByMetric = new Map<string, EvidenceRecord>();
   for (const record of taskEvidence) {
     const existing = latestByMetric.get(record.metric);
-    if (!existing || record.timestamp >= existing.timestamp) {
+    if (!existing || record.timestamp > existing.timestamp) {
       latestByMetric.set(record.metric, record);
     }
   }
@@ -102,16 +103,34 @@ export function evaluateAcceptance(
       return { ...base, result: 'no-evidence' as CriterionCheckResult };
     }
     const evaluation = evaluateExpectation(criterion.expected, record.observed);
+    const recordedEvaluation =
+      record.automaticResult ??
+      (record.expected?.trim()
+        ? evaluateExpectation(record.expected, record.observed).result
+        : undefined);
+    const conflicting =
+      evaluation.result === 'pass' &&
+      ((record.result === 'inconclusive' &&
+        (record.explicitResult !== undefined ||
+          (record.automaticResult === undefined &&
+            recordedEvaluation !== undefined &&
+            recordedEvaluation !== 'inconclusive'))) ||
+        (!record.expected?.trim() && record.result === 'fail'));
     const result: CriterionCheckResult =
-      evaluation.result === 'inconclusive' ? 'no-evidence' : evaluation.result;
+      conflicting || evaluation.result === 'inconclusive' ? 'no-evidence' : evaluation.result;
     return {
       ...base,
       evidenceId: record.evidenceId,
       observed: record.observed,
       result,
-      ...(evaluation.comparator !== 'none' || evaluation.explanation
-        ? { explanation: evaluation.explanation }
-        : {}),
+      ...(conflicting
+        ? {
+            explanation:
+              'recorded evidence has an unresolved or conflicting verdict; re-measure it',
+          }
+        : evaluation.comparator !== 'none' || evaluation.explanation
+          ? { explanation: evaluation.explanation }
+          : {}),
     };
   });
 

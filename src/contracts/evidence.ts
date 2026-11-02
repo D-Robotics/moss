@@ -34,6 +34,10 @@ export interface EvidenceRecord {
   observed?: string | number | boolean;
   comparator?: EvidenceComparator;
   result: EvidenceResult;
+  /** Verdict supplied by the recorder, when it was not solely auto-evaluated. */
+  explicitResult?: EvidenceResult;
+  /** Result of evaluating the evidence's own expectation at record time. */
+  automaticResult?: EvidenceResult;
   timestamp: number;
   details?: string;
 }
@@ -121,6 +125,11 @@ function booleanPolarity(value: string | number | boolean | undefined): boolean 
   return undefined;
 }
 
+function numericValue(value: string | number | boolean | undefined): number {
+  if (typeof value === 'string' && value.trim() === '') return Number.NaN;
+  return Number(value);
+}
+
 function booleanEquality(
   comparator: '==' | '!=',
   observed: string | number | boolean | undefined,
@@ -161,13 +170,35 @@ export function evaluateExpectation(
   const match = COMPARATOR_PATTERN.exec(expected.trim());
   const comparator = (match?.[1] ?? '').toLowerCase() as EvidenceComparator | '';
   const operand = (match?.[2] ?? '').trim();
+  if ((observed === undefined || observed === null) && comparator !== 'exists') {
+    return {
+      comparator: comparator || '==',
+      result: 'inconclusive',
+      explanation: 'no observation given',
+    };
+  }
+  if (
+    (comparator === 'contains' || comparator === 'not-contains' || comparator === 'matches') &&
+    !operand
+  ) {
+    return { comparator, result: 'inconclusive', explanation: 'no comparison operand given' };
+  }
   const observedText =
     observed === undefined ? '' : typeof observed === 'string' ? observed : String(observed);
 
   if (!comparator) {
     // Bare expected value: equality on strings, numeric equality on numbers.
-    if (Number.isFinite(Number(expected)) && Number.isFinite(Number(observed))) {
-      const ok = Number(expected) === Number(observed);
+    const expectedNumber = numericValue(expected);
+    if (Number.isFinite(expectedNumber)) {
+      const observedNumber = numericValue(observed);
+      if (!Number.isFinite(observedNumber)) {
+        return {
+          comparator: '==',
+          result: 'inconclusive',
+          explanation: `non-numeric comparison: observed="${observedText}" == ${expected}`,
+        };
+      }
+      const ok = expectedNumber === observedNumber;
       return {
         comparator: '==',
         result: ok ? 'pass' : 'fail',
@@ -189,8 +220,8 @@ export function evaluateExpectation(
     case '<=':
     case '>':
     case '<': {
-      const lhs = Number(observed);
-      const rhs = Number(operand);
+      const lhs = numericValue(observed);
+      const rhs = numericValue(operand);
       if (!Number.isFinite(lhs) || !Number.isFinite(rhs)) {
         return {
           comparator,
@@ -214,8 +245,8 @@ export function evaluateExpectation(
     }
     case '==':
     case '!=': {
-      const lhs = Number(observed);
-      const rhs = Number(operand);
+      const lhs = numericValue(observed);
+      const rhs = numericValue(operand);
       const operandNumeric = Number.isFinite(rhs);
       if (operandNumeric && Number.isFinite(lhs)) {
         const ok = comparator === '==' ? lhs === rhs : lhs !== rhs;

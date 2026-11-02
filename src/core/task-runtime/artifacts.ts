@@ -287,12 +287,16 @@ export async function appendTaskRecord(
   await appendJsonl(workspaceDir, 'tasks.jsonl', task, signal);
 }
 
-export async function listTaskRecords(workspaceDir: string, limit = 50): Promise<TaskContract[]> {
+/** Complete task history for internal lookups; callers presenting lists stay bounded. */
+export async function listAllTaskRecords(workspaceDir: string): Promise<TaskContract[]> {
   const parsed = await readJsonl<TaskContract>(path.join(workspaceDir, '.moss', 'tasks.jsonl'));
-  if (parsed.length === 0) return [];
   // Latest version of each taskId wins (contracts are re-defined as they evolve).
   const byId = new Map(parsed.map((task) => [task.taskId, task]));
-  return [...byId.values()].slice(-limit);
+  return [...byId.values()];
+}
+
+export async function listTaskRecords(workspaceDir: string, limit = 50): Promise<TaskContract[]> {
+  return (await listAllTaskRecords(workspaceDir)).slice(-limit);
 }
 
 export async function appendEvidenceRecord(
@@ -319,6 +323,17 @@ export async function listEvidenceRecords(
     path.join(workspaceDir, '.moss', 'evidence.jsonl')
   );
   return parsed.slice(-limit).reverse();
+}
+
+/** Read one task's complete evidence history without the workspace-wide UI limit. */
+export async function listTaskEvidenceRecords(
+  workspaceDir: string,
+  taskId: string
+): Promise<EvidenceRecord[]> {
+  const parsed = await readJsonl<EvidenceRecord>(
+    path.join(workspaceDir, '.moss', 'evidence.jsonl')
+  );
+  return parsed.filter((record) => record.taskId === taskId).reverse();
 }
 
 export async function appendAcceptanceVerdict(
