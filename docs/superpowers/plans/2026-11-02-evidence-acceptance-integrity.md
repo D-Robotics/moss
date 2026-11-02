@@ -67,10 +67,10 @@ if (observed === undefined && comparator !== 'exists') {
 - Modify: `src/contracts/task.ts`
 - Test: `test/task-contract.spec.mjs`
 
-- [x] **Step 1: Reproduce equal-timestamp ordering.** Pass `[newer, older]` evidence with identical timestamps, as returned by `listEvidenceRecords`, and check both PASS→FAIL and FAIL→PASS sequences.
-- [x] **Step 2: Run the regression.** Run `node --test --test-name-pattern='same-timestamp evidence' test/task-contract.spec.mjs`; the old implementation chooses the older row.
-- [x] **Step 3: Keep the first row for a timestamp tie.** Update the latest-per-metric condition from `record.timestamp >= existing.timestamp` to `record.timestamp > existing.timestamp`; document the newest-first tie convention on `evaluateAcceptance`.
-- [x] **Step 4: Rebuild and rerun.** Both directions must select the newer row.
+- [x] **Step 1: Reproduce equal-timestamp ordering.** Check both PASS→FAIL and FAIL→PASS with identical timestamps from the artifact store and through the public SDK evaluator.
+- [x] **Step 2: Run the regressions.** The original artifact-store path picks an older row, while changing the evaluator to pick the first row breaks existing SDK callers that supply rows in chronological order.
+- [x] **Step 3: Preserve the public tie rule.** Keep the last supplied row on equal timestamps; provide artifact rows in file order and use the latest record per metric in the task projection.
+- [x] **Step 4: Rebuild and rerun.** Both SDK and artifact-store paths select the later observation.
 
 ### Task 5: Do not lose task evidence behind another task's history
 
@@ -83,20 +83,13 @@ if (observed === undefined && comparator !== 'exists') {
 
 - [x] **Step 1: Reproduce the global evidence limit.** Define a task, record its passing observation, append 1,001 valid observations for other task IDs to the same workspace, and assert the original task can still be accepted.
 - [x] **Step 2: Run the regression.** Run `node --test --test-name-pattern='other tasks cannot hide evidence' test/task-contract.spec.mjs`; the previous implementation reads only the latest 1,000 workspace-wide records and reports no evidence.
-- [x] **Step 3: Read evidence by task before applying display limits.** Add an internal `listTaskEvidenceRecords(workspaceDir, taskId)` in the existing artifact store that reads `evidence.jsonl`, filters by the exact task ID, and returns matching rows newest-first. Reuse it for contract evaluation and task snapshots; keep the existing bounded public list and UI list semantics.
-- [x] **Step 4: Rebuild and rerun.** The original task must pass with the correct recorded observation; command-based verdict authority remains unchanged.
+- [x] **Step 3: Read evidence by task before applying display limits.** Add an internal `listTaskEvidenceRecords(workspaceDir, taskId)` in the existing artifact store that reads `evidence.jsonl`, filters by the exact task ID, and returns matching rows in file order. Reuse it for contract evaluation and task snapshots; keep the existing bounded public list and UI list semantics.
+- [x] **Step 4: Rebuild and rerun.** The original task passes with the correct recorded observation; command-based verdict authority remains unchanged.
+- [x] **Step 5: Keep task progress consistent.** Compute the latest evidence per displayed task and metric from the full ledger, while keeping the public verification-history list bounded. The `task progress uses its own evidence` regression covers 1,001 unrelated rows.
 
-### Task 6: Keep earlier task IDs addressable
+### Task 6: Earlier task IDs — deferred after review
 
-**Files:**
-
-- Modify: `src/core/task-runtime/artifacts.ts`, `src/core/task/verdict.ts`, `src/core/task/task-store.ts`, `src/tools/task-tools.ts`
-- Test: `test/task-contract.spec.mjs`
-
-- [x] **Step 1: Reproduce the global task list limit.** Define a task, record its passing observation, append 51 other distinct task contracts, and explicitly accept the first task. Assert the verdict is PASS instead of `task not found`.
-- [x] **Step 2: Run the regression.** Run `node --test --test-name-pattern='older task remains addressable' test/task-contract.spec.mjs`; the previous implementation limits internal lookups to 50 tasks.
-- [x] **Step 3: Separate complete internal lookup from bounded listing.** Extract `listAllTaskRecords(workspaceDir)` in the existing artifact store, use it for task-ID operations and snapshots, and keep `listTaskRecords(workspaceDir, limit = 50)` bounded for its existing SDK and presentation callers.
-- [x] **Step 4: Rebuild and rerun.** The first task remains addressable, and default listing still returns at most 50 distinct tasks.
+Internal lookup was briefly extended beyond 50 tasks. Review showed that resuming an older task can then attach automatically recorded test evidence to a different live task because the active task ID is not passed through the agent turn. The lookup extension was withdrawn. A follow-up must propagate the authoritative task ID through the run and tool context, including implicit task acceptance and relevant subagent paths, before lifting this limit.
 
 ### Task 7: Empty contracts cannot pass through the shared evaluator
 
@@ -110,7 +103,18 @@ if (observed === undefined && comparator !== 'exists') {
 - [x] **Step 3: Guard the shared verdict.** In `evaluateAcceptance`, return `fail` when `task.acceptanceCriteria.length === 0`; keep the existing provider's explicit explanatory message and command-verdict authority.
 - [x] **Step 4: Rebuild and rerun.** The direct persisted contract call and existing command verdict tests must pass.
 
-### Task 8: Verify integration and preserve existing contracts
+### Task 8: Preserve verdict meaning when observations are redacted
+
+**Files:**
+
+- Modify: `src/contracts/evidence.ts`, `src/contracts/task.ts`, `src/core/task-runtime/artifacts.ts`
+- Test: `test/task-contract.spec.mjs`
+
+- [x] **Step 1: Reproduce a false PASS.** Record a log containing both a synthetic authorization token and `CRITICAL` against `not-contains CRITICAL`; the stored observation redacts the failure text, so the prior evaluator incorrectly accepts it.
+- [x] **Step 2: Record redaction and use the original comparison.** Persist `observationRedacted` when redaction changes the observation. A same-criterion original FAIL cannot become PASS; a redacted observation cannot support a different task criterion without a fresh measurement.
+- [x] **Step 3: Rebuild and rerun.** The same-criterion and different-criterion end-to-end tests both block acceptance, and normal non-redacted raw observations remain usable.
+
+### Task 9: Verify integration and preserve existing contracts
 
 **Files:**
 

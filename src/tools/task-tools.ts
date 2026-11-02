@@ -2,7 +2,7 @@ import type { AcceptanceCriterion, TaskContract, TaskContractStatus } from '../c
 import type { TaskPlanStep } from '../contracts/task-runtime.js';
 import { isTerminalTaskPhase } from '../contracts/task-runtime.js';
 import type { Tool } from '../core/tools/tool-types.js';
-import { appendTaskRecord, listAllTaskRecords } from '../core/task-runtime/artifacts.js';
+import { appendTaskRecord, listTaskRecords } from '../core/task-runtime/artifacts.js';
 import {
   appendTaskEvent,
   getTaskStateSnapshot,
@@ -113,9 +113,7 @@ export const taskDefineTool: Tool = {
     let createdAt = now;
     if (input.task_id && typeof input.task_id === 'string') {
       taskId = input.task_id;
-      const existing = (await listAllTaskRecords(ctx.workspaceDir)).find(
-        (t) => t.taskId === taskId
-      );
+      const existing = (await listTaskRecords(ctx.workspaceDir)).find((t) => t.taskId === taskId);
       if (!existing)
         return `Error: task_define: task_id ${taskId} not found; omit it to create a new task.`;
       createdAt = existing.createdAt;
@@ -178,7 +176,7 @@ export const taskAcceptanceTool: Tool = {
     },
   },
   async execute(input, ctx) {
-    const tasks = await listAllTaskRecords(ctx.workspaceDir);
+    const tasks = await listTaskRecords(ctx.workspaceDir);
     if (tasks.length === 0) {
       return 'Error: task_acceptance: no task contracts in this workspace — define one with task_define first.';
     }
@@ -245,7 +243,7 @@ export const taskPlanUpdateTool: Tool = {
     if (!Array.isArray(input.steps) || input.steps.length === 0) {
       return 'Error: task_plan_update: steps must be a non-empty array.';
     }
-    const known = await listAllTaskRecords(ctx.workspaceDir);
+    const known = await listTaskRecords(ctx.workspaceDir);
     if (!known.some((t) => t.taskId === taskId)) {
       return `Error: task_plan_update: unknown task_id ${taskId}.`;
     }
@@ -325,7 +323,7 @@ export const recordFailureTool: Tool = {
     const taskId = String(input.task_id ?? '').trim();
     const symptom = String(input.symptom ?? '').trim();
     if (!taskId || !symptom) return 'Error: record_failure: task_id and symptom are required.';
-    const known = await listAllTaskRecords(ctx.workspaceDir);
+    const known = await listTaskRecords(ctx.workspaceDir);
     if (!known.some((t) => t.taskId === taskId)) {
       return `Error: record_failure: unknown task_id ${taskId}.`;
     }
@@ -381,7 +379,7 @@ export const recordRepairTool: Tool = {
     const taskId = String(input.task_id ?? '').trim();
     const action = String(input.action ?? '').trim();
     if (!taskId || !action) return 'Error: record_repair: task_id and action are required.';
-    const known = await listAllTaskRecords(ctx.workspaceDir);
+    const known = await listTaskRecords(ctx.workspaceDir);
     if (!known.some((t) => t.taskId === taskId)) {
       return `Error: record_repair: unknown task_id ${taskId}.`;
     }

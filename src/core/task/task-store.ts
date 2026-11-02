@@ -37,7 +37,6 @@ import {
   appendJsonlFile,
   appendTaskRecord,
   listTaskEvidenceRecords,
-  listAllTaskRecords,
   listTaskRecords,
   readJsonlFile,
 } from '../task-runtime/artifacts.js';
@@ -406,7 +405,7 @@ export async function getTaskStateSnapshot(
   taskId: string
 ): Promise<TaskStateSnapshot | null> {
   return withTaskArtifactReadLock(workspaceDir, async () => {
-    const tasks = await listAllTaskRecords(workspaceDir);
+    const tasks = await listTaskRecords(workspaceDir);
     const contract = tasks.find((task) => task.taskId === taskId);
     if (!contract) return null;
 

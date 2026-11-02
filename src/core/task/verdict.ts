@@ -14,7 +14,7 @@ import {
   appendAcceptanceVerdict,
   appendTaskRecord,
   listTaskEvidenceRecords,
-  listAllTaskRecords,
+  listTaskRecords,
 } from '../task-runtime/artifacts.js';
 import {
   noteCommittedAcceptance,
@@ -111,7 +111,7 @@ export async function acceptanceAlreadySatisfied(
   workspaceDir: string,
   taskId: string
 ): Promise<boolean> {
-  const tasks = await listAllTaskRecords(workspaceDir);
+  const tasks = await listTaskRecords(workspaceDir);
   const task = tasks.find((candidate) => candidate.taskId === taskId);
   if (!task || task.acceptanceCriteria.length === 0) return false;
   const evidence = await listTaskEvidenceRecords(workspaceDir, task.taskId);
@@ -134,7 +134,7 @@ async function evaluateContractWithAuthority(
   recordAuthority?: (commitStarted: boolean) => Promise<void>
 ): Promise<{ verdict: AcceptanceVerdict; task: TaskContract } | null> {
   signal?.throwIfAborted();
-  const tasks = await listAllTaskRecords(workspaceDir);
+  const tasks = await listTaskRecords(workspaceDir);
   signal?.throwIfAborted();
   if (tasks.length === 0) return null;
   const task = taskId
@@ -212,7 +212,7 @@ export function createContractVerdictProvider(workspaceDir: string): VerdictProv
         signal?.throwIfAborted();
         // Guard: a draft contract with no criteria would trivially "pass"
         // (nothing to fail). No criteria = no defined done = not accepted.
-        const tasks = await listAllTaskRecords(workspaceDir);
+        const tasks = await listTaskRecords(workspaceDir);
         signal?.throwIfAborted();
         const task = tasks.find((candidate) => candidate.taskId === taskId);
         if (task && task.acceptanceCriteria.length === 0) {

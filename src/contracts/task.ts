@@ -73,9 +73,9 @@ export function latestAcceptanceVerdict(
 /**
  * Evaluate a task's acceptance criteria against its recorded evidence.
  * Latest evidence per metric wins — a repaired re-measurement supersedes the
- * earlier failure. When timestamps tie, evidence is expected newest-first, as
- * returned by the artifact store. Missing evidence for a required criterion
- * is 'no-evidence' and blocks acceptance: no evidence, no success.
+ * earlier failure. When timestamps tie, the last supplied record wins.
+ * Missing evidence for a required criterion is 'no-evidence' and blocks
+ * acceptance: no evidence, no success.
  */
 export function evaluateAcceptance(
   task: TaskContract,
@@ -85,7 +85,7 @@ export function evaluateAcceptance(
   const latestByMetric = new Map<string, EvidenceRecord>();
   for (const record of taskEvidence) {
     const existing = latestByMetric.get(record.metric);
-    if (!existing || record.timestamp > existing.timestamp) {
+    if (!existing || record.timestamp >= existing.timestamp) {
       latestByMetric.set(record.metric, record);
     }
   }
@@ -108,29 +108,46 @@ export function evaluateAcceptance(
       (record.expected?.trim()
         ? evaluateExpectation(record.expected, record.observed).result
         : undefined);
+    const sameExpectation =
+      record.expected?.trim() !== undefined && record.expected.trim() === criterion.expected.trim();
+    const failedBeforeRedaction =
+      evaluation.result === 'pass' &&
+      sameExpectation &&
+      (record.automaticResult === 'fail' ||
+        (record.automaticResult === undefined && record.result === 'fail'));
     const conflicting =
       evaluation.result === 'pass' &&
-      ((record.result === 'inconclusive' &&
-        (record.explicitResult !== undefined ||
-          (record.automaticResult === undefined &&
-            recordedEvaluation !== undefined &&
-            recordedEvaluation !== 'inconclusive'))) ||
+      ((record.observationRedacted === true &&
+        (!sameExpectation || record.automaticResult !== 'pass')) ||
+        (record.explicitResult !== undefined &&
+          record.automaticResult !== undefined &&
+          record.explicitResult !== record.automaticResult) ||
+        (record.result === 'inconclusive' &&
+          (record.explicitResult !== undefined ||
+            (record.automaticResult === undefined &&
+              recordedEvaluation !== undefined &&
+              recordedEvaluation !== 'inconclusive'))) ||
         (!record.expected?.trim() && record.result === 'fail'));
-    const result: CriterionCheckResult =
-      conflicting || evaluation.result === 'inconclusive' ? 'no-evidence' : evaluation.result;
+    const result: CriterionCheckResult = failedBeforeRedaction
+      ? 'fail'
+      : conflicting || evaluation.result === 'inconclusive'
+        ? 'no-evidence'
+        : evaluation.result;
     return {
       ...base,
       evidenceId: record.evidenceId,
       observed: record.observed,
       result,
-      ...(conflicting
-        ? {
-            explanation:
-              'recorded evidence has an unresolved or conflicting verdict; re-measure it',
-          }
-        : evaluation.comparator !== 'none' || evaluation.explanation
-          ? { explanation: evaluation.explanation }
-          : {}),
+      ...(failedBeforeRedaction
+        ? { explanation: 'the recorded observation failed this expectation at measurement time' }
+        : conflicting
+          ? {
+              explanation:
+                'recorded evidence has an unresolved or conflicting verdict; re-measure it',
+            }
+          : evaluation.comparator !== 'none' || evaluation.explanation
+            ? { explanation: evaluation.explanation }
+            : {}),
     };
   });
 
@@ -171,10 +188,12 @@ export function formatAcceptanceVerdict(verdict: AcceptanceVerdict, task: TaskCo
     verdict.criteriaResults.length === 0
       ? 'no acceptance criteria defined'
       : `criteria: ${verdict.criteriaResults.length - verdict.unmetRequired}/${verdict.criteriaResults.length} met (${verdict.unmetRequired} required unmet), evidence records considered: ${verdict.evidenceConsidered}`,
-    verdict.verdict === 'pass'
-      ? 'FINAL: PASS — acceptance criteria met with recorded evidence.'
-      : verdict.criteriaResults.length === 0
-        ? 'FINAL: not accepted — define at least one acceptance criterion before verification.'
+    verdict.criteriaResults.length === 0
+      ? verdict.verdict === 'pass'
+        ? 'FINAL: historical PASS had no acceptance criteria — define criteria and re-verify.'
+        : 'FINAL: not accepted — define at least one acceptance criterion before verification.'
+      : verdict.verdict === 'pass'
+        ? 'FINAL: PASS — acceptance criteria met with recorded evidence.'
         : 'FINAL: not accepted — record evidence for the missing metrics (record_evidence with task_id), repair what failed, then re-run task_acceptance.',
   ].join('\n');
   return [head, ...rows, '', tail].join('\n');

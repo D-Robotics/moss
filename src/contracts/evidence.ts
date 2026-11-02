@@ -38,6 +38,8 @@ export interface EvidenceRecord {
   explicitResult?: EvidenceResult;
   /** Result of evaluating the evidence's own expectation at record time. */
   automaticResult?: EvidenceResult;
+  /** The stored observation differs from the original after secret redaction. */
+  observationRedacted?: boolean;
   timestamp: number;
   details?: string;
 }
@@ -177,10 +179,7 @@ export function evaluateExpectation(
       explanation: 'no observation given',
     };
   }
-  if (
-    (comparator === 'contains' || comparator === 'not-contains' || comparator === 'matches') &&
-    !operand
-  ) {
+  if (comparator && comparator !== 'exists' && !operand) {
     return { comparator, result: 'inconclusive', explanation: 'no comparison operand given' };
   }
   const observedText =

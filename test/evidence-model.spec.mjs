@@ -58,8 +58,8 @@ test('evaluateExpectation: empty numeric observation is inconclusive, not zero',
   assert.equal(evaluateExpectation('==0', false).result, 'pass');
 });
 
-test('evaluateExpectation: missing containment and regex operands are inconclusive', () => {
-  for (const expected of ['contains', 'not-contains', 'matches']) {
+test('evaluateExpectation: missing comparison operands are inconclusive', () => {
+  for (const expected of ['contains', 'not-contains', 'matches', '==', '!=', '>=', '<=']) {
     assert.equal(evaluateExpectation(expected, 'anything').result, 'inconclusive', expected);
   }
   assert.equal(evaluateExpectation('matches ^$', '').result, 'pass');

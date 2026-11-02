@@ -10,7 +10,7 @@ import {
   listTaskEvents,
   listTaskStateSnapshots,
 } from '../../core/task/task-store.js';
-import { appendTaskRecord, listAllTaskRecords } from '../../core/task-runtime/artifacts.js';
+import { appendTaskRecord, listTaskRecords } from '../../core/task-runtime/artifacts.js';
 import { acceptanceCommandFromEvents } from '../../core/task/acceptance-authority.js';
 
 export interface TaskVerifyResult {
@@ -95,7 +95,7 @@ export async function verifyTaskOnce(
     };
   }
   if (wasAccepted) {
-    const tasks = await listAllTaskRecords(workspace);
+    const tasks = await listTaskRecords(workspace);
     const contract = tasks.find((task) => task.taskId === snapshot.taskId);
     if (contract && contract.status === 'accepted') {
       await appendTaskRecord(workspace, {

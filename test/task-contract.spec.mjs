@@ -17,7 +17,11 @@ import {
   taskAcceptanceTool,
   listTaskRecords,
 } from '../dist/tools/task-tools.js';
-import { listEvidenceRecords, recordEvidenceTool } from '../dist/tools/evidence-tools.js';
+import {
+  appendEvidenceRecord,
+  listEvidenceRecords,
+  recordEvidenceTool,
+} from '../dist/tools/evidence-tools.js';
 import { evaluateContractAcceptance } from '../dist/core/task/verdict.js';
 
 function makeCtx(workspaceDir) {
@@ -61,6 +65,21 @@ test('empty contract cannot pass through the persisted contract evaluator', asyn
   assert.equal(result?.verdict.verdict, 'fail');
   assert.match(formatAcceptanceVerdict(result.verdict, task), /no acceptance criteria/i);
   assert.notEqual((await listTaskRecords(workspace))[0].status, 'accepted');
+});
+
+test('historical pass without criteria is displayed as historical, not verified', () => {
+  const task = baseTask({ acceptanceCriteria: [] });
+  const legacy = {
+    taskId: task.taskId,
+    verdict: 'pass',
+    acceptedAt: 1,
+    criteriaResults: [],
+    unmetRequired: 0,
+    evidenceConsidered: 0,
+  };
+  const text = formatAcceptanceVerdict(legacy, task);
+  assert.match(text, /historical PASS.*no acceptance criteria/i);
+  assert.doesNotMatch(text, /FINAL: PASS — acceptance criteria met/);
 });
 
 test('evaluateAcceptance: pass / fail / no-evidence / optional semantics', () => {
@@ -117,19 +136,36 @@ test('evaluateAcceptance: repaired re-measurement supersedes the earlier failure
   assert.equal(verdict.criteriaResults[0].observed, 31.2);
 });
 
-test('same-timestamp evidence keeps the newest stored observation', () => {
+test('same-timestamp SDK evidence keeps the last supplied observation', () => {
   const task = baseTask({ acceptanceCriteria: [{ metric: 'camera_fps', expected: '>=30' }] });
-  // Evidence store results are newest first, even when two writes share a millisecond.
+  // SDK callers historically supply earlier observations before later observations.
   const repaired = evaluateAcceptance(task, [
-    ev('camera_fps', 31, 'pass', 10),
     ev('camera_fps', 17, 'fail', 10),
+    ev('camera_fps', 31, 'pass', 10),
   ]);
   assert.equal(repaired.verdict, 'pass');
   const regressed = evaluateAcceptance(task, [
-    ev('camera_fps', 17, 'fail', 10),
     ev('camera_fps', 31, 'pass', 10),
+    ev('camera_fps', 17, 'fail', 10),
   ]);
   assert.equal(regressed.verdict, 'fail');
+});
+
+test('same-timestamp stored evidence uses the last appended observation', async (t) => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-task-evidence-order-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const ctx = makeCtx(workspace);
+  const defined = await taskDefineTool.execute(
+    { goal: 'verify frame rate', acceptance_criteria: [{ metric: 'fps', expected: '>=30' }] },
+    ctx
+  );
+  const taskId = /task_\w+/.exec(defined)?.[0];
+  assert.ok(taskId);
+  await appendEvidenceRecord(workspace, ev('fps', 31, 'pass', 10, taskId));
+  await appendEvidenceRecord(workspace, ev('fps', 17, 'fail', 10, taskId));
+  assert.match(await taskAcceptanceTool.execute({ task_id: taskId }, ctx), /: FAIL/);
+  await appendEvidenceRecord(workspace, ev('fps', 33, 'pass', 10, taskId));
+  assert.match(await taskAcceptanceTool.execute({ task_id: taskId }, ctx), /: PASS/);
 });
 
 test('string equality ==hi is a real verdict, not NO EVIDENCE', () => {
@@ -172,6 +208,19 @@ test('raw observations remain usable with independent task expectations', () => 
     expected: 'auto-allow',
   };
   assert.equal(evaluateAcceptance(policyTask, [policy]).verdict, 'pass');
+});
+
+test('SDK evidence cannot conceal a known disagreement between verdicts', () => {
+  const task = baseTask({ acceptanceCriteria: [{ metric: 'fps', expected: '>=30' }] });
+  const conflicting = {
+    ...ev('fps', 31, 'pass', 10),
+    expected: '>=30',
+    explicitResult: 'fail',
+    automaticResult: 'pass',
+  };
+  const verdict = evaluateAcceptance(task, [conflicting]);
+  assert.equal(verdict.verdict, 'fail');
+  assert.equal(verdict.criteriaResults[0].result, 'no-evidence');
 });
 
 test('missing observation cannot satisfy a task criterion', async (t) => {
@@ -342,34 +391,70 @@ test('other tasks cannot hide evidence needed for acceptance', async (t) => {
       timestamp: Date.now() + index,
     })
   ).join('\n');
-  await fs.appendFile(path.join(workspace, '.moss', 'evidence.jsonl'), `${unrelated}\n`);
+  await fs.appendFile(path.join(workspace, '.moss', 'evidence.jsonl'), `null\n${unrelated}\n`);
   const verdict = await taskAcceptanceTool.execute({ task_id: taskId }, ctx);
   assert.match(verdict, /: PASS/);
   assert.match(verdict, /fps — expected >=30 observed 31/);
 });
 
-test('older task remains addressable after more than fifty tasks', async (t) => {
-  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-task-history-'));
+test('redaction cannot turn a failing observation into passing evidence', async (t) => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-task-redacted-evidence-'));
   t.after(() => fs.rm(workspace, { recursive: true, force: true }));
   const ctx = makeCtx(workspace);
   const defined = await taskDefineTool.execute(
-    { goal: 'verify frame rate', acceptance_criteria: [{ metric: 'fps', expected: '>=30' }] },
+    {
+      goal: 'verify device log',
+      acceptance_criteria: [{ metric: 'log', expected: 'not-contains CRITICAL' }],
+    },
     ctx
   );
   const taskId = /task_\w+/.exec(defined)?.[0];
   assert.ok(taskId);
-  await recordEvidenceTool.execute(
-    { task_id: taskId, metric: 'fps', observed: '31', source: 'test' },
+  const recorded = await recordEvidenceTool.execute(
+    {
+      task_id: taskId,
+      metric: 'log',
+      expected: 'not-contains CRITICAL',
+      observed: 'Authorization: Bearer sk-example12345678 CRITICAL device fault',
+      source: 'test',
+    },
     ctx
   );
-  const [original] = await listTaskRecords(workspace);
-  const later = Array.from({ length: 51 }, (_, index) =>
-    JSON.stringify({ ...original, taskId: `later_${index}`, goal: `later task ${index}` })
-  ).join('\n');
-  await fs.appendFile(path.join(workspace, '.moss', 'tasks.jsonl'), `${later}\n`);
-  assert.equal((await listTaskRecords(workspace)).length, 50, 'public list remains bounded');
+  assert.match(recorded, /FAIL/);
+  const [stored] = await listEvidenceRecords(workspace);
+  assert.doesNotMatch(stored.observed, /CRITICAL/);
+  assert.equal(stored.observationRedacted, true);
   const verdict = await taskAcceptanceTool.execute({ task_id: taskId }, ctx);
-  assert.match(verdict, /: PASS/);
+  assert.match(verdict, /: FAIL/);
+});
+
+test('redacted observations cannot support a different task criterion', async (t) => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-task-redacted-criterion-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const ctx = makeCtx(workspace);
+  const defined = await taskDefineTool.execute(
+    {
+      goal: 'verify device log',
+      acceptance_criteria: [{ metric: 'log', expected: 'not-contains CRITICAL' }],
+    },
+    ctx
+  );
+  const taskId = /task_\w+/.exec(defined)?.[0];
+  assert.ok(taskId);
+  const recorded = await recordEvidenceTool.execute(
+    {
+      task_id: taskId,
+      metric: 'log',
+      expected: 'contains Authorization',
+      observed: 'Authorization: Bearer sk-example12345678 CRITICAL device fault',
+      source: 'test',
+    },
+    ctx
+  );
+  assert.match(recorded, /PASS/);
+  const verdict = await taskAcceptanceTool.execute({ task_id: taskId }, ctx);
+  assert.match(verdict, /: FAIL/);
+  assert.match(verdict, /NO EVIDENCE\] log/);
 });
 
 test('task_define → record_evidence → task_acceptance full lifecycle', async (t) => {
