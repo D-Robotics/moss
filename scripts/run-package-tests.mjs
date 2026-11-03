@@ -11,9 +11,11 @@ const testDir = join(process.cwd(), 'test');
 // matching *.spec.mjs files so a single-change iteration does not need the
 // whole suite. Patterns match by substring on the cwd-relative path or
 // basename; patterns containing glob wildcards also try glob matching.
-// Without --filter the runner keeps its historical full-suite behavior.
-function parseFilters(argv) {
+// `--jobs N` runs spec files through a worker pool (default 1 keeps the
+// historical sequential semantics).
+function parseArgs(argv) {
   const filters = [];
+  let jobs = 1;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--filter') {
@@ -31,12 +33,27 @@ function parseFilters(argv) {
         process.exit(1);
       }
       filters.push(pattern);
+    } else if (arg === '--jobs') {
+      const raw = argv[i + 1];
+      if (!raw || Number.isNaN(Number(raw)) || !Number.isInteger(Number(raw)) || Number(raw) < 1) {
+        console.error('[test] --jobs requires a positive integer');
+        process.exit(1);
+      }
+      jobs = Number(raw);
+      i += 1;
+    } else if (arg.startsWith('--jobs=')) {
+      const raw = arg.slice('--jobs='.length);
+      if (Number.isNaN(Number(raw)) || !Number.isInteger(Number(raw)) || Number(raw) < 1) {
+        console.error('[test] --jobs requires a positive integer');
+        process.exit(1);
+      }
+      jobs = Number(raw);
     } else {
-      console.error(`[test] unknown argument: ${arg} (expected --filter <pattern>)`);
+      console.error(`[test] unknown argument: ${arg} (expected --filter <pattern> or --jobs <n>)`);
       process.exit(1);
     }
   }
-  return filters;
+  return { filters, jobs };
 }
 
 function matchesFilters(file, filters) {
@@ -85,7 +102,7 @@ if (testFilesAll.length === 0) {
   process.exit(1);
 }
 
-const filters = parseFilters(process.argv.slice(2));
+const { filters, jobs } = parseArgs(process.argv.slice(2));
 const testFiles =
   filters.length === 0
     ? testFilesAll
@@ -166,14 +183,14 @@ const testEnv = {
 
 // Specs are async children so SIGINT/SIGTERM can stop the current spec and
 // delete this run's temp root on the way out.
-let currentChild = null;
+const activeChildren = new Set();
+const completedFiles = new Array(testFiles.length).fill(false);
+let nextFileIndex = 0;
 let shuttingDown = false;
-/** Index in testFiles of the spec now running (-1 before the first). */
-let currentIndex = -1;
 
 // O149: an interrupted run names every spec that did not finish.
 function reportNotRun() {
-  const notRun = testFiles.slice(Math.max(currentIndex, 0));
+  const notRun = testFiles.filter((_, index) => !completedFiles[index]);
   if (notRun.length === 0) return;
   console.error(`[test] interrupted: ${notRun.length} file(s) did not run to completion:`);
   for (const file of notRun) console.error(`  ${file}`);
@@ -183,18 +200,19 @@ function shutdown(code) {
   if (shuttingDown) return;
   shuttingDown = true;
   reportNotRun();
-  const child = currentChild;
-  if (child && child.exitCode === null && child.signalCode === null) {
-    child.once('close', () => {
-      process.exit(code);
-    });
-    child.kill('SIGTERM');
-    setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-    }, 2000).unref();
+  const children = [...activeChildren];
+  for (const child of children) child.kill('SIGTERM');
+  if (children.length === 0) {
+    process.exit(code);
     return;
   }
-  process.exit(code);
+  const exitWhenChildrenClose = () => {
+    if (activeChildren.size === 0) process.exit(code);
+  };
+  for (const child of children) child.once('close', exitWhenChildrenClose);
+  setTimeout(() => {
+    for (const child of [...activeChildren]) child.kill('SIGKILL');
+  }, 2000).unref();
 }
 
 process.on('SIGINT', () => {
@@ -206,20 +224,21 @@ process.on('SIGTERM', () => {
 
 function runSpec(file) {
   return new Promise((resolve) => {
+    const startedAt = Date.now();
     const child = spawn(process.execPath, [file], {
       cwd: process.cwd(),
       stdio: 'inherit',
       env: testEnv,
     });
-    currentChild = child;
+    activeChildren.add(child);
     child.on('error', (err) => {
-      if (currentChild === child) currentChild = null;
+      activeChildren.delete(child);
       console.error(`[test] failed to start ${file}: ${err instanceof Error ? err.message : err}`);
-      resolve({ status: 1 });
+      resolve({ status: 1, durationMs: Date.now() - startedAt });
     });
     child.on('close', (status) => {
-      if (currentChild === child) currentChild = null;
-      resolve({ status });
+      activeChildren.delete(child);
+      resolve({ status, durationMs: Date.now() - startedAt });
     });
   });
 }
@@ -243,16 +262,30 @@ function reportLeaks() {
 // so every file runs and the failures are summarized at the end with a
 // non-zero exit. If the run is interrupted, every file that did not run is
 // listed by name, so a skipped spec is never silent.
-const failedFiles = [];
-for (const [index, file] of testFiles.entries()) {
-  if (shuttingDown) break;
-  currentIndex = index;
-  console.error(`[test] ${file}`);
-  const result = await runSpec(file);
-  if (shuttingDown) break;
-  if (result.status !== 0) failedFiles.push({ file, status: result.status });
+const results = new Array(testFiles.length).fill(null);
+
+async function worker() {
+  while (!shuttingDown) {
+    const index = nextFileIndex;
+    nextFileIndex += 1;
+    if (index >= testFiles.length) return;
+    const file = testFiles[index];
+    console.error(`[test] ${file}`);
+    const result = await runSpec(file);
+    if (shuttingDown) return;
+    results[index] = result;
+    completedFiles[index] = true;
+    console.error(`[test] ${file} finished in ${result.durationMs}ms`);
+  }
 }
-currentIndex = testFiles.length;
+
+if (jobs > 1) console.error(`[test] running ${testFiles.length} file(s) with jobs=${jobs}`);
+await Promise.all(Array.from({ length: Math.min(jobs, testFiles.length) }, () => worker()));
+
+const failedFiles = results
+  .map((result, index) => ({ result, index }))
+  .filter(({ result }) => result !== null && result.status !== 0)
+  .map(({ result, index }) => ({ file: testFiles[index], status: result.status }));
 
 if (failedFiles.length > 0) {
   console.error(`[test] ${failedFiles.length} of ${testFiles.length} file(s) failed:`);
@@ -262,10 +295,21 @@ if (failedFiles.length > 0) {
   process.exit(failedFiles[0].status ?? (leakStatus || 1));
 }
 
+const slowest = results
+  .map((result, index) => ({ file: testFiles[index], durationMs: result?.durationMs ?? 0 }))
+  .sort((a, b) => b.durationMs - a.durationMs)
+  .slice(0, 5);
+if (slowest.length > 0) {
+  console.error('[test] slowest specs:');
+  for (const { file, durationMs } of slowest)
+    console.error(`  ${durationMs}ms ${relative(process.cwd(), file)}`);
+}
+
 const leakStatus = reportLeaks();
 if (leakStatus !== 0) process.exit(leakStatus);
 
 console.error(
   `[test] passed ${testFiles.length} file(s)` +
-    (filters.length > 0 ? ` (filter: ${filters.join(', ')})` : '')
+    (filters.length > 0 ? ` (filter: ${filters.join(', ')})` : '') +
+    (jobs > 1 ? ` (jobs: ${jobs})` : '')
 );

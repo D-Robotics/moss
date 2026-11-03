@@ -44,6 +44,7 @@ def welcome() -> None:
         rows=36,
         extra_env=zh,
         config={"apiKey": "", "model": "deepseek"},
+        isolated_env=True,
     ) as session:
         seen = wait_for(session, "选择模型服务商")
         if "Moss 设置" not in seen:
@@ -54,7 +55,9 @@ def welcome() -> None:
 
 
 def chrome() -> None:
-    with Session(cols=120, rows=40, config={"model": "deepseek"}) as session:
+    with Session(
+        cols=120, rows=40, config={"model": "deepseek"}, isolated_env=True
+    ) as session:
         session.wait_for_prompt()
         session.submit("/language zh", wait=1.5)
         wait_for(session, "界面语言")
@@ -97,6 +100,7 @@ def english_chrome() -> None:
             "LC_MESSAGES": "zh_CN.UTF-8",
         },
         config={"model": "deepseek"},
+        isolated_env=True,
     ) as session:
         session.wait_for_prompt()
         session.submit("/language", wait=1.5)

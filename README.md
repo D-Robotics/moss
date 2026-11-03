@@ -402,10 +402,12 @@ moss config set language auto          # 默认：仅当系统区域以 zh 开�
 ## 质量门与基准
 
 ```bash
-npm run check    # prettier + eslint（0 warning）+ typecheck
-npm run test     # build + 全部 test/*.spec.mjs（当前 235 个，面向 dist 跑）
-npm run smoke    # CLI 冒烟：--version / --help / PTY 启动
-npm run verify   # check + test + smoke —— 发版前必须全绿
+npm run check          # prettier + eslint（0 warning）+ typecheck
+npm run test           # build + 顺序跑全部 test/*.spec.mjs（发布/CI 口径）
+npm run test:parallel  # build + 全部 spec，默认 4 并发（本地提速；--jobs <n> 可调）
+npm run smoke          # CLI 冒烟：--version / --help / PTY 启动
+npm run verify:quick   # check + smoke，日常快速反馈（不替代完整 verify）
+npm run verify         # check + test + smoke —— 发版前必须全绿
 
 # 真实终端（tmux / GNU screen / Terminal.app），默认不跑；缺哪个终端就跳过哪项
 npm run build && MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-terminals

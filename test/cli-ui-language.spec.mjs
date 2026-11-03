@@ -666,7 +666,7 @@ balanced cautious autonomous manual acceptedits full never prompt
 moss_lang moss_config_dir moss_config_file moss_no_bundled_default editor
 wl-paste xclip echo printf rg grep test timeline stdio rdk-docs full-access
 fleet info processes resources temperature robotics network cameras partial
-all-fail devices description view history failures verify false
+all-fail devices description view history failures verify false fps
 readme connect whl zoo wget pip`
     .split(/\s+/)
     .filter((word) => word.length > 0)
@@ -714,8 +714,11 @@ function englishSentences(text, displayedPaths = []) {
       line = line.replace(new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ');
     }
     line = line.replace(/https?:\/\/\S+/g, ' ');
-    // This exact public endpoint is data; surrounding English still counts.
-    line = line.replace(/(^|[^A-Za-z0-9_.-])archive\.d-robotics\.cc(?=$|[^A-Za-z0-9_.-])/gi, '$1 ');
+    // These exact D-Robotics endpoints are data; English copy around them counts.
+    line = line.replace(
+      /(^|[^A-Za-z0-9_.-])(?:archive|rdk-rdk-sandbox)\.d-robotics\.cc(?=$|[^A-Za-z0-9_.-])/gi,
+      '$1 '
+    );
     // A flag token, including an attached =value. The next word stays.
     line = line.replace(/(^|[^\w-])(--?[A-Za-z0-9][\w-]*)(?:=[^\s,，。；;)]*)?/g, '$1 ');
     const kept = [];
@@ -765,6 +768,8 @@ assert.deepEqual(
   []
 );
 assert.deepEqual(englishSentences('下载地址：ARCHIVE.D-ROBOTICS.CC。'), []);
+assert.deepEqual(englishSentences('试试 “以 30 fps 推流相机并验证”'), []);
+assert.deepEqual(englishSentences('deepseek · rdk-rdk-sandbox.d-robotics.cc'), []);
 for (const text of [
   'These settings will be saved here: archive.d-robotics.cc',
   'Archive these files at archive.d-robotics.cc',

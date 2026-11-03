@@ -46,10 +46,12 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 | `npm run build`                                                                  | 清理并构建到 `dist/`                                                                                                                                                 |
 | `npm run typecheck`                                                              | 全量类型检查                                                                                                                                                         |
 | `npm run lint` / `lint:fix`                                                      | ESLint（0 warning）                                                                                                                                                  |
-| `npm run test`                                                                   | 构建 + 运行 `test/*.spec.mjs`（面向 `dist/`）                                                                                                                        |
+| `npm run test`                                                                   | 构建 + 顺序运行 `test/*.spec.mjs`（面向 `dist/`；发布/CI 口径）                                                                                                      |
 | `npm run test:filter -- --filter <name>`                                         | 只跑匹配的 spec（至少匹配 1 个，否则失败）                                                                                                                           |
+| `npm run test:parallel [-- --jobs <n>]`                                          | 构建 + 并行运行全部 spec（默认 4 并发；runner 也支持 `node scripts/run-package-tests.mjs --jobs <n>`），本地提速用，失败汇总与串行一致                               |
 | `npm run smoke`                                                                  | CLI 冒烟（版本 / 帮助 / PTY 启动）                                                                                                                                   |
 | `npm run check`                                                                  | format:check + lint + typecheck                                                                                                                                      |
+| `npm run verify:quick`                                                           | check + smoke，日常快速反馈；不替代交付前 `verify`                                                                                                                   |
 | `npm run verify`                                                                 | check + test + smoke，交付前必须绿                                                                                                                                   |
 | `npm run bench [-- --task <id> --samples <n>]`                                   | agent 能力基准（`bench/tasks/`，DeepSeek 基准模型，结果落 `bench/results/`，不入库）                                                                                 |
 | `npm run bench:ab -- <engine>`                                                   | hard 层 A/B 对照（`best-of-n` / `reasoning-high` / `model-routing`，`--samples <n>` 可调），输出默认开/关建议                                                        |
@@ -173,11 +175,13 @@ Linux CI 不是 macOS。改 shell 片段、临时目录或 git 路径时按这�
 
 ## 测试约定
 
-- 测试在 `test/*.spec.mjs`，import 构建产物 `dist/`，由 `scripts/run-package-tests.mjs` 顺序执行。
+- 测试在 `test/*.spec.mjs`，import 构建产物 `dist/`，由 `scripts/run-package-tests.mjs` 默认顺序执行（`--jobs <n>` 可并行）。
 - 新增 spec 文件名包含被测模块名，保证 `--filter` 可命中。
 - Bug 修复需要"修复前失败、修复后通过"的回归测试。
 - 动态 ESM import 一律 `pathToFileURL(...).href`（Windows 兼容）。
 - 依赖真实终端的检查放在 `MOSS_REAL_TERMINALS=1` 之后（`test/tui-real-terminals.spec.mjs`），默认测试与 CI 系统矩阵不跑。
+- 进程级断言 folder trust / `.env` 路由 / 设备凭据的 spec 不直接跑仓库 `dist/cli.js`（CLI 会加载安装目录祖先的仓库 `.env`），用
+  `test/helpers/isolated-cli-install.mjs`；`npm pack` 探针必须 `--ignore-scripts`，避免 `prepare` 清空共享 `dist/` 与并行 runner 竞态。
 
 ## 纪律
 

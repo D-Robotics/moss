@@ -18,14 +18,14 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import ssh2 from 'ssh2';
 import { loadDeviceRegistry } from '../dist/device/device-registry-file.js';
 import { isDotenvDeniedEnvKey } from '../dist/utils/dotenv-denied-env.js';
 import { folderPathKey } from '../dist/utils/folder-trust-store.js';
+import { getIsolatedCliPath } from './helpers/isolated-cli-install.mjs';
 import { trackTempDir } from './helpers/temp-home.mjs';
 
-const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
+const cli = getIsolatedCliPath();
 
 const USER_PW = 'hunter2-user-board-pw';
 const API_KEY = 'sk-REALUSERKEY0000000000000001';

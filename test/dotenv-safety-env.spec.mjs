@@ -11,7 +11,6 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   commitProjectRoutingEnv,
   loadEnvFile,
@@ -22,8 +21,9 @@ import {
   isDotenvSafetyEnvKey,
   takeDotenvSafetyEnvNotices,
 } from '../dist/safety/dotenv-safety-env.js';
+import { getIsolatedCliPath } from './helpers/isolated-cli-install.mjs';
 
-const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
+const cli = getIsolatedCliPath();
 
 const EXPECTED_KEYS = [
   'MOSS_APPROVAL_POLICY',

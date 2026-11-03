@@ -30,6 +30,12 @@ function run(dir, ci) {
   return spawnSync(process.execPath, [script], { cwd: dir, env, encoding: 'utf8' });
 }
 
+function runWithOptions(dir, args) {
+  const env = { ...process.env };
+  delete env.CI;
+  return spawnSync(process.execPath, [script, ...args], { cwd: dir, env, encoding: 'utf8' });
+}
+
 // O149 (QA #145 F1): no local fail-fast either; an early red file must not
 // hide later (safety) specs.
 test('locally the runner also runs every file and summarizes failures', () => {
@@ -67,6 +73,51 @@ test('CI=false runs every file too', () => {
     assert.notEqual(r.status, 0);
     assert.match(r.stderr, /\[test\] .*b-pass\.spec\.mjs/);
     assert.match(r.stderr, /2 of 3 file\(s\) failed:/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('parallel jobs still run every file and summarize failures in order', () => {
+  const dir = fixture();
+  try {
+    const r = runWithOptions(dir, ['--jobs', '2']);
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /with jobs=2/);
+    assert.match(r.stderr, /\[test\] .*a-fail\.spec\.mjs/);
+    assert.match(r.stderr, /\[test\] .*b-pass\.spec\.mjs/);
+    assert.match(r.stderr, /\[test\] 2 of 3 file\(s\) failed:/);
+    assert.match(r.stderr, /a-fail\.spec\.mjs \(exit/);
+    assert.match(r.stderr, /c-fail\.spec\.mjs \(exit/);
+    assert.doesNotMatch(r.stderr, /b-pass\.spec\.mjs \(exit/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('parallel all-green run reports timing and jobs', () => {
+  const dir = fixture();
+  const ok = fs.readFileSync(path.join(dir, 'test', 'b-pass.spec.mjs'));
+  fs.writeFileSync(path.join(dir, 'test', 'a-fail.spec.mjs'), ok);
+  fs.writeFileSync(path.join(dir, 'test', 'c-fail.spec.mjs'), ok);
+  try {
+    const r = runWithOptions(dir, ['--jobs=3']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stderr, /\[test\] slowest specs:/);
+    assert.match(r.stderr, /\[test\] passed 3 file\(s\) \(jobs: 3\)/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--jobs rejects non-positive or non-integer values', () => {
+  const dir = fixture();
+  try {
+    for (const value of ['0', '-1', '1.5', 'two']) {
+      const r = runWithOptions(dir, ['--jobs', value]);
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, /--jobs requires a positive integer/);
+    }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

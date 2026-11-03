@@ -22,6 +22,7 @@ import os
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -307,17 +308,20 @@ def screen_text(session):
 
 
 def p4_keybindings():
+    # A loaded parallel runner can take several seconds to paint an overlay;
+    # 20s keeps the poll robust without weakening the negative checks below.
+    timeout = 20
     # A rebound command answers on its new key and not on the old one.
     # Poll for the overlay: a fixed pump after Ctrl+T flakes when the frame
     # lands late ("history search did not open on Ctrl+T").
     with Session(cols=100, rows=30, renderer="fullscreen",
                  keybindings={"history.search": "ctrl+t"}) as session:
         session.key("ctrl-t")
-        opened = session.wait_for(lambda: "Enter to use" in screen_text(session), 5)
+        opened = session.wait_for(lambda: "Enter to use" in screen_text(session), timeout)
         check("P4 a rebound key opens its command", opened,
               "history search did not open on Ctrl+T")
         session.key("esc")
-        closed = session.wait_for(lambda: "Enter to use" not in screen_text(session), 5)
+        closed = session.wait_for(lambda: "Enter to use" not in screen_text(session), timeout)
         session.key("ctrl-r")
         stayed_off = closed
         end = time.time() + 1.5
@@ -331,14 +335,14 @@ def p4_keybindings():
     # A bad line is reported, and the valid line still applies.
     with Session(cols=100, rows=30, renderer="fullscreen",
                  keybindings={"run.interrupt": "ctrl+z", "composer.clear": "ctrl+t"}) as session:
-        warned = session.wait_for(lambda: "cannot be rebound" in screen_text(session), 5)
+        warned = session.wait_for(lambda: "cannot be rebound" in screen_text(session), timeout)
         check("P4 a locked command is reported on screen", warned,
               "no warning for run.interrupt")
         session.submit("draft text", wait=0.2)
-        shown = session.wait_for(lambda: "draft text" in screen_text(session), 5)
+        shown = session.wait_for(lambda: "draft text" in screen_text(session), timeout)
         session.key("ctrl-t")
         cleared = shown and session.wait_for(
-            lambda: "draft text" not in "\n".join(session.lines()[-8:]), 5
+            lambda: "draft text" not in "\n".join(session.lines()[-8:]), timeout
         )
         check("P4 a valid rebind still applies beside a bad one", cleared,
               "Ctrl+T did not clear the composer")
@@ -459,7 +463,9 @@ def p6_external_editor():
         session.send("\n")
         session.pump(0.2)
         session.send("two")
-        session.pump(0.3)
+        # A fixed pump races a loaded runner: Ctrl+G can fire before the
+        # composer has processed the newline and moved to line 2.
+        session.wait_for(lambda: "two" in screen_text(session), 5)
         session.key("ctrl-g")
         # Poll for the editor's argv instead of sleeping: a loaded machine can take
         # several seconds to start a child process.
@@ -507,30 +513,55 @@ def p6_queue_recall():
 
 
 def main():
+    scenarios = []
     for renderer in RENDERERS:
         for cols, rows in SIZES:
-            matrix(renderer, cols, rows)
-    n2_scrolled_frame()
-    n3_scroll_stable()
-    n4_bottom_edge()
-    help_frame()
-    parallel_tool_results()
-    p2_narrow_fallback()
-    p3_tool_rows()
-    p4_keybindings()
-    p0_approval_dialog()
-    p1_ctrl_home()
-    p5_theme()
-    p5_light_colours()
-    p5_theme_command()
-    p6_queue_recall()
-    p6_overlay_cursor()
-    p6_external_editor()
-    p1_scroll_bar_and_home()
-    p1_heading_style_kept()
-    p1_reply_end_no_jump()
+            scenarios.append(
+                (
+                    f"matrix {renderer}@{cols}x{rows}",
+                    lambda renderer=renderer, cols=cols, rows=rows: matrix(
+                        renderer, cols, rows
+                    ),
+                )
+            )
+    scenarios.extend(
+        [
+            ("N2 scrolled frame", n2_scrolled_frame),
+            ("N3 scroll stable", n3_scroll_stable),
+            ("N4 bottom edge", n4_bottom_edge),
+            ("help frame", help_frame),
+            ("parallel tool results", parallel_tool_results),
+            ("P2 narrow fallback", p2_narrow_fallback),
+            ("P3 tool rows", p3_tool_rows),
+            ("P4 keybindings", p4_keybindings),
+            ("P0 approval dialog", p0_approval_dialog),
+            ("P1 Ctrl+Home", p1_ctrl_home),
+            ("P5 theme", p5_theme),
+            ("P5 light colours", p5_light_colours),
+            ("P5 theme command", p5_theme_command),
+            ("P6 queue recall", p6_queue_recall),
+            ("P6 overlay cursor", p6_overlay_cursor),
+            ("P6 external editor", p6_external_editor),
+            ("P1 scroll bar and Home", p1_scroll_bar_and_home),
+            ("P1 heading style", p1_heading_style_kept),
+            ("P1 reply end no jump", p1_reply_end_no_jump),
+        ]
+    )
+    failures = []
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = [(name, pool.submit(fn)) for name, fn in scenarios]
+        for name, future in futures:
+            try:
+                future.result()
+            except Exception as err:  # noqa: BLE001 - reported with its scenario
+                failures.append((name, err))
+                print(f"[FAIL] {name} raised {err}", flush=True)
     failed = [name for name, ok, _ in results if not ok]
     print(f"[tui-layout] {len(results) - len(failed)}/{len(results)} passed")
+    if failures:
+        for name, err in failures:
+            print(f"[tui-layout] scenario {name} raised: {err}", file=sys.stderr)
+        return 1
     return 1 if failed else 0
 
 

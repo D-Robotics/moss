@@ -49,6 +49,7 @@
     "format:check": "prettier --check .",
     "test": "npm run build && node scripts/run-package-tests.mjs",
     "test:filter": "node scripts/run-package-tests.mjs",
+    "test:parallel": "npm run build && node scripts/run-package-tests.mjs --jobs 4",
     "smoke": "node scripts/smoke-moss-cli.mjs",
     "bench": "npm run build && node scripts/run-benchmark.mjs",
     "bench:superagent": "npm run build && node scripts/bench-superagent.mjs",
@@ -63,6 +64,7 @@
     "bench:device": "npm run build && node scripts/bench-device.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck",
     "verify": "npm run check && npm run test && npm run smoke",
+    "verify:quick": "npm run check && npm run smoke",
     "prompt:tokens": "node scripts/prompt-token-report.mjs",
     "examples": "node examples/headless-run.mjs && node examples/repl-host.mjs && node examples/custom-tool-approval.mjs"
   },

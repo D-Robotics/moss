@@ -47,9 +47,9 @@ const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const pkgJson = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
 const lifecycleScripts = lifecycleNodeScripts(pkgJson);
 
-// npm runs `prepare` (a clean rebuild of dist/) before packing, even with
-// --ignore-scripts, so this checks what a publish would actually ship.
-const packArgs = ['pack', '--dry-run', '--json'];
+// --ignore-scripts keeps npm pack from running `prepare` (a clean dist/
+// rebuild) while other specs are importing dist/ in a parallel runner.
+const packArgs = ['pack', '--dry-run', '--ignore-scripts', '--json'];
 const npmCli = process.env.npm_execpath;
 const result =
   npmCli && /npm-cli\.[cm]?js$/.test(npmCli)

@@ -73,6 +73,27 @@ function q(p) {
   return IS_WIN ? `'${p.replaceAll("'", "''")}'` : `'${p.replaceAll("'", "'\\''")}'`;
 }
 
+// Apple's /usr/bin/git is an xcode-select shim keyed on argv[0]; a renamed
+// symlink makes it look for the new name and fail. Prefer the real binary.
+function usableGitBinary() {
+  const candidates = [];
+  if (process.platform === 'darwin') {
+    const developerDir = spawnSync('xcode-select', ['-p'], { encoding: 'utf8' });
+    if (developerDir.status === 0 && developerDir.stdout.trim()) {
+      candidates.push(path.join(developerDir.stdout.trim(), 'usr', 'bin', 'git'));
+    }
+  }
+  candidates.push('/opt/homebrew/bin/git', '/usr/local/bin/git');
+  const direct = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' });
+  if (direct.status === 0 && direct.stdout.trim()) candidates.push(direct.stdout.trim());
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate)) continue;
+    const probe = spawnSync(candidate, ['--version'], { encoding: 'utf8' });
+    if (probe.status === 0 && /^git version /.test(probe.stdout)) return candidate;
+  }
+  throw new Error('no runnable git binary found for the renamed-git case');
+}
+
 const SEED = {
   '.env': 'SECRET_TOKEN=s3cr3t-o152-do-not-leak\n',
   '.git/hooks/pre-commit': '#!/bin/sh\necho hook-o152\n',
@@ -1015,10 +1036,7 @@ const RESTORE_CASES = [
         // A renamed launcher: the detector sees `o152g`, never `git`.
         fs.writeFileSync(path.join(proj, 'o152g.cmd'), '@git %*\r\n');
       } else {
-        const gitPath = spawnSync('sh', ['-c', 'command -v git'], {
-          encoding: 'utf8',
-        }).stdout.trim();
-        fs.symlinkSync(gitPath, path.join(proj, 'o152g'));
+        fs.symlinkSync(usableGitBinary(), path.join(proj, 'o152g'));
       }
     },
     cmd: () => `./o152g -c alias.x='!rm -f .git/config' x`,

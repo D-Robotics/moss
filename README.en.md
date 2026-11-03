@@ -528,10 +528,12 @@ one line: press `e` to switch to English.
 ## Quality gates and benchmarks
 
 ```bash
-npm run check    # prettier + eslint (0 warning) + typecheck
-npm run test     # build + every test/*.spec.mjs (235 specs, run against dist/)
-npm run smoke    # CLI smoke: --version / --help / PTY startup
-npm run verify   # check + test + smoke — required before any release
+npm run check          # prettier + eslint (0 warning) + typecheck
+npm run test           # build + every test/*.spec.mjs, sequential (release/CI gate)
+npm run test:parallel  # build + every spec, 4 workers by default (--jobs <n> to tune)
+npm run smoke          # CLI smoke: --version / --help / PTY startup
+npm run verify:quick   # check + smoke for fast local feedback (not a release gate)
+npm run verify         # check + test + smoke — required before any release
 
 # Real terminals (tmux / GNU screen / Terminal.app); off by default, missing terminals are skipped
 npm run build && MOSS_REAL_TERMINALS=1 npm run test:filter -- --filter tui-real-terminals
