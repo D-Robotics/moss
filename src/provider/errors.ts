@@ -1,4 +1,4 @@
-import { MossError, ErrorCode, isMossError } from '../errors.js';
+import { isMossError } from '../errors.js';
 import { isOverflowMessage } from './overflow-patterns.js';
 
 export type FailoverReason =
@@ -84,66 +84,6 @@ export function isTimeoutStatus(status?: number): boolean {
 
 export function isServerErrorStatus(status?: number): boolean {
   return status === 500 || status === 502 || status === 503 || status === 529;
-}
-
-/**
- * Helper to create a provider error response from HTTP response metadata.
- * Used by providers to classify HTTP errors before throwing.
- */
-export function createProviderErrorResponse(
-  provider: 'anthropic' | 'openai' | 'pi-ai',
-  message: string,
-  {
-    status,
-    code,
-    originalError,
-    retryAfterMs,
-  }: {
-    status?: number;
-    code?: string;
-    originalError?: unknown;
-    retryAfterMs?: number;
-  } = {}
-): ProviderErrorResponse {
-  // Determine retryability based on status code and message patterns
-  const isRetryable =
-    isRateLimitStatus(status) ||
-    isServerErrorStatus(status) ||
-    isRateLimitError(message) ||
-    isTimeoutError(message) ||
-    isConnectionError(message) ||
-    isServerError(message);
-
-  return {
-    message,
-    provider,
-    status,
-    code,
-    originalError,
-    retryable: isRetryable,
-    retryAfterMs,
-  };
-}
-
-/**
- * Convert a provider error response into a throwable MossError.
- * This bridges the new error response system with legacy error handling.
- */
-export function throwProviderErrorResponse(response: ProviderErrorResponse): never {
-  const retryHint = response.retryAfterMs ? ` (Retry-After: ${response.retryAfterMs}ms)` : '';
-  const label = response.provider === 'pi-ai' ? 'gateway' : response.provider;
-  throw new MossError({
-    code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
-    message: `${label} API error ${response.status || 'unknown'}${retryHint}: ${response.message}`,
-    hint: `The upstream ${label} API returned an error during streaming.`,
-    recoverable: response.retryable,
-    cause: response.originalError,
-    context: {
-      provider: response.provider,
-      ...(response.status ? { status: response.status } : {}),
-      ...(response.code ? { code: response.code } : {}),
-    },
-  });
 }
 
 const RATE_LIMIT_PATTERNS = [

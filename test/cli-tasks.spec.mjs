@@ -15,6 +15,7 @@ import { isolatedCliEnv } from './helpers/isolated-cli-env.mjs';
 import { runTasksCommand } from '../dist/cli/tasks-commands.js';
 import { taskDefineTool, taskAcceptanceTool } from '../dist/tools/task-tools.js';
 import { recordEvidenceTool } from '../dist/tools/evidence-tools.js';
+import { createDraftTask, appendTaskEvent } from '../dist/core/task/task-store.js';
 
 const run = promisify(execFile);
 
@@ -154,4 +155,102 @@ test('moss tasks renders contracts, evidence, deployments, acceptance, device', 
     }
   );
   assert.match(cli.stdout, new RegExp(taskId));
+});
+
+test('moss tasks list projects canonical status and ignores illegal event suffixes', async (t) => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-tasks-status-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  const makeTask = async (goal, events = []) => {
+    const task = await createDraftTask(workspace, goal);
+    for (const [type, data] of events) {
+      await appendTaskEvent(workspace, task.taskId, type, data);
+    }
+    return task;
+  };
+
+  const rows = [
+    [await makeTask('draft task'), 'draft'],
+    [await makeTask('active task', [['execution_started']]), 'active'],
+    [
+      await makeTask('accepted task', [
+        ['execution_started'],
+        ['verification_started'],
+        ['acceptance_pass'],
+      ]),
+      'accepted',
+    ],
+    [
+      await makeTask('blocked task', [
+        ['execution_started'],
+        ['blocked_on_user', { reason: 'user decision required' }],
+      ]),
+      'blocked',
+    ],
+    [
+      await makeTask('failed task', [
+        ['execution_started'],
+        ['task_failed', { detail: 'verification failed' }],
+      ]),
+      'failed',
+    ],
+  ];
+  const aborted = await makeTask('aborted task', [
+    ['execution_started'],
+    ['task_failed', { detail: 'aborted' }],
+  ]);
+  rows.push([aborted, 'aborted']);
+  await fs.appendFile(
+    path.join(workspace, '.moss', 'task-events.jsonl'),
+    `${JSON.stringify({
+      eventId: 'evt_illegal_terminal_suffix',
+      taskId: aborted.taskId,
+      type: 'task_failed',
+      timestamp: Date.now(),
+      phase: 'failed',
+      data: { detail: 'illegal later failure' },
+    })}\n`,
+    'utf8'
+  );
+
+  const cap = capture();
+  try {
+    await runTasksCommand(['list'], workspace);
+    const text = cap.text();
+    for (const [task, status] of rows) {
+      assert.match(text, new RegExp(`${task.taskId}\\s+${status}\\s`));
+    }
+  } finally {
+    cap.restore();
+  }
+});
+
+test('moss tasks list counts valid JSONL rows and excludes unconfirmed appends', async (t) => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-tasks-jsonl-'));
+  t.after(() => fs.rm(workspace, { recursive: true, force: true }));
+  await createDraftTask(workspace, 'JSONL totals');
+  const deployments = Array.from({ length: 60 }, (_, index) =>
+    JSON.stringify({ deploymentId: `deployment_${index}` })
+  );
+  await fs.writeFile(
+    path.join(workspace, '.moss', 'deployments.jsonl'),
+    `${deployments.join('\n')}\nnot-json\n`,
+    'utf8'
+  );
+  const confirmed = `${JSON.stringify({ verdict: 'pass' })}\n`;
+  const unconfirmed = `${JSON.stringify({ verdict: 'fail' })}\n`;
+  const acceptance = path.join(workspace, '.moss', 'acceptance.jsonl');
+  await fs.writeFile(acceptance, confirmed + unconfirmed, 'utf8');
+  await fs.writeFile(
+    `${acceptance}.pending`,
+    JSON.stringify({ originalSize: Buffer.byteLength(confirmed) }),
+    'utf8'
+  );
+
+  const cap = capture();
+  try {
+    await runTasksCommand(['list'], workspace);
+    assert.match(cap.text(), /deployments: 60 · acceptance verdicts: 1/);
+  } finally {
+    cap.restore();
+  }
 });
