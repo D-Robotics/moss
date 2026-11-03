@@ -42,6 +42,7 @@ const quote = (value) =>
   process.platform === 'win32'
     ? `"${String(value).replaceAll('"', '""')}"`
     : `'${String(value).replaceAll("'", "'\\''")}'`;
+const displayedPath = (value) => value.replaceAll('\\', '/');
 
 test('fixed config files detect creation, deletion and symlink target edits without exposing contents', (t) => {
   const { root, workspace } = fixture(t);
@@ -72,10 +73,11 @@ test('fixed config files detect creation, deletion and symlink target edits with
   fs.writeFileSync(path.join(root, 'session.jsonl'), 'ordinary session update');
   const after = takeProtectedPathSnapshotAfter(before, { home });
   const changes = diffProtectedPathSnapshots(before, after);
-  assert.ok(changes.some((c) => c.path === missing && c.kind === 'added'));
-  assert.ok(changes.some((c) => c.path === credentials && c.kind === 'deleted'));
-  assert.ok(changes.some((c) => c.path === envConfig && c.kind === 'modified'));
-  if (symlinkAvailable) assert.ok(changes.some((c) => c.path === link && c.kind === 'modified'));
+  assert.ok(changes.some((c) => c.path === displayedPath(missing) && c.kind === 'added'));
+  assert.ok(changes.some((c) => c.path === displayedPath(credentials) && c.kind === 'deleted'));
+  assert.ok(changes.some((c) => c.path === displayedPath(envConfig) && c.kind === 'modified'));
+  if (symlinkAvailable)
+    assert.ok(changes.some((c) => c.path === displayedPath(link) && c.kind === 'modified'));
   assert.equal(changes.length, symlinkAvailable ? 4 : 3);
   assert.doesNotMatch(JSON.stringify(changes), /private-content|link-content/);
   assert.ok(
@@ -106,7 +108,10 @@ test('mixed config and workspace changes report only the workspace file as resto
     takeProtectedPathSnapshotAfter(before, { home })
   );
   const restores = restoreProtectedPathChanges(before, changes);
-  assert.equal(restores.find((r) => r.path === credentials)?.outcome, 'skipped-no-snapshot');
+  assert.equal(
+    restores.find((r) => r.path === displayedPath(credentials))?.outcome,
+    'skipped-no-snapshot'
+  );
   assert.equal(restores.find((r) => r.path === '.env')?.outcome, 'restored');
   assert.equal(fs.readFileSync(credentials, 'utf8'), 'modified-credential');
   assert.equal(fs.readFileSync(dotenv, 'utf8'), 'original-environment');
@@ -201,7 +206,7 @@ test('background exec reports a configuration change when the process exits', as
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   assert.equal(result?.status, 'exited');
-  assert.ok(result.protectedPathChanges?.some((c) => c.path === config));
+  assert.ok(result.protectedPathChanges?.some((c) => c.path === displayedPath(config)));
   const logs = await execLogsTool.execute({ id, tail: 100 }, ctx);
   assert.match(logs, /modified|已被修改/);
   assert.doesNotMatch(logs, /original-secret-value|new-secret-value|modified and restored|已还原/);
