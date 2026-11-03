@@ -68,7 +68,8 @@ async function execute(runId) {
     observer.finish('completed');
     return result;
   } finally {
-    await agent.close();
+    // This temporary actor owns no background exec jobs in an embedding host.
+    await agent.close({ stopBackgroundProcesses: false });
   }
 }
 try {

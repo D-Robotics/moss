@@ -1,14 +1,129 @@
 #!/usr/bin/env node
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import { MossAgent } from '../dist/core/agent/moss-agent.js';
 import { InMemorySessionStore } from '../dist/core/session/session.js';
 import { createInMemoryMossAsyncTaskRegistry } from '../dist/contracts/async-task.js';
+import { execBackgroundTool } from '../dist/tools/background-exec.js';
+import {
+  backgroundProcesses,
+  clearBackgroundRegistryForTests,
+} from '../dist/core/tools/background-process-registry.js';
+import { resolveHostShell } from '../dist/utils/host-shell.js';
 
 function timeout(ms, label) {
   return new Promise((_, reject) => setTimeout(() => reject(new Error(label)), ms));
 }
+
+async function withBackgroundProcess(run) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-close-background-'));
+  try {
+    const script = path.join(root, 'job.cjs');
+    await fs.writeFile(script, 'console.log("ready"); setInterval(() => {}, 1000);');
+    const quote = (value) =>
+      process.platform === 'win32'
+        ? `"${value.replaceAll('"', '""')}"`
+        : `'${value.replaceAll("'", "'\\''")}'`;
+    const prefix = process.platform === 'win32' && resolveHostShell().kind === 'pwsh' ? '& ' : '';
+    const output = await execBackgroundTool.execute(
+      { command: `${prefix}${quote(process.execPath)} ${quote(script)}`, settle_ms: 0 },
+      { abortSignal: new AbortController().signal, sessionKey: 'host-owned-job' }
+    );
+    const id = output.match(/bg_\d+/)?.[0];
+    assert.ok(id, output);
+    const proc = backgroundProcesses.get(id);
+    assert.ok(proc?.child.pid, 'the fixture is a real registered child process');
+    const readyBy = Date.now() + 5000;
+    while (!proc.buffer.includes('ready') && Date.now() < readyBy)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.match(proc.buffer, /ready/, 'the background command started before close');
+    const closed = new Promise((resolve) => proc.child.once('close', resolve));
+    await run(proc, closed);
+  } finally {
+    clearBackgroundRegistryForTests();
+    await fs.rm(root, { recursive: true, force: true });
+  }
+}
+
+test('default close stops a real background process', async () => {
+  await withBackgroundProcess(async (proc, closed) => {
+    const agent = new MossAgent({
+      sessionStore: new InMemorySessionStore(),
+      llmProvider: {
+        id: 'background-close-provider',
+        async complete() {
+          throw new Error('close must not call the provider');
+        },
+      },
+    });
+    await agent.close();
+    await Promise.race([closed, timeout(5000, 'default close did not stop the child')]);
+    assert.notEqual(proc.status, 'running');
+    assert.ok(proc.child.exitCode !== null || proc.child.signalCode !== null);
+  });
+});
+
+test('embedded close preserves an unrelated real background process and cleans up the agent', async () => {
+  await withBackgroundProcess(async (proc) => {
+    let started;
+    const startedGate = new Promise((resolve) => {
+      started = resolve;
+    });
+    const provider = {
+      id: 'embedded-close-provider',
+      async complete(options) {
+        started();
+        await new Promise((resolve, reject) => {
+          options.abortSignal.addEventListener('abort', () => reject(options.abortSignal.reason), {
+            once: true,
+          });
+        });
+      },
+      async stream(options) {
+        return this.complete(options);
+      },
+    };
+    const agent = new MossAgent({
+      llmProvider: provider,
+      sessionStore: new InMemorySessionStore(),
+      domainPrompt: false,
+      enableSteering: false,
+      enableFollowUpGuard: false,
+    });
+    let taskStarted;
+    const taskStartedGate = new Promise((resolve) => {
+      taskStarted = resolve;
+    });
+    agent.asyncTasks.start(
+      { taskId: 'embedded-task', kind: 'host_task', payload: {} },
+      async (_request, signal) => {
+        await new Promise((resolve) => {
+          signal.addEventListener('abort', resolve, { once: true });
+          taskStarted();
+        });
+        return { success: false, summary: 'aborted' };
+      }
+    );
+    const chat = agent.chat('embedded-close', 'wait').catch((error) => error);
+    await Promise.all([startedGate, taskStartedGate]);
+    const closing = agent.close({ stopBackgroundProcesses: false });
+    assert.equal(agent.close(), closing, 'the first close options govern repeated calls');
+    await Promise.race([closing, timeout(500, 'embedded close did not settle')]);
+    assert.equal((await chat).stopReason, 'aborted_by_user');
+    assert.equal(agent.asyncTasks.readCompletion('embedded-task')?.status, 'cancelled');
+    await assert.rejects(
+      () => agent.chat('closed', 'no'),
+      (error) => error?.code === 'AGENT_DISPOSED'
+    );
+    assert.equal(proc.killRequested, undefined, 'the unrelated job was never signaled');
+    assert.equal(proc.status, 'running');
+    assert.doesNotThrow(() => process.kill(proc.child.pid, 0), 'the real child remains alive');
+  });
+});
 
 test('close aborts an active provider call and waits for the run to settle', async () => {
   let started;

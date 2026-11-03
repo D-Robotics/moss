@@ -29,6 +29,14 @@ const result = await agent.chat(sessionKey, userTask, {
 // Finish observation using the real host task verdict, not model success prose.
 ```
 
+Always close a temporary actor in `finally`. For an embedded actor that owns no
+background exec jobs, use `await agent.close({ stopBackgroundProcesses: false })`
+so closing the actor preserves the host's unrelated `exec_start` jobs. This still
+aborts the actor's active run, settles its owned async tasks and clears its local
+state. Plain `close()` and `dispose()` retain their existing process-global
+background shutdown behavior. Close is idempotent: its first call's options govern
+all subsequent calls. A host opting out owns background job cleanup itself.
+
 Use `enrollCase` with actual terminal observed runs and independent immutable
 training/validation/holdout splits. `propose` receives no holdout. `evaluate`
 consumes holdout before model calls; deletion/expiry cannot reset exposure.
