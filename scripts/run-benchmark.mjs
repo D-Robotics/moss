@@ -82,7 +82,11 @@ function parseArgs(argv) {
       const inline = inlineValue !== undefined;
       const value = inline ? inlineValue : argv[++i];
       inlineValue = undefined;
-      if (value === undefined || (!inline && (value === '-h' || value.startsWith('--')))) {
+      if (
+        value === undefined ||
+        (arg !== '--seed' && value.trim() === '') ||
+        (!inline && (value === '-h' || value.startsWith('--')))
+      ) {
         throw new Error(`${arg} requires a value`);
       }
       return value;
@@ -99,12 +103,7 @@ function parseArgs(argv) {
         out.temperature = undefined;
       } else {
         const temperature = Number(value);
-        if (
-          value.trim() === '' ||
-          !Number.isFinite(temperature) ||
-          temperature < 0 ||
-          temperature > 2
-        ) {
+        if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
           throw new Error('--temperature must be a number between 0 and 2, or none');
         }
         out.temperature = temperature;
