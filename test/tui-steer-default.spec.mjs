@@ -96,6 +96,23 @@ function agentWith(steerImpl) {
   return { agent, streamCalls, steerCalls };
 }
 
+for (const draft of ['important correction', '/steer important correction']) {
+  const { agent } = agentWith(() => {
+    throw new Error('inbox write failed');
+  });
+  const { instance, handle } = mount(agent);
+  assert.ok(await waitFor(() => handle.store.rows.some((row) => row.kind === 'banner')));
+  handle.store.run.running = true;
+  await type(instance, draft);
+  assert.ok(
+    await waitFor(() => instance.lastFrame().includes(draft)),
+    'a failed steer keeps the original draft available'
+  );
+  assert.ok(instance.lastFrame().includes('inbox write failed'), 'the delivery error is visible');
+  instance.unmount();
+  await sleep(80);
+}
+
 {
   const { agent, streamCalls, steerCalls } = agentWith(() => ({
     id: 'steer-1',

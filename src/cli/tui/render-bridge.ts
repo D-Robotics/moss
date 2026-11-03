@@ -62,6 +62,7 @@ export type TranscriptRowKind =
  */
 export interface ToolRowMeta {
   name: string;
+  callId?: string;
   summary?: string;
   durationMs?: number;
   isError?: boolean;
@@ -98,7 +99,7 @@ export interface TuiRunState {
   toolLine?: string;
   halted?: boolean;
   /** Inputs of in-flight tool calls, keyed by call id (tool_end summarizes). */
-  toolInputs: Map<string, Record<string, unknown>>;
+  toolInputs: Map<string, { name: string; input: Record<string, unknown> }>;
   /** Latest provider retry notice (shown in the live region until progress). */
   retry?: { attempt: number; error: string };
   /** Last event time — the live region flags a stream that has gone quiet. */
@@ -543,7 +544,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
     }
     case 'tool_progress': {
       // O99: long-running tool heartbeat — keep the live label fresh with elapsed.
-      const input = store.run.toolInputs.get(event.toolCallId) ?? {};
+      const input = store.run.toolInputs.get(event.toolCallId)?.input ?? {};
       const base = toolLabel(event.toolName, input);
       store.run.toolLine = `${base} · ${Math.max(0, Math.round(event.elapsedSec))}s`;
       store.version++;
@@ -555,7 +556,7 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       // The call itself is transcript content (`⏺ Write(hello.txt)`), not just a
       // status line: it is what the user scrolls back to.
       store.run.toolLine = toolLabel(event.toolName, event.input);
-      store.run.toolInputs.set(event.toolCallId, event.input);
+      store.run.toolInputs.set(event.toolCallId, { name: event.toolName, input: event.input });
       if (event.toolName.startsWith('device_')) {
         const ids = store.run.deviceCallIds ?? new Set<string>();
         ids.add(event.toolCallId);
@@ -565,11 +566,18 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       if (event.toolName === 'todo_write' && Array.isArray(event.input.todos)) {
         store.todos = toTodos(event.input.todos);
       }
-      appendRow(store, 'tool', store.run.toolLine, { tool: { name: event.toolName } });
+      appendRow(store, 'tool', store.run.toolLine, {
+        tool: { name: event.toolName, callId: event.toolCallId },
+      });
       store.version++;
       break;
     }
     case 'tool_end': {
+      const call = store.run.toolInputs.get(event.toolCallId);
+      store.run.toolInputs.delete(event.toolCallId);
+      store.run.deviceCallIds?.delete(event.toolCallId);
+      const active = [...store.run.toolInputs.values()].at(-1);
+      store.run.toolLine = active ? toolLabel(active.name, active.input) : undefined;
       // The todo checklist is rendered as a live panel, so echoing its full
       // formatted list here would print the same three lines twice. The count
       // IS the summary headline, so the row body stays empty. A failed or
@@ -585,17 +593,15 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
         appendRow(store, 'result', '', {
           tool: {
             name: event.toolName,
+            callId: event.toolCallId,
             summary: tui('{done}/{total} done', { done, total: store.todos.length }),
             ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
           },
         });
-        store.run.toolLine = undefined;
         store.version++;
         break;
       }
-      const input = store.run.toolInputs.get(event.toolCallId) ?? {};
-      store.run.toolInputs.delete(event.toolCallId);
-      store.run.deviceCallIds?.delete(event.toolCallId);
+      const input = call?.input ?? {};
       const abortedBy = event.aborted?.by;
       const abortNotice = isStructuredUserAbort(event);
       if (abortNotice) noteInterrupt(store);
@@ -613,6 +619,11 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
         : abortNotice
           ? undefined
           : completion.summary;
+      const previous = store.rows.at(-1);
+      const separate = call && !abortNotice && previous?.tool?.callId !== event.toolCallId;
+      const attributedSummary = separate
+        ? `${toolLabel(event.toolName, input)} · ${summary ?? tui(event.isError ? 'failed' : 'ok')}`
+        : summary;
       // Edits and writes render as a diff gutter; everything else keeps the
       // raw result (the projection decides how much of it to show). A dialog
       // that already showed its answer gets its synthetic wrapper dropped.
@@ -624,14 +635,14 @@ export function applyAgentEvent(store: TuiStore, event: MossAgentEvent): void {
       appendRow(store, 'result', body, {
         tool: {
           name: event.toolName,
-          ...(summary ? { summary } : {}),
+          callId: event.toolCallId,
+          ...(attributedSummary ? { summary: attributedSummary } : {}),
           ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
           ...(event.isError ? { isError: true } : {}),
           ...(abortedBy ? { abortedBy } : {}),
         },
       });
       for (const notice of peeled.notices) appendRow(store, 'system', notice);
-      store.run.toolLine = undefined;
       store.version++;
       break;
     }

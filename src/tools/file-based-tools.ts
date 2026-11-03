@@ -144,3 +144,18 @@ export function createFileBasedTool(def: FileBasedToolDefinition): Tool {
 export function loadFileBasedTools(workspaceDir: string): Tool[] {
   return loadFileBasedToolDefinitions(workspaceDir).map(createFileBasedTool);
 }
+
+/** Register file tools without replacing existing builtins or other tools. */
+export function registerFileBasedTools(
+  workspaceDir: string,
+  registry: { has(name: string): boolean; register(tool: Tool): void },
+  onConflict: (name: string) => void
+): void {
+  for (const tool of loadFileBasedTools(workspaceDir)) {
+    if (registry.has(tool.name)) {
+      onConflict(tool.name);
+      continue;
+    }
+    registry.register(tool);
+  }
+}

@@ -9,7 +9,7 @@ interface MergeSubagentPatchInput {
 export const mergeSubagentPatchTool: Tool<MergeSubagentPatchInput> = {
   name: 'merge_subagent_patch',
   description:
-    'Merge a completed full-scope sub-agent patch into the parent workspace. Use the lease and patchId returned by create_subagent. The stored artifact, declared write paths, parent baseline, and host approval are revalidated before mutation.',
+    'Merge a completed full-scope sub-agent patch into the parent workspace. Use the lease and patchId returned by create_subagent. The default merge checks the stored artifact and applies it with git --3way; it does not enforce declared writePaths. Review the patch before merging.',
   metadata: {
     sideEffectClass: 'local_write',
     planMode: 'allow',

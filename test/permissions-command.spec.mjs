@@ -93,6 +93,19 @@ const run = async (ctx, input) => runRegistryCommand(input, ctx);
   assert.match(text, /\/permissions add deny/, 'the help shows the add syntax');
 }
 
+// The running mode can differ from the startup configuration displayed below it.
+{
+  const { ctx, said } = mkCtx();
+  setCliInteractionMode('full');
+  await run(ctx, '/mode manual');
+  said.length = 0;
+  await run(ctx, '/permissions --verbose');
+  const text = said.map((entry) => entry.text).join('\n');
+  assert.match(text, /current mode:\s*manual/i, 'the live mode is shown after switching');
+  assert.match(text, /default mode:\s*full/i, 'the configured startup mode remains visible');
+  assert.match(text, /startup configuration/i, 'startup safety and approval values are labeled');
+}
+
 // ─── 3. add: session layer, effective on the next call ─────────────────────
 
 {

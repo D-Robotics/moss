@@ -179,6 +179,83 @@ function textFromStructuredContent(content: ToolContentBlock[]): string {
   return '';
 }
 
+// A system error's code identifies its cause; path and dest are untrusted data
+// and may themselves contain words used by the text-based classifiers.
+function pathSystemError(err: unknown): { code: string; message?: string } | undefined {
+  const seen = new Set<object>();
+  let current = err;
+  while (current && typeof current === 'object' && !seen.has(current)) {
+    seen.add(current);
+    const cause = current as {
+      cause?: unknown;
+      code?: unknown;
+      message?: unknown;
+      errno?: unknown;
+      syscall?: unknown;
+      path?: unknown;
+      dest?: unknown;
+    };
+    if (
+      current instanceof Error &&
+      typeof cause.code === 'string' &&
+      typeof cause.errno === 'number' &&
+      typeof cause.syscall === 'string' &&
+      (typeof cause.path === 'string' || typeof cause.dest === 'string')
+    ) {
+      return {
+        code: cause.code.toUpperCase(),
+        ...(typeof cause.message === 'string' ? { message: cause.message } : {}),
+      };
+    }
+    current = cause.cause;
+  }
+  return undefined;
+}
+
+type ToolFailureClassification = {
+  kind: 'blocked' | 'aborted' | 'timeout' | 'failure';
+  retryable: boolean;
+};
+
+function classifyThrownToolFailure(
+  err: unknown,
+  rawMessage: string,
+  userAborted: boolean,
+  deadlineElapsed: boolean
+): ToolFailureClassification {
+  if (userAborted) return { kind: 'aborted', retryable: false };
+  if (isMossError(err) && err.code === ErrorCode.TOOL_NOT_ALLOWED) {
+    return { kind: 'blocked', retryable: false };
+  }
+  // abortable() can surface USER_ABORTED when our own deadline aborts its
+  // signal; the observed deadline takes precedence over that derived error.
+  if (deadlineElapsed) return { kind: 'timeout', retryable: true };
+  if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) {
+    return { kind: 'aborted', retryable: false };
+  }
+
+  const systemError = pathSystemError(err);
+  const systemMessage = systemError?.message;
+  const systemIndex = systemMessage ? rawMessage.indexOf(systemMessage) : -1;
+  // Only use the native code when its full message is present; otherwise the
+  // outer message may describe an independent failure and retains precedence.
+  const systemCode = systemIndex >= 0 ? systemError?.code : undefined;
+  const diagnostic =
+    systemMessage && systemIndex >= 0
+      ? rawMessage.slice(0, systemIndex) + rawMessage.slice(systemIndex + systemMessage.length)
+      : rawMessage;
+  const explicitTimeout = isMossError(err) && err.code === ErrorCode.TOOL_EXECUTION_TIMEOUT;
+  const isTimeout = explicitTimeout || systemCode === 'ETIMEDOUT' || /timed out/i.test(diagnostic);
+  const retryable =
+    !/Device connection lost/i.test(diagnostic) &&
+    (explicitTimeout ||
+      systemCode === 'EAGAIN' ||
+      systemCode === 'EWOULDBLOCK' ||
+      isTransientError(diagnostic) ||
+      isTransientError(systemCode));
+  return { kind: isTimeout ? 'timeout' : 'failure', retryable };
+}
+
 function policyBlockedToolResult(error: MossError): string {
   return [
     'Operation blocked by workspace policy. The tool did not inspect the target: its existence is unknown and no contents were read.',
@@ -449,6 +526,8 @@ async function executeOneToolCallInner(
       let attemptText = '';
       let attemptTimeout = false;
       let attemptError: MossError | undefined;
+      let failureClassification: ToolFailureClassification | undefined;
+      const workspaceRecoveryPaths = new Set<string>();
 
       structuredBlocks = undefined;
       const timeoutAbortCtrl = new AbortController();
@@ -481,6 +560,9 @@ async function executeOneToolCallInner(
           },
           reportProtectedPathChanges: (changes) => {
             protectedPathChanges.push(...changes.map((c) => ({ ...c })));
+          },
+          reportWorkspaceRecoveryPath: (workspacePath) => {
+            workspaceRecoveryPaths.add(workspacePath);
           },
         };
         if (!skipAgentHeartbeat) {
@@ -546,48 +628,60 @@ async function executeOneToolCallInner(
         }
       } catch (err) {
         const rawMessage = errorMessage(err);
-        if (
-          timeoutAbortCtrl.signal.aborted &&
-          !deps.abortSignal.aborted &&
-          !perToolAbortSignal?.aborted
-        ) {
-          attemptTimeout = true;
-          attemptText = `Execution error: Tool ${call.name} timed out (${deps.toolTimeoutMs / 1000}s)`;
-          attemptError =
-            isMossError(err) && err.code === ErrorCode.TOOL_EXECUTION_TIMEOUT
-              ? err
-              : new MossError({
-                  code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
-                  message: `Tool ${call.name} timed out (${deps.toolTimeoutMs / 1000}s)`,
-                  cause: err,
-                });
-        } else if (
-          deps.abortSignal.aborted ||
-          (perToolAbortSignal?.aborted && !deps.abortSignal.aborted)
-        ) {
+        const userAborted = deps.abortSignal.aborted || !!perToolAbortSignal?.aborted;
+        const deadlineElapsed = timeoutAbortCtrl.signal.aborted && !userAborted;
+        failureClassification = classifyThrownToolFailure(
+          err,
+          rawMessage,
+          userAborted,
+          deadlineElapsed
+        );
+        if (failureClassification.kind === 'aborted') {
           aborted = { by: 'user' };
-          attemptText = 'Execution error: aborted_by_user: cancelled during execution';
-          attemptError = new MossError({
-            code: ErrorCode.USER_ABORTED,
-            message: 'Tool execution was cancelled by the user.',
-            cause: err,
-          });
-        } else if (/timed out/i.test(rawMessage)) {
-          attemptTimeout = true;
-          attemptText = `Execution error: ${rawMessage}`;
-          attemptError = new MossError({
-            code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
-            message: rawMessage,
-            cause: err,
-          });
-        } else if (isMossError(err) && err.code === ErrorCode.TOOL_NOT_ALLOWED) {
+          if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) {
+            attemptText = `Execution error: ${rawMessage}`;
+            attemptError = err;
+          } else {
+            attemptText = 'Execution error: aborted_by_user: cancelled during execution';
+            attemptError = new MossError({
+              code: ErrorCode.USER_ABORTED,
+              message: 'Tool execution was cancelled by the user.',
+              cause: err,
+            });
+          }
+        } else if (failureClassification.kind === 'blocked' && isMossError(err)) {
           attemptText = policyBlockedToolResult(err);
           attemptError = err;
+        } else if (failureClassification.kind === 'timeout') {
+          attemptTimeout = true;
+          if (deadlineElapsed) {
+            attemptText = `Execution error: Tool ${call.name} timed out (${deps.toolTimeoutMs / 1000}s)`;
+            attemptError =
+              isMossError(err) && err.code === ErrorCode.TOOL_EXECUTION_TIMEOUT
+                ? err
+                : new MossError({
+                    code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
+                    message: `Tool ${call.name} timed out (${deps.toolTimeoutMs / 1000}s)`,
+                    cause: err,
+                  });
+          } else {
+            attemptText = `Execution error: ${rawMessage}`;
+            attemptError = new MossError({
+              code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
+              message: rawMessage,
+              cause: err,
+            });
+          }
         } else {
           attemptText = `Execution error: ${rawMessage}`;
           attemptError = wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, {
             message: rawMessage,
           });
+        }
+        if (attemptTimeout || aborted) {
+          for (const workspacePath of workspaceRecoveryPaths) {
+            attemptText += `\n[worktree preserved: ${workspacePath}]`;
+          }
         }
         attemptErrFlag = true;
       } finally {
@@ -597,10 +691,11 @@ async function executeOneToolCallInner(
 
       if (attemptErrFlag && eligibleForRetry && attempt < MAX_RETRY_ATTEMPTS && !aborted) {
         const rawMsg = attemptText.replace(/^Execution error:\s*/, '');
-        if (
-          !/Device connection lost/i.test(rawMsg) &&
-          (isTransientError(rawMsg) || isTimeoutError(rawMsg))
-        ) {
+        const retryable =
+          failureClassification?.retryable ??
+          (!/Device connection lost/i.test(rawMsg) &&
+            (isTransientError(rawMsg) || isTimeoutError(rawMsg)));
+        if (retryable) {
           retriesUsed++;
           const delayMs = progressiveBackoffDelay(retriesUsed - 1);
           logger.debug(
@@ -643,6 +738,8 @@ async function executeOneToolCallInner(
 
     emitStart();
 
+    let postHookModified = false;
+    const textBeforePostHooks = text;
     if (deps.toolHooks) {
       text = await deps.toolHooks.runPostHooks({
         tool,
@@ -652,6 +749,9 @@ async function executeOneToolCallInner(
         durationMs: Date.now() - startMs,
         ctx: callToolCtx,
         sessionId: deps.sessionKey,
+        onModified: () => {
+          postHookModified = true;
+        },
       });
     }
 
@@ -663,6 +763,9 @@ async function executeOneToolCallInner(
         durationMs: Date.now() - startMs,
         ctx: callToolCtx,
         sessionId: deps.sessionKey,
+        onModified: () => {
+          postHookModified = true;
+        },
       });
     }
 
@@ -675,7 +778,9 @@ async function executeOneToolCallInner(
         ? { outcome: 'blocked' as const }
         : {}),
       ...(aborted ? { aborted } : {}),
-      ...(structuredBlocks ? { structuredContent: structuredBlocks } : {}),
+      ...(!postHookModified && text === textBeforePostHooks && !aborted && structuredBlocks
+        ? { structuredContent: structuredBlocks }
+        : {}),
       ...(toolError ? { error: toolError } : {}),
       ...(protectedPathChanges.length > 0 ? { protectedPathChanges } : {}),
     };

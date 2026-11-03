@@ -104,6 +104,40 @@ test('mission state derivation: PASS / FAIL / IDLE from artifacts', async () => 
   assert.equal(byId.get('task_pass').kind, 'camera');
 });
 
+test('task progress uses its own evidence despite unrelated history', async (t) => {
+  const dir = await tempWorkspace();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await appendTaskRecord(
+    dir,
+    task({ acceptanceCriteria: [{ metric: 'camera_fps', expected: '>=30' }] })
+  );
+  await appendEvidenceRecord(dir, {
+    evidenceId: 'fps_pass',
+    taskId: 'task_a',
+    source: 'test',
+    metric: 'camera_fps',
+    observed: 31,
+    result: 'pass',
+    timestamp: 1000,
+  });
+  const unrelated = Array.from({ length: 1001 }, (_, index) =>
+    JSON.stringify({
+      evidenceId: `other_${index}`,
+      taskId: 'other_task',
+      source: 'test',
+      metric: 'other_metric',
+      observed: 0,
+      result: 'inconclusive',
+      timestamp: 1001 + index,
+    })
+  ).join('\n');
+  await fs.appendFile(path.join(dir, '.moss', 'evidence.jsonl'), `${unrelated}\n`);
+  const runtime = new TaskRuntime({ workspaceDir: dir });
+  await runtime.refresh();
+  assert.equal(runtime.taskSummaries()[0].criteriaMet, 1);
+  assert.equal(runtime.taskDetail('task_a').progress[0].result, 'pass');
+});
+
 test('Task OS events drive the TUI projection: failed/blocked never render as IDLE', async () => {
   const dir = await tempWorkspace();
   const failed = await createDraftTask(dir, 'deploy the vision model to the RDK board');

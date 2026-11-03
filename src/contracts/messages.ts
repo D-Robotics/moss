@@ -59,6 +59,9 @@ export interface ContentBlock {
   _synthetic?: 'missing_tool_result' | 'orphan_tool_use_repair';
 
   structuredContent?: ToolContentBlock[];
+
+  /** Size of structured metadata replaced by Moss's own truncation notice. */
+  _structuredContentTruncated?: number;
 }
 
 export const CURRENT_SESSION_VERSION = 3;

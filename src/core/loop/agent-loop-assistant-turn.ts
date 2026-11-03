@@ -63,7 +63,6 @@ export function isThinkingOnlyAssistantTurn(params: {
 
 export function buildVisibleAssistantText(params: {
   textParts: ReadonlyArray<string>;
-  thinkingFallback: string;
   /**
    * Keep leading and trailing whitespace. Output-limit recovery concatenates
    * fragments directly, so trimming a cutoff such as "Hello " drops the join.
@@ -74,8 +73,8 @@ export function buildVisibleAssistantText(params: {
     .join('')
     .replace(/<\|FunctionCallBegin\|>[\s\S]*?<\|FunctionCallEnd\|>/g, '')
     .replace(/<\|FunctionCallBegin\|>[\s\S]*$/, '');
-  const normalized = params.trim === false ? visible : visible.trim();
-  return normalized || params.thinkingFallback;
+  // Tool calls do not make private thinking eligible for the visible channel.
+  return params.trim === false ? visible : visible.trim();
 }
 
 /**

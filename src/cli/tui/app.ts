@@ -639,6 +639,9 @@ export function TuiAppRoot({
   const [mentionCursor, setMentionCursor] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const [mentionIndex, setMentionIndex] = useState<MentionEntry[]>([]);
+  const mentionIndexRef = useRef<{ root: string; entries: Promise<MentionEntry[]> } | undefined>(
+    undefined
+  );
   const abortRef = useRef<AbortController | undefined>(undefined);
   const modelProbeGenerationRef = useRef(0);
   /** Plan-mode exit gate, filled in after `dispatchRun` exists (below). */
@@ -2087,6 +2090,15 @@ export function TuiAppRoot({
       const submittedTokens = tokensRef.current.slice();
       let text = raw.trim();
       if (!text) return;
+      const restoreFailedSteer = (error: unknown): void => {
+        if (!fromQueueRef.current) {
+          tokensRef.current = submittedTokens;
+          setComposer(composerSetValue(raw, raw.length));
+        }
+        setStatusLine(
+          tui('could not send instruction: {error} — draft kept', { error: errorMessage(error) })
+        );
+      };
       if (pendingGoalRef.current && !isSlashCommandInput(text)) {
         const pending = pendingGoalRef.current;
         pendingGoalRef.current = null;
@@ -2442,12 +2454,16 @@ export function TuiAppRoot({
         if (!constraint) {
           printBlock('Steer', [tui('usage: /steer <constraint> — injects at the next boundary')]);
         } else {
-          const entry = options.agent.steer?.(sessionKey, constraint);
-          printBlock('Steer', [
-            entry === null || entry === undefined
-              ? tui('rejected — no single active run on this session')
-              : formatSteerQueued(constraint, 'next-step'),
-          ]);
+          try {
+            const entry = options.agent.steer?.(sessionKey, constraint);
+            printBlock('Steer', [
+              entry === null || entry === undefined
+                ? tui('rejected — no single active run on this session')
+                : formatSteerQueued(constraint, 'next-step'),
+            ]);
+          } catch (error) {
+            restoreFailedSteer(error);
+          }
         }
         return;
       }
@@ -2529,7 +2545,13 @@ export function TuiAppRoot({
         // A message typed during a run steers the live turn. Steer is refused
         // (null: no single active run, or the host has no steer) → queue, and
         // the queued lines render above the composer for ↑ to edit.
-        const steered = options.agent.steer?.(sessionKey, expanded);
+        let steered: ReturnType<NonNullable<typeof options.agent.steer>>;
+        try {
+          steered = options.agent.steer?.(sessionKey, expanded) ?? null;
+        } catch (error) {
+          restoreFailedSteer(error);
+          return;
+        }
         if (steered) {
           appendRow(store, 'summary', formatSteerQueued(display, 'next-step'));
           handle.notify();
@@ -2618,18 +2640,29 @@ export function TuiAppRoot({
 
   // `@` mentions: the index is built lazily, once per session, the first time
   // the user types an `@` token (a workspace walk is not free).
-  const mentionToken =
-    running || approval || shellMode ? null : mentionTokenAt(input, composer.caret);
+  const mentionToken = approval || shellMode ? null : mentionTokenAt(input, composer.caret);
+  const mentionActive = mentionToken !== null;
   useEffect(() => {
-    if (!mentionToken || mentionIndex.length > 0) return undefined;
+    if (!mentionActive) return undefined;
+    if (mentionIndexRef.current?.root !== options.workspaceDir) {
+      setMentionIndex([]);
+      mentionIndexRef.current = {
+        root: options.workspaceDir,
+        entries: buildWorkspaceIndexAsync(options.workspaceDir),
+      };
+    }
     let cancelled = false;
-    void buildWorkspaceIndexAsync(options.workspaceDir).then((entries) => {
+    const pending = mentionIndexRef.current.entries;
+    void pending.then((entries) => {
+      if (entries.length === 0 && mentionIndexRef.current?.entries === pending) {
+        mentionIndexRef.current = undefined;
+      }
       if (!cancelled) setMentionIndex(entries);
     });
     return () => {
       cancelled = true;
     };
-  }, [mentionToken?.query, mentionIndex.length, options.workspaceDir]);
+  }, [mentionActive, options.workspaceDir]);
   const mentionRows = mentionToken ? filterMentions(mentionIndex, mentionToken.query) : [];
   const mentionOpen = mentionToken !== null && !mentionDismissed && mentionRows.length > 0;
   const mentionSelection = Math.min(mentionCursor, Math.max(0, mentionRows.length - 1));
@@ -3344,7 +3377,7 @@ export function TuiAppRoot({
         }
         return;
       }
-      if (key.escape) {
+      if (key.escape && !running) {
         setMentionDismissed(true);
         return;
       }
@@ -3909,26 +3942,6 @@ export function TuiAppRoot({
   // The composer sits between two full-width rules; everything else is plain.
   // D-15: hand the renderer the window that contains the cursor, so the `❯`
   // marker and the command Enter/Tab act on are the same row.
-  const helpWindow = helpOverlay
-    ? sliceHelpOverlay(helpOverlay.lines, windowSize.rows, helpOverlay.offset)
-    : undefined;
-  const helpOverlayLines =
-    helpOverlay && helpWindow
-      ? [
-          line(rule(columns)),
-          line(
-            clip(
-              helpOverlay.all
-                ? tui('  Help · full reference · Esc to close')
-                : tui('  Help · Esc or Enter to close'),
-              columns
-            ),
-            { dim: true }
-          ),
-          ...helpWindow.lines.map((text) => line(clip(`  ${text}`, columns), { dim: true })),
-          ...(helpWindow.hint ? [line(clip(helpWindow.hint, columns), { dim: true })] : []),
-        ]
-      : [];
   const modelPickerStart = modelPicker
     ? Math.min(
         Math.max(0, modelPicker.cursor - 7),
@@ -4030,6 +4043,33 @@ export function TuiAppRoot({
         { color: TONE.warn }
       )
     : undefined;
+  // Help temporarily replaces secondary status panels. Preserve any blocked
+  // task warning and extra composer/history rows in its height budget.
+  const helpRows =
+    (windowSize.rows || 24) -
+    (blockedLine ? 1 : 0) -
+    Math.max(0, editor.lines.length - 1) -
+    (historyCursor.index !== undefined ? 1 : 0);
+  const helpWindow = helpOverlay
+    ? sliceHelpOverlay(helpOverlay.lines, helpRows, helpOverlay.offset)
+    : undefined;
+  const helpOverlayLines =
+    helpOverlay && helpWindow
+      ? [
+          line(rule(columns)),
+          line(
+            clip(
+              helpOverlay.all
+                ? tui('  Help · full reference · Esc to close')
+                : tui('  Help · Esc or Enter to close'),
+              columns
+            ),
+            { dim: true }
+          ),
+          ...helpWindow.lines.map((text) => line(clip(`  ${text}`, columns), { dim: true })),
+          ...(helpWindow.hint ? [line(clip(helpWindow.hint, columns), { dim: true })] : []),
+        ]
+      : [];
   const statusRight = renderStatusRight(status, columns);
   const chromeTop: TuiLine[] = [
     // D-13: the dialog gets a height budget (terminal rows minus the rest of the
@@ -4047,9 +4087,11 @@ export function TuiAppRoot({
     // A pending approval/question owns the decision area. Suppress secondary
     // overlays and live checklist noise so its question and options remain
     // visible on short terminals.
-    ...(!approval ? renderTodoPanel(store.todos, columns) : []),
-    ...(!approval && statusLine ? [line(clip(statusLine, columns), { dim: true })] : []),
-    ...(!approval && contextPct >= CONTEXT_WARN_PCT
+    ...(!approval && !helpOverlay ? renderTodoPanel(store.todos, columns) : []),
+    ...(!approval && !helpOverlay && statusLine
+      ? [line(clip(statusLine, columns), { dim: true })]
+      : []),
+    ...(!approval && !helpOverlay && contextPct >= CONTEXT_WARN_PCT
       ? [
           line(
             clip(
@@ -4071,9 +4113,19 @@ export function TuiAppRoot({
       ? [
           line(rule(columns)),
           ...(englishOffer ? [ENGLISH_UI_OFFER] : [])
-            .concat(renderFirstRunLines(setupView, activeUiLocale(options.locale)))
+            .concat(
+              renderFirstRunLines(
+                setupView,
+                activeUiLocale(options.locale),
+                'tui',
+                Math.max(1, Math.min(8, (windowSize.rows || 24) - 14))
+              )
+            )
             .flatMap((text) =>
-              wrap(text, Math.max(8, columns - 2)).map((chunk) =>
+              (setupView.step === 'model' && /^\s*[> ]\s*\d+\s/.test(text)
+                ? [clip(text, Math.max(1, columns - 2))]
+                : wrap(text, Math.max(8, columns - 2))
+              ).map((chunk) =>
                 line(
                   clip(`  ${chunk}`, columns),
                   (setupView.error ?? '').split('\n').some((part) => part.trim() === text)

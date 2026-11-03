@@ -7,10 +7,40 @@ import type {
   ToolCall as PiToolCall,
 } from '../../provider/pi-ai-types.js';
 import { shouldRoundTripAssistantThinking } from '../../provider/reasoning-policy.js';
+import type { ToolContentBlock } from '../../contracts/messages.js';
 
 // Moved verbatim to provider/reasoning-policy.ts (T3.2); re-exported to keep
 // this module's public surface stable for core consumers.
 export { shouldRoundTripAssistantThinking };
+
+export const MAX_STRUCTURED_SIZE = 12_000;
+
+export function structuredContentTruncationNotice(size: number): string {
+  return `[structured content truncated: ${size} chars exceeded ${MAX_STRUCTURED_SIZE} limit]`;
+}
+
+/** Stored text is authoritative; only legacy structured-only results need a fallback. */
+export function modelToolResultText(
+  content: string | undefined,
+  structuredContent?: ToolContentBlock[],
+  structuredContentTruncated?: number
+): string {
+  if (content !== undefined) {
+    if (
+      structuredContentTruncated !== undefined &&
+      Number.isSafeInteger(structuredContentTruncated) &&
+      structuredContentTruncated > MAX_STRUCTURED_SIZE
+    ) {
+      const notice = structuredContentTruncationNotice(structuredContentTruncated);
+      return content ? `${content}\n${notice}` : notice;
+    }
+    return content;
+  }
+  return (structuredContent ?? [])
+    .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n');
+}
 
 function createEmptyUsage() {
   return {
@@ -79,17 +109,15 @@ export function convertMessagesToPi(
           userContent.push({ type: 'image', data: block.data, mimeType: block.mimeType });
         } else if (block.type === 'tool_result') {
           flushUserContent();
-          let textContent = typeof block.content === 'string' ? block.content : '';
-          if (block.structuredContent && block.structuredContent.length > 0) {
-            const extraText = block.structuredContent
-              .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-              .map((b) => b.text)
-              .filter((text) => !textContent.includes(text))
-              .join('\n');
-            if (extraText) {
-              textContent = textContent ? `${textContent}\n${extraText}` : extraText;
-            }
-          }
+          const textContent = modelToolResultText(
+            block.content === undefined
+              ? undefined
+              : typeof block.content === 'string'
+                ? block.content
+                : '',
+            block.structuredContent,
+            block._structuredContentTruncated
+          );
           result.push({
             role: 'toolResult',
             toolCallId: block.tool_use_id ?? '',

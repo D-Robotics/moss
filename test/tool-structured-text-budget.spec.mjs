@@ -8,7 +8,7 @@ import { JsonlSessionStore } from '../dist/core/session/jsonl-session-store.js';
 import { PiAiLLMProvider } from '../dist/provider/pi-ai-adapter.js';
 import { truncateToolOutput } from '../dist/context/tool-output-truncate.js';
 
-async function runStructuredTool(content) {
+async function runStructuredTool(content, options = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-structured-text-budget-'));
   const sessionKey = 'structured-evidence';
   const wire = [];
@@ -39,6 +39,15 @@ async function runStructuredTool(content) {
     enableFollowUpGuard: false,
     hooks: { onBeforeToolExec: async () => ({ approved: true }) },
   });
+  if (options.redact) {
+    agent.registerPostToolHook({
+      name: 'redact-structured',
+      priority: 1,
+      async process() {
+        return { result: '[redacted]' };
+      },
+    });
+  }
   agent.tools.register({
     name: 'qa_structured',
     description: 'Return owned structured test evidence.',
@@ -73,7 +82,24 @@ async function runStructuredTool(content) {
     assert.ok(sent, 'the real PiAi adapter must send the tool result');
     assert.equal(durable.is_error, false);
     assert.equal(sent.isError, false);
-    return { end, durable, sent, wireText: sent.content.map((block) => block.text ?? '').join('') };
+    let resumedWireText;
+    if (options.resume) {
+      for await (const _event of agent.streamChat(sessionKey, 'Continue with the same evidence.')) {
+        // Drain the resumed run so that its provider request is observable.
+      }
+      const resumed = wire
+        .at(-1)
+        .find((message) => message.role === 'toolResult' && message.toolCallId === 'evidence-1');
+      assert.ok(resumed, 'resumed provider request must include the persisted tool result');
+      resumedWireText = resumed.content.map((block) => block.text ?? '').join('');
+    }
+    return {
+      end,
+      durable,
+      sent,
+      wireText: sent.content.map((block) => block.text ?? '').join(''),
+      resumedWireText,
+    };
   } finally {
     await agent.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -126,9 +152,38 @@ for (const block of [
     assert.equal(durable.structuredContent[0].type, 'text');
     assert.match(durable.structuredContent[0].text, /structured content truncated/);
     assert.deepEqual(end.structuredContent, durable.structuredContent);
-    assert.match(wireText, /structured content truncated/);
+    const expectedContent = block.type === 'image' ? '[1 content block(s): image]' : block.text;
+    assert.equal(end.content, expectedContent, 'SDK tool content remains unchanged');
+    assert.equal(durable.content, expectedContent, 'persisted tool content remains unchanged');
+    assert.equal(wireText, `${expectedContent}\n${durable.structuredContent[0].text}`);
   });
 }
+
+test('a generated truncation notice survives session reload without changing SDK resource text', async () => {
+  const payload = { value: 'x'.repeat(12_100) };
+  const text = JSON.stringify(payload);
+  const { end, wireText, resumedWireText } = await runStructuredTool(
+    [{ type: 'resource', uri: 'qa://owned/reload', text }],
+    { resume: true }
+  );
+  assert.deepEqual(JSON.parse(end.content), payload);
+  assert.match(wireText, /structured content truncated/);
+  assert.equal(resumedWireText, wireText);
+});
+
+test('a post-hook redaction drops oversized structured data and its truncation notice', async () => {
+  const { end, durable, wireText, resumedWireText } = await runStructuredTool(
+    [{ type: 'image', mimeType: 'image/png', data: 'sensitive-fixture'.repeat(1_000) }],
+    { redact: true, resume: true }
+  );
+  assert.equal(end.content, '[redacted]');
+  assert.equal(durable.content, '[redacted]');
+  assert.equal(durable.structuredContent, undefined);
+  assert.equal(durable._structuredContentTruncated, undefined);
+  assert.equal(wireText, '[redacted]');
+  assert.equal(resumedWireText, '[redacted]');
+  assert.doesNotMatch(JSON.stringify(end), /sensitive-fixture/);
+});
 
 test('small mixed image and text metadata retains its existing durable representation', async () => {
   const content = [

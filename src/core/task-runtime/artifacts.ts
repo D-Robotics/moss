@@ -33,6 +33,7 @@ function redactEvidenceRecord(record: EvidenceRecord): EvidenceRecord {
     ...record,
     ...(record.expected !== undefined ? { expected: redactEgress(record.expected) } : {}),
     ...(observed !== undefined ? { observed } : {}),
+    ...(observed !== record.observed ? { observationRedacted: true } : {}),
     ...(record.details !== undefined ? { details: redactEgress(record.details) } : {}),
   };
 }
@@ -319,6 +320,41 @@ export async function listEvidenceRecords(
     path.join(workspaceDir, '.moss', 'evidence.jsonl')
   );
   return parsed.slice(-limit).reverse();
+}
+
+/** Read one task's complete evidence history without the workspace-wide UI limit. */
+export async function listTaskEvidenceRecords(
+  workspaceDir: string,
+  taskId: string
+): Promise<EvidenceRecord[]> {
+  const parsed = await readJsonl<EvidenceRecord>(
+    path.join(workspaceDir, '.moss', 'evidence.jsonl')
+  );
+  return parsed.filter((record) => record !== null && record.taskId === taskId);
+}
+
+/** Latest observation per task and metric for the runtime's bounded task list. */
+export async function listLatestTaskEvidenceRecords(
+  workspaceDir: string,
+  taskIds: readonly string[]
+): Promise<EvidenceRecord[]> {
+  if (taskIds.length === 0) return [];
+  const selected = new Set(taskIds);
+  const parsed = await readJsonl<EvidenceRecord>(
+    path.join(workspaceDir, '.moss', 'evidence.jsonl')
+  );
+  const latest = new Map<string, Map<string, EvidenceRecord>>();
+  for (const record of parsed) {
+    if (!record || !record.taskId || !selected.has(record.taskId)) continue;
+    let metrics = latest.get(record.taskId);
+    if (!metrics) {
+      metrics = new Map();
+      latest.set(record.taskId, metrics);
+    }
+    const previous = metrics.get(record.metric);
+    if (!previous || record.timestamp >= previous.timestamp) metrics.set(record.metric, record);
+  }
+  return [...latest.values()].flatMap((metrics) => [...metrics.values()]);
 }
 
 export async function appendAcceptanceVerdict(

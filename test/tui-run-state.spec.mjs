@@ -607,6 +607,23 @@ console.log('OK tui-run-state');
     .join('\n');
   assert.match(waiting, /Waiting for device/);
   assert.equal(waiting.includes('gateway may be stuck'), false);
+  const localTool = renderLive(
+    {
+      running: true,
+      startedAt: quiet,
+      streaming: '',
+      thinking: '',
+      tokensOut: 0,
+      queued: 0,
+      lastEventAt: quiet,
+      toolLine: 'Exec(npm test)',
+    },
+    80
+  )
+    .map((entry) => entry.text)
+    .join('\n');
+  assert.match(localTool, /Exec\(npm test\)/);
+  assert.doesNotMatch(localTool, /gateway may be stuck/);
   const gateway = renderLive(
     {
       running: true,

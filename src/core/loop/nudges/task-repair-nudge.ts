@@ -4,8 +4,8 @@
  * RedVerifyNudge covers suite-shaped verification tools (run_tests /
  * verify_fix / code_diagnostics / test-shaped exec) but NOT the task
  * runtime's own acceptance gate. A FAIL task_acceptance verdict with no
- * repair-path activity for that task after it (record_failure /
- * record_repair / record_evidence / task_acceptance carrying its task_id)
+ * successful repair-path activity for that task after it (record_failure /
+ * record_repair / record_evidence carrying its task_id)
  * means the agent is drifting away from the diagnose→repair→reverify loop
  * — the most expensive round waste on failure-repair tasks. This nudge
  * fires at most twice per red wave with the exact loop discipline
@@ -18,7 +18,7 @@
  * activity is likewise attributed through the tools' task_id input.
  *
  * Known limitations (locked by test/task-repair-nudge.spec.mjs):
- * - a bare record_evidence after a FAIL silences the wave for that task
+ * - a successful record_evidence after a FAIL silences the wave for that task
  *   (evidence is legitimate progress: latest evidence per metric wins);
  * - a PARTIAL verdict (optional criteria unmet) is not treated as red.
  *
@@ -26,19 +26,11 @@
  * resets the counter.
  */
 import type { Message } from '../../session/session-jsonl.js';
+import { parseAcceptanceVerdictText } from '../acceptance-verdict-text.js';
 
 const ACCEPTANCE_TOOL = 'task_acceptance';
-/** Tool uses that count as real progress through the repair loop. */
-const REPAIR_PATH_TOOLS = new Set([
-  'record_failure',
-  'record_repair',
-  'record_evidence',
-  'task_acceptance',
-]);
-
-/** The contract verdict format (contracts/task.ts formatAcceptanceVerdict). */
-const ACCEPTANCE_FAIL_RE = /^Task acceptance \(([^)]*)\): FAIL/m;
-const ACCEPTANCE_PASS_RE = /^Task acceptance \(([^)]*)\): PASS/m;
+/** Successful tool results that count as progress through the repair loop. */
+const REPAIR_PATH_TOOLS = new Set(['record_failure', 'record_repair', 'record_evidence']);
 
 /** Max fires per red wave; a PASS verdict resets the counter. */
 export const TASK_REPAIR_NUDGE_MAX_ATTEMPTS = 2;
@@ -52,17 +44,16 @@ export type TaskRepairNudgeResult =
   | { fire: false; resetAttempts?: boolean }
   | { fire: true; correction: string; resetAttempts?: boolean };
 
-interface ToolUseEvent {
+interface RepairEvent {
   name: string;
   /** Monotonic position across the whole message list. */
   order: number;
-  /** task_id from the tool input, when the call carried one. */
-  taskId: string | undefined;
+  taskId: string;
 }
 
 interface AcceptanceResultEvent {
   taskId: string;
-  outcome: 'fail' | 'pass' | 'unknown';
+  outcome: 'FAIL' | 'PASS' | 'PARTIAL';
   order: number;
 }
 
@@ -92,35 +83,24 @@ function taskFromToolInput(input: unknown): string | undefined {
 }
 
 interface ScanState {
-  uses: ToolUseEvent[];
+  repairs: RepairEvent[];
   /** Every acceptance result in order (latest per task derived by caller). */
   acceptanceResults: AcceptanceResultEvent[];
 }
 
 function scanMessages(messages: Message[]): ScanState {
-  // tool_use id → name, so result blocks without a name still resolve.
-  const nameById = new Map<string, string>();
-  for (const m of messages) {
-    if (!m || m.role !== 'assistant' || !Array.isArray(m.content)) continue;
-    for (const block of m.content) {
-      const b = block as { type?: string; id?: string; name?: string };
-      if (b?.type === 'tool_use' && typeof b.id === 'string' && typeof b.name === 'string') {
-        nameById.set(b.id, b.name);
-      }
-    }
-  }
-
-  const uses: ToolUseEvent[] = [];
+  const calls = new Map<string, { name: string; taskId: string | undefined }>();
+  const repairs: RepairEvent[] = [];
   const acceptanceResults: AcceptanceResultEvent[] = [];
   let order = 0;
   for (const m of messages) {
     if (!m || typeof m.role !== 'string' || !Array.isArray(m.content)) continue;
     if (m.role === 'assistant') {
       for (const block of m.content) {
-        const b = block as { type?: string; name?: string; input?: unknown };
-        if (b?.type !== 'tool_use' || typeof b.name !== 'string') continue;
-        order += 1;
-        uses.push({ name: b.name, order, taskId: taskFromToolInput(b.input) });
+        const b = block as { type?: string; id?: string; name?: string; input?: unknown };
+        if (b?.type !== 'tool_use' || typeof b.id !== 'string' || typeof b.name !== 'string')
+          continue;
+        calls.set(b.id, { name: b.name, taskId: taskFromToolInput(b.input) });
       }
     } else if (m.role === 'user') {
       for (const block of m.content) {
@@ -131,25 +111,45 @@ function scanMessages(messages: Message[]): ScanState {
           toolName?: string;
           tool_use_id?: string;
           toolCallId?: string;
+          is_error?: boolean;
+          isError?: boolean;
+          outcome?: string;
+          aborted?: unknown;
+          _synthetic?: string;
         };
         if (!b || b.type !== 'tool_result') continue;
         const useId = b.tool_use_id ?? b.toolCallId ?? '';
-        const name =
-          b.name ?? b.tool_name ?? b.toolName ?? (useId ? nameById.get(useId) : undefined);
+        const call = calls.get(useId);
+        const name = call?.name ?? b.name ?? b.tool_name ?? b.toolName;
         order += 1;
-        if (name !== ACCEPTANCE_TOOL) continue;
-        const text = toolResultText(b);
-        const failMatch = ACCEPTANCE_FAIL_RE.exec(text);
-        const passMatch = !failMatch ? ACCEPTANCE_PASS_RE.exec(text) : null;
-        acceptanceResults.push({
-          taskId: failMatch?.[1] ?? passMatch?.[1] ?? '',
-          outcome: failMatch ? 'fail' : passMatch ? 'pass' : 'unknown',
-          order,
-        });
+        if (
+          b.aborted ||
+          b._synthetic === 'missing_tool_result' ||
+          (b.outcome !== undefined && b.outcome !== 'ok' && b.outcome !== 'error')
+        )
+          continue;
+        const failed =
+          b.is_error === true ||
+          b.isError === true ||
+          (b.outcome !== undefined && b.outcome !== 'ok');
+        if (name === ACCEPTANCE_TOOL) {
+          const verdict = parseAcceptanceVerdictText(toolResultText(b), call?.taskId);
+          // A completed failing verdict can also be marked as a tool error when
+          // its command output contains failure banners. Never treat an errored
+          // result as PASS or PARTIAL, but retain its attributable FAIL.
+          if (verdict && (!failed || verdict.outcome === 'FAIL')) {
+            acceptanceResults.push({
+              ...verdict,
+              order,
+            });
+          }
+        } else if (!failed && call?.taskId && REPAIR_PATH_TOOLS.has(call.name)) {
+          repairs.push({ name: call.name, taskId: call.taskId, order });
+        }
       }
     }
   }
-  return { uses, acceptanceResults };
+  return { repairs, acceptanceResults };
 }
 
 /** Latest acceptance verdict per task id (empty id = unattributable). */
@@ -159,23 +159,6 @@ function latestAcceptanceByTask(
   const byTask = new Map<string, AcceptanceResultEvent>();
   for (const result of acceptanceResults) byTask.set(result.taskId, result);
   return byTask;
-}
-
-/**
- * Whether a tool use counts as repair-loop progress for the given task.
- * Unattributable record_* calls (no task_id) count conservatively for every
- * task — those tools require task_id, so this only covers odd providers.
- *
- * task_acceptance is the exception: an unattributed acceptance call is almost
- * always a re-run for SOME OTHER task (the tool schema allows omitting
- * task_id), and counting it for every task let one call silence another
- * task's pending FAIL (adversarial-review follow-up). Its verdict is tracked
- * separately from the result text, so the use-level pass adds nothing.
- */
-function isRepairActivityFor(use: ToolUseEvent, taskId: string): boolean {
-  if (!REPAIR_PATH_TOOLS.has(use.name)) return false;
-  if (use.name === ACCEPTANCE_TOOL) return use.taskId === taskId;
-  return use.taskId === undefined || use.taskId === taskId;
 }
 
 function enterLoopCorrection(taskId: string): string {
@@ -215,20 +198,20 @@ function retryDifferentCorrection(taskId: string, repairs: number): string {
  * counter so a later red wave can fire again.
  */
 export function evaluateTaskRepairNudge(request: TaskRepairNudgeRequest): TaskRepairNudgeResult {
-  const { uses, acceptanceResults } = scanMessages(request.messages);
+  const { repairs, acceptanceResults } = scanMessages(request.messages);
   if (acceptanceResults.length === 0) return { fire: false };
 
   const byTask = latestAcceptanceByTask(acceptanceResults);
   const pendingFails = [...byTask.values()].filter(
     (result) =>
-      result.outcome === 'fail' &&
-      !uses.some((use) => use.order > result.order && isRepairActivityFor(use, result.taskId))
+      result.outcome === 'FAIL' &&
+      !repairs.some((repair) => repair.order > result.order && repair.taskId === result.taskId)
   );
 
   if (pendingFails.length === 0) {
     // No task is waiting on repair. A PASS verdict (the loop closed
     // cleanly) resets the wave counter; unknown/partial verdicts do not.
-    const sawPass = [...byTask.values()].some((result) => result.outcome === 'pass');
+    const sawPass = [...byTask.values()].some((result) => result.outcome === 'PASS');
     if (sawPass && request.attempts > 0) return { fire: false, resetAttempts: true };
     return { fire: false };
   }
@@ -237,11 +220,11 @@ export function evaluateTaskRepairNudge(request: TaskRepairNudgeRequest): TaskRe
 
   // Most recent pending FAIL wins when several tasks wait at once.
   const target = pendingFails.reduce((a, b) => (b.order > a.order ? b : a));
-  const repairsBeforeFail = uses.filter(
-    (use) =>
-      use.order < target.order &&
-      use.name === 'record_repair' &&
-      (use.taskId === undefined || use.taskId === target.taskId)
+  const repairsBeforeFail = repairs.filter(
+    (repair) =>
+      repair.order < target.order &&
+      repair.name === 'record_repair' &&
+      repair.taskId === target.taskId
   ).length;
 
   return {

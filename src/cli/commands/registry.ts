@@ -182,6 +182,7 @@ const permissionsCommand: CommandSpec = {
         renderCliPermissions(runtime, {
           verbose: verb === '--verbose' || trimmed === 'verbose',
           locale: ctx.locale,
+          currentMode: getCliInteractionMode(),
         })
       );
       return;
@@ -274,7 +275,12 @@ const permissionsCommand: CommandSpec = {
       const index = /^\d+$/.test(target) ? Number(target) : target;
       const removed = registry.remove(index);
       if (removed) {
-        ctx.say('system', zh ? `已移除会话规则：${target}` : `Session rule removed: ${target}`);
+        ctx.say(
+          'system',
+          zh
+            ? `已移除会话规则：${target}。已保存的用户或工作区规则不受影响，重启后仍可能生效。`
+            : `Session rule removed: ${target}. Saved user or workspace rules remain unchanged and may apply after restart.`
+        );
         return;
       }
       // Honest boundary: the rule exists, but not at session level.

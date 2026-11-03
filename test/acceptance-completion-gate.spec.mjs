@@ -83,7 +83,12 @@ test('evaluateAcceptanceCompletionGate: pure decision matrix', () => {
       {
         role: 'assistant',
         content: [
-          { type: 'tool_use', id: 'use_record_failure', name: 'record_failure', input: {} },
+          {
+            type: 'tool_use',
+            id: 'use_record_failure',
+            name: 'record_failure',
+            input: { task_id: 'task_x' },
+          },
         ],
         timestamp: 3,
       },
@@ -117,6 +122,48 @@ test('evaluateAcceptanceCompletionGate: pure decision matrix', () => {
     toolCallsByName: { task_define: 1, exec: 1 },
   };
   assert.equal(evaluateAcceptanceCompletionGate(decoy).ok, false);
+});
+
+test('errors are not acceptance verdicts or completed repair activity', () => {
+  const errorResult = (id) => ({
+    role: 'user',
+    content: [{ type: 'tool_result', tool_use_id: id, is_error: true, content: 'Error: denied' }],
+  });
+  const calls = { task_define: 1, task_acceptance: 1 };
+  const invalidAcceptance = evaluateAcceptanceCompletionGate({
+    messages: [toolUseMessage('task_acceptance', {}), errorResult('use_task_acceptance')],
+    toolCallsByName: calls,
+  });
+  assert.equal(invalidAcceptance.ok, false);
+  assert.equal(invalidAcceptance.kind, 'no-verdict');
+
+  const failedRepair = evaluateAcceptanceCompletionGate({
+    messages: [
+      toolUseMessage('task_acceptance', {}),
+      toolResultMessage('use_task_acceptance', 'Task acceptance (task_x): FAIL'),
+      toolUseMessage('record_repair', { task_id: 'task_x' }),
+      errorResult('use_record_repair'),
+    ],
+    toolCallsByName: calls,
+  });
+  assert.equal(failedRepair.ok, false);
+  assert.equal(failedRepair.kind, 'unrepaired-fail');
+});
+
+test('unrelated or unassigned evidence cannot silence a task failure', () => {
+  for (const input of [{ task_id: 'other' }, {}]) {
+    const decision = evaluateAcceptanceCompletionGate({
+      messages: [
+        toolUseMessage('task_acceptance', {}),
+        toolResultMessage('use_task_acceptance', 'Task acceptance (task_x): FAIL'),
+        toolUseMessage('record_evidence', input),
+        toolResultMessage('use_record_evidence', 'evidence recorded'),
+      ],
+      toolCallsByName: { task_define: 1 },
+    });
+    assert.equal(decision.ok, false);
+    assert.equal(decision.kind, 'unrepaired-fail');
+  }
 });
 
 test('createAcceptanceCompletionGate blocks at most once per run', async () => {

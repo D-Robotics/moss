@@ -2,6 +2,137 @@
 
 ## Unreleased
 
+### Live interaction permissions
+
+- Switching interaction modes now changes the actual approval policy even when the
+  session started in full access. `/permissions` shows the current mode separately
+  from the startup configuration; deny rules and the read-only ceiling still apply.
+- Explicit ask rules always prompt and cannot create a hidden future grant. Ordinary
+  device approvals no longer create a blanket allow rule for the device tool; dangerous
+  calls retain their scoped warning. The approval UI maps numbered answers to the
+  options actually displayed, including two-option dialogs.
+- CLI session grants are visible and removable in `/permissions`; removing one does not
+  remove an already-saved user or workspace rule. File-based tools whose names conflict
+  with existing tools are skipped with a warning instead of replacing the existing tool.
+  Hosts that explicitly replace SDK tools remain responsible for their own approval policy.
+
+### 实时交互权限
+
+- 即使会话以全开模式启动，切换交互模式后也会按新模式执行审批。`/permissions`
+  区分当前模式与启动时配置；deny 规则和只读上限仍然生效。
+- 显式 ask 规则始终要求确认，不会暗中创建后续授权。普通设备审批不再生成覆盖整个
+  设备工具的 allow 规则，危险操作仍显示限定范围的提示；数字选项按实际显示的按钮解析。
+- CLI 会话授权可通过 `/permissions` 查看和移除；移除会话规则不会删除已保存的用户或
+  工作区规则。与已有工具同名的文件工具会被跳过并提示，不再替换已有工具。主动替换
+  SDK 工具的宿主仍须自行负责审批策略。
+
+### Contract acceptance and evidence history
+
+- Contract-based acceptance no longer turns missing observations, invalid numeric values,
+  or known conflicting evidence verdicts into a pass. Raw observations can still be
+  evaluated against the task's own criterion. Newly recorded evidence preserves the
+  explicit verdict, automatic result and whether the observation was redacted when
+  available; these are optional additions to the SDK evidence record. Old records can
+  lack this provenance; ambiguous historical conflicts cannot always be reconstructed
+  and should be re-measured. Existing accepted tasks are not retroactively revoked.
+- Contract evaluation reads the selected task's evidence without allowing other tasks'
+  history to hide it. The existing task-list limit remains unchanged. A passing
+  configured acceptance command retains its existing authority.
+
+### 契约验收与证据历史
+
+- 契约验收不再将缺失观测、无效数值或已知冲突的证据判为通过。原始观测仍可按
+  任务自己的标准重新判断；新证据会在适用时保存显式裁决、自动比较结果及观测是否
+  被脱敏，均为 SDK 证据记录的可选字段。旧记录可能缺少来源，无法完全还原历史冲突，遇到不确定情况应重新测量；
+  已验收的历史任务不会被自动撤销。
+- 契约验收按所选任务读取证据，不再被其他任务的历史记录遮挡；既有任务列表数量限制
+  不变。已配置的验收命令通过时仍保留原有裁决优先级。
+
+### Explicit no-change and no-install requests
+
+- Read-only requests that say not to edit files no longer receive a false incomplete
+  outcome. Explicitly prohibiting dependency installation no longer injects a reminder
+  claiming that the user requested it. Separate positive edit / install instructions
+  still retain their normal completion and verification checks.
+
+### 明确要求不修改与不安装
+
+- 用户要求只读且明确禁止修改时，不再错误显示未完成；明确禁止安装依赖时，也不再向
+  模型注入“用户要求安装”的相反提示。其他独立的正向修改或安装指令仍保留原有检查。
+
+### Structured tool results and SDK compatibility
+
+- **SDK behavior change in 0.x:** a post-tool or post-failure hook returning
+  `{ result }` now discards the prior structured blocks, even when `result` is
+  unchanged. This prevents those blocks from bypassing a replacement or redaction.
+  Observation-only hooks should return `null` (JavaScript hooks may return
+  `undefined`) to keep structured blocks.
+- On the MossAgent model path, an existing tool-result `content` string is
+  authoritative, including `''`; old structured text is not appended. Some
+  older sessions that relied on structured text alongside empty or different
+  content may therefore expose less text to the model. The original records
+  are not changed by this projection. To recover intended text, rerun the tool
+  in a new session, or copy the history to a new session and have the host
+  inspect and sanitize the intended text before placing it in `content`; remove
+  stale structured data from the copy. A record without a `content` field still
+  falls back to structured text, so hosts must inspect such legacy records before
+  resuming them.
+- Non-text structured results that exceed the existing cap still replace
+  `structuredContent` with a text truncation notice. Newly persisted results
+  also carry an optional `_structuredContentTruncated` number on the tool-result
+  block, letting the model receive a safe generated notice after resume without
+  changing SDK `content` or the already-capped `structuredContent`. An older
+  unmarked result cannot safely recover that notice.
+- The separate `PiAiLLMProvider` entry point can still append supplied structured
+  text to `content`, and optional remote compaction sends stored structured
+  content. Hosts need to inspect and remove or sanitize old structured data
+  before using these paths when it must not be sent.
+
+### 结构化工具结果与 SDK 兼容性
+
+- **0.x SDK 行为变更：**后置工具或失败 hook 返回 `{ result }` 时，即使文本
+  不变，也会丢弃原结构化块，避免替换或脱敏后旧块绕过处理。只观察结果的
+  hook 应返回 `null`（JavaScript 运行时也可返回 `undefined`）以保留结构化块。
+- MossAgent 向模型投影工具结果时，已有的 `content` 字符串（包括 `''`）为准，
+  不追加旧结构化文本。因此依赖空内容或不同内容旁的结构化文本的旧会话，模型
+  可能看到更少文本；此投影不会修改原记录。需要恢复时，可在新会话重新执行
+  工具，或将历史复制到新会话，由宿主检查、脱敏后把所需文本写入 `content`，
+  并从副本移除过时的结构化数据。完全没有 `content` 字段的旧记录仍会回退到
+  结构化文本，宿主应在恢复前检查此类记录。
+- 非文本结构化结果超限时，`structuredContent` 仍按原有上限替换为文本截断
+  提示。新写入的工具结果还带可选数字字段 `_structuredContentTruncated`，供恢复
+  后安全生成模型侧提示；该字段不改变 SDK 的 `content` 或已截断的
+  `structuredContent`。旧记录没有该标记时无法安全恢复这一提示。
+- 独立调用 `PiAiLLMProvider` 仍可能将提供的结构化文本追加到 `content`；可选
+  远程压缩也会发送记录中的结构化内容。宿主将旧消息交给这些入口前，需要检查
+  并移除或脱敏不应发送的结构化数据。
+
+### Product experience, task verdicts, and configuration change detection
+
+- The terminal experience has a shorter help view, more reliable in-flight input,
+  attributable concurrent tool results, and a model picker that follows the selection.
+- Command-based task acceptance can now attribute a verdict when `task_id` is omitted.
+  **SDK compatibility:** in that case, `taskAcceptanceTool.execute()` now prefixes its
+  command detail with `Task acceptance (<task ID>): PASS|FAIL`. Consumers matching the
+  complete result or its former first line must account for the new header. Calls with
+  an explicit `task_id` keep their previous command detail format.
+- Executed commands are checked for changes to selected Moss configuration and
+  credential files. This is post-execution detection, not prevention or automatic
+  recovery; delayed writes and results of background subagents that are never collected
+  remain outside this guarantee. Subagent `writePaths` are coordination hints, not an
+  enforced security boundary.
+
+### 产品体验、任务验收与配置变更检测
+
+- 精简终端帮助，改善运行中输入、并发工具结果归属，以及长模型列表的选择体验。
+- 命令验收省略 `task_id` 时，结果现在包含实际任务标识。**SDK 兼容性：**此时
+  `taskAcceptanceTool.execute()` 会在原有命令详情前增加
+  `Task acceptance (<task ID>): PASS|FAIL`；按完整内容或原首行匹配的调用方需要适配。
+  显式提供 `task_id` 的命令验收输出格式保持不变。
+- 命令执行后会检查选定的 Moss 配置与凭据文件是否发生变化。这是事后检测，不是
+  执行前拦截或自动恢复；延迟写入和从未收集结果的后台子代理仍不在保证范围内。
+  子代理的 `writePaths` 是协作提示，并非强制执行的安全边界。
+
 ### O148 — PowerShell nesting deeper than one level is analyzed (else fail-closed)
 
 The pwsh write-target scanner analyzed only one level of nested execution

@@ -373,33 +373,52 @@ function helpUsage(usage: string): string {
   return HELP_USAGE_ZH[usage] ?? usage;
 }
 
-/** Compact help (prefixes + commands + shortcuts) or the full reference.
- * Commands come before shortcuts so a 35-row terminal still shows the list. */
+/** Compact help puts everyday actions first; the full reference keeps every key. */
 export function buildHelpOverlayLines(
   all: boolean,
   bindings: readonly KeyBinding[] = DEFAULT_KEYBINDINGS
 ): string[] {
+  if (!all) {
+    const commonBindings = bindings.filter((binding) =>
+      ['history.search', 'view.toggleVerbose'].includes(binding.command)
+    );
+    const commonKeys = helpKeyRows(commonBindings).filter(
+      ([keys]) =>
+        ['Enter', 'Shift+Enter / Ctrl+J', 'Shift+Tab', 'Esc'].includes(keys) ||
+        keys.startsWith('Ctrl+')
+    );
+    return [
+      tui('shortcuts'),
+      tui('type / to browse commands · /help --all for the rest'),
+      ...commonKeys.map(([keys, what]) => `${tui(keys).padEnd(20)} ${tui(what)}`),
+      tui('prefixes'),
+      tui('  ! shell · / commands · @ files'),
+      tui('common commands'),
+      ...SHELL_COMMANDS.filter((entry) => COMMON_HELP_COMMANDS.includes(entry.command)).map(
+        (entry) => `  ${helpUsage(entry.usage).padEnd(24)} ${tui(entry.description)}`
+      ),
+    ];
+  }
   return [
     tui('prefixes'),
     ...HELP_PREFIXES.map(([prefix, what]) => `  ${prefix.padEnd(3)} ${tui(what)}`),
     '',
-    all ? tui('all commands') : tui('common commands'),
-    ...(all
-      ? ALL_SHELL_COMMANDS
-      : SHELL_COMMANDS.filter((entry) => COMMON_HELP_COMMANDS.includes(entry.command))
-    ).map((entry) => `  ${helpUsage(entry.usage).padEnd(24)} ${tui(entry.description)}`),
-    ...(all
-      ? ['', tui('aliases'), ...slashAliasHelpLines(isTuiZh() ? 'zh' : 'en')]
-      : ['', tui('type / to browse commands · /help --all for the rest')]),
+    tui('all commands'),
+    ...ALL_SHELL_COMMANDS.map(
+      (entry) => `  ${helpUsage(entry.usage).padEnd(24)} ${tui(entry.description)}`
+    ),
+    '',
+    tui('aliases'),
+    ...slashAliasHelpLines(isTuiZh() ? 'zh' : 'en'),
     '',
     tui('shortcuts'),
     ...helpKeyRows(bindings).map(([keys, what]) => `${tui(keys).padEnd(12)} ${tui(what)}`),
   ];
 }
 
-/** Visible body of the help overlay: `rows - 8`, at least 6. */
+/** Leave room for the help heading, status, composer and transcript viewport. */
 export function helpOverlayWindow(rowCount: number): number {
-  return Math.max(6, rowCount - 8);
+  return Math.max(1, rowCount - 12);
 }
 
 /** Slice the help list and tell the user it scrolls, instead of asking them to resize. */

@@ -3,6 +3,7 @@
 //   "longstream" -> ~90-line markdown answer streamed in 12-char deltas every 25ms
 //   "toolstorm"  -> 20 sequential list_directory calls, then a short answer
 //   anything else -> one short answer
+import fs from 'node:fs';
 import http from 'node:http';
 
 const PORT = Number(process.argv[2] ?? 8793);
@@ -31,7 +32,13 @@ const done = (res) => {
 };
 
 let seq = 0;
-http
+let streamSeq = 0;
+const streams = new Map();
+const streamEvents = process.env.MOSS_TUI_FEEL_EVENTS;
+function recordStreamEvent(event) {
+  if (streamEvents) fs.appendFileSync(streamEvents, `${JSON.stringify(event)}\n`);
+}
+const server = http
   .createServer((req, res) => {
     if (req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -47,22 +54,55 @@ http
       } catch {
         /* ignore */
       }
+      if (req.url === '/__tui-feel/arm') {
+        const stream = streamEvents && streams.get(body.streamId);
+        if (!stream || stream.armedAtNs !== null) {
+          res.writeHead(409);
+          res.end('stream is not active or already armed');
+          return;
+        }
+        stream.armedAtNs = process.hrtime.bigint().toString();
+        const event = { type: 'armed', streamId: body.streamId, armedAtNs: stream.armedAtNs };
+        recordStreamEvent(event);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(event));
+        return;
+      }
       const messages = Array.isArray(body.messages) ? body.messages : [];
       const text = lastUser(messages);
       const toolResults = messages.filter((m) => m.role === 'tool').length;
       sse(res);
       if (/longstream/i.test(text)) {
         const pieces = LONG.match(/[\s\S]{1,12}/g) ?? [];
+        const streamId = ++streamSeq;
         let i = 0;
+        let completed = false;
+        const stream = { armedAtNs: null };
+        streams.set(streamId, stream);
+        recordStreamEvent({ type: 'started', streamId, totalChunks: pieces.length });
         const timer = setInterval(() => {
           if (i < pieces.length)
             send(res, { choices: [{ index: 0, delta: { content: pieces[i++] } }] });
           else {
             clearInterval(timer);
+            completed = true;
             done(res);
           }
         }, 25);
-        res.on('close', () => clearInterval(timer));
+        res.on('close', () => {
+          const closedAtNs = process.hrtime.bigint().toString();
+          clearInterval(timer);
+          streams.delete(streamId);
+          recordStreamEvent({
+            type: 'closed',
+            streamId,
+            completed,
+            sentChunks: i,
+            totalChunks: pieces.length,
+            armedAtNs: stream.armedAtNs,
+            closedAtNs,
+          });
+        });
         return;
       }
       if (/approvewrite/i.test(text) && toolResults < 1) {
@@ -80,6 +120,58 @@ http
                     function: {
                       name: 'write_file',
                       arguments: JSON.stringify({ path: 'note.txt', content: 'hello\n' }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        });
+        send(res, { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage });
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+      if (/parallelreads/i.test(text) && toolResults < 2) {
+        send(res, {
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: ['missing.txt', 'present.txt'].map((path, index) => ({
+                  index,
+                  id: `call_${++seq}`,
+                  type: 'function',
+                  function: { name: 'read_file', arguments: JSON.stringify({ path }) },
+                })),
+              },
+            },
+          ],
+        });
+        send(res, { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage });
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+      if (/helptodos/i.test(text) && toolResults < 1) {
+        send(res, {
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: `call_${++seq}`,
+                    type: 'function',
+                    function: {
+                      name: 'todo_write',
+                      arguments: JSON.stringify({
+                        todos: Array.from({ length: 5 }, (_, index) => ({
+                          content: `Check item ${index + 1}`,
+                          status: index === 0 ? 'in_progress' : 'pending',
+                        })),
+                      }),
                     },
                   },
                 ],
@@ -121,4 +213,4 @@ http
       done(res);
     });
   })
-  .listen(PORT, '127.0.0.1', () => console.log(PORT));
+  .listen(PORT, '127.0.0.1', () => console.log(server.address().port));

@@ -14,10 +14,10 @@ const modelDef = {
   contextWindow: 32000,
   maxTokens: 512,
 };
-function emptyResponse() {
+function responseStream(text = 'Evidence collected but output contract not followed.') {
   const message = {
     role: 'assistant',
-    content: [{ type: 'text', text: 'Evidence collected but output contract not followed.' }],
+    content: text ? [{ type: 'text', text }] : [],
     stopReason: 'end_turn',
     usage: { input: 1, output: 0, cacheRead: 0, cacheWrite: 0 },
   };
@@ -50,7 +50,7 @@ for (const failAt of [1, 2]) {
         error.status = 429;
         throw error;
       }
-      return emptyResponse();
+      return responseStream();
     },
   });
   const result = await runner(
@@ -67,6 +67,39 @@ for (const failAt of [1, 2]) {
     calls,
     failAt,
     'zero retry budget covers work and forced finalization without repairing a failed provider'
+  );
+  assert.equal(result.success, false);
+}
+{
+  let calls = 0;
+  const runner = createSubAgentRunner({
+    parentTools: [],
+    modelDef,
+    systemPrompt: 'Investigate',
+    maxOutputTokens: 512,
+    contextTokens: 32000,
+    maxLLMRetries: 0,
+    spawnRegistry: createSpawnProfileRegistryFromDefaults(),
+    workspaceDir: process.cwd(),
+    streamFn() {
+      calls++;
+      return responseStream('');
+    },
+  });
+  const result = await runner(
+    {
+      runId: 'empty-response-zero-retry',
+      parentRunId: 'parent',
+      scope: 'explore',
+      task: 'Investigate',
+      maxTurns: 1,
+    },
+    new AbortController().signal
+  );
+  assert.equal(
+    calls,
+    1,
+    'an empty provider response is not implicitly repaired when retries are disabled'
   );
   assert.equal(result.success, false);
 }

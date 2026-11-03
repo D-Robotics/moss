@@ -1201,7 +1201,8 @@ ${result.stderr ?? ''}`.trim();
 
     // F23: single approval-gate factory shared by the parent loop and every
     // sub-agent loop — children inherit the host policy (a non-interactive
-    // denial stays denied); scope/writePaths narrow permissions, never widen.
+    // denial stays denied). Scope filters tools; writePaths is a coordination
+    // hint and does not enforce a filesystem boundary.
     const buildToolApprovalCheck = (
       approvalSessionKey: string,
       approvalRunId: string
@@ -1251,6 +1252,9 @@ ${result.stderr ?? ''}`.trim();
       toolHooks: this.toolHooks,
       spawnRegistry: this.spawnRegistry,
       workspaceDir,
+      ...(toolCtx.protectedConfigPaths
+        ? { protectedConfigPaths: toolCtx.protectedConfigPaths }
+        : {}),
       systemPromptParts,
       // Child agents inherit host coding gates (verify/todo/false-complete) so
       // fan_out_subagents / create_subagent cannot skip completion honesty.
@@ -1303,8 +1307,9 @@ ${result.stderr ?? ''}`.trim();
       }
       const parentSignal = params.abortSignal ?? abortSignal;
       const controller = new AbortController();
-      const onParentAbort = () => controller.abort();
+      const onParentAbort = () => controller.abort(parentSignal?.reason);
       parentSignal?.addEventListener('abort', onParentAbort, { once: true });
+      if (parentSignal?.aborted) onParentAbort();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const result = await subAgentRunner(
@@ -1346,11 +1351,15 @@ ${result.stderr ?? ''}`.trim();
           sessionKey: `subagent:${result.runId}`,
           summary: result.summary,
           success: result.success,
+          ...(result.protectedPathChanges
+            ? { protectedPathChanges: result.protectedPathChanges }
+            : {}),
           ...(result.turns !== undefined ? { turns: result.turns } : {}),
           ...(result.toolResults !== undefined ? { toolResults: result.toolResults } : {}),
           ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
           ...(result.error ? { error: result.error } : {}),
           ...(result.workspaceLeaseId ? { workspaceLeaseId: result.workspaceLeaseId } : {}),
+          ...(result.workspacePath ? { workspacePath: result.workspacePath } : {}),
           ...(result.patchId ? { patchId: result.patchId } : {}),
           ...(result.patchRef ? { patchRef: result.patchRef } : {}),
           ...(result.patchDigest ? { patchDigest: result.patchDigest } : {}),

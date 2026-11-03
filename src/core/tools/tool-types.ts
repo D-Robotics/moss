@@ -16,6 +16,8 @@ export interface SubagentRunProgress {
   error?: string;
   summaryPreview?: string;
   elapsedMs?: number;
+  /** Isolated workspace location, available once it has been created. */
+  workspacePath?: string;
 }
 
 /** O152 F9b: one L3 post-run change (no file content). */
@@ -29,6 +31,8 @@ export interface ProtectedPathChangeReport {
 
 export interface ToolContext {
   workspaceDir: string;
+  /** Host-resolved configuration files to compare after shell execution. */
+  protectedConfigPaths?: readonly string[];
   /**
    * O96: lets a string-returning tool mark its result as an error structurally
    * (e.g. exec timeout / signal kill) instead of relying on output text.
@@ -40,6 +44,8 @@ export interface ToolContext {
    * output text carrying the marker.
    */
   reportProtectedPathChanges?: (changes: readonly ProtectedPathChangeReport[]) => void;
+  /** Preserve a child workspace location in the tool result if this call is aborted. */
+  reportWorkspaceRecoveryPath?: (workspacePath: string) => void;
   bootstrapDir?: string;
   runId?: string;
   sessionKey: string;
@@ -84,7 +90,7 @@ export interface ToolContext {
   taskContracts?: 'allow' | 'deny';
   spawnSubagent?: (params: {
     task: string;
-    /** Parent-relative paths a full-scope worker may modify. */
+    /** Parent-relative coordination hints; not an enforced write boundary. */
     writePaths?: readonly string[];
     /** Run this writable worker in an isolated git worktree (lease-patch merge). */
     worktree?: boolean;
@@ -120,11 +126,13 @@ export interface ToolContext {
     sessionKey: string;
     summary: string;
     success: boolean;
+    protectedPathChanges?: readonly ProtectedPathChangeReport[];
     turns?: number;
     toolResults?: number;
     durationMs?: number;
     error?: string;
     workspaceLeaseId?: string;
+    workspacePath?: string;
     patchId?: string;
     patchRef?: string;
     patchDigest?: string;
@@ -188,6 +196,12 @@ export interface ToolMetadata {
    * checks; a replayed result skips that, so a full re-read never counted.
    */
   noReplay?: boolean;
+  /**
+   * Host opt-in for bounded fresh observations of changing resources. Only
+   * applies to readonly tools with noReplay; it does not bypass approval,
+   * failure limits or per-run observation budgets.
+   */
+  freshObservation?: boolean;
   planMode?: ToolPlanMode;
 
   requiresApproval?: boolean;

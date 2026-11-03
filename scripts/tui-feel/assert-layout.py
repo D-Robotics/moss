@@ -145,6 +145,41 @@ def n4_bottom_edge():
         )
 
 
+def help_frame():
+    for cols, rows in [(100, 30), (70, 24)]:
+        with Session(cols=cols, rows=rows, renderer="fullscreen", extra_env=DEBUG_ENV) as session:
+            session.wait_for_prompt()
+            if rows == 24:
+                session.submit("helptodos", wait=2.0)
+                check("help: existing todo panel is visible before opening",
+                      any("Check item" in line for line in session.lines()),
+                      "todo panel did not appear")
+            session.send("?")
+            session.wait_for(lambda: "Help" in "\n".join(session.lines()))
+            frame_clean(session, f"help@{cols}x{rows}")
+            text = "\n".join(session.lines())
+            check(f"help@{cols}x{rows}: primary shortcuts visible",
+                  "Shift+Enter" in text and "Ctrl+R" in text,
+                  "primary shortcuts missing")
+            if rows == 24:
+                session.key("esc")
+                check("help: todo panel returns after closing",
+                      any("Check item" in line for line in session.lines()),
+                      "todo panel did not return")
+
+
+def parallel_tool_results():
+    for renderer in RENDERERS:
+        with Session(cols=100, rows=30, renderer=renderer) as session:
+            with open(os.path.join(session.workspace, "present.txt"), "w", encoding="utf-8") as handle:
+                handle.write("present content\n")
+            session.submit("parallelreads", wait=2.5)
+            text = "\n".join(session.lines())
+            check(f"{renderer}: parallel read failure and result stay attributable",
+                  "missing.txt" in text and "present.txt" in text and "failed" in text,
+                  f"screen={text!r}")
+
+
 def p1_scroll_bar_and_home():
     with Session(cols=80, rows=20, renderer="fullscreen", extra_env=DEBUG_ENV) as session:
         session.submit("longstream", wait=17.0)
@@ -478,6 +513,8 @@ def main():
     n2_scrolled_frame()
     n3_scroll_stable()
     n4_bottom_edge()
+    help_frame()
+    parallel_tool_results()
     p2_narrow_fallback()
     p3_tool_rows()
     p4_keybindings()

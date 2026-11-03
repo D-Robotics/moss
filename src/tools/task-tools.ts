@@ -200,6 +200,12 @@ export const taskAcceptanceTool: Tool = {
       result.source,
       isCommittedTaskVerdict(result) ? undefined : ctx.abortSignal
     );
+    // A command verdict has no task ID of its own. When the caller selected
+    // the latest task implicitly, attach the identity from the actual verdict
+    // before any untrusted command output so the loop can attribute it.
+    if (!taskId && result.source === 'command') {
+      return `Task acceptance (${task.taskId}): ${result.passed ? 'PASS' : 'FAIL'}\n${result.detail}`;
+    }
     return result.detail;
   },
 };

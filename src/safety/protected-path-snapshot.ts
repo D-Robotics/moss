@@ -145,6 +145,10 @@ export interface ProtectedPathSnapshot {
   takenAt: number;
   cwd: string;
   home: string;
+  /** Fixed host-resolved sensitive files; no contents are retained for restore. */
+  configPaths?: ReadonlySet<string>;
+  /** Config paths newly added to the ordinary watch list. */
+  configOnlyPaths?: ReadonlySet<string>;
   /**
    * O152: 0600 temp dir holding content for restore-eligible files that were
    * too large for the in-memory Buffer path, or that we spilled for safety.
@@ -677,6 +681,52 @@ function metaOf(abs: string): PathMeta | typeof UNAVAILABLE | null {
   }
 }
 
+/** Hash configuration content, following a file symlink without retaining bytes. */
+function configMetaOf(abs: string): PathMeta | typeof UNAVAILABLE | null {
+  try {
+    const st = fs.lstatSync(abs);
+    if (st.isDirectory()) return metaOf(abs);
+    const hash = crypto.createHash('sha256');
+    if (st.isSymbolicLink()) hash.update(`link:${fs.readlinkSync(abs)}\0`);
+    let size = st.size;
+    try {
+      if (st.isFile() || st.isSymbolicLink()) {
+        const fd = fs.openSync(abs, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
+        const buffer = Buffer.allocUnsafe(64 * 1024);
+        try {
+          const target = fs.fstatSync(fd);
+          if (target.isFile()) {
+            let n: number;
+            while ((n = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) {
+              hash.update(buffer.subarray(0, n));
+            }
+            size = target.size;
+          } else {
+            hash.update(`non-file:${target.mode}:${target.mtimeMs}`);
+          }
+        } finally {
+          buffer.fill(0);
+          fs.closeSync(fd);
+        }
+      } else {
+        hash.update(`non-file:${st.mode}:${st.mtimeMs}`);
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      hash.update('missing-target');
+    }
+    return {
+      mtimeMs: st.mtimeMs,
+      size,
+      hash: hash.digest('hex'),
+      type: st.isSymbolicLink() ? 'symlink' : 'file',
+    };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    return UNAVAILABLE;
+  }
+}
+
 function listDirSafe(dir: string): string[] {
   try {
     return fs.readdirSync(dir);
@@ -777,7 +827,19 @@ function fillSnapshot(
 ): void {
   for (const abs of absPaths) {
     if (!into.display.has(abs)) into.display.set(abs, displayFor(abs, cwd, home));
-    const m = metaOf(abs);
+    let m = into.configOnlyPaths?.has(abs) ? configMetaOf(abs) : metaOf(abs);
+    // A config file can overlap an ordinary watched path, such as a custom
+    // --config-file pointing to workspace/.env. Keep ordinary restore bytes
+    // for regular files, but compare an existing symlink's target content too.
+    if (
+      into.configPaths?.has(abs) &&
+      !into.configOnlyPaths?.has(abs) &&
+      m !== null &&
+      m !== UNAVAILABLE &&
+      m.type === 'symlink'
+    ) {
+      m = configMetaOf(abs);
+    }
     if (m === null) {
       into.entries.delete(abs);
       continue;
@@ -788,18 +850,27 @@ function fillSnapshot(
 
 export function takeProtectedPathSnapshot(
   cwd: string,
-  opts?: { home?: string }
+  opts?: { home?: string; configPaths?: readonly string[] }
 ): ProtectedPathSnapshot {
   const home = homeDir(opts?.home);
   const resolvedCwd = path.resolve(cwd);
+  const standardPaths = listWatchedProtectedPaths(resolvedCwd, home);
+  const configPaths = new Set((opts?.configPaths ?? []).map((p) => path.resolve(p)));
+  const standardSet = new Set(standardPaths);
   const snap: ProtectedPathSnapshot = {
     entries: new Map(),
     display: new Map(),
     takenAt: Date.now(),
     cwd: resolvedCwd,
     home,
+    ...(configPaths.size
+      ? {
+          configPaths,
+          configOnlyPaths: new Set([...configPaths].filter((p) => !standardSet.has(p))),
+        }
+      : {}),
   };
-  fillSnapshot(resolvedCwd, home, listWatchedProtectedPaths(resolvedCwd, home), snap);
+  fillSnapshot(resolvedCwd, home, new Set([...standardPaths, ...(snap.configPaths ?? [])]), snap);
   return snap;
 }
 
@@ -819,8 +890,14 @@ export function takeProtectedPathSnapshotAfter(
     takenAt: Date.now(),
     cwd,
     home,
+    ...(before.configPaths ? { configPaths: before.configPaths } : {}),
+    ...(before.configOnlyPaths ? { configOnlyPaths: before.configOnlyPaths } : {}),
   };
-  const paths = new Set([...listWatchedProtectedPaths(cwd, home), ...before.entries.keys()]);
+  const paths = new Set([
+    ...listWatchedProtectedPaths(cwd, home),
+    ...before.entries.keys(),
+    ...(before.configPaths ?? []),
+  ]);
   fillSnapshot(cwd, home, paths, snap);
   return snap;
 }
@@ -848,6 +925,18 @@ export function diffProtectedPathSnapshots(
     }
     // Unavailable before (state unknown) → skip (do not false-report).
     if (b === UNAVAILABLE || a === UNAVAILABLE) continue;
+    if (before.configPaths?.has(abs) && b?.type === 'symlink' && a?.type === 'symlink') {
+      if (b.hash !== a.hash || b.size !== a.size) changes.push({ path: display, kind: 'modified' });
+      continue;
+    }
+    if (before.configOnlyPaths?.has(abs)) {
+      if (!b && a) changes.push({ path: display, kind: 'added' });
+      else if (b && !a) changes.push({ path: display, kind: 'deleted' });
+      else if (b && a && (b.hash !== a.hash || b.size !== a.size || b.type !== a.type)) {
+        changes.push({ path: display, kind: 'modified' });
+      }
+      continue;
+    }
     if (isDotGitFile(abs)) {
       // O127: worktree `.git` file. Any content/type change, or its gitdir
       // vanishing, is reported (fail-closed).
@@ -1001,10 +1090,7 @@ export function formatProtectedPathModifiedNotice(
   const markerPaths = changes.map((c) => c.path).join(',');
   const anyRestored = (restores ?? []).some((r) => r.outcome === 'restored');
   const anyFailed = (restores ?? []).some(
-    (r) =>
-      r.outcome === 'failed' ||
-      r.outcome === 'skipped-symlink-git' ||
-      r.outcome === 'skipped-oversize'
+    (r) => r.outcome !== 'restored' && r.outcome !== 'skipped-approved'
   );
   // O152: emit a detail row for every change (not only git-config phrases)
   // so parseProtectedPathModMarker can carry restoreOutcome into the
@@ -1287,6 +1373,13 @@ export function restoreProtectedPathChanges(
       }
     }
     if (!abs) abs = path.resolve(before.cwd, c.path);
+
+    // Additional configuration watches are detect-only, even when a custom
+    // configuration happens to be named `.env` or `.git/config`.
+    if (before.configOnlyPaths?.has(abs)) {
+      results.push({ path: c.path, kind: c.kind, outcome: 'skipped-no-snapshot' });
+      continue;
+    }
 
     const eligible =
       isRestoreEligiblePath(abs) ||

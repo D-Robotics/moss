@@ -134,6 +134,7 @@ export class ToolHookRegistry {
     durationMs: number;
     ctx: ToolContext;
     sessionId: string;
+    onModified?: () => void;
   }): Promise<string> {
     let currentResult = params.result;
     for (const hook of this.postHooks) {
@@ -142,7 +143,10 @@ export class ToolHookRegistry {
           hook.process({ ...params, result: currentResult }),
           params.ctx.abortSignal
         );
-        if (modification) currentResult = modification.result;
+        if (modification) {
+          params.onModified?.();
+          currentResult = modification.result;
+        }
       } catch (err) {
         if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) throw err;
         getRootLogger()
@@ -162,6 +166,7 @@ export class ToolHookRegistry {
     durationMs: number;
     ctx: ToolContext;
     sessionId: string;
+    onModified?: () => void;
   }): Promise<string> {
     let currentResult = params.result;
     for (const hook of this.postFailureHooks) {
@@ -170,7 +175,10 @@ export class ToolHookRegistry {
           hook.process({ ...params, result: currentResult }),
           params.ctx.abortSignal
         );
-        if (modification) currentResult = modification.result;
+        if (modification) {
+          params.onModified?.();
+          currentResult = modification.result;
+        }
       } catch (err) {
         if (isMossError(err) && err.code === ErrorCode.USER_ABORTED) throw err;
         getRootLogger()

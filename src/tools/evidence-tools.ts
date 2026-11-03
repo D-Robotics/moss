@@ -101,6 +101,11 @@ export const recordEvidenceTool: Tool = {
     required: ['metric', 'source'],
   },
   normalizeInput(input, _ctx) {
+    if (input && typeof input === 'object' && input.observed === null) {
+      const normalized = { ...input };
+      delete normalized.observed;
+      return normalized;
+    }
     if (
       input &&
       typeof input === 'object' &&
@@ -121,7 +126,7 @@ export const recordEvidenceTool: Tool = {
     if (!source) return 'Error: record_evidence: source is required.';
 
     const observed =
-      input.observed === undefined
+      input.observed === undefined || input.observed === null
         ? undefined
         : typeof input.observed === 'string' ||
             typeof input.observed === 'number' ||
@@ -135,6 +140,7 @@ export const recordEvidenceTool: Tool = {
         : undefined;
 
     let result: EvidenceResult;
+    let automaticResult: EvidenceResult | undefined;
     let explanation: string | undefined;
     let comparator: EvidenceRecord['comparator'];
     const expected =
@@ -142,6 +148,7 @@ export const recordEvidenceTool: Tool = {
 
     if (expected !== undefined && expected.trim() !== '') {
       const evaluation = evaluateExpectation(expected, observed);
+      automaticResult = evaluation.result;
       if (evaluation.comparator !== 'none') comparator = evaluation.comparator;
       if (explicitResult !== undefined && explicitResult !== evaluation.result) {
         // F24: a conflict between the caller's explicit verdict and the
@@ -174,6 +181,8 @@ export const recordEvidenceTool: Tool = {
       ...(expected !== undefined ? { expected } : {}),
       ...(observed !== undefined ? { observed } : {}),
       ...(comparator ? { comparator } : {}),
+      ...(explicitResult !== undefined ? { explicitResult } : {}),
+      ...(automaticResult !== undefined ? { automaticResult } : {}),
       ...(input.device_id ? { deviceId: String(input.device_id) } : {}),
       ...(input.task_id ? { taskId: String(input.task_id) } : {}),
       ...(input.details ? { details: String(input.details) } : {}),

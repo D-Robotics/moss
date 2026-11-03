@@ -151,10 +151,16 @@ export const execBackgroundTool: Tool = {
     const workspaceDir = ctx.workspaceDir || process.cwd();
     const protectedSnapBefore = takeProtectedPathSnapshot(workspaceDir, {
       home: process.env.HOME,
+      ...(ctx.protectedConfigPaths ? { configPaths: ctx.protectedConfigPaths } : {}),
     });
     // O152 F10: detect [REDACTED] growth on protected paths even for
     // interpreter writes that extractShellMutationPaths cannot see.
-    includeProtectedPathsInMutationSnap(mutationSnap, protectedSnapBefore.display.keys());
+    includeProtectedPathsInMutationSnap(
+      mutationSnap,
+      [...protectedSnapBefore.display.keys()].filter(
+        (p) => !protectedSnapBefore.configOnlyPaths?.has(p)
+      )
+    );
     const preferZhLocale = (): boolean => {
       const loc = process.env.MOSS_LOCALE || process.env.LANG || '';
       return /^zh\b/i.test(loc);

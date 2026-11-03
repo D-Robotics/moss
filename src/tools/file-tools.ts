@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Tool } from '../core/tools/tool-types.js';
+import { ErrorCode, wrapAsMoss } from '../errors.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import {
   globalToolStateManager,
@@ -165,6 +166,7 @@ export const readFileTool: Tool = {
     planMode: 'allow',
     // O122: execute() must run so a full re-read registers (its own unchanged stub saves tokens).
     noReplay: true,
+    freshObservation: true,
   },
   inputSchema: {
     type: 'object',
@@ -893,12 +895,7 @@ export async function listDirEntries(
 
   while (queue.length > 0 && items.length < maxEntries) {
     const cur = queue.shift()!;
-    let entries;
-    try {
-      entries = await fs.readdir(cur.abs, { withFileTypes: true });
-    } catch {
-      continue;
-    }
+    const entries = await fs.readdir(cur.abs, { withFileTypes: true });
     // Sort children for stable output
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const e of entries) {
@@ -970,7 +967,7 @@ export const listDirectoryTool: Tool = {
         : '';
       return header + lines.join('\n');
     } catch (err) {
-      throw toolError('Error listing directory', err);
+      throw toolError('Error listing directory', wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED));
     }
   },
 };

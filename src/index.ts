@@ -218,4 +218,4 @@ export {
 } from './errors.js';
 
 /** Per-agent local compaction override and inherited zero-retry provider policy. */
-export const MOSS_AGENT_SCOPED_INFERENCE_VERSION = 1;
+export const mossScopedInferenceVersion = 1;
