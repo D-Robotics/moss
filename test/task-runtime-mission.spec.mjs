@@ -164,6 +164,34 @@ test('Task OS events drive the TUI projection: failed/blocked never render as ID
   assert.equal(byId.get(blocked.taskId).result, 'NEEDS USER');
 });
 
+test('TUI projection trusts snapshot statusView instead of re-listing phases', async (t) => {
+  const dir = await tempWorkspace();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const contract = await createDraftTask(dir, 'stream camera at 30 fps');
+  await appendTaskEvent(dir, contract.taskId, 'execution_started');
+  const runtime = new TaskRuntime({ workspaceDir: dir, now: () => 5000 });
+  await runtime.refresh();
+  const snapshot = runtime.taskSnapshots.get(contract.taskId);
+  assert.ok(snapshot, 'refresh assembled the canonical snapshot');
+
+  runtime.taskSnapshots.set(contract.taskId, {
+    ...snapshot,
+    phase: 'future-active-phase',
+    statusView: 'executing',
+    outcome: undefined,
+  });
+  assert.equal(runtime.taskSummaries()[0].state, 'EXECUTING');
+
+  runtime.taskSnapshots.set(contract.taskId, {
+    ...snapshot,
+    phase: 'future-terminal-phase',
+    statusView: 'completed',
+    outcome: 'fail',
+  });
+  assert.equal(runtime.taskSummaries()[0].state, 'COMPLETED');
+  assert.equal(runtime.taskSummaries()[0].result, 'FAIL');
+});
+
 test('live run: PLANNING → EXECUTING → approval BLOCKED → endRun', async () => {
   const dir = await tempWorkspace();
   await appendTaskRecord(dir, task());

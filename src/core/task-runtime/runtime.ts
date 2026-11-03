@@ -477,20 +477,16 @@ export class TaskRuntime {
     latestVerdict: AcceptanceVerdict | undefined
   ): { state: MissionState; result?: MissionResult } {
     const snapshot = this.taskSnapshots.get(task.taskId);
-    if (snapshot?.outcome === 'aborted') return { state: 'COMPLETED', result: 'ABORTED' };
-    if (snapshot?.phase === 'accepted') return { state: 'COMPLETED', result: 'PASS' };
-    if (snapshot?.phase === 'failed' || snapshot?.phase === 'abandoned') {
+    if (snapshot?.statusView === 'planning') return { state: 'PLANNING' };
+    if (snapshot?.statusView === 'executing') return { state: 'EXECUTING' };
+    if (snapshot?.statusView === 'blocked') return { state: 'BLOCKED', result: 'NEEDS USER' };
+    if (snapshot?.statusView === 'completed') {
+      if (snapshot.outcome === 'aborted') return { state: 'COMPLETED', result: 'ABORTED' };
+      if (snapshot.outcome === 'pass') return { state: 'COMPLETED', result: 'PASS' };
+      if (snapshot.outcome === 'needs-user') {
+        return { state: 'BLOCKED', result: 'NEEDS USER' };
+      }
       return { state: 'COMPLETED', result: 'FAIL' };
-    }
-    if (snapshot?.phase === 'blocked') return { state: 'BLOCKED', result: 'NEEDS USER' };
-    if (snapshot && ['understanding', 'planning', 'ready'].includes(snapshot.phase)) {
-      return { state: 'PLANNING' };
-    }
-    if (
-      snapshot &&
-      ['executing', 'verifying', 'diagnosing', 'repairing', 'reverifying'].includes(snapshot.phase)
-    ) {
-      return { state: 'EXECUTING' };
     }
     const isFocus = this.live.focusTaskId === task.taskId;
     const pass = latestVerdict?.verdict === 'pass' || task.status === 'accepted';
