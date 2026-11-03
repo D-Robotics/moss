@@ -75,7 +75,9 @@ function parseArgs(argv) {
     const arg = argv[i];
     const next = () => {
       const value = argv[++i];
-      if (value === undefined) throw new Error(`${arg} requires a value`);
+      if (value === undefined || value === '-h' || value.startsWith('--')) {
+        throw new Error(`${arg} requires a value`);
+      }
       return value;
     };
     if (arg === '--samples') out.samples = Number(next());

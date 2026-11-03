@@ -37,3 +37,17 @@ for (const value of ['', '-0.1', '2.1', 'NaN', 'Infinity']) {
     assert.match(result.stderr, /temperature/i);
   });
 }
+
+for (const flag of ['--label', '--task', '--model', '--base-url', '--temperature']) {
+  test(`${flag} cannot consume the next option as its value`, () => {
+    const result = spawnSync(process.execPath, [runner, flag, '--list', '--help'], {
+      cwd: root,
+      env: { PATH: process.env.PATH ?? '', LANG: 'C', LC_ALL: 'C' },
+      encoding: 'utf8',
+      timeout: 15_000,
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /requires a value/);
+  });
+}
