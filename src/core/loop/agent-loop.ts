@@ -466,6 +466,9 @@ export function runAgentLoop(
               buildCorrectionMessage,
               taskPhaseNudges: params.taskPhaseNudges,
               todoWriteAvailable: toolsForTurn.some((tool) => tool.name === 'todo_write'),
+              userQuestionsAvailable: toolsForTurn.some(
+                (tool) => tool.name === 'ask_user_question'
+              ),
             })
           );
 

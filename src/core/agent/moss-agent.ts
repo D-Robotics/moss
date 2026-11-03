@@ -8,7 +8,10 @@ import { buildExperienceBlock, experienceEnabled } from '../experience/experienc
 
 const log = getRootLogger().child('agent');
 import { ToolRegistry } from '../tools/tool-registry.js';
-import { stopAllBackgroundProcesses } from '../tools/background-process-registry.js';
+import {
+  stopAllBackgroundProcesses,
+  waitForBackgroundProcesses,
+} from '../tools/background-process-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
 import { DeferredToolOffer, TOOL_SEARCH_NAME } from '../tools/deferred-tool-offer.js';
 import {
@@ -35,6 +38,7 @@ import {
 } from '../../contracts/index.js';
 import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compaction.js';
 import { createAcceptanceCompletionGate } from '../loop/acceptance-completion-gate.js';
+import { createBackgroundLifecycleGate } from '../loop/background-lifecycle-gate.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
 import { resolveContextCharsPerTokenUnit, estimateMessagesTokens } from '../../context/tokens.js';
 import { getEffectiveContextWindowTokens } from '../../context/window-economics.js';
@@ -237,18 +241,26 @@ export class MossAgent {
     );
     // O70: background exec_start children hold stdout/stderr pipes open; stop
     // them whenever the agent closes so hosts that skip the CLI finally path
-    // still drain the event loop.
-    if (options?.stopBackgroundProcesses !== false) stopAllBackgroundProcesses();
+    // still drain the event loop. Close waits for the stop confirmation so a
+    // SIGTERM that was merely sent is never reported as "process gone".
+    const stoppedBackgroundIds =
+      options?.stopBackgroundProcesses === false ? [] : stopAllBackgroundProcesses();
+    const backgroundStopSettled =
+      stoppedBackgroundIds.length > 0
+        ? waitForBackgroundProcesses(stoppedBackgroundIds, 'wait_all', 5_000, { pollMs: 20 })
+        : Promise.resolve({ completed: true, aborted: false, missing: [], snapshots: [] });
     this.pendingToolAborts.dispose();
     const asyncTasks = this.ownsAsyncTaskRegistry
       ? (this.asyncTasks.stopAll?.('parent_aborted').then(() => {}) ?? Promise.resolve())
       : Promise.resolve();
-    this.closePromise = Promise.allSettled([...this.activeStreamAdvances, asyncTasks]).then(
-      async () => {
-        this.inboxes.clear();
-        this.runEpochStore.clear();
-      }
-    );
+    this.closePromise = Promise.allSettled([
+      ...this.activeStreamAdvances,
+      asyncTasks,
+      backgroundStopSettled,
+    ]).then(async () => {
+      this.inboxes.clear();
+      this.runEpochStore.clear();
+    });
     return this.closePromise;
   }
 
@@ -1524,14 +1536,21 @@ ${result.stderr ?? ''}`.trim();
           ...(this.config?.workspaceDir ? { workspaceDir: this.config.workspaceDir } : {}),
         })
       : async () => ({ ok: true as const });
+    const backgroundLifecycleGate = createBackgroundLifecycleGate({ sessionKey });
     const hostCompletionGate = this.config.completionGate;
     const completionGate: AgentLoopParams['completionGate'] = hostCompletionGate
       ? async (request) => {
+          const background = await backgroundLifecycleGate(request);
+          if (!background.ok) return background;
           const pre = await acceptanceGate(request);
           if (!pre.ok) return pre;
           return hostCompletionGate(request);
         }
-      : acceptanceGate;
+      : async (request) => {
+          const background = await backgroundLifecycleGate(request);
+          if (!background.ok) return background;
+          return acceptanceGate(request);
+        };
 
     const params: AgentLoopParams = {
       ...(harnessAdapterReceipt ? { harnessAdapterReceipt } : {}),

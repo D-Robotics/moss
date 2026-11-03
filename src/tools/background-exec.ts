@@ -486,8 +486,12 @@ export const execStopTool: Tool = {
     }
     killProc(proc);
     const age = Math.round((Date.now() - proc.startedAt) / 1000);
+    const stopped = await waitForBackgroundProcesses([id], 'wait_all', 5_000, { pollMs: 20 });
+    const confirmation = stopped.completed
+      ? `confirmed ${proc.status}${proc.exitCode !== null ? ` (exit ${proc.exitCode})` : ''}`
+      : 'still running after the stop timeout — inspect exec_logs and escalate';
     const tail = tailLines(proc.buffer, 10) || '(no output)';
-    return `Stopping ${id} (pid ${proc.pid}, age ${age}s)\n--- last output ---\n${tail}`;
+    return `Stopping ${id} (pid ${proc.pid}, age ${age}s): ${confirmation}\n--- last output ---\n${tail}`;
   },
 };
 

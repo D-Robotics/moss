@@ -15,6 +15,7 @@ import { evaluateVerifyNudge } from './verify-nudge.js';
 import { evaluateRedVerifyNudge } from './red-verify-nudge.js';
 import { evaluateFanOutNudge } from './fan-out-nudge.js';
 import { evaluateAmbiguityNudge } from './ambiguity-nudge.js';
+import { evaluateSpecAuditNudge } from './spec-audit-nudge.js';
 import { evaluateSubagentRunningNudge } from './subagent-running-nudge.js';
 import { evaluateSubagentStoppedNudge } from './subagent-stopped-nudge.js';
 import { evaluateWebToolsNudge } from './web-tools-nudge.js';
@@ -43,6 +44,8 @@ export interface NudgeBuildContext {
   taskPhaseNudges?: boolean;
   /** Whether this turn's resolved tool surface can actually call todo_write. */
   todoWriteAvailable?: boolean;
+  /** Whether this turn's resolved tool surface can ask a structured user question. */
+  userQuestionsAvailable?: boolean;
 }
 
 /**
@@ -206,11 +209,33 @@ export function collectNudgeInjections(ctx: NudgeBuildContext): Message[] {
           toolCallsByName: metrics.toolCallsByName,
           userText: ctx.lastUserText(),
           attempts: state.ambiguityNudgeAttempts,
+          userQuestionsAvailable: ctx.userQuestionsAvailable,
         })
     )
   );
 
-  // 6. Background create_subagent still STARTED without terminal status.
+  // 6. Docs/spec authority work must audit before continuing blind edits.
+  push(
+    runNudgeStep(
+      'spec-audit',
+      ctx.buildCorrectionMessage,
+      {
+        get: () => state.specAuditNudgeAttempts,
+        set: (v) => {
+          state.specAuditNudgeAttempts = v;
+        },
+      },
+      () =>
+        evaluateSpecAuditNudge({
+          messages: currentMessages,
+          userText: ctx.lastUserText(),
+          totalToolCalls: metrics.totalToolCalls,
+          attempts: state.specAuditNudgeAttempts,
+        })
+    )
+  );
+
+  // 7. Background create_subagent still STARTED without terminal status.
   push(
     runNudgeStep(
       'subagent-running',

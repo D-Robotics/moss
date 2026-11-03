@@ -27,6 +27,8 @@ export interface AgentLoopMutableState {
   fanOutNudgeAttempts: number;
   /** Soft mid-run ask when multi-interpretation coding + edits without clarify. */
   ambiguityNudgeAttempts: number;
+  /** Soft audit reminder when docs/spec authority conflicts are possible. */
+  specAuditNudgeAttempts: number;
   /** Soft mid-run reminder while background create_subagent is still STARTED. */
   subagentRunningNudgeAttempts: number;
   /** Soft mid-run reminder after subagent_stop without suite evidence. */
@@ -98,6 +100,7 @@ export function createInitialLoopState(): AgentLoopMutableState {
     redVerifyNudgeAttempts: 0,
     fanOutNudgeAttempts: 0,
     ambiguityNudgeAttempts: 0,
+    specAuditNudgeAttempts: 0,
     subagentRunningNudgeAttempts: 0,
     subagentStoppedNudgeAttempts: 0,
     webToolsNudgeAttempts: 0,

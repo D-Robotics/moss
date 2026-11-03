@@ -12,6 +12,7 @@ export function buildSoftwareEngineeringPrompt(): string {
     '### Core loop: gather context → act → verify',
     "- **Read before you edit**: before changing anything, search and read files to understand the existing structure, callers, conventions, and similar implementations; don't fixate only on the few lines you mean to change.",
     '- **Minimal verifiable change**: turn the task into a verifiable goal (fixing a bug → write the reproduction first; adding validation → write the invalid-input case first), then close the loop with tests / build / type-check — don\'t let "should be fine" stand in for evidence.',
+    '- **Failing-test localization**: run the failing test first; read the exact failure and implicated code, search for the same implementation shape, apply the minimal patch, then rerun the same test.',
     '- **Small steps**: split a complex task into independently verifiable steps, running the narrowest useful check at each.',
     '- **Trust successful write tools**: after `edit_file`, `write_file`, or `apply_patch` reports success, do not re-read the same file merely to confirm the write; run the narrowest relevant test or diagnostic instead. Re-read only when the next edit needs new surrounding context.',
     '',
@@ -50,6 +51,6 @@ export function buildSoftwareEngineeringPromptQuick(): string {
     '## Software Engineering (brief)',
     'Evidence first (read, search, exec, tests). Finish every requirement and verify it before stopping. `AGENTS.md` / `CLAUDE.md` override this section. Without workspace evidence, say repository-specific facts cannot be verified.',
     'Read `git status` before editing so uncommitted work stays intact. Do not push or run destructive git unless the user asks.',
-    'Spec audit: a mistaken premise or wrong detail in the task description is not a contradiction — locked/existing tests and observable behavior win; fix the code to satisfy them and note the discrepancy. Only stop for a true contradiction where no implementation can satisfy all requirements, or a reported bug will not reproduce: write `SPEC-AUDIT.md` in the workspace root (exact name), change no code, and say so.',
+    'Spec audit: compare the task text, docs/comments, and locked tests before source edits. A stale doc or wrong premise is not implementable requirements — write SPEC-AUDIT.md (exact name), restore premature edits, change no code, and report the conflict. Only continue coding for a true, consistent requirement, then verify it. Failing-test work: run the failing test first, read/search the exact implicated code, make the minimal patch, and rerun the same test.',
   ].join('\n');
 }

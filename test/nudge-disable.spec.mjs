@@ -38,6 +38,11 @@ const REGISTRY = [
   { id: 'fan-out', needle: 'FAILED or empty children', counter: 'fanOutNudgeAttempts' },
   { id: 'ambiguity', needle: 'multi-interpretation', counter: 'ambiguityNudgeAttempts' },
   {
+    id: 'spec-audit',
+    needle: 'documentation/spec/requirements',
+    counter: 'specAuditNudgeAttempts',
+  },
+  {
     id: 'subagent-running',
     needle: 'still STARTED',
     counter: 'subagentRunningNudgeAttempts',
@@ -493,6 +498,8 @@ const covered = new Set([
   'empty-response',
   ...steeringRuleIds.map((id) => `steering-${id}`),
   'background-completion',
+  'background-lifecycle-gate',
+  'spec-audit',
   'acceptance-gate',
   'follow-up-guard',
   'truncated-tool-json',

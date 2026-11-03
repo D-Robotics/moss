@@ -86,13 +86,26 @@ export { askUserQuestionTool } from './ask-user-question.js';
 const EXEC_DESCRIPTION_BASE =
   'Run a shell command in the workspace (cwd does not persist). Prefer read_file, edit_file, multi_edit, search_files, search_code, run_tests, and verify_fix over cat/sed/find/grep. ' +
   'Use absolute paths; do not cd. Chain with && only when the next step must not run if this one fails. ' +
-  'For servers, watchers, or anything that may not exit, set run_in_background or use exec_background, then exec_logs / exec_stop. ' +
+  'For servers, watchers, or anything that may not exit, set run_in_background or use exec_background, then exec_logs / exec_stop. Before claiming completion, stop what you started unless the user asked it to keep running. ' +
   'Reads outside the workspace are allowed. Secret-like output, including Moss config and keys, is removed. Every MOSS_DEVICE_* value is hidden; a footnote lists names that are set — do not claim a hidden variable is unset.';
 
 export function execToolDescription(shell = resolveHostShell()): string {
   return shell.description
     ? `${EXEC_DESCRIPTION_BASE} ${shell.description}`
     : EXEC_DESCRIPTION_BASE;
+}
+
+function usesUntrackedShellBackground(command: string, shellKind: string): boolean {
+  const withoutQuotedText = command
+    .replace(/'(?:\\.|[^'\\])*'/g, ' ')
+    .replace(/"(?:\\.|[^"\\])*"/g, ' ');
+  if (shellKind === 'sh') {
+    return (
+      /(?<!&)&(?:\s|$)/.test(withoutQuotedText) || /\b(?:nohup|disown)\b/.test(withoutQuotedText)
+    );
+  }
+  if (shellKind === 'pwsh') return /\bstart-job\b/i.test(withoutQuotedText);
+  return /\bstart\s+\/b\b/i.test(withoutQuotedText);
 }
 
 /** O152 r4: detect placeholder growth, L3-restore, then warn from post-restore state. */
@@ -206,6 +219,12 @@ export const execTool: Tool = {
       }
     }
     const commandText = String(input.command ?? '');
+    if (usesUntrackedShellBackground(commandText, shell.kind)) {
+      return (
+        'Command blocked: foreground shell backgrounding (`&`, nohup, disown, or start /b) creates a process Moss cannot track or stop. ' +
+        'Re-run with `run_in_background: true` (or exec_background); it returns the id/pid and exec_stop can confirm the process ended.'
+      );
+    }
     const redactedWrite = redactedShellWriteRefusal(
       commandText,
       shellCommandHasWriteAction(commandText)

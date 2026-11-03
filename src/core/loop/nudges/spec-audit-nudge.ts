@@ -1,0 +1,61 @@
+/**
+ * SpecAuditNudge — when the request names documentation/spec requirements and
+ * tools have run, force an authority audit before source edits continue.
+ * Soft: max 1 fire. A SPEC-AUDIT.md write satisfies it.
+ */
+
+import type { NudgeMessage } from '../nudge-helpers.js';
+
+export const SPEC_AUDIT_NUDGE_MAX_ATTEMPTS = 1;
+
+const SPEC_AUDIT_RE =
+  /(?:\bdocs?\b|\bdocumentation\b|\bspec(?:ification)?\b|\brequirements?\b|\bdesign doc\b|\bcomment says\b|文档|说明|需求|注释)/iu;
+
+export interface SpecAuditNudgeRequest {
+  messages: NudgeMessage[] | undefined;
+  userText: string;
+  totalToolCalls: number;
+  attempts: number;
+}
+
+function toolUseBlocks(messages: NudgeMessage[] | undefined): Array<{
+  name?: string;
+  input?: unknown;
+}> {
+  const out: Array<{ name?: string; input?: unknown }> = [];
+  for (const message of messages ?? []) {
+    if (!message || message.role !== 'assistant' || !Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      const candidate = block as { type?: string; name?: string; input?: unknown };
+      if (candidate?.type === 'tool_use') out.push(candidate);
+    }
+  }
+  return out;
+}
+
+function specAuditWritten(messages: NudgeMessage[] | undefined): boolean {
+  return toolUseBlocks(messages).some((call) => {
+    if (call.name !== 'write_file' && call.name !== 'edit_file') return false;
+    const input = call.input;
+    if (!input || typeof input !== 'object') return false;
+    const path = (input as Record<string, unknown>).path;
+    return typeof path === 'string' && path.replaceAll('\\', '/').toLowerCase() === 'spec-audit.md';
+  });
+}
+
+export type SpecAuditNudgeResult = { fire: false } | { fire: true; correction: string };
+
+export function evaluateSpecAuditNudge(request: SpecAuditNudgeRequest): SpecAuditNudgeResult {
+  if (request.attempts >= SPEC_AUDIT_NUDGE_MAX_ATTEMPTS) return { fire: false };
+  if (request.totalToolCalls < 1) return { fire: false };
+  if (!SPEC_AUDIT_RE.test(request.userText || '')) return { fire: false };
+  if (specAuditWritten(request.messages)) return { fire: false };
+  return {
+    fire: true,
+    correction:
+      '[System] This request cites documentation/spec/requirements as an authority. Before another source edit: ' +
+      'compare the task text, docs/comments, and locked tests, then choose the authority explicitly. ' +
+      'If they conflict or the spec is stale, write SPEC-AUDIT.md in the workspace root and restore any premature source/doc edit. ' +
+      'Only continue coding when the audit shows a consistent, implementable requirement.',
+  };
+}

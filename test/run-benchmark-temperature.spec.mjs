@@ -8,7 +8,7 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const runner = path.join(root, 'scripts', 'run-benchmark.mjs');
 
 // A parser regression must not reach user config or launch a real benchmark.
-function runArgs(args) {
+function runArgs(args, extraEnv = {}) {
   return spawnSync(
     process.execPath,
     [
@@ -21,7 +21,15 @@ function runArgs(args) {
     ],
     {
       cwd: root,
-      env: { PATH: process.env.PATH ?? '', LANG: 'C', LC_ALL: 'C' },
+      env: {
+        PATH: process.env.PATH ?? '',
+        LANG: 'C',
+        LC_ALL: 'C',
+        MOSS_BENCH_API_KEY: 'synthetic-bench-key',
+        MOSS_BENCH_MODEL: 'synthetic-model',
+        MOSS_BENCH_BASE_URL: 'https://synthetic.invalid/v1',
+        ...extraEnv,
+      },
       encoding: 'utf8',
       timeout: 15_000,
     }
@@ -75,6 +83,18 @@ for (const flag of [
     }
   });
 }
+
+test('baseline and capability gates reject diagnostic single-sample runs', () => {
+  for (const flag of ['--baseline', '--capability-gate']) {
+    const result = runArgs(
+      ['--task', 'single-edit', '--samples', '1', flag, 'nonexistent-baseline'],
+      { MOSS_BENCH_CLI: runner }
+    );
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, /at least 3 samples/i);
+    assert.match(result.stderr, /diagnostic/i);
+  }
+});
 
 test('option-like seed values can be passed explicitly with equals', () => {
   const result = runArgs(['--tasks', '1', '--seed=--nightly', '--list']);

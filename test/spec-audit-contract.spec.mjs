@@ -37,18 +37,19 @@ test('quick prompt carries the one-line contract', () => {
   );
   assert.match(
     p,
-    /mistaken premise or wrong detail in the task description is not a contradiction/,
-    'a wrong premise is not a spec contradiction'
+    /stale doc or wrong premise/,
+    'a wrong premise is treated as stale/non-implementable input'
+  );
+  assert.match(p, /locked tests/, 'locked tests participate in the authority comparison');
+  assert.match(
+    p,
+    /restore premature edits/,
+    'a premature edit is undone rather than kept while auditing'
   );
   assert.match(
     p,
-    /locked\/existing tests and observable behavior win/,
-    'locked tests and observed behavior win over a wrong premise'
-  );
-  assert.match(
-    p,
-    /Only stop for a true contradiction where no implementation can satisfy all requirements/,
-    'stop only when no implementation can satisfy every requirement'
+    /Only continue coding for a true, consistent requirement/,
+    'coding continues only after the audit resolves consistently'
   );
 });
 

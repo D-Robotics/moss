@@ -24,6 +24,8 @@ export interface AmbiguityNudgeRequest {
   userText: string;
   /** Whether ask_user_question was already used this run. */
   attempts: number;
+  /** Whether this run's tool surface can actually ask a user. */
+  userQuestionsAvailable?: boolean;
 }
 
 export type AmbiguityNudgeResult = { fire: false } | { fire: true; correction: string };
@@ -54,6 +56,16 @@ export function evaluateAmbiguityNudge(request: AmbiguityNudgeRequest): Ambiguit
   if ((request.toolCallsByName.ask_user_question ?? 0) > 0) return { fire: false };
   if (countEdits(request.toolCallsByName) < AMBIGUITY_NUDGE_MIN_EDITS) return { fire: false };
   if (!looksAmbiguousCodingRequest(request.userText)) return { fire: false };
+
+  if (request.userQuestionsAvailable === false) {
+    return {
+      fire: true,
+      correction:
+        '[System] This request looks multi-interpretation, but no user is available to answer. ' +
+        'State in one line which interpretation you chose and why, then continue with that scope. ' +
+        'Do not silently switch interpretations mid-task.',
+    };
+  }
 
   return {
     fire: true,

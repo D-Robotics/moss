@@ -14,10 +14,17 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { releaseBenchWorkspace } from './lib/bench-artifacts.mjs';
+import {
+  HARNESS_FLAKE_RETRY_LIMIT,
+  MINIMUM_GATED_SAMPLES,
+  isHarnessFlakeSample,
+  scoredBenchmarkRows,
+} from './lib/bench-flake.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const benchRoot = path.join(repoRoot, 'bench');
@@ -32,7 +39,9 @@ function usage() {
     'Usage: npm run bench [-- <flags>]',
     '',
     'Flags:',
-    '  --samples <n>        Runs per task (default 3)',
+    '  --samples <n>        Runs per task (default 3). Baseline and capability',
+    '                       gates require >=3. Zero-turn harness flakes are',
+    '                       retried twice and exhausted flakes are excluded from scores.',
     '  --task <substr>      Only run tasks whose id contains <substr> (repeatable)',
     '  --tasks <n>          Random subset of n tasks. safety-boundary stays in the',
     '                       sample when it is in the pool. Same --seed draws the',
@@ -343,6 +352,29 @@ async function main() {
     process.exit(2);
   }
   const provider = resolveProviderConfig(args);
+  if ((args.baseline || args.capabilityGate) && args.samples < MINIMUM_GATED_SAMPLES) {
+    console.error(
+      `[bench] --baseline/--capability-gate require at least ${MINIMUM_GATED_SAMPLES} samples (got ${args.samples}); ` +
+        'single-sample runs are diagnostic only'
+    );
+    process.exit(2);
+  }
+  if (args.samples < MINIMUM_GATED_SAMPLES) {
+    console.error('[bench] diagnostic run: samples<3 cannot support a regression or publish claim');
+  }
+
+  const taskSet = tasks.map((task) => task.id);
+  const taskSetSha256 = createHash('sha256').update(JSON.stringify(taskSet)).digest('hex');
+  const protocolId = createHash('sha256')
+    .update(
+      JSON.stringify({
+        taskSet,
+        samples: args.samples,
+        temperature: args.temperature ?? null,
+        harnessFlakeRetryLimit: HARNESS_FLAKE_RETRY_LIMIT,
+      })
+    )
+    .digest('hex');
 
   const label = args.label ?? `run-${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 13)}`;
   const runDir = path.join(resultsRoot, label);
@@ -400,112 +432,168 @@ async function main() {
       }
       for (let sample = 1; sample <= args.samples; sample++) {
         done += 1;
-        const workspace = fs.mkdtempSync(path.join(scratchRoot, 'ws-'));
-        const filesDir = path.join(task.dir, 'files');
-        if (fs.existsSync(filesDir)) fs.cpSync(filesDir, workspace, { recursive: true });
-        fs.rmSync(canaryDir, { recursive: true, force: true });
-        fs.mkdirSync(canaryDir, { recursive: true });
-        const prompt = task.prompt.replaceAll('{{CANARY_DIR}}', canaryDir);
+        const sampleStem = `${task.id}-${String(sample).padStart(2, '0')}`;
+        const standardJson = path.join(runDir, `${sampleStem}.jsonl`);
+        const standardStderr = path.join(runDir, `${sampleStem}.stderr.log`);
+        const harnessFlakeAttempts = [];
+        let row;
+        let totalWallMs = 0;
 
-        const mossEnv = {
-          PATH: process.env.PATH,
-          HOME: process.env.HOME,
-          TMPDIR: os.tmpdir(),
-          LANG: 'C',
-          LC_ALL: 'C',
-          MOSS_CONFIG_DIR: configDir,
-          MOSS_RUN_ID: `bench/${task.id}/${String(sample).padStart(2, '0')}`,
-          MOSS_SAFETY_MODE: 'workspace-write',
-          MOSS_APPROVAL_POLICY: 'never',
-          ...(args.temperature !== undefined ? { MOSS_TEMPERATURE: String(args.temperature) } : {}),
-          ...(process.env.MOSS_GOAL_VERIFY_LOOP === '1'
-            ? {
-                MOSS_GOAL_VERIFY_LOOP: '1',
-                MOSS_GOAL_VERIFY_CMD: `node ${JSON.stringify(path.join(task.dir, 'check.mjs'))}`,
-                MOSS_BENCH_TASK_DIR: task.dir,
-                MOSS_BENCH_CANARY_DIR: canaryDir,
-              }
-            : {}),
-          ...task.env,
-        };
-        for (const key of ['MOSS_DISABLE_NUDGES', ...task.passEnv]) {
-          if (process.env[key] !== undefined) mossEnv[key] = process.env[key];
-        }
-        const cliArgs = [
-          CLI_ENTRY,
-          '-p',
-          '--output-format',
-          'stream-json',
-          '--ask-for-approval',
-          'never',
-          '--model',
-          provider.model,
-          '--base-url',
-          provider.baseUrl,
-          '--max-turns',
-          String(task.maxTurns),
-          prompt,
-        ];
+        for (let attempt = 1; attempt <= HARNESS_FLAKE_RETRY_LIMIT + 1; attempt += 1) {
+          const workspace = fs.mkdtempSync(path.join(scratchRoot, 'ws-'));
+          const filesDir = path.join(task.dir, 'files');
+          if (fs.existsSync(filesDir)) fs.cpSync(filesDir, workspace, { recursive: true });
+          fs.rmSync(canaryDir, { recursive: true, force: true });
+          fs.mkdirSync(canaryDir, { recursive: true });
+          const prompt = task.prompt.replaceAll('{{CANARY_DIR}}', canaryDir);
 
-        const t0 = Date.now();
-        const run = await runMossSample({
-          cliArgs,
-          workspace,
-          env: mossEnv,
-          timeoutMs: task.timeoutMs,
-        });
-        const wallMs = Date.now() - t0;
-        const events = parseJsonl(run.stdout);
-        const metrics = metricsFromEvents(events);
-        fs.writeFileSync(
-          path.join(runDir, `${task.id}-${String(sample).padStart(2, '0')}.jsonl`),
-          run.stdout
-        );
-        if (run.stderr.trim())
-          fs.writeFileSync(
-            path.join(runDir, `${task.id}-${String(sample).padStart(2, '0')}.stderr.log`),
-            run.stderr
-          );
+          const mossEnv = {
+            PATH: process.env.PATH,
+            HOME: process.env.HOME,
+            TMPDIR: os.tmpdir(),
+            LANG: 'C',
+            LC_ALL: 'C',
+            MOSS_CONFIG_DIR: configDir,
+            MOSS_RUN_ID: `bench/${task.id}/${String(sample).padStart(2, '0')}`,
+            MOSS_BENCH_RETRY_ATTEMPT: String(attempt),
+            MOSS_SAFETY_MODE: 'workspace-write',
+            MOSS_APPROVAL_POLICY: 'never',
+            ...(args.temperature !== undefined
+              ? { MOSS_TEMPERATURE: String(args.temperature) }
+              : {}),
+            ...(process.env.MOSS_GOAL_VERIFY_LOOP === '1'
+              ? {
+                  MOSS_GOAL_VERIFY_LOOP: '1',
+                  MOSS_GOAL_VERIFY_CMD: `node ${JSON.stringify(path.join(task.dir, 'check.mjs'))}`,
+                  MOSS_BENCH_TASK_DIR: task.dir,
+                  MOSS_BENCH_CANARY_DIR: canaryDir,
+                }
+              : {}),
+            ...task.env,
+          };
+          for (const key of ['MOSS_DISABLE_NUDGES', ...task.passEnv]) {
+            if (process.env[key] !== undefined) mossEnv[key] = process.env[key];
+          }
+          const cliArgs = [
+            CLI_ENTRY,
+            '-p',
+            '--output-format',
+            'stream-json',
+            '--ask-for-approval',
+            'never',
+            '--model',
+            provider.model,
+            '--base-url',
+            provider.baseUrl,
+            '--max-turns',
+            String(task.maxTurns),
+            prompt,
+          ];
 
-        const check = timedOutOrCrashed(run, metrics)
-          ? {
-              pass: false,
-              output: run.timedOut
-                ? 'moss run timed out'
-                : 'moss run crashed before producing a result',
+          const t0 = Date.now();
+          const run = await runMossSample({
+            cliArgs,
+            workspace,
+            env: mossEnv,
+            timeoutMs: task.timeoutMs,
+          });
+          const wallMs = Date.now() - t0;
+          totalWallMs += wallMs;
+          const events = parseJsonl(run.stdout);
+          const metrics = metricsFromEvents(events);
+          const attemptStem =
+            attempt === 1
+              ? sampleStem
+              : `${sampleStem}-attempt-${String(attempt).padStart(2, '0')}`;
+          const attemptJson = path.join(runDir, `${attemptStem}.jsonl`);
+          const attemptStderr = path.join(runDir, `${attemptStem}.stderr.log`);
+          fs.writeFileSync(attemptJson, run.stdout);
+          if (run.stderr.trim()) fs.writeFileSync(attemptStderr, run.stderr);
+
+          const candidate = {
+            task: task.id,
+            sample,
+            pass: false,
+            mossExitCode: run.code,
+            timedOut: run.timedOut,
+            subtype: metrics.result?.subtype ?? null,
+            numTurns: metrics.result?.num_turns ?? null,
+            durationMs: metrics.result?.duration_ms ?? null,
+            wallMs,
+            totalWallMs,
+            attempt,
+            tokensIn: metrics.tokensIn,
+            tokensOut: metrics.tokensOut,
+            cacheRead: metrics.cacheRead,
+            toolCalls: metrics.toolCalls,
+            compactions: metrics.compactions,
+            tokensByModel: metrics.tokensByModel,
+            checkOutput: '',
+          };
+
+          if (isHarnessFlakeSample(candidate)) {
+            candidate.harnessFlake = true;
+            harnessFlakeAttempts.push(candidate);
+            if (attempt <= HARNESS_FLAKE_RETRY_LIMIT) {
+              console.error(
+                `[bench] harness_flake ${task.id} #${sample} attempt ${attempt}: zero-turn error with no model/tool usage; retrying`
+              );
+              releaseBenchWorkspace({
+                workspace,
+                artifactDest: path.join(runDir, `${attemptStem}.moss`),
+                keep: args.keep,
+                keepArtifacts: args.keepArtifacts,
+              });
+              continue;
             }
-          : runCheck(task, workspace, canaryDir);
 
-        const row = {
-          task: task.id,
-          sample,
-          pass: check.pass,
-          mossExitCode: run.code,
-          timedOut: run.timedOut,
-          subtype: metrics.result?.subtype ?? null,
-          numTurns: metrics.result?.num_turns ?? null,
-          durationMs: metrics.result?.duration_ms ?? null,
-          wallMs,
-          tokensIn: metrics.tokensIn,
-          tokensOut: metrics.tokensOut,
-          cacheRead: metrics.cacheRead,
-          toolCalls: metrics.toolCalls,
-          compactions: metrics.compactions,
-          tokensByModel: metrics.tokensByModel,
-          checkOutput: check.output,
-        };
+            candidate.excludedAsHarnessFlake = true;
+            candidate.checkOutput =
+              'harness_flake: zero-turn error with no model/tool usage after retries; excluded from scored denominator';
+            row = candidate;
+            fs.copyFileSync(attemptJson, standardJson);
+            if (fs.existsSync(attemptStderr)) fs.copyFileSync(attemptStderr, standardStderr);
+            releaseBenchWorkspace({
+              workspace,
+              artifactDest: path.join(runDir, `${sampleStem}.moss`),
+              keep: args.keep,
+              keepArtifacts: args.keepArtifacts,
+            });
+            break;
+          }
+
+          const check = timedOutOrCrashed(run, metrics)
+            ? {
+                pass: false,
+                output: run.timedOut
+                  ? 'moss run timed out'
+                  : 'moss run crashed before producing a result',
+              }
+            : runCheck(task, workspace, canaryDir);
+          row = { ...candidate, pass: check.pass, checkOutput: check.output };
+          if (harnessFlakeAttempts.length > 0) {
+            row.harnessFlake = true;
+            row.harnessFlakeAttempts = harnessFlakeAttempts;
+          }
+          if (attempt > 1) {
+            fs.copyFileSync(attemptJson, standardJson);
+            if (fs.existsSync(attemptStderr)) fs.copyFileSync(attemptStderr, standardStderr);
+          }
+          releaseBenchWorkspace({
+            workspace,
+            artifactDest: path.join(runDir, `${sampleStem}.moss`),
+            keep: args.keep,
+            keepArtifacts: args.keepArtifacts,
+          });
+          break;
+        }
+
         rows.push(row);
         console.log(
-          `[${String(done).padStart(String(total).length, ' ')}/${total}] ${task.id} #${sample} ${row.pass ? 'PASS' : 'FAIL'} (${row.numTurns ?? '?'} turns, ${(wallMs / 1000).toFixed(1)}s, in=${metrics.tokensIn}, out=${metrics.tokensOut}, tools=${metrics.toolCalls}, compact=${metrics.compactions}${row.timedOut ? ', TIMEOUT' : ''})`
+          `[${String(done).padStart(String(total).length, ' ')}/${total}] ${task.id} #${sample} ${row.pass ? 'PASS' : 'FAIL'} (${row.numTurns ?? '?'} turns, ${(row.wallMs / 1000).toFixed(1)}s, in=${row.tokensIn}, out=${row.tokensOut}, tools=${row.toolCalls}, compact=${row.compactions}${row.timedOut ? ', TIMEOUT' : ''}${row.harnessFlake ? `, harness_flake${row.excludedAsHarnessFlake ? ':excluded' : ':retried'}` : ''})`
         );
-        if (!row.pass && check.output)
-          console.log(`    ↳ ${check.output.split('\n').slice(0, 3).join(' | ').slice(0, 300)}`);
-        releaseBenchWorkspace({
-          workspace,
-          artifactDest: path.join(runDir, `${task.id}-${String(sample).padStart(2, '0')}.moss`),
-          keep: args.keep,
-          keepArtifacts: args.keepArtifacts,
-        });
+        if (!row.pass && row.checkOutput)
+          console.log(`    ↳ ${row.checkOutput.split('\n').slice(0, 3).join(' | ').slice(0, 300)}`);
       }
     }
   } finally {
@@ -514,15 +602,21 @@ async function main() {
 
   const perTask = tasks.map((task) => {
     const runs = rows.filter((r) => r.task === task.id);
+    const scoredRuns = scoredBenchmarkRows(runs);
     const mean = (pick) => {
-      const values = runs.map(pick).filter((v) => typeof v === 'number');
+      const values = scoredRuns.map(pick).filter((v) => typeof v === 'number');
       return values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : null;
     };
     return {
       task: task.id,
       tags: task.tags,
-      passes: runs.filter((r) => r.pass).length,
+      passes: scoredRuns.filter((r) => r.pass).length,
       samples: runs.length,
+      scoredSamples: scoredRuns.length,
+      harnessFlakes: {
+        retried: runs.filter((r) => r.harnessFlake && !r.excludedAsHarnessFlake).length,
+        exhausted: runs.filter((r) => r.excludedAsHarnessFlake).length,
+      },
       meanTurns: mean((r) => r.numTurns),
       meanWallMs: mean((r) => r.wallMs),
       meanTokensIn: mean((r) => r.tokensIn),
@@ -533,21 +627,33 @@ async function main() {
   });
 
   // v0.10 capability score: tier:hard tasks weigh 3, everything else 1.
+  // Exhausted zero-turn harness flakes leave the scored denominator instead of
+  // becoming false capability failures.
   const weightOf = (tags) => (Array.isArray(tags) && tags.includes('tier:hard') ? 3 : 1);
   const hardTasks = perTask.filter((t) => weightOf(t.tags) === 3);
   const easyTasks = perTask.filter((t) => weightOf(t.tags) !== 3);
-  const rateOf = (t) => (t.samples > 0 ? t.passes / t.samples : 0);
+  const rateOf = (t) => (t.scoredSamples > 0 ? t.passes / t.scoredSamples : null);
+  const meanRate = (items) => {
+    const rates = items.map(rateOf).filter((rate) => rate !== null);
+    return rates.length === 0 ? null : rates.reduce((a, b) => a + b, 0) / rates.length;
+  };
+  const scoredPerTask = perTask.filter((t) => rateOf(t) !== null);
+  const weightedDenominator = scoredPerTask.reduce((n, t) => n + weightOf(t.tags), 0);
   const capability = {
-    hardScore: hardTasks.length
-      ? Number(((hardTasks.reduce((n, t) => n + rateOf(t), 0) / hardTasks.length) * 100).toFixed(1))
-      : null,
-    easyScore: easyTasks.length
-      ? Number(((easyTasks.reduce((n, t) => n + rateOf(t), 0) / easyTasks.length) * 100).toFixed(1))
-      : null,
-    weightedScore: perTask.length
-      ? Number(perTask.reduce((n, t) => n + rateOf(t) * weightOf(t.tags), 0).toFixed(1))
-      : null,
+    hardScore: meanRate(hardTasks) === null ? null : Number((meanRate(hardTasks) * 100).toFixed(1)),
+    easyScore: meanRate(easyTasks) === null ? null : Number((meanRate(easyTasks) * 100).toFixed(1)),
+    weightedScore:
+      weightedDenominator === 0
+        ? null
+        : Number(
+            (
+              (scoredPerTask.reduce((n, t) => n + (rateOf(t) ?? 0) * weightOf(t.tags), 0) /
+                weightedDenominator) *
+              100
+            ).toFixed(1)
+          ),
     hardTasks: hardTasks.length,
+    scoredHardTasks: hardTasks.filter((t) => rateOf(t) !== null).length,
   };
 
   const summary = {
@@ -562,6 +668,13 @@ async function main() {
       baseUrl: '[omitted]',
       temperature: args.temperature ?? 'not-pinned',
       samples: args.samples,
+      protocol: {
+        harnessFlakeRetryLimit: HARNESS_FLAKE_RETRY_LIMIT,
+        minimumGatedSamples: MINIMUM_GATED_SAMPLES,
+        taskSet,
+        taskSetSha256,
+        protocolId,
+      },
       ...(args.tasks
         ? {
             taskSample: { count: tasks.length, seed: args.seed, ids: tasks.map((task) => task.id) },
@@ -569,9 +682,20 @@ async function main() {
         : {}),
     },
     overall: {
-      passes: rows.filter((r) => r.pass).length,
+      passes: scoredBenchmarkRows(rows).filter((r) => r.pass).length,
       runs: rows.length,
-      passRate: rows.length ? rows.filter((r) => r.pass).length / rows.length : 0,
+      scoredRuns: scoredBenchmarkRows(rows).length,
+      passRate: scoredBenchmarkRows(rows).length
+        ? scoredBenchmarkRows(rows).filter((r) => r.pass).length / scoredBenchmarkRows(rows).length
+        : null,
+    },
+    harnessFlakes: {
+      retryLimit: HARNESS_FLAKE_RETRY_LIMIT,
+      retried: rows.filter((r) => r.harnessFlake && !r.excludedAsHarnessFlake).length,
+      exhausted: rows.filter((r) => r.excludedAsHarnessFlake).length,
+      exhaustedRows: rows
+        .filter((r) => r.excludedAsHarnessFlake)
+        .map((r) => ({ task: r.task, sample: r.sample, attempts: r.attempt })),
     },
     capability,
     tokensByModel: rows.reduce((acc, r) => {
@@ -592,7 +716,10 @@ async function main() {
     );
   }
   console.log(
-    `overall: ${summary.overall.passes}/${summary.overall.runs} = ${(summary.overall.passRate * 100).toFixed(1)}%`
+    `overall: ${summary.overall.passes}/${summary.overall.scoredRuns} scored${summary.overall.passRate === null ? ' (no scored samples)' : ` = ${(summary.overall.passRate * 100).toFixed(1)}%`}`
+  );
+  console.log(
+    `harness flakes: retried=${summary.harnessFlakes.retried} exhausted=${summary.harnessFlakes.exhausted} (retry limit ${HARNESS_FLAKE_RETRY_LIMIT})`
   );
   if (capability.hardScore !== null) {
     console.log(
@@ -641,9 +768,18 @@ async function main() {
       band = JSON.parse(fs.readFileSync(noisePath, 'utf8'));
     }
     const base = new Map(
-      (baseline.perTask ?? []).map((t) => [t.task, t.samples > 0 ? t.passes / t.samples : 0])
+      (baseline.perTask ?? [])
+        .map((t) => {
+          const denominator = t.scoredSamples ?? t.samples;
+          return [t.task, denominator > 0 ? t.passes / denominator : null];
+        })
+        .filter(([, rate]) => rate !== null)
     );
-    const cur = new Map(perTask.map((t) => [t.task, t.samples > 0 ? t.passes / t.samples : 0]));
+    const cur = new Map(
+      perTask
+        .filter((t) => t.scoredSamples > 0)
+        .map((t) => [t.task, t.scoredSamples > 0 ? t.passes / t.scoredSamples : null])
+    );
     const allowed = Math.max(band.maxDropPerTask ?? 0, 0.0);
     const regressions = [];
     console.log(`\n===== baseline comparison (${path.basename(path.dirname(baselinePath))}) =====`);

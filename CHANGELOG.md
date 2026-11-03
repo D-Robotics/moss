@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Benchmark hygiene and lifecycle enforcement
+
+- Zero-turn `error_during_execution` samples with no model usage and no tool calls are classified as `harness_flake`, retried up to twice, and excluded from scored denominators when the retries are exhausted. Retried samples keep their diagnostic attempts; summaries publish protocol IDs, task-set hashes, scored denominators, and separate flake counts.
+- `--baseline` and `--capability-gate` now require at least three samples; diagnostic single-sample runs say so explicitly. See `docs/bench/coding-agent-evaluation.md` for the Claude Code/Codex same-protocol comparison rule and the privileged/cgroup hold on DeepSWE/Terminal-Bench publication.
+- Foreground shell backgrounding that bypasses the registry (`&`, `nohup`, `disown`, `start /b`, `Start-Job`) is rejected with a pointer to the tracked background tools. `exec_stop` waits for process-group termination confirmation; agent close and CLI shutdown also wait instead of reporting a merely sent SIGTERM.
+- A completion gate now names live background ids/pids and requires stop/wait evidence before a final claim (one block, then an honest live-process report is allowed). Spec-authority requests receive a one-shot audit nudge toward `SPEC-AUDIT.md`; headless ambiguity correction no longer tells the model to ask a user.
+
+### Benchmark 污染与生命周期强制
+
+- 无模型用量、无工具调用且 ≤1 轮的 `error_during_execution` 样本会标记 `harness_flake`，最多自动重跑 2 次；重试耗尽的样本退出计分分母并单列。恢复样本保留尝试诊断；summary 发布协议 ID、任务集哈希、计分分母与 flake 计数。
+- `--baseline` / `--capability-gate` 至少 3 样本；单样本运行显式标记为诊断。Claude Code/Codex 同协议对照与 DeepSWE/Terminal-Bench privileged/cgroup 暂缓口径见 `docs/bench/coding-agent-evaluation.md`。
+- 前台 shell 用 `&` / `nohup` / `disown` / `start /b` / `Start-Job` 绕过后台注册表会被拒绝，并指回 tracked 后台工具。`exec_stop` 等待进程组终止确认；agent close 与 CLI 退出也等待确认，不再把“已发送 SIGTERM”当成“已停止”。
+- 完成门会列出仍在运行的后台 id/pid，并要求停止或等待证据后才允许最终声明（只拦截一次，之后允许诚实报告仍在运行）。spec/文档权威请求获得一次性 `SPEC-AUDIT.md` 审计提示；headless 歧义修正不再要求询问用户。
+
 ### SDK and context surface cleanup (0.31 breaking cleanup)
 
 - **0.x breaking change:** removed the no-op `MossAgentConfig` knobs
