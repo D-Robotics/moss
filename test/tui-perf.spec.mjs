@@ -5,9 +5,9 @@
  * any window — and event ingestion is O(1) amortized.
  *
  * Budgets: projection of any 14-row window over 10k rows < 5ms; ingesting 10k
- * text_delta events < 250ms total. The summary is printed to stdout (the
- * `.autopilot/evidence/boards` board is written by the verify harness, not by
- * this spec, which is confined to test/).
+ * text_delta events < 250ms total. The summary is printed to stdout (report
+ * boards are written by an external harness, not by this spec, which is
+ * confined to test/).
  */
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';

@@ -13,8 +13,9 @@
    `npm run examples` 三例实跑通过。tag 说明里必须写清**跑了什么、没跑什么**。
 4. **不为从未验收的中间版本补打 tag。** v0.14.0–v0.20.0 永久不补：它们的门（SWE-bench 三跑、
    确定性对、T-Bench 基线、v0.20 全量 bench 复跑）从未执行，补打等于伪造发布证据。
-5. **退役的门可随时复活。** 9 个验收脚本移入 `.autopilot/acceptance/retired/`，命令与状态
-   逐条登记在 `.autopilot/acceptance/retired/README.md`；哪天门跑完，就按本文件第 3 条主张对应版本号。
+5. **退役的门可随时复活。** 9 个验收脚本与逐条状态登记（原 `.autopilot/acceptance/retired/`
+   及其 `README.md`）已于 2026-11-04 随 `.autopilot` 战役存档清理移出 main，完整内容存于
+   git 历史；哪天要跑门，先从 git 历史取回脚本，跑完就按本文件第 3 条主张对应版本号。
 
 ## 为什么改口径
 
@@ -219,5 +220,7 @@ package.json 已 0.13.0）。v0.14–v0.20 期间欠账扩大：代码交付到 
 ```bash
 git tag -d v0.21.0                    # 撤销本口径的 tag
 git revert <本策略的提交>              # 回到候选状态
-node .autopilot/acceptance/retired/<gate>.sh   # 逐门执行，跑完再主张版本号
+git show <存档删除提交>^:.autopilot/acceptance/retired/<gate>.sh > <gate>.sh
+                                      # 从 git 历史取回 2026-11-04 移除的门脚本
+node <gate>.sh                        # 逐门执行，跑完再主张版本号
 ```
