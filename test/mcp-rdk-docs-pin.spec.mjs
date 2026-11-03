@@ -19,7 +19,16 @@ import {
 } from '../dist/core/mcp/rdk-docs.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', '.moss']);
+const SKIP_DIRS = new Set([
+  '.git',
+  '.claude',
+  '.moss',
+  '.omx',
+  '.qoder',
+  '.workbuddy',
+  'node_modules',
+  'dist',
+]);
 const TEXT_EXT = new Set(['.ts', '.mjs', '.js', '.cjs', '.md', '.json']);
 const HISTORICAL_AUDIT = 'docs/superpowers/plans/2026-10-09-rdk-knowledge-via-mcp.md';
 const HISTORICAL_VERSION = '0.1.12';
