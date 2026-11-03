@@ -51,3 +51,63 @@ for (const flag of ['--label', '--task', '--model', '--base-url', '--temperature
     assert.match(result.stderr, /requires a value/);
   });
 }
+
+test('option-like seed values can be passed explicitly with equals', () => {
+  const result = spawnSync(
+    process.execPath,
+    [runner, '--tasks', '1', '--seed=--nightly', '--list'],
+    {
+      cwd: root,
+      env: { PATH: process.env.PATH ?? '', LANG: 'C', LC_ALL: 'C' },
+      encoding: 'utf8',
+      timeout: 15_000,
+    }
+  );
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /seed=--nightly\b/);
+});
+
+test('equals inside a value is preserved', () => {
+  const result = spawnSync(
+    process.execPath,
+    [runner, '--tasks=1', '--seed=first=second', '--list'],
+    {
+      cwd: root,
+      env: { PATH: process.env.PATH ?? '', LANG: 'C', LC_ALL: 'C' },
+      encoding: 'utf8',
+      timeout: 15_000,
+    }
+  );
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /seed=first=second\b/);
+});
+
+test('temperature also accepts the equals form', () => {
+  const result = spawnSync(
+    process.execPath,
+    [runner, '--temperature=0.5', '--task', 'single-edit', '--list'],
+    {
+      cwd: root,
+      env: { PATH: process.env.PATH ?? '', LANG: 'C', LC_ALL: 'C' },
+      encoding: 'utf8',
+      timeout: 15_000,
+    }
+  );
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^single-edit\s/m);
+});
+
+test('flags that do not take values reject the equals form', () => {
+  const result = spawnSync(process.execPath, [runner, '--list=unexpected', '--help'], {
+    cwd: root,
+    env: { PATH: process.env.PATH ?? '', LANG: 'C', LC_ALL: 'C' },
+    encoding: 'utf8',
+    timeout: 15_000,
+  });
+  assert.ifError(result.error);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /does not accept a value/);
+});

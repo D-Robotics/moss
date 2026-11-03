@@ -55,6 +55,8 @@ function usage() {
     '  --list               List tasks and exit',
     '  --help               Show this help',
     '',
+    'Options with values also accept --option=value, including values starting with --.',
+    '',
     'API key resolution: MOSS_BENCH_API_KEY env var, else the deepseek entry in',
     '~/.qoder-cn/settings.json providers.',
   ].join('\n');
@@ -72,10 +74,15 @@ function parseArgs(argv) {
     capabilityGate: undefined,
   };
   for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
+    const rawArg = argv[i];
+    const equals = rawArg.indexOf('=');
+    const arg = equals === -1 ? rawArg : rawArg.slice(0, equals);
+    let inlineValue = equals === -1 ? undefined : rawArg.slice(equals + 1);
     const next = () => {
-      const value = argv[++i];
-      if (value === undefined || value === '-h' || value.startsWith('--')) {
+      const inline = inlineValue !== undefined;
+      const value = inline ? inlineValue : argv[++i];
+      inlineValue = undefined;
+      if (value === undefined || (!inline && (value === '-h' || value.startsWith('--')))) {
         throw new Error(`${arg} requires a value`);
       }
       return value;
@@ -109,7 +116,8 @@ function parseArgs(argv) {
     else if (arg === '--keep-artifacts') out.keepArtifacts = true;
     else if (arg === '--list') out.list = true;
     else if (arg === '--help' || arg === '-h') out.help = true;
-    else throw new Error(`unknown flag: ${arg}`);
+    else throw new Error(`unknown flag: ${rawArg}`);
+    if (inlineValue !== undefined) throw new Error(`${arg} does not accept a value`);
   }
   if (!Number.isInteger(out.samples) || out.samples < 1)
     throw new Error('--samples must be a positive integer');
