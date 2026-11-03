@@ -10,6 +10,7 @@ import {
   createRsiLearningProvider,
   MossAgent,
   InMemorySessionStore,
+  rsiDigest,
 } from '../dist/index.js';
 
 const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-rsi-example-'));
@@ -67,7 +68,8 @@ async function execute(runId) {
     observer.finish('completed');
     return result;
   } finally {
-    await agent.close();
+    // This temporary actor owns no background exec jobs in an embedding host.
+    await agent.close({ stopBackgroundProcesses: false });
   }
 }
 try {
@@ -85,15 +87,36 @@ try {
     );
   }
   const budget = { maxModelCalls: 6, maxOutputTokens: 256 };
-  const candidate = await engine.propose(scope, { caseIds: [selectedCases[0].id], budget });
+  const runtimeConfig = {
+    runnerVersion: 'offline-classification:1',
+    oracleVersion: 'scripted-action-label:1',
+    modelConfigDigest: rsiDigest('scripted;temperature=0;thinking=disabled'),
+    tools: [],
+    permissionsDigest: rsiDigest('no-tools'),
+  };
+  const protocol = engine.freezeProtocol(scope, {
+    caseIds: selectedCases.map((c) => c.id),
+    budget,
+    runtimeConfig,
+  });
+  const candidate = await engine.propose(scope, {
+    caseIds: [selectedCases[0].id],
+    budget,
+    protocolId: protocol.id,
+    runtimeConfig,
+  });
   const evaluation = await engine.evaluate(scope, candidate.adapter.digest, {
     caseIds: selectedCases.map((c) => c.id),
     budget,
+    protocolId: protocol.id,
+    runtimeConfig,
   });
   assert.equal(evaluation.status, 'passed', 'controlled fixture exercises the promotion branch');
   engine.promote(scope, candidate.adapter.digest, {
     evaluationId: evaluation.id,
     expectedPolicyVersion: 0,
+    protocolId: protocol.id,
+    runtimeConfig,
   });
   const adopted = await execute('example-adopted');
   assert.equal(adopted.harnessAdapter.sha256, candidate.adapter.digest);
@@ -103,6 +126,7 @@ try {
   console.log(
     JSON.stringify({
       source: 'offline-scripted-sdk-example',
+      protocolDigest: protocol.digest,
       adopted: adopted.harnessAdapter,
       reverted: reverted.harnessAdapter ?? null,
       policyVersion: engine.status(scope).policy.version,

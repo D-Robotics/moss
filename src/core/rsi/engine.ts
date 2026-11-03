@@ -18,6 +18,8 @@ import type {
   RsiEvaluationCriterion,
   RsiMetrics,
   RsiTaskFixtureEvidence,
+  RsiProtocol,
+  RsiProtocolRuntimeConfig,
 } from './types.js';
 import {
   RSI_BASELINE,
@@ -28,6 +30,7 @@ import {
   rsiAdapterDigest,
   rsiCaseDigest,
   rsiHoldoutDigest,
+  rsiProtocolDigest,
   type RsiState,
 } from './store.js';
 
@@ -229,6 +232,99 @@ function freezeSnapshot<T>(value: T): T {
   }
   return value;
 }
+function runtimeConfig(value: RsiProtocolRuntimeConfig | undefined): RsiProtocolRuntimeConfig {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    Object.keys(value).some(
+      (key) =>
+        ![
+          'runnerVersion',
+          'oracleVersion',
+          'modelConfigDigest',
+          'tools',
+          'permissionsDigest',
+        ].includes(key)
+    ) ||
+    !Array.isArray(value.tools) ||
+    value.tools.length > 64 ||
+    new Set(value.tools).size !== value.tools.length ||
+    typeof value.modelConfigDigest !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(value.modelConfigDigest) ||
+    typeof value.permissionsDigest !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(value.permissionsDigest)
+  )
+    throw new RsiError('invalid_protocol_runtime');
+  return {
+    runnerVersion: requiredText(value.runnerVersion, 128, 'invalid_protocol_runtime'),
+    oracleVersion: requiredText(value.oracleVersion, 128, 'invalid_protocol_runtime'),
+    modelConfigDigest: value.modelConfigDigest,
+    tools: value.tools.map((tool) => requiredText(tool, 128, 'invalid_protocol_runtime')),
+    permissionsDigest: value.permissionsDigest,
+  };
+}
+function caseDigests(cases: RsiCase[]): RsiEvaluation['caseDigests'] {
+  return cases.map((item) => ({ id: item.id, digest: rsiCaseDigest(item), split: item.split }));
+}
+function protocolFor(
+  state: RsiState,
+  id: string,
+  provider: RsiLearningProvider | null | undefined,
+  declaredRuntime: RsiProtocolRuntimeConfig | undefined
+): RsiProtocol {
+  const protocol = state.protocols?.find((item) => item.id === id);
+  if (!protocol) throw new RsiError('protocol_not_found', 404);
+  try {
+    if (protocol.digest !== rsiProtocolDigest(protocol)) throw new Error('Digest mismatch');
+  } catch (cause) {
+    throw new RsiError('protocol_integrity_failed', 409, cause);
+  }
+  if (
+    state.policy.version !== protocol.policyVersion ||
+    state.policy.activeDigest !== protocol.baselineDigest
+  )
+    throw new RsiError('protocol_baseline_changed', 409);
+  if (
+    !provider ||
+    provider.model !== protocol.validationIdentity.model ||
+    provider.evaluatorVersion !== protocol.validationIdentity.evaluatorVersion ||
+    provider.identityDigest !== protocol.validationIdentity.providerIdentityDigest
+  )
+    throw new RsiError('protocol_validation_changed', 409);
+  if (JSON.stringify(runtimeConfig(declaredRuntime)) !== JSON.stringify(protocol.runtimeConfig))
+    throw new RsiError('protocol_runtime_changed', 409);
+  const cases = selectCases(
+    state,
+    protocol.caseDigests.map((item) => item.id)
+  );
+  if (
+    JSON.stringify(caseDigests(cases)) !== JSON.stringify(protocol.caseDigests) ||
+    !cases.every((item) =>
+      state.caseExposures.some(
+        (exposure) => exposure.digest === rsiHoldoutDigest(item) && exposure.split === item.split
+      )
+    )
+  )
+    throw new RsiError('protocol_cases_changed', 409);
+  return structuredClone(protocol);
+}
+function assertProtocolPlan(
+  protocol: RsiProtocol,
+  input: { caseIds: string[]; budget: RsiLearningBudget; criterion?: RsiEvaluationCriterion },
+  trainingOnly = false
+) {
+  const selected = protocol.caseDigests.filter(
+    (item) => !trainingOnly || item.split === 'training'
+  );
+  if (
+    JSON.stringify(input.caseIds) !== JSON.stringify(selected.map((item) => item.id)) ||
+    JSON.stringify(budget(input.budget)) !== JSON.stringify(protocol.budget) ||
+    (!trainingOnly &&
+      JSON.stringify(criterion(input.criterion)) !== JSON.stringify(protocol.criterion))
+  )
+    throw new RsiError('protocol_plan_mismatch', 409);
+}
 
 /** Optional host-neutral evolution lifecycle. No model call occurs during ordinary capture. */
 export class RsiEngine {
@@ -412,11 +508,101 @@ export class RsiEngine {
     this.requireEnabled(scope);
     return this.store.read(scope).candidates;
   }
+  listProtocols(scope: RsiScope): RsiProtocol[] {
+    this.requireEnabled(scope);
+    return this.store.read(scope).protocols ?? [];
+  }
+  freezeProtocol(
+    scope: RsiScope,
+    input: {
+      caseIds: string[];
+      budget: RsiLearningBudget;
+      criterion?: RsiEvaluationCriterion;
+      runtimeConfig: RsiProtocolRuntimeConfig;
+    }
+  ): RsiProtocol {
+    this.requireEnabled(scope);
+    const provider = this.learningFor(scope);
+    if (!provider) throw new RsiError('learning_provider_unavailable', 503);
+    const frozenBudget = budget(input.budget);
+    const frozenCriterion = criterion(input.criterion);
+    const declaredRuntime = runtimeConfig(input.runtimeConfig);
+    const validationIdentity = {
+      model: requiredText(provider.model, 256, 'protocol_validation_required'),
+      evaluatorVersion: requiredText(
+        provider.evaluatorVersion,
+        256,
+        'protocol_validation_required'
+      ),
+      providerIdentityDigest: requiredText(
+        provider.identityDigest,
+        256,
+        'protocol_validation_required'
+      ),
+    };
+    return freezeSnapshot(
+      this.store.update(scope, (state) => {
+        const cases = selectCases(state, input.caseIds);
+        if (
+          !cases.every((item) =>
+            state.caseExposures.some(
+              (exposure) =>
+                exposure.digest === rsiHoldoutDigest(item) && exposure.split === item.split
+            )
+          )
+        )
+          throw new RsiError('case_exposure_changed', 409);
+        if (
+          !['training', 'validation', 'holdout'].every((split) =>
+            cases.some((c) => c.split === split)
+          )
+        )
+          throw new RsiError('nonoverlapping_splits_required');
+        if (
+          cases.some(
+            (item) =>
+              item.split === 'holdout' &&
+              state.holdoutConsumptions.some((used) => used.digest === rsiHoldoutDigest(item))
+          )
+        )
+          throw new RsiError('holdout_already_consumed', 409);
+        const perArmBudget = {
+          maxModelCalls: Math.floor(frozenBudget.maxModelCalls / (cases.length * 2)),
+          maxOutputTokens: frozenBudget.maxOutputTokens,
+        };
+        if (perArmBudget.maxModelCalls < 1) throw new RsiError('learning_budget_insufficient');
+        const value = {
+          id: randomUUID(),
+          createdAt: Date.now(),
+          baselineDigest: state.policy.activeDigest,
+          policyVersion: state.policy.version,
+          caseDigests: caseDigests(cases),
+          criterion: frozenCriterion,
+          budget: frozenBudget,
+          perArmBudget,
+          validationIdentity,
+          runtimeConfig: declaredRuntime,
+        };
+        const protocol = { ...value, digest: rsiProtocolDigest(value) };
+        state.protocols!.push(protocol);
+        return protocol;
+      })
+    );
+  }
   importCandidate(
     scope: RsiScope,
     input: { id: string; version: string; instructions: string; baseDigest?: string },
     origin: RsiCandidate['origin'] = 'import',
     caseIds: string[] = []
+  ) {
+    return this.saveCandidate(scope, input, origin, caseIds);
+  }
+  private saveCandidate(
+    scope: RsiScope,
+    input: { id: string; version: string; instructions: string; baseDigest?: string },
+    origin: RsiCandidate['origin'],
+    caseIds: string[],
+    protocol?: RsiProtocol
   ) {
     this.requireEnabled(scope);
     const id = requiredText(input.id, 128, 'invalid_adapter_id');
@@ -433,10 +619,16 @@ export class RsiEngine {
       digest: rsiAdapterDigest({ id, version: input.version, instructions }),
     };
     return this.store.update(scope, (state) => {
+      if (protocol)
+        protocolFor(state, protocol.id, this.learningFor(scope), protocol.runtimeConfig);
       if (input.baseDigest && input.baseDigest !== state.policy.activeDigest)
         throw new RsiError('baseline_changed', 409);
       const same = state.candidates.find((item) => item.adapter.digest === adapter.digest);
-      if (same) return same;
+      if (same) {
+        if (same.protocolDigest !== protocol?.digest)
+          throw new RsiError('candidate_protocol_conflict', 409);
+        return same;
+      }
       if (
         state.candidates.some(
           (item) => item.adapter.id === id && item.adapter.version === adapter.version
@@ -449,12 +641,21 @@ export class RsiEngine {
         origin,
         baseDigest: state.policy.activeDigest,
         caseIds: [...caseIds],
+        ...(protocol ? { protocolId: protocol.id, protocolDigest: protocol.digest } : {}),
       };
       state.candidates.push(candidate);
       return candidate;
     });
   }
-  async propose(scope: RsiScope, input: { caseIds: string[]; budget: RsiLearningBudget }) {
+  async propose(
+    scope: RsiScope,
+    input: {
+      caseIds: string[];
+      budget: RsiLearningBudget;
+      protocolId?: string;
+      runtimeConfig?: RsiProtocolRuntimeConfig;
+    }
+  ) {
     scope = Object.freeze({ ...scope });
     this.requireEnabled(scope);
     const provider = this.learningFor(scope);
@@ -464,15 +665,31 @@ export class RsiEngine {
     const cases = selectCases(state, input.caseIds).filter((item) => item.split !== 'holdout');
     if (!cases.some((item) => item.split === 'training'))
       throw new RsiError('training_cases_required');
-    const proposed = await provider.propose({ baseline, cases, budget: budget(input.budget) });
+    let protocol: RsiProtocol | undefined;
+    if (input.protocolId !== undefined) {
+      protocol = this.store.update(scope, (current) => {
+        const plan = protocolFor(current, input.protocolId!, provider, input.runtimeConfig);
+        assertProtocolPlan(plan, input, true);
+        if (current.protocolProposals?.includes(plan.digest))
+          throw new RsiError('protocol_proposal_consumed', 409);
+        current.protocolProposals!.push(plan.digest);
+        return plan;
+      });
+    }
+    const proposed = await provider.propose({
+      baseline: protocol ? freezeSnapshot(baseline) : baseline,
+      cases: protocol ? freezeSnapshot(cases) : cases,
+      budget: protocol ? freezeSnapshot(budget(input.budget)) : budget(input.budget),
+    });
     this.requireEnabled(scope);
     if (!proposed || proposed.digest !== rsiAdapterDigest(proposed))
       throw new RsiError('invalid_proposed_adapter', 422);
-    return this.importCandidate(
+    return this.saveCandidate(
       scope,
       { ...proposed, baseDigest: baseline.digest },
       'learner',
-      cases.map((item) => item.id)
+      cases.map((item) => item.id),
+      protocol
     );
   }
   listEvaluations(scope: RsiScope) {
@@ -482,7 +699,13 @@ export class RsiEngine {
   async evaluate(
     scope: RsiScope,
     digest: string,
-    input: { caseIds: string[]; budget: RsiLearningBudget; criterion?: RsiEvaluationCriterion }
+    input: {
+      caseIds: string[];
+      budget: RsiLearningBudget;
+      criterion?: RsiEvaluationCriterion;
+      protocolId?: string;
+      runtimeConfig?: RsiProtocolRuntimeConfig;
+    }
   ) {
     scope = Object.freeze({ ...scope });
     this.requireEnabled(scope);
@@ -492,6 +715,23 @@ export class RsiEngine {
       candidate = adapterFor(state, digest),
       baseline = adapterFor(state);
     const cases = selectCases(state, input.caseIds);
+    const candidateRecord = state.candidates.find((item) => item.adapter.digest === digest);
+    let protocol: RsiProtocol | undefined;
+    if (
+      candidateRecord?.protocolId !== undefined ||
+      candidateRecord?.protocolDigest !== undefined ||
+      input.protocolId !== undefined
+    ) {
+      if (!candidateRecord?.protocolId || input.protocolId !== candidateRecord.protocolId)
+        throw new RsiError('candidate_protocol_mismatch', 409);
+      protocol = protocolFor(state, input.protocolId, provider, input.runtimeConfig);
+      if (
+        candidateRecord.protocolDigest !== protocol.digest ||
+        !state.protocolProposals?.includes(protocol.digest)
+      )
+        throw new RsiError('candidate_protocol_mismatch', 409);
+      assertProtocolPlan(protocol, input);
+    }
     if (
       cases.length < 3 ||
       !['training', 'validation', 'holdout'].every((split) =>
@@ -503,14 +743,11 @@ export class RsiEngine {
       id: randomUUID(),
       candidateDigest: candidate.digest,
       baselineDigest: baseline.digest,
-      caseDigests: cases.map((item) => ({
-        id: item.id,
-        digest: rsiCaseDigest(item),
-        split: item.split,
-      })),
+      caseDigests: caseDigests(cases),
       evaluatorVersion: provider.evaluatorVersion,
       model: provider.model,
       providerIdentityDigest: provider.identityDigest,
+      ...(protocol ? { protocolId: protocol.id, protocolDigest: protocol.digest } : {}),
       budget: freezeSnapshot(budget(input.budget)),
       criterion: freezeSnapshot(criterion(input.criterion)),
       createdAt: Date.now(),
@@ -518,6 +755,12 @@ export class RsiEngine {
       results: [],
     };
     this.store.update(scope, (current) => {
+      if (protocol) {
+        protocolFor(current, protocol.id, this.learningFor(scope), input.runtimeConfig);
+        const admitted = current.candidates.find((item) => item.adapter.digest === digest);
+        if (admitted?.protocolDigest !== protocol.digest || admitted.protocolId !== protocol.id)
+          throw new RsiError('candidate_protocol_mismatch', 409);
+      }
       const heldout = cases.filter((item) => item.split === 'holdout').map(rsiHoldoutDigest);
       if (
         heldout.some((digest) => current.holdoutConsumptions.some((item) => item.digest === digest))
@@ -583,6 +826,13 @@ export class RsiEngine {
           throw new RsiError('invalid_evaluation_spend', 422);
         record.spend = structuredClone(output.spend);
       }
+      if (protocol)
+        protocolFor(
+          this.store.read(scope),
+          protocol.id,
+          this.learningFor(scope),
+          input.runtimeConfig
+        );
       record.status = provesImprovement(record.results, record.criterion) ? 'passed' : 'failed';
     } catch (error) {
       record.status = 'unavailable';
@@ -605,7 +855,12 @@ export class RsiEngine {
   promote(
     scope: RsiScope,
     digest: string,
-    input: { evaluationId: string; expectedPolicyVersion: number }
+    input: {
+      evaluationId: string;
+      expectedPolicyVersion: number;
+      protocolId?: string;
+      runtimeConfig?: RsiProtocolRuntimeConfig;
+    }
   ) {
     this.requireEnabled(scope);
     return this.store.update(scope, (state) => {
@@ -613,6 +868,38 @@ export class RsiEngine {
         throw new RsiError('policy_version_conflict', 409);
       const candidate = adapterFor(state, digest);
       const evaluation = state.evaluations.find((item) => item.id === input.evaluationId);
+      const candidateRecord = state.candidates.find((item) => item.adapter.digest === digest);
+      if (
+        candidateRecord?.protocolId !== undefined ||
+        candidateRecord?.protocolDigest !== undefined ||
+        evaluation?.protocolId !== undefined ||
+        evaluation?.protocolDigest !== undefined ||
+        input.protocolId !== undefined
+      ) {
+        if (
+          !candidateRecord?.protocolId ||
+          input.protocolId !== candidateRecord.protocolId ||
+          evaluation?.protocolId !== input.protocolId
+        )
+          throw new RsiError('candidate_protocol_mismatch', 409);
+        const protocol = protocolFor(
+          state,
+          input.protocolId,
+          this.learningFor(scope),
+          input.runtimeConfig
+        );
+        if (
+          candidateRecord.protocolDigest !== protocol.digest ||
+          evaluation.protocolDigest !== protocol.digest ||
+          !state.protocolProposals?.includes(protocol.digest)
+        )
+          throw new RsiError('candidate_protocol_mismatch', 409);
+        assertProtocolPlan(protocol, {
+          caseIds: evaluation.caseDigests.map((item) => item.id),
+          budget: evaluation.budget,
+          criterion: evaluation.criterion,
+        });
+      }
       if (
         !evaluation ||
         evaluation.status !== 'passed' ||
@@ -649,13 +936,15 @@ export class RsiEngine {
         provider.identityDigest !== evaluation.providerIdentityDigest
       )
         throw new RsiError('evaluation_provider_changed', 409);
-      const candidateRecord = state.candidates.find((item) => item.adapter.digest === digest);
       if (!candidateRecord) throw new RsiError('passing_evaluation_required', 409);
       candidateRecord.validation = {
         model: evaluation.model,
         evaluatorVersion: evaluation.evaluatorVersion,
         providerIdentityDigest: evaluation.providerIdentityDigest,
         evaluationId: evaluation.id,
+        ...(evaluation.protocolId
+          ? { protocolId: evaluation.protocolId, protocolDigest: evaluation.protocolDigest }
+          : {}),
       };
       const previous = state.policy.activeDigest;
       state.policy = {

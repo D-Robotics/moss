@@ -13,6 +13,7 @@ import type {
   RsiPolicyTransition,
   RsiRun,
   RsiScope,
+  RsiProtocol,
 } from './types.js';
 
 export const RSI_RETENTION = { days: 35, maxRuns: 200, maxEventsPerRun: 120 };
@@ -22,6 +23,33 @@ export const rsiAdapterDigest = (adapter: Pick<RsiAdapter, 'id' | 'version' | 'i
 export const rsiCaseDigest = (item: RsiCase) =>
   rsiDigest(
     JSON.stringify([item.id, item.input, item.expectedOutcome, item.split, item.evidenceDigest])
+  );
+export const rsiProtocolDigest = (item: Omit<RsiProtocol, 'digest'>) =>
+  rsiDigest(
+    JSON.stringify([
+      item.id,
+      item.createdAt,
+      item.baselineDigest,
+      item.policyVersion,
+      item.caseDigests.map((c) => [c.id, c.digest, c.split]),
+      item.criterion.kind === 'correctness'
+        ? ['correctness']
+        : ['efficiency', item.criterion.metric, item.criterion.minimumAbsoluteGain],
+      [item.budget.maxModelCalls, item.budget.maxOutputTokens],
+      [item.perArmBudget.maxModelCalls, item.perArmBudget.maxOutputTokens],
+      [
+        item.validationIdentity.model,
+        item.validationIdentity.evaluatorVersion,
+        item.validationIdentity.providerIdentityDigest,
+      ],
+      [
+        item.runtimeConfig.runnerVersion,
+        item.runtimeConfig.oracleVersion,
+        item.runtimeConfig.modelConfigDigest,
+        item.runtimeConfig.tools,
+        item.runtimeConfig.permissionsDigest,
+      ],
+    ])
   );
 export const rsiHoldoutDigest = (item: RsiCase) =>
   rsiDigest(
@@ -66,6 +94,10 @@ export interface RsiState {
   cases: RsiCase[];
   candidates: RsiCandidate[];
   evaluations: RsiEvaluation[];
+  /** Optional in legacy schema-2 documents; read() normalizes these collections. */
+  protocols?: RsiProtocol[];
+  /** Claim before the provider call; failure cannot reopen the same preregistered proposal. */
+  protocolProposals?: string[];
   /** Never cleared by case/evaluation deletion or evidence retention. Contains hashes only. */
   holdoutConsumptions: Array<{ digest: string; at: number }>;
   /** Original evidence split survives deletion and retention. Hashes reveal no annotation. */
@@ -109,6 +141,8 @@ export class RsiStore {
         cases: [],
         candidates: [],
         evaluations: [],
+        protocols: [],
+        protocolProposals: [],
         holdoutConsumptions: [],
         caseExposures: [],
         policy: {
@@ -120,6 +154,9 @@ export class RsiStore {
         transitions: [],
       };
     }
+    // Schema-2 documents from before protocol support remain valid legacy evidence.
+    if (state.protocols === undefined) state.protocols = [];
+    if (state.protocolProposals === undefined) state.protocolProposals = [];
     if (
       state.schemaVersion !== 2 ||
       state.scope?.ownerKey !== scope.ownerKey ||
@@ -128,6 +165,8 @@ export class RsiStore {
       !Array.isArray(state.cases) ||
       !Array.isArray(state.candidates) ||
       !Array.isArray(state.evaluations) ||
+      !Array.isArray(state.protocols) ||
+      !Array.isArray(state.protocolProposals) ||
       !Array.isArray(state.caseExposures) ||
       !Array.isArray(state.holdoutConsumptions) ||
       !Array.isArray(state.transitions) ||
@@ -199,6 +238,7 @@ export class RsiStore {
       // bounded evaluation/transition history, including active and rollback versions.
       if (state.candidates.length > 100) throw new RsiError('candidate_retention_limit', 409);
       if (state.cases.length > 100) throw new RsiError('case_retention_limit', 409);
+      if ((state.protocols?.length ?? 0) > 100) throw new RsiError('protocol_retention_limit', 409);
       fs.writeFileSync(temporary, `${JSON.stringify(state)}\n`, { mode: 0o600 });
       fs.renameSync(temporary, file);
       return structuredClone(result);

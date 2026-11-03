@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const moduleUrl = new URL('../dist/tools/search-tools.js', import.meta.url).href;
+const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 for (const kind of ['files', 'code']) {
   for (const mode of [
     'empty-error',
@@ -34,7 +35,7 @@ for (const kind of ['files', 'code']) {
           const output = kind === 'files' ? file + '\n' : file + ':1:needle\n';
           await fs.writeFile(
             path.join(bin, 'rg'),
-            `#!${process.execPath}\n${mode.startsWith('partial') ? `process.stdout.write(${JSON.stringify(output)});` : ''}\n${mode.endsWith('timeout') ? 'setInterval(()=>{},1000);' : 'process.exitCode=2;'}\n`,
+            `#!/bin/sh\n${mode.startsWith('partial') ? `printf '%s' ${shellQuote(output)}` : ''}\n${mode.endsWith('timeout') ? `exec ${shellQuote(process.execPath)} -e ${shellQuote('setInterval(()=>{},1000);')}` : 'exit 2'}\n`,
             { mode: 0o700 }
           );
           const depth = mode === 'unbounded-error' ? 'undefined' : '2';

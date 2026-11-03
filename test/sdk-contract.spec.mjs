@@ -273,6 +273,7 @@ const SNAPSHOT = [
   'rsiCaseDigest',
   'rsiDigest',
   'rsiHoldoutDigest',
+  'rsiProtocolDigest',
   'rsiProviderIdentityDigest',
   'rsiPublicCase',
   'runAgentLoop',
@@ -379,12 +380,50 @@ test('typed API surface resolves through dist/index.d.ts', async () => {
     'RsiEngine',
     'RsiEngineStatus',
     'RsiEvaluationCriterion',
+    'RsiProtocol',
+    'RsiProtocolRuntimeConfig',
+    'RsiState',
     'RsiTaskRunner',
     'RsiTaskInput',
     'RsiLearningProvider',
     'RsiRunObserver',
   ])
     assert.ok(exported.has(symbol), symbol + ' exported from the typed API surface');
+  const agentSymbol = checker
+    .getExportsOfModule(moduleSymbol)
+    .find((symbol) => symbol.getName() === 'MossAgent');
+  const agentType = checker.getDeclaredTypeOfSymbol(checker.getAliasedSymbol(agentSymbol));
+  const close = agentType.getProperty('close');
+  const closeSignature = checker
+    .getTypeOfSymbolAtLocation(close, close.declarations[0])
+    .getCallSignatures()[0];
+  assert.equal(closeSignature.minArgumentCount, 0, 'existing close() callers remain compatible');
+  assert.equal(closeSignature.parameters.length, 1);
+  const closeOptions = closeSignature.parameters[0];
+  assert.ok(closeOptions.declarations[0].questionToken, 'close options remain optional');
+  const stopBackground = checker
+    .getNonNullableType(
+      checker.getTypeOfSymbolAtLocation(closeOptions, closeOptions.declarations[0])
+    )
+    .getProperty('stopBackgroundProcesses');
+  assert.ok(stopBackground.flags & ts.SymbolFlags.Optional, 'global shutdown remains the default');
+  assert.match(
+    checker.typeToString(
+      checker.getTypeOfSymbolAtLocation(stopBackground, stopBackground.declarations[0])
+    ),
+    /^boolean(?: \| undefined)?$/
+  );
+  assert.equal(checker.typeToString(closeSignature.getReturnType()), 'Promise<void>');
+  const stateSymbol = checker
+    .getExportsOfModule(moduleSymbol)
+    .find((symbol) => symbol.getName() === 'RsiState');
+  const state = checker.getDeclaredTypeOfSymbol(checker.getAliasedSymbol(stateSymbol));
+  for (const field of ['protocols', 'protocolProposals']) {
+    assert.ok(
+      state.getProperty(field).flags & ts.SymbolFlags.Optional,
+      `legacy RsiState literals may omit ${field}`
+    );
+  }
   const chatOptions = checker
     .getExportsOfModule(moduleSymbol)
     .find((symbol) => symbol.getName() === 'ChatOptions');

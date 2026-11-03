@@ -224,7 +224,12 @@ export class MossAgent {
     void this.close().catch((error) => log.warn('agent disposal failed', { error }));
   }
 
-  close(): Promise<void> {
+  /**
+   * Abort and settle this agent. Defaults to stopping process-global background
+   * exec jobs; embedded temporary agents can leave host-owned jobs running.
+   * The first call's options govern subsequent idempotent close calls.
+   */
+  close(options?: { stopBackgroundProcesses?: boolean }): Promise<void> {
     if (this.closePromise) return this.closePromise;
     this.disposed = true;
     this.rootAbortController.abort(
@@ -233,7 +238,7 @@ export class MossAgent {
     // O70: background exec_start children hold stdout/stderr pipes open; stop
     // them whenever the agent closes so hosts that skip the CLI finally path
     // still drain the event loop.
-    stopAllBackgroundProcesses();
+    if (options?.stopBackgroundProcesses !== false) stopAllBackgroundProcesses();
     this.pendingToolAborts.dispose();
     const asyncTasks = this.ownsAsyncTaskRegistry
       ? (this.asyncTasks.stopAll?.('parent_aborted').then(() => {}) ?? Promise.resolve())
