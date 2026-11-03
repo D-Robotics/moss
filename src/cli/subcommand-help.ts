@@ -46,8 +46,8 @@ export function superagentHelp(zh = isZhLocale()): string {
       ? 'start 前台轮询；Ctrl+C 停止调度。work 处理当前队列后退出。'
       : 'start polls in the foreground; Ctrl+C stops the scheduler. work drains the current queue.',
     zh
-      ? '配置模型沿用 moss setup。默认 observe；此版本没有 GitHub/飞书连接器。'
-      : 'Uses moss setup model configuration. Default observe; this version has no GitHub/Feishu connector.',
+      ? '配置模型沿用 moss setup。默认 observe；此版本没有代码托管或消息平台连接器。'
+      : 'Uses moss setup model configuration. Default observe; this version has no code-hosting or messaging connectors.',
   ].join('\n');
 }
 function removed(command: string, zh: boolean, detail: { en: string; zh: string }): string {
