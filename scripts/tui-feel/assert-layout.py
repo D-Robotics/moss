@@ -156,7 +156,10 @@ def help_frame():
                       any("Check item" in line for line in session.lines()),
                       "todo panel did not appear")
             session.send("?")
-            session.wait_for(lambda: "Help" in "\n".join(session.lines()))
+            # The overlay can land seconds after the key on a loaded runner;
+            # the default 5s budget then read an unpainted screen and reported
+            # the shortcuts as missing (observed on macOS CI).
+            session.wait_for(lambda: "Help" in "\n".join(session.lines()), 30)
             frame_clean(session, f"help@{cols}x{rows}")
             text = "\n".join(session.lines())
             check(f"help@{cols}x{rows}: primary shortcuts visible",
@@ -321,6 +324,10 @@ def p4_keybindings():
     # lands late ("history search did not open on Ctrl+T").
     with Session(cols=100, rows=30, renderer="fullscreen",
                  keybindings={"history.search": "ctrl+t"}) as session:
+        # A key sent before the first frame can be lost while the input
+        # pipeline is still coming up under load; the 30s poll below cannot
+        # recover a swallowed keypress, so wait for the prompt first.
+        session.wait_for_prompt()
         session.key("ctrl-t")
         opened = session.wait_for(lambda: "Enter to use" in screen_text(session), timeout)
         check("P4 a rebound key opens its command", opened,
