@@ -301,6 +301,7 @@ export const MOSS_ENV_REFERENCE: ReadonlyArray<{ group: string; vars: readonly s
       'MOSS_BUNDLED_DEFAULT_FILE',
       'MOSS_NO_BUNDLED_DEFAULT',
       'MOSS_SOURCE_DIR (checkout for moss update; --dir wins)',
+      'MOSS_SUPERAGENT_API_KEY (internal worker credential forwarding; never persisted)',
     ],
   },
   {
@@ -483,6 +484,7 @@ const ENV_GROUP_ZH: Record<string, string> = {
 };
 
 const ENV_NOTE_ZH: Record<string, string> = {
+  'internal worker credential forwarding; never persisted': '内部执行进程的凭据传递；不持久化',
   'off|adaptive|high; overrides config agent.reasoningBudget':
     'off|adaptive|high；优先于配置 agent.reasoningBudget',
   'process env only; a project .env cannot set this': '仅进程环境；项目 .env 不能设置',

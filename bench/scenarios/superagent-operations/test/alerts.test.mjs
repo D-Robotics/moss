@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { test } from 'node:test';
+import { openAlerts } from '../src/alerts.mjs';
+test('alert streak and outbox survive restart', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ops-alerts-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'alerts.json');
+  const rules = [{ metric: 'temperature', op: 'gte', open: 90, clear: 85, consecutive: 2 }];
+  let engine = openAlerts(file, rules);
+  assert.deepEqual(engine.observe({ deviceId: 'rdk-1', seq: 1, metrics: { temperature: 91 } }), []);
+  engine = openAlerts(file, rules);
+  const events = engine.observe({ deviceId: 'rdk-1', seq: 2, metrics: { temperature: 92 } });
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, 'opened');
+  assert.equal(engine.pending().length, 1);
+  assert.equal(engine.ack(events[0].id), true);
+  assert.equal(engine.ack(events[0].id), false);
+  assert.equal(openAlerts(file, rules).pending().length, 0);
+});

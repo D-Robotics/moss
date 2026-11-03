@@ -1,0 +1,36 @@
+# Operations service contracts
+
+Use Node standard library only, ESM. Implement only your assigned `src/<case>.mjs`. Do not change other source files, tests, package.json or these contracts. No network, device, deployment or package installation is needed. Public tests are examples; the external operator oracle checks all requirements. Do not inspect or modify the external benchmark harness/oracle. Persist JSON-compatible data; returned values must be detached copies. All APIs below are synchronous. Error conditions throw an Error with the specified `.code`. State files are single-process owned; inter-process locking is out of scope.
+
+## telemetry
+
+Export `openTelemetry(file, {limit = 3} = {})` returning `ingest(sample)`, `latest(deviceId)`, `history(deviceId)`, `count()`.
+
+- A sample has exactly these semantic fields: `{id, deviceId, seq, at, metrics: {temperature, cpu, battery}}`. id is a nonempty string; deviceId matches `[A-Za-z0-9_-]+`; seq and at are nonnegative safe integers; temperature is finite within [-100,200], cpu and battery within [0,100]. Invalid input throws `INVALID_SAMPLE` without changing memory or disk. Limit must be a positive safe integer (`INVALID_LIMIT`).
+- Normalize to the fields above. Object key order and extra properties do not affect duplicate comparison. Accepted sample IDs are globally unique across devices and across restarts. First ingest returns `{accepted:true, duplicate:false}`. An identical normalized sample with an existing ID returns `{accepted:false, duplicate:true}` without another log line. Changed content under an existing ID throws `ID_CONFLICT` without mutation, even if that event is no longer in the retained history.
+- Append each accepted normalized sample as one newline-terminated JSON line. Create parent directories. Restore from all complete lines on reopen. Malformed/invalid complete lines or conflicting duplicate IDs in the log throw `CORRUPT_LOG`. An unterminated trailing line is an interrupted write: discard it before future appends; complete earlier records survive.
+- Order each device's samples by seq, then at, then lexicographic id, ascending. `history` returns the highest `limit` samples in ascending order, `latest` returns the highest or null, and `count` is the total number of unique accepted IDs regardless of retention. Older/out-of-order samples are accepted but cannot replace newer latest data. Caller mutation of inputs or results cannot alter stored state.
+
+## alerts
+
+Export `openAlerts(file, rules)` returning `observe(sample)`, `active()`, `pending()`, `ack(eventId)`.
+
+- Rules are nonempty unique metrics: `{metric, op:'gte'|'lte', open, clear, consecutive}`. metric matches `[a-z][A-Za-z0-9_]*`; thresholds finite; consecutive a positive safe integer; gte requires clear < open, lte requires clear > open. Invalid rules throw `INVALID_RULES`.
+- Observe accepts `{deviceId, seq, metrics}`. deviceId is nonempty, seq a nonnegative safe integer, every rule's metric present and finite. Invalid input throws `INVALID_SAMPLE` without advancing a device cursor. seq <= the last accepted seq for a device returns [] with no state change. State is independent per device and metric.
+- A gte rule is breached at value >= open and recovered at value <= clear; lte reverses both comparisons. Require consecutive breached observations to open; require consecutive recovered observations to clear. In-band or opposite-direction observations reset the relevant streak. Never emit repeated open/clear transitions while already in that state. The sequence cursor, streaks and active state survive reopen.
+- Each transition is `{id: deviceId+':'+metric+':'+type+':'+seq, deviceId, metric, type:'opened'|'cleared', seq, value}`. `observe` returns new transitions in rule order. `pending()` returns all unacknowledged transitions in insertion order, across restarts; `ack` returns true only for the first acknowledgement of a known pending ID, otherwise false. Ack is durable. `active()` returns `{deviceId,metric}` pairs sorted by deviceId then metric.
+- Persist state with a temporary file and atomic rename before publishing a successful mutation to memory/caller. Invalid or corrupt existing JSON throws `CORRUPT_STATE`; do not reset it silently. Opening the same file with different rules throws `RULES_CONFLICT`. New files and parent directories may be created. Mutation of returned events/arrays and of the supplied rules must not change engine state.
+
+## queue
+
+Export `openQueue(file)` returning `enqueue(job)`, `claim(worker, now, leaseMs)`, `complete(id, token, result, now)`, `fail(id, token, error, now)`, `get(id)`, `stats()`.
+
+- Enqueue job: `{id,key,type,payload,maxAttempts=3,dependsOn=[]}`. id/key/type are nonempty strings; payload a JSON-compatible plain object; maxAttempts a positive safe integer; dependsOn a unique list of existing job IDs excluding self. Invalid input throws `INVALID_JOB` before mutation. New jobs are queued in insertion order. Return the canonical job ID. Same key and same normalized type/payload/maxAttempts/dependsOn returns the original ID even if a different id was supplied. Changed content under a key throws `KEY_CONFLICT`. Reused ID under a different key throws `ID_CONFLICT`. Object key order does not affect equality.
+- `claim` validates nonempty worker, finite nonnegative now and positive finite leaseMs (`INVALID_CLAIM`). A queued job is eligible when notBefore <= now and every dependency is done. Choose oldest eligible insertion order, return its detached job record (including `token`, `leaseUntil`, `attempts`, `status`), or null. Claim increments attempts; creates a new unique fencing token; sets status running and leaseUntil=now+leaseMs. Initial notBefore=0. A running job with leaseUntil <= now is reclaimable; if it exhausted maxAttempts it becomes dead instead and is never reclaimed. Lease state and token uniqueness survive restarts.
+- `complete` and `fail` accept only a running matching token with now < leaseUntil; otherwise throw `STALE_LEASE` with no mutation. Completion persists status done and a detached JSON result. Fail persists the error string, queues retry at now + 100 \* 2\*\*(attempts-1), or marks dead if maxAttempts is exhausted. Claim must honor this backoff. Done/dead jobs never execute again.
+- `get` returns a detached canonical job record or null; include id,key,type,payload,maxAttempts,dependsOn,status,attempts,notBefore and current lease/result/error when applicable. `stats` returns exact `{queued,running,done,dead}` counts. Status is one of those four strings.
+- Persist every mutation with temporary-file/atomic-rename before publishing success. Corrupt existing JSON throws `CORRUPT_STATE`; do not silently reset. Create parent directories. Mutating enqueue inputs, get/claim results or result payloads cannot affect persisted/in-memory state.
+
+## Service integration
+
+The existing server imports these three modules. It ingests telemetry, observes accepted samples, enqueues pending alert notifications with event ID as the idempotency key, then acknowledges the alert outbox. A retry between enqueue and acknowledgement must not create a second notification. Queue workers claim and complete notifications with fencing tokens. Operator tests restart the server against the same state directory.

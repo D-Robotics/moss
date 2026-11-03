@@ -1,0 +1,68 @@
+{
+  "repository": "https://github.com/deepseek-ai/dsh-superagent-prototype",
+  "commit": "6337fc823ce20251c8de8085948165c81aaa701e",
+  "license": "MIT",
+  "transform": "Relative .ts imports to .js; Moss Prettier formatting; remove unused ChannelRef/latestReport imports; replace two findLast calls with equivalent reverse().find() on copies for ES2022 compatibility",
+  "files": {
+    "assignments.ts": {
+      "upstreamSha256": "6acf4b858b35d95c875680e39b1e3c41557bbe6d39f65031bb26927289327065",
+      "vendoredSha256": "982caaf799b4668306f1d4cb8453485c5f14fdfea33b1f94acfac4c57bedd0a5"
+    },
+    "engine.ts": {
+      "upstreamSha256": "bd9a4caff834859877d1a08ccddebc990d0e1ca568674b80f9d59ce5adcac827",
+      "vendoredSha256": "7c0b428e9ab87f57aaffd702094441ec1406a9fe663fd7da725fa2a9ccfbc9fa"
+    },
+    "errors.ts": {
+      "upstreamSha256": "aa7532a2d1f8c443608683ef1231bf3d81b842f67a87d9b77742b5c76d515009",
+      "vendoredSha256": "ecdddfb0aaac6e79cff141b4d1c009f890d46bd2d0aa72a38674997c5b8de8ef"
+    },
+    "evals.ts": {
+      "upstreamSha256": "38916de24ec6e1a27118dd5d7a7efa67bf7a2dfdbab26fb59d377516269e2fc8",
+      "vendoredSha256": "b3540e85f057e14603999411527e1eda39bfb4097ff4e08f6e818c14ef48abab"
+    },
+    "ids.ts": {
+      "upstreamSha256": "bc4bc6fd43ea1377087ff2815706c57f0200666aeb4a7711a40489c377f141ab",
+      "vendoredSha256": "141b73d5085ca27f1cf23697a644dca1ebd0b37c580dd720b358067a93403ca3"
+    },
+    "index.ts": {
+      "upstreamSha256": "a5a1cf43f02eafaf520a5bfaf5e76b71ba521d04ee648cfcf12b3843cc474a3e",
+      "vendoredSha256": "da3a0007c97f985c085a80a3f9b79a3d66aee008b056d8c19d1c220df299b406"
+    },
+    "intake.ts": {
+      "upstreamSha256": "323aadefea69436ba23ed2de3bdbaad673d61915be9e239f3233ecf551a74179",
+      "vendoredSha256": "4cdfd9ede9e4e16caf3572595d077725747b1e7fe37ddf1d50c0f66f2fc0879f"
+    },
+    "memory.ts": {
+      "upstreamSha256": "36cefca987a4e533369a414e52e3fb4754945ae942bb021f8e5cf23c186cf536",
+      "vendoredSha256": "f9a75474b1174920c07f072160ae0b7934338bfd72e2857fdbb1514da39fc930"
+    },
+    "model.ts": {
+      "upstreamSha256": "982155fe6a03c887a7ac4475c6d1592d12aa23c5fe3698403c93bbfd6469d44a",
+      "vendoredSha256": "82407dd3546c0f14d0178f9079b6ce1c3241397f9207e4ac29a45955af4d51a7"
+    },
+    "part.ts": {
+      "upstreamSha256": "437c4f4bcc05e836c056cdb45bbf451e55242d62b602b489f4df902be112e73e",
+      "vendoredSha256": "df6b27421aac7c8bda3221d31c78297023e90edcb47678eafcd0359e7f928bbc"
+    },
+    "ports.ts": {
+      "upstreamSha256": "0b44f1cd716d64776b0e3ea74a158cf0effd92e763b1b13c7705e766e9225a43",
+      "vendoredSha256": "931ee33f214540cb0ca8089515c528016e1272e5aefe7dda825489c806315ff9"
+    },
+    "reasons.ts": {
+      "upstreamSha256": "dc29e0c3c52e4ffd6e8f27a618cbe704a83fdbd9c5a1b99a1e0c4184d5c33af4",
+      "vendoredSha256": "1089d088ffa6a84e251834a858292c43fd86dd6a6c1408bd8b18fc80d7afc15e"
+    },
+    "replies.ts": {
+      "upstreamSha256": "5a8821a1b9d951d2255709543e0be762c6d3204bca07a77ff17c7bfe82ba66f4",
+      "vendoredSha256": "fde1d7c0af6bad3390dca93150a0142e36e4a53480a9e6a6d7ab39d441d72727"
+    },
+    "stage.ts": {
+      "upstreamSha256": "b935012a654d2a68ca20cb27909ddc8dceafb704b56a16a23a08036a546141df",
+      "vendoredSha256": "2191901ea272cf1796d15dc7d1126b63f3a5f89fb66cfc43bb29bf0e4a956b02"
+    },
+    "tickets.ts": {
+      "upstreamSha256": "1d9f964ad34b54cbb0403bde16af58851e5e80111177ce73a27b6034e9af940e",
+      "vendoredSha256": "0a448546003e2e12a1d59150cf9e4e840768d30c55a846ac959427a12b8c48d6"
+    }
+  }
+}
