@@ -7,10 +7,9 @@
 // bench/results/<label>/summary.json. Zero npm dependencies by design: the
 // benchmark itself must not grow the complexity it measures.
 //
-// Provider defaults come from the Qoder custom provider entry that serves a
-// deepseek model (~/.qoder-cn/settings.json). Override with MOSS_BENCH_API_KEY /
-// --model / --base-url. The API key is written only to a 0600 config.json in a
-// temporary MOSS_CONFIG_DIR and is never printed or committed.
+// Provider settings come from MOSS_BENCH_API_KEY, MOSS_BENCH_MODEL and
+// MOSS_BENCH_BASE_URL; --model and --base-url override the latter two.
+// The API key is written to a 0600 temporary config.json; --keep retains it.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -41,15 +40,15 @@ function usage() {
     '                       bench:noise on that subset; do not reuse a larger band.',
     '  --seed <text>        Seed for --tasks (default moss-bench)',
     '  --temperature <t>    Pin MOSS_TEMPERATURE to 0..2 (default 0; "none" does not pin it)',
-    '  --model <id>         Override the benchmark model id',
-    '  --base-url <url>     Override the provider base URL',
+    '  --model <id>         Model id (overrides MOSS_BENCH_MODEL)',
+    '  --base-url <url>     Provider base URL (overrides MOSS_BENCH_BASE_URL)',
     '  --label <name>       Result directory name (default run-<timestamp>)',
     '  --baseline <name>    Compare against a prior run (label or results path).',
     '  --capability-gate <name>  Release gate: hard-tier score must beat the named',
     '                       baseline run by >=10 points; exit 1 otherwise.',
     '                       Reads bench/results/noise-band.json when present; exit 1',
     '                       if any task pass-rate drops beyond the noise band.',
-    '  --keep               Keep temporary workspaces/config for debugging',
+    '  --keep               Keep temporary workspaces/config, including the provider key',
     '  --keep-artifacts     Copy <workspace>/.moss to bench/results/<label>/<task>-NN.moss',
     '                       before the workspace is deleted',
     '  --list               List tasks and exit',
@@ -57,8 +56,8 @@ function usage() {
     '',
     'Options with values also accept --option=value, including values starting with --.',
     '',
-    'API key resolution: MOSS_BENCH_API_KEY env var, else the deepseek entry in',
-    '~/.qoder-cn/settings.json providers.',
+    'Set MOSS_BENCH_API_KEY, MOSS_BENCH_MODEL and MOSS_BENCH_BASE_URL in the',
+    'environment, or supply the model and base URL with the flags above.',
   ].join('\n');
 }
 
@@ -160,35 +159,13 @@ export function sampleTaskIds(ids, count, seed = 'moss-bench') {
   return [...pinned, ...rest.slice(0, count - pinned.length)].sort();
 }
 
-function loadQoderDeepseekProvider() {
-  const settingsPath = path.join(os.homedir(), '.qoder-cn', 'settings.json');
-  try {
-    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    for (const entry of Object.values(settings.providers ?? {})) {
-      const models = Array.isArray(entry.models) ? entry.models.map((m) => m.model) : [];
-      const names = [entry.model, ...models].filter(Boolean);
-      if (names.some((n) => String(n).toLowerCase().startsWith('deepseek'))) {
-        return {
-          model: names.find((n) => String(n).toLowerCase().startsWith('deepseek')),
-          baseUrl: entry.baseUrl,
-          apiKey: entry.apiKey,
-        };
-      }
-    }
-  } catch {
-    // fall through to explicit env
-  }
-  return null;
-}
-
 function resolveProviderConfig(args) {
-  const qoder = loadQoderDeepseekProvider();
-  const apiKey = process.env.MOSS_BENCH_API_KEY || qoder?.apiKey;
-  const model = args.model || qoder?.model;
-  const baseUrl = args.baseUrl || qoder?.baseUrl;
-  if (!apiKey || !model || !baseUrl) {
+  const apiKey = process.env.MOSS_BENCH_API_KEY;
+  const model = args.model ?? process.env.MOSS_BENCH_MODEL;
+  const baseUrl = args.baseUrl ?? process.env.MOSS_BENCH_BASE_URL;
+  if (!apiKey?.trim() || !model?.trim() || !baseUrl?.trim()) {
     console.error(
-      '[bench] no provider config: set MOSS_BENCH_API_KEY (with --model/--base-url) or add a deepseek provider to ~/.qoder-cn/settings.json'
+      '[bench] no provider config: set MOSS_BENCH_API_KEY, MOSS_BENCH_MODEL (or --model), and MOSS_BENCH_BASE_URL (or --base-url)'
     );
     process.exit(2);
   }
