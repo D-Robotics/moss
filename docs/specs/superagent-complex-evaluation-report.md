@@ -100,3 +100,5 @@ npm run bench:superagent -- --env-file /absolute/private.env --max-requests 100
 本机 macOS / Node 24.21.0。verify 的 PATH 前置了真实 Git、装有 pyte 0.8.2 的 QA venv，以及给真实 Clang 指定 MacOSX15.4 SDK 的临时 cc/gcc 包装脚本；没有替换编译结果或修改系统工具链。新增真实模型轮与最终构建的原生 worker SHA-256 一致。未运行 Linux、Windows 或真实板卡验收。
 
 这次能确认的价值是持久化工单控制面可工作，不能确认它让复杂业务开发更强。原版本身已有子代理、worktree、取消、会话恢复和 Task Runtime；这些能力不归为新增优势。此次也未验证自动任务拆解、自动合并、DSH、Web UI 或外部消息适配。
+
+2026-11-03 的后续等请求额度三轮对照见 [收益验证结果](superagent-benefit-check-report.md)，其中另行披露有效预算、名义 CLI 上限差异及人工补充集成结果；不覆盖本报告的历史失败记录。

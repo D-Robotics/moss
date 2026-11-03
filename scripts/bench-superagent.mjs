@@ -261,11 +261,14 @@ async function main() {
   };
   if (args.includes('--help')) {
     console.log(
-      'Usage: node scripts/bench-superagent.mjs --env-file <private.env> [--base-url URL] [--model ID] [--output DIR] [--resume-from DIR] [--lifecycle-only]\nReal model comparison and durable multi-ticket fault drill. Default global budget 100; explicitly approved extension up to 160.'
+      'Usage: node scripts/bench-superagent.mjs --env-file <private.env> [--base-url URL] [--model ID] [--output DIR] [--resume-from DIR] [--lifecycle-only] [--fair-coding] [--first-arm baseline|superagent]\nReal model comparison and durable multi-ticket fault drill. Fair coding splits an even budget equally, skips preflight and lifecycle, and requires fresh workspaces.'
     );
     return;
   }
   const envFile = flag('--env-file');
+  const fairCoding = args.includes('--fair-coding');
+  const firstArm = flag('--first-arm') ?? 'baseline';
+  if (!['baseline', 'superagent'].includes(firstArm)) throw new Error('Invalid first arm');
   if (!envFile)
     throw new Error(
       '--env-file with MOSS_BENCH_API_KEY is required; never pass a key on the command line'
@@ -292,14 +295,20 @@ async function main() {
   const resumeFrom = flag('--resume-from') && path.resolve(flag('--resume-from'));
   const previous =
     resumeFrom && JSON.parse(await fs.readFile(path.join(resumeFrom, 'summary.json'), 'utf8'));
+  if (fairCoding && (resumeFrom || lifecycleOnly || maxRequests % 2 !== 0))
+    throw new Error('Fair coding requires a fresh, even-budget business run');
   if (previous && (previous.model !== model || previous.endpoint !== baseUrl))
     throw new Error('Continuation must use the same endpoint and model');
-  const codingQuota = resumeFrom ? 20 : Math.max(1, Math.floor((maxRequests - 21) / 2));
+  const codingQuota = fairCoding
+    ? maxRequests / 2
+    : resumeFrom
+      ? 20
+      : Math.max(1, Math.floor((maxRequests - 21) / 2));
   const groupLimits = {
-    'baseline:preflight': resumeFrom || lifecycleOnly ? 0 : 1,
+    'baseline:preflight': resumeFrom || lifecycleOnly || fairCoding ? 0 : 1,
     'baseline:coding': lifecycleOnly ? 0 : codingQuota,
     'superagent:coding': lifecycleOnly ? 0 : codingQuota,
-    'superagent:lifecycle': 20,
+    'superagent:lifecycle': fairCoding ? 0 : 20,
   };
   const output = path.resolve(
     flag('--output') ?? path.join(repo, 'bench', 'results', `superagent-operations-${Date.now()}`)
@@ -335,6 +344,8 @@ async function main() {
   });
   const summary = {
     schemaVersion: 1,
+    fairCoding,
+    firstArm,
     purpose: lifecycleOnly
       ? 'Independent control-plane receipt proof; no business completion claimed'
       : 'Complex operations business comparison',
@@ -375,6 +386,8 @@ async function main() {
     hashes[file] = createHash('sha256')
       .update(await fs.readFile(file))
       .digest('hex');
+  summary.frozenHashes = hashes;
+  summary.seedTrees = {};
   const timer = setTimeout(() => {
     evaluationDeadline = Date.now();
     summary.interrupted = 'overall time budget';
@@ -389,12 +402,19 @@ async function main() {
   process.once('SIGINT', cancel);
   let runtime;
   try {
-    for (const arm of lifecycleOnly ? ['superagent'] : ['baseline', 'superagent']) {
+    for (const arm of lifecycleOnly
+      ? ['superagent']
+      : firstArm === 'baseline'
+        ? ['baseline', 'superagent']
+        : ['superagent', 'baseline']) {
       if (Date.now() >= evaluationDeadline)
         throw new Error('Evaluation cancelled or overall time budget exceeded');
       console.log(`[evaluation] starting ${arm} coding`);
       const root = path.join(resumeFrom ?? output, arm);
       if (!resumeFrom) await seed(root);
+      summary.seedTrees[arm] = (
+        await runGit(['rev-parse', 'HEAD^{tree}'], { cwd: root, readOnly: true })
+      ).stdout.trim();
       const configFile = path.join(privateDir, `${arm}.json`);
       await fs.writeFile(
         configFile,
@@ -426,7 +446,7 @@ async function main() {
         }),
         { mode: 0o600 }
       );
-      if (arm === 'baseline' && !resumeFrom) {
+      if (arm === 'baseline' && !resumeFrom && !fairCoding) {
         relay.setPhase('preflight');
         const preflight = launch(
           [
@@ -616,7 +636,7 @@ async function main() {
       console.log(
         `[evaluation] ${arm}: ${results.filter((item) => item.passed).length}/${activeCases.length} cases, integration=${summary.arms[arm].integration.passed}`
       );
-      if (arm === 'superagent' && results.every((item) => item.passed)) {
+      if (!fairCoding && arm === 'superagent' && results.every((item) => item.passed)) {
         relay.setPhase('lifecycle');
         const events = [];
         const original = runtime
@@ -806,7 +826,7 @@ async function main() {
           (lifecycleOnly || arm.integration.passed) &&
           arm.parentClean
       ) &&
-      summary.lifecycle?.passed === true &&
+      (fairCoding || summary.lifecycle?.passed === true) &&
       summary.oracleUnchanged;
   } catch (error) {
     summary.passed = false;
