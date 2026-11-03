@@ -36,7 +36,7 @@ import { experienceEnabled, recordAcceptedExperience } from '../experience/exper
 import {
   appendJsonlFile,
   appendTaskRecord,
-  listEvidenceRecords,
+  listTaskEvidenceRecords,
   listTaskRecords,
   readJsonlFile,
 } from '../task-runtime/artifacts.js';
@@ -413,7 +413,7 @@ export async function getTaskStateSnapshot(
       listTaskEvents(workspaceDir, taskId),
       listFailures(workspaceDir, taskId),
       listRepairs(workspaceDir, taskId),
-      listEvidenceRecords(workspaceDir, 1000),
+      listTaskEvidenceRecords(workspaceDir, taskId),
       listAcceptanceVerdicts(workspaceDir, taskId),
     ] as const;
     const [events, failures, repairs, evidence, verdicts] = await Promise.all(reads).catch(
@@ -428,7 +428,6 @@ export async function getTaskStateSnapshot(
     const phase = folded.phase;
     const applied = folded.applied;
     const attempt = applied.filter((event) => event.type === 'verification_started').length;
-    const taskEvidence = evidence.filter((record) => record.taskId === taskId);
     const aborted = phase === 'failed' && latestTaskFailureDetail(applied) === 'aborted';
     const outcome = aborted ? 'aborted' : deriveTaskOutcome(phase);
     const lastVerdict = latestAcceptanceVerdict(verdicts);
@@ -447,7 +446,7 @@ export async function getTaskStateSnapshot(
       attempt,
       failures,
       repairs,
-      evidenceCount: taskEvidence.length,
+      evidenceCount: evidence.length,
       ...(lastVerdict ? { lastVerdict } : {}),
       ...(phase === 'blocked' ? { blockedReason: blockedReasonFromEvents(applied) } : {}),
       createdAt: contract.createdAt,

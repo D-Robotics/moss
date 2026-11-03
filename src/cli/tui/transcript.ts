@@ -553,14 +553,17 @@ function resultLines(text: string): string[] {
 
 // ─── committed transcript rows ────────────────────────────────────────────
 
-/**
- * One committed row → lines. Every block starts with a blank line so entries
- * stay readable as they scroll past, exactly like the reference CLI.
- *
- * `verbose` is the detailed-transcript toggle (ctrl+o in the reference): it
- * renders every tool-output line instead of the compact preview, and reveals
- * the reasoning a row carries. Default false, so existing callers are unchanged.
- */
+/** Keep a result beside its own call, not another concurrent call. */
+export function isAttachedResult(row: TranscriptRow, previous?: TranscriptRow): boolean {
+  if (row.kind !== 'result' || (previous?.kind !== 'tool' && previous?.kind !== 'result')) {
+    return false;
+  }
+  const callId = row.tool?.callId;
+  const previousId = previous.tool?.callId;
+  return !callId || !previousId || callId === previousId;
+}
+
+/** Project a committed row; verbose mode reveals the full output and reasoning. */
 export function renderTranscriptRow(
   row: TranscriptRow,
   width: number,
@@ -569,8 +572,7 @@ export function renderTranscriptRow(
 ): TuiLine[] {
   // A tool's result belongs to the call right above it: no blank line between
   // `⏺ Read(x)` and its `⎿ …`, and consecutive results of one fold stay a block.
-  const attached =
-    row.kind === 'result' && (previous?.kind === 'tool' || previous?.kind === 'result');
+  const attached = isAttachedResult(row, previous);
   const out: TuiLine[] = attached ? [] : [line('')];
   switch (row.kind) {
     case 'user': {
@@ -976,17 +978,15 @@ export function renderLive(view: LiveView, width: number, verbose = false): TuiL
   // Silence is information too: past the hint threshold the spinner stops
   // pretending the model is thinking and says the stream has gone quiet (a
   // stuck upstream gateway reads exactly like this until the watchdog aborts).
-  if (view.lastEventAt !== undefined) {
+  if (view.lastEventAt !== undefined && !view.toolLine && !view.waitingForDevice) {
     const quietS = Math.floor((Date.now() - view.lastEventAt) / 1000);
     if (quietS >= STALL_HINT_S) {
       out.push(
         line(
           clip(
-            view.waitingForDevice
-              ? tui('  … waiting for device')
-              : tui('  … stream quiet for {seconds}s — the gateway may be stuck', {
-                  seconds: quietS,
-                }),
+            tui('  … stream quiet for {seconds}s — the gateway may be stuck', {
+              seconds: quietS,
+            }),
             width
           ),
           { color: TONE.warn }
@@ -1599,14 +1599,17 @@ export function foldReadonlyRows(
         if (
           current.kind !== 'tool' ||
           !current.tool?.name ||
-          !READONLY_PREVIEW_TOOLS.has(current.tool.name)
+          !READONLY_PREVIEW_TOOLS.has(current.tool.name) ||
+          rows[cursor + 1]?.kind !== 'result' ||
+          rows[cursor + 1]?.tool?.isError ||
+          rows[cursor + 1]?.tool?.abortedBy ||
+          (current.tool.callId && current.tool.callId !== rows[cursor + 1]?.tool?.callId)
         ) {
           break;
         }
         if (current.tool.name.includes('list') || current.tool.name === 'search_files') lists += 1;
         else reads += 1;
-        cursor += 1;
-        if (rows[cursor]?.kind === 'result') cursor += 1;
+        cursor += 2;
       }
       if (reads + lists > 1) {
         const parts = [

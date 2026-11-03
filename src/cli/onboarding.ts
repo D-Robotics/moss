@@ -25,6 +25,7 @@ import {
 import { isZhLocale } from './cli-locale.js';
 import { PermissionRuleRegistry } from './permission-rules.js';
 import { workspaceWriteLimit } from './workspace-write-copy.js';
+import { formatCliInteractionModeLabel, type CliInteractionMode } from './interaction-mode.js';
 
 export interface CliRuntimeStatus {
   workspace?: string;
@@ -459,7 +460,13 @@ function permissionsHelpText(): string {
  * workspace / session — v0.26 T04: the rule manager makes sources visible).
  */
 export function permissionRuleLines(
-  rules: readonly { level: string; toolName: string; operandPattern?: string; source: string }[],
+  rules: readonly {
+    level: string;
+    toolName: string;
+    operandPattern?: string;
+    source: string;
+    workspaceFileOnly?: boolean;
+  }[],
   sources: { userPath?: string; workspacePath?: string }
 ): string[] {
   const zh = isZhLocale();
@@ -476,18 +483,26 @@ export function permissionRuleLines(
   };
   return rules.map((rule) => {
     const spec = rule.operandPattern ? `${rule.toolName}(${rule.operandPattern})` : rule.toolName;
-    return `    ${rule.level.padEnd(5)} ${spec}  —  ${describeSource(rule.source)}`;
+    const scope = rule.workspaceFileOnly
+      ? zh
+        ? '，仅工作区文件编辑'
+        : ', workspace file edits only'
+      : '';
+    return `    ${rule.level.padEnd(5)} ${spec}  —  ${describeSource(rule.source)}${scope}`;
   });
 }
 
 export function renderCliPermissions(
   runtime: CliRuntimeStatus = {},
-  options: { verbose?: boolean; locale?: string } = {}
+  options: { verbose?: boolean; locale?: string; currentMode?: CliInteractionMode } = {}
 ): string {
   const rt = runtimeWithDefaults(runtime);
   const auth = rt.config;
   const permissions = auth.permissions;
   const zh = isZhLocale(options.locale);
+  const currentModeLine = options.currentMode
+    ? `  ${label(zh ? '当前模式' : 'current mode')} ${formatCliInteractionModeLabel(options.currentMode, zh)}`
+    : undefined;
   const modeLabel =
     permissions?.defaultMode === 'manual'
       ? 'manual'
@@ -510,6 +525,7 @@ export function renderCliPermissions(
       ui.bold(ui.black(zh ? '权限与配置' : 'Permissions & Config')),
       ...configSnapshotLines(auth, ['configPath', 'profile']),
       `  ${label(zh ? '工作区' : 'workspace')} ${auth.workspace} (${auth.workspaceSource})`,
+      ...(currentModeLine ? [currentModeLine] : []),
       `  ${label(zh ? '默认模式' : 'default mode')} ${modeLabel}${ceiling ? (zh ? ' + 只读上限' : ' + read-only ceiling') : ''} (${permissions?.source ?? 'default'})`,
       `  ${workspaceWriteLimit(zh)}`,
       `  ${label(zh ? '规则' : 'rules')} allow ${allowCount} · ask ${askCount} · deny ${denyCount}`,
@@ -522,6 +538,13 @@ export function renderCliPermissions(
       ...(permissions && permissions.legacyKeysUsed.length > 0
         ? [
             `  ${label(zh ? '旧键迁移' : 'legacy keys')} ${permissions.legacyKeysUsed.join(', ')} ${zh ? '（已按迁移表翻译，建议改用 permissions.* 新键）' : '(migrated on read — prefer the permissions.* keys)'}`,
+          ]
+        : []),
+      ...(currentModeLine
+        ? [
+            zh
+              ? '  启动时配置（会话模式可能已改变）：'
+              : '  Startup configuration (the session mode may have changed):',
           ]
         : []),
       ...configSnapshotLines(auth, [
@@ -544,6 +567,7 @@ export function renderCliPermissions(
   }
   return [
     ui.bold(ui.black(zh ? '权限' : 'Permissions')),
+    ...(currentModeLine ? [currentModeLine] : []),
     `  ${label(zh ? '默认模式' : 'default mode')} ${modeLabel}${ceiling ? ' (read-only ceiling)' : ''}`,
     `  ${workspaceWriteLimit(zh)}`,
     `  ${label(zh ? '工作区' : 'workspace')} ${auth.workspace}`,

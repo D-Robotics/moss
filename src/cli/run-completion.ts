@@ -27,6 +27,7 @@ import { ExitCode } from './exit-codes.js';
 import path from 'node:path';
 import { canonicalPath } from '../safety/shell-write-detect.js';
 import { rawMutationPaths } from '../core/tools/tool-loop-guard.js';
+import { stripNegatedActionClauses } from '../utils/request-intent.js';
 
 export type VerificationCheck = 'format' | 'lint' | 'typecheck' | 'test' | 'check';
 
@@ -607,9 +608,8 @@ const SOFT_ZH_CHANGE_NON_IMPERATIVE =
 export function requestExpectsFileChanges(request: string): boolean {
   const text = request.trim();
   if (!text || QUESTION_ONLY.test(text)) return false;
-  if (!EXPECTS_CHANGES.test(text)) return false;
-  // If the only hits were soft ZH verbs in Q/hypothetical frames, do not expect writes.
-  const scrubbed = text.replace(SOFT_ZH_CHANGE_NON_IMPERATIVE, ' ');
+  // A negated directive such as “不要修改文件” is not a request to edit.
+  const scrubbed = stripNegatedActionClauses(text.replace(SOFT_ZH_CHANGE_NON_IMPERATIVE, ' '));
   return EXPECTS_CHANGES.test(scrubbed);
 }
 

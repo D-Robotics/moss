@@ -7,10 +7,9 @@
 // bench/results/<label>/summary.json. Zero npm dependencies by design: the
 // benchmark itself must not grow the complexity it measures.
 //
-// Provider defaults come from the Qoder custom provider entry that serves a
-// deepseek model (~/.qoder-cn/settings.json). Override with MOSS_BENCH_API_KEY /
-// --model / --base-url. The API key is written only to a 0600 config.json in a
-// temporary MOSS_CONFIG_DIR and is never printed or committed.
+// Provider settings come from MOSS_BENCH_API_KEY, MOSS_BENCH_MODEL and
+// MOSS_BENCH_BASE_URL; --model and --base-url override the latter two.
+// The API key is written to a 0600 temporary config.json; --keep retains it.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -40,23 +39,26 @@ function usage() {
     '                       same subset. Default seed is moss-bench. Re-measure',
     '                       bench:noise on that subset; do not reuse a larger band.',
     '  --seed <text>        Seed for --tasks (default moss-bench)',
-    '  --temperature <t>    Pin MOSS_TEMPERATURE (default 0; "none" leaves it unset)',
-    '  --model <id>         Override the benchmark model id',
-    '  --base-url <url>     Override the provider base URL',
+    '  --temperature <t>    Pin MOSS_TEMPERATURE to 0..2 (default 0; "none" does not pin it)',
+    '  --model <id>         Model id (overrides MOSS_BENCH_MODEL)',
+    '  --base-url <url>     Provider base URL (overrides MOSS_BENCH_BASE_URL)',
     '  --label <name>       Result directory name (default run-<timestamp>)',
     '  --baseline <name>    Compare against a prior run (label or results path).',
     '  --capability-gate <name>  Release gate: hard-tier score must beat the named',
     '                       baseline run by >=10 points; exit 1 otherwise.',
     '                       Reads bench/results/noise-band.json when present; exit 1',
     '                       if any task pass-rate drops beyond the noise band.',
-    '  --keep               Keep temporary workspaces/config for debugging',
+    '  --keep               Keep temporary workspaces/config, including the provider key',
     '  --keep-artifacts     Copy <workspace>/.moss to bench/results/<label>/<task>-NN.moss',
     '                       before the workspace is deleted',
     '  --list               List tasks and exit',
     '  --help               Show this help',
     '',
-    'API key resolution: MOSS_BENCH_API_KEY env var, else the deepseek entry in',
-    '~/.qoder-cn/settings.json providers.',
+    'Options with values also accept --option=value, including values starting with --.',
+    '',
+    'Set MOSS_BENCH_API_KEY, MOSS_BENCH_MODEL and MOSS_BENCH_BASE_URL in the',
+    'environment, or supply the model and base URL with the flags above.',
+    'The summary omits the base URL because it may contain credentials.',
   ].join('\n');
 }
 
@@ -72,10 +74,21 @@ function parseArgs(argv) {
     capabilityGate: undefined,
   };
   for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
+    const rawArg = argv[i];
+    const equals = rawArg.indexOf('=');
+    const arg = equals === -1 ? rawArg : rawArg.slice(0, equals);
+    let inlineValue = equals === -1 ? undefined : rawArg.slice(equals + 1);
     const next = () => {
-      const value = argv[++i];
-      if (value === undefined) throw new Error(`${arg} requires a value`);
+      const inline = inlineValue !== undefined;
+      const value = inline ? inlineValue : argv[++i];
+      inlineValue = undefined;
+      if (
+        value === undefined ||
+        (arg !== '--seed' && value.trim() === '') ||
+        (!inline && (value === '-h' || value.startsWith('--')))
+      ) {
+        throw new Error(`${arg} requires a value`);
+      }
       return value;
     };
     if (arg === '--samples') out.samples = Number(next());
@@ -85,7 +98,16 @@ function parseArgs(argv) {
     else if (arg === '--baseline') out.baseline = next();
     else if (arg === '--capability-gate') out.capabilityGate = next();
     else if (arg === '--temperature') {
-      out.temperature = next() === 'none' ? undefined : Number(next());
+      const value = next();
+      if (value === 'none') {
+        out.temperature = undefined;
+      } else {
+        const temperature = Number(value);
+        if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
+          throw new Error('--temperature must be a number between 0 and 2, or none');
+        }
+        out.temperature = temperature;
+      }
     } else if (arg === '--model') out.model = next();
     else if (arg === '--base-url') out.baseUrl = next();
     else if (arg === '--label') out.label = next();
@@ -93,7 +115,8 @@ function parseArgs(argv) {
     else if (arg === '--keep-artifacts') out.keepArtifacts = true;
     else if (arg === '--list') out.list = true;
     else if (arg === '--help' || arg === '-h') out.help = true;
-    else throw new Error(`unknown flag: ${arg}`);
+    else throw new Error(`unknown flag: ${rawArg}`);
+    if (inlineValue !== undefined) throw new Error(`${arg} does not accept a value`);
   }
   if (!Number.isInteger(out.samples) || out.samples < 1)
     throw new Error('--samples must be a positive integer');
@@ -137,35 +160,13 @@ export function sampleTaskIds(ids, count, seed = 'moss-bench') {
   return [...pinned, ...rest.slice(0, count - pinned.length)].sort();
 }
 
-function loadQoderDeepseekProvider() {
-  const settingsPath = path.join(os.homedir(), '.qoder-cn', 'settings.json');
-  try {
-    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    for (const entry of Object.values(settings.providers ?? {})) {
-      const models = Array.isArray(entry.models) ? entry.models.map((m) => m.model) : [];
-      const names = [entry.model, ...models].filter(Boolean);
-      if (names.some((n) => String(n).toLowerCase().startsWith('deepseek'))) {
-        return {
-          model: names.find((n) => String(n).toLowerCase().startsWith('deepseek')),
-          baseUrl: entry.baseUrl,
-          apiKey: entry.apiKey,
-        };
-      }
-    }
-  } catch {
-    // fall through to explicit env
-  }
-  return null;
-}
-
 function resolveProviderConfig(args) {
-  const qoder = loadQoderDeepseekProvider();
-  const apiKey = process.env.MOSS_BENCH_API_KEY || qoder?.apiKey;
-  const model = args.model || qoder?.model;
-  const baseUrl = args.baseUrl || qoder?.baseUrl;
-  if (!apiKey || !model || !baseUrl) {
+  const apiKey = process.env.MOSS_BENCH_API_KEY;
+  const model = args.model ?? process.env.MOSS_BENCH_MODEL;
+  const baseUrl = args.baseUrl ?? process.env.MOSS_BENCH_BASE_URL;
+  if (!apiKey?.trim() || !model?.trim() || !baseUrl?.trim()) {
     console.error(
-      '[bench] no provider config: set MOSS_BENCH_API_KEY (with --model/--base-url) or add a deepseek provider to ~/.qoder-cn/settings.json'
+      '[bench] no provider config: set MOSS_BENCH_API_KEY, MOSS_BENCH_MODEL (or --model), and MOSS_BENCH_BASE_URL (or --base-url)'
     );
     process.exit(2);
   }
@@ -384,7 +385,7 @@ async function main() {
   const total = tasks.length * args.samples;
   let done = 0;
   console.log(
-    `[bench] model=${provider.model} samples=${args.samples} tasks=${tasks.length} temperature=${args.temperature ?? 'unset'} label=${label}`
+    `[bench] model=${provider.model} samples=${args.samples} tasks=${tasks.length} temperature=${args.temperature ?? 'not-pinned'} label=${label}`
   );
 
   try {
@@ -558,8 +559,8 @@ async function main() {
       nodeVersion: process.version,
       platform: `${os.platform()}/${os.arch()}`,
       model: provider.model,
-      baseUrl: provider.baseUrl,
-      temperature: args.temperature ?? 'unset',
+      baseUrl: '[omitted]',
+      temperature: args.temperature ?? 'not-pinned',
       samples: args.samples,
       ...(args.tasks
         ? {

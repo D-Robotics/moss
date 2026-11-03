@@ -42,6 +42,7 @@ import {
   parsePermissionRuleSpec,
   resolvePermissionDecision,
   type PermissionRule,
+  type PermissionRuleRegistry,
   type ResolvedPermissionRules,
 } from './permission-rules.js';
 import { buildApprovalDetailLines, type ApprovalDetailContext } from './approval-detail.js';
@@ -150,6 +151,8 @@ export interface CliToolApprovalOptions {
    * translated into rules internally.
    */
   permissionRules?: () => ResolvedPermissionRules;
+  /** Shared session registry for grants created by the interactive approval UI. */
+  sessionPermissionRules?: PermissionRuleRegistry;
 
   /**
    * v0.26 (T03): startup read-only ceiling (--read-only / env / migrated
@@ -481,7 +484,8 @@ function isAllowedInMode(
       sideEffect === 'memory_write' ||
       sideEffect === 'runtime_state' ||
       sideEffect === 'subagent' ||
-      sideEffect === 'external_message'
+      sideEffect === 'external_message' ||
+      sideEffect === 'device_mutation'
     );
   }
   return true;
@@ -564,14 +568,6 @@ function isWorkspaceTrustEligible(
 ): boolean {
   return preview.workspaceFileMutation;
 }
-
-/**
- * v0.26 (T03): the old isSessionTrustEligible special case (which excluded
- * device_exec from 'a') is retired — "don't ask again" now writes a SESSION
- * allow rule for the whole tool, device tools included (PRD W2: the rule
- * system replaces the class-level exclusion). Every tool that reaches the
- * asker can therefore be granted.
- */
 
 function previewInput(input: Record<string, unknown>): string {
   const raw = sanitizeSecrets(JSON.stringify(input, null, 2));
@@ -743,10 +739,9 @@ function approvalScopeSummary(
 }
 
 function approvalAlwaysSummary(preview: CliToolApprovalPreview): string | undefined {
-  if (isWorkspaceTrustEligible(preview)) return 'trust workspace file edits for this session';
-  // v0.26 (T03): 'a' writes a session allow rule for ANY tool (device_exec
-  // included) — the rule system replaced the class-level eligibility gate.
-  return `allow ${preview.toolName} for the session`;
+  if (preview.sideEffect === 'device_mutation') return undefined;
+  if (isWorkspaceTrustEligible(preview)) return 'trusts workspace file-tool edits';
+  return `allows ${preview.toolName}`;
 }
 
 export interface TaskApprovalContext {
@@ -823,11 +818,12 @@ export function renderCliApprovalPrompt(
   preview: CliToolApprovalPreview,
   input: Record<string, unknown>,
   detailCtx: ApprovalDetailContext = {},
-  task?: TaskApprovalContext
+  task?: TaskApprovalContext,
+  options: { persistTrust?: boolean; allowTrust?: boolean } = {}
 ): string {
   const target = approvalTargetSummary(preview.toolName, input);
   const detail = buildApprovalDetailLines(preview.toolName, preview.sideEffect, input, detailCtx);
-  const always = approvalAlwaysSummary(preview);
+  const always = options.allowTrust === false ? undefined : approvalAlwaysSummary(preview);
   const taskBlock = buildTaskApprovalBlock(preview, input, task);
 
   const lines = [
@@ -850,10 +846,17 @@ export function renderCliApprovalPrompt(
   lines.push('');
   lines.push(`Scope: ${approvalScopeSummary(preview, input)}`);
   if (always) {
-    lines.push('([a]lways trusts workspace file-tool edits — this Moss session only)');
+    const duration = options.persistTrust
+      ? 'this session and attempt to save to the user config'
+      : 'this Moss session only';
+    lines.push(`([a]lways ${always} — ${duration})`);
     lines.push('Allow once, [a]lways, or [N]o? ');
   } else {
-    lines.push('Allow once or deny (device mutations always re-prompt). [y/N] ');
+    lines.push(
+      preview.sideEffect === 'device_mutation'
+        ? 'Allow once or deny (device mutations always re-prompt). [y/N] '
+        : 'Allow once or deny. [y/N] '
+    );
   }
 
   return lines.join('\n');
@@ -907,12 +910,9 @@ export function describeApprovalDialog(
 ): ApprovalDialog {
   const title = approvalDialogTitle(preview.toolName);
   const subject = approvalTargetSummary(preview.toolName, input) || undefined;
-  // A6.52 + v0.26 (T03): say what `a` ACTUALLY grants. Workspace file edits
-  // trust the sandboxed edit family; every OTHER tool now gets a session
-  // allow rule (device_exec included — the class-level exclusion was replaced
-  // by the rule system, PRD W2). With persistTrust, `a` also writes to the
-  // config, so the label says so instead of promising a session-only grant.
-  const grantScope = options.persistTrust ? ' (saved)' : ' this session';
+  // Device mutations do not get a blanket grant from an ordinary approval.
+  // Destructive or sensitive calls may instead offer their explicit scope.
+  const grantScope = options.persistTrust ? ' (try to save in user config)' : ' this session';
   const trustOptionLabel = isWorkspaceTrustEligible(preview)
     ? `Yes, and don\u2019t ask again for file edits${grantScope}`
     : `Yes, and always allow ${preview.toolName}${grantScope}`;
@@ -923,8 +923,7 @@ export function describeApprovalDialog(
     scope: approvalScopeSummary(preview, input),
     question: approvalDialogQuestion(title, subject),
     ...(trustOptionLabel ? { trustOptionLabel } : {}),
-    // v0.26: 'a' always grants at least a session allow rule.
-    trustOptionAvailable: true,
+    trustOptionAvailable: preview.sideEffect !== 'device_mutation',
     ...(preview.toolName === 'web_fetch'
       ? { denyOptionLabel: 'No, and tell moss what to do differently (esc)' }
       : {}),
@@ -1116,9 +1115,8 @@ export function createCliToolApprovalHook(
   env: NodeJS.ProcessEnv = process.env,
   options: CliToolApprovalOptions = {}
 ): CliToolApprovalHook {
-  // v0.26 (T03): session allow rules from 'a' — whole-tool grants (device_exec
-  // included, PRD W2). Workspace FILE trust keeps its own set (the sandboxed
-  // edit family is a workspace-wide grant, design §3.4).
+  // Ordinary non-device 'a' grants apply to a tool or the file-edit family.
+  // Sensitive and destructive device grants use the narrower scope below.
   const sessionAllowRules = new Set<string>();
   const sessionTrustedWorkspaces = new Set<string>();
   /** O94: "always for this path" grants — session only, never persisted. */
@@ -1144,22 +1142,27 @@ export function createCliToolApprovalHook(
 
     // ── live assembly (the hook ONLY assembles; ordering lives in
     // permission-rules.resolvePermissionDecision, design §7-4) ──
-    const interaction: CliInteractionMode =
-      instanceInteractionMode?.() ?? options.interactionMode?.() ?? getCliInteractionMode();
-    // The mode axis derives the safety mode (T01): mode=full → full-access +
-    // never. The legacy `mode` constructor argument and the env auto-approve
-    // keys fold in as full-equivalent overrides (§3.3: they ARE mode
-    // overrides) so direct embedders keep their semantics inside the single
-    // decision order. Legacy trustedTools/deniedTools options translate to
-    // rules the same way.
+    const liveInteraction = instanceInteractionMode?.() ?? options.interactionMode?.();
+    const interaction: CliInteractionMode = liveInteraction ?? getCliInteractionMode();
+    // Hosts with a live mode resolver already fold startup flags and config
+    // into that mode. Do not let their original full-access defaults override
+    // a later switch to manual or plan. Legacy hosts without a resolver keep
+    // the constructor and environment auto-approval semantics.
     const effectiveMode: CliInteractionMode =
-      interaction === 'full' || hasAutoApproval(env, options) || mode === 'full-access'
-        ? 'full'
-        : interaction;
+      liveInteraction !== undefined
+        ? interaction
+        : interaction === 'full' || hasAutoApproval(env, options) || mode === 'full-access'
+          ? 'full'
+          : interaction;
     const quantas = deriveEngineQuantas(effectiveMode);
     const liveMode: CliSafetyMode = options.readOnlyCeiling ? 'read-only' : quantas.safetyMode;
 
-    const configRules: readonly PermissionRule[] = options.permissionRules?.().rules ?? [];
+    const configRules: readonly PermissionRule[] = [
+      ...new Set([
+        ...(options.permissionRules?.().rules ?? []),
+        ...(options.sessionPermissionRules?.list() ?? []),
+      ]),
+    ];
     const legacyTrusted = (options.trustedTools ?? []).map((toolName) =>
       parsePermissionRuleSpec(toolName, 'session', 'allow')
     );
@@ -1240,8 +1243,13 @@ export function createCliToolApprovalHook(
       return decision;
     };
 
-    const preview = describeCliToolApproval(request, liveMode, env, {
+    const previewEnv =
+      liveInteraction === undefined
+        ? env
+        : { ...env, MOSS_CLI_AUTO_APPROVE: undefined, MOSS_AUTO_APPROVE: undefined };
+    let preview = describeCliToolApproval(request, liveMode, previewEnv, {
       ...options,
+      ...(liveInteraction !== undefined ? { approvalPolicy: quantas.approvalPolicy } : {}),
       trustedTools: [...(options.trustedTools ?? []), ...sessionAllowRules],
     });
     const trustedWorkspace =
@@ -1262,6 +1270,17 @@ export function createCliToolApprovalHook(
 
     // ── the permission decision order (single implementation) ──
     const outcome = resolvePermissionDecision(decisionInput, resolvedRules);
+    if (outcome.decision === 'ask-rule' || hookAsks) {
+      preview = {
+        ...preview,
+        autoApproved: false,
+        boardAutoApproved: false,
+        decisionContext:
+          outcome.decision === 'ask-rule'
+            ? 'Approval required by an ask rule.'
+            : 'Approval required by a tool hook.',
+      };
+    }
 
     // ── O94: protected paths (.git/, ~/.ssh, shell rc, .env*, Moss config)
     // need one confirmation in EVERY mode, full included; -p denies. Deny
@@ -1348,7 +1367,7 @@ export function createCliToolApprovalHook(
         break;
     }
 
-    if (trustedWorkspace && !hookAsks) {
+    if (trustedWorkspace && outcome.decision === 'ask' && !hookAsks) {
       return settle({ approved: true });
     }
 
@@ -1358,9 +1377,10 @@ export function createCliToolApprovalHook(
       return settle({ approved: true });
     }
 
+    const allowTrust = outcome.decision !== 'ask-rule' && !hookAsks;
     const deviceGatedAsk =
-      outcome.decision === 'ask' &&
-      (outcome.reason === 'device-destructive' || outcome.reason === 'device-sensitive');
+      (outcome.decision === 'ask' || outcome.decision === 'ask-rule') &&
+      (classification?.tier === 'destructive' || classification?.tier === 'sensitive');
     const destructiveCopy =
       deviceGatedAsk && classification
         ? deviceDestructivePrompt({
@@ -1368,6 +1388,7 @@ export function createCliToolApprovalHook(
             tier: classification.tier === 'sensitive' ? 'sensitive' : 'destructive',
             operand: classification.operand,
             reason: classification.reason,
+            allowTrust,
             ...(classification.trust
               ? { trustEn: classification.trust.en, trustZh: classification.trust.zh }
               : {}),
@@ -1436,7 +1457,8 @@ export function createCliToolApprovalHook(
           workspaceDir: options.workspaceDir,
           device: options.device,
         },
-        taskCtx
+        taskCtx,
+        { persistTrust: options.persistTrust, allowTrust }
       );
     const hookLines = hookAsks ? hookAskPromptLines(hookAsks) : [];
     const prompt = hookLines.length > 0 ? `${hookLines.join('\n')}\n${basePrompt}` : basePrompt;
@@ -1459,22 +1481,35 @@ export function createCliToolApprovalHook(
       : baseDialog;
     // O157: name the hook and its reason first; `a` approves this call only
     // (the hook asks again next time).
+    const ruleDialog =
+      outcome.decision === 'ask-rule'
+        ? { ...policyDialog, trustOptionAvailable: false }
+        : policyDialog;
     const dialog: ApprovalDialog = hookAsks
       ? {
-          ...policyDialog,
+          ...ruleDialog,
           detail: [...hookLines, ...policyDialog.detail],
           trustOptionLabel: isZhLocale()
             ? '是，仅这一次（该钩子下次仍会要求确认）'
             : 'Yes, this time (the hook will ask again next time)',
           trustOptionAvailable: true,
         }
-      : policyDialog;
+      : ruleDialog;
     // Precedence: a structured UI (which renders the dialog itself) wins over
     // the flattened-prompt asker; headless/tests keep using the string path.
     const viewAsker = getCliApprovalViewAsker();
-    const answer = viewAsker
-      ? normalizeApprovalAnswer(await viewAsker(buildCliApprovalView(dialog), request.abortSignal))
-      : (await (asker ?? defaultAskUser)(prompt, request.abortSignal, dialog)).trim().toLowerCase();
+    let answer: string;
+    if (viewAsker) {
+      const view = buildCliApprovalView(dialog);
+      const rawAnswer = await viewAsker(view, request.abortSignal);
+      answer =
+        view.options.find((option) => option.key === rawAnswer.trim())?.answer ??
+        normalizeApprovalAnswer(rawAnswer);
+    } else {
+      answer = (await (asker ?? defaultAskUser)(prompt, request.abortSignal, dialog))
+        .trim()
+        .toLowerCase();
+    }
 
     // "Yes, but let me add something first": run the tool, and the UI stages the
     // composer for the user's follow-up. Not a session-wide trust grant.
@@ -1489,19 +1524,37 @@ export function createCliToolApprovalHook(
       return settle({ approved: false, reason: hookAskDeniedReason(tool.name, hookAsks) });
     }
     if (answer === 'a' || answer === 'always') {
+      if (!allowTrust) return settle({ approved: true });
       if (deviceGatedAsk) {
         // Trust this command scope on this device, not every destructive call.
         const trustedScope = classification?.trust?.id;
         if (trustedScope) {
           for (const key of scopeDevices) sessionTrustedScopes.add(`${key}\0${trustedScope}`);
         }
+      } else if (sideEffect === 'device_mutation') {
+        // A free-form device tool can also perform dangerous operations. An
+        // ordinary approval never creates an implicit allow for the tool.
+        return settle({ approved: true });
+      } else if (options.sessionPermissionRules) {
+        const granted = isWorkspaceTrustEligible(preview)
+          ? [...WORKSPACE_FILE_MUTATION_TOOLS]
+          : [tool.name];
+        for (const name of granted) {
+          const exists = options.sessionPermissionRules
+            .list()
+            .some(
+              (rule) => rule.level === 'allow' && rule.toolName === name && !rule.operandPattern
+            );
+          if (!exists) {
+            options.sessionPermissionRules.add({
+              ...parsePermissionRuleSpec(name, 'session', 'allow'),
+              ...(isWorkspaceTrustEligible(preview) ? { workspaceFileOnly: true } : {}),
+            });
+          }
+        }
       } else if (isWorkspaceTrustEligible(preview)) {
         sessionTrustedWorkspaces.add(workspaceRoot);
       } else {
-        // v0.26 (T03): 'a' writes a session allow rule for the whole tool —
-        // device_exec included (the old class-level exclusion is replaced by
-        // the rule system, PRD W2). The next tool call resolves it through
-        // the live rule table without prompting.
         sessionAllowRules.add(tool.name);
       }
       if (options.persistTrust && !deviceGatedAsk) persistAllowRule(preview, tool.name);

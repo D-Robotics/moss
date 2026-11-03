@@ -18,6 +18,7 @@ import {
   userQuestionsOffered,
 } from './session-tool-offer.js';
 import { omitTaskPhasePrompts } from './task-phase-prompt.js';
+import { snapshotHarnessAdapter } from './harness-adapter.js';
 import { getUserQuestionAsker } from '../tools/user-question-asker.js';
 import { mergeLeasePatch } from '../subagent/worktree-isolation.js';
 import type { AgentLoopRun } from './agent-loop-run-state.js';
@@ -931,6 +932,14 @@ ${result.stderr ?? ''}`.trim();
     options?: ChatOptions
   ): Promise<AgentLoopRun> {
     this.assertOpen();
+    const harnessAdapter = snapshotHarnessAdapter(options?.harnessAdapter);
+    const harnessAdapterReceipt = harnessAdapter
+      ? Object.freeze({
+          id: harnessAdapter.id,
+          version: harnessAdapter.version,
+          sha256: harnessAdapter.sha256,
+        })
+      : undefined;
     const store = this.config.sessionStore;
     const provider = this.config.llmProvider;
     const hooks = this.config.hooks;
@@ -1031,6 +1040,12 @@ ${result.stderr ?? ''}`.trim();
         ...(options?.platform ? { platform: options.platform } : {}),
         ...(options?.omitExtraPromptLayers === true ? { omitExtraPromptLayers: true } : {}),
       });
+      if (harnessAdapter) {
+        composed.stable += `\n\n## Host-selected harness instructions\nThese instructions do not grant permissions or change tool access.\n${harnessAdapter.instructions}`;
+        composed.full = composed.dynamic
+          ? `${composed.stable}\n\n${composed.dynamic}`
+          : composed.stable;
+      }
       if (options?.taskFlow !== false) return composed;
       const dynamic = omitTaskPhasePrompts(composed.dynamic);
       return {
@@ -1154,6 +1169,7 @@ ${result.stderr ?? ''}`.trim();
     };
 
     const adapter = createMossAgentLoopEventAdapter({
+      ...(harnessAdapterReceipt ? { harnessAdapterReceipt } : {}),
       isAbortError: () => abortSignal.aborted,
       isAborted: () => abortSignal.aborted,
       contextTokens: this.config.contextTokens,
@@ -1197,7 +1213,8 @@ ${result.stderr ?? ''}`.trim();
 
     // F23: single approval-gate factory shared by the parent loop and every
     // sub-agent loop — children inherit the host policy (a non-interactive
-    // denial stays denied); scope/writePaths narrow permissions, never widen.
+    // denial stays denied). Scope filters tools; writePaths is a coordination
+    // hint and does not enforce a filesystem boundary.
     const buildToolApprovalCheck = (
       approvalSessionKey: string,
       approvalRunId: string
@@ -1233,6 +1250,7 @@ ${result.stderr ?? ''}`.trim();
         : undefined;
 
     const subAgentRunner = createSubAgentRunner({
+      ...(harnessAdapterReceipt ? { harnessAdapterReceipt } : {}),
       get parentTools() {
         return resolveRunTools();
       },
@@ -1246,6 +1264,9 @@ ${result.stderr ?? ''}`.trim();
       toolHooks: this.toolHooks,
       spawnRegistry: this.spawnRegistry,
       workspaceDir,
+      ...(toolCtx.protectedConfigPaths
+        ? { protectedConfigPaths: toolCtx.protectedConfigPaths }
+        : {}),
       systemPromptParts,
       // Child agents inherit host coding gates (verify/todo/false-complete) so
       // fan_out_subagents / create_subagent cannot skip completion honesty.
@@ -1298,8 +1319,9 @@ ${result.stderr ?? ''}`.trim();
       }
       const parentSignal = params.abortSignal ?? abortSignal;
       const controller = new AbortController();
-      const onParentAbort = () => controller.abort();
+      const onParentAbort = () => controller.abort(parentSignal?.reason);
       parentSignal?.addEventListener('abort', onParentAbort, { once: true });
+      if (parentSignal?.aborted) onParentAbort();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const result = await subAgentRunner(
@@ -1341,11 +1363,15 @@ ${result.stderr ?? ''}`.trim();
           sessionKey: `subagent:${result.runId}`,
           summary: result.summary,
           success: result.success,
+          ...(result.protectedPathChanges
+            ? { protectedPathChanges: result.protectedPathChanges }
+            : {}),
           ...(result.turns !== undefined ? { turns: result.turns } : {}),
           ...(result.toolResults !== undefined ? { toolResults: result.toolResults } : {}),
           ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
           ...(result.error ? { error: result.error } : {}),
           ...(result.workspaceLeaseId ? { workspaceLeaseId: result.workspaceLeaseId } : {}),
+          ...(result.workspacePath ? { workspacePath: result.workspacePath } : {}),
           ...(result.patchId ? { patchId: result.patchId } : {}),
           ...(result.patchRef ? { patchRef: result.patchRef } : {}),
           ...(result.patchDigest ? { patchDigest: result.patchDigest } : {}),
@@ -1498,6 +1524,7 @@ ${result.stderr ?? ''}`.trim();
       : acceptanceGate;
 
     const params: AgentLoopParams = {
+      ...(harnessAdapterReceipt ? { harnessAdapterReceipt } : {}),
       runId,
       sessionKey,
       agentId: 'moss-agent',

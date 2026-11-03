@@ -4,20 +4,29 @@
  * identical behavior per interface parity, including the stop reason.
  */
 import type { MossAgentEvent } from '../agent/moss-agent-types.js';
+import type { HarnessAdapter } from '../agent/harness-adapter.js';
+
+interface TaskChatOptions {
+  abortSignal?: AbortSignal;
+  taskFlow?: boolean;
+  goalExecWait?: boolean;
+  harnessAdapter?: HarnessAdapter;
+}
 
 type StreamChatFn = (
   sessionKey: string,
   prompt: string,
-  options?: { abortSignal?: AbortSignal; taskFlow?: boolean; goalExecWait?: boolean }
+  options?: TaskChatOptions
 ) => AsyncIterable<MossAgentEvent>;
 
 type ChatFn = (
   sessionKey: string,
   prompt: string,
-  options?: { abortSignal?: AbortSignal; taskFlow?: boolean; goalExecWait?: boolean }
+  options?: TaskChatOptions
 ) => Promise<{ response: string; stopReason?: string }>;
 
 export interface AgentTurnRunnerOptions {
+  harnessAdapter?: HarnessAdapter;
   /** Live event tap for renderers (CLI run renderer, TUI bridge). */
   onEvent?: (event: MossAgentEvent) => void;
   abortSignal?: AbortSignal;
@@ -68,6 +77,7 @@ export function createAgentTurnRunner(
       for await (const event of duck.streamChat!(sessionKey, prompt, {
         taskFlow: true,
         goalExecWait: true,
+        ...(options.harnessAdapter ? { harnessAdapter: options.harnessAdapter } : {}),
         ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
       })) {
         options.onEvent?.(event);
@@ -88,6 +98,7 @@ export function createAgentTurnRunner(
       const result = await duck.chat!(sessionKey, prompt, {
         taskFlow: true,
         goalExecWait: true,
+        ...(options.harnessAdapter ? { harnessAdapter: options.harnessAdapter } : {}),
         ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
       });
       return result.stopReason

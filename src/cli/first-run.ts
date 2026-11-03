@@ -688,16 +688,21 @@ export async function settleFirstRunJob(
 export function renderFirstRunLines(
   view: FirstRunView,
   locale?: string,
-  audience: 'tui' | 'readline' = 'tui'
+  audience: 'tui' | 'readline' = 'tui',
+  maxModelRows = 8
 ): string[] {
-  const lines = [
-    copy(locale, 'Moss setup — pick a model provider and paste its API key (about a minute).'),
-    copy(
-      locale,
-      'The key is saved to your Moss config file (readable only by you). Prefer an env var? Exit and run: moss config set apiKeyEnv <VAR>'
-    ),
-  ];
   const tuiChrome = audience === 'tui';
+  const lines = tuiChrome
+    ? view.step === 'model'
+      ? []
+      : [copy(locale, 'Moss setup')]
+    : [
+        copy(locale, 'Moss setup — pick a model provider and paste its API key (about a minute).'),
+        copy(
+          locale,
+          'The key is saved to your Moss config file (readable only by you). Prefer an env var? Exit and run: moss config set apiKeyEnv <VAR>'
+        ),
+      ];
   if (view.error) for (const part of view.error.split('\n')) if (part.trim()) lines.push(part);
   if (view.notice) lines.push(view.notice);
   if (view.step === 'offer') {
@@ -726,6 +731,11 @@ export function renderFirstRunLines(
     if (tuiChrome) lines.push(copy(locale, 'Esc returns to the provider list.'));
   } else if (view.step === 'key') {
     const dots = '•'.repeat(Math.min(view.keyDots ?? 0, 24));
+    if (tuiChrome) {
+      lines.push(
+        copy(locale, 'The key is saved locally; use apiKeyEnv to keep it in the environment.')
+      );
+    }
     lines.push(
       copy(locale, '{provider} API key (paste it; shown as dots): {dots}', {
         provider: providerLabel(view.provider, locale),
@@ -744,10 +754,21 @@ export function renderFirstRunLines(
     if (models.length === 0) lines.push(copy(locale, 'Type the model name, then Enter.'));
     else {
       lines.push(
-        copy(locale, 'Pick a model by number or name ({count} listed).', { count: models.length })
+        copy(
+          locale,
+          tuiChrome
+            ? 'Pick a model (↑↓, number or name; {count} listed).'
+            : 'Pick a model by number or name ({count} listed).',
+          { count: models.length }
+        )
       );
-      models.slice(0, 30).forEach((model, index) => {
-        lines.push(`${index === view.cursor ? '>' : ' '} ${index + 1}  ${model}`);
+      const limit = tuiChrome ? Math.max(1, Math.floor(maxModelRows)) : 30;
+      const start = tuiChrome
+        ? Math.max(0, Math.min(view.cursor - limit + 1, models.length - limit))
+        : 0;
+      models.slice(start, start + limit).forEach((model, index) => {
+        const position = start + index;
+        lines.push(`${position === view.cursor ? '>' : ' '} ${position + 1}  ${model}`);
       });
     }
   } else if (view.step === 'working') {

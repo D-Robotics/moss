@@ -14,7 +14,11 @@ import type { EvidenceRecord } from '../../contracts/evidence.js';
 import type { AcceptanceVerdict, CriterionVerdict, TaskContract } from '../../contracts/task.js';
 import { evaluateAcceptance, latestAcceptanceVerdict } from '../../contracts/task.js';
 import type { MossAgentEvent } from '../agent/moss-agent-types.js';
-import { loadTaskArtifacts, type TaskArtifacts } from './artifacts.js';
+import {
+  loadTaskArtifacts,
+  listLatestTaskEvidenceRecords,
+  type TaskArtifacts,
+} from './artifacts.js';
 import { listTaskStateSnapshots } from '../task/task-store.js';
 import type { TaskStateSnapshot } from '../../contracts/task-runtime.js';
 import { isEffectiveUiZh, uiText } from '../../utils/ui-language.js';
@@ -288,6 +292,7 @@ export class TaskRuntime {
     acceptance: [],
   };
   private taskSnapshots = new Map<string, TaskStateSnapshot>();
+  private criterionEvidence: EvidenceRecord[] = [];
   private live: RuntimeLiveState = {
     running: false,
     sawToolCall: false,
@@ -336,8 +341,16 @@ export class TaskRuntime {
   private async drainRefresh(): Promise<void> {
     do {
       this.refreshQueued = false;
-      this.artifacts = await loadTaskArtifacts(this.workspaceDir);
-      const snapshots = await listTaskStateSnapshots(this.workspaceDir);
+      const artifacts = await loadTaskArtifacts(this.workspaceDir);
+      const [snapshots, criterionEvidence] = await Promise.all([
+        listTaskStateSnapshots(this.workspaceDir),
+        listLatestTaskEvidenceRecords(
+          this.workspaceDir,
+          artifacts.tasks.map((task) => task.taskId)
+        ),
+      ]);
+      this.artifacts = artifacts;
+      this.criterionEvidence = criterionEvidence;
       this.taskSnapshots = new Map(snapshots.map((snapshot) => [snapshot.taskId, snapshot]));
       if (!this.refreshQueued) {
         this.updateFocus();
@@ -497,8 +510,7 @@ export class TaskRuntime {
   }
 
   private summarize(task: TaskContract): TaskSummary {
-    const evidence = this.artifacts.evidence;
-    const verdict = evaluateAcceptance(task, evidence);
+    const verdict = evaluateAcceptance(task, this.criterionEvidence);
     const { state, result } = this.deriveState(task, this.latestVerdict(task.taskId));
     return {
       taskId: task.taskId,
@@ -694,7 +706,7 @@ export class TaskRuntime {
               (live.sawToolCall ? undefined : uiText('reasoning about the goal', '正在理解目标')),
           }
         : {}),
-      progress: evaluateAcceptance(task, evidence).criteriaResults,
+      progress: evaluateAcceptance(task, this.criterionEvidence).criteriaResults,
       ...(failures.length > 0
         ? {
             failure: {

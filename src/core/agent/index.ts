@@ -11,6 +11,8 @@ export type {
 export { CommandQueueRegistry } from './command-queue.js';
 export type { EnqueueOpts } from './command-queue.js';
 export { MossAgent } from './moss-agent.js';
+export { hashHarnessAdapter } from './harness-adapter.js';
+export type { HarnessAdapter, HarnessAdapterReceipt } from './harness-adapter.js';
 export type { MossAgentConfig, ChatOptions, ChatResult, MossAgentEvent } from './moss-agent.js';
 export {
   createMossAgentLoopEventAdapter,

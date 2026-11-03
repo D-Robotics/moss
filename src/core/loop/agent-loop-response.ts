@@ -12,7 +12,6 @@ import {
   normalizeAssistantToolCalls,
   isThinkingOnlyAssistantTurn,
   buildVisibleAssistantText,
-  extractThinkingTextFromMessage,
   shouldNudgeMissingToolInvocation,
 } from './agent-loop-assistant-turn.js';
 import { buildNamedWebToolMatcher } from '../../prompts/plan-detection.js';
@@ -28,6 +27,9 @@ import {
 } from './output-limit.js';
 import { executeAgentLoopToolCalls } from './agent-loop-tool-execution.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
+
+export const EMPTY_MODEL_RESPONSE =
+  'The model returned an empty response twice without a visible answer.';
 
 const GUARDED_DELTA_CHUNK = 96;
 const MAX_COMPLETION_GATE_ATTEMPTS = 2;
@@ -202,7 +204,6 @@ export async function processLlmResponse(
   }
 
   const turnText = turnTextParts.join('');
-  const turnTrim = turnText.trim();
 
   const hasThinkingOnly = isThinkingOnlyAssistantTurn({
     visibleText: turnText,
@@ -210,11 +211,6 @@ export async function processLlmResponse(
     thinkingChunks: messageThinkingChunks,
     assistantContent,
   });
-
-  const thinkingFallback =
-    turnTrim || hasThinkingOnly
-      ? ''
-      : extractThinkingTextFromMessage(messageThinkingChunks, assistantContent);
 
   const servedModel = responseModel?.trim();
   const assistantMsg: Message = {
@@ -231,7 +227,6 @@ export async function processLlmResponse(
 
   let visibleAssistantText = buildVisibleAssistantText({
     textParts: turnTextParts,
-    thinkingFallback,
     // A cutoff fragment, and the piece that continues one, must keep the
     // whitespace the model actually emitted so the stitch has no extra gap
     // and does not eat the gap the model already wrote.
@@ -459,7 +454,7 @@ export async function processLlmResponse(
       return { control: 'continue' };
 
     case 'empty_complete':
-      throw new Error('The model returned an empty response twice without a visible answer.');
+      throw new Error(EMPTY_MODEL_RESPONSE);
 
     case 'steering_or_complete':
       state.carriedAssistantText = '';

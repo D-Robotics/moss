@@ -13,7 +13,7 @@ import { recordHarnessSuiteEvidence } from './suite-evidence.js';
 import {
   appendAcceptanceVerdict,
   appendTaskRecord,
-  listEvidenceRecords,
+  listTaskEvidenceRecords,
   listTaskRecords,
 } from '../task-runtime/artifacts.js';
 import {
@@ -114,7 +114,7 @@ export async function acceptanceAlreadySatisfied(
   const tasks = await listTaskRecords(workspaceDir);
   const task = tasks.find((candidate) => candidate.taskId === taskId);
   if (!task || task.acceptanceCriteria.length === 0) return false;
-  const evidence = await listEvidenceRecords(workspaceDir, 1000);
+  const evidence = await listTaskEvidenceRecords(workspaceDir, task.taskId);
   return evaluateAcceptance(task, evidence).verdict === 'pass';
 }
 
@@ -144,7 +144,7 @@ async function evaluateContractWithAuthority(
       );
   if (!task) return null;
 
-  const evidence = await listEvidenceRecords(workspaceDir, 1000);
+  const evidence = await listTaskEvidenceRecords(workspaceDir, task.taskId);
   signal?.throwIfAborted();
   const verdict = evaluateAcceptance(task, evidence);
   // The last abort check is at append dispatch. Once the PASS commit starts,

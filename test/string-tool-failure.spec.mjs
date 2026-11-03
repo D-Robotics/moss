@@ -12,7 +12,7 @@ import {
   isStringToolFailureResult,
   outcomeToResult,
 } from '../dist/core/tools/execute-tool-call.js';
-import { ErrorCode } from '../dist/errors.js';
+import { ErrorCode, MossError } from '../dist/errors.js';
 
 test('isStringToolFailureResult detects common failure encodings', () => {
   assert.equal(isStringToolFailureResult('Error: old_string not found'), true);
@@ -106,6 +106,390 @@ function baseDeps(tools) {
     push() {},
   };
 }
+
+function wrappedSystemError(code, message, options) {
+  const native = Object.assign(new Error(message), { code, errno: -1, ...options });
+  return {
+    native,
+    wrapped: new MossError({
+      code: ErrorCode.TOOL_EXECUTION_FAILED,
+      message: `filesystem operation failed: ${message}`,
+      cause: native,
+    }),
+  };
+}
+
+function systemErrorTool(execute, transientRetry) {
+  return {
+    name: 'system_error_fixture',
+    description: 'Safely exercise structured system errors',
+    inputSchema: { type: 'object', properties: {} },
+    metadata: { sideEffectClass: 'readonly', transientRetry },
+    execute,
+  };
+}
+
+for (const systemCode of ['ETIMEDOUT', 'ECONNRESET']) {
+  test(`an explicit policy denial is never retried with a nested ${systemCode}`, async () => {
+    const { native } = wrappedSystemError(
+      systemCode,
+      `${systemCode}: simulated filesystem failure, open 'fixture'`,
+      { syscall: 'open', path: 'fixture' }
+    );
+    const denial = new MossError({
+      code: ErrorCode.TOOL_NOT_ALLOWED,
+      message: 'Policy denied this simulated tool call.',
+      cause: native,
+    });
+    let attempts = 0;
+    const tool = systemErrorTool(async () => {
+      attempts++;
+      throw denial;
+    }, true);
+    const outcome = await executeOneToolCall(
+      { id: 'synthetic-denial', name: tool.name, input: {} },
+      baseDeps([tool])
+    );
+    assert.equal(attempts, 1, 'the fixture has no real operation; denial must stop retries');
+    assert.equal(outcome.isError, true);
+    assert.equal(outcome.outcome, 'blocked');
+    assert.equal(outcome.error, denial);
+    assert.equal(outcome.error?.cause, native);
+    assert.equal(outcome.aborted, undefined);
+    assert.match(outcome.text, /blocked by workspace policy/i);
+  });
+}
+
+test('a structured user abort never retries a nested transient system error', async () => {
+  const { native } = wrappedSystemError('EAGAIN', "EAGAIN: resource unavailable, open 'fixture'", {
+    syscall: 'open',
+    path: 'fixture',
+  });
+  const abort = new MossError({
+    code: ErrorCode.USER_ABORTED,
+    message: 'Cancelled.',
+    cause: native,
+  });
+  let attempts = 0;
+  const tool = systemErrorTool(async () => {
+    attempts++;
+    throw abort;
+  }, true);
+  const outcome = await executeOneToolCall(
+    { id: 'synthetic-abort', name: tool.name, input: {} },
+    baseDeps([tool])
+  );
+  assert.equal(attempts, 1);
+  assert.equal(outcome.error, abort);
+  assert.deepEqual(outcome.aborted, { by: 'user' });
+});
+
+test('an outer timeout is not erased by a non-timeout system cause', async () => {
+  const { native } = wrappedSystemError('ENOENT', "ENOENT: missing, open 'fixture'", {
+    syscall: 'open',
+    path: 'fixture',
+  });
+  const outer = new MossError({
+    code: ErrorCode.TOOL_EXECUTION_FAILED,
+    message: 'The operation timed out',
+    cause: native,
+  });
+  const tool = systemErrorTool(async () => {
+    throw outer;
+  }, false);
+  const outcome = await executeOneToolCall(
+    { id: 'outer-timeout', name: tool.name, input: {} },
+    baseDeps([tool])
+  );
+  assert.equal(outcome.error?.code, ErrorCode.TOOL_EXECUTION_TIMEOUT);
+  assert.equal(outcome.error?.cause, outer);
+  assert.deepEqual(outcome.aborted, { by: 'timeout' });
+  assert.equal(outcome.text, `Execution error: ${outer.message}`);
+});
+
+test('an outer timeout remains visible when it embeds the native error message', async () => {
+  const { native } = wrappedSystemError('ENOENT', "ENOENT: missing, open 'fixture'", {
+    syscall: 'open',
+    path: 'fixture',
+  });
+  const outer = new MossError({
+    code: ErrorCode.TOOL_EXECUTION_FAILED,
+    message: `The operation timed out: ${native.message}`,
+    cause: native,
+  });
+  const tool = systemErrorTool(async () => {
+    throw outer;
+  }, false);
+  const outcome = await executeOneToolCall(
+    { id: 'embedded-outer-timeout', name: tool.name, input: {} },
+    baseDeps([tool])
+  );
+  assert.equal(outcome.error?.code, ErrorCode.TOOL_EXECUTION_TIMEOUT);
+  assert.equal(outcome.error?.cause, outer);
+  assert.deepEqual(outcome.aborted, { by: 'timeout' });
+  assert.equal(outcome.text, `Execution error: ${outer.message}`);
+});
+
+test('an outer transient failure retries despite a non-transient system cause', async (t) => {
+  if (process.env.MOSS_TOOL_RETRY_MAX === '0') {
+    t.skip('tool retries are disabled by MOSS_TOOL_RETRY_MAX');
+    return;
+  }
+  const { native } = wrappedSystemError('ENOENT', "ENOENT: missing, open 'fixture'", {
+    syscall: 'open',
+    path: 'fixture',
+  });
+  const outer = new MossError({
+    code: ErrorCode.TOOL_EXECUTION_FAILED,
+    message: 'The service is temporarily unavailable',
+    cause: native,
+  });
+  let attempts = 0;
+  const tool = systemErrorTool(async () => {
+    attempts++;
+    if (attempts === 1) throw outer;
+    return 'retry succeeded';
+  }, true);
+  const outcome = await executeOneToolCall(
+    { id: 'outer-retry', name: tool.name, input: {} },
+    baseDeps([tool])
+  );
+  assert.equal(attempts, 2);
+  assert.equal(outcome.isError, false);
+  assert.equal(outcome.text, 'retry succeeded');
+});
+
+test('an outer transient failure remains retryable when it embeds the native error', async (t) => {
+  if (process.env.MOSS_TOOL_RETRY_MAX === '0') {
+    t.skip('tool retries are disabled by MOSS_TOOL_RETRY_MAX');
+    return;
+  }
+  const { native } = wrappedSystemError('ENOENT', "ENOENT: missing, open 'fixture'", {
+    syscall: 'open',
+    path: 'fixture',
+  });
+  const outer = new MossError({
+    code: ErrorCode.TOOL_EXECUTION_FAILED,
+    message: `The service is temporarily unavailable: ${native.message}`,
+    cause: native,
+  });
+  let attempts = 0;
+  const tool = systemErrorTool(async () => {
+    attempts++;
+    if (attempts === 1) throw outer;
+    return 'retry succeeded';
+  }, true);
+  const outcome = await executeOneToolCall(
+    { id: 'embedded-outer-retry', name: tool.name, input: {} },
+    baseDeps([tool])
+  );
+  assert.equal(attempts, 2);
+  assert.equal(outcome.isError, false);
+});
+
+test('a standalone device-loss wrapper prevents retries despite transient cause', async () => {
+  const { native } = wrappedSystemError(
+    'ECONNRESET',
+    "ECONNRESET: connection reset, open 'fixture'",
+    {
+      syscall: 'open',
+      path: 'fixture',
+    }
+  );
+  const outer = new MossError({
+    code: ErrorCode.TOOL_EXECUTION_FAILED,
+    message: 'Device connection lost',
+    cause: native,
+  });
+  let attempts = 0;
+  const tool = systemErrorTool(async () => {
+    attempts++;
+    throw outer;
+  }, true);
+  const outcome = await executeOneToolCall(
+    { id: 'standalone-device-loss', name: tool.name, input: {} },
+    baseDeps([tool])
+  );
+  assert.equal(attempts, 1);
+  assert.equal(outcome.isError, true);
+  assert.equal(outcome.error, outer);
+});
+
+test('system EAGAIN retries even when the path matches its real error description', async (t) => {
+  if (process.env.MOSS_TOOL_RETRY_MAX === '0') {
+    t.skip('tool retries are disabled by MOSS_TOOL_RETRY_MAX');
+    return;
+  }
+  const target = 'temporarily unavailable';
+  const { wrapped } = wrappedSystemError(
+    'EAGAIN',
+    `EAGAIN: resource temporarily unavailable, open '${target}'`,
+    { syscall: 'open', path: target }
+  );
+  let attempts = 0;
+  const tool = systemErrorTool(async () => {
+    attempts++;
+    if (attempts === 1) throw wrapped;
+    return 'retry succeeded';
+  }, true);
+  const outcome = await executeOneToolCall(
+    { id: 'retry', name: tool.name, input: {} },
+    baseDeps([tool])
+  );
+  assert.equal(attempts, 2);
+  assert.equal(outcome.isError, false);
+  assert.equal(outcome.text, 'retry succeeded');
+});
+
+test('system ETIMEDOUT remains a timeout when the path matches its error description', async () => {
+  const target = 'timed out';
+  const { native, wrapped } = wrappedSystemError(
+    'ETIMEDOUT',
+    `ETIMEDOUT: operation timed out, open '${target}'`,
+    { syscall: 'open', path: target }
+  );
+  const tool = systemErrorTool(async () => {
+    throw wrapped;
+  }, false);
+  const outcome = await executeOneToolCall(
+    { id: 'timeout', name: tool.name, input: {} },
+    baseDeps([tool])
+  );
+  assert.equal(outcome.isError, true);
+  assert.equal(outcome.error?.code, ErrorCode.TOOL_EXECUTION_TIMEOUT);
+  assert.deepEqual(outcome.aborted, { by: 'timeout' });
+  assert.equal(outcome.text, `Execution error: ${wrapped.message}`);
+  assert.equal(outcome.error?.cause, wrapped);
+  assert.equal(outcome.error?.cause?.cause, native);
+});
+
+test('an explicit tool timeout remains a timeout despite a nested filesystem failure', async () => {
+  const { native } = wrappedSystemError('ENOENT', "ENOENT: missing, open 'timed out'", {
+    syscall: 'open',
+    path: 'timed out',
+  });
+  const timeout = new MossError({
+    code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
+    message: 'Operation exceeded its deadline.',
+    cause: native,
+  });
+  const tool = systemErrorTool(async () => {
+    throw timeout;
+  }, false);
+  const outcome = await executeOneToolCall(
+    { id: 'explicit-timeout', name: tool.name, input: {} },
+    baseDeps([tool])
+  );
+  assert.equal(outcome.error?.code, ErrorCode.TOOL_EXECUTION_TIMEOUT);
+  assert.deepEqual(outcome.aborted, { by: 'timeout' });
+  assert.equal(outcome.text, `Execution error: ${timeout.message}`);
+  assert.equal(outcome.error?.cause, timeout);
+  assert.equal(outcome.error?.cause?.cause, native);
+});
+
+test('an explicit timeout with a filesystem cause retains its retry behavior', async (t) => {
+  if (process.env.MOSS_TOOL_RETRY_MAX === '0') {
+    t.skip('tool retries are disabled by MOSS_TOOL_RETRY_MAX');
+    return;
+  }
+  const { native } = wrappedSystemError('ENOENT', "ENOENT: missing, open 'file'", {
+    syscall: 'open',
+    path: 'file',
+  });
+  const timeout = new MossError({
+    code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
+    message: 'Operation timed out.',
+    cause: native,
+  });
+  let attempts = 0;
+  const tool = systemErrorTool(async () => {
+    attempts++;
+    if (attempts === 1) throw timeout;
+    return 'retry succeeded';
+  }, true);
+  const outcome = await executeOneToolCall(
+    { id: 'explicit-timeout-retry', name: tool.name, input: {} },
+    baseDeps([tool])
+  );
+  assert.equal(attempts, 2);
+  assert.equal(outcome.isError, false);
+  assert.equal(outcome.text, 'retry succeeded');
+});
+
+test('a device connection loss is not retried when its cause has a filesystem path', async () => {
+  const { native } = wrappedSystemError('ECONNRESET', "ECONNRESET: connection reset, open 'file'", {
+    syscall: 'open',
+    path: 'file',
+  });
+  const failure = new MossError({
+    code: ErrorCode.TOOL_EXECUTION_FAILED,
+    message: `Device connection lost: ${native.message}`,
+    cause: native,
+  });
+  let attempts = 0;
+  const tool = systemErrorTool(async () => {
+    attempts++;
+    throw failure;
+  }, true);
+  const outcome = await executeOneToolCall(
+    { id: 'device-lost', name: tool.name, input: {} },
+    baseDeps([tool])
+  );
+  assert.equal(attempts, 1);
+  assert.equal(outcome.isError, true);
+  assert.equal(outcome.error, failure);
+});
+
+test('a device-loss phrase in a system-error path does not suppress a real retry', async (t) => {
+  if (process.env.MOSS_TOOL_RETRY_MAX === '0') {
+    t.skip('tool retries are disabled by MOSS_TOOL_RETRY_MAX');
+    return;
+  }
+  const target = 'Device connection lost';
+  const { wrapped } = wrappedSystemError(
+    'ECONNRESET',
+    `ECONNRESET: connection reset, open '${target}'`,
+    { syscall: 'open', path: target }
+  );
+  let attempts = 0;
+  const tool = systemErrorTool(async () => {
+    attempts++;
+    if (attempts === 1) throw wrapped;
+    return 'retry succeeded';
+  }, true);
+  const outcome = await executeOneToolCall(
+    { id: 'device-path-retry', name: tool.name, input: {} },
+    baseDeps([tool])
+  );
+  assert.equal(attempts, 2);
+  assert.equal(outcome.isError, false);
+  assert.equal(outcome.text, 'retry succeeded');
+});
+
+test('system ENOENT is not a timeout when source is a prefix of destination', async () => {
+  const source = 'folder';
+  const dest = 'folder timed out';
+  const { native, wrapped } = wrappedSystemError(
+    'ENOENT',
+    `ENOENT: no such file or directory, rename '${source}' -> '${dest}'`,
+    { syscall: 'rename', path: source, dest }
+  );
+  let attempts = 0;
+  const tool = systemErrorTool(async () => {
+    attempts++;
+    throw wrapped;
+  }, true);
+  const outcome = await executeOneToolCall(
+    { id: 'rename', name: tool.name, input: {} },
+    baseDeps([tool])
+  );
+  assert.deepEqual(
+    { attempts, code: outcome.error?.code, aborted: outcome.aborted },
+    { attempts: 1, code: ErrorCode.TOOL_EXECUTION_FAILED, aborted: undefined }
+  );
+  assert.equal(outcome.text, `Execution error: ${wrapped.message}`);
+  assert.equal(outcome.error?.cause, native);
+});
 
 test('executeOneToolCall marks exec-like string failures as isError', async () => {
   const tool = {

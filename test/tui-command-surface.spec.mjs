@@ -30,6 +30,7 @@ process.env.MOSS_NO_BUNDLED_DEFAULT = '1';
 const { HELP_COMMANDS, SHELL_COMMAND_NAMES, SHELL_COMMAND_ROWS } =
   await import('../dist/cli/tui/help.js');
 const { setTuiLocale } = await import('../dist/cli/tui/copy.js');
+const { DEFAULT_KEYBINDINGS } = await import('../dist/cli/tui/keymap.js');
 const {
   TuiAppRoot,
   buildHelpOverlayLines,
@@ -98,6 +99,15 @@ const React = await import('react');
 // The advertised surface is HELP_COMMANDS: the same table the `?` / `/help`
 // overlay prints, so "advertised" and "handled" cannot drift apart.
 const compactHelp = buildHelpOverlayLines(false);
+const compactFirstPage = sliceHelpOverlay(compactHelp, 24).lines.join('\n');
+for (const label of ['Enter', 'Shift+Tab', 'Esc', 'Ctrl+R', 'Ctrl+O', '/model', '/help --all']) {
+  assert.ok(compactFirstPage.includes(label), `${label} is visible on the first compact page`);
+}
+assert.ok(sliceHelpOverlay(compactHelp, 30).lines.join('\n').includes('/model'));
+const rebound = DEFAULT_KEYBINDINGS.map((binding) =>
+  binding.command === 'history.search' ? { ...binding, key: 'ctrl+t' } : binding
+);
+assert.ok(buildHelpOverlayLines(false, rebound).join('\n').includes('Ctrl+T'));
 const doctorAt = compactHelp.findIndex((line) => line.includes('/doctor'));
 assert.ok(doctorAt >= 0 && doctorAt < 27, `/doctor is on screen at 35 rows (line ${doctorAt})`);
 const helpSlice = sliceHelpOverlay(buildHelpOverlayLines(true), 35, 0);

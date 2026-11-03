@@ -18,6 +18,8 @@ export interface DeviceDestructivePromptInput {
   trustEn?: string;
   /** zh-CN scope label. */
   trustZh?: string;
+  /** An ask rule or external hook may require confirmation every time. */
+  allowTrust?: boolean;
   /** Test override. Defaults to the process locale. */
   locale?: string;
 }
@@ -45,6 +47,7 @@ export function deviceDestructivePrompt(
   const zh = isZhLocale(input.locale ?? cliLocale());
   const subject = subjectOf(input.operand) || input.toolName;
   const sensitive = input.tier === 'sensitive';
+  const allowTrust = input.allowTrust !== false;
   const trustLabel =
     (zh ? input.trustZh : input.trustEn) ??
     (zh ? '本机上的同一条命令' : 'this same command on this device');
@@ -62,7 +65,7 @@ export function deviceDestructivePrompt(
     const detail = [
       kind,
       'full 模式仍会直接执行只读探测和可逆变更（部署到 /home、/opt、/tmp，安装软件包，systemctl restart）。',
-      `选 a 将在本会话信任：${trustLabel}`,
+      ...(allowTrust ? [`选 a 将在本会话信任：${trustLabel}`] : []),
     ];
     const question = sensitive
       ? `要使用 ${input.toolName} 读取这份密钥吗${where}？`
@@ -79,7 +82,9 @@ export function deviceDestructivePrompt(
         ? '读取 /etc/shadow、私钥、sshd_config 或 authorized_keys 需要确认。'
         : '重启、刷机、写入系统路径、改网络、卸载系统包、修改 ssh 或账号需要确认。',
       '',
-      `执行一次 [y]，本会话信任（${trustLabel}）[a]，或拒绝 [N]？ `,
+      allowTrust
+        ? `执行一次 [y]，本会话信任（${trustLabel}）[a]，或拒绝 [N]？ `
+        : '执行一次 [y]，或拒绝 [N]？ ',
     ].join('\n');
     const headlessReason =
       `工具「${input.toolName}」是${sensitive ? '敏感的设备读取' : '毁灭性设备操作'}（${input.reason}），` +
@@ -100,7 +105,7 @@ export function deviceDestructivePrompt(
     input.reason,
     'Full mode still runs read-only and reversible device work without asking.',
     kind,
-    `Answering a trusts: ${trustLabel}`,
+    ...(allowTrust ? [`Answering a trusts: ${trustLabel}`] : []),
   ];
   const question = sensitive
     ? `Do you want to read this secret with ${input.toolName}${whereEn}?`
@@ -119,7 +124,9 @@ export function deviceDestructivePrompt(
       ? 'Reading /etc/shadow, private keys, sshd_config, or authorized_keys needs a confirmation.'
       : 'Reboot, flash, system-path writes, network changes, package removal, and ssh/account edits need a confirmation.',
     '',
-    `Allow once [y], trust for this session (${trustLabel}) [a], or deny [N]? `,
+    allowTrust
+      ? `Allow once [y], trust for this session (${trustLabel}) [a], or deny [N]? `
+      : 'Allow once [y] or deny [N]? ',
   ].join('\n');
   const headlessReason =
     `Tool "${input.toolName}" is a ${sensitive ? 'sensitive device read' : 'destructive device operation'} (${input.reason}) ` +

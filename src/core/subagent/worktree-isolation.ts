@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { runGit } from '../../utils/git-spawn.js';
+import type { RunProcessResult } from '../../utils/run-process.js';
 import { getRootLogger } from '../../logger.js';
 import { errorMessage } from '../../errors.js';
 
@@ -23,7 +24,7 @@ const GIT_TIMEOUT_MS = 60_000;
 async function git(
   args: string[],
   opts: { cwd: string; signal?: AbortSignal; readOnly?: boolean }
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+): Promise<RunProcessResult> {
   return runGit(args, {
     cwd: opts.cwd,
     signal: opts.signal,
@@ -74,29 +75,94 @@ export async function collectWorktreePatch(opts: {
   signal?: AbortSignal;
 }): Promise<WorktreePatch> {
   const wt = opts.lease.worktreePath;
+  const ignored = await git(
+    ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'],
+    {
+      cwd: wt,
+      signal: opts.signal,
+    }
+  );
+  if (ignored.stdout || ignored.stdoutOverflow) {
+    throw new Error('Worktree contains ignored files that cannot be included in the patch');
+  }
   // -N records new files in the index without content so untracked work shows
   // up in `git diff`.
-  await git(['add', '-A', '-N'], { cwd: wt, signal: opts.signal, readOnly: false }).catch(
-    () => undefined
-  );
+  await git(['add', '-A', '-N'], { cwd: wt, signal: opts.signal, readOnly: false });
+  const index = await git(['ls-files', '--stage', '-z'], { cwd: wt, signal: opts.signal });
+  if (index.stdoutOverflow || index.stdout.includes('�')) {
+    throw new Error('Worktree index cannot be inspected reliably');
+  }
+  for (const entry of index.stdout.split('\0')) {
+    const match = /^160000 [0-9a-f]+ \d\t([\s\S]+)$/.exec(entry);
+    if (!match) continue;
+    try {
+      fs.lstatSync(path.join(wt, match[1], '.git'));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw err;
+    }
+    const baseEntry = await git(
+      ['ls-tree', '-z', opts.lease.baseRev, '--', `:(literal)${match[1]}`],
+      {
+        cwd: wt,
+        signal: opts.signal,
+      }
+    );
+    if (baseEntry.stdoutOverflow || !baseEntry.stdout.startsWith('160000 commit ')) {
+      throw new Error(
+        'Worktree contains an embedded Git repository that cannot be included in the patch'
+      );
+    }
+    const nestedStatus = await git(
+      [
+        'status',
+        '--porcelain=v1',
+        '--untracked-files=all',
+        '--ignored=matching',
+        '--ignore-submodules=none',
+      ],
+      { cwd: path.join(wt, match[1]), signal: opts.signal }
+    );
+    if (nestedStatus.stdout || nestedStatus.stdoutOverflow) {
+      throw new Error('Worktree contains submodule changes that cannot be included in the patch');
+    }
+  }
   const names = await git(['diff', '--name-only', opts.lease.baseRev], {
     cwd: wt,
     signal: opts.signal,
   });
+  if (names.stdoutOverflow) throw new Error('Worktree changed paths exceed the capture limit');
   const changedPaths = names.stdout
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean);
-  const diff = await git(['diff', '--binary', opts.lease.baseRev], {
-    cwd: wt,
-    signal: opts.signal,
-  });
+  const diff = await git(
+    [
+      'diff',
+      '--binary',
+      '--unified=3',
+      '--no-color',
+      '--no-relative',
+      '--src-prefix=a/',
+      '--dst-prefix=b/',
+      opts.lease.baseRev,
+    ],
+    {
+      cwd: wt,
+      signal: opts.signal,
+    }
+  );
+  if (diff.stdoutOverflow) throw new Error('Worktree diff exceeds the capture limit');
+  // The process boundary decodes each chunk as UTF-8. A replacement character
+  // can mean non-UTF-8 bytes or a split multibyte sequence; either would make
+  // writing this string back potentially lossy.
+  if (diff.stdout.includes('�')) throw new Error('Worktree diff has unsafe UTF-8 encoding');
   const patch = withTrailingNewline(diff.stdout);
   const patchDigest = createHash('sha256').update(patch).digest('hex').slice(0, 16);
   const patchDir = path.join(opts.parentWorkspace, '.moss', 'patches');
   fs.mkdirSync(patchDir, { recursive: true });
   const patchPath = path.join(patchDir, `${opts.lease.leaseId}.patch`);
-  fs.writeFileSync(patchPath, patch, 'utf8');
+  fs.writeFileSync(patchPath, patch, { encoding: 'utf8', flag: 'wx' });
   return {
     patchId: patchDigest,
     patchPath,

@@ -1,5 +1,6 @@
 import { EventStream } from '../../provider/pi-ai-types.js';
 import type { Message } from '../session/session-jsonl.js';
+import type { HarnessAdapterReceipt } from '../agent/harness-adapter.js';
 import type {
   ContextBudgetActionKind,
   ContextBudgetActionReason,
@@ -25,7 +26,7 @@ type MiniAgentEventPayload =
 
       surface?: import('../../provider/error-classify.js').ProviderErrorSurface;
     }
-  | { type: 'turn_start'; turn: number }
+  | { type: 'turn_start'; turn: number; harnessAdapter?: HarnessAdapterReceipt }
   | { type: 'turn_end'; turn: number; stopReason?: string; totalToolCalls?: number }
   | { type: 'message_start'; message: Message }
   | { type: 'message_delta'; delta: string }

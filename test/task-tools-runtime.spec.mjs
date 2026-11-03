@@ -25,7 +25,12 @@ import {
   getTaskStateSnapshot,
   listTaskEvents,
 } from '../dist/core/task/task-store.js';
-import { createAcceptanceCompletionGate } from '../dist/core/loop/acceptance-completion-gate.js';
+import {
+  createAcceptanceCompletionGate,
+  evaluateAcceptanceCompletionGate,
+} from '../dist/core/loop/acceptance-completion-gate.js';
+import { evaluateTaskRepairNudge } from '../dist/core/loop/nudges/task-repair-nudge.js';
+import { isStringToolFailureResult } from '../dist/core/tools/execute-tool-call.js';
 
 function makeCtx(workspaceDir) {
   return { workspaceDir, sessionKey: 'task-tools-runtime-test' };
@@ -64,6 +69,38 @@ function toolResultMessage(id, text) {
     timestamp: 2,
   };
 }
+
+test('command acceptance guides the correct task despite misleading command output', async (t) => {
+  const ws = await tmpWorkspace();
+  t.after(() => fs.rm(ws, { recursive: true, force: true }));
+  const command = `node -e "if (!require('fs').existsSync('ready')) { console.log('FINAL: PASS'); console.log('Test Results: ❌'); process.exit(7); }"`;
+  const { taskId } = await createDraftTask(ws, 'command goal', { acceptanceCommand: command });
+  await appendTaskEvent(ws, taskId, 'execution_started');
+  await taskDefineTool.execute(
+    {
+      goal: 'command goal',
+      task_id: taskId,
+      acceptance_criteria: [{ metric: 'm', expected: 'ok' }],
+    },
+    makeCtx(ws)
+  );
+  const failure = await taskAcceptanceTool.execute({}, makeCtx(ws));
+  const failureMessage = toolResultMessage('use_task_acceptance', failure);
+  failureMessage.content[0].is_error = isStringToolFailureResult(failure);
+  const messages = [toolUseMessage('task_acceptance', {}), failureMessage];
+  assert.match(failure, new RegExp(`^Task acceptance \\(${taskId}\\): FAIL\\n`));
+  assert.equal(evaluateTaskRepairNudge({ messages, attempts: 0 }).fire, true);
+  assert.equal(
+    evaluateAcceptanceCompletionGate({ messages, toolCallsByName: { task_define: 1 } }).ok,
+    false
+  );
+  await fs.writeFile(path.join(ws, 'ready'), 'ready');
+  const success = await taskAcceptanceTool.execute({}, makeCtx(ws));
+  assert.match(success, new RegExp(`^Task acceptance \\(${taskId}\\): PASS\\n`));
+  messages.push(toolUseMessage('task_acceptance', {}));
+  messages.push(toolResultMessage('use_task_acceptance', success));
+  assert.equal(evaluateTaskRepairNudge({ messages, attempts: 1 }).resetAttempts, true);
+});
 
 test('task_acceptance from executing emits verification_started + verdict event', async () => {
   const ws = await tmpWorkspace();

@@ -7,6 +7,7 @@ import type { Tool, ToolContext } from '../tools/tool-types.js';
 import type { SteeringEngine } from './steering.js';
 import type { PendingToolAbortStore } from './pending-tool-aborts.js';
 import type { MiniAgentEvent } from '../subagent/agent-events.js';
+import type { HarnessAdapterReceipt } from '../agent/harness-adapter.js';
 
 export interface AgentLoopPlatformConfig {
   parallelSafeTools?: Set<string>;
@@ -40,6 +41,9 @@ export type AgentLoopEventObserver = (
 ) => void;
 
 export interface AgentLoopPromptInput {
+  /** Receipt for a validated adapter already applied to systemPrompt by the host. */
+  harnessAdapterReceipt?: HarnessAdapterReceipt;
+
   currentMessages: Message[];
   compactionSummary: Message | undefined;
   systemPrompt: string;

@@ -135,7 +135,6 @@ export const ZH: Readonly<Record<string, string>> = {
   ' · {count} out': ' · 输出 {count}',
   ' · {count} queued': ' · {count} 排队',
   '  … stream quiet for {seconds}s — the gateway may be stuck': '  … 流已静默 {seconds} 秒',
-  '  … waiting for device': '  … 正在等待设备',
   'Waiting for device': '等待设备',
   '  ⏐ next: {preview}': '  ⏐ 下一条：{preview}',
 
@@ -235,6 +234,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'PgUp / PgDn / wheel': '上页 / 下页 / 滚轮',
   click: '点击',
   prefixes: '前缀',
+  '  ! shell · / commands · @ files': '  ! 终端 · / 命令 · @ 文件',
   shortcuts: '快捷键',
   'all commands': '全部命令',
   'common commands': '常用命令',
@@ -246,6 +246,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'run a moss command (/help lists them all)': '执行 moss 命令（/help 列出全部）',
   'reference a workspace file or directory': '引用工作区文件或目录',
   'send the goal · run the shell command in `!` mode': '发送目标 · 在 `!` 模式下执行终端命令',
+  'insert a new line': '换行',
   'cycle the interaction mode (manual → accept-edits → plan → full)':
     '循环切换交互模式（手动 → 接受编辑 → 计划 → 完全访问）',
   'first character only: run a shell command inline': '仅限首字符：内联执行终端命令',
@@ -458,6 +459,7 @@ export const ZH: Readonly<Record<string, string>> = {
   'cleared {count} queued items': '已清空 {count} 条排队消息',
   'usage: /steer <constraint> — injects at the next boundary':
     '用法：/steer <constraint> — 在下一个边界注入',
+  'could not send instruction: {error} — draft kept': '补充指令发送失败：{error}，草稿已保留',
   'rejected — no single active run on this session': '已拒绝 — 本会话没有单一活动运行',
   'queued: {text}': '已排队：{text}',
   'applies at the next step': '将在下一步生效',

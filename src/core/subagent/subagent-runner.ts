@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { TOOL_SEARCH_NAME } from '../tools/deferred-tool-offer.js';
-import type { SubagentRunProgress, Tool } from '../tools/tool-types.js';
+import type { ProtectedPathChangeReport, SubagentRunProgress, Tool } from '../tools/tool-types.js';
 import type { Model, StreamFunction, ThinkingLevel } from '../../provider/pi-ai-types.js';
 import type { AgentLoopPlatformConfig } from '../loop/agent-loop-types.js';
 import type { Message } from '../session/session-jsonl.js';
@@ -12,13 +12,16 @@ import type { SpawnProfileRegistry } from './spawn-profile.js';
 import {
   createWorktree,
   collectWorktreePatch,
-  cleanupWorktree,
   type WorktreeLease,
   type WorktreePatch,
 } from './worktree-isolation.js';
 import { runAgentLoop } from '../loop/agent-loop.js';
+import { EMPTY_MODEL_RESPONSE } from '../loop/agent-loop-response.js';
+import { listBackgroundProcessSnapshots } from '../tools/background-process-registry.js';
 import { getRootLogger } from '../../logger.js';
 import { errorMessage } from '../../errors.js';
+import { PROTECTED_PATH_MOD_MARKER } from '../../safety/protected-path-snapshot.js';
+import type { HarnessAdapterReceipt } from '../agent/harness-adapter.js';
 
 const log = getRootLogger().child('subagent-runner');
 
@@ -59,6 +62,7 @@ async function prepareWorkspaceDir(
 }
 
 export interface SubAgentRunnerDeps {
+  harnessAdapterReceipt?: HarnessAdapterReceipt;
   parentTools: Tool[];
 
   streamFn: StreamFunction;
@@ -87,6 +91,8 @@ export interface SubAgentRunnerDeps {
 
   workspaceDir?: string;
 
+  protectedConfigPaths?: readonly string[];
+
   /**
    * Optional host completion gate (e.g. CLI coding gates). When set, child
    * agent loops inherit the same end-of-turn honesty checks as the parent
@@ -98,8 +104,9 @@ export interface SubAgentRunnerDeps {
   /**
    * Optional host approval gate. When set, every child tool call is checked
    * against the SAME approval policy as the parent before execution, so a
-   * non-interactive denial stays denied inside sub-agents — scope/writePaths
-   * narrow permissions, they never widen them (F23). The runner injects the
+   * non-interactive denial stays denied inside sub-agents. Scope filters tools;
+   * writePaths is a coordination hint and does not enforce a filesystem boundary.
+   * The runner injects the
    * child's sessionKey/runId into each call.
    */
   checkToolApproval?: (call: {
@@ -205,6 +212,10 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       : deps.systemPromptParts
         ? { stable: deps.systemPromptParts.stable, dynamic: childDynamicSystemPrompt ?? '' }
         : undefined;
+    // A replacement prompt did not receive the parent's selected instructions.
+    const harnessAdapterReceipt = config.systemPromptOverride
+      ? undefined
+      : deps.harnessAdapterReceipt;
 
     const childMessages: Message[] = [
       { role: 'user', content: config.task, timestamp: Date.now() },
@@ -215,6 +226,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
     let turnCount = 0;
     let lastTool: string | undefined;
     let partialText = '';
+    let worktreeLease: WorktreeLease | undefined;
     const emitProgress = (partial: Partial<SubagentRunProgress>): void => {
       config.onProgress?.({
         runId: childRunId,
@@ -226,13 +238,13 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         toolResults: toolResultCount,
         ...(lastTool ? { lastTool } : {}),
         elapsedMs: Date.now() - startedAt,
+        ...(worktreeLease ? { workspacePath: path.resolve(worktreeLease.worktreePath) } : {}),
         ...partial,
       });
     };
 
     let workspaceDir: string;
     let isolated = false;
-    let worktreeLease: WorktreeLease | undefined;
     let parentWorkspaceDir: string;
     {
       const prepared = await prepareWorkspaceDir(deps.workspaceDir ?? process.cwd(), config);
@@ -241,6 +253,53 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       worktreeLease = prepared.lease;
       parentWorkspaceDir = prepared.parentDir;
     }
+    const protectedChanges: ProtectedPathChangeReport[] = [];
+    const existingBackgroundIds = new Set(listBackgroundProcessSnapshots().map((proc) => proc.id));
+    const collectBackgroundChanges = (): string[] => {
+      const running: string[] = [];
+      for (const proc of listBackgroundProcessSnapshots()) {
+        if (proc.sessionKey !== childSessionKey || existingBackgroundIds.has(proc.id)) continue;
+        if (proc.status === 'running') running.push(proc.id);
+        for (const change of proc.protectedPathChanges ?? []) {
+          if (!protectedChanges.some((item) => item.path === change.path)) {
+            protectedChanges.push({ ...change });
+          }
+        }
+      }
+      return running;
+    };
+    // A Git patch cannot represent every byte or metadata change. Retain the
+    // worktree even after a successful handoff so it remains recoverable.
+    const worktreePreservedMessage = (): string =>
+      worktreeLease ? `\n[worktree preserved: ${path.resolve(worktreeLease.worktreePath)}]` : '';
+    const protectedChangeMessage = (): string => {
+      const names = protectedChanges
+        .slice(0, 5)
+        .map((change) => change.path)
+        .join(', ');
+      return `Protected paths modified by subagent: ${names}\n${PROTECTED_PATH_MOD_MARKER} paths=${names}${worktreePreservedMessage()}`;
+    };
+    const protectedFailure = (): SubAgentResult | undefined => {
+      if (protectedChanges.length === 0) return undefined;
+      const message = protectedChangeMessage();
+      emitProgress({ status: 'failed', phase: 'failed', summaryPreview: message });
+      return {
+        runId: childRunId,
+        summary: message,
+        toolResults: toolResultCount,
+        turns: turnCount,
+        durationMs: Date.now() - startedAt,
+        success: false,
+        error: message,
+        protectedPathChanges: protectedChanges,
+        ...(worktreeLease
+          ? {
+              workspaceLeaseId: worktreeLease.leaseId,
+              workspacePath: path.resolve(worktreeLease.worktreePath),
+            }
+          : {}),
+      };
+    };
     // Reserve the tail of every bounded child run for tool-free synthesis.
     // Without this, a diligent verifier can consume the entire wall-clock
     // budget on tool follow-ups and be aborted while streaming an otherwise
@@ -257,6 +316,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
     let workPhaseTimedOut = false;
     const abortWorkPhase = () => workPhaseController.abort(signal.reason);
     signal.addEventListener('abort', abortWorkPhase, { once: true });
+    if (signal.aborted) abortWorkPhase();
     const workPhaseTimer = setTimeout(() => {
       workPhaseTimedOut = true;
       workPhaseController.abort(
@@ -275,14 +335,15 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       parentRunId: config.parentRunId,
       isolatedWorkspace: isolated,
     });
-    emitProgress({ status: 'started', phase: 'starting' });
-
     // Approval inheritance (F23): the child loop must consult the same gate as
     // the parent; capture once so the work pass sees a stable reference.
     const inheritedApprovalGate = deps.checkToolApproval;
 
     try {
+      emitProgress({ status: 'started', phase: 'starting' });
+      if (signal.aborted) throw signal.reason ?? new Error('Sub-agent cancelled');
       const childStream = runAgentLoop({
+        ...(harnessAdapterReceipt ? { harnessAdapterReceipt } : {}),
         runId: childRunId,
         sessionKey: childSessionKey,
         agentId: `subagent:${config.scope}`,
@@ -294,6 +355,15 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         getToolsForRun: () => filteredTools,
         toolCtx: {
           workspaceDir,
+          ...(deps.protectedConfigPaths
+            ? {
+                protectedConfigPaths: [
+                  ...deps.protectedConfigPaths,
+                  path.join(workspaceDir, '.moss', 'config.json'),
+                  path.join(workspaceDir, '.moss', 'mcp.json'),
+                ],
+              }
+            : {}),
           runId: childRunId,
           sessionKey: childSessionKey,
           agentId: `subagent:${config.scope}`,
@@ -343,6 +413,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       });
 
       let miniResult: { turns: number; finalText: string } | undefined;
+      let childLoopError: string | undefined;
       let outputLimited = false;
       const noteOutputLimit = (event: { type: string; reason?: string }): void => {
         if (event.type === 'turn_transition' && event.reason === 'output_limit') {
@@ -352,6 +423,17 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       try {
         for await (const event of childStream) {
           noteOutputLimit(event);
+          if (
+            event.type === 'agent_error' &&
+            event.error !== EMPTY_MODEL_RESPONSE &&
+            !(
+              workPhaseTimedOut &&
+              !signal.aborted &&
+              event.error.includes('sub-agent work phase ended;')
+            )
+          ) {
+            childLoopError = event.error;
+          }
           if (event.type === 'message_delta') {
             partialText = `${partialText}${event.delta}`.slice(-400);
           }
@@ -366,6 +448,11 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           if (event.type === 'tool_execution_end') {
             toolResultCount++;
             lastTool = event.toolName;
+            for (const change of event.protectedPathChanges ?? []) {
+              if (!protectedChanges.some((item) => item.path === change.path)) {
+                protectedChanges.push({ ...change });
+              }
+            }
             emitProgress({ phase: 'tool', lastTool, toolResults: toolResultCount });
           }
           if (event.type === 'turn_end') {
@@ -384,6 +471,11 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           synthesisReserveMs,
         });
       }
+      if (childLoopError) throw new Error(childLoopError);
+      collectBackgroundChanges();
+      const earlyProtectedFailure = protectedFailure();
+      if (earlyProtectedFailure) return earlyProtectedFailure;
+      if (signal.aborted) throw signal.reason ?? new Error('Sub-agent cancelled');
       let finalSummary = miniResult?.finalText.trim() ?? '';
       const needsContractRepair = subtaskSummaryNeedsContractRepair(config.task, finalSummary);
 
@@ -414,6 +506,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         });
 
         const finalizationStream = runAgentLoop({
+          ...(harnessAdapterReceipt ? { harnessAdapterReceipt } : {}),
           runId: `${childRunId}/finalize`,
           sessionKey: childSessionKey,
           agentId: `subagent:${config.scope}:finalize`,
@@ -456,6 +549,9 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
 
         for await (const event of finalizationStream) {
           noteOutputLimit(event);
+          if (event.type === 'agent_error' && event.error !== EMPTY_MODEL_RESPONSE) {
+            throw new Error(event.error);
+          }
           if (event.type === 'message_delta') {
             partialText = `${partialText}${event.delta}`.slice(-400);
           }
@@ -465,10 +561,21 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         finalSummary = finalizationResult.finalText.trim();
       }
 
+      const runningBackgroundIds = collectBackgroundChanges();
+      const finalProtectedFailure = protectedFailure();
+      if (finalProtectedFailure) return finalProtectedFailure;
+      if (runningBackgroundIds.length > 0) {
+        throw new Error(
+          `Sub-agent background processes still running: ${runningBackgroundIds.join(', ')}`
+        );
+      }
+      if (signal.aborted) throw signal.reason ?? new Error('Sub-agent cancelled');
       if (outputLimited) {
-        const message = finalSummary
-          ? `Sub-agent output was cut off before it finished.\n${finalSummary}`
-          : `Sub-agent output was cut off before a visible answer (${turnCount} turn${turnCount === 1 ? '' : 's'}, ${toolResultCount} tool result${toolResultCount === 1 ? '' : 's'}).`;
+        const message =
+          (finalSummary
+            ? `Sub-agent output was cut off before it finished.\n${finalSummary}`
+            : `Sub-agent output was cut off before a visible answer (${turnCount} turn${turnCount === 1 ? '' : 's'}, ${toolResultCount} tool result${toolResultCount === 1 ? '' : 's'}).`) +
+          worktreePreservedMessage();
         log.warn('child agent hit output limit', {
           runId: childRunId,
           turns: turnCount,
@@ -489,11 +596,17 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           durationMs: Date.now() - startedAt,
           success: false,
           error: message,
+          ...(worktreeLease
+            ? {
+                workspaceLeaseId: worktreeLease.leaseId,
+                workspacePath: path.resolve(worktreeLease.worktreePath),
+              }
+            : {}),
         };
       }
 
       if (!finalSummary) {
-        const message = `Sub-agent completed without a final response (${turnCount} turn${turnCount === 1 ? '' : 's'}, ${toolResultCount} tool result${toolResultCount === 1 ? '' : 's'}).`;
+        const message = `Sub-agent completed without a final response (${turnCount} turn${turnCount === 1 ? '' : 's'}, ${toolResultCount} tool result${toolResultCount === 1 ? '' : 's'}).${worktreePreservedMessage()}`;
         log.warn('child agent completed without final text', {
           runId: childRunId,
           turns: turnCount,
@@ -514,21 +627,14 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           durationMs: Date.now() - startedAt,
           success: false,
           error: message,
+          ...(worktreeLease
+            ? {
+                workspaceLeaseId: worktreeLease.leaseId,
+                workspacePath: path.resolve(worktreeLease.worktreePath),
+              }
+            : {}),
         };
       }
-
-      log.info('child agent completed', {
-        runId: childRunId,
-        turns: turnCount,
-        toolResults: toolResultCount,
-        durationMs: Date.now() - startedAt,
-        finalTextLength: finalSummary.length,
-      });
-      emitProgress({
-        status: 'completed',
-        phase: 'completed',
-        summaryPreview: finalSummary.slice(0, 240),
-      });
 
       // Worktree lease: collect the child's changes as a patch artifact and
       // attach lease metadata so the parent can merge it (merge_subagent_patch).
@@ -546,25 +652,42 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
             empty: leasePatch.empty,
           });
         } catch (err) {
-          log.warn('worktree patch collection failed', {
-            runId: childRunId,
-            error: errorMessage(err),
-          });
+          throw new Error(`Worktree patch collection failed: ${errorMessage(err)}`, { cause: err });
         }
       }
+
+      if (signal.aborted) throw signal.reason ?? new Error('Sub-agent cancelled');
+      emitProgress({
+        status: 'completed',
+        phase: 'completed',
+        summaryPreview: finalSummary.slice(0, 240),
+      });
+      if (signal.aborted) throw signal.reason ?? new Error('Sub-agent cancelled');
+      log.info('child agent completed', {
+        runId: childRunId,
+        turns: turnCount,
+        toolResults: toolResultCount,
+        durationMs: Date.now() - startedAt,
+        finalTextLength: finalSummary.length,
+      });
 
       return {
         runId: childRunId,
         summary: worktreeLease
           ? `${finalSummary}\n[worktree lease=${worktreeLease.leaseId} patch=${
               leasePatch?.patchId ?? 'unavailable'
-            } changed=${leasePatch?.changedPaths.length ?? 0}]`
+            } changed=${leasePatch?.changedPaths.length ?? 0}]${worktreePreservedMessage()}\n[The patch reflects Git's view; inspect the worktree for other changes.]`
           : finalSummary,
         toolResults: toolResultCount,
         turns: turnCount,
         durationMs: Date.now() - startedAt,
         success: true,
-        ...(worktreeLease ? { workspaceLeaseId: worktreeLease.leaseId } : {}),
+        ...(worktreeLease
+          ? {
+              workspaceLeaseId: worktreeLease.leaseId,
+              workspacePath: path.resolve(worktreeLease.worktreePath),
+            }
+          : {}),
         ...(leasePatch
           ? {
               patchId: leasePatch.patchId,
@@ -575,19 +698,24 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           : {}),
       };
     } catch (err) {
+      collectBackgroundChanges();
       const errorMsg = errorMessage(err);
-      const summary = `Sub-agent failed: ${errorMsg}`;
+      const summary = `Sub-agent failed: ${errorMsg}${protectedChanges.length > 0 ? `\n${protectedChangeMessage()}` : worktreePreservedMessage()}`;
       log.warn('child agent failed', {
         runId: childRunId,
         error: errorMsg,
         durationMs: Date.now() - startedAt,
       });
-      emitProgress({
-        status: 'failed',
-        phase: 'failed',
-        error: errorMsg,
-        ...(partialText ? { summaryPreview: partialText.trim().slice(0, 240) } : {}),
-      });
+      try {
+        emitProgress({
+          status: 'failed',
+          phase: 'failed',
+          error: errorMsg,
+          ...(partialText ? { summaryPreview: partialText.trim().slice(0, 240) } : {}),
+        });
+      } catch {
+        // A failing progress observer must not suppress the protected-path result.
+      }
 
       return {
         runId: childRunId,
@@ -597,19 +725,17 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         durationMs: Date.now() - startedAt,
         success: false,
         error: errorMsg,
+        ...(protectedChanges.length > 0 ? { protectedPathChanges: protectedChanges } : {}),
+        ...(worktreeLease
+          ? {
+              workspaceLeaseId: worktreeLease.leaseId,
+              workspacePath: path.resolve(worktreeLease.worktreePath),
+            }
+          : {}),
       };
     } finally {
       clearTimeout(workPhaseTimer);
       signal.removeEventListener('abort', abortWorkPhase);
-      // The worktree itself is disposable once its patch artifact is collected
-      // (the parent merges from .moss/patches, not from the worktree).
-      if (worktreeLease) {
-        await cleanupWorktree({
-          parentWorkspace: parentWorkspaceDir,
-          worktreePath: worktreeLease.worktreePath,
-        });
-      }
-      void isolated;
     }
   };
 }

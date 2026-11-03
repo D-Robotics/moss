@@ -37,6 +37,26 @@ const { trackTempDir } = await import('./helpers/temp-home.mjs');
 
 const SECRET = 'sk-firstrun-unit-secret';
 
+// The highlighted model stays visible and is the one saved, even past 30.
+{
+  const models = Array.from({ length: 35 }, (_, index) => `model-${index + 1}`);
+  const view = {
+    step: 'model',
+    offers: [],
+    cursor: 29,
+    provider: 'openai-compatible',
+    baseUrl: 'http://localhost:1234',
+    models,
+  };
+  const moved = reduceFirstRun(view, { type: 'down' }, 'key', 'en').view;
+  const lines = renderFirstRunLines(moved, 'en', 'tui', 6);
+  assert.ok(lines.some((line) => /^> 31\s+model-31$/.test(line)));
+  assert.equal(
+    reduceFirstRun(moved, { type: 'enter', draft: '' }, 'key', 'en').saved.model,
+    'model-31'
+  );
+}
+
 function observeConfigWrites(directory, callback) {
   const writes = [];
   if (process.platform !== 'win32') return { result: callback(), writes };

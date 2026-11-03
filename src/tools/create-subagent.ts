@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { MossAsyncTaskSnapshot, MossAsyncTaskStartRequest } from '../contracts/index.js';
-import type { SubagentRunProgress, Tool, ToolContext } from '../core/tools/tool-types.js';
+import type {
+  ProtectedPathChangeReport,
+  SubagentRunProgress,
+  Tool,
+  ToolContext,
+} from '../core/tools/tool-types.js';
 
 interface CreateSubagentInput {
   task: string;
@@ -45,6 +50,36 @@ function completionMetricLines(data: unknown): string[] {
     typeof record.turns === 'number' ? `turns: ${record.turns}` : '',
     typeof record.toolResults === 'number' ? `toolResults: ${record.toolResults}` : '',
   ].filter(Boolean);
+}
+
+function completionProtectedChanges(data: unknown): ProtectedPathChangeReport[] {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
+  const value = (data as Record<string, unknown>).protectedPathChanges;
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item: unknown) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    if (typeof record.path !== 'string' || typeof record.kind !== 'string') return [];
+    return [
+      {
+        path: record.path,
+        kind: record.kind,
+        ...(Array.isArray(record.keys) &&
+        record.keys.every((key: unknown) => typeof key === 'string')
+          ? { keys: record.keys as string[] }
+          : {}),
+        ...(typeof record.reason === 'string' ? { reason: record.reason } : {}),
+        ...(typeof record.restoreOutcome === 'string'
+          ? { restoreOutcome: record.restoreOutcome }
+          : {}),
+      },
+    ];
+  });
+}
+
+function workspaceLocationLines(snapshot: MossAsyncTaskSnapshot | undefined): string[] {
+  const workspacePath = snapshot?.progress?.details?.workspacePath;
+  return typeof workspacePath === 'string' && workspacePath ? [`worktree: ${workspacePath}`] : [];
 }
 
 function snapshotProgressLines(snapshot: MossAsyncTaskSnapshot | undefined): string[] {
@@ -145,12 +180,12 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
         type: 'array',
         items: { type: 'string' },
         description:
-          'Required for full scope: parent-relative files or directories this worker may modify.',
+          'Required for full scope: parent-relative coordination hints for files or directories; not enforced as a write boundary.',
       },
       worktree: {
         type: 'boolean',
         description:
-          'Run a writable worker in an isolated git worktree and return a lease patch (git apply --3way).',
+          'Run a writable worker in a separate git worktree and return a lease patch. Shell commands are not sandboxed.',
       },
       expert: {
         type: 'string',
@@ -239,6 +274,7 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
               runId: progress.runId,
               scope: progress.scope,
               elapsedMs: progress.elapsedMs,
+              ...(progress.workspacePath ? { workspacePath: progress.workspacePath } : {}),
             },
           },
           ...(progress.error ? { error: progress.error } : {}),
@@ -296,10 +332,14 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
               ...(result.durationMs !== undefined ? { durationMs: result.durationMs } : {}),
               ...(result.error ? { error: result.error } : {}),
               ...(result.workspaceLeaseId ? { workspaceLeaseId: result.workspaceLeaseId } : {}),
+              ...(result.workspacePath ? { workspacePath: result.workspacePath } : {}),
               ...(result.patchId ? { patchId: result.patchId } : {}),
               ...(result.patchRef ? { patchRef: result.patchRef } : {}),
               ...(result.patchDigest ? { patchDigest: result.patchDigest } : {}),
               ...(result.changedPaths ? { changedPaths: result.changedPaths } : {}),
+              ...(result.protectedPathChanges?.length
+                ? { protectedPathChanges: result.protectedPathChanges }
+                : {}),
               ...(ok ? {} : { normalizedFailure: true }),
             },
           };
@@ -318,14 +358,26 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
     const result = await ctx.spawnSubagent({
       task: await withTaskContext(ctx.workspaceDir, input.task),
       ...(input.writePaths ? { writePaths: input.writePaths } : {}),
+      ...(input.worktree ? { worktree: true } : {}),
       scope,
       maxTurns,
       timeoutMs: selectedTimeoutMs,
+      ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+      ...(ctx.reportWorkspaceRecoveryPath
+        ? {
+            onProgress: (progress: SubagentRunProgress) => {
+              if (progress.workspacePath) ctx.reportWorkspaceRecoveryPath?.(progress.workspacePath);
+            },
+          }
+        : {}),
       ...(expert?.allowedTools ? { allowedTools: expert.allowedTools } : {}),
       ...(expert?.deniedTools?.length ? { deniedTools: expert.deniedTools } : {}),
       ...(expert ? { expertPrompt: expert.instructions } : {}),
       ...(selectedModel ? { model: selectedModel } : {}),
     });
+    if (result.protectedPathChanges?.length) {
+      ctx.reportProtectedPathChanges?.(result.protectedPathChanges);
+    }
     const summary = result.summary || '(no output)';
     const ok = normalizeSubagentSuccess(result.success, result.summary);
     const status = ok ? 'SUCCESS' : 'FAILED';
@@ -532,7 +584,8 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
             writePaths: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Required for full scope: parent-relative allowed write paths.',
+              description:
+                'Required for full scope: parent-relative coordination hints for files or directories; not enforced as a write boundary.',
             },
             expert: {
               type: 'string',
@@ -660,6 +713,14 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
             ...(item.writePaths ? { writePaths: item.writePaths } : {}),
           })),
           abortSignal: ctx.abortSignal,
+          ...(ctx.reportWorkspaceRecoveryPath
+            ? {
+                onProgress: (progress: SubagentRunProgress) => {
+                  if (progress.workspacePath)
+                    ctx.reportWorkspaceRecoveryPath?.(progress.workspacePath);
+                },
+              }
+            : {}),
           ...(experts[i]?.model || t.model ? { model: experts[i]?.model ?? t.model } : {}),
         })
       )
@@ -668,6 +729,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     let ok = 0;
     let fail = 0;
     const sections: string[] = [];
+    const handoffs: string[] = [];
     const failedRetries: string[] = [];
     settled.forEach((s, i) => {
       const label = labelFor(i);
@@ -676,7 +738,20 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
       const taskText = effectiveTasks[i]!.task.trim();
       if (s.status === 'fulfilled' && s.value) {
         const r = s.value;
+        if (r.protectedPathChanges?.length) {
+          ctx.reportProtectedPathChanges?.(r.protectedPathChanges);
+        }
         const childOk = normalizeSubagentSuccess(r.success, r.summary);
+        if (r.workspacePath || r.workspaceLeaseId || r.patchId) {
+          handoffs.push(
+            [
+              `- ${JSON.stringify(label)}: ${childOk ? 'SUCCESS' : 'FAILED'}`,
+              ...(r.workspacePath ? [`worktree=${JSON.stringify(r.workspacePath)}`] : []),
+              ...(r.workspaceLeaseId ? [`lease=${JSON.stringify(r.workspaceLeaseId)}`] : []),
+              ...(r.patchId ? [`patch=${JSON.stringify(r.patchId)}`] : []),
+            ].join(' | ')
+          );
+        }
         if (childOk) ok++;
         else fail++;
         const id = String(r.runId ?? '').slice(0, 8);
@@ -733,7 +808,14 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
           ].join('\n')
         : '';
 
-    return [header, '', sections.join('\n\n'), retryBlock].filter(Boolean).join('\n');
+    return [
+      header,
+      handoffs.length ? ['## Worktree handoffs', ...handoffs].join('\n') : '',
+      sections.join('\n\n'),
+      retryBlock,
+    ]
+      .filter(Boolean)
+      .join('\n');
   },
 };
 
@@ -779,6 +861,9 @@ export const subagentStatusTool: Tool<SubagentStatusInput> = {
       : ctx.asyncTaskRegistry.readCompletion(taskId);
 
     if (completion) {
+      const protectedChanges =
+        snapshot.kind === 'subagent' ? completionProtectedChanges(completion.data) : [];
+      if (protectedChanges.length) ctx.reportProtectedPathChanges?.(protectedChanges);
       const summary = completion.summary || completion.error || '(no output)';
       const ok = normalizeSubagentSuccess(completion.success, summary);
       const status = ok ? 'SUCCESS' : 'FAILED';
@@ -795,6 +880,7 @@ export const subagentStatusTool: Tool<SubagentStatusInput> = {
         `status: ${ok ? completion.status : 'failed'}`,
         `durationMs: ${completion.durationMs}`,
         ...completionMetricLines(completion.data),
+        ...workspaceLocationLines(ctx.asyncTaskRegistry.status(taskId)),
         '',
         summary + emptyNote,
       ].join('\n');
@@ -806,6 +892,7 @@ export const subagentStatusTool: Tool<SubagentStatusInput> = {
       ...(snapshot.label ? [`label: ${snapshot.label}`] : []),
       ...(snapshot.startedAt ? [`startedAt: ${snapshot.startedAt}`] : []),
       ...snapshotProgressLines(snapshot),
+      ...workspaceLocationLines(snapshot),
       `updatedAt: ${snapshot.updatedAt}`,
     ].join('\n');
   },
@@ -849,6 +936,7 @@ export const subagentStopTool: Tool<SubagentStopInput> = {
       return [
         `[Sub-agent task ${taskId}] ALREADY ${snapshot.status.toUpperCase()}`,
         `status: ${snapshot.status}`,
+        ...workspaceLocationLines(snapshot),
         ...(completion ? ['', completion.summary || completion.error || '(no output)'] : []),
       ].join('\n');
     }
@@ -859,6 +947,7 @@ export const subagentStopTool: Tool<SubagentStopInput> = {
       return [
         `[Sub-agent task ${taskId}] STOPPED`,
         `status: ${completion.status}`,
+        ...workspaceLocationLines(ctx.asyncTaskRegistry.status(taskId)),
         '',
         completion.summary || completion.error || 'Task cancelled.',
       ].join('\n');

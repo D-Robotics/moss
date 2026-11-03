@@ -8,7 +8,7 @@
  * row identity turns a frame into a lookup for every settled row.
  */
 import type { TuiLine } from './text.js';
-import { renderTranscriptRow } from './transcript.js';
+import { isAttachedResult, renderTranscriptRow } from './transcript.js';
 import type { TranscriptRow } from './render-bridge.js';
 
 export interface ProjectionCache {
@@ -23,10 +23,6 @@ export interface ProjectionCache {
   clear(): void;
 }
 
-function attachedTo(row: TranscriptRow, previous: TranscriptRow | undefined): boolean {
-  return row.kind === 'result' && (previous?.kind === 'tool' || previous?.kind === 'result');
-}
-
 export function createProjectionCache(): ProjectionCache {
   let rows = new WeakMap<TranscriptRow, Map<string, TuiLine[]>>();
   const stats = { hits: 0, misses: 0 };
@@ -38,7 +34,7 @@ export function createProjectionCache(): ProjectionCache {
       stats.misses = 0;
     },
     render(row, width, detail, previous): TuiLine[] {
-      const key = `${width}|${detail ? 1 : 0}|${attachedTo(row, previous) ? 1 : 0}`;
+      const key = `${width}|${detail ? 1 : 0}|${isAttachedResult(row, previous) ? 1 : 0}`;
       let entries = rows.get(row);
       if (!entries) {
         entries = new Map();

@@ -47,6 +47,24 @@ test('evaluateExpectation: numeric, string, presence, regex comparators', () => 
   assert.deepEqual(evaluateExpectation('ready', 'not ready').result, 'fail');
 });
 
+test('evaluateExpectation: empty numeric observation is inconclusive, not zero', () => {
+  for (const observed of ['', '  ']) {
+    assert.equal(evaluateExpectation('==0', observed).result, 'inconclusive');
+    assert.equal(evaluateExpectation('>=0', observed).result, 'inconclusive');
+    assert.equal(evaluateExpectation('0', observed).result, 'inconclusive');
+  }
+  assert.equal(evaluateExpectation('==0', 0).result, 'pass');
+  assert.equal(evaluateExpectation('==0', '0').result, 'pass');
+  assert.equal(evaluateExpectation('==0', false).result, 'pass');
+});
+
+test('evaluateExpectation: missing comparison operands are inconclusive', () => {
+  for (const expected of ['contains', 'not-contains', 'matches', '==', '!=', '>=', '<=']) {
+    assert.equal(evaluateExpectation(expected, 'anything').result, 'inconclusive', expected);
+  }
+  assert.equal(evaluateExpectation('matches ^$', '').result, 'pass');
+});
+
 test('evaluateExpectation: == and != compare strings only when the operand is not numeric', () => {
   assert.equal(evaluateExpectation('==hi', 'hi').result, 'pass');
   assert.equal(evaluateExpectation('==hi', 'bye').result, 'fail');

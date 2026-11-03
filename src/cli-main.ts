@@ -5,7 +5,7 @@ import { resolveHostShell } from './utils/host-shell.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { configureWindowsUtf8Console } from './utils/run-process.js';
-import { errorMessage } from './errors.js';
+import { ErrorCode, errorMessage, MossError } from './errors.js';
 import { noteKnownSecret } from './safety/known-secrets.js';
 import { buildResumeReplay } from './cli/resume-replay.js';
 import { exitCodeForError, ExitCode } from './cli/exit-codes.js';
@@ -40,6 +40,7 @@ import {
 } from './cli/permission-rules.js';
 import { displayHelp, displayVersion } from './cli/help.js';
 import { createConfiguredGuardrailHooks } from './cli/guardrails.js';
+import { mossConfigDirs } from './cli/protected-path-prompt.js';
 import {
   createConfiguredHookCallbacks,
   formatUserPromptHookContext,
@@ -84,7 +85,8 @@ import { MossAgent, JsonlSessionStore } from './core/index.js';
 import { configureRootLogger, getRootLogger, type LogLevel } from './logger.js';
 import pc from 'picocolors';
 import { registerBuiltinTools } from './tools/builtin.js';
-import { loadFileBasedTools } from './tools/file-based-tools.js';
+import { registerFileBasedTools } from './tools/file-based-tools.js';
+import { sanitizeSecrets } from './safety/secret-sanitizer.js';
 import { loadMcpConfigs } from './cli/mcp-config.js';
 import {
   formatMcpStartupLine,
@@ -170,6 +172,39 @@ import {
 
 function mossLine(en: string, vars?: Record<string, string | number>): string {
   return setupCopy(undefined, en, vars);
+}
+
+class WorkspacePathPermissionError extends MossError {
+  constructor(cause: Error) {
+    const code = (cause as NodeJS.ErrnoException).code === 'EACCES' ? 'EACCES' : 'EPERM';
+    super({
+      code: ErrorCode.CONFIG_IO_FAILED,
+      message: uiText(
+        `Cannot access a workspace path (${code}).`,
+        `无法访问工作区路径（${code}）。`
+      ),
+      hint: uiText(
+        'Check permissions and access restrictions for legacy workspace paths and .moss. Migration may be partially complete.',
+        '请检查工作区旧目录和 .moss 的权限与访问限制。迁移可能已部分完成。'
+      ),
+      cause,
+    });
+  }
+}
+
+function migrateWorkspacePaths(workspace: string): ReturnType<typeof migrateLegacyWorkspacePaths> {
+  try {
+    return migrateLegacyWorkspacePaths(workspace);
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      ((err as NodeJS.ErrnoException).code === 'EACCES' ||
+        (err as NodeJS.ErrnoException).code === 'EPERM')
+    ) {
+      throw new WorkspacePathPermissionError(err);
+    }
+    throw err;
+  }
 }
 
 // Argument errors must be a one-line message, not an uncaught stack trace
@@ -500,7 +535,7 @@ async function main() {
       fallbackStartDir,
       loadedConfig,
       resolvedConfig,
-      workspacePathMigration: migrateLegacyWorkspacePaths(resolvedConfig.workspace as string),
+      workspacePathMigration: migrateWorkspacePaths(resolvedConfig.workspace as string),
     };
     await commandConfig.handler(ctx);
     return;
@@ -557,7 +592,7 @@ async function main() {
       resolvedConfig,
       workspace,
       workspaceStat,
-      workspacePathMigration: migrateLegacyWorkspacePaths(workspace),
+      workspacePathMigration: migrateWorkspacePaths(workspace),
     };
     await commandConfig.handler(ctx);
     return;
@@ -690,7 +725,7 @@ async function main() {
   // default, so the first question ignored the model the wizard had just saved.
   let model = resolvedConfig.model;
   let baseUrl = resolvedConfig.baseUrl;
-  const workspacePathMigration = migrateLegacyWorkspacePaths(workspace);
+  const workspacePathMigration = migrateWorkspacePaths(workspace);
   const runtimeDir = workspacePathMigration.paths.runtimeDir;
 
   const oneShotMessage = parsedArgs.prompt;
@@ -936,6 +971,7 @@ async function main() {
     // v0.26 (T03): the live rule table + the startup read-only ceiling
     // (flags/env/migrated cautious all resolved into the config view).
     permissionRules: livePermissionRules,
+    sessionPermissionRules: permissionRuleRegistry,
     readOnlyCeiling: resolvedConfig.permissions.readOnlyCeiling,
     deviceTrust: resolvedConfig.permissions.deviceTrust,
     trustedDevices: resolvedConfig.permissions.trustedDevices,
@@ -948,7 +984,30 @@ async function main() {
   const preToolUseGate = composePreToolUseGate(configPreHook, approvalHook);
   const onBeforeToolExec: AgentHooks['onBeforeToolExec'] = (req) =>
     runWithApprovalRequest(req, () => preToolUseGate(req));
+  const protectedConfigPaths = [
+    loadedConfig.configPath,
+    ...mossConfigDirs(configDir, envBeforeDotenv).flatMap((dir) =>
+      ['config.json', 'credentials', '.apikey-key', '.env', 'mcp.json', 'workspace-trust.json'].map(
+        (name) => path.join(dir, name)
+      )
+    ),
+    path.join(workspace, '.moss', 'config.json'),
+    path.join(workspace, '.moss', 'mcp.json'),
+  ];
+  // Match resolveProjectConfigPath's nearest-ancestor search, including files
+  // that do not exist yet and could be created during this run.
+  let projectConfigDir = path.resolve(configStartDir);
+  for (let i = 0; i < 16; i++) {
+    protectedConfigPaths.push(path.join(projectConfigDir, '.moss', 'config.json'));
+    const parent = path.dirname(projectConfigDir);
+    if (parent === projectConfigDir) break;
+    projectConfigDir = parent;
+  }
   const hooks = createConfiguredGuardrailHooks(resolvedConfig, {
+    enrichToolContext: (context) => ({
+      ...context,
+      protectedConfigPaths,
+    }),
     onBeforeToolExec,
     onToolResult: configuredHooks.onToolResult,
     onInputGuardrail: async (request) => {
@@ -1249,7 +1308,11 @@ async function main() {
   // File-based custom tools from .moss/tools/*.tool.json — the lightweight
   // path for users who want a named, schema-validated tool without a host
   // extension module.
-  for (const tool of loadFileBasedTools(workspace)) agent.tools.register(tool);
+  registerFileBasedTools(workspace, agent.tools, (name) => {
+    console.error(
+      `[moss:tools] skipping ${JSON.stringify(sanitizeSecrets(name))}: name already registered`
+    );
+  });
   // v0.16 skills: SKILL.md files from `.moss/skills/` (workspace) and
   // `<configDir>/skills/` (user). Progressive disclosure — only the index
   // enters the system prompt; bodies load through the readonly skill tool.
@@ -1855,6 +1918,11 @@ async function main() {
 }
 
 main().catch((err) => {
+  if (err instanceof WorkspacePathPermissionError) {
+    console.error(`[moss] ${errorMessage(err)}`);
+    process.exit(ExitCode.CONFIG);
+  }
+
   // Config file errors already carry a clean, actionable one-liner — show it
   // alone instead of a raw Node stack. A malformed/hand-edited config.json
   // (parse error → CliConfigFileError) is just as likely as a write failure,

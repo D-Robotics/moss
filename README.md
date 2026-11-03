@@ -259,6 +259,26 @@ moss tasks list                     # 只读查看机器人闭环产物
 
 **Super-agent（可选）。** 接入 DeepSeek 官方原型核心，负责授权接单、持久化工单和独立 Moss worker 调度；执行仍走原生工具、安全审批与 Task Runtime 验收。支持本地 CLI/SDK，成果留在独立 worktree。见[接入说明](docs/superagent.md)、[Spec](docs/specs/moss-superagent.md)和[验收记录](docs/specs/moss-superagent-acceptance.md)。
 
+**SDK 工具后置 hook 与结构化结果（0.x 行为变更）。** 通过 `MossAgent.registerPostToolHook` 或
+`ToolHookRegistry.registerPost` 注册的观察型 hook 应返回 `null`（JavaScript 运行时也可返回
+`undefined`）；这样不会因 hook 本身丢弃原来的结构化内容。返回 `{ result: string }` 表示替换
+文本，即使字符串与原结果相同，Moss 也会丢弃此前的结构化块，避免旧内容绕过脱敏；后置失败 hook
+同样遵循这一规则。工具结果被拒绝或取消时不会保留未授权或已取消执行的结构化结果。文本结果仍遵循
+正常的输出限制。
+
+MossAgent 向模型投影已保存的工具结果时，以记录中存在的 `content` 文本为准，包括空字符串；旧的结构化文本不会
+重新追加。旧会话如果依赖空 `content` 旁的结构化文本，模型可能看到更少内容；原记录不会因此修改。
+如需恢复，可在新会话重新执行工具，或将历史复制到新会话，由宿主检查并脱敏后把所需文本放入副本的
+`content`，同时移除副本中过时的结构化数据。**完全没有 `content` 字段**的旧结果仍会回退读取已保存
+的结构化文本；如含不应发送给模型的原始内容，宿主应在恢复前先处理这些记录。
+
+新写入的非文本结构化结果超限时，`structuredContent` 仍按原有上限替换为文本截断提示；持久化工具
+结果可带可选数字字段 `_structuredContentTruncated`，供恢复后安全生成模型侧提示。这个新字段不改变
+SDK 的 `content` 或已截断的 `structuredContent` 值；旧记录没有该标记时无法安全恢复截断提示。
+
+独立调用 `PiAiLLMProvider` 时，提供的结构化文本仍可能追加到 `content`；可选远程压缩也会发送记录中的
+结构化内容。宿主将旧消息交给这些入口前，需要检查并移除或脱敏不应发送的结构化数据。
+
 ## 板端推理依赖（RDK）
 
 > **不要**再用 `http://sdk.d-robotics.cc:8080/simple/`（已下线，连接失败）。  

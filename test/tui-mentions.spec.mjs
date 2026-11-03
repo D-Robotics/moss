@@ -125,6 +125,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const runtime = new TaskRuntime({ workspaceDir: ws });
   await runtime.refresh();
+  const originalReaddir = fs.promises.readdir;
+  let rootReads = 0;
+  fs.promises.readdir = async (...args) => {
+    if (String(args[0]) === ws) {
+      rootReads += 1;
+      await sleep(350);
+    }
+    return originalReaddir(...args);
+  };
   const listeners = new Set();
   const handle = {
     store: createTuiStore(),
@@ -182,6 +191,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     }
   };
 
+  await typeOnly('@alp');
+  await frameWith(['@alpha.txt'], 'typing while indexing still finds the file');
+  assert.equal(rootReads, 1, 'typing a query does not restart the workspace scan');
+  instance.stdin.write('\x0c');
+  await sleep(80);
   await typeOnly('@');
   const opened = await frameWith(['@alpha.txt', '@nested/'], 'typing @ lists workspace files');
   assert.ok(opened.includes('@alpha.txt'), 'typing @ lists workspace files');
@@ -199,7 +213,48 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.ok(completed.includes('@alpha.txt'), 'Tab completes the path into the composer');
   assert.equal(streamCalls.length, 0, 'completing never runs anything');
 
+  instance.stdin.write('\x0c');
+  handle.store.run.running = true;
+  handle.notify();
+  await typeOnly('@alp');
+  await frameWith(['@alpha.txt'], 'file completion remains available during a run');
+  assert.equal(rootReads, 1, 'the running draft reuses the same index');
+
   instance.unmount();
+  fs.promises.readdir = originalReaddir;
+
+  // An initially empty workspace can acquire files before the next mention.
+  const emptyWs = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-mention-empty-'));
+  const emptyRuntime = new TaskRuntime({ workspaceDir: emptyWs });
+  const emptyHandle = {
+    store: createTuiStore(),
+    notify: () => {},
+    subscribe: () => () => {},
+  };
+  const emptyInstance = renderInk(
+    React.createElement(TuiAppRoot, {
+      options: {
+        agent,
+        workspaceDir: emptyWs,
+        model: 'model-x',
+        listSessions: async () => [],
+        mcpServers: [],
+      },
+      handle: emptyHandle,
+      runtime: emptyRuntime,
+    })
+  );
+  await sleep(80);
+  emptyInstance.stdin.write('@');
+  await sleep(300);
+  emptyInstance.stdin.write('\x0c');
+  await sleep(80);
+  fs.writeFileSync(path.join(emptyWs, 'new.txt'), 'new');
+  emptyInstance.stdin.write('@');
+  const deadline = Date.now() + 5000;
+  while (!emptyInstance.lastFrame().includes('@new.txt') && Date.now() < deadline) await sleep(50);
+  assert.ok(emptyInstance.lastFrame().includes('@new.txt'), 'reopening @ discovers the new file');
+  emptyInstance.unmount();
 }
 
 console.log('OK tui-mentions');
