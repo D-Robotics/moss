@@ -98,7 +98,6 @@ const SNAPSHOT = [
   'classifyTaskKind',
   'codeDiagnosticsTool',
   'combineAbortSignals',
-  'compactSubagentSummaryForParent',
   'configureDefaultDeviceTarget',
   'configureRootLogger',
   'containsSecrets',
@@ -440,6 +439,30 @@ test('typed API surface resolves through dist/index.d.ts', async () => {
     ),
     /^boolean(?: \| undefined)?$/
   );
+  const agentConfigSymbol = checker
+    .getExportsOfModule(moduleSymbol)
+    .find((symbol) => symbol.getName() === 'MossAgentConfig');
+  const agentConfig =
+    agentConfigSymbol.flags & ts.SymbolFlags.Alias
+      ? checker.getAliasedSymbol(agentConfigSymbol)
+      : agentConfigSymbol;
+  const agentConfigType = checker.getDeclaredTypeOfSymbol(agentConfig);
+  for (const removedKnob of [
+    'enableContextPruning',
+    'enableCompaction',
+    'enableMicrocompact',
+    'enableTailToolSnip',
+    'enableStaleReadInvalidation',
+    'enableToolOutputTruncation',
+  ]) {
+    assert.equal(
+      agentConfigType.getProperty(removedKnob),
+      undefined,
+      `${removedKnob} was a no-op config knob`
+    );
+  }
+  assert.equal(exported.has('ToolGroup'), false, 'the frozen plugin/group surface stays closed');
+
   const agentEventSymbol = checker
     .getExportsOfModule(moduleSymbol)
     .find((symbol) => symbol.getName() === 'MossAgentEvent');

@@ -65,7 +65,6 @@ export {
   AUTOCOMPACT_BUFFER_TOKENS,
   SUMMARY_OUTPUT_CAP_TOKENS,
 } from './window-economics.js';
-export { compactSubagentSummaryForParent } from './subagent-summary-compact.js';
 export { truncateToolOutput, registerToolOutputLimits } from './tool-output-truncate.js';
 export {
   createRemoteCompactProviderFromEnv,

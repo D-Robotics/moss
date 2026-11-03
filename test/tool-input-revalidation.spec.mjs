@@ -7,6 +7,7 @@ import { ToolHookRegistry } from '../dist/core/tools/tool-hooks.js';
 import {
   clearPreToolHooksForTests,
   registerPreToolHook,
+  validateToolInputObject,
 } from '../dist/core/tools/tool-pipeline.js';
 
 afterEach(() => clearPreToolHooksForTests());
@@ -45,6 +46,20 @@ function stringPathTool(onExecute) {
     },
   };
 }
+
+test('an undeclared inputZodSchema is not an implicit validation contract', () => {
+  const tool = {
+    ...stringPathTool(() => {}),
+    inputZodSchema: {
+      safeParse() {
+        return { success: true, data: { path: 42 } };
+      },
+    },
+  };
+  const result = validateToolInputObject(tool, { path: 42 });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /parameter "path" should be string/);
+});
 
 test('global pre-tool hook cannot invalidate schema before approval', async () => {
   let executions = 0;

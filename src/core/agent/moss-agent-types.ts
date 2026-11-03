@@ -16,8 +16,6 @@ import type {
 import type { ToolFilter } from '../tools/tool-filter.js';
 import type { ContextPruningSettings } from '../../context/pruning.js';
 import type { CompactionSettings } from '../../context/compaction.js';
-import type { MicroCompactConfig } from '../../context/microcompact.js';
-import type { TailToolSnipConfig } from '../../context/tail-tool-snip.js';
 import type { FollowUpGuardConfig } from '../loop/follow-up-guard.js';
 import type { CompactHookRegistry } from '../loop/compact-hooks.js';
 import type { AgentHooks } from './agent-hooks.js';
@@ -61,33 +59,15 @@ export interface ProviderConfig {
 
 export interface ContextManagementConfig {
   contextTokens?: number;
-
-  enableContextPruning?: boolean;
-
   pruningSettings?: Partial<ContextPruningSettings>;
-
-  enableCompaction?: boolean;
-
   compactionSettings?: Partial<CompactionSettings>;
 
   /** Override environment-derived remote compaction; null keeps summarization local. */
   remoteCompactProvider?: import('../../context/remote-compaction.js').RemoteCompactProvider | null;
-
-  enableMicrocompact?: boolean;
-
-  microcompactConfig?: Partial<MicroCompactConfig>;
-
-  enableTailToolSnip?: boolean;
-
-  tailToolSnipConfig?: Partial<TailToolSnipConfig>;
-
-  enableStaleReadInvalidation?: boolean;
 }
 
 export interface ToolExecutionConfig {
   toolTimeoutMs?: number;
-
-  enableToolOutputTruncation?: boolean;
 }
 
 export interface PromptConfig {

@@ -11,7 +11,6 @@ export { canHostInjectToolWithEmptyInput } from './tool-types.js';
 export { filterToolsForRun } from './tool-filter.js';
 export type { ToolFilter } from './tool-filter.js';
 export { ToolRegistry } from './tool-registry.js';
-export type { ToolGroup, ToolRegistryOptions } from './tool-registry.js';
 export { convertMessagesToPi } from './message-convert.js';
 export {
   validateToolInputObject,

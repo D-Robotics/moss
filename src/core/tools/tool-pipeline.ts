@@ -31,16 +31,6 @@ type JsonSchemaProperty = {
   enum?: unknown[];
 };
 
-function formatZodToolError(
-  toolName: string,
-  err: { issues: Array<{ path: Array<string | number>; message: string }> }
-): string {
-  const detail = err.issues
-    .map((i) => `${i.path.length > 0 ? i.path.join('.') : 'root'}: ${i.message}`)
-    .join('; ');
-  return `${toolName}: input validation failed — ${detail}`;
-}
-
 export function validateToolInputObject(
   tool: Tool,
   input: unknown
@@ -81,7 +71,6 @@ export function validateToolInputObject(
         }
         continue;
       }
-      if ((tool as unknown as Record<string, unknown>).inputZodSchema) continue;
       if (!spec.type) continue;
       const t = spec.type;
       if (t === 'string' && typeof v !== 'string')
@@ -97,22 +86,6 @@ export function validateToolInputObject(
       if (t === 'object' && (v === null || typeof v !== 'object' || Array.isArray(v)))
         return { ok: false, message: `${tool.name}: parameter "${key}" should be object` };
     }
-  }
-  const zodSchema = (tool as unknown as Record<string, unknown>).inputZodSchema as
-    | {
-        safeParse: (data: unknown) => {
-          success: boolean;
-          data?: unknown;
-          error?: { issues: Array<{ path: Array<string | number>; message: string }> };
-        };
-      }
-    | undefined;
-  if (zodSchema) {
-    const zr = zodSchema.safeParse(obj);
-    if (!zr.success) {
-      return { ok: false, message: formatZodToolError(tool.name, zr.error!) };
-    }
-    return { ok: true, value: zr.data as Record<string, unknown> };
   }
   return { ok: true, value: obj };
 }

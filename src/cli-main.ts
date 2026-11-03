@@ -1108,7 +1108,6 @@ async function main() {
       model,
       usingBundledDefault: resolvedConfig.usingBundledDefault,
     }),
-    enableToolOutputTruncation: true,
     extraPromptLayers,
     dynamicPromptLayers,
     // Coding is the primary CLI workload. Inject the compact software-
