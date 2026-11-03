@@ -478,7 +478,13 @@ export function runAgentLoop(
               state.interTurnSilenceMs.shift();
             }
           }
-          stream.push({ type: 'turn_start', turn: state.turns });
+          stream.push({
+            type: 'turn_start',
+            turn: state.turns,
+            ...(params.harnessAdapterReceipt
+              ? { harnessAdapter: params.harnessAdapterReceipt }
+              : {}),
+          });
 
           if (state.pendingMessages.length > 0) {
             for (const msg of state.pendingMessages) {

@@ -49,6 +49,8 @@ function fixture(t) {
   const repo = path.join(root, 'repo');
   fs.mkdirSync(repo);
   git(repo, 'init', '-q');
+  git(repo, 'config', 'core.autocrlf', 'false');
+  git(repo, 'config', 'core.eol', 'lf');
   fs.writeFileSync(path.join(repo, 'tracked.txt'), 'before\n');
   git(repo, 'add', 'tracked.txt');
   git(
@@ -378,7 +380,7 @@ test('fan-out keeps each child handoff visible when long summaries are truncated
   const visible = truncateToolOutput('fan_out_subagents', output);
   for (const id of [1, 2, 3]) {
     assert.ok(
-      visible.includes(path.join(repo, '.moss', 'worktrees', `child-${id}`)),
+      visible.includes(JSON.stringify(path.join(repo, '.moss', 'worktrees', `child-${id}`))),
       visible.slice(0, 400)
     );
   }
@@ -393,7 +395,8 @@ for (const dirty of [false, true]) {
     fs.mkdirSync(source);
     git(source, 'init', '-q');
     fs.writeFileSync(path.join(source, 'sub.txt'), 'clean\n');
-    git(source, 'add', 'sub.txt');
+    fs.writeFileSync(path.join(source, '.gitattributes'), '*.txt text eol=lf\n');
+    git(source, 'add', 'sub.txt', '.gitattributes');
     git(
       source,
       '-c',
@@ -637,7 +640,7 @@ test('completed background work reports protected changes to the parent and reta
   );
   const worktree = path.join(repo, '.moss', 'worktrees', 'child');
   assert.match(output, /FAILED/);
-  assert.ok(reports.some((change) => change.path === credentials));
+  assert.ok(reports.some((change) => change.path === credentials.replaceAll('\\', '/')));
   assert.ok(output.includes(worktree));
   assert.equal(fs.readFileSync(path.join(worktree, 'tracked.txt'), 'utf8'), 'changed\n');
 });
@@ -671,7 +674,9 @@ test('background change found after exec_wait also propagates to the child resul
   const result = await runner(runConfig(), new AbortController().signal);
   const worktree = path.join(repo, '.moss', 'worktrees', 'child');
   assert.equal(result.success, false, result.summary);
-  assert.ok(result.protectedPathChanges?.some((change) => change.path === credentials));
+  assert.ok(
+    result.protectedPathChanges?.some((change) => change.path === credentials.replaceAll('\\', '/'))
+  );
   assert.ok(result.summary.includes(worktree));
   assert.equal(fs.readFileSync(path.join(worktree, 'tracked.txt'), 'utf8'), 'changed\n');
 });
@@ -722,7 +727,9 @@ test('running child background process prevents cleanup until its changes can be
   const waited = await waitForBackgroundProcesses([snapshots[0].id], 'wait_all', 5000);
   assert.equal(waited.completed, true);
   assert.ok(
-    waited.snapshots[0].protectedPathChanges?.some((change) => change.path === credentials)
+    waited.snapshots[0].protectedPathChanges?.some(
+      (change) => change.path === credentials.replaceAll('\\', '/')
+    )
   );
   assert.equal(fs.readFileSync(path.join(worktree, 'tracked.txt'), 'utf8'), 'changed\n');
 });
