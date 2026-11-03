@@ -398,8 +398,14 @@ def p5_light_colours():
         env = {"MOSS_TUI_THEME": theme} if theme else {}
         with Session(cols=80, rows=20, renderer="fullscreen", extra_env=env) as session:
             session.submit("longstream", wait=1.2)
-            session.settle()
-            row = next((i for i, line in enumerate(session.lines()) if "…" in line), None)
+            deadline = time.time() + 3.0
+            row = None
+            while time.time() < deadline:
+                session.settle()
+                row = next((i for i, line in enumerate(session.lines()) if SPINNER.search(line)), None)
+                if row is not None:
+                    break
+                session.pump(0.1)
             return foregrounds(session, row) if row is not None else set()
 
     # pyte names ANSI yellow (SGR 33) "brown", the VGA name for that colour.

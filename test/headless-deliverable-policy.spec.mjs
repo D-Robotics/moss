@@ -10,7 +10,7 @@ test('headless runs are instructed to choose defaults and produce requested arti
   assert.match(prompt, /headless|no-interaction/i);
   assert.match(prompt, /do not wait or ask/i);
   assert.match(prompt, /create the requested deliverable/i);
-  assert.match(prompt, /state your assumptions/i);
+  assert.match(prompt, /state assumptions/i);
 });
 
 test('failing-test tasks are instructed to localize from real red output before editing', () => {

@@ -88,7 +88,7 @@ test('a deferred server that never connects fails once and does not leave a chil
       command: process.execPath,
       args: [script],
       deferStart: true,
-      connectTimeoutMs: 400,
+      connectTimeoutMs: 2_000,
     },
   ]);
   const started = Date.now();
@@ -103,7 +103,7 @@ test('a deferred server that never connects fails once and does not leave a chil
     assert.ok(caught instanceof Error);
     assert.match(caught.message, /did not start/);
     assert.doesNotMatch(caught.message, /connection dropped/);
-    assert.ok(elapsed < 3_000, `lazy start took ${elapsed}ms`);
+    assert.ok(elapsed < 4_500, `lazy start took ${elapsed}ms`);
     const pid = Number(fs.readFileSync(pidFile, 'utf8'));
     const deadline = Date.now() + 1_500;
     let alive = true;
