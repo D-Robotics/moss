@@ -143,6 +143,7 @@ export const deviceExecTool: Tool = {
       toolName: 'device_exec',
       sideEffect: 'device_mutation',
       command,
+      remoteUser: resolved.target.user,
     });
     if (
       classification &&
@@ -212,6 +213,7 @@ export const deviceFileReadTool: Tool = {
     const readRisk = classifyDeviceOperation({
       toolName: 'device_file_read',
       path,
+      remoteUser: resolved.target.user,
     });
     if (
       readRisk &&
@@ -309,6 +311,7 @@ export const deviceFileWriteTool: Tool = {
       toolName: 'device_file_write',
       sideEffect: 'device_mutation',
       path: remotePath,
+      remoteUser: resolved.target.user,
     });
     if (
       writeRisk &&
@@ -484,6 +487,7 @@ export const deviceDeployTool: Tool = {
       remotePath,
       startCommand: input.start_command ? String(input.start_command) : undefined,
       healthCommand: input.health_command ? String(input.health_command) : undefined,
+      remoteUser: resolved.target.user,
     });
     if (
       deployRisk &&

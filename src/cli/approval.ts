@@ -1097,7 +1097,8 @@ function deviceTrustKeys(
 function classifyHookDeviceCall(
   toolName: string,
   sideEffect: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  remoteUser?: string
 ): DeviceRiskClassification | null {
   return classifyDeviceOperation({
     toolName,
@@ -1107,6 +1108,7 @@ function classifyHookDeviceCall(
     remotePath: stringField(input, 'remote_path', 'remotePath'),
     startCommand: stringField(input, 'start_command'),
     healthCommand: stringField(input, 'health_command'),
+    ...(remoteUser ? { remoteUser } : {}),
   });
 }
 
@@ -1191,7 +1193,15 @@ export function createCliToolApprovalHook(
     const requiresApproval = needsApproval(request, sideEffect);
     const workspaceFileMutation = isWorkspaceFileMutation(tool.name, sideEffect);
     const operand = extractRuleOperand(tool.name, request.input);
-    const classification = classifyHookDeviceCall(tool.name, sideEffect, request.input);
+    // G4: the hook must classify with the session's real SSH user — boards
+    // default to root, where `~` is the protected /root tree.
+    const deviceRemoteUser = options.device?.user?.trim() || env.MOSS_DEVICE_USER?.trim() || 'root';
+    const classification = classifyHookDeviceCall(
+      tool.name,
+      sideEffect,
+      request.input,
+      deviceRemoteUser
+    );
     const deviceKeys = deviceTrustKeys(options.device, env);
     const deviceFullTrust =
       options.deviceTrust === 'full' ||
@@ -1389,6 +1399,7 @@ export function createCliToolApprovalHook(
             operand: classification.operand,
             reason: classification.reason,
             allowTrust,
+            ...(deviceRemoteUser ? { remoteUser: deviceRemoteUser } : {}),
             ...(classification.trust
               ? { trustEn: classification.trust.en, trustZh: classification.trust.zh }
               : {}),

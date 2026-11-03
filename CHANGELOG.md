@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Device safety: root sessions classify `~` by the real home (G4)
+
+- RDK boards default to the root SSH user, whose home is the protected `/root` tree. `~`, `$HOME`, and `${HOME}` in device commands, write paths, and deploy targets now expand against the session's real user before classification, so `rm -rf ~/data` on a root session is judged destructive instead of reversible. Callers that do not provide a user keep the legacy `/home/_user` placeholder behavior.
+- The destructive/sensitive confirmation prompt now states when the session logs into the board as root (zh + en).
+
+### 设备安全：root 会话按真实家目录分级（G4）
+
+- RDK 板默认以 root 登录，其家目录是受保护的 `/root` 树。设备命令、写路径与部署目标里的 `~` / `$HOME` / `${HOME}` 现在按会话真实用户展开后再分级：root 会话的 `rm -rf ~/data` 判为毁灭性而非可逆。未提供用户的调用保持 `/home/_user` 占位符旧行为。
+- 毁灭性/敏感确认提示现在会注明会话以 root 登录这块板（中英双语）。
+
 ### Benchmark hygiene and lifecycle enforcement
 
 - Zero-turn `error_during_execution` samples with no model usage and no tool calls are classified as `harness_flake`, retried up to twice, and excluded from scored denominators when the retries are exhausted. Retried samples keep their diagnostic attempts; summaries publish protocol IDs, task-set hashes, scored denominators, and separate flake counts.
