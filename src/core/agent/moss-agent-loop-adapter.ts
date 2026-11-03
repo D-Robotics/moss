@@ -3,6 +3,7 @@ import { createStreamingTextRedactor, redactEgress } from '../../safety/tool-out
 import type { MiniAgentEvent, MiniAgentResult } from '../subagent/agent-events.js';
 import type { ChatResult, MossAgentConfig, MossAgentEvent } from './moss-agent-types.js';
 import type { ToolCall, ToolResult } from '../tools/tool-types.js';
+import type { HarnessAdapterReceipt } from './harness-adapter.js';
 
 type ModelBridgeConfig = Pick<
   MossAgentConfig,
@@ -53,6 +54,7 @@ export interface MossAgentLoopEventAdapter {
 }
 
 export interface MossAgentLoopEventAdapterOptions {
+  harnessAdapterReceipt?: HarnessAdapterReceipt;
   isAbortError?: (error: string) => boolean;
   isAborted?: () => boolean;
 
@@ -85,6 +87,7 @@ export function createMossAgentLoopEventAdapter(
     );
     return {
       response: redactEgress(response || result.finalText),
+      ...(options?.harnessAdapterReceipt ? { harnessAdapter: options.harnessAdapterReceipt } : {}),
       toolCalls,
       toolResults,
       ...(usage ? { usage } : {}),
@@ -170,7 +173,13 @@ export function createMossAgentLoopEventAdapter(
         }
         case 'turn_start':
           textRedactor.reset();
-          return [{ type: 'turn_start', turn: event.turn }];
+          return [
+            {
+              type: 'turn_start',
+              turn: event.turn,
+              ...(event.harnessAdapter ? { harnessAdapter: event.harnessAdapter } : {}),
+            },
+          ];
         case 'output_continuation':
           return [
             {
