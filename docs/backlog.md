@@ -5,20 +5,21 @@
 描述。每张单一个 PR，规则同 main：本地 `npm run check` + 三平台 CI 全绿 +
 复审不劣于 main 方可合并；修复必须带回归测试并验证撤修复变红。
 
-| 编号               | 优先级 | 一句话问题                                                                                                                             | spec                                                       |
-| ------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| G4                 | P2     | RDK 板默认以 root 运行时，Moss 的设备风险分级 / 信任提示把 root 当普通用户处理（来自 PR #150 的 QA，见 `/workspace/qa/o164-pr150.md`） | `/workspace/qa/o164-pr150.md`                              |
-| O143               | P2     | 交接清单所列待办（原 spec 未随环境保留，动手前先在 main 上复现并重写一句话问题）                                                       | `/workspace/specs/O143.md`                                 |
-| O163               | P2     | 同上                                                                                                                                   | `/workspace/specs/O163.md`                                 |
-| O148               | P2     | 同上                                                                                                                                   | `/workspace/specs/O148.md`                                 |
-| O133               | P2     | 同上                                                                                                                                   | `/workspace/specs/O133.md`                                 |
-| O155               | P2     | 同上                                                                                                                                   | `/workspace/specs/O155.md`                                 |
-| O131               | P2     | 同上（O152 PR 提到 O143 会复用其快照/还原助手，O131 与受保护路径证据链相关）                                                           | `/workspace/specs/O131.md`                                 |
-| O171               | P3     | PR #150 剩下的 G1–G3                                                                                                                   | `/workspace/specs/O171.md`（如无则见 #150 描述）           |
-| #149 超集          | P3     | 超集生成器要覆盖所有识别路径（Windows fail-fast 修复后仍有未覆盖的 spec 组织路径）                                                     | 见 PR #149 / #144 描述                                     |
-| O166               | P3     | 交接清单所列待办                                                                                                                       | `/workspace/specs/O166.md`                                 |
-| O154 / O159 / O167 | P3     | 交接清单所列待办（三张小单）                                                                                                           | `/workspace/specs/O15{4,9}.md`、`/workspace/specs/O167.md` |
-| O160               | P3     | 交接清单所列待办                                                                                                                       | `/workspace/specs/O160.md`                                 |
+（G4 已修，2026-11-04：root 会话的 `~`/`$HOME` 按真实家目录分级，确认提示注明 root 登录；回归测试 `test/device-risk-root-home.spec.mjs`。）
+
+| 编号               | 优先级 | 一句话问题                                                                         | spec                                                       |
+| ------------------ | ------ | ---------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| O143               | P2     | 交接清单所列待办（原 spec 未随环境保留，动手前先在 main 上复现并重写一句话问题）   | `/workspace/specs/O143.md`                                 |
+| O163               | P2     | 同上                                                                               | `/workspace/specs/O163.md`                                 |
+| O148               | P2     | 同上                                                                               | `/workspace/specs/O148.md`                                 |
+| O133               | P2     | 同上                                                                               | `/workspace/specs/O133.md`                                 |
+| O155               | P2     | 同上                                                                               | `/workspace/specs/O155.md`                                 |
+| O131               | P2     | 同上（O152 PR 提到 O143 会复用其快照/还原助手，O131 与受保护路径证据链相关）       | `/workspace/specs/O131.md`                                 |
+| O171               | P3     | PR #150 剩下的 G1–G3                                                               | `/workspace/specs/O171.md`（如无则见 #150 描述）           |
+| #149 超集          | P3     | 超集生成器要覆盖所有识别路径（Windows fail-fast 修复后仍有未覆盖的 spec 组织路径） | 见 PR #149 / #144 描述                                     |
+| O166               | P3     | 交接清单所列待办                                                                   | `/workspace/specs/O166.md`                                 |
+| O154 / O159 / O167 | P3     | 交接清单所列待办（三张小单）                                                       | `/workspace/specs/O15{4,9}.md`、`/workspace/specs/O167.md` |
+| O160               | P3     | 交接清单所列待办                                                                   | `/workspace/specs/O160.md`                                 |
 
 已知限制（明确不修，只在 README 写明）：
 
