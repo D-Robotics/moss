@@ -2,7 +2,7 @@
   "repository": "https://github.com/deepseek-ai/dsh-superagent-prototype",
   "commit": "6337fc823ce20251c8de8085948165c81aaa701e",
   "license": "MIT",
-  "transform": "Relative .ts imports to .js; Moss Prettier formatting; remove unused ChannelRef/latestReport imports; replace two findLast calls with equivalent reverse().find() on copies for ES2022 compatibility",
+  "transform": "Relative .ts imports to .js; Moss Prettier formatting; remove unused ChannelRef/latestReport imports; replace two findLast calls with equivalent reverse().find() on copies for ES2022 compatibility; generalize a platform-specific model.ts documentation example to a messaging thread id without changing domain behavior",
   "files": {
     "assignments.ts": {
       "upstreamSha256": "6acf4b858b35d95c875680e39b1e3c41557bbe6d39f65031bb26927289327065",
@@ -38,7 +38,7 @@
     },
     "model.ts": {
       "upstreamSha256": "982155fe6a03c887a7ac4475c6d1592d12aa23c5fe3698403c93bbfd6469d44a",
-      "vendoredSha256": "82407dd3546c0f14d0178f9079b6ce1c3241397f9207e4ac29a45955af4d51a7"
+      "vendoredSha256": "8196b536580a5483aa91f98fdde4b2d1ad62d1a4308420c4197d134ac545cfe2"
     },
     "part.ts": {
       "upstreamSha256": "437c4f4bcc05e836c056cdb45bbf451e55242d62b602b489f4df902be112e73e",
