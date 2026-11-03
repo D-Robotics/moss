@@ -28,6 +28,9 @@ scratch/
 # benchmark run artifacts (jsonl transcripts + summaries) — never commit
 bench/results/
 
+# autopilot verify-harness run outputs — rewritten on every run, never commit
+.autopilot/evidence/
+
 # RSI gate runs are local output. The ledger and frozen list stay tracked.
 .rsi/runs/
 jobs/
