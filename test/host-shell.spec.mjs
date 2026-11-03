@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 
 import { acceptanceShell } from '../dist/core/task/acceptance-command.js';
-import { execToolDescription } from '../dist/tools/builtin.js';
+import { execToolDescription, usesUntrackedShellBackground } from '../dist/tools/builtin.js';
 import { resolveHostShell } from '../dist/utils/host-shell.js';
 
 const absent = () => null;
@@ -79,6 +79,20 @@ const absent = () => null;
     cmd.args.some((arg) => /pwsh|powershell/i.test(arg)),
     false
   );
+}
+
+{
+  // CI red on windows-latest (pwsh host shell): `start /b …` fell through the
+  // untracked-background check, so exec ran on instead of returning the block
+  // message. Every shell kind must detect the idiom.
+  assert.equal(usesUntrackedShellBackground('start /b node server.mjs', 'pwsh'), true);
+  assert.equal(usesUntrackedShellBackground('cmd /c start /b node server.mjs', 'pwsh'), true);
+  assert.equal(usesUntrackedShellBackground('Start-Job { node server.mjs }', 'pwsh'), true);
+  assert.equal(usesUntrackedShellBackground('node server.mjs', 'pwsh'), false);
+  assert.equal(usesUntrackedShellBackground('Write-Host "start /b"', 'pwsh'), false);
+  assert.equal(usesUntrackedShellBackground('start /b node server.mjs', 'cmd'), true);
+  assert.equal(usesUntrackedShellBackground('node server.mjs &', 'sh'), true);
+  assert.equal(usesUntrackedShellBackground('node server.mjs', 'sh'), false);
 }
 
 if (process.platform === 'win32') {

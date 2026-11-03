@@ -95,7 +95,13 @@ export function execToolDescription(shell = resolveHostShell()): string {
     : EXEC_DESCRIPTION_BASE;
 }
 
-function usesUntrackedShellBackground(command: string, shellKind: string): boolean {
+/**
+ * Foreground shell backgrounding idioms exec refuses. `start /b` is matched
+ * under pwsh as well as cmd: `cmd /c start /b …` reaches cmd.exe from pwsh,
+ * and the block message names `start /b` for every shell kind.
+ * @internal exported for tests
+ */
+export function usesUntrackedShellBackground(command: string, shellKind: string): boolean {
   const withoutQuotedText = command
     .replace(/'(?:\\.|[^'\\])*'/g, ' ')
     .replace(/"(?:\\.|[^"\\])*"/g, ' ');
@@ -104,7 +110,9 @@ function usesUntrackedShellBackground(command: string, shellKind: string): boole
       /(?<!&)&(?:\s|$)/.test(withoutQuotedText) || /\b(?:nohup|disown)\b/.test(withoutQuotedText)
     );
   }
-  if (shellKind === 'pwsh') return /\bstart-job\b/i.test(withoutQuotedText);
+  if (shellKind === 'pwsh') {
+    return /\bstart-job\b/i.test(withoutQuotedText) || /\bstart\s+\/b\b/i.test(withoutQuotedText);
+  }
   return /\bstart\s+\/b\b/i.test(withoutQuotedText);
 }
 
