@@ -58,6 +58,7 @@ function usage() {
     '',
     'Set MOSS_BENCH_API_KEY, MOSS_BENCH_MODEL and MOSS_BENCH_BASE_URL in the',
     'environment, or supply the model and base URL with the flags above.',
+    'The summary omits the base URL because it may contain credentials.',
   ].join('\n');
 }
 
@@ -558,7 +559,7 @@ async function main() {
       nodeVersion: process.version,
       platform: `${os.platform()}/${os.arch()}`,
       model: provider.model,
-      baseUrl: provider.baseUrl,
+      baseUrl: '[omitted]',
       temperature: args.temperature ?? 'not-pinned',
       samples: args.samples,
       ...(args.tasks

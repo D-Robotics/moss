@@ -10,7 +10,7 @@ const probe = path.join(root, 'test', 'fixtures', 'bench-provider-probe.cjs');
 
 // The preload blocks user-provider reads and captures synthetic configuration
 // before any write. Node's permission model also blocks child processes.
-function runProvider(env, args = []) {
+function runProvider(env, args = [], task = 'single-edit') {
   return spawnSync(
     process.execPath,
     [
@@ -23,7 +23,7 @@ function runProvider(env, args = []) {
       probe,
       runner,
       '--task',
-      'single-edit',
+      task,
       ...args,
     ],
     {
@@ -85,6 +85,58 @@ test('environment provider settings work and flags take precedence', () => {
       keyMatches: true,
     });
   }
+});
+
+for (const source of ['environment', 'flag']) {
+  test(`benchmark summary omits an endpoint with secrets supplied by ${source}`, () => {
+    const endpoint =
+      'https://user:SYNTHETIC_SECRET@example.invalid/v1/SYNTHETIC_SECRET?token=SYNTHETIC_SECRET#SYNTHETIC_SECRET';
+    const result = runProvider(
+      {
+        ...configured,
+        MOSS_BENCH_BASE_URL: source === 'environment' ? endpoint : configured.MOSS_BENCH_BASE_URL,
+        EXPECT_MODEL: configured.MOSS_BENCH_MODEL,
+        EXPECT_BASE_URL: endpoint,
+        CAPTURE_SUMMARY: '1',
+      },
+      source === 'flag' ? ['--base-url', endpoint] : [],
+      'device-observe-evidence'
+    );
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    const capture = result.stdout.split('\n').find((line) => line.startsWith('SYNTHETIC_SUMMARY '));
+    assert.ok(capture, 'expected synthetic summary');
+    assert.deepEqual(JSON.parse(capture.slice('SYNTHETIC_SUMMARY '.length)), {
+      configMatches: { modelMatches: true, baseUrlMatches: true, keyMatches: true },
+      baseUrlOmitted: true,
+      containsSecret: false,
+    });
+  });
+}
+
+test('benchmark passes the configured endpoint to the sample CLI', () => {
+  const endpoint = 'https://example.invalid/v1?token=SYNTHETIC_SECRET';
+  const result = runProvider(
+    {
+      ...configured,
+      MOSS_BENCH_BASE_URL: endpoint,
+      MOSS_DEVICE_HOST: 'synthetic-device.invalid',
+      EXPECT_MODEL: configured.MOSS_BENCH_MODEL,
+      EXPECT_BASE_URL: endpoint,
+      CAPTURE_CHILD: '1',
+    },
+    [],
+    'device-observe-evidence'
+  );
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  const capture = result.stdout.split('\n').find((line) => line.startsWith('SYNTHETIC_CHILD '));
+  assert.ok(capture, 'expected intercepted CLI invocation');
+  assert.deepEqual(JSON.parse(capture.slice('SYNTHETIC_CHILD '.length)), {
+    configMatches: { modelMatches: true, baseUrlMatches: true, keyMatches: true },
+    expectedExecutable: true,
+    baseUrlMatches: true,
+  });
 });
 
 for (const field of Object.keys(configured)) {
