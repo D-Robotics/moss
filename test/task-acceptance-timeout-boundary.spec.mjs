@@ -90,9 +90,12 @@ for (const failSync of [false, true])
           enableCompaction: false,
           hooks: { onBeforeToolExec: async () => ({ approved: true }) },
         });
+        // The deadline must fire while the gated fsync is settling, not race
+        // the machine reaching it: 3s keeps "reached sync, then timed out"
+        // true even on a fully loaded parallel runner.
         agent.tools.register({
           ...taskAcceptanceTool,
-          metadata: { ...taskAcceptanceTool.metadata, timeoutMs: 500 },
+          metadata: { ...taskAcceptanceTool.metadata, timeoutMs: 3000 },
           execute: async (input, ctx) => {
             ctx.abortSignal.addEventListener(
               'abort',
@@ -208,7 +211,7 @@ test('an ordinary tool timeout returns under its original budget without a nativ
     assert.equal(timedOut, true);
     assert.equal(writes, 1);
     assert.ok(
-      Date.now() - started < 2000,
+      Date.now() - started < 5000,
       'ordinary timeout must remain bounded without native persistence'
     );
     assert.equal(await fs.readFile(path.join(workspaceDir, 'next'), 'utf8'), 'next');

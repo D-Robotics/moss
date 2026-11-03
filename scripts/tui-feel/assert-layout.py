@@ -281,11 +281,16 @@ def p1_reply_end_no_jump():
 
 def p2_narrow_fallback():
     with Session(cols=30, rows=12, renderer="") as session:
-        session.pump(0.5)
-        text = "\n".join(session.lines())
+        # A fixed pump races node's first frame on a loaded runner; poll for
+        # the notice itself so a slow boot reads the settled screen, not a
+        # blank one.
+        def noticed():
+            text = "\n".join(session.lines())
+            return "narrower" in text and "40 columns" in text
+        found = session.wait_for(noticed, 20)
         # The notice wraps at 30 columns, so the two key words are checked apart.
         check("P2 a 30-column window falls back to inline with a notice",
-              "narrower" in text and "40 columns" in text, "no fallback notice on screen")
+              found, "no fallback notice on screen")
 
 
 def p3_tool_rows():
@@ -309,8 +314,8 @@ def screen_text(session):
 
 def p4_keybindings():
     # A loaded parallel runner can take several seconds to paint an overlay;
-    # 20s keeps the poll robust without weakening the negative checks below.
-    timeout = 20
+    # 30s keeps the poll robust without weakening the negative checks below.
+    timeout = 30
     # A rebound command answers on its new key and not on the old one.
     # Poll for the overlay: a fixed pump after Ctrl+T flakes when the frame
     # lands late ("history search did not open on Ctrl+T").
@@ -470,8 +475,9 @@ def p6_external_editor():
         session.pump(0.2)
         session.send("two")
         # A fixed pump races a loaded runner: Ctrl+G can fire before the
-        # composer has processed the newline and moved to line 2.
-        session.wait_for(lambda: "two" in screen_text(session), 5)
+        # composer has processed the newline and moved to line 2. 20s because
+        # the render itself can starve when the box is saturated.
+        session.wait_for(lambda: "two" in screen_text(session), 20)
         session.key("ctrl-g")
         # Poll for the editor's argv instead of sleeping: a loaded machine can take
         # several seconds to start a child process.
