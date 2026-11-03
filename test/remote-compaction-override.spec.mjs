@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { MossAgent, InMemorySessionStore } from '../dist/index.js';
+import {
+  MossAgent,
+  InMemorySessionStore,
+  MOSS_AGENT_SCOPED_INFERENCE_VERSION,
+} from '../dist/index.js';
+assert.equal(MOSS_AGENT_SCOPED_INFERENCE_VERSION, 1);
 let remoteCalls = 0;
 const server = http.createServer((_req, res) => {
   remoteCalls++;
