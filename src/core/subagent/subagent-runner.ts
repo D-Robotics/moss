@@ -21,6 +21,7 @@ import { listBackgroundProcessSnapshots } from '../tools/background-process-regi
 import { getRootLogger } from '../../logger.js';
 import { errorMessage } from '../../errors.js';
 import { PROTECTED_PATH_MOD_MARKER } from '../../safety/protected-path-snapshot.js';
+import type { HarnessAdapterReceipt } from '../agent/harness-adapter.js';
 
 const log = getRootLogger().child('subagent-runner');
 
@@ -61,6 +62,7 @@ async function prepareWorkspaceDir(
 }
 
 export interface SubAgentRunnerDeps {
+  harnessAdapterReceipt?: HarnessAdapterReceipt;
   parentTools: Tool[];
 
   streamFn: StreamFunction;
@@ -213,6 +215,10 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       : deps.systemPromptParts
         ? { stable: deps.systemPromptParts.stable, dynamic: childDynamicSystemPrompt ?? '' }
         : undefined;
+    // A replacement prompt did not receive the parent's selected instructions.
+    const harnessAdapterReceipt = config.systemPromptOverride
+      ? undefined
+      : deps.harnessAdapterReceipt;
 
     const childMessages: Message[] = [
       { role: 'user', content: config.task, timestamp: Date.now() },
@@ -340,6 +346,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       emitProgress({ status: 'started', phase: 'starting' });
       if (signal.aborted) throw signal.reason ?? new Error('Sub-agent cancelled');
       const childStream = runAgentLoop({
+        ...(harnessAdapterReceipt ? { harnessAdapterReceipt } : {}),
         runId: childRunId,
         sessionKey: childSessionKey,
         agentId: `subagent:${config.scope}`,
@@ -509,6 +516,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         });
 
         const finalizationStream = runAgentLoop({
+          ...(harnessAdapterReceipt ? { harnessAdapterReceipt } : {}),
           runId: `${childRunId}/finalize`,
           sessionKey: childSessionKey,
           agentId: `subagent:${config.scope}:finalize`,

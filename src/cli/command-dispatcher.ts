@@ -226,6 +226,16 @@ export interface CommandContext {
  * Replaces the big if-else tree in main().
  */
 export const COMMANDS: Record<string, CommandConfig> = {
+  superagent: {
+    name: 'superagent',
+    phase: CliPhase.WorkspaceReady,
+    handler: async (ctx) => {
+      const { runSuperagentCommand } = await import('./superagent-command.js');
+      await runSuperagentCommand(ctx);
+    },
+    description:
+      'Optional Super-agent admission, durable tickets and isolated verified Moss workers',
+  },
   tasks: {
     name: 'tasks',
     phase: CliPhase.WorkspaceReady,

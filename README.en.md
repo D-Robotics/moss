@@ -276,6 +276,8 @@ moss tasks list                     # read-only robotics artifacts
 The `src/index.ts` export surface is a semver-protected contract, snapshotted by
 `test/sdk-contract.spec.mjs`; three runnable integrations live in `examples/` (`npm run examples`).
 
+**Optional Super-agent.** The pinned DeepSeek prototype core handles request admission, durable tickets and isolated Moss workers. Models, tools, permissions and verified Task Runtime execution remain native Moss. Local CLI/SDK only; changes stay in ticket worktrees. See the [guide](docs/superagent.md), [spec](docs/specs/moss-superagent.md) and [acceptance evidence](docs/specs/moss-superagent-acceptance.md).
+
 **SDK post-tool hooks and structured results (0.x behavior change).** An observation-only hook
 registered with `MossAgent.registerPostToolHook` or `ToolHookRegistry.registerPost` should return
 `null` (JavaScript hooks may return `undefined`), which does not itself discard structured content.

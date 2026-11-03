@@ -21,6 +21,7 @@ import type { TailToolSnipConfig } from '../../context/tail-tool-snip.js';
 import type { FollowUpGuardConfig } from '../loop/follow-up-guard.js';
 import type { CompactHookRegistry } from '../loop/compact-hooks.js';
 import type { AgentHooks } from './agent-hooks.js';
+import type { HarnessAdapter, HarnessAdapterReceipt } from './harness-adapter.js';
 import type { ThinkingLevel } from '../../provider/pi-ai-types.js';
 import type { SteeringRule } from '../loop/steering.js';
 import type { AgentLoopExtensions } from '../loop/agent-loop-types.js';
@@ -253,6 +254,9 @@ export interface MossAgentConfig
 }
 
 export interface ChatOptions {
+  /** Host-selected, versioned instructions; validated and fixed at run admission. */
+  harnessAdapter?: HarnessAdapter;
+
   platform?: string;
   abortSignal?: AbortSignal;
 
@@ -330,6 +334,8 @@ export interface ChatOptions {
 }
 
 export interface ChatResult {
+  harnessAdapter?: HarnessAdapterReceipt;
+
   response: string;
   toolCalls: ToolCall[];
   toolResults: ToolResult[];
@@ -373,7 +379,7 @@ export type MossAgentEvent =
       /** O152 F9b: structured L3 post-run result; drives exit 9 regardless of output size. */
       protectedPathChanges?: ProtectedPathChangeReport[];
     }
-  | { type: 'turn_start'; turn: number }
+  | { type: 'turn_start'; turn: number; harnessAdapter?: HarnessAdapterReceipt }
   | { type: 'turn_end'; turn: number; stopReason: string; totalToolCalls?: number }
   | {
       type: 'output_continuation';

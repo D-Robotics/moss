@@ -25,6 +25,7 @@ const expectedPhases = {
   doctor: CliPhase.ConfigOnly,
   sessions: CliPhase.WorkspaceReady,
   tasks: CliPhase.WorkspaceReady,
+  superagent: CliPhase.WorkspaceReady,
   mcp: CliPhase.WorkspaceReady,
   device: CliPhase.WorkspaceReady,
   skill: CliPhase.WorkspaceReady,

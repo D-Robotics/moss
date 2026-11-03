@@ -22,6 +22,7 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
   `src/core/mcp/`，v0.16）与轻量 skills（SKILL.md 渐进披露、`src/core/skills/`，v0.16）。
 - **翻案**：v0.17 起引入可选全屏 TUI（ink，严格圈禁 `src/cli/tui/` 动态 import，
   无 TTY 或 `--no-tty` 回退 readline REPL；REPL 永久保留）。
+- **本次定向解冻（2026-11-02）**：可选 Super-agent 本地/SDK 接单、授权和工单协调；范围与验收以 `docs/specs/moss-superagent.md` 为准，不引入 DSH 或 Web UI。
 - **维持冻结**：memory（跨会话自动记忆）/ mesh / observability / orchestration /
   web-ui / 插件市场。不要重新引入这些子系统。
 

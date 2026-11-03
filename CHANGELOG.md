@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Super-agent recovery after native task refinement (0.29.1)
+
+Recovery now validates the original native task creation event and fixed acceptance command. A model's later `task_define` refinement no longer invalidates a legitimate ticket binding; older or ambiguous rounds still require inspection. The complex operations benchmark adds three durable business modules, external HTTP acceptance and a bounded real-model fault drill. See the [evaluation spec](docs/specs/superagent-complex-evaluation.md).
+
+恢复改为核对原生任务首次创建事件与固定验收命令，避免模型用 `task_define` 细化描述后无法续跑；旧轮次和不明确绑定仍会阻塞。新增三工单业务与真实 HTTP 验收、限额模型演练脚本。
+
+### Optional native Super-agent coordination (0.29 capability)
+
+Moss can host the pinned MIT-licensed DeepSeek Super-agent core through local CLI/SDK admission, durable SQLite tickets and isolated native Moss workers. Mandates retain their original acceptance command; ready requires native Task Runtime acceptance and independent controller verification. Pause, stop, retry, input deduplication and explicit crash recovery are supported. No DSH, Web UI or external source/reply adapter is included. See the [guide](docs/superagent.md), [spec](docs/specs/moss-superagent.md) and [acceptance evidence](docs/specs/moss-superagent-acceptance.md).
+
+Moss 可通过本地 CLI/SDK 使用固定版本的 DeepSeek Super-agent 官方核心，提供 SQLite 工单持久化和独立原生 Moss worker。授权范围与验收命令固定；完成须同时通过原生 Task Runtime 和控制进程复验。支持暂停、停止、重试、输入去重和显式崩溃恢复。本次不含 DSH、Web UI、外部消息来源或发送适配器。
+
 ### Live interaction permissions
 
 - Switching interaction modes now changes the actual approval policy even when the

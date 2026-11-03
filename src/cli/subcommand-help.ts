@@ -13,6 +13,43 @@ import { renderTaskCliUsage } from './task-run.js';
 import { renderTasksUsage } from './tasks-commands.js';
 import { findMossPackageRoot, readMossPackage, renderUpdateHelp } from './update-command.js';
 
+export function superagentHelp(zh = isZhLocale()): string {
+  return [
+    zh ? '用法：moss superagent <命令>' : 'Usage: moss superagent <command>',
+    zh ? '  init --accept "<验收命令>" [--workers N]' : '  init --accept "<command>" [--workers N]',
+    zh
+      ? '  submit "<目标>" [--id <事件编号>] [--thread <会话编号>]'
+      : '  submit "<goal>" [--id event-id] [--thread thread-id]',
+    '  work | start',
+    zh ? '  status [工单编号]' : '  status [ticket-id]',
+    zh
+      ? '  pause | resume | stop <工单编号> | retry <工单编号>'
+      : '  pause | resume | stop <ticket-id> | retry <ticket-id>',
+    zh ? '  configure <策略文件.json>' : '  configure <policy.json>',
+    '',
+    zh ? '选项：' : 'Options:',
+    zh
+      ? '  --accept   固定验收命令；--workers 并发数；--id 事件编号；--thread 会话编号'
+      : '  --accept fixed oracle; --workers concurrency; --id event ID; --thread conversation ID',
+    '',
+    zh ? '示例：' : 'Examples:',
+    '  moss superagent init --accept "npm test"',
+    zh
+      ? '  moss superagent submit "修复失败的测试"'
+      : '  moss superagent submit "Fix the failing test"',
+    '  moss superagent work',
+    '',
+    zh
+      ? '独立 Moss 执行进程；只有原生任务与固定验收命令都通过才报告就绪。'
+      : 'Isolated Moss workers; ready requires native acceptance and the fixed operator command.',
+    zh
+      ? 'start 前台轮询；Ctrl+C 停止调度。work 处理当前队列后退出。'
+      : 'start polls in the foreground; Ctrl+C stops the scheduler. work drains the current queue.',
+    zh
+      ? '配置模型沿用 moss setup。默认 observe；此版本没有 GitHub/飞书连接器。'
+      : 'Uses moss setup model configuration. Default observe; this version has no GitHub/Feishu connector.',
+  ].join('\n');
+}
 function removed(command: string, zh: boolean, detail: { en: string; zh: string }): string {
   if (zh) {
     return [
@@ -349,6 +386,8 @@ export function renderSubcommandHelp(command: string, zh: boolean = isZhLocale()
       });
     case 'tasks':
       return renderTasksUsage(zh);
+    case 'superagent':
+      return superagentHelp(zh);
     case 'task':
       return renderTaskCliUsage(zh);
     case 'sessions':

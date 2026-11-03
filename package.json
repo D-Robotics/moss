@@ -1,6 +1,6 @@
 {
   "name": "@rdk-moss/agent",
-  "version": "0.28.0",
+  "version": "0.29.1",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -23,7 +23,8 @@
     "bin",
     "README.md",
     "README.en.md",
-    "LICENSE"
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md"
   ],
   "publishConfig": {
     "access": "public"
@@ -50,6 +51,7 @@
     "test:filter": "node scripts/run-package-tests.mjs",
     "smoke": "node scripts/smoke-moss-cli.mjs",
     "bench": "npm run build && node scripts/run-benchmark.mjs",
+    "bench:superagent": "npm run build && node scripts/bench-superagent.mjs",
     "bench:ab": "npm run build && node scripts/bench-ab.mjs",
     "bench:noise": "node scripts/bench-noise.mjs",
     "bench:swe": "node scripts/bench-swebench.mjs",
