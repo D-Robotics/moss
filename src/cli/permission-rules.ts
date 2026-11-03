@@ -31,17 +31,6 @@ export interface PermissionRule {
   workspaceFileOnly?: boolean;
 }
 
-/**
- * The permissions block shape as it appears in a config file. `defaultMode`
- * is the mode-engine knob (T01); the three lists use the Tool(pattern) syntax.
- */
-export interface PermissionsConfig {
-  defaultMode?: string;
-  allow?: string[];
-  ask?: string[];
-  deny?: string[];
-}
-
 /** Merged, ready-to-evaluate rule table plus its source files. */
 export interface ResolvedPermissionRules {
   rules: readonly PermissionRule[];

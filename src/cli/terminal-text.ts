@@ -55,17 +55,6 @@ export function sanitizeRenderableText(text: string): string {
   return sanitizeTextForTerminal(text, { breakLongTokens: true });
 }
 
-export function visibleText(text: string, maxLines = Number.POSITIVE_INFINITY): string {
-  const clean = sanitizeRenderableText(text).trimEnd();
-  if (!Number.isFinite(maxLines)) return clean;
-  const lines = clean.split('\n');
-  if (lines.length <= maxLines) return clean;
-  return [
-    `... ${lines.length - maxLines} earlier lines hidden ...`,
-    ...lines.slice(-maxLines),
-  ].join('\n');
-}
-
 /**
  * Terminal cell width of `text` (CJK/emoji are 2 cells, combining marks 0).
  * Any layout math in the CLI must go through this instead of `String.length`,

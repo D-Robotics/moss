@@ -5,13 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULT_COMPACTION_SETTINGS, type CompactionSettings } from '../context/compaction.js';
 import { resolveMossMaxAgentTurns } from '../utils/max-agent-turns.js';
 import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
-import {
-  resolvePathFromSafeCwd,
-  resolveSafeCwd,
-  safeProcessCwd,
-  type SafeCwdResult,
-  type SafeCwdSource,
-} from '../utils/safe-cwd.js';
+import { resolvePathFromSafeCwd, resolveSafeCwd, safeProcessCwd } from '../utils/safe-cwd.js';
 import { errorMessage, throwMoss, ErrorCode } from '../errors.js';
 import { maybeDecryptApiKeyInConfig, maybeEncryptApiKeyInConfig } from './config-api-key-crypto.js';
 import {
@@ -66,10 +60,7 @@ export {
   CliConfigWriteError,
   maybeDecryptApiKeyInConfig,
   maybeEncryptApiKeyInConfig,
-  resolveSafeCwd,
   safeProcessCwd,
-  type SafeCwdResult,
-  type SafeCwdSource,
   type CliProviderPreset,
   type ProviderPreset,
   PROVIDER_PRESETS,
@@ -2826,6 +2817,5 @@ function loadResolvedConfigForModuleDefaults(): ResolvedCliConfig {
 
 const resolvedConfig = loadResolvedConfigForModuleDefaults();
 
-export const API_KEY = resolvedConfig.apiKey;
 export const BASE_URL = resolvedConfig.baseUrl;
 export const WORKSPACE = resolvedConfig.workspace;

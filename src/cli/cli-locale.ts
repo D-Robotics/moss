@@ -19,7 +19,6 @@ import {
   uiLanguageFromSystemLocale,
   uiLanguageResolution,
   type LanguageSetting,
-  type UiLanguage,
   type UiLanguageResolution,
   type UiLanguageSource,
 } from '../utils/ui-language.js';
@@ -31,15 +30,12 @@ export {
   effectiveUiLanguage,
   effectiveUiLanguageSource,
   hasSessionUiOverride,
-  parseExplicitUiLanguage,
   parseLanguageSetting,
   resolveUiLanguage,
   setSessionUiLanguage,
   systemLocale,
-  uiLanguageFromSystemLocale,
   uiLanguageResolution,
 };
-export type { LanguageSetting, UiLanguage, UiLanguageResolution, UiLanguageSource };
 
 /**
  * Locale the UI layer consults. After startup installation this is the

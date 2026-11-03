@@ -21,9 +21,9 @@ import {
   noteRunCompletionEvent,
   resolveRunOutcome,
   type OutcomeLang,
-  type RunCompletionTracker,
   type RunOutcome,
 } from './run-outcome.js';
+import type { RunCompletionTracker } from './run-completion.js';
 
 export const THINKING_WAIT_INTERVAL_MS = 30_000;
 export const HEARTBEAT_MAX_GAP_MS = 60_000;

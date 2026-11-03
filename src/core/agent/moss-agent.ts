@@ -111,7 +111,6 @@ import type {
   ChatResult as SharedChatResult,
   MossAgentEvent as SharedMossAgentEvent,
   InternalMessage as SharedInternalMessage,
-  InternalContentBlock as SharedInternalContentBlock,
 } from './moss-agent-types.js';
 import { toSessionMessages, fromSessionMessages, toLLMMessages } from './moss-agent-types.js';
 
@@ -120,7 +119,6 @@ export type ChatOptions = SharedChatOptions;
 export type ChatResult = SharedChatResult;
 export type MossAgentEvent = SharedMossAgentEvent;
 export type InternalMessage = SharedInternalMessage;
-export type InternalContentBlock = SharedInternalContentBlock;
 import {
   buildUserMessageContent,
   appendTurnExtraContext,
