@@ -36,19 +36,6 @@ export interface FrameLayout {
   dynamicRows: number;
 }
 
-const SECTION_PRIORITY: Record<FrameSectionId, number> = {
-  dialog: 0,
-  overlay: 1,
-  'status-notes': 2,
-  todo: 3,
-  queue: 4,
-  live: 5,
-};
-
-export function sectionPriority(id: FrameSectionId): number {
-  return SECTION_PRIORITY[id];
-}
-
 function takeLines(section: FrameSection, count: number): TuiLine[] {
   if (count <= 0) return [];
   if (count >= section.lines.length) return section.lines;

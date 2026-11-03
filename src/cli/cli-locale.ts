@@ -437,20 +437,6 @@ export function formatHeadlessBlockReason(toolName: string, mode: string): strin
   );
 }
 
-const SOURCE_ZH: Record<UiLanguageSource, string> = {
-  flag: '命令行',
-  env: '环境变量',
-  config: '用户配置',
-  locale: '系统区域',
-  session: '本会话',
-};
-
-export function uiLanguageSourceLabel(
-  source: UiLanguageSource = effectiveUiLanguageSource()
-): string {
-  return uiText(source, SOURCE_ZH[source]);
-}
-
 /** Persist `language` in the user config. A project config cannot store it. */
 export function writeUserLanguageSetting(setting: LanguageSetting): void {
   const configPath = resolveConfigPath();

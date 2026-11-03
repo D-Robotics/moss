@@ -9,10 +9,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { DeviceTarget } from '../contracts/device.js';
 
-export interface DeviceRegistryFile {
-  devices: DeviceTarget[];
-}
-
 function registryFilePath(workspaceDir: string): string {
   return path.join(workspaceDir, '.moss', 'devices.json');
 }

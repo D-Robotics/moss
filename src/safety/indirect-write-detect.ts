@@ -421,8 +421,3 @@ export function findIndirectProtectedWrites(
 export function shouldSkipDeepScan(command: string): boolean {
   return SKIP_DEEP_SCAN.test(command);
 }
-
-/** True when text looks like it names a protected path (for uncertain scan). */
-export function textMentionsProtectedLiteral(text: string): boolean {
-  return PROTECTED_LIT.test(text);
-}

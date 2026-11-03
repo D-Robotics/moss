@@ -48,7 +48,7 @@ import {
   usageBlock,
   type TranscriptRow,
 } from './render-bridge.js';
-import { isComposerLeak, mouseEventsInChunk, noteDroppedKeys } from './input/key-stream.js';
+import { isComposerLeak, mouseEventsInChunk } from './input/key-stream.js';
 import { isExpandAffordance, routeMouse, type MouseLayout } from './input/mouse-route.js';
 import {
   deleteText,
@@ -2952,10 +2952,7 @@ export function TuiAppRoot({
       key.delete ||
       key.ctrl ||
       key.meta;
-    if (!inkKey && isComposerLeak(chunk)) {
-      noteDroppedKeys(1);
-      return;
-    }
+    if (!inkKey && isComposerLeak(chunk)) return;
     if (permissionsOpen) {
       const rules = permissionPanelRules();
       if (key.escape) {

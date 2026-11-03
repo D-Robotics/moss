@@ -174,10 +174,6 @@ function writeSessionInbox(filePath: string, inbox: SessionInbox): void {
   }
 }
 
-export function saveSessionInbox(filePath: string, inbox: SessionInbox): void {
-  withInboxLock(filePath, () => writeSessionInbox(filePath, inbox));
-}
-
 /** Reload and mutate under one lock so separate Agent instances cannot lose entries. */
 export function updateSessionInbox<T>(
   filePath: string,

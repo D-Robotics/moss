@@ -6,7 +6,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { getRootLogger, setRootLogSink, type LogEntry } from '../../logger.js';
+import { setRootLogSink, type LogEntry } from '../../logger.js';
 
 export interface TuiLogSinkOptions {
   logFile: string;
@@ -40,9 +40,4 @@ export function installTuiLogSink(options: TuiLogSinkOptions): () => void {
   return () => {
     setRootLogSink(null);
   };
-}
-
-/** Route a diagnostic through the root logger so the TUI sink can catch it. */
-export function writeDiagnostic(scope: string, message: string): void {
-  getRootLogger().child(scope).warn(message);
 }

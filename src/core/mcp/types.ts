@@ -115,11 +115,6 @@ export interface McpToolCallResult {
   [key: string]: unknown;
 }
 
-export interface McpServerInfo {
-  name?: string;
-  version?: string;
-}
-
 /** Options accepted by transport-level request calls. */
 export interface McpTransportRequestOptions {
   timeoutMs?: number;
