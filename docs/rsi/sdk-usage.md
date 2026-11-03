@@ -35,6 +35,60 @@ consumes holdout before model calls; deletion/expiry cannot reset exposure.
 `promote` requires the same candidate/baseline, case hashes, provider/evaluator
 identity and policy CAS; `rollback` affects only later tasks.
 
+For a preregistered experiment, call `freezeProtocol` after enrolling all cases
+and before calling the learner. It writes an immutable plan without model calls:
+
+```js
+const protocol = engine.freezeProtocol(scope, {
+  caseIds: allCasesInExecutionOrder,
+  budget,
+  criterion: { kind: 'efficiency', metric: 'toolCalls', minimumAbsoluteGain: 1 },
+  runtimeConfig: {
+    runnerVersion,
+    oracleVersion,
+    modelConfigDigest,
+    tools: orderedToolNames,
+    permissionsDigest,
+  },
+});
+const candidate = await engine.propose(scope, {
+  caseIds: allTrainingCasesInProtocolOrder,
+  budget,
+  protocolId: protocol.id,
+  runtimeConfig: effectiveRuntimeConfig,
+});
+const evaluation = await engine.evaluate(scope, candidate.adapter.digest, {
+  caseIds: allCasesInExecutionOrder,
+  budget,
+  criterion: protocol.criterion,
+  protocolId: protocol.id,
+  runtimeConfig: effectiveRuntimeConfig,
+});
+// Only after evaluation.status === 'passed' and explicit host authorization:
+engine.promote(scope, candidate.adapter.digest, {
+  evaluationId: evaluation.id,
+  expectedPolicyVersion,
+  protocolId: protocol.id,
+  runtimeConfig: effectiveRuntimeConfig,
+});
+```
+
+The host derives each runtime declaration from effective trusted settings, never
+from a browser's claim of tools, permissions or verifier code. Model settings and
+permissions are bounded SHA-256 declarations; runner/oracle versions and ordered
+tool names are stored explicitly. The SDK compares them at generation, evaluation
+and promotion; it cannot independently inspect a custom host's execution port.
+The plan also binds the current model/provider/evaluator identity, policy, complete
+case digests, criterion, total budget and equal per-arm allocation. Changing one
+requires a new plan. A proposal is claimed durably before the model call, including
+when the provider fails; the same plan cannot generate another candidate.
+
+Bound candidates cannot be evaluated or promoted through the legacy unbound path.
+Imported candidates cannot acquire a protocol retroactively. Old schema-2 state
+and calls without a protocol remain supported and are explicitly unregistered
+evidence. `listProtocols` returns saved plans; `rsiProtocolDigest` verifies their
+canonical identity. No raw model configuration or credentials belong in a plan.
+
 The convenience evaluator checks next recovery action. For actual tasks inject
 `createRsiTaskEvaluator({ model, evaluatorVersion, runCase })` as the learner's
 `evaluate` implementation and declare that same evaluator version. `runCase`

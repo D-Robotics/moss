@@ -273,6 +273,7 @@ const SNAPSHOT = [
   'rsiCaseDigest',
   'rsiDigest',
   'rsiHoldoutDigest',
+  'rsiProtocolDigest',
   'rsiProviderIdentityDigest',
   'rsiPublicCase',
   'runAgentLoop',
@@ -379,12 +380,25 @@ test('typed API surface resolves through dist/index.d.ts', async () => {
     'RsiEngine',
     'RsiEngineStatus',
     'RsiEvaluationCriterion',
+    'RsiProtocol',
+    'RsiProtocolRuntimeConfig',
+    'RsiState',
     'RsiTaskRunner',
     'RsiTaskInput',
     'RsiLearningProvider',
     'RsiRunObserver',
   ])
     assert.ok(exported.has(symbol), symbol + ' exported from the typed API surface');
+  const stateSymbol = checker
+    .getExportsOfModule(moduleSymbol)
+    .find((symbol) => symbol.getName() === 'RsiState');
+  const state = checker.getDeclaredTypeOfSymbol(checker.getAliasedSymbol(stateSymbol));
+  for (const field of ['protocols', 'protocolProposals']) {
+    assert.ok(
+      state.getProperty(field).flags & ts.SymbolFlags.Optional,
+      `legacy RsiState literals may omit ${field}`
+    );
+  }
   const chatOptions = checker
     .getExportsOfModule(moduleSymbol)
     .find((symbol) => symbol.getName() === 'ChatOptions');

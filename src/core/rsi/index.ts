@@ -14,6 +14,7 @@ export {
   rsiAdapterDigest,
   rsiCaseDigest,
   rsiHoldoutDigest,
+  rsiProtocolDigest,
 } from './store.js';
 export type { RsiState } from './store.js';
 export {

@@ -80,6 +80,34 @@ export interface RsiValidationIdentity {
   evaluatorVersion: string;
   providerIdentityDigest?: string;
   evaluationId: string;
+  protocolId?: string;
+  protocolDigest?: string;
+}
+/** Host declarations of effective execution settings; never browser-supplied oracle code. */
+export interface RsiProtocolRuntimeConfig {
+  runnerVersion: string;
+  oracleVersion: string;
+  modelConfigDigest: string;
+  tools: string[];
+  permissionsDigest: string;
+}
+/** Immutable plan persisted before its single learner proposal may start. */
+export interface RsiProtocol {
+  id: string;
+  digest: string;
+  createdAt: number;
+  baselineDigest: string;
+  policyVersion: number;
+  caseDigests: RsiEvaluation['caseDigests'];
+  criterion: RsiEvaluationCriterion;
+  budget: RsiLearningBudget;
+  perArmBudget: RsiLearningBudget;
+  validationIdentity: {
+    model: string;
+    evaluatorVersion: string;
+    providerIdentityDigest: string;
+  };
+  runtimeConfig: RsiProtocolRuntimeConfig;
 }
 export interface RsiCandidate {
   adapter: RsiAdapter;
@@ -87,6 +115,8 @@ export interface RsiCandidate {
   origin: 'import' | 'learner';
   baseDigest: string;
   caseIds: string[];
+  protocolId?: string;
+  protocolDigest?: string;
   /** Minimal authorization retained independently of evaluation/case telemetry retention. */
   validation?: RsiValidationIdentity;
 }
@@ -111,6 +141,8 @@ export interface RsiEvaluation {
   evaluatorVersion: string;
   model: string;
   providerIdentityDigest?: string;
+  protocolId?: string;
+  protocolDigest?: string;
   budget: RsiLearningBudget;
   criterion?: RsiEvaluationCriterion;
   createdAt: number;
