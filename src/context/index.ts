@@ -68,14 +68,12 @@ export {
 export { compactSubagentSummaryForParent } from './subagent-summary-compact.js';
 export { truncateToolOutput, registerToolOutputLimits } from './tool-output-truncate.js';
 export {
-  hybridCompact,
   createRemoteCompactProviderFromEnv,
   HttpRemoteCompactProvider,
   resolveRemoteCompactUrls,
   type RemoteCompactProvider,
   type RemoteCompactRequest,
   type RemoteCompactResponse,
-  type HybridCompactionConfig,
 } from './remote-compaction.js';
 
 export {
