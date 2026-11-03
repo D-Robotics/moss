@@ -217,6 +217,9 @@ export {
   type MossErrorOutcome,
 } from './errors.js';
 
+/** Per-agent local compaction override and inherited zero-retry provider policy. */
+export const mossScopedInferenceVersion = 1;
+
 // Optional proactive admission and coordination. SQLite is loaded only when this runtime is opened.
 export { createMossSuperagent } from './core/superagent/runtime.js';
 export type { MossSuperagent, MossSuperagentOptions } from './core/superagent/runtime.js';

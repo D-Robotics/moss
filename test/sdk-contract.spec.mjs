@@ -36,6 +36,7 @@ const SNAPSHOT = [
   'InMemorySessionStore',
   'JsonlSessionStore',
   'MINI_AGENT_EVENT_VERSION',
+  'mossScopedInferenceVersion',
   'MOSS_DEFAULT_MAX_AGENT_TURNS',
   'MossAgent',
   'MossError',

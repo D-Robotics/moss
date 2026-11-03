@@ -75,6 +75,9 @@ export interface SubAgentRunnerDeps {
 
   maxOutputTokens: number;
 
+  /** Child work and final synthesis share the parent provider retry budget. */
+  maxLLMRetries?: number;
+
   contextTokens: number;
 
   temperature?: number;
@@ -386,6 +389,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         prepareCompaction: async () => ({}),
         abortSignal: workPhaseController.signal,
         maxOutputTokens: deps.maxOutputTokens,
+        maxLLMRetries: deps.maxLLMRetries,
         platform: deps.platform,
         toolHooks: deps.toolHooks,
         // Inherit parent coding completion gates (verify / todo / false-complete).
@@ -415,6 +419,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       let miniResult: { turns: number; finalText: string } | undefined;
       let childLoopError: string | undefined;
       let outputLimited = false;
+      let providerFailed = false;
       const noteOutputLimit = (event: { type: string; reason?: string }): void => {
         if (event.type === 'turn_transition' && event.reason === 'output_limit') {
           outputLimited = true;
@@ -423,16 +428,16 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       try {
         for await (const event of childStream) {
           noteOutputLimit(event);
-          if (
-            event.type === 'agent_error' &&
-            event.error !== EMPTY_MODEL_RESPONSE &&
-            !(
+          if (event.type === 'agent_error') {
+            const reservedSynthesisStop =
               workPhaseTimedOut &&
               !signal.aborted &&
-              event.error.includes('sub-agent work phase ended;')
-            )
-          ) {
-            childLoopError = event.error;
+              event.error.includes('sub-agent work phase ended;');
+            if (!reservedSynthesisStop) {
+              // Default empty-response repair remains available; a zero retry budget forbids it.
+              providerFailed = true;
+              if (event.error !== EMPTY_MODEL_RESPONSE) childLoopError = event.error;
+            }
           }
           if (event.type === 'message_delta') {
             partialText = `${partialText}${event.delta}`.slice(-400);
@@ -487,7 +492,12 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       // cannot claim verified coding completion or perform additional changes.
       // A cutoff already ended the child. Another synthesis call would replace
       // the fragment with prose the parent could read as a finished report.
-      if ((!finalSummary || needsContractRepair) && !signal.aborted && !outputLimited) {
+      if (
+        (!finalSummary || needsContractRepair) &&
+        !signal.aborted &&
+        !outputLimited &&
+        !(deps.maxLLMRetries === 0 && providerFailed)
+      ) {
         const finalizationMessages: Message[] = [
           ...inMemoryMessages,
           { role: 'user', content: FORCED_FINALIZATION_PROMPT, timestamp: Date.now() },
@@ -542,6 +552,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
           prepareCompaction: async () => ({}),
           abortSignal: signal,
           maxOutputTokens: deps.maxOutputTokens,
+          maxLLMRetries: deps.maxLLMRetries,
           platform: deps.platform,
           toolHooks: deps.toolHooks,
           onAgentLoopEvent: deps.onAgentLoopEvent,

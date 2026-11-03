@@ -70,6 +70,9 @@ export interface ContextManagementConfig {
 
   compactionSettings?: Partial<CompactionSettings>;
 
+  /** Override environment-derived remote compaction; null keeps summarization local. */
+  remoteCompactProvider?: import('../../context/remote-compaction.js').RemoteCompactProvider | null;
+
   enableMicrocompact?: boolean;
 
   microcompactConfig?: Partial<MicroCompactConfig>;

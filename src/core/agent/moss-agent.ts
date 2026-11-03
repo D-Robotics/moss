@@ -145,7 +145,7 @@ export class MossAgent {
   private closePromise: Promise<void> | undefined;
   private readonly activeStreamAdvances = new Set<Promise<unknown>>();
   private steeringEngine: SteeringEngine | null = null;
-  private readonly remoteCompactProvider = createRemoteCompactProviderFromEnv();
+  private readonly remoteCompactProvider: ReturnType<typeof createRemoteCompactProviderFromEnv>;
   private readonly toolHooks: ToolHookRegistry;
   private readonly inboxes = new Map<string, SessionInbox>();
   private readonly inboxProducer = {
@@ -174,6 +174,10 @@ export class MossAgent {
 
   constructor(config: MossAgentConfig) {
     this.config = config;
+    this.remoteCompactProvider =
+      config.remoteCompactProvider === null
+        ? undefined
+        : (config.remoteCompactProvider ?? createRemoteCompactProviderFromEnv());
     const startupModel = config.model?.trim();
     if (config.identityFactory && startupModel) {
       this.config.baseSystemPrompt = config.identityFactory(startupModel);
@@ -1258,6 +1262,7 @@ ${result.stderr ?? ''}`.trim();
       modelDef,
       systemPrompt,
       maxOutputTokens,
+      maxLLMRetries: this.config.maxLLMRetries,
       contextTokens,
       temperature,
       reasoning: runReasoning,
