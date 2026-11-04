@@ -2,7 +2,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { ErrorCode, wrapAsMoss } from '../errors.js';
-import { atomicWriteFile } from '../utils/atomic-write.js';
+import { atomicWriteBytes } from '../utils/atomic-write.js';
+import {
+  decodeTextBytes,
+  encodeTextBytes,
+  hasUtf16Bom,
+  type TextEncoding,
+} from '../utils/text-encoding.js';
 import {
   globalToolStateManager,
   findSimilarFileName,
@@ -249,7 +255,7 @@ export const readFileTool: Tool = {
         );
       }
       const raw = await fs.readFile(filePath);
-      const binaryAt = binaryOffset(raw);
+      const binaryAt = hasUtf16Bom(raw) ? null : binaryOffset(raw);
       if (binaryAt !== null) {
         // Serving NUL-laden bytes as text showed a PNG as one line of "PNG":
         // the model reads that as the file's content.
@@ -258,7 +264,7 @@ export const readFileTool: Tool = {
           'read_file returns text — use exec (file, xxd -l 256) or device_file_read to inspect it.'
         );
       }
-      const content = raw.toString('utf-8');
+      const { text: content } = decodeTextBytes(raw);
       const hasRange = input.offset !== undefined || input.limit !== undefined;
       const result = (() => {
         if (hasRange) {
@@ -397,8 +403,13 @@ export const writeFileTool: Tool = {
 
       const contentStrEarly = String(input.content ?? '');
       let originalBody: string | null = null;
+      // Keep the file's own encoding: rewriting a UTF-16 config as UTF-8 is a
+      // silent format change even when the text is identical.
+      let encoding: TextEncoding = 'utf8';
       if (existed) {
-        originalBody = await fs.readFile(filePath, 'utf-8');
+        const decoded = decodeTextBytes(await fs.readFile(filePath));
+        originalBody = decoded.text;
+        encoding = decoded.encoding;
       }
       const redactedWrite = redactedPlaceholderWriteError(originalBody, contentStrEarly);
       if (redactedWrite) return `Error: ${redactedWrite}`;
@@ -406,7 +417,7 @@ export const writeFileTool: Tool = {
       // A parent path is a file (`f.txt/x`): the sandbox walk lstat fails here
       // with a raw ENOTDIR. The outer catch names the caller's path instead.
       await fs.mkdir(path.dirname(filePath), { recursive: true });
-      await fs.writeFile(filePath, contentStrEarly, 'utf-8');
+      await fs.writeFile(filePath, encodeTextBytes(contentStrEarly, encoding));
       await globalToolStateManager.recordMutation(filePath);
       const contentLines = contentStrEarly.split('\n');
       const previewLines = contentLines.slice(0, 12).map((l) => `+ ${l}`);
@@ -753,7 +764,13 @@ async function applyEditBatch(raw: unknown[], ctx: ToolContext, toolName: string
       return `Error: too many edits (max 40). Split into smaller ${toolName} batches.`;
 
     // Load each unique file once; apply edits in order into memory.
-    type FileBuf = { displayPath: string; filePath: string; content: string; original: string };
+    type FileBuf = {
+      displayPath: string;
+      filePath: string;
+      content: string;
+      original: string;
+      encoding: TextEncoding;
+    };
     const buffers = new Map<string, FileBuf>();
     const summaries: string[] = [];
 
@@ -769,8 +786,11 @@ async function applyEditBatch(raw: unknown[], ctx: ToolContext, toolName: string
       if (!buf) {
         const filePath = await safePath(displayPath, ctx.workspaceDir);
         let content: string;
+        let encoding: TextEncoding = 'utf8';
         try {
-          content = await fs.readFile(filePath, 'utf-8');
+          const decoded = decodeTextBytes(await fs.readFile(filePath));
+          content = decoded.text;
+          encoding = decoded.encoding;
         } catch (err) {
           if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
             return `Error: edits[${i}] file does not exist: ${displayPath}. Use write_file first.`;
@@ -787,7 +807,7 @@ async function applyEditBatch(raw: unknown[], ctx: ToolContext, toolName: string
           workspaceDir: ctx.workspaceDir,
         });
         if (unread) return `Error: edits[${i}] ${unread}`;
-        buf = { displayPath, filePath, content, original: content };
+        buf = { displayPath, filePath, content, original: content, encoding };
         buffers.set(displayPath, buf);
       }
 
@@ -833,7 +853,7 @@ async function applyEditBatch(raw: unknown[], ctx: ToolContext, toolName: string
     // Commit all files only after every edit succeeded.
     for (const buf of buffers.values()) {
       if (buf.content === buf.original) continue;
-      await atomicWriteFile(buf.filePath, buf.content);
+      await atomicWriteBytes(buf.filePath, encodeTextBytes(buf.content, buf.encoding));
       await globalToolStateManager.recordMutation(buf.filePath);
     }
 
@@ -897,8 +917,11 @@ export const editFileTool: Tool = {
       const newStr = input.new_string;
       const filePath = await safePath(displayPath, ctx.workspaceDir);
       let content: string;
+      let encoding: TextEncoding = 'utf8';
       try {
-        content = await fs.readFile(filePath, 'utf-8');
+        const decoded = decodeTextBytes(await fs.readFile(filePath));
+        content = decoded.text;
+        encoding = decoded.encoding;
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
           return `Error: file does not exist: ${displayPath}. Use write_file to create it.`;
@@ -934,7 +957,7 @@ export const editFileTool: Tool = {
       const redactedWrite = redactedPlaceholderEditError(oldStr, newStr);
       if (redactedWrite) return `Error: ${redactedWrite}`;
 
-      await atomicWriteFile(filePath, result.content);
+      await atomicWriteBytes(filePath, encodeTextBytes(result.content, encoding));
       await globalToolStateManager.recordMutation(filePath);
       const label =
         input.replace_all && result.occurrences > 1
