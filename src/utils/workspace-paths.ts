@@ -128,6 +128,7 @@ skills/learned/
 skills/candidates/
 .gitignore
 prompt-history.jsonl
+skills-usage.json
 tasks.jsonl
 evidence.jsonl
 deployments.jsonl

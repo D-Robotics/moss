@@ -135,6 +135,9 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
 
   if (sub === 'list') {
     const { loadSkillCatalog } = await import('../core/skills/skill-registry.js');
+    const { renderSkillCatalog, SKILL_CATALOG_DEFAULT_BUDGET_CHARS } =
+      await import('../core/skills/skill-catalog.js');
+    const { loadSkillUsage } = await import('../core/skills/skill-usage.js');
     const skills = loadSkillCatalog([
       { dir: path.join(ctx.workspaceDir, '.moss', 'skills'), scope: 'workspace' },
       { dir: path.join(ctx.workspaceDir, '.agents', 'skills'), scope: 'shared' },
@@ -150,14 +153,28 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
       );
       return 0;
     }
+    const usage = loadSkillUsage(ctx.workspaceDir);
+    const total = renderSkillCatalog(skills);
+    out(
+      zh
+        ? '  名称                来源      使用  目录成本  评测  描述'
+        : '  name                scope     used  catalog   evals description'
+    );
     for (const skill of skills) {
+      // Per-skill catalog cost: what the full catalog entry costs for this one
+      // skill (the same renderer the prompt uses, so the number is not an estimate).
+      const cost = renderSkillCatalog([skill]).stats.renderedChars;
+      const uses = usage[skill.name]?.count ?? 0;
+      const evals = skill.resources.evals ? 'yes' : '-';
       const problems = skill.issues.length > 0 ? `  (${skill.issues.length} issue(s))` : '';
-      out(`  ${skill.name.padEnd(18)} ${skill.scope.padEnd(9)} ${skill.description}${problems}`);
+      out(
+        `  ${skill.name.padEnd(18)} ${skill.scope.padEnd(9)} ${String(uses).padEnd(5)} ${String(cost).padEnd(8)} ${evals.padEnd(5)} ${skill.description.split('\n')[0] ?? ''}${problems}`
+      );
     }
     out(
       zh
-        ? `\n共 ${skills.length} 个技能。会话内用技能工具加载。`
-        : `\n${skills.length} skill(s). Load one in-session with the skill tool.`
+        ? `\n共 ${skills.length} 个技能；目录 ${total.stats.renderedChars}/${SKILL_CATALOG_DEFAULT_BUDGET_CHARS} 字符（策略 ${total.stats.strategy}，无预算上限时 ${total.stats.uncappedChars} 字符）。会话内用技能工具加载。`
+        : `\n${skills.length} skill(s); catalog ${total.stats.renderedChars}/${SKILL_CATALOG_DEFAULT_BUDGET_CHARS} chars (strategy ${total.stats.strategy}, ${total.stats.uncappedChars} without a budget). Load one in-session with the skill tool.`
     );
     return 0;
   }

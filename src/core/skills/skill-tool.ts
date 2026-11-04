@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import type { Tool, ToolContext } from '../tools/tool-types.js';
 import { findSkill, parseSkillFile, type SkillManifest } from './skill-registry.js';
 import { applySkillToolScope, describeSkillToolScope } from './skill-tool-scope.js';
+import { recordSkillUse } from './skill-usage.js';
 
 /**
  * L2 of progressive disclosure: the full body plus the provenance and resource
@@ -160,6 +161,8 @@ export function createSkillTool(
         ? describeSkillToolScope(ctx.runId ?? ctx.sessionKey)
         : undefined;
       loaded.set(skill.name, args);
+      // D10: local counters power `/skills` cost-vs-usage visibility.
+      recordSkillUse(ctx.workspaceDir, skill.name);
       return scopeNote ? `${wrapped}\n\n${scopeNote}` : wrapped;
     },
   };
