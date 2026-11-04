@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Studio 0.30 compatibility snapshot
+
+- Commit `f64aa259cbbdc3548c8f6ebf3fa2c22ac10da2b3`, based on the Studio-pinned
+  `3dfb85509c6530dad66fd765075ca3c3f5b35d68`, backports the explicit installation
+  prohibition fix while retaining the 0.30.0 API and RSI surface. Its nudge
+  implementation matches main; recording this ancestry keeps that compatibility
+  snapshot available without downgrading main or restoring its retired spec suite.
+
 ### Device safety: root sessions classify `~` by the real home (G4)
 
 - RDK boards default to the root SSH user, whose home is the protected `/root` tree. `~`, `$HOME`, and `${HOME}` in device commands, write paths, and deploy targets now expand against the session's real user before classification, so `rm -rf ~/data` on a root session is judged destructive instead of reversible. Callers that do not provide a user keep the legacy `/home/_user` placeholder behavior.
