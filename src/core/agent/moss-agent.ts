@@ -1529,6 +1529,7 @@ ${result.stderr ?? ''}`.trim();
               ? { systemPromptOverride: params.systemPromptOverride }
               : {}),
             ...(params.expertPrompt ? { expertPrompt: params.expertPrompt } : {}),
+            ...(params.priorMessages?.length ? { priorMessages: params.priorMessages } : {}),
             maxTurns: params.maxTurns ?? 10,
             timeoutMs,
             onProgress: params.onProgress,
@@ -1550,6 +1551,7 @@ ${result.stderr ?? ''}`.trim();
           sessionKey: `subagent:${result.runId}`,
           summary: result.summary,
           success: result.success,
+          ...(result.messages?.length ? { messages: result.messages } : {}),
           ...(result.protectedPathChanges
             ? { protectedPathChanges: result.protectedPathChanges }
             : {}),

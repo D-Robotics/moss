@@ -220,11 +220,16 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       ? undefined
       : deps.harnessAdapterReceipt;
 
+    // subagent_resume seeds the persisted transcript here: the child continues
+    // from what it already saw instead of re-reading the task from zero.
     const childMessages: Message[] = [
+      ...(config.priorMessages ?? []),
       { role: 'user', content: config.task, timestamp: Date.now() },
     ];
 
     const inMemoryMessages: Message[] = [...childMessages];
+    /** Every result carries the transcript so the tool layer can persist it. */
+    const transcript = (): { messages: Message[] } => ({ messages: [...inMemoryMessages] });
     let toolResultCount = 0;
     let turnCount = 0;
     let lastTool: string | undefined;
@@ -288,6 +293,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
       emitProgress({ status: 'failed', phase: 'failed', summaryPreview: message });
       return {
         runId: childRunId,
+        ...transcript(),
         summary: message,
         toolResults: toolResultCount,
         turns: turnCount,
@@ -601,6 +607,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         });
         return {
           runId: childRunId,
+          ...transcript(),
           summary: message,
           toolResults: toolResultCount,
           turns: turnCount,
@@ -632,6 +639,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
         });
         return {
           runId: childRunId,
+          ...transcript(),
           summary: message,
           toolResults: toolResultCount,
           turns: turnCount,
@@ -684,6 +692,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
 
       return {
         runId: childRunId,
+        ...transcript(),
         summary: worktreeLease
           ? `${finalSummary}\n[worktree lease=${worktreeLease.leaseId} patch=${
               leasePatch?.patchId ?? 'unavailable'
@@ -730,6 +739,7 @@ export function createSubAgentRunner(deps: SubAgentRunnerDeps): SubAgentRunner {
 
       return {
         runId: childRunId,
+        ...transcript(),
         summary,
         toolResults: toolResultCount,
         turns: turnCount,

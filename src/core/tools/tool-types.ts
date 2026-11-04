@@ -1,5 +1,6 @@
 import type { MossAsyncTaskRegistry } from '../../contracts/index.js';
 import type { ToolContentBlock, ToolResultOutcome } from '../../contracts/messages.js';
+import type { Message } from '../session/session-jsonl.js';
 
 export type { ToolContentBlock, ToolResultOutcome } from '../../contracts/messages.js';
 
@@ -117,6 +118,8 @@ export interface ToolContext {
     systemPromptOverride?: string;
     /** Host-trusted expert instructions appended to the inherited system prompt. */
     expertPrompt?: string;
+    /** Prior sub-agent conversation replayed before `task` (subagent_resume). */
+    priorMessages?: readonly Message[];
     mode?: 'single' | 'fan-out' | 'pipeline';
     tasks?: Array<{
       task: string;
@@ -128,6 +131,8 @@ export interface ToolContext {
     onProgress?: (progress: SubagentRunProgress) => void;
   }) => Promise<{
     runId: string;
+    /** Full child conversation; persisted by subagent tools so resume can replay it. */
+    messages?: readonly Message[];
     sessionKey: string;
     summary: string;
     success: boolean;

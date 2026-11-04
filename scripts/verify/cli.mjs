@@ -36,6 +36,7 @@ import { stage as compactionSummaryStage } from './stages/compaction-summary.mjs
 import { stage as readImageStage } from './stages/read-image.mjs';
 import { stage as planEndStage } from './stages/plan-end.mjs';
 import { stage as rulesActivationStage } from './stages/rules-activation.mjs';
+import { stage as subagentResumeStage } from './stages/subagent-resume.mjs';
 import { stage as subagentPromptStage } from './stages/subagent-prompt-contract.mjs';
 import { stage as toolSurfaceStage } from './stages/tool-surface.mjs';
 import { stage as imageBudgetStage } from './stages/image-budget.mjs';
@@ -63,6 +64,7 @@ const STAGES = new Map(
     planEndStage,
     rulesActivationStage,
     subagentPromptStage,
+    subagentResumeStage,
     toolSurfaceStage,
     imageBudgetStage,
     taskLedgerRevealStage,
@@ -90,6 +92,7 @@ const FAST_GATE = [
   'plan-end',
   'rules-activation',
   'subagent-prompt-contract',
+  'subagent-resume',
   'tool-surface',
   'image-budget',
   'task-ledger-reveal',

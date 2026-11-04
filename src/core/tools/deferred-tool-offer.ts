@@ -13,6 +13,7 @@ export const SUBAGENT_DEFERRED_TOOLS = [
   'create_subagent',
   'fan_out_subagents',
   'subagent_status',
+  'subagent_resume',
   'subagent_stop',
   'merge_subagent_patch',
 ] as const;

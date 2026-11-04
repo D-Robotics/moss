@@ -13,6 +13,7 @@ import { assertShellWritesWithinRoots } from '../safety/shell-write-sandbox.js';
 import {
   createSubagentTool,
   fanOutSubagentsTool,
+  subagentResumeTool,
   subagentStatusTool,
   subagentStopTool,
 } from './create-subagent.js';
@@ -592,6 +593,7 @@ export const builtinTools: Tool[] = [
   createSubagentTool,
   mergeSubagentPatchTool,
   fanOutSubagentsTool,
+  subagentResumeTool,
   subagentStatusTool,
   subagentStopTool,
   reviewChangesTool,

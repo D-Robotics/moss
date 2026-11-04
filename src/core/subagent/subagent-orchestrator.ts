@@ -1,3 +1,4 @@
+import type { Message } from '../session/session-jsonl.js';
 import type { SpawnToolScope } from './spawn-profile.js';
 import type { ProtectedPathChangeReport, SubagentRunProgress } from '../tools/tool-types.js';
 
@@ -9,6 +10,13 @@ export interface SubAgentConfig {
   scope: SpawnToolScope;
 
   task: string;
+
+  /**
+   * Prior child conversation to replay before `task`. `subagent_resume` loads
+   * the persisted transcript of a finished sub-agent here, so a follow-up keeps
+   * what the child already saw instead of starting from nothing.
+   */
+  priorMessages?: readonly Message[];
 
   /** Parent-relative coordination hints; not an enforced write boundary. */
   writePaths?: readonly string[];
@@ -68,6 +76,8 @@ export interface SubAgentConfig {
 
 export interface SubAgentResult {
   runId: string;
+  /** Full child conversation (user/assistant/tool messages), for resume. */
+  messages?: readonly Message[];
   summary: string;
   toolResults: number;
   turns: number;

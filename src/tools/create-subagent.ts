@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import {
+  loadSubagentTranscript,
+  saveSubagentTranscript,
+} from '../core/subagent/subagent-transcript.js';
 import type { MossAsyncTaskSnapshot, MossAsyncTaskStartRequest } from '../contracts/index.js';
 import type {
   ProtectedPathChangeReport,
@@ -318,6 +322,18 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
             };
           }
           const summary = result.summary || (result.success ? '(no output)' : 'Sub-agent failed.');
+          // Keep the child's conversation addressable: subagent_resume replays it.
+          saveSubagentTranscript({
+            workspaceDir: ctx.workspaceDir,
+            id: taskId,
+            meta: {
+              task: input.task,
+              scope,
+              ...(selectedModel ? { model: selectedModel } : {}),
+              maxTurns,
+            },
+            messages: result.messages ?? [],
+          });
           const ok = normalizeSubagentSuccess(result.success, result.summary);
           return {
             success: ok,
@@ -379,6 +395,19 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
     if (result.protectedPathChanges?.length) {
       ctx.reportProtectedPathChanges?.(result.protectedPathChanges);
     }
+    // Same contract as the background path: the runId now resolves to a stored
+    // conversation that subagent_resume can continue.
+    saveSubagentTranscript({
+      workspaceDir: ctx.workspaceDir,
+      id: result.runId,
+      meta: {
+        task: input.task,
+        scope,
+        ...(selectedModel ? { model: selectedModel } : {}),
+        maxTurns,
+      },
+      messages: result.messages ?? [],
+    });
     const summary = result.summary || '(no output)';
     const ok = normalizeSubagentSuccess(result.success, result.summary);
     const status = ok ? 'SUCCESS' : 'FAILED';
@@ -388,6 +417,9 @@ export const createSubagentTool: Tool<CreateSubagentInput> = {
         : '';
     const metrics = [
       `scope: ${scope}`,
+      // Full runId so the parent can hand it to subagent_resume (the head only
+      // shows a prefix, and truncated ids do not resolve).
+      `runId: ${result.runId}`,
       `turns: ${result.turns ?? 0}`,
       `toolCalls: ${result.toolResults ?? 0}`,
       `elapsed: ${result.durationMs ?? 0} ms`,
@@ -960,5 +992,132 @@ export const subagentStopTool: Tool<SubagentStopInput> = {
     return [`[Sub-agent task ${taskId}] STOP REQUESTED`, `previousStatus: ${snapshot.status}`].join(
       '\n'
     );
+  },
+};
+
+interface SubagentResumeInput {
+  taskId: string;
+  prompt: string;
+  maxTurns?: number;
+  timeoutMs?: number;
+}
+
+/**
+ * B11: continue a finished sub-agent with its stored conversation.
+ *
+ * Claude Code lets the parent address a sub-agent by id and keep going in the
+ * same context; Moss could only re-run the task from scratch. The transcript is
+ * written when the child finishes (`saveSubagentTranscript`), so this tool
+ * replays exactly what the child saw and appends the follow-up as the next user
+ * message. It runs synchronously and returns the child's answer — a background
+ * task must finish first (`subagent_status` with `wait: true`).
+ */
+export const subagentResumeTool: Tool<SubagentResumeInput> = {
+  name: 'subagent_resume',
+  description: [
+    'Continue a finished sub-agent (from create_subagent or fan_out_subagents) with its stored conversation, then ask a follow-up.',
+    'Pass the taskId returned by background mode or the runId printed in the sub-agent result.',
+    'The child keeps what it already read and did; the new prompt is appended as the next user message.',
+    'Blocks until the follow-up finishes and returns its answer.',
+    'Not for starting unrelated work (create_subagent) or for a child whose transcript was never stored.',
+  ].join(' '),
+  metadata: {
+    classification: { discovery: true },
+    sideEffectClass: 'subagent',
+    planMode: 'allow',
+    requiresApproval: false,
+    retainResult: true,
+  },
+  inputSchema: {
+    type: 'object',
+    properties: {
+      taskId: {
+        type: 'string',
+        description: 'Task id from create_subagent background mode, or the runId from its result',
+      },
+      prompt: {
+        type: 'string',
+        description: 'Follow-up instruction for the same sub-agent',
+      },
+      maxTurns: {
+        type: 'number',
+        description: 'Max turns for the follow-up (default: the original run’s maxTurns)',
+      },
+      timeoutMs: {
+        type: 'number',
+        minimum: MIN_SUBAGENT_TIMEOUT_MS,
+        maximum: MAX_SUBAGENT_TIMEOUT_MS,
+        description: 'Max runtime for the follow-up in ms',
+      },
+    },
+    required: ['taskId', 'prompt'],
+  },
+
+  async execute(input: SubagentResumeInput, ctx: ToolContext): Promise<string> {
+    if (!ctx.spawnSubagent) {
+      return 'Error: sub-agent spawning is not available in this context.';
+    }
+    if (
+      ctx.maxSpawnDepth !== undefined &&
+      ctx.currentSpawnDepth !== undefined &&
+      ctx.currentSpawnDepth >= ctx.maxSpawnDepth
+    ) {
+      return `Error: maximum spawn depth (${ctx.maxSpawnDepth}) reached; cannot resume a nested sub-agent.`;
+    }
+    const taskId = String(input.taskId ?? '').trim();
+    const prompt = String(input.prompt ?? '').trim();
+    if (!taskId) return 'Error: taskId is required.';
+    if (!prompt) return 'Error: prompt is required.';
+
+    const stored = loadSubagentTranscript(ctx.workspaceDir, taskId);
+    if (!stored) {
+      return [
+        `Error: no stored conversation for sub-agent ${taskId}.`,
+        'Pass the taskId from create_subagent background mode or the runId printed in the result.',
+        'Only sub-agents that finished in this workspace keep a transcript; a still-running background task must finish first (subagent_status with wait: true).',
+      ].join('\n');
+    }
+
+    const scope = stored.meta.scope as
+      | 'read-only'
+      | 'device-read'
+      | 'full'
+      | 'explore'
+      | 'plan'
+      | 'verify';
+    const maxTurns = input.maxTurns ?? stored.meta.maxTurns ?? defaultMaxTurnsForScope(scope);
+    const timeoutMs = resolveSubagentTimeoutMs(input.timeoutMs);
+    const result = await ctx.spawnSubagent({
+      task: prompt,
+      priorMessages: stored.messages,
+      scope,
+      maxTurns,
+      timeoutMs,
+      ...(stored.meta.model ? { model: stored.meta.model } : {}),
+      ...(ctx.abortSignal ? { abortSignal: ctx.abortSignal } : {}),
+    });
+
+    saveSubagentTranscript({
+      workspaceDir: ctx.workspaceDir,
+      id: result.runId,
+      meta: {
+        task: `${stored.meta.task}\n\n[resume] ${prompt}`,
+        scope,
+        ...(stored.meta.model ? { model: stored.meta.model } : {}),
+        maxTurns,
+      },
+      messages: result.messages ?? [],
+    });
+
+    const ok = normalizeSubagentSuccess(result.success, result.summary);
+    const head = ok
+      ? `[Sub-agent ${result.runId.slice(0, 8)}] RESUMED`
+      : `Error: [Sub-agent ${result.runId.slice(0, 8)}] RESUME FAILED`;
+    return [
+      head,
+      `replayed: ${stored.messages.length} message(s) | scope: ${scope} | turns: ${result.turns ?? 0} | toolCalls: ${result.toolResults ?? 0}`,
+      '',
+      result.summary || '(no output)',
+    ].join('\n');
   },
 };
