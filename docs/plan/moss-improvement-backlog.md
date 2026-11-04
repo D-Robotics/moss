@@ -108,6 +108,20 @@ description 写着「At most once per change」但代码里没有任何去重，
 **回归门**：`review-pipeline` probe 新增 1 条（22 checks）：fingerprint 稳定/对内容敏感、按 depth 区分、
 未知 hash 返回 undefined。
 
+**B16 第三片（同一轮）：修复次数上限（Bugbot 的 fix loop 上限 3）**。此前失败评审可以无限重跑，没有
+「试了 3 次还是不行就该停下来」的状态。现在 `failingRepairAttempts(records, depth)` 统计**尾部连续的
+失败评审（按 diff fingerprint 去重，pass 即清零，depth 分档）**；达到 `MAX_REPAIR_ATTEMPTS = 3` 时
+`review_changes` 不再花子代理，直接返回 `Repair attempts exhausted …` + 最后一次失败评审的结果，
+并要求模型停止评审、诚实汇报未解决问题或询问用户（也提示可用 `paths=` 缩窄范围）。
+**真实证据（4 次独立 `-p` 运行共享同一 `.moss/review.jsonl`，脚本化 provider 每次给出带 finding 的
+`VERDICT: FAIL`）**：前 3 次各花 1 个 reviewer（`reviewerCalls=3`，记录 `fail,fail,fail`），第 4 次
+**没有**再调用 reviewer，主模型上下文里出现 `Repair attempts exhausted` 消息；4 次 run 均 exit 0
+（工具返回的是「停手」指引而非工具错误，所以进程退出码不表达失败——想用退出码表达请用
+`moss review check`，它仍以 1 表示仍有未解决问题）。**同轮观察**：单轮内重复调用同一 `review_changes`
+本来就会被 tool loop guard 挡住（`identical input … 3 time(s)`），所以本上限主要覆盖**跨轮/跨会话**的
+修复循环。**回归门**：probe 新增 1 条（23 checks）：cap 常量、尾部连续统计、重复 fingerprint 只算一次、
+pass 清零、depth 分档。
+
 ## 3. 逐条说明（为什么现在最值得做 · 最小切片 · 风险）
 
 **B01 图片/附件链路（P0）**

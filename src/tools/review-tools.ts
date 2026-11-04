@@ -34,6 +34,11 @@ const MAX_DIFF_CHARS = 400_000;
 const MAX_FINDINGS = 50;
 const MAX_CHECKS = 20;
 const MAX_REVIEWER_SUMMARY_CHARS = 4_000;
+/**
+ * Bugbot caps its fix-review loop at 3; past that the honest move is to report
+ * the unresolved findings instead of buying another round of the same review.
+ */
+export const MAX_REPAIR_ATTEMPTS = 3;
 const REVIEW_LOG_NAME = 'review.jsonl';
 
 export type ReviewSeverity = 'critical' | 'important' | 'suggestion';
@@ -481,6 +486,25 @@ export function findRepeatedReview(
   return undefined;
 }
 
+/** Distinct diffs (attempts) that already ended in a failing review, newest last. */
+export function failingRepairAttempts(
+  records: readonly ReviewRecord[],
+  depth: ReviewDepth
+): number {
+  const seen = new Set<string>();
+  let attempts = 0;
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const record = records[index];
+    if (record.depth !== depth) continue;
+    const key = record.diffFingerprint ?? record.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (record.verdict === 'fail') attempts += 1;
+    else break;
+  }
+  return attempts;
+}
+
 function findingLine(finding: ReviewFinding): string {
   const location = finding.line === undefined ? finding.file : `${finding.file}:${finding.line}`;
   return `  [${finding.severity}] ${location} — ${finding.summary}${
@@ -611,6 +635,21 @@ export const reviewChangesTool: Tool<ReviewChangesInput> = {
         `This change is already reviewed at depth=${depth} (no new sub-agent was spent).\n` +
         formatReviewResult(previous, path.join('.moss', REVIEW_LOG_NAME)) +
         '\nFix the blocking findings, then call review_changes again — the diff hash changes once the files change.'
+      );
+    }
+    let records: ReviewRecord[] = [];
+    try {
+      records = await listReviewRecords(ctx.workspaceDir, 50);
+    } catch {
+      records = [];
+    }
+    const failedAttempts = failingRepairAttempts(records, depth);
+    if (failedAttempts >= MAX_REPAIR_ATTEMPTS && !previous) {
+      const lastFail = [...records].reverse().find((record) => record.verdict === 'fail');
+      return (
+        `Repair attempts exhausted: the last ${failedAttempts} distinct diffs still failed review (cap ${MAX_REPAIR_ATTEMPTS}, matching Bugbot's fix loop limit). No new sub-agent was spent.\n` +
+        (lastFail ? formatReviewResult(lastFail, path.join('.moss', REVIEW_LOG_NAME)) : '') +
+        '\nStop reviewing: report the unresolved findings, what you tried, and ask the user how to proceed — or narrow the scope with paths=<...> if only part of the change is in question.'
       );
     }
     const explicitCriteria = input.criteria?.trim();

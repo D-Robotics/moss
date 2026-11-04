@@ -354,6 +354,38 @@ assert.equal(findRepeatedReview(fpRecords, fingerprint, 'deep')?.id, 'r2');
 assert.equal(findRepeatedReview(fpRecords, 'other', 'quick'), undefined);
 ok('review dedupe keys on the diff fingerprint and the review depth');
 
+// ── 9. Repair attempts are capped ─────────────────────────────────────────
+
+const { failingRepairAttempts, MAX_REPAIR_ATTEMPTS } = review;
+assert.equal(MAX_REPAIR_ATTEMPTS, 3);
+const failRecordFor = (id, fingerprint) => ({
+  id,
+  depth: 'quick',
+  diffFingerprint: fingerprint,
+  verdict: 'fail',
+});
+const passRecordFor = { id: 'p', depth: 'quick', diffFingerprint: 'fp-pass', verdict: 'pass' };
+assert.equal(failingRepairAttempts([failRecordFor('a', 'f1')], 'quick'), 1);
+assert.equal(
+  failingRepairAttempts([failRecordFor('a', 'f1'), failRecordFor('b', 'f2')], 'quick'),
+  2
+);
+assert.equal(
+  failingRepairAttempts(
+    [passRecordFor, failRecordFor('a', 'f1'), failRecordFor('b', 'f2')],
+    'quick'
+  ),
+  2,
+  'a pass ends the streak'
+);
+assert.equal(
+  failingRepairAttempts([failRecordFor('a', 'f1'), failRecordFor('b', 'f1')], 'quick'),
+  1,
+  'the same fingerprint counted once'
+);
+assert.equal(failingRepairAttempts([failRecordFor('a', 'f1')], 'deep'), 0, 'depth-scoped');
+ok('repair attempts cap at 3 and only count distinct failing diffs');
+
 for (const dir of tmpRoots) {
   await fs.rm(dir, { recursive: true, force: true });
 }
