@@ -596,6 +596,7 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
     'Omitted scope is inferred per task (review/explore→explore, fix/implement→full, verify→verify, plan→plan).',
     'Empty child output is FAILED. One task: use create_subagent.',
     'cross_review=true adds one read-only reviewer per implementation task. It must emit VERDICT: PASS or FAIL. Missing VERDICT or evidence is UNVERIFIED.',
+    'Every child prints its own runId and keeps its conversation, so subagent_resume can continue one angle without re-running the batch.',
     'Do not use for quick help or one-line answers.',
   ].join(' '),
   metadata: {
@@ -802,8 +803,25 @@ export const fanOutSubagentsTool: Tool<FanOutSubagentsInput> = {
             ? ''
             : '\n(no VERDICT line — reviewer output is INVALID; treat the reviewed work as UNVERIFIED)'
           : '';
+        // Each child keeps its own conversation so `subagent_resume` can
+        // continue one angle without re-running the whole fan-out.
+        const childModel = experts[i]?.model ?? effectiveTasks[i]!.model;
+        if (r.runId && r.messages?.length) {
+          saveSubagentTranscript({
+            workspaceDir: ctx.workspaceDir,
+            id: r.runId,
+            meta: {
+              task: `${label}: ${taskText}`,
+              scope,
+              maxTurns: experts[i]?.maxTurns ?? maxTurns,
+              ...(childModel ? { model: childModel } : {}),
+            },
+            messages: r.messages,
+          });
+        }
+        const resumeLine = r.runId ? `\nrunId: ${r.runId}` : '';
         sections.push(
-          `### [${label}] ${childOk ? (evidenceOk ? 'SUCCESS' : 'SUCCESS (UNVERIFIED — no concrete evidence cited)') : 'FAILED'} (scope: ${scope})${id ? ` (sub-agent ${id})` : ''}\n${summary}${emptyNote}${verdictNote}`
+          `### [${label}] ${childOk ? (evidenceOk ? 'SUCCESS' : 'SUCCESS (UNVERIFIED — no concrete evidence cited)') : 'FAILED'} (scope: ${scope})${id ? ` (sub-agent ${id})` : ''}\n${summary}${emptyNote}${verdictNote}${resumeLine}`
         );
         if (!childOk) {
           failedRetries.push(

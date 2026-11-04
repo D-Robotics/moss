@@ -19,7 +19,7 @@ const root = path.resolve(import.meta.dirname, '../..');
 const load = (relative) => import(pathToFileURL(path.join(root, 'dist', relative)).href);
 
 const store = await load('core/subagent/subagent-transcript.js');
-const { subagentResumeTool } = await load('tools/create-subagent.js');
+const { subagentResumeTool, fanOutSubagentsTool } = await load('tools/create-subagent.js');
 
 let checks = 0;
 const ok = (name) => {
@@ -278,6 +278,77 @@ try {
   assert.equal(waitCapture[0].scope, 'explore');
   assert.match(waited, /\[Sub-agent .+\] RESUMED/);
   ok('a running background task is waited for, then resumed with its stored conversation');
+
+  // ── 9b. Fan-out children are individually resumable ─────────────────────
+
+  const fanCapture = [];
+  const fanMessages = new Map();
+  let fanChild = 0;
+  const fanOut = await fanOutSubagentsTool.execute(
+    {
+      tasks: [
+        { task: 'review the parser for panics', label: 'correctness' },
+        { task: 'review the network layer for leaks', label: 'security' },
+      ],
+    },
+    {
+      workspaceDir: dir,
+      runId: 'parent-run',
+      spawnSubagent: async (params) => {
+        fanChild += 1;
+        const runId = `parent-run/sub-fan000${fanChild}`;
+        const messages = [
+          { role: 'user', content: params.task, timestamp: 20 + fanChild },
+          { role: 'assistant', content: `FAN-${fanChild} done`, timestamp: 30 + fanChild },
+        ];
+        fanMessages.set(runId, messages);
+        fanCapture.push({ runId, params });
+        return {
+          runId,
+          summary: `FAN-${fanChild} done — ev ${fanChild}`,
+          success: true,
+          turns: 1,
+          toolResults: 0,
+          messages,
+        };
+      },
+    }
+  );
+  assert.match(fanOut, /sub-agents ran concurrently/);
+  assert.match(fanOut, /runId: parent-run\/sub-fan0001/);
+  assert.match(fanOut, /runId: parent-run\/sub-fan0002/);
+  for (const [runId, messages] of fanMessages) {
+    const storedChild = store.loadSubagentTranscript(dir, runId);
+    assert.ok(storedChild, `${runId} must keep its own transcript`);
+    assert.deepEqual(storedChild.messages, messages);
+  }
+  const childResumeCapture = [];
+  const childResume = await subagentResumeTool.execute(
+    { taskId: 'parent-run/sub-fan0002', prompt: 'which leak was worse?' },
+    {
+      workspaceDir: dir,
+      runId: 'parent-run',
+      spawnSubagent: async (params) => {
+        childResumeCapture.push(params);
+        return {
+          runId: 'parent-run/sub-fan0003',
+          summary: 'LEAK-ANSWER',
+          success: true,
+          turns: 1,
+          toolResults: 0,
+          messages: [{ role: 'assistant', content: 'LEAK-ANSWER', timestamp: 40 }],
+        };
+      },
+    }
+  );
+  assert.equal(childResumeCapture.length, 1);
+  assert.deepEqual(
+    childResumeCapture[0].priorMessages,
+    fanMessages.get('parent-run/sub-fan0002'),
+    'resuming one angle replays that angle, not the whole batch'
+  );
+  assert.match(childResume, /\[Sub-agent .+\] RESUMED/);
+  ok('each fan-out child keeps its own transcript and can be resumed by its runId');
 
   // ── 10. A task that finished without a transcript says exactly that ──────
 

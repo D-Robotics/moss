@@ -430,7 +430,20 @@ transcript 且传了后台 taskId 时，先查 `ctx.asyncTaskRegistry.status(id)
 `InMemoryMossAsyncTaskRegistry` 跑一个活任务：`waitForRunning:false` 得到 still RUNNING 且不 spawn；
 默认路径等任务落盘 transcript 后 spawn，且 priorMessages 就是那次后台跑的对话、scope 继承」以及
 「终态但无 transcript 的 id 明确报错、不静默 spawn」。
-**仍未做**：`fan_out_subagents` 的每任务 transcript 没有单独 id（目前只存主 runId）。
+**已落地（2026-11-05，再补一片 = fan-out 每个子代理可单独续跑）**：`fan_out_subagents` 的 N 个子代理此前
+**完全不存 transcript**（只有 `create_subagent` 的前台/后台两条路径存），所以批量跑完只能重跑整批。现在每个
+成功的子代理都按它自己的 `runId` 存一份 `.moss/runtime/subagents/<runId>.jsonl`（meta 记 `label: task`、
+scope、maxTurns、model），结果里每个 section 追加一行 `runId: <完整 id>`，`subagent_resume({taskId:<该
+runId>})` 就能只续某一个角度、不重跑其余；工具描述也写明「每个 child 会打印自己的 runId，可单独续跑」。
+**真实证据（真实 CLI + 脚本化 provider）**：`moss -p "run both angles via subagents and report"` 全链
+tool_search(group=subagent) → `fan_out_subagents`（两个 child 分别独立请求，答 `CHILD-ALPHA`/`CHILD-BETA`）
+→ 父代理从 fan-out 结果里取 `runId: <parent>/sub-…` → `subagent_resume(taskId:<runId>, prompt:'which angle
+was better?')`：wire 上续跑请求 `count=4, hasChildAlpha=true, hasChildBeta=false`（**只重放了被续的那个
+child 的对话，没有把整批带进来**）→ child 答 `CHILD-RESUMED alpha` → 父终稿 `DONE-FANOUT`，exit 0；
+`.moss/runtime/subagents/` 落盘 **3 份** transcript（两个 child + 一次续跑）。
+**回归门**：verify stage `subagent-resume` 8→**11 断言**（新增：fan-out 两个 child 各存一份、结果打印
+`runId:`、按单 child runId 续跑时 `priorMessages` 深等于该 child 的对话而非整批）。
+**B11 至此全部完成**（无剩余项）。
 
 **B12 启动手感（P2）**
 **已落地（2026-11-05，本轮 = H2 补全 + ink 预取）**：① TUI 路径的分段计时补到 `composer`：
