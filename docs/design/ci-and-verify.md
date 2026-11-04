@@ -40,6 +40,13 @@ Measured total on 2026-11-04 (8-core Apple laptop, warm node_modules):
 enforces `VERIFY_BUDGET_SECONDS=60` on the gate itself; exceeding it fails the
 job, so the contract cannot silently rot.
 
+Measured on GitHub Actions the same day (runs `41823015856` and `41823597361`):
+the `Fast gate` job took 60s and 63s wall clock; the `Verify` step 33s and 49s,
+both inside the 60s budget. The deep matrix (run `41823808483`) finished in 73s
+wall with all four legs green — Ubuntu 22.16 (verify 45s), macOS 22.16 (33s),
+Windows 22.16 (33s, PTY check skipped) and Ubuntu 24 (42s) — plus the
+aggregated `Deep gate`.
+
 ## What this does not prove
 
 This section is part of the design, not a disclaimer hidden in a log.
@@ -49,7 +56,7 @@ This section is part of the design, not a disclaimer hidden in a log.
   permissions, TUI, MCP, device or task-runtime behavior automatically. The
   gate proves the tree compiles, the CLI boots, and the three embedding
   examples still work. Git history (up to commit `01a16fd7`) still holds the
-  suite if it is ever restored.
+  suite, but the standing decision is not to restore it.
 - **No install e2e.** The documented `npm ci` + `npm install -g --install-links`
   path is not executed by any automated gate.
 - **No real terminals.** PTY startup is checked by `smoke` on Unix; tmux /
