@@ -82,8 +82,22 @@ readline REPL 每次启动 history 为空，Up 只能回到本次会话。现在
 - 写入侧：上一轮同法输入 `remember-this-prompt` 后，工作区 `.moss/prompt-history.jsonl` 出现 `{"text":"remember-this-prompt"}`。
   **探针备注**：本轮用不可路由 baseUrl（`127.0.0.1:9`）作为 provider，让判定不依赖 stub 是否回包——用户消息在请求前已落盘，
   所以断言直接读会话文件即可。
-  **另一个未确认观察（留给后续）**：同一 config 下 `-p` 能打到本地 stub，但 REPL 提交后一直 `Working` 且 stub 收到 0 个请求
-  （两轮复现）；未定位原因，未按 bug 记账。
+  **H8 待查（2026-11-05）：交互 REPL 的回合卡在 `Working`，provider 一次都没被请求**
+  上一轮作为 H7 的旁证首次看到：同一份 `config.json`（本地 stub、`permissions.defaultMode=full`）下，
+  `-p "say hi"` 能正常打到 stub，但**交互 REPL** 里输入普通提示（不带斜杠）后一直显示 `Working Ns`，
+  stub 侧收到 **0** 个请求。本轮补了三组对照，结论是「**先于 H7 改动就存在**」：
+
+1. **回滚基线对照**：把 `src/cli/repl.ts` 换回 H7 之前的版本（`git show HEAD~1:src/cli/repl.ts`）重新 build 再跑，
+   仍然是 0 个请求 —— 不是 H7 引入的回归；
+2. **`sample <pid>` 采样**（macOS，hang 3s 时）：主线程 1597/1597 个样本停在
+   `node::SpinEventLoopInternal` —— **事件循环空转，等一个不会 resolve 的 Promise**，不是死循环也不是网络重试；
+3. **排除 context 探测**：H7 那个「unroutable baseUrl + 直读会话文件」的探针证明用户消息已进入本回合；
+   本轮又在配置里显式钉住 `contextTokens: 200000 / maxOutputTokens: 8192`（跳过启动期 `/models` 探测），
+   依旧 0 请求 —— 不是 probe 卡住。
+   **尚未定位**：REPL 在 `turn_start` 之后、provider 调用之前有一步 await 永不返回。下一轮建议的定位手段：
+   `node --inspect` + inspector 的 `Runtime.getPromiseDetails`/async stack，或在 `runOneShot` 与 `streamChat` 之间
+   临时插桩（`MOSS_TURN_TRACE=1`）看最后一个打点停在哪；不要在未定位前当成「REPL 不能聊天」的结论——
+   `-p`、TUI、管道三条路径都正常，这一条只影响 `MOSS_NO_TUI=1` 的 readline 交互面，属于 P1（非 P0）。
 
 **B18 第三片（2026-11-05）：保留名表不再拖入斜杠命令实现图**
 `cli/commands/custom-commands.ts` 的 `reservedBuiltinNames()` 只为拿命令名，却静态 import 了 `./registry.js`
