@@ -316,12 +316,65 @@ export function ruleMatchesPaths(rule: InstructionRule, relativePaths: readonly 
   );
 }
 
-/** Rules active for the given touched paths, plus every always-on rule. */
+/**
+ * How a rule activates, using Cursor's `.cursor/rules` classes:
+ * - `always` — no globs and no description: the file states an unconditional rule;
+ * - `globs`  — a path pattern decides (auto attached);
+ * - `manual` — only a `description`: the body is *not* injected automatically.
+ *
+ * The `manual` branch is the fix for the inverted intent: a description means
+ * "tell the model this rule exists and can be requested", not "apply it
+ * everywhere". Rules that predate descriptions keep their old always-on
+ * behavior because they have neither field.
+ */
+export type InstructionRuleActivation = 'always' | 'globs' | 'manual';
+
+export function ruleActivation(rule: InstructionRule): InstructionRuleActivation {
+  if (rule.globs.length > 0) return 'globs';
+  if (rule.description) return 'manual';
+  return 'always';
+}
+
+/** Name a user writes after `@rule:`; the rule id carries a `rule:<scope>:` prefix. */
+export function ruleName(rule: InstructionRule): string {
+  const fromId = rule.id.split(':').pop();
+  if (fromId) return fromId;
+  return path.basename(rule.file, '.md');
+}
+
+/** `@rule:<name>` / `@rule/<name>` mentions in a user message. */
+export function requestedRuleNames(text: string): string[] {
+  const names = new Set<string>();
+  for (const match of text.matchAll(/@rule[:/]([\w.-]+)/gi)) {
+    const name = match[1];
+    if (name) names.add(name.toLowerCase());
+  }
+  return [...names];
+}
+
+/** Manual rules the user explicitly asked for in this text. */
+export function selectRequestedRules(
+  rules: readonly InstructionRule[],
+  text: string
+): InstructionRule[] {
+  const requested = new Set(requestedRuleNames(text));
+  if (requested.size === 0) return [];
+  return rules.filter(
+    (rule) => ruleActivation(rule) === 'manual' && requested.has(ruleName(rule).toLowerCase())
+  );
+}
+
+/** Rules active for the given touched paths: every always-on rule plus glob matches. */
 export function selectActiveRules(
   rules: readonly InstructionRule[],
   relativePaths: readonly string[]
 ): InstructionRule[] {
-  return rules.filter((rule) => rule.globs.length === 0 || ruleMatchesPaths(rule, relativePaths));
+  return rules.filter((rule) => {
+    const activation = ruleActivation(rule);
+    if (activation === 'always') return true;
+    if (activation === 'globs') return ruleMatchesPaths(rule, relativePaths);
+    return false;
+  });
 }
 
 /**
@@ -348,8 +401,25 @@ export function extractPathTokens(text: string): string[] {
 export function formatInstructionRules(title: string, rules: readonly InstructionRule[]): string {
   if (rules.length === 0) return '';
   const sections = rules.map((rule) => {
-    const scope = rule.globs.length > 0 ? rule.globs.join(',') : 'always';
+    const activation = ruleActivation(rule);
+    const scope = activation === 'globs' ? rule.globs.join(',') : activation;
     return `--- ${title}: ${rule.id} (${scope}) ---\n${rule.text}`;
   });
   return `${sections.join('\n\n')}`;
+}
+
+/**
+ * Index of rules whose body is not injected automatically: the model sees what
+ * exists and that the user can name it, without paying for every body up front.
+ */
+export function formatAvailableRules(rules: readonly InstructionRule[]): string {
+  const lines = rules
+    .filter((rule) => ruleActivation(rule) === 'manual')
+    .map((rule) => `- @rule:${ruleName(rule)} — ${rule.description ?? '(no description)'}`);
+  if (lines.length === 0) return '';
+  return [
+    'Project rules that are available on request (not part of this prompt):',
+    ...lines,
+    'Load one only when the user asks for it by name (`@rule:<name>`): the body then joins the conversation.',
+  ].join('\n');
 }

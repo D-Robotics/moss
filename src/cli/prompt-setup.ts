@@ -15,9 +15,12 @@ import { planModeLayer } from './plan-mode-layer.js';
 import {
   buildAgentsMdLayer,
   extractPathTokens,
+  formatAvailableRules,
   formatInstructionRules,
   loadInstructionRules,
+  ruleActivation,
   selectActiveRules,
+  selectRequestedRules,
 } from './project-instructions.js';
 import { buildAnswerLanguageLayer } from './cli-locale.js';
 import { buildEnvironmentContextLayer } from '../context/environment.js';
@@ -105,19 +108,45 @@ export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<
       id: rule.id,
       kind: 'instruction' as const,
       scope: rule.scope,
-      activation: rule.globs.length === 0 ? ('always' as const) : { globs: rule.globs },
+      activation:
+        ruleActivation(rule) === 'globs'
+          ? { globs: rule.globs }
+          : ruleActivation(rule) === 'manual'
+            ? ('manual' as const)
+            : ('always' as const),
       source: rule.file,
       ...(rule.description ? { description: rule.description } : {}),
       costChars: rule.text.length,
     }))
   );
-  const alwaysRules = instructionRules.filter((rule) => rule.globs.length === 0);
+  const alwaysRules = instructionRules.filter((rule) => ruleActivation(rule) === 'always');
   if (alwaysRules.length > 0) {
     promptLayers.set({
       id: 'project:rules:always',
       stability: 'stable',
       origin: 'project',
       text: formatInstructionRules('Project rules', alwaysRules),
+    });
+  }
+  // Rules that only carry a `description` are agent-requestable: the index
+  // names them (and says how to load one), but their bodies stay out of the
+  // prompt until the user asks for them by name.
+  const manualRules = instructionRules.filter((rule) => ruleActivation(rule) === 'manual');
+  if (manualRules.length > 0) {
+    promptLayers.set({
+      id: 'project:rules:available',
+      stability: 'stable',
+      origin: 'project',
+      text: formatAvailableRules(manualRules),
+    });
+  }
+  const requestedRules = selectRequestedRules(manualRules, initialText);
+  if (requestedRules.length > 0) {
+    promptLayers.set({
+      id: 'project:rules:requested',
+      stability: 'dynamic',
+      origin: 'project',
+      text: formatInstructionRules('Requested project rules', requestedRules),
     });
   }
   const toWorkspaceRelative = (candidate: string): string | undefined => {
@@ -130,7 +159,7 @@ export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<
       .map(toWorkspaceRelative)
       .filter((rel): rel is string => rel !== undefined)
   );
-  const scopedRules = instructionRules.filter((rule) => rule.globs.length > 0);
+  const scopedRules = instructionRules.filter((rule) => ruleActivation(rule) === 'globs');
   const refreshScopedRules = (): void => {
     if (scopedRules.length === 0) return;
     const active = selectActiveRules(scopedRules, [...touchedPaths]);
