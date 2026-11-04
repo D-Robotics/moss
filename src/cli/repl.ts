@@ -1,5 +1,11 @@
 import path from 'node:path';
 import * as readline from 'node:readline';
+import { getMossWorkspacePaths } from '../utils/workspace-paths.js';
+import {
+  loadMergedPromptHistory,
+  promptHistoryFile,
+  savePromptHistory,
+} from './tui/prompt-history.js';
 import type { MossAgent, MossAgentEvent } from '../core/index.js';
 import { setCliApprovalAsker } from './approval.js';
 import { noteKnownSecret } from '../safety/known-secrets.js';
@@ -250,6 +256,24 @@ export async function runInteractive(
     prompt: '\n› ',
     completer: completeInteractiveCommand,
   });
+  // The TUI recalls prompts across sessions; the REPL used to start every
+  // session with an empty history, so Up only reached this run. Seed readline's
+  // history (newest first) from the same workspace/config files.
+  const promptHistoryFiles = (() => {
+    const workspaceFile = promptHistoryFile(getMossWorkspacePaths(workspace).runtimeDir);
+    const configDir = runtime?.configDir;
+    return configDir ? [promptHistoryFile(configDir), workspaceFile] : [workspaceFile];
+  })();
+  const seededHistory = loadMergedPromptHistory(promptHistoryFiles);
+  if (seededHistory.length > 0) {
+    // `history` is a documented readline.Interface field that @types/node does
+    // not declare here.
+    (rl as unknown as { history: string[] }).history = [...seededHistory].reverse();
+  }
+  const rememberPrompt = (text: string): void => {
+    if (!text) return;
+    for (const file of promptHistoryFiles) savePromptHistory(file, [text]);
+  };
   setCliApprovalAsker(
     wrapApprovalAsker(
       (question) =>
@@ -284,6 +308,7 @@ export async function runInteractive(
       rl.prompt();
       continue;
     }
+    rememberPrompt(msg);
     if (pendingGoal && !isSlashCommandInput(msg)) {
       const goal = pendingGoal.goal;
       pendingGoal = null;
