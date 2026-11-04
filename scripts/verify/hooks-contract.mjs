@@ -25,6 +25,14 @@ process.stdin.on('end', () => {
   // JSON bodies travel base64-encoded: shell quoting would strip their quotes.
   const body = mode.startsWith('b64:') ? Buffer.from(mode.slice(4), 'base64').toString('utf8') : '';
   if (body) process.stdout.write(body);
+  if (mode === 'has-response') {
+    // Stop payload probe: the recipe depends on payload.response being delivered.
+    let parsed = {};
+    try {
+      parsed = JSON.parse(raw === '' ? '{}' : raw);
+    } catch {}
+    process.exit(typeof parsed.response === 'string' && parsed.response.length > 0 ? 0 : 2);
+  }
   const code = mode.startsWith('exit:') ? Number(mode.slice(5)) : 0;
   process.exit(code);
 });
@@ -131,6 +139,34 @@ await check('blocking:false cannot rewrite input', async () => {
   );
   assert.equal(d.approved, true);
   assert.equal(d.updatedInput, undefined);
+});
+
+// ── Stop: the user-pluggable completion gate ────────────────────────────────
+const stopCallbacks = (hooks) =>
+  hooksModule.createConfiguredHookCallbacks({ Stop: hooks }, { workspaceDir: ws });
+const runStop = (hooks) =>
+  stopCallbacks(hooks).runStop({ sessionKey: 'probe', response: 'the change is done' });
+
+await check('Stop exit 0 allows the run to end', async () => {
+  const r = await runStop([{ command: cmd('exit:0') }]);
+  assert.equal(r.blocked, false);
+});
+await check('Stop non-zero exit vetoes the ending', async () => {
+  const r = await runStop([{ command: cmd('exit:2') }]);
+  assert.equal(r.blocked, true);
+  assert.ok(typeof r.reason === 'string' && r.reason.length > 0);
+});
+await check('Stop blocking:false is advisory only', async () => {
+  const r = await runStop([{ command: cmd('exit:2'), blocking: false }]);
+  assert.equal(r.blocked, false);
+});
+await check('Stop receives the final response', async () => {
+  const r = await runStop([{ command: cmd('has-response') }]);
+  assert.equal(r.blocked, false, 'hook must see payload.response');
+});
+await check('a Stop hook that cannot start fails closed', async () => {
+  const r = await runStop([{ command: 'moss-hook-that-does-not-exist-xyz' }]);
+  assert.equal(r.blocked, true);
 });
 
 for (const line of checks) console.log(`[hooks-contract] ${line}`);

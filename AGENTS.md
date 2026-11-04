@@ -110,6 +110,7 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 | 轻量 skills（v0.16 起）                                 | `src/core/skills/`                                                                           |
 | 斜杠命令目录（`hidden` = 不进菜单、仍可输入；迁移别名） | `src/cli/interactive-commands.ts`、`src/cli/commands/`                                       |
 | 设备风险分级 / 信任 / 审批文案                          | `src/safety/device-risk.ts`、`src/safety/device-trust.ts`、`src/cli/device-safety-prompt.ts` |
+| Hooks（事件 / 阻塞语义 / Stop 完成门 recipe）           | `src/cli/hooks.ts`、`docs/hooks.md`、`docs/hooks/stop-verified-completion.mjs`               |
 | 设备任务基准                                            | `bench/device-tasks/`、`scripts/bench-device.mjs`、`scripts/lib/device-bench*.mjs`           |
 | 统一 Task Runtime 协议（状态机/事件/快照）              | `src/contracts/task-runtime.ts`                                                              |
 | 统一 Task Runtime 引擎/存储/裁决/能力发现               | `src/core/task/`（engine、store、verdict、capability、agent-turn）                           |

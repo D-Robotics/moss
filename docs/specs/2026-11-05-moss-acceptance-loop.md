@@ -124,6 +124,17 @@ L3 是**非任务 run 的等价物**，复用同一套"上限 + 证据 + 诚实 
 同一命令退出 0。`moss review list` 展示历史。确定性探针新增 3 条断言（17 总计）。
 仍缺：有变更 run 结束后自动触发评审（`review.mode` 配置）、修复循环直接消费 findings。
 
+### P2-b Stop hook 完成门（已落地）
+
+[`docs/hooks/stop-verified-completion.mjs`](hooks/stop-verified-completion.mjs) 是用户可安装的完成门：
+Stop 钩子读 `.moss/review.jsonl` 最新记录，非 `pass` 就 exit 2 否决结束；配 `review.mode: "auto"`
+即可强制"改过文件 → 必须评审通过才能收工"。语义与边界写在 [`docs/hooks.md`](../hooks.md)。
+
+真实对照（同一临时仓库、同一个修改任务）：未评审 → `[hooks] Blocked by Stop hook: review gate: no
+independent review recorded…`，headless **exit 9**（Incomplete）；开 `review.mode=auto` 后评审 PASS →
+同一任务 **exit 0**。契约断言加进 `hooks-contract` verify stage（Stop exit 0 放行 / 非零否决 /
+`blocking:false` 仅提示 / 收到 `response` / 启动失败 fail-closed），共 16 条。
+
 ### L4 外部信号闭环（P2-a 已落地）
 
 `moss loop --until "<cmd>" [--max N] "<prompt>"`（`src/cli/loop-command.ts`）：每轮跑一次**全新**
@@ -170,7 +181,7 @@ headless 会话（不共享对话状态），再用用户给的命令验收；�
 | P1-a | reviewer 子代理 + 结构化 findings + `/review` 接入 | 植入缺陷 diff 必须被发现；干净 diff 不编造 | 已落地（含 `review.mode=auto`、untracked 文件、`moss review check`） |
 | P1-b | L3 有界修复循环（上限 3，日志）                    | 两轮修复场景；三轮失败诚实清单             | 已落地（守护 + 3 轮边界）                                            |
 | P2-a | `moss loop --until`（本地 CI 式闭环）              | 失败→修复→通过的循环记录                   | 已落地（mock 探针 + 真实模型 2 轮修复）                              |
-| P2-b | Stop hook recipe（用户可插拔完成门）               | 示例 hook 拦截未验证终稿                   | 待做                                                                 |
+| P2-b | Stop hook recipe（用户可插拔完成门）               | 示例 hook 拦截未验证终稿                   | 已落地（recipe + 5 条契约断言 + 真实 9/0 对照）                      |
 
 ## 6. 与既有文档的关系
 
