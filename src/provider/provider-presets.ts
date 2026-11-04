@@ -1,4 +1,4 @@
-import { DEFAULT_MODEL } from '../contracts/index.js';
+import { DEFAULT_MODEL } from '../contracts/constants.js';
 import { cleanGatewayUrl } from './api-v1-url.js';
 
 /**

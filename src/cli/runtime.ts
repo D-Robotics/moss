@@ -161,7 +161,7 @@ import {
   resolveDefaultDeviceTarget,
 } from '../device/device-target.js';
 import { buildRuntimeCapabilitiesPrompt } from '../context/runtime-capabilities.js';
-import { buildSoftwareEngineeringPromptQuick } from '../contracts/index.js';
+import { buildSoftwareEngineeringPromptQuick } from '../contracts/prompts/software-engineering-prompt.js';
 import type { CliRuntimeStatus } from './onboarding.js';
 import { resolveCliDetailMode } from './output.js';
 import {
