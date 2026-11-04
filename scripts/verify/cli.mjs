@@ -39,8 +39,10 @@ import { stage as rulesActivationStage } from './stages/rules-activation.mjs';
 import { stage as subagentPromptStage } from './stages/subagent-prompt-contract.mjs';
 import { stage as toolSurfaceStage } from './stages/tool-surface.mjs';
 import { stage as imageBudgetStage } from './stages/image-budget.mjs';
+import { stage as taskLedgerRevealStage } from './stages/task-ledger-reveal.mjs';
 import { stage as loopCommandStage } from './stages/loop-command.mjs';
 import { stage as mcpProtocolStage } from './stages/mcp-protocol.mjs';
+import { stage as rememberStage } from './stages/remember.mjs';
 
 const STAGES = new Map(
   [
@@ -59,8 +61,10 @@ const STAGES = new Map(
     subagentPromptStage,
     toolSurfaceStage,
     imageBudgetStage,
+    taskLedgerRevealStage,
     loopCommandStage,
     mcpProtocolStage,
+    rememberStage,
   ].map((stage) => [stage.name, stage])
 );
 
@@ -80,8 +84,10 @@ const FAST_GATE = [
   'subagent-prompt-contract',
   'tool-surface',
   'image-budget',
+  'task-ledger-reveal',
   'loop-command',
   'mcp-protocol',
+  'remember',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
 

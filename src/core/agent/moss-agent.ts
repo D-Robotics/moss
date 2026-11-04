@@ -15,6 +15,8 @@ import {
 import { filterToolsForRun } from '../tools/tool-filter.js';
 import {
   DeferredToolOffer,
+  messageRequestsTaskLedger,
+  workspaceHasTaskLedger,
   TOOL_SEARCH_NAME,
   deferredGroupFor,
 } from '../tools/deferred-tool-offer.js';
@@ -1232,6 +1234,17 @@ ${result.stderr ?? ''}`.trim();
     if (options?.taskFlow !== false) this.taskLedgerSessions.add(sessionKey);
     const ledgerVisible = this.taskLedgerSessions.has(sessionKey);
     const workspaceDir = path.resolve(this.config.workspaceDir ?? process.cwd());
+    // B05: the Task OS ledger tools stay deferred until this run shows task
+    // intent, the workspace already has a ledger, or the host asked for task
+    // flow explicitly (`/goal`, `moss task run`). A plain fix no longer pays for
+    // six schemas it will never call; a task run still gets them before turn one.
+    if (
+      options?.taskFlow === true ||
+      messageRequestsTaskLedger(userMessage) ||
+      workspaceHasTaskLedger(workspaceDir)
+    ) {
+      this.deferredTools.reveal('task');
+    }
     const hostDescribeMissingTool = this.config.describeMissingTool;
     const enrichedRun = enrichRunToolContext(hooks?.enrichToolContext, {
       workspaceDir,
