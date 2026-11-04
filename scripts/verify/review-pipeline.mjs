@@ -296,6 +296,49 @@ const binaryDiff = await review.collectReviewDiff(untrackedRepo);
 assert.ok(binaryDiff.diff.includes('untracked binary file: blob.bin'));
 ok('untracked binary files are named but not dumped');
 
+// ── 7. Acceptance rubric comes from the task ledger ────────────────────────
+
+const { loadTaskAcceptanceRubric } = review;
+const rubricRepo = await tmpDir('moss-review-rubric-');
+await fs.mkdir(path.join(rubricRepo, '.moss'), { recursive: true });
+const older = {
+  taskId: 't-old',
+  goal: 'older task',
+  acceptanceCriteria: [{ metric: 'old_metric', expected: '>=1' }],
+  status: 'accepted',
+  createdAt: 1,
+  updatedAt: 1,
+};
+const newer = {
+  taskId: 't-new',
+  goal: 'ship the camera pipeline',
+  acceptanceCriteria: [
+    { metric: 'camera_fps', expected: '>=30', required: true },
+    { metric: 'frame_drop', expected: '<=1%', required: false, description: 'over 60s' },
+  ],
+  status: 'executing',
+  createdAt: 2,
+  updatedAt: 5,
+};
+await fs.writeFile(
+  path.join(rubricRepo, '.moss', 'tasks.jsonl'),
+  `${JSON.stringify(older)}\n${JSON.stringify(newer)}\n`
+);
+const rubric = await loadTaskAcceptanceRubric(rubricRepo);
+assert.equal(rubric?.taskId, 't-new');
+assert.equal(rubric?.criteria, 2);
+assert.ok(rubric?.text.includes('camera_fps >=30'), 'required criterion must be in the rubric');
+assert.ok(
+  rubric?.text.includes('frame_drop <=1% (optional) — over 60s'),
+  'optional criterion keeps its marker and description'
+);
+assert.ok(!rubric?.text.includes('old_metric'), 'the newest task wins, not the older one');
+ok('review rubric is taken from the newest task that declares acceptance criteria');
+
+const emptyRubricRepo = await tmpDir('moss-review-rubric-empty-');
+assert.equal(await loadTaskAcceptanceRubric(emptyRubricRepo), undefined);
+ok('no task ledger means no implicit rubric (the reviewer falls back to correctness/security)');
+
 for (const dir of tmpRoots) {
   await fs.rm(dir, { recursive: true, force: true });
 }

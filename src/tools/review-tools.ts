@@ -22,6 +22,8 @@ import { randomUUID } from 'node:crypto';
 
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { ensureMossRuntimeGitignore } from '../utils/workspace-paths.js';
+import { listTaskRecords } from '../core/task-runtime/artifacts.js';
+import type { TaskContract } from '../contracts/task.js';
 import { runProcess } from '../utils/run-process.js';
 import { runGit } from '../utils/git-spawn.js';
 
@@ -61,6 +63,9 @@ export interface ReviewRecord {
   checks: string[];
   diffLines: number;
   truncated: boolean;
+  /** Acceptance rubric the review was graded against, when it came from the task ledger. */
+  rubricTaskId?: string;
+  rubricCriteria?: number;
   reviewerRunId?: string;
   reviewerTurns?: number;
   reviewerSuccess: boolean;
@@ -350,6 +355,39 @@ export async function collectReviewDiff(
   };
 }
 
+/**
+ * Rubric carried over from the task ledger: when the model does not pass
+ * `criteria` by hand, the review still needs the acceptance criteria the work
+ * is supposed to satisfy (Cursor's Agent Review grades against the task, not
+ * against generic taste). Returns undefined when no task declares criteria.
+ */
+export async function loadTaskAcceptanceRubric(
+  workspaceDir: string,
+  readTasks: (workspaceDir: string) => Promise<TaskContract[]> = (dir) => listTaskRecords(dir, 50)
+): Promise<{ text: string; taskId: string; criteria: number } | undefined> {
+  let tasks: TaskContract[];
+  try {
+    tasks = await readTasks(workspaceDir);
+  } catch {
+    return undefined;
+  }
+  const withCriteria = [...tasks]
+    .filter((task) => Array.isArray(task.acceptanceCriteria) && task.acceptanceCriteria.length > 0)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  const task = withCriteria[0];
+  if (!task) return undefined;
+  const lines = task.acceptanceCriteria.map((criterion) => {
+    const required = criterion.required === false ? ' (optional)' : '';
+    const description = criterion.description ? ` — ${criterion.description}` : '';
+    return `- ${criterion.metric} ${criterion.expected}${required}${description}`;
+  });
+  return {
+    text: `Task ${task.taskId}: ${task.goal}\nAcceptance criteria:\n${lines.join('\n')}`,
+    taskId: task.taskId,
+    criteria: task.acceptanceCriteria.length,
+  };
+}
+
 function buildReviewerTask(params: {
   diff: ReviewDiff;
   depth: ReviewDepth;
@@ -429,9 +467,13 @@ function findingLine(finding: ReviewFinding): string {
 function formatReviewResult(record: ReviewRecord, logPath: string): string {
   const counts = { critical: 0, important: 0, suggestion: 0 };
   for (const finding of record.findings) counts[finding.severity] += 1;
+  const rubricLine = record.rubricTaskId
+    ? `\nrubric: task ${record.rubricTaskId} (${record.rubricCriteria ?? 0} acceptance criteria)`
+    : '';
   const header =
     `Independent review (${record.scope}, ${record.depth}) — verdict: ${record.verdict.toUpperCase()}` +
-    `\n${record.findings.length} finding(s): ${counts.critical} critical, ${counts.important} important, ${counts.suggestion} suggestion`;
+    `\n${record.findings.length} finding(s): ${counts.critical} critical, ${counts.important} important, ${counts.suggestion} suggestion` +
+    rubricLine;
   const findingLines = record.findings.map(findingLine);
   const checkLines = record.checks.length
     ? ['', 'CHECKS:', ...record.checks.map((check) => `  - ${check}`)]
@@ -529,13 +571,16 @@ export const reviewChangesTool: Tool<ReviewChangesInput> = {
         : 'Nothing to review: the working tree and index are clean. Make the change first, then review.';
     }
 
+    const explicitCriteria = input.criteria?.trim();
+    const rubric = explicitCriteria ? undefined : await loadTaskAcceptanceRubric(ctx.workspaceDir);
+    const criteriaText = explicitCriteria || rubric?.text;
     const expert = ctx.resolveSubagentExpert?.('reviewer');
     const reviewerTurns = depth === 'deep' ? 24 : (expert?.maxTurns ?? 12);
     const result = await ctx.spawnSubagent({
       task: buildReviewerTask({
         diff: collected,
         depth,
-        ...(input.criteria?.trim() ? { criteria: input.criteria.trim() } : {}),
+        ...(criteriaText ? { criteria: criteriaText } : {}),
       }),
       scope: depth === 'deep' ? 'verify' : 'read-only',
       maxTurns: reviewerTurns,
@@ -566,6 +611,7 @@ export const reviewChangesTool: Tool<ReviewChangesInput> = {
       diffLines: collected.totalLines,
       truncated: collected.truncated,
       reviewerSuccess: result.success,
+      ...(rubric ? { rubricTaskId: rubric.taskId, rubricCriteria: rubric.criteria } : {}),
       ...(result.runId ? { reviewerRunId: result.runId } : {}),
       ...(typeof result.turns === 'number' ? { reviewerTurns: result.turns } : {}),
       ...(parsed.summary

@@ -63,6 +63,7 @@
 | B12 | P2     | 启动到可输入 ~800ms，且没有分阶段计时可定位                                                     | 实测 `composer_ready` 843 ms / 737 ms（`docs/research/2026-11-05-ux-handfeel.md:11-14`）；技能发现（`src/cli/runtime.ts:1088-1162`）、MCP、prompt 组装都在 TUI 挂载（`src/cli/runtime.ts:1615`）之前；`grep -rn "MOSS_STARTUP" src/` 零命中                                       | 参考产品先渲染 composer + 状态行、再异步补数据（`ux-handfeel.md` §2.4）；Moss 自己在 `ux-handfeel.md:43` 已给出 H2 验收口径                                                                                                               | `MOSS_STARTUP_TIMING=1 node dist/cli.js` 启动必须打出 `config/skills/mcp/prompt/first-render` 五段毫秒；`npm run bench:tui-feel` 产出的 `bench/results/tui-feel-*.json` 里 `metrics.composer_ready_ms` 中位数 < 600（现在 843）                                                                                                                                                                                                                    |
 | B14 | P0     | 验证门 23 个 stage 全串行：static 21s + build + 21 个探针全部 await，墙钟 42s，紧贴 60s CI 预算 | 旧 `scripts/verify/cli.mjs` 的 `for (const name of stages) { … await stage.run() }`；`docs/design/ci-and-verify.md:39` 记录的 30.9s 只是 4 stage 时代的数字，之后 stage 已增到 23 个；`VERIFY_BUDGET_SECONDS=60` 在 CI 上是硬失败                                                 | CI 门把独立检查并发化、只给 timing 敏感项独占（Cursor / Claude 的 CI 也是并行 job + 显式耗时账）                                                                                                                                          | 同一条 `npm run verify`：`VERIFY_CONCURRENCY=1`（同调度器串行基线）3 次 41.9/42.0/42.6s vs 默认并发 3 次 24.3/24.6/25.0s，全部 PASS；强制让池中一个探针失败时新 stage 不再启动、在跑的跑完、exit 1                                                                                                                                                                                                                                                 | 已落地                                                                                                                                                  |
 | B15 | P2     | `/context` 看不到工具面成本与当前 lean/full 档位，优化不可见                                    | `/context` 只报 system prompt / messages / free / reserve；工具声明（每轮都付费）没有数字，lean 档切换也无处观察                                                                                                                                                                  | Cursor 的上下文面板列工具/系统提示成本；Claude Code `/context` 同样给出分解                                                                                                                                                               | 真实 REPL（`MOSS_NO_TUI=1`，pipe `/context`）输出必须含 `tools ~N tokens (M declared, lean                                                                                                                                                                                                                                                                                                                                                         | full descriptions)`：默认 200k 档显示 `32 declared, full descriptions`、`agent.contextTokens=32000`显示`32 declared, lean descriptions` 且 token 数更小 | ✅ 完成（含 verify stage `context-surface`） |
+| B16 | P1     | 独立评审（`review_changes`）不会自动用任务验收标准当 rubric，模型必须手填 `criteria`            | `review_changes` 已有 `criteria` 输入（`src/tools/review-tools.ts`），但没人自动传；`task_define` 的 acceptance criteria 在 `.moss/tasks.jsonl`（`listTaskRecords`）里躺着不用                                                                                                    | Cursor Agent Review 按任务标准评分（`docs/research/2026-11-05-cursor-acceptance-loop.md` §2.2、§5.1「acceptance criteria 作为评审 rubric」）                                                                                              | 真实 `-p`（脚本化 provider）在含 `.moss/tasks.jsonl` 的工作区触发 `review_changes`：reviewer 请求体必须含 `Task <id>` 与验收标准原文，工具结果含 `rubric: task <id>`；verify probe 断言最新任务胜出、可选 criterion 标注 `(optional)`、无任务返回 undefined                                                                                                                                                                                        | ✅ 完成                                                                                                                                                 |
 
 **B15 `/context` 工具面可见性（P2，2026-11-05 完成）**
 `/context` 原来只报 system prompt / messages / free / compaction reserve，**工具声明**这一块（每轮都付费、且刚做完 lean 档）
@@ -80,7 +81,22 @@ python3 PTY 驱动 `MOSS_NO_TUI=1` 的 REPL，真实键入 `/context` 并解析 
 跑同一 stage → `FAIL 21.1s`，因为旧 `/context` 根本没有这一行），新代码上 `ok 2.0s`；完整 `npm run verify`
 **PASS 26.6s**（stage 并发调度，新增 2.0s 未挤爆 60s 预算）。
 
-\*\*## 3. 逐条说明（为什么现在最值得做 · 最小切片 · 风险）
+\*\***B16 独立评审自动带上任务验收标准（P1，2026-11-05 完成）**
+`review_changes` 早就支持 `criteria` 参数，但没有任何地方自动传：`task_define` 写进 `.moss/tasks.jsonl` 的
+acceptance criteria 与评审是断开的，模型只能凭自觉手填。Cursor 的 Agent Review 是**按任务标准评分**，不是凭感觉挑刺。
+最小切片：`loadTaskAcceptanceRubric(workspaceDir)` 读任务台账、取 `updatedAt` 最新且声明了 criteria 的任务，
+渲染成 rubric 文本（`metric expected` + 可选标注 + description）；`review_changes` 在**未显式传 `criteria`** 时自动
+带进 reviewer prompt，并把来源写进结果头部 `rubric: task <id> (N acceptance criteria)` 与 `.moss/review.jsonl`
+记录（`rubricTaskId`/`rubricCriteria`）。
+**真实证据（`-p` + 脚本化 provider，工作区含 `.moss/tasks.jsonl`，provider 记录全部请求体）**：
+`reviewerPromptFound=true`、`rubricInReviewerPrompt=true`（含 `camera_fps >=30`）、`rubricTaskIdInPrompt=true`
+（含 `Task t-e2e`）、`toolResultHasRubricLine=true`（工具结果里出现 `rubric: task t-e2e`）、`mainSawVerdict=true`。
+**回归门**：`scripts/verify/review-pipeline.mjs` 新增 2 条（21 checks pass）——最新任务胜出 + 可选 criterion
+标注/描述保留 + 空工作区返回 `undefined`（回落到 correctness/security）。
+**诚实说明**：该 e2e 进程 exit 9 来自既有的「无文件变更」完成门提示（`Incomplete: no files were modified`），
+与本改动无关；rubric 传递本身的五条断言全部为真。
+
+## 3. 逐条说明（为什么现在最值得做 · 最小切片 · 风险）
 
 **B01 图片/附件链路（P0）**
 帮助页承诺 Ctrl+V 贴剪贴板图（`help.ts:64`），提示词又让模型「用文件工具读本地图片」（`agent-behavior-prompt.ts:29`），
