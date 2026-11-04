@@ -63,6 +63,49 @@ import { interruptNoticeLine, isUserAbortErrorText, tui } from './tui/copy.js';
 
 let currentModel = '';
 
+/**
+ * B17: one REPL turn had no interrupt path. readline owns stdin, and only the
+ * headless runs installed a SIGINT bridge, so Esc/Ctrl+C did nothing until the
+ * turn finished. This owns SIGINT plus a lone ESC byte for the duration of one
+ * run and hands the run an AbortSignal. Arrow/function keys arrive as one
+ * multi-byte escape chunk, so only an exact single-byte chunk counts as Esc.
+ */
+async function runReplTurn(
+  agent: MossAgent,
+  message: string,
+  options: {
+    sessionKey: string;
+    onAgentEvent: (event: MossAgentEvent) => void;
+    taskFlow: boolean;
+    /** readline turns ^C into its own SIGINT event instead of a process signal. */
+    readline?: {
+      on(event: 'SIGINT', listener: () => void): unknown;
+      off(event: 'SIGINT', listener: () => void): unknown;
+    };
+  }
+): Promise<Awaited<ReturnType<typeof runOneShot>>> {
+  const controller = new AbortController();
+  const onSigInt = (): void => {
+    // A second Ctrl+C is the hard-stop escape hatch for an uncooperative provider.
+    if (controller.signal.aborted) process.exit(130);
+    controller.abort();
+  };
+  const onStdinData = (chunk: Buffer | string): void => {
+    const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+    if (bytes.length === 1 && bytes[0] === 0x1b) controller.abort();
+  };
+  process.on('SIGINT', onSigInt);
+  options.readline?.on('SIGINT', onSigInt);
+  process.stdin.on('data', onStdinData);
+  try {
+    return await runOneShot(agent, message, { ...options, abortSignal: controller.signal });
+  } finally {
+    process.off('SIGINT', onSigInt);
+    options.readline?.off('SIGINT', onSigInt);
+    process.stdin.off('data', onStdinData);
+  }
+}
+
 let taskRunInFlight = false;
 
 export const INTERACTIVE_COMMANDS = [...INTERACTIVE_COMPLETION_COMMANDS];
@@ -293,10 +336,11 @@ export async function runInteractive(
         const submitText: string | null = pendingSubmit;
         if (submitText) {
           checkpointStore.open(`custom: ${String(submitText).slice(0, 60)}`);
-          const stop = await runOneShot(agent, String(submitText), {
+          const stop = await runReplTurn(agent, String(submitText), {
             sessionKey,
             onAgentEvent: (event) => usage.record(event),
             taskFlow: messageRequestsTaskContract(String(submitText)),
+            readline: rl,
           });
           // O165: a fatal (throwing) Stop hook is terminal — no continuation.
           if (stop?.blocked && !stop.fatal) {
@@ -759,10 +803,11 @@ export async function runInteractive(
       });
       if (resolved.kind === 'custom' || resolved.kind === 'skill') {
         checkpointStore.open(`${resolved.kind}: ${resolved.prompt.slice(0, 60)}`);
-        const stop = await runOneShot(agent, resolved.prompt, {
+        const stop = await runReplTurn(agent, resolved.prompt, {
           sessionKey,
           onAgentEvent: (event) => usage.record(event),
           taskFlow: messageRequestsTaskContract(resolved.prompt),
+          readline: rl,
         });
         // O165: a fatal (throwing) Stop hook is terminal — no continuation.
         if (stop?.blocked && !stop.fatal) {
@@ -804,10 +849,11 @@ export async function runInteractive(
     }
 
     checkpointStore.open(msg.slice(0, 60));
-    const stop = await runOneShot(agent, msg, {
+    const stop = await runReplTurn(agent, msg, {
       sessionKey,
       onAgentEvent: (event) => usage.record(event),
       taskFlow: messageRequestsTaskContract(msg),
+      readline: rl,
     });
     // O165: a fatal (throwing) Stop hook is terminal — no continuation turn;
     // the run already ended Incomplete with a visible notice.

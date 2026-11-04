@@ -240,7 +240,7 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
     rows: [
       {
         command: '/stop',
-        description: 'stop background processes; in the TUI, Esc interrupts the current run',
+        description: 'stop background processes; Esc interrupts the current run',
         aliases: ['/abort'],
         hidden: true,
         availableDuringRun: 'immediate',
