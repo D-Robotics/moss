@@ -1619,7 +1619,9 @@ export async function runCli(): Promise<void> {
     // v0.17: interactive TTY sessions get the full-screen TUI (ink); non-TTY
     // pipes and MOSS_NO_TUI=1 keep the readline REPL. The TUI is dynamically
     // imported so headless/SDK paths never load ink/react.
-    startupTiming.mark('skills');
+    // The command namespace + capability registry are built since the `skills`
+    // mark, so this position is `commands` (the non-TUI path finished already).
+    startupTiming.mark('commands');
     if (!useTui) startupTiming.finish();
     if (useTui) {
       const { runTuiApp } = await (tuiBootPromise ?? import('./tui/app.js'));

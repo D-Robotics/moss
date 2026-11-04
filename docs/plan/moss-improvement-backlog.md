@@ -150,6 +150,18 @@ stderr 出现 `○ broken — failed: spawn /nonexistent-mcp-binary-xyz ENOENT �
 relax it (or use an allowed path), then retry …`，`exec` 确实未执行（`echoDidNotRun: true`）；`MOSS_LANG=zh` 下
 同一路径输出 `……运行 /permissions 查看并放宽匹配的规则（或改用允许的路径）后重试……`。
 
+**B12 收尾进展（2026-11-05）：composer 计时单标签 + 真实 `bench:tui-feel` 基线**
+两处 TUI 打点都写 `skills`，计时行会打印 `skills=… skills=…`；现在 `StartupTiming.mark` 对重复标签首个生效，
+TUI 的第二处改名为 `commands`（命令命名空间 + 能力注册构建），一行变为
+`entry=330ms proxy=80ms config=375ms prompt=379ms agent=383ms mcp=384ms skills=388ms commands=388ms tui-import=388ms probe=410ms composer=473ms total=473ms`。
+`startup-timing` probe 新增「标签不得重复」断言（4 checks 仍 pass）；README 同步。
+**真实 `npm run bench:tui-feel`（本机，MOSS_STARTUP_TIMING=1，真实 PTY + pyte）**：
+`composer_ready_ms` = **905ms**（100x30）/ **695ms**（70x24），而 CLI 自己上报的 `composer=` 只有 **473ms / 343ms**
+（每次跑两次取到 525/352、473/343）。两者差值 ~340–430ms 是 bench 驱动的 PTY 传输 + pyte 解析 + 可见 composer
+探测开销 —— **B12 的 `<600ms` 目标在 bench 指标上仍未达成，但产品侧首帧已在 350–520ms**；下一步要动的是
+bench 驱动的探测开销（或接受把验收口径改成 CLI 上报的 composer），而不是继续压产品启动。
+基线对比：B12 立项时同机 `composer_ready` 是 843/737ms，产品侧现在 343–473ms（含本轮 probe/env 延迟化）。
+
 ## 3. 逐条说明（为什么现在最值得做 · 最小切片 · 风险）
 
 **B01 图片/附件链路（P0）**

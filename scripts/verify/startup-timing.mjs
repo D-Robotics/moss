@@ -62,6 +62,8 @@ await check(
     );
     // `entry` is process uptime at first mark, not a delta on the phase clock.
     if (values.entry !== undefined) assert.ok(values.entry > 0, line);
+    const labels = [...line.matchAll(/(\w+)=\d+ms/g)].map((match) => match[1]);
+    assert.equal(new Set(labels).size, labels.length, `duplicate phase label: ${line}`);
     if (values.env !== undefined) assert.ok(values.config <= values.env, line);
     if (values.env !== undefined) assert.ok(values.env <= values.prompt, line);
     assert.ok(values.config <= values.prompt, line);

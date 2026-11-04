@@ -40,6 +40,10 @@ export function createStartupTiming(env: NodeJS.ProcessEnv = process.env): Start
     enabled,
     mark(label: string): void {
       if (!enabled) return;
+      // Marking the same phase twice (the TUI path re-marks `skills` after the
+      // command namespace is built) printed `skills=… skills=…`; a phase is a
+      // position on the timeline, so the first mark wins.
+      if (phases.some((phase) => phase.label === label)) return;
       phases.push({ label, ms: Math.round(performance.now() - start) });
     },
     finish(): void {
