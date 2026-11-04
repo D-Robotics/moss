@@ -129,7 +129,12 @@ export function formatMcpStatusLine(
         : '';
   if (status.state === 'failed') {
     const reason = status.error?.trim().split('\n')[0]?.slice(0, 160) || tui('connection failed');
-    return tui('○ {name} — failed: {reason}', { name: status.name, reason });
+    // H5: a failure line that only names the reason leaves the user guessing what
+    // to do next. Name the retry surface and the file to inspect.
+    return `${tui('○ {name} — failed: {reason}', {
+      name: status.name,
+      reason,
+    })}${tui(' — next: /mcp to retry; check the server command in mcp.json')}`;
   }
   if (status.state === 'connected') {
     return `${tui('● {name} — connected', { name: status.name })}${countLabel}`;

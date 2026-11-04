@@ -129,6 +129,18 @@ pass 清零、depth 分档。
 `reviewerCalls=3`，记录里 `repairAttempt` 依次 `1,2,3`；第 2、3 次的主模型上下文分别出现
 `repair attempt: 2 of 3` / `repair attempt: 3 of 3`，第 1 次没有该行；第 4 次被上限拒绝。
 
+**H5 错误文案给出下一步（2026-11-05 首片：MCP 连接失败 + Stop 钩子拦截）**
+两处真实失败场景原来只说明「失败了」：MCP 状态行 `○ broken — failed: spawn … ENOENT` 之后无路可走；
+Stop 钩子拦截在 headless 只给原因，用户只能盲目重跑。现在：
+`○ broken — failed: <reason> — next: /mcp to retry; check the server command in mcp.json`
+（中文：`— 下一步：/mcp 重试；检查 mcp.json 里的服务启动命令`），Stop 拦截行追加
+`(fix what the hook checks, then re-run; or remove the hook from your Moss config hooks.Stop)`。
+**真实证据（两个真实失败场景，真实 CLI）**：(1) 工作区 `.moss/mcp.json` 指向不存在的启动命令 →
+stderr 出现 `○ broken — failed: spawn /nonexistent-mcp-binary-xyz ENOENT — next: /mcp to retry…`，
+`MOSS_LANG=zh` 同样输出中文下一步；(2) `hooks.Stop` 配置 `node -e "process.exit(1)"` 的 headless 运行 →
+`[hooks] Blocked by Stop hook: hook exited 1 (fix what the hook checks, then re-run; or remove the hook from your Moss config hooks.Stop)`，
+退出码 `9`（未完成）。
+
 ## 3. 逐条说明（为什么现在最值得做 · 最小切片 · 风险）
 
 **B01 图片/附件链路（P0）**

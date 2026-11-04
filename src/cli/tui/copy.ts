@@ -586,6 +586,8 @@ export const ZH: Readonly<Record<string, string>> = {
   '○ {name} — connecting': '○ {name} — 连接中',
   '○ {name} — failed: {reason}': '○ {name} — 失败：{reason}',
   'connection failed': '连接失败',
+  ' — next: /mcp to retry; check the server command in mcp.json':
+    ' — 下一步：/mcp 重试；检查 mcp.json 里的服务启动命令',
 
   // ── tool-result headline (tool-summary.ts / transcript.ts) ─────────────
   '{count} line': '{count} 行',

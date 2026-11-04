@@ -790,8 +790,11 @@ export async function runOneShot(
       const fallback = zh
         ? `${hookEventZhName('Stop')}钩子拦住了本次运行的结束。`
         : 'Stop hook blocked the run ending.';
+      // H5: a veto without a next step leaves the user re-running blindly.
       const suffix = options.headless
-        ? ''
+        ? zh
+          ? '（先修复钩子检查的问题再重跑；或从 Moss 配置的 hooks.Stop 移除该钩子）'
+          : ' (fix what the hook checks, then re-run; or remove the hook from your Moss config hooks.Stop)'
         : zh
           ? '（交互模式仅报告；宿主可能强制继续）'
           : ' (interactive mode reports; host may force-continue)';
