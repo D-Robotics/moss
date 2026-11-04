@@ -29,8 +29,13 @@ function affirmativeInstallText(text: string): string {
   return text
     .split(/(?:[。！？!?；;\n]|\.(?=\s|$))+/u)
     .map((sentence) => {
-      // Conditions qualify the whole sentence, including comma-separated tails.
-      if (/除非|如果|只有|否则|必要|但|不过|然而|\b(?:unless|if|except|but)\b/iu.test(sentence))
+      // Conditions, sequencing and repeated negation can carry affirmative intent.
+      if (
+        /除非|如果|只有|否则|必要|但|不过|然而|然后|\b(?:unless|if|except|but|then)\b/iu.test(
+          sentence
+        ) ||
+        /\b(?:do\s+not|don't|never)\s+(?:not|never|do\s+not|don't)\b/iu.test(sentence)
+      )
         return sentence;
       if (englishDenial.test(sentence.trim())) return '';
       return sentence
