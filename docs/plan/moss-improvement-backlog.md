@@ -469,6 +469,16 @@ config/agent/skills 全部做完之后才加载——现在 `runCli` 在判定�
 预取 `tools/builtin.js`」，`import('./dist/cli/runtime.js')` 仍 263ms、composer 无改善，故已回滚，不留
 未验证的复杂度）。`proxy` 的 51–74ms 与 config 并行化理论可行但需先确认首个网络请求点，下一轮评估。
 
+**H1 第一片（本轮）= 把 readline REPL 图移出交互启动**：`runtime.ts` 之前在文件顶部静态
+`import { runInteractive } from './repl.js'`，而 TUI 路径**永远不用它**；`import('./dist/cli/repl.js')`
+单独测 **161ms**（含 `commands/registry` 123ms 与命令实现），这些模块此前都在 `entry` 段里被解析。现在改成
+只在「非 TUI，真的要进 REPL」的分支里 `await import('./repl.js')`。
+**A/B 实测（同机同构建方式，各 5 次 PTY 启动，读取 `entry`/`composer` 段）**：改动前 entry 中位数
+**400ms**（483/443/400/319/335）、composer 中位数 **417ms**；改动后 entry 中位数 **327ms**
+（423/326/321/327/328，**−18%**）、composer 中位数 **391ms**。机器噪声明显（同配置单次可差 100ms+），
+所以只记录中位数与方向，不宣称 bench 达标；REPL 路径实跑 `MOSS_NO_TUI=1` + `/exit` 仍正常
+（exit 0、banner 与 workspace 行都在）。
+
 **下一步候选（H1）**：把这段"首次 commit → PTY 就绪"的 200–380ms 定位出来（`composer` 后加
 `frame-written` / `raw-mode` 两个 mark，或直接测 node 冷启动占比），再决定是否值得把 composer 骨架渲染
 前移到 ink 之外；`ink` 预取本身可再提前到 `runCli` 第一行（当前在 args/phase 解析后，损失约 10–20ms）。

@@ -86,7 +86,7 @@ import {
   stopAllBackgroundProcesses,
   waitForBackgroundProcesses,
 } from '../core/tools/background-process-registry.js';
-import { runInteractive } from './repl.js';
+
 import { resolveCliSession } from './session.js';
 import {
   hasShownOneShotOnboardingHint,
@@ -1754,6 +1754,9 @@ export async function runCli(): Promise<void> {
         },
       });
     } else {
+      // The TUI never needs the readline REPL; loading it only on the branch
+      // that uses it keeps its module graph out of interactive startup.
+      const { runInteractive } = await import('./repl.js');
       await runInteractive(agent, liveRuntime, {
         sessionKey: session.sessionKey,
         ...(loadedSkills.length > 0 ? { skills: loadedSkills } : {}),
