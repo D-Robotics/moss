@@ -20,6 +20,7 @@ import { mergeSubagentPatchTool } from './merge-subagent-patch.js';
 import { createWebFetchTool } from './web-fetch.js';
 import { createWebSearchTool } from './web-search.js';
 import { backgroundExecTools } from './background-exec.js';
+import { createExecEventCollector, formatExecEventResult } from './exec-events.js';
 import { harnessTools } from './harness-tools.js';
 import { deviceTools } from './device-tools.js';
 import { evidenceTools } from './evidence-tools.js';
@@ -85,6 +86,7 @@ const EXEC_DESCRIPTION_BASE =
   'Run a shell command in the workspace (cwd does not persist). Prefer read_file, edit_file, search_files, search_code, and run_tests over cat/sed/find/grep. ' +
   'Use absolute paths; do not cd. Chain with && only when the next step must not run if this one fails. ' +
   'For servers, watchers, or anything that may not exit, set run_in_background, then exec_logs / exec_stop. Before claiming completion, stop what you started unless the user asked it to keep running. ' +
+  'Set event: true when you want each output line as its own event (a probe, a server boot log) instead of one blob at the end. ' +
   'Reads outside the workspace are allowed. Secret-like output, including Moss config and keys, is removed. Every MOSS_DEVICE_* value is hidden; a footnote lists names that are set — do not claim a hidden variable is unset.';
 
 export function execToolDescription(shell = resolveHostShell()): string {
@@ -182,6 +184,11 @@ export const execTool: Tool = {
       label: {
         type: 'string',
         description: 'Optional label shown in exec_logs.',
+      },
+      event: {
+        type: 'boolean',
+        description:
+          'Foreground only: emit one event per output line as it arrives (result lists them as [n] line) so a long-running server is observed line by line. Use exec_logs for run_in_background.',
       },
     },
     required: ['command'],
@@ -319,6 +326,20 @@ export const execTool: Tool = {
     };
     const hideCredentialStream = /\.apikey-key\b/.test(commandText);
     const streamer = hideCredentialStream ? null : createRedactingChunkWriter(ctx.onToolOutput);
+    // Qoder Monitor parity: `event: true` turns each whole stdout line into its
+    // own event (live for the host, numbered in the result) instead of one
+    // buffered blob at exit. Redaction stays line-scoped inside the collector.
+    const eventCollector =
+      input.event === true
+        ? createExecEventCollector(
+            ctx.onToolOutput && !hideCredentialStream
+              ? (event) =>
+                  ctx.onToolOutput?.(
+                    `[event ${event.seq}]${event.stream === 'stderr' ? ' (stderr)' : ''} ${event.line}\n`
+                  )
+              : undefined
+          )
+        : null;
     const footnote = deviceEnvFootnote(String(input.command ?? ''));
     const opened = await openChildEnv(ctx.workspaceDir, ctx.abortSignal);
     const hooksNotice = (output = ''): string =>
@@ -338,10 +359,11 @@ export const execTool: Tool = {
         // Live streaming: forward stdout chunks to the host (TUI/headless
         // renderer) so long-running commands show output incrementally.
         // Line-buffered so a secret on its own line is redacted before display.
-        ...(ctx.onToolOutput
+        ...(ctx.onToolOutput || eventCollector
           ? {
               onStdoutChunk: (chunk: string) => {
-                streamer?.write(chunk);
+                if (eventCollector) eventCollector.push(chunk, 'stdout');
+                else streamer?.write(chunk);
               },
             }
           : {}),
@@ -359,10 +381,19 @@ export const execTool: Tool = {
       // Returning MB of garbage floods the model's context. If the output
       // looks binary, return a safe summary instead.
       const stdoutTrimmed = result.stdout.trim();
-      let outText = looksBinary(stdoutTrimmed)
-        ? `(binary output, ${stdoutTrimmed.length} chars — suppressed to avoid flooding context; use hexdump or xxd if you need to inspect it)`
-        : stdoutTrimmed;
-      if (!looksBinary(stdoutTrimmed) && outText.length > STDOUT_MAX) {
+      let outText: string;
+      if (eventCollector) {
+        eventCollector.push(result.stderr, 'stderr');
+        eventCollector.flush();
+        outText = looksBinary(stdoutTrimmed)
+          ? `(binary output, ${stdoutTrimmed.length} chars — suppressed to avoid flooding context; use hexdump or xxd if you need to inspect it)`
+          : formatExecEventResult(eventCollector);
+      } else {
+        outText = looksBinary(stdoutTrimmed)
+          ? `(binary output, ${stdoutTrimmed.length} chars — suppressed to avoid flooding context; use hexdump or xxd if you need to inspect it)`
+          : stdoutTrimmed;
+      }
+      if (!looksBinary(stdoutTrimmed) && !eventCollector && outText.length > STDOUT_MAX) {
         const head = outText.slice(0, Math.floor(STDOUT_MAX * 0.7));
         const tail = outText.slice(-Math.floor(STDOUT_MAX * 0.25));
         outText =
@@ -373,7 +404,9 @@ export const execTool: Tool = {
         result.exitCode !== undefined && result.exitCode !== 0
           ? `exit_code: ${result.exitCode}\n`
           : '';
-      const outParts = [exitNote + outText, stderrFmt].filter(Boolean);
+      const outParts = eventCollector
+        ? [exitNote + outText]
+        : [exitNote + outText, stderrFmt].filter(Boolean);
       let text = outParts.join('\n\n') || '(no output)';
       // Shell file rewrites (sed -i, redirects, …) leave prior read_file bodies
       // and ToolStateManager prior-read credit stale — clear credit for high-
@@ -407,6 +440,13 @@ export const execTool: Tool = {
       );
     } catch (err) {
       streamer?.flush();
+      const eventTail = ((): string => {
+        if (!eventCollector) return '';
+        if (err instanceof ProcessError) eventCollector.push(err.stderr, 'stderr');
+        eventCollector.flush();
+        const text = formatExecEventResult(eventCollector);
+        return text ? `\n${text}` : '';
+      })();
       const { l3Notice, writebackWarning } = redactedWritebackAfterL3(mutationSnap, () =>
         o101NoticeAfter(commandText)
       );
@@ -416,7 +456,9 @@ export const execTool: Tool = {
           ctx.markResultError?.();
           const waited = err.timeoutMs && err.timeoutMs > 0 ? err.timeoutMs : timeoutMs;
           return (
-            `timed out after ${waited}ms (raise timeout_ms or use run_in_background)${output ? `\n${output}` : ''}${l3Notice}` +
+            `timed out after ${waited}ms (raise timeout_ms or use run_in_background)` +
+            (eventCollector ? eventTail : output ? `\n${output}` : '') +
+            `${l3Notice}` +
             writebackWarning +
             footnote +
             hooksNotice(`${err.stdout}\n${err.stderr}`)
@@ -425,7 +467,7 @@ export const execTool: Tool = {
         if (err.signal) {
           ctx.markResultError?.();
           return (
-            `Command killed by ${err.signal}:\n${output || err.message}${l3Notice}` +
+            `Command killed by ${err.signal}:\n${output || err.message}${eventTail}${l3Notice}` +
             writebackWarning +
             footnote +
             hooksNotice(`${err.stdout}\n${err.stderr}`)
@@ -438,6 +480,7 @@ export const execTool: Tool = {
             : `Command failed (exit ${err.exitCode}):\n${output || err.message}`;
         return (
           failure +
+          eventTail +
           shellNote +
           l3Notice +
           writebackWarning +

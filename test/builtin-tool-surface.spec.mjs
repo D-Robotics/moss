@@ -168,6 +168,23 @@ test('edit_file is the canonical edit surface and carries the batch form', () =>
   );
 });
 
+test('exec offers line events and one background entry point', () => {
+  const exec = builtinTools.find((tool) => tool.name === 'exec');
+  assert.ok(exec);
+  const props = exec.inputSchema.properties;
+  assert.equal(props?.event?.type, 'boolean', 'exec.event is the Qoder Monitor parity parameter');
+  assert.equal(
+    props?.run_in_background?.type,
+    'boolean',
+    'background work stays a flag on the one shell tool'
+  );
+  assert.equal(
+    modelFacingDeclarations().some((d) => d.name === 'exec_background'),
+    false,
+    'the legacy background tool is never advertised next to exec'
+  );
+});
+
 test('exit_plan only appears with the plan gate on', () => {
   const previous = process.env.MOSS_PLAN_GATE;
   try {

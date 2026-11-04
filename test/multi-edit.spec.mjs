@@ -156,3 +156,74 @@ test('multi_edit stays a working alias of the merged edit surface', async (t) =>
   assert.match(out, /Applied 1 edit/);
   assert.equal(await fs.readFile(path.join(dir, 'g.ts'), 'utf8'), 'beta\n');
 });
+
+test('ambiguous single edit names the sites and options, writes nothing, keeps read credit', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-edit-ambig-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const original = 'header\nconst dup = 0;\nmid\nconst dup = 0;\ntail\n';
+  const file = path.join(dir, 'h.ts');
+  await fs.writeFile(file, original);
+  await markRead(dir, 'h.ts');
+
+  const out = await editFileTool.execute(
+    { path: 'h.ts', old_string: 'const dup = 0;', new_string: 'const dup = 1;' },
+    ctx(dir)
+  );
+  assert.match(out, /old_string is not unique \(2 matches, lines 2, 4\)/);
+  assert.match(out, /replace_all: true/);
+  assert.match(out, /edits\[\]/);
+  assert.equal(await fs.readFile(file, 'utf8'), original, 'no bytes changed on disk');
+
+  // Read credit survives the ambiguity: replace_all applies without a re-read.
+  const retry = await editFileTool.execute(
+    { path: 'h.ts', old_string: 'const dup = 0;', new_string: 'const dup = 1;', replace_all: true },
+    ctx(dir)
+  );
+  assert.match(retry, /Edited h\.ts \(replaced 2 occurrences/);
+  assert.equal(
+    await fs.readFile(file, 'utf8'),
+    'header\nconst dup = 1;\nmid\nconst dup = 1;\ntail\n'
+  );
+});
+
+test('ambiguous batch entry fails all-or-nothing and names the entry and sites', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-batch-ambig-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const ambiguous = 'a\nDUP\nb\nDUP\nc\n';
+  await fs.writeFile(path.join(dir, 'i.ts'), ambiguous);
+  await markRead(dir, 'i.ts');
+  await fs.writeFile(path.join(dir, 'j.ts'), 'keep\n');
+  await markRead(dir, 'j.ts');
+
+  const out = await editFileTool.execute(
+    {
+      edits: [
+        { path: 'i.ts', old_string: 'DUP', new_string: 'ONE' },
+        { path: 'j.ts', old_string: 'keep', new_string: 'changed' },
+      ],
+    },
+    ctx(dir)
+  );
+  assert.match(
+    out,
+    /Error: edits\[0\] on i\.ts: old_string is not unique \(2 matches, lines 2, 4\)/
+  );
+  assert.match(out, /replace_all: true/);
+  assert.match(out, /No files were written/);
+  assert.equal(await fs.readFile(path.join(dir, 'i.ts'), 'utf8'), ambiguous);
+  assert.equal(await fs.readFile(path.join(dir, 'j.ts'), 'utf8'), 'keep\n');
+});
+
+test('not-found edits still report the exact-match next step', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-edit-miss-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(path.join(dir, 'k.ts'), 'present\n');
+  await markRead(dir, 'k.ts');
+
+  const out = await editFileTool.execute(
+    { path: 'k.ts', old_string: 'absent', new_string: 'x' },
+    ctx(dir)
+  );
+  assert.match(out, /old_string not found in k\.ts/);
+  assert.doesNotMatch(out, /replace_all: true/);
+});

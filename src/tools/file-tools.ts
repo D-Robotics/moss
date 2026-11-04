@@ -348,6 +348,12 @@ export interface PreciseEditSuccess {
 export interface PreciseEditFailure {
   ok: false;
   error: string;
+  /**
+   * Why the match failed. `ambiguous` means the text exists at several sites
+   * and nothing was written — the caller keeps prior-read credit because the
+   * file is unchanged. `not-found` means the content no longer matches.
+   */
+  reason?: 'invalid' | 'not-found' | 'ambiguous';
 }
 
 /**
@@ -364,11 +370,16 @@ export function applyPreciseEditToContent(
   if (oldStr === '') {
     return {
       ok: false,
+      reason: 'invalid',
       error: 'old_string is empty. Use write_file to create a new file or replace an entire file.',
     };
   }
   if (oldStr === newStr) {
-    return { ok: false, error: 'old_string and new_string are identical — nothing to change.' };
+    return {
+      ok: false,
+      reason: 'invalid',
+      error: 'old_string and new_string are identical — nothing to change.',
+    };
   }
 
   const strippedOld = stripLineNumberPrefixes(oldStr);
@@ -464,6 +475,7 @@ export function applyPreciseEditToContent(
         : '';
     return {
       ok: false,
+      reason: 'not-found',
       error:
         'old_string not found. The text must match exactly — including indentation — and must not include ' +
         "read_file's line-number prefixes.\n" +
@@ -474,11 +486,22 @@ export function applyPreciseEditToContent(
     };
   }
   if (ranges.length > 1 && !request.replaceAll) {
+    // Qoder's Edit.allow_multiple answers "which of these N did you mean"
+    // before touching the file. Moss answers the same question in the failure:
+    // name the sites, then give the three ways out. Nothing is written here, so
+    // the caller keeps prior-read credit.
+    const lineNumbers = ranges
+      .map((r) => content.slice(0, Math.max(0, r.start)).split('\n').length)
+      .sort((a, b) => a - b);
+    const shown = lineNumbers.slice(0, 10).join(', ');
+    const more = lineNumbers.length > 10 ? `, … (${lineNumbers.length - 10} more)` : '';
     return {
       ok: false,
+      reason: 'ambiguous',
       error:
-        `old_string is not unique (${ranges.length} matches). ` +
-        'Add more surrounding context to target a single location, or pass replace_all: true.',
+        `old_string is not unique (${ranges.length} matches, lines ${shown}${more}); no file was written.\n` +
+        `Disambiguate: add the surrounding lines so it matches once, pass replace_all: true to replace all ${ranges.length} ` +
+        'matches, or send one edits[] entry per site with distinct context.',
     };
   }
 
@@ -635,15 +658,19 @@ async function applyEditBatch(raw: unknown[], ctx: ToolContext, toolName: string
         replaceAll,
       });
       if (!result.ok) {
-        // Drop prior-read credit for every file already staged in this batch
-        // so the model re-reads before retrying (all-or-nothing: nothing written).
-        for (const b of buffers.values()) {
-          globalToolStateManager.invalidateFileState(b.filePath);
+        // Ambiguity writes nothing, so the staged files' prior reads stay
+        // valid; a content mismatch invalidates them (all-or-nothing: nothing
+        // is written either way).
+        if (result.reason !== 'ambiguous') {
+          for (const b of buffers.values()) {
+            globalToolStateManager.invalidateFileState(b.filePath);
+          }
+          globalToolStateManager.invalidateFileState(buf.filePath);
         }
-        globalToolStateManager.invalidateFileState(buf.filePath);
-        const missExtra = /old_string not found/i.test(result.error)
-          ? ''
-          : '\nNext step: call `read_file` on this path and retry with exact current text.';
+        const missExtra =
+          result.reason === 'not-found' || result.reason === 'ambiguous'
+            ? ''
+            : '\nNext step: call `read_file` on this path and retry with exact current text.';
         return (
           `Error: edits[${i}] on ${displayPath}: ${result.error}${missExtra}\n` +
           'No files were written (all-or-nothing).'
@@ -752,9 +779,10 @@ export const editFileTool: Tool = {
         replaceAll: Boolean(input.replace_all),
       });
       if (!result.ok) {
-        // Force re-read before the next edit attempt — prior-read credit is
-        // no longer trustworthy once old_string failed to match.
-        globalToolStateManager.invalidateFileState(filePath);
+        // A content mismatch makes the prior read stale. An ambiguous match
+        // leaves the file untouched, so that read credit stays valid and the
+        // retry does not need an extra read_file round trip.
+        if (result.reason !== 'ambiguous') globalToolStateManager.invalidateFileState(filePath);
         const body = result.error.includes('old_string not found')
           ? result.error.replace('old_string not found.', `old_string not found in ${displayPath}.`)
           : result.error;
