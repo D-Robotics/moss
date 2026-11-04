@@ -122,7 +122,28 @@ unset 回到默认 true/source=default）。
 PNG，70 B）→ 工具结果为拒绝文本、**三轮请求 imageParts 0/0/0**、终稿 `ANSWERED:REFUSED`；`config unset`
 后再跑同一命令 → 工具结果 `[image] pic.png (image/png, 70 B)`、**imageParts 0/0/2**、终稿
 `ANSWERED:IMAGE`。两次都 exit 0。
-仍未做：剪贴板/TUI 粘贴、`attachment-refs.ts` 接线。
+**已落地（2026-11-05，再补一片 = Ctrl+V 剪贴板附件）**：新增 `src/cli/clipboard-attachment.ts`
+（`captureClipboardAttachment` / `stageClipboardImage` / `decodeAppleScriptImageData` /
+`formatAttachmentMention`）。按平台读剪贴板图片：macOS 走 `osascript` 的 `«data PNGf…»` 十六进制载荷，
+Linux 走 `wl-paste`/`xclip` 写临时文件，Windows 走 PowerShell `GetImage().Save()`；没有图片时退化为文本
+（`pbpaste` / `wl-paste` / `Get-Clipboard -Raw`），空剪贴板与不支持平台都给出原因而不是静默无操作。
+图片**不内联 base64**：按 sha256 前 16 位内容寻址落到 `.moss/runtime/attachments/<hash>.<ext>`（
+`ensureMossRuntimeGitignore` 保证 runtime 被忽略），composer 插入 `@<relpath>`，模型用已有的
+`read_image` 打开——魔数校验、3 MB 预算、`agent.supportsImages` 守卫全部复用同一条路径，会话里也不再多
+一份 4 MB 的行。TUI 接线：`keymap.ts` 注册 `edit.attachClipboard`（`ctrl+v`），`app.ts` 的 Ctrl+V
+分支异步捕获后插入 mention 并给出状态行（图片名 + KB；文本直接插入；空剪贴板显示原因）。help 里早已
+承诺的 Ctrl+V 现在真的可用。
+回归门：verify stage `clipboard-paste`（**6 断言**：AppleScript 十六进制解析与垃圾输入拒绝、同一字节只落
+一份且 `.moss/.gitignore` 含 runtime、非图片/超 3 MB 拒绝、不支持平台给出原因；`MOSS_VERIFY_CLIPBOARD=1`
+时额外做**真实剪贴板往返**——osascript 写 PNG → 捕获落盘校验 PNG 魔数、写文本 → 捕获得到原文）。
+**真实证据（本机 macOS 真实剪贴板 + 真实 CLI）**：`osascript` 把 70 B PNG 放进剪贴板 →
+`captureClipboardAttachment` 返回 `{kind:'image', relPath:'.moss/runtime/attachments/6b7fa434f92a8b80.png',
+bytes:70, mimeType:'image/png'}` 且文件 70 B；把剪贴板换成文本 → 返回 `{kind:'text', text:'hello
+clipboard text'}`。随后 `moss -p "Use read_image on @<relPath> and say what you see."`（脚本化 provider
+记录请求体）→ wire 上 `userMentions:true`，工具结果 `toolHasAttachment:true`，请求 `imageParts` 2，
+终稿 `SAW:ATTACHED`，exit 0。
+仍未做：Finder 拖拽/文件路径粘贴只作为文本路径插入（未自动转成附件）；`attachment-refs.ts` 的
+`[Image #n]` chip 解析仍是无人调用的死代码（当前走 `@path` mention，chip 形态需要内联附件管线才值得接）。
 
 **B02 压缩可回溯（P0）**
 Moss 的压缩策略本身不弱（`compaction.ts:1137` 还会回读最近 5 个文件），但**摘要之外的历史在上下文里彻底消失**，

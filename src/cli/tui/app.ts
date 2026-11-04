@@ -47,6 +47,7 @@ import {
   usageBlock,
   type TranscriptRow,
 } from './render-bridge.js';
+import { captureClipboardAttachment, formatAttachmentMention } from '../clipboard-attachment.js';
 import { isComposerLeak, mouseEventsInChunk } from './input/key-stream.js';
 import { isExpandAffordance, routeMouse, type MouseLayout } from './input/mouse-route.js';
 import {
@@ -3667,6 +3668,30 @@ export function TuiAppRoot({
       // The registry (keymap.ts) owns every action key; `x` is the chord prefix
       // (Ctrl+X Ctrl+S) and stays a plain letter.
       const command = commandForKey(keymap.bindings, `ctrl+${letter}`);
+      if (command === 'edit.attachClipboard') {
+        // Ctrl+V: the clipboard is read here (async) and an image is staged under
+        // .moss/runtime/attachments; the composer gets an @path the model opens
+        // with read_image. Text is inserted as-is.
+        void captureClipboardAttachment({ workspaceDir: options.workspaceDir }).then((capture) => {
+          if (capture.kind === 'image') {
+            setComposer((current) =>
+              composerInsert(current, `${formatAttachmentMention(capture.relPath)} `)
+            );
+            setStatusLine(
+              tui('attached {name} ({size}) — ask moss to read_image it', {
+                name: path.basename(capture.relPath),
+                size: `${Math.max(1, Math.round(capture.bytes / 1024))} KB`,
+              })
+            );
+          } else if (capture.kind === 'text') {
+            setComposer((current) => composerInsert(current, capture.text));
+            setStatusLine(tui('pasted clipboard text'));
+          } else {
+            setStatusLine(capture.reason);
+          }
+        });
+        return;
+      }
       if (command === 'caret.lineStart') {
         setComposer((current) => composerMove(current, 'line-start'));
         return;

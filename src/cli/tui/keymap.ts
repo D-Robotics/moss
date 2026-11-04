@@ -18,6 +18,7 @@ export type ShellCommand =
   | 'edit.killLineEnd'
   | 'edit.killWordBack'
   | 'edit.yank'
+  | 'edit.attachClipboard'
   | 'history.search'
   | 'editor.external'
   | 'draft.stash'
@@ -43,6 +44,11 @@ export const DEFAULT_KEYBINDINGS: readonly KeyBinding[] = [
   { command: 'edit.killLineEnd', key: 'ctrl+k', label: 'delete to line end' },
   { command: 'edit.killWordBack', key: 'ctrl+w', label: 'delete the previous word' },
   { command: 'edit.yank', key: 'ctrl+y', label: 'paste deleted text' },
+  {
+    command: 'edit.attachClipboard',
+    key: 'ctrl+v',
+    label: 'attach clipboard image (staged for read_image)',
+  },
   { command: 'history.search', key: 'ctrl+r', label: 'search your earlier prompts' },
   { command: 'editor.external', key: 'ctrl+g', label: 'edit the draft in $EDITOR' },
   {

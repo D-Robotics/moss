@@ -31,6 +31,7 @@ import { stage as examplesStage } from './stages/examples.mjs';
 import { stage as hooksContractStage } from './stages/hooks-contract.mjs';
 import { stage as verificationGateStage } from './stages/verification-gate.mjs';
 import { stage as reviewPipelineStage } from './stages/review-pipeline.mjs';
+import { stage as clipboardPasteStage } from './stages/clipboard-paste.mjs';
 import { stage as compactionHistoryStage } from './stages/compaction-history.mjs';
 import { stage as compactionSummaryStage } from './stages/compaction-summary.mjs';
 import { stage as readImageStage } from './stages/read-image.mjs';
@@ -58,6 +59,7 @@ const STAGES = new Map(
     hooksContractStage,
     verificationGateStage,
     reviewPipelineStage,
+    clipboardPasteStage,
     compactionHistoryStage,
     compactionSummaryStage,
     readImageStage,
@@ -86,6 +88,7 @@ const FAST_GATE = [
   'hooks-contract',
   'verification-gate',
   'review-pipeline',
+  'clipboard-paste',
   'compaction-history',
   'compaction-summary',
   'read-image',
