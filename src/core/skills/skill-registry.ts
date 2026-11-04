@@ -13,6 +13,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import micromatch from 'micromatch';
 import {
   SKILL_BODY_MAX_BYTES,
   SKILL_DESCRIPTION_MAX_CHARS,
@@ -349,6 +350,25 @@ export function loadSkills(
   );
 }
 
+/**
+ * Which skills belong in the catalog for the paths this run has touched.
+ * `globs` is deterministic activation (path evidence from a tool call or the
+ * user message), not a guess: a skill without globs is always listed.
+ */
+export function selectActiveSkills(
+  skills: readonly SkillManifest[],
+  relativePaths: readonly string[]
+): SkillManifest[] {
+  if (relativePaths.length === 0) return skills.filter((skill) => skill.globs.length === 0);
+  return skills.filter(
+    (skill) =>
+      skill.globs.length === 0 ||
+      relativePaths.some((file) =>
+        micromatch.isMatch(file, skill.globs as string[], { dot: true, nocase: true })
+      )
+  );
+}
+
 export function findSkill(
   skills: readonly SkillManifest[],
   name: string
@@ -367,6 +387,6 @@ export function buildEmptySkillsHintLayer(dirs: readonly string[]): string {
     '## Available skills',
     'No skills installed. Moss discovers skills only from:',
     ...dirs.map((dir) => `- ${path.join(dir, '<name>', 'SKILL.md')}`),
-    "Answer skill questions from this list; other tools' skill folders (e.g. ~/.claude/skills) are not loaded by Moss.",
+    'This includes the cross-client .agents/skills and .claude/skills folders.',
   ].join('\n');
 }

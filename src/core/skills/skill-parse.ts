@@ -101,9 +101,12 @@ export function parseFrontmatter(text: string): ParsedFrontmatter {
     const key = line.slice(0, colon).trim();
     const rawValue = line.slice(colon + 1);
 
-    // Block scalars: `|` (keep newlines) and `>` (fold to spaces).
-    const blockMarker = rawValue.trim();
-    if (blockMarker === '|' || blockMarker === '>') {
+    // Block scalars: `|` keeps newlines, `>` folds them; the chomping
+    // indicators (`|-`, `>-`, `|+`, `>+`) are common in real skills and the
+    // trailing newline difference is not worth preserving.
+    const rawMarker = rawValue.trim();
+    const blockMarker = /^[|>][+-]?$/.test(rawMarker) ? rawMarker[0] : undefined;
+    if (blockMarker) {
       const collected: string[] = [];
       while (
         index < lines.length &&

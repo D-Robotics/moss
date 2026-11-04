@@ -35,6 +35,8 @@ export interface CliPromptSetup {
   promptLayers: PromptAssembler;
   capabilityRegistry: CapabilityRegistry;
   trackTouchedInput: (input: unknown) => void;
+  /** Workspace-relative paths seen so far (tool inputs + initial message tokens). */
+  touchedPaths: () => readonly string[];
 }
 
 export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<CliPromptSetup> {
@@ -118,7 +120,16 @@ export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<
       text: formatInstructionRules('Project rules', alwaysRules),
     });
   }
-  const touchedPaths = new Set<string>(extractPathTokens(initialText));
+  const toWorkspaceRelative = (candidate: string): string | undefined => {
+    const rel = path.relative(workspace, path.resolve(workspace, candidate));
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return undefined;
+    return rel.split(path.sep).join('/');
+  };
+  const touchedPaths = new Set<string>(
+    extractPathTokens(initialText)
+      .map(toWorkspaceRelative)
+      .filter((rel): rel is string => rel !== undefined)
+  );
   const scopedRules = instructionRules.filter((rule) => rule.globs.length > 0);
   const refreshScopedRules = (): void => {
     if (scopedRules.length === 0) return;
@@ -155,9 +166,8 @@ export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<
     }
     let changed = false;
     for (const candidate of raw) {
-      const rel = path.relative(workspace, path.resolve(workspace, candidate));
-      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
-      const normalized = rel.split(path.sep).join('/');
+      const normalized = toWorkspaceRelative(candidate);
+      if (!normalized) continue;
       if (!touchedPaths.has(normalized)) {
         touchedPaths.add(normalized);
         changed = true;
@@ -175,5 +185,10 @@ export async function createCliPromptSetup(input: CliPromptSetupInput): Promise<
 
   if (promptLayersDebugEnabled()) console.error(`[prompt]\n${promptLayers.formatReport()}`);
 
-  return { promptLayers, capabilityRegistry, trackTouchedInput };
+  return {
+    promptLayers,
+    capabilityRegistry,
+    trackTouchedInput,
+    touchedPaths: () => [...touchedPaths],
+  };
 }

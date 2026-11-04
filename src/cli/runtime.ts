@@ -15,6 +15,7 @@
 import { ensureKeepAliveDispatcherInstalled } from '../provider/keep-alive-dispatcher.js';
 import { resolveHostShell } from '../utils/host-shell.js';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { configureWindowsUtf8Console } from '../utils/run-process.js';
 import { errorMessage } from '../errors.js';
@@ -115,6 +116,7 @@ import { createWebSearchTool } from '../tools/web-search.js';
 import { createWebFetchTool } from '../tools/web-fetch.js';
 import {
   loadSkillCatalog,
+  selectActiveSkills,
   skillSlashName,
   buildEmptySkillsHintLayer,
 } from '../core/skills/skill-registry.js';
@@ -600,11 +602,23 @@ export async function runCli(): Promise<void> {
   // or volatile suffix) and its origin spelled out; the registry owns the two
   // arrays the agent takes, and updates them in place so a mode switch or a late
   // MCP handshake reaches existing runs and sub-agents.
-  const { promptLayers, capabilityRegistry, trackTouchedInput } = await createCliPromptSetup({
+  const {
+    promptLayers,
+    capabilityRegistry,
+    trackTouchedInput: trackTouchedInputBase,
+    touchedPaths,
+  } = await createCliPromptSetup({
     workspace,
     ...(configDir ? { configDir } : {}),
     initialText: process.argv.join(' '),
   });
+  // Skills whose `globs` match a touched path enter the catalog; the skills
+  // block below installs the real refresh and this hook forwards to it.
+  let refreshSkillActivation = (): void => {};
+  const trackTouchedInput = (input: unknown): void => {
+    trackTouchedInputBase(input);
+    refreshSkillActivation();
+  };
   if (promptLayersDebugEnabled()) console.error(`[prompt]\n${promptLayers.formatReport()}`);
 
   const projectCapabilities = await resolveProjectCapabilities({
@@ -1060,10 +1074,14 @@ export async function runCli(): Promise<void> {
   }> = [];
   const sessionContextInfo: { skills?: number; soul?: string; branch?: string } = {};
   {
-    const skillDirs = [path.join(workspace, '.moss', 'skills'), path.join(configDir, 'skills')];
-    const skillDirSpecs = [
-      { dir: path.join(workspace, '.moss', 'skills'), scope: 'workspace' as const },
-      { dir: path.join(configDir, 'skills'), scope: 'user' as const },
+    // Discovery scopes: the Moss workspace directory wins, then the cross-client
+    // `.agents/skills` / `.claude/skills` conventions, then user-level installs.
+    const skillDirSpecs: Array<{ dir: string; scope: 'workspace' | 'shared' | 'user' }> = [
+      { dir: path.join(workspace, '.moss', 'skills'), scope: 'workspace' },
+      { dir: path.join(workspace, '.agents', 'skills'), scope: 'shared' },
+      { dir: path.join(workspace, '.claude', 'skills'), scope: 'shared' },
+      { dir: path.join(configDir, 'skills'), scope: 'user' },
+      { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
     ];
     const announcedSkillSkips = new Set<string>();
     const emitSkillNotice = (line: string) => {
@@ -1081,7 +1099,7 @@ export async function runCli(): Promise<void> {
       },
     });
     const sessionSkills = [...baseSkills];
-    const emptySkillsLayer = buildEmptySkillsHintLayer(skillDirs);
+    const emptySkillsLayer = buildEmptySkillsHintLayer(skillDirSpecs.map(({ dir }) => dir));
     const rdkDocsConfigured = mcpConfigs.some((config) => config.name === RDK_DOCS_SERVER_NAME);
     syncRdkDocsSkills = () => {
       // Register once from config, not from the handshake. Swapping the skill
@@ -1090,11 +1108,44 @@ export async function runCli(): Promise<void> {
       sessionSkills.splice(0, sessionSkills.length, ...next);
       // Core registers the `skill` tool from this port and re-reads the list on
       // every call, so a late rdk-docs connect or a new install needs no re-register.
-      const budget = skillCatalogBudget();
-      agent.setSkillCatalog({
-        manifests: () => sessionSkills,
-        ...('budgetChars' in budget ? { budgetChars: budget.budgetChars } : {}),
-      });
+      // The agent re-reads this port every turn; the catalog layer is refreshed
+      // through `refreshSkillActivation` when a tool touches a matching path.
+      // The CLI renders its own layer (see below), so the port is what core uses
+      // for the `skill` tool's name resolution.
+      refreshSkillActivation = (): void => {
+        const budget = skillCatalogBudget();
+        agent.setSkillCatalog({
+          manifests: () => selectActiveSkills(sessionSkills, touchedPaths()),
+          ...('budgetChars' in budget ? { budgetChars: budget.budgetChars } : {}),
+        });
+        if (sessionSkills.length === 0) return;
+        const active = selectActiveSkills(sessionSkills, touchedPaths());
+        const catalog = renderSkillCatalog(active, skillCatalogBudget());
+        const note =
+          catalog.stats.skills > 0
+            ? `skills ${String(catalog.stats.skills)}, ${String(catalog.stats.renderedChars)}/${String(
+                catalog.stats.uncappedChars
+              )} chars, omitted ${String(catalog.stats.omitted)}, strategy ${catalog.stats.strategy}`
+            : undefined;
+        promptLayers.set({
+          id: 'cli:skills',
+          stability: 'dynamic',
+          origin: 'tooling',
+          text: catalog.text ?? '',
+          ...(note ? { note } : {}),
+        });
+        if (promptLayersDebugEnabled()) {
+          const activated = active
+            .filter((skill) => skill.globs.length > 0)
+            .map((skill) => skill.name);
+          console.error(
+            `[skills] paths touched: ${touchedPaths().join(', ') || '(none)'} → glob-activated: ${
+              activated.join(', ') || '(none)'
+            }`
+          );
+        }
+      };
+      refreshSkillActivation();
       sessionContextInfo.skills = sessionSkills.length;
       loadedSkills.splice(
         0,
@@ -1111,21 +1162,14 @@ export async function runCli(): Promise<void> {
           };
         })
       );
-      const catalog = renderSkillCatalog(sessionSkills, skillCatalogBudget());
-      const layer = sessionSkills.length > 0 ? (catalog.text ?? '') : emptySkillsLayer;
-      const note =
-        catalog.stats.skills > 0
-          ? `skills ${String(catalog.stats.skills)}, ${String(catalog.stats.renderedChars)}/${String(
-              catalog.stats.uncappedChars
-            )} chars, omitted ${String(catalog.stats.omitted)}, strategy ${catalog.stats.strategy}`
-          : undefined;
-      promptLayers.set({
-        id: 'cli:skills',
-        stability: 'dynamic',
-        origin: 'tooling',
-        text: layer,
-        ...(note ? { note } : {}),
-      });
+      if (sessionSkills.length === 0) {
+        promptLayers.set({
+          id: 'cli:skills',
+          stability: 'dynamic',
+          origin: 'tooling',
+          text: emptySkillsLayer,
+        });
+      }
       // The startup reports print before skills load; this is the first table
       // that includes the catalog, so print it here when the debug flag is on.
       if (promptLayersDebugEnabled()) console.error(`[prompt]\n${promptLayers.formatReport()}`);

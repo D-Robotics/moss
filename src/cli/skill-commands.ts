@@ -5,6 +5,7 @@
  * moment the user edits the description.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { isZhLocale } from './cli-locale.js';
 
@@ -114,7 +115,9 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
     const skills = loadSkillCatalog([
       { dir: path.join(ctx.workspaceDir, '.moss', 'skills'), scope: 'workspace' },
       { dir: path.join(ctx.workspaceDir, '.agents', 'skills'), scope: 'shared' },
+      { dir: path.join(ctx.workspaceDir, '.claude', 'skills'), scope: 'shared' },
       { dir: path.join(ctx.configDir, 'skills'), scope: 'user' },
+      { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
     ]);
     if (skills.length === 0) {
       out(

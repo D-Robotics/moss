@@ -155,6 +155,8 @@ export async function buildFreshSessionContextReport(
   const answerLanguage = buildAnswerLanguageLayer(locale);
   const skillDirs = [
     path.join(options.workspaceDir, '.moss', 'skills'),
+    path.join(options.workspaceDir, '.agents', 'skills'),
+    path.join(options.workspaceDir, '.claude', 'skills'),
     path.join(options.workspaceDir, '.config', 'skills'),
   ];
   const skills = rdkDocsConnected
