@@ -423,6 +423,25 @@ npm run examples       # 四个离线嵌入示例（SDK 契约的活文档，先
 
 版本号表示**当前能力级别**：`main` 是滚动线，tag 只在 `npm run verify` 全绿（内含 examples）+ 该 commit 的 deep 矩阵全绿后打。详见 [`docs/release-policy.md`](docs/release-policy.md)。
 
+## 调优开关（环境变量）
+
+这些开关默认都不需要；只有遇到明确症状时才设。每一条都能用一次真实运行验证。
+
+| 变量                      | 作用                                                                                                                               | 什么时候用                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `MOSS_LEAN_TOOLS`         | 工具描述换用精简档（`ToolMetadata.leanDescription`）：`=1` 强制精简、`=0` 强制完整；不设时 **上下文窗口 ≤ 64,000 tokens 自动精简** | 小窗口模型（32k/64k）每轮省约 200–700 tokens 的工具声明；或想强制对比两种工具面 |
+| `MOSS_STARTUP_TIMING`     | 启动时向 stderr 打一行分阶段耗时：`entry/proxy/config/agent/skills/total`（TUI 另有 `tui-import/composer`）                        | 启动变慢时先定位是哪一段，而不是猜                                              |
+| `MOSS_VERIFY_CONCURRENCY` | `npm run verify` 的并发度（默认 4，`1` = 串行基线）；`startup-timing` 等耗时敏感项独占                                             | 排查验证门抖动，或核对并发带来的加速                                            |
+| `MOSS_NO_TUI`             | 强制 readline REPL（不进全屏 TUI）                                                                                                 | 终端不兼容、要复制纯文本，或调试 TUI 之外的行为                                 |
+
+验证方式举例（都在本机可跑）：
+
+```bash
+MOSS_STARTUP_TIMING=1 node dist/cli.js -p "hi" 2>&1 | grep "startup] timing"
+MOSS_LEAN_TOOLS=1 node scripts/measure-tool-surface.mjs   # 声明字符数与默认档对比
+VERIFY_CONCURRENCY=1 npm run verify                      # 与默认并发对照
+```
+
 ## 支持矩阵
 
 | 维度     | 支持                                                             | 验证方式                                              |
