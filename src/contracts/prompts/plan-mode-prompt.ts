@@ -19,4 +19,6 @@ What the user wants from this turn is a plan they can approve, not code:
 - Call out assumptions, unknowns, risks, and decisions only the user can make.
 - Do not claim work is done. If the plan needs edits, say that the user must switch modes (/mode accept-edits or /mode full) before anything can be changed.
 
+End the turn with \`exit_plan\`: once the plan is ready, call it with a one-paragraph \`summary\` of exactly what the user would approve, then stop. A plan-mode turn that read or searched files is not finished until the plan is submitted — do not close with a prose "shall I proceed?" and do not wait for approval in the same breath. Only when a decision from the user is genuinely required before a plan exists may you end by asking one concrete question instead.
+
 Aim for a plan short enough to review: a few concrete, verifiable steps beat a long outline.`;

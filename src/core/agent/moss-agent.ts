@@ -48,6 +48,7 @@ import { compactHistoryIfNeeded, type SummarizeFn } from '../../context/compacti
 import { buildTurnWatchNotice, turnWatchEnabled } from '../../context/turn-watch.js';
 import { createAcceptanceCompletionGate } from '../loop/acceptance-completion-gate.js';
 import { createVerificationCompletionGate } from '../loop/verification-completion-gate.js';
+import { createPlanCompletionGate } from '../loop/plan-completion-gate.js';
 import { createBackgroundLifecycleGate } from '../loop/background-lifecycle-gate.js';
 import { createRemoteCompactProviderFromEnv } from '../../context/remote-compaction.js';
 import { resolveContextCharsPerTokenUnit, estimateMessagesTokens } from '../../context/tokens.js';
@@ -1690,11 +1691,18 @@ ${result.stderr ?? ''}`.trim();
       ...(this.config.reviewMode ? { reviewMode: this.config.reviewMode } : {}),
     });
     const backgroundLifecycleGate = createBackgroundLifecycleGate({ sessionKey });
+    // B04: a plan-mode turn that did real work must end with an submitted plan
+    // (exit_plan) or a concrete question, never with prose "shall I proceed?".
+    const planGate = createPlanCompletionGate({
+      planModeActive: () => this.config.planModeActive?.() === true,
+    });
     const hostCompletionGate = this.config.completionGate;
     const completionGate: AgentLoopParams['completionGate'] = hostCompletionGate
       ? async (request) => {
           const background = await backgroundLifecycleGate(request);
           if (!background.ok) return background;
+          const plan = await planGate(request);
+          if (!plan.ok) return plan;
           const pre = await acceptanceGate(request);
           if (!pre.ok) return pre;
           const verified = await verificationGate(request);
@@ -1704,6 +1712,8 @@ ${result.stderr ?? ''}`.trim();
       : async (request) => {
           const background = await backgroundLifecycleGate(request);
           if (!background.ok) return background;
+          const plan = await planGate(request);
+          if (!plan.ok) return plan;
           const pre = await acceptanceGate(request);
           if (!pre.ok) return pre;
           return verificationGate(request);

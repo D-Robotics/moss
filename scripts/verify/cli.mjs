@@ -34,6 +34,7 @@ import { stage as reviewPipelineStage } from './stages/review-pipeline.mjs';
 import { stage as compactionHistoryStage } from './stages/compaction-history.mjs';
 import { stage as compactionSummaryStage } from './stages/compaction-summary.mjs';
 import { stage as readImageStage } from './stages/read-image.mjs';
+import { stage as planEndStage } from './stages/plan-end.mjs';
 
 const STAGES = new Map(
   [
@@ -47,6 +48,7 @@ const STAGES = new Map(
     compactionHistoryStage,
     compactionSummaryStage,
     readImageStage,
+    planEndStage,
   ].map((stage) => [stage.name, stage])
 );
 
@@ -61,6 +63,7 @@ const FAST_GATE = [
   'compaction-history',
   'compaction-summary',
   'read-image',
+  'plan-end',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
 
