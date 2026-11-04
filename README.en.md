@@ -532,7 +532,7 @@ npm run check          # prettier + eslint (0 warning) + typecheck, in parallel
 npm run verify:quick   # static + smoke. A delivery check, not every edit
 npm run verify         # static + build + smoke + 3 examples — the ship gate, target <=60s
 npm run smoke          # CLI smoke: --version / --help / config --help / PTY startup (builds first)
-npm run examples       # the three offline embedding examples (living SDK docs; builds first)
+npm run examples       # the four offline embedding examples (living SDK docs; builds first)
 
 # The behavior spec suite was removed on 2026-11-04 (still in git history); cross-OS /
 # Node 24 evidence comes from the nightly and tag matrix in .github/workflows/deep.yml.

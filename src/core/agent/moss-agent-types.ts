@@ -205,6 +205,13 @@ export interface MossAgentConfig
    */
   promptLayers?: PromptLayersPort;
 
+  /**
+   * Host-supplied skill catalog. When set, core registers the `skill` tool and
+   * (for hosts that do not own a `promptLayers` table) renders the budgeted L1
+   * catalog into the dynamic prompt suffix. The port is read every turn.
+   */
+  skills?: import('../../contracts/skill.js').SkillCatalogPort;
+
   /** Instance-local declarative experts available to sub-agent tools. @beta */
   subagentExperts?: readonly import('../subagent/expert-registry.js').SubagentExpertDefinition[];
   /**

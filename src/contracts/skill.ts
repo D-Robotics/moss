@@ -60,6 +60,18 @@ export function emptySkillResources(): SkillResources {
   return { references: [], scripts: [], assets: [], evals: false };
 }
 
+/**
+ * Host-supplied skill catalog port. The host decides where skills come from
+ * (filesystem scopes, bundled, remote); core renders the catalog, registers the
+ * `skill` tool and re-reads this on every turn so a late install or a glob
+ * activation reaches runs that already exist.
+ */
+export interface SkillCatalogPort {
+  manifests(): readonly SkillManifest[];
+  /** L1 catalog budget in characters; core default is 8,000. */
+  budgetChars?: number;
+}
+
 /** One installed skill, as the agent sees it. */
 export interface SkillManifest {
   name: string;

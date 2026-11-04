@@ -406,7 +406,7 @@ npm run check          # prettier + eslint（0 warning）+ typecheck，三者并
 npm run verify:quick   # static + smoke。交付前的轻量检查，不是每一轮
 npm run verify         # static + build + smoke + 3 个 examples —— 交付门，目标 ≤60s
 npm run smoke          # CLI 冒烟：--version / --help / config --help / PTY 启动（先 build）
-npm run examples       # 三个离线嵌入示例（SDK 契约的活文档，先 build）
+npm run examples       # 四个离线嵌入示例（SDK 契约的活文档，先 build）
 
 # 行为 spec 套件已于 2026-11-04 移除（git 历史保留）；全平台 / Node 24 证据由
 # .github/workflows/deep.yml 的夜跑与 tag 矩阵提供。设计见 docs/design/ci-and-verify.md

@@ -29,6 +29,9 @@ import { snapshotHarnessAdapter } from './harness-adapter.js';
 import { getUserQuestionAsker } from '../tools/user-question-asker.js';
 import { mergeLeasePatch } from '../subagent/worktree-isolation.js';
 import type { AgentLoopRun } from './agent-loop-run-state.js';
+import type { SkillCatalogPort } from '../../contracts/skill.js';
+import { renderSkillCatalog, type SkillCatalogStats } from '../skills/skill-catalog.js';
+import { createSkillTool } from '../skills/skill-tool.js';
 import {
   buildAgentBehaviorPrompt,
   buildAgentBehaviorPromptQuick,
@@ -182,6 +185,8 @@ export class MossAgent {
   private readonly taskLedgerSessions = new Set<string>();
   /** Model id from the latest gateway response body, when the provider sent one. */
   private gatewayReportedModel: string | undefined;
+  /** Cost of the last rendered L1 skill catalog, for hosts and run diagnostics. */
+  private lastSkillCatalogStats: SkillCatalogStats | undefined;
 
   constructor(config: MossAgentConfig) {
     this.config = config;
@@ -195,6 +200,7 @@ export class MossAgent {
     }
     this.ownsAsyncTaskRegistry = config.asyncTaskRegistry === undefined;
     this.tools = new ToolRegistry();
+    if (config.skills) this.setSkillCatalog(config.skills);
     this.commandQueues = new CommandQueueRegistry();
     this.spawnRegistry = createSpawnProfileRegistryFromDefaults();
     this.expertRegistry =
@@ -432,10 +438,14 @@ export class MossAgent {
     });
     const dynamicLayers =
       this.config.promptLayers?.dynamic ?? this.config.dynamicPromptLayers ?? [];
+    // Skill catalog ownership: a host with its own layer table renders it (see
+    // renderSkillCatalog) so the table stays the single source of truth; other
+    // hosts get it appended here, which is what makes SDK agents whole.
+    const skillCatalogText = this.config.promptLayers ? undefined : this.renderSkillCatalogLayer();
     const dynamic =
       options?.omitExtraPromptLayers === true
         ? ''
-        : dynamicLayers
+        : [...dynamicLayers, ...(skillCatalogText ? [skillCatalogText] : [])]
             .filter((layer) => typeof layer === 'string' && layer.trim().length > 0)
             .join('\n\n');
     return {
@@ -443,6 +453,49 @@ export class MossAgent {
       dynamic,
       full: dynamic ? `${stable}\n\n${dynamic}` : stable,
     };
+  }
+
+  /**
+   * Install (or replace) the host's skill catalog. Registers the `skill` tool
+   * once; the tool and the catalog read the port on every call, so a late skill
+   * install or a glob activation reaches a run that already exists.
+   */
+  setSkillCatalog(catalog: SkillCatalogPort | undefined): void {
+    if (!catalog) {
+      delete this.config.skills;
+      this.tools.remove('skill');
+      return;
+    }
+    this.config.skills = catalog;
+    if (!this.tools.get('skill')) {
+      this.tools.register(createSkillTool(() => catalog.manifests()));
+    }
+  }
+
+  /** Stats of the last rendered catalog (undefined when no skills or no port). */
+  skillCatalogStats(): SkillCatalogStats | undefined {
+    return this.lastSkillCatalogStats;
+  }
+
+  /**
+   * L1 catalog text for hosts that do not own a `promptLayers` table. Hosts that
+   * do own one render the same text themselves (CLI) so it stays in their layer
+   * report; core never renders the catalog twice.
+   */
+  private renderSkillCatalogLayer(): string | undefined {
+    const catalog = this.config.skills;
+    if (!catalog) return undefined;
+    const manifestList = catalog.manifests();
+    if (manifestList.length === 0) {
+      this.lastSkillCatalogStats = undefined;
+      return undefined;
+    }
+    const rendered = renderSkillCatalog(
+      manifestList,
+      catalog.budgetChars !== undefined ? { budgetChars: catalog.budgetChars } : {}
+    );
+    this.lastSkillCatalogStats = rendered.stats;
+    return rendered.text;
   }
 
   registerPreToolHook(hook: PreToolUseHook): void {

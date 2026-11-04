@@ -95,7 +95,6 @@ import {
   renderOneShotOnboardingHint,
 } from './onboarding-hints.js';
 import { MossAgent, JsonlSessionStore } from '../core/index.js';
-import { getRootLogger } from '../logger.js';
 import { registerBuiltinTools } from '../tools/builtin.js';
 import { registerFileBasedTools } from '../tools/file-based-tools.js';
 import { sanitizeSecrets } from '../safety/secret-sanitizer.js';
@@ -127,7 +126,6 @@ import {
   loadAgentFiles,
 } from '../core/subagent/agent-file-loader.js';
 
-import { createSkillTool } from '../tools/skill-tool.js';
 import {
   runRegistryCommand,
   unknownSlashCommandLines,
@@ -1083,7 +1081,6 @@ export async function runCli(): Promise<void> {
       },
     });
     const sessionSkills = [...baseSkills];
-    let installedSkillTool: ReturnType<typeof createSkillTool> | undefined;
     const emptySkillsLayer = buildEmptySkillsHintLayer(skillDirs);
     const rdkDocsConfigured = mcpConfigs.some((config) => config.name === RDK_DOCS_SERVER_NAME);
     syncRdkDocsSkills = () => {
@@ -1091,21 +1088,13 @@ export async function runCli(): Promise<void> {
       // tool in when rdk-docs connects changes the tool list mid-session.
       const next = includeBundledRdkDocsSkill(baseSkills, rdkDocsConfigured);
       sessionSkills.splice(0, sessionSkills.length, ...next);
-      if (sessionSkills.length > 0) {
-        const tool = createSkillTool(sessionSkills);
-        try {
-          agent.tools.register(tool);
-          installedSkillTool = tool;
-        } catch (err) {
-          // A plugin that already owns `skill` must not take down the status callback.
-          getRootLogger()
-            .child('cli')
-            .warn('skill tool register skipped', { error: errorMessage(err) });
-        }
-      } else if (installedSkillTool && agent.tools.get('skill') === installedSkillTool) {
-        agent.tools.remove('skill');
-        installedSkillTool = undefined;
-      }
+      // Core registers the `skill` tool from this port and re-reads the list on
+      // every call, so a late rdk-docs connect or a new install needs no re-register.
+      const budget = skillCatalogBudget();
+      agent.setSkillCatalog({
+        manifests: () => sessionSkills,
+        ...('budgetChars' in budget ? { budgetChars: budget.budgetChars } : {}),
+      });
       sessionContextInfo.skills = sessionSkills.length;
       loadedSkills.splice(
         0,

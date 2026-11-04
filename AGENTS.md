@@ -47,7 +47,7 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 | `npm run typecheck`                                                              | 全量类型检查                                                                                                                                                                                                              |
 | `npm run lint` / `lint:fix`                                                      | ESLint（0 warning）                                                                                                                                                                                                       |
 | `npm run smoke`                                                                  | CLI 冒烟（版本 / 帮助 / config 帮助 / PTY 启动；先 build）                                                                                                                                                                |
-| `npm run examples`                                                               | 三个离线嵌入示例（SDK 契约的活文档；`verify` 会实跑，先 build）                                                                                                                                                           |
+| `npm run examples`                                                               | 四个离线嵌入示例（SDK 契约的活文档；`verify` 会实跑，先 build）                                                                                                                                                           |
 | `npm run check`                                                                  | format:check + lint + typecheck（三者并行；不依赖 `dist/`）                                                                                                                                                               |
 | `npm run verify:quick`                                                           | static + smoke。交付前的轻量检查，不是开发的每一轮                                                                                                                                                                        |
 | `npm run verify`                                                                 | 交付门：static + build + smoke + 3 个 examples。目标 ≤60s；CI 用 `VERIFY_BUDGET_SECONDS=60` 强制预算                                                                                                                      |
@@ -68,8 +68,8 @@ Linux 真机，目标是机器人闭环 Goal→…→Deploy→Verify→Repair→
 - **minor**：新增导出、既有导出行为向后兼容扩展。
 - **major（0.x 期间 = 明确的破坏性变更说明）**：删除 / 重命名导出、参数或行为破坏。
 - 2026-11-04 起不再有 `test/sdk-contract.spec.mjs` 快照（全部 spec 已删除）；改公共面必须在提交说明
-  里显式列出，并保证 `examples/` 三个嵌入示例实跑通过（`npm run verify` 会跑）。
-- `examples/` 下三个嵌入示例是契约的活文档，发版前必须全绿。
+  里显式列出，并保证 `examples/` 四个嵌入示例实跑通过（`npm run verify` 会跑）。
+- `examples/` 下四个嵌入示例是契约的活文档，发版前必须全绿。
 - **发布口径（2026-10-01 起）**：见 [`docs/release-policy.md`](docs/release-policy.md)——main 是滚动线，
   版本号表示**当前能力级别**；tag 只在 `npm run verify` 全绿（static + build + smoke + examples）+ 该 commit 的 deep workflow 全绿后打，
   tag 说明必须写清"跑了什么、没跑什么"；**不为从未验收的中间版本补打 tag**（v0.14.0–v0.20.0 永久不补）。
@@ -177,7 +177,7 @@ Linux CI 不是 macOS。改 shell 片段、临时目录或 git 路径时按这�
 
 - **仓库当前没有行为 spec 套件。** 504 个 `test/*.spec.mjs` 已由 owner 于 2026-11-04 删除（git 历史
   `01a16fd7` 及更早仍保留）。不要假设 `npm test` / `test:filter` / `test:serial` 存在。
-- **唯一验证入口是 `scripts/verify/cli.mjs`。** `npm run verify` = static + build + smoke + 三个
+- **唯一验证入口是 `scripts/verify/cli.mjs`。** `npm run verify` = static + build + smoke + 四个
   examples；CI 的 `Fast gate`（`.github/workflows/ci.yml`）跑同一条命令，并用
   `VERIFY_BUDGET_SECONDS=60` 强制 60s 预算。
 - **全平台 / Node 24 证据走 deep workflow**（`.github/workflows/deep.yml`）：夜跑、tag、手动触发，
