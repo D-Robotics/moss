@@ -141,6 +141,15 @@ stderr 出现 `○ broken — failed: spawn /nonexistent-mcp-binary-xyz ENOENT �
 `[hooks] Blocked by Stop hook: hook exited 1 (fix what the hook checks, then re-run; or remove the hook from your Moss config hooks.Stop)`，
 退出码 `9`（未完成）。
 
+**H5 第四片（2026-11-05）：plan 模式拦截文案按「真实存在的切换面」分表面**
+plan 模式的拒绝原来统一说「(use Shift+Tab)」——`-p` 或无 TTY 的运行根本没有 Shift+Tab，等于给了不存在的键。
+现在：`-p`/管道场景说「Plan mode is an exploration ceiling: relaunch with --workspace-write or --full-access, or run
+interactively and switch modes with /mode or Shift+Tab」；交互场景说「Shift+Tab in the TUI, /mode in the REPL」。
+**真实证据（两个真实运行）**：(1) headless `-p --plan` 让模型调用 `write_file` → 工具结果含 relaunch 指引，
+文件未被写（`app.txt` 仍 `zero`），exit **9**；(2) 真实 PTY + REPL（`MOSS_NO_TUI=1 --plan`，脚本化 provider）
+→ 拒绝行含 `Switch to "manual", "accept-edits", or "full" mode (Shift+Tab in the TUI, /mode in the REPL)`，
+且不含 headless 分支文案。
+
 **H5 第三片（2026-11-05）：PreToolUse 钩子「要求确认」在无人可确认时给出下一步**
 `hookAskHeadlessReason` 原来只说「钩子要求人工确认，-p/无终端下按拒绝处理」——用户不知道还能怎么做。
 现在末尾补 `Next: re-run in an interactive session to confirm this call, or change that hook's decision.`

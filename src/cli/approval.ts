@@ -1374,7 +1374,11 @@ export function createCliToolApprovalHook(
           denialClass: 'mode',
           reason: `Tool "${tool.name}" is blocked (${outcome.reason}). ${
             effectiveMode === 'plan'
-              ? 'Switch to "manual", "accept-edits", or "full" mode (use Shift+Tab) to execute changes. '
+              ? // Shift+Tab only exists in the TUI; a -p run or a pipe has no such
+                // key, so name the surfaces that actually exist there.
+                isApprovalPrintMode(options) || process.stdin.isTTY !== true
+                ? 'Plan mode is an exploration ceiling: relaunch with --workspace-write or --full-access, or run interactively and switch modes with /mode or Shift+Tab, to execute changes. '
+                : 'Switch to "manual", "accept-edits", or "full" mode (Shift+Tab in the TUI, /mode in the REPL) to execute changes. '
               : 'The read-only ceiling only lifts with --workspace-write/--full-access. '
           }Then run "${tool.name}" again.`,
         });
