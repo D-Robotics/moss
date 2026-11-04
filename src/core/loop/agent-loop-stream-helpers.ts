@@ -434,6 +434,10 @@ export async function runAgentLoopLlmTurn(
                 throw new MossError({
                   code: ErrorCode.PROVIDER_UPSTREAM_ERROR,
                   message: `LLM stream error: ${errMsg}`,
+                  hint:
+                    'Retry the turn. If it keeps failing, check the provider base URL and API key ' +
+                    '(`moss config get`), the network/proxy (HTTP(S)_PROXY / NO_PROXY), and run `moss doctor` ' +
+                    'for the provider reachability report.',
                 });
               }
 

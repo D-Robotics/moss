@@ -318,6 +318,20 @@ function policyBlockedToolResult(error: MossError): string {
   ].join('\n');
 }
 
+/**
+ * B20: a tool timeout is recoverable, so it says how. Long-running work belongs
+ * in `exec_background` (then `exec_logs` / `exec_wait`); a blocked or huge call
+ * should be narrowed instead of retried as-is. The default per-call ceiling is
+ * five minutes (agent-loop DEFAULT_TOOL_TIMEOUT_MS); tools may declare their own
+ * `metadata.timeoutMs`.
+ */
+function toolTimeoutHint(): string {
+  return (
+    'Narrow the call (page a file with offset/limit, shorten the command) and retry, or run long work ' +
+    'with exec_background and poll it with exec_logs/exec_wait. The default per-call limit is 5 minutes.'
+  );
+}
+
 export interface ExecuteToolCallDeps {
   toolsForRun: Tool[];
   toolCtx: ToolContext;
@@ -621,6 +635,7 @@ async function executeOneToolCallInner(
                 new MossError({
                   code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
                   message: `Tool ${call.name} timed out (${deps.toolTimeoutMs / 1000}s)`,
+                  hint: toolTimeoutHint(),
                 })
               );
             }, deps.toolTimeoutMs))
@@ -740,6 +755,7 @@ async function executeOneToolCallInner(
                 : new MossError({
                     code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
                     message: `Tool ${call.name} timed out (${deps.toolTimeoutMs / 1000}s)`,
+                    hint: toolTimeoutHint(),
                     cause: err,
                   });
           } else {
@@ -747,6 +763,7 @@ async function executeOneToolCallInner(
             attemptError = new MossError({
               code: ErrorCode.TOOL_EXECUTION_TIMEOUT,
               message: rawMessage,
+              hint: toolTimeoutHint(),
               cause: err,
             });
           }
@@ -755,6 +772,17 @@ async function executeOneToolCallInner(
           attemptError = wrapAsMoss(err, ErrorCode.TOOL_EXECUTION_FAILED, {
             message: rawMessage,
           });
+        }
+        // B20: a failed tool result is what the model reads, so carry the
+        // actionable hint (MossError.hint) into it instead of only into the
+        // thrown error the user may never see. Skipped when the text already
+        // contains the guidance (policy-blocked results render their own).
+        if (
+          isMossError(attemptError) &&
+          attemptError.hint &&
+          !attemptText.includes(attemptError.hint)
+        ) {
+          attemptText += `\n${attemptError.hint}`;
         }
         if (attemptTimeout || aborted) {
           for (const workspacePath of workspaceRecoveryPaths) {
