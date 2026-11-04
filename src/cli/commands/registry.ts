@@ -736,7 +736,7 @@ const planCommand: CommandSpec = {
 const stopCommand: CommandSpec = {
   name: '/stop',
   aliases: ['/abort'],
-  summary: 'stop background processes; Esc or Ctrl+C interrupts the current run',
+  summary: 'stop background processes; in the TUI, Esc or Ctrl+C interrupts the current run',
   run(ctx) {
     const zh = isZh(ctx.locale);
     const stopped = stopAllBackgroundProcesses(ctx.sessionKey);
@@ -744,16 +744,16 @@ const stopCommand: CommandSpec = {
       ctx.say(
         'system',
         zh
-          ? '没有正在运行的后台进程。Esc（或 Ctrl+C）中断当前回复。'
-          : 'No background processes running. Esc (or Ctrl+C) interrupts the current run.'
+          ? '没有正在运行的后台进程。TUI 里 Esc（或 Ctrl+C）中断当前回复；REPL 里目前要等这一轮结束。'
+          : 'No background processes running. In the TUI, Esc (or Ctrl+C) interrupts the current run; in the REPL a turn has to finish first.'
       );
       return;
     }
     ctx.say(
       'system',
       zh
-        ? `已停止 ${stopped.length} 个后台进程：${stopped.join(', ')}。当前回复不受影响；Esc 才会中断它。`
-        : `Stopped ${stopped.length} background process(es): ${stopped.join(', ')}. The current run is still going; Esc interrupts it.`
+        ? `已停止 ${stopped.length} 个后台进程：${stopped.join(', ')}。当前回复不受影响；TUI 里 Esc 才会中断它。`
+        : `Stopped ${stopped.length} background process(es): ${stopped.join(', ')}. The current run is still going; in the TUI, Esc interrupts it.`
     );
   },
 };
