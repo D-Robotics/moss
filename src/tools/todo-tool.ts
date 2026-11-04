@@ -113,12 +113,23 @@ export const todoWriteTool: Tool = {
     const raw = Array.isArray(input.todos) ? input.todos : [];
     const todos: TodoItem[] = [];
     const unknownStatuses: string[] = [];
+    // A dropped item used to be invisible: sending one content-less item
+    // answered "Todo list cleared.", which reads as an intentional clear.
+    const badItems: string[] = [];
+    let index = 0;
     for (const item of raw) {
-      if (!item || typeof item !== 'object') continue;
+      index += 1;
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        badItems.push(`#${String(index)} (not an object)`);
+        continue;
+      }
       const content = String(item.content ?? '')
         .trim()
         .slice(0, 120);
-      if (!content) continue;
+      if (!content) {
+        badItems.push(`#${String(index)} (empty content)`);
+        continue;
+      }
       // Nested item fields never reach `validateToolInputObject` (it checks the
       // top level only), so `status: "doing"` used to land as `pending` and the
       // model read the write as applied. A list that was not written verbatim
@@ -131,6 +142,14 @@ export const todoWriteTool: Tool = {
         continue;
       }
       todos.push({ content, status });
+    }
+    if (badItems.length > 0) {
+      return (
+        'Error: todo_write was not applied — every item needs non-empty content and a status. ' +
+        `Bad item(s): ${badItems.slice(0, 5).join(', ')}` +
+        `${badItems.length > 5 ? ` and ${String(badItems.length - 5)} more` : ''}. ` +
+        'Resend the full list; send todos: [] only to clear it.'
+      );
     }
     if (unknownStatuses.length > 0) {
       return (
