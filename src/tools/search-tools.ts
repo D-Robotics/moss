@@ -657,21 +657,34 @@ export const searchCodeTool: Tool = {
         );
       }
       if (matches.length === 0) return presentSearch('No matches found', location, incomplete);
+      // A capped search has to say so: an unmarked short list reads as "these
+      // are all the matches". Content mode budgets result lines, and each match
+      // brings up to 2*contextLines-1 extra context lines with it.
+      const resultCap =
+        outputMode === 'content'
+          ? cappedResults * (contextLines > 0 ? contextLines * 2 + 1 : 1)
+          : cappedResults;
+      const capNote =
+        matches.length >= resultCap
+          ? `\n\n(results truncated at ${matches.length} ${
+              outputMode === 'content' ? 'lines' : 'files'
+            }; raise head_limit (max 200) or narrow the pattern/glob for the rest)`
+          : '';
       if (outputMode === 'files_with_matches') {
         return presentSearch(
-          `Files with matches (${matches.length}):\n${matches.join('\n')}`,
+          `Files with matches (${matches.length}):\n${matches.join('\n')}${capNote}`,
           location,
           incomplete
         );
       }
       if (outputMode === 'count') {
         return presentSearch(
-          `Match counts (${matches.length} files):\n${matches.join('\n')}`,
+          `Match counts (${matches.length} files):\n${matches.join('\n')}${capNote}`,
           location,
           incomplete
         );
       }
-      return presentSearch(matches.join('\n'), location, incomplete);
+      return presentSearch(matches.join('\n') + capNote, location, incomplete);
     } catch (err) {
       throw toolError('Error searching code', err);
     }
