@@ -31,6 +31,37 @@ type JsonSchemaProperty = {
   enum?: unknown[];
 };
 
+/** `timeoutMs`, `timeout_ms`, and `TIMEOUT-MS` name the same parameter. */
+function normalizeParamName(name: string): string {
+  return name.toLowerCase().replace(/[_-]/g, '');
+}
+
+/**
+ * Models are trained across harnesses and emit the other harness's spelling
+ * (Qoder asks for `multiSelect`; Moss declares `multi_select`). A misspelled key
+ * is otherwise dropped silently, so the call runs with a default the model
+ * believes it overrode. Snap an undeclared key onto the declared one it names.
+ */
+function snapParamAliases(
+  input: Record<string, unknown>,
+  props: Record<string, JsonSchemaProperty>
+): Record<string, unknown> {
+  const declared = Object.keys(props);
+  if (declared.length === 0) return input;
+  const byNormalized = new Map<string, string>();
+  for (const name of declared) byNormalized.set(normalizeParamName(name), name);
+  let snapped: Record<string, unknown> | null = null;
+  for (const key of Object.keys(input)) {
+    if (props[key]) continue;
+    const target = byNormalized.get(normalizeParamName(key));
+    if (!target || input[target] !== undefined) continue;
+    snapped ??= { ...input };
+    snapped[target] = input[key];
+    delete snapped[key];
+  }
+  return snapped ?? input;
+}
+
 export function validateToolInputObject(
   tool: Tool,
   input: unknown
@@ -49,18 +80,21 @@ export function validateToolInputObject(
   if (!schema || schema.type !== 'object') {
     return { ok: true, value: obj };
   }
+  const props = schema.properties;
+  // Snap before the required check so `{ timeOutMs: 5000 }` can satisfy
+  // `required: ['timeout_ms']`.
+  const value = props ? snapParamAliases(obj, props) : obj;
   const required = schema.required ?? [];
   for (const key of required) {
-    if (!(key in obj) || obj[key] === undefined) {
+    if (!(key in value) || value[key] === undefined) {
       return { ok: false, message: `${tool.name}: missing required parameter "${key}"` };
     }
   }
-  const props = schema.properties;
   if (props) {
-    for (const key of Object.keys(obj)) {
+    for (const key of Object.keys(value)) {
       const spec = props[key];
       if (!spec) continue;
-      const v = obj[key];
+      const v = value[key];
       if (v === undefined) continue;
       if (spec.enum !== undefined && spec.enum.length > 0) {
         if (!spec.enum.some((e) => Object.is(e, v))) {
@@ -87,7 +121,7 @@ export function validateToolInputObject(
         return { ok: false, message: `${tool.name}: parameter "${key}" should be object` };
     }
   }
-  return { ok: true, value: obj };
+  return { ok: true, value };
 }
 
 export async function runPreToolHookChain(
