@@ -13,7 +13,11 @@ import {
   waitForBackgroundProcesses,
 } from '../tools/background-process-registry.js';
 import { filterToolsForRun } from '../tools/tool-filter.js';
-import { DeferredToolOffer, TOOL_SEARCH_NAME } from '../tools/deferred-tool-offer.js';
+import {
+  DeferredToolOffer,
+  TOOL_SEARCH_NAME,
+  deferredGroupFor,
+} from '../tools/deferred-tool-offer.js';
 import {
   enrichRunToolContext,
   hiddenUserQuestionMessage,
@@ -1198,9 +1202,21 @@ ${result.stderr ?? ''}`.trim();
       ...enrichedRun,
       resolveMissingTool: resolveMissingToolForRun,
       revealDeferredTools: (group) => this.deferredTools.reveal(group),
-      describeMissingTool: (name) =>
-        hiddenUserQuestionMessage(this.tools.get(name), userQuestions) ??
-        hostDescribeMissingTool?.(name),
+      describeMissingTool: (name) => {
+        // A deferred tool is real but not in this turn's list. "Unknown tool"
+        // sent the model looking for another name instead of loading the group.
+        const group = deferredGroupFor(name);
+        if (group && !this.deferredTools.isRevealed(group)) {
+          return (
+            `Tool ${name} is registered but its "${group}" group is not loaded yet. ` +
+            `Call ${TOOL_SEARCH_NAME} with {"group":"${group}"} first; its schema appears on the next model call.`
+          );
+        }
+        return (
+          hiddenUserQuestionMessage(this.tools.get(name), userQuestions) ??
+          hostDescribeMissingTool?.(name)
+        );
+      },
     };
 
     const adapter = createMossAgentLoopEventAdapter({
