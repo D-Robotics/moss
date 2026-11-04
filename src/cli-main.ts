@@ -119,7 +119,14 @@ import {
   formatFileAgentReport,
   loadAgentFiles,
 } from './core/subagent/agent-file-loader.js';
-import { buildAgentsMdLayer } from './cli/project-instructions.js';
+import {
+  buildAgentsMdLayer,
+  extractPathTokens,
+  formatInstructionRules,
+  loadInstructionRules,
+  selectActiveRules,
+} from './cli/project-instructions.js';
+import { CapabilityRegistry } from './core/capabilities/registry.js';
 import { createSkillTool } from './tools/skill-tool.js';
 import {
   runRegistryCommand,
@@ -933,6 +940,90 @@ async function main() {
       text: answerLanguageLayer,
     });
   }
+  // Scoped instruction rules (`.moss/rules/*.md`): always-on rules join the
+  // stable prefix, globbed rules load as a dynamic layer once a matching path is
+  // touched. This is the one Cursor/Claude mechanism that separates instruction
+  // text that always applies from text that only applies inside a subtree.
+  const instructionRules = loadInstructionRules({
+    workspace,
+    ...(configDir ? { userDir: configDir } : {}),
+  });
+  const capabilityRegistry = new CapabilityRegistry();
+  capabilityRegistry.registerAll(
+    instructionRules.map((rule) => ({
+      id: rule.id,
+      kind: 'instruction' as const,
+      scope: rule.scope,
+      activation: rule.globs.length === 0 ? ('always' as const) : { globs: rule.globs },
+      source: rule.file,
+      ...(rule.description ? { description: rule.description } : {}),
+      costChars: rule.text.length,
+    }))
+  );
+  const alwaysRules = instructionRules.filter((rule) => rule.globs.length === 0);
+  if (alwaysRules.length > 0) {
+    promptLayers.set({
+      id: 'project:rules:always',
+      stability: 'stable',
+      origin: 'project',
+      text: formatInstructionRules('Project rules', alwaysRules),
+    });
+  }
+  const touchedPaths = new Set<string>(extractPathTokens(process.argv.join(' ')));
+  const scopedRules = instructionRules.filter((rule) => rule.globs.length > 0);
+  const refreshScopedRules = (): void => {
+    if (scopedRules.length === 0) return;
+    const active = selectActiveRules(scopedRules, [...touchedPaths]);
+    promptLayers.set({
+      id: 'project:rules:scoped',
+      stability: 'dynamic',
+      origin: 'project',
+      text: active.length > 0 ? formatInstructionRules('Scoped rules', active) : '',
+    });
+  };
+  refreshScopedRules();
+
+  // Rules activate when a tool touches a matching path. Tracking happens on tool
+  // results (reads included) so the layer is ready for the next model call; the
+  // prompt parts are re-read every turn, so an in-place table update is enough.
+  const trackTouchedInput = (input: unknown): void => {
+    if (!input || typeof input !== 'object') return;
+    const record = input as Record<string, unknown>;
+    const raw: string[] = [];
+    for (const key of ['path', 'file', 'destination']) {
+      if (typeof record[key] === 'string') raw.push(record[key] as string);
+    }
+    if (Array.isArray(record.files)) {
+      for (const file of record.files) if (typeof file === 'string') raw.push(file);
+    }
+    if (Array.isArray(record.edits)) {
+      for (const edit of record.edits) {
+        if (edit && typeof edit === 'object') {
+          const editPath = (edit as Record<string, unknown>).path;
+          if (typeof editPath === 'string') raw.push(editPath);
+        }
+      }
+    }
+    let changed = false;
+    for (const candidate of raw) {
+      const rel = path.relative(workspace, path.resolve(workspace, candidate));
+      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
+      const normalized = rel.split(path.sep).join('/');
+      if (!touchedPaths.has(normalized)) {
+        touchedPaths.add(normalized);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    refreshScopedRules();
+    if (promptLayersDebugEnabled()) {
+      const active = selectActiveRules(scopedRules, [...touchedPaths]).map((rule) => rule.id);
+      console.error(
+        `[prompt] paths touched: ${[...touchedPaths].join(', ')} → rules: ${active.join(', ') || '(none)'}`
+      );
+    }
+  };
+
   if (promptLayersDebugEnabled()) console.error(`[prompt]\n${promptLayers.formatReport()}`);
 
   const projectCapabilities = await resolveProjectCapabilities({
@@ -1060,7 +1151,10 @@ async function main() {
       protectedConfigPaths,
     }),
     onBeforeToolExec,
-    onToolResult: configuredHooks.onToolResult,
+    onToolResult: (call, result) => {
+      trackTouchedInput(call.input);
+      configuredHooks.onToolResult?.(call, result);
+    },
     onInputGuardrail: async (request) => {
       const submitted = await configuredHooks.runUserPromptSubmit(request.userMessage);
       if (submitted.blocked) {

@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import micromatch from 'micromatch';
+import { parseSkillFile } from '../core/skills/skill-registry.js';
 
 /**
  * Project instructions — the workspace-level system prompt layer.
@@ -206,4 +208,148 @@ export function buildAgentsMdLayer(
     `[Project instructions — ${loaded.length} files: ${names}${skippedNote}]\n\n` +
     sections.join('\n\n')
   );
+}
+
+// ── Scoped instruction rules (`.moss/rules/*.md`) ──────────────────────────
+//
+// Project instructions above are scope-by-directory: an ancestor AGENTS.md always
+// applies. Rules are scope-by-path: a rule that only matters while editing
+// `src/**/*.ts` should not cost tokens while reading docs. This is Cursor's
+// `.cursor/rules` activation model, which is the only competitor design that
+// separates "always loaded" from "loaded when relevant" for instruction text
+// (see why-design §2.6).
+//
+// File format: Markdown with optional YAML-ish frontmatter that reuses the skill
+// parser. `globs:` accepts comma- or space-separated patterns; a rule without
+// globs is always loaded (same as an AGENTS.md section). Files are capped so one
+// rule cannot crowd out the always-on instruction budget.
+
+/** Per-rule cap; a rule is a scoped hint, not a documentation site. */
+export const INSTRUCTION_RULE_MAX_BYTES = 8 * 1024;
+/** Total cap across all loaded rules (always + matched). */
+export const INSTRUCTION_RULE_MAX_TOTAL_BYTES = 16 * 1024;
+
+export interface InstructionRule {
+  /** `rule:<scope>:<name>` — stable across edits to the body. */
+  id: string;
+  file: string;
+  scope: 'user' | 'workspace';
+  globs: readonly string[];
+  description?: string;
+  text: string;
+}
+
+export interface InstructionRuleOptions {
+  workspace: string;
+  userDir?: string;
+  maxRuleBytes?: number;
+  maxTotalBytes?: number;
+}
+
+function listRuleFiles(dir: string): string[] {
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return names
+    .filter((name) => name.endsWith('.md') && !name.startsWith('.') && !name.startsWith('_'))
+    .sort()
+    .map((name) => path.join(dir, name));
+}
+
+/**
+ * Load scoped rules from `<workspace>/.moss/rules` and `<userDir>/rules`.
+ * Workspace rules come after user rules so a workspace can override wording.
+ */
+export function loadInstructionRules(options: InstructionRuleOptions): InstructionRule[] {
+  const maxRuleBytes = options.maxRuleBytes ?? INSTRUCTION_RULE_MAX_BYTES;
+  const maxTotalBytes = options.maxTotalBytes ?? INSTRUCTION_RULE_MAX_TOTAL_BYTES;
+  const dirs: Array<{ dir: string; scope: 'user' | 'workspace' }> = [];
+  if (options.userDir && path.resolve(options.userDir) !== path.resolve(options.workspace)) {
+    dirs.push({ dir: path.join(options.userDir, 'rules'), scope: 'user' });
+  }
+  dirs.push({ dir: path.join(options.workspace, '.moss', 'rules'), scope: 'workspace' });
+
+  const rules: InstructionRule[] = [];
+  let total = 0;
+  for (const { dir, scope } of dirs) {
+    for (const file of listRuleFiles(dir)) {
+      if (total >= maxTotalBytes) break;
+      let raw: string;
+      try {
+        raw = fs.readFileSync(file, 'utf8');
+      } catch {
+        continue;
+      }
+      const parsed = parseSkillFile(raw);
+      const body = parsed.body.trim();
+      if (!body) continue;
+      const globs = (parsed.frontmatter.globs ?? parsed.frontmatter.glob ?? '')
+        .split(/[,\s]+/)
+        .map((glob) => glob.trim())
+        .filter(Boolean);
+      const name = (parsed.frontmatter.name ?? path.basename(file, '.md')).trim();
+      const description = (parsed.frontmatter.description ?? '').trim();
+      const budget = Math.min(maxRuleBytes, maxTotalBytes - total);
+      const text = body.length > budget ? `${body.slice(0, budget)}\n[rule truncated]` : body;
+      total += text.length;
+      rules.push({
+        id: `rule:${scope}:${name}`,
+        file,
+        scope,
+        globs,
+        ...(description ? { description } : {}),
+        text,
+      });
+    }
+  }
+  return rules;
+}
+
+/** True when a workspace-relative path activates the rule (always-rules match nothing here). */
+export function ruleMatchesPaths(rule: InstructionRule, relativePaths: readonly string[]): boolean {
+  if (rule.globs.length === 0) return false;
+  return relativePaths.some((file) =>
+    micromatch.isMatch(file, rule.globs as string[], { dot: true, nocase: true })
+  );
+}
+
+/** Rules active for the given touched paths, plus every always-on rule. */
+export function selectActiveRules(
+  rules: readonly InstructionRule[],
+  relativePaths: readonly string[]
+): InstructionRule[] {
+  return rules.filter((rule) => rule.globs.length === 0 || ruleMatchesPaths(rule, relativePaths));
+}
+
+/**
+ * Path-like tokens in a user message: `@src/a.ts`, `src/a.ts`, `./x/y.mjs`.
+ * Used to activate rules on the first turn, before any tool has touched a path.
+ * Deliberately conservative — a false positive only costs a few hundred tokens,
+ * a false negative delays the rule until the first edit.
+ */
+export function extractPathTokens(text: string): string[] {
+  const matches = text.match(/@?[\w.~/-]*[\w-]+\.[A-Za-z0-9]{1,8}\b/g) ?? [];
+  const out = new Set<string>();
+  for (const raw of matches) {
+    const token = raw
+      .replace(/^@/, '')
+      .replace(/^\.\//, '')
+      .replace(/[),.;:]+$/, '');
+    if (!token.includes('/') && !token.includes('.')) continue;
+    out.add(token);
+  }
+  return [...out];
+}
+
+/** Render active rules as one prompt layer; header names each rule and its globs. */
+export function formatInstructionRules(title: string, rules: readonly InstructionRule[]): string {
+  if (rules.length === 0) return '';
+  const sections = rules.map((rule) => {
+    const scope = rule.globs.length > 0 ? rule.globs.join(',') : 'always';
+    return `--- ${title}: ${rule.id} (${scope}) ---\n${rule.text}`;
+  });
+  return `${sections.join('\n\n')}`;
 }

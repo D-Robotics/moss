@@ -290,3 +290,16 @@ W1 工具声明 ──► W2 提示词装配 ──► W3 能力发现（依赖 
 - W5：`src/cli/{bootstrap,runtime}.ts`（新）、`src/cli/surfaces/*`（新）、`src/cli-main.ts`（缩到入口）、
   `examples/*`（改走 runtime）。
 - W6：`src/tools/device-tools.ts`、`src/device/*`、`docs/design/tool-surface-rea.md`（保留名契约）。
+
+## 11. 实施进度（同一 main 线，每波独立 commit）
+
+| 波次                           | 状态               | commit                                      | 落点                                                                                                                                                                                                                                                                          |
+| ------------------------------ | ------------------ | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| W1 工具声明单一真源            | 完成               | `ceb5ff32`（预算/提示）+ `11264a7e`（分类） | `ToolMetadata.maxResultTokens/truncationHint/classification`；`tool-output-truncate.ts` 表删除，改为 builtin 声明安装；`tool-loop-guard.ts` 六个名字集合删除；可选 provider 工具名收敛为两份显式常量                                                                          |
+| W2 提示词装配面上移            | 完成               | `6e2f8cf8`                                  | `contracts/prompt-layer.ts` + `core/prompt/{assembler,report}`；`MossAgentConfig.promptLayers`；`run_metrics.systemPromptLayerCount/LayerHashes`（此前 layerCount 恒为 0）；`cli/prompt-layers.ts` 删除                                                                       |
+| W3 能力发现注册表 + 指令作用域 | 完成（W3b 待做）   | 本轮                                        | `contracts/capability.ts`、`core/capabilities/registry.ts`；`.moss/rules/*.md` + `<configDir>/rules/*.md`（frontmatter `globs`/`description`，always/glob 两档）；工具触达路径后动态装载作用域规则；slash 命名空间统一（优先级文档化 + skill/command 描述符进注册表）仍是 W3b |
+| W4 计划/目标面统一             | 待做               | —                                           | `core/plan/` 单一 Plan API、审批版本绑定                                                                                                                                                                                                                                      |
+| W5 宿主壳拆分                  | 待做               | —                                           | `cli/{bootstrap,runtime}.ts` + `cli/surfaces/*`，`cli-main.ts` ≤300 行                                                                                                                                                                                                        |
+| W6 设备能力合并                | 待做（owner 决策） | —                                           | `device_probe(kind)`，旧名一版隐藏别名                                                                                                                                                                                                                                        |
+
+**W3 的已知边界**：glob 规则只在"工具触达匹配路径"或"用户消息里出现路径 token"时激活；模型在纯对话轮次不会凭空激活规则（与 Cursor 的 model-decided 类相比，这是有意的确定性取舍——可预测 > 自动嗅探）。
