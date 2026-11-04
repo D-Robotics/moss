@@ -400,30 +400,37 @@ Ctrl+C 必须停流、上方向键 `\x1b[A` **不得**停流（防止把转义�
 本轮逐条 `grep` 真实源码核对 §1/§2 的状态列，结论是**表里写的「未做/未开始」大多已经实现**。
 以后认领前先看这张审计表，别再按旧状态重复开工（这正是本轮该做的事：先让队列可信，再谈优化）。
 
-| ID  | 表里旧状态                   | 审计结论                               | 证据（本轮实读）                                                                                                                                                                                    |
-| --- | ---------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A3  | 未开始                       | **已落地**                             | `src/cli/loop-command.ts`（`moss loop --until`）+ `command-dispatcher.ts:345` 的帮助文案                                                                                                            |
-| A4  | 未做                         | **已落地**                             | `moss-agent.ts:1722` `createVerificationCompletionGate` + `config.verificationGate===false` 关闭；`cli/config.ts:2511-2519` 的 `MOSS_VERIFICATION_GATE` 与来源解析；`config-commands.ts:88-89` 展示 |
-| A5  | 未做                         | **已落地**（上限为 5，不是条目写的 3） | `core/task/task-engine.ts:80` `DEFAULT_MAX_REPAIR_ATTEMPTS = 5`、`:546/:647` 使用；`record_repair` 提示在 `:188`                                                                                    |
-| B04 | P1 未做                      | **已落地**                             | `contracts/prompts/plan-mode-prompt.ts` 明写 `exit_plan`；`core/loop/plan-completion-gate.ts` 强制「不是散文式的 shall I proceed」；`core/tools/tool-catalog.ts:33` `PLAN_ONLY_TOOL_NAMES`          |
-| B05 | P1 未做                      | **已落地**                             | `core/tools/deferred-tool-offer.ts`：`TASK_DEFERRED_TOOLS` 六件套按意图/台账/宿主显式请求揭示                                                                                                       |
-| B06 | P1 未做                      | **已落地**                             | `cli/project-instructions.ts:323-363`：只有 `description` 的规则归为 `manual`，需 `@rule:<name>` 触发（正是条目说的「意图被反转」的修法）                                                           |
-| B07 | P1 未做                      | **已落地**                             | `core/subagent/spawn-profile.ts:130-143`：授权边界段 + 绝对路径契约                                                                                                                                 |
-| B10 | P2 未做                      | **已落地**                             | `core/skills/skill-catalog.ts:50-88` + `skill-usage.ts`：`usageAware` 先按计数排序，未用过的才按字母                                                                                                |
-| B11 | P2 不可续跑                  | **已落地**                             | `tools/create-subagent.ts:327/401/422` 保留子会话供 `subagent_resume` 续跑                                                                                                                          |
-| B12 | P2 无分阶段计时              | **已落地**                             | `MOSS_STARTUP_TIMING=1` 输出 entry/proxy/config/env/prompt/agent/mcp/probe/skills/total；另加了 `bin/moss.cjs` 启动行                                                                               |
-| B14 | P0 全串行                    | **已落地**                             | verify 改为依赖调度并发（`VERIFY_CONCURRENCY` 默认 4）；本会话实测 `npm run verify` **PASS in 41.8s**                                                                                               |
-| B15 | P2 `/context` 看不到工具成本 | **已落地**                             | `cli/context-report.ts` 用 `toolVisibleForRun` + `isDeferredToolName` 统计实际工具面 token                                                                                                          |
-| B16 | P1 评审不自动用验收标准      | **已落地**                             | `tools/review-tools.ts:369-396`：无手填 `criteria` 时回落任务验收标准（`Task …: Acceptance criteria:`）                                                                                             |
-| B17 | P2 REPL 无法中断             | **已落地**                             | `cli/repl.ts` B17 段：SIGINT + 单字节 ESC + `AbortController`                                                                                                                                       |
-| B01 | P0 图片进不了上下文          | **部分**                               | TUI `app.ts:3680-3689` 已能 Ctrl+V 暂存图片并提示「让 moss 去 read_image」，仍是「先落盘再让模型读」的两步，不是原生多模态附件                                                                      |
-| B02 | P0 压缩后旧历史不可回溯      | **仍缺**                               | `grep -rn "compaction-history\|retrieve.*dropped" src/context/*.ts` 零命中：压缩只产出摘要，被丢弃的原文没有回查入口                                                                                |
-| B08 | P2 工具描述单档              | **仍缺**                               | `core/tools/tool-types.ts:269` `description: string`，无「何时不要用」的否定段/分档                                                                                                                 |
-| B09 | P2 大结果只有 exec 落盘      | **部分**                               | `tool-output-spill.ts` 只被 `tools/builtin.ts`、`tools/device-tools.ts` 使用；其他工具被截断的中段仍不可取回                                                                                        |
-| B18 | P2 启动慢在模块加载          | **已大幅推进**                         | `bin/moss.cjs` 启动行（交互首字节 777→68.9ms）、懒加载设备注册表/斜杠命令图、barrel 直连、REPL 历史；剩余空间见 B18 段落                                                                            |
+| ID  | 表里旧状态                   | 审计结论                               | 证据（本轮实读）                                                                                                                                                                                                       |
+| --- | ---------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A3  | 未开始                       | **已落地**                             | `src/cli/loop-command.ts`（`moss loop --until`）+ `command-dispatcher.ts:345` 的帮助文案                                                                                                                               |
+| A4  | 未做                         | **已落地**                             | `moss-agent.ts:1722` `createVerificationCompletionGate` + `config.verificationGate===false` 关闭；`cli/config.ts:2511-2519` 的 `MOSS_VERIFICATION_GATE` 与来源解析；`config-commands.ts:88-89` 展示                    |
+| A5  | 未做                         | **已落地**（上限为 5，不是条目写的 3） | `core/task/task-engine.ts:80` `DEFAULT_MAX_REPAIR_ATTEMPTS = 5`、`:546/:647` 使用；`record_repair` 提示在 `:188`                                                                                                       |
+| B04 | P1 未做                      | **已落地**                             | `contracts/prompts/plan-mode-prompt.ts` 明写 `exit_plan`；`core/loop/plan-completion-gate.ts` 强制「不是散文式的 shall I proceed」；`core/tools/tool-catalog.ts:33` `PLAN_ONLY_TOOL_NAMES`                             |
+| B05 | P1 未做                      | **已落地**                             | `core/tools/deferred-tool-offer.ts`：`TASK_DEFERRED_TOOLS` 六件套按意图/台账/宿主显式请求揭示                                                                                                                          |
+| B06 | P1 未做                      | **已落地**                             | `cli/project-instructions.ts:323-363`：只有 `description` 的规则归为 `manual`，需 `@rule:<name>` 触发（正是条目说的「意图被反转」的修法）                                                                              |
+| B07 | P1 未做                      | **已落地**                             | `core/subagent/spawn-profile.ts:130-143`：授权边界段 + 绝对路径契约                                                                                                                                                    |
+| B10 | P2 未做                      | **已落地**                             | `core/skills/skill-catalog.ts:50-88` + `skill-usage.ts`：`usageAware` 先按计数排序，未用过的才按字母                                                                                                                   |
+| B11 | P2 不可续跑                  | **已落地**                             | `tools/create-subagent.ts:327/401/422` 保留子会话供 `subagent_resume` 续跑                                                                                                                                             |
+| B12 | P2 无分阶段计时              | **已落地**                             | `MOSS_STARTUP_TIMING=1` 输出 entry/proxy/config/env/prompt/agent/mcp/probe/skills/total；另加了 `bin/moss.cjs` 启动行                                                                                                  |
+| B14 | P0 全串行                    | **已落地**                             | verify 改为依赖调度并发（`VERIFY_CONCURRENCY` 默认 4）；本会话实测 `npm run verify` **PASS in 41.8s**                                                                                                                  |
+| B15 | P2 `/context` 看不到工具成本 | **已落地**                             | `cli/context-report.ts` 用 `toolVisibleForRun` + `isDeferredToolName` 统计实际工具面 token                                                                                                                             |
+| B16 | P1 评审不自动用验收标准      | **已落地**                             | `tools/review-tools.ts:369-396`：无手填 `criteria` 时回落任务验收标准（`Task …: Acceptance criteria:`）                                                                                                                |
+| B17 | P2 REPL 无法中断             | **已落地**                             | `cli/repl.ts` B17 段：SIGINT + 单字节 ESC + `AbortController`                                                                                                                                                          |
+| B01 | P0 图片进不了上下文          | **部分**                               | TUI `app.ts:3680-3689` 已能 Ctrl+V 暂存图片并提示「让 moss 去 read_image」，仍是「先落盘再让模型读」的两步，不是原生多模态附件                                                                                         |
+| B02 | P0 压缩后旧历史不可回溯      | **已落地且已端到端验证**               | 机制在 `context/compaction.ts:256-274`（`formatHistoricalTranscriptPointer` 生成 `<historical-transcript>` 段）+ `:1198-1203` 拼接 + `core/agent/moss-agent.ts:955/1841` 传 `store.transcriptPath`；端到端探针见本节末 |
+| B08 | P2 工具描述单档              | **仍缺**                               | `core/tools/tool-types.ts:269` `description: string`，无「何时不要用」的否定段/分档                                                                                                                                    |
+| B09 | P2 大结果只有 exec 落盘      | **部分**                               | `tool-output-spill.ts` 只被 `tools/builtin.ts`、`tools/device-tools.ts` 使用；其他工具被截断的中段仍不可取回                                                                                                           |
+| B18 | P2 启动慢在模块加载          | **已大幅推进**                         | `bin/moss.cjs` 启动行（交互首字节 777→68.9ms）、懒加载设备注册表/斜杠命令图、barrel 直连、REPL 历史；剩余空间见 B18 段落                                                                                               |
 
-**新的队列结论**：§2 总表里「仍缺」的真实条目收敛为 **B02（压缩历史回查）、B08（工具描述分档/否定段）、B09（截断中段可取回）**，
-其余按上表视为已验收或部分完成；下一轮优先在 B02/B09 之间按「用户可感知」取舍。
+**新的队列结论**：本轮把 B02 从「仍缺」改为**已验收**（端到端探针见下）。§2 总表里真正仍未做的收敛为
+**B08（工具描述分档/否定段）、B09（截断中段可取回）**；B01 为部分完成。下一轮优先 B09（用户可感知：长输出被切掉的中段拿不回来）。
+
+**B02 端到端探针（2026-11-05，已实跑）**：本地 SSE stub 跑在独立线程（避免 H8 那种「驱动器阻塞 stub」），
+配置 `contextTokens: 4000` / `maxOutputTokens: 500`；REPL 里连发 4 轮让模型每轮回 36KB 长文，再 `/compact`，然后再发一轮。
+抓到的**第 7 个请求体**里包含：
+`<historical-transcript>` 与 `Messages dropped by this compaction are still on disk at: .moss/sessions/cli-20261105064021-db932d57.jsonl`，
+且该文件名与工作区 `.moss/sessions/` 里的真实文件完全一致 —— 压缩后的下一轮模型可以 `read_file` / `grep` 回查被丢弃的原文。
+副产物：同轮还观察到一次 `compaction summary is missing required sections; retrying once`（9 节结构校验生效并重试成功）。
 
 ## 3. 逐条说明（为什么现在最值得做 · 最小切片 · 风险）
 
