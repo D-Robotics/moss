@@ -503,6 +503,8 @@ const ENV_NOTE_ZH: Record<string, string> = {
   'legacy alias of MOSS_CLI_AUTO_APPROVE': 'MOSS_CLI_AUTO_APPROVE 的旧别名',
   'comma-separated nudge ids to suppress; unset leaves every nudge on':
     '逗号分隔的要关掉的提示编号；不设置则全部开启',
+  '1 stops the per-turn external-edit and date-rollover notice':
+    '设为 1 关闭每轮的外部文件变更与跨天日期提示',
   '1 enables the /plan approval gate; default off': '设为 1 打开 /plan 审批门；默认关闭',
   'prefix of the MOSS_BUDGET_MAX_* keys': 'MOSS_BUDGET_MAX_* 键的前缀',
   '1 enables the project-local experience experiment': '设为 1 打开项目本地经验实验',
