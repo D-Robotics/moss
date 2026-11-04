@@ -10,9 +10,7 @@ import {
   renderCliStatus,
   type CliRuntimeStatus,
 } from '../onboarding.js';
-import { runGit } from '../../utils/git-spawn.js';
-import { runProcess } from '../../utils/run-process.js';
-import { MossError, ErrorCode, errorMessage } from '../../errors.js';
+import { MossError, errorMessage } from '../../errors.js';
 import type { ContextUsageSnapshot } from '../usage-display.js';
 import {
   effectiveUiLanguage,
@@ -63,14 +61,6 @@ export type CommandInputPrompt = (options: CommandInputOptions) => Promise<strin
 
 export type CommandSurface = 'repl' | 'tui';
 
-/** The `/review` and `/diff` failure line. English stays the historical sentence. */
-export function formatGitDiffFailure(exitCode: number | null | undefined, detail?: string): string {
-  const zh = isZh();
-  const exit = exitCode === undefined ? '' : zh ? `（退出码 ${exitCode}）` : ` (exit ${exitCode})`;
-  if (detail === undefined) return zh ? `git diff 失败${exit}` : `git diff failed${exit}`;
-  return zh ? `git diff 失败${exit}：${detail}` : `git diff failed${exit}: ${detail}`;
-}
-
 /** `/diff` or `/review` run outside a git repository. */
 export function formatNotGitRepository(
   command: '/diff' | '/review',
@@ -84,11 +74,6 @@ export function formatNotGitRepository(
     : chrome('Not a git repository: {path} — /diff needs a git workspace.', zh, {
         path: workspace,
       });
-}
-
-/** The `/review` hint under the not-a-repository line. */
-export function reviewNotGitHint(zh: boolean = isZh()): string {
-  return chrome('Open a git repository, or pass a PR number: `/review <PR#>`.', zh);
 }
 
 /** A real `/diff` run that exited non-zero (TUI and REPL): the first line of git's output. */
@@ -483,32 +468,23 @@ const contextCommand: CommandSpec = {
   },
 };
 
-function buildReviewPrompt(diff: string, scopeLabel: string): string {
+/**
+ * `/review` runs the same independent-review pipeline the loop uses: the main
+ * model calls `review_changes`, which collects the diff and spawns the
+ * read-only reviewer with a clean context. The command used to paste a large
+ * diff into the main conversation and ask the same model that produced the
+ * change to review it — self-review bias plus a diff that ate the window.
+ */
+function buildReviewPrompt(prNumber?: string): string {
+  const target = prNumber ? ` (pr=${prNumber})` : '';
   return [
-    `You are reviewing the following code change (${scopeLabel}). Review ONLY the diff below;`,
-    'do not review pre-existing code unrelated to these changes. Read surrounding files with your',
-    'tools only when a hunk is ambiguous.',
-    '',
-    'Review across these dimensions and report HIGH-SIGNAL findings only (skip style nitpicks a',
-    'linter would catch and anything you cannot confirm from the diff):',
-    '  1. Correctness & bugs — logic errors, null/undefined handling, race conditions, off-by-one,',
-    '     wrong results regardless of input, broken control flow.',
-    '  2. Security — injection, unsafe child-process/shell, secret/credential leaks, missing input',
-    '     validation, path traversal, unsafe deserialization.',
-    '  3. Simplification — duplicated logic, dead code, needless abstraction or nesting that can be',
-    '     removed without changing behavior.',
-    '  4. Type design — weak invariants, types that allow invalid states, `any`/unsafe casts that',
-    '     hide real type debt.',
-    '',
-    'For each finding give: dimension, file:line, a one-line description, and a concrete fix. If a',
-    'project guideline file (CLAUDE.md / AGENTS.md) covers a changed file, flag clear violations and',
-    'quote the rule. Group findings by severity (Critical / Important / Suggestion). If nothing is',
-    'wrong, say so explicitly — do not invent issues.',
-    '',
-    '--- BEGIN DIFF ---',
-    diff,
-    '--- END DIFF ---',
-  ].join('\n');
+    `Run an independent review of this change with the review_changes tool${target}.`,
+    'Then report the tool result to the user: the verdict, every finding as severity +',
+    'file:line + what breaks + fix hint, and anything the reviewer said it could not cover',
+    '(for example a truncated diff).',
+    'Do not edit files in this turn, do not re-review the code yourself, and do not add',
+    'findings the tool did not produce. If it reports nothing to review, say that and stop.',
+  ].join(' ');
 }
 
 const reviewCommand: CommandSpec = {
@@ -527,113 +503,23 @@ const reviewCommand: CommandSpec = {
       return;
     }
     const arg = args.trim();
-    try {
-      let diff: string;
-      let scopeLabel: string;
-      if (arg) {
-        const prNumber = arg.replace(/^#/, '');
-        if (!/^\d+$/.test(prNumber)) {
-          ctx.say(
-            'error',
-            zh
-              ? '用法：/review            （工作区与暂存区改动）\n      /review <拉取请求号>   （用 `gh pr diff` 取 GitHub 拉取请求）'
-              : 'Usage: /review            (working tree + staged changes)\n       /review <PR#>     (a GitHub pull request via `gh pr diff`)'
-          );
-          return;
-        }
-        const result = await runProcess('gh', {
-          args: ['pr', 'diff', prNumber],
-          cwd: ctx.workspace,
-          timeout: 30_000,
-        });
-        if (result.exitCode !== 0) {
-          throw new MossError({
-            code: ErrorCode.TOOL_EXECUTION_FAILED,
-            message: `gh pr diff ${prNumber} failed (exit ${result.exitCode})`,
-            hint: 'Install and authenticate the GitHub CLI (`gh auth login`) and run inside the repo, or use `/review` with no argument to review local changes.',
-            cause: result.stderr.trim() || undefined,
-          });
-        }
-        diff = result.stdout;
-        scopeLabel = `GitHub PR #${prNumber}`;
-      } else {
-        // runProcess rejects on non-zero exit, so "not a git repository" (git
-        // exits 128/129 there, depending on version) arrives as a throw —
-        // classify it from the error, not from a result we never receive.
-        let result: { exitCode: number; stdout: string; stderr: string };
-        try {
-          result = await runGit(['--no-pager', 'diff', 'HEAD'], {
-            cwd: ctx.workspace,
-            timeout: 30_000,
-          });
-        } catch (err) {
-          // runProcess rejects on non-zero exit — git exits 128/129 outside a
-          // repo depending on version, so the classification reads the
-          // ProcessError's own stderr, not a result we never receive.
-          const procErr = err as { stderr?: string; exitCode?: number };
-          const stderr = procErr.stderr ?? (err instanceof Error ? err.message : String(err));
-          const notRepo = /not a git repository/i.test(stderr);
-          throw new MossError({
-            code: ErrorCode.TOOL_EXECUTION_FAILED,
-            message: notRepo
-              ? formatNotGitRepository('/review', ctx.workspace, zh)
-              : formatGitDiffFailure(procErr.exitCode, errorMessage(err)),
-            hint: notRepo ? reviewNotGitHint(zh) : undefined,
-          });
-        }
-        if (result.exitCode !== 0) {
-          const notRepo = /not a git repository/i.test(result.stderr);
-          throw new MossError({
-            code: ErrorCode.TOOL_EXECUTION_FAILED,
-            message: notRepo
-              ? formatNotGitRepository('/review', ctx.workspace, zh)
-              : formatGitDiffFailure(result.exitCode),
-            hint: notRepo ? reviewNotGitHint(zh) : result.stderr.trim() || undefined,
-          });
-        }
-        diff = result.stdout;
-        scopeLabel = 'local working tree + staged changes';
-      }
-
-      if (!diff.trim()) {
-        ctx.say(
-          'system',
-          zh
-            ? arg
-              ? `拉取请求 ${arg} 没有改动。`
-              : '没有可评审的改动（工作区和暂存区都是干净的）。先改点东西，或传入拉取请求号：/review <拉取请求号>。'
-            : arg
-              ? `No changes found in PR ${arg}.`
-              : 'No changes to review (working tree and index are clean). Make some edits, or pass a PR number: /review <PR#>.'
-        );
-        return;
-      }
-
-      const MAX_DIFF_CHARS = 400_000;
-      const totalLines = diff.split('\n').length;
-      let reviewDiff = diff;
-      let truncatedNote = '';
-      if (diff.length > MAX_DIFF_CHARS) {
-        const kept = diff.slice(0, MAX_DIFF_CHARS);
-        const keptLines = kept.split('\n').length;
-        reviewDiff = `${kept}\n\n[diff truncated: showing ${keptLines} of ${totalLines} lines (${Math.round(MAX_DIFF_CHARS / 1024)} KB cap). Narrow the scope — review specific paths or stage a subset — for a complete review.]`;
-        truncatedNote = ` — truncated to ${Math.round(MAX_DIFF_CHARS / 1024)} KB; narrow the scope for full coverage`;
-      }
-
-      ctx.say('system', `Reviewing ${scopeLabel} (${totalLines} diff lines)${truncatedNote} …`);
-      ctx.submitPrompt(buildReviewPrompt(reviewDiff, scopeLabel));
-    } catch (err) {
-      const moss =
-        err instanceof MossError
-          ? err
-          : new MossError({
-              code: ErrorCode.TOOL_EXECUTION_FAILED,
-              message: zh
-                ? `无法取得要评审的差异：${errorMessage(err)}`
-                : `Could not gather a diff for review: ${errorMessage(err)}`,
-            });
-      ctx.say('error', moss.hint ? `${moss.message}\n  ${moss.hint}` : moss.message);
+    const prNumber = arg.replace(/^#/, '');
+    if (arg && !/^\d+$/.test(prNumber)) {
+      ctx.say(
+        'error',
+        zh
+          ? '用法：/review            （工作区与暂存区改动）\n      /review <拉取请求号>   （用 `gh pr diff` 取 GitHub 拉取请求）'
+          : 'Usage: /review            (working tree + staged changes)\n       /review <PR#>     (a GitHub pull request via `gh pr diff`)'
+      );
+      return;
     }
+    ctx.say(
+      'system',
+      zh
+        ? `启动独立 reviewer 评审${prNumber ? ` PR #${prNumber}` : '工作区改动'}（评审者只读，findings 写入 .moss/review.jsonl）…`
+        : `Launching an independent reviewer for ${prNumber ? `PR #${prNumber}` : 'the working-tree changes'} (read-only; findings land in .moss/review.jsonl) …`
+    );
+    ctx.submitPrompt(buildReviewPrompt(prNumber || undefined));
   },
 };
 

@@ -56,7 +56,13 @@ const UNVERIFIED_DISCLOSURE_RE =
  * be silently dropped. This is the Bugbot rule — unresolved findings are a
  * failure state, not a footnote — applied at the completion boundary.
  */
-const REVIEW_TOOLS = new Set(['create_subagent', 'fan_out', 'subagent', 'spawn_subagent']);
+const REVIEW_TOOLS = new Set([
+  'create_subagent',
+  'fan_out',
+  'subagent',
+  'spawn_subagent',
+  'review_changes',
+]);
 
 /** Machine-readable or structural review-fail markers (reviewer contract). */
 const REVIEW_FAIL_RE =

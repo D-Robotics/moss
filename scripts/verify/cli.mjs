@@ -30,6 +30,7 @@ import { stage as smokeStage } from './stages/smoke.mjs';
 import { stage as examplesStage } from './stages/examples.mjs';
 import { stage as hooksContractStage } from './stages/hooks-contract.mjs';
 import { stage as verificationGateStage } from './stages/verification-gate.mjs';
+import { stage as reviewPipelineStage } from './stages/review-pipeline.mjs';
 
 const STAGES = new Map(
   [
@@ -39,11 +40,19 @@ const STAGES = new Map(
     examplesStage,
     hooksContractStage,
     verificationGateStage,
+    reviewPipelineStage,
   ].map((stage) => [stage.name, stage])
 );
 
 const ORDER = [...STAGES.keys()];
-const FAST_GATE = ['static', 'smoke', 'examples', 'hooks-contract', 'verification-gate'];
+const FAST_GATE = [
+  'static',
+  'smoke',
+  'examples',
+  'hooks-contract',
+  'verification-gate',
+  'review-pipeline',
+];
 const DEFAULT_BUDGET_SECONDS = 60;
 
 const HELP = `Usage: node scripts/verify/cli.mjs [options]

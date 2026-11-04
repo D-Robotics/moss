@@ -37,7 +37,7 @@ test/lint/build/verify 类命令——否则终稿被拦截**一次**并注入�
 
 **验收**：见研究文档 §4；另加确定性探针（见 §5 P0-a）。
 
-### L2 独立评审 pass（评审者已落地，自动触发待做）
+### L2 独立评审 pass（`review_changes` + `/review` 已落地，自动触发待做）
 
 **契约**：L1 通过后，如果 run 有文件变更，跑一次**独立评审**（reviewer 子代理，干净上下文，
 只拿 diff + 验收标准 + 项目规则），输出结构化 findings。触发方式：
@@ -61,7 +61,26 @@ test/lint/build/verify 类命令——否则终稿被拦截**一次**并注入�
 - 带验收标准 `add() must return the sum` → reviewer 报 **Critical + FAIL**，定位 `calc.js:2`，映射标准违例；
 - 空 diff → reviewer 报 **PASS**，明确拒绝为凑数编造问题；
 - 两次运行后工作区 `git status` 均未变（只读约束成立）。
-  仍缺：结构化 findings（`.moss/review.jsonl`）、`/review` 接入同一管线、有变更 run 结束后自动触发。
+  **2026-11-05 落地（P1-a）**：`review_changes` 工具（`src/tools/review-tools.ts`）把 L2 做成一条确定性管线：
+
+1. diff 由 harness 用 `git diff HEAD`（或 `gh pr diff`）**确定性**收集，不靠模型回忆改了什么；超 400KB 截断并注明；
+2. `reviewer` 专家以子代理跑在干净上下文里（quick=read-only，deep=verify 可跑只读检查），永远不能写；
+3. reviewer 的合同输出（`VERDICT: PASS|FAIL` + `[Severity] file:line — … — fix: …` + `CHECKS:`）被解析成结构化 findings；
+4. 记录追加到 `.moss/review.jsonl`（内置进 `.moss/.gitignore`），`listReviewRecords` 供修复循环/review 列表读取；
+5. verdict 由 findings 计算：任何 critical/important 覆盖 reviewer 自述的 PASS；没有 VERDICT 行则 `unknown`（**不许**把散文当 PASS）。
+
+`/review`（含 `/review <PR#>`）不再把 diff 贴进主会话让主模型自审，改为调同一工具再原样转述结果。
+确定性回归门：verify stage `review-pipeline`（`scripts/verify/review-pipeline.mjs`，14 条断言，0.8s）。
+
+真实模型验证（临时 git 仓库，deepseek-flash）：
+
+- 植入缺陷（`add()` 由 `+` 改 `-`）+ 验收标准 → `verdict: FAIL`，`[critical] calc.js:2`，映射标准违例，
+  `.moss/review.jsonl` 落 1 条结构化记录；
+- 正确改动（`return 0` → `a + b`）→ `verdict: PASS`，0 findings，不编造；
+- 干净工作区 → 57ms 返回 "Nothing to review"，**不**启动子代理、不写记录；
+- 三次运行后工作区 `git status` 均只含测试前就存在的改动（reviewer 只读成立）。
+
+仍缺：有变更 run 结束后自动触发（`review.mode` 配置）、L3 有界修复循环消费 review findings。
 
 ### L3 发现 → 修复 → 复检（有界；"review FAIL 不可静默丢弃"已落地）
 
@@ -110,14 +129,14 @@ L3 是**非任务 run 的等价物**，复用同一套"上限 + 证据 + 诚实 
 
 ## 5. 实施切片与验收
 
-| 片   | 内容                                               | 验收证据                                   | 状态                |
-| ---- | -------------------------------------------------- | ------------------------------------------ | ------------------- |
-| P0-a | L1 完成门 + 确定性探针（verify stage）             | 探针断言 5 种输入；真实 `-p` 三组对照      | L1 已落地；探针待补 |
-| P0-b | L1 逃生阀 `verificationGate` + `/config` 可见      | 关闭后复现场景不拦截                       | 待做                |
-| P1-a | reviewer 子代理 + 结构化 findings + `/review` 接入 | 植入缺陷 diff 必须被发现；干净 diff 不编造 | 待做                |
-| P1-b | L3 有界修复循环（上限 3，日志）                    | 两轮修复场景；三轮失败诚实清单             | 待做                |
-| P2-a | `moss loop --until`（本地 CI 式闭环）              | 失败→修复→通过的循环记录                   | 待做                |
-| P2-b | Stop hook recipe（用户可插拔完成门）               | 示例 hook 拦截未验证终稿                   | 待做                |
+| 片   | 内容                                               | 验收证据                                   | 状态                   |
+| ---- | -------------------------------------------------- | ------------------------------------------ | ---------------------- |
+| P0-a | L1 完成门 + 确定性探针（verify stage）             | 探针断言 5 种输入；真实 `-p` 三组对照      | L1 已落地；探针待补    |
+| P0-b | L1 逃生阀 `verificationGate` + `/config` 可见      | 关闭后复现场景不拦截                       | 待做                   |
+| P1-a | reviewer 子代理 + 结构化 findings + `/review` 接入 | 植入缺陷 diff 必须被发现；干净 diff 不编造 | 已落地（自动触发待做） |
+| P1-b | L3 有界修复循环（上限 3，日志）                    | 两轮修复场景；三轮失败诚实清单             | 待做                   |
+| P2-a | `moss loop --until`（本地 CI 式闭环）              | 失败→修复→通过的循环记录                   | 待做                   |
+| P2-b | Stop hook recipe（用户可插拔完成门）               | 示例 hook 拦截未验证终稿                   | 待做                   |
 
 ## 6. 与既有文档的关系
 

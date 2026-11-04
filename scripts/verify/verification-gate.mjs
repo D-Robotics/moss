@@ -33,6 +33,19 @@ function readFile() {
 function exec(command) {
   return call('exec', { command });
 }
+function reviewChanges(resultText) {
+  const id = `tool-${++toolUseId}`;
+  return {
+    use: {
+      role: 'assistant',
+      content: [{ type: 'tool_use', id, name: 'review_changes', input: { depth: 'quick' } }],
+    },
+    result: {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: id, content: resultText }],
+    },
+  };
+}
 function review(resultText) {
   const id = `tool-${++toolUseId}`;
   return {
@@ -130,6 +143,31 @@ check('a later PASS clears an earlier FAIL', () => {
       readFile(),
       review('## Reviewer verdict: **FAIL**\n[Critical finding] calc.js:2'),
       review('## Reviewer verdict: **PASS**')
+    ),
+  });
+  assert.equal(decision.ok, true);
+});
+
+check('an unaddressed review_changes FAIL is held', () => {
+  const decision = evaluateVerificationCompletionGate({
+    response: 'All done — the change is complete and correct.',
+    messages: messages(
+      writeFile(),
+      readFile(),
+      reviewChanges('Independent review (working tree + staged changes, quick) — verdict: FAIL')
+    ),
+  });
+  assert.equal(decision.ok, false);
+});
+
+check('a review_changes PASS clears an earlier FAIL', () => {
+  const decision = evaluateVerificationCompletionGate({
+    response: 'Fixed and re-reviewed.',
+    messages: messages(
+      writeFile(),
+      readFile(),
+      reviewChanges('Independent review (working tree + staged changes, quick) — verdict: FAIL'),
+      reviewChanges('Independent review (working tree + staged changes, quick) — verdict: PASS')
     ),
   });
   assert.equal(decision.ok, true);

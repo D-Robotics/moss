@@ -136,6 +136,7 @@ acceptance.jsonl
 task-events.jsonl
 task-failures.jsonl
 task-repairs.jsonl
+review.jsonl
 *.lock
 `;
 
