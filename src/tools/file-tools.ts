@@ -198,8 +198,18 @@ export const readFileTool: Tool = {
         if (hasRange) {
           const lines = content.split('\n');
           const start = Math.max(1, Math.floor(Number(input.offset) || 1));
+          if (start > lines.length) {
+            // An empty window used to print `[lines 99-4 of 4]` with no body,
+            // which reads as "line 99 exists and is empty".
+            return (
+              `Error: offset ${start} is past the end of ${String(input.path ?? '')} ` +
+              `(${lines.length} line(s)). Use offset 1–${lines.length}.`
+            );
+          }
           const count =
-            input.limit !== undefined ? Math.max(0, Math.floor(Number(input.limit))) : lines.length;
+            input.limit !== undefined
+              ? Math.max(1, Math.floor(Number(input.limit)) || 1)
+              : lines.length;
           const slice = lines.slice(start - 1, start - 1 + count);
           const end = Math.min(lines.length, start - 1 + count);
           let body = slice.join('\n');
