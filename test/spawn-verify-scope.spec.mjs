@@ -13,7 +13,7 @@ import {
 const registry = createSpawnProfileRegistryFromDefaults();
 const verify = resolveSpawnToolSet('verify', registry);
 assert.ok(verify, 'verify scope returns a set');
-for (const name of ['run_tests', 'exec', 'todo_write']) {
+for (const name of ['run_tests', 'exec', 'exec_logs', 'exec_wait', 'todo_write']) {
   assert.ok(verify.has(name), `verify scope includes ${name}`);
 }
 // Must not silently include write tools (verify is not full)

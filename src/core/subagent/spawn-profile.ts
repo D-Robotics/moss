@@ -102,6 +102,7 @@ export const SPAWN_TOOL_SCOPE_SETS: Record<Exclude<SpawnToolScope, 'full'>, Set<
     'run_tests',
     'exec',
     'exec_logs',
+    'exec_wait',
     'exec_stop',
     'device_exec',
     'todo_write',
