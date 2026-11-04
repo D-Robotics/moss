@@ -900,6 +900,16 @@ const agentsCommand: CommandSpec = {
   },
 };
 
+const skillsCommand: CommandSpec = {
+  name: '/skills',
+  summary: 'list skills with scope, usage, catalog cost, and evals',
+  async run(ctx) {
+    const { renderSkillsList } = await import('../skill-commands.js');
+    const { resolveConfigDir } = await import('../config.js');
+    ctx.say('system', await renderSkillsList(ctx.workspace, resolveConfigDir(), isZh(ctx.locale)));
+  },
+};
+
 const COMMANDS: readonly CommandSpec[] = [
   statusCommand,
   doctorCommand,
@@ -914,6 +924,7 @@ const COMMANDS: readonly CommandSpec[] = [
   initCommand,
   stopCommand,
   contextCommand,
+  skillsCommand,
   usageCommand,
   exportCommand,
 ];

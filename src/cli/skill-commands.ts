@@ -79,6 +79,62 @@ export interface SkillCommandContext {
   configDir: string;
 }
 
+/**
+ * Skills as the session sees them: scope, real usage count, per-entry catalog cost
+ * (rendered by the same renderer the prompt uses), whether evals exist, and the
+ * catalog budget summary. Shared by `moss skill list` and the in-session `/skills`
+ * command so both surfaces report the same numbers.
+ */
+export async function renderSkillsList(
+  workspaceDir: string,
+  configDir: string,
+  zh: boolean = isZhLocale()
+): Promise<string> {
+  const { loadSkillCatalog } = await import('../core/skills/skill-registry.js');
+  const { rankSkillsForCatalog, renderSkillCatalog, SKILL_CATALOG_DEFAULT_BUDGET_CHARS } =
+    await import('../core/skills/skill-catalog.js');
+  const { loadSkillUsage } = await import('../core/skills/skill-usage.js');
+  const skills = loadSkillCatalog([
+    { dir: path.join(workspaceDir, '.moss', 'skills'), scope: 'workspace' },
+    { dir: path.join(workspaceDir, '.agents', 'skills'), scope: 'shared' },
+    { dir: path.join(workspaceDir, '.claude', 'skills'), scope: 'shared' },
+    { dir: path.join(configDir, 'skills'), scope: 'user' },
+    { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
+  ]);
+  if (skills.length === 0) {
+    return zh
+      ? '未发现技能。创建一个：moss skill create <名称>'
+      : 'No skills found. Create one: moss skill create <name>';
+  }
+  const usage = loadSkillUsage(workspaceDir);
+  // Same order the catalog budget uses, so the table shows which entries
+  // survive a cut: scope precedence, then recently used first.
+  const ranked = rankSkillsForCatalog(skills, usage);
+  const total = renderSkillCatalog(skills, { usage });
+  const lines: string[] = [
+    zh
+      ? '  名称                来源      使用  目录成本  评测  描述'
+      : '  name                scope     used  catalog   evals description',
+  ];
+  for (const skill of ranked) {
+    // Per-skill catalog cost: what the full catalog entry costs for this one
+    // skill (the same renderer the prompt uses, so the number is not an estimate).
+    const cost = renderSkillCatalog([skill]).stats.renderedChars;
+    const uses = usage[skill.name]?.count ?? 0;
+    const evals = skill.resources.evals ? 'yes' : '-';
+    const problems = skill.issues.length > 0 ? `  (${skill.issues.length} issue(s))` : '';
+    lines.push(
+      `  ${skill.name.padEnd(18)} ${skill.scope.padEnd(9)} ${String(uses).padEnd(5)} ${String(cost).padEnd(8)} ${evals.padEnd(5)} ${skill.description.split('\n')[0] ?? ''}${problems}`
+    );
+  }
+  lines.push(
+    zh
+      ? `\n共 ${skills.length} 个技能；目录 ${total.stats.renderedChars}/${SKILL_CATALOG_DEFAULT_BUDGET_CHARS} 字符（策略 ${total.stats.strategy}，无预算上限时 ${total.stats.uncappedChars} 字符）。会话内用技能工具加载。`
+      : `\n${skills.length} skill(s); catalog ${total.stats.renderedChars}/${SKILL_CATALOG_DEFAULT_BUDGET_CHARS} chars (strategy ${total.stats.strategy}, ${total.stats.uncappedChars} without a budget). Load one in-session with the skill tool.`
+  );
+  return lines.join('\n');
+}
+
 export async function runSkillCommand(argv: string[], ctx: SkillCommandContext): Promise<number> {
   const out = (text: string) => process.stdout.write(`${text}\n`);
   const err = (text: string) => process.stderr.write(`${text}\n`);
@@ -134,51 +190,7 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
   }
 
   if (sub === 'list') {
-    const { loadSkillCatalog } = await import('../core/skills/skill-registry.js');
-    const { rankSkillsForCatalog, renderSkillCatalog, SKILL_CATALOG_DEFAULT_BUDGET_CHARS } =
-      await import('../core/skills/skill-catalog.js');
-    const { loadSkillUsage } = await import('../core/skills/skill-usage.js');
-    const skills = loadSkillCatalog([
-      { dir: path.join(ctx.workspaceDir, '.moss', 'skills'), scope: 'workspace' },
-      { dir: path.join(ctx.workspaceDir, '.agents', 'skills'), scope: 'shared' },
-      { dir: path.join(ctx.workspaceDir, '.claude', 'skills'), scope: 'shared' },
-      { dir: path.join(ctx.configDir, 'skills'), scope: 'user' },
-      { dir: path.join(os.homedir(), '.claude', 'skills'), scope: 'user' },
-    ]);
-    if (skills.length === 0) {
-      out(
-        zh
-          ? '未发现技能。创建一个：moss skill create <名称>'
-          : 'No skills found. Create one: moss skill create <name>'
-      );
-      return 0;
-    }
-    const usage = loadSkillUsage(ctx.workspaceDir);
-    // Same order the catalog budget uses, so the table shows which entries
-    // survive a cut: scope precedence, then recently used first.
-    const ranked = rankSkillsForCatalog(skills, usage);
-    const total = renderSkillCatalog(skills, { usage });
-    out(
-      zh
-        ? '  名称                来源      使用  目录成本  评测  描述'
-        : '  name                scope     used  catalog   evals description'
-    );
-    for (const skill of ranked) {
-      // Per-skill catalog cost: what the full catalog entry costs for this one
-      // skill (the same renderer the prompt uses, so the number is not an estimate).
-      const cost = renderSkillCatalog([skill]).stats.renderedChars;
-      const uses = usage[skill.name]?.count ?? 0;
-      const evals = skill.resources.evals ? 'yes' : '-';
-      const problems = skill.issues.length > 0 ? `  (${skill.issues.length} issue(s))` : '';
-      out(
-        `  ${skill.name.padEnd(18)} ${skill.scope.padEnd(9)} ${String(uses).padEnd(5)} ${String(cost).padEnd(8)} ${evals.padEnd(5)} ${skill.description.split('\n')[0] ?? ''}${problems}`
-      );
-    }
-    out(
-      zh
-        ? `\n共 ${skills.length} 个技能；目录 ${total.stats.renderedChars}/${SKILL_CATALOG_DEFAULT_BUDGET_CHARS} 字符（策略 ${total.stats.strategy}，无预算上限时 ${total.stats.uncappedChars} 字符）。会话内用技能工具加载。`
-        : `\n${skills.length} skill(s); catalog ${total.stats.renderedChars}/${SKILL_CATALOG_DEFAULT_BUDGET_CHARS} chars (strategy ${total.stats.strategy}, ${total.stats.uncappedChars} without a budget). Load one in-session with the skill tool.`
-    );
+    out(await renderSkillsList(ctx.workspaceDir, ctx.configDir, zh));
     return 0;
   }
 

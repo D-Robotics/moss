@@ -66,6 +66,17 @@
 | B16 | P1     | 独立评审（`review_changes`）不会自动用任务验收标准当 rubric，模型必须手填 `criteria`            | `review_changes` 已有 `criteria` 输入（`src/tools/review-tools.ts`），但没人自动传；`task_define` 的 acceptance criteria 在 `.moss/tasks.jsonl`（`listTaskRecords`）里躺着不用                                                                                                    | Cursor Agent Review 按任务标准评分（`docs/research/2026-11-05-cursor-acceptance-loop.md` §2.2、§5.1「acceptance criteria 作为评审 rubric」）                                                                                              | 真实 `-p`（脚本化 provider）在含 `.moss/tasks.jsonl` 的工作区触发 `review_changes`：reviewer 请求体必须含 `Task <id>` 与验收标准原文，工具结果含 `rubric: task <id>`；verify probe 断言最新任务胜出、可选 criterion 标注 `(optional)`、无任务返回 undefined                                                                                                                                                                                        | ✅ 完成                                                                                                                                                 |
 | B17 | P2     | REPL（非 TUI）里运行中的一轮无法被按键中断：Esc 与 Ctrl+C 都不生效，用户只能等它跑完            | 真实 PTY 探针（见 §3 B17）：慢流 stub + REPL，按 Esc 后 provider 继续发出 95 个 token、无客户端中断、无 Interrupted 提示；Ctrl+C 同样无效                                                                                                                                         | Cursor / Claude Code 的“按 Esc 停止当前生成”是核心手感；TUI 已实现（bench 的 typing-stream-interrupt 场景 PASS，interrupt_ms 46–91ms）                                                                                                    | 真实 PTY 复跑：按 Esc / Ctrl+C 后 provider 侧 2.5s 内新增 token = 0，且出现 Interrupted 提示；REPL 与 TUI 行为一致                                                                                                                                                                                                                                                                                                                                 | ✅ 完成（REPL 运行中 Esc/Ctrl+C 可中断；文案恢复统一口径；真实 PTY 四场景验证）                                                                         |
 
+**H4 余量（2026-11-05）：会话内 `/skills` 可见技能成本/使用/评测**
+`moss skill list` 早就有「scope / used / catalog 字符 / evals」四列，但**会话里没有等价入口**（`/skills` 不是命令），
+用户想判断「这个技能占多少上下文、到底用不用」必须退出会话。现在把列表渲染抽成
+`renderSkillsList(workspaceDir, configDir, zh)`，`moss skill list` 与会话内 `/skills` 共用同一份实现，
+并把 `/skills` 加进斜杠菜单与补全。
+**真实证据（真实 REPL，`MOSS_NO_TUI=1`，工作区放一个 demo-skill）**：会话里 `/skills` 输出
+`name scope used catalog evals description` 表头 +
+`demo-skill  workspace 0  142  -  demo skill for the /skills probe` +
+`1 skill(s); catalog 142/8000 chars (strategy full, 142 without a budget)`；
+同工作区 `moss skill list` 的对应行逐字段一致（catalog 142、used 0、evals `-`）。
+
 **H1 余量（2026-11-05）：启动期不再空屏——`bin` 层 69ms 出一行启动提示**
 实测（PTY，`node bin/moss.cjs`，真实 TUI）：首屏第一个字节出现在 **777ms**（那时是 `[moss] Interaction mode …` 通知），
 composer/alt-screen 在 ~830ms；也就是进程活着但终端空屏约 0.78s。TUI 的首帧必须等 config/agent/skills 完成，

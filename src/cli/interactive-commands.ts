@@ -170,6 +170,11 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         availableDuringRun: 'immediate',
       },
       {
+        command: '/skills',
+        description: 'list skills: scope, real usage, catalog cost, evals',
+        availableDuringRun: 'immediate',
+      },
+      {
         command: '/agents',
         description: 'list file-defined sub-agents with source paths and warnings',
         availableDuringRun: 'immediate',
