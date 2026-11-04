@@ -22,7 +22,7 @@ import { displayHelp, displayVersion } from './help.js';
 import { renderSubcommandHelp } from './subcommand-help.js';
 import { resolveFolderTrust } from './workspace-trust.js';
 import { configureRootLogger, type LogLevel } from '../logger.js';
-import pc from 'picocolors';
+import { createColors, isColorEnabled, type ColorHelpers } from './color-level.js';
 import {
   installCliUiLanguage,
   isZhLocale,
@@ -116,24 +116,9 @@ process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
   return originalEmitWarning(warning as never, ...(args as never[]));
 }) as typeof process.emitWarning;
 
-export const colorEnabled = (() => {
-  if (process.argv.includes('--no-color')) return false;
-  if (process.env.NO_COLOR || process.env.MOSS_NO_COLOR === '1') return false;
-  if (!process.stderr.isTTY && !process.stdout.isTTY) return false;
-  return true;
-})();
+export const colorEnabled = isColorEnabled(process.argv);
 
-export const c = {
-  bold: (s: string) => (colorEnabled ? pc.bold(s) : s),
-  dim: (s: string) => (colorEnabled ? pc.dim(s) : s),
-  red: (s: string) => (colorEnabled ? pc.red(s) : s),
-  green: (s: string) => (colorEnabled ? pc.green(s) : s),
-  yellow: (s: string) => (colorEnabled ? pc.yellow(s) : s),
-  blue: (s: string) => (colorEnabled ? pc.blue(s) : s),
-  cyan: (s: string) => (colorEnabled ? pc.cyan(s) : s),
-  magenta: (s: string) => (colorEnabled ? pc.magenta(s) : s),
-  gray: (s: string) => (colorEnabled ? pc.gray(s) : s),
-};
+export const c: ColorHelpers = createColors(colorEnabled);
 
 export const argv = parsedArgs.rawArgv;
 if (parsedArgs.detailMode) process.env.MOSS_CLI_DETAIL = parsedArgs.detailMode;

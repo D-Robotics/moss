@@ -43,6 +43,32 @@ process.on('unhandledRejection', (reason) => {
   );
 });
 
-const { installSafeProcessCwd } = await import('./utils/safe-cwd.js');
-installSafeProcessCwd();
-await import('./cli-main.js');
+/**
+ * `--version` fast path.
+ *
+ * `moss --version` used to load the whole runtime graph (~320 ms of process
+ * startup) just to print one line: the CLI entry imports `cli-main.js` before
+ * anything can inspect argv, and that pulls in config, tools, providers and the
+ * TUI shell. The version line needs only package.json and the build stamp, so
+ * answer it here before the runtime exists. Same rules as arg parsing: a version
+ * flag before `--` wins unless help was also requested, and a flag after `--` is
+ * payload for the model (`moss -- --version`), never a request.
+ */
+const argv = process.argv.slice(2);
+const separator = argv.indexOf('--');
+const flagScope = separator === -1 ? argv : argv.slice(0, separator);
+const wantsVersion = flagScope.some((arg) => arg === '--version' || arg === '-v');
+const wantsHelp = flagScope.some((arg) => arg === '--help' || arg === '-h');
+if (wantsVersion && !wantsHelp) {
+  const { formatVersionLine, getPackageVersion, readBuildStamp } =
+    await import('./utils/package-info.js');
+  const { createColors, isColorEnabled } = await import('./cli/color-level.js');
+  const c = createColors(isColorEnabled(process.argv));
+  // Same rendering as displayVersion(): bold "moss", cyan version + stamp.
+  const rest = formatVersionLine(getPackageVersion(), readBuildStamp()).slice('moss '.length);
+  process.stdout.write(`${c.bold('moss')} ${c.cyan(rest)}\n`);
+} else {
+  const { installSafeProcessCwd } = await import('./utils/safe-cwd.js');
+  installSafeProcessCwd();
+  await import('./cli-main.js');
+}
