@@ -23,10 +23,8 @@ import { NUDGE_IDS } from '../core/loop/nudges/disable.js';
 import { buildMcpStableIndex, mcpSearchToolDeclaration } from '../core/mcp/registry.js';
 import { isDeferredToolName } from '../core/tools/deferred-tool-offer.js';
 import { RDK_DOCS_SERVER_NAME, rdkDocsKnowledgeLayer } from '../core/mcp/rdk-docs.js';
-import {
-  buildEmptySkillsHintLayer,
-  buildSkillsPromptLayer,
-} from '../core/skills/skill-registry.js';
+import { buildEmptySkillsHintLayer } from '../core/skills/skill-registry.js';
+import { renderSkillCatalog } from '../core/skills/skill-catalog.js';
 import { bundledRdkDocsSkill, includeBundledRdkDocsSkill } from '../core/skills/rdk-docs-skill.js';
 import { createSkillTool } from '../tools/skill-tool.js';
 import { registerBuiltinTools } from '../tools/builtin.js';
@@ -164,7 +162,7 @@ export async function buildFreshSessionContextReport(
     : includeBundledRdkDocsSkill([], false);
   const skillsLayer =
     skills.length > 0
-      ? (buildSkillsPromptLayer(skills) ?? '')
+      ? (renderSkillCatalog(skills).text ?? '')
       : buildEmptySkillsHintLayer(skillDirs);
   const mcpLayer = rdkDocsConnected ? connectedRdkDocsMcpLayer() : '';
   const rdkLayer = rdkDocsConnected

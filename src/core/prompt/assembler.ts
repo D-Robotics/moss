@@ -72,6 +72,7 @@ export class PromptAssembler implements PromptLayersPort {
         stability: entry.stability,
         origin: entry.origin,
         chars: entry.text.length,
+        ...(entry.note ? { note: entry.note } : {}),
       }));
   }
 
@@ -85,7 +86,9 @@ export class PromptAssembler implements PromptLayersPort {
       `prompt layers — stable ${stable.length} / dynamic ${dynamic.length}`,
       ...entries.map(
         (entry) =>
-          `  ${entry.stability.padEnd(7)} ${entry.origin.padEnd(11)} ${entry.id.padEnd(24)} ${entry.chars} chars`
+          `  ${entry.stability.padEnd(7)} ${entry.origin.padEnd(11)} ${entry.id.padEnd(24)} ${entry.chars} chars${
+            entry.note ? `  (${entry.note})` : ''
+          }`
       ),
     ];
     return lines.join('\n');

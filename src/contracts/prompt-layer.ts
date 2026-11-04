@@ -23,6 +23,8 @@ export interface PromptLayerSpec {
   stability: PromptLayerStability;
   origin: PromptLayerOrigin;
   text: string;
+  /** Optional one-line attribution shown by the debug report (e.g. skill catalog cost). */
+  note?: string;
 }
 
 export interface PromptLayerReportEntry {
@@ -30,6 +32,7 @@ export interface PromptLayerReportEntry {
   stability: PromptLayerStability;
   origin: PromptLayerOrigin;
   chars: number;
+  note?: string;
 }
 
 /**

@@ -24,6 +24,7 @@ import {
   type SkillResources,
   type SkillScope,
 } from '../../contracts/skill.js';
+import { renderSkillCatalog } from './skill-catalog.js';
 import { asString, asStringList, parseFrontmatter } from './skill-parse.js';
 
 export type {
@@ -355,20 +356,9 @@ export function findSkill(
   return skills.find((s) => s.name === name);
 }
 
-/**
- * Progressive-disclosure catalog layer (unbudgeted; SK2 replaces this with
- * `renderSkillCatalog`, which reports rendered/uncapped chars and omissions).
- */
+/** Compatibility wrapper: renders the catalog with the default budget. */
 export function buildSkillsPromptLayer(skills: readonly SkillManifest[]): string | undefined {
-  if (skills.length === 0) return undefined;
-  const lines = [
-    '## Available skills',
-    'Load a skill body on demand with the `skill` tool (input: {"name": "..."}).',
-  ];
-  for (const s of skills) {
-    lines.push(`- ${s.name}: ${s.description}${s.when ? ` (when: ${s.when})` : ''}`);
-  }
-  return lines.join('\n');
+  return renderSkillCatalog(skills).text;
 }
 
 /** Prompt layer for the no-skills case: anchors the model to Moss's own directories. */

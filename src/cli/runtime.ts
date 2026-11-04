@@ -117,9 +117,9 @@ import { createWebFetchTool } from '../tools/web-fetch.js';
 import {
   loadSkillCatalog,
   skillSlashName,
-  buildSkillsPromptLayer,
   buildEmptySkillsHintLayer,
 } from '../core/skills/skill-registry.js';
+import { renderSkillCatalog } from '../core/skills/skill-catalog.js';
 import { includeBundledRdkDocsSkill } from '../core/skills/rdk-docs-skill.js';
 import {
   adoptFileAgents,
@@ -1122,14 +1122,24 @@ export async function runCli(): Promise<void> {
           };
         })
       );
-      const layer =
-        sessionSkills.length > 0 ? (buildSkillsPromptLayer(sessionSkills) ?? '') : emptySkillsLayer;
+      const catalog = renderSkillCatalog(sessionSkills, skillCatalogBudget());
+      const layer = sessionSkills.length > 0 ? (catalog.text ?? '') : emptySkillsLayer;
+      const note =
+        catalog.stats.skills > 0
+          ? `skills ${String(catalog.stats.skills)}, ${String(catalog.stats.renderedChars)}/${String(
+              catalog.stats.uncappedChars
+            )} chars, omitted ${String(catalog.stats.omitted)}, strategy ${catalog.stats.strategy}`
+          : undefined;
       promptLayers.set({
         id: 'cli:skills',
         stability: 'dynamic',
         origin: 'tooling',
         text: layer,
+        ...(note ? { note } : {}),
       });
+      // The startup reports print before skills load; this is the first table
+      // that includes the catalog, so print it here when the debug flag is on.
+      if (promptLayersDebugEnabled()) console.error(`[prompt]\n${promptLayers.formatReport()}`);
     };
     syncRdkDocsSkills();
   }
@@ -1779,4 +1789,13 @@ export function handleFatal(err: unknown): void {
     console.error(err.stack);
   }
   process.exit(code);
+}
+
+/** `MOSS_SKILLS_CATALOG_BUDGET` overrides the L1 catalog character budget. */
+function skillCatalogBudget(): { budgetChars: number } | Record<string, never> {
+  const raw = process.env.MOSS_SKILLS_CATALOG_BUDGET;
+  if (!raw) return {};
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 500) return {};
+  return { budgetChars: parsed };
 }
