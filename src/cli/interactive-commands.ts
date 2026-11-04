@@ -464,8 +464,9 @@ export const REPL_COMMAND_SECTIONS: readonly InteractiveCommandSection[] =
 
 function uniqueMenuRows(): InteractiveCommandRow[] {
   // The slash menu is the everyday set. `hidden` rows stay in the catalog and
-  // still dispatch when typed in full; they leave the menu, completion, and
-  // did-you-mean so `/` is not a dump of every subsystem.
+  // still dispatch when typed in full; they leave the menu and prefix completion
+  // so `/` is not a dump of every subsystem (they stay eligible for
+  // `DISPATCHABLE_SLASH_COMMANDS`' near-miss "did you mean").
   const seen = new Set<string>();
   const common: InteractiveCommandRow[] = [];
   for (const row of rowsForSurface('repl')) {
@@ -488,6 +489,18 @@ export const INTERACTIVE_COMPLETION_COMMANDS: readonly string[] = Array.from(
     ...SLASH_MENU_ROWS.map((row) => row.command),
     ...SLASH_MENU_ROWS.flatMap((row) => row.aliases ?? []),
   ])
+);
+
+/**
+ * Every command that dispatches from the REPL surface, hidden rows included.
+ *
+ * Deliberately NOT used for the `/` menu or prefix completion (hidden rows stay
+ * out of those). It exists for "did you mean": a user who typed `/contex` wants
+ * `/context`, and the matcher already only fires on near matches (≤3 edits), so
+ * an error message cannot turn into a catalog dump.
+ */
+export const DISPATCHABLE_SLASH_COMMANDS: readonly string[] = Array.from(
+  new Set([...rowsForSurface('repl').flatMap((row) => [row.command, ...(row.aliases ?? [])])])
 );
 
 /**

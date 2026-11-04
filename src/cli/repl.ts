@@ -26,6 +26,7 @@ import {
   skillSlashToken,
 } from './commands/custom-commands.js';
 import { closestSlashCommands } from './command-completion.js';
+import { DISPATCHABLE_SLASH_COMMANDS } from './interactive-commands.js';
 import { formatBackgroundJobLines } from './commands/background-jobs.js';
 import {
   abandonLiveGoal,
@@ -847,6 +848,8 @@ export async function runInteractive(
         continue;
       }
       const suggestions = closestSlashCommands(slashHead(msg), [
+        // Hidden builtins still dispatch, so a near miss should name them too.
+        ...DISPATCHABLE_SLASH_COMMANDS,
         ...reservedBuiltinNames(),
         ...customCommands.map((command) => command.name),
         ...(options.skills ?? []).flatMap((skill) => {

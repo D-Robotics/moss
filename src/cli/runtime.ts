@@ -150,7 +150,10 @@ async function registryCommandModule() {
   return import('./commands/registry.js');
 }
 import { cliLocale } from './cli-locale.js';
-import { INTERACTIVE_COMPLETION_COMMANDS as KNOWN_COMMANDS } from './interactive-commands.js';
+import {
+  DISPATCHABLE_SLASH_COMMANDS,
+  INTERACTIVE_COMPLETION_COMMANDS as KNOWN_COMMANDS,
+} from './interactive-commands.js';
 import { closestSlashCommands } from './command-completion.js';
 import {
   isLoadedSkillSlash,
@@ -1477,7 +1480,7 @@ export async function runCli(): Promise<void> {
         } else {
           for (const line of unknownSlashCommandLines(oneShotMessage.trim(), {
             suggestions: closestSlashCommands(cmdToken, [
-              ...KNOWN_COMMANDS,
+              ...DISPATCHABLE_SLASH_COMMANDS,
               ...fileCommands.map((command) => command.name),
               ...skillSlashSuggestions,
             ]),
@@ -1584,7 +1587,7 @@ export async function runCli(): Promise<void> {
             const pipedToken = pipedText.split(/\s+/, 1)[0] ?? pipedText;
             for (const line of unknownSlashCommandLines(pipedText, {
               suggestions: closestSlashCommands(pipedToken, [
-                ...KNOWN_COMMANDS,
+                ...DISPATCHABLE_SLASH_COMMANDS,
                 ...fileCommands.map((command) => command.name),
                 ...skillSlashSuggestions,
               ]),

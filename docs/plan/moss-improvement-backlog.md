@@ -502,6 +502,7 @@ Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲�
 | B31 | P1     | Claude Code 会**在启动时警告**「`*` 出现在子命令之前」的 allow 规则（`Bash(git * main)` 也能匹配 `git push main`，见 research §8.2）；Moss 的 `auditResolvedCliConfig` 只审 `trustedTools` 宽通配，`permissions.allow` 的中段通配静默通过             | **已修并验证（2026-11-05）**：`cli/config.ts` 新增 `isOverbroadAllowRule()` + audit code `permissions.broad_allow_pattern`（allow 列表里 `*` 不在末尾或为 `exec(*)` 时告警，末尾前缀族 `exec(git log *)` 不告警）；`cli/doctor.ts` 给该 code 专属标签 `allow rules`                                                   | 实测 4 组 doctor 输出见 B31 证据；`npm run check` 绿、`npm run verify` PASS 40.8s                                                                                                                                                                                                                                                                            |
 | B32 | P2     | headless `-p` 白加载 TUI 渲染图：`cli/output.ts` 只为拿一个常量 `DIFF_PREVIEW_LINES` 就静态 import `cli/tui/transcript.js`，连带 transcript/composer/markdown/code-style/theme 进每次 `-p`                                                            | **已修并验证（2026-11-05）**：常量移到 `cli/diff-preview.ts`（3 行注释说明为何独立成模块），`output.ts` 改从该模块取；`tui/transcript.ts` 保留 re-export 供 TUI 内部使用                                                                                                                                              | dist 模块数 377 → 370（−8 个渲染模块 +1 个 3 行常量模块）；`-p` 墙钟中位 583ms → 606ms（7 次采样，属噪声，**不宣称更快**）；`-p` 改动 `edit_file` 的 headless diff 预览仍按 14 行截断并打印 `... 27 more lines ...`；`npm run verify` PASS 41.2s                                                                                                             |
 | B33 | P2     | B32 续：`runtime.ts`/`doctor.ts`/`command-dispatcher.ts` 从 `cli/tui-utils.ts` 这个 **barrel** 取两个小函数，而 barrel 用 `export *` 静态重导出 `repl-process`/`repl-chrome`/`command-completion`/`transcript-types` —— headless 也白加载整条 REPL 图 | **已修并验证（2026-11-05）**：新增 `cli/session-format.ts` 放 `formatSessionTimestamp` + `humanTokens`；dispatcher/tasks-commands/doctor 改指该模块；`repl-chrome` 保留 re-export；`runtime.ts` 改从 `cli-locale.ts` + `interactive-commands.ts` 直接取 `cliLocale`/命令表，不再 import barrel                        | dist 模块数 370 → 367（再减 `repl-process`/`repl-chrome`/`transcript-types`/`tui-utils`）；行为实测见 B33 证据；`npm run verify` PASS 41.5s                                                                                                                                                                                                                  |
+| B34 | P2     | **隐藏命令的拼写建议缺失**：`/context`、`/usage` 等是 `hidden: true`，`uniqueMenuRows()` 把它们同时排除出 menu / 补全 / did-you-mean；用户打错 `/contex` 时只得到 `unknown command`，而该命令真实存在（Claude Code 的 near-miss 提示会点名真实命令）  | **已修并验证（2026-11-05）**：`cli/interactive-commands.ts` 新增 `DISPATCHABLE_SLASH_COMMANDS`（repl 面全部命令 + 别名，含 hidden；menu 与补全仍用原表）；`runtime.ts` 两处未知斜杠建议、`repl.ts` 拼写建议改用该表；`uniqueMenuRows` 注释同步（hidden 只退出 menu/前缀补全）                                         | 实测：`-p '/contex'` → `Did you mean /context, /cost?`；REPL pipe 同结果；`/zzzzzz` 无建议（防 dump）；`/context` 仍可执行；`INTERACTIVE_COMPLETION_COMMANDS` 仍 19 条、不含 `/context`；`npm run verify` PASS 36.2s                                                                                                                                         |
 
 **B32 证据（2026-11-05，已实跑）**：模块加载计数器（`module.registerHooks`）跑 7 次真实 `-p`：
 
@@ -510,6 +511,16 @@ Brave 非 JSON / 传输失败 ENOTFOUND / 300ms 超时），`dist` 里全部渲�
 - 改造后 370 个：上述 8 个消失，新增 3 行的 `cli/diff-preview.js`；
 - 墙钟中位 583ms → 606ms（min 564 → 559）——**噪声内，本轮只声称图更小**；
 - 行为：`-p` 让模型把文件 20 行改掉，headless diff 预览仍**恰好 14 行**后打印 `... 27 more lines ...`（`DIFF_PREVIEW_LINES` 语义未变）。
+
+**B34 证据（2026-11-05，已实跑）**：隐藏命令（`hidden: true`）不在补全表里，因此拼写错误也拿不到建议。
+
+- `-p '/contex'`（改造前）→ 只有 `unknown command "/contex"`；改造后 → `Did you mean /context, /cost?`
+  （`/cost` 是同样隐藏的 `/usage` 别名，属正确提示）；
+- REPL（`MOSS_NO_TUI=1`，pipe `/contex`）→ 同一句建议，说明两条错误路径共用同一张表；
+- 负例：`-p '/zzzzzz'` → 无建议（`closestSlashCommands` 的距离阈值照旧，不会变成目录 dump）；
+- 边界：`-p '/context'` 仍 exit 0 正常执行；`dist` 断言 `INTERACTIVE_COMPLETION_COMMANDS` 仍 19 条且不含 `/context`，
+  `DISPATCHABLE_SLASH_COMMANDS` 44 条含之——menu/补全面没被放宽。
+  `npm run check` 绿、`npm run verify` PASS 36.2s。
 
 **B33 证据（2026-11-05，已实跑，B32 续）**：模块计数（7 次真实 `-p` 运行）370 → 367，去掉
 `cli/repl-process.js`、`cli/repl-chrome.js`、`cli/transcript-types.js`、`cli/tui-utils.js`，新增 30 行 `cli/session-format.ts`。
