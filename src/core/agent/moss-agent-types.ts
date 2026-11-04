@@ -60,6 +60,12 @@ export interface ProviderConfig {
 
 export interface ContextManagementConfig {
   contextTokens?: number;
+  /**
+   * Whether the configured model accepts image input (default true). When
+   * false, `read_image` explains the limitation instead of attaching a block
+   * the provider would drop or reject.
+   */
+  supportsImages?: boolean;
   pruningSettings?: Partial<ContextPruningSettings>;
   compactionSettings?: Partial<CompactionSettings>;
 

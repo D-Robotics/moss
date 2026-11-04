@@ -40,6 +40,7 @@ export function resolveCliAgentRuntimeOptions(
   | 'modelMaxOutputTokens'
   | 'compactionSettings'
   | 'promptCache'
+  | 'supportsImages'
 > {
   return {
     maxAgentTurns: config.maxAgentTurns,
@@ -48,6 +49,7 @@ export function resolveCliAgentRuntimeOptions(
     maxOutputTokensPinned: config.maxOutputTokens !== undefined,
     ...(config.modelMaxOutputTokens ? { modelMaxOutputTokens: config.modelMaxOutputTokens } : {}),
     compactionSettings: config.compactionSettings,
+    supportsImages: config.supportsImages ?? true,
     promptCache: {
       enabled: config.promptCacheEnabled,
       debug: config.promptCacheDebug,

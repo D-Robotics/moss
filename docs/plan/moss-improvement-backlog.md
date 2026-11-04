@@ -95,8 +95,21 @@ attached. The session still has them; call read_image again if you need to look.
 `MOSS_IMAGE_HISTORY_MAX_COUNT=1` 时请求里的 `image_url` 数量恒为 **1/1/1**，且提示逐轮累积（notices 0→1→2）；
 同一场景不设上限（默认 8）时为 **1/2/3** 且无任何 notice；两次运行的 `.moss/sessions/*.jsonl` 都保存了
 **3** 个 image block。
-仍未做：text-only 模型的视觉能力守卫（`read_image` 对无视觉输入模型给出明确降级）、剪贴板/TUI 粘贴、
-`attachment-refs.ts` 接线。
+**已落地（2026-11-05，本轮 = 无视觉模型守卫）**：新增配置声明 `agent.supportsImages`（config.json，
+默认 true，来源标记 `supportsImagesSource`），经 `resolveCliAgentRuntimeOptions` → `MossAgentConfig` →
+`ToolContext.supportsImages` 进入工具层；`read_image` 在 `prepareImageInput` 最前面判断
+`ctx.supportsImages === false` 时直接返回错误文本（不读字节、不产生 image block）：
+「declares no image input (agent.supportsImages=false) … Describe the file in text instead（read_file /
+exec file|xxd）… switch to a vision-capable model」，`execute` 与 `executeStructured` 两条路径一致。
+`read-image` stage 从 8 断言扩到 **11**（新增：无视觉模型得到原因且无 image block、plain execute 同样降级、
+未声明时默认仍可看图）。
+**真实证据（脚本化 provider 记录每个请求体的 `image_url` 数量 + 真实 CLI；同一工作区/提示
+「Use read_image on img0.png and tell me what you see.」）**：`.moss/config.json` 设
+`agent.supportsImages:false` → 三轮请求的 imageParts **0/0/0**，模型看到的工具结果含
+「declares no image input」并回复 `SAW:LIMITATION`；同一工作区设 true → 请求 imageParts **0/0/1**，
+模型回复 `SAW:IMAGE`。session JSONL：false 时 **0** 个 image block，true 时 **1** 个（审计与请求一致）。
+仍未做：剪贴板/TUI 粘贴、`attachment-refs.ts` 接线（`config set agent.supportsImages` 也尚未进
+`moss config set` 键表，只支持配置文件）。
 
 **B02 压缩可回溯（P0）**
 Moss 的压缩策略本身不弱（`compaction.ts:1137` 还会回读最近 5 个文件），但**摘要之外的历史在上下文里彻底消失**，

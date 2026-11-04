@@ -31,6 +31,11 @@ export interface ProtectedPathChangeReport {
 
 export interface ToolContext {
   workspaceDir: string;
+  /**
+   * Whether the run's model accepts image input (default true). Tools that
+   * attach image blocks (`read_image`) explain the limitation when false.
+   */
+  supportsImages?: boolean;
   /** Host-resolved configuration files to compare after shell execution. */
   protectedConfigPaths?: readonly string[];
   /**

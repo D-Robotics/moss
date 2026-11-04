@@ -144,6 +144,36 @@ try {
   );
   assert.equal(textOnly.length, 1);
   ok('text-only tool results are unchanged');
+
+  // ── 8. A text-only model gets the reason, not an image block (B01 guard) ──
+
+  const textOnlyModelCtx = { workspaceDir: dir, supportsImages: false };
+  const refused = await tool.executeStructured({ path: 'shot.png' }, textOnlyModelCtx);
+  assert.equal(refused.isError, true);
+  assert.equal(
+    refused.content.some((block) => block.type === 'image'),
+    false,
+    'no image block may reach a provider that declares no image input'
+  );
+  const refusalText = refused.content.find((block) => block.type === 'text').text;
+  assert.match(refusalText, /declares no image input/);
+  assert.match(refusalText, /agent\.supportsImages=false/);
+  assert.match(refusalText, /Describe the file in text instead/);
+  assert.match(refusalText, /switch to a vision-capable model/);
+  ok('a text-only model is told why read_image cannot attach the image');
+
+  const plainRefusal = await tool.execute({ path: 'shot.png' }, textOnlyModelCtx);
+  assert.match(plainRefusal, /declares no image input/);
+  ok('the plain string execute path degrades the same way');
+
+  // The default (undefined) stays image-capable: the earlier checks above ran
+  // with only `workspaceDir`, so a missing declaration must not disable visuals.
+  const stillAttached = await tool.executeStructured({ path: 'shot.png' }, ctx);
+  assert.equal(
+    stillAttached.content.some((block) => block.type === 'image'),
+    true
+  );
+  ok('an undeclared capability keeps the default (images attach)');
 } finally {
   await fs.rm(dir, { recursive: true, force: true });
 }

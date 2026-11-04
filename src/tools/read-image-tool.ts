@@ -67,10 +67,20 @@ function formatBytes(bytes: number): string {
 
 export async function prepareImageInput(
   input: { path?: unknown; alt?: unknown },
-  ctx: Pick<ToolContext, 'workspaceDir'>
+  ctx: Pick<ToolContext, 'workspaceDir' | 'supportsImages'>
 ): Promise<PreparedImage> {
   const shown = String(input.path ?? '').trim();
   if (!shown) return { ok: false, text: 'Error: read_image needs a path.' };
+  if (ctx.supportsImages === false) {
+    return {
+      ok: false,
+      text:
+        `Error: ${shown} was not attached — the configured model declares no image input ` +
+        '(agent.supportsImages=false), so an image block would be dropped or rejected by the provider. ' +
+        'Describe the file in text instead (read_file for text, exec with `file`/`xxd` for bytes), ' +
+        'or switch to a vision-capable model and set agent.supportsImages back to true.',
+    };
+  }
   const filePath = resolveReadPath(shown, ctx.workspaceDir);
   let stat;
   try {

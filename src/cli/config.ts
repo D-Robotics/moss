@@ -295,6 +295,12 @@ export interface GuardrailsConfig {
 export interface AgentRuntimeConfig {
   maxTurns?: number;
   contextTokens?: number;
+  /**
+   * Declares whether the configured model accepts image input. Default true.
+   * Set false for text-only models so `read_image` explains the limitation
+   * instead of attaching an image the provider will drop or reject.
+   */
+  supportsImages?: boolean;
   /** Unattended-run guardrails (v0.9 W3). Env overrides:
    *  MOSS_BUDGET_MAX_TOKENS / MOSS_BUDGET_MAX_TOOL_CALLS /
    *  MOSS_BUDGET_MAX_TURNS / MOSS_BUDGET_MAX_WALL_MS. */
@@ -958,6 +964,11 @@ export function fieldSourcesFor(
     'agent.contextTokens',
     user.agent?.contextTokens !== undefined,
     project.agent?.contextTokens !== undefined
+  );
+  mark(
+    'agent.supportsImages',
+    user.agent?.supportsImages !== undefined,
+    project.agent?.supportsImages !== undefined
   );
   mark(
     'agent.compaction',
@@ -1636,6 +1647,9 @@ export interface ResolvedCliConfig {
   maxAgentTurnsSource: string;
   contextTokens: number;
   contextTokensSource: string;
+  /** Resolved model image-input declaration (default true). */
+  supportsImages?: boolean;
+  supportsImagesSource?: string;
   /** Unattended-run guardrails (config agent.budget + MOSS_BUDGET_* env). */
   budget?: { maxTokens?: number; maxToolCalls?: number; maxTurns?: number; maxWallMs?: number };
   /** v0.10 W2 best-of-n (config agent.bestOfN + MOSS_BEST_OF_N env). */
@@ -2437,6 +2451,14 @@ export function resolveCliConfig(
         : configContextTokens !== undefined
           ? fileLayer('agent.contextTokens')
           : 'unprobed';
+  // The model's image-input capability is a host declaration, not a probe: a
+  // text-only endpoint either drops image parts or 400s, and read_image should
+  // say so before the request is built. Defaults to true for compatibility.
+  const declaredSupportsImages = activeConfig.agent?.supportsImages;
+  const supportsImages =
+    typeof declaredSupportsImages === 'boolean' ? declaredSupportsImages : true;
+  const supportsImagesSource =
+    typeof declaredSupportsImages === 'boolean' ? fileLayer('agent.supportsImages') : 'default';
   // Max output tokens per response. Host/user can pin via agent.maxOutputTokens
   // or MOSS_MAX_OUTPUT_TOKENS. If unset, leave undefined here — the runtime
   // derives a default from the (probed) context window so it scales with the
@@ -2680,6 +2702,8 @@ export function resolveCliConfig(
     maxAgentTurnsSource,
     contextTokens,
     contextTokensSource,
+    supportsImages,
+    supportsImagesSource,
     ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
     ...(modelMaxOutputTokens ? { modelMaxOutputTokens } : {}),
     compactionSettings,
