@@ -326,7 +326,9 @@ function renderApprovalDoctor(config: ResolvedCliConfig): string[] {
       ? 'trustedTools'
       : auditWarning.code === 'approval.full_default_no_deny'
         ? uiText('full mode', '完全访问模式')
-        : uiText('approval policy', '审批策略');
+        : auditWarning.code === 'permissions.broad_allow_pattern'
+          ? uiText('allow rules', 'allow 规则')
+          : uiText('approval policy', '审批策略');
     lines.push(warn(label, auditWarning.message));
   }
 

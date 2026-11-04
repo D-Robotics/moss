@@ -1849,7 +1849,40 @@ export function auditResolvedCliConfig(
     });
   }
 
+  const broadAllowRules = (config.permissions?.allow ?? []).filter(isOverbroadAllowRule);
+  if (broadAllowRules.length > 0) {
+    warnings.push({
+      code: 'permissions.broad_allow_pattern',
+      severity: 'warn',
+      source: config.permissions?.source ?? 'config',
+      message: uiText(
+        `allow rule wildcard sits mid-pattern: ${broadAllowRules.join(', ')}; it matches more than intended - put the literal prefix first and end with *, e.g. exec(git log *)`,
+        `allow 规则的通配不在末尾：${broadAllowRules.join('、')}；它会匹配超出预期的命令——请把字面前缀放前面并以 * 结尾，例如 exec(git log *)`
+      ),
+    });
+  }
+
   return warnings;
+}
+
+/**
+ * Claude Code parity (permissions §8.2): a `*` placed before the rest of the
+ * pattern makes an allow rule broader than it looks - `Bash(git * main)` also
+ * permits `git push main`, so Claude Code warns at startup. Moss warns through
+ * doctor/onboarding instead of on every run. Trailing `*` prefix families
+ * (`exec(git log *)`) and exact patterns stay silent.
+ */
+export function isOverbroadAllowRule(spec: string): boolean {
+  const trimmed = spec.trim();
+  const open = trimmed.indexOf('(');
+  const close = trimmed.lastIndexOf(')');
+  if (open === -1 || close < open) return false;
+  const pattern = trimmed.slice(open + 1, close).trim();
+  if (!pattern.includes('*')) return false;
+  if (pattern === '*') return true;
+  // Trailing-only wildcard: `git log *`.
+  if (pattern.endsWith('*') && !pattern.slice(0, -1).includes('*')) return false;
+  return true;
 }
 
 export function hasTrustedToolWildcard(config: Pick<ResolvedCliConfig, 'trustedTools'>): boolean {
