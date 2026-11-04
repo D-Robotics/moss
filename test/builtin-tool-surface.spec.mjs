@@ -73,9 +73,10 @@ const EXPECTED_MODEL_FACING = [
 const BASELINE_PAYLOAD_BYTES = 25_052;
 /**
  * Ceiling so the next addition has to update the doc and this number on purpose.
- * Raised from 24,000 when `exec_input` (REA addendum) landed: 24,435 measured.
+ * Raised from 24,000 when `exec_input` (REA addendum) landed, and from 24,500
+ * when `search_code.fixed_strings` landed: 24,482 measured.
  */
-const PAYLOAD_CEILING_BYTES = 24_500;
+const PAYLOAD_CEILING_BYTES = 24_600;
 
 /** Names the CLI installs conditionally (`skill`) — not part of `builtinTools`. */
 const HOST_INSTALLED_TOOL_NAMES = new Set(['skill']);

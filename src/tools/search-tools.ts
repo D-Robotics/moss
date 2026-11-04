@@ -43,6 +43,8 @@ export interface GrepWithRgOptions {
   contextLines: number;
   outputMode: SearchCodeOutputMode;
   multiline?: boolean;
+  /** rg -F: the pattern is literal text, not a regex. */
+  fixedStrings?: boolean;
   /** Report incomplete bounded output without changing the array return contract. */
   onIncomplete?: () => void;
 }
@@ -74,10 +76,12 @@ export async function grepWithRg(opts: GrepWithRgOptions): Promise<string[] | nu
     contextLines,
     outputMode,
     multiline,
+    fixedStrings,
     onIncomplete,
   } = opts;
 
   const args: string[] = ['--color=never'];
+  if (fixedStrings) args.push('-F');
 
   if (outputMode === 'files_with_matches') {
     args.push('--files-with-matches');
@@ -352,6 +356,11 @@ const IGNORE_DIRS = new Set([
   '.parcel-cache',
 ]);
 
+/** Escape regex metacharacters so literal text can go through the regex paths. */
+function literalPattern(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export function isSafeRegex(pattern: string): boolean {
   if (/(\([^)]*[+*]\)[+*])/.test(pattern)) return false;
   if (/(\([^)]*\|[^)]*\)[+*])/.test(pattern)) return false;
@@ -564,6 +573,10 @@ export const searchCodeTool: Tool = {
         type: 'boolean',
         description: 'Multiline regex (default false).',
       },
+      fixed_strings: {
+        type: 'boolean',
+        description: 'Treat pattern as literal text (no regex metacharacters; rg -F).',
+      },
     },
     required: ['pattern'],
   },
@@ -576,6 +589,9 @@ export const searchCodeTool: Tool = {
     const contextLines = Math.min(3, Math.max(0, Math.floor(Number(input.context_lines ?? 1))));
     const outputMode = parseOutputMode(input.output_mode);
     const multiline = input.multiline === true;
+    // Qoder Grep `fixed_strings`: search text that contains regex punctuation
+    // (`foo(`, `a.b`, `x[0]`) without hand-escaping it.
+    const fixedStrings = input.fixed_strings === true;
     const globFilter =
       typeof input.glob === 'string' && input.glob.trim() ? input.glob.trim() : null;
     const typeFilter =
@@ -592,17 +608,20 @@ export const searchCodeTool: Tool = {
 
     let regex: RegExp;
     try {
-      if (!isSafeRegex(String(input.pattern))) {
+      if (!fixedStrings && !isSafeRegex(String(input.pattern))) {
         return redactEgress(
           'Error: pattern rejected as potentially unsafe (ReDoS risk). Use a simpler pattern.'
         );
       }
       regex = new RegExp(
-        String(input.pattern),
+        fixedStrings ? literalPattern(String(input.pattern)) : String(input.pattern),
         caseSensitive ? (multiline ? 'ms' : '') : multiline ? 'ims' : 'i'
       );
     } catch (err) {
-      return redactEgress(`Invalid regex pattern: ${errorMessage(err)}`);
+      return redactEgress(
+        `Invalid regex pattern: ${errorMessage(err)}` +
+          (fixedStrings ? '' : ' (pass fixed_strings: true to search the text literally)')
+      );
     }
 
     try {
@@ -629,6 +648,7 @@ export const searchCodeTool: Tool = {
         contextLines: outputMode === 'content' ? contextLines : 0,
         outputMode,
         multiline,
+        fixedStrings,
         onIncomplete: () => {
           incomplete = true;
         },
