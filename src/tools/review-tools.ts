@@ -505,6 +505,17 @@ export async function recordReview(workspaceDir: string, record: ReviewRecord): 
   return path.relative(workspaceDir, file) || REVIEW_LOG_NAME;
 }
 
+/** Read the state projection; absent or torn is `undefined` (the log is the truth). */
+export async function readReviewState(workspaceDir: string): Promise<ReviewState | undefined> {
+  try {
+    const raw = await fs.readFile(path.join(workspaceDir, '.moss', REVIEW_STATE_NAME), 'utf8');
+    const parsed = JSON.parse(raw) as ReviewState;
+    return typeof parsed?.attempt === 'number' ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Read the review log (oldest first). Used by `/review` listings and repair loops. */
 export async function listReviewRecords(workspaceDir: string, limit = 20): Promise<ReviewRecord[]> {
   const file = path.join(workspaceDir, '.moss', REVIEW_LOG_NAME);

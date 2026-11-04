@@ -179,6 +179,15 @@ diffFingerprint?, rubricTaskId?, rubricCriteria? }`，`nextAction` 三态：`pro
 nextAction "apply the findings…"`；FAIL 第 3 次 → `attempt 3, attemptsExhausted true, nextAction "stop retrying…"`；
 PASS → `verdict pass, findings.total 0, nextAction "proceed…"`。spec 的持久化小节已同步该文件。
 
+**B16 第六片（2026-11-05）：`moss review check` 直接报「第几次 / 下一步」**
+状态文件有了，但门禁命令还在只看结论。现在 `moss review check` 在 FAIL 时追加两行：
+`repair attempt: 2 of 3`（用尽时标 `(exhausted)`）与 `next: <nextAction>`；状态文件缺失时用
+`buildReviewState(latest)` 从日志派生，所以旧日志也能回答「现在该干什么」。中文输出不再混英文句子，
+三种状态有对应的中文渲染。
+**真实证据（真实 CLI + 脚本化 provider）**：两次 FAIL 后 `moss review check` exit **1** 并打印
+`repair attempt: 2 of 3` + `next: apply the findings, then re-run review_changes on the new diff`；
+PASS 后 exit **0**；`MOSS_LANG=zh` 同一状态打印 `修复尝试：第 1 / 3 次` + `下一步: 按 findings 修复后，对新的 diff 重新运行 review_changes`。
+
 ## 3. 逐条说明（为什么现在最值得做 · 最小切片 · 风险）
 
 **B01 图片/附件链路（P0）**

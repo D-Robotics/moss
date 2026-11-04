@@ -9,7 +9,12 @@
  *   the reviewer produced no parseable verdict (unknown is never a pass).
  */
 import { isZhLocale } from './cli-locale.js';
-import { listReviewRecords, type ReviewRecord } from '../tools/review-tools.js';
+import {
+  buildReviewState,
+  listReviewRecords,
+  readReviewState,
+  type ReviewRecord,
+} from '../tools/review-tools.js';
 import type { ReviewFinding } from '../tools/review-tools.js';
 
 export interface ReviewCommandContext {
@@ -57,6 +62,22 @@ function printFindings(record: ReviewRecord, out: (line: string) => void): void 
     out(`  [${finding.severity}] ${location} — ${finding.summary}`);
     if (finding.fixHint) out(`      fix: ${finding.fixHint}`);
   }
+}
+
+/**
+ * `ReviewState.nextAction` is the model-facing English sentence; the CLI prints a
+ * localized rendering of the same three states instead of mixing locales.
+ */
+function nextActionText(
+  state: { nextAction: string; attemptsExhausted: boolean },
+  zh: boolean
+): string {
+  if (!zh) return state.nextAction;
+  if (state.attemptsExhausted) {
+    return '停止重试：连续的若干个不同 diff 都未通过评审；报告阻塞项并询问用户下一步';
+  }
+  if (state.nextAction.startsWith('proceed')) return '可以继续：改动已通过独立评审';
+  return '按 findings 修复后，对新的 diff 重新运行 review_changes';
 }
 
 function verdictLine(record: ReviewRecord, zh: boolean): string {
@@ -135,6 +156,16 @@ export async function runReviewCommand(
     }
     out(`${zh ? '失败' : 'FAIL'} — ${verdictLine(latest, zh)}`);
     printFindings(latest, out);
+    // The loop state (attempt / budget / next action) comes from the projection,
+    // falling back to deriving it so a log written before the projection existed
+    // still answers "what now?".
+    const state = (await readReviewState(ctx.workspaceDir)) ?? buildReviewState(latest);
+    out(
+      zh
+        ? `修复尝试：第 ${state.attempt} / ${state.maxAttempts} 次${state.attemptsExhausted ? '（已用尽）' : ''}`
+        : `repair attempt: ${state.attempt} of ${state.maxAttempts}${state.attemptsExhausted ? ' (exhausted)' : ''}`
+    );
+    out(`${zh ? '下一步' : 'next'}: ${nextActionText(state, zh)}`);
     return 1;
   }
 
