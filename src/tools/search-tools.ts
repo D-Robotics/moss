@@ -586,6 +586,8 @@ export const searchFilesTool: Tool = {
   description:
     'Find files by glob (gitignore-aware, newest first). Default root is the workspace. Searches of / or $HOME are capped. Prefer this over exec find. Not for matching file contents (search_code) or listing one directory (list_directory). For an open-ended pass, call tool_search group=subagent, then create_subagent scope=explore.',
   metadata: {
+    leanDescription:
+      'Find files by glob, gitignore-aware, newest first; the root defaults to the workspace. Prefer this over exec find. Not for file contents (search_code) or listing one directory (list_directory).',
     classification: { singleCallExempt: true, discovery: true },
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -662,6 +664,8 @@ export const searchCodeTool: Tool = {
     'Search file contents with a regex or literal (ripgrep when available). Default root is the workspace; / and $HOME are capped. Prefer this over exec grep. Not for reading a file you already know (read_file) or listing a directory (list_directory).\n' +
     'output_mode: content (default, matching lines), files_with_matches (paths only), or count. Filter with glob or type. case_sensitive defaults to true.',
   metadata: {
+    leanDescription:
+      'Search file contents with a regex or literal (ripgrep when present); root defaults to the workspace. Not for reading a known file (read_file) or listing a directory (list_directory). output_mode: content|files_with_matches|count.',
     classification: { singleCallExempt: true, discovery: true },
     sideEffectClass: 'readonly',
     planMode: 'allow',

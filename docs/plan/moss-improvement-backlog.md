@@ -415,8 +415,17 @@ main-headless 13,524→**12,710 chars**（≈−203 tokens，−6.0%）、main-t
 `MOSS_LEAN_TOOLS=1` → lean 短版；四次 exit 0。
 **回归门**：`measure-tool-surface.mjs --check` 新增 5 条自动档断言（32k→lean、200k→full、flag 两向强制、
 32k 声明字符数严格小于 200k）。
+**第三轮补充（2026-11-05）：最热的编码工具也补了 lean 版** —— `read_file`(433)、`edit_file`(473)、
+`search_code`(396)、`search_files`(326)、`read_image`(445)、`web_fetch`(406)；它们每个 turn 都可能出现，
+比设备工具更常付费。全部保留否定句（Not for … use X）与关键行为（行号前缀不是内容、old_string 精确唯一、
+output_mode 三档等）。表面成本（真实声明构建器）：main-headless 13,524 → **11,658 chars**（≈**−466 tokens，−13.8%**）、
+main-tty 19,774 → **16,064**（≈**−928 tokens，−18.8%**）。
+**真实 CLI + 脚本化 provider 记录 wire**：`read_file`/`edit_file`/`search_code`/`search_files`/`read_image` 在
+lean 模式下都确实更短（`allShorter=true`），`read_file` 短版以 "Read a workspace file" 开头、默认版以
+"Read a workspace file. Page" 开头，`edit_file` 两档 head 不同；两次 run exit 0。`measure-tool-surface --check`
+所有 lean 描述都 ≤60% 全长且通过。
 **仍未做**：lean 档对弱模型/小窗口模型的实际得分影响仍需 `npm run bench` A/B（本机无 `MOSS_BENCH_API_KEY`，
-按 bench-unverified 处理）；`device_cameras`(502)/`device_network`(497) 等更短的工具收益小，暂不做。
+按 bench-unverified 处理）；`web_search`(295)/`tool_search`(402)/`device_cameras` 等收益更小的工具暂不做。
 
 **B09 截断结果统一落盘（P2）**
 `spillToolOutput` 只被 `exec`/`device_exec` 调用（`builtin.ts:416`、`device-tools.ts:186`），其余工具超预算后

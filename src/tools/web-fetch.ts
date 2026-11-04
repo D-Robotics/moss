@@ -477,6 +477,8 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
       'Blocks private / loopback / link-local addresses by default (anti-SSRF). ' +
       'For live JS apps, prefer a headless browser tool. Prefer article/docs URLs over SPA marketing homepages.',
     metadata: {
+      leanDescription:
+        'Fetch an http(s) URL and return a readable text extract. `focus` keeps paragraphs matching those keywords; `max_chars` caps the length. Private/loopback addresses are blocked. Prefer article/docs URLs; for live JS apps use a headless browser.',
       maxResultTokens: 8_000,
       sideEffectClass: 'readonly',
       planMode: 'allow',

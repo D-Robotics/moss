@@ -208,6 +208,8 @@ export const readFileTool: Tool = {
     'An unchanged re-read returns a short stub. Paths outside the workspace are still read; secret-like values are removed. ' +
     'Not for directories (list_directory), images or screenshots (read_image), or finding unknown matches across files (search_code).',
   metadata: {
+    leanDescription:
+      'Read a workspace file; page large files with offset (1-based) and limit. Line-number + tab prefixes are NOT content — never copy them into edits. Not for directories (list_directory), images (read_image), or unknown matches (search_code).',
     classification: { singleCallExempt: true, discovery: true },
     maxResultTokens: 10_000,
     truncationHint: 'the dropped region is not in context — re-read only it with offset/limit',
@@ -887,6 +889,8 @@ export const editFileTool: Tool = {
     'Not for creating a file (write_file) or for a patch spanning files with context hunks (apply_patch). ' +
     'Use write_file for new files and apply_patch for cross-file patches with context hunks.',
   metadata: {
+    leanDescription:
+      'Replace exact strings in existing files (read_file first). old_string must match whitespace and be unique unless replace_all; no line-number prefixes; empty new_string deletes. edits[] does 2+ atomically. Not for new files (write_file) or cross-file context hunks (apply_patch).',
     classification: { singleCallExempt: true, surgicalEdit: true, fileMutation: true },
     maxResultTokens: 10_000,
     sideEffectClass: 'local_write',
