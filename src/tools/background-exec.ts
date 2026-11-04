@@ -45,12 +45,15 @@ import {
   MAX_PROCS,
   nextBackgroundId,
   notifyLifecycle,
+  subscribeBackgroundLifecycle,
+  subscribeBackgroundOutput,
   waitForBackgroundProcesses,
   tailLines,
   type BackgroundProc,
   type BackgroundWaitMode,
 } from '../core/tools/background-process-registry.js';
 import { EXEC_DEFAULT_TIMEOUT_MS, openChildEnv, takeShellNotices } from './tool-helpers.js';
+import { isSafeRegex } from './search-tools.js';
 
 /**
  * Wait out a background command only for the runTask/resumeTask that set
@@ -430,8 +433,8 @@ export const execBackgroundTool: Tool = {
 export const execLogsTool: Tool = {
   name: 'exec_logs',
   description:
-    'Read the status and recent output of a background command started by exec_background. ' +
-    'Omit `id` to list all tracked background processes.',
+    'Read the status and recent output of a background command started by exec(run_in_background). ' +
+    'Omit `id` to list them. wait_for blocks until a line matches, so start-then-test is one call.',
   metadata: {
     sideEffectClass: 'readonly',
     planMode: 'allow',
@@ -444,9 +447,18 @@ export const execLogsTool: Tool = {
         type: 'number',
         description: 'Number of trailing output lines to return (default 100, max 1000)',
       },
+      wait_for: {
+        type: 'string',
+        description:
+          'Block until output matches this regex, or the process exits, or timeout_ms elapses.',
+      },
+      timeout_ms: {
+        type: 'number',
+        description: 'With wait_for, longest wait in ms (default 15000, max 120000).',
+      },
     },
   },
-  async execute(input) {
+  async execute(input, ctx) {
     const id = typeof input.id === 'string' ? input.id.trim() : '';
     if (!id) {
       if (backgroundProcesses.size === 0) return 'No background processes.';
@@ -456,10 +468,130 @@ export const execLogsTool: Tool = {
     if (!proc)
       return `Error: no background process with id "${id}". Use exec_logs (no id) to list them.`;
     const tail = Math.min(Math.max(1, Number(input.tail) || 100), 1000);
+    const pattern = typeof input.wait_for === 'string' ? input.wait_for.trim() : '';
+    if (pattern) {
+      let regex: RegExp;
+      try {
+        if (!isSafeRegex(pattern)) {
+          return 'Error: wait_for rejected as potentially unsafe (ReDoS risk). Use a simpler pattern.';
+        }
+        regex = new RegExp(pattern, 'm');
+      } catch (err) {
+        return `Invalid wait_for regex: ${errorMessage(err)}`;
+      }
+      const waited = await waitForOutputMatch(proc, regex, input, ctx.abortSignal);
+      const body = tailLines(proc.buffer, tail) || '(no output captured)';
+      const label = `wait_for /${pattern}/`;
+      const verdict = waited.matched
+        ? `${label} matched after ${formatWaitMs(waited.elapsedMs)}${waited.line ? `: ${waited.line}` : ''}`
+        : waited.exited
+          ? `exited before matching ${label}`
+          : `${label} not matched after ${formatWaitMs(waited.elapsedMs)}; still running`;
+      return `${describe(proc)}\n${verdict}\n--- last ${tail} line(s) ---\n${body}`;
+    }
     const body = tailLines(proc.buffer, tail) || '(no output captured)';
     return `${describe(proc)}\n--- last ${tail} line(s) ---\n${body}`;
   },
 };
+
+const WAIT_FOR_DEFAULT_MS = 15_000;
+const WAIT_FOR_MAX_MS = 120_000;
+
+function formatWaitMs(ms: number): string {
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+interface OutputWaitResult {
+  matched: boolean;
+  /** The process stopped running before a match was found. */
+  exited: boolean;
+  elapsedMs: number;
+  line?: string;
+}
+
+/** The output line around the match, so the model sees the shape of the hit. */
+function matchedLine(buffer: string, match: RegExpExecArray): string {
+  const at = match.index;
+  const start = buffer.lastIndexOf('\n', at) + 1;
+  const end = buffer.indexOf('\n', at);
+  return buffer
+    .slice(start, end === -1 ? buffer.length : end)
+    .trim()
+    .slice(0, 200);
+}
+
+/**
+ * Resolve when `regex` matches the process output, the process stops, or the
+ * timeout elapses. Output is already redacted when it enters the buffer.
+ */
+function waitForOutputMatch(
+  proc: BackgroundProc,
+  regex: RegExp,
+  input: Record<string, unknown>,
+  signal?: AbortSignal
+): Promise<OutputWaitResult> {
+  const requested = Number(input.timeout_ms);
+  const timeoutMs = Math.min(
+    Math.max(1, Number.isFinite(requested) && requested > 0 ? requested : WAIT_FOR_DEFAULT_MS),
+    WAIT_FOR_MAX_MS
+  );
+  const startedAt = Date.now();
+  const scan = (): OutputWaitResult | null => {
+    const match = regex.exec(proc.buffer);
+    if (match) {
+      return {
+        matched: true,
+        exited: false,
+        elapsedMs: Date.now() - startedAt,
+        line: matchedLine(proc.buffer, match),
+      };
+    }
+    if (proc.status !== 'running') {
+      return { matched: false, exited: true, elapsedMs: Date.now() - startedAt };
+    }
+    return null;
+  };
+  const immediate = scan();
+  if (immediate) return Promise.resolve(immediate);
+
+  return new Promise<OutputWaitResult>((resolve) => {
+    let settled = false;
+    const cleanup: Array<() => void> = [];
+    const onAbort = (): void => {
+      finish({ matched: false, exited: false, elapsedMs: Date.now() - startedAt });
+    };
+    const finish = (result: OutputWaitResult): void => {
+      if (settled) return;
+      settled = true;
+      for (const fn of cleanup) fn();
+      signal?.removeEventListener('abort', onAbort);
+      resolve(result);
+    };
+    const check = (): void => {
+      const result = scan();
+      if (result) finish(result);
+    };
+    const timer = setTimeout(
+      () =>
+        finish({
+          matched: false,
+          exited: proc.status !== 'running',
+          elapsedMs: Date.now() - startedAt,
+        }),
+      timeoutMs
+    );
+    if (typeof timer.unref === 'function') timer.unref();
+    cleanup.push(() => clearTimeout(timer));
+    cleanup.push(subscribeBackgroundOutput(proc.id, check));
+    cleanup.push(
+      subscribeBackgroundLifecycle((snapshot) => {
+        if (snapshot.id === proc.id) check();
+      })
+    );
+    signal?.addEventListener('abort', onAbort, { once: true });
+    check();
+  });
+}
 
 export const execStopTool: Tool = {
   name: 'exec_stop',
