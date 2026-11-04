@@ -235,6 +235,8 @@ interface ParsedHookJson {
   decision?: string;
   reason?: string;
   additionalContext?: string;
+  /** PreToolUse only: replaces the whole tool input before execution. */
+  updatedInput?: Record<string, unknown>;
 }
 
 function parseHookJson(stdout: string): ParsedHookJson | undefined {
@@ -256,10 +258,24 @@ function parseHookJson(stdout: string): ParsedHookJson | undefined {
       let reason = typeof record.reason === 'string' ? record.reason : undefined;
       let additionalContext =
         typeof record.additionalContext === 'string' ? record.additionalContext : undefined;
+      let updatedInput =
+        record.updatedInput &&
+        typeof record.updatedInput === 'object' &&
+        !Array.isArray(record.updatedInput)
+          ? (record.updatedInput as Record<string, unknown>)
+          : record.updated_input &&
+              typeof record.updated_input === 'object' &&
+              !Array.isArray(record.updated_input)
+            ? (record.updated_input as Record<string, unknown>)
+            : undefined;
       const specific = record.hookSpecificOutput;
       if (specific && typeof specific === 'object' && !Array.isArray(specific)) {
         const spec = specific as Record<string, unknown>;
         if (typeof spec.additionalContext === 'string') additionalContext = spec.additionalContext;
+        const specUpdated = spec.updatedInput ?? spec.updated_input;
+        if (specUpdated && typeof specUpdated === 'object' && !Array.isArray(specUpdated)) {
+          updatedInput = specUpdated as Record<string, unknown>;
+        }
         const nested = spec.decision;
         if (typeof nested === 'string') decision = nested;
         else if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
@@ -276,6 +292,7 @@ function parseHookJson(stdout: string): ParsedHookJson | undefined {
         ...(decision ? { decision } : {}),
         ...(reason ? { reason } : {}),
         ...(additionalContext ? { additionalContext } : {}),
+        ...(updatedInput ? { updatedInput } : {}),
       };
     } catch {
       continue;
@@ -620,6 +637,9 @@ export function createConfiguredHookCallbacks(
           // blocks the call with a visible notice — a safety gate fails closed.
           try {
             const asks: PreToolUseHookAsk[] = [];
+            // Claude semantics: a rewrite replaces the whole tool input object;
+            // when several hooks rewrite, the last one wins (deny still wins).
+            let updatedInput: Record<string, unknown> | undefined;
             for (const hook of pre) {
               if (!toolNameMatches(hook, request.tool.name)) continue;
               const r = await runHookCommand(
@@ -638,6 +658,9 @@ export function createConfiguredHookCallbacks(
                 return { approved: false, reason: blockReason('PreToolUse', hook, r, parsed) };
               }
               if (hookFailed(r)) notice('PreToolUse', hook, r, false);
+              if (hook.blocking !== false && parsed?.updatedInput) {
+                updatedInput = parsed.updatedInput;
+              }
               // A blocking:false hook cannot restrict the call, so its ask is
               // ignored like its deny. preToolUseBlocks already refused non-zero.
               if (
@@ -660,7 +683,10 @@ export function createConfiguredHookCallbacks(
                 hookAsks: asks,
               };
             }
-            return { approved: true };
+            return {
+              approved: true,
+              ...(updatedInput ? { updatedInput } : {}),
+            };
           } catch (err) {
             const line = hookFailedLine('PreToolUse', errorMessage(err));
             process.stderr.write(`[hooks] ${line}\n`);

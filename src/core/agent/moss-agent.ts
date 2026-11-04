@@ -1387,7 +1387,13 @@ ${result.stderr ?? ''}`.trim();
               abortSignal: call.abortSignal,
             });
             return decision.approved
-              ? null
+              ? decision.updatedInput
+                ? {
+                    approved: true,
+                    decision: 'allow-once',
+                    updatedInput: decision.updatedInput,
+                  }
+                : null
               : {
                   approved: false,
                   decision: 'deny',

@@ -11,7 +11,7 @@ export interface ToolApprovalRequest {
 }
 
 export type ToolApprovalDecision =
-  | { approved: true }
+  | { approved: true; updatedInput?: Record<string, unknown> }
   | {
       approved: false;
       reason: string;

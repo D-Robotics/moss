@@ -82,6 +82,8 @@ export interface AgentLoopToolInput {
     decision: string;
     reason?: string;
     denialClass?: import('../../contracts/tool-denial.js').DenialClass;
+    /** PreToolUse hook rewrite: replaces the whole tool input before execution. */
+    updatedInput?: Record<string, unknown>;
   } | null>;
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;

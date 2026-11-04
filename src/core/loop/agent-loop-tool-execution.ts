@@ -73,7 +73,12 @@ export interface ExecuteAgentLoopToolCallsParams {
     input: unknown;
     abortSignal: AbortSignal;
     tool?: Tool;
-  }) => Promise<{ approved: boolean; decision: string; reason?: string } | null>;
+  }) => Promise<{
+    approved: boolean;
+    decision: string;
+    reason?: string;
+    updatedInput?: Record<string, unknown>;
+  } | null>;
   toolAbortSignalFor?: (toolCallId: string) => AbortSignal | undefined;
   enrichToolContext?: (baseCtx: ToolContext, sessionKey: string) => ToolContext;
   parallelSafeTools: Set<string>;

@@ -104,6 +104,13 @@ export function composePreToolUseGate(
         if (!asks || asks.length === 0) return pre;
         return approvalHook(req, { hookAsks: asks });
       }
+      // A PreToolUse rewrite must be re-checked against the policy with the
+      // rewritten input: the hook may widen an action, never bypass deny.
+      if (pre.updatedInput) {
+        const checked = await approvalHook({ ...req, input: pre.updatedInput });
+        if (!checked.approved) return checked;
+        return { ...checked, updatedInput: pre.updatedInput };
+      }
     }
     return approvalHook(req);
   };

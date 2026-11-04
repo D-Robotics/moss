@@ -351,6 +351,7 @@ export interface ExecuteToolCallDeps {
     decision: string;
     reason?: string;
     denialClass?: DenialClass;
+    updatedInput?: Record<string, unknown>;
   } | null>;
 
   push: (event: MiniAgentEvent) => void;
@@ -533,6 +534,23 @@ async function executeOneToolCallInner(
             text,
             error: new MossError({ code: ErrorCode.TOOL_NOT_ALLOWED, message: text }),
           };
+        }
+        // A PreToolUse hook may rewrite the whole input. The user/hook validates
+        // the rewritten action, so the execution-boundary schema check runs
+        // again and a rewrite that does not fit the schema is refused.
+        if (approval.updatedInput) {
+          const rewritten = validateToolInputObject(tool, approval.updatedInput);
+          if (!rewritten.ok) {
+            return {
+              kind: 'pre-blocked',
+              text: rewritten.message,
+              error: new MossError({
+                code: ErrorCode.USER_INPUT_INVALID,
+                message: `hook updatedInput rejected: ${rewritten.message}`,
+              }),
+            };
+          }
+          call.input = rewritten.value;
         }
       }
     }
