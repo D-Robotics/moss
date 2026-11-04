@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { execBackgroundTool } from '../dist/tools/background-exec.js';
+import { execBackgroundTool, execWaitTool } from '../dist/tools/background-exec.js';
 import {
   waitForBackgroundProcesses,
   clearBackgroundRegistryForTests,
@@ -96,6 +96,26 @@ test('abort signal cuts the wait short', async () => {
     const r = await promise;
     assert.equal(r.aborted, true, 'aborted flag set');
     stopBackgroundProcess(long);
+  } finally {
+    clearBackgroundRegistryForTests();
+  }
+});
+
+test('exec_wait on ids that do not exist reports an error instead of "satisfied"', async () => {
+  clearBackgroundRegistryForTests();
+  const out = String(await execWaitTool.execute({ ids: ['bg_999'] }, ctx()));
+  assert.match(out, /^Error: no background process with id\(s\) "bg_999"/);
+  assert.doesNotMatch(out, /satisfied/, 'nothing was waited on, so nothing can be satisfied');
+});
+
+test('exec_wait still waits the known ids when some are unknown', async () => {
+  clearBackgroundRegistryForTests();
+  try {
+    const real = await start(sleepCommand(150));
+    const out = String(await execWaitTool.execute({ ids: [real, 'bg_404'] }, ctx()));
+    assert.match(out, /Unknown id\(s\) — not waited on: bg_404/);
+    assert.match(out, /wait_all satisfied/);
+    assert.match(out, /1 id\(s\)/);
   } finally {
     clearBackgroundRegistryForTests();
   }

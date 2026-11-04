@@ -659,22 +659,37 @@ export const execWaitTool: Tool = {
     required: ['ids'],
   },
   async execute(input, ctx) {
-    const rawIds = Array.isArray(input?.ids) ? input.ids : [];
-    const ids = rawIds
-      .map((v: unknown) => String(v).trim())
+    const rawIds: unknown[] = Array.isArray(input?.ids) ? input.ids : [];
+    const ids: string[] = rawIds
+      .map((v) => String(v).trim())
       .filter(Boolean)
       .slice(0, 20);
     if (ids.length === 0) {
       return 'No ids provided. Start commands with exec_background, then exec_wait with their ids (e.g. ["bg_1","bg_2"]).';
     }
+    const known = ids.filter((id) => backgroundProcesses.has(id));
+    if (known.length === 0) {
+      // Waiting on nothing used to answer "wait_all satisfied", which reads as
+      // "the job you named finished". Nothing was waited on, so say that.
+      return (
+        `Error: no background process with id(s) ${ids.map((id) => `"${id}"`).join(', ')} — ` +
+        'nothing was waited on. Use exec_logs with no id to list background processes.'
+      );
+    }
     const mode: BackgroundWaitMode = input?.mode === 'wait_any' ? 'wait_any' : 'wait_all';
     const timeoutMs = Math.min(120_000, Math.max(1000, Number(input?.timeout_ms) || 30_000));
-    const result = await waitForBackgroundProcesses(ids, mode, timeoutMs, {
+    const startedAt = Date.now();
+    const result = await waitForBackgroundProcesses(known, mode, timeoutMs, {
       signal: ctx.abortSignal,
     });
+    const elapsedMs = Date.now() - startedAt;
     const lines: string[] = [];
-    if (result.missing.length) {
-      lines.push(`Unknown id(s) — not waited on: ${result.missing.join(', ')}`);
+    const missing = ids.filter((id) => !known.includes(id));
+    if (missing.length) {
+      lines.push(
+        `Unknown id(s) — not waited on: ${missing.join(', ')}. ` +
+          'Use exec_logs with no id to list background processes.'
+      );
     }
     for (const id of ids) {
       const proc = backgroundProcesses.get(id);
@@ -696,7 +711,7 @@ export const execWaitTool: Tool = {
           ? 'wait_any satisfied (first completed)'
           : 'wait_all satisfied (all completed)'
         : 'timed out';
-    lines.push(`\n${verdict} after ${timeoutMs}ms (mode=${mode}, ${ids.length} id(s)).`);
+    lines.push(`\n${verdict} after ${elapsedMs}ms (mode=${mode}, ${known.length} id(s)).`);
     return lines.join('\n');
   },
 };

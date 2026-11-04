@@ -147,6 +147,28 @@ export function findClosestLineHints(content: string, needle: string, maxHints =
   return out;
 }
 
+/** Largest file `read_file` loads. Above this a turn risks dying on memory. */
+const READ_MAX_FILE_BYTES = 50 * 1024 * 1024;
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${String(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Offset of the first NUL byte in the first 8 KB, or null for text. Git and
+ * ripgrep use the same heuristic; a tool that promises text must not hand the
+ * model bytes it decoded as garbage.
+ */
+function binaryOffset(buf: Buffer): number | null {
+  const limit = Math.min(buf.length, 8192);
+  for (let i = 0; i < limit; i += 1) {
+    if (buf[i] === 0) return i;
+  }
+  return null;
+}
+
 function readRangeKey(input: { offset?: unknown; limit?: unknown }): string {
   const hasRange = input.offset !== undefined || input.limit !== undefined;
   if (!hasRange) return 'full';
@@ -192,7 +214,33 @@ export const readFileTool: Tool = {
       const reuse = await globalToolStateManager.readReuseState(filePath, rangeKey);
       if (reuse === 'fresh') return FILE_UNCHANGED_STUB;
       if (reuse === 'truncated') return FILE_UNCHANGED_TRUNCATED_STUB;
-      const content = await fs.readFile(filePath, 'utf-8');
+      const stat = await fs.stat(filePath);
+      if (stat.isDirectory()) {
+        return (
+          `Error: ${String(input.path ?? '')} is a directory, not a file. ` +
+          'Use list_directory to see what is in it.'
+        );
+      }
+      if (stat.size > READ_MAX_FILE_BYTES) {
+        // Loading a huge log whole is how a turn dies of memory instead of
+        // answering. Text paging still loads the file, so point at a reader.
+        return (
+          `Error: ${String(input.path ?? '')} is ${formatBytes(stat.size)} — larger than ` +
+          `read_file loads (${formatBytes(READ_MAX_FILE_BYTES)}). ` +
+          'Use exec with head/tail/sed -n to read a slice, or search_code to find the region.'
+        );
+      }
+      const raw = await fs.readFile(filePath);
+      const binaryAt = binaryOffset(raw);
+      if (binaryAt !== null) {
+        // Serving NUL-laden bytes as text showed a PNG as one line of "PNG":
+        // the model reads that as the file's content.
+        return (
+          `Error: ${String(input.path ?? '')} is binary (NUL byte at offset ${String(binaryAt)}). ` +
+          'read_file returns text — use exec (file, xxd -l 256) or device_file_read to inspect it.'
+        );
+      }
+      const content = raw.toString('utf-8');
       const hasRange = input.offset !== undefined || input.limit !== undefined;
       const result = (() => {
         if (hasRange) {
@@ -1021,9 +1069,27 @@ export const listDirectoryTool: Tool = {
     },
   },
   async execute(input, ctx) {
+    const displayPath = String(input.path || '.');
     try {
       const depth = input.depth !== undefined ? Number(input.depth) : 1;
-      const dirPath = resolveReadPath(String(input.path || '.'), ctx.workspaceDir);
+      const dirPath = resolveReadPath(displayPath, ctx.workspaceDir);
+      const target = await fs.stat(dirPath).catch((err: NodeJS.ErrnoException) => {
+        if (err.code === 'ENOENT') return 'missing' as const;
+        return null;
+      });
+      if (target === 'missing') {
+        return (
+          `Error: no such directory: ${displayPath}. ` +
+          'Use search_files to locate the path, or omit `path` to list the workspace root.'
+        );
+      }
+      if (target && !target.isDirectory()) {
+        // `readdir` on a file is ENOTDIR, which says nothing the model can use.
+        return (
+          `Error: ${displayPath} is a file, not a directory. ` +
+          'Use read_file for its contents or search_code to search it.'
+        );
+      }
       const rawLimit = Number(input.head_limit ?? input.limit);
       const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 200;
       const lines = await listDirEntries(dirPath, depth, limit);
