@@ -67,6 +67,18 @@
 | B17 | P2     | REPL（非 TUI）里运行中的一轮无法被按键中断：Esc 与 Ctrl+C 都不生效，用户只能等它跑完            | 真实 PTY 探针（见 §3 B17）：慢流 stub + REPL，按 Esc 后 provider 继续发出 95 个 token、无客户端中断、无 Interrupted 提示；Ctrl+C 同样无效                                                                                                                                         | Cursor / Claude Code 的“按 Esc 停止当前生成”是核心手感；TUI 已实现（bench 的 typing-stream-interrupt 场景 PASS，interrupt_ms 46–91ms）                                                                                                    | 真实 PTY 复跑：按 Esc / Ctrl+C 后 provider 侧 2.5s 内新增 token = 0，且出现 Interrupted 提示；REPL 与 TUI 行为一致                                                                                                                                                                                                                                                                                                                                 | ✅ 完成（REPL 运行中 Esc/Ctrl+C 可中断；文案恢复统一口径；真实 PTY 四场景验证）                                                                         |
 | B18 | P2     | 启动慢的大头是模块加载：`dist` 里 511 个 ESM 模块约 480ms，且发生在 `entry` 之前，无法并行化    | 实测：511 个 trivial ESM 模块加载仅 82–90ms；`-p` 墙钟 ~668ms、`entry≈305ms`，其余是模块求值；esbuild 打包 spike 撞到 3 个具体障碍（见 §3 B18）                                                                                                                                   | Cursor / Claude Code 的 CLI 都以打包后的少量文件启动                                                                                                                                                                                      | 本地 stub：`-p` 墙钟中位数 ≤550ms（`entry` ≤150ms）+ 逐子系统延迟求值；单靠打包预计只值 85–120ms                                                                                                                                                                                                                                                                                                                                                   | 已探针（打包代价/收益量化；下一轮按「延迟求值」方向做切片）                                                                                             |
 
+**H7 候选（2026-11-05，未落地）：REPL 没有跨会话提示历史**
+TUI 有工作区 `prompt-history.jsonl`（`cli/tui/prompt-history.ts` + `app.ts:822-837`），并按 Up/Down 游标召回；
+readline REPL 每次启动 history 为空，Up 只能回到本次会话（Cursor / Claude Code 的交互面都会跨会话召回）。
+尝试过一版实现：启动时 `loadMergedPromptHistory` 灌入 `rl.history`（newest-first），每条提交写回两个文件。
+**真实探针结果（分两段，必须分开看）**：
+
+- 写入侧可用：PTY 跑一次 REPL 输入 `remember-this-prompt` 后退出，工作区 `.moss/prompt-history.jsonl` 出现 `{"text":"remember-this-prompt"}`；
+- 召回侧**未能取得可用证据**：PTY 里发 `\x1b[A` 后有一次能观察到被 seed 的文本出现在输出，但在「Up 后回车」的判定性探针里
+  provider 收到 **0** 个请求（stub 计数），无法证明「召回 → 提交 → 真正跑这一轮」这条链。
+  按「没有观察到 post-condition 就不报成功」，该实现已回滚，工作区无改动；留作 H7 候选，下一轮用更稳的驱动方式
+  （例如先发一次普通 prompt 确认 REPL 就绪，再断言行数与请求体）重新验证后再落地。
+
 **B18 第三片（2026-11-05）：保留名表不再拖入斜杠命令实现图**
 `cli/commands/custom-commands.ts` 的 `reservedBuiltinNames()` 只为拿命令名，却静态 import 了 `./registry.js`
 （含整套命令实现），使该模块求值 **154ms**；这也让上一片「registry 移出 `-p` 路径」被部分抵消。
