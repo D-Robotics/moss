@@ -256,6 +256,14 @@ provider 继续发出 95/98 个 token、无客户端断开、无 `Interrupted`�
 文案随之恢复为统一口径（`/stop`：`Esc (or Ctrl+C) interrupts the current run`，REPL 实测确认），
 B17 关闭。
 
+**B17 回归保护（2026-11-05，本轮）：`verify` 新 stage `repl-interrupt`**
+新行为没有门禁就会回退，所以把它做成 verify stage（仓库规矩：回归保护用 verify stage，不建 spec 套件）：
+真实 PTY 驱动 REPL + 本地慢流 stub，三次运行——Esc 必须停流（客户端断开 + `Interrupted` 提示）、
+Ctrl+C 必须停流、上方向键 `\x1b[A` **不得**停流（防止把转义序列误判成 Esc）。
+**证据**：`npm run verify` PASS **36.4s**（含该 stage 9.8s，仍在 60s 预算内）；单独跑 `--stage repl-interrupt` PASS 11.7s。
+**负向证明（红）**：把 `dist` 复制一份、删掉编译产物里 `process.stdin.on('data', onStdinData)` 这一行，
+用 `MOSS_VERIFY_CLI_ENTRY` 指向它 → stage **FAIL**（`[verify] FAIL repl-interrupt`），证明该 stage 能捕获回退。
+
 ## 3. 逐条说明（为什么现在最值得做 · 最小切片 · 风险）
 
 **B01 图片/附件链路（P0）**
