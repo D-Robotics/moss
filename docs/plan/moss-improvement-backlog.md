@@ -51,7 +51,7 @@
 | --- | ------ | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | B01 | P0     | 图片/附件进不了上下文，但帮助与提示词都在承诺                            | `src/cli/help.ts:64-65`（宣称 Ctrl+V 贴图）、`src/contracts/prompts/agent-behavior-prompt.ts:29`（说"可用文件工具读本地图片"）、`src/tools/file-tools.ts:261-266`（`read_file` 遇 NUL 直接报 binary）、`src/cli/attachment-refs.ts:3` 零调用者、`grep -rn "ctrl+v" src/` 零命中   | Cursor `Read` 支持 png/jpg/gif/webp/svg 进 vision，PDF 可附带（`docs/research/2026-11-04-next-capabilities/cursor.md:104`）；Claude Code 的 `@`/粘贴图片路径受 `Read(path)` 权限约束（同目录 `claude-code.md:313`）                       | `npm run build && node -e "import('./dist/tools/builtin.js').then(m=>console.log(m.builtinTools.some(t=>t.name==='read_image')))"` 现在必须打印 `false`；改后 `true`，且 `node dist/cli.js -p "read /tmp/a.png and describe it" --output-format json` 的 tool_result 里出现 `"type":"image"` 块（`grep -c '"type":"image"'` ≥1）                                                                                                                   | 待做   |
 | B02 | P0     | 压缩后旧历史不可回溯，模型无法回查被丢弃的证据                           | `src/context/compaction-prompts.ts:27-76`（9 节模板，无「历史段落盘/回查」约定）、`src/context/compaction.ts:1125-1144`（摘要后只补文件清单/todo/task 锚 + 恢复 5 个文件）、`src/core/session/jsonl-session-store.ts:267`（被丢弃的原文其实在 `.moss/sessions`，但没有指针）      | Cursor 把旧段写成 `# HISTORICAL -- DO NOT EDIT` + 「Use read_file or grep to look up details, but do not modify.」（`cursor-evidence.md:478-527`，`lar:63784-64057`）；Claude Code 把压缩状态做成一等数据（`claude-evidence.md:273-287`） | `node -e`：`dist/context/compaction.js` 的 `buildCompactionSummary({ summarize: async () => '<summary>x</summary>', messages: [20 条伪造历史], contextWindowTokens: 128000 })` → 断言返回值含 `.moss/sessions/` 与 `HISTORICAL`；当前两项都为假（探针必须先在旧代码上 fail）                                                                                                                                                                       | 已落地 |
-| B03 | P1     | 摘要产物的 9 节结构只是提示词自律，没有机器校验/收紧重试                 | `src/context/compaction.ts:1061-1079`（"Validate summary" 只判非空与一个固定字符串）、`src/context/compaction.ts:131`（唯一的硬约束是 4096 token 上限）                                                                                                                           | Cursor 摘要最多重试 3 次、逐次 `requestShorterOutput` 收紧，失败回退确定性裁剪（`cursor-evidence.md:483-486`，`lar:67205/67235`）；Claude Code 摘要 prompt 固定九段并 `capped` 限 2000 词（`claude-evidence.md:281-287`）                 | 新增 `scripts/verify/compaction-summary.mjs`：用 `buildCompactionSummary` + 返回「缺 `## 6.` 节」的 stub summarize → 现在被直接接受（探针 fail），改后必须判 invalid 并触发一次收紧重试；再喂合规摘要必须一次通过。`node scripts/verify/cli.mjs --stage compaction-summary`                                                                                                                                                                        | 待做   |
+| B03 | P1     | 摘要产物的 9 节结构只是提示词自律，没有机器校验/收紧重试                 | `src/context/compaction.ts:1061-1079`（"Validate summary" 只判非空与一个固定字符串）、`src/context/compaction.ts:131`（唯一的硬约束是 4096 token 上限）                                                                                                                           | Cursor 摘要最多重试 3 次、逐次 `requestShorterOutput` 收紧，失败回退确定性裁剪（`cursor-evidence.md:483-486`，`lar:67205/67235`）；Claude Code 摘要 prompt 固定九段并 `capped` 限 2000 词（`claude-evidence.md:281-287`）                 | 新增 `scripts/verify/compaction-summary.mjs`：用 `buildCompactionSummary` + 返回「缺 `## 6.` 节」的 stub summarize → 现在被直接接受（探针 fail），改后必须判 invalid 并触发一次收紧重试；再喂合规摘要必须一次通过。`node scripts/verify/cli.mjs --stage compaction-summary`                                                                                                                                                                        | 已落地 |
 | B04 | P1     | plan 模式没有结束协议：headless / REPL 既没引导 `exit_plan` 也没有批准门 | `src/contracts/prompts/plan-mode-prompt.ts:13-31`（全文不提 `exit_plan`，不要求以提交计划结束）、`src/tools/plan-gate.ts:23-38`（工具存在且带版本指纹）、`src/cli/tui/app.ts:1353-1367`（批准仪式只在 TUI 里补）                                                                  | Claude Code plan 模式要求本轮以 `ExitPlanMode`/提问结束，而不是散文「这样可以吗」（`docs/research/2026-11-04-next-capabilities/claude-code.md` §7.4）；Cursor plan guardrails + 每轮 `planSystemReminder`（`cursor-evidence.md:142-149`） | `node dist/cli.js --plan -p "plan adding a --json flag; do not edit" --output-format stream-json \| grep -c '"name":"exit_plan"'` 现在为 `0`；改后 ≥1（或末轮为 `ask_user_question`）                                                                                                                                                                                                                                                              | 待做   |
 | B05 | P1     | 工具面按需揭示只有 `subagent` 一组；task 台账 6 工具常驻 5,671 chars     | `src/core/tools/deferred-tool-offer.ts:17-21`（`DEFERRED_GROUPS` 只有 subagent）、`:40-47`（揭示 sticky 永不回收）、`src/core/agent/session-tool-offer.ts:8,19-26,99`（`taskFlow` 不传 → 台账可见，`moss -p` 与交互式都不传）；实测 `moss-architecture-audit.md:126,188`          | Claude Code `ToolSearch` + 每工具 `alwaysLoad`/`defer` + 描述预算（`claude-code.md` §9.2）；Cursor MCP 文件型 catalog −46.9% tokens（`cursor.md` §4.3.8）                                                                                 | `node -e`：`dist/core/agent/session-tool-offer.js` 的 `toolVisibleForRun` + `dist/tools/builtin.js` 的 `builtinTools`，在 `taskFlow` 未设时统计可见工具 schema 字符数（当前为 28,733 量级，见 `moss-architecture-audit.md:188`）；改后「无 task 意图的 coding 会话」必须 < 24,000，且 `npm run bench -- --samples 3` 的 PASS 数不降                                                                                                                | 待做   |
 | B06 | P1     | 规则只有 always/globs 两态：`description` 解析了但不参与激活，意图被反转 | `src/cli/project-instructions.ts:237`（解析出 `description`）、`:289-306`（读 frontmatter）、`:319-326`（`selectActiveRules` 把 `globs.length===0` 一律当 always）；`src/cli/prompt-setup.ts:117-121`（always 规则进稳定前缀）                                                    | Cursor rules 四类 `global / fileGlobbed / agentRequestable / manuallyAttached` + `alwaysApply/description/globs` 真值表（`cursor-evidence.md:414-464`；`cursor.md:22-50`）                                                                | 临时工作区写 `.moss/rules/x.md`（只有 `description:`、无 globs），调 `dist/cli/project-instructions.js` 的 `selectActiveRules(rules, [])`：现在返回该规则（=always），改后必须返回空（只有显式 `@rule`/模型请求才加载）                                                                                                                                                                                                                            | 待做   |
@@ -95,6 +95,15 @@ repair）里丢掉的往往是错误栈、命令字面量这类只能靠原文�
 但仍要能发现退化。
 最小切片：一个纯函数校验器（必需节标题 + 至少保留一个路径/命令字面量）+ 一次「要求更短更结构化」的重试；
 失败仍走现有 fallback 链。风险：校验过严会误杀正常摘要，先只校验节标题齐全。
+**已落地（2026-11-05，本轮）**：新增 `src/context/summary-validate.ts`（纯函数：`## n.`/`**n.**` 标题行识别、
+必需节 0–9、`buildSummaryCorrectionPrompt`）；`generateSummary` 在得到摘要后校验结构，缺节则用同一消息
+集+同一 `customInstructions` 追加「Correction required: … ALL ten sections …」重试**恰好一次**，第二次结果
+无条件接受（不循环、不抛错）。校验只作用于会成为 checkpoint 的那一次调用（单块尾块与 merge），
+逐块 partial 摘要不校验——否则长会话会按块数放大模型调用（实测 60 条消息的 mock 会话从 61 次重试降到 1 次）。
+回归门：verify stage `compaction-summary`（9 断言，0.2s）。真实验证：`moss --mock --session big` 真实 loop
+压缩 60 条会话消息 → 1 次 `missing required sections; retrying once`、压缩成功、checkpoint 仍带 B02 指针。
+注：真实模型在小窗口（5000/6000）下 `context-prep` 的 compaction prepare 会 30s 超时（见 B13），
+因此本轮真实模型路径只证明了「校验器不会误杀」的等价链（真实 dist 代码 + mock LLM 走通）。
 
 **B04 plan 模式结束协议（P1）**
 `exit_plan` 已有版本指纹（`plan-gate.ts:49-53`），TUI 也有批准仪式（`tui/app.ts:1353-1367`），但 plan prompt
@@ -161,6 +170,17 @@ scope→name（`:70-74`）；而 usage 数据已经在写（`skill-usage.ts:24`�
 最小切片：先做 H2（`MOSS_STARTUP_TIMING=1` 分阶段计时），用数字决定 H1 的范围；不要直接改渲染顺序（闪烁风险）。
 风险：计时日志必须写 stderr 且默认关闭，不能污染 `--output-format json`。
 
+**B13 小窗口下压缩准备超时即静默跳过（P1，本轮真实运行发现）**
+`agent:context-prep` 的 compaction prepare 有 30s 超时；窗口设小（实测 `agent.contextTokens` 5000/6000、
+会话 60 条消息）时两次真实运行都打印
+`proactive compaction failed · error=proactive compaction prepare timed out after 30000ms`（还有
+`prompt prune compaction failed`），本次压缩被**静默跳过**、上下文继续按原样跑——用户看不到降级提示，
+小窗口模型会直接撞上下文上限。触发条件（summarize 调用为何 >30s、是否与 `reserveTokens`/`keepRecentTokens`
+默认 20000 大于窗口有关）未定位。
+最小切片：把超时原因结构化进一条 warn（耗时、块数、窗口、阶段），并为「超时后」增加一次快速确定性摘要
+（不带 LLM 的 deterministic fallback）而不是什么都不做；探针用 60 条预置消息 + 小窗口复现（mock LLM 下不超时，
+需真实 LLM 或注入慢 summarize）。风险：确定性摘要质量低，必须标记 `degraded` 并保留 B02 指针，不能冒充完整摘要。
+
 ## 4. 已排除：已落地 / 已澄清（防止重复调研）
 
 | 项                                                  | 为什么不再列                                                                                                                                      |
@@ -193,6 +213,8 @@ scope→name（`:70-74`）；而 usage 数据已经在写（`skill-usage.ts:24`�
 一条条目连续两轮无人认领就降级或删除；对手侧证据过期（新版本改了行为）时，先改「参考实现」列再决定去留。
 
 ## 6. 推荐顺序（未来 6 轮，每轮 30 分钟一个可独立验收的切片）
+
+R1（B02）已落地 `b5f25213`；R2（B03）已落地（本轮）。下表从 R3 起仍有效。
 
 | 轮次 | 切片（可独立验收）                                                       | 改动面                                                                                       | 验收命令 / 判据                                                                                |
 | ---- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |

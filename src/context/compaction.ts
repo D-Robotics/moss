@@ -99,6 +99,7 @@ import {
   SUMMARIZATION_SYSTEM_PROMPT,
   UPDATE_SUMMARIZATION_PROMPT,
 } from './compaction-prompts.js';
+import { buildSummaryCorrectionPrompt, validateSummaryStructure } from './summary-validate.js';
 import { errorMessage } from '../errors.js';
 
 const log = getRootLogger().child('agent:compaction');
@@ -596,11 +597,22 @@ async function generateSummary(params: {
   customInstructions?: string;
   previousSummary?: string;
   abortSignal?: AbortSignal;
+  /** Set on the single structural retry; the retry's output is accepted as-is. */
+  correction?: string;
+  /**
+   * Only the summary that will become the checkpoint is structure-checked:
+   * per-chunk partials are intermediate (they get merged), so validating and
+   * retrying each one would multiply model calls for no gain.
+   */
+  validateStructure?: boolean;
 }): Promise<string> {
   throwIfCompactionAborted(params.abortSignal);
   let basePrompt = params.previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
   if (params.customInstructions) {
     basePrompt = `${basePrompt}\n\nAdditional focus: ${params.customInstructions}`;
+  }
+  if (params.correction) {
+    basePrompt = `${basePrompt}\n\n${params.correction}`;
   }
   const conversationText = serializeConversation(params.messages);
   let prompt = `<conversation>\n${conversationText}\n</conversation>\n\n`;
@@ -618,7 +630,22 @@ async function generateSummary(params: {
 
   throwIfCompactionAborted(params.abortSignal);
 
-  return extractSummaryTag(raw);
+  const summary = extractSummaryTag(raw);
+  if (params.correction) return summary;
+  if (params.validateStructure === false) return summary;
+  // B03: the nine-section contract was prompt-only. Validate the structure and
+  // spend exactly one retry asking for the missing sections, then accept — a
+  // bounded correction, never a loop and never a silent truncation.
+  const check = validateSummaryStructure(summary);
+  if (check.ok) return summary;
+  log.warn('compaction summary is missing required sections; retrying once', {
+    missing: check.missing,
+    found: check.found,
+  });
+  return generateSummary({
+    ...params,
+    correction: buildSummaryCorrectionPrompt(check.missing),
+  });
 }
 
 async function summarizeChunks(params: {
@@ -629,13 +656,14 @@ async function summarizeChunks(params: {
   customInstructions?: string;
   previousSummary?: string;
   abortSignal?: AbortSignal;
+  validateStructure?: boolean;
 }): Promise<string> {
   if (params.messages.length === 0) {
     return params.previousSummary ?? DEFAULT_SUMMARY_FALLBACK;
   }
   const chunks = chunkMessagesByMaxTokens(params.messages, params.maxChunkTokens);
   let summary = params.previousSummary;
-  for (const chunk of chunks) {
+  for (const [index, chunk] of chunks.entries()) {
     summary = await generateSummary({
       messages: chunk,
       summarize: params.summarize,
@@ -643,6 +671,8 @@ async function summarizeChunks(params: {
       customInstructions: params.customInstructions,
       previousSummary: summary,
       abortSignal: params.abortSignal,
+      // Only the last chunk's output is the checkpoint candidate.
+      validateStructure: params.validateStructure === true && index === chunks.length - 1,
     });
   }
   return summary ?? DEFAULT_SUMMARY_FALLBACK;
@@ -657,13 +687,16 @@ async function summarizeWithFallback(params: {
   customInstructions?: string;
   previousSummary?: string;
   abortSignal?: AbortSignal;
+  /** True for the call whose output becomes the checkpoint (default). */
+  final?: boolean;
 }): Promise<string> {
   if (params.messages.length === 0) {
     return params.previousSummary ?? DEFAULT_SUMMARY_FALLBACK;
   }
 
+  const validateStructure = params.final !== false;
   try {
-    return await summarizeChunks(params);
+    return await summarizeChunks({ ...params, validateStructure });
   } catch (e) {
     throwIfCompactionAborted(params.abortSignal);
     log.warn('summarizeChunks failed, falling back to smaller chunks', {
@@ -687,6 +720,7 @@ async function summarizeWithFallback(params: {
       const partial = await summarizeChunks({
         ...params,
         messages: smallMessages,
+        validateStructure,
       });
       const notes = oversizedNotes.length > 0 ? `\n\n${oversizedNotes.join('\n')}` : '';
       return partial + notes;
@@ -741,6 +775,7 @@ export async function summarizeInStages(params: {
         ...params,
         messages: chunk,
         previousSummary: undefined,
+        final: false,
       })
     );
   }
