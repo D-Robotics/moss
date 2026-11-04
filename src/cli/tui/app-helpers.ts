@@ -91,6 +91,9 @@ export interface TuiNoticeSource {
 }
 
 export interface TuiAppOptions {
+  /** B12: fired once the composer painted, so startup timing can end at the
+   *  moment the user could type instead of at pre-mount work. */
+  onComposerReady?: () => void;
   agent: MossAgent;
   workspaceDir: string;
   sessionKey?: string;

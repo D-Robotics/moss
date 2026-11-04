@@ -397,6 +397,24 @@ transcript；会话 2 新进程、provider 只发 `subagent_resume{prompt}`（**
 `fan_out_subagents` 的每任务 transcript 没有单独 id（目前只存主 runId）。
 
 **B12 启动手感（P2）**
+**已落地（2026-11-05，本轮 = H2 补全 + ink 预取）**：① TUI 路径的分段计时补到 `composer`：
+`MOSS_STARTUP_TIMING=1` 现在在 `-p`/REPL 打出 `config/agent/skills/total`，在 TUI 打出
+`config/agent/skills/tui-import/composer/total`（`skills` 后不再提前 finish，改由 app 的
+`onComposerReady`（首次 commit 的 useEffect）收尾）；② `scripts/tui-feel/driver.py` 在
+`MOSS_STARTUP_TIMING=1` 时把 CLI 的分段行写进 bench 指标的 `startup_timing`，bench 与进程内口径第一次能对照；
+③ 真正的优化：`ink`/`react` 是启动里唯一的大 import（实测单独 `import('ink')` ≈ **299ms**），此前它在
+config/agent/skills 全部做完之后才加载——现在 `runCli` 在判定「这是交互 chat + TTY + 非 print」后立刻
+`import('./tui/app.js')` 预取，用时再 `await`，把 ~250ms 的加载和前置工作重叠。
+**真实证据（本机真实 TUI：`script`/PTY，`MOSS_TRUST_WORKSPACE=1`，3 次）**：改动前 composer 段
+**473 / 535 / 615ms**（median 535）；改动后 **354 / 398 / 557ms**（median 398，−26%）；同机
+`npm run bench:tui-feel` 的 `composer_ready_ms` 从 **962@100x30 / 751@70x24** 到 **920 / 740**
+（另一轮 879 / 762，噪声内），仍 **> 600 目标**。bench 与进程内口径的缺口（bench 740–920 vs 进程内
+354–557）经分段行确认发生在 **app 首次 commit 之后到 PTY 判定 composer+raw 输入就绪之间**（约
+200–380ms，含 node 进程启动与 PTY 就绪），不在 CLI 已插桩的 phase 里。
+**下一步候选（H1）**：把这段"首次 commit → PTY 就绪"的 200–380ms 定位出来（`composer` 后加
+`frame-written` / `raw-mode` 两个 mark，或直接测 node 冷启动占比），再决定是否值得把 composer 骨架渲染
+前移到 ink 之外；`ink` 预取本身可再提前到 `runCli` 第一行（当前在 args/phase 解析后，损失约 10–20ms）。
+
 可输入前 843 ms 是唯一被实测的体感痛点（`ux-handfeel.md:11-14`），而启动顺序里技能/MCP/prompt 全在 TUI
 挂载之前（`runtime.ts:1088-1162` vs `:1615`），期间**没有任何可见文字**——用户看到的是空屏，这是 800 ms
 被感知成更长的原因。ux-handfeel 自己的建议也是「先计时再改渲染顺序」。

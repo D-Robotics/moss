@@ -208,6 +208,19 @@ export async function runCli(): Promise<void> {
     process.env.MOSS_WORKSPACE ||
     safeProcessCwd(process.env);
 
+  // B12: ink/react is the single largest import in the shell (~300 ms cold).
+  // Load it while config/agent/skills work runs instead of after it, so the
+  // composer paints sooner. Only for interactive chat where the TUI will mount;
+  // `--version`/`--help`/print paths never pay for it.
+  const tuiBootWanted =
+    Boolean(process.stdout.isTTY) &&
+    process.env.MOSS_NO_TUI !== '1' &&
+    !parsedArgs.print &&
+    // Only the interactive chat shell mounts the TUI; other subcommands must not
+    // pay for ink just because stdout is a TTY.
+    (parsedArgs.command === undefined || parsedArgs.command === 'chat');
+  const tuiBootPromise = tuiBootWanted ? import('./tui/app.js') : undefined;
+
   // Determine the initialization phase needed for this command
   const requiredPhase =
     parsedArgs.command === 'superagent' && parsedArgs.commandArgs[0] === 'worker'
@@ -1354,7 +1367,9 @@ export async function runCli(): Promise<void> {
     }
 
     startupTiming.mark('skills');
-    startupTiming.finish();
+    // The TUI keeps collecting: its first render is what the feel benchmark
+    // measures, so the line is finished at `composer` below.
+    if (!useTui) startupTiming.finish();
     if (oneShotMessage) {
       // Slash-command dispatch in oneshot mode. Previously a prompt like
       // `moss "/review"` or `moss "/skills"` was sent verbatim to the LLM,
@@ -1580,9 +1595,10 @@ export async function runCli(): Promise<void> {
     // pipes and MOSS_NO_TUI=1 keep the readline REPL. The TUI is dynamically
     // imported so headless/SDK paths never load ink/react.
     startupTiming.mark('skills');
-    startupTiming.finish();
+    if (!useTui) startupTiming.finish();
     if (useTui) {
-      const { runTuiApp } = await import('./tui/app.js');
+      const { runTuiApp } = await (tuiBootPromise ?? import('./tui/app.js'));
+      startupTiming.mark('tui-import');
       const { FileCheckpointStore, checkpointTargetPaths } = await import('./file-checkpoint.js');
       const runtimeDirForTui = runtimeDir ?? path.join(workspace, '.moss', 'runtime');
       let currentSessionKey = session.sessionKey;
@@ -1629,6 +1645,13 @@ export async function runCli(): Promise<void> {
         }
       }
       await runTuiApp({
+        // B12: the composer's first paint is the number the feel benchmark
+        // measures; mark it so the phased line covers the visible startup, not
+        // just the pre-mount work.
+        onComposerReady: () => {
+          startupTiming.mark('composer');
+          startupTiming.finish();
+        },
         agent,
         workspaceDir: workspace,
         sessionKey: session.sessionKey,

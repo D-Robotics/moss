@@ -495,6 +495,14 @@ export function TuiAppRoot({
     },
     []
   );
+  // B12: the first commit is the composer's first paint. Report it once so
+  // `MOSS_STARTUP_TIMING=1` ends where the feel benchmark ends.
+  const composerReadyReportedRef = useRef(false);
+  useEffect(() => {
+    if (composerReadyReportedRef.current) return;
+    composerReadyReportedRef.current = true;
+    options.onComposerReady?.();
+  }, [options]);
   const [composer, setComposer] = useState<ComposerState>(() => createComposer());
   const input = composer.value;
   // Bulk edits (history recall, staged prompts, paste) replace the whole value
