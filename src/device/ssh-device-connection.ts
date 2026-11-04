@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { Client } from 'ssh2';
+import type { Client } from 'ssh2';
 import type {
   DeviceCommandResult,
   DeviceConnection,
@@ -13,6 +13,19 @@ import type {
 import { ErrorCode, MossError } from '../errors.js';
 import { uiText } from '../utils/ui-language.js';
 import { classifyDeviceConnectError, formatDeviceConnectError } from './device-connect-error.js';
+
+/**
+ * B18: `ssh2` (27 CommonJS modules incl. tweetnacl/asn1/bcrypt-pbkdf) was
+ * imported at module load, so every `moss` process paid ~38 ms of startup even
+ * with no device configured. It is only needed once a device connection is
+ * actually established, so load it here and cache the constructor.
+ */
+type Ssh2Module = typeof import('ssh2');
+let ssh2ModulePromise: Promise<Ssh2Module> | null = null;
+async function loadSsh2(): Promise<Ssh2Module> {
+  if (!ssh2ModulePromise) ssh2ModulePromise = import('ssh2');
+  return await ssh2ModulePromise;
+}
 
 /** Max simultaneous remote channels (exec streams / sftp sessions). */
 const MAX_INFLIGHT = 4;
@@ -127,6 +140,7 @@ export class SshDeviceConnection implements DeviceConnection {
           recoverable: true,
         });
       }
+      const { Client } = await loadSsh2();
       const client = new Client();
       const timeoutMs = this.connectTimeoutMs;
       return await new Promise<Client>((resolve, reject) => {

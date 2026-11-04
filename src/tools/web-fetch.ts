@@ -1,7 +1,7 @@
 import dns from 'node:dns/promises';
 import type { LookupAddress } from 'node:dns';
 import type { LookupFunction } from 'node:net';
-import TurndownService from 'turndown';
+import type TurndownService from 'turndown';
 import type { Tool, ToolContext } from '../core/tools/tool-types.js';
 import { getRootLogger } from '../logger.js';
 import { MossError, ErrorCode, errorMessage } from '../errors.js';
@@ -228,10 +228,27 @@ export function detectSpaShellNote(html: string, extractedText: string): string 
   );
 }
 
+/**
+ * B18: `turndown` (and its ~24-module `@mixmark-io/domino` tree) is only needed
+ * when an HTML page is actually converted, but a static import made every
+ * `moss` process pay for it at startup. Load it on first HTML conversion.
+ */
+type TurndownCtor = new (options?: Record<string, unknown>) => TurndownService;
+let turndownCtorPromise: Promise<TurndownCtor> | null = null;
+async function loadTurndownCtor(): Promise<TurndownCtor> {
+  if (!turndownCtorPromise) {
+    turndownCtorPromise = import('turndown').then(
+      (module) => (module as unknown as { default: TurndownCtor }).default
+    );
+  }
+  return await turndownCtorPromise;
+}
+
 let turndown: TurndownService | null = null;
-function getTurndown(): TurndownService {
+async function getTurndown(): Promise<TurndownService> {
   if (!turndown) {
-    turndown = new TurndownService({
+    const TurndownServiceCtor = await loadTurndownCtor();
+    turndown = new TurndownServiceCtor({
       headingStyle: 'atx',
       hr: '---',
       bulletListMarker: '-',
@@ -279,10 +296,11 @@ function decodeTextBody(body: Buffer, contentType: string, sniffMeta: boolean): 
   return body.toString('utf-8');
 }
 
-function htmlToText(html: string, maxChars: number): string {
+async function htmlToText(html: string, maxChars: number): Promise<string> {
   let out: string;
   try {
-    out = getTurndown().turndown(html);
+    const service = await getTurndown();
+    out = service.turndown(html);
   } catch {
     out = html
       .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -713,7 +731,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
             const extractBudget = focus
               ? Math.min(effectiveMaxChars * 4, Math.max(effectiveMaxChars, 64_000))
               : effectiveMaxChars;
-            out = htmlToText(text, extractBudget);
+            out = await htmlToText(text, extractBudget);
             if (focus) {
               out = focusExtractText(out, focus, effectiveMaxChars);
             }
