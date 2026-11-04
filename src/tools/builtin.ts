@@ -88,7 +88,7 @@ export {
 export { askUserQuestionTool } from './ask-user-question.js';
 
 const EXEC_DESCRIPTION_BASE =
-  'Run a shell command in the workspace (cwd does not persist). Prefer read_file, edit_file, search_files, search_code, and run_tests over cat/sed/find/grep. ' +
+  'Run a shell command in the workspace (cwd does not persist). Not for reading, editing, listing or searching files, or for running the test suite — use read_file, edit_file, list_directory, search_code, search_files and run_tests instead; prefer them over cat/sed/find/grep. ' +
   'Use absolute paths; do not cd. Chain with && only when the next step must not run if this one fails. ' +
   'For servers, watchers, or anything that may not exit, set run_in_background, then exec_logs / exec_stop. Before claiming completion, stop what you started unless the user asked it to keep running. ' +
   'Set event: true when you want each output line as its own event (a probe, a server boot log) instead of one blob at the end. ' +

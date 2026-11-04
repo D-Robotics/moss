@@ -43,7 +43,7 @@ export function restoreDominantLineEndings(content: string, original: string): s
 export const applyPatchTool: Tool = {
   name: 'apply_patch',
   description:
-    'Apply an add/update/delete patch. Hunks are checked before any write; a failed apply restores files. read_file existing targets first.',
+    'Apply an add/update/delete patch. Hunks are checked before any write; a failed apply restores files. read_file existing targets first. Not for a single targeted replacement (edit_file) or a new file with plain content (write_file).',
   metadata: {
     classification: { singleCallExempt: true, surgicalEdit: true, fileMutation: true },
     maxResultTokens: 10_000,

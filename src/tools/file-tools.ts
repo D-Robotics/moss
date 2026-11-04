@@ -205,7 +205,8 @@ export const readFileTool: Tool = {
   description:
     'Read a workspace file. Page large files with offset (1-based line) and limit. ' +
     'Each line is prefixed with a line number and a tab that are NOT file content — do not copy them into edits. ' +
-    'An unchanged re-read returns a short stub. Paths outside the workspace are still read; secret-like values are removed.',
+    'An unchanged re-read returns a short stub. Paths outside the workspace are still read; secret-like values are removed. ' +
+    'Not for directories (list_directory), images or screenshots (read_image), or finding unknown matches across files (search_code).',
   metadata: {
     classification: { singleCallExempt: true, discovery: true },
     maxResultTokens: 10_000,
@@ -349,7 +350,7 @@ export const readFileTool: Tool = {
 export const writeFileTool: Tool = {
   name: 'write_file',
   description:
-    'Create or overwrite a workspace file (parent directories are created). Prefer edit_file or multi_edit for existing files. If the path exists, read_file it once this session first.',
+    'Create or overwrite a workspace file (parent directories are created). Not for a targeted change in an existing file — edit_file or multi_edit replaces just that region and keeps the rest. If the path exists, read_file it once this session first.',
   metadata: {
     classification: { singleCallExempt: true, fileMutation: true },
     maxResultTokens: 10_000,
@@ -883,6 +884,7 @@ export const editFileTool: Tool = {
     'Replace exact strings in existing files. read_file first. ' +
     'old_string must match whitespace exactly and be unique unless replace_all. Do not include read_file line-number prefixes. ' +
     'Empty new_string deletes the match. Pass edits[] for 2+ replacements: ordered, all-or-nothing, one call. ' +
+    'Not for creating a file (write_file) or for a patch spanning files with context hunks (apply_patch). ' +
     'Use write_file for new files and apply_patch for cross-file patches with context hunks.',
   metadata: {
     classification: { singleCallExempt: true, surgicalEdit: true, fileMutation: true },
@@ -1002,7 +1004,7 @@ export const editFileTool: Tool = {
 export const multiEditTool: Tool = {
   name: 'multi_edit',
   description:
-    'Apply several edit_file replacements in one call (same match rules, in order, all-or-nothing). Prefer this for 2+ edits.',
+    'Apply several edit_file replacements in one call (same match rules, in order, all-or-nothing). Prefer this for 2+ edits. Not for creating files (write_file) or for changes in different files that need separate review (one edit_file per file).',
   metadata: {
     classification: { surgicalEdit: true, fileMutation: true },
     maxResultTokens: 10_000,
@@ -1036,7 +1038,7 @@ export const multiEditTool: Tool = {
 export const moveFileTool: Tool = {
   name: 'move_file',
   description:
-    'Move or rename a workspace path. overwrite=true requires a prior read_file of an existing destination.',
+    'Move or rename a workspace path. overwrite=true requires a prior read_file of an existing destination. Not for editing a file in place — edit_file keeps the path and changes the content.',
   metadata: {
     classification: { singleCallExempt: true, fileMutation: true },
     maxResultTokens: 10_000,
@@ -1178,7 +1180,7 @@ export async function listDirEntries(
 export const listDirectoryTool: Tool = {
   name: 'list_directory',
   description:
-    'List a directory (depth default 1, max 5). Directories end with /, symlinks with @. Skips node_modules, .git, and dist. Prefer search_files for globs. A path outside the workspace is still listed.',
+    'List a directory (depth default 1, max 5). Directories end with /, symlinks with @. Skips node_modules, .git, and dist. Not for finding files by name pattern (search_files) or matching contents (search_code); it only lists what is there. A path outside the workspace is still listed.',
   metadata: {
     classification: { singleCallExempt: true, discovery: true },
     sideEffectClass: 'readonly',

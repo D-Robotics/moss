@@ -159,6 +159,41 @@ function check() {
   if (names('main-qa').has('task_define'))
     throw new Error('task ledger tool declared in plain Q&A');
 
+  // B08: a description that only says how to use a tool cannot prevent the
+  // wrong-tool call. The high-traffic and mutating tools name the sibling that
+  // should have been used instead, and the added guidance stays inside a budget
+  // so it cannot quietly double the declaration cost.
+  const NEGATIVE_GUIDANCE = {
+    read_file: [/not for/i, /list_directory/, /read_image/, /search_code/],
+    exec: [/not for/i, /read_file/, /edit_file/, /search_code/],
+    search_code: [/not for/i, /read_file/, /list_directory/],
+    search_files: [/not for/i, /search_code/, /list_directory/],
+    write_file: [/not for/i, /edit_file/],
+    edit_file: [/not for/i, /write_file/, /apply_patch/],
+    multi_edit: [/not for/i, /write_file/, /edit_file/],
+    apply_patch: [/not for/i, /edit_file/, /write_file/],
+    move_file: [/not for/i, /edit_file/],
+    list_directory: [/not for/i, /search_files/, /search_code/],
+    read_image: [/not for/i, /read_file/],
+  };
+  const MAX_DESCRIPTION_CHARS = 1_200;
+  for (const [name, patterns] of Object.entries(NEGATIVE_GUIDANCE)) {
+    const tool = builtinTools.find((candidate) => candidate.name === name);
+    if (!tool) throw new Error(`tool ${name} is not registered`);
+    const description = String(tool.description ?? '');
+    for (const pattern of patterns) {
+      if (!pattern.test(description)) {
+        throw new Error(
+          `${name} description does not match ${pattern} (missing negative guidance)`
+        );
+      }
+    }
+    if (description.length > MAX_DESCRIPTION_CHARS) {
+      throw new Error(
+        `${name} description is ${description.length} chars (budget ${MAX_DESCRIPTION_CHARS})`
+      );
+    }
+  }
   const scope = new Map(result.scopes.map((entry) => [entry.id, entry]));
   if (scope.get('critic').count !== 0) throw new Error('critic scope must have no tools');
   const order = ['read-only', 'explore', 'verify', 'full'];

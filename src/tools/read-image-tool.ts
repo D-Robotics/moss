@@ -140,7 +140,8 @@ export const readImageTool: Tool = {
   description:
     'Attach a local image (PNG/JPEG/GIF/WebP, up to 3 MB) to the conversation so you can see it. ' +
     'Use this for screenshots, photos, diagrams and rendered UI instead of read_file — read_file returns text and ' +
-    'reports binary files as errors. The tool returns a short description line plus the image itself; ' +
+    'reports binary files as errors. Not for text, source code or SVG you want as text (read_file). ' +
+    'The tool returns a short description line plus the image itself; ' +
     'answer from what you see, and say when something is not visible instead of guessing.',
   metadata: {
     classification: { singleCallExempt: true, discovery: true },
