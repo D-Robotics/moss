@@ -30,6 +30,24 @@ export const EXEC_DEFAULT_TIMEOUT_MS = (() => {
 export const EXEC_MAX_FOREGROUND_TIMEOUT_MS = 600_000;
 
 /**
+ * Other harnesses give their shell tool a `cwd` / `working_directory` input;
+ * Moss's exec always starts at the workspace root. Silently ignoring it ran the
+ * command in the wrong directory, so name the parameter and the fix instead.
+ */
+export function execCwdRefusal(input: Record<string, unknown>): string | null {
+  for (const key of ['cwd', 'working_directory', 'workdir']) {
+    const value = input[key];
+    if (typeof value === 'string' && value.trim()) {
+      return (
+        `Error: exec has no ${key} parameter — commands start at the workspace root and cwd does not persist. ` +
+        `Nothing ran. Prefix the command instead: cd ${JSON.stringify(value.trim())} && <command>.`
+      );
+    }
+  }
+  return null;
+}
+
+/**
  * Normalize a model-supplied `timeout_ms` for a foreground command. Absent,
  * zero, negative, or non-numeric values fall back to the default; anything
  * above the ceiling is clamped instead of blocking the turn for an hour.

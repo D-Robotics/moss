@@ -27,6 +27,7 @@ import { evidenceTools } from './evidence-tools.js';
 import { taskTools } from './task-tools.js';
 import {
   EXEC_MAX_FOREGROUND_TIMEOUT_MS,
+  execCwdRefusal,
   globalToolStateManager,
   looksBinary,
   openChildEnv,
@@ -196,6 +197,8 @@ export const execTool: Tool = {
     required: ['command'],
   },
   async execute(input, ctx) {
+    const cwdRefusal = execCwdRefusal(input as Record<string, unknown>);
+    if (cwdRefusal) return cwdRefusal;
     // Claude Code Bash parity: run_in_background on the main exec tool so the
     // model does not have to discover a separate background tool.
     if (input.run_in_background === true) {

@@ -52,7 +52,12 @@ import {
   type BackgroundProc,
   type BackgroundWaitMode,
 } from '../core/tools/background-process-registry.js';
-import { EXEC_DEFAULT_TIMEOUT_MS, openChildEnv, takeShellNotices } from './tool-helpers.js';
+import {
+  EXEC_DEFAULT_TIMEOUT_MS,
+  execCwdRefusal,
+  openChildEnv,
+  takeShellNotices,
+} from './tool-helpers.js';
 import { isSafeRegex } from './search-tools.js';
 
 /**
@@ -124,6 +129,9 @@ export const execBackgroundTool: Tool = {
     if (ctx.abortSignal?.aborted) {
       return 'Background command cancelled before start.';
     }
+
+    const cwdRefusal = execCwdRefusal(input as Record<string, unknown>);
+    if (cwdRefusal) return cwdRefusal;
 
     const command = String(input.command ?? '').trim();
     if (!command) return 'Error: command is required';
