@@ -62,3 +62,20 @@ test('tool input: unrelated keys stay untouched', () => {
   const result = validateToolInputObject(spec, { path: 'a', files: ['b'] });
   assert.deepEqual(result, { ok: true, value: { path: 'a', files: ['b'] } });
 });
+
+test('tool input: file_path and str_replace spellings snap onto the Moss names', () => {
+  const read = tool({ path: { type: 'string' } }, ['path']);
+  assert.deepEqual(validateToolInputObject(read, { file_path: 'src/a.ts' }), {
+    ok: true,
+    value: { path: 'src/a.ts' },
+  });
+
+  const edit = tool(
+    { path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' } },
+    ['path', 'old_string', 'new_string']
+  );
+  assert.deepEqual(validateToolInputObject(edit, { path: 'a', old_str: 'x', new_str: 'y' }), {
+    ok: true,
+    value: { path: 'a', old_string: 'x', new_string: 'y' },
+  });
+});

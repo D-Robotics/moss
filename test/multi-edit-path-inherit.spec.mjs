@@ -77,3 +77,13 @@ test('a batch with no path anywhere still asks for one', async (t) => {
   );
   assert.match(out, /^Error: edits\[0\]\.path is required/);
 });
+
+test('edits[] entries accept file_path / old_str / new_str spellings', async (t) => {
+  const dir = await workspace(t);
+  const out = await multiEditTool.execute(
+    { edits: [{ file_path: 'p.txt', old_str: 'beta', new_str: 'B' }] },
+    ctx(dir)
+  );
+  assert.match(out, /Applied 1 edit\(s\)/);
+  assert.equal(await fs.readFile(path.join(dir, 'p.txt'), 'utf8'), 'alpha\nB\ngamma\n');
+});

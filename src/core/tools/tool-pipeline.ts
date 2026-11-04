@@ -37,6 +37,19 @@ function normalizeParamName(name: string): string {
 }
 
 /**
+ * Same parameter, different name — the normalization above cannot join these.
+ * Claude Code's Read/Write/Edit declare `file_path`; Anthropic's str_replace_editor
+ * declares `old_str`/`new_str`. Moss declares `path`/`old_string`/`new_string`,
+ * so a model following the habit lost the whole turn to
+ * `missing required parameter "path"`.
+ */
+const CROSS_HARNESS_PARAM_ALIASES: Record<string, string> = {
+  filepath: 'path',
+  oldstr: 'old_string',
+  newstr: 'new_string',
+};
+
+/**
  * Models are trained across harnesses and emit the other harness's spelling
  * (Qoder asks for `multiSelect`; Moss declares `multi_select`). A misspelled key
  * is otherwise dropped silently, so the call runs with a default the model
@@ -53,7 +66,9 @@ function snapParamAliases(
   let snapped: Record<string, unknown> | null = null;
   for (const key of Object.keys(input)) {
     if (props[key]) continue;
-    const target = byNormalized.get(normalizeParamName(key));
+    const normalized = normalizeParamName(key);
+    const alias = CROSS_HARNESS_PARAM_ALIASES[normalized];
+    const target = byNormalized.get(normalized) ?? (alias && props[alias] ? alias : undefined);
     if (!target || input[target] !== undefined) continue;
     snapped ??= { ...input };
     snapped[target] = input[key];

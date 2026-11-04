@@ -702,6 +702,27 @@ function inheritBatchPath(raw: unknown[], fallbackPath: unknown): unknown[] {
 }
 
 /**
+ * `edits[]` entries sit below the parameter-alias snap, which only rewrites
+ * top-level keys. Accept the same cross-harness names there rather than
+ * failing the batch on `edits[0].path is required` for a call that named one.
+ */
+function snapEditEntryAliases(entry: unknown): unknown {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+  const record = entry as Record<string, unknown>;
+  const { file_path, old_str, new_str, ...rest } = record;
+  return {
+    ...rest,
+    ...(rest.path === undefined && typeof file_path === 'string' ? { path: file_path } : {}),
+    ...(rest.old_string === undefined && typeof old_str === 'string'
+      ? { old_string: old_str }
+      : {}),
+    ...(rest.new_string === undefined && typeof new_str === 'string'
+      ? { new_string: new_str }
+      : {}),
+  };
+}
+
+/**
  * Apply an ordered list of replacements across files, all-or-nothing: every
  * edit is matched in memory first and files are written only when all of them
  * succeeded. Backs `edit_file`'s `edits[]` form and the `multi_edit` alias.
@@ -718,7 +739,7 @@ async function applyEditBatch(raw: unknown[], ctx: ToolContext, toolName: string
     const summaries: string[] = [];
 
     for (let i = 0; i < raw.length; i++) {
-      const item = raw[i] as Record<string, unknown>;
+      const item = snapEditEntryAliases(raw[i]) as Record<string, unknown>;
       const displayPath = String(item?.path ?? '');
       if (!displayPath) return `Error: edits[${i}].path is required.`;
       const oldStr = String(item?.old_string ?? '');
