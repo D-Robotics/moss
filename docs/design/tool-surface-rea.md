@@ -229,3 +229,20 @@ The two adopted rows are implemented in `src/tools/builtin.ts` (exec) and `src/t
 ## 2026-11-04 设备面收敛
 
 七个空 schema 只读探针（`device_info/processes/resources/temperature/network/cameras/robotics_status`）合并为 `device_probe(kind=…)`；旧名仍注册（`hiddenFromModel`），供子代理 scope、截断预算、旧 transcript 与 SDK 按名解析。模型可见工具数 45→36（配置设备时）。
+
+## 2026-11-04 斜杠命名空间（W3b）
+
+一个 `/name` 可能同时是内置命令、`.moss/commands` 文件命令或 skill。优先级现在是数据
+（`core/capabilities/slash.ts` 的 `slashEntryRank`）：
+
+| 优先级 | 来源                                                             |
+| ------ | ---------------------------------------------------------------- |
+| 1      | 内置命令（保留名，文件命令不能占用）                             |
+| 2      | workspace 文件命令（`.moss/commands/*.md`）                      |
+| 3      | user 文件命令（`<configDir>/commands/*.md`）                     |
+| 4      | workspace skill（`.moss/skills/*/SKILL.md` 的 slash token/别名） |
+| 5      | user skill（`<configDir>/skills/*/SKILL.md`）                    |
+
+启动时 `collectSlashNamespace` 把四个来源合成一张表：被遮蔽的名字会打一条
+`[slash] … shadows …`（含失败方文件来源和修复建议），不再静默失效；command/skill 同时作为
+`CapabilityDescriptor` 进注册表（`activation: manual`），能力报表能看到它们的 scope 与来源。

@@ -13,7 +13,6 @@
  * dependencies. Non-TTY or `--no-tty` sessions fall back to the readline REPL.
  */
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -226,6 +225,7 @@ import {
 import { installTuiLogSink } from './terminal-io.js';
 import { noteFrameHeight } from './frame-invariant.js';
 import { createRunCompletionTracker, noteRunCompletionEvent } from '../run-completion.js';
+import { approvalPlanVersion, extractPlanVersion } from '../plan-version.js';
 import { formatOutcomeLine, resolveRunOutcome } from '../run-outcome.js';
 import {
   createViewport,
@@ -645,6 +645,8 @@ export function TuiAppRoot({
   const modelProbeGenerationRef = useRef(0);
   /** Plan-mode exit gate, filled in after `dispatchRun` exists (below). */
   const planGateRef = useRef<(() => void) | undefined>(undefined);
+  /** Version the model submitted via `exit_plan` this run (cleared on approval). */
+  const submittedPlanVersionRef = useRef<string | undefined>(undefined);
   const runStartedAtRef = useRef<number | undefined>(undefined);
   const pendingDialogRef = useRef<PendingDialog | null>(null);
   /** Timer behind the D-7 two-press Ctrl+C quit confirmation. */
@@ -1283,6 +1285,10 @@ export function TuiAppRoot({
             flushProse(store);
           }
           applyAgentEvent(store, event);
+          if (event.type === 'tool_end' && event.toolName === 'exit_plan' && !event.isError) {
+            const version = extractPlanVersion(event.result);
+            if (version) submittedPlanVersionRef.current = version;
+          }
           runtime.applyEvent(event);
           if (event.type === 'done') {
             reconcileFinalResponse(store, event.result?.response);
@@ -1351,7 +1357,11 @@ export function TuiAppRoot({
         runtimeSettled &&
         !halted &&
         getCliInteractionMode() === 'plan' &&
-        (rowsThisRun.some((row) => row.kind === 'tool') ||
+        // Approval names the plan the model actually submitted. A plan-shaped run
+        // that never called `exit_plan` still gets the gate, but its receipt says
+        // so (fallback hash), which is what makes "approved" auditable.
+        (submittedPlanVersionRef.current !== undefined ||
+          rowsThisRun.some((row) => row.kind === 'tool') ||
           rowsThisRun.some((row) => row.kind === 'assistant' && row.text.length > 300));
       handle.notify();
       if (producedPlan) planGateRef.current?.();
@@ -1648,13 +1658,12 @@ export function TuiAppRoot({
     if (pendingDialogRef.current) return;
     runtime.setApprovalPending(true);
     handle.notify();
-    // Name the version the user is approving. The plan is conversational text, so
-    // the fingerprint is the only stable handle; the follow-up message echoes it so
-    // "approved" refers to a specific plan and a later revision must be re-approved.
+    // Name the version the user is approving. `exit_plan` already stamped the
+    // submitted plan; the receipt echoes that stamp so approval binds to one
+    // version (fallback hash only when the model skipped exit_plan).
     const planText = [...store.rows].reverse().find((row) => row.kind === 'assistant')?.text ?? '';
-    const planVersion = planText
-      ? crypto.createHash('sha256').update(planText, 'utf8').digest('hex').slice(0, 12)
-      : 'unknown';
+    const planVersion = approvalPlanVersion(submittedPlanVersionRef.current, planText);
+    submittedPlanVersionRef.current = undefined;
     const PROCEED_AUTO = 'Proceed: accept edits this session.';
     const PROCEED_MANUAL = 'Proceed: keep manual approvals.';
     const entry: PendingDialog = {

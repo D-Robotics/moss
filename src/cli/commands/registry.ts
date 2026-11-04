@@ -130,6 +130,9 @@ export interface CommandSpec {
 
   aliases?: readonly `/${string}`[];
 
+  /** Where a file command came from; built-ins omit it. */
+  scope?: 'workspace' | 'user';
+
   summary: string;
   /** Raw prompt body for a file-based command. Built-ins omit it. */
   body?: string;
