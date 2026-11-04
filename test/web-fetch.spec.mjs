@@ -231,3 +231,39 @@ test('a relative path is still refused as an invalid URL', async () => {
     }
   );
 });
+
+// GBK bytes for 中文; servers for Chinese sites still send this.
+const GBK_ZHONGWEN = Buffer.from([0xd6, 0xd0, 0xce, 0xc4]);
+
+test('a declared non-UTF-8 charset is decoded as that charset', async () => {
+  const body = Buffer.concat([Buffer.from('<h1>'), GBK_ZHONGWEN, Buffer.from('</h1>')]);
+  const f = stubFetch(
+    () => new Response(body, { status: 200, headers: { 'content-type': 'text/html; charset=gbk' } })
+  );
+  try {
+    const tool = createWebFetchTool({ resolveHostAddresses: async () => [PUBLIC_IP] });
+    const out = await tool.execute({ url: 'https://example.com/gbk' }, ctx());
+    assert.match(out, /中文/, 'GBK bytes decoded to the characters they encode');
+  } finally {
+    f.restore();
+  }
+});
+
+test('a page that declares its charset only in <meta> is decoded by it', async () => {
+  const body = Buffer.concat([
+    Buffer.from('<html><head><meta charset="gbk"></head><body><p>'),
+    GBK_ZHONGWEN,
+    Buffer.from('</p></body></html>'),
+  ]);
+  const f = stubFetch(
+    () => new Response(body, { status: 200, headers: { 'content-type': 'text/html' } })
+  );
+  try {
+    const tool = createWebFetchTool({ resolveHostAddresses: async () => [PUBLIC_IP] });
+    const out = await tool.execute({ url: 'https://example.com/meta' }, ctx());
+    assert.match(out, /中文/);
+    assert.doesNotMatch(out, /ä¸­æ–‡/, 'no UTF-8 mojibake of the GBK bytes');
+  } finally {
+    f.restore();
+  }
+});

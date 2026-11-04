@@ -243,6 +243,42 @@ function getTurndown(): TurndownService {
   return turndown;
 }
 
+/** `charset=` from a Content-Type header, lowercased, or null. */
+function headerCharset(contentType: string): string | null {
+  const match = /charset\s*=\s*"?\s*([a-z0-9._:-]+)/i.exec(contentType);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+/**
+ * `<meta charset=gbk>` or a legacy `content="text/html; charset=gbk"` in the
+ * first 4 KB, for servers that omit the header. Read as latin1 so the byte
+ * offsets survive whatever encoding the page actually uses.
+ */
+function metaCharset(body: Buffer): string | null {
+  const head = body.subarray(0, 4096).toString('latin1');
+  const match =
+    /<meta[^>]+charset\s*=\s*["']?\s*([a-z0-9._:-]+)/i.exec(head) ??
+    /<meta[^>]+content\s*=\s*["'][^"']*charset\s*=\s*([a-z0-9._:-]+)/i.exec(head);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+/**
+ * Decode a text response with the encoding the server declared, or the one the
+ * page declares in its own `<meta>` tag. Decoding a GBK/Big5/Shift_JIS page as
+ * UTF-8 produced mojibake that read as the page's content.
+ */
+function decodeTextBody(body: Buffer, contentType: string, sniffMeta: boolean): string {
+  for (const label of [headerCharset(contentType), sniffMeta ? metaCharset(body) : null, 'utf-8']) {
+    if (!label) continue;
+    try {
+      return new TextDecoder(label).decode(body);
+    } catch {
+      // Unknown label from a sloppy server: try the next candidate.
+    }
+  }
+  return body.toString('utf-8');
+}
+
 function htmlToText(html: string, maxChars: number): string {
   let out: string;
   try {
@@ -667,7 +703,7 @@ export function createWebFetchTool(opts: WebFetchOptions = {}): Tool<{
             out = body.toString('utf-8');
           }
         } else if (isText) {
-          const text = body.toString('utf-8');
+          const text = decodeTextBody(body, contentType, contentType.includes('html'));
           if (contentType.includes('html')) {
             // Extract more than final budget when focusing so keyword sections
             // deeper in the page can still be selected.
