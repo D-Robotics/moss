@@ -20,6 +20,23 @@ import {
 } from '../safety/tool-output-redact.js';
 import { isMossCredentialPath, resolveReadPath } from '../safety/read-scope.js';
 
+/**
+ * Lines of a text file where a trailing newline ends the last line instead of
+ * starting an empty one. `split('\n')` said a three-line file had four, so a
+ * plain read showed a phantom empty line and `offset 4` returned it as if it
+ * existed (`wc -l` says 3).
+ */
+function contentLines(content: string): string[] {
+  const lines = content.split('\n');
+  if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
+/** Drop the newline that terminates the last line, so numbering ends with it. */
+function withoutTrailingNewline(content: string): string {
+  return content.endsWith('\n') ? content.slice(0, -1) : content;
+}
+
 /** Strip read_file-style line-number prefixes the model often pastes back. */
 export function stripLineNumberPrefixes(s: string): string {
   return s.replace(/^[ \t]*\d{1,6}\t/gm, '');
@@ -245,7 +262,7 @@ export const readFileTool: Tool = {
       const hasRange = input.offset !== undefined || input.limit !== undefined;
       const result = (() => {
         if (hasRange) {
-          const lines = content.split('\n');
+          const lines = contentLines(content);
           const start = Math.max(1, Math.floor(Number(input.offset) || 1));
           if (start > lines.length) {
             // An empty window used to print `[lines 99-4 of 4]` with no body,
@@ -275,7 +292,7 @@ export const readFileTool: Tool = {
             `\n\n[... truncated, total ${content.length} chars — pass offset/limit to page through the rest]`
           );
         }
-        return withLineNumbers(content);
+        return withLineNumbers(withoutTrailingNewline(content));
       })();
       // Record against the raw body size; credential paths are redacted below
       // so an unchanged re-read still short-circuits on disk state.
