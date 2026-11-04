@@ -1,0 +1,8 @@
+{
+  "id": "skills-install-lock",
+  "tags": ["domain:skills", "tools:skill-install", "tier:core"],
+  "maxTurns": 10,
+  "timeoutMs": 300000,
+  "passEnv": ["MOSS_BENCH_CLI"],
+  "prompt": "This workspace contains a skill project at skill-src/ (SKILL.md plus scripts/ and references/). Do this end to end with the moss CLI ($MOSS_BENCH_CLI holds the dist/cli.js path):\n\n1. Install it into the workspace scope non-interactively:\n   node \"$MOSS_BENCH_CLI\" skill install skill-src --workspace --yes\n2. Verify the lockfile:\n   node \"$MOSS_BENCH_CLI\" skill lock --workspace\n   It must print a line for bench-install ending in \"ok\".\n3. Prove drift detection: append one line to .moss/skills/bench-install/SKILL.md, run `node \"$MOSS_BENCH_CLI\" skill lock --workspace` again, and record that it exits 1 and reports DRIFT.\n4. Restore the installed tree (reinstall or update with --yes) and run skill lock one final time; it must be back to exit 0 with \"ok\".\n\nNever execute scripts/run.sh. Do not edit skill-src/. Finish by quoting the final lock line and the drift line verbatim."
+}

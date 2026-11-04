@@ -2,7 +2,7 @@
 
 > 范围：`src/core/skills/`、`src/tools/skill-tool.ts`、`src/cli/skill-commands.ts`，以及它们与提示词装配、能力注册表、
 > 斜杠命名空间、子代理、任务能力发现的接口。
-> 状态：设计稿（SK1–SK7 待实施）。上游依据：Agent Skills 规范、Claude Code 实测、Cursor 3.27 实测与官方文档。
+> 状态：SK1–SK7 已实施（2026-11-04，main `09670007`…`3875217b` + SK7）；每波的验证命令与结果见第 7 节各波末行。上游依据：Agent Skills 规范、Claude Code 实测、Cursor 3.27 实测与官方文档。
 > 相关：[顶层架构](2026-11-04-moss-top-level-architecture.md)、[工具面审计](../design/tool-surface-rea.md)、
 > [Cursor/Claude 证据](../research/2026-11-04-cursor-claude-agent-design/README.md)。
 
@@ -242,6 +242,16 @@ export interface SkillIssue {
 
 ## 7. 实施计划（每波一个 commit + 行为证据）
 
+| 波次               | commit     | 状态                                        |
+| ------------------ | ---------- | ------------------------------------------- |
+| SK1 契约与解析     | `09670007` | 已实施，探针 46 项含 fixture                |
+| SK2 预算与可观测   | `23cdd372` | 已实施，60 skills → 7,989/12,497 字符 mixed |
+| SK3 资源与正文包裹 | `939bb713` | 已实施，真实运行引用 `scripts/run.sh`       |
+| SK4 core 内置化    | `07b82e5e` | 已实施，SDK example + 真实子代理加载技能    |
+| SK5 作用域与激活   | `020df3ce` | 已实施，`.agents/.claude` 发现 + glob 激活  |
+| SK6 信任与安装     | `3875217b` | 已实施，hash/rev/diff 全部真实跑            |
+| SK7 评估           | 本提交     | 已实施，with/without 真实对比 delta=1       |
+
 ### SK1 契约与解析（core）
 
 - 新增 `src/contracts/skill.ts`（上面的类型 + 限制常量）。
@@ -288,10 +298,22 @@ export interface SkillIssue {
 
 ### SK7 评估
 
-- `evals/evals.json` 支持 + `scripts/skill-eval.mjs`（with/without 各跑 N 次，复用 bench 的 provider/工作区隔离）；
-  指标：选择率、任务通过率差、token 差；`bench/tasks/skill-*` 至少 2 个任务。
-- 验收：对 rdk-docs bundled 技能跑一次真实 eval（无设备依赖的文档问答任务），输出 JSON 报告；
-  该报告能回答"这个技能值不值得占 catalog 的位置"。
+- `evals/evals.json` 支持（`src/core/skills/skill-evals.ts`）：接受
+  `{skill_name, evals:[{id,prompt,expected_output,expect_contains}]}` 与 `{cases:[...]}` 两种形态；
+  只有 `expect_contains`（全部子串命中）与 `setup`（预置文件）参与判定，`expected_output` 仅供人读，
+  报告里标注 unasserted——对散文做子串匹配比不做检查更糟。坏文件产出 `evals-invalid` issue，
+  在 `moss skill validate` 与启动告警里出现，但不阻止技能加载。
+- `scripts/skill-eval.mjs <skill-dir|name> [--mode both|with|without] [--json 报告] [--dry-run]`：
+  每个 case 在一次性工作区里跑两次真实 CLI（`dist/cli.js -p`），with 模式把技能复制进
+  `.moss/skills/<name>`；判定 = 退出码 0 且 `expect_contains` 全中。报告含 `withPass/withoutPass/delta`。
+  `--dry-run` 只校验 eval 文件、不调模型。
+- `bench/tasks/skills-*`：`skills-usage`（已有：脚手架→发现→`$ARGUMENTS` 注入）+
+  `skills-install-lock`（新增：install --workspace → lock ok → 人为篡改成 DRIFT → 恢复后 lock 仍 ok）。
+- 验收（已完成）：fixture 技能 token-demo 的真实 with/without 运行 → `with` PASS、`without` FAIL、
+  `delta=1`，报告 `bench/results/skill-eval-token-demo.json`（不入库）；`skills-install-lock/check.mjs`
+  在模拟工作区 PASS，篡改后 FAIL。
+- 未做（诚实边界）：rdk-docs bundled 技能的真实 eval 需要 MCP 网络与手册内容，本轮未跑；
+  该技能价值判断仍靠 `docs/specs` 的 MCP 边界设计，不用假数据充数。
 
 ## 8. 明确不做
 
@@ -304,13 +326,13 @@ export interface SkillIssue {
 
 ## 9. 验收清单（探针可机检项）
 
-- [ ] `name`/`description`/body 大小限制与 issues 上报（SK1）
-- [ ] 多行 description、行内列表、`metadata` 一层解析（SK1）
-- [ ] catalog 预算：60 skills → ≤8,000 字符、omitted/strategy 正确（SK2）
-- [ ] `/skills` 与 `MOSS_PROMPT_LAYERS=1` 打印渲染统计（SK2）
-- [ ] `skill` 工具声明 `maxResultTokens/classification`，正文包裹含来源/版本/资源（SK3）
-- [ ] SDK/子代理可获得 catalog（SK4）
-- [ ] `.agents/skills/` 被发现；同名冲突告警（SK5）
-- [ ] glob 技能在路径触达后进入 catalog（SK5）
-- [ ] install/lock/update 的 hash 与 diff（SK6）
-- [ ] with/without 技能评估报告（SK7）
+- [x] `name`/`description`/body 大小限制与 issues 上报（SK1；探针 fixture）
+- [x] 多行 description、行内列表、`metadata` 一层解析（SK1；含 `>-` chomp 修复）
+- [x] catalog 预算：60 skills → ≤8,000 字符、omitted/strategy 正确（SK2；7,989/12,497 mixed）
+- [x] `/skills` 与 `MOSS_PROMPT_LAYERS=1` 打印渲染统计（SK2；note 含 skills/chars/strategy）
+- [x] `skill` 工具声明 `maxResultTokens/classification`，正文包裹含来源/版本/资源（SK3；真实运行引用 `scripts/run.sh`）
+- [x] SDK/子代理可获得 catalog（SK4；`examples/skill-catalog.mjs` + 真实子代理加载 1.2.3）
+- [x] `.agents/skills/` 被发现；同名冲突告警（SK5；真实启动打印 shadowed 告警）
+- [x] glob 技能在路径触达后进入 catalog（SK5；`[skills] paths touched: src/app.ts → glob-activated`）
+- [x] install/lock/update 的 hash 与 diff（SK6；drift exit 1、update 无 `--yes` exit 1）
+- [x] with/without 技能评估报告（SK7；token-demo delta=1）

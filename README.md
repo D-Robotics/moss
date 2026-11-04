@@ -326,7 +326,7 @@ pip install bpu_infer_lib_x3-1.0.3-py3-none-any.whl
 | `moss tasks list\|evidence\|deployments\|acceptance\|device`               | 只读巡检机器人闭环产物                                                              |
 | `moss device add\|list\|remove\|test\|fleet`                               | 设备清单与多机只读巡检                                                              |
 | `moss mcp add\|list\|remove\|test`                                         | MCP 服务器管理                                                                      |
-| `moss skill create\|list`                                                  | 技能管理                                                                            |
+| `moss skill create\|list\|validate\|install\|update\|lock`                 | 技能管理 / 规范校验 / 带 hash 锁的安装与升级                                        |
 | `moss update`                                                              | 打印升级命令（npm 全局或 git 克隆）；不执行                                         |
 
 > `plugins` / `migrate` / `web` / `agent` 属于已移除的子系统，本构建里会**明确报错**，不会悄悄 fallback。`moss <command> --help` 仍给出该子命令自己的用法。

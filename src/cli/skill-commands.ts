@@ -205,6 +205,14 @@ export async function runSkillCommand(argv: string[], ctx: SkillCommandContext):
     );
     if (skill.allowedTools.length > 0)
       out(`${zh ? '声明工具' : 'declared tools'}: ${skill.allowedTools.join(' ')}`);
+    const { loadSkillEvals } = await import('../core/skills/skill-evals.js');
+    const evals = loadSkillEvals(skill.dir);
+    if (evals.cases.length > 0) {
+      const assertable = evals.cases.filter((entry) => entry.expectContains.length > 0).length;
+      out(
+        `${zh ? '评测' : 'evals'}: ${String(evals.cases.length)} case(s), ${String(assertable)} with assertable expect_contains; run node scripts/skill-eval.mjs ${skill.dir}`
+      );
+    }
     if (skill.issues.length === 0) {
       out(zh ? '没有问题。' : 'No issues.');
       return 0;

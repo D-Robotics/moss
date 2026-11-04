@@ -27,6 +27,7 @@ import {
 } from '../../contracts/skill.js';
 import { renderSkillCatalog } from './skill-catalog.js';
 import { asString, asStringList, parseFrontmatter } from './skill-parse.js';
+import { loadSkillEvals } from './skill-evals.js';
 
 export type {
   SkillManifest,
@@ -220,6 +221,7 @@ export function readSkillManifest(
   }
   const dir = path.dirname(file);
   const resources = scanSkillResources(dir);
+  for (const issue of loadSkillEvals(dir).issues) issues.push(issue);
   const metadataField = parsed.fields.metadata;
   const metadata: Record<string, string> =
     metadataField && typeof metadataField === 'object' && !Array.isArray(metadataField)

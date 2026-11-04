@@ -38,7 +38,8 @@ export type SkillIssueCode =
   | 'hidden-dir'
   | 'duplicate-name'
   | 'unknown-field'
-  | 'resource-oversize';
+  | 'resource-oversize'
+  | 'evals-invalid';
 
 export interface SkillIssue {
   code: SkillIssueCode;

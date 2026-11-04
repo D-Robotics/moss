@@ -351,7 +351,7 @@ Usually a pip overlay of system hobot / hbm packages, or OS &lt; 3.5.0 running a
 | `moss tasks list\|evidence\|deployments\|acceptance\|device`               | Read-only robotics artifacts                                                        |
 | `moss device add\|list\|remove\|test\|fleet`                               | Device registry + read-only fleet probe                                             |
 | `moss mcp add\|list\|remove\|test`                                         | MCP server management                                                               |
-| `moss skill create\|list`                                                  | Skill management                                                                    |
+| `moss skill create\|list\|validate\|install\|update\|lock`                 | Skill management / spec validation / hashed install + upgrade                       |
 | `moss update`                                                              | Print the upgrade command (npm global or git clone); it does not run it             |
 
 > `plugins` / `migrate` / `web` / `agent` belong to removed subsystems and fail loudly
