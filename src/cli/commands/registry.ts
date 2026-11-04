@@ -2,6 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { estimateTokensForText } from '../../context/tokens.js';
+import {
+  buildProviderToolDeclarations,
+  shouldLeanToolDescriptions,
+} from '../../core/loop/agent-loop-context-prep.js';
 import type { MossAgent } from '../../core/index.js';
 import type { CompactionRecord, SessionUsageSummary } from '../session-usage.js';
 import {
@@ -436,6 +440,22 @@ const contextCommand: CommandSpec = {
           );
         }
       }
+      // What the tools cost: every turn pays for these declarations, and the
+      // lean/full decision (flag or small window) changes the number, so report
+      // the same choice the loop will make instead of a fixed estimate.
+      const offeredTools = ctx.agent.offeredTools?.() ?? [];
+      const leanSurface = shouldLeanToolDescriptions({ contextWindowTokens: windowTokens });
+      const toolDeclarations = buildProviderToolDeclarations(offeredTools, {
+        contextWindowTokens: windowTokens,
+      });
+      const toolTokens = toolDeclarations.reduce(
+        (n, declaration) =>
+          n +
+          estimateTokensForText(declaration.description) +
+          estimateTokensForText(JSON.stringify(declaration.parameters)),
+        0
+      );
+
       const configuredModel = ctx.agent.config.model ?? '';
       const reportedModel = ctx.agent.reportedModel();
       const modelLine =
@@ -459,6 +479,9 @@ const contextCommand: CommandSpec = {
           `    compact keep   ${fmt(reserveTokens)} (auto-compact reserve)`,
           ...detailLines,
           ...compactionLines,
+          `  tools      ~${fmt(toolTokens)} tokens (${toolDeclarations.length} declared, ${
+            leanSurface ? 'lean' : 'full'
+          } descriptions)`,
           `  model      ${modelLine}`,
         ].join('\n')
       );

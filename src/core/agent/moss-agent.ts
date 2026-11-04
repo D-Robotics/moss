@@ -292,6 +292,19 @@ export class MossAgent {
   }
 
   /**
+   * Tools the next turn would offer the model, by the same rules the loop uses
+   * for deferral and hiding (run-specific narrowing such as plan mode or a
+   * skill's allowed-tools applies per turn and is not reflected here). Lets a
+   * host report what the tool surface costs without re-deriving the rules.
+   */
+  offeredTools(): ReturnType<typeof filterToolsForRun> {
+    return filterToolsForRun(
+      this.tools.getAll(),
+      (tool) => this.deferredTools.isOffered(tool.name) && tool.metadata?.hiddenFromModel !== true
+    );
+  }
+
+  /**
    * Point the agent at another model and rebuild the persona prompt from
    * `identityFactory` when one was configured. Every host switch (TUI `/model`,
    * REPL, setup save) goes through here so the system prompt cannot keep the
