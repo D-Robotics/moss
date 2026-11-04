@@ -491,6 +491,18 @@ C（+ 工具图预取）entry **308ms**（−35ms，**−10%**）/ composer **37
 C 在两项上都最好，故保留两者。行为未回退：`tool-surface` stage 通过；真实 `-p "read note.txt"`
 （脚本化 provider）里 `✓ read_file (note.txt) 9ms` —— 说明预取的内置工具在注册点确实可用。
 
+**H1 第三片（本轮）= 负结果，已回滚，但把下一步的边界问清楚了**：试把 `prompt-setup`（单独测 98ms）与
+`hooks`（65ms）也改成「启动预取 + 用时 await」。**交错 A/B 实测（同一时段、各 3 次，避免上几轮那种不同时段的
+漂移）**：基线 entry 中位数 **302ms** / composer **360ms**；改动后 entry **313ms** / composer **364ms** ——
+没有收益，故整片回滚（不留噪声级复杂度）。原因查清：这两个图**仍被 entry 里的其它模块静态拉进来**
+（`src/cli/approval.ts:52` 与 `src/cli/oneshot.ts:31` 都 `import './hooks.js'`），所以把它们从 `runtime.ts`
+顶部挪走并不会从静态图里消失；要真正省掉必须先拆这些导出边。
+**另一条实测结论（用 `node --cpu-prof` 给 `import('./dist/cli/runtime.js')` 采样）**：311ms 总时间里有
+**285ms 是 Node ESM/CJS loader 自身**（`esm/utils` 59.6、`node:fs` 56.5、`bootstrap/realm` 42.2、
+`cjs/loader` 24.9、url 12.5…），第三方包只有 `string-width` 11.3、`domino` 6.0、`ssh2` 1.5 —— 也就是说
+entry 的成本**按模块个数线性**，不是某个"大模块"；后续 H1 只能靠**减少 pre-composer 可达模块数**（拆导出边、
+把整块功能移到首次使用时），不能再靠挪 import 位置。
+
 **下一步候选（H1）**：把这段"首次 commit → PTY 就绪"的 200–380ms 定位出来（`composer` 后加
 `frame-written` / `raw-mode` 两个 mark，或直接测 node 冷启动占比），再决定是否值得把 composer 骨架渲染
 前移到 ink 之外；`ink` 预取本身可再提前到 `runCli` 第一行（当前在 args/phase 解析后，损失约 10–20ms）。
