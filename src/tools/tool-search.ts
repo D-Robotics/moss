@@ -37,6 +37,8 @@ export const toolSearchTool: Tool = {
     'Do not use it for a short answer or a single local edit. Empty child output is failure. ' +
     'Loaded tools are callable on the next model call.',
   metadata: {
+    leanDescription:
+      'Load deferred tool schemas. group=subagent loads the five sub-agent tools for 3+ independent subtasks, a background child, or an open-ended explore pass. Loaded tools are callable on the next model call.',
     sideEffectClass: 'readonly',
     planMode: 'allow',
   },
