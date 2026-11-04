@@ -60,6 +60,7 @@ import {
   type ProtectedPathChange,
 } from '../safety/protected-path-snapshot.js';
 import { isProtectedPathApproved } from '../safety/protected-path-approvals.js';
+import { spillToolOutput } from './tool-output-spill.js';
 
 // Re-export tools from extracted modules for backward compatibility.
 export {
@@ -394,11 +395,18 @@ export const execTool: Tool = {
           : stdoutTrimmed;
       }
       if (!looksBinary(stdoutTrimmed) && !eventCollector && outText.length > STDOUT_MAX) {
+        const spilled = spillToolOutput({
+          workspaceDir: ctx.workspaceDir,
+          toolName: 'exec',
+          text: outText,
+        });
         const head = outText.slice(0, Math.floor(STDOUT_MAX * 0.7));
         const tail = outText.slice(-Math.floor(STDOUT_MAX * 0.25));
         outText =
           `${head}\n\n... [${outText.length - STDOUT_MAX} chars omitted] ...\n\n${tail}\n` +
-          `(stdout truncated to ~${STDOUT_MAX} chars; re-run with a narrower command or pipe through tail/head/rg)`;
+          (spilled
+            ? `(stdout truncated to ~${STDOUT_MAX} chars; full output: ${spilled} — read the omitted region from there)`
+            : `(stdout truncated to ~${STDOUT_MAX} chars; re-run with a narrower command or pipe through tail/head/rg)`);
       }
       const exitNote =
         result.exitCode !== undefined && result.exitCode !== 0
@@ -455,8 +463,16 @@ export const execTool: Tool = {
         if (err.timedOut) {
           ctx.markResultError?.();
           const waited = err.timeoutMs && err.timeoutMs > 0 ? err.timeoutMs : timeoutMs;
+          // Cursor's idle_timeout_seconds answers "hung or still working?" by
+          // killing early. Report the same signal without changing the kill.
+          const silence =
+            !output && !eventTail
+              ? '; it printed nothing before the timeout'
+              : typeof err.lastOutputAgoMs === 'number'
+                ? `; last output ${(err.lastOutputAgoMs / 1000).toFixed(1)}s before the timeout`
+                : '';
           return (
-            `timed out after ${waited}ms (raise timeout_ms or use run_in_background)` +
+            `timed out after ${waited}ms (raise timeout_ms or use run_in_background)${silence}` +
             (eventCollector ? eventTail : output ? `\n${output}` : '') +
             `${l3Notice}` +
             writebackWarning +

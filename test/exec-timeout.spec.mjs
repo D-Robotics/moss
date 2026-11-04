@@ -30,10 +30,27 @@ import { resolveHostShell } from '../dist/utils/host-shell.js';
     { command: 'sleep 2', timeout_ms: 200 },
     { workspaceDir, sessionKey: 'timeout', abortSignal: new AbortController().signal }
   );
-  assert.match(text, /timed out after 200ms \(raise timeout_ms or use run_in_background\)/);
+  assert.match(
+    text,
+    /timed out after 200ms \(raise timeout_ms or use run_in_background\); it printed nothing before the timeout/
+  );
   assert.doesNotMatch(text, /exit 1/);
   assert.doesNotMatch(text, /Command failed/);
   assert.doesNotMatch(text, /exit null/);
+}
+
+{
+  // A command that printed and then went quiet reports when the last output came.
+  const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-timeout-'));
+  const text = await execTool.execute(
+    {
+      command: `"${process.execPath}" -e "console.log('started'); setTimeout(() => {}, 3000)"`,
+      timeout_ms: 600,
+    },
+    { workspaceDir, sessionKey: 'timeout-output', abortSignal: new AbortController().signal }
+  );
+  assert.match(text, /timed out after 600ms .*; last output [\d.]+s before the timeout/);
+  assert.match(text, /started/, 'the captured output still comes back');
 }
 
 if (process.platform !== 'win32') {
