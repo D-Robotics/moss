@@ -115,6 +115,27 @@ export interface McpToolCallResult {
   [key: string]: unknown;
 }
 
+/**
+ * One entry from `resources/list` (D4). Resources are read-only blobs the
+ * server publishes (files, docs, device state); they are not tools and never
+ * appear in the tool catalog.
+ */
+export interface McpResourceDescriptor {
+  uri: string;
+  name?: string;
+  description?: string;
+  mimeType?: string;
+}
+
+/** One item from `resources/read` (text or base64 blob). */
+export type McpResourceContent =
+  | { uri: string; mimeType?: string; text: string }
+  | { uri: string; mimeType?: string; blob: string };
+
+export interface McpReadResourceResult {
+  contents: McpResourceContent[];
+}
+
 /** Options accepted by transport-level request calls. */
 export interface McpTransportRequestOptions {
   timeoutMs?: number;

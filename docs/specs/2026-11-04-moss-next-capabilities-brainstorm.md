@@ -331,6 +331,16 @@
   非零退出阻塞（刻意比 Claude 严格，仅非 PreToolUse 事件才按 `claude` 格式只认 exit 2）。
 - ⬜ 仅剩可选 `failClosed`（spawn 失败/超时的可配置策略；当前默认已 fail-closed）。
 
+**进度（2026-11-04，D4 第一片）**
+
+- ✅ MCP **resources**：客户端新增 `resources/list`（分页 + 会话缓存 + "method not found → 空列表"降级）与
+  `resources/read`；每个已连接服务器自动注册 `mcp__<server>__resources` 元工具（无 uri 列资源、
+  有 uri 读内容，readonly 免审批）。
+- 验收：本地 mock stdio MCP server（`initialize`/`tools/list`/`resources/list`/`resources/read`）+ 真实
+  `-p` 会话，模型列资源后按 `mock://hello` 读回 **`RESOURCE-CONTENT-42`**（exact content）。
+- ⬜ 仍缺：prompts（`prompts/list`/`prompts/get` 与 `/` 命令映射）、elicitation、OAuth、
+  per-tool `alwaysLoad`/`defer`、描述长度上限、resources 的 `@uri` 直接引用与订阅。
+
 ### 可选/低优先（列入但不推荐立刻做）
 
 - D13 定时/循环任务（`/loop`、cron）：参考有 scheduled tasks；Moss `/goal` 已覆盖大部分，先观察。

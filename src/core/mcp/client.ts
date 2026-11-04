@@ -8,6 +8,9 @@ import { MossError, ErrorCode } from '../../errors.js';
 import { uiText } from '../../utils/ui-language.js';
 import { getRootLogger } from '../../logger.js';
 import type {
+  McpReadResourceResult,
+  McpResourceContent,
+  McpResourceDescriptor,
   McpServerConfig,
   McpToolCallResult,
   McpToolDescriptor,
@@ -64,6 +67,7 @@ function isInitializeResult(value: unknown): value is InitializeResult {
 export class McpClient {
   private transport: McpTransport;
   private toolsCache: McpToolDescriptor[] | null = null;
+  private resourcesCache: McpResourceDescriptor[] | null = null;
   private initialized = false;
   private initPromise: Promise<void> | null = null;
   private closing = false;
@@ -162,6 +166,51 @@ export class McpClient {
     return tools;
   }
 
+  /**
+   * `resources/list` with cursor pagination and a session cache (D4). Servers
+   * that do not implement resources answer with a JSON-RPC "method not found"
+   * error; that is not a connection failure, so it maps to an empty list.
+   */
+  async listResources(
+    opts: { refresh?: boolean; signal?: AbortSignal } = {}
+  ): Promise<McpResourceDescriptor[]> {
+    if (!opts.refresh && this.resourcesCache) return this.resourcesCache;
+    const resources: McpResourceDescriptor[] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    try {
+      do {
+        const result = await this.transport.request('resources/list', cursor ? { cursor } : {}, {
+          timeoutMs: this.requestTimeoutMs,
+          signal: opts.signal,
+        });
+        const page = parseResourcesListResult(result);
+        resources.push(...page.resources);
+        cursor = page.nextCursor;
+        pages += 1;
+      } while (cursor && pages < 100);
+    } catch (err) {
+      if (!isMethodNotFound(err)) throw err;
+      this.resourcesCache = [];
+      return this.resourcesCache;
+    }
+    this.resourcesCache = resources;
+    return resources;
+  }
+
+  /** `resources/read` — server-side read of one resource URI. */
+  async readResource(
+    uri: string,
+    opts: { timeoutMs?: number; signal?: AbortSignal } = {}
+  ): Promise<McpReadResourceResult> {
+    const result = await this.transport.request(
+      'resources/read',
+      { uri },
+      { timeoutMs: opts.timeoutMs ?? this.requestTimeoutMs, signal: opts.signal }
+    );
+    return parseReadResourceResult(result);
+  }
+
   getCachedTools(): McpToolDescriptor[] | undefined {
     return this.toolsCache ?? undefined;
   }
@@ -201,6 +250,52 @@ export class McpClient {
     this.closing = true;
     await this.transport.close();
   }
+}
+
+/** True when a JSON-RPC error means "this server has no resource support". */
+function isMethodNotFound(err: unknown): boolean {
+  const text = err instanceof Error ? err.message : String(err);
+  return /method not found|not supported|unsupported|\-32601/i.test(text);
+}
+
+function parseResourcesListResult(value: unknown): {
+  resources: McpResourceDescriptor[];
+  nextCursor?: string;
+} {
+  if (typeof value !== 'object' || value === null) return { resources: [] };
+  const raw = value as { resources?: unknown; nextCursor?: unknown };
+  const resources: McpResourceDescriptor[] = Array.isArray(raw.resources)
+    ? raw.resources.filter(
+        (r): r is McpResourceDescriptor =>
+          typeof r === 'object' &&
+          r !== null &&
+          typeof (r as { uri?: unknown }).uri === 'string' &&
+          (r as { uri: string }).uri.length > 0
+      )
+    : [];
+  const nextCursor = typeof raw.nextCursor === 'string' ? raw.nextCursor : undefined;
+  return { resources, ...(nextCursor ? { nextCursor } : {}) };
+}
+
+function parseReadResourceResult(value: unknown): McpReadResourceResult {
+  if (typeof value !== 'object' || value === null) return { contents: [] };
+  const raw = (value as { contents?: unknown }).contents;
+  const contents: McpResourceContent[] = Array.isArray(raw)
+    ? raw.flatMap((item): McpResourceContent[] => {
+        if (typeof item !== 'object' || item === null) return [];
+        const entry = item as { uri?: unknown; mimeType?: unknown; text?: unknown; blob?: unknown };
+        const uri = typeof entry.uri === 'string' ? entry.uri : '';
+        const mimeType = typeof entry.mimeType === 'string' ? entry.mimeType : undefined;
+        if (typeof entry.text === 'string') {
+          return [{ uri, text: entry.text, ...(mimeType ? { mimeType } : {}) }];
+        }
+        if (typeof entry.blob === 'string') {
+          return [{ uri, blob: entry.blob, ...(mimeType ? { mimeType } : {}) }];
+        }
+        return [];
+      })
+    : [];
+  return { contents };
 }
 
 function parseToolsListResult(value: unknown): {

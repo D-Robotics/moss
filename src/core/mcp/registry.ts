@@ -44,6 +44,8 @@ interface ServerEntry {
   client: McpClient;
   status: McpServerStatus;
   searchTool: Tool;
+  /** Per-server `resources/list` + `resources/read` meta-tool (D4). */
+  resourceTool: Tool;
   /** Real tools created on demand, keyed by wire name (stable identity so the
    *  post-first-call schema upgrade mutates the registered object). */
   realTools: Map<string, Tool>;
@@ -187,6 +189,7 @@ export class McpToolRegistry {
         client,
         status,
         searchTool: registry.buildSearchTool(client),
+        resourceTool: registry.buildResourceTool(client),
         realTools: new Map(),
         descriptors: [],
         config,
@@ -269,7 +272,7 @@ export class McpToolRegistry {
    * the search meta-tool when its wire name is not already a server tool.
    */
   private exposedToolCount(entry: ServerEntry): number {
-    const names = new Set<string>([entry.searchTool.name]);
+    const names = new Set<string>([entry.searchTool.name, entry.resourceTool.name]);
     for (const descriptor of entry.descriptors) {
       names.add(mcpToolWireName(entry.status.name, descriptor.name));
     }
@@ -324,6 +327,7 @@ export class McpToolRegistry {
       // The search tool and any revealed real tools captured the old client;
       // rebuild the wire tools so future calls hit the new connection.
       entry.searchTool = this.buildSearchTool(client);
+      entry.resourceTool = this.buildResourceTool(client);
       entry.realTools.clear();
       entry.status.state = 'connected';
       entry.connectedOnce = true;
@@ -353,7 +357,7 @@ export class McpToolRegistry {
           e.status.state === 'connecting' ||
           e.status.state === 'connected'
       )
-      .map((e) => e.searchTool);
+      .flatMap((e) => [e.searchTool, e.resourceTool]);
   }
 
   getSearchTool(serverName: string): Tool | undefined {
@@ -446,6 +450,7 @@ export class McpToolRegistry {
     await this.waitUntilReady(entry, signal);
     if (entry.status.state !== 'connected') return undefined;
     if (wireName === entry.searchTool.name) return entry.searchTool;
+    if (wireName === entry.resourceTool.name) return entry.resourceTool;
     const existing = entry.realTools.get(wireName);
     if (existing) return existing;
     const descriptor = entry.descriptors.find(
@@ -622,6 +627,81 @@ export class McpToolRegistry {
     );
   }
 
+  /**
+   * D4: per-server resources meta-tool. List with no uri; read with a uri.
+   * Resources are read-only context the server publishes (docs, device state),
+   * so this tool is readonly and never requires approval.
+   */
+  private buildResourceTool(client: McpClient): Tool {
+    const declared = mcpResourceToolDeclaration(client.name);
+    const prepare = async (ctx: ToolContext): Promise<{ client: McpClient }> => {
+      const entry = this.entryFor(client.name);
+      let liveClient = entry?.client ?? client;
+      if (entry && (entry.status.state === 'deferred' || entry.status.state === 'connecting')) {
+        this.ensureStarted(entry);
+        await entry.ready;
+      }
+      if (entry && entry.status.state !== 'connected') {
+        if (!entry.connectedOnce) throw this.serverDidNotStart(client.name, entry.status.error);
+        if (!(await this.reconnect(entry))) {
+          throw new MossError({
+            code: ErrorCode.TOOL_EXECUTION_FAILED,
+            message: uiText(
+              `mcp resources on "${client.name}" are not callable: server state is "${entry.status.state}".`,
+              `「${client.name}」的资源不可调用：服务器状态为「${entry.status.state}」。`
+            ),
+            recoverable: true,
+          });
+        }
+        liveClient = entry.client;
+      }
+      void ctx;
+      return { client: liveClient };
+    };
+    return {
+      name: declared.name,
+      description: declared.description,
+      metadata: {
+        sideEffectClass: 'readonly',
+        planMode: 'allow',
+        permissionBoundary: 'Reads resources the MCP server publishes; no server-side mutation.',
+        retainResult: true,
+      },
+      inputSchema: declared.inputSchema,
+      execute: async (input: { uri?: string; refresh?: boolean }, ctx: ToolContext) => {
+        const { client: live } = await prepare(ctx);
+        const uri = typeof input?.uri === 'string' ? input.uri.trim() : '';
+        if (!uri) {
+          const resources = await live.listResources({
+            refresh: input?.refresh === true,
+            signal: ctx.abortSignal,
+          });
+          if (resources.length === 0) {
+            return `MCP server "${client.name}" exposes no resources.`;
+          }
+          const lines = resources.map((resource) => {
+            const label =
+              resource.name && resource.name !== resource.uri ? ` ${resource.name}` : '';
+            const mime = resource.mimeType ? ` [${resource.mimeType}]` : '';
+            return `- ${resource.uri}${label}${mime}${
+              resource.description ? ` — ${resource.description}` : ''
+            }`;
+          });
+          return `MCP server "${client.name}" resources (${resources.length}):\n${lines.join('\n')}\n\nCall this tool again with uri="<uri>" to read one.`;
+        }
+        const result = await live.readResource(uri, { signal: ctx.abortSignal });
+        if (result.contents.length === 0) {
+          return `MCP resource "${uri}" returned no content.`;
+        }
+        const parts = result.contents.map((content) => {
+          if ('text' in content) return content.text;
+          return `[binary resource ${content.uri}${content.mimeType ? ` (${content.mimeType})` : ''}, base64 ${content.blob.length} chars]`;
+        });
+        return parts.join('\n\n');
+      },
+    };
+  }
+
   private buildSearchTool(client: McpClient): Tool {
     const declared = mcpSearchToolDeclaration(client.name);
     return {
@@ -705,6 +785,37 @@ export class McpToolRegistry {
       },
     };
   }
+}
+
+/**
+ * Schema of the per-server resources meta-tool (D4). Lists resources with no
+ * uri, reads one resource with a uri.
+ */
+export function mcpResourceToolDeclaration(serverName: string): {
+  name: string;
+  description: string;
+  inputSchema: {
+    type: 'object';
+    properties: {
+      uri: { type: 'string'; description: string };
+      refresh: { type: 'boolean'; description: string };
+    };
+  };
+} {
+  return {
+    name: `${mcpServerWirePrefix(serverName)}resources`,
+    description:
+      `List or read MCP resources on "${serverName}". Call with no uri to list ` +
+      'the resources the server publishes (files, docs, device state); call with a uri ' +
+      'to read that resource.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        uri: { type: 'string', description: 'Resource URI to read; omit to list resources.' },
+        refresh: { type: 'boolean', description: 'Re-fetch the resource list (default: cached).' },
+      },
+    },
+  };
 }
 
 /**
