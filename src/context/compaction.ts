@@ -246,6 +246,33 @@ function formatFileOperations(readFiles: string[], modifiedFiles: string[]): str
 }
 
 /**
+ * The checkpoint's pointer back to dropped history (Cursor's "HISTORICAL — DO
+ * NOT EDIT" idea, adapted: Moss actually drops the messages, so the pointer to
+ * the session file is what makes them recoverable). Appended deterministically
+ * — never left to the summarizer, which cannot know the file path and would
+ * silently lose it.
+ */
+export function formatHistoricalTranscriptPointer(params: {
+  transcriptPath: string;
+  workspaceDir?: string;
+}): string {
+  const normalized = params.transcriptPath.replace(/\\/g, '/');
+  const root = params.workspaceDir?.replace(/\\/g, '/').replace(/\/+$/, '');
+  const label =
+    root && normalized.startsWith(`${root}/`) ? normalized.slice(root.length + 1) : normalized;
+  return [
+    '',
+    '',
+    '<historical-transcript>',
+    '# HISTORICAL — DO NOT EDIT',
+    `Messages dropped by this compaction are still on disk at: ${label}`,
+    'Use read_file / grep on that file to look up a dropped detail (command, output, path, decision) before re-deriving it.',
+    "Do not modify it: it is this session's audit trail.",
+    '</historical-transcript>',
+  ].join('\n');
+}
+
+/**
  * Render the active todo checklist (the most recent `todo_write` state) as an
  * `<active-todos>` block to append to the compaction summary. A long coding
  * task's todo thread is otherwise lost when the latest todo_write result lands
@@ -942,6 +969,9 @@ export async function compactHistoryIfNeeded(params: {
   abortSignal?: AbortSignal;
 
   workspaceDir?: string;
+
+  /** Durable transcript file for the checkpoint's look-back pointer. */
+  transcriptPath?: string;
 }): Promise<{
   summary?: string;
   summaryMessage?: Message;
@@ -1130,6 +1160,12 @@ export async function compactHistoryIfNeeded(params: {
   // forward into the summary the LLM sees next turn. Null/no todos → no block.
   summary += formatActiveTodos(extractLatestTodosFromMessages(params.messages));
   summary += formatActiveTask(extractTaskAnchorFromMessages(params.messages));
+  if (params.transcriptPath) {
+    summary += formatHistoricalTranscriptPointer({
+      transcriptPath: params.transcriptPath,
+      ...(params.workspaceDir ? { workspaceDir: params.workspaceDir } : {}),
+    });
+  }
 
   if (resolvedSettings.restoreFileContents) {
     const restoreRoot = params.workspaceDir ?? process.cwd();

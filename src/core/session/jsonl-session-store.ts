@@ -260,6 +260,11 @@ export class JsonlSessionStore implements SessionStore {
     return path.join(this.dir, `${this.encodedSessionStem(sessionKey)}.jsonl`);
   }
 
+  /** Public (SessionStore optional port): checkpoint lookups need the file path. */
+  transcriptPath(sessionKey: string): string {
+    return this.sessionPath(sessionKey);
+  }
+
   private async ensureDir(): Promise<void> {
     await ensureDirectoryDurably(this.dir);
   }

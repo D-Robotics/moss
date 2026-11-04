@@ -933,6 +933,7 @@ export class MossAgent {
       forceCompaction: true,
       remoteCompactProvider: this.remoteCompactProvider,
       customInstructions: customInstructions?.trim() || undefined,
+      transcriptPath: store.transcriptPath?.(sessionKey),
       abortSignal: options.abortSignal,
     });
     if (!result.summary || !result.summaryMessage) {
@@ -1792,6 +1793,7 @@ ${result.stderr ?? ''}`.trim();
           forceCompaction,
           remoteCompactProvider: this.remoteCompactProvider,
           includeThinking,
+          transcriptPath: store.transcriptPath?.(sessionKey),
           abortSignal,
         });
         if (!compactResult.summary || !compactResult.summaryMessage) {

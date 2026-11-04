@@ -31,6 +31,7 @@ import { stage as examplesStage } from './stages/examples.mjs';
 import { stage as hooksContractStage } from './stages/hooks-contract.mjs';
 import { stage as verificationGateStage } from './stages/verification-gate.mjs';
 import { stage as reviewPipelineStage } from './stages/review-pipeline.mjs';
+import { stage as compactionHistoryStage } from './stages/compaction-history.mjs';
 
 const STAGES = new Map(
   [
@@ -41,6 +42,7 @@ const STAGES = new Map(
     hooksContractStage,
     verificationGateStage,
     reviewPipelineStage,
+    compactionHistoryStage,
   ].map((stage) => [stage.name, stage])
 );
 
@@ -52,6 +54,7 @@ const FAST_GATE = [
   'hooks-contract',
   'verification-gate',
   'review-pipeline',
+  'compaction-history',
 ];
 const DEFAULT_BUDGET_SECONDS = 60;
 

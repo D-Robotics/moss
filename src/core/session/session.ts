@@ -50,6 +50,14 @@ export interface SessionStore {
   deleteSession(sessionKey: string): Promise<void>;
 
   exists(sessionKey: string): Promise<boolean>;
+
+  /**
+   * Absolute path of the session's durable transcript, when the store has one.
+   * Compaction appends this to the checkpoint so the next model can look a
+   * dropped detail up with read_file / grep instead of re-deriving it.
+   * Stores that keep no file omit this method.
+   */
+  transcriptPath?(sessionKey: string): string | undefined;
 }
 
 export class InMemorySessionStore implements SessionStore {
