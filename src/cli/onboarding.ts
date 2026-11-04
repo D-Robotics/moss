@@ -418,7 +418,7 @@ function permissionsHelpText(): string {
   if (isZhLocale()) {
     return [
       '',
-      '  模式只有一根轴 — /mode（Shift+Tab 在四种状态间循环，v0.26）：',
+      '  模式只有一根轴 — /mode（TUI 里 Shift+Tab 在四种状态间循环，v0.26）：',
       '    /mode manual        逐项确认变更',
       '    /mode accept-edits  自动通过本文件夹内的文件编辑；终端命令仍需确认（-p 下会被拦下）',
       '    /mode plan          只读规划（变更会被拦住）',
@@ -438,7 +438,7 @@ function permissionsHelpText(): string {
   }
   return [
     '',
-    '  One mode axis — /mode (Shift+Tab cycles four states, v0.26):',
+    '  One mode axis — /mode (Shift+Tab in the TUI cycles four states, v0.26):',
     '    /mode manual        approve mutations one by one',
     '    /mode accept-edits  auto-approve file edits in this folder; shell commands still ask (blocked in -p)',
     '    /mode plan          read-only planning (mutations blocked)',

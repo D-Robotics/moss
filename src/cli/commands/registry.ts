@@ -323,7 +323,7 @@ const modeCommand: CommandSpec = {
               '  /mode accept-edits  自动通过本文件夹内的文件编辑；终端命令仍需确认（-p 下会被拦下）',
               '  /mode plan          只读规划（不执行写操作）',
               '  /mode full          全开：跳过询问，仅 deny 规则与硬拦截生效（默认）',
-              '  快捷键：Shift+Tab 在四种模式间循环',
+              '  快捷键：Shift+Tab（TUI）在四种模式间循环',
               `  ${workspaceWriteLimit(true)}`,
             ].join('\n')
           : [
@@ -332,7 +332,7 @@ const modeCommand: CommandSpec = {
               '  /mode accept-edits  auto-approve file edits in this folder; shell commands still ask (blocked in -p)',
               '  /mode plan          read-only planning (block mutations)',
               '  /mode full          skip prompts — only deny rules and hard blocks apply (default)',
-              '  Shortcut: Shift+Tab cycles manual / accept-edits / plan / full',
+              '  Shortcut: Shift+Tab (TUI) cycles manual / accept-edits / plan / full',
               `  ${workspaceWriteLimit(false)}`,
             ].join('\n')
       );
@@ -355,14 +355,14 @@ const modeCommand: CommandSpec = {
       'system',
       zh
         ? next === 'plan'
-          ? `已切换到${label}：只读探索与规划；写文件/副作用命令会被拦截。规划完成后用 /mode manual 或 Shift+Tab 退出。`
+          ? `已切换到${label}：只读探索与规划；写文件/副作用命令会被拦截。规划完成后用 /mode manual 退出（TUI 里也可用 Shift+Tab）。`
           : next === 'acceptEdits'
             ? `已切换到${label}：工作区内文件工具编辑自动通过。${workspaceWriteLimit(true)} shell 变更仍会确认。`
             : next === 'full'
               ? `已切换到${label}：跳过询问，deny 规则与危险命令拦截仍生效。`
               : `已切换到${label}：正常编码，写操作与设备变更逐次确认。`
         : next === 'plan'
-          ? `Switched to ${label}: explore and plan read-only; file/side-effect tools are blocked. Leave with /mode manual or Shift+Tab when ready to implement.`
+          ? `Switched to ${label}: explore and plan read-only; file/side-effect tools are blocked. Leave with /mode manual (or Shift+Tab in the TUI) when ready to implement.`
           : next === 'acceptEdits'
             ? `Switched to ${label}: workspace file-tool edits auto-approve. ${workspaceWriteLimit(false)} Shell mutations still prompt.`
             : next === 'full'
@@ -723,8 +723,8 @@ const planCommand: CommandSpec = {
     ctx.say(
       'system',
       zh
-        ? '已进入 plan 模式：只读规划。退出：Shift+Tab、/mode manual，或 /permissions。'
-        : 'Plan mode: read-only planning. Leave with Shift+Tab, /mode manual, or /permissions.'
+        ? '已进入 plan 模式：只读规划。退出：/mode manual（TUI 里也可用 Shift+Tab），或 /permissions。'
+        : 'Plan mode: read-only planning. Leave with /mode manual (or Shift+Tab in the TUI), or /permissions.'
     );
     const description = args.trim();
     if (!description) return;

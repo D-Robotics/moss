@@ -141,6 +141,14 @@ stderr 出现 `○ broken — failed: spawn /nonexistent-mcp-binary-xyz ENOENT �
 `[hooks] Blocked by Stop hook: hook exited 1 (fix what the hook checks, then re-run; or remove the hook from your Moss config hooks.Stop)`，
 退出码 `9`（未完成）。
 
+**H5 第五片（2026-11-05）：把「Shift+Tab」类提示统一标注 TUI（全仓排查一遍）**
+上一片修的是拦截文案，这一片是**同类排查**：`Shift+Tab` 只在 TUI 存在，但 5 处共享文案（`/mode` 列表快捷键行、
+`/mode plan` 切换提示、`/plan` 进入提示、onboarding 的 /permissions 帮助、`/mode` 迁移提示）都无条件把它
+当成人人可用的快捷键。现在统一写成 `Shift+Tab（TUI）` / `Shift+Tab (TUI)`，退出话术改为「/mode manual 退出
+（TUI 里也可用 Shift+Tab）」。
+**真实证据（真实 PTY，两个界面同一份代码）**：(1) REPL（`MOSS_NO_TUI=1`）依次发 `/plan`、`/mode plan`、`/mode`
+→ 屏幕上的提示全部带 `(TUI)` 限定（`allNameTui: True`）；(2) TUI 界面同样发送 `/plan`、`/mode plan` → 文案相同。
+
 **H5 第四片（2026-11-05）：plan 模式拦截文案按「真实存在的切换面」分表面**
 plan 模式的拒绝原来统一说「(use Shift+Tab)」——`-p` 或无 TTY 的运行根本没有 Shift+Tab，等于给了不存在的键。
 现在：`-p`/管道场景说「Plan mode is an exploration ceiling: relaunch with --workspace-write or --full-access, or run

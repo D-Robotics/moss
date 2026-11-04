@@ -325,7 +325,7 @@ const RETIRED_SLASH: Readonly<
   '/mode': {
     command: '/mode',
     migration:
-      'Switch modes with Shift+Tab, /plan, or /permissions. /mode remains for one version.',
+      'Switch modes with Shift+Tab (TUI), /plan, or /permissions. /mode remains for one version.',
   },
   '/steer': {
     command: '/steer',
