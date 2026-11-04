@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  listSubagentTranscripts,
   loadSubagentTranscript,
   saveSubagentTranscript,
 } from '../core/subagent/subagent-transcript.js';
@@ -996,7 +997,8 @@ export const subagentStopTool: Tool<SubagentStopInput> = {
 };
 
 interface SubagentResumeInput {
-  taskId: string;
+  /** Background taskId, foreground runId, `latest`, or omitted for the newest. */
+  taskId?: string;
   prompt: string;
   maxTurns?: number;
   timeoutMs?: number;
@@ -1016,7 +1018,7 @@ export const subagentResumeTool: Tool<SubagentResumeInput> = {
   name: 'subagent_resume',
   description: [
     'Continue a finished sub-agent (from create_subagent or fan_out_subagents) with its stored conversation, then ask a follow-up.',
-    'Pass the taskId returned by background mode or the runId printed in the sub-agent result.',
+    'Pass the taskId returned by background mode or the runId printed in the sub-agent result; omit it (or pass "latest") to continue the most recently stored sub-agent, including one from an earlier session because transcripts live on disk.',
     'The child keeps what it already read and did; the new prompt is appended as the next user message.',
     'Blocks until the follow-up finishes and returns its answer.',
     'Not for starting unrelated work (create_subagent) or for a child whose transcript was never stored.',
@@ -1033,7 +1035,8 @@ export const subagentResumeTool: Tool<SubagentResumeInput> = {
     properties: {
       taskId: {
         type: 'string',
-        description: 'Task id from create_subagent background mode, or the runId from its result',
+        description:
+          'Task id from create_subagent background mode, or the runId from its result. Omit or pass "latest" for the newest stored sub-agent.',
       },
       prompt: {
         type: 'string',
@@ -1050,7 +1053,7 @@ export const subagentResumeTool: Tool<SubagentResumeInput> = {
         description: 'Max runtime for the follow-up in ms',
       },
     },
-    required: ['taskId', 'prompt'],
+    required: ['prompt'],
   },
 
   async execute(input: SubagentResumeInput, ctx: ToolContext): Promise<string> {
@@ -1064,17 +1067,40 @@ export const subagentResumeTool: Tool<SubagentResumeInput> = {
     ) {
       return `Error: maximum spawn depth (${ctx.maxSpawnDepth}) reached; cannot resume a nested sub-agent.`;
     }
-    const taskId = String(input.taskId ?? '').trim();
+    const requested = String(input.taskId ?? '').trim();
     const prompt = String(input.prompt ?? '').trim();
-    if (!taskId) return 'Error: taskId is required.';
     if (!prompt) return 'Error: prompt is required.';
 
-    const stored = loadSubagentTranscript(ctx.workspaceDir, taskId);
+    // Transcripts live on disk, so a fresh process can resume without the
+    // in-process task registry: an explicit id, `latest`, or the newest one.
+    let stored =
+      requested && requested !== 'latest'
+        ? loadSubagentTranscript(ctx.workspaceDir, requested)
+        : null;
+    if (!stored) {
+      const available = listSubagentTranscripts(ctx.workspaceDir);
+      if (requested === 'latest' || requested === '') {
+        if (available.length > 0) {
+          stored = loadSubagentTranscript(ctx.workspaceDir, available[0]?.id ?? '');
+        }
+      } else {
+        const known = available
+          .slice(0, 6)
+          .map((meta) => `${meta.id} (scope ${meta.scope})`)
+          .join(', ');
+        return [
+          `Error: no stored conversation for sub-agent ${requested}.`,
+          'Pass the taskId from create_subagent background mode or the runId printed in the result.',
+          known
+            ? `Stored conversations in this workspace: ${known}. Pass "latest" for the newest.`
+            : 'No sub-agent transcript is stored in this workspace yet.',
+        ].join('\n');
+      }
+    }
     if (!stored) {
       return [
-        `Error: no stored conversation for sub-agent ${taskId}.`,
-        'Pass the taskId from create_subagent background mode or the runId printed in the result.',
-        'Only sub-agents that finished in this workspace keep a transcript; a still-running background task must finish first (subagent_status with wait: true).',
+        'Error: no stored sub-agent conversation in this workspace.',
+        'Run create_subagent first; only sub-agents that finished keep a transcript (a still-running background task must finish first: subagent_status with wait: true).',
       ].join('\n');
     }
 
@@ -1115,7 +1141,7 @@ export const subagentResumeTool: Tool<SubagentResumeInput> = {
       : `Error: [Sub-agent ${result.runId.slice(0, 8)}] RESUME FAILED`;
     return [
       head,
-      `replayed: ${stored.messages.length} message(s) | scope: ${scope} | turns: ${result.turns ?? 0} | toolCalls: ${result.toolResults ?? 0}`,
+      `replayed: ${stored.messages.length} message(s) from ${stored.meta.id} | scope: ${scope} | turns: ${result.turns ?? 0} | toolCalls: ${result.toolResults ?? 0}`,
       '',
       result.summary || '(no output)',
     ].join('\n');

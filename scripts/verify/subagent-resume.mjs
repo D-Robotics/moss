@@ -125,6 +125,88 @@ try {
     'the chained transcript still contains the original conversation'
   );
   ok('a resumed run stores its own transcript, so resume can continue again');
+
+  // ── 6. A fresh process finds conversations on disk: `latest` and omitted id ─
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  store.saveSubagentTranscript({
+    workspaceDir: dir,
+    id: 'newest-1',
+    meta: { task: 'newest stored task', scope: 'plan', maxTurns: 7 },
+    messages: [{ role: 'user', content: 'newest task', timestamp: 5 }],
+  });
+  const latestCtx = (capture) => ({
+    workspaceDir: dir,
+    runId: 'parent-run',
+    spawnSubagent: async (params) => {
+      capture.push(params);
+      return {
+        runId: 'parent-run/sub-latest',
+        summary: 'LATEST-OK',
+        success: true,
+        turns: 1,
+        toolResults: 0,
+        messages: [
+          ...(params.priorMessages ?? []),
+          { role: 'assistant', content: 'LATEST-OK', timestamp: 6 },
+        ],
+      };
+    },
+  });
+  // Iteration 1 resumes `newest-1`; that resume stores its own transcript, which
+  // becomes the newest for iteration 2 — exactly how chaining works on disk.
+  for (const [label, id, expectedId] of [
+    ['omitted', undefined, 'newest-1'],
+    ['explicit latest', 'latest', 'parent-run/sub-latest'],
+  ]) {
+    const capture = [];
+    const out = await subagentResumeTool.execute(
+      { ...(id ? { taskId: id } : {}), prompt: 'continue' },
+      latestCtx(capture)
+    );
+    assert.equal(capture.length, 1, `${label}: resume must spawn`);
+    assert.equal(capture[0].scope, 'plan', `${label}: newest scope is inherited`);
+    if (expectedId === 'newest-1') assert.equal(capture[0].priorMessages[0].content, 'newest task');
+    assert.match(
+      out,
+      new RegExp(`replayed: \\d+ message\\(s\\) from ${expectedId.replace(/[/]/g, '\\/')}`)
+    );
+  }
+  ok('without an id (or with "latest") a fresh process resumes the newest stored sub-agent');
+
+  // ── 7. An unknown id names what is resumable ────────────────────────────
+
+  const unknown = await subagentResumeTool.execute(
+    { taskId: 'does-not-exist', prompt: 'hi' },
+    latestCtx([])
+  );
+  assert.match(unknown, /^Error: no stored conversation for sub-agent does-not-exist/);
+  assert.match(unknown, /Stored conversations in this workspace:/);
+  assert.match(unknown, /newest-1 \(scope plan\)/);
+  ok('an unknown id lists the conversations that can be resumed');
+
+  // ── 8. A workspace with no transcripts says so, and spawns nothing ──────
+
+  const emptyDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'moss-subagent-empty-'));
+  try {
+    const spawnedInEmpty = [];
+    const outEmpty = await subagentResumeTool.execute(
+      { prompt: 'hi' },
+      {
+        workspaceDir: emptyDir,
+        runId: 'parent-run',
+        spawnSubagent: async (params) => {
+          spawnedInEmpty.push(params);
+          return { runId: 'x', summary: '', success: false };
+        },
+      }
+    );
+    assert.match(outEmpty, /Error: no stored sub-agent conversation in this workspace/);
+    assert.equal(spawnedInEmpty.length, 0);
+  } finally {
+    await fsp.rm(emptyDir, { recursive: true, force: true });
+  }
+  ok('an empty workspace reports no resumable conversation instead of spawning');
 } finally {
   await fsp.rm(dir, { recursive: true, force: true });
 }

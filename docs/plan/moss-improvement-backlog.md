@@ -352,9 +352,16 @@ token.txt and report the token."` 全链：tool_search(subagent) → create_suba
 `childResume:true, hasPriorTranscript:true`**（原始任务与 `TOKEN=42` 都在 follow-up 之前重放）→
 子代理答 `RESUMED:TOKEN=42` → 父代理终稿 `DONE:RESUMED`，exit 0。落盘 transcript 两条：原跑 2 条消息；
 续跑 4 条（原问答 + follow-up + `RESUMED:TOKEN=42`），meta.task 追加 `[resume]`，scope/maxTurns 继承。
-**仍未做**：跨进程重启后的 resume（transcript 已持久化，但 id 只在本进程 async registry 里能得到——
-需要把 id 列表/`subagent_status` 历史接到磁盘）；后台任务续跑（当前 resume 同步阻塞，
-后台任务要先 `subagent_status(wait:true)`）。
+**跨进程 resume 已落地（同日补，第二轮）**：`subagent_resume` 的 `taskId` 变为可选 —— 省略或传
+`latest` 时取磁盘上最新的一份 transcript，未知 id 的报错会列出可续的 id（`<id> (scope …)`，最多 6 条），
+无 transcript 时明确说没有而非 spawn。因此**新进程不需要任何内存 registry** 就能续上一个已经退出的
+会话。**真实证据（两次独立 `moss -p` 进程，同一工作区）**：会话 1 `DONE1:TOKEN=42` 并落盘 1 份
+transcript；会话 2 新进程、provider 只发 `subagent_resume{prompt}`（**不带 taskId**）→ wire 上 child
+的 resume 请求 `childResume:true, priorHasTask:true, priorHasAnswer:true`（原任务与 `TOKEN=42` 都从磁盘
+重放）→ 子代理答 `RESUMED:TOKEN=42` → 会话 2 终稿 `DONE2:RESUMED`，exit 0，第二次续跑再落盘 1 份
+（共 2 份）。探针同步扩到 **8 断言**（新增：省略 id/`latest` 取最新、未知 id 列出可续项、空工作区不 spawn）。
+**仍未做**：后台任务续跑（resume 同步阻塞，后台任务要先 `subagent_status(wait:true)`）；
+`fan_out_subagents` 的每任务 transcript 没有单独 id（目前只存主 runId）。
 
 **B12 启动手感（P2）**
 可输入前 843 ms 是唯一被实测的体感痛点（`ux-handfeel.md:11-14`），而启动顺序里技能/MCP/prompt 全在 TUI
