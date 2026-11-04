@@ -78,10 +78,32 @@ function compactSchemaNode(node: unknown): unknown {
   return out;
 }
 
+const TRUTHY_ENV = new Set(['1', 'true', 'yes', 'on']);
+
+/** Lean surface mode: `MOSS_LEAN_TOOLS=1` (read at call time so a probe can flip it). */
+export function leanToolDescriptionsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return TRUTHY_ENV.has(
+    String(env.MOSS_LEAN_TOOLS ?? '')
+      .trim()
+      .toLowerCase()
+  );
+}
+
+export function toolDescriptionForModel(
+  tool: Pick<Tool, 'description'> & {
+    metadata?: Pick<NonNullable<Tool['metadata']>, 'leanDescription'>;
+  },
+  lean: boolean
+): string {
+  if (lean && tool.metadata?.leanDescription) return tool.metadata.leanDescription;
+  return tool.description;
+}
+
 export function buildProviderToolDeclarations(toolsForRun: Tool[]): ProviderToolDeclaration[] {
+  const lean = leanToolDescriptionsEnabled();
   return [...toolsForRun].sort(compareToolName).map((tool) => ({
     name: tool.name,
-    description: tool.description,
+    description: toolDescriptionForModel(tool, lean),
     parameters: compactSchemaNode(
       tool.inputSchema && typeof tool.inputSchema === 'object' ? tool.inputSchema : {}
     ) as Record<string, unknown>,

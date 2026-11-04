@@ -267,6 +267,15 @@ export interface ToolMetadata {
   };
 
   /**
+   * Short description used instead of `description` when lean tool surface mode
+   * is on (`MOSS_LEAN_TOOLS=1`): small-context models pay for every declaration
+   * on every turn, so the long-form guidance stays for the default surface while
+   * the model still sees what the tool is for, when NOT to use it, and the one
+   * safety rule that matters.
+   */
+  leanDescription?: string;
+
+  /**
    * Registered (SDK hosts and old transcripts still resolve the name) but not
    * offered to the model. Used when one newer tool subsumes several old ones and
    * the old names must keep working.

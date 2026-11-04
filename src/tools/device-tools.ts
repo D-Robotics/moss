@@ -121,6 +121,8 @@ export const deviceExecTool: Tool = {
     '- Destructive or lockout-risk commands (reboot/shutdown, flashing, rm of system paths, writes to /boot or /etc, network changes, package removal, systemctl stop/disable/mask, ssh or account edits) stay gated even in full mode until the user confirms or opts into device trust.\n' +
     DEVICE_TOOLS_DESCRIPTION_NOTE,
   metadata: {
+    leanDescription:
+      'Run one shell command on the configured remote device over SSH; returns stdout, stderr and the exit code. Prefer the read-only device_* tools for standard observation, and one focused command per call. Destructive or lockout-risk commands (reboot, flashing, /boot or /etc writes, network changes, systemctl stop/disable/mask, ssh/account edits) stay gated until the user confirms or grants device trust.',
     classification: { discovery: true },
     maxResultTokens: 6_000,
     truncationHint: 'output was cut — narrow the remote command to the slice you need',

@@ -194,6 +194,42 @@ function check() {
       );
     }
   }
+  // B08 lean tier: `MOSS_LEAN_TOOLS=1` swaps the long description for the
+  // declared short one, and the swap must be real (declarations, not just
+  // metadata) while the default surface stays exactly as before.
+  const leanTools = builtinTools.filter((tool) => tool.metadata?.leanDescription);
+  if (leanTools.length < 2) throw new Error('lean descriptions are missing on the exec tools');
+  for (const tool of leanTools) {
+    const lean = String(tool.metadata.leanDescription);
+    const full = String(tool.description);
+    if (lean.length >= full.length) {
+      throw new Error(`${tool.name} lean description is not shorter than the full one`);
+    }
+    if (lean.length > full.length * 0.6) {
+      throw new Error(
+        `${tool.name} lean description is ${lean.length} chars (budget 60% of ${full.length})`
+      );
+    }
+  }
+  const plainDeclarations = buildProviderToolDeclarations(builtinTools);
+  const plainExec = plainDeclarations.find((entry) => entry.name === 'exec');
+  process.env.MOSS_LEAN_TOOLS = '1';
+  const leanDeclarations = buildProviderToolDeclarations(builtinTools);
+  delete process.env.MOSS_LEAN_TOOLS;
+  const leanExec = leanDeclarations.find((entry) => entry.name === 'exec');
+  const execTool = builtinTools.find((tool) => tool.name === 'exec');
+  if (plainExec.description !== String(execTool.description)) {
+    throw new Error('the default surface must keep the full exec description');
+  }
+  if (leanExec.description !== execTool.metadata.leanDescription) {
+    throw new Error('MOSS_LEAN_TOOLS=1 must declare the lean exec description');
+  }
+  const plainChars = plainDeclarations.reduce((sum, entry) => sum + entry.description.length, 0);
+  const leanChars = leanDeclarations.reduce((sum, entry) => sum + entry.description.length, 0);
+  if (leanChars >= plainChars) {
+    throw new Error(`lean surface is not smaller (${leanChars} vs ${plainChars} chars)`);
+  }
+
   const scope = new Map(result.scopes.map((entry) => [entry.id, entry]));
   if (scope.get('critic').count !== 0) throw new Error('critic scope must have no tools');
   const order = ['read-only', 'explore', 'verify', 'full'];
