@@ -511,6 +511,27 @@ function perFileCappedNote(capped: Set<string>, share: number): string {
   );
 }
 
+/**
+ * Offset of the first NUL byte in the first 8 KB of a file, or null for text.
+ * ripgrep skips binary files, so a match that exists only inside one came back
+ * as "No matches found".
+ */
+async function binaryOffsetAt(file: string): Promise<number | null> {
+  try {
+    const handle = await fs.open(file, 'r');
+    try {
+      const buf = Buffer.alloc(8192);
+      const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+      const at = buf.subarray(0, bytesRead).indexOf(0);
+      return at >= 0 ? at : null;
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
 function withBoundNote(text: string, location: SearchLocation): string {
   if (!location.bound) return text;
   return `${text}\n${location.bound.note}`;
@@ -821,7 +842,20 @@ export const searchCodeTool: Tool = {
           }
         );
       }
-      if (matches.length === 0) return presentSearch('No matches found', location, incomplete);
+      if (matches.length === 0) {
+        const binaryAt = targetIsFile ? await binaryOffsetAt(location.dir) : null;
+        if (binaryAt !== null) {
+          const shown = String(input.path ?? '');
+          return presentSearch(
+            `No text matches in ${shown} — the file is binary (NUL byte at offset ${String(binaryAt)}), ` +
+              'so its contents were skipped. To match inside it, run ' +
+              `exec: rg -a ${JSON.stringify(patternStr)} ${JSON.stringify(shown)}`,
+            location,
+            incomplete
+          );
+        }
+        return presentSearch('No matches found', location, incomplete);
+      }
       // A capped search has to say so: an unmarked short list reads as "these
       // are all the matches". Content mode budgets result lines, and each match
       // brings up to 2*contextLines-1 extra context lines with it.
