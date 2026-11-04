@@ -345,6 +345,29 @@ export const COMMANDS: Record<string, CommandConfig> = {
       'Closed loop: run the agent, check with your command, feed failures back (--until)',
   },
 
+  rules: {
+    name: 'rules',
+    phase: CliPhase.WorkspaceReady,
+    handler: async (ctx) => {
+      const { runRulesCommand } = await import('./rules-commands.js');
+      const { resolveConfigDir } = await import('./config.js');
+      const { ExitCode } = await import('./exit-codes.js');
+      const workspace = ctx.workspace;
+      if (!workspace) {
+        console.error('[moss] rules could not resolve the workspace.');
+        process.exitCode = ExitCode.USAGE;
+        return;
+      }
+      const code = await runRulesCommand(ctx.commandArgs, {
+        workspaceDir: workspace,
+        userDir: resolveConfigDir(),
+        json: ctx.argv.includes('--json'),
+      });
+      if (code !== 0) process.exitCode = code;
+    },
+    description: 'Scoped instruction rules: list activation class, globs and size',
+  },
+
   remember: {
     name: 'remember',
     phase: CliPhase.WorkspaceReady,

@@ -467,6 +467,27 @@ export async function runInteractive(
       continue;
     }
 
+    if (msg === '/rules' || msg.startsWith('/rules ')) {
+      const { collectRuleRows, renderRulesUsage } = await import('./rules-commands.js');
+      const { resolveConfigDir } = await import('./config.js');
+      const rows = collectRuleRows({ workspaceDir: workspace, userDir: resolveConfigDir() });
+      if (rows.length === 0) {
+        console.error(renderRulesUsage(cliLocale() === 'zh'));
+      } else {
+        console.error('Rules');
+        for (const row of rows) {
+          const globs = row.globs.length > 0 ? ` [${row.globs.join(', ')}]` : '';
+          const description = row.description ? ` — ${row.description}` : '';
+          console.error(
+            `  ${row.name.padEnd(16)} ${row.activation.padEnd(7)} ${row.scope.padEnd(9)} ${String(row.bytes).padStart(5)}B${globs}${description}`
+          );
+        }
+        console.error(`  (${rows.length} rule(s) · manual rules need @rule:<name>)`);
+      }
+      rl.prompt();
+      continue;
+    }
+
     if (msg === '/remember' || msg.startsWith('/remember ')) {
       const fact = msg.slice('/remember'.length).trim();
       const remember = await import('./remember-command.js');

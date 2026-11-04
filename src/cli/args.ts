@@ -32,6 +32,7 @@ export type CliCommand =
   | 'review'
   | 'loop'
   | 'remember'
+  | 'rules'
   | 'superagent'
   | 'web'
   | 'agent'
@@ -230,6 +231,7 @@ export const KNOWN_COMMANDS: readonly CliCommand[] = [
   'review',
   'loop',
   'remember',
+  'rules',
   'superagent',
   'sessions',
   'web',

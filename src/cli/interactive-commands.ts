@@ -158,6 +158,12 @@ export const INTERACTIVE_COMMAND_SECTIONS: readonly InteractiveCommandSection[] 
         availableDuringRun: 'immediate',
       },
       {
+        command: '/rules',
+        args: '[list]',
+        description: 'list scoped rules with activation class (always / globs / manual)',
+        availableDuringRun: 'immediate',
+      },
+      {
         command: '/remember',
         args: '<fact>',
         description: 'append one fact to AGENTS.md (explicit memory; shows a preview first)',

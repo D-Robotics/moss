@@ -2359,6 +2359,25 @@ export function TuiAppRoot({
         );
         return;
       }
+      if (text === '/rules' || text.startsWith('/rules ')) {
+        const { collectRuleRows } = await import('../rules-commands.js');
+        const rows = collectRuleRows({
+          workspaceDir: options.workspaceDir,
+          ...(options.cliRuntime?.configDir ? { userDir: options.cliRuntime.configDir } : {}),
+        });
+        printBlock(
+          tui('Rules'),
+          rows.length === 0
+            ? [tui('no scoped rules'), tui('add .moss/rules/<name>.md')]
+            : rows
+                .map((row) => {
+                  const globs = row.globs.length > 0 ? ` [${row.globs.join(', ')}]` : '';
+                  return `  ${row.name.padEnd(16)} ${row.activation.padEnd(7)} ${row.scope.padEnd(9)} ${String(row.bytes).padStart(5)}B${globs}${row.description ? ` — ${row.description}` : ''}`;
+                })
+                .concat([tui('  manual rules load only when a message mentions @rule:<name>')])
+        );
+        return;
+      }
       if (text === '/remember' || text.startsWith('/remember ')) {
         const fact = text.slice('/remember'.length).trim();
         if (fact === '') {

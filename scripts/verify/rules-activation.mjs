@@ -13,6 +13,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { captureProcess } from './lib/proc.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');
 const rulesMod = await import(
@@ -118,6 +119,56 @@ try {
     false
   );
   ok('no requested layer is created when nothing was asked for');
+
+  // ── 4. `moss rules list` shows the same classes ────────────────────────
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'moss-rules-home-'));
+  try {
+    const cli = path.join(root, 'dist/cli.js');
+    const env = {
+      ...process.env,
+      HOME: home,
+      MOSS_NO_RDK_DOCS: '1',
+      MOSS_LANG: 'en',
+      MOSS_NO_TUI: '1',
+    };
+    const listed = await captureProcess(process.execPath, [cli, 'rules', 'list', '--json'], {
+      cwd: dir,
+      env,
+      timeoutMs: 60_000,
+    });
+    assert.equal(listed.status, 0, listed.stderr);
+    const payload = JSON.parse(listed.stdout);
+    const classes = Object.fromEntries(payload.rules.map((rule) => [rule.name, rule.activation]));
+    assert.deepEqual(classes, {
+      always: 'always',
+      both: 'globs',
+      described: 'manual',
+      globbed: 'globs',
+    });
+    ok('moss rules list --json reports the same activation classes');
+
+    const human = await captureProcess(process.execPath, [cli, 'rules', 'list'], {
+      cwd: dir,
+      env,
+      timeoutMs: 60_000,
+    });
+    const text = `${human.stdout}${human.stderr}`;
+    assert.equal(human.status, 0, text);
+    assert.match(text, /always/);
+    assert.match(text, /manual/);
+    assert.match(text, /@rule:<name>/);
+    ok('moss rules list prints classes and how manual rules load');
+
+    const unknown = await captureProcess(process.execPath, [cli, 'rules', 'nope'], {
+      cwd: dir,
+      env,
+      timeoutMs: 60_000,
+    });
+    assert.equal(unknown.status, 2);
+    ok('an unknown rules subcommand is a usage error');
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
 } finally {
   await fs.rm(dir, { recursive: true, force: true });
 }

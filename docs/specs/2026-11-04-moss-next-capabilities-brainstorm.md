@@ -297,6 +297,12 @@
 - **成本**：低–中；**风险**：description 激活增加不确定性，需确定性回退。
 - **优先级**：P1。
 
+- **进展（2026-11-05）**：规则已有三类激活（`always` / `globs` / `manual`，其中 manual 只能通过消息里的
+  `@rule:<名称>` 显式请求；`rules-activation` probe 覆盖分类、请求注入、无请求不注入），并且**第一次可见**：
+  `moss rules list [--json]` 与 `/rules` 列出每条规则的激活方式、scope、globs、字节数与 description，
+  Claude/Cursor 的 4 类模型里 Moss 已覆盖 3 类（always / auto-attached / agent-requested）；
+  缺的是**手动点名（`@rule` 之外的面板选择）与团队级策略层**（组织统一规则下发/覆盖优先级）。
+
 ### D10 产品化小件（让能力被发现）
 
 - **问题**：能力做了但用户不知道：catalog 有预算、eval 有报告、install 有 lock，但 `/skills` 只列名字。
@@ -530,7 +536,7 @@
 | D6 记忆写路径                                       | ✅（显式版）            | `/remember` + `moss remember`（预览、去重、500 字符上限、可撤销）+ verify stage `remember`（6 条）+ 真实跨会话运行。❌ 自动记忆（刻意不做）。                                                                                                  |
 | D7 多模态                                           | 🟡                      | 已有 `read_image` 与图像预算（provider 请求只保留最新图）；缺：PDF / `@file` 附件、会话内图片引用。                                                                                                                                            |
 | D8 代码智能（LSP）                                  | ❌                      | 无 LSP / diagnostics 客户端；跨文件符号视图仍靠 `tool_search` + grep。                                                                                                                                                                         |
-| D9 规则 4 类 + 团队策略                             | 🟡                      | 已有规则激活（`rules-activation` stage、路径 glob 激活）。缺：4 类规则分层（always / path / model / team）与团队级策略层。                                                                                                                     |
+| D9 规则 4 类 + 团队策略                             | 🟡                      | 已有三类激活（always / globs / manual + `@rule:<name>` 请求注入，`rules-activation` 11 条断言）并且**可见**（`moss rules list [--json]`、`/rules`）。缺：面板式手动选择与团队级策略层。                                                        |
 | D10 产品化小件                                      | ✅                      | `moss skill list` 显示 scope/used/catalog/evals；本地 usage 计数；`moss skill create` 脚手架。缺：`/skills` 在 REPL/TUI 的同等信息（两者仍只列名字与 issues）。                                                                                |
 | D11 技能运行语义 v2                                 | 🟡                      | 已有 run 级 `allowed-tools`/`disallowed-tools` 收窄、`context: fork` 隔离子代理（含 `model` 转发、真实 -p 证据）、`$ARGUMENTS` 替换、`when_to_use` 别名。缺：**内联**技能的 model/effort 覆盖、`background`、技能自带 hooks。                  |
 | D12 Hooks 契约                                      | ✅                      | `updatedInput` 重过审批、deny>ask>allow、exit-code 矩阵、事件面、fail-closed；`docs/hooks.md` + `hooks-contract`（16 条）+ Stop 完成门 recipe（真实 exit 9/0）。                                                                               |
