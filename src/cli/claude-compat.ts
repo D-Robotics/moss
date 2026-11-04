@@ -79,7 +79,13 @@ export function hookMatcherMatches(
   const raw = matcher?.trim() ?? '';
   if (!raw || raw === '*') return true;
   const names = claudeFormat ? [toolName, ...claudeNamesForMossTool(toolName)] : [toolName];
-  if (claudeFormat && CLAUDE_EXACT_MATCHER.test(raw)) {
+  // Plain-word matchers are EXACT tool names (or a `|`/`,` list) in both
+  // formats. Falling through to RegExp for the native format made
+  // `"matcher": "exec"` also fire for exec_background/exec_wait/exec_logs
+  // (unanchored `exec` prefix), so a hook written for one tool quietly covered
+  // its siblings. Anything with another character stays a regex (`^exec`,
+  // `mcp__srv__.*`), which is what Claude Code documents.
+  if (CLAUDE_EXACT_MATCHER.test(raw)) {
     const alternatives = raw
       .split(/[|,]/)
       .map((part) => part.trim())

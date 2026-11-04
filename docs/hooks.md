@@ -14,9 +14,14 @@ rules the model cannot override. Configuration lives in the user config
 ```
 
 Each entry is `{ command, matcher?, timeoutMs?, blocking?, format? }`.
-`matcher` narrows tool events to a tool name. `blocking: false` makes a hook
-advisory (it runs, but cannot block). `format: "claude"` switches to Claude
-Code's exit-code convention (block only on exit 2).
+`matcher` narrows tool events to a tool name: `*`, an empty value, or an omitted
+matcher matches every tool; a plain name (`exec`) is an **exact** tool name, and
+`|`/`,` separates alternatives (`exec|exec_logs`); anything containing another
+character is an unanchored JavaScript regex (`^exec`, `mcp__memory__.*` — note
+`mcp__memory` alone is an exact name that matches no tool). `blocking: false`
+makes a hook advisory (it runs, but cannot block). `format: "claude"` switches to
+Claude Code's exit-code convention (block only on exit 2) and also accepts
+Claude's tool names (`Bash`, `Edit`, …) in the matcher.
 
 ## Events
 
