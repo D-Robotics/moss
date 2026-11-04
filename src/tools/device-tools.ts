@@ -152,7 +152,13 @@ export const deviceExecTool: Tool = {
     ) {
       return `Command blocked: ${classification.reason}`;
     }
-    const timeoutMs = Number(input.timeout_ms) || EXEC_DEFAULT_TIMEOUT_MS;
+    const requestedTimeout = Number(input.timeout_ms);
+    // A non-positive value would reach the SSH exec as "no deadline"; treat it
+    // as the caller forgetting to pass one instead.
+    const timeoutMs =
+      Number.isFinite(requestedTimeout) && requestedTimeout > 0
+        ? requestedTimeout
+        : EXEC_DEFAULT_TIMEOUT_MS;
     try {
       const result = await resolved.conn.exec(command, {
         timeoutMs,

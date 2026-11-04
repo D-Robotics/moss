@@ -24,6 +24,28 @@ export const EXEC_DEFAULT_TIMEOUT_MS = (() => {
 })();
 
 /**
+ * Foreground exec ceiling (Claude Code Bash caps at 600000). Past this a
+ * command belongs in the background, where it has a handle and can be stopped.
+ */
+export const EXEC_MAX_FOREGROUND_TIMEOUT_MS = 600_000;
+
+/**
+ * Normalize a model-supplied `timeout_ms` for a foreground command. Absent,
+ * zero, negative, or non-numeric values fall back to the default; anything
+ * above the ceiling is clamped instead of blocking the turn for an hour.
+ */
+export function resolveForegroundTimeoutMs(raw: unknown): { timeoutMs: number; capped: boolean } {
+  const requested = Number(raw);
+  if (!Number.isFinite(requested) || requested <= 0) {
+    return { timeoutMs: EXEC_DEFAULT_TIMEOUT_MS, capped: false };
+  }
+  if (requested > EXEC_MAX_FOREGROUND_TIMEOUT_MS) {
+    return { timeoutMs: EXEC_MAX_FOREGROUND_TIMEOUT_MS, capped: true };
+  }
+  return { timeoutMs: requested, capped: false };
+}
+
+/**
  * ToolStateManager — encapsulates mutable state shared across tools.
  *
  * Tracks file read timestamps to detect stale writes (when a file is modified

@@ -40,6 +40,34 @@ import { resolveHostShell } from '../dist/utils/host-shell.js';
 }
 
 {
+  // A model-supplied timeout is bounded: no hour-long foreground hang, and a
+  // nonsense value does not mean "wait forever" (runProcess treats <=0 as no
+  // timeout at all).
+  const { resolveForegroundTimeoutMs, EXEC_DEFAULT_TIMEOUT_MS, EXEC_MAX_FOREGROUND_TIMEOUT_MS } =
+    await import('../dist/tools/tool-helpers.js');
+  assert.deepEqual(resolveForegroundTimeoutMs(undefined), {
+    timeoutMs: EXEC_DEFAULT_TIMEOUT_MS,
+    capped: false,
+  });
+  assert.deepEqual(resolveForegroundTimeoutMs(250), { timeoutMs: 250, capped: false });
+  assert.deepEqual(resolveForegroundTimeoutMs(EXEC_MAX_FOREGROUND_TIMEOUT_MS), {
+    timeoutMs: EXEC_MAX_FOREGROUND_TIMEOUT_MS,
+    capped: false,
+  });
+  assert.deepEqual(resolveForegroundTimeoutMs(3_600_000), {
+    timeoutMs: EXEC_MAX_FOREGROUND_TIMEOUT_MS,
+    capped: true,
+  });
+  for (const nonsense of [-1, 0, Number.NaN, 'soon']) {
+    assert.deepEqual(
+      resolveForegroundTimeoutMs(nonsense),
+      { timeoutMs: EXEC_DEFAULT_TIMEOUT_MS, capped: false },
+      `${String(nonsense)} falls back to the default`
+    );
+  }
+}
+
+{
   // A command that printed and then went quiet reports when the last output came.
   const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'moss-exec-timeout-'));
   const text = await execTool.execute(

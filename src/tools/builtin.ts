@@ -26,10 +26,11 @@ import { deviceTools } from './device-tools.js';
 import { evidenceTools } from './evidence-tools.js';
 import { taskTools } from './task-tools.js';
 import {
-  EXEC_DEFAULT_TIMEOUT_MS,
+  EXEC_MAX_FOREGROUND_TIMEOUT_MS,
   globalToolStateManager,
   looksBinary,
   openChildEnv,
+  resolveForegroundTimeoutMs,
   takeShellNotices,
 } from './tool-helpers.js';
 
@@ -166,7 +167,7 @@ export const execTool: Tool = {
       timeout_ms: {
         type: 'number',
         description:
-          'Timeout in ms (default 120000). Use run_in_background for processes that do not exit.',
+          'Timeout in ms (default 120000, max 600000). Use run_in_background for processes that do not exit.',
       },
       run_in_background: {
         type: 'boolean',
@@ -210,7 +211,8 @@ export const execTool: Tool = {
         ctx
       );
     }
-    const timeoutMs = Number(input.timeout_ms) || EXEC_DEFAULT_TIMEOUT_MS;
+    const requestedTimeout = Number(input.timeout_ms);
+    const { timeoutMs } = resolveForegroundTimeoutMs(input.timeout_ms);
     const shell = resolveHostShell();
     if (shell.kind !== 'sh' && /\buname\b/i.test(String(input.command ?? ''))) {
       return `Command skipped: uname is not available on Windows ${shell.kind}.\n${shell.description}`;
@@ -472,7 +474,11 @@ export const execTool: Tool = {
                 ? `; last output ${(err.lastOutputAgoMs / 1000).toFixed(1)}s before the timeout`
                 : '';
           return (
-            `timed out after ${waited}ms (raise timeout_ms or use run_in_background)${silence}` +
+            `timed out after ${waited}ms ` +
+            (requestedTimeout > EXEC_MAX_FOREGROUND_TIMEOUT_MS
+              ? `(requested ${requestedTimeout}ms is capped at ${EXEC_MAX_FOREGROUND_TIMEOUT_MS}ms for foreground commands; use run_in_background for longer work)`
+              : '(raise timeout_ms or use run_in_background)') +
+            silence +
             (eventCollector ? eventTail : output ? `\n${output}` : '') +
             `${l3Notice}` +
             writebackWarning +
