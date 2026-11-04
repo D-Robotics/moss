@@ -141,6 +141,14 @@ stderr 出现 `○ broken — failed: spawn /nonexistent-mcp-binary-xyz ENOENT �
 `[hooks] Blocked by Stop hook: hook exited 1 (fix what the hook checks, then re-run; or remove the hook from your Moss config hooks.Stop)`，
 退出码 `9`（未完成）。
 
+**H5 第三片（2026-11-05）：PreToolUse 钩子「要求确认」在无人可确认时给出下一步**
+`hookAskHeadlessReason` 原来只说「钩子要求人工确认，-p/无终端下按拒绝处理」——用户不知道还能怎么做。
+现在末尾补 `Next: re-run in an interactive session to confirm this call, or change that hook's decision.`
+（中文：`下一步：在交互会话里重跑以确认该调用，或修改该 hook 的判定。`）。
+**真实证据（真实 CLI + 脚本化 provider，配置 PreToolUse matcher=exec 的 ask 钩子）**：headless `-p` 运行
+调用 `exec` → 进程 exit **9**，主模型看到的工具结果同时含 `needs a human`（钩子理由）与新增的 Next 句；
+`MOSS_LANG=zh` 同一场景输出中文下一步。
+
 **H5 第二片（2026-11-05）：工具被 deny 规则拦截时给出「怎么放宽」**。`exit_tool_call` 的 `policy` 类拒绝原来只说
 「已配置策略拦截、不要绕行」，没告诉用户去哪里看/改规则。现在 `DENIED_GUIDANCE.policy`（中英）追加
 `run /permissions to see the matching rule and relax it (or use an allowed path), then retry`；同时

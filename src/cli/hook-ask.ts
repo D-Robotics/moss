@@ -44,11 +44,11 @@ export function hookAskHeadlessReason(
   const why = reasonSuffix(first, zh);
   if (zh) {
     const mode = where === 'print' ? '-p 模式下无法确认' : '当前没有交互终端，无法确认';
-    return `已拦截：${hookEventZhName('PreToolUse')}钩子要求人工确认，${mode}，已按拒绝处理${why}。钩子：\`${command}\``;
+    return `已拦截：${hookEventZhName('PreToolUse')}钩子要求人工确认，${mode}，已按拒绝处理${why}。钩子：\`${command}\`。下一步：在交互会话里重跑以确认该调用，或修改该 hook 的判定。`;
   }
   const mode =
     where === 'print' ? 'which -p mode cannot give' : 'but no interactive terminal is available';
-  return `Blocked by PreToolUse hook: it asked for confirmation, ${mode}; treated as deny${why}. Hook: \`${command}\``;
+  return `Blocked by PreToolUse hook: it asked for confirmation, ${mode}; treated as deny${why}. Hook: \`${command}\`. Next: re-run in an interactive session to confirm this call, or change that hook's decision.`;
 }
 
 /** Lines that head the confirmation prompt: which hook asked, and why. */
