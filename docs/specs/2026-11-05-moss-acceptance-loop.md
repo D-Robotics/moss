@@ -37,7 +37,7 @@ test/lint/build/verify 类命令——否则终稿被拦截**一次**并注入�
 
 **验收**：见研究文档 §4；另加确定性探针（见 §5 P0-a）。
 
-### L2 独立评审 pass（下一片）
+### L2 独立评审 pass（评审者已落地，自动触发待做）
 
 **契约**：L1 通过后，如果 run 有文件变更，跑一次**独立评审**（reviewer 子代理，干净上下文，
 只拿 diff + 验收标准 + 项目规则），输出结构化 findings。触发方式：
@@ -52,6 +52,16 @@ test/lint/build/verify 类命令——否则终稿被拦截**一次**并注入�
 `{ findings: [{severity: critical|important|suggestion, file, line, summary, fix_hint}], verdict: pass|fail }`。
 **不直接改代码**：reviewer 只读；修复由主 agent 或 L3 修复循环完成（职责分离）。
 **验收**：植入一个已知缺陷的 diff → reviewer 必须报 critical/important 并给出位置；干净 diff → 报 pass 且不编造。
+
+**2026-11-05 落地**：内置 `reviewer` 专家（`src/core/subagent/expert-registry.ts`，read-only、maxTurns 12）：
+要求先读 diff 再读改动周围的真实文件、把每条未满足的验收标准映射成 finding、输出
+`[Critical|Important|Suggestion] file:line`、干净就 PASS 且不得编造；只读意味着它只能提出修复、不能改代码。
+真实模型验证（临时 git 仓库，植入 `add()` 由 `+` 改成 `-`）：
+
+- 带验收标准 `add() must return the sum` → reviewer 报 **Critical + FAIL**，定位 `calc.js:2`，映射标准违例；
+- 空 diff → reviewer 报 **PASS**，明确拒绝为凑数编造问题；
+- 两次运行后工作区 `git status` 均未变（只读约束成立）。
+  仍缺：结构化 findings（`.moss/review.jsonl`）、`/review` 接入同一管线、有变更 run 结束后自动触发。
 
 ### L3 发现 → 修复 → 复检（有界）
 
